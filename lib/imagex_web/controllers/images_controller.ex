@@ -13,15 +13,6 @@ defmodule ImagexWeb.ImagesController do
     |> Ecto.Changeset.validate_required([:top, :left, :width, :height])
   end
 
-  defp crop_to_quadrilateral(%{top: top, left: left, width: width, height: height}) do
-    [
-      {top, left},
-      {top, left + width},
-      {top + height, left + width},
-      {top + height, left}
-    ]
-  end
-
   defp split_crop_and_coordinates(crop) do
     case String.split(crop, "@") do
       [crop, coordinates] -> {:ok, {crop, coordinates}}
