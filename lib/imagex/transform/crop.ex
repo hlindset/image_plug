@@ -1,5 +1,5 @@
 defmodule Imagex.Transform.Crop do
-  @behaviour Imagex.Transformation
+  @behaviour Imagex.Transform
 
   alias Imagex.TransformState
 
