@@ -60,7 +60,8 @@ defmodule Imagex.MixProject do
       {:dns_cluster, "~> 0.1.1"},
       {:bandit, "~> 1.5"},
       {:image, "~> 0.37"},
-      {:req, "~> 0.5"}
+      {:req, "~> 0.5"},
+      {:nimble_parsec, "~> 1.4.0"}
     ]
   end
 
