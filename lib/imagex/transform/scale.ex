@@ -3,59 +3,42 @@ defmodule Imagex.Transform.Scale do
 
   alias Imagex.TransformState
 
-  #
   #  int() <> "x" <> int() -> %{width: width, height: height}
-  #    "" <> "x" <> int() -> %{width: width, height: nil}
-  #  int() <> "x" <> "_"   -> %{width: nil,   height: height}
+  #    "*" <> "x" <> int() -> %{width: width, height: nil}
+  #  int() <> "x" <> "*"   -> %{width: nil,   height: height}
   #  int()                 -> %{width: width, height: nil}
-  #
-  #  int() <> ":" <> int() -> %{ar_x: ar_x, ar_y: ar_y}
-  #  ^-- convert to given aspect ratio (whichever gives the smallest surface)
-  #
   defmodule ParametersParser do
     import NimbleParsec
 
+    defcombinator(:auto_size, ignore(ascii_char([?*])))
+    defcombinator(:by, ignore(ascii_char([?x])))
+
     defcombinator(
-      :width_and_height,
+      :explicit,
       unwrap_and_tag(integer(min: 1), :width)
-      |> ignore(ascii_char([?x]))
+      |> parsec(:by)
       |> unwrap_and_tag(integer(min: 1), :height)
     )
 
     defcombinator(
-      :explicit_width,
-      unwrap_and_tag(integer(min: 1), :width)
-      |> ignore(ascii_char([?x]))
-      |> ignore(ascii_char([?_]))
+      :auto_height,
+      unwrap_and_tag(integer(min: 1), :width) |> parsec(:by) |> parsec(:auto_size)
     )
 
     defcombinator(
-      :height,
-      ignore(ascii_char([?_]))
-      |> ignore(ascii_char([?x]))
-      |> unwrap_and_tag(integer(min: 1), :height)
+      :auto_width,
+      parsec(:auto_size) |> parsec(:by) |> unwrap_and_tag(integer(min: 1), :height)
     )
 
-    defcombinator(
-      :aspect_ratio,
-      unwrap_and_tag(integer(min: 1), :ar_x)
-      |> ignore(ascii_char([?:]))
-      |> unwrap_and_tag(integer(min: 1), :ar_y)
-    )
-
-    defcombinator(
-      :implicit_width,
-      unwrap_and_tag(integer(min: 1), :width)
-    )
+    defcombinator(:width, unwrap_and_tag(integer(min: 1), :width))
 
     defparsec(
       :internal_parse,
       choice([
-        parsec(:width_and_height),
-        parsec(:explicit_width),
-        parsec(:height),
-        parsec(:aspect_ratio),
-        parsec(:implicit_width)
+        parsec(:explicit),
+        parsec(:auto_height),
+        parsec(:auto_width),
+        parsec(:width)
       ])
       |> eos()
     )
@@ -70,9 +53,6 @@ defmodule Imagex.Transform.Scale do
 
         {:ok, [width: width, height: height], _, _, _, _} ->
           {:ok, %{width: width, height: height}}
-
-        {:ok, [ar_x: ar_x, ar_y: ar_y], _, _, _, _} ->
-          {:ok, %{ar_x: ar_x, ar_y: ar_y}}
 
         {:error, _, _, _, _, _} ->
           {:error, :parameter_parse_error}
