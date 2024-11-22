@@ -7,7 +7,10 @@ defmodule ImagexWeb.ImagesController do
   # action_fallback ImagexWeb.FallbackController
 
   @root "http://localhost:4000"
-  @all_transforms %{"crop" => Imagex.Transform.Crop}
+  @all_transforms %{
+    "crop" => Imagex.Transform.Crop,
+    "scale" => Imagex.Transform.Scale
+  }
 
   def parse_transformation_chain(%{"transform" => chain}) do
     chain =
