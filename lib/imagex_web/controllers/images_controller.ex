@@ -15,7 +15,7 @@ defmodule ImagexWeb.ImagesController do
     "focus" => Imagex.Transform.Focus
   }
 
-  def parse_transformation_chain(%{"transform" => chain}) do
+  def parse_chain(%{"transform" => chain}) do
     chain =
       String.split(chain, "/")
       |> Enum.map(fn transformation ->
@@ -32,9 +32,9 @@ defmodule ImagexWeb.ImagesController do
     {:ok, chain}
   end
 
-  def parse_transformation_chain(_params), do: {:ok, []}
+  def parse_chain(_params), do: {:ok, []}
 
-  defp execute_transformation_chain(state, transformation_chain) do
+  defp execute_chain(state, transformation_chain) do
     transformed_state =
       for {module, parameters} <- transformation_chain, reduce: state do
         state ->
@@ -68,9 +68,8 @@ defmodule ImagexWeb.ImagesController do
 
     with {:ok, image} <- Image.from_binary(image_resp.body),
          {:ok, initial_state} <- {:ok, %TransformState{image: image}},
-         {:ok, chain} <- parse_transformation_chain(params),
-         {:ok, %TransformState{image: image}} <-
-           execute_transformation_chain(initial_state, chain) do
+         {:ok, chain} <- parse_chain(params),
+         {:ok, %TransformState{image: image}} <- execute_chain(initial_state, chain) do
       send_image(conn, image)
     else
       {:error, {:transform_error, %TransformState{errors: errors, image: image}}} ->
