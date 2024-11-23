@@ -4,12 +4,15 @@ defmodule ImagexWeb.ImagesController do
   alias Imagex.Images
   alias Imagex.TransformState
 
+  require Logger
+
   # action_fallback ImagexWeb.FallbackController
 
   @root "http://localhost:4000"
   @all_transforms %{
     "crop" => Imagex.Transform.Crop,
-    "scale" => Imagex.Transform.Scale
+    "scale" => Imagex.Transform.Scale,
+    "focus" => Imagex.Transform.Focus
   }
 
   def parse_transformation_chain(%{"transform" => chain}) do
@@ -29,10 +32,14 @@ defmodule ImagexWeb.ImagesController do
     {:ok, chain}
   end
 
+  def parse_transformation_chain(_params), do: {:ok, []}
+
   defp execute_transformation_chain(state, transformation_chain) do
     transformed_state =
       for {module, parameters} <- transformation_chain, reduce: state do
-        state -> module.execute(state, parameters)
+        state ->
+          Logger.info("executing transform: #{module} with paramters '#{parameters}'")
+          module.execute(state, parameters)
       end
 
     case transformed_state do
@@ -68,7 +75,7 @@ defmodule ImagexWeb.ImagesController do
     else
       {:error, {:transform_error, %TransformState{errors: errors, image: image}}} ->
         # TODO: handle transform error - debug mode + graceful mode switch?
-        IO.inspect(errors)
+        Logger.info("transform_error(s): #{inspect(errors)}")
         send_image(conn, image)
     end
   end
