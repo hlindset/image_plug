@@ -7,7 +7,8 @@ defmodule Imagex.Transform.Scale do
   def execute(%TransformState{image: image} = state, parameters) do
     with {:ok, scale_params} <- Parameters.parse(parameters),
          {:ok, scaled_image} <- do_scale(image, scale_params) do
-      %TransformState{state | image: scaled_image}
+      # reset focus to :center on scale
+      %TransformState{state | image: scaled_image, focus: :center}
     end
   end
 
