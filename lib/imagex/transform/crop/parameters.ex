@@ -9,17 +9,29 @@ defmodule Imagex.Transform.Crop.Parameters do
 
   defstruct [:width, :height, :crop_from]
 
+  @type int_or_pct() :: {:int, integer()} | {:pct, integer()}
   @type t :: %__MODULE__{
-          width: integer(),
-          height: integer(),
-          crop_from: %{left: integer(), top: integer()} | :focus
+          width: int_or_pct(),
+          height: int_or_pct(),
+          crop_from: :focus | %{left: int_or_pct(), top: int_or_pct()}
         }
+
+  percent_char = ascii_char([?p])
+
+  defcombinator(:int_size, integer(min: 1) |> lookahead_not(percent_char) |> unwrap_and_tag(:int))
+  defcombinator(:pct_size, integer(min: 1) |> ignore(percent_char) |> unwrap_and_tag(:pct))
+
+  int_or_pct =
+    choice([
+      parsec(:int_size),
+      parsec(:pct_size)
+    ])
 
   defcombinator(
     :dimensions,
-    unwrap_and_tag(integer(min: 1), :x)
+    unwrap_and_tag(int_or_pct, :x)
     |> ignore(ascii_char([?x]))
-    |> unwrap_and_tag(integer(min: 1), :y)
+    |> unwrap_and_tag(int_or_pct, :y)
   )
 
   defparsec(

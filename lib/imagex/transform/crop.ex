@@ -4,11 +4,11 @@ defmodule Imagex.Transform.Crop do
   alias Imagex.TransformState
   alias Imagex.Transform.Crop.Parameters
 
-  defp anchor_crop(%TransformState{}, %Parameters{crop_from: %{left: left, top: top}} = params) do
+  defp anchor_crop(%TransformState{}, %{crop_from: %{left: left, top: top}} = params) do
     %{width: params.width, height: params.height, left: left, top: top}
   end
 
-  defp anchor_crop(%TransformState{} = state, %Parameters{crop_from: :focus} = params) do
+  defp anchor_crop(%TransformState{} = state, %{crop_from: :focus} = params) do
     {center_x, center_y} =
       case state.focus do
         :center ->
@@ -39,11 +39,30 @@ defmodule Imagex.Transform.Crop do
     Image.crop(image, left, top, width, height)
   end
 
-  def execute(%TransformState{image: image} = state, parameters) do
+  def to_x_coord(image, {:int, int}), do: int
+  def to_x_coord(image, {:pct, pct}), do: round(Image.width(image) * (pct / 100))
+
+  def to_y_coord(image, {:int, int}), do: int
+  def to_y_coord(image, {:pct, pct}), do: round(Image.height(image) * (pct / 100))
+
+  def map_params_to_coords(image, %Parameters{width: width, height: height, crop_from: crop_from}) do
+    %{
+      width: to_x_coord(image, width),
+      height: to_y_coord(image, height),
+      crop_from:
+        case crop_from do
+          %{left: left, top: top} -> %{left: to_x_coord(image, left), top: to_y_coord(image, top)}
+          :focus -> :focus
+        end
+    }
+  end
+
+  def execute(%TransformState{} = state, parameters) do
     with {:ok, parsed_params} <- Parameters.parse(parameters),
-         anchored <- anchor_crop(state, parsed_params),
-         clamped <- clamp(state, anchored),
-         {:ok, cropped_image} <- crop(image, clamped) do
+         coord_mapped_params <- map_params_to_coords(state.image, parsed_params),
+         anchored_params <- anchor_crop(state, coord_mapped_params),
+         clamped_params <- clamp(state, anchored_params),
+         {:ok, cropped_image} <- crop(state.image, clamped_params) do
       # reset focus to :center on crop
       %Imagex.TransformState{state | image: cropped_image, focus: :center}
     else
