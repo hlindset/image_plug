@@ -44,7 +44,7 @@ defmodule ImagexWeb.ImagesController do
 
     case transformed_state do
       %TransformState{errors: []} = state -> {:ok, state}
-      %TransformState{errors: errors} = state -> {:error, {:transform_error, state}}
+      %TransformState{errors: _errors} = state -> {:error, {:transform_error, state}}
     end
   end
 

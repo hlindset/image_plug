@@ -2,52 +2,13 @@ defmodule Imagex.Transform.Crop do
   @behaviour Imagex.Transform
 
   alias Imagex.TransformState
+  alias Imagex.Transform.Crop.Parameters
 
-  # crop_size[@coordinates]
-  #
-  #   crop_size: int() <> "x" <> int()
-  #   coordinates: int() <> "x" <> int()
-  #
-  # crop from focus (by default: center of image) if coordinates is not supplied
-  defmodule ParametersParser do
-    import NimbleParsec
-
-    defcombinator(
-      :dimensions,
-      unwrap_and_tag(integer(min: 1), :x)
-      |> ignore(ascii_char([?x]))
-      |> unwrap_and_tag(integer(min: 1), :y)
-    )
-
-    defparsec(
-      :internal_parse,
-      tag(parsec(:dimensions), :crop_size)
-      |> optional(
-        ignore(ascii_char([?@]))
-        |> tag(parsec(:dimensions), :coordinates)
-      )
-      |> eos()
-    )
-
-    def parse(parameters) do
-      case __MODULE__.internal_parse(parameters) do
-        {:ok, [crop_size: [x: width, y: height], coordinates: [x: left, y: top]], _, _, _, _} ->
-          {:ok, %{width: width, height: height, crop_from: %{left: left, top: top}}}
-
-        {:ok, [crop_size: [x: width, y: height]], _, _, _, _} ->
-          {:ok, %{width: width, height: height, crop_from: :focus}}
-
-        {:error, _, _, _, _, _} ->
-          {:error, :parameter_parse_error}
-      end
-    end
-  end
-
-  defp anchor_crop(%TransformState{}, %{crop_from: %{left: left, top: top}} = params) do
+  defp anchor_crop(%TransformState{}, %Parameters{crop_from: %{left: left, top: top}} = params) do
     %{width: params.width, height: params.height, left: left, top: top}
   end
 
-  defp anchor_crop(%TransformState{} = state, %{crop_from: :focus} = params) do
+  defp anchor_crop(%TransformState{} = state, %Parameters{crop_from: :focus} = params) do
     {center_x, center_y} =
       case state.focus do
         :center ->
@@ -79,7 +40,7 @@ defmodule Imagex.Transform.Crop do
   end
 
   def execute(%TransformState{image: image} = state, parameters) do
-    with {:ok, parsed_params} <- ParametersParser.parse(parameters),
+    with {:ok, parsed_params} <- Parameters.parse(parameters),
          anchored <- anchor_crop(state, parsed_params),
          clamped <- clamp(state, anchored),
          {:ok, cropped_image} <- crop(image, clamped) do
