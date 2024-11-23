@@ -17,7 +17,7 @@ defmodule ImagexWeb.ImagesController do
 
   def parse_chain(%{"transform" => chain}) do
     chain =
-      String.split(chain, "/")
+      String.split(chain, ";")
       |> Enum.map(fn transformation ->
         case String.split(transformation, "=") do
           [k, v] when is_map_key(@all_transforms, k) -> {Map.get(@all_transforms, k), v}
