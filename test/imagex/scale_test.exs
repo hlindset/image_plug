@@ -2,6 +2,8 @@ defmodule Imagex.ScaleTest do
   use ExUnit.Case, async: true
   use ExUnitProperties
 
+  doctest Imagex.Transform.Scale.Parameters
+
   alias Imagex.Transform.Scale
 
   test "crop parameters parser" do
