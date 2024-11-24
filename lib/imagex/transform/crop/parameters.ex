@@ -18,7 +18,7 @@ defmodule Imagex.Transform.Crop.Parameters do
           crop_from: :focus | %{left: int_or_pct(), top: int_or_pct()}
         }
 
-  defparsec(
+  defparsecp(
     :internal_parse,
     tag(parsec(:dimension), :crop_size)
     |> optional(
@@ -29,7 +29,7 @@ defmodule Imagex.Transform.Crop.Parameters do
   )
 
   def parse(parameters) do
-    case __MODULE__.internal_parse(parameters) do
+    case internal_parse(parameters) do
       {:ok, [crop_size: [x: width, y: height], coordinates: [x: left, y: top]], _, _, _, _} ->
         {:ok, %__MODULE__{width: width, height: height, crop_from: %{left: left, top: top}}}
 
