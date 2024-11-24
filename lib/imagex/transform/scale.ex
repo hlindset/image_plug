@@ -28,7 +28,7 @@ defmodule Imagex.Transform.Scale do
     Image.resize(image, width_scale, vertical_scale: height_scale)
   end
 
-  def do_scale(image, _) do
-    {:error, :unhandled_scale_parameters}
+  def do_scale(_image, parameters) do
+    {:error, {:unhandled_scale_parameters, parameters}}
   end
 end
