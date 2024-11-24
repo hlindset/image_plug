@@ -70,8 +70,8 @@ defmodule Imagex.Transform.Crop.Parameters do
         {:ok,
          %__MODULE__{width: parse_number(width), height: parse_number(height), crop_from: :focus}}
 
-      {:error, _, _, _, _, _} ->
-        {:error, :parameter_parse_error}
+      {:error, msg, _, _, _, _} = error ->
+        {:error, {:parameter_parse_error, msg, parameters}}
     end
   end
 end

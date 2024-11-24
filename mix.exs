@@ -61,7 +61,8 @@ defmodule Imagex.MixProject do
       {:bandit, "~> 1.5"},
       {:image, "~> 0.37"},
       {:req, "~> 0.5"},
-      {:nimble_parsec, "~> 1.4.0"}
+      {:nimble_parsec, "~> 1.4.0"},
+      {:stream_data, "~> 1.0", only: [:test, :dev]}
     ]
   end
 
