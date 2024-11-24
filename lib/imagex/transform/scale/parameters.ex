@@ -53,13 +53,13 @@ defmodule Imagex.Transform.Scale.Parameters do
   def parse(parameters) do
     case __MODULE__.internal_parse(parameters) do
       {:ok, [width: width], _, _, _, _} ->
-        {:ok, %{width: width, height: :auto}}
+        {:ok, %__MODULE__{width: width, height: :auto}}
 
       {:ok, [height: height], _, _, _, _} ->
-        {:ok, %{width: :auto, height: height}}
+        {:ok, %__MODULE__{width: :auto, height: height}}
 
       {:ok, [width: width, height: height], _, _, _, _} ->
-        {:ok, %{width: width, height: height}}
+        {:ok, %__MODULE__{width: width, height: height}}
 
       {:error, _, _, _, _, _} ->
         {:error, :parameter_parse_error}
