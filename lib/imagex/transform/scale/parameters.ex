@@ -39,11 +39,7 @@ defmodule Imagex.Transform.Scale.Parameters do
 
   defparsecp(
     :internal_parse,
-    choice([
-      auto_width,
-      auto_height,
-      simple
-    ])
+    choice([auto_width, auto_height, simple])
     |> eos()
   )
 
