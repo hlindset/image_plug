@@ -39,20 +39,20 @@ defmodule Imagex.Transform.Crop do
     Image.crop(image, left, top, width, height)
   end
 
-  def to_x_coord(image, {:int, int}), do: int
-  def to_x_coord(image, {:pct, pct}), do: round(Image.width(image) * (pct / 100))
-
-  def to_y_coord(image, {:int, int}), do: int
-  def to_y_coord(image, {:pct, pct}), do: round(Image.height(image) * (pct / 100))
+  def to_coord(_size, {:int, int}), do: int
+  def to_coord(size, {:pct, pct}), do: round(size * pct / 100)
 
   def map_params_to_coords(image, %Parameters{width: width, height: height, crop_from: crop_from}) do
     %{
-      width: to_x_coord(image, width),
-      height: to_y_coord(image, height),
+      width: to_coord(Image.width(image), width),
+      height: to_coord(Image.height(image), height),
       crop_from:
         case crop_from do
-          %{left: left, top: top} -> %{left: to_x_coord(image, left), top: to_y_coord(image, top)}
-          :focus -> :focus
+          %{left: left, top: top} ->
+            %{left: to_coord(Image.width(image), left), top: to_coord(Image.height(image), top)}
+
+          :focus ->
+            :focus
         end
     }
   end
