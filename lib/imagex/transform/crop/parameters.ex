@@ -22,7 +22,14 @@ defmodule Imagex.Transform.Crop.Parameters do
   integer = integer(min: 1) |> lookahead_not(choice([dot_char, percent_char]))
 
   defcombinator(:int_size, integer |> unwrap_and_tag(:int))
-  defcombinator(:pct_size, float |> ignore(percent_char) |> tag(:pct))
+
+  defcombinator(
+    :pct_size,
+    float
+    |> ignore(percent_char)
+    |> tag(:pct)
+    |> post_traverse(:post_traverse_pct)
+  )
 
   int_or_pct =
     choice([
@@ -47,28 +54,24 @@ defmodule Imagex.Transform.Crop.Parameters do
     |> eos()
   )
 
-  defp parse_number({:int, int}), do: {:int, int}
-  defp parse_number({:pct, [int]}), do: {:pct, int}
-
-  defp parse_number({:pct, [int_part, 46, decimal_part]}) do
+  defp post_traverse_pct(rest, [pct: [int_part, 46, decimal_part]], context, _line, _offset) do
     case Float.parse("#{int_part}.#{decimal_part}") do
-      {float, _} -> {:pct, float}
+      {float, _} -> {rest, [pct: float], context}
+      _ -> {:error, :invalid_float}
     end
+  end
+
+  defp post_traverse_pct(rest, [pct: [int]], context, _line, _offset) do
+    {rest, [pct: int], context}
   end
 
   def parse(parameters) do
     case __MODULE__.internal_parse(parameters) do
       {:ok, [crop_size: [x: width, y: height], coordinates: [x: left, y: top]], _, _, _, _} ->
-        {:ok,
-         %__MODULE__{
-           width: parse_number(width),
-           height: parse_number(height),
-           crop_from: %{left: parse_number(left), top: parse_number(top)}
-         }}
+        {:ok, %__MODULE__{width: width, height: height, crop_from: %{left: left, top: top}}}
 
       {:ok, [crop_size: [x: width, y: height]], _, _, _, _} ->
-        {:ok,
-         %__MODULE__{width: parse_number(width), height: parse_number(height), crop_from: :focus}}
+        {:ok, %__MODULE__{width: width, height: height, crop_from: :focus}}
 
       {:error, msg, _, _, _, _} ->
         {:error, {:parameter_parse_error, msg, parameters}}

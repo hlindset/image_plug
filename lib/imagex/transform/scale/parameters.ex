@@ -26,8 +26,21 @@ defmodule Imagex.Transform.Scale.Parameters do
   integer = integer(min: 1) |> lookahead_not(choice([dot_char, percent_char]))
 
   defcombinator(:int_size, integer |> unwrap_and_tag(:int))
-  defcombinator(:pct_size, float |> ignore(percent_char) |> tag(:pct))
-  defcombinator(:auto_size, ignore(auto_size_char) |> tag(:auto))
+
+  defcombinator(
+    :pct_size,
+    float
+    |> ignore(percent_char)
+    |> tag(:pct)
+    |> post_traverse(:maybe_parse_pct_float)
+  )
+
+  defcombinator(
+    :auto_size,
+    ignore(auto_size_char)
+    |> tag(:auto)
+    |> post_traverse(:post_traverse_auto_size)
+  )
 
   int_or_pct =
     choice([
@@ -58,28 +71,28 @@ defmodule Imagex.Transform.Scale.Parameters do
     |> eos()
   )
 
-  defp parse_number({:int, int}), do: {:int, int}
-  defp parse_number({:pct, [int]}), do: {:pct, int}
+  defp post_traverse_auto_size(rest, [auto: []], context, _line, _offset) do
+    {rest, [:auto], context}
+  end
 
-  defp parse_number({:pct, [int_part, 46, decimal_part]}) do
+  defp maybe_parse_pct_float(rest, [pct: [int_part, 46, decimal_part]], context, _line, _offset) do
     case Float.parse("#{int_part}.#{decimal_part}") do
-      {float, _} -> {:pct, float}
+      {float, _} -> {rest, [pct: float], context}
+      _ -> {:error, :invalid_float}
     end
+  end
+
+  defp maybe_parse_pct_float(rest, [pct: [int]], context, _line, _offset) do
+    {rest, [pct: int], context}
   end
 
   def parse(parameters) do
     case __MODULE__.internal_parse(parameters) do
       {:ok, [width: width], _, _, _, _} ->
-        {:ok, %__MODULE__{width: parse_number(width), height: :auto}}
-
-      {:ok, [width: width, height: {:auto, _}], _, _, _, _} ->
-        {:ok, %__MODULE__{width: parse_number(width), height: :auto}}
-
-      {:ok, [width: {:auto, _}, height: height], _, _, _, _} ->
-        {:ok, %__MODULE__{width: :auto, height: parse_number(height)}}
+        {:ok, %__MODULE__{width: width, height: :auto}}
 
       {:ok, [width: width, height: height], _, _, _, _} ->
-        {:ok, %__MODULE__{width: parse_number(width), height: parse_number(height)}}
+        {:ok, %__MODULE__{width: width, height: height}}
 
       {:error, msg, _, _, _, _} ->
         {:error, {:parameter_parse_error, msg, parameters}}
