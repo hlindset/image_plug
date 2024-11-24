@@ -48,26 +48,5 @@ defmodule Imagex.CropTest do
               }} ==
                parsed
     end
-
-    # parsed = Crop.Parameters.parse("100x200")
-    # assert {:ok, %Crop.Parameters{width: {:int, 100}, height: {:int, 200}, crop_from: :focus}} == parsed
-
-    # parsed = Crop.Parameters.parse("50px20p")
-    # assert {:ok, %Crop.Parameters{width: {:pct, 50}, height: {:pct, 20}, crop_from: :focus}} == parsed
-
-    # parsed = Crop.Parameters.parse("50px20")
-    # assert {:ok, %Crop.Parameters{width: {:pct, 50}, height: {:int, 20}, crop_from: :focus}} == parsed
-
-    # parsed = Crop.Parameters.parse("50x20p")
-    # assert {:ok, %Crop.Parameters{width: {:int, 50}, height: {:pct, 20}, crop_from: :focus}} == parsed
-
-    # parsed = Crop.Parameters.parse("40.53px20.333p")
-    # assert {:ok, %Crop.Parameters{width: {:pct, 40.53}, height: {:pct, 20.333}, crop_from: :focus}} == parsed
-
-    # parsed = Crop.Parameters.parse("40x20.333p")
-    # assert {:ok, %Crop.Parameters{width: {:int, 40}, height: {:pct, 20.333}, crop_from: :focus}} == parsed
-
-    # parsed = Crop.Parameters.parse("40.53px20")
-    # assert {:ok, %Crop.Parameters{width: {:pct, 40.53}, height: {:int, 20}, crop_from: :focus}} == parsed
   end
 end
