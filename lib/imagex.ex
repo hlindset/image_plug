@@ -5,7 +5,6 @@ defmodule Imagex do
 
   require Logger
 
-  alias Imagex.Images
   alias Imagex.TransformState
 
   @all_transforms %{

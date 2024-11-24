@@ -61,7 +61,7 @@ defmodule Imagex.Transform.Scale.Parameters do
   defp parse_number({:int, int}), do: {:int, int}
   defp parse_number({:pct, [int]}), do: {:pct, int}
 
-  defp parse_number({:pct, [int_part, 46, decimal_part] = float_list}) do
+  defp parse_number({:pct, [int_part, 46, decimal_part]}) do
     case Float.parse("#{int_part}.#{decimal_part}") do
       {float, _} -> {:pct, float}
     end
