@@ -21,10 +21,7 @@ defmodule Imagex.MixProject do
   end
 
   def application do
-    [
-      mod: {Imagex.Application, []},
-      extra_applications: [:logger]
-    ]
+    [extra_applications: [:logger]]
   end
 
   # Specifies which paths to compile per environment.
@@ -37,7 +34,7 @@ defmodule Imagex.MixProject do
       {:image, "~> 0.37"},
       {:req, "~> 0.5"},
       {:nimble_parsec, "~> 1.4.0"},
-      {:bandit, "~> 1.0", only: [:dev]},
+      {:bandit, "~> 1.0", only: [:test, :dev]},
       {:stream_data, "~> 1.0", only: [:test, :dev]},
       {:excoveralls, ">= 0.0.0", only: [:test], runtime: false}
     ]
