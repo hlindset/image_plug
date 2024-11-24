@@ -18,7 +18,7 @@ defmodule Imagex.Transform.Crop.Parameters do
 
   percent_char = ascii_char([?p])
   dot_char = ascii_char([?.])
-  float = integer(min: 1) |> optional(dot_char |> integer(min: 1))
+  float = integer(min: 1) |> optional(dot_char |> ascii_string([?0..?9], min: 1))
   integer = integer(min: 1) |> lookahead_not(choice([dot_char, percent_char]))
 
   defcombinator(:int_size, integer |> unwrap_and_tag(:int))
