@@ -12,6 +12,10 @@ defmodule Imagex.MixProject do
       start_permanent: Mix.env() == :prod,
       aliases: aliases(),
       deps: deps(),
+      docs: [
+        main: "Imagex",
+        extras: ["README.md"]
+      ],
       test_coverage: [tool: ExCoveralls],
       preferred_cli_env: [
         coveralls: :test,
@@ -39,7 +43,8 @@ defmodule Imagex.MixProject do
       {:nimble_parsec, "~> 1.4.0"},
       {:bandit, "~> 1.0", only: [:test, :dev]},
       {:stream_data, "~> 1.0", only: [:test, :dev]},
-      {:excoveralls, ">= 0.0.0", only: [:test], runtime: false}
+      {:excoveralls, ">= 0.0.0", only: [:test], runtime: false},
+      {:ex_doc, "~> 0.35", only: :dev, runtime: false}
     ]
   end
 

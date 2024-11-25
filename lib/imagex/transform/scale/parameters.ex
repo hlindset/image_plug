@@ -1,6 +1,6 @@
 defmodule Imagex.Transform.Scale.Parameters do
   @doc """
-  Parser for creating a Imagex.Transform.Scale.Parameters struct from a string.
+  The parsed parameters used by `Imagex.Transform.Scale`.
   """
 
   import NimbleParsec
@@ -44,9 +44,9 @@ defmodule Imagex.Transform.Scale.Parameters do
   )
 
   @doc """
-  Parses a string into a Imagex.Transform.Scale.Parameters struct.
+  Parses a string into a `Imagex.Transform.Scale.Parameters` struct.
 
-  Returns `%Imagex.Transform.Scale.Parameters{}`.
+  Returns a `Imagex.Transform.Scale.Parameters` struct.
 
   ## Format
 

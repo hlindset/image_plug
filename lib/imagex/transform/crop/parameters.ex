@@ -1,6 +1,6 @@
 defmodule Imagex.Transform.Crop.Parameters do
   @doc """
-  Parser for creating a Imagex.Transform.Crop.Parameters struct from a string.
+  The parsed parameters used by `Imagex.Transform.Crop`.
   """
 
   import NimbleParsec
@@ -27,9 +27,9 @@ defmodule Imagex.Transform.Crop.Parameters do
   )
 
   @doc """
-  Parses a string into a Imagex.Transform.Crop.Parameters struct.
+  Parses a string into a`Imagex.Transform.Crop.Parameters` struct.
 
-  Returns `%Imagex.Transform.Crop.Parameters{}`.
+  Returns a `Imagex.Transform.Crop.Parameters` struct.
 
   ## Format
 

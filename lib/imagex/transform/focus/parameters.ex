@@ -1,5 +1,8 @@
-# coordinates: int() <> "x" <> int()
 defmodule Imagex.Transform.Focus.Parameters do
+  @doc """
+  The parsed parameters used by `Imagex.Transform.Focus`.
+  """
+
   import NimbleParsec
 
   import Imagex.Parameters.Shared
@@ -25,9 +28,9 @@ defmodule Imagex.Transform.Focus.Parameters do
   )
 
   @doc """
-  Parses a string into a Imagex.Transform.Crop.Parameters struct.
+  Parses a string into a `Imagex.Transform.Crop.Parameters` struct.
 
-  Returns `%Imagex.Transform.Crop.Parameters{}`.
+  Returns a `Imagex.Transform.Focus.Parameters` struct.
 
   ## Format
 
