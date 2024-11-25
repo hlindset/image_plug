@@ -13,4 +13,8 @@ defmodule Imagex.SimpleServer do
   forward "/process",
     to: Imagex,
     init_opts: [root_url: "http://localhost:4000"]
+
+  match _ do
+    send_resp(conn, 404, "404 Not Found")
+  end
 end
