@@ -12,9 +12,10 @@ Name not final!
 
 Transforms are passed through the query parameter `transform`. Multiple transforms
 can be supplied by separating them with a semicolon, and the transforms will be
-executed from left to right. E.g. `?transform=scale=500;crop=50px50p` will first
-scale the image to a width of 500 pixels, and then crop it from the center to 50% of
-the width and height.
+executed from left to right.
+
+E.g. `?transform=scale=500;crop=50px50p` will first scale the image to a width of
+500 pixels, and then crop it from the center to 50% of the width and height.
 
 More transforms are coming.
 
