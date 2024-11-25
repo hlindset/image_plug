@@ -1,4 +1,4 @@
-defmodule Imagex.ScaleTest do
+defmodule ScaleTest do
   use ExUnit.Case, async: true
   use ExUnitProperties
 

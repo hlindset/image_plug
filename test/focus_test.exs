@@ -1,6 +1,8 @@
-defmodule Imagex.FocusTest do
+defmodule FocusTest do
   use ExUnit.Case, async: true
   use ExUnitProperties
+
+  doctest Imagex.Transform.Focus.Parameters
 
   alias Imagex.Transform.Focus
 

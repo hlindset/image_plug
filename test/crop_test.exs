@@ -1,6 +1,8 @@
-defmodule Imagex.CropTest do
+defmodule CropTest do
   use ExUnit.Case, async: true
   use ExUnitProperties
+
+  doctest Imagex.Transform.Crop.Parameters
 
   alias Imagex.Transform.Crop
 
