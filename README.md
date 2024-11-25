@@ -1,5 +1,5 @@
 # Imagex
 
-Image optimization server written in Elixir.
+Image optimization plug written in Elixir.
 
 Hobby project.
