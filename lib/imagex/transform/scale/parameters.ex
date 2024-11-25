@@ -46,7 +46,23 @@ defmodule Imagex.Transform.Scale.Parameters do
   @doc """
   Parses a string into a Imagex.Transform.Scale.Parameters struct.
 
-  Returns `%Imagex.Transform.Scale.Parameters{}`
+  Returns `%Imagex.Transform.Scale.Parameters{}`.
+
+  ## Format
+
+  ```
+  <width>[x<height>]
+  ```
+
+  ## Units
+
+  Type      | Format
+  --------- | ------------
+  `pixel`   | `<int>`
+  `percent` | `<float>p`
+  `auto`    | `*`
+
+  `auto` preserves the image's original aspect ratio.
 
   ## Examples
 
@@ -57,10 +73,13 @@ defmodule Imagex.Transform.Scale.Parameters do
       %Imagex.Transform.Scale.Parameters{width: :auto, height: {:pct, 25.0}}
 
       iex > Imagex.Transform.Scale.Parameters.parse("50px*")
-      %Imagex.Transform.Scale.Parameters{width: {:pct, 510.0}, height: :auto}
+      %Imagex.Transform.Scale.Parameters{width: {:pct, 50.0}, height: :auto}
 
       iex > Imagex.Transform.Scale.Parameters.parse("50")
       %Imagex.Transform.Scale.Parameters{width: {:int, 50}, height: :auto}
+
+      iex > Imagex.Transform.Scale.Parameters.parse("50p")
+      %Imagex.Transform.Scale.Parameters{width: {:pct, 50.0}, height: :auto}
   """
   def parse(parameters) do
     case internal_parse(parameters) do

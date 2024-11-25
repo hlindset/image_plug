@@ -1,10 +1,8 @@
-# crop_size[@coordinates]
-#
-#   crop_size: int() <> "x" <> int()
-#   coordinates: int() <> "x" <> int()
-#
-# crop from focus (by default: center of image) if coordinates is not supplied
 defmodule Imagex.Transform.Crop.Parameters do
+  @doc """
+  Parser for creating a Imagex.Transform.Crop.Parameters struct from a string.
+  """
+
   import NimbleParsec
 
   import Imagex.Parameters.Shared
@@ -28,6 +26,32 @@ defmodule Imagex.Transform.Crop.Parameters do
     |> eos()
   )
 
+  @doc """
+  Parses a string into a Imagex.Transform.Crop.Parameters struct.
+
+  Returns `%Imagex.Transform.Crop.Parameters{}`.
+
+  ## Format
+
+  ```
+  <width>x<height>[@<left>x<top>]
+  ```
+
+  ## Units
+
+  Type      | Format
+  --------- | ------------
+  `pixel`   | `<int>`
+  `percent` | `<float>p`
+
+  ## Examples
+
+      iex > Imagex.Transform.Scale.Parameters.parse("250x25p")
+      %Imagex.Transform.Scale.Parameters{width: {:int, 250}, height: {:pct, 25.0}, crop_from: :focus}
+
+      iex > Imagex.Transform.Scale.Parameters.parse("20px25@10x50.1p")
+      %Imagex.Transform.Scale.Parameters{width: {:pct, 20.0}, height: {:int, 25}, crop_from: %{left: {:int, 10}, top: {:pct, 50.1}}}
+  """
   def parse(parameters) do
     case internal_parse(parameters) do
       {:ok, [crop_size: [x: width, y: height], coordinates: [x: left, y: top]], _, _, _, _} ->
