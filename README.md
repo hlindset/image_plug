@@ -1,5 +1,9 @@
 # Imagex
 
-Image optimization plug written in Elixir.
+`Imagex` is an image optimization server, written as a `Plug`.
 
-Hobby project.
+Uses the [image](https://hex.pm/packages/image) library under the hood.
+
+Probably not quite ready for prime time yet.
+
+Name not final.
