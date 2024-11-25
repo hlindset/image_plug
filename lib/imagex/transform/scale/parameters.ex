@@ -1,12 +1,11 @@
 defmodule Imagex.Transform.Scale.Parameters do
-  @doc """
-  The parsed parameters used by `Imagex.Transform.Scale`.
-  """
-
   import NimbleParsec
 
   import Imagex.Parameters.Shared
 
+  @doc """
+  The parsed parameters used by `Imagex.Transform.Scale`.
+  """
   defstruct [:width, :height]
 
   @type int_or_pct() :: {:int, integer()} | {:pct, integer()}

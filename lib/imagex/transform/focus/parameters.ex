@@ -1,12 +1,11 @@
 defmodule Imagex.Transform.Focus.Parameters do
-  @doc """
-  The parsed parameters used by `Imagex.Transform.Focus`.
-  """
-
   import NimbleParsec
 
   import Imagex.Parameters.Shared
 
+  @doc """
+  The parsed parameters used by `Imagex.Transform.Focus`.
+  """
   defstruct [:left, :top]
 
   @type t :: %__MODULE__{

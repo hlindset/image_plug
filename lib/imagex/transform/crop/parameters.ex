@@ -1,12 +1,11 @@
 defmodule Imagex.Transform.Crop.Parameters do
-  @doc """
-  The parsed parameters used by `Imagex.Transform.Crop`.
-  """
-
   import NimbleParsec
 
   import Imagex.Parameters.Shared
 
+  @doc """
+  The parsed parameters used by `Imagex.Transform.Crop`.
+  """
   defstruct [:width, :height, :crop_from]
 
   @type int_or_pct() :: {:int, integer()} | {:pct, integer()}
