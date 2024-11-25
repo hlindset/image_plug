@@ -62,7 +62,7 @@ defmodule Imagex.Transform.Scale.Parameters do
   `percent` | `<float>p`
   `auto`    | `*`
 
-  `auto` preserves the image's original aspect ratio.
+  Only one of the dimensions can be set to `auto`.
 
   ## Examples
 

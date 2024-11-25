@@ -2,6 +2,8 @@
 defmodule Imagex.Transform.Focus.Parameters do
   import NimbleParsec
 
+  import Imagex.Parameters.Shared
+
   defstruct [:left, :top]
 
   @type t :: %__MODULE__{
@@ -11,9 +13,9 @@ defmodule Imagex.Transform.Focus.Parameters do
 
   defcombinator(
     :dimensions,
-    unwrap_and_tag(integer(min: 1), :x)
+    unwrap_and_tag(parsec(:int_size), :x)
     |> ignore(ascii_char([?x]))
-    |> unwrap_and_tag(integer(min: 1), :y)
+    |> unwrap_and_tag(parsec(:int_size), :y)
   )
 
   defparsec(
@@ -22,9 +24,31 @@ defmodule Imagex.Transform.Focus.Parameters do
     |> eos()
   )
 
+  @doc """
+  Parses a string into a Imagex.Transform.Crop.Parameters struct.
+
+  Returns `%Imagex.Transform.Crop.Parameters{}`.
+
+  ## Format
+
+  ```
+  <width>x<height>[@<left>x<top>]
+  ```
+
+  ## Units
+
+  Type      | Format
+  --------- | ------------
+  `pixel`   | `<int>`
+
+  ## Examples
+
+      iex > Imagex.Transform.Focus.Parameters.parse("250x25")
+      %Imagex.Transform.Focus.Parameters{left: 250, top: 25}
+  """
   def parse(parameters) do
     case __MODULE__.internal_parse(parameters) do
-      {:ok, [crop_size: [x: left, y: top]], _, _, _, _} ->
+      {:ok, [crop_size: [x: {:int, left}, y: {:int, top}]], _, _, _, _} ->
         {:ok, %__MODULE__{left: left, top: top}}
 
       {:error, _, _, _, _, _} ->
