@@ -46,8 +46,8 @@ defmodule Imagex.Transform.Focus.Parameters do
 
   ## Examples
 
-      iex > Imagex.Transform.Focus.Parameters.parse("250x25")
-      %Imagex.Transform.Focus.Parameters{left: 250, top: 25}
+      iex> Imagex.Transform.Focus.Parameters.parse("250x25")
+      {:ok, %Imagex.Transform.Focus.Parameters{left: 250, top: 25}}
   """
   def parse(parameters) do
     case __MODULE__.internal_parse(parameters) do

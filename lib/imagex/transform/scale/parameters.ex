@@ -66,20 +66,20 @@ defmodule Imagex.Transform.Scale.Parameters do
 
   ## Examples
 
-      iex > Imagex.Transform.Scale.Parameters.parse("250x25p")
-      %Imagex.Transform.Scale.Parameters{width: {:int, 250}, height: {:pct, 25.0}}
+      iex> Imagex.Transform.Scale.Parameters.parse("250x25p")
+      {:ok, %Imagex.Transform.Scale.Parameters{width: {:int, 250}, height: {:pct, 25.0}}}
 
-      iex > Imagex.Transform.Scale.Parameters.parse("*x25p")
-      %Imagex.Transform.Scale.Parameters{width: :auto, height: {:pct, 25.0}}
+      iex> Imagex.Transform.Scale.Parameters.parse("*x25p")
+      {:ok, %Imagex.Transform.Scale.Parameters{width: :auto, height: {:pct, 25.0}}}
 
-      iex > Imagex.Transform.Scale.Parameters.parse("50px*")
-      %Imagex.Transform.Scale.Parameters{width: {:pct, 50.0}, height: :auto}
+      iex> Imagex.Transform.Scale.Parameters.parse("50px*")
+      {:ok, %Imagex.Transform.Scale.Parameters{width: {:pct, 50.0}, height: :auto}}
 
-      iex > Imagex.Transform.Scale.Parameters.parse("50")
-      %Imagex.Transform.Scale.Parameters{width: {:int, 50}, height: :auto}
+      iex> Imagex.Transform.Scale.Parameters.parse("50")
+      {:ok, %Imagex.Transform.Scale.Parameters{width: {:int, 50}, height: :auto}}
 
-      iex > Imagex.Transform.Scale.Parameters.parse("50p")
-      %Imagex.Transform.Scale.Parameters{width: {:pct, 50.0}, height: :auto}
+      iex> Imagex.Transform.Scale.Parameters.parse("50p")
+      {:ok, %Imagex.Transform.Scale.Parameters{width: {:pct, 50.0}, height: :auto}}
   """
   def parse(parameters) do
     case internal_parse(parameters) do

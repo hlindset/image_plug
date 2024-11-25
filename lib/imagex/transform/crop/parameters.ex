@@ -46,11 +46,11 @@ defmodule Imagex.Transform.Crop.Parameters do
 
   ## Examples
 
-      iex > Imagex.Transform.Crop.Parameters.parse("250x25p")
-      %Imagex.Transform.Crop.Parameters{width: {:int, 250}, height: {:pct, 25.0}, crop_from: :focus}
+      iex> Imagex.Transform.Crop.Parameters.parse("250x25p")
+      {:ok, %Imagex.Transform.Crop.Parameters{width: {:int, 250}, height: {:pct, 25.0}, crop_from: :focus}}
 
-      iex > Imagex.Transform.Crop.Parameters.parse("20px25@10x50.1p")
-      %Imagex.Transform.Crop.Parameters{width: {:pct, 20.0}, height: {:int, 25}, crop_from: %{left: {:int, 10}, top: {:pct, 50.1}}}
+      iex> Imagex.Transform.Crop.Parameters.parse("20px25@10x50.1p")
+      {:ok, %Imagex.Transform.Crop.Parameters{width: {:pct, 20.0}, height: {:int, 25}, crop_from: %{left: {:int, 10}, top: {:pct, 50.1}}}}
   """
   def parse(parameters) do
     case internal_parse(parameters) do
