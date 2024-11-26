@@ -12,14 +12,14 @@ defmodule PlugImage do
 
   def call(%Plug.Conn{} = conn, opts) do
     root_url = Keyword.fetch!(opts, :root_url)
-    conn = fetch_query_params(conn)
+    param_parser = Keyword.fetch!(opts, :param_parser)
     path = Enum.join(conn.path_info, "/")
     url = "#{root_url}/#{path}"
     image_resp = Req.get!(url)
 
-    with {:ok, image} <- Image.from_binary(image_resp.body),
+    with {:ok, chain} <- param_parser.parse(conn),
+         {:ok, image} <- Image.from_binary(image_resp.body),
          {:ok, initial_state} <- {:ok, %TransformState{image: image}},
-         {:ok, chain} <- params_to_chain(conn.params),
          {:ok, %TransformState{image: image}} <- TransformChain.execute(initial_state, chain) do
       send_image(conn, image)
     else
@@ -58,9 +58,6 @@ defmodule PlugImage do
     mime_type = Enum.find(format_priority, &Enum.member?(all_accepted_formats, &1))
     {mime_type, mime_type_to_suffix(mime_type)}
   end
-
-  defp params_to_chain(%{"transform" => chain}), do: TransformChain.parse(chain)
-  defp params_to_chain(_params), do: {:ok, []}
 
   defp send_image(conn, image) do
     # figure out which format to use

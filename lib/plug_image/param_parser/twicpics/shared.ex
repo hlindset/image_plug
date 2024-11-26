@@ -1,4 +1,4 @@
-defmodule PlugImage.Parameters.Shared do
+defmodule PlugImage.ParamParser.Twicpics.Shared do
   @moduledoc """
   Shared `NimbleParsec` combinators.
   """

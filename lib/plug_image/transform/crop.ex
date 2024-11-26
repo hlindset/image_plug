@@ -2,7 +2,34 @@ defmodule PlugImage.Transform.Crop do
   @behaviour PlugImage.Transform
 
   alias PlugImage.TransformState
-  alias PlugImage.Transform.Crop.Parameters
+
+  defmodule CropParams do
+    @doc """
+    The parsed parameters used by `PlugImage.Transform.Crop`.
+    """
+    defstruct [:width, :height, :crop_from]
+
+    @type int_or_pct() :: {:int, integer()} | {:pct, integer()}
+    @type t :: %__MODULE__{
+            width: int_or_pct(),
+            height: int_or_pct(),
+            crop_from: :focus | %{left: int_or_pct(), top: int_or_pct()}
+          }
+  end
+
+  @impl PlugImage.Transform
+  def execute(%TransformState{} = state, %CropParams{} = parameters) do
+    with coord_mapped_params <- map_params_to_coords(state.image, parameters),
+         anchored_params <- anchor_crop(state, coord_mapped_params),
+         clamped_params <- clamp(state, anchored_params),
+         {:ok, cropped_image} <- crop(state.image, clamped_params) do
+      # reset focus to :center on crop
+      %PlugImage.TransformState{state | image: cropped_image, focus: :center}
+    else
+      {:error, error} ->
+        %PlugImage.TransformState{state | errors: [{__MODULE__, error} | state.errors]}
+    end
+  end
 
   defp anchor_crop(%TransformState{}, %{crop_from: %{left: left, top: top}} = params) do
     %{width: params.width, height: params.height, left: left, top: top}
@@ -42,7 +69,11 @@ defmodule PlugImage.Transform.Crop do
   def to_coord(_size, {:int, int}), do: int
   def to_coord(size, {:pct, pct}), do: round(size * pct / 100)
 
-  def map_params_to_coords(image, %Parameters{width: width, height: height, crop_from: crop_from}) do
+  def map_params_to_coords(image, %CropParams{
+        width: width,
+        height: height,
+        crop_from: crop_from
+      }) do
     %{
       width: to_coord(Image.width(image), width),
       height: to_coord(Image.height(image), height),
@@ -55,19 +86,5 @@ defmodule PlugImage.Transform.Crop do
             :focus
         end
     }
-  end
-
-  def execute(%TransformState{} = state, parameters) do
-    with {:ok, parsed_params} <- Parameters.parse(parameters),
-         coord_mapped_params <- map_params_to_coords(state.image, parsed_params),
-         anchored_params <- anchor_crop(state, coord_mapped_params),
-         clamped_params <- clamp(state, anchored_params),
-         {:ok, cropped_image} <- crop(state.image, clamped_params) do
-      # reset focus to :center on crop
-      %PlugImage.TransformState{state | image: cropped_image, focus: :center}
-    else
-      {:error, error} ->
-        %PlugImage.TransformState{state | errors: [{__MODULE__, error} | state.errors]}
-    end
   end
 end
