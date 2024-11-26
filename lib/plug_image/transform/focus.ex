@@ -1,8 +1,8 @@
-defmodule Imagex.Transform.Focus do
-  @behaviour Imagex.Transform
+defmodule PlugImage.Transform.Focus do
+  @behaviour PlugImage.Transform
 
-  alias Imagex.TransformState
-  alias Imagex.Transform.Focus.Parameters
+  alias PlugImage.TransformState
+  alias PlugImage.Transform.Focus.Parameters
 
   def clamp(%TransformState{image: image}, %Parameters{top: top, left: left}) do
     clamped_left = min(Image.width(image), left)
@@ -13,10 +13,10 @@ defmodule Imagex.Transform.Focus do
   def execute(%TransformState{image: image} = state, parameters) do
     with {:ok, parsed_parameters} <- Parameters.parse(parameters),
          left_and_top <- clamp(state, parsed_parameters) do
-      %Imagex.TransformState{state | image: image, focus: left_and_top}
+      %PlugImage.TransformState{state | image: image, focus: left_and_top}
     else
       {:error, error} ->
-        %Imagex.TransformState{state | errors: [{__MODULE__, error} | state.errors]}
+        %PlugImage.TransformState{state | errors: [{__MODULE__, error} | state.errors]}
     end
   end
 end

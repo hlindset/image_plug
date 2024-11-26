@@ -1,12 +1,12 @@
-defmodule Imagex do
+defmodule PlugImage do
   @behaviour Plug
 
   import Plug.Conn
 
   require Logger
 
-  alias Imagex.TransformState
-  alias Imagex.TransformChain
+  alias PlugImage.TransformState
+  alias PlugImage.TransformChain
 
   def init(opts), do: opts
 

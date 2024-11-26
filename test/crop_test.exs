@@ -2,9 +2,9 @@ defmodule CropTest do
   use ExUnit.Case, async: true
   use ExUnitProperties
 
-  doctest Imagex.Transform.Crop.Parameters
+  doctest PlugImage.Transform.Crop.Parameters
 
-  alias Imagex.Transform.Crop
+  alias PlugImage.Transform.Crop
 
   test "crop parameters parser" do
     int_or_pct =

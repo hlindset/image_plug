@@ -1,10 +1,10 @@
-defmodule Imagex.Transform.Crop.Parameters do
+defmodule PlugImage.Transform.Crop.Parameters do
   import NimbleParsec
 
-  import Imagex.Parameters.Shared
+  import PlugImage.Parameters.Shared
 
   @doc """
-  The parsed parameters used by `Imagex.Transform.Crop`.
+  The parsed parameters used by `PlugImage.Transform.Crop`.
   """
   defstruct [:width, :height, :crop_from]
 
@@ -26,9 +26,9 @@ defmodule Imagex.Transform.Crop.Parameters do
   )
 
   @doc """
-  Parses a string into a`Imagex.Transform.Crop.Parameters` struct.
+  Parses a string into a`PlugImage.Transform.Crop.Parameters` struct.
 
-  Returns a `Imagex.Transform.Crop.Parameters` struct.
+  Returns a `PlugImage.Transform.Crop.Parameters` struct.
 
   ## Format
 
@@ -45,11 +45,11 @@ defmodule Imagex.Transform.Crop.Parameters do
 
   ## Examples
 
-      iex> Imagex.Transform.Crop.Parameters.parse("250x25p")
-      {:ok, %Imagex.Transform.Crop.Parameters{width: {:int, 250}, height: {:pct, 25.0}, crop_from: :focus}}
+      iex> PlugImage.Transform.Crop.Parameters.parse("250x25p")
+      {:ok, %PlugImage.Transform.Crop.Parameters{width: {:int, 250}, height: {:pct, 25.0}, crop_from: :focus}}
 
-      iex> Imagex.Transform.Crop.Parameters.parse("20px25@10x50.1p")
-      {:ok, %Imagex.Transform.Crop.Parameters{width: {:pct, 20.0}, height: {:int, 25}, crop_from: %{left: {:int, 10}, top: {:pct, 50.1}}}}
+      iex> PlugImage.Transform.Crop.Parameters.parse("20px25@10x50.1p")
+      {:ok, %PlugImage.Transform.Crop.Parameters{width: {:pct, 20.0}, height: {:int, 25}, crop_from: %{left: {:int, 10}, top: {:pct, 50.1}}}}
   """
   def parse(parameters) do
     case internal_parse(parameters) do

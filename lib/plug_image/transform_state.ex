@@ -1,4 +1,4 @@
-defmodule Imagex.TransformState do
+defmodule PlugImage.TransformState do
   defstruct image: nil, focus: :center, errors: []
 
   @type t :: %__MODULE__{
