@@ -1,10 +1,10 @@
-defmodule Imagex.Transform.Scale.Parameters do
+defmodule PlugImage.Transform.Scale.Parameters do
   import NimbleParsec
 
-  import Imagex.Parameters.Shared
+  import PlugImage.Parameters.Shared
 
   @doc """
-  The parsed parameters used by `Imagex.Transform.Scale`.
+  The parsed parameters used by `PlugImage.Transform.Scale`.
   """
   defstruct [:width, :height]
 
@@ -43,9 +43,9 @@ defmodule Imagex.Transform.Scale.Parameters do
   )
 
   @doc """
-  Parses a string into a `Imagex.Transform.Scale.Parameters` struct.
+  Parses a string into a `PlugImage.Transform.Scale.Parameters` struct.
 
-  Returns a `Imagex.Transform.Scale.Parameters` struct.
+  Returns a `PlugImage.Transform.Scale.Parameters` struct.
 
   ## Format
 
@@ -65,20 +65,20 @@ defmodule Imagex.Transform.Scale.Parameters do
 
   ## Examples
 
-      iex> Imagex.Transform.Scale.Parameters.parse("250x25p")
-      {:ok, %Imagex.Transform.Scale.Parameters{width: {:int, 250}, height: {:pct, 25.0}}}
+      iex> PlugImage.Transform.Scale.Parameters.parse("250x25p")
+      {:ok, %PlugImage.Transform.Scale.Parameters{width: {:int, 250}, height: {:pct, 25.0}}}
 
-      iex> Imagex.Transform.Scale.Parameters.parse("*x25p")
-      {:ok, %Imagex.Transform.Scale.Parameters{width: :auto, height: {:pct, 25.0}}}
+      iex> PlugImage.Transform.Scale.Parameters.parse("*x25p")
+      {:ok, %PlugImage.Transform.Scale.Parameters{width: :auto, height: {:pct, 25.0}}}
 
-      iex> Imagex.Transform.Scale.Parameters.parse("50px*")
-      {:ok, %Imagex.Transform.Scale.Parameters{width: {:pct, 50.0}, height: :auto}}
+      iex> PlugImage.Transform.Scale.Parameters.parse("50px*")
+      {:ok, %PlugImage.Transform.Scale.Parameters{width: {:pct, 50.0}, height: :auto}}
 
-      iex> Imagex.Transform.Scale.Parameters.parse("50")
-      {:ok, %Imagex.Transform.Scale.Parameters{width: {:int, 50}, height: :auto}}
+      iex> PlugImage.Transform.Scale.Parameters.parse("50")
+      {:ok, %PlugImage.Transform.Scale.Parameters{width: {:int, 50}, height: :auto}}
 
-      iex> Imagex.Transform.Scale.Parameters.parse("50p")
-      {:ok, %Imagex.Transform.Scale.Parameters{width: {:pct, 50.0}, height: :auto}}
+      iex> PlugImage.Transform.Scale.Parameters.parse("50p")
+      {:ok, %PlugImage.Transform.Scale.Parameters{width: {:pct, 50.0}, height: :auto}}
   """
   def parse(parameters) do
     case internal_parse(parameters) do

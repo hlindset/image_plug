@@ -1,8 +1,8 @@
-defmodule Imagex.Transform.Crop do
-  @behaviour Imagex.Transform
+defmodule PlugImage.Transform.Crop do
+  @behaviour PlugImage.Transform
 
-  alias Imagex.TransformState
-  alias Imagex.Transform.Crop.Parameters
+  alias PlugImage.TransformState
+  alias PlugImage.Transform.Crop.Parameters
 
   defp anchor_crop(%TransformState{}, %{crop_from: %{left: left, top: top}} = params) do
     %{width: params.width, height: params.height, left: left, top: top}
@@ -64,10 +64,10 @@ defmodule Imagex.Transform.Crop do
          clamped_params <- clamp(state, anchored_params),
          {:ok, cropped_image} <- crop(state.image, clamped_params) do
       # reset focus to :center on crop
-      %Imagex.TransformState{state | image: cropped_image, focus: :center}
+      %PlugImage.TransformState{state | image: cropped_image, focus: :center}
     else
       {:error, error} ->
-        %Imagex.TransformState{state | errors: [{__MODULE__, error} | state.errors]}
+        %PlugImage.TransformState{state | errors: [{__MODULE__, error} | state.errors]}
     end
   end
 end

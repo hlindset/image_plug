@@ -1,8 +1,8 @@
-defmodule Imagex.Transform.Scale do
-  @behaviour Imagex.Transform
+defmodule PlugImage.Transform.Scale do
+  @behaviour PlugImage.Transform
 
-  alias Imagex.TransformState
-  alias Imagex.Transform.Scale.Parameters
+  alias PlugImage.TransformState
+  alias PlugImage.Transform.Scale.Parameters
 
   def execute(%TransformState{} = state, parameters) do
     with {:ok, parsed_params} <- Parameters.parse(parameters),

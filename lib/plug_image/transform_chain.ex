@@ -1,22 +1,22 @@
-defmodule Imagex.TransformChain do
+defmodule PlugImage.TransformChain do
   require Logger
 
-  alias Imagex.TransformState
+  alias PlugImage.TransformState
 
   @typedoc """
-  A module implementing the `Imagex.Transform` behaviour.
+  A module implementing the `PlugImage.Transform` behaviour.
   """
   @type transform_module() :: module()
 
   @typedoc """
-  A tuple of a `transform_module()` (a module implementing `Imagex.Transform`) and the unparsed parameters for that transform.
+  A tuple of a `transform_module()` (a module implementing `PlugImage.Transform`) and the unparsed parameters for that transform.
   """
   @type chain_item() :: {transform_module(), String.t()}
 
   @all_transforms %{
-    "crop" => Imagex.Transform.Crop,
-    "scale" => Imagex.Transform.Scale,
-    "focus" => Imagex.Transform.Focus
+    "crop" => PlugImage.Transform.Crop,
+    "scale" => PlugImage.Transform.Scale,
+    "focus" => PlugImage.Transform.Focus
   }
 
   @doc """
@@ -24,8 +24,8 @@ defmodule Imagex.TransformChain do
 
   ## Examples
 
-      iex> Imagex.TransformChain.parse("focus=20x30;scale=50p")
-      {:ok, [{Imagex.Transform.Focus, "20x30"}, {Imagex.Transform.Scale, "50p"}]}
+      iex> PlugImage.TransformChain.parse("focus=20x30;scale=50p")
+      {:ok, [{PlugImage.Transform.Focus, "20x30"}, {PlugImage.Transform.Scale, "50p"}]}
   """
   @spec parse(String.t()) :: {:ok, list(chain_item())}
   def parse(chain_str) do
@@ -50,10 +50,10 @@ defmodule Imagex.TransformChain do
 
   ## Examples
 
-      iex> {:ok, parsed_chain} = Imagex.TransformChain.parse("focus=20x30;crop=100x150")
+      iex> {:ok, parsed_chain} = PlugImage.TransformChain.parse("focus=20x30;crop=100x150")
       ...> {:ok, empty_image} = Image.new(500, 500)
-      ...> initial_state = %Imagex.TransformState{image: empty_image}
-      ...> {:ok, %Imagex.TransformState{}} = Imagex.TransformChain.execute(initial_state, parsed_chain)
+      ...> initial_state = %PlugImage.TransformState{image: empty_image}
+      ...> {:ok, %PlugImage.TransformState{}} = PlugImage.TransformChain.execute(initial_state, parsed_chain)
   """
   @spec execute(TransformState.t(), list(chain_item())) ::
           {:ok, TransformState.t()} | {:error, {:transform_error, TransformState.t()}}

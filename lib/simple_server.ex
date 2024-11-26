@@ -1,17 +1,17 @@
-defmodule Imagex.SimpleServer do
+defmodule PlugImage.SimpleServer do
   use Plug.Router
   use Plug.Debugger
 
   plug Plug.Static,
     at: "/",
-    from: {:imagex, "priv/static"},
+    from: {:plug_image, "priv/static"},
     only: ~w(images)
 
   plug :match
   plug :dispatch
 
   forward "/process",
-    to: Imagex,
+    to: PlugImage,
     init_opts: [root_url: "http://localhost:4000"]
 
   match _ do

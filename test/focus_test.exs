@@ -2,9 +2,9 @@ defmodule FocusTest do
   use ExUnit.Case, async: true
   use ExUnitProperties
 
-  doctest Imagex.Transform.Focus.Parameters
+  doctest PlugImage.Transform.Focus.Parameters
 
-  alias Imagex.Transform.Focus
+  alias PlugImage.Transform.Focus
 
   test "crop parameters parser" do
     check all left <- integer(0..9999),

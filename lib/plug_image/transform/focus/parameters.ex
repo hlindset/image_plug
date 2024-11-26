@@ -1,10 +1,10 @@
-defmodule Imagex.Transform.Focus.Parameters do
+defmodule PlugImage.Transform.Focus.Parameters do
   import NimbleParsec
 
-  import Imagex.Parameters.Shared
+  import PlugImage.Parameters.Shared
 
   @doc """
-  The parsed parameters used by `Imagex.Transform.Focus`.
+  The parsed parameters used by `PlugImage.Transform.Focus`.
   """
   defstruct [:left, :top]
 
@@ -27,9 +27,9 @@ defmodule Imagex.Transform.Focus.Parameters do
   )
 
   @doc """
-  Parses a string into a `Imagex.Transform.Crop.Parameters` struct.
+  Parses a string into a `PlugImage.Transform.Crop.Parameters` struct.
 
-  Returns a `Imagex.Transform.Focus.Parameters` struct.
+  Returns a `PlugImage.Transform.Focus.Parameters` struct.
 
   ## Format
 
@@ -45,8 +45,8 @@ defmodule Imagex.Transform.Focus.Parameters do
 
   ## Examples
 
-      iex> Imagex.Transform.Focus.Parameters.parse("250x25")
-      {:ok, %Imagex.Transform.Focus.Parameters{left: 250, top: 25}}
+      iex> PlugImage.Transform.Focus.Parameters.parse("250x25")
+      {:ok, %PlugImage.Transform.Focus.Parameters{left: 250, top: 25}}
   """
   def parse(parameters) do
     case __MODULE__.internal_parse(parameters) do

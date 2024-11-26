@@ -1,6 +1,6 @@
-# Imagex
+# PlugImage
 
-`Imagex` is an image optimization server, written as a `Plug`.
+`PlugImage` is an image optimization server, written as a `Plug`.
 
 Uses the [image](https://hex.pm/packages/image) library under the hood.
 
@@ -80,7 +80,7 @@ focus=<left>x<top>
 ## Usage example
 
 ```elixir
-defmodule Imagex.SimpleServer do
+defmodule PlugImage.SimpleServer do
   use Plug.Router
 
   plug Plug.Static,
@@ -92,7 +92,7 @@ defmodule Imagex.SimpleServer do
   plug :dispatch
 
   forward "/process",
-    to: Imagex,
+    to: PlugImage,
     init_opts: [root_url: "http://localhost:4000"]
 
   match _ do
