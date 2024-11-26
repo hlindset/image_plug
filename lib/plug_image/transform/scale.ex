@@ -2,11 +2,22 @@ defmodule PlugImage.Transform.Scale do
   @behaviour PlugImage.Transform
 
   alias PlugImage.TransformState
-  alias PlugImage.Transform.Scale.Parameters
 
-  def execute(%TransformState{} = state, parameters) do
-    with {:ok, parsed_params} <- Parameters.parse(parameters),
-         coord_mapped_params <- map_params_to_coords(state.image, parsed_params),
+  defmodule ScaleParams do
+    @doc """
+    The parsed parameters used by `PlugImage.Transform.Scale`.
+    """
+    defstruct [:width, :height]
+
+    @type int_or_pct() :: {:int, integer()} | {:pct, integer()}
+    @type t ::
+            %__MODULE__{width: int_or_pct() | :auto, height: int_or_pct()}
+            | %__MODULE__{width: int_or_pct(), height: int_or_pct() | :auto}
+  end
+
+  @impl PlugImage.Transform
+  def execute(%TransformState{} = state, %ScaleParams{} = parameters) do
+    with coord_mapped_params <- map_params_to_coords(state.image, parameters),
          {:ok, scaled_image} <- do_scale(state.image, coord_mapped_params) do
       # reset focus to :center on scale
       %TransformState{state | image: scaled_image, focus: :center}
@@ -37,7 +48,7 @@ defmodule PlugImage.Transform.Scale do
   def to_coord(_size, {:int, int}), do: int
   def to_coord(_size, :auto), do: :auto
 
-  def map_params_to_coords(image, %Parameters{width: width, height: height}) do
+  def map_params_to_coords(image, %ScaleParams{width: width, height: height}) do
     %{
       width: to_coord(Image.width(image), width),
       height: to_coord(Image.height(image), height)

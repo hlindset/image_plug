@@ -1,17 +1,9 @@
-defmodule PlugImage.Transform.Focus.Parameters do
+defmodule PlugImage.ParamParser.Twicpics.FocusParser do
   import NimbleParsec
 
-  import PlugImage.Parameters.Shared
+  import PlugImage.ParamParser.Twicpics.Shared
 
-  @doc """
-  The parsed parameters used by `PlugImage.Transform.Focus`.
-  """
-  defstruct [:left, :top]
-
-  @type t :: %__MODULE__{
-          left: integer(),
-          top: integer()
-        }
+  alias PlugImage.Transform.Focus.FocusParams
 
   defcombinator(
     :dimensions,
@@ -27,9 +19,9 @@ defmodule PlugImage.Transform.Focus.Parameters do
   )
 
   @doc """
-  Parses a string into a `PlugImage.Transform.Crop.Parameters` struct.
+  Parses a string into a `PlugImage.Transform.Focus.FocusParams` struct.
 
-  Returns a `PlugImage.Transform.Focus.Parameters` struct.
+  Returns a `PlugImage.Transform.Focus.FocusParams` struct.
 
   ## Format
 
@@ -45,13 +37,13 @@ defmodule PlugImage.Transform.Focus.Parameters do
 
   ## Examples
 
-      iex> PlugImage.Transform.Focus.Parameters.parse("250x25")
-      {:ok, %PlugImage.Transform.Focus.Parameters{left: 250, top: 25}}
+      iex> PlugImage.ParamParser.Twicpics.FocusParser.parse("250x25")
+      {:ok, %PlugImage.Transform.Focus.FocusParams{left: 250, top: 25}}
   """
   def parse(parameters) do
-    case __MODULE__.internal_parse(parameters) do
+    case internal_parse(parameters) do
       {:ok, [crop_size: [x: {:int, left}, y: {:int, top}]], _, _, _, _} ->
-        {:ok, %__MODULE__{left: left, top: top}}
+        {:ok, %FocusParams{left: left, top: top}}
 
       {:error, _, _, _, _, _} ->
         {:error, :parameter_parse_error}
