@@ -19,14 +19,13 @@ defmodule PlugImage do
 
     with {:ok, chain} <- param_parser.parse(conn),
          {:ok, image} <- Image.from_binary(image_resp.body),
-         {:ok, initial_state} <- {:ok, %TransformState{image: image}},
-         {:ok, %TransformState{image: image}} <- TransformChain.execute(initial_state, chain) do
-      send_image(conn, image)
+         {:ok, final_state} <- TransformChain.execute(%TransformState{image: image}, chain) do
+      send_image(conn, final_state)
     else
-      {:error, {:transform_error, %TransformState{errors: errors, image: image}}} ->
+      {:error, {:transform_error, %TransformState{errors: errors} = final_state}} ->
         # TODO: handle transform error - debug mode + graceful mode switch?
         Logger.info("transform_error(s): #{inspect(errors)}")
-        send_image(conn, image)
+        send_image(conn, final_state)
     end
   end
 
@@ -41,6 +40,7 @@ defmodule PlugImage do
       |> Enum.map(&String.trim/1)
       |> Enum.filter(&Enum.member?(~w(image/avif image/webp), &1))
 
+    # jpeg and png support is universal
     from_accept_header ++ ~w(image/jpeg image/png)
   end
 
@@ -49,26 +49,33 @@ defmodule PlugImage do
   defp mime_type_to_suffix("image/jpeg"), do: ".jpg"
   defp mime_type_to_suffix("image/png"), do: ".png"
 
-  defp resolve_suffix(conn, image) do
+  defp resolve_auto_format(conn, image) do
     all_accepted_formats = accepted_formats(conn)
 
     format_priority =
-      if Image.has_alpha?(image), do: @alpha_format_priority, else: @no_alpha_format_priority
+      if Image.has_alpha?(image),
+        do: @alpha_format_priority,
+        else: @no_alpha_format_priority
 
-    mime_type = Enum.find(format_priority, &Enum.member?(all_accepted_formats, &1))
-    {mime_type, mime_type_to_suffix(mime_type)}
+    Enum.find(format_priority, &Enum.member?(all_accepted_formats, &1))
   end
 
-  defp send_image(conn, image) do
-    # figure out which format to use
-    {mime_type, suffix} = resolve_suffix(conn, image)
+  defp send_image(%Plug.Conn{} = conn, %TransformState{} = state) do
+    # figure out which output format to use
+    mime_type =
+      case state.output do
+        :auto -> resolve_auto_format(conn, state.image)
+        format when is_atom(format) -> "image/#{format}"
+      end
+
+    suffix = mime_type_to_suffix(mime_type)
 
     conn =
       conn
       |> put_resp_content_type(mime_type, nil)
       |> send_chunked(200)
 
-    stream = Image.stream!(image, suffix: suffix)
+    stream = Image.stream!(state.image, suffix: suffix)
 
     Enum.reduce_while(stream, conn, fn data, conn ->
       case chunk(conn, data) do
