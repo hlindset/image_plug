@@ -1,9 +1,9 @@
-defmodule PlugImage.ParamParser.Twicpics.FocusParser do
+defmodule ImagePlug.ParamParser.Twicpics.FocusParser do
   import NimbleParsec
 
-  import PlugImage.ParamParser.Twicpics.Shared
+  import ImagePlug.ParamParser.Twicpics.Shared
 
-  alias PlugImage.Transform.Focus.FocusParams
+  alias ImagePlug.Transform.Focus.FocusParams
 
   defcombinator(
     :dimensions,
@@ -19,9 +19,9 @@ defmodule PlugImage.ParamParser.Twicpics.FocusParser do
   )
 
   @doc """
-  Parses a string into a `PlugImage.Transform.Focus.FocusParams` struct.
+  Parses a string into a `ImagePlug.Transform.Focus.FocusParams` struct.
 
-  Returns a `PlugImage.Transform.Focus.FocusParams` struct.
+  Returns a `ImagePlug.Transform.Focus.FocusParams` struct.
 
   ## Format
 
@@ -37,8 +37,8 @@ defmodule PlugImage.ParamParser.Twicpics.FocusParser do
 
   ## Examples
 
-      iex> PlugImage.ParamParser.Twicpics.FocusParser.parse("250x25")
-      {:ok, %PlugImage.Transform.Focus.FocusParams{left: 250, top: 25}}
+      iex> ImagePlug.ParamParser.Twicpics.FocusParser.parse("250x25")
+      {:ok, %ImagePlug.Transform.Focus.FocusParams{left: 250, top: 25}}
   """
   def parse(parameters) do
     case internal_parse(parameters) do

@@ -1,19 +1,19 @@
-defmodule PlugImage.Transform.Output do
-  @behaviour PlugImage.Transform
+defmodule ImagePlug.Transform.Output do
+  @behaviour ImagePlug.Transform
 
-  alias PlugImage.TransformState
+  alias ImagePlug.TransformState
 
   defmodule OutputParams do
     @doc """
-    The parsed parameters used by `PlugImage.Transform.Output`.
+    The parsed parameters used by `ImagePlug.Transform.Output`.
     """
     defstruct [:format]
 
     @type t :: %__MODULE__{format: TransformState.output_format()}
   end
 
-  @impl PlugImage.Transform
+  @impl ImagePlug.Transform
   def execute(%TransformState{} = state, %OutputParams{format: format}) do
-    %PlugImage.TransformState{state | output: format}
+    %ImagePlug.TransformState{state | output: format}
   end
 end

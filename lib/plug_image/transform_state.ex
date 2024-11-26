@@ -1,4 +1,4 @@
-defmodule PlugImage.TransformState do
+defmodule ImagePlug.TransformState do
   defstruct image: nil,
             focus: :center,
             errors: [],

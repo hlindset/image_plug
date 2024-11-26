@@ -1,10 +1,10 @@
-defmodule PlugImage.ParamParser do
-  alias PlugImage.Transform
+defmodule ImagePlug.ParamParser do
+  alias ImagePlug.Transform
 
   @type transform_module() :: Transform.Crop | Transform.Focus | Transform.Scale
 
   @typedoc """
-  A tuple of a module implementing `PlugImage.Transform`
+  A tuple of a module implementing `ImagePlug.Transform`
   and the parsed parameters for that transform.
   """
   @type transform_chain_item() ::
@@ -19,14 +19,14 @@ defmodule PlugImage.ParamParser do
           | {:invalid_transform, String.t()}
 
   @doc """
-  Parse transform chain (a list of `PlugImage.Transform` with parameters) from a `Plug.Conn`.
+  Parse transform chain (a list of `ImagePlug.Transform` with parameters) from a `Plug.Conn`.
 
   ## Examples
 
-      iex> PlugImage.ParamParser.parse("focus=20x30;scale=50p")
+      iex> ImagePlug.ParamParser.parse("focus=20x30;scale=50p")
       {:ok, [
-        {PlugImage.Transform.Focus, %PlugImage.Transform.Focus.FocusParams{left: 20, top: 30},
-        {PlugImage.Transform.Scale, %PlugImage.Transform.Scale.ScaleParams{width: {:pct, 50}, height: :auto}}
+        {ImagePlug.Transform.Focus, %ImagePlug.Transform.Focus.FocusParams{left: 20, top: 30},
+        {ImagePlug.Transform.Scale, %ImagePlug.Transform.Scale.ScaleParams{width: {:pct, 50}, height: :auto}}
       ]}
   """
   @callback parse(Plug.Conn.t()) :: {:ok, transform_chain()} | {:error, list(parse_error())}

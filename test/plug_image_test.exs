@@ -1,6 +1,6 @@
-defmodule PlugImageTest do
+defmodule ImagePlugTest do
   use ExUnit.Case, async: true
   use Plug.Test
 
-  doctest PlugImage
+  doctest ImagePlug
 end

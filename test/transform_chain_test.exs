@@ -1,5 +1,5 @@
 defmodule TransformChainTest do
   use ExUnit.Case, async: true
 
-  doctest PlugImage.TransformChain
+  doctest ImagePlug.TransformChain
 end

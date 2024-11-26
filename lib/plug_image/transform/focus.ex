@@ -1,21 +1,21 @@
-defmodule PlugImage.Transform.Focus do
-  @behaviour PlugImage.Transform
+defmodule ImagePlug.Transform.Focus do
+  @behaviour ImagePlug.Transform
 
-  alias PlugImage.TransformState
+  alias ImagePlug.TransformState
 
   defmodule FocusParams do
     @doc """
-    The parsed parameters used by `PlugImage.Transform.Focus`.
+    The parsed parameters used by `ImagePlug.Transform.Focus`.
     """
     defstruct [:left, :top]
 
     @type t :: %__MODULE__{left: integer(), top: integer()}
   end
 
-  @impl PlugImage.Transform
+  @impl ImagePlug.Transform
   def execute(%TransformState{image: image} = state, %FocusParams{} = parameters) do
     left_and_top = clamp(state, parameters)
-    %PlugImage.TransformState{state | image: image, focus: left_and_top}
+    %ImagePlug.TransformState{state | image: image, focus: left_and_top}
   end
 
   def clamp(%TransformState{image: image}, %FocusParams{top: top, left: left}) do

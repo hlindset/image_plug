@@ -1,11 +1,11 @@
-defmodule PlugImage.Transform.Scale do
-  @behaviour PlugImage.Transform
+defmodule ImagePlug.Transform.Scale do
+  @behaviour ImagePlug.Transform
 
-  alias PlugImage.TransformState
+  alias ImagePlug.TransformState
 
   defmodule ScaleParams do
     @doc """
-    The parsed parameters used by `PlugImage.Transform.Scale`.
+    The parsed parameters used by `ImagePlug.Transform.Scale`.
     """
     defstruct [:width, :height]
 
@@ -15,7 +15,7 @@ defmodule PlugImage.Transform.Scale do
             | %__MODULE__{width: int_or_pct(), height: int_or_pct() | :auto}
   end
 
-  @impl PlugImage.Transform
+  @impl ImagePlug.Transform
   def execute(%TransformState{} = state, %ScaleParams{} = parameters) do
     with coord_mapped_params <- map_params_to_coords(state.image, parameters),
          {:ok, scaled_image} <- do_scale(state.image, coord_mapped_params) do

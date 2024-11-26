@@ -2,14 +2,14 @@ defmodule ParamParser.TwicpicsTest do
   use ExUnit.Case, async: true
   use ExUnitProperties
 
-  doctest PlugImage.ParamParser.Twicpics.CropParser
-  doctest PlugImage.ParamParser.Twicpics.ScaleParser
-  doctest PlugImage.ParamParser.Twicpics.FocusParser
+  doctest ImagePlug.ParamParser.Twicpics.CropParser
+  doctest ImagePlug.ParamParser.Twicpics.ScaleParser
+  doctest ImagePlug.ParamParser.Twicpics.FocusParser
 
-  alias PlugImage.ParamParser.Twicpics
-  alias PlugImage.Transform.Crop
-  alias PlugImage.Transform.Scale
-  alias PlugImage.Transform.Focus
+  alias ImagePlug.ParamParser.Twicpics
+  alias ImagePlug.Transform.Crop
+  alias ImagePlug.Transform.Scale
+  alias ImagePlug.Transform.Focus
 
   test "crop params parser" do
     int_or_pct =

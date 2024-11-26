@@ -1,9 +1,9 @@
-defmodule PlugImage.ParamParser.Twicpics.CropParser do
+defmodule ImagePlug.ParamParser.Twicpics.CropParser do
   import NimbleParsec
 
-  import PlugImage.ParamParser.Twicpics.Shared
+  import ImagePlug.ParamParser.Twicpics.Shared
 
-  alias PlugImage.Transform.Crop.CropParams
+  alias ImagePlug.Transform.Crop.CropParams
 
   defparsecp(
     :internal_parse,
@@ -16,9 +16,9 @@ defmodule PlugImage.ParamParser.Twicpics.CropParser do
   )
 
   @doc """
-  Parses a string into a `PlugImage.Transform.Crop.CropParams` struct.
+  Parses a string into a `ImagePlug.Transform.Crop.CropParams` struct.
 
-  Returns a `PlugImage.Transform.Crop.CropParams` struct.
+  Returns a `ImagePlug.Transform.Crop.CropParams` struct.
 
   ## Format
 
@@ -35,11 +35,11 @@ defmodule PlugImage.ParamParser.Twicpics.CropParser do
 
   ## Examples
 
-      iex> PlugImage.ParamParser.Twicpics.CropParser.parse("250x25p")
-      {:ok, %PlugImage.Transform.Crop.CropParams{width: {:int, 250}, height: {:pct, 25.0}, crop_from: :focus}}
+      iex> ImagePlug.ParamParser.Twicpics.CropParser.parse("250x25p")
+      {:ok, %ImagePlug.Transform.Crop.CropParams{width: {:int, 250}, height: {:pct, 25.0}, crop_from: :focus}}
 
-      iex> PlugImage.ParamParser.Twicpics.CropParser.parse("20px25@10x50.1p")
-      {:ok, %PlugImage.Transform.Crop.CropParams{width: {:pct, 20.0}, height: {:int, 25}, crop_from: %{left: {:int, 10}, top: {:pct, 50.1}}}}
+      iex> ImagePlug.ParamParser.Twicpics.CropParser.parse("20px25@10x50.1p")
+      {:ok, %ImagePlug.Transform.Crop.CropParams{width: {:pct, 20.0}, height: {:int, 25}, crop_from: %{left: {:int, 10}, top: {:pct, 50.1}}}}
   """
   def parse(parameters) do
     case internal_parse(parameters) do

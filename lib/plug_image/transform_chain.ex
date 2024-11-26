@@ -1,8 +1,8 @@
-defmodule PlugImage.TransformChain do
+defmodule ImagePlug.TransformChain do
   require Logger
 
-  alias PlugImage.TransformState
-  alias PlugImage.ParamParser
+  alias ImagePlug.TransformState
+  alias ImagePlug.ParamParser
 
   @doc """
   Executes a transform chain.
@@ -10,12 +10,12 @@ defmodule PlugImage.TransformChain do
   ## Examples
 
       iex> chain = [
-      ...>   {PlugImage.Transform.Focus, %PlugImage.Transform.Focus.FocusParams{left: 20, top: 30}},
-      ...>   {PlugImage.Transform.Crop, %PlugImage.Transform.Crop.CropParams{width: {:int, 100}, height: {:int, 150}, crop_from: :focus}}
+      ...>   {ImagePlug.Transform.Focus, %ImagePlug.Transform.Focus.FocusParams{left: 20, top: 30}},
+      ...>   {ImagePlug.Transform.Crop, %ImagePlug.Transform.Crop.CropParams{width: {:int, 100}, height: {:int, 150}, crop_from: :focus}}
       ...> ]
       ...> {:ok, empty_image} = Image.new(500, 500)
-      ...> initial_state = %PlugImage.TransformState{image: empty_image}
-      ...> {:ok, %PlugImage.TransformState{}} = PlugImage.TransformChain.execute(initial_state, chain)
+      ...> initial_state = %ImagePlug.TransformState{image: empty_image}
+      ...> {:ok, %ImagePlug.TransformState{}} = ImagePlug.TransformChain.execute(initial_state, chain)
   """
   @spec execute(TransformState.t(), ParamParser.transform_chain()) ::
           {:ok, TransformState.t()} | {:error, {:transform_error, TransformState.t()}}

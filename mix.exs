@@ -1,11 +1,11 @@
-defmodule PlugImage.MixProject do
+defmodule ImagePlug.MixProject do
   use Mix.Project
 
   @version "0.1.0"
 
   def project do
     [
-      app: :plug_image,
+      app: :image_plug,
       version: @version,
       elixir: "~> 1.14",
       elixirc_paths: elixirc_paths(Mix.env()),
@@ -13,7 +13,7 @@ defmodule PlugImage.MixProject do
       aliases: aliases(),
       deps: deps(),
       docs: [
-        main: "PlugImage",
+        main: "ImagePlug",
         extras: ["README.md"]
       ],
       test_coverage: [tool: ExCoveralls],
@@ -26,7 +26,7 @@ defmodule PlugImage.MixProject do
 
   def application do
     [
-      mod: {PlugImage.Application, []},
+      mod: {ImagePlug.Application, []},
       extra_applications: [:logger]
     ]
   end

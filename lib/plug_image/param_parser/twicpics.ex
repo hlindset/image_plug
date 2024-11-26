@@ -1,23 +1,23 @@
-defmodule PlugImage.ParamParser.Twicpics do
-  @behaviour PlugImage.ParamParser
+defmodule ImagePlug.ParamParser.Twicpics do
+  @behaviour ImagePlug.ParamParser
 
-  alias PlugImage.ParamParser.Twicpics
+  alias ImagePlug.ParamParser.Twicpics
 
   @transforms %{
-    "crop" => PlugImage.Transform.Crop,
-    "resize" => PlugImage.Transform.Scale,
-    "focus" => PlugImage.Transform.Focus,
-    "output" => PlugImage.Transform.Output
+    "crop" => ImagePlug.Transform.Crop,
+    "resize" => ImagePlug.Transform.Scale,
+    "focus" => ImagePlug.Transform.Focus,
+    "output" => ImagePlug.Transform.Output
   }
 
   @parsers %{
-    PlugImage.Transform.Crop => Twicpics.CropParser,
-    PlugImage.Transform.Scale => Twicpics.ScaleParser,
-    PlugImage.Transform.Focus => Twicpics.FocusParser,
-    PlugImage.Transform.Output => Twicpics.OutputParser
+    ImagePlug.Transform.Crop => Twicpics.CropParser,
+    ImagePlug.Transform.Scale => Twicpics.ScaleParser,
+    ImagePlug.Transform.Focus => Twicpics.FocusParser,
+    ImagePlug.Transform.Output => Twicpics.OutputParser
   }
 
-  @impl PlugImage.ParamParser
+  @impl ImagePlug.ParamParser
   def parse(%Plug.Conn{} = conn) do
     conn = Plug.Conn.fetch_query_params(conn)
 

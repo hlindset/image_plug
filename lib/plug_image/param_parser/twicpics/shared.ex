@@ -1,4 +1,4 @@
-defmodule PlugImage.ParamParser.Twicpics.Shared do
+defmodule ImagePlug.ParamParser.Twicpics.Shared do
   @moduledoc """
   Shared `NimbleParsec` combinators.
   """
@@ -15,7 +15,7 @@ defmodule PlugImage.ParamParser.Twicpics.Shared do
 
       defmodule MyParser do
         import NimbleParsec
-        import PlugImage.ParamParser.Twicpics.Shared
+        import ImagePlug.ParamParser.Twicpics.Shared
 
         defparsec :parse_float, parsec(:float)
       end
@@ -55,7 +55,7 @@ defmodule PlugImage.ParamParser.Twicpics.Shared do
 
       defmodule MyParser do
         import NimbleParsec
-        import PlugImage.ParamParser.Twicpics.Shared
+        import ImagePlug.ParamParser.Twicpics.Shared
 
         defparsec :parse_integer, parsec(:pixel)
       end
@@ -82,7 +82,7 @@ defmodule PlugImage.ParamParser.Twicpics.Shared do
 
       defmodule MyParser do
         import NimbleParsec
-        import PlugImage.ParamParser.Twicpics.Shared
+        import ImagePlug.ParamParser.Twicpics.Shared
 
         defparsec :parse_int_size, parsec(:int_size)
       end
@@ -104,7 +104,7 @@ defmodule PlugImage.ParamParser.Twicpics.Shared do
 
       defmodule MyParser do
         import NimbleParsec
-        import PlugImage.ParamParser.Twicpics.Shared
+        import ImagePlug.ParamParser.Twicpics.Shared
 
         defparsec :parse_pct_size, parsec(:pct_size)
       end
@@ -127,7 +127,7 @@ defmodule PlugImage.ParamParser.Twicpics.Shared do
 
       defmodule MyParser do
         import NimbleParsec
-        import PlugImage.ParamParser.Twicpics.Shared
+        import ImagePlug.ParamParser.Twicpics.Shared
 
         defparsec :parse_int_or_pct_size, parsec(:int_or_pct_size)
       end
@@ -154,7 +154,7 @@ defmodule PlugImage.ParamParser.Twicpics.Shared do
 
       defmodule MyParser do
         import NimbleParsec
-        import PlugImage.ParamParser.Twicpics.Shared
+        import ImagePlug.ParamParser.Twicpics.Shared
 
         defparsec :parse_dimension, parsec(:dimension)
       end

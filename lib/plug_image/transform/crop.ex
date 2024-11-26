@@ -1,11 +1,11 @@
-defmodule PlugImage.Transform.Crop do
-  @behaviour PlugImage.Transform
+defmodule ImagePlug.Transform.Crop do
+  @behaviour ImagePlug.Transform
 
-  alias PlugImage.TransformState
+  alias ImagePlug.TransformState
 
   defmodule CropParams do
     @doc """
-    The parsed parameters used by `PlugImage.Transform.Crop`.
+    The parsed parameters used by `ImagePlug.Transform.Crop`.
     """
     defstruct [:width, :height, :crop_from]
 
@@ -17,17 +17,17 @@ defmodule PlugImage.Transform.Crop do
           }
   end
 
-  @impl PlugImage.Transform
+  @impl ImagePlug.Transform
   def execute(%TransformState{} = state, %CropParams{} = parameters) do
     with coord_mapped_params <- map_params_to_coords(state.image, parameters),
          anchored_params <- anchor_crop(state, coord_mapped_params),
          clamped_params <- clamp(state, anchored_params),
          {:ok, cropped_image} <- crop(state.image, clamped_params) do
       # reset focus to :center on crop
-      %PlugImage.TransformState{state | image: cropped_image, focus: :center}
+      %ImagePlug.TransformState{state | image: cropped_image, focus: :center}
     else
       {:error, error} ->
-        %PlugImage.TransformState{state | errors: [{__MODULE__, error} | state.errors]}
+        %ImagePlug.TransformState{state | errors: [{__MODULE__, error} | state.errors]}
     end
   end
 

@@ -1,9 +1,9 @@
-defmodule PlugImage.ParamParser.Twicpics.ScaleParser do
+defmodule ImagePlug.ParamParser.Twicpics.ScaleParser do
   import NimbleParsec
 
-  import PlugImage.ParamParser.Twicpics.Shared
+  import ImagePlug.ParamParser.Twicpics.Shared
 
-  alias PlugImage.Transform.Scale.ScaleParams
+  alias ImagePlug.Transform.Scale.ScaleParams
 
   auto_size =
     ignore(ascii_char([?-]))
@@ -35,9 +35,9 @@ defmodule PlugImage.ParamParser.Twicpics.ScaleParser do
   )
 
   @doc """
-  Parses a string into a `PlugImage.Transform.Scale.ScaleParams` struct.
+  Parses a string into a `ImagePlug.Transform.Scale.ScaleParams` struct.
 
-  Returns a `PlugImage.Transform.Scale.ScaleParams` struct.
+  Returns a `ImagePlug.Transform.Scale.ScaleParams` struct.
 
   ## Format
 
@@ -57,20 +57,20 @@ defmodule PlugImage.ParamParser.Twicpics.ScaleParser do
 
   ## Examples
 
-      iex> PlugImage.ParamParser.Twicpics.ScaleParser.parse("250x25p")
-      {:ok, %PlugImage.Transform.Scale.ScaleParams{width: {:int, 250}, height: {:pct, 25.0}}}
+      iex> ImagePlug.ParamParser.Twicpics.ScaleParser.parse("250x25p")
+      {:ok, %ImagePlug.Transform.Scale.ScaleParams{width: {:int, 250}, height: {:pct, 25.0}}}
 
-      iex> PlugImage.ParamParser.Twicpics.ScaleParser.parse("-x25p")
-      {:ok, %PlugImage.Transform.Scale.ScaleParams{width: :auto, height: {:pct, 25.0}}}
+      iex> ImagePlug.ParamParser.Twicpics.ScaleParser.parse("-x25p")
+      {:ok, %ImagePlug.Transform.Scale.ScaleParams{width: :auto, height: {:pct, 25.0}}}
 
-      iex> PlugImage.ParamParser.Twicpics.ScaleParser.parse("50px-")
-      {:ok, %PlugImage.Transform.Scale.ScaleParams{width: {:pct, 50.0}, height: :auto}}
+      iex> ImagePlug.ParamParser.Twicpics.ScaleParser.parse("50px-")
+      {:ok, %ImagePlug.Transform.Scale.ScaleParams{width: {:pct, 50.0}, height: :auto}}
 
-      iex> PlugImage.ParamParser.Twicpics.ScaleParser.parse("50")
-      {:ok, %PlugImage.Transform.Scale.ScaleParams{width: {:int, 50}, height: :auto}}
+      iex> ImagePlug.ParamParser.Twicpics.ScaleParser.parse("50")
+      {:ok, %ImagePlug.Transform.Scale.ScaleParams{width: {:int, 50}, height: :auto}}
 
-      iex> PlugImage.ParamParser.Twicpics.ScaleParser.parse("50p")
-      {:ok, %PlugImage.Transform.Scale.ScaleParams{width: {:pct, 50.0}, height: :auto}}
+      iex> ImagePlug.ParamParser.Twicpics.ScaleParser.parse("50p")
+      {:ok, %ImagePlug.Transform.Scale.ScaleParams{width: {:pct, 50.0}, height: :auto}}
   """
   def parse(parameters) do
     case internal_parse(parameters) do
