@@ -6,13 +6,15 @@ defmodule PlugImage.ParamParser.Twicpics do
   @transforms %{
     "crop" => PlugImage.Transform.Crop,
     "resize" => PlugImage.Transform.Scale,
-    "focus" => PlugImage.Transform.Focus
+    "focus" => PlugImage.Transform.Focus,
+    "output" => PlugImage.Transform.Output
   }
 
   @parsers %{
     PlugImage.Transform.Crop => Twicpics.CropParser,
     PlugImage.Transform.Scale => Twicpics.ScaleParser,
-    PlugImage.Transform.Focus => Twicpics.FocusParser
+    PlugImage.Transform.Focus => Twicpics.FocusParser,
+    PlugImage.Transform.Output => Twicpics.OutputParser
   }
 
   @impl PlugImage.ParamParser
