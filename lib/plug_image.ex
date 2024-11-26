@@ -60,6 +60,20 @@ defmodule PlugImage do
     Enum.find(format_priority, &Enum.member?(all_accepted_formats, &1))
   end
 
+  defp send_image(%Plug.Conn{} = conn, %TransformState{image: image, output: :blurhash}) do
+    case Image.Blurhash.encode(image) do
+      {:ok, blurhash} ->
+        conn
+        |> put_resp_content_type("text/plain")
+        |> send_resp(200, blurhash)
+
+      {:error, _} ->
+        conn
+        |> put_resp_content_type("text/plain")
+        |> send_resp(500, "error generating blurhash for image")
+    end
+  end
+
   defp send_image(%Plug.Conn{} = conn, %TransformState{} = state) do
     # figure out which output format to use
     mime_type =

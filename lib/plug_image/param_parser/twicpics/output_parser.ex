@@ -18,6 +18,7 @@ defmodule PlugImage.ParamParser.Twicpics.OutputParser do
       "webp" -> {:ok, %OutputParams{format: :webp}}
       "jpeg" -> {:ok, %OutputParams{format: :jpeg}}
       "png" -> {:ok, %OutputParams{format: :png}}
+      "blurhash" -> {:ok, %OutputParams{format: :blurhash}}
       _ -> {:error, :parameter_parse_error}
     end
   end

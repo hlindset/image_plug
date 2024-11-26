@@ -5,6 +5,7 @@ defmodule PlugImage.TransformState do
             output: :auto
 
   @type file_format() :: :avif | :webp | :jpeg | :png
+  @type preview_format() :: :blurhash
   @type output_format() :: :auto | file_format() | preview_format()
 
   @type t :: %__MODULE__{
