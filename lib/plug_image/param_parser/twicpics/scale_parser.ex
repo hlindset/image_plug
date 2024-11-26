@@ -6,7 +6,7 @@ defmodule PlugImage.ParamParser.Twicpics.ScaleParser do
   alias PlugImage.Transform.Scale.ScaleParams
 
   auto_size =
-    ignore(ascii_char([?*]))
+    ignore(ascii_char([?-]))
     |> tag(:auto)
     |> replace(:auto)
 
@@ -51,7 +51,7 @@ defmodule PlugImage.ParamParser.Twicpics.ScaleParser do
   --------- | ------------
   `pixel`   | `<int>`
   `percent` | `<float>p`
-  `auto`    | `*`
+  `auto`    | `-`
 
   Only one of the dimensions can be set to `auto`.
 
@@ -60,10 +60,10 @@ defmodule PlugImage.ParamParser.Twicpics.ScaleParser do
       iex> PlugImage.ParamParser.Twicpics.ScaleParser.parse("250x25p")
       {:ok, %PlugImage.Transform.Scale.ScaleParams{width: {:int, 250}, height: {:pct, 25.0}}}
 
-      iex> PlugImage.ParamParser.Twicpics.ScaleParser.parse("*x25p")
+      iex> PlugImage.ParamParser.Twicpics.ScaleParser.parse("-x25p")
       {:ok, %PlugImage.Transform.Scale.ScaleParams{width: :auto, height: {:pct, 25.0}}}
 
-      iex> PlugImage.ParamParser.Twicpics.ScaleParser.parse("50px*")
+      iex> PlugImage.ParamParser.Twicpics.ScaleParser.parse("50px-")
       {:ok, %PlugImage.Transform.Scale.ScaleParams{width: {:pct, 50.0}, height: :auto}}
 
       iex> PlugImage.ParamParser.Twicpics.ScaleParser.parse("50")
