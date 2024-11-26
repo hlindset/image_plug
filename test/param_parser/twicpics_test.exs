@@ -88,8 +88,8 @@ defmodule ParamParser.TwicpicsTest do
       str_params =
         case auto do
           :simple -> "#{format_value.(width)}"
-          :height -> "#{format_value.(width)}x*"
-          :width -> "*x#{format_value.(height)}"
+          :height -> "#{format_value.(width)}x-"
+          :width -> "-x#{format_value.(height)}"
           :none -> "#{format_value.(width)}x#{format_value.(height)}"
         end
 
