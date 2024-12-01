@@ -1,178 +1,69 @@
 defmodule ImagePlug.ParamParser.Twicpics.Shared do
-  @moduledoc """
-  Shared `NimbleParsec` combinators.
-  """
-
-  import NimbleParsec
-
-  @percent_unit_char ascii_char([?p])
-  @decimal_separator_char ascii_char([?.])
-
-  @doc """
-  `:float` combinator.
-
-  ## Examples
-
-      defmodule MyParser do
-        import NimbleParsec
-        import ImagePlug.ParamParser.Twicpics.Shared
-
-        defparsec :parse_float, parsec(:float)
-      end
-
-      MyParser.parse_float("10.1")
-      #=> {:ok, [10.1], "", %{}, {1, 0}, 4}
-
-      MyParser.parse_float("10")
-      #=> {:ok, [10.0], "", %{}, {1, 0}, 2}
-  """
-  defcombinator(
-    :float,
-    integer(min: 1)
-    |> optional(
-      ignore(@decimal_separator_char)
-      |> ascii_string([?0..?9], min: 1)
-    )
-    |> post_traverse(:parse_float),
-    export_combinator: true
-  )
-
-  defp parse_float(rest, [decimal_part, int_part], context, _line, _offset) do
-    case Float.parse("#{int_part}.#{decimal_part}") do
-      {float, _} -> {rest, [float], context}
-      _ -> {:error, :invalid_float}
+  def with_parsed_units(units, fun) do
+    case parse_all_units(units) do
+      {:error, _} = error -> error
+      {:ok, units} -> fun.(units)
     end
   end
 
-  defp parse_float(rest, [int], context, _line, _offset) do
-    {rest, [int / 1], context}
+  def parse_all_units(units) do
+    reduced =
+      Enum.reduce_while(units, [], fn unit, acc ->
+        case parse_unit(unit) do
+          {:ok, parsed} -> {:cont, [parsed | acc]}
+          {:error, _} = error -> {:halt, error}
+        end
+      end)
+
+    case reduced do
+      parsed when is_list(parsed) ->
+        {:ok, Enum.reverse(parsed)}
+
+      {:error, _} = error ->
+        error
+    end
   end
 
-  @doc """
-  `:integer` combinator.
+  def parse_unit(input) do
+    cond do
+      Regex.match?(~r/^\((.+)\/(.+)\)s$/, input) ->
+        [_, num1, num2] = Regex.run(~r/^\((.+)\/(.+)\)s$/, input)
 
-  ## Examples
+        with {:ok, parsed_num1} <- parse_number(num1),
+             {:ok, parsed_num2} <- parse_number(num2) do
+          {:ok, {:scale, parsed_num1, parsed_num2}}
+        else
+          {:error, _} = error -> error
+        end
 
-      defmodule MyParser do
-        import NimbleParsec
-        import ImagePlug.ParamParser.Twicpics.Shared
+      Regex.match?(~r/^(.+)p$/, input) ->
+        [_, num] = Regex.run(~r/^(.+)p$/, input)
 
-        defparsec :parse_integer, parsec(:pixel)
-      end
+        case parse_number(num) do
+          {:ok, parsed} -> {:ok, {:pct, parsed}}
+          {:error, _} = error -> error
+        end
 
-      MyParser.parse_integer("1000")
-      #=> {:ok, [1000], "", %{}, {1, 0}, 4}
-  """
-  defcombinator(
-    :integer,
-    integer(min: 1)
-    |> lookahead_not(
-      choice([
-        @decimal_separator_char,
-        @percent_unit_char
-      ])
-    ),
-    export_combinator: true
-  )
+      true ->
+        parse_number(input)
+    end
+  end
 
-  @doc """
-  `:int_size` combinator.
+  defp parse_number(input) do
+    cond do
+      Regex.match?(~r/^\d+(\.\d+)?$/, input) ->
+        if String.contains?(input, ".") do
+          {:ok, {:float, String.to_float(input)}}
+        else
+          {:ok, {:int, String.to_integer(input)}}
+        end
 
-  ## Examples
+      Regex.match?(~r/^\((.+)\)$/, input) ->
+        [_, expr] = Regex.run(~r/^\((.+)\)$/, input)
+        {:ok, {:expr, expr}}
 
-      defmodule MyParser do
-        import NimbleParsec
-        import ImagePlug.ParamParser.Twicpics.Shared
-
-        defparsec :parse_int_size, parsec(:int_size)
-      end
-
-      MyParser.parse_int_size("1000")
-      #=> {:ok, [int: 1000], "", %{}, {1, 0}, 4}
-  """
-  defcombinator(
-    :int_size,
-    parsec(:integer)
-    |> unwrap_and_tag(:int),
-    export_combinator: true
-  )
-
-  @doc """
-  `:pct_size` combinator.
-
-  ## Examples
-
-      defmodule MyParser do
-        import NimbleParsec
-        import ImagePlug.ParamParser.Twicpics.Shared
-
-        defparsec :parse_pct_size, parsec(:pct_size)
-      end
-
-      MyParser.parse_pct_size("1000p")
-      #=> {:ok, [pct: 1000.0], "", %{}, {1, 0}, 5}
-  """
-  defcombinator(
-    :pct_size,
-    parsec(:float)
-    |> ignore(@percent_unit_char)
-    |> unwrap_and_tag(:pct),
-    export_combinator: true
-  )
-
-  @doc """
-  `:int_or_pct_size` combinator.
-
-  ## Examples
-
-      defmodule MyParser do
-        import NimbleParsec
-        import ImagePlug.ParamParser.Twicpics.Shared
-
-        defparsec :parse_int_or_pct_size, parsec(:int_or_pct_size)
-      end
-
-      MyParser.parse_int_or_pct_size("1000p")
-      #=> {:ok, [pct: 1000.0], "", %{}, {1, 0}, 5}
-
-      MyParser.parse_int_or_pct_size("1000")
-      #=> {:ok, [int: 1000], "", %{}, {1, 0}, 4}
-  """
-  defcombinator(
-    :int_or_pct_size,
-    choice([
-      parsec(:int_size),
-      parsec(:pct_size)
-    ]),
-    export_combinator: true
-  )
-
-  @doc """
-  `:dimension` combinator.
-
-  ## Examples
-
-      defmodule MyParser do
-        import NimbleParsec
-        import ImagePlug.ParamParser.Twicpics.Shared
-
-        defparsec :parse_dimension, parsec(:dimension)
-      end
-
-      MyParser.parse_dimension("200px30")
-      #=> {:ok, [x: {:pct, 200.0}, y: {:int, 30}], "", %{}, {1, 0}, 7}
-
-      MyParser.parse_dimension("200x30p")
-      #=> {:ok, [x: {:int, 200}, y: {:pct, 30.0}], "", %{}, {1, 0}, 7}
-
-      MyParser.parse_dimension("200x300")
-      #=> {:ok, [x: {:int, 200}, y: {:int, 300}], "", %{}, {1, 0}, 7}
-  """
-  defcombinator(
-    :dimension,
-    unwrap_and_tag(parsec(:int_or_pct_size), :x)
-    |> ignore(ascii_char([?x]))
-    |> unwrap_and_tag(parsec(:int_or_pct_size), :y),
-    export_combinator: true
-  )
+      true ->
+        {:error, {:invalid_number, input}}
+    end
+  end
 end

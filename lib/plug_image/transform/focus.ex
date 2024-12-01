@@ -1,6 +1,7 @@
 defmodule ImagePlug.Transform.Focus do
   @behaviour ImagePlug.Transform
 
+  alias ImagePlug.Transform
   alias ImagePlug.TransformState
 
   defmodule FocusParams do
@@ -9,18 +10,24 @@ defmodule ImagePlug.Transform.Focus do
     """
     defstruct [:left, :top]
 
-    @type t :: %__MODULE__{left: integer(), top: integer()}
+    @type t :: %__MODULE__{left: ImagePlug.imgp_length(), top: ImagePlug.imgp_length()}
   end
 
   @impl ImagePlug.Transform
   def execute(%TransformState{image: image} = state, %FocusParams{} = parameters) do
-    left_and_top = clamp(state, parameters)
-    %ImagePlug.TransformState{state | image: image, focus: left_and_top}
-  end
-
-  def clamp(%TransformState{image: image}, %FocusParams{top: top, left: left}) do
-    clamped_left = min(Image.width(image), left)
-    clamped_top = min(Image.height(image), top)
-    %{left: clamped_left, top: clamped_top}
+    with {:ok, left} <- Transform.to_coord(state, :width, parameters.left),
+         {:ok, top} <- Transform.to_coord(state, :height, parameters.top) do
+      %ImagePlug.TransformState{
+        state
+        | image: image,
+          focus: %{
+            left: max(min(Image.width(image), left), 0),
+            top: max(min(Image.height(image), top), 0)
+          }
+      }
+    else
+      {:error, error} ->
+        %ImagePlug.TransformState{state | errors: [{__MODULE__, error} | state.errors]}
+    end
   end
 end

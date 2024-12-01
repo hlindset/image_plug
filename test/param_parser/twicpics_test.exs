@@ -11,34 +11,44 @@ defmodule ParamParser.TwicpicsTest do
   alias ImagePlug.Transform.Scale
   alias ImagePlug.Transform.Focus
 
-  test "crop params parser" do
-    int_or_pct =
+  defp random_base_unit,
+    do:
       one_of([
         tuple({constant(:int), integer(0..9999)}),
-        tuple({constant(:pct), one_of([integer(0..9999), float(min: 0, max: 9999)])})
+        tuple({constant(:float), float(min: 0, max: 9999)})
       ])
 
-    check all width <- int_or_pct,
-              height <- int_or_pct,
+  defp random_root_unit,
+    do:
+      one_of([
+        tuple({constant(:int), integer(0..9999)}),
+        tuple({constant(:float), float(min: 0, max: 9999)}),
+        tuple({constant(:scale), random_base_unit(), random_base_unit()}),
+        tuple({constant(:pct), random_base_unit()})
+      ])
+
+  defp unit_str({:int, v}), do: "#{v}"
+  defp unit_str({:float, v}), do: "#{v}"
+  defp unit_str({:scale, unit_a, unit_b}), do: "(#{unit_str(unit_a)}/#{unit_str(unit_b)})s"
+  defp unit_str({:pct, unit}), do: "#{unit_str(unit)}p"
+
+  test "crop params parser" do
+    check all width <- random_root_unit(),
+              height <- random_root_unit(),
               crop_from <-
                 one_of([
                   constant(:focus),
                   fixed_map(%{
-                    left: int_or_pct,
-                    top: int_or_pct
+                    left: random_root_unit(),
+                    top: random_root_unit()
                   })
                 ]) do
-      format_value = fn
-        {:pct, value} -> "#{value}p"
-        {:int, value} -> "#{value}"
-      end
-
-      str_params = "#{format_value.(width)}x#{format_value.(height)}"
+      str_params = "#{unit_str(width)}x#{unit_str(height)}"
 
       str_params =
         case crop_from do
           :focus -> str_params
-          %{left: left, top: top} -> "#{str_params}@#{format_value.(left)}x#{format_value.(top)}"
+          %{left: left, top: top} -> "#{str_params}@#{unit_str(left)}x#{unit_str(top)}"
         end
 
       parsed = Twicpics.CropParser.parse(str_params)
@@ -58,39 +68,28 @@ defmodule ParamParser.TwicpicsTest do
   end
 
   test "focus params parser" do
-    check all left <- integer(0..9999),
-              top <- integer(0..9999) do
-      str_params = "#{left}x#{top}"
+    check all left <- random_root_unit(),
+              top <- random_root_unit() do
+      str_params = "#{unit_str(left)}x#{unit_str(top)}"
       parsed = Twicpics.FocusParser.parse(str_params)
       assert {:ok, %Focus.FocusParams{left: left, top: top}} == parsed
     end
   end
 
   test "scale params parser" do
-    int_or_pct =
-      one_of([
-        tuple({constant(:int), integer(0..9999)}),
-        tuple({constant(:pct), one_of([integer(0..9999), float(min: 0, max: 9999)])})
-      ])
-
     check all {width, height, auto} <-
                 one_of([
-                  tuple({int_or_pct, int_or_pct, constant(:none)}),
-                  tuple({constant(:auto), int_or_pct, constant(:width)}),
-                  tuple({int_or_pct, constant(:auto), constant(:height)}),
-                  tuple({int_or_pct, constant(:auto), constant(:simple)})
+                  tuple({random_root_unit(), random_root_unit(), constant(:none)}),
+                  tuple({constant(:auto), random_root_unit(), constant(:width)}),
+                  tuple({random_root_unit(), constant(:auto), constant(:height)}),
+                  tuple({random_root_unit(), constant(:auto), constant(:simple)})
                 ]) do
-      format_value = fn
-        {:pct, value} -> "#{value}p"
-        {:int, value} -> "#{value}"
-      end
-
       str_params =
         case auto do
-          :simple -> "#{format_value.(width)}"
-          :height -> "#{format_value.(width)}x-"
-          :width -> "-x#{format_value.(height)}"
-          :none -> "#{format_value.(width)}x#{format_value.(height)}"
+          :simple -> "#{unit_str(width)}"
+          :height -> "#{unit_str(width)}x-"
+          :width -> "-x#{unit_str(height)}"
+          :none -> "#{unit_str(width)}x#{unit_str(height)}"
         end
 
       parsed = Twicpics.ScaleParser.parse(str_params)

@@ -40,7 +40,6 @@ defmodule ImagePlug.MixProject do
       {:plug, "~> 1.16"},
       {:image, "~> 0.37"},
       {:req, "~> 0.5"},
-      {:nimble_parsec, "~> 1.4.0"},
       {:bandit, "~> 1.0", only: [:test, :dev]},
       {:stream_data, "~> 1.0", only: [:test, :dev]},
       {:excoveralls, ">= 0.0.0", only: [:test], runtime: false},

@@ -1,6 +1,14 @@
 defmodule ImagePlug do
   @behaviour Plug
 
+  @type imgp_int() :: {:int, integer()}
+  @type imgp_float() :: {:float, float()}
+  @type imgp_expr() :: {:expr, float()}
+  @type imgp_number() :: imgp_int() | imgp_float() | imgp_expr()
+  @type imgp_pct() :: {:float, imgp_number()}
+  @type imgp_scale() :: {:float, imgp_number(), imgp_number()}
+  @type imgp_length() :: imgp_number() | imgp_pct() | imgp_scale()
+
   import Plug.Conn
 
   require Logger

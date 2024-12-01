@@ -1,6 +1,7 @@
 defmodule ImagePlug.Transform.Scale do
   @behaviour ImagePlug.Transform
 
+  alias ImagePlug.Transform
   alias ImagePlug.TransformState
 
   defmodule ScaleParams do
@@ -9,16 +10,16 @@ defmodule ImagePlug.Transform.Scale do
     """
     defstruct [:width, :height]
 
-    @type int_or_pct() :: {:int, integer()} | {:pct, integer()}
     @type t ::
-            %__MODULE__{width: int_or_pct() | :auto, height: int_or_pct()}
-            | %__MODULE__{width: int_or_pct(), height: int_or_pct() | :auto}
+            %__MODULE__{width: ImagePlug.imgp_length() | :auto, height: ImagePlug.imgp_length()}
+            | %__MODULE__{width: ImagePlug.imgp_length(), height: ImagePlug.imgp_length() | :auto}
   end
 
   @impl ImagePlug.Transform
   def execute(%TransformState{} = state, %ScaleParams{} = parameters) do
-    with coord_mapped_params <- map_params_to_coords(state.image, parameters),
-         {:ok, scaled_image} <- do_scale(state.image, coord_mapped_params) do
+    with {:ok, width} <- to_coord(state, :width, parameters.width),
+         {:ok, height} <- to_coord(state, :height, parameters.height),
+         {:ok, scaled_image} <- do_scale(state.image, %{width: width, height: height}) do
       # reset focus to :center on scale
       %TransformState{state | image: scaled_image, focus: :center}
     end
@@ -44,14 +45,6 @@ defmodule ImagePlug.Transform.Scale do
     {:error, {:unhandled_scale_parameters, parameters}}
   end
 
-  def to_coord(size, {:pct, pct}), do: round(size * pct / 100)
-  def to_coord(_size, {:int, int}), do: int
-  def to_coord(_size, :auto), do: :auto
-
-  def map_params_to_coords(image, %ScaleParams{width: width, height: height}) do
-    %{
-      width: to_coord(Image.width(image), width),
-      height: to_coord(Image.height(image), height)
-    }
-  end
+  def to_coord(_state, _dimension, :auto), do: {:ok, :auto}
+  def to_coord(state, dimension, length), do: Transform.to_coord(state, dimension, length)
 end

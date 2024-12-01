@@ -27,11 +27,13 @@ defmodule ImagePlug.ParamParser.Twicpics do
     end
   end
 
+  # a `key=value` string followed by either a slash and a
+  # new key=value string or the end of the string using lookahead
+  @params_regex ~r/\/?([a-z]+)=(.+?(?=\/[a-z]+=|$))/
+
   def parse_chain(chain_str) do
     parsed_chain =
-      chain_str
-      |> String.split("/")
-      |> Enum.map(&String.split(&1, "="))
+      Regex.scan(@params_regex, chain_str, capture: :all_but_first)
       |> Enum.reduce_while([], fn
         [transform_name, params_str], acc when is_map_key(@transforms, transform_name) ->
           {:cont, [{:ok, {Map.get(@transforms, transform_name), params_str}} | acc]}
