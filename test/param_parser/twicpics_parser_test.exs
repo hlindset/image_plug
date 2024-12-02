@@ -77,24 +77,54 @@ defmodule ParamParser.TwicpicsParserTest do
   end
 
   test "scale params parser" do
-    check all {width, height, auto} <-
+    check all {type, params} <-
                 one_of([
-                  tuple({random_root_unit(), random_root_unit(), constant(:none)}),
-                  tuple({constant(:auto), random_root_unit(), constant(:width)}),
-                  tuple({random_root_unit(), constant(:auto), constant(:height)}),
-                  tuple({random_root_unit(), constant(:auto), constant(:simple)})
+                  tuple({constant(:auto_width), tuple({random_root_unit()})}),
+                  tuple({constant(:auto_height), tuple({random_root_unit()})}),
+                  tuple({constant(:simple), tuple({random_root_unit()})}),
+                  tuple(
+                    {constant(:width_and_height), tuple({random_root_unit(), random_root_unit()})}
+                  ),
+                  tuple(
+                    {constant(:aspect_ratio), tuple({random_root_unit(), random_root_unit()})}
+                  )
                 ]) do
-      str_params =
-        case auto do
-          :simple -> "#{unit_str(width)}"
-          :height -> "#{unit_str(width)}x-"
-          :width -> "-x#{unit_str(height)}"
-          :none -> "#{unit_str(width)}x#{unit_str(height)}"
+      {str_params, expected} =
+        case {type, params} do
+          {:auto_width, {height}} ->
+            {"-x#{unit_str(height)}",
+             %Scale.ScaleParams{
+               method: %Scale.ScaleParams.Dimensions{width: :auto, height: height}
+             }}
+
+          {:auto_height, {width}} ->
+            {"#{unit_str(width)}x-",
+             %Scale.ScaleParams{
+               method: %Scale.ScaleParams.Dimensions{width: width, height: :auto}
+             }}
+
+          {:simple, {width}} ->
+            {"#{unit_str(width)}",
+             %Scale.ScaleParams{
+               method: %Scale.ScaleParams.Dimensions{width: width, height: :auto}
+             }}
+
+          {:width_and_height, {width, height}} ->
+            {"#{unit_str(width)}x#{unit_str(height)}",
+             %Scale.ScaleParams{
+               method: %Scale.ScaleParams.Dimensions{width: width, height: height}
+             }}
+
+          {:aspect_ratio, {ar_w, ar_h}} ->
+            {"#{unit_str(ar_w)}:#{unit_str(ar_h)}",
+             %Scale.ScaleParams{
+               method: %Scale.ScaleParams.AspectRatio{aspect_ratio: {:ratio, ar_w, ar_h}}
+             }}
         end
 
-      parsed = Twicpics.ScaleParser.parse(str_params)
+      {:ok, parsed} = Twicpics.ScaleParser.parse(str_params)
 
-      assert {:ok, %Scale.ScaleParams{width: width, height: height}} == parsed
+      assert parsed == expected
     end
   end
 end
