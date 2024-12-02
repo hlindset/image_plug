@@ -46,25 +46,34 @@ defmodule ImagePlug.ParamParser.Twicpics.ScaleParser do
       Regex.match?(~r/^(.+)x-$/, input) ->
         Regex.run(~r/^(.+)x-$/, input, capture: :all_but_first)
         |> with_parsed_units(fn [width] ->
-          {:ok, %ScaleParams{width: width, height: :auto}}
+          {:ok, %ScaleParams{method: %ScaleParams.Dimensions{width: width, height: :auto}}}
         end)
 
       Regex.match?(~r/^-x(.+)$/, input) ->
         Regex.run(~r/^-x(.+)$/, input, capture: :all_but_first)
         |> with_parsed_units(fn [height] ->
-          {:ok, %ScaleParams{width: :auto, height: height}}
+          {:ok, %ScaleParams{method: %ScaleParams.Dimensions{width: :auto, height: height}}}
         end)
 
       Regex.match?(~r/^(.+)x(.+)$/, input) ->
         Regex.run(~r/^(.+)x(.+)$/, input, capture: :all_but_first)
         |> with_parsed_units(fn [width, height] ->
-          {:ok, %ScaleParams{width: width, height: height}}
+          {:ok, %ScaleParams{method: %ScaleParams.Dimensions{width: width, height: height}}}
+        end)
+
+      Regex.match?(~r/^(.+):(.+)$/, input) ->
+        Regex.run(~r/^(.+):(.+)$/, input, capture: :all_but_first)
+        |> with_parsed_units(fn [ar_width, ar_height] ->
+          {:ok,
+           %ScaleParams{
+             method: %ScaleParams.AspectRatio{aspect_ratio: {:ratio, ar_width, ar_height}}
+           }}
         end)
 
       Regex.match?(~r/^(.+)$/, input) ->
         Regex.run(~r/^(.+)$/, input, capture: :all_but_first)
         |> with_parsed_units(fn [width] ->
-          {:ok, %ScaleParams{width: width, height: :auto}}
+          {:ok, %ScaleParams{method: %ScaleParams.Dimensions{width: width, height: :auto}}}
         end)
 
       true ->
