@@ -1,4 +1,4 @@
-defmodule ParamParser.TwicpicsTest do
+defmodule ParamParser.TwicpicsParserTest do
   use ExUnit.Case, async: true
   use ExUnitProperties
 

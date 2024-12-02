@@ -22,7 +22,14 @@ defmodule ImagePlug.ParamParser.Twicpics do
     conn = Plug.Conn.fetch_query_params(conn)
 
     case conn.params do
-      %{"twic" => "v1/" <> chain} -> parse_chain(chain)
+      %{"twic" => input} -> parse_string(input)
+      _ -> {:ok, []}
+    end
+  end
+
+  def parse_string(input) do
+    case input do
+      "v1/" <> chain -> parse_chain(chain)
       _ -> {:ok, []}
     end
   end
