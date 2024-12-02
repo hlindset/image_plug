@@ -11,15 +11,15 @@ defmodule ImagePlug.ParamParser.Twicpics.OutputParser do
       iex> ImagePlug.ParamParser.Twicpics.OutputParser.parse("avif")
       {:ok, %ImagePlug.Transform.Output.OutputParams{format: :avif}}
   """
-  def parse(parameters) do
-    case parameters do
+  def parse(input) do
+    case input do
       "auto" -> {:ok, %OutputParams{format: :auto}}
       "avif" -> {:ok, %OutputParams{format: :avif}}
       "webp" -> {:ok, %OutputParams{format: :webp}}
       "jpeg" -> {:ok, %OutputParams{format: :jpeg}}
       "png" -> {:ok, %OutputParams{format: :png}}
       "blurhash" -> {:ok, %OutputParams{format: :blurhash}}
-      _ -> {:error, :parameter_parse_error}
+      _ -> {:error, {:parameter_parse_error, input}}
     end
   end
 end
