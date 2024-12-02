@@ -33,6 +33,7 @@ defmodule ImagePlug do
       {:error, {:invalid_params, {module, input}}} ->
         Logger.info("parameter parse error for #{inspect(module)}: #{inspect(input)}")
         send_resp(conn, 400, "invalid parameters")
+
       {:error, {:transform_error, %TransformState{errors: errors} = final_state}} ->
         # TODO: handle transform error - debug mode + graceful mode switch?
         Logger.info("transform_error(s): #{inspect(errors)}")
