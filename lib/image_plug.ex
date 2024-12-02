@@ -8,6 +8,7 @@ defmodule ImagePlug do
   @type imgp_pct() :: {:float, imgp_number()}
   @type imgp_scale() :: {:float, imgp_number(), imgp_number()}
   @type imgp_length() :: imgp_number() | imgp_pct() | imgp_scale()
+  @type imgp_ratio() :: {:ratio, imgp_number(), imgp_number()}
 
   import Plug.Conn
 
