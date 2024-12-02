@@ -1,5 +1,5 @@
 defmodule ImagePlug.ParamParser.Twicpics.FocusParser do
-  import ImagePlug.ParamParser.Twicpics.Shared
+  import ImagePlug.ParamParser.Twicpics.Common
 
   alias ImagePlug.Transform.Focus.FocusParams
 

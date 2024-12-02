@@ -1,4 +1,4 @@
-defmodule ImagePlug.ParamParser.Twicpics.Shared do
+defmodule ImagePlug.ParamParser.Twicpics.Common do
   def with_parsed_units(units, fun) do
     case parse_all_units(units) do
       {:error, _} = error -> error

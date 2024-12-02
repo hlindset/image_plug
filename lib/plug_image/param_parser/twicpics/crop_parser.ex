@@ -1,5 +1,5 @@
 defmodule ImagePlug.ParamParser.Twicpics.CropParser do
-  import ImagePlug.ParamParser.Twicpics.Shared
+  import ImagePlug.ParamParser.Twicpics.Common
 
   alias ImagePlug.Transform.Crop.CropParams
 
