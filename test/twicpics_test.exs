@@ -23,8 +23,10 @@ defmodule TwicpicsTest do
                  }},
                 {Transform.Scale,
                  %Transform.Scale.ScaleParams{
-                   width: {:int, 200},
-                   height: :auto
+                   method: %Transform.Scale.ScaleParams.Dimensions{
+                     width: {:int, 200},
+                     height: :auto
+                   }
                  }},
                 {Transform.Output,
                  %Transform.Output.OutputParams{

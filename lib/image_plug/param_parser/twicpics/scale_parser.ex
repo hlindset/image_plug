@@ -27,19 +27,19 @@ defmodule ImagePlug.ParamParser.Twicpics.ScaleParser do
   ## Examples
 
       iex> ImagePlug.ParamParser.Twicpics.ScaleParser.parse("250x25p")
-      {:ok, %ImagePlug.Transform.Scale.ScaleParams{width: {:int, 250}, height: {:pct, {:int, 25}}}}
+      {:ok, %ImagePlug.Transform.Scale.ScaleParams{method: %ImagePlug.Transform.Scale.ScaleParams.Dimensions{width: {:int, 250}, height: {:pct, {:int, 25}}}}}
 
       iex> ImagePlug.ParamParser.Twicpics.ScaleParser.parse("-x25p")
-      {:ok, %ImagePlug.Transform.Scale.ScaleParams{width: :auto, height: {:pct, {:int, 25}}}}
+      {:ok, %ImagePlug.Transform.Scale.ScaleParams{method: %ImagePlug.Transform.Scale.ScaleParams.Dimensions{width: :auto, height: {:pct, {:int, 25}}}}}
 
       iex> ImagePlug.ParamParser.Twicpics.ScaleParser.parse("50.5px-")
-      {:ok, %ImagePlug.Transform.Scale.ScaleParams{width: {:pct, {:float, 50.5}}, height: :auto}}
+      {:ok, %ImagePlug.Transform.Scale.ScaleParams{method: %ImagePlug.Transform.Scale.ScaleParams.Dimensions{width: {:pct, {:float, 50.5}}, height: :auto}}}
 
       iex> ImagePlug.ParamParser.Twicpics.ScaleParser.parse("50.5")
-      {:ok, %ImagePlug.Transform.Scale.ScaleParams{width: {:float, 50.5}, height: :auto}}
+      {:ok, %ImagePlug.Transform.Scale.ScaleParams{method: %ImagePlug.Transform.Scale.ScaleParams.Dimensions{width: {:float, 50.5}, height: :auto}}}
 
       iex> ImagePlug.ParamParser.Twicpics.ScaleParser.parse("50p")
-      {:ok, %ImagePlug.Transform.Scale.ScaleParams{width: {:pct, {:int, 50}}, height: :auto}}
+      {:ok, %ImagePlug.Transform.Scale.ScaleParams{method: %ImagePlug.Transform.Scale.ScaleParams.Dimensions{width: {:pct, {:int, 50}}, height: :auto}}}
   """
   def parse(input) do
     cond do
