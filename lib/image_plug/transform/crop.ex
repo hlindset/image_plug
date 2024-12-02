@@ -19,7 +19,7 @@ defmodule ImagePlug.Transform.Crop do
 
   @impl ImagePlug.Transform
   def execute(%TransformState{} = state, %CropParams{} = parameters) do
-    with coord_mapped_params <- map_params_to_coords(state, parameters) |> IO.inspect(),
+    with coord_mapped_params <- map_params_to_pixels(state, parameters) |> IO.inspect(),
          anchored_params <- anchor_crop(state, coord_mapped_params),
          clamped_params <- clamp(state, anchored_params),
          {:ok, cropped_image} <- crop(state.image, clamped_params) do
@@ -66,19 +66,19 @@ defmodule ImagePlug.Transform.Crop do
     Image.crop(image, left, top, width, height)
   end
 
-  def map_crop_from_to_coords(state, %{left: left, top: top}) do
-    with {:ok, mapped_left} <- Transform.to_coord(state, :width, left),
-         {:ok, mapped_top} <- Transform.to_coord(state, :height, top) do
+  def map_crop_from_to_pixels(state, %{left: left, top: top}) do
+    with {:ok, mapped_left} <- Transform.to_pixels(state, :width, left),
+         {:ok, mapped_top} <- Transform.to_pixels(state, :height, top) do
       {:ok, %{left: mapped_left, top: mapped_top}}
     end
   end
 
-  def map_crop_from_to_coords(_state, :focus), do: {:ok, :focus}
+  def map_crop_from_to_pixels(_state, :focus), do: {:ok, :focus}
 
-  def map_params_to_coords(state, %CropParams{width: width, height: height, crop_from: crop_from}) do
-    with {:ok, mapped_width} <- Transform.to_coord(state, :width, width),
-         {:ok, mapped_height} <- Transform.to_coord(state, :height, height),
-         {:ok, mapped_crop_from} <- map_crop_from_to_coords(state, crop_from) do
+  def map_params_to_pixels(state, %CropParams{width: width, height: height, crop_from: crop_from}) do
+    with {:ok, mapped_width} <- Transform.to_pixels(state, :width, width),
+         {:ok, mapped_height} <- Transform.to_pixels(state, :height, height),
+         {:ok, mapped_crop_from} <- map_crop_from_to_pixels(state, crop_from) do
       %{width: mapped_width, height: mapped_height, crop_from: mapped_crop_from}
     end
   end

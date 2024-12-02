@@ -31,8 +31,8 @@ defmodule ImagePlug.Transform.Scale do
   end
 
   defp dimensions_for_scale_method(state, %ScaleParams.Dimensions{width: width, height: height}) do
-    with {:ok, width} <- to_coord(state, :width, width),
-         {:ok, height} <- to_coord(state, :height, height) do
+    with {:ok, width} <- to_pixels(state, :width, width),
+         {:ok, height} <- to_pixels(state, :height, height) do
       {:ok, %{width: width, height: height}}
     end
   end
@@ -81,6 +81,6 @@ defmodule ImagePlug.Transform.Scale do
     {:error, {:unhandled_scale_parameters, parameters}}
   end
 
-  def to_coord(_state, _dimension, :auto), do: {:ok, :auto}
-  def to_coord(state, dimension, length), do: Transform.to_coord(state, dimension, length)
+  def to_pixels(_state, _dimension, :auto), do: {:ok, :auto}
+  def to_pixels(state, dimension, length), do: Transform.to_pixels(state, dimension, length)
 end
