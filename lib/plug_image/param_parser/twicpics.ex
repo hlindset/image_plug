@@ -39,7 +39,6 @@ defmodule ImagePlug.ParamParser.Twicpics do
   @params_regex ~r/\/?([a-z]+)=(.+?(?=\/[a-z]+=|$))/
 
   def parse_chain(chain_str) do
-    parsed_chain =
       Regex.scan(@params_regex, chain_str, capture: :all_but_first)
       |> Enum.reduce_while([], fn
         [transform_name, params_str], acc when is_map_key(@transforms, transform_name) ->
@@ -47,36 +46,16 @@ defmodule ImagePlug.ParamParser.Twicpics do
 
         [transform_name, _params_str], acc ->
           {:cont, [{:error, {:invalid_transform, transform_name}} | acc]}
-
-        _, acc ->
-          # TODO: handle more errors
-          {:cont, acc}
       end)
       |> Enum.reverse()
-      |> Enum.map(fn
-        {:ok, {module, params_str}} ->
-          case @parsers[module].parse(params_str) do
-            {:ok, parsed_params} -> {:ok, {module, parsed_params}}
-            {:error, _} = error -> error
-          end
+      |> Enum.reduce_while({:ok, []}, fn {:ok, {module, params_str}}, {:ok, transforms_acc} ->
+      case @parsers[module].parse(params_str) do
+        {:ok, parsed_params} ->
+          {:cont, {:ok, transforms_acc ++ {module, parsed_params}}}
 
-        {:error, _} = error ->
-          error
+        {:error, {:parameter_parse_error, input}} ->
+          {:halt, {:error, {:invalid_params, {module, "invalid input: #{input}"}}}}
+      end
       end)
-
-    errors =
-      parsed_chain
-      |> Enum.filter(fn {t, _} -> t == :error end)
-      |> Enum.map(fn {:error, err} -> err end)
-
-    transforms =
-      parsed_chain
-      |> Enum.filter(fn {t, _} -> t == :ok end)
-      |> Enum.map(fn {:ok, transform} -> transform end)
-
-    case errors do
-      [] -> {:ok, transforms}
-      _ -> {:error, errors}
-    end
   end
 end
