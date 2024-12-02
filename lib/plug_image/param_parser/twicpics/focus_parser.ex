@@ -1,22 +1,7 @@
 defmodule ImagePlug.ParamParser.Twicpics.FocusParser do
-  import NimbleParsec
-
-  import ImagePlug.ParamParser.Twicpics.Shared
+  import ImagePlug.ParamParser.Twicpics.Common
 
   alias ImagePlug.Transform.Focus.FocusParams
-
-  defcombinator(
-    :dimensions,
-    unwrap_and_tag(parsec(:int_size), :x)
-    |> ignore(ascii_char([?x]))
-    |> unwrap_and_tag(parsec(:int_size), :y)
-  )
-
-  defparsec(
-    :internal_parse,
-    tag(parsec(:dimensions), :crop_size)
-    |> eos()
-  )
 
   @doc """
   Parses a string into a `ImagePlug.Transform.Focus.FocusParams` struct.
@@ -37,16 +22,19 @@ defmodule ImagePlug.ParamParser.Twicpics.FocusParser do
 
   ## Examples
 
-      iex> ImagePlug.ParamParser.Twicpics.FocusParser.parse("250x25")
-      {:ok, %ImagePlug.Transform.Focus.FocusParams{left: 250, top: 25}}
+      iex> ImagePlug.ParamParser.Twicpics.FocusParser.parse("250x25.5")
+      {:ok, %ImagePlug.Transform.Focus.FocusParams{left: {:int, 250}, top: {:float, 25.5}}}
   """
-  def parse(parameters) do
-    case internal_parse(parameters) do
-      {:ok, [crop_size: [x: {:int, left}, y: {:int, top}]], _, _, _, _} ->
-        {:ok, %FocusParams{left: left, top: top}}
+  def parse(input) do
+    cond do
+      Regex.match?(~r/^(.+)x(.+)$/, input) ->
+        Regex.run(~r/^(.+)x(.+)$/, input, capture: :all_but_first)
+        |> with_parsed_units(fn [left, top] ->
+          {:ok, %FocusParams{left: left, top: top}}
+        end)
 
-      {:error, _, _, _, _, _} ->
-        {:error, :parameter_parse_error}
+      true ->
+        {:error, {:parameter_parse_error, input}}
     end
   end
 end

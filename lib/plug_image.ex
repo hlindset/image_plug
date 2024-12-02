@@ -1,6 +1,14 @@
 defmodule ImagePlug do
   @behaviour Plug
 
+  @type imgp_int() :: {:int, integer()}
+  @type imgp_float() :: {:float, float()}
+  @type imgp_expr() :: {:expr, float()}
+  @type imgp_number() :: imgp_int() | imgp_float() | imgp_expr()
+  @type imgp_pct() :: {:float, imgp_number()}
+  @type imgp_scale() :: {:float, imgp_number(), imgp_number()}
+  @type imgp_length() :: imgp_number() | imgp_pct() | imgp_scale()
+
   import Plug.Conn
 
   require Logger
@@ -22,6 +30,9 @@ defmodule ImagePlug do
          {:ok, final_state} <- TransformChain.execute(%TransformState{image: image}, chain) do
       send_image(conn, final_state)
     else
+      {:error, {:invalid_params, {module, input}}} ->
+        Logger.info("parameter parse error for #{inspect(module)}: #{inspect(input)}")
+        send_resp(conn, 400, "invalid parameters")
       {:error, {:transform_error, %TransformState{errors: errors} = final_state}} ->
         # TODO: handle transform error - debug mode + graceful mode switch?
         Logger.info("transform_error(s): #{inspect(errors)}")

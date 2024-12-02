@@ -1,6 +1,7 @@
 defmodule ImagePlug.Transform.Crop do
   @behaviour ImagePlug.Transform
 
+  alias ImagePlug.Transform
   alias ImagePlug.TransformState
 
   defmodule CropParams do
@@ -9,17 +10,16 @@ defmodule ImagePlug.Transform.Crop do
     """
     defstruct [:width, :height, :crop_from]
 
-    @type int_or_pct() :: {:int, integer()} | {:pct, integer()}
     @type t :: %__MODULE__{
-            width: int_or_pct(),
-            height: int_or_pct(),
-            crop_from: :focus | %{left: int_or_pct(), top: int_or_pct()}
+            width: ImagePlug.imgp_length(),
+            height: ImagePlug.imgp_length(),
+            crop_from: :focus | %{left: ImagePlug.imgp_length(), top: ImagePlug.imgp_length()}
           }
   end
 
   @impl ImagePlug.Transform
   def execute(%TransformState{} = state, %CropParams{} = parameters) do
-    with coord_mapped_params <- map_params_to_coords(state.image, parameters),
+    with coord_mapped_params <- map_params_to_coords(state, parameters) |> IO.inspect(),
          anchored_params <- anchor_crop(state, coord_mapped_params),
          clamped_params <- clamp(state, anchored_params),
          {:ok, cropped_image} <- crop(state.image, clamped_params) do
@@ -66,25 +66,20 @@ defmodule ImagePlug.Transform.Crop do
     Image.crop(image, left, top, width, height)
   end
 
-  def to_coord(_size, {:int, int}), do: int
-  def to_coord(size, {:pct, pct}), do: round(size * pct / 100)
+  def map_crop_from_to_coords(state, %{left: left, top: top}) do
+    with {:ok, mapped_left} <- Transform.to_coord(state, :width, left),
+         {:ok, mapped_top} <- Transform.to_coord(state, :height, top) do
+      {:ok, %{left: mapped_left, top: mapped_top}}
+    end
+  end
 
-  def map_params_to_coords(image, %CropParams{
-        width: width,
-        height: height,
-        crop_from: crop_from
-      }) do
-    %{
-      width: to_coord(Image.width(image), width),
-      height: to_coord(Image.height(image), height),
-      crop_from:
-        case crop_from do
-          %{left: left, top: top} ->
-            %{left: to_coord(Image.width(image), left), top: to_coord(Image.height(image), top)}
+  def map_crop_from_to_coords(_state, :focus), do: {:ok, :focus}
 
-          :focus ->
-            :focus
-        end
-    }
+  def map_params_to_coords(state, %CropParams{width: width, height: height, crop_from: crop_from}) do
+    with {:ok, mapped_width} <- Transform.to_coord(state, :width, width),
+         {:ok, mapped_height} <- Transform.to_coord(state, :height, height),
+         {:ok, mapped_crop_from} <- map_crop_from_to_coords(state, crop_from) do
+      %{width: mapped_width, height: mapped_height, crop_from: mapped_crop_from}
+    end
   end
 end
