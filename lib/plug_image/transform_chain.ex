@@ -10,7 +10,7 @@ defmodule ImagePlug.TransformChain do
   ## Examples
 
       iex> chain = [
-      ...>   {ImagePlug.Transform.Focus, %ImagePlug.Transform.Focus.FocusParams{left: 20, top: 30}},
+      ...>   {ImagePlug.Transform.Focus, %ImagePlug.Transform.Focus.FocusParams{left: {:int, 20}, top: {:int, 30}}},
       ...>   {ImagePlug.Transform.Crop, %ImagePlug.Transform.Crop.CropParams{width: {:int, 100}, height: {:int, 150}, crop_from: :focus}}
       ...> ]
       ...> {:ok, empty_image} = Image.new(500, 500)
