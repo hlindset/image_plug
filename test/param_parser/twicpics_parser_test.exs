@@ -5,11 +5,14 @@ defmodule ParamParser.TwicpicsParserTest do
   doctest ImagePlug.ParamParser.Twicpics.CropParser
   doctest ImagePlug.ParamParser.Twicpics.ScaleParser
   doctest ImagePlug.ParamParser.Twicpics.FocusParser
+  doctest ImagePlug.ParamParser.Twicpics.ContainParser
+  doctest ImagePlug.ParamParser.Twicpics.OutputParser
 
   alias ImagePlug.ParamParser.Twicpics
   alias ImagePlug.Transform.Crop
   alias ImagePlug.Transform.Scale
   alias ImagePlug.Transform.Focus
+  alias ImagePlug.Transform.Contain
 
   defp random_base_unit,
     do:
@@ -125,6 +128,15 @@ defmodule ParamParser.TwicpicsParserTest do
       {:ok, parsed} = Twicpics.ScaleParser.parse(str_params)
 
       assert parsed == expected
+    end
+  end
+
+  test "contain params parser" do
+    check all width <- random_root_unit(),
+              height <- random_root_unit() do
+                str_params = "#{unit_str(width)}x#{unit_str(height)}"
+      parsed = Twicpics.ContainParser.parse(str_params)
+      assert {:ok, %Contain.ContainParams{width: width, height: height}} == parsed
     end
   end
 end

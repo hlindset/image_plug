@@ -5,6 +5,7 @@ defmodule ImagePlug.ParamParser do
           Transform.Crop
           | Transform.Focus
           | Transform.Scale
+          | Transform.Contain
           | Transform.Output
 
   @typedoc """
@@ -15,6 +16,7 @@ defmodule ImagePlug.ParamParser do
           {Transform.Crop, Transform.Crop.Parameters.t()}
           | {Transform.Focus, Transform.Focus.Parameters.t()}
           | {Transform.Scale, Transform.Scale.Parameters.t()}
+          | {Transform.Contain, Transform.Contain.Parameters.t()}
           | {Transform.Output, Transform.Output.Parameters.t()}
 
   @type transform_chain() :: list(transform_chain_item())

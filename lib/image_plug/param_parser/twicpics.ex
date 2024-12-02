@@ -7,6 +7,7 @@ defmodule ImagePlug.ParamParser.Twicpics do
     "crop" => ImagePlug.Transform.Crop,
     "resize" => ImagePlug.Transform.Scale,
     "focus" => ImagePlug.Transform.Focus,
+    "contain" => ImagePlug.Transform.Contain,
     "output" => ImagePlug.Transform.Output
   }
 
@@ -14,6 +15,7 @@ defmodule ImagePlug.ParamParser.Twicpics do
     ImagePlug.Transform.Crop => Twicpics.CropParser,
     ImagePlug.Transform.Scale => Twicpics.ScaleParser,
     ImagePlug.Transform.Focus => Twicpics.FocusParser,
+    ImagePlug.Transform.Contain => Twicpics.ContainParser,
     ImagePlug.Transform.Output => Twicpics.OutputParser
   }
 
