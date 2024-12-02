@@ -15,8 +15,8 @@ defmodule ImagePlug.Transform.Focus do
 
   @impl ImagePlug.Transform
   def execute(%TransformState{image: image} = state, %FocusParams{} = parameters) do
-    with {:ok, left} <- Transform.to_coord(state, :width, parameters.left),
-         {:ok, top} <- Transform.to_coord(state, :height, parameters.top) do
+    with {:ok, left} <- Transform.to_pixels(state, :width, parameters.left),
+         {:ok, top} <- Transform.to_pixels(state, :height, parameters.top) do
       %ImagePlug.TransformState{
         state
         | image: image,
