@@ -8,17 +8,11 @@ defmodule ImagePlug.ParamParser.Twicpics.ContainParser do
 
   Returns a `ImagePlug.Transform.Contain.ContainParams` struct.
 
-  ## Format
+  ## Syntax
 
   ```
-  <width>x<height>
+  contain=<size>
   ```
-
-  ## Units
-
-  Type      | Format
-  --------- | ------------
-  `pixel`   | `<int>`
 
   ## Examples
 

@@ -134,7 +134,7 @@ defmodule ParamParser.TwicpicsParserTest do
   test "contain params parser" do
     check all width <- random_root_unit(),
               height <- random_root_unit() do
-                str_params = "#{unit_str(width)}x#{unit_str(height)}"
+      str_params = "#{unit_str(width)}x#{unit_str(height)}"
       parsed = Twicpics.ContainParser.parse(str_params)
       assert {:ok, %Contain.ContainParams{width: width, height: height}} == parsed
     end

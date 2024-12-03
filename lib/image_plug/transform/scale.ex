@@ -56,8 +56,7 @@ defmodule ImagePlug.Transform.Scale do
   def execute(%TransformState{} = state, %ScaleParams{method: scale_method}) do
     with {:ok, width_and_height} <- dimensions_for_scale_method(state, scale_method),
          {:ok, scaled_image} <- do_scale(state.image, width_and_height) do
-      # reset focus to :center on scale
-      %TransformState{state | image: scaled_image, focus: :center}
+      %TransformState{state | image: scaled_image} |> TransformState.reset_focus()
     end
   end
 

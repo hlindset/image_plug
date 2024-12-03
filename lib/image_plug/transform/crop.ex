@@ -23,8 +23,7 @@ defmodule ImagePlug.Transform.Crop do
          anchored_params <- anchor_crop(state, coord_mapped_params),
          clamped_params <- clamp(state, anchored_params),
          {:ok, cropped_image} <- crop(state.image, clamped_params) do
-      # reset focus to :center on crop
-      %ImagePlug.TransformState{state | image: cropped_image, focus: :center}
+      %ImagePlug.TransformState{state | image: cropped_image} |> TransformState.reset_focus()
     else
       {:error, error} ->
         %ImagePlug.TransformState{state | errors: [{__MODULE__, error} | state.errors]}
@@ -36,16 +35,19 @@ defmodule ImagePlug.Transform.Crop do
   end
 
   defp anchor_crop(%TransformState{} = state, %{crop_from: :focus} = params) do
-    {center_x, center_y} =
-      case state.focus do
-        :center ->
-          left = Image.width(state.image) / 2
-          top = Image.height(state.image) / 2
-          {left, top}
+    center_x = case state.focus do
+      {:anchor, {:left, _}} -> params.width / 2
+      {:anchor, {:center, _}} -> Image.width(state.image) / 2
+      {:anchor, {:right, _}} -> Image.width(state.image) - params.width / 2
+      {:coordinate, left, _top} -> left
+    end
 
-        %{left: left, top: top} ->
-          {left, top}
-      end
+    center_y = case state.focus do
+      {:anchor, {_, :top}} -> params.height / 2
+      {:anchor, {_, :center}} -> Image.height(state.image) / 2
+      {:anchor, {_, :bottom}} -> Image.height(state.image) - params.height / 2
+      {:coordinate, _left, top} -> top
+    end
 
     left = center_x - params.width / 2
     top = center_y - params.height / 2

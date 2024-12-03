@@ -11,15 +11,8 @@ defmodule ImagePlug.ParamParser.Twicpics.CropParser do
   ## Format
 
   ```
-  <width>x<height>[@<left>x<top>]
+  <crop_size>[@<coordinates>]
   ```
-
-  ## Units
-
-  Type      | Format
-  --------- | ------------
-  `pixel`   | `<int>`
-  `percent` | `<float>p`
 
   ## Examples
 
