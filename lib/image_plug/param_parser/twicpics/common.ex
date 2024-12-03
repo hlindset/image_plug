@@ -49,9 +49,9 @@ defmodule ImagePlug.ParamParser.Twicpics.Common do
     end
   end
 
-  defp parse_number(input) do
+  def parse_number(input) do
     cond do
-      Regex.match?(~r/^\d+(\.\d+)?$/, input) ->
+      Regex.match?(~r/^\d+(\.(\d+|0e\d+))?$/, input) ->
         if String.contains?(input, ".") do
           {:ok, {:float, String.to_float(input)}}
         else
