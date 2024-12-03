@@ -1,12 +1,8 @@
-defmodule ParamParser.TwicpicsParserTest do
+defmodule ImagePlug.ParamParser.TwicpicsParserTest do
   use ExUnit.Case, async: true
   use ExUnitProperties
 
-  doctest ImagePlug.ParamParser.Twicpics.CropParser
-  doctest ImagePlug.ParamParser.Twicpics.ScaleParser
-  doctest ImagePlug.ParamParser.Twicpics.FocusParser
-  doctest ImagePlug.ParamParser.Twicpics.ContainParser
-  doctest ImagePlug.ParamParser.Twicpics.OutputParser
+  import ImagePlug.TestSupport
 
   alias ImagePlug.ParamParser.Twicpics
   alias ImagePlug.Transform.Crop
@@ -14,21 +10,11 @@ defmodule ParamParser.TwicpicsParserTest do
   alias ImagePlug.Transform.Focus
   alias ImagePlug.Transform.Contain
 
-  defp random_base_unit,
-    do:
-      one_of([
-        tuple({constant(:int), integer(0..9999)}),
-        tuple({constant(:float), float(min: 0, max: 9999)})
-      ])
-
-  defp random_root_unit,
-    do:
-      one_of([
-        tuple({constant(:int), integer(0..9999)}),
-        tuple({constant(:float), float(min: 0, max: 9999)}),
-        tuple({constant(:scale), random_base_unit(), random_base_unit()}),
-        tuple({constant(:pct), random_base_unit()})
-      ])
+  doctest ImagePlug.ParamParser.Twicpics.CropParser
+  doctest ImagePlug.ParamParser.Twicpics.ScaleParser
+  doctest ImagePlug.ParamParser.Twicpics.FocusParser
+  doctest ImagePlug.ParamParser.Twicpics.ContainParser
+  doctest ImagePlug.ParamParser.Twicpics.OutputParser
 
   defp unit_str({:int, v}), do: "#{v}"
   defp unit_str({:float, v}), do: "#{v}"
@@ -38,14 +24,7 @@ defmodule ParamParser.TwicpicsParserTest do
   test "crop params parser" do
     check all width <- random_root_unit(),
               height <- random_root_unit(),
-              crop_from <-
-                one_of([
-                  constant(:focus),
-                  fixed_map(%{
-                    left: random_root_unit(),
-                    top: random_root_unit()
-                  })
-                ]) do
+              crop_from <- crop_from() do
       str_params = "#{unit_str(width)}x#{unit_str(height)}"
 
       str_params =
@@ -70,12 +49,26 @@ defmodule ParamParser.TwicpicsParserTest do
     end
   end
 
+  def anchor_to_str({:anchor, :center, :top}), do: "top"
+  def anchor_to_str({:anchor, :left, :top}), do: "top-left"
+  def anchor_to_str({:anchor, :right, :top}), do: "top-right"
+  def anchor_to_str({:anchor, :center, :center}), do: "center"
+  def anchor_to_str({:anchor, :left, :center}), do: "left"
+  def anchor_to_str({:anchor, :right, :center}), do: "right"
+  def anchor_to_str({:anchor, :center, :bottom}), do: "bottom"
+  def anchor_to_str({:anchor, :left, :bottom}), do: "bottom-left"
+  def anchor_to_str({:anchor, :right, :bottom}), do: "bottom-right"
+
   test "focus params parser" do
-    check all left <- random_root_unit(),
-              top <- random_root_unit() do
-      str_params = "#{unit_str(left)}x#{unit_str(top)}"
-      parsed = Twicpics.FocusParser.parse(str_params)
-      assert {:ok, %Focus.FocusParams{left: left, top: top}} == parsed
+    check all focus_type <- focus_type() do
+      str_params =
+        case focus_type do
+          {:coordinate, left, top} -> "#{unit_str(left)}x#{unit_str(top)}"
+          {:anchor, _, _} = anchor -> anchor_to_str(anchor)
+        end
+
+      {:ok, parsed} = Twicpics.FocusParser.parse(str_params)
+      assert %Focus.FocusParams{type: focus_type} == parsed
     end
   end
 

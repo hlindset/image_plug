@@ -23,7 +23,7 @@ defmodule ImagePlug.ParamParser.Twicpics.FocusParser do
       {:ok, %ImagePlug.Transform.Focus.FocusParams{type: {:coordinate, {:int, 250}, {:float, 25.5}}}}
 
       iex> ImagePlug.ParamParser.Twicpics.FocusParser.parse("bottom-right")
-      {:ok, %ImagePlug.Transform.Focus.FocusParams{type: {:coordinate, {:int, 250}, {:float, 25.5}}}}
+      {:ok, %ImagePlug.Transform.Focus.FocusParams{type: {:anchor, :right, :bottom}}}
   """
   def parse(input) do
     cond do
@@ -34,31 +34,31 @@ defmodule ImagePlug.ParamParser.Twicpics.FocusParser do
         end)
 
       input == "center" ->
-        {:ok, %FocusParams{type: {:anchor, {:center, :center}}}}
+        {:ok, %FocusParams{type: {:anchor, :center, :center}}}
 
       input == "bottom" ->
-        {:ok, %FocusParams{type: {:anchor, {:center, :bottom}}}}
+        {:ok, %FocusParams{type: {:anchor, :center, :bottom}}}
 
       input == "bottom-left" ->
-        {:ok, %FocusParams{type: {:anchor, {:left, :bottom}}}}
+        {:ok, %FocusParams{type: {:anchor, :left, :bottom}}}
 
       input == "bottom-right" ->
-        {:ok, %FocusParams{type: {:anchor, {:right, :bottom}}}}
+        {:ok, %FocusParams{type: {:anchor, :right, :bottom}}}
 
       input == "left" ->
-        {:ok, %FocusParams{type: {:anchor, {:left, :center}}}}
+        {:ok, %FocusParams{type: {:anchor, :left, :center}}}
 
       input == "top" ->
-        {:ok, %FocusParams{type: {:anchor, {:center, :top}}}}
+        {:ok, %FocusParams{type: {:anchor, :center, :top}}}
 
       input == "top-left" ->
-        {:ok, %FocusParams{type: {:anchor, {:left, :top}}}}
+        {:ok, %FocusParams{type: {:anchor, :left, :top}}}
 
       input == "top-right" ->
-        {:ok, %FocusParams{type: {:anchor, {:right, :top}}}}
+        {:ok, %FocusParams{type: {:anchor, :right, :top}}}
 
       input == "right" ->
-        {:ok, %FocusParams{type: {:anchor, {:right, :center}}}}
+        {:ok, %FocusParams{type: {:anchor, :right, :center}}}
 
       true ->
         {:error, {:parameter_parse_error, input}}

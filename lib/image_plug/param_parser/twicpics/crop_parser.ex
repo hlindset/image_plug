@@ -27,23 +27,15 @@ defmodule ImagePlug.ParamParser.Twicpics.CropParser do
       Regex.match?(~r/^(.+)x(.+)@(.+)x(.+)$/, input) ->
         Regex.run(~r/^(.+)x(.+)@(.+)x(.+)$/, input, capture: :all_but_first)
         |> with_parsed_units(fn [width, height, left, top] ->
-          {:ok,
-           %CropParams{
-             width: width,
-             height: height,
-             crop_from: %{left: left, top: top}
-           }}
+          # TODO: Validate that width/height is strictly positive (> 0)
+          {:ok, %CropParams{width: width, height: height, crop_from: %{left: left, top: top}}}
         end)
 
       Regex.match?(~r/^(.+)x(.+)$/, input) ->
         Regex.run(~r/^(.+)x(.+)$/, input, capture: :all_but_first)
         |> with_parsed_units(fn [width, height] ->
-          {:ok,
-           %CropParams{
-             width: width,
-             height: height,
-             crop_from: :focus
-           }}
+          # TODO: Validate that width/height is strictly positive (> 0)
+          {:ok, %CropParams{width: width, height: height, crop_from: :focus}}
         end)
 
       true ->

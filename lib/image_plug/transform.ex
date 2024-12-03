@@ -21,7 +21,11 @@ defmodule ImagePlug.Transform do
   def to_pixels(state, dimension, {:scale, numerator_num, denominator_num}) do
     with {:ok, numerator} <- eval_number(numerator_num),
          {:ok, denominator} <- eval_number(denominator_num) do
-      {:ok, round(image_dim(state, dimension) * numerator / denominator)}
+      if denominator_num != 0 do
+        {:ok, round(image_dim(state, dimension) * numerator / denominator)}
+      else
+        {:error, :division_by_zero}
+      end
     else
       {:error, _} = error -> error
     end

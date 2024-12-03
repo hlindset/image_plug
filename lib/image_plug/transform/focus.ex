@@ -12,15 +12,7 @@ defmodule ImagePlug.Transform.Focus do
 
     @type t ::
             %__MODULE__{type: {:coordinate, ImagePlug.imgp_length(), ImagePlug.imgp_length()}}
-            | | %__MODULE__{type: {:anchor, {:center, :center}}
-            | | %__MODULE__{type: {:anchor, {:center, :bottom}}
-            | | %__MODULE__{type: {:anchor, {:left, :bottom}}
-            | | %__MODULE__{type: {:anchor, {:right, :bottom}}
-            | | %__MODULE__{type: {:anchor, {:left, :center}}
-            | | %__MODULE__{type: {:anchor, {:center, :top}}
-            | | %__MODULE__{type: {:anchor, {:left, :top}}
-            | | %__MODULE__{type: {:anchor, {:right, :top}}
-            | | %__MODULE__{type: {:anchor, {:right, :center}}
+            | %__MODULE__{type: TransformState.focus_anchor()}
   end
 
   @impl ImagePlug.Transform
@@ -30,7 +22,9 @@ defmodule ImagePlug.Transform.Focus do
       %ImagePlug.TransformState{
         state
         | image: image,
-          focus: {:coordinate, max(min(Image.width(image), left), 0), max(min(Image.height(image), top), 0)}
+          focus:
+            {:coordinate, max(min(Image.width(image), left), 0),
+             max(min(Image.height(image), top), 0)}
       }
     else
       {:error, error} ->
@@ -39,7 +33,7 @@ defmodule ImagePlug.Transform.Focus do
   end
 
   @impl ImagePlug.Transform
-  def execute(%TransformState{image: image} = state, %FocusParams{type: {:anchor, anchor}}) do
-    %ImagePlug.TransformState{ state | image: image, focus: {:anchor, anchor} }
+  def execute(%TransformState{image: image} = state, %FocusParams{type: {:anchor, x, y}}) do
+    %ImagePlug.TransformState{state | image: image, focus: {:anchor, x, y}}
   end
 end
