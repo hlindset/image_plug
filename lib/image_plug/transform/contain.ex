@@ -20,8 +20,7 @@ defmodule ImagePlug.Transform.Contain do
          {:ok, width_and_height} <-
            fit_inside(state, %{width: target_width, height: target_height}),
          {:ok, scaled_image} <- do_scale(state.image, width_and_height) do
-      # reset focus to :center on scale
-      %TransformState{state | image: scaled_image, focus: :center}
+      %TransformState{state | image: scaled_image} |> TransformState.reset_focus()
     end
   end
 
