@@ -15,6 +15,11 @@ defmodule ImagePlug.ParamParser.TwicpicsV2.Formatters do
     ~s|Expected #{join_chars(expected_chars)} but "#{format_char(found_char)}" found.|
   end
 
+  defp format_msg({:strictly_positive_number_required, opts}) do
+    found_number = Keyword.get(opts, :found)
+    ~s|Strictly positive number expected, found #{format_char(found_number)} instead.|
+  end
+
   defp format_msg({other, _}), do: to_string(other)
 
   def format_error({_, opts} = error) do

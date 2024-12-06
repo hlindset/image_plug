@@ -2,7 +2,7 @@ defmodule Arithmetic do
   @type token :: {:int, integer} | {:float, float} | {:op, binary} | :left_paren | :right_paren
   @type expr :: {:int, integer} | {:float, float} | {:op, binary, expr(), expr()}
 
-  @spec evaluate(String.t()) :: {:ok, } | {:error, atom()}
+  @spec evaluate(String.t()) :: {:ok} | {:error, atom()}
   def parse_and_evaluate(input) do
     case parse(input) do
       {:ok, expr} -> evaluate(expr)
@@ -15,10 +15,13 @@ defmodule Arithmetic do
     case parse_expression(tokens, 0) do
       {:ok, expr, []} ->
         {:ok, expr}
+
       {:ok, expr, [token | _]} ->
         {start_pos, _end_pos} = NumberParser.pos(token)
         {:error, {:unexpected_token, pos: start_pos}}
-      {:error, _} = error -> error
+
+      {:error, _} = error ->
+        error
     end
   end
 
@@ -30,7 +33,9 @@ defmodule Arithmetic do
   end
 
   defp parse_primary([{:int, n, pos_b, pos_e} | rest]), do: {:ok, {:int, n, pos_b, pos_e}, rest}
-  defp parse_primary([{:float, n, pos_b, pos_e} | rest]), do: {:ok, {:float, n, pos_b, pos_e}, rest}
+
+  defp parse_primary([{:float, n, pos_b, pos_e} | rest]),
+    do: {:ok, {:float, n, pos_b, pos_e}, rest}
 
   defp parse_primary([{:left_paren, pos} | rest]) do
     case parse_expression(rest, 0) do
