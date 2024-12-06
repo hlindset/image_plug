@@ -1,5 +1,6 @@
 defmodule LengthParser do
   alias ImagePlug.ParamParser.TwicpicsV2.Utils
+  alias Arithmetic
 
   def parse(input, pos_offset \\ 0) do
     {type, num_str} =
@@ -9,12 +10,11 @@ defmodule LengthParser do
         num_str -> {:pixels, String.reverse(num_str)}
       end
 
-    case NumberParser.parse(num_str, pos_offset) do
-      {:ok, parsed} ->
-        {:ok, {type, parsed}}
-
-      {:error, {reason, opts}} = error ->
-        Utils.update_error_input(error, input)
+    with {:ok, tokens} <- NumberParser.parse(num_str, pos_offset),
+         {:ok, evaluated} <- Arithmetic.parse_and_evaluate(tokens) do
+      {:ok, {type, evaluated}}
+    else
+      {:error, {reason, opts}} = error -> Utils.update_error_input(error, input)
     end
   end
 end

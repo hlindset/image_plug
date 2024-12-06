@@ -8,8 +8,8 @@ defmodule NumberParser do
          tokens
          |> Enum.reverse()
          |> Enum.map(fn
-           {:int, int} -> {:int, String.to_integer(int)}
-           {:float, int} -> {:float, String.to_float(int)}
+           {:int, int, pos_b, pos_e} -> {:int, String.to_integer(int), pos_b, pos_e}
+           {:float, int, pos_b, pos_e} -> {:float, String.to_float(int), pos_b, pos_e}
            other -> other
          end)}
 
@@ -19,28 +19,28 @@ defmodule NumberParser do
   end
 
   # end of input
-  defp do_parse("", [], pcount, pos) when pcount == 0,
+  defp do_parse("", [], paren_count, pos) when paren_count == 0,
     do: {:error, {:unexpected_char, pos: pos, expected: ["(", "[0-9]"], found: :eoi}}
 
-  defp do_parse("", [{:float_open, _} | _], _pcount, pos),
+  defp do_parse("", [{:float_open, _, _} | _], _paren_count, pos),
     do: {:error, {:unexpected_char, pos: pos, expected: ["[0-9]"], found: :eoi}}
 
-  defp do_parse("", acc, pcount, pos) when pcount > 0,
+  defp do_parse("", acc, paren_count, pos) when paren_count > 0,
     do: {:error, {:unexpected_char, pos: pos, expected: [")"], found: :eoi}}
 
-  defp do_parse("", [{:int, _} | _] = acc, _pcount, _pos), do: {:ok, acc}
-  defp do_parse("", [{:float, _} | _] = acc, _pcount, _pos), do: {:ok, acc}
-  defp do_parse("", [:right_paren | _] = acc, _pcount, _pos), do: {:ok, acc}
+  defp do_parse("", [{:int, _value, _t_pos_s, _t_pos_e} | _] = acc, _paren_count, _pos), do: {:ok, acc}
+  defp do_parse("", [{:float, _value, _t_pos_s, _t_pos_e} | _] = acc, _paren_count, _pos), do: {:ok, acc}
+  defp do_parse("", [{:right_paren, _t_pos} | _] = acc, _paren_count, _pos), do: {:ok, acc}
 
   # first char in string
-  defp do_parse(<<char::utf8, rest::binary>>, [], pcount, pos) do
+  defp do_parse(<<char::utf8, rest::binary>>, [], paren_count, pos) do
     cond do
       char in ?0..?9 ->
-        do_parse(rest, [{:int, <<char>>}], pcount, pos + 1)
+        do_parse(rest, [{:int, <<char>>, pos, pos}], paren_count, pos + 1)
 
-      # the only way to enter pcount > 0 is through the first char
+        # the only way to enter paren_count > 0 is through the first char
       char == ?( ->
-        do_parse(rest, [:left_paren], pcount + 1, pos + 1)
+        do_parse(rest, [{:left_paren, pos}], paren_count + 1, pos + 1)
 
       true ->
         {:error, {:unexpected_char, pos: pos, expected: ["(", "[0-9]"], found: <<char::utf8>>}}
@@ -48,13 +48,13 @@ defmodule NumberParser do
   end
 
   # prev token: :left_paren
-  defp do_parse(<<char::utf8, rest::binary>>, [:left_paren | _] = acc, pcount, pos) do
+  defp do_parse(<<char::utf8, rest::binary>>, [{:left_paren, _t_pos} | _] = acc, paren_count, pos) do
     cond do
       char in ?0..?9 ->
-        do_parse(rest, [{:int, <<char>>} | acc], pcount, pos + 1)
+        do_parse(rest, [{:int, <<char>>, pos, pos} | acc], paren_count, pos + 1)
 
       char == ?( ->
-        do_parse(rest, [:left_paren | acc], pcount + 1, pos + 1)
+        do_parse(rest, [{:left_paren, pos} | acc], paren_count + 1, pos + 1)
 
       true ->
         {:error, {:unexpected_char, pos: pos, expected: ["(", "[0-9]"], found: <<char::utf8>>}}
@@ -62,28 +62,28 @@ defmodule NumberParser do
   end
 
   # prev token: :right_paren
-  defp do_parse(<<char::utf8, rest::binary>>, [:right_paren | _] = acc, pcount, pos)
-       when pcount == 0 do
+  defp do_parse(<<char::utf8, rest::binary>>, [{:right_paren, _t_pos} | _] = acc, paren_count, pos)
+       when paren_count == 0 do
     {:error, {:unexpected_char, pos: pos, expected: [:eoi], found: <<char::utf8>>}}
   end
 
-  defp do_parse(<<char::utf8, rest::binary>>, [:right_paren | _] = acc, pcount, pos)
-       when pcount > 0 do
+  defp do_parse(<<char::utf8, rest::binary>>, [{:right_paren, _t_pos} | _] = acc, paren_count, pos)
+       when paren_count > 0 do
     cond do
       char == ?+ ->
-        do_parse(rest, [{:op, "+"} | acc], pcount, pos + 1)
+        do_parse(rest, [{:op, "+", pos} | acc], paren_count, pos + 1)
 
       char == ?- ->
-        do_parse(rest, [{:op, "-"} | acc], pcount, pos + 1)
+        do_parse(rest, [{:op, "-", pos} | acc], paren_count, pos + 1)
 
       char == ?* ->
-        do_parse(rest, [{:op, "*"} | acc], pcount, pos + 1)
+        do_parse(rest, [{:op, "*", pos} | acc], paren_count, pos + 1)
 
       char == ?/ ->
-        do_parse(rest, [{:op, "/"} | acc], pcount, pos + 1)
+        do_parse(rest, [{:op, "/", pos} | acc], paren_count, pos + 1)
 
       char == ?) ->
-        do_parse(rest, [:right_paren | acc], pcount - 1, pos + 1)
+        do_parse(rest, [{:right_paren, pos} | acc], paren_count - 1, pos + 1)
 
       true ->
         {:error,
@@ -92,44 +92,44 @@ defmodule NumberParser do
   end
 
   # prev token: {:int, n}
-  defp do_parse(<<char::utf8, rest::binary>>, [{:int, cur_val} | acc_tail] = acc, pcount, pos)
-       when pcount == 0 do
+  defp do_parse(<<char::utf8, rest::binary>>, [{:int, cur_val, t_pos_b, _t_pos_e} | acc_tail] = acc, paren_count, pos)
+       when paren_count == 0 do
     # not in parens, so it's only a number literal, and no ops are allowed
     cond do
       char in ?0..?9 ->
-        do_parse(rest, [{:int, cur_val <> <<char>>} | acc_tail], pcount, pos + 1)
+        do_parse(rest, [{:int, cur_val <> <<char>>, t_pos_b, pos} | acc_tail], paren_count, pos + 1)
 
       char == ?. ->
-        do_parse(rest, [{:float_open, cur_val <> "."} | acc_tail], pcount, pos + 1)
+        do_parse(rest, [{:float_open, cur_val <> ".", t_pos_b} | acc_tail], paren_count, pos + 1)
 
       true ->
         {:error, {:unexpected_char, pos: pos, expected: ["[0-9]", "."], found: <<char::utf8>>}}
     end
   end
 
-  defp do_parse(<<char::utf8, rest::binary>>, [{:int, cur_val} | acc_tail] = acc, pcount, pos)
-       when pcount > 0 do
+  defp do_parse(<<char::utf8, rest::binary>>, [{:int, cur_val, t_pos_b, _t_pos_e} | acc_tail] = acc, paren_count, pos)
+       when paren_count > 0 do
     cond do
       char in ?0..?9 ->
-        do_parse(rest, [{:int, cur_val <> <<char>>} | acc_tail], pcount, pos + 1)
+        do_parse(rest, [{:int, cur_val <> <<char>>, t_pos_b, pos} | acc_tail], paren_count, pos + 1)
 
       char == ?. ->
-        do_parse(rest, [{:float_open, cur_val <> "."} | acc_tail], pcount, pos + 1)
+        do_parse(rest, [{:float_open, cur_val <> ".", t_pos_b, pos} | acc_tail], paren_count, pos + 1)
 
       char == ?+ ->
-        do_parse(rest, [{:op, "+"} | acc], pcount, pos + 1)
+        do_parse(rest, [{:op, "+", pos} | acc], paren_count, pos + 1)
 
       char == ?- ->
-        do_parse(rest, [{:op, "-"} | acc], pcount, pos + 1)
+        do_parse(rest, [{:op, "-", pos} | acc], paren_count, pos + 1)
 
       char == ?* ->
-        do_parse(rest, [{:op, "*"} | acc], pcount, pos + 1)
+        do_parse(rest, [{:op, "*", pos} | acc], paren_count, pos + 1)
 
       char == ?/ ->
-        do_parse(rest, [{:op, "/"} | acc], pcount, pos + 1)
+        do_parse(rest, [{:op, "/", pos} | acc], paren_count, pos + 1)
 
       char == ?) ->
-        do_parse(rest, [:right_paren | acc], pcount - 1, pos + 1)
+        do_parse(rest, [{:right_paren, pos} | acc], paren_count - 1, pos + 1)
 
       true ->
         {:error,
@@ -141,13 +141,13 @@ defmodule NumberParser do
   # prev token: {:float_open, n} - which means that it's not a valid float yet
   defp do_parse(
          <<char::utf8, rest::binary>>,
-         [{:float_open, cur_val} | acc_tail] = acc,
-         pcount,
+         [{:float_open, cur_val, t_pos_b, _t_pos_e} | acc_tail] = acc,
+         paren_count,
          pos
        ) do
     cond do
       char in ?0..?9 ->
-        do_parse(rest, [{:float, cur_val <> <<char>>} | acc_tail], pcount, pos + 1)
+        do_parse(rest, [{:float, cur_val <> <<char>>, t_pos_b, pos} | acc_tail], paren_count, pos + 1)
 
       true ->
         {:error, {:unexpected_char, pos: pos, expected: ["[0-9]"], found: <<char::utf8>>}}
@@ -155,38 +155,38 @@ defmodule NumberParser do
   end
 
   # prev token: {:float, n} - at this point it's a valid float
-  defp do_parse(<<char::utf8, rest::binary>>, [{:float, cur_val} | acc_tail] = acc, pcount, pos)
-       when pcount == 0 do
+  defp do_parse(<<char::utf8, rest::binary>>, [{:float, cur_val, t_pos_b, _t_pos_e} | acc_tail] = acc, paren_count, pos)
+       when paren_count == 0 do
     # not in parens, so it's only a number literal, and no ops are allowed
     cond do
       char in ?0..?9 ->
-        do_parse(rest, [{:float, cur_val <> <<char>>} | acc_tail], pcount, pos + 1)
+        do_parse(rest, [{:float, cur_val <> <<char>>, t_pos_b, pos} | acc_tail], paren_count, pos + 1)
 
       true ->
         {:error, {:unexpected_char, pos: pos, expected: ["[0-9]"], found: <<char::utf8>>}}
     end
   end
 
-  defp do_parse(<<char::utf8, rest::binary>>, [{:float, cur_val} | acc_tail] = acc, pcount, pos)
-       when pcount > 0 do
+  defp do_parse(<<char::utf8, rest::binary>>, [{:float, cur_val, t_pos_b, _t_pos_e} | acc_tail] = acc, paren_count, pos)
+       when paren_count > 0 do
     cond do
       char in ?0..?9 ->
-        do_parse(rest, [{:float, cur_val <> <<char>>} | acc_tail], pcount, pos + 1)
+        do_parse(rest, [{:float, cur_val <> <<char>>, t_pos_b, pos} | acc_tail], paren_count, pos + 1)
 
       char == ?+ ->
-        do_parse(rest, [{:op, "+"} | acc], pcount, pos + 1)
+        do_parse(rest, [{:op, "+", pos} | acc], paren_count, pos + 1)
 
       char == ?- ->
-        do_parse(rest, [{:op, "-"} | acc], pcount, pos + 1)
+        do_parse(rest, [{:op, "-", pos} | acc], paren_count, pos + 1)
 
       char == ?* ->
-        do_parse(rest, [{:op, "*"} | acc], pcount, pos + 1)
+        do_parse(rest, [{:op, "*", pos} | acc], paren_count, pos + 1)
 
       char == ?/ ->
-        do_parse(rest, [{:op, "/"} | acc], pcount, pos + 1)
+        do_parse(rest, [{:op, "/", pos} | acc], paren_count, pos + 1)
 
       char == ?) ->
-        do_parse(rest, [:right_paren | acc], pcount - 1, pos + 1)
+        do_parse(rest, [{:right_paren, pos} | acc], paren_count - 1, pos + 1)
 
       true ->
         {:error,
@@ -196,17 +196,24 @@ defmodule NumberParser do
   end
 
   # prev token: {:op, v}
-  defp do_parse(<<char::utf8, rest::binary>>, [{:op, _} | _] = acc, pcount, pos)
-       when pcount > 0 do
+  defp do_parse(<<char::utf8, rest::binary>>, [{:op, _optype, _t_pos} | _] = acc, paren_count, pos)
+       when paren_count > 0 do
     cond do
       char in ?0..?9 ->
-        do_parse(rest, [{:int, <<char>>} | acc], pcount, pos + 1)
+        do_parse(rest, [{:int, <<char>>, pos, pos} | acc], paren_count, pos + 1)
 
       char == ?( ->
-        do_parse(rest, [:left_paren | acc], pcount + 1, pos + 1)
+        do_parse(rest, [{:left_paren, pos} | acc], paren_count + 1, pos + 1)
 
       true ->
         {:error, {:unexpected_char, pos: pos, expected: ["[0-9]", "("], found: <<char::utf8>>}}
     end
   end
+
+  def pos_for_token({:int, _value, pos_b, pos_e}), do: {pos_b, pos_e}
+  def pos_for_token({:float_open, _value, pos_b, pos_e}), do: {pos_b, pos_e}
+  def pos_for_token({:float, _value, pos_b, pos_e}), do: {pos_b, pos_e}
+  def pos_for_token({:left_paren, pos}), do: {pos, pos}
+  def pos_for_token({:right_paren, pos}), do: {pos, pos}
+  def pos_for_token({:op, _optype, pos}), do: {pos, pos}
 end
