@@ -16,6 +16,5 @@ defmodule ImagePlug.Twicpics.UtilsTest do
     assert Utils.balanced_parens?("()") == true
     assert Utils.balanced_parens?("(())") == true
     assert Utils.balanced_parens?("((()))") == true
-
   end
 end
