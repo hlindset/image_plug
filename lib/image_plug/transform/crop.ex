@@ -30,11 +30,18 @@ defmodule ImagePlug.Transform.Crop do
     end
   end
 
-  defp anchor_crop(%TransformState{}, %{crop_from: %{left: left, top: top}, width: width, height: height}) do
+  defp anchor_crop(%TransformState{}, %{
+         crop_from: %{left: left, top: top},
+         width: width,
+         height: height
+       }) do
     %{width: width, height: height, left: left, top: top}
   end
 
-  defp anchor_crop(%TransformState{} = state, %{crop_from: :focus, width: width, height: height} = params) do
+  defp anchor_crop(
+         %TransformState{} = state,
+         %{crop_from: :focus, width: width, height: height} = params
+       ) do
     center_x =
       case state.focus do
         {:anchor, :left, _} -> width / 2

@@ -26,7 +26,10 @@ defmodule ImagePlug.TestSupport do
     one_of([
       tuple({constant(:int), integer(int_min..int_max)}),
       tuple({constant(:float), float(min: float_min, max: float_max)}),
-      tuple({constant(:scale), random_base_unit(min: numerator_min, max: numerator_max), random_base_unit(min: 1, max: denominator_max)}),
+      tuple(
+        {constant(:scale), random_base_unit(min: numerator_min, max: numerator_max),
+         random_base_unit(min: 1, max: denominator_max)}
+      ),
       tuple({constant(:pct), random_base_unit(min: pct_min, max: pct_max)})
     ])
   end
