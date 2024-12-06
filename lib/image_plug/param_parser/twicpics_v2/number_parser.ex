@@ -42,6 +42,9 @@ defmodule NumberParser do
       char in ?0..?9 ->
         do_parse(rest, [{:int, <<char>>, pos, pos}], paren_count, pos + 1)
 
+      char == ?- ->
+        do_parse(rest, [{:int, <<char>>, pos, pos}], paren_count, pos + 1)
+
       # the only way to enter paren_count > 0 is through the first char
       char == ?( ->
         do_parse(rest, [{:left_paren, pos}], paren_count + 1, pos + 1)
@@ -55,6 +58,9 @@ defmodule NumberParser do
   defp do_parse(<<char::utf8, rest::binary>>, [{:left_paren, _t_pos} | _] = acc, paren_count, pos) do
     cond do
       char in ?0..?9 ->
+        do_parse(rest, [{:int, <<char>>, pos, pos} | acc], paren_count, pos + 1)
+
+      char == ?- ->
         do_parse(rest, [{:int, <<char>>, pos, pos} | acc], paren_count, pos + 1)
 
       char == ?( ->
@@ -269,6 +275,9 @@ defmodule NumberParser do
        when paren_count > 0 do
     cond do
       char in ?0..?9 ->
+        do_parse(rest, [{:int, <<char>>, pos, pos} | acc], paren_count, pos + 1)
+
+      char == ?- ->
         do_parse(rest, [{:int, <<char>>, pos, pos} | acc], paren_count, pos + 1)
 
       char == ?( ->
