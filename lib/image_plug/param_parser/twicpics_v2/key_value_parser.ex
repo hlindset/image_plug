@@ -1,6 +1,8 @@
 defmodule ImagePlug.ParamParser.TwicpicsV2.KeyValueParser do
-  def parse(input) do
-    case parse_pairs(input, [], 0) do
+  alias ImagePlug.ParamParser.TwicpicsV2.Utils
+
+  def parse(input, pos_offset \\ 0) do
+    case parse_pairs(input, [], pos_offset) do
       {:ok, result} -> {:ok, Enum.reverse(result)}
       {:error, _reason} = error -> error
     end
@@ -40,7 +42,7 @@ defmodule ImagePlug.ParamParser.TwicpicsV2.KeyValueParser do
   defp extract_until_slash_or_end("", acc, pos), do: {acc, "", pos}
 
   defp extract_until_slash_or_end(<<"/"::binary, rest::binary>>, acc, pos) do
-    if balanced_parens?(acc) do
+    if Utils.balanced_parens?(acc) do
       {acc, "/" <> rest, pos}
     else
       extract_until_slash_or_end(rest, acc <> "/", pos + 1)
@@ -50,28 +52,4 @@ defmodule ImagePlug.ParamParser.TwicpicsV2.KeyValueParser do
   defp extract_until_slash_or_end(<<char::utf8, rest::binary>>, acc, pos) do
     extract_until_slash_or_end(rest, acc <> <<char::utf8>>, pos + 1)
   end
-
-  def balanced_parens?(value) when is_binary(value) do
-    balanced_parens?(value, [])
-  end
-
-  # both sting and stack exhausted, we're in balance!
-  defp balanced_parens?("", []), do: true
-
-  # string is empty, but stack is not, so a paren has not been closed
-  defp balanced_parens?("", _stack), do: false
-
-  # add "(" to stack
-  defp balanced_parens?(<<"("::binary, rest::binary>>, stack),
-    do: balanced_parens?(rest, ["(" | stack])
-
-  # we found a ")", remove "(" from stack and continue
-  defp balanced_parens?(<<")"::binary, rest::binary>>, ["(" | stack]),
-    do: balanced_parens?(rest, stack)
-
-  # we found a ")", but head of stack doesn't match
-  defp balanced_parens?(<<")"::binary, rest::binary>>, _stack), do: false
-
-  # consume all other chars
-  defp balanced_parens?(<<char::utf8, rest::binary>>, stack), do: balanced_parens?(rest, stack)
 end
