@@ -16,7 +16,7 @@ defmodule Arithmetic do
       {:ok, expr, []} ->
         {:ok, expr}
       {:ok, expr, [token | _]} ->
-        {start_pos, _end_pos} = NumberParser.pos_for_token(token)
+        {start_pos, _end_pos} = NumberParser.pos(token)
         {:error, {:unexpected_token, pos: start_pos}}
       {:error, _} = error -> error
     end
@@ -41,7 +41,7 @@ defmodule Arithmetic do
   end
 
   defp parse_primary([token | _]) do
-    {start_pos, _end_pos} = NumberParser.pos_for_token(token)
+    {start_pos, _end_pos} = NumberParser.pos(token)
     {:error, {:unexpected_token, pos: start_pos}}
   end
 

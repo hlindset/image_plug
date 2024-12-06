@@ -210,10 +210,10 @@ defmodule NumberParser do
     end
   end
 
-  def pos_for_token({:int, _value, pos_b, pos_e}), do: {pos_b, pos_e}
-  def pos_for_token({:float_open, _value, pos_b, pos_e}), do: {pos_b, pos_e}
-  def pos_for_token({:float, _value, pos_b, pos_e}), do: {pos_b, pos_e}
-  def pos_for_token({:left_paren, pos}), do: {pos, pos}
-  def pos_for_token({:right_paren, pos}), do: {pos, pos}
-  def pos_for_token({:op, _optype, pos}), do: {pos, pos}
+  def pos({:int, _value, pos_b, pos_e}), do: {pos_b, pos_e}
+  def pos({:float_open, _value, pos_b, pos_e}), do: {pos_b, pos_e}
+  def pos({:float, _value, pos_b, pos_e}), do: {pos_b, pos_e}
+  def pos({:left_paren, pos}), do: {pos, pos}
+  def pos({:right_paren, pos}), do: {pos, pos}
+  def pos({:op, _optype, pos}), do: {pos, pos}
 end
