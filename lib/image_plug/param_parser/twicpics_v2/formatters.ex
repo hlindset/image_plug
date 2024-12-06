@@ -4,7 +4,7 @@ defmodule ImagePlug.ParamParser.TwicpicsV2.Formatters do
 
   defp join_chars([choice | tail]), do: join_chars(tail, ~s|"#{format_char(choice)}"|)
   defp join_chars([], acc), do: acc
-  defp join_chars([last_choice], acc), do: ~s|#{acc} and "#{format_char(last_choice)}"|
+  defp join_chars([last_choice], acc), do: ~s|#{acc} or "#{format_char(last_choice)}"|
 
   defp join_chars([choice | tail], acc),
     do: join_chars(tail, ~s|#{acc}, "#{format_char(choice)}"|)

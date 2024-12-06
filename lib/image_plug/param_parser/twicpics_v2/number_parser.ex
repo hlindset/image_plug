@@ -122,7 +122,7 @@ defmodule NumberParser do
     cond do
       char in ?0..?9 -> do_parse(rest, [{:int, <<char>>} | acc], pcount, pos + 1)
       char == ?( -> do_parse(rest, [:left_paren | acc], pcount + 1, pos + 1)
-      true -> {:error, {:unexpected_char, pos: pos, expected: ["[0-9]"], found: <<char::utf8>>}}
+      true -> {:error, {:unexpected_char, pos: pos, expected: ["[0-9]", "("], found: <<char::utf8>>}}
     end
   end
 end
