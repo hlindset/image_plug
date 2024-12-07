@@ -65,10 +65,15 @@ defmodule NumberParser do
   # first char in string
   defp do_parse(%State{input: <<char::utf8, _rest::binary>>, tokens: []} = state) do
     cond do
-      char in ?0..?9 or char == ?- -> add_token(state, {:int, <<char::utf8>>, state.pos, state.pos})
+      char in ?0..?9 or char == ?- ->
+        add_token(state, {:int, <<char::utf8>>, state.pos, state.pos})
+
       # the only way to enter paren_count > 0 is through the first char
-      char == ?( -> add_left_paren(state)
-      true -> unexpected_char_error(state.pos, ["(", "[0-9]"], <<char::utf8>>)
+      char == ?( ->
+        add_left_paren(state)
+
+      true ->
+        unexpected_char_error(state.pos, ["(", "[0-9]"], <<char::utf8>>)
     end
   end
 
@@ -80,9 +85,14 @@ defmodule NumberParser do
          } = state
        ) do
     cond do
-      char in ?0..?9 or char == ?- -> add_token(state, {:int, <<char::utf8>>, state.pos, state.pos})
-      char == ?( -> add_left_paren(state)
-      true -> unexpected_char_error(state.pos, ["(", "[0-9]"], <<char::utf8>>)
+      char in ?0..?9 or char == ?- ->
+        add_token(state, {:int, <<char::utf8>>, state.pos, state.pos})
+
+      char == ?( ->
+        add_left_paren(state)
+
+      true ->
+        unexpected_char_error(state.pos, ["(", "[0-9]"], <<char::utf8>>)
     end
   end
 
@@ -119,9 +129,14 @@ defmodule NumberParser do
        when state.paren_count == 0 do
     # not in parens, so it's only a number literal, and no ops are allowed
     cond do
-      char in ?0..?9 -> replace_token(state, {:int, cur_val <> <<char::utf8>>, t_pos_b, state.pos})
-      char == ?. -> replace_token(state, {:float_open, cur_val <> <<char::utf8>>, t_pos_b})
-      true -> unexpected_char_error(state.pos, ["[0-9]", "."], <<char::utf8>>)
+      char in ?0..?9 ->
+        replace_token(state, {:int, cur_val <> <<char::utf8>>, t_pos_b, state.pos})
+
+      char == ?. ->
+        replace_token(state, {:float_open, cur_val <> <<char::utf8>>, t_pos_b})
+
+      true ->
+        unexpected_char_error(state.pos, ["[0-9]", "."], <<char::utf8>>)
     end
   end
 
@@ -133,11 +148,20 @@ defmodule NumberParser do
        )
        when state.paren_count > 0 do
     cond do
-      char in ?0..?9 -> replace_token(state, {:int, cur_val <> <<char::utf8>>, t_pos_b, state.pos})
-      char == ?. -> replace_token(state, {:float_open, cur_val <> <<char::utf8>>, t_pos_b})
-      char in @op_tokens -> add_token(state, {:op, <<char::utf8>>, state.pos})
-      char == ?) -> add_right_paren(state)
-      true -> unexpected_char_error(state.pos, ["[0-9]", ".", "+", "-", "*", "/", ")"], <<char::utf8>>)
+      char in ?0..?9 ->
+        replace_token(state, {:int, cur_val <> <<char::utf8>>, t_pos_b, state.pos})
+
+      char == ?. ->
+        replace_token(state, {:float_open, cur_val <> <<char::utf8>>, t_pos_b})
+
+      char in @op_tokens ->
+        add_token(state, {:op, <<char::utf8>>, state.pos})
+
+      char == ?) ->
+        add_right_paren(state)
+
+      true ->
+        unexpected_char_error(state.pos, ["[0-9]", ".", "+", "-", "*", "/", ")"], <<char::utf8>>)
     end
   end
 
@@ -149,8 +173,11 @@ defmodule NumberParser do
          } = state
        ) do
     cond do
-      char in ?0..?9 -> replace_token(state, {:float, cur_val <> <<char::utf8>>, t_pos_b, state.pos})
-      true -> unexpected_char_error(state.pos, ["[0-9]"], <<char::utf8>>)
+      char in ?0..?9 ->
+        replace_token(state, {:float, cur_val <> <<char::utf8>>, t_pos_b, state.pos})
+
+      true ->
+        unexpected_char_error(state.pos, ["[0-9]"], <<char::utf8>>)
     end
   end
 
@@ -164,8 +191,11 @@ defmodule NumberParser do
        when state.paren_count == 0 do
     # not in parens, so it's only a number literal, and no ops are allowed
     cond do
-      char in ?0..?9 -> replace_token(state, {:float, cur_val <> <<char::utf8>>, t_pos_b, state.pos})
-      true -> unexpected_char_error(state.pos, ["[0-9]"], <<char::utf8>>)
+      char in ?0..?9 ->
+        replace_token(state, {:float, cur_val <> <<char::utf8>>, t_pos_b, state.pos})
+
+      true ->
+        unexpected_char_error(state.pos, ["[0-9]"], <<char::utf8>>)
     end
   end
 
@@ -177,10 +207,17 @@ defmodule NumberParser do
        )
        when state.paren_count > 0 do
     cond do
-      char in ?0..?9 -> replace_token(state, {:float, cur_val <> <<char::utf8>>, t_pos_b, state.pos})
-      char in @op_tokens -> add_token(state, {:op, <<char::utf8>>, state.pos})
-      char == ?) -> add_right_paren(state)
-      true -> unexpected_char_error(state.pos, ["[0-9]", ".", "+", "-", "*", "/", ")"], <<char::utf8>>)
+      char in ?0..?9 ->
+        replace_token(state, {:float, cur_val <> <<char::utf8>>, t_pos_b, state.pos})
+
+      char in @op_tokens ->
+        add_token(state, {:op, <<char::utf8>>, state.pos})
+
+      char == ?) ->
+        add_right_paren(state)
+
+      true ->
+        unexpected_char_error(state.pos, ["[0-9]", ".", "+", "-", "*", "/", ")"], <<char::utf8>>)
     end
   end
 
@@ -193,9 +230,14 @@ defmodule NumberParser do
        )
        when state.paren_count > 0 do
     cond do
-      char in ?0..?9 or char == ?- -> add_token(state, {:int, <<char::utf8>>, state.pos, state.pos})
-      char == ?( -> add_left_paren(state)
-      true -> unexpected_char_error(state.pos, ["[0-9]", "("], <<char::utf8>>)
+      char in ?0..?9 or char == ?- ->
+        add_token(state, {:int, <<char::utf8>>, state.pos, state.pos})
+
+      char == ?( ->
+        add_left_paren(state)
+
+      true ->
+        unexpected_char_error(state.pos, ["[0-9]", "("], <<char::utf8>>)
     end
   end
 
