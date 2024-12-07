@@ -1,4 +1,4 @@
-defmodule ImagePlug.ParamParser.TwicpicsV2.Transforms.CropParser do
+defmodule ImagePlug.ParamParser.TwicpicsV2.Transform.CropParser do
   alias ImagePlug.ParamParser.TwicpicsV2.CoordinatesParser
   alias ImagePlug.ParamParser.TwicpicsV2.SizeParser
   alias ImagePlug.ParamParser.TwicpicsV2.Utils
