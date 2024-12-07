@@ -13,19 +13,30 @@ defmodule ImagePlug.ParamParser.TwicpicsV2.CoordinatesParser do
           {:error, _reason} = error -> Utils.update_error_input(error, input)
         end
 
-      [""] ->
-        {:error, {:unexpected_eoi, pos: pos_offset}}
+      [str] ->
+        # attempt to parse string to get error messages. if it suceeds,
+        # complain about the second dimension that's missing
+        case parse_and_validate(str, pos_offset) do
+          {:ok, _} ->
+            Utils.unexpected_char_error(pos_offset + String.length(str), ["x"], :eoi)
+            |> Utils.update_error_input(input)
 
-      _ ->
-        {:error, {:unexpected_token, pos: pos_offset}}
+          {:error, _} = error ->
+            Utils.update_error_input(error, input)
+        end
     end
   end
 
-  defp parse_and_validate(length_str, offset) do
-    case LengthParser.parse(length_str, offset) do
-      {:ok, {_type, number} = parsed_length} when number >= 0 -> {:ok, parsed_length}
-      {:ok, {_type, number}} -> {:error, {:positive_number_required, pos: offset, found: number}}
-      {:error, _reason} = error -> error
+  defp parse_and_validate(length_str, pos_offset) do
+    case LengthParser.parse(length_str, pos_offset) do
+      {:ok, {_type, number} = parsed_length} when number >= 0 ->
+        {:ok, parsed_length}
+
+      {:ok, {_type, number}} ->
+        {:error, {:positive_number_required, pos: pos_offset, found: number}}
+
+      {:error, _reason} = error ->
+        error
     end
   end
 end
