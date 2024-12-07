@@ -8,7 +8,7 @@ defmodule ImagePlug.ParamParser.TwicpicsV2.CoordinatesParser do
         with {:ok, parsed_left} <- parse_and_validate(left_str, pos_offset),
              {:ok, parsed_top} <-
                parse_and_validate(top_str, pos_offset + String.length(left_str) + 1) do
-          {:ok, [left: parsed_left, top: parsed_top]}
+          {:ok, %{left: parsed_left, top: parsed_top}}
         else
           {:error, _reason} = error -> Utils.update_error_input(error, input)
         end

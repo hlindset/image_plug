@@ -9,13 +9,13 @@ defmodule ImagePlug.ParamParser.TwicpicsV2.SizeParser do
 
       ["-", height_str] ->
         case parse_and_validate(height_str, pos_offset + 2) do
-          {:ok, parsed_height} -> {:ok, [width: :auto, height: parsed_height]}
+          {:ok, parsed_height} -> {:ok, %{width: :auto, height: parsed_height}}
           {:error, _reason} = error -> Utils.update_error_input(error, input)
         end
 
       [width_str, "-"] ->
         case parse_and_validate(width_str, pos_offset) do
-          {:ok, parsed_width} -> {:ok, [width: parsed_width, height: :auto]}
+          {:ok, parsed_width} -> {:ok, %{width: parsed_width, height: :auto}}
           {:error, _reason} = error -> Utils.update_error_input(error, input)
         end
 
@@ -23,14 +23,14 @@ defmodule ImagePlug.ParamParser.TwicpicsV2.SizeParser do
         with {:ok, parsed_width} <- parse_and_validate(width_str, pos_offset),
              {:ok, parsed_height} <-
                parse_and_validate(height_str, pos_offset + String.length(width_str) + 1) do
-          {:ok, [width: parsed_width, height: parsed_height]}
+          {:ok, %{width: parsed_width, height: parsed_height}}
         else
           {:error, _reason} = error -> Utils.update_error_input(error, input)
         end
 
       [width_str] ->
         case parse_and_validate(width_str, pos_offset) do
-          {:ok, parsed_width} -> {:ok, [width: parsed_width, height: :auto]}
+          {:ok, parsed_width} -> {:ok, %{width: parsed_width, height: :auto}}
           {:error, _reason} = error -> Utils.update_error_input(error, input)
         end
     end

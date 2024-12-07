@@ -1,4 +1,4 @@
-defmodule ImagePlug.ParamParser.TwicpicsV2.KeyValueParser do
+defmodule ImagePlug.ParamParser.TwicpicsV2.KVParser do
   alias ImagePlug.ParamParser.TwicpicsV2.Utils
 
   @valid_keys ~w(crop resize contain focus output)
