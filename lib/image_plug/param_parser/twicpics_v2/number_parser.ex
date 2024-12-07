@@ -7,12 +7,6 @@ defmodule NumberParser do
     defstruct input: "", tokens: [], pos: 0, paren_count: 0
   end
 
-  defp inc_paren_count(%State{paren_count: paren_count} = state),
-    do: %State{state | paren_count: paren_count + 1}
-
-  defp dec_paren_count(%State{paren_count: paren_count} = state),
-    do: %State{state | paren_count: paren_count - 1}
-
   defp consume_char(%State{input: <<_char::utf8, rest::binary>>, pos: pos} = state),
     do: %State{state | input: rest, pos: pos + 1}
 
@@ -23,11 +17,13 @@ defmodule NumberParser do
     do: %State{state | tokens: [token | tail]} |> consume_char() |> do_parse()
 
   defp add_left_paren(%State{} = state) do
-    state |> inc_paren_count() |> add_token({:left_paren, state.pos})
+    %State{state | paren_count: state.paren_count + 1}
+    |> add_token({:left_paren, state.pos})
   end
 
   defp add_right_paren(%State{} = state) do
-    state |> dec_paren_count() |> add_token({:right_paren, state.pos})
+    %State{state | paren_count: state.paren_count - 1}
+    |> add_token({:right_paren, state.pos})
   end
 
   def parse(input, pos_offset \\ 0) do
