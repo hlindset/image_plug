@@ -13,12 +13,14 @@ defmodule ImagePlug.ParamParser.TwicpicsV2.CoordinatesParser do
           {:error, _reason} = error -> Utils.update_error_input(error, input)
         end
 
-      [str] ->
-        # attempt to parse string to get error messages. if it suceeds,
-        # complain about the second dimension that's missing
-        case parse_and_validate(str, pos_offset) do
+      [left_str] ->
+        # this is an invalid coordinate!
+        #
+        # attempt to parse string to get error messages for number parsing.
+        # if it suceeds, complain that the second dimension that's missing
+        case parse_and_validate(left_str, pos_offset) do
           {:ok, _} ->
-            Utils.unexpected_char_error(pos_offset + String.length(str), ["x"], :eoi)
+            Utils.unexpected_char_error(pos_offset + String.length(left_str), ["x"], :eoi)
             |> Utils.update_error_input(input)
 
           {:error, _} = error ->
