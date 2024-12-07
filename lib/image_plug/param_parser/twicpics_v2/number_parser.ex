@@ -3,8 +3,27 @@ defmodule NumberParser do
 
   @op_tokens ~c"+-*/"
 
+  defmodule State do
+    defstruct input: "", tokens: [], pos: 0, paren_count: 0
+  end
+
+  defp add_token(%State{tokens: tokens} = state, token),
+    do: %State{state | tokens: [token | tokens]}
+
+  defp replace_token(%State{tokens: [_head | tail]} = state, token),
+    do: %State{state | tokens: [token | tail]}
+
+  defp inc_paren_count(%State{paren_count: paren_count} = state),
+    do: %State{state | paren_count: paren_count + 1}
+
+  defp dec_paren_count(%State{paren_count: paren_count} = state),
+    do: %State{state | paren_count: paren_count - 1}
+
+  defp consume_char(%State{input: <<_char::utf8, rest::binary>>, pos: pos} = state),
+    do: %State{state | input: rest, pos: pos + 1}
+
   def parse(input, pos_offset \\ 0) do
-    case do_parse(input, [], 0, pos_offset) do
+    case do_parse(%State{input: input, pos: pos_offset}) do
       {:ok, tokens} ->
         {:ok,
          tokens
@@ -21,240 +40,268 @@ defmodule NumberParser do
   end
 
   # end of input
-  defp do_parse("", [], paren_count, pos) when paren_count == 0,
-    do: {:error, {:unexpected_char, pos: pos, expected: ["(", "[0-9]"], found: :eoi}}
+  defp do_parse(%State{input: "", tokens: []} = state) when state.paren_count == 0,
+    do: unexpected_char_error(state.pos, ["(", "[0-9]"], found: :eoi)
 
-  defp do_parse("", [{:float_open, _, _} | _], _paren_count, pos),
-    do: {:error, {:unexpected_char, pos: pos, expected: ["[0-9]"], found: :eoi}}
+  defp do_parse(%State{input: "", tokens: [{:float_open, _, _} | _]} = state),
+    do: unexpected_char_error(state.pos, ["[0-9]"], found: :eoi)
 
-  defp do_parse("", acc, paren_count, pos) when paren_count > 0,
-    do: {:error, {:unexpected_char, pos: pos, expected: [")"], found: :eoi}}
+  defp do_parse(%State{input: ""} = state) when state.paren_count > 0,
+    do: unexpected_char_error(state.pos, [")"], found: :eoi)
 
-  defp do_parse("", [{:int, _value, _t_pos_s, _t_pos_e} | _] = acc, _paren_count, _pos),
-    do: {:ok, acc}
+  defp do_parse(%State{input: "", tokens: [{:int, _, _, _} | _] = tokens}),
+    do: {:ok, tokens}
 
-  defp do_parse("", [{:float, _value, _t_pos_s, _t_pos_e} | _] = acc, _paren_count, _pos),
-    do: {:ok, acc}
+  defp do_parse(%State{input: "", tokens: [{:float, _, _, _} | _] = tokens}),
+    do: {:ok, tokens}
 
-  defp do_parse("", [{:right_paren, _t_pos} | _] = acc, _paren_count, _pos), do: {:ok, acc}
+  defp do_parse(%State{input: "", tokens: [{:right_paren, _} | _] = tokens}),
+    do: {:ok, tokens}
 
   # first char in string
-  defp do_parse(<<char::utf8, rest::binary>>, [], paren_count, pos) do
+  defp do_parse(%State{input: <<char::utf8, _rest::binary>>, tokens: []} = state) do
     cond do
-      char in ?0..?9 ->
-        do_parse(rest, [{:int, <<char>>, pos, pos}], paren_count, pos + 1)
-
-      char == ?- ->
-        do_parse(rest, [{:int, <<char>>, pos, pos}], paren_count, pos + 1)
+      char in ?0..?9 or char == ?- ->
+        state
+        |> add_token({:int, <<char::utf8>>, state.pos, state.pos})
+        |> consume_char()
+        |> do_parse()
 
       # the only way to enter paren_count > 0 is through the first char
       char == ?( ->
-        do_parse(rest, [{:left_paren, pos}], paren_count + 1, pos + 1)
+        state
+        |> add_token({:left_paren, state.pos})
+        |> inc_paren_count()
+        |> consume_char()
+        |> do_parse()
 
       true ->
-        unexpected_char_error(pos, ["(", "[0-9]"], <<char::utf8>>)
+        unexpected_char_error(state.pos, ["(", "[0-9]"], <<char::utf8>>)
     end
   end
 
   # prev token: :left_paren
-  defp do_parse(<<char::utf8, rest::binary>>, [{:left_paren, _t_pos} | _] = acc, paren_count, pos) do
+  defp do_parse(
+         %State{
+           input: <<char::utf8, _rest::binary>>,
+           tokens: [{:left_paren, _} | _]
+         } = state
+       ) do
     cond do
-      char in ?0..?9 ->
-        do_parse(rest, [{:int, <<char>>, pos, pos} | acc], paren_count, pos + 1)
-
-      char == ?- ->
-        do_parse(rest, [{:int, <<char>>, pos, pos} | acc], paren_count, pos + 1)
+      char in ?0..?9 or char == ?- ->
+        state
+        |> add_token({:int, <<char::utf8>>, state.pos, state.pos})
+        |> consume_char()
+        |> do_parse()
 
       char == ?( ->
-        do_parse(rest, [{:left_paren, pos} | acc], paren_count + 1, pos + 1)
+        state
+        |> add_token({:left_paren, state.pos})
+        |> inc_paren_count()
+        |> consume_char()
+        |> do_parse()
 
       true ->
-        unexpected_char_error(pos, ["(", "[0-9]"], <<char::utf8>>)
+        unexpected_char_error(state.pos, ["(", "[0-9]"], <<char::utf8>>)
     end
   end
 
   # prev token: :right_paren
   defp do_parse(
-         <<char::utf8, rest::binary>>,
-         [{:right_paren, _t_pos} | _] = acc,
-         paren_count,
-         pos
+         %State{
+           input: <<char::utf8, _rest::binary>>,
+           tokens: [{:right_paren, _} | _]
+         } = state
        )
-       when paren_count == 0 do
-    unexpected_char_error(pos, [:eoi], <<char::utf8>>)
-  end
+       when state.paren_count == 0,
+       do: unexpected_char_error(state.pos, [:eoi], <<char::utf8>>)
 
   defp do_parse(
-         <<char::utf8, rest::binary>>,
-         [{:right_paren, _t_pos} | _] = acc,
-         paren_count,
-         pos
-       )
-       when paren_count > 0 do
+         %State{
+           input: <<char::utf8, _rest::binary>>,
+           tokens: [{:right_paren, _} | _]
+         } = state
+       ) do
     cond do
       char in @op_tokens ->
-        do_parse(rest, [{:op, <<char::utf8>>, pos} | acc], paren_count, pos + 1)
+        state
+        |> add_token({:op, <<char::utf8>>, state.pos})
+        |> consume_char()
+        |> do_parse()
 
       char == ?) ->
-        do_parse(rest, [{:right_paren, pos} | acc], paren_count - 1, pos + 1)
+        state
+        |> add_token({:right_paren, state.pos})
+        |> dec_paren_count()
+        |> consume_char()
+        |> do_parse()
 
       true ->
-        unexpected_char_error(pos, ["+", "-", "*", "/", ")"], <<char::utf8>>)
+        unexpected_char_error(state.pos, ["+", "-", "*", "/", ")"], <<char::utf8>>)
     end
   end
 
   # prev token: {:int, n}
   defp do_parse(
-         <<char::utf8, rest::binary>>,
-         [{:int, cur_val, t_pos_b, _t_pos_e} | acc_tail] = acc,
-         paren_count,
-         pos
+         %State{
+           input: <<char::utf8, _rest::binary>>,
+           tokens: [{:int, cur_val, t_pos_b, _} | _]
+         } = state
        )
-       when paren_count == 0 do
+       when state.paren_count == 0 do
     # not in parens, so it's only a number literal, and no ops are allowed
     cond do
       char in ?0..?9 ->
-        do_parse(
-          rest,
-          [{:int, cur_val <> <<char>>, t_pos_b, pos} | acc_tail],
-          paren_count,
-          pos + 1
-        )
+        state
+        |> replace_token({:int, cur_val <> <<char::utf8>>, t_pos_b, state.pos})
+        |> consume_char()
+        |> do_parse()
 
       char == ?. ->
-        do_parse(rest, [{:float_open, cur_val <> ".", t_pos_b} | acc_tail], paren_count, pos + 1)
+        state
+        |> replace_token({:float_open, cur_val <> <<char::utf8>>, t_pos_b})
+        |> consume_char()
+        |> do_parse()
 
       true ->
-        unexpected_char_error(pos, ["[0-9]", "."], <<char::utf8>>)
+        unexpected_char_error(state.pos, ["[0-9]", "."], <<char::utf8>>)
     end
   end
 
   defp do_parse(
-         <<char::utf8, rest::binary>>,
-         [{:int, cur_val, t_pos_b, _t_pos_e} | acc_tail] = acc,
-         paren_count,
-         pos
+         %State{
+           input: <<char::utf8, _rest::binary>>,
+           tokens: [{:int, cur_val, t_pos_b, _} | _]
+         } = state
        )
-       when paren_count > 0 do
+       when state.paren_count > 0 do
     cond do
       char in ?0..?9 ->
-        do_parse(
-          rest,
-          [{:int, cur_val <> <<char>>, t_pos_b, pos} | acc_tail],
-          paren_count,
-          pos + 1
-        )
+        state
+        |> replace_token({:int, cur_val <> <<char::utf8>>, t_pos_b, state.pos})
+        |> consume_char()
+        |> do_parse()
 
       char == ?. ->
-        do_parse(
-          rest,
-          [{:float_open, cur_val <> ".", t_pos_b, pos} | acc_tail],
-          paren_count,
-          pos + 1
-        )
+        state
+        |> replace_token({:float_open, cur_val <> <<char::utf8>>, t_pos_b})
+        |> consume_char()
+        |> do_parse()
 
       char in @op_tokens ->
-        do_parse(rest, [{:op, <<char::utf8>>, pos} | acc], paren_count, pos + 1)
+        state
+        |> add_token({:op, <<char::utf8>>, state.pos})
+        |> consume_char()
+        |> do_parse()
 
       char == ?) ->
-        do_parse(rest, [{:right_paren, pos} | acc], paren_count - 1, pos + 1)
+        state
+        |> add_token({:right_paren, state.pos})
+        |> dec_paren_count()
+        |> consume_char()
+        |> do_parse()
 
       true ->
-        unexpected_char_error(pos, ["[0-9]", ".", "+", "-", "*", "/", ")"], <<char::utf8>>)
+        unexpected_char_error(state.pos, ["[0-9]", ".", "+", "-", "*", "/", ")"], <<char::utf8>>)
     end
   end
 
   # prev token: {:float_open, n} - which means that it's not a valid float yet
   defp do_parse(
-         <<char::utf8, rest::binary>>,
-         [{:float_open, cur_val, t_pos_b, _t_pos_e} | acc_tail] = acc,
-         paren_count,
-         pos
+         %State{
+           input: <<char::utf8, _rest::binary>>,
+           tokens: [{:float_open, cur_val, t_pos_b, _} | _]
+         } = state
        ) do
     cond do
       char in ?0..?9 ->
-        do_parse(
-          rest,
-          [{:float, cur_val <> <<char>>, t_pos_b, pos} | acc_tail],
-          paren_count,
-          pos + 1
-        )
+        state
+        |> replace_token({:float, cur_val <> <<char::utf8>>, t_pos_b, state.pos})
+        |> consume_char()
+        |> do_parse()
 
       true ->
-        unexpected_char_error(pos, ["[0-9]"], <<char::utf8>>)
+        unexpected_char_error(state.pos, ["[0-9]"], <<char::utf8>>)
     end
   end
 
   # prev token: {:float, n} - at this point it's a valid float
   defp do_parse(
-         <<char::utf8, rest::binary>>,
-         [{:float, cur_val, t_pos_b, _t_pos_e} | acc_tail] = acc,
-         paren_count,
-         pos
+         %State{
+           input: <<char::utf8, _rest::binary>>,
+           tokens: [{:float, cur_val, t_pos_b, _} | _]
+         } = state
        )
-       when paren_count == 0 do
+       when state.paren_count == 0 do
     # not in parens, so it's only a number literal, and no ops are allowed
     cond do
       char in ?0..?9 ->
-        do_parse(
-          rest,
-          [{:float, cur_val <> <<char>>, t_pos_b, pos} | acc_tail],
-          paren_count,
-          pos + 1
-        )
+        state
+        |> replace_token({:float, cur_val <> <<char::utf8>>, t_pos_b, state.pos})
+        |> consume_char()
+        |> do_parse()
 
       true ->
-        unexpected_char_error(pos, ["[0-9]"], <<char::utf8>>)
+        unexpected_char_error(state.pos, ["[0-9]"], <<char::utf8>>)
     end
   end
 
   defp do_parse(
-         <<char::utf8, rest::binary>>,
-         [{:float, cur_val, t_pos_b, _t_pos_e} | acc_tail] = acc,
-         paren_count,
-         pos
+         %State{
+           input: <<char::utf8, _rest::binary>>,
+           tokens: [{:float, cur_val, t_pos_b, _} | _]
+         } = state
        )
-       when paren_count > 0 do
+       when state.paren_count > 0 do
     cond do
       char in ?0..?9 ->
-        do_parse(
-          rest,
-          [{:float, cur_val <> <<char>>, t_pos_b, pos} | acc_tail],
-          paren_count,
-          pos + 1
-        )
+        state
+        |> replace_token({:float, cur_val <> <<char::utf8>>, t_pos_b, state.pos})
+        |> consume_char()
+        |> do_parse()
 
       char in @op_tokens ->
-        do_parse(rest, [{:op, <<char::utf8>>, pos} | acc], paren_count, pos + 1)
+        state
+        |> add_token({:op, <<char::utf8>>, state.pos})
+        |> consume_char()
+        |> do_parse()
 
       char == ?) ->
-        do_parse(rest, [{:right_paren, pos} | acc], paren_count - 1, pos + 1)
+        state
+        |> add_token({:right_paren, state.pos})
+        |> dec_paren_count()
+        |> consume_char()
+        |> do_parse()
 
       true ->
-        unexpected_char_error(pos, ["[0-9]", ".", "+", "-", "*", "/", ")"], <<char::utf8>>)
+        unexpected_char_error(state.pos, ["[0-9]", ".", "+", "-", "*", "/", ")"], <<char::utf8>>)
     end
   end
 
   # prev token: {:op, v}
   defp do_parse(
-         <<char::utf8, rest::binary>>,
-         [{:op, _optype, _t_pos} | _] = acc,
-         paren_count,
-         pos
+         %State{
+           input: <<char::utf8, _rest::binary>>,
+           tokens: [{:op, _, _} | _]
+         } = state
        )
-       when paren_count > 0 do
+       when state.paren_count > 0 do
     cond do
-      char in ?0..?9 ->
-        do_parse(rest, [{:int, <<char>>, pos, pos} | acc], paren_count, pos + 1)
-
-      char == ?- ->
-        do_parse(rest, [{:int, <<char>>, pos, pos} | acc], paren_count, pos + 1)
+      char in ?0..?9 or char == ?- ->
+        state
+        |> add_token({:int, <<char::utf8>>, state.pos, state.pos})
+        |> consume_char()
+        |> do_parse()
 
       char == ?( ->
-        do_parse(rest, [{:left_paren, pos} | acc], paren_count + 1, pos + 1)
+        state
+        |> add_token({:left_paren, state.pos})
+        |> inc_paren_count()
+        |> consume_char()
+        |> do_parse()
 
       true ->
-        unexpected_char_error(pos, ["[0-9]", "("], <<char::utf8>>)
+        unexpected_char_error(state.pos, ["[0-9]", "("], <<char::utf8>>)
     end
   end
 
