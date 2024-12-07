@@ -1,4 +1,6 @@
-defmodule Arithmetic do
+defmodule ImagePlug.ParamParser.TwicpicsV2.ArithmeticParser do
+  alias ImagePlug.ParamParser.TwicpicsV2.Utils
+
   @type token :: {:int, integer} | {:float, float} | {:op, binary} | :left_paren | :right_paren
   @type expr :: {:int, integer} | {:float, float} | {:op, binary, expr(), expr()}
 
@@ -16,8 +18,8 @@ defmodule Arithmetic do
       {:ok, expr, []} ->
         {:ok, expr}
 
-      {:ok, expr, [token | _]} ->
-        {start_pos, _end_pos} = NumberParser.pos(token)
+      {:ok, _expr, [token | _]} ->
+        {start_pos, _end_pos} = Utils.token_pos(token)
         {:error, {:unexpected_token, pos: start_pos}}
 
       {:error, _} = error ->
@@ -46,7 +48,7 @@ defmodule Arithmetic do
   end
 
   defp parse_primary([token | _]) do
-    {start_pos, _end_pos} = NumberParser.pos(token)
+    {start_pos, _end_pos} = Utils.token_pos(token)
     {:error, {:unexpected_token, pos: start_pos}}
   end
 

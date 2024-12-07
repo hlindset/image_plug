@@ -1,4 +1,4 @@
-defmodule NumberParser do
+defmodule ImagePlug.ParamParser.TwicpicsV2.NumberParser do
   alias ImagePlug.ParamParser.TwicpicsV2.Utils
 
   @op_tokens ~c"+-*/"
@@ -10,13 +10,6 @@ defmodule NumberParser do
   defp unexpected_char_error(pos, expected, found) do
     {:error, {:unexpected_char, pos: pos, expected: expected, found: found}}
   end
-
-  def pos({:int, _value, pos_b, pos_e}), do: {pos_b, pos_e}
-  def pos({:float_open, _value, pos_b, pos_e}), do: {pos_b, pos_e}
-  def pos({:float, _value, pos_b, pos_e}), do: {pos_b, pos_e}
-  def pos({:left_paren, pos}), do: {pos, pos}
-  def pos({:right_paren, pos}), do: {pos, pos}
-  def pos({:op, _optype, pos}), do: {pos, pos}
 
   defp consume_char(%State{input: <<_char::utf8, rest::binary>>, pos: pos} = state),
     do: %State{state | input: rest, pos: pos + 1}
@@ -61,7 +54,7 @@ defmodule NumberParser do
            other -> other
          end)}
 
-      {:error, {reason, opts}} = error ->
+      {:error, {_reason, _opts}} = error ->
         Utils.update_error_input(error, input)
     end
   end

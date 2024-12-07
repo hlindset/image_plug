@@ -11,7 +11,7 @@ defmodule ImagePlug.ParamParser.TwicpicsV2.KeyValueParser do
   defp parse_pairs("", acc, _pos), do: {:ok, acc}
 
   # pos + 1 because key is expected at the next char
-  defp parse_pairs("/", acc, pos), do: {:error, {:expected_key, pos: pos + 1}}
+  defp parse_pairs("/", _acc, pos), do: {:error, {:expected_key, pos: pos + 1}}
 
   defp parse_pairs(<<"/"::binary, input::binary>>, acc, pos),
     do: parse_pairs(input, acc, pos + 1)
@@ -34,7 +34,7 @@ defmodule ImagePlug.ParamParser.TwicpicsV2.KeyValueParser do
 
   defp extract_value(input, pos) do
     case extract_until_slash_or_end(input, "", pos) do
-      {"", rest, new_pos} -> {:error, {:expected_value, pos: pos}}
+      {"", _rest, new_pos} -> {:error, {:expected_value, pos: new_pos}}
       {value, rest, new_pos} -> {:ok, {value, rest, new_pos}}
     end
   end

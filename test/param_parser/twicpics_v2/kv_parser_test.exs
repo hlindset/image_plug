@@ -1,4 +1,4 @@
-defmodule ImagePlug.Twicpics.KeyValueParserTest do
+defmodule ImagePlug.ParamParser.TwicpicsV2.KeyValueParserTest do
   use ExUnit.Case, async: true
   use ExUnitProperties
 

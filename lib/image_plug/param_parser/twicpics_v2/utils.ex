@@ -18,12 +18,19 @@ defmodule ImagePlug.ParamParser.TwicpicsV2.Utils do
     do: balanced_parens?(rest, stack)
 
   # we found a ")", but head of stack doesn't match
-  defp balanced_parens?(<<")"::binary, rest::binary>>, _stack), do: false
+  defp balanced_parens?(<<")"::binary, _rest::binary>>, _stack), do: false
 
   # consume all other chars
-  defp balanced_parens?(<<char::utf8, rest::binary>>, stack), do: balanced_parens?(rest, stack)
+  defp balanced_parens?(<<_char::utf8, rest::binary>>, stack), do: balanced_parens?(rest, stack)
 
   def update_error_input({:error, {reason, opts}}, input) do
     {:error, {reason, Keyword.put(opts, :input, input)}}
   end
+
+  def token_pos({:int, _value, pos_b, pos_e}), do: {pos_b, pos_e}
+  def token_pos({:float_open, _value, pos_b, pos_e}), do: {pos_b, pos_e}
+  def token_pos({:float, _value, pos_b, pos_e}), do: {pos_b, pos_e}
+  def token_pos({:left_paren, pos}), do: {pos, pos}
+  def token_pos({:right_paren, pos}), do: {pos, pos}
+  def token_pos({:op, _optype, pos}), do: {pos, pos}
 end
