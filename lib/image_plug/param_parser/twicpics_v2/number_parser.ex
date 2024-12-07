@@ -47,7 +47,7 @@ defmodule NumberParser do
   defp do_parse(%State{input: "", tokens: []} = state) when state.paren_count == 0,
     do: unexpected_char_error(state.pos, ["(", "[0-9]"], found: :eoi)
 
-  defp do_parse(%State{input: "", tokens: [{:float_open, _, _} | _]} = state),
+  defp do_parse(%State{input: "", tokens: [{:float_open, _, _, _} | _]} = state),
     do: unexpected_char_error(state.pos, ["[0-9]"], found: :eoi)
 
   defp do_parse(%State{input: ""} = state) when state.paren_count > 0,
@@ -133,7 +133,7 @@ defmodule NumberParser do
         replace_token(state, {:int, cur_val <> <<char::utf8>>, t_pos_b, state.pos})
 
       char == ?. ->
-        replace_token(state, {:float_open, cur_val <> <<char::utf8>>, t_pos_b})
+        replace_token(state, {:float_open, cur_val <> <<char::utf8>>, t_pos_b, state.pos})
 
       true ->
         unexpected_char_error(state.pos, ["[0-9]", "."], <<char::utf8>>)
@@ -152,7 +152,7 @@ defmodule NumberParser do
         replace_token(state, {:int, cur_val <> <<char::utf8>>, t_pos_b, state.pos})
 
       char == ?. ->
-        replace_token(state, {:float_open, cur_val <> <<char::utf8>>, t_pos_b})
+        replace_token(state, {:float_open, cur_val <> <<char::utf8>>, t_pos_b, state.pos})
 
       char in @op_tokens ->
         add_token(state, {:op, <<char::utf8>>, state.pos})
