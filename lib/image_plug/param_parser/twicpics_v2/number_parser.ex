@@ -52,7 +52,7 @@ defmodule NumberParser do
         do_parse(rest, [{:left_paren, pos}], paren_count + 1, pos + 1)
 
       true ->
-        {:error, {:unexpected_char, pos: pos, expected: ["(", "[0-9]"], found: <<char::utf8>>}}
+        unexpected_char_error(pos, ["(", "[0-9]"], <<char::utf8>>)
     end
   end
 
@@ -69,7 +69,7 @@ defmodule NumberParser do
         do_parse(rest, [{:left_paren, pos} | acc], paren_count + 1, pos + 1)
 
       true ->
-        {:error, {:unexpected_char, pos: pos, expected: ["(", "[0-9]"], found: <<char::utf8>>}}
+        unexpected_char_error(pos, ["(", "[0-9]"], <<char::utf8>>)
     end
   end
 
@@ -81,7 +81,7 @@ defmodule NumberParser do
          pos
        )
        when paren_count == 0 do
-    {:error, {:unexpected_char, pos: pos, expected: [:eoi], found: <<char::utf8>>}}
+    unexpected_char_error(pos, [:eoi], <<char::utf8>>)
   end
 
   defp do_parse(
@@ -99,8 +99,7 @@ defmodule NumberParser do
         do_parse(rest, [{:right_paren, pos} | acc], paren_count - 1, pos + 1)
 
       true ->
-        {:error,
-         {:unexpected_char, pos: pos, expected: ["+", "-", "*", "/", ")"], found: <<char::utf8>>}}
+        unexpected_char_error(pos, ["+", "-", "*", "/", ")"], <<char::utf8>>)
     end
   end
 
@@ -126,7 +125,7 @@ defmodule NumberParser do
         do_parse(rest, [{:float_open, cur_val <> ".", t_pos_b} | acc_tail], paren_count, pos + 1)
 
       true ->
-        {:error, {:unexpected_char, pos: pos, expected: ["[0-9]", "."], found: <<char::utf8>>}}
+        unexpected_char_error(pos, ["[0-9]", "."], <<char::utf8>>)
     end
   end
 
@@ -161,9 +160,7 @@ defmodule NumberParser do
         do_parse(rest, [{:right_paren, pos} | acc], paren_count - 1, pos + 1)
 
       true ->
-        {:error,
-         {:unexpected_char,
-          pos: pos, expected: ["[0-9]", ".", "+", "-", "*", "/", ")"], found: <<char::utf8>>}}
+        unexpected_char_error(pos, ["[0-9]", ".", "+", "-", "*", "/", ")"], <<char::utf8>>)
     end
   end
 
@@ -184,7 +181,7 @@ defmodule NumberParser do
         )
 
       true ->
-        {:error, {:unexpected_char, pos: pos, expected: ["[0-9]"], found: <<char::utf8>>}}
+        unexpected_char_error(pos, ["[0-9]"], <<char::utf8>>)
     end
   end
 
@@ -207,7 +204,7 @@ defmodule NumberParser do
         )
 
       true ->
-        {:error, {:unexpected_char, pos: pos, expected: ["[0-9]"], found: <<char::utf8>>}}
+        unexpected_char_error(pos, ["[0-9]"], <<char::utf8>>)
     end
   end
 
@@ -234,9 +231,7 @@ defmodule NumberParser do
         do_parse(rest, [{:right_paren, pos} | acc], paren_count - 1, pos + 1)
 
       true ->
-        {:error,
-         {:unexpected_char,
-          pos: pos, expected: ["[0-9]", ".", "+", "-", "*", "/", ")"], found: <<char::utf8>>}}
+        unexpected_char_error(pos, ["[0-9]", ".", "+", "-", "*", "/", ")"], <<char::utf8>>)
     end
   end
 
@@ -259,8 +254,12 @@ defmodule NumberParser do
         do_parse(rest, [{:left_paren, pos} | acc], paren_count + 1, pos + 1)
 
       true ->
-        {:error, {:unexpected_char, pos: pos, expected: ["[0-9]", "("], found: <<char::utf8>>}}
+        unexpected_char_error(pos, ["[0-9]", "("], <<char::utf8>>)
     end
+  end
+
+  defp unexpected_char_error(pos, expected, found) do
+    {:error, {:unexpected_char, pos: pos, expected: expected, found: found}}
   end
 
   def pos({:int, _value, pos_b, pos_e}), do: {pos_b, pos_e}
