@@ -7,6 +7,17 @@ defmodule NumberParser do
     defstruct input: "", tokens: [], pos: 0, paren_count: 0
   end
 
+  defp unexpected_char_error(pos, expected, found) do
+    {:error, {:unexpected_char, pos: pos, expected: expected, found: found}}
+  end
+
+  def pos({:int, _value, pos_b, pos_e}), do: {pos_b, pos_e}
+  def pos({:float_open, _value, pos_b, pos_e}), do: {pos_b, pos_e}
+  def pos({:float, _value, pos_b, pos_e}), do: {pos_b, pos_e}
+  def pos({:left_paren, pos}), do: {pos, pos}
+  def pos({:right_paren, pos}), do: {pos, pos}
+  def pos({:op, _optype, pos}), do: {pos, pos}
+
   defp consume_char(%State{input: <<_char::utf8, rest::binary>>, pos: pos} = state),
     do: %State{state | input: rest, pos: pos + 1}
 
@@ -26,6 +37,18 @@ defmodule NumberParser do
     |> add_token({:right_paren, state.pos})
   end
 
+  defp mk_int(value, left_pos, right_pos),
+    do: {:int, value, left_pos, right_pos}
+
+  defp mk_float_open(value, left_pos, right_pos),
+    do: {:float_open, value, left_pos, right_pos}
+
+  defp mk_float(value, left_pos, right_pos),
+    do: {:float, value, left_pos, right_pos}
+
+  defp mk_op(type, pos),
+    do: {:op, type, pos}
+
   def parse(input, pos_offset \\ 0) do
     case do_parse(%State{input: input, pos: pos_offset}) do
       {:ok, tokens} ->
@@ -33,8 +56,8 @@ defmodule NumberParser do
          tokens
          |> Enum.reverse()
          |> Enum.map(fn
-           {:int, int, pos_b, pos_e} -> {:int, String.to_integer(int), pos_b, pos_e}
-           {:float, int, pos_b, pos_e} -> {:float, String.to_float(int), pos_b, pos_e}
+           {:int, int, pos_b, pos_e} -> mk_int(String.to_integer(int), pos_b, pos_e)
+           {:float, int, pos_b, pos_e} -> mk_float(String.to_float(int), pos_b, pos_e)
            other -> other
          end)}
 
@@ -43,30 +66,36 @@ defmodule NumberParser do
     end
   end
 
-  # end of input
+  # we hit end of input, but no tokens have been processed
   defp do_parse(%State{input: "", tokens: []} = state) when state.paren_count == 0,
     do: unexpected_char_error(state.pos, ["(", "[0-9]"], found: :eoi)
 
-  defp do_parse(%State{input: "", tokens: [{:float_open, _, _, _} | _]} = state),
-    do: unexpected_char_error(state.pos, ["[0-9]"], found: :eoi)
+  # just consume space characters
+  defp do_parse(%State{input: <<char::utf8, _rest::binary>>} = state) when char in ~c[ ] do
+    state |> consume_char() |> do_parse()
+  end
 
-  defp do_parse(%State{input: ""} = state) when state.paren_count > 0,
-    do: unexpected_char_error(state.pos, [")"], found: :eoi)
+  #
+  # the following states are legal end of input locations as long as
+  # we're not inside a parentheses: :int, :float and :right_paren
+  #
+  defp do_parse(%State{input: "", tokens: [{:int, _, _, _} | _] = tokens} = state)
+       when state.paren_count == 0,
+       do: {:ok, tokens}
 
-  defp do_parse(%State{input: "", tokens: [{:int, _, _, _} | _] = tokens}),
-    do: {:ok, tokens}
+  defp do_parse(%State{input: "", tokens: [{:float, _, _, _} | _] = tokens} = state)
+       when state.paren_count == 0,
+       do: {:ok, tokens}
 
-  defp do_parse(%State{input: "", tokens: [{:float, _, _, _} | _] = tokens}),
-    do: {:ok, tokens}
-
-  defp do_parse(%State{input: "", tokens: [{:right_paren, _} | _] = tokens}),
-    do: {:ok, tokens}
+  defp do_parse(%State{input: "", tokens: [{:right_paren, _} | _] = tokens} = state)
+       when state.paren_count == 0,
+       do: {:ok, tokens}
 
   # first char in string
   defp do_parse(%State{input: <<char::utf8, _rest::binary>>, tokens: []} = state) do
     cond do
       char in ?0..?9 or char == ?- ->
-        add_token(state, {:int, <<char::utf8>>, state.pos, state.pos})
+        add_token(state, mk_int(<<char::utf8>>, state.pos, state.pos))
 
       # the only way to enter paren_count > 0 is through the first char
       char == ?( ->
@@ -77,7 +106,10 @@ defmodule NumberParser do
     end
   end
 
+  #
   # prev token: :left_paren
+  #
+
   defp do_parse(
          %State{
            input: <<char::utf8, _rest::binary>>,
@@ -86,17 +118,27 @@ defmodule NumberParser do
        ) do
     cond do
       char in ?0..?9 or char == ?- ->
-        add_token(state, {:int, <<char::utf8>>, state.pos, state.pos})
+        add_token(state, mk_int(<<char::utf8>>, state.pos, state.pos))
 
       char == ?( ->
         add_left_paren(state)
 
       true ->
-        unexpected_char_error(state.pos, ["(", "[0-9]"], <<char::utf8>>)
+        unexpected_char_error(state.pos, ["(", "[0-9]", "-"], <<char::utf8>>)
     end
   end
 
+  # we hit end of input while the previous token was a :left_paren
+  defp do_parse(%State{input: "", tokens: [{:left_paren, _} | _]} = state) do
+    unexpected_char_error(state.pos, ["(", "[0-9]", "-"], :eoi)
+  end
+
+  #
   # prev token: :right_paren
+  #
+
+  # if last :right_paren has been closed, the expression is completed,
+  # so no more characters are allowed
   defp do_parse(
          %State{
            input: <<char::utf8, _rest::binary>>,
@@ -111,15 +153,25 @@ defmodule NumberParser do
            input: <<char::utf8, _rest::binary>>,
            tokens: [{:right_paren, _} | _]
          } = state
-       ) do
+       )
+       when state.paren_count > 0 do
     cond do
-      char in @op_tokens -> add_token(state, {:op, <<char::utf8>>, state.pos})
+      char in @op_tokens -> add_token(state, mk_op(<<char::utf8>>, state.pos))
       char == ?) -> add_right_paren(state)
       true -> unexpected_char_error(state.pos, ["+", "-", "*", "/", ")"], <<char::utf8>>)
     end
   end
 
-  # prev token: {:int, n}
+  # we hit end of input while the previous token was a :right_paren, but we're still inside a paren
+  defp do_parse(%State{input: "", tokens: [{:right_paren, _} | _]} = state)
+       when state.paren_count > 0 do
+    unexpected_char_error(state.pos, ["+", "-", "*", "/", ")"], :eoi)
+  end
+
+  #
+  # prev token: integer
+  #
+
   defp do_parse(
          %State{
            input: <<char::utf8, _rest::binary>>,
@@ -130,10 +182,10 @@ defmodule NumberParser do
     # not in parens, so it's only a number literal, and no ops are allowed
     cond do
       char in ?0..?9 ->
-        replace_token(state, {:int, cur_val <> <<char::utf8>>, t_pos_b, state.pos})
+        replace_token(state, mk_int(cur_val <> <<char::utf8>>, t_pos_b, state.pos))
 
       char == ?. ->
-        replace_token(state, {:float_open, cur_val <> <<char::utf8>>, t_pos_b, state.pos})
+        replace_token(state, mk_float_open(cur_val <> <<char::utf8>>, t_pos_b, state.pos))
 
       true ->
         unexpected_char_error(state.pos, ["[0-9]", "."], <<char::utf8>>)
@@ -149,13 +201,13 @@ defmodule NumberParser do
        when state.paren_count > 0 do
     cond do
       char in ?0..?9 ->
-        replace_token(state, {:int, cur_val <> <<char::utf8>>, t_pos_b, state.pos})
+        replace_token(state, mk_int(cur_val <> <<char::utf8>>, t_pos_b, state.pos))
 
       char == ?. ->
-        replace_token(state, {:float_open, cur_val <> <<char::utf8>>, t_pos_b, state.pos})
+        replace_token(state, mk_float_open(cur_val <> <<char::utf8>>, t_pos_b, state.pos))
 
       char in @op_tokens ->
-        add_token(state, {:op, <<char::utf8>>, state.pos})
+        add_token(state, mk_op(<<char::utf8>>, state.pos))
 
       char == ?) ->
         add_right_paren(state)
@@ -165,7 +217,17 @@ defmodule NumberParser do
     end
   end
 
-  # prev token: {:float_open, n} - which means that it's not a valid float yet
+  # we hit eoi while on an :int token, and we're in a parentheses
+  defp do_parse(%State{input: "", tokens: [{:int, _, _, _} | _]} = state)
+       when state.paren_count > 0 do
+    unexpected_char_error(state.pos, ["[0-9]", ".", "+", "-", "*", "/", ")"], :eoi)
+  end
+
+  #
+  # prev token: :float_open
+  # - it's not a valid float yet
+  #
+
   defp do_parse(
          %State{
            input: <<char::utf8, _rest::binary>>,
@@ -174,14 +236,22 @@ defmodule NumberParser do
        ) do
     cond do
       char in ?0..?9 ->
-        replace_token(state, {:float, cur_val <> <<char::utf8>>, t_pos_b, state.pos})
+        replace_token(state, mk_float(cur_val <> <<char::utf8>>, t_pos_b, state.pos))
 
       true ->
         unexpected_char_error(state.pos, ["[0-9]"], <<char::utf8>>)
     end
   end
 
-  # prev token: {:float, n} - at this point it's a valid float
+  # we hit end of input while in a :float_open
+  defp do_parse(%State{input: "", tokens: [{:float_open, _, _, _} | _]} = state),
+    do: unexpected_char_error(state.pos, ["[0-9]"], :eoi)
+
+  #
+  # prev token: :float
+  # - at this point it's a valid float
+  #
+
   defp do_parse(
          %State{
            input: <<char::utf8, _rest::binary>>,
@@ -192,7 +262,7 @@ defmodule NumberParser do
     # not in parens, so it's only a number literal, and no ops are allowed
     cond do
       char in ?0..?9 ->
-        replace_token(state, {:float, cur_val <> <<char::utf8>>, t_pos_b, state.pos})
+        replace_token(state, mk_float(cur_val <> <<char::utf8>>, t_pos_b, state.pos))
 
       true ->
         unexpected_char_error(state.pos, ["[0-9]"], <<char::utf8>>)
@@ -208,20 +278,29 @@ defmodule NumberParser do
        when state.paren_count > 0 do
     cond do
       char in ?0..?9 ->
-        replace_token(state, {:float, cur_val <> <<char::utf8>>, t_pos_b, state.pos})
+        replace_token(state, mk_float(cur_val <> <<char::utf8>>, t_pos_b, state.pos))
 
       char in @op_tokens ->
-        add_token(state, {:op, <<char::utf8>>, state.pos})
+        add_token(state, mk_op(<<char::utf8>>, state.pos))
 
       char == ?) ->
         add_right_paren(state)
 
       true ->
-        unexpected_char_error(state.pos, ["[0-9]", ".", "+", "-", "*", "/", ")"], <<char::utf8>>)
+        unexpected_char_error(state.pos, ["[0-9]", "+", "-", "*", "/", ")"], <<char::utf8>>)
     end
   end
 
-  # prev token: {:op, v}
+  # we hit eoi while on an :int token, and we're in a parentheses
+  defp do_parse(%State{input: "", tokens: [{:float, _, _, _} | _]} = state)
+       when state.paren_count > 0 do
+    unexpected_char_error(state.pos, ["[0-9]", "+", "-", "*", "/", ")"], :eoi)
+  end
+
+  #
+  # prev token: :op
+  #
+
   defp do_parse(
          %State{
            input: <<char::utf8, _rest::binary>>,
@@ -231,24 +310,18 @@ defmodule NumberParser do
        when state.paren_count > 0 do
     cond do
       char in ?0..?9 or char == ?- ->
-        add_token(state, {:int, <<char::utf8>>, state.pos, state.pos})
+        add_token(state, mk_int(<<char::utf8>>, state.pos, state.pos))
 
       char == ?( ->
         add_left_paren(state)
 
       true ->
-        unexpected_char_error(state.pos, ["[0-9]", "("], <<char::utf8>>)
+        unexpected_char_error(state.pos, ["[0-9]", "-", "("], <<char::utf8>>)
     end
   end
 
-  defp unexpected_char_error(pos, expected, found) do
-    {:error, {:unexpected_char, pos: pos, expected: expected, found: found}}
+  # we hit eoi while on an :op token
+  defp do_parse(%State{input: "", tokens: [{:op, _, _} | _]} = state) do
+    unexpected_char_error(state.pos, ["[0-9]", "-", "("], :eoi)
   end
-
-  def pos({:int, _value, pos_b, pos_e}), do: {pos_b, pos_e}
-  def pos({:float_open, _value, pos_b, pos_e}), do: {pos_b, pos_e}
-  def pos({:float, _value, pos_b, pos_e}), do: {pos_b, pos_e}
-  def pos({:left_paren, pos}), do: {pos, pos}
-  def pos({:right_paren, pos}), do: {pos, pos}
-  def pos({:op, _optype, pos}), do: {pos, pos}
 end
