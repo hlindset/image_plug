@@ -1,6 +1,8 @@
 defmodule NumberParser do
   alias ImagePlug.ParamParser.TwicpicsV2.Utils
 
+  @op_tokens ~c"+-*/"
+
   def parse(input, pos_offset \\ 0) do
     case do_parse(input, [], 0, pos_offset) do
       {:ok, tokens} ->
@@ -90,17 +92,8 @@ defmodule NumberParser do
        )
        when paren_count > 0 do
     cond do
-      char == ?+ ->
-        do_parse(rest, [{:op, "+", pos} | acc], paren_count, pos + 1)
-
-      char == ?- ->
-        do_parse(rest, [{:op, "-", pos} | acc], paren_count, pos + 1)
-
-      char == ?* ->
-        do_parse(rest, [{:op, "*", pos} | acc], paren_count, pos + 1)
-
-      char == ?/ ->
-        do_parse(rest, [{:op, "/", pos} | acc], paren_count, pos + 1)
+      char in @op_tokens ->
+        do_parse(rest, [{:op, <<char::utf8>>, pos} | acc], paren_count, pos + 1)
 
       char == ?) ->
         do_parse(rest, [{:right_paren, pos} | acc], paren_count - 1, pos + 1)
@@ -161,17 +154,8 @@ defmodule NumberParser do
           pos + 1
         )
 
-      char == ?+ ->
-        do_parse(rest, [{:op, "+", pos} | acc], paren_count, pos + 1)
-
-      char == ?- ->
-        do_parse(rest, [{:op, "-", pos} | acc], paren_count, pos + 1)
-
-      char == ?* ->
-        do_parse(rest, [{:op, "*", pos} | acc], paren_count, pos + 1)
-
-      char == ?/ ->
-        do_parse(rest, [{:op, "/", pos} | acc], paren_count, pos + 1)
+      char in @op_tokens ->
+        do_parse(rest, [{:op, <<char::utf8>>, pos} | acc], paren_count, pos + 1)
 
       char == ?) ->
         do_parse(rest, [{:right_paren, pos} | acc], paren_count - 1, pos + 1)
@@ -243,17 +227,8 @@ defmodule NumberParser do
           pos + 1
         )
 
-      char == ?+ ->
-        do_parse(rest, [{:op, "+", pos} | acc], paren_count, pos + 1)
-
-      char == ?- ->
-        do_parse(rest, [{:op, "-", pos} | acc], paren_count, pos + 1)
-
-      char == ?* ->
-        do_parse(rest, [{:op, "*", pos} | acc], paren_count, pos + 1)
-
-      char == ?/ ->
-        do_parse(rest, [{:op, "/", pos} | acc], paren_count, pos + 1)
+      char in @op_tokens ->
+        do_parse(rest, [{:op, <<char::utf8>>, pos} | acc], paren_count, pos + 1)
 
       char == ?) ->
         do_parse(rest, [{:right_paren, pos} | acc], paren_count - 1, pos + 1)
