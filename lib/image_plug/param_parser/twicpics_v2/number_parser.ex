@@ -57,7 +57,7 @@ defmodule ImagePlug.ParamParser.TwicpicsV2.NumberParser do
 
   # we hit end of input, but no tokens have been processed
   defp do_parse(%State{input: "", tokens: []} = state) when state.paren_count == 0,
-    do: Utils.unexpected_char_error(state.pos, ["(", "[0-9]"], found: :eoi)
+    do: Utils.unexpected_value_error(state.pos, ["(", "[0-9]"], found: :eoi)
 
   # just consume space characters
   defp do_parse(%State{input: <<char::utf8, _rest::binary>>} = state) when char in ~c[ ] do
@@ -91,7 +91,7 @@ defmodule ImagePlug.ParamParser.TwicpicsV2.NumberParser do
         add_left_paren(state)
 
       true ->
-        Utils.unexpected_char_error(state.pos, ["(", "[0-9]"], <<char::utf8>>)
+        Utils.unexpected_value_error(state.pos, ["(", "[0-9]"], <<char::utf8>>)
     end
   end
 
@@ -113,13 +113,13 @@ defmodule ImagePlug.ParamParser.TwicpicsV2.NumberParser do
         add_left_paren(state)
 
       true ->
-        Utils.unexpected_char_error(state.pos, ["(", "[0-9]", "-"], <<char::utf8>>)
+        Utils.unexpected_value_error(state.pos, ["(", "[0-9]", "-"], <<char::utf8>>)
     end
   end
 
   # we hit end of input while the previous token was a :left_paren
   defp do_parse(%State{input: "", tokens: [{:left_paren, _} | _]} = state) do
-    Utils.unexpected_char_error(state.pos, ["(", "[0-9]", "-"], :eoi)
+    Utils.unexpected_value_error(state.pos, ["(", "[0-9]", "-"], :eoi)
   end
 
   #
@@ -135,7 +135,7 @@ defmodule ImagePlug.ParamParser.TwicpicsV2.NumberParser do
          } = state
        )
        when state.paren_count == 0,
-       do: Utils.unexpected_char_error(state.pos, [:eoi], <<char::utf8>>)
+       do: Utils.unexpected_value_error(state.pos, [:eoi], <<char::utf8>>)
 
   defp do_parse(
          %State{
@@ -147,14 +147,14 @@ defmodule ImagePlug.ParamParser.TwicpicsV2.NumberParser do
     cond do
       char in @op_tokens -> add_token(state, mk_op(<<char::utf8>>, state.pos))
       char == ?) -> add_right_paren(state)
-      true -> Utils.unexpected_char_error(state.pos, ["+", "-", "*", "/", ")"], <<char::utf8>>)
+      true -> Utils.unexpected_value_error(state.pos, ["+", "-", "*", "/", ")"], <<char::utf8>>)
     end
   end
 
   # we hit end of input while the previous token was a :right_paren, but we're still inside a paren
   defp do_parse(%State{input: "", tokens: [{:right_paren, _} | _]} = state)
        when state.paren_count > 0 do
-    Utils.unexpected_char_error(state.pos, ["+", "-", "*", "/", ")"], :eoi)
+    Utils.unexpected_value_error(state.pos, ["+", "-", "*", "/", ")"], :eoi)
   end
 
   #
@@ -177,7 +177,7 @@ defmodule ImagePlug.ParamParser.TwicpicsV2.NumberParser do
         replace_token(state, mk_float_open(cur_val <> <<char::utf8>>, t_pos_b, state.pos))
 
       true ->
-        Utils.unexpected_char_error(state.pos, ["[0-9]", "."], <<char::utf8>>)
+        Utils.unexpected_value_error(state.pos, ["[0-9]", "."], <<char::utf8>>)
     end
   end
 
@@ -202,7 +202,7 @@ defmodule ImagePlug.ParamParser.TwicpicsV2.NumberParser do
         add_right_paren(state)
 
       true ->
-        Utils.unexpected_char_error(
+        Utils.unexpected_value_error(
           state.pos,
           ["[0-9]", ".", "+", "-", "*", "/", ")"],
           <<char::utf8>>
@@ -213,7 +213,7 @@ defmodule ImagePlug.ParamParser.TwicpicsV2.NumberParser do
   # we hit eoi while on an :int token, and we're in a parentheses
   defp do_parse(%State{input: "", tokens: [{:int, _, _, _} | _]} = state)
        when state.paren_count > 0 do
-    Utils.unexpected_char_error(state.pos, ["[0-9]", ".", "+", "-", "*", "/", ")"], :eoi)
+    Utils.unexpected_value_error(state.pos, ["[0-9]", ".", "+", "-", "*", "/", ")"], :eoi)
   end
 
   #
@@ -232,13 +232,13 @@ defmodule ImagePlug.ParamParser.TwicpicsV2.NumberParser do
         replace_token(state, mk_float(cur_val <> <<char::utf8>>, t_pos_b, state.pos))
 
       true ->
-        Utils.unexpected_char_error(state.pos, ["[0-9]"], <<char::utf8>>)
+        Utils.unexpected_value_error(state.pos, ["[0-9]"], <<char::utf8>>)
     end
   end
 
   # we hit end of input while in a :float_open
   defp do_parse(%State{input: "", tokens: [{:float_open, _, _, _} | _]} = state),
-    do: Utils.unexpected_char_error(state.pos, ["[0-9]"], :eoi)
+    do: Utils.unexpected_value_error(state.pos, ["[0-9]"], :eoi)
 
   #
   # prev token: :float
@@ -258,7 +258,7 @@ defmodule ImagePlug.ParamParser.TwicpicsV2.NumberParser do
         replace_token(state, mk_float(cur_val <> <<char::utf8>>, t_pos_b, state.pos))
 
       true ->
-        Utils.unexpected_char_error(state.pos, ["[0-9]"], <<char::utf8>>)
+        Utils.unexpected_value_error(state.pos, ["[0-9]"], <<char::utf8>>)
     end
   end
 
@@ -280,14 +280,18 @@ defmodule ImagePlug.ParamParser.TwicpicsV2.NumberParser do
         add_right_paren(state)
 
       true ->
-        Utils.unexpected_char_error(state.pos, ["[0-9]", "+", "-", "*", "/", ")"], <<char::utf8>>)
+        Utils.unexpected_value_error(
+          state.pos,
+          ["[0-9]", "+", "-", "*", "/", ")"],
+          <<char::utf8>>
+        )
     end
   end
 
   # we hit eoi while on an :int token, and we're in a parentheses
   defp do_parse(%State{input: "", tokens: [{:float, _, _, _} | _]} = state)
        when state.paren_count > 0 do
-    Utils.unexpected_char_error(state.pos, ["[0-9]", "+", "-", "*", "/", ")"], :eoi)
+    Utils.unexpected_value_error(state.pos, ["[0-9]", "+", "-", "*", "/", ")"], :eoi)
   end
 
   #
@@ -309,12 +313,12 @@ defmodule ImagePlug.ParamParser.TwicpicsV2.NumberParser do
         add_left_paren(state)
 
       true ->
-        Utils.unexpected_char_error(state.pos, ["[0-9]", "-", "("], <<char::utf8>>)
+        Utils.unexpected_value_error(state.pos, ["[0-9]", "-", "("], <<char::utf8>>)
     end
   end
 
   # we hit eoi while on an :op token
   defp do_parse(%State{input: "", tokens: [{:op, _, _} | _]} = state) do
-    Utils.unexpected_char_error(state.pos, ["[0-9]", "-", "("], :eoi)
+    Utils.unexpected_value_error(state.pos, ["[0-9]", "-", "("], :eoi)
   end
 end

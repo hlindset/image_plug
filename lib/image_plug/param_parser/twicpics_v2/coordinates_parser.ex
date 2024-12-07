@@ -20,7 +20,7 @@ defmodule ImagePlug.ParamParser.TwicpicsV2.CoordinatesParser do
         # if it suceeds, complain that the second dimension that's missing
         case parse_and_validate(left_str, pos_offset) do
           {:ok, _} ->
-            Utils.unexpected_char_error(pos_offset + String.length(left_str), ["x"], :eoi)
+            Utils.unexpected_value_error(pos_offset + String.length(left_str), ["x"], :eoi)
             |> Utils.update_error_input(input)
 
           {:error, _} = error ->

@@ -1,6 +1,8 @@
 defmodule ImagePlug.ParamParser.TwicpicsV2.KeyValueParser do
   alias ImagePlug.ParamParser.TwicpicsV2.Utils
 
+  @valid_keys ~w(crop resize contain focus output)
+
   def parse(input, pos_offset \\ 0) do
     case parse_pairs(input, [], pos_offset) do
       {:ok, result} -> {:ok, Enum.reverse(result)}
@@ -27,8 +29,9 @@ defmodule ImagePlug.ParamParser.TwicpicsV2.KeyValueParser do
 
   defp extract_key(input, pos) do
     case String.split(input, "=", parts: 2) do
-      [key, rest] -> {:ok, {key, rest, pos + String.length(key) + 1}}
-      [rest] -> {:error, {:expected_eq, pos: pos + String.length(rest) + 1}}
+      [key, rest] when key in @valid_keys -> {:ok, {key, rest, pos + String.length(key) + 1}}
+      [key, rest] -> Utils.unexpected_value_error(pos, @valid_keys, key)
+      [rest] -> Utils.unexpected_value_error(pos + String.length(rest), ["="], :eoi)
     end
   end
 

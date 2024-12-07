@@ -141,7 +141,7 @@ defmodule ImagePlug.ParamParser.TwicpicsV2.NumberParserTest do
     end
   end
 
-  describe "unexpected_char_error/3" do
+  describe "unexpected_value_error/3" do
     test "invalid character at the start of input" do
       input = "x123"
       {:error, {:unexpected_char, opts}} = NumberParser.parse(input)

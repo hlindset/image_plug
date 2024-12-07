@@ -34,7 +34,7 @@ defmodule ImagePlug.ParamParser.TwicpicsV2.Utils do
   def token_pos({:right_paren, pos}), do: {pos, pos}
   def token_pos({:op, _optype, pos}), do: {pos, pos}
 
-  def unexpected_char_error(pos, expected, found) do
+  def unexpected_value_error(pos, expected, found) do
     {:error, {:unexpected_char, pos: pos, expected: expected, found: found}}
   end
 end
