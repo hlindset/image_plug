@@ -32,11 +32,24 @@ defmodule ImagePlug.ParamParser.TwicpicsV2.NumberParser do
   defp mk_float_open(value, left_pos, right_pos),
     do: {:float_open, value, left_pos, right_pos}
 
+  defp mk_exp_open(value, left_pos, right_pos),
+    do: {:exp_open, value, left_pos, right_pos}
+
+  defp mk_exp(value, left_pos, right_pos),
+    do: {:exp, value, left_pos, right_pos}
+
   defp mk_float(value, left_pos, right_pos),
     do: {:float, value, left_pos, right_pos}
 
   defp mk_op(type, pos),
     do: {:op, type, pos}
+
+  defp sci_to_num(sci) do
+    [base_str, exponent_str] = String.split(sci, ~r/e/i)
+    {base, ""} = Float.parse(base_str)
+    {exponent, ""} = Integer.parse(exponent_str)
+    base * :math.pow(10, exponent)
+  end
 
   def parse(input, pos_offset \\ 0) do
     case do_parse(%State{input: input, pos: pos_offset}) do
@@ -47,6 +60,7 @@ defmodule ImagePlug.ParamParser.TwicpicsV2.NumberParser do
          |> Enum.map(fn
            {:int, int, pos_b, pos_e} -> mk_int(String.to_integer(int), pos_b, pos_e)
            {:float, int, pos_b, pos_e} -> mk_float(String.to_float(int), pos_b, pos_e)
+           {:exp, exp_num, pos_b, pos_e} -> mk_float(sci_to_num(exp_num), pos_b, pos_e)
            other -> other
          end)}
 
@@ -66,13 +80,17 @@ defmodule ImagePlug.ParamParser.TwicpicsV2.NumberParser do
 
   #
   # the following states are legal end of input locations as long as
-  # we're not inside a parentheses: :int, :float and :right_paren
+  # we're not inside a parentheses: :int, :float, :exp and :right_paren
   #
   defp do_parse(%State{input: "", tokens: [{:int, _, _, _} | _] = tokens} = state)
        when state.paren_count == 0,
        do: {:ok, tokens}
 
   defp do_parse(%State{input: "", tokens: [{:float, _, _, _} | _] = tokens} = state)
+       when state.paren_count == 0,
+       do: {:ok, tokens}
+
+  defp do_parse(%State{input: "", tokens: [{:exp, _, _, _} | _] = tokens} = state)
        when state.paren_count == 0,
        do: {:ok, tokens}
 
@@ -176,6 +194,9 @@ defmodule ImagePlug.ParamParser.TwicpicsV2.NumberParser do
       char == ?. ->
         replace_token(state, mk_float_open(cur_val <> <<char::utf8>>, t_pos_b, state.pos))
 
+      char == ?e or char == ?E ->
+        replace_token(state, mk_exp_open(cur_val <> <<char::utf8>>, t_pos_b, state.pos))
+
       true ->
         Utils.unexpected_value_error(state.pos, ["[0-9]", "."], <<char::utf8>>)
     end
@@ -194,6 +215,9 @@ defmodule ImagePlug.ParamParser.TwicpicsV2.NumberParser do
 
       char == ?. ->
         replace_token(state, mk_float_open(cur_val <> <<char::utf8>>, t_pos_b, state.pos))
+
+      char == ?e or char == ?E ->
+        replace_token(state, mk_exp_open(cur_val <> <<char::utf8>>, t_pos_b, state.pos))
 
       char in @op_tokens ->
         add_token(state, mk_op(<<char::utf8>>, state.pos))
@@ -257,6 +281,9 @@ defmodule ImagePlug.ParamParser.TwicpicsV2.NumberParser do
       char in ?0..?9 ->
         replace_token(state, mk_float(cur_val <> <<char::utf8>>, t_pos_b, state.pos))
 
+      char == ?e or char == ?E ->
+        replace_token(state, mk_exp_open(cur_val <> <<char::utf8>>, t_pos_b, state.pos))
+
       true ->
         Utils.unexpected_value_error(state.pos, ["[0-9]"], <<char::utf8>>)
     end
@@ -273,6 +300,9 @@ defmodule ImagePlug.ParamParser.TwicpicsV2.NumberParser do
       char in ?0..?9 ->
         replace_token(state, mk_float(cur_val <> <<char::utf8>>, t_pos_b, state.pos))
 
+      char == ?e or char == ?E ->
+        replace_token(state, mk_exp_open(cur_val <> <<char::utf8>>, t_pos_b, state.pos))
+
       char in @op_tokens ->
         add_token(state, mk_op(<<char::utf8>>, state.pos))
 
@@ -288,10 +318,73 @@ defmodule ImagePlug.ParamParser.TwicpicsV2.NumberParser do
     end
   end
 
-  # we hit eoi while on an :int token, and we're in a parentheses
+  # we hit eoi while on an :float token, and we're in a parentheses
   defp do_parse(%State{input: "", tokens: [{:float, _, _, _} | _]} = state)
        when state.paren_count > 0 do
     Utils.unexpected_value_error(state.pos, ["[0-9]", "+", "-", "*", "/", ")"], :eoi)
+  end
+
+  #
+  # prev token: :exp_open
+  # - at this point it's a not a valid exponential number
+  #
+
+  defp do_parse(
+         %State{
+           input: <<char::utf8, _rest::binary>>,
+           tokens: [{:exp_open, cur_val, t_pos_b, _} | _]
+         } = state
+       ) do
+    cond do
+      char in ?0..?9 or char == ?- ->
+        replace_token(state, mk_exp(cur_val <> <<char::utf8>>, t_pos_b, state.pos))
+
+      true ->
+        Utils.unexpected_value_error(state.pos, ["[0-9]", "-"], <<char::utf8>>)
+    end
+  end
+
+  #
+  # prev token: :exp
+  # - we have a valid number in exponential notation
+  #
+
+  defp do_parse(
+         %State{
+           input: <<char::utf8, _rest::binary>>,
+           tokens: [{:exp, cur_val, t_pos_b, _} | _]
+         } = state
+       )
+       when state.paren_count == 0 do
+    cond do
+      char in ?0..?9 ->
+        replace_token(state, mk_exp(cur_val <> <<char::utf8>>, t_pos_b, state.pos))
+
+      true ->
+        Utils.unexpected_value_error(state.pos, ["[0-9]"], <<char::utf8>>)
+    end
+  end
+
+  defp do_parse(
+         %State{
+           input: <<char::utf8, _rest::binary>>,
+           tokens: [{:exp, cur_val, t_pos_b, _} | _]
+         } = state
+       )
+       when state.paren_count > 0 do
+    cond do
+      char in ?0..?9 ->
+        replace_token(state, mk_exp(cur_val <> <<char::utf8>>, t_pos_b, state.pos))
+
+      char in @op_tokens ->
+        add_token(state, mk_op(<<char::utf8>>, state.pos))
+
+      char == ?) ->
+        add_right_paren(state)
+
+      true ->
+        Utils.unexpected_value_error(state.pos, ["[0-9]", "-"], <<char::utf8>>)
+    end
   end
 
   #
