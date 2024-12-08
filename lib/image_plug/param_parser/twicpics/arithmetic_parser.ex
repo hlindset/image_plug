@@ -1,5 +1,5 @@
-defmodule ImagePlug.ParamParser.TwicpicsV2.ArithmeticParser do
-  alias ImagePlug.ParamParser.TwicpicsV2.Utils
+defmodule ImagePlug.ParamParser.Twicpics.ArithmeticParser do
+  alias ImagePlug.ParamParser.Twicpics.Utils
 
   @type token :: {:int, integer} | {:float, float} | {:op, binary} | :left_paren | :right_paren
   @type expr :: {:int, integer} | {:float, float} | {:op, binary, expr(), expr()}

@@ -1,6 +1,6 @@
-defmodule ImagePlug.ParamParser.TwicpicsV2.CoordinatesParser do
-  alias ImagePlug.ParamParser.TwicpicsV2.LengthParser
-  alias ImagePlug.ParamParser.TwicpicsV2.Utils
+defmodule ImagePlug.ParamParser.Twicpics.CoordinatesParser do
+  alias ImagePlug.ParamParser.Twicpics.LengthParser
+  alias ImagePlug.ParamParser.Twicpics.Utils
 
   def parse(input, pos_offset \\ 0) do
     case String.split(input, "x", parts: 2) do

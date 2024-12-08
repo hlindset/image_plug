@@ -1,5 +1,5 @@
-defmodule ImagePlug.ParamParser.TwicpicsV2.KVParser do
-  alias ImagePlug.ParamParser.TwicpicsV2.Utils
+defmodule ImagePlug.ParamParser.Twicpics.KVParser do
+  alias ImagePlug.ParamParser.Twicpics.Utils
 
   def parse(input, valid_keys, pos_offset \\ 0) do
     case parse_pairs(input, [], valid_keys, pos_offset) do

@@ -1,14 +1,14 @@
-defmodule ImagePlug.ParamParser.TwicpicsV2 do
+defmodule ImagePlug.ParamParser.Twicpics do
   @behaviour ImagePlug.ParamParser
 
-  alias ImagePlug.ParamParser.TwicpicsV2
+  alias ImagePlug.ParamParser.Twicpics
 
   @transforms %{
-    "crop" => {ImagePlug.Transform.Crop, TwicpicsV2.Transform.CropParser},
-    "resize" => {ImagePlug.Transform.Scale, TwicpicsV2.Transform.ScaleParser},
-    "focus" => {ImagePlug.Transform.Focus, TwicpicsV2.Transform.FocusParser},
-    "contain" => {ImagePlug.Transform.Contain, TwicpicsV2.Transform.ContainParser},
-    "output" => {ImagePlug.Transform.Output, TwicpicsV2.Transform.OutputParser}
+    "crop" => {ImagePlug.Transform.Crop, Twicpics.Transform.CropParser},
+    "resize" => {ImagePlug.Transform.Scale, Twicpics.Transform.ScaleParser},
+    "focus" => {ImagePlug.Transform.Focus, Twicpics.Transform.FocusParser},
+    "contain" => {ImagePlug.Transform.Contain, Twicpics.Transform.ContainParser},
+    "output" => {ImagePlug.Transform.Output, Twicpics.Transform.OutputParser}
   }
 
   @transform_keys Map.keys(@transforms)
@@ -43,7 +43,7 @@ defmodule ImagePlug.ParamParser.TwicpicsV2 do
   end
 
   def parse_chain(chain_str, pos_offset) do
-    case TwicpicsV2.KVParser.parse(chain_str, @transform_keys, pos_offset) do
+    case Twicpics.KVParser.parse(chain_str, @transform_keys, pos_offset) do
       {:ok, kv_params} ->
         Enum.reduce_while(kv_params, {:ok, []}, fn
           {transform_name, params_str, pos}, {:ok, transforms_acc} ->

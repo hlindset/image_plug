@@ -1,7 +1,7 @@
-defmodule ImagePlug.ParamParser.TwicpicsV2.LengthParser do
-  alias ImagePlug.ParamParser.TwicpicsV2.NumberParser
-  alias ImagePlug.ParamParser.TwicpicsV2.ArithmeticParser
-  alias ImagePlug.ParamParser.TwicpicsV2.Utils
+defmodule ImagePlug.ParamParser.Twicpics.LengthParser do
+  alias ImagePlug.ParamParser.Twicpics.NumberParser
+  alias ImagePlug.ParamParser.Twicpics.ArithmeticParser
+  alias ImagePlug.ParamParser.Twicpics.Utils
 
   def parse(input, pos_offset \\ 0) do
     {type, num_str} =

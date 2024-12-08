@@ -1,8 +1,8 @@
-defmodule ImagePlug.ParamParser.TwicpicsV2.KVParserTest do
+defmodule ImagePlug.ParamParser.Twicpics.KVParserTest do
   use ExUnit.Case, async: true
   use ExUnitProperties
 
-  alias ImagePlug.ParamParser.TwicpicsV2.KVParser
+  alias ImagePlug.ParamParser.Twicpics.KVParser
 
   @keys ~w(k1 k2 k3 k1 k20 k300 k4000)
 
@@ -26,7 +26,8 @@ defmodule ImagePlug.ParamParser.TwicpicsV2.KVParserTest do
   end
 
   test "error returns correct position when missing =" do
-    assert KVParser.parse("k1=v1/k20=v20/k300", @keys) == {:error, {:unexpected_char, [{:pos, 18}, {:expected, ["="]}, {:found, :eoi}]}}
+    assert KVParser.parse("k1=v1/k20=v20/k300", @keys) ==
+             {:error, {:unexpected_char, [{:pos, 18}, {:expected, ["="]}, {:found, :eoi}]}}
   end
 
   test "expected key error returns correct position" do

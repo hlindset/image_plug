@@ -1,4 +1,4 @@
-defmodule ImagePlug.ParamParser.TwicpicsV2.Utils do
+defmodule ImagePlug.ParamParser.Twicpics.Utils do
   def balanced_parens?(value) when is_binary(value) do
     balanced_parens?(value, [])
   end

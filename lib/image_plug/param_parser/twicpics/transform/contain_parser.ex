@@ -1,7 +1,7 @@
-defmodule ImagePlug.ParamParser.TwicpicsV2.Transform.ContainParser do
-  alias ImagePlug.ParamParser.TwicpicsV2.SizeParser
-  alias ImagePlug.ParamParser.TwicpicsV2.RatioParser
-  alias ImagePlug.ParamParser.TwicpicsV2.Utils
+defmodule ImagePlug.ParamParser.Twicpics.Transform.ContainParser do
+  alias ImagePlug.ParamParser.Twicpics.SizeParser
+  alias ImagePlug.ParamParser.Twicpics.RatioParser
+  alias ImagePlug.ParamParser.Twicpics.Utils
   alias ImagePlug.Transform.Contain.ContainParams
 
   def parse(input, pos_offset \\ 0) do

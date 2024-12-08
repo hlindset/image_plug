@@ -1,5 +1,5 @@
-defmodule ImagePlug.ParamParser.TwicpicsV2.NumberParser do
-  alias ImagePlug.ParamParser.TwicpicsV2.Utils
+defmodule ImagePlug.ParamParser.Twicpics.NumberParser do
+  alias ImagePlug.ParamParser.Twicpics.Utils
 
   @op_tokens ~c"+-*/"
 

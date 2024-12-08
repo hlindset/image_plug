@@ -1,8 +1,8 @@
-defmodule ImagePlug.ParamParser.TwicpicsV2.NumberParserTest do
+defmodule ImagePlug.ParamParser.Twicpics.NumberParserTest do
   use ExUnit.Case, async: true
   use ExUnitProperties
 
-  alias ImagePlug.ParamParser.TwicpicsV2.NumberParser
+  alias ImagePlug.ParamParser.Twicpics.NumberParser
 
   describe "successful parsing" do
     test "parses a single integer" do

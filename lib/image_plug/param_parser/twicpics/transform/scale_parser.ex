@@ -1,7 +1,7 @@
-defmodule ImagePlug.ParamParser.TwicpicsV2.Transform.ScaleParser do
-  alias ImagePlug.ParamParser.TwicpicsV2.SizeParser
-  alias ImagePlug.ParamParser.TwicpicsV2.RatioParser
-  alias ImagePlug.ParamParser.TwicpicsV2.Utils
+defmodule ImagePlug.ParamParser.Twicpics.Transform.ScaleParser do
+  alias ImagePlug.ParamParser.Twicpics.SizeParser
+  alias ImagePlug.ParamParser.Twicpics.RatioParser
+  alias ImagePlug.ParamParser.Twicpics.Utils
   alias ImagePlug.Transform.Scale.ScaleParams
   alias ImagePlug.Transform.Scale.ScaleParams.Dimensions
   alias ImagePlug.Transform.Scale.ScaleParams.AspectRatio

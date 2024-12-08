@@ -1,8 +1,8 @@
-defmodule ImagePlug.ParamParser.TwicpicsV2.UtilsTest do
+defmodule ImagePlug.ParamParser.Twicpics.UtilsTest do
   use ExUnit.Case, async: true
   use ExUnitProperties
 
-  alias ImagePlug.ParamParser.TwicpicsV2.Utils
+  alias ImagePlug.ParamParser.Twicpics.Utils
 
   test "balanced_parens?/1" do
     assert Utils.balanced_parens?("(") == false

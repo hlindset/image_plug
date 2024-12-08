@@ -1,4 +1,4 @@
-defmodule ImagePlug.ParamParser.TwicpicsV2.Formatters do
+defmodule ImagePlug.ParamParser.Twicpics.Formatters do
   defp format_char(:eoi), do: "end of input"
   defp format_char(other), do: other
 

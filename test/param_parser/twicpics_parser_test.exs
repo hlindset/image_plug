@@ -4,17 +4,17 @@ defmodule ImagePlug.ParamParser.TwicpicsParserTest do
 
   import ImagePlug.TestSupport
 
-  alias ImagePlug.ParamParser.TwicpicsV2
+  alias ImagePlug.ParamParser.Twicpics
   alias ImagePlug.Transform.Crop
   alias ImagePlug.Transform.Scale
   alias ImagePlug.Transform.Focus
   alias ImagePlug.Transform.Contain
 
-  doctest ImagePlug.ParamParser.TwicpicsV2.Transform.CropParser
-  doctest ImagePlug.ParamParser.TwicpicsV2.Transform.ScaleParser
-  doctest ImagePlug.ParamParser.TwicpicsV2.Transform.FocusParser
-  doctest ImagePlug.ParamParser.TwicpicsV2.Transform.ContainParser
-  doctest ImagePlug.ParamParser.TwicpicsV2.Transform.OutputParser
+  doctest ImagePlug.ParamParser.Twicpics.Transform.CropParser
+  doctest ImagePlug.ParamParser.Twicpics.Transform.ScaleParser
+  doctest ImagePlug.ParamParser.Twicpics.Transform.FocusParser
+  doctest ImagePlug.ParamParser.Twicpics.Transform.ContainParser
+  doctest ImagePlug.ParamParser.Twicpics.Transform.OutputParser
 
   defp length_str({:pixels, unit}), do: "#{unit}"
   defp length_str({:scale, unit_a, unit_b}), do: "(#{unit_a}/#{unit_b})s"
@@ -36,7 +36,7 @@ defmodule ImagePlug.ParamParser.TwicpicsParserTest do
           %{left: left, top: top} -> "#{str_params}@#{length_str(left)}x#{length_str(top)}"
         end
 
-      parsed = TwicpicsV2.Transform.CropParser.parse(str_params)
+      parsed = Twicpics.Transform.CropParser.parse(str_params)
 
       assert {:ok,
               %Crop.CropParams{
@@ -70,7 +70,7 @@ defmodule ImagePlug.ParamParser.TwicpicsParserTest do
           {:anchor, _, _} = anchor -> anchor_to_str(anchor)
         end
 
-      {:ok, parsed} = TwicpicsV2.Transform.FocusParser.parse(str_params)
+      {:ok, parsed} = Twicpics.Transform.FocusParser.parse(str_params)
 
       case focus_type do
         {:coordinate, left, top} ->
@@ -94,7 +94,8 @@ defmodule ImagePlug.ParamParser.TwicpicsParserTest do
                      tuple({random_root_unit(min: 1), random_root_unit(min: 1)})}
                   ),
                   tuple(
-                    {constant(:aspect_ratio), tuple({random_base_unit(min: 1), random_base_unit(min: 1)})}
+                    {constant(:aspect_ratio),
+                     tuple({random_base_unit(min: 1), random_base_unit(min: 1)})}
                   )
                 ]) do
       {str_params, expected} =
@@ -135,7 +136,7 @@ defmodule ImagePlug.ParamParser.TwicpicsParserTest do
              }}
         end
 
-      {:ok, parsed} = TwicpicsV2.Transform.ScaleParser.parse(str_params)
+      {:ok, parsed} = Twicpics.Transform.ScaleParser.parse(str_params)
 
       assert parsed == expected
     end
@@ -145,7 +146,7 @@ defmodule ImagePlug.ParamParser.TwicpicsParserTest do
     check all width <- random_root_unit(min: 1),
               height <- random_root_unit(min: 1) do
       str_params = "#{length_str(width)}x#{length_str(height)}"
-      parsed = TwicpicsV2.Transform.ContainParser.parse(str_params)
+      parsed = Twicpics.Transform.ContainParser.parse(str_params)
 
       assert {:ok, %Contain.ContainParams{width: to_result(width), height: to_result(height)}} ==
                parsed
