@@ -23,7 +23,7 @@ defmodule ImagePlug.ParamParser.Twicpics.Utils do
   # consume all other chars
   defp balanced_parens?(<<_char::utf8, rest::binary>>, stack), do: balanced_parens?(rest, stack)
 
-  def update_error_input({:error, {reason, opts}}, input) do
+  def update_error_input({:error, {reason, opts}}, input) when is_list(opts) do
     {:error, {reason, Keyword.put(opts, :input, input)}}
   end
 

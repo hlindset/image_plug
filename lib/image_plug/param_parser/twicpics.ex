@@ -1,7 +1,11 @@
 defmodule ImagePlug.ParamParser.Twicpics do
   @behaviour ImagePlug.ParamParser
 
+  require Logger
+
   alias ImagePlug.ParamParser.Twicpics
+  alias ImagePlug.ParamParser.Twicpics.Formatters
+  alias ImagePlug.ParamParser.Twicpics.Utils
 
   @transforms %{
     "crop" => {ImagePlug.Transform.Crop, Twicpics.Transform.CropParser},
@@ -46,10 +50,13 @@ defmodule ImagePlug.ParamParser.Twicpics do
     case Twicpics.KVParser.parse(chain_str, @transform_keys, pos_offset) do
       {:ok, kv_params} ->
         Enum.reduce_while(kv_params, {:ok, []}, fn
-          {transform_name, params_str, pos}, {:ok, transforms_acc} ->
+          {transform_name, params_str, key_start_pos}, {:ok, transforms_acc} ->
             {transform_mod, parser_mod} = Map.get(@transforms, transform_name)
 
-            case parser_mod.parse(params_str, pos) do
+            # key start pos + key length + 1 (=-sign)
+            value_pos = key_start_pos + String.length(transform_name) + 1
+
+            case parser_mod.parse(params_str, value_pos) do
               {:ok, parsed_params} ->
                 {:cont, {:ok, [{transform_mod, parsed_params} | transforms_acc]}}
 
@@ -65,5 +72,19 @@ defmodule ImagePlug.ParamParser.Twicpics do
       {:ok, transforms} -> {:ok, Enum.reverse(transforms)}
       other -> other
     end
+  end
+
+  @impl ImagePlug.ParamParser
+  def handle_error(%Plug.Conn{} = conn, {:error, _} = error) do
+    Logger.error(inspect(error))
+
+    error_msg =
+      error
+      |> Utils.update_error_input("#{conn.request_path}?#{conn.query_string}")
+      |> Formatters.format_error()
+
+    conn
+    |> Plug.Conn.put_resp_content_type("text/plain")
+    |> Plug.Conn.send_resp(400, error_msg)
   end
 end

@@ -5,7 +5,7 @@ defmodule ImagePlug.ParamParser.Twicpics.SizeParser do
   def parse(input, pos_offset \\ 0) do
     case String.split(input, "x", parts: 2) do
       ["-", "-"] ->
-        {:error, {:unexpected_char, pos: pos_offset + 2, expected: ["(", "[0-9]", found: "-"]}}
+        Utils.unexpected_value_error(pos_offset + 2, expected: ["(", "[0-9]", found: "-"])
 
       ["-", height_str] ->
         case parse_and_validate(height_str, pos_offset + 2) do

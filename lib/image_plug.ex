@@ -27,21 +27,23 @@ defmodule ImagePlug do
     url = "#{root_url}/#{path}"
     image_resp = Req.get!(url)
 
-    with {:ok, chain} <- param_parser.parse(conn),
+    with {:ok, chain} <- param_parser.parse(conn) |> wrap_error(),
          {:ok, image} <- Image.from_binary(image_resp.body),
          {:ok, final_state} <- TransformChain.execute(%TransformState{image: image}, chain) do
       send_image(conn, final_state)
     else
-      {:error, {:invalid_params, {module, input}}} ->
-        Logger.info("parameter parse error for #{inspect(module)}: #{inspect(input)}")
-        send_resp(conn, 400, "invalid parameters")
-
       {:error, {:transform_error, %TransformState{errors: errors} = final_state}} ->
         # TODO: handle transform error - debug mode + graceful mode switch?
         Logger.info("transform_error(s): #{inspect(errors)}")
         send_image(conn, final_state)
+
+      {:error, {:handler, error}} ->
+        param_parser.handle_error(conn, error)
     end
   end
+
+  defp wrap_error({:error, _} = error), do: {:error, {:handler, error}}
+  defp wrap_error(result), do: result
 
   defp accepted_formats(%Plug.Conn{} = conn) do
     from_accept_header =
