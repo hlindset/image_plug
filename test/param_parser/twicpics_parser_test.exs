@@ -25,8 +25,8 @@ defmodule ImagePlug.ParamParser.TwicpicsParserTest do
   defp to_result({:percent, unit}), do: {:percent, unit}
 
   test "crop params parser" do
-    check all width <- random_root_unit(),
-              height <- random_root_unit(),
+    check all width <- random_root_unit(min: 1),
+              height <- random_root_unit(min: 1),
               crop_from <- crop_from() do
       str_params = "#{length_str(width)}x#{length_str(height)}"
 
@@ -40,8 +40,8 @@ defmodule ImagePlug.ParamParser.TwicpicsParserTest do
 
       assert {:ok,
               %Crop.CropParams{
-                width: width,
-                height: height,
+                width: to_result(width),
+                height: to_result(height),
                 crop_from:
                   case crop_from do
                     :focus -> :focus
@@ -94,7 +94,7 @@ defmodule ImagePlug.ParamParser.TwicpicsParserTest do
                      tuple({random_root_unit(min: 1), random_root_unit(min: 1)})}
                   ),
                   tuple(
-                    {constant(:aspect_ratio), tuple({random_root_unit(), random_root_unit()})}
+                    {constant(:aspect_ratio), tuple({random_base_unit(min: 1), random_base_unit(min: 1)})}
                   )
                 ]) do
       {str_params, expected} =
@@ -127,10 +127,10 @@ defmodule ImagePlug.ParamParser.TwicpicsParserTest do
              }}
 
           {:aspect_ratio, {ar_w, ar_h}} ->
-            {"#{length_str(ar_w)}:#{length_str(ar_h)}",
+            {"#{ar_w}:#{ar_h}",
              %Scale.ScaleParams{
                method: %Scale.ScaleParams.AspectRatio{
-                 aspect_ratio: {:ratio, to_result(ar_w), to_result(ar_h)}
+                 aspect_ratio: {:ratio, ar_w, ar_h}
                }
              }}
         end

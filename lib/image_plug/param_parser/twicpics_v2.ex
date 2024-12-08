@@ -5,7 +5,7 @@ defmodule ImagePlug.ParamParser.TwicpicsV2 do
 
   @transforms %{
     "crop" => {ImagePlug.Transform.Crop, TwicpicsV2.Transform.CropParser},
-    "scale" => {ImagePlug.Transform.Scale, TwicpicsV2.Transform.ScaleParser},
+    "resize" => {ImagePlug.Transform.Scale, TwicpicsV2.Transform.ScaleParser},
     "focus" => {ImagePlug.Transform.Focus, TwicpicsV2.Transform.FocusParser},
     "contain" => {ImagePlug.Transform.Contain, TwicpicsV2.Transform.ContainParser},
     "output" => {ImagePlug.Transform.Output, TwicpicsV2.Transform.OutputParser}

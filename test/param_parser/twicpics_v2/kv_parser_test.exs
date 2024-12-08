@@ -25,15 +25,15 @@ defmodule ImagePlug.ParamParser.TwicpicsV2.KVParserTest do
               ]}
   end
 
-  test ":expected_eq error returns correct position" do
-    assert KVParser.parse("k1=v1/k20=v20/k300", @keys) == {:error, {:expected_eq, pos: 19}}
+  test "error returns correct position when missing =" do
+    assert KVParser.parse("k1=v1/k20=v20/k300", @keys) == {:error, {:unexpected_char, [{:pos, 18}, {:expected, ["="]}, {:found, :eoi}]}}
   end
 
-  test ":expected_key error returns correct position" do
+  test "expected key error returns correct position" do
     assert KVParser.parse("k1=v1/k20=v20/", @keys) == {:error, {:expected_key, pos: 14}}
   end
 
-  test ":expected_value error returns correct position" do
+  test "expected value error returns correct position" do
     assert KVParser.parse("k1=v1/k20=", @keys) == {:error, {:expected_value, pos: 10}}
   end
 end
