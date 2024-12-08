@@ -1,11 +1,13 @@
-defmodule ImagePlug.ParamParser.TwicpicsV2.KeyValueParserTest do
+defmodule ImagePlug.ParamParser.TwicpicsV2.KVParserTest do
   use ExUnit.Case, async: true
   use ExUnitProperties
 
-  alias ImagePlug.ParamParser.TwicpicsV2.KeyValueParser
+  alias ImagePlug.ParamParser.TwicpicsV2.KVParser
+
+  @keys ~w(k1 k2 k3 k1 k20 k300 k4000)
 
   test "successful parse output returns correct key positions" do
-    assert KeyValueParser.parse("k1=v1/k2=v2/k3=v3") ==
+    assert KVParser.parse("k1=v1/k2=v2/k3=v3", @keys) ==
              {:ok,
               [
                 {"k1", "v1", 0},
@@ -13,7 +15,7 @@ defmodule ImagePlug.ParamParser.TwicpicsV2.KeyValueParserTest do
                 {"k3", "v3", 12}
               ]}
 
-    assert KeyValueParser.parse("k1=v1/k20=v20/k300=v300/k4000=v4000") ==
+    assert KVParser.parse("k1=v1/k20=v20/k300=v300/k4000=v4000", @keys) ==
              {:ok,
               [
                 {"k1", "v1", 0},
@@ -24,14 +26,14 @@ defmodule ImagePlug.ParamParser.TwicpicsV2.KeyValueParserTest do
   end
 
   test ":expected_eq error returns correct position" do
-    assert KeyValueParser.parse("k1=v1/k20=v20/k300") == {:error, {:expected_eq, pos: 19}}
+    assert KVParser.parse("k1=v1/k20=v20/k300", @keys) == {:error, {:expected_eq, pos: 19}}
   end
 
   test ":expected_key error returns correct position" do
-    assert KeyValueParser.parse("k1=v1/k20=v20/") == {:error, {:expected_key, pos: 14}}
+    assert KVParser.parse("k1=v1/k20=v20/", @keys) == {:error, {:expected_key, pos: 14}}
   end
 
   test ":expected_value error returns correct position" do
-    assert KeyValueParser.parse("k1=v1/k20=") == {:error, {:expected_value, pos: 10}}
+    assert KVParser.parse("k1=v1/k20=", @keys) == {:error, {:expected_value, pos: 10}}
   end
 end

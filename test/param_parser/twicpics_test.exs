@@ -7,10 +7,10 @@ defmodule ImagePlug.TwicpicsTest do
   alias ImagePlug.Transform
   alias ImagePlug.TransformChain
   alias ImagePlug.TransformState
-  alias ImagePlug.ParamParser.Twicpics
+  alias ImagePlug.ParamParser.TwicpicsV2
 
   test "parse from string" do
-    result = Twicpics.parse_string("v1/focus=(1/2)sx(2/3)s/crop=100x100/resize=200/output=avif")
+    result = TwicpicsV2.parse_string("v1/focus=(1/2)sx(2/3)s/crop=100x100/resize=200/output=avif")
 
     assert result ==
              {:ok,

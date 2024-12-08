@@ -8,7 +8,7 @@ defmodule ImagePlug.ParamParser.TwicpicsV2 do
     "scale" => {ImagePlug.Transform.Scale, TwicpicsV2.Transform.ScaleParser},
     "focus" => {ImagePlug.Transform.Focus, TwicpicsV2.Transform.FocusParser},
     "contain" => {ImagePlug.Transform.Contain, TwicpicsV2.Transform.ContainParser},
-    "output" => {ImagePlug.Transform.Output, TwicpicsV2.Transform.OutputParser},
+    "output" => {ImagePlug.Transform.Output, TwicpicsV2.Transform.OutputParser}
   }
 
   @transform_keys Map.keys(@transforms)
@@ -31,7 +31,7 @@ defmodule ImagePlug.ParamParser.TwicpicsV2 do
     end
   end
 
-  def parse_string(input, pos_offset) do
+  def parse_string(input, pos_offset \\ 0) do
     case input do
       @query_param_prefix <> chain ->
         pos_offset = pos_offset + String.length(@query_param_prefix)

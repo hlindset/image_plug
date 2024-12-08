@@ -6,8 +6,8 @@ defmodule ImagePlug.TestSupport do
     max = Keyword.get(opts, :max, 9999)
 
     one_of([
-      tuple({constant(:int), integer(min..max)}),
-      tuple({constant(:float), float(min: min, max: max)})
+      integer(min..max),
+      float(min: min, max: max)
     ])
   end
 
@@ -24,13 +24,13 @@ defmodule ImagePlug.TestSupport do
     denominator_max = Keyword.get(opts, :denominator_min, 9999)
 
     one_of([
-      tuple({constant(:int), integer(int_min..int_max)}),
-      tuple({constant(:float), float(min: float_min, max: float_max)}),
+      tuple({constant(:pixels), integer(int_min..int_max)}),
+      tuple({constant(:pixels), float(min: float_min, max: float_max)}),
       tuple(
         {constant(:scale), random_base_unit(min: numerator_min, max: numerator_max),
          random_base_unit(min: 1, max: denominator_max)}
       ),
-      tuple({constant(:pct), random_base_unit(min: pct_min, max: pct_max)})
+      tuple({constant(:percent), random_base_unit(min: pct_min, max: pct_max)})
     ])
   end
 
