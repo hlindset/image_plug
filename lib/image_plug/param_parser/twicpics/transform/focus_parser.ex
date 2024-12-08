@@ -16,6 +16,22 @@ defmodule ImagePlug.ParamParser.Twicpics.Transform.FocusParser do
     "right" => {:anchor, :right, :center}
   }
 
+  @doc """
+  Parses a string into a `ImagePlug.Transform.Focus.FocusParams` struct.
+
+  Syntax:
+  * `focus=<coordinates>`
+  * `focus=<anchor>`
+  * ~~`focus=auto`~~
+
+  ## Examples
+      iex> ImagePlug.ParamParser.Twicpics.Transform.FocusParser.parse("(500/2)x25.5")
+      {:ok, %ImagePlug.Transform.Focus.FocusParams{type: {:coordinate, {:pixels, 250.0}, {:pixels, 25.5}}}}
+
+      iex> ImagePlug.ParamParser.Twicpics.Transform.FocusParser.parse("bottom-right")
+      {:ok, %ImagePlug.Transform.Focus.FocusParams{type: {:anchor, :right, :bottom}}}
+  """
+
   def parse(input, pos_offset \\ 0) do
     if String.contains?(input, "x"),
       do: parse_coordinates(input, pos_offset),
