@@ -10,39 +10,42 @@ defmodule ImagePlug.ParamParser.TwicpicsParserTest do
   alias ImagePlug.Transform.Focus
   alias ImagePlug.Transform.Contain
 
-  doctest ImagePlug.ParamParser.Twicpics.CropParser
-  doctest ImagePlug.ParamParser.Twicpics.ScaleParser
-  doctest ImagePlug.ParamParser.Twicpics.FocusParser
-  doctest ImagePlug.ParamParser.Twicpics.ContainParser
-  doctest ImagePlug.ParamParser.Twicpics.OutputParser
+  doctest ImagePlug.ParamParser.Twicpics.Transform.CropParser
+  doctest ImagePlug.ParamParser.Twicpics.Transform.ScaleParser
+  doctest ImagePlug.ParamParser.Twicpics.Transform.FocusParser
+  doctest ImagePlug.ParamParser.Twicpics.Transform.ContainParser
+  doctest ImagePlug.ParamParser.Twicpics.Transform.OutputParser
 
-  defp unit_str({:int, v}), do: "#{v}"
-  defp unit_str({:float, v}), do: "#{v}"
-  defp unit_str({:scale, unit_a, unit_b}), do: "(#{unit_str(unit_a)}/#{unit_str(unit_b)})s"
-  defp unit_str({:pct, unit}), do: "#{unit_str(unit)}p"
+  defp length_str({:pixels, unit}), do: "#{unit}"
+  defp length_str({:scale, unit_a, unit_b}), do: "(#{unit_a}/#{unit_b})s"
+  defp length_str({:percent, unit}), do: "#{unit}p"
+
+  defp to_result({:pixels, unit}), do: {:pixels, unit}
+  defp to_result({:scale, unit_a, unit_b}), do: {:scale, unit_a / unit_b}
+  defp to_result({:percent, unit}), do: {:percent, unit}
 
   test "crop params parser" do
-    check all width <- random_root_unit(),
-              height <- random_root_unit(),
+    check all width <- random_root_unit(min: 1),
+              height <- random_root_unit(min: 1),
               crop_from <- crop_from() do
-      str_params = "#{unit_str(width)}x#{unit_str(height)}"
+      str_params = "#{length_str(width)}x#{length_str(height)}"
 
       str_params =
         case crop_from do
           :focus -> str_params
-          %{left: left, top: top} -> "#{str_params}@#{unit_str(left)}x#{unit_str(top)}"
+          %{left: left, top: top} -> "#{str_params}@#{length_str(left)}x#{length_str(top)}"
         end
 
-      parsed = Twicpics.CropParser.parse(str_params)
+      parsed = Twicpics.Transform.CropParser.parse(str_params)
 
       assert {:ok,
               %Crop.CropParams{
-                width: width,
-                height: height,
+                width: to_result(width),
+                height: to_result(height),
                 crop_from:
                   case crop_from do
                     :focus -> :focus
-                    %{left: left, top: top} -> %{left: left, top: top}
+                    %{left: left, top: top} -> %{left: to_result(left), top: to_result(top)}
                   end
               }} ==
                parsed
@@ -63,73 +66,90 @@ defmodule ImagePlug.ParamParser.TwicpicsParserTest do
     check all focus_type <- focus_type() do
       str_params =
         case focus_type do
-          {:coordinate, left, top} -> "#{unit_str(left)}x#{unit_str(top)}"
+          {:coordinate, left, top} -> "#{length_str(left)}x#{length_str(top)}"
           {:anchor, _, _} = anchor -> anchor_to_str(anchor)
         end
 
-      {:ok, parsed} = Twicpics.FocusParser.parse(str_params)
-      assert %Focus.FocusParams{type: focus_type} == parsed
+      {:ok, parsed} = Twicpics.Transform.FocusParser.parse(str_params)
+
+      case focus_type do
+        {:coordinate, left, top} ->
+          assert %Focus.FocusParams{type: {:coordinate, to_result(left), to_result(top)}} ==
+                   parsed
+
+        {:anchor, _, _} ->
+          assert %Focus.FocusParams{type: focus_type} == parsed
+      end
     end
   end
 
   test "scale params parser" do
     check all {type, params} <-
                 one_of([
-                  tuple({constant(:auto_width), tuple({random_root_unit()})}),
-                  tuple({constant(:auto_height), tuple({random_root_unit()})}),
-                  tuple({constant(:simple), tuple({random_root_unit()})}),
+                  tuple({constant(:auto_width), tuple({random_root_unit(min: 1)})}),
+                  tuple({constant(:auto_height), tuple({random_root_unit(min: 1)})}),
+                  tuple({constant(:simple), tuple({random_root_unit(min: 1)})}),
                   tuple(
-                    {constant(:width_and_height), tuple({random_root_unit(), random_root_unit()})}
+                    {constant(:width_and_height),
+                     tuple({random_root_unit(min: 1), random_root_unit(min: 1)})}
                   ),
                   tuple(
-                    {constant(:aspect_ratio), tuple({random_root_unit(), random_root_unit()})}
+                    {constant(:aspect_ratio),
+                     tuple({random_base_unit(min: 1), random_base_unit(min: 1)})}
                   )
                 ]) do
       {str_params, expected} =
         case {type, params} do
           {:auto_width, {height}} ->
-            {"-x#{unit_str(height)}",
+            {"-x#{length_str(height)}",
              %Scale.ScaleParams{
-               method: %Scale.ScaleParams.Dimensions{width: :auto, height: height}
+               method: %Scale.ScaleParams.Dimensions{width: :auto, height: to_result(height)}
              }}
 
           {:auto_height, {width}} ->
-            {"#{unit_str(width)}x-",
+            {"#{length_str(width)}x-",
              %Scale.ScaleParams{
-               method: %Scale.ScaleParams.Dimensions{width: width, height: :auto}
+               method: %Scale.ScaleParams.Dimensions{width: to_result(width), height: :auto}
              }}
 
           {:simple, {width}} ->
-            {"#{unit_str(width)}",
+            {"#{length_str(width)}",
              %Scale.ScaleParams{
-               method: %Scale.ScaleParams.Dimensions{width: width, height: :auto}
+               method: %Scale.ScaleParams.Dimensions{width: to_result(width), height: :auto}
              }}
 
           {:width_and_height, {width, height}} ->
-            {"#{unit_str(width)}x#{unit_str(height)}",
+            {"#{length_str(width)}x#{length_str(height)}",
              %Scale.ScaleParams{
-               method: %Scale.ScaleParams.Dimensions{width: width, height: height}
+               method: %Scale.ScaleParams.Dimensions{
+                 width: to_result(width),
+                 height: to_result(height)
+               }
              }}
 
           {:aspect_ratio, {ar_w, ar_h}} ->
-            {"#{unit_str(ar_w)}:#{unit_str(ar_h)}",
+            {"#{ar_w}:#{ar_h}",
              %Scale.ScaleParams{
-               method: %Scale.ScaleParams.AspectRatio{aspect_ratio: {:ratio, ar_w, ar_h}}
+               method: %Scale.ScaleParams.AspectRatio{
+                 aspect_ratio: {:ratio, ar_w, ar_h}
+               }
              }}
         end
 
-      {:ok, parsed} = Twicpics.ScaleParser.parse(str_params)
+      {:ok, parsed} = Twicpics.Transform.ScaleParser.parse(str_params)
 
       assert parsed == expected
     end
   end
 
   test "contain params parser" do
-    check all width <- random_root_unit(),
-              height <- random_root_unit() do
-      str_params = "#{unit_str(width)}x#{unit_str(height)}"
-      parsed = Twicpics.ContainParser.parse(str_params)
-      assert {:ok, %Contain.ContainParams{width: width, height: height}} == parsed
+    check all width <- random_root_unit(min: 1),
+              height <- random_root_unit(min: 1) do
+      str_params = "#{length_str(width)}x#{length_str(height)}"
+      parsed = Twicpics.Transform.ContainParser.parse(str_params)
+
+      assert {:ok, %Contain.ContainParams{width: to_result(width), height: to_result(height)}} ==
+               parsed
     end
   end
 end

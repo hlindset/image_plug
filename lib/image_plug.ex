@@ -1,21 +1,22 @@
 defmodule ImagePlug do
   @behaviour Plug
 
-  @type imgp_int() :: {:int, integer()}
-  @type imgp_float() :: {:float, float()}
-  @type imgp_expr() :: {:expr, float()}
-  @type imgp_number() :: imgp_int() | imgp_float() | imgp_expr()
-  @type imgp_pct() :: {:float, imgp_number()}
-  @type imgp_scale() :: {:float, imgp_number(), imgp_number()}
-  @type imgp_length() :: imgp_number() | imgp_pct() | imgp_scale()
-  @type imgp_ratio() :: {:ratio, imgp_number(), imgp_number()}
-
   import Plug.Conn
 
   require Logger
 
   alias ImagePlug.TransformState
   alias ImagePlug.TransformChain
+
+  @type imgp_number() :: integer() | float()
+  @type imgp_pixels() :: {:pixels, imgp_number()}
+  @type imgp_pct() :: {:percent, imgp_number()}
+  @type imgp_scale() :: {:scale, imgp_number(), imgp_number()}
+  @type imgp_ratio() :: {:ratio, imgp_number(), imgp_number()}
+  @type imgp_length() :: imgp_pixels() | imgp_pct() | imgp_scale()
+
+  @alpha_format_priority ~w(image/avif image/webp image/png)
+  @no_alpha_format_priority ~w(image/avif image/webp image/jpeg)
 
   def init(opts), do: opts
 
@@ -41,9 +42,6 @@ defmodule ImagePlug do
         send_image(conn, final_state)
     end
   end
-
-  @alpha_format_priority ~w(image/avif image/webp image/png)
-  @no_alpha_format_priority ~w(image/avif image/webp image/jpeg)
 
   defp accepted_formats(%Plug.Conn{} = conn) do
     from_accept_header =

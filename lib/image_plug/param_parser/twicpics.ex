@@ -4,60 +4,63 @@ defmodule ImagePlug.ParamParser.Twicpics do
   alias ImagePlug.ParamParser.Twicpics
 
   @transforms %{
-    "crop" => ImagePlug.Transform.Crop,
-    "resize" => ImagePlug.Transform.Scale,
-    "focus" => ImagePlug.Transform.Focus,
-    "contain" => ImagePlug.Transform.Contain,
-    "output" => ImagePlug.Transform.Output
+    "crop" => {ImagePlug.Transform.Crop, Twicpics.Transform.CropParser},
+    "resize" => {ImagePlug.Transform.Scale, Twicpics.Transform.ScaleParser},
+    "focus" => {ImagePlug.Transform.Focus, Twicpics.Transform.FocusParser},
+    "contain" => {ImagePlug.Transform.Contain, Twicpics.Transform.ContainParser},
+    "output" => {ImagePlug.Transform.Output, Twicpics.Transform.OutputParser}
   }
 
-  @parsers %{
-    ImagePlug.Transform.Crop => Twicpics.CropParser,
-    ImagePlug.Transform.Scale => Twicpics.ScaleParser,
-    ImagePlug.Transform.Focus => Twicpics.FocusParser,
-    ImagePlug.Transform.Contain => Twicpics.ContainParser,
-    ImagePlug.Transform.Output => Twicpics.OutputParser
-  }
+  @transform_keys Map.keys(@transforms)
+  @query_param "twic"
+  @query_param_prefix "v1/"
 
   @impl ImagePlug.ParamParser
   def parse(%Plug.Conn{} = conn) do
     conn = Plug.Conn.fetch_query_params(conn)
 
     case conn.params do
-      %{"twic" => input} -> parse_string(input)
-      _ -> {:ok, []}
+      %{@query_param => input} ->
+        # start position count from where the request_path starts.
+        # used for parser error messages.
+        pos_offset = String.length(conn.request_path <> "?" <> @query_param <> "=")
+        parse_string(input, pos_offset)
+
+      _ ->
+        {:ok, []}
     end
   end
 
-  def parse_string(input) do
+  def parse_string(input, pos_offset \\ 0) do
     case input do
-      "v1/" <> chain -> parse_chain(chain)
-      _ -> {:ok, []}
+      @query_param_prefix <> chain ->
+        pos_offset = pos_offset + String.length(@query_param_prefix)
+        parse_chain(chain, pos_offset)
+
+      _ ->
+        {:ok, []}
     end
   end
 
-  # a `key=value` string followed by either a slash and a
-  # new key=value string or the end of the string using lookahead
-  @params_regex ~r/\/?([a-z]+)=(.+?(?=\/[a-z]+=|$))/
+  def parse_chain(chain_str, pos_offset) do
+    case Twicpics.KVParser.parse(chain_str, @transform_keys, pos_offset) do
+      {:ok, kv_params} ->
+        Enum.reduce_while(kv_params, {:ok, []}, fn
+          {transform_name, params_str, pos}, {:ok, transforms_acc} ->
+            {transform_mod, parser_mod} = Map.get(@transforms, transform_name)
 
-  def parse_chain(chain_str) do
-    Regex.scan(@params_regex, chain_str, capture: :all_but_first)
-    |> Enum.reduce_while({:ok, []}, fn
-      [transform_name, params_str], {:ok, transforms_acc}
-      when is_map_key(@transforms, transform_name) ->
-        module = Map.get(@transforms, transform_name)
+            case parser_mod.parse(params_str, pos) do
+              {:ok, parsed_params} ->
+                {:cont, {:ok, [{transform_mod, parsed_params} | transforms_acc]}}
 
-        case @parsers[module].parse(params_str) do
-          {:ok, parsed_params} ->
-            {:cont, {:ok, [{module, parsed_params} | transforms_acc]}}
+              {:error, _reason} = error ->
+                {:halt, error}
+            end
+        end)
 
-          {:error, {:parameter_parse_error, input}} ->
-            {:halt, {:error, {:invalid_params, {module, "invalid input: #{input}"}}}}
-        end
-
-      [transform_name, _params_str], acc ->
-        {:cont, [{:error, {:invalid_transform, transform_name}} | acc]}
-    end)
+      {:error, _reason} = error ->
+        error
+    end
     |> case do
       {:ok, transforms} -> {:ok, Enum.reverse(transforms)}
       other -> other

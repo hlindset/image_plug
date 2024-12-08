@@ -19,20 +19,20 @@ defmodule ImagePlug.TwicpicsTest do
                  %Transform.Focus.FocusParams{
                    type: {
                      :coordinate,
-                     {:scale, {:int, 1}, {:int, 2}},
-                     {:scale, {:int, 2}, {:int, 3}}
+                     {:scale, 1 / 2},
+                     {:scale, 2 / 3}
                    }
                  }},
                 {Transform.Crop,
                  %Transform.Crop.CropParams{
-                   width: {:int, 100},
-                   height: {:int, 100},
+                   width: {:pixels, 100},
+                   height: {:pixels, 100},
                    crop_from: :focus
                  }},
                 {Transform.Scale,
                  %Transform.Scale.ScaleParams{
                    method: %Transform.Scale.ScaleParams.Dimensions{
-                     width: {:int, 200},
+                     width: {:pixels, 200},
                      height: :auto
                    }
                  }},
