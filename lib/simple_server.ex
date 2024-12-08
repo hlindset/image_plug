@@ -14,7 +14,7 @@ defmodule ImagePlug.SimpleServer do
     to: ImagePlug,
     init_opts: [
       root_url: "http://localhost:4000",
-      param_parser: ImagePlug.ParamParser.Twicpics
+      param_parser: ImagePlug.ParamParser.TwicpicsV2
     ]
 
   match _ do

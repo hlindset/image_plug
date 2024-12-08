@@ -15,7 +15,7 @@ defmodule ImagePlug.ParamParser.TwicpicsV2.Transform.ScaleParser do
   defp parse_ratio(input, pos_offset) do
     case RatioParser.parse(input, pos_offset) do
       {:ok, %{width: width, height: height}} ->
-        %ScaleParams{method: %AspectRatio{aspect_ratio: {:ratio, width, height}}}
+        {:ok, %ScaleParams{method: %AspectRatio{aspect_ratio: {:ratio, width, height}}}}
 
       {:error, _reason} = error ->
         Utils.update_error_input(error, input)
@@ -25,7 +25,7 @@ defmodule ImagePlug.ParamParser.TwicpicsV2.Transform.ScaleParser do
   defp parse_size(input, pos_offset) do
     case SizeParser.parse(input, pos_offset) do
       {:ok, %{width: width, height: height}} ->
-        %ScaleParams{method: %Dimensions{width: width, height: height}}
+        {:ok, %ScaleParams{method: %Dimensions{width: width, height: height}}}
 
       {:error, _reason} = error ->
         Utils.update_error_input(error, input)
