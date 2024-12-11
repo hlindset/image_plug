@@ -5,41 +5,37 @@ defmodule ImagePlug.Transform.Scale do
   alias ImagePlug.TransformState
 
   defmodule ScaleParams do
-    defmodule Dimensions do
-      defstruct [:width, :height]
+    defstruct [:type, :ratio, :width, :height]
 
-      @type t ::
-              %__MODULE__{width: ImagePlug.imgp_length() | :auto, height: ImagePlug.imgp_length()}
-              | %__MODULE__{
-                  width: ImagePlug.imgp_length(),
-                  height: ImagePlug.imgp_length() | :auto
-                }
-    end
-
-    defmodule AspectRatio do
-      defstruct [:aspect_ratio]
-
-      @type t :: %__MODULE__{aspect_ratio: ImagePlug.imgp_ratio()}
-    end
-
-    @doc """
-    The parsed parameters used by `ImagePlug.Transform.Scale`.
-    """
-    defstruct [:method]
-
-    @type t :: %__MODULE__{method: Dimension.t() | AspectRatio.t()}
+    @type t ::
+            %__MODULE__{
+              type: :ratio,
+              ratio: {ImagePlug.imgp_ratio(), ImagePlug.imgp_ratio()}
+            }
+            | %__MODULE__{
+                type: :dimensions,
+                width: ImagePlug.imgp_length(),
+                height: ImagePlug.imgp_length() | :auto
+              }
+            | %__MODULE__{
+                type: :dimensions,
+                width: ImagePlug.imgp_length() | :auto,
+                height: ImagePlug.imgp_length()
+              }
   end
 
-  defp dimensions_for_scale_method(state, %ScaleParams.Dimensions{width: width, height: height}) do
+  defp dimensions_for_scale_type(state, %ScaleParams{
+         type: :dimensions,
+         width: width,
+         height: height
+       }) do
     with {:ok, width} <- to_pixels(state, :width, width),
          {:ok, height} <- to_pixels(state, :height, height) do
       {:ok, %{width: width, height: height}}
     end
   end
 
-  defp dimensions_for_scale_method(state, %ScaleParams.AspectRatio{
-         aspect_ratio: {:ratio, ar_w, ar_h}
-       }) do
+  defp dimensions_for_scale_type(state, %ScaleParams{type: :ratio, ratio: {ar_w, ar_h}}) do
     with {:ok, aspect_width} <- Transform.eval_number(ar_w),
          {:ok, aspect_height} <- Transform.eval_number(ar_h) do
       current_area = Image.width(state.image) * Image.height(state.image)
@@ -53,8 +49,8 @@ defmodule ImagePlug.Transform.Scale do
   end
 
   @impl ImagePlug.Transform
-  def execute(%TransformState{} = state, %ScaleParams{method: scale_method}) do
-    with {:ok, width_and_height} <- dimensions_for_scale_method(state, scale_method),
+  def execute(%TransformState{} = state, %ScaleParams{} = params) do
+    with {:ok, width_and_height} <- dimensions_for_scale_type(state, params),
          {:ok, scaled_image} <- do_scale(state.image, width_and_height) do
       %TransformState{state | image: scaled_image} |> TransformState.reset_focus()
     end

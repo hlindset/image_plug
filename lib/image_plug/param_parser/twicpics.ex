@@ -12,8 +12,33 @@ defmodule ImagePlug.ParamParser.Twicpics do
     "resize" => {ImagePlug.Transform.Scale, Twicpics.Transform.ScaleParser},
     "focus" => {ImagePlug.Transform.Focus, Twicpics.Transform.FocusParser},
     "contain" => {ImagePlug.Transform.Contain, Twicpics.Transform.ContainParser},
+    "contain-min" => {ImagePlug.Transform.Contain, Twicpics.Transform.ContainMinParser},
+    "contain-max" => {ImagePlug.Transform.Contain, Twicpics.Transform.ContainMaxParser},
+    "cover" => {ImagePlug.Transform.Cover, Twicpics.Transform.CoverParser},
     "output" => {ImagePlug.Transform.Output, Twicpics.Transform.OutputParser}
   }
+
+  @shadowable_transforms ~w(resize cover focus output)
+
+  # consecutive transforms that can safely be shadowed
+  # e.g. two consecutive scale operations will only keep the last one
+  defp shadow_transforms(transform_kvs) do
+    Enum.reduce(transform_kvs, [], fn
+      transform, [] ->
+        [transform]
+
+      {key, _, _} = new, [{prev_key, _, _} | tail] = acc when key == prev_key ->
+        if Enum.member?(@shadowable_transforms, key) do
+          [new | tail]
+        else
+          [new | acc]
+        end
+
+      elem, acc ->
+        [elem | acc]
+    end)
+    |> Enum.reverse()
+  end
 
   @transform_keys Map.keys(@transforms)
   @query_param "twic"
@@ -53,12 +78,12 @@ defmodule ImagePlug.ParamParser.Twicpics do
           {transform_name, params_str, key_start_pos}, {:ok, transforms_acc} ->
             {transform_mod, parser_mod} = Map.get(@transforms, transform_name)
 
-            # key start pos + key length + 1 (=-sign)
+            # key start pos + key length + 1 (the = char)
             value_pos = key_start_pos + String.length(transform_name) + 1
 
             case parser_mod.parse(params_str, value_pos) do
               {:ok, parsed_params} ->
-                {:cont, {:ok, [{transform_mod, parsed_params} | transforms_acc]}}
+                {:cont, {:ok, [{transform_name, transform_mod, parsed_params} | transforms_acc]}}
 
               {:error, _reason} = error ->
                 {:halt, error}
@@ -69,8 +94,15 @@ defmodule ImagePlug.ParamParser.Twicpics do
         error
     end
     |> case do
-      {:ok, transforms} -> {:ok, Enum.reverse(transforms)}
-      other -> other
+      {:ok, transforms} ->
+        {:ok,
+         transforms
+         |> Enum.reverse()
+         |> shadow_transforms()
+         |> Enum.map(fn {_name, mod, params} -> {mod, params} end)}
+
+      other ->
+        other
     end
   end
 
