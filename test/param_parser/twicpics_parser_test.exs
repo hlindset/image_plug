@@ -148,7 +148,12 @@ defmodule ImagePlug.ParamParser.TwicpicsParserTest do
       str_params = "#{length_str(width)}x#{length_str(height)}"
       parsed = Twicpics.Transform.ContainParser.parse(str_params)
 
-      assert {:ok, %Contain.ContainParams{width: to_result(width), height: to_result(height), constraint: :none}} ==
+      assert {:ok,
+              %Contain.ContainParams{
+                width: to_result(width),
+                height: to_result(height),
+                constraint: :none
+              }} ==
                parsed
     end
   end

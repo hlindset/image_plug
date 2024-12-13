@@ -20,19 +20,28 @@ defmodule ImagePlug.Transform.Focus do
 
   @impl ImagePlug.Transform
   def execute(%TransformState{} = state, %FocusParams{type: {:coordinate, left, top}}) do
-    left = to_pixels(state, :x, left)
-    top = to_pixels(state, :y, top)
+    left = to_pixels(image_width(state), left)
+    top = to_pixels(image_height(state), top)
 
     focus =
-      {:coordinate,
-        max(min(image_width(state), left), 0),
-        max(min(image_height(state), top), 0)}
+      {:coordinate, max(min(image_width(state), left), 0), max(min(image_height(state), top), 0)}
 
-    set_focus(state, focus)
+    state
+    |> set_focus(focus)
+    |> maybe_draw_debug_dot()
   end
 
   @impl ImagePlug.Transform
   def execute(%TransformState{image: image} = state, %FocusParams{type: {:anchor, x, y}}) do
-    set_focus(state, {:anchor, x, y})
+    state
+    |> set_focus({:anchor, x, y})
+    |> maybe_draw_debug_dot()
   end
+
+  defp maybe_draw_debug_dot(%TransformState{debug: true, focus: focus} = state) do
+    {left, top} = anchor_to_pixels(focus, image_width(state), image_height(state))
+    draw_debug_dot(state, left, top)
+  end
+
+  defp maybe_draw_debug_dot(state, _focus), do: state
 end

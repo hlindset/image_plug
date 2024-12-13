@@ -32,8 +32,8 @@ defmodule ImagePlug.Transform.Scale do
          width: width,
          height: height
        }) do
-    width = to_pixels_or_auto(state, :x, width)
-    height = to_pixels_or_auto(state, :y, height)
+    width = to_pixels_or_auto(image_width(state), width)
+    height = to_pixels_or_auto(image_height(state), height)
     %{width: width, height: height}
   end
 
@@ -77,6 +77,6 @@ defmodule ImagePlug.Transform.Scale do
     {:error, {:unhandled_scale_parameters, parameters}}
   end
 
-  defp to_pixels_or_auto(_state, _dimension, :auto), do: :auto
-  defp to_pixels_or_auto(state, dimension, length), do: to_pixels(state, dimension, length)
+  defp to_pixels_or_auto(_length, :auto), do: :auto
+  defp to_pixels_or_auto(length, size_unit), do: to_pixels(length, size_unit)
 end

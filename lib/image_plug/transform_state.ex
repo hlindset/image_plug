@@ -4,7 +4,8 @@ defmodule ImagePlug.TransformState do
   defstruct image: nil,
             focus: @default_focus,
             errors: [],
-            output: :auto
+            output: :auto,
+            debug: true
 
   @type file_format() :: :avif | :webp | :jpeg | :png
   @type preview_format() :: :blurhash

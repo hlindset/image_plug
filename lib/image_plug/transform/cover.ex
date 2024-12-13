@@ -40,38 +40,27 @@ defmodule ImagePlug.Transform.Cover do
         constraint: constraint
       }) do
     # convert units to pixels
-    target_width = to_pixels(state, :x, width)
-    target_height = to_pixels(state, :y, height)
+    crop_width = to_pixels(image_width(state), width)
+    crop_height = to_pixels(image_height(state), height)
 
-    # figure out width/height
-    {resize_width, resize_height} = fit_cover(state, target_width, target_height)
+    # figure out width/height and get scaled size back
+    {resize_width, resize_height} =
+      fit_cover(state, crop_width, crop_height) |> IO.inspect(label: :resize)
 
-    # calculate focus point based on the resized image size, because we'll be resizing before the crop action
-    {focus_left, focus_top} =
-      anchor_to_coord(state.focus, %{
-        image_width: resize_width,
-        image_height: resize_height,
-        target_width: target_width,
-        target_height: target_height
-      })
+    # calculate focus scale based on original image and adjust to scaled size
+    original_width = image_width(state)
+    original_height = image_height(state)
+    {center_x, center_y} = anchor_to_scale_units(state.focus, original_width, original_height)
 
-    # ensure focus_left/focus_top are within bounds
-    left = max(0, min(resize_width - target_width, focus_left))
-    top = max(0, min(resize_height - target_height, focus_top))
+    scaled_center_x = to_pixels(resize_width, center_x)
+    scaled_center_y = to_pixels(resize_height, center_y)
 
-    with {:ok, scaled_state} <-
-           maybe_scale(state, %{
-             width: resize_width,
-             height: resize_height,
-             constraint: constraint
-           }),
-         {:ok, cropped_state} <-
-           do_crop(scaled_state, %{
-             left: left,
-             top: top,
-             width: target_width,
-             height: target_height
-           }) do
+    # keep in bounds
+    left = max(0, min(resize_width - crop_width, round(scaled_center_x - crop_width / 2)))
+    top = max(0, min(resize_height - crop_height, round(scaled_center_y - crop_height / 2)))
+
+    with {:ok, resized_state} <- maybe_scale(state, resize_width, resize_height, constraint),
+         {:ok, cropped_state} <- do_crop(resized_state, left, top, crop_width, crop_height) do
       reset_focus(cropped_state)
     else
       {:error, error} -> add_error(state, {__MODULE__, error})
@@ -93,27 +82,22 @@ defmodule ImagePlug.Transform.Cover do
     end
   end
 
-  def maybe_scale(
-        %TransformState{} = state,
-        %{width: width, height: height, constraint: :min} = params
-      ) do
+  def maybe_scale(%TransformState{} = state, width, height, :min) do
     if width > image_width(state) or height > image_height(state),
-      do: do_scale(state, params),
+      do: do_scale(state, width, height),
       else: {:ok, state}
   end
 
-  def maybe_scale(
-        %TransformState{} = state,
-        %{width: width, height: height, constraint: :max} = params
-      ) do
+  def maybe_scale(%TransformState{} = state, width, height, :max) do
     if width < image_width(state) or height < image_height(state),
-      do: do_scale(state, params),
+      do: do_scale(state, width, height),
       else: {:ok, state}
   end
 
-  def maybe_scale(image, params), do: do_scale(image, params)
+  def maybe_scale(image, width, height, _constraint),
+    do: do_scale(image, width, height)
 
-  def do_scale(%TransformState{} = state, %{width: width, height: height}) do
+  def do_scale(%TransformState{} = state, width, height) do
     width_scale = width / image_width(state)
     height_scale = height / image_height(state)
 
@@ -123,13 +107,8 @@ defmodule ImagePlug.Transform.Cover do
     end
   end
 
-  def do_crop(%TransformState{image: image} = state, %{
-        width: width,
-        height: height,
-        top: top,
-        left: left
-      }) do
-    case Image.crop(image, left, top, width, height) do
+  def do_crop(%TransformState{} = state, left, top, width, height) do
+    case Image.crop(state.image, left, top, width, height) do
       {:ok, cropped_image} -> {:ok, set_image(state, cropped_image)}
       {:error, _reason} = error -> error
     end

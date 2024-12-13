@@ -24,8 +24,8 @@ defmodule ImagePlug.Transform.Contain do
         height: height,
         constraint: constraint
       }) do
-    target_width = to_pixels(state, :x, width)
-    target_height = to_pixels(state, :y, height)
+    target_width = to_pixels(image_width(state), width)
+    target_height = to_pixels(image_height(state), height)
     {resize_width, resize_height} = fit_inside(state, target_width, target_height)
 
     case maybe_scale(state, resize_width, resize_height, constraint) do
