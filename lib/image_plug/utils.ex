@@ -44,34 +44,6 @@ defmodule ImagePlug.Utils do
     }
   end
 
-  def anchor_to_coord(focus, %{
-        image_width: image_width,
-        image_height: image_height,
-        target_width: target_width,
-        target_height: target_height
-      }) do
-    center_x =
-      case focus do
-        {:anchor, :left, _} -> 0
-        {:anchor, :center, _} -> image_width / 2
-        {:anchor, :right, _} -> image_width
-        {:coordinate, left, _top} -> left
-      end
-
-    center_y =
-      case focus do
-        {:anchor, _, :top} -> 0
-        {:anchor, _, :center} -> image_height / 2
-        {:anchor, _, :bottom} -> image_height
-        {:coordinate, _left, top} -> top
-      end
-
-    {
-      round(center_x - target_width / 2),
-      round(center_y - target_height / 2)
-    }
-  end
-
   def draw_debug_dot(
         %TransformState{} = state,
         left,
