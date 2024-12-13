@@ -36,12 +36,10 @@ defmodule ImagePlug.Utils do
   end
 
   def anchor_to_pixels(focus, width, height) do
-    {center_x_scale, center_y_scale} = anchor_to_scale_units(focus, width, height)
-
-    {
-      to_pixels(width, center_x_scale),
-      to_pixels(height, center_y_scale)
-    }
+    case anchor_to_scale_units(focus, width, height) do
+      {center_x_scale, center_y_scale} ->
+        {to_pixels(width, center_x_scale), to_pixels(height, center_y_scale)}
+    end
   end
 
   def draw_debug_dot(
