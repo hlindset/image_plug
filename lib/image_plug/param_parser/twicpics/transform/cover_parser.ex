@@ -29,7 +29,7 @@ defmodule ImagePlug.ParamParser.Twicpics.Transform.CoverParser do
   defp parse_ratio(input, pos_offset) do
     case RatioParser.parse(input, pos_offset) do
       {:ok, %{width: width, height: height}} ->
-        {:ok, %CoverParams{type: :ratio, ratio: {width, height}}, constraint: :none}
+        {:ok, %CoverParams{type: :ratio, ratio: {width, height}}}
 
       {:error, _reason} = error ->
         Utils.update_error_input(error, input)

@@ -16,21 +16,49 @@ defmodule ImagePlug.Transform.Cover do
     @type t ::
             %__MODULE__{
               type: :ratio,
-              ratio: {ImagePlug.imgp_ratio(), ImagePlug.imgp_ratio()},
-              constraint: :regular | :min | :max
+              ratio: {ImagePlug.imgp_ratio(), ImagePlug.imgp_ratio()}
             }
             | %__MODULE__{
                 type: :dimensions,
                 width: ImagePlug.imgp_length(),
                 height: ImagePlug.imgp_length() | :auto,
-                constraint: :regular | :min | :max
+                constraint: :none | :min | :max
               }
             | %__MODULE__{
                 type: :dimensions,
                 width: ImagePlug.imgp_length() | :auto,
                 height: ImagePlug.imgp_length(),
-                constraint: :regular | :min | :max
+                constraint: :none | :min | :max
               }
+  end
+
+  @impl ImagePlug.Transform
+  def execute(%TransformState{} = state, %CoverParams{
+        type: :ratio,
+        ratio: {ratio_width, ratio_height}
+      }) do
+    # compute target width and height based on the ratio
+    image_width = image_width(state)
+    image_height = image_height(state)
+
+    target_ratio = ratio_width / ratio_height
+    original_ratio = image_width / image_height
+
+    {target_width, target_height} =
+      if original_ratio > target_ratio do
+        # wider image: scale height to match ratio
+        {round(image_height * target_ratio), image_height}
+      else
+        # taller image: scale width to match ratio
+        {image_width, round(image_width / target_ratio)}
+      end
+
+    execute(state, %CoverParams{
+      type: :dimensions,
+      width: target_width,
+      height: target_height,
+      constraint: :none
+    })
   end
 
   @impl ImagePlug.Transform
