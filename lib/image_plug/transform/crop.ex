@@ -1,6 +1,9 @@
 defmodule ImagePlug.Transform.Crop do
   @behaviour ImagePlug.Transform
 
+  import ImagePlug.TransformState
+  import ImagePlug.Utils
+
   alias ImagePlug.Transform
   alias ImagePlug.TransformState
 
@@ -18,79 +21,34 @@ defmodule ImagePlug.Transform.Crop do
   end
 
   @impl ImagePlug.Transform
-  def execute(%TransformState{} = state, %CropParams{} = parameters) do
-    with coord_mapped_params <- map_params_to_pixels(state, parameters),
-         anchored_params <- anchor_crop(state, coord_mapped_params),
-         clamped_params <- clamp(state, anchored_params),
-         {:ok, cropped_image} <- do_crop(state.image, clamped_params) do
-      %ImagePlug.TransformState{state | image: cropped_image} |> TransformState.reset_focus()
-    else
-      {:error, error} ->
-        %ImagePlug.TransformState{state | errors: [{__MODULE__, error} | state.errors]}
+  def execute(%TransformState{} = state, %CropParams{} = params) do
+    # make sure crop is within image bounds
+    crop_width = max(1, min(image_width(state), to_pixels(state, :x, params.width)))
+    crop_height = max(1, min(image_height(state), to_pixels(state, :y, params.height)))
+
+    # figure out the crop anchor
+    {focus_left, focus_top} = anchor_crop(state, params.crop_from, crop_width, crop_height)
+
+    # ...and make sure crop still stays within bounds
+    left = max(0, min(image_width(state) - crop_width, focus_left))
+    top = max(0, min(image_height(state) - crop_height, focus_top))
+
+    # execute crop
+    case Image.crop(state.image, left, top, crop_width, crop_height) do
+      {:ok, cropped_image} -> state |> set_image(cropped_image) |> reset_focus()
+      {:error, error} -> add_error(state, {__MODULE__, error})
     end
   end
 
-  defp anchor_crop(%TransformState{}, %{
-         crop_from: %{left: left, top: top},
-         width: width,
-         height: height
-       }) do
-    %{width: width, height: height, left: left, top: top}
-  end
+  defp anchor_crop(%TransformState{} = state, %{left: left, top: top}, _crop_width, _crop_height),
+    do: {to_pixels(state, :x, left), to_pixels(state, :y, top)}
 
-  defp anchor_crop(
-         %TransformState{} = state,
-         %{crop_from: :focus, width: width, height: height} = params
-       ) do
-    center_x =
-      case state.focus do
-        {:anchor, :left, _} -> width / 2
-        {:anchor, :center, _} -> Image.width(state.image) / 2
-        {:anchor, :right, _} -> Image.width(state.image) - width / 2
-        {:coordinate, left, _top} -> left
-      end
-
-    center_y =
-      case state.focus do
-        {:anchor, _, :top} -> height / 2
-        {:anchor, _, :center} -> Image.height(state.image) / 2
-        {:anchor, _, :bottom} -> Image.height(state.image) - height / 2
-        {:coordinate, _left, top} -> top
-      end
-
-    left = center_x - width / 2
-    top = center_y - height / 2
-
-    %{width: width, height: height, left: round(left), top: round(top)}
-  end
-
-  # clamps the crop area to stay withing the image boundaries
-  def clamp(%TransformState{image: image}, %{width: width, height: height, top: top, left: left}) do
-    clamped_width = max(min(Image.width(image), width), 1)
-    clamped_height = max(min(Image.height(image), height), 1)
-    clamped_left = max(min(Image.width(image) - clamped_width, left), 0)
-    clamped_top = max(min(Image.height(image) - clamped_height, top), 0)
-    %{width: clamped_width, height: clamped_height, left: clamped_left, top: clamped_top}
-  end
-
-  def do_crop(image, %{width: width, height: height, top: top, left: left}) do
-    Image.crop(image, left, top, width, height)
-  end
-
-  def map_crop_from_to_pixels(state, %{left: left, top: top}) do
-    with {:ok, mapped_left} <- Transform.to_pixels(state, :width, left),
-         {:ok, mapped_top} <- Transform.to_pixels(state, :height, top) do
-      {:ok, %{left: mapped_left, top: mapped_top}}
-    end
-  end
-
-  def map_crop_from_to_pixels(_state, :focus), do: {:ok, :focus}
-
-  def map_params_to_pixels(state, %CropParams{width: width, height: height, crop_from: crop_from}) do
-    with {:ok, mapped_width} <- Transform.to_pixels(state, :width, width),
-         {:ok, mapped_height} <- Transform.to_pixels(state, :height, height),
-         {:ok, mapped_crop_from} <- map_crop_from_to_pixels(state, crop_from) do
-      %{width: mapped_width, height: mapped_height, crop_from: mapped_crop_from}
-    end
+  defp anchor_crop(%TransformState{} = state, :focus, crop_width, crop_height) do
+    anchor_to_coord(state.focus, %{
+      image_width: image_width(state),
+      image_height: image_height(state),
+      target_width: crop_width,
+      target_height: crop_height
+    })
   end
 end

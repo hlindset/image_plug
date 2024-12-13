@@ -1,6 +1,9 @@
 defmodule ImagePlug.Transform.Contain do
   @behaviour ImagePlug.Transform
 
+  import ImagePlug.TransformState
+  import ImagePlug.Utils
+
   alias ImagePlug.Transform
   alias ImagePlug.TransformState
 
@@ -21,44 +24,45 @@ defmodule ImagePlug.Transform.Contain do
         height: height,
         constraint: constraint
       }) do
-    with {:ok, target_width} <- Transform.to_pixels(state, :width, width),
-         {:ok, target_height} <- Transform.to_pixels(state, :height, height),
-         {:ok, width_and_height} <-
-           fit_inside(state, %{width: target_width, height: target_height}),
-         {:ok, scaled_image} <-
-           maybe_scale(state.image, Map.merge(width_and_height, %{constraint: constraint})) do
-      %TransformState{state | image: scaled_image} |> TransformState.reset_focus()
+    target_width = to_pixels(state, :x, width)
+    target_height = to_pixels(state, :y, height)
+    {resize_width, resize_height} = fit_inside(state, target_width, target_height)
+
+    case maybe_scale(state, resize_width, resize_height, constraint) do
+      {:ok, scaled_image} -> state |> set_image(scaled_image) |> reset_focus()
+      {:error, error} -> add_error(state, {__MODULE__, error})
     end
   end
 
-  def fit_inside(%TransformState{image: image}, target) do
-    original_ar = Image.width(image) / Image.height(image)
-    target_ar = target.width / target.height
+  def fit_inside(%TransformState{} = state, target_width, target_height) do
+    original_ar = image_width(state) / image_height(state)
+    target_ar = target_width / target_height
 
     if original_ar > target_ar do
-      {:ok, %{width: target.width, height: round(target.width / original_ar)}}
+      {target_width, round(target_width / original_ar)}
     else
-      {:ok, %{width: round(target.height * original_ar), height: target.height}}
+      {round(target_height * original_ar), target_height}
     end
   end
 
-  def maybe_scale(image, %{width: width, height: height, constraint: :min} = params) do
-    if width > Image.width(image) or height > Image.height(image),
-      do: do_scale(image, params),
-      else: {:ok, image}
+  def maybe_scale(%TransformState{} = state, width, height, :min) do
+    if width > image_width(state) or height > image_height(state),
+      do: do_scale(state, width, height),
+      else: {:ok, state.image}
   end
 
-  def maybe_scale(image, %{width: width, height: height, constraint: :max} = params) do
-    if width < Image.width(image) or height < Image.height(image),
-      do: do_scale(image, params),
-      else: {:ok, image}
+  def maybe_scale(%TransformState{} = state, width, height, :max) do
+    if width < image_width(state) or height < image_height(state),
+      do: do_scale(state, width, height),
+      else: {:ok, state.image}
   end
 
-  def maybe_scale(image, params), do: do_scale(image, params)
+  def maybe_scale(%TransformState{} = state, width, height, _constraint),
+    do: do_scale(state, width, height)
 
-  def do_scale(image, %{width: width, height: height}) do
-    width_scale = width / Image.width(image)
-    height_scale = height / Image.height(image)
-    Image.resize(image, width_scale, vertical_scale: height_scale)
+  def do_scale(%TransformState{} = state, width, height) do
+    width_scale = width / image_width(state)
+    height_scale = height / image_height(state)
+    Image.resize(state.image, width_scale, vertical_scale: height_scale)
   end
 end

@@ -13,7 +13,7 @@ defmodule ImagePlug.ParamParser.Twicpics.Transform.ContainParser do
   ## Examples
 
       iex> ImagePlug.ParamParser.Twicpics.Transform.ContainParser.parse("250x25.5p")
-      {:ok, %ImagePlug.Transform.Contain.ContainParams{width: {:percent, 250}, height: {:pixels, 25.5}, constraint: :none}}
+      {:ok, %ImagePlug.Transform.Contain.ContainParams{width: {:pixels, 250}, height: {:percent, 25.5}, constraint: :none}}
   """
 
   def parse(input, pos_offset \\ 0) do
