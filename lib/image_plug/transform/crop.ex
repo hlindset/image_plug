@@ -26,9 +26,13 @@ defmodule ImagePlug.Transform.Crop do
     image_width = image_width(state)
     image_height = image_height(state)
 
+    # keep :auto dimensions as is
+    target_width = if params.width == :auto, do: image_width, else: params.width
+    target_height = if params.height == :auto, do: image_height, else: params.height
+
     # make sure crop is within image bounds
-    crop_width = max(1, min(image_width, to_pixels(image_width, params.width)))
-    crop_height = max(1, min(image_height, to_pixels(image_height, params.height)))
+    crop_width = max(1, min(image_width, to_pixels(image_width, target_width)))
+    crop_height = max(1, min(image_height, to_pixels(image_height, target_height)))
 
     # figure out the crop anchor
     {center_x, center_y} =
