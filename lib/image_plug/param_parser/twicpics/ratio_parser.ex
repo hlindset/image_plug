@@ -1,6 +1,5 @@
 defmodule ImagePlug.ParamParser.Twicpics.RatioParser do
   alias ImagePlug.ParamParser.Twicpics.NumberParser
-  alias ImagePlug.ParamParser.Twicpics.ArithmeticParser
   alias ImagePlug.ParamParser.Twicpics.Utils
 
   def parse(input, pos_offset \\ 0) do
@@ -30,16 +29,16 @@ defmodule ImagePlug.ParamParser.Twicpics.RatioParser do
     end
   end
 
-  defp parse_and_validate(num_str, pos_offset) do
-    with {:ok, tokens} <- NumberParser.parse(num_str, pos_offset),
-         {:ok, evaluated} <- ArithmeticParser.parse_and_evaluate(tokens) do
-      if evaluated > 0 do
-        {:ok, evaluated}
-      else
-        {:error, {:positive_number_required, pos: pos_offset, found: evaluated}}
-      end
-    else
-      {:error, {_reason, _opts}} = error -> error
+  defp parse_and_validate(number_str, pos_offset) do
+    case NumberParser.parse(number_str, pos_offset) do
+      {:ok, number} ->
+        if number > 0 do
+          {:ok, number}
+        else
+          {:error, {:positive_number_required, pos: pos_offset, found: number}}
+        end
+
+      {:error, _reason} = error -> error
     end
   end
 end
