@@ -13,13 +13,20 @@ defmodule ImagePlug.ParamParser.Twicpics.Transform.ContainMaxParser do
   ## Examples
 
       iex> ImagePlug.ParamParser.Twicpics.Transform.ContainMaxParser.parse("250x25.5")
-      {:ok, %ImagePlug.Transform.Contain.ContainParams{width: {:pixels, 250}, height: {:pixels, 25.5}, constraint: :max}}
+      {:ok, %ImagePlug.Transform.Contain.ContainParams{type: :dimensions, width: {:pixels, 250}, height: {:pixels, 25.5}, constraint: :max, letterbox: false}}
   """
 
   def parse(input, pos_offset \\ 0) do
     case SizeParser.parse(input, pos_offset) do
       {:ok, %{width: width, height: height}} ->
-        {:ok, %ContainParams{width: width, height: height, constraint: :max}}
+        {:ok,
+         %ContainParams{
+           type: :dimensions,
+           width: width,
+           height: height,
+           constraint: :max,
+           letterbox: false
+         }}
 
       {:error, _reason} = error ->
         Utils.update_error_input(error, input)
