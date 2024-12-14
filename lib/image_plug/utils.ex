@@ -32,7 +32,7 @@ defmodule ImagePlug.Utils do
         {:coordinate, _left, top} -> {:scale, to_pixels(height, top), height}
       end
 
-    {x_scale, y_scale} |> IO.inspect(label: :center_scales)
+    {x_scale, y_scale}
   end
 
   def anchor_to_pixels(focus, width, height) do
