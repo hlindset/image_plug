@@ -1,6 +1,9 @@
 defmodule ImagePlug.Transform.Focus do
   @behaviour ImagePlug.Transform
 
+  import ImagePlug.TransformState
+  import ImagePlug.Utils
+
   alias ImagePlug.Transform
   alias ImagePlug.TransformState
 
@@ -16,24 +19,29 @@ defmodule ImagePlug.Transform.Focus do
   end
 
   @impl ImagePlug.Transform
-  def execute(%TransformState{image: image} = state, %FocusParams{type: {:coordinate, left, top}}) do
-    with {:ok, left} <- Transform.to_pixels(state, :width, left),
-         {:ok, top} <- Transform.to_pixels(state, :height, top) do
-      %ImagePlug.TransformState{
-        state
-        | image: image,
-          focus:
-            {:coordinate, max(min(Image.width(image), left), 0),
-             max(min(Image.height(image), top), 0)}
-      }
-    else
-      {:error, error} ->
-        %ImagePlug.TransformState{state | errors: [{__MODULE__, error} | state.errors]}
-    end
+  def execute(%TransformState{} = state, %FocusParams{type: {:coordinate, left, top}}) do
+    left = to_pixels(image_width(state), left)
+    top = to_pixels(image_height(state), top)
+
+    focus =
+      {:coordinate, max(min(image_width(state), left), 0), max(min(image_height(state), top), 0)}
+
+    state
+    |> set_focus(focus)
+    |> maybe_draw_debug_dot()
   end
 
   @impl ImagePlug.Transform
   def execute(%TransformState{image: image} = state, %FocusParams{type: {:anchor, x, y}}) do
-    %ImagePlug.TransformState{state | image: image, focus: {:anchor, x, y}}
+    state
+    |> set_focus({:anchor, x, y})
+    |> maybe_draw_debug_dot()
   end
+
+  defp maybe_draw_debug_dot(%TransformState{debug: true, focus: focus} = state) do
+    {left, top} = anchor_to_pixels(focus, image_width(state), image_height(state))
+    draw_debug_dot(state, left, top)
+  end
+
+  defp maybe_draw_debug_dot(state, _focus), do: state
 end

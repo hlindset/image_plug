@@ -14,6 +14,11 @@ defmodule ImagePlug.ParamParser.TwicpicsParserTest do
   doctest ImagePlug.ParamParser.Twicpics.Transform.ScaleParser
   doctest ImagePlug.ParamParser.Twicpics.Transform.FocusParser
   doctest ImagePlug.ParamParser.Twicpics.Transform.ContainParser
+  doctest ImagePlug.ParamParser.Twicpics.Transform.ContainMinParser
+  doctest ImagePlug.ParamParser.Twicpics.Transform.ContainMaxParser
+  doctest ImagePlug.ParamParser.Twicpics.Transform.CoverParser
+  doctest ImagePlug.ParamParser.Twicpics.Transform.CoverMinParser
+  doctest ImagePlug.ParamParser.Twicpics.Transform.CoverMaxParser
   doctest ImagePlug.ParamParser.Twicpics.Transform.OutputParser
 
   defp length_str({:pixels, unit}), do: "#{unit}"
@@ -103,37 +108,37 @@ defmodule ImagePlug.ParamParser.TwicpicsParserTest do
           {:auto_width, {height}} ->
             {"-x#{length_str(height)}",
              %Scale.ScaleParams{
-               method: %Scale.ScaleParams.Dimensions{width: :auto, height: to_result(height)}
+               type: :dimensions,
+               width: :auto,
+               height: to_result(height)
              }}
 
           {:auto_height, {width}} ->
             {"#{length_str(width)}x-",
              %Scale.ScaleParams{
-               method: %Scale.ScaleParams.Dimensions{width: to_result(width), height: :auto}
+               type: :dimensions,
+               width: to_result(width),
+               height: :auto
              }}
 
           {:simple, {width}} ->
             {"#{length_str(width)}",
              %Scale.ScaleParams{
-               method: %Scale.ScaleParams.Dimensions{width: to_result(width), height: :auto}
+               type: :dimensions,
+               width: to_result(width),
+               height: :auto
              }}
 
           {:width_and_height, {width, height}} ->
             {"#{length_str(width)}x#{length_str(height)}",
              %Scale.ScaleParams{
-               method: %Scale.ScaleParams.Dimensions{
-                 width: to_result(width),
-                 height: to_result(height)
-               }
+               type: :dimensions,
+               width: to_result(width),
+               height: to_result(height)
              }}
 
           {:aspect_ratio, {ar_w, ar_h}} ->
-            {"#{ar_w}:#{ar_h}",
-             %Scale.ScaleParams{
-               method: %Scale.ScaleParams.AspectRatio{
-                 aspect_ratio: {:ratio, ar_w, ar_h}
-               }
-             }}
+            {"#{ar_w}:#{ar_h}", %Scale.ScaleParams{type: :ratio, ratio: {ar_w, ar_h}}}
         end
 
       {:ok, parsed} = Twicpics.Transform.ScaleParser.parse(str_params)
@@ -148,7 +153,12 @@ defmodule ImagePlug.ParamParser.TwicpicsParserTest do
       str_params = "#{length_str(width)}x#{length_str(height)}"
       parsed = Twicpics.Transform.ContainParser.parse(str_params)
 
-      assert {:ok, %Contain.ContainParams{width: to_result(width), height: to_result(height)}} ==
+      assert {:ok,
+              %Contain.ContainParams{
+                width: to_result(width),
+                height: to_result(height),
+                constraint: :none
+              }} ==
                parsed
     end
   end

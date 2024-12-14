@@ -12,7 +12,7 @@ defmodule ImagePlug do
   @type imgp_pixels() :: {:pixels, imgp_number()}
   @type imgp_pct() :: {:percent, imgp_number()}
   @type imgp_scale() :: {:scale, imgp_number(), imgp_number()}
-  @type imgp_ratio() :: {:ratio, imgp_number(), imgp_number()}
+  @type imgp_ratio() :: {imgp_number(), imgp_number()}
   @type imgp_length() :: imgp_pixels() | imgp_pct() | imgp_scale()
 
   @alpha_format_priority ~w(image/avif image/webp image/png)

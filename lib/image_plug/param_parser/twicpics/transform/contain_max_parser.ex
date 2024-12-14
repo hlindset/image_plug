@@ -1,4 +1,4 @@
-defmodule ImagePlug.ParamParser.Twicpics.Transform.ContainParser do
+defmodule ImagePlug.ParamParser.Twicpics.Transform.ContainMaxParser do
   alias ImagePlug.ParamParser.Twicpics.SizeParser
   alias ImagePlug.ParamParser.Twicpics.RatioParser
   alias ImagePlug.ParamParser.Twicpics.Utils
@@ -8,18 +8,18 @@ defmodule ImagePlug.ParamParser.Twicpics.Transform.ContainParser do
   Parses a string into a `ImagePlug.Transform.Contain.ContainParams` struct.
 
   Syntax:
-  * `contain=<size>`
+  * `contain-max=<size>`
 
   ## Examples
 
-      iex> ImagePlug.ParamParser.Twicpics.Transform.ContainParser.parse("250x25.5p")
-      {:ok, %ImagePlug.Transform.Contain.ContainParams{width: {:pixels, 250}, height: {:percent, 25.5}, constraint: :none}}
+      iex> ImagePlug.ParamParser.Twicpics.Transform.ContainMaxParser.parse("250x25.5")
+      {:ok, %ImagePlug.Transform.Contain.ContainParams{width: {:pixels, 250}, height: {:pixels, 25.5}, constraint: :max}}
   """
 
   def parse(input, pos_offset \\ 0) do
     case SizeParser.parse(input, pos_offset) do
       {:ok, %{width: width, height: height}} ->
-        {:ok, %ContainParams{width: width, height: height, constraint: :none}}
+        {:ok, %ContainParams{width: width, height: height, constraint: :max}}
 
       {:error, _reason} = error ->
         Utils.update_error_input(error, input)

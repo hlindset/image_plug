@@ -4,7 +4,8 @@ defmodule ImagePlug.TransformState do
   defstruct image: nil,
             focus: @default_focus,
             errors: [],
-            output: :auto
+            output: :auto,
+            debug: true
 
   @type file_format() :: :avif | :webp | :jpeg | :png
   @type preview_format() :: :blurhash
@@ -27,9 +28,21 @@ defmodule ImagePlug.TransformState do
           output: output_format()
         }
 
-  def default_focus, do: @default_focus
+  defp default_focus, do: @default_focus
+
+  def set_focus(%__MODULE__{} = state, focus) do
+    %__MODULE__{state | focus: focus}
+  end
 
   def reset_focus(%__MODULE__{} = state) do
-    %__MODULE__{state | focus: default_focus()}
+    set_focus(state, default_focus())
+  end
+
+  def set_image(%__MODULE__{} = state, %Vix.Vips.Image{} = image) do
+    %__MODULE__{state | image: image}
+  end
+
+  def add_error(%__MODULE__{} = state, error) do
+    %__MODULE__{state | errors: [error | state.errors]}
   end
 end

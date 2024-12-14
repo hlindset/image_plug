@@ -31,10 +31,9 @@ defmodule ImagePlug.TwicpicsTest do
                  }},
                 {Transform.Scale,
                  %Transform.Scale.ScaleParams{
-                   method: %Transform.Scale.ScaleParams.Dimensions{
-                     width: {:pixels, 200},
-                     height: :auto
-                   }
+                   type: :dimensions,
+                   width: {:pixels, 200},
+                   height: :auto
                  }},
                 {Transform.Output,
                  %Transform.Output.OutputParams{
