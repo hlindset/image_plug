@@ -41,11 +41,11 @@ defmodule ImagePlug.Transform.Contain do
         letterbox: letterbox
       }) do
     # compute target width and height based on the ratio
-    image_width = image_width(state) |> IO.inspect(label: :image_width)
-    image_height = image_height(state) |> IO.inspect(label: :image_height)
+    image_width = image_width(state)
+    image_height = image_height(state)
 
-    target_ratio = (ratio_width / ratio_height) |> IO.inspect(label: :target_ratio)
-    original_ratio = (image_width / image_height) |> IO.inspect(label: :original_ratio)
+    target_ratio = ratio_width / ratio_height
+    original_ratio = image_width / image_height
 
     {target_width, target_height} =
       if original_ratio > target_ratio do
