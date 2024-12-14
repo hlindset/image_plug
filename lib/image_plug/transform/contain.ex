@@ -13,9 +13,14 @@ defmodule ImagePlug.Transform.Contain do
     @type t ::
             %__MODULE__{
               width: ImagePlug.imgp_length(),
-              height: ImagePlug.imgp_length(),
+              height: ImagePlug.imgp_length() | :auto,
               constraint: :regular | :min | :max
             }
+            | %__MODULE__{
+                width: ImagePlug.imgp_length() | :auto,
+                height: ImagePlug.imgp_length(),
+                constraint: :regular | :min | :max
+              }
   end
 
   @impl ImagePlug.Transform
