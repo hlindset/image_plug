@@ -16,7 +16,7 @@ defmodule ImagePlug.Transform.Cover do
     @type t ::
             %__MODULE__{
               type: :ratio,
-              ratio: {ImagePlug.imgp_ratio(), ImagePlug.imgp_ratio()}
+              ratio: ImagePlug.imgp_ratio()
             }
             | %__MODULE__{
                 type: :dimensions,
