@@ -12,7 +12,7 @@ defmodule ImagePlug.ParamParser.Twicpics.Transform.ContainMaxParser do
 
   ## Examples
 
-      iex> ImagePlug.ParamParser.Twicpics.Transform.ContainParser.parse("250x25.5")
+      iex> ImagePlug.ParamParser.Twicpics.Transform.ContainMaxParser.parse("250x25.5")
       {:ok, %ImagePlug.Transform.Contain.ContainParams{width: {:pixels, 250}, height: {:pixels, 25.5}, constraint: :max}}
   """
 

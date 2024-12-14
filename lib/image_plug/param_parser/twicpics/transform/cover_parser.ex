@@ -17,7 +17,7 @@ defmodule ImagePlug.ParamParser.Twicpics.Transform.CoverParser do
       {:ok, %ImagePlug.Transform.Cover.CoverParams{type: :dimensions, width: {:pixels, 250}, height: {:pixels, 25.5}, constraint: :none}}
 
       iex> ImagePlug.ParamParser.Twicpics.Transform.CoverParser.parse("16:9")
-      {:ok, %ImagePlug.Transform.Cover.CoverParams{type: :ratio, ratio: {16, 9}, constraint: :none}}
+      {:ok, %ImagePlug.Transform.Cover.CoverParams{type: :ratio, ratio: {16, 9}}}
   """
 
   def parse(input, pos_offset \\ 0) do
