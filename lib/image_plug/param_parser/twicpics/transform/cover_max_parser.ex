@@ -19,7 +19,7 @@ defmodule ImagePlug.ParamParser.Twicpics.Transform.CoverMaxParser do
   def parse(input, pos_offset \\ 0) do
     case SizeParser.parse(input, pos_offset) do
       {:ok, %{width: width, height: height}} ->
-        {:ok, %CoverParams{width: width, height: height, constraint: :max}}
+        {:ok, %CoverParams{type: :dimensions, width: width, height: height, constraint: :max}}
 
       {:error, _reason} = error ->
         Utils.update_error_input(error, input)

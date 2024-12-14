@@ -65,6 +65,7 @@ defmodule ImagePlug.Transform.Cover do
   def execute(
         %TransformState{} = state,
         %CoverParams{
+          type: :dimensions,
           width: width,
           height: height,
           constraint: constraint
