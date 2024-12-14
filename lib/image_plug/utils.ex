@@ -42,6 +42,22 @@ defmodule ImagePlug.Utils do
     end
   end
 
+  def resolve_auto_size(%TransformState{image: image} = state, width, :auto) do
+    aspect_ratio = image_height(state) / image_width(state)
+    auto_height = round(to_pixels(image_width(state), width) * aspect_ratio)
+    {to_pixels(image_width(state), width), auto_height}
+  end
+
+  def resolve_auto_size(%TransformState{image: image} = state, :auto, height) do
+    aspect_ratio = image_width(state) / image_height(state)
+    auto_width = round(to_pixels(image_height(state), height) * aspect_ratio)
+    {auto_width, to_pixels(image_height(state), height)}
+  end
+
+  def resolve_auto_size(%TransformState{image: image} = state, width, height) do
+    {to_pixels(image_width(state), width), to_pixels(image_height(state), height)}
+  end
+
   def draw_debug_dot(
         %TransformState{} = state,
         left,

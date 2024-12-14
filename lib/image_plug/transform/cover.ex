@@ -62,18 +62,20 @@ defmodule ImagePlug.Transform.Cover do
   end
 
   @impl ImagePlug.Transform
-  def execute(%TransformState{} = state, %CoverParams{
-        width: width,
-        height: height,
-        constraint: constraint
-      }) do
+  def execute(
+        %TransformState{} = state,
+        %CoverParams{
+          width: width,
+          height: height,
+          constraint: constraint
+        } = params
+      ) do
     # convert units to pixels
-    crop_width = to_pixels(image_width(state), width)
-    crop_height = to_pixels(image_height(state), height)
+    {crop_width, crop_height} = resolve_auto_size(state, width, height)
 
     # figure out width/height and get scaled size back
     {resize_width, resize_height} =
-      fit_cover(state, crop_width, crop_height) |> IO.inspect(label: :resize)
+      fit_cover(state, crop_width, crop_height)
 
     # calculate focus scale based on original image and adjust to scaled size
     original_width = image_width(state)
