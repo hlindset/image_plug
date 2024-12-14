@@ -124,7 +124,7 @@ defmodule ImagePlug.Transform.Contain do
   defp maybe_add_letterbox(%TransformState{} = state, false, width, height), do: {:ok, state}
 
   defp maybe_add_letterbox(%TransformState{} = state, true, width, height) do
-    case Image.embed(state.image, width, height, background_color: :average) do
+    case Image.embed(state.image, width, height, background_color: :white) do
       {:ok, letterboxed_image} -> {:ok, set_image(state, letterboxed_image)}
       {:error, _reason} = error -> error
     end
