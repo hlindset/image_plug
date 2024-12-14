@@ -16,7 +16,7 @@ defmodule ImagePlug.Utils do
   def to_pixels(length, {:percent, percent}), do: round(percent / 100 * length)
 
   def anchor_to_scale_units(focus, width, height) do
-    center_x_scale =
+    x_scale =
       case focus do
         {:anchor, :left, _} -> {:scale, 0, 2}
         {:anchor, :center, _} -> {:scale, 1, 2}
@@ -24,7 +24,7 @@ defmodule ImagePlug.Utils do
         {:coordinate, left, _top} -> {:scale, to_pixels(width, left), width}
       end
 
-    center_y_scale =
+    y_scale =
       case focus do
         {:anchor, _, :top} -> {:scale, 0, 1}
         {:anchor, _, :center} -> {:scale, 1, 2}
@@ -32,13 +32,13 @@ defmodule ImagePlug.Utils do
         {:coordinate, _left, top} -> {:scale, to_pixels(height, top), height}
       end
 
-    {center_x_scale, center_y_scale} |> IO.inspect(label: :center_scales)
+    {x_scale, y_scale} |> IO.inspect(label: :center_scales)
   end
 
   def anchor_to_pixels(focus, width, height) do
     case anchor_to_scale_units(focus, width, height) do
-      {center_x_scale, center_y_scale} ->
-        {to_pixels(width, center_x_scale), to_pixels(height, center_y_scale)}
+      {x_scale, y_scale} ->
+        {to_pixels(width, x_scale), to_pixels(height, y_scale)}
     end
   end
 
