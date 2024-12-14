@@ -17,6 +17,8 @@ defmodule ImagePlug.ParamParser.TwicpicsParserTest do
   doctest ImagePlug.ParamParser.Twicpics.Transform.ContainMinParser
   doctest ImagePlug.ParamParser.Twicpics.Transform.ContainMaxParser
   doctest ImagePlug.ParamParser.Twicpics.Transform.CoverParser
+  doctest ImagePlug.ParamParser.Twicpics.Transform.CoverMinParser
+  doctest ImagePlug.ParamParser.Twicpics.Transform.CoverMaxParser
   doctest ImagePlug.ParamParser.Twicpics.Transform.OutputParser
 
   defp length_str({:pixels, unit}), do: "#{unit}"

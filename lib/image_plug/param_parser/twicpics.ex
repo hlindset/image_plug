@@ -15,6 +15,8 @@ defmodule ImagePlug.ParamParser.Twicpics do
     "contain-min" => {ImagePlug.Transform.Contain, Twicpics.Transform.ContainMinParser},
     "contain-max" => {ImagePlug.Transform.Contain, Twicpics.Transform.ContainMaxParser},
     "cover" => {ImagePlug.Transform.Cover, Twicpics.Transform.CoverParser},
+    "cover-min" => {ImagePlug.Transform.Cover, Twicpics.Transform.CoverMinParser},
+    "cover-max" => {ImagePlug.Transform.Cover, Twicpics.Transform.CoverMaxParser},
     "output" => {ImagePlug.Transform.Output, Twicpics.Transform.OutputParser}
   }
 
