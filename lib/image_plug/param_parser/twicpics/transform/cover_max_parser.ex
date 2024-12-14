@@ -13,7 +13,7 @@ defmodule ImagePlug.ParamParser.Twicpics.Transform.CoverMaxParser do
   ## Examples
 
       iex> ImagePlug.ParamParser.Twicpics.Transform.CoverMaxParser.parse("250x25.5")
-      {:ok, %ImagePlug.Transform.Cover.CoverParams{width: {:pixels, 250}, height: {:pixels, 25.5}, constraint: :max}}
+      {:ok, %ImagePlug.Transform.Cover.CoverParams{type: :dimensions, width: {:pixels, 250}, height: {:pixels, 25.5}, constraint: :max}}
   """
 
   def parse(input, pos_offset \\ 0) do

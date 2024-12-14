@@ -155,9 +155,11 @@ defmodule ImagePlug.ParamParser.TwicpicsParserTest do
 
       assert {:ok,
               %Contain.ContainParams{
+                type: :dimensions,
                 width: to_result(width),
                 height: to_result(height),
-                constraint: :none
+                constraint: :none,
+                letterbox: false
               }} ==
                parsed
     end
