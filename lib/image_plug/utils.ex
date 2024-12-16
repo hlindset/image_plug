@@ -9,6 +9,11 @@ defmodule ImagePlug.Utils do
   def to_pixels(_length, num) when is_integer(num), do: num
   def to_pixels(_length, num) when is_float(num), do: round(num)
   def to_pixels(_length, {:pixels, num}), do: round(num)
+
+  # todo: remove
+  def to_pixels(length, {:scale, numerator, denominator}),
+    do: round(length * numerator / denominator)
+
   def to_pixels(length, {:scale, factor}), do: round(length * factor)
 
   def to_pixels(length, {:percent, percent}), do: round(percent / 100 * length)
@@ -72,5 +77,62 @@ defmodule ImagePlug.Utils do
       |> Image.Draw.circle!(left, top, 5, color: dot_color)
 
     TransformState.set_image(state, image_with_debug_dot)
+  end
+
+  def compose_background(%TransformState{background: []} = state, width, height) do
+    Image.new(width, height, color: :white)
+  end
+
+  def compose_background(%TransformState{} = state, width, height) do
+    handle_result = fn
+      {:ok, image}, acc -> {:cont, {:ok, [image | acc]}}
+      {:error, _reason} = error, _acc -> {:halt, error}
+    end
+
+    background_images =
+      Enum.reduce_while(state.background, {:ok, []}, fn
+        {:rgb, r, g, b}, {:ok, acc} ->
+          Image.new(width, height, color: Image.Color.rgb_color!([r, g, b]))
+          |> handle_result.(acc)
+
+        {:rgba, r, g, b, a}, {:ok, acc} ->
+          Image.new(width, height, color: Image.Color.rgba_color!([r, g, b, a]))
+          |> handle_result.(acc)
+
+        {:blur, sigma}, {:ok, acc} ->
+          with {:ok, blurred_image} <- Image.blur(state.image, sigma: sigma),
+               {:ok, cropped_image} <- Image.thumbnail(blurred_image, width, fit: :contain) do
+            Image.write!(blurred_image, "/Users/hlindset/Downloads/blurred.jpg")
+            Image.write!(cropped_image, "/Users/hlindset/Downloads/cropped.jpg")
+
+            {:ok, cropped_image}
+          else
+            {:error, _reason} = error -> error
+          end
+          |> handle_result.(acc)
+      end)
+
+    compose_images = fn base_image, background_images ->
+      IO.inspect(base_image, label: :base_image)
+      IO.inspect(background_images, label: :background_images)
+
+      case background_images do
+        {:ok, image} ->
+          Enum.reduce_while(image, {:ok, base_image}, fn background_image, {:ok, acc_image} ->
+            case Image.compose(acc_image, background_image) do
+              {:ok, composed} -> {:cont, {:ok, composed}}
+              {:error, _reason} = error -> {:halt, error}
+            end
+          end)
+
+        {:error, _reason} = error ->
+          error
+      end
+    end
+
+    with {:ok, base_image} <- Image.new(width, height, color: :transparent),
+         {:ok, [composed_bg]} <- compose_images.(base_image, background_images) do
+      {:ok, composed_bg}
+    end
   end
 end

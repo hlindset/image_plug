@@ -18,6 +18,7 @@ defmodule ImagePlug.ParamParser.Twicpics do
     "cover" => {ImagePlug.Transform.Cover, Twicpics.Transform.CoverParser},
     "cover-min" => {ImagePlug.Transform.Cover, Twicpics.Transform.CoverMinParser},
     "cover-max" => {ImagePlug.Transform.Cover, Twicpics.Transform.CoverMaxParser},
+    "background" => {ImagePlug.Transform.Background, Twicpics.Transform.BackgroundParser},
     "output" => {ImagePlug.Transform.Output, Twicpics.Transform.OutputParser}
   }
 

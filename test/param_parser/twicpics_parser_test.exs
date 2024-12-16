@@ -20,6 +20,9 @@ defmodule ImagePlug.ParamParser.TwicpicsParserTest do
   doctest ImagePlug.ParamParser.Twicpics.Transform.CoverMinParser
   doctest ImagePlug.ParamParser.Twicpics.Transform.CoverMaxParser
   doctest ImagePlug.ParamParser.Twicpics.Transform.OutputParser
+  doctest ImagePlug.ParamParser.Twicpics.HSLParser
+  doctest ImagePlug.ParamParser.Twicpics.RGBParser
+  doctest ImagePlug.ParamParser.Twicpics.HexColorParser
 
   defp length_str({:pixels, unit}), do: "#{unit}"
   defp length_str({:scale, unit_a, unit_b}), do: "(#{unit_a}/#{unit_b})s"

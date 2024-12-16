@@ -38,7 +38,8 @@ defmodule ImagePlug.ParamParser.Twicpics.RatioParser do
           {:error, {:positive_number_required, pos: pos_offset, found: number}}
         end
 
-      {:error, _reason} = error -> error
+      {:error, _reason} = error ->
+        error
     end
   end
 end
