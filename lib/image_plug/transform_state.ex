@@ -2,11 +2,13 @@ defmodule ImagePlug.TransformState do
   @default_focus {:anchor, :center, :center}
 
   defstruct image: nil,
+            background: [],
             focus: @default_focus,
             errors: [],
             output: :auto,
             debug: true
 
+  @type background() :: :blur | {:rgba, integer(), integer(), integer(), integer()}
   @type file_format() :: :avif | :webp | :jpeg | :png
   @type preview_format() :: :blurhash
   @type output_format() :: :auto | file_format() | preview_format()
@@ -23,6 +25,7 @@ defmodule ImagePlug.TransformState do
 
   @type t :: %__MODULE__{
           image: Vix.Vips.Image.t(),
+          background: list(background()),
           focus: {:coordinate, integer(), integer()} | focus_anchor(),
           errors: keyword(String.t()) | keyword(atom()),
           output: output_format()
