@@ -344,6 +344,10 @@ defmodule ImagePlug.ParamParser.Twicpics.ArithmeticTokenizer do
     end
   end
 
+  # we hit end of input while in a :float_open
+  defp do_parse(%State{input: "", tokens: [{:exp_open, _, _, _} | _]} = state),
+    do: Utils.unexpected_value_error(state.pos, ["[0-9]", "-"], :eoi)
+
   #
   # prev token: :exp
   # - we have a valid number in exponential notation

@@ -205,6 +205,15 @@ defmodule ImagePlug.ParamParser.Twicpics.ArithmeticTokenizerTest do
       assert Keyword.get(opts, :found) == :eoi
     end
 
+    test "unclosed exponential notation at the end of input" do
+      input = "10e"
+      {:error, {:unexpected_char, opts}} = ArithmeticTokenizer.tokenize(input)
+
+      assert Keyword.get(opts, :pos) == 3
+      assert Keyword.get(opts, :expected) == ["[0-9]", "-"]
+      assert Keyword.get(opts, :found) == :eoi
+    end
+
     test "unexpected end of input after opening parenthesis" do
       input = "("
       {:error, {:unexpected_char, opts}} = ArithmeticTokenizer.tokenize(input)
