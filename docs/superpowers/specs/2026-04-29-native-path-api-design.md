@@ -161,6 +161,7 @@ Because this codebase is unreleased, the current TwicPics parser can be removed 
 - #26, signed image URLs: reserve the leading signature segment now.
 - #31, encrypted origin paths or source URLs: reserve source kind segments such as `plain` and future `enc`.
 - #28, optimized input decoding for large downscales: prefer declarative fixed-pipeline semantics.
+- #35, `Image.from_req_stream` streaming origin decoding: keep origin fetch and decode as pipeline implementation details so the native API does not constrain whether ImagePlug fetches into memory, streams into libvips, or uses a future optimized load path.
 - #32, basic image filters: define that filters are future pipeline options, initially after geometry.
 - #27, EXIF orientation: define orientation as a future pre-geometry pipeline phase.
 - #29, background and padding controls: leave option namespace room for `bg`, `background`, and `pad`.
