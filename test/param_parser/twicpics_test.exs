@@ -63,4 +63,18 @@ defmodule ImagePlug.TwicpicsTest do
       assert result_state.focus == {:anchor, :center, :center}
     end
   end
+
+  test "implements the parser behaviour used by the plug" do
+    conn =
+      Plug.Test.conn(
+        :get,
+        "/process/images/cat-300.jpg?twic=v1/resize=100/output=webp"
+      )
+
+    assert {:ok,
+            [
+              {Transform.Scale, %Transform.Scale.ScaleParams{}},
+              {Transform.Output, %Transform.Output.OutputParams{format: :webp}}
+            ]} = Twicpics.parse(conn)
+  end
 end
