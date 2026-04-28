@@ -10,6 +10,7 @@ defmodule ImagePlug.Utils do
   def to_pixels(_length, num) when is_float(num), do: round(num)
   def to_pixels(_length, {:pixels, num}), do: round(num)
   def to_pixels(length, {:scale, factor}), do: round(length * factor)
+  def to_pixels(length, {:scale, numerator, denominator}), do: round(length * numerator / denominator)
 
   def to_pixels(length, {:percent, percent}), do: round(percent / 100 * length)
 
