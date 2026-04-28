@@ -105,8 +105,22 @@ defmodule ImagePlug.ImagePlugTest do
     end
   end
 
-  test "does not fetch origin when transform params are invalid" do
+  test "does not fetch origin when parser validation fails" do
     conn = conn(:get, "/_/w:0/plain/images/cat-300.jpg")
+
+    conn =
+      ImagePlug.call(conn,
+        root_url: "http://origin.test",
+        param_parser: ImagePlug.ParamParser.Native,
+        origin_req_options: [plug: OriginShouldNotBeCalled]
+      )
+
+    assert conn.status == 400
+    refute_received :origin_was_called
+  end
+
+  test "does not fetch origin when planner validation fails" do
+    conn = conn(:get, "/_/fit:cover/w:100/plain/images/cat-300.jpg")
 
     conn =
       ImagePlug.call(conn,
