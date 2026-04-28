@@ -43,5 +43,5 @@ defmodule ImagePlug.Transform.Focus do
     draw_debug_dot(state, left, top)
   end
 
-  defp maybe_draw_debug_dot(state, _focus), do: state
+  defp maybe_draw_debug_dot(%TransformState{} = state), do: state
 end

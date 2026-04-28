@@ -77,4 +77,15 @@ defmodule ImagePlug.TwicpicsTest do
               {Transform.Output, %Transform.Output.OutputParams{format: :webp}}
             ]} = Twicpics.parse(conn)
   end
+
+  test "focus does not draw a debug dot by default" do
+    {:ok, image} = Image.new(20, 20, color: :white)
+
+    result =
+      %TransformState{image: image}
+      |> Transform.Focus.execute(%Transform.Focus.FocusParams{type: {:anchor, :center, :center}})
+
+    assert Image.get_pixel!(result.image, 10, 10) == [255, 255, 255]
+    assert result.focus == {:anchor, :center, :center}
+  end
 end
