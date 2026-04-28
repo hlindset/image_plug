@@ -24,6 +24,14 @@ defmodule ImagePlug.ImagePlugTest do
     end
   end
 
+  defmodule OversizedOriginBody do
+    def call(conn, _) do
+      conn
+      |> Plug.Conn.put_resp_content_type("image/png")
+      |> Plug.Conn.send_resp(200, "123456")
+    end
+  end
+
   defmodule BrokenImageParser do
     @behaviour ImagePlug.ParamParser
 
@@ -183,5 +191,19 @@ defmodule ImagePlug.ImagePlugTest do
 
     assert conn.status == 413
     assert conn.resp_body == "origin image is too large"
+  end
+
+  test "honors top-level max_body_bytes for origin fetches" do
+    conn =
+      conn(:get, "/process/images/large-body.png")
+      |> ImagePlug.call(
+        root_url: "http://origin.test",
+        param_parser: ImagePlug.ParamParser.Twicpics,
+        max_body_bytes: 5,
+        origin_req_options: [plug: OversizedOriginBody]
+      )
+
+    assert conn.status == 502
+    assert conn.resp_body == "error fetching origin image"
   end
 end

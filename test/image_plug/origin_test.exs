@@ -69,6 +69,26 @@ defmodule ImagePlug.OriginTest do
     assert response.url == "https://img.example/cat.jpg"
   end
 
+  test "fetch allows redirect limits to be configured" do
+    Req.Test.stub(Origin, fn
+      %{request_path: "/redirect"} = conn ->
+        conn
+        |> Plug.Conn.put_resp_header("location", "/final")
+        |> Plug.Conn.send_resp(302, "")
+
+      %{request_path: "/final"} = conn ->
+        conn
+        |> Plug.Conn.put_resp_header("content-type", "image/jpeg")
+        |> Plug.Conn.send_resp(200, "image bytes")
+    end)
+
+    assert {:error, {:transport, %Req.TooManyRedirectsError{max_redirects: 0}}} =
+             Origin.fetch("https://img.example/redirect",
+               plug: {Req.Test, Origin},
+               max_redirects: 0
+             )
+  end
+
   test "rejects non-success status" do
     Req.Test.stub(Origin, fn conn ->
       Plug.Conn.send_resp(conn, 404, "not found")

@@ -40,6 +40,8 @@ defmodule ImagePlug.Origin do
 
   def fetch(url, req_options \\ []) when is_binary(url) and is_list(req_options) do
     max_body_bytes = Keyword.get(req_options, :max_body_bytes, @default_max_body_bytes)
+    max_redirects = Keyword.get(req_options, :max_redirects, @default_max_redirects)
+    receive_timeout = Keyword.get(req_options, :receive_timeout, @default_receive_timeout)
 
     request_options =
       req_options
@@ -49,13 +51,13 @@ defmodule ImagePlug.Origin do
         into: :self,
         retry: false,
         redirect: true,
-        max_redirects: @default_max_redirects,
-        receive_timeout: @default_receive_timeout
+        max_redirects: max_redirects,
+        receive_timeout: receive_timeout
       )
 
     case Req.get(request_options) do
       {:ok, response} ->
-        handle_response(response, url, max_body_bytes, @default_receive_timeout)
+        handle_response(response, url, max_body_bytes, receive_timeout)
 
       {:error, exception} ->
         {:error, {:transport, exception}}

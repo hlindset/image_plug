@@ -51,12 +51,25 @@ defmodule ImagePlug do
 
   defp fetch_origin(%Plug.Conn{} = conn, opts) do
     root_url = Keyword.fetch!(opts, :root_url)
-    req_options = Keyword.get(opts, :origin_req_options, [])
+    req_options = origin_req_options(opts)
 
     with {:ok, url} <- Origin.build_url(root_url, conn.path_info) do
       Origin.fetch(url, req_options)
     end
   end
+
+  defp origin_req_options(opts) do
+    opts
+    |> Keyword.get(:origin_req_options, [])
+    |> put_origin_req_option(:max_body_bytes, Keyword.fetch(opts, :max_body_bytes))
+    |> put_origin_req_option(:receive_timeout, Keyword.fetch(opts, :origin_receive_timeout))
+    |> put_origin_req_option(:max_redirects, Keyword.fetch(opts, :origin_max_redirects))
+  end
+
+  defp put_origin_req_option(req_options, key, {:ok, value}),
+    do: Keyword.put(req_options, key, value)
+
+  defp put_origin_req_option(req_options, _key, :error), do: req_options
 
   defp wrap_parser_error({:error, _} = error), do: {:error, {:parser, error}}
   defp wrap_parser_error(result), do: result
