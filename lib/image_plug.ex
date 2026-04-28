@@ -5,6 +5,7 @@ defmodule ImagePlug do
 
   require Logger
 
+  alias ImagePlug.Origin
   alias ImagePlug.TransformState
   alias ImagePlug.TransformChain
 
@@ -21,29 +22,72 @@ defmodule ImagePlug do
   def init(opts), do: opts
 
   def call(%Plug.Conn{} = conn, opts) do
-    root_url = Keyword.fetch!(opts, :root_url)
     param_parser = Keyword.fetch!(opts, :param_parser)
-    path = Enum.join(conn.path_info, "/")
-    url = "#{root_url}/#{path}"
-    image_resp = Req.get!(url)
 
-    with {:ok, chain} <- param_parser.parse(conn) |> wrap_error(),
-         {:ok, image} <- Image.from_binary(image_resp.body),
+    with {:ok, chain} <- param_parser.parse(conn) |> wrap_parser_error(),
+         {:ok, origin_response} <- fetch_origin(conn, opts) |> wrap_origin_error(),
+         {:ok, image} <-
+           Image.from_binary(origin_response.body, access: :random, fail_on: :error)
+           |> wrap_decode_error(),
          {:ok, final_state} <- TransformChain.execute(%TransformState{image: image}, chain) do
       send_image(conn, final_state)
     else
-      {:error, {:transform_error, %TransformState{errors: errors} = final_state}} ->
-        # TODO: handle transform error - debug mode + graceful mode switch?
+      {:error, {:transform_error, %TransformState{errors: errors}}} ->
         Logger.info("transform_error(s): #{inspect(errors)}")
-        send_image(conn, final_state)
+        send_transform_error(conn, errors)
 
-      {:error, {:handler, error}} ->
+      {:error, {:parser, error}} ->
         param_parser.handle_error(conn, error)
+
+      {:error, {:origin, error}} ->
+        send_origin_error(conn, error)
+
+      {:error, {:decode, error}} ->
+        send_decode_error(conn, error)
     end
   end
 
-  defp wrap_error({:error, _} = error), do: {:error, {:handler, error}}
-  defp wrap_error(result), do: result
+  defp fetch_origin(%Plug.Conn{} = conn, opts) do
+    root_url = Keyword.fetch!(opts, :root_url)
+    req_options = Keyword.get(opts, :origin_req_options, [])
+
+    with {:ok, url} <- Origin.build_url(root_url, conn.path_info) do
+      Origin.fetch(url, req_options)
+    end
+  end
+
+  defp wrap_parser_error({:error, _} = error), do: {:error, {:parser, error}}
+  defp wrap_parser_error(result), do: result
+
+  defp wrap_origin_error({:error, error}), do: {:error, {:origin, error}}
+  defp wrap_origin_error(result), do: result
+
+  defp wrap_decode_error({:error, _} = error), do: {:error, {:decode, error}}
+  defp wrap_decode_error(result), do: result
+
+  defp send_origin_error(%Plug.Conn{} = conn, {:bad_status, 404}) do
+    conn
+    |> put_resp_content_type("text/plain")
+    |> send_resp(404, "origin image not found")
+  end
+
+  defp send_origin_error(%Plug.Conn{} = conn, _error) do
+    conn
+    |> put_resp_content_type("text/plain")
+    |> send_resp(502, "error fetching origin image")
+  end
+
+  defp send_decode_error(%Plug.Conn{} = conn, _error) do
+    conn
+    |> put_resp_content_type("text/plain")
+    |> send_resp(415, "origin response is not a supported image")
+  end
+
+  defp send_transform_error(%Plug.Conn{} = conn, errors) do
+    conn
+    |> put_resp_content_type("text/plain")
+    |> send_resp(422, "invalid image transform: #{inspect(Enum.reverse(errors))}")
+  end
 
   defp accepted_formats(%Plug.Conn{} = conn) do
     from_accept_header =
