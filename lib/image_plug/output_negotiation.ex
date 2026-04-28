@@ -49,8 +49,15 @@ defmodule ImagePlug.OutputNegotiation do
   end
 
   defp fallback_format(priority, entries) do
-    Enum.find(priority, &fallback_allowed?(&1, entries)) ||
-      Enum.find(priority, &(not excluded?(&1, entries)))
+    Enum.find(priority, fn mime_type ->
+      fallback_allowed?(mime_type, entries) and allowed?(mime_type, entries)
+    end)
+  end
+
+  defp allowed?(mime_type, entries) do
+    Enum.any?(entries, fn {accepted, quality} ->
+      quality > 0 and matches?(accepted, mime_type)
+    end)
   end
 
   defp fallback_allowed?(mime_type, entries) when mime_type in @fallback_formats do

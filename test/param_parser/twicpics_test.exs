@@ -119,6 +119,21 @@ defmodule ImagePlug.TwicpicsTest do
     assert {Image.width(state.image), Image.height(state.image)} == {100, 50}
   end
 
+  test "cover clamps zero crop dimensions before fitting to image" do
+    {:ok, image} = Image.new(20, 20, color: :white)
+
+    state =
+      Transform.Cover.execute(%TransformState{image: image}, %Transform.Cover.CoverParams{
+        type: :dimensions,
+        width: {:pixels, 0},
+        height: {:pixels, 10},
+        constraint: :none
+      })
+
+    assert state.errors == []
+    assert {Image.width(state.image), Image.height(state.image)} == {1, 10}
+  end
+
   test "scale proportional downscale returns exact target dimensions" do
     {:ok, image} = Image.new(400, 200, color: :white)
 

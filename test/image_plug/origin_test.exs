@@ -12,6 +12,14 @@ defmodule ImagePlug.OriginTest do
              {:ok, "https://img.example/base/images/cat%201.jpg"}
   end
 
+  test "build_url rejects dot segments before joining paths" do
+    assert Origin.build_url("https://img.example/base", ["..", "secret.jpg"]) ==
+             {:error, {:invalid_path_segment, ["..", "secret.jpg"]}}
+
+    assert Origin.build_url("https://img.example/base", ["images", ".", "cat.jpg"]) ==
+             {:error, {:invalid_path_segment, ["images", ".", "cat.jpg"]}}
+  end
+
   test "fetch validates status and image content type" do
     Req.Test.stub(Origin, fn conn ->
       conn
@@ -26,6 +34,19 @@ defmodule ImagePlug.OriginTest do
     assert response.content_type == "image/jpeg"
     assert response.url == "https://img.example/cat.jpg"
     assert {"content-type", "image/jpeg"} in response.headers
+  end
+
+  test "fetch accepts mixed-case image content type with parameters" do
+    Req.Test.stub(Origin, fn conn ->
+      conn
+      |> Plug.Conn.put_resp_header("content-type", "Image/JPEG; charset=binary")
+      |> Plug.Conn.send_resp(200, "image bytes")
+    end)
+
+    assert {:ok, %Origin.Response{} = response} =
+             Origin.fetch("https://img.example/cat.jpg", plug: {Req.Test, Origin})
+
+    assert response.content_type == "Image/JPEG; charset=binary"
   end
 
   test "fetch does not allow request options to override safe options" do

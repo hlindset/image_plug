@@ -91,7 +91,7 @@ defmodule ImagePlug.ImagePlugTest do
     conn =
       :get
       |> conn("/process/images/cat-300.jpg")
-      |> put_req_header("accept", "image/png;q=0")
+      |> put_req_header("accept", "image/jpeg")
 
     conn =
       ImagePlug.call(conn,

@@ -105,6 +105,8 @@ defmodule ImagePlug.Transform.Cover do
   end
 
   defp fit_crop_to_image(crop_width, crop_height, image_width, image_height) do
+    crop_width = max(1, crop_width)
+    crop_height = max(1, crop_height)
     scale = min(1.0, min(image_width / crop_width, image_height / crop_height))
 
     {

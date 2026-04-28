@@ -12,23 +12,27 @@ defmodule ImagePlug.Origin do
     root_uri = URI.parse(root_url)
 
     if valid_root_url?(root_uri) do
-      root_path_segments = split_path(root_uri.path)
+      if Enum.any?(path_segments, &(&1 in [".", ".."])) do
+        {:error, {:invalid_path_segment, path_segments}}
+      else
+        root_path_segments = split_path(root_uri.path)
 
-      encoded_path_segments =
-        Enum.map(path_segments, fn segment ->
-          URI.encode(segment, &URI.char_unreserved?/1)
-        end)
+        encoded_path_segments =
+          Enum.map(path_segments, fn segment ->
+            URI.encode(segment, &URI.char_unreserved?/1)
+          end)
 
-      path = "/" <> Enum.join(root_path_segments ++ encoded_path_segments, "/")
+        path = "/" <> Enum.join(root_path_segments ++ encoded_path_segments, "/")
 
-      url =
-        root_uri
-        |> Map.put(:path, path)
-        |> Map.put(:query, nil)
-        |> Map.put(:fragment, nil)
-        |> URI.to_string()
+        url =
+          root_uri
+          |> Map.put(:path, path)
+          |> Map.put(:query, nil)
+          |> Map.put(:fragment, nil)
+          |> URI.to_string()
 
-      {:ok, url}
+        {:ok, url}
+      end
     else
       {:error, {:invalid_root_url, root_url}}
     end
@@ -98,13 +102,24 @@ defmodule ImagePlug.Origin do
 
   defp validate_content_type(%Req.Response{} = response) do
     content_type = response |> Req.Response.get_header("content-type") |> List.first()
+    media_type = content_type |> normalize_content_type()
 
-    if is_binary(content_type) and String.starts_with?(content_type, "image/") do
+    if is_binary(media_type) and String.starts_with?(media_type, "image/") do
       {:ok, content_type}
     else
       {:error, {:bad_content_type, content_type}}
     end
   end
+
+  defp normalize_content_type(content_type) when is_binary(content_type) do
+    content_type
+    |> String.split(";", parts: 2)
+    |> hd()
+    |> String.trim()
+    |> String.downcase()
+  end
+
+  defp normalize_content_type(_content_type), do: nil
 
   defp response_headers(%Req.Response{headers: headers}) do
     Enum.flat_map(headers, fn {key, values} -> Enum.map(values, &{key, &1}) end)

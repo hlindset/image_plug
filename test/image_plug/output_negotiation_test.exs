@@ -31,20 +31,29 @@ defmodule ImagePlug.OutputNegotiationTest do
                {:ok, "image/webp"}
     end
 
-    test "falls back to png for alpha when modern formats are not accepted" do
-      assert OutputNegotiation.negotiate("image/jpeg", true) == {:ok, "image/png"}
+    test "does not fall back to unaccepted formats for alpha images" do
+      assert OutputNegotiation.negotiate("image/jpeg", true) == {:error, :not_acceptable}
     end
 
-    test "does not select png fallback for alpha when png is q zero" do
-      assert OutputNegotiation.negotiate("image/png;q=0", true) == {:ok, "image/avif"}
+    test "does not select a fallback when only png is excluded for alpha images" do
+      assert OutputNegotiation.negotiate("image/png;q=0", true) == {:error, :not_acceptable}
     end
 
-    test "falls back to jpeg for non-alpha when modern formats are not accepted" do
-      assert OutputNegotiation.negotiate("image/png;q=0", false) == {:ok, "image/jpeg"}
+    test "does not fall back to unaccepted formats for non-alpha images" do
+      assert OutputNegotiation.negotiate("image/png;q=0", false) == {:error, :not_acceptable}
     end
 
-    test "does not select jpeg fallback for non-alpha when jpeg is q zero" do
-      assert OutputNegotiation.negotiate("image/jpeg;q=0", false) == {:ok, "image/avif"}
+    test "does not select a fallback when only jpeg is excluded for non-alpha images" do
+      assert OutputNegotiation.negotiate("image/jpeg;q=0", false) == {:error, :not_acceptable}
+    end
+
+    test "returns not acceptable when no supported format is accepted" do
+      assert OutputNegotiation.negotiate("application/json", false) == {:error, :not_acceptable}
+    end
+
+    test "falls back to an accepted legacy format from image wildcards" do
+      assert OutputNegotiation.negotiate("image/avif;q=0,image/webp;q=0,image/*", true) ==
+               {:ok, "image/png"}
     end
 
     test "returns not acceptable when an image wildcard excludes every alpha format" do
