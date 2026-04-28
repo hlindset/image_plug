@@ -9,7 +9,7 @@ defmodule ImagePlug.ParamParser.Twicpics.Formatters do
   defp join_chars([choice | tail], acc),
     do: join_chars(tail, ~s|#{acc}, "#{format_char(choice)}"|)
 
-  defp format_msg({:error, {:expected_value, opts}}) do
+  defp format_msg({:error, {:expected_value, _opts}}) do
     ~s|Expected value.|
   end
 

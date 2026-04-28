@@ -1,6 +1,5 @@
 defmodule ImagePlug.ParamParser.Twicpics.Transform.CoverMaxParser do
   alias ImagePlug.ParamParser.Twicpics.SizeParser
-  alias ImagePlug.ParamParser.Twicpics.RatioParser
   alias ImagePlug.ParamParser.Twicpics.Utils
   alias ImagePlug.Transform.Cover.CoverParams
 

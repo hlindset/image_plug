@@ -4,7 +4,6 @@ defmodule ImagePlug.Transform.Scale do
   import ImagePlug.TransformState
   import ImagePlug.Utils
 
-  alias ImagePlug.Transform
   alias ImagePlug.TransformState
 
   defmodule ScaleParams do
@@ -39,7 +38,7 @@ defmodule ImagePlug.Transform.Scale do
 
   defp dimensions_for_scale_type(
          state,
-         %ScaleParams{type: :ratio, ratio: {ratio_width, ratio_height}} = params
+         %ScaleParams{type: :ratio, ratio: {ratio_width, ratio_height}}
        ) do
     current_area = image_width(state) * image_height(state)
     target_height = :math.sqrt(current_area * ratio_height / ratio_width)
@@ -58,23 +57,46 @@ defmodule ImagePlug.Transform.Scale do
   end
 
   def do_scale(%TransformState{} = state, width, :auto) do
-    scale = width / image_width(state)
-    Image.resize(state.image, scale)
+    target_height = round(width / image_width(state) * image_height(state))
+    proportional_scale(state, width, target_height)
   end
 
   def do_scale(%TransformState{} = state, :auto, height) do
-    scale = height / image_height(state)
-    Image.resize(state.image, scale)
+    target_width = round(height / image_height(state) * image_width(state))
+    proportional_scale(state, target_width, height)
   end
 
   def do_scale(%TransformState{} = state, width, height) do
-    width_scale = width / image_width(state)
-    height_scale = height / image_height(state)
-    Image.resize(state.image, width_scale, vertical_scale: height_scale)
+    if proportional?(state, width, height) and downscale?(state, width, height) do
+      proportional_scale(state, width, height)
+    else
+      width_scale = width / image_width(state)
+      height_scale = height / image_height(state)
+      Image.resize(state.image, width_scale, vertical_scale: height_scale)
+    end
   end
 
   def do_scale(_image, parameters) do
     {:error, {:unhandled_scale_parameters, parameters}}
+  end
+
+  defp proportional_scale(%TransformState{} = state, width, height) do
+    if downscale?(state, width, height) do
+      Image.thumbnail(state.image, "#{width}x#{height}", fit: :contain, resize: :down)
+    else
+      width_scale = width / image_width(state)
+      Image.resize(state.image, width_scale)
+    end
+  end
+
+  defp proportional?(%TransformState{} = state, width, height) do
+    original_ratio = image_width(state) / image_height(state)
+    target_ratio = width / height
+    abs(original_ratio - target_ratio) < 0.001
+  end
+
+  defp downscale?(%TransformState{} = state, width, height) do
+    width < image_width(state) and height < image_height(state)
   end
 
   defp to_pixels_or_auto(_length, :auto), do: :auto

@@ -20,19 +20,20 @@ defmodule ImagePlug.TransformChain do
   @spec execute(TransformState.t(), ParamParser.transform_chain()) ::
           {:ok, TransformState.t()} | {:error, {:transform_error, TransformState.t()}}
   def execute(%TransformState{} = state, transform_chain) do
-    transformed_state =
-      for {module, parameters} <- transform_chain, reduce: state do
-        state ->
-          Logger.info(
-            "executing transform: #{inspect(module)} with params #{inspect(parameters)}"
-          )
+    transform_chain
+    |> Enum.reduce_while(state, fn {module, parameters}, state ->
+      Logger.info("executing transform: #{inspect(module)} with params #{inspect(parameters)}")
 
-          module.execute(state, parameters)
+      next_state = module.execute(state, parameters)
+
+      case next_state do
+        %TransformState{errors: []} -> {:cont, next_state}
+        %TransformState{} -> {:halt, next_state}
       end
-
-    case transformed_state do
+    end)
+    |> case do
       %TransformState{errors: []} = state -> {:ok, state}
-      %TransformState{errors: _errors} = state -> {:error, {:transform_error, state}}
+      %TransformState{} = state -> {:error, {:transform_error, state}}
     end
   end
 end

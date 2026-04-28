@@ -11,6 +11,14 @@ defmodule ImagePlug.Utils do
   def to_pixels(_length, {:pixels, num}), do: round(num)
   def to_pixels(length, {:scale, factor}), do: round(length * factor)
 
+  def to_pixels(length, {:scale, numerator, denominator}) when denominator != 0 do
+    round(length * numerator / denominator)
+  end
+
+  def to_pixels(_length, {:scale, _numerator, 0}) do
+    raise ArgumentError, "scale denominator must be non-zero"
+  end
+
   def to_pixels(length, {:percent, percent}), do: round(percent / 100 * length)
 
   def anchor_to_scale_units(focus, width, height) do
@@ -40,19 +48,19 @@ defmodule ImagePlug.Utils do
     end
   end
 
-  def resolve_auto_size(%TransformState{image: image} = state, width, :auto) do
+  def resolve_auto_size(%TransformState{} = state, width, :auto) do
     aspect_ratio = image_height(state) / image_width(state)
     auto_height = round(to_pixels(image_width(state), width) * aspect_ratio)
     {to_pixels(image_width(state), width), auto_height}
   end
 
-  def resolve_auto_size(%TransformState{image: image} = state, :auto, height) do
+  def resolve_auto_size(%TransformState{} = state, :auto, height) do
     aspect_ratio = image_width(state) / image_height(state)
     auto_width = round(to_pixels(image_height(state), height) * aspect_ratio)
     {auto_width, to_pixels(image_height(state), height)}
   end
 
-  def resolve_auto_size(%TransformState{image: image} = state, width, height) do
+  def resolve_auto_size(%TransformState{} = state, width, height) do
     {to_pixels(image_width(state), width), to_pixels(image_height(state), height)}
   end
 
