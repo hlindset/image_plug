@@ -1,4 +1,5 @@
 defmodule ImagePlug.ParamParser do
+  alias ImagePlug.ProcessingRequest
   alias ImagePlug.Transform
 
   @type transform_module() ::
@@ -23,18 +24,12 @@ defmodule ImagePlug.ParamParser do
 
   @type transform_chain() :: list(transform_chain_item())
 
-  @type parse_error() ::
-          {:invalid_params, transform_module(), String.t()}
-          | {:invalid_transform, String.t()}
-          | {:unexpected_char, keyword()}
-          | {:expected_key, keyword()}
-          | {:expected_value, keyword()}
-          | {:strictly_positive_number_required, keyword()}
+  @type parse_error() :: term()
 
   @doc """
-  Parse a transform chain from a `Plug.Conn`.
+  Parse a request from a `Plug.Conn`.
   """
-  @callback parse(Plug.Conn.t()) :: {:ok, transform_chain()} | {:error, any()}
+  @callback parse(Plug.Conn.t()) :: {:ok, ProcessingRequest.t()} | {:error, any()}
 
   @doc """
   Render parser-specific errors to the client.
