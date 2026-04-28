@@ -160,4 +160,27 @@ defmodule ImagePlug.ImagePlugTest do
     assert log =~ "encode_error:"
     assert log =~ "boom after first chunk"
   end
+
+  test "rejects decoded images above the configured pixel limit" do
+    {:ok, image} = Image.new(20, 20, color: :white)
+    body = Image.write!(image, :memory, suffix: ".png")
+
+    Req.Test.stub(__MODULE__, fn conn ->
+      conn
+      |> Plug.Conn.put_resp_content_type("image/png")
+      |> Plug.Conn.send_resp(200, body)
+    end)
+
+    conn =
+      conn(:get, "/process/images/large.png?twic=v1/resize=10")
+      |> ImagePlug.call(
+        root_url: "http://origin.test",
+        param_parser: ImagePlug.ParamParser.Twicpics,
+        max_input_pixels: 399,
+        origin_req_options: [plug: {Req.Test, __MODULE__}]
+      )
+
+    assert conn.status == 413
+    assert conn.resp_body == "origin image is too large"
+  end
 end

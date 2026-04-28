@@ -27,6 +27,7 @@ defmodule ImagePlug do
          {:ok, image} <-
            Image.from_binary(origin_response.body, access: :random, fail_on: :error)
            |> wrap_decode_error(),
+         :ok <- validate_input_image(image, opts) |> wrap_input_limit_error(),
          {:ok, final_state} <- TransformChain.execute(%TransformState{image: image}, chain) do
       send_image(conn, final_state, opts)
     else
@@ -42,6 +43,9 @@ defmodule ImagePlug do
 
       {:error, {:decode, error}} ->
         send_decode_error(conn, error)
+
+      {:error, {:input_limit, error}} ->
+        send_input_limit_error(conn, error)
     end
   end
 
@@ -63,6 +67,20 @@ defmodule ImagePlug do
   defp wrap_decode_error({:error, _} = error), do: {:error, {:decode, error}}
   defp wrap_decode_error(result), do: result
 
+  defp validate_input_image(image, opts) do
+    max_input_pixels = Keyword.get(opts, :max_input_pixels, 40_000_000)
+    pixel_count = Image.width(image) * Image.height(image)
+
+    if pixel_count <= max_input_pixels do
+      :ok
+    else
+      {:error, {:too_many_input_pixels, pixel_count, max_input_pixels}}
+    end
+  end
+
+  defp wrap_input_limit_error(:ok), do: :ok
+  defp wrap_input_limit_error({:error, error}), do: {:error, {:input_limit, error}}
+
   defp send_origin_error(%Plug.Conn{} = conn, {:bad_status, 404}) do
     conn
     |> put_resp_content_type("text/plain")
@@ -79,6 +97,14 @@ defmodule ImagePlug do
     conn
     |> put_resp_content_type("text/plain")
     |> send_resp(415, "origin response is not a supported image")
+  end
+
+  defp send_input_limit_error(%Plug.Conn{} = conn, error) do
+    Logger.info("input_limit_error: #{inspect(error)}")
+
+    conn
+    |> put_resp_content_type("text/plain")
+    |> send_resp(413, "origin image is too large")
   end
 
   defp send_transform_error(%Plug.Conn{} = conn, errors) do

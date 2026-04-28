@@ -118,4 +118,18 @@ defmodule ImagePlug.TwicpicsTest do
     assert state.errors == []
     assert {Image.width(state.image), Image.height(state.image)} == {100, 50}
   end
+
+  test "scale proportional downscale returns exact target dimensions" do
+    {:ok, image} = Image.new(400, 200, color: :white)
+
+    state =
+      Transform.Scale.execute(%TransformState{image: image}, %Transform.Scale.ScaleParams{
+        type: :dimensions,
+        width: {:pixels, 100},
+        height: :auto
+      })
+
+    assert state.errors == []
+    assert {Image.width(state.image), Image.height(state.image)} == {100, 50}
+  end
 end
