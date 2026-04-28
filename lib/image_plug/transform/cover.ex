@@ -69,28 +69,20 @@ defmodule ImagePlug.Transform.Cover do
           width: width,
           height: height,
           constraint: constraint
-        } = params
+        }
       ) do
-    # convert units to pixels
-    {crop_width, crop_height} = resolve_auto_size(state, width, height)
-
-    # figure out width/height and get scaled size back
-    {resize_width, resize_height} =
-      fit_cover(state, crop_width, crop_height)
-
-    # calculate focus scale based on original image and adjust to scaled size
-    original_width = image_width(state)
-    original_height = image_height(state)
-    {center_x, center_y} = anchor_to_scale_units(state.focus, original_width, original_height)
-
-    scaled_center_x = to_pixels(resize_width, center_x)
-    scaled_center_y = to_pixels(resize_height, center_y)
-
-    # keep in bounds
-    left = max(0, min(resize_width - crop_width, round(scaled_center_x - crop_width / 2)))
-    top = max(0, min(resize_height - crop_height, round(scaled_center_y - crop_height / 2)))
+    {requested_crop_width, requested_crop_height} = resolve_auto_size(state, width, height)
+    {resize_width, resize_height} = fit_cover(state, requested_crop_width, requested_crop_height)
 
     with {:ok, resized_state} <- maybe_scale(state, resize_width, resize_height, constraint),
+         {crop_width, crop_height} <-
+           fit_crop_to_image(
+             requested_crop_width,
+             requested_crop_height,
+             image_width(resized_state),
+             image_height(resized_state)
+           ),
+         {left, top} <- crop_origin(resized_state, crop_width, crop_height),
          {:ok, cropped_state} <- do_crop(resized_state, left, top, crop_width, crop_height) do
       reset_focus(cropped_state)
     else
@@ -111,6 +103,29 @@ defmodule ImagePlug.Transform.Cover do
       # taller image: scale based on width
       {target_width, round(target_width / original_ratio)}
     end
+  end
+
+  defp fit_crop_to_image(crop_width, crop_height, image_width, image_height) do
+    scale = min(1.0, min(image_width / crop_width, image_height / crop_height))
+
+    {
+      max(1, round(crop_width * scale)),
+      max(1, round(crop_height * scale))
+    }
+  end
+
+  defp crop_origin(%TransformState{} = state, crop_width, crop_height) do
+    resized_width = image_width(state)
+    resized_height = image_height(state)
+    {center_x, center_y} = anchor_to_scale_units(state.focus, resized_width, resized_height)
+
+    scaled_center_x = to_pixels(resized_width, center_x)
+    scaled_center_y = to_pixels(resized_height, center_y)
+
+    left = max(0, min(resized_width - crop_width, round(scaled_center_x - crop_width / 2)))
+    top = max(0, min(resized_height - crop_height, round(scaled_center_y - crop_height / 2)))
+
+    {left, top}
   end
 
   def maybe_scale(%TransformState{} = state, width, height, :min) do
