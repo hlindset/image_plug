@@ -7,7 +7,7 @@ defmodule ImagePlug.MixProject do
     [
       app: :image_plug,
       version: @version,
-      elixir: "~> 1.14",
+      elixir: "~> 1.17",
       elixirc_paths: elixirc_paths(Mix.env()),
       start_permanent: Mix.env() == :prod,
       aliases: aliases(),
@@ -16,11 +16,7 @@ defmodule ImagePlug.MixProject do
         main: "ImagePlug",
         extras: ["README.md"]
       ],
-      test_coverage: [tool: ExCoveralls],
-      preferred_cli_env: [
-        coveralls: :test,
-        "coveralls.html": :test
-      ]
+      test_coverage: [tool: ExCoveralls]
     ]
   end
 
@@ -29,6 +25,10 @@ defmodule ImagePlug.MixProject do
       mod: {ImagePlug.Application, []},
       extra_applications: [:logger]
     ]
+  end
+
+  def cli do
+    [preferred_envs: [coveralls: :test, "coveralls.html": :test]]
   end
 
   # Specifies which paths to compile per environment.
