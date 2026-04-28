@@ -3,8 +3,6 @@ defmodule ImagePlug.ParamParser.Twicpics.Transform.ScaleParser do
   alias ImagePlug.ParamParser.Twicpics.RatioParser
   alias ImagePlug.ParamParser.Twicpics.Utils
   alias ImagePlug.Transform.Scale.ScaleParams
-  alias ImagePlug.Transform.Scale.ScaleParams.Dimensions
-  alias ImagePlug.Transform.Scale.ScaleParams.AspectRatio
 
   @doc """
   Parses a string into a `ImagePlug.Transform.Scale.ScaleParams` struct.

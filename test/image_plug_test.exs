@@ -1,8 +1,9 @@
 defmodule ImagePlug.ImagePlugTest do
   use ExUnit.Case, async: true
-  use Plug.Test
 
   import ExUnit.CaptureLog
+  import Plug.Conn
+  import Plug.Test
 
   doctest ImagePlug
 

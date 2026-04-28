@@ -4,7 +4,6 @@ defmodule ImagePlug.Transform.Focus do
   import ImagePlug.TransformState
   import ImagePlug.Utils
 
-  alias ImagePlug.Transform
   alias ImagePlug.TransformState
 
   defmodule FocusParams do
@@ -32,7 +31,7 @@ defmodule ImagePlug.Transform.Focus do
   end
 
   @impl ImagePlug.Transform
-  def execute(%TransformState{image: image} = state, %FocusParams{type: {:anchor, x, y}}) do
+  def execute(%TransformState{} = state, %FocusParams{type: {:anchor, x, y}}) do
     state
     |> set_focus({:anchor, x, y})
     |> maybe_draw_debug_dot()

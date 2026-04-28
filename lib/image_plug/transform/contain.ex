@@ -4,7 +4,6 @@ defmodule ImagePlug.Transform.Contain do
   import ImagePlug.TransformState
   import ImagePlug.Utils
 
-  alias ImagePlug.Transform
   alias ImagePlug.TransformState
 
   defmodule ContainParams do
@@ -121,7 +120,7 @@ defmodule ImagePlug.Transform.Contain do
   end
 
   defp maybe_add_letterbox(state, letterbox?, width, height)
-  defp maybe_add_letterbox(%TransformState{} = state, false, width, height), do: {:ok, state}
+  defp maybe_add_letterbox(%TransformState{} = state, false, _width, _height), do: {:ok, state}
 
   defp maybe_add_letterbox(%TransformState{} = state, true, width, height) do
     case Image.embed(state.image, width, height, background_color: :white) do

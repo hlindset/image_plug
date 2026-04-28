@@ -4,7 +4,6 @@ defmodule ImagePlug.Transform.Scale do
   import ImagePlug.TransformState
   import ImagePlug.Utils
 
-  alias ImagePlug.Transform
   alias ImagePlug.TransformState
 
   defmodule ScaleParams do
@@ -39,7 +38,7 @@ defmodule ImagePlug.Transform.Scale do
 
   defp dimensions_for_scale_type(
          state,
-         %ScaleParams{type: :ratio, ratio: {ratio_width, ratio_height}} = params
+         %ScaleParams{type: :ratio, ratio: {ratio_width, ratio_height}}
        ) do
     current_area = image_width(state) * image_height(state)
     target_height = :math.sqrt(current_area * ratio_height / ratio_width)

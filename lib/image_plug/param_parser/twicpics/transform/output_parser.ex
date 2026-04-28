@@ -1,5 +1,4 @@
 defmodule ImagePlug.ParamParser.Twicpics.Transform.OutputParser do
-  alias ImagePlug.ParamParser.Twicpics.CoordinatesParser
   alias ImagePlug.ParamParser.Twicpics.Utils
 
   alias ImagePlug.Transform.Output.OutputParams

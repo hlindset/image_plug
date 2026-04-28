@@ -4,7 +4,6 @@ defmodule ImagePlug.Transform.Cover do
   import ImagePlug.TransformState
   import ImagePlug.Utils
 
-  alias ImagePlug.Transform
   alias ImagePlug.TransformState
 
   defmodule CoverParams do

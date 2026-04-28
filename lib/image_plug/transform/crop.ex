@@ -4,7 +4,6 @@ defmodule ImagePlug.Transform.Crop do
   import ImagePlug.TransformState
   import ImagePlug.Utils
 
-  alias ImagePlug.Transform
   alias ImagePlug.TransformState
 
   defmodule CropParams do
@@ -57,7 +56,7 @@ defmodule ImagePlug.Transform.Crop do
   end
 
   defp anchor_crop_to_pixels(
-         %TransformState{} = state,
+         %TransformState{},
          %{left: left, top: top},
          image_width,
          image_height,
