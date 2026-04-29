@@ -488,7 +488,7 @@ defmodule ImagePlug.ParamParser.Native do
       true ->
         value
         |> String.trim_trailing("p")
-        |> parse_positive_integer()
+        |> parse_non_negative_integer()
         |> case do
           {:ok, integer} -> {:ok, {:percent, integer}}
           {:error, reason} -> {:error, reason}
@@ -503,6 +503,13 @@ defmodule ImagePlug.ParamParser.Native do
     case Integer.parse(value) do
       {integer, ""} when integer > 0 -> {:ok, integer}
       _ -> {:error, {:invalid_positive_integer, value}}
+    end
+  end
+
+  defp parse_non_negative_integer(value) do
+    case Integer.parse(value) do
+      {integer, ""} when integer >= 0 -> {:ok, integer}
+      _ -> {:error, {:invalid_non_negative_integer, value}}
     end
   end
 end
@@ -1189,7 +1196,7 @@ http://localhost:4000/_/fit:cover/w:300/h:300/plain/images/cat-300.jpg
 
 Replace the transform section and usage example in `README.md` with:
 
-```markdown
+````markdown
 ## Native Path API
 
 ImagePlug's native API uses path-oriented URLs:
@@ -1256,7 +1263,7 @@ defmodule ImagePlug.SimpleServer do
   end
 end
 ```
-```
+````
 
 Keep the existing "Operational Notes" section, but change its first sentence to:
 

@@ -34,17 +34,20 @@ defmodule ImagePlug.ImagePlugTest do
     end
   end
 
+  def sample_processing_request do
+    %ProcessingRequest{
+      signature: "_",
+      source_kind: :plain,
+      source_path: ["images", "cat-300.jpg"]
+    }
+  end
+
   defmodule BrokenImageParser do
     @behaviour ImagePlug.ParamParser
 
     @impl ImagePlug.ParamParser
     def parse(_conn) do
-      {:ok,
-       %ProcessingRequest{
-         signature: "_",
-         source_kind: :plain,
-         source_path: ["images", "cat-300.jpg"]
-       }}
+      {:ok, ImagePlug.ImagePlugTest.sample_processing_request()}
     end
 
     @impl ImagePlug.ParamParser
@@ -68,12 +71,23 @@ defmodule ImagePlug.ImagePlugTest do
 
     @impl ImagePlug.ParamParser
     def parse(_conn) do
-      {:ok,
-       %ProcessingRequest{
-         signature: "_",
-         source_kind: :plain,
-         source_path: ["images", "cat-300.jpg"]
-       }}
+      {:ok, ImagePlug.ImagePlugTest.sample_processing_request()}
+    end
+
+    @impl ImagePlug.ParamParser
+    def handle_error(conn, _error), do: conn
+  end
+
+  defmodule UnsupportedSourceKindParser do
+    @behaviour ImagePlug.ParamParser
+
+    @impl ImagePlug.ParamParser
+    def parse(_conn) do
+      request =
+        ImagePlug.ImagePlugTest.sample_processing_request()
+        |> Map.put(:source_kind, :signed)
+
+      {:ok, request}
     end
 
     @impl ImagePlug.ParamParser
@@ -130,6 +144,21 @@ defmodule ImagePlug.ImagePlugTest do
       )
 
     assert conn.status == 400
+    refute_received :origin_was_called
+  end
+
+  test "returns an origin error for unsupported source kinds" do
+    conn = conn(:get, "/_/signed/images/cat-300.jpg")
+
+    conn =
+      ImagePlug.call(conn,
+        root_url: "http://origin.test",
+        param_parser: UnsupportedSourceKindParser,
+        origin_req_options: [plug: OriginShouldNotBeCalled]
+      )
+
+    assert conn.status == 502
+    assert conn.resp_body == "error fetching origin image"
     refute_received :origin_was_called
   end
 

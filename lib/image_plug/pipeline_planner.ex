@@ -85,7 +85,7 @@ defmodule ImagePlug.PipelinePlanner do
        type: :dimensions,
        width: width,
        height: height,
-       constraint: :none,
+       constraint: :regular,
        letterbox: letterbox
      }}
   end
@@ -93,9 +93,11 @@ defmodule ImagePlug.PipelinePlanner do
   defp prepend_focus([], _focus), do: []
   defp prepend_focus(chain, @default_focus), do: chain
 
-  defp prepend_focus(chain, focus) do
+  defp prepend_focus([{Transform.Cover, _params} | _rest] = chain, focus) do
     [{Transform.Focus, %Transform.Focus.FocusParams{type: focus}} | chain]
   end
+
+  defp prepend_focus(chain, _focus), do: chain
 
   defp append_output(chain, :auto), do: chain
 

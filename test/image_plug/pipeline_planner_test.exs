@@ -36,6 +36,36 @@ defmodule ImagePlug.PipelinePlannerTest do
               ]}
   end
 
+  test "ignores focus for non-cover geometry transforms" do
+    assert {:ok, [{Transform.Scale, %Transform.Scale.ScaleParams{}}]} =
+             PipelinePlanner.plan(request(width: {:pixels, 300}, focus: {:anchor, :left, :top}))
+
+    assert {:ok, [{Transform.Contain, %Transform.Contain.ContainParams{letterbox: false}}]} =
+             PipelinePlanner.plan(
+               request(fit: :contain, width: {:pixels, 300}, focus: {:anchor, :left, :top})
+             )
+
+    assert {:ok, [{Transform.Scale, %Transform.Scale.ScaleParams{}}]} =
+             PipelinePlanner.plan(
+               request(
+                 fit: :fill,
+                 width: {:pixels, 300},
+                 height: {:pixels, 200},
+                 focus: {:anchor, :left, :top}
+               )
+             )
+
+    assert {:ok, [{Transform.Contain, %Transform.Contain.ContainParams{letterbox: true}}]} =
+             PipelinePlanner.plan(
+               request(
+                 fit: :inside,
+                 width: {:pixels, 300},
+                 height: {:pixels, 200},
+                 focus: {:anchor, :left, :top}
+               )
+             )
+  end
+
   test "plans focus before cover transform" do
     request =
       request(
@@ -70,7 +100,7 @@ defmodule ImagePlug.PipelinePlannerTest do
                    type: :dimensions,
                    width: {:pixels, 800},
                    height: :auto,
-                   constraint: :none,
+                   constraint: :regular,
                    letterbox: false
                  }}
               ]}
@@ -87,7 +117,7 @@ defmodule ImagePlug.PipelinePlannerTest do
                    type: :dimensions,
                    width: {:pixels, 300},
                    height: {:pixels, 200},
-                   constraint: :none,
+                   constraint: :regular,
                    letterbox: true
                  }}
               ]}

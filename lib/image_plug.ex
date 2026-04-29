@@ -65,6 +65,10 @@ defmodule ImagePlug do
     end
   end
 
+  defp fetch_origin(%ProcessingRequest{source_kind: source_kind}, _opts) do
+    {:error, {:unsupported_source_kind, source_kind}}
+  end
+
   defp origin_req_options(opts) do
     opts
     |> Keyword.get(:origin_req_options, [])
