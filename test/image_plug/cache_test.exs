@@ -24,6 +24,11 @@ defmodule ImagePlug.CacheTest do
     def put(%Key{}, %Entry{}, _opts), do: {:error, :write_failed}
   end
 
+  defmodule UnexpectedResultAdapter do
+    def get(%Key{}, _opts), do: :surprise
+    def put(%Key{}, %Entry{}, _opts), do: :surprise
+  end
+
   defmodule LookupOnlyAdapter do
     def get(%Key{}, _opts), do: :miss
   end
@@ -74,6 +79,25 @@ defmodule ImagePlug.CacheTest do
   test "ImagePlug init rejects invalid cache config early" do
     assert_raise ArgumentError, ~r/invalid cache config/, fn ->
       ImagePlug.init(cache: {String, []})
+    end
+  end
+
+  test "ImagePlug init rejects invalid filesystem cache options early" do
+    assert_raise ArgumentError, ~r/invalid cache config/, fn ->
+      ImagePlug.init(cache: {ImagePlug.Cache.FileSystem, root: "relative/cache"})
+    end
+
+    assert_raise ArgumentError, ~r/invalid cache config/, fn ->
+      ImagePlug.init(
+        cache: {ImagePlug.Cache.FileSystem, root: System.tmp_dir!(), path_prefix: "../outside"}
+      )
+    end
+
+    assert_raise ArgumentError, ~r/invalid cache config/, fn ->
+      ImagePlug.init(
+        cache:
+          {ImagePlug.Cache.FileSystem, root: System.tmp_dir!(), path_prefix: "processed//images"}
+      )
     end
   end
 
@@ -129,6 +153,16 @@ defmodule ImagePlug.CacheTest do
              )
   end
 
+  test "unexpected adapter get result is handled as a cache read error" do
+    assert {:error, {:cache_read, {:invalid_adapter_result, :surprise}}} =
+             Cache.lookup(
+               conn(:get, "/_/format:webp/plain/images/cat.jpg"),
+               request(),
+               "https://origin.test/cat.jpg",
+               cache: {UnexpectedResultAdapter, fail_on_cache_error: true}
+             )
+  end
+
   test "put skips bodies over max_body_bytes" do
     assert :skipped =
              Cache.put(
@@ -175,6 +209,15 @@ defmodule ImagePlug.CacheTest do
                cache_key(),
                entry(),
                cache: {ErrorAdapter, fail_on_cache_error: true}
+             )
+  end
+
+  test "unexpected adapter put result is handled as a cache write error" do
+    assert {:error, {:cache_write, {:invalid_adapter_result, :surprise}}} =
+             Cache.put(
+               cache_key(),
+               entry(),
+               cache: {UnexpectedResultAdapter, fail_on_cache_error: true}
              )
   end
 

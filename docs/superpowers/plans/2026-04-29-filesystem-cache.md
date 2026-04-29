@@ -2505,7 +2505,7 @@ Cached response headers are restricted to `vary` and `cache-control`, and header
 
 `ImagePlug.Cache.FileSystem` requires an absolute `:root`. The optional `:path_prefix` must be relative and must not contain backslashes, empty segments from duplicate slashes, `.`, `..`, or `~`-prefixed path segments. Cache file paths are derived from ImagePlug-generated hashes, not from request paths, origin URLs, headers, or cookies.
 
-Filesystem metadata has its own `metadata_version`, independent of the cache key schema version. It records the cached body filename, byte size, and SHA-256 digest. Body files are content-addressed by digest, and the metadata file is the atomic commit record. Invalid metadata is treated as a miss by default and as a cache read error when `fail_on_cache_error: true`.
+Filesystem metadata has its own `metadata_version`, independent of the cache key schema version. It records the cached body filename, byte size, and SHA-256 digest. Body files are content-addressed by digest, and the metadata file is the atomic commit record. Overwrites or failed metadata commits can leave unreferenced body files behind; those are safe misses, not corrupt entries. Invalid metadata is treated as a miss by default and as a cache read error when `fail_on_cache_error: true`.
 
 The filesystem cache root is trusted local configuration. ImagePlug expands and validates generated paths under the configured root, but it does not protect against a local actor replacing directories inside the cache root with symlinks.
 

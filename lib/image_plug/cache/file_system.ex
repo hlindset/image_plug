@@ -35,6 +35,21 @@ defmodule ImagePlug.Cache.FileSystem do
     end
   end
 
+  @impl true
+  def validate_options(opts) when is_list(opts) do
+    with {:ok, root} <- root(opts),
+         {:ok, path_prefix} <- path_prefix(opts),
+         {:ok, {first_partition, second_partition}} <- partitions(String.duplicate("0", 64)) do
+      dir = Path.join([root, path_prefix, first_partition, second_partition])
+      meta_path = Path.join(dir, String.duplicate("0", 64) <> ".meta")
+
+      with :ok <- validate_under_root(root, dir),
+           :ok <- validate_under_root(root, meta_path) do
+        :ok
+      end
+    end
+  end
+
   defp read_entry(paths, opts) do
     with {:ok, meta_binary} <- read_cache_file(paths.meta_path, :metadata, opts),
          {:ok, metadata} <- decode_metadata(meta_binary, opts),

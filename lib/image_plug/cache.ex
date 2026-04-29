@@ -11,6 +11,9 @@ defmodule ImagePlug.Cache do
 
   @callback get(Key.t(), keyword()) :: {:hit, Entry.t()} | :miss | {:error, term()}
   @callback put(Key.t(), Entry.t(), keyword()) :: :ok | {:error, term()}
+  @callback validate_options(keyword()) :: :ok | {:error, term()}
+
+  @optional_callbacks validate_options: 1
 
   @type lookup_result ::
           :disabled
@@ -55,6 +58,9 @@ defmodule ImagePlug.Cache do
 
           {:error, reason} ->
             handle_read_error(reason, key, cache_opts)
+
+          unexpected ->
+            handle_read_error({:invalid_adapter_result, unexpected}, key, cache_opts)
         end
 
       {:error, reason} ->
@@ -85,7 +91,8 @@ defmodule ImagePlug.Cache do
         with :ok <- validate_adapter(adapter),
              :ok <- validate_binary_name_list(cache_opts, :key_headers),
              :ok <- validate_max_body_bytes(cache_opts),
-             :ok <- validate_binary_name_list(cache_opts, :key_cookies) do
+             :ok <- validate_binary_name_list(cache_opts, :key_cookies),
+             :ok <- validate_adapter_options(adapter, cache_opts) do
           {:ok, adapter, cache_opts}
         end
 
@@ -115,6 +122,18 @@ defmodule ImagePlug.Cache do
 
   defp validate_adapter(adapter), do: {:error, {:invalid_cache_config, {:adapter, adapter}}}
 
+  defp validate_adapter_options(adapter, cache_opts) do
+    if function_exported?(adapter, :validate_options, 1) do
+      case adapter.validate_options(cache_opts) do
+        :ok -> :ok
+        {:error, reason} -> {:error, {:invalid_cache_config, reason}}
+        unexpected -> {:error, {:invalid_cache_config, {:adapter_options, unexpected}}}
+      end
+    else
+      :ok
+    end
+  end
+
   defp validate_max_body_bytes(opts) do
     value = Keyword.get(opts, :max_body_bytes)
 
@@ -139,6 +158,7 @@ defmodule ImagePlug.Cache do
     case adapter.put(key, entry, cache_opts) do
       :ok -> :ok
       {:error, reason} -> handle_write_error(reason, cache_opts)
+      unexpected -> handle_write_error({:invalid_adapter_result, unexpected}, cache_opts)
     end
   end
 
