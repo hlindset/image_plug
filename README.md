@@ -81,4 +81,4 @@ end
 
 Origin fetches use non-bang Req calls with bounded redirects, receive timeout, image content-type validation, and a maximum response body size. Configure these with `:origin_max_redirects`, `:origin_receive_timeout`, `:max_body_bytes`, and `:max_input_pixels`.
 
-Automatic output format selection uses the request `Accept` header and sets `Vary: Accept` on image responses. Explicit `output=<format>` values bypass content negotiation.
+Automatic output format selection uses the request `Accept` header and sets `Vary: Accept` on image responses. Explicit formats bypass content negotiation.
