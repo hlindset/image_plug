@@ -51,7 +51,8 @@ defmodule ImagePlug.ImagePlugTest do
     def init(opts), do: opts
 
     def call(conn, opts) do
-      Kernel.send(Keyword.get(opts, :test_pid, self()), :origin_was_called)
+      test_pid = Keyword.get(opts, :test_pid) || conn.owner || self()
+      Kernel.send(test_pid, :origin_was_called)
 
       body = File.read!("priv/static/images/cat-300.jpg")
 
@@ -177,6 +178,9 @@ defmodule ImagePlug.ImagePlugTest do
         cache_probe_loop(test_pid, [message | messages])
 
       {:cache_put, _key, _entry} = message ->
+        cache_probe_loop(test_pid, [message | messages])
+
+      :origin_was_called = message ->
         cache_probe_loop(test_pid, [message | messages])
 
       {:flush, ref} ->
@@ -509,5 +513,128 @@ defmodule ImagePlug.ImagePlugTest do
 
     assert conn.status == 502
     assert conn.resp_body == "error fetching origin image"
+  end
+
+  test "cache read errors fail open by default and continue to origin" do
+    cache_probe = start_cache_probe()
+
+    conn =
+      conn(:get, "/_/format:jpeg/plain/images/cat-300.jpg")
+      |> ImagePlug.call(
+        root_url: "http://origin.test",
+        param_parser: ImagePlug.ParamParser.Native,
+        origin_req_options: [plug: {CountingOriginImage, test_pid: cache_probe}],
+        cache: {CacheProbe, message_target: cache_probe, get_result: {:error, :read_failed}}
+      )
+
+    flush_cache_probe(cache_probe)
+    assert conn.status == 200
+    assert get_resp_header(conn, "content-type") == ["image/jpeg"]
+    assert_received :origin_was_called
+    assert_received {:cache_put, _key, _entry}
+  end
+
+  test "cache read errors fail before origin when fail_on_cache_error is true" do
+    cache_probe = start_cache_probe()
+
+    conn =
+      conn(:get, "/_/format:jpeg/plain/images/cat-300.jpg")
+      |> ImagePlug.call(
+        root_url: "http://origin.test",
+        param_parser: ImagePlug.ParamParser.Native,
+        origin_req_options: [plug: {CountingOriginImage, test_pid: cache_probe}],
+        cache:
+          {CacheProbe,
+           message_target: cache_probe,
+           get_result: {:error, :read_failed},
+           fail_on_cache_error: true}
+      )
+
+    flush_cache_probe(cache_probe)
+    assert conn.status == 500
+    assert conn.resp_body == "cache error"
+    refute_received :origin_was_called
+  end
+
+  test "cache write errors fail open by default and still return response" do
+    cache_probe = start_cache_probe()
+
+    conn =
+      conn(:get, "/_/format:jpeg/plain/images/cat-300.jpg")
+      |> ImagePlug.call(
+        root_url: "http://origin.test",
+        param_parser: ImagePlug.ParamParser.Native,
+        origin_req_options: [plug: {CountingOriginImage, test_pid: cache_probe}],
+        cache: {CacheProbe, message_target: cache_probe, put_result: {:error, :write_failed}}
+      )
+
+    flush_cache_probe(cache_probe)
+    assert conn.status == 200
+    assert get_resp_header(conn, "content-type") == ["image/jpeg"]
+    assert byte_size(conn.resp_body) > 0
+    assert_received :origin_was_called
+    assert_received {:cache_put, _key, _entry}
+  end
+
+  test "cache write errors fail before response when fail_on_cache_error is true" do
+    cache_probe = start_cache_probe()
+
+    conn =
+      conn(:get, "/_/format:jpeg/plain/images/cat-300.jpg")
+      |> ImagePlug.call(
+        root_url: "http://origin.test",
+        param_parser: ImagePlug.ParamParser.Native,
+        origin_req_options: [plug: {CountingOriginImage, test_pid: cache_probe}],
+        cache:
+          {CacheProbe,
+           message_target: cache_probe,
+           put_result: {:error, :write_failed},
+           fail_on_cache_error: true}
+      )
+
+    flush_cache_probe(cache_probe)
+    assert conn.status == 500
+    assert conn.resp_body == "cache error"
+    assert_received :origin_was_called
+    assert_received {:cache_put, _key, _entry}
+  end
+
+  test "cache writes over max_body_bytes are skipped and still return response" do
+    cache_probe = start_cache_probe()
+
+    conn =
+      conn(:get, "/_/format:jpeg/plain/images/cat-300.jpg")
+      |> ImagePlug.call(
+        root_url: "http://origin.test",
+        param_parser: ImagePlug.ParamParser.Native,
+        origin_req_options: [plug: {CountingOriginImage, test_pid: cache_probe}],
+        cache: {CacheProbe, message_target: cache_probe, max_body_bytes: 1}
+      )
+
+    flush_cache_probe(cache_probe)
+    assert conn.status == 200
+    assert byte_size(conn.resp_body) > 1
+    refute_received {:cache_put, _key, _entry}
+  end
+
+  test "unsuccessful processed responses are not cached" do
+    cache_probe = start_cache_probe()
+
+    conn =
+      :get
+      |> conn("/_/plain/images/cat-300.jpg")
+      |> put_req_header("accept", "image/*;q=0")
+      |> ImagePlug.call(
+        root_url: "http://origin.test",
+        param_parser: ImagePlug.ParamParser.Native,
+        origin_req_options: [plug: {CountingOriginImage, test_pid: cache_probe}],
+        cache: {CacheProbe, message_target: cache_probe}
+      )
+
+    flush_cache_probe(cache_probe)
+    assert conn.status == 406
+    assert conn.resp_body == "no acceptable image output format"
+    assert_received :origin_was_called
+    refute_received {:cache_put, _key, _entry}
   end
 end
