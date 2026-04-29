@@ -163,6 +163,23 @@ defmodule ImagePlug.OriginTest do
     assert_receive {^ref, {:stream_error, {:timeout, 50}}}, 100
   end
 
+  test "close cancels an unconsumed stream" do
+    Req.Test.stub(Origin, fn conn ->
+      conn
+      |> Plug.Conn.put_resp_header("content-type", "image/jpeg")
+      |> Plug.Conn.send_resp(200, "image bytes")
+    end)
+
+    assert {:ok, %Origin.Response{} = response} =
+             Origin.fetch("https://img.example/cat.jpg", plug: {Req.Test, Origin})
+
+    worker = response.worker
+    monitor_ref = Process.monitor(worker)
+
+    assert Origin.close(response) == :ok
+    assert_receive {:DOWN, ^monitor_ref, :process, ^worker, _reason}
+  end
+
   defp start_slow_chunked_origin do
     {:ok, listen_socket} =
       :gen_tcp.listen(0, [:binary, packet: :raw, active: false, reuseaddr: true])

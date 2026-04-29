@@ -72,10 +72,12 @@ defmodule ImagePlug.Origin do
   end
 
   @doc """
-  Returns the terminal stream error after `response.stream` has been consumed.
+  Consumes and returns the terminal stream error after `response.stream` has
+  been consumed.
 
   Calling this before the stream reaches `:done` or an error may return `nil`
-  even if a later stream-time origin error occurs.
+  even if a later stream-time origin error occurs. The terminal stream status is
+  delivered as a process message, so this should only be called once.
   """
   def stream_error(%Response{ref: ref}) do
     receive do
@@ -223,6 +225,8 @@ defmodule ImagePlug.Origin do
   defp allow_req_test_owner(request_options, caller) do
     case Keyword.get(request_options, :plug) do
       {Req.Test, name} ->
+        # Req.Test stubs are process-owned; allow this spawned stream worker to
+        # use the caller's stub when tests pass `plug: {Req.Test, name}`.
         Req.Test.allow(name, caller, self())
 
       _plug ->
