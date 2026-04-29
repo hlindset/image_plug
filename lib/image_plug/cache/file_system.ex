@@ -11,6 +11,16 @@ defmodule ImagePlug.Cache.FileSystem do
   @metadata_version 1
   @hash_pattern ~r/\A[0-9A-Fa-f]{64}\z/
   @body_filename_pattern ~r/\A[0-9A-Fa-f]{64}\.[0-9a-f]{64}\.body\z/
+  @option_keys [:root, :path_prefix]
+  @options_schema NimbleOptions.new!(
+                    root: [
+                      required: true,
+                      type: {:custom, __MODULE__, :validate_root, []}
+                    ],
+                    path_prefix: [
+                      type: {:custom, __MODULE__, :validate_path_prefix, []}
+                    ]
+                  )
 
   @impl true
   def get(%Key{} = key, opts) when is_list(opts) do
@@ -37,8 +47,10 @@ defmodule ImagePlug.Cache.FileSystem do
 
   @impl true
   def validate_options(opts) when is_list(opts) do
-    with {:ok, root} <- root(opts),
-         {:ok, path_prefix} <- path_prefix(opts),
+    with {:ok, validated_opts} <-
+           NimbleOptions.validate(Keyword.take(opts, @option_keys), @options_schema),
+         root = Keyword.fetch!(validated_opts, :root),
+         path_prefix = Keyword.get(validated_opts, :path_prefix, ""),
          {:ok, {first_partition, second_partition}} <- partitions(String.duplicate("0", 64)) do
       dir = Path.join([root, path_prefix, first_partition, second_partition])
       meta_path = Path.join(dir, String.duplicate("0", 64) <> ".meta")
@@ -49,6 +61,37 @@ defmodule ImagePlug.Cache.FileSystem do
       end
     end
   end
+
+  @doc false
+  def validate_root(root) when is_binary(root) do
+    if Path.type(root) == :absolute do
+      {:ok, Path.expand(root)}
+    else
+      {:error, "expected absolute path, got: #{inspect(root)}"}
+    end
+  end
+
+  def validate_root(root), do: {:error, "expected absolute path string, got: #{inspect(root)}"}
+
+  @doc false
+  def validate_path_prefix(prefix) when is_binary(prefix) do
+    cond do
+      prefix == "" ->
+        {:ok, ""}
+
+      Path.type(prefix) == :absolute ->
+        {:error, "expected relative path without traversal, got: #{inspect(prefix)}"}
+
+      String.contains?(prefix, "\\") or invalid_path_prefix?(prefix) ->
+        {:error, "expected relative path without traversal, got: #{inspect(prefix)}"}
+
+      true ->
+        {:ok, prefix}
+    end
+  end
+
+  def validate_path_prefix(prefix),
+    do: {:error, "expected relative path string, got: #{inspect(prefix)}"}
 
   defp read_entry(paths, opts) do
     with {:ok, meta_binary} <- read_cache_file(paths.meta_path, :metadata, opts),

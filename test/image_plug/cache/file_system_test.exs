@@ -56,11 +56,22 @@ defmodule ImagePlug.Cache.FileSystemTest do
     {:ok, root: root}
   end
 
+  defp assert_validation_error(result, expected_message) do
+    assert {:error, %NimbleOptions.ValidationError{} = error} = result
+    assert Exception.message(error) =~ expected_message
+  end
+
   test "requires an absolute root" do
     assert FileSystem.get(key(), []) == {:error, {:missing_required_option, :root}}
 
     assert FileSystem.get(key(), root: "relative/cache") ==
              {:error, {:invalid_root, "relative/cache"}}
+
+    FileSystem.validate_options([])
+    |> assert_validation_error("required :root")
+
+    FileSystem.validate_options(root: "relative/cache")
+    |> assert_validation_error(":root")
   end
 
   test "rejects traversal-shaped path prefixes", %{root: root} do
@@ -81,6 +92,9 @@ defmodule ImagePlug.Cache.FileSystemTest do
 
     assert FileSystem.get(key(), root: root, path_prefix: "processed\\..\\outside") ==
              {:error, {:invalid_path_prefix, "processed\\..\\outside"}}
+
+    FileSystem.validate_options(root: root, path_prefix: "../outside")
+    |> assert_validation_error(":path_prefix")
   end
 
   test "accepts filesystem root as cache root" do

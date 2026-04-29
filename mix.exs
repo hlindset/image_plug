@@ -38,6 +38,7 @@ defmodule ImagePlug.MixProject do
   defp deps do
     [
       {:plug, "~> 1.18"},
+      {:nimble_options, "~> 1.1"},
       {:image, "~> 0.37"},
       {:req, "~> 0.5"},
       {:bandit, "~> 1.0", only: [:test, :dev]},
