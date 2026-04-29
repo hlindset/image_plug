@@ -15,7 +15,7 @@ defmodule ImagePlug.Cache.FileSystemPropertyTest do
       assert {:ok, paths} = FileSystem.paths(key(hash), root: root, path_prefix: prefix)
 
       assert Enum.all?(
-               Map.values(Map.take(paths, [:dir, :body_path, :meta_path])),
+               Map.values(Map.take(paths, [:dir, :meta_path])),
                &under_root?(&1, root)
              )
     end
@@ -70,7 +70,7 @@ defmodule ImagePlug.Cache.FileSystemPropertyTest do
         cache_key = key()
         assert {:ok, paths} = FileSystem.paths(cache_key, root: root)
         File.mkdir_p!(paths.dir)
-        File.write!(paths.body_path, body)
+        File.write!(Path.join(paths.dir, body_filename(cache_key, body)), body)
         File.write!(paths.meta_path, metadata_bytes)
 
         result = FileSystem.get(cache_key, root: root, fail_on_cache_error: fail_on_cache_error?)
@@ -93,6 +93,13 @@ defmodule ImagePlug.Cache.FileSystemPropertyTest do
   defp sha256_hex do
     map(binary(length: 32), &Base.encode16(&1, case: :lower))
   end
+
+  defp body_sha256(body) do
+    :crypto.hash(:sha256, body)
+    |> Base.encode16(case: :lower)
+  end
+
+  defp body_filename(cache_key, body), do: "#{cache_key.hash}.#{body_sha256(body)}.body"
 
   defp safe_prefix do
     one_of([

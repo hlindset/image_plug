@@ -22,6 +22,28 @@ defmodule ImagePlug.Cache.FileSystemTest do
     }
   end
 
+  defp body_sha256(body) do
+    :crypto.hash(:sha256, body)
+    |> Base.encode16(case: :lower)
+  end
+
+  defp body_filename(cache_key, body), do: "#{cache_key.hash}.#{body_sha256(body)}.body"
+
+  defp metadata(cache_key, body, overrides \\ []) do
+    Map.merge(
+      %{
+        metadata_version: 1,
+        content_type: "image/webp",
+        headers: [],
+        created_at: "2026-04-29T10:15:00Z",
+        body_byte_size: byte_size(body),
+        body_sha256: body_sha256(body),
+        body_filename: body_filename(cache_key, body)
+      },
+      Map.new(overrides)
+    )
+  end
+
   defp root(context) do
     Path.join(System.tmp_dir!(), "image_plug_fs_cache_#{context.test}")
   end
@@ -90,7 +112,11 @@ defmodule ImagePlug.Cache.FileSystemTest do
     assert cached_entry.content_type == "image/webp"
     assert cached_entry.headers == [{"vary", "Accept"}]
     assert cached_entry.created_at == ~U[2026-04-29 10:15:00Z]
-    assert File.exists?(Path.join([root, "processed", "ab", "cd", cache_key.hash <> ".body"]))
+
+    assert File.exists?(
+             Path.join([root, "processed", "ab", "cd", body_filename(cache_key, "encoded image")])
+           )
+
     assert File.exists?(Path.join([root, "processed", "ab", "cd", cache_key.hash <> ".meta"]))
   end
 
@@ -100,7 +126,7 @@ defmodule ImagePlug.Cache.FileSystemTest do
 
     dir = Path.join([root, "12", "34"])
     File.mkdir_p!(dir)
-    File.write!(Path.join(dir, cache_key.hash <> ".body"), "body")
+    File.write!(Path.join(dir, body_filename(cache_key, "body")), "body")
 
     assert FileSystem.get(cache_key, root: root) == :miss
 
@@ -110,13 +136,7 @@ defmodule ImagePlug.Cache.FileSystemTest do
 
     File.write!(
       Path.join(meta_only_dir, meta_only_key.hash <> ".meta"),
-      :erlang.term_to_binary(%{
-        metadata_version: 1,
-        content_type: "image/webp",
-        headers: [],
-        created_at: "2026-04-29T10:15:00Z",
-        body_byte_size: 4
-      })
+      :erlang.term_to_binary(metadata(meta_only_key, "body"))
     )
 
     assert FileSystem.get(meta_only_key, root: root) == :miss
@@ -126,7 +146,7 @@ defmodule ImagePlug.Cache.FileSystemTest do
     cache_key = key("654321" <> String.duplicate("b", 58))
     dir = Path.join([root, "65", "43"])
     File.mkdir_p!(dir)
-    File.write!(Path.join(dir, cache_key.hash <> ".body"), "body")
+    File.write!(Path.join(dir, body_filename(cache_key, "body")), "body")
 
     File.write!(
       Path.join(dir, cache_key.hash <> ".meta"),
@@ -140,7 +160,7 @@ defmodule ImagePlug.Cache.FileSystemTest do
     cache_key = key("754321" <> String.duplicate("b", 58))
     dir = Path.join([root, "75", "43"])
     File.mkdir_p!(dir)
-    File.write!(Path.join(dir, cache_key.hash <> ".body"), "body")
+    File.write!(Path.join(dir, body_filename(cache_key, "body")), "body")
 
     File.write!(
       Path.join(dir, cache_key.hash <> ".meta"),
@@ -156,7 +176,7 @@ defmodule ImagePlug.Cache.FileSystemTest do
     assert FileSystem.put(cache_key, entry("12345"), root: root) == :ok
 
     dir = Path.join([root, "bb", "bb"])
-    File.write!(Path.join(dir, cache_key.hash <> ".body"), "123")
+    File.write!(Path.join(dir, body_filename(cache_key, "12345")), "123")
 
     assert FileSystem.get(cache_key, root: root) == :miss
   end
@@ -166,7 +186,7 @@ defmodule ImagePlug.Cache.FileSystemTest do
     assert FileSystem.put(cache_key, entry("body-one"), root: root) == :ok
 
     dir = Path.join([root, "ee", "ee"])
-    File.write!(Path.join(dir, cache_key.hash <> ".body"), "body-two")
+    File.write!(Path.join(dir, body_filename(cache_key, "body-one")), "body-two")
 
     assert FileSystem.get(cache_key, root: root) == :miss
 
@@ -174,11 +194,25 @@ defmodule ImagePlug.Cache.FileSystemTest do
              {:error, {:invalid_metadata, :body_digest_mismatch}}
   end
 
+  test "metadata from an earlier concurrent writer still points at its own body", %{root: root} do
+    cache_key = key("ababab" <> String.duplicate("1", 58))
+
+    assert FileSystem.put(cache_key, entry("body-one"), root: root) == :ok
+    assert {:ok, paths} = FileSystem.paths(cache_key, root: root)
+    metadata_one = File.read!(paths.meta_path)
+
+    assert FileSystem.put(cache_key, entry("body-two"), root: root) == :ok
+    File.write!(paths.meta_path, metadata_one)
+
+    assert {:hit, cached_entry} = FileSystem.get(cache_key, root: root)
+    assert cached_entry.body == "body-one"
+  end
+
   test "unexpected body read error is returned when fail_on_cache_error is true", %{root: root} do
     cache_key = key("fafafa" <> String.duplicate("2", 58))
     assert FileSystem.put(cache_key, entry("body"), root: root) == :ok
 
-    body_path = Path.join([root, "fa", "fa", cache_key.hash <> ".body"])
+    body_path = Path.join([root, "fa", "fa", body_filename(cache_key, "body")])
     File.rm!(body_path)
     File.mkdir_p!(body_path)
 
@@ -201,7 +235,7 @@ defmodule ImagePlug.Cache.FileSystemTest do
     dir = Path.join([root, "cd", "cd"])
     File.mkdir_p!(dir)
 
-    body_path = Path.join(dir, cache_key.hash <> ".body")
+    body_path = Path.join(dir, body_filename(cache_key, "old body"))
     meta_path = Path.join(dir, cache_key.hash <> ".meta")
     File.write!(body_path, "old body")
     File.mkdir_p!(meta_path)

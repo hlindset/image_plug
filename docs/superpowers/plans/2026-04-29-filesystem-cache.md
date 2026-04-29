@@ -40,12 +40,12 @@
 - `created_at` is the cache entry creation timestamp, not an origin timestamp or HTTP response date.
 - Cache entry response headers are intentionally narrow: store and send only `vary` and `cache-control`, normalize header names to lowercase internally, and preserve duplicate allowed headers in input order after normalization. Do not cache hop-by-hop or request-specific response headers.
 - Filesystem paths must be derived only from the generated SHA-256 hash, fixed suffixes, validated root, and validated `path_prefix`. `path_prefix` is split into path segments and must reject absolute paths, backslashes, empty segments from duplicate slashes, `.`, `..`, and `~`-prefixed segments.
-- A filesystem cache entry is valid only when metadata and body both exist, metadata parses successfully, and metadata matches the body size. Metadata has its own `metadata_version: 1`, independent of cache key `schema_version: 1`. Rename body into place first and metadata into place last, so readers never count a body-only partial write as a hit.
+- A filesystem cache entry is valid only when metadata and the metadata-referenced content-addressed body both exist, metadata parses successfully, and metadata matches the body size and digest. Metadata has its own `metadata_version: 1`, independent of cache key `schema_version: 1`. Rename the content-addressed body into place first and metadata into place last, so metadata is the atomic commit record and interleaved writers cannot pair one writer's metadata with another writer's body.
 - Invalid metadata is treated as a miss by default and as a cache read error when `fail_on_cache_error: true`.
 - Concurrent writes to the same key are acceptable. Temp files are exclusive and unique, final renames are atomic, and the last completed writer wins.
 - The cache root is trusted local configuration. The adapter expands and validates the configured root and generated paths, but it does not attempt to defend against a local actor replacing directories inside the cache root with symlinks. Document this trust boundary.
 - Cache reads and writes fail open by default. When `fail_on_cache_error: true`, read errors fail before origin fetch and write errors fail before the cache-enabled response is sent.
-- `max_body_bytes` applies to cache storage, not to serving the processed response. Cache-enabled misses still send oversized encoded outputs successfully when encoding succeeds; they only skip cache storage.
+- `max_body_bytes` applies to cache storage, not to serving the processed response. Cache-enabled misses still send oversized encoded outputs successfully when encoding succeeds; they only skip cache storage. The value must be `nil` or a non-negative integer.
 - Only successful processed image responses are cacheable. Parser, planner, origin fetch, decode, transform, negotiation, and encode errors are never stored; origin error bodies are not cached.
 - Property tests use the existing `stream_data` dependency and `use ExUnitProperties`. If a future branch lacks `stream_data`, add `{:stream_data, "~> 1.1", only: :test}` before adding property test files.
 - Property generators must keep binary bodies, header lists, path prefixes, and metadata sizes bounded so the suite remains fast and deterministic.
@@ -2505,11 +2505,11 @@ Cached response headers are restricted to `vary` and `cache-control`, and header
 
 `ImagePlug.Cache.FileSystem` requires an absolute `:root`. The optional `:path_prefix` must be relative and must not contain backslashes, empty segments from duplicate slashes, `.`, `..`, or `~`-prefixed path segments. Cache file paths are derived from ImagePlug-generated hashes, not from request paths, origin URLs, headers, or cookies.
 
-Filesystem metadata has its own `metadata_version`, independent of the cache key schema version. Invalid metadata is treated as a miss by default and as a cache read error when `fail_on_cache_error: true`.
+Filesystem metadata has its own `metadata_version`, independent of the cache key schema version. It records the cached body filename, byte size, and SHA-256 digest. Body files are content-addressed by digest, and the metadata file is the atomic commit record. Invalid metadata is treated as a miss by default and as a cache read error when `fail_on_cache_error: true`.
 
 The filesystem cache root is trusted local configuration. ImagePlug expands and validates generated paths under the configured root, but it does not protect against a local actor replacing directories inside the cache root with symlinks.
 
-By default, cache read and write errors are logged and the request continues without cached data. Set `fail_on_cache_error: true` to fail closed on cache read or write errors. Bodies larger than `max_body_bytes` are returned to the client but skipped for cache storage.
+By default, cache read and write errors are logged and the request continues without cached data. Set `fail_on_cache_error: true` to fail closed on cache read or write errors. Invalid cache configuration is rejected during Plug initialization. Bodies larger than `max_body_bytes` are returned to the client but skipped for cache storage. `max_body_bytes` must be `nil` or a non-negative integer.
 ````
 
 - [ ] **Step 2: Run all tests**

@@ -22,7 +22,7 @@ defmodule ImagePlug do
   @type imgp_ratio() :: {imgp_number(), imgp_number()}
   @type imgp_length() :: imgp_pixels() | imgp_pct() | imgp_scale()
 
-  def init(opts), do: opts
+  def init(opts), do: Cache.validate_config!(opts)
 
   def call(%Plug.Conn{} = conn, opts) do
     param_parser = Keyword.fetch!(opts, :param_parser)

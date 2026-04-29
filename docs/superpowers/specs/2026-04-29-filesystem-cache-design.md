@@ -126,7 +126,7 @@ The key should be generated from stable Erlang terms or a deterministic JSON-lik
 Example path shape:
 
 ```text
-<root>/<path_prefix>/ab/cd/abcdef...body
+<root>/<path_prefix>/ab/cd/abcdef...<body-sha256>.body
 <root>/<path_prefix>/ab/cd/abcdef...meta
 ```
 
@@ -177,10 +177,10 @@ The adapter receives adapter-specific options from the `:cache` tuple. The top-l
 
 - Validate required `:root`.
 - Build cache paths from key hash and optional path prefix.
-- Read metadata and body files on lookup.
+- Read metadata and the metadata-referenced content-addressed body file on lookup.
 - Treat missing or invalid metadata/body as `:miss`.
 - Write body and metadata to unique temp files.
-- Atomically rename temp files into final paths only after successful writes.
+- Rename the content-addressed body file first, then atomically rename metadata into the final metadata path as the commit record.
 - Clean up temp files on write failure when possible.
 
 Metadata should include at least:
@@ -189,7 +189,9 @@ Metadata should include at least:
 - content type
 - response headers
 - created timestamp
+- body filename
 - body byte size
+- body SHA-256 digest
 
 Do not count a hit unless both body and metadata are present and valid.
 

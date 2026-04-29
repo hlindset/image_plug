@@ -24,6 +24,10 @@ defmodule ImagePlug.CacheTest do
     def put(%Key{}, %Entry{}, _opts), do: {:error, :write_failed}
   end
 
+  defmodule LookupOnlyAdapter do
+    def get(%Key{}, _opts), do: :miss
+  end
+
   defmodule ShouldNotBeCalledAdapter do
     def get(%Key{}, _opts), do: flunk("adapter should not be called for invalid cache config")
 
@@ -65,6 +69,12 @@ defmodule ImagePlug.CacheTest do
              []
            ) ==
              :disabled
+  end
+
+  test "ImagePlug init rejects invalid cache config early" do
+    assert_raise ArgumentError, ~r/invalid cache config/, fn ->
+      ImagePlug.init(cache: {String, []})
+    end
   end
 
   test "returns hits with the generated key" do
@@ -125,6 +135,22 @@ defmodule ImagePlug.CacheTest do
                cache_key(),
                entry("123456"),
                cache: {ErrorAdapter, max_body_bytes: 5}
+             )
+  end
+
+  test "put accepts nil and non-negative max_body_bytes values" do
+    assert :ok =
+             Cache.put(
+               cache_key(),
+               entry("123456"),
+               cache: {MissAdapter, max_body_bytes: nil}
+             )
+
+    assert :ok =
+             Cache.put(
+               cache_key(),
+               entry(""),
+               cache: {MissAdapter, max_body_bytes: 0}
              )
   end
 
@@ -202,5 +228,33 @@ defmodule ImagePlug.CacheTest do
                "https://origin.test/cat.jpg",
                cache: {ShouldNotBeCalledAdapter, key_cookies: [:tenant]}
              )
+  end
+
+  test "invalid max_body_bytes config returns cache errors instead of changing cache policy" do
+    assert {:error, {:cache_read, {:invalid_cache_config, {:max_body_bytes, "10MB"}}}} =
+             Cache.lookup(
+               conn(:get, "/_/format:webp/plain/images/cat.jpg"),
+               request(),
+               "https://origin.test/cat.jpg",
+               cache: {ShouldNotBeCalledAdapter, max_body_bytes: "10MB"}
+             )
+
+    assert {:error, {:cache_write, {:invalid_cache_config, {:max_body_bytes, -1}}}} =
+             Cache.put(cache_key(), entry(),
+               cache: {ShouldNotBeCalledAdapter, max_body_bytes: -1}
+             )
+  end
+
+  test "invalid adapter config returns cache errors instead of crashing" do
+    assert {:error, {:cache_read, {:invalid_cache_config, {:adapter, String}}}} =
+             Cache.lookup(
+               conn(:get, "/_/format:webp/plain/images/cat.jpg"),
+               request(),
+               "https://origin.test/cat.jpg",
+               cache: {String, []}
+             )
+
+    assert {:error, {:cache_write, {:invalid_cache_config, {:adapter, LookupOnlyAdapter}}}} =
+             Cache.put(cache_key(), entry(), cache: {LookupOnlyAdapter, []})
   end
 end

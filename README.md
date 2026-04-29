@@ -111,9 +111,9 @@ Cached response headers are restricted to `vary` and `cache-control`. Header nam
 
 `ImagePlug.Cache.FileSystem` requires an absolute `:root`. The optional `:path_prefix` must be relative and rejects backslashes, duplicate-slash empty segments, `.`, `..`, and `~`-prefixed path segments. Cache paths are derived from generated hashes, not from request, origin, header, or cookie data.
 
-Filesystem metadata has an independent `metadata_version` and includes the cached body byte size and SHA-256 digest. Missing files, invalid metadata, and default filesystem read problems are cache misses by default. With `fail_on_cache_error: true`, invalid metadata and filesystem read problems become cache read errors.
+Filesystem metadata has an independent `metadata_version` and includes the cached body filename, byte size, and SHA-256 digest. Body files are content-addressed by digest, and the metadata file is the atomic commit record. Missing files, invalid metadata, and default filesystem read problems are cache misses by default. With `fail_on_cache_error: true`, invalid metadata and filesystem read problems become cache read errors.
 
-Adapter errors returned to the cache coordinator fail open by default and are logged. Set `fail_on_cache_error: true` to fail closed with a `500` cache error instead. Encoded response bodies over the cache `:max_body_bytes` are returned to the client but skipped for cache storage.
+Adapter errors returned to the cache coordinator fail open by default and are logged. Set `fail_on_cache_error: true` to fail closed with a `500` cache error instead. Invalid cache configuration is rejected during Plug initialization. Encoded response bodies over the cache `:max_body_bytes` are returned to the client but skipped for cache storage. `:max_body_bytes` must be `nil` or a non-negative integer.
 
 Treat the cache root as trusted local configuration. Generated paths are validated to stay under the configured root, but the filesystem adapter does not defend against a local actor replacing directories inside the root with symlinks.
 

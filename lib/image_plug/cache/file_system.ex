@@ -10,6 +10,7 @@ defmodule ImagePlug.Cache.FileSystem do
 
   @metadata_version 1
   @hash_pattern ~r/\A[0-9A-Fa-f]{64}\z/
+  @body_filename_pattern ~r/\A[0-9A-Fa-f]{64}\.[0-9a-f]{64}\.body\z/
 
   @impl true
   def get(%Key{} = key, opts) when is_list(opts) do
@@ -22,15 +23,23 @@ defmodule ImagePlug.Cache.FileSystem do
   def put(%Key{} = key, %Entry{} = entry, opts) when is_list(opts) do
     with {:ok, paths} <- paths(key, opts),
          :ok <- File.mkdir_p(paths.dir),
-         {:ok, metadata} <- metadata(entry) do
-      write_and_commit(paths, entry.body, :erlang.term_to_binary(metadata, [:deterministic]))
+         body_sha256 = body_sha256(entry.body),
+         body_filename = body_filename(paths.hash, body_sha256),
+         {:ok, metadata} <- metadata(entry, body_sha256, body_filename) do
+      write_and_commit(
+        paths,
+        body_filename,
+        entry.body,
+        :erlang.term_to_binary(metadata, [:deterministic])
+      )
     end
   end
 
   defp read_entry(paths, opts) do
     with {:ok, meta_binary} <- read_cache_file(paths.meta_path, :metadata, opts),
          {:ok, metadata} <- decode_metadata(meta_binary, opts),
-         {:ok, body} <- read_cache_file(paths.body_path, :body, opts),
+         {:ok, body_path} <- body_path_from_metadata(paths, metadata, opts),
+         {:ok, body} <- read_cache_file(body_path, :body, opts),
          :ok <- validate_body(body, metadata, opts),
          {:ok, created_at} <- parse_created_at(metadata.created_at, opts),
          {:ok, entry} <- entry(body, metadata, created_at, opts) do
@@ -79,7 +88,7 @@ defmodule ImagePlug.Cache.FileSystem do
     end
   end
 
-  defp metadata(%Entry{} = entry) do
+  defp metadata(%Entry{} = entry, body_sha256, body_filename) do
     with {:ok, headers} <- Entry.normalize_headers(entry.headers) do
       {:ok,
        %{
@@ -88,7 +97,8 @@ defmodule ImagePlug.Cache.FileSystem do
          headers: headers,
          created_at: DateTime.to_iso8601(entry.created_at),
          body_byte_size: byte_size(entry.body),
-         body_sha256: body_sha256(entry.body)
+         body_sha256: body_sha256,
+         body_filename: body_filename
        }}
     end
   end
@@ -115,17 +125,20 @@ defmodule ImagePlug.Cache.FileSystem do
          headers: headers,
          created_at: created_at,
          body_byte_size: body_byte_size,
-         body_sha256: body_sha256
+         body_sha256: body_sha256,
+         body_filename: body_filename
        })
        when is_binary(content_type) and is_list(headers) and is_binary(created_at) and
-              is_integer(body_byte_size) and body_byte_size >= 0 and is_binary(body_sha256) do
+              is_integer(body_byte_size) and body_byte_size >= 0 and is_binary(body_sha256) and
+              is_binary(body_filename) do
     {:ok,
      %{
        content_type: content_type,
        headers: headers,
        created_at: created_at,
        body_byte_size: body_byte_size,
-       body_sha256: body_sha256
+       body_sha256: body_sha256,
+       body_filename: body_filename
      }}
   end
 
@@ -159,11 +172,26 @@ defmodule ImagePlug.Cache.FileSystem do
     end
   end
 
-  defp write_and_commit(paths, body, encoded_metadata) do
+  defp body_path_from_metadata(
+         paths,
+         %{body_filename: body_filename, body_sha256: body_sha256},
+         opts
+       ) do
+    expected_body_filename = body_filename(paths.hash, body_sha256)
+
+    if body_filename == expected_body_filename and
+         Regex.match?(@body_filename_pattern, body_filename) do
+      {:ok, Path.join(paths.dir, body_filename)}
+    else
+      handle_invalid_metadata(:invalid_body_filename, opts)
+    end
+  end
+
+  defp write_and_commit(paths, body_filename, body, encoded_metadata) do
     with {:ok, body_tmp_path} <- write_temp(paths, body) do
       case write_temp(paths, encoded_metadata) do
         {:ok, meta_tmp_path} ->
-          commit(paths, body_tmp_path, meta_tmp_path)
+          commit(paths, body_filename, body_tmp_path, meta_tmp_path)
 
         {:error, reason} ->
           cleanup_temp_files([body_tmp_path])
@@ -181,9 +209,10 @@ defmodule ImagePlug.Cache.FileSystem do
     end
   end
 
-  defp commit(paths, body_tmp_path, meta_tmp_path) do
-    with :ok <- remove_existing_metadata(paths.meta_path),
-         :ok <- File.rename(body_tmp_path, paths.body_path) do
+  defp commit(paths, body_filename, body_tmp_path, meta_tmp_path) do
+    body_path = Path.join(paths.dir, body_filename)
+
+    with :ok <- File.rename(body_tmp_path, body_path) do
       case File.rename(meta_tmp_path, paths.meta_path) do
         :ok ->
           :ok
@@ -199,14 +228,6 @@ defmodule ImagePlug.Cache.FileSystem do
     end
   end
 
-  defp remove_existing_metadata(meta_path) do
-    case File.rm(meta_path) do
-      :ok -> :ok
-      {:error, :enoent} -> :ok
-      {:error, reason} -> {:error, reason}
-    end
-  end
-
   defp cleanup_temp_files(temp_paths) do
     Enum.each(temp_paths, &File.rm/1)
   end
@@ -217,13 +238,11 @@ defmodule ImagePlug.Cache.FileSystem do
          {:ok, path_prefix} <- path_prefix(opts),
          {:ok, {first_partition, second_partition}} <- partitions(hash) do
       dir = Path.join([root, path_prefix, first_partition, second_partition])
-      body_path = Path.join(dir, hash <> ".body")
       meta_path = Path.join(dir, hash <> ".meta")
 
       with :ok <- validate_under_root(root, dir),
-           :ok <- validate_under_root(root, body_path),
            :ok <- validate_under_root(root, meta_path) do
-        {:ok, %{root: root, dir: dir, body_path: body_path, meta_path: meta_path, hash: hash}}
+        {:ok, %{root: root, dir: dir, meta_path: meta_path, hash: hash}}
       end
     end
   end
@@ -302,6 +321,8 @@ defmodule ImagePlug.Cache.FileSystem do
 
   defp root?("/", path), do: String.starts_with?(path, "/")
   defp root?(root, path), do: path == root or String.starts_with?(path, root <> "/")
+
+  defp body_filename(hash, body_sha256), do: "#{hash}.#{body_sha256}.body"
 
   defp temp_path(paths) do
     random = Base.url_encode64(:crypto.strong_rand_bytes(16), padding: false)

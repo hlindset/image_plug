@@ -18,6 +18,25 @@ defmodule ImagePlug.Cache do
           | {:miss, Key.t()}
           | {:error, {:cache_read, term()}}
 
+  @doc false
+  @spec validate_config(keyword()) :: :ok | {:error, term()}
+  def validate_config(opts) when is_list(opts) do
+    case cache_config(opts) do
+      nil -> :ok
+      {:ok, _adapter, _cache_opts} -> :ok
+      {:error, reason} -> {:error, reason}
+    end
+  end
+
+  @doc false
+  @spec validate_config!(keyword()) :: keyword()
+  def validate_config!(opts) when is_list(opts) do
+    case validate_config(opts) do
+      :ok -> opts
+      {:error, reason} -> raise ArgumentError, "invalid cache config: #{inspect(reason)}"
+    end
+  end
+
   @spec lookup(Plug.Conn.t(), ProcessingRequest.t(), String.t(), keyword()) :: lookup_result()
   def lookup(conn, %ProcessingRequest{} = request, origin_identity, opts) when is_list(opts) do
     case cache_config(opts) do
@@ -63,7 +82,9 @@ defmodule ImagePlug.Cache do
         nil
 
       {adapter, cache_opts} when is_list(cache_opts) ->
-        with :ok <- validate_binary_name_list(cache_opts, :key_headers),
+        with :ok <- validate_adapter(adapter),
+             :ok <- validate_binary_name_list(cache_opts, :key_headers),
+             :ok <- validate_max_body_bytes(cache_opts),
              :ok <- validate_binary_name_list(cache_opts, :key_cookies) do
           {:ok, adapter, cache_opts}
         end
@@ -80,6 +101,27 @@ defmodule ImagePlug.Cache do
       :ok
     else
       {:error, {:invalid_cache_config, {key, value}}}
+    end
+  end
+
+  defp validate_adapter(adapter) when is_atom(adapter) do
+    if Code.ensure_loaded?(adapter) and function_exported?(adapter, :get, 2) and
+         function_exported?(adapter, :put, 3) do
+      :ok
+    else
+      {:error, {:invalid_cache_config, {:adapter, adapter}}}
+    end
+  end
+
+  defp validate_adapter(adapter), do: {:error, {:invalid_cache_config, {:adapter, adapter}}}
+
+  defp validate_max_body_bytes(opts) do
+    value = Keyword.get(opts, :max_body_bytes)
+
+    if is_nil(value) or (is_integer(value) and value >= 0) do
+      :ok
+    else
+      {:error, {:invalid_cache_config, {:max_body_bytes, value}}}
     end
   end
 
