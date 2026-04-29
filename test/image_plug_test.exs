@@ -522,11 +522,11 @@ defmodule ImagePlug.ImagePlugTest do
     {:ok, image} = Image.new(20, 20, color: :white)
     body = Image.write!(image, :memory, suffix: ".png")
 
-    Req.Test.stub(__MODULE__, fn conn ->
+    plug = fn conn ->
       conn
       |> Plug.Conn.put_resp_content_type("image/png")
       |> Plug.Conn.send_resp(200, body)
-    end)
+    end
 
     conn =
       conn(:get, "/_/w:10/plain/images/large.png")
@@ -534,7 +534,7 @@ defmodule ImagePlug.ImagePlugTest do
         root_url: "http://origin.test",
         param_parser: ImagePlug.ParamParser.Native,
         max_input_pixels: 399,
-        origin_req_options: [plug: {Req.Test, __MODULE__}]
+        origin_req_options: [plug: plug]
       )
 
     assert conn.status == 413

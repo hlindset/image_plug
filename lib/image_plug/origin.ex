@@ -182,7 +182,6 @@ defmodule ImagePlug.Origin do
          receive_timeout
        ) do
     caller_monitor_ref = Process.monitor(caller)
-    allow_req_test_owner(request_options, caller)
 
     case Req.get(request_options) do
       {:ok, %Req.Response{} = response} ->
@@ -219,18 +218,6 @@ defmodule ImagePlug.Origin do
 
       {:error, exception} ->
         send(caller, {ref, {:error, {:transport, exception}}})
-    end
-  end
-
-  defp allow_req_test_owner(request_options, caller) do
-    case Keyword.get(request_options, :plug) do
-      {Req.Test, name} ->
-        # Req.Test stubs are process-owned; allow this spawned stream worker to
-        # use the caller's stub when tests pass `plug: {Req.Test, name}`.
-        Req.Test.allow(name, caller, self())
-
-      _plug ->
-        :ok
     end
   end
 

@@ -3,10 +3,6 @@ defmodule ImagePlug.OriginTest do
 
   alias ImagePlug.Origin
 
-  setup do
-    Req.Test.verify_on_exit!()
-  end
-
   test "build_url encodes and joins path segments" do
     assert Origin.build_url("https://img.example/base", ["images", "cat 1.jpg"]) ==
              {:ok, "https://img.example/base/images/cat%201.jpg"}
@@ -21,14 +17,14 @@ defmodule ImagePlug.OriginTest do
   end
 
   test "fetch validates status and image content type and exposes a guarded stream" do
-    Req.Test.stub(Origin, fn conn ->
+    plug = fn conn ->
       conn
       |> Plug.Conn.put_resp_header("content-type", "image/jpeg")
       |> Plug.Conn.send_resp(200, "image bytes")
-    end)
+    end
 
     assert {:ok, %Origin.Response{} = response} =
-             Origin.fetch("https://img.example/cat.jpg", plug: {Req.Test, Origin})
+             Origin.fetch("https://img.example/cat.jpg", plug: plug)
 
     assert Enum.join(response.stream) == "image bytes"
     assert Origin.stream_error(response) == nil
@@ -38,28 +34,28 @@ defmodule ImagePlug.OriginTest do
   end
 
   test "fetch accepts mixed-case image content type with parameters" do
-    Req.Test.stub(Origin, fn conn ->
+    plug = fn conn ->
       conn
       |> Plug.Conn.put_resp_header("content-type", "Image/JPEG; charset=binary")
       |> Plug.Conn.send_resp(200, "image bytes")
-    end)
+    end
 
     assert {:ok, %Origin.Response{} = response} =
-             Origin.fetch("https://img.example/cat.jpg", plug: {Req.Test, Origin})
+             Origin.fetch("https://img.example/cat.jpg", plug: plug)
 
     assert response.content_type == "Image/JPEG; charset=binary"
   end
 
   test "fetch does not allow request options to override safe options" do
-    Req.Test.stub(Origin, fn conn ->
+    plug = fn conn ->
       conn
       |> Plug.Conn.put_resp_header("content-type", "image/jpeg")
       |> Plug.Conn.send_resp(200, "#{conn.host}#{conn.request_path}")
-    end)
+    end
 
     assert {:ok, %Origin.Response{} = response} =
              Origin.fetch("https://img.example/cat.jpg",
-               plug: {Req.Test, Origin},
+               plug: plug,
                url: "https://evil.example/dog.jpg",
                into: [],
                receive_timeout: 5_000,
@@ -71,7 +67,7 @@ defmodule ImagePlug.OriginTest do
   end
 
   test "fetch allows redirect limits to be configured" do
-    Req.Test.stub(Origin, fn
+    plug = fn
       %{request_path: "/redirect"} = conn ->
         conn
         |> Plug.Conn.put_resp_header("location", "/final")
@@ -81,45 +77,45 @@ defmodule ImagePlug.OriginTest do
         conn
         |> Plug.Conn.put_resp_header("content-type", "image/jpeg")
         |> Plug.Conn.send_resp(200, "image bytes")
-    end)
+    end
 
     assert {:error, {:transport, %Req.TooManyRedirectsError{max_redirects: 0}}} =
              Origin.fetch("https://img.example/redirect",
-               plug: {Req.Test, Origin},
+               plug: plug,
                max_redirects: 0
              )
   end
 
   test "rejects non-success status" do
-    Req.Test.stub(Origin, fn conn ->
+    plug = fn conn ->
       Plug.Conn.send_resp(conn, 404, "not found")
-    end)
+    end
 
-    assert Origin.fetch("https://img.example/missing.jpg", plug: {Req.Test, Origin}) ==
+    assert Origin.fetch("https://img.example/missing.jpg", plug: plug) ==
              {:error, {:bad_status, 404}}
   end
 
   test "rejects non-image content type" do
-    Req.Test.stub(Origin, fn conn ->
+    plug = fn conn ->
       conn
       |> Plug.Conn.put_resp_header("content-type", "text/plain; charset=utf-8")
       |> Plug.Conn.send_resp(200, "not image bytes")
-    end)
+    end
 
-    assert Origin.fetch("https://img.example/cat.txt", plug: {Req.Test, Origin}) ==
+    assert Origin.fetch("https://img.example/cat.txt", plug: plug) ==
              {:error, {:bad_content_type, "text/plain; charset=utf-8"}}
   end
 
   test "stream stops reading and records an origin error when body exceeds limit" do
-    Req.Test.stub(Origin, fn conn ->
+    plug = fn conn ->
       conn
       |> Plug.Conn.put_resp_header("content-type", "image/png")
       |> Plug.Conn.send_resp(200, "123456")
-    end)
+    end
 
     assert {:ok, %Origin.Response{} = response} =
              Origin.fetch("https://img.example/cat.png",
-               plug: {Req.Test, Origin},
+               plug: plug,
                max_body_bytes: 5
              )
 
@@ -128,12 +124,12 @@ defmodule ImagePlug.OriginTest do
   end
 
   test "converts transport errors" do
-    Req.Test.stub(Origin, fn conn ->
+    plug = fn conn ->
       Req.Test.transport_error(conn, :timeout)
-    end)
+    end
 
     assert {:error, {:transport, %Req.TransportError{reason: :timeout}}} =
-             Origin.fetch("https://img.example/cat.jpg", plug: {Req.Test, Origin})
+             Origin.fetch("https://img.example/cat.jpg", plug: plug)
   end
 
   test "stream receive timeout is recorded as an origin error" do
@@ -147,15 +143,15 @@ defmodule ImagePlug.OriginTest do
   end
 
   test "unconsumed streams are canceled after receive timeout" do
-    Req.Test.stub(Origin, fn conn ->
+    plug = fn conn ->
       conn
       |> Plug.Conn.put_resp_header("content-type", "image/jpeg")
       |> Plug.Conn.send_resp(200, "image bytes")
-    end)
+    end
 
     assert {:ok, %Origin.Response{} = response} =
              Origin.fetch("https://img.example/cat.jpg",
-               plug: {Req.Test, Origin},
+               plug: plug,
                receive_timeout: 50
              )
 
@@ -163,14 +159,14 @@ defmodule ImagePlug.OriginTest do
   end
 
   test "close cancels an unconsumed stream" do
-    Req.Test.stub(Origin, fn conn ->
+    plug = fn conn ->
       conn
       |> Plug.Conn.put_resp_header("content-type", "image/jpeg")
       |> Plug.Conn.send_resp(200, "image bytes")
-    end)
+    end
 
     assert {:ok, %Origin.Response{} = response} =
-             Origin.fetch("https://img.example/cat.jpg", plug: {Req.Test, Origin})
+             Origin.fetch("https://img.example/cat.jpg", plug: plug)
 
     worker = response.worker
     monitor_ref = Process.monitor(worker)
