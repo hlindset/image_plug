@@ -102,14 +102,17 @@ defmodule ImagePlug.OutputNegotiation do
     params
     |> Enum.find_value(1.0, fn param ->
       case String.split(param, "=", parts: 2) do
-        ["q", value] -> parse_quality(value)
-        _ -> nil
+        [name, value] ->
+          if String.downcase(String.trim(name)) == "q", do: parse_quality(value)
+
+        _ ->
+          nil
       end
     end)
   end
 
   defp parse_quality(value) do
-    case Float.parse(value) do
+    case value |> String.trim() |> Float.parse() do
       {quality, ""} when quality >= 0.0 and quality <= 1.0 -> quality
       _ -> 0.0
     end
