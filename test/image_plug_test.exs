@@ -9,6 +9,27 @@ defmodule ImagePlug.ImagePlugTest do
 
   alias ImagePlug.ProcessingRequest
 
+  defmodule CacheProbe do
+    alias ImagePlug.Cache.Entry
+    alias ImagePlug.Cache.Key
+
+    def get(%Key{} = key, opts) do
+      opts
+      |> Keyword.get(:message_target, self())
+      |> send({:cache_get, key})
+
+      Keyword.get(opts, :get_result, :miss)
+    end
+
+    def put(%Key{} = key, %Entry{} = entry, opts) do
+      opts
+      |> Keyword.get(:message_target, self())
+      |> send({:cache_put, key, entry})
+
+      Keyword.get(opts, :put_result, :ok)
+    end
+  end
+
   defmodule OriginShouldNotBeCalled do
     def call(conn, _opts) do
       send(self(), :origin_was_called)
@@ -23,6 +44,32 @@ defmodule ImagePlug.ImagePlugTest do
       conn
       |> Plug.Conn.put_resp_content_type("image/jpeg")
       |> Plug.Conn.send_resp(200, body)
+    end
+  end
+
+  defmodule CountingOriginImage do
+    def init(opts), do: opts
+
+    def call(conn, opts) do
+      Kernel.send(Keyword.get(opts, :test_pid, self()), :origin_was_called)
+
+      body = File.read!("priv/static/images/cat-300.jpg")
+
+      conn
+      |> Plug.Conn.put_resp_content_type("image/jpeg")
+      |> Plug.Conn.send_resp(200, body)
+    end
+  end
+
+  defmodule StreamingOnlyImage do
+    def stream!(_image, suffix: ".jpg") do
+      send(self(), :stream_encoder_called)
+      ["streamed jpeg"]
+    end
+
+    def write!(_image, :memory, suffix: ".jpg") do
+      send(self(), :memory_encoder_called)
+      raise "cache-enabled memory encoder should not be called"
     end
   end
 
@@ -117,6 +164,180 @@ defmodule ImagePlug.ImagePlugTest do
         fn _ -> :ok end
       )
     end
+  end
+
+  defp start_cache_probe do
+    test_pid = self()
+    spawn_link(fn -> cache_probe_loop(test_pid, []) end)
+  end
+
+  defp cache_probe_loop(test_pid, messages) do
+    receive do
+      {:cache_get, _key} = message ->
+        cache_probe_loop(test_pid, [message | messages])
+
+      {:cache_put, _key, _entry} = message ->
+        cache_probe_loop(test_pid, [message | messages])
+
+      {:flush, ref} ->
+        messages
+        |> Enum.reverse()
+        |> Enum.each(&send(test_pid, &1))
+
+        send(test_pid, {:cache_probe_flushed, ref})
+        cache_probe_loop(test_pid, [])
+    end
+  end
+
+  defp flush_cache_probe(cache_probe) do
+    ref = make_ref()
+    send(cache_probe, {:flush, ref})
+    assert_receive {:cache_probe_flushed, ^ref}
+  end
+
+  test "no cache configured preserves the streaming response path" do
+    conn = conn(:get, "/_/format:jpeg/plain/images/cat-300.jpg")
+    test_pid = self()
+
+    conn =
+      ImagePlug.call(conn,
+        root_url: "http://origin.test",
+        image_module: StreamingOnlyImage,
+        param_parser: ImagePlug.ParamParser.Native,
+        origin_req_options: [
+          plug: fn conn -> CountingOriginImage.call(conn, test_pid: test_pid) end
+        ]
+      )
+
+    assert conn.status == 200
+    assert conn.state == :chunked
+    assert conn.resp_body == "streamed jpeg"
+    assert get_resp_header(conn, "content-type") == ["image/jpeg"]
+    assert_received {:plug_conn, :sent}
+    assert_received :stream_encoder_called
+    refute_received :memory_encoder_called
+  end
+
+  test "does not touch cache when parser validation fails" do
+    conn = conn(:get, "/_/w:0/plain/images/cat-300.jpg")
+    cache_probe = start_cache_probe()
+
+    conn =
+      ImagePlug.call(conn,
+        root_url: "http://origin.test",
+        param_parser: ImagePlug.ParamParser.Native,
+        cache: {CacheProbe, message_target: cache_probe},
+        origin_req_options: [plug: OriginShouldNotBeCalled]
+      )
+
+    flush_cache_probe(cache_probe)
+    assert conn.status == 400
+    refute_received {:cache_get, _key}
+    refute_received :origin_was_called
+  end
+
+  test "does not touch cache when planner validation fails" do
+    conn = conn(:get, "/_/fit:cover/w:100/plain/images/cat-300.jpg")
+    cache_probe = start_cache_probe()
+
+    conn =
+      ImagePlug.call(conn,
+        root_url: "http://origin.test",
+        param_parser: ImagePlug.ParamParser.Native,
+        cache: {CacheProbe, message_target: cache_probe},
+        origin_req_options: [plug: OriginShouldNotBeCalled]
+      )
+
+    flush_cache_probe(cache_probe)
+    assert conn.status == 400
+    refute_received {:cache_get, _key}
+    refute_received :origin_was_called
+  end
+
+  test "serves cache hits without fetching origin" do
+    cache_probe = start_cache_probe()
+
+    cached_entry = %ImagePlug.Cache.Entry{
+      body: "cached image",
+      content_type: "image/webp",
+      headers: [{"Vary", "Accept"}, {"connection", "close"}],
+      created_at: DateTime.utc_now()
+    }
+
+    conn = conn(:get, "/_/format:webp/plain/images/cat-300.jpg")
+
+    conn =
+      ImagePlug.call(conn,
+        root_url: "http://origin.test",
+        param_parser: ImagePlug.ParamParser.Native,
+        cache: {CacheProbe, message_target: cache_probe, get_result: {:hit, cached_entry}},
+        origin_req_options: [plug: OriginShouldNotBeCalled]
+      )
+
+    flush_cache_probe(cache_probe)
+    assert conn.status == 200
+    assert conn.resp_body == "cached image"
+    assert get_resp_header(conn, "content-type") == ["image/webp"]
+    assert get_resp_header(conn, "vary") == ["Accept"]
+    assert get_resp_header(conn, "connection") == []
+    assert_received {:cache_get, key}
+    assert key.material[:origin_identity] == "http://origin.test/images/cat-300.jpg"
+    refute_received :origin_was_called
+  end
+
+  test "cache misses process origin response, write entry, and send encoded body" do
+    conn = conn(:get, "/_/format:jpeg/plain/images/cat-300.jpg")
+    test_pid = self()
+    cache_probe = start_cache_probe()
+
+    conn =
+      ImagePlug.call(conn,
+        root_url: "http://origin.test",
+        param_parser: ImagePlug.ParamParser.Native,
+        cache: {CacheProbe, message_target: cache_probe},
+        origin_req_options: [
+          plug: fn conn -> CountingOriginImage.call(conn, test_pid: test_pid) end
+        ]
+      )
+
+    flush_cache_probe(cache_probe)
+    assert conn.status == 200
+    assert get_resp_header(conn, "content-type") == ["image/jpeg"]
+    assert byte_size(conn.resp_body) > 0
+    assert_received {:cache_get, key}
+    assert_received {:cache_put, ^key, entry}
+    assert_received {:plug_conn, :sent}
+    assert entry.content_type == "image/jpeg"
+    assert entry.headers == []
+    assert entry.body == conn.resp_body
+  end
+
+  test "cache misses for auto output store vary header and selected content type" do
+    test_pid = self()
+    cache_probe = start_cache_probe()
+
+    conn =
+      :get
+      |> conn("/_/plain/images/cat-300.jpg")
+      |> put_req_header("accept", "image/jpeg")
+
+    conn =
+      ImagePlug.call(conn,
+        root_url: "http://origin.test",
+        param_parser: ImagePlug.ParamParser.Native,
+        cache: {CacheProbe, message_target: cache_probe},
+        origin_req_options: [
+          plug: fn conn -> CountingOriginImage.call(conn, test_pid: test_pid) end
+        ]
+      )
+
+    flush_cache_probe(cache_probe)
+    assert conn.status == 200
+    assert get_resp_header(conn, "content-type") == ["image/jpeg"]
+    assert get_resp_header(conn, "vary") == ["Accept"]
+    assert_received {:cache_put, _key, entry}
+    assert entry.content_type == "image/jpeg"
+    assert entry.headers == [{"vary", "Accept"}]
   end
 
   test "does not fetch origin when parser validation fails" do
