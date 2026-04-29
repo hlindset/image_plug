@@ -82,6 +82,32 @@ defmodule ImagePlug.ImagePlugTest do
     end
   end
 
+  defmodule InvalidOriginImage do
+    def call(conn, _) do
+      conn
+      |> Plug.Conn.put_resp_content_type("image/png")
+      |> Plug.Conn.send_resp(200, "not actually a png")
+    end
+  end
+
+  defmodule SlowPartialOriginImage do
+    def init(opts), do: opts
+
+    def call(conn, _opts) do
+      body = File.read!("priv/static/images/cat-300.jpg")
+
+      conn =
+        conn
+        |> Plug.Conn.put_resp_content_type("image/jpeg")
+        |> Plug.Conn.send_chunked(200)
+
+      {:ok, conn} = Plug.Conn.chunk(conn, binary_part(body, 0, 128))
+      Process.sleep(250)
+      {:ok, conn} = Plug.Conn.chunk(conn, binary_part(body, 128, byte_size(body) - 128))
+      conn
+    end
+  end
+
   def sample_processing_request do
     %ProcessingRequest{
       signature: "_",
@@ -527,6 +553,49 @@ defmodule ImagePlug.ImagePlugTest do
 
     assert conn.status == 502
     assert conn.resp_body == "error fetching origin image"
+  end
+
+  test "honors max_body_bytes for valid image bytes while streaming into decode" do
+    body = File.read!("priv/static/images/cat-300.jpg")
+
+    conn =
+      conn(:get, "/_/plain/images/large-body.jpg")
+      |> ImagePlug.call(
+        root_url: "http://origin.test",
+        param_parser: ImagePlug.ParamParser.Native,
+        max_body_bytes: byte_size(body) - 1,
+        origin_req_options: [plug: OriginImage]
+      )
+
+    assert conn.status == 502
+    assert conn.resp_body == "error fetching origin image"
+  end
+
+  test "origin timeout while decoding a partial valid image remains an origin error" do
+    conn =
+      conn(:get, "/_/plain/images/slow.jpg")
+      |> ImagePlug.call(
+        root_url: "http://origin.test",
+        param_parser: ImagePlug.ParamParser.Native,
+        origin_receive_timeout: 100,
+        origin_req_options: [plug: SlowPartialOriginImage]
+      )
+
+    assert conn.status == 502
+    assert conn.resp_body == "error fetching origin image"
+  end
+
+  test "invalid streamed image bytes are decode errors" do
+    conn =
+      conn(:get, "/_/plain/images/broken.png")
+      |> ImagePlug.call(
+        root_url: "http://origin.test",
+        param_parser: ImagePlug.ParamParser.Native,
+        origin_req_options: [plug: InvalidOriginImage]
+      )
+
+    assert conn.status == 415
+    assert conn.resp_body == "origin response is not a supported image"
   end
 
   test "cache read errors fail open by default and continue to origin" do

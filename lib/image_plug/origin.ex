@@ -1,7 +1,20 @@
 defmodule ImagePlug.Origin do
+  @moduledoc """
+  Origin URL construction and guarded HTTP streaming.
+
+  Origin responses are fetched with a repo-owned `Req.get(..., into: :self)` request
+  instead of `Image.from_req_stream/2`. That keeps ImagePlug in control of status and
+  content-type validation, byte limits, redirect and timeout configuration, and the
+  distinction between origin failures and image decode failures.
+
+  Successful fetches return a guarded enumerable in `Response.stream`. Consumers should
+  either consume that stream or call `close/1`. Stream-time origin failures are sent back
+  to the caller out-of-band because Vix consumes enumerables from a separate process.
+  """
+
   defmodule Response do
-    @enforce_keys [:body, :content_type, :headers, :url]
-    defstruct [:body, :content_type, :headers, :url]
+    @enforce_keys [:content_type, :headers, :ref, :stream, :url, :worker]
+    defstruct [:content_type, :headers, :ref, :stream, :url, :worker]
   end
 
   @default_max_body_bytes 10_000_000
@@ -55,13 +68,21 @@ defmodule ImagePlug.Origin do
         receive_timeout: receive_timeout
       )
 
-    case Req.get(request_options) do
-      {:ok, response} ->
-        handle_response(response, url, max_body_bytes, receive_timeout)
+    start_stream(url, request_options, max_body_bytes, receive_timeout)
+  end
 
-      {:error, exception} ->
-        {:error, {:transport, exception}}
+  def stream_error(%Response{ref: ref}) do
+    receive do
+      {^ref, {:stream_error, reason}} -> reason
+      {^ref, :stream_done} -> nil
+    after
+      0 -> nil
     end
+  end
+
+  def close(%Response{ref: ref, worker: worker}) do
+    send(worker, {:cancel, ref})
+    :ok
   end
 
   defp valid_root_url?(%URI{scheme: scheme, host: host})
@@ -74,28 +95,44 @@ defmodule ImagePlug.Origin do
   defp split_path(""), do: []
   defp split_path(path), do: path |> String.trim("/") |> String.split("/", trim: true)
 
-  defp handle_response(%Req.Response{} = response, url, max_body_bytes, receive_timeout) do
-    with :ok <- validate_status(response),
-         {:ok, content_type} <- validate_content_type(response),
-         {:ok, body} <- collect_body(response, max_body_bytes, receive_timeout) do
-      {:ok,
-       %Response{
-         body: body,
-         content_type: content_type,
-         headers: response_headers(response),
-         url: url
-       }}
-    else
-      {:error, reason} = error ->
-        cancel_response(response)
+  defp start_stream(url, request_options, max_body_bytes, receive_timeout) do
+    caller = self()
+    ref = make_ref()
 
-        case reason do
-          {:bad_status, _status} -> error
-          {:bad_content_type, _content_type} -> error
-          {:body_too_large, _limit} -> error
-          {:timeout, _receive_timeout} -> error
-          {:transport, _exception} -> error
-        end
+    {worker, monitor_ref} =
+      spawn_monitor(fn ->
+        stream_worker(
+          caller,
+          ref,
+          url,
+          request_options,
+          max_body_bytes,
+          receive_timeout
+        )
+      end)
+
+    receive do
+      {^ref, {:ok, %Response{} = response}} ->
+        Process.demonitor(monitor_ref, [:flush])
+
+        {:ok,
+         %Response{
+           response
+           | ref: ref,
+             worker: worker,
+             stream: response_stream(worker, ref)
+         }}
+
+      {^ref, {:error, reason}} ->
+        Process.demonitor(monitor_ref, [:flush])
+        {:error, reason}
+
+      {:DOWN, ^monitor_ref, :process, ^worker, reason} ->
+        {:error, {:transport, reason}}
+    after
+      receive_timeout ->
+        Process.exit(worker, :kill)
+        {:error, {:timeout, receive_timeout}}
     end
   end
 
@@ -127,53 +164,182 @@ defmodule ImagePlug.Origin do
     Enum.flat_map(headers, fn {key, values} -> Enum.map(values, &{key, &1}) end)
   end
 
-  defp collect_body(response, max_body_bytes, receive_timeout) do
-    do_collect_body(response, max_body_bytes, receive_timeout, [], 0)
+  defp stream_worker(
+         caller,
+         ref,
+         url,
+         request_options,
+         max_body_bytes,
+         receive_timeout
+       ) do
+    caller_monitor_ref = Process.monitor(caller)
+    allow_req_test_owner(request_options, caller)
+
+    case Req.get(request_options) do
+      {:ok, %Req.Response{} = response} ->
+        with :ok <- validate_status(response),
+             {:ok, content_type} <- validate_content_type(response) do
+          send(caller, {
+            ref,
+            {:ok,
+             %Response{
+               content_type: content_type,
+               headers: response_headers(response),
+               ref: nil,
+               stream: nil,
+               url: url,
+               worker: nil
+             }}
+          })
+
+          stream_loop(%{
+            caller: caller,
+            caller_monitor_ref: caller_monitor_ref,
+            max_body_bytes: max_body_bytes,
+            pending: [],
+            receive_timeout: receive_timeout,
+            ref: ref,
+            response: response,
+            size: 0
+          })
+        else
+          {:error, reason} ->
+            cancel_response(response)
+            send(caller, {ref, {:error, reason}})
+        end
+
+      {:error, exception} ->
+        send(caller, {ref, {:error, {:transport, exception}}})
+    end
   end
 
-  defp do_collect_body(response, max_body_bytes, receive_timeout, chunks, size) do
+  defp allow_req_test_owner(request_options, caller) do
+    case Keyword.get(request_options, :plug) do
+      {Req.Test, name} ->
+        Req.Test.allow(name, caller, self())
+
+      _plug ->
+        :ok
+    end
+  end
+
+  defp stream_loop(%{caller_monitor_ref: caller_monitor_ref, caller: caller, ref: ref} = state) do
     receive do
+      {:next, from, ^ref} ->
+        serve_next(from, state)
+
+      {:cancel, ^ref} ->
+        cancel_response(state.response)
+
+      {:DOWN, ^caller_monitor_ref, :process, ^caller, _reason} ->
+        cancel_response(state.response)
+    after
+      state.receive_timeout ->
+        fail_idle_stream(state, {:timeout, state.receive_timeout})
+    end
+  end
+
+  defp serve_next(from, %{pending: [pending | rest]} = state) do
+    deliver_pending(pending, from, %{state | pending: rest})
+  end
+
+  defp serve_next(from, %{receive_timeout: receive_timeout} = state) do
+    receive do
+      {:cancel, ref} when ref == state.ref ->
+        cancel_response(state.response)
+
+      {:DOWN, monitor_ref, :process, caller, _reason}
+      when monitor_ref == state.caller_monitor_ref and caller == state.caller ->
+        cancel_response(state.response)
+
       message ->
-        case Req.parse_message(response, message) do
+        case Req.parse_message(state.response, message) do
           {:ok, parsed_chunks} ->
-            collect_chunks(response, parsed_chunks, max_body_bytes, receive_timeout, chunks, size)
+            pending = Enum.flat_map(parsed_chunks, &pending_chunk/1)
+            serve_next(from, %{state | pending: pending})
 
           {:error, exception} ->
-            {:error, {:transport, exception}}
+            fail_stream(from, state, {:transport, exception})
 
           :unknown ->
-            do_collect_body(response, max_body_bytes, receive_timeout, chunks, size)
+            serve_next(from, state)
         end
     after
       receive_timeout ->
-        {:error, {:timeout, receive_timeout}}
+        fail_stream(from, state, {:timeout, receive_timeout})
     end
   end
 
-  defp collect_chunks(response, parsed_chunks, max_body_bytes, receive_timeout, chunks, size) do
-    Enum.reduce_while(parsed_chunks, {:cont, chunks, size}, fn
-      {:data, data}, {:cont, chunks, size} ->
-        size = size + byte_size(data)
+  defp pending_chunk({:data, data}), do: [{:data, data}]
+  defp pending_chunk(:done), do: [:done]
+  defp pending_chunk({:trailers, _trailers}), do: []
 
-        if size > max_body_bytes do
-          {:halt, {:error, {:body_too_large, max_body_bytes}}}
-        else
-          {:cont, {:cont, [data | chunks], size}}
-        end
+  defp deliver_pending({:data, data}, from, state) do
+    size = state.size + byte_size(data)
 
-      :done, {:cont, chunks, _size} ->
-        {:halt, {:ok, chunks |> Enum.reverse() |> IO.iodata_to_binary()}}
-
-      {:trailers, _trailers}, acc ->
-        {:cont, acc}
-    end)
-    |> case do
-      {:cont, chunks, size} ->
-        do_collect_body(response, max_body_bytes, receive_timeout, chunks, size)
-
-      result ->
-        result
+    if is_integer(state.max_body_bytes) and size > state.max_body_bytes do
+      fail_stream(from, state, {:body_too_large, state.max_body_bytes})
+    else
+      send(from, {state.ref, {:data, data}})
+      stream_loop(%{state | size: size})
     end
+  end
+
+  defp deliver_pending(:done, from, state) do
+    send(state.caller, {state.ref, :stream_done})
+    send(from, {state.ref, :done})
+  end
+
+  defp fail_stream(from, state, reason) do
+    reason = normalize_stream_error(reason, state.receive_timeout)
+
+    send(state.caller, {state.ref, {:stream_error, reason}})
+    cancel_response(state.response)
+    send(from, {state.ref, {:error, reason}})
+  end
+
+  defp fail_idle_stream(state, reason) do
+    reason = normalize_stream_error(reason, state.receive_timeout)
+
+    send(state.caller, {state.ref, {:stream_error, reason}})
+    cancel_response(state.response)
+  end
+
+  defp normalize_stream_error(
+         {:transport, %Mint.TransportError{reason: :timeout}},
+         receive_timeout
+       ) do
+    {:timeout, receive_timeout}
+  end
+
+  defp normalize_stream_error(reason, _receive_timeout), do: reason
+
+  defp response_stream(worker, ref) do
+    Stream.resource(
+      fn -> %{monitor_ref: Process.monitor(worker), ref: ref, worker: worker} end,
+      fn state ->
+        send(state.worker, {:next, self(), state.ref})
+
+        receive do
+          {ref, {:data, data}} when ref == state.ref ->
+            {[data], state}
+
+          {ref, :done} when ref == state.ref ->
+            {:halt, state}
+
+          {ref, {:error, _reason}} when ref == state.ref ->
+            {:halt, state}
+
+          {:DOWN, monitor_ref, :process, worker, _reason}
+          when monitor_ref == state.monitor_ref and worker == state.worker ->
+            {:halt, state}
+        end
+      end,
+      fn state ->
+        send(state.worker, {:cancel, state.ref})
+        Process.demonitor(state.monitor_ref, [:flush])
+      end
+    )
   end
 
   defp cancel_response(%Req.Response{} = response) do
