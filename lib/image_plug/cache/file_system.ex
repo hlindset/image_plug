@@ -227,7 +227,7 @@ defmodule ImagePlug.Cache.FileSystem do
   defp commit(paths, body_filename, body_tmp_path, meta_tmp_path) do
     body_path = Path.join(paths.dir, body_filename)
 
-    with :ok <- File.rename(body_tmp_path, body_path) do
+    with :ok <- commit_body_file(body_tmp_path, body_path, body_filename) do
       case File.rename(meta_tmp_path, paths.meta_path) do
         :ok ->
           :ok
@@ -240,6 +240,37 @@ defmodule ImagePlug.Cache.FileSystem do
       {:error, reason} ->
         cleanup_temp_files([body_tmp_path, meta_tmp_path])
         {:error, reason}
+    end
+  end
+
+  defp commit_body_file(body_tmp_path, body_path, body_filename) do
+    if matching_body_file?(body_path, body_filename) do
+      cleanup_temp_files([body_tmp_path])
+      :ok
+    else
+      case File.rename(body_tmp_path, body_path) do
+        :ok -> :ok
+        {:error, :eexist} -> use_existing_body_file(body_tmp_path, body_path, body_filename)
+        {:error, reason} -> {:error, reason}
+      end
+    end
+  end
+
+  defp use_existing_body_file(body_tmp_path, body_path, body_filename) do
+    if matching_body_file?(body_path, body_filename) do
+      cleanup_temp_files([body_tmp_path])
+      :ok
+    else
+      {:error, :body_file_exists}
+    end
+  end
+
+  defp matching_body_file?(body_path, body_filename) do
+    with {:ok, expected_sha256} <- body_sha256_from_filename(body_filename),
+         {:ok, body} <- File.read(body_path) do
+      body_sha256(body) == expected_sha256
+    else
+      _reason -> false
     end
   end
 
@@ -338,6 +369,13 @@ defmodule ImagePlug.Cache.FileSystem do
   defp root?(root, path), do: path == root or String.starts_with?(path, root <> "/")
 
   defp body_filename(hash, body_sha256), do: "#{hash}.#{body_sha256}.body"
+
+  defp body_sha256_from_filename(body_filename) do
+    case String.split(body_filename, ".", parts: 3) do
+      [_hash, body_sha256, "body"] -> {:ok, body_sha256}
+      _parts -> {:error, :invalid_body_filename}
+    end
+  end
 
   defp temp_path(paths) do
     random = Base.url_encode64(:crypto.strong_rand_bytes(16), padding: false)

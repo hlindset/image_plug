@@ -208,6 +208,17 @@ defmodule ImagePlug.Cache.FileSystemTest do
     assert cached_entry.body == "body-one"
   end
 
+  test "put succeeds when the content-addressed body already exists", %{root: root} do
+    cache_key = key("adadad" <> String.duplicate("1", 58))
+    assert {:ok, paths} = FileSystem.paths(cache_key, root: root)
+    File.mkdir_p!(paths.dir)
+    File.write!(Path.join(paths.dir, body_filename(cache_key, "body")), "body")
+
+    assert FileSystem.put(cache_key, entry("body"), root: root) == :ok
+    assert {:hit, cached_entry} = FileSystem.get(cache_key, root: root)
+    assert cached_entry.body == "body"
+  end
+
   test "unexpected body read error is returned when fail_on_cache_error is true", %{root: root} do
     cache_key = key("fafafa" <> String.duplicate("2", 58))
     assert FileSystem.put(cache_key, entry("body"), root: root) == :ok
