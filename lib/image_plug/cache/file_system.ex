@@ -413,16 +413,13 @@ defmodule ImagePlug.Cache.FileSystem do
   defp validate_under_root(root, path) do
     root = Path.expand(root)
     path = Path.expand(path)
+    relative = Path.relative_to(path, root, force: true)
 
-    if root?(root, path) do
-      :ok
-    else
-      {:error, {:path_outside_root, path}}
+    case Path.safe_relative(relative, root) do
+      {:ok, _relative} -> :ok
+      :error -> {:error, {:path_outside_root, path}}
     end
   end
-
-  defp root?("/", path), do: String.starts_with?(path, "/")
-  defp root?(root, path), do: path == root or String.starts_with?(path, root <> "/")
 
   defp body_filename(hash, body_sha256), do: "#{hash}.#{body_sha256}.body"
 
