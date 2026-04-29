@@ -10,7 +10,7 @@ defmodule ImagePlug.SimpleServer do
   plug :match
   plug :dispatch
 
-  forward "/process",
+  forward "/",
     to: ImagePlug,
     init_opts: [
       root_url: "http://localhost:4000",

@@ -8,74 +8,45 @@ Probably not quite ready for prime time yet.
 
 Name not final!
 
-## Transforms
+## Native Path API
 
-Transforms are passed through the query parameter `transform`. Multiple transforms
-can be supplied by separating them with a semicolon, and the transforms will be
-executed from left to right.
+ImagePlug's native API uses path-oriented URLs:
 
-E.g. `?transform=scale=500;crop=50px50p` will first scale the image to a width of
-500 pixels, and then crop it from the center to 50% of the width and height.
-
-More transforms are coming.
-
-### Crop
-
-Crops the image from the center of the current focus, or growing from the top left
-corner set using the optionally supplied `<left>x<top>` coordinate. Can use pixel
-values (e.g. `330`) or percent values (e.g. `25.5p`)
-
-#### Parameters
-
-Crop with the center of the crop at the current focus. By default
-the center of the image unless supplied through the focus transform.
-
-```
-crop=<width>x<height>
+```text
+/<signature>/<options>/plain/<origin_path>
 ```
 
-Crop and set the top left corner of the crop area.
+For local development, the signature segment can be `_` or `unsafe`:
 
-```
-crop=<width>x<height>[@<left>x<top>]
-```
-
-### Scale
-
-Scales the image using pixel values (e.g. `250`) or percent values (e.g. `45.2p`).
-
-Set width and height.
-
-```
-scale=<width>x<height>
+```text
+/_/plain/images/cat-300.jpg
+/_/w:300/plain/images/cat-300.jpg
+/_/fit:cover/w:300/h:300/focus:center/format:auto/plain/images/cat-300.jpg
+/_/fit:contain/w:800/format:webp/plain/images/cat-300.jpg
 ```
 
-Set height. Automatic width based on aspect ratio.
+Options are declarative. Their order in the URL does not define processing order:
 
-```
-scale=*x<height>
-```
-
-Set width. Automatic height based on aspect ratio.
-
-```
-scale=<width>x*
+```text
+/_/fit:cover/w:300/h:300/plain/images/cat-300.jpg
+/_/h:300/w:300/fit:cover/plain/images/cat-300.jpg
 ```
 
-Set width. Automatic height based on aspect ratio.
+Both URLs describe the same requested output. ImagePlug owns the fixed processing pipeline so it can optimize origin loading, resize, crop, and output encoding over time.
 
-```
-scale=<width>
+### Options
+
+```text
+w:<positive integer>
+h:<positive integer>
+fit:cover | fit:contain | fit:fill | fit:inside
+focus:center | focus:top | focus:bottom | focus:left | focus:right | focus:<x>:<y>
+format:auto | format:webp | format:avif | format:jpeg | format:png
 ```
 
-### Focus
+`w` and `h` are pixel dimensions. `focus:<x>:<y>` accepts pixel values such as `focus:120:80` and percent values such as `focus:50p:25p`.
 
-By default `:center`, but can be set to a pixel coordinate using this transform. Is reset
-back to `:center` after any operation that alters the image size (i.e. crop & scale).
-
-```
-focus=<left>x<top>
-```
+`format:auto` uses the request `Accept` header and sets `Vary: Accept` on image responses. Explicit formats bypass content negotiation.
 
 ## Usage example
 
@@ -91,9 +62,12 @@ defmodule ImagePlug.SimpleServer do
   plug :match
   plug :dispatch
 
-  forward "/process",
+  forward "/",
     to: ImagePlug,
-    init_opts: [root_url: "http://localhost:4000"]
+    init_opts: [
+      root_url: "http://localhost:4000",
+      param_parser: ImagePlug.ParamParser.Native
+    ]
 
   match _ do
     send_resp(conn, 404, "404 Not Found")
@@ -103,7 +77,7 @@ end
 
 ## Operational Notes
 
-`ImagePlug` parses transform parameters before fetching the origin image. Invalid transform requests return `400` without origin traffic.
+`ImagePlug` parses native path options before fetching the origin image. Invalid processing requests return `400` without origin traffic.
 
 Origin fetches use non-bang Req calls with bounded redirects, receive timeout, image content-type validation, and a maximum response body size. Configure these with `:origin_max_redirects`, `:origin_receive_timeout`, `:max_body_bytes`, and `:max_input_pixels`.
 
