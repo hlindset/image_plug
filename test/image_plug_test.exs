@@ -637,4 +637,52 @@ defmodule ImagePlug.ImagePlugTest do
     assert_received :origin_was_called
     refute_received {:cache_put, _key, _entry}
   end
+
+  test "filesystem cache persists processed responses across requests" do
+    cache_root =
+      Path.join(
+        System.tmp_dir!(),
+        "image_plug_integration_cache_#{System.unique_integer([:positive])}"
+      )
+
+    File.rm_rf!(cache_root)
+    File.mkdir_p!(cache_root)
+
+    try do
+      cache_probe = start_cache_probe()
+
+      opts = [
+        root_url: "http://origin.test",
+        param_parser: ImagePlug.ParamParser.Native,
+        origin_req_options: [plug: {CountingOriginImage, test_pid: cache_probe}],
+        cache:
+          {ImagePlug.Cache.FileSystem,
+           root: cache_root,
+           path_prefix: "processed",
+           max_body_bytes: 10_000_000,
+           key_headers: [],
+           key_cookies: [],
+           fail_on_cache_error: false}
+      ]
+
+      first_conn =
+        conn(:get, "/_/format:jpeg/plain/images/cat-300.jpg")
+        |> ImagePlug.call(opts)
+
+      flush_cache_probe(cache_probe)
+      assert first_conn.status == 200
+      assert_received :origin_was_called
+
+      second_conn =
+        conn(:get, "/_/format:jpeg/plain/images/cat-300.jpg")
+        |> ImagePlug.call(opts)
+
+      flush_cache_probe(cache_probe)
+      assert second_conn.status == 200
+      assert second_conn.resp_body == first_conn.resp_body
+      refute_received :origin_was_called
+    after
+      File.rm_rf!(cache_root)
+    end
+  end
 end
