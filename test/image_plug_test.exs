@@ -102,7 +102,7 @@ defmodule ImagePlug.ImagePlugTest do
         |> Plug.Conn.send_chunked(200)
 
       {:ok, conn} = Plug.Conn.chunk(conn, binary_part(body, 0, 128))
-      Process.sleep(250)
+      Process.sleep(100)
       {:ok, conn} = Plug.Conn.chunk(conn, binary_part(body, 128, byte_size(body) - 128))
       conn
     end
@@ -577,7 +577,7 @@ defmodule ImagePlug.ImagePlugTest do
       |> ImagePlug.call(
         root_url: "http://origin.test",
         param_parser: ImagePlug.ParamParser.Native,
-        origin_receive_timeout: 100,
+        origin_receive_timeout: 50,
         origin_req_options: [plug: SlowPartialOriginImage]
       )
 

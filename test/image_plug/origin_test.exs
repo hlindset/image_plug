@@ -140,10 +140,10 @@ defmodule ImagePlug.OriginTest do
     port = start_slow_chunked_origin()
 
     assert {:ok, %Origin.Response{} = response} =
-             Origin.fetch("http://127.0.0.1:#{port}/cat.png", receive_timeout: 200)
+             Origin.fetch("http://127.0.0.1:#{port}/cat.png", receive_timeout: 100)
 
     assert Enum.to_list(response.stream) == ["first chunk"]
-    assert Origin.stream_error(response) == {:timeout, 200}
+    assert Origin.stream_error(response) == {:timeout, 100}
   end
 
   test "unconsumed streams are canceled after receive timeout" do
@@ -156,11 +156,11 @@ defmodule ImagePlug.OriginTest do
     assert {:ok, %Origin.Response{} = response} =
              Origin.fetch("https://img.example/cat.jpg",
                plug: {Req.Test, Origin},
-               receive_timeout: 100
+               receive_timeout: 50
              )
 
     ref = response.ref
-    assert_receive {^ref, {:stream_error, {:timeout, 100}}}, 200
+    assert_receive {^ref, {:stream_error, {:timeout, 50}}}, 100
   end
 
   defp start_slow_chunked_origin do
@@ -182,7 +182,7 @@ defmodule ImagePlug.OriginTest do
           "b\r\nfirst chunk\r\n"
         ])
 
-      Process.sleep(300)
+      Process.sleep(150)
       :gen_tcp.send(socket, "c\r\nsecond chunk\r\n0\r\n\r\n")
       :gen_tcp.close(socket)
       :gen_tcp.close(listen_socket)
