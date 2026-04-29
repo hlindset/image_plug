@@ -59,6 +59,18 @@ defmodule ImagePlug.Cache.EntryTest do
     assert entry.headers == [{"vary", "Accept"}]
   end
 
+  test "normalizes content type before storing" do
+    entry =
+      Entry.new!(
+        body: <<1, 2, 3>>,
+        content_type: " Image/WEBP ",
+        headers: [],
+        created_at: ~U[2026-04-29 10:15:00Z]
+      )
+
+    assert entry.content_type == "image/webp"
+  end
+
   test "rejects invalid entry fields" do
     valid_attrs = [
       body: <<1, 2, 3>>,

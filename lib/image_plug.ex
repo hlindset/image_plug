@@ -227,7 +227,7 @@ defmodule ImagePlug do
       try do
         stream = image_module.stream!(state.image, suffix: suffix)
 
-        case stream_image(stream, conn, mime_type) do
+        case stream_image(stream, conn, mime_type, response_headers_for_state(state)) do
           {:ok, conn} ->
             conn
 
@@ -312,14 +312,18 @@ defmodule ImagePlug do
     |> send_resp(500, "cache error")
   end
 
-  defp stream_image(stream, %Plug.Conn{} = conn, mime_type) do
+  defp stream_image(stream, %Plug.Conn{} = conn, mime_type, response_headers) do
     reducer = fn data, {status, conn} ->
       try do
         conn =
           case status do
             :pending ->
+              conn =
+                Enum.reduce(response_headers, conn, fn {name, value}, conn ->
+                  put_resp_header(conn, name, value)
+                end)
+
               conn
-              |> put_resp_header("vary", "Accept")
               |> put_resp_content_type(mime_type, nil)
               |> send_chunked(200)
 

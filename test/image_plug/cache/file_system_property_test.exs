@@ -73,9 +73,8 @@ defmodule ImagePlug.Cache.FileSystemPropertyTest do
         File.write!(Path.join(paths.dir, body_filename(cache_key, body)), body)
         File.write!(paths.meta_path, metadata_bytes)
 
-        result = FileSystem.get(cache_key, root: root, fail_on_cache_error: fail_on_cache_error?)
-
-        assert result == :miss or match?({:error, _reason}, result)
+        assert {:error, _reason} =
+                 FileSystem.get(cache_key, root: root, fail_on_cache_error: fail_on_cache_error?)
       after
         File.rm_rf!(root)
       end

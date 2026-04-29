@@ -405,6 +405,20 @@ defmodule ImagePlug.ImagePlugTest do
     assert get_resp_header(conn, "vary") == ["Accept"]
   end
 
+  test "explicit output format does not set Vary on uncached streaming responses" do
+    conn =
+      ImagePlug.call(
+        conn(:get, "/_/format:webp/plain/images/cat-300.jpg"),
+        root_url: "http://origin.test",
+        param_parser: ImagePlug.ParamParser.Native,
+        origin_req_options: [plug: OriginImage]
+      )
+
+    assert conn.status == 200
+    assert get_resp_header(conn, "content-type") == ["image/webp"]
+    assert get_resp_header(conn, "vary") == []
+  end
+
   test "auto output returns 406 when Accept excludes every supported output" do
     conn =
       :get

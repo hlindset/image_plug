@@ -82,13 +82,7 @@ defmodule ImagePlug.Cache.FileSystem do
   defp read_error(:metadata, reason), do: {:metadata_read, reason}
   defp read_error(:body, reason), do: {:body_read, reason}
 
-  defp handle_read_error(reason, opts) do
-    if Keyword.get(opts, :fail_on_cache_error, false) do
-      {:error, reason}
-    else
-      :miss
-    end
-  end
+  defp handle_read_error(reason, _opts), do: {:error, reason}
 
   defp validate_body(body, %{body_byte_size: body_byte_size}, opts)
        when byte_size(body) != body_byte_size do
@@ -160,13 +154,7 @@ defmodule ImagePlug.Cache.FileSystem do
   defp validate_metadata(%{metadata_version: _version}), do: {:error, :version_mismatch}
   defp validate_metadata(_metadata), do: {:error, :invalid_shape}
 
-  defp handle_invalid_metadata(reason, opts) do
-    if Keyword.get(opts, :fail_on_cache_error, false) do
-      {:error, {:invalid_metadata, reason}}
-    else
-      :miss
-    end
-  end
+  defp handle_invalid_metadata(reason, _opts), do: {:error, {:invalid_metadata, reason}}
 
   defp parse_created_at(created_at, opts) do
     case DateTime.from_iso8601(created_at) do

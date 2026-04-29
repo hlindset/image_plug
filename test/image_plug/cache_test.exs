@@ -273,6 +273,34 @@ defmodule ImagePlug.CacheTest do
              )
   end
 
+  test "invalid cache option lists return cache errors before adapter calls" do
+    assert {:error, {:cache_read, {:invalid_cache_config, {ShouldNotBeCalledAdapter, [:root]}}}} =
+             Cache.lookup(
+               conn(:get, "/_/format:webp/plain/images/cat.jpg"),
+               request(),
+               "https://origin.test/cat.jpg",
+               cache: {ShouldNotBeCalledAdapter, [:root]}
+             )
+
+    assert {:error, {:cache_write, {:invalid_cache_config, {ShouldNotBeCalledAdapter, [:root]}}}} =
+             Cache.put(cache_key(), entry(), cache: {ShouldNotBeCalledAdapter, [:root]})
+  end
+
+  test "invalid fail_on_cache_error config returns cache errors before adapter calls" do
+    assert {:error, {:cache_read, {:invalid_cache_config, {:fail_on_cache_error, "false"}}}} =
+             Cache.lookup(
+               conn(:get, "/_/format:webp/plain/images/cat.jpg"),
+               request(),
+               "https://origin.test/cat.jpg",
+               cache: {ShouldNotBeCalledAdapter, fail_on_cache_error: "false"}
+             )
+
+    assert {:error, {:cache_write, {:invalid_cache_config, {:fail_on_cache_error, 1}}}} =
+             Cache.put(cache_key(), entry(),
+               cache: {ShouldNotBeCalledAdapter, fail_on_cache_error: 1}
+             )
+  end
+
   test "invalid max_body_bytes config returns cache errors instead of changing cache policy" do
     assert {:error, {:cache_read, {:invalid_cache_config, {:max_body_bytes, "10MB"}}}} =
              Cache.lookup(

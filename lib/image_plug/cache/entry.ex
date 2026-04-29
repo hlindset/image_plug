@@ -23,7 +23,7 @@ defmodule ImagePlug.Cache.Entry do
     with {:ok, body} <- fetch_required(attrs, :body),
          :ok <- validate_body(body),
          {:ok, content_type} <- fetch_required(attrs, :content_type),
-         :ok <- validate_content_type(content_type),
+         {:ok, content_type} <- normalize_content_type(content_type),
          {:ok, headers} <- fetch_required(attrs, :headers),
          {:ok, headers} <- normalize_headers(headers),
          {:ok, created_at} <- fetch_required(attrs, :created_at),
@@ -88,15 +88,20 @@ defmodule ImagePlug.Cache.Entry do
   defp validate_body(body) when is_binary(body), do: :ok
   defp validate_body(body), do: {:error, {:invalid_body, body}}
 
-  defp validate_content_type(content_type) when is_binary(content_type) do
-    if String.trim(content_type) == "" do
+  defp normalize_content_type(content_type) when is_binary(content_type) do
+    normalized =
+      content_type
+      |> String.trim()
+      |> String.downcase()
+
+    if normalized == "" do
       {:error, {:invalid_content_type, content_type}}
     else
-      :ok
+      {:ok, normalized}
     end
   end
 
-  defp validate_content_type(content_type), do: {:error, {:invalid_content_type, content_type}}
+  defp normalize_content_type(content_type), do: {:error, {:invalid_content_type, content_type}}
 
   defp validate_created_at(%DateTime{}), do: :ok
   defp validate_created_at(created_at), do: {:error, {:invalid_created_at, created_at}}

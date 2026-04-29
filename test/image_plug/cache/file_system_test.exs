@@ -142,7 +142,7 @@ defmodule ImagePlug.Cache.FileSystemTest do
     assert FileSystem.get(meta_only_key, root: root) == :miss
   end
 
-  test "invalid metadata is a miss", %{root: root} do
+  test "invalid metadata is returned as an error", %{root: root} do
     cache_key = key("654321" <> String.duplicate("b", 58))
     dir = Path.join([root, "65", "43"])
     File.mkdir_p!(dir)
@@ -153,7 +153,8 @@ defmodule ImagePlug.Cache.FileSystemTest do
       :erlang.term_to_binary(%{metadata_version: 999})
     )
 
-    assert FileSystem.get(cache_key, root: root) == :miss
+    assert FileSystem.get(cache_key, root: root) ==
+             {:error, {:invalid_metadata, :version_mismatch}}
   end
 
   test "invalid metadata is an error when fail_on_cache_error is true", %{root: root} do
@@ -171,14 +172,15 @@ defmodule ImagePlug.Cache.FileSystemTest do
              {:error, {:invalid_metadata, :version_mismatch}}
   end
 
-  test "body byte-size mismatch is a miss", %{root: root} do
+  test "body byte-size mismatch is returned as invalid metadata", %{root: root} do
     cache_key = key("bbbbbb" <> String.duplicate("c", 58))
     assert FileSystem.put(cache_key, entry("12345"), root: root) == :ok
 
     dir = Path.join([root, "bb", "bb"])
     File.write!(Path.join(dir, body_filename(cache_key, "12345")), "123")
 
-    assert FileSystem.get(cache_key, root: root) == :miss
+    assert FileSystem.get(cache_key, root: root) ==
+             {:error, {:invalid_metadata, :body_byte_size_mismatch}}
   end
 
   test "same-size mixed body and metadata is invalid metadata", %{root: root} do
@@ -188,7 +190,8 @@ defmodule ImagePlug.Cache.FileSystemTest do
     dir = Path.join([root, "ee", "ee"])
     File.write!(Path.join(dir, body_filename(cache_key, "body-one")), "body-two")
 
-    assert FileSystem.get(cache_key, root: root) == :miss
+    assert FileSystem.get(cache_key, root: root) ==
+             {:error, {:invalid_metadata, :body_digest_mismatch}}
 
     assert FileSystem.get(cache_key, root: root, fail_on_cache_error: true) ==
              {:error, {:invalid_metadata, :body_digest_mismatch}}
@@ -219,7 +222,7 @@ defmodule ImagePlug.Cache.FileSystemTest do
     assert cached_entry.body == "body"
   end
 
-  test "unexpected body read error is returned when fail_on_cache_error is true", %{root: root} do
+  test "unexpected body read error is returned", %{root: root} do
     cache_key = key("fafafa" <> String.duplicate("2", 58))
     assert FileSystem.put(cache_key, entry("body"), root: root) == :ok
 
@@ -227,8 +230,7 @@ defmodule ImagePlug.Cache.FileSystemTest do
     File.rm!(body_path)
     File.mkdir_p!(body_path)
 
-    assert FileSystem.get(cache_key, root: root, fail_on_cache_error: true) ==
-             {:error, {:body_read, :eisdir}}
+    assert FileSystem.get(cache_key, root: root) == {:error, {:body_read, :eisdir}}
   end
 
   test "cleans temp files when metadata write fails", %{root: root} do

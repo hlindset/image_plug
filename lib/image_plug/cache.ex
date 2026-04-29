@@ -88,12 +88,17 @@ defmodule ImagePlug.Cache do
         nil
 
       {adapter, cache_opts} when is_list(cache_opts) ->
-        with :ok <- validate_adapter(adapter),
-             :ok <- validate_binary_name_list(cache_opts, :key_headers),
-             :ok <- validate_max_body_bytes(cache_opts),
-             :ok <- validate_binary_name_list(cache_opts, :key_cookies),
-             :ok <- validate_adapter_options(adapter, cache_opts) do
-          {:ok, adapter, cache_opts}
+        if Keyword.keyword?(cache_opts) do
+          with :ok <- validate_adapter(adapter),
+               :ok <- validate_binary_name_list(cache_opts, :key_headers),
+               :ok <- validate_max_body_bytes(cache_opts),
+               :ok <- validate_boolean(cache_opts, :fail_on_cache_error),
+               :ok <- validate_binary_name_list(cache_opts, :key_cookies),
+               :ok <- validate_adapter_options(adapter, cache_opts) do
+            {:ok, adapter, cache_opts}
+          end
+        else
+          {:error, {:invalid_cache_config, {adapter, cache_opts}}}
         end
 
       invalid ->
@@ -141,6 +146,13 @@ defmodule ImagePlug.Cache do
       :ok
     else
       {:error, {:invalid_cache_config, {:max_body_bytes, value}}}
+    end
+  end
+
+  defp validate_boolean(opts, key) do
+    case Keyword.get(opts, key, false) do
+      value when is_boolean(value) -> :ok
+      value -> {:error, {:invalid_cache_config, {key, value}}}
     end
   end
 
