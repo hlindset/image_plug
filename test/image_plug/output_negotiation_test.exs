@@ -26,6 +26,26 @@ defmodule ImagePlug.OutputNegotiationTest do
                {:ok, "image/webp"}
     end
 
+    test "excludes uppercase q zero" do
+      assert OutputNegotiation.negotiate("image/avif;Q=0,image/webp;q=1", true) ==
+               {:ok, "image/webp"}
+    end
+
+    test "uses uppercase q quality values" do
+      assert OutputNegotiation.negotiate("image/webp;Q=0.4,image/avif;q=0.9", true) ==
+               {:ok, "image/avif"}
+    end
+
+    test "trims q parameter names before comparing case-insensitively" do
+      assert OutputNegotiation.negotiate("image/webp; Q =0.4,image/avif;q=0.9", true) ==
+               {:ok, "image/avif"}
+    end
+
+    test "trims q values before parsing" do
+      assert OutputNegotiation.negotiate("image/webp;q= 1,image/avif;q=0.9", true) ==
+               {:ok, "image/webp"}
+    end
+
     test "exact q zero excludes a format even when a wildcard matches" do
       assert OutputNegotiation.negotiate("image/avif;q=0,image/*;q=1", true) ==
                {:ok, "image/webp"}

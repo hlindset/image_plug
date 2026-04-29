@@ -81,6 +81,42 @@ defmodule ImagePlug.SimpleServer do
 end
 ```
 
+## Filesystem Cache
+
+ImagePlug can cache complete encoded responses after successful processing:
+
+```elixir
+forward "/",
+  to: ImagePlug,
+  init_opts: [
+    root_url: "http://localhost:4000",
+    param_parser: ImagePlug.ParamParser.Native,
+    cache:
+      {ImagePlug.Cache.FileSystem,
+       root: "/var/cache/image_plug",
+       path_prefix: "processed",
+       # Encoded response cache storage limit, separate from the top-level origin fetch limit.
+       max_body_bytes: 10_000_000,
+       key_headers: [],
+       key_cookies: [],
+       fail_on_cache_error: false}
+  ]
+```
+
+Cache lookup happens only after the request parses, the pipeline plans, and the origin URL is resolved. Invalid requests return `400` before origin or cache access. Parser, planner, origin fetch, decode, transform, negotiation, and encode errors are never cached.
+
+Cache keys include the resolved origin URL, canonical processing request fields, configured `:key_headers` and `:key_cookies`, and the normalized `Accept` header for `format:auto`. They exclude request signatures, raw request paths, query strings, and unconfigured headers or cookies. Key material includes a schema version and deterministic primitive serialization. For `format:auto`, `Accept` normalization preserves media-range order and q-values while normalizing casing and whitespace.
+
+Cached response headers are restricted to `vary` and `cache-control`. Header names are normalized to lowercase, and duplicate allowed headers are preserved.
+
+`ImagePlug.Cache.FileSystem` requires an absolute `:root`. The optional `:path_prefix` must be relative and rejects backslashes, duplicate-slash empty segments, `.`, `..`, and `~`-prefixed path segments. Cache paths are derived from generated hashes, not from request, origin, header, or cookie data.
+
+Filesystem metadata has an independent `metadata_version` and includes the cached body filename, byte size, and SHA-256 digest. Body files are content-addressed by digest, and the metadata file is the atomic commit record. Overwrites or failed metadata commits can leave unreferenced body files behind; those are safe misses, not corrupt entries. Missing files, invalid metadata, and default filesystem read problems are cache misses by default. With `fail_on_cache_error: true`, invalid metadata and filesystem read problems become cache read errors.
+
+Adapter errors returned to the cache coordinator fail open by default and are logged. Set `fail_on_cache_error: true` to fail closed with a `500` cache error instead. Invalid cache configuration is rejected during Plug initialization. Encoded response bodies over the cache `:max_body_bytes` are returned to the client but skipped for cache storage. `:max_body_bytes` must be `nil` or a non-negative integer.
+
+Treat the cache root as trusted local configuration. Generated paths are validated to stay under the configured root, but the filesystem adapter does not defend against a local actor replacing directories inside the root with symlinks.
+
 ## Operational Notes
 
 `ImagePlug` parses native path options before fetching the origin image. Invalid processing requests return `400` without origin traffic.

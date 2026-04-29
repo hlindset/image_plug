@@ -5,6 +5,9 @@ defmodule ImagePlug do
 
   require Logger
 
+  alias ImagePlug.Cache
+  alias ImagePlug.Cache.Entry
+  alias ImagePlug.Cache.Key
   alias ImagePlug.OutputNegotiation
   alias ImagePlug.Origin
   alias ImagePlug.PipelinePlanner
@@ -19,7 +22,7 @@ defmodule ImagePlug do
   @type imgp_ratio() :: {imgp_number(), imgp_number()}
   @type imgp_length() :: imgp_pixels() | imgp_pct() | imgp_scale()
 
-  def init(opts), do: opts
+  def init(opts), do: Cache.validate_config!(opts)
 
   def call(%Plug.Conn{} = conn, opts) do
     param_parser = Keyword.fetch!(opts, :param_parser)
@@ -27,23 +30,43 @@ defmodule ImagePlug do
 
     with {:ok, request} <- param_parser.parse(conn) |> wrap_parser_error(),
          {:ok, chain} <- pipeline_planner.plan(request) |> wrap_planner_error(),
-         {:ok, origin_response} <- fetch_origin(request, opts) |> wrap_origin_error(),
-         {:ok, image} <-
-           Image.from_binary(origin_response.body, access: :random, fail_on: :error)
-           |> wrap_decode_error(),
-         :ok <- validate_input_image(image, opts) |> wrap_input_limit_error(),
-         {:ok, final_state} <- TransformChain.execute(%TransformState{image: image}, chain) do
-      send_image(conn, final_state, opts)
+         {:ok, origin_identity} <- origin_identity(request, opts) |> wrap_origin_error() do
+      dispatch_request(conn, request, chain, origin_identity, opts)
     else
-      {:error, {:transform_error, %TransformState{errors: errors}}} ->
-        Logger.info("transform_error(s): #{inspect(errors)}")
-        send_transform_error(conn, errors)
-
       {:error, {:parser, error}} ->
         param_parser.handle_error(conn, error)
 
       {:error, {:planner, error}} ->
         param_parser.handle_error(conn, error)
+
+      {:error, {:origin, error}} ->
+        send_origin_error(conn, error)
+    end
+  end
+
+  defp dispatch_request(conn, request, chain, origin_identity, opts) do
+    case Cache.lookup(conn, request, origin_identity, opts) do
+      :disabled ->
+        process_uncached(conn, request, chain, origin_identity, opts)
+
+      {:hit, _key, %Entry{} = entry} ->
+        send_cache_entry(conn, entry)
+
+      {:miss, %Key{} = key} ->
+        process_cache_miss(conn, request, chain, origin_identity, key, opts)
+
+      {:error, {:cache_read, error}} ->
+        send_cache_error(conn, error)
+    end
+  end
+
+  defp process_uncached(conn, request, chain, origin_identity, opts) do
+    with {:ok, final_state} <- process_origin(request, chain, origin_identity, opts) do
+      send_image(conn, final_state, opts)
+    else
+      {:error, {:transform_error, %TransformState{errors: errors}}} ->
+        Logger.info("transform_error(s): #{inspect(errors)}")
+        send_transform_error(conn, errors)
 
       {:error, {:origin, error}} ->
         send_origin_error(conn, error)
@@ -56,17 +79,59 @@ defmodule ImagePlug do
     end
   end
 
-  defp fetch_origin(%ProcessingRequest{source_kind: :plain, source_path: source_path}, opts) do
-    root_url = Keyword.fetch!(opts, :root_url)
-    req_options = origin_req_options(opts)
+  defp process_cache_miss(conn, request, chain, origin_identity, key, opts) do
+    with {:ok, final_state} <- process_origin(request, chain, origin_identity, opts),
+         {:ok, entry} <- encode_cache_entry(conn, final_state, opts),
+         put_result when put_result in [:ok, :skipped] <- Cache.put(key, entry, opts) do
+      send_cache_entry(conn, entry)
+    else
+      {:error, {:transform_error, %TransformState{errors: errors}}} ->
+        Logger.info("transform_error(s): #{inspect(errors)}")
+        send_transform_error(conn, errors)
 
-    with {:ok, url} <- Origin.build_url(root_url, source_path) do
-      Origin.fetch(url, req_options)
+      {:error, {:origin, error}} ->
+        send_origin_error(conn, error)
+
+      {:error, {:decode, error}} ->
+        send_decode_error(conn, error)
+
+      {:error, {:input_limit, error}} ->
+        send_input_limit_error(conn, error)
+
+      {:error, :not_acceptable} ->
+        send_not_acceptable(conn)
+
+      {:error, {:encode, exception, stacktrace}} ->
+        handle_encode_exception(exception, stacktrace, conn)
+
+      {:error, {:cache_write, error}} ->
+        send_cache_error(conn, error)
     end
   end
 
-  defp fetch_origin(%ProcessingRequest{source_kind: source_kind}, _opts) do
+  defp origin_identity(%ProcessingRequest{source_kind: :plain, source_path: source_path}, opts) do
+    root_url = Keyword.fetch!(opts, :root_url)
+    Origin.build_url(root_url, source_path)
+  end
+
+  defp origin_identity(%ProcessingRequest{source_kind: source_kind}, _opts) do
     {:error, {:unsupported_source_kind, source_kind}}
+  end
+
+  defp process_origin(request, chain, origin_identity, opts) do
+    with {:ok, origin_response} <-
+           fetch_origin(request, origin_identity, opts) |> wrap_origin_error(),
+         {:ok, image} <-
+           Image.from_binary(origin_response.body, access: :random, fail_on: :error)
+           |> wrap_decode_error(),
+         :ok <- validate_input_image(image, opts) |> wrap_input_limit_error(),
+         {:ok, final_state} <- TransformChain.execute(%TransformState{image: image}, chain) do
+      {:ok, final_state}
+    end
+  end
+
+  defp fetch_origin(%ProcessingRequest{source_kind: :plain}, origin_identity, opts) do
+    Origin.fetch(origin_identity, origin_req_options(opts))
   end
 
   defp origin_req_options(opts) do
@@ -162,7 +227,7 @@ defmodule ImagePlug do
       try do
         stream = image_module.stream!(state.image, suffix: suffix)
 
-        case stream_image(stream, conn, mime_type) do
+        case stream_image(stream, conn, mime_type, response_headers_for_state(state)) do
           {:ok, conn} ->
             conn
 
@@ -180,14 +245,85 @@ defmodule ImagePlug do
     end
   end
 
-  defp stream_image(stream, %Plug.Conn{} = conn, mime_type) do
+  defp encode_cache_entry(
+         %Plug.Conn{} = _conn,
+         %TransformState{image: image, output: :blurhash},
+         _opts
+       ) do
+    case Image.Blurhash.encode(image) do
+      {:ok, blurhash} ->
+        {:ok,
+         Entry.new!(
+           body: blurhash,
+           content_type: "text/plain",
+           headers: [],
+           created_at: DateTime.utc_now()
+         )}
+
+      {:error, error} ->
+        {:error, {:encode, error, []}}
+    end
+  end
+
+  defp encode_cache_entry(%Plug.Conn{} = conn, %TransformState{} = state, opts) do
+    with {:ok, mime_type} <- output_mime_type(conn, state) do
+      suffix = OutputNegotiation.suffix!(mime_type)
+      image_module = Keyword.get(opts, :image_module, Image)
+
+      try do
+        body = image_module.write!(state.image, :memory, suffix: suffix)
+
+        {:ok,
+         Entry.new!(
+           body: body,
+           content_type: mime_type,
+           headers: response_headers_for_state(state),
+           created_at: DateTime.utc_now()
+         )}
+      rescue
+        exception -> {:error, {:encode, exception, __STACKTRACE__}}
+      end
+    end
+  end
+
+  defp response_headers_for_state(%TransformState{output: :auto}), do: [{"vary", "Accept"}]
+  defp response_headers_for_state(%TransformState{}), do: []
+
+  defp send_cache_entry(%Plug.Conn{} = conn, %Entry{} = entry) do
+    with {:ok, headers} <- Entry.normalize_headers(entry.headers) do
+      conn =
+        Enum.reduce(headers, conn, fn {name, value}, conn ->
+          put_resp_header(conn, name, value)
+        end)
+
+      conn
+      |> put_resp_content_type(entry.content_type, nil)
+      |> send_resp(200, entry.body)
+    else
+      {:error, error} -> send_cache_error(conn, error)
+    end
+  end
+
+  defp send_cache_error(%Plug.Conn{} = conn, error) do
+    Logger.error("cache_error: #{inspect(error)}")
+
+    conn
+    |> put_resp_content_type("text/plain")
+    |> send_resp(500, "cache error")
+  end
+
+  defp stream_image(stream, %Plug.Conn{} = conn, mime_type, response_headers) do
     reducer = fn data, {status, conn} ->
       try do
         conn =
           case status do
             :pending ->
+              conn =
+                Enum.reduce(response_headers, conn, fn {name, value}, conn ->
+                  put_resp_header(conn, name, value)
+                end)
+
               conn
-              |> put_resp_header("vary", "Accept")
               |> put_resp_content_type(mime_type, nil)
               |> send_chunked(200)
 
