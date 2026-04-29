@@ -64,6 +64,10 @@ defmodule ImagePlug.SimpleServer do
   plug :match
   plug :dispatch
 
+  match "/images/*path" do
+    send_resp(conn, 404, "404 Not Found")
+  end
+
   forward "/",
     to: ImagePlug,
     init_opts: [
