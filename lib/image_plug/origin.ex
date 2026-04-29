@@ -71,6 +71,12 @@ defmodule ImagePlug.Origin do
     start_stream(url, request_options, max_body_bytes, receive_timeout)
   end
 
+  @doc """
+  Returns the terminal stream error after `response.stream` has been consumed.
+
+  Calling this before the stream reaches `:done` or an error may return `nil`
+  even if a later stream-time origin error occurs.
+  """
   def stream_error(%Response{ref: ref}) do
     receive do
       {^ref, {:stream_error, reason}} -> reason
@@ -132,6 +138,7 @@ defmodule ImagePlug.Origin do
     after
       receive_timeout ->
         Process.exit(worker, :kill)
+        Process.demonitor(monitor_ref, [:flush])
         {:error, {:timeout, receive_timeout}}
     end
   end

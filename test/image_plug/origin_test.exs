@@ -159,9 +159,8 @@ defmodule ImagePlug.OriginTest do
                receive_timeout: 100
              )
 
-    Process.sleep(150)
-
-    assert Origin.stream_error(response) == {:timeout, 100}
+    ref = response.ref
+    assert_receive {^ref, {:stream_error, {:timeout, 100}}}, 200
   end
 
   defp start_slow_chunked_origin do
@@ -183,7 +182,7 @@ defmodule ImagePlug.OriginTest do
           "b\r\nfirst chunk\r\n"
         ])
 
-      Process.sleep(500)
+      Process.sleep(300)
       :gen_tcp.send(socket, "c\r\nsecond chunk\r\n0\r\n\r\n")
       :gen_tcp.close(socket)
       :gen_tcp.close(listen_socket)
