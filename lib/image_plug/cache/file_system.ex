@@ -203,7 +203,8 @@ defmodule ImagePlug.Cache.FileSystem do
     Enum.each(temp_paths, &File.rm/1)
   end
 
-  defp paths(%Key{hash: hash}, opts) do
+  @doc false
+  def paths(%Key{hash: hash}, opts) do
     with {:ok, root} <- root(opts),
          {:ok, path_prefix} <- path_prefix(opts),
          {:ok, {first_partition, second_partition}} <- partitions(hash) do

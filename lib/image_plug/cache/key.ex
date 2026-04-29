@@ -130,10 +130,13 @@ defmodule ImagePlug.Cache.Key do
   end
 
   defp canonicalize(value) when is_list(value) do
-    Enum.map(value, fn
-      {key, item} -> {canonicalize(key), canonicalize(item)}
-      item -> canonicalize(item)
-    end)
+    if Keyword.keyword?(value) do
+      value
+      |> Enum.map(fn {key, item} -> {canonicalize(key), canonicalize(item)} end)
+      |> Enum.sort_by(fn {key, _item} -> key end)
+    else
+      Enum.map(value, &canonicalize/1)
+    end
   end
 
   defp canonicalize(value) when is_map(value) do

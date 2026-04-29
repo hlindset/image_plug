@@ -1,0 +1,76 @@
+defmodule ImagePlug.Cache.EntryPropertyTest do
+  use ExUnit.Case, async: true
+  use ExUnitProperties
+
+  alias ImagePlug.Cache.Entry
+
+  property "entry stores only lowercase allowlisted headers" do
+    check all headers <- list_of(header(), max_length: 30),
+              max_runs: 100 do
+      {:ok, entry} =
+        Entry.new(
+          body: "body",
+          content_type: "image/webp",
+          headers: headers,
+          created_at: ~U[2026-04-29 10:15:00Z]
+        )
+
+      assert Enum.all?(entry.headers, fn {name, _value} -> name in ["vary", "cache-control"] end)
+      assert Enum.all?(entry.headers, fn {name, _value} -> name == String.downcase(name) end)
+    end
+  end
+
+  property "allowed headers preserve relative input order" do
+    check all headers <- list_of(header(), max_length: 30),
+              max_runs: 100 do
+      {:ok, entry} =
+        Entry.new(
+          body: "body",
+          content_type: "image/webp",
+          headers: headers,
+          created_at: ~U[2026-04-29 10:15:00Z]
+        )
+
+      expected =
+        headers
+        |> Enum.flat_map(fn {name, value} ->
+          normalized_name = String.downcase(name)
+
+          if normalized_name in ["vary", "cache-control"] do
+            [{normalized_name, value}]
+          else
+            []
+          end
+        end)
+
+      assert entry.headers == expected
+    end
+  end
+
+  defp header do
+    map({header_name(), header_value()}, fn {name, value} -> {name, value} end)
+  end
+
+  defp header_name do
+    one_of([
+      member_of(["vary", "Vary", "VARY", "cache-control", "Cache-Control", "CACHE-CONTROL"]),
+      valid_disallowed_header_name()
+    ])
+  end
+
+  defp valid_disallowed_header_name do
+    map(
+      {member_of(["x-test", "x-cache", "content-type", "etag", "last-modified"]),
+       string(:alphanumeric, max_length: 8)},
+      fn {prefix, suffix} ->
+        if suffix == "" do
+          prefix
+        else
+          prefix <> "-" <> suffix
+        end
+      end
+    )
+  end
+
+  defp header_value, do: string(:alphanumeric, max_length: 24)
+end
