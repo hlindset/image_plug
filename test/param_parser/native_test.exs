@@ -88,6 +88,12 @@ defmodule ImagePlug.ParamParser.NativeTest do
     assert Native.parse(conn) == {:error, {:unsupported_signature, "signed-value"}}
   end
 
+  test "rejects missing signature" do
+    conn = conn(:get, "/")
+
+    assert Native.parse(conn) == {:error, :missing_signature}
+  end
+
   test "rejects missing source kind" do
     conn = conn(:get, "/_/w:300")
 
@@ -112,10 +118,55 @@ defmodule ImagePlug.ParamParser.NativeTest do
     assert Native.parse(conn) == {:error, {:duplicate_option, :width}}
   end
 
+  test "rejects malformed dimension option segments" do
+    conn = conn(:get, "/_/w:300:400/plain/images/cat.jpg")
+
+    assert Native.parse(conn) == {:error, {:invalid_option_segment, "w:300:400"}}
+  end
+
+  test "rejects malformed format option segments" do
+    conn = conn(:get, "/_/format:webp:extra/plain/images/cat.jpg")
+
+    assert Native.parse(conn) == {:error, {:invalid_option_segment, "format:webp:extra"}}
+  end
+
   test "rejects invalid dimensions" do
     conn = conn(:get, "/_/w:0/plain/images/cat.jpg")
 
     assert Native.parse(conn) == {:error, {:invalid_positive_integer, "0"}}
+  end
+
+  test "supports zero focus coordinates" do
+    conn = conn(:get, "/_/focus:0:0/plain/images/cat.jpg")
+
+    assert {:ok, %ProcessingRequest{focus: {:coordinate, {:pixels, 0}, {:pixels, 0}}}} =
+             Native.parse(conn)
+  end
+
+  test "supports zero percent focus coordinates" do
+    conn = conn(:get, "/_/focus:0p:0p/plain/images/cat.jpg")
+
+    assert {:ok, %ProcessingRequest{focus: {:coordinate, {:percent, 0}, {:percent, 0}}}} =
+             Native.parse(conn)
+  end
+
+  test "supports one hundred percent focus coordinates" do
+    conn = conn(:get, "/_/focus:100p:100p/plain/images/cat.jpg")
+
+    assert {:ok, %ProcessingRequest{focus: {:coordinate, {:percent, 100}, {:percent, 100}}}} =
+             Native.parse(conn)
+  end
+
+  test "rejects percent focus coordinates above 100" do
+    conn = conn(:get, "/_/focus:101p:50p/plain/images/cat.jpg")
+
+    assert Native.parse(conn) == {:error, {:invalid_percent, "101p"}}
+  end
+
+  test "rejects negative focus coordinates as non-negative integers" do
+    conn = conn(:get, "/_/focus:-1:0/plain/images/cat.jpg")
+
+    assert Native.parse(conn) == {:error, {:invalid_non_negative_integer, "-1"}}
   end
 
   test "rejects blurhash as a native image format" do

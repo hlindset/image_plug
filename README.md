@@ -46,7 +46,7 @@ format:auto | format:webp | format:avif | format:jpeg | format:png
 
 `w` and `h` are pixel dimensions. `fit:cover`, `fit:fill`, and `fit:inside` require both `w` and `h`. `fit:contain` requires at least one of `w` or `h`.
 
-`focus:<x>:<y>` accepts pixel values such as `focus:120:80` and percent values such as `focus:50p:25p`.
+`focus:<x>:<y>` accepts pixel values such as `focus:120:80` and percent values from `0p` to `100p`, such as `focus:50p:25p`.
 
 `focus` only affects requests that plan a geometry transform. A focus option without `w`, `h`, or `fit` is accepted but has no effect.
 

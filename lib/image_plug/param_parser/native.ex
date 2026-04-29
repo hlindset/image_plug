@@ -49,7 +49,7 @@ defmodule ImagePlug.ParamParser.Native do
   end
 
   def parse(%Plug.Conn{path_info: []}) do
-    {:error, :missing_source_kind}
+    {:error, :missing_signature}
   end
 
   @impl ImagePlug.ParamParser
@@ -120,13 +120,22 @@ defmodule ImagePlug.ParamParser.Native do
           {:ok, :width, pixels}
         end
 
+      ["w" | _rest] ->
+        {:error, {:invalid_option_segment, segment}}
+
       ["h", value] ->
         with {:ok, pixels} <- parse_positive_pixels(value) do
           {:ok, :height, pixels}
         end
 
+      ["h" | _rest] ->
+        {:error, {:invalid_option_segment, segment}}
+
       ["fit", value] ->
         parse_mapped_option(:fit, value, @fits, {:invalid_fit, value})
+
+      ["fit" | _rest] ->
+        {:error, {:invalid_option_segment, segment}}
 
       ["focus", value] ->
         parse_focus(value)
@@ -134,8 +143,14 @@ defmodule ImagePlug.ParamParser.Native do
       ["focus", x, y] ->
         parse_focus_coordinate(x, y)
 
+      ["focus" | _rest] ->
+        {:error, {:invalid_option_segment, segment}}
+
       ["format", value] ->
         parse_mapped_option(:format, value, @formats, {:invalid_format, value, @format_names})
+
+      ["format" | _rest] ->
+        {:error, {:invalid_option_segment, segment}}
 
       [key | _rest] ->
         {:error, {:unknown_option, key}}
@@ -172,9 +187,7 @@ defmodule ImagePlug.ParamParser.Native do
   defp parse_length(value) do
     case String.split_at(value, -1) do
       {number, "p"} ->
-        with {:ok, integer} <- parse_non_negative_integer(number) do
-          {:ok, {:percent, integer}}
-        end
+        parse_percent(value, number)
 
       _ ->
         with {:ok, integer} <- parse_non_negative_integer(value) do
@@ -190,10 +203,17 @@ defmodule ImagePlug.ParamParser.Native do
     end
   end
 
+  defp parse_percent(value, number) do
+    case Integer.parse(number) do
+      {integer, ""} when integer >= 0 and integer <= 100 -> {:ok, {:percent, integer}}
+      _other -> {:error, {:invalid_percent, value}}
+    end
+  end
+
   defp parse_non_negative_integer(value) do
     case Integer.parse(value) do
       {integer, ""} when integer >= 0 -> {:ok, integer}
-      _other -> {:error, {:invalid_positive_integer, value}}
+      _other -> {:error, {:invalid_non_negative_integer, value}}
     end
   end
 end
