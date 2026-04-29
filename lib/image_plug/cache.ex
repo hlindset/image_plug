@@ -56,6 +56,9 @@ defmodule ImagePlug.Cache do
     end
   end
 
+  @doc false
+  def shared_option_keys, do: @shared_cache_option_keys
+
   @spec lookup(Plug.Conn.t(), ProcessingRequest.t(), String.t(), keyword()) :: lookup_result()
   def lookup(conn, %ProcessingRequest{} = request, origin_identity, opts) when is_list(opts) do
     case cache_config(opts) do
@@ -106,8 +109,8 @@ defmodule ImagePlug.Cache do
       {adapter, cache_opts} when is_list(cache_opts) ->
         if Keyword.keyword?(cache_opts) do
           with :ok <- validate_adapter(adapter),
-               :ok <- validate_shared_options(cache_opts),
-               :ok <- validate_adapter_options(adapter, cache_opts) do
+               {:ok, cache_opts} <- normalize_shared_options(cache_opts),
+               :ok <- validate_adapter_options(adapter, adapter_options(cache_opts)) do
             {:ok, adapter, cache_opts}
           end
         else
@@ -130,14 +133,24 @@ defmodule ImagePlug.Cache do
 
   defp validate_adapter(adapter), do: {:error, {:invalid_cache_config, {:adapter, adapter}}}
 
-  defp validate_shared_options(cache_opts) do
+  defp normalize_shared_options(cache_opts) do
     shared_opts = Keyword.take(cache_opts, @shared_cache_option_keys)
 
     case NimbleOptions.validate(shared_opts, @shared_cache_options_schema) do
-      {:ok, _cache_opts} -> :ok
-      {:error, error} -> {:error, {:invalid_cache_config, error}}
+      {:ok, validated_shared_opts} ->
+        {:ok, Keyword.merge(cache_opts, validated_shared_opts)}
+
+      {:error, error} ->
+        {:error, {:invalid_cache_config, shared_validation_error(error)}}
     end
   end
+
+  defp shared_validation_error(%NimbleOptions.ValidationError{key: key, value: value})
+       when key in @shared_cache_option_keys do
+    {key, value}
+  end
+
+  defp adapter_options(cache_opts), do: Keyword.drop(cache_opts, @shared_cache_option_keys)
 
   defp validate_adapter_options(adapter, cache_opts) do
     if function_exported?(adapter, :validate_options, 1) do

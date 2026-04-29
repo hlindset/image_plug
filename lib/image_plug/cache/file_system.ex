@@ -47,8 +47,8 @@ defmodule ImagePlug.Cache.FileSystem do
 
   @impl true
   def validate_options(opts) when is_list(opts) do
-    with {:ok, validated_opts} <-
-           NimbleOptions.validate(Keyword.take(opts, @option_keys), @options_schema),
+    with :ok <- validate_unknown_options(opts),
+         {:ok, validated_opts} <- validate_known_options(opts),
          root = Keyword.fetch!(validated_opts, :root),
          path_prefix = Keyword.get(validated_opts, :path_prefix, ""),
          {:ok, {first_partition, second_partition}} <- partitions(String.duplicate("0", 64)) do
@@ -59,6 +59,22 @@ defmodule ImagePlug.Cache.FileSystem do
            :ok <- validate_under_root(root, meta_path) do
         :ok
       end
+    end
+  end
+
+  defp validate_known_options(opts) do
+    case NimbleOptions.validate(Keyword.take(opts, @option_keys), @options_schema) do
+      {:ok, validated_opts} -> {:ok, validated_opts}
+      {:error, error} -> {:error, options_validation_error(error)}
+    end
+  end
+
+  defp validate_unknown_options(opts) do
+    known_option_keys = @option_keys ++ ImagePlug.Cache.shared_option_keys()
+
+    case Keyword.keys(opts) -- known_option_keys do
+      [] -> :ok
+      unknown_keys -> {:error, {:unknown_options, Enum.uniq(unknown_keys)}}
     end
   end
 
@@ -92,6 +108,15 @@ defmodule ImagePlug.Cache.FileSystem do
 
   def validate_path_prefix(prefix),
     do: {:error, "expected relative path string, got: #{inspect(prefix)}"}
+
+  defp options_validation_error(%NimbleOptions.ValidationError{key: :root, value: nil}),
+    do: {:missing_required_option, :root}
+
+  defp options_validation_error(%NimbleOptions.ValidationError{key: :root, value: root}),
+    do: {:invalid_root, root}
+
+  defp options_validation_error(%NimbleOptions.ValidationError{key: :path_prefix, value: prefix}),
+    do: {:invalid_path_prefix, prefix}
 
   defp read_entry(paths, opts) do
     with {:ok, meta_binary} <- read_cache_file(paths.meta_path, :metadata, opts),

@@ -66,14 +66,6 @@ defmodule ImagePlug.CacheTest do
     }
   end
 
-  defp assert_cache_validation_error(result, operation, expected_message) do
-    assert {:error,
-            {^operation, {:invalid_cache_config, %NimbleOptions.ValidationError{} = error}}} =
-             result
-
-    assert Exception.message(error) =~ expected_message
-  end
-
   test "returns disabled when no cache is configured" do
     assert Cache.lookup(
              conn(:get, "/_/plain/images/cat.jpg"),
@@ -264,21 +256,21 @@ defmodule ImagePlug.CacheTest do
   end
 
   test "invalid key header and cookie config returns a cache read error before key building" do
-    Cache.lookup(
-      conn(:get, "/_/format:webp/plain/images/cat.jpg"),
-      request(),
-      "https://origin.test/cat.jpg",
-      cache: {ShouldNotBeCalledAdapter, key_headers: [:accept_language]}
-    )
-    |> assert_cache_validation_error(:cache_read, ":key_headers")
+    assert {:error, {:cache_read, {:invalid_cache_config, {:key_headers, [:accept_language]}}}} =
+             Cache.lookup(
+               conn(:get, "/_/format:webp/plain/images/cat.jpg"),
+               request(),
+               "https://origin.test/cat.jpg",
+               cache: {ShouldNotBeCalledAdapter, key_headers: [:accept_language]}
+             )
 
-    Cache.lookup(
-      conn(:get, "/_/format:webp/plain/images/cat.jpg"),
-      request(),
-      "https://origin.test/cat.jpg",
-      cache: {ShouldNotBeCalledAdapter, key_cookies: [:tenant]}
-    )
-    |> assert_cache_validation_error(:cache_read, ":key_cookies")
+    assert {:error, {:cache_read, {:invalid_cache_config, {:key_cookies, [:tenant]}}}} =
+             Cache.lookup(
+               conn(:get, "/_/format:webp/plain/images/cat.jpg"),
+               request(),
+               "https://origin.test/cat.jpg",
+               cache: {ShouldNotBeCalledAdapter, key_cookies: [:tenant]}
+             )
   end
 
   test "invalid cache option lists return cache errors before adapter calls" do
@@ -295,29 +287,33 @@ defmodule ImagePlug.CacheTest do
   end
 
   test "invalid fail_on_cache_error config returns cache errors before adapter calls" do
-    Cache.lookup(
-      conn(:get, "/_/format:webp/plain/images/cat.jpg"),
-      request(),
-      "https://origin.test/cat.jpg",
-      cache: {ShouldNotBeCalledAdapter, fail_on_cache_error: "false"}
-    )
-    |> assert_cache_validation_error(:cache_read, ":fail_on_cache_error")
+    assert {:error, {:cache_read, {:invalid_cache_config, {:fail_on_cache_error, "false"}}}} =
+             Cache.lookup(
+               conn(:get, "/_/format:webp/plain/images/cat.jpg"),
+               request(),
+               "https://origin.test/cat.jpg",
+               cache: {ShouldNotBeCalledAdapter, fail_on_cache_error: "false"}
+             )
 
-    Cache.put(cache_key(), entry(), cache: {ShouldNotBeCalledAdapter, fail_on_cache_error: 1})
-    |> assert_cache_validation_error(:cache_write, ":fail_on_cache_error")
+    assert {:error, {:cache_write, {:invalid_cache_config, {:fail_on_cache_error, 1}}}} =
+             Cache.put(cache_key(), entry(),
+               cache: {ShouldNotBeCalledAdapter, fail_on_cache_error: 1}
+             )
   end
 
   test "invalid max_body_bytes config returns cache errors instead of changing cache policy" do
-    Cache.lookup(
-      conn(:get, "/_/format:webp/plain/images/cat.jpg"),
-      request(),
-      "https://origin.test/cat.jpg",
-      cache: {ShouldNotBeCalledAdapter, max_body_bytes: "10MB"}
-    )
-    |> assert_cache_validation_error(:cache_read, ":max_body_bytes")
+    assert {:error, {:cache_read, {:invalid_cache_config, {:max_body_bytes, "10MB"}}}} =
+             Cache.lookup(
+               conn(:get, "/_/format:webp/plain/images/cat.jpg"),
+               request(),
+               "https://origin.test/cat.jpg",
+               cache: {ShouldNotBeCalledAdapter, max_body_bytes: "10MB"}
+             )
 
-    Cache.put(cache_key(), entry(), cache: {ShouldNotBeCalledAdapter, max_body_bytes: -1})
-    |> assert_cache_validation_error(:cache_write, ":max_body_bytes")
+    assert {:error, {:cache_write, {:invalid_cache_config, {:max_body_bytes, -1}}}} =
+             Cache.put(cache_key(), entry(),
+               cache: {ShouldNotBeCalledAdapter, max_body_bytes: -1}
+             )
   end
 
   test "invalid adapter config returns cache errors instead of crashing" do
