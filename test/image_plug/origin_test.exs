@@ -159,8 +159,7 @@ defmodule ImagePlug.OriginTest do
                receive_timeout: 50
              )
 
-    ref = response.ref
-    assert_receive {^ref, {:stream_error, {:timeout, 50}}}, 100
+    assert_eventually_stream_error(response, {:timeout, 50}, 100)
   end
 
   test "close cancels an unconsumed stream" do
@@ -206,5 +205,25 @@ defmodule ImagePlug.OriginTest do
     end)
 
     port
+  end
+
+  defp assert_eventually_stream_error(response, expected, timeout) do
+    deadline = System.monotonic_time(:millisecond) + timeout
+    do_assert_eventually_stream_error(response, expected, deadline)
+  end
+
+  defp do_assert_eventually_stream_error(response, expected, deadline) do
+    case Origin.stream_error(response) do
+      ^expected ->
+        :ok
+
+      nil ->
+        if System.monotonic_time(:millisecond) < deadline do
+          Process.sleep(5)
+          do_assert_eventually_stream_error(response, expected, deadline)
+        else
+          flunk("expected stream error #{inspect(expected)}")
+        end
+    end
   end
 end
