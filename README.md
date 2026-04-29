@@ -13,7 +13,7 @@ Name not final!
 ImagePlug's native API uses path-oriented URLs:
 
 ```text
-/<signature>/<options>/plain/<origin_path>
+/<signature>[/<option>...]/plain/<origin_path>
 ```
 
 For local development, the signature segment can be `_` or `unsafe`:
@@ -44,7 +44,9 @@ focus:center | focus:top | focus:bottom | focus:left | focus:right | focus:<x>:<
 format:auto | format:webp | format:avif | format:jpeg | format:png
 ```
 
-`w` and `h` are pixel dimensions. `focus:<x>:<y>` accepts pixel values such as `focus:120:80` and percent values such as `focus:50p:25p`.
+`w` and `h` are pixel dimensions. `fit:cover`, `fit:fill`, and `fit:inside` require both `w` and `h`. `fit:contain` requires at least one of `w` or `h`.
+
+`focus:<x>:<y>` accepts pixel values such as `focus:120:80` and percent values such as `focus:50p:25p`.
 
 `format:auto` uses the request `Accept` header and sets `Vary: Accept` on image responses. Explicit formats bypass content negotiation.
 
@@ -68,10 +70,6 @@ defmodule ImagePlug.SimpleServer do
       root_url: "http://localhost:4000",
       param_parser: ImagePlug.ParamParser.Native
     ]
-
-  match _ do
-    send_resp(conn, 404, "404 Not Found")
-  end
 end
 ```
 

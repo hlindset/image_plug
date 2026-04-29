@@ -16,8 +16,4 @@ defmodule ImagePlug.SimpleServer do
       root_url: "http://localhost:4000",
       param_parser: ImagePlug.ParamParser.Native
     ]
-
-  match _ do
-    send_resp(conn, 404, "404 Not Found")
-  end
 end
