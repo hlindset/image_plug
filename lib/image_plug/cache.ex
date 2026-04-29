@@ -9,6 +9,22 @@ defmodule ImagePlug.Cache do
   alias ImagePlug.Cache.Key
   alias ImagePlug.ProcessingRequest
 
+  @shared_cache_option_keys [:key_headers, :key_cookies, :max_body_bytes, :fail_on_cache_error]
+  @shared_cache_options_schema NimbleOptions.new!(
+                                 key_headers: [
+                                   type: {:list, :string}
+                                 ],
+                                 key_cookies: [
+                                   type: {:list, :string}
+                                 ],
+                                 max_body_bytes: [
+                                   type: {:or, [nil, :non_neg_integer]}
+                                 ],
+                                 fail_on_cache_error: [
+                                   type: :boolean
+                                 ]
+                               )
+
   @callback get(Key.t(), keyword()) :: {:hit, Entry.t()} | :miss | {:error, term()}
   @callback put(Key.t(), Entry.t(), keyword()) :: :ok | {:error, term()}
   @callback validate_options(keyword()) :: :ok | {:error, term()}
@@ -39,6 +55,9 @@ defmodule ImagePlug.Cache do
       {:error, reason} -> raise ArgumentError, "invalid cache config: #{inspect(reason)}"
     end
   end
+
+  @doc false
+  def shared_option_keys, do: @shared_cache_option_keys
 
   @spec lookup(Plug.Conn.t(), ProcessingRequest.t(), String.t(), keyword()) :: lookup_result()
   def lookup(conn, %ProcessingRequest{} = request, origin_identity, opts) when is_list(opts) do
@@ -90,11 +109,8 @@ defmodule ImagePlug.Cache do
       {adapter, cache_opts} when is_list(cache_opts) ->
         if Keyword.keyword?(cache_opts) do
           with :ok <- validate_adapter(adapter),
-               :ok <- validate_binary_name_list(cache_opts, :key_headers),
-               :ok <- validate_max_body_bytes(cache_opts),
-               :ok <- validate_boolean(cache_opts, :fail_on_cache_error),
-               :ok <- validate_binary_name_list(cache_opts, :key_cookies),
-               :ok <- validate_adapter_options(adapter, cache_opts) do
+               {:ok, cache_opts} <- normalize_shared_options(cache_opts),
+               :ok <- validate_adapter_options(adapter, adapter_options(cache_opts)) do
             {:ok, adapter, cache_opts}
           end
         else
@@ -103,16 +119,6 @@ defmodule ImagePlug.Cache do
 
       invalid ->
         {:error, {:invalid_cache_config, invalid}}
-    end
-  end
-
-  defp validate_binary_name_list(opts, key) do
-    value = Keyword.get(opts, key, [])
-
-    if is_list(value) and Enum.all?(value, &is_binary/1) do
-      :ok
-    else
-      {:error, {:invalid_cache_config, {key, value}}}
     end
   end
 
@@ -127,6 +133,25 @@ defmodule ImagePlug.Cache do
 
   defp validate_adapter(adapter), do: {:error, {:invalid_cache_config, {:adapter, adapter}}}
 
+  defp normalize_shared_options(cache_opts) do
+    shared_opts = Keyword.take(cache_opts, @shared_cache_option_keys)
+
+    case NimbleOptions.validate(shared_opts, @shared_cache_options_schema) do
+      {:ok, validated_shared_opts} ->
+        {:ok, Keyword.merge(cache_opts, validated_shared_opts)}
+
+      {:error, error} ->
+        {:error, {:invalid_cache_config, shared_validation_error(error)}}
+    end
+  end
+
+  defp shared_validation_error(%NimbleOptions.ValidationError{key: key, value: value})
+       when key in @shared_cache_option_keys do
+    {key, value}
+  end
+
+  defp adapter_options(cache_opts), do: Keyword.drop(cache_opts, @shared_cache_option_keys)
+
   defp validate_adapter_options(adapter, cache_opts) do
     if function_exported?(adapter, :validate_options, 1) do
       case adapter.validate_options(cache_opts) do
@@ -136,23 +161,6 @@ defmodule ImagePlug.Cache do
       end
     else
       :ok
-    end
-  end
-
-  defp validate_max_body_bytes(opts) do
-    value = Keyword.get(opts, :max_body_bytes)
-
-    if is_nil(value) or (is_integer(value) and value >= 0) do
-      :ok
-    else
-      {:error, {:invalid_cache_config, {:max_body_bytes, value}}}
-    end
-  end
-
-  defp validate_boolean(opts, key) do
-    case Keyword.get(opts, key, false) do
-      value when is_boolean(value) -> :ok
-      value -> {:error, {:invalid_cache_config, {key, value}}}
     end
   end
 
