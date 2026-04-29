@@ -102,6 +102,18 @@ defmodule ImagePlug.Cache.FileSystemTest do
     assert FileSystem.get(key(), root: "/") == :miss
   end
 
+  test "rejects cache paths that resolve outside the root through symlinks", %{root: root} do
+    outside_root = root <> "_outside"
+    File.rm_rf!(outside_root)
+    File.mkdir_p!(outside_root)
+    on_exit(fn -> File.rm_rf!(outside_root) end)
+
+    File.ln_s!(outside_root, Path.join(root, "aa"))
+
+    assert FileSystem.get(key("aabb" <> String.duplicate("1", 60)), root: root) ==
+             {:error, {:path_outside_root, Path.join([root, "aa", "bb"])}}
+  end
+
   test "rejects invalid hashes before path construction", %{root: root} do
     too_short_hash = String.duplicate("a", 63)
     non_hex_hash = String.duplicate("g", 64)
