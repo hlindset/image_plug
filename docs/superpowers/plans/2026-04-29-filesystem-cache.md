@@ -39,7 +39,7 @@
 - Entry construction rejects non-binary bodies, blank or non-binary content types, malformed headers, and non-`DateTime` `created_at` values.
 - `created_at` is the cache entry creation timestamp, not an origin timestamp or HTTP response date.
 - Cache entry response headers are intentionally narrow: store and send only `vary` and `cache-control`, normalize header names to lowercase internally, and preserve duplicate allowed headers in input order after normalization. Do not cache hop-by-hop or request-specific response headers.
-- Filesystem paths must be derived only from the generated SHA-256 hash, fixed suffixes, validated root, and validated `path_prefix`. `path_prefix` is split into path segments and must reject absolute paths, empty segments from duplicate slashes, `.`, `..`, and `~`-prefixed segments.
+- Filesystem paths must be derived only from the generated SHA-256 hash, fixed suffixes, validated root, and validated `path_prefix`. `path_prefix` is split into path segments and must reject absolute paths, backslashes, empty segments from duplicate slashes, `.`, `..`, and `~`-prefixed segments.
 - A filesystem cache entry is valid only when metadata and body both exist, metadata parses successfully, and metadata matches the body size. Metadata has its own `metadata_version: 1`, independent of cache key `schema_version: 1`. Rename body into place first and metadata into place last, so readers never count a body-only partial write as a hit.
 - Invalid metadata is treated as a miss by default and as a cache read error when `fail_on_cache_error: true`.
 - Concurrent writes to the same key are acceptable. Temp files are exclusive and unique, final renames are atomic, and the last completed writer wins.
@@ -2503,7 +2503,7 @@ Cache key material includes a schema version and is serialized as plain primitiv
 
 Cached response headers are restricted to `vary` and `cache-control`, and header names are normalized to lowercase before storage and before sending cached responses. Duplicate allowed headers are preserved in input order.
 
-`ImagePlug.Cache.FileSystem` requires an absolute `:root`. The optional `:path_prefix` must be relative and must not contain empty segments from duplicate slashes, `.`, `..`, or `~`-prefixed path segments. Cache file paths are derived from ImagePlug-generated hashes, not from request paths, origin URLs, headers, or cookies.
+`ImagePlug.Cache.FileSystem` requires an absolute `:root`. The optional `:path_prefix` must be relative and must not contain backslashes, empty segments from duplicate slashes, `.`, `..`, or `~`-prefixed path segments. Cache file paths are derived from ImagePlug-generated hashes, not from request paths, origin URLs, headers, or cookies.
 
 Filesystem metadata has its own `metadata_version`, independent of the cache key schema version. Invalid metadata is treated as a miss by default and as a cache read error when `fail_on_cache_error: true`.
 

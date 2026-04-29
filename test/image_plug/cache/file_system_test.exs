@@ -56,6 +56,9 @@ defmodule ImagePlug.Cache.FileSystemTest do
 
     assert FileSystem.get(key(), root: root, path_prefix: "~/cache") ==
              {:error, {:invalid_path_prefix, "~/cache"}}
+
+    assert FileSystem.get(key(), root: root, path_prefix: "processed\\..\\outside") ==
+             {:error, {:invalid_path_prefix, "processed\\..\\outside"}}
   end
 
   test "accepts filesystem root as cache root" do
@@ -191,6 +194,20 @@ defmodule ImagePlug.Cache.FileSystemTest do
 
     assert {:error, _reason} = FileSystem.put(cache_key, entry(), root: root)
     refute File.ls!(dir) |> Enum.any?(&String.ends_with?(&1, ".tmp"))
+  end
+
+  test "does not replace an existing body when metadata destination is obstructed", %{root: root} do
+    cache_key = key("cdcdcd" <> String.duplicate("d", 58))
+    dir = Path.join([root, "cd", "cd"])
+    File.mkdir_p!(dir)
+
+    body_path = Path.join(dir, cache_key.hash <> ".body")
+    meta_path = Path.join(dir, cache_key.hash <> ".meta")
+    File.write!(body_path, "old body")
+    File.mkdir_p!(meta_path)
+
+    assert {:error, _reason} = FileSystem.put(cache_key, entry("new body"), root: root)
+    assert File.read!(body_path) == "old body"
   end
 
   test "concurrent puts for the same key leave a readable entry", %{root: root} do

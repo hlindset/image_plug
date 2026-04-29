@@ -24,6 +24,13 @@ defmodule ImagePlug.CacheTest do
     def put(%Key{}, %Entry{}, _opts), do: {:error, :write_failed}
   end
 
+  defmodule ShouldNotBeCalledAdapter do
+    def get(%Key{}, _opts), do: flunk("adapter should not be called for invalid cache config")
+
+    def put(%Key{}, %Entry{}, _opts),
+      do: flunk("adapter should not be called for invalid cache config")
+  end
+
   defp request do
     %ProcessingRequest{
       signature: "_",
@@ -142,6 +149,58 @@ defmodule ImagePlug.CacheTest do
                cache_key(),
                entry(),
                cache: {ErrorAdapter, fail_on_cache_error: true}
+             )
+  end
+
+  test "invalid cache lookup config returns a cache read error instead of crashing" do
+    assert {:error, {:cache_read, {:invalid_cache_config, ImagePlug.Cache.FileSystem}}} =
+             Cache.lookup(
+               conn(:get, "/_/format:webp/plain/images/cat.jpg"),
+               request(),
+               "https://origin.test/cat.jpg",
+               cache: ImagePlug.Cache.FileSystem
+             )
+
+    assert {:error,
+            {:cache_read,
+             {:invalid_cache_config, {ImagePlug.Cache.FileSystem, %{root: "/tmp/cache"}}}}} =
+             Cache.lookup(
+               conn(:get, "/_/format:webp/plain/images/cat.jpg"),
+               request(),
+               "https://origin.test/cat.jpg",
+               cache: {ImagePlug.Cache.FileSystem, %{root: "/tmp/cache"}}
+             )
+  end
+
+  test "invalid cache write config returns a cache write error instead of crashing" do
+    assert {:error, {:cache_write, {:invalid_cache_config, ImagePlug.Cache.FileSystem}}} =
+             Cache.put(cache_key(), entry(), cache: ImagePlug.Cache.FileSystem)
+
+    assert {:error,
+            {:cache_write,
+             {:invalid_cache_config, {ImagePlug.Cache.FileSystem, %{root: "/tmp/cache"}}}}} =
+             Cache.put(
+               cache_key(),
+               entry(),
+               cache: {ImagePlug.Cache.FileSystem, %{root: "/tmp/cache"}}
+             )
+  end
+
+  test "invalid key header and cookie config returns a cache read error before key building" do
+    assert {:error, {:cache_read, {:invalid_cache_config, {:key_headers, [:accept_language]}}}} =
+             Cache.lookup(
+               conn(:get, "/_/format:webp/plain/images/cat.jpg"),
+               request(),
+               "https://origin.test/cat.jpg",
+               cache: {ShouldNotBeCalledAdapter, key_headers: [:accept_language]}
+             )
+
+    assert {:error, {:cache_read, {:invalid_cache_config, {:key_cookies, [:tenant]}}}} =
+             Cache.lookup(
+               conn(:get, "/_/format:webp/plain/images/cat.jpg"),
+               request(),
+               "https://origin.test/cat.jpg",
+               cache: {ShouldNotBeCalledAdapter, key_cookies: [:tenant]}
              )
   end
 end

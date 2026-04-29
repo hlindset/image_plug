@@ -182,20 +182,28 @@ defmodule ImagePlug.Cache.FileSystem do
   end
 
   defp commit(paths, body_tmp_path, meta_tmp_path) do
-    case File.rename(body_tmp_path, paths.body_path) do
-      :ok ->
-        case File.rename(meta_tmp_path, paths.meta_path) do
-          :ok ->
-            :ok
+    with :ok <- remove_existing_metadata(paths.meta_path),
+         :ok <- File.rename(body_tmp_path, paths.body_path) do
+      case File.rename(meta_tmp_path, paths.meta_path) do
+        :ok ->
+          :ok
 
-          {:error, reason} ->
-            cleanup_temp_files([body_tmp_path, meta_tmp_path])
-            {:error, reason}
-        end
-
+        {:error, reason} ->
+          cleanup_temp_files([body_tmp_path, meta_tmp_path])
+          {:error, reason}
+      end
+    else
       {:error, reason} ->
         cleanup_temp_files([body_tmp_path, meta_tmp_path])
         {:error, reason}
+    end
+  end
+
+  defp remove_existing_metadata(meta_path) do
+    case File.rm(meta_path) do
+      :ok -> :ok
+      {:error, :enoent} -> :ok
+      {:error, reason} -> {:error, reason}
     end
   end
 
@@ -250,7 +258,7 @@ defmodule ImagePlug.Cache.FileSystem do
       Path.type(prefix) == :absolute ->
         {:error, {:invalid_path_prefix, prefix}}
 
-      invalid_path_prefix?(prefix) ->
+      String.contains?(prefix, "\\") or invalid_path_prefix?(prefix) ->
         {:error, {:invalid_path_prefix, prefix}}
 
       true ->
@@ -296,6 +304,7 @@ defmodule ImagePlug.Cache.FileSystem do
   defp root?(root, path), do: path == root or String.starts_with?(path, root <> "/")
 
   defp temp_path(paths) do
-    Path.join(paths.dir, ".#{paths.hash}.#{System.unique_integer([:positive])}.tmp")
+    random = Base.url_encode64(:crypto.strong_rand_bytes(16), padding: false)
+    Path.join(paths.dir, ".#{paths.hash}.#{System.os_time()}.#{random}.tmp")
   end
 end

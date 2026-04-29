@@ -109,7 +109,7 @@ Cache keys include the resolved origin URL, canonical processing request fields,
 
 Cached response headers are restricted to `vary` and `cache-control`. Header names are normalized to lowercase, and duplicate allowed headers are preserved.
 
-`ImagePlug.Cache.FileSystem` requires an absolute `:root`. The optional `:path_prefix` must be relative and rejects duplicate-slash empty segments, `.`, `..`, and `~`-prefixed path segments. Cache paths are derived from generated hashes, not from request, origin, header, or cookie data.
+`ImagePlug.Cache.FileSystem` requires an absolute `:root`. The optional `:path_prefix` must be relative and rejects backslashes, duplicate-slash empty segments, `.`, `..`, and `~`-prefixed path segments. Cache paths are derived from generated hashes, not from request, origin, header, or cookie data.
 
 Filesystem metadata has an independent `metadata_version` and includes the cached body byte size and SHA-256 digest. Missing files, invalid metadata, and default filesystem read problems are cache misses by default. With `fail_on_cache_error: true`, invalid metadata and filesystem read problems become cache read errors.
 

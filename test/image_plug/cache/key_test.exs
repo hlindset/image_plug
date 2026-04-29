@@ -57,6 +57,23 @@ defmodule ImagePlug.Cache.KeyTest do
     refute key.hash == different_origin.hash
   end
 
+  test "operations include every response-affecting processing request field" do
+    request_fields =
+      ProcessingRequest.__struct__() |> Map.from_struct() |> Map.keys() |> Enum.sort()
+
+    # Signature is authorization material and format is represented separately as output.
+    expected_operation_fields = request_fields -- [:format, :signature]
+
+    operation_fields =
+      conn(:get, "/sig-one/w:100/plain/images/cat.jpg")
+      |> Key.build(request(), "https://origin.test/images/cat.jpg")
+      |> then(&Keyword.fetch!(&1.material, :operations))
+      |> Keyword.keys()
+      |> Enum.sort()
+
+    assert operation_fields == expected_operation_fields
+  end
+
   test "signature changes do not change the key" do
     conn = conn(:get, "/sig-one/plain/images/cat.jpg")
     key_one = Key.build(conn, request(signature: "sig-one"), "https://origin.test/images/cat.jpg")
