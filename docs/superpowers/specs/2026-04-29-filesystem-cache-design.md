@@ -82,7 +82,7 @@ forward "/",
       max_body_bytes: 10_000_000,
       key_headers: [],
       key_cookies: [],
-      report_errors: false
+      fail_on_cache_error: false
     }
   ]
 ```
@@ -94,7 +94,7 @@ Options:
 - `:max_body_bytes` skips cache writes larger than the limit.
 - `:key_headers` is a list of request headers included in the cache key.
 - `:key_cookies` is a list of request cookies included in the cache key.
-- `:report_errors` defaults to `false`. When false, cache errors are logged and processing continues without cache. When true, cache errors fail the request.
+- `:fail_on_cache_error` defaults to `false`. When false, cache errors are logged and processing continues without cache. When true, cache errors fail the request.
 
 ## Cache Key
 
@@ -169,7 +169,7 @@ First implementation API:
             :ok | {:error, term()}
 ```
 
-The adapter receives adapter-specific options from the `:cache` tuple. The top-level cache coordinator handles `report_errors` policy consistently.
+The adapter receives adapter-specific options from the `:cache` tuple. The top-level cache coordinator handles `fail_on_cache_error` policy consistently.
 
 ## Filesystem Adapter
 
@@ -219,12 +219,12 @@ Default behavior is fail-open for cache errors:
 - Cache write error: log and still return the processed response.
 - Body over `max_body_bytes`: skip write and return the processed response.
 
-With `report_errors: true`:
+With `fail_on_cache_error: true`:
 
 - Cache read errors fail before origin fetch.
 - Cache write errors fail if the response has not been sent.
 
-Because the first cache-enabled miss path buffers the encoded body before sending, write failures can still be reported cleanly when `report_errors: true`.
+Because the first cache-enabled miss path buffers the encoded body before sending, write failures can still be reported cleanly when `fail_on_cache_error: true`.
 
 ## Streaming Posture
 
@@ -292,7 +292,7 @@ Integration tests:
 - Auto output responses cache with `Vary: Accept` and the negotiated content type.
 - Oversized encoded responses skip cache writes.
 - Cache read/write errors fail open by default.
-- `report_errors: true` makes cache errors visible.
+- `fail_on_cache_error: true` makes cache errors visible.
 
 Regression tests:
 
