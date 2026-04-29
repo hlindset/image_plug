@@ -3,13 +3,13 @@ defmodule ImagePlug.PipelinePlanner do
   Converts native processing requests into executable transform chains.
   """
 
-  alias ImagePlug.ParamParser
   alias ImagePlug.ProcessingRequest
   alias ImagePlug.Transform
+  alias ImagePlug.TransformChain
 
   @default_focus {:anchor, :center, :center}
 
-  @spec plan(ProcessingRequest.t()) :: {:ok, ParamParser.transform_chain()} | {:error, term()}
+  @spec plan(ProcessingRequest.t()) :: {:ok, TransformChain.t()} | {:error, term()}
   def plan(%ProcessingRequest{} = request) do
     with {:ok, geometry_chain} <- plan_geometry(request) do
       chain =

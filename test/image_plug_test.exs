@@ -10,7 +10,7 @@ defmodule ImagePlug.ImagePlugTest do
   alias ImagePlug.ProcessingRequest
 
   defmodule OriginShouldNotBeCalled do
-    def call(conn) do
+    def call(conn, _opts) do
       send(self(), :origin_was_called)
       Plug.Conn.send_resp(conn, 200, "unexpected")
     end

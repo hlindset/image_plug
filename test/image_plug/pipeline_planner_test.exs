@@ -15,6 +15,12 @@ defmodule ImagePlug.PipelinePlannerTest do
     assert PipelinePlanner.plan(request) == {:ok, []}
   end
 
+  test "ignores focus when no geometry transform is planned" do
+    request = request(focus: {:anchor, :center, :top})
+
+    assert PipelinePlanner.plan(request) == {:ok, []}
+  end
+
   test "plans width-only resize as scale with auto height" do
     request = request(width: {:pixels, 300})
 
@@ -122,6 +128,28 @@ defmodule ImagePlug.PipelinePlannerTest do
     request = request(fit: :cover, width: {:pixels, 300})
 
     assert PipelinePlanner.plan(request) == {:error, {:missing_dimensions, :cover}}
+  end
+
+  test "rejects contain without any dimensions" do
+    request = request(fit: :contain)
+
+    assert PipelinePlanner.plan(request) == {:error, {:missing_dimensions, :contain}}
+  end
+
+  test "rejects fill without both dimensions" do
+    assert PipelinePlanner.plan(request(fit: :fill, width: {:pixels, 300})) ==
+             {:error, {:missing_dimensions, :fill}}
+
+    assert PipelinePlanner.plan(request(fit: :fill, height: {:pixels, 200})) ==
+             {:error, {:missing_dimensions, :fill}}
+  end
+
+  test "rejects inside without both dimensions" do
+    assert PipelinePlanner.plan(request(fit: :inside, width: {:pixels, 300})) ==
+             {:error, {:missing_dimensions, :inside}}
+
+    assert PipelinePlanner.plan(request(fit: :inside, height: {:pixels, 200})) ==
+             {:error, {:missing_dimensions, :inside}}
   end
 
   defp request(attrs) do

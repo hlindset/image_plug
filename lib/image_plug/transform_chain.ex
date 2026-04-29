@@ -1,8 +1,22 @@
 defmodule ImagePlug.TransformChain do
   require Logger
 
+  alias ImagePlug.Transform
   alias ImagePlug.TransformState
-  alias ImagePlug.ParamParser
+
+  @typedoc """
+  A tuple of a module implementing `ImagePlug.Transform`
+  and the parsed parameters for that transform.
+  """
+  @type item() ::
+          {Transform.Crop, Transform.Crop.CropParams.t()}
+          | {Transform.Focus, Transform.Focus.FocusParams.t()}
+          | {Transform.Scale, Transform.Scale.ScaleParams.t()}
+          | {Transform.Contain, Transform.Contain.ContainParams.t()}
+          | {Transform.Cover, Transform.Cover.CoverParams.t()}
+          | {Transform.Output, Transform.Output.OutputParams.t()}
+
+  @type t() :: list(item())
 
   @doc """
   Executes a transform chain.
@@ -17,7 +31,7 @@ defmodule ImagePlug.TransformChain do
       ...> initial_state = %ImagePlug.TransformState{image: empty_image}
       ...> {:ok, %ImagePlug.TransformState{}} = ImagePlug.TransformChain.execute(initial_state, chain)
   """
-  @spec execute(TransformState.t(), ParamParser.transform_chain()) ::
+  @spec execute(TransformState.t(), t()) ::
           {:ok, TransformState.t()} | {:error, {:transform_error, TransformState.t()}}
   def execute(%TransformState{} = state, transform_chain) do
     transform_chain

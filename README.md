@@ -48,6 +48,10 @@ format:auto | format:webp | format:avif | format:jpeg | format:png
 
 `focus:<x>:<y>` accepts pixel values such as `focus:120:80` and percent values such as `focus:50p:25p`.
 
+`focus` only affects requests that plan a geometry transform. A focus option without `w`, `h`, or `fit` is accepted but has no effect.
+
+The first `plain` segment terminates option parsing. Later path segments are treated as the origin path, even if they look like options.
+
 `format:auto` uses the request `Accept` header and sets `Vary: Accept` on image responses. Explicit formats bypass content negotiation.
 
 ## Usage example

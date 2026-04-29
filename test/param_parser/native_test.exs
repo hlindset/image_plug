@@ -39,6 +39,30 @@ defmodule ImagePlug.ParamParser.NativeTest do
             }} = Native.parse(conn)
   end
 
+  test "parses all native focus anchors" do
+    assert {:ok, %ProcessingRequest{focus: {:anchor, :center, :center}}} =
+             conn(:get, "/_/focus:center/plain/images/cat.jpg") |> Native.parse()
+
+    assert {:ok, %ProcessingRequest{focus: {:anchor, :center, :top}}} =
+             conn(:get, "/_/focus:top/plain/images/cat.jpg") |> Native.parse()
+
+    assert {:ok, %ProcessingRequest{focus: {:anchor, :center, :bottom}}} =
+             conn(:get, "/_/focus:bottom/plain/images/cat.jpg") |> Native.parse()
+
+    assert {:ok, %ProcessingRequest{focus: {:anchor, :left, :center}}} =
+             conn(:get, "/_/focus:left/plain/images/cat.jpg") |> Native.parse()
+
+    assert {:ok, %ProcessingRequest{focus: {:anchor, :right, :center}}} =
+             conn(:get, "/_/focus:right/plain/images/cat.jpg") |> Native.parse()
+  end
+
+  test "treats option-like segments after plain as source path" do
+    conn = conn(:get, "/_/plain/images/w:300/cat.jpg")
+
+    assert {:ok, %ProcessingRequest{source_path: ["images", "w:300", "cat.jpg"]}} =
+             Native.parse(conn)
+  end
+
   test "option order does not affect the parsed request" do
     first =
       conn(:get, "/_/fit:cover/w:300/h:200/focus:top/format:png/plain/images/cat.jpg")
