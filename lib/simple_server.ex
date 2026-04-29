@@ -10,14 +10,16 @@ defmodule ImagePlug.SimpleServer do
   plug :match
   plug :dispatch
 
-  forward "/process",
+  # Missing origin image paths should 404 here instead of being forwarded back
+  # through ImagePlug and parsed as processing URLs.
+  match "/images/*path" do
+    send_resp(conn, 404, "404 Not Found")
+  end
+
+  forward "/",
     to: ImagePlug,
     init_opts: [
       root_url: "http://localhost:4000",
-      param_parser: ImagePlug.ParamParser.Twicpics
+      param_parser: ImagePlug.ParamParser.Native
     ]
-
-  match _ do
-    send_resp(conn, 404, "404 Not Found")
-  end
 end

@@ -7,8 +7,10 @@ defmodule ImagePlug do
 
   alias ImagePlug.OutputNegotiation
   alias ImagePlug.Origin
-  alias ImagePlug.TransformState
+  alias ImagePlug.PipelinePlanner
+  alias ImagePlug.ProcessingRequest
   alias ImagePlug.TransformChain
+  alias ImagePlug.TransformState
 
   @type imgp_number() :: integer() | float()
   @type imgp_pixels() :: {:pixels, imgp_number()}
@@ -21,9 +23,11 @@ defmodule ImagePlug do
 
   def call(%Plug.Conn{} = conn, opts) do
     param_parser = Keyword.fetch!(opts, :param_parser)
+    pipeline_planner = Keyword.get(opts, :pipeline_planner, PipelinePlanner)
 
-    with {:ok, chain} <- param_parser.parse(conn) |> wrap_parser_error(),
-         {:ok, origin_response} <- fetch_origin(conn, opts) |> wrap_origin_error(),
+    with {:ok, request} <- param_parser.parse(conn) |> wrap_parser_error(),
+         {:ok, chain} <- pipeline_planner.plan(request) |> wrap_planner_error(),
+         {:ok, origin_response} <- fetch_origin(request, opts) |> wrap_origin_error(),
          {:ok, image} <-
            Image.from_binary(origin_response.body, access: :random, fail_on: :error)
            |> wrap_decode_error(),
@@ -38,6 +42,9 @@ defmodule ImagePlug do
       {:error, {:parser, error}} ->
         param_parser.handle_error(conn, error)
 
+      {:error, {:planner, error}} ->
+        param_parser.handle_error(conn, error)
+
       {:error, {:origin, error}} ->
         send_origin_error(conn, error)
 
@@ -49,13 +56,17 @@ defmodule ImagePlug do
     end
   end
 
-  defp fetch_origin(%Plug.Conn{} = conn, opts) do
+  defp fetch_origin(%ProcessingRequest{source_kind: :plain, source_path: source_path}, opts) do
     root_url = Keyword.fetch!(opts, :root_url)
     req_options = origin_req_options(opts)
 
-    with {:ok, url} <- Origin.build_url(root_url, conn.path_info) do
+    with {:ok, url} <- Origin.build_url(root_url, source_path) do
       Origin.fetch(url, req_options)
     end
+  end
+
+  defp fetch_origin(%ProcessingRequest{source_kind: source_kind}, _opts) do
+    {:error, {:unsupported_source_kind, source_kind}}
   end
 
   defp origin_req_options(opts) do
@@ -73,6 +84,9 @@ defmodule ImagePlug do
 
   defp wrap_parser_error({:error, _} = error), do: {:error, {:parser, error}}
   defp wrap_parser_error(result), do: result
+
+  defp wrap_planner_error({:error, _} = error), do: {:error, {:planner, error}}
+  defp wrap_planner_error(result), do: result
 
   defp wrap_origin_error({:error, error}), do: {:error, {:origin, error}}
   defp wrap_origin_error(result), do: result

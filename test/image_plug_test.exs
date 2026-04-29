@@ -7,8 +7,10 @@ defmodule ImagePlug.ImagePlugTest do
 
   doctest ImagePlug
 
+  alias ImagePlug.ProcessingRequest
+
   defmodule OriginShouldNotBeCalled do
-    def call(conn) do
+    def call(conn, _opts) do
       send(self(), :origin_was_called)
       Plug.Conn.send_resp(conn, 200, "unexpected")
     end
@@ -32,14 +34,30 @@ defmodule ImagePlug.ImagePlugTest do
     end
   end
 
+  def sample_processing_request do
+    %ProcessingRequest{
+      signature: "_",
+      source_kind: :plain,
+      source_path: ["images", "cat-300.jpg"]
+    }
+  end
+
   defmodule BrokenImageParser do
     @behaviour ImagePlug.ParamParser
 
     @impl ImagePlug.ParamParser
-    def parse(_conn), do: {:ok, [{ImagePlug.ImagePlugTest.BrokenImageTransform, nil}]}
+    def parse(_conn) do
+      {:ok, ImagePlug.ImagePlugTest.sample_processing_request()}
+    end
 
     @impl ImagePlug.ParamParser
     def handle_error(conn, _error), do: conn
+  end
+
+  defmodule BrokenImagePlanner do
+    def plan(%ProcessingRequest{}) do
+      {:ok, [{ImagePlug.ImagePlugTest.BrokenImageTransform, nil}]}
+    end
   end
 
   defmodule BrokenImageTransform do
@@ -52,10 +70,34 @@ defmodule ImagePlug.ImagePlugTest do
     @behaviour ImagePlug.ParamParser
 
     @impl ImagePlug.ParamParser
-    def parse(_conn), do: {:ok, [{ImagePlug.ImagePlugTest.RaisingAfterFirstChunkTransform, nil}]}
+    def parse(_conn) do
+      {:ok, ImagePlug.ImagePlugTest.sample_processing_request()}
+    end
 
     @impl ImagePlug.ParamParser
     def handle_error(conn, _error), do: conn
+  end
+
+  defmodule UnsupportedSourceKindParser do
+    @behaviour ImagePlug.ParamParser
+
+    @impl ImagePlug.ParamParser
+    def parse(_conn) do
+      request =
+        ImagePlug.ImagePlugTest.sample_processing_request()
+        |> Map.put(:source_kind, :signed)
+
+      {:ok, request}
+    end
+
+    @impl ImagePlug.ParamParser
+    def handle_error(conn, _error), do: conn
+  end
+
+  defmodule RaisingAfterFirstChunkPlanner do
+    def plan(%ProcessingRequest{}) do
+      {:ok, [{ImagePlug.ImagePlugTest.RaisingAfterFirstChunkTransform, nil}]}
+    end
   end
 
   defmodule RaisingAfterFirstChunkTransform do
@@ -77,17 +119,13 @@ defmodule ImagePlug.ImagePlugTest do
     end
   end
 
-  test "does not fetch origin when transform params are invalid" do
-    conn =
-      conn(
-        :get,
-        "/process/images/cat-300.jpg?twic=v1/resize=-x-"
-      )
+  test "does not fetch origin when parser validation fails" do
+    conn = conn(:get, "/_/w:0/plain/images/cat-300.jpg")
 
     conn =
       ImagePlug.call(conn,
         root_url: "http://origin.test",
-        param_parser: ImagePlug.ParamParser.Twicpics,
+        param_parser: ImagePlug.ParamParser.Native,
         origin_req_options: [plug: OriginShouldNotBeCalled]
       )
 
@@ -95,16 +133,45 @@ defmodule ImagePlug.ImagePlugTest do
     refute_received :origin_was_called
   end
 
+  test "does not fetch origin when planner validation fails" do
+    conn = conn(:get, "/_/fit:cover/w:100/plain/images/cat-300.jpg")
+
+    conn =
+      ImagePlug.call(conn,
+        root_url: "http://origin.test",
+        param_parser: ImagePlug.ParamParser.Native,
+        origin_req_options: [plug: OriginShouldNotBeCalled]
+      )
+
+    assert conn.status == 400
+    refute_received :origin_was_called
+  end
+
+  test "returns an origin error for unsupported source kinds" do
+    conn = conn(:get, "/_/signed/images/cat-300.jpg")
+
+    conn =
+      ImagePlug.call(conn,
+        root_url: "http://origin.test",
+        param_parser: UnsupportedSourceKindParser,
+        origin_req_options: [plug: OriginShouldNotBeCalled]
+      )
+
+    assert conn.status == 502
+    assert conn.resp_body == "error fetching origin image"
+    refute_received :origin_was_called
+  end
+
   test "auto output negotiates content type from Accept and sets Vary" do
     conn =
       :get
-      |> conn("/process/images/cat-300.jpg")
+      |> conn("/_/plain/images/cat-300.jpg")
       |> put_req_header("accept", "image/jpeg")
 
     conn =
       ImagePlug.call(conn,
         root_url: "http://origin.test",
-        param_parser: ImagePlug.ParamParser.Twicpics,
+        param_parser: ImagePlug.ParamParser.Native,
         origin_req_options: [plug: OriginImage]
       )
 
@@ -116,13 +183,13 @@ defmodule ImagePlug.ImagePlugTest do
   test "auto output returns 406 when Accept excludes every supported output" do
     conn =
       :get
-      |> conn("/process/images/cat-300.jpg")
+      |> conn("/_/plain/images/cat-300.jpg")
       |> put_req_header("accept", "image/*;q=0")
 
     conn =
       ImagePlug.call(conn,
         root_url: "http://origin.test",
-        param_parser: ImagePlug.ParamParser.Twicpics,
+        param_parser: ImagePlug.ParamParser.Native,
         origin_req_options: [plug: OriginImage]
       )
 
@@ -132,13 +199,28 @@ defmodule ImagePlug.ImagePlugTest do
     assert get_resp_header(conn, "vary") == ["Accept"]
   end
 
+  test "processes a native path URL with cover and explicit output format" do
+    conn = conn(:get, "/_/fit:cover/w:100/h:100/format:jpeg/plain/images/cat-300.jpg")
+
+    conn =
+      ImagePlug.call(conn,
+        root_url: "http://origin.test",
+        param_parser: ImagePlug.ParamParser.Native,
+        origin_req_options: [plug: OriginImage]
+      )
+
+    assert conn.status == 200
+    assert get_resp_header(conn, "content-type") == ["image/jpeg"]
+  end
+
   test "returns text 500 when encoding fails before sending chunked headers" do
-    conn = conn(:get, "/process/images/cat-300.jpg")
+    conn = conn(:get, "/_/plain/images/cat-300.jpg")
 
     conn =
       ImagePlug.call(conn,
         root_url: "http://origin.test",
         param_parser: BrokenImageParser,
+        pipeline_planner: BrokenImagePlanner,
         origin_req_options: [plug: OriginImage]
       )
 
@@ -148,7 +230,7 @@ defmodule ImagePlug.ImagePlugTest do
   end
 
   test "does not send text 500 when encoding fails after chunked response starts" do
-    conn = conn(:get, "/process/images/cat-300.jpg")
+    conn = conn(:get, "/_/plain/images/cat-300.jpg")
 
     log =
       capture_log(fn ->
@@ -157,6 +239,7 @@ defmodule ImagePlug.ImagePlugTest do
             root_url: "http://origin.test",
             image_module: RaisingAfterFirstChunkImage,
             param_parser: RaisingAfterFirstChunkParser,
+            pipeline_planner: RaisingAfterFirstChunkPlanner,
             origin_req_options: [plug: OriginImage]
           )
 
@@ -181,10 +264,10 @@ defmodule ImagePlug.ImagePlugTest do
     end)
 
     conn =
-      conn(:get, "/process/images/large.png?twic=v1/resize=10")
+      conn(:get, "/_/w:10/plain/images/large.png")
       |> ImagePlug.call(
         root_url: "http://origin.test",
-        param_parser: ImagePlug.ParamParser.Twicpics,
+        param_parser: ImagePlug.ParamParser.Native,
         max_input_pixels: 399,
         origin_req_options: [plug: {Req.Test, __MODULE__}]
       )
@@ -195,10 +278,10 @@ defmodule ImagePlug.ImagePlugTest do
 
   test "honors top-level max_body_bytes for origin fetches" do
     conn =
-      conn(:get, "/process/images/large-body.png")
+      conn(:get, "/_/plain/images/large-body.png")
       |> ImagePlug.call(
         root_url: "http://origin.test",
-        param_parser: ImagePlug.ParamParser.Twicpics,
+        param_parser: ImagePlug.ParamParser.Native,
         max_body_bytes: 5,
         origin_req_options: [plug: OversizedOriginBody]
       )
