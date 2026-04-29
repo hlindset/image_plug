@@ -122,11 +122,26 @@ defmodule ImagePlug do
     with {:ok, origin_response} <-
            fetch_origin(request, origin_identity, opts) |> wrap_origin_error(),
          {:ok, image} <-
-           Image.from_binary(origin_response.body, access: :random, fail_on: :error)
-           |> wrap_decode_error(),
+           decode_origin_response(origin_response) |> wrap_origin_decode_error(),
          :ok <- validate_input_image(image, opts) |> wrap_input_limit_error(),
          {:ok, final_state} <- TransformChain.execute(%TransformState{image: image}, chain) do
       {:ok, final_state}
+    end
+  end
+
+  defp decode_origin_response(%Origin.Response{} = origin_response) do
+    case Image.open(origin_response.stream, access: :random, fail_on: :error) do
+      {:ok, image} ->
+        case Origin.stream_error(origin_response) do
+          nil -> {:ok, image}
+          reason -> {:error, {:origin, reason}}
+        end
+
+      {:error, decode_error} ->
+        case Origin.stream_error(origin_response) do
+          nil -> {:error, decode_error}
+          reason -> {:error, {:origin, reason}}
+        end
     end
   end
 
@@ -158,6 +173,9 @@ defmodule ImagePlug do
 
   defp wrap_decode_error({:error, _} = error), do: {:error, {:decode, error}}
   defp wrap_decode_error(result), do: result
+
+  defp wrap_origin_decode_error({:error, {:origin, error}}), do: {:error, {:origin, error}}
+  defp wrap_origin_decode_error(result), do: wrap_decode_error(result)
 
   defp validate_input_image(image, opts) do
     max_input_pixels = Keyword.get(opts, :max_input_pixels, 40_000_000)
