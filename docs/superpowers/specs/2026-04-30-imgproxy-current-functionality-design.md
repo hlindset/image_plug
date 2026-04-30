@@ -254,6 +254,7 @@ ImagePlug should use the same URL semantics but a more modern default configurat
 - Selection order is AVIF, then WebP, then source format fallback.
 - Automatic selection only chooses a format accepted by the request `Accept` header.
 - `Accept` q-values are used to determine acceptability. A format with `q=0` is unacceptable. Among acceptable formats, ImagePlug uses server preference order: AVIF, then WebP, then source format fallback. Relative q-values do not reorder AVIF and WebP in this slice.
+- Exact media type exclusions override wildcard allowances. For example, `image/avif;q=0,image/*;q=1` makes AVIF unacceptable while keeping WebP acceptable.
 - If neither AVIF nor WebP is acceptable, ImagePlug falls back to the source format when it can encode it and the source format is acceptable or the `Accept` header is absent.
 - If the source format cannot be encoded, ImagePlug falls back to JPEG for non-alpha images and PNG for alpha images when the fallback is acceptable or the `Accept` header is absent, matching the spirit of imgproxy's preferred-format fallback without introducing the full preferred-format configuration in this slice.
 - `Vary: Accept` is set whenever automatic output format selection can affect the response.
@@ -408,7 +409,7 @@ The first stage would resize using ImagePlug's fixed pipeline. The second stage 
 - `gravity_y_offset`
 - `format`
 
-`source_extension` means the trailing plain-source `@extension` output-format override. It does not mean the file extension embedded in `source_path`.
+`source_extension` means the trailing plain-source `@extension` output-format override. It does not mean the file extension embedded in `source_path`. During implementation, prefer a less ambiguous field name such as `plain_source_output_extension` or `output_extension_from_source` if that fits the local code better.
 
 The exact field names may differ if implementation finds a clearer local representation, but the public semantics must remain imgproxy-shaped.
 
@@ -449,6 +450,7 @@ The implementation should be test-first and cover:
 - Parser tests for full enum coverage on `resizing_type`.
 - Parser tests for omitted optional `resize` and `size` arguments.
 - Parser tests for plain source extension with raw `@extension`, escaped `%40`, empty `@`, multiple raw `@` separators, and unknown extensions. Empty `@` does not overwrite an explicit format; unknown extensions are parser errors.
+- Parser and planner tests for dangling and special source extensions: `f:webp/plain/images/cat.jpg@` keeps `format=webp`, `plain/images/cat.jpg@` leaves output automatic, `plain/images/cat.jpg@unknown` is a parser error, and `plain/images/cat.jpg@best` parses but fails planning in this slice.
 - Parser tests proving `format:best` and `@best` parse into normalized output format intent.
 - Parser tests reserving a path segment exactly equal to `-` as an unsupported chained-pipeline separator while preserving values such as `fill-down`.
 - Parser tests for equivalent meta-option and atomic-option combinations.
@@ -457,7 +459,7 @@ The implementation should be test-first and cover:
 - Parser tests for unsupported imgproxy options returning errors.
 - Planner tests for current executable semantics: `fit`, `fill`, `force`, width-only, height-only, explicit output format, and gravity-driven crops.
 - Planner tests proving unsupported semantic combinations fail before origin fetch: `format:best`, `@best`, `gravity:sm`, `resizing_type:auto`, `resizing_type:fill-down`, `extend:true`, provided extend gravity arguments, and non-zero gravity offsets.
-- Output tests proving omitted output format chooses AVIF/WebP from `Accept` by default, treats `q=0` as unacceptable, uses server preference order among acceptable formats, falls back to the source format, and returns `406` when no encodable output format is acceptable.
+- Output tests proving omitted output format chooses AVIF/WebP from `Accept` by default, treats `q=0` as unacceptable, uses server preference order among acceptable formats, falls back to the source format, and returns `406` when no encodable output format is acceptable. Include `Accept` cases for `*/*`, `image/*`, `image/webp;q=1,image/avif;q=0.1`, and `image/avif;q=0,image/*;q=1`.
 - Output tests proving explicit `format`, `f`, `ext`, and `@extension` bypass `Accept` negotiation.
 - Cache tests proving the selected automatic output format is included only when automatic output format selection can affect output.
 - Response header tests proving explicit formats do not set `Vary: Accept`, omitted format with automatic output selection enabled sets `Vary: Accept`, and omitted format with automatic output selection disabled does not set `Vary: Accept`.
