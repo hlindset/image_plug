@@ -16,6 +16,10 @@ defmodule ImagePlug.Origin.StreamStatus do
   """
 
   @type status() :: :pending | :done | {:error, term()}
+  @type terminal_status() :: :done | {:error, term()}
+
+  defguardp is_error_status(status)
+            when is_tuple(status) and tuple_size(status) == 2 and elem(status, 0) == :error
 
   @spec start_link() :: GenServer.on_start()
   def start_link do
@@ -27,9 +31,13 @@ defmodule ImagePlug.Origin.StreamStatus do
     GenServer.call(pid, :get)
   end
 
-  @spec put(pid(), status()) :: status()
-  def put(pid, status) when is_pid(pid) do
+  @spec put(pid(), terminal_status()) :: status()
+  def put(pid, status) when is_pid(pid) and (status == :done or is_error_status(status)) do
     GenServer.call(pid, {:put, status})
+  end
+
+  def put(pid, _status) when is_pid(pid) do
+    get(pid)
   end
 
   @spec stop(pid()) :: :ok
@@ -49,7 +57,8 @@ defmodule ImagePlug.Origin.StreamStatus do
     {:reply, state.status, state}
   end
 
-  def handle_call({:put, status}, _from, %{status: :pending} = state) do
+  def handle_call({:put, status}, _from, %{status: :pending} = state)
+      when status == :done or is_error_status(status) do
     {:reply, status, %{state | status: status}}
   end
 

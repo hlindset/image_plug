@@ -18,7 +18,7 @@ defmodule ImagePlug.DecodePlanner do
   defp access_requirement({module, params}) when is_atom(module) do
     if Code.ensure_loaded?(module) and function_exported?(module, :metadata, 1) do
       params
-      |> module.metadata()
+      |> safe_metadata(module)
       |> access_from_metadata()
     else
       :random
@@ -26,6 +26,14 @@ defmodule ImagePlug.DecodePlanner do
   end
 
   defp access_requirement(_operation), do: :random
+
+  defp safe_metadata(params, module) do
+    module.metadata(params)
+  rescue
+    _exception -> :random
+  catch
+    _kind, _reason -> :random
+  end
 
   defp access_from_metadata(%{access: access}), do: normalize_access(access)
   defp access_from_metadata(_metadata), do: :random

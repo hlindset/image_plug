@@ -151,7 +151,7 @@ defmodule ImagePlug do
         case Origin.stream_status(origin_response) do
           {:error, reason} -> {:error, {:origin, reason}}
           :done -> {:error, decode_error}
-          :pending -> {:error, decode_error}
+          :pending -> close_pending_origin_with_decode_error(origin_response, decode_error)
         end
     end
   end

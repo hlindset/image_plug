@@ -515,7 +515,9 @@ defmodule ImagePlug.ImagePlugTest do
       )
 
     assert conn.status == 200
-    assert_received {:image_open_options, [access: :sequential, fail_on: :error]}
+    assert_received {:image_open_options, opts}
+    assert Keyword.get(opts, :access) == :sequential
+    assert Keyword.get(opts, :fail_on) == :error
   end
 
   test "cover opens origin with random access" do
@@ -529,7 +531,9 @@ defmodule ImagePlug.ImagePlugTest do
       )
 
     assert conn.status == 200
-    assert_received {:image_open_options, [access: :random, fail_on: :error]}
+    assert_received {:image_open_options, opts}
+    assert Keyword.get(opts, :access) == :random
+    assert Keyword.get(opts, :fail_on) == :error
   end
 
   test "sequential materialization failure without origin error returns decode error" do

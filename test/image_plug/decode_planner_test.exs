@@ -51,6 +51,30 @@ defmodule ImagePlug.DecodePlannerTest do
     end
   end
 
+  defmodule RaisingMetadataTransform do
+    defstruct []
+
+    def metadata(%__MODULE__{}) do
+      raise "metadata failed"
+    end
+  end
+
+  defmodule ThrowingMetadataTransform do
+    defstruct []
+
+    def metadata(%__MODULE__{}) do
+      throw(:metadata_failed)
+    end
+  end
+
+  defmodule ExitingMetadataTransform do
+    defstruct []
+
+    def metadata(%__MODULE__{}) do
+      exit(:metadata_failed)
+    end
+  end
+
   test "empty chains open randomly with fail_on error" do
     assert DecodePlanner.open_options([]) == [access: :random, fail_on: :error]
   end
@@ -230,6 +254,20 @@ defmodule ImagePlug.DecodePlannerTest do
 
     assert DecodePlanner.open_options([
              {KeywordMetadataTransform, %KeywordMetadataTransform{}}
+           ]) == [access: :random, fail_on: :error]
+  end
+
+  test "failing transform metadata stays random" do
+    assert DecodePlanner.open_options([
+             {RaisingMetadataTransform, %RaisingMetadataTransform{}}
+           ]) == [access: :random, fail_on: :error]
+
+    assert DecodePlanner.open_options([
+             {ThrowingMetadataTransform, %ThrowingMetadataTransform{}}
+           ]) == [access: :random, fail_on: :error]
+
+    assert DecodePlanner.open_options([
+             {ExitingMetadataTransform, %ExitingMetadataTransform{}}
            ]) == [access: :random, fail_on: :error]
   end
 

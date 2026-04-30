@@ -2,6 +2,7 @@ defmodule ImagePlug.OriginTest do
   use ExUnit.Case, async: true
 
   alias ImagePlug.Origin
+  alias ImagePlug.Origin.StreamStatus
 
   test "build_url encodes and joins path segments" do
     assert Origin.build_url("https://img.example/base", ["images", "cat 1.jpg"]) ==
@@ -83,6 +84,17 @@ defmodule ImagePlug.OriginTest do
     assert Enum.to_list(response.stream) == []
     assert Origin.stream_status(response) == {:error, {:body_too_large, 5}}
     assert Origin.stream_status(response) == {:error, {:body_too_large, 5}}
+  end
+
+  test "stream status holder only records terminal statuses" do
+    assert {:ok, stream_status} = StreamStatus.start_link()
+
+    assert StreamStatus.put(stream_status, :bogus) == :pending
+    assert StreamStatus.get(stream_status) == :pending
+    assert StreamStatus.put(stream_status, :done) == :done
+    assert StreamStatus.put(stream_status, {:error, :late_error}) == :done
+
+    StreamStatus.stop(stream_status)
   end
 
   test "require_stream_status fails pending streams before delivery" do
