@@ -35,6 +35,22 @@ defmodule ImagePlug.DecodePlannerTest do
     end
   end
 
+  defmodule NilMetadataTransform do
+    defstruct []
+
+    def metadata(%__MODULE__{}) do
+      nil
+    end
+  end
+
+  defmodule KeywordMetadataTransform do
+    defstruct []
+
+    def metadata(%__MODULE__{}) do
+      [access: :sequential]
+    end
+  end
+
   test "empty chains open randomly with fail_on error" do
     assert DecodePlanner.open_options([]) == [access: :random, fail_on: :error]
   end
@@ -90,6 +106,30 @@ defmodule ImagePlug.DecodePlannerTest do
     ]
 
     assert DecodePlanner.open_options(chain) == [access: :sequential, fail_on: :error]
+  end
+
+  test "width-only and height-only regular non-letterboxed contain open sequentially" do
+    assert DecodePlanner.open_options([
+             {Contain,
+              %ContainParams{
+                type: :dimensions,
+                width: {:pixels, 120},
+                height: :auto,
+                constraint: :regular,
+                letterbox: false
+              }}
+           ]) == [access: :sequential, fail_on: :error]
+
+    assert DecodePlanner.open_options([
+             {Contain,
+              %ContainParams{
+                type: :dimensions,
+                width: :auto,
+                height: {:pixels, 90},
+                constraint: :regular,
+                letterbox: false
+              }}
+           ]) == [access: :sequential, fail_on: :error]
   end
 
   test "ratio contain stays random" do
@@ -182,6 +222,14 @@ defmodule ImagePlug.DecodePlannerTest do
 
     assert DecodePlanner.open_options([
              {MissingAccessMetadataTransform, %MissingAccessMetadataTransform{}}
+           ]) == [access: :random, fail_on: :error]
+
+    assert DecodePlanner.open_options([
+             {NilMetadataTransform, %NilMetadataTransform{}}
+           ]) == [access: :random, fail_on: :error]
+
+    assert DecodePlanner.open_options([
+             {KeywordMetadataTransform, %KeywordMetadataTransform{}}
            ]) == [access: :random, fail_on: :error]
   end
 

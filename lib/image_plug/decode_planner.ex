@@ -19,14 +19,21 @@ defmodule ImagePlug.DecodePlanner do
     if Code.ensure_loaded?(module) and function_exported?(module, :metadata, 1) do
       params
       |> module.metadata()
-      |> Map.get(:access, :random)
-      |> normalize_access()
+      |> access_from_metadata()
     else
       :random
     end
   end
 
   defp access_requirement(_operation), do: :random
+
+  defp access_from_metadata(%{} = metadata) do
+    metadata
+    |> Map.get(:access, :random)
+    |> normalize_access()
+  end
+
+  defp access_from_metadata(_metadata), do: :random
 
   defp normalize_access(access) when access in [:sequential, :random, :neutral], do: access
   defp normalize_access(_access), do: :random

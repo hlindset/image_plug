@@ -60,6 +60,36 @@ defmodule ImagePlug.SequentialCompatibilityTest do
     assert_sequential_matches_random(chain, jpeg_body(@cat_path))
   end
 
+  test "width-only regular non-letterboxed contain matches random access after materialization" do
+    chain = [
+      {Contain,
+       %ContainParams{
+         type: :dimensions,
+         width: {:pixels, 100},
+         height: :auto,
+         constraint: :regular,
+         letterbox: false
+       }}
+    ]
+
+    assert_sequential_matches_random(chain, jpeg_body(@cat_path))
+  end
+
+  test "height-only regular non-letterboxed contain matches random access after materialization" do
+    chain = [
+      {Contain,
+       %ContainParams{
+         type: :dimensions,
+         width: :auto,
+         height: {:pixels, 80},
+         constraint: :regular,
+         letterbox: false
+       }}
+    ]
+
+    assert_sequential_matches_random(chain, jpeg_body(@cat_path))
+  end
+
   test "regular non-letterboxed contain matches random access for progressive non-square jpeg" do
     chain = [
       {Contain,
