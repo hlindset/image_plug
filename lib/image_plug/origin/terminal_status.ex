@@ -1,5 +1,11 @@
 defmodule ImagePlug.Origin.TerminalStatus do
-  @moduledoc false
+  @moduledoc """
+  Idempotent terminal status holder for guarded origin streams.
+
+  Origin stream consumption may happen outside the request process. This holder lets
+  the stream worker record `:done` or the first terminal error once, while request
+  handling can read that result repeatedly before cache writes or response delivery.
+  """
 
   @type status() :: :pending | :done | {:error, term()}
 

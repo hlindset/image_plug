@@ -12,7 +12,7 @@ defmodule ImagePlug.DecodePlanner do
   def access(chain) when is_list(chain) do
     chain
     |> Enum.map(&access_requirement/1)
-    |> fold_access()
+    |> resolve_access()
   end
 
   defp access_requirement({module, params}) when is_atom(module) do
@@ -27,20 +27,15 @@ defmodule ImagePlug.DecodePlanner do
 
   defp access_requirement(_operation), do: :random
 
-  defp access_from_metadata(%{} = metadata) do
-    metadata
-    |> Map.get(:access, :random)
-    |> normalize_access()
-  end
-
+  defp access_from_metadata(%{access: access}), do: normalize_access(access)
   defp access_from_metadata(_metadata), do: :random
 
   defp normalize_access(access) when access in [:sequential, :random, :neutral], do: access
   defp normalize_access(_access), do: :random
 
-  defp fold_access([]), do: :random
+  defp resolve_access([]), do: :random
 
-  defp fold_access(requirements) do
+  defp resolve_access(requirements) do
     cond do
       Enum.any?(requirements, &(&1 == :random)) -> :random
       Enum.any?(requirements, &(&1 == :sequential)) -> :sequential
