@@ -3,20 +3,36 @@ defmodule ImagePlug.ProcessingRequestTest do
 
   alias ImagePlug.ProcessingRequest
 
-  test "has native request defaults" do
-    request = %ProcessingRequest{
-      signature: "_",
-      source_kind: :plain,
-      source_path: ["images", "cat.jpg"]
-    }
+  test "defaults to imgproxy-shaped plain request intent" do
+    request = %ProcessingRequest{}
 
-    assert request.signature == "_"
-    assert request.source_kind == :plain
-    assert request.source_path == ["images", "cat.jpg"]
+    assert request.signature == nil
+    assert request.source_kind == nil
+    assert request.source_path == []
     assert request.width == nil
     assert request.height == nil
-    assert request.fit == nil
-    assert request.focus == {:anchor, :center, :center}
-    assert request.format == :auto
+    assert request.resizing_type == :fit
+    assert request.enlarge == false
+    assert request.extend == false
+    assert request.extend_gravity == nil
+    assert request.extend_x_offset == nil
+    assert request.extend_y_offset == nil
+    assert request.gravity == {:anchor, :center, :center}
+    assert request.gravity_x_offset == 0.0
+    assert request.gravity_y_offset == 0.0
+    assert request.format == nil
+    assert request.output_extension_from_source == nil
+  end
+
+  test "represents unsupported but parsed semantic values distinctly" do
+    request = %ProcessingRequest{
+      resizing_type: :fill_down,
+      gravity: :sm,
+      format: :best
+    }
+
+    assert request.resizing_type == :fill_down
+    assert request.gravity == :sm
+    assert request.format == :best
   end
 end
