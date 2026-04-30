@@ -28,7 +28,7 @@ The imgproxy source files used to clarify parser edge cases are:
 - For each supported imgproxy processing option, support the whole documented grammar for that option from the start: long name, short aliases, argument shape, omitted optional arguments, and documented enum values.
 - Keep the first implementation limited to ImagePlug's current image processing capabilities.
 - Keep ImagePlug's no-explicit-format behavior automatic by default, using `Accept` to choose modern browser formats while retaining source-format fallback.
-- Reject unsupported imgproxy options explicitly before origin fetch.
+- Reject unsupported imgproxy options and unsupported semantic combinations explicitly before origin fetch.
 - Keep option order declarative. URL option order does not define transform execution order.
 - Keep the internal model declarative: parser -> `ProcessingRequest` -> `PipelinePlanner` -> `TransformChain`.
 
@@ -65,7 +65,7 @@ Rules:
 - A raw `@<extension>` in the joined plain source sets the output format, matching imgproxy's plain source extension grammar.
 - The parser detects the raw `@` separator before percent decoding. `%40` is decoded into a literal `@` inside the source path and is not treated as a separator.
 - More than one raw `@` separator is an invalid URL.
-- An empty extension after a raw `@`, such as `plain/images/cat.jpg@`, does not set an output format.
+- An empty extension after a raw `@`, such as `plain/images/cat.jpg@`, is treated as no trailing source output extension and does not overwrite an explicit format option.
 - Base64 encoded source URLs and encrypted `enc` source URLs are reserved for later slices.
 
 Example supported URLs:
@@ -113,7 +113,7 @@ Execution scope:
 - `force` maps to current stretch behavior.
 - `fill-down` is parsed and represented distinctly, but always returns an explicit unsupported semantic error in this slice. Later slices may support metadata-dependent planning after origin decode.
 - `auto` is parsed and represented distinctly, but always returns an explicit unsupported semantic error in this slice. Later slices may support metadata-dependent planning after origin decode.
-- `enlarge` and `extend` are parsed because they are part of the supported `resize` grammar. If a request uses a value that current transforms cannot honor, planning fails explicitly before origin fetch. In this slice, `extend:true` and non-default extend gravity values are unsupported semantic combinations.
+- `enlarge` and `extend` are parsed because they are part of the supported `resize` grammar. If a request uses a value that current transforms cannot honor, planning fails explicitly before origin fetch. In this slice, `extend:true` and any provided extend gravity argument are unsupported semantic combinations, even when `extend=false`.
 
 ### Size
 
@@ -200,7 +200,7 @@ Execution scope:
 
 - Cardinal and corner gravities map to existing anchor focus values for crop-like operations.
 - `fp` maps to the existing coordinate focus model using relative coordinates. `gravity:fp:%x:%y` requires decimal numbers in the inclusive range `0.0..1.0`, matching imgproxy focal point semantics. Integers `0` and `1` are accepted as valid decimal values. Percent strings are not accepted.
-- Offsets for non-`fp` gravity values are parsed as decimal numbers. If non-zero offsets cannot be represented by the current focus model, planning fails explicitly before origin fetch.
+- Offsets for non-`fp` gravity values are parsed according to imgproxy's floating-point numeric grammar. In this slice, only omitted or zero offsets are supported; non-zero offsets fail planning before origin fetch.
 - Smart gravity `sm` is parsed and represented because it is part of imgproxy's open-source crop gravity grammar. It returns an explicit planner error in this slice because ImagePlug does not currently have smart focus execution.
 - Pro object-oriented gravities `obj` and `objw` are not in the open-source parser's crop gravity grammar and are not part of this slice.
 
@@ -235,7 +235,9 @@ best
 
 In this first slice, `best` returns an explicit planner error. Implementing it later means encoding multiple candidate outputs and choosing the smallest result, which is materially different from Accept-based automatic output selection.
 
-`format:auto` is not an imgproxy format value and is not part of this grammar. Accept-header based output selection is configured behavior when no explicit output format is requested, not a URL processing option.
+Unknown extensions are parser errors. `best` is the only recognized extension that parses successfully but fails later as an unsupported planner semantic in this slice.
+
+`format:auto` is not an imgproxy format value and is not part of this grammar. Accept-header-based output selection is configured behavior when no explicit output format is requested, not a URL processing option.
 
 If both a format option and a trailing plain-source extension are present, the source extension is applied after processing options and wins, matching imgproxy's parser.
 
@@ -256,6 +258,8 @@ ImagePlug should use the same URL semantics but a more modern default configurat
 - If the source format cannot be encoded, ImagePlug falls back to JPEG for non-alpha images and PNG for alpha images when the fallback is acceptable or the `Accept` header is absent, matching the spirit of imgproxy's preferred-format fallback without introducing the full preferred-format configuration in this slice.
 - `Vary: Accept` is set whenever automatic output format selection can affect the response.
 - Cache keys include the selected automatic output format, not the raw `Accept` header, when automatic output format selection can affect the response. This avoids cache fragmentation from equivalent `Accept` headers.
+
+Explicit output formats from `format`, `f`, `ext`, or plain-source `@extension` bypass `Accept` negotiation. `Accept` negotiation applies only when no explicit output format is requested. If no explicit format is requested and no encodable automatic or fallback format is acceptable under the request `Accept` header, ImagePlug returns `406 Not Acceptable`. If the `Accept` header is absent, ImagePlug treats supported output formats as acceptable.
 
 Operators can disable `auto_avif` and `auto_webp` to get stricter imgproxy-default-style behavior and simpler cache behavior.
 
@@ -404,6 +408,8 @@ The first stage would resize using ImagePlug's fixed pipeline. The second stage 
 - `gravity_y_offset`
 - `format`
 
+`source_extension` means the trailing plain-source `@extension` output-format override. It does not mean the file extension embedded in `source_path`.
+
 The exact field names may differ if implementation finds a clearer local representation, but the public semantics must remain imgproxy-shaped.
 
 The parser module can keep the existing `ImagePlug.ParamParser.Native` name if that is the default parser, but its grammar should be imgproxy-compatible. A clearer `ImagePlug.ParamParser.Imgproxy` name is acceptable if the default config and README use it consistently.
@@ -430,7 +436,7 @@ Planner semantic errors:
 - `best` output format in this slice.
 - `gravity:sm` in this slice.
 - `resizing_type:auto` and `resizing_type:fill-down` in this slice, regardless of which option assigned them.
-- `extend:true` or non-default extend gravity in this slice, regardless of which option assigned them.
+- `extend:true` or any provided extend gravity argument in this slice, regardless of which option assigned them.
 - Non-zero crop gravity offsets in this slice.
 
 The error body can stay plain text for now.
@@ -442,7 +448,7 @@ The implementation should be test-first and cover:
 - Parser tests for each supported long option and alias.
 - Parser tests for full enum coverage on `resizing_type`.
 - Parser tests for omitted optional `resize` and `size` arguments.
-- Parser tests for plain source extension with raw `@extension`, escaped `%40`, empty `@`, multiple raw `@` separators, and unknown extensions.
+- Parser tests for plain source extension with raw `@extension`, escaped `%40`, empty `@`, multiple raw `@` separators, and unknown extensions. Empty `@` does not overwrite an explicit format; unknown extensions are parser errors.
 - Parser tests proving `format:best` and `@best` parse into normalized output format intent.
 - Parser tests reserving a path segment exactly equal to `-` as an unsupported chained-pipeline separator while preserving values such as `fill-down`.
 - Parser tests for equivalent meta-option and atomic-option combinations.
@@ -450,9 +456,11 @@ The implementation should be test-first and cover:
 - Parser tests proving `@extension` overrides an explicit format option.
 - Parser tests for unsupported imgproxy options returning errors.
 - Planner tests for current executable semantics: `fit`, `fill`, `force`, width-only, height-only, explicit output format, and gravity-driven crops.
-- Planner tests proving unsupported semantic combinations fail before origin fetch: `format:best`, `@best`, `gravity:sm`, `resizing_type:auto`, `resizing_type:fill-down`, `extend:true`, and non-zero gravity offsets.
-- Output tests proving omitted output format chooses AVIF/WebP from `Accept` by default, treats `q=0` as unacceptable, uses server preference order among acceptable formats, and falls back to the source format.
+- Planner tests proving unsupported semantic combinations fail before origin fetch: `format:best`, `@best`, `gravity:sm`, `resizing_type:auto`, `resizing_type:fill-down`, `extend:true`, provided extend gravity arguments, and non-zero gravity offsets.
+- Output tests proving omitted output format chooses AVIF/WebP from `Accept` by default, treats `q=0` as unacceptable, uses server preference order among acceptable formats, falls back to the source format, and returns `406` when no encodable output format is acceptable.
+- Output tests proving explicit `format`, `f`, `ext`, and `@extension` bypass `Accept` negotiation.
 - Cache tests proving the selected automatic output format is included only when automatic output format selection can affect output.
+- Response header tests proving explicit formats do not set `Vary: Accept`, omitted format with automatic output selection enabled sets `Vary: Accept`, and omitted format with automatic output selection disabled does not set `Vary: Accept`.
 - Plug-level tests for representative imgproxy-compatible URLs.
 - README examples that match the implemented grammar.
 
