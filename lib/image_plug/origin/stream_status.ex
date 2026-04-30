@@ -11,8 +11,8 @@ defmodule ImagePlug.Origin.StreamStatus do
   The holder is request-scoped and monitors the process that called
   `ImagePlug.Origin.fetch/2`, so it exits even when that process exits normally.
   `ImagePlug.Origin.close/1` cancels the stream worker but intentionally leaves this
-  holder alive so callers can still read the last recorded status while the
-  response remains in scope.
+  holder alive so callers can still read the last recorded status while the owner
+  process is alive and the response remains in scope.
   """
 
   @type status() :: :pending | :done | {:error, term()}
