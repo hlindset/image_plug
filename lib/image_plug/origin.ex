@@ -12,9 +12,11 @@ defmodule ImagePlug.Origin do
   to the caller out-of-band because Vix consumes enumerables from a separate process.
   """
 
+  alias ImagePlug.Origin.TerminalStatus
+
   defmodule Response do
-    @enforce_keys [:content_type, :headers, :ref, :stream, :url, :worker]
-    defstruct [:content_type, :headers, :ref, :stream, :url, :worker]
+    @enforce_keys [:content_type, :headers, :ref, :stream, :terminal_status, :url, :worker]
+    defstruct [:content_type, :headers, :ref, :stream, :terminal_status, :url, :worker]
   end
 
   @default_max_body_bytes 10_000_000
@@ -72,19 +74,40 @@ defmodule ImagePlug.Origin do
   end
 
   @doc """
-  Consumes and returns the terminal stream error after `response.stream` has
-  been consumed.
-
-  Calling this before the stream reaches `:done` or an error may return `nil`
-  even if a later stream-time origin error occurs. The terminal stream status is
-  delivered as a process message, so this should only be called once.
+  Returns the terminal status of a guarded origin stream without consuming it more than once.
   """
-  def stream_error(%Response{ref: ref}) do
-    receive do
-      {^ref, {:stream_error, reason}} -> reason
-      {^ref, :stream_done} -> nil
-    after
-      0 -> nil
+  @spec terminal_status(Response.t()) :: :pending | :done | {:error, term()}
+  def terminal_status(%Response{terminal_status: terminal_status})
+      when is_pid(terminal_status) do
+    TerminalStatus.get(terminal_status)
+  end
+
+  @doc """
+  Forces a pre-delivery terminal decision for sequential pipelines.
+  """
+  @spec require_terminal_status(Response.t()) :: :done | {:error, term()}
+  def require_terminal_status(%Response{terminal_status: terminal_status} = response) do
+    case terminal_status(response) do
+      :pending ->
+        status =
+          TerminalStatus.put(terminal_status, {:error, :not_terminal_after_materialization})
+
+        close(response)
+        status
+
+      terminal ->
+        terminal
+    end
+  end
+
+  @doc """
+  Compatibility wrapper for callers that only distinguish stream errors from non-errors.
+  """
+  def stream_error(%Response{} = response) do
+    case terminal_status(response) do
+      {:error, reason} -> reason
+      :done -> nil
+      :pending -> nil
     end
   end
 
@@ -106,6 +129,7 @@ defmodule ImagePlug.Origin do
   defp start_stream(url, request_options, max_body_bytes, receive_timeout) do
     caller = self()
     ref = make_ref()
+    {:ok, terminal_status} = TerminalStatus.start_link()
 
     {worker, monitor_ref} =
       spawn_monitor(fn ->
@@ -115,7 +139,8 @@ defmodule ImagePlug.Origin do
           url,
           request_options,
           max_body_bytes,
-          receive_timeout
+          receive_timeout,
+          terminal_status
         )
       end)
 
@@ -128,18 +153,22 @@ defmodule ImagePlug.Origin do
            response
            | ref: ref,
              worker: worker,
+             terminal_status: terminal_status,
              stream: response_stream(worker, ref)
          }}
 
       {^ref, {:error, reason}} ->
+        TerminalStatus.stop(terminal_status)
         Process.demonitor(monitor_ref, [:flush])
         {:error, reason}
 
       {:DOWN, ^monitor_ref, :process, ^worker, reason} ->
+        TerminalStatus.stop(terminal_status)
         {:error, {:transport, reason}}
     after
       receive_timeout ->
         Process.exit(worker, :kill)
+        TerminalStatus.stop(terminal_status)
         Process.demonitor(monitor_ref, [:flush])
         {:error, {:timeout, receive_timeout}}
     end
@@ -179,7 +208,8 @@ defmodule ImagePlug.Origin do
          url,
          request_options,
          max_body_bytes,
-         receive_timeout
+         receive_timeout,
+         terminal_status
        ) do
     caller_monitor_ref = Process.monitor(caller)
 
@@ -195,6 +225,7 @@ defmodule ImagePlug.Origin do
                headers: response_headers(response),
                ref: nil,
                stream: nil,
+               terminal_status: nil,
                url: url,
                worker: nil
              }}
@@ -208,7 +239,8 @@ defmodule ImagePlug.Origin do
             receive_timeout: receive_timeout,
             ref: ref,
             response: response,
-            size: 0
+            size: 0,
+            terminal_status: terminal_status
           })
         else
           {:error, reason} ->
@@ -284,14 +316,14 @@ defmodule ImagePlug.Origin do
   end
 
   defp deliver_pending(:done, from, state) do
-    send(state.caller, {state.ref, :stream_done})
+    TerminalStatus.put(state.terminal_status, :done)
     send(from, {state.ref, :done})
   end
 
   defp fail_stream(from, state, reason) do
     reason = normalize_stream_error(reason, state.receive_timeout)
 
-    send(state.caller, {state.ref, {:stream_error, reason}})
+    TerminalStatus.put(state.terminal_status, {:error, reason})
     cancel_response(state.response)
     send(from, {state.ref, {:error, reason}})
   end
@@ -299,7 +331,7 @@ defmodule ImagePlug.Origin do
   defp fail_idle_stream(state, reason) do
     reason = normalize_stream_error(reason, state.receive_timeout)
 
-    send(state.caller, {state.ref, {:stream_error, reason}})
+    TerminalStatus.put(state.terminal_status, {:error, reason})
     cancel_response(state.response)
   end
 
