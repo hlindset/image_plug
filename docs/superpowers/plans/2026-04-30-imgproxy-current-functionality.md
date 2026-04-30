@@ -387,7 +387,7 @@ Run:
 mise exec -- mix test test/param_parser/native_test.exs
 ```
 
-Expected: FAIL because the parser still rejects `f:webp`, does not split raw `@`, and still uses old request fields.
+Expected: FAIL because the parser does not yet split raw `@`, validate source extensions, or populate imgproxy-shaped request fields.
 
 - [ ] **Step 3: Implement source splitting and format parsing helpers**
 
@@ -1482,6 +1482,8 @@ test "respects automatic format feature flags" do
 
   assert OutputNegotiation.preselect("image/avif,image/webp", auto_avif: false, auto_webp: false) ==
            :defer
+
+  assert OutputNegotiation.preselect(nil, auto_avif: false, auto_webp: false) == :defer
 end
 
 test "preselects AVIF and WebP before origin metadata is available" do
@@ -1556,13 +1558,11 @@ Use these helpers:
 
 ```elixir
 defp enabled_modern_mime_types(opts) do
-  []
-  |> maybe_add_enabled(opts, :auto_webp, "image/webp")
-  |> maybe_add_enabled(opts, :auto_avif, "image/avif")
-end
-
-defp maybe_add_enabled(types, opts, key, mime_type) do
-  if Keyword.get(opts, key, true), do: [mime_type | types], else: types
+  [
+    Keyword.get(opts, :auto_avif, true) && "image/avif",
+    Keyword.get(opts, :auto_webp, true) && "image/webp"
+  ]
+  |> Enum.filter(& &1)
 end
 
 defp fallback_priority(true), do: ["image/png"]
