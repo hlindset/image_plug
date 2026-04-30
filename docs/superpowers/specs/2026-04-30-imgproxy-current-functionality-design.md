@@ -252,7 +252,7 @@ ImagePlug should use the same URL semantics but a more modern default configurat
 - `auto_webp` defaults to `true`.
 - `auto_jxl` defaults to `false` until ImagePlug supports JPEG XL encoding confidently.
 - Selection order is AVIF, then WebP, then source format fallback.
-- Automatic selection only chooses a format accepted by the request `Accept` header.
+- Automatic selection only chooses a format accepted by the request `Accept` header, or any supported format when the `Accept` header is absent.
 - `Accept` q-values are used to determine acceptability. A format with `q=0` is unacceptable. Among acceptable formats, ImagePlug uses server preference order: AVIF, then WebP, then source format fallback. Relative q-values do not reorder AVIF and WebP in this slice.
 - Exact media type exclusions override wildcard allowances. For example, `image/avif;q=0,image/*;q=1` makes AVIF unacceptable while keeping WebP acceptable.
 - If neither AVIF nor WebP is acceptable, ImagePlug falls back to the source format when it can encode it and the source format is acceptable or the `Accept` header is absent.
