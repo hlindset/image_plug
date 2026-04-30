@@ -30,6 +30,41 @@ The source-confirmed imgproxy references are:
 /Users/hlindset/src/image_plug/local/imgproxy-docs-master/versioned_docs/version-4-pre/usage/processing.mdx
 ```
 
+## Preflight
+
+- [ ] **Step 1: Establish the current baseline**
+
+Run:
+
+```bash
+mise exec -- mix test
+```
+
+Expected: PASS before implementation starts. If the current baseline fails, stop and record the exact failures before changing code.
+
+- [ ] **Step 2: Verify transform parameter shapes**
+
+Read:
+
+```bash
+sed -n '1,140p' lib/image_plug/transform/focus.ex
+sed -n '1,150p' lib/image_plug/transform/contain.ex
+sed -n '1,150p' lib/image_plug/transform/cover.ex
+sed -n '1,130p' lib/image_plug/transform/scale.ex
+```
+
+Expected: `Transform.Focus` accepts `{:anchor, x, y}` and coordinate lengths, `Transform.Contain` and `Transform.Cover` accept `constraint: :regular | :min | :max` or `:none`, and `Transform.Scale` accepts `:auto` for one dimension. If these shapes have changed, adapt the planner mapping to the existing transform primitives instead of changing transform modules.
+
+- [ ] **Step 3: Confirm automatic output config does not already exist**
+
+Run:
+
+```bash
+rg -n "auto_avif|auto_webp|auto_jxl" lib test config README.md
+```
+
+Expected: no existing implementation. If config already exists by the time this plan is executed, use the existing names and defaults instead of adding duplicate option names.
+
 ## File Structure
 
 Modify these files:
@@ -315,15 +350,6 @@ defmodule ImagePlug.ParamParser.NativeTest do
             }} = conn(:get, "/_/plain/images/cat%40v1.jpg@webp") |> Native.parse()
   end
 
-  test "dangling raw @ does not overwrite an explicit format" do
-    assert {:ok,
-            %ProcessingRequest{
-              source_path: ["images", "cat.jpg"],
-              format: :webp,
-              output_extension_from_source: nil
-            }} = conn(:get, "/_/f:webp/plain/images/cat.jpg@") |> Native.parse()
-  end
-
   test "dangling raw @ leaves output automatic when no explicit format exists" do
     assert {:ok,
             %ProcessingRequest{
@@ -471,7 +497,7 @@ Run:
 mise exec -- mix test test/param_parser/native_test.exs
 ```
 
-Expected: remaining failures are about missing imgproxy processing option grammar, not plain-source `@` parsing.
+Expected: PASS. Task 2 only covers source boundary parsing plus source `@extension`; processing option grammar is introduced in Task 3.
 
 - [ ] **Step 5: Commit**
 
@@ -521,6 +547,15 @@ test "parses omitted resize arguments with imgproxy defaults" do
            conn(:get, "/_/rs::300:200/plain/images/cat.jpg") |> Native.parse()
 end
 
+test "omitted meta-option arguments do not overwrite previous field assignments" do
+  assert {:ok,
+          %ProcessingRequest{
+            resizing_type: :fill,
+            width: {:pixels, 500},
+            height: {:pixels, 200}
+          }} = conn(:get, "/_/w:500/rs:fill::200/plain/images/cat.jpg") |> Native.parse()
+end
+
 test "parses size without changing resizing_type" do
   assert {:ok,
           %ProcessingRequest{
@@ -528,6 +563,15 @@ test "parses size without changing resizing_type" do
             width: {:pixels, 300},
             height: {:pixels, 200}
           }} = conn(:get, "/_/rt:force/s:300:200/plain/images/cat.jpg") |> Native.parse()
+end
+
+test "size overwrites dimensions without resetting resizing_type" do
+  assert {:ok,
+          %ProcessingRequest{
+            resizing_type: :fill,
+            width: {:pixels, 100},
+            height: {:pixels, 100}
+          }} = conn(:get, "/_/rs:fill:300:200/s:100:100/plain/images/cat.jpg") |> Native.parse()
 end
 
 test "parses resizing type aliases and all documented values" do
@@ -554,6 +598,9 @@ test "parses gravity anchors and focal point" do
 
   assert {:ok, %ProcessingRequest{gravity: {:fp, 0.5, 0.25}}} =
            conn(:get, "/_/gravity:fp:0.5:0.25/plain/images/cat.jpg") |> Native.parse()
+
+  assert {:ok, %ProcessingRequest{gravity: {:fp, 1.0, 0.0}}} =
+           conn(:get, "/_/g:fp:1:0/plain/images/cat.jpg") |> Native.parse()
 end
 
 test "parses smart gravity for planner rejection" do
@@ -570,6 +617,23 @@ test "parses format aliases and jpg normalization" do
 
   assert {:ok, %ProcessingRequest{format: :jpeg}} =
            conn(:get, "/_/ext:jpg/plain/images/cat.jpg") |> Native.parse()
+end
+
+test "plain source extension overrides explicit format after options" do
+  assert {:ok,
+          %ProcessingRequest{
+            format: :png,
+            output_extension_from_source: :png
+          }} = conn(:get, "/_/f:webp/plain/images/cat.jpg@png") |> Native.parse()
+end
+
+test "dangling raw @ does not overwrite an explicit format" do
+  assert {:ok,
+          %ProcessingRequest{
+            source_path: ["images", "cat.jpg"],
+            format: :webp,
+            output_extension_from_source: nil
+          }} = conn(:get, "/_/f:webp/plain/images/cat.jpg@") |> Native.parse()
 end
 
 test "rejects format auto because it is not imgproxy grammar" do
@@ -676,40 +740,48 @@ Then add helpers:
 
 ```elixir
 defp parse_resize(segment, args) when length(args) <= 8 do
-  with {:ok, resizing_type} <- parse_optional_resizing_type(Enum.at(args, 0)),
-       {:ok, width} <- parse_optional_pixels(Enum.at(args, 1)),
-       {:ok, height} <- parse_optional_pixels(Enum.at(args, 2)),
-       {:ok, enlarge} <- parse_optional_boolean(Enum.at(args, 3), false),
-       {:ok, extend} <- parse_optional_boolean(Enum.at(args, 4), false),
+  with {:ok, assignments} <- put_optional_resizing_type([], Enum.at(args, 0)),
+       {:ok, assignments} <- put_optional_pixels(assignments, :width, Enum.at(args, 1)),
+       {:ok, assignments} <- put_optional_pixels(assignments, :height, Enum.at(args, 2)),
+       {:ok, assignments} <- put_optional_boolean(assignments, :enlarge, Enum.at(args, 3)),
+       {:ok, assignments} <- put_optional_boolean(assignments, :extend, Enum.at(args, 4)),
        {:ok, extend_gravity_fields} <- parse_optional_extend_gravity(Enum.drop(args, 5)) do
-    {:ok,
-     [
-       resizing_type: resizing_type,
-       width: width,
-       height: height,
-       enlarge: enlarge,
-       extend: extend
-     ] ++ extend_gravity_fields}
+    {:ok, assignments ++ extend_gravity_fields}
   end
 end
 
 defp parse_resize(segment, _args), do: {:error, {:invalid_option_segment, segment}}
 
 defp parse_size(segment, args) when length(args) <= 7 do
-  with {:ok, width} <- parse_optional_pixels(Enum.at(args, 0)),
-       {:ok, height} <- parse_optional_pixels(Enum.at(args, 1)),
-       {:ok, enlarge} <- parse_optional_boolean(Enum.at(args, 2), false),
-       {:ok, extend} <- parse_optional_boolean(Enum.at(args, 3), false),
+  with {:ok, assignments} <- put_optional_pixels([], :width, Enum.at(args, 0)),
+       {:ok, assignments} <- put_optional_pixels(assignments, :height, Enum.at(args, 1)),
+       {:ok, assignments} <- put_optional_boolean(assignments, :enlarge, Enum.at(args, 2)),
+       {:ok, assignments} <- put_optional_boolean(assignments, :extend, Enum.at(args, 3)),
        {:ok, extend_gravity_fields} <- parse_optional_extend_gravity(Enum.drop(args, 4)) do
-    {:ok, [width: width, height: height, enlarge: enlarge, extend: extend] ++ extend_gravity_fields}
+    {:ok, assignments ++ extend_gravity_fields}
   end
 end
 
 defp parse_size(segment, _args), do: {:error, {:invalid_option_segment, segment}}
 
 defp parse_resizing_type(value) do
+  with {:ok, resizing_type} <- parse_resizing_type_value(value) do
+    {:ok, [resizing_type: resizing_type]}
+  end
+end
+
+defp put_optional_resizing_type(assignments, nil), do: {:ok, assignments}
+defp put_optional_resizing_type(assignments, ""), do: {:ok, assignments}
+
+defp put_optional_resizing_type(assignments, value) do
+  with {:ok, resizing_type} <- parse_resizing_type_value(value) do
+    {:ok, Keyword.put(assignments, :resizing_type, resizing_type)}
+  end
+end
+
+defp parse_resizing_type_value(value) do
   case Map.fetch(@resizing_types, value) do
-    {:ok, resizing_type} -> {:ok, [resizing_type: resizing_type]}
+    {:ok, resizing_type} -> {:ok, resizing_type}
     :error -> {:error, {:invalid_resizing_type, value, Map.keys(@resizing_types) |> Enum.sort()}}
   end
 end
@@ -730,9 +802,14 @@ end
 Use non-negative integer pixel parsing:
 
 ```elixir
-defp parse_optional_pixels(nil), do: {:ok, nil}
-defp parse_optional_pixels(""), do: {:ok, nil}
-defp parse_optional_pixels(value), do: parse_pixels(value)
+defp put_optional_pixels(assignments, _field, nil), do: {:ok, assignments}
+defp put_optional_pixels(assignments, _field, ""), do: {:ok, assignments}
+
+defp put_optional_pixels(assignments, field, value) do
+  with {:ok, pixels} <- parse_pixels(value) do
+    {:ok, Keyword.put(assignments, field, pixels)}
+  end
+end
 
 defp parse_pixels(value) do
   case Integer.parse(value) do
@@ -745,11 +822,18 @@ end
 Use imgproxy boolean grammar:
 
 ```elixir
-defp parse_optional_boolean(nil, default), do: {:ok, default}
-defp parse_optional_boolean("", default), do: {:ok, default}
-defp parse_optional_boolean(value, _default) when value in ["1", "t", "true"], do: {:ok, true}
-defp parse_optional_boolean(value, _default) when value in ["0", "f", "false"], do: {:ok, false}
-defp parse_optional_boolean(value, _default), do: {:error, {:invalid_boolean, value}}
+defp put_optional_boolean(assignments, _field, nil), do: {:ok, assignments}
+defp put_optional_boolean(assignments, _field, ""), do: {:ok, assignments}
+
+defp put_optional_boolean(assignments, field, value) when value in ["1", "t", "true"] do
+  {:ok, Keyword.put(assignments, field, true)}
+end
+
+defp put_optional_boolean(assignments, field, value) when value in ["0", "f", "false"] do
+  {:ok, Keyword.put(assignments, field, false)}
+end
+
+defp put_optional_boolean(_assignments, _field, value), do: {:error, {:invalid_boolean, value}}
 ```
 
 Parse gravity and extend gravity:
@@ -817,8 +901,17 @@ end
 
 defp parse_float(value) do
   case Float.parse(value) do
-    {float, ""} -> {:ok, float}
-    _other -> {:error, {:invalid_float, value}}
+    {float, ""} ->
+      {:ok, float}
+
+    :error ->
+      case Integer.parse(value) do
+        {integer, ""} -> {:ok, integer * 1.0}
+        _other -> {:error, {:invalid_float, value}}
+      end
+
+    _other ->
+      {:error, {:invalid_float, value}}
   end
 end
 ```
@@ -957,10 +1050,68 @@ defmodule ImagePlug.PipelinePlannerTest do
                    type: :dimensions,
                    width: {:pixels, 300},
                    height: :auto,
-                   constraint: :regular,
+                   constraint: :max,
                    letterbox: false
                  }}
               ]}
+  end
+
+  test "plans zero dimensions for aspect-preserving resize types" do
+    assert PipelinePlanner.plan(request(width: {:pixels, 0}, height: {:pixels, 0})) == {:ok, []}
+
+    assert {:ok,
+            [
+              {Transform.Contain,
+               %Transform.Contain.ContainParams{
+                 width: :auto,
+                 height: {:pixels, 200}
+               }}
+            ]} = PipelinePlanner.plan(request(width: {:pixels, 0}, height: {:pixels, 200}))
+  end
+
+  test "maps enlarge to existing transform constraints for fit and fill" do
+    assert {:ok,
+            [
+              {Transform.Contain,
+               %Transform.Contain.ContainParams{
+                 constraint: :max
+               }}
+            ]} = PipelinePlanner.plan(request(width: {:pixels, 300}, enlarge: false))
+
+    assert {:ok,
+            [
+              {Transform.Contain,
+               %Transform.Contain.ContainParams{
+                 constraint: :regular
+               }}
+            ]} = PipelinePlanner.plan(request(width: {:pixels, 300}, enlarge: true))
+
+    assert {:ok,
+            [
+              {Transform.Cover,
+               %Transform.Cover.CoverParams{
+                 constraint: :max
+               }}
+            ]} =
+             PipelinePlanner.plan(
+               request(resizing_type: :fill, width: {:pixels, 300}, height: {:pixels, 200})
+             )
+
+    assert {:ok,
+            [
+              {Transform.Cover,
+               %Transform.Cover.CoverParams{
+                 constraint: :none
+               }}
+            ]} =
+             PipelinePlanner.plan(
+               request(
+                 resizing_type: :fill,
+                 width: {:pixels, 300},
+                 height: {:pixels, 200},
+                 enlarge: true
+               )
+             )
   end
 
   test "plans fill as focus plus cover when gravity is not center" do
@@ -980,7 +1131,7 @@ defmodule ImagePlug.PipelinePlannerTest do
                    type: :dimensions,
                    width: {:pixels, 300},
                    height: {:pixels, 200},
-                   constraint: :none
+                   constraint: :max
                  }}
               ]}
   end
@@ -1034,6 +1185,11 @@ defmodule ImagePlug.PipelinePlannerTest do
   test "rejects fill without both dimensions" do
     assert PipelinePlanner.plan(request(resizing_type: :fill, width: {:pixels, 300})) ==
              {:error, {:missing_dimensions, :fill}}
+  end
+
+  test "rejects zero dimensions for force because current scale cannot represent imgproxy auto dimension semantics for force" do
+    assert PipelinePlanner.plan(request(resizing_type: :force, width: {:pixels, 0}, height: {:pixels, 200})) ==
+             {:error, {:unsupported_zero_dimension, :force}}
   end
 
   defp request(attrs \\ []) do
@@ -1119,31 +1275,48 @@ defmodule ImagePlug.PipelinePlanner do
   defp validate_supported_semantics(%ProcessingRequest{gravity_x_offset: x, gravity_y_offset: y}),
     do: {:error, {:unsupported_gravity_offset, {x, y}}}
 
-  defp plan_geometry(%ProcessingRequest{width: nil, height: nil}), do: {:ok, []}
+  defp plan_geometry(%ProcessingRequest{width: width, height: height})
+       when (is_nil(width) and is_nil(height)) or (width == {:pixels, 0} and height == {:pixels, 0}),
+       do: {:ok, []}
 
-  defp plan_geometry(%ProcessingRequest{resizing_type: :fit, width: width, height: height}) do
-    {:ok, [contain(width || :auto, height || :auto, false)]}
+  defp plan_geometry(%ProcessingRequest{resizing_type: :fit, width: width, height: height} = request) do
+    {:ok, [contain(auto_dimension(width), auto_dimension(height), false, constraint_for_enlarge(:fit, request.enlarge))]}
   end
 
   defp plan_geometry(%ProcessingRequest{resizing_type: :fill, width: nil}), do: missing_dimensions(:fill)
   defp plan_geometry(%ProcessingRequest{resizing_type: :fill, height: nil}), do: missing_dimensions(:fill)
 
-  defp plan_geometry(%ProcessingRequest{resizing_type: :fill, width: width, height: height}) do
+  defp plan_geometry(%ProcessingRequest{resizing_type: :fill, width: width, height: height} = request) do
     {:ok,
      [
        {Transform.Cover,
         %Transform.Cover.CoverParams{
           type: :dimensions,
-          width: width,
-          height: height,
-          constraint: :none
+          width: auto_dimension(width),
+          height: auto_dimension(height),
+          constraint: constraint_for_enlarge(:fill, request.enlarge)
         }}
      ]}
   end
 
+  defp plan_geometry(%ProcessingRequest{resizing_type: :force, width: {:pixels, 0}}),
+    do: {:error, {:unsupported_zero_dimension, :force}}
+
+  defp plan_geometry(%ProcessingRequest{resizing_type: :force, height: {:pixels, 0}}),
+    do: {:error, {:unsupported_zero_dimension, :force}}
+
   defp plan_geometry(%ProcessingRequest{resizing_type: :force, width: width, height: height}) do
     {:ok, [scale(width || :auto, height || :auto)]}
   end
+
+  defp auto_dimension(nil), do: :auto
+  defp auto_dimension({:pixels, 0}), do: :auto
+  defp auto_dimension(dimension), do: dimension
+
+  defp constraint_for_enlarge(:fit, false), do: :max
+  defp constraint_for_enlarge(:fit, true), do: :regular
+  defp constraint_for_enlarge(:fill, false), do: :max
+  defp constraint_for_enlarge(:fill, true), do: :none
 
   defp scale(width, height) do
     {Transform.Scale,
@@ -1154,13 +1327,13 @@ defmodule ImagePlug.PipelinePlanner do
      }}
   end
 
-  defp contain(width, height, letterbox) do
+  defp contain(width, height, letterbox, constraint) do
     {Transform.Contain,
      %Transform.Contain.ContainParams{
        type: :dimensions,
        width: width,
        height: height,
-       constraint: :regular,
+       constraint: constraint,
        letterbox: letterbox
      }}
   end
@@ -1219,7 +1392,7 @@ defmodule ImagePlug.PipelinePlannerPropertyTest do
       constant([]),
       map(integer(0..10_000), fn width -> [width: {:pixels, width}] end),
       map(integer(0..10_000), fn height -> [height: {:pixels, height}] end),
-      map({integer(0..10_000), integer(0..10_000)}, fn {width, height} ->
+      map({integer(1..10_000), integer(1..10_000)}, fn {width, height} ->
         [resizing_type: :force, width: {:pixels, width}, height: {:pixels, height}]
       end),
       map({integer(0..10_000), integer(0..10_000)}, fn {width, height} ->
@@ -1302,6 +1475,21 @@ end
 test "returns not acceptable when wildcard excludes every supported output" do
   assert OutputNegotiation.negotiate("image/*;q=0", false) == {:error, :not_acceptable}
 end
+
+test "respects automatic format feature flags" do
+  assert OutputNegotiation.negotiate("image/avif,image/webp", false, auto_avif: false) ==
+           {:ok, "image/webp"}
+
+  assert OutputNegotiation.preselect("image/avif,image/webp", auto_avif: false, auto_webp: false) ==
+           :defer
+end
+
+test "preselects AVIF and WebP before origin metadata is available" do
+  assert OutputNegotiation.preselect("image/webp;q=1,image/avif;q=0.1", []) == {:ok, :avif}
+  assert OutputNegotiation.preselect("image/avif;q=0,image/*;q=1", []) == {:ok, :webp}
+  assert OutputNegotiation.preselect("image/*;q=0", []) == {:error, :not_acceptable}
+  assert OutputNegotiation.preselect("image/png", []) == :defer
+end
 ```
 
 Keep the existing suffix tests.
@@ -1318,9 +1506,72 @@ Expected: FAIL on `image/webp;q=1,image/avif;q=0.1` because current code sorts b
 
 - [ ] **Step 3: Update negotiation algorithm**
 
-In `lib/image_plug/output_negotiation.ex`, make `negotiate_from_entries/2` pick the first acceptable server-preferred candidate:
+In `lib/image_plug/output_negotiation.ex`, add option-aware negotiation and a pre-origin preselection function:
 
 ```elixir
+@spec negotiate(String.t() | nil, boolean(), keyword()) ::
+        {:ok, String.t()} | {:error, :not_acceptable}
+def negotiate(accept_header, has_alpha?, opts \\ []) do
+  priority =
+    opts
+    |> enabled_modern_mime_types()
+    |> Kernel.++(fallback_priority(has_alpha?))
+
+  entries = parse_accept(accept_header)
+
+  mime_type =
+    case entries do
+      [] -> hd(priority)
+      entries -> negotiate_from_entries(priority, entries)
+    end
+
+  case mime_type do
+    nil -> {:error, :not_acceptable}
+    mime_type -> {:ok, mime_type}
+  end
+end
+
+@spec preselect(String.t() | nil, keyword()) :: {:ok, :avif | :webp} | :defer | {:error, :not_acceptable}
+def preselect(accept_header, opts \\ []) do
+  entries = parse_accept(accept_header)
+  modern_priority = enabled_modern_mime_types(opts)
+
+  case entries do
+    [] ->
+      modern_priority |> List.first() |> preselected_mime_type()
+
+    entries ->
+      case Enum.find(modern_priority, fn mime_type -> acceptable?(entries, mime_type) end) do
+        nil ->
+          if explicitly_excludes_all_images?(entries), do: {:error, :not_acceptable}, else: :defer
+
+        mime_type ->
+          preselected_mime_type(mime_type)
+      end
+  end
+end
+```
+
+Use these helpers:
+
+```elixir
+defp enabled_modern_mime_types(opts) do
+  []
+  |> maybe_add_enabled(opts, :auto_webp, "image/webp")
+  |> maybe_add_enabled(opts, :auto_avif, "image/avif")
+end
+
+defp maybe_add_enabled(types, opts, key, mime_type) do
+  if Keyword.get(opts, key, true), do: [mime_type | types], else: types
+end
+
+defp fallback_priority(true), do: ["image/png"]
+defp fallback_priority(false), do: ["image/jpeg"]
+
+defp preselected_mime_type(nil), do: :defer
+defp preselected_mime_type("image/avif"), do: {:ok, :avif}
+defp preselected_mime_type("image/webp"), do: {:ok, :webp}
+
 defp negotiate_from_entries(priority, entries) do
   Enum.find(priority, fn mime_type -> acceptable?(entries, mime_type) end)
 end
@@ -1350,6 +1601,22 @@ end
 defp wildcard_matches?("*/*", _mime_type), do: true
 defp wildcard_matches?("image/*", "image/" <> _subtype), do: true
 defp wildcard_matches?(_accepted, _mime_type), do: false
+
+defp explicitly_excludes_all_images?(entries) do
+  wildcard_exclusion? =
+    Enum.any?(entries, fn
+      {"*/*", 0.0} -> true
+      {"image/*", 0.0} -> true
+      _entry -> false
+    end)
+
+  positive_exact_image? =
+    Enum.any?(entries, fn {accepted, quality} ->
+      quality > 0 and String.starts_with?(accepted, "image/") and accepted != "image/*"
+    end)
+
+  wildcard_exclusion? and not positive_exact_image?
+end
 ```
 
 Delete `fallback_format/2`, `allowed?/2`, and `excluded?/2` if they become unused. The priority list already includes fallback formats after AVIF/WebP.
@@ -1423,7 +1690,7 @@ Expected: FAIL because `Key.build/4` does not accept `:selected_output_format` a
 
 - [ ] **Step 7: Update cache key output material**
 
-In `lib/image_plug/cache/key.ex`, change `build/4` to read `:selected_output_format` from opts:
+In `lib/image_plug/cache/key.ex`, increment `@schema_version` from `1` to `2` because operation and output key material changes. Then change `build/4` to read `:selected_output_format` from opts:
 
 ```elixir
 selected_output_format = Keyword.get(opts, :selected_output_format)
@@ -1490,15 +1757,15 @@ end
 
 def lookup(conn, request, origin_identity, opts, key_opts) do
   case cache_config(opts) do
-    :disabled ->
+    nil ->
       :disabled
 
     {:ok, adapter, cache_opts} ->
       key = Key.build(conn, request, origin_identity, Keyword.merge(cache_opts, key_opts))
 
       case adapter.get(key, cache_opts) do
-        {:ok, nil} -> {:miss, key}
-        {:ok, %Entry{} = entry} -> {:hit, key, entry}
+        {:hit, %Entry{} = entry} -> {:hit, key, entry}
+        :miss -> {:miss, key}
         {:error, reason} -> handle_read_error(reason, key, cache_opts)
         unexpected -> handle_read_error({:invalid_adapter_result, unexpected}, key, cache_opts)
       end
@@ -1651,6 +1918,53 @@ test "exact Accept exclusion overrides wildcard allowance" do
   assert get_resp_header(conn, "vary") == ["Accept"]
 end
 
+test "automatic AVIF cache hits do not fetch origin" do
+  cache_probe = start_cache_probe()
+
+  cached_entry = %ImagePlug.Cache.Entry{
+    body: "cached avif",
+    content_type: "image/avif",
+    headers: [{"vary", "Accept"}],
+    created_at: DateTime.utc_now()
+  }
+
+  conn =
+    :get
+    |> conn("/_/plain/images/cat-300.jpg")
+    |> put_req_header("accept", "image/avif,image/webp")
+
+  conn =
+    ImagePlug.call(conn,
+      root_url: "http://origin.test",
+      param_parser: ImagePlug.ParamParser.Native,
+      cache: {CacheProbe, message_target: cache_probe, get_result: {:hit, cached_entry}},
+      origin_req_options: [plug: OriginShouldNotBeCalled]
+    )
+
+  flush_cache_probe(cache_probe)
+  assert conn.status == 200
+  assert conn.resp_body == "cached avif"
+  assert_received {:cache_get, key}
+  assert key.material[:output] == [format: :avif, automatic: true]
+  refute_received :origin_was_called
+end
+
+test "disabled automatic modern formats fall back without Vary when Accept cannot affect selected output" do
+  conn = conn(:get, "/_/plain/images/cat-300.jpg")
+
+  conn =
+    ImagePlug.call(conn,
+      root_url: "http://origin.test",
+      param_parser: ImagePlug.ParamParser.Native,
+      auto_avif: false,
+      auto_webp: false,
+      origin_req_options: [plug: OriginImage]
+    )
+
+  assert conn.status == 200
+  assert get_resp_header(conn, "vary") == []
+end
+
 test "does not touch cache or origin when planner rejects unsupported semantics" do
   conn = conn(:get, "/_/rs:auto:100:100/plain/images/cat-300.jpg")
   cache_probe = start_cache_probe()
@@ -1688,10 +2002,17 @@ Add helpers in `lib/image_plug.ex`:
 defp automatic_output?(%ProcessingRequest{format: nil}), do: true
 defp automatic_output?(%ProcessingRequest{}), do: false
 
-defp selected_output_format(%Plug.Conn{} = conn, image) do
+defp output_negotiation_opts(opts) do
+  [
+    auto_avif: Keyword.get(opts, :auto_avif, true),
+    auto_webp: Keyword.get(opts, :auto_webp, true)
+  ]
+end
+
+defp selected_output_format(%Plug.Conn{} = conn, image, opts) do
   accept_header = conn |> get_req_header("accept") |> Enum.join(",")
 
-  case OutputNegotiation.negotiate(accept_header, Image.has_alpha?(image)) do
+  case OutputNegotiation.negotiate(accept_header, Image.has_alpha?(image), output_negotiation_opts(opts)) do
     {:ok, "image/avif"} -> {:ok, :avif}
     {:ok, "image/webp"} -> {:ok, :webp}
     {:ok, "image/jpeg"} -> {:ok, :jpeg}
@@ -1704,6 +2025,10 @@ defp output_mime_type(:avif), do: "image/avif"
 defp output_mime_type(:webp), do: "image/webp"
 defp output_mime_type(:jpeg), do: "image/jpeg"
 defp output_mime_type(:png), do: "image/png"
+
+defp vary_for_automatic?(opts) do
+  Keyword.get(opts, :auto_avif, true) or Keyword.get(opts, :auto_webp, true)
+end
 ```
 
 Keep `OutputNegotiation.suffix!/1` for suffix mapping, or add `suffix_for_format!/1` if that reads cleaner.
@@ -1722,23 +2047,68 @@ end
 
 Move the existing `dispatch_request/5` body to `dispatch_explicit_request/5`.
 
-For automatic requests, fetch/decode/validate origin first, negotiate selected output, then build cache key with selected format:
+For automatic requests, use a two-phase cache strategy:
+
+- If `OutputNegotiation.preselect/2` can select AVIF or WebP from `Accept` and enabled auto flags, build the cache key and check cache before origin fetch.
+- If preselection returns `:defer`, fetch/decode origin, negotiate source/fallback output with metadata, then build the cache key with the selected format.
+- If preselection returns `{:error, :not_acceptable}`, return `406` before cache or origin.
 
 ```elixir
 defp dispatch_automatic_request(conn, request, chain, origin_identity, opts) do
+  accept_header = conn |> get_req_header("accept") |> Enum.join(",")
+
+  case OutputNegotiation.preselect(accept_header, output_negotiation_opts(opts)) do
+    {:ok, selected_format} ->
+      dispatch_preselected_automatic_request(conn, request, chain, origin_identity, selected_format, opts)
+
+    :defer ->
+      dispatch_deferred_automatic_request(conn, request, chain, origin_identity, opts)
+
+    {:error, :not_acceptable} ->
+      send_not_acceptable(conn)
+  end
+end
+```
+
+Implement the preselected path so cache hits avoid origin fetch:
+
+```elixir
+defp dispatch_preselected_automatic_request(conn, request, chain, origin_identity, selected_format, opts) do
+  selected_chain = append_selected_output(chain, selected_format)
+
+  case Cache.lookup(conn, request, origin_identity, opts, selected_output_format: selected_format) do
+    :disabled ->
+      process_uncached(conn, request, selected_chain, origin_identity, opts, automatic?: vary_for_automatic?(opts))
+
+    {:hit, _key, %Entry{} = entry} ->
+      send_cache_entry(conn, entry)
+
+    {:miss, %Key{} = key} ->
+      process_cache_miss(conn, request, selected_chain, origin_identity, key, opts, automatic?: vary_for_automatic?(opts))
+
+    {:error, {:cache_read, error}} ->
+      send_cache_error(conn, error)
+  end
+end
+```
+
+Implement the deferred path for source/fallback formats:
+
+```elixir
+defp dispatch_deferred_automatic_request(conn, request, chain, origin_identity, opts) do
   with {:ok, image} <- fetch_decode_and_validate_origin(request, origin_identity, opts),
-       {:ok, selected_format} <- selected_output_format(conn, image) do
-    selected_chain = chain ++ [{ImagePlug.Transform.Output, %ImagePlug.Transform.Output.OutputParams{format: selected_format}}]
+       {:ok, selected_format} <- selected_output_format(conn, image, opts) do
+    selected_chain = append_selected_output(chain, selected_format)
 
     case Cache.lookup(conn, request, origin_identity, opts, selected_output_format: selected_format) do
       :disabled ->
-        process_decoded_uncached(conn, image, selected_chain, opts, automatic?: true)
+        process_decoded_uncached(conn, image, selected_chain, opts, automatic?: vary_for_automatic?(opts))
 
       {:hit, _key, %Entry{} = entry} ->
         send_cache_entry(conn, entry)
 
       {:miss, %Key{} = key} ->
-        process_decoded_cache_miss(conn, image, selected_chain, key, opts, automatic?: true)
+        process_decoded_cache_miss(conn, image, selected_chain, key, opts, automatic?: vary_for_automatic?(opts))
 
       {:error, {:cache_read, error}} ->
         send_cache_error(conn, error)
@@ -1749,6 +2119,10 @@ defp dispatch_automatic_request(conn, request, chain, origin_identity, opts) do
     {:error, {:decode, error}} -> send_decode_error(conn, error)
     {:error, {:input_limit, error}} -> send_input_limit_error(conn, error)
   end
+end
+
+defp append_selected_output(chain, selected_format) do
+  chain ++ [{ImagePlug.Transform.Output, %ImagePlug.Transform.Output.OutputParams{format: selected_format}}]
 end
 ```
 
@@ -1772,7 +2146,7 @@ Then use `execute_chain/2` from explicit and automatic paths.
 
 - [ ] **Step 5: Ensure automatic responses set `Vary: Accept`**
 
-Change response header handling so automatic requests set `Vary: Accept` even after the selected output transform sets a concrete output:
+Change response header handling so automatic requests set `Vary: Accept` only when enabled automatic modern format selection can affect the response. Preselected AVIF/WebP responses should set `Vary: Accept`; fallback responses with both `auto_avif: false` and `auto_webp: false` should not.
 
 ```elixir
 defp send_image(%Plug.Conn{} = conn, %TransformState{} = state, opts, response_headers \\ []) do
@@ -1790,7 +2164,7 @@ defp automatic_response_headers(false), do: []
 Apply the same response headers to cache entries:
 
 ```elixir
-encode_cache_entry(conn, final_state, opts, automatic_response_headers(true))
+encode_cache_entry(conn, final_state, opts, automatic_response_headers(vary_for_automatic?(opts)))
 ```
 
 - [ ] **Step 6: Run plug tests**
@@ -1863,10 +2237,10 @@ Omitting an explicit output format enables automatic output selection. ImagePlug
 Run:
 
 ```bash
-rg -n "fit:|focus:|format:auto|format:webp|format:jpeg|format:png|fit:" README.md lib test docs/superpowers
+rg -n "focus:|format:auto|format:(webp|jpeg|png)|fit:(cover|contain|fill|inside)" README.md lib test docs/superpowers
 ```
 
-Expected: Only the approved design's historical sentence about old grammar may mention old forms. Tests and README examples should use imgproxy grammar.
+Expected: Only approved design history may mention old forms. Tests and README examples should use imgproxy grammar. `rs:fit:...` is valid imgproxy grammar and should not be treated as an old-form match.
 
 - [ ] **Step 3: Update any remaining tests that construct old fields**
 
@@ -2001,8 +2375,9 @@ Spec coverage:
 - Supported option grammar and assignment order are covered by Task 3.
 - Parser/planner error boundaries are covered by Tasks 3 and 4.
 - Current executable geometry behavior is covered by Task 4.
+- Imgproxy zero-dimension behavior and enlarge constraint mapping are covered by Task 4.
 - `best`, `sm`, `auto`, `fill-down`, `extend`, extend gravity, and non-zero gravity offsets are covered by Task 4.
-- Automatic output negotiation, q-values, wildcards, exact media exclusions, and 406 behavior are covered by Task 5 and Task 6.
+- Automatic output negotiation, q-values, wildcards, exact media exclusions, auto format flags, pre-origin AVIF/WebP preselection, and 406 behavior are covered by Task 5 and Task 6.
 - Cache key selected output behavior is covered by Task 5 and Task 6.
 - README updates are covered by Task 7.
 
