@@ -291,6 +291,34 @@ The planner owns the fixed execution order:
 
 Unsupported semantic combinations return client errors before origin traffic. Examples include non-zero gravity offsets, `resize` requests requiring `extend` behavior that current transforms cannot implement, or `auto`/`fill-down` cases where the current planner cannot provide the documented behavior.
 
+## Compatibility Parser Boundary
+
+Imgproxy compatibility is a parser and request-model concern, not a transform-module concern. The implementation should preserve a boundary that allows later TwicPics, imgix, Cloudinary-like, or direct Elixir APIs to reuse the same processing engine.
+
+Responsibilities:
+
+- Product-specific parsers understand vendor URL grammar, aliases, defaults, and duplicate assignment rules.
+- `ProcessingRequest` represents normalized image intent rather than a vendor command list.
+- `PipelinePlanner` expands normalized intent into ImagePlug's fixed internal pipeline.
+- Transform modules stay small, reusable processing primitives and should not be named or shaped around vendor parameters unless that operation is truly vendor-independent.
+
+One public parameter may compile into several internal transforms. For example:
+
+```text
+rs:fill:300:200/g:ce
+  -> set crop gravity/focus
+  -> resize to cover the target box
+  -> crop to final dimensions
+
+rs:fit:300:200
+  -> resize proportionally inside bounds
+
+rt:force/w:300/h:200
+  -> resize width and height independently
+```
+
+The goal is to keep internal transforms close to image-processing operations while parsers and planners handle vendor vocabulary. Avoid both extremes: do not make one transform per imgproxy parameter, and do not split primitives so finely that every planned pipeline becomes hard to reason about.
+
 ## Internal Model Changes
 
 `ImagePlug.ProcessingRequest` should move from old custom fields toward imgproxy concepts:
