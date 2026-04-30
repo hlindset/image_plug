@@ -33,6 +33,7 @@ defmodule ImagePlug.PipelinePlannerPropertyTest do
       map({constant(:fill), fit_dimension(), fit_dimension()}, fn {resizing_type, width, height} ->
         [resizing_type: resizing_type, width: width, height: height]
       end),
+      constant(resizing_type: :force),
       map({constant(:force), pixel_dimension(), one_of([pixel_dimension(), constant(nil)])}, fn
         {resizing_type, width, height} ->
           [resizing_type: resizing_type, width: width, height: height]

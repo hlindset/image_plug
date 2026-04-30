@@ -152,6 +152,15 @@ defmodule ImagePlug.PipelinePlannerTest do
               ]}
   end
 
+  test "plans force without dimensions as no geometry" do
+    assert PipelinePlanner.plan(request(resizing_type: :force)) == {:ok, []}
+  end
+
+  test "plans force without dimensions with explicit output as output only" do
+    assert PipelinePlanner.plan(request(resizing_type: :force, format: :webp)) ==
+             {:ok, [{Transform.Output, %Transform.Output.OutputParams{format: :webp}}]}
+  end
+
   test "appends explicit output format last" do
     assert {:ok, chain} = PipelinePlanner.plan(request(width: {:pixels, 300}, format: :webp))
 
