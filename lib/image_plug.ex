@@ -8,6 +8,8 @@ defmodule ImagePlug do
   alias ImagePlug.Cache
   alias ImagePlug.Cache.Entry
   alias ImagePlug.Cache.Key
+  alias ImagePlug.DecodePlanner
+  alias ImagePlug.ImageMaterializer
   alias ImagePlug.OutputNegotiation
   alias ImagePlug.Origin
   alias ImagePlug.PipelinePlanner
@@ -119,29 +121,75 @@ defmodule ImagePlug do
   end
 
   defp process_origin(request, chain, origin_identity, opts) do
+    decode_options = DecodePlanner.open_options(chain)
+
     with {:ok, origin_response} <-
            fetch_origin(request, origin_identity, opts) |> wrap_origin_error(),
          {:ok, image} <-
-           decode_origin_response(origin_response) |> wrap_origin_decode_error(),
+           decode_origin_response(origin_response, decode_options, opts)
+           |> wrap_origin_decode_error(),
          :ok <- validate_input_image(image, opts) |> wrap_input_limit_error(),
-         {:ok, final_state} <- TransformChain.execute(%TransformState{image: image}, chain) do
+         {:ok, final_state} <- TransformChain.execute(%TransformState{image: image}, chain),
+         {:ok, final_state} <-
+           materialize_before_delivery(final_state, origin_response, decode_options, opts) do
       {:ok, final_state}
     end
   end
 
-  defp decode_origin_response(%Origin.Response{} = origin_response) do
-    case Image.open(origin_response.stream, access: :random, fail_on: :error) do
+  defp decode_origin_response(%Origin.Response{} = origin_response, decode_options, opts) do
+    image_open_module = Keyword.get(opts, :image_open_module, Image)
+
+    case image_open_module.open(origin_response.stream, decode_options) do
       {:ok, image} ->
-        case Origin.stream_error(origin_response) do
-          nil -> {:ok, image}
-          reason -> {:error, {:origin, reason}}
+        case Origin.terminal_status(origin_response) do
+          {:error, reason} -> {:error, {:origin, reason}}
+          :done -> {:ok, image}
+          :pending -> {:ok, image}
         end
 
       {:error, decode_error} ->
-        case Origin.stream_error(origin_response) do
-          nil -> {:error, decode_error}
-          reason -> {:error, {:origin, reason}}
+        case Origin.terminal_status(origin_response) do
+          {:error, reason} -> {:error, {:origin, reason}}
+          :done -> {:error, decode_error}
+          :pending -> {:error, decode_error}
         end
+    end
+  end
+
+  defp materialize_before_delivery(
+         %TransformState{} = state,
+         %Origin.Response{} = origin_response,
+         decode_options,
+         opts
+       ) do
+    if Keyword.fetch!(decode_options, :access) == :sequential do
+      materializer = Keyword.get(opts, :image_materializer_module, ImageMaterializer)
+
+      case materializer.materialize(state.image) do
+        {:ok, materialized_image} ->
+          case Origin.require_terminal_status(origin_response) do
+            :done ->
+              {:ok, TransformState.set_image(state, materialized_image)}
+
+            {:error, reason} ->
+              {:error, {:origin, reason}}
+          end
+
+        {:error, materialize_error} ->
+          case Origin.terminal_status(origin_response) do
+            {:error, reason} ->
+              {:error, {:origin, reason}}
+
+            :done ->
+              {:error, {:decode, materialize_error}}
+
+            :pending ->
+              Origin.close(origin_response)
+              {:error, {:decode, materialize_error}}
+          end
+      end
+    else
+      {:ok, state}
     end
   end
 

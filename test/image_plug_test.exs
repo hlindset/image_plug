@@ -108,6 +108,18 @@ defmodule ImagePlug.ImagePlugTest do
     end
   end
 
+  defmodule RecordingImageOpen do
+    # ImagePlug decodes in the caller process, so self() is the test process here.
+    def open(stream, opts) do
+      send(self(), {:image_open_options, opts})
+      Image.open(stream, opts)
+    end
+  end
+
+  defmodule FailingMaterializer do
+    def materialize(_image), do: {:error, :forced_materialization_failure}
+  end
+
   def sample_processing_request do
     %ProcessingRequest{
       signature: "_",
@@ -462,6 +474,50 @@ defmodule ImagePlug.ImagePlugTest do
     assert conn.resp_body == "no acceptable image output format"
     assert get_resp_header(conn, "content-type") == ["text/plain; charset=utf-8"]
     assert get_resp_header(conn, "vary") == ["Accept"]
+  end
+
+  test "safe one-pass resize opens origin with sequential access" do
+    conn =
+      conn(:get, "/_/w:100/format:jpeg/plain/images/cat-300.jpg")
+      |> ImagePlug.call(
+        root_url: "http://origin.test",
+        image_open_module: RecordingImageOpen,
+        param_parser: ImagePlug.ParamParser.Native,
+        origin_req_options: [plug: OriginImage]
+      )
+
+    assert conn.status == 200
+    assert_received {:image_open_options, [access: :sequential, fail_on: :error]}
+  end
+
+  test "cover opens origin with random access" do
+    conn =
+      conn(:get, "/_/fit:cover/w:100/h:100/format:jpeg/plain/images/cat-300.jpg")
+      |> ImagePlug.call(
+        root_url: "http://origin.test",
+        image_open_module: RecordingImageOpen,
+        param_parser: ImagePlug.ParamParser.Native,
+        origin_req_options: [plug: OriginImage]
+      )
+
+    assert conn.status == 200
+    assert_received {:image_open_options, [access: :random, fail_on: :error]}
+  end
+
+  test "sequential materialization failure without origin error returns decode error" do
+    conn =
+      conn(:get, "/_/w:100/plain/images/cat-300.jpg")
+      |> ImagePlug.call(
+        root_url: "http://origin.test",
+        param_parser: ImagePlug.ParamParser.Native,
+        image_materializer_module: FailingMaterializer,
+        origin_req_options: [plug: OriginImage]
+      )
+
+    assert conn.status == 415
+    assert conn.state == :sent
+    assert conn.resp_body == "origin response is not a supported image"
+    assert get_resp_header(conn, "content-type") == ["text/plain; charset=utf-8"]
   end
 
   test "processes a native path URL with cover and explicit output format" do
