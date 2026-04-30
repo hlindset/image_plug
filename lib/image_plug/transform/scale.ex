@@ -26,6 +26,21 @@ defmodule ImagePlug.Transform.Scale do
               }
   end
 
+  @impl ImagePlug.Transform
+  def metadata(%ScaleParams{type: :dimensions, width: :auto, height: height})
+      when height != :auto do
+    %{access: :sequential}
+  end
+
+  def metadata(%ScaleParams{type: :dimensions, width: width, height: :auto})
+      when width != :auto do
+    %{access: :sequential}
+  end
+
+  def metadata(%ScaleParams{}) do
+    %{access: :random}
+  end
+
   defp dimensions_for_scale_type(state, %ScaleParams{
          type: :dimensions,
          width: width,
