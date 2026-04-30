@@ -18,9 +18,7 @@ defmodule ImagePlug.Transform.Focus do
   end
 
   @impl ImagePlug.Transform
-  def metadata(%FocusParams{}) do
-    %{access: :random}
-  end
+  def metadata(%FocusParams{}), do: %{access: :random}
 
   @impl ImagePlug.Transform
   def execute(%TransformState{} = state, %FocusParams{type: {:coordinate, left, top}}) do

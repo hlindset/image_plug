@@ -36,13 +36,10 @@ defmodule ImagePlug.Transform.Contain do
         type: :dimensions,
         constraint: :regular,
         letterbox: false
-      }) do
-    %{access: :sequential}
-  end
+      }),
+      do: %{access: :sequential}
 
-  def metadata(%ContainParams{}) do
-    %{access: :random}
-  end
+  def metadata(%ContainParams{}), do: %{access: :random}
 
   @impl ImagePlug.Transform
   def execute(%TransformState{} = state, %ContainParams{

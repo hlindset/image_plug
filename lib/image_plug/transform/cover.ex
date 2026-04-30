@@ -32,9 +32,7 @@ defmodule ImagePlug.Transform.Cover do
   end
 
   @impl ImagePlug.Transform
-  def metadata(%CoverParams{}) do
-    %{access: :random}
-  end
+  def metadata(%CoverParams{}), do: %{access: :random}
 
   @impl ImagePlug.Transform
   def execute(%TransformState{} = state, %CoverParams{

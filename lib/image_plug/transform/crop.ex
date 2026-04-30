@@ -21,9 +21,7 @@ defmodule ImagePlug.Transform.Crop do
   end
 
   @impl ImagePlug.Transform
-  def metadata(%CropParams{}) do
-    %{access: :random}
-  end
+  def metadata(%CropParams{}), do: %{access: :random}
 
   @impl ImagePlug.Transform
   def execute(%TransformState{} = state, %CropParams{} = params) do

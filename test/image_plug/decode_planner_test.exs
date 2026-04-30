@@ -22,57 +22,43 @@ defmodule ImagePlug.DecodePlannerTest do
   defmodule BogusMetadataTransform do
     defstruct []
 
-    def metadata(%__MODULE__{}) do
-      %{access: :bogus}
-    end
+    def metadata(%__MODULE__{}), do: %{access: :bogus}
   end
 
   defmodule MissingAccessMetadataTransform do
     defstruct []
 
-    def metadata(%__MODULE__{}) do
-      %{other: :metadata}
-    end
+    def metadata(%__MODULE__{}), do: %{other: :metadata}
   end
 
   defmodule NilMetadataTransform do
     defstruct []
 
-    def metadata(%__MODULE__{}) do
-      nil
-    end
+    def metadata(%__MODULE__{}), do: nil
   end
 
   defmodule KeywordMetadataTransform do
     defstruct []
 
-    def metadata(%__MODULE__{}) do
-      [access: :sequential]
-    end
+    def metadata(%__MODULE__{}), do: [access: :sequential]
   end
 
   defmodule RaisingMetadataTransform do
     defstruct []
 
-    def metadata(%__MODULE__{}) do
-      raise "metadata failed"
-    end
+    def metadata(%__MODULE__{}), do: raise("metadata failed")
   end
 
   defmodule ThrowingMetadataTransform do
     defstruct []
 
-    def metadata(%__MODULE__{}) do
-      throw(:metadata_failed)
-    end
+    def metadata(%__MODULE__{}), do: throw(:metadata_failed)
   end
 
   defmodule ExitingMetadataTransform do
     defstruct []
 
-    def metadata(%__MODULE__{}) do
-      exit(:metadata_failed)
-    end
+    def metadata(%__MODULE__{}), do: exit(:metadata_failed)
   end
 
   test "empty chains open randomly with fail_on error" do
