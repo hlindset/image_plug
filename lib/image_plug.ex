@@ -162,35 +162,53 @@ defmodule ImagePlug do
          decode_options,
          opts
        ) do
-    if Keyword.fetch!(decode_options, :access) == :sequential do
-      materializer = Keyword.get(opts, :image_materializer_module, ImageMaterializer)
-
-      case materializer.materialize(state.image) do
-        {:ok, materialized_image} ->
-          case Origin.require_stream_status(origin_response) do
-            :done ->
-              {:ok, TransformState.set_image(state, materialized_image)}
-
-            {:error, reason} ->
-              {:error, {:origin, reason}}
-          end
-
-        {:error, materialize_error} ->
-          case Origin.stream_status(origin_response) do
-            {:error, reason} ->
-              {:error, {:origin, reason}}
-
-            :done ->
-              {:error, {:decode, materialize_error}}
-
-            :pending ->
-              Origin.close(origin_response)
-              {:error, {:decode, materialize_error}}
-          end
-      end
-    else
-      {:ok, state}
+    case Keyword.fetch!(decode_options, :access) do
+      :sequential -> materialize_sequential_before_delivery(state, origin_response, opts)
+      :random -> {:ok, state}
     end
+  end
+
+  defp materialize_sequential_before_delivery(
+         %TransformState{} = state,
+         %Origin.Response{} = origin_response,
+         opts
+       ) do
+    materializer = Keyword.get(opts, :image_materializer_module, ImageMaterializer)
+
+    state.image
+    |> materializer.materialize()
+    |> handle_materialization_result(state, origin_response)
+  end
+
+  defp handle_materialization_result(
+         {:ok, materialized_image},
+         %TransformState{} = state,
+         %Origin.Response{} = origin_response
+       ) do
+    case Origin.require_stream_status(origin_response) do
+      :done -> {:ok, TransformState.set_image(state, materialized_image)}
+      {:error, reason} -> {:error, {:origin, reason}}
+    end
+  end
+
+  defp handle_materialization_result(
+         {:error, materialize_error},
+         %TransformState{},
+         %Origin.Response{} = origin_response
+       ) do
+    case Origin.stream_status(origin_response) do
+      {:error, reason} -> {:error, {:origin, reason}}
+      :done -> {:error, {:decode, materialize_error}}
+      :pending -> close_pending_origin_with_decode_error(origin_response, materialize_error)
+    end
+  end
+
+  defp close_pending_origin_with_decode_error(
+         %Origin.Response{} = origin_response,
+         materialize_error
+       ) do
+    Origin.close(origin_response)
+    {:error, {:decode, materialize_error}}
   end
 
   defp fetch_origin(%ProcessingRequest{source_kind: :plain}, origin_identity, opts) do
