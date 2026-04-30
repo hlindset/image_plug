@@ -2,7 +2,7 @@
 
 ## Summary
 
-ImagePlug should make imgproxy v4-pre URL syntax the basis for its public request grammar and processing model. This first slice covers ImagePlug's current executable functionality only: plain sources, width and height based resizing, crop gravity/focus for fill-style crops, and output format selection.
+ImagePlug should make imgproxy v4-pre URL syntax the basis for its public request grammar and processing model. This first slice covers ImagePlug's current executable functionality plus imgproxy's `best` output format behavior: plain sources, width and height based resizing, crop gravity/focus for fill-style crops, explicit output format selection, and best-format selection.
 
 Because ImagePlug is greenfield and unreleased, the existing custom native option names are not preserved. The old `w:300`, `fit:cover`, `focus:center`, and `format:webp` grammar is replaced by imgproxy-compatible names, aliases, argument order, and value sets for every imgproxy option ImagePlug chooses to support.
 
@@ -27,6 +27,7 @@ The imgproxy source files used to clarify parser edge cases are:
 - Use imgproxy's URL structure as ImagePlug's default public URL structure.
 - For each supported imgproxy processing option, support the whole documented grammar for that option from the start: long name, short aliases, argument shape, omitted optional arguments, and documented enum values.
 - Keep the first implementation limited to ImagePlug's current image processing capabilities.
+- Add `best` output format support because it builds on existing output encoders and does not require external detection systems.
 - Reject unsupported imgproxy options explicitly before origin fetch.
 - Keep option order declarative. URL option order does not define transform execution order.
 - Keep the internal model declarative: parser -> `ProcessingRequest` -> `PipelinePlanner` -> `TransformChain`.
@@ -227,7 +228,20 @@ png
 best
 ```
 
-`jpg` normalizes to ImagePlug's internal JPEG output format. `best` is parsed and represented distinctly because imgproxy documents it as a Pro value for both the `format` option and URL extension. In this first slice, `best` returns an explicit planner error because ImagePlug does not currently implement best-format selection.
+`jpg` normalizes to ImagePlug's internal JPEG output format. `best` is parsed and represented distinctly because imgproxy documents it as a Pro value for both the `format` option and URL extension.
+
+In this first slice, `best` is executable. ImagePlug encodes the transformed image into candidate formats it supports, picks the smallest encoded body, and returns that format. The first candidate set is ImagePlug's supported raster output formats:
+
+```text
+avif
+webp
+jpeg
+png
+```
+
+When the request includes an `Accept` header, candidates are filtered to formats acceptable to the client. If no candidate is acceptable, ImagePlug returns `406`, matching existing automatic output negotiation behavior. If a candidate encoder fails, that candidate is skipped; if every candidate fails, ImagePlug returns an encode error.
+
+The first implementation does not need imgproxy's full best-format configuration surface. Complexity thresholds, preferred-format configuration, best-by-default, best-format skip behavior, and quality tuning are later refinements.
 
 `format:auto` is not an imgproxy format value and is not part of this grammar. Accept-header based output negotiation remains ImagePlug's default only when no explicit format or extension is provided.
 
@@ -264,12 +278,10 @@ The planner owns the fixed execution order:
 3. Decode the image and enforce input limits.
 4. Apply supported geometry operations.
 5. Apply gravity/focus where crop-like operations need it.
-6. Select explicit output format or negotiate automatically when no explicit format is requested.
+6. Select explicit output format, compute best output format, or negotiate automatically when no explicit format is requested.
 7. Encode and return the response.
 
 Unsupported semantic combinations return client errors before origin traffic. Examples include non-zero gravity offsets, `resize` requests requiring `extend` behavior that current transforms cannot implement, or `auto`/`fill-down` cases where the current planner cannot provide the documented behavior.
-
-The Pro `best` output format also returns a planner error in this slice. Implementing it requires a later design for preferred formats, candidate encodes, quality interaction, and cache key behavior.
 
 ## Internal Model Changes
 
@@ -315,13 +327,14 @@ The implementation should be test-first and cover:
 - Parser tests for full enum coverage on `resizing_type`.
 - Parser tests for omitted optional `resize` and `size` arguments.
 - Parser tests for `plain` source extension with `@extension`.
-- Parser tests for `format:best` and `@best` as parsed but unsupported output semantics.
+- Parser tests for `format:best` and `@best`.
 - Parser tests for equivalent meta-option and atomic-option combinations.
 - Parser tests for last-wins duplicate option assignment.
 - Parser tests proving `@extension` overrides an explicit format option.
 - Parser tests for unsupported imgproxy options returning errors.
 - Planner tests for current executable semantics: `fit`, `fill`, `force`, width-only, height-only, explicit output format, and gravity-driven crops.
 - Planner tests proving unsupported semantic combinations fail before origin fetch.
+- Output tests proving `best` chooses the smallest successful encoded candidate and respects `Accept`.
 - Plug-level tests for representative imgproxy-compatible URLs.
 - README examples that match the implemented grammar.
 
@@ -343,4 +356,4 @@ It should state that ImagePlug supports a subset of imgproxy options, but suppor
 - Whether `quality`, `dpr`, and metadata controls should enter the request model before matching transform execution exists.
 - Whether exact imgproxy `auto` and `fill-down` behavior should be implemented in transforms or remain explicit planner errors until needed.
 - Create a follow-up issue to add pro object-oriented gravity support for `obj` and `objw` once ImagePlug has an object detection strategy.
-- Create a follow-up issue to add Pro best-format support for `format:best` and `@best`.
+- Create follow-up issues for advanced Pro best-format configuration: preferred formats, complexity thresholds, best-by-default, best-format skip behavior, and quality tuning.
