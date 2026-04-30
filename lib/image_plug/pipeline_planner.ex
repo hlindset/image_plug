@@ -52,6 +52,14 @@ defmodule ImagePlug.PipelinePlanner do
 
   defp validate_supported_semantics(%ProcessingRequest{}), do: :ok
 
+  defp plan_geometry(%ProcessingRequest{resizing_type: :force, width: {:pixels, 0}}),
+    do: {:error, {:unsupported_zero_dimension, :force}}
+
+  defp plan_geometry(%ProcessingRequest{resizing_type: :force, height: {:pixels, 0}}),
+    do: {:error, {:unsupported_zero_dimension, :force}}
+
+  defp plan_geometry(%ProcessingRequest{width: {:pixels, 0}, height: {:pixels, 0}}), do: {:ok, []}
+
   defp plan_geometry(
          %ProcessingRequest{resizing_type: :fit, width: width, height: height} = request
        ) do
@@ -73,12 +81,6 @@ defmodule ImagePlug.PipelinePlanner do
 
     {:ok, maybe_prepend_focus([cover], request.gravity)}
   end
-
-  defp plan_geometry(%ProcessingRequest{resizing_type: :force, width: {:pixels, 0}}),
-    do: {:error, {:unsupported_zero_dimension, :force}}
-
-  defp plan_geometry(%ProcessingRequest{resizing_type: :force, height: {:pixels, 0}}),
-    do: {:error, {:unsupported_zero_dimension, :force}}
 
   defp plan_geometry(%ProcessingRequest{resizing_type: :force, width: width, height: height}) do
     {:ok, [scale(width || :auto, height || :auto)]}

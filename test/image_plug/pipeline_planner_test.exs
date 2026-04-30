@@ -73,6 +73,23 @@ defmodule ImagePlug.PipelinePlannerTest do
              )
   end
 
+  test "plans zero fill dimensions as no geometry" do
+    assert PipelinePlanner.plan(
+             request(resizing_type: :fill, width: {:pixels, 0}, height: {:pixels, 0})
+           ) == {:ok, []}
+  end
+
+  test "plans zero fill dimensions with explicit output as output only" do
+    assert PipelinePlanner.plan(
+             request(
+               resizing_type: :fill,
+               width: {:pixels, 0},
+               height: {:pixels, 0},
+               format: :webp
+             )
+           ) == {:ok, [{Transform.Output, %Transform.Output.OutputParams{format: :webp}}]}
+  end
+
   test "plans fill with non-center anchor gravity as focus before cover" do
     assert PipelinePlanner.plan(
              request(
