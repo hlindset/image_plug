@@ -224,9 +224,12 @@ avif
 jpeg
 jpg
 png
+best
 ```
 
-`jpg` normalizes to ImagePlug's internal JPEG output format. `format:auto` is not an imgproxy format value and is not part of this grammar. Accept-header based output negotiation remains ImagePlug's default only when no explicit format or extension is provided.
+`jpg` normalizes to ImagePlug's internal JPEG output format. `best` is parsed and represented distinctly because imgproxy documents it as a Pro value for both the `format` option and URL extension. In this first slice, `best` returns an explicit planner error because ImagePlug does not currently implement best-format selection.
+
+`format:auto` is not an imgproxy format value and is not part of this grammar. Accept-header based output negotiation remains ImagePlug's default only when no explicit format or extension is provided.
 
 If both a format option and a trailing plain-source extension are present, the source extension is applied after processing options and wins, matching imgproxy's parser.
 
@@ -265,6 +268,8 @@ The planner owns the fixed execution order:
 7. Encode and return the response.
 
 Unsupported semantic combinations return client errors before origin traffic. Examples include non-zero gravity offsets, `resize` requests requiring `extend` behavior that current transforms cannot implement, or `auto`/`fill-down` cases where the current planner cannot provide the documented behavior.
+
+The Pro `best` output format also returns a planner error in this slice. Implementing it requires a later design for preferred formats, candidate encodes, quality interaction, and cache key behavior.
 
 ## Internal Model Changes
 
@@ -310,6 +315,7 @@ The implementation should be test-first and cover:
 - Parser tests for full enum coverage on `resizing_type`.
 - Parser tests for omitted optional `resize` and `size` arguments.
 - Parser tests for `plain` source extension with `@extension`.
+- Parser tests for `format:best` and `@best` as parsed but unsupported output semantics.
 - Parser tests for equivalent meta-option and atomic-option combinations.
 - Parser tests for last-wins duplicate option assignment.
 - Parser tests proving `@extension` overrides an explicit format option.
@@ -337,3 +343,4 @@ It should state that ImagePlug supports a subset of imgproxy options, but suppor
 - Whether `quality`, `dpr`, and metadata controls should enter the request model before matching transform execution exists.
 - Whether exact imgproxy `auto` and `fill-down` behavior should be implemented in transforms or remain explicit planner errors until needed.
 - Create a follow-up issue to add pro object-oriented gravity support for `obj` and `objw` once ImagePlug has an object detection strategy.
+- Create a follow-up issue to add Pro best-format support for `format:best` and `@best`.
