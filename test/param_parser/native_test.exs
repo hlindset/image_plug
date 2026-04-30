@@ -14,7 +14,7 @@ defmodule ImagePlug.ParamParser.NativeTest do
               signature: "_",
               source_kind: :plain,
               source_path: ["images", "cat.jpg"],
-              format: :auto,
+              format: nil,
               focus: {:anchor, :center, :center}
             }} = Native.parse(conn)
   end

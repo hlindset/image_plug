@@ -52,6 +52,16 @@ defmodule ImagePlug.Cache.Key do
       source_path: request.source_path,
       width: request.width,
       height: request.height,
+      resizing_type: request.resizing_type,
+      enlarge: request.enlarge,
+      extend: request.extend,
+      extend_gravity: request.extend_gravity,
+      extend_x_offset: request.extend_x_offset,
+      extend_y_offset: request.extend_y_offset,
+      gravity: request.gravity,
+      gravity_x_offset: request.gravity_x_offset,
+      gravity_y_offset: request.gravity_y_offset,
+      output_extension_from_source: request.output_extension_from_source,
       fit: request.fit,
       focus: request.focus
     ]

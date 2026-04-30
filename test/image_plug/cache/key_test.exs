@@ -44,6 +44,16 @@ defmodule ImagePlug.Cache.KeyTest do
              source_path: ["images", "cat.jpg"],
              width: {:pixels, 100},
              height: {:pixels, 80},
+             resizing_type: :fit,
+             enlarge: false,
+             extend: false,
+             extend_gravity: nil,
+             extend_x_offset: nil,
+             extend_y_offset: nil,
+             gravity: {:anchor, :center, :center},
+             gravity_x_offset: 0.0,
+             gravity_y_offset: 0.0,
+             output_extension_from_source: nil,
              fit: :cover,
              focus: {:anchor, :center, :center}
            ]

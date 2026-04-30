@@ -99,6 +99,7 @@ defmodule ImagePlug.PipelinePlanner do
 
   defp prepend_focus(chain, _focus), do: chain
 
+  defp append_output(chain, nil), do: chain
   defp append_output(chain, :auto), do: chain
 
   defp append_output(chain, format) do
