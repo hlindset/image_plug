@@ -289,7 +289,7 @@ defmodule ImagePlug.ImagePlugTest do
   end
 
   test "does not touch cache when parser validation fails" do
-    conn = conn(:get, "/_/w:0/plain/images/cat-300.jpg")
+    conn = conn(:get, "/_/w:-1/plain/images/cat-300.jpg")
     cache_probe = start_cache_probe()
 
     conn =
@@ -411,7 +411,7 @@ defmodule ImagePlug.ImagePlugTest do
   end
 
   test "does not fetch origin when parser validation fails" do
-    conn = conn(:get, "/_/w:0/plain/images/cat-300.jpg")
+    conn = conn(:get, "/_/w:-1/plain/images/cat-300.jpg")
 
     conn =
       ImagePlug.call(conn,
@@ -522,7 +522,7 @@ defmodule ImagePlug.ImagePlugTest do
 
   test "cover opens origin with random access" do
     conn =
-      conn(:get, "/_/fit:cover/w:100/h:100/format:jpeg/plain/images/cat-300.jpg")
+      conn(:get, "/_/rs:fill:100:100/f:jpeg/plain/images/cat-300.jpg")
       |> ImagePlug.call(
         root_url: "http://origin.test",
         image_open_module: RecordingImageOpen,
@@ -552,8 +552,8 @@ defmodule ImagePlug.ImagePlugTest do
     assert get_resp_header(conn, "content-type") == ["text/plain; charset=utf-8"]
   end
 
-  test "processes a native path URL with cover and explicit output format" do
-    conn = conn(:get, "/_/fit:cover/w:100/h:100/format:jpeg/plain/images/cat-300.jpg")
+  test "processes a native path URL with dimensions and explicit output format" do
+    conn = conn(:get, "/_/w:100/h:100/f:jpeg/plain/images/cat-300.jpg")
 
     conn =
       ImagePlug.call(conn,

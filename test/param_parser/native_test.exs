@@ -91,6 +91,37 @@ defmodule ImagePlug.ParamParser.NativeTest do
             }} = conn(:get, "/_/w:500/rs:fill::200/plain/images/cat.jpg") |> Native.parse()
   end
 
+  test "omitted extend argument skips extend gravity tail" do
+    assert {:ok, %ProcessingRequest{extend_gravity: nil}} =
+             conn(:get, "/_/rs::::::ce::/plain/images/cat.jpg") |> Native.parse()
+
+    assert {:ok, %ProcessingRequest{extend_gravity: nil}} =
+             conn(:get, "/_/s:::::ce::/plain/images/cat.jpg") |> Native.parse()
+  end
+
+  test "extend gravity invalid arity reports the original option segment" do
+    segment = "rs:::::1:ce:1"
+
+    assert Native.parse(conn(:get, "/_/#{segment}/plain/images/cat.jpg")) ==
+             {:error, {:invalid_option_segment, segment}}
+  end
+
+  test "parses extend gravity when extend is provided" do
+    x_offset = 0.0
+    y_offset = 0.0
+
+    assert {:ok,
+            %ProcessingRequest{
+              resizing_type: :fit,
+              width: {:pixels, 300},
+              height: {:pixels, 200},
+              extend: true,
+              extend_gravity: {:anchor, :center, :center},
+              extend_x_offset: ^x_offset,
+              extend_y_offset: ^y_offset
+            }} = conn(:get, "/_/rs:fit:300:200:0:1:ce:0:0/plain/images/cat.jpg") |> Native.parse()
+  end
+
   test "parses size without changing resizing_type" do
     assert {:ok,
             %ProcessingRequest{

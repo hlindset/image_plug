@@ -186,7 +186,7 @@ defmodule ImagePlug.ParamParser.Native do
     end
   end
 
-  defp parse_resize(_segment, args) when length(args) <= 8 do
+  defp parse_resize(segment, args) when length(args) <= 8 do
     {fields, extend_gravity_parts} = Enum.split(args, 5)
     [resizing_type, width, height, enlarge, extend] = pad_optional(fields, 5)
 
@@ -198,14 +198,15 @@ defmodule ImagePlug.ParamParser.Native do
              {:enlarge, enlarge, &parse_boolean/1},
              {:extend, extend, &parse_boolean/1}
            ]),
-         {:ok, extend_gravity_assignments} <- parse_optional_extend_gravity(extend_gravity_parts) do
+         {:ok, extend_gravity_assignments} <-
+           parse_extend_gravity(segment, extend, extend_gravity_parts) do
       {:ok, assignments ++ extend_gravity_assignments}
     end
   end
 
   defp parse_resize(segment, _args), do: {:error, {:invalid_option_segment, segment}}
 
-  defp parse_size(_segment, args) when length(args) <= 7 do
+  defp parse_size(segment, args) when length(args) <= 7 do
     {fields, extend_gravity_parts} = Enum.split(args, 4)
     [width, height, enlarge, extend] = pad_optional(fields, 4)
 
@@ -216,7 +217,8 @@ defmodule ImagePlug.ParamParser.Native do
              {:enlarge, enlarge, &parse_boolean/1},
              {:extend, extend, &parse_boolean/1}
            ]),
-         {:ok, extend_gravity_assignments} <- parse_optional_extend_gravity(extend_gravity_parts) do
+         {:ok, extend_gravity_assignments} <-
+           parse_extend_gravity(segment, extend, extend_gravity_parts) do
       {:ok, assignments ++ extend_gravity_assignments}
     end
   end
@@ -236,16 +238,21 @@ defmodule ImagePlug.ParamParser.Native do
     end)
   end
 
-  defp parse_optional_extend_gravity([]), do: {:ok, []}
-  defp parse_optional_extend_gravity([""]), do: {:ok, []}
+  defp parse_extend_gravity(_segment, extend, _parts) when extend in [nil, ""], do: {:ok, []}
 
-  defp parse_optional_extend_gravity([gravity]) do
+  defp parse_extend_gravity(segment, _extend, parts),
+    do: parse_optional_extend_gravity(segment, parts)
+
+  defp parse_optional_extend_gravity(_segment, []), do: {:ok, []}
+  defp parse_optional_extend_gravity(_segment, [""]), do: {:ok, []}
+
+  defp parse_optional_extend_gravity(_segment, [gravity]) do
     with {:ok, anchor} <- parse_gravity_anchor(gravity) do
       {:ok, [extend_gravity: anchor]}
     end
   end
 
-  defp parse_optional_extend_gravity([gravity, x_offset, y_offset]) do
+  defp parse_optional_extend_gravity(_segment, [gravity, x_offset, y_offset]) do
     with {:ok, anchor} <- parse_gravity_anchor(gravity),
          {:ok, x_offset} <- parse_float(x_offset),
          {:ok, y_offset} <- parse_float(y_offset) do
@@ -258,7 +265,8 @@ defmodule ImagePlug.ParamParser.Native do
     end
   end
 
-  defp parse_optional_extend_gravity(_parts), do: {:error, :invalid_extend_gravity}
+  defp parse_optional_extend_gravity(segment, _parts),
+    do: {:error, {:invalid_option_segment, segment}}
 
   defp parse_resizing_type(value) do
     with {:ok, resizing_type} <- parse_resizing_type_value(value) do
