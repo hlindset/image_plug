@@ -126,6 +126,34 @@ defmodule ImagePlug.OriginTest do
     assert Origin.stream_status(response) == :pending
   end
 
+  test "stream_status holder exits when the fetch owner exits normally" do
+    plug = fn conn ->
+      conn
+      |> Plug.Conn.put_resp_header("content-type", "image/jpeg")
+      |> Plug.Conn.send_resp(200, "image bytes")
+    end
+
+    test_pid = self()
+
+    owner =
+      spawn(fn ->
+        case Origin.fetch("https://img.example/cat.jpg", plug: plug) do
+          {:ok, %Origin.Response{} = response} ->
+            send(test_pid, {:stream_status_holder, response.stream_status})
+
+          other ->
+            send(test_pid, {:fetch_result, other})
+        end
+      end)
+
+    owner_ref = Process.monitor(owner)
+
+    assert_receive {:stream_status_holder, stream_status}
+    stream_status_ref = Process.monitor(stream_status)
+    assert_receive {:DOWN, ^owner_ref, :process, ^owner, :normal}
+    assert_receive {:DOWN, ^stream_status_ref, :process, ^stream_status, _reason}
+  end
+
   test "fetch accepts mixed-case image content type with parameters" do
     plug = fn conn ->
       conn
