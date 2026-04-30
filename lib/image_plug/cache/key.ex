@@ -7,7 +7,7 @@ defmodule ImagePlug.Cache.Key do
 
   alias ImagePlug.ProcessingRequest
 
-  @schema_version 1
+  @schema_version 2
   @enforce_keys [:hash, :material, :serialized_material]
 
   defstruct @enforce_keys
@@ -25,7 +25,7 @@ defmodule ImagePlug.Cache.Key do
       schema_version: @schema_version,
       origin_identity: origin_identity,
       operations: operations(request),
-      output: output(conn, request),
+      output: output(request, opts),
       selected_headers: selected_headers(conn, opts),
       selected_cookies: selected_cookies(conn, opts)
     ]
@@ -60,25 +60,16 @@ defmodule ImagePlug.Cache.Key do
       extend_y_offset: request.extend_y_offset,
       gravity: request.gravity,
       gravity_x_offset: request.gravity_x_offset,
-      gravity_y_offset: request.gravity_y_offset,
-      output_extension_from_source: request.output_extension_from_source,
-      fit: request.fit,
-      focus: request.focus
+      gravity_y_offset: request.gravity_y_offset
     ]
   end
 
-  defp output(conn, %ProcessingRequest{format: :auto}) do
-    accept =
-      conn
-      |> get_req_header("accept")
-      |> Enum.join(",")
-      |> normalize_accept()
-
-    [format: :auto, accept: accept]
+  defp output(%ProcessingRequest{format: nil}, opts) do
+    [format: Keyword.get(opts, :selected_output_format), automatic: true]
   end
 
-  defp output(_conn, %ProcessingRequest{format: format}) do
-    [format: format, accept: nil]
+  defp output(%ProcessingRequest{format: format}, _opts) do
+    [format: format, automatic: false]
   end
 
   defp selected_headers(conn, opts) do
@@ -103,40 +94,6 @@ defmodule ImagePlug.Cache.Key do
         :error -> []
       end
     end)
-  end
-
-  defp normalize_accept(""), do: ""
-
-  defp normalize_accept(accept) when is_binary(accept) do
-    accept
-    |> String.split(",", trim: true)
-    |> Enum.map(&normalize_media_range/1)
-    |> Enum.reject(&(&1 == ""))
-    |> Enum.join(",")
-  end
-
-  defp normalize_media_range(media_range) do
-    [media_type | params] = String.split(media_range, ";")
-
-    [
-      media_type
-      |> String.trim()
-      |> String.downcase()
-      | Enum.map(params, &normalize_accept_param/1)
-    ]
-    |> Enum.join(";")
-  end
-
-  defp normalize_accept_param(param) do
-    case String.split(param, "=", parts: 2) do
-      [name, value] ->
-        String.downcase(String.trim(name)) <> "=" <> String.trim(value)
-
-      [name] ->
-        name
-        |> String.trim()
-        |> String.downcase()
-    end
   end
 
   defp canonicalize(value) when is_list(value) do

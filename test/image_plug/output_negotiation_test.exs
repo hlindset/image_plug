@@ -4,8 +4,8 @@ defmodule ImagePlug.OutputNegotiationTest do
   alias ImagePlug.OutputNegotiation
 
   describe "negotiate/2" do
-    test "uses q-values before server priority" do
-      assert OutputNegotiation.negotiate("image/webp;q=0.4,image/avif;q=0.9", true) ==
+    test "uses server preference before relative q-values" do
+      assert OutputNegotiation.negotiate("image/webp;q=1,image/avif;q=0.1", false) ==
                {:ok, "image/avif"}
     end
 
@@ -41,14 +41,19 @@ defmodule ImagePlug.OutputNegotiationTest do
                {:ok, "image/avif"}
     end
 
-    test "trims q values before parsing" do
+    test "trims q values but does not let relative q reorder server preference" do
       assert OutputNegotiation.negotiate("image/webp;q= 1,image/avif;q=0.9", true) ==
-               {:ok, "image/webp"}
+               {:ok, "image/avif"}
     end
 
     test "exact q zero excludes a format even when a wildcard matches" do
-      assert OutputNegotiation.negotiate("image/avif;q=0,image/*;q=1", true) ==
+      assert OutputNegotiation.negotiate("image/avif;q=0,image/*;q=1", false) ==
                {:ok, "image/webp"}
+    end
+
+    test "matches image and global wildcards" do
+      assert OutputNegotiation.negotiate("image/*", false) == {:ok, "image/avif"}
+      assert OutputNegotiation.negotiate("*/*", false) == {:ok, "image/avif"}
     end
 
     test "does not fall back to unaccepted formats for alpha images" do
@@ -80,6 +85,10 @@ defmodule ImagePlug.OutputNegotiationTest do
       assert OutputNegotiation.negotiate("image/*;q=0", true) == {:error, :not_acceptable}
     end
 
+    test "returns not acceptable when wildcard excludes every supported output" do
+      assert OutputNegotiation.negotiate("image/*;q=0", false) == {:error, :not_acceptable}
+    end
+
     test "returns not acceptable when a global wildcard excludes every non-alpha format" do
       assert OutputNegotiation.negotiate("*/*;q=0", false) == {:error, :not_acceptable}
     end
@@ -89,6 +98,25 @@ defmodule ImagePlug.OutputNegotiationTest do
                "image/avif;q=0,image/webp;q=0,image/jpeg;q=0",
                false
              ) == {:error, :not_acceptable}
+    end
+
+    test "respects automatic format feature flags" do
+      assert OutputNegotiation.negotiate("image/avif,image/webp", false, auto_avif: false) ==
+               {:ok, "image/webp"}
+
+      assert OutputNegotiation.preselect("image/avif,image/webp",
+               auto_avif: false,
+               auto_webp: false
+             ) == :defer
+
+      assert OutputNegotiation.preselect(nil, auto_avif: false, auto_webp: false) == :defer
+    end
+
+    test "preselects AVIF and WebP before origin metadata is available" do
+      assert OutputNegotiation.preselect("image/webp;q=1,image/avif;q=0.1", []) == {:ok, :avif}
+      assert OutputNegotiation.preselect("image/avif;q=0,image/*;q=1", []) == {:ok, :webp}
+      assert OutputNegotiation.preselect("image/*;q=0", []) == {:error, :not_acceptable}
+      assert OutputNegotiation.preselect("image/png", []) == :defer
     end
   end
 

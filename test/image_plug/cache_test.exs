@@ -19,6 +19,15 @@ defmodule ImagePlug.CacheTest do
     def put(%Key{}, %Entry{}, _opts), do: :ok
   end
 
+  defmodule CaptureAdapter do
+    def get(%Key{} = key, opts) do
+      send(self(), {:cache_get, key, opts})
+      :miss
+    end
+
+    def put(%Key{}, %Entry{}, _opts), do: :ok
+  end
+
   defmodule ErrorAdapter do
     def get(%Key{}, _opts), do: {:error, :read_failed}
     def put(%Key{}, %Entry{}, _opts), do: {:error, :write_failed}
@@ -61,8 +70,8 @@ defmodule ImagePlug.CacheTest do
   defp cache_key do
     %Key{
       hash: String.duplicate("a", 64),
-      material: [schema_version: 1],
-      serialized_material: :erlang.term_to_binary([schema_version: 1], [:deterministic])
+      material: [schema_version: 2],
+      serialized_material: :erlang.term_to_binary([schema_version: 2], [:deterministic])
     }
   end
 
@@ -125,6 +134,24 @@ defmodule ImagePlug.CacheTest do
              )
 
     assert key.hash =~ ~r/\A[0-9a-f]{64}\z/
+  end
+
+  test "lookup key opts affect key material without reaching adapter opts" do
+    request = %ProcessingRequest{request() | format: nil}
+
+    assert {:miss, %Key{} = key} =
+             Cache.lookup(
+               conn(:get, "/_/plain/images/cat.jpg"),
+               request,
+               "https://origin.test/cat.jpg",
+               [cache: {CaptureAdapter, key_headers: ["accept-language"]}],
+               selected_output_format: :avif
+             )
+
+    assert key.material[:output] == [format: :avif, automatic: true]
+    assert_received {:cache_get, ^key, adapter_opts}
+    refute Keyword.has_key?(adapter_opts, :selected_output_format)
+    assert Keyword.fetch!(adapter_opts, :key_headers) == ["accept-language"]
   end
 
   test "read errors fail open by default and are logged" do

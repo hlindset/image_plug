@@ -22,7 +22,7 @@ defmodule ImagePlug.Cache.KeyPropertyTest do
               height <- maybe_dimension(),
               max_runs: 100 do
       material_one = [
-        schema_version: 1,
+        schema_version: 2,
         origin_identity: origin,
         operations: [
           source_kind: :plain,
@@ -34,7 +34,7 @@ defmodule ImagePlug.Cache.KeyPropertyTest do
             keyword: [b: 2, a: 1]
           ]
         ],
-        output: [format: :webp, accept: nil],
+        output: [format: :webp, automatic: false],
         selected_headers: [],
         selected_cookies: []
       ]
@@ -42,7 +42,7 @@ defmodule ImagePlug.Cache.KeyPropertyTest do
       material_two = [
         selected_cookies: [],
         selected_headers: [],
-        output: [accept: nil, format: :webp],
+        output: [automatic: false, format: :webp],
         operations: [
           nested: [
             keyword: [a: 1, b: 2],
@@ -54,7 +54,7 @@ defmodule ImagePlug.Cache.KeyPropertyTest do
           source_kind: :plain
         ],
         origin_identity: origin,
-        schema_version: 1
+        schema_version: 2
       ]
 
       assert Key.serialize_material(material_one) == Key.serialize_material(material_two)
@@ -158,70 +158,80 @@ defmodule ImagePlug.Cache.KeyPropertyTest do
     end
   end
 
-  property "Accept normalization is idempotent" do
-    check all accept <- accept_header(),
+  property "raw Accept headers do not affect automatic cache key when selected output is same" do
+    check all accept_a <- accept_header(),
+              accept_b <- accept_header(),
+              selected_output <- member_of([:avif, :webp, :jpeg, :png]),
               max_runs: 100 do
-      request = request(format: :auto)
+      request = request(format: nil)
+      origin = "https://origin.test/images/cat.jpg"
 
-      normalized =
+      key_a =
         :get
-        |> conn("/_/format:auto/plain/images/cat.jpg")
-        |> put_req_header("accept", accept)
-        |> Key.build(request, "https://origin.test/images/cat.jpg")
-        |> output_accept()
+        |> conn("/_/plain/images/cat.jpg")
+        |> put_req_header("accept", accept_a)
+        |> Key.build(request, origin, selected_output_format: selected_output)
 
-      renormalized =
+      key_b =
         :get
-        |> conn("/_/format:auto/plain/images/cat.jpg")
-        |> put_req_header("accept", normalized)
-        |> Key.build(request, "https://origin.test/images/cat.jpg")
-        |> output_accept()
+        |> conn("/_/plain/images/cat.jpg")
+        |> put_req_header("accept", accept_b)
+        |> Key.build(request, origin, selected_output_format: selected_output)
 
-      assert renormalized == normalized
+      assert key_a.hash == key_b.hash
     end
   end
 
-  property "Accept normalization preserves distinct media-range order" do
-    check all first <- media_range(),
-              second <- media_range(),
-              first != second,
+  property "selected automatic output changes automatic cache key" do
+    check all accept <- accept_header(),
+              selected_output_a <- member_of([:avif, :webp, :jpeg, :png]),
+              selected_output_b <- member_of([:avif, :webp, :jpeg, :png]),
+              selected_output_a != selected_output_b,
               max_runs: 100 do
-      request = request(format: :auto)
+      request = request(format: nil)
+      origin = "https://origin.test/images/cat.jpg"
 
-      first_order =
+      key_a =
         :get
-        |> conn("/_/format:auto/plain/images/cat.jpg")
-        |> put_req_header("accept", "#{first},#{second}")
-        |> Key.build(request, "https://origin.test/images/cat.jpg")
+        |> conn("/_/plain/images/cat.jpg")
+        |> put_req_header("accept", accept)
+        |> Key.build(request, origin, selected_output_format: selected_output_a)
 
-      second_order =
+      key_b =
         :get
-        |> conn("/_/format:auto/plain/images/cat.jpg")
-        |> put_req_header("accept", "#{second},#{first}")
-        |> Key.build(request, "https://origin.test/images/cat.jpg")
+        |> conn("/_/plain/images/cat.jpg")
+        |> put_req_header("accept", accept)
+        |> Key.build(request, origin, selected_output_format: selected_output_b)
 
-      refute output_accept(first_order) == output_accept(second_order)
-      refute first_order.hash == second_order.hash
+      refute key_a.hash == key_b.hash
     end
   end
 
   defp key_material do
     map(
-      {origin_identity(), cacheable_request(), member_of([:auto, :webp, :avif, :jpeg, :png])},
+      {origin_identity(), cacheable_request(), member_of([nil, :webp, :avif, :jpeg, :png]),
+       boolean()},
       fn
-        {origin, request, format} ->
+        {origin, request, format, automatic} ->
           [
-            schema_version: 1,
+            schema_version: 2,
             origin_identity: origin,
             operations: [
               source_kind: request.source_kind,
               source_path: request.source_path,
               width: request.width,
               height: request.height,
-              fit: request.fit,
-              focus: request.focus
+              resizing_type: request.resizing_type,
+              enlarge: request.enlarge,
+              extend: request.extend,
+              extend_gravity: request.extend_gravity,
+              extend_x_offset: request.extend_x_offset,
+              extend_y_offset: request.extend_y_offset,
+              gravity: request.gravity,
+              gravity_x_offset: request.gravity_x_offset,
+              gravity_y_offset: request.gravity_y_offset
             ],
-            output: [format: format, accept: nil],
+            output: [format: format, automatic: automatic],
             selected_headers: [],
             selected_cookies: []
           ]
@@ -232,11 +242,16 @@ defmodule ImagePlug.Cache.KeyPropertyTest do
   defp cacheable_request(overrides \\ []) do
     map(
       {source_path(), maybe_dimension(), maybe_dimension(),
-       member_of([nil, :cover, :contain, :fill, :inside])},
-      fn {source_path, width, height, fit} ->
+       member_of([:fit, :fill, :fill_down, :force, :auto])},
+      fn {source_path, width, height, resizing_type} ->
         request(
           Keyword.merge(
-            [source_path: source_path, width: width, height: height, fit: fit],
+            [
+              source_path: source_path,
+              width: width,
+              height: height,
+              resizing_type: resizing_type
+            ],
             overrides
           )
         )
@@ -282,6 +297,4 @@ defmodule ImagePlug.Cache.KeyPropertyTest do
   defp media_range do
     member_of(["image/avif", "image/webp", "image/jpeg", "image/png", "image/*", "*/*"])
   end
-
-  defp output_accept(key), do: Keyword.fetch!(key.material[:output], :accept)
 end

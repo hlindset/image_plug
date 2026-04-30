@@ -1,26 +1,27 @@
 defmodule ImagePlug.OutputNegotiation do
   @moduledoc false
 
-  @alpha_format_priority ~w(image/avif image/webp image/png)
-  @no_alpha_format_priority ~w(image/avif image/webp image/jpeg)
-  @fallback_formats ~w(image/jpeg image/png)
+  @modern_formats [avif: "image/avif", webp: "image/webp"]
+  @fallback_formats ~w(image/png image/jpeg)
 
   @spec negotiate(String.t() | nil, boolean()) :: {:ok, String.t()} | {:error, :not_acceptable}
   def negotiate(accept_header, has_alpha?) do
-    priority =
-      if has_alpha?,
-        do: @alpha_format_priority,
-        else: @no_alpha_format_priority
+    negotiate(accept_header, has_alpha?, [])
+  end
 
+  @spec negotiate(String.t() | nil, boolean(), keyword()) ::
+          {:ok, String.t()} | {:error, :not_acceptable}
+  def negotiate(accept_header, has_alpha?, opts) do
+    candidates = enabled_modern_mime_types(opts) ++ [fallback_mime_type(has_alpha?)]
     entries = parse_accept(accept_header)
 
     mime_type =
       case entries do
         [] ->
-          hd(priority)
+          hd(candidates)
 
         entries ->
-          negotiate_from_entries(priority, entries)
+          Enum.find(candidates, &acceptable?(&1, entries))
       end
 
     case mime_type do
@@ -29,47 +30,83 @@ defmodule ImagePlug.OutputNegotiation do
     end
   end
 
+  @spec preselect(String.t() | nil, keyword()) ::
+          {:ok, :avif | :webp} | :defer | {:error, :not_acceptable}
+  def preselect(accept_header, opts) do
+    entries = parse_accept(accept_header)
+    modern_formats = enabled_modern_formats(opts)
+
+    case entries do
+      [] ->
+        case modern_formats do
+          [{format, _mime_type} | _rest] -> {:ok, format}
+          [] -> :defer
+        end
+
+      entries ->
+        case Enum.find(modern_formats, fn {_format, mime_type} ->
+               acceptable?(mime_type, entries)
+             end) do
+          {format, _mime_type} ->
+            {:ok, format}
+
+          nil ->
+            if supported_output_acceptable?(entries) do
+              :defer
+            else
+              {:error, :not_acceptable}
+            end
+        end
+    end
+  end
+
   def suffix!("image/avif"), do: ".avif"
   def suffix!("image/webp"), do: ".webp"
   def suffix!("image/jpeg"), do: ".jpg"
   def suffix!("image/png"), do: ".png"
 
-  defp negotiate_from_entries(priority, entries) do
-    priority
-    |> Enum.with_index()
-    |> Enum.map(fn {mime_type, index} -> {mime_type, quality_for(entries, mime_type), index} end)
-    |> Enum.filter(fn {_mime_type, quality, _index} -> quality > 0 end)
-    |> Enum.max_by(fn {_mime_type, quality, index} -> {quality, -index} end, fn ->
-      fallback_format(priority, entries)
+  defp enabled_modern_mime_types(opts) do
+    opts
+    |> enabled_modern_formats()
+    |> Enum.map(fn {_format, mime_type} -> mime_type end)
+  end
+
+  defp enabled_modern_formats(opts) do
+    @modern_formats
+    |> Enum.reject(fn
+      {:avif, _mime_type} -> Keyword.get(opts, :auto_avif, true) == false
+      {:webp, _mime_type} -> Keyword.get(opts, :auto_webp, true) == false
     end)
-    |> case do
-      {mime_type, _quality, _index} -> mime_type
-      mime_type -> mime_type
+  end
+
+  defp fallback_mime_type(true), do: "image/png"
+  defp fallback_mime_type(false), do: "image/jpeg"
+
+  defp supported_output_acceptable?(entries) do
+    Enum.any?(
+      enabled_modern_mime_types([]) ++ @fallback_formats,
+      &acceptable?(&1, entries)
+    )
+  end
+
+  defp acceptable?(mime_type, entries) do
+    exact_qualities =
+      entries
+      |> Enum.filter(fn {accepted, _quality} -> accepted == mime_type end)
+      |> Enum.map(fn {_accepted, quality} -> quality end)
+
+    cond do
+      Enum.any?(exact_qualities, &(&1 > 0)) ->
+        true
+
+      Enum.any?(exact_qualities, &(&1 == 0)) ->
+        false
+
+      true ->
+        entries
+        |> Enum.filter(fn {accepted, _quality} -> matches?(accepted, mime_type) end)
+        |> Enum.any?(fn {_accepted, quality} -> quality > 0 end)
     end
-  end
-
-  defp fallback_format(priority, entries) do
-    Enum.find(priority, fn mime_type ->
-      fallback_allowed?(mime_type, entries) and allowed?(mime_type, entries)
-    end)
-  end
-
-  defp allowed?(mime_type, entries) do
-    Enum.any?(entries, fn {accepted, quality} ->
-      quality > 0 and matches?(accepted, mime_type)
-    end)
-  end
-
-  defp fallback_allowed?(mime_type, entries) when mime_type in @fallback_formats do
-    !excluded?(mime_type, entries)
-  end
-
-  defp fallback_allowed?(_mime_type, _entries), do: false
-
-  defp excluded?(mime_type, entries) do
-    Enum.any?(entries, fn {accepted, quality} ->
-      quality == 0 and matches?(accepted, mime_type)
-    end)
   end
 
   defp parse_accept(nil), do: []
@@ -115,24 +152,6 @@ defmodule ImagePlug.OutputNegotiation do
     case value |> String.trim() |> Float.parse() do
       {quality, ""} when quality >= 0.0 and quality <= 1.0 -> quality
       _ -> 0.0
-    end
-  end
-
-  defp quality_for(entries, mime_type) do
-    exact_qualities =
-      entries
-      |> Enum.filter(fn {accepted, _quality} -> accepted == mime_type end)
-      |> Enum.map(fn {_accepted, quality} -> quality end)
-
-    case exact_qualities do
-      [] ->
-        entries
-        |> Enum.filter(fn {accepted, _quality} -> matches?(accepted, mime_type) end)
-        |> Enum.map(fn {_accepted, quality} -> quality end)
-        |> Enum.max(fn -> 0.0 end)
-
-      qualities ->
-        Enum.max(qualities)
     end
   end
 

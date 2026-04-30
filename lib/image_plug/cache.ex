@@ -61,12 +61,19 @@ defmodule ImagePlug.Cache do
 
   @spec lookup(Plug.Conn.t(), ProcessingRequest.t(), String.t(), keyword()) :: lookup_result()
   def lookup(conn, %ProcessingRequest{} = request, origin_identity, opts) when is_list(opts) do
+    lookup(conn, request, origin_identity, opts, [])
+  end
+
+  @spec lookup(Plug.Conn.t(), ProcessingRequest.t(), String.t(), keyword(), keyword()) ::
+          lookup_result()
+  def lookup(conn, %ProcessingRequest{} = request, origin_identity, opts, key_opts)
+      when is_list(opts) and is_list(key_opts) do
     case cache_config(opts) do
       nil ->
         :disabled
 
       {:ok, adapter, cache_opts} ->
-        key = Key.build(conn, request, origin_identity, cache_opts)
+        key = Key.build(conn, request, origin_identity, Keyword.merge(cache_opts, key_opts))
 
         case adapter.get(key, cache_opts) do
           {:hit, %Entry{} = entry} ->

@@ -10,11 +10,6 @@ defmodule ImagePlug.ProcessingRequest do
           {:anchor, :left | :center | :right, :top | :center | :bottom}
   @type gravity() :: gravity_anchor() | {:fp, float(), float()} | :sm
 
-  @type legacy_fit() :: :cover | :contain | :fill | :inside
-  @type legacy_focus() ::
-          ImagePlug.TransformState.focus_anchor()
-          | {:coordinate, ImagePlug.imgp_length(), ImagePlug.imgp_length()}
-
   @type t() :: %__MODULE__{
           signature: String.t() | nil,
           source_kind: source_kind() | nil,
@@ -31,9 +26,7 @@ defmodule ImagePlug.ProcessingRequest do
           gravity_x_offset: float(),
           gravity_y_offset: float(),
           format: output_format() | nil,
-          output_extension_from_source: output_format() | nil,
-          fit: legacy_fit() | nil,
-          focus: legacy_focus()
+          output_extension_from_source: output_format() | nil
         }
 
   defstruct signature: nil,
@@ -51,7 +44,5 @@ defmodule ImagePlug.ProcessingRequest do
             gravity_x_offset: 0.0,
             gravity_y_offset: 0.0,
             format: nil,
-            output_extension_from_source: nil,
-            fit: nil,
-            focus: {:anchor, :center, :center}
+            output_extension_from_source: nil
 end
