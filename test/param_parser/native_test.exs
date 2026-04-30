@@ -179,7 +179,7 @@ defmodule ImagePlug.ParamParser.NativeTest do
 
   test "parses format aliases and jpg normalization" do
     assert {:ok, %ProcessingRequest{format: :webp}} =
-             conn(:get, "/_/format:webp/plain/images/cat.jpg") |> Native.parse()
+             conn(:get, "/_/f:webp/plain/images/cat.jpg") |> Native.parse()
 
     assert {:ok, %ProcessingRequest{format: :avif}} =
              conn(:get, "/_/f:avif/plain/images/cat.jpg") |> Native.parse()

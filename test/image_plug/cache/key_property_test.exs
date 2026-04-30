@@ -91,7 +91,7 @@ defmodule ImagePlug.Cache.KeyPropertyTest do
               origin_b <- origin_identity(),
               origin_a != origin_b,
               max_runs: 100 do
-      conn = conn(:get, "/_/format:webp/plain/images/cat.jpg")
+      conn = conn(:get, "/_/f:webp/plain/images/cat.jpg")
 
       origin_key_a = Key.build(conn, request, origin_a)
       origin_key_b = Key.build(conn, request, origin_b)
@@ -113,13 +113,13 @@ defmodule ImagePlug.Cache.KeyPropertyTest do
 
       conn_a =
         :get
-        |> conn("/_/format:webp/plain/images/cat.jpg")
+        |> conn("/_/f:webp/plain/images/cat.jpg")
         |> put_req_header("accept-language", header_value_a)
         |> put_req_header("cookie", "tenant=#{cookie_value}")
 
       conn_b =
         :get
-        |> conn("/_/format:webp/plain/images/cat.jpg")
+        |> conn("/_/f:webp/plain/images/cat.jpg")
         |> put_req_header("accept-language", header_value_b)
         |> put_req_header("cookie", "tenant=#{cookie_value}")
 
@@ -141,13 +141,13 @@ defmodule ImagePlug.Cache.KeyPropertyTest do
 
       conn_a =
         :get
-        |> conn("/_/format:webp/plain/images/cat.jpg")
+        |> conn("/_/f:webp/plain/images/cat.jpg")
         |> put_req_header("accept-language", header_value)
         |> put_req_header("cookie", "tenant=#{cookie_value_a}")
 
       conn_b =
         :get
-        |> conn("/_/format:webp/plain/images/cat.jpg")
+        |> conn("/_/f:webp/plain/images/cat.jpg")
         |> put_req_header("accept-language", header_value)
         |> put_req_header("cookie", "tenant=#{cookie_value_b}")
 
