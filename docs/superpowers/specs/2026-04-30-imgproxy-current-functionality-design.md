@@ -58,11 +58,14 @@ This first slice supports:
 Rules:
 
 - `<signature>` is required. `_` and `unsafe` are accepted while signing is disabled.
+- While signing is disabled, ImagePlug intentionally accepts only `_` and `unsafe` as signature segments. Any other signature segment is rejected instead of ignored. This is stricter than imgproxy's disabled-signature mode, which allows any value.
 - Processing options are slash-separated path segments.
 - The first `plain` segment terminates option parsing.
 - Source paths after `plain` are joined with `/`, path-unescaped, and resolved through the existing configured origin behavior.
-- A trailing `@<extension>` in the plain source sets the output format, matching imgproxy's plain source extension grammar.
-- A literal `@` in a plain source must be escaped as `%40`; more than one `@` separator is an invalid URL.
+- A raw `@<extension>` in the joined plain source sets the output format, matching imgproxy's plain source extension grammar.
+- The parser detects the raw `@` separator before percent decoding. `%40` is decoded into a literal `@` inside the source path and is not treated as a separator.
+- More than one raw `@` separator is an invalid URL.
+- An empty extension after a raw `@`, such as `plain/images/cat.jpg@`, does not set an output format.
 - Base64 encoded source URLs and encrypted `enc` source URLs are reserved for later slices.
 
 Example supported URLs:
@@ -88,7 +91,7 @@ rs:%resizing_type:%width:%height:%enlarge:%extend
 
 All documented arguments are parsed with imgproxy's omitted-argument behavior, including empty argument positions such as `rs:fit:300` and `rs::300:200`.
 
-The imgproxy source also allows the `extend` argument in `resize` and `size` to carry extend gravity arguments. ImagePlug should parse that source-backed grammar too:
+The imgproxy source also allows the `extend` argument in `resize` and `size` to carry extend gravity arguments. ImagePlug should parse that grammar accepted by imgproxy source too:
 
 ```text
 resize:%resizing_type:%width:%height:%enlarge:%extend:%gravity:%x_offset:%y_offset
@@ -108,9 +111,9 @@ Execution scope:
 - `fit` maps to current aspect-preserving contain behavior without letterboxing.
 - `fill` maps to current cover/crop-to-box behavior.
 - `force` maps to current stretch behavior.
-- `fill-down` is parsed and represented distinctly. In this first slice it may plan to current `fill` behavior only when dimensions make the existing behavior equivalent; otherwise the planner returns an explicit unsupported semantic error before origin fetch.
-- `auto` is parsed and represented distinctly. In this first slice it may plan only when a deterministic current equivalent is available; otherwise the planner returns an explicit unsupported semantic error before origin fetch.
-- `enlarge` and `extend` are parsed because they are part of the supported `resize` grammar. If a request uses a value that current transforms cannot honor, planning fails explicitly before origin fetch.
+- `fill-down` is parsed and represented distinctly, but always returns an explicit unsupported semantic error in this slice. Later slices may support metadata-dependent planning after origin decode.
+- `auto` is parsed and represented distinctly, but always returns an explicit unsupported semantic error in this slice. Later slices may support metadata-dependent planning after origin decode.
+- `enlarge` and `extend` are parsed because they are part of the supported `resize` grammar. If a request uses a value that current transforms cannot honor, planning fails explicitly before origin fetch. In this slice, `extend:true` and non-default extend gravity values are unsupported semantic combinations.
 
 ### Size
 
@@ -121,7 +124,7 @@ size:%width:%height:%enlarge:%extend
 s:%width:%height:%enlarge:%extend
 ```
 
-Source-backed extended grammar:
+Grammar accepted by imgproxy source:
 
 ```text
 size:%width:%height:%enlarge:%extend:%gravity:%x_offset:%y_offset
@@ -196,8 +199,8 @@ sm
 Execution scope:
 
 - Cardinal and corner gravities map to existing anchor focus values for crop-like operations.
-- `fp` maps to the existing coordinate focus model using relative coordinates.
-- Offsets are parsed as part of the option grammar. If non-zero offsets cannot be represented by the current focus model, planning fails explicitly before origin fetch.
+- `fp` maps to the existing coordinate focus model using relative coordinates. `gravity:fp:%x:%y` requires decimal numbers in the inclusive range `0.0..1.0`, matching imgproxy focal point semantics. Integers `0` and `1` are accepted as valid decimal values. Percent strings are not accepted.
+- Offsets for non-`fp` gravity values are parsed as decimal numbers. If non-zero offsets cannot be represented by the current focus model, planning fails explicitly before origin fetch.
 - Smart gravity `sm` is parsed and represented because it is part of imgproxy's open-source crop gravity grammar. It returns an explicit planner error in this slice because ImagePlug does not currently have smart focus execution.
 - Pro object-oriented gravities `obj` and `objw` are not in the open-source parser's crop gravity grammar and are not part of this slice.
 
@@ -248,18 +251,59 @@ ImagePlug should use the same URL semantics but a more modern default configurat
 - `auto_jxl` defaults to `false` until ImagePlug supports JPEG XL encoding confidently.
 - Selection order is AVIF, then WebP, then source format fallback.
 - Automatic selection only chooses a format accepted by the request `Accept` header.
-- If neither AVIF nor WebP is acceptable, ImagePlug falls back to the source format when it can encode it.
-- If the source format cannot be encoded, ImagePlug falls back to JPEG for non-alpha images and PNG for alpha images, matching the spirit of imgproxy's preferred-format fallback without introducing the full preferred-format configuration in this slice.
+- `Accept` q-values are used to determine acceptability. A format with `q=0` is unacceptable. Among acceptable formats, ImagePlug uses server preference order: AVIF, then WebP, then source format fallback. Relative q-values do not reorder AVIF and WebP in this slice.
+- If neither AVIF nor WebP is acceptable, ImagePlug falls back to the source format when it can encode it and the source format is acceptable or the `Accept` header is absent.
+- If the source format cannot be encoded, ImagePlug falls back to JPEG for non-alpha images and PNG for alpha images when the fallback is acceptable or the `Accept` header is absent, matching the spirit of imgproxy's preferred-format fallback without introducing the full preferred-format configuration in this slice.
 - `Vary: Accept` is set whenever automatic output format selection can affect the response.
-- Cache keys include normalized `Accept` only when automatic output format selection can affect the response.
+- Cache keys include the selected automatic output format, not the raw `Accept` header, when automatic output format selection can affect the response. This avoids cache fragmentation from equivalent `Accept` headers.
 
 Operators can disable `auto_avif` and `auto_webp` to get stricter imgproxy-default-style behavior and simpler cache behavior.
 
+## Normalized Assignment Semantics
+
+Processing options are parsed left to right into a single normalized `ProcessingRequest`. Each supported option assigns one or more semantic fields. Later assignments overwrite earlier assignments for the same field.
+
+Normalized geometry and output state includes:
+
+- `resizing_type`
+- `width`
+- `height`
+- `enlarge`
+- `extend`
+- `extend_gravity`
+- `extend_x_offset`
+- `extend_y_offset`
+- `gravity`
+- `gravity_x_offset`
+- `gravity_y_offset`
+- `format`
+
+Assignment rules:
+
+- `resize` assigns `resizing_type`, `width`, `height`, `enlarge`, `extend`, and optional extend-gravity fields.
+- `size` assigns `width`, `height`, `enlarge`, `extend`, and optional extend-gravity fields.
+- `resizing_type` assigns only `resizing_type`.
+- `width` assigns only `width`.
+- `height` assigns only `height`.
+- `gravity` assigns crop gravity/focus fields, not extend gravity fields.
+- `format`, `f`, and `ext` assign explicit output format.
+- Plain-source `@extension` is applied after all processing options and therefore overwrites explicit output format.
+
+Examples:
+
+| URL options | Final normalized fields |
+| --- | --- |
+| `resize:fill:300:200/w:500` | `resizing_type=fill,width=500,height=200` |
+| `w:500/resize:fill:300:200` | `resizing_type=fill,width=300,height=200` |
+| `size:300:200/rt:force` | `resizing_type=force,width=300,height=200` |
+| `resize:fit:300:200/rt:force` | `resizing_type=force,width=300,height=200` |
+| `f:webp/plain/a.jpg@png` | `format=png` |
+
 ## Duplicate And Meta-Option Behavior
 
-Imgproxy applies processing options in URL order. This design follows that behavior:
+Imgproxy applies processing options in URL order. This design follows that behavior. URL order affects only normalized field assignment, not transform execution order.
 
-- `resize:fill:300:200` and `rt:fill/w:300/h:200` are equivalent.
+- `resize:fill:300:200` and `rt:fill/w:300/h:200` are equivalent after normalized assignment.
 - Repeating the same semantic field is allowed.
 - Later processing options overwrite earlier semantic values.
 - The plain-source `@<extension>` format is applied after processing options and therefore overrides `format`, `f`, or `ext`.
@@ -289,7 +333,7 @@ The planner owns the fixed execution order:
 6. Select explicit output format or automatically select an output format when no explicit format is requested.
 7. Encode and return the response.
 
-Unsupported semantic combinations return client errors before origin traffic. Examples include non-zero gravity offsets, `resize` requests requiring `extend` behavior that current transforms cannot implement, or `auto`/`fill-down` cases where the current planner cannot provide the documented behavior.
+Unsupported semantic combinations return client errors before origin traffic. Examples include non-zero gravity offsets, `resize` requests requiring `extend` behavior that current transforms cannot implement, `gravity:sm`, `format:best`, or `auto`/`fill-down` resizing types.
 
 ## Compatibility Parser Boundary
 
@@ -325,7 +369,7 @@ Imgproxy Pro supports chained pipelines by using a `-` path segment to start ano
 
 This first slice should not implement chained pipelines, but it should avoid making them hard to add later:
 
-- The parser should reserve `-` as an unsupported pipeline separator rather than treating it as an unknown option name.
+- The parser should reserve a path segment exactly equal to `-` as an unsupported pipeline separator rather than treating it as an unknown option name. Values containing `-`, such as `fill-down`, remain valid option values.
 - The internal model should be able to evolve from a single `ProcessingRequest` into a `ProcessingJob` containing one or more normalized pipeline stages.
 - Each pipeline stage should contain the same normalized intent fields used by the first slice: geometry, gravity, output-affecting controls, filters, and later overlays.
 - The planner should be able to plan each stage independently, then concatenate executable transform primitives with a clear stage boundary where needed.
@@ -352,7 +396,12 @@ The first stage would resize using ImagePlug's fixed pipeline. The second stage 
 - `resizing_type`
 - `enlarge`
 - `extend`
+- `extend_gravity`
+- `extend_x_offset`
+- `extend_y_offset`
 - `gravity`
+- `gravity_x_offset`
+- `gravity_y_offset`
 - `format`
 
 The exact field names may differ if implementation finds a clearer local representation, but the public semantics must remain imgproxy-shaped.
@@ -361,19 +410,28 @@ The parser module can keep the existing `ImagePlug.ParamParser.Native` name if t
 
 ## Error Handling
 
-Errors are client request errors and should happen before origin fetch:
+Errors are client request errors and should happen before origin fetch.
+
+Parser errors:
 
 - Missing signature.
-- Unsupported signature while signing is disabled.
+- Signature segment other than `_` or `unsafe` while signing is disabled.
 - Missing source kind or source identifier.
 - Unknown processing option.
 - Invalid option arity.
 - Invalid enum value.
 - Invalid integer, boolean, extension, or gravity coordinate.
-- Parsed but currently unsupported semantic combination.
 - Multiple `@` format separators in a plain source URL.
-- `best` output format in this slice.
 - Chained pipeline separator `-` in this slice.
+
+Planner semantic errors:
+
+- Parsed but currently unsupported semantic combination.
+- `best` output format in this slice.
+- `gravity:sm` in this slice.
+- `resizing_type:auto` and `resizing_type:fill-down` in this slice, regardless of which option assigned them.
+- `extend:true` or non-default extend gravity in this slice, regardless of which option assigned them.
+- Non-zero crop gravity offsets in this slice.
 
 The error body can stay plain text for now.
 
@@ -384,17 +442,17 @@ The implementation should be test-first and cover:
 - Parser tests for each supported long option and alias.
 - Parser tests for full enum coverage on `resizing_type`.
 - Parser tests for omitted optional `resize` and `size` arguments.
-- Parser tests for `plain` source extension with `@extension`.
-- Parser tests for `format:best` and `@best` as parsed but unsupported output semantics.
-- Parser tests reserving `-` as an unsupported chained-pipeline separator.
+- Parser tests for plain source extension with raw `@extension`, escaped `%40`, empty `@`, multiple raw `@` separators, and unknown extensions.
+- Parser tests proving `format:best` and `@best` parse into normalized output format intent.
+- Parser tests reserving a path segment exactly equal to `-` as an unsupported chained-pipeline separator while preserving values such as `fill-down`.
 - Parser tests for equivalent meta-option and atomic-option combinations.
 - Parser tests for last-wins duplicate option assignment.
 - Parser tests proving `@extension` overrides an explicit format option.
 - Parser tests for unsupported imgproxy options returning errors.
 - Planner tests for current executable semantics: `fit`, `fill`, `force`, width-only, height-only, explicit output format, and gravity-driven crops.
-- Planner tests proving unsupported semantic combinations fail before origin fetch.
-- Output tests proving omitted output format chooses AVIF/WebP from `Accept` by default and falls back to the source format.
-- Cache tests proving normalized `Accept` is included only when automatic output format selection can affect output.
+- Planner tests proving unsupported semantic combinations fail before origin fetch: `format:best`, `@best`, `gravity:sm`, `resizing_type:auto`, `resizing_type:fill-down`, `extend:true`, and non-zero gravity offsets.
+- Output tests proving omitted output format chooses AVIF/WebP from `Accept` by default, treats `q=0` as unacceptable, uses server preference order among acceptable formats, and falls back to the source format.
+- Cache tests proving the selected automatic output format is included only when automatic output format selection can affect output.
 - Plug-level tests for representative imgproxy-compatible URLs.
 - README examples that match the implemented grammar.
 
