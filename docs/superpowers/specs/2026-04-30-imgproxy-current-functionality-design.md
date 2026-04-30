@@ -319,6 +319,26 @@ rt:force/w:300/h:200
 
 The goal is to keep internal transforms close to image-processing operations while parsers and planners handle vendor vocabulary. Avoid both extremes: do not make one transform per imgproxy parameter, and do not split primitives so finely that every planned pipeline becomes hard to reason about.
 
+## Future Chained Pipelines
+
+Imgproxy Pro supports chained pipelines by using a `-` path segment to start another fixed processing pipeline. This is different from arbitrary transform ordering: each stage still has a fixed internal order, but the output of one stage becomes the input to the next stage.
+
+This first slice should not implement chained pipelines, but it should avoid making them hard to add later:
+
+- The parser should reserve `-` as an unsupported pipeline separator rather than treating it as an unknown option name.
+- The internal model should be able to evolve from a single `ProcessingRequest` into a `ProcessingJob` containing one or more normalized pipeline stages.
+- Each pipeline stage should contain the same normalized intent fields used by the first slice: geometry, gravity, output-affecting controls, filters, and later overlays.
+- The planner should be able to plan each stage independently, then concatenate executable transform primitives with a clear stage boundary where needed.
+- Cache keys should be based on the normalized ordered list of stages once chained pipelines exist.
+
+This keeps future support straightforward for URLs such as:
+
+```text
+rs:fit:500:500/-/trim:10
+```
+
+The first stage would resize using ImagePlug's fixed pipeline. The second stage would run another fixed pipeline over the resized image and apply trim once that transform exists. That model also covers later repeated operations such as multiple watermarks without making the first-slice transform layer vendor-specific.
+
 ## Internal Model Changes
 
 `ImagePlug.ProcessingRequest` should move from old custom fields toward imgproxy concepts:
@@ -353,6 +373,7 @@ Errors are client request errors and should happen before origin fetch:
 - Parsed but currently unsupported semantic combination.
 - Multiple `@` format separators in a plain source URL.
 - `best` output format in this slice.
+- Chained pipeline separator `-` in this slice.
 
 The error body can stay plain text for now.
 
@@ -365,6 +386,7 @@ The implementation should be test-first and cover:
 - Parser tests for omitted optional `resize` and `size` arguments.
 - Parser tests for `plain` source extension with `@extension`.
 - Parser tests for `format:best` and `@best` as parsed but unsupported output semantics.
+- Parser tests reserving `-` as an unsupported chained-pipeline separator.
 - Parser tests for equivalent meta-option and atomic-option combinations.
 - Parser tests for last-wins duplicate option assignment.
 - Parser tests proving `@extension` overrides an explicit format option.
@@ -397,3 +419,4 @@ It should also state that ImagePlug intentionally defaults `auto_avif` and `auto
 - Whether exact imgproxy `auto` and `fill-down` behavior should be implemented in transforms or remain explicit planner errors until needed.
 - Create a follow-up issue to add pro object-oriented gravity support for `obj` and `objw` once ImagePlug has an object detection strategy.
 - Create a follow-up issue to add Pro best-format support for `format:best` and `@best`, including preferred formats, complexity thresholds, best-by-default, best-format skip behavior, quality tuning, and cache key behavior.
+- Create a follow-up issue to add Pro chained pipelines by introducing a multi-stage `ProcessingJob` model and `-` URL separator support.
