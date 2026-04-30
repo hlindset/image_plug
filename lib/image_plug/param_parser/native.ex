@@ -3,7 +3,7 @@ defmodule ImagePlug.ParamParser.Native do
 
   alias ImagePlug.ProcessingRequest
 
-  @format_names ~w(auto webp avif jpeg png)
+  @format_names ~w(webp avif jpeg jpg png best)
 
   @fits %{
     "cover" => :cover,
@@ -13,11 +13,12 @@ defmodule ImagePlug.ParamParser.Native do
   }
 
   @formats %{
-    "auto" => :auto,
     "webp" => :webp,
     "avif" => :avif,
     "jpeg" => :jpeg,
-    "png" => :png
+    "jpg" => :jpeg,
+    "png" => :png,
+    "best" => :best
   }
 
   @focus_anchors %{
@@ -31,8 +32,14 @@ defmodule ImagePlug.ParamParser.Native do
   @impl ImagePlug.ParamParser
   def parse(%Plug.Conn{path_info: [signature | path_info]}) do
     with :ok <- validate_signature(signature),
-         {:ok, option_segments, source_path} <- split_source(path_info),
+         {:ok, option_segments, source_path, source_format} <- split_source(path_info),
          {:ok, options} <- parse_options(option_segments) do
+      options =
+        case source_format do
+          nil -> options
+          format -> Keyword.put(options, :format, format)
+        end
+
       {:ok,
        struct!(
          ProcessingRequest,
@@ -40,7 +47,8 @@ defmodule ImagePlug.ParamParser.Native do
            [
              signature: signature,
              source_kind: :plain,
-             source_path: source_path
+             source_path: source_path,
+             output_extension_from_source: source_format
            ],
            options
          )
@@ -71,7 +79,48 @@ defmodule ImagePlug.ParamParser.Native do
         {:error, {:missing_source_identifier, "plain"}}
 
       {options, ["plain" | source_path]} ->
-        {:ok, options, source_path}
+        with {:ok, decoded_source_path, source_format} <- parse_plain_source(source_path) do
+          {:ok, options, decoded_source_path, source_format}
+        end
+    end
+  end
+
+  defp parse_plain_source(source_path) do
+    encoded = Enum.join(source_path, "/")
+
+    case String.split(encoded, "@") do
+      [""] ->
+        {:error, {:missing_source_identifier, "plain"}}
+
+      [source] ->
+        decode_source_path(source, nil)
+
+      [source, ""] ->
+        decode_source_path(source, nil)
+
+      [source, extension] ->
+        with {:ok, format} <- parse_format(extension) do
+          decode_source_path(source, format)
+        end
+
+      _parts ->
+        {:error, {:multiple_source_format_separators, encoded}}
+    end
+  end
+
+  defp decode_source_path(source, source_format) do
+    decoded =
+      source
+      |> String.split("/", trim: false)
+      |> Enum.map(&URI.decode/1)
+
+    {:ok, decoded, source_format}
+  end
+
+  defp parse_format(value) do
+    case Map.fetch(@formats, value) do
+      {:ok, parsed_value} -> {:ok, parsed_value}
+      :error -> {:error, {:invalid_format, value, @format_names}}
     end
   end
 
