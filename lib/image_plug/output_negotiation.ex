@@ -51,7 +51,7 @@ defmodule ImagePlug.OutputNegotiation do
             {:ok, format}
 
           nil ->
-            if supported_output_acceptable?(entries) do
+            if supported_output_acceptable?(modern_formats, entries) do
               :defer
             else
               {:error, :not_acceptable}
@@ -82,9 +82,11 @@ defmodule ImagePlug.OutputNegotiation do
   defp fallback_mime_type(true), do: "image/png"
   defp fallback_mime_type(false), do: "image/jpeg"
 
-  defp supported_output_acceptable?(entries) do
+  defp supported_output_acceptable?(modern_formats, entries) do
+    modern_mime_types = Enum.map(modern_formats, fn {_format, mime_type} -> mime_type end)
+
     Enum.any?(
-      enabled_modern_mime_types([]) ++ @fallback_formats,
+      modern_mime_types ++ @fallback_formats,
       &acceptable?(&1, entries)
     )
   end

@@ -107,7 +107,13 @@ defmodule ImagePlug.OutputNegotiationTest do
       assert OutputNegotiation.preselect("image/avif,image/webp",
                auto_avif: false,
                auto_webp: false
-             ) == :defer
+             ) == {:error, :not_acceptable}
+
+      assert OutputNegotiation.preselect("image/avif", auto_avif: false, auto_webp: false) ==
+               {:error, :not_acceptable}
+
+      assert OutputNegotiation.preselect("image/webp", auto_avif: false, auto_webp: false) ==
+               {:error, :not_acceptable}
 
       assert OutputNegotiation.preselect(nil, auto_avif: false, auto_webp: false) == :defer
     end
