@@ -110,6 +110,22 @@ defmodule ImagePlug.OriginTest do
              {:error, :stream_not_finished_after_materialization}
   end
 
+  test "stream_status remains readable after close cancels an unconsumed stream" do
+    plug = fn conn ->
+      conn
+      |> Plug.Conn.put_resp_header("content-type", "image/jpeg")
+      |> Plug.Conn.send_resp(200, "image bytes")
+    end
+
+    assert {:ok, %Origin.Response{} = response} =
+             Origin.fetch("https://img.example/cat.jpg", plug: plug)
+
+    assert Origin.stream_status(response) == :pending
+    assert Origin.close(response) == :ok
+    assert Origin.stream_status(response) == :pending
+    assert Origin.stream_status(response) == :pending
+  end
+
   test "fetch accepts mixed-case image content type with parameters" do
     plug = fn conn ->
       conn
