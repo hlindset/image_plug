@@ -336,3 +336,4 @@ It should state that ImagePlug supports a subset of imgproxy options, but suppor
 - Whether `preset` should be implemented as a parser-level feature or as a config expansion step before semantic validation.
 - Whether `quality`, `dpr`, and metadata controls should enter the request model before matching transform execution exists.
 - Whether exact imgproxy `auto` and `fill-down` behavior should be implemented in transforms or remain explicit planner errors until needed.
+- Create a follow-up issue to add pro object-oriented gravity support for `obj` and `objw` once ImagePlug has an object detection strategy.
