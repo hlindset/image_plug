@@ -141,14 +141,14 @@ defmodule ImagePlug do
 
     case image_open_module.open(origin_response.stream, decode_options) do
       {:ok, image} ->
-        case Origin.terminal_status(origin_response) do
+        case Origin.stream_status(origin_response) do
           {:error, reason} -> {:error, {:origin, reason}}
           :done -> {:ok, image}
           :pending -> {:ok, image}
         end
 
       {:error, decode_error} ->
-        case Origin.terminal_status(origin_response) do
+        case Origin.stream_status(origin_response) do
           {:error, reason} -> {:error, {:origin, reason}}
           :done -> {:error, decode_error}
           :pending -> {:error, decode_error}
@@ -167,7 +167,7 @@ defmodule ImagePlug do
 
       case materializer.materialize(state.image) do
         {:ok, materialized_image} ->
-          case Origin.require_terminal_status(origin_response) do
+          case Origin.require_stream_status(origin_response) do
             :done ->
               {:ok, TransformState.set_image(state, materialized_image)}
 
@@ -176,7 +176,7 @@ defmodule ImagePlug do
           end
 
         {:error, materialize_error} ->
-          case Origin.terminal_status(origin_response) do
+          case Origin.stream_status(origin_response) do
             {:error, reason} ->
               {:error, {:origin, reason}}
 

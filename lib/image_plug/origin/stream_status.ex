@@ -1,9 +1,9 @@
-defmodule ImagePlug.Origin.TerminalStatus do
+defmodule ImagePlug.Origin.StreamStatus do
   @moduledoc """
-  Idempotent terminal status holder for guarded origin streams.
+  Idempotent status holder for guarded origin streams.
 
   Origin stream consumption may happen outside the request process. This holder lets
-  the stream worker record `:done` or the first terminal error once, while request
+  the stream worker record `:done` or the first stream error once, while request
   handling can read that result repeatedly before cache writes or response delivery.
   """
 
@@ -23,7 +23,7 @@ defmodule ImagePlug.Origin.TerminalStatus do
   def put(pid, status) when is_pid(pid) do
     Agent.get_and_update(pid, fn
       :pending -> {status, status}
-      terminal -> {terminal, terminal}
+      settled -> {settled, settled}
     end)
   end
 

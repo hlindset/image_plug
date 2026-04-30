@@ -33,7 +33,7 @@ defmodule ImagePlug.OriginTest do
     assert {"content-type", "image/jpeg"} in response.headers
   end
 
-  test "terminal_status reports done idempotently after stream completion" do
+  test "stream_status reports done idempotently after stream completion" do
     plug = fn conn ->
       conn
       |> Plug.Conn.put_resp_header("content-type", "image/jpeg")
@@ -43,15 +43,15 @@ defmodule ImagePlug.OriginTest do
     assert {:ok, %Origin.Response{} = response} =
              Origin.fetch("https://img.example/cat.jpg", plug: plug)
 
-    assert Origin.terminal_status(response) == :pending
+    assert Origin.stream_status(response) == :pending
     assert Enum.join(response.stream) == "image bytes"
-    assert Origin.terminal_status(response) == :done
-    assert Origin.terminal_status(response) == :done
+    assert Origin.stream_status(response) == :done
+    assert Origin.stream_status(response) == :done
     assert Origin.stream_error(response) == nil
     assert Origin.stream_error(response) == nil
   end
 
-  test "terminal_status is visible from another process after stream completion" do
+  test "stream_status is visible from another process after stream completion" do
     plug = fn conn ->
       conn
       |> Plug.Conn.put_resp_header("content-type", "image/jpeg")
@@ -64,12 +64,12 @@ defmodule ImagePlug.OriginTest do
     assert Enum.join(response.stream) == "image bytes"
 
     test_pid = self()
-    spawn(fn -> send(test_pid, {:terminal_status, Origin.terminal_status(response)}) end)
+    spawn(fn -> send(test_pid, {:stream_status, Origin.stream_status(response)}) end)
 
-    assert_receive {:terminal_status, :done}
+    assert_receive {:stream_status, :done}
   end
 
-  test "terminal_status reports stream errors idempotently" do
+  test "stream_status reports stream errors idempotently" do
     plug = fn conn ->
       conn
       |> Plug.Conn.put_resp_header("content-type", "image/png")
@@ -83,13 +83,13 @@ defmodule ImagePlug.OriginTest do
              )
 
     assert Enum.to_list(response.stream) == []
-    assert Origin.terminal_status(response) == {:error, {:body_too_large, 5}}
-    assert Origin.terminal_status(response) == {:error, {:body_too_large, 5}}
+    assert Origin.stream_status(response) == {:error, {:body_too_large, 5}}
+    assert Origin.stream_status(response) == {:error, {:body_too_large, 5}}
     assert Origin.stream_error(response) == {:body_too_large, 5}
     assert Origin.stream_error(response) == {:body_too_large, 5}
   end
 
-  test "require_terminal_status fails pending streams before delivery" do
+  test "require_stream_status fails pending streams before delivery" do
     plug = fn conn ->
       conn
       |> Plug.Conn.put_resp_header("content-type", "image/jpeg")
@@ -99,15 +99,15 @@ defmodule ImagePlug.OriginTest do
     assert {:ok, %Origin.Response{} = response} =
              Origin.fetch("https://img.example/cat.jpg", plug: plug)
 
-    assert Origin.terminal_status(response) == :pending
+    assert Origin.stream_status(response) == :pending
 
-    assert Origin.require_terminal_status(response) ==
-             {:error, :not_terminal_after_materialization}
+    assert Origin.require_stream_status(response) ==
+             {:error, :stream_not_finished_after_materialization}
 
-    assert Origin.terminal_status(response) == {:error, :not_terminal_after_materialization}
+    assert Origin.stream_status(response) == {:error, :stream_not_finished_after_materialization}
 
-    assert Origin.require_terminal_status(response) ==
-             {:error, :not_terminal_after_materialization}
+    assert Origin.require_stream_status(response) ==
+             {:error, :stream_not_finished_after_materialization}
   end
 
   test "fetch accepts mixed-case image content type with parameters" do

@@ -128,8 +128,8 @@ defmodule ImagePlug.SequentialCompatibilityTest do
     {:ok, _sequential_image, sequential_response} =
       run_chain(chain, :sequential, jpeg_body(@cat_path), "image/jpeg")
 
-    assert Origin.terminal_status(sequential_response) == :done
-    assert Origin.terminal_status(sequential_response) == :done
+    assert Origin.stream_status(sequential_response) == :done
+    assert Origin.stream_status(sequential_response) == :done
   end
 
   defp assert_sequential_matches_random(chain, body, content_type \\ "image/jpeg") do
@@ -138,8 +138,8 @@ defmodule ImagePlug.SequentialCompatibilityTest do
     {:ok, sequential_image, sequential_response} =
       run_chain(chain, :sequential, body, content_type)
 
-    assert Origin.terminal_status(sequential_response) == :done
-    assert Origin.terminal_status(sequential_response) == :done
+    assert Origin.stream_status(sequential_response) == :done
+    assert Origin.stream_status(sequential_response) == :done
     assert Image.width(sequential_image) == Image.width(random_image)
     assert Image.height(sequential_image) == Image.height(random_image)
     assert Image.has_alpha?(sequential_image) == Image.has_alpha?(random_image)
