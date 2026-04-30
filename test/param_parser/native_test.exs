@@ -90,6 +90,22 @@ defmodule ImagePlug.ParamParser.NativeTest do
     end
   end
 
+  test "source extension takes precedence over processing format option" do
+    assert {:ok,
+            %ProcessingRequest{
+              format: :png,
+              output_extension_from_source: :png
+            }} = conn(:get, "/_/format:webp/plain/images/cat.jpg@png") |> Native.parse()
+  end
+
+  test "dangling raw @ preserves explicit processing format" do
+    assert {:ok,
+            %ProcessingRequest{
+              format: :webp,
+              output_extension_from_source: nil
+            }} = conn(:get, "/_/format:webp/plain/images/cat.jpg@") |> Native.parse()
+  end
+
   test "dangling raw @ leaves output automatic when no explicit format exists" do
     assert {:ok,
             %ProcessingRequest{
