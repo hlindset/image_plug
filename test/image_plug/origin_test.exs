@@ -2,6 +2,7 @@ defmodule ImagePlug.OriginTest do
   use ExUnit.Case, async: true
 
   alias ImagePlug.Origin
+  alias ImagePlug.Origin.StreamStatus
 
   test "build_url encodes and joins path segments" do
     assert Origin.build_url("https://img.example/base", ["images", "cat 1.jpg"]) ==
@@ -27,10 +28,138 @@ defmodule ImagePlug.OriginTest do
              Origin.fetch("https://img.example/cat.jpg", plug: plug)
 
     assert Enum.join(response.stream) == "image bytes"
-    assert Origin.stream_error(response) == nil
+    assert Origin.stream_status(response) == :done
     assert response.content_type == "image/jpeg"
     assert response.url == "https://img.example/cat.jpg"
     assert {"content-type", "image/jpeg"} in response.headers
+  end
+
+  test "stream_status reports done idempotently after stream completion" do
+    plug = fn conn ->
+      conn
+      |> Plug.Conn.put_resp_header("content-type", "image/jpeg")
+      |> Plug.Conn.send_resp(200, "image bytes")
+    end
+
+    assert {:ok, %Origin.Response{} = response} =
+             Origin.fetch("https://img.example/cat.jpg", plug: plug)
+
+    assert Origin.stream_status(response) == :pending
+    assert Enum.join(response.stream) == "image bytes"
+    assert Origin.stream_status(response) == :done
+    assert Origin.stream_status(response) == :done
+  end
+
+  test "stream_status is visible from another process after stream completion" do
+    plug = fn conn ->
+      conn
+      |> Plug.Conn.put_resp_header("content-type", "image/jpeg")
+      |> Plug.Conn.send_resp(200, "image bytes")
+    end
+
+    assert {:ok, %Origin.Response{} = response} =
+             Origin.fetch("https://img.example/cat.jpg", plug: plug)
+
+    assert Enum.join(response.stream) == "image bytes"
+
+    test_pid = self()
+    spawn(fn -> send(test_pid, {:stream_status, Origin.stream_status(response)}) end)
+
+    assert_receive {:stream_status, :done}
+  end
+
+  test "stream_status reports stream errors idempotently" do
+    plug = fn conn ->
+      conn
+      |> Plug.Conn.put_resp_header("content-type", "image/png")
+      |> Plug.Conn.send_resp(200, "123456")
+    end
+
+    assert {:ok, %Origin.Response{} = response} =
+             Origin.fetch("https://img.example/cat.png",
+               plug: plug,
+               max_body_bytes: 5
+             )
+
+    assert Enum.to_list(response.stream) == []
+    assert Origin.stream_status(response) == {:error, {:body_too_large, 5}}
+    assert Origin.stream_status(response) == {:error, {:body_too_large, 5}}
+  end
+
+  test "stream status holder only records terminal statuses" do
+    assert {:ok, stream_status} = StreamStatus.start_link()
+
+    assert StreamStatus.put(stream_status, :bogus) == :pending
+    assert StreamStatus.get(stream_status) == :pending
+    assert StreamStatus.put(stream_status, :done) == :done
+    assert StreamStatus.put(stream_status, {:error, :late_error}) == :done
+
+    StreamStatus.stop(stream_status)
+  end
+
+  test "require_stream_status fails pending streams before delivery" do
+    plug = fn conn ->
+      conn
+      |> Plug.Conn.put_resp_header("content-type", "image/jpeg")
+      |> Plug.Conn.send_resp(200, "image bytes")
+    end
+
+    assert {:ok, %Origin.Response{} = response} =
+             Origin.fetch("https://img.example/cat.jpg", plug: plug)
+
+    assert Origin.stream_status(response) == :pending
+
+    assert Origin.require_stream_status(response) ==
+             {:error, :stream_not_finished_after_materialization}
+
+    assert Origin.stream_status(response) == {:error, :stream_not_finished_after_materialization}
+
+    assert Origin.require_stream_status(response) ==
+             {:error, :stream_not_finished_after_materialization}
+  end
+
+  test "stream_status remains readable after close cancels an unconsumed stream" do
+    plug = fn conn ->
+      conn
+      |> Plug.Conn.put_resp_header("content-type", "image/jpeg")
+      |> Plug.Conn.send_resp(200, "image bytes")
+    end
+
+    assert {:ok, %Origin.Response{} = response} =
+             Origin.fetch("https://img.example/cat.jpg", plug: plug)
+
+    assert Origin.stream_status(response) == :pending
+    assert Origin.close(response) == :ok
+    assert Origin.stream_status(response) == :pending
+    assert Origin.stream_status(response) == :pending
+  end
+
+  test "stream_status holder exits when the fetch owner exits normally" do
+    plug = fn conn ->
+      conn
+      |> Plug.Conn.put_resp_header("content-type", "image/jpeg")
+      |> Plug.Conn.send_resp(200, "image bytes")
+    end
+
+    test_pid = self()
+
+    owner =
+      spawn(fn ->
+        case Origin.fetch("https://img.example/cat.jpg", plug: plug) do
+          {:ok, %Origin.Response{} = response} ->
+            send(test_pid, {:stream_status_holder, response.stream_status})
+
+          other ->
+            send(test_pid, {:fetch_result, other})
+        end
+      end)
+
+    owner_ref = Process.monitor(owner)
+
+    assert_receive {:stream_status_holder, stream_status}
+    stream_status_ref = Process.monitor(stream_status)
+    assert_receive {:DOWN, ^owner_ref, :process, ^owner, :normal}
+    assert_receive {:DOWN, ^stream_status_ref, :process, ^stream_status, _reason}
   end
 
   test "fetch accepts mixed-case image content type with parameters" do
@@ -120,7 +249,7 @@ defmodule ImagePlug.OriginTest do
              )
 
     assert Enum.to_list(response.stream) == []
-    assert Origin.stream_error(response) == {:body_too_large, 5}
+    assert Origin.stream_status(response) == {:error, {:body_too_large, 5}}
   end
 
   test "converts transport errors" do
@@ -139,7 +268,7 @@ defmodule ImagePlug.OriginTest do
              Origin.fetch("http://127.0.0.1:#{port}/cat.png", receive_timeout: 100)
 
     assert Enum.to_list(response.stream) == ["first chunk"]
-    assert Origin.stream_error(response) == {:timeout, 100}
+    assert Origin.stream_status(response) == {:error, {:timeout, 100}}
   end
 
   test "unconsumed streams are canceled after receive timeout" do
@@ -155,7 +284,7 @@ defmodule ImagePlug.OriginTest do
                receive_timeout: 50
              )
 
-    assert_eventually_stream_error(response, {:timeout, 50}, 100)
+    assert_eventually_stream_status(response, {:error, {:timeout, 50}}, 100)
   end
 
   test "close cancels an unconsumed stream" do
@@ -203,23 +332,26 @@ defmodule ImagePlug.OriginTest do
     port
   end
 
-  defp assert_eventually_stream_error(response, expected, timeout) do
+  defp assert_eventually_stream_status(response, expected, timeout) do
     deadline = System.monotonic_time(:millisecond) + timeout
-    do_assert_eventually_stream_error(response, expected, deadline)
+    do_assert_eventually_stream_status(response, expected, deadline)
   end
 
-  defp do_assert_eventually_stream_error(response, expected, deadline) do
-    case Origin.stream_error(response) do
+  defp do_assert_eventually_stream_status(response, expected, deadline) do
+    case Origin.stream_status(response) do
       ^expected ->
         :ok
 
-      nil ->
+      :pending ->
         if System.monotonic_time(:millisecond) < deadline do
           Process.sleep(5)
-          do_assert_eventually_stream_error(response, expected, deadline)
+          do_assert_eventually_stream_status(response, expected, deadline)
         else
-          flunk("expected stream error #{inspect(expected)}")
+          flunk("expected stream status #{inspect(expected)}")
         end
+
+      other ->
+        flunk("expected stream status #{inspect(expected)}, got #{inspect(other)}")
     end
   end
 end

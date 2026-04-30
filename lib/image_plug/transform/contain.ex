@@ -32,6 +32,16 @@ defmodule ImagePlug.Transform.Contain do
   end
 
   @impl ImagePlug.Transform
+  def metadata(%ContainParams{
+        type: :dimensions,
+        constraint: :regular,
+        letterbox: false
+      }),
+      do: %{access: :sequential}
+
+  def metadata(%ContainParams{}), do: %{access: :random}
+
+  @impl ImagePlug.Transform
   def execute(%TransformState{} = state, %ContainParams{
         type: :ratio,
         ratio: {ratio_width, ratio_height},

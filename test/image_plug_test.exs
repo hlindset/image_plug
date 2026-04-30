@@ -108,6 +108,46 @@ defmodule ImagePlug.ImagePlugTest do
     end
   end
 
+  defmodule CorruptTailOriginImage do
+    def call(conn, _) do
+      body = File.read!("priv/static/images/cat-300.jpg")
+      prefix_size = max(byte_size(body) - 64, 1)
+      body = binary_part(body, 0, prefix_size) <> :binary.copy(<<0>>, 64)
+
+      conn
+      |> Plug.Conn.put_resp_content_type("image/jpeg")
+      |> Plug.Conn.send_resp(200, body)
+    end
+  end
+
+  defmodule ChunkedOriginImage do
+    def call(conn, _) do
+      body = File.read!("priv/static/images/cat-300.jpg")
+
+      conn =
+        conn
+        |> Plug.Conn.put_resp_content_type("image/jpeg")
+        |> Plug.Conn.send_chunked(200)
+
+      midpoint = div(byte_size(body), 2)
+      {:ok, conn} = Plug.Conn.chunk(conn, binary_part(body, 0, midpoint))
+      {:ok, conn} = Plug.Conn.chunk(conn, binary_part(body, midpoint, byte_size(body) - midpoint))
+      conn
+    end
+  end
+
+  defmodule RecordingImageOpen do
+    # ImagePlug decodes in the caller process, so self() is the test process here.
+    def open(stream, opts) do
+      send(self(), {:image_open_options, opts})
+      Image.open(stream, opts)
+    end
+  end
+
+  defmodule FailingMaterializer do
+    def materialize(_image), do: {:error, :forced_materialization_failure}
+  end
+
   def sample_processing_request do
     %ProcessingRequest{
       signature: "_",
@@ -464,6 +504,54 @@ defmodule ImagePlug.ImagePlugTest do
     assert get_resp_header(conn, "vary") == ["Accept"]
   end
 
+  test "safe one-pass resize opens origin with sequential access" do
+    conn =
+      conn(:get, "/_/w:100/format:jpeg/plain/images/cat-300.jpg")
+      |> ImagePlug.call(
+        root_url: "http://origin.test",
+        image_open_module: RecordingImageOpen,
+        param_parser: ImagePlug.ParamParser.Native,
+        origin_req_options: [plug: OriginImage]
+      )
+
+    assert conn.status == 200
+    assert_received {:image_open_options, opts}
+    assert Keyword.get(opts, :access) == :sequential
+    assert Keyword.get(opts, :fail_on) == :error
+  end
+
+  test "cover opens origin with random access" do
+    conn =
+      conn(:get, "/_/fit:cover/w:100/h:100/format:jpeg/plain/images/cat-300.jpg")
+      |> ImagePlug.call(
+        root_url: "http://origin.test",
+        image_open_module: RecordingImageOpen,
+        param_parser: ImagePlug.ParamParser.Native,
+        origin_req_options: [plug: OriginImage]
+      )
+
+    assert conn.status == 200
+    assert_received {:image_open_options, opts}
+    assert Keyword.get(opts, :access) == :random
+    assert Keyword.get(opts, :fail_on) == :error
+  end
+
+  test "sequential materialization failure without origin error returns decode error" do
+    conn =
+      conn(:get, "/_/w:100/plain/images/cat-300.jpg")
+      |> ImagePlug.call(
+        root_url: "http://origin.test",
+        param_parser: ImagePlug.ParamParser.Native,
+        image_materializer_module: FailingMaterializer,
+        origin_req_options: [plug: OriginImage]
+      )
+
+    assert conn.status == 415
+    assert conn.state == :sent
+    assert conn.resp_body == "origin response is not a supported image"
+    assert get_resp_header(conn, "content-type") == ["text/plain; charset=utf-8"]
+  end
+
   test "processes a native path URL with cover and explicit output format" do
     conn = conn(:get, "/_/fit:cover/w:100/h:100/format:jpeg/plain/images/cat-300.jpg")
 
@@ -583,6 +671,55 @@ defmodule ImagePlug.ImagePlugTest do
 
     assert conn.status == 502
     assert conn.resp_body == "error fetching origin image"
+  end
+
+  test "sequential body limit after initial valid bytes remains an origin error before image headers" do
+    body = File.read!("priv/static/images/cat-300.jpg")
+
+    conn =
+      conn(:get, "/_/w:100/plain/images/large-body.jpg")
+      |> ImagePlug.call(
+        root_url: "http://origin.test",
+        param_parser: ImagePlug.ParamParser.Native,
+        max_body_bytes: byte_size(body) - 1,
+        origin_req_options: [plug: ChunkedOriginImage]
+      )
+
+    assert conn.status == 502
+    assert conn.state == :sent
+    assert conn.resp_body == "error fetching origin image"
+    assert get_resp_header(conn, "content-type") == ["text/plain; charset=utf-8"]
+  end
+
+  test "sequential timeout after initial valid bytes remains an origin error before image headers" do
+    conn =
+      conn(:get, "/_/w:100/plain/images/slow.jpg")
+      |> ImagePlug.call(
+        root_url: "http://origin.test",
+        param_parser: ImagePlug.ParamParser.Native,
+        origin_receive_timeout: 50,
+        origin_req_options: [plug: SlowPartialOriginImage]
+      )
+
+    assert conn.status == 502
+    assert conn.state == :sent
+    assert conn.resp_body == "error fetching origin image"
+    assert get_resp_header(conn, "content-type") == ["text/plain; charset=utf-8"]
+  end
+
+  test "sequential corrupt image tail without origin error remains a decode error" do
+    conn =
+      conn(:get, "/_/w:100/plain/images/corrupt-tail.jpg")
+      |> ImagePlug.call(
+        root_url: "http://origin.test",
+        param_parser: ImagePlug.ParamParser.Native,
+        origin_req_options: [plug: CorruptTailOriginImage]
+      )
+
+    assert conn.status == 415
+    assert conn.state == :sent
+    assert conn.resp_body == "origin response is not a supported image"
+    assert get_resp_header(conn, "content-type") == ["text/plain; charset=utf-8"]
   end
 
   test "invalid streamed image bytes are decode errors" do

@@ -13,6 +13,9 @@ defmodule ImagePlug.Transform.Output do
   end
 
   @impl ImagePlug.Transform
+  def metadata(%OutputParams{}), do: %{access: :neutral}
+
+  @impl ImagePlug.Transform
   def execute(%TransformState{} = state, %OutputParams{format: format}) do
     %ImagePlug.TransformState{state | output: format}
   end

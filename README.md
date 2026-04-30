@@ -123,4 +123,8 @@ Treat the cache root as trusted local configuration. Generated paths are validat
 
 Origin fetches use non-bang Req calls with bounded redirects, receive timeout, image content-type validation, and a maximum response body size. Configure these with `:origin_max_redirects`, `:origin_receive_timeout`, `:max_body_bytes`, and `:max_input_pixels`.
 
+For transform chains that are proven to be safe for one-pass reads, ImagePlug may open the origin image with libvips sequential access before resizing. The first supported shapes are width-only scale, height-only scale, and regular non-letterboxed contain; these shapes may use sequential access whether the result downscales or upscales. Chains involving crop, focus, cover, letterboxing, unknown transforms, output-only requests, or no geometry transform continue to use random access.
+
+Sequential decode does not use JPEG shrink-on-load or WebP scale hints in this pass. Origin byte limits, receive timeouts, decoded pixel limits, and decode error responses still apply. Cache hits serve stored response bodies directly and do not participate in origin decode optimization.
+
 Automatic output format selection uses the request `Accept` header and sets `Vary: Accept` on image responses. Explicit formats bypass content negotiation.
