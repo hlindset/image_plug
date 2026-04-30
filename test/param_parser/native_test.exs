@@ -51,6 +51,17 @@ defmodule ImagePlug.ParamParser.NativeTest do
              conn(:get, "/_/plain/images/w:300/cat.jpg") |> Native.parse()
   end
 
+  test "keeps legacy processing format options scoped before Task 3" do
+    assert {:ok,
+            %ProcessingRequest{
+              format: :auto,
+              output_extension_from_source: nil
+            }} = conn(:get, "/_/format:auto/plain/images/cat.jpg") |> Native.parse()
+
+    assert Native.parse(conn(:get, "/_/format:best/plain/images/cat.jpg")) ==
+             {:error, {:invalid_format, "best", ["auto", "webp", "avif", "jpeg", "png"]}}
+  end
+
   test "detects raw source extension before percent decoding" do
     assert {:ok,
             %ProcessingRequest{

@@ -3,7 +3,8 @@ defmodule ImagePlug.ParamParser.Native do
 
   alias ImagePlug.ProcessingRequest
 
-  @format_names ~w(webp avif jpeg jpg png best)
+  @source_format_names ~w(webp avif jpeg jpg png best)
+  @processing_format_names ~w(auto webp avif jpeg png)
 
   @fits %{
     "cover" => :cover,
@@ -12,13 +13,21 @@ defmodule ImagePlug.ParamParser.Native do
     "inside" => :inside
   }
 
-  @formats %{
+  @source_formats %{
     "webp" => :webp,
     "avif" => :avif,
     "jpeg" => :jpeg,
     "jpg" => :jpeg,
     "png" => :png,
     "best" => :best
+  }
+
+  @processing_formats %{
+    "auto" => :auto,
+    "webp" => :webp,
+    "avif" => :avif,
+    "jpeg" => :jpeg,
+    "png" => :png
   }
 
   @focus_anchors %{
@@ -118,9 +127,9 @@ defmodule ImagePlug.ParamParser.Native do
   end
 
   defp parse_format(value) do
-    case Map.fetch(@formats, value) do
+    case Map.fetch(@source_formats, value) do
       {:ok, parsed_value} -> {:ok, parsed_value}
-      :error -> {:error, {:invalid_format, value, @format_names}}
+      :error -> {:error, {:invalid_format, value, @source_format_names}}
     end
   end
 
@@ -196,7 +205,12 @@ defmodule ImagePlug.ParamParser.Native do
         {:error, {:invalid_option_segment, segment}}
 
       ["format", value] ->
-        parse_mapped_option(:format, value, @formats, {:invalid_format, value, @format_names})
+        parse_mapped_option(
+          :format,
+          value,
+          @processing_formats,
+          {:invalid_format, value, @processing_format_names}
+        )
 
       ["format" | _rest] ->
         {:error, {:invalid_option_segment, segment}}
