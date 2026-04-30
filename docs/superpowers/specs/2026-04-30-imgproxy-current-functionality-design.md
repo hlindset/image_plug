@@ -12,6 +12,16 @@ The imgproxy v4-pre docs used for this design are in:
 /Users/hlindset/src/image_plug/local/imgproxy-docs-master/versioned_docs/version-4-pre/usage/processing.mdx
 ```
 
+The imgproxy source files used to clarify parser edge cases are:
+
+```text
+/Users/hlindset/src/image_plug/local/imgproxy-master/options/processing_options.go
+/Users/hlindset/src/image_plug/local/imgproxy-master/options/url.go
+/Users/hlindset/src/image_plug/local/imgproxy-master/options/url_options.go
+/Users/hlindset/src/image_plug/local/imgproxy-master/options/resize_type.go
+/Users/hlindset/src/image_plug/local/imgproxy-master/options/gravity_options.go
+```
+
 ## Goals
 
 - Use imgproxy's URL structure as ImagePlug's default public URL structure.
@@ -49,8 +59,9 @@ Rules:
 - `<signature>` is required. `_` and `unsafe` are accepted while signing is disabled.
 - Processing options are slash-separated path segments.
 - The first `plain` segment terminates option parsing.
-- Source paths after `plain` are resolved through the existing configured origin behavior.
-- A trailing `@<extension>` on the final plain source segment sets the output format, matching imgproxy's plain source extension grammar.
+- Source paths after `plain` are joined with `/`, path-unescaped, and resolved through the existing configured origin behavior.
+- A trailing `@<extension>` in the plain source sets the output format, matching imgproxy's plain source extension grammar.
+- A literal `@` in a plain source must be escaped as `%40`; more than one `@` separator is an invalid URL.
 - Base64 encoded source URLs and encrypted `enc` source URLs are reserved for later slices.
 
 Example supported URLs:
@@ -74,7 +85,14 @@ resize:%resizing_type:%width:%height:%enlarge:%extend
 rs:%resizing_type:%width:%height:%enlarge:%extend
 ```
 
-All documented arguments are parsed with imgproxy's omitted-argument behavior.
+All documented arguments are parsed with imgproxy's omitted-argument behavior, including empty argument positions such as `rs:fit:300` and `rs::300:200`.
+
+The imgproxy source also allows the `extend` argument in `resize` and `size` to carry extend gravity arguments. ImagePlug should parse that source-backed grammar too:
+
+```text
+resize:%resizing_type:%width:%height:%enlarge:%extend:%gravity:%x_offset:%y_offset
+rs:%resizing_type:%width:%height:%enlarge:%extend:%gravity:%x_offset:%y_offset
+```
 
 Supported value grammar:
 
@@ -82,7 +100,7 @@ Supported value grammar:
 - `width`: non-negative integer, default `0`
 - `height`: non-negative integer, default `0`
 - `enlarge`: boolean grammar `1`, `t`, `true`, `0`, `f`, `false`, default false
-- `extend`: boolean grammar `1`, `t`, `true`, `0`, `f`, `false`, default false
+- `extend`: boolean grammar `1`, `t`, `true`, `0`, `f`, `false`, default false, with optional extend gravity grammar when present
 
 Execution scope:
 
@@ -100,6 +118,13 @@ Supported grammar:
 ```text
 size:%width:%height:%enlarge:%extend
 s:%width:%height:%enlarge:%extend
+```
+
+Source-backed extended grammar:
+
+```text
+size:%width:%height:%enlarge:%extend:%gravity:%x_offset:%y_offset
+s:%width:%height:%enlarge:%extend:%gravity:%x_offset:%y_offset
 ```
 
 This is an imgproxy meta-option for width, height, enlarge, and extend. It uses the same value grammar as `resize`, without changing the current `resizing_type`.
@@ -149,10 +174,6 @@ gravity:fp:%x:%y
 g:fp:%x:%y
 gravity:sm
 g:sm
-gravity:obj:%class_name1:%class_name2:...:%class_nameN
-g:obj:%class_name1:%class_name2:...:%class_nameN
-gravity:objw:%class_name1:%class_weight1:%class_name2:%class_weight2:...:%class_nameN:%class_weightN
-g:objw:%class_name1:%class_weight1:%class_name2:%class_weight2:...:%class_nameN:%class_weightN
 ```
 
 Supported gravity values:
@@ -169,8 +190,6 @@ sowe
 ce
 fp
 sm
-obj
-objw
 ```
 
 Execution scope:
@@ -178,7 +197,8 @@ Execution scope:
 - Cardinal and corner gravities map to existing anchor focus values for crop-like operations.
 - `fp` maps to the existing coordinate focus model using relative coordinates.
 - Offsets are parsed as part of the option grammar. If non-zero offsets cannot be represented by the current focus model, planning fails explicitly before origin fetch.
-- Smart gravity `sm` and object-oriented gravities `obj` and `objw` are parsed and represented because they are part of the supported `gravity` grammar. They return explicit planner errors in this slice because ImagePlug does not currently have smart or object-aware focus execution.
+- Smart gravity `sm` is parsed and represented because it is part of imgproxy's open-source crop gravity grammar. It returns an explicit planner error in this slice because ImagePlug does not currently have smart focus execution.
+- Pro object-oriented gravities `obj` and `objw` are not in the open-source parser's crop gravity grammar and are not part of this slice.
 
 ### Format And Extension
 
@@ -208,19 +228,19 @@ png
 
 `jpg` normalizes to ImagePlug's internal JPEG output format. `format:auto` is not an imgproxy format value and is not part of this grammar. Accept-header based output negotiation remains ImagePlug's default only when no explicit format or extension is provided.
 
-If both a format option and a trailing plain-source extension are present, duplicate output format declarations are rejected unless they specify the same normalized format.
+If both a format option and a trailing plain-source extension are present, the source extension is applied after processing options and wins, matching imgproxy's parser.
 
 ## Duplicate And Meta-Option Behavior
 
-Imgproxy has separate atomic options and meta-options. This design treats duplicate declarations by semantic field, not by raw segment:
+Imgproxy applies processing options in URL order. This design follows that behavior:
 
 - `resize:fill:300:200` and `rt:fill/w:300/h:200` are equivalent.
-- Repeating the same semantic field with the same value is accepted.
-- Repeating the same semantic field with conflicting values returns a parser error before origin fetch.
-- `format:webp` plus `@webp` is accepted.
-- `format:webp` plus `@png` is rejected.
+- Repeating the same semantic field is allowed.
+- Later processing options overwrite earlier semantic values.
+- The plain-source `@<extension>` format is applied after processing options and therefore overrides `format`, `f`, or `ext`.
+- Cache keys use the final normalized `ProcessingRequest`, not the raw path order.
 
-This preserves declarative option order while avoiding silent last-wins behavior in signed cacheable URLs.
+This preserves imgproxy compatibility while keeping ImagePlug's execution pipeline fixed and declarative. URL order affects only option assignment, not transform execution order.
 
 ## Processing Model
 
@@ -277,8 +297,8 @@ Errors are client request errors and should happen before origin fetch:
 - Invalid option arity.
 - Invalid enum value.
 - Invalid integer, boolean, extension, or gravity coordinate.
-- Conflicting semantic duplicate values.
 - Parsed but currently unsupported semantic combination.
+- Multiple `@` format separators in a plain source URL.
 
 The error body can stay plain text for now.
 
@@ -291,7 +311,8 @@ The implementation should be test-first and cover:
 - Parser tests for omitted optional `resize` and `size` arguments.
 - Parser tests for `plain` source extension with `@extension`.
 - Parser tests for equivalent meta-option and atomic-option combinations.
-- Parser tests for conflicting duplicates.
+- Parser tests for last-wins duplicate option assignment.
+- Parser tests proving `@extension` overrides an explicit format option.
 - Parser tests for unsupported imgproxy options returning errors.
 - Planner tests for current executable semantics: `fit`, `fill`, `force`, width-only, height-only, explicit output format, and gravity-driven crops.
 - Planner tests proving unsupported semantic combinations fail before origin fetch.
