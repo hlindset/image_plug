@@ -1164,12 +1164,11 @@ defmodule ImagePlug.PipelinePlannerTest do
   end
 
   test "appends explicit output format last" do
-    assert PipelinePlanner.plan(request(width: {:pixels, 300}, format: :webp)) ==
-             {:ok,
-              [
-                {Transform.Contain, %Transform.Contain.ContainParams{}},
-                {Transform.Output, %Transform.Output.OutputParams{format: :webp}}
-              ]}
+    assert {:ok,
+            [
+              {Transform.Contain, %Transform.Contain.ContainParams{}},
+              {Transform.Output, %Transform.Output.OutputParams{format: :webp}}
+            ]} = PipelinePlanner.plan(request(width: {:pixels, 300}, format: :webp))
   end
 
   test "rejects unsupported semantic combinations" do
