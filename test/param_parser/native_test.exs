@@ -71,6 +71,25 @@ defmodule ImagePlug.ParamParser.NativeTest do
             }} = conn(:get, "/_/plain/images/cat%40v1.jpg@webp") |> Native.parse()
   end
 
+  test "parses supported source extensions" do
+    cases = [
+      {"webp", :webp},
+      {"avif", :avif},
+      {"jpeg", :jpeg},
+      {"jpg", :jpeg},
+      {"png", :png},
+      {"best", :best}
+    ]
+
+    for {extension, format} <- cases do
+      assert {:ok,
+              %ProcessingRequest{
+                format: ^format,
+                output_extension_from_source: ^format
+              }} = conn(:get, "/_/plain/images/cat.jpg@#{extension}") |> Native.parse()
+    end
+  end
+
   test "dangling raw @ leaves output automatic when no explicit format exists" do
     assert {:ok,
             %ProcessingRequest{
@@ -78,6 +97,11 @@ defmodule ImagePlug.ParamParser.NativeTest do
               format: nil,
               output_extension_from_source: nil
             }} = conn(:get, "/_/plain/images/cat.jpg@") |> Native.parse()
+  end
+
+  test "rejects empty plain source before extension" do
+    assert Native.parse(conn(:get, "/_/plain/@webp")) ==
+             {:error, {:missing_source_identifier, "plain"}}
   end
 
   test "rejects multiple raw @ source extension separators" do

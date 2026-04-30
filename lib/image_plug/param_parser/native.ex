@@ -104,6 +104,9 @@ defmodule ImagePlug.ParamParser.Native do
       [source] ->
         decode_source_path(source, nil)
 
+      ["", _extension] ->
+        {:error, {:missing_source_identifier, "plain"}}
+
       [source, ""] ->
         decode_source_path(source, nil)
 
