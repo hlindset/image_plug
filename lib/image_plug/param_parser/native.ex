@@ -4,14 +4,6 @@ defmodule ImagePlug.ParamParser.Native do
   alias ImagePlug.ProcessingRequest
 
   @source_format_names ~w(webp avif jpeg jpg png best)
-  @processing_format_names ~w(auto webp avif jpeg png)
-
-  @fits %{
-    "cover" => :cover,
-    "contain" => :contain,
-    "fill" => :fill,
-    "inside" => :inside
-  }
 
   @source_formats %{
     "webp" => :webp,
@@ -22,20 +14,24 @@ defmodule ImagePlug.ParamParser.Native do
     "best" => :best
   }
 
-  @processing_formats %{
-    "auto" => :auto,
-    "webp" => :webp,
-    "avif" => :avif,
-    "jpeg" => :jpeg,
-    "png" => :png
+  @resizing_types %{
+    "fit" => :fit,
+    "fill" => :fill,
+    "fill-down" => :fill_down,
+    "force" => :force,
+    "auto" => :auto
   }
 
-  @focus_anchors %{
-    "center" => {:anchor, :center, :center},
-    "top" => {:anchor, :center, :top},
-    "bottom" => {:anchor, :center, :bottom},
-    "left" => {:anchor, :left, :center},
-    "right" => {:anchor, :right, :center}
+  @gravity_anchors %{
+    "no" => {:anchor, :center, :top},
+    "so" => {:anchor, :center, :bottom},
+    "ea" => {:anchor, :right, :center},
+    "we" => {:anchor, :left, :center},
+    "noea" => {:anchor, :right, :top},
+    "nowe" => {:anchor, :left, :top},
+    "soea" => {:anchor, :right, :bottom},
+    "sowe" => {:anchor, :left, :bottom},
+    "ce" => {:anchor, :center, :center}
   }
 
   @impl ImagePlug.ParamParser
@@ -137,142 +133,221 @@ defmodule ImagePlug.ParamParser.Native do
   end
 
   defp parse_options(option_segments) do
-    Enum.reduce_while(option_segments, {:ok, MapSet.new(), []}, fn segment,
-                                                                   {:ok, seen, options} ->
-      case option_field(segment) do
-        {:ok, field} ->
-          if MapSet.member?(seen, field) do
-            {:halt, {:error, {:duplicate_option, field}}}
-          else
-            case parse_option(segment) do
-              {:ok, ^field, value} ->
-                {:cont, {:ok, MapSet.put(seen, field), [{field, value} | options]}}
-
-              {:error, _reason} = error ->
-                {:halt, error}
-            end
-          end
+    Enum.reduce_while(option_segments, {:ok, []}, fn segment, {:ok, options} ->
+      case parse_option(segment) do
+        {:ok, assignments} ->
+          {:cont, {:ok, Keyword.merge(options, assignments)}}
 
         {:error, _reason} = error ->
           {:halt, error}
       end
     end)
-    |> case do
-      {:ok, _seen, options} -> {:ok, Enum.reverse(options)}
-      {:error, _reason} = error -> error
-    end
   end
 
-  defp option_field(segment) do
-    case segment |> String.split(":", parts: 2) |> hd() do
-      "w" -> {:ok, :width}
-      "h" -> {:ok, :height}
-      "fit" -> {:ok, :fit}
-      "focus" -> {:ok, :focus}
-      "format" -> {:ok, :format}
-      key -> {:error, {:unknown_option, key}}
-    end
-  end
+  defp parse_option("-"), do: {:error, :unsupported_chained_pipeline}
 
   defp parse_option(segment) do
     case String.split(segment, ":") do
-      ["w", value] ->
-        with {:ok, pixels} <- parse_positive_pixels(value) do
-          {:ok, :width, pixels}
-        end
+      [key | args] when key in ["resize", "rs"] ->
+        parse_resize(segment, args)
 
-      ["w" | _rest] ->
+      [key | args] when key in ["size", "s"] ->
+        parse_size(segment, args)
+
+      [key, value] when key in ["resizing_type", "rt"] ->
+        parse_resizing_type(value)
+
+      [key | _args] when key in ["resizing_type", "rt"] ->
         {:error, {:invalid_option_segment, segment}}
 
-      ["h", value] ->
-        with {:ok, pixels} <- parse_positive_pixels(value) do
-          {:ok, :height, pixels}
-        end
+      [key, value] when key in ["width", "w"] ->
+        parse_pixels_option(:width, value)
 
-      ["h" | _rest] ->
+      [key | _args] when key in ["width", "w"] ->
         {:error, {:invalid_option_segment, segment}}
 
-      ["fit", value] ->
-        parse_mapped_option(:fit, value, @fits, {:invalid_fit, value})
+      [key, value] when key in ["height", "h"] ->
+        parse_pixels_option(:height, value)
 
-      ["fit" | _rest] ->
+      [key | _args] when key in ["height", "h"] ->
         {:error, {:invalid_option_segment, segment}}
 
-      ["focus", value] ->
-        parse_focus(value)
+      [key | args] when key in ["gravity", "g"] ->
+        parse_gravity_option(segment, args)
 
-      ["focus", x, y] ->
-        parse_focus_coordinate(x, y)
+      [key, value] when key in ["format", "f", "ext"] ->
+        parse_format_option(value)
 
-      ["focus" | _rest] ->
+      [key | _args] when key in ["format", "f", "ext"] ->
         {:error, {:invalid_option_segment, segment}}
 
-      ["format", value] ->
-        parse_mapped_option(
-          :format,
-          value,
-          @processing_formats,
-          {:invalid_format, value, @processing_format_names}
-        )
-
-      ["format" | _rest] ->
-        {:error, {:invalid_option_segment, segment}}
-
-      [key | _rest] ->
+      [key | _args] ->
         {:error, {:unknown_option, key}}
     end
   end
 
-  defp parse_mapped_option(field, value, values, error) do
-    case Map.fetch(values, value) do
-      {:ok, parsed_value} -> {:ok, field, parsed_value}
-      :error -> {:error, error}
+  defp parse_resize(_segment, args) when length(args) <= 8 do
+    {fields, extend_gravity_parts} = Enum.split(args, 5)
+    [resizing_type, width, height, enlarge, extend] = pad_optional(fields, 5)
+
+    with {:ok, assignments} <-
+           parse_optional_assignments([
+             {:resizing_type, resizing_type, &parse_resizing_type_value/1},
+             {:width, width, &parse_pixels/1},
+             {:height, height, &parse_pixels/1},
+             {:enlarge, enlarge, &parse_boolean/1},
+             {:extend, extend, &parse_boolean/1}
+           ]),
+         {:ok, extend_gravity_assignments} <- parse_optional_extend_gravity(extend_gravity_parts) do
+      {:ok, assignments ++ extend_gravity_assignments}
     end
   end
 
-  defp parse_focus(value) do
-    case Map.fetch(@focus_anchors, value) do
-      {:ok, focus} -> {:ok, :focus, focus}
-      :error -> {:error, {:invalid_focus, value}}
+  defp parse_resize(segment, _args), do: {:error, {:invalid_option_segment, segment}}
+
+  defp parse_size(_segment, args) when length(args) <= 7 do
+    {fields, extend_gravity_parts} = Enum.split(args, 4)
+    [width, height, enlarge, extend] = pad_optional(fields, 4)
+
+    with {:ok, assignments} <-
+           parse_optional_assignments([
+             {:width, width, &parse_pixels/1},
+             {:height, height, &parse_pixels/1},
+             {:enlarge, enlarge, &parse_boolean/1},
+             {:extend, extend, &parse_boolean/1}
+           ]),
+         {:ok, extend_gravity_assignments} <- parse_optional_extend_gravity(extend_gravity_parts) do
+      {:ok, assignments ++ extend_gravity_assignments}
     end
   end
 
-  defp parse_focus_coordinate(x, y) do
-    with {:ok, parsed_x} <- parse_length(x),
-         {:ok, parsed_y} <- parse_length(y) do
-      {:ok, :focus, {:coordinate, parsed_x, parsed_y}}
+  defp parse_size(segment, _args), do: {:error, {:invalid_option_segment, segment}}
+
+  defp parse_optional_assignments(fields) do
+    Enum.reduce_while(fields, {:ok, []}, fn
+      {_field, value, _parser}, {:ok, assignments} when value in [nil, ""] ->
+        {:cont, {:ok, assignments}}
+
+      {field, value, parser}, {:ok, assignments} ->
+        case parser.(value) do
+          {:ok, parsed_value} -> {:cont, {:ok, assignments ++ [{field, parsed_value}]}}
+          {:error, _reason} = error -> {:halt, error}
+        end
+    end)
+  end
+
+  defp parse_optional_extend_gravity([]), do: {:ok, []}
+  defp parse_optional_extend_gravity([""]), do: {:ok, []}
+
+  defp parse_optional_extend_gravity([gravity]) do
+    with {:ok, anchor} <- parse_gravity_anchor(gravity) do
+      {:ok, [extend_gravity: anchor]}
     end
   end
 
-  defp parse_positive_pixels(value) do
-    with {:ok, integer} <- parse_positive_integer(value) do
+  defp parse_optional_extend_gravity([gravity, x_offset, y_offset]) do
+    with {:ok, anchor} <- parse_gravity_anchor(gravity),
+         {:ok, x_offset} <- parse_float(x_offset),
+         {:ok, y_offset} <- parse_float(y_offset) do
+      {:ok,
+       [
+         extend_gravity: anchor,
+         extend_x_offset: x_offset,
+         extend_y_offset: y_offset
+       ]}
+    end
+  end
+
+  defp parse_optional_extend_gravity(_parts), do: {:error, :invalid_extend_gravity}
+
+  defp parse_resizing_type(value) do
+    with {:ok, resizing_type} <- parse_resizing_type_value(value) do
+      {:ok, resizing_type: resizing_type}
+    end
+  end
+
+  defp parse_resizing_type_value(value) do
+    case Map.fetch(@resizing_types, value) do
+      {:ok, resizing_type} -> {:ok, resizing_type}
+      :error -> {:error, {:invalid_resizing_type, value}}
+    end
+  end
+
+  defp parse_pixels_option(field, value) do
+    with {:ok, pixels} <- parse_pixels(value) do
+      {:ok, [{field, pixels}]}
+    end
+  end
+
+  defp parse_pixels(value) do
+    with {:ok, integer} <- parse_non_negative_integer(value) do
       {:ok, {:pixels, integer}}
     end
   end
 
-  defp parse_length(value) do
-    case String.split_at(value, -1) do
-      {number, "p"} ->
-        parse_percent(value, number)
+  defp parse_boolean(value) do
+    case value do
+      value when value in ["1", "t", "true"] -> {:ok, true}
+      value when value in ["0", "f", "false"] -> {:ok, false}
+      value -> {:error, {:invalid_boolean, value}}
+    end
+  end
 
-      _ ->
-        with {:ok, integer} <- parse_non_negative_integer(value) do
-          {:ok, {:pixels, integer}}
+  defp parse_gravity_option(segment, args) do
+    case args do
+      ["sm"] ->
+        {:ok, [gravity: :sm]}
+
+      ["fp", x, y] ->
+        with {:ok, x} <- parse_focal_coordinate(x),
+             {:ok, y} <- parse_focal_coordinate(y) do
+          {:ok, [gravity: {:fp, x, y}, gravity_x_offset: 0.0, gravity_y_offset: 0.0]}
         end
+
+      [anchor] ->
+        with {:ok, anchor} <- parse_gravity_anchor(anchor) do
+          {:ok, [gravity: anchor, gravity_x_offset: 0.0, gravity_y_offset: 0.0]}
+        end
+
+      [anchor, x_offset, y_offset] ->
+        with {:ok, anchor} <- parse_gravity_anchor(anchor),
+             {:ok, x_offset} <- parse_float(x_offset),
+             {:ok, y_offset} <- parse_float(y_offset) do
+          {:ok, [gravity: anchor, gravity_x_offset: x_offset, gravity_y_offset: y_offset]}
+        end
+
+      _args ->
+        {:error, {:invalid_option_segment, segment}}
     end
   end
 
-  defp parse_positive_integer(value) do
-    case Integer.parse(value) do
-      {integer, ""} when integer > 0 -> {:ok, integer}
-      _other -> {:error, {:invalid_positive_integer, value}}
+  defp parse_gravity_anchor(value) do
+    case Map.fetch(@gravity_anchors, value) do
+      {:ok, anchor} -> {:ok, anchor}
+      :error -> {:error, {:invalid_gravity, value}}
     end
   end
 
-  defp parse_percent(value, number) do
-    case Integer.parse(number) do
-      {integer, ""} when integer >= 0 and integer <= 100 -> {:ok, {:percent, integer}}
-      _other -> {:error, {:invalid_percent, value}}
+  defp parse_focal_coordinate(value) do
+    with {:ok, float} <- parse_float(value) do
+      if float >= 0.0 and float <= 1.0 do
+        {:ok, float}
+      else
+        {:error, {:invalid_focal_coordinate, value}}
+      end
+    end
+  end
+
+  defp parse_float(value) do
+    case Float.parse(value) do
+      {float, ""} ->
+        {:ok, float}
+
+      _other ->
+        case Integer.parse(value) do
+          {integer, ""} -> {:ok, integer / 1}
+          _other -> {:error, {:invalid_float, value}}
+        end
     end
   end
 
@@ -281,5 +356,15 @@ defmodule ImagePlug.ParamParser.Native do
       {integer, ""} when integer >= 0 -> {:ok, integer}
       _other -> {:error, {:invalid_non_negative_integer, value}}
     end
+  end
+
+  defp parse_format_option(value) do
+    with {:ok, format} <- parse_format(value) do
+      {:ok, [format: format]}
+    end
+  end
+
+  defp pad_optional(values, count) do
+    values ++ List.duplicate(nil, count - length(values))
   end
 end
