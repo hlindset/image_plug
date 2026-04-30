@@ -27,7 +27,7 @@ defmodule ImagePlug.OriginTest do
              Origin.fetch("https://img.example/cat.jpg", plug: plug)
 
     assert Enum.join(response.stream) == "image bytes"
-    assert Origin.stream_error(response) == nil
+    assert Origin.stream_status(response) == :done
     assert response.content_type == "image/jpeg"
     assert response.url == "https://img.example/cat.jpg"
     assert {"content-type", "image/jpeg"} in response.headers
@@ -47,8 +47,6 @@ defmodule ImagePlug.OriginTest do
     assert Enum.join(response.stream) == "image bytes"
     assert Origin.stream_status(response) == :done
     assert Origin.stream_status(response) == :done
-    assert Origin.stream_error(response) == nil
-    assert Origin.stream_error(response) == nil
   end
 
   test "stream_status is visible from another process after stream completion" do
@@ -85,8 +83,6 @@ defmodule ImagePlug.OriginTest do
     assert Enum.to_list(response.stream) == []
     assert Origin.stream_status(response) == {:error, {:body_too_large, 5}}
     assert Origin.stream_status(response) == {:error, {:body_too_large, 5}}
-    assert Origin.stream_error(response) == {:body_too_large, 5}
-    assert Origin.stream_error(response) == {:body_too_large, 5}
   end
 
   test "require_stream_status fails pending streams before delivery" do
@@ -241,7 +237,7 @@ defmodule ImagePlug.OriginTest do
              )
 
     assert Enum.to_list(response.stream) == []
-    assert Origin.stream_error(response) == {:body_too_large, 5}
+    assert Origin.stream_status(response) == {:error, {:body_too_large, 5}}
   end
 
   test "converts transport errors" do
@@ -260,7 +256,7 @@ defmodule ImagePlug.OriginTest do
              Origin.fetch("http://127.0.0.1:#{port}/cat.png", receive_timeout: 100)
 
     assert Enum.to_list(response.stream) == ["first chunk"]
-    assert Origin.stream_error(response) == {:timeout, 100}
+    assert Origin.stream_status(response) == {:error, {:timeout, 100}}
   end
 
   test "unconsumed streams are canceled after receive timeout" do
@@ -276,7 +272,7 @@ defmodule ImagePlug.OriginTest do
                receive_timeout: 50
              )
 
-    assert_eventually_stream_error(response, {:timeout, 50}, 100)
+    assert_eventually_stream_status(response, {:error, {:timeout, 50}}, 100)
   end
 
   test "close cancels an unconsumed stream" do
@@ -324,23 +320,26 @@ defmodule ImagePlug.OriginTest do
     port
   end
 
-  defp assert_eventually_stream_error(response, expected, timeout) do
+  defp assert_eventually_stream_status(response, expected, timeout) do
     deadline = System.monotonic_time(:millisecond) + timeout
-    do_assert_eventually_stream_error(response, expected, deadline)
+    do_assert_eventually_stream_status(response, expected, deadline)
   end
 
-  defp do_assert_eventually_stream_error(response, expected, deadline) do
-    case Origin.stream_error(response) do
+  defp do_assert_eventually_stream_status(response, expected, deadline) do
+    case Origin.stream_status(response) do
       ^expected ->
         :ok
 
-      nil ->
+      :pending ->
         if System.monotonic_time(:millisecond) < deadline do
           Process.sleep(5)
-          do_assert_eventually_stream_error(response, expected, deadline)
+          do_assert_eventually_stream_status(response, expected, deadline)
         else
-          flunk("expected stream error #{inspect(expected)}")
+          flunk("expected stream status #{inspect(expected)}")
         end
+
+      other ->
+        flunk("expected stream status #{inspect(expected)}, got #{inspect(other)}")
     end
   end
 end

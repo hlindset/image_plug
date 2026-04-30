@@ -100,17 +100,6 @@ defmodule ImagePlug.Origin do
     end
   end
 
-  @doc """
-  Compatibility wrapper for callers that only distinguish stream errors from non-errors.
-  """
-  def stream_error(%Response{} = response) do
-    case stream_status(response) do
-      {:error, reason} -> reason
-      :done -> nil
-      :pending -> nil
-    end
-  end
-
   def close(%Response{ref: ref, worker: worker}) do
     send(worker, {:cancel, ref})
     :ok
