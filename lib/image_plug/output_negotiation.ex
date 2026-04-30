@@ -98,11 +98,11 @@ defmodule ImagePlug.OutputNegotiation do
       |> Enum.map(fn {_accepted, quality} -> quality end)
 
     cond do
-      Enum.any?(exact_qualities, &(&1 > 0)) ->
-        true
-
       Enum.any?(exact_qualities, &(&1 == 0)) ->
         false
+
+      Enum.any?(exact_qualities, &(&1 > 0)) ->
+        true
 
       true ->
         entries

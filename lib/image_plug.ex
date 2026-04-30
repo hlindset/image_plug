@@ -615,13 +615,7 @@ defmodule ImagePlug do
   defp output_mime_type(:jpeg), do: "image/jpeg"
   defp output_mime_type(:png), do: "image/png"
 
-  defp vary_for_automatic?(opts) do
-    Keyword.get(opts, :auto_avif, true) or Keyword.get(opts, :auto_webp, true)
-  end
-
-  defp automatic_response_headers(opts) do
-    if vary_for_automatic?(opts), do: [{"vary", "Accept"}], else: []
-  end
+  defp automatic_response_headers(_opts), do: [{"vary", "Accept"}]
 
   defp append_selected_output(chain, selected_format) do
     chain ++

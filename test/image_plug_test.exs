@@ -561,7 +561,7 @@ defmodule ImagePlug.ImagePlugTest do
     refute_received :origin_was_called
   end
 
-  test "disabled automatic modern formats fall back without Vary when Accept cannot affect selected output" do
+  test "disabled automatic modern formats still set Vary for negotiated fallback output" do
     conn = conn(:get, "/_/plain/images/cat-300.jpg")
 
     conn =
@@ -574,7 +574,27 @@ defmodule ImagePlug.ImagePlugTest do
       )
 
     assert conn.status == 200
-    assert get_resp_header(conn, "vary") == []
+    assert get_resp_header(conn, "vary") == ["Accept"]
+  end
+
+  test "disabled automatic modern formats set Vary on unacceptable fallback output" do
+    conn =
+      :get
+      |> conn("/_/plain/images/cat-300.jpg")
+      |> put_req_header("accept", "image/jpeg;q=0")
+
+    conn =
+      ImagePlug.call(conn,
+        root_url: "http://origin.test",
+        param_parser: ImagePlug.ParamParser.Native,
+        auto_avif: false,
+        auto_webp: false,
+        origin_req_options: [plug: OriginImage]
+      )
+
+    assert conn.status == 406
+    assert conn.resp_body == "no acceptable image output format"
+    assert get_resp_header(conn, "vary") == ["Accept"]
   end
 
   test "does not touch cache or origin when planner rejects unsupported semantics" do

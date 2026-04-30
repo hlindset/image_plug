@@ -65,7 +65,7 @@ Supported explicit output extensions are `webp`, `avif`, `jpeg`, `jpg`, `png`, a
 
 The first `plain` segment terminates option parsing. Later path segments are treated as the origin path, even if they look like options.
 
-Omitting an explicit output format enables automatic output selection. ImagePlug defaults automatic AVIF and WebP selection to enabled. Explicit `format`, `f`, `ext`, and plain-source `@extension` bypass `Accept` negotiation.
+Omitting an explicit output format enables automatic output selection. ImagePlug defaults automatic AVIF and WebP selection to enabled. Automatic output responses use `Vary: Accept`. Explicit `format`, `f`, `ext`, and plain-source `@extension` bypass `Accept` negotiation and do not set `Vary: Accept`.
 
 ## Usage example
 
@@ -140,4 +140,4 @@ For transform chains that are proven to be safe for one-pass reads, ImagePlug ma
 
 Sequential decode does not use JPEG shrink-on-load or WebP scale hints in this pass. Origin byte limits, receive timeouts, decoded pixel limits, and decode error responses still apply. Cache hits serve stored response bodies directly and do not participate in origin decode optimization.
 
-Automatic output format selection uses the request `Accept` header and sets `Vary: Accept` on image responses. Explicit formats bypass content negotiation.
+Automatic output format selection uses the request `Accept` header. Automatic output responses use `Vary: Accept`. Explicit formats bypass content negotiation and do not set `Vary: Accept`.

@@ -51,6 +51,13 @@ defmodule ImagePlug.OutputNegotiationTest do
                {:ok, "image/webp"}
     end
 
+    test "exact q zero excludes a format even with duplicate positive exact entries" do
+      accept = "image/avif;q=0,image/avif;q=1,*/*;q=1"
+
+      assert OutputNegotiation.negotiate(accept, false) == {:ok, "image/webp"}
+      assert OutputNegotiation.preselect(accept, []) == {:ok, :webp}
+    end
+
     test "matches image and global wildcards" do
       assert OutputNegotiation.negotiate("image/*", false) == {:ok, "image/avif"}
       assert OutputNegotiation.negotiate("*/*", false) == {:ok, "image/avif"}
