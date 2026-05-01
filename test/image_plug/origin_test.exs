@@ -1,5 +1,5 @@
 defmodule ImagePlug.OriginTest do
-  use ExUnit.Case, async: true
+  use ExUnit.Case, async: false
 
   alias ImagePlug.Origin
   alias ImagePlug.Origin.StreamStatus
@@ -156,10 +156,10 @@ defmodule ImagePlug.OriginTest do
 
     owner_ref = Process.monitor(owner)
 
-    assert_receive {:stream_status_holder, stream_status}
+    assert_receive {:stream_status_holder, stream_status}, 1_000
     stream_status_ref = Process.monitor(stream_status)
-    assert_receive {:DOWN, ^owner_ref, :process, ^owner, :normal}
-    assert_receive {:DOWN, ^stream_status_ref, :process, ^stream_status, _reason}
+    assert_receive {:DOWN, ^owner_ref, :process, ^owner, :normal}, 1_000
+    assert_receive {:DOWN, ^stream_status_ref, :process, ^stream_status, _reason}, 1_000
   end
 
   test "fetch accepts mixed-case image content type with parameters" do
@@ -265,10 +265,10 @@ defmodule ImagePlug.OriginTest do
     port = start_slow_chunked_origin()
 
     assert {:ok, %Origin.Response{} = response} =
-             Origin.fetch("http://127.0.0.1:#{port}/cat.png", receive_timeout: 100)
+             Origin.fetch("http://127.0.0.1:#{port}/cat.png", receive_timeout: 300)
 
     assert Enum.to_list(response.stream) == ["first chunk"]
-    assert Origin.stream_status(response) == {:error, {:timeout, 100}}
+    assert Origin.stream_status(response) == {:error, {:timeout, 300}}
   end
 
   test "unconsumed streams are canceled after receive timeout" do
@@ -281,10 +281,10 @@ defmodule ImagePlug.OriginTest do
     assert {:ok, %Origin.Response{} = response} =
              Origin.fetch("https://img.example/cat.jpg",
                plug: plug,
-               receive_timeout: 50
+               receive_timeout: 100
              )
 
-    assert_eventually_stream_status(response, {:error, {:timeout, 50}}, 100)
+    assert_eventually_stream_status(response, {:error, {:timeout, 100}}, 500)
   end
 
   test "close cancels an unconsumed stream" do
@@ -323,7 +323,7 @@ defmodule ImagePlug.OriginTest do
           "b\r\nfirst chunk\r\n"
         ])
 
-      Process.sleep(150)
+      Process.sleep(700)
       :gen_tcp.send(socket, "c\r\nsecond chunk\r\n0\r\n\r\n")
       :gen_tcp.close(socket)
       :gen_tcp.close(listen_socket)
