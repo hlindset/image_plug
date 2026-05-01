@@ -296,6 +296,31 @@ defmodule ImagePlug.ImagePlugTest do
     refute_received :memory_encoder_called
   end
 
+  test "automatic output negotiation does not require encoder overrides to detect alpha" do
+    conn =
+      :get
+      |> conn("/_/plain/images/cat-300.jpg")
+      |> put_req_header("accept", "image/jpeg")
+
+    test_pid = self()
+
+    conn =
+      ImagePlug.call(conn,
+        root_url: "http://origin.test",
+        image_module: StreamingOnlyImage,
+        param_parser: ImagePlug.ParamParser.Native,
+        origin_req_options: [
+          plug: fn conn -> CountingOriginImage.call(conn, test_pid: test_pid) end
+        ]
+      )
+
+    assert conn.status == 200
+    assert conn.state == :chunked
+    assert conn.resp_body == "streamed jpeg"
+    assert get_resp_header(conn, "content-type") == ["image/jpeg"]
+    assert_received :stream_encoder_called
+  end
+
   test "does not touch cache when parser validation fails" do
     conn = conn(:get, "/_/w:-1/plain/images/cat-300.jpg")
     cache_probe = start_cache_probe()

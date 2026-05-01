@@ -213,6 +213,20 @@ defmodule ImagePlug.PipelinePlannerTest do
              {:error, {:unsupported_gravity_offset, {0.0, -2.0}}}
   end
 
+  test "rejects invalid enum values from pluggable parsers" do
+    assert PipelinePlanner.plan(request(resizing_type: :bogus)) ==
+             {:error, {:invalid_resizing_type, :bogus}}
+
+    assert PipelinePlanner.plan(
+             request(
+               resizing_type: :fill,
+               width: {:pixels, 300},
+               height: {:pixels, 200},
+               gravity: :bogus
+             )
+           ) == {:error, {:invalid_gravity, :bogus}}
+  end
+
   test "rejects fill without both dimensions" do
     assert PipelinePlanner.plan(request(resizing_type: :fill, width: {:pixels, 300})) ==
              {:error, {:missing_dimensions, :fill}}

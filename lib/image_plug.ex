@@ -614,11 +614,10 @@ defmodule ImagePlug do
 
   defp selected_output_format(%Plug.Conn{} = conn, image, source_format, opts) do
     accept_header = conn |> get_req_header("accept") |> Enum.join(",")
-    image_module = Keyword.get(opts, :image_module, Image)
 
     case OutputNegotiation.negotiate(
            accept_header,
-           image_module.has_alpha?(image),
+           Image.has_alpha?(image),
            Keyword.put(output_negotiation_opts(opts), :source_format, source_format)
          ) do
       {:ok, mime_type} -> OutputNegotiation.format(mime_type)

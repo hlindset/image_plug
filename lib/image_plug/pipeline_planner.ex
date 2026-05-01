@@ -8,6 +8,7 @@ defmodule ImagePlug.PipelinePlanner do
   alias ImagePlug.TransformChain
 
   @default_gravity {:anchor, :center, :center}
+  @supported_resizing_types [:fit, :fill, :fill_down, :force, :auto]
   @supported_output_formats [:webp, :avif, :jpeg, :png, :blurhash]
 
   @spec plan(ProcessingRequest.t()) :: {:ok, TransformChain.t()} | {:error, term()}
@@ -32,29 +33,41 @@ defmodule ImagePlug.PipelinePlanner do
        when resizing_type in [:auto, :fill_down],
        do: {:error, {:unsupported_resizing_type, resizing_type}}
 
-  defp validate_supported_semantics(%ProcessingRequest{extend: true}),
+  defp validate_supported_semantics(%ProcessingRequest{resizing_type: resizing_type})
+       when resizing_type not in @supported_resizing_types,
+       do: {:error, {:invalid_resizing_type, resizing_type}}
+
+  defp validate_supported_semantics(%ProcessingRequest{gravity: gravity} = request) do
+    if valid_gravity?(gravity) do
+      validate_extend_semantics(request)
+    else
+      {:error, {:invalid_gravity, gravity}}
+    end
+  end
+
+  defp validate_extend_semantics(%ProcessingRequest{extend: true}),
     do: {:error, {:unsupported_extend, true}}
 
-  defp validate_supported_semantics(%ProcessingRequest{extend_gravity: gravity})
+  defp validate_extend_semantics(%ProcessingRequest{extend_gravity: gravity})
        when not is_nil(gravity),
        do: {:error, {:unsupported_extend_gravity, gravity}}
 
-  defp validate_supported_semantics(%ProcessingRequest{extend_x_offset: offset})
+  defp validate_extend_semantics(%ProcessingRequest{extend_x_offset: offset})
        when not is_nil(offset),
        do: {:error, {:unsupported_extend_offset, offset}}
 
-  defp validate_supported_semantics(%ProcessingRequest{extend_y_offset: offset})
+  defp validate_extend_semantics(%ProcessingRequest{extend_y_offset: offset})
        when not is_nil(offset),
        do: {:error, {:unsupported_extend_offset, offset}}
 
-  defp validate_supported_semantics(%ProcessingRequest{
+  defp validate_extend_semantics(%ProcessingRequest{
          gravity_x_offset: x_offset,
          gravity_y_offset: y_offset
        })
        when x_offset != 0.0 or y_offset != 0.0,
        do: {:error, {:unsupported_gravity_offset, {x_offset, y_offset}}}
 
-  defp validate_supported_semantics(%ProcessingRequest{}), do: :ok
+  defp validate_extend_semantics(%ProcessingRequest{}), do: :ok
 
   defp plan_geometry(%ProcessingRequest{resizing_type: :force, width: {:pixels, 0}}),
     do: {:error, {:unsupported_zero_dimension, :force}}
@@ -132,6 +145,14 @@ defmodule ImagePlug.PipelinePlanner do
   end
 
   defp maybe_prepend_focus(chain, _gravity), do: chain
+
+  defp valid_gravity?({:fp, x, y}), do: is_number(x) and is_number(y)
+
+  defp valid_gravity?({:anchor, x, y}) do
+    x in [:left, :center, :right] and y in [:top, :center, :bottom]
+  end
+
+  defp valid_gravity?(_gravity), do: false
 
   defp focus_type({:fp, x, y}), do: {:coordinate, {:percent, x * 100.0}, {:percent, y * 100.0}}
   defp focus_type({:anchor, _x, _y} = gravity), do: gravity
