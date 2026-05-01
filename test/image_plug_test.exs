@@ -677,7 +677,7 @@ defmodule ImagePlug.ImagePlugTest do
 
   test "safe one-pass resize opens origin with sequential access" do
     conn =
-      conn(:get, "/_/w:100/format:jpeg/plain/images/cat-300.jpg")
+      conn(:get, "/_/rt:force/w:100/format:jpeg/plain/images/cat-300.jpg")
       |> ImagePlug.call(
         root_url: "http://origin.test",
         image_open_module: RecordingImageOpen,
@@ -709,7 +709,7 @@ defmodule ImagePlug.ImagePlugTest do
 
   test "sequential materialization failure without origin error returns decode error" do
     conn =
-      conn(:get, "/_/w:100/plain/images/cat-300.jpg")
+      conn(:get, "/_/rt:force/w:100/plain/images/cat-300.jpg")
       |> ImagePlug.call(
         root_url: "http://origin.test",
         param_parser: ImagePlug.ParamParser.Native,
@@ -848,7 +848,7 @@ defmodule ImagePlug.ImagePlugTest do
     body = File.read!("priv/static/images/cat-300.jpg")
 
     conn =
-      conn(:get, "/_/w:100/plain/images/large-body.jpg")
+      conn(:get, "/_/rt:force/w:100/plain/images/large-body.jpg")
       |> ImagePlug.call(
         root_url: "http://origin.test",
         param_parser: ImagePlug.ParamParser.Native,
@@ -864,7 +864,7 @@ defmodule ImagePlug.ImagePlugTest do
 
   test "sequential timeout after initial valid bytes remains an origin error before image headers" do
     conn =
-      conn(:get, "/_/w:100/plain/images/slow.jpg")
+      conn(:get, "/_/rt:force/w:100/plain/images/slow.jpg")
       |> ImagePlug.call(
         root_url: "http://origin.test",
         param_parser: ImagePlug.ParamParser.Native,
@@ -880,7 +880,7 @@ defmodule ImagePlug.ImagePlugTest do
 
   test "sequential corrupt image tail without origin error remains a decode error" do
     conn =
-      conn(:get, "/_/w:100/plain/images/corrupt-tail.jpg")
+      conn(:get, "/_/rt:force/w:100/plain/images/corrupt-tail.jpg")
       |> ImagePlug.call(
         root_url: "http://origin.test",
         param_parser: ImagePlug.ParamParser.Native,

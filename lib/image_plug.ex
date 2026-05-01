@@ -257,13 +257,6 @@ defmodule ImagePlug do
     end
   end
 
-  defp fetch_decode_and_validate_origin(request, origin_identity, opts) do
-    with {:ok, image, _source_format} <-
-           fetch_decode_validate_origin_with_source_format(request, origin_identity, opts) do
-      {:ok, image}
-    end
-  end
-
   defp fetch_decode_validate_origin_with_source_format(request, origin_identity, opts) do
     decode_options = [access: :random, fail_on: :error]
 
