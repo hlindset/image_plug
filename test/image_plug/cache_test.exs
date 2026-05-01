@@ -70,8 +70,8 @@ defmodule ImagePlug.CacheTest do
   defp cache_key do
     %Key{
       hash: String.duplicate("a", 64),
-      material: [schema_version: 2],
-      serialized_material: :erlang.term_to_binary([schema_version: 2], [:deterministic])
+      material: [schema_version: 1],
+      serialized_material: :erlang.term_to_binary([schema_version: 1], [:deterministic])
     }
   end
 

@@ -40,7 +40,7 @@ defmodule ImagePlug.Cache.KeyTest do
     assert key.hash == same.hash
     assert key.hash =~ ~r/\A[0-9a-f]{64}\z/
     assert is_binary(key.serialized_material)
-    assert key.material[:schema_version] == 2
+    assert key.material[:schema_version] == 1
     assert key.material[:origin_identity] == "https://origin-a.test/images/cat.jpg"
 
     assert key.material[:operations] == [

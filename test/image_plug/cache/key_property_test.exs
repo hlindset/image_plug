@@ -28,7 +28,7 @@ defmodule ImagePlug.Cache.KeyPropertyTest do
               height <- maybe_dimension(),
               max_runs: 100 do
       material_one = [
-        schema_version: 2,
+        schema_version: 1,
         origin_identity: origin,
         operations: [
           source_kind: :plain,
@@ -60,7 +60,7 @@ defmodule ImagePlug.Cache.KeyPropertyTest do
           source_kind: :plain
         ],
         origin_identity: origin,
-        schema_version: 2
+        schema_version: 1
       ]
 
       assert Key.serialize_material(material_one) == Key.serialize_material(material_two)
@@ -238,7 +238,7 @@ defmodule ImagePlug.Cache.KeyPropertyTest do
       fn
         {origin, request, format, automatic} ->
           [
-            schema_version: 2,
+            schema_version: 1,
             origin_identity: origin,
             operations: [
               source_kind: request.source_kind,

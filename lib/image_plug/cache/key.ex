@@ -7,7 +7,7 @@ defmodule ImagePlug.Cache.Key do
 
   alias ImagePlug.ProcessingRequest
 
-  @schema_version 2
+  @schema_version 1
   @enforce_keys [:hash, :material, :serialized_material]
 
   defstruct @enforce_keys
