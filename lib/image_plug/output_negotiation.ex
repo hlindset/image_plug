@@ -2,7 +2,8 @@ defmodule ImagePlug.OutputNegotiation do
   @moduledoc false
 
   @modern_formats [avif: "image/avif", webp: "image/webp"]
-  @output_formats ~w(image/avif image/webp image/png image/jpeg)
+  @formats [avif: "image/avif", webp: "image/webp", png: "image/png", jpeg: "image/jpeg"]
+  @output_formats Keyword.values(@formats)
 
   @spec negotiate(String.t() | nil, boolean()) :: {:ok, String.t()} | {:error, :not_acceptable}
   def negotiate(accept_header, has_alpha?) do
@@ -70,6 +71,36 @@ defmodule ImagePlug.OutputNegotiation do
   def suffix!("image/jpeg"), do: ".jpg"
   def suffix!("image/png"), do: ".png"
 
+  def format(mime_type) do
+    case normalize_mime_type(mime_type) do
+      "image/jpg" -> {:ok, :jpeg}
+      mime_type -> format_from_normalized_mime_type(mime_type)
+    end
+  end
+
+  defp format_from_normalized_mime_type(mime_type) do
+    case Enum.find(@formats, fn {_format, candidate_mime_type} ->
+           candidate_mime_type == mime_type
+         end) do
+      {format, _mime_type} -> {:ok, format}
+      nil -> :error
+    end
+  end
+
+  defp normalize_mime_type(mime_type) when is_binary(mime_type), do: String.downcase(mime_type)
+  defp normalize_mime_type(mime_type), do: mime_type
+
+  def format!(mime_type) do
+    case format(mime_type) do
+      {:ok, format} -> format
+      :error -> raise ArgumentError, "unsupported image MIME type: #{inspect(mime_type)}"
+    end
+  end
+
+  def mime_type!(format) do
+    Keyword.fetch!(@formats, format)
+  end
+
   defp enabled_modern_mime_types(opts) do
     opts
     |> enabled_modern_formats()
@@ -95,11 +126,7 @@ defmodule ImagePlug.OutputNegotiation do
   defp alpha_fallback_mime_type(true), do: "image/png"
   defp alpha_fallback_mime_type(false), do: "image/jpeg"
 
-  defp source_mime_type(:avif), do: "image/avif"
-  defp source_mime_type(:webp), do: "image/webp"
-  defp source_mime_type(:png), do: "image/png"
-  defp source_mime_type(:jpeg), do: "image/jpeg"
-  defp source_mime_type(_source_format), do: nil
+  defp source_mime_type(source_format), do: Keyword.get(@formats, source_format)
 
   defp supported_output_acceptable?(entries) do
     Enum.any?(@output_formats, &acceptable?(&1, entries))

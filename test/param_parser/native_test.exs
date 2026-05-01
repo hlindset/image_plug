@@ -165,6 +165,12 @@ defmodule ImagePlug.ParamParser.NativeTest do
     end
   end
 
+  test "invalid resizing type reports supported values" do
+    assert Native.parse(conn(:get, "/_/rt:crop/plain/images/cat.jpg")) ==
+             {:error,
+              {:invalid_resizing_type, "crop", ["fit", "fill", "fill-down", "force", "auto"]}}
+  end
+
   test "parses width and height aliases including zero" do
     assert {:ok, %ProcessingRequest{width: {:pixels, 0}, height: {:pixels, 200}}} =
              conn(:get, "/_/w:0/h:200/plain/images/cat.jpg") |> Native.parse()

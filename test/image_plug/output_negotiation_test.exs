@@ -152,4 +152,15 @@ defmodule ImagePlug.OutputNegotiationTest do
       assert OutputNegotiation.suffix!("image/png") == ".png"
     end
   end
+
+  describe "format conversion" do
+    test "maps negotiated MIME types to format atoms" do
+      assert OutputNegotiation.format("image/avif") == {:ok, :avif}
+      assert OutputNegotiation.format("image/webp") == {:ok, :webp}
+      assert OutputNegotiation.format("image/jpeg") == {:ok, :jpeg}
+      assert OutputNegotiation.format("image/jpg") == {:ok, :jpeg}
+      assert OutputNegotiation.format("image/png") == {:ok, :png}
+      assert OutputNegotiation.format("image/gif") == :error
+    end
+  end
 end

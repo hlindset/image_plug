@@ -21,6 +21,10 @@ defmodule ImagePlug.PipelinePlanner do
   defp validate_supported_semantics(%ProcessingRequest{format: :best}),
     do: {:error, {:unsupported_output_format, :best}}
 
+  defp validate_supported_semantics(%ProcessingRequest{format: format})
+       when not is_nil(format) and format not in @supported_output_formats,
+       do: {:error, {:invalid_output_format, format}}
+
   defp validate_supported_semantics(%ProcessingRequest{gravity: :sm}),
     do: {:error, {:unsupported_gravity, :sm}}
 
@@ -144,7 +148,7 @@ defmodule ImagePlug.PipelinePlanner do
 
   defp append_output(chain, nil), do: chain
 
-  defp append_output(chain, format) when format in @supported_output_formats do
+  defp append_output(chain, format) do
     chain ++ [{Transform.Output, %Transform.Output.OutputParams{format: format}}]
   end
 

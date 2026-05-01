@@ -179,6 +179,9 @@ defmodule ImagePlug.PipelinePlannerTest do
     assert PipelinePlanner.plan(request(format: :best)) ==
              {:error, {:unsupported_output_format, :best}}
 
+    assert PipelinePlanner.plan(request(format: :gif)) ==
+             {:error, {:invalid_output_format, :gif}}
+
     assert PipelinePlanner.plan(request(gravity: :sm)) == {:error, {:unsupported_gravity, :sm}}
 
     assert PipelinePlanner.plan(request(resizing_type: :auto)) ==

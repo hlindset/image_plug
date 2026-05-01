@@ -1998,9 +1998,6 @@ Expected: FAIL because `ImagePlug.call/2` still uses old URLs and raw `format:au
 Add helpers in `lib/image_plug.ex`:
 
 ```elixir
-defp automatic_output?(%ProcessingRequest{format: nil}), do: true
-defp automatic_output?(%ProcessingRequest{}), do: false
-
 defp output_negotiation_opts(opts) do
   [
     auto_avif: Keyword.get(opts, :auto_avif, true),
@@ -2012,34 +2009,26 @@ defp selected_output_format(%Plug.Conn{} = conn, image, opts) do
   accept_header = conn |> get_req_header("accept") |> Enum.join(",")
 
   case OutputNegotiation.negotiate(accept_header, Image.has_alpha?(image), output_negotiation_opts(opts)) do
-    {:ok, "image/avif"} -> {:ok, :avif}
-    {:ok, "image/webp"} -> {:ok, :webp}
-    {:ok, "image/jpeg"} -> {:ok, :jpeg}
-    {:ok, "image/png"} -> {:ok, :png}
+    {:ok, mime_type} -> {:ok, OutputNegotiation.format!(mime_type)}
     {:error, :not_acceptable} -> {:error, :not_acceptable}
   end
 end
-
-defp output_mime_type(:avif), do: "image/avif"
-defp output_mime_type(:webp), do: "image/webp"
-defp output_mime_type(:jpeg), do: "image/jpeg"
-defp output_mime_type(:png), do: "image/png"
-
-defp vary_for_automatic?(opts) do
-  Keyword.get(opts, :auto_avif, true) or Keyword.get(opts, :auto_webp, true)
-end
 ```
 
-Keep `OutputNegotiation.suffix!/1` for suffix mapping, or add `suffix_for_format!/1` if that reads cleaner.
+Keep MIME/format conversion in `OutputNegotiation` with `format!/1`, `mime_type!/1`, and `suffix!/1`.
 
 - [ ] **Step 4: Split explicit and automatic cache flow**
 
 In `ImagePlug.call/2`, after request, chain, and origin identity succeed, dispatch by request format:
 
 ```elixir
-if automatic_output?(request) do
+dispatch_request(conn, request, chain, origin_identity, opts)
+
+defp dispatch_request(conn, %ProcessingRequest{format: nil} = request, chain, origin_identity, opts) do
   dispatch_automatic_request(conn, request, chain, origin_identity, opts)
-else
+end
+
+defp dispatch_request(conn, %ProcessingRequest{} = request, chain, origin_identity, opts) do
   dispatch_explicit_request(conn, request, chain, origin_identity, opts)
 end
 ```
@@ -2156,13 +2145,13 @@ defp send_image(%Plug.Conn{} = conn, %TransformState{} = state, opts, response_h
   stream_image(stream, conn, mime_type, response_headers)
 end
 
-defp automatic_response_headers(_opts), do: [{"vary", "Accept"}]
+defp accept_vary_headers, do: [{"vary", "Accept"}]
 ```
 
 Apply the same response headers to cache entries:
 
 ```elixir
-encode_cache_entry(conn, final_state, opts, automatic_response_headers(opts))
+encode_cache_entry(conn, final_state, opts, accept_vary_headers())
 ```
 
 - [ ] **Step 6: Run plug tests**

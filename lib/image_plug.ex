@@ -33,11 +33,7 @@ defmodule ImagePlug do
     with {:ok, request} <- param_parser.parse(conn) |> wrap_parser_error(),
          {:ok, chain} <- pipeline_planner.plan(request) |> wrap_planner_error(),
          {:ok, origin_identity} <- origin_identity(request, opts) |> wrap_origin_error() do
-      if automatic_output?(request) do
-        dispatch_automatic_request(conn, request, chain, origin_identity, opts)
-      else
-        dispatch_explicit_request(conn, request, chain, origin_identity, opts)
-      end
+      dispatch_request(conn, request, chain, origin_identity, opts)
     else
       {:error, {:parser, error}} ->
         param_parser.handle_error(conn, error)
@@ -50,8 +46,19 @@ defmodule ImagePlug do
     end
   end
 
-  defp automatic_output?(%ProcessingRequest{format: nil}), do: true
-  defp automatic_output?(%ProcessingRequest{}), do: false
+  defp dispatch_request(
+         conn,
+         %ProcessingRequest{format: nil} = request,
+         chain,
+         origin_identity,
+         opts
+       ) do
+    dispatch_automatic_request(conn, request, chain, origin_identity, opts)
+  end
+
+  defp dispatch_request(conn, %ProcessingRequest{} = request, chain, origin_identity, opts) do
+    dispatch_explicit_request(conn, request, chain, origin_identity, opts)
+  end
 
   defp dispatch_explicit_request(conn, request, chain, origin_identity, opts) do
     case Cache.lookup(conn, request, origin_identity, opts) do
@@ -71,7 +78,7 @@ defmodule ImagePlug do
 
   defp dispatch_automatic_request(conn, request, chain, origin_identity, opts) do
     accept_header = conn |> get_req_header("accept") |> Enum.join(",")
-    response_headers = automatic_response_headers(opts)
+    response_headers = accept_vary_headers()
 
     case OutputNegotiation.preselect(accept_header, output_negotiation_opts(opts)) do
       {:ok, selected_format} ->
@@ -156,7 +163,7 @@ defmodule ImagePlug do
           send_cache_error(conn, error)
       end
     else
-      error -> handle_processing_error(error, conn, response_headers)
+      error -> handle_processing_error(conn, error, response_headers)
     end
   end
 
@@ -164,7 +171,7 @@ defmodule ImagePlug do
     with {:ok, final_state} <- process_origin(request, chain, origin_identity, opts) do
       send_image(conn, final_state, opts, response_headers)
     else
-      error -> handle_processing_error(error, conn, response_headers)
+      error -> handle_processing_error(conn, error, response_headers)
     end
   end
 
@@ -174,7 +181,7 @@ defmodule ImagePlug do
          put_result when put_result in [:ok, :skipped] <- Cache.put(key, entry, opts) do
       send_cache_entry(conn, entry)
     else
-      error -> handle_processing_error(error, conn, response_headers)
+      error -> handle_processing_error(conn, error, response_headers)
     end
   end
 
@@ -182,7 +189,7 @@ defmodule ImagePlug do
     with {:ok, final_state} <- execute_chain(image, chain) do
       send_image(conn, final_state, opts, response_headers)
     else
-      error -> handle_processing_error(error, conn, response_headers)
+      error -> handle_processing_error(conn, error, response_headers)
     end
   end
 
@@ -192,11 +199,11 @@ defmodule ImagePlug do
          put_result when put_result in [:ok, :skipped] <- Cache.put(key, entry, opts) do
       send_cache_entry(conn, entry)
     else
-      error -> handle_processing_error(error, conn, response_headers)
+      error -> handle_processing_error(conn, error, response_headers)
     end
   end
 
-  defp handle_processing_error(error, conn, response_headers) do
+  defp handle_processing_error(conn, error, response_headers) do
     case error do
       {:error, {:transform_error, %TransformState{errors: errors}}} ->
         Logger.info("transform_error(s): #{inspect(errors)}")
@@ -445,7 +452,7 @@ defmodule ImagePlug do
   end
 
   defp send_image(%Plug.Conn{} = conn, %TransformState{} = state, opts, response_headers) do
-    with {:ok, mime_type} <- output_mime_type(conn, state) do
+    with {:ok, mime_type} <- output_mime_type(state) do
       suffix = OutputNegotiation.suffix!(mime_type)
       image_module = Keyword.get(opts, :image_module, Image)
 
@@ -491,8 +498,8 @@ defmodule ImagePlug do
     end
   end
 
-  defp encode_cache_entry(%Plug.Conn{} = conn, %TransformState{} = state, opts, response_headers) do
-    with {:ok, mime_type} <- output_mime_type(conn, state) do
+  defp encode_cache_entry(%Plug.Conn{} = _conn, %TransformState{} = state, opts, response_headers) do
+    with {:ok, mime_type} <- output_mime_type(state) do
       suffix = OutputNegotiation.suffix!(mime_type)
       image_module = Keyword.get(opts, :image_module, Image)
 
@@ -592,8 +599,8 @@ defmodule ImagePlug do
     end
   end
 
-  defp output_mime_type(_conn, %TransformState{output: format}) when is_atom(format) do
-    {:ok, output_mime_type(format)}
+  defp output_mime_type(%TransformState{output: format}) when is_atom(format) do
+    {:ok, OutputNegotiation.mime_type!(format)}
   end
 
   defp output_negotiation_opts(opts) do
@@ -612,29 +619,17 @@ defmodule ImagePlug do
            image_module.has_alpha?(image),
            Keyword.put(output_negotiation_opts(opts), :source_format, source_format)
          ) do
-      {:ok, "image/avif"} -> {:ok, :avif}
-      {:ok, "image/webp"} -> {:ok, :webp}
-      {:ok, "image/jpeg"} -> {:ok, :jpeg}
-      {:ok, "image/png"} -> {:ok, :png}
+      {:ok, mime_type} -> {:ok, OutputNegotiation.format!(mime_type)}
       {:error, :not_acceptable} -> {:error, :not_acceptable}
     end
   end
 
-  defp output_mime_type(:avif), do: "image/avif"
-  defp output_mime_type(:webp), do: "image/webp"
-  defp output_mime_type(:jpeg), do: "image/jpeg"
-  defp output_mime_type(:png), do: "image/png"
-
-  defp automatic_response_headers(_opts), do: [{"vary", "Accept"}]
+  defp accept_vary_headers, do: [{"vary", "Accept"}]
 
   defp source_format(%Origin.Response{content_type: content_type}) do
-    case content_type |> normalize_media_type() do
-      "image/avif" -> :avif
-      "image/webp" -> :webp
-      "image/png" -> :png
-      "image/jpeg" -> :jpeg
-      "image/jpg" -> :jpeg
-      _other -> nil
+    case content_type |> normalize_media_type() |> OutputNegotiation.format() do
+      {:ok, format} -> format
+      :error -> nil
     end
   end
 
