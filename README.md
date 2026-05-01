@@ -36,6 +36,8 @@ Options are declarative. Their order in the URL does not define processing order
 
 Both URLs describe the same requested output. ImagePlug owns the fixed processing pipeline so it can optimize origin loading, resize, crop, and output encoding over time.
 
+When multiple options assign the same normalized field, ImagePlug follows imgproxy-style assignment order: later assignments win. For example, `w:100/width:200` normalizes to width `200`, while `width:200/w:100` normalizes to width `100`. This affects request normalization only; it does not change transform execution order.
+
 ### Options
 
 ```text
@@ -140,4 +142,4 @@ For transform chains that are proven to be safe for one-pass reads, ImagePlug ma
 
 Sequential decode does not use JPEG shrink-on-load or WebP scale hints in this pass. Origin byte limits, receive timeouts, decoded pixel limits, and decode error responses still apply. Cache hits serve stored response bodies directly and do not participate in origin decode optimization.
 
-Automatic output format selection uses the request `Accept` header. Automatic output responses use `Vary: Accept`. Explicit formats bypass content negotiation and do not set `Vary: Accept`.
+Automatic output format selection uses the request `Accept` header. `q=0` makes a format unacceptable, including exact media-type exclusions over wildcard allowances. Among acceptable automatic formats, ImagePlug uses server preference order rather than relative q-value ordering. Automatic output responses use `Vary: Accept`. Explicit formats bypass content negotiation and do not set `Vary: Accept`.

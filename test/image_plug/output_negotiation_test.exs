@@ -142,6 +142,19 @@ defmodule ImagePlug.OutputNegotiationTest do
       assert OutputNegotiation.preselect("image/*;q=0", []) == {:error, :not_acceptable}
       assert OutputNegotiation.preselect("image/png", []) == :defer
     end
+
+    test "lists acceptable automatic formats for pre-origin cache probing" do
+      assert OutputNegotiation.cache_probe_formats("image/jpeg") == [:jpeg]
+      assert OutputNegotiation.cache_probe_formats("image/png") == [:png]
+
+      assert OutputNegotiation.cache_probe_formats("image/*") == [:avif, :webp, :jpeg, :png]
+
+      assert OutputNegotiation.cache_probe_formats("image/jpeg;q=0,image/*") == [
+               :avif,
+               :webp,
+               :png
+             ]
+    end
   end
 
   describe "suffix!/1" do

@@ -2,7 +2,7 @@ defmodule ImagePlug.OutputNegotiation do
   @moduledoc false
 
   @modern_formats [avif: "image/avif", webp: "image/webp"]
-  @formats [avif: "image/avif", webp: "image/webp", png: "image/png", jpeg: "image/jpeg"]
+  @formats [avif: "image/avif", webp: "image/webp", jpeg: "image/jpeg", png: "image/png"]
   @output_formats Keyword.values(@formats)
 
   @spec negotiate(String.t() | nil, boolean()) :: {:ok, String.t()} | {:error, :not_acceptable}
@@ -63,6 +63,21 @@ defmodule ImagePlug.OutputNegotiation do
               {:error, :not_acceptable}
             end
         end
+    end
+  end
+
+  @spec cache_probe_formats(String.t() | nil) :: [:avif | :webp | :jpeg | :png]
+  def cache_probe_formats(accept_header) do
+    entries = parse_accept(accept_header)
+
+    case entries do
+      [] ->
+        Keyword.keys(@formats)
+
+      entries ->
+        @formats
+        |> Enum.filter(fn {_format, mime_type} -> acceptable?(mime_type, entries) end)
+        |> Enum.map(fn {format, _mime_type} -> format end)
     end
   end
 

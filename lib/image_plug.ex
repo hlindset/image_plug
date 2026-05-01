@@ -143,9 +143,50 @@ defmodule ImagePlug do
          opts,
          response_headers
        ) do
-    # Source-format fallback needs origin metadata before the automatic output
-    # cache key can be selected. Probing cached formats before this point could
-    # serve a format different from the negotiated fallback.
+    case lookup_deferred_automatic_cache(conn, request, origin_identity, opts) do
+      {:hit, %Entry{} = entry} ->
+        send_cache_entry(conn, entry)
+
+      {:error, error} ->
+        send_cache_error(conn, error)
+
+      status when status in [:disabled, :miss] ->
+        process_deferred_automatic_origin(
+          conn,
+          request,
+          chain,
+          origin_identity,
+          opts,
+          response_headers
+        )
+    end
+  end
+
+  defp lookup_deferred_automatic_cache(conn, request, origin_identity, opts) do
+    accept_header = conn |> get_req_header("accept") |> Enum.join(",")
+
+    accept_header
+    |> OutputNegotiation.cache_probe_formats()
+    |> Enum.reduce_while(:miss, fn selected_format, _status ->
+      key_opts = [selected_output_format: selected_format]
+
+      case Cache.lookup(conn, request, origin_identity, opts, key_opts) do
+        :disabled -> {:halt, :disabled}
+        {:hit, _key, %Entry{} = entry} -> {:halt, {:hit, entry}}
+        {:miss, %Key{}} -> {:cont, :miss}
+        {:error, {:cache_read, error}} -> {:halt, {:error, error}}
+      end
+    end)
+  end
+
+  defp process_deferred_automatic_origin(
+         conn,
+         request,
+         chain,
+         origin_identity,
+         opts,
+         response_headers
+       ) do
     with {:ok, image, source_format, origin_response} <-
            fetch_decode_validate_origin_with_source_format(request, origin_identity, opts) do
       case selected_output_format(conn, image, source_format, opts) do
