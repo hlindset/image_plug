@@ -8,7 +8,7 @@ defmodule ImagePlug.PipelinePlanner do
   alias ImagePlug.TransformChain
 
   @default_gravity {:anchor, :center, :center}
-  @supported_output_formats [:webp, :avif, :jpeg, :png]
+  @supported_output_formats [:webp, :avif, :jpeg, :png, :blurhash]
 
   @spec plan(ProcessingRequest.t()) :: {:ok, TransformChain.t()} | {:error, term()}
   def plan(%ProcessingRequest{} = request) do

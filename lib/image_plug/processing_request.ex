@@ -5,7 +5,7 @@ defmodule ImagePlug.ProcessingRequest do
 
   @type source_kind() :: :plain
   @type resizing_type() :: :fit | :fill | :fill_down | :force | :auto
-  @type output_format() :: :webp | :avif | :jpeg | :png | :best
+  @type output_format() :: :webp | :avif | :jpeg | :png | :blurhash | :best
   @type gravity_anchor() ::
           {:anchor, :left | :center | :right, :top | :center | :bottom}
   @type gravity() :: gravity_anchor() | {:fp, float(), float()} | :sm

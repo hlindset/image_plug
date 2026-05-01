@@ -1961,7 +1961,7 @@ test "disabled automatic modern formats still set Vary for negotiated fallback o
     )
 
   assert conn.status == 200
-  assert get_resp_header(conn, "vary") == []
+  assert get_resp_header(conn, "vary") == ["Accept"]
 end
 
 test "does not touch cache or origin when planner rejects unsupported semantics" do

@@ -11,7 +11,8 @@ defmodule ImagePlug.ParamParser.NativePropertyTest do
               max_runs: 300 do
       result = safe_parse(segments)
 
-      assert match?({tag, _reason_or_request} when tag in [:ok, :error], result)
+      assert match?({tag, _reason_or_request} when tag in [:ok, :error], result),
+             "parser raised or threw instead of returning tagged result: #{inspect(result)}"
     end
   end
 
