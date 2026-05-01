@@ -66,16 +66,17 @@ defmodule ImagePlug.OutputNegotiation do
     end
   end
 
-  @spec cache_probe_formats(String.t() | nil) :: [:avif | :webp | :jpeg | :png]
-  def cache_probe_formats(accept_header) do
+  @spec cache_probe_formats(String.t() | nil, keyword()) :: [:avif | :webp | :jpeg | :png]
+  def cache_probe_formats(accept_header, opts \\ []) do
     entries = parse_accept(accept_header)
+    formats = enabled_cache_probe_formats(opts)
 
     case entries do
       [] ->
-        Keyword.keys(@formats)
+        Keyword.keys(formats)
 
       entries ->
-        @formats
+        formats
         |> Enum.filter(fn {_format, mime_type} -> acceptable?(mime_type, entries) end)
         |> Enum.map(fn {format, _mime_type} -> format end)
     end
@@ -148,6 +149,11 @@ defmodule ImagePlug.OutputNegotiation do
   end
 
   defp acceptable?(mime_type, entries) do
+    mime_type = canonical_mime_type(mime_type)
+
+    entries =
+      Enum.map(entries, fn {accepted, quality} -> {canonical_mime_type(accepted), quality} end)
+
     # Exact q=0 is an explicit exclusion and wins over wildcard allowances
     # and duplicate positive exact entries.
     exact_qualities =
@@ -221,4 +227,20 @@ defmodule ImagePlug.OutputNegotiation do
 
   defp image_wildcard?("image/*", "image/" <> _subtype), do: true
   defp image_wildcard?(_accepted, _mime_type), do: false
+
+  defp canonical_mime_type(mime_type) do
+    case format(mime_type) do
+      {:ok, format} -> Keyword.fetch!(@formats, format)
+      :error -> normalize_mime_type(mime_type)
+    end
+  end
+
+  defp enabled_cache_probe_formats(opts) do
+    @formats
+    |> Enum.reject(fn
+      {:avif, _mime_type} -> Keyword.get(opts, :auto_avif, true) == false
+      {:webp, _mime_type} -> Keyword.get(opts, :auto_webp, true) == false
+      {_format, _mime_type} -> false
+    end)
+  end
 end

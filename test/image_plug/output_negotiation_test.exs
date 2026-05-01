@@ -146,6 +146,7 @@ defmodule ImagePlug.OutputNegotiationTest do
     test "lists acceptable automatic formats for pre-origin cache probing" do
       assert OutputNegotiation.cache_probe_formats("image/jpeg") == [:jpeg]
       assert OutputNegotiation.cache_probe_formats("image/png") == [:png]
+      assert OutputNegotiation.cache_probe_formats("image/jpg") == [:jpeg]
 
       assert OutputNegotiation.cache_probe_formats("image/*") == [:avif, :webp, :jpeg, :png]
 
@@ -175,6 +176,15 @@ defmodule ImagePlug.OutputNegotiationTest do
       assert OutputNegotiation.format("image/png") == {:ok, :png}
       assert OutputNegotiation.format("IMAGE/PNG; charset=binary") == {:ok, :png}
       assert OutputNegotiation.format("image/gif") == :error
+    end
+
+    test "treats image/jpg Accept ranges as JPEG" do
+      assert OutputNegotiation.negotiate("image/jpg", false,
+               auto_avif: false,
+               auto_webp: false
+             ) == {:ok, "image/jpeg"}
+
+      assert OutputNegotiation.preselect("image/jpg", []) == :defer
     end
 
     test "maps format atoms to output MIME types" do

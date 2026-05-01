@@ -62,7 +62,7 @@ defmodule ImagePlug do
 
   defp dispatch_explicit_request(conn, request, chain, origin_identity, opts) do
     case Cache.lookup(conn, request, origin_identity, opts) do
-      :disabled ->
+      status when status in [:disabled, :skip_cache] ->
         process_uncached(conn, request, chain, origin_identity, opts, [])
 
       {:hit, _key, %Entry{} = entry} ->
@@ -121,7 +121,7 @@ defmodule ImagePlug do
     key_opts = [selected_output_format: selected_format]
 
     case Cache.lookup(conn, request, origin_identity, opts, key_opts) do
-      :disabled ->
+      status when status in [:disabled, :skip_cache] ->
         process_uncached(conn, request, chain, origin_identity, opts, response_headers)
 
       {:hit, _key, %Entry{} = entry} ->
@@ -150,7 +150,7 @@ defmodule ImagePlug do
       {:error, error} ->
         send_cache_error(conn, error)
 
-      status when status in [:disabled, :miss] ->
+      status when status in [:disabled, :skip_cache, :miss] ->
         process_deferred_automatic_origin(
           conn,
           request,
@@ -166,12 +166,13 @@ defmodule ImagePlug do
     accept_header = conn |> get_req_header("accept") |> Enum.join(",")
 
     accept_header
-    |> OutputNegotiation.cache_probe_formats()
+    |> OutputNegotiation.cache_probe_formats(output_negotiation_opts(opts))
     |> Enum.reduce_while(:miss, fn selected_format, _status ->
       key_opts = [selected_output_format: selected_format]
 
       case Cache.lookup(conn, request, origin_identity, opts, key_opts) do
         :disabled -> {:halt, :disabled}
+        :skip_cache -> {:halt, :skip_cache}
         {:hit, _key, %Entry{} = entry} -> {:halt, {:hit, entry}}
         {:miss, %Key{}} -> {:cont, :miss}
         {:error, {:cache_read, error}} -> {:halt, {:error, error}}
@@ -195,7 +196,7 @@ defmodule ImagePlug do
           key_opts = [selected_output_format: selected_format]
 
           case Cache.lookup(conn, request, origin_identity, opts, key_opts) do
-            :disabled ->
+            status when status in [:disabled, :skip_cache] ->
               process_image_uncached(conn, image, selected_chain, opts, response_headers)
 
             {:hit, _key, %Entry{} = entry} ->

@@ -644,6 +644,39 @@ defmodule ImagePlug.ImagePlugTest do
     refute_received :origin_was_called
   end
 
+  test "deferred cache probing respects disabled modern automatic formats" do
+    cache_probe = start_cache_probe()
+
+    cached_entry = %ImagePlug.Cache.Entry{
+      body: "cached jpeg",
+      content_type: "image/jpeg",
+      headers: [{"vary", "Accept"}],
+      created_at: DateTime.utc_now()
+    }
+
+    conn =
+      :get
+      |> conn("/_/plain/images/cat-300.jpg")
+      |> put_req_header("accept", "image/*")
+
+    conn =
+      ImagePlug.call(conn,
+        root_url: "http://origin.test",
+        param_parser: ImagePlug.ParamParser.Native,
+        auto_avif: false,
+        auto_webp: false,
+        cache: {CacheProbe, message_target: cache_probe, get_result: {:hit, cached_entry}},
+        origin_req_options: [plug: OriginShouldNotBeCalled]
+      )
+
+    flush_cache_probe(cache_probe)
+    assert conn.status == 200
+    assert conn.resp_body == "cached jpeg"
+    assert_received {:cache_get, key}
+    assert key.material[:output] == [format: :jpeg, automatic: true]
+    refute_received :origin_was_called
+  end
+
   test "disabled automatic modern formats still set Vary for negotiated fallback output" do
     conn = conn(:get, "/_/plain/images/cat-300.jpg")
 

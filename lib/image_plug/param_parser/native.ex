@@ -182,7 +182,7 @@ defmodule ImagePlug.ParamParser.Native do
          {:ok, assignments} <- parse_fields(fields, base_args, skip_empty: true),
          {:ok, extend_gravity_assignments} <-
            parse_optional_extend_gravity(segment, extend_gravity_parts) do
-      {:ok, Keyword.merge(assignments, extend_gravity_assignments)}
+      reject_empty_assignments(segment, Keyword.merge(assignments, extend_gravity_assignments))
     end
   end
 
@@ -191,7 +191,7 @@ defmodule ImagePlug.ParamParser.Native do
          {:ok, assignments} <- parse_fields(fields, base_args, skip_empty: true),
          {:ok, extend_gravity_assignments} <-
            parse_optional_extend_gravity(segment, extend_gravity_parts) do
-      {:ok, Keyword.merge(assignments, extend_gravity_assignments)}
+      reject_empty_assignments(segment, Keyword.merge(assignments, extend_gravity_assignments))
     end
   end
 
@@ -204,6 +204,9 @@ defmodule ImagePlug.ParamParser.Native do
 
   defp parse_exact_fields(_fields, _args, segment),
     do: {:error, {:invalid_option_segment, segment}}
+
+  defp reject_empty_assignments(segment, []), do: {:error, {:invalid_option_segment, segment}}
+  defp reject_empty_assignments(_segment, assignments), do: {:ok, assignments}
 
   defp parse_fields(fields, args, opts \\ []) do
     skip_empty? = Keyword.get(opts, :skip_empty, false)

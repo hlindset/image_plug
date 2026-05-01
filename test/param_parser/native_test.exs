@@ -81,6 +81,13 @@ defmodule ImagePlug.ParamParser.NativeTest do
              conn(:get, "/_/rs::300:200/plain/images/cat.jpg") |> Native.parse()
   end
 
+  test "rejects empty resize and size option segments" do
+    for segment <- ["rs", "rs:", "rs::", "resize", "resize:", "s", "s:", "s::", "size"] do
+      assert Native.parse(conn(:get, "/_/#{segment}/plain/images/cat.jpg")) ==
+               {:error, {:invalid_option_segment, segment}}
+    end
+  end
+
   test "omitted meta-option arguments do not overwrite previous field assignments" do
     assert {:ok,
             %ProcessingRequest{

@@ -154,7 +154,42 @@ defmodule ImagePlug.CacheTest do
     assert Keyword.fetch!(adapter_opts, :key_headers) == ["accept-language"]
   end
 
-  test "invalid key material returns cache read error before adapter calls" do
+  test "unsupported lookup key opts fail open before adapter calls" do
+    log =
+      capture_log(fn ->
+        assert :skip_cache =
+                 Cache.lookup(
+                   conn(:get, "/_/f:webp/plain/images/cat.jpg"),
+                   request(),
+                   "https://origin.test/cat.jpg",
+                   [cache: {ShouldNotBeCalledAdapter, []}],
+                   key_headers: ["accept-language"]
+                 )
+      end)
+
+    assert log =~ "cache key error"
+    assert log =~ ":unsupported_key_option"
+  end
+
+  test "invalid key material fails open before adapter calls by default" do
+    request = %ProcessingRequest{request() | format: nil}
+
+    log =
+      capture_log(fn ->
+        assert :skip_cache =
+                 Cache.lookup(
+                   conn(:get, "/_/plain/images/cat.jpg"),
+                   request,
+                   "https://origin.test/cat.jpg",
+                   cache: {ShouldNotBeCalledAdapter, []}
+                 )
+      end)
+
+    assert log =~ "cache key error"
+    assert log =~ ":missing_selected_output_format"
+  end
+
+  test "invalid key material returns cache read error when fail_on_cache_error is true" do
     request = %ProcessingRequest{request() | format: nil}
 
     assert {:error, {:cache_read, {:key, :missing_selected_output_format}}} =
@@ -162,7 +197,7 @@ defmodule ImagePlug.CacheTest do
                conn(:get, "/_/plain/images/cat.jpg"),
                request,
                "https://origin.test/cat.jpg",
-               cache: {ShouldNotBeCalledAdapter, []}
+               cache: {ShouldNotBeCalledAdapter, fail_on_cache_error: true}
              )
   end
 
