@@ -136,8 +136,9 @@ defmodule ImagePlug do
          opts,
          response_headers
        ) do
-    with {:ok, image} <- fetch_decode_and_validate_origin(request, origin_identity, opts),
-         {:ok, selected_format} <- selected_output_format(conn, image, opts) do
+    with {:ok, image, source_format} <-
+           fetch_decode_validate_origin_with_source_format(request, origin_identity, opts),
+         {:ok, selected_format} <- selected_output_format(conn, image, source_format, opts) do
       selected_chain = append_selected_output(chain, selected_format)
       key_opts = [selected_output_format: selected_format]
 
@@ -247,15 +248,23 @@ defmodule ImagePlug do
   end
 
   defp fetch_decode_and_validate_origin(request, origin_identity, opts) do
+    with {:ok, image, _source_format} <-
+           fetch_decode_validate_origin_with_source_format(request, origin_identity, opts) do
+      {:ok, image}
+    end
+  end
+
+  defp fetch_decode_validate_origin_with_source_format(request, origin_identity, opts) do
     decode_options = [access: :random, fail_on: :error]
 
     with {:ok, origin_response} <-
            fetch_origin(request, origin_identity, opts) |> wrap_origin_error(),
+         source_format = source_format(origin_response),
          {:ok, image} <-
            decode_origin_response(origin_response, decode_options, opts)
            |> wrap_origin_decode_error(),
          :ok <- validate_input_image(image, opts) |> wrap_input_limit_error() do
-      {:ok, image}
+      {:ok, image, source_format}
     end
   end
 
@@ -594,13 +603,14 @@ defmodule ImagePlug do
     ]
   end
 
-  defp selected_output_format(%Plug.Conn{} = conn, image, opts) do
+  defp selected_output_format(%Plug.Conn{} = conn, image, source_format, opts) do
     accept_header = conn |> get_req_header("accept") |> Enum.join(",")
+    image_module = Keyword.get(opts, :image_module, Image)
 
     case OutputNegotiation.negotiate(
            accept_header,
-           Image.has_alpha?(image),
-           output_negotiation_opts(opts)
+           image_module.has_alpha?(image),
+           Keyword.put(output_negotiation_opts(opts), :source_format, source_format)
          ) do
       {:ok, "image/avif"} -> {:ok, :avif}
       {:ok, "image/webp"} -> {:ok, :webp}
@@ -616,6 +626,27 @@ defmodule ImagePlug do
   defp output_mime_type(:png), do: "image/png"
 
   defp automatic_response_headers(_opts), do: [{"vary", "Accept"}]
+
+  defp source_format(%Origin.Response{content_type: content_type}) do
+    case content_type |> normalize_media_type() do
+      "image/avif" -> :avif
+      "image/webp" -> :webp
+      "image/png" -> :png
+      "image/jpeg" -> :jpeg
+      "image/jpg" -> :jpeg
+      _other -> nil
+    end
+  end
+
+  defp normalize_media_type(content_type) when is_binary(content_type) do
+    content_type
+    |> String.split(";", parts: 2)
+    |> hd()
+    |> String.trim()
+    |> String.downcase()
+  end
+
+  defp normalize_media_type(_content_type), do: nil
 
   defp append_selected_output(chain, selected_format) do
     chain ++

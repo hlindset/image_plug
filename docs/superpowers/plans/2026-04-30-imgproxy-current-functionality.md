@@ -1713,7 +1713,7 @@ defp output(%ProcessingRequest{format: nil}, selected_output_format)
 end
 
 defp output(%ProcessingRequest{format: nil}, nil) do
-  [format: nil, automatic: true]
+  raise ArgumentError, "selected_output_format is required for automatic output cache keys"
 end
 
 defp output(%ProcessingRequest{format: format}, _selected_output_format) do
@@ -1948,7 +1948,7 @@ test "automatic AVIF cache hits do not fetch origin" do
   refute_received :origin_was_called
 end
 
-test "disabled automatic modern formats fall back without Vary when Accept cannot affect selected output" do
+test "disabled automatic modern formats still set Vary for negotiated fallback output" do
   conn = conn(:get, "/_/plain/images/cat-300.jpg")
 
   conn =
@@ -2145,7 +2145,7 @@ Then use `execute_chain/2` from explicit and automatic paths.
 
 - [ ] **Step 5: Ensure automatic responses set `Vary: Accept`**
 
-Change response header handling so automatic requests set `Vary: Accept` only when enabled automatic modern format selection can affect the response. Preselected AVIF/WebP responses should set `Vary: Accept`; fallback responses with both `auto_avif: false` and `auto_webp: false` should not.
+Change response header handling so automatic requests set `Vary: Accept`. Preselected AVIF/WebP responses, source-format fallback responses, alpha fallback responses, and automatic `406 Not Acceptable` responses should all set `Vary: Accept` because the request `Accept` header can affect the selected output or error outcome. Explicit `format`, `f`, `ext`, and `@extension` responses should not set `Vary: Accept`.
 
 ```elixir
 defp send_image(%Plug.Conn{} = conn, %TransformState{} = state, opts, response_headers \\ []) do
@@ -2156,14 +2156,13 @@ defp send_image(%Plug.Conn{} = conn, %TransformState{} = state, opts, response_h
   stream_image(stream, conn, mime_type, response_headers)
 end
 
-defp automatic_response_headers(true), do: [{"vary", "Accept"}]
-defp automatic_response_headers(false), do: []
+defp automatic_response_headers(_opts), do: [{"vary", "Accept"}]
 ```
 
 Apply the same response headers to cache entries:
 
 ```elixir
-encode_cache_entry(conn, final_state, opts, automatic_response_headers(vary_for_automatic?(opts)))
+encode_cache_entry(conn, final_state, opts, automatic_response_headers(opts))
 ```
 
 - [ ] **Step 6: Run plug tests**

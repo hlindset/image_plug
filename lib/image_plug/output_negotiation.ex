@@ -2,7 +2,7 @@ defmodule ImagePlug.OutputNegotiation do
   @moduledoc false
 
   @modern_formats [avif: "image/avif", webp: "image/webp"]
-  @fallback_formats ~w(image/png image/jpeg)
+  @output_formats ~w(image/avif image/webp image/png image/jpeg)
 
   @spec negotiate(String.t() | nil, boolean()) :: {:ok, String.t()} | {:error, :not_acceptable}
   def negotiate(accept_header, has_alpha?) do
@@ -12,7 +12,12 @@ defmodule ImagePlug.OutputNegotiation do
   @spec negotiate(String.t() | nil, boolean(), keyword()) ::
           {:ok, String.t()} | {:error, :not_acceptable}
   def negotiate(accept_header, has_alpha?, opts) do
-    candidates = enabled_modern_mime_types(opts) ++ [fallback_mime_type(has_alpha?)]
+    candidates =
+      opts
+      |> enabled_modern_mime_types()
+      |> Kernel.++(fallback_mime_types(has_alpha?, Keyword.get(opts, :source_format)))
+      |> Enum.uniq()
+
     entries = parse_accept(accept_header)
 
     mime_type =
@@ -51,7 +56,7 @@ defmodule ImagePlug.OutputNegotiation do
             {:ok, format}
 
           nil ->
-            if supported_output_acceptable?(modern_formats, entries) do
+            if supported_output_acceptable?(entries) do
               :defer
             else
               {:error, :not_acceptable}
@@ -79,16 +84,25 @@ defmodule ImagePlug.OutputNegotiation do
     end)
   end
 
-  defp fallback_mime_type(true), do: "image/png"
-  defp fallback_mime_type(false), do: "image/jpeg"
+  defp fallback_mime_types(has_alpha?, source_format) do
+    [
+      source_mime_type(source_format),
+      alpha_fallback_mime_type(has_alpha?)
+    ]
+    |> Enum.reject(&is_nil/1)
+  end
 
-  defp supported_output_acceptable?(modern_formats, entries) do
-    modern_mime_types = Enum.map(modern_formats, fn {_format, mime_type} -> mime_type end)
+  defp alpha_fallback_mime_type(true), do: "image/png"
+  defp alpha_fallback_mime_type(false), do: "image/jpeg"
 
-    Enum.any?(
-      modern_mime_types ++ @fallback_formats,
-      &acceptable?(&1, entries)
-    )
+  defp source_mime_type(:avif), do: "image/avif"
+  defp source_mime_type(:webp), do: "image/webp"
+  defp source_mime_type(:png), do: "image/png"
+  defp source_mime_type(:jpeg), do: "image/jpeg"
+  defp source_mime_type(_source_format), do: nil
+
+  defp supported_output_acceptable?(entries) do
+    Enum.any?(@output_formats, &acceptable?(&1, entries))
   end
 
   defp acceptable?(mime_type, entries) do

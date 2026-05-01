@@ -152,15 +152,14 @@ defmodule ImagePlug.Cache.KeyTest do
     refute avif_key.hash == webp_key.hash
   end
 
-  test "automatic output defensively records nil selected format" do
-    key =
+  test "automatic output requires a selected output format" do
+    assert_raise ArgumentError, ~r/selected_output_format is required/, fn ->
       Key.build(
         conn(:get, "/_/plain/images/cat.jpg"),
         request(format: nil),
         "https://origin.test/images/cat.jpg"
       )
-
-    assert key.material[:output] == [format: nil, automatic: true]
+    end
   end
 
   test "explicit formats do not include Accept material or automatic marker" do

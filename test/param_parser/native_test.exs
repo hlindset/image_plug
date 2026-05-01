@@ -91,11 +91,23 @@ defmodule ImagePlug.ParamParser.NativeTest do
             }} = conn(:get, "/_/w:500/rs:fill::200/plain/images/cat.jpg") |> Native.parse()
   end
 
-  test "omitted extend argument skips extend gravity tail" do
-    assert {:ok, %ProcessingRequest{extend_gravity: nil}} =
+  test "omitted extend argument still parses provided extend gravity tail" do
+    assert {:ok,
+            %ProcessingRequest{
+              extend: false,
+              extend_gravity: {:anchor, :center, :center},
+              extend_x_offset: nil,
+              extend_y_offset: nil
+            }} =
              conn(:get, "/_/rs::::::ce::/plain/images/cat.jpg") |> Native.parse()
 
-    assert {:ok, %ProcessingRequest{extend_gravity: nil}} =
+    assert {:ok,
+            %ProcessingRequest{
+              extend: false,
+              extend_gravity: {:anchor, :center, :center},
+              extend_x_offset: nil,
+              extend_y_offset: nil
+            }} =
              conn(:get, "/_/s:::::ce::/plain/images/cat.jpg") |> Native.parse()
   end
 
@@ -170,6 +182,14 @@ defmodule ImagePlug.ParamParser.NativeTest do
 
     assert {:ok, %ProcessingRequest{gravity: {:fp, ^x, ^y}}} =
              conn(:get, "/_/g:fp:1:0/plain/images/cat.jpg") |> Native.parse()
+  end
+
+  test "rejects out-of-range focal point coordinates as gravity coordinate errors" do
+    assert Native.parse(conn(:get, "/_/g:fp:1.2:0.5/plain/images/cat.jpg")) ==
+             {:error, {:invalid_gravity_coordinate, "1.2"}}
+
+    assert Native.parse(conn(:get, "/_/g:fp:nope:0.5/plain/images/cat.jpg")) ==
+             {:error, {:invalid_gravity_coordinate, "nope"}}
   end
 
   test "parses smart gravity for planner rejection" do

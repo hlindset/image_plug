@@ -238,15 +238,21 @@ defmodule ImagePlug.ParamParser.Native do
     end)
   end
 
-  defp parse_extend_gravity(_segment, extend, _parts) when extend in [nil, ""], do: {:ok, []}
-
   defp parse_extend_gravity(segment, _extend, parts),
     do: parse_optional_extend_gravity(segment, parts)
 
   defp parse_optional_extend_gravity(_segment, []), do: {:ok, []}
   defp parse_optional_extend_gravity(_segment, [""]), do: {:ok, []}
+  defp parse_optional_extend_gravity(_segment, ["", ""]), do: {:ok, []}
+  defp parse_optional_extend_gravity(_segment, ["", "", ""]), do: {:ok, []}
 
   defp parse_optional_extend_gravity(_segment, [gravity]) do
+    with {:ok, anchor} <- parse_gravity_anchor(gravity) do
+      {:ok, [extend_gravity: anchor]}
+    end
+  end
+
+  defp parse_optional_extend_gravity(_segment, [gravity, "", ""]) do
     with {:ok, anchor} <- parse_gravity_anchor(gravity) do
       {:ok, [extend_gravity: anchor]}
     end
@@ -337,12 +343,15 @@ defmodule ImagePlug.ParamParser.Native do
   end
 
   defp parse_focal_coordinate(value) do
-    with {:ok, float} <- parse_float(value) do
-      if float >= 0.0 and float <= 1.0 do
+    case parse_float(value) do
+      {:ok, float} when float >= 0.0 and float <= 1.0 ->
         {:ok, float}
-      else
-        {:error, {:invalid_focal_coordinate, value}}
-      end
+
+      {:ok, _float} ->
+        {:error, {:invalid_gravity_coordinate, value}}
+
+      {:error, _reason} ->
+        {:error, {:invalid_gravity_coordinate, value}}
     end
   end
 

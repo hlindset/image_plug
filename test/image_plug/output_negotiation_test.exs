@@ -75,6 +75,17 @@ defmodule ImagePlug.OutputNegotiationTest do
       assert OutputNegotiation.negotiate("image/png;q=0", false) == {:error, :not_acceptable}
     end
 
+    test "prefers accepted source format before alpha-derived fallback" do
+      assert OutputNegotiation.negotiate("image/png", false, source_format: :png) ==
+               {:ok, "image/png"}
+
+      assert OutputNegotiation.negotiate("image/webp", true,
+               auto_avif: false,
+               auto_webp: false,
+               source_format: :webp
+             ) == {:ok, "image/webp"}
+    end
+
     test "does not select a fallback when only jpeg is excluded for non-alpha images" do
       assert OutputNegotiation.negotiate("image/jpeg;q=0", false) == {:error, :not_acceptable}
     end
@@ -114,13 +125,13 @@ defmodule ImagePlug.OutputNegotiationTest do
       assert OutputNegotiation.preselect("image/avif,image/webp",
                auto_avif: false,
                auto_webp: false
-             ) == {:error, :not_acceptable}
+             ) == :defer
 
       assert OutputNegotiation.preselect("image/avif", auto_avif: false, auto_webp: false) ==
-               {:error, :not_acceptable}
+               :defer
 
       assert OutputNegotiation.preselect("image/webp", auto_avif: false, auto_webp: false) ==
-               {:error, :not_acceptable}
+               :defer
 
       assert OutputNegotiation.preselect(nil, auto_avif: false, auto_webp: false) == :defer
     end

@@ -479,6 +479,33 @@ defmodule ImagePlug.ImagePlugTest do
     assert get_resp_header(conn, "vary") == ["Accept"]
   end
 
+  test "automatic fallback can select accepted source format before alpha fallback" do
+    {:ok, image} = Image.new(20, 20, color: :white)
+    body = Image.write!(image, :memory, suffix: ".png")
+
+    origin = fn conn ->
+      conn
+      |> Plug.Conn.put_resp_content_type("image/png")
+      |> Plug.Conn.send_resp(200, body)
+    end
+
+    conn =
+      :get
+      |> conn("/_/plain/images/cat.png")
+      |> put_req_header("accept", "image/png")
+
+    conn =
+      ImagePlug.call(conn,
+        root_url: "http://origin.test",
+        param_parser: ImagePlug.ParamParser.Native,
+        origin_req_options: [plug: origin]
+      )
+
+    assert conn.status == 200
+    assert get_resp_header(conn, "content-type") == ["image/png"]
+    assert get_resp_header(conn, "vary") == ["Accept"]
+  end
+
   test "processes an imgproxy fill URL with explicit output extension" do
     conn = conn(:get, "/_/rs:fill:100:100/g:ce/plain/images/cat-300.jpg@jpeg")
 

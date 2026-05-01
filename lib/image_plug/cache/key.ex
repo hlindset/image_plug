@@ -65,7 +65,17 @@ defmodule ImagePlug.Cache.Key do
   end
 
   defp output(%ProcessingRequest{format: nil}, opts) do
-    [format: Keyword.get(opts, :selected_output_format), automatic: true]
+    case Keyword.fetch(opts, :selected_output_format) do
+      {:ok, format} when format in [:avif, :webp, :jpeg, :png] ->
+        [format: format, automatic: true]
+
+      {:ok, format} ->
+        raise ArgumentError,
+              "selected_output_format must be one of :avif, :webp, :jpeg, or :png, got: #{inspect(format)}"
+
+      :error ->
+        raise ArgumentError, "selected_output_format is required for automatic output cache keys"
+    end
   end
 
   defp output(%ProcessingRequest{format: format}, _opts) do

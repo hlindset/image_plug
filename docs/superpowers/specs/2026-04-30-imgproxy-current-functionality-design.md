@@ -257,7 +257,7 @@ ImagePlug should use the same URL semantics but a more modern default configurat
 - Exact media type exclusions override wildcard allowances. For example, `image/avif;q=0,image/*;q=1` makes AVIF unacceptable while keeping WebP acceptable.
 - If neither AVIF nor WebP is acceptable, ImagePlug falls back to the source format when it can encode it and the source format is acceptable or the `Accept` header is absent.
 - If the source format cannot be encoded, ImagePlug falls back to JPEG for non-alpha images and PNG for alpha images when the fallback is acceptable or the `Accept` header is absent, matching the spirit of imgproxy's preferred-format fallback without introducing the full preferred-format configuration in this slice.
-- `Vary: Accept` is set whenever automatic output format selection can affect the response.
+- `Vary: Accept` is set on automatic output responses. Even when modern automatic formats are disabled, the `Accept` header can affect whether source/fallback output is acceptable, including `406 Not Acceptable` outcomes.
 - Cache keys include the selected automatic output format, not the raw `Accept` header, when automatic output format selection can affect the response. This avoids cache fragmentation from equivalent `Accept` headers.
 
 Explicit output formats from `format`, `f`, `ext`, or plain-source `@extension` bypass `Accept` negotiation. `Accept` negotiation applies only when no explicit output format is requested. If no explicit format is requested and no encodable automatic or fallback format is acceptable under the request `Accept` header, ImagePlug returns `406 Not Acceptable`. If the `Accept` header is absent, ImagePlug treats supported output formats as acceptable.
@@ -462,7 +462,7 @@ The implementation should be test-first and cover:
 - Output tests proving omitted output format chooses AVIF/WebP from `Accept` by default, treats `q=0` as unacceptable, uses server preference order among acceptable formats, falls back to the source format, and returns `406` when no encodable output format is acceptable. Include `Accept` cases for `*/*`, `image/*`, `image/webp;q=1,image/avif;q=0.1`, and `image/avif;q=0,image/*;q=1`.
 - Output tests proving explicit `format`, `f`, `ext`, and `@extension` bypass `Accept` negotiation.
 - Cache tests proving the selected automatic output format is included only when automatic output format selection can affect output.
-- Response header tests proving explicit formats do not set `Vary: Accept`, omitted format with automatic output selection enabled sets `Vary: Accept`, and omitted format with automatic output selection disabled does not set `Vary: Accept`.
+- Response header tests proving explicit formats do not set `Vary: Accept`, and omitted-format automatic output responses set `Vary: Accept` even when modern automatic formats are disabled.
 - Plug-level tests for representative imgproxy-compatible URLs.
 - README examples that match the implemented grammar.
 

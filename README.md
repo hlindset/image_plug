@@ -57,7 +57,7 @@ ext:%extension
 plain source @extension
 ```
 
-Supported resizing types are `fit`, `fill`, `force`, `auto`, and `fill-down`. Width and height values are pixel dimensions; `0` means unconstrained when accepted by the selected option.
+Recognized resizing types are `fit`, `fill`, `force`, `auto`, and `fill-down`. `auto` and `fill-down` parse but return unsupported semantic errors in this slice. Width and height values are pixel dimensions; `0` means unconstrained when accepted by the selected option.
 
 Supported gravity values are the imgproxy compass anchors, `ce`, `no`, `so`, `ea`, `we`, `noea`, `nowe`, `soea`, `sowe`, focal point `fp:%x:%y`, and smart gravity `sm`. Smart gravity parses but is not planned in this slice.
 
