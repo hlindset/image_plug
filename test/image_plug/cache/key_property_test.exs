@@ -8,6 +8,11 @@ defmodule ImagePlug.Cache.KeyPropertyTest do
   alias ImagePlug.Cache.Key
   alias ImagePlug.ProcessingRequest
 
+  defp build_key!(conn, request, origin_identity, opts \\ []) do
+    assert {:ok, key} = Key.build(conn, request, origin_identity, opts)
+    key
+  end
+
   property "cache key serialization is deterministic for canonical material" do
     check all material <- key_material(),
               max_runs: 100 do
@@ -80,8 +85,8 @@ defmodule ImagePlug.Cache.KeyPropertyTest do
 
       request_two = %{request | signature: signature}
 
-      assert Key.build(conn_one, request, origin).hash ==
-               Key.build(conn_two, request_two, origin).hash
+      assert build_key!(conn_one, request, origin).hash ==
+               build_key!(conn_two, request_two, origin).hash
     end
   end
 
@@ -93,9 +98,9 @@ defmodule ImagePlug.Cache.KeyPropertyTest do
               max_runs: 100 do
       conn = conn(:get, "/_/f:webp/plain/images/cat.jpg")
 
-      origin_key_a = Key.build(conn, request, origin_a)
-      origin_key_b = Key.build(conn, request, origin_b)
-      png_key = Key.build(conn, %ProcessingRequest{request | format: :png}, origin_a)
+      origin_key_a = build_key!(conn, request, origin_a)
+      origin_key_b = build_key!(conn, request, origin_b)
+      png_key = build_key!(conn, %ProcessingRequest{request | format: :png}, origin_a)
 
       refute origin_key_a.hash == origin_key_b.hash
       refute origin_key_a.hash == png_key.hash
@@ -125,8 +130,8 @@ defmodule ImagePlug.Cache.KeyPropertyTest do
 
       opts = [key_headers: ["accept-language"], key_cookies: ["tenant"]]
 
-      refute Key.build(conn_a, request, origin, opts).hash ==
-               Key.build(conn_b, request, origin, opts).hash
+      refute build_key!(conn_a, request, origin, opts).hash ==
+               build_key!(conn_b, request, origin, opts).hash
     end
   end
 
@@ -153,8 +158,8 @@ defmodule ImagePlug.Cache.KeyPropertyTest do
 
       opts = [key_headers: ["accept-language"], key_cookies: ["tenant"]]
 
-      refute Key.build(conn_a, request, origin, opts).hash ==
-               Key.build(conn_b, request, origin, opts).hash
+      refute build_key!(conn_a, request, origin, opts).hash ==
+               build_key!(conn_b, request, origin, opts).hash
     end
   end
 
@@ -170,13 +175,13 @@ defmodule ImagePlug.Cache.KeyPropertyTest do
         :get
         |> conn("/_/plain/images/cat.jpg")
         |> put_req_header("accept", accept_a)
-        |> Key.build(request, origin, selected_output_format: selected_output)
+        |> build_key!(request, origin, selected_output_format: selected_output)
 
       key_b =
         :get
         |> conn("/_/plain/images/cat.jpg")
         |> put_req_header("accept", accept_b)
-        |> Key.build(request, origin, selected_output_format: selected_output)
+        |> build_key!(request, origin, selected_output_format: selected_output)
 
       assert key_a.hash == key_b.hash
     end
@@ -195,13 +200,13 @@ defmodule ImagePlug.Cache.KeyPropertyTest do
         :get
         |> conn("/_/plain/images/cat.jpg")
         |> put_req_header("accept", accept)
-        |> Key.build(request, origin, selected_output_format: selected_output_a)
+        |> build_key!(request, origin, selected_output_format: selected_output_a)
 
       key_b =
         :get
         |> conn("/_/plain/images/cat.jpg")
         |> put_req_header("accept", accept)
-        |> Key.build(request, origin, selected_output_format: selected_output_b)
+        |> build_key!(request, origin, selected_output_format: selected_output_b)
 
       refute key_a.hash == key_b.hash
     end

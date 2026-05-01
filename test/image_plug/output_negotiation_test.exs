@@ -160,7 +160,16 @@ defmodule ImagePlug.OutputNegotiationTest do
       assert OutputNegotiation.format("image/jpeg") == {:ok, :jpeg}
       assert OutputNegotiation.format("image/jpg") == {:ok, :jpeg}
       assert OutputNegotiation.format("image/png") == {:ok, :png}
+      assert OutputNegotiation.format("IMAGE/PNG; charset=binary") == {:ok, :png}
       assert OutputNegotiation.format("image/gif") == :error
+    end
+
+    test "maps format atoms to output MIME types" do
+      assert OutputNegotiation.mime_type(:avif) == {:ok, "image/avif"}
+      assert OutputNegotiation.mime_type(:webp) == {:ok, "image/webp"}
+      assert OutputNegotiation.mime_type(:jpeg) == {:ok, "image/jpeg"}
+      assert OutputNegotiation.mime_type(:png) == {:ok, "image/png"}
+      assert OutputNegotiation.mime_type(:gif) == :error
     end
   end
 end

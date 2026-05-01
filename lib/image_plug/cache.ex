@@ -73,20 +73,24 @@ defmodule ImagePlug.Cache do
         :disabled
 
       {:ok, adapter, cache_opts} ->
-        key = Key.build(conn, request, origin_identity, Keyword.merge(cache_opts, key_opts))
+        case Key.build(conn, request, origin_identity, Keyword.merge(cache_opts, key_opts)) do
+          {:ok, key} ->
+            case adapter.get(key, cache_opts) do
+              {:hit, %Entry{} = entry} ->
+                {:hit, key, entry}
 
-        case adapter.get(key, cache_opts) do
-          {:hit, %Entry{} = entry} ->
-            {:hit, key, entry}
+              :miss ->
+                {:miss, key}
 
-          :miss ->
-            {:miss, key}
+              {:error, reason} ->
+                handle_read_error(reason, key, cache_opts)
+
+              unexpected ->
+                handle_read_error({:invalid_adapter_result, unexpected}, key, cache_opts)
+            end
 
           {:error, reason} ->
-            handle_read_error(reason, key, cache_opts)
-
-          unexpected ->
-            handle_read_error({:invalid_adapter_result, unexpected}, key, cache_opts)
+            {:error, {:cache_read, {:key, reason}}}
         end
 
       {:error, reason} ->

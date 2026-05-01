@@ -18,25 +18,33 @@ defmodule ImagePlug.Cache.Key do
           serialized_material: binary()
         }
 
-  @spec build(Plug.Conn.t(), ProcessingRequest.t(), String.t(), keyword()) :: t()
+  @type build_error ::
+          :missing_selected_output_format
+          | {:invalid_selected_output_format, term()}
+
+  @spec build(Plug.Conn.t(), ProcessingRequest.t(), String.t(), keyword()) ::
+          {:ok, t()} | {:error, build_error()}
   def build(conn, %ProcessingRequest{} = request, origin_identity, opts \\ [])
       when is_binary(origin_identity) and is_list(opts) do
-    material = [
-      schema_version: @schema_version,
-      origin_identity: origin_identity,
-      operations: operations(request),
-      output: output(request, opts),
-      selected_headers: selected_headers(conn, opts),
-      selected_cookies: selected_cookies(conn, opts)
-    ]
+    with {:ok, output} <- output(request, opts) do
+      material = [
+        schema_version: @schema_version,
+        origin_identity: origin_identity,
+        operations: operations(request),
+        output: output,
+        selected_headers: selected_headers(conn, opts),
+        selected_cookies: selected_cookies(conn, opts)
+      ]
 
-    serialized_material = serialize_material(material)
+      serialized_material = serialize_material(material)
 
-    %__MODULE__{
-      hash: hash(serialized_material),
-      material: material,
-      serialized_material: serialized_material
-    }
+      {:ok,
+       %__MODULE__{
+         hash: hash(serialized_material),
+         material: material,
+         serialized_material: serialized_material
+       }}
+    end
   end
 
   @spec serialize_material(term()) :: binary()
@@ -67,19 +75,18 @@ defmodule ImagePlug.Cache.Key do
   defp output(%ProcessingRequest{format: nil}, opts) do
     case Keyword.fetch(opts, :selected_output_format) do
       {:ok, format} when format in [:avif, :webp, :jpeg, :png] ->
-        [format: format, automatic: true]
+        {:ok, [format: format, automatic: true]}
 
       {:ok, format} ->
-        raise ArgumentError,
-              "selected_output_format must be one of :avif, :webp, :jpeg, or :png, got: #{inspect(format)}"
+        {:error, {:invalid_selected_output_format, format}}
 
       :error ->
-        raise ArgumentError, "selected_output_format is required for automatic output cache keys"
+        {:error, :missing_selected_output_format}
     end
   end
 
   defp output(%ProcessingRequest{format: format}, _opts) do
-    [format: format, automatic: false]
+    {:ok, [format: format, automatic: false]}
   end
 
   defp selected_headers(conn, opts) do

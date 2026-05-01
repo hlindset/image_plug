@@ -177,7 +177,7 @@ defmodule ImagePlug do
 
   defp process_cache_miss(conn, request, chain, origin_identity, key, opts, response_headers) do
     with {:ok, final_state} <- process_origin(request, chain, origin_identity, opts),
-         {:ok, entry} <- encode_cache_entry(conn, final_state, opts, response_headers),
+         {:ok, entry} <- encode_cache_entry(final_state, opts, response_headers),
          put_result when put_result in [:ok, :skipped] <- Cache.put(key, entry, opts) do
       send_cache_entry(conn, entry)
     else
@@ -195,7 +195,7 @@ defmodule ImagePlug do
 
   defp process_image_cache_miss(conn, image, chain, key, opts, response_headers) do
     with {:ok, final_state} <- execute_chain(image, chain),
-         {:ok, entry} <- encode_cache_entry(conn, final_state, opts, response_headers),
+         {:ok, entry} <- encode_cache_entry(final_state, opts, response_headers),
          put_result when put_result in [:ok, :skipped] <- Cache.put(key, entry, opts) do
       send_cache_entry(conn, entry)
     else
@@ -474,11 +474,11 @@ defmodule ImagePlug do
       end
     else
       {:error, :not_acceptable} -> send_not_acceptable(conn, response_headers)
+      :error -> send_encode_error(conn)
     end
   end
 
   defp encode_cache_entry(
-         %Plug.Conn{} = _conn,
          %TransformState{image: image, output: :blurhash},
          _opts,
          _response_headers
@@ -498,7 +498,7 @@ defmodule ImagePlug do
     end
   end
 
-  defp encode_cache_entry(%Plug.Conn{} = _conn, %TransformState{} = state, opts, response_headers) do
+  defp encode_cache_entry(%TransformState{} = state, opts, response_headers) do
     with {:ok, mime_type} <- output_mime_type(state) do
       suffix = OutputNegotiation.suffix!(mime_type)
       image_module = Keyword.get(opts, :image_module, Image)
@@ -516,6 +516,8 @@ defmodule ImagePlug do
       rescue
         exception -> {:error, {:encode, exception, __STACKTRACE__}}
       end
+    else
+      :error -> {:error, {:encode, unsupported_output_format_error(state.output), []}}
     end
   end
 
@@ -600,7 +602,11 @@ defmodule ImagePlug do
   end
 
   defp output_mime_type(%TransformState{output: format}) when is_atom(format) do
-    {:ok, OutputNegotiation.mime_type!(format)}
+    OutputNegotiation.mime_type(format)
+  end
+
+  defp unsupported_output_format_error(format) do
+    ArgumentError.exception("unsupported output format: #{inspect(format)}")
   end
 
   defp output_negotiation_opts(opts) do
@@ -619,7 +625,7 @@ defmodule ImagePlug do
            image_module.has_alpha?(image),
            Keyword.put(output_negotiation_opts(opts), :source_format, source_format)
          ) do
-      {:ok, mime_type} -> {:ok, OutputNegotiation.format!(mime_type)}
+      {:ok, mime_type} -> OutputNegotiation.format(mime_type)
       {:error, :not_acceptable} -> {:error, :not_acceptable}
     end
   end
@@ -627,21 +633,11 @@ defmodule ImagePlug do
   defp accept_vary_headers, do: [{"vary", "Accept"}]
 
   defp source_format(%Origin.Response{content_type: content_type}) do
-    case content_type |> normalize_media_type() |> OutputNegotiation.format() do
+    case OutputNegotiation.format(content_type) do
       {:ok, format} -> format
       :error -> nil
     end
   end
-
-  defp normalize_media_type(content_type) when is_binary(content_type) do
-    content_type
-    |> String.split(";", parts: 2)
-    |> hd()
-    |> String.trim()
-    |> String.downcase()
-  end
-
-  defp normalize_media_type(_content_type), do: nil
 
   defp append_selected_output(chain, selected_format) do
     chain ++
@@ -653,12 +649,12 @@ defmodule ImagePlug do
 
   defp send_not_acceptable(%Plug.Conn{} = conn, response_headers) do
     conn
-    |> put_response_headers(response_headers)
+    |> put_resp_headers(response_headers)
     |> put_resp_content_type("text/plain")
     |> send_resp(406, "no acceptable image output format")
   end
 
-  defp put_response_headers(%Plug.Conn{} = conn, response_headers) do
+  defp put_resp_headers(%Plug.Conn{} = conn, response_headers) do
     Enum.reduce(response_headers, conn, fn {name, value}, conn ->
       put_resp_header(conn, name, value)
     end)

@@ -87,18 +87,18 @@ defmodule ImagePlug.OutputNegotiation do
     end
   end
 
-  defp normalize_mime_type(mime_type) when is_binary(mime_type), do: String.downcase(mime_type)
-  defp normalize_mime_type(mime_type), do: mime_type
-
-  def format!(mime_type) do
-    case format(mime_type) do
-      {:ok, format} -> format
-      :error -> raise ArgumentError, "unsupported image MIME type: #{inspect(mime_type)}"
-    end
+  defp normalize_mime_type(mime_type) when is_binary(mime_type) do
+    mime_type
+    |> String.split(";", parts: 2)
+    |> hd()
+    |> String.trim()
+    |> String.downcase()
   end
 
-  def mime_type!(format) do
-    Keyword.fetch!(@formats, format)
+  defp normalize_mime_type(mime_type), do: mime_type
+
+  def mime_type(format) do
+    Keyword.fetch(@formats, format)
   end
 
   defp enabled_modern_mime_types(opts) do
@@ -133,6 +133,8 @@ defmodule ImagePlug.OutputNegotiation do
   end
 
   defp acceptable?(mime_type, entries) do
+    # Exact q=0 is an explicit exclusion and wins over wildcard allowances
+    # and duplicate positive exact entries.
     exact_qualities =
       entries
       |> Enum.filter(fn {accepted, _quality} -> accepted == mime_type end)

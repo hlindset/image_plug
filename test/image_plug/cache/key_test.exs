@@ -25,12 +25,17 @@ defmodule ImagePlug.Cache.KeyTest do
     )
   end
 
+  defp build_key!(conn, request, origin_identity, opts \\ []) do
+    assert {:ok, key} = Key.build(conn, request, origin_identity, opts)
+    key
+  end
+
   test "builds stable hash and material from canonical request fields and origin identity" do
     conn = conn(:get, "/sig-one/w:100/plain/images/cat.jpg?ignored=true")
 
-    key = Key.build(conn, request(), "https://origin-a.test/images/cat.jpg")
-    same = Key.build(conn, request(), "https://origin-a.test/images/cat.jpg")
-    different_origin = Key.build(conn, request(), "https://origin-b.test/images/cat.jpg")
+    key = build_key!(conn, request(), "https://origin-a.test/images/cat.jpg")
+    same = build_key!(conn, request(), "https://origin-a.test/images/cat.jpg")
+    different_origin = build_key!(conn, request(), "https://origin-b.test/images/cat.jpg")
 
     assert key.hash == same.hash
     assert key.hash =~ ~r/\A[0-9a-f]{64}\z/
@@ -73,7 +78,7 @@ defmodule ImagePlug.Cache.KeyTest do
 
     operation_fields =
       conn(:get, "/sig-one/w:100/plain/images/cat.jpg")
-      |> Key.build(request(), "https://origin.test/images/cat.jpg")
+      |> build_key!(request(), "https://origin.test/images/cat.jpg")
       |> then(&Keyword.fetch!(&1.material, :operations))
       |> Keyword.keys()
       |> Enum.sort()
@@ -83,8 +88,13 @@ defmodule ImagePlug.Cache.KeyTest do
 
   test "signature changes do not change the key" do
     conn = conn(:get, "/sig-one/plain/images/cat.jpg")
-    key_one = Key.build(conn, request(signature: "sig-one"), "https://origin.test/images/cat.jpg")
-    key_two = Key.build(conn, request(signature: "sig-two"), "https://origin.test/images/cat.jpg")
+
+    key_one =
+      build_key!(conn, request(signature: "sig-one"), "https://origin.test/images/cat.jpg")
+
+    key_two =
+      build_key!(conn, request(signature: "sig-two"), "https://origin.test/images/cat.jpg")
+
     assert key_one.hash == key_two.hash
   end
 
@@ -97,7 +107,7 @@ defmodule ImagePlug.Cache.KeyTest do
       |> put_req_header("cookie", "tenant=acme; ignored_cookie=ignored")
 
     key =
-      Key.build(conn, request(), "https://origin.test/images/cat.jpg",
+      build_key!(conn, request(), "https://origin.test/images/cat.jpg",
         key_headers: ["Accept-Language"],
         key_cookies: ["tenant"]
       )
@@ -122,12 +132,12 @@ defmodule ImagePlug.Cache.KeyTest do
       |> put_req_header("accept", "image/avif,image/webp")
 
     key_one =
-      Key.build(conn_one, request, "https://origin.test/images/cat.jpg",
+      build_key!(conn_one, request, "https://origin.test/images/cat.jpg",
         selected_output_format: :avif
       )
 
     key_two =
-      Key.build(conn_two, request, "https://origin.test/images/cat.jpg",
+      build_key!(conn_two, request, "https://origin.test/images/cat.jpg",
         selected_output_format: :avif
       )
 
@@ -140,12 +150,12 @@ defmodule ImagePlug.Cache.KeyTest do
     conn = conn(:get, "/_/plain/images/cat.jpg")
 
     avif_key =
-      Key.build(conn, request, "https://origin.test/images/cat.jpg",
+      build_key!(conn, request, "https://origin.test/images/cat.jpg",
         selected_output_format: :avif
       )
 
     webp_key =
-      Key.build(conn, request, "https://origin.test/images/cat.jpg",
+      build_key!(conn, request, "https://origin.test/images/cat.jpg",
         selected_output_format: :webp
       )
 
@@ -153,13 +163,11 @@ defmodule ImagePlug.Cache.KeyTest do
   end
 
   test "automatic output requires a selected output format" do
-    assert_raise ArgumentError, ~r/selected_output_format is required/, fn ->
-      Key.build(
-        conn(:get, "/_/plain/images/cat.jpg"),
-        request(format: nil),
-        "https://origin.test/images/cat.jpg"
-      )
-    end
+    assert Key.build(
+             conn(:get, "/_/plain/images/cat.jpg"),
+             request(format: nil),
+             "https://origin.test/images/cat.jpg"
+           ) == {:error, :missing_selected_output_format}
   end
 
   test "explicit formats do not include Accept material or automatic marker" do
@@ -168,7 +176,7 @@ defmodule ImagePlug.Cache.KeyTest do
       |> conn("/_/f:webp/plain/images/cat.jpg")
       |> put_req_header("accept", "image/jpeg")
 
-    key = Key.build(conn, request(format: :webp), "https://origin.test/images/cat.jpg")
+    key = build_key!(conn, request(format: :webp), "https://origin.test/images/cat.jpg")
 
     assert key.material[:output] == [format: :webp, automatic: false]
   end

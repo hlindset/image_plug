@@ -154,6 +154,18 @@ defmodule ImagePlug.CacheTest do
     assert Keyword.fetch!(adapter_opts, :key_headers) == ["accept-language"]
   end
 
+  test "invalid key material returns cache read error before adapter calls" do
+    request = %ProcessingRequest{request() | format: nil}
+
+    assert {:error, {:cache_read, {:key, :missing_selected_output_format}}} =
+             Cache.lookup(
+               conn(:get, "/_/plain/images/cat.jpg"),
+               request,
+               "https://origin.test/cat.jpg",
+               cache: {ShouldNotBeCalledAdapter, []}
+             )
+  end
+
   test "read errors fail open by default and are logged" do
     log =
       capture_log(fn ->
