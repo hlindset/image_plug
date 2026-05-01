@@ -9,7 +9,7 @@ defmodule ImagePlug.PipelinePlanner do
 
   @default_gravity {:anchor, :center, :center}
   @supported_resizing_types [:fit, :fill, :fill_down, :force, :auto]
-  @supported_output_formats [:webp, :avif, :jpeg, :png, :blurhash]
+  @supported_output_formats [:webp, :avif, :jpeg, :png]
 
   @spec plan(ProcessingRequest.t()) :: {:ok, TransformChain.t()} | {:error, term()}
   def plan(%ProcessingRequest{} = request) do

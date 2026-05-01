@@ -485,25 +485,6 @@ defmodule ImagePlug do
     |> send_resp(422, "invalid image transform: #{inspect(Enum.reverse(errors))}")
   end
 
-  defp send_image(
-         %Plug.Conn{} = conn,
-         %TransformState{image: image, output: :blurhash},
-         _opts,
-         _response_headers
-       ) do
-    case Image.Blurhash.encode(image) do
-      {:ok, blurhash} ->
-        conn
-        |> put_resp_content_type("text/plain")
-        |> send_resp(200, blurhash)
-
-      {:error, _} ->
-        conn
-        |> put_resp_content_type("text/plain")
-        |> send_resp(500, "error generating blurhash for image")
-    end
-  end
-
   defp send_image(%Plug.Conn{} = conn, %TransformState{} = state, opts, response_headers) do
     with {:ok, mime_type} <- output_mime_type(state) do
       suffix = OutputNegotiation.suffix!(mime_type)
@@ -528,26 +509,6 @@ defmodule ImagePlug do
     else
       {:error, :not_acceptable} -> send_not_acceptable(conn, response_headers)
       :error -> send_encode_error(conn)
-    end
-  end
-
-  defp encode_cache_entry(
-         %TransformState{image: image, output: :blurhash},
-         _opts,
-         _response_headers
-       ) do
-    case Image.Blurhash.encode(image) do
-      {:ok, blurhash} ->
-        {:ok,
-         Entry.new!(
-           body: blurhash,
-           content_type: "text/plain",
-           headers: [],
-           created_at: DateTime.utc_now()
-         )}
-
-      {:error, error} ->
-        {:error, {:encode, error, []}}
     end
   end
 

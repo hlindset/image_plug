@@ -175,11 +175,6 @@ defmodule ImagePlug.PipelinePlannerTest do
              {:ok, [{Transform.Output, %Transform.Output.OutputParams{format: :png}}]}
   end
 
-  test "allows non-imgproxy blurhash output for product-neutral planning" do
-    assert PipelinePlanner.plan(request(format: :blurhash)) ==
-             {:ok, [{Transform.Output, %Transform.Output.OutputParams{format: :blurhash}}]}
-  end
-
   test "rejects unsupported semantic combinations" do
     assert PipelinePlanner.plan(request(format: :best)) ==
              {:error, {:unsupported_output_format, :best}}
