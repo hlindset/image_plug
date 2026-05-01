@@ -14,10 +14,10 @@ defmodule ImagePlug.OutputNegotiation do
           {:ok, String.t()} | {:error, :not_acceptable}
   def negotiate(accept_header, has_alpha?, opts) do
     candidates =
-      opts
-      |> enabled_modern_mime_types()
-      |> Kernel.++(fallback_mime_types(has_alpha?, Keyword.get(opts, :source_format)))
-      |> Enum.uniq()
+      Enum.uniq(
+        enabled_modern_mime_types(opts) ++
+          fallback_mime_types(has_alpha?, Keyword.get(opts, :source_format))
+      )
 
     entries = parse_accept(accept_header)
 

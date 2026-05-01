@@ -143,6 +143,9 @@ defmodule ImagePlug do
          opts,
          response_headers
        ) do
+    # Source-format fallback needs origin metadata before the automatic output
+    # cache key can be selected. Probing cached formats before this point could
+    # serve a format different from the negotiated fallback.
     with {:ok, image, source_format} <-
            fetch_decode_validate_origin_with_source_format(request, origin_identity, opts),
          {:ok, selected_format} <- selected_output_format(conn, image, source_format, opts) do

@@ -6,6 +6,7 @@ defmodule ImagePlug.Cache.KeyPropertyTest do
   import Plug.Test
 
   alias ImagePlug.Cache.Key
+  alias ImagePlug.ParamParser.Native
   alias ImagePlug.ProcessingRequest
 
   defp build_key!(conn, request, origin_identity, opts \\ []) do
@@ -212,6 +213,24 @@ defmodule ImagePlug.Cache.KeyPropertyTest do
     end
   end
 
+  property "semantically equivalent option aliases produce equivalent requests and cache keys" do
+    check all {option_a, option_b} <- equivalent_option_pair(),
+              max_runs: 100 do
+      origin = "https://origin.test/images/cat.jpg"
+      conn_a = conn(:get, "/_/#{option_a}/plain/images/cat.jpg")
+      conn_b = conn(:get, "/_/#{option_b}/plain/images/cat.jpg")
+
+      assert {:ok, request_a} = Native.parse(conn_a)
+      assert {:ok, request_b} = Native.parse(conn_b)
+      assert request_a == request_b
+
+      key_opts = [selected_output_format: :webp]
+
+      assert build_key!(conn_a, request_a, origin, key_opts).hash ==
+               build_key!(conn_b, request_b, origin, key_opts).hash
+    end
+  end
+
   defp key_material do
     map(
       {origin_identity(), cacheable_request(), member_of([nil, :webp, :avif, :jpeg, :png]),
@@ -301,5 +320,15 @@ defmodule ImagePlug.Cache.KeyPropertyTest do
 
   defp media_range do
     member_of(["image/avif", "image/webp", "image/jpeg", "image/png", "image/*", "*/*"])
+  end
+
+  defp equivalent_option_pair do
+    one_of([
+      map(integer(0..10_000), &{"w:#{&1}", "width:#{&1}"}),
+      map(integer(0..10_000), &{"h:#{&1}", "height:#{&1}"}),
+      map(member_of(~w(webp avif jpeg jpg png)), &{"f:#{&1}", "format:#{&1}"}),
+      map(member_of(~w(webp avif jpeg jpg png)), &{"ext:#{&1}", "format:#{&1}"}),
+      map(member_of(~w(fit fill fill-down force auto)), &{"rt:#{&1}", "resizing_type:#{&1}"})
+    ])
   end
 end

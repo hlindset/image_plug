@@ -6,6 +6,15 @@ defmodule ImagePlug.ParamParser.NativePropertyTest do
 
   alias ImagePlug.ParamParser.Native
 
+  property "parser returns tagged results for arbitrary processing segments" do
+    check all segments <- list_of(processing_segment(), max_length: 5),
+              max_runs: 300 do
+      result = safe_parse(segments)
+
+      assert match?({tag, _reason_or_request} when tag in [:ok, :error], result)
+    end
+  end
+
   property "segments after plain are preserved as source path" do
     check all source_path <- valid_source_path_with_option_like_segments(),
               max_runs: 100 do
@@ -48,6 +57,16 @@ defmodule ImagePlug.ParamParser.NativePropertyTest do
 
   defp parse_path(path), do: conn(:get, path) |> Native.parse()
 
+  defp safe_parse(options) do
+    options
+    |> native_path(["images", "cat.jpg"])
+    |> parse_path()
+  rescue
+    exception -> {:raised, exception}
+  catch
+    kind, reason -> {:caught, kind, reason}
+  end
+
   defp native_path(options, source_path) do
     source_path = Enum.join(source_path, "/")
 
@@ -71,5 +90,17 @@ defmodule ImagePlug.ParamParser.NativePropertyTest do
       map(integer(0..10_000), &"h:#{&1}"),
       member_of(~w(f:webp ext:png rs:fill:100:100 g:ce a:b c:d))
     ])
+  end
+
+  defp processing_segment do
+    printable =
+      ?!..?~
+      |> Enum.reject(&(&1 in [?/, ??, ?#, ?%]))
+      |> Enum.map(&<<&1>>)
+
+    printable
+    |> member_of()
+    |> list_of(max_length: 40)
+    |> map(&Enum.join/1)
   end
 end

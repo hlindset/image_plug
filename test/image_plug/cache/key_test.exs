@@ -72,9 +72,9 @@ defmodule ImagePlug.Cache.KeyTest do
     request_fields =
       ProcessingRequest.__struct__() |> Map.from_struct() |> Map.keys() |> Enum.sort()
 
-    # Signature is authorization material; format and source extension are represented separately.
+    # Signature is authorization material; format is represented separately.
     expected_operation_fields =
-      request_fields -- [:format, :output_extension_from_source, :signature]
+      request_fields -- [:format, :signature]
 
     operation_fields =
       conn(:get, "/sig-one/w:100/plain/images/cat.jpg")

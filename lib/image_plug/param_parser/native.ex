@@ -70,8 +70,7 @@ defmodule ImagePlug.ParamParser.Native do
            [
              signature: signature,
              source_kind: :plain,
-             source_path: source_path,
-             output_extension_from_source: source_format
+             source_path: source_path
            ],
            options
          )
@@ -280,13 +279,9 @@ defmodule ImagePlug.ParamParser.Native do
     end
   end
 
-  defp parse_boolean(value) do
-    case value do
-      value when value in ["1", "t", "true"] -> {:ok, true}
-      value when value in ["0", "f", "false"] -> {:ok, false}
-      value -> {:error, {:invalid_boolean, value}}
-    end
-  end
+  defp parse_boolean(value) when value in ["1", "t", "true"], do: {:ok, true}
+  defp parse_boolean(value) when value in ["0", "f", "false"], do: {:ok, false}
+  defp parse_boolean(value), do: {:error, {:invalid_boolean, value}}
 
   defp parse_special_option(name, args, segment) when name in ["gravity", "g"] do
     parse_gravity(args, segment)
@@ -341,14 +336,8 @@ defmodule ImagePlug.ParamParser.Native do
 
   defp parse_float(value) do
     case Float.parse(value) do
-      {float, ""} ->
-        {:ok, float}
-
-      _other ->
-        case Integer.parse(value) do
-          {integer, ""} -> {:ok, integer * 1.0}
-          _other -> {:error, {:invalid_float, value}}
-        end
+      {float, ""} -> {:ok, float}
+      _other -> {:error, {:invalid_float, value}}
     end
   end
 

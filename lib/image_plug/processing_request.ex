@@ -25,8 +25,7 @@ defmodule ImagePlug.ProcessingRequest do
           gravity: gravity(),
           gravity_x_offset: float(),
           gravity_y_offset: float(),
-          format: output_format() | nil,
-          output_extension_from_source: output_format() | nil
+          format: output_format() | nil
         }
 
   defstruct signature: nil,
@@ -43,6 +42,5 @@ defmodule ImagePlug.ProcessingRequest do
             gravity: {:anchor, :center, :center},
             gravity_x_offset: 0.0,
             gravity_y_offset: 0.0,
-            format: nil,
-            output_extension_from_source: nil
+            format: nil
 end

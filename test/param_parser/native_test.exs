@@ -18,8 +18,7 @@ defmodule ImagePlug.ParamParser.NativeTest do
               width: nil,
               height: nil,
               gravity: {:anchor, :center, :center},
-              format: nil,
-              output_extension_from_source: nil
+              format: nil
             }} = Native.parse(conn)
   end
 
@@ -217,8 +216,7 @@ defmodule ImagePlug.ParamParser.NativeTest do
   test "plain source extension overrides explicit format after options" do
     assert {:ok,
             %ProcessingRequest{
-              format: :png,
-              output_extension_from_source: :png
+              format: :png
             }} = conn(:get, "/_/f:webp/plain/images/cat.jpg@png") |> Native.parse()
   end
 
@@ -226,8 +224,7 @@ defmodule ImagePlug.ParamParser.NativeTest do
     assert {:ok,
             %ProcessingRequest{
               source_path: ["images", "cat.jpg"],
-              format: :webp,
-              output_extension_from_source: nil
+              format: :webp
             }} = conn(:get, "/_/f:webp/plain/images/cat.jpg@") |> Native.parse()
   end
 
@@ -237,6 +234,11 @@ defmodule ImagePlug.ParamParser.NativeTest do
   end
 
   test "later field assignments overwrite earlier assignments" do
+    assert {:ok,
+            %ProcessingRequest{
+              width: {:pixels, 200}
+            }} = conn(:get, "/_/w:100/width:200/plain/images/cat.jpg") |> Native.parse()
+
     assert {:ok,
             %ProcessingRequest{
               resizing_type: :fill,
@@ -274,8 +276,7 @@ defmodule ImagePlug.ParamParser.NativeTest do
     assert {:ok,
             %ProcessingRequest{
               source_path: ["images", "cat@v1.jpg"],
-              format: :webp,
-              output_extension_from_source: :webp
+              format: :webp
             }} = conn(:get, "/_/plain/images/cat%40v1.jpg@webp") |> Native.parse()
   end
 
@@ -292,8 +293,7 @@ defmodule ImagePlug.ParamParser.NativeTest do
     for {extension, format} <- cases do
       assert {:ok,
               %ProcessingRequest{
-                format: ^format,
-                output_extension_from_source: ^format
+                format: ^format
               }} = conn(:get, "/_/plain/images/cat.jpg@#{extension}") |> Native.parse()
     end
   end
@@ -301,16 +301,14 @@ defmodule ImagePlug.ParamParser.NativeTest do
   test "source extension takes precedence over processing format option" do
     assert {:ok,
             %ProcessingRequest{
-              format: :png,
-              output_extension_from_source: :png
+              format: :png
             }} = conn(:get, "/_/f:webp/plain/images/cat.jpg@png") |> Native.parse()
   end
 
   test "dangling raw @ preserves explicit processing format" do
     assert {:ok,
             %ProcessingRequest{
-              format: :webp,
-              output_extension_from_source: nil
+              format: :webp
             }} = conn(:get, "/_/f:webp/plain/images/cat.jpg@") |> Native.parse()
   end
 
@@ -318,8 +316,7 @@ defmodule ImagePlug.ParamParser.NativeTest do
     assert {:ok,
             %ProcessingRequest{
               source_path: ["images", "cat.jpg"],
-              format: nil,
-              output_extension_from_source: nil
+              format: nil
             }} = conn(:get, "/_/plain/images/cat.jpg@") |> Native.parse()
   end
 
@@ -342,8 +339,7 @@ defmodule ImagePlug.ParamParser.NativeTest do
   test "parses best source extension for planner rejection" do
     assert {:ok,
             %ProcessingRequest{
-              format: :best,
-              output_extension_from_source: :best
+              format: :best
             }} = conn(:get, "/_/plain/images/cat.jpg@best") |> Native.parse()
   end
 end

@@ -21,7 +21,6 @@ defmodule ImagePlug.ProcessingRequestTest do
     assert request.gravity_x_offset == 0.0
     assert request.gravity_y_offset == 0.0
     assert request.format == nil
-    assert request.output_extension_from_source == nil
   end
 
   test "represents unsupported but parsed semantic values distinctly" do
