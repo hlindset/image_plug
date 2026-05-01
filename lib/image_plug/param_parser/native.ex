@@ -24,6 +24,22 @@ defmodule ImagePlug.ParamParser.Native do
 
   @resizing_type_names ~w(fit fill fill-down force auto)
 
+  @option_specs %{
+    "resize" => {:resize, [:resizing_type, :width, :height, :enlarge, :extend]},
+    "rs" => {:resize, [:resizing_type, :width, :height, :enlarge, :extend]},
+    "size" => {:size, [:width, :height, :enlarge, :extend]},
+    "s" => {:size, [:width, :height, :enlarge, :extend]},
+    "resizing_type" => {:resizing_type, [:resizing_type]},
+    "rt" => {:resizing_type, [:resizing_type]},
+    "width" => {:width, [:width]},
+    "w" => {:width, [:width]},
+    "height" => {:height, [:height]},
+    "h" => {:height, [:height]},
+    "format" => {:format, [:format]},
+    "f" => {:format, [:format]},
+    "ext" => {:format, [:format]}
+  }
+
   @gravity_anchors %{
     "no" => {:anchor, :center, :top},
     "so" => {:anchor, :center, :bottom},
@@ -149,92 +165,58 @@ defmodule ImagePlug.ParamParser.Native do
   defp parse_option("-"), do: {:error, :unsupported_chained_pipeline}
 
   defp parse_option(segment) do
-    case String.split(segment, ":") do
-      [key | args] when key in ["resize", "rs"] ->
-        parse_resize(segment, args)
+    [name | args] = String.split(segment, ":")
 
-      [key | args] when key in ["size", "s"] ->
-        parse_size(segment, args)
-
-      [key, value] when key in ["resizing_type", "rt"] ->
-        parse_resizing_type(value)
-
-      [key | _args] when key in ["resizing_type", "rt"] ->
-        {:error, {:invalid_option_segment, segment}}
-
-      [key, value] when key in ["width", "w"] ->
-        parse_pixels_option(:width, value)
-
-      [key | _args] when key in ["width", "w"] ->
-        {:error, {:invalid_option_segment, segment}}
-
-      [key, value] when key in ["height", "h"] ->
-        parse_pixels_option(:height, value)
-
-      [key | _args] when key in ["height", "h"] ->
-        {:error, {:invalid_option_segment, segment}}
-
-      [key | args] when key in ["gravity", "g"] ->
-        parse_gravity_option(segment, args)
-
-      [key, value] when key in ["format", "f", "ext"] ->
-        parse_format_option(value)
-
-      [key | _args] when key in ["format", "f", "ext"] ->
-        {:error, {:invalid_option_segment, segment}}
-
-      [key | _args] ->
-        {:error, {:unknown_option, key}}
+    case Map.fetch(@option_specs, name) do
+      {:ok, {kind, fields}} -> parse_known_option(kind, fields, args, segment)
+      :error -> parse_special_option(name, args, segment)
     end
   end
 
-  defp parse_resize(segment, args) when length(args) <= 8 do
-    {fields, extend_gravity_parts} = Enum.split(args, 5)
-    [resizing_type, width, height, enlarge, extend] = pad_optional(fields, 5)
+  defp parse_known_option(kind, fields, args, segment)
+       when kind in [:resizing_type, :width, :height, :format] do
+    parse_exact_fields(fields, args, segment)
+  end
 
-    with {:ok, assignments} <-
-           parse_optional_assignments([
-             {:resizing_type, resizing_type, &parse_resizing_type_value/1},
-             {:width, width, &parse_pixels/1},
-             {:height, height, &parse_pixels/1},
-             {:enlarge, enlarge, &parse_boolean/1},
-             {:extend, extend, &parse_boolean/1}
-           ]),
+  defp parse_known_option(:resize, fields, args, segment) when length(args) <= 8 do
+    with {base_args, extend_gravity_parts} <- Enum.split(args, 5),
+         {:ok, assignments} <- parse_fields(fields, base_args, skip_empty: true),
          {:ok, extend_gravity_assignments} <-
            parse_optional_extend_gravity(segment, extend_gravity_parts) do
-      {:ok, assignments ++ extend_gravity_assignments}
+      {:ok, Keyword.merge(assignments, extend_gravity_assignments)}
     end
   end
 
-  defp parse_resize(segment, _args), do: {:error, {:invalid_option_segment, segment}}
-
-  defp parse_size(segment, args) when length(args) <= 7 do
-    {fields, extend_gravity_parts} = Enum.split(args, 4)
-    [width, height, enlarge, extend] = pad_optional(fields, 4)
-
-    with {:ok, assignments} <-
-           parse_optional_assignments([
-             {:width, width, &parse_pixels/1},
-             {:height, height, &parse_pixels/1},
-             {:enlarge, enlarge, &parse_boolean/1},
-             {:extend, extend, &parse_boolean/1}
-           ]),
+  defp parse_known_option(:size, fields, args, segment) when length(args) <= 7 do
+    with {base_args, extend_gravity_parts} <- Enum.split(args, 4),
+         {:ok, assignments} <- parse_fields(fields, base_args, skip_empty: true),
          {:ok, extend_gravity_assignments} <-
            parse_optional_extend_gravity(segment, extend_gravity_parts) do
-      {:ok, assignments ++ extend_gravity_assignments}
+      {:ok, Keyword.merge(assignments, extend_gravity_assignments)}
     end
   end
 
-  defp parse_size(segment, _args), do: {:error, {:invalid_option_segment, segment}}
+  defp parse_known_option(_kind, _fields, _args, segment),
+    do: {:error, {:invalid_option_segment, segment}}
 
-  defp parse_optional_assignments(fields) do
+  defp parse_exact_fields(fields, args, _segment) when length(args) == length(fields) do
+    parse_fields(fields, args)
+  end
+
+  defp parse_exact_fields(_fields, _args, segment),
+    do: {:error, {:invalid_option_segment, segment}}
+
+  defp parse_fields(fields, args, opts \\ []) do
+    skip_empty? = Keyword.get(opts, :skip_empty, false)
+
     fields
+    |> Enum.zip(args)
     |> Enum.reduce_while({:ok, []}, fn
-      {_field, value, _parser}, {:ok, assignments} when value in [nil, ""] ->
+      {_field, value}, {:ok, assignments} when skip_empty? and value in [nil, ""] ->
         {:cont, {:ok, assignments}}
 
-      {field, value, parser}, {:ok, assignments} ->
-        case parser.(value) do
+      {field, value}, {:ok, assignments} ->
+        case parse_field(field, value) do
           {:ok, parsed_value} -> {:cont, {:ok, [{field, parsed_value} | assignments]}}
           {:error, _reason} = error -> {:halt, error}
         end
@@ -244,6 +226,13 @@ defmodule ImagePlug.ParamParser.Native do
       {:error, _reason} = error -> error
     end
   end
+
+  defp parse_field(:resizing_type, value), do: parse_resizing_type_value(value)
+  defp parse_field(:width, value), do: parse_pixels(value)
+  defp parse_field(:height, value), do: parse_pixels(value)
+  defp parse_field(:enlarge, value), do: parse_boolean(value)
+  defp parse_field(:extend, value), do: parse_boolean(value)
+  defp parse_field(:format, value), do: parse_format(value)
 
   defp parse_optional_extend_gravity(_segment, []), do: {:ok, []}
   defp parse_optional_extend_gravity(_segment, [""]), do: {:ok, []}
@@ -278,22 +267,10 @@ defmodule ImagePlug.ParamParser.Native do
   defp parse_optional_extend_gravity(segment, _parts),
     do: {:error, {:invalid_option_segment, segment}}
 
-  defp parse_resizing_type(value) do
-    with {:ok, resizing_type} <- parse_resizing_type_value(value) do
-      {:ok, resizing_type: resizing_type}
-    end
-  end
-
   defp parse_resizing_type_value(value) do
     case Map.fetch(@resizing_types, value) do
       {:ok, resizing_type} -> {:ok, resizing_type}
       :error -> {:error, {:invalid_resizing_type, value, @resizing_type_names}}
-    end
-  end
-
-  defp parse_pixels_option(field, value) do
-    with {:ok, pixels} <- parse_pixels(value) do
-      {:ok, [{field, pixels}]}
     end
   end
 
@@ -311,22 +288,28 @@ defmodule ImagePlug.ParamParser.Native do
     end
   end
 
-  defp parse_gravity_option(_segment, ["sm"]), do: {:ok, [gravity: :sm]}
+  defp parse_special_option(name, args, segment) when name in ["gravity", "g"] do
+    parse_gravity(args, segment)
+  end
 
-  defp parse_gravity_option(_segment, ["fp", x, y]) do
+  defp parse_special_option(name, _args, _segment), do: {:error, {:unknown_option, name}}
+
+  defp parse_gravity(["sm"], _segment), do: {:ok, [gravity: :sm]}
+
+  defp parse_gravity(["fp", x, y], _segment) do
     with {:ok, x} <- parse_focal_coordinate(x),
          {:ok, y} <- parse_focal_coordinate(y) do
       {:ok, [gravity: {:fp, x, y}, gravity_x_offset: 0.0, gravity_y_offset: 0.0]}
     end
   end
 
-  defp parse_gravity_option(_segment, [anchor]) do
+  defp parse_gravity([anchor], _segment) do
     with {:ok, anchor} <- parse_gravity_anchor(anchor) do
       {:ok, [gravity: anchor, gravity_x_offset: 0.0, gravity_y_offset: 0.0]}
     end
   end
 
-  defp parse_gravity_option(_segment, [anchor, x_offset, y_offset]) do
+  defp parse_gravity([anchor, x_offset, y_offset], _segment) do
     with {:ok, anchor} <- parse_gravity_anchor(anchor),
          {:ok, x_offset} <- parse_float(x_offset),
          {:ok, y_offset} <- parse_float(y_offset) do
@@ -334,7 +317,7 @@ defmodule ImagePlug.ParamParser.Native do
     end
   end
 
-  defp parse_gravity_option(segment, _args), do: {:error, {:invalid_option_segment, segment}}
+  defp parse_gravity(_args, segment), do: {:error, {:invalid_option_segment, segment}}
 
   defp parse_gravity_anchor(value) do
     case Map.fetch(@gravity_anchors, value) do
@@ -374,15 +357,5 @@ defmodule ImagePlug.ParamParser.Native do
       {integer, ""} when integer >= 0 -> {:ok, integer}
       _other -> {:error, {:invalid_non_negative_integer, value}}
     end
-  end
-
-  defp parse_format_option(value) do
-    with {:ok, format} <- parse_format(value) do
-      {:ok, [format: format]}
-    end
-  end
-
-  defp pad_optional(values, count) do
-    values ++ List.duplicate(nil, count - length(values))
   end
 end
