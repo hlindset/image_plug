@@ -146,24 +146,32 @@ defmodule ImagePlug do
     # Source-format fallback needs origin metadata before the automatic output
     # cache key can be selected. Probing cached formats before this point could
     # serve a format different from the negotiated fallback.
-    with {:ok, image, source_format} <-
-           fetch_decode_validate_origin_with_source_format(request, origin_identity, opts),
-         {:ok, selected_format} <- selected_output_format(conn, image, source_format, opts) do
-      selected_chain = append_selected_output(chain, selected_format)
-      key_opts = [selected_output_format: selected_format]
+    with {:ok, image, source_format, origin_response} <-
+           fetch_decode_validate_origin_with_source_format(request, origin_identity, opts) do
+      case selected_output_format(conn, image, source_format, opts) do
+        {:ok, selected_format} ->
+          selected_chain = append_selected_output(chain, selected_format)
+          key_opts = [selected_output_format: selected_format]
 
-      case Cache.lookup(conn, request, origin_identity, opts, key_opts) do
-        :disabled ->
-          process_image_uncached(conn, image, selected_chain, opts, response_headers)
+          case Cache.lookup(conn, request, origin_identity, opts, key_opts) do
+            :disabled ->
+              process_image_uncached(conn, image, selected_chain, opts, response_headers)
 
-        {:hit, _key, %Entry{} = entry} ->
-          send_cache_entry(conn, entry)
+            {:hit, _key, %Entry{} = entry} ->
+              close_pending_origin(origin_response)
+              send_cache_entry(conn, entry)
 
-        {:miss, %Key{} = key} ->
-          process_image_cache_miss(conn, image, selected_chain, key, opts, response_headers)
+            {:miss, %Key{} = key} ->
+              process_image_cache_miss(conn, image, selected_chain, key, opts, response_headers)
 
-        {:error, {:cache_read, error}} ->
-          send_cache_error(conn, error)
+            {:error, {:cache_read, error}} ->
+              close_pending_origin(origin_response)
+              send_cache_error(conn, error)
+          end
+
+        error ->
+          close_pending_origin(origin_response)
+          handle_processing_error(conn, error, response_headers)
       end
     else
       error -> handle_processing_error(conn, error, response_headers)
@@ -267,7 +275,7 @@ defmodule ImagePlug do
            decode_origin_response(origin_response, decode_options, opts)
            |> wrap_origin_decode_error(),
          :ok <- validate_input_image(image, opts) |> wrap_input_limit_error() do
-      {:ok, image, source_format}
+      {:ok, image, source_format, origin_response}
     end
   end
 
@@ -346,8 +354,15 @@ defmodule ImagePlug do
          %Origin.Response{} = origin_response,
          materialize_error
        ) do
-    Origin.close(origin_response)
+    close_pending_origin(origin_response)
     {:error, {:decode, materialize_error}}
+  end
+
+  defp close_pending_origin(%Origin.Response{} = origin_response) do
+    case Origin.stream_status(origin_response) do
+      :pending -> Origin.close(origin_response)
+      _status -> :ok
+    end
   end
 
   defp fetch_origin(%ProcessingRequest{source_kind: :plain}, origin_identity, opts) do
