@@ -146,7 +146,9 @@ defmodule ImagePlug.PipelinePlanner do
 
   defp maybe_prepend_focus(chain, _gravity), do: chain
 
-  defp valid_gravity?({:fp, x, y}), do: is_number(x) and is_number(y)
+  defp valid_gravity?({:fp, x, y}) do
+    is_number(x) and is_number(y) and x >= 0.0 and x <= 1.0 and y >= 0.0 and y <= 1.0
+  end
 
   defp valid_gravity?({:anchor, x, y}) do
     x in [:left, :center, :right] and y in [:top, :center, :bottom]

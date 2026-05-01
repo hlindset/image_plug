@@ -220,6 +220,24 @@ defmodule ImagePlug.PipelinePlannerTest do
                gravity: :bogus
              )
            ) == {:error, {:invalid_gravity, :bogus}}
+
+    assert PipelinePlanner.plan(
+             request(
+               resizing_type: :fill,
+               width: {:pixels, 300},
+               height: {:pixels, 200},
+               gravity: {:fp, -0.1, 0.5}
+             )
+           ) == {:error, {:invalid_gravity, {:fp, -0.1, 0.5}}}
+
+    assert PipelinePlanner.plan(
+             request(
+               resizing_type: :fill,
+               width: {:pixels, 300},
+               height: {:pixels, 200},
+               gravity: {:fp, 0.5, 1.1}
+             )
+           ) == {:error, {:invalid_gravity, {:fp, 0.5, 1.1}}}
   end
 
   test "rejects fill without both dimensions" do

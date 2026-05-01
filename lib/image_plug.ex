@@ -118,7 +118,7 @@ defmodule ImagePlug do
          opts,
          response_headers
        ) do
-    key_opts = [selected_output_format: selected_format]
+    key_opts = [selected_output_format: selected_format, selected_output_reason: :auto]
 
     case Cache.lookup(conn, request, origin_identity, opts, key_opts) do
       status when status in [:disabled, :skip_cache] ->
@@ -166,9 +166,12 @@ defmodule ImagePlug do
     accept_header = conn |> get_req_header("accept") |> Enum.join(",")
 
     accept_header
-    |> OutputNegotiation.cache_probe_formats(output_negotiation_opts(opts))
-    |> Enum.reduce_while(:miss, fn selected_format, _status ->
-      key_opts = [selected_output_format: selected_format]
+    |> OutputNegotiation.cache_probe_selections(output_negotiation_opts(opts))
+    |> Enum.reduce_while(:miss, fn {selected_format, selected_reason}, _status ->
+      key_opts = [
+        selected_output_format: selected_format,
+        selected_output_reason: selected_reason
+      ]
 
       case Cache.lookup(conn, request, origin_identity, opts, key_opts) do
         :disabled -> {:halt, :disabled}
@@ -190,10 +193,14 @@ defmodule ImagePlug do
        ) do
     with {:ok, image, source_format, origin_response} <-
            fetch_decode_validate_origin_with_source_format(request, origin_identity, opts) do
-      case selected_output_format(conn, image, source_format, opts) do
-        {:ok, selected_format} ->
+      case selected_output(conn, image, source_format, opts) do
+        {:ok, selected_format, selected_reason} ->
           selected_chain = append_selected_output(chain, selected_format)
-          key_opts = [selected_output_format: selected_format]
+
+          key_opts = [
+            selected_output_format: selected_format,
+            selected_output_reason: selected_reason
+          ]
 
           case Cache.lookup(conn, request, origin_identity, opts, key_opts) do
             status when status in [:disabled, :skip_cache] ->
@@ -630,16 +637,22 @@ defmodule ImagePlug do
     ]
   end
 
-  defp selected_output_format(%Plug.Conn{} = conn, image, source_format, opts) do
+  defp selected_output(%Plug.Conn{} = conn, image, source_format, opts) do
     accept_header = conn |> get_req_header("accept") |> Enum.join(",")
 
-    case OutputNegotiation.negotiate(
+    case OutputNegotiation.negotiate_selection(
            accept_header,
            Image.has_alpha?(image),
            Keyword.put(output_negotiation_opts(opts), :source_format, source_format)
          ) do
-      {:ok, mime_type} -> OutputNegotiation.format(mime_type)
-      {:error, :not_acceptable} -> {:error, :not_acceptable}
+      {:ok, {mime_type, reason}} ->
+        case OutputNegotiation.format(mime_type) do
+          {:ok, format} -> {:ok, format, reason}
+          :error -> {:error, unsupported_output_format_error(mime_type)}
+        end
+
+      {:error, :not_acceptable} ->
+        {:error, :not_acceptable}
     end
   end
 

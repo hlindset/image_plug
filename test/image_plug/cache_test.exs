@@ -145,13 +145,35 @@ defmodule ImagePlug.CacheTest do
                request,
                "https://origin.test/cat.jpg",
                [cache: {CaptureAdapter, key_headers: ["accept-language"]}],
-               selected_output_format: :avif
+               selected_output_format: :avif,
+               selected_output_reason: :auto
              )
 
-    assert key.material[:output] == [format: :avif, automatic: true]
+    assert key.material[:output] == [format: :avif, automatic: true, selection: :auto]
     assert_received {:cache_get, ^key, adapter_opts}
     refute Keyword.has_key?(adapter_opts, :selected_output_format)
+    refute Keyword.has_key?(adapter_opts, :selected_output_reason)
     assert Keyword.fetch!(adapter_opts, :key_headers) == ["accept-language"]
+  end
+
+  test "invalid automatic output reason fails open before adapter calls by default" do
+    request = %ProcessingRequest{request() | format: nil}
+
+    log =
+      capture_log(fn ->
+        assert :skip_cache =
+                 Cache.lookup(
+                   conn(:get, "/_/plain/images/cat.jpg"),
+                   request,
+                   "https://origin.test/cat.jpg",
+                   [cache: {ShouldNotBeCalledAdapter, []}],
+                   selected_output_format: :avif,
+                   selected_output_reason: :bogus
+                 )
+      end)
+
+    assert log =~ "cache key error"
+    assert log =~ ":invalid_selected_output_reason"
   end
 
   test "unsupported lookup key opts fail open before adapter calls" do

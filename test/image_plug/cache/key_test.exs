@@ -133,15 +133,17 @@ defmodule ImagePlug.Cache.KeyTest do
 
     key_one =
       build_key!(conn_one, request, "https://origin.test/images/cat.jpg",
-        selected_output_format: :avif
+        selected_output_format: :avif,
+        selected_output_reason: :auto
       )
 
     key_two =
       build_key!(conn_two, request, "https://origin.test/images/cat.jpg",
-        selected_output_format: :avif
+        selected_output_format: :avif,
+        selected_output_reason: :auto
       )
 
-    assert key_one.material[:output] == [format: :avif, automatic: true]
+    assert key_one.material[:output] == [format: :avif, automatic: true, selection: :auto]
     assert key_one.hash == key_two.hash
   end
 
@@ -151,23 +153,61 @@ defmodule ImagePlug.Cache.KeyTest do
 
     avif_key =
       build_key!(conn, request, "https://origin.test/images/cat.jpg",
-        selected_output_format: :avif
+        selected_output_format: :avif,
+        selected_output_reason: :auto
       )
 
     webp_key =
       build_key!(conn, request, "https://origin.test/images/cat.jpg",
-        selected_output_format: :webp
+        selected_output_format: :webp,
+        selected_output_reason: :auto
       )
 
     refute avif_key.hash == webp_key.hash
   end
 
-  test "automatic output requires a selected output format" do
+  test "different automatic output selection reasons change cache key" do
+    request = request(format: nil)
+    conn = conn(:get, "/_/plain/images/cat.jpg")
+
+    auto_key =
+      build_key!(conn, request, "https://origin.test/images/cat.jpg",
+        selected_output_format: :avif,
+        selected_output_reason: :auto
+      )
+
+    source_key =
+      build_key!(conn, request, "https://origin.test/images/cat.jpg",
+        selected_output_format: :avif,
+        selected_output_reason: :source
+      )
+
+    assert auto_key.material[:output] == [format: :avif, automatic: true, selection: :auto]
+    assert source_key.material[:output] == [format: :avif, automatic: true, selection: :source]
+    refute auto_key.hash == source_key.hash
+  end
+
+  test "automatic output requires selected output format and reason" do
     assert Key.build(
              conn(:get, "/_/plain/images/cat.jpg"),
              request(format: nil),
              "https://origin.test/images/cat.jpg"
            ) == {:error, :missing_selected_output_format}
+
+    assert Key.build(
+             conn(:get, "/_/plain/images/cat.jpg"),
+             request(format: nil),
+             "https://origin.test/images/cat.jpg",
+             selected_output_format: :webp
+           ) == {:error, :missing_selected_output_reason}
+
+    assert Key.build(
+             conn(:get, "/_/plain/images/cat.jpg"),
+             request(format: nil),
+             "https://origin.test/images/cat.jpg",
+             selected_output_format: :webp,
+             selected_output_reason: :bogus
+           ) == {:error, {:invalid_selected_output_reason, :bogus}}
   end
 
   test "explicit formats do not include Accept material or automatic marker" do

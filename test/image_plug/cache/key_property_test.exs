@@ -176,13 +176,19 @@ defmodule ImagePlug.Cache.KeyPropertyTest do
         :get
         |> conn("/_/plain/images/cat.jpg")
         |> put_req_header("accept", accept_a)
-        |> build_key!(request, origin, selected_output_format: selected_output)
+        |> build_key!(request, origin,
+          selected_output_format: selected_output,
+          selected_output_reason: :auto
+        )
 
       key_b =
         :get
         |> conn("/_/plain/images/cat.jpg")
         |> put_req_header("accept", accept_b)
-        |> build_key!(request, origin, selected_output_format: selected_output)
+        |> build_key!(request, origin,
+          selected_output_format: selected_output,
+          selected_output_reason: :auto
+        )
 
       assert key_a.hash == key_b.hash
     end
@@ -201,13 +207,51 @@ defmodule ImagePlug.Cache.KeyPropertyTest do
         :get
         |> conn("/_/plain/images/cat.jpg")
         |> put_req_header("accept", accept)
-        |> build_key!(request, origin, selected_output_format: selected_output_a)
+        |> build_key!(request, origin,
+          selected_output_format: selected_output_a,
+          selected_output_reason: :auto
+        )
 
       key_b =
         :get
         |> conn("/_/plain/images/cat.jpg")
         |> put_req_header("accept", accept)
-        |> build_key!(request, origin, selected_output_format: selected_output_b)
+        |> build_key!(request, origin,
+          selected_output_format: selected_output_b,
+          selected_output_reason: :auto
+        )
+
+      refute key_a.hash == key_b.hash
+    end
+  end
+
+  property "automatic output selection reason changes automatic cache key" do
+    check all accept <- accept_header(),
+              selected_output <- member_of([:avif, :webp, :jpeg, :png]),
+              reason_a <- member_of([:auto, :source, :fallback]),
+              reason_b <- member_of([:auto, :source, :fallback]),
+              reason_a != reason_b,
+              max_runs: 100 do
+      request = request(format: nil)
+      origin = "https://origin.test/images/cat.jpg"
+
+      key_a =
+        :get
+        |> conn("/_/plain/images/cat.jpg")
+        |> put_req_header("accept", accept)
+        |> build_key!(request, origin,
+          selected_output_format: selected_output,
+          selected_output_reason: reason_a
+        )
+
+      key_b =
+        :get
+        |> conn("/_/plain/images/cat.jpg")
+        |> put_req_header("accept", accept)
+        |> build_key!(request, origin,
+          selected_output_format: selected_output,
+          selected_output_reason: reason_b
+        )
 
       refute key_a.hash == key_b.hash
     end
@@ -224,7 +268,7 @@ defmodule ImagePlug.Cache.KeyPropertyTest do
       assert {:ok, request_b} = Native.parse(conn_b)
       assert request_a == request_b
 
-      key_opts = [selected_output_format: :webp]
+      key_opts = [selected_output_format: :webp, selected_output_reason: :auto]
 
       assert build_key!(conn_a, request_a, origin, key_opts).hash ==
                build_key!(conn_b, request_b, origin, key_opts).hash

@@ -10,8 +10,9 @@ defmodule ImagePlug.Cache do
   alias ImagePlug.ProcessingRequest
 
   @shared_cache_option_keys [:key_headers, :key_cookies, :max_body_bytes, :fail_on_cache_error]
-  @lookup_key_option_keys [:selected_output_format]
+  @lookup_key_option_keys [:selected_output_format, :selected_output_reason]
   @selected_output_formats [:avif, :webp, :jpeg, :png]
+  @selected_output_reasons [:auto, :source, :fallback]
   @shared_cache_options_schema NimbleOptions.new!(
                                  key_headers: [
                                    type: {:list, :string}
@@ -114,7 +115,9 @@ defmodule ImagePlug.Cache do
         {:error, {:lookup_key_opts, {:unsupported_key_option, unsupported_key}}}
 
       true ->
-        validate_selected_output_format(key_opts)
+        with {:ok, key_opts} <- validate_selected_output_format(key_opts) do
+          validate_selected_output_reason(key_opts)
+        end
     end
   end
 
@@ -125,6 +128,19 @@ defmodule ImagePlug.Cache do
 
       {:ok, format} ->
         {:error, {:lookup_key_opts, {:invalid_selected_output_format, format}}}
+
+      :error ->
+        {:ok, key_opts}
+    end
+  end
+
+  defp validate_selected_output_reason(key_opts) do
+    case Keyword.fetch(key_opts, :selected_output_reason) do
+      {:ok, reason} when reason in @selected_output_reasons ->
+        {:ok, key_opts}
+
+      {:ok, reason} ->
+        {:error, {:lookup_key_opts, {:invalid_selected_output_reason, reason}}}
 
       :error ->
         {:ok, key_opts}

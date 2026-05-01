@@ -20,7 +20,9 @@ defmodule ImagePlug.Cache.Key do
 
   @type build_error ::
           :missing_selected_output_format
+          | :missing_selected_output_reason
           | {:invalid_selected_output_format, term()}
+          | {:invalid_selected_output_reason, term()}
 
   @spec build(Plug.Conn.t(), ProcessingRequest.t(), String.t(), keyword()) ::
           {:ok, t()} | {:error, build_error()}
@@ -73,9 +75,20 @@ defmodule ImagePlug.Cache.Key do
   end
 
   defp output(%ProcessingRequest{format: nil}, opts) do
+    with {:ok, format} <- selected_output_format(opts),
+         {:ok, reason} <- selected_output_reason(opts) do
+      {:ok, [format: format, automatic: true, selection: reason]}
+    end
+  end
+
+  defp output(%ProcessingRequest{format: format}, _opts) do
+    {:ok, [format: format, automatic: false]}
+  end
+
+  defp selected_output_format(opts) do
     case Keyword.fetch(opts, :selected_output_format) do
       {:ok, format} when format in [:avif, :webp, :jpeg, :png] ->
-        {:ok, [format: format, automatic: true]}
+        {:ok, format}
 
       {:ok, format} ->
         {:error, {:invalid_selected_output_format, format}}
@@ -85,8 +98,17 @@ defmodule ImagePlug.Cache.Key do
     end
   end
 
-  defp output(%ProcessingRequest{format: format}, _opts) do
-    {:ok, [format: format, automatic: false]}
+  defp selected_output_reason(opts) do
+    case Keyword.fetch(opts, :selected_output_reason) do
+      {:ok, reason} when reason in [:auto, :source, :fallback] ->
+        {:ok, reason}
+
+      {:ok, reason} ->
+        {:error, {:invalid_selected_output_reason, reason}}
+
+      :error ->
+        {:error, :missing_selected_output_reason}
+    end
   end
 
   defp selected_headers(conn, opts) do

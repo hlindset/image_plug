@@ -4,6 +4,21 @@ defmodule ImagePlug.OutputNegotiationTest do
   alias ImagePlug.OutputNegotiation
 
   describe "negotiate/2" do
+    test "reports why a negotiated automatic format was selected" do
+      assert OutputNegotiation.negotiate_selection("image/avif", false) ==
+               {:ok, {"image/avif", :auto}}
+
+      assert OutputNegotiation.negotiate_selection("image/avif", false,
+               auto_avif: false,
+               source_format: :avif
+             ) == {:ok, {"image/avif", :source}}
+
+      assert OutputNegotiation.negotiate_selection("image/jpeg", false,
+               auto_avif: false,
+               auto_webp: false
+             ) == {:ok, {"image/jpeg", :fallback}}
+    end
+
     test "uses server preference before relative q-values" do
       assert OutputNegotiation.negotiate("image/webp;q=1,image/avif;q=0.1", false) ==
                {:ok, "image/avif"}
@@ -144,16 +159,41 @@ defmodule ImagePlug.OutputNegotiationTest do
     end
 
     test "lists acceptable automatic formats for pre-origin cache probing" do
-      assert OutputNegotiation.cache_probe_formats("image/jpeg") == [:jpeg]
-      assert OutputNegotiation.cache_probe_formats("image/png") == [:png]
-      assert OutputNegotiation.cache_probe_formats("image/jpg") == [:jpeg]
+      assert OutputNegotiation.cache_probe_selections("image/jpeg") == [
+               {:jpeg, :source},
+               {:jpeg, :fallback}
+             ]
 
-      assert OutputNegotiation.cache_probe_formats("image/*") == [:avif, :webp, :jpeg, :png]
+      assert OutputNegotiation.cache_probe_selections("image/png") == [
+               {:png, :source},
+               {:png, :fallback}
+             ]
 
-      assert OutputNegotiation.cache_probe_formats("image/jpeg;q=0,image/*") == [
-               :avif,
-               :webp,
-               :png
+      assert OutputNegotiation.cache_probe_selections("image/jpg") == [
+               {:jpeg, :source},
+               {:jpeg, :fallback}
+             ]
+
+      assert OutputNegotiation.cache_probe_selections("image/*",
+               auto_avif: false,
+               auto_webp: false
+             ) ==
+               [
+                 {:avif, :source},
+                 {:webp, :source},
+                 {:jpeg, :source},
+                 {:png, :source},
+                 {:jpeg, :fallback},
+                 {:png, :fallback}
+               ]
+
+      assert OutputNegotiation.cache_probe_selections("image/jpeg;q=0,image/*") == [
+               {:avif, :auto},
+               {:webp, :auto},
+               {:avif, :source},
+               {:webp, :source},
+               {:png, :source},
+               {:png, :fallback}
              ]
     end
   end

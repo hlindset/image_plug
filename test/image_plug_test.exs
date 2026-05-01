@@ -18,7 +18,10 @@ defmodule ImagePlug.ImagePlugTest do
       |> Keyword.get(:message_target, self())
       |> send({:cache_get, key})
 
-      Keyword.get(opts, :get_result, :miss)
+      case Keyword.fetch(opts, :get_result_fun) do
+        {:ok, get_result_fun} -> get_result_fun.(key)
+        :error -> Keyword.get(opts, :get_result, :miss)
+      end
     end
 
     def put(%Key{} = key, %Entry{} = entry, opts) do
@@ -271,6 +274,34 @@ defmodule ImagePlug.ImagePlugTest do
     ref = make_ref()
     send(cache_probe, {:flush, ref})
     assert_receive {:cache_probe_flushed, ^ref}
+  end
+
+  defp assert_cache_get_output(expected_output) do
+    assert_cache_get_output(expected_output, 20, [])
+  end
+
+  defp assert_cache_get_output(expected_output, 0, seen_outputs) do
+    flunk(
+      "expected cache lookup for #{inspect(expected_output)}, saw #{inspect(Enum.reverse(seen_outputs))}"
+    )
+  end
+
+  defp assert_cache_get_output(expected_output, remaining, seen_outputs) do
+    receive do
+      {:cache_get, %ImagePlug.Cache.Key{} = key} ->
+        output = key.material[:output]
+
+        if output == expected_output do
+          assert true
+        else
+          assert_cache_get_output(expected_output, remaining - 1, [output | seen_outputs])
+        end
+    after
+      0 ->
+        flunk(
+          "expected cache lookup for #{inspect(expected_output)}, saw #{inspect(Enum.reverse(seen_outputs))}"
+        )
+    end
   end
 
   test "no cache configured preserves the streaming response path" do
@@ -608,8 +639,7 @@ defmodule ImagePlug.ImagePlugTest do
     flush_cache_probe(cache_probe)
     assert conn.status == 200
     assert conn.resp_body == "cached avif"
-    assert_received {:cache_get, key}
-    assert key.material[:output] == [format: :avif, automatic: true]
+    assert_cache_get_output(format: :avif, automatic: true, selection: :auto)
     refute_received :origin_was_called
   end
 
@@ -628,19 +658,64 @@ defmodule ImagePlug.ImagePlugTest do
       |> conn("/_/plain/images/cat-300.jpg")
       |> put_req_header("accept", "image/jpeg")
 
+    get_result_fun = fn key ->
+      case key.material[:output] do
+        [format: :jpeg, automatic: true, selection: :fallback] -> {:hit, cached_entry}
+        _other -> :miss
+      end
+    end
+
     conn =
       ImagePlug.call(conn,
         root_url: "http://origin.test",
         param_parser: ImagePlug.ParamParser.Native,
-        cache: {CacheProbe, message_target: cache_probe, get_result: {:hit, cached_entry}},
+        cache: {CacheProbe, message_target: cache_probe, get_result_fun: get_result_fun},
         origin_req_options: [plug: OriginShouldNotBeCalled]
       )
 
     flush_cache_probe(cache_probe)
     assert conn.status == 200
     assert conn.resp_body == "cached jpeg"
-    assert_received {:cache_get, key}
-    assert key.material[:output] == [format: :jpeg, automatic: true]
+    assert_cache_get_output(format: :jpeg, automatic: true, selection: :fallback)
+    refute_received :origin_was_called
+  end
+
+  test "deferred source-format cache hits can serve disabled modern formats without origin" do
+    cache_probe = start_cache_probe()
+
+    cached_entry = %ImagePlug.Cache.Entry{
+      body: "cached source avif",
+      content_type: "image/avif",
+      headers: [{"vary", "Accept"}],
+      created_at: DateTime.utc_now()
+    }
+
+    conn =
+      :get
+      |> conn("/_/plain/images/cat-300.jpg")
+      |> put_req_header("accept", "image/avif")
+
+    get_result_fun = fn key ->
+      case key.material[:output] do
+        [format: :avif, automatic: true, selection: :source] -> {:hit, cached_entry}
+        _other -> :miss
+      end
+    end
+
+    conn =
+      ImagePlug.call(conn,
+        root_url: "http://origin.test",
+        param_parser: ImagePlug.ParamParser.Native,
+        auto_avif: false,
+        auto_webp: false,
+        cache: {CacheProbe, message_target: cache_probe, get_result_fun: get_result_fun},
+        origin_req_options: [plug: OriginShouldNotBeCalled]
+      )
+
+    flush_cache_probe(cache_probe)
+    assert conn.status == 200
+    assert conn.resp_body == "cached source avif"
+    assert_cache_get_output(format: :avif, automatic: true, selection: :source)
     refute_received :origin_was_called
   end
 
@@ -659,21 +734,27 @@ defmodule ImagePlug.ImagePlugTest do
       |> conn("/_/plain/images/cat-300.jpg")
       |> put_req_header("accept", "image/*")
 
+    get_result_fun = fn key ->
+      case key.material[:output] do
+        [format: :jpeg, automatic: true, selection: :fallback] -> {:hit, cached_entry}
+        _other -> :miss
+      end
+    end
+
     conn =
       ImagePlug.call(conn,
         root_url: "http://origin.test",
         param_parser: ImagePlug.ParamParser.Native,
         auto_avif: false,
         auto_webp: false,
-        cache: {CacheProbe, message_target: cache_probe, get_result: {:hit, cached_entry}},
+        cache: {CacheProbe, message_target: cache_probe, get_result_fun: get_result_fun},
         origin_req_options: [plug: OriginShouldNotBeCalled]
       )
 
     flush_cache_probe(cache_probe)
     assert conn.status == 200
     assert conn.resp_body == "cached jpeg"
-    assert_received {:cache_get, key}
-    assert key.material[:output] == [format: :jpeg, automatic: true]
+    assert_cache_get_output(format: :jpeg, automatic: true, selection: :fallback)
     refute_received :origin_was_called
   end
 
