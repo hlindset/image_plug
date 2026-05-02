@@ -77,6 +77,22 @@ defmodule ImagePlug.ImagePlugTest do
     end
   end
 
+  defmodule MultiChunkStreamingImage do
+    def stream!(_image, suffix: ".jpg") do
+      send(self(), :stream_encoder_called)
+      ["first chunk", "second chunk"]
+    end
+  end
+
+  defmodule ClosedChunkAdapter do
+    def send_chunked(%{owner: owner} = payload, _status, _headers) do
+      send(owner, :closed_adapter_send_chunked)
+      {:ok, "", payload}
+    end
+
+    def chunk(_payload, _body), do: {:error, :closed}
+  end
+
   defmodule OversizedOriginBody do
     def call(conn, _) do
       conn
@@ -353,6 +369,55 @@ defmodule ImagePlug.ImagePlugTest do
     assert_received {:plug_conn, :sent}
     assert_received :stream_encoder_called
     refute_received :memory_encoder_called
+  end
+
+  test "streaming sends headers once and resumes for subsequent chunks" do
+    conn = conn(:get, "/_/f:jpeg/plain/images/cat-300.jpg")
+    test_pid = self()
+
+    conn =
+      ImagePlug.call(conn,
+        root_url: "http://origin.test",
+        image_module: MultiChunkStreamingImage,
+        param_parser: ImagePlug.ParamParser.Native,
+        origin_req_options: [
+          plug: fn conn -> CountingOriginImage.call(conn, test_pid: test_pid) end
+        ]
+      )
+
+    assert conn.status == 200
+    assert conn.state == :chunked
+    assert conn.resp_body == "first chunksecond chunk"
+    assert get_resp_header(conn, "content-type") == ["image/jpeg"]
+    assert_received {:plug_conn, :sent}
+    refute_received {:plug_conn, :sent}
+    assert_received :stream_encoder_called
+  end
+
+  test "closed chunk delivery returns the started chunked response" do
+    conn =
+      :get
+      |> conn("/_/f:jpeg/plain/images/cat-300.jpg")
+      |> Map.put(:adapter, {ClosedChunkAdapter, %{owner: self()}})
+
+    test_pid = self()
+
+    conn =
+      ImagePlug.call(conn,
+        root_url: "http://origin.test",
+        image_module: StreamingOnlyImage,
+        param_parser: ImagePlug.ParamParser.Native,
+        origin_req_options: [
+          plug: fn conn -> CountingOriginImage.call(conn, test_pid: test_pid) end
+        ]
+      )
+
+    assert conn.status == 200
+    assert conn.state == :chunked
+    assert conn.resp_body == ""
+    assert get_resp_header(conn, "content-type") == ["image/jpeg"]
+    assert_received :closed_adapter_send_chunked
+    assert_received :stream_encoder_called
   end
 
   test "automatic source-format output does not require encoder overrides before streaming" do

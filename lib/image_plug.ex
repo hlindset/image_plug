@@ -193,30 +193,10 @@ defmodule ImagePlug do
   end
 
   defp stream_image(stream, %Plug.Conn{} = conn, mime_type, response_headers) do
-    reducer = fn data, {status, conn} ->
-      try do
-        conn =
-          case status do
-            :pending ->
-              conn =
-                Enum.reduce(response_headers, conn, fn {name, value}, conn ->
-                  put_resp_header(conn, name, value)
-                end)
-
-              conn
-              |> put_resp_content_type(mime_type, nil)
-              |> send_chunked(200)
-
-            :sent ->
-              conn
-          end
-
-        case chunk(conn, data) do
-          {:ok, conn} -> {:suspend, {:sent, conn}}
-          {:error, :closed} -> {:halt, {:sent, conn}}
-        end
-      rescue
-        exception -> throw({:encode_exception, exception, __STACKTRACE__, conn})
+    reducer = fn data, acc ->
+      case send_stream_chunk(data, acc, mime_type, response_headers) do
+        {:ok, acc} -> {:suspend, acc}
+        {:halt, acc} -> {:halt, acc}
       end
     end
 
@@ -226,17 +206,37 @@ defmodule ImagePlug do
     )
   end
 
+  defp send_stream_chunk(data, {status, conn}, mime_type, response_headers) do
+    conn =
+      case status do
+        :pending ->
+          conn
+          |> put_resp_headers(response_headers)
+          |> put_resp_content_type(mime_type, nil)
+          |> send_chunked(200)
+
+        :sent ->
+          conn
+      end
+
+    case chunk(conn, data) do
+      {:ok, conn} -> {:ok, {:sent, conn}}
+      {:error, :closed} -> {:halt, {:sent, conn}}
+    end
+  rescue
+    exception -> {:halt, {:raise, exception, __STACKTRACE__, conn}}
+  end
+
   defp continue_stream(continuation, {_status, conn} = acc) do
     case continuation.({:cont, acc}) do
       {:suspended, acc, continuation} -> continue_stream(continuation, acc)
       {:done, {:pending, conn}} -> {:error, conn}
       {:done, {:sent, conn}} -> {:ok, conn}
+      {:halted, {:raise, exception, stacktrace, conn}} -> {:raise, exception, stacktrace, conn}
       {:halted, {_status, conn}} -> {:ok, conn}
     end
   rescue
     exception -> {:raise, exception, __STACKTRACE__, conn}
-  catch
-    {:encode_exception, exception, stacktrace, conn} -> {:raise, exception, stacktrace, conn}
   end
 
   defp handle_encode_exception(exception, stacktrace, %Plug.Conn{} = conn) do
