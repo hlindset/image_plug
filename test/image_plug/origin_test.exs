@@ -262,13 +262,19 @@ defmodule ImagePlug.OriginTest do
   end
 
   test "stream receive timeout is recorded as an origin error" do
-    port = start_slow_chunked_origin()
+    ref = make_ref()
+    {port, server} = start_slow_chunked_origin(self(), ref)
+    monitor_ref = Process.monitor(server)
 
     assert {:ok, %Origin.Response{} = response} =
              Origin.fetch("http://127.0.0.1:#{port}/cat.png", receive_timeout: 300)
 
+    assert_receive {^ref, :first_chunk_sent, ^server}
     assert Enum.to_list(response.stream) == ["first chunk"]
     assert Origin.stream_status(response) == {:error, {:timeout, 300}}
+
+    send(server, {ref, :close})
+    assert_receive {:DOWN, ^monitor_ref, :process, ^server, _reason}
   end
 
   test "unconsumed streams are canceled after receive timeout" do
@@ -284,7 +290,11 @@ defmodule ImagePlug.OriginTest do
                receive_timeout: 100
              )
 
-    assert_eventually_stream_status(response, {:error, {:timeout, 100}}, 500)
+    worker = response.worker
+    monitor_ref = Process.monitor(worker)
+
+    assert_receive {:DOWN, ^monitor_ref, :process, ^worker, _reason}, 500
+    assert Origin.stream_status(response) == {:error, {:timeout, 100}}
   end
 
   test "close cancels an unconsumed stream" do
@@ -304,54 +314,47 @@ defmodule ImagePlug.OriginTest do
     assert_receive {:DOWN, ^monitor_ref, :process, ^worker, _reason}
   end
 
-  defp start_slow_chunked_origin do
+  defp start_slow_chunked_origin(test_pid, ref) do
     {:ok, listen_socket} =
       :gen_tcp.listen(0, [:binary, packet: :raw, active: false, reuseaddr: true])
 
     {:ok, {_address, port}} = :inet.sockname(listen_socket)
 
-    spawn_link(fn ->
-      {:ok, socket} = :gen_tcp.accept(listen_socket)
-      {:ok, _request} = :gen_tcp.recv(socket, 0)
+    server =
+      spawn_link(fn ->
+        {:ok, socket} = :gen_tcp.accept(listen_socket)
+        {:ok, _request} = :gen_tcp.recv(socket, 0)
 
-      :ok =
-        :gen_tcp.send(socket, [
-          "HTTP/1.1 200 OK\r\n",
-          "content-type: image/png\r\n",
-          "transfer-encoding: chunked\r\n",
-          "\r\n",
-          "b\r\nfirst chunk\r\n"
-        ])
+        :ok =
+          :gen_tcp.send(socket, [
+            "HTTP/1.1 200 OK\r\n",
+            "content-type: image/png\r\n",
+            "transfer-encoding: chunked\r\n",
+            "\r\n",
+            "b\r\nfirst chunk\r\n"
+          ])
 
-      Process.sleep(700)
-      :gen_tcp.send(socket, "c\r\nsecond chunk\r\n0\r\n\r\n")
-      :gen_tcp.close(socket)
-      :gen_tcp.close(listen_socket)
-    end)
+        send(test_pid, {ref, :first_chunk_sent, self()})
+        await_slow_chunked_origin_close(ref, socket, listen_socket)
+      end)
 
-    port
+    {port, server}
   end
 
-  defp assert_eventually_stream_status(response, expected, timeout) do
-    deadline = System.monotonic_time(:millisecond) + timeout
-    do_assert_eventually_stream_status(response, expected, deadline)
-  end
+  defp await_slow_chunked_origin_close(ref, socket, listen_socket) do
+    receive do
+      {^ref, :send_second_chunk} ->
+        :gen_tcp.send(socket, "c\r\nsecond chunk\r\n0\r\n\r\n")
+        :gen_tcp.close(socket)
+        :gen_tcp.close(listen_socket)
 
-  defp do_assert_eventually_stream_status(response, expected, deadline) do
-    case Origin.stream_status(response) do
-      ^expected ->
-        :ok
-
-      :pending ->
-        if System.monotonic_time(:millisecond) < deadline do
-          Process.sleep(5)
-          do_assert_eventually_stream_status(response, expected, deadline)
-        else
-          flunk("expected stream status #{inspect(expected)}")
-        end
-
-      other ->
-        flunk("expected stream status #{inspect(expected)}, got #{inspect(other)}")
+      {^ref, :close} ->
+        :gen_tcp.close(socket)
+        :gen_tcp.close(listen_socket)
+    after
+      5_000 ->
+        :gen_tcp.close(socket)
+        :gen_tcp.close(listen_socket)
     end
   end
 end

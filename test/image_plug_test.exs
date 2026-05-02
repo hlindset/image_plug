@@ -93,24 +93,6 @@ defmodule ImagePlug.ImagePlugTest do
     end
   end
 
-  defmodule SlowPartialOriginImage do
-    def init(opts), do: opts
-
-    def call(conn, _opts) do
-      body = File.read!("priv/static/images/cat-300.jpg")
-
-      conn =
-        conn
-        |> Plug.Conn.put_resp_content_type("image/jpeg")
-        |> Plug.Conn.send_chunked(200)
-
-      {:ok, conn} = Plug.Conn.chunk(conn, binary_part(body, 0, 128))
-      Process.sleep(100)
-      {:ok, conn} = Plug.Conn.chunk(conn, binary_part(body, 128, byte_size(body) - 128))
-      conn
-    end
-  end
-
   defmodule CorruptTailOriginImage do
     def call(conn, _) do
       body = File.read!("priv/static/images/cat-300.jpg")
@@ -301,6 +283,52 @@ defmodule ImagePlug.ImagePlugTest do
         flunk(
           "expected cache lookup for #{inspect(expected_output)}, saw #{inspect(Enum.reverse(seen_outputs))}"
         )
+    end
+  end
+
+  defp start_slow_partial_origin(test_pid, ref) do
+    {:ok, listen_socket} =
+      :gen_tcp.listen(0, [:binary, packet: :raw, active: false, reuseaddr: true])
+
+    {:ok, {_address, port}} = :inet.sockname(listen_socket)
+
+    server =
+      spawn_link(fn ->
+        {:ok, socket} = :gen_tcp.accept(listen_socket)
+        {:ok, _request} = :gen_tcp.recv(socket, 0)
+
+        body = File.read!("priv/static/images/cat-300.jpg")
+        first_chunk = binary_part(body, 0, 128)
+
+        :ok =
+          :gen_tcp.send(socket, [
+            "HTTP/1.1 200 OK\r\n",
+            "content-type: image/jpeg\r\n",
+            "transfer-encoding: chunked\r\n",
+            "\r\n",
+            chunked_body_chunk(first_chunk)
+          ])
+
+        send(test_pid, {ref, :first_chunk_sent, self()})
+        await_slow_partial_origin_close(ref, socket, listen_socket)
+      end)
+
+    {"http://127.0.0.1:#{port}", server}
+  end
+
+  defp chunked_body_chunk(body) do
+    [Integer.to_string(byte_size(body), 16), "\r\n", body, "\r\n"]
+  end
+
+  defp await_slow_partial_origin_close(ref, socket, listen_socket) do
+    receive do
+      {^ref, :close} ->
+        :gen_tcp.close(socket)
+        :gen_tcp.close(listen_socket)
+    after
+      5_000 ->
+        :gen_tcp.close(socket)
+        :gen_tcp.close(listen_socket)
     end
   end
 
@@ -1072,17 +1100,24 @@ defmodule ImagePlug.ImagePlugTest do
   end
 
   test "origin timeout while decoding a partial valid image remains an origin error" do
+    ref = make_ref()
+    {root_url, server} = start_slow_partial_origin(self(), ref)
+    monitor_ref = Process.monitor(server)
+
     conn =
       conn(:get, "/_/plain/images/slow.jpg")
       |> ImagePlug.call(
-        root_url: "http://origin.test",
+        root_url: root_url,
         param_parser: ImagePlug.ParamParser.Native,
-        origin_receive_timeout: 50,
-        origin_req_options: [plug: SlowPartialOriginImage]
+        origin_receive_timeout: 50
       )
 
+    assert_receive {^ref, :first_chunk_sent, ^server}
     assert conn.status == 502
     assert conn.resp_body == "error fetching origin image"
+
+    send(server, {ref, :close})
+    assert_receive {:DOWN, ^monitor_ref, :process, ^server, _reason}
   end
 
   test "sequential body limit after initial valid bytes remains an origin error before image headers" do
@@ -1104,19 +1139,26 @@ defmodule ImagePlug.ImagePlugTest do
   end
 
   test "sequential timeout after initial valid bytes remains an origin error before image headers" do
+    ref = make_ref()
+    {root_url, server} = start_slow_partial_origin(self(), ref)
+    monitor_ref = Process.monitor(server)
+
     conn =
       conn(:get, "/_/rt:force/w:100/plain/images/slow.jpg")
       |> ImagePlug.call(
-        root_url: "http://origin.test",
+        root_url: root_url,
         param_parser: ImagePlug.ParamParser.Native,
-        origin_receive_timeout: 50,
-        origin_req_options: [plug: SlowPartialOriginImage]
+        origin_receive_timeout: 50
       )
 
+    assert_receive {^ref, :first_chunk_sent, ^server}
     assert conn.status == 502
     assert conn.state == :sent
     assert conn.resp_body == "error fetching origin image"
     assert get_resp_header(conn, "content-type") == ["text/plain; charset=utf-8"]
+
+    send(server, {ref, :close})
+    assert_receive {:DOWN, ^monitor_ref, :process, ^server, _reason}
   end
 
   test "sequential corrupt image tail without origin error remains a decode error" do
