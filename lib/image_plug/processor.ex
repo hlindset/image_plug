@@ -48,35 +48,42 @@ defmodule ImagePlug.Processor do
     decode_options = DecodePlanner.open_options(chain)
 
     with {:ok, origin_response} <-
-           fetch_origin(request, origin_identity, opts) |> wrap_origin_error(),
-         source_format = source_format(origin_response),
-         {:ok, image} <-
-           decode_origin_response(origin_response, decode_options, opts)
-           |> wrap_origin_decode_error(),
-         :ok <- validate_input_image(image, opts) |> wrap_input_limit_error() do
-      {:ok,
-       %DecodedOrigin{
-         decode_options: decode_options,
-         image: image,
-         origin_response: origin_response,
-         source_format: source_format
-       }}
+           fetch_origin(request, origin_identity, opts) |> wrap_origin_error() do
+      result =
+        with source_format = source_format(origin_response),
+             {:ok, image} <-
+               decode_origin_response(origin_response, decode_options, opts)
+               |> wrap_origin_decode_error(),
+             :ok <- validate_input_image(image, opts) |> wrap_input_limit_error() do
+          {:ok,
+           %DecodedOrigin{
+             decode_options: decode_options,
+             image: image,
+             origin_response: origin_response,
+             source_format: source_format
+           }}
+        end
+
+      close_pending_origin_on_error(result, origin_response)
     end
   end
 
   @spec process_decoded_origin(DecodedOrigin.t(), TransformChain.t(), keyword()) ::
           {:ok, TransformState.t()} | {:error, term()}
   def process_decoded_origin(%DecodedOrigin{} = decoded, chain, opts) do
-    with {:ok, final_state} <- execute_chain(decoded.image, chain),
-         {:ok, final_state} <-
-           materialize_before_delivery(
-             final_state,
-             decoded.origin_response,
-             decoded.decode_options,
-             opts
-           ) do
-      {:ok, final_state}
-    end
+    result =
+      with {:ok, final_state} <- execute_chain(decoded.image, chain),
+           {:ok, final_state} <-
+             materialize_before_delivery(
+               final_state,
+               decoded.origin_response,
+               decoded.decode_options,
+               opts
+             ) do
+        {:ok, final_state}
+      end
+
+    close_pending_origin_on_error(result, decoded.origin_response)
   end
 
   def close_pending_origin(%Origin.Response{} = origin_response) do
@@ -85,6 +92,16 @@ defmodule ImagePlug.Processor do
       _status -> :ok
     end
   end
+
+  defp close_pending_origin_on_error(
+         {:error, _reason} = error,
+         %Origin.Response{} = origin_response
+       ) do
+    close_pending_origin(origin_response)
+    error
+  end
+
+  defp close_pending_origin_on_error(result, %Origin.Response{}), do: result
 
   defp execute_chain(image, chain) do
     TransformChain.execute(%TransformState{image: image}, chain)
@@ -185,10 +202,11 @@ defmodule ImagePlug.Processor do
   defp wrap_origin_error({:error, error}), do: {:error, {:origin, error}}
   defp wrap_origin_error(result), do: result
 
-  defp wrap_decode_error({:error, _} = error), do: {:error, {:decode, error}}
+  defp wrap_decode_error({:error, error}), do: {:error, {:decode, error}}
   defp wrap_decode_error(result), do: result
 
   defp wrap_origin_decode_error({:error, {:origin, error}}), do: {:error, {:origin, error}}
+  defp wrap_origin_decode_error({:error, {:decode, error}}), do: {:error, {:decode, error}}
   defp wrap_origin_decode_error(result), do: wrap_decode_error(result)
 
   defp validate_input_image(image, opts) do

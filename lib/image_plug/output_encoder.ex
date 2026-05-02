@@ -17,17 +17,28 @@ defmodule ImagePlug.OutputEncoder do
       suffix = OutputNegotiation.suffix!(mime_type)
       image_module = Keyword.get(opts, :image_module, Image)
 
-      with {:ok, body} <- write_body(image_module, state.image, suffix) do
-        {:ok,
-         Entry.new!(
+      with {:ok, body} <- write_body(image_module, state.image, suffix),
+           {:ok, entry} <- build_entry(body, mime_type, response_headers) do
+        {:ok, entry}
+      end
+    else
+      :error -> {:error, {:encode, unsupported_output_format_error(state.output), []}}
+    end
+  end
+
+  defp build_entry(body, mime_type, response_headers) do
+    case Entry.new(
            body: body,
            content_type: mime_type,
            headers: response_headers,
            created_at: DateTime.utc_now()
-         )}
-      end
-    else
-      :error -> {:error, {:encode, unsupported_output_format_error(state.output), []}}
+         ) do
+      {:ok, entry} ->
+        {:ok, entry}
+
+      {:error, reason} ->
+        {:error,
+         {:encode, ArgumentError.exception("invalid cache entry: #{inspect(reason)}"), []}}
     end
   end
 
