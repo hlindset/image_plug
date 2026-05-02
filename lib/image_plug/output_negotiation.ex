@@ -43,31 +43,9 @@ defmodule ImagePlug.OutputNegotiation do
   @spec preselect(String.t() | nil, keyword()) ::
           {:ok, :avif | :webp} | :defer | {:error, :not_acceptable}
   def preselect(accept_header, opts) do
-    entries = parse_accept(accept_header)
-    modern_formats = enabled_modern_formats(opts)
-
-    case entries do
-      [] ->
-        case modern_formats do
-          [{format, _mime_type} | _rest] -> {:ok, format}
-          [] -> :defer
-        end
-
-      entries ->
-        case Enum.find(modern_formats, fn {_format, mime_type} ->
-               acceptable?(mime_type, entries)
-             end) do
-          {format, _mime_type} ->
-            {:ok, format}
-
-          nil ->
-            if supported_output_acceptable?(entries) do
-              :defer
-            else
-              {:error, :not_acceptable}
-            end
-        end
-    end
+    accept_header
+    |> parse_accept()
+    |> preselect_from_entries(enabled_modern_formats(opts))
   end
 
   def suffix!("image/avif"), do: ".avif"
@@ -144,19 +122,22 @@ defmodule ImagePlug.OutputNegotiation do
     end
   end
 
-  defp uniq_candidate_mime_types(candidates) do
-    {_seen, candidates} =
-      Enum.reduce(candidates, {MapSet.new(), []}, fn {_format, mime_type, _reason} = candidate,
-                                                     {seen, candidates} ->
-        if MapSet.member?(seen, mime_type) do
-          {seen, candidates}
-        else
-          {MapSet.put(seen, mime_type), [candidate | candidates]}
-        end
-      end)
+  defp preselect_from_entries([], [{format, _mime_type} | _rest]), do: {:ok, format}
+  defp preselect_from_entries([], []), do: :defer
 
-    Enum.reverse(candidates)
+  defp preselect_from_entries(entries, modern_formats) do
+    case Enum.find(modern_formats, fn {_format, mime_type} -> acceptable?(mime_type, entries) end) do
+      {format, _mime_type} -> {:ok, format}
+      nil -> preselect_deferred(entries)
+    end
   end
+
+  defp preselect_deferred(entries) do
+    if supported_output_acceptable?(entries), do: :defer, else: {:error, :not_acceptable}
+  end
+
+  defp uniq_candidate_mime_types(candidates),
+    do: Enum.uniq_by(candidates, fn {_format, mime_type, _reason} -> mime_type end)
 
   defp supported_output_acceptable?(entries) do
     Enum.any?(@output_formats, &acceptable?(&1, entries))

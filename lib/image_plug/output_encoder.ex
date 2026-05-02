@@ -17,9 +17,7 @@ defmodule ImagePlug.OutputEncoder do
       suffix = OutputNegotiation.suffix!(mime_type)
       image_module = Keyword.get(opts, :image_module, Image)
 
-      try do
-        body = image_module.write!(state.image, :memory, suffix: suffix)
-
+      with {:ok, body} <- write_body(image_module, state.image, suffix) do
         {:ok,
          Entry.new!(
            body: body,
@@ -27,12 +25,16 @@ defmodule ImagePlug.OutputEncoder do
            headers: response_headers,
            created_at: DateTime.utc_now()
          )}
-      rescue
-        exception -> {:error, {:encode, exception, __STACKTRACE__}}
       end
     else
       :error -> {:error, {:encode, unsupported_output_format_error(state.output), []}}
     end
+  end
+
+  defp write_body(image_module, image, suffix) do
+    {:ok, image_module.write!(image, :memory, suffix: suffix)}
+  rescue
+    exception -> {:error, {:encode, exception, __STACKTRACE__}}
   end
 
   defp unsupported_output_format_error(format) do
