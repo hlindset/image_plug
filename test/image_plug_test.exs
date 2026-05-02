@@ -84,6 +84,13 @@ defmodule ImagePlug.ImagePlugTest do
     end
   end
 
+  defmodule EmptyStreamingImage do
+    def stream!(_image, suffix: ".jpg") do
+      send(self(), :stream_encoder_called)
+      []
+    end
+  end
+
   defmodule ClosedChunkAdapter do
     def send_chunked(%{owner: owner} = payload, _status, _headers) do
       send(owner, :closed_adapter_send_chunked)
@@ -226,6 +233,34 @@ defmodule ImagePlug.ImagePlugTest do
   defmodule RaisingAfterFirstChunkTransform do
     def execute(%ImagePlug.TransformState{} = state, _params) do
       %ImagePlug.TransformState{state | image: :image, output: :jpeg}
+    end
+  end
+
+  defmodule FailingTransformParser do
+    @behaviour ImagePlug.ParamParser
+
+    @impl ImagePlug.ParamParser
+    def parse(_conn) do
+      request =
+        ImagePlug.ImagePlugTest.sample_processing_request()
+        |> Map.put(:format, :jpeg)
+
+      {:ok, request}
+    end
+
+    @impl ImagePlug.ParamParser
+    def handle_error(conn, _error), do: conn
+  end
+
+  defmodule FailingTransformPlanner do
+    def plan(%ProcessingRequest{}) do
+      {:ok, [{ImagePlug.ImagePlugTest.FailingTransform, nil}]}
+    end
+  end
+
+  defmodule FailingTransform do
+    def execute(%ImagePlug.TransformState{} = state, _params) do
+      ImagePlug.TransformState.add_error(state, {__MODULE__, :failed})
     end
   end
 
@@ -1087,6 +1122,30 @@ defmodule ImagePlug.ImagePlugTest do
     assert get_resp_header(conn, "content-type") == ["text/plain; charset=utf-8"]
   end
 
+  test "returns text 500 when encoder produces an empty stream" do
+    conn = conn(:get, "/_/plain/images/cat-300.jpg")
+
+    log =
+      capture_log(fn ->
+        conn =
+          ImagePlug.call(conn,
+            root_url: "http://origin.test",
+            image_module: EmptyStreamingImage,
+            param_parser: RaisingAfterFirstChunkParser,
+            pipeline_planner: RaisingAfterFirstChunkPlanner,
+            origin_req_options: [plug: OriginImage]
+          )
+
+        assert conn.status == 500
+        assert conn.state == :sent
+        assert conn.resp_body == "error encoding image"
+        assert get_resp_header(conn, "content-type") == ["text/plain; charset=utf-8"]
+      end)
+
+    assert log =~ "encode_error: image encoder produced an empty stream"
+    assert_received :stream_encoder_called
+  end
+
   test "does not send text 500 when encoding fails after chunked response starts" do
     conn = conn(:get, "/_/plain/images/cat-300.jpg")
 
@@ -1109,6 +1168,28 @@ defmodule ImagePlug.ImagePlugTest do
 
     assert log =~ "encode_error:"
     assert log =~ "boom after first chunk"
+  end
+
+  test "transform errors return a stable client message and log details" do
+    conn = conn(:get, "/_/plain/images/cat-300.jpg")
+
+    log =
+      capture_log(fn ->
+        conn =
+          ImagePlug.call(conn,
+            root_url: "http://origin.test",
+            param_parser: FailingTransformParser,
+            pipeline_planner: FailingTransformPlanner,
+            origin_req_options: [plug: OriginImage]
+          )
+
+        assert conn.status == 422
+        assert conn.resp_body == "invalid image transform"
+        assert get_resp_header(conn, "content-type") == ["text/plain; charset=utf-8"]
+      end)
+
+    assert log =~ "transform_error(s):"
+    assert log =~ "ImagePlug.ImagePlugTest.FailingTransform"
   end
 
   test "rejects decoded images above the configured pixel limit" do

@@ -22,8 +22,10 @@ defmodule ImagePlug do
   @type imgp_ratio() :: {imgp_number(), imgp_number()}
   @type imgp_length() :: imgp_pixels() | imgp_pct() | imgp_scale()
 
+  @impl Plug
   def init(opts), do: Cache.validate_config!(opts)
 
+  @impl Plug
   def call(%Plug.Conn{} = conn, opts) do
     param_parser = Keyword.fetch!(opts, :param_parser)
     pipeline_planner = Keyword.get(opts, :pipeline_planner, PipelinePlanner)
@@ -31,9 +33,8 @@ defmodule ImagePlug do
     with {:ok, request} <- param_parser.parse(conn) |> wrap_parser_error(),
          {:ok, chain} <- pipeline_planner.plan(request) |> wrap_planner_error(),
          {:ok, origin_identity} <- origin_identity(request, opts) |> wrap_origin_error() do
-      conn
-      |> RequestRunner.run(request, chain, origin_identity, opts)
-      |> send_runner_result(conn, opts)
+      result = RequestRunner.run(conn, request, chain, origin_identity, opts)
+      send_runner_result(result, conn, opts)
     else
       {:error, {:parser, error}} ->
         param_parser.handle_error(conn, error)
@@ -62,35 +63,40 @@ defmodule ImagePlug do
     send_cache_error(conn, error)
   end
 
-  defp send_runner_result({:error, {:processing, error, response_headers}}, conn, _opts) do
-    handle_processing_error(conn, error, response_headers)
+  defp send_runner_result(
+         {:error, {:processing, {:error, reason}, response_headers}},
+         conn,
+         _opts
+       ) do
+    handle_processing_error(conn, reason, response_headers)
   end
 
-  defp handle_processing_error(conn, error, response_headers) do
-    case error do
-      {:error, {:transform_error, %TransformState{errors: errors}}} ->
-        Logger.info("transform_error(s): #{inspect(errors)}")
-        send_transform_error(conn, errors)
-
-      {:error, {:origin, error}} ->
-        send_origin_error(conn, error)
-
-      {:error, {:decode, error}} ->
-        send_decode_error(conn, error)
-
-      {:error, {:input_limit, error}} ->
-        send_input_limit_error(conn, error)
-
-      {:error, :not_acceptable} ->
-        send_not_acceptable(conn, response_headers)
-
-      {:error, {:encode, exception, stacktrace}} ->
-        handle_encode_exception(exception, stacktrace, conn)
-
-      {:error, {:cache_write, error}} ->
-        send_cache_error(conn, error)
-    end
+  defp handle_processing_error(
+         conn,
+         {:transform_error, %TransformState{errors: errors}},
+         _headers
+       ) do
+    Logger.info("transform_error(s): #{inspect(errors)}")
+    send_transform_error(conn)
   end
+
+  defp handle_processing_error(conn, {:origin, error}, _headers),
+    do: send_origin_error(conn, error)
+
+  defp handle_processing_error(conn, {:decode, error}, _headers),
+    do: send_decode_error(conn, error)
+
+  defp handle_processing_error(conn, {:input_limit, error}, _headers),
+    do: send_input_limit_error(conn, error)
+
+  defp handle_processing_error(conn, :not_acceptable, response_headers),
+    do: send_not_acceptable(conn, response_headers)
+
+  defp handle_processing_error(conn, {:encode, exception, stacktrace}, _headers),
+    do: handle_encode_exception(exception, stacktrace, conn)
+
+  defp handle_processing_error(conn, {:cache_write, error}, _headers),
+    do: send_cache_error(conn, error)
 
   defp origin_identity(%ProcessingRequest{source_kind: :plain, source_path: source_path}, opts) do
     root_url = Keyword.fetch!(opts, :root_url)
@@ -136,10 +142,10 @@ defmodule ImagePlug do
     |> send_resp(413, "origin image is too large")
   end
 
-  defp send_transform_error(%Plug.Conn{} = conn, errors) do
+  defp send_transform_error(%Plug.Conn{} = conn) do
     conn
     |> put_resp_content_type("text/plain")
-    |> send_resp(422, "invalid image transform: #{inspect(Enum.reverse(errors))}")
+    |> send_resp(422, "invalid image transform")
   end
 
   defp send_image(%Plug.Conn{} = conn, %TransformState{} = state, opts, response_headers) do
@@ -154,8 +160,8 @@ defmodule ImagePlug do
           {:ok, conn} ->
             conn
 
-          {:error, conn} ->
-            send_encode_error(conn)
+          {:empty, conn} ->
+            send_empty_stream_encode_error(conn)
 
           {:raise, exception, stacktrace, conn} ->
             handle_encode_exception(exception, stacktrace, conn)
@@ -193,6 +199,8 @@ defmodule ImagePlug do
   end
 
   defp stream_image(stream, %Plug.Conn{} = conn, mime_type, response_headers) do
+    # Suspend after each chunk so producer exceptions and client disconnects can
+    # be handled without forcing the whole encoded image into memory.
     reducer = fn data, acc ->
       case send_stream_chunk(data, acc, mime_type, response_headers) do
         {:ok, acc} -> {:suspend, acc}
@@ -230,7 +238,7 @@ defmodule ImagePlug do
   defp continue_stream(continuation, {_status, conn} = acc) do
     case continuation.({:cont, acc}) do
       {:suspended, acc, continuation} -> continue_stream(continuation, acc)
-      {:done, {:pending, conn}} -> {:error, conn}
+      {:done, {:pending, conn}} -> {:empty, conn}
       {:done, {:sent, conn}} -> {:ok, conn}
       {:halted, {:raise, exception, stacktrace, conn}} -> {:raise, exception, stacktrace, conn}
       {:halted, {_status, conn}} -> {:ok, conn}
@@ -247,6 +255,11 @@ defmodule ImagePlug do
     else
       conn
     end
+  end
+
+  defp send_empty_stream_encode_error(%Plug.Conn{} = conn) do
+    Logger.error("encode_error: image encoder produced an empty stream")
+    send_encode_error(conn)
   end
 
   defp send_not_acceptable(%Plug.Conn{} = conn, response_headers) do
