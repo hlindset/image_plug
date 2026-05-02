@@ -241,6 +241,9 @@ defmodule ImagePlug.PipelinePlannerTest do
   end
 
   test "rejects fill without both dimensions" do
+    assert PipelinePlanner.plan(request(resizing_type: :fill)) ==
+             {:error, {:missing_dimensions, :fill}}
+
     assert PipelinePlanner.plan(request(resizing_type: :fill, width: {:pixels, 300})) ==
              {:error, {:missing_dimensions, :fill}}
 

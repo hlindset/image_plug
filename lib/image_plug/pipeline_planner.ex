@@ -75,6 +75,9 @@ defmodule ImagePlug.PipelinePlanner do
   defp plan_geometry(%ProcessingRequest{resizing_type: :force, height: {:pixels, 0}}),
     do: {:error, {:unsupported_zero_dimension, :force}}
 
+  defp plan_geometry(%ProcessingRequest{resizing_type: :fill, width: nil, height: nil}),
+    do: missing_dimensions(:fill)
+
   defp plan_geometry(%ProcessingRequest{width: nil, height: nil}), do: {:ok, []}
 
   defp plan_geometry(%ProcessingRequest{width: {:pixels, 0}, height: {:pixels, 0}}), do: {:ok, []}

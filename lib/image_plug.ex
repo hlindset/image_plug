@@ -191,8 +191,15 @@ defmodule ImagePlug do
          opts,
          response_headers
        ) do
+    decode_options = DecodePlanner.open_options(chain)
+
     with {:ok, image, source_format, origin_response} <-
-           fetch_decode_validate_origin_with_source_format(request, origin_identity, opts) do
+           fetch_decode_validate_origin_with_source_format(
+             request,
+             origin_identity,
+             decode_options,
+             opts
+           ) do
       case selected_output(conn, image, source_format, opts) do
         {:ok, selected_format, selected_reason} ->
           selected_chain = append_selected_output(chain, selected_format)
@@ -204,14 +211,31 @@ defmodule ImagePlug do
 
           case Cache.lookup(conn, request, origin_identity, opts, key_opts) do
             status when status in [:disabled, :skip_cache] ->
-              process_image_uncached(conn, image, selected_chain, opts, response_headers)
+              process_image_uncached(
+                conn,
+                image,
+                selected_chain,
+                origin_response,
+                decode_options,
+                opts,
+                response_headers
+              )
 
             {:hit, _key, %Entry{} = entry} ->
               close_pending_origin(origin_response)
               send_cache_entry(conn, entry)
 
             {:miss, %Key{} = key} ->
-              process_image_cache_miss(conn, image, selected_chain, key, opts, response_headers)
+              process_image_cache_miss(
+                conn,
+                image,
+                selected_chain,
+                origin_response,
+                decode_options,
+                key,
+                opts,
+                response_headers
+              )
 
             {:error, {:cache_read, error}} ->
               close_pending_origin(origin_response)
@@ -245,16 +269,37 @@ defmodule ImagePlug do
     end
   end
 
-  defp process_image_uncached(conn, image, chain, opts, response_headers) do
-    with {:ok, final_state} <- execute_chain(image, chain) do
+  defp process_image_uncached(
+         conn,
+         image,
+         chain,
+         origin_response,
+         decode_options,
+         opts,
+         response_headers
+       ) do
+    with {:ok, final_state} <- execute_chain(image, chain),
+         {:ok, final_state} <-
+           materialize_before_delivery(final_state, origin_response, decode_options, opts) do
       send_image(conn, final_state, opts, response_headers)
     else
       error -> handle_processing_error(conn, error, response_headers)
     end
   end
 
-  defp process_image_cache_miss(conn, image, chain, key, opts, response_headers) do
+  defp process_image_cache_miss(
+         conn,
+         image,
+         chain,
+         origin_response,
+         decode_options,
+         key,
+         opts,
+         response_headers
+       ) do
     with {:ok, final_state} <- execute_chain(image, chain),
+         {:ok, final_state} <-
+           materialize_before_delivery(final_state, origin_response, decode_options, opts),
          {:ok, entry} <- encode_cache_entry(final_state, opts, response_headers),
          put_result when put_result in [:ok, :skipped] <- Cache.put(key, entry, opts) do
       send_cache_entry(conn, entry)
@@ -314,9 +359,12 @@ defmodule ImagePlug do
     end
   end
 
-  defp fetch_decode_validate_origin_with_source_format(request, origin_identity, opts) do
-    decode_options = [access: :random, fail_on: :error]
-
+  defp fetch_decode_validate_origin_with_source_format(
+         request,
+         origin_identity,
+         decode_options,
+         opts
+       ) do
     with {:ok, origin_response} <-
            fetch_origin(request, origin_identity, opts) |> wrap_origin_error(),
          source_format = source_format(origin_response),

@@ -882,11 +882,37 @@ defmodule ImagePlug.ImagePlugTest do
       conn(:get, "/_/rt:force/w:100/plain/images/cat-300.jpg")
       |> ImagePlug.call(
         root_url: "http://origin.test",
+        image_open_module: RecordingImageOpen,
         param_parser: ImagePlug.ParamParser.Native,
         image_materializer_module: FailingMaterializer,
         origin_req_options: [plug: OriginImage]
       )
 
+    assert_received {:image_open_options, opts}
+    assert Keyword.get(opts, :access) == :sequential
+    assert Keyword.get(opts, :fail_on) == :error
+    assert conn.status == 415
+    assert conn.state == :sent
+    assert conn.resp_body == "origin response is not a supported image"
+    assert get_resp_header(conn, "content-type") == ["text/plain; charset=utf-8"]
+  end
+
+  test "deferred automatic sequential materialization failure returns decode error" do
+    conn =
+      :get
+      |> conn("/_/rt:force/w:100/plain/images/cat-300.jpg")
+      |> put_req_header("accept", "image/jpeg")
+      |> ImagePlug.call(
+        root_url: "http://origin.test",
+        image_open_module: RecordingImageOpen,
+        param_parser: ImagePlug.ParamParser.Native,
+        image_materializer_module: FailingMaterializer,
+        origin_req_options: [plug: OriginImage]
+      )
+
+    assert_received {:image_open_options, opts}
+    assert Keyword.get(opts, :access) == :sequential
+    assert Keyword.get(opts, :fail_on) == :error
     assert conn.status == 415
     assert conn.state == :sent
     assert conn.resp_body == "origin response is not a supported image"
