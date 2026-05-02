@@ -4,49 +4,39 @@ defmodule ImagePlug.OutputNegotiation do
   @modern_formats [avif: "image/avif", webp: "image/webp"]
   @formats [avif: "image/avif", webp: "image/webp", jpeg: "image/jpeg", png: "image/png"]
   @output_formats Keyword.values(@formats)
-  @fallback_formats [jpeg: "image/jpeg", png: "image/png"]
 
-  @spec negotiate(String.t() | nil, boolean()) :: {:ok, String.t()} | {:error, :not_acceptable}
-  def negotiate(accept_header, has_alpha?) do
-    negotiate(accept_header, has_alpha?, [])
+  @spec accept_class(String.t() | nil) :: keyword(boolean())
+  def accept_class(accept_header) do
+    entries = parse_accept(accept_header)
+
+    Enum.map(@formats, fn {format, mime_type} ->
+      accepted? =
+        case entries do
+          [] -> true
+          entries -> acceptable?(mime_type, entries)
+        end
+
+      {format, accepted?}
+    end)
   end
 
-  @spec negotiate(String.t() | nil, boolean(), keyword()) ::
-          {:ok, String.t()} | {:error, :not_acceptable}
-  def negotiate(accept_header, has_alpha?, opts) do
-    case negotiate_selection(accept_header, has_alpha?, opts) do
+  @spec negotiate(String.t() | nil, keyword()) :: {:ok, String.t()} | {:error, :not_acceptable}
+  def negotiate(accept_header, opts \\ []) do
+    case negotiate_selection(accept_header, opts) do
       {:ok, {mime_type, _reason}} -> {:ok, mime_type}
       {:error, :not_acceptable} -> {:error, :not_acceptable}
     end
   end
 
-  @spec negotiate_selection(String.t() | nil, boolean()) ::
-          {:ok, {String.t(), :auto | :source | :fallback}} | {:error, :not_acceptable}
-  def negotiate_selection(accept_header, has_alpha?) do
-    negotiate_selection(accept_header, has_alpha?, [])
-  end
-
-  @spec negotiate_selection(String.t() | nil, boolean(), keyword()) ::
-          {:ok, {String.t(), :auto | :source | :fallback}} | {:error, :not_acceptable}
-  def negotiate_selection(accept_header, has_alpha?, opts) do
-    candidates = negotiation_candidates(has_alpha?, opts)
-
+  @spec negotiate_selection(String.t() | nil, keyword()) ::
+          {:ok, {String.t(), :auto | :source}} | {:error, :not_acceptable}
+  def negotiate_selection(accept_header, opts \\ []) do
+    candidates = negotiation_candidates(opts)
     entries = parse_accept(accept_header)
 
-    selected =
-      case entries do
-        [] ->
-          hd(candidates)
-
-        entries ->
-          Enum.find(candidates, fn {_format, mime_type, _reason} ->
-            acceptable?(mime_type, entries)
-          end)
-      end
-
-    case selected do
-      nil -> {:error, :not_acceptable}
+    case select_candidate(candidates, entries) do
       {_format, mime_type, reason} -> {:ok, {mime_type, reason}}
+      nil -> {:error, :not_acceptable}
     end
   end
 
@@ -77,30 +67,6 @@ defmodule ImagePlug.OutputNegotiation do
               {:error, :not_acceptable}
             end
         end
-    end
-  end
-
-  @spec cache_probe_formats(String.t() | nil, keyword()) :: [:avif | :webp | :jpeg | :png]
-  def cache_probe_formats(accept_header, opts \\ []) do
-    accept_header
-    |> cache_probe_selections(opts)
-    |> Enum.map(fn {format, _reason} -> format end)
-    |> Enum.uniq()
-  end
-
-  @spec cache_probe_selections(String.t() | nil, keyword()) ::
-          [{:avif | :webp | :jpeg | :png, :auto | :source | :fallback}]
-  def cache_probe_selections(accept_header, opts \\ []) do
-    entries = parse_accept(accept_header)
-    selections = cache_probe_candidates(opts)
-
-    case entries do
-      [] ->
-        selections
-
-      entries ->
-        selections
-        |> Enum.filter(fn {format, _reason} -> acceptable?(mime_type!(format), entries) end)
     end
   end
 
@@ -143,6 +109,14 @@ defmodule ImagePlug.OutputNegotiation do
     Keyword.fetch!(@formats, format)
   end
 
+  defp select_candidate(candidates, []), do: List.first(candidates)
+
+  defp select_candidate(candidates, entries) do
+    Enum.find(candidates, fn {_format, mime_type, _reason} ->
+      acceptable?(mime_type, entries)
+    end)
+  end
+
   defp enabled_modern_formats(opts) do
     @modern_formats
     |> Enum.reject(fn
@@ -151,12 +125,13 @@ defmodule ImagePlug.OutputNegotiation do
     end)
   end
 
-  defp negotiation_candidates(has_alpha?, opts) do
-    opts
-    |> enabled_modern_formats()
-    |> Enum.map(fn {format, mime_type} -> {format, mime_type, :auto} end)
-    |> Kernel.++(source_format_candidates(Keyword.get(opts, :source_format)))
-    |> Kernel.++(alpha_fallback_candidates(has_alpha?))
+  defp negotiation_candidates(opts) do
+    modern_candidates =
+      opts
+      |> enabled_modern_formats()
+      |> Enum.map(fn {format, mime_type} -> {format, mime_type, :auto} end)
+
+    (modern_candidates ++ source_format_candidates(Keyword.get(opts, :source_format)))
     |> uniq_candidate_mime_types()
   end
 
@@ -167,21 +142,6 @@ defmodule ImagePlug.OutputNegotiation do
       {:ok, mime_type} -> [{source_format, mime_type, :source}]
       :error -> []
     end
-  end
-
-  defp alpha_fallback_candidates(true), do: [png: "image/png"] |> candidate_tuples(:fallback)
-  defp alpha_fallback_candidates(false), do: [jpeg: "image/jpeg"] |> candidate_tuples(:fallback)
-
-  defp cache_probe_candidates(opts) do
-    opts
-    |> enabled_modern_formats()
-    |> Enum.map(fn {format, _mime_type} -> {format, :auto} end)
-    |> Kernel.++(Enum.map(@formats, fn {format, _mime_type} -> {format, :source} end))
-    |> Kernel.++(Enum.map(@fallback_formats, fn {format, _mime_type} -> {format, :fallback} end))
-  end
-
-  defp candidate_tuples(formats, reason) do
-    Enum.map(formats, fn {format, mime_type} -> {format, mime_type, reason} end)
   end
 
   defp uniq_candidate_mime_types(candidates) do

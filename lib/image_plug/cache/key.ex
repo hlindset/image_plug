@@ -5,6 +5,7 @@ defmodule ImagePlug.Cache.Key do
 
   import Plug.Conn
 
+  alias ImagePlug.OutputNegotiation
   alias ImagePlug.ProcessingRequest
 
   @schema_version 1
@@ -18,35 +19,27 @@ defmodule ImagePlug.Cache.Key do
           serialized_material: binary()
         }
 
-  @type build_error ::
-          :missing_selected_output_format
-          | :missing_selected_output_reason
-          | {:invalid_selected_output_format, term()}
-          | {:invalid_selected_output_reason, term()}
-
   @spec build(Plug.Conn.t(), ProcessingRequest.t(), String.t(), keyword()) ::
-          {:ok, t()} | {:error, build_error()}
+          {:ok, t()}
   def build(conn, %ProcessingRequest{} = request, origin_identity, opts \\ [])
       when is_binary(origin_identity) and is_list(opts) do
-    with {:ok, output} <- output(request, opts) do
-      material = [
-        schema_version: @schema_version,
-        origin_identity: origin_identity,
-        operations: operations(request),
-        output: output,
-        selected_headers: selected_headers(conn, opts),
-        selected_cookies: selected_cookies(conn, opts)
-      ]
+    material = [
+      schema_version: @schema_version,
+      origin_identity: origin_identity,
+      operations: operations(request),
+      output: output(conn, request, opts),
+      selected_headers: selected_headers(conn, opts),
+      selected_cookies: selected_cookies(conn, opts)
+    ]
 
-      serialized_material = serialize_material(material)
+    serialized_material = serialize_material(material)
 
-      {:ok,
-       %__MODULE__{
-         hash: hash(serialized_material),
-         material: material,
-         serialized_material: serialized_material
-       }}
-    end
+    {:ok,
+     %__MODULE__{
+       hash: hash(serialized_material),
+       material: material,
+       serialized_material: serialized_material
+     }}
   end
 
   @spec serialize_material(term()) :: binary()
@@ -74,41 +67,21 @@ defmodule ImagePlug.Cache.Key do
     ]
   end
 
-  defp output(%ProcessingRequest{format: nil}, opts) do
-    with {:ok, format} <- selected_output_format(opts),
-         {:ok, reason} <- selected_output_reason(opts) do
-      {:ok, [format: format, automatic: true, selection: reason]}
-    end
+  defp output(conn, %ProcessingRequest{format: nil}, opts) do
+    accept_header = conn |> get_req_header("accept") |> Enum.join(",")
+
+    [
+      mode: :automatic,
+      accept: OutputNegotiation.accept_class(accept_header),
+      auto: [
+        avif: Keyword.get(opts, :auto_avif, true),
+        webp: Keyword.get(opts, :auto_webp, true)
+      ]
+    ]
   end
 
-  defp output(%ProcessingRequest{format: format}, _opts) do
-    {:ok, [format: format, automatic: false]}
-  end
-
-  defp selected_output_format(opts) do
-    case Keyword.fetch(opts, :selected_output_format) do
-      {:ok, format} when format in [:avif, :webp, :jpeg, :png] ->
-        {:ok, format}
-
-      {:ok, format} ->
-        {:error, {:invalid_selected_output_format, format}}
-
-      :error ->
-        {:error, :missing_selected_output_format}
-    end
-  end
-
-  defp selected_output_reason(opts) do
-    case Keyword.fetch(opts, :selected_output_reason) do
-      {:ok, reason} when reason in [:auto, :source, :fallback] ->
-        {:ok, reason}
-
-      {:ok, reason} ->
-        {:error, {:invalid_selected_output_reason, reason}}
-
-      :error ->
-        {:error, :missing_selected_output_reason}
-    end
+  defp output(_conn, %ProcessingRequest{format: format}, _opts) do
+    [mode: :explicit, format: format]
   end
 
   defp selected_headers(conn, opts) do

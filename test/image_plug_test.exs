@@ -327,7 +327,7 @@ defmodule ImagePlug.ImagePlugTest do
     refute_received :memory_encoder_called
   end
 
-  test "automatic output negotiation does not require encoder overrides to detect alpha" do
+  test "automatic source-format output does not require encoder overrides before streaming" do
     conn =
       :get
       |> conn("/_/plain/images/cat-300.jpg")
@@ -535,7 +535,7 @@ defmodule ImagePlug.ImagePlugTest do
     assert get_resp_header(conn, "vary") == ["Accept"]
   end
 
-  test "automatic fallback can select accepted source format before alpha fallback" do
+  test "automatic fallback selects accepted source format" do
     {:ok, image} = Image.new(20, 20, color: :white)
     body = Image.write!(image, :memory, suffix: ".png")
 
@@ -639,11 +639,17 @@ defmodule ImagePlug.ImagePlugTest do
     flush_cache_probe(cache_probe)
     assert conn.status == 200
     assert conn.resp_body == "cached avif"
-    assert_cache_get_output(format: :avif, automatic: true, selection: :auto)
+
+    assert_cache_get_output(
+      mode: :automatic,
+      accept: [avif: true, webp: true, jpeg: false, png: false],
+      auto: [avif: true, webp: true]
+    )
+
     refute_received :origin_was_called
   end
 
-  test "automatic JPEG fallback cache hits do not fetch origin" do
+  test "automatic JPEG source-format cache hits do not fetch origin" do
     cache_probe = start_cache_probe()
 
     cached_entry = %ImagePlug.Cache.Entry{
@@ -660,8 +666,15 @@ defmodule ImagePlug.ImagePlugTest do
 
     get_result_fun = fn key ->
       case key.material[:output] do
-        [format: :jpeg, automatic: true, selection: :fallback] -> {:hit, cached_entry}
-        _other -> :miss
+        [
+          mode: :automatic,
+          accept: [avif: false, webp: false, jpeg: true, png: false],
+          auto: [avif: true, webp: true]
+        ] ->
+          {:hit, cached_entry}
+
+        _other ->
+          :miss
       end
     end
 
@@ -676,7 +689,13 @@ defmodule ImagePlug.ImagePlugTest do
     flush_cache_probe(cache_probe)
     assert conn.status == 200
     assert conn.resp_body == "cached jpeg"
-    assert_cache_get_output(format: :jpeg, automatic: true, selection: :fallback)
+
+    assert_cache_get_output(
+      mode: :automatic,
+      accept: [avif: false, webp: false, jpeg: true, png: false],
+      auto: [avif: true, webp: true]
+    )
+
     refute_received :origin_was_called
   end
 
@@ -697,8 +716,15 @@ defmodule ImagePlug.ImagePlugTest do
 
     get_result_fun = fn key ->
       case key.material[:output] do
-        [format: :avif, automatic: true, selection: :source] -> {:hit, cached_entry}
-        _other -> :miss
+        [
+          mode: :automatic,
+          accept: [avif: true, webp: false, jpeg: false, png: false],
+          auto: [avif: false, webp: false]
+        ] ->
+          {:hit, cached_entry}
+
+        _other ->
+          :miss
       end
     end
 
@@ -715,11 +741,17 @@ defmodule ImagePlug.ImagePlugTest do
     flush_cache_probe(cache_probe)
     assert conn.status == 200
     assert conn.resp_body == "cached source avif"
-    assert_cache_get_output(format: :avif, automatic: true, selection: :source)
+
+    assert_cache_get_output(
+      mode: :automatic,
+      accept: [avif: true, webp: false, jpeg: false, png: false],
+      auto: [avif: false, webp: false]
+    )
+
     refute_received :origin_was_called
   end
 
-  test "deferred cache probing respects disabled modern automatic formats" do
+  test "automatic cache key is available before origin when modern formats are disabled" do
     cache_probe = start_cache_probe()
 
     cached_entry = %ImagePlug.Cache.Entry{
@@ -736,8 +768,15 @@ defmodule ImagePlug.ImagePlugTest do
 
     get_result_fun = fn key ->
       case key.material[:output] do
-        [format: :jpeg, automatic: true, selection: :fallback] -> {:hit, cached_entry}
-        _other -> :miss
+        [
+          mode: :automatic,
+          accept: [avif: true, webp: true, jpeg: true, png: true],
+          auto: [avif: false, webp: false]
+        ] ->
+          {:hit, cached_entry}
+
+        _other ->
+          :miss
       end
     end
 
@@ -754,11 +793,17 @@ defmodule ImagePlug.ImagePlugTest do
     flush_cache_probe(cache_probe)
     assert conn.status == 200
     assert conn.resp_body == "cached jpeg"
-    assert_cache_get_output(format: :jpeg, automatic: true, selection: :fallback)
+
+    assert_cache_get_output(
+      mode: :automatic,
+      accept: [avif: true, webp: true, jpeg: true, png: true],
+      auto: [avif: false, webp: false]
+    )
+
     refute_received :origin_was_called
   end
 
-  test "disabled automatic modern formats still set Vary for negotiated fallback output" do
+  test "disabled automatic modern formats still set Vary for negotiated source output" do
     conn = conn(:get, "/_/plain/images/cat-300.jpg")
 
     conn =
@@ -774,7 +819,7 @@ defmodule ImagePlug.ImagePlugTest do
     assert get_resp_header(conn, "vary") == ["Accept"]
   end
 
-  test "disabled automatic modern formats set Vary on unacceptable fallback output" do
+  test "disabled automatic modern formats set Vary on unacceptable source output" do
     conn =
       :get
       |> conn("/_/plain/images/cat-300.jpg")

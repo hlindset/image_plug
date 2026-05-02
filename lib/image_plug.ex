@@ -7,14 +7,12 @@ defmodule ImagePlug do
 
   alias ImagePlug.Cache
   alias ImagePlug.Cache.Entry
-  alias ImagePlug.Cache.Key
-  alias ImagePlug.DecodePlanner
-  alias ImagePlug.ImageMaterializer
+  alias ImagePlug.OutputEncoder
   alias ImagePlug.OutputNegotiation
   alias ImagePlug.Origin
   alias ImagePlug.PipelinePlanner
   alias ImagePlug.ProcessingRequest
-  alias ImagePlug.TransformChain
+  alias ImagePlug.RequestRunner
   alias ImagePlug.TransformState
 
   @type imgp_number() :: integer() | float()
@@ -33,7 +31,9 @@ defmodule ImagePlug do
     with {:ok, request} <- param_parser.parse(conn) |> wrap_parser_error(),
          {:ok, chain} <- pipeline_planner.plan(request) |> wrap_planner_error(),
          {:ok, origin_identity} <- origin_identity(request, opts) |> wrap_origin_error() do
-      dispatch_request(conn, request, chain, origin_identity, opts)
+      conn
+      |> RequestRunner.run(request, chain, origin_identity, opts)
+      |> send_runner_result(conn, opts)
     else
       {:error, {:parser, error}} ->
         param_parser.handle_error(conn, error)
@@ -46,266 +46,24 @@ defmodule ImagePlug do
     end
   end
 
-  defp dispatch_request(
+  defp send_runner_result({:ok, {:cache_entry, %Entry{} = entry}}, conn, _opts) do
+    send_cache_entry(conn, entry)
+  end
+
+  defp send_runner_result(
+         {:ok, {:image, %TransformState{} = state, response_headers}},
          conn,
-         %ProcessingRequest{format: nil} = request,
-         chain,
-         origin_identity,
          opts
        ) do
-    dispatch_automatic_request(conn, request, chain, origin_identity, opts)
+    send_image(conn, state, opts, response_headers)
   end
 
-  defp dispatch_request(conn, %ProcessingRequest{} = request, chain, origin_identity, opts) do
-    dispatch_explicit_request(conn, request, chain, origin_identity, opts)
+  defp send_runner_result({:error, {:cache, error}}, conn, _opts) do
+    send_cache_error(conn, error)
   end
 
-  defp dispatch_explicit_request(conn, request, chain, origin_identity, opts) do
-    case Cache.lookup(conn, request, origin_identity, opts) do
-      status when status in [:disabled, :skip_cache] ->
-        process_uncached(conn, request, chain, origin_identity, opts, [])
-
-      {:hit, _key, %Entry{} = entry} ->
-        send_cache_entry(conn, entry)
-
-      {:miss, %Key{} = key} ->
-        process_cache_miss(conn, request, chain, origin_identity, key, opts, [])
-
-      {:error, {:cache_read, error}} ->
-        send_cache_error(conn, error)
-    end
-  end
-
-  defp dispatch_automatic_request(conn, request, chain, origin_identity, opts) do
-    accept_header = conn |> get_req_header("accept") |> Enum.join(",")
-    response_headers = accept_vary_headers()
-
-    case OutputNegotiation.preselect(accept_header, output_negotiation_opts(opts)) do
-      {:ok, selected_format} ->
-        selected_chain = append_selected_output(chain, selected_format)
-
-        dispatch_preselected_automatic_request(
-          conn,
-          request,
-          selected_chain,
-          origin_identity,
-          selected_format,
-          opts,
-          response_headers
-        )
-
-      :defer ->
-        dispatch_deferred_automatic_request(
-          conn,
-          request,
-          chain,
-          origin_identity,
-          opts,
-          response_headers
-        )
-
-      {:error, :not_acceptable} ->
-        send_not_acceptable(conn, response_headers)
-    end
-  end
-
-  defp dispatch_preselected_automatic_request(
-         conn,
-         request,
-         chain,
-         origin_identity,
-         selected_format,
-         opts,
-         response_headers
-       ) do
-    key_opts = [selected_output_format: selected_format, selected_output_reason: :auto]
-
-    case Cache.lookup(conn, request, origin_identity, opts, key_opts) do
-      status when status in [:disabled, :skip_cache] ->
-        process_uncached(conn, request, chain, origin_identity, opts, response_headers)
-
-      {:hit, _key, %Entry{} = entry} ->
-        send_cache_entry(conn, entry)
-
-      {:miss, %Key{} = key} ->
-        process_cache_miss(conn, request, chain, origin_identity, key, opts, response_headers)
-
-      {:error, {:cache_read, error}} ->
-        send_cache_error(conn, error)
-    end
-  end
-
-  defp dispatch_deferred_automatic_request(
-         conn,
-         request,
-         chain,
-         origin_identity,
-         opts,
-         response_headers
-       ) do
-    case lookup_deferred_automatic_cache(conn, request, origin_identity, opts) do
-      {:hit, %Entry{} = entry} ->
-        send_cache_entry(conn, entry)
-
-      {:error, error} ->
-        send_cache_error(conn, error)
-
-      status when status in [:disabled, :skip_cache, :miss] ->
-        process_deferred_automatic_origin(
-          conn,
-          request,
-          chain,
-          origin_identity,
-          opts,
-          response_headers
-        )
-    end
-  end
-
-  defp lookup_deferred_automatic_cache(conn, request, origin_identity, opts) do
-    accept_header = conn |> get_req_header("accept") |> Enum.join(",")
-
-    accept_header
-    |> OutputNegotiation.cache_probe_selections(output_negotiation_opts(opts))
-    |> Enum.reduce_while(:miss, fn {selected_format, selected_reason}, _status ->
-      key_opts = [
-        selected_output_format: selected_format,
-        selected_output_reason: selected_reason
-      ]
-
-      case Cache.lookup(conn, request, origin_identity, opts, key_opts) do
-        :disabled -> {:halt, :disabled}
-        :skip_cache -> {:halt, :skip_cache}
-        {:hit, _key, %Entry{} = entry} -> {:halt, {:hit, entry}}
-        {:miss, %Key{}} -> {:cont, :miss}
-        {:error, {:cache_read, error}} -> {:halt, {:error, error}}
-      end
-    end)
-  end
-
-  defp process_deferred_automatic_origin(
-         conn,
-         request,
-         chain,
-         origin_identity,
-         opts,
-         response_headers
-       ) do
-    decode_options = DecodePlanner.open_options(chain)
-
-    with {:ok, image, source_format, origin_response} <-
-           fetch_decode_validate_origin_with_source_format(
-             request,
-             origin_identity,
-             decode_options,
-             opts
-           ) do
-      case selected_output(conn, image, source_format, opts) do
-        {:ok, selected_format, selected_reason} ->
-          selected_chain = append_selected_output(chain, selected_format)
-
-          key_opts = [
-            selected_output_format: selected_format,
-            selected_output_reason: selected_reason
-          ]
-
-          case Cache.lookup(conn, request, origin_identity, opts, key_opts) do
-            status when status in [:disabled, :skip_cache] ->
-              process_image_uncached(
-                conn,
-                image,
-                selected_chain,
-                origin_response,
-                decode_options,
-                opts,
-                response_headers
-              )
-
-            {:hit, _key, %Entry{} = entry} ->
-              close_pending_origin(origin_response)
-              send_cache_entry(conn, entry)
-
-            {:miss, %Key{} = key} ->
-              process_image_cache_miss(
-                conn,
-                image,
-                selected_chain,
-                origin_response,
-                decode_options,
-                key,
-                opts,
-                response_headers
-              )
-
-            {:error, {:cache_read, error}} ->
-              close_pending_origin(origin_response)
-              send_cache_error(conn, error)
-          end
-
-        error ->
-          close_pending_origin(origin_response)
-          handle_processing_error(conn, error, response_headers)
-      end
-    else
-      error -> handle_processing_error(conn, error, response_headers)
-    end
-  end
-
-  defp process_uncached(conn, request, chain, origin_identity, opts, response_headers) do
-    with {:ok, final_state} <- process_origin(request, chain, origin_identity, opts) do
-      send_image(conn, final_state, opts, response_headers)
-    else
-      error -> handle_processing_error(conn, error, response_headers)
-    end
-  end
-
-  defp process_cache_miss(conn, request, chain, origin_identity, key, opts, response_headers) do
-    with {:ok, final_state} <- process_origin(request, chain, origin_identity, opts),
-         {:ok, entry} <- encode_cache_entry(final_state, opts, response_headers),
-         put_result when put_result in [:ok, :skipped] <- Cache.put(key, entry, opts) do
-      send_cache_entry(conn, entry)
-    else
-      error -> handle_processing_error(conn, error, response_headers)
-    end
-  end
-
-  defp process_image_uncached(
-         conn,
-         image,
-         chain,
-         origin_response,
-         decode_options,
-         opts,
-         response_headers
-       ) do
-    with {:ok, final_state} <- execute_chain(image, chain),
-         {:ok, final_state} <-
-           materialize_before_delivery(final_state, origin_response, decode_options, opts) do
-      send_image(conn, final_state, opts, response_headers)
-    else
-      error -> handle_processing_error(conn, error, response_headers)
-    end
-  end
-
-  defp process_image_cache_miss(
-         conn,
-         image,
-         chain,
-         origin_response,
-         decode_options,
-         key,
-         opts,
-         response_headers
-       ) do
-    with {:ok, final_state} <- execute_chain(image, chain),
-         {:ok, final_state} <-
-           materialize_before_delivery(final_state, origin_response, decode_options, opts),
-         {:ok, entry} <- encode_cache_entry(final_state, opts, response_headers),
-         put_result when put_result in [:ok, :skipped] <- Cache.put(key, entry, opts) do
-      send_cache_entry(conn, entry)
-    else
-      error -> handle_processing_error(conn, error, response_headers)
-    end
+  defp send_runner_result({:error, {:processing, error, response_headers}}, conn, _opts) do
+    handle_processing_error(conn, error, response_headers)
   end
 
   defp handle_processing_error(conn, error, response_headers) do
@@ -343,142 +101,6 @@ defmodule ImagePlug do
     {:error, {:unsupported_source_kind, source_kind}}
   end
 
-  defp process_origin(request, chain, origin_identity, opts) do
-    decode_options = DecodePlanner.open_options(chain)
-
-    with {:ok, origin_response} <-
-           fetch_origin(request, origin_identity, opts) |> wrap_origin_error(),
-         {:ok, image} <-
-           decode_origin_response(origin_response, decode_options, opts)
-           |> wrap_origin_decode_error(),
-         :ok <- validate_input_image(image, opts) |> wrap_input_limit_error(),
-         {:ok, final_state} <- TransformChain.execute(%TransformState{image: image}, chain),
-         {:ok, final_state} <-
-           materialize_before_delivery(final_state, origin_response, decode_options, opts) do
-      {:ok, final_state}
-    end
-  end
-
-  defp fetch_decode_validate_origin_with_source_format(
-         request,
-         origin_identity,
-         decode_options,
-         opts
-       ) do
-    with {:ok, origin_response} <-
-           fetch_origin(request, origin_identity, opts) |> wrap_origin_error(),
-         source_format = source_format(origin_response),
-         {:ok, image} <-
-           decode_origin_response(origin_response, decode_options, opts)
-           |> wrap_origin_decode_error(),
-         :ok <- validate_input_image(image, opts) |> wrap_input_limit_error() do
-      {:ok, image, source_format, origin_response}
-    end
-  end
-
-  defp execute_chain(image, chain) do
-    TransformChain.execute(%TransformState{image: image}, chain)
-  end
-
-  defp decode_origin_response(%Origin.Response{} = origin_response, decode_options, opts) do
-    image_open_module = Keyword.get(opts, :image_open_module, Image)
-
-    case image_open_module.open(origin_response.stream, decode_options) do
-      {:ok, image} ->
-        case Origin.stream_status(origin_response) do
-          {:error, reason} -> {:error, {:origin, reason}}
-          :done -> {:ok, image}
-          :pending -> {:ok, image}
-        end
-
-      {:error, decode_error} ->
-        case Origin.stream_status(origin_response) do
-          {:error, reason} -> {:error, {:origin, reason}}
-          :done -> {:error, decode_error}
-          :pending -> close_pending_origin_with_decode_error(origin_response, decode_error)
-        end
-    end
-  end
-
-  defp materialize_before_delivery(
-         %TransformState{} = state,
-         %Origin.Response{} = origin_response,
-         decode_options,
-         opts
-       ) do
-    case Keyword.fetch!(decode_options, :access) do
-      :sequential -> materialize_sequential_before_delivery(state, origin_response, opts)
-      :random -> {:ok, state}
-    end
-  end
-
-  defp materialize_sequential_before_delivery(
-         %TransformState{} = state,
-         %Origin.Response{} = origin_response,
-         opts
-       ) do
-    materializer = Keyword.get(opts, :image_materializer_module, ImageMaterializer)
-
-    state.image
-    |> materializer.materialize()
-    |> handle_materialization_result(state, origin_response)
-  end
-
-  defp handle_materialization_result(
-         {:ok, materialized_image},
-         %TransformState{} = state,
-         %Origin.Response{} = origin_response
-       ) do
-    case Origin.require_stream_status(origin_response) do
-      :done -> {:ok, TransformState.set_image(state, materialized_image)}
-      {:error, reason} -> {:error, {:origin, reason}}
-    end
-  end
-
-  defp handle_materialization_result(
-         {:error, materialize_error},
-         %TransformState{},
-         %Origin.Response{} = origin_response
-       ) do
-    case Origin.stream_status(origin_response) do
-      {:error, reason} -> {:error, {:origin, reason}}
-      :done -> {:error, {:decode, materialize_error}}
-      :pending -> close_pending_origin_with_decode_error(origin_response, materialize_error)
-    end
-  end
-
-  defp close_pending_origin_with_decode_error(
-         %Origin.Response{} = origin_response,
-         materialize_error
-       ) do
-    close_pending_origin(origin_response)
-    {:error, {:decode, materialize_error}}
-  end
-
-  defp close_pending_origin(%Origin.Response{} = origin_response) do
-    case Origin.stream_status(origin_response) do
-      :pending -> Origin.close(origin_response)
-      _status -> :ok
-    end
-  end
-
-  defp fetch_origin(%ProcessingRequest{source_kind: :plain}, origin_identity, opts) do
-    Origin.fetch(origin_identity, origin_req_options(opts))
-  end
-
-  defp origin_req_options(opts) do
-    opts
-    |> Keyword.get(:origin_req_options, [])
-    |> put_origin_req_option(:max_body_bytes, Keyword.fetch(opts, :max_body_bytes))
-    |> put_origin_req_option(:receive_timeout, Keyword.fetch(opts, :origin_receive_timeout))
-    |> put_origin_req_option(:max_redirects, Keyword.fetch(opts, :origin_max_redirects))
-  end
-
-  defp put_origin_req_option(req_options, key, {:ok, value}),
-    do: Keyword.put(req_options, key, value)
-
-  defp put_origin_req_option(req_options, _key, :error), do: req_options
-
   defp wrap_parser_error({:error, _} = error), do: {:error, {:parser, error}}
   defp wrap_parser_error(result), do: result
 
@@ -487,26 +109,6 @@ defmodule ImagePlug do
 
   defp wrap_origin_error({:error, error}), do: {:error, {:origin, error}}
   defp wrap_origin_error(result), do: result
-
-  defp wrap_decode_error({:error, _} = error), do: {:error, {:decode, error}}
-  defp wrap_decode_error(result), do: result
-
-  defp wrap_origin_decode_error({:error, {:origin, error}}), do: {:error, {:origin, error}}
-  defp wrap_origin_decode_error(result), do: wrap_decode_error(result)
-
-  defp validate_input_image(image, opts) do
-    max_input_pixels = Keyword.get(opts, :max_input_pixels, 40_000_000)
-    pixel_count = Image.width(image) * Image.height(image)
-
-    if pixel_count <= max_input_pixels do
-      :ok
-    else
-      {:error, {:too_many_input_pixels, pixel_count, max_input_pixels}}
-    end
-  end
-
-  defp wrap_input_limit_error(:ok), do: :ok
-  defp wrap_input_limit_error({:error, error}), do: {:error, {:input_limit, error}}
 
   defp send_origin_error(%Plug.Conn{} = conn, {:bad_status, 404}) do
     conn
@@ -541,7 +143,7 @@ defmodule ImagePlug do
   end
 
   defp send_image(%Plug.Conn{} = conn, %TransformState{} = state, opts, response_headers) do
-    with {:ok, mime_type} <- output_mime_type(state) do
+    with {:ok, mime_type} <- OutputEncoder.mime_type(state) do
       suffix = OutputNegotiation.suffix!(mime_type)
       image_module = Keyword.get(opts, :image_module, Image)
 
@@ -564,29 +166,6 @@ defmodule ImagePlug do
     else
       {:error, :not_acceptable} -> send_not_acceptable(conn, response_headers)
       :error -> send_encode_error(conn)
-    end
-  end
-
-  defp encode_cache_entry(%TransformState{} = state, opts, response_headers) do
-    with {:ok, mime_type} <- output_mime_type(state) do
-      suffix = OutputNegotiation.suffix!(mime_type)
-      image_module = Keyword.get(opts, :image_module, Image)
-
-      try do
-        body = image_module.write!(state.image, :memory, suffix: suffix)
-
-        {:ok,
-         Entry.new!(
-           body: body,
-           content_type: mime_type,
-           headers: response_headers,
-           created_at: DateTime.utc_now()
-         )}
-      rescue
-        exception -> {:error, {:encode, exception, __STACKTRACE__}}
-      end
-    else
-      :error -> {:error, {:encode, unsupported_output_format_error(state.output), []}}
     end
   end
 
@@ -668,57 +247,6 @@ defmodule ImagePlug do
     else
       conn
     end
-  end
-
-  defp output_mime_type(%TransformState{output: format}) when is_atom(format) do
-    OutputNegotiation.mime_type(format)
-  end
-
-  defp unsupported_output_format_error(format) do
-    ArgumentError.exception("unsupported output format: #{inspect(format)}")
-  end
-
-  defp output_negotiation_opts(opts) do
-    [
-      auto_avif: Keyword.get(opts, :auto_avif, true),
-      auto_webp: Keyword.get(opts, :auto_webp, true)
-    ]
-  end
-
-  defp selected_output(%Plug.Conn{} = conn, image, source_format, opts) do
-    accept_header = conn |> get_req_header("accept") |> Enum.join(",")
-
-    case OutputNegotiation.negotiate_selection(
-           accept_header,
-           Image.has_alpha?(image),
-           Keyword.put(output_negotiation_opts(opts), :source_format, source_format)
-         ) do
-      {:ok, {mime_type, reason}} ->
-        case OutputNegotiation.format(mime_type) do
-          {:ok, format} -> {:ok, format, reason}
-          :error -> {:error, unsupported_output_format_error(mime_type)}
-        end
-
-      {:error, :not_acceptable} ->
-        {:error, :not_acceptable}
-    end
-  end
-
-  defp accept_vary_headers, do: [{"vary", "Accept"}]
-
-  defp source_format(%Origin.Response{content_type: content_type}) do
-    case OutputNegotiation.format(content_type) do
-      {:ok, format} -> format
-      :error -> nil
-    end
-  end
-
-  defp append_selected_output(chain, selected_format) do
-    chain ++
-      [
-        {ImagePlug.Transform.Output,
-         %ImagePlug.Transform.Output.OutputParams{format: selected_format}}
-      ]
   end
 
   defp send_not_acceptable(%Plug.Conn{} = conn, response_headers) do

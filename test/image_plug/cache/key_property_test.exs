@@ -40,7 +40,7 @@ defmodule ImagePlug.Cache.KeyPropertyTest do
             keyword: [b: 2, a: 1]
           ]
         ],
-        output: [format: :webp, automatic: false],
+        output: [mode: :explicit, format: :webp],
         selected_headers: [],
         selected_cookies: []
       ]
@@ -48,7 +48,7 @@ defmodule ImagePlug.Cache.KeyPropertyTest do
       material_two = [
         selected_cookies: [],
         selected_headers: [],
-        output: [automatic: false, format: :webp],
+        output: [format: :webp, mode: :explicit],
         operations: [
           nested: [
             keyword: [a: 1, b: 2],
@@ -164,10 +164,14 @@ defmodule ImagePlug.Cache.KeyPropertyTest do
     end
   end
 
-  property "raw Accept headers do not affect automatic cache key when selected output is same" do
-    check all accept_a <- accept_header(),
-              accept_b <- accept_header(),
-              selected_output <- member_of([:avif, :webp, :jpeg, :png]),
+  property "raw Accept headers with the same normalized class produce the same automatic key" do
+    check all {accept_a, accept_b} <-
+                member_of([
+                  {"image/avif,image/webp", "image/webp;q=1,image/avif;q=0.1"},
+                  {"image/jpeg", "image/jpg"},
+                  {"image/*", "*/*"},
+                  {"image/avif;q=0,image/*", "image/*,image/avif;q=0"}
+                ]),
               max_runs: 100 do
       request = request(format: nil)
       origin = "https://origin.test/images/cat.jpg"
@@ -176,29 +180,26 @@ defmodule ImagePlug.Cache.KeyPropertyTest do
         :get
         |> conn("/_/plain/images/cat.jpg")
         |> put_req_header("accept", accept_a)
-        |> build_key!(request, origin,
-          selected_output_format: selected_output,
-          selected_output_reason: :auto
-        )
+        |> build_key!(request, origin)
 
       key_b =
         :get
         |> conn("/_/plain/images/cat.jpg")
         |> put_req_header("accept", accept_b)
-        |> build_key!(request, origin,
-          selected_output_format: selected_output,
-          selected_output_reason: :auto
-        )
+        |> build_key!(request, origin)
 
       assert key_a.hash == key_b.hash
     end
   end
 
-  property "selected automatic output changes automatic cache key" do
-    check all accept <- accept_header(),
-              selected_output_a <- member_of([:avif, :webp, :jpeg, :png]),
-              selected_output_b <- member_of([:avif, :webp, :jpeg, :png]),
-              selected_output_a != selected_output_b,
+  property "different normalized Accept classes change automatic cache key" do
+    check all {accept_a, accept_b} <-
+                member_of([
+                  {"image/avif", "image/webp"},
+                  {"image/jpeg", "image/png"},
+                  {"image/*", "image/avif,image/webp"},
+                  {"image/avif;q=0,image/*", "image/*"}
+                ]),
               max_runs: 100 do
       request = request(format: nil)
       origin = "https://origin.test/images/cat.jpg"
@@ -206,31 +207,21 @@ defmodule ImagePlug.Cache.KeyPropertyTest do
       key_a =
         :get
         |> conn("/_/plain/images/cat.jpg")
-        |> put_req_header("accept", accept)
-        |> build_key!(request, origin,
-          selected_output_format: selected_output_a,
-          selected_output_reason: :auto
-        )
+        |> put_req_header("accept", accept_a)
+        |> build_key!(request, origin)
 
       key_b =
         :get
         |> conn("/_/plain/images/cat.jpg")
-        |> put_req_header("accept", accept)
-        |> build_key!(request, origin,
-          selected_output_format: selected_output_b,
-          selected_output_reason: :auto
-        )
+        |> put_req_header("accept", accept_b)
+        |> build_key!(request, origin)
 
       refute key_a.hash == key_b.hash
     end
   end
 
-  property "automatic output selection reason changes automatic cache key" do
+  property "automatic cache key does not depend on selected output reason" do
     check all accept <- accept_header(),
-              selected_output <- member_of([:avif, :webp, :jpeg, :png]),
-              reason_a <- member_of([:auto, :source, :fallback]),
-              reason_b <- member_of([:auto, :source, :fallback]),
-              reason_a != reason_b,
               max_runs: 100 do
       request = request(format: nil)
       origin = "https://origin.test/images/cat.jpg"
@@ -239,21 +230,15 @@ defmodule ImagePlug.Cache.KeyPropertyTest do
         :get
         |> conn("/_/plain/images/cat.jpg")
         |> put_req_header("accept", accept)
-        |> build_key!(request, origin,
-          selected_output_format: selected_output,
-          selected_output_reason: reason_a
-        )
+        |> build_key!(request, origin)
 
       key_b =
         :get
         |> conn("/_/plain/images/cat.jpg")
         |> put_req_header("accept", accept)
-        |> build_key!(request, origin,
-          selected_output_format: selected_output,
-          selected_output_reason: reason_b
-        )
+        |> build_key!(request, origin)
 
-      refute key_a.hash == key_b.hash
+      assert key_a.hash == key_b.hash
     end
   end
 
@@ -268,19 +253,16 @@ defmodule ImagePlug.Cache.KeyPropertyTest do
       assert {:ok, request_b} = Native.parse(conn_b)
       assert request_a == request_b
 
-      key_opts = [selected_output_format: :webp, selected_output_reason: :auto]
-
-      assert build_key!(conn_a, request_a, origin, key_opts).hash ==
-               build_key!(conn_b, request_b, origin, key_opts).hash
+      assert build_key!(conn_a, request_a, origin).hash ==
+               build_key!(conn_b, request_b, origin).hash
     end
   end
 
   defp key_material do
     map(
-      {origin_identity(), cacheable_request(), member_of([nil, :webp, :avif, :jpeg, :png]),
-       boolean()},
+      {origin_identity(), cacheable_request(), member_of([nil, :webp, :avif, :jpeg, :png])},
       fn
-        {origin, request, format, automatic} ->
+        {origin, request, format} ->
           [
             schema_version: 1,
             origin_identity: origin,
@@ -299,7 +281,15 @@ defmodule ImagePlug.Cache.KeyPropertyTest do
               gravity_x_offset: request.gravity_x_offset,
               gravity_y_offset: request.gravity_y_offset
             ],
-            output: [format: format, automatic: automatic],
+            output:
+              if(format == nil,
+                do: [
+                  mode: :automatic,
+                  accept: [avif: true, webp: true, jpeg: true, png: true],
+                  auto: [avif: true, webp: true]
+                ],
+                else: [mode: :explicit, format: format]
+              ),
             selected_headers: [],
             selected_cookies: []
           ]

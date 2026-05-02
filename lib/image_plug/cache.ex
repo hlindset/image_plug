@@ -10,9 +10,7 @@ defmodule ImagePlug.Cache do
   alias ImagePlug.ProcessingRequest
 
   @shared_cache_option_keys [:key_headers, :key_cookies, :max_body_bytes, :fail_on_cache_error]
-  @lookup_key_option_keys [:selected_output_format, :selected_output_reason]
-  @selected_output_formats [:avif, :webp, :jpeg, :png]
-  @selected_output_reasons [:auto, :source, :fallback]
+  @key_option_keys [:auto_avif, :auto_webp]
   @shared_cache_options_schema NimbleOptions.new!(
                                  key_headers: [
                                    type: {:list, :string}
@@ -65,21 +63,13 @@ defmodule ImagePlug.Cache do
 
   @spec lookup(Plug.Conn.t(), ProcessingRequest.t(), String.t(), keyword()) :: lookup_result()
   def lookup(conn, %ProcessingRequest{} = request, origin_identity, opts) when is_list(opts) do
-    lookup(conn, request, origin_identity, opts, [])
-  end
-
-  @spec lookup(Plug.Conn.t(), ProcessingRequest.t(), String.t(), keyword(), keyword()) ::
-          lookup_result()
-  def lookup(conn, %ProcessingRequest{} = request, origin_identity, opts, key_opts)
-      when is_list(opts) and is_list(key_opts) do
     case cache_config(opts) do
       nil ->
         :disabled
 
       {:ok, adapter, cache_opts} ->
-        with {:ok, key_opts} <- validate_lookup_key_opts(key_opts),
-             {:ok, key} <-
-               Key.build(conn, request, origin_identity, Keyword.merge(cache_opts, key_opts)) do
+        with {:ok, key} <-
+               Key.build(conn, request, origin_identity, key_options(opts, cache_opts)) do
           case adapter.get(key, cache_opts) do
             {:hit, %Entry{} = entry} ->
               {:hit, key, entry}
@@ -94,56 +84,12 @@ defmodule ImagePlug.Cache do
               handle_read_error({:invalid_adapter_result, unexpected}, key, cache_opts)
           end
         else
-          {:error, {:lookup_key_opts, reason}} ->
-            handle_key_error(reason, cache_opts)
-
           {:error, reason} ->
             handle_key_error(reason, cache_opts)
         end
 
       {:error, reason} ->
         {:error, {:cache_read, reason}}
-    end
-  end
-
-  defp validate_lookup_key_opts(key_opts) do
-    cond do
-      not Keyword.keyword?(key_opts) ->
-        {:error, {:lookup_key_opts, {:invalid_key_options, key_opts}}}
-
-      unsupported_key = Enum.find(Keyword.keys(key_opts), &(&1 not in @lookup_key_option_keys)) ->
-        {:error, {:lookup_key_opts, {:unsupported_key_option, unsupported_key}}}
-
-      true ->
-        with {:ok, key_opts} <- validate_selected_output_format(key_opts) do
-          validate_selected_output_reason(key_opts)
-        end
-    end
-  end
-
-  defp validate_selected_output_format(key_opts) do
-    case Keyword.fetch(key_opts, :selected_output_format) do
-      {:ok, format} when format in @selected_output_formats ->
-        {:ok, key_opts}
-
-      {:ok, format} ->
-        {:error, {:lookup_key_opts, {:invalid_selected_output_format, format}}}
-
-      :error ->
-        {:ok, key_opts}
-    end
-  end
-
-  defp validate_selected_output_reason(key_opts) do
-    case Keyword.fetch(key_opts, :selected_output_reason) do
-      {:ok, reason} when reason in @selected_output_reasons ->
-        {:ok, key_opts}
-
-      {:ok, reason} ->
-        {:error, {:lookup_key_opts, {:invalid_selected_output_reason, reason}}}
-
-      :error ->
-        {:ok, key_opts}
     end
   end
 
@@ -267,5 +213,9 @@ defmodule ImagePlug.Cache do
       Logger.warning("cache write error: #{inspect(reason)}")
       :ok
     end
+  end
+
+  defp key_options(opts, cache_opts) do
+    Keyword.merge(cache_opts, Keyword.take(opts, @key_option_keys))
   end
 end

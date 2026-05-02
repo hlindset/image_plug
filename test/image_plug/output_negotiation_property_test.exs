@@ -9,10 +9,9 @@ defmodule ImagePlug.OutputNegotiationPropertyTest do
 
   property "negotiate returns only supported output MIME types" do
     check all accept_header <- accept_header(),
-              has_alpha? <- boolean(),
               opts <- negotiation_opts(),
               max_runs: 100 do
-      case OutputNegotiation.negotiate(accept_header, has_alpha?, opts) do
+      case OutputNegotiation.negotiate(accept_header, opts) do
         {:ok, mime_type} -> assert mime_type in @supported_mime_types
         {:error, :not_acceptable} -> assert true
       end
@@ -21,11 +20,10 @@ defmodule ImagePlug.OutputNegotiationPropertyTest do
 
   property "disabled modern formats are not selected for jpeg/png/unknown sources" do
     check all accept_header <- accept_header(),
-              has_alpha? <- boolean(),
               source_format <- member_of([nil, :jpeg, :png]),
               max_runs: 100 do
       result =
-        OutputNegotiation.negotiate(accept_header, has_alpha?,
+        OutputNegotiation.negotiate(accept_header,
           auto_avif: false,
           auto_webp: false,
           source_format: source_format
@@ -38,17 +36,17 @@ defmodule ImagePlug.OutputNegotiationPropertyTest do
     end
   end
 
-  property "alpha fallback without source format never selects JPEG when modern formats are disabled" do
+  property "unknown source format does not invent JPEG or PNG when modern formats are disabled" do
     check all accept_header <- accept_header(),
               max_runs: 100 do
       result =
-        OutputNegotiation.negotiate(accept_header, true,
+        OutputNegotiation.negotiate(accept_header,
           auto_avif: false,
           auto_webp: false,
           source_format: nil
         )
 
-      refute result == {:ok, "image/jpeg"}
+      assert result == {:error, :not_acceptable}
     end
   end
 

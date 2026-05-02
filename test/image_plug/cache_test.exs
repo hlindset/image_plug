@@ -136,91 +136,31 @@ defmodule ImagePlug.CacheTest do
     assert key.hash =~ ~r/\A[0-9a-f]{64}\z/
   end
 
-  test "lookup key opts affect key material without reaching adapter opts" do
+  test "automatic lookup key uses normalized Accept without reaching adapter opts" do
     request = %ProcessingRequest{request() | format: nil}
 
     assert {:miss, %Key{} = key} =
              Cache.lookup(
-               conn(:get, "/_/plain/images/cat.jpg"),
+               :get
+               |> conn("/_/plain/images/cat.jpg")
+               |> Plug.Conn.put_req_header("accept", "image/avif,image/webp"),
                request,
                "https://origin.test/cat.jpg",
-               [cache: {CaptureAdapter, key_headers: ["accept-language"]}],
-               selected_output_format: :avif,
-               selected_output_reason: :auto
+               auto_avif: false,
+               cache: {CaptureAdapter, key_headers: ["accept-language"]}
              )
 
-    assert key.material[:output] == [format: :avif, automatic: true, selection: :auto]
+    assert key.material[:output] == [
+             mode: :automatic,
+             accept: [avif: true, webp: true, jpeg: false, png: false],
+             auto: [avif: false, webp: true]
+           ]
+
     assert_received {:cache_get, ^key, adapter_opts}
     refute Keyword.has_key?(adapter_opts, :selected_output_format)
     refute Keyword.has_key?(adapter_opts, :selected_output_reason)
+    refute Keyword.has_key?(adapter_opts, :auto_avif)
     assert Keyword.fetch!(adapter_opts, :key_headers) == ["accept-language"]
-  end
-
-  test "invalid automatic output reason fails open before adapter calls by default" do
-    request = %ProcessingRequest{request() | format: nil}
-
-    log =
-      capture_log(fn ->
-        assert :skip_cache =
-                 Cache.lookup(
-                   conn(:get, "/_/plain/images/cat.jpg"),
-                   request,
-                   "https://origin.test/cat.jpg",
-                   [cache: {ShouldNotBeCalledAdapter, []}],
-                   selected_output_format: :avif,
-                   selected_output_reason: :bogus
-                 )
-      end)
-
-    assert log =~ "cache key error"
-    assert log =~ ":invalid_selected_output_reason"
-  end
-
-  test "unsupported lookup key opts fail open before adapter calls" do
-    log =
-      capture_log(fn ->
-        assert :skip_cache =
-                 Cache.lookup(
-                   conn(:get, "/_/f:webp/plain/images/cat.jpg"),
-                   request(),
-                   "https://origin.test/cat.jpg",
-                   [cache: {ShouldNotBeCalledAdapter, []}],
-                   key_headers: ["accept-language"]
-                 )
-      end)
-
-    assert log =~ "cache key error"
-    assert log =~ ":unsupported_key_option"
-  end
-
-  test "invalid key material fails open before adapter calls by default" do
-    request = %ProcessingRequest{request() | format: nil}
-
-    log =
-      capture_log(fn ->
-        assert :skip_cache =
-                 Cache.lookup(
-                   conn(:get, "/_/plain/images/cat.jpg"),
-                   request,
-                   "https://origin.test/cat.jpg",
-                   cache: {ShouldNotBeCalledAdapter, []}
-                 )
-      end)
-
-    assert log =~ "cache key error"
-    assert log =~ ":missing_selected_output_format"
-  end
-
-  test "invalid key material returns cache read error when fail_on_cache_error is true" do
-    request = %ProcessingRequest{request() | format: nil}
-
-    assert {:error, {:cache_read, {:key, :missing_selected_output_format}}} =
-             Cache.lookup(
-               conn(:get, "/_/plain/images/cat.jpg"),
-               request,
-               "https://origin.test/cat.jpg",
-               cache: {ShouldNotBeCalledAdapter, fail_on_cache_error: true}
-             )
   end
 
   test "read errors fail open by default and are logged" do

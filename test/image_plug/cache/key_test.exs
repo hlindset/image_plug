@@ -59,7 +59,7 @@ defmodule ImagePlug.Cache.KeyTest do
              gravity_y_offset: 0.0
            ]
 
-    assert key.material[:output] == [format: :webp, automatic: false]
+    assert key.material[:output] == [mode: :explicit, format: :webp]
     assert key.material[:selected_headers] == []
     assert key.material[:selected_cookies] == []
     assert key.serialized_material == Key.serialize_material(key.material)
@@ -118,7 +118,7 @@ defmodule ImagePlug.Cache.KeyTest do
     refute inspect(key.material) =~ "ignored_cookie"
   end
 
-  test "automatic output includes selected format instead of raw Accept" do
+  test "automatic output includes normalized Accept capabilities instead of selected output" do
     request = request(format: nil)
 
     conn_one =
@@ -131,83 +131,56 @@ defmodule ImagePlug.Cache.KeyTest do
       |> conn("/_/plain/images/cat.jpg")
       |> put_req_header("accept", "image/avif,image/webp")
 
-    key_one =
-      build_key!(conn_one, request, "https://origin.test/images/cat.jpg",
-        selected_output_format: :avif,
-        selected_output_reason: :auto
-      )
+    key_one = build_key!(conn_one, request, "https://origin.test/images/cat.jpg")
+    key_two = build_key!(conn_two, request, "https://origin.test/images/cat.jpg")
 
-    key_two =
-      build_key!(conn_two, request, "https://origin.test/images/cat.jpg",
-        selected_output_format: :avif,
-        selected_output_reason: :auto
-      )
+    assert key_one.material[:output] == [
+             mode: :automatic,
+             accept: [avif: true, webp: true, jpeg: false, png: false],
+             auto: [avif: true, webp: true]
+           ]
 
-    assert key_one.material[:output] == [format: :avif, automatic: true, selection: :auto]
     assert key_one.hash == key_two.hash
   end
 
-  test "different selected automatic output changes cache key" do
+  test "different automatic Accept capabilities change cache key" do
     request = request(format: nil)
-    conn = conn(:get, "/_/plain/images/cat.jpg")
 
     avif_key =
-      build_key!(conn, request, "https://origin.test/images/cat.jpg",
-        selected_output_format: :avif,
-        selected_output_reason: :auto
-      )
+      :get
+      |> conn("/_/plain/images/cat.jpg")
+      |> put_req_header("accept", "image/avif")
+      |> build_key!(request, "https://origin.test/images/cat.jpg")
 
     webp_key =
-      build_key!(conn, request, "https://origin.test/images/cat.jpg",
-        selected_output_format: :webp,
-        selected_output_reason: :auto
-      )
+      :get
+      |> conn("/_/plain/images/cat.jpg")
+      |> put_req_header("accept", "image/webp")
+      |> build_key!(request, "https://origin.test/images/cat.jpg")
 
     refute avif_key.hash == webp_key.hash
   end
 
-  test "different automatic output selection reasons change cache key" do
+  test "different automatic output feature flags change cache key" do
     request = request(format: nil)
-    conn = conn(:get, "/_/plain/images/cat.jpg")
 
-    auto_key =
-      build_key!(conn, request, "https://origin.test/images/cat.jpg",
-        selected_output_format: :avif,
-        selected_output_reason: :auto
-      )
+    conn =
+      :get
+      |> conn("/_/plain/images/cat.jpg")
+      |> put_req_header("accept", "image/avif,image/webp")
 
-    source_key =
-      build_key!(conn, request, "https://origin.test/images/cat.jpg",
-        selected_output_format: :avif,
-        selected_output_reason: :source
-      )
+    default_key = build_key!(conn, request, "https://origin.test/images/cat.jpg")
 
-    assert auto_key.material[:output] == [format: :avif, automatic: true, selection: :auto]
-    assert source_key.material[:output] == [format: :avif, automatic: true, selection: :source]
-    refute auto_key.hash == source_key.hash
-  end
+    webp_only_key =
+      build_key!(conn, request, "https://origin.test/images/cat.jpg", auto_avif: false)
 
-  test "automatic output requires selected output format and reason" do
-    assert Key.build(
-             conn(:get, "/_/plain/images/cat.jpg"),
-             request(format: nil),
-             "https://origin.test/images/cat.jpg"
-           ) == {:error, :missing_selected_output_format}
+    refute default_key.hash == webp_only_key.hash
 
-    assert Key.build(
-             conn(:get, "/_/plain/images/cat.jpg"),
-             request(format: nil),
-             "https://origin.test/images/cat.jpg",
-             selected_output_format: :webp
-           ) == {:error, :missing_selected_output_reason}
-
-    assert Key.build(
-             conn(:get, "/_/plain/images/cat.jpg"),
-             request(format: nil),
-             "https://origin.test/images/cat.jpg",
-             selected_output_format: :webp,
-             selected_output_reason: :bogus
-           ) == {:error, {:invalid_selected_output_reason, :bogus}}
+    assert webp_only_key.material[:output] == [
+             mode: :automatic,
+             accept: [avif: true, webp: true, jpeg: false, png: false],
+             auto: [avif: false, webp: true]
+           ]
   end
 
   test "explicit formats do not include Accept material or automatic marker" do
@@ -218,6 +191,6 @@ defmodule ImagePlug.Cache.KeyTest do
 
     key = build_key!(conn, request(format: :webp), "https://origin.test/images/cat.jpg")
 
-    assert key.material[:output] == [format: :webp, automatic: false]
+    assert key.material[:output] == [mode: :explicit, format: :webp]
   end
 end
