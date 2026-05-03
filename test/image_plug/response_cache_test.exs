@@ -83,4 +83,23 @@ defmodule ImagePlug.ResponseCacheTest do
     assert entry.content_type == "image/png"
     assert_received {:cache_put, ^key, ^entry, _adapter_opts}
   end
+
+  test "store returns tagged encode errors for invalid response headers" do
+    {:ok, image} = Image.new(1, 1)
+    state = %TransformState{image: image, output: :png}
+
+    assert {:error, {:encode, %ArgumentError{} = exception, _stacktrace}} =
+             ResponseCache.store(
+               %Key{
+                 hash: String.duplicate("a", 64),
+                 material: [schema_version: 1],
+                 serialized_material: :erlang.term_to_binary([schema_version: 1])
+               },
+               state,
+               [{"invalid header name", "value"}],
+               cache: {CaptureAdapter, []}
+             )
+
+    assert Exception.message(exception) =~ "invalid cache entry"
+  end
 end

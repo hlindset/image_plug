@@ -29,9 +29,26 @@ defmodule ImagePlug.ResponseCache do
   @spec store(Key.t(), TransformState.t(), [{String.t(), String.t()}], keyword()) ::
           {:ok, Entry.t()} | {:error, term()}
   def store(%Key{} = key, %TransformState{} = state, response_headers, opts) do
-    with {:ok, entry} <- OutputEncoder.cache_entry(state, opts, response_headers),
+    with {:ok, %OutputEncoder.EncodedOutput{} = output} <- OutputEncoder.memory_output(state, opts),
+         {:ok, entry} <- entry(output, response_headers),
          put_result when put_result in [:ok, :skipped] <- Cache.put(key, entry, opts) do
       {:ok, entry}
+    end
+  end
+
+  defp entry(%OutputEncoder.EncodedOutput{} = output, response_headers) do
+    case Entry.new(
+           body: output.body,
+           content_type: output.content_type,
+           headers: response_headers,
+           created_at: DateTime.utc_now()
+         ) do
+      {:ok, entry} ->
+        {:ok, entry}
+
+      {:error, reason} ->
+        {:error,
+         {:encode, ArgumentError.exception("invalid cache entry: #{inspect(reason)}"), []}}
     end
   end
 end
