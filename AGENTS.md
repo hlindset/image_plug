@@ -69,6 +69,7 @@
 
 - Read the docs and options before using tasks (by using `mise exec -- mix help task_name`)
 - To debug test failures, run tests in a specific file with `mise exec -- mix test test/my_test.exs` or run all previously failed tests with `mise exec -- mix test --failed`
+- Run `mise exec -- mix credo --strict` to lint the codebase.
 - `mix deps.clean --all` is **almost never needed**. **Avoid** using it unless you have good reason
 - Before finishing code changes, run the relevant focused tests through `mise exec -- ...`; for broader behavioral or public API changes, also run `mise exec -- mix test` and `mise exec -- mix compile --warnings-as-errors`.
 
