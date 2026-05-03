@@ -212,6 +212,9 @@ defmodule ImagePlug.PipelinePlannerTest do
     assert PipelinePlanner.plan(request(resizing_type: :bogus)) ==
              {:error, {:invalid_resizing_type, :bogus}}
 
+    assert PipelinePlanner.plan(request(enlarge: :bogus)) ==
+             {:error, {:invalid_enlarge, :bogus}}
+
     assert PipelinePlanner.plan(
              request(
                resizing_type: :fill,

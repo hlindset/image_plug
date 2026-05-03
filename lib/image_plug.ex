@@ -74,29 +74,29 @@ defmodule ImagePlug do
   defp handle_processing_error(
          conn,
          {:transform_error, %TransformState{errors: errors}},
-         _headers
+         response_headers
        ) do
     Logger.info("transform_error(s): #{inspect(errors)}")
-    send_transform_error(conn)
+    send_transform_error(conn, response_headers)
   end
 
-  defp handle_processing_error(conn, {:origin, error}, _headers),
-    do: send_origin_error(conn, error)
+  defp handle_processing_error(conn, {:origin, error}, response_headers),
+    do: send_origin_error(conn, error, response_headers)
 
-  defp handle_processing_error(conn, {:decode, error}, _headers),
-    do: send_decode_error(conn, error)
+  defp handle_processing_error(conn, {:decode, error}, response_headers),
+    do: send_decode_error(conn, error, response_headers)
 
-  defp handle_processing_error(conn, {:input_limit, error}, _headers),
-    do: send_input_limit_error(conn, error)
+  defp handle_processing_error(conn, {:input_limit, error}, response_headers),
+    do: send_input_limit_error(conn, error, response_headers)
 
   defp handle_processing_error(conn, :not_acceptable, response_headers),
     do: send_not_acceptable(conn, response_headers)
 
-  defp handle_processing_error(conn, {:encode, exception, stacktrace}, _headers),
-    do: handle_encode_exception(exception, stacktrace, conn)
+  defp handle_processing_error(conn, {:encode, exception, stacktrace}, response_headers),
+    do: handle_encode_exception(exception, stacktrace, conn, response_headers)
 
-  defp handle_processing_error(conn, {:cache_write, error}, _headers),
-    do: send_cache_error(conn, error)
+  defp handle_processing_error(conn, {:cache_write, error}, response_headers),
+    do: send_cache_error(conn, error, response_headers)
 
   defp origin_identity(%ProcessingRequest{source_kind: :plain, source_path: source_path}, opts) do
     root_url = Keyword.fetch!(opts, :root_url)
@@ -116,34 +116,42 @@ defmodule ImagePlug do
   defp wrap_origin_error({:error, error}), do: {:error, {:origin, error}}
   defp wrap_origin_error(result), do: result
 
-  defp send_origin_error(%Plug.Conn{} = conn, {:bad_status, 404}) do
+  defp send_origin_error(%Plug.Conn{} = conn, error),
+    do: send_origin_error(conn, error, [])
+
+  defp send_origin_error(%Plug.Conn{} = conn, {:bad_status, 404}, response_headers) do
     conn
+    |> put_resp_headers(response_headers)
     |> put_resp_content_type("text/plain")
     |> send_resp(404, "origin image not found")
   end
 
-  defp send_origin_error(%Plug.Conn{} = conn, _error) do
+  defp send_origin_error(%Plug.Conn{} = conn, _error, response_headers) do
     conn
+    |> put_resp_headers(response_headers)
     |> put_resp_content_type("text/plain")
     |> send_resp(502, "error fetching origin image")
   end
 
-  defp send_decode_error(%Plug.Conn{} = conn, _error) do
+  defp send_decode_error(%Plug.Conn{} = conn, _error, response_headers) do
     conn
+    |> put_resp_headers(response_headers)
     |> put_resp_content_type("text/plain")
     |> send_resp(415, "origin response is not a supported image")
   end
 
-  defp send_input_limit_error(%Plug.Conn{} = conn, error) do
+  defp send_input_limit_error(%Plug.Conn{} = conn, error, response_headers) do
     Logger.info("input_limit_error: #{inspect(error)}")
 
     conn
+    |> put_resp_headers(response_headers)
     |> put_resp_content_type("text/plain")
     |> send_resp(413, "origin image is too large")
   end
 
-  defp send_transform_error(%Plug.Conn{} = conn) do
+  defp send_transform_error(%Plug.Conn{} = conn, response_headers) do
     conn
+    |> put_resp_headers(response_headers)
     |> put_resp_content_type("text/plain")
     |> send_resp(422, "invalid image transform")
   end
@@ -161,17 +169,17 @@ defmodule ImagePlug do
             conn
 
           {:empty, conn} ->
-            send_empty_stream_encode_error(conn)
+            send_empty_stream_encode_error(conn, response_headers)
 
           {:raise, exception, stacktrace, conn} ->
-            handle_encode_exception(exception, stacktrace, conn)
+            handle_encode_exception(exception, stacktrace, conn, response_headers)
         end
       rescue
-        exception -> handle_encode_exception(exception, __STACKTRACE__, conn)
+        exception -> handle_encode_exception(exception, __STACKTRACE__, conn, response_headers)
       end
     else
       {:error, :not_acceptable} -> send_not_acceptable(conn, response_headers)
-      :error -> send_encode_error(conn)
+      :error -> send_encode_error(conn, response_headers)
     end
   end
 
@@ -190,10 +198,14 @@ defmodule ImagePlug do
     end
   end
 
-  defp send_cache_error(%Plug.Conn{} = conn, error) do
+  defp send_cache_error(%Plug.Conn{} = conn, error),
+    do: send_cache_error(conn, error, [])
+
+  defp send_cache_error(%Plug.Conn{} = conn, error, response_headers) do
     Logger.error("cache_error: #{inspect(error)}")
 
     conn
+    |> put_resp_headers(response_headers)
     |> put_resp_content_type("text/plain")
     |> send_resp(500, "cache error")
   end
@@ -247,19 +259,19 @@ defmodule ImagePlug do
     exception -> {:raise, exception, __STACKTRACE__, conn}
   end
 
-  defp handle_encode_exception(exception, stacktrace, %Plug.Conn{} = conn) do
+  defp handle_encode_exception(exception, stacktrace, %Plug.Conn{} = conn, response_headers) do
     Logger.error("encode_error: #{Exception.format(:error, exception, stacktrace)}")
 
     if conn.state in [:unset, :set] do
-      send_encode_error(conn)
+      send_encode_error(conn, response_headers)
     else
       conn
     end
   end
 
-  defp send_empty_stream_encode_error(%Plug.Conn{} = conn) do
+  defp send_empty_stream_encode_error(%Plug.Conn{} = conn, response_headers) do
     Logger.error("encode_error: image encoder produced an empty stream")
-    send_encode_error(conn)
+    send_encode_error(conn, response_headers)
   end
 
   defp send_not_acceptable(%Plug.Conn{} = conn, response_headers) do
@@ -275,8 +287,9 @@ defmodule ImagePlug do
     end)
   end
 
-  defp send_encode_error(%Plug.Conn{} = conn) do
+  defp send_encode_error(%Plug.Conn{} = conn, response_headers) do
     conn
+    |> put_resp_headers(response_headers)
     |> put_resp_content_type("text/plain")
     |> send_resp(500, "error encoding image")
   end

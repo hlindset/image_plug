@@ -1068,6 +1068,7 @@ defmodule ImagePlug.ImagePlugTest do
     assert conn.state == :sent
     assert conn.resp_body == "origin response is not a supported image"
     assert get_resp_header(conn, "content-type") == ["text/plain; charset=utf-8"]
+    assert get_resp_header(conn, "vary") == ["Accept"]
   end
 
   test "deferred automatic sequential materialization failure returns decode error" do
@@ -1090,6 +1091,7 @@ defmodule ImagePlug.ImagePlugTest do
     assert conn.state == :sent
     assert conn.resp_body == "origin response is not a supported image"
     assert get_resp_header(conn, "content-type") == ["text/plain; charset=utf-8"]
+    assert get_resp_header(conn, "vary") == ["Accept"]
   end
 
   test "processes a native path URL with dimensions and explicit output format" do
@@ -1415,6 +1417,32 @@ defmodule ImagePlug.ImagePlugTest do
     flush_cache_probe(cache_probe)
     assert conn.status == 500
     assert conn.resp_body == "cache error"
+    assert_received :origin_was_called
+    assert_received {:cache_put, _key, _entry}
+  end
+
+  test "automatic cache write errors preserve negotiated Vary when fail_on_cache_error is true" do
+    cache_probe = start_cache_probe()
+
+    conn =
+      :get
+      |> conn("/_/plain/images/cat-300.jpg")
+      |> put_req_header("accept", "image/jpeg")
+      |> ImagePlug.call(
+        root_url: "http://origin.test",
+        param_parser: ImagePlug.ParamParser.Native,
+        origin_req_options: [plug: {CountingOriginImage, test_pid: cache_probe}],
+        cache:
+          {CacheProbe,
+           message_target: cache_probe,
+           put_result: {:error, :write_failed},
+           fail_on_cache_error: true}
+      )
+
+    flush_cache_probe(cache_probe)
+    assert conn.status == 500
+    assert conn.resp_body == "cache error"
+    assert get_resp_header(conn, "vary") == ["Accept"]
     assert_received :origin_was_called
     assert_received {:cache_put, _key, _entry}
   end

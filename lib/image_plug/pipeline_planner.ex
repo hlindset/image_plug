@@ -37,6 +37,10 @@ defmodule ImagePlug.PipelinePlanner do
        when resizing_type not in @supported_resizing_types,
        do: {:error, {:invalid_resizing_type, resizing_type}}
 
+  defp validate_supported_semantics(%ProcessingRequest{enlarge: enlarge})
+       when enlarge not in [true, false],
+       do: {:error, {:invalid_enlarge, enlarge}}
+
   defp validate_supported_semantics(%ProcessingRequest{gravity: gravity} = request) do
     if valid_gravity?(gravity) do
       validate_extend_semantics(request)

@@ -57,12 +57,13 @@ defmodule ImagePlug.RequestRunner do
 
   defp process_cache_miss(conn, request, chain, origin_identity, key, opts) do
     with {:ok, final_state, response_headers} <-
-           process_request(conn, request, chain, origin_identity, opts),
-         {:ok, entry} <- ResponseCache.store(key, final_state, response_headers, opts) do
-      {:ok, {:cache_entry, entry}}
+           process_request(conn, request, chain, origin_identity, opts) do
+      case ResponseCache.store(key, final_state, response_headers, opts) do
+        {:ok, entry} -> {:ok, {:cache_entry, entry}}
+        error -> {:error, {:processing, error, response_headers}}
+      end
     else
       {:error, error, response_headers} -> {:error, {:processing, error, response_headers}}
-      error -> {:error, {:processing, error, []}}
     end
   end
 
