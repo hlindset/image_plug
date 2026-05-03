@@ -243,6 +243,20 @@ defmodule ImagePlug.PipelinePlannerTest do
            ) == {:error, {:invalid_gravity, {:fp, 0.5, 1.1}}}
   end
 
+  test "rejects invalid dimensions from pluggable parsers" do
+    assert PipelinePlanner.plan(request(width: {:pixels, -1})) ==
+             {:error, {:invalid_dimension, :width, {:pixels, -1}}}
+
+    assert PipelinePlanner.plan(request(height: {:pixels, "200"})) ==
+             {:error, {:invalid_dimension, :height, {:pixels, "200"}}}
+
+    assert PipelinePlanner.plan(request(width: 300)) ==
+             {:error, {:invalid_dimension, :width, 300}}
+
+    assert PipelinePlanner.plan(request(height: {:percent, 50})) ==
+             {:error, {:invalid_dimension, :height, {:percent, 50}}}
+  end
+
   test "rejects fill without both dimensions" do
     assert PipelinePlanner.plan(request(resizing_type: :fill)) ==
              {:error, {:missing_dimensions, :fill}}

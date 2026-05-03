@@ -13,11 +13,26 @@ defmodule ImagePlug.PipelinePlanner do
 
   @spec plan(ProcessingRequest.t()) :: {:ok, TransformChain.t()} | {:error, term()}
   def plan(%ProcessingRequest{} = request) do
-    with :ok <- validate_supported_semantics(request),
+    with :ok <- validate_dimensions(request),
+         :ok <- validate_supported_semantics(request),
          {:ok, geometry_chain} <- plan_geometry(request) do
       {:ok, append_output(geometry_chain, request.format)}
     end
   end
+
+  defp validate_dimensions(%ProcessingRequest{width: width, height: height}) do
+    with :ok <- validate_dimension(:width, width),
+         :ok <- validate_dimension(:height, height) do
+      :ok
+    end
+  end
+
+  defp validate_dimension(_field, nil), do: :ok
+
+  defp validate_dimension(_field, {:pixels, value}) when is_number(value) and value >= 0,
+    do: :ok
+
+  defp validate_dimension(field, value), do: {:error, {:invalid_dimension, field, value}}
 
   defp validate_supported_semantics(%ProcessingRequest{format: :best}),
     do: {:error, {:unsupported_output_format, :best}}
