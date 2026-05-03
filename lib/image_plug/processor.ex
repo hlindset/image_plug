@@ -45,27 +45,52 @@ defmodule ImagePlug.Processor do
         chain,
         opts
       ) do
-    decode_options = DecodePlanner.open_options(chain)
+    with {:ok, origin_response, source_format} <-
+           fetch_origin_with_source_format(request, origin_identity, opts),
+         {:ok, %DecodedOrigin{} = decoded} <-
+           decode_validate_origin_response(origin_response, source_format, chain, opts) do
+      {:ok, decoded}
+    end
+  end
 
+  @spec fetch_origin_with_source_format(ProcessingRequest.t(), String.t(), keyword()) ::
+          {:ok, Origin.Response.t(), :avif | :webp | :jpeg | :png | nil} | {:error, term()}
+  def fetch_origin_with_source_format(%ProcessingRequest{} = request, origin_identity, opts) do
     with {:ok, origin_response} <-
            fetch_origin(request, origin_identity, opts) |> wrap_origin_error() do
-      result =
-        with source_format = source_format(origin_response),
-             {:ok, image} <-
-               decode_origin_response(origin_response, decode_options, opts)
-               |> wrap_origin_decode_error(),
-             :ok <- validate_input_image(image, opts) |> wrap_input_limit_error() do
-          {:ok,
-           %DecodedOrigin{
-             decode_options: decode_options,
-             image: image,
-             origin_response: origin_response,
-             source_format: source_format
-           }}
-        end
-
-      close_pending_origin_on_error(result, origin_response)
+      {:ok, origin_response, source_format(origin_response)}
     end
+  end
+
+  @spec decode_validate_origin_response(
+          Origin.Response.t(),
+          :avif | :webp | :jpeg | :png | nil,
+          TransformChain.t(),
+          keyword()
+        ) :: {:ok, DecodedOrigin.t()} | {:error, term()}
+  def decode_validate_origin_response(
+        %Origin.Response{} = origin_response,
+        source_format,
+        chain,
+        opts
+      ) do
+    decode_options = DecodePlanner.open_options(chain)
+
+    result =
+      with {:ok, image} <-
+             decode_origin_response(origin_response, decode_options, opts)
+             |> wrap_origin_decode_error(),
+           :ok <- validate_input_image(image, opts) |> wrap_input_limit_error() do
+        {:ok,
+         %DecodedOrigin{
+           decode_options: decode_options,
+           image: image,
+           origin_response: origin_response,
+           source_format: source_format
+         }}
+      end
+
+    close_pending_origin_on_error(result, origin_response)
   end
 
   @spec process_decoded_origin(DecodedOrigin.t(), TransformChain.t(), keyword()) ::

@@ -106,16 +106,13 @@ defmodule ImagePlug.RequestRunner do
          origin_identity,
          opts
        ) do
-    with {:ok, %Processor.DecodedOrigin{} = decoded} <-
-           Processor.fetch_decode_validate_origin_with_source_format(
-             request,
-             origin_identity,
-             chain,
-             opts
-           ) do
-      case OutputSelection.negotiate(conn, decoded.source_format, chain, opts) do
+    with {:ok, origin_response, source_format} <-
+           Processor.fetch_origin_with_source_format(request, origin_identity, opts) do
+      case OutputSelection.negotiate(conn, source_format, chain, opts) do
         {:ok, %OutputSelection{} = selection} ->
-          with {:ok, final_state} <-
+          with {:ok, %Processor.DecodedOrigin{} = decoded} <-
+                 Processor.decode_validate_origin_response(origin_response, source_format, chain, opts),
+               {:ok, final_state} <-
                  Processor.process_decoded_origin(decoded, selection.chain, opts) do
             {:ok, final_state, selection.headers}
           else
@@ -123,7 +120,7 @@ defmodule ImagePlug.RequestRunner do
           end
 
         error ->
-          Processor.close_pending_origin(decoded.origin_response)
+          Processor.close_pending_origin(origin_response)
           {:error, error, OutputSelection.automatic_headers()}
       end
     else

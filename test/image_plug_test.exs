@@ -152,6 +152,10 @@ defmodule ImagePlug.ImagePlugTest do
     end
   end
 
+  defmodule RejectingImageOpen do
+    def open(_stream, _opts), do: raise("source negotiation should happen before decode")
+  end
+
   defmodule FailingMaterializer do
     def materialize(_image), do: {:error, :forced_materialization_failure}
   end
@@ -965,6 +969,26 @@ defmodule ImagePlug.ImagePlugTest do
     assert conn.status == 406
     assert conn.resp_body == "no acceptable image output format"
     assert get_resp_header(conn, "vary") == ["Accept"]
+  end
+
+  test "deferred automatic negotiation rejects unacceptable source type before decoding" do
+    conn =
+      :get
+      |> conn("/_/plain/images/cat-300.jpg")
+      |> put_req_header("accept", "image/png")
+
+    conn =
+      ImagePlug.call(conn,
+        root_url: "http://origin.test",
+        param_parser: ImagePlug.ParamParser.Native,
+        auto_avif: false,
+        auto_webp: false,
+        image_open_module: RejectingImageOpen,
+        origin_req_options: [plug: OriginImage]
+      )
+
+    assert conn.status == 406
+    assert conn.resp_body == "no acceptable image output format"
   end
 
   test "does not touch cache or origin when planner rejects unsupported semantics" do
