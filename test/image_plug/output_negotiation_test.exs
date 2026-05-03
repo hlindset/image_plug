@@ -98,6 +98,20 @@ defmodule ImagePlug.OutputNegotiationTest do
                {:ok, "image/webp"}
     end
 
+    test "image wildcard exclusion wins over global wildcard allowance" do
+      accept = "image/*;q=0,*/*;q=1"
+
+      assert OutputNegotiation.accept_class(accept) == [
+               avif: false,
+               webp: false,
+               jpeg: false,
+               png: false
+             ]
+
+      assert OutputNegotiation.negotiate(accept) == {:error, :not_acceptable}
+      assert OutputNegotiation.preselect(accept, []) == {:error, :not_acceptable}
+    end
+
     test "exact q zero excludes a format even with duplicate positive exact entries" do
       accept = "image/avif;q=0,image/avif;q=1,*/*;q=1"
 

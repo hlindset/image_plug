@@ -149,25 +149,41 @@ defmodule ImagePlug.OutputNegotiation do
     entries =
       Enum.map(entries, fn {accepted, quality} -> {canonical_mime_type(accepted), quality} end)
 
-    # Exact q=0 is an explicit exclusion and wins over wildcard allowances
-    # and duplicate positive exact entries.
-    exact_qualities =
-      entries
-      |> Enum.filter(fn {accepted, _quality} -> accepted == mime_type end)
-      |> Enum.map(fn {_accepted, quality} -> quality end)
+    entries
+    |> matching_qualities(mime_type)
+    |> acceptable_quality?()
+  end
 
+  defp matching_qualities(entries, mime_type) do
+    entries
+    |> Enum.group_by(fn {accepted, _quality} -> match_specificity(accepted, mime_type) end)
+    |> then(fn qualities_by_specificity ->
+      [:exact, :image, :global]
+      |> Enum.find_value([], fn specificity ->
+        qualities_by_specificity
+        |> Map.get(specificity, [])
+        |> Enum.map(fn {_accepted, quality} -> quality end)
+        |> case do
+          [] -> nil
+          qualities -> qualities
+        end
+      end)
+    end)
+  end
+
+  defp match_specificity(accepted, mime_type) do
     cond do
-      Enum.any?(exact_qualities, &(&1 == 0)) ->
-        false
-
-      Enum.any?(exact_qualities, &(&1 > 0)) ->
-        true
-
-      true ->
-        entries
-        |> Enum.filter(fn {accepted, _quality} -> matches?(accepted, mime_type) end)
-        |> Enum.any?(fn {_accepted, quality} -> quality > 0 end)
+      accepted == mime_type -> :exact
+      image_wildcard?(accepted, mime_type) -> :image
+      accepted == "*/*" -> :global
+      true -> :none
     end
+  end
+
+  # q=0 at the selected specificity is an explicit exclusion and wins over
+  # duplicate positive entries of the same specificity.
+  defp acceptable_quality?(qualities) do
+    Enum.any?(qualities, &(&1 > 0)) and not Enum.any?(qualities, &(&1 == 0))
   end
 
   defp parse_accept(nil), do: []
@@ -214,10 +230,6 @@ defmodule ImagePlug.OutputNegotiation do
       {quality, ""} when quality >= 0.0 and quality <= 1.0 -> quality
       _ -> 0.0
     end
-  end
-
-  defp matches?(accepted, mime_type) do
-    accepted == mime_type or accepted == "*/*" or image_wildcard?(accepted, mime_type)
   end
 
   defp image_wildcard?("image/*", "image/" <> _subtype), do: true
