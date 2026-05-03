@@ -2,9 +2,9 @@ defmodule ImagePlug.Processor do
   @moduledoc false
 
   alias ImagePlug.DecodePlanner
+  alias ImagePlug.ImageFormat
   alias ImagePlug.ImageMaterializer
   alias ImagePlug.Origin
-  alias ImagePlug.OutputNegotiation
   alias ImagePlug.ProcessingRequest
   alias ImagePlug.TransformChain
   alias ImagePlug.TransformState
@@ -249,7 +249,7 @@ defmodule ImagePlug.Processor do
   defp wrap_input_limit_error({:error, error}), do: {:error, {:input_limit, error}}
 
   defp source_format(%Origin.Response{content_type: content_type}) do
-    case OutputNegotiation.format(content_type) do
+    case ImageFormat.format(content_type) do
       {:ok, format} -> format
       {:error, {:unsupported_output_format, _mime_type}} -> nil
     end

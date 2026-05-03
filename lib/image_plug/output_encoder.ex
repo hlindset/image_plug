@@ -1,7 +1,7 @@
 defmodule ImagePlug.OutputEncoder do
   @moduledoc false
 
-  alias ImagePlug.OutputNegotiation
+  alias ImagePlug.ImageFormat
   alias ImagePlug.TransformState
 
   defmodule EncodedOutput do
@@ -15,7 +15,7 @@ defmodule ImagePlug.OutputEncoder do
 
   @spec mime_type(TransformState.t()) :: {:ok, String.t()} | :error
   def mime_type(%TransformState{output: format}) when is_atom(format) do
-    OutputNegotiation.mime_type(format)
+    ImageFormat.mime_type(format)
   end
 
   @spec memory_output(TransformState.t(), keyword()) ::
@@ -42,7 +42,7 @@ defmodule ImagePlug.OutputEncoder do
 
   defp output_format(%TransformState{} = state) do
     with {:ok, mime_type} <- mime_type(state) do
-      {:ok, mime_type, OutputNegotiation.suffix!(mime_type)}
+      {:ok, mime_type, ImageFormat.suffix!(mime_type)}
     else
       :error -> {:error, {:encode, unsupported_output_format_error(state.output), []}}
     end
