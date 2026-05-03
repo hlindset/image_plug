@@ -226,7 +226,7 @@ defmodule ImagePlug.Processor do
   defp source_format(%Origin.Response{content_type: content_type}) do
     case OutputNegotiation.format(content_type) do
       {:ok, format} -> format
-      :error -> nil
+      {:error, {:unsupported_output_format, _mime_type}} -> nil
     end
   end
 end

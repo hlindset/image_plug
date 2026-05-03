@@ -208,7 +208,9 @@ defmodule ImagePlug.OutputNegotiationTest do
       assert OutputNegotiation.format("image/jpg") == {:ok, :jpeg}
       assert OutputNegotiation.format("image/png") == {:ok, :png}
       assert OutputNegotiation.format("IMAGE/PNG; charset=binary") == {:ok, :png}
-      assert OutputNegotiation.format("image/gif") == :error
+
+      assert OutputNegotiation.format("image/gif") ==
+               {:error, {:unsupported_output_format, "image/gif"}}
     end
 
     test "treats image/jpg Accept ranges as JPEG" do

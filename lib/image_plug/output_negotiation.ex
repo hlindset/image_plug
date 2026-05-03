@@ -65,7 +65,7 @@ defmodule ImagePlug.OutputNegotiation do
            candidate_mime_type == mime_type
          end) do
       {format, _mime_type} -> {:ok, format}
-      nil -> :error
+      nil -> {:error, {:unsupported_output_format, mime_type}}
     end
   end
 
@@ -226,7 +226,7 @@ defmodule ImagePlug.OutputNegotiation do
   defp canonical_mime_type(mime_type) do
     case format(mime_type) do
       {:ok, format} -> Keyword.fetch!(@formats, format)
-      :error -> normalize_mime_type(mime_type)
+      {:error, {:unsupported_output_format, _mime_type}} -> normalize_mime_type(mime_type)
     end
   end
 end

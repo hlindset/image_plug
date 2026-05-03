@@ -41,15 +41,16 @@ defmodule ImagePlug.OutputSelection do
       |> output_negotiation_opts()
       |> Keyword.put(:source_format, source_format)
 
-    case OutputNegotiation.negotiate_selection(accept_header(conn), negotiation_opts) do
-      {:ok, {mime_type, reason}} ->
-        case OutputNegotiation.format(mime_type) do
-          {:ok, format} -> {:ok, selection(chain, format, reason)}
-          :error -> {:error, unsupported_output_format_error(mime_type)}
-        end
+    with {:ok, {mime_type, reason}} <-
+           OutputNegotiation.negotiate_selection(accept_header(conn), negotiation_opts),
+         {:ok, format} <- OutputNegotiation.format(mime_type) do
+      {:ok, selection(chain, format, reason)}
+    else
+      {:error, {:unsupported_output_format, mime_type}} ->
+        {:error, unsupported_output_format_error(mime_type)}
 
-      {:error, :not_acceptable} ->
-        {:error, :not_acceptable}
+      {:error, error} ->
+        {:error, error}
     end
   end
 
