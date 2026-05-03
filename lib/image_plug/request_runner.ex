@@ -1,12 +1,15 @@
 defmodule ImagePlug.RequestRunner do
   @moduledoc false
 
+  import Plug.Conn
+
   alias ImagePlug.Cache.Entry
   alias ImagePlug.Cache.Key
   alias ImagePlug.OutputSelection
   alias ImagePlug.ProcessingRequest
   alias ImagePlug.Processor
   alias ImagePlug.ResponseCache
+  alias ImagePlug.TransformChain
   alias ImagePlug.TransformState
 
   @type delivery() ::
@@ -76,10 +79,15 @@ defmodule ImagePlug.RequestRunner do
          origin_identity,
          opts
        ) do
-    case OutputSelection.preselect(conn, chain, opts) do
+    case OutputSelection.preselect(accept_header(conn), opts) do
       {:ok, %OutputSelection{} = selection} ->
         with {:ok, final_state} <-
-               Processor.process_origin(request, selection.chain, origin_identity, opts) do
+               Processor.process_origin(
+                 request,
+                 TransformChain.append_output(chain, selection.format),
+                 origin_identity,
+                 opts
+               ) do
           {:ok, final_state, selection.headers}
         else
           error -> {:error, error, selection.headers}
@@ -113,12 +121,16 @@ defmodule ImagePlug.RequestRunner do
        ) do
     with {:ok, origin_response, source_format} <-
            Processor.fetch_origin_with_source_format(request, origin_identity, opts) do
-      case OutputSelection.negotiate(conn, source_format, chain, opts) do
+      case OutputSelection.negotiate(accept_header(conn), source_format, opts) do
         {:ok, %OutputSelection{} = selection} ->
           with {:ok, %Processor.DecodedOrigin{} = decoded} <-
                  Processor.decode_validate_origin_response(origin_response, source_format, chain, opts),
                {:ok, final_state} <-
-                 Processor.process_decoded_origin(decoded, selection.chain, opts) do
+                 Processor.process_decoded_origin(
+                   decoded,
+                   TransformChain.append_output(chain, selection.format),
+                   opts
+                 ) do
             {:ok, final_state, selection.headers}
           else
             error -> {:error, error, selection.headers}
@@ -132,4 +144,6 @@ defmodule ImagePlug.RequestRunner do
       error -> {:error, error, OutputSelection.automatic_headers()}
     end
   end
+
+  defp accept_header(conn), do: conn |> get_req_header("accept") |> Enum.join(",")
 end

@@ -18,6 +18,11 @@ defmodule ImagePlug.TransformChain do
 
   @type t() :: list(item())
 
+  @spec append_output(t(), :avif | :webp | :jpeg | :png) :: t()
+  def append_output(chain, format) do
+    chain ++ [{Transform.Output, %Transform.Output.OutputParams{format: format}}]
+  end
+
   @doc """
   Executes a transform chain.
 

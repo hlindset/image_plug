@@ -1,30 +1,25 @@
 defmodule ImagePlug.OutputSelection do
   @moduledoc false
 
-  import Plug.Conn
-
   alias ImagePlug.OutputNegotiation
-  alias ImagePlug.Transform.Output
 
-  @enforce_keys [:chain, :format, :headers, :reason]
+  @enforce_keys [:format, :headers, :reason]
   defstruct @enforce_keys
 
   @type reason() :: :auto | :source
   @type t() :: %__MODULE__{
-          chain: ImagePlug.TransformChain.t(),
           format: :avif | :webp | :jpeg | :png,
           headers: [{String.t(), String.t()}],
           reason: reason()
         }
 
-  @spec preselect(Plug.Conn.t(), ImagePlug.TransformChain.t(), keyword()) ::
+  @spec preselect(String.t() | nil, keyword()) ::
           {:ok, t()} | :defer | {:error, :not_acceptable}
-  def preselect(%Plug.Conn{} = conn, chain, opts) do
-    conn
-    |> accept_header()
+  def preselect(accept_header, opts) do
+    accept_header
     |> OutputNegotiation.preselect(output_negotiation_opts(opts))
     |> case do
-      {:ok, format} -> {:ok, selection(chain, format, :auto)}
+      {:ok, format} -> {:ok, selection(format, :auto)}
       :defer -> :defer
       {:error, :not_acceptable} -> {:error, :not_acceptable}
     end
@@ -33,18 +28,18 @@ defmodule ImagePlug.OutputSelection do
   @spec automatic_headers() :: [{String.t(), String.t()}]
   def automatic_headers, do: accept_vary_headers()
 
-  @spec negotiate(Plug.Conn.t(), atom() | nil, ImagePlug.TransformChain.t(), keyword()) ::
+  @spec negotiate(String.t() | nil, atom() | nil, keyword()) ::
           {:ok, t()} | {:error, :not_acceptable | term()}
-  def negotiate(%Plug.Conn{} = conn, source_format, chain, opts) do
+  def negotiate(accept_header, source_format, opts) do
     negotiation_opts =
       opts
       |> output_negotiation_opts()
       |> Keyword.put(:source_format, source_format)
 
     with {:ok, {mime_type, reason}} <-
-           OutputNegotiation.negotiate_selection(accept_header(conn), negotiation_opts),
+           OutputNegotiation.negotiate_selection(accept_header, negotiation_opts),
          {:ok, format} <- OutputNegotiation.format(mime_type) do
-      {:ok, selection(chain, format, reason)}
+      {:ok, selection(format, reason)}
     else
       {:error, {:unsupported_output_format, mime_type}} ->
         {:error, unsupported_output_format_error(mime_type)}
@@ -54,21 +49,12 @@ defmodule ImagePlug.OutputSelection do
     end
   end
 
-  defp selection(chain, format, reason) do
+  defp selection(format, reason) do
     %__MODULE__{
-      chain: append_output(chain, format),
       format: format,
       headers: accept_vary_headers(),
       reason: reason
     }
-  end
-
-  defp append_output(chain, selected_format) do
-    chain ++ [{Output, %Output.OutputParams{format: selected_format}}]
-  end
-
-  defp accept_header(conn) do
-    conn |> get_req_header("accept") |> Enum.join(",")
   end
 
   defp accept_vary_headers, do: [{"vary", "Accept"}]
