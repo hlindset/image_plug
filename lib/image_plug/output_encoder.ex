@@ -13,14 +13,16 @@ defmodule ImagePlug.OutputEncoder do
   @spec cache_entry(TransformState.t(), keyword(), [{String.t(), String.t()}]) ::
           {:ok, Entry.t()} | {:error, {:encode, Exception.t(), list()}}
   def cache_entry(%TransformState{} = state, opts, response_headers) do
-    with {:ok, mime_type} <- mime_type(state) do
-      suffix = OutputNegotiation.suffix!(mime_type)
-      image_module = Keyword.get(opts, :image_module, Image)
+    with {:ok, mime_type, suffix} <- output_format(state),
+         {:ok, body} <- write_body(Keyword.get(opts, :image_module, Image), state.image, suffix),
+         {:ok, entry} <- build_entry(body, mime_type, response_headers) do
+      {:ok, entry}
+    end
+  end
 
-      with {:ok, body} <- write_body(image_module, state.image, suffix),
-           {:ok, entry} <- build_entry(body, mime_type, response_headers) do
-        {:ok, entry}
-      end
+  defp output_format(%TransformState{} = state) do
+    with {:ok, mime_type} <- mime_type(state) do
+      {:ok, mime_type, OutputNegotiation.suffix!(mime_type)}
     else
       :error -> {:error, {:encode, unsupported_output_format_error(state.output), []}}
     end
