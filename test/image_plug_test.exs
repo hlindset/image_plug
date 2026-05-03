@@ -103,6 +103,13 @@ defmodule ImagePlug.ImagePlugTest do
     end
   end
 
+  defmodule FailingMemoryImage do
+    def write(_image, :memory, suffix: ".jpg") do
+      send(self(), :memory_encoder_called)
+      {:error, RuntimeError.exception("forced memory encode failure")}
+    end
+  end
+
   defmodule ClosedChunkAdapter do
     def send_chunked(%{owner: owner} = payload, _status, _headers) do
       send(owner, :closed_adapter_send_chunked)
@@ -388,9 +395,17 @@ defmodule ImagePlug.ImagePlugTest do
   end
 
   defp await_slow_partial_origin_close(ref, socket, listen_socket) do
+    :inet.setopts(socket, active: :once)
+
     receive do
       {^ref, :close} ->
         :gen_tcp.close(socket)
+        :gen_tcp.close(listen_socket)
+
+      {:tcp_closed, ^socket} ->
+        :gen_tcp.close(listen_socket)
+
+      {:tcp_error, ^socket, _reason} ->
         :gen_tcp.close(listen_socket)
     after
       5_000 ->
@@ -616,6 +631,29 @@ defmodule ImagePlug.ImagePlugTest do
     assert_received {:cache_put, _key, entry}
     assert entry.content_type == "image/jpeg"
     assert entry.headers == [{"vary", "Accept"}]
+  end
+
+  test "cache-miss memory encode failures are not cached and preserve automatic Vary" do
+    cache_probe = start_cache_probe()
+
+    conn =
+      :get
+      |> conn("/_/plain/images/cat-300.jpg")
+      |> put_req_header("accept", "image/jpeg")
+      |> ImagePlug.call(
+        root_url: "http://origin.test",
+        param_parser: ImagePlug.ParamParser.Native,
+        image_module: FailingMemoryImage,
+        origin_req_options: [plug: {CountingOriginImage, test_pid: cache_probe}],
+        cache: {CacheProbe, message_target: cache_probe}
+      )
+
+    flush_cache_probe(cache_probe)
+    assert conn.status == 500
+    assert conn.resp_body == "error encoding image"
+    assert get_resp_header(conn, "vary") == ["Accept"]
+    assert_received :memory_encoder_called
+    refute_received {:cache_put, _key, _entry}
   end
 
   test "does not fetch origin when parser validation fails" do
@@ -1001,6 +1039,29 @@ defmodule ImagePlug.ImagePlugTest do
 
     assert conn.status == 406
     assert conn.resp_body == "no acceptable image output format"
+  end
+
+  test "deferred automatic negotiation closes pending origins when source output is unacceptable" do
+    ref = make_ref()
+    {root_url, server} = start_slow_partial_origin(self(), ref)
+    server_ref = Process.monitor(server)
+    on_exit(fn -> send(server, {ref, :close}) end)
+
+    conn =
+      :get
+      |> conn("/_/plain/images/slow.jpg")
+      |> put_req_header("accept", "image/png")
+      |> ImagePlug.call(
+        root_url: root_url,
+        param_parser: ImagePlug.ParamParser.Native,
+        auto_avif: false,
+        auto_webp: false
+      )
+
+    assert conn.status == 406
+    assert conn.resp_body == "no acceptable image output format"
+    assert_receive {^ref, :first_chunk_sent, ^server}
+    assert_receive {:DOWN, ^server_ref, :process, ^server, _reason}, 1_000
   end
 
   test "does not touch cache or origin when planner rejects unsupported semantics" do

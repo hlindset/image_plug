@@ -120,7 +120,7 @@ forward "/",
 
 Cache lookup happens only after the request parses, the pipeline plans, and the origin URL is resolved. Invalid requests return `400` before origin or cache access. Parser, planner, origin fetch, decode, transform, negotiation, and encode errors are never cached.
 
-Cache keys include the resolved origin URL, canonical processing request fields, configured `:key_headers` and `:key_cookies`, and the selected automatic output format when output is automatic. They exclude request signatures, raw request paths, query strings, raw `Accept` headers, and unconfigured headers or cookies. Key material includes a schema version and deterministic primitive serialization. Explicit formats bypass `Accept` negotiation and therefore do not vary by `Accept`.
+Cache keys include the resolved origin URL, canonical processing request fields, configured `:key_headers` and `:key_cookies`, and normalized automatic-output inputs when output is automatic: accepted output capability class plus `:auto_avif` / `:auto_webp` flags. They exclude request signatures, raw request paths, query strings, raw `Accept` headers, and unconfigured headers or cookies. Key material includes a schema version and deterministic primitive serialization. Explicit formats bypass `Accept` negotiation and therefore do not vary by `Accept`.
 
 Cached response headers are restricted to `vary` and `cache-control`. Header names are normalized to lowercase, and duplicate allowed headers are preserved.
 
