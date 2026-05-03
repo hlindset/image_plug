@@ -64,7 +64,7 @@ defmodule ImagePlug do
   end
 
   defp send_runner_result(
-         {:error, {:processing, {:error, reason}, response_headers}},
+         {:error, {:processing, reason, response_headers}},
          conn,
          _opts
        ) do

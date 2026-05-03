@@ -58,6 +58,6 @@ defmodule ImagePlug.RequestRunnerTest do
              [],
              "http://origin.test/images/cat-300.jpg",
              []
-           ) == {:error, {:processing, {:error, :not_acceptable}, [{"vary", "Accept"}]}}
+           ) == {:error, {:processing, :not_acceptable, [{"vary", "Accept"}]}}
   end
 end

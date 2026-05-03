@@ -51,7 +51,7 @@ defmodule ImagePlug.RequestRunner do
         {:ok, {:image, final_state, response_headers}}
 
       {:error, error, response_headers} ->
-        {:error, {:processing, error, response_headers}}
+        {:error, {:processing, processing_reason(error), response_headers}}
     end
   end
 
@@ -60,10 +60,11 @@ defmodule ImagePlug.RequestRunner do
            process_request(conn, request, chain, origin_identity, opts) do
       case ResponseCache.store(key, final_state, response_headers, opts) do
         {:ok, entry} -> {:ok, {:cache_entry, entry}}
-        error -> {:error, {:processing, error, response_headers}}
+        error -> {:error, {:processing, processing_reason(error), response_headers}}
       end
     else
-      {:error, error, response_headers} -> {:error, {:processing, error, response_headers}}
+      {:error, error, response_headers} ->
+        {:error, {:processing, processing_reason(error), response_headers}}
     end
   end
 
@@ -87,7 +88,7 @@ defmodule ImagePlug.RequestRunner do
         process_source_format_automatic(conn, request, chain, origin_identity, opts)
 
       {:error, :not_acceptable} ->
-        {:error, {:error, :not_acceptable}, OutputSelection.automatic_headers()}
+        {:error, :not_acceptable, OutputSelection.automatic_headers()}
     end
   end
 
@@ -98,6 +99,9 @@ defmodule ImagePlug.RequestRunner do
       error -> {:error, error, []}
     end
   end
+
+  defp processing_reason({:error, reason}), do: reason
+  defp processing_reason(reason), do: reason
 
   defp process_source_format_automatic(
          conn,
