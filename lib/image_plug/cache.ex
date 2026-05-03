@@ -216,6 +216,8 @@ defmodule ImagePlug.Cache do
   end
 
   defp key_options(opts, cache_opts) do
-    Keyword.merge(cache_opts, Keyword.take(opts, @key_option_keys))
+    cache_opts
+    |> Keyword.take([:key_headers, :key_cookies])
+    |> Keyword.merge(Keyword.take(opts, @key_option_keys))
   end
 end

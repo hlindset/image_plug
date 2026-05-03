@@ -163,6 +163,26 @@ defmodule ImagePlug.CacheTest do
     assert Keyword.fetch!(adapter_opts, :key_headers) == ["accept-language"]
   end
 
+  test "adapter-private options named like automatic output flags do not affect key material" do
+    request = %ProcessingRequest{request() | format: nil}
+
+    assert {:miss, %Key{} = key} =
+             Cache.lookup(
+               :get
+               |> conn("/_/plain/images/cat.jpg")
+               |> Plug.Conn.put_req_header("accept", "image/avif,image/webp"),
+               request,
+               "https://origin.test/cat.jpg",
+               cache: {CaptureAdapter, auto_avif: false, auto_webp: false}
+             )
+
+    assert key.material[:output][:auto] == [avif: true, webp: true]
+
+    assert_received {:cache_get, ^key, adapter_opts}
+    assert Keyword.fetch!(adapter_opts, :auto_avif) == false
+    assert Keyword.fetch!(adapter_opts, :auto_webp) == false
+  end
+
   test "read errors fail open by default and are logged" do
     log =
       capture_log(fn ->
