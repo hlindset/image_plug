@@ -17,6 +17,16 @@ defmodule ImagePlug.Origin do
   defmodule Response do
     @enforce_keys [:content_type, :headers, :ref, :stream, :stream_status, :url, :worker]
     defstruct [:content_type, :headers, :ref, :stream, :stream_status, :url, :worker]
+
+    @type t() :: %__MODULE__{
+            content_type: String.t() | nil,
+            headers: [{String.t(), String.t()}],
+            ref: reference(),
+            stream: Enumerable.t(),
+            stream_status: pid(),
+            url: String.t(),
+            worker: pid()
+          }
   end
 
   @default_max_body_bytes 10_000_000

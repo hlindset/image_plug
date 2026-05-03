@@ -7,9 +7,7 @@ defmodule ImagePlug.TransformState do
             output: :auto,
             debug: false
 
-  @type file_format() :: :avif | :webp | :jpeg | :png
-  @type preview_format() :: :blurhash
-  @type output_format() :: :auto | file_format() | preview_format()
+  @type output_format() :: :auto | :avif | :webp | :jpeg | :png
   @type focus_anchor() ::
           {:anchor, :center, :center}
           | {:anchor, :center, :bottom}

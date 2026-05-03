@@ -21,38 +21,53 @@ For local development, the signature segment can be `_` or `unsafe`:
 ```text
 /_/plain/images/cat-300.jpg
 /_/w:300/plain/images/cat-300.jpg
-/_/fit:cover/w:300/h:300/focus:center/format:auto/plain/images/cat-300.jpg
-/_/fit:contain/w:800/format:webp/plain/images/cat-300.jpg
+/_/rs:fill:300:300/g:ce/plain/images/cat-300.jpg
+/_/rs:fit:800:0/f:webp/plain/images/cat-300.jpg
+/_/rt:force/w:300/h:200/plain/images/cat-300.jpg
+/_/rs:fill:300:300/plain/images/cat-300.jpg@webp
 ```
 
 Options are declarative. Their order in the URL does not define processing order:
 
 ```text
-/_/fit:cover/w:300/h:300/plain/images/cat-300.jpg
-/_/h:300/w:300/fit:cover/plain/images/cat-300.jpg
+/_/rs:fill:300:300/plain/images/cat-300.jpg
+/_/h:300/w:300/rt:fill/plain/images/cat-300.jpg
 ```
 
 Both URLs describe the same requested output. ImagePlug owns the fixed processing pipeline so it can optimize origin loading, resize, crop, and output encoding over time.
 
+When multiple options assign the same normalized field, ImagePlug follows imgproxy-style assignment order: later assignments win. For example, `w:100/width:200` normalizes to width `200`, while `width:200/w:100` normalizes to width `100`. This affects request normalization only; it does not change transform execution order.
+
 ### Options
 
 ```text
-w:<positive integer>
-h:<positive integer>
-fit:cover | fit:contain | fit:fill | fit:inside
-focus:center | focus:top | focus:bottom | focus:left | focus:right | focus:<x>:<y>
-format:auto | format:webp | format:avif | format:jpeg | format:png
+resize:%resizing_type:%width:%height:%enlarge:%extend
+rs:%resizing_type:%width:%height:%enlarge:%extend
+size:%width:%height:%enlarge:%extend
+s:%width:%height:%enlarge:%extend
+resizing_type:%resizing_type
+rt:%resizing_type
+width:%width
+w:%width
+height:%height
+h:%height
+gravity:%type:%x_offset:%y_offset
+g:%type:%x_offset:%y_offset
+format:%extension
+f:%extension
+ext:%extension
+plain source @extension
 ```
 
-`w` and `h` are pixel dimensions. `fit:cover`, `fit:fill`, and `fit:inside` require both `w` and `h`. `fit:contain` requires at least one of `w` or `h`.
+Recognized resizing types are `fit`, `fill`, `force`, `auto`, and `fill-down`. `auto` and `fill-down` parse but return unsupported semantic errors in this slice. Width and height values are pixel dimensions; `0` means unconstrained when accepted by the selected option.
 
-`focus:<x>:<y>` accepts pixel values such as `focus:120:80` and percent values from `0p` to `100p`, such as `focus:50p:25p`.
+Supported gravity values are the imgproxy compass anchors, `ce`, `no`, `so`, `ea`, `we`, `noea`, `nowe`, `soea`, `sowe`, focal point `fp:%x:%y`, and smart gravity `sm`. Smart gravity parses but is not planned in this slice.
 
-`focus` only affects requests that plan a geometry transform. A focus option without `w`, `h`, or `fit` is accepted but has no effect.
+Supported explicit output extensions are `webp`, `avif`, `jpeg`, `jpg`, `png`, and `best`. `jpg` normalizes to JPEG. `best` parses but is not planned in this slice.
 
 The first `plain` segment terminates option parsing. Later path segments are treated as the origin path, even if they look like options.
 
-`format:auto` uses the request `Accept` header and sets `Vary: Accept` on image responses. Explicit formats bypass content negotiation.
+Omitting an explicit output format enables automatic output selection. ImagePlug defaults automatic AVIF and WebP selection to enabled. `Accept` is used to detect optional modern format support; if no enabled modern format is detected, ImagePlug uses the source image format. Automatic output responses use `Vary: Accept`. Explicit `format`, `f`, `ext`, and plain-source `@extension` bypass `Accept` negotiation and do not set `Vary: Accept`.
 
 ## Usage example
 
@@ -105,7 +120,7 @@ forward "/",
 
 Cache lookup happens only after the request parses, the pipeline plans, and the origin URL is resolved. Invalid requests return `400` before origin or cache access. Parser, planner, origin fetch, decode, transform, negotiation, and encode errors are never cached.
 
-Cache keys include the resolved origin URL, canonical processing request fields, configured `:key_headers` and `:key_cookies`, and the normalized `Accept` header for `format:auto`. They exclude request signatures, raw request paths, query strings, and unconfigured headers or cookies. Key material includes a schema version and deterministic primitive serialization. For `format:auto`, `Accept` normalization preserves media-range order and q-values while normalizing casing and whitespace.
+Cache keys include the resolved origin URL, canonical processing request fields, configured `:key_headers` and `:key_cookies`, and normalized automatic-output inputs when output is automatic: detected modern output candidates plus `:auto_avif` / `:auto_webp` flags. They exclude request signatures, raw request paths, query strings, raw `Accept` headers, and unconfigured headers or cookies. Key material includes a schema version and deterministic primitive serialization. Explicit formats bypass `Accept` negotiation and therefore do not vary by `Accept`.
 
 Cached response headers are restricted to `vary` and `cache-control`. Header names are normalized to lowercase, and duplicate allowed headers are preserved.
 
@@ -127,4 +142,4 @@ For transform chains that are proven to be safe for one-pass reads, ImagePlug ma
 
 Sequential decode does not use JPEG shrink-on-load or WebP scale hints in this pass. Origin byte limits, receive timeouts, decoded pixel limits, and decode error responses still apply. Cache hits serve stored response bodies directly and do not participate in origin decode optimization.
 
-Automatic output format selection uses the request `Accept` header and sets `Vary: Accept` on image responses. Explicit formats bypass content negotiation.
+Automatic output format selection uses the request `Accept` header only to detect optional modern format support. `q=0` excludes AVIF/WebP candidates, including exact media-type exclusions over wildcard allowances. Among detected modern candidates, ImagePlug uses server preference order rather than relative q-value ordering. If no enabled modern candidate is detected, ImagePlug uses the source image format. Automatic output responses use `Vary: Accept`. Explicit formats bypass content negotiation and do not set `Vary: Accept`.

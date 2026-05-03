@@ -17,8 +17,7 @@ defmodule ImagePlug.Cache.KeyTest do
           source_path: ["images", "cat.jpg"],
           width: {:pixels, 100},
           height: {:pixels, 80},
-          fit: :cover,
-          focus: {:anchor, :center, :center},
+          resizing_type: :fill,
           format: :webp
         ],
         overrides
@@ -26,12 +25,17 @@ defmodule ImagePlug.Cache.KeyTest do
     )
   end
 
+  defp build_key!(conn, request, origin_identity, opts \\ []) do
+    assert {:ok, key} = Key.build(conn, request, origin_identity, opts)
+    key
+  end
+
   test "builds stable hash and material from canonical request fields and origin identity" do
     conn = conn(:get, "/sig-one/w:100/plain/images/cat.jpg?ignored=true")
 
-    key = Key.build(conn, request(), "https://origin-a.test/images/cat.jpg")
-    same = Key.build(conn, request(), "https://origin-a.test/images/cat.jpg")
-    different_origin = Key.build(conn, request(), "https://origin-b.test/images/cat.jpg")
+    key = build_key!(conn, request(), "https://origin-a.test/images/cat.jpg")
+    same = build_key!(conn, request(), "https://origin-a.test/images/cat.jpg")
+    different_origin = build_key!(conn, request(), "https://origin-b.test/images/cat.jpg")
 
     assert key.hash == same.hash
     assert key.hash =~ ~r/\A[0-9a-f]{64}\z/
@@ -44,11 +48,18 @@ defmodule ImagePlug.Cache.KeyTest do
              source_path: ["images", "cat.jpg"],
              width: {:pixels, 100},
              height: {:pixels, 80},
-             fit: :cover,
-             focus: {:anchor, :center, :center}
+             resizing_type: :fill,
+             enlarge: false,
+             extend: false,
+             extend_gravity: nil,
+             extend_x_offset: nil,
+             extend_y_offset: nil,
+             gravity: {:anchor, :center, :center},
+             gravity_x_offset: 0.0,
+             gravity_y_offset: 0.0
            ]
 
-    assert key.material[:output] == [format: :webp, accept: nil]
+    assert key.material[:output] == [mode: :explicit, format: :webp]
     assert key.material[:selected_headers] == []
     assert key.material[:selected_cookies] == []
     assert key.serialized_material == Key.serialize_material(key.material)
@@ -61,12 +72,13 @@ defmodule ImagePlug.Cache.KeyTest do
     request_fields =
       ProcessingRequest.__struct__() |> Map.from_struct() |> Map.keys() |> Enum.sort()
 
-    # Signature is authorization material and format is represented separately as output.
-    expected_operation_fields = request_fields -- [:format, :signature]
+    # Signature is authorization material; format is represented separately.
+    expected_operation_fields =
+      request_fields -- [:format, :signature]
 
     operation_fields =
       conn(:get, "/sig-one/w:100/plain/images/cat.jpg")
-      |> Key.build(request(), "https://origin.test/images/cat.jpg")
+      |> build_key!(request(), "https://origin.test/images/cat.jpg")
       |> then(&Keyword.fetch!(&1.material, :operations))
       |> Keyword.keys()
       |> Enum.sort()
@@ -76,8 +88,13 @@ defmodule ImagePlug.Cache.KeyTest do
 
   test "signature changes do not change the key" do
     conn = conn(:get, "/sig-one/plain/images/cat.jpg")
-    key_one = Key.build(conn, request(signature: "sig-one"), "https://origin.test/images/cat.jpg")
-    key_two = Key.build(conn, request(signature: "sig-two"), "https://origin.test/images/cat.jpg")
+
+    key_one =
+      build_key!(conn, request(signature: "sig-one"), "https://origin.test/images/cat.jpg")
+
+    key_two =
+      build_key!(conn, request(signature: "sig-two"), "https://origin.test/images/cat.jpg")
+
     assert key_one.hash == key_two.hash
   end
 
@@ -90,7 +107,7 @@ defmodule ImagePlug.Cache.KeyTest do
       |> put_req_header("cookie", "tenant=acme; ignored_cookie=ignored")
 
     key =
-      Key.build(conn, request(), "https://origin.test/images/cat.jpg",
+      build_key!(conn, request(), "https://origin.test/images/cat.jpg",
         key_headers: ["Accept-Language"],
         key_cookies: ["tenant"]
       )
@@ -101,123 +118,79 @@ defmodule ImagePlug.Cache.KeyTest do
     refute inspect(key.material) =~ "ignored_cookie"
   end
 
-  test "format auto includes normalized Accept material" do
-    request = request(format: :auto)
+  test "automatic output includes modern candidates instead of selected output" do
+    request = request(format: nil)
 
     conn_one =
       :get
       |> conn("/_/plain/images/cat.jpg")
-      |> put_req_header("accept", " Image/WEBP ; Q=0.8 , image/AVIF;q=1 ")
+      |> put_req_header("accept", "image/webp;q=1,image/avif;q=0.1")
 
     conn_two =
-      :get
-      |> conn("/_/plain/images/cat.jpg")
-      |> put_req_header("accept", "image/webp;q=0.8,image/avif;q=1")
-
-    key_one = Key.build(conn_one, request, "https://origin.test/images/cat.jpg")
-    key_two = Key.build(conn_two, request, "https://origin.test/images/cat.jpg")
-
-    assert key_one.material[:output] == [format: :auto, accept: "image/webp;q=0.8,image/avif;q=1"]
-    assert key_one.hash == key_two.hash
-  end
-
-  test "missing Accept normalizes to an empty string for format auto" do
-    key =
-      Key.build(
-        conn(:get, "/_/plain/images/cat.jpg"),
-        request(format: :auto),
-        "https://origin.test/images/cat.jpg"
-      )
-
-    assert key.material[:output] == [format: :auto, accept: ""]
-  end
-
-  test "wildcard Accept headers normalize whitespace and casing while preserving order" do
-    request = request(format: :auto)
-
-    conn_one =
-      :get
-      |> conn("/_/plain/images/cat.jpg")
-      |> put_req_header("accept", " image/AVIF , */* ")
-
-    conn_two =
-      :get
-      |> conn("/_/plain/images/cat.jpg")
-      |> put_req_header("accept", "image/avif,*/*")
-
-    key_one = Key.build(conn_one, request, "https://origin.test/images/cat.jpg")
-    key_two = Key.build(conn_two, request, "https://origin.test/images/cat.jpg")
-
-    assert key_one.material[:output] == [format: :auto, accept: "image/avif,*/*"]
-    assert key_one.hash == key_two.hash
-  end
-
-  test "format auto drops empty normalized Accept entries" do
-    request = request(format: :auto)
-
-    conn_one =
-      :get
-      |> conn("/_/plain/images/cat.jpg")
-      |> put_req_header("accept", " , image/AVIF , ")
-
-    conn_two =
-      :get
-      |> conn("/_/plain/images/cat.jpg")
-      |> put_req_header("accept", "image/avif")
-
-    key_one = Key.build(conn_one, request, "https://origin.test/images/cat.jpg")
-    key_two = Key.build(conn_two, request, "https://origin.test/images/cat.jpg")
-
-    assert key_one.material[:output] == [format: :auto, accept: "image/avif"]
-    assert key_one.hash == key_two.hash
-  end
-
-  test "format auto preserves media-range order because negotiation may use it as a tiebreaker" do
-    request = request(format: :auto)
-
-    conn_one =
       :get
       |> conn("/_/plain/images/cat.jpg")
       |> put_req_header("accept", "image/avif,image/webp")
 
-    conn_two =
-      :get
-      |> conn("/_/plain/images/cat.jpg")
-      |> put_req_header("accept", "image/webp,image/avif")
+    key_one = build_key!(conn_one, request, "https://origin.test/images/cat.jpg")
+    key_two = build_key!(conn_two, request, "https://origin.test/images/cat.jpg")
 
-    key_one = Key.build(conn_one, request, "https://origin.test/images/cat.jpg")
-    key_two = Key.build(conn_two, request, "https://origin.test/images/cat.jpg")
+    assert key_one.material[:output] == [
+             mode: :automatic,
+             modern_candidates: [:avif, :webp],
+             auto: [avif: true, webp: true]
+           ]
 
-    refute key_one.hash == key_two.hash
+    assert key_one.hash == key_two.hash
   end
 
-  test "quality values remain key material for format auto" do
-    request = request(format: :auto)
+  test "different automatic Accept capabilities change cache key" do
+    request = request(format: nil)
 
-    conn_one =
+    avif_key =
       :get
       |> conn("/_/plain/images/cat.jpg")
-      |> put_req_header("accept", "image/webp;q=0.9,image/avif;q=1")
+      |> put_req_header("accept", "image/avif")
+      |> build_key!(request, "https://origin.test/images/cat.jpg")
 
-    conn_two =
+    webp_key =
       :get
       |> conn("/_/plain/images/cat.jpg")
-      |> put_req_header("accept", "image/webp;q=1,image/avif;q=0.9")
+      |> put_req_header("accept", "image/webp")
+      |> build_key!(request, "https://origin.test/images/cat.jpg")
 
-    key_one = Key.build(conn_one, request, "https://origin.test/images/cat.jpg")
-    key_two = Key.build(conn_two, request, "https://origin.test/images/cat.jpg")
-
-    refute key_one.hash == key_two.hash
+    refute avif_key.hash == webp_key.hash
   end
 
-  test "explicit formats do not include Accept material" do
+  test "different automatic output feature flags change cache key" do
+    request = request(format: nil)
+
     conn =
       :get
-      |> conn("/_/format:webp/plain/images/cat.jpg")
+      |> conn("/_/plain/images/cat.jpg")
+      |> put_req_header("accept", "image/avif,image/webp")
+
+    default_key = build_key!(conn, request, "https://origin.test/images/cat.jpg")
+
+    webp_only_key =
+      build_key!(conn, request, "https://origin.test/images/cat.jpg", auto_avif: false)
+
+    refute default_key.hash == webp_only_key.hash
+
+    assert webp_only_key.material[:output] == [
+             mode: :automatic,
+             modern_candidates: [:webp],
+             auto: [avif: false, webp: true]
+           ]
+  end
+
+  test "explicit formats do not include Accept material or automatic marker" do
+    conn =
+      :get
+      |> conn("/_/f:webp/plain/images/cat.jpg")
       |> put_req_header("accept", "image/jpeg")
 
-    key = Key.build(conn, request(format: :webp), "https://origin.test/images/cat.jpg")
+    key = build_key!(conn, request(format: :webp), "https://origin.test/images/cat.jpg")
 
-    assert key.material[:output] == [format: :webp, accept: nil]
+    assert key.material[:output] == [mode: :explicit, format: :webp]
   end
 end

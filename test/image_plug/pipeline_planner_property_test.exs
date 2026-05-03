@@ -25,23 +25,24 @@ defmodule ImagePlug.PipelinePlannerPropertyTest do
   defp valid_geometry do
     one_of([
       constant([]),
-      map(pixel_dimension(), &[width: &1]),
-      map(pixel_dimension(), &[height: &1]),
-      map({pixel_dimension(), pixel_dimension()}, fn {width, height} ->
+      map(fit_dimension(), &[width: &1]),
+      map(fit_dimension(), &[height: &1]),
+      map({fit_dimension(), fit_dimension()}, fn {width, height} ->
         [width: width, height: height]
       end),
-      map({member_of([:cover, :fill, :inside]), pixel_dimension(), pixel_dimension()}, fn
-        {fit, width, height} -> [fit: fit, width: width, height: height]
+      map({constant(:fill), fit_dimension(), fit_dimension()}, fn {resizing_type, width, height} ->
+        [resizing_type: resizing_type, width: width, height: height]
       end),
-      map(
-        {constant(:contain), one_of([pixel_dimension(), constant(nil)]),
-         one_of([pixel_dimension(), constant(nil)])},
-        fn
-          {:contain, nil, nil} -> [fit: :contain, width: {:pixels, 1}]
-          {:contain, width, height} -> [fit: :contain, width: width, height: height]
-        end
-      )
+      constant(resizing_type: :force),
+      map({constant(:force), pixel_dimension(), one_of([pixel_dimension(), constant(nil)])}, fn
+        {resizing_type, width, height} ->
+          [resizing_type: resizing_type, width: width, height: height]
+      end)
     ])
+  end
+
+  defp fit_dimension do
+    map(integer(0..10_000), &{:pixels, &1})
   end
 
   defp pixel_dimension do

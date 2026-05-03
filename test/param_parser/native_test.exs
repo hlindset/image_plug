@@ -6,7 +6,7 @@ defmodule ImagePlug.ParamParser.NativeTest do
   alias ImagePlug.ParamParser.Native
   alias ImagePlug.ProcessingRequest
 
-  test "parses a plain source with no options" do
+  test "parses a plain source with no processing options" do
     conn = conn(:get, "/_/plain/images/cat.jpg")
 
     assert {:ok,
@@ -14,175 +14,325 @@ defmodule ImagePlug.ParamParser.NativeTest do
               signature: "_",
               source_kind: :plain,
               source_path: ["images", "cat.jpg"],
-              format: :auto,
-              focus: {:anchor, :center, :center}
+              resizing_type: :fit,
+              width: nil,
+              height: nil,
+              gravity: {:anchor, :center, :center},
+              format: nil
             }} = Native.parse(conn)
   end
 
-  test "parses native options into a processing request" do
-    conn =
-      conn(
-        :get,
-        "/_/fit:cover/w:300/h:200/focus:50p:25p/format:webp/plain/images/cat.jpg"
-      )
-
-    assert {:ok,
-            %ProcessingRequest{
-              signature: "_",
-              source_kind: :plain,
-              source_path: ["images", "cat.jpg"],
-              fit: :cover,
-              width: {:pixels, 300},
-              height: {:pixels, 200},
-              focus: {:coordinate, {:percent, 50}, {:percent, 25}},
-              format: :webp
-            }} = Native.parse(conn)
+  test "supports unsafe as the disabled-signing signature segment" do
+    assert {:ok, %ProcessingRequest{signature: "unsafe"}} =
+             conn(:get, "/unsafe/plain/images/cat.jpg") |> Native.parse()
   end
 
-  test "parses all native focus anchors" do
-    assert {:ok, %ProcessingRequest{focus: {:anchor, :center, :center}}} =
-             conn(:get, "/_/focus:center/plain/images/cat.jpg") |> Native.parse()
-
-    assert {:ok, %ProcessingRequest{focus: {:anchor, :center, :top}}} =
-             conn(:get, "/_/focus:top/plain/images/cat.jpg") |> Native.parse()
-
-    assert {:ok, %ProcessingRequest{focus: {:anchor, :center, :bottom}}} =
-             conn(:get, "/_/focus:bottom/plain/images/cat.jpg") |> Native.parse()
-
-    assert {:ok, %ProcessingRequest{focus: {:anchor, :left, :center}}} =
-             conn(:get, "/_/focus:left/plain/images/cat.jpg") |> Native.parse()
-
-    assert {:ok, %ProcessingRequest{focus: {:anchor, :right, :center}}} =
-             conn(:get, "/_/focus:right/plain/images/cat.jpg") |> Native.parse()
-  end
-
-  test "treats option-like segments after plain as source path" do
-    conn = conn(:get, "/_/plain/images/w:300/cat.jpg")
-
-    assert {:ok, %ProcessingRequest{source_path: ["images", "w:300", "cat.jpg"]}} =
-             Native.parse(conn)
-  end
-
-  test "option order does not affect the parsed request" do
-    first =
-      conn(:get, "/_/fit:cover/w:300/h:200/focus:top/format:png/plain/images/cat.jpg")
-      |> Native.parse()
-
-    second =
-      conn(:get, "/_/format:png/focus:top/h:200/w:300/fit:cover/plain/images/cat.jpg")
-      |> Native.parse()
-
-    assert first == second
-  end
-
-  test "supports unsafe as the development signature segment" do
-    conn = conn(:get, "/unsafe/w:300/plain/images/cat.jpg")
-
-    assert {:ok, %ProcessingRequest{signature: "unsafe", width: {:pixels, 300}}} =
-             Native.parse(conn)
-  end
-
-  test "rejects unsupported signature segments" do
-    conn = conn(:get, "/signed-value/plain/images/cat.jpg")
-
-    assert Native.parse(conn) == {:error, {:unsupported_signature, "signed-value"}}
+  test "rejects unsupported signature segments while signing is disabled" do
+    assert Native.parse(conn(:get, "/signed-value/plain/images/cat.jpg")) ==
+             {:error, {:unsupported_signature, "signed-value"}}
   end
 
   test "rejects missing signature" do
-    conn = conn(:get, "/")
-
-    assert Native.parse(conn) == {:error, :missing_signature}
+    assert Native.parse(conn(:get, "/")) == {:error, :missing_signature}
   end
 
   test "rejects missing source kind" do
-    conn = conn(:get, "/_/w:300")
-
-    assert Native.parse(conn) == {:error, :missing_source_kind}
+    assert Native.parse(conn(:get, "/_/w:300")) == {:error, :missing_source_kind}
   end
 
   test "rejects missing plain source identifier" do
-    conn = conn(:get, "/_/w:300/plain")
-
-    assert Native.parse(conn) == {:error, {:missing_source_identifier, "plain"}}
+    assert Native.parse(conn(:get, "/_/plain")) ==
+             {:error, {:missing_source_identifier, "plain"}}
   end
 
-  test "rejects unknown options" do
-    conn = conn(:get, "/_/resize:300/plain/images/cat.jpg")
-
-    assert Native.parse(conn) == {:error, {:unknown_option, "resize"}}
+  test "treats option-like segments after plain as source path" do
+    assert {:ok, %ProcessingRequest{source_path: ["images", "w:300", "cat.jpg"]}} =
+             conn(:get, "/_/plain/images/w:300/cat.jpg") |> Native.parse()
   end
 
-  test "rejects duplicate options" do
-    conn = conn(:get, "/_/w:300/w:400/plain/images/cat.jpg")
+  test "parses resize and rs full grammar" do
+    assert {:ok,
+            %ProcessingRequest{
+              resizing_type: :fill,
+              width: {:pixels, 300},
+              height: {:pixels, 200},
+              enlarge: true,
+              extend: false
+            }} = conn(:get, "/_/resize:fill:300:200:1:0/plain/images/cat.jpg") |> Native.parse()
 
-    assert Native.parse(conn) == {:error, {:duplicate_option, :width}}
+    assert {:ok,
+            %ProcessingRequest{
+              resizing_type: :force,
+              width: {:pixels, 300},
+              height: {:pixels, 200}
+            }} = conn(:get, "/_/rs:force:300:200/plain/images/cat.jpg") |> Native.parse()
   end
 
-  test "rejects malformed dimension option segments" do
-    conn = conn(:get, "/_/w:300:400/plain/images/cat.jpg")
+  test "parses omitted resize arguments with imgproxy defaults" do
+    assert {:ok, %ProcessingRequest{resizing_type: :fit, width: {:pixels, 300}, height: nil}} =
+             conn(:get, "/_/rs:fit:300/plain/images/cat.jpg") |> Native.parse()
 
-    assert Native.parse(conn) == {:error, {:invalid_option_segment, "w:300:400"}}
+    assert {:ok,
+            %ProcessingRequest{
+              resizing_type: :fit,
+              width: {:pixels, 300},
+              height: {:pixels, 200}
+            }} =
+             conn(:get, "/_/rs::300:200/plain/images/cat.jpg") |> Native.parse()
   end
 
-  test "rejects malformed format option segments" do
-    conn = conn(:get, "/_/format:webp:extra/plain/images/cat.jpg")
-
-    assert Native.parse(conn) == {:error, {:invalid_option_segment, "format:webp:extra"}}
+  test "rejects empty resize and size option segments" do
+    for segment <- ["rs", "rs:", "rs::", "resize", "resize:", "s", "s:", "s::", "size"] do
+      assert Native.parse(conn(:get, "/_/#{segment}/plain/images/cat.jpg")) ==
+               {:error, {:invalid_option_segment, segment}}
+    end
   end
 
-  test "rejects invalid dimensions" do
-    conn = conn(:get, "/_/w:0/plain/images/cat.jpg")
-
-    assert Native.parse(conn) == {:error, {:invalid_positive_integer, "0"}}
+  test "omitted meta-option arguments do not overwrite previous field assignments" do
+    assert {:ok,
+            %ProcessingRequest{
+              resizing_type: :fill,
+              width: {:pixels, 500},
+              height: {:pixels, 200}
+            }} = conn(:get, "/_/w:500/rs:fill::200/plain/images/cat.jpg") |> Native.parse()
   end
 
-  test "supports zero focus coordinates" do
-    conn = conn(:get, "/_/focus:0:0/plain/images/cat.jpg")
+  test "omitted extend argument still parses provided extend gravity tail" do
+    assert {:ok,
+            %ProcessingRequest{
+              extend: false,
+              extend_gravity: {:anchor, :center, :center},
+              extend_x_offset: nil,
+              extend_y_offset: nil
+            }} =
+             conn(:get, "/_/rs::::::ce::/plain/images/cat.jpg") |> Native.parse()
 
-    assert {:ok, %ProcessingRequest{focus: {:coordinate, {:pixels, 0}, {:pixels, 0}}}} =
-             Native.parse(conn)
+    assert {:ok,
+            %ProcessingRequest{
+              extend: false,
+              extend_gravity: {:anchor, :center, :center},
+              extend_x_offset: nil,
+              extend_y_offset: nil
+            }} =
+             conn(:get, "/_/s:::::ce::/plain/images/cat.jpg") |> Native.parse()
   end
 
-  test "supports zero percent focus coordinates" do
-    conn = conn(:get, "/_/focus:0p:0p/plain/images/cat.jpg")
+  test "extend gravity invalid arity reports the original option segment" do
+    segment = "rs:::::1:ce:1"
 
-    assert {:ok, %ProcessingRequest{focus: {:coordinate, {:percent, 0}, {:percent, 0}}}} =
-             Native.parse(conn)
+    assert Native.parse(conn(:get, "/_/#{segment}/plain/images/cat.jpg")) ==
+             {:error, {:invalid_option_segment, segment}}
   end
 
-  test "supports one hundred percent focus coordinates" do
-    conn = conn(:get, "/_/focus:100p:100p/plain/images/cat.jpg")
+  test "parses extend gravity when extend is provided" do
+    x_offset = 0.0
+    y_offset = 0.0
 
-    assert {:ok, %ProcessingRequest{focus: {:coordinate, {:percent, 100}, {:percent, 100}}}} =
-             Native.parse(conn)
+    assert {:ok,
+            %ProcessingRequest{
+              resizing_type: :fit,
+              width: {:pixels, 300},
+              height: {:pixels, 200},
+              extend: true,
+              extend_gravity: {:anchor, :center, :center},
+              extend_x_offset: ^x_offset,
+              extend_y_offset: ^y_offset
+            }} = conn(:get, "/_/rs:fit:300:200:0:1:ce:0:0/plain/images/cat.jpg") |> Native.parse()
   end
 
-  test "rejects percent focus coordinates above 100" do
-    conn = conn(:get, "/_/focus:101p:50p/plain/images/cat.jpg")
-
-    assert Native.parse(conn) == {:error, {:invalid_percent, "101p"}}
+  test "parses size without changing resizing_type" do
+    assert {:ok,
+            %ProcessingRequest{
+              resizing_type: :force,
+              width: {:pixels, 300},
+              height: {:pixels, 200}
+            }} = conn(:get, "/_/rt:force/s:300:200/plain/images/cat.jpg") |> Native.parse()
   end
 
-  test "rejects negative focus coordinates as non-negative integers" do
-    conn = conn(:get, "/_/focus:-1:0/plain/images/cat.jpg")
-
-    assert Native.parse(conn) == {:error, {:invalid_non_negative_integer, "-1"}}
+  test "size overwrites dimensions without resetting resizing_type" do
+    assert {:ok,
+            %ProcessingRequest{
+              resizing_type: :fill,
+              width: {:pixels, 100},
+              height: {:pixels, 100}
+            }} = conn(:get, "/_/rs:fill:300:200/s:100:100/plain/images/cat.jpg") |> Native.parse()
   end
 
-  test "rejects blurhash as a native image format" do
-    conn = conn(:get, "/_/format:blurhash/plain/images/cat.jpg")
-
-    assert Native.parse(conn) ==
-             {:error, {:invalid_format, "blurhash", ["auto", "webp", "avif", "jpeg", "png"]}}
+  test "parses resizing type aliases and all documented values" do
+    for {value, expected} <- [
+          {"fit", :fit},
+          {"fill", :fill},
+          {"fill-down", :fill_down},
+          {"force", :force},
+          {"auto", :auto}
+        ] do
+      assert {:ok, %ProcessingRequest{resizing_type: ^expected}} =
+               conn(:get, "/_/rt:#{value}/plain/images/cat.jpg") |> Native.parse()
+    end
   end
 
-  test "renders native parser errors as text 400 responses" do
-    conn = conn(:get, "/_/resize:300/plain/images/cat.jpg")
+  test "invalid resizing type reports supported values" do
+    assert Native.parse(conn(:get, "/_/rt:crop/plain/images/cat.jpg")) ==
+             {:error,
+              {:invalid_resizing_type, "crop", ["fit", "fill", "fill-down", "force", "auto"]}}
+  end
 
-    conn = Native.handle_error(conn, {:error, {:unknown_option, "resize"}})
+  test "parses width and height aliases including zero" do
+    assert {:ok, %ProcessingRequest{width: {:pixels, 0}, height: {:pixels, 200}}} =
+             conn(:get, "/_/w:0/h:200/plain/images/cat.jpg") |> Native.parse()
+  end
 
-    assert conn.status == 400
-    assert conn.resp_body == "invalid image request: {:unknown_option, \"resize\"}"
-    assert Plug.Conn.get_resp_header(conn, "content-type") == ["text/plain; charset=utf-8"]
+  test "parses gravity anchors and focal point" do
+    assert {:ok, %ProcessingRequest{gravity: {:anchor, :left, :top}}} =
+             conn(:get, "/_/g:nowe/plain/images/cat.jpg") |> Native.parse()
+
+    assert {:ok, %ProcessingRequest{gravity: {:fp, 0.5, 0.25}}} =
+             conn(:get, "/_/gravity:fp:0.5:0.25/plain/images/cat.jpg") |> Native.parse()
+
+    x = 1.0
+    y = 0.0
+
+    assert {:ok, %ProcessingRequest{gravity: {:fp, ^x, ^y}}} =
+             conn(:get, "/_/g:fp:1:0/plain/images/cat.jpg") |> Native.parse()
+  end
+
+  test "rejects out-of-range focal point coordinates as gravity coordinate errors" do
+    assert Native.parse(conn(:get, "/_/g:fp:1.2:0.5/plain/images/cat.jpg")) ==
+             {:error, {:invalid_gravity_coordinate, "1.2"}}
+
+    assert Native.parse(conn(:get, "/_/g:fp:nope:0.5/plain/images/cat.jpg")) ==
+             {:error, {:invalid_gravity_coordinate, "nope"}}
+  end
+
+  test "parses smart gravity for planner rejection" do
+    assert {:ok, %ProcessingRequest{gravity: :sm}} =
+             conn(:get, "/_/g:sm/plain/images/cat.jpg") |> Native.parse()
+  end
+
+  test "parses format aliases and jpg normalization" do
+    assert {:ok, %ProcessingRequest{format: :webp}} =
+             conn(:get, "/_/f:webp/plain/images/cat.jpg") |> Native.parse()
+
+    assert {:ok, %ProcessingRequest{format: :avif}} =
+             conn(:get, "/_/f:avif/plain/images/cat.jpg") |> Native.parse()
+
+    assert {:ok, %ProcessingRequest{format: :jpeg}} =
+             conn(:get, "/_/ext:jpg/plain/images/cat.jpg") |> Native.parse()
+  end
+
+  test "plain source extension overrides explicit format after options" do
+    assert {:ok,
+            %ProcessingRequest{
+              format: :png
+            }} = conn(:get, "/_/f:webp/plain/images/cat.jpg@png") |> Native.parse()
+  end
+
+  test "dangling raw @ does not overwrite an explicit format" do
+    assert {:ok,
+            %ProcessingRequest{
+              source_path: ["images", "cat.jpg"],
+              format: :webp
+            }} = conn(:get, "/_/f:webp/plain/images/cat.jpg@") |> Native.parse()
+  end
+
+  test "rejects format auto because it is not imgproxy grammar" do
+    assert Native.parse(conn(:get, "/_/format:auto/plain/images/cat.jpg")) ==
+             {:error, {:invalid_format, "auto", ["webp", "avif", "jpeg", "jpg", "png", "best"]}}
+  end
+
+  test "later field assignments overwrite earlier assignments" do
+    assert {:ok,
+            %ProcessingRequest{
+              width: {:pixels, 200}
+            }} = conn(:get, "/_/w:100/width:200/plain/images/cat.jpg") |> Native.parse()
+
+    assert {:ok,
+            %ProcessingRequest{
+              resizing_type: :fill,
+              width: {:pixels, 500},
+              height: {:pixels, 200}
+            }} =
+             conn(:get, "/_/resize:fill:300:200/w:500/plain/images/cat.jpg") |> Native.parse()
+
+    assert {:ok,
+            %ProcessingRequest{
+              resizing_type: :fill,
+              width: {:pixels, 300},
+              height: {:pixels, 200}
+            }} =
+             conn(:get, "/_/w:500/resize:fill:300:200/plain/images/cat.jpg") |> Native.parse()
+
+    assert {:ok,
+            %ProcessingRequest{
+              resizing_type: :force,
+              width: {:pixels, 300},
+              height: {:pixels, 200}
+            }} =
+             conn(:get, "/_/size:300:200/rt:force/plain/images/cat.jpg") |> Native.parse()
+  end
+
+  test "reserves chained pipeline separator as its own parser error" do
+    assert Native.parse(conn(:get, "/_/rs:fit:500:500/-/trim:10/plain/images/cat.jpg")) ==
+             {:error, :unsupported_chained_pipeline}
+
+    assert {:ok, %ProcessingRequest{resizing_type: :fill_down}} =
+             conn(:get, "/_/rs:fill-down:300:200/plain/images/cat.jpg") |> Native.parse()
+  end
+
+  test "detects raw source extension before percent decoding" do
+    assert {:ok,
+            %ProcessingRequest{
+              source_path: ["images", "cat@v1.jpg"],
+              format: :webp
+            }} = conn(:get, "/_/plain/images/cat%40v1.jpg@webp") |> Native.parse()
+  end
+
+  test "parses supported source extensions" do
+    cases = [
+      {"webp", :webp},
+      {"avif", :avif},
+      {"jpeg", :jpeg},
+      {"jpg", :jpeg},
+      {"png", :png},
+      {"best", :best}
+    ]
+
+    for {extension, format} <- cases do
+      assert {:ok,
+              %ProcessingRequest{
+                format: ^format
+              }} = conn(:get, "/_/plain/images/cat.jpg@#{extension}") |> Native.parse()
+    end
+  end
+
+  test "dangling raw @ leaves output automatic when no explicit format exists" do
+    assert {:ok,
+            %ProcessingRequest{
+              source_path: ["images", "cat.jpg"],
+              format: nil
+            }} = conn(:get, "/_/plain/images/cat.jpg@") |> Native.parse()
+  end
+
+  test "rejects empty plain source before extension" do
+    assert Native.parse(conn(:get, "/_/plain/@webp")) ==
+             {:error, {:missing_source_identifier, "plain"}}
+  end
+
+  test "rejects multiple raw @ source extension separators" do
+    assert Native.parse(conn(:get, "/_/plain/images/cat.jpg@webp@png")) ==
+             {:error, {:multiple_source_format_separators, "images/cat.jpg@webp@png"}}
+  end
+
+  test "rejects unknown source extensions as parser errors" do
+    assert Native.parse(conn(:get, "/_/plain/images/cat.jpg@unknown")) ==
+             {:error,
+              {:invalid_format, "unknown", ["webp", "avif", "jpeg", "jpg", "png", "best"]}}
+  end
+
+  test "parses best source extension for planner rejection" do
+    assert {:ok,
+            %ProcessingRequest{
+              format: :best
+            }} = conn(:get, "/_/plain/images/cat.jpg@best") |> Native.parse()
   end
 end

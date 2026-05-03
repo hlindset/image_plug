@@ -19,6 +19,15 @@ defmodule ImagePlug.CacheTest do
     def put(%Key{}, %Entry{}, _opts), do: :ok
   end
 
+  defmodule CaptureAdapter do
+    def get(%Key{} = key, opts) do
+      send(self(), {:cache_get, key, opts})
+      :miss
+    end
+
+    def put(%Key{}, %Entry{}, _opts), do: :ok
+  end
+
   defmodule ErrorAdapter do
     def get(%Key{}, _opts), do: {:error, :read_failed}
     def put(%Key{}, %Entry{}, _opts), do: {:error, :write_failed}
@@ -106,7 +115,7 @@ defmodule ImagePlug.CacheTest do
 
     assert {:hit, %Key{} = key, ^configured_entry} =
              Cache.lookup(
-               conn(:get, "/_/format:webp/plain/images/cat.jpg"),
+               conn(:get, "/_/f:webp/plain/images/cat.jpg"),
                request(),
                "https://origin.test/cat.jpg",
                cache: {HitAdapter, entry: configured_entry}
@@ -118,7 +127,7 @@ defmodule ImagePlug.CacheTest do
   test "returns miss with the generated key" do
     assert {:miss, %Key{} = key} =
              Cache.lookup(
-               conn(:get, "/_/format:webp/plain/images/cat.jpg"),
+               conn(:get, "/_/f:webp/plain/images/cat.jpg"),
                request(),
                "https://origin.test/cat.jpg",
                cache: {MissAdapter, []}
@@ -127,12 +136,59 @@ defmodule ImagePlug.CacheTest do
     assert key.hash =~ ~r/\A[0-9a-f]{64}\z/
   end
 
+  test "automatic lookup key uses modern candidates without reaching adapter opts" do
+    request = %ProcessingRequest{request() | format: nil}
+
+    assert {:miss, %Key{} = key} =
+             Cache.lookup(
+               :get
+               |> conn("/_/plain/images/cat.jpg")
+               |> Plug.Conn.put_req_header("accept", "image/avif,image/webp"),
+               request,
+               "https://origin.test/cat.jpg",
+               auto_avif: false,
+               cache: {CaptureAdapter, key_headers: ["accept-language"]}
+             )
+
+    assert key.material[:output] == [
+             mode: :automatic,
+             modern_candidates: [:webp],
+             auto: [avif: false, webp: true]
+           ]
+
+    assert_received {:cache_get, ^key, adapter_opts}
+    refute Keyword.has_key?(adapter_opts, :selected_output_format)
+    refute Keyword.has_key?(adapter_opts, :selected_output_reason)
+    refute Keyword.has_key?(adapter_opts, :auto_avif)
+    assert Keyword.fetch!(adapter_opts, :key_headers) == ["accept-language"]
+  end
+
+  test "adapter-private options named like automatic output flags do not affect key material" do
+    request = %ProcessingRequest{request() | format: nil}
+
+    assert {:miss, %Key{} = key} =
+             Cache.lookup(
+               :get
+               |> conn("/_/plain/images/cat.jpg")
+               |> Plug.Conn.put_req_header("accept", "image/avif,image/webp"),
+               request,
+               "https://origin.test/cat.jpg",
+               cache: {CaptureAdapter, auto_avif: false, auto_webp: false}
+             )
+
+    assert key.material[:output][:auto] == [avif: true, webp: true]
+
+    assert_received {:cache_get, ^key, adapter_opts}
+    assert Keyword.fetch!(adapter_opts, :auto_avif) == false
+    assert Keyword.fetch!(adapter_opts, :auto_webp) == false
+  end
+
   test "read errors fail open by default and are logged" do
     log =
       capture_log(fn ->
         assert {:miss, %Key{}} =
                  Cache.lookup(
-                   conn(:get, "/_/format:webp/plain/images/cat.jpg"),
+                   conn(:get, "/_/f:webp/plain/images/cat.jpg"),
                    request(),
                    "https://origin.test/cat.jpg",
                    cache: {ErrorAdapter, []}
@@ -146,7 +202,7 @@ defmodule ImagePlug.CacheTest do
   test "read errors are returned when fail_on_cache_error is true" do
     assert {:error, {:cache_read, :read_failed}} =
              Cache.lookup(
-               conn(:get, "/_/format:webp/plain/images/cat.jpg"),
+               conn(:get, "/_/f:webp/plain/images/cat.jpg"),
                request(),
                "https://origin.test/cat.jpg",
                cache: {ErrorAdapter, fail_on_cache_error: true}
@@ -156,7 +212,7 @@ defmodule ImagePlug.CacheTest do
   test "unexpected adapter get result is handled as a cache read error" do
     assert {:error, {:cache_read, {:invalid_adapter_result, :surprise}}} =
              Cache.lookup(
-               conn(:get, "/_/format:webp/plain/images/cat.jpg"),
+               conn(:get, "/_/f:webp/plain/images/cat.jpg"),
                request(),
                "https://origin.test/cat.jpg",
                cache: {UnexpectedResultAdapter, fail_on_cache_error: true}
@@ -224,7 +280,7 @@ defmodule ImagePlug.CacheTest do
   test "invalid cache lookup config returns a cache read error instead of crashing" do
     assert {:error, {:cache_read, {:invalid_cache_config, ImagePlug.Cache.FileSystem}}} =
              Cache.lookup(
-               conn(:get, "/_/format:webp/plain/images/cat.jpg"),
+               conn(:get, "/_/f:webp/plain/images/cat.jpg"),
                request(),
                "https://origin.test/cat.jpg",
                cache: ImagePlug.Cache.FileSystem
@@ -234,7 +290,7 @@ defmodule ImagePlug.CacheTest do
             {:cache_read,
              {:invalid_cache_config, {ImagePlug.Cache.FileSystem, %{root: "/tmp/cache"}}}}} =
              Cache.lookup(
-               conn(:get, "/_/format:webp/plain/images/cat.jpg"),
+               conn(:get, "/_/f:webp/plain/images/cat.jpg"),
                request(),
                "https://origin.test/cat.jpg",
                cache: {ImagePlug.Cache.FileSystem, %{root: "/tmp/cache"}}
@@ -258,7 +314,7 @@ defmodule ImagePlug.CacheTest do
   test "invalid key header and cookie config returns a cache read error before key building" do
     assert {:error, {:cache_read, {:invalid_cache_config, {:key_headers, [:accept_language]}}}} =
              Cache.lookup(
-               conn(:get, "/_/format:webp/plain/images/cat.jpg"),
+               conn(:get, "/_/f:webp/plain/images/cat.jpg"),
                request(),
                "https://origin.test/cat.jpg",
                cache: {ShouldNotBeCalledAdapter, key_headers: [:accept_language]}
@@ -266,7 +322,7 @@ defmodule ImagePlug.CacheTest do
 
     assert {:error, {:cache_read, {:invalid_cache_config, {:key_cookies, [:tenant]}}}} =
              Cache.lookup(
-               conn(:get, "/_/format:webp/plain/images/cat.jpg"),
+               conn(:get, "/_/f:webp/plain/images/cat.jpg"),
                request(),
                "https://origin.test/cat.jpg",
                cache: {ShouldNotBeCalledAdapter, key_cookies: [:tenant]}
@@ -276,7 +332,7 @@ defmodule ImagePlug.CacheTest do
   test "invalid cache option lists return cache errors before adapter calls" do
     assert {:error, {:cache_read, {:invalid_cache_config, {ShouldNotBeCalledAdapter, [:root]}}}} =
              Cache.lookup(
-               conn(:get, "/_/format:webp/plain/images/cat.jpg"),
+               conn(:get, "/_/f:webp/plain/images/cat.jpg"),
                request(),
                "https://origin.test/cat.jpg",
                cache: {ShouldNotBeCalledAdapter, [:root]}
@@ -289,7 +345,7 @@ defmodule ImagePlug.CacheTest do
   test "invalid fail_on_cache_error config returns cache errors before adapter calls" do
     assert {:error, {:cache_read, {:invalid_cache_config, {:fail_on_cache_error, "false"}}}} =
              Cache.lookup(
-               conn(:get, "/_/format:webp/plain/images/cat.jpg"),
+               conn(:get, "/_/f:webp/plain/images/cat.jpg"),
                request(),
                "https://origin.test/cat.jpg",
                cache: {ShouldNotBeCalledAdapter, fail_on_cache_error: "false"}
@@ -304,7 +360,7 @@ defmodule ImagePlug.CacheTest do
   test "invalid max_body_bytes config returns cache errors instead of changing cache policy" do
     assert {:error, {:cache_read, {:invalid_cache_config, {:max_body_bytes, "10MB"}}}} =
              Cache.lookup(
-               conn(:get, "/_/format:webp/plain/images/cat.jpg"),
+               conn(:get, "/_/f:webp/plain/images/cat.jpg"),
                request(),
                "https://origin.test/cat.jpg",
                cache: {ShouldNotBeCalledAdapter, max_body_bytes: "10MB"}
@@ -319,7 +375,7 @@ defmodule ImagePlug.CacheTest do
   test "invalid adapter config returns cache errors instead of crashing" do
     assert {:error, {:cache_read, {:invalid_cache_config, {:adapter, String}}}} =
              Cache.lookup(
-               conn(:get, "/_/format:webp/plain/images/cat.jpg"),
+               conn(:get, "/_/f:webp/plain/images/cat.jpg"),
                request(),
                "https://origin.test/cat.jpg",
                cache: {String, []}

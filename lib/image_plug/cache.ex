@@ -10,6 +10,7 @@ defmodule ImagePlug.Cache do
   alias ImagePlug.ProcessingRequest
 
   @shared_cache_option_keys [:key_headers, :key_cookies, :max_body_bytes, :fail_on_cache_error]
+  @key_option_keys [:auto_avif, :auto_webp]
   @shared_cache_options_schema NimbleOptions.new!(
                                  key_headers: [
                                    type: {:list, :string}
@@ -33,6 +34,7 @@ defmodule ImagePlug.Cache do
 
   @type lookup_result ::
           :disabled
+          | :skip_cache
           | {:hit, Key.t(), Entry.t()}
           | {:miss, Key.t()}
           | {:error, {:cache_read, term()}}
@@ -59,6 +61,15 @@ defmodule ImagePlug.Cache do
   @doc false
   def shared_option_keys, do: @shared_cache_option_keys
 
+  @doc false
+  @spec max_body_bytes(keyword()) :: non_neg_integer() | nil
+  def max_body_bytes(opts) when is_list(opts) do
+    case cache_config(opts) do
+      {:ok, _adapter, cache_opts} -> Keyword.get(cache_opts, :max_body_bytes)
+      _other -> nil
+    end
+  end
+
   @spec lookup(Plug.Conn.t(), ProcessingRequest.t(), String.t(), keyword()) :: lookup_result()
   def lookup(conn, %ProcessingRequest{} = request, origin_identity, opts) when is_list(opts) do
     case cache_config(opts) do
@@ -66,20 +77,24 @@ defmodule ImagePlug.Cache do
         :disabled
 
       {:ok, adapter, cache_opts} ->
-        key = Key.build(conn, request, origin_identity, cache_opts)
+        with {:ok, key} <-
+               Key.build(conn, request, origin_identity, key_options(opts, cache_opts)) do
+          case adapter.get(key, cache_opts) do
+            {:hit, %Entry{} = entry} ->
+              {:hit, key, entry}
 
-        case adapter.get(key, cache_opts) do
-          {:hit, %Entry{} = entry} ->
-            {:hit, key, entry}
+            :miss ->
+              {:miss, key}
 
-          :miss ->
-            {:miss, key}
+            {:error, reason} ->
+              handle_read_error(reason, key, cache_opts)
 
+            unexpected ->
+              handle_read_error({:invalid_adapter_result, unexpected}, key, cache_opts)
+          end
+        else
           {:error, reason} ->
-            handle_read_error(reason, key, cache_opts)
-
-          unexpected ->
-            handle_read_error({:invalid_adapter_result, unexpected}, key, cache_opts)
+            handle_key_error(reason, cache_opts)
         end
 
       {:error, reason} ->
@@ -191,6 +206,15 @@ defmodule ImagePlug.Cache do
     end
   end
 
+  defp handle_key_error(reason, cache_opts) do
+    if Keyword.get(cache_opts, :fail_on_cache_error, false) do
+      {:error, {:cache_read, {:key, reason}}}
+    else
+      Logger.warning("cache key error: #{inspect(reason)}")
+      :skip_cache
+    end
+  end
+
   defp handle_write_error(reason, cache_opts) do
     if Keyword.get(cache_opts, :fail_on_cache_error, false) do
       {:error, {:cache_write, reason}}
@@ -198,5 +222,11 @@ defmodule ImagePlug.Cache do
       Logger.warning("cache write error: #{inspect(reason)}")
       :ok
     end
+  end
+
+  defp key_options(opts, cache_opts) do
+    cache_opts
+    |> Keyword.take([:key_headers, :key_cookies])
+    |> Keyword.merge(Keyword.take(opts, @key_option_keys))
   end
 end

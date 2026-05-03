@@ -18,7 +18,10 @@ defmodule ImagePlug.ImagePlugTest do
       |> Keyword.get(:message_target, self())
       |> send({:cache_get, key})
 
-      Keyword.get(opts, :get_result, :miss)
+      case Keyword.fetch(opts, :get_result_fun) do
+        {:ok, get_result_fun} -> get_result_fun.(key)
+        :error -> Keyword.get(opts, :get_result, :miss)
+      end
     end
 
     def put(%Key{} = key, %Entry{} = entry, opts) do
@@ -74,6 +77,48 @@ defmodule ImagePlug.ImagePlugTest do
     end
   end
 
+  defmodule BoundedCacheStreamingImage do
+    def stream!(_image, suffix: ".jpg") do
+      send(self(), :stream_encoder_called)
+      ["streamed jpeg over cache limit"]
+    end
+
+    def write(_image, :memory, suffix: ".jpg") do
+      send(self(), :memory_encoder_called)
+      raise "cache skip path should not encode the full body in memory"
+    end
+  end
+
+  defmodule MultiChunkStreamingImage do
+    def stream!(_image, suffix: ".jpg") do
+      send(self(), :stream_encoder_called)
+      ["first chunk", "second chunk"]
+    end
+  end
+
+  defmodule EmptyStreamingImage do
+    def stream!(_image, suffix: ".jpg") do
+      send(self(), :stream_encoder_called)
+      []
+    end
+  end
+
+  defmodule FailingMemoryImage do
+    def write(_image, :memory, suffix: ".jpg") do
+      send(self(), :memory_encoder_called)
+      {:error, RuntimeError.exception("forced memory encode failure")}
+    end
+  end
+
+  defmodule ClosedChunkAdapter do
+    def send_chunked(%{owner: owner} = payload, _status, _headers) do
+      send(owner, :closed_adapter_send_chunked)
+      {:ok, "", payload}
+    end
+
+    def chunk(_payload, _body), do: {:error, :closed}
+  end
+
   defmodule OversizedOriginBody do
     def call(conn, _) do
       conn
@@ -87,24 +132,6 @@ defmodule ImagePlug.ImagePlugTest do
       conn
       |> Plug.Conn.put_resp_content_type("image/png")
       |> Plug.Conn.send_resp(200, "not actually a png")
-    end
-  end
-
-  defmodule SlowPartialOriginImage do
-    def init(opts), do: opts
-
-    def call(conn, _opts) do
-      body = File.read!("priv/static/images/cat-300.jpg")
-
-      conn =
-        conn
-        |> Plug.Conn.put_resp_content_type("image/jpeg")
-        |> Plug.Conn.send_chunked(200)
-
-      {:ok, conn} = Plug.Conn.chunk(conn, binary_part(body, 0, 128))
-      Process.sleep(100)
-      {:ok, conn} = Plug.Conn.chunk(conn, binary_part(body, 128, byte_size(body) - 128))
-      conn
     end
   end
 
@@ -144,6 +171,10 @@ defmodule ImagePlug.ImagePlugTest do
     end
   end
 
+  defmodule RejectingImageOpen do
+    def open(_stream, _opts), do: raise("source negotiation should happen before decode")
+  end
+
   defmodule FailingMaterializer do
     def materialize(_image), do: {:error, :forced_materialization_failure}
   end
@@ -161,7 +192,11 @@ defmodule ImagePlug.ImagePlugTest do
 
     @impl ImagePlug.ParamParser
     def parse(_conn) do
-      {:ok, ImagePlug.ImagePlugTest.sample_processing_request()}
+      request =
+        ImagePlug.ImagePlugTest.sample_processing_request()
+        |> Map.put(:format, :jpeg)
+
+      {:ok, request}
     end
 
     @impl ImagePlug.ParamParser
@@ -185,7 +220,11 @@ defmodule ImagePlug.ImagePlugTest do
 
     @impl ImagePlug.ParamParser
     def parse(_conn) do
-      {:ok, ImagePlug.ImagePlugTest.sample_processing_request()}
+      request =
+        ImagePlug.ImagePlugTest.sample_processing_request()
+        |> Map.put(:format, :jpeg)
+
+      {:ok, request}
     end
 
     @impl ImagePlug.ParamParser
@@ -217,6 +256,34 @@ defmodule ImagePlug.ImagePlugTest do
   defmodule RaisingAfterFirstChunkTransform do
     def execute(%ImagePlug.TransformState{} = state, _params) do
       %ImagePlug.TransformState{state | image: :image, output: :jpeg}
+    end
+  end
+
+  defmodule FailingTransformParser do
+    @behaviour ImagePlug.ParamParser
+
+    @impl ImagePlug.ParamParser
+    def parse(_conn) do
+      request =
+        ImagePlug.ImagePlugTest.sample_processing_request()
+        |> Map.put(:format, :jpeg)
+
+      {:ok, request}
+    end
+
+    @impl ImagePlug.ParamParser
+    def handle_error(conn, _error), do: conn
+  end
+
+  defmodule FailingTransformPlanner do
+    def plan(%ProcessingRequest{}) do
+      {:ok, [{ImagePlug.ImagePlugTest.FailingTransform, nil}]}
+    end
+  end
+
+  defmodule FailingTransform do
+    def execute(%ImagePlug.TransformState{} = state, _params) do
+      ImagePlug.TransformState.add_error(state, {__MODULE__, :failed})
     end
   end
 
@@ -265,8 +332,90 @@ defmodule ImagePlug.ImagePlugTest do
     assert_receive {:cache_probe_flushed, ^ref}
   end
 
+  defp assert_cache_get_output(expected_output) do
+    assert_cache_get_output(expected_output, 20, [])
+  end
+
+  defp assert_cache_get_output(expected_output, 0, seen_outputs) do
+    flunk(
+      "expected cache lookup for #{inspect(expected_output)}, saw #{inspect(Enum.reverse(seen_outputs))}"
+    )
+  end
+
+  defp assert_cache_get_output(expected_output, remaining, seen_outputs) do
+    receive do
+      {:cache_get, %ImagePlug.Cache.Key{} = key} ->
+        output = key.material[:output]
+
+        if output == expected_output do
+          assert true
+        else
+          assert_cache_get_output(expected_output, remaining - 1, [output | seen_outputs])
+        end
+    after
+      0 ->
+        flunk(
+          "expected cache lookup for #{inspect(expected_output)}, saw #{inspect(Enum.reverse(seen_outputs))}"
+        )
+    end
+  end
+
+  defp start_slow_partial_origin(test_pid, ref, content_type \\ "image/jpeg") do
+    {:ok, listen_socket} =
+      :gen_tcp.listen(0, [:binary, packet: :raw, active: false, reuseaddr: true])
+
+    {:ok, {_address, port}} = :inet.sockname(listen_socket)
+
+    server =
+      spawn_link(fn ->
+        {:ok, socket} = :gen_tcp.accept(listen_socket)
+        {:ok, _request} = :gen_tcp.recv(socket, 0)
+
+        body = File.read!("priv/static/images/cat-300.jpg")
+        first_chunk = binary_part(body, 0, 128)
+
+        :ok =
+          :gen_tcp.send(socket, [
+            "HTTP/1.1 200 OK\r\n",
+            "content-type: #{content_type}\r\n",
+            "transfer-encoding: chunked\r\n",
+            "\r\n",
+            chunked_body_chunk(first_chunk)
+          ])
+
+        send(test_pid, {ref, :first_chunk_sent, self()})
+        await_slow_partial_origin_close(ref, socket, listen_socket)
+      end)
+
+    {"http://127.0.0.1:#{port}", server}
+  end
+
+  defp chunked_body_chunk(body) do
+    [Integer.to_string(byte_size(body), 16), "\r\n", body, "\r\n"]
+  end
+
+  defp await_slow_partial_origin_close(ref, socket, listen_socket) do
+    :inet.setopts(socket, active: :once)
+
+    receive do
+      {^ref, :close} ->
+        :gen_tcp.close(socket)
+        :gen_tcp.close(listen_socket)
+
+      {:tcp_closed, ^socket} ->
+        :gen_tcp.close(listen_socket)
+
+      {:tcp_error, ^socket, _reason} ->
+        :gen_tcp.close(listen_socket)
+    after
+      5_000 ->
+        :gen_tcp.close(socket)
+        :gen_tcp.close(listen_socket)
+    end
+  end
+
   test "no cache configured preserves the streaming response path" do
-    conn = conn(:get, "/_/format:jpeg/plain/images/cat-300.jpg")
+    conn = conn(:get, "/_/f:jpeg/plain/images/cat-300.jpg")
     test_pid = self()
 
     conn =
@@ -288,8 +437,82 @@ defmodule ImagePlug.ImagePlugTest do
     refute_received :memory_encoder_called
   end
 
+  test "streaming sends headers once and resumes for subsequent chunks" do
+    conn = conn(:get, "/_/f:jpeg/plain/images/cat-300.jpg")
+    test_pid = self()
+
+    conn =
+      ImagePlug.call(conn,
+        root_url: "http://origin.test",
+        image_module: MultiChunkStreamingImage,
+        param_parser: ImagePlug.ParamParser.Native,
+        origin_req_options: [
+          plug: fn conn -> CountingOriginImage.call(conn, test_pid: test_pid) end
+        ]
+      )
+
+    assert conn.status == 200
+    assert conn.state == :chunked
+    assert conn.resp_body == "first chunksecond chunk"
+    assert get_resp_header(conn, "content-type") == ["image/jpeg"]
+    assert_received {:plug_conn, :sent}
+    refute_received {:plug_conn, :sent}
+    assert_received :stream_encoder_called
+  end
+
+  test "closed chunk delivery returns the started chunked response" do
+    conn =
+      :get
+      |> conn("/_/f:jpeg/plain/images/cat-300.jpg")
+      |> Map.put(:adapter, {ClosedChunkAdapter, %{owner: self()}})
+
+    test_pid = self()
+
+    conn =
+      ImagePlug.call(conn,
+        root_url: "http://origin.test",
+        image_module: StreamingOnlyImage,
+        param_parser: ImagePlug.ParamParser.Native,
+        origin_req_options: [
+          plug: fn conn -> CountingOriginImage.call(conn, test_pid: test_pid) end
+        ]
+      )
+
+    assert conn.status == 200
+    assert conn.state == :chunked
+    assert conn.resp_body == ""
+    assert get_resp_header(conn, "content-type") == ["image/jpeg"]
+    assert_received :closed_adapter_send_chunked
+    assert_received :stream_encoder_called
+  end
+
+  test "automatic source-format output does not require encoder overrides before streaming" do
+    conn =
+      :get
+      |> conn("/_/plain/images/cat-300.jpg")
+      |> put_req_header("accept", "image/jpeg")
+
+    test_pid = self()
+
+    conn =
+      ImagePlug.call(conn,
+        root_url: "http://origin.test",
+        image_module: StreamingOnlyImage,
+        param_parser: ImagePlug.ParamParser.Native,
+        origin_req_options: [
+          plug: fn conn -> CountingOriginImage.call(conn, test_pid: test_pid) end
+        ]
+      )
+
+    assert conn.status == 200
+    assert conn.state == :chunked
+    assert conn.resp_body == "streamed jpeg"
+    assert get_resp_header(conn, "content-type") == ["image/jpeg"]
+    assert_received :stream_encoder_called
+  end
+
   test "does not touch cache when parser validation fails" do
-    conn = conn(:get, "/_/w:0/plain/images/cat-300.jpg")
+    conn = conn(:get, "/_/w:-1/plain/images/cat-300.jpg")
     cache_probe = start_cache_probe()
 
     conn =
@@ -307,7 +530,7 @@ defmodule ImagePlug.ImagePlugTest do
   end
 
   test "does not touch cache when planner validation fails" do
-    conn = conn(:get, "/_/fit:cover/w:100/plain/images/cat-300.jpg")
+    conn = conn(:get, "/_/rs:auto:100:100/plain/images/cat-300.jpg")
     cache_probe = start_cache_probe()
 
     conn =
@@ -334,7 +557,7 @@ defmodule ImagePlug.ImagePlugTest do
       created_at: DateTime.utc_now()
     }
 
-    conn = conn(:get, "/_/format:webp/plain/images/cat-300.jpg")
+    conn = conn(:get, "/_/f:webp/plain/images/cat-300.jpg")
 
     conn =
       ImagePlug.call(conn,
@@ -356,7 +579,7 @@ defmodule ImagePlug.ImagePlugTest do
   end
 
   test "cache misses process origin response, write entry, and send encoded body" do
-    conn = conn(:get, "/_/format:jpeg/plain/images/cat-300.jpg")
+    conn = conn(:get, "/_/f:jpeg/plain/images/cat-300.jpg")
     test_pid = self()
     cache_probe = start_cache_probe()
 
@@ -410,8 +633,31 @@ defmodule ImagePlug.ImagePlugTest do
     assert entry.headers == [{"vary", "Accept"}]
   end
 
+  test "cache-miss memory encode failures are not cached and preserve automatic Vary" do
+    cache_probe = start_cache_probe()
+
+    conn =
+      :get
+      |> conn("/_/plain/images/cat-300.jpg")
+      |> put_req_header("accept", "image/jpeg")
+      |> ImagePlug.call(
+        root_url: "http://origin.test",
+        param_parser: ImagePlug.ParamParser.Native,
+        image_module: FailingMemoryImage,
+        origin_req_options: [plug: {CountingOriginImage, test_pid: cache_probe}],
+        cache: {CacheProbe, message_target: cache_probe}
+      )
+
+    flush_cache_probe(cache_probe)
+    assert conn.status == 500
+    assert conn.resp_body == "error encoding image"
+    assert get_resp_header(conn, "vary") == ["Accept"]
+    assert_received :memory_encoder_called
+    refute_received {:cache_put, _key, _entry}
+  end
+
   test "does not fetch origin when parser validation fails" do
-    conn = conn(:get, "/_/w:0/plain/images/cat-300.jpg")
+    conn = conn(:get, "/_/w:-1/plain/images/cat-300.jpg")
 
     conn =
       ImagePlug.call(conn,
@@ -425,7 +671,7 @@ defmodule ImagePlug.ImagePlugTest do
   end
 
   test "does not fetch origin when planner validation fails" do
-    conn = conn(:get, "/_/fit:cover/w:100/plain/images/cat-300.jpg")
+    conn = conn(:get, "/_/rs:auto:100:100/plain/images/cat-300.jpg")
 
     conn =
       ImagePlug.call(conn,
@@ -471,10 +717,373 @@ defmodule ImagePlug.ImagePlugTest do
     assert get_resp_header(conn, "vary") == ["Accept"]
   end
 
+  test "automatic fallback selects accepted source format" do
+    {:ok, image} = Image.new(20, 20, color: :white)
+    body = Image.write!(image, :memory, suffix: ".png")
+
+    origin = fn conn ->
+      conn
+      |> Plug.Conn.put_resp_content_type("image/png")
+      |> Plug.Conn.send_resp(200, body)
+    end
+
+    conn =
+      :get
+      |> conn("/_/plain/images/cat.png")
+      |> put_req_header("accept", "image/png")
+
+    conn =
+      ImagePlug.call(conn,
+        root_url: "http://origin.test",
+        param_parser: ImagePlug.ParamParser.Native,
+        origin_req_options: [plug: origin]
+      )
+
+    assert conn.status == 200
+    assert get_resp_header(conn, "content-type") == ["image/png"]
+    assert get_resp_header(conn, "vary") == ["Accept"]
+  end
+
+  test "processes an imgproxy fill URL with explicit output extension" do
+    conn = conn(:get, "/_/rs:fill:100:100/g:ce/plain/images/cat-300.jpg@jpeg")
+
+    conn =
+      ImagePlug.call(conn,
+        root_url: "http://origin.test",
+        param_parser: ImagePlug.ParamParser.Native,
+        origin_req_options: [plug: OriginImage]
+      )
+
+    assert conn.status == 200
+    assert get_resp_header(conn, "content-type") == ["image/jpeg"]
+    assert get_resp_header(conn, "vary") == []
+  end
+
+  test "automatic output uses server preference over relative q-values" do
+    conn =
+      :get
+      |> conn("/_/plain/images/cat-300.jpg")
+      |> put_req_header("accept", "image/webp;q=1,image/avif;q=0.1")
+
+    conn =
+      ImagePlug.call(conn,
+        root_url: "http://origin.test",
+        param_parser: ImagePlug.ParamParser.Native,
+        origin_req_options: [plug: OriginImage]
+      )
+
+    assert conn.status == 200
+    assert get_resp_header(conn, "content-type") == ["image/avif"]
+    assert get_resp_header(conn, "vary") == ["Accept"]
+  end
+
+  test "exact Accept exclusion overrides wildcard allowance" do
+    conn =
+      :get
+      |> conn("/_/plain/images/cat-300.jpg")
+      |> put_req_header("accept", "image/avif;q=0,image/*;q=1")
+
+    conn =
+      ImagePlug.call(conn,
+        root_url: "http://origin.test",
+        param_parser: ImagePlug.ParamParser.Native,
+        origin_req_options: [plug: OriginImage]
+      )
+
+    assert conn.status == 200
+    assert get_resp_header(conn, "content-type") == ["image/webp"]
+    assert get_resp_header(conn, "vary") == ["Accept"]
+  end
+
+  test "automatic AVIF cache hits do not fetch origin" do
+    cache_probe = start_cache_probe()
+
+    cached_entry = %ImagePlug.Cache.Entry{
+      body: "cached avif",
+      content_type: "image/avif",
+      headers: [{"vary", "Accept"}],
+      created_at: DateTime.utc_now()
+    }
+
+    conn =
+      :get
+      |> conn("/_/plain/images/cat-300.jpg")
+      |> put_req_header("accept", "image/avif,image/webp")
+
+    conn =
+      ImagePlug.call(conn,
+        root_url: "http://origin.test",
+        param_parser: ImagePlug.ParamParser.Native,
+        cache: {CacheProbe, message_target: cache_probe, get_result: {:hit, cached_entry}},
+        origin_req_options: [plug: OriginShouldNotBeCalled]
+      )
+
+    flush_cache_probe(cache_probe)
+    assert conn.status == 200
+    assert conn.resp_body == "cached avif"
+
+    assert_cache_get_output(
+      mode: :automatic,
+      modern_candidates: [:avif, :webp],
+      auto: [avif: true, webp: true]
+    )
+
+    refute_received :origin_was_called
+  end
+
+  test "automatic JPEG source-format cache hits do not fetch origin" do
+    cache_probe = start_cache_probe()
+
+    cached_entry = %ImagePlug.Cache.Entry{
+      body: "cached jpeg",
+      content_type: "image/jpeg",
+      headers: [{"vary", "Accept"}],
+      created_at: DateTime.utc_now()
+    }
+
+    conn =
+      :get
+      |> conn("/_/plain/images/cat-300.jpg")
+      |> put_req_header("accept", "image/jpeg")
+
+    get_result_fun = fn key ->
+      case key.material[:output] do
+        [
+          mode: :automatic,
+          modern_candidates: [],
+          auto: [avif: true, webp: true]
+        ] ->
+          {:hit, cached_entry}
+
+        _other ->
+          :miss
+      end
+    end
+
+    conn =
+      ImagePlug.call(conn,
+        root_url: "http://origin.test",
+        param_parser: ImagePlug.ParamParser.Native,
+        cache: {CacheProbe, message_target: cache_probe, get_result_fun: get_result_fun},
+        origin_req_options: [plug: OriginShouldNotBeCalled]
+      )
+
+    flush_cache_probe(cache_probe)
+    assert conn.status == 200
+    assert conn.resp_body == "cached jpeg"
+
+    assert_cache_get_output(
+      mode: :automatic,
+      modern_candidates: [],
+      auto: [avif: true, webp: true]
+    )
+
+    refute_received :origin_was_called
+  end
+
+  test "deferred source-format cache hits can serve disabled modern formats without origin" do
+    cache_probe = start_cache_probe()
+
+    cached_entry = %ImagePlug.Cache.Entry{
+      body: "cached source avif",
+      content_type: "image/avif",
+      headers: [{"vary", "Accept"}],
+      created_at: DateTime.utc_now()
+    }
+
+    conn =
+      :get
+      |> conn("/_/plain/images/cat-300.jpg")
+      |> put_req_header("accept", "image/avif")
+
+    get_result_fun = fn key ->
+      case key.material[:output] do
+        [
+          mode: :automatic,
+          modern_candidates: [],
+          auto: [avif: false, webp: false]
+        ] ->
+          {:hit, cached_entry}
+
+        _other ->
+          :miss
+      end
+    end
+
+    conn =
+      ImagePlug.call(conn,
+        root_url: "http://origin.test",
+        param_parser: ImagePlug.ParamParser.Native,
+        auto_avif: false,
+        auto_webp: false,
+        cache: {CacheProbe, message_target: cache_probe, get_result_fun: get_result_fun},
+        origin_req_options: [plug: OriginShouldNotBeCalled]
+      )
+
+    flush_cache_probe(cache_probe)
+    assert conn.status == 200
+    assert conn.resp_body == "cached source avif"
+
+    assert_cache_get_output(
+      mode: :automatic,
+      modern_candidates: [],
+      auto: [avif: false, webp: false]
+    )
+
+    refute_received :origin_was_called
+  end
+
+  test "automatic cache key is available before origin when modern formats are disabled" do
+    cache_probe = start_cache_probe()
+
+    cached_entry = %ImagePlug.Cache.Entry{
+      body: "cached jpeg",
+      content_type: "image/jpeg",
+      headers: [{"vary", "Accept"}],
+      created_at: DateTime.utc_now()
+    }
+
+    conn =
+      :get
+      |> conn("/_/plain/images/cat-300.jpg")
+      |> put_req_header("accept", "image/*")
+
+    get_result_fun = fn key ->
+      case key.material[:output] do
+        [
+          mode: :automatic,
+          modern_candidates: [],
+          auto: [avif: false, webp: false]
+        ] ->
+          {:hit, cached_entry}
+
+        _other ->
+          :miss
+      end
+    end
+
+    conn =
+      ImagePlug.call(conn,
+        root_url: "http://origin.test",
+        param_parser: ImagePlug.ParamParser.Native,
+        auto_avif: false,
+        auto_webp: false,
+        cache: {CacheProbe, message_target: cache_probe, get_result_fun: get_result_fun},
+        origin_req_options: [plug: OriginShouldNotBeCalled]
+      )
+
+    flush_cache_probe(cache_probe)
+    assert conn.status == 200
+    assert conn.resp_body == "cached jpeg"
+
+    assert_cache_get_output(
+      mode: :automatic,
+      modern_candidates: [],
+      auto: [avif: false, webp: false]
+    )
+
+    refute_received :origin_was_called
+  end
+
+  test "disabled automatic modern formats still set Vary for negotiated source output" do
+    conn = conn(:get, "/_/plain/images/cat-300.jpg")
+
+    conn =
+      ImagePlug.call(conn,
+        root_url: "http://origin.test",
+        param_parser: ImagePlug.ParamParser.Native,
+        auto_avif: false,
+        auto_webp: false,
+        origin_req_options: [plug: OriginImage]
+      )
+
+    assert conn.status == 200
+    assert get_resp_header(conn, "vary") == ["Accept"]
+  end
+
+  test "disabled automatic modern formats use source output despite baseline Accept exclusions" do
+    conn =
+      :get
+      |> conn("/_/plain/images/cat-300.jpg")
+      |> put_req_header("accept", "image/jpeg;q=0")
+
+    conn =
+      ImagePlug.call(conn,
+        root_url: "http://origin.test",
+        param_parser: ImagePlug.ParamParser.Native,
+        auto_avif: false,
+        auto_webp: false,
+        origin_req_options: [plug: OriginImage]
+      )
+
+    assert conn.status == 200
+    assert get_resp_header(conn, "content-type") == ["image/jpeg"]
+    assert get_resp_header(conn, "vary") == ["Accept"]
+  end
+
+  test "source-format automatic negotiation ignores baseline Accept and decodes source" do
+    conn =
+      :get
+      |> conn("/_/plain/images/cat-300.jpg")
+      |> put_req_header("accept", "image/png")
+
+    assert_raise RuntimeError, "source negotiation should happen before decode", fn ->
+      ImagePlug.call(conn,
+        root_url: "http://origin.test",
+        param_parser: ImagePlug.ParamParser.Native,
+        auto_avif: false,
+        auto_webp: false,
+        image_open_module: RejectingImageOpen,
+        origin_req_options: [plug: OriginImage]
+      )
+    end
+  end
+
+  test "source-format automatic negotiation closes pending origins when source format is unknown" do
+    ref = make_ref()
+    {root_url, server} = start_slow_partial_origin(self(), ref, "image/gif")
+    server_ref = Process.monitor(server)
+    on_exit(fn -> send(server, {ref, :close}) end)
+
+    conn =
+      :get
+      |> conn("/_/plain/images/slow.jpg")
+      |> put_req_header("accept", "image/png")
+      |> ImagePlug.call(
+        root_url: root_url,
+        param_parser: ImagePlug.ParamParser.Native,
+        auto_avif: false,
+        auto_webp: false
+      )
+
+    assert conn.status == 415
+    assert conn.resp_body == "origin response is not a supported image"
+    assert_receive {^ref, :first_chunk_sent, ^server}
+    assert_receive {:DOWN, ^server_ref, :process, ^server, _reason}, 1_000
+  end
+
+  test "does not touch cache or origin when planner rejects unsupported semantics" do
+    conn = conn(:get, "/_/rs:auto:100:100/plain/images/cat-300.jpg")
+    cache_probe = start_cache_probe()
+
+    conn =
+      ImagePlug.call(conn,
+        root_url: "http://origin.test",
+        param_parser: ImagePlug.ParamParser.Native,
+        cache: {CacheProbe, message_target: cache_probe},
+        origin_req_options: [plug: OriginShouldNotBeCalled]
+      )
+
+    flush_cache_probe(cache_probe)
+    assert conn.status == 400
+    refute_received {:cache_get, _key}
+    refute_received :origin_was_called
+  end
+
   test "explicit output format does not set Vary on uncached streaming responses" do
     conn =
       ImagePlug.call(
-        conn(:get, "/_/format:webp/plain/images/cat-300.jpg"),
+        conn(:get, "/_/f:webp/plain/images/cat-300.jpg"),
         root_url: "http://origin.test",
         param_parser: ImagePlug.ParamParser.Native,
         origin_req_options: [plug: OriginImage]
@@ -485,7 +1094,7 @@ defmodule ImagePlug.ImagePlugTest do
     assert get_resp_header(conn, "vary") == []
   end
 
-  test "auto output returns 406 when Accept excludes every supported output" do
+  test "auto output uses source format when Accept excludes baseline formats" do
     conn =
       :get
       |> conn("/_/plain/images/cat-300.jpg")
@@ -498,15 +1107,14 @@ defmodule ImagePlug.ImagePlugTest do
         origin_req_options: [plug: OriginImage]
       )
 
-    assert conn.status == 406
-    assert conn.resp_body == "no acceptable image output format"
-    assert get_resp_header(conn, "content-type") == ["text/plain; charset=utf-8"]
+    assert conn.status == 200
+    assert get_resp_header(conn, "content-type") == ["image/jpeg"]
     assert get_resp_header(conn, "vary") == ["Accept"]
   end
 
   test "safe one-pass resize opens origin with sequential access" do
     conn =
-      conn(:get, "/_/w:100/format:jpeg/plain/images/cat-300.jpg")
+      conn(:get, "/_/rt:force/w:100/format:jpeg/plain/images/cat-300.jpg")
       |> ImagePlug.call(
         root_url: "http://origin.test",
         image_open_module: RecordingImageOpen,
@@ -522,7 +1130,7 @@ defmodule ImagePlug.ImagePlugTest do
 
   test "cover opens origin with random access" do
     conn =
-      conn(:get, "/_/fit:cover/w:100/h:100/format:jpeg/plain/images/cat-300.jpg")
+      conn(:get, "/_/rs:fill:100:100/f:jpeg/plain/images/cat-300.jpg")
       |> ImagePlug.call(
         root_url: "http://origin.test",
         image_open_module: RecordingImageOpen,
@@ -538,22 +1146,50 @@ defmodule ImagePlug.ImagePlugTest do
 
   test "sequential materialization failure without origin error returns decode error" do
     conn =
-      conn(:get, "/_/w:100/plain/images/cat-300.jpg")
+      conn(:get, "/_/rt:force/w:100/plain/images/cat-300.jpg")
       |> ImagePlug.call(
         root_url: "http://origin.test",
+        image_open_module: RecordingImageOpen,
         param_parser: ImagePlug.ParamParser.Native,
         image_materializer_module: FailingMaterializer,
         origin_req_options: [plug: OriginImage]
       )
 
+    assert_received {:image_open_options, opts}
+    assert Keyword.get(opts, :access) == :sequential
+    assert Keyword.get(opts, :fail_on) == :error
     assert conn.status == 415
     assert conn.state == :sent
     assert conn.resp_body == "origin response is not a supported image"
     assert get_resp_header(conn, "content-type") == ["text/plain; charset=utf-8"]
+    assert get_resp_header(conn, "vary") == ["Accept"]
   end
 
-  test "processes a native path URL with cover and explicit output format" do
-    conn = conn(:get, "/_/fit:cover/w:100/h:100/format:jpeg/plain/images/cat-300.jpg")
+  test "deferred automatic sequential materialization failure returns decode error" do
+    conn =
+      :get
+      |> conn("/_/rt:force/w:100/plain/images/cat-300.jpg")
+      |> put_req_header("accept", "image/jpeg")
+      |> ImagePlug.call(
+        root_url: "http://origin.test",
+        image_open_module: RecordingImageOpen,
+        param_parser: ImagePlug.ParamParser.Native,
+        image_materializer_module: FailingMaterializer,
+        origin_req_options: [plug: OriginImage]
+      )
+
+    assert_received {:image_open_options, opts}
+    assert Keyword.get(opts, :access) == :sequential
+    assert Keyword.get(opts, :fail_on) == :error
+    assert conn.status == 415
+    assert conn.state == :sent
+    assert conn.resp_body == "origin response is not a supported image"
+    assert get_resp_header(conn, "content-type") == ["text/plain; charset=utf-8"]
+    assert get_resp_header(conn, "vary") == ["Accept"]
+  end
+
+  test "processes a native path URL with dimensions and explicit output format" do
+    conn = conn(:get, "/_/w:100/h:100/f:jpeg/plain/images/cat-300.jpg")
 
     conn =
       ImagePlug.call(conn,
@@ -582,6 +1218,30 @@ defmodule ImagePlug.ImagePlugTest do
     assert get_resp_header(conn, "content-type") == ["text/plain; charset=utf-8"]
   end
 
+  test "returns text 500 when encoder produces an empty stream" do
+    conn = conn(:get, "/_/plain/images/cat-300.jpg")
+
+    log =
+      capture_log(fn ->
+        conn =
+          ImagePlug.call(conn,
+            root_url: "http://origin.test",
+            image_module: EmptyStreamingImage,
+            param_parser: RaisingAfterFirstChunkParser,
+            pipeline_planner: RaisingAfterFirstChunkPlanner,
+            origin_req_options: [plug: OriginImage]
+          )
+
+        assert conn.status == 500
+        assert conn.state == :sent
+        assert conn.resp_body == "error encoding image"
+        assert get_resp_header(conn, "content-type") == ["text/plain; charset=utf-8"]
+      end)
+
+    assert log =~ "encode_error: image encoder produced an empty stream"
+    assert_received :stream_encoder_called
+  end
+
   test "does not send text 500 when encoding fails after chunked response starts" do
     conn = conn(:get, "/_/plain/images/cat-300.jpg")
 
@@ -604,6 +1264,28 @@ defmodule ImagePlug.ImagePlugTest do
 
     assert log =~ "encode_error:"
     assert log =~ "boom after first chunk"
+  end
+
+  test "transform errors return a stable client message and log details" do
+    conn = conn(:get, "/_/plain/images/cat-300.jpg")
+
+    log =
+      capture_log(fn ->
+        conn =
+          ImagePlug.call(conn,
+            root_url: "http://origin.test",
+            param_parser: FailingTransformParser,
+            pipeline_planner: FailingTransformPlanner,
+            origin_req_options: [plug: OriginImage]
+          )
+
+        assert conn.status == 422
+        assert conn.resp_body == "invalid image transform"
+        assert get_resp_header(conn, "content-type") == ["text/plain; charset=utf-8"]
+      end)
+
+    assert log =~ "transform_error(s):"
+    assert log =~ "ImagePlug.ImagePlugTest.FailingTransform"
   end
 
   test "rejects decoded images above the configured pixel limit" do
@@ -660,24 +1342,31 @@ defmodule ImagePlug.ImagePlugTest do
   end
 
   test "origin timeout while decoding a partial valid image remains an origin error" do
+    ref = make_ref()
+    {root_url, server} = start_slow_partial_origin(self(), ref)
+    monitor_ref = Process.monitor(server)
+
     conn =
       conn(:get, "/_/plain/images/slow.jpg")
       |> ImagePlug.call(
-        root_url: "http://origin.test",
+        root_url: root_url,
         param_parser: ImagePlug.ParamParser.Native,
-        origin_receive_timeout: 50,
-        origin_req_options: [plug: SlowPartialOriginImage]
+        origin_receive_timeout: 50
       )
 
+    assert_receive {^ref, :first_chunk_sent, ^server}
     assert conn.status == 502
     assert conn.resp_body == "error fetching origin image"
+
+    send(server, {ref, :close})
+    assert_receive {:DOWN, ^monitor_ref, :process, ^server, _reason}
   end
 
   test "sequential body limit after initial valid bytes remains an origin error before image headers" do
     body = File.read!("priv/static/images/cat-300.jpg")
 
     conn =
-      conn(:get, "/_/w:100/plain/images/large-body.jpg")
+      conn(:get, "/_/rt:force/w:100/plain/images/large-body.jpg")
       |> ImagePlug.call(
         root_url: "http://origin.test",
         param_parser: ImagePlug.ParamParser.Native,
@@ -692,24 +1381,31 @@ defmodule ImagePlug.ImagePlugTest do
   end
 
   test "sequential timeout after initial valid bytes remains an origin error before image headers" do
+    ref = make_ref()
+    {root_url, server} = start_slow_partial_origin(self(), ref)
+    monitor_ref = Process.monitor(server)
+
     conn =
-      conn(:get, "/_/w:100/plain/images/slow.jpg")
+      conn(:get, "/_/rt:force/w:100/plain/images/slow.jpg")
       |> ImagePlug.call(
-        root_url: "http://origin.test",
+        root_url: root_url,
         param_parser: ImagePlug.ParamParser.Native,
-        origin_receive_timeout: 50,
-        origin_req_options: [plug: SlowPartialOriginImage]
+        origin_receive_timeout: 50
       )
 
+    assert_receive {^ref, :first_chunk_sent, ^server}
     assert conn.status == 502
     assert conn.state == :sent
     assert conn.resp_body == "error fetching origin image"
     assert get_resp_header(conn, "content-type") == ["text/plain; charset=utf-8"]
+
+    send(server, {ref, :close})
+    assert_receive {:DOWN, ^monitor_ref, :process, ^server, _reason}
   end
 
   test "sequential corrupt image tail without origin error remains a decode error" do
     conn =
-      conn(:get, "/_/w:100/plain/images/corrupt-tail.jpg")
+      conn(:get, "/_/rt:force/w:100/plain/images/corrupt-tail.jpg")
       |> ImagePlug.call(
         root_url: "http://origin.test",
         param_parser: ImagePlug.ParamParser.Native,
@@ -739,7 +1435,7 @@ defmodule ImagePlug.ImagePlugTest do
     cache_probe = start_cache_probe()
 
     conn =
-      conn(:get, "/_/format:jpeg/plain/images/cat-300.jpg")
+      conn(:get, "/_/f:jpeg/plain/images/cat-300.jpg")
       |> ImagePlug.call(
         root_url: "http://origin.test",
         param_parser: ImagePlug.ParamParser.Native,
@@ -758,7 +1454,7 @@ defmodule ImagePlug.ImagePlugTest do
     cache_probe = start_cache_probe()
 
     conn =
-      conn(:get, "/_/format:jpeg/plain/images/cat-300.jpg")
+      conn(:get, "/_/f:jpeg/plain/images/cat-300.jpg")
       |> ImagePlug.call(
         root_url: "http://origin.test",
         param_parser: ImagePlug.ParamParser.Native,
@@ -780,7 +1476,7 @@ defmodule ImagePlug.ImagePlugTest do
     cache_probe = start_cache_probe()
 
     conn =
-      conn(:get, "/_/format:jpeg/plain/images/cat-300.jpg")
+      conn(:get, "/_/f:jpeg/plain/images/cat-300.jpg")
       |> ImagePlug.call(
         root_url: "http://origin.test",
         param_parser: ImagePlug.ParamParser.Native,
@@ -800,7 +1496,7 @@ defmodule ImagePlug.ImagePlugTest do
     cache_probe = start_cache_probe()
 
     conn =
-      conn(:get, "/_/format:jpeg/plain/images/cat-300.jpg")
+      conn(:get, "/_/f:jpeg/plain/images/cat-300.jpg")
       |> ImagePlug.call(
         root_url: "http://origin.test",
         param_parser: ImagePlug.ParamParser.Native,
@@ -819,11 +1515,37 @@ defmodule ImagePlug.ImagePlugTest do
     assert_received {:cache_put, _key, _entry}
   end
 
+  test "automatic cache write errors preserve negotiated Vary when fail_on_cache_error is true" do
+    cache_probe = start_cache_probe()
+
+    conn =
+      :get
+      |> conn("/_/plain/images/cat-300.jpg")
+      |> put_req_header("accept", "image/jpeg")
+      |> ImagePlug.call(
+        root_url: "http://origin.test",
+        param_parser: ImagePlug.ParamParser.Native,
+        origin_req_options: [plug: {CountingOriginImage, test_pid: cache_probe}],
+        cache:
+          {CacheProbe,
+           message_target: cache_probe,
+           put_result: {:error, :write_failed},
+           fail_on_cache_error: true}
+      )
+
+    flush_cache_probe(cache_probe)
+    assert conn.status == 500
+    assert conn.resp_body == "cache error"
+    assert get_resp_header(conn, "vary") == ["Accept"]
+    assert_received :origin_was_called
+    assert_received {:cache_put, _key, _entry}
+  end
+
   test "cache writes over max_body_bytes are skipped and still return response" do
     cache_probe = start_cache_probe()
 
     conn =
-      conn(:get, "/_/format:jpeg/plain/images/cat-300.jpg")
+      conn(:get, "/_/f:jpeg/plain/images/cat-300.jpg")
       |> ImagePlug.call(
         root_url: "http://origin.test",
         param_parser: ImagePlug.ParamParser.Native,
@@ -837,24 +1559,42 @@ defmodule ImagePlug.ImagePlugTest do
     refute_received {:cache_put, _key, _entry}
   end
 
+  test "cache writes over max_body_bytes skip full memory encoding" do
+    cache_probe = start_cache_probe()
+
+    conn =
+      conn(:get, "/_/f:jpeg/plain/images/cat-300.jpg")
+      |> ImagePlug.call(
+        root_url: "http://origin.test",
+        param_parser: ImagePlug.ParamParser.Native,
+        image_module: BoundedCacheStreamingImage,
+        origin_req_options: [plug: {CountingOriginImage, test_pid: cache_probe}],
+        cache: {CacheProbe, message_target: cache_probe, max_body_bytes: 1}
+      )
+
+    flush_cache_probe(cache_probe)
+    assert conn.status == 200
+    assert conn.resp_body == "streamed jpeg over cache limit"
+    assert_received :stream_encoder_called
+    refute_received :memory_encoder_called
+    refute_received {:cache_put, _key, _entry}
+  end
+
   test "unsuccessful processed responses are not cached" do
     cache_probe = start_cache_probe()
 
     conn =
-      :get
-      |> conn("/_/plain/images/cat-300.jpg")
-      |> put_req_header("accept", "image/*;q=0")
+      conn(:get, "/_/f:jpeg/plain/images/cat-300.jpg")
       |> ImagePlug.call(
         root_url: "http://origin.test",
         param_parser: ImagePlug.ParamParser.Native,
-        origin_req_options: [plug: {CountingOriginImage, test_pid: cache_probe}],
+        origin_req_options: [plug: InvalidOriginImage],
         cache: {CacheProbe, message_target: cache_probe}
       )
 
     flush_cache_probe(cache_probe)
-    assert conn.status == 406
-    assert conn.resp_body == "no acceptable image output format"
-    assert_received :origin_was_called
+    assert conn.status == 415
+    assert conn.resp_body == "origin response is not a supported image"
     refute_received {:cache_put, _key, _entry}
   end
 
@@ -886,7 +1626,7 @@ defmodule ImagePlug.ImagePlugTest do
       ]
 
       first_conn =
-        conn(:get, "/_/format:jpeg/plain/images/cat-300.jpg")
+        conn(:get, "/_/f:jpeg/plain/images/cat-300.jpg")
         |> ImagePlug.call(opts)
 
       flush_cache_probe(cache_probe)
@@ -894,7 +1634,7 @@ defmodule ImagePlug.ImagePlugTest do
       assert_received :origin_was_called
 
       second_conn =
-        conn(:get, "/_/format:jpeg/plain/images/cat-300.jpg")
+        conn(:get, "/_/f:jpeg/plain/images/cat-300.jpg")
         |> ImagePlug.call(opts)
 
       flush_cache_probe(cache_probe)
