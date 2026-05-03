@@ -77,6 +77,18 @@ defmodule ImagePlug.ImagePlugTest do
     end
   end
 
+  defmodule BoundedCacheStreamingImage do
+    def stream!(_image, suffix: ".jpg") do
+      send(self(), :stream_encoder_called)
+      ["streamed jpeg over cache limit"]
+    end
+
+    def write(_image, :memory, suffix: ".jpg") do
+      send(self(), :memory_encoder_called)
+      raise "cache skip path should not encode the full body in memory"
+    end
+  end
+
   defmodule MultiChunkStreamingImage do
     def stream!(_image, suffix: ".jpg") do
       send(self(), :stream_encoder_called)
@@ -1486,6 +1498,27 @@ defmodule ImagePlug.ImagePlugTest do
     flush_cache_probe(cache_probe)
     assert conn.status == 200
     assert byte_size(conn.resp_body) > 1
+    refute_received {:cache_put, _key, _entry}
+  end
+
+  test "cache writes over max_body_bytes skip full memory encoding" do
+    cache_probe = start_cache_probe()
+
+    conn =
+      conn(:get, "/_/f:jpeg/plain/images/cat-300.jpg")
+      |> ImagePlug.call(
+        root_url: "http://origin.test",
+        param_parser: ImagePlug.ParamParser.Native,
+        image_module: BoundedCacheStreamingImage,
+        origin_req_options: [plug: {CountingOriginImage, test_pid: cache_probe}],
+        cache: {CacheProbe, message_target: cache_probe, max_body_bytes: 1}
+      )
+
+    flush_cache_probe(cache_probe)
+    assert conn.status == 200
+    assert conn.resp_body == "streamed jpeg over cache limit"
+    assert_received :stream_encoder_called
+    refute_received :memory_encoder_called
     refute_received {:cache_put, _key, _entry}
   end
 

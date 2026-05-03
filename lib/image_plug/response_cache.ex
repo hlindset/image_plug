@@ -27,12 +27,20 @@ defmodule ImagePlug.ResponseCache do
   end
 
   @spec store(Key.t(), TransformState.t(), [{String.t(), String.t()}], keyword()) ::
-          {:ok, Entry.t()} | {:error, term()}
+          {:ok, Entry.t()} | :skipped | {:error, term()}
   def store(%Key{} = key, %TransformState{} = state, response_headers, opts) do
-    with {:ok, %OutputEncoder.EncodedOutput{} = output} <- OutputEncoder.memory_output(state, opts),
-         {:ok, entry} <- entry(output, response_headers),
-         put_result when put_result in [:ok, :skipped] <- Cache.put(key, entry, opts) do
-      {:ok, entry}
+    case OutputEncoder.limited_memory_output(state, opts, Cache.max_body_bytes(opts)) do
+      {:ok, %OutputEncoder.EncodedOutput{} = output} ->
+        with {:ok, entry} <- entry(output, response_headers),
+             put_result when put_result in [:ok, :skipped] <- Cache.put(key, entry, opts) do
+          {:ok, entry}
+        end
+
+      :too_large ->
+        :skipped
+
+      {:error, _reason} = error ->
+        error
     end
   end
 

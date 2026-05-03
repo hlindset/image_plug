@@ -27,6 +27,19 @@ defmodule ImagePlug.OutputEncoder do
     end
   end
 
+  @spec limited_memory_output(TransformState.t(), keyword(), non_neg_integer() | nil) ::
+          {:ok, EncodedOutput.t()} | :too_large | {:error, {:encode, Exception.t(), list()}}
+  def limited_memory_output(%TransformState{} = state, opts, nil), do: memory_output(state, opts)
+
+  def limited_memory_output(%TransformState{} = state, opts, max_body_bytes)
+      when is_integer(max_body_bytes) and max_body_bytes >= 0 do
+    with {:ok, mime_type, suffix} <- output_format(state),
+         {:ok, body} <-
+           stream_body(Keyword.get(opts, :image_module, Image), state.image, suffix, max_body_bytes) do
+      {:ok, %EncodedOutput{body: body, content_type: mime_type}}
+    end
+  end
+
   defp output_format(%TransformState{} = state) do
     with {:ok, mime_type} <- mime_type(state) do
       {:ok, mime_type, OutputNegotiation.suffix!(mime_type)}
@@ -40,6 +53,25 @@ defmodule ImagePlug.OutputEncoder do
       {:ok, body} -> {:ok, body}
       {:error, %_{} = exception} -> {:error, {:encode, exception, []}}
       {:error, reason} -> {:error, {:encode, RuntimeError.exception(inspect(reason)), []}}
+    end
+  rescue
+    exception -> {:error, {:encode, exception, __STACKTRACE__}}
+  end
+
+  defp stream_body(image_module, image, suffix, max_body_bytes) do
+    image_module.stream!(image, suffix: suffix)
+    |> Enum.reduce_while({[], 0}, fn chunk, {chunks, size} ->
+      size = size + byte_size(chunk)
+
+      if size > max_body_bytes do
+        {:halt, :too_large}
+      else
+        {:cont, {[chunk | chunks], size}}
+      end
+    end)
+    |> case do
+      :too_large -> :too_large
+      {chunks, _size} -> {:ok, chunks |> Enum.reverse() |> IO.iodata_to_binary()}
     end
   rescue
     exception -> {:error, {:encode, exception, __STACKTRACE__}}

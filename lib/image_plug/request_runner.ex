@@ -60,6 +60,7 @@ defmodule ImagePlug.RequestRunner do
            process_request(conn, request, chain, origin_identity, opts) do
       case ResponseCache.store(key, final_state, response_headers, opts) do
         {:ok, entry} -> {:ok, {:cache_entry, entry}}
+        :skipped -> {:ok, {:image, final_state, response_headers}}
         error -> {:error, {:processing, processing_reason(error), response_headers}}
       end
     else

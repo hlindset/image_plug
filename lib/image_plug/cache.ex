@@ -61,6 +61,15 @@ defmodule ImagePlug.Cache do
   @doc false
   def shared_option_keys, do: @shared_cache_option_keys
 
+  @doc false
+  @spec max_body_bytes(keyword()) :: non_neg_integer() | nil
+  def max_body_bytes(opts) when is_list(opts) do
+    case cache_config(opts) do
+      {:ok, _adapter, cache_opts} -> Keyword.get(cache_opts, :max_body_bytes)
+      _other -> nil
+    end
+  end
+
   @spec lookup(Plug.Conn.t(), ProcessingRequest.t(), String.t(), keyword()) :: lookup_result()
   def lookup(conn, %ProcessingRequest{} = request, origin_identity, opts) when is_list(opts) do
     case cache_config(opts) do
