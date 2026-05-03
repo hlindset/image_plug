@@ -45,7 +45,11 @@ defmodule ImagePlug.OutputEncoder do
   end
 
   defp write_body(image_module, image, suffix) do
-    {:ok, image_module.write!(image, :memory, suffix: suffix)}
+    case image_module.write(image, :memory, suffix: suffix) do
+      {:ok, body} -> {:ok, body}
+      {:error, %_{} = exception} -> {:error, {:encode, exception, []}}
+      {:error, reason} -> {:error, {:encode, RuntimeError.exception(inspect(reason)), []}}
+    end
   rescue
     exception -> {:error, {:encode, exception, __STACKTRACE__}}
   end
