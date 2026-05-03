@@ -1,4 +1,8 @@
 defmodule ImagePlug do
+  @moduledoc """
+  Plug entry point for fetching, transforming, caching, and encoding images.
+  """
+
   @behaviour Plug
 
   import Plug.Conn
@@ -7,12 +11,12 @@ defmodule ImagePlug do
 
   alias ImagePlug.Cache
   alias ImagePlug.Cache.Entry
+  alias ImagePlug.Origin
   alias ImagePlug.OutputEncoder
   alias ImagePlug.OutputNegotiation
-  alias ImagePlug.Origin
-  alias ImagePlug.PipelinePlanner
-  alias ImagePlug.ProcessingRequest
+  alias ImagePlug.Plan
   alias ImagePlug.RequestRunner
+  alias ImagePlug.Source.Plain
   alias ImagePlug.TransformState
 
   @type imgp_number() :: integer() | float()
@@ -28,18 +32,13 @@ defmodule ImagePlug do
   @impl Plug
   def call(%Plug.Conn{} = conn, opts) do
     param_parser = Keyword.fetch!(opts, :param_parser)
-    pipeline_planner = Keyword.get(opts, :pipeline_planner, PipelinePlanner)
 
-    with {:ok, request} <- param_parser.parse(conn) |> wrap_parser_error(),
-         {:ok, chain} <- pipeline_planner.plan(request) |> wrap_planner_error(),
-         {:ok, origin_identity} <- origin_identity(request, opts) |> wrap_origin_error() do
-      result = RequestRunner.run(conn, request, chain, origin_identity, opts)
+    with {:ok, %Plan{} = plan} <- param_parser.parse(conn) |> wrap_parser_error(),
+         {:ok, origin_identity} <- origin_identity(plan, opts) |> wrap_origin_error() do
+      result = RequestRunner.run(conn, plan, origin_identity, opts)
       send_runner_result(result, conn, opts)
     else
       {:error, {:parser, error}} ->
-        param_parser.handle_error(conn, error)
-
-      {:error, {:planner, error}} ->
         param_parser.handle_error(conn, error)
 
       {:error, {:origin, error}} ->
@@ -98,20 +97,49 @@ defmodule ImagePlug do
   defp handle_processing_error(conn, {:cache_write, error}, response_headers),
     do: send_cache_error(conn, error, response_headers)
 
-  defp origin_identity(%ProcessingRequest{source_kind: :plain, source_path: source_path}, opts) do
+  defp handle_processing_error(conn, :empty_pipeline_plan, response_headers),
+    do: send_migration_guard_error(conn, :empty_pipeline_plan, response_headers)
+
+  defp handle_processing_error(
+         conn,
+         :unsupported_multiple_pipelines_during_transition,
+         response_headers
+       ),
+       do:
+         send_migration_guard_error(
+           conn,
+           :unsupported_multiple_pipelines_during_transition,
+           response_headers
+         )
+
+  defp handle_processing_error(
+         conn,
+         {:unprojectable_operation_for_cache_adapter, operation},
+         response_headers
+       ),
+       do:
+         send_migration_guard_error(
+           conn,
+           {:unprojectable_operation_for_cache_adapter, operation},
+           response_headers
+         )
+
+  defp send_migration_guard_error(conn, reason, response_headers) do
+    Logger.info("migration_guard_error: #{inspect(reason)}")
+    send_transform_error(conn, response_headers)
+  end
+
+  defp origin_identity(%Plan{source: %Plain{path: source_path}}, opts) do
     root_url = Keyword.fetch!(opts, :root_url)
     Origin.build_url(root_url, source_path)
   end
 
-  defp origin_identity(%ProcessingRequest{source_kind: source_kind}, _opts) do
-    {:error, {:unsupported_source_kind, source_kind}}
+  defp origin_identity(%Plan{source: source}, _opts) do
+    {:error, {:unsupported_source, source}}
   end
 
   defp wrap_parser_error({:error, _} = error), do: {:error, {:parser, error}}
   defp wrap_parser_error(result), do: result
-
-  defp wrap_planner_error({:error, _} = error), do: {:error, {:planner, error}}
-  defp wrap_planner_error(result), do: result
 
   defp wrap_origin_error({:error, error}), do: {:error, {:origin, error}}
   defp wrap_origin_error(result), do: result
@@ -157,44 +185,50 @@ defmodule ImagePlug do
   end
 
   defp send_image(%Plug.Conn{} = conn, %TransformState{} = state, opts, response_headers) do
-    with {:ok, mime_type} <- OutputEncoder.mime_type(state) do
-      suffix = OutputNegotiation.suffix!(mime_type)
-      image_module = Keyword.get(opts, :image_module, Image)
-
-      try do
-        stream = image_module.stream!(state.image, suffix: suffix)
-
-        case stream_image(stream, conn, mime_type, response_headers) do
-          {:ok, conn} ->
-            conn
-
-          {:empty, conn} ->
-            send_empty_stream_encode_error(conn, response_headers)
-
-          {:raise, exception, stacktrace, conn} ->
-            handle_encode_exception(exception, stacktrace, conn, response_headers)
-        end
-      rescue
-        exception -> handle_encode_exception(exception, __STACKTRACE__, conn, response_headers)
-      end
-    else
+    case OutputEncoder.mime_type(state) do
+      {:ok, mime_type} -> stream_encoded_image(conn, state, mime_type, opts, response_headers)
       :error -> send_encode_error(conn, response_headers)
     end
   end
 
-  defp send_cache_entry(%Plug.Conn{} = conn, %Entry{} = entry) do
-    with {:ok, headers} <- Entry.normalize_headers(entry.headers) do
-      conn =
-        Enum.reduce(headers, conn, fn {name, value}, conn ->
-          put_resp_header(conn, name, value)
-        end)
+  defp stream_encoded_image(conn, state, mime_type, opts, response_headers) do
+    suffix = OutputNegotiation.suffix!(mime_type)
+    image_module = Keyword.get(opts, :image_module, Image)
 
-      conn
-      |> put_resp_content_type(entry.content_type, nil)
-      |> send_resp(200, entry.body)
-    else
+    try do
+      stream = image_module.stream!(state.image, suffix: suffix)
+
+      case stream_image(stream, conn, mime_type, response_headers) do
+        {:ok, conn} ->
+          conn
+
+        {:empty, conn} ->
+          send_empty_stream_encode_error(conn, response_headers)
+
+        {:raise, exception, stacktrace, conn} ->
+          handle_encode_exception(exception, stacktrace, conn, response_headers)
+      end
+    rescue
+      exception -> handle_encode_exception(exception, __STACKTRACE__, conn, response_headers)
+    end
+  end
+
+  defp send_cache_entry(%Plug.Conn{} = conn, %Entry{} = entry) do
+    case Entry.normalize_headers(entry.headers) do
+      {:ok, headers} -> send_normalized_cache_entry(conn, entry, headers)
       {:error, error} -> send_cache_error(conn, error)
     end
+  end
+
+  defp send_normalized_cache_entry(%Plug.Conn{} = conn, %Entry{} = entry, headers) do
+    conn =
+      Enum.reduce(headers, conn, fn {name, value}, conn ->
+        put_resp_header(conn, name, value)
+      end)
+
+    conn
+    |> put_resp_content_type(entry.content_type, nil)
+    |> send_resp(200, entry.body)
   end
 
   defp send_cache_error(%Plug.Conn{} = conn, error),

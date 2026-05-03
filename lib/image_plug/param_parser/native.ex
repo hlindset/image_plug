@@ -1,7 +1,13 @@
 defmodule ImagePlug.ParamParser.Native do
+  @moduledoc """
+  Parser for ImagePlug's native path-oriented URL syntax.
+  """
+
   @behaviour ImagePlug.ParamParser
 
-  alias ImagePlug.ProcessingRequest
+  alias ImagePlug.ParamParser.Native.ParsedRequest
+  alias ImagePlug.ParamParser.Native.PipelineRequest
+  alias ImagePlug.ParamParser.Native.PlanBuilder
 
   @source_format_names ~w(webp avif jpeg jpg png best)
 
@@ -56,25 +62,9 @@ defmodule ImagePlug.ParamParser.Native do
   def parse(%Plug.Conn{path_info: [signature | path_info]}) do
     with :ok <- validate_signature(signature),
          {:ok, option_segments, source_path, source_format} <- split_source(path_info),
-         {:ok, options} <- parse_options(option_segments) do
-      options =
-        case source_format do
-          nil -> options
-          format -> Keyword.put(options, :format, format)
-        end
-
-      {:ok,
-       struct!(
-         ProcessingRequest,
-         Keyword.merge(
-           [
-             signature: signature,
-             source_kind: :plain,
-             source_path: source_path
-           ],
-           options
-         )
-       )}
+         {:ok, options} <- parse_options(option_segments),
+         {:ok, parsed_request} <- parsed_request(signature, source_path, source_format, options) do
+      PlanBuilder.to_plan(parsed_request)
     end
   end
 
@@ -91,6 +81,20 @@ defmodule ImagePlug.ParamParser.Native do
 
   defp validate_signature(signature) when signature in ["_", "unsafe"], do: :ok
   defp validate_signature(signature), do: {:error, {:unsupported_signature, signature}}
+
+  defp parsed_request(signature, source_path, source_format, options) do
+    output_format = source_format || Keyword.get(options, :format)
+    pipeline_options = Keyword.delete(options, :format)
+
+    {:ok,
+     %ParsedRequest{
+       signature: signature,
+       source_kind: :plain,
+       source_path: source_path,
+       pipelines: [struct!(PipelineRequest, pipeline_options)],
+       output_format: output_format
+     }}
+  end
 
   defp split_source(path_info) do
     case Enum.split_while(path_info, &(&1 != "plain")) do

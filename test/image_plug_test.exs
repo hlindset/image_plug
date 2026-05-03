@@ -7,7 +7,10 @@ defmodule ImagePlug.ImagePlugTest do
 
   doctest ImagePlug
 
-  alias ImagePlug.ProcessingRequest
+  alias ImagePlug.OutputPlan
+  alias ImagePlug.Pipeline
+  alias ImagePlug.Plan
+  alias ImagePlug.Source.Plain
 
   defmodule CacheProbe do
     alias ImagePlug.Cache.Entry
@@ -179,12 +182,25 @@ defmodule ImagePlug.ImagePlugTest do
     def materialize(_image), do: {:error, :forced_materialization_failure}
   end
 
-  def sample_processing_request do
-    %ProcessingRequest{
-      signature: "_",
-      source_kind: :plain,
-      source_path: ["images", "cat-300.jpg"]
-    }
+  def sample_plan(overrides \\ []) do
+    struct!(
+      Plan,
+      Keyword.merge(
+        [
+          source: %Plain{path: ["images", "cat-300.jpg"]},
+          pipelines: [%Pipeline{operations: []}],
+          output: %OutputPlan{mode: :automatic}
+        ],
+        overrides
+      )
+    )
+  end
+
+  def sample_explicit_plan(format, operations \\ []) do
+    sample_plan(
+      pipelines: [%Pipeline{operations: operations}],
+      output: %OutputPlan{mode: {:explicit, format}}
+    )
   end
 
   defmodule BrokenImageParser do
@@ -192,21 +208,14 @@ defmodule ImagePlug.ImagePlugTest do
 
     @impl ImagePlug.ParamParser
     def parse(_conn) do
-      request =
-        ImagePlug.ImagePlugTest.sample_processing_request()
-        |> Map.put(:format, :jpeg)
-
-      {:ok, request}
+      {:ok,
+       ImagePlug.ImagePlugTest.sample_explicit_plan(:jpeg, [
+         {ImagePlug.ImagePlugTest.BrokenImageTransform, nil}
+       ])}
     end
 
     @impl ImagePlug.ParamParser
     def handle_error(conn, _error), do: conn
-  end
-
-  defmodule BrokenImagePlanner do
-    def plan(%ProcessingRequest{}) do
-      {:ok, [{ImagePlug.ImagePlugTest.BrokenImageTransform, nil}]}
-    end
   end
 
   defmodule BrokenImageTransform do
@@ -220,11 +229,10 @@ defmodule ImagePlug.ImagePlugTest do
 
     @impl ImagePlug.ParamParser
     def parse(_conn) do
-      request =
-        ImagePlug.ImagePlugTest.sample_processing_request()
-        |> Map.put(:format, :jpeg)
-
-      {:ok, request}
+      {:ok,
+       ImagePlug.ImagePlugTest.sample_explicit_plan(:jpeg, [
+         {ImagePlug.ImagePlugTest.RaisingAfterFirstChunkTransform, nil}
+       ])}
     end
 
     @impl ImagePlug.ParamParser
@@ -236,21 +244,11 @@ defmodule ImagePlug.ImagePlugTest do
 
     @impl ImagePlug.ParamParser
     def parse(_conn) do
-      request =
-        ImagePlug.ImagePlugTest.sample_processing_request()
-        |> Map.put(:source_kind, :signed)
-
-      {:ok, request}
+      {:ok, ImagePlug.ImagePlugTest.sample_plan(source: :signed)}
     end
 
     @impl ImagePlug.ParamParser
     def handle_error(conn, _error), do: conn
-  end
-
-  defmodule RaisingAfterFirstChunkPlanner do
-    def plan(%ProcessingRequest{}) do
-      {:ok, [{ImagePlug.ImagePlugTest.RaisingAfterFirstChunkTransform, nil}]}
-    end
   end
 
   defmodule RaisingAfterFirstChunkTransform do
@@ -264,27 +262,39 @@ defmodule ImagePlug.ImagePlugTest do
 
     @impl ImagePlug.ParamParser
     def parse(_conn) do
-      request =
-        ImagePlug.ImagePlugTest.sample_processing_request()
-        |> Map.put(:format, :jpeg)
-
-      {:ok, request}
+      {:ok,
+       ImagePlug.ImagePlugTest.sample_explicit_plan(:jpeg, [
+         {ImagePlug.ImagePlugTest.FailingTransform, nil}
+       ])}
     end
 
     @impl ImagePlug.ParamParser
     def handle_error(conn, _error), do: conn
   end
 
-  defmodule FailingTransformPlanner do
-    def plan(%ProcessingRequest{}) do
-      {:ok, [{ImagePlug.ImagePlugTest.FailingTransform, nil}]}
-    end
-  end
-
   defmodule FailingTransform do
     def execute(%ImagePlug.TransformState{} = state, _params) do
       ImagePlug.TransformState.add_error(state, {__MODULE__, :failed})
     end
+  end
+
+  defmodule UnprojectableOperationParser do
+    @behaviour ImagePlug.ParamParser
+
+    @impl ImagePlug.ParamParser
+    def parse(_conn) do
+      {:ok,
+       ImagePlug.ImagePlugTest.sample_explicit_plan(:jpeg, [
+         {ImagePlug.ImagePlugTest.UnprojectableOperationTransform, :params}
+       ])}
+    end
+
+    @impl ImagePlug.ParamParser
+    def handle_error(conn, _error), do: conn
+  end
+
+  defmodule UnprojectableOperationTransform do
+    def execute(%ImagePlug.TransformState{} = state, _params), do: state
   end
 
   defmodule RaisingAfterFirstChunkImage do
@@ -684,6 +694,25 @@ defmodule ImagePlug.ImagePlugTest do
     refute_received :origin_was_called
   end
 
+  test "runner migration guard errors return a controlled response before cache or origin" do
+    conn = conn(:get, "/_/f:jpeg/plain/images/cat-300.jpg")
+    cache_probe = start_cache_probe()
+
+    conn =
+      ImagePlug.call(conn,
+        root_url: "http://origin.test",
+        param_parser: UnprojectableOperationParser,
+        cache: {CacheProbe, message_target: cache_probe},
+        origin_req_options: [plug: OriginShouldNotBeCalled]
+      )
+
+    flush_cache_probe(cache_probe)
+    assert conn.status == 422
+    assert conn.resp_body == "invalid image transform"
+    refute_received {:cache_get, _key}
+    refute_received :origin_was_called
+  end
+
   test "returns an origin error for unsupported source kinds" do
     conn = conn(:get, "/_/signed/images/cat-300.jpg")
 
@@ -756,6 +785,20 @@ defmodule ImagePlug.ImagePlugTest do
 
     assert conn.status == 200
     assert get_resp_header(conn, "content-type") == ["image/jpeg"]
+    assert get_resp_header(conn, "vary") == []
+  end
+
+  test "plain source extension overrides explicit output format after options" do
+    conn =
+      ImagePlug.call(
+        conn(:get, "/_/f:webp/plain/images/cat-300.jpg@png"),
+        root_url: "http://origin.test",
+        param_parser: ImagePlug.ParamParser.Native,
+        origin_req_options: [plug: OriginImage]
+      )
+
+    assert conn.status == 200
+    assert get_resp_header(conn, "content-type") == ["image/png"]
     assert get_resp_header(conn, "vary") == []
   end
 
@@ -1209,7 +1252,6 @@ defmodule ImagePlug.ImagePlugTest do
       ImagePlug.call(conn,
         root_url: "http://origin.test",
         param_parser: BrokenImageParser,
-        pipeline_planner: BrokenImagePlanner,
         origin_req_options: [plug: OriginImage]
       )
 
@@ -1228,7 +1270,6 @@ defmodule ImagePlug.ImagePlugTest do
             root_url: "http://origin.test",
             image_module: EmptyStreamingImage,
             param_parser: RaisingAfterFirstChunkParser,
-            pipeline_planner: RaisingAfterFirstChunkPlanner,
             origin_req_options: [plug: OriginImage]
           )
 
@@ -1252,7 +1293,6 @@ defmodule ImagePlug.ImagePlugTest do
             root_url: "http://origin.test",
             image_module: RaisingAfterFirstChunkImage,
             param_parser: RaisingAfterFirstChunkParser,
-            pipeline_planner: RaisingAfterFirstChunkPlanner,
             origin_req_options: [plug: OriginImage]
           )
 
@@ -1275,7 +1315,6 @@ defmodule ImagePlug.ImagePlugTest do
           ImagePlug.call(conn,
             root_url: "http://origin.test",
             param_parser: FailingTransformParser,
-            pipeline_planner: FailingTransformPlanner,
             origin_req_options: [plug: OriginImage]
           )
 
