@@ -136,7 +136,7 @@ defmodule ImagePlug.CacheTest do
     assert key.hash =~ ~r/\A[0-9a-f]{64}\z/
   end
 
-  test "automatic lookup key uses normalized Accept without reaching adapter opts" do
+  test "automatic lookup key uses modern candidates without reaching adapter opts" do
     request = %ProcessingRequest{request() | format: nil}
 
     assert {:miss, %Key{} = key} =
@@ -152,7 +152,7 @@ defmodule ImagePlug.CacheTest do
 
     assert key.material[:output] == [
              mode: :automatic,
-             accept: [avif: true, webp: true, jpeg: false, png: false],
+             modern_candidates: [:webp],
              auto: [avif: false, webp: true]
            ]
 

@@ -360,7 +360,7 @@ defmodule ImagePlug.ImagePlugTest do
     end
   end
 
-  defp start_slow_partial_origin(test_pid, ref) do
+  defp start_slow_partial_origin(test_pid, ref, content_type \\ "image/jpeg") do
     {:ok, listen_socket} =
       :gen_tcp.listen(0, [:binary, packet: :raw, active: false, reuseaddr: true])
 
@@ -377,7 +377,7 @@ defmodule ImagePlug.ImagePlugTest do
         :ok =
           :gen_tcp.send(socket, [
             "HTTP/1.1 200 OK\r\n",
-            "content-type: image/jpeg\r\n",
+            "content-type: #{content_type}\r\n",
             "transfer-encoding: chunked\r\n",
             "\r\n",
             chunked_body_chunk(first_chunk)
@@ -824,7 +824,7 @@ defmodule ImagePlug.ImagePlugTest do
 
     assert_cache_get_output(
       mode: :automatic,
-      accept: [avif: true, webp: true, jpeg: false, png: false],
+      modern_candidates: [:avif, :webp],
       auto: [avif: true, webp: true]
     )
 
@@ -850,7 +850,7 @@ defmodule ImagePlug.ImagePlugTest do
       case key.material[:output] do
         [
           mode: :automatic,
-          accept: [avif: false, webp: false, jpeg: true, png: false],
+          modern_candidates: [],
           auto: [avif: true, webp: true]
         ] ->
           {:hit, cached_entry}
@@ -874,7 +874,7 @@ defmodule ImagePlug.ImagePlugTest do
 
     assert_cache_get_output(
       mode: :automatic,
-      accept: [avif: false, webp: false, jpeg: true, png: false],
+      modern_candidates: [],
       auto: [avif: true, webp: true]
     )
 
@@ -900,7 +900,7 @@ defmodule ImagePlug.ImagePlugTest do
       case key.material[:output] do
         [
           mode: :automatic,
-          accept: [avif: true, webp: false, jpeg: false, png: false],
+          modern_candidates: [],
           auto: [avif: false, webp: false]
         ] ->
           {:hit, cached_entry}
@@ -926,7 +926,7 @@ defmodule ImagePlug.ImagePlugTest do
 
     assert_cache_get_output(
       mode: :automatic,
-      accept: [avif: true, webp: false, jpeg: false, png: false],
+      modern_candidates: [],
       auto: [avif: false, webp: false]
     )
 
@@ -952,7 +952,7 @@ defmodule ImagePlug.ImagePlugTest do
       case key.material[:output] do
         [
           mode: :automatic,
-          accept: [avif: true, webp: true, jpeg: true, png: true],
+          modern_candidates: [],
           auto: [avif: false, webp: false]
         ] ->
           {:hit, cached_entry}
@@ -978,7 +978,7 @@ defmodule ImagePlug.ImagePlugTest do
 
     assert_cache_get_output(
       mode: :automatic,
-      accept: [avif: true, webp: true, jpeg: true, png: true],
+      modern_candidates: [],
       auto: [avif: false, webp: false]
     )
 
@@ -1001,7 +1001,7 @@ defmodule ImagePlug.ImagePlugTest do
     assert get_resp_header(conn, "vary") == ["Accept"]
   end
 
-  test "disabled automatic modern formats set Vary on unacceptable source output" do
+  test "disabled automatic modern formats use source output despite baseline Accept exclusions" do
     conn =
       :get
       |> conn("/_/plain/images/cat-300.jpg")
@@ -1016,18 +1016,18 @@ defmodule ImagePlug.ImagePlugTest do
         origin_req_options: [plug: OriginImage]
       )
 
-    assert conn.status == 406
-    assert conn.resp_body == "no acceptable image output format"
+    assert conn.status == 200
+    assert get_resp_header(conn, "content-type") == ["image/jpeg"]
     assert get_resp_header(conn, "vary") == ["Accept"]
   end
 
-  test "deferred automatic negotiation rejects unacceptable source type before decoding" do
+  test "source-format automatic negotiation ignores baseline Accept and decodes source" do
     conn =
       :get
       |> conn("/_/plain/images/cat-300.jpg")
       |> put_req_header("accept", "image/png")
 
-    conn =
+    assert_raise RuntimeError, "source negotiation should happen before decode", fn ->
       ImagePlug.call(conn,
         root_url: "http://origin.test",
         param_parser: ImagePlug.ParamParser.Native,
@@ -1036,14 +1036,12 @@ defmodule ImagePlug.ImagePlugTest do
         image_open_module: RejectingImageOpen,
         origin_req_options: [plug: OriginImage]
       )
-
-    assert conn.status == 406
-    assert conn.resp_body == "no acceptable image output format"
+    end
   end
 
-  test "deferred automatic negotiation closes pending origins when source output is unacceptable" do
+  test "source-format automatic negotiation closes pending origins when source format is unknown" do
     ref = make_ref()
-    {root_url, server} = start_slow_partial_origin(self(), ref)
+    {root_url, server} = start_slow_partial_origin(self(), ref, "image/gif")
     server_ref = Process.monitor(server)
     on_exit(fn -> send(server, {ref, :close}) end)
 
@@ -1058,8 +1056,8 @@ defmodule ImagePlug.ImagePlugTest do
         auto_webp: false
       )
 
-    assert conn.status == 406
-    assert conn.resp_body == "no acceptable image output format"
+    assert conn.status == 415
+    assert conn.resp_body == "origin response is not a supported image"
     assert_receive {^ref, :first_chunk_sent, ^server}
     assert_receive {:DOWN, ^server_ref, :process, ^server, _reason}, 1_000
   end
@@ -1096,7 +1094,7 @@ defmodule ImagePlug.ImagePlugTest do
     assert get_resp_header(conn, "vary") == []
   end
 
-  test "auto output returns 406 when Accept excludes every supported output" do
+  test "auto output uses source format when Accept excludes baseline formats" do
     conn =
       :get
       |> conn("/_/plain/images/cat-300.jpg")
@@ -1109,9 +1107,8 @@ defmodule ImagePlug.ImagePlugTest do
         origin_req_options: [plug: OriginImage]
       )
 
-    assert conn.status == 406
-    assert conn.resp_body == "no acceptable image output format"
-    assert get_resp_header(conn, "content-type") == ["text/plain; charset=utf-8"]
+    assert conn.status == 200
+    assert get_resp_header(conn, "content-type") == ["image/jpeg"]
     assert get_resp_header(conn, "vary") == ["Accept"]
   end
 
@@ -1587,20 +1584,17 @@ defmodule ImagePlug.ImagePlugTest do
     cache_probe = start_cache_probe()
 
     conn =
-      :get
-      |> conn("/_/plain/images/cat-300.jpg")
-      |> put_req_header("accept", "image/*;q=0")
+      conn(:get, "/_/f:jpeg/plain/images/cat-300.jpg")
       |> ImagePlug.call(
         root_url: "http://origin.test",
         param_parser: ImagePlug.ParamParser.Native,
-        origin_req_options: [plug: {CountingOriginImage, test_pid: cache_probe}],
+        origin_req_options: [plug: InvalidOriginImage],
         cache: {CacheProbe, message_target: cache_probe}
       )
 
     flush_cache_probe(cache_probe)
-    assert conn.status == 406
-    assert conn.resp_body == "no acceptable image output format"
-    refute_received :origin_was_called
+    assert conn.status == 415
+    assert conn.resp_body == "origin response is not a supported image"
     refute_received {:cache_put, _key, _entry}
   end
 

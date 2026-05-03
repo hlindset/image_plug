@@ -46,18 +46,26 @@ defmodule ImagePlug.RequestRunnerTest do
              )
   end
 
-  test "automatic unacceptable output returns processing error with Vary header" do
+  test "automatic cache hit returns without resolving source format" do
+    entry = %Entry{
+      body: "cached jpeg",
+      content_type: "image/jpeg",
+      headers: [{"vary", "Accept"}],
+      created_at: DateTime.utc_now()
+    }
+
     conn =
       :get
       |> conn("/_/plain/images/cat-300.jpg")
-      |> Plug.Conn.put_req_header("accept", "image/*;q=0")
+      |> Plug.Conn.put_req_header("accept", "image/jpeg")
 
-    assert RequestRunner.run(
-             conn,
-             request(format: nil),
-             [],
-             "http://origin.test/images/cat-300.jpg",
-             []
-           ) == {:error, {:processing, :not_acceptable, [{"vary", "Accept"}]}}
+    assert {:ok, {:cache_entry, ^entry}} =
+             RequestRunner.run(
+               conn,
+               request(format: nil),
+               [],
+               "http://origin.test/images/cat-300.jpg",
+               cache: {CacheHit, entry: entry}
+             )
   end
 end

@@ -196,8 +196,8 @@ defmodule ImagePlug.Cache.KeyPropertyTest do
     check all {accept_a, accept_b} <-
                 member_of([
                   {"image/avif", "image/webp"},
-                  {"image/jpeg", "image/png"},
-                  {"image/*", "image/avif,image/webp"},
+                  {"image/avif", "image/jpeg"},
+                  {"image/webp", "image/jpeg"},
                   {"image/avif;q=0,image/*", "image/*"}
                 ]),
               max_runs: 100 do
@@ -285,7 +285,7 @@ defmodule ImagePlug.Cache.KeyPropertyTest do
               if(format == nil,
                 do: [
                   mode: :automatic,
-                  accept: [avif: true, webp: true, jpeg: true, png: true],
+                  modern_candidates: [:avif, :webp],
                   auto: [avif: true, webp: true]
                 ],
                 else: [mode: :explicit, format: format]

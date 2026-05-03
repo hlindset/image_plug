@@ -72,7 +72,7 @@ defmodule ImagePlug.Cache.Key do
 
     [
       mode: :automatic,
-      accept: OutputNegotiation.accept_class(accept_header),
+      modern_candidates: OutputNegotiation.modern_candidates(accept_header, opts),
       auto: [
         avif: Keyword.get(opts, :auto_avif, true),
         webp: Keyword.get(opts, :auto_webp, true)

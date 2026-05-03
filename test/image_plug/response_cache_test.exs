@@ -37,7 +37,7 @@ defmodule ImagePlug.ResponseCacheTest do
     )
   end
 
-  test "lookup builds automatic keys from normalized Accept without selected output opts" do
+  test "lookup builds automatic keys from modern candidates without selected output opts" do
     conn =
       :get
       |> conn("/_/plain/images/cat.jpg")
@@ -53,7 +53,7 @@ defmodule ImagePlug.ResponseCacheTest do
 
     assert key.material[:output] == [
              mode: :automatic,
-             accept: [avif: true, webp: true, jpeg: false, png: false],
+             modern_candidates: [:avif, :webp],
              auto: [avif: true, webp: true]
            ]
 
@@ -93,7 +93,7 @@ defmodule ImagePlug.ResponseCacheTest do
                %Key{
                  hash: String.duplicate("a", 64),
                  material: [schema_version: 1],
-                 serialized_material: :erlang.term_to_binary([schema_version: 1])
+                 serialized_material: :erlang.term_to_binary(schema_version: 1)
                },
                state,
                [{"invalid header name", "value"}],

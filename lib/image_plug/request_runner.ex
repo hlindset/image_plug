@@ -1,11 +1,9 @@
 defmodule ImagePlug.RequestRunner do
   @moduledoc false
 
-  import Plug.Conn
-
   alias ImagePlug.Cache.Entry
   alias ImagePlug.Cache.Key
-  alias ImagePlug.OutputSelection
+  alias ImagePlug.OutputPolicy
   alias ImagePlug.ProcessingRequest
   alias ImagePlug.Processor
   alias ImagePlug.ResponseCache
@@ -79,25 +77,24 @@ defmodule ImagePlug.RequestRunner do
          origin_identity,
          opts
        ) do
-    case OutputSelection.preselect(accept_header(conn), opts) do
-      {:ok, %OutputSelection{} = selection} ->
+    policy = OutputPolicy.from_request(conn, request, opts)
+
+    case OutputPolicy.resolve_before_origin(policy) do
+      {:selected, format, _reason} ->
         with {:ok, final_state} <-
                Processor.process_origin(
                  request,
-                 TransformChain.append_output(chain, selection.format),
+                 TransformChain.append_output(chain, format),
                  origin_identity,
                  opts
                ) do
-          {:ok, final_state, selection.headers}
+          {:ok, final_state, policy.headers}
         else
-          error -> {:error, error, selection.headers}
+          error -> {:error, error, policy.headers}
         end
 
-      :defer ->
-        process_source_format_automatic(conn, request, chain, origin_identity, opts)
-
-      {:error, :not_acceptable} ->
-        {:error, :not_acceptable, OutputSelection.automatic_headers()}
+      :needs_source_format ->
+        process_source_format_automatic(request, chain, origin_identity, opts, policy)
     end
   end
 
@@ -112,38 +109,35 @@ defmodule ImagePlug.RequestRunner do
   defp processing_reason({:error, reason}), do: reason
   defp processing_reason(reason), do: reason
 
-  defp process_source_format_automatic(
-         conn,
-         request,
-         chain,
-         origin_identity,
-         opts
-       ) do
+  defp process_source_format_automatic(request, chain, origin_identity, opts, policy) do
     with {:ok, origin_response, source_format} <-
            Processor.fetch_origin_with_source_format(request, origin_identity, opts) do
-      case OutputSelection.negotiate(accept_header(conn), source_format, opts) do
-        {:ok, %OutputSelection{} = selection} ->
+      case OutputPolicy.resolve_source_format(policy, source_format) do
+        {:selected, format, _reason} ->
           with {:ok, %Processor.DecodedOrigin{} = decoded} <-
-                 Processor.decode_validate_origin_response(origin_response, source_format, chain, opts),
+                 Processor.decode_validate_origin_response(
+                   origin_response,
+                   source_format,
+                   chain,
+                   opts
+                 ),
                {:ok, final_state} <-
                  Processor.process_decoded_origin(
                    decoded,
-                   TransformChain.append_output(chain, selection.format),
+                   TransformChain.append_output(chain, format),
                    opts
                  ) do
-            {:ok, final_state, selection.headers}
+            {:ok, final_state, policy.headers}
           else
-            error -> {:error, error, selection.headers}
+            error -> {:error, error, policy.headers}
           end
 
-        error ->
+        {:error, error} ->
           Processor.close_pending_origin(origin_response)
-          {:error, error, OutputSelection.automatic_headers()}
+          {:error, error, policy.headers}
       end
     else
-      error -> {:error, error, OutputSelection.automatic_headers()}
+      error -> {:error, error, policy.headers}
     end
   end
-
-  defp accept_header(conn), do: conn |> get_req_header("accept") |> Enum.join(",")
 end

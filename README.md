@@ -67,7 +67,7 @@ Supported explicit output extensions are `webp`, `avif`, `jpeg`, `jpg`, `png`, a
 
 The first `plain` segment terminates option parsing. Later path segments are treated as the origin path, even if they look like options.
 
-Omitting an explicit output format enables automatic output selection. ImagePlug defaults automatic AVIF and WebP selection to enabled. Automatic output responses use `Vary: Accept`. Explicit `format`, `f`, `ext`, and plain-source `@extension` bypass `Accept` negotiation and do not set `Vary: Accept`.
+Omitting an explicit output format enables automatic output selection. ImagePlug defaults automatic AVIF and WebP selection to enabled. `Accept` is used to detect optional modern format support; if no enabled modern format is detected, ImagePlug uses the source image format. Automatic output responses use `Vary: Accept`. Explicit `format`, `f`, `ext`, and plain-source `@extension` bypass `Accept` negotiation and do not set `Vary: Accept`.
 
 ## Usage example
 
@@ -120,7 +120,7 @@ forward "/",
 
 Cache lookup happens only after the request parses, the pipeline plans, and the origin URL is resolved. Invalid requests return `400` before origin or cache access. Parser, planner, origin fetch, decode, transform, negotiation, and encode errors are never cached.
 
-Cache keys include the resolved origin URL, canonical processing request fields, configured `:key_headers` and `:key_cookies`, and normalized automatic-output inputs when output is automatic: accepted output capability class plus `:auto_avif` / `:auto_webp` flags. They exclude request signatures, raw request paths, query strings, raw `Accept` headers, and unconfigured headers or cookies. Key material includes a schema version and deterministic primitive serialization. Explicit formats bypass `Accept` negotiation and therefore do not vary by `Accept`.
+Cache keys include the resolved origin URL, canonical processing request fields, configured `:key_headers` and `:key_cookies`, and normalized automatic-output inputs when output is automatic: detected modern output candidates plus `:auto_avif` / `:auto_webp` flags. They exclude request signatures, raw request paths, query strings, raw `Accept` headers, and unconfigured headers or cookies. Key material includes a schema version and deterministic primitive serialization. Explicit formats bypass `Accept` negotiation and therefore do not vary by `Accept`.
 
 Cached response headers are restricted to `vary` and `cache-control`. Header names are normalized to lowercase, and duplicate allowed headers are preserved.
 
@@ -142,4 +142,4 @@ For transform chains that are proven to be safe for one-pass reads, ImagePlug ma
 
 Sequential decode does not use JPEG shrink-on-load or WebP scale hints in this pass. Origin byte limits, receive timeouts, decoded pixel limits, and decode error responses still apply. Cache hits serve stored response bodies directly and do not participate in origin decode optimization.
 
-Automatic output format selection uses the request `Accept` header. `q=0` makes a format unacceptable, including exact media-type exclusions over wildcard allowances. Among acceptable automatic formats, ImagePlug uses server preference order rather than relative q-value ordering. Automatic output responses use `Vary: Accept`. Explicit formats bypass content negotiation and do not set `Vary: Accept`.
+Automatic output format selection uses the request `Accept` header only to detect optional modern format support. `q=0` excludes AVIF/WebP candidates, including exact media-type exclusions over wildcard allowances. Among detected modern candidates, ImagePlug uses server preference order rather than relative q-value ordering. If no enabled modern candidate is detected, ImagePlug uses the source image format. Automatic output responses use `Vary: Accept`. Explicit formats bypass content negotiation and do not set `Vary: Accept`.

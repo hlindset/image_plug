@@ -86,11 +86,11 @@ defmodule ImagePlug do
   defp handle_processing_error(conn, {:decode, error}, response_headers),
     do: send_decode_error(conn, error, response_headers)
 
+  defp handle_processing_error(conn, :source_format_required, response_headers),
+    do: send_decode_error(conn, :source_format_required, response_headers)
+
   defp handle_processing_error(conn, {:input_limit, error}, response_headers),
     do: send_input_limit_error(conn, error, response_headers)
-
-  defp handle_processing_error(conn, :not_acceptable, response_headers),
-    do: send_not_acceptable(conn, response_headers)
 
   defp handle_processing_error(conn, {:encode, exception, stacktrace}, response_headers),
     do: handle_encode_exception(exception, stacktrace, conn, response_headers)
@@ -178,7 +178,6 @@ defmodule ImagePlug do
         exception -> handle_encode_exception(exception, __STACKTRACE__, conn, response_headers)
       end
     else
-      {:error, :not_acceptable} -> send_not_acceptable(conn, response_headers)
       :error -> send_encode_error(conn, response_headers)
     end
   end
@@ -272,13 +271,6 @@ defmodule ImagePlug do
   defp send_empty_stream_encode_error(%Plug.Conn{} = conn, response_headers) do
     Logger.error("encode_error: image encoder produced an empty stream")
     send_encode_error(conn, response_headers)
-  end
-
-  defp send_not_acceptable(%Plug.Conn{} = conn, response_headers) do
-    conn
-    |> put_resp_headers(response_headers)
-    |> put_resp_content_type("text/plain")
-    |> send_resp(406, "no acceptable image output format")
   end
 
   defp put_resp_headers(%Plug.Conn{} = conn, response_headers) do

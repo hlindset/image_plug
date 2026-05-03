@@ -4,50 +4,19 @@ defmodule ImagePlug.OutputNegotiation do
   alias ImagePlug.ImageFormat
 
   @modern_formats [avif: "image/avif", webp: "image/webp"]
-  @formats ImageFormat.all()
-  @output_formats ImageFormat.mime_types()
 
-  @spec accept_class(String.t() | nil) :: keyword(boolean())
-  def accept_class(accept_header) do
-    entries = parse_accept(accept_header)
+  @spec modern_candidates(String.t() | nil, keyword()) :: [:avif | :webp]
+  def modern_candidates(accept_header, opts \\ []) do
+    case parse_accept(accept_header) do
+      [] ->
+        []
 
-    Enum.map(@formats, fn {format, mime_type} ->
-      accepted? =
-        case entries do
-          [] -> true
-          entries -> acceptable?(mime_type, entries)
-        end
-
-      {format, accepted?}
-    end)
-  end
-
-  @spec negotiate(String.t() | nil, keyword()) :: {:ok, String.t()} | {:error, :not_acceptable}
-  def negotiate(accept_header, opts \\ []) do
-    case negotiate_selection(accept_header, opts) do
-      {:ok, {mime_type, _reason}} -> {:ok, mime_type}
-      {:error, :not_acceptable} -> {:error, :not_acceptable}
+      entries ->
+        opts
+        |> enabled_modern_formats()
+        |> Enum.filter(fn {_format, mime_type} -> acceptable?(mime_type, entries) end)
+        |> Enum.map(fn {format, _mime_type} -> format end)
     end
-  end
-
-  @spec negotiate_selection(String.t() | nil, keyword()) ::
-          {:ok, {String.t(), :auto | :source}} | {:error, :not_acceptable}
-  def negotiate_selection(accept_header, opts \\ []) do
-    candidates = negotiation_candidates(opts)
-    entries = parse_accept(accept_header)
-
-    case select_candidate(candidates, entries) do
-      {_format, mime_type, reason} -> {:ok, {mime_type, reason}}
-      nil -> {:error, :not_acceptable}
-    end
-  end
-
-  @spec preselect(String.t() | nil, keyword()) ::
-          {:ok, :avif | :webp} | :defer | {:error, :not_acceptable}
-  def preselect(accept_header, opts) do
-    accept_header
-    |> parse_accept()
-    |> preselect_from_entries(enabled_modern_formats(opts))
   end
 
   defdelegate suffix!(mime_type), to: ImageFormat
@@ -58,60 +27,12 @@ defmodule ImagePlug.OutputNegotiation do
 
   defdelegate mime_type!(format), to: ImageFormat
 
-  defp select_candidate(candidates, []), do: List.first(candidates)
-
-  defp select_candidate(candidates, entries) do
-    Enum.find(candidates, fn {_format, mime_type, _reason} ->
-      acceptable?(mime_type, entries)
-    end)
-  end
-
   defp enabled_modern_formats(opts) do
     @modern_formats
     |> Enum.reject(fn
       {:avif, _mime_type} -> Keyword.get(opts, :auto_avif, true) == false
       {:webp, _mime_type} -> Keyword.get(opts, :auto_webp, true) == false
     end)
-  end
-
-  defp negotiation_candidates(opts) do
-    modern_candidates =
-      opts
-      |> enabled_modern_formats()
-      |> Enum.map(fn {format, mime_type} -> {format, mime_type, :auto} end)
-
-    (modern_candidates ++ source_format_candidates(Keyword.get(opts, :source_format)))
-    |> uniq_candidate_mime_types()
-  end
-
-  defp source_format_candidates(nil), do: []
-
-  defp source_format_candidates(source_format) do
-    case Keyword.fetch(@formats, source_format) do
-      {:ok, mime_type} -> [{source_format, mime_type, :source}]
-      :error -> []
-    end
-  end
-
-  defp preselect_from_entries([], [{format, _mime_type} | _rest]), do: {:ok, format}
-  defp preselect_from_entries([], []), do: :defer
-
-  defp preselect_from_entries(entries, modern_formats) do
-    case Enum.find(modern_formats, fn {_format, mime_type} -> acceptable?(mime_type, entries) end) do
-      {format, _mime_type} -> {:ok, format}
-      nil -> preselect_deferred(entries)
-    end
-  end
-
-  defp preselect_deferred(entries) do
-    if supported_output_acceptable?(entries), do: :defer, else: {:error, :not_acceptable}
-  end
-
-  defp uniq_candidate_mime_types(candidates),
-    do: Enum.uniq_by(candidates, fn {_format, mime_type, _reason} -> mime_type end)
-
-  defp supported_output_acceptable?(entries) do
-    Enum.any?(@output_formats, &acceptable?(&1, entries))
   end
 
   defp acceptable?(mime_type, entries) do
@@ -207,5 +128,4 @@ defmodule ImagePlug.OutputNegotiation do
 
   defp image_wildcard?("image/*", "image/" <> _subtype), do: true
   defp image_wildcard?(_accepted, _mime_type), do: false
-
 end

@@ -118,7 +118,7 @@ defmodule ImagePlug.Cache.KeyTest do
     refute inspect(key.material) =~ "ignored_cookie"
   end
 
-  test "automatic output includes normalized Accept capabilities instead of selected output" do
+  test "automatic output includes modern candidates instead of selected output" do
     request = request(format: nil)
 
     conn_one =
@@ -136,7 +136,7 @@ defmodule ImagePlug.Cache.KeyTest do
 
     assert key_one.material[:output] == [
              mode: :automatic,
-             accept: [avif: true, webp: true, jpeg: false, png: false],
+             modern_candidates: [:avif, :webp],
              auto: [avif: true, webp: true]
            ]
 
@@ -178,7 +178,7 @@ defmodule ImagePlug.Cache.KeyTest do
 
     assert webp_only_key.material[:output] == [
              mode: :automatic,
-             accept: [avif: true, webp: true, jpeg: false, png: false],
+             modern_candidates: [:webp],
              auto: [avif: false, webp: true]
            ]
   end

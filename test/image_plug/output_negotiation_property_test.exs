@@ -4,92 +4,45 @@ defmodule ImagePlug.OutputNegotiationPropertyTest do
 
   alias ImagePlug.OutputNegotiation
 
-  @modern_mime_types ~w(image/avif image/webp)
-
-  property "negotiate follows media-range specificity and server candidate order" do
+  property "modern candidates match enabled modern formats accepted by the header" do
     check all accept_header <- accept_header(),
-              opts <- negotiation_opts(),
+              auto_avif? <- boolean(),
+              auto_webp? <- boolean(),
               max_runs: 100 do
-      assert OutputNegotiation.negotiate(accept_header, opts) ==
-               expected_negotiation(accept_header, opts)
+      opts = [auto_avif: auto_avif?, auto_webp: auto_webp?]
+
+      assert OutputNegotiation.modern_candidates(accept_header, opts) ==
+               expected_modern_candidates(accept_header, opts)
     end
   end
 
-  property "disabled modern formats are not selected for jpeg/png/unknown sources" do
+  property "modern candidates are always returned in server-preference order" do
     check all accept_header <- accept_header(),
-              source_format <- member_of([nil, :jpeg, :png]),
+              opts <-
+                map({boolean(), boolean()}, fn {auto_avif?, auto_webp?} ->
+                  [auto_avif: auto_avif?, auto_webp: auto_webp?]
+                end),
               max_runs: 100 do
-      result =
-        OutputNegotiation.negotiate(accept_header,
-          auto_avif: false,
-          auto_webp: false,
-          source_format: source_format
-        )
+      candidates = OutputNegotiation.modern_candidates(accept_header, opts)
 
-      case result do
-        {:ok, mime_type} -> refute mime_type in @modern_mime_types
-        {:error, :not_acceptable} -> assert true
-      end
+      assert candidates in [[], [:avif], [:webp], [:avif, :webp]]
     end
   end
 
-  property "unknown source format does not invent JPEG or PNG when modern formats are disabled" do
-    check all accept_header <- accept_header(),
-              max_runs: 100 do
-      result =
-        OutputNegotiation.negotiate(accept_header,
-          auto_avif: false,
-          auto_webp: false,
-          source_format: nil
-        )
-
-      assert result == {:error, :not_acceptable}
-    end
-  end
-
-  defp negotiation_opts do
-    map(
-      {boolean(), boolean(), member_of([nil, :avif, :webp, :jpeg, :png])},
-      fn {auto_avif?, auto_webp?, source_format} ->
-        [auto_avif: auto_avif?, auto_webp: auto_webp?, source_format: source_format]
-      end
-    )
-  end
-
-  defp expected_negotiation(accept_header, opts) do
+  defp expected_modern_candidates(accept_header, opts) do
     entries = parse_accept(accept_header)
 
-    opts
-    |> candidates()
-    |> Enum.find(fn mime_type -> acceptable?(mime_type, entries) end)
-    |> case do
-      nil -> {:error, :not_acceptable}
-      mime_type -> {:ok, mime_type}
-    end
-  end
-
-  defp candidates(opts) do
     []
-    |> maybe_append(Keyword.get(opts, :auto_avif, true), "image/avif")
-    |> maybe_append(Keyword.get(opts, :auto_webp, true), "image/webp")
-    |> maybe_append_source_format(Keyword.get(opts, :source_format))
-    |> Enum.uniq()
+    |> maybe_append_modern(Keyword.get(opts, :auto_avif, true), :avif, "image/avif", entries)
+    |> maybe_append_modern(Keyword.get(opts, :auto_webp, true), :webp, "image/webp", entries)
   end
 
-  defp maybe_append(candidates, true, mime_type), do: candidates ++ [mime_type]
-  defp maybe_append(candidates, false, _mime_type), do: candidates
+  defp maybe_append_modern(candidates, false, _format, _mime_type, _entries), do: candidates
+  defp maybe_append_modern(candidates, true, _format, _mime_type, []), do: candidates
 
-  defp maybe_append_source_format(candidates, source_format) do
-    case source_format do
-      :avif -> candidates ++ ["image/avif"]
-      :webp -> candidates ++ ["image/webp"]
-      :jpeg -> candidates ++ ["image/jpeg"]
-      :png -> candidates ++ ["image/png"]
-      nil -> candidates
-    end
+  defp maybe_append_modern(candidates, true, format, mime_type, entries) do
+    if acceptable?(mime_type, entries), do: candidates ++ [format], else: candidates
   end
-
-  defp acceptable?(_mime_type, []), do: true
 
   defp acceptable?(mime_type, entries) do
     entries
