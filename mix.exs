@@ -44,7 +44,8 @@ defmodule ImagePlug.MixProject do
       {:bandit, "~> 1.0", only: [:test, :dev]},
       {:stream_data, "~> 1.0", only: [:test, :dev]},
       {:excoveralls, ">= 0.0.0", only: [:test], runtime: false},
-      {:ex_doc, "~> 0.35", only: :dev, runtime: false}
+      {:ex_doc, "~> 0.35", only: :dev, runtime: false},
+      {:credo, "~> 1.7", only: [:dev, :test], runtime: false}
     ]
   end
 
