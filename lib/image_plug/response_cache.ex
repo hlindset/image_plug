@@ -31,9 +31,12 @@ defmodule ImagePlug.ResponseCache do
   def store(%Key{} = key, %TransformState{} = state, response_headers, opts) do
     case OutputEncoder.limited_memory_output(state, opts, Cache.max_body_bytes(opts)) do
       {:ok, %OutputEncoder.EncodedOutput{} = output} ->
-        with {:ok, entry} <- entry(output, response_headers),
-             put_result when put_result in [:ok, :skipped] <- Cache.put(key, entry, opts) do
-          {:ok, entry}
+        with {:ok, entry} <- entry(output, response_headers) do
+          case Cache.put(key, entry, opts) do
+            :ok -> {:ok, entry}
+            :skipped -> :skipped
+            {:error, _reason} = error -> error
+          end
         end
 
       :too_large ->

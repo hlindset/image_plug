@@ -84,6 +84,19 @@ defmodule ImagePlug.ResponseCacheTest do
     assert_received {:cache_put, ^key, ^entry, _adapter_opts}
   end
 
+  test "store reports skipped when cache writing is disabled" do
+    {:ok, image} = Image.new(1, 1)
+    state = %TransformState{image: image, output: :png}
+
+    key = %Key{
+      hash: String.duplicate("a", 64),
+      material: [schema_version: 1],
+      serialized_material: :erlang.term_to_binary(schema_version: 1)
+    }
+
+    assert :skipped = ResponseCache.store(key, state, [], [])
+  end
+
   test "store returns tagged encode errors for invalid response headers" do
     {:ok, image} = Image.new(1, 1)
     state = %TransformState{image: image, output: :png}
