@@ -100,14 +100,14 @@ defmodule ImagePlug do
     do: send_config_error(conn, error, response_headers)
 
   defp handle_processing_error(conn, :empty_pipeline_plan, response_headers),
-    do: send_migration_guard_error(conn, :empty_pipeline_plan, response_headers)
+    do: send_plan_validation_error(conn, :empty_pipeline_plan, response_headers)
 
   defp handle_processing_error(conn, {:invalid_pipeline_plan, pipelines}, response_headers),
-    do: send_migration_guard_error(conn, {:invalid_pipeline_plan, pipelines}, response_headers)
+    do: send_plan_validation_error(conn, {:invalid_pipeline_plan, pipelines}, response_headers)
 
   defp handle_processing_error(conn, {:invalid_pipeline_operation, operation}, response_headers),
     do:
-      send_migration_guard_error(conn, {:invalid_pipeline_operation, operation}, response_headers)
+      send_plan_validation_error(conn, {:invalid_pipeline_operation, operation}, response_headers)
 
   defp handle_processing_error(
          conn,
@@ -115,14 +115,14 @@ defmodule ImagePlug do
          response_headers
        ),
        do:
-         send_migration_guard_error(
+         send_plan_validation_error(
            conn,
            {:unprojectable_operation_for_cache_adapter, operation},
            response_headers
          )
 
-  defp send_migration_guard_error(conn, reason, response_headers) do
-    Logger.info("migration_guard_error: #{inspect(reason)}")
+  defp send_plan_validation_error(conn, reason, response_headers) do
+    Logger.info("plan_validation_error: #{inspect(reason)}")
     send_transform_error(conn, response_headers)
   end
 
