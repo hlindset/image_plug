@@ -25,6 +25,11 @@ defmodule ImagePlug do
   @type imgp_ratio() :: {imgp_number(), imgp_number()}
   @type imgp_length() :: imgp_pixels() | imgp_pct() | imgp_scale()
 
+  @required_options_schema NimbleOptions.new!(
+                             param_parser: [type: :atom, required: true],
+                             root_url: [type: :string, required: true]
+                           )
+
   @impl Plug
   def init(opts) do
     opts
@@ -140,15 +145,14 @@ defmodule ImagePlug do
   end
 
   defp validate_required_opts!(opts) do
-    require_option!(opts, :param_parser)
-    require_option!(opts, :root_url)
-    opts
-  end
+    required_opts = Keyword.take(opts, [:param_parser, :root_url])
 
-  defp require_option!(opts, key) do
-    case Keyword.fetch(opts, key) do
-      {:ok, _value} -> :ok
-      :error -> raise ArgumentError, "missing required option: #{inspect(key)}"
+    case NimbleOptions.validate(required_opts, @required_options_schema) do
+      {:ok, _validated_opts} ->
+        opts
+
+      {:error, %NimbleOptions.ValidationError{} = error} ->
+        raise ArgumentError, "invalid ImagePlug options: #{Exception.message(error)}"
     end
   end
 

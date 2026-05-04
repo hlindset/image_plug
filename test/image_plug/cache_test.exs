@@ -104,11 +104,11 @@ defmodule ImagePlug.CacheTest do
   end
 
   test "ImagePlug init rejects missing required options early" do
-    assert_raise ArgumentError, ~r/missing required option: :param_parser/, fn ->
+    assert_raise ArgumentError, ~r/required :param_parser option not found/, fn ->
       ImagePlug.init(root_url: "https://origin.test")
     end
 
-    assert_raise ArgumentError, ~r/missing required option: :root_url/, fn ->
+    assert_raise ArgumentError, ~r/required :root_url option not found/, fn ->
       ImagePlug.init(param_parser: ImagePlug.ParamParser.Native)
     end
   end
