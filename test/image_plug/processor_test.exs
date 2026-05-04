@@ -65,7 +65,7 @@ defmodule ImagePlug.ProcessorTest do
         {:pipeline_event, Keyword.fetch!(opts, :test_ref), :materialized_between_pipelines}
       )
 
-      {:ok, %TransformState{state | image: state.image, focus: state.focus, errors: state.errors}}
+      ImagePlug.ImageMaterializer.materialize(state, opts)
     end
   end
 

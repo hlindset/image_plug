@@ -60,7 +60,7 @@ defmodule ImagePlug.RequestRunnerTest do
         {:pipeline_event, Keyword.fetch!(opts, :test_ref), :materialized_between_pipelines}
       )
 
-      {:ok, state}
+      ImagePlug.ImageMaterializer.materialize(state, opts)
     end
   end
 
