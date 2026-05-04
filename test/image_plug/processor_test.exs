@@ -7,7 +7,6 @@ defmodule ImagePlug.ProcessorTest do
   alias ImagePlug.Plan
   alias ImagePlug.Processor
   alias ImagePlug.Source.Plain
-  alias ImagePlug.Transform.Output
   alias ImagePlug.TransformState
 
   defmodule OriginImage do
@@ -22,6 +21,10 @@ defmodule ImagePlug.ProcessorTest do
     def call(conn, _opts) do
       Plug.Conn.send_resp(conn, 404, "unexpected origin path")
     end
+  end
+
+  defmodule OriginShouldNotFetch do
+    def call(_conn, _opts), do: raise("origin should not be fetched")
   end
 
   defmodule DecodeErrorImageOpen do
@@ -50,18 +53,25 @@ defmodule ImagePlug.ProcessorTest do
     }
   end
 
-  test "process_origin fetches plain plan sources from the resolved origin identity" do
-    chain = [{Output, %Output.OutputParams{format: :jpeg}}]
+  defp multi_pipeline_plan do
+    %Plan{
+      plan()
+      | pipelines: [
+          %Pipeline{operations: []},
+          %Pipeline{operations: []}
+        ]
+    }
+  end
 
+  test "process_origin fetches plain plan sources from the resolved origin identity" do
     assert {:ok, %TransformState{} = state} =
              Processor.process_origin(
                plan(),
-               chain,
                "http://origin.test/images/cat-300.jpg",
                opts()
              )
 
-    assert state.output == :jpeg
+    assert state.image
     assert state.errors == []
   end
 
@@ -70,7 +80,6 @@ defmodule ImagePlug.ProcessorTest do
              Processor.fetch_decode_validate_origin_with_source_format(
                plan(),
                "http://origin.test/images/cat-300.jpg",
-               [],
                opts()
              )
 
@@ -82,18 +91,33 @@ defmodule ImagePlug.ProcessorTest do
   end
 
   test "process_origin fetches, decodes, validates, executes, and materializes a chain" do
-    chain = [{Output, %Output.OutputParams{format: :jpeg}}]
-
     assert {:ok, %TransformState{} = state} =
              Processor.process_origin(
                plan(),
-               chain,
                "http://origin.test/images/cat-300.jpg",
                opts()
              )
 
-    assert state.output == :jpeg
+    assert state.image
     assert state.errors == []
+  end
+
+  test "process_origin rejects unsupported pipeline plans before fetching origin" do
+    assert {:error, :unsupported_multiple_pipelines_during_transition} =
+             Processor.process_origin(
+               multi_pipeline_plan(),
+               "http://origin.test/images/cat-300.jpg",
+               Keyword.put(opts(), :origin_req_options, plug: OriginShouldNotFetch)
+             )
+  end
+
+  test "fetch_origin_with_source_format rejects unsupported pipeline plans before fetching origin" do
+    assert {:error, :unsupported_multiple_pipelines_during_transition} =
+             Processor.fetch_origin_with_source_format(
+               multi_pipeline_plan(),
+               "http://origin.test/images/cat-300.jpg",
+               Keyword.put(opts(), :origin_req_options, plug: OriginShouldNotFetch)
+             )
   end
 
   test "fetch_decode_validate_origin_with_source_format returns decoded origin context" do
@@ -101,7 +125,6 @@ defmodule ImagePlug.ProcessorTest do
              Processor.fetch_decode_validate_origin_with_source_format(
                plan(),
                "http://origin.test/images/cat-300.jpg",
-               [],
                opts()
              )
 
@@ -117,7 +140,6 @@ defmodule ImagePlug.ProcessorTest do
              Processor.fetch_decode_validate_origin_with_source_format(
                plan(),
                "http://origin.test/images/cat-300.jpg",
-               [],
                Keyword.put(opts(), :image_open_module, DecodeErrorImageOpen)
              )
   end
@@ -160,7 +182,14 @@ defmodule ImagePlug.ProcessorTest do
     assert {:error, {:transform_error, %TransformState{}}} =
              Processor.process_decoded_origin(
                decoded,
-               [{SequentialFailingTransform, %SequentialFailingTransform{}}],
+               %Plan{
+                 plan()
+                 | pipelines: [
+                     %Pipeline{
+                       operations: [{SequentialFailingTransform, %SequentialFailingTransform{}}]
+                     }
+                   ]
+               },
                opts()
              )
 

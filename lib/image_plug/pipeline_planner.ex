@@ -16,7 +16,7 @@ defmodule ImagePlug.PipelinePlanner do
     with :ok <- validate_dimensions(request),
          :ok <- validate_supported_semantics(request),
          {:ok, geometry_chain} <- plan_geometry(request) do
-      {:ok, append_output(geometry_chain, request.format)}
+      {:ok, geometry_chain}
     end
   end
 
@@ -190,12 +190,6 @@ defmodule ImagePlug.PipelinePlanner do
 
   defp contain_constraint(true), do: :regular
   defp contain_constraint(false), do: :max
-
-  defp append_output(chain, nil), do: chain
-
-  defp append_output(chain, format) do
-    chain ++ [{Transform.Output, %Transform.Output.OutputParams{format: format}}]
-  end
 
   defp missing_dimensions(resizing_type), do: {:error, {:missing_dimensions, resizing_type}}
 end

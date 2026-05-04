@@ -4,10 +4,8 @@ defmodule ImagePlug.TransformState do
   defstruct image: nil,
             focus: @default_focus,
             errors: [],
-            output: :auto,
             debug: false
 
-  @type output_format() :: :auto | :avif | :webp | :jpeg | :png
   @type focus_anchor() ::
           {:anchor, :center, :center}
           | {:anchor, :center, :bottom}
@@ -22,8 +20,7 @@ defmodule ImagePlug.TransformState do
   @type t :: %__MODULE__{
           image: Vix.Vips.Image.t(),
           focus: {:coordinate, integer(), integer()} | focus_anchor(),
-          errors: keyword(String.t()) | keyword(atom()),
-          output: output_format()
+          errors: keyword(String.t()) | keyword(atom())
         }
 
   defp default_focus, do: @default_focus

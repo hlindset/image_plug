@@ -79,7 +79,7 @@ defmodule ImagePlug.PipelinePlannerTest do
            ) == {:ok, []}
   end
 
-  test "plans zero fill dimensions with explicit output as output only" do
+  test "plans zero fill dimensions with explicit output as no executable transforms" do
     assert PipelinePlanner.plan(
              request(
                resizing_type: :fill,
@@ -87,7 +87,7 @@ defmodule ImagePlug.PipelinePlannerTest do
                height: {:pixels, 0},
                format: :webp
              )
-           ) == {:ok, [{Transform.Output, %Transform.Output.OutputParams{format: :webp}}]}
+           ) == {:ok, []}
   end
 
   test "plans fill with non-center anchor gravity as focus before cover" do
@@ -156,23 +156,20 @@ defmodule ImagePlug.PipelinePlannerTest do
     assert PipelinePlanner.plan(request(resizing_type: :force)) == {:ok, []}
   end
 
-  test "plans force without dimensions with explicit output as output only" do
+  test "plans force without dimensions with explicit output as no executable transforms" do
     assert PipelinePlanner.plan(request(resizing_type: :force, format: :webp)) ==
-             {:ok, [{Transform.Output, %Transform.Output.OutputParams{format: :webp}}]}
+             {:ok, []}
   end
 
-  test "appends explicit output format last" do
+  test "explicit output format does not change planned geometry" do
     assert {:ok, chain} = PipelinePlanner.plan(request(width: {:pixels, 300}, format: :webp))
 
-    assert [
-             {Transform.Contain, %Transform.Contain.ContainParams{}},
-             {Transform.Output, %Transform.Output.OutputParams{format: :webp}}
-           ] = chain
+    assert [{Transform.Contain, %Transform.Contain.ContainParams{}}] = chain
   end
 
-  test "appends explicit output format when no geometry is planned" do
+  test "does not plan output as an executable transform" do
     assert PipelinePlanner.plan(request(format: :png)) ==
-             {:ok, [{Transform.Output, %Transform.Output.OutputParams{format: :png}}]}
+             {:ok, []}
   end
 
   test "rejects unsupported semantic combinations" do

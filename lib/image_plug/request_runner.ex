@@ -9,7 +9,6 @@ defmodule ImagePlug.RequestRunner do
   alias ImagePlug.Plan
   alias ImagePlug.Processor
   alias ImagePlug.ResponseCache
-  alias ImagePlug.TransformChain
   alias ImagePlug.TransformState
 
   @type delivery() ::
@@ -28,9 +27,9 @@ defmodule ImagePlug.RequestRunner do
         ) ::
           {:ok, delivery()} | {:error, error()}
   def run(conn, %Plan{} = plan, origin_identity, opts) do
-    case pipeline_operations(plan) do
-      {:ok, operations} ->
-        run_with_cache(conn, plan, operations, origin_identity, opts)
+    case validate_single_pipeline(plan) do
+      :ok ->
+        run_with_cache(conn, plan, origin_identity, opts)
 
       {:error, reason} ->
         {:error, {:processing, reason, []}}
@@ -40,27 +39,26 @@ defmodule ImagePlug.RequestRunner do
   defp run_with_cache(
          conn,
          plan,
-         operations,
          origin_identity,
          opts
        ) do
     case ResponseCache.lookup(conn, plan, origin_identity, opts) do
       :disabled ->
-        process_uncached(conn, plan, operations, origin_identity, opts)
+        process_uncached(conn, plan, origin_identity, opts)
 
       {:hit, %Entry{} = entry} ->
         {:ok, {:cache_entry, entry}}
 
       {:miss, %Key{} = key} ->
-        process_cache_miss(conn, plan, operations, origin_identity, key, opts)
+        process_cache_miss(conn, plan, origin_identity, key, opts)
 
       {:error, error} ->
         {:error, {:cache, error}}
     end
   end
 
-  defp process_uncached(conn, plan, operations, origin_identity, opts) do
-    case process_request(conn, plan, operations, origin_identity, opts) do
+  defp process_uncached(conn, plan, origin_identity, opts) do
+    case process_request(conn, plan, origin_identity, opts) do
       {:ok, final_state, resolved_format, response_headers} ->
         {:ok, {:image, final_state, resolved_format, response_headers}}
 
@@ -69,8 +67,8 @@ defmodule ImagePlug.RequestRunner do
     end
   end
 
-  defp process_cache_miss(conn, plan, operations, origin_identity, key, opts) do
-    case process_request(conn, plan, operations, origin_identity, opts) do
+  defp process_cache_miss(conn, plan, origin_identity, key, opts) do
+    case process_request(conn, plan, origin_identity, opts) do
       {:ok, final_state, resolved_format, response_headers} ->
         case ResponseCache.store(key, final_state, resolved_format, response_headers, opts) do
           {:ok, entry} -> {:ok, {:cache_entry, entry}}
@@ -86,7 +84,6 @@ defmodule ImagePlug.RequestRunner do
   defp process_request(
          conn,
          %Plan{output: %OutputPlan{mode: :automatic}} = plan,
-         operations,
          origin_identity,
          opts
        ) do
@@ -95,31 +92,24 @@ defmodule ImagePlug.RequestRunner do
     case OutputPolicy.resolve_before_origin(policy) do
       {:selected, format, _reason} ->
         plan
-        |> Processor.process_origin(
-          TransformChain.append_output(operations, format),
-          origin_identity,
-          opts
-        )
+        |> Processor.process_origin(origin_identity, opts)
         |> attach_resolved_output(format, policy.headers)
 
       :needs_source_format ->
-        process_source_format_automatic(plan, operations, origin_identity, opts, policy)
+        process_source_format_automatic(plan, origin_identity, opts, policy)
     end
   end
 
   defp process_request(
          conn,
          %Plan{output: %OutputPlan{mode: {:explicit, format}}} = plan,
-         operations,
          origin_identity,
          opts
        ) do
     policy = OutputPolicy.from_output_plan(conn, plan.output, opts)
 
-    chain = TransformChain.append_output(operations, format)
-
     plan
-    |> Processor.process_origin(chain, origin_identity, opts)
+    |> Processor.process_origin(origin_identity, opts)
     |> attach_resolved_output(format, policy.headers)
   end
 
@@ -132,23 +122,23 @@ defmodule ImagePlug.RequestRunner do
   defp processing_reason({:error, reason}), do: reason
   defp processing_reason(reason), do: reason
 
-  defp process_source_format_automatic(plan, operations, origin_identity, opts, policy) do
+  defp process_source_format_automatic(plan, origin_identity, opts, policy) do
     case Processor.fetch_origin_with_source_format(plan, origin_identity, opts) do
       {:ok, origin_response, source_format} ->
-        resolve_source_format_automatic(origin_response, source_format, operations, opts, policy)
+        resolve_source_format_automatic(origin_response, source_format, plan, opts, policy)
 
       error ->
         {:error, error, policy.headers}
     end
   end
 
-  defp resolve_source_format_automatic(origin_response, source_format, operations, opts, policy) do
+  defp resolve_source_format_automatic(origin_response, source_format, plan, opts, policy) do
     case OutputPolicy.resolve_source_format(policy, source_format) do
       {:selected, format, _reason} ->
         decode_source_format_automatic(
           origin_response,
           source_format,
-          operations,
+          plan,
           format,
           opts,
           policy.headers
@@ -163,7 +153,7 @@ defmodule ImagePlug.RequestRunner do
   defp decode_source_format_automatic(
          origin_response,
          source_format,
-         operations,
+         plan,
          format,
          opts,
          response_headers
@@ -171,15 +161,12 @@ defmodule ImagePlug.RequestRunner do
     case Processor.decode_validate_origin_response(
            origin_response,
            source_format,
-           operations,
+           plan,
            opts
          ) do
       {:ok, %Processor.DecodedOrigin{} = decoded} ->
         decoded
-        |> Processor.process_decoded_origin(
-          TransformChain.append_output(operations, format),
-          opts
-        )
+        |> Processor.process_decoded_origin(plan, opts)
         |> attach_resolved_output(format, response_headers)
 
       error ->
@@ -187,11 +174,10 @@ defmodule ImagePlug.RequestRunner do
     end
   end
 
-  defp pipeline_operations(%Plan{pipelines: [%Pipeline{operations: operations}]}),
-    do: {:ok, operations}
+  defp validate_single_pipeline(%Plan{pipelines: [%Pipeline{}]}), do: :ok
 
-  defp pipeline_operations(%Plan{pipelines: [_pipeline | _rest]}),
+  defp validate_single_pipeline(%Plan{pipelines: [_pipeline | _rest]}),
     do: {:error, :unsupported_multiple_pipelines_during_transition}
 
-  defp pipeline_operations(%Plan{pipelines: []}), do: {:error, :empty_pipeline_plan}
+  defp validate_single_pipeline(%Plan{pipelines: []}), do: {:error, :empty_pipeline_plan}
 end

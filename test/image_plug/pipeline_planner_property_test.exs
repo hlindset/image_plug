@@ -4,21 +4,24 @@ defmodule ImagePlug.PipelinePlannerPropertyTest do
 
   alias ImagePlug.PipelinePlanner
   alias ImagePlug.ProcessingRequest
-  alias ImagePlug.Transform
 
-  property "explicit output format is always planned last" do
-    check all request <- valid_plannable_request_with_explicit_format(),
+  property "explicit output format does not change planned operations" do
+    check all {request, request_without_format} <- valid_plannable_request_pair(),
               max_runs: 100 do
       assert {:ok, chain} = PipelinePlanner.plan(request)
+      assert {:ok, chain_without_format} = PipelinePlanner.plan(request_without_format)
 
-      assert List.last(chain) ==
-               {Transform.Output, %Transform.Output.OutputParams{format: request.format}}
+      refute Enum.any?(chain, fn {module, _params} ->
+               Module.split(module) == ["ImagePlug", "Transform", "Output"]
+             end)
+
+      assert chain == chain_without_format
     end
   end
 
-  defp valid_plannable_request_with_explicit_format do
+  defp valid_plannable_request_pair do
     map({valid_geometry(), member_of([:webp, :avif, :jpeg, :png])}, fn {geometry, format} ->
-      request(Keyword.put(geometry, :format, format))
+      {request(Keyword.put(geometry, :format, format)), request(geometry)}
     end)
   end
 

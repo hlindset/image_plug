@@ -71,14 +71,9 @@ defmodule ImagePlug.Cache.MaterialTest do
            ]
   end
 
-  test "output params are not cache material" do
-    params =
-      :erlang.binary_to_term(
-        :erlang.term_to_binary(%Transform.Output.OutputParams{format: :webp})
-      )
+  test "output is not represented as transform material" do
+    output_transform = Module.concat([ImagePlug, :Transform, :Output])
 
-    assert_raise Protocol.UndefinedError, fn ->
-      Material.material(params)
-    end
+    refute Code.ensure_loaded?(output_transform)
   end
 end

@@ -38,8 +38,14 @@ defmodule ImagePlug.ParamParser.Native.PlanBuilderTest do
       signature: "_",
       source_kind: :plain,
       source_path: ["images", "cat.jpg"],
-      pipelines: [%PipelineRequest{width: {:pixels, 300}}],
-      output_format: :png
+      pipelines: [
+        %PipelineRequest{
+          resizing_type: :force,
+          width: {:pixels, 300},
+          height: {:pixels, 200}
+        }
+      ],
+      output_format: :webp
     }
 
     assert {:ok,
@@ -49,18 +55,20 @@ defmodule ImagePlug.ParamParser.Native.PlanBuilderTest do
             }} =
              PlanBuilder.to_plan(%ParsedRequest{request | output_format: nil})
 
-    assert [{Transform.Contain, automatic_params}] = operations
+    assert [{Transform.Scale, automatic_params}] = operations
     assert automatic_params.width == {:pixels, 300}
+    assert automatic_params.height == {:pixels, 200}
 
     assert {:ok,
             %ImagePlug.Plan{
               pipelines: [%ImagePlug.Pipeline{operations: operations}],
-              output: %ImagePlug.OutputPlan{mode: {:explicit, :png}}
+              output: %ImagePlug.OutputPlan{mode: {:explicit, :webp}}
             }} =
              PlanBuilder.to_plan(request)
 
-    assert [{Transform.Contain, explicit_params}] = operations
+    assert [{Transform.Scale, explicit_params}] = operations
     assert explicit_params.width == {:pixels, 300}
+    assert explicit_params.height == {:pixels, 200}
   end
 
   property "output format does not change planned pipeline operations" do

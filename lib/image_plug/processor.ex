@@ -5,6 +5,7 @@ defmodule ImagePlug.Processor do
   alias ImagePlug.ImageFormat
   alias ImagePlug.ImageMaterializer
   alias ImagePlug.Origin
+  alias ImagePlug.Pipeline
   alias ImagePlug.Plan
   alias ImagePlug.Source.Plain
   alias ImagePlug.TransformChain
@@ -24,32 +25,31 @@ defmodule ImagePlug.Processor do
           }
   end
 
-  @spec process_origin(Plan.t(), TransformChain.t(), String.t(), keyword()) ::
+  @spec process_origin(Plan.t(), String.t(), keyword()) ::
           {:ok, TransformState.t()} | {:error, term()}
-  def process_origin(%Plan{} = plan, chain, origin_identity, opts) do
+  def process_origin(%Plan{} = plan, origin_identity, opts) do
     with {:ok, %DecodedOrigin{} = decoded} <-
-           fetch_decode_validate_origin_with_source_format(plan, origin_identity, chain, opts) do
-      process_decoded_origin(decoded, chain, opts)
+           fetch_decode_validate_origin_with_source_format(plan, origin_identity, opts) do
+      process_decoded_origin(decoded, plan, opts)
     end
   end
 
   @spec fetch_decode_validate_origin_with_source_format(
           Plan.t(),
           String.t(),
-          TransformChain.t(),
           keyword()
         ) ::
           {:ok, DecodedOrigin.t()} | {:error, term()}
   def fetch_decode_validate_origin_with_source_format(
         %Plan{} = plan,
         origin_identity,
-        chain,
         opts
       ) do
-    with {:ok, origin_response, source_format} <-
+    with {:ok, _operations} <- pipeline_operations(plan),
+         {:ok, origin_response, source_format} <-
            fetch_origin_with_source_format(plan, origin_identity, opts),
          {:ok, %DecodedOrigin{} = decoded} <-
-           decode_validate_origin_response(origin_response, source_format, chain, opts) do
+           decode_validate_origin_response(origin_response, source_format, plan, opts) do
       {:ok, decoded}
     end
   end
@@ -57,7 +57,8 @@ defmodule ImagePlug.Processor do
   @spec fetch_origin_with_source_format(Plan.t(), String.t(), keyword()) ::
           {:ok, Origin.Response.t(), :avif | :webp | :jpeg | :png | nil} | {:error, term()}
   def fetch_origin_with_source_format(%Plan{} = plan, origin_identity, opts) do
-    with {:ok, origin_response} <-
+    with {:ok, _operations} <- pipeline_operations(plan),
+         {:ok, origin_response} <-
            fetch_origin(plan, origin_identity, opts) |> wrap_origin_error() do
       {:ok, origin_response, source_format(origin_response)}
     end
@@ -66,49 +67,50 @@ defmodule ImagePlug.Processor do
   @spec decode_validate_origin_response(
           Origin.Response.t(),
           :avif | :webp | :jpeg | :png | nil,
-          TransformChain.t(),
+          Plan.t(),
           keyword()
         ) :: {:ok, DecodedOrigin.t()} | {:error, term()}
   def decode_validate_origin_response(
         %Origin.Response{} = origin_response,
         source_format,
-        chain,
+        %Plan{} = plan,
         opts
       ) do
-    decode_options = DecodePlanner.open_options(chain)
-
     result =
-      with {:ok, image} <-
-             decode_origin_response(origin_response, decode_options, opts)
-             |> wrap_origin_decode_error(),
-           :ok <- validate_input_image(image, opts) |> wrap_input_limit_error() do
-        {:ok,
-         %DecodedOrigin{
-           decode_options: decode_options,
-           image: image,
-           origin_response: origin_response,
-           source_format: source_format
-         }}
+      with {:ok, operations} <- pipeline_operations(plan) do
+        decode_options = DecodePlanner.open_options(operations)
+
+        with {:ok, image} <-
+               decode_origin_response(origin_response, decode_options, opts)
+               |> wrap_origin_decode_error(),
+             :ok <- validate_input_image(image, opts) |> wrap_input_limit_error() do
+          {:ok,
+           %DecodedOrigin{
+             decode_options: decode_options,
+             image: image,
+             origin_response: origin_response,
+             source_format: source_format
+           }}
+        end
       end
 
     close_pending_origin_on_error(result, origin_response)
   end
 
-  @spec process_decoded_origin(DecodedOrigin.t(), TransformChain.t(), keyword()) ::
+  @spec process_decoded_origin(DecodedOrigin.t(), Plan.t(), keyword()) ::
           {:ok, TransformState.t()} | {:error, term()}
-  def process_decoded_origin(%DecodedOrigin{} = decoded, chain, opts) do
+  def process_decoded_origin(%DecodedOrigin{} = decoded, %Plan{} = plan, opts) do
     result =
-      case execute_chain(decoded.image, chain) do
-        {:ok, final_state} ->
-          materialize_before_delivery(
-            final_state,
-            decoded.origin_response,
-            decoded.decode_options,
-            opts
-          )
-
-        {:error, _reason} = error ->
-          error
+      with {:ok, operations} <- pipeline_operations(plan),
+           {:ok, final_state} <- execute_chain(decoded.image, operations) do
+        materialize_before_delivery(
+          final_state,
+          decoded.origin_response,
+          decoded.decode_options,
+          opts
+        )
+      else
+        {:error, _reason} = error -> error
       end
 
     close_pending_origin_on_error(result, decoded.origin_response)
@@ -134,6 +136,14 @@ defmodule ImagePlug.Processor do
   defp execute_chain(image, chain) do
     TransformChain.execute(%TransformState{image: image}, chain)
   end
+
+  defp pipeline_operations(%Plan{pipelines: [%Pipeline{operations: operations}]}),
+    do: {:ok, operations}
+
+  defp pipeline_operations(%Plan{pipelines: [_pipeline | _rest]}),
+    do: {:error, :unsupported_multiple_pipelines_during_transition}
+
+  defp pipeline_operations(%Plan{pipelines: []}), do: {:error, :empty_pipeline_plan}
 
   defp decode_origin_response(%Origin.Response{} = origin_response, decode_options, opts) do
     image_open_module = Keyword.get(opts, :image_open_module, Image)

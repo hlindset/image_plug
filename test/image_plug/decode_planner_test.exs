@@ -10,8 +10,6 @@ defmodule ImagePlug.DecodePlannerTest do
   alias ImagePlug.Transform.Crop.CropParams
   alias ImagePlug.Transform.Focus
   alias ImagePlug.Transform.Focus.FocusParams
-  alias ImagePlug.Transform.Output
-  alias ImagePlug.Transform.Output.OutputParams
   alias ImagePlug.Transform.Scale
   alias ImagePlug.Transform.Scale.ScaleParams
 
@@ -63,12 +61,6 @@ defmodule ImagePlug.DecodePlannerTest do
 
   test "empty chains open randomly with fail_on error" do
     assert DecodePlanner.open_options([]) == [access: :random, fail_on: :error]
-  end
-
-  test "output-only chains stay random" do
-    chain = [{Output, %OutputParams{format: :webp}}]
-
-    assert DecodePlanner.open_options(chain) == [access: :random, fail_on: :error]
   end
 
   test "width-only scale opens sequentially" do
@@ -255,15 +247,6 @@ defmodule ImagePlug.DecodePlannerTest do
     assert DecodePlanner.open_options([
              {ExitingMetadataTransform, %ExitingMetadataTransform{}}
            ]) == [access: :random, fail_on: :error]
-  end
-
-  test "output transform does not downgrade an otherwise sequential chain" do
-    chain = [
-      {Scale, %ScaleParams{type: :dimensions, width: {:pixels, 120}, height: :auto}},
-      {Output, %OutputParams{format: :jpeg}}
-    ]
-
-    assert DecodePlanner.open_options(chain) == [access: :sequential, fail_on: :error]
   end
 
   test "planned options include only access and fail_on" do
