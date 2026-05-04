@@ -5,7 +5,6 @@ defmodule ImagePlug.Processor do
   alias ImagePlug.ImageFormat
   alias ImagePlug.ImageMaterializer
   alias ImagePlug.Origin
-  alias ImagePlug.Pipeline
   alias ImagePlug.Plan
   alias ImagePlug.Source.Plain
   alias ImagePlug.TransformChain
@@ -45,7 +44,7 @@ defmodule ImagePlug.Processor do
         origin_identity,
         opts
       ) do
-    with {:ok, _operations} <- pipeline_operations(plan),
+    with {:ok, _pipelines} <- Plan.validated_pipelines(plan),
          {:ok, origin_response, source_format} <-
            fetch_origin_with_source_format(plan, origin_identity, opts),
          {:ok, %DecodedOrigin{} = decoded} <-
@@ -57,7 +56,7 @@ defmodule ImagePlug.Processor do
   @spec fetch_origin_with_source_format(Plan.t(), String.t(), keyword()) ::
           {:ok, Origin.Response.t(), :avif | :webp | :jpeg | :png | nil} | {:error, term()}
   def fetch_origin_with_source_format(%Plan{} = plan, origin_identity, opts) do
-    with {:ok, _operations} <- pipeline_operations(plan),
+    with {:ok, _pipelines} <- Plan.validated_pipelines(plan),
          {:ok, origin_response} <-
            fetch_origin(plan, origin_identity, opts) |> wrap_origin_error() do
       {:ok, origin_response, source_format(origin_response)}
@@ -77,8 +76,8 @@ defmodule ImagePlug.Processor do
         opts
       ) do
     result =
-      with {:ok, operations} <- pipeline_operations(plan) do
-        decode_options = DecodePlanner.open_options(operations)
+      with {:ok, _pipelines} <- Plan.validated_pipelines(plan) do
+        decode_options = DecodePlanner.open_options(plan)
 
         with {:ok, image} <-
                decode_origin_response(origin_response, decode_options, opts)
@@ -101,8 +100,9 @@ defmodule ImagePlug.Processor do
           {:ok, TransformState.t()} | {:error, term()}
   def process_decoded_origin(%DecodedOrigin{} = decoded, %Plan{} = plan, opts) do
     result =
-      with {:ok, operations} <- pipeline_operations(plan),
-           {:ok, final_state} <- execute_chain(decoded.image, operations) do
+      with {:ok, pipelines} <- Plan.validated_pipelines(plan),
+           {:ok, final_state} <-
+             execute_pipelines(%TransformState{image: decoded.image}, pipelines, decoded, opts) do
         materialize_before_delivery(
           final_state,
           decoded.origin_response,
@@ -133,17 +133,49 @@ defmodule ImagePlug.Processor do
 
   defp close_pending_origin_on_error(result, %Origin.Response{}), do: result
 
-  defp execute_chain(image, chain) do
-    TransformChain.execute(%TransformState{image: image}, chain)
+  defp execute_pipelines(%TransformState{} = state, pipelines, %DecodedOrigin{} = decoded, opts) do
+    last_index = length(pipelines) - 1
+
+    pipelines
+    |> Enum.with_index()
+    |> Enum.reduce_while({:ok, state}, &execute_pipeline_step(&1, &2, last_index, decoded, opts))
   end
 
-  defp pipeline_operations(%Plan{pipelines: [%Pipeline{operations: operations}]}),
-    do: {:ok, operations}
+  defp execute_pipeline_step(
+         {%ImagePlug.Pipeline{operations: operations}, index},
+         {:ok, %TransformState{} = state},
+         last_index,
+         %DecodedOrigin{} = decoded,
+         opts
+       ) do
+    with {:ok, %TransformState{} = state} <- TransformChain.execute(state, operations),
+         {:ok, %TransformState{} = state} <-
+           maybe_materialize_between_pipelines(state, index, last_index, decoded, opts) do
+      {:cont, {:ok, state}}
+    else
+      {:error, _reason} = error -> {:halt, error}
+    end
+  end
 
-  defp pipeline_operations(%Plan{pipelines: [_pipeline | _rest]}),
-    do: {:error, :unsupported_multiple_pipelines_during_transition}
+  defp maybe_materialize_between_pipelines(
+         %TransformState{} = state,
+         index,
+         last_index,
+         %DecodedOrigin{} = decoded,
+         opts
+       )
+       when index < last_index do
+    materialize_between_pipelines(state, decoded.origin_response, opts)
+  end
 
-  defp pipeline_operations(%Plan{pipelines: []}), do: {:error, :empty_pipeline_plan}
+  defp maybe_materialize_between_pipelines(
+         %TransformState{} = state,
+         _index,
+         _last_index,
+         %DecodedOrigin{},
+         _opts
+       ),
+       do: {:ok, state}
 
   defp decode_origin_response(%Origin.Response{} = origin_response, decode_options, opts) do
     image_open_module = Keyword.get(opts, :image_open_module, Image)
@@ -182,27 +214,112 @@ defmodule ImagePlug.Processor do
          %Origin.Response{} = origin_response,
          opts
        ) do
-    materializer = Keyword.get(opts, :image_materializer_module, ImageMaterializer)
-
-    state.image
-    |> materializer.materialize()
-    |> handle_materialization_result(state, origin_response)
+    materialize_state(state, opts)
+    |> handle_materialization_result(origin_response)
   end
 
-  defp handle_materialization_result(
-         {:ok, materialized_image},
+  defp materialize_between_pipelines(
          %TransformState{} = state,
+         %Origin.Response{} = origin_response,
+         opts
+       ) do
+    materialize_state(state, opts)
+    |> handle_materialization_result(origin_response)
+  end
+
+  defp materialize_state(%TransformState{} = state, opts) do
+    materializer =
+      Keyword.get(
+        opts,
+        :image_materializer,
+        Keyword.get(opts, :image_materializer_module, ImageMaterializer)
+      )
+
+    load_materializer(materializer, state, opts)
+  end
+
+  defp load_materializer(materializer, %TransformState{} = state, opts)
+       when is_atom(materializer) do
+    case Code.ensure_loaded(materializer) do
+      {:module, ^materializer} ->
+        dispatch_materializer(materializer, state, opts)
+
+      {:error, reason} ->
+        {:error, {:config, {:invalid_image_materializer, materializer, reason}}}
+    end
+  end
+
+  defp load_materializer(materializer, %TransformState{}, _opts),
+    do: {:error, {:config, {:invalid_image_materializer, materializer}}}
+
+  defp dispatch_materializer(materializer, %TransformState{} = state, opts) do
+    cond do
+      function_exported?(materializer, :materialize, 2) ->
+        materializer.materialize(state, opts)
+        |> normalize_state_materializer_result(materializer)
+
+      function_exported?(materializer, :materialize, 1) ->
+        materializer.materialize(state.image)
+        |> normalize_image_materializer_result(materializer, state)
+
+      true ->
+        {:error, {:config, {:invalid_image_materializer, materializer}}}
+    end
+  end
+
+  defp normalize_state_materializer_result({:ok, %TransformState{} = state}, _materializer),
+    do: {:ok, state}
+
+  defp normalize_state_materializer_result({:ok, invalid_state}, materializer),
+    do: invalid_materializer_result(materializer, {:ok, invalid_state})
+
+  defp normalize_state_materializer_result({:error, _reason} = error, _materializer), do: error
+
+  defp normalize_state_materializer_result(unexpected, materializer),
+    do: invalid_materializer_result(materializer, unexpected)
+
+  defp normalize_image_materializer_result(
+         {:ok, %Vix.Vips.Image{} = image},
+         _materializer,
+         %TransformState{} = state
+       ) do
+    {:ok, TransformState.set_image(state, image)}
+  end
+
+  defp normalize_image_materializer_result({:ok, invalid_image}, materializer, %TransformState{}),
+    do: invalid_materializer_result(materializer, {:ok, invalid_image})
+
+  defp normalize_image_materializer_result(
+         {:error, _reason} = error,
+         _materializer,
+         %TransformState{}
+       ),
+       do: error
+
+  defp normalize_image_materializer_result(unexpected, materializer, %TransformState{}),
+    do: invalid_materializer_result(materializer, unexpected)
+
+  defp invalid_materializer_result(materializer, result),
+    do: {:error, {:config, {:invalid_image_materializer_result, materializer, result}}}
+
+  defp handle_materialization_result(
+         {:error, {:config, _reason} = error},
+         %Origin.Response{}
+       ),
+       do: {:error, error}
+
+  defp handle_materialization_result(
+         {:ok, %TransformState{} = state},
          %Origin.Response{} = origin_response
        ) do
     case Origin.require_stream_status(origin_response) do
-      :done -> {:ok, TransformState.set_image(state, materialized_image)}
+      :done -> {:ok, state}
       {:error, reason} -> {:error, {:origin, reason}}
     end
   end
 
   defp handle_materialization_result(
          {:error, materialize_error},
-         %TransformState{},
          %Origin.Response{} = origin_response
        ) do
     case Origin.stream_status(origin_response) do

@@ -7,8 +7,21 @@ defmodule ImagePlug.ImageMaterializer do
   materialize pixels, then check whether the origin stream finished or failed.
   """
 
-  @spec materialize(Vix.Vips.Image.t()) :: {:ok, Vix.Vips.Image.t()} | {:error, term()}
-  def materialize(%Vix.Vips.Image{} = image) do
-    Vix.Vips.Image.copy_memory(image)
+  alias ImagePlug.TransformState
+  alias Vix.Vips.Image, as: VipsImage
+
+  @callback materialize(TransformState.t(), keyword()) ::
+              {:ok, TransformState.t()} | {:error, term()}
+
+  @spec materialize(TransformState.t(), keyword()) :: {:ok, TransformState.t()} | {:error, term()}
+  def materialize(%TransformState{} = state, _opts) do
+    with {:ok, image} <- materialize(state.image) do
+      {:ok, TransformState.set_image(state, image)}
+    end
+  end
+
+  @spec materialize(VipsImage.t()) :: {:ok, VipsImage.t()} | {:error, term()}
+  def materialize(%VipsImage{} = image) do
+    VipsImage.copy_memory(image)
   end
 end

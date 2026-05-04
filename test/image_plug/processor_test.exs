@@ -41,6 +41,38 @@ defmodule ImagePlug.ProcessorTest do
     end
   end
 
+  defmodule FirstTransform do
+    defstruct []
+
+    def execute(%TransformState{} = state, %__MODULE__{}) do
+      %TransformState{state | debug: true}
+    end
+  end
+
+  defmodule SecondTransform do
+    defstruct [:test_pid, :ref]
+
+    def execute(%TransformState{} = state, %__MODULE__{test_pid: test_pid, ref: ref}) do
+      send(test_pid, {:pipeline_event, ref, :second_transform_ran})
+      state
+    end
+  end
+
+  defmodule Materializer do
+    def materialize(%TransformState{} = state, opts) do
+      send(
+        Keyword.fetch!(opts, :test_pid),
+        {:pipeline_event, Keyword.fetch!(opts, :test_ref), :materialized_between_pipelines}
+      )
+
+      {:ok, %TransformState{state | image: state.image, focus: state.focus, errors: state.errors}}
+    end
+  end
+
+  defmodule InvalidReturnMaterializer do
+    def materialize(%TransformState{}, _opts), do: {:ok, :not_a_transform_state}
+  end
+
   defp opts do
     [origin_req_options: [plug: OriginImage]]
   end
@@ -53,14 +85,8 @@ defmodule ImagePlug.ProcessorTest do
     }
   end
 
-  defp multi_pipeline_plan do
-    %Plan{
-      plan()
-      | pipelines: [
-          %Pipeline{operations: []},
-          %Pipeline{operations: []}
-        ]
-    }
+  defp invalid_pipeline_plan do
+    %Plan{plan() | pipelines: [:not_a_pipeline]}
   end
 
   test "process_origin fetches plain plan sources from the resolved origin identity" do
@@ -102,19 +128,93 @@ defmodule ImagePlug.ProcessorTest do
     assert state.errors == []
   end
 
-  test "process_origin rejects unsupported pipeline plans before fetching origin" do
-    assert {:error, :unsupported_multiple_pipelines_during_transition} =
+  test "process_origin materializes between pipelines before executing the next pipeline" do
+    test_pid = self()
+    ref = make_ref()
+
+    plan = %Plan{
+      source: %Plain{path: ["images", "cat-300.jpg"]},
+      pipelines: [
+        %Pipeline{operations: [{FirstTransform, %FirstTransform{}}]},
+        %Pipeline{operations: [{SecondTransform, %SecondTransform{test_pid: test_pid, ref: ref}}]}
+      ],
+      output: %OutputPlan{mode: {:explicit, :jpeg}}
+    }
+
+    opts =
+      opts()
+      |> Keyword.put(:image_materializer, Materializer)
+      |> Keyword.put(:test_pid, test_pid)
+      |> Keyword.put(:test_ref, ref)
+
+    assert {:ok, %TransformState{} = state} =
              Processor.process_origin(
-               multi_pipeline_plan(),
+               plan,
+               "http://origin.test/images/cat-300.jpg",
+               opts
+             )
+
+    assert state.image
+    assert state.debug
+    assert state.errors == []
+    assert_receive first_message
+    assert first_message == {:pipeline_event, ref, :materialized_between_pipelines}
+    assert_receive second_message
+    assert second_message == {:pipeline_event, ref, :second_transform_ran}
+  end
+
+  test "process_origin returns a controlled config error for invalid materializer results" do
+    plan = %Plan{
+      source: %Plain{path: ["images", "cat-300.jpg"]},
+      pipelines: [
+        %Pipeline{operations: []},
+        %Pipeline{operations: []}
+      ],
+      output: %OutputPlan{mode: {:explicit, :jpeg}}
+    }
+
+    assert {:error,
+            {:config,
+             {:invalid_image_materializer_result, InvalidReturnMaterializer,
+              {:ok, :not_a_transform_state}}}} =
+             Processor.process_origin(
+               plan,
+               "http://origin.test/images/cat-300.jpg",
+               Keyword.put(opts(), :image_materializer, InvalidReturnMaterializer)
+             )
+  end
+
+  test "process_origin returns a controlled config error for non-module materializers" do
+    plan = %Plan{
+      source: %Plain{path: ["images", "cat-300.jpg"]},
+      pipelines: [
+        %Pipeline{operations: []},
+        %Pipeline{operations: []}
+      ],
+      output: %OutputPlan{mode: {:explicit, :jpeg}}
+    }
+
+    assert {:error, {:config, {:invalid_image_materializer, "not a module"}}} =
+             Processor.process_origin(
+               plan,
+               "http://origin.test/images/cat-300.jpg",
+               Keyword.put(opts(), :image_materializer, "not a module")
+             )
+  end
+
+  test "process_origin rejects invalid pipeline plans before fetching origin" do
+    assert {:error, {:invalid_pipeline_plan, [:not_a_pipeline]}} =
+             Processor.process_origin(
+               invalid_pipeline_plan(),
                "http://origin.test/images/cat-300.jpg",
                Keyword.put(opts(), :origin_req_options, plug: OriginShouldNotFetch)
              )
   end
 
-  test "fetch_origin_with_source_format rejects unsupported pipeline plans before fetching origin" do
-    assert {:error, :unsupported_multiple_pipelines_during_transition} =
+  test "fetch_origin_with_source_format rejects invalid pipeline plans before fetching origin" do
+    assert {:error, {:invalid_pipeline_plan, [:not_a_pipeline]}} =
              Processor.fetch_origin_with_source_format(
-               multi_pipeline_plan(),
+               invalid_pipeline_plan(),
                "http://origin.test/images/cat-300.jpg",
                Keyword.put(opts(), :origin_req_options, plug: OriginShouldNotFetch)
              )

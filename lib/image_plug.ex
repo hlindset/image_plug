@@ -96,20 +96,18 @@ defmodule ImagePlug do
   defp handle_processing_error(conn, {:cache_write, error}, response_headers),
     do: send_cache_error(conn, error, response_headers)
 
+  defp handle_processing_error(conn, {:config, error}, response_headers),
+    do: send_config_error(conn, error, response_headers)
+
   defp handle_processing_error(conn, :empty_pipeline_plan, response_headers),
     do: send_migration_guard_error(conn, :empty_pipeline_plan, response_headers)
 
-  defp handle_processing_error(
-         conn,
-         :unsupported_multiple_pipelines_during_transition,
-         response_headers
-       ),
-       do:
-         send_migration_guard_error(
-           conn,
-           :unsupported_multiple_pipelines_during_transition,
-           response_headers
-         )
+  defp handle_processing_error(conn, {:invalid_pipeline_plan, pipelines}, response_headers),
+    do: send_migration_guard_error(conn, {:invalid_pipeline_plan, pipelines}, response_headers)
+
+  defp handle_processing_error(conn, {:invalid_pipeline_operation, operation}, response_headers),
+    do:
+      send_migration_guard_error(conn, {:invalid_pipeline_operation, operation}, response_headers)
 
   defp handle_processing_error(
          conn,
@@ -244,6 +242,15 @@ defmodule ImagePlug do
     |> put_resp_headers(response_headers)
     |> put_resp_content_type("text/plain")
     |> send_resp(500, "cache error")
+  end
+
+  defp send_config_error(%Plug.Conn{} = conn, error, response_headers) do
+    Logger.error("config_error: #{inspect(error)}")
+
+    conn
+    |> put_resp_headers(response_headers)
+    |> put_resp_content_type("text/plain")
+    |> send_resp(500, "configuration error")
   end
 
   defp stream_image(stream, %Plug.Conn{} = conn, mime_type, response_headers) do

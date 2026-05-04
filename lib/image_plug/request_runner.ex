@@ -3,6 +3,7 @@ defmodule ImagePlug.RequestRunner do
 
   alias ImagePlug.Cache.Entry
   alias ImagePlug.Cache.Key
+  alias ImagePlug.Cache.Material
   alias ImagePlug.OutputPlan
   alias ImagePlug.OutputPolicy
   alias ImagePlug.Pipeline
@@ -27,13 +28,31 @@ defmodule ImagePlug.RequestRunner do
         ) ::
           {:ok, delivery()} | {:error, error()}
   def run(conn, %Plan{} = plan, origin_identity, opts) do
-    case validate_single_pipeline(plan) do
-      :ok ->
-        run_with_cache(conn, plan, origin_identity, opts)
-
-      {:error, reason} ->
-        {:error, {:processing, reason, []}}
+    with {:ok, pipelines} <- Plan.validated_pipelines(plan),
+         :ok <- validate_cache_material(pipelines, opts) do
+      run_with_cache(conn, plan, origin_identity, opts)
+    else
+      {:error, reason} -> {:error, {:processing, reason, []}}
     end
+  end
+
+  defp validate_cache_material(pipelines, opts) do
+    if Keyword.get(opts, :cache) do
+      validate_cacheable_operations(pipelines)
+    else
+      :ok
+    end
+  end
+
+  defp validate_cacheable_operations(pipelines) do
+    case Enum.find_value(pipelines, &uncacheable_operation/1) do
+      nil -> :ok
+      operation -> {:error, {:invalid_pipeline_operation, operation}}
+    end
+  end
+
+  defp uncacheable_operation(%Pipeline{operations: operations}) do
+    Enum.find(operations, fn {_module, params} -> is_nil(Material.impl_for(params)) end)
   end
 
   defp run_with_cache(
@@ -173,11 +192,4 @@ defmodule ImagePlug.RequestRunner do
         {:error, error, response_headers}
     end
   end
-
-  defp validate_single_pipeline(%Plan{pipelines: [%Pipeline{}]}), do: :ok
-
-  defp validate_single_pipeline(%Plan{pipelines: [_pipeline | _rest]}),
-    do: {:error, :unsupported_multiple_pipelines_during_transition}
-
-  defp validate_single_pipeline(%Plan{pipelines: []}), do: {:error, :empty_pipeline_plan}
 end

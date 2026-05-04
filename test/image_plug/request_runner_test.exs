@@ -10,6 +10,7 @@ defmodule ImagePlug.RequestRunnerTest do
   alias ImagePlug.RequestRunner
   alias ImagePlug.Source.Plain
   alias ImagePlug.Transform
+  alias ImagePlug.TransformState
 
   defmodule CacheHit do
     def get(_key, opts), do: Keyword.fetch!(opts, :entry) |> then(&{:hit, &1})
@@ -23,6 +24,44 @@ defmodule ImagePlug.RequestRunnerTest do
     end
 
     def put(_key, _entry, _opts), do: raise("cache lookup test should not write")
+  end
+
+  defmodule OriginImage do
+    def call(%Plug.Conn{request_path: "/images/cat-300.jpg"} = conn, _opts) do
+      body = File.read!("priv/static/images/cat-300.jpg")
+
+      conn
+      |> Plug.Conn.put_resp_content_type("image/jpeg")
+      |> Plug.Conn.send_resp(200, body)
+    end
+  end
+
+  defmodule FirstTransform do
+    defstruct []
+
+    def execute(%TransformState{} = state, %__MODULE__{}) do
+      %TransformState{state | debug: true}
+    end
+  end
+
+  defmodule SecondTransform do
+    defstruct [:test_pid, :ref]
+
+    def execute(%TransformState{} = state, %__MODULE__{test_pid: test_pid, ref: ref}) do
+      send(test_pid, {:pipeline_event, ref, :second_transform_ran})
+      state
+    end
+  end
+
+  defmodule Materializer do
+    def materialize(%TransformState{} = state, opts) do
+      send(
+        Keyword.fetch!(opts, :test_pid),
+        {:pipeline_event, Keyword.fetch!(opts, :test_ref), :materialized_between_pipelines}
+      )
+
+      {:ok, state}
+    end
   end
 
   defp plan(overrides \\ []) do
@@ -78,16 +117,117 @@ defmodule ImagePlug.RequestRunnerTest do
              )
   end
 
-  test "multiple pipelines fail with the transitional runner error before processing" do
-    plan = plan(pipelines: [%Pipeline{operations: []}, %Pipeline{operations: []}])
+  test "empty pipeline plans return processing errors before cache lookup" do
+    entry = %Entry{
+      body: "cached jpeg",
+      content_type: "image/jpeg",
+      headers: [],
+      created_at: DateTime.utc_now()
+    }
 
-    assert {:error, {:processing, :unsupported_multiple_pipelines_during_transition, []}} =
+    assert {:error, {:processing, :empty_pipeline_plan, []}} =
+             RequestRunner.run(
+               conn(:get, "/_/f:jpeg/plain/images/cat-300.jpg"),
+               plan(pipelines: []),
+               "http://origin.test/images/cat-300.jpg",
+               cache: {CacheReadProbe, entry: entry}
+             )
+
+    refute_received {:cache_lookup, _key}
+  end
+
+  test "invalid pipeline plans return processing errors before cache lookup" do
+    entry = %Entry{
+      body: "cached jpeg",
+      content_type: "image/jpeg",
+      headers: [],
+      created_at: DateTime.utc_now()
+    }
+
+    assert {:error, {:processing, {:invalid_pipeline_plan, [:not_a_pipeline]}, []}} =
+             RequestRunner.run(
+               conn(:get, "/_/f:jpeg/plain/images/cat-300.jpg"),
+               plan(pipelines: [:not_a_pipeline]),
+               "http://origin.test/images/cat-300.jpg",
+               cache: {CacheReadProbe, entry: entry}
+             )
+
+    refute_received {:cache_lookup, _key}
+  end
+
+  test "invalid pipeline operations return processing errors before cache lookup" do
+    entry = %Entry{
+      body: "cached jpeg",
+      content_type: "image/jpeg",
+      headers: [],
+      created_at: DateTime.utc_now()
+    }
+
+    assert {:error, {:processing, {:invalid_pipeline_operation, :not_operation}, []}} =
+             RequestRunner.run(
+               conn(:get, "/_/f:jpeg/plain/images/cat-300.jpg"),
+               plan(pipelines: [%Pipeline{operations: [:not_operation]}]),
+               "http://origin.test/images/cat-300.jpg",
+               cache: {CacheReadProbe, entry: entry}
+             )
+
+    refute_received {:cache_lookup, _key}
+  end
+
+  test "operations without cache material return processing errors before cache lookup" do
+    entry = %Entry{
+      body: "cached jpeg",
+      content_type: "image/jpeg",
+      headers: [],
+      created_at: DateTime.utc_now()
+    }
+
+    assert {:error, {:processing, {:invalid_pipeline_operation, {String, %{}}}, []}} =
+             RequestRunner.run(
+               conn(:get, "/_/f:jpeg/plain/images/cat-300.jpg"),
+               plan(pipelines: [%Pipeline{operations: [{String, %{}}]}]),
+               "http://origin.test/images/cat-300.jpg",
+               cache: {CacheReadProbe, entry: entry}
+             )
+
+    refute_received {:cache_lookup, _key}
+  end
+
+  test "multiple pipelines reach processing and materialize between pipelines" do
+    test_pid = self()
+    ref = make_ref()
+
+    plan =
+      plan(
+        pipelines: [
+          %Pipeline{operations: [{FirstTransform, %FirstTransform{}}]},
+          %Pipeline{
+            operations: [{SecondTransform, %SecondTransform{test_pid: test_pid, ref: ref}}]
+          }
+        ]
+      )
+
+    opts = [
+      image_materializer: Materializer,
+      origin_req_options: [plug: OriginImage],
+      test_pid: test_pid,
+      test_ref: ref
+    ]
+
+    assert {:ok, {:image, %TransformState{} = state, :jpeg, []}} =
              RequestRunner.run(
                conn(:get, "/_/f:jpeg/plain/images/cat-300.jpg"),
                plan,
                "http://origin.test/images/cat-300.jpg",
-               []
+               opts
              )
+
+    assert state.image
+    assert state.debug
+    assert_receive first_message
+    assert first_message == {:pipeline_event, ref, :materialized_between_pipelines}
+    assert_receive second_message
+    assert second_message == {:pipeline_event, ref, :second_transform_ran}
   end
 
   test "known plan operations are included in cache lookup material" do

@@ -182,6 +182,10 @@ defmodule ImagePlug.ImagePlugTest do
     def materialize(_image), do: {:error, :forced_materialization_failure}
   end
 
+  defmodule InvalidMaterializer do
+    def materialize_with_wrong_arity(_state, _opts, _extra), do: :ok
+  end
+
   def sample_plan(overrides \\ []) do
     struct!(
       Plan,
@@ -297,17 +301,14 @@ defmodule ImagePlug.ImagePlugTest do
     def execute(%ImagePlug.TransformState{} = state, _params), do: state
   end
 
-  defmodule MultiplePipelineParser do
+  defmodule EmptyPipelineParser do
     @behaviour ImagePlug.ParamParser
 
     @impl ImagePlug.ParamParser
     def parse(_conn) do
       {:ok,
        ImagePlug.ImagePlugTest.sample_plan(
-         pipelines: [
-           %ImagePlug.Pipeline{operations: []},
-           %ImagePlug.Pipeline{operations: []}
-         ],
+         pipelines: [],
          output: %ImagePlug.OutputPlan{mode: {:explicit, :jpeg}}
        )}
     end
@@ -713,22 +714,18 @@ defmodule ImagePlug.ImagePlugTest do
     refute_received :origin_was_called
   end
 
-  test "runner migration guard errors return a controlled response before cache or origin" do
+  test "empty pipeline plan returns a controlled response before origin" do
     conn = conn(:get, "/_/f:jpeg/plain/images/cat-300.jpg")
-    cache_probe = start_cache_probe()
 
     conn =
       ImagePlug.call(conn,
         root_url: "http://origin.test",
-        param_parser: MultiplePipelineParser,
-        cache: {CacheProbe, message_target: cache_probe},
+        param_parser: EmptyPipelineParser,
         origin_req_options: [plug: OriginShouldNotBeCalled]
       )
 
-    flush_cache_probe(cache_probe)
     assert conn.status == 422
     assert conn.resp_body == "invalid image transform"
-    refute_received {:cache_get, _key}
     refute_received :origin_was_called
   end
 
@@ -1225,6 +1222,26 @@ defmodule ImagePlug.ImagePlugTest do
     assert conn.resp_body == "origin response is not a supported image"
     assert get_resp_header(conn, "content-type") == ["text/plain; charset=utf-8"]
     assert get_resp_header(conn, "vary") == ["Accept"]
+  end
+
+  test "invalid configured materializer returns a controlled configuration error" do
+    conn =
+      conn(:get, "/_/rt:force/w:100/plain/images/cat-300.jpg")
+      |> ImagePlug.call(
+        root_url: "http://origin.test",
+        image_open_module: RecordingImageOpen,
+        param_parser: ImagePlug.ParamParser.Native,
+        image_materializer: InvalidMaterializer,
+        origin_req_options: [plug: OriginImage]
+      )
+
+    assert_received {:image_open_options, opts}
+    assert Keyword.get(opts, :access) == :sequential
+    assert Keyword.get(opts, :fail_on) == :error
+    assert conn.status == 500
+    assert conn.state == :sent
+    assert conn.resp_body == "configuration error"
+    assert get_resp_header(conn, "content-type") == ["text/plain; charset=utf-8"]
   end
 
   test "deferred automatic sequential materialization failure returns decode error" do
