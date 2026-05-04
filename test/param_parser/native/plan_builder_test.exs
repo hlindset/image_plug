@@ -33,6 +33,35 @@ defmodule ImagePlug.ParamParser.Native.PlanBuilderTest do
     assert params.width == {:pixels, 300}
   end
 
+  test "converts multiple native pipeline requests into separate product-neutral pipelines" do
+    request = %ParsedRequest{
+      signature: "_",
+      source_kind: :plain,
+      source_path: ["images", "cat.jpg"],
+      pipelines: [
+        %PipelineRequest{width: {:pixels, 500}},
+        %PipelineRequest{height: {:pixels, 200}}
+      ],
+      output_format: nil
+    }
+
+    assert {:ok,
+            %Plan{
+              pipelines: [
+                %Pipeline{operations: first_operations},
+                %Pipeline{operations: second_operations}
+              ]
+            }} = PlanBuilder.to_plan(request)
+
+    assert [{Transform.Contain, first_params}] = first_operations
+    assert first_params.width == {:pixels, 500}
+    assert first_params.height == :auto
+
+    assert [{Transform.Contain, second_params}] = second_operations
+    assert second_params.width == :auto
+    assert second_params.height == {:pixels, 200}
+  end
+
   test "represents output intent outside native pipeline operations" do
     request = %ParsedRequest{
       signature: "_",
