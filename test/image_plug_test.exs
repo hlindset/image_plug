@@ -297,6 +297,25 @@ defmodule ImagePlug.ImagePlugTest do
     def execute(%ImagePlug.TransformState{} = state, _params), do: state
   end
 
+  defmodule MultiplePipelineParser do
+    @behaviour ImagePlug.ParamParser
+
+    @impl ImagePlug.ParamParser
+    def parse(_conn) do
+      {:ok,
+       ImagePlug.ImagePlugTest.sample_plan(
+         pipelines: [
+           %ImagePlug.Pipeline{operations: []},
+           %ImagePlug.Pipeline{operations: []}
+         ],
+         output: %ImagePlug.OutputPlan{mode: {:explicit, :jpeg}}
+       )}
+    end
+
+    @impl ImagePlug.ParamParser
+    def handle_error(conn, _error), do: conn
+  end
+
   defmodule RaisingAfterFirstChunkImage do
     def stream!(:image, suffix: ".jpg") do
       Stream.resource(
@@ -701,7 +720,7 @@ defmodule ImagePlug.ImagePlugTest do
     conn =
       ImagePlug.call(conn,
         root_url: "http://origin.test",
-        param_parser: UnprojectableOperationParser,
+        param_parser: MultiplePipelineParser,
         cache: {CacheProbe, message_target: cache_probe},
         origin_req_options: [plug: OriginShouldNotBeCalled]
       )

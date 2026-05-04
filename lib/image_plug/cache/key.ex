@@ -5,10 +5,14 @@ defmodule ImagePlug.Cache.Key do
 
   import Plug.Conn
 
+  alias ImagePlug.Cache.Material
   alias ImagePlug.OutputNegotiation
-  alias ImagePlug.ProcessingRequest
+  alias ImagePlug.OutputPlan
+  alias ImagePlug.Pipeline
+  alias ImagePlug.Plan
+  alias ImagePlug.Source.Plain
 
-  @schema_version 1
+  @schema_version 2
   @enforce_keys [:hash, :material, :serialized_material]
 
   defstruct @enforce_keys
@@ -19,15 +23,16 @@ defmodule ImagePlug.Cache.Key do
           serialized_material: binary()
         }
 
-  @spec build(Plug.Conn.t(), ProcessingRequest.t(), String.t(), keyword()) ::
+  @spec build(Plug.Conn.t(), Plan.t(), String.t(), keyword()) ::
           {:ok, t()}
-  def build(conn, %ProcessingRequest{} = request, origin_identity, opts \\ [])
+  def build(conn, %Plan{} = plan, origin_identity, opts \\ [])
       when is_binary(origin_identity) and is_list(opts) do
     material = [
       schema_version: @schema_version,
       origin_identity: origin_identity,
-      operations: operations(request),
-      output: output(conn, request, opts),
+      source: source_material(plan.source),
+      pipelines: pipelines_material(plan.pipelines),
+      output: output_material(conn, plan.output, opts),
       selected_headers: selected_headers(conn, opts),
       selected_cookies: selected_cookies(conn, opts)
     ]
@@ -49,25 +54,19 @@ defmodule ImagePlug.Cache.Key do
     |> :erlang.term_to_binary([:deterministic])
   end
 
-  defp operations(%ProcessingRequest{} = request) do
-    [
-      source_kind: request.source_kind,
-      source_path: request.source_path,
-      width: request.width,
-      height: request.height,
-      resizing_type: request.resizing_type,
-      enlarge: request.enlarge,
-      extend: request.extend,
-      extend_gravity: request.extend_gravity,
-      extend_x_offset: request.extend_x_offset,
-      extend_y_offset: request.extend_y_offset,
-      gravity: request.gravity,
-      gravity_x_offset: request.gravity_x_offset,
-      gravity_y_offset: request.gravity_y_offset
-    ]
+  defp source_material(%Plain{path: path}), do: [kind: :plain, path: path]
+
+  defp pipelines_material(pipelines) do
+    Enum.map(pipelines, fn %Pipeline{operations: operations} ->
+      Enum.map(operations, &operation_material/1)
+    end)
   end
 
-  defp output(conn, %ProcessingRequest{format: nil}, opts) do
+  defp operation_material({_transform_module, params}) do
+    Material.material(params)
+  end
+
+  defp output_material(conn, %OutputPlan{mode: :automatic}, opts) do
     accept_header = conn |> get_req_header("accept") |> Enum.join(",")
 
     [
@@ -80,7 +79,7 @@ defmodule ImagePlug.Cache.Key do
     ]
   end
 
-  defp output(_conn, %ProcessingRequest{format: format}, _opts) do
+  defp output_material(_conn, %OutputPlan{mode: {:explicit, format}}, _opts) do
     [mode: :explicit, format: format]
   end
 

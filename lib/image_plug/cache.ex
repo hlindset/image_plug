@@ -7,7 +7,7 @@ defmodule ImagePlug.Cache do
 
   alias ImagePlug.Cache.Entry
   alias ImagePlug.Cache.Key
-  alias ImagePlug.ProcessingRequest
+  alias ImagePlug.Plan
 
   @shared_cache_option_keys [:key_headers, :key_cookies, :max_body_bytes, :fail_on_cache_error]
   @key_option_keys [:auto_avif, :auto_webp]
@@ -34,7 +34,6 @@ defmodule ImagePlug.Cache do
 
   @type lookup_result ::
           :disabled
-          | :skip_cache
           | {:hit, Key.t(), Entry.t()}
           | {:miss, Key.t()}
           | {:error, {:cache_read, term()}}
@@ -70,32 +69,14 @@ defmodule ImagePlug.Cache do
     end
   end
 
-  @spec lookup(Plug.Conn.t(), ProcessingRequest.t(), String.t(), keyword()) :: lookup_result()
-  def lookup(conn, %ProcessingRequest{} = request, origin_identity, opts) when is_list(opts) do
+  @spec lookup(Plug.Conn.t(), Plan.t(), String.t(), keyword()) :: lookup_result()
+  def lookup(conn, %Plan{} = plan, origin_identity, opts) when is_list(opts) do
     case cache_config(opts) do
       nil ->
         :disabled
 
       {:ok, adapter, cache_opts} ->
-        with {:ok, key} <-
-               Key.build(conn, request, origin_identity, key_options(opts, cache_opts)) do
-          case adapter.get(key, cache_opts) do
-            {:hit, %Entry{} = entry} ->
-              {:hit, key, entry}
-
-            :miss ->
-              {:miss, key}
-
-            {:error, reason} ->
-              handle_read_error(reason, key, cache_opts)
-
-            unexpected ->
-              handle_read_error({:invalid_adapter_result, unexpected}, key, cache_opts)
-          end
-        else
-          {:error, reason} ->
-            handle_key_error(reason, cache_opts)
-        end
+        lookup_configured(adapter, conn, plan, origin_identity, opts, cache_opts)
 
       {:error, reason} ->
         {:error, {:cache_read, reason}}
@@ -122,18 +103,47 @@ defmodule ImagePlug.Cache do
         nil
 
       {adapter, cache_opts} when is_list(cache_opts) ->
-        if Keyword.keyword?(cache_opts) do
-          with :ok <- validate_adapter(adapter),
-               {:ok, cache_opts} <- normalize_shared_options(cache_opts),
-               :ok <- validate_adapter_options(adapter, adapter_options(cache_opts)) do
-            {:ok, adapter, cache_opts}
-          end
-        else
-          {:error, {:invalid_cache_config, {adapter, cache_opts}}}
-        end
+        configured_cache(adapter, cache_opts)
 
       invalid ->
         {:error, {:invalid_cache_config, invalid}}
+    end
+  end
+
+  defp lookup_configured(adapter, conn, plan, origin_identity, opts, cache_opts) do
+    {:ok, key} = Key.build(conn, plan, origin_identity, key_options(opts, cache_opts))
+    get_configured(adapter, key, cache_opts)
+  end
+
+  defp get_configured(adapter, key, cache_opts) do
+    case adapter.get(key, cache_opts) do
+      {:hit, %Entry{} = entry} ->
+        {:hit, key, entry}
+
+      :miss ->
+        {:miss, key}
+
+      {:error, reason} ->
+        handle_read_error(reason, key, cache_opts)
+
+      unexpected ->
+        handle_read_error({:invalid_adapter_result, unexpected}, key, cache_opts)
+    end
+  end
+
+  defp configured_cache(adapter, cache_opts) do
+    if Keyword.keyword?(cache_opts) do
+      validate_configured_cache(adapter, cache_opts)
+    else
+      {:error, {:invalid_cache_config, {adapter, cache_opts}}}
+    end
+  end
+
+  defp validate_configured_cache(adapter, cache_opts) do
+    with :ok <- validate_adapter(adapter),
+         {:ok, cache_opts} <- normalize_shared_options(cache_opts),
+         :ok <- validate_adapter_options(adapter, adapter_options(cache_opts)) do
+      {:ok, adapter, cache_opts}
     end
   end
 
@@ -203,15 +213,6 @@ defmodule ImagePlug.Cache do
     else
       Logger.warning("cache read error: #{inspect(reason)}")
       {:miss, key}
-    end
-  end
-
-  defp handle_key_error(reason, cache_opts) do
-    if Keyword.get(cache_opts, :fail_on_cache_error, false) do
-      {:error, {:cache_read, {:key, reason}}}
-    else
-      Logger.warning("cache key error: #{inspect(reason)}")
-      :skip_cache
     end
   end
 

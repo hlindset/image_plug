@@ -6,8 +6,11 @@ defmodule ImagePlug.ResponseCacheTest do
 
   alias ImagePlug.Cache.Entry
   alias ImagePlug.Cache.Key
-  alias ImagePlug.ProcessingRequest
+  alias ImagePlug.OutputPlan
+  alias ImagePlug.Pipeline
+  alias ImagePlug.Plan
   alias ImagePlug.ResponseCache
+  alias ImagePlug.Source.Plain
   alias ImagePlug.TransformState
 
   defmodule CaptureAdapter do
@@ -22,15 +25,14 @@ defmodule ImagePlug.ResponseCacheTest do
     end
   end
 
-  defp request(overrides \\ []) do
+  defp plan(overrides \\ []) do
     struct!(
-      ProcessingRequest,
+      Plan,
       Keyword.merge(
         [
-          signature: "_",
-          source_kind: :plain,
-          source_path: ["images", "cat.jpg"],
-          format: nil
+          source: %Plain{path: ["images", "cat.jpg"]},
+          pipelines: [%Pipeline{operations: []}],
+          output: %OutputPlan{mode: :automatic}
         ],
         overrides
       )
@@ -46,7 +48,7 @@ defmodule ImagePlug.ResponseCacheTest do
     assert {:miss, %Key{} = key} =
              ResponseCache.lookup(
                conn,
-               request(),
+               plan(),
                "https://origin.test/images/cat.jpg",
                cache: {CaptureAdapter, key_headers: ["accept"]}
              )
@@ -64,12 +66,12 @@ defmodule ImagePlug.ResponseCacheTest do
 
   test "store encodes and writes using a key returned by lookup" do
     conn = conn(:get, "/_/f:png/plain/images/cat.jpg")
-    request = request(format: :png)
+    plan = plan(output: %OutputPlan{mode: {:explicit, :png}})
 
     assert {:miss, %Key{} = key} =
              ResponseCache.lookup(
                conn,
-               request,
+               plan,
                "https://origin.test/images/cat.jpg",
                cache: {CaptureAdapter, []}
              )
@@ -90,8 +92,8 @@ defmodule ImagePlug.ResponseCacheTest do
 
     key = %Key{
       hash: String.duplicate("a", 64),
-      material: [schema_version: 1],
-      serialized_material: :erlang.term_to_binary(schema_version: 1)
+      material: [schema_version: 2],
+      serialized_material: :erlang.term_to_binary(schema_version: 2)
     }
 
     assert :skipped = ResponseCache.store(key, state, [], [])
@@ -105,8 +107,8 @@ defmodule ImagePlug.ResponseCacheTest do
              ResponseCache.store(
                %Key{
                  hash: String.duplicate("a", 64),
-                 material: [schema_version: 1],
-                 serialized_material: :erlang.term_to_binary(schema_version: 1)
+                 material: [schema_version: 2],
+                 serialized_material: :erlang.term_to_binary(schema_version: 2)
                },
                state,
                [{"invalid header name", "value"}],
