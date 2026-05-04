@@ -13,14 +13,6 @@ defmodule ImagePlug.ArchitectureBoundaryTest do
     "lib/image_plug/transform_chain.ex"
   ]
 
-  @retired_files [
-    "lib/image_plug/processing_request.ex",
-    "lib/image_plug/pipeline_planner.ex",
-    "test/image_plug/processing_request_test.exs",
-    "test/image_plug/pipeline_planner_test.exs",
-    "test/image_plug/pipeline_planner_property_test.exs"
-  ]
-
   @forbidden_parts [
     ["ImagePlug.", "ParamParser.", "Native"],
     ["ImagePlug.", "Processing", "Request"],
@@ -42,12 +34,6 @@ defmodule ImagePlug.ArchitectureBoundaryTest do
 
         refute body =~ forbidden
       end
-    end
-  end
-
-  test "retired request and planner compatibility files stay deleted" do
-    for file <- @retired_files do
-      refute File.exists?(file)
     end
   end
 
