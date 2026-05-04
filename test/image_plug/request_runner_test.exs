@@ -82,6 +82,18 @@ defmodule ImagePlug.RequestRunnerTest do
              )
   end
 
+  test "multiple pipelines fail with the transitional runner error before processing" do
+    plan = plan(pipelines: [%Pipeline{operations: []}, %Pipeline{operations: []}])
+
+    assert {:error, {:processing, :unsupported_multiple_pipelines_during_transition, []}} =
+             RequestRunner.run(
+               conn(:get, "/_/f:jpeg/plain/images/cat-300.jpg"),
+               plan,
+               "http://origin.test/images/cat-300.jpg",
+               []
+             )
+  end
+
   test "unprojectable operations fail before cache lookup" do
     operation = {UnprojectableTransform, :params}
 

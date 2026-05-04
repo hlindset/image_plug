@@ -33,11 +33,19 @@ defmodule ImagePlug.RequestRunner do
   def run(conn, %Plan{} = plan, origin_identity, opts) do
     case pipeline_operations(plan) do
       {:ok, operations} ->
-        request = processor_source_input(plan)
+        legacy_request = legacy_cache_output_request(plan)
 
-        case cache_key_input(request, operations, opts) do
+        case cache_key_input(legacy_request, operations, opts) do
           {:ok, cache_request} ->
-            run_with_cache(conn, cache_request, request, operations, origin_identity, opts)
+            run_with_cache(
+              conn,
+              cache_request,
+              legacy_request,
+              plan,
+              operations,
+              origin_identity,
+              opts
+            )
 
           {:error, reason} ->
             {:error, {:processing, reason, []}}
@@ -48,24 +56,32 @@ defmodule ImagePlug.RequestRunner do
     end
   end
 
-  defp run_with_cache(conn, cache_request, request, operations, origin_identity, opts) do
+  defp run_with_cache(
+         conn,
+         cache_request,
+         legacy_request,
+         plan,
+         operations,
+         origin_identity,
+         opts
+       ) do
     case ResponseCache.lookup(conn, cache_request, origin_identity, opts) do
       status when status in [:disabled, :skip_cache] ->
-        process_uncached(conn, request, operations, origin_identity, opts)
+        process_uncached(conn, legacy_request, plan, operations, origin_identity, opts)
 
       {:hit, %Entry{} = entry} ->
         {:ok, {:cache_entry, entry}}
 
       {:miss, %Key{} = key} ->
-        process_cache_miss(conn, request, operations, origin_identity, key, opts)
+        process_cache_miss(conn, legacy_request, plan, operations, origin_identity, key, opts)
 
       {:error, error} ->
         {:error, {:cache, error}}
     end
   end
 
-  defp process_uncached(conn, request, operations, origin_identity, opts) do
-    case process_request(conn, request, operations, origin_identity, opts) do
+  defp process_uncached(conn, legacy_request, plan, operations, origin_identity, opts) do
+    case process_request(conn, legacy_request, plan, operations, origin_identity, opts) do
       {:ok, final_state, response_headers} ->
         {:ok, {:image, final_state, response_headers}}
 
@@ -74,8 +90,8 @@ defmodule ImagePlug.RequestRunner do
     end
   end
 
-  defp process_cache_miss(conn, request, operations, origin_identity, key, opts) do
-    case process_request(conn, request, operations, origin_identity, opts) do
+  defp process_cache_miss(conn, legacy_request, plan, operations, origin_identity, key, opts) do
+    case process_request(conn, legacy_request, plan, operations, origin_identity, opts) do
       {:ok, final_state, response_headers} ->
         case ResponseCache.store(key, final_state, response_headers, opts) do
           {:ok, entry} -> {:ok, {:cache_entry, entry}}
@@ -91,6 +107,7 @@ defmodule ImagePlug.RequestRunner do
   defp process_request(
          conn,
          %ProcessingRequest{format: nil} = request,
+         %Plan{} = plan,
          operations,
          origin_identity,
          opts
@@ -99,7 +116,7 @@ defmodule ImagePlug.RequestRunner do
 
     case OutputPolicy.resolve_before_origin(policy) do
       {:selected, format, _reason} ->
-        request
+        plan
         |> Processor.process_origin(
           TransformChain.append_output(operations, format),
           origin_identity,
@@ -108,14 +125,21 @@ defmodule ImagePlug.RequestRunner do
         |> attach_response_headers(policy.headers)
 
       :needs_source_format ->
-        process_source_format_automatic(request, operations, origin_identity, opts, policy)
+        process_source_format_automatic(plan, operations, origin_identity, opts, policy)
     end
   end
 
-  defp process_request(_conn, %ProcessingRequest{} = request, operations, origin_identity, opts) do
+  defp process_request(
+         _conn,
+         %ProcessingRequest{} = request,
+         %Plan{} = plan,
+         operations,
+         origin_identity,
+         opts
+       ) do
     chain = TransformChain.append_output(operations, request.format)
 
-    request
+    plan
     |> Processor.process_origin(chain, origin_identity, opts)
     |> attach_response_headers([])
   end
@@ -128,8 +152,8 @@ defmodule ImagePlug.RequestRunner do
   defp processing_reason({:error, reason}), do: reason
   defp processing_reason(reason), do: reason
 
-  defp process_source_format_automatic(request, operations, origin_identity, opts, policy) do
-    case Processor.fetch_origin_with_source_format(request, origin_identity, opts) do
+  defp process_source_format_automatic(plan, operations, origin_identity, opts, policy) do
+    case Processor.fetch_origin_with_source_format(plan, origin_identity, opts) do
       {:ok, origin_response, source_format} ->
         resolve_source_format_automatic(origin_response, source_format, operations, opts, policy)
 
@@ -191,7 +215,7 @@ defmodule ImagePlug.RequestRunner do
 
   defp pipeline_operations(%Plan{pipelines: []}), do: {:error, :empty_pipeline_plan}
 
-  defp processor_source_input(%Plan{source: %Plain{path: path}, output: output}) do
+  defp legacy_cache_output_request(%Plan{source: %Plain{path: path}, output: output}) do
     %ProcessingRequest{
       source_kind: :plain,
       source_path: path,

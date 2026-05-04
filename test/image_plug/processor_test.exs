@@ -1,19 +1,26 @@
 defmodule ImagePlug.ProcessorTest do
   use ExUnit.Case, async: true
 
-  alias ImagePlug.ProcessingRequest
-  alias ImagePlug.Processor
   alias ImagePlug.Origin.StreamStatus
+  alias ImagePlug.OutputPlan
+  alias ImagePlug.Pipeline
+  alias ImagePlug.Plan
+  alias ImagePlug.Processor
+  alias ImagePlug.Source.Plain
   alias ImagePlug.Transform.Output
   alias ImagePlug.TransformState
 
   defmodule OriginImage do
-    def call(conn, _opts) do
+    def call(%Plug.Conn{request_path: "/images/cat-300.jpg"} = conn, _opts) do
       body = File.read!("priv/static/images/cat-300.jpg")
 
       conn
       |> Plug.Conn.put_resp_content_type("image/jpeg")
       |> Plug.Conn.send_resp(200, body)
+    end
+
+    def call(conn, _opts) do
+      Plug.Conn.send_resp(conn, 404, "unexpected origin path")
     end
   end
 
@@ -31,16 +38,47 @@ defmodule ImagePlug.ProcessorTest do
     end
   end
 
-  defp request do
-    %ProcessingRequest{
-      signature: "_",
-      source_kind: :plain,
-      source_path: ["images", "cat-300.jpg"]
+  defp opts do
+    [origin_req_options: [plug: OriginImage]]
+  end
+
+  defp plan do
+    %Plan{
+      source: %Plain{path: ["this", "path", "does-not-drive-fetch.jpg"]},
+      pipelines: [%Pipeline{operations: []}],
+      output: %OutputPlan{mode: {:explicit, :jpeg}}
     }
   end
 
-  defp opts do
-    [origin_req_options: [plug: OriginImage]]
+  test "process_origin fetches plain plan sources from the resolved origin identity" do
+    chain = [{Output, %Output.OutputParams{format: :jpeg}}]
+
+    assert {:ok, %TransformState{} = state} =
+             Processor.process_origin(
+               plan(),
+               chain,
+               "http://origin.test/images/cat-300.jpg",
+               opts()
+             )
+
+    assert state.output == :jpeg
+    assert state.errors == []
+  end
+
+  test "fetch_decode_validate_origin_with_source_format accepts plain plan sources" do
+    assert {:ok, %Processor.DecodedOrigin{} = decoded} =
+             Processor.fetch_decode_validate_origin_with_source_format(
+               plan(),
+               "http://origin.test/images/cat-300.jpg",
+               [],
+               opts()
+             )
+
+    assert decoded.source_format == :jpeg
+    assert decoded.decode_options == [access: :random, fail_on: :error]
+    assert %ImagePlug.Origin.Response{} = decoded.origin_response
+
+    Processor.close_pending_origin(decoded.origin_response)
   end
 
   test "process_origin fetches, decodes, validates, executes, and materializes a chain" do
@@ -48,7 +86,7 @@ defmodule ImagePlug.ProcessorTest do
 
     assert {:ok, %TransformState{} = state} =
              Processor.process_origin(
-               request(),
+               plan(),
                chain,
                "http://origin.test/images/cat-300.jpg",
                opts()
@@ -61,7 +99,7 @@ defmodule ImagePlug.ProcessorTest do
   test "fetch_decode_validate_origin_with_source_format returns decoded origin context" do
     assert {:ok, %Processor.DecodedOrigin{} = decoded} =
              Processor.fetch_decode_validate_origin_with_source_format(
-               request(),
+               plan(),
                "http://origin.test/images/cat-300.jpg",
                [],
                opts()
@@ -77,7 +115,7 @@ defmodule ImagePlug.ProcessorTest do
   test "fetch_decode_validate_origin_with_source_format returns singly tagged decode errors" do
     assert {:error, {:decode, :forced_decode_error}} =
              Processor.fetch_decode_validate_origin_with_source_format(
-               request(),
+               plan(),
                "http://origin.test/images/cat-300.jpg",
                [],
                Keyword.put(opts(), :image_open_module, DecodeErrorImageOpen)
