@@ -281,8 +281,15 @@ defmodule ImagePlug.Cache.FileSystem do
     body_path = Path.join(paths.dir, body_filename)
 
     case commit_body_file(body_tmp_path, body_path, body_filename) do
-      :ok ->
-        commit_metadata_file(paths, body_tmp_path, meta_tmp_path)
+      {:ok, body_status} ->
+        case commit_metadata_file(paths, body_tmp_path, meta_tmp_path) do
+          :ok ->
+            :ok
+
+          {:error, reason} ->
+            rollback_committed_body(body_path, body_status)
+            {:error, reason}
+        end
 
       {:error, reason} ->
         cleanup_temp_files([body_tmp_path, meta_tmp_path])
@@ -304,10 +311,10 @@ defmodule ImagePlug.Cache.FileSystem do
   defp commit_body_file(body_tmp_path, body_path, body_filename) do
     if matching_body_file?(body_path, body_filename) do
       cleanup_temp_files([body_tmp_path])
-      :ok
+      {:ok, :existing}
     else
       case File.rename(body_tmp_path, body_path) do
-        :ok -> :ok
+        :ok -> {:ok, :moved}
         {:error, :eexist} -> use_existing_body_file(body_tmp_path, body_path, body_filename)
         {:error, reason} -> {:error, reason}
       end
@@ -317,11 +324,14 @@ defmodule ImagePlug.Cache.FileSystem do
   defp use_existing_body_file(body_tmp_path, body_path, body_filename) do
     if matching_body_file?(body_path, body_filename) do
       cleanup_temp_files([body_tmp_path])
-      :ok
+      {:ok, :existing}
     else
       {:error, :body_file_exists}
     end
   end
+
+  defp rollback_committed_body(body_path, :moved), do: File.rm(body_path)
+  defp rollback_committed_body(_body_path, :existing), do: :ok
 
   defp matching_body_file?(body_path, body_filename) do
     with {:ok, expected_sha256} <- body_sha256_from_filename(body_filename),

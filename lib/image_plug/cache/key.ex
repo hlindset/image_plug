@@ -24,27 +24,31 @@ defmodule ImagePlug.Cache.Key do
         }
 
   @spec build(Plug.Conn.t(), Plan.t(), String.t(), keyword()) ::
-          {:ok, t()}
+          {:ok, t()} | {:error, term()}
   def build(conn, %Plan{} = plan, origin_identity, opts \\ [])
       when is_binary(origin_identity) and is_list(opts) do
-    material = [
-      schema_version: @schema_version,
-      origin_identity: origin_identity,
-      source: source_material(plan.source),
-      pipelines: pipelines_material(plan.pipelines),
-      output: output_material(conn, plan.output, opts),
-      selected_headers: selected_headers(conn, opts),
-      selected_cookies: selected_cookies(conn, opts)
-    ]
+    with {:ok, source} <- source_material(plan.source),
+         {:ok, pipelines} <- pipelines_material(plan.pipelines),
+         {:ok, output} <- output_material(conn, plan.output, opts) do
+      material = [
+        schema_version: @schema_version,
+        origin_identity: origin_identity,
+        source: source,
+        pipelines: pipelines,
+        output: output,
+        selected_headers: selected_headers(conn, opts),
+        selected_cookies: selected_cookies(conn, opts)
+      ]
 
-    serialized_material = serialize_material(material)
+      serialized_material = serialize_material(material)
 
-    {:ok,
-     %__MODULE__{
-       hash: hash(serialized_material),
-       material: material,
-       serialized_material: serialized_material
-     }}
+      {:ok,
+       %__MODULE__{
+         hash: hash(serialized_material),
+         material: material,
+         serialized_material: serialized_material
+       }}
+    end
   end
 
   @spec serialize_material(term()) :: binary()
@@ -54,12 +58,16 @@ defmodule ImagePlug.Cache.Key do
     |> :erlang.term_to_binary([:deterministic])
   end
 
-  defp source_material(%Plain{path: path}), do: [kind: :plain, path: path]
+  defp source_material(%Plain{path: path}), do: {:ok, [kind: :plain, path: path]}
+  defp source_material(source), do: {:error, {:unsupported_source, source}}
 
   defp pipelines_material(pipelines) do
-    Enum.map(pipelines, fn %Pipeline{operations: operations} ->
-      Enum.map(operations, &operation_material/1)
-    end)
+    {:ok,
+     Enum.map(pipelines, fn %Pipeline{operations: operations} ->
+       Enum.map(operations, &operation_material/1)
+     end)}
+  rescue
+    exception in Protocol.UndefinedError -> {:error, {:unprojectable_operation, exception.value}}
   end
 
   defp operation_material({_transform_module, params}) do
@@ -69,18 +77,23 @@ defmodule ImagePlug.Cache.Key do
   defp output_material(conn, %OutputPlan{mode: :automatic}, opts) do
     accept_header = conn |> get_req_header("accept") |> Enum.join(",")
 
-    [
-      mode: :automatic,
-      modern_candidates: OutputNegotiation.modern_candidates(accept_header, opts),
-      auto: [
-        avif: Keyword.get(opts, :auto_avif, true),
-        webp: Keyword.get(opts, :auto_webp, true)
-      ]
-    ]
+    {:ok,
+     [
+       mode: :automatic,
+       modern_candidates: OutputNegotiation.modern_candidates(accept_header, opts),
+       auto: [
+         avif: Keyword.get(opts, :auto_avif, true),
+         webp: Keyword.get(opts, :auto_webp, true)
+       ]
+     ]}
   end
 
   defp output_material(_conn, %OutputPlan{mode: {:explicit, format}}, _opts) do
-    [mode: :explicit, format: format]
+    {:ok, [mode: :explicit, format: format]}
+  end
+
+  defp output_material(_conn, output, _opts) do
+    {:error, {:invalid_output_plan, output}}
   end
 
   defp selected_headers(conn, opts) do

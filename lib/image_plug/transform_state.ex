@@ -22,7 +22,7 @@ defmodule ImagePlug.TransformState do
   @type t :: %__MODULE__{
           image: Vix.Vips.Image.t(),
           focus: {:coordinate, integer(), integer()} | focus_anchor(),
-          errors: keyword(String.t()) | keyword(atom())
+          errors: [term()]
         }
 
   defp default_focus, do: @default_focus
@@ -39,6 +39,7 @@ defmodule ImagePlug.TransformState do
     %__MODULE__{state | image: image}
   end
 
+  @spec add_error(t(), term()) :: t()
   def add_error(%__MODULE__{} = state, error) do
     %__MODULE__{state | errors: [error | state.errors]}
   end

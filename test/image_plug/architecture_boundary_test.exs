@@ -7,6 +7,7 @@ defmodule ImagePlug.ArchitectureBoundaryTest do
     "lib/image_plug/decode_planner.ex",
     "lib/image_plug/image_materializer.ex",
     "lib/image_plug/output_negotiation.ex",
+    "lib/image_plug/output_plan.ex",
     "lib/image_plug/plan.ex",
     "lib/image_plug/pipeline.ex",
     "lib/image_plug/transform/contain.ex",

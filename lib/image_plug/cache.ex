@@ -111,8 +111,10 @@ defmodule ImagePlug.Cache do
   end
 
   defp lookup_configured(adapter, conn, plan, origin_identity, opts, cache_opts) do
-    {:ok, key} = Key.build(conn, plan, origin_identity, key_options(opts, cache_opts))
-    get_configured(adapter, key, cache_opts)
+    case Key.build(conn, plan, origin_identity, key_options(opts, cache_opts)) do
+      {:ok, key} -> get_configured(adapter, key, cache_opts)
+      {:error, reason} -> {:error, {:cache_read, reason}}
+    end
   end
 
   defp get_configured(adapter, key, cache_opts) do

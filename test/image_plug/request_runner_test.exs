@@ -174,7 +174,9 @@ defmodule ImagePlug.RequestRunnerTest do
     refute_received {:cache_lookup, _key}
   end
 
-  test "operations without cache material return processing errors before cache lookup" do
+  test "operations without cache material process uncached instead of rejecting the request" do
+    test_pid = self()
+
     entry = %Entry{
       body: "cached jpeg",
       content_type: "image/jpeg",
@@ -182,10 +184,58 @@ defmodule ImagePlug.RequestRunnerTest do
       created_at: DateTime.utc_now()
     }
 
-    assert {:error, {:processing, {:invalid_pipeline_operation, {String, %{}}}, []}} =
+    plan =
+      plan(
+        pipelines: [%Pipeline{operations: [{FirstTransform, %FirstTransform{}}]}],
+        output: %OutputPlan{mode: {:explicit, :jpeg}}
+      )
+
+    assert {:ok, {:image, %TransformState{} = state, :jpeg, []}} =
              RequestRunner.run(
                conn(:get, "/_/f:jpeg/plain/images/cat-300.jpg"),
-               plan(pipelines: [%Pipeline{operations: [{String, %{}}]}]),
+               plan,
+               "http://origin.test/images/cat-300.jpg",
+               cache: {CacheReadProbe, entry: entry},
+               origin_req_options: [plug: OriginImage],
+               test_pid: test_pid
+             )
+
+    assert state.image
+    assert state.debug
+    refute_received {:cache_lookup, _key}
+  end
+
+  test "invalid source plans return processing errors before cache lookup" do
+    entry = %Entry{
+      body: "cached jpeg",
+      content_type: "image/jpeg",
+      headers: [],
+      created_at: DateTime.utc_now()
+    }
+
+    assert {:error, {:processing, {:unsupported_source, :not_a_source}, []}} =
+             RequestRunner.run(
+               conn(:get, "/_/f:jpeg/plain/images/cat-300.jpg"),
+               plan(source: :not_a_source),
+               "http://origin.test/images/cat-300.jpg",
+               cache: {CacheReadProbe, entry: entry}
+             )
+
+    refute_received {:cache_lookup, _key}
+  end
+
+  test "invalid output plans return processing errors before cache lookup" do
+    entry = %Entry{
+      body: "cached jpeg",
+      content_type: "image/jpeg",
+      headers: [],
+      created_at: DateTime.utc_now()
+    }
+
+    assert {:error, {:processing, {:invalid_output_plan, :not_an_output_plan}, []}} =
+             RequestRunner.run(
+               conn(:get, "/_/f:jpeg/plain/images/cat-300.jpg"),
+               plan(output: :not_an_output_plan),
                "http://origin.test/images/cat-300.jpg",
                cache: {CacheReadProbe, entry: entry}
              )

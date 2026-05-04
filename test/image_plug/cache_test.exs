@@ -103,6 +103,16 @@ defmodule ImagePlug.CacheTest do
     end
   end
 
+  test "ImagePlug init rejects missing required options early" do
+    assert_raise ArgumentError, ~r/missing required option: :param_parser/, fn ->
+      ImagePlug.init(root_url: "https://origin.test")
+    end
+
+    assert_raise ArgumentError, ~r/missing required option: :root_url/, fn ->
+      ImagePlug.init(param_parser: ImagePlug.ParamParser.Native)
+    end
+  end
+
   test "ImagePlug init rejects invalid filesystem cache options early" do
     assert_raise ArgumentError, ~r/invalid cache config/, fn ->
       ImagePlug.init(cache: {ImagePlug.Cache.FileSystem, root: "relative/cache"})
@@ -334,6 +344,16 @@ defmodule ImagePlug.CacheTest do
                plan(),
                "https://origin.test/cat.jpg",
                cache: {ShouldNotBeCalledAdapter, key_cookies: [:tenant]}
+             )
+  end
+
+  test "key build errors return cache read errors instead of crashing" do
+    assert {:error, {:cache_read, {:unsupported_source, :not_a_source}}} =
+             Cache.lookup(
+               conn(:get, "/_/f:webp/plain/images/cat.jpg"),
+               plan(source: :not_a_source),
+               "https://origin.test/cat.jpg",
+               cache: {ShouldNotBeCalledAdapter, []}
              )
   end
 

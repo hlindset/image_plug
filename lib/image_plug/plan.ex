@@ -3,7 +3,9 @@ defmodule ImagePlug.Plan do
   Product-neutral execution request produced by parameter parsers.
   """
 
+  alias ImagePlug.OutputPlan
   alias ImagePlug.Pipeline
+  alias ImagePlug.Source.Plain
 
   @enforce_keys [:source, :pipelines, :output]
   defstruct @enforce_keys
@@ -18,6 +20,18 @@ defmodule ImagePlug.Plan do
           :empty_pipeline_plan
           | {:invalid_pipeline_plan, term()}
           | {:invalid_pipeline_operation, term()}
+
+  @type shape_error() ::
+          {:unsupported_source, term()}
+          | {:invalid_output_plan, term()}
+
+  @spec validate_shape(t()) :: {:ok, t()} | {:error, shape_error()}
+  def validate_shape(%__MODULE__{} = plan) do
+    with :ok <- validate_source(plan.source),
+         :ok <- validate_output(plan.output) do
+      {:ok, plan}
+    end
+  end
 
   @spec validated_pipelines(t()) :: {:ok, [Pipeline.t()]} | {:error, pipeline_error()}
   def validated_pipelines(%__MODULE__{pipelines: []}), do: {:error, :empty_pipeline_plan}
@@ -59,4 +73,20 @@ defmodule ImagePlug.Plan do
       {:error, _reason} -> false
     end
   end
+
+  defp validate_source(%Plain{path: path}) when is_list(path) do
+    if Enum.all?(path, &is_binary/1),
+      do: :ok,
+      else: {:error, {:unsupported_source, %Plain{path: path}}}
+  end
+
+  defp validate_source(source), do: {:error, {:unsupported_source, source}}
+
+  defp validate_output(%OutputPlan{mode: :automatic}), do: :ok
+
+  defp validate_output(%OutputPlan{mode: {:explicit, format}})
+       when format in [:avif, :webp, :jpeg, :png],
+       do: :ok
+
+  defp validate_output(output), do: {:error, {:invalid_output_plan, output}}
 end

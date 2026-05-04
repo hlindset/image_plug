@@ -26,7 +26,11 @@ defmodule ImagePlug do
   @type imgp_length() :: imgp_pixels() | imgp_pct() | imgp_scale()
 
   @impl Plug
-  def init(opts), do: Cache.validate_config!(opts)
+  def init(opts) do
+    opts
+    |> Cache.validate_config!()
+    |> validate_required_opts!()
+  end
 
   @impl Plug
   def call(%Plug.Conn{} = conn, opts) do
@@ -133,6 +137,19 @@ defmodule ImagePlug do
 
   defp origin_identity(%Plan{source: source}, _opts) do
     {:error, {:unsupported_source, source}}
+  end
+
+  defp validate_required_opts!(opts) do
+    require_option!(opts, :param_parser)
+    require_option!(opts, :root_url)
+    opts
+  end
+
+  defp require_option!(opts, key) do
+    case Keyword.fetch(opts, key) do
+      {:ok, _value} -> :ok
+      :error -> raise ArgumentError, "missing required option: #{inspect(key)}"
+    end
   end
 
   defp wrap_parser_error({:error, _} = error), do: {:error, {:parser, error}}

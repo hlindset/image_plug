@@ -284,6 +284,19 @@ defmodule ImagePlug.Cache.FileSystemTest do
     assert File.read!(body_path) == "old body"
   end
 
+  test "removes a newly committed body when metadata commit fails", %{root: root} do
+    cache_key = key("cecece" <> String.duplicate("d", 58))
+    assert {:ok, paths} = FileSystem.paths(cache_key, root: root)
+    File.mkdir_p!(paths.dir)
+    File.mkdir_p!(paths.meta_path)
+
+    new_body_path = Path.join(paths.dir, body_filename(cache_key, "new body"))
+
+    assert {:error, _reason} = FileSystem.put(cache_key, entry("new body"), root: root)
+    refute File.exists?(new_body_path)
+    refute File.ls!(paths.dir) |> Enum.any?(&String.ends_with?(&1, ".tmp"))
+  end
+
   test "concurrent puts for the same key leave a readable entry", %{root: root} do
     cache_key = key("dddddd" <> String.duplicate("e", 58))
 

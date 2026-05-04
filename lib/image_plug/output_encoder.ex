@@ -18,7 +18,7 @@ defmodule ImagePlug.OutputEncoder do
     ImageFormat.mime_type(format)
   end
 
-  @spec memory_output(TransformState.t(), atom(), keyword()) ::
+  @spec memory_output(TransformState.t(), term(), keyword()) ::
           {:ok, EncodedOutput.t()} | {:error, {:encode, Exception.t(), list()}}
   def memory_output(%TransformState{} = state, format, opts) do
     with {:ok, mime_type, suffix} <- output_format(format),
@@ -27,7 +27,7 @@ defmodule ImagePlug.OutputEncoder do
     end
   end
 
-  @spec limited_memory_output(TransformState.t(), atom(), keyword(), non_neg_integer() | nil) ::
+  @spec limited_memory_output(TransformState.t(), term(), keyword(), non_neg_integer() | nil) ::
           {:ok, EncodedOutput.t()} | :too_large | {:error, {:encode, Exception.t(), list()}}
   def limited_memory_output(%TransformState{} = state, format, opts, nil),
     do: memory_output(state, format, opts)
@@ -46,12 +46,14 @@ defmodule ImagePlug.OutputEncoder do
     end
   end
 
-  defp output_format(format) do
+  defp output_format(format) when is_atom(format) do
     case mime_type(format) do
       {:ok, mime_type} -> {:ok, mime_type, ImageFormat.suffix!(mime_type)}
       :error -> {:error, {:encode, unsupported_output_format_error(format), []}}
     end
   end
+
+  defp output_format(format), do: {:error, {:encode, unsupported_output_format_error(format), []}}
 
   defp write_body(image_module, image, suffix) do
     case image_module.write(image, :memory, suffix: suffix) do

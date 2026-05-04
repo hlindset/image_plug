@@ -6,72 +6,17 @@ defmodule ImagePlug.ProcessorTest do
   alias ImagePlug.Pipeline
   alias ImagePlug.Plan
   alias ImagePlug.Processor
+  alias ImagePlug.ProcessorTest.DecodeErrorImageOpen
+  alias ImagePlug.ProcessorTest.FirstTransform
+  alias ImagePlug.ProcessorTest.InvalidReturnMaterializer
+  alias ImagePlug.ProcessorTest.InvalidStateMaterializer
+  alias ImagePlug.ProcessorTest.Materializer
+  alias ImagePlug.ProcessorTest.OriginImage
+  alias ImagePlug.ProcessorTest.OriginShouldNotFetch
+  alias ImagePlug.ProcessorTest.SecondTransform
+  alias ImagePlug.ProcessorTest.SequentialFailingTransform
   alias ImagePlug.Source.Plain
   alias ImagePlug.TransformState
-
-  defmodule OriginImage do
-    def call(%Plug.Conn{request_path: "/images/cat-300.jpg"} = conn, _opts) do
-      body = File.read!("priv/static/images/cat-300.jpg")
-
-      conn
-      |> Plug.Conn.put_resp_content_type("image/jpeg")
-      |> Plug.Conn.send_resp(200, body)
-    end
-
-    def call(conn, _opts) do
-      Plug.Conn.send_resp(conn, 404, "unexpected origin path")
-    end
-  end
-
-  defmodule OriginShouldNotFetch do
-    def call(_conn, _opts), do: raise("origin should not be fetched")
-  end
-
-  defmodule DecodeErrorImageOpen do
-    def open(_stream, _opts), do: {:error, :forced_decode_error}
-  end
-
-  defmodule SequentialFailingTransform do
-    defstruct []
-
-    def metadata(%__MODULE__{}), do: %{access: :sequential}
-
-    def execute(state, %__MODULE__{}) do
-      TransformState.add_error(state, {__MODULE__, :failed})
-    end
-  end
-
-  defmodule FirstTransform do
-    defstruct []
-
-    def execute(%TransformState{} = state, %__MODULE__{}) do
-      %TransformState{state | debug: true}
-    end
-  end
-
-  defmodule SecondTransform do
-    defstruct [:test_pid, :ref]
-
-    def execute(%TransformState{} = state, %__MODULE__{test_pid: test_pid, ref: ref}) do
-      send(test_pid, {:pipeline_event, ref, :second_transform_ran})
-      state
-    end
-  end
-
-  defmodule Materializer do
-    def materialize(%TransformState{} = state, opts) do
-      send(
-        Keyword.fetch!(opts, :test_pid),
-        {:pipeline_event, Keyword.fetch!(opts, :test_ref), :materialized_between_pipelines}
-      )
-
-      ImagePlug.ImageMaterializer.materialize(state, opts)
-    end
-  end
-
-  defmodule InvalidReturnMaterializer do
-    def materialize(%TransformState{}, _opts), do: {:ok, :not_a_transform_state}
-  end
 
   defp opts do
     [origin_req_options: [plug: OriginImage]]
@@ -184,6 +129,27 @@ defmodule ImagePlug.ProcessorTest do
              )
   end
 
+  test "process_origin returns a controlled config error for materialized states without images" do
+    plan = %Plan{
+      source: %Plain{path: ["images", "cat-300.jpg"]},
+      pipelines: [
+        %Pipeline{operations: []},
+        %Pipeline{operations: []}
+      ],
+      output: %OutputPlan{mode: {:explicit, :jpeg}}
+    }
+
+    assert {:error,
+            {:config,
+             {:invalid_image_materializer_result, InvalidStateMaterializer,
+              {:ok, %TransformState{image: nil}}}}} =
+             Processor.process_origin(
+               plan,
+               "http://origin.test/images/cat-300.jpg",
+               Keyword.put(opts(), :image_materializer, InvalidStateMaterializer)
+             )
+  end
+
   test "process_origin returns a controlled config error for non-module materializers" do
     plan = %Plan{
       source: %Plain{path: ["images", "cat-300.jpg"]},
@@ -218,6 +184,17 @@ defmodule ImagePlug.ProcessorTest do
                "http://origin.test/images/cat-300.jpg",
                Keyword.put(opts(), :origin_req_options, plug: OriginShouldNotFetch)
              )
+  end
+
+  test "processor keeps pipeline validation at public boundaries" do
+    processor_source =
+      __DIR__
+      |> Path.join("../../lib/image_plug/processor.ex")
+      |> Path.expand()
+      |> File.read!()
+
+    assert processor_source =~ "Plan.validated_pipelines(plan)"
+    assert processor_source |> String.split("Plan.validated_pipelines(plan)") |> length() == 2
   end
 
   test "fetch_decode_validate_origin_with_source_format returns decoded origin context" do
