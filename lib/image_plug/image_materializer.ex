@@ -5,6 +5,12 @@ defmodule ImagePlug.ImageMaterializer do
   Sequential input decode can defer origin reads until transform execution. ImagePlug
   uses this module before cache writes or response headers so request handling can
   materialize pixels, then check whether the origin stream finished or failed.
+
+  Multi-pipeline plans also materialize between pipelines. That boundary preserves
+  the plan's explicit intermediate image semantics and allows decode planning to use
+  only the first pipeline when choosing origin access: later operations classified
+  as random-access run against a memory-backed intermediate image instead of
+  changing how the origin is opened.
   """
 
   alias ImagePlug.TransformState
