@@ -13,38 +13,44 @@ defmodule ImagePlug.OutputEncoder do
     @type t() :: %__MODULE__{body: binary(), content_type: String.t()}
   end
 
-  @spec mime_type(TransformState.t()) :: {:ok, String.t()} | :error
-  def mime_type(%TransformState{output: format}) when is_atom(format) do
+  @spec mime_type(atom()) :: {:ok, String.t()} | :error
+  def mime_type(format) when is_atom(format) do
     ImageFormat.mime_type(format)
   end
 
-  @spec memory_output(TransformState.t(), keyword()) ::
+  @spec memory_output(TransformState.t(), atom(), keyword()) ::
           {:ok, EncodedOutput.t()} | {:error, {:encode, Exception.t(), list()}}
-  def memory_output(%TransformState{} = state, opts) do
-    with {:ok, mime_type, suffix} <- output_format(state),
+  def memory_output(%TransformState{} = state, format, opts) do
+    with {:ok, mime_type, suffix} <- output_format(format),
          {:ok, body} <- write_body(Keyword.get(opts, :image_module, Image), state.image, suffix) do
       {:ok, %EncodedOutput{body: body, content_type: mime_type}}
     end
   end
 
-  @spec limited_memory_output(TransformState.t(), keyword(), non_neg_integer() | nil) ::
+  @spec limited_memory_output(TransformState.t(), atom(), keyword(), non_neg_integer() | nil) ::
           {:ok, EncodedOutput.t()} | :too_large | {:error, {:encode, Exception.t(), list()}}
-  def limited_memory_output(%TransformState{} = state, opts, nil), do: memory_output(state, opts)
+  def limited_memory_output(%TransformState{} = state, format, opts, nil),
+    do: memory_output(state, format, opts)
 
-  def limited_memory_output(%TransformState{} = state, opts, max_body_bytes)
+  def limited_memory_output(%TransformState{} = state, format, opts, max_body_bytes)
       when is_integer(max_body_bytes) and max_body_bytes >= 0 do
-    with {:ok, mime_type, suffix} <- output_format(state),
+    with {:ok, mime_type, suffix} <- output_format(format),
          {:ok, body} <-
-           stream_body(Keyword.get(opts, :image_module, Image), state.image, suffix, max_body_bytes) do
+           stream_body(
+             Keyword.get(opts, :image_module, Image),
+             state.image,
+             suffix,
+             max_body_bytes
+           ) do
       {:ok, %EncodedOutput{body: body, content_type: mime_type}}
     end
   end
 
-  defp output_format(%TransformState{} = state) do
-    with {:ok, mime_type} <- mime_type(state) do
+  defp output_format(format) do
+    with {:ok, mime_type} <- mime_type(format) do
       {:ok, mime_type, ImageFormat.suffix!(mime_type)}
     else
-      :error -> {:error, {:encode, unsupported_output_format_error(state.output), []}}
+      :error -> {:error, {:encode, unsupported_output_format_error(format), []}}
     end
   end
 

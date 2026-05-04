@@ -220,7 +220,7 @@ defmodule ImagePlug.ImagePlugTest do
 
   defmodule BrokenImageTransform do
     def execute(%ImagePlug.TransformState{} = state, _params) do
-      %ImagePlug.TransformState{state | image: :not_an_image, output: :jpeg}
+      %ImagePlug.TransformState{state | image: :not_an_image}
     end
   end
 
@@ -253,7 +253,7 @@ defmodule ImagePlug.ImagePlugTest do
 
   defmodule RaisingAfterFirstChunkTransform do
     def execute(%ImagePlug.TransformState{} = state, _params) do
-      %ImagePlug.TransformState{state | image: :image, output: :jpeg}
+      %ImagePlug.TransformState{state | image: :image}
     end
   end
 

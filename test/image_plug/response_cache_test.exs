@@ -77,10 +77,12 @@ defmodule ImagePlug.ResponseCacheTest do
              )
 
     {:ok, image} = Image.new(1, 1)
-    state = %TransformState{image: image, output: :png}
+    state = %TransformState{image: image}
 
     assert {:ok, %Entry{} = entry} =
-             ResponseCache.store(key, state, [{"vary", "Accept"}], cache: {CaptureAdapter, []})
+             ResponseCache.store(key, state, :png, [{"vary", "Accept"}],
+               cache: {CaptureAdapter, []}
+             )
 
     assert entry.content_type == "image/png"
     assert_received {:cache_put, ^key, ^entry, _adapter_opts}
@@ -88,7 +90,7 @@ defmodule ImagePlug.ResponseCacheTest do
 
   test "store reports skipped when cache writing is disabled" do
     {:ok, image} = Image.new(1, 1)
-    state = %TransformState{image: image, output: :png}
+    state = %TransformState{image: image}
 
     key = %Key{
       hash: String.duplicate("a", 64),
@@ -96,12 +98,12 @@ defmodule ImagePlug.ResponseCacheTest do
       serialized_material: :erlang.term_to_binary(schema_version: 2)
     }
 
-    assert :skipped = ResponseCache.store(key, state, [], [])
+    assert :skipped = ResponseCache.store(key, state, :png, [], [])
   end
 
   test "store returns tagged encode errors for invalid response headers" do
     {:ok, image} = Image.new(1, 1)
-    state = %TransformState{image: image, output: :png}
+    state = %TransformState{image: image}
 
     assert {:error, {:encode, %ArgumentError{} = exception, _stacktrace}} =
              ResponseCache.store(
@@ -111,6 +113,7 @@ defmodule ImagePlug.ResponseCacheTest do
                  serialized_material: :erlang.term_to_binary(schema_version: 2)
                },
                state,
+               :png,
                [{"invalid header name", "value"}],
                cache: {CaptureAdapter, []}
              )

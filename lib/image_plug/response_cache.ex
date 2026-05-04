@@ -24,10 +24,15 @@ defmodule ImagePlug.ResponseCache do
     end
   end
 
-  @spec store(Key.t(), TransformState.t(), [{String.t(), String.t()}], keyword()) ::
+  @spec store(Key.t(), TransformState.t(), atom(), [{String.t(), String.t()}], keyword()) ::
           {:ok, Entry.t()} | :skipped | {:error, term()}
-  def store(%Key{} = key, %TransformState{} = state, response_headers, opts) do
-    case OutputEncoder.limited_memory_output(state, opts, Cache.max_body_bytes(opts)) do
+  def store(%Key{} = key, %TransformState{} = state, resolved_format, response_headers, opts) do
+    case OutputEncoder.limited_memory_output(
+           state,
+           resolved_format,
+           opts,
+           Cache.max_body_bytes(opts)
+         ) do
       {:ok, %OutputEncoder.EncodedOutput{} = output} ->
         store_output(key, output, response_headers, opts)
 

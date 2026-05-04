@@ -138,15 +138,16 @@ defmodule ImagePlug.RequestRunnerTest do
            ]
   end
 
-  test "legacy processing request bridge is isolated to automatic output policy" do
+  test "output policy uses output plans without a processing request bridge" do
     request_runner_source =
       __DIR__
       |> Path.join("../../lib/image_plug/request_runner.ex")
       |> Path.expand()
       |> File.read!()
 
-    refute request_runner_source =~ "legacy_request"
+    refute request_runner_source =~ "ProcessingRequest"
+    refute request_runner_source =~ "from_request"
     refute request_runner_source =~ "request.format"
-    assert request_runner_source =~ "OutputPolicy.from_request(conn, output_policy_request, opts)"
+    assert request_runner_source =~ "OutputPolicy.from_output_plan(conn, plan.output, opts)"
   end
 end

@@ -11,9 +11,8 @@ defmodule ImagePlug do
 
   alias ImagePlug.Cache
   alias ImagePlug.Cache.Entry
+  alias ImagePlug.ImageFormat
   alias ImagePlug.Origin
-  alias ImagePlug.OutputEncoder
-  alias ImagePlug.OutputNegotiation
   alias ImagePlug.Plan
   alias ImagePlug.RequestRunner
   alias ImagePlug.Source.Plain
@@ -51,11 +50,11 @@ defmodule ImagePlug do
   end
 
   defp send_runner_result(
-         {:ok, {:image, %TransformState{} = state, response_headers}},
+         {:ok, {:image, %TransformState{} = state, resolved_format, response_headers}},
          conn,
          opts
        ) do
-    send_image(conn, state, opts, response_headers)
+    send_image(conn, state, resolved_format, opts, response_headers)
   end
 
   defp send_runner_result({:error, {:cache, error}}, conn, _opts) do
@@ -184,18 +183,22 @@ defmodule ImagePlug do
     |> send_resp(422, "invalid image transform")
   end
 
-  defp send_image(%Plug.Conn{} = conn, %TransformState{} = state, opts, response_headers) do
-    case OutputEncoder.mime_type(state) do
-      {:ok, mime_type} -> stream_encoded_image(conn, state, mime_type, opts, response_headers)
-      :error -> send_encode_error(conn, response_headers)
-    end
+  defp send_image(
+         %Plug.Conn{} = conn,
+         %TransformState{} = state,
+         resolved_format,
+         opts,
+         response_headers
+       ) do
+    stream_encoded_image(conn, state, resolved_format, opts, response_headers)
   end
 
-  defp stream_encoded_image(conn, state, mime_type, opts, response_headers) do
-    suffix = OutputNegotiation.suffix!(mime_type)
+  defp stream_encoded_image(conn, state, resolved_format, opts, response_headers) do
     image_module = Keyword.get(opts, :image_module, Image)
 
     try do
+      mime_type = ImageFormat.mime_type!(resolved_format)
+      suffix = ImageFormat.suffix!(mime_type)
       stream = image_module.stream!(state.image, suffix: suffix)
 
       case stream_image(stream, conn, mime_type, response_headers) do

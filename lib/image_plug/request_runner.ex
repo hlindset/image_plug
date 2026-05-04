@@ -7,7 +7,6 @@ defmodule ImagePlug.RequestRunner do
   alias ImagePlug.OutputPolicy
   alias ImagePlug.Pipeline
   alias ImagePlug.Plan
-  alias ImagePlug.ProcessingRequest
   alias ImagePlug.Processor
   alias ImagePlug.ResponseCache
   alias ImagePlug.TransformChain
@@ -15,7 +14,7 @@ defmodule ImagePlug.RequestRunner do
 
   @type delivery() ::
           {:cache_entry, Entry.t()}
-          | {:image, TransformState.t(), [{String.t(), String.t()}]}
+          | {:image, TransformState.t(), OutputPolicy.format(), [{String.t(), String.t()}]}
 
   @type error() ::
           {:cache, term()}
@@ -62,8 +61,8 @@ defmodule ImagePlug.RequestRunner do
 
   defp process_uncached(conn, plan, operations, origin_identity, opts) do
     case process_request(conn, plan, operations, origin_identity, opts) do
-      {:ok, final_state, response_headers} ->
-        {:ok, {:image, final_state, response_headers}}
+      {:ok, final_state, resolved_format, response_headers} ->
+        {:ok, {:image, final_state, resolved_format, response_headers}}
 
       {:error, error, response_headers} ->
         {:error, {:processing, processing_reason(error), response_headers}}
@@ -72,10 +71,10 @@ defmodule ImagePlug.RequestRunner do
 
   defp process_cache_miss(conn, plan, operations, origin_identity, key, opts) do
     case process_request(conn, plan, operations, origin_identity, opts) do
-      {:ok, final_state, response_headers} ->
-        case ResponseCache.store(key, final_state, response_headers, opts) do
+      {:ok, final_state, resolved_format, response_headers} ->
+        case ResponseCache.store(key, final_state, resolved_format, response_headers, opts) do
           {:ok, entry} -> {:ok, {:cache_entry, entry}}
-          :skipped -> {:ok, {:image, final_state, response_headers}}
+          :skipped -> {:ok, {:image, final_state, resolved_format, response_headers}}
           error -> {:error, {:processing, processing_reason(error), response_headers}}
         end
 
@@ -91,8 +90,7 @@ defmodule ImagePlug.RequestRunner do
          origin_identity,
          opts
        ) do
-    output_policy_request = %ProcessingRequest{format: nil}
-    policy = OutputPolicy.from_request(conn, output_policy_request, opts)
+    policy = OutputPolicy.from_output_plan(conn, plan.output, opts)
 
     case OutputPolicy.resolve_before_origin(policy) do
       {:selected, format, _reason} ->
@@ -102,7 +100,7 @@ defmodule ImagePlug.RequestRunner do
           origin_identity,
           opts
         )
-        |> attach_response_headers(policy.headers)
+        |> attach_resolved_output(format, policy.headers)
 
       :needs_source_format ->
         process_source_format_automatic(plan, operations, origin_identity, opts, policy)
@@ -110,23 +108,26 @@ defmodule ImagePlug.RequestRunner do
   end
 
   defp process_request(
-         _conn,
+         conn,
          %Plan{output: %OutputPlan{mode: {:explicit, format}}} = plan,
          operations,
          origin_identity,
          opts
        ) do
+    policy = OutputPolicy.from_output_plan(conn, plan.output, opts)
+
     chain = TransformChain.append_output(operations, format)
 
     plan
     |> Processor.process_origin(chain, origin_identity, opts)
-    |> attach_response_headers([])
+    |> attach_resolved_output(format, policy.headers)
   end
 
-  defp attach_response_headers({:ok, final_state}, response_headers),
-    do: {:ok, final_state, response_headers}
+  defp attach_resolved_output({:ok, final_state}, format, response_headers),
+    do: {:ok, final_state, format, response_headers}
 
-  defp attach_response_headers(error, response_headers), do: {:error, error, response_headers}
+  defp attach_resolved_output(error, _format, response_headers),
+    do: {:error, error, response_headers}
 
   defp processing_reason({:error, reason}), do: reason
   defp processing_reason(reason), do: reason
@@ -179,7 +180,7 @@ defmodule ImagePlug.RequestRunner do
           TransformChain.append_output(operations, format),
           opts
         )
-        |> attach_response_headers(response_headers)
+        |> attach_resolved_output(format, response_headers)
 
       error ->
         {:error, error, response_headers}
