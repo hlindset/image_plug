@@ -33,6 +33,147 @@ defmodule ImagePlug.ParamParser.Native.PlanBuilderTest do
     assert params.width == {:pixels, 300}
   end
 
+  test "plans fit requests as non-letterboxed contain operations with enlarge constraints" do
+    assert {:ok, %Plan{pipelines: [%Pipeline{operations: operations}]}} =
+             plan_pipeline(width: {:pixels, 300}, height: {:pixels, 200}, enlarge: false)
+
+    assert [
+             {Transform.Contain,
+              %Transform.Contain.ContainParams{
+                type: :dimensions,
+                width: {:pixels, 300},
+                height: {:pixels, 200},
+                constraint: :max,
+                letterbox: false
+              }}
+           ] = operations
+
+    assert {:ok, %Plan{pipelines: [%Pipeline{operations: operations}]}} =
+             plan_pipeline(width: {:pixels, 300}, height: {:pixels, 200}, enlarge: true)
+
+    assert [
+             {Transform.Contain,
+              %Transform.Contain.ContainParams{
+                type: :dimensions,
+                width: {:pixels, 300},
+                height: {:pixels, 200},
+                constraint: :regular,
+                letterbox: false
+              }}
+           ] = operations
+  end
+
+  test "plans fill requests as cover operations with enlarge constraints" do
+    assert {:ok, %Plan{pipelines: [%Pipeline{operations: operations}]}} =
+             plan_pipeline(
+               resizing_type: :fill,
+               width: {:pixels, 300},
+               height: {:pixels, 200},
+               enlarge: false
+             )
+
+    assert [
+             {Transform.Cover,
+              %Transform.Cover.CoverParams{
+                type: :dimensions,
+                width: {:pixels, 300},
+                height: {:pixels, 200},
+                constraint: :max
+              }}
+           ] = operations
+
+    assert {:ok, %Plan{pipelines: [%Pipeline{operations: operations}]}} =
+             plan_pipeline(
+               resizing_type: :fill,
+               width: {:pixels, 300},
+               height: {:pixels, 200},
+               enlarge: true
+             )
+
+    assert [
+             {Transform.Cover,
+              %Transform.Cover.CoverParams{
+                type: :dimensions,
+                width: {:pixels, 300},
+                height: {:pixels, 200},
+                constraint: :none
+              }}
+           ] = operations
+  end
+
+  test "preserves zero fit and fill dimensions as no geometry when both dimensions are auto" do
+    for resizing_type <- [:fit, :fill] do
+      assert {:ok, %Plan{pipelines: [%Pipeline{operations: []}]}} =
+               plan_pipeline(
+                 resizing_type: resizing_type,
+                 width: {:pixels, 0},
+                 height: {:pixels, 0}
+               )
+    end
+  end
+
+  test "normalizes single zero fit dimensions to auto contain dimensions" do
+    assert {:ok, %Plan{pipelines: [%Pipeline{operations: operations}]}} =
+             plan_pipeline(width: {:pixels, 0}, height: {:pixels, 200})
+
+    assert [
+             {Transform.Contain,
+              %Transform.Contain.ContainParams{
+                width: :auto,
+                height: {:pixels, 200},
+                constraint: :max,
+                letterbox: false
+              }}
+           ] = operations
+  end
+
+  test "rejects force requests with zero dimensions" do
+    assert plan_pipeline(resizing_type: :force, width: {:pixels, 0}, height: {:pixels, 200}) ==
+             {:error, {:unsupported_zero_dimension, :force}}
+
+    assert plan_pipeline(resizing_type: :force, width: {:pixels, 300}, height: {:pixels, 0}) ==
+             {:error, {:unsupported_zero_dimension, :force}}
+  end
+
+  test "rejects unsupported extend and gravity offset semantics" do
+    assert plan_pipeline(extend: true) == {:error, {:unsupported_extend, true}}
+
+    assert plan_pipeline(extend_gravity: {:anchor, :left, :top}) ==
+             {:error, {:unsupported_extend_gravity, {:anchor, :left, :top}}}
+
+    assert plan_pipeline(extend_x_offset: 5.0) ==
+             {:error, {:unsupported_extend_offset, 5.0}}
+
+    assert plan_pipeline(extend_y_offset: -3.0) ==
+             {:error, {:unsupported_extend_offset, -3.0}}
+
+    assert plan_pipeline(gravity_x_offset: 1.0) ==
+             {:error, {:unsupported_gravity_offset, {1.0, 0.0}}}
+
+    assert plan_pipeline(gravity_y_offset: -2.0) ==
+             {:error, {:unsupported_gravity_offset, {0.0, -2.0}}}
+  end
+
+  test "rejects invalid direct pipeline request values" do
+    assert plan_pipeline(resizing_type: :bogus) ==
+             {:error, {:invalid_resizing_type, :bogus}}
+
+    assert plan_pipeline(enlarge: :bogus) == {:error, {:invalid_enlarge, :bogus}}
+
+    assert plan_pipeline(
+             resizing_type: :fill,
+             width: {:pixels, 300},
+             height: {:pixels, 200},
+             gravity: :bogus
+           ) == {:error, {:invalid_gravity, :bogus}}
+
+    assert plan_pipeline(width: {:pixels, -1}) ==
+             {:error, {:invalid_dimension, :width, {:pixels, -1}}}
+
+    assert plan_pipeline(height: {:percent, 50}) ==
+             {:error, {:invalid_dimension, :height, {:percent, 50}}}
+  end
+
   test "converts multiple native pipeline requests into separate product-neutral pipelines" do
     request = %ParsedRequest{
       signature: "_",
@@ -197,5 +338,15 @@ defmodule ImagePlug.ParamParser.Native.PlanBuilderTest do
 
   defp output_format do
     one_of([constant(nil), member_of([:webp, :avif, :jpeg, :png])])
+  end
+
+  defp plan_pipeline(attrs) do
+    PlanBuilder.to_plan(%ParsedRequest{
+      signature: "_",
+      source_kind: :plain,
+      source_path: ["images", "cat.jpg"],
+      pipelines: [struct!(PipelineRequest, attrs)],
+      output_format: nil
+    })
   end
 end

@@ -285,7 +285,7 @@ defmodule ImagePlug.RequestRunnerTest do
       |> Path.expand()
       |> File.read!()
 
-    refute request_runner_source =~ "ProcessingRequest"
+    refute request_runner_source =~ "Processing" <> "Request"
     refute request_runner_source =~ "from_request"
     refute request_runner_source =~ "request.format"
     assert request_runner_source =~ "OutputPolicy.from_output_plan(conn, plan.output, opts)"
