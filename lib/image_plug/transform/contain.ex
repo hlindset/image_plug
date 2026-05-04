@@ -1,4 +1,6 @@
 defmodule ImagePlug.Transform.Contain do
+  @moduledoc false
+
   @behaviour ImagePlug.Transform
 
   import ImagePlug.TransformState
@@ -7,6 +9,8 @@ defmodule ImagePlug.Transform.Contain do
   alias ImagePlug.TransformState
 
   defmodule ContainParams do
+    @moduledoc false
+
     defstruct [:type, :ratio, :width, :height, :constraint, :letterbox]
 
     @type t ::

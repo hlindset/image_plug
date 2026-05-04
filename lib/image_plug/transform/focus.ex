@@ -1,4 +1,6 @@
 defmodule ImagePlug.Transform.Focus do
+  @moduledoc false
+
   @behaviour ImagePlug.Transform
 
   import ImagePlug.TransformState
@@ -7,6 +9,8 @@ defmodule ImagePlug.Transform.Focus do
   alias ImagePlug.TransformState
 
   defmodule FocusParams do
+    @moduledoc false
+
     @doc """
     The parsed parameters used by `ImagePlug.Transform.Focus`.
     """

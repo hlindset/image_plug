@@ -56,18 +56,22 @@ defmodule ImagePlug.OutputNegotiationPropertyTest do
   defp matching_qualities(entries, mime_type) do
     entries
     |> Enum.group_by(fn {accepted, _quality} -> match_specificity(accepted, mime_type) end)
-    |> then(fn qualities_by_specificity ->
-      [:exact, :image, :global]
-      |> Enum.find_value([], fn specificity ->
-        qualities_by_specificity
-        |> Map.get(specificity, [])
-        |> Enum.map(fn {_accepted, quality} -> quality end)
-        |> case do
-          [] -> nil
-          qualities -> qualities
-        end
-      end)
+    |> qualities_for_best_specificity()
+  end
+
+  defp qualities_for_best_specificity(qualities_by_specificity) do
+    Enum.find_value([:exact, :image, :global], [], fn specificity ->
+      quality_values(qualities_by_specificity, specificity)
     end)
+  end
+
+  defp quality_values(qualities_by_specificity, specificity) do
+    qualities =
+      qualities_by_specificity
+      |> Map.get(specificity, [])
+      |> Enum.map(fn {_accepted, quality} -> quality end)
+
+    if qualities == [], do: nil, else: qualities
   end
 
   defp match_specificity(accepted, mime_type) do
@@ -84,19 +88,21 @@ defmodule ImagePlug.OutputNegotiationPropertyTest do
   defp parse_accept(accept_header) do
     accept_header
     |> String.split(",")
-    |> Enum.map(fn entry ->
-      [media_range | params] = String.split(entry, ";")
+    |> Enum.map(&parse_accept_entry/1)
+  end
 
-      quality =
-        Enum.find_value(params, 1.0, fn param ->
-          case String.split(param, "=", parts: 2) do
-            ["q", value] -> String.to_float(value)
-            _other -> nil
-          end
-        end)
+  defp parse_accept_entry(entry) do
+    [media_range | params] = String.split(entry, ";")
+    quality = Enum.find_value(params, 1.0, &quality_param/1)
 
-      {String.downcase(media_range), quality}
-    end)
+    {String.downcase(media_range), quality}
+  end
+
+  defp quality_param(param) do
+    case String.split(param, "=", parts: 2) do
+      ["q", value] -> String.to_float(value)
+      _other -> nil
+    end
   end
 
   defp canonical_mime_type("image/jpg"), do: "image/jpeg"

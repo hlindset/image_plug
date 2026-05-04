@@ -1,4 +1,6 @@
 defmodule ImagePlug.SimpleServer do
+  @moduledoc false
+
   use Plug.Router
   use Plug.Debugger
 

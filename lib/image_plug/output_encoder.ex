@@ -47,9 +47,8 @@ defmodule ImagePlug.OutputEncoder do
   end
 
   defp output_format(format) do
-    with {:ok, mime_type} <- mime_type(format) do
-      {:ok, mime_type, ImageFormat.suffix!(mime_type)}
-    else
+    case mime_type(format) do
+      {:ok, mime_type} -> {:ok, mime_type, ImageFormat.suffix!(mime_type)}
       :error -> {:error, {:encode, unsupported_output_format_error(format), []}}
     end
   end

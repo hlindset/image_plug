@@ -51,18 +51,22 @@ defmodule ImagePlug.OutputNegotiation do
   defp matching_qualities(entries, mime_type) do
     entries
     |> Enum.group_by(fn {accepted, _quality} -> match_specificity(accepted, mime_type) end)
-    |> then(fn qualities_by_specificity ->
-      [:exact, :image, :global]
-      |> Enum.find_value([], fn specificity ->
-        qualities_by_specificity
-        |> Map.get(specificity, [])
-        |> Enum.map(fn {_accepted, quality} -> quality end)
-        |> case do
-          [] -> nil
-          qualities -> qualities
-        end
-      end)
+    |> qualities_for_best_specificity()
+  end
+
+  defp qualities_for_best_specificity(qualities_by_specificity) do
+    Enum.find_value([:exact, :image, :global], [], fn specificity ->
+      quality_values(qualities_by_specificity, specificity)
     end)
+  end
+
+  defp quality_values(qualities_by_specificity, specificity) do
+    qualities =
+      qualities_by_specificity
+      |> Map.get(specificity, [])
+      |> Enum.map(fn {_accepted, quality} -> quality end)
+
+    if qualities == [], do: nil, else: qualities
   end
 
   defp match_specificity(accepted, mime_type) do
@@ -97,26 +101,22 @@ defmodule ImagePlug.OutputNegotiation do
 
     media_range = String.downcase(media_range)
 
-    cond do
-      media_range == "" ->
-        nil
-
-      true ->
-        {media_range, quality_from_params(params)}
-    end
+    if media_range == "", do: nil, else: {media_range, quality_from_params(params)}
   end
 
   defp quality_from_params(params) do
-    params
-    |> Enum.find_value(1.0, fn param ->
-      case String.split(param, "=", parts: 2) do
-        [name, value] ->
-          if String.downcase(String.trim(name)) == "q", do: parse_quality(value)
+    Enum.find_value(params, 1.0, &quality_param/1)
+  end
 
-        _ ->
-          nil
-      end
-    end)
+  defp quality_param(param) do
+    case String.split(param, "=", parts: 2) do
+      [name, value] -> maybe_parse_quality(name, value)
+      _ -> nil
+    end
+  end
+
+  defp maybe_parse_quality(name, value) do
+    if String.downcase(String.trim(name)) == "q", do: parse_quality(value)
   end
 
   defp parse_quality(value) do

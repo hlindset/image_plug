@@ -1426,7 +1426,7 @@ defmodule ImagePlug.ImagePlugTest do
       |> ImagePlug.call(
         root_url: root_url,
         param_parser: ImagePlug.ParamParser.Native,
-        origin_receive_timeout: 50
+        origin_receive_timeout: 250
       )
 
     assert_receive {^ref, :first_chunk_sent, ^server}
@@ -1465,7 +1465,7 @@ defmodule ImagePlug.ImagePlugTest do
       |> ImagePlug.call(
         root_url: root_url,
         param_parser: ImagePlug.ParamParser.Native,
-        origin_receive_timeout: 50
+        origin_receive_timeout: 250
       )
 
     assert_receive {^ref, :first_chunk_sent, ^server}

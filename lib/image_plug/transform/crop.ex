@@ -1,4 +1,6 @@
 defmodule ImagePlug.Transform.Crop do
+  @moduledoc false
+
   @behaviour ImagePlug.Transform
 
   import ImagePlug.TransformState
@@ -7,6 +9,8 @@ defmodule ImagePlug.Transform.Crop do
   alias ImagePlug.TransformState
 
   defmodule CropParams do
+    @moduledoc false
+
     @doc """
     The parsed parameters used by `ImagePlug.Transform.Crop`.
     """
@@ -15,7 +19,7 @@ defmodule ImagePlug.Transform.Crop do
     @type t :: %__MODULE__{
             width: ImagePlug.imgp_length(),
             height: ImagePlug.imgp_length(),
-            # todo: make the parser output focus + crop actions instead of handling this special crop_from stuff?
+            # Future parser work can output focus + crop actions instead of this special crop_from handling.
             crop_from: :focus | %{left: ImagePlug.imgp_length(), top: ImagePlug.imgp_length()}
           }
   end

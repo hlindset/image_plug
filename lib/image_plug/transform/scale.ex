@@ -1,4 +1,6 @@
 defmodule ImagePlug.Transform.Scale do
+  @moduledoc false
+
   @behaviour ImagePlug.Transform
 
   import ImagePlug.TransformState
@@ -7,6 +9,8 @@ defmodule ImagePlug.Transform.Scale do
   alias ImagePlug.TransformState
 
   defmodule ScaleParams do
+    @moduledoc false
+
     defstruct [:type, :ratio, :width, :height]
 
     @type t ::

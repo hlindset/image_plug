@@ -1,4 +1,6 @@
 defmodule ImagePlug.TransformState do
+  @moduledoc false
+
   @default_focus {:anchor, :center, :center}
 
   defstruct image: nil,

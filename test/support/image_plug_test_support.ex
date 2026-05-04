@@ -1,4 +1,6 @@
 defmodule ImagePlug.TestSupport do
+  @moduledoc false
+
   use ExUnitProperties
 
   def random_base_unit(opts \\ []) do

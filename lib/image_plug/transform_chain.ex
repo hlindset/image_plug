@@ -1,4 +1,6 @@
 defmodule ImagePlug.TransformChain do
+  @moduledoc false
+
   require Logger
 
   alias ImagePlug.Transform
