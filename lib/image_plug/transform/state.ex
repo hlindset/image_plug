@@ -20,7 +20,7 @@ defmodule ImagePlug.Transform.State do
           | {:anchor, :right, :center}
 
   @type t :: %__MODULE__{
-          image: Vix.Vips.Image.t(),
+          image: Vix.Vips.Image.t() | nil,
           focus: {:coordinate, integer(), integer()} | focus_anchor(),
           errors: [term()]
         }

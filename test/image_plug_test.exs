@@ -530,20 +530,106 @@ defmodule ImagePlug.ImagePlugTest do
     end
   end
 
+  test "init rejects parser modules that do not implement the parser contract" do
+    assert_raise ArgumentError, ~r/expected parse\/1 and handle_error\/2/, fn ->
+      ImagePlug.init(parser: String, root_url: "https://example.test")
+    end
+  end
+
+  test "init rejects parser modules that cannot be loaded" do
+    assert_raise ArgumentError, ~r/module could not be loaded/, fn ->
+      ImagePlug.init(
+        parser: ImagePlug.ImagePlugTest.MissingParser,
+        root_url: "https://example.test"
+      )
+    end
+  end
+
   test "plug facade delegates response delivery to runtime response sender" do
-    image_plug_source =
+    image_plug_ast =
       __DIR__
       |> Path.join("../lib/image_plug.ex")
       |> Path.expand()
       |> File.read!()
+      |> Code.string_to_quoted!()
 
-    assert image_plug_source =~ "ResponseSender.send_result(conn, result, opts)"
-    assert image_plug_source =~ "ResponseSender.send_origin_error(conn, error)"
-    refute image_plug_source =~ "send_resp"
-    refute image_plug_source =~ "send_chunked"
-    refute image_plug_source =~ "chunk("
-    refute image_plug_source =~ "put_resp_header"
-    refute image_plug_source =~ "put_resp_content_type"
+    assert remote_call?(image_plug_ast, [:ResponseSender], :send_result, 3)
+    assert remote_call?(image_plug_ast, [:ResponseSender], :send_origin_error, 2)
+
+    refute remote_call?(image_plug_ast, [:Plug, :Conn], :send_resp)
+    refute remote_call?(image_plug_ast, [:Plug, :Conn], :send_chunked)
+    refute import_module?(image_plug_ast, [:Plug, :Conn])
+    refute unqualified_call?(image_plug_ast, :chunk)
+    refute unqualified_call?(image_plug_ast, :put_resp_header)
+    refute unqualified_call?(image_plug_ast, :put_resp_content_type)
+
+    assert boundary_option(image_plug_ast, :exports) == []
+
+    assert boundary_option(image_plug_ast, :deps) |> boundary_aliases() == [
+             [:ImagePlug, :Parser],
+             [:ImagePlug, :Plan],
+             [:ImagePlug, :Runtime]
+           ]
+  end
+
+  defp remote_call?(ast, module_parts, function, arity \\ :any) do
+    {_ast, found?} =
+      Macro.prewalk(ast, false, fn
+        {{:., _, [{:__aliases__, _, parts}, called_function]}, _, args} = node, found? ->
+          arity_matches? = arity == :any or length(args) == arity
+
+          {node,
+           found? or (parts == module_parts and called_function == function and arity_matches?)}
+
+        node, found? ->
+          {node, found?}
+      end)
+
+    found?
+  end
+
+  defp import_module?(ast, module_parts) do
+    {_ast, found?} =
+      Macro.prewalk(ast, false, fn
+        {:import, _, [{:__aliases__, _, parts} | _]} = node, found? ->
+          {node, found? or parts == module_parts}
+
+        node, found? ->
+          {node, found?}
+      end)
+
+    found?
+  end
+
+  defp unqualified_call?(ast, function) do
+    {_ast, found?} =
+      Macro.prewalk(ast, false, fn
+        {called_function, _, args} = node, found?
+        when is_atom(called_function) and is_list(args) ->
+          {node, found? or called_function == function}
+
+        node, found? ->
+          {node, found?}
+      end)
+
+    found?
+  end
+
+  defp boundary_option(ast, option) do
+    {_ast, value} =
+      Macro.prewalk(ast, nil, fn
+        {:use, _, [{:__aliases__, _, [:Boundary]}, opts]} = node, nil ->
+          {node, Keyword.fetch!(opts, option)}
+
+        node, value ->
+          {node, value}
+      end)
+
+    value
+  end
+
+  defp boundary_aliases(aliases) do
+    Enum.map(aliases, fn {:__aliases__, _, parts} -> parts end)
   end
 
   test "no cache configured preserves the streaming response path" do

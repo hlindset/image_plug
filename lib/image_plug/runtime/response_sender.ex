@@ -12,12 +12,10 @@ defmodule ImagePlug.Runtime.ResponseSender do
 
   @spec send_result(
           Plug.Conn.t(),
-          RequestRunner.delivery() | RequestRunner.error(),
-          keyword()
-        ) :: Plug.Conn.t()
-  @spec send_result(
-          Plug.Conn.t(),
-          {:ok, RequestRunner.delivery()} | {:error, RequestRunner.error()},
+          RequestRunner.delivery()
+          | RequestRunner.error()
+          | {:ok, RequestRunner.delivery()}
+          | {:error, RequestRunner.error()},
           keyword()
         ) :: Plug.Conn.t()
   def send_result(%Plug.Conn{} = conn, {:cache_entry, %Entry{} = entry}, opts) do
@@ -188,6 +186,11 @@ defmodule ImagePlug.Runtime.ResponseSender do
         {:empty, conn} ->
           send_empty_stream_encode_error(conn, response_headers)
 
+        {:chunk_error, reason, conn} ->
+          reason
+          |> stream_chunk_error()
+          |> handle_encode_exception([], conn, response_headers)
+
         {:raise, exception, stacktrace, conn} ->
           handle_encode_exception(exception, stacktrace, conn, response_headers)
       end
@@ -267,6 +270,7 @@ defmodule ImagePlug.Runtime.ResponseSender do
     case chunk(conn, data) do
       {:ok, conn} -> {:ok, {:sent, conn}}
       {:error, :closed} -> {:halt, {:sent, conn}}
+      {:error, reason} -> {:halt, {:chunk_error, reason, conn}}
     end
   rescue
     exception -> {:halt, {:raise, exception, __STACKTRACE__, conn}}
@@ -277,6 +281,7 @@ defmodule ImagePlug.Runtime.ResponseSender do
       {:suspended, acc, continuation} -> continue_stream(continuation, acc)
       {:done, {:pending, conn}} -> {:empty, conn}
       {:done, {:sent, conn}} -> {:ok, conn}
+      {:halted, {:chunk_error, reason, conn}} -> {:chunk_error, reason, conn}
       {:halted, {:raise, exception, stacktrace, conn}} -> {:raise, exception, stacktrace, conn}
       {:halted, {_status, conn}} -> {:ok, conn}
     end
@@ -297,6 +302,10 @@ defmodule ImagePlug.Runtime.ResponseSender do
   defp send_empty_stream_encode_error(%Plug.Conn{} = conn, response_headers) do
     Logger.error("encode_error: image encoder produced an empty stream")
     send_encode_error(conn, response_headers)
+  end
+
+  defp stream_chunk_error(reason) do
+    RuntimeError.exception("stream chunk failed: #{inspect(reason)}")
   end
 
   defp put_resp_headers(%Plug.Conn{} = conn, response_headers) do

@@ -31,7 +31,7 @@ defmodule ImagePlug.Transform.Chain do
   def execute(%State{} = state, transform_chain) do
     transform_chain
     |> Enum.reduce_while(state, fn operation, state ->
-      Logger.info(fn ->
+      Logger.debug(fn ->
         name = Transform.transform_name(operation)
         "executing transform: #{name} with operation #{inspect(operation)}"
       end)

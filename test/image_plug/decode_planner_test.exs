@@ -1,6 +1,8 @@
 defmodule ImagePlug.Transform.DecodePlannerTest do
   use ExUnit.Case, async: true
 
+  alias ImagePlug.Plan.Pipeline
+  alias ImagePlug.Runtime.Processor
   alias ImagePlug.Transform.Contain
   alias ImagePlug.Transform.Cover
   alias ImagePlug.Transform.Crop
@@ -243,5 +245,33 @@ defmodule ImagePlug.Transform.DecodePlannerTest do
     ]
 
     assert Keyword.keys(DecodePlanner.open_options(chain)) == [:access, :fail_on]
+  end
+
+  test "processor first-pipeline operations feed decode planner options" do
+    pipelines = [
+      %Pipeline{
+        operations: [
+          %Scale{type: :dimensions, width: {:pixels, 120}, height: :auto}
+        ]
+      },
+      %Pipeline{
+        operations: [
+          %Cover{
+            type: :dimensions,
+            width: {:pixels, 80},
+            height: {:pixels, 80},
+            constraint: :none
+          }
+        ]
+      }
+    ]
+
+    decode_options =
+      pipelines
+      |> Processor.first_pipeline_operations()
+      |> DecodePlanner.open_options()
+
+    assert decode_options == [access: :sequential, fail_on: :error]
+    assert Keyword.keys(decode_options) == [:access, :fail_on]
   end
 end

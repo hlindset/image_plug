@@ -3,53 +3,15 @@ defmodule ImagePlug.Transform.ChainTest do
 
   alias ImagePlug.Transform
   alias ImagePlug.Transform.Chain
+  alias ImagePlug.Transform.ChainTest.FailingTransform
+  alias ImagePlug.Transform.ChainTest.PartialTransform
+  alias ImagePlug.Transform.ChainTest.UnexpectedTransform
   alias ImagePlug.Transform.Contain
+  alias ImagePlug.Transform.Cover
   alias ImagePlug.Transform.Scale
   alias ImagePlug.Transform.State
 
   doctest ImagePlug.Transform.Chain
-
-  defmodule FailingTransform do
-    defstruct []
-
-    def new(attrs), do: {:ok, new!(attrs)}
-    def new!(%__MODULE__{} = operation), do: operation
-    def new!(attrs), do: struct!(__MODULE__, attrs)
-
-    def name(%__MODULE__{}), do: :failing
-
-    def metadata(%__MODULE__{}), do: %{access: :random}
-
-    def execute(%__MODULE__{}, state) do
-      State.add_error(state, {__MODULE__, :failed})
-    end
-  end
-
-  defmodule UnexpectedTransform do
-    defstruct []
-
-    def new(attrs), do: {:ok, new!(attrs)}
-    def new!(%__MODULE__{} = operation), do: operation
-    def new!(attrs), do: struct!(__MODULE__, attrs)
-
-    def name(%__MODULE__{}), do: :unexpected
-
-    def metadata(%__MODULE__{}), do: %{access: :random}
-
-    def execute(%__MODULE__{}, state) do
-      State.add_error(state, {__MODULE__, :should_not_run})
-    end
-  end
-
-  defmodule PartialTransform do
-    defstruct []
-
-    def new(attrs), do: {:ok, new!(attrs)}
-    def new!(%__MODULE__{} = operation), do: operation
-    def new!(attrs), do: struct!(__MODULE__, attrs)
-    def name(%__MODULE__{}), do: :partial
-    def execute(%__MODULE__{}, state), do: state
-  end
 
   test "transform modules construct operation structs" do
     assert %Scale{
@@ -75,6 +37,52 @@ defmodule ImagePlug.Transform.ChainTest do
 
   test "fallible construction returns errors for missing required attrs" do
     assert {:error, _reason} = Scale.new(type: :dimensions)
+  end
+
+  test "contain construction validates malformed attributes" do
+    assert {:error, %ArgumentError{message: "invalid contain ratio: {1, 0}"}} =
+             Contain.new(type: :ratio, ratio: {1, 0}, letterbox: false)
+
+    assert {:error, %ArgumentError{message: "invalid contain width: :oops"}} =
+             Contain.new(
+               type: :dimensions,
+               width: :oops,
+               height: {:pixels, 100},
+               constraint: :regular,
+               letterbox: false
+             )
+
+    assert {:error, %ArgumentError{message: "unknown contain option(s): :extra"}} =
+             Contain.new(
+               type: :dimensions,
+               width: {:pixels, 100},
+               height: :auto,
+               constraint: :regular,
+               letterbox: false,
+               extra: true
+             )
+  end
+
+  test "cover construction validates malformed attributes" do
+    assert {:error, %ArgumentError{message: "invalid cover ratio: {4, 0}"}} =
+             Cover.new(type: :ratio, ratio: {4, 0})
+
+    assert {:error, %ArgumentError{message: "invalid cover height: 0"}} =
+             Cover.new(
+               type: :dimensions,
+               width: {:pixels, 100},
+               height: 0,
+               constraint: :none
+             )
+
+    assert {:error, %ArgumentError{message: "unknown cover option(s): :extra"}} =
+             Cover.new(
+               type: :dimensions,
+               width: {:pixels, 100},
+               height: :auto,
+               constraint: :none,
+               extra: true
+             )
   end
 
   test "transform name is delegated to operation module" do

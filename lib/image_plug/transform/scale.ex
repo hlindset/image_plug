@@ -87,17 +87,17 @@ defmodule ImagePlug.Transform.Scale do
     end
   end
 
-  def do_scale(%State{} = state, width, :auto) do
+  defp do_scale(%State{} = state, width, :auto) do
     target_height = round(width / image_width(state) * image_height(state))
     proportional_scale(state, width, target_height)
   end
 
-  def do_scale(%State{} = state, :auto, height) do
+  defp do_scale(%State{} = state, :auto, height) do
     target_width = round(height / image_height(state) * image_width(state))
     proportional_scale(state, target_width, height)
   end
 
-  def do_scale(%State{} = state, width, height) do
+  defp do_scale(%State{} = state, width, height) do
     if proportional?(state, width, height) and downscale?(state, width, height) do
       proportional_scale(state, width, height)
     else
@@ -105,10 +105,6 @@ defmodule ImagePlug.Transform.Scale do
       height_scale = height / image_height(state)
       Image.resize(state.image, width_scale, vertical_scale: height_scale)
     end
-  end
-
-  def do_scale(_image, parameters) do
-    {:error, {:unhandled_scale_parameters, parameters}}
   end
 
   defp proportional_scale(%State{} = state, width, height) do

@@ -32,9 +32,7 @@ defmodule ImagePlug.Transform do
   def operation?(%module{}) do
     case Code.ensure_loaded(module) do
       {:module, ^module} ->
-        function_exported?(module, :new, 1) and
-          function_exported?(module, :new!, 1) and
-          function_exported?(module, :name, 1) and
+        function_exported?(module, :name, 1) and
           function_exported?(module, :metadata, 1) and
           function_exported?(module, :execute, 2)
 
@@ -52,7 +50,7 @@ defmodule ImagePlug.Transform do
     else
       raise ArgumentError,
             "invalid transform operation #{inspect(operation)}: " <>
-              "#{inspect(module)} must implement ImagePlug.Transform"
+              "#{inspect(module)} must export name/1, metadata/1, and execute/2"
     end
   end
 

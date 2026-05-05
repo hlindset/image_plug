@@ -118,7 +118,7 @@ defmodule ImagePlug.Transform.Cover do
     end
   end
 
-  def fit_cover(%State{} = state, target_width, target_height) do
+  defp fit_cover(%State{} = state, target_width, target_height) do
     # compute aspect ratios
     target_ratio = target_width / target_height
     original_ratio = image_width(state) / image_height(state)
@@ -158,22 +158,22 @@ defmodule ImagePlug.Transform.Cover do
     {left, top}
   end
 
-  def maybe_scale(%State{} = state, width, height, :min) do
+  defp maybe_scale(%State{} = state, width, height, :min) do
     if width > image_width(state) or height > image_height(state),
       do: do_scale(state, width, height),
       else: {:ok, state}
   end
 
-  def maybe_scale(%State{} = state, width, height, :max) do
+  defp maybe_scale(%State{} = state, width, height, :max) do
     if width < image_width(state) or height < image_height(state),
       do: do_scale(state, width, height),
       else: {:ok, state}
   end
 
-  def maybe_scale(image, width, height, _constraint),
+  defp maybe_scale(image, width, height, _constraint),
     do: do_scale(image, width, height)
 
-  def do_scale(%State{} = state, width, height) do
+  defp do_scale(%State{} = state, width, height) do
     width_scale = width / image_width(state)
     height_scale = height / image_height(state)
 
@@ -183,7 +183,7 @@ defmodule ImagePlug.Transform.Cover do
     end
   end
 
-  def do_crop(%State{} = state, left, top, width, height) do
+  defp do_crop(%State{} = state, left, top, width, height) do
     case Image.crop(state.image, left, top, width, height) do
       {:ok, cropped_image} -> {:ok, set_image(state, cropped_image)}
       {:error, _reason} = error -> error
@@ -195,19 +195,63 @@ defmodule ImagePlug.Transform.Cover do
 
     case Map.fetch!(attrs, :type) do
       :dimensions ->
-        _width = Map.fetch!(attrs, :width)
-        _height = Map.fetch!(attrs, :height)
+        validate_keys!(attrs, [:type, :width, :height, :constraint])
+        width = Map.fetch!(attrs, :width)
+        height = Map.fetch!(attrs, :height)
+        validate_dimension_pair!(width, height)
         validate_constraint!(Map.fetch!(attrs, :constraint))
         attrs
 
       :ratio ->
-        _ratio = Map.fetch!(attrs, :ratio)
+        validate_keys!(attrs, [:type, :ratio])
+        validate_ratio!(Map.fetch!(attrs, :ratio))
         attrs
 
       type ->
         raise ArgumentError, "invalid cover type: #{inspect(type)}"
     end
   end
+
+  defp validate_keys!(attrs, allowed_keys) do
+    unknown_keys = Map.keys(attrs) -- allowed_keys
+
+    if unknown_keys != [] do
+      keys = unknown_keys |> Enum.sort_by(&inspect/1) |> Enum.map_join(", ", &inspect/1)
+      raise ArgumentError, "unknown cover option(s): #{keys}"
+    end
+  end
+
+  defp validate_dimension_pair!(width, height) do
+    validate_dimension_or_auto!(:width, width)
+    validate_dimension_or_auto!(:height, height)
+
+    if width == :auto and height == :auto do
+      raise ArgumentError, "invalid cover dimensions: width and height cannot both be :auto"
+    end
+  end
+
+  defp validate_dimension_or_auto!(_field, :auto), do: :ok
+
+  defp validate_dimension_or_auto!(field, value), do: validate_dimension!(field, value)
+
+  defp validate_dimension!(_field, value) when is_number(value) and value > 0, do: :ok
+  defp validate_dimension!(_field, {:pixels, value}) when is_number(value) and value > 0, do: :ok
+  defp validate_dimension!(_field, {:percent, value}) when is_number(value) and value > 0, do: :ok
+  defp validate_dimension!(_field, {:scale, value}) when is_number(value) and value > 0, do: :ok
+
+  defp validate_dimension!(_field, {:scale, numerator, denominator})
+       when is_number(numerator) and is_number(denominator) and numerator > 0 and denominator > 0,
+       do: :ok
+
+  defp validate_dimension!(field, value),
+    do: raise(ArgumentError, "invalid cover #{field}: #{inspect(value)}")
+
+  defp validate_ratio!({width, height})
+       when is_number(width) and is_number(height) and width > 0 and height > 0,
+       do: :ok
+
+  defp validate_ratio!(ratio),
+    do: raise(ArgumentError, "invalid cover ratio: #{inspect(ratio)}")
 
   defp validate_constraint!(constraint) when constraint in [:none, :min, :max], do: :ok
 

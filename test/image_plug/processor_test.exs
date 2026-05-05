@@ -180,10 +180,30 @@ defmodule ImagePlug.Runtime.ProcessorTest do
              )
   end
 
+  test "process_origin rejects empty direct pipeline lists before fetching origin" do
+    assert {:error, :empty_pipeline_plan} =
+             Processor.process_origin(
+               plan(),
+               [],
+               "http://origin.test/images/cat-300.jpg",
+               Keyword.put(opts(), :origin_req_options, plug: OriginShouldNotFetch)
+             )
+  end
+
   test "fetch_origin_with_source_format rejects invalid pipeline plans before fetching origin" do
     assert {:error, {:invalid_pipeline_plan, [:not_a_pipeline]}} =
              Processor.fetch_origin_with_source_format(
                invalid_pipeline_plan(),
+               "http://origin.test/images/cat-300.jpg",
+               Keyword.put(opts(), :origin_req_options, plug: OriginShouldNotFetch)
+             )
+  end
+
+  test "fetch_origin_with_source_format rejects empty direct pipeline lists before fetching origin" do
+    assert {:error, :empty_pipeline_plan} =
+             Processor.fetch_origin_with_source_format(
+               plan(),
+               [],
                "http://origin.test/images/cat-300.jpg",
                Keyword.put(opts(), :origin_req_options, plug: OriginShouldNotFetch)
              )

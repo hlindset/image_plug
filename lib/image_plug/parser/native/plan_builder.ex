@@ -176,8 +176,11 @@ defmodule ImagePlug.Parser.Native.PlanBuilder do
          %PipelineRequest{resizing_type: :fit, width: width, height: height} = request
        ) do
     case {normalize_dimension(width), normalize_dimension(height)} do
-      {:auto, :auto} -> {:ok, []}
-      {planned_width, planned_height} -> {:ok, [contain(planned_width, planned_height, request)]}
+      {:auto, :auto} ->
+        {:ok, []}
+
+      {planned_width, planned_height} ->
+        build_operation_list(contain(planned_width, planned_height, request))
     end
   end
 
@@ -188,21 +191,21 @@ defmodule ImagePlug.Parser.Native.PlanBuilder do
     do: missing_dimensions(:fill)
 
   defp plan_geometry(%PipelineRequest{resizing_type: :fill} = request) do
-    cover =
-      cover(normalize_dimension(request.width), normalize_dimension(request.height), request)
-
-    {:ok, maybe_prepend_focus([cover], request.gravity)}
+    with {:ok, cover} <-
+           cover(normalize_dimension(request.width), normalize_dimension(request.height), request) do
+      maybe_prepend_focus([cover], request.gravity)
+    end
   end
 
   defp plan_geometry(%PipelineRequest{resizing_type: :force, width: width, height: height}) do
-    {:ok, [scale(width || :auto, height || :auto)]}
+    build_operation_list(scale(width || :auto, height || :auto))
   end
 
   defp plan_geometry(%PipelineRequest{resizing_type: resizing_type}),
     do: {:error, {:unsupported_resizing_type, resizing_type}}
 
   defp scale(width, height) do
-    Transform.Scale.new!(
+    Transform.Scale.new(
       type: :dimensions,
       width: width,
       height: height
@@ -210,7 +213,7 @@ defmodule ImagePlug.Parser.Native.PlanBuilder do
   end
 
   defp contain(width, height, %PipelineRequest{} = request) do
-    Transform.Contain.new!(
+    Transform.Contain.new(
       type: :dimensions,
       width: width,
       height: height,
@@ -220,7 +223,7 @@ defmodule ImagePlug.Parser.Native.PlanBuilder do
   end
 
   defp cover(width, height, %PipelineRequest{} = request) do
-    Transform.Cover.new!(
+    Transform.Cover.new(
       type: :dimensions,
       width: width,
       height: height,
@@ -228,13 +231,18 @@ defmodule ImagePlug.Parser.Native.PlanBuilder do
     )
   end
 
-  defp maybe_prepend_focus(operations, @default_gravity), do: operations
+  defp build_operation_list({:ok, operation}), do: {:ok, [operation]}
+  defp build_operation_list({:error, _reason} = error), do: error
+
+  defp maybe_prepend_focus(operations, @default_gravity), do: {:ok, operations}
 
   defp maybe_prepend_focus([operation | _rest] = operations, gravity) do
     if Transform.transform_name(operation) == :cover do
-      [Transform.Focus.new!(type: focus_type(gravity)) | operations]
+      with {:ok, focus} <- Transform.Focus.new(type: focus_type(gravity)) do
+        {:ok, [focus | operations]}
+      end
     else
-      operations
+      {:ok, operations}
     end
   end
 

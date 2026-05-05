@@ -5,17 +5,9 @@ defmodule ImagePlug.PlanTest do
   alias ImagePlug.Plan.Output
   alias ImagePlug.Plan.Pipeline
   alias ImagePlug.Plan.Source.Plain
+  alias ImagePlug.PlanTest.PartialTransform
+  alias ImagePlug.PlanTest.RuntimeOnlyTransform
   alias ImagePlug.Transform
-
-  defmodule PartialTransform do
-    defstruct []
-
-    def new(attrs), do: {:ok, new!(attrs)}
-    def new!(%__MODULE__{} = operation), do: operation
-    def new!(attrs), do: struct!(__MODULE__, attrs)
-    def name(%__MODULE__{}), do: :partial
-    def execute(%__MODULE__{}, state), do: state
-  end
 
   test "represents source, image pipelines, and output separately" do
     operations = [
@@ -45,6 +37,18 @@ defmodule ImagePlug.PlanTest do
       width: {:pixels, 300},
       height: :auto
     }
+
+    plan = %Plan{
+      source: %Plain{path: ["images", "cat.jpg"]},
+      pipelines: [%Pipeline{operations: [operation]}],
+      output: %Output{mode: {:explicit, :webp}}
+    }
+
+    assert {:ok, [%Pipeline{operations: [^operation]}]} = Plan.validated_pipelines(plan)
+  end
+
+  test "validated pipelines accept runtime-only operation structs" do
+    operation = %RuntimeOnlyTransform{}
 
     plan = %Plan{
       source: %Plain{path: ["images", "cat.jpg"]},
