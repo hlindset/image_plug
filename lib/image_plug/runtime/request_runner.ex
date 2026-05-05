@@ -9,6 +9,7 @@ defmodule ImagePlug.Runtime.RequestRunner do
   alias ImagePlug.Plan
   alias ImagePlug.Plan.Output
   alias ImagePlug.Plan.Pipeline
+  alias ImagePlug.Plan.Response
   alias ImagePlug.Runtime.DecodedOrigin
   alias ImagePlug.Runtime.Processor
   alias ImagePlug.Runtime.ResponseCache
@@ -16,8 +17,8 @@ defmodule ImagePlug.Runtime.RequestRunner do
   alias ImagePlug.Transform.State
 
   @type delivery() ::
-          {:cache_entry, Entry.t()}
-          | {:image, State.t(), Resolved.t(), [{String.t(), String.t()}]}
+          {:cache_entry, Entry.t(), Response.t()}
+          | {:image, State.t(), Resolved.t(), Response.t()}
 
   @type error() ::
           {:cache, term()}
@@ -77,8 +78,8 @@ defmodule ImagePlug.Runtime.RequestRunner do
       :disabled ->
         process_uncached(conn, plan, pipelines, origin_identity, opts)
 
-      {:hit, %Entry{} = entry} ->
-        {:ok, {:cache_entry, entry}}
+      {:hit, %Key{} = key, %Entry{} = entry} ->
+        handle_cache_hit(conn, plan, pipelines, origin_identity, key, entry, opts)
 
       {:miss, %Key{} = key} ->
         process_cache_miss(conn, plan, pipelines, origin_identity, key, opts)
@@ -88,10 +89,28 @@ defmodule ImagePlug.Runtime.RequestRunner do
     end
   end
 
+  defp handle_cache_hit(conn, plan, pipelines, origin_identity, key, entry, opts) do
+    case ResponseCache.validate_delivery(entry, plan.response) do
+      :ok ->
+        {:ok, {:cache_entry, entry, plan.response}}
+
+      {:error, error} ->
+        handle_cache_delivery_error(conn, plan, pipelines, origin_identity, key, opts, error)
+    end
+  end
+
+  defp handle_cache_delivery_error(conn, plan, pipelines, origin_identity, key, opts, error) do
+    if ResponseCache.fail_on_cache_error?(opts) do
+      {:error, {:cache, error}}
+    else
+      process_cache_miss(conn, plan, pipelines, origin_identity, key, opts)
+    end
+  end
+
   defp process_uncached(conn, plan, pipelines, origin_identity, opts) do
     case process_request(conn, plan, pipelines, origin_identity, opts) do
-      {:ok, final_state, resolved_output, response_headers} ->
-        {:ok, {:image, final_state, resolved_output, response_headers}}
+      {:ok, final_state, resolved_output, _response_headers} ->
+        {:ok, {:image, final_state, resolved_output, plan.response}}
 
       {:error, error, response_headers} ->
         {:error, {:processing, processing_reason(error), response_headers}}
@@ -102,8 +121,8 @@ defmodule ImagePlug.Runtime.RequestRunner do
     case process_request(conn, plan, pipelines, origin_identity, opts) do
       {:ok, final_state, resolved_output, response_headers} ->
         case ResponseCache.store(key, final_state, resolved_output, response_headers, opts) do
-          {:ok, entry} -> {:ok, {:cache_entry, entry}}
-          :skipped -> {:ok, {:image, final_state, resolved_output, response_headers}}
+          {:ok, entry} -> {:ok, {:cache_entry, entry, plan.response}}
+          :skipped -> {:ok, {:image, final_state, resolved_output, plan.response}}
           error -> {:error, {:processing, processing_reason(error), response_headers}}
         end
 

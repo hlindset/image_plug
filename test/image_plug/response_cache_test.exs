@@ -89,7 +89,13 @@ defmodule ImagePlug.Runtime.ResponseCacheTest do
     }
 
     assert {:ok, %Entry{} = entry} =
-             ResponseCache.store(key, state, resolved_output, [], cache: {CaptureAdapter, []})
+             ResponseCache.store(
+               key,
+               state,
+               resolved_output,
+               [{"content-disposition", "attachment; filename=\"cat.png\""}],
+               cache: {CaptureAdapter, []}
+             )
 
     assert entry.content_type == "image/png"
     assert entry.headers == [{"vary", "Accept"}]

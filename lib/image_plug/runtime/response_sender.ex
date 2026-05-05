@@ -8,7 +8,9 @@ defmodule ImagePlug.Runtime.ResponseSender do
   alias ImagePlug.Cache.Entry
   alias ImagePlug.Output.Format
   alias ImagePlug.Output.Resolved
+  alias ImagePlug.Plan.Response
   alias ImagePlug.Runtime.RequestRunner
+  alias ImagePlug.Runtime.ResponseDisposition
   alias ImagePlug.Transform.State
 
   @spec send_result(
@@ -19,16 +21,20 @@ defmodule ImagePlug.Runtime.ResponseSender do
           | {:error, RequestRunner.error()},
           keyword()
         ) :: Plug.Conn.t()
-  def send_result(%Plug.Conn{} = conn, {:cache_entry, %Entry{} = entry}, opts) do
-    send_result(conn, {:ok, {:cache_entry, entry}}, opts)
+  def send_result(
+        %Plug.Conn{} = conn,
+        {:cache_entry, %Entry{} = entry, %Response{} = response},
+        opts
+      ) do
+    send_result(conn, {:ok, {:cache_entry, entry, response}}, opts)
   end
 
   def send_result(
         %Plug.Conn{} = conn,
-        {:image, %State{} = state, %Resolved{} = resolved_output, response_headers},
+        {:image, %State{} = state, %Resolved{} = resolved_output, %Response{} = response},
         opts
       ) do
-    send_result(conn, {:ok, {:image, state, resolved_output, response_headers}}, opts)
+    send_result(conn, {:ok, {:image, state, resolved_output, response}}, opts)
   end
 
   def send_result(%Plug.Conn{} = conn, {:cache, error}, opts) do
@@ -39,16 +45,20 @@ defmodule ImagePlug.Runtime.ResponseSender do
     send_result(conn, {:error, {:processing, reason, response_headers}}, opts)
   end
 
-  def send_result(%Plug.Conn{} = conn, {:ok, {:cache_entry, %Entry{} = entry}}, _opts) do
-    send_cache_entry(conn, entry)
+  def send_result(
+        %Plug.Conn{} = conn,
+        {:ok, {:cache_entry, %Entry{} = entry, %Response{} = response}},
+        _opts
+      ) do
+    send_cache_entry(conn, entry, response)
   end
 
   def send_result(
         conn,
-        {:ok, {:image, %State{} = state, %Resolved{} = resolved_output, response_headers}},
+        {:ok, {:image, %State{} = state, %Resolved{} = resolved_output, %Response{} = response}},
         opts
       ) do
-    send_image(conn, state, resolved_output, opts, response_headers)
+    send_image(conn, state, resolved_output, response, opts)
   end
 
   def send_result(conn, {:error, {:cache, error}}, _opts) do
@@ -166,13 +176,13 @@ defmodule ImagePlug.Runtime.ResponseSender do
          %Plug.Conn{} = conn,
          %State{} = state,
          %Resolved{} = resolved_output,
-         opts,
-         response_headers
+         %Response{} = response,
+         opts
        ) do
-    stream_encoded_image(conn, state, resolved_output, opts, response_headers)
+    stream_encoded_image(conn, state, resolved_output, response, opts)
   end
 
-  defp stream_encoded_image(conn, state, %Resolved{} = resolved_output, opts, response_headers) do
+  defp stream_encoded_image(conn, state, %Resolved{} = resolved_output, response, opts) do
     image_module = Keyword.get(opts, :image_module, Image)
 
     try do
@@ -180,29 +190,52 @@ defmodule ImagePlug.Runtime.ResponseSender do
       suffix = Format.suffix!(mime_type)
       stream = image_module.stream!(state.image, output_options(suffix, resolved_output))
 
-      case stream_image(stream, conn, mime_type, response_headers) do
-        {:ok, conn} ->
-          conn
+      case delivery_headers(resolved_output.representation_headers, response, mime_type) do
+        {:ok, response_headers} ->
+          send_encoded_stream(stream, conn, mime_type, response_headers)
 
-        {:empty, conn} ->
-          send_empty_stream_encode_error(conn, response_headers)
-
-        {:chunk_error, reason, conn} ->
-          reason
-          |> stream_chunk_error()
-          |> handle_encode_exception([], conn, response_headers)
-
-        {:raise, exception, stacktrace, conn} ->
-          handle_encode_exception(exception, stacktrace, conn, response_headers)
+        {:error, reason} ->
+          handle_encode_exception(
+            delivery_error(reason),
+            [],
+            conn,
+            resolved_output.representation_headers
+          )
       end
     rescue
-      exception -> handle_encode_exception(exception, __STACKTRACE__, conn, response_headers)
+      exception ->
+        handle_encode_exception(
+          exception,
+          __STACKTRACE__,
+          conn,
+          resolved_output.representation_headers
+        )
     end
   end
 
-  defp send_cache_entry(%Plug.Conn{} = conn, %Entry{} = entry) do
-    case Entry.normalize_headers(entry.headers) do
-      {:ok, headers} -> send_normalized_cache_entry(conn, entry, headers)
+  defp send_encoded_stream(stream, conn, mime_type, response_headers) do
+    case stream_image(stream, conn, mime_type, response_headers) do
+      {:ok, conn} ->
+        conn
+
+      {:empty, conn} ->
+        send_empty_stream_encode_error(conn, response_headers)
+
+      {:chunk_error, reason, conn} ->
+        reason
+        |> stream_chunk_error()
+        |> handle_encode_exception([], conn, response_headers)
+
+      {:raise, exception, stacktrace, conn} ->
+        handle_encode_exception(exception, stacktrace, conn, response_headers)
+    end
+  end
+
+  defp send_cache_entry(%Plug.Conn{} = conn, %Entry{} = entry, %Response{} = response) do
+    with {:ok, headers} <- Entry.normalize_headers(entry.headers),
+         {:ok, headers} <- delivery_headers(headers, response, entry.content_type) do
+      send_normalized_cache_entry(conn, entry, headers)
+    else
       {:error, error} -> send_cache_error(conn, error)
     end
   end
@@ -313,6 +346,16 @@ defmodule ImagePlug.Runtime.ResponseSender do
     do: [suffix: suffix, quality: value]
 
   defp output_options(suffix, %Resolved{quality: :default}), do: [suffix: suffix]
+
+  defp delivery_headers(response_headers, %Response{} = response, content_type) do
+    with {:ok, content_disposition} <- ResponseDisposition.render(response, content_type) do
+      {:ok, response_headers ++ [{"content-disposition", content_disposition}]}
+    end
+  end
+
+  defp delivery_error(reason) do
+    ArgumentError.exception("invalid response delivery: #{inspect(reason)}")
+  end
 
   defp put_resp_headers(%Plug.Conn{} = conn, response_headers) do
     Enum.reduce(response_headers, conn, fn {name, value}, conn ->

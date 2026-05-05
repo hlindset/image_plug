@@ -7,11 +7,13 @@ defmodule ImagePlug.Runtime.ResponseCache do
   alias ImagePlug.Output.Encoder
   alias ImagePlug.Output.Resolved
   alias ImagePlug.Plan
+  alias ImagePlug.Plan.Response
+  alias ImagePlug.Runtime.ResponseDisposition
   alias ImagePlug.Transform.State
 
   @type lookup_result ::
           :disabled
-          | {:hit, Entry.t()}
+          | {:hit, Key.t(), Entry.t()}
           | {:miss, Key.t()}
           | {:error, term()}
 
@@ -19,9 +21,28 @@ defmodule ImagePlug.Runtime.ResponseCache do
   def lookup(conn, %Plan{} = plan, origin_identity, opts) do
     case Cache.lookup(conn, plan, origin_identity, opts) do
       :disabled -> :disabled
-      {:hit, _key, %Entry{} = entry} -> {:hit, entry}
+      {:hit, %Key{} = key, %Entry{} = entry} -> {:hit, key, entry}
       {:miss, %Key{} = key} -> {:miss, key}
       {:error, {:cache_read, error}} -> {:error, error}
+    end
+  end
+
+  @spec validate_delivery(Entry.t(), Response.t()) :: :ok | {:error, term()}
+  def validate_delivery(%Entry{content_type: content_type}, %Response{} = response) do
+    case ResponseDisposition.render(response, content_type) do
+      {:ok, _content_disposition} -> :ok
+      {:error, reason} -> {:error, reason}
+    end
+  end
+
+  @spec fail_on_cache_error?(keyword()) :: boolean()
+  def fail_on_cache_error?(opts) when is_list(opts) do
+    case Keyword.get(opts, :cache) do
+      {_adapter, cache_opts} when is_list(cache_opts) ->
+        Keyword.get(cache_opts, :fail_on_cache_error, false)
+
+      _other ->
+        false
     end
   end
 

@@ -188,6 +188,29 @@ defmodule ImagePlug.Cache.KeyTest do
              build_key!(conn, two, "https://origin.test/images/cat.jpg").hash
   end
 
+  test "requests differing only by filename share cache key material" do
+    one =
+      plan(
+        response: %ImagePlug.Plan.Response{
+          disposition: :attachment,
+          filename: %ImagePlug.Plan.Response.Filename{stem: "one"}
+        }
+      )
+
+    two =
+      plan(
+        response: %ImagePlug.Plan.Response{
+          disposition: :inline,
+          filename: %ImagePlug.Plan.Response.Filename{stem: "two"}
+        }
+      )
+
+    conn = conn(:get, "/_/plain/images/cat.jpg")
+
+    assert build_key!(conn, one, "https://origin.test/images/cat.jpg").hash ==
+             build_key!(conn, two, "https://origin.test/images/cat.jpg").hash
+  end
+
   test "output material includes normalized quality rules" do
     output = %Output{
       mode: :automatic,
