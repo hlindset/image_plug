@@ -1,4 +1,4 @@
-defimpl ImagePlug.Cache.Material, for: ImagePlug.Transform.Contain do
+defimpl ImagePlug.Transform.Material, for: ImagePlug.Transform.Contain do
   def material(%ImagePlug.Transform.Contain{type: :ratio} = operation) do
     [
       op: :contain,

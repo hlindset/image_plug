@@ -5,12 +5,12 @@ defmodule ImagePlug.Cache.Key do
 
   import Plug.Conn
 
-  alias ImagePlug.Cache.Material
   alias ImagePlug.Output.Negotiation
   alias ImagePlug.Plan.Output
   alias ImagePlug.Plan.Pipeline
   alias ImagePlug.Plan
   alias ImagePlug.Plan.Source.Plain
+  alias ImagePlug.Transform.Material
 
   @schema_version 2
   @enforce_keys [:hash, :material, :serialized_material]

@@ -4,13 +4,13 @@ defmodule ImagePlug.RequestRunner do
   alias ImagePlug.Cache
   alias ImagePlug.Cache.Entry
   alias ImagePlug.Cache.Key
-  alias ImagePlug.Cache.Material
   alias ImagePlug.Plan.Output
   alias ImagePlug.Output.Policy
   alias ImagePlug.Plan.Pipeline
   alias ImagePlug.Plan
   alias ImagePlug.Processor
   alias ImagePlug.ResponseCache
+  alias ImagePlug.Transform.Material
   alias ImagePlug.Transform.State
 
   @type delivery() ::

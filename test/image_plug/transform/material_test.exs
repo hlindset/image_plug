@@ -1,8 +1,8 @@
-defmodule ImagePlug.Cache.MaterialTest do
+defmodule ImagePlug.Transform.MaterialTest do
   use ExUnit.Case, async: true
 
-  alias ImagePlug.Cache.Material
   alias ImagePlug.Transform
+  alias ImagePlug.Transform.Material
 
   test "contain operations emit canonical material" do
     assert Material.material(%Transform.Contain{

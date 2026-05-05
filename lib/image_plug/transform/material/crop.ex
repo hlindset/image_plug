@@ -1,4 +1,4 @@
-defimpl ImagePlug.Cache.Material, for: ImagePlug.Transform.Crop do
+defimpl ImagePlug.Transform.Material, for: ImagePlug.Transform.Crop do
   def material(%ImagePlug.Transform.Crop{} = operation) do
     [
       op: :crop,

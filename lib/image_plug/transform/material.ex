@@ -1,6 +1,6 @@
-defprotocol ImagePlug.Cache.Material do
+defprotocol ImagePlug.Transform.Material do
   @moduledoc """
-  Canonical cache material for transform operation structs.
+  Canonical material for transform operation structs.
 
   Every operation struct that can appear in `ImagePlug.Plan` pipelines must implement
   this protocol. Missing implementations are programmer errors and may raise

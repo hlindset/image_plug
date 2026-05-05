@@ -2,8 +2,6 @@ defmodule ImagePlug.ArchitectureBoundaryTest do
   use ExUnit.Case, async: true
 
   @expected_core_files [
-    "lib/image_plug/cache/material.ex",
-    "lib/image_plug/cache/material/contain.ex",
     "lib/image_plug/output/negotiation.ex",
     "lib/image_plug/plan.ex",
     "lib/image_plug/plan/output.ex",
@@ -13,6 +11,12 @@ defmodule ImagePlug.ArchitectureBoundaryTest do
     "lib/image_plug/transform/contain.ex",
     "lib/image_plug/transform/decode_planner.ex",
     "lib/image_plug/transform/geometry.ex",
+    "lib/image_plug/transform/material.ex",
+    "lib/image_plug/transform/material/contain.ex",
+    "lib/image_plug/transform/material/cover.ex",
+    "lib/image_plug/transform/material/crop.ex",
+    "lib/image_plug/transform/material/focus.ex",
+    "lib/image_plug/transform/material/scale.ex",
     "lib/image_plug/transform/materializer.ex",
     "lib/image_plug/transform/state.ex"
   ]
