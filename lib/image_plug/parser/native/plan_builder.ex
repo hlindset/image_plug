@@ -3,6 +3,7 @@ defmodule ImagePlug.Parser.Native.PlanBuilder do
 
   alias ImagePlug.Parser.Native.ParsedRequest
   alias ImagePlug.Parser.Native.CacheRequest
+  alias ImagePlug.Parser.Native.CropRequest
   alias ImagePlug.Parser.Native.OutputRequest
   alias ImagePlug.Parser.Native.PipelineRequest
   alias ImagePlug.Parser.Native.RequestPolicy
@@ -285,8 +286,9 @@ defmodule ImagePlug.Parser.Native.PlanBuilder do
 
   defp validate_supported_semantics(%PipelineRequest{gravity: gravity} = request) do
     if valid_gravity?(gravity) do
-      with :ok <- validate_resize_gravity(request),
-           :ok <- validate_extend_semantics(request),
+      with :ok <- validate_extend_semantics(request),
+           :ok <- validate_crop_semantics(request),
+           :ok <- validate_orientation_semantics(request),
            :ok <- validate_pending_pipeline_semantics(request) do
         :ok
       end
@@ -294,15 +296,6 @@ defmodule ImagePlug.Parser.Native.PlanBuilder do
       {:error, {:invalid_gravity, gravity}}
     end
   end
-
-  defp validate_resize_gravity(%PipelineRequest{
-         resizing_type: resizing_type,
-         gravity: gravity
-       })
-       when resizing_type in [:fill, :fill_down, :auto] and gravity != @default_gravity,
-       do: {:error, {:unsupported_gravity_for_resize, resizing_type}}
-
-  defp validate_resize_gravity(%PipelineRequest{}), do: :ok
 
   defp validate_extend_semantics(%PipelineRequest{} = request) do
     with :ok <- validate_extend_gravity(request.extend_gravity),
@@ -342,6 +335,65 @@ defmodule ImagePlug.Parser.Native.PlanBuilder do
   defp validate_extend_aspect_ratio(extend_aspect_ratio),
     do: {:error, {:invalid_extend_aspect_ratio, extend_aspect_ratio}}
 
+  defp validate_crop_semantics(%PipelineRequest{crop: nil}), do: :ok
+
+  defp validate_crop_semantics(%PipelineRequest{
+         crop: %CropRequest{
+           width: width,
+           height: height,
+           gravity: gravity,
+           x_offset: x_offset,
+           y_offset: y_offset
+         }
+       }) do
+    with :ok <- validate_crop_dimension(:width, width),
+         :ok <- validate_crop_dimension(:height, height),
+         :ok <- validate_crop_gravity(gravity),
+         :ok <- validate_crop_offset(:x_offset, x_offset) do
+      validate_crop_offset(:y_offset, y_offset)
+    end
+  end
+
+  defp validate_crop_semantics(%PipelineRequest{crop: crop}),
+    do: {:error, {:invalid_crop_request, crop}}
+
+  defp validate_crop_dimension(_field, :auto), do: :ok
+
+  defp validate_crop_dimension(_field, {:pixels, value}) when is_number(value) and value > 0,
+    do: :ok
+
+  defp validate_crop_dimension(_field, {:scale, value}) when is_number(value) and value > 0,
+    do: :ok
+
+  defp validate_crop_dimension(field, value),
+    do: {:error, {:invalid_crop_dimension, field, value}}
+
+  defp validate_crop_gravity(gravity) do
+    if valid_gravity?(gravity), do: :ok, else: {:error, {:invalid_gravity, gravity}}
+  end
+
+  defp validate_crop_offset(_field, value) when is_number(value), do: :ok
+  defp validate_crop_offset(field, value), do: {:error, {:invalid_crop_offset, field, value}}
+
+  defp validate_orientation_semantics(%PipelineRequest{orientation: %Orientation{} = orientation}) do
+    cond do
+      not is_boolean(orientation.auto_orient) ->
+        {:error, {:invalid_orientation_auto_orient, orientation.auto_orient}}
+
+      orientation.rotate not in [0, 90, 180, 270] ->
+        {:error, {:invalid_orientation_rotate, orientation.rotate}}
+
+      orientation.flip not in [nil, :horizontal, :vertical, :both] ->
+        {:error, {:invalid_orientation_flip, orientation.flip}}
+
+      true ->
+        :ok
+    end
+  end
+
+  defp validate_orientation_semantics(%PipelineRequest{orientation: orientation}),
+    do: {:error, {:invalid_orientation, orientation}}
+
   defp validate_pending_pipeline_semantics(%PipelineRequest{} = request) do
     with :ok <- validate_factor(:zoom_x, request.zoom_x),
          :ok <- validate_factor(:zoom_y, request.zoom_y),
@@ -354,25 +406,7 @@ defmodule ImagePlug.Parser.Native.PlanBuilder do
   defp validate_factor(_field, value) when is_number(value) and value > 0, do: :ok
   defp validate_factor(field, value), do: {:error, {:invalid_dimension_factor, field, value}}
 
-  defp validate_pending_unimplemented_semantics(%PipelineRequest{crop: crop})
-       when not is_nil(crop),
-       do: {:error, {:unsupported_pipeline_semantic, :crop}}
-
-  defp validate_pending_unimplemented_semantics(%PipelineRequest{orientation_requested: true}),
-    do: {:error, {:unsupported_pipeline_semantic, :orientation}}
-
-  defp validate_pending_unimplemented_semantics(%PipelineRequest{
-         orientation: %Orientation{} = orientation
-       }) do
-    if orientation == %Orientation{} do
-      :ok
-    else
-      {:error, {:unsupported_pipeline_semantic, :orientation}}
-    end
-  end
-
-  defp validate_pending_unimplemented_semantics(%PipelineRequest{orientation: orientation}),
-    do: {:error, {:invalid_orientation, orientation}}
+  defp validate_pending_unimplemented_semantics(%PipelineRequest{}), do: :ok
 
   defp plan_geometry(%PipelineRequest{resizing_type: :force, width: {:pixels, 0}}),
     do: {:error, {:unsupported_zero_dimension, :force}}
@@ -398,11 +432,50 @@ defmodule ImagePlug.Parser.Native.PlanBuilder do
        do: missing_dimensions(resizing_type)
 
   defp plan_geometry(%PipelineRequest{} = request) do
-    with {:ok, resize_operations} <- resize_operations(request),
+    with {:ok, crop_operations} <- crop_operations(request),
+         {:ok, orientation_operations} <- orientation_operations(request),
+         {:ok, resize_operations} <- resize_operations(request),
          {:ok, canvas_operations} <- canvas_operations(request) do
-      {:ok, resize_operations ++ canvas_operations}
+      {:ok, crop_operations ++ orientation_operations ++ resize_operations ++ canvas_operations}
     end
   end
+
+  defp crop_operations(%PipelineRequest{crop: nil}), do: {:ok, []}
+
+  defp crop_operations(%PipelineRequest{crop: %CropRequest{} = crop, orientation: orientation}) do
+    build_operation_list(
+      Transform.Crop.new(
+        width: crop.width,
+        height: crop.height,
+        crop_from: :gravity,
+        gravity: crop.gravity,
+        x_offset: crop.x_offset,
+        y_offset: crop.y_offset,
+        orientation: orientation
+      )
+    )
+  end
+
+  defp orientation_operations(%PipelineRequest{orientation: %Orientation{} = orientation}) do
+    operations =
+      [
+        auto_orient_operation(orientation),
+        rotate_operation(orientation),
+        flip_operation(orientation)
+      ]
+      |> Enum.reject(&is_nil/1)
+
+    reduce_results(operations)
+  end
+
+  defp auto_orient_operation(%Orientation{auto_orient: true}), do: Transform.AutoOrient.new([])
+  defp auto_orient_operation(%Orientation{}), do: nil
+
+  defp rotate_operation(%Orientation{rotate: 0}), do: nil
+  defp rotate_operation(%Orientation{rotate: angle}), do: Transform.Rotate.new(angle: angle)
+
+  defp flip_operation(%Orientation{flip: nil}), do: nil
+  defp flip_operation(%Orientation{flip: axis}), do: Transform.Flip.new(axis: axis)
 
   defp resize_operations(%PipelineRequest{width: nil, height: nil} = request) do
     if resize_rule_requested?(request) do

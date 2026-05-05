@@ -108,27 +108,30 @@ defmodule ImagePlug.Parser.Native.PlanBuilderTest do
            ] = operations
   end
 
-  test "rejects gravity-bearing fill, fill-down, and auto requests until neutral gravity crop support exists" do
-    assert plan_pipeline(
-             resizing_type: :fill,
-             width: {:pixels, 100},
-             height: {:pixels, 100},
-             gravity: {:anchor, :left, :top}
-           ) == {:error, {:unsupported_gravity_for_resize, :fill}}
+  test "accepts gravity-bearing fill, fill-down, and auto requests" do
+    assert {:ok, %Plan{pipelines: [%Pipeline{operations: [%Transform.Resize{}]}]}} =
+             plan_pipeline(
+               resizing_type: :fill,
+               width: {:pixels, 100},
+               height: {:pixels, 100},
+               gravity: {:anchor, :left, :top}
+             )
 
-    assert plan_pipeline(
-             resizing_type: :fill_down,
-             width: {:pixels, 100},
-             height: {:pixels, 100},
-             gravity: {:fp, 0.25, 0.75}
-           ) == {:error, {:unsupported_gravity_for_resize, :fill_down}}
+    assert {:ok, %Plan{pipelines: [%Pipeline{operations: [%Transform.Resize{}]}]}} =
+             plan_pipeline(
+               resizing_type: :fill_down,
+               width: {:pixels, 100},
+               height: {:pixels, 100},
+               gravity: {:fp, 0.25, 0.75}
+             )
 
-    assert plan_pipeline(
-             resizing_type: :auto,
-             width: {:pixels, 100},
-             height: {:pixels, 100},
-             gravity: {:anchor, :right, :bottom}
-           ) == {:error, {:unsupported_gravity_for_resize, :auto}}
+    assert {:ok, %Plan{pipelines: [%Pipeline{operations: [%Transform.AdaptiveResize{}]}]}} =
+             plan_pipeline(
+               resizing_type: :auto,
+               width: {:pixels, 100},
+               height: {:pixels, 100},
+               gravity: {:anchor, :right, :bottom}
+             )
   end
 
   test "preserves zero fit and fill dimensions as no geometry when both dimensions are auto" do
@@ -288,6 +291,34 @@ defmodule ImagePlug.Parser.Native.PlanBuilderTest do
     assert pipeline.orientation.flip == nil
   end
 
+  test "planner emits fixed crop orientation resize order independent of URL order" do
+    one =
+      plan_pipeline(
+        crop: %ImagePlug.Parser.Native.CropRequest{
+          width: {:pixels, 100},
+          height: {:pixels, 100}
+        },
+        rotate: 90,
+        width: {:pixels, 200}
+      )
+
+    two =
+      plan_pipeline(
+        width: {:pixels, 200},
+        rotate: 90,
+        crop: %ImagePlug.Parser.Native.CropRequest{
+          width: {:pixels, 100},
+          height: {:pixels, 100}
+        }
+      )
+
+    assert {:ok, %Plan{pipelines: [%Pipeline{operations: one_ops}]}} = one
+    assert {:ok, %Plan{pipelines: [%Pipeline{operations: two_ops}]}} = two
+
+    assert Enum.map(one_ops, &ImagePlug.Transform.transform_name/1) ==
+             Enum.map(two_ops, &ImagePlug.Transform.transform_name/1)
+  end
+
   test "parsed zoom supports one shared factor or independent axes" do
     assert {:ok, pipeline} = parsed_pipeline("/_/zoom:2/plain/images/cat.jpg")
     assert pipeline.zoom_x == 2.0
@@ -408,15 +439,15 @@ defmodule ImagePlug.Parser.Native.PlanBuilderTest do
     assert resize.rule.dpr == 2.0
   end
 
-  test "rejects unsupported parsed pipeline semantics before planning no-op operations" do
-    assert plan_pipeline(crop: struct(ImagePlug.Parser.Native.CropRequest)) ==
-             {:error, {:unsupported_pipeline_semantic, :crop}}
+  test "plans parsed crop and orientation semantics before no-op operations" do
+    assert {:ok, %Plan{pipelines: [%Pipeline{operations: [%Transform.Crop{}]}]}} =
+             plan_pipeline(crop: struct(ImagePlug.Parser.Native.CropRequest))
 
-    assert plan_pipeline(orientation: struct(ImagePlug.Plan.Orientation, auto_orient: true)) ==
-             {:error, {:unsupported_pipeline_semantic, :orientation}}
+    assert {:ok, %Plan{pipelines: [%Pipeline{operations: [%Transform.AutoOrient{}]}]}} =
+             plan_pipeline(orientation: struct(ImagePlug.Plan.Orientation, auto_orient: true))
 
-    assert plan_pipeline(orientation_requested: true) ==
-             {:error, {:unsupported_pipeline_semantic, :orientation}}
+    assert {:ok, %Plan{pipelines: [%Pipeline{operations: []}]}} =
+             plan_pipeline(orientation_requested: true)
   end
 
   test "rejects invalid direct pipeline request values" do
@@ -735,6 +766,8 @@ defmodule ImagePlug.Parser.Native.PlanBuilderTest do
   end
 
   defp plan_pipeline(attrs) do
+    attrs = normalize_orientation_attrs(attrs)
+
     PlanBuilder.to_plan(
       %ParsedRequest{
         signature: "_",
@@ -746,4 +779,26 @@ defmodule ImagePlug.Parser.Native.PlanBuilderTest do
       []
     )
   end
+
+  defp normalize_orientation_attrs(attrs) do
+    {auto_orient, attrs} = Keyword.pop(attrs, :auto_orient)
+    {rotate, attrs} = Keyword.pop(attrs, :rotate)
+    {flip, attrs} = Keyword.pop(attrs, :flip)
+
+    orientation_attrs =
+      []
+      |> maybe_put(:auto_orient, auto_orient)
+      |> maybe_put(:rotate, rotate)
+      |> maybe_put(:flip, flip)
+
+    if orientation_attrs == [] do
+      attrs
+    else
+      {orientation, attrs} = Keyword.pop(attrs, :orientation, %ImagePlug.Plan.Orientation{})
+      Keyword.put(attrs, :orientation, struct!(orientation, orientation_attrs))
+    end
+  end
+
+  defp maybe_put(attrs, _key, nil), do: attrs
+  defp maybe_put(attrs, key, value), do: Keyword.put(attrs, key, value)
 end

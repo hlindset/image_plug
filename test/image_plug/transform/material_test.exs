@@ -49,6 +49,51 @@ defmodule ImagePlug.Transform.MaterialTest do
            ]
   end
 
+  test "semantic crop operations emit request and orientation material" do
+    assert Material.material(%Transform.Crop{
+             width: {:pixels, 200},
+             height: {:pixels, 100},
+             crop_from: :gravity,
+             gravity: {:anchor, :left, :top},
+             x_offset: 5.0,
+             y_offset: -3.0,
+             orientation: %ImagePlug.Plan.Orientation{
+               auto_orient: true,
+               rotate: 90,
+               flip: :horizontal
+             }
+           }) == [
+             op: :crop,
+             width: {:pixels, 200},
+             height: {:pixels, 100},
+             crop_from: :gravity,
+             gravity: {:anchor, :left, :top},
+             x_offset: 5.0,
+             y_offset: -3.0,
+             orientation: [
+               auto_orient: true,
+               rotate: 90,
+               flip: :horizontal
+             ]
+           ]
+  end
+
+  test "orientation operations emit canonical material" do
+    assert Material.material(%Transform.AutoOrient{}) == [
+             op: :auto_orient
+           ]
+
+    assert Material.material(%Transform.Rotate{angle: 90}) == [
+             op: :rotate,
+             angle: 90
+           ]
+
+    assert Material.material(%Transform.Flip{axis: :horizontal}) == [
+             op: :flip,
+             axis: :horizontal
+           ]
+  end
+
   test "focus operations emit canonical material" do
     assert Material.material(%Transform.Focus{
              type: {:coordinate, {:percent, 25.0}, {:percent, 75.0}}
