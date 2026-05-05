@@ -330,14 +330,13 @@ defmodule ImagePlug.Cache.KeyPropertyTest do
           pipelines: [
             %Pipeline{
               operations: [
-                {Transform.Contain,
-                 %Transform.Contain.ContainParams{
-                   type: :dimensions,
-                   width: {:pixels, 300},
-                   height: :auto,
-                   constraint: :max,
-                   letterbox: false
-                 }}
+                %Transform.Contain{
+                  type: :dimensions,
+                  width: {:pixels, 300},
+                  height: :auto,
+                  constraint: :max,
+                  letterbox: false
+                }
               ]
             }
           ],
@@ -365,22 +364,20 @@ defmodule ImagePlug.Cache.KeyPropertyTest do
   defp operation do
     one_of([
       map({maybe_dimension(), maybe_dimension()}, fn {width, height} ->
-        {Transform.Contain,
-         %Transform.Contain.ContainParams{
-           type: :dimensions,
-           width: width || {:pixels, 100},
-           height: height || :auto,
-           constraint: :max,
-           letterbox: false
-         }}
+        %Transform.Contain{
+          type: :dimensions,
+          width: width || {:pixels, 100},
+          height: height || :auto,
+          constraint: :max,
+          letterbox: false
+        }
       end),
       map({pixel_dimension(), pixel_dimension()}, fn {width, height} ->
-        {Transform.Crop,
-         %Transform.Crop.CropParams{
-           width: width,
-           height: height,
-           crop_from: :focus
-         }}
+        %Transform.Crop{
+          width: width,
+          height: height,
+          crop_from: :focus
+        }
       end)
     ])
   end

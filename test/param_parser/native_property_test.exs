@@ -39,7 +39,7 @@ defmodule ImagePlug.ParamParser.NativePropertyTest do
                |> native_path(["images", "cat.jpg"])
                |> parse_path()
 
-      assert [{Transform.Contain, params}] = operations
+      assert [%Transform.Contain{} = params] = operations
       assert params.width == {:pixels, second}
     end
   end
@@ -53,7 +53,7 @@ defmodule ImagePlug.ParamParser.NativePropertyTest do
                |> native_path(["images", "cat.jpg"])
                |> parse_path()
 
-      assert [{Transform.Cover, params}] = operations
+      assert [%Transform.Cover{} = params] = operations
       assert params.width == {:pixels, width}
       assert params.height == {:pixels, height}
     end

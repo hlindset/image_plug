@@ -4,9 +4,7 @@ defmodule ImagePlug.SequentialCompatibilityTest do
   alias ImagePlug.ImageMaterializer
   alias ImagePlug.Origin
   alias ImagePlug.Transform.Contain
-  alias ImagePlug.Transform.Contain.ContainParams
   alias ImagePlug.Transform.Scale
-  alias ImagePlug.Transform.Scale.ScaleParams
   alias ImagePlug.TransformChain
   alias ImagePlug.TransformState
 
@@ -15,7 +13,7 @@ defmodule ImagePlug.SequentialCompatibilityTest do
 
   test "width-only scale matches random access after materialization" do
     chain = [
-      {Scale, %ScaleParams{type: :dimensions, width: {:pixels, 100}, height: :auto}}
+      %Scale{type: :dimensions, width: {:pixels, 100}, height: :auto}
     ]
 
     assert_sequential_matches_random(chain, jpeg_body(@cat_path))
@@ -23,7 +21,7 @@ defmodule ImagePlug.SequentialCompatibilityTest do
 
   test "height-only scale matches random access after materialization" do
     chain = [
-      {Scale, %ScaleParams{type: :dimensions, width: :auto, height: {:pixels, 100}}}
+      %Scale{type: :dimensions, width: :auto, height: {:pixels, 100}}
     ]
 
     assert_sequential_matches_random(chain, jpeg_body(@cat_path))
@@ -31,7 +29,7 @@ defmodule ImagePlug.SequentialCompatibilityTest do
 
   test "width-only upscale matches random access after materialization" do
     chain = [
-      {Scale, %ScaleParams{type: :dimensions, width: {:pixels, 400}, height: :auto}}
+      %Scale{type: :dimensions, width: {:pixels, 400}, height: :auto}
     ]
 
     assert_sequential_matches_random(chain, jpeg_body(@cat_path))
@@ -39,7 +37,7 @@ defmodule ImagePlug.SequentialCompatibilityTest do
 
   test "height-only upscale matches random access after materialization" do
     chain = [
-      {Scale, %ScaleParams{type: :dimensions, width: :auto, height: {:pixels, 400}}}
+      %Scale{type: :dimensions, width: :auto, height: {:pixels, 400}}
     ]
 
     assert_sequential_matches_random(chain, jpeg_body(@cat_path))
@@ -47,14 +45,13 @@ defmodule ImagePlug.SequentialCompatibilityTest do
 
   test "regular non-letterboxed contain matches random access after materialization" do
     chain = [
-      {Contain,
-       %ContainParams{
-         type: :dimensions,
-         width: {:pixels, 100},
-         height: {:pixels, 80},
-         constraint: :regular,
-         letterbox: false
-       }}
+      %Contain{
+        type: :dimensions,
+        width: {:pixels, 100},
+        height: {:pixels, 80},
+        constraint: :regular,
+        letterbox: false
+      }
     ]
 
     assert_sequential_matches_random(chain, jpeg_body(@cat_path))
@@ -62,14 +59,13 @@ defmodule ImagePlug.SequentialCompatibilityTest do
 
   test "width-only regular non-letterboxed contain matches random access after materialization" do
     chain = [
-      {Contain,
-       %ContainParams{
-         type: :dimensions,
-         width: {:pixels, 100},
-         height: :auto,
-         constraint: :regular,
-         letterbox: false
-       }}
+      %Contain{
+        type: :dimensions,
+        width: {:pixels, 100},
+        height: :auto,
+        constraint: :regular,
+        letterbox: false
+      }
     ]
 
     assert_sequential_matches_random(chain, jpeg_body(@cat_path))
@@ -77,14 +73,13 @@ defmodule ImagePlug.SequentialCompatibilityTest do
 
   test "height-only regular non-letterboxed contain matches random access after materialization" do
     chain = [
-      {Contain,
-       %ContainParams{
-         type: :dimensions,
-         width: :auto,
-         height: {:pixels, 80},
-         constraint: :regular,
-         letterbox: false
-       }}
+      %Contain{
+        type: :dimensions,
+        width: :auto,
+        height: {:pixels, 80},
+        constraint: :regular,
+        letterbox: false
+      }
     ]
 
     assert_sequential_matches_random(chain, jpeg_body(@cat_path))
@@ -92,14 +87,13 @@ defmodule ImagePlug.SequentialCompatibilityTest do
 
   test "regular non-letterboxed contain matches random access for progressive non-square jpeg" do
     chain = [
-      {Contain,
-       %ContainParams{
-         type: :dimensions,
-         width: {:pixels, 120},
-         height: {:pixels, 90},
-         constraint: :regular,
-         letterbox: false
-       }}
+      %Contain{
+        type: :dimensions,
+        width: {:pixels, 120},
+        height: {:pixels, 90},
+        constraint: :regular,
+        letterbox: false
+      }
     ]
 
     assert_sequential_matches_random(chain, jpeg_body(@dog_path))
@@ -107,14 +101,13 @@ defmodule ImagePlug.SequentialCompatibilityTest do
 
   test "regular non-letterboxed contain matches random access for alpha png" do
     chain = [
-      {Contain,
-       %ContainParams{
-         type: :dimensions,
-         width: {:pixels, 400},
-         height: {:pixels, 400},
-         constraint: :regular,
-         letterbox: false
-       }}
+      %Contain{
+        type: :dimensions,
+        width: {:pixels, 400},
+        height: {:pixels, 400},
+        constraint: :regular,
+        letterbox: false
+      }
     ]
 
     assert_sequential_matches_random(chain, alpha_png_body(), "image/png")
@@ -122,7 +115,7 @@ defmodule ImagePlug.SequentialCompatibilityTest do
 
   test "successful sequential materialization drains origin stream before delivery" do
     chain = [
-      {Scale, %ScaleParams{type: :dimensions, width: {:pixels, 100}, height: :auto}}
+      %Scale{type: :dimensions, width: {:pixels, 100}, height: :auto}
     ]
 
     {:ok, _sequential_image, sequential_response} =

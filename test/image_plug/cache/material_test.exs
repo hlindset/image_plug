@@ -4,8 +4,8 @@ defmodule ImagePlug.Cache.MaterialTest do
   alias ImagePlug.Cache.Material
   alias ImagePlug.Transform
 
-  test "contain params emit canonical material" do
-    assert Material.material(%Transform.Contain.ContainParams{
+  test "contain operations emit canonical material" do
+    assert Material.material(%Transform.Contain{
              type: :dimensions,
              width: {:pixels, 300},
              height: :auto,
@@ -21,8 +21,8 @@ defmodule ImagePlug.Cache.MaterialTest do
            ]
   end
 
-  test "cover params emit canonical material" do
-    assert Material.material(%Transform.Cover.CoverParams{
+  test "cover operations emit canonical material" do
+    assert Material.material(%Transform.Cover{
              type: :dimensions,
              width: {:pixels, 300},
              height: {:pixels, 200},
@@ -36,8 +36,8 @@ defmodule ImagePlug.Cache.MaterialTest do
            ]
   end
 
-  test "crop params emit canonical material" do
-    assert Material.material(%Transform.Crop.CropParams{
+  test "crop operations emit canonical material" do
+    assert Material.material(%Transform.Crop{
              width: {:pixels, 200},
              height: {:pixels, 100},
              crop_from: :focus
@@ -49,8 +49,8 @@ defmodule ImagePlug.Cache.MaterialTest do
            ]
   end
 
-  test "focus params emit canonical material" do
-    assert Material.material(%Transform.Focus.FocusParams{
+  test "focus operations emit canonical material" do
+    assert Material.material(%Transform.Focus{
              type: {:coordinate, {:percent, 25.0}, {:percent, 75.0}}
            }) == [
              op: :focus,
@@ -58,8 +58,8 @@ defmodule ImagePlug.Cache.MaterialTest do
            ]
   end
 
-  test "scale params emit canonical material" do
-    assert Material.material(%Transform.Scale.ScaleParams{
+  test "scale operations emit canonical material" do
+    assert Material.material(%Transform.Scale{
              type: :dimensions,
              width: {:pixels, 300},
              height: :auto

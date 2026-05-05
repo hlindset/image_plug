@@ -48,14 +48,14 @@ defmodule ImagePlug.ParamParser.NativeTest do
   end
 
   test "parses resize and rs full grammar" do
-    assert [{Transform.Cover, cover_params}] =
+    assert [%Transform.Cover{} = cover_params] =
              operations_for("/_/resize:fill:300:200:1:0/plain/images/cat.jpg")
 
     assert cover_params.width == {:pixels, 300}
     assert cover_params.height == {:pixels, 200}
     assert cover_params.constraint == :none
 
-    assert [{Transform.Scale, scale_params}] =
+    assert [%Transform.Scale{} = scale_params] =
              operations_for("/_/rs:force:300:200/plain/images/cat.jpg")
 
     assert scale_params.width == {:pixels, 300}
@@ -63,13 +63,13 @@ defmodule ImagePlug.ParamParser.NativeTest do
   end
 
   test "parses omitted resize arguments with imgproxy defaults" do
-    assert [{Transform.Contain, width_params}] =
+    assert [%Transform.Contain{} = width_params] =
              operations_for("/_/rs:fit:300/plain/images/cat.jpg")
 
     assert width_params.width == {:pixels, 300}
     assert width_params.height == :auto
 
-    assert [{Transform.Contain, dimensions_params}] =
+    assert [%Transform.Contain{} = dimensions_params] =
              operations_for("/_/rs::300:200/plain/images/cat.jpg")
 
     assert dimensions_params.width == {:pixels, 300}
@@ -84,7 +84,7 @@ defmodule ImagePlug.ParamParser.NativeTest do
   end
 
   test "omitted meta-option arguments do not overwrite previous field assignments" do
-    assert [{Transform.Cover, params}] =
+    assert [%Transform.Cover{} = params] =
              operations_for("/_/w:500/rs:fill::200/plain/images/cat.jpg")
 
     assert params.width == {:pixels, 500}
@@ -112,7 +112,7 @@ defmodule ImagePlug.ParamParser.NativeTest do
   end
 
   test "parses size without changing resizing_type" do
-    assert [{Transform.Scale, params}] =
+    assert [%Transform.Scale{} = params] =
              operations_for("/_/rt:force/s:300:200/plain/images/cat.jpg")
 
     assert params.width == {:pixels, 300}
@@ -120,7 +120,7 @@ defmodule ImagePlug.ParamParser.NativeTest do
   end
 
   test "size overwrites dimensions without resetting resizing_type" do
-    assert [{Transform.Cover, params}] =
+    assert [%Transform.Cover{} = params] =
              operations_for("/_/rs:fill:300:200/s:100:100/plain/images/cat.jpg")
 
     assert params.width == {:pixels, 100}
@@ -151,7 +151,7 @@ defmodule ImagePlug.ParamParser.NativeTest do
   end
 
   test "parses width and height aliases including zero" do
-    assert [{Transform.Contain, params}] =
+    assert [%Transform.Contain{} = params] =
              operations_for("/_/w:0/h:200/plain/images/cat.jpg")
 
     assert params.width == :auto
@@ -159,17 +159,17 @@ defmodule ImagePlug.ParamParser.NativeTest do
   end
 
   test "parses gravity anchors and focal point" do
-    assert [{Transform.Focus, anchor_focus}, {Transform.Cover, _cover_params}] =
+    assert [%Transform.Focus{} = anchor_focus, %Transform.Cover{} = _cover_params] =
              operations_for("/_/g:nowe/rs:fill:300:200/plain/images/cat.jpg")
 
     assert anchor_focus.type == {:anchor, :left, :top}
 
-    assert [{Transform.Focus, focal_focus}, {Transform.Cover, _cover_params}] =
+    assert [%Transform.Focus{} = focal_focus, %Transform.Cover{} = _cover_params] =
              operations_for("/_/gravity:fp:0.5:0.25/rs:fill:300:200/plain/images/cat.jpg")
 
     assert focal_focus.type == {:coordinate, {:percent, 50.0}, {:percent, 25.0}}
 
-    assert [{Transform.Focus, edge_focus}, {Transform.Cover, _cover_params}] =
+    assert [%Transform.Focus{} = edge_focus, %Transform.Cover{} = _cover_params] =
              operations_for("/_/g:fp:1:0/rs:fill:300:200/plain/images/cat.jpg")
 
     assert edge_focus.type == {:coordinate, {:percent, 100.0}, {:percent, 0.0}}
@@ -212,24 +212,24 @@ defmodule ImagePlug.ParamParser.NativeTest do
   end
 
   test "later field assignments overwrite earlier assignments" do
-    assert [{Transform.Contain, contain_params}] =
+    assert [%Transform.Contain{} = contain_params] =
              operations_for("/_/w:100/width:200/plain/images/cat.jpg")
 
     assert contain_params.width == {:pixels, 200}
 
-    assert [{Transform.Cover, resized_params}] =
+    assert [%Transform.Cover{} = resized_params] =
              operations_for("/_/resize:fill:300:200/w:500/plain/images/cat.jpg")
 
     assert resized_params.width == {:pixels, 500}
     assert resized_params.height == {:pixels, 200}
 
-    assert [{Transform.Cover, overwritten_params}] =
+    assert [%Transform.Cover{} = overwritten_params] =
              operations_for("/_/w:500/resize:fill:300:200/plain/images/cat.jpg")
 
     assert overwritten_params.width == {:pixels, 300}
     assert overwritten_params.height == {:pixels, 200}
 
-    assert [{Transform.Scale, scale_params}] =
+    assert [%Transform.Scale{} = scale_params] =
              operations_for("/_/size:300:200/rt:force/plain/images/cat.jpg")
 
     assert scale_params.width == {:pixels, 300}
@@ -245,11 +245,11 @@ defmodule ImagePlug.ParamParser.NativeTest do
               ]
             }} = Native.parse(conn(:get, "/_/w:500/-/h:200/plain/images/cat.jpg"))
 
-    assert [{Transform.Contain, first_params}] = first_operations
+    assert [%Transform.Contain{} = first_params] = first_operations
     assert first_params.width == {:pixels, 500}
     assert first_params.height == :auto
 
-    assert [{Transform.Contain, second_params}] = second_operations
+    assert [%Transform.Contain{} = second_params] = second_operations
     assert second_params.width == :auto
     assert second_params.height == {:pixels, 200}
   end
@@ -280,10 +280,10 @@ defmodule ImagePlug.ParamParser.NativeTest do
             }} =
              Native.parse(conn(:get, "/_/w:500/w:600/-/h:200/h:300/plain/images/cat.jpg"))
 
-    assert [{Transform.Contain, first_params}] = first_operations
+    assert [%Transform.Contain{} = first_params] = first_operations
     assert first_params.width == {:pixels, 600}
 
-    assert [{Transform.Contain, second_params}] = second_operations
+    assert [%Transform.Contain{} = second_params] = second_operations
     assert second_params.height == {:pixels, 300}
   end
 

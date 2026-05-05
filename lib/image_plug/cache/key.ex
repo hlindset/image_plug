@@ -70,8 +70,8 @@ defmodule ImagePlug.Cache.Key do
     exception in Protocol.UndefinedError -> {:error, {:unprojectable_operation, exception.value}}
   end
 
-  defp operation_material({_transform_module, params}) do
-    Material.material(params)
+  defp operation_material(operation) do
+    Material.material(operation)
   end
 
   defp output_material(conn, %OutputPlan{mode: :automatic}, opts) do

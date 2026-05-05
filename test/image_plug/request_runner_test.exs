@@ -39,7 +39,15 @@ defmodule ImagePlug.RequestRunnerTest do
   defmodule FirstTransform do
     defstruct []
 
-    def execute(%TransformState{} = state, %__MODULE__{}) do
+    def new(attrs), do: {:ok, new!(attrs)}
+    def new!(%__MODULE__{} = operation), do: operation
+    def new!(attrs), do: struct!(__MODULE__, attrs)
+
+    def name(%__MODULE__{}), do: :first
+
+    def metadata(%__MODULE__{}), do: %{access: :random}
+
+    def execute(%__MODULE__{}, %TransformState{} = state) do
       %TransformState{state | debug: true}
     end
   end
@@ -47,7 +55,15 @@ defmodule ImagePlug.RequestRunnerTest do
   defmodule SecondTransform do
     defstruct [:test_pid, :ref]
 
-    def execute(%TransformState{} = state, %__MODULE__{test_pid: test_pid, ref: ref}) do
+    def new(attrs), do: {:ok, new!(attrs)}
+    def new!(%__MODULE__{} = operation), do: operation
+    def new!(attrs), do: struct!(__MODULE__, attrs)
+
+    def name(%__MODULE__{}), do: :second
+
+    def metadata(%__MODULE__{}), do: %{access: :random}
+
+    def execute(%__MODULE__{test_pid: test_pid, ref: ref}, %TransformState{} = state) do
       send(test_pid, {:pipeline_event, ref, :second_transform_ran})
       state
     end
@@ -186,7 +202,7 @@ defmodule ImagePlug.RequestRunnerTest do
 
     plan =
       plan(
-        pipelines: [%Pipeline{operations: [{FirstTransform, %FirstTransform{}}]}],
+        pipelines: [%Pipeline{operations: [%FirstTransform{}]}],
         output: %OutputPlan{mode: {:explicit, :jpeg}}
       )
 
@@ -250,9 +266,9 @@ defmodule ImagePlug.RequestRunnerTest do
     plan =
       plan(
         pipelines: [
-          %Pipeline{operations: [{FirstTransform, %FirstTransform{}}]},
+          %Pipeline{operations: [%FirstTransform{}]},
           %Pipeline{
-            operations: [{SecondTransform, %SecondTransform{test_pid: test_pid, ref: ref}}]
+            operations: [%SecondTransform{test_pid: test_pid, ref: ref}]
           }
         ]
       )
@@ -282,17 +298,15 @@ defmodule ImagePlug.RequestRunnerTest do
 
   test "known plan operations are included in cache lookup material" do
     operations = [
-      {Transform.Focus,
-       %Transform.Focus.FocusParams{
-         type: {:anchor, :left, :top}
-       }},
-      {Transform.Cover,
-       %Transform.Cover.CoverParams{
-         type: :dimensions,
-         width: {:pixels, 100},
-         height: {:pixels, 100},
-         constraint: :min
-       }}
+      %Transform.Focus{
+        type: {:anchor, :left, :top}
+      },
+      %Transform.Cover{
+        type: :dimensions,
+        width: {:pixels, 100},
+        height: {:pixels, 100},
+        constraint: :min
+      }
     ]
 
     entry = %Entry{

@@ -1,21 +1,21 @@
-defimpl ImagePlug.Cache.Material, for: ImagePlug.Transform.Contain.ContainParams do
-  def material(%{type: :ratio} = params) do
+defimpl ImagePlug.Cache.Material, for: ImagePlug.Transform.Contain do
+  def material(%ImagePlug.Transform.Contain{type: :ratio} = operation) do
     [
       op: :contain,
-      type: params.type,
-      ratio: params.ratio,
-      letterbox: params.letterbox
+      type: operation.type,
+      ratio: operation.ratio,
+      letterbox: operation.letterbox
     ]
   end
 
-  def material(params) do
+  def material(%ImagePlug.Transform.Contain{} = operation) do
     [
       op: :contain,
-      type: params.type,
-      width: params.width,
-      height: params.height,
-      constraint: params.constraint,
-      letterbox: params.letterbox
+      type: operation.type,
+      width: operation.width,
+      height: operation.height,
+      constraint: operation.constraint,
+      letterbox: operation.letterbox
     ]
   end
 end

@@ -60,7 +60,7 @@ defmodule ImagePlug.RequestRunner do
 
   defp cacheable_operations?(pipelines) do
     Enum.all?(pipelines, fn %Pipeline{operations: operations} ->
-      Enum.all?(operations, fn {_module, params} -> Material.impl_for(params) end)
+      Enum.all?(operations, fn operation -> Material.impl_for(operation) end)
     end)
   end
 

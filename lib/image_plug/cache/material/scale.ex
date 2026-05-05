@@ -1,18 +1,18 @@
-defimpl ImagePlug.Cache.Material, for: ImagePlug.Transform.Scale.ScaleParams do
-  def material(%{type: :ratio} = params) do
+defimpl ImagePlug.Cache.Material, for: ImagePlug.Transform.Scale do
+  def material(%ImagePlug.Transform.Scale{type: :ratio} = operation) do
     [
       op: :scale,
-      type: params.type,
-      ratio: params.ratio
+      type: operation.type,
+      ratio: operation.ratio
     ]
   end
 
-  def material(params) do
+  def material(%ImagePlug.Transform.Scale{} = operation) do
     [
       op: :scale,
-      type: params.type,
-      width: params.width,
-      height: params.height
+      type: operation.type,
+      width: operation.width,
+      height: operation.height
     ]
   end
 end

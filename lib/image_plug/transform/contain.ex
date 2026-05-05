@@ -8,51 +8,70 @@ defmodule ImagePlug.Transform.Contain do
 
   alias ImagePlug.TransformState
 
-  defmodule ContainParams do
-    @moduledoc false
+  defstruct [:type, :ratio, :width, :height, :constraint, :letterbox]
 
-    defstruct [:type, :ratio, :width, :height, :constraint, :letterbox]
-
-    @type t ::
-            %__MODULE__{
-              type: :ratio,
-              ratio: ImagePlug.imgp_ratio(),
+  @type t ::
+          %__MODULE__{
+            type: :ratio,
+            ratio: ImagePlug.imgp_ratio(),
+            letterbox: boolean()
+          }
+          | %__MODULE__{
+              type: :dimensions,
+              width: ImagePlug.imgp_length(),
+              height: ImagePlug.imgp_length() | :auto,
+              constraint: :regular | :min | :max,
               letterbox: boolean()
             }
-            | %__MODULE__{
-                type: :dimensions,
-                width: ImagePlug.imgp_length(),
-                height: ImagePlug.imgp_length() | :auto,
-                constraint: :regular | :min | :max,
-                letterbox: boolean()
-              }
-            | %__MODULE__{
-                type: :dimensions,
-                width: ImagePlug.imgp_length() | :auto,
-                height: ImagePlug.imgp_length(),
-                constraint: :regular | :min | :max,
-                letterbox: boolean()
-              }
+          | %__MODULE__{
+              type: :dimensions,
+              width: ImagePlug.imgp_length() | :auto,
+              height: ImagePlug.imgp_length(),
+              constraint: :regular | :min | :max,
+              letterbox: boolean()
+            }
+
+  @impl ImagePlug.Transform
+  def new(attrs) do
+    {:ok, new!(attrs)}
+  rescue
+    exception in [ArgumentError, KeyError] ->
+      {:error, exception}
   end
 
   @impl ImagePlug.Transform
-  def metadata(%ContainParams{
+  def new!(%__MODULE__{} = operation), do: operation
+
+  def new!(attrs) when is_list(attrs) or is_map(attrs) do
+    attrs
+    |> validate_attrs!()
+    |> then(&struct!(__MODULE__, &1))
+  end
+
+  @impl ImagePlug.Transform
+  def name(%__MODULE__{}), do: :contain
+
+  @impl ImagePlug.Transform
+  def metadata(%__MODULE__{
         type: :dimensions,
         constraint: :regular,
         letterbox: false
       }),
       do: %{access: :sequential}
 
-  def metadata(%ContainParams{}), do: %{access: :random}
+  def metadata(%__MODULE__{}), do: %{access: :random}
 
   @impl ImagePlug.Transform
-  def execute(%TransformState{} = state, %ContainParams{
-        type: :ratio,
-        ratio: {ratio_width, ratio_height},
-        # Note: Not letterboxing doesn't make sense with this implementation,
-        #       as the transformation would just return the same image
-        letterbox: letterbox
-      }) do
+  def execute(
+        %__MODULE__{
+          type: :ratio,
+          ratio: {ratio_width, ratio_height},
+          # Note: Not letterboxing doesn't make sense with this implementation,
+          #       as the transformation would just return the same image
+          letterbox: letterbox
+        } = _params,
+        %TransformState{} = state
+      ) do
     # compute target width and height based on the ratio
     image_width = image_width(state)
     image_height = image_height(state)
@@ -69,23 +88,29 @@ defmodule ImagePlug.Transform.Contain do
         {round(image_height * target_ratio), image_height}
       end
 
-    execute(state, %ContainParams{
-      type: :dimensions,
-      width: target_width,
-      height: target_height,
-      constraint: :none,
-      letterbox: letterbox
-    })
+    execute(
+      %__MODULE__{
+        type: :dimensions,
+        width: target_width,
+        height: target_height,
+        constraint: :none,
+        letterbox: letterbox
+      },
+      state
+    )
   end
 
   @impl ImagePlug.Transform
-  def execute(%TransformState{} = state, %ContainParams{
-        type: :dimensions,
-        width: width,
-        height: height,
-        constraint: constraint,
-        letterbox: letterbox
-      }) do
+  def execute(
+        %__MODULE__{
+          type: :dimensions,
+          width: width,
+          height: height,
+          constraint: constraint,
+          letterbox: letterbox
+        },
+        %TransformState{} = state
+      ) do
     {target_width, target_height} = resolve_auto_size(state, width, height)
     {resize_width, resize_height} = fit_inside(state, target_width, target_height)
 
@@ -142,4 +167,39 @@ defmodule ImagePlug.Transform.Contain do
       {:error, _reason} = error -> error
     end
   end
+
+  defp validate_attrs!(attrs) do
+    attrs = Map.new(attrs)
+
+    case Map.fetch!(attrs, :type) do
+      :dimensions ->
+        _width = Map.fetch!(attrs, :width)
+        _height = Map.fetch!(attrs, :height)
+        constraint = Map.fetch!(attrs, :constraint)
+        validate_constraint!(constraint, [:regular, :min, :max])
+        validate_letterbox!(Map.fetch!(attrs, :letterbox))
+        attrs
+
+      :ratio ->
+        _ratio = Map.fetch!(attrs, :ratio)
+        validate_letterbox!(Map.fetch!(attrs, :letterbox))
+        attrs
+
+      type ->
+        raise ArgumentError, "invalid contain type: #{inspect(type)}"
+    end
+  end
+
+  defp validate_constraint!(constraint, allowed) do
+    if constraint in allowed do
+      :ok
+    else
+      raise ArgumentError, "invalid contain constraint: #{inspect(constraint)}"
+    end
+  end
+
+  defp validate_letterbox!(letterbox) when is_boolean(letterbox), do: :ok
+
+  defp validate_letterbox!(letterbox),
+    do: raise(ArgumentError, "invalid contain letterbox: #{inspect(letterbox)}")
 end

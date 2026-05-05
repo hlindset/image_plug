@@ -20,24 +20,22 @@ defmodule ImagePlug.Cache.KeyTest do
           pipelines: [
             %Pipeline{
               operations: [
-                {Transform.Contain,
-                 %Transform.Contain.ContainParams{
-                   type: :dimensions,
-                   width: {:pixels, 300},
-                   height: :auto,
-                   constraint: :max,
-                   letterbox: false
-                 }}
+                %Transform.Contain{
+                  type: :dimensions,
+                  width: {:pixels, 300},
+                  height: :auto,
+                  constraint: :max,
+                  letterbox: false
+                }
               ]
             },
             %Pipeline{
               operations: [
-                {Transform.Crop,
-                 %Transform.Crop.CropParams{
-                   width: {:pixels, 200},
-                   height: {:pixels, 100},
-                   crop_from: :focus
-                 }}
+                %Transform.Crop{
+                  width: {:pixels, 200},
+                  height: {:pixels, 100},
+                  crop_from: :focus
+                }
               ]
             }
           ],

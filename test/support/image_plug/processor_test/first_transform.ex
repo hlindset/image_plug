@@ -5,7 +5,15 @@ defmodule ImagePlug.ProcessorTest.FirstTransform do
 
   defstruct []
 
-  def execute(%TransformState{} = state, %__MODULE__{}) do
+  def new(attrs), do: {:ok, new!(attrs)}
+  def new!(%__MODULE__{} = operation), do: operation
+  def new!(attrs), do: struct!(__MODULE__, attrs)
+
+  def name(%__MODULE__{}), do: :first
+
+  def metadata(%__MODULE__{}), do: %{access: :random}
+
+  def execute(%__MODULE__{}, %TransformState{} = state) do
     %TransformState{state | debug: true}
   end
 end

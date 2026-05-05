@@ -1,8 +1,8 @@
-defimpl ImagePlug.Cache.Material, for: ImagePlug.Transform.Focus.FocusParams do
-  def material(params) do
+defimpl ImagePlug.Cache.Material, for: ImagePlug.Transform.Focus do
+  def material(%ImagePlug.Transform.Focus{} = operation) do
     [
       op: :focus,
-      type: params.type
+      type: operation.type
     ]
   end
 end

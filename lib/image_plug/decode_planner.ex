@@ -3,6 +3,7 @@ defmodule ImagePlug.DecodePlanner do
 
   alias ImagePlug.Pipeline
   alias ImagePlug.Plan
+  alias ImagePlug.Transform
 
   @type access_requirement() :: :sequential | :random | :neutral
 
@@ -22,24 +23,18 @@ defmodule ImagePlug.DecodePlanner do
     |> resolve_access()
   end
 
-  defp access_requirement({module, params}) when is_atom(module) do
-    if Code.ensure_loaded?(module) and function_exported?(module, :metadata, 1) do
-      params
-      |> safe_metadata(module)
-      |> access_from_metadata()
-    else
-      :random
-    end
+  defp access_requirement(operation) do
+    operation
+    |> safe_metadata()
+    |> access_from_metadata()
   end
 
-  defp access_requirement(_operation), do: :random
-
-  defp safe_metadata(params, module) do
-    module.metadata(params)
+  defp safe_metadata(operation) do
+    Transform.metadata(operation)
   rescue
-    _exception -> :random
+    _exception -> %{access: :random}
   catch
-    _kind, _reason -> :random
+    _kind, _reason -> %{access: :random}
   end
 
   defp access_from_metadata(%{access: access}), do: normalize_access(access)

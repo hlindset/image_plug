@@ -7,17 +7,11 @@ defmodule ImagePlug.TransformChain do
   alias ImagePlug.TransformState
 
   @typedoc """
-  A tuple of a module implementing `ImagePlug.Transform`
-  and the parsed parameters for that transform.
+  A struct whose module implements `ImagePlug.Transform`.
   """
-  @type item() ::
-          {Transform.Crop, Transform.Crop.CropParams.t()}
-          | {Transform.Focus, Transform.Focus.FocusParams.t()}
-          | {Transform.Scale, Transform.Scale.ScaleParams.t()}
-          | {Transform.Contain, Transform.Contain.ContainParams.t()}
-          | {Transform.Cover, Transform.Cover.CoverParams.t()}
+  @type item() :: Transform.operation()
 
-  @type t() :: list(item())
+  @type t() :: [item()]
 
   @doc """
   Executes a transform chain.
@@ -25,8 +19,8 @@ defmodule ImagePlug.TransformChain do
   ## Examples
 
       iex> chain = [
-      ...>   {ImagePlug.Transform.Focus, %ImagePlug.Transform.Focus.FocusParams{type: {:coordinate, {:pixels, 20}, {:pixels, 30}}}},
-      ...>   {ImagePlug.Transform.Crop, %ImagePlug.Transform.Crop.CropParams{width: {:pixels, 100}, height: {:pixels, 150}, crop_from: :focus}}
+      ...>   %ImagePlug.Transform.Focus{type: {:coordinate, {:pixels, 20}, {:pixels, 30}}},
+      ...>   %ImagePlug.Transform.Crop{width: {:pixels, 100}, height: {:pixels, 150}, crop_from: :focus}
       ...> ]
       ...> {:ok, empty_image} = Image.new(500, 500)
       ...> initial_state = %ImagePlug.TransformState{image: empty_image}
@@ -36,10 +30,13 @@ defmodule ImagePlug.TransformChain do
           {:ok, TransformState.t()} | {:error, {:transform_error, TransformState.t()}}
   def execute(%TransformState{} = state, transform_chain) do
     transform_chain
-    |> Enum.reduce_while(state, fn {module, parameters}, state ->
-      Logger.info("executing transform: #{inspect(module)} with params #{inspect(parameters)}")
+    |> Enum.reduce_while(state, fn operation, state ->
+      Logger.info(fn ->
+        name = Transform.transform_name(operation)
+        "executing transform: #{name} with operation #{inspect(operation)}"
+      end)
 
-      next_state = module.execute(state, parameters)
+      next_state = Transform.execute(operation, state)
 
       case next_state do
         %TransformState{errors: []} -> {:cont, next_state}

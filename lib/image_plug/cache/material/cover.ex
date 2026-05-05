@@ -1,19 +1,19 @@
-defimpl ImagePlug.Cache.Material, for: ImagePlug.Transform.Cover.CoverParams do
-  def material(%{type: :ratio} = params) do
+defimpl ImagePlug.Cache.Material, for: ImagePlug.Transform.Cover do
+  def material(%ImagePlug.Transform.Cover{type: :ratio} = operation) do
     [
       op: :cover,
-      type: params.type,
-      ratio: params.ratio
+      type: operation.type,
+      ratio: operation.ratio
     ]
   end
 
-  def material(params) do
+  def material(%ImagePlug.Transform.Cover{} = operation) do
     [
       op: :cover,
-      type: params.type,
-      width: params.width,
-      height: params.height,
-      constraint: params.constraint
+      type: operation.type,
+      width: operation.width,
+      height: operation.height,
+      constraint: operation.constraint
     ]
   end
 end

@@ -29,7 +29,7 @@ defmodule ImagePlug.ParamParser.Native.PlanBuilderTest do
               output: %OutputPlan{mode: :automatic}
             }} = PlanBuilder.to_plan(request)
 
-    assert [{Transform.Contain, params}] = operations
+    assert [%Transform.Contain{} = params] = operations
     assert params.width == {:pixels, 300}
   end
 
@@ -38,28 +38,26 @@ defmodule ImagePlug.ParamParser.Native.PlanBuilderTest do
              plan_pipeline(width: {:pixels, 300}, height: {:pixels, 200}, enlarge: false)
 
     assert [
-             {Transform.Contain,
-              %Transform.Contain.ContainParams{
-                type: :dimensions,
-                width: {:pixels, 300},
-                height: {:pixels, 200},
-                constraint: :max,
-                letterbox: false
-              }}
+             %Transform.Contain{
+               type: :dimensions,
+               width: {:pixels, 300},
+               height: {:pixels, 200},
+               constraint: :max,
+               letterbox: false
+             }
            ] = operations
 
     assert {:ok, %Plan{pipelines: [%Pipeline{operations: operations}]}} =
              plan_pipeline(width: {:pixels, 300}, height: {:pixels, 200}, enlarge: true)
 
     assert [
-             {Transform.Contain,
-              %Transform.Contain.ContainParams{
-                type: :dimensions,
-                width: {:pixels, 300},
-                height: {:pixels, 200},
-                constraint: :regular,
-                letterbox: false
-              }}
+             %Transform.Contain{
+               type: :dimensions,
+               width: {:pixels, 300},
+               height: {:pixels, 200},
+               constraint: :regular,
+               letterbox: false
+             }
            ] = operations
   end
 
@@ -73,13 +71,12 @@ defmodule ImagePlug.ParamParser.Native.PlanBuilderTest do
              )
 
     assert [
-             {Transform.Cover,
-              %Transform.Cover.CoverParams{
-                type: :dimensions,
-                width: {:pixels, 300},
-                height: {:pixels, 200},
-                constraint: :max
-              }}
+             %Transform.Cover{
+               type: :dimensions,
+               width: {:pixels, 300},
+               height: {:pixels, 200},
+               constraint: :max
+             }
            ] = operations
 
     assert {:ok, %Plan{pipelines: [%Pipeline{operations: operations}]}} =
@@ -91,13 +88,12 @@ defmodule ImagePlug.ParamParser.Native.PlanBuilderTest do
              )
 
     assert [
-             {Transform.Cover,
-              %Transform.Cover.CoverParams{
-                type: :dimensions,
-                width: {:pixels, 300},
-                height: {:pixels, 200},
-                constraint: :none
-              }}
+             %Transform.Cover{
+               type: :dimensions,
+               width: {:pixels, 300},
+               height: {:pixels, 200},
+               constraint: :none
+             }
            ] = operations
   end
 
@@ -117,13 +113,12 @@ defmodule ImagePlug.ParamParser.Native.PlanBuilderTest do
              plan_pipeline(width: {:pixels, 0}, height: {:pixels, 200})
 
     assert [
-             {Transform.Contain,
-              %Transform.Contain.ContainParams{
-                width: :auto,
-                height: {:pixels, 200},
-                constraint: :max,
-                letterbox: false
-              }}
+             %Transform.Contain{
+               width: :auto,
+               height: {:pixels, 200},
+               constraint: :max,
+               letterbox: false
+             }
            ] = operations
   end
 
@@ -194,11 +189,11 @@ defmodule ImagePlug.ParamParser.Native.PlanBuilderTest do
               ]
             }} = PlanBuilder.to_plan(request)
 
-    assert [{Transform.Contain, first_params}] = first_operations
+    assert [%Transform.Contain{} = first_params] = first_operations
     assert first_params.width == {:pixels, 500}
     assert first_params.height == :auto
 
-    assert [{Transform.Contain, second_params}] = second_operations
+    assert [%Transform.Contain{} = second_params] = second_operations
     assert second_params.width == :auto
     assert second_params.height == {:pixels, 200}
   end
@@ -225,7 +220,7 @@ defmodule ImagePlug.ParamParser.Native.PlanBuilderTest do
             }} =
              PlanBuilder.to_plan(%ParsedRequest{request | output_format: nil})
 
-    assert [{Transform.Scale, automatic_params}] = operations
+    assert [%Transform.Scale{} = automatic_params] = operations
     assert automatic_params.width == {:pixels, 300}
     assert automatic_params.height == {:pixels, 200}
 
@@ -236,7 +231,7 @@ defmodule ImagePlug.ParamParser.Native.PlanBuilderTest do
             }} =
              PlanBuilder.to_plan(request)
 
-    assert [{Transform.Scale, explicit_params}] = operations
+    assert [%Transform.Scale{} = explicit_params] = operations
     assert explicit_params.width == {:pixels, 300}
     assert explicit_params.height == {:pixels, 200}
   end

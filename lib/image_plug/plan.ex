@@ -6,6 +6,7 @@ defmodule ImagePlug.Plan do
   alias ImagePlug.OutputPlan
   alias ImagePlug.Pipeline
   alias ImagePlug.Source.Plain
+  alias ImagePlug.Transform
 
   @enforce_keys [:source, :pipelines, :output]
   defstruct @enforce_keys
@@ -61,18 +62,7 @@ defmodule ImagePlug.Plan do
     Enum.find(operations, &invalid_operation?/1)
   end
 
-  defp invalid_operation?({module, _params}) when is_atom(module) do
-    not operation_module?(module)
-  end
-
-  defp invalid_operation?(_operation), do: true
-
-  defp operation_module?(module) do
-    case Code.ensure_loaded(module) do
-      {:module, ^module} -> function_exported?(module, :execute, 2)
-      {:error, _reason} -> false
-    end
-  end
+  defp invalid_operation?(operation), do: not Transform.operation?(operation)
 
   defp validate_source(%Plain{path: path}) when is_list(path) do
     if Enum.all?(path, &is_binary/1),

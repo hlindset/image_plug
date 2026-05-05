@@ -214,7 +214,7 @@ defmodule ImagePlug.ImagePlugTest do
     def parse(_conn) do
       {:ok,
        ImagePlug.ImagePlugTest.sample_explicit_plan(:jpeg, [
-         {ImagePlug.ImagePlugTest.BrokenImageTransform, nil}
+         struct(ImagePlug.ImagePlugTest.BrokenImageTransform)
        ])}
     end
 
@@ -223,7 +223,17 @@ defmodule ImagePlug.ImagePlugTest do
   end
 
   defmodule BrokenImageTransform do
-    def execute(%ImagePlug.TransformState{} = state, _params) do
+    defstruct []
+
+    def new(attrs), do: {:ok, new!(attrs)}
+    def new!(%__MODULE__{} = operation), do: operation
+    def new!(attrs), do: struct!(__MODULE__, attrs)
+
+    def name(%__MODULE__{}), do: :broken_image
+
+    def metadata(%__MODULE__{}), do: %{access: :random}
+
+    def execute(%__MODULE__{}, %ImagePlug.TransformState{} = state) do
       %ImagePlug.TransformState{state | image: :not_an_image}
     end
   end
@@ -235,7 +245,7 @@ defmodule ImagePlug.ImagePlugTest do
     def parse(_conn) do
       {:ok,
        ImagePlug.ImagePlugTest.sample_explicit_plan(:jpeg, [
-         {ImagePlug.ImagePlugTest.RaisingAfterFirstChunkTransform, nil}
+         struct(ImagePlug.ImagePlugTest.RaisingAfterFirstChunkTransform)
        ])}
     end
 
@@ -256,7 +266,17 @@ defmodule ImagePlug.ImagePlugTest do
   end
 
   defmodule RaisingAfterFirstChunkTransform do
-    def execute(%ImagePlug.TransformState{} = state, _params) do
+    defstruct []
+
+    def new(attrs), do: {:ok, new!(attrs)}
+    def new!(%__MODULE__{} = operation), do: operation
+    def new!(attrs), do: struct!(__MODULE__, attrs)
+
+    def name(%__MODULE__{}), do: :raising_after_first_chunk
+
+    def metadata(%__MODULE__{}), do: %{access: :random}
+
+    def execute(%__MODULE__{}, %ImagePlug.TransformState{} = state) do
       %ImagePlug.TransformState{state | image: :image}
     end
   end
@@ -268,7 +288,7 @@ defmodule ImagePlug.ImagePlugTest do
     def parse(_conn) do
       {:ok,
        ImagePlug.ImagePlugTest.sample_explicit_plan(:jpeg, [
-         {ImagePlug.ImagePlugTest.FailingTransform, nil}
+         struct(ImagePlug.ImagePlugTest.FailingTransform)
        ])}
     end
 
@@ -277,7 +297,17 @@ defmodule ImagePlug.ImagePlugTest do
   end
 
   defmodule FailingTransform do
-    def execute(%ImagePlug.TransformState{} = state, _params) do
+    defstruct []
+
+    def new(attrs), do: {:ok, new!(attrs)}
+    def new!(%__MODULE__{} = operation), do: operation
+    def new!(attrs), do: struct!(__MODULE__, attrs)
+
+    def name(%__MODULE__{}), do: :failing
+
+    def metadata(%__MODULE__{}), do: %{access: :random}
+
+    def execute(%__MODULE__{}, %ImagePlug.TransformState{} = state) do
       ImagePlug.TransformState.add_error(state, {__MODULE__, :failed})
     end
   end
@@ -289,7 +319,7 @@ defmodule ImagePlug.ImagePlugTest do
     def parse(_conn) do
       {:ok,
        ImagePlug.ImagePlugTest.sample_explicit_plan(:jpeg, [
-         {ImagePlug.ImagePlugTest.UnprojectableOperationTransform, :params}
+         struct(ImagePlug.ImagePlugTest.UnprojectableOperationTransform)
        ])}
     end
 
@@ -298,7 +328,17 @@ defmodule ImagePlug.ImagePlugTest do
   end
 
   defmodule UnprojectableOperationTransform do
-    def execute(%ImagePlug.TransformState{} = state, _params), do: state
+    defstruct []
+
+    def new(attrs), do: {:ok, new!(attrs)}
+    def new!(%__MODULE__{} = operation), do: operation
+    def new!(attrs), do: struct!(__MODULE__, attrs)
+
+    def name(%__MODULE__{}), do: :unprojectable
+
+    def metadata(%__MODULE__{}), do: %{access: :random}
+
+    def execute(%__MODULE__{}, %ImagePlug.TransformState{} = state), do: state
   end
 
   defmodule EmptyPipelineParser do

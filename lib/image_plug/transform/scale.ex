@@ -8,40 +8,56 @@ defmodule ImagePlug.Transform.Scale do
 
   alias ImagePlug.TransformState
 
-  defmodule ScaleParams do
-    @moduledoc false
+  defstruct [:type, :ratio, :width, :height]
 
-    defstruct [:type, :ratio, :width, :height]
-
-    @type t ::
-            %__MODULE__{
-              type: :ratio,
-              ratio: {ImagePlug.imgp_ratio(), ImagePlug.imgp_ratio()}
+  @type t ::
+          %__MODULE__{
+            type: :ratio,
+            ratio: {ImagePlug.imgp_ratio(), ImagePlug.imgp_ratio()}
+          }
+          | %__MODULE__{
+              type: :dimensions,
+              width: ImagePlug.imgp_length(),
+              height: ImagePlug.imgp_length() | :auto
             }
-            | %__MODULE__{
-                type: :dimensions,
-                width: ImagePlug.imgp_length(),
-                height: ImagePlug.imgp_length() | :auto
-              }
-            | %__MODULE__{
-                type: :dimensions,
-                width: ImagePlug.imgp_length() | :auto,
-                height: ImagePlug.imgp_length()
-              }
+          | %__MODULE__{
+              type: :dimensions,
+              width: ImagePlug.imgp_length() | :auto,
+              height: ImagePlug.imgp_length()
+            }
+
+  @impl ImagePlug.Transform
+  def new(attrs) do
+    {:ok, new!(attrs)}
+  rescue
+    exception in [ArgumentError, KeyError] ->
+      {:error, exception}
   end
 
   @impl ImagePlug.Transform
-  def metadata(%ScaleParams{type: :dimensions, width: :auto, height: height})
+  def new!(%__MODULE__{} = operation), do: operation
+
+  def new!(attrs) when is_list(attrs) or is_map(attrs) do
+    attrs
+    |> validate_attrs!()
+    |> then(&struct!(__MODULE__, &1))
+  end
+
+  @impl ImagePlug.Transform
+  def name(%__MODULE__{}), do: :scale
+
+  @impl ImagePlug.Transform
+  def metadata(%__MODULE__{type: :dimensions, width: :auto, height: height})
       when height != :auto,
       do: %{access: :sequential}
 
-  def metadata(%ScaleParams{type: :dimensions, width: width, height: :auto})
+  def metadata(%__MODULE__{type: :dimensions, width: width, height: :auto})
       when width != :auto,
       do: %{access: :sequential}
 
-  def metadata(%ScaleParams{}), do: %{access: :random}
+  def metadata(%__MODULE__{}), do: %{access: :random}
 
-  defp dimensions_for_scale_type(state, %ScaleParams{
+  defp dimensions_for_scale_type(state, %__MODULE__{
          type: :dimensions,
          width: width,
          height: height
@@ -53,7 +69,7 @@ defmodule ImagePlug.Transform.Scale do
 
   defp dimensions_for_scale_type(
          state,
-         %ScaleParams{type: :ratio, ratio: {ratio_width, ratio_height}}
+         %__MODULE__{type: :ratio, ratio: {ratio_width, ratio_height}}
        ) do
     current_area = image_width(state) * image_height(state)
     target_height = :math.sqrt(current_area * ratio_height / ratio_width)
@@ -62,7 +78,7 @@ defmodule ImagePlug.Transform.Scale do
   end
 
   @impl ImagePlug.Transform
-  def execute(%TransformState{} = state, %ScaleParams{} = params) do
+  def execute(%__MODULE__{} = params, %TransformState{} = state) do
     %{width: width, height: height} = dimensions_for_scale_type(state, params)
 
     case do_scale(state, width, height) do
@@ -116,4 +132,23 @@ defmodule ImagePlug.Transform.Scale do
 
   defp to_pixels_or_auto(_length, :auto), do: :auto
   defp to_pixels_or_auto(length, size_unit), do: to_pixels(length, size_unit)
+
+  defp validate_attrs!(attrs) do
+    attrs = Map.new(attrs)
+
+    case Map.fetch!(attrs, :type) do
+      :dimensions ->
+        _width = Map.fetch!(attrs, :width)
+        _height = Map.fetch!(attrs, :height)
+
+        attrs
+
+      :ratio ->
+        _ratio = Map.fetch!(attrs, :ratio)
+        attrs
+
+      type ->
+        raise ArgumentError, "invalid scale type: #{inspect(type)}"
+    end
+  end
 end

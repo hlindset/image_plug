@@ -8,41 +8,60 @@ defmodule ImagePlug.Transform.Cover do
 
   alias ImagePlug.TransformState
 
-  defmodule CoverParams do
-    @moduledoc false
+  @doc """
+  The parsed operation used by `ImagePlug.Transform.Cover`.
+  """
+  defstruct [:type, :ratio, :width, :height, :constraint]
 
-    @doc """
-    The parsed parameters used by `ImagePlug.Transform.Cover`.
-    """
-    defstruct [:type, :ratio, :width, :height, :constraint]
-
-    @type t ::
-            %__MODULE__{
-              type: :ratio,
-              ratio: ImagePlug.imgp_ratio()
+  @type t ::
+          %__MODULE__{
+            type: :ratio,
+            ratio: ImagePlug.imgp_ratio()
+          }
+          | %__MODULE__{
+              type: :dimensions,
+              width: ImagePlug.imgp_length(),
+              height: ImagePlug.imgp_length() | :auto,
+              constraint: :none | :min | :max
             }
-            | %__MODULE__{
-                type: :dimensions,
-                width: ImagePlug.imgp_length(),
-                height: ImagePlug.imgp_length() | :auto,
-                constraint: :none | :min | :max
-              }
-            | %__MODULE__{
-                type: :dimensions,
-                width: ImagePlug.imgp_length() | :auto,
-                height: ImagePlug.imgp_length(),
-                constraint: :none | :min | :max
-              }
+          | %__MODULE__{
+              type: :dimensions,
+              width: ImagePlug.imgp_length() | :auto,
+              height: ImagePlug.imgp_length(),
+              constraint: :none | :min | :max
+            }
+
+  @impl ImagePlug.Transform
+  def new(attrs) do
+    {:ok, new!(attrs)}
+  rescue
+    exception in [ArgumentError, KeyError] ->
+      {:error, exception}
   end
 
   @impl ImagePlug.Transform
-  def metadata(%CoverParams{}), do: %{access: :random}
+  def new!(%__MODULE__{} = operation), do: operation
+
+  def new!(attrs) when is_list(attrs) or is_map(attrs) do
+    attrs
+    |> validate_attrs!()
+    |> then(&struct!(__MODULE__, &1))
+  end
 
   @impl ImagePlug.Transform
-  def execute(%TransformState{} = state, %CoverParams{
-        type: :ratio,
-        ratio: {ratio_width, ratio_height}
-      }) do
+  def name(%__MODULE__{}), do: :cover
+
+  @impl ImagePlug.Transform
+  def metadata(%__MODULE__{}), do: %{access: :random}
+
+  @impl ImagePlug.Transform
+  def execute(
+        %__MODULE__{
+          type: :ratio,
+          ratio: {ratio_width, ratio_height}
+        },
+        %TransformState{} = state
+      ) do
     # compute target width and height based on the ratio
     image_width = image_width(state)
     image_height = image_height(state)
@@ -59,23 +78,26 @@ defmodule ImagePlug.Transform.Cover do
         {image_width, round(image_width / target_ratio)}
       end
 
-    execute(state, %CoverParams{
-      type: :dimensions,
-      width: target_width,
-      height: target_height,
-      constraint: :none
-    })
+    execute(
+      %__MODULE__{
+        type: :dimensions,
+        width: target_width,
+        height: target_height,
+        constraint: :none
+      },
+      state
+    )
   end
 
   @impl ImagePlug.Transform
   def execute(
-        %TransformState{} = state,
-        %CoverParams{
+        %__MODULE__{
           type: :dimensions,
           width: width,
           height: height,
           constraint: constraint
-        }
+        },
+        %TransformState{} = state
       ) do
     {requested_crop_width, requested_crop_height} = resolve_auto_size(state, width, height)
     {resize_width, resize_height} = fit_cover(state, requested_crop_width, requested_crop_height)
@@ -167,4 +189,28 @@ defmodule ImagePlug.Transform.Cover do
       {:error, _reason} = error -> error
     end
   end
+
+  defp validate_attrs!(attrs) do
+    attrs = Map.new(attrs)
+
+    case Map.fetch!(attrs, :type) do
+      :dimensions ->
+        _width = Map.fetch!(attrs, :width)
+        _height = Map.fetch!(attrs, :height)
+        validate_constraint!(Map.fetch!(attrs, :constraint))
+        attrs
+
+      :ratio ->
+        _ratio = Map.fetch!(attrs, :ratio)
+        attrs
+
+      type ->
+        raise ArgumentError, "invalid cover type: #{inspect(type)}"
+    end
+  end
+
+  defp validate_constraint!(constraint) when constraint in [:none, :min, :max], do: :ok
+
+  defp validate_constraint!(constraint),
+    do: raise(ArgumentError, "invalid cover constraint: #{inspect(constraint)}")
 end

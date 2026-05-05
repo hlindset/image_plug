@@ -80,8 +80,8 @@ defmodule ImagePlug.ProcessorTest do
     plan = %Plan{
       source: %Plain{path: ["images", "cat-300.jpg"]},
       pipelines: [
-        %Pipeline{operations: [{FirstTransform, %FirstTransform{}}]},
-        %Pipeline{operations: [{SecondTransform, %SecondTransform{test_pid: test_pid, ref: ref}}]}
+        %Pipeline{operations: [%FirstTransform{}]},
+        %Pipeline{operations: [%SecondTransform{test_pid: test_pid, ref: ref}]}
       ],
       output: %OutputPlan{mode: {:explicit, :jpeg}}
     }
@@ -263,7 +263,7 @@ defmodule ImagePlug.ProcessorTest do
                  plan()
                  | pipelines: [
                      %Pipeline{
-                       operations: [{SequentialFailingTransform, %SequentialFailingTransform{}}]
+                       operations: [%SequentialFailingTransform{}]
                      }
                    ]
                },

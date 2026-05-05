@@ -202,39 +202,36 @@ defmodule ImagePlug.ParamParser.Native.PlanBuilder do
     do: {:error, {:unsupported_resizing_type, resizing_type}}
 
   defp scale(width, height) do
-    {Transform.Scale,
-     %Transform.Scale.ScaleParams{
-       type: :dimensions,
-       width: width,
-       height: height
-     }}
+    %Transform.Scale{
+      type: :dimensions,
+      width: width,
+      height: height
+    }
   end
 
   defp contain(width, height, %PipelineRequest{} = request) do
-    {Transform.Contain,
-     %Transform.Contain.ContainParams{
-       type: :dimensions,
-       width: width,
-       height: height,
-       constraint: contain_constraint(request.enlarge),
-       letterbox: false
-     }}
+    %Transform.Contain{
+      type: :dimensions,
+      width: width,
+      height: height,
+      constraint: contain_constraint(request.enlarge),
+      letterbox: false
+    }
   end
 
   defp cover(width, height, %PipelineRequest{} = request) do
-    {Transform.Cover,
-     %Transform.Cover.CoverParams{
-       type: :dimensions,
-       width: width,
-       height: height,
-       constraint: cover_constraint(request.enlarge)
-     }}
+    %Transform.Cover{
+      type: :dimensions,
+      width: width,
+      height: height,
+      constraint: cover_constraint(request.enlarge)
+    }
   end
 
   defp maybe_prepend_focus(operations, @default_gravity), do: operations
 
-  defp maybe_prepend_focus([{Transform.Cover, _params} | _rest] = operations, gravity) do
-    [{Transform.Focus, %Transform.Focus.FocusParams{type: focus_type(gravity)}} | operations]
+  defp maybe_prepend_focus([%Transform.Cover{} | _rest] = operations, gravity) do
+    [%Transform.Focus{type: focus_type(gravity)} | operations]
   end
 
   defp maybe_prepend_focus(operations, _gravity), do: operations

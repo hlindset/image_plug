@@ -1,10 +1,10 @@
-defimpl ImagePlug.Cache.Material, for: ImagePlug.Transform.Crop.CropParams do
-  def material(params) do
+defimpl ImagePlug.Cache.Material, for: ImagePlug.Transform.Crop do
+  def material(%ImagePlug.Transform.Crop{} = operation) do
     [
       op: :crop,
-      width: params.width,
-      height: params.height,
-      crop_from: params.crop_from
+      width: operation.width,
+      height: operation.height,
+      crop_from: operation.crop_from
     ]
   end
 end

@@ -8,24 +8,40 @@ defmodule ImagePlug.Transform.Focus do
 
   alias ImagePlug.TransformState
 
-  defmodule FocusParams do
-    @moduledoc false
+  @doc """
+  The parsed operation used by `ImagePlug.Transform.Focus`.
+  """
+  defstruct [:type]
 
-    @doc """
-    The parsed parameters used by `ImagePlug.Transform.Focus`.
-    """
-    defstruct [:type]
+  @type t ::
+          %__MODULE__{type: {:coordinate, ImagePlug.imgp_length(), ImagePlug.imgp_length()}}
+          | %__MODULE__{type: TransformState.focus_anchor()}
 
-    @type t ::
-            %__MODULE__{type: {:coordinate, ImagePlug.imgp_length(), ImagePlug.imgp_length()}}
-            | %__MODULE__{type: TransformState.focus_anchor()}
+  @impl ImagePlug.Transform
+  def new(attrs) do
+    {:ok, new!(attrs)}
+  rescue
+    exception in [ArgumentError, KeyError] ->
+      {:error, exception}
   end
 
   @impl ImagePlug.Transform
-  def metadata(%FocusParams{}), do: %{access: :random}
+  def new!(%__MODULE__{} = operation), do: operation
+
+  def new!(attrs) when is_list(attrs) or is_map(attrs) do
+    attrs
+    |> validate_attrs!()
+    |> then(&struct!(__MODULE__, &1))
+  end
 
   @impl ImagePlug.Transform
-  def execute(%TransformState{} = state, %FocusParams{type: {:coordinate, left, top}}) do
+  def name(%__MODULE__{}), do: :focus
+
+  @impl ImagePlug.Transform
+  def metadata(%__MODULE__{}), do: %{access: :random}
+
+  @impl ImagePlug.Transform
+  def execute(%__MODULE__{type: {:coordinate, left, top}}, %TransformState{} = state) do
     left = to_pixels(image_width(state), left)
     top = to_pixels(image_height(state), top)
 
@@ -38,7 +54,7 @@ defmodule ImagePlug.Transform.Focus do
   end
 
   @impl ImagePlug.Transform
-  def execute(%TransformState{} = state, %FocusParams{type: {:anchor, x, y}}) do
+  def execute(%__MODULE__{type: {:anchor, x, y}}, %TransformState{} = state) do
     state
     |> set_focus({:anchor, x, y})
     |> maybe_draw_debug_dot()
@@ -50,4 +66,19 @@ defmodule ImagePlug.Transform.Focus do
   end
 
   defp maybe_draw_debug_dot(%TransformState{} = state), do: state
+
+  defp validate_attrs!(attrs) do
+    attrs = Map.new(attrs)
+
+    case Map.fetch!(attrs, :type) do
+      {:coordinate, _left, _top} ->
+        attrs
+
+      {:anchor, x, y} when x in [:left, :center, :right] and y in [:top, :center, :bottom] ->
+        attrs
+
+      type ->
+        raise ArgumentError, "invalid focus type: #{inspect(type)}"
+    end
+  end
 end
