@@ -420,6 +420,14 @@ defmodule ImagePlug.ImagePlugTest do
     {"http://127.0.0.1:#{port}", server}
   end
 
+  defp call_after_slow_origin_first_chunk(conn, opts, ref, server) do
+    task = Task.async(fn -> ImagePlug.call(conn, opts) end)
+
+    assert_receive {^ref, :first_chunk_sent, ^server}, 1_000
+
+    Task.await(task, 2_000)
+  end
+
   defp chunked_body_chunk(body) do
     [Integer.to_string(byte_size(body), 16), "\r\n", body, "\r\n"]
   end
@@ -1422,14 +1430,17 @@ defmodule ImagePlug.ImagePlugTest do
     monitor_ref = Process.monitor(server)
 
     conn =
-      conn(:get, "/_/plain/images/slow.jpg")
-      |> ImagePlug.call(
-        root_url: root_url,
-        param_parser: ImagePlug.ParamParser.Native,
-        origin_receive_timeout: 250
+      call_after_slow_origin_first_chunk(
+        conn(:get, "/_/plain/images/slow.jpg"),
+        [
+          root_url: root_url,
+          param_parser: ImagePlug.ParamParser.Native,
+          origin_receive_timeout: 250
+        ],
+        ref,
+        server
       )
 
-    assert_receive {^ref, :first_chunk_sent, ^server}
     assert conn.status == 502
     assert conn.resp_body == "error fetching origin image"
 
@@ -1461,14 +1472,17 @@ defmodule ImagePlug.ImagePlugTest do
     monitor_ref = Process.monitor(server)
 
     conn =
-      conn(:get, "/_/rt:force/w:100/plain/images/slow.jpg")
-      |> ImagePlug.call(
-        root_url: root_url,
-        param_parser: ImagePlug.ParamParser.Native,
-        origin_receive_timeout: 250
+      call_after_slow_origin_first_chunk(
+        conn(:get, "/_/rt:force/w:100/plain/images/slow.jpg"),
+        [
+          root_url: root_url,
+          param_parser: ImagePlug.ParamParser.Native,
+          origin_receive_timeout: 250
+        ],
+        ref,
+        server
       )
 
-    assert_receive {^ref, :first_chunk_sent, ^server}
     assert conn.status == 502
     assert conn.state == :sent
     assert conn.resp_body == "error fetching origin image"
