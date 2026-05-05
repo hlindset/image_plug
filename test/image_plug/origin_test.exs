@@ -1,8 +1,8 @@
-defmodule ImagePlug.OriginTest do
+defmodule ImagePlug.Runtime.OriginTest do
   use ExUnit.Case, async: false
 
-  alias ImagePlug.Origin
-  alias ImagePlug.Origin.StreamStatus
+  alias ImagePlug.Runtime.Origin
+  alias ImagePlug.Runtime.Origin.StreamStatus
 
   test "build_url encodes and joins path segments" do
     assert Origin.build_url("https://img.example/base", ["images", "cat 1.jpg"]) ==

@@ -1,16 +1,17 @@
-defmodule ImagePlug.RequestRunnerTest do
+defmodule ImagePlug.Runtime.RequestRunnerTest do
   use ExUnit.Case, async: true
 
   import Plug.Test
 
   alias ImagePlug.Cache.Entry
-  alias ImagePlug.OutputPlan
-  alias ImagePlug.Pipeline
   alias ImagePlug.Plan
-  alias ImagePlug.RequestRunner
-  alias ImagePlug.Source.Plain
+  alias ImagePlug.Plan.Output
+  alias ImagePlug.Plan.Pipeline
+  alias ImagePlug.Plan.Source.Plain
+  alias ImagePlug.Runtime.RequestRunner
+  alias ImagePlug.Runtime.ResponseSender
   alias ImagePlug.Transform
-  alias ImagePlug.TransformState
+  alias ImagePlug.Transform.State
 
   defmodule CacheHit do
     def get(_key, opts), do: Keyword.fetch!(opts, :entry) |> then(&{:hit, &1})
@@ -39,28 +40,46 @@ defmodule ImagePlug.RequestRunnerTest do
   defmodule FirstTransform do
     defstruct []
 
-    def execute(%TransformState{} = state, %__MODULE__{}) do
-      %TransformState{state | debug: true}
+    def new(attrs), do: {:ok, new!(attrs)}
+    def new!(%__MODULE__{} = operation), do: operation
+    def new!(attrs), do: struct!(__MODULE__, attrs)
+
+    def name(%__MODULE__{}), do: :first
+
+    def metadata(%__MODULE__{}), do: %{access: :random}
+
+    def execute(%__MODULE__{}, %State{} = state) do
+      %State{state | debug: true}
     end
   end
 
   defmodule SecondTransform do
     defstruct [:test_pid, :ref]
 
-    def execute(%TransformState{} = state, %__MODULE__{test_pid: test_pid, ref: ref}) do
+    def new(attrs), do: {:ok, new!(attrs)}
+    def new!(%__MODULE__{} = operation), do: operation
+    def new!(attrs), do: struct!(__MODULE__, attrs)
+
+    def name(%__MODULE__{}), do: :second
+
+    def metadata(%__MODULE__{}), do: %{access: :random}
+
+    def execute(%__MODULE__{test_pid: test_pid, ref: ref}, %State{} = state) do
       send(test_pid, {:pipeline_event, ref, :second_transform_ran})
       state
     end
   end
 
   defmodule Materializer do
-    def materialize(%TransformState{} = state, opts) do
+    alias ImagePlug.Transform.Materializer
+
+    def materialize(%State{} = state, opts) do
       send(
         Keyword.fetch!(opts, :test_pid),
         {:pipeline_event, Keyword.fetch!(opts, :test_ref), :materialized_between_pipelines}
       )
 
-      ImagePlug.ImageMaterializer.materialize(state, opts)
+      Materializer.materialize(state, opts)
     end
   end
 
@@ -71,7 +90,7 @@ defmodule ImagePlug.RequestRunnerTest do
         [
           source: %Plain{path: ["images", "cat-300.jpg"]},
           pipelines: [%Pipeline{operations: []}],
-          output: %OutputPlan{mode: {:explicit, :jpeg}}
+          output: %Output{mode: {:explicit, :jpeg}}
         ],
         overrides
       )
@@ -95,6 +114,37 @@ defmodule ImagePlug.RequestRunnerTest do
              )
   end
 
+  test "response sender sends cache-entry deliveries from request runner results" do
+    entry = %Entry{
+      body: "cached jpeg",
+      content_type: "image/jpeg",
+      headers: [{"Vary", "Accept"}, {"connection", "close"}],
+      created_at: DateTime.utc_now()
+    }
+
+    conn = ResponseSender.send_result(conn(:get, "/image"), {:ok, {:cache_entry, entry}}, [])
+
+    assert conn.status == 200
+    assert conn.resp_body == "cached jpeg"
+    assert Plug.Conn.get_resp_header(conn, "content-type") == ["image/jpeg"]
+    assert Plug.Conn.get_resp_header(conn, "vary") == ["Accept"]
+    assert Plug.Conn.get_resp_header(conn, "connection") == []
+  end
+
+  test "response sender preserves response headers on origin processing errors" do
+    conn =
+      ResponseSender.send_result(
+        conn(:get, "/image"),
+        {:error, {:processing, {:origin, {:bad_status, 404}}, [{"vary", "Accept"}]}},
+        []
+      )
+
+    assert conn.status == 404
+    assert conn.resp_body == "origin image not found"
+    assert Plug.Conn.get_resp_header(conn, "content-type") == ["text/plain; charset=utf-8"]
+    assert Plug.Conn.get_resp_header(conn, "vary") == ["Accept"]
+  end
+
   test "automatic cache hit returns without resolving source format" do
     entry = %Entry{
       body: "cached jpeg",
@@ -111,7 +161,7 @@ defmodule ImagePlug.RequestRunnerTest do
     assert {:ok, {:cache_entry, ^entry}} =
              RequestRunner.run(
                conn,
-               plan(output: %OutputPlan{mode: :automatic}),
+               plan(output: %Output{mode: :automatic}),
                "http://origin.test/images/cat-300.jpg",
                cache: {CacheHit, entry: entry}
              )
@@ -186,11 +236,11 @@ defmodule ImagePlug.RequestRunnerTest do
 
     plan =
       plan(
-        pipelines: [%Pipeline{operations: [{FirstTransform, %FirstTransform{}}]}],
-        output: %OutputPlan{mode: {:explicit, :jpeg}}
+        pipelines: [%Pipeline{operations: [%FirstTransform{}]}],
+        output: %Output{mode: {:explicit, :jpeg}}
       )
 
-    assert {:ok, {:image, %TransformState{} = state, :jpeg, []}} =
+    assert {:ok, {:image, %State{} = state, :jpeg, []}} =
              RequestRunner.run(
                conn(:get, "/_/f:jpeg/plain/images/cat-300.jpg"),
                plan,
@@ -250,9 +300,9 @@ defmodule ImagePlug.RequestRunnerTest do
     plan =
       plan(
         pipelines: [
-          %Pipeline{operations: [{FirstTransform, %FirstTransform{}}]},
+          %Pipeline{operations: [%FirstTransform{}]},
           %Pipeline{
-            operations: [{SecondTransform, %SecondTransform{test_pid: test_pid, ref: ref}}]
+            operations: [%SecondTransform{test_pid: test_pid, ref: ref}]
           }
         ]
       )
@@ -264,7 +314,7 @@ defmodule ImagePlug.RequestRunnerTest do
       test_ref: ref
     ]
 
-    assert {:ok, {:image, %TransformState{} = state, :jpeg, []}} =
+    assert {:ok, {:image, %State{} = state, :jpeg, []}} =
              RequestRunner.run(
                conn(:get, "/_/f:jpeg/plain/images/cat-300.jpg"),
                plan,
@@ -282,17 +332,15 @@ defmodule ImagePlug.RequestRunnerTest do
 
   test "known plan operations are included in cache lookup material" do
     operations = [
-      {Transform.Focus,
-       %Transform.Focus.FocusParams{
-         type: {:anchor, :left, :top}
-       }},
-      {Transform.Cover,
-       %Transform.Cover.CoverParams{
-         type: :dimensions,
-         width: {:pixels, 100},
-         height: {:pixels, 100},
-         constraint: :min
-       }}
+      %Transform.Focus{
+        type: {:anchor, :left, :top}
+      },
+      %Transform.Cover{
+        type: :dimensions,
+        width: {:pixels, 100},
+        height: {:pixels, 100},
+        constraint: :min
+      }
     ]
 
     entry = %Entry{
@@ -331,13 +379,13 @@ defmodule ImagePlug.RequestRunnerTest do
   test "output policy uses output plans without a processing request bridge" do
     request_runner_source =
       __DIR__
-      |> Path.join("../../lib/image_plug/request_runner.ex")
+      |> Path.join("../../lib/image_plug/runtime/request_runner.ex")
       |> Path.expand()
       |> File.read!()
 
     refute request_runner_source =~ "Processing" <> "Request"
     refute request_runner_source =~ "from_request"
     refute request_runner_source =~ "request.format"
-    assert request_runner_source =~ "OutputPolicy.from_output_plan(conn, plan.output, opts)"
+    assert request_runner_source =~ "Policy.from_output_plan(conn, plan.output, opts)"
   end
 end

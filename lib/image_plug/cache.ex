@@ -3,6 +3,19 @@ defmodule ImagePlug.Cache do
   Coordinates cache lookups and writes for processed image responses.
   """
 
+  use Boundary,
+    top_level?: true,
+    deps: [
+      ImagePlug.Plan,
+      ImagePlug.Output,
+      ImagePlug.Transform
+    ],
+    exports: [
+      Entry,
+      Key,
+      FileSystem
+    ]
+
   require Logger
 
   alias ImagePlug.Cache.Entry

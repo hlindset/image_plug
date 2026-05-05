@@ -3,17 +3,27 @@ defmodule ImagePlug.Plan do
   Product-neutral execution request produced by parameter parsers.
   """
 
-  alias ImagePlug.OutputPlan
-  alias ImagePlug.Pipeline
-  alias ImagePlug.Source.Plain
+  use Boundary,
+    top_level?: true,
+    deps: [ImagePlug.Transform],
+    exports: [
+      Pipeline,
+      Output,
+      Source.Plain
+    ]
+
+  alias ImagePlug.Plan.Output
+  alias ImagePlug.Plan.Pipeline
+  alias ImagePlug.Plan.Source.Plain
+  alias ImagePlug.Transform
 
   @enforce_keys [:source, :pipelines, :output]
   defstruct @enforce_keys
 
   @type t :: %__MODULE__{
-          source: ImagePlug.Source.Plain.t(),
-          pipelines: [ImagePlug.Pipeline.t()],
-          output: ImagePlug.OutputPlan.t()
+          source: ImagePlug.Plan.Source.Plain.t(),
+          pipelines: [ImagePlug.Plan.Pipeline.t()],
+          output: ImagePlug.Plan.Output.t()
         }
 
   @type pipeline_error() ::
@@ -61,18 +71,7 @@ defmodule ImagePlug.Plan do
     Enum.find(operations, &invalid_operation?/1)
   end
 
-  defp invalid_operation?({module, _params}) when is_atom(module) do
-    not operation_module?(module)
-  end
-
-  defp invalid_operation?(_operation), do: true
-
-  defp operation_module?(module) do
-    case Code.ensure_loaded(module) do
-      {:module, ^module} -> function_exported?(module, :execute, 2)
-      {:error, _reason} -> false
-    end
-  end
+  defp invalid_operation?(operation), do: not Transform.operation?(operation)
 
   defp validate_source(%Plain{path: path}) when is_list(path) do
     if Enum.all?(path, &is_binary/1),
@@ -82,9 +81,9 @@ defmodule ImagePlug.Plan do
 
   defp validate_source(source), do: {:error, {:unsupported_source, source}}
 
-  defp validate_output(%OutputPlan{mode: :automatic}), do: :ok
+  defp validate_output(%Output{mode: :automatic}), do: :ok
 
-  defp validate_output(%OutputPlan{mode: {:explicit, format}})
+  defp validate_output(%Output{mode: {:explicit, format}})
        when format in [:avif, :webp, :jpeg, :png],
        do: :ok
 

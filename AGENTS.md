@@ -5,12 +5,12 @@
 
 ## Native API guidelines
 
-- Treat ImagePlug's native API as path-oriented and declarative. URL option order must not define processing order; parsing should produce a `ProcessingRequest`, and `PipelinePlanner` owns the fixed transform order.
-- Keep ImagePlug's core model product-neutral, while allowing deliberate compatibility targets when explicitly chosen. Compatibility parsers should translate into `ProcessingRequest` when semantics match cleanly; dialect-specific quirks should stay isolated in the parser/adapter layer and should not force ordered command semantics into the native API contract.
+- Treat ImagePlug's native API as path-oriented and declarative. URL option order must not define processing order; parsing should produce an `ImagePlug.Plan`, and current parser/plan modules own the fixed transform order.
+- Keep ImagePlug's core model product-neutral, while allowing deliberate compatibility targets when explicitly chosen. Compatibility parsers should translate into `ImagePlug.Plan` when semantics match cleanly; dialect-specific quirks should stay isolated in the parser/adapter layer and should not force ordered command semantics into the native API contract.
 
 ## Transform guidelines
 
-- Keep transforms product-neutral and composable. Transform modules should express reusable image operations over `TransformState` with explicit parameter structs, not parser-specific or vendor-specific concepts; parsers for dialects such as imgproxy, Thumbor, TwicPics, imgix, Cloudinary, or any other product should translate their syntax into `ProcessingRequest` when semantics match cleanly, or remain isolated compatibility adapters when they need dialect-specific ordered behavior.
+- Keep transforms product-neutral and composable. Transform modules should express reusable image operations over `ImagePlug.Transform.State` with explicit parameter structs, not parser-specific or vendor-specific concepts; parsers for dialects such as imgproxy, Thumbor, TwicPics, imgix, Cloudinary, or any other product should translate their syntax into `ImagePlug.Plan` when semantics match cleanly, or remain isolated compatibility adapters when they need dialect-specific ordered behavior.
 - Be conservative with optimized decoding. Only use sequential access for transform chains proven safe for one-pass reads; crop, focus, cover, letterboxing, output-only requests, unknown transforms, and no-geometry requests should continue to use random access.
 
 ## Request safety guidelines
@@ -19,11 +19,22 @@
 
 ## Cache guidelines
 
-- Cache behavior is part of the contract. Cache only successful encoded responses; keep keys deterministic and based on resolved origin identity, canonical processing request fields, configured vary inputs, and normalized `Accept` for `format:auto`; cache errors fail open by default unless `fail_on_cache_error: true`.
+- Cache behavior is part of the contract. Cache only successful encoded responses; keep keys deterministic and based on resolved origin identity, canonical plan fields, configured vary inputs, and normalized `Accept` for `format:auto`; cache errors fail open by default unless `fail_on_cache_error: true`.
+
+## Namespace boundary guidelines
+
+- Keep the canonical request model under `ImagePlug.Plan.*`.
+- Keep parser behaviours and adapters under `ImagePlug.Parser.*`; parser-specific compatibility quirks should translate into `ImagePlug.Plan` or remain isolated in the parser/adapter layer.
+- Keep runtime side effects under `ImagePlug.Runtime.*`, including origin fetch, request execution, response sending, source identity, and runtime options.
+- Keep output negotiation, format, policy, and encoding under `ImagePlug.Output.*`.
+- Keep transform contracts, operation structs, state, decode planning, materialization, and cache material protocols under `ImagePlug.Transform.*`.
+- Runtime code must dispatch through `ImagePlug.Transform` and must not name concrete transform operation modules such as `ImagePlug.Transform.Scale`, `Cover`, `Contain`, `Crop`, or `Focus`.
+- Boundary exports should stay narrow. Export behaviours and stable public/internal entry points, not implementation helpers.
+- `ImagePlug.SimpleServer` is dev/test support only and must remain outside prod compilation.
 
 ## Elixir architecture guidelines
 
-- Prefer Elixir extension points with explicit behaviours (`ImagePlug.ParamParser`, `ImagePlug.Transform`, `ImagePlug.Cache`), `@impl` annotations, typed parameter structs, and tagged `{:ok, value}` / `{:error, reason}` returns at runtime boundaries. Reserve raises for invalid initialization/configuration.
+- Prefer Elixir extension points with explicit behaviours (`ImagePlug.Parser`, `ImagePlug.Transform`, `ImagePlug.Cache`), `@impl` annotations, typed parameter structs, and tagged `{:ok, value}` / `{:error, reason}` returns at runtime boundaries. Reserve raises for invalid initialization/configuration.
 - Validate public options explicitly, preferably with `NimbleOptions` or adapter-owned `validate_options/1`, and reject unknown or malformed options before side effects.
 - Use pattern matching, small private functions, and `with`/`case` pipelines to keep success paths linear while preserving precise error tags. Avoid catch-all rescues except where the boundary intentionally degrades to a safe default, such as transform metadata falling back to random access.
 

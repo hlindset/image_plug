@@ -1,8 +1,12 @@
-defmodule ImagePlug.ProcessorTest.InvalidStateMaterializer do
+defmodule ImagePlug.Runtime.ProcessorTest.InvalidStateMaterializer do
   @moduledoc false
 
-  alias ImagePlug.TransformState
+  use Boundary,
+    top_level?: true,
+    deps: [ImagePlug.Transform]
 
-  def materialize(%TransformState{} = state, _opts),
-    do: {:ok, %TransformState{state | image: nil}}
+  alias ImagePlug.Transform.State
+
+  def materialize(%State{} = state, _opts),
+    do: {:ok, %State{state | image: nil}}
 end

@@ -7,10 +7,10 @@ defmodule ImagePlug.CacheTest do
   alias ImagePlug.Cache
   alias ImagePlug.Cache.Entry
   alias ImagePlug.Cache.Key
-  alias ImagePlug.OutputPlan
-  alias ImagePlug.Pipeline
   alias ImagePlug.Plan
-  alias ImagePlug.Source.Plain
+  alias ImagePlug.Plan.Output
+  alias ImagePlug.Plan.Pipeline
+  alias ImagePlug.Plan.Source.Plain
 
   defmodule HitAdapter do
     def get(%Key{}, opts), do: {:hit, Keyword.fetch!(opts, :entry)}
@@ -59,7 +59,7 @@ defmodule ImagePlug.CacheTest do
         [
           source: %Plain{path: ["images", "cat.jpg"]},
           pipelines: [%Pipeline{operations: []}],
-          output: %OutputPlan{mode: {:explicit, :webp}}
+          output: %Output{mode: {:explicit, :webp}}
         ],
         overrides
       )
@@ -67,7 +67,7 @@ defmodule ImagePlug.CacheTest do
   end
 
   defp automatic_plan do
-    plan(output: %OutputPlan{mode: :automatic})
+    plan(output: %Output{mode: :automatic})
   end
 
   defp cache_key do
@@ -104,12 +104,12 @@ defmodule ImagePlug.CacheTest do
   end
 
   test "ImagePlug init rejects missing required options early" do
-    assert_raise ArgumentError, ~r/required :param_parser option not found/, fn ->
+    assert_raise ArgumentError, ~r/required :parser option not found/, fn ->
       ImagePlug.init(root_url: "https://origin.test")
     end
 
     assert_raise ArgumentError, ~r/required :root_url option not found/, fn ->
-      ImagePlug.init(param_parser: ImagePlug.ParamParser.Native)
+      ImagePlug.init(parser: ImagePlug.Parser.Native)
     end
   end
 

@@ -5,12 +5,12 @@ defmodule ImagePlug.Cache.Key do
 
   import Plug.Conn
 
-  alias ImagePlug.Cache.Material
-  alias ImagePlug.OutputNegotiation
-  alias ImagePlug.OutputPlan
-  alias ImagePlug.Pipeline
+  alias ImagePlug.Output.Negotiation
   alias ImagePlug.Plan
-  alias ImagePlug.Source.Plain
+  alias ImagePlug.Plan.Output
+  alias ImagePlug.Plan.Pipeline
+  alias ImagePlug.Plan.Source.Plain
+  alias ImagePlug.Transform.Material
 
   @schema_version 2
   @enforce_keys [:hash, :material, :serialized_material]
@@ -70,17 +70,17 @@ defmodule ImagePlug.Cache.Key do
     exception in Protocol.UndefinedError -> {:error, {:unprojectable_operation, exception.value}}
   end
 
-  defp operation_material({_transform_module, params}) do
-    Material.material(params)
+  defp operation_material(operation) do
+    Material.material(operation)
   end
 
-  defp output_material(conn, %OutputPlan{mode: :automatic}, opts) do
+  defp output_material(conn, %Output{mode: :automatic}, opts) do
     accept_header = conn |> get_req_header("accept") |> Enum.join(",")
 
     {:ok,
      [
        mode: :automatic,
-       modern_candidates: OutputNegotiation.modern_candidates(accept_header, opts),
+       modern_candidates: Negotiation.modern_candidates(accept_header, opts),
        auto: [
          avif: Keyword.get(opts, :auto_avif, true),
          webp: Keyword.get(opts, :auto_webp, true)
@@ -88,7 +88,7 @@ defmodule ImagePlug.Cache.Key do
      ]}
   end
 
-  defp output_material(_conn, %OutputPlan{mode: {:explicit, format}}, _opts) do
+  defp output_material(_conn, %Output{mode: {:explicit, format}}, _opts) do
     {:ok, [mode: :explicit, format: format]}
   end
 

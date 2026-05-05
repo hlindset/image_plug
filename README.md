@@ -91,7 +91,7 @@ defmodule ImagePlug.SimpleServer do
     to: ImagePlug,
     init_opts: [
       root_url: "http://localhost:4000",
-      param_parser: ImagePlug.ParamParser.Native
+      parser: ImagePlug.Parser.Native
     ]
 end
 ```
@@ -105,7 +105,7 @@ forward "/",
   to: ImagePlug,
   init_opts: [
     root_url: "http://localhost:4000",
-    param_parser: ImagePlug.ParamParser.Native,
+    parser: ImagePlug.Parser.Native,
     cache:
       {ImagePlug.Cache.FileSystem,
        root: "/var/cache/image_plug",

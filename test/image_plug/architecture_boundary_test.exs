@@ -1,51 +1,70 @@
 defmodule ImagePlug.ArchitectureBoundaryTest do
   use ExUnit.Case, async: true
 
-  @expected_core_files [
-    "lib/image_plug/cache/material.ex",
-    "lib/image_plug/cache/material/contain.ex",
-    "lib/image_plug/decode_planner.ex",
-    "lib/image_plug/image_materializer.ex",
-    "lib/image_plug/output_negotiation.ex",
-    "lib/image_plug/output_plan.ex",
-    "lib/image_plug/plan.ex",
-    "lib/image_plug/pipeline.ex",
-    "lib/image_plug/transform/contain.ex",
-    "lib/image_plug/transform_chain.ex"
-  ]
+  @runtime_globs ["lib/image_plug/runtime.ex", "lib/image_plug/runtime/**/*.ex"]
+  @concrete_transform_names [:Scale, :Contain, :Cover, :Crop, :Focus]
 
-  @forbidden_parts [
-    ["ImagePlug.", "ParamParser.", "Native"],
-    ["ImagePlug.", "Processing", "Request"],
-    ["ImagePlug.", "Pipeline", "Planner"]
-  ]
-
-  test "runtime modules do not depend on native parser IR or old planning contracts" do
-    files = core_runtime_files()
-
-    for expected_file <- @expected_core_files do
-      assert expected_file in files
-    end
-
-    for file <- files do
-      body = File.read!(file)
-
-      for parts <- @forbidden_parts do
-        forbidden = IO.iodata_to_binary(parts)
-
-        refute body =~ forbidden
+  test "runtime does not depend on concrete transform modules" do
+    violations =
+      for file <- runtime_files(),
+          violation <- concrete_transform_references(file) do
+        "#{file}:#{violation.line} must not name #{violation.module}; use ImagePlug.Transform dispatch instead"
       end
-    end
+
+    assert violations == []
   end
 
-  defp core_runtime_files do
-    "lib/image_plug/**/*.ex"
-    |> Path.wildcard()
-    |> Enum.reject(&native_parser_file?/1)
+  defp runtime_files do
+    @runtime_globs
+    |> Enum.flat_map(&Path.wildcard/1)
     |> Enum.sort()
   end
 
-  defp native_parser_file?("lib/image_plug/param_parser/native.ex"), do: true
-  defp native_parser_file?("lib/image_plug/param_parser/native/" <> _path), do: true
-  defp native_parser_file?(_file), do: false
+  defp concrete_transform_references(file) do
+    {:ok, ast} = file |> File.read!() |> Code.string_to_quoted()
+
+    {_ast, violations} =
+      Macro.prewalk(ast, [], fn
+        {:alias, meta,
+         [
+           {{:., _dot_meta, [{:__aliases__, _module_meta, [:ImagePlug, :Transform]}, :{}]},
+            _call_meta, grouped_aliases}
+         ]} = node,
+        violations ->
+          grouped_aliases
+          |> Enum.filter(&concrete_transform_alias?/1)
+          |> Enum.map(&violation(meta, concrete_transform_module(&1)))
+          |> then(&{node, &1 ++ violations})
+
+        {:__aliases__, meta, [:ImagePlug, :Transform, transform]} = node, violations
+        when transform in @concrete_transform_names ->
+          {node, [violation(meta, concrete_transform_module(transform)) | violations]}
+
+        {:__aliases__, meta, [:Transform, transform]} = node, violations
+        when transform in @concrete_transform_names ->
+          {node, [violation(meta, "Transform.#{transform}") | violations]}
+
+        node, violations ->
+          {node, violations}
+      end)
+
+    violations
+    |> Enum.reverse()
+    |> Enum.uniq()
+  end
+
+  defp concrete_transform_alias?({:__aliases__, _meta, [transform]})
+       when transform in @concrete_transform_names,
+       do: true
+
+  defp concrete_transform_alias?(_ast), do: false
+
+  defp concrete_transform_module({:__aliases__, _meta, [transform]}),
+    do: concrete_transform_module(transform)
+
+  defp concrete_transform_module(transform), do: "ImagePlug.Transform.#{transform}"
+
+  defp violation(meta, module) do
+    %{line: Keyword.fetch!(meta, :line), module: module}
+  end
 end

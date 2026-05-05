@@ -3,32 +3,48 @@ defmodule ImagePlug.Transform.Crop do
 
   @behaviour ImagePlug.Transform
 
-  import ImagePlug.TransformState
-  import ImagePlug.Utils
+  import ImagePlug.Transform.State
+  import ImagePlug.Transform.Geometry
 
-  alias ImagePlug.TransformState
+  alias ImagePlug.Transform.State
 
-  defmodule CropParams do
-    @moduledoc false
+  @doc """
+  The parsed operation used by `ImagePlug.Transform.Crop`.
+  """
+  defstruct [:width, :height, :crop_from]
 
-    @doc """
-    The parsed parameters used by `ImagePlug.Transform.Crop`.
-    """
-    defstruct [:width, :height, :crop_from]
+  @type t :: %__MODULE__{
+          width: ImagePlug.imgp_length() | :auto,
+          height: ImagePlug.imgp_length() | :auto,
+          # Future parser work can output focus + crop actions instead of this special crop_from handling.
+          crop_from: :focus | %{left: ImagePlug.imgp_length(), top: ImagePlug.imgp_length()}
+        }
 
-    @type t :: %__MODULE__{
-            width: ImagePlug.imgp_length(),
-            height: ImagePlug.imgp_length(),
-            # Future parser work can output focus + crop actions instead of this special crop_from handling.
-            crop_from: :focus | %{left: ImagePlug.imgp_length(), top: ImagePlug.imgp_length()}
-          }
+  @impl ImagePlug.Transform
+  def new(attrs) do
+    {:ok, new!(attrs)}
+  rescue
+    exception in [ArgumentError, KeyError] ->
+      {:error, exception}
   end
 
   @impl ImagePlug.Transform
-  def metadata(%CropParams{}), do: %{access: :random}
+  def new!(%__MODULE__{} = operation), do: operation
+
+  def new!(attrs) when is_list(attrs) or is_map(attrs) do
+    attrs
+    |> validate_attrs!()
+    |> then(&struct!(__MODULE__, &1))
+  end
 
   @impl ImagePlug.Transform
-  def execute(%TransformState{} = state, %CropParams{} = params) do
+  def name(%__MODULE__{}), do: :crop
+
+  @impl ImagePlug.Transform
+  def metadata(%__MODULE__{}), do: %{access: :random}
+
+  @impl ImagePlug.Transform
+  def execute(%__MODULE__{} = params, %State{} = state) do
     image_width = image_width(state)
     image_height = image_height(state)
 
@@ -63,7 +79,7 @@ defmodule ImagePlug.Transform.Crop do
   end
 
   defp anchor_crop_to_pixels(
-         %TransformState{},
+         %State{},
          %{left: left, top: top},
          image_width,
          image_height,
@@ -79,7 +95,7 @@ defmodule ImagePlug.Transform.Crop do
   end
 
   defp anchor_crop_to_pixels(
-         %TransformState{} = state,
+         %State{} = state,
          :focus,
          image_width,
          image_height,
@@ -88,4 +104,63 @@ defmodule ImagePlug.Transform.Crop do
        ) do
     anchor_to_pixels(state.focus, image_width, image_height)
   end
+
+  defp validate_attrs!(attrs) do
+    attrs = Map.new(attrs)
+
+    validate_keys!(attrs, [:width, :height, :crop_from])
+    validate_dimension_or_auto!(:width, Map.fetch!(attrs, :width))
+    validate_dimension_or_auto!(:height, Map.fetch!(attrs, :height))
+    validate_crop_from!(Map.fetch!(attrs, :crop_from))
+
+    attrs
+  end
+
+  defp validate_keys!(attrs, allowed_keys) do
+    unknown_keys = Map.keys(attrs) -- allowed_keys
+
+    if unknown_keys != [] do
+      keys = unknown_keys |> Enum.sort_by(&inspect/1) |> Enum.map_join(", ", &inspect/1)
+      raise ArgumentError, "unknown crop option(s): #{keys}"
+    end
+  end
+
+  defp validate_crop_from!(:focus), do: :ok
+
+  defp validate_crop_from!(%{left: left, top: top} = crop_from) do
+    validate_keys!(crop_from, [:left, :top])
+    validate_position!(:crop_from_left, left)
+    validate_position!(:crop_from_top, top)
+  end
+
+  defp validate_crop_from!(crop_from),
+    do: raise(ArgumentError, "invalid crop_from: #{inspect(crop_from)}")
+
+  defp validate_dimension_or_auto!(_field, :auto), do: :ok
+
+  defp validate_dimension_or_auto!(field, value), do: validate_dimension!(field, value)
+
+  defp validate_dimension!(_field, value) when is_number(value) and value > 0, do: :ok
+  defp validate_dimension!(_field, {:pixels, value}) when is_number(value) and value > 0, do: :ok
+  defp validate_dimension!(_field, {:percent, value}) when is_number(value) and value > 0, do: :ok
+  defp validate_dimension!(_field, {:scale, value}) when is_number(value) and value > 0, do: :ok
+
+  defp validate_dimension!(_field, {:scale, numerator, denominator})
+       when is_number(numerator) and is_number(denominator) and numerator > 0 and denominator > 0,
+       do: :ok
+
+  defp validate_dimension!(field, value),
+    do: raise(ArgumentError, "invalid crop #{field}: #{inspect(value)}")
+
+  defp validate_position!(_field, value) when is_number(value) and value >= 0, do: :ok
+  defp validate_position!(_field, {:pixels, value}) when is_number(value) and value >= 0, do: :ok
+  defp validate_position!(_field, {:percent, value}) when is_number(value) and value >= 0, do: :ok
+  defp validate_position!(_field, {:scale, value}) when is_number(value) and value >= 0, do: :ok
+
+  defp validate_position!(_field, {:scale, numerator, denominator})
+       when is_number(numerator) and is_number(denominator) and numerator >= 0 and denominator > 0,
+       do: :ok
+
+  defp validate_position!(field, value),
+    do: raise(ArgumentError, "invalid crop #{field}: #{inspect(value)}")
 end

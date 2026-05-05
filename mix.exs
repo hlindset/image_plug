@@ -9,6 +9,7 @@ defmodule ImagePlug.MixProject do
       version: @version,
       elixir: "~> 1.17",
       elixirc_paths: elixirc_paths(Mix.env()),
+      compilers: extra_compilers(Mix.env()) ++ Mix.compilers(),
       start_permanent: Mix.env() == :prod,
       aliases: aliases(),
       deps: deps(),
@@ -32,8 +33,12 @@ defmodule ImagePlug.MixProject do
   end
 
   # Specifies which paths to compile per environment.
-  defp elixirc_paths(:test), do: ["lib", "test/support"]
-  defp elixirc_paths(_), do: ["lib"]
+  defp elixirc_paths(:test), do: ["lib", "dev", "test/support"]
+  defp elixirc_paths(:dev), do: ["lib", "dev"]
+  defp elixirc_paths(_env), do: ["lib"]
+
+  defp extra_compilers(:prod), do: []
+  defp extra_compilers(_env), do: [:boundary]
 
   defp deps do
     [
@@ -43,6 +48,7 @@ defmodule ImagePlug.MixProject do
       {:req, "~> 0.5"},
       {:bandit, "~> 1.0", only: [:test, :dev]},
       {:stream_data, "~> 1.0", only: [:test, :dev]},
+      {:boundary, "~> 0.10", runtime: false},
       {:excoveralls, ">= 0.0.0", only: [:test], runtime: false},
       {:ex_doc, "~> 0.35", only: :dev, runtime: false},
       {:credo, "~> 1.7", only: [:dev, :test], runtime: false}
