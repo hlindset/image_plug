@@ -15,6 +15,8 @@ defmodule ImagePlug.Origin do
   alias ImagePlug.Origin.StreamStatus
 
   defmodule Response do
+    @moduledoc false
+
     @enforce_keys [:content_type, :headers, :ref, :stream, :stream_status, :url, :worker]
     defstruct [:content_type, :headers, :ref, :stream, :stream_status, :url, :worker]
 
@@ -36,31 +38,37 @@ defmodule ImagePlug.Origin do
   def build_url(root_url, path_segments) when is_binary(root_url) and is_list(path_segments) do
     root_uri = URI.parse(root_url)
 
-    if valid_root_url?(root_uri) do
-      if Enum.any?(path_segments, &(&1 in [".", ".."])) do
-        {:error, {:invalid_path_segment, path_segments}}
-      else
-        root_path_segments = split_path(root_uri.path)
-
-        encoded_path_segments =
-          Enum.map(path_segments, fn segment ->
-            URI.encode(segment, &URI.char_unreserved?/1)
-          end)
-
-        path = "/" <> Enum.join(root_path_segments ++ encoded_path_segments, "/")
-
-        url =
-          root_uri
-          |> Map.put(:path, path)
-          |> Map.put(:query, nil)
-          |> Map.put(:fragment, nil)
-          |> URI.to_string()
-
-        {:ok, url}
-      end
-    else
-      {:error, {:invalid_root_url, root_url}}
+    with :ok <- validate_root_url(root_uri, root_url),
+         :ok <- validate_path_segments(path_segments) do
+      {:ok, build_safe_url(root_uri, path_segments)}
     end
+  end
+
+  defp validate_root_url(root_uri, root_url) do
+    if valid_root_url?(root_uri), do: :ok, else: {:error, {:invalid_root_url, root_url}}
+  end
+
+  defp validate_path_segments(path_segments) do
+    if Enum.any?(path_segments, &(&1 in [".", ".."])),
+      do: {:error, {:invalid_path_segment, path_segments}},
+      else: :ok
+  end
+
+  defp build_safe_url(root_uri, path_segments) do
+    root_path_segments = split_path(root_uri.path)
+
+    encoded_path_segments =
+      Enum.map(path_segments, fn segment ->
+        URI.encode(segment, &URI.char_unreserved?/1)
+      end)
+
+    path = "/" <> Enum.join(root_path_segments ++ encoded_path_segments, "/")
+
+    root_uri
+    |> Map.put(:path, path)
+    |> Map.put(:query, nil)
+    |> Map.put(:fragment, nil)
+    |> URI.to_string()
   end
 
   def fetch(url, req_options \\ []) when is_binary(url) and is_list(req_options) do

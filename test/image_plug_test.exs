@@ -7,7 +7,10 @@ defmodule ImagePlug.ImagePlugTest do
 
   doctest ImagePlug
 
-  alias ImagePlug.ProcessingRequest
+  alias ImagePlug.OutputPlan
+  alias ImagePlug.Pipeline
+  alias ImagePlug.Plan
+  alias ImagePlug.Source.Plain
 
   defmodule CacheProbe do
     alias ImagePlug.Cache.Entry
@@ -179,12 +182,29 @@ defmodule ImagePlug.ImagePlugTest do
     def materialize(_image), do: {:error, :forced_materialization_failure}
   end
 
-  def sample_processing_request do
-    %ProcessingRequest{
-      signature: "_",
-      source_kind: :plain,
-      source_path: ["images", "cat-300.jpg"]
-    }
+  defmodule InvalidMaterializer do
+    def materialize_with_wrong_arity(_state, _opts, _extra), do: :ok
+  end
+
+  def sample_plan(overrides \\ []) do
+    struct!(
+      Plan,
+      Keyword.merge(
+        [
+          source: %Plain{path: ["images", "cat-300.jpg"]},
+          pipelines: [%Pipeline{operations: []}],
+          output: %OutputPlan{mode: :automatic}
+        ],
+        overrides
+      )
+    )
+  end
+
+  def sample_explicit_plan(format, operations \\ []) do
+    sample_plan(
+      pipelines: [%Pipeline{operations: operations}],
+      output: %OutputPlan{mode: {:explicit, format}}
+    )
   end
 
   defmodule BrokenImageParser do
@@ -192,26 +212,19 @@ defmodule ImagePlug.ImagePlugTest do
 
     @impl ImagePlug.ParamParser
     def parse(_conn) do
-      request =
-        ImagePlug.ImagePlugTest.sample_processing_request()
-        |> Map.put(:format, :jpeg)
-
-      {:ok, request}
+      {:ok,
+       ImagePlug.ImagePlugTest.sample_explicit_plan(:jpeg, [
+         {ImagePlug.ImagePlugTest.BrokenImageTransform, nil}
+       ])}
     end
 
     @impl ImagePlug.ParamParser
     def handle_error(conn, _error), do: conn
   end
 
-  defmodule BrokenImagePlanner do
-    def plan(%ProcessingRequest{}) do
-      {:ok, [{ImagePlug.ImagePlugTest.BrokenImageTransform, nil}]}
-    end
-  end
-
   defmodule BrokenImageTransform do
     def execute(%ImagePlug.TransformState{} = state, _params) do
-      %ImagePlug.TransformState{state | image: :not_an_image, output: :jpeg}
+      %ImagePlug.TransformState{state | image: :not_an_image}
     end
   end
 
@@ -220,11 +233,10 @@ defmodule ImagePlug.ImagePlugTest do
 
     @impl ImagePlug.ParamParser
     def parse(_conn) do
-      request =
-        ImagePlug.ImagePlugTest.sample_processing_request()
-        |> Map.put(:format, :jpeg)
-
-      {:ok, request}
+      {:ok,
+       ImagePlug.ImagePlugTest.sample_explicit_plan(:jpeg, [
+         {ImagePlug.ImagePlugTest.RaisingAfterFirstChunkTransform, nil}
+       ])}
     end
 
     @impl ImagePlug.ParamParser
@@ -236,26 +248,16 @@ defmodule ImagePlug.ImagePlugTest do
 
     @impl ImagePlug.ParamParser
     def parse(_conn) do
-      request =
-        ImagePlug.ImagePlugTest.sample_processing_request()
-        |> Map.put(:source_kind, :signed)
-
-      {:ok, request}
+      {:ok, ImagePlug.ImagePlugTest.sample_plan(source: :signed)}
     end
 
     @impl ImagePlug.ParamParser
     def handle_error(conn, _error), do: conn
   end
 
-  defmodule RaisingAfterFirstChunkPlanner do
-    def plan(%ProcessingRequest{}) do
-      {:ok, [{ImagePlug.ImagePlugTest.RaisingAfterFirstChunkTransform, nil}]}
-    end
-  end
-
   defmodule RaisingAfterFirstChunkTransform do
     def execute(%ImagePlug.TransformState{} = state, _params) do
-      %ImagePlug.TransformState{state | image: :image, output: :jpeg}
+      %ImagePlug.TransformState{state | image: :image}
     end
   end
 
@@ -264,27 +266,55 @@ defmodule ImagePlug.ImagePlugTest do
 
     @impl ImagePlug.ParamParser
     def parse(_conn) do
-      request =
-        ImagePlug.ImagePlugTest.sample_processing_request()
-        |> Map.put(:format, :jpeg)
-
-      {:ok, request}
+      {:ok,
+       ImagePlug.ImagePlugTest.sample_explicit_plan(:jpeg, [
+         {ImagePlug.ImagePlugTest.FailingTransform, nil}
+       ])}
     end
 
     @impl ImagePlug.ParamParser
     def handle_error(conn, _error), do: conn
   end
 
-  defmodule FailingTransformPlanner do
-    def plan(%ProcessingRequest{}) do
-      {:ok, [{ImagePlug.ImagePlugTest.FailingTransform, nil}]}
-    end
-  end
-
   defmodule FailingTransform do
     def execute(%ImagePlug.TransformState{} = state, _params) do
       ImagePlug.TransformState.add_error(state, {__MODULE__, :failed})
     end
+  end
+
+  defmodule UnprojectableOperationParser do
+    @behaviour ImagePlug.ParamParser
+
+    @impl ImagePlug.ParamParser
+    def parse(_conn) do
+      {:ok,
+       ImagePlug.ImagePlugTest.sample_explicit_plan(:jpeg, [
+         {ImagePlug.ImagePlugTest.UnprojectableOperationTransform, :params}
+       ])}
+    end
+
+    @impl ImagePlug.ParamParser
+    def handle_error(conn, _error), do: conn
+  end
+
+  defmodule UnprojectableOperationTransform do
+    def execute(%ImagePlug.TransformState{} = state, _params), do: state
+  end
+
+  defmodule EmptyPipelineParser do
+    @behaviour ImagePlug.ParamParser
+
+    @impl ImagePlug.ParamParser
+    def parse(_conn) do
+      {:ok,
+       ImagePlug.ImagePlugTest.sample_plan(
+         pipelines: [],
+         output: %ImagePlug.OutputPlan{mode: {:explicit, :jpeg}}
+       )}
+    end
+
+    @impl ImagePlug.ParamParser
+    def handle_error(conn, _error), do: conn
   end
 
   defmodule RaisingAfterFirstChunkImage do
@@ -369,25 +399,51 @@ defmodule ImagePlug.ImagePlugTest do
     server =
       spawn_link(fn ->
         {:ok, socket} = :gen_tcp.accept(listen_socket)
-        {:ok, _request} = :gen_tcp.recv(socket, 0)
 
-        body = File.read!("priv/static/images/cat-300.jpg")
-        first_chunk = binary_part(body, 0, 128)
+        case :gen_tcp.recv(socket, 0) do
+          {:ok, _request} ->
+            send_slow_partial_origin_response(test_pid, ref, content_type, socket, listen_socket)
 
-        :ok =
-          :gen_tcp.send(socket, [
-            "HTTP/1.1 200 OK\r\n",
-            "content-type: #{content_type}\r\n",
-            "transfer-encoding: chunked\r\n",
-            "\r\n",
-            chunked_body_chunk(first_chunk)
-          ])
-
-        send(test_pid, {ref, :first_chunk_sent, self()})
-        await_slow_partial_origin_close(ref, socket, listen_socket)
+          {:error, reason} ->
+            send(test_pid, {ref, :request_closed_before_first_chunk, self(), reason})
+            :gen_tcp.close(socket)
+            :gen_tcp.close(listen_socket)
+        end
       end)
 
     {"http://127.0.0.1:#{port}", server}
+  end
+
+  defp send_slow_partial_origin_response(test_pid, ref, content_type, socket, listen_socket) do
+    body = File.read!("priv/static/images/cat-300.jpg")
+    first_chunk = binary_part(body, 0, 128)
+
+    response = [
+      "HTTP/1.1 200 OK\r\n",
+      "content-type: #{content_type}\r\n",
+      "transfer-encoding: chunked\r\n",
+      "\r\n",
+      chunked_body_chunk(first_chunk)
+    ]
+
+    case :gen_tcp.send(socket, response) do
+      :ok ->
+        send(test_pid, {ref, :first_chunk_sent, self()})
+        await_slow_partial_origin_close(ref, socket, listen_socket)
+
+      {:error, reason} ->
+        send(test_pid, {ref, :first_chunk_send_failed, self(), reason})
+        :gen_tcp.close(socket)
+        :gen_tcp.close(listen_socket)
+    end
+  end
+
+  defp call_after_slow_origin_first_chunk(conn, opts, ref, server) do
+    task = Task.async(fn -> ImagePlug.call(conn, opts) end)
+
+    assert_receive {^ref, :first_chunk_sent, ^server}, 1_000
+
+    Task.await(task, 2_000)
   end
 
   defp chunked_body_chunk(body) do
@@ -684,6 +740,21 @@ defmodule ImagePlug.ImagePlugTest do
     refute_received :origin_was_called
   end
 
+  test "empty pipeline plan returns a controlled response before origin" do
+    conn = conn(:get, "/_/f:jpeg/plain/images/cat-300.jpg")
+
+    conn =
+      ImagePlug.call(conn,
+        root_url: "http://origin.test",
+        param_parser: EmptyPipelineParser,
+        origin_req_options: [plug: OriginShouldNotBeCalled]
+      )
+
+    assert conn.status == 422
+    assert conn.resp_body == "invalid image transform"
+    refute_received :origin_was_called
+  end
+
   test "returns an origin error for unsupported source kinds" do
     conn = conn(:get, "/_/signed/images/cat-300.jpg")
 
@@ -756,6 +827,20 @@ defmodule ImagePlug.ImagePlugTest do
 
     assert conn.status == 200
     assert get_resp_header(conn, "content-type") == ["image/jpeg"]
+    assert get_resp_header(conn, "vary") == []
+  end
+
+  test "plain source extension overrides explicit output format after options" do
+    conn =
+      ImagePlug.call(
+        conn(:get, "/_/f:webp/plain/images/cat-300.jpg@png"),
+        root_url: "http://origin.test",
+        param_parser: ImagePlug.ParamParser.Native,
+        origin_req_options: [plug: OriginImage]
+      )
+
+    assert conn.status == 200
+    assert get_resp_header(conn, "content-type") == ["image/png"]
     assert get_resp_header(conn, "vary") == []
   end
 
@@ -1165,6 +1250,26 @@ defmodule ImagePlug.ImagePlugTest do
     assert get_resp_header(conn, "vary") == ["Accept"]
   end
 
+  test "invalid configured materializer returns a controlled configuration error" do
+    conn =
+      conn(:get, "/_/rt:force/w:100/plain/images/cat-300.jpg")
+      |> ImagePlug.call(
+        root_url: "http://origin.test",
+        image_open_module: RecordingImageOpen,
+        param_parser: ImagePlug.ParamParser.Native,
+        image_materializer: InvalidMaterializer,
+        origin_req_options: [plug: OriginImage]
+      )
+
+    assert_received {:image_open_options, opts}
+    assert Keyword.get(opts, :access) == :sequential
+    assert Keyword.get(opts, :fail_on) == :error
+    assert conn.status == 500
+    assert conn.state == :sent
+    assert conn.resp_body == "configuration error"
+    assert get_resp_header(conn, "content-type") == ["text/plain; charset=utf-8"]
+  end
+
   test "deferred automatic sequential materialization failure returns decode error" do
     conn =
       :get
@@ -1209,7 +1314,6 @@ defmodule ImagePlug.ImagePlugTest do
       ImagePlug.call(conn,
         root_url: "http://origin.test",
         param_parser: BrokenImageParser,
-        pipeline_planner: BrokenImagePlanner,
         origin_req_options: [plug: OriginImage]
       )
 
@@ -1228,7 +1332,6 @@ defmodule ImagePlug.ImagePlugTest do
             root_url: "http://origin.test",
             image_module: EmptyStreamingImage,
             param_parser: RaisingAfterFirstChunkParser,
-            pipeline_planner: RaisingAfterFirstChunkPlanner,
             origin_req_options: [plug: OriginImage]
           )
 
@@ -1252,7 +1355,6 @@ defmodule ImagePlug.ImagePlugTest do
             root_url: "http://origin.test",
             image_module: RaisingAfterFirstChunkImage,
             param_parser: RaisingAfterFirstChunkParser,
-            pipeline_planner: RaisingAfterFirstChunkPlanner,
             origin_req_options: [plug: OriginImage]
           )
 
@@ -1275,7 +1377,6 @@ defmodule ImagePlug.ImagePlugTest do
           ImagePlug.call(conn,
             root_url: "http://origin.test",
             param_parser: FailingTransformParser,
-            pipeline_planner: FailingTransformPlanner,
             origin_req_options: [plug: OriginImage]
           )
 
@@ -1347,14 +1448,17 @@ defmodule ImagePlug.ImagePlugTest do
     monitor_ref = Process.monitor(server)
 
     conn =
-      conn(:get, "/_/plain/images/slow.jpg")
-      |> ImagePlug.call(
-        root_url: root_url,
-        param_parser: ImagePlug.ParamParser.Native,
-        origin_receive_timeout: 50
+      call_after_slow_origin_first_chunk(
+        conn(:get, "/_/plain/images/slow.jpg"),
+        [
+          root_url: root_url,
+          param_parser: ImagePlug.ParamParser.Native,
+          origin_receive_timeout: 1_000
+        ],
+        ref,
+        server
       )
 
-    assert_receive {^ref, :first_chunk_sent, ^server}
     assert conn.status == 502
     assert conn.resp_body == "error fetching origin image"
 
@@ -1386,14 +1490,17 @@ defmodule ImagePlug.ImagePlugTest do
     monitor_ref = Process.monitor(server)
 
     conn =
-      conn(:get, "/_/rt:force/w:100/plain/images/slow.jpg")
-      |> ImagePlug.call(
-        root_url: root_url,
-        param_parser: ImagePlug.ParamParser.Native,
-        origin_receive_timeout: 50
+      call_after_slow_origin_first_chunk(
+        conn(:get, "/_/rt:force/w:100/plain/images/slow.jpg"),
+        [
+          root_url: root_url,
+          param_parser: ImagePlug.ParamParser.Native,
+          origin_receive_timeout: 1_000
+        ],
+        ref,
+        server
       )
 
-    assert_receive {^ref, :first_chunk_sent, ^server}
     assert conn.status == 502
     assert conn.state == :sent
     assert conn.resp_body == "error fetching origin image"

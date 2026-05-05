@@ -2,6 +2,10 @@ defmodule ImagePlug.DecodePlannerTest do
   use ExUnit.Case, async: true
 
   alias ImagePlug.DecodePlanner
+  alias ImagePlug.OutputPlan
+  alias ImagePlug.Pipeline
+  alias ImagePlug.Plan
+  alias ImagePlug.Source.Plain
   alias ImagePlug.Transform.Contain
   alias ImagePlug.Transform.Contain.ContainParams
   alias ImagePlug.Transform.Cover
@@ -10,8 +14,6 @@ defmodule ImagePlug.DecodePlannerTest do
   alias ImagePlug.Transform.Crop.CropParams
   alias ImagePlug.Transform.Focus
   alias ImagePlug.Transform.Focus.FocusParams
-  alias ImagePlug.Transform.Output
-  alias ImagePlug.Transform.Output.OutputParams
   alias ImagePlug.Transform.Scale
   alias ImagePlug.Transform.Scale.ScaleParams
 
@@ -63,12 +65,6 @@ defmodule ImagePlug.DecodePlannerTest do
 
   test "empty chains open randomly with fail_on error" do
     assert DecodePlanner.open_options([]) == [access: :random, fail_on: :error]
-  end
-
-  test "output-only chains stay random" do
-    chain = [{Output, %OutputParams{format: :webp}}]
-
-    assert DecodePlanner.open_options(chain) == [access: :random, fail_on: :error]
   end
 
   test "width-only scale opens sequentially" do
@@ -257,20 +253,38 @@ defmodule ImagePlug.DecodePlannerTest do
            ]) == [access: :random, fail_on: :error]
   end
 
-  test "output transform does not downgrade an otherwise sequential chain" do
-    chain = [
-      {Scale, %ScaleParams{type: :dimensions, width: {:pixels, 120}, height: :auto}},
-      {Output, %OutputParams{format: :jpeg}}
-    ]
-
-    assert DecodePlanner.open_options(chain) == [access: :sequential, fail_on: :error]
-  end
-
   test "planned options include only access and fail_on" do
     chain = [
       {Scale, %ScaleParams{type: :dimensions, width: {:pixels, 120}, height: :auto}}
     ]
 
     assert Keyword.keys(DecodePlanner.open_options(chain)) == [:access, :fail_on]
+  end
+
+  test "planned options for plans use the first pipeline only" do
+    plan = %Plan{
+      source: %Plain{path: ["images", "cat-300.jpg"]},
+      pipelines: [
+        %Pipeline{
+          operations: [
+            {Scale, %ScaleParams{type: :dimensions, width: {:pixels, 120}, height: :auto}}
+          ]
+        },
+        %Pipeline{
+          operations: [
+            {Cover,
+             %CoverParams{
+               type: :dimensions,
+               width: {:pixels, 80},
+               height: {:pixels, 80},
+               constraint: :none
+             }}
+          ]
+        }
+      ],
+      output: %OutputPlan{mode: {:explicit, :jpeg}}
+    }
+
+    assert DecodePlanner.open_options(plan) == [access: :sequential, fail_on: :error]
   end
 end

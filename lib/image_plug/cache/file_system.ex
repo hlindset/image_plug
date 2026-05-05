@@ -55,10 +55,7 @@ defmodule ImagePlug.Cache.FileSystem do
       dir = Path.join([root, path_prefix, first_partition, second_partition])
       meta_path = Path.join(dir, String.duplicate("0", 64) <> ".meta")
 
-      with :ok <- validate_under_root(root, dir),
-           :ok <- validate_under_root(root, meta_path) do
-        :ok
-      end
+      validate_cache_paths(root, dir, meta_path)
     end
   end
 
@@ -283,16 +280,28 @@ defmodule ImagePlug.Cache.FileSystem do
   defp commit(paths, body_filename, body_tmp_path, meta_tmp_path) do
     body_path = Path.join(paths.dir, body_filename)
 
-    with :ok <- commit_body_file(body_tmp_path, body_path, body_filename) do
-      case File.rename(meta_tmp_path, paths.meta_path) do
-        :ok ->
-          :ok
+    case commit_body_file(body_tmp_path, body_path, body_filename) do
+      {:ok, body_status} ->
+        case commit_metadata_file(paths, body_tmp_path, meta_tmp_path) do
+          :ok ->
+            :ok
 
-        {:error, reason} ->
-          cleanup_temp_files([body_tmp_path, meta_tmp_path])
-          {:error, reason}
-      end
-    else
+          {:error, reason} ->
+            rollback_committed_body(body_path, body_status)
+            {:error, reason}
+        end
+
+      {:error, reason} ->
+        cleanup_temp_files([body_tmp_path, meta_tmp_path])
+        {:error, reason}
+    end
+  end
+
+  defp commit_metadata_file(paths, body_tmp_path, meta_tmp_path) do
+    case File.rename(meta_tmp_path, paths.meta_path) do
+      :ok ->
+        :ok
+
       {:error, reason} ->
         cleanup_temp_files([body_tmp_path, meta_tmp_path])
         {:error, reason}
@@ -302,10 +311,10 @@ defmodule ImagePlug.Cache.FileSystem do
   defp commit_body_file(body_tmp_path, body_path, body_filename) do
     if matching_body_file?(body_path, body_filename) do
       cleanup_temp_files([body_tmp_path])
-      :ok
+      {:ok, :existing}
     else
       case File.rename(body_tmp_path, body_path) do
-        :ok -> :ok
+        :ok -> {:ok, :moved}
         {:error, :eexist} -> use_existing_body_file(body_tmp_path, body_path, body_filename)
         {:error, reason} -> {:error, reason}
       end
@@ -315,11 +324,14 @@ defmodule ImagePlug.Cache.FileSystem do
   defp use_existing_body_file(body_tmp_path, body_path, body_filename) do
     if matching_body_file?(body_path, body_filename) do
       cleanup_temp_files([body_tmp_path])
-      :ok
+      {:ok, :existing}
     else
       {:error, :body_file_exists}
     end
   end
+
+  defp rollback_committed_body(body_path, :moved), do: File.rm(body_path)
+  defp rollback_committed_body(_body_path, :existing), do: :ok
 
   defp matching_body_file?(body_path, body_filename) do
     with {:ok, expected_sha256} <- body_sha256_from_filename(body_filename),
@@ -396,10 +408,10 @@ defmodule ImagePlug.Cache.FileSystem do
   end
 
   defp partitions(hash) when is_binary(hash) do
-    unless Regex.match?(@hash_pattern, hash) do
-      {:error, {:invalid_hash, hash}}
-    else
+    if Regex.match?(@hash_pattern, hash) do
       do_partitions(hash)
+    else
+      {:error, {:invalid_hash, hash}}
     end
   end
 
@@ -418,6 +430,13 @@ defmodule ImagePlug.Cache.FileSystem do
     case Path.safe_relative(relative, root) do
       {:ok, _relative} -> :ok
       :error -> {:error, {:path_outside_root, path}}
+    end
+  end
+
+  defp validate_cache_paths(root, dir, meta_path) do
+    case validate_under_root(root, dir) do
+      :ok -> validate_under_root(root, meta_path)
+      {:error, _reason} = error -> error
     end
   end
 

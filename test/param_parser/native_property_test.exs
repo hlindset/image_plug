@@ -5,6 +5,10 @@ defmodule ImagePlug.ParamParser.NativePropertyTest do
   import Plug.Test
 
   alias ImagePlug.ParamParser.Native
+  alias ImagePlug.Pipeline
+  alias ImagePlug.Plan
+  alias ImagePlug.Source.Plain
+  alias ImagePlug.Transform
 
   property "parser returns tagged results for arbitrary processing segments" do
     check all segments <- list_of(processing_segment(), max_length: 5),
@@ -19,40 +23,39 @@ defmodule ImagePlug.ParamParser.NativePropertyTest do
   property "segments after plain are preserved as source path" do
     check all source_path <- valid_source_path_with_option_like_segments(),
               max_runs: 100 do
-      assert {:ok, request} =
+      assert {:ok, %Plan{source: %Plain{path: ^source_path}}} =
                ["w:300"]
                |> native_path(source_path)
                |> parse_path()
-
-      assert request.source_path == source_path
     end
   end
 
   property "later width assignments overwrite earlier width assignments" do
     check all first <- integer(0..10_000),
-              second <- integer(0..10_000),
+              second <- integer(1..10_000),
               max_runs: 100 do
-      assert {:ok, request} =
+      assert {:ok, %Plan{pipelines: [%Pipeline{operations: operations}]}} =
                ["w:#{first}", "w:#{second}"]
                |> native_path(["images", "cat.jpg"])
                |> parse_path()
 
-      assert request.width == {:pixels, second}
+      assert [{Transform.Contain, params}] = operations
+      assert params.width == {:pixels, second}
     end
   end
 
   property "resize meta-option overwrites atomic width and height fields by position" do
-    check all width <- integer(0..10_000),
-              height <- integer(0..10_000),
+    check all width <- integer(1..10_000),
+              height <- integer(1..10_000),
               max_runs: 100 do
-      assert {:ok, request} =
+      assert {:ok, %Plan{pipelines: [%Pipeline{operations: operations}]}} =
                ["w:999", "h:888", "rs:fill:#{width}:#{height}"]
                |> native_path(["images", "cat.jpg"])
                |> parse_path()
 
-      assert request.width == {:pixels, width}
-      assert request.height == {:pixels, height}
-      assert request.resizing_type == :fill
+      assert [{Transform.Cover, params}] = operations
+      assert params.width == {:pixels, width}
+      assert params.height == {:pixels, height}
     end
   end
 

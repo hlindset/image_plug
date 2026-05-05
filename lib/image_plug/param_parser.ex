@@ -1,12 +1,16 @@
 defmodule ImagePlug.ParamParser do
-  alias ImagePlug.ProcessingRequest
+  @moduledoc """
+  Behaviour for parsing image request paths into execution plans.
+  """
+
+  alias ImagePlug.Plan
 
   @type parse_error() :: term()
 
   @doc """
   Parse a request from a `Plug.Conn`.
   """
-  @callback parse(Plug.Conn.t()) :: {:ok, ProcessingRequest.t()} | {:error, any()}
+  @callback parse(Plug.Conn.t()) :: {:ok, Plan.t()} | {:error, any()}
 
   @doc """
   Render request parsing or request validation errors to the client.

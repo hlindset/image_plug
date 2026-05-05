@@ -50,26 +50,7 @@ defmodule ImagePlug.Cache.Entry do
 
   @spec normalize_headers(term()) :: {:ok, [header()]} | {:error, term()}
   def normalize_headers(headers) when is_list(headers) do
-    Enum.reduce_while(headers, {:ok, []}, fn
-      {name, value}, {:ok, normalized_headers} when is_binary(name) and is_binary(value) ->
-        if valid_header_name?(name) and valid_header_value?(value) do
-          name = String.downcase(name)
-
-          normalized_headers =
-            if name in @allowed_headers do
-              [{name, value} | normalized_headers]
-            else
-              normalized_headers
-            end
-
-          {:cont, {:ok, normalized_headers}}
-        else
-          {:halt, {:error, {:invalid_headers, headers}}}
-        end
-
-      _header, _acc ->
-        {:halt, {:error, {:invalid_headers, headers}}}
-    end)
+    Enum.reduce_while(headers, {:ok, []}, &normalize_header(&1, &2, headers))
     |> case do
       {:ok, normalized_headers} -> {:ok, Enum.reverse(normalized_headers)}
       {:error, reason} -> {:error, reason}
@@ -77,6 +58,25 @@ defmodule ImagePlug.Cache.Entry do
   end
 
   def normalize_headers(headers), do: {:error, {:invalid_headers, headers}}
+
+  defp normalize_header({name, value}, {:ok, normalized_headers}, headers)
+       when is_binary(name) and is_binary(value) do
+    if valid_header_name?(name) and valid_header_value?(value) do
+      {:cont, {:ok, maybe_add_allowed_header(normalized_headers, String.downcase(name), value)}}
+    else
+      {:halt, {:error, {:invalid_headers, headers}}}
+    end
+  end
+
+  defp normalize_header(_header, _acc, headers) do
+    {:halt, {:error, {:invalid_headers, headers}}}
+  end
+
+  defp maybe_add_allowed_header(normalized_headers, name, value) do
+    if name in @allowed_headers,
+      do: [{name, value} | normalized_headers],
+      else: normalized_headers
+  end
 
   defp fetch_required(attrs, key) do
     case Keyword.fetch(attrs, key) do

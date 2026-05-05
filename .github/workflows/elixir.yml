@@ -11,23 +11,52 @@ permissions:
 
 jobs:
   build:
-    name: Build and test
+    name: Elixir ${{ matrix.elixir }} / OTP ${{ matrix.erlang }}
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - elixir: 1.17.3-otp-27
+            erlang: 27
+          - elixir: 1.18.4-otp-27
+            erlang: 27
+          - elixir: 1.18.4-otp-28
+            erlang: 28
+          - elixir: 1.19.5-otp-27
+            erlang: 27
+          - elixir: 1.19.5-otp-28
+            erlang: 28
+          - elixir: 1.20.0-rc.4-otp-27
+            erlang: 27
+          - elixir: 1.20.0-rc.4-otp-28
+            erlang: 28
 
     steps:
       - uses: actions/checkout@v4
-      - name: Set up Elixir
-        uses: erlef/setup-beam@v1
+      - uses: jdx/mise-action@v3
         with:
-          elixir-version: "1.17.3"
-          otp-version: "27.1.2"
-      - name: Restore dependencies cache
-        uses: actions/cache@v4
-        with:
-          path: deps
-          key: ${{ runner.os }}-mix-${{ hashFiles('**/mix.lock') }}
-          restore-keys: ${{ runner.os }}-mix-
+          mise_toml: |
+            [tools]
+            erlang = "${{ matrix.erlang }}"
+            elixir = "${{ matrix.elixir }}"
+      - name: Print versions
+        run: mise exec -- elixir --version
+      - name: Install Hex
+        run: mise exec -- mix local.hex --force
+      - name: Install Rebar
+        run: mise exec -- mix local.rebar --force
       - name: Install dependencies
-        run: mix deps.get
+        run: mise exec -- mix deps.get
+      - name: Compile
+        run: mise exec -- mix compile --warnings-as-errors
+        env:
+          MIX_ENV: test
+      - name: Check formatting
+        run: mise exec -- mix format --check-formatted
+        env:
+          MIX_ENV: test
       - name: Run tests
-        run: mix test
+        run: mise exec -- mix test --no-compile
+        env:
+          MIX_ENV: test

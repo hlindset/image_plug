@@ -5,45 +5,56 @@ defmodule ImagePlug.ResponseCache do
   alias ImagePlug.Cache.Entry
   alias ImagePlug.Cache.Key
   alias ImagePlug.OutputEncoder
-  alias ImagePlug.ProcessingRequest
+  alias ImagePlug.Plan
   alias ImagePlug.TransformState
 
   @type lookup_result ::
           :disabled
-          | :skip_cache
           | {:hit, Entry.t()}
           | {:miss, Key.t()}
           | {:error, term()}
 
-  @spec lookup(Plug.Conn.t(), ProcessingRequest.t(), String.t(), keyword()) :: lookup_result()
-  def lookup(conn, %ProcessingRequest{} = request, origin_identity, opts) do
-    case Cache.lookup(conn, request, origin_identity, opts) do
+  @spec lookup(Plug.Conn.t(), Plan.t(), String.t(), keyword()) :: lookup_result()
+  def lookup(conn, %Plan{} = plan, origin_identity, opts) do
+    case Cache.lookup(conn, plan, origin_identity, opts) do
       :disabled -> :disabled
-      :skip_cache -> :skip_cache
       {:hit, _key, %Entry{} = entry} -> {:hit, entry}
       {:miss, %Key{} = key} -> {:miss, key}
       {:error, {:cache_read, error}} -> {:error, error}
     end
   end
 
-  @spec store(Key.t(), TransformState.t(), [{String.t(), String.t()}], keyword()) ::
+  @spec store(Key.t(), TransformState.t(), atom(), [{String.t(), String.t()}], keyword()) ::
           {:ok, Entry.t()} | :skipped | {:error, term()}
-  def store(%Key{} = key, %TransformState{} = state, response_headers, opts) do
-    case OutputEncoder.limited_memory_output(state, opts, Cache.max_body_bytes(opts)) do
+  def store(%Key{} = key, %TransformState{} = state, resolved_format, response_headers, opts) do
+    case OutputEncoder.limited_memory_output(
+           state,
+           resolved_format,
+           opts,
+           Cache.max_body_bytes(opts)
+         ) do
       {:ok, %OutputEncoder.EncodedOutput{} = output} ->
-        with {:ok, entry} <- entry(output, response_headers) do
-          case Cache.put(key, entry, opts) do
-            :ok -> {:ok, entry}
-            :skipped -> :skipped
-            {:error, _reason} = error -> error
-          end
-        end
+        store_output(key, output, response_headers, opts)
 
       :too_large ->
         :skipped
 
       {:error, _reason} = error ->
         error
+    end
+  end
+
+  defp store_output(key, output, response_headers, opts) do
+    with {:ok, entry} <- entry(output, response_headers) do
+      put_entry(key, entry, opts)
+    end
+  end
+
+  defp put_entry(key, entry, opts) do
+    case Cache.put(key, entry, opts) do
+      :ok -> {:ok, entry}
+      :skipped -> :skipped
+      {:error, _reason} = error -> error
     end
   end
 

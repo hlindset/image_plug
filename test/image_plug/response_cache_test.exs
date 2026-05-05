@@ -6,8 +6,11 @@ defmodule ImagePlug.ResponseCacheTest do
 
   alias ImagePlug.Cache.Entry
   alias ImagePlug.Cache.Key
-  alias ImagePlug.ProcessingRequest
+  alias ImagePlug.OutputPlan
+  alias ImagePlug.Pipeline
+  alias ImagePlug.Plan
   alias ImagePlug.ResponseCache
+  alias ImagePlug.Source.Plain
   alias ImagePlug.TransformState
 
   defmodule CaptureAdapter do
@@ -22,15 +25,14 @@ defmodule ImagePlug.ResponseCacheTest do
     end
   end
 
-  defp request(overrides \\ []) do
+  defp plan(overrides \\ []) do
     struct!(
-      ProcessingRequest,
+      Plan,
       Keyword.merge(
         [
-          signature: "_",
-          source_kind: :plain,
-          source_path: ["images", "cat.jpg"],
-          format: nil
+          source: %Plain{path: ["images", "cat.jpg"]},
+          pipelines: [%Pipeline{operations: []}],
+          output: %OutputPlan{mode: :automatic}
         ],
         overrides
       )
@@ -46,7 +48,7 @@ defmodule ImagePlug.ResponseCacheTest do
     assert {:miss, %Key{} = key} =
              ResponseCache.lookup(
                conn,
-               request(),
+               plan(),
                "https://origin.test/images/cat.jpg",
                cache: {CaptureAdapter, key_headers: ["accept"]}
              )
@@ -64,21 +66,23 @@ defmodule ImagePlug.ResponseCacheTest do
 
   test "store encodes and writes using a key returned by lookup" do
     conn = conn(:get, "/_/f:png/plain/images/cat.jpg")
-    request = request(format: :png)
+    plan = plan(output: %OutputPlan{mode: {:explicit, :png}})
 
     assert {:miss, %Key{} = key} =
              ResponseCache.lookup(
                conn,
-               request,
+               plan,
                "https://origin.test/images/cat.jpg",
                cache: {CaptureAdapter, []}
              )
 
     {:ok, image} = Image.new(1, 1)
-    state = %TransformState{image: image, output: :png}
+    state = %TransformState{image: image}
 
     assert {:ok, %Entry{} = entry} =
-             ResponseCache.store(key, state, [{"vary", "Accept"}], cache: {CaptureAdapter, []})
+             ResponseCache.store(key, state, :png, [{"vary", "Accept"}],
+               cache: {CaptureAdapter, []}
+             )
 
     assert entry.content_type == "image/png"
     assert_received {:cache_put, ^key, ^entry, _adapter_opts}
@@ -86,29 +90,30 @@ defmodule ImagePlug.ResponseCacheTest do
 
   test "store reports skipped when cache writing is disabled" do
     {:ok, image} = Image.new(1, 1)
-    state = %TransformState{image: image, output: :png}
+    state = %TransformState{image: image}
 
     key = %Key{
       hash: String.duplicate("a", 64),
-      material: [schema_version: 1],
-      serialized_material: :erlang.term_to_binary(schema_version: 1)
+      material: [schema_version: 2],
+      serialized_material: :erlang.term_to_binary(schema_version: 2)
     }
 
-    assert :skipped = ResponseCache.store(key, state, [], [])
+    assert :skipped = ResponseCache.store(key, state, :png, [], [])
   end
 
   test "store returns tagged encode errors for invalid response headers" do
     {:ok, image} = Image.new(1, 1)
-    state = %TransformState{image: image, output: :png}
+    state = %TransformState{image: image}
 
     assert {:error, {:encode, %ArgumentError{} = exception, _stacktrace}} =
              ResponseCache.store(
                %Key{
                  hash: String.duplicate("a", 64),
-                 material: [schema_version: 1],
-                 serialized_material: :erlang.term_to_binary(schema_version: 1)
+                 material: [schema_version: 2],
+                 serialized_material: :erlang.term_to_binary(schema_version: 2)
                },
                state,
+               :png,
                [{"invalid header name", "value"}],
                cache: {CaptureAdapter, []}
              )

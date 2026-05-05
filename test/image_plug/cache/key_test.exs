@@ -5,121 +5,164 @@ defmodule ImagePlug.Cache.KeyTest do
   import Plug.Test
 
   alias ImagePlug.Cache.Key
-  alias ImagePlug.ProcessingRequest
+  alias ImagePlug.OutputPlan
+  alias ImagePlug.Pipeline
+  alias ImagePlug.Plan
+  alias ImagePlug.Source.Plain
+  alias ImagePlug.Transform
 
-  defp request(overrides \\ []) do
+  defp plan(overrides \\ []) do
     struct!(
-      ProcessingRequest,
+      Plan,
       Keyword.merge(
         [
-          signature: "sig-one",
-          source_kind: :plain,
-          source_path: ["images", "cat.jpg"],
-          width: {:pixels, 100},
-          height: {:pixels, 80},
-          resizing_type: :fill,
-          format: :webp
+          source: %Plain{path: ["images", "cat.jpg"]},
+          pipelines: [
+            %Pipeline{
+              operations: [
+                {Transform.Contain,
+                 %Transform.Contain.ContainParams{
+                   type: :dimensions,
+                   width: {:pixels, 300},
+                   height: :auto,
+                   constraint: :max,
+                   letterbox: false
+                 }}
+              ]
+            },
+            %Pipeline{
+              operations: [
+                {Transform.Crop,
+                 %Transform.Crop.CropParams{
+                   width: {:pixels, 200},
+                   height: {:pixels, 100},
+                   crop_from: :focus
+                 }}
+              ]
+            }
+          ],
+          output: %OutputPlan{mode: {:explicit, :webp}}
         ],
         overrides
       )
     )
   end
 
-  defp build_key!(conn, request, origin_identity, opts \\ []) do
-    assert {:ok, key} = Key.build(conn, request, origin_identity, opts)
+  defp build_key!(conn, plan, origin_identity, opts \\ []) do
+    assert {:ok, key} = Key.build(conn, plan, origin_identity, opts)
     key
   end
 
-  test "builds stable hash and material from canonical request fields and origin identity" do
+  test "builds stable hash and material from canonical plan fields and origin identity" do
     conn = conn(:get, "/sig-one/w:100/plain/images/cat.jpg?ignored=true")
 
-    key = build_key!(conn, request(), "https://origin-a.test/images/cat.jpg")
-    same = build_key!(conn, request(), "https://origin-a.test/images/cat.jpg")
-    different_origin = build_key!(conn, request(), "https://origin-b.test/images/cat.jpg")
+    key = build_key!(conn, plan(), "https://origin-a.test/images/cat.jpg")
+    same = build_key!(conn, plan(), "https://origin-a.test/images/cat.jpg")
+    different_origin = build_key!(conn, plan(), "https://origin-b.test/images/cat.jpg")
 
     assert key.hash == same.hash
     assert key.hash =~ ~r/\A[0-9a-f]{64}\z/
     assert is_binary(key.serialized_material)
-    assert key.material[:schema_version] == 1
-    assert key.material[:origin_identity] == "https://origin-a.test/images/cat.jpg"
 
-    assert key.material[:operations] == [
-             source_kind: :plain,
-             source_path: ["images", "cat.jpg"],
-             width: {:pixels, 100},
-             height: {:pixels, 80},
-             resizing_type: :fill,
-             enlarge: false,
-             extend: false,
-             extend_gravity: nil,
-             extend_x_offset: nil,
-             extend_y_offset: nil,
-             gravity: {:anchor, :center, :center},
-             gravity_x_offset: 0.0,
-             gravity_y_offset: 0.0
+    assert key.material == [
+             schema_version: 2,
+             origin_identity: "https://origin-a.test/images/cat.jpg",
+             source: [kind: :plain, path: ["images", "cat.jpg"]],
+             pipelines: [
+               [
+                 [
+                   op: :contain,
+                   type: :dimensions,
+                   width: {:pixels, 300},
+                   height: :auto,
+                   constraint: :max,
+                   letterbox: false
+                 ]
+               ],
+               [
+                 [
+                   op: :crop,
+                   width: {:pixels, 200},
+                   height: {:pixels, 100},
+                   crop_from: :focus
+                 ]
+               ]
+             ],
+             output: [mode: :explicit, format: :webp],
+             selected_headers: [],
+             selected_cookies: []
            ]
 
-    assert key.material[:output] == [mode: :explicit, format: :webp]
-    assert key.material[:selected_headers] == []
-    assert key.material[:selected_cookies] == []
     assert key.serialized_material == Key.serialize_material(key.material)
-    refute Keyword.has_key?(key.material, :signature)
+    refute inspect(key.material) =~ "sig-one"
     refute inspect(key.material) =~ "ignored=true"
     refute key.hash == different_origin.hash
   end
 
-  test "operations include every response-affecting processing request field" do
-    request_fields =
-      ProcessingRequest.__struct__() |> Map.from_struct() |> Map.keys() |> Enum.sort()
+  test "only accepts execution plans" do
+    invalid_plan = :erlang.binary_to_term(:erlang.term_to_binary(%{}))
 
-    # Signature is authorization material; format is represented separately.
-    expected_operation_fields =
-      request_fields -- [:format, :signature]
-
-    operation_fields =
-      conn(:get, "/sig-one/w:100/plain/images/cat.jpg")
-      |> build_key!(request(), "https://origin.test/images/cat.jpg")
-      |> then(&Keyword.fetch!(&1.material, :operations))
-      |> Keyword.keys()
-      |> Enum.sort()
-
-    assert operation_fields == expected_operation_fields
+    assert_raise FunctionClauseError, fn ->
+      Key.build(
+        conn(:get, "/_/plain/images/cat.jpg"),
+        invalid_plan,
+        "https://origin.test/cat.jpg"
+      )
+    end
   end
 
-  test "signature changes do not change the key" do
-    conn = conn(:get, "/sig-one/plain/images/cat.jpg")
+  test "source material is product-neutral and independent of request URL" do
+    conn_one = conn(:get, "/sig-one/w:100/plain/images/cat.jpg")
+    conn_two = conn(:get, "/sig-two/width:100/plain/ignored/path.jpg?ignored=true")
 
-    key_one =
-      build_key!(conn, request(signature: "sig-one"), "https://origin.test/images/cat.jpg")
+    key_one = build_key!(conn_one, plan(), "https://origin.test/images/cat.jpg")
+    key_two = build_key!(conn_two, plan(), "https://origin.test/images/cat.jpg")
 
-    key_two =
-      build_key!(conn, request(signature: "sig-two"), "https://origin.test/images/cat.jpg")
-
+    assert key_one.material[:source] == [kind: :plain, path: ["images", "cat.jpg"]]
     assert key_one.hash == key_two.hash
   end
 
-  test "only configured headers and cookies are included" do
-    conn =
-      :get
-      |> conn("/_/plain/images/cat.jpg")
-      |> put_req_header("accept-language", "en-US")
-      |> put_req_header("x-ignored", "ignored")
-      |> put_req_header("cookie", "tenant=acme; ignored_cookie=ignored")
-
+  test "pipelines material preserves pipeline boundaries" do
     key =
-      build_key!(conn, request(), "https://origin.test/images/cat.jpg",
-        key_headers: ["Accept-Language"],
-        key_cookies: ["tenant"]
-      )
+      conn(:get, "/_/f:webp/plain/images/cat.jpg")
+      |> build_key!(plan(), "https://origin.test/images/cat.jpg")
 
-    assert key.material[:selected_headers] == [{"accept-language", ["en-US"]}]
-    assert key.material[:selected_cookies] == [{"tenant", "acme"}]
-    refute inspect(key.material) =~ "x-ignored"
-    refute inspect(key.material) =~ "ignored_cookie"
+    assert key.material[:pipelines] == [
+             [
+               [
+                 op: :contain,
+                 type: :dimensions,
+                 width: {:pixels, 300},
+                 height: :auto,
+                 constraint: :max,
+                 letterbox: false
+               ]
+             ],
+             [
+               [
+                 op: :crop,
+                 width: {:pixels, 200},
+                 height: {:pixels, 100},
+                 crop_from: :focus
+               ]
+             ]
+           ]
   end
 
-  test "automatic output includes modern candidates instead of selected output" do
-    request = request(format: nil)
+  test "pipelines material uses canonical operations instead of raw transform tuples or structs" do
+    key =
+      conn(:get, "/_/f:webp/plain/images/cat.jpg")
+      |> build_key!(plan(), "https://origin.test/images/cat.jpg")
+
+    refute inspect(key.material[:pipelines]) =~ "ImagePlug.Transform"
+
+    assert key.material[:pipelines]
+           |> Enum.flat_map(& &1)
+           |> Enum.all?(&Keyword.keyword?/1)
+  end
+
+  test "automatic output includes modern candidates instead of selected output or raw Accept" do
+    automatic_plan = plan(output: %OutputPlan{mode: :automatic})
 
     conn_one =
       :get
@@ -131,8 +174,8 @@ defmodule ImagePlug.Cache.KeyTest do
       |> conn("/_/plain/images/cat.jpg")
       |> put_req_header("accept", "image/avif,image/webp")
 
-    key_one = build_key!(conn_one, request, "https://origin.test/images/cat.jpg")
-    key_two = build_key!(conn_two, request, "https://origin.test/images/cat.jpg")
+    key_one = build_key!(conn_one, automatic_plan, "https://origin.test/images/cat.jpg")
+    key_two = build_key!(conn_two, automatic_plan, "https://origin.test/images/cat.jpg")
 
     assert key_one.material[:output] == [
              mode: :automatic,
@@ -140,39 +183,41 @@ defmodule ImagePlug.Cache.KeyTest do
              auto: [avif: true, webp: true]
            ]
 
+    refute inspect(key_one.material) =~ "image/webp"
+    refute inspect(key_one.material) =~ "image/avif"
     assert key_one.hash == key_two.hash
   end
 
   test "different automatic Accept capabilities change cache key" do
-    request = request(format: nil)
+    automatic_plan = plan(output: %OutputPlan{mode: :automatic})
 
     avif_key =
       :get
       |> conn("/_/plain/images/cat.jpg")
       |> put_req_header("accept", "image/avif")
-      |> build_key!(request, "https://origin.test/images/cat.jpg")
+      |> build_key!(automatic_plan, "https://origin.test/images/cat.jpg")
 
     webp_key =
       :get
       |> conn("/_/plain/images/cat.jpg")
       |> put_req_header("accept", "image/webp")
-      |> build_key!(request, "https://origin.test/images/cat.jpg")
+      |> build_key!(automatic_plan, "https://origin.test/images/cat.jpg")
 
     refute avif_key.hash == webp_key.hash
   end
 
   test "different automatic output feature flags change cache key" do
-    request = request(format: nil)
+    automatic_plan = plan(output: %OutputPlan{mode: :automatic})
 
     conn =
       :get
       |> conn("/_/plain/images/cat.jpg")
       |> put_req_header("accept", "image/avif,image/webp")
 
-    default_key = build_key!(conn, request, "https://origin.test/images/cat.jpg")
+    default_key = build_key!(conn, automatic_plan, "https://origin.test/images/cat.jpg")
 
     webp_only_key =
-      build_key!(conn, request, "https://origin.test/images/cat.jpg", auto_avif: false)
+      build_key!(conn, automatic_plan, "https://origin.test/images/cat.jpg", auto_avif: false)
 
     refute default_key.hash == webp_only_key.hash
 
@@ -189,8 +234,29 @@ defmodule ImagePlug.Cache.KeyTest do
       |> conn("/_/f:webp/plain/images/cat.jpg")
       |> put_req_header("accept", "image/jpeg")
 
-    key = build_key!(conn, request(format: :webp), "https://origin.test/images/cat.jpg")
+    key = build_key!(conn, plan(), "https://origin.test/images/cat.jpg")
 
     assert key.material[:output] == [mode: :explicit, format: :webp]
+    refute inspect(key.material) =~ "image/jpeg"
+  end
+
+  test "only configured headers and cookies are included" do
+    conn =
+      :get
+      |> conn("/_/plain/images/cat.jpg")
+      |> put_req_header("accept-language", "en-US")
+      |> put_req_header("x-ignored", "ignored")
+      |> put_req_header("cookie", "tenant=acme; ignored_cookie=ignored")
+
+    key =
+      build_key!(conn, plan(), "https://origin.test/images/cat.jpg",
+        key_headers: ["Accept-Language"],
+        key_cookies: ["tenant"]
+      )
+
+    assert key.material[:selected_headers] == [{"accept-language", ["en-US"]}]
+    assert key.material[:selected_cookies] == [{"tenant", "acme"}]
+    refute inspect(key.material) =~ "x-ignored"
+    refute inspect(key.material) =~ "ignored_cookie"
   end
 end

@@ -1,4 +1,6 @@
 defmodule ImagePlug.TransformChain do
+  @moduledoc false
+
   require Logger
 
   alias ImagePlug.Transform
@@ -14,14 +16,8 @@ defmodule ImagePlug.TransformChain do
           | {Transform.Scale, Transform.Scale.ScaleParams.t()}
           | {Transform.Contain, Transform.Contain.ContainParams.t()}
           | {Transform.Cover, Transform.Cover.CoverParams.t()}
-          | {Transform.Output, Transform.Output.OutputParams.t()}
 
   @type t() :: list(item())
-
-  @spec append_output(t(), :avif | :webp | :jpeg | :png) :: t()
-  def append_output(chain, format) do
-    chain ++ [{Transform.Output, %Transform.Output.OutputParams{format: format}}]
-  end
 
   @doc """
   Executes a transform chain.

@@ -1,4 +1,6 @@
 defmodule ImagePlug.Utils do
+  @moduledoc false
+
   alias ImagePlug.TransformState
 
   def image_height(%TransformState{image: image}), do: Image.height(image)
