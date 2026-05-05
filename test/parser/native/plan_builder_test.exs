@@ -1,18 +1,18 @@
-defmodule ImagePlug.ParamParser.Native.PlanBuilderTest do
+defmodule ImagePlug.Parser.Native.PlanBuilderTest do
   use ExUnit.Case, async: true
   use ExUnitProperties
 
   alias ImagePlug.Plan.Output
-  alias ImagePlug.ParamParser.Native.ParsedRequest
-  alias ImagePlug.ParamParser.Native.PipelineRequest
-  alias ImagePlug.ParamParser.Native.PlanBuilder
+  alias ImagePlug.Parser.Native.ParsedRequest
+  alias ImagePlug.Parser.Native.PipelineRequest
+  alias ImagePlug.Parser.Native.PlanBuilder
   alias ImagePlug.Plan.Pipeline
   alias ImagePlug.Plan
   alias ImagePlug.Plan.Source.Plain
   alias ImagePlug.Transform
 
   test "native parser builds transforms through operation constructors" do
-    body = File.read!("lib/image_plug/param_parser/native/plan_builder.ex")
+    body = File.read!("lib/image_plug/parser/native/plan_builder.ex")
 
     refute body =~ "ScaleParams"
     refute body =~ "ContainParams"

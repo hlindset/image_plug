@@ -1,10 +1,10 @@
-defmodule ImagePlug.ParamParser.NativeTest do
+defmodule ImagePlug.Parser.NativeTest do
   use ExUnit.Case, async: true
 
   import Plug.Test
 
   alias ImagePlug.Plan.Output
-  alias ImagePlug.ParamParser.Native
+  alias ImagePlug.Parser.Native
   alias ImagePlug.Plan.Pipeline
   alias ImagePlug.Plan
   alias ImagePlug.Plan.Source.Plain

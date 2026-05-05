@@ -1,4 +1,4 @@
-defmodule ImagePlug.ParamParser.Native.PipelineRequest do
+defmodule ImagePlug.Parser.Native.PipelineRequest do
   @moduledoc false
 
   @type resizing_type() :: :fit | :fill | :fill_down | :force | :auto

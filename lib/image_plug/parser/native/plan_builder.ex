@@ -1,9 +1,9 @@
-defmodule ImagePlug.ParamParser.Native.PlanBuilder do
+defmodule ImagePlug.Parser.Native.PlanBuilder do
   @moduledoc false
 
   alias ImagePlug.Plan.Output
-  alias ImagePlug.ParamParser.Native.ParsedRequest
-  alias ImagePlug.ParamParser.Native.PipelineRequest
+  alias ImagePlug.Parser.Native.ParsedRequest
+  alias ImagePlug.Parser.Native.PipelineRequest
   alias ImagePlug.Plan.Pipeline
   alias ImagePlug.Plan
   alias ImagePlug.Plan.Source.Plain

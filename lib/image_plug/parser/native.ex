@@ -1,13 +1,13 @@
-defmodule ImagePlug.ParamParser.Native do
+defmodule ImagePlug.Parser.Native do
   @moduledoc """
   Parser for ImagePlug's native path-oriented URL syntax.
   """
 
-  @behaviour ImagePlug.ParamParser
+  @behaviour ImagePlug.Parser
 
-  alias ImagePlug.ParamParser.Native.ParsedRequest
-  alias ImagePlug.ParamParser.Native.PipelineRequest
-  alias ImagePlug.ParamParser.Native.PlanBuilder
+  alias ImagePlug.Parser.Native.ParsedRequest
+  alias ImagePlug.Parser.Native.PipelineRequest
+  alias ImagePlug.Parser.Native.PlanBuilder
 
   @source_format_names ~w(webp avif jpeg jpg png best)
 
@@ -58,7 +58,7 @@ defmodule ImagePlug.ParamParser.Native do
     "ce" => {:anchor, :center, :center}
   }
 
-  @impl ImagePlug.ParamParser
+  @impl ImagePlug.Parser
   def parse(%Plug.Conn{path_info: [signature | path_info]}) do
     with :ok <- validate_signature(signature),
          {:ok, option_segments, source_path, source_format} <- split_source(path_info),
@@ -80,7 +80,7 @@ defmodule ImagePlug.ParamParser.Native do
     {:error, :missing_signature}
   end
 
-  @impl ImagePlug.ParamParser
+  @impl ImagePlug.Parser
   def handle_error(%Plug.Conn{} = conn, {:error, reason}) do
     conn
     |> Plug.Conn.put_resp_content_type("text/plain")

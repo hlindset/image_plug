@@ -1,4 +1,4 @@
-defmodule ImagePlug.ParamParser do
+defmodule ImagePlug.Parser do
   @moduledoc """
   Behaviour for parsing image request paths into execution plans.
   """

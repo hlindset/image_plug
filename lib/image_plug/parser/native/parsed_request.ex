@@ -1,4 +1,4 @@
-defmodule ImagePlug.ParamParser.Native.ParsedRequest do
+defmodule ImagePlug.Parser.Native.ParsedRequest do
   @moduledoc false
 
   @enforce_keys [:signature, :source_kind, :source_path, :pipelines]
@@ -10,7 +10,7 @@ defmodule ImagePlug.ParamParser.Native.ParsedRequest do
           signature: String.t(),
           source_kind: :plain,
           source_path: [String.t()],
-          pipelines: [ImagePlug.ParamParser.Native.PipelineRequest.t()],
+          pipelines: [ImagePlug.Parser.Native.PipelineRequest.t()],
           output_format: output_format() | nil
         }
 end

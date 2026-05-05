@@ -22,7 +22,7 @@ defmodule ImagePlug.ArchitectureBoundaryTest do
   ]
 
   @forbidden_parts [
-    ["ImagePlug.", "ParamParser.", "Native"],
+    ["ImagePlug.", "Parser.", "Native"],
     ["ImagePlug.", "Processing", "Request"],
     ["ImagePlug.", "Pipeline", "Planner"]
   ]
@@ -52,7 +52,7 @@ defmodule ImagePlug.ArchitectureBoundaryTest do
     |> Enum.sort()
   end
 
-  defp native_parser_file?("lib/image_plug/param_parser/native.ex"), do: true
-  defp native_parser_file?("lib/image_plug/param_parser/native/" <> _path), do: true
+  defp native_parser_file?("lib/image_plug/parser/native.ex"), do: true
+  defp native_parser_file?("lib/image_plug/parser/native/" <> _path), do: true
   defp native_parser_file?(_file), do: false
 end
