@@ -10,22 +10,8 @@ defmodule ImagePlug.Runtime.Options do
 
   def validate!(opts) do
     opts
-    |> normalize_parser_option()
     |> Cache.validate_config!()
     |> validate_required_opts!()
-  end
-
-  defp normalize_parser_option(opts) do
-    case Keyword.fetch(opts, :parser) do
-      {:ok, _parser} ->
-        opts
-
-      :error ->
-        case Keyword.fetch(opts, :param_parser) do
-          {:ok, parser} -> Keyword.put(opts, :parser, parser)
-          :error -> opts
-        end
-    end
   end
 
   defp validate_required_opts!(opts) do

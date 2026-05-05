@@ -1,14 +1,14 @@
 defmodule ImagePlug.Runtime.Processor do
   @moduledoc false
 
-  alias ImagePlug.Transform.DecodePlanner
   alias ImagePlug.Output.Format
-  alias ImagePlug.Transform.Materializer
   alias ImagePlug.Plan
   alias ImagePlug.Plan.Source.Plain
   alias ImagePlug.Runtime.DecodedOrigin
   alias ImagePlug.Runtime.Origin
   alias ImagePlug.Transform.Chain
+  alias ImagePlug.Transform.DecodePlanner
+  alias ImagePlug.Transform.Materializer
   alias ImagePlug.Transform.State
 
   @spec process_origin(Plan.t(), String.t(), keyword()) ::

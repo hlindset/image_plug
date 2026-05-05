@@ -1,4 +1,4 @@
-defmodule ImagePlug.ProcessorTest.FirstTransform do
+defmodule ImagePlug.Runtime.ProcessorTest.FirstTransform do
   @moduledoc false
 
   use Boundary,

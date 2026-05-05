@@ -7,9 +7,9 @@ defmodule ImagePlug.CacheTest do
   alias ImagePlug.Cache
   alias ImagePlug.Cache.Entry
   alias ImagePlug.Cache.Key
+  alias ImagePlug.Plan
   alias ImagePlug.Plan.Output
   alias ImagePlug.Plan.Pipeline
-  alias ImagePlug.Plan
   alias ImagePlug.Plan.Source.Plain
 
   defmodule HitAdapter do

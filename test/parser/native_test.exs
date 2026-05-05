@@ -3,10 +3,10 @@ defmodule ImagePlug.Parser.NativeTest do
 
   import Plug.Test
 
-  alias ImagePlug.Plan.Output
   alias ImagePlug.Parser.Native
-  alias ImagePlug.Plan.Pipeline
   alias ImagePlug.Plan
+  alias ImagePlug.Plan.Output
+  alias ImagePlug.Plan.Pipeline
   alias ImagePlug.Plan.Source.Plain
   alias ImagePlug.Transform
 

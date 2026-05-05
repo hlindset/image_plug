@@ -1,4 +1,4 @@
-defmodule ImagePlug.ResponseCacheTest do
+defmodule ImagePlug.Runtime.ResponseCacheTest do
   use ExUnit.Case, async: true
 
   import Plug.Conn
@@ -6,11 +6,11 @@ defmodule ImagePlug.ResponseCacheTest do
 
   alias ImagePlug.Cache.Entry
   alias ImagePlug.Cache.Key
+  alias ImagePlug.Plan
   alias ImagePlug.Plan.Output
   alias ImagePlug.Plan.Pipeline
-  alias ImagePlug.Plan
-  alias ImagePlug.Runtime.ResponseCache
   alias ImagePlug.Plan.Source.Plain
+  alias ImagePlug.Runtime.ResponseCache
   alias ImagePlug.Transform.State
 
   defmodule CaptureAdapter do

@@ -4,8 +4,8 @@ defmodule ImagePlug.Output.PolicyTest do
   import Plug.Conn
   import Plug.Test
 
-  alias ImagePlug.Plan.Output
   alias ImagePlug.Output.Policy
+  alias ImagePlug.Plan.Output
 
   describe "from_output_plan/3" do
     test "represents explicit output independently of Accept" do

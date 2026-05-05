@@ -4,10 +4,10 @@ defmodule ImagePlug.Runtime.RequestRunner do
   alias ImagePlug.Cache
   alias ImagePlug.Cache.Entry
   alias ImagePlug.Cache.Key
-  alias ImagePlug.Plan.Output
   alias ImagePlug.Output.Policy
-  alias ImagePlug.Plan.Pipeline
   alias ImagePlug.Plan
+  alias ImagePlug.Plan.Output
+  alias ImagePlug.Plan.Pipeline
   alias ImagePlug.Runtime.DecodedOrigin
   alias ImagePlug.Runtime.Processor
   alias ImagePlug.Runtime.ResponseCache

@@ -1,9 +1,9 @@
 defmodule ImagePlug.PlanTest do
   use ExUnit.Case, async: true
 
+  alias ImagePlug.Plan
   alias ImagePlug.Plan.Output
   alias ImagePlug.Plan.Pipeline
-  alias ImagePlug.Plan
   alias ImagePlug.Plan.Source.Plain
   alias ImagePlug.Transform
 

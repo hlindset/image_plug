@@ -6,9 +6,9 @@ defmodule ImagePlug.Cache.Key do
   import Plug.Conn
 
   alias ImagePlug.Output.Negotiation
+  alias ImagePlug.Plan
   alias ImagePlug.Plan.Output
   alias ImagePlug.Plan.Pipeline
-  alias ImagePlug.Plan
   alias ImagePlug.Plan.Source.Plain
   alias ImagePlug.Transform.Material
 

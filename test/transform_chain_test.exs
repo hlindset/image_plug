@@ -2,9 +2,9 @@ defmodule ImagePlug.Transform.ChainTest do
   use ExUnit.Case, async: true
 
   alias ImagePlug.Transform
+  alias ImagePlug.Transform.Chain
   alias ImagePlug.Transform.Contain
   alias ImagePlug.Transform.Scale
-  alias ImagePlug.Transform.Chain
   alias ImagePlug.Transform.State
 
   doctest ImagePlug.Transform.Chain

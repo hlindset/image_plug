@@ -1,4 +1,4 @@
-defmodule ImagePlug.OriginTest do
+defmodule ImagePlug.Runtime.OriginTest do
   use ExUnit.Case, async: false
 
   alias ImagePlug.Runtime.Origin

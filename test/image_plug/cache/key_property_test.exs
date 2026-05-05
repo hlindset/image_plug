@@ -6,9 +6,9 @@ defmodule ImagePlug.Cache.KeyPropertyTest do
   import Plug.Test
 
   alias ImagePlug.Cache.Key
+  alias ImagePlug.Plan
   alias ImagePlug.Plan.Output
   alias ImagePlug.Plan.Pipeline
-  alias ImagePlug.Plan
   alias ImagePlug.Plan.Source.Plain
   alias ImagePlug.Transform
 

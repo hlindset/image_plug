@@ -1,4 +1,4 @@
-defmodule ImagePlug.ProcessorTest.SequentialFailingTransform do
+defmodule ImagePlug.Runtime.ProcessorTest.SequentialFailingTransform do
   @moduledoc false
 
   use Boundary,

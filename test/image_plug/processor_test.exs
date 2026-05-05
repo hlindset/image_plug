@@ -1,22 +1,22 @@
-defmodule ImagePlug.ProcessorTest do
+defmodule ImagePlug.Runtime.ProcessorTest do
   use ExUnit.Case, async: true
 
+  alias ImagePlug.Plan
   alias ImagePlug.Plan.Output
   alias ImagePlug.Plan.Pipeline
-  alias ImagePlug.Plan
-  alias ImagePlug.ProcessorTest.DecodeErrorImageOpen
-  alias ImagePlug.ProcessorTest.FirstTransform
-  alias ImagePlug.ProcessorTest.InvalidReturnMaterializer
-  alias ImagePlug.ProcessorTest.InvalidStateMaterializer
-  alias ImagePlug.ProcessorTest.Materializer
-  alias ImagePlug.ProcessorTest.OriginImage
-  alias ImagePlug.ProcessorTest.OriginShouldNotFetch
-  alias ImagePlug.ProcessorTest.SecondTransform
-  alias ImagePlug.ProcessorTest.SequentialFailingTransform
+  alias ImagePlug.Plan.Source.Plain
   alias ImagePlug.Runtime.DecodedOrigin
   alias ImagePlug.Runtime.Origin.StreamStatus
   alias ImagePlug.Runtime.Processor
-  alias ImagePlug.Plan.Source.Plain
+  alias ImagePlug.Runtime.ProcessorTest.DecodeErrorImageOpen
+  alias ImagePlug.Runtime.ProcessorTest.FirstTransform
+  alias ImagePlug.Runtime.ProcessorTest.InvalidReturnMaterializer
+  alias ImagePlug.Runtime.ProcessorTest.InvalidStateMaterializer
+  alias ImagePlug.Runtime.ProcessorTest.Materializer
+  alias ImagePlug.Runtime.ProcessorTest.OriginImage
+  alias ImagePlug.Runtime.ProcessorTest.OriginShouldNotFetch
+  alias ImagePlug.Runtime.ProcessorTest.SecondTransform
+  alias ImagePlug.Runtime.ProcessorTest.SequentialFailingTransform
   alias ImagePlug.Transform.Cover
   alias ImagePlug.Transform.Scale
   alias ImagePlug.Transform.State

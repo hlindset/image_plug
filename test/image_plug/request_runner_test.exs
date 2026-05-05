@@ -1,15 +1,15 @@
-defmodule ImagePlug.RequestRunnerTest do
+defmodule ImagePlug.Runtime.RequestRunnerTest do
   use ExUnit.Case, async: true
 
   import Plug.Test
 
   alias ImagePlug.Cache.Entry
+  alias ImagePlug.Plan
   alias ImagePlug.Plan.Output
   alias ImagePlug.Plan.Pipeline
-  alias ImagePlug.Plan
+  alias ImagePlug.Plan.Source.Plain
   alias ImagePlug.Runtime.RequestRunner
   alias ImagePlug.Runtime.ResponseSender
-  alias ImagePlug.Plan.Source.Plain
   alias ImagePlug.Transform
   alias ImagePlug.Transform.State
 
@@ -71,13 +71,15 @@ defmodule ImagePlug.RequestRunnerTest do
   end
 
   defmodule Materializer do
+    alias ImagePlug.Transform.Materializer
+
     def materialize(%State{} = state, opts) do
       send(
         Keyword.fetch!(opts, :test_pid),
         {:pipeline_event, Keyword.fetch!(opts, :test_ref), :materialized_between_pipelines}
       )
 
-      ImagePlug.Transform.Materializer.materialize(state, opts)
+      Materializer.materialize(state, opts)
     end
   end
 

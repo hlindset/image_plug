@@ -1,11 +1,11 @@
 defmodule ImagePlug.Parser.Native.PlanBuilder do
   @moduledoc false
 
-  alias ImagePlug.Plan.Output
   alias ImagePlug.Parser.Native.ParsedRequest
   alias ImagePlug.Parser.Native.PipelineRequest
-  alias ImagePlug.Plan.Pipeline
   alias ImagePlug.Plan
+  alias ImagePlug.Plan.Output
+  alias ImagePlug.Plan.Pipeline
   alias ImagePlug.Plan.Source.Plain
   alias ImagePlug.Transform
 

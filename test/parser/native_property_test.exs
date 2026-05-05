@@ -5,8 +5,8 @@ defmodule ImagePlug.Parser.NativePropertyTest do
   import Plug.Test
 
   alias ImagePlug.Parser.Native
-  alias ImagePlug.Plan.Pipeline
   alias ImagePlug.Plan
+  alias ImagePlug.Plan.Pipeline
   alias ImagePlug.Plan.Source.Plain
   alias ImagePlug.Transform
 

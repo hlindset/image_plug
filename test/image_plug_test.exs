@@ -7,9 +7,9 @@ defmodule ImagePlug.ImagePlugTest do
 
   doctest ImagePlug
 
+  alias ImagePlug.Plan
   alias ImagePlug.Plan.Output
   alias ImagePlug.Plan.Pipeline
-  alias ImagePlug.Plan
   alias ImagePlug.Plan.Source.Plain
 
   defmodule CacheProbe do
@@ -297,6 +297,8 @@ defmodule ImagePlug.ImagePlugTest do
   end
 
   defmodule FailingTransform do
+    alias ImagePlug.Transform.State
+
     defstruct []
 
     def new(attrs), do: {:ok, new!(attrs)}
@@ -307,8 +309,8 @@ defmodule ImagePlug.ImagePlugTest do
 
     def metadata(%__MODULE__{}), do: %{access: :random}
 
-    def execute(%__MODULE__{}, %ImagePlug.Transform.State{} = state) do
-      ImagePlug.Transform.State.add_error(state, {__MODULE__, :failed})
+    def execute(%__MODULE__{}, %State{} = state) do
+      State.add_error(state, {__MODULE__, :failed})
     end
   end
 
@@ -516,11 +518,10 @@ defmodule ImagePlug.ImagePlugTest do
     assert Keyword.fetch!(opts, :parser) == ImagePlug.Parser.Native
   end
 
-  test "init temporarily accepts legacy param_parser option" do
-    opts =
+  test "init rejects legacy param_parser without parser option" do
+    assert_raise ArgumentError, ~r/required :parser option not found/, fn ->
       ImagePlug.init(param_parser: ImagePlug.Parser.Native, root_url: "https://example.test")
-
-    assert Keyword.fetch!(opts, :parser) == ImagePlug.Parser.Native
+    end
   end
 
   test "init rejects missing parser option through required option validation" do
