@@ -86,7 +86,12 @@ defmodule ImagePlug.Cache.KeyTest do
                  ]
                ]
              ],
-             output: [mode: :explicit, format: :webp],
+             output: [
+               mode: :explicit,
+               format: :webp,
+               quality: :default,
+               format_qualities: %{}
+             ],
              selected_headers: [],
              selected_cookies: []
            ]
@@ -178,7 +183,9 @@ defmodule ImagePlug.Cache.KeyTest do
     assert key_one.material[:output] == [
              mode: :automatic,
              modern_candidates: [:avif, :webp],
-             auto: [avif: true, webp: true]
+             auto: [avif: true, webp: true],
+             quality: :default,
+             format_qualities: %{}
            ]
 
     refute inspect(key_one.material) =~ "image/webp"
@@ -222,7 +229,9 @@ defmodule ImagePlug.Cache.KeyTest do
     assert webp_only_key.material[:output] == [
              mode: :automatic,
              modern_candidates: [:webp],
-             auto: [avif: false, webp: true]
+             auto: [avif: false, webp: true],
+             quality: :default,
+             format_qualities: %{}
            ]
   end
 
@@ -234,7 +243,13 @@ defmodule ImagePlug.Cache.KeyTest do
 
     key = build_key!(conn, plan(), "https://origin.test/images/cat.jpg")
 
-    assert key.material[:output] == [mode: :explicit, format: :webp]
+    assert key.material[:output] == [
+             mode: :explicit,
+             format: :webp,
+             quality: :default,
+             format_qualities: %{}
+           ]
+
     refute inspect(key.material) =~ "image/jpeg"
   end
 

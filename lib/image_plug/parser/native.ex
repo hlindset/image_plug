@@ -55,7 +55,11 @@ defmodule ImagePlug.Parser.Native do
     "h" => {:height, [:height]},
     "format" => {:format, [:format]},
     "f" => {:format, [:format]},
-    "ext" => {:format, [:format]}
+    "ext" => {:format, [:format]},
+    "quality" => {:quality, [:quality]},
+    "q" => {:quality, [:quality]},
+    "format_quality" => {:format_quality, [:format, :quality]},
+    "fq" => {:format_quality, [:format, :quality]}
   }
 
   @gravity_anchors %{
@@ -240,7 +244,19 @@ defmodule ImagePlug.Parser.Native do
   end
 
   defp update_output(%{output: output} = options, assignments) do
-    %{options | output: struct!(output, assignments)}
+    output =
+      Enum.reduce(assignments, output, fn
+        {:format_qualities, format_qualities}, output ->
+          %{
+            output
+            | format_qualities: Map.merge(output.format_qualities, format_qualities)
+          }
+
+        assignment, output ->
+          struct!(output, [assignment])
+      end)
+
+    %{options | output: output}
   end
 
   defp pipeline_empty?(%PipelineRequest{
@@ -277,12 +293,27 @@ defmodule ImagePlug.Parser.Native do
     end
   end
 
-  defp scoped_assignments(:format, assignments), do: {:output, assignments}
+  defp scoped_assignments(kind, assignments) when kind in [:format, :quality, :format_quality],
+    do: {:output, assignments}
+
   defp scoped_assignments(_kind, assignments), do: {:pipeline, assignments}
 
   defp parse_known_option(kind, fields, args, segment)
        when kind in [:resizing_type, :width, :height, :format] do
     parse_exact_fields(fields, args, segment)
+  end
+
+  defp parse_known_option(:quality, [:quality], [value], segment) when value != "" do
+    parse_exact_fields([:quality], [value], segment)
+  end
+
+  defp parse_known_option(:format_quality, [:format, :quality], [format, value], segment)
+       when format != "" and value != "" do
+    with {:ok, assignments} <- parse_exact_fields([:format, :quality], [format, value], segment),
+         {:ok, format} <- Keyword.fetch(assignments, :format),
+         {:ok, quality} <- Keyword.fetch(assignments, :quality) do
+      {:ok, [format_qualities: %{format => quality}]}
+    end
   end
 
   defp parse_known_option(:resize, fields, args, segment) when length(args) <= 8 do
@@ -343,6 +374,7 @@ defmodule ImagePlug.Parser.Native do
   defp parse_field(:enlarge, value), do: parse_boolean(value)
   defp parse_field(:extend, value), do: parse_boolean(value)
   defp parse_field(:format, value), do: parse_format(value)
+  defp parse_field(:quality, value), do: parse_quality(value)
 
   defp parse_optional_extend_gravity(_segment, []), do: {:ok, []}
   defp parse_optional_extend_gravity(_segment, [""]), do: {:ok, []}
@@ -456,6 +488,15 @@ defmodule ImagePlug.Parser.Native do
     case Integer.parse(value) do
       {integer, ""} when integer >= 0 -> {:ok, integer}
       _other -> {:error, {:invalid_non_negative_integer, value}}
+    end
+  end
+
+  defp parse_quality("0"), do: {:ok, :default}
+
+  defp parse_quality(value) do
+    case Integer.parse(value) do
+      {integer, ""} when integer in 1..100 -> {:ok, {:quality, integer}}
+      _other -> {:error, {:invalid_option, :quality, value}}
     end
   end
 end

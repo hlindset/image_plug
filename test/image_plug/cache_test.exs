@@ -173,7 +173,9 @@ defmodule ImagePlug.CacheTest do
     assert key.material[:output] == [
              mode: :automatic,
              modern_candidates: [:webp],
-             auto: [avif: false, webp: true]
+             auto: [avif: false, webp: true],
+             quality: :default,
+             format_qualities: %{}
            ]
 
     assert_received {:cache_get, ^key, adapter_opts}

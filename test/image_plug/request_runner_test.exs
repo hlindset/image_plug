@@ -4,6 +4,7 @@ defmodule ImagePlug.Runtime.RequestRunnerTest do
   import Plug.Test
 
   alias ImagePlug.Cache.Entry
+  alias ImagePlug.Output.Resolved
   alias ImagePlug.Plan
   alias ImagePlug.Plan.Output
   alias ImagePlug.Plan.Pipeline
@@ -240,7 +241,9 @@ defmodule ImagePlug.Runtime.RequestRunnerTest do
         output: %Output{mode: {:explicit, :jpeg}}
       )
 
-    assert {:ok, {:image, %State{} = state, :jpeg, []}} =
+    assert {:ok,
+            {:image, %State{} = state,
+             %Resolved{format: :jpeg, quality: :default, representation_headers: []}, []}} =
              RequestRunner.run(
                conn(:get, "/_/f:jpeg/plain/images/cat-300.jpg"),
                plan,
@@ -314,7 +317,9 @@ defmodule ImagePlug.Runtime.RequestRunnerTest do
       test_ref: ref
     ]
 
-    assert {:ok, {:image, %State{} = state, :jpeg, []}} =
+    assert {:ok,
+            {:image, %State{} = state,
+             %Resolved{format: :jpeg, quality: :default, representation_headers: []}, []}} =
              RequestRunner.run(
                conn(:get, "/_/f:jpeg/plain/images/cat-300.jpg"),
                plan,
@@ -328,6 +333,27 @@ defmodule ImagePlug.Runtime.RequestRunnerTest do
     assert first_message == {:pipeline_event, ref, :materialized_between_pipelines}
     assert_receive second_message
     assert second_message == {:pipeline_event, ref, :second_transform_ran}
+  end
+
+  test "resolved output carries effective explicit quality" do
+    plan =
+      plan(
+        output: %Output{
+          mode: {:explicit, :webp},
+          quality: :default,
+          format_qualities: %{webp: {:quality, 70}}
+        }
+      )
+
+    assert {:ok,
+            {:image, %State{},
+             %Resolved{format: :webp, quality: {:quality, 70}, representation_headers: []}, []}} =
+             RequestRunner.run(
+               conn(:get, "/_/f:webp/fq:webp:70/plain/images/cat-300.jpg"),
+               plan,
+               "http://origin.test/images/cat-300.jpg",
+               origin_req_options: [plug: OriginImage]
+             )
   end
 
   test "known plan operations are included in cache lookup material" do

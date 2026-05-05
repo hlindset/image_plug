@@ -74,7 +74,7 @@ defmodule ImagePlug.Cache.Key do
     Material.material(operation)
   end
 
-  defp output_material(conn, %Output{mode: :automatic}, opts) do
+  defp output_material(conn, %Output{mode: :automatic} = output, opts) do
     accept_header = conn |> get_req_header("accept") |> Enum.join(",")
 
     {:ok,
@@ -84,12 +84,20 @@ defmodule ImagePlug.Cache.Key do
        auto: [
          avif: Keyword.get(opts, :auto_avif, true),
          webp: Keyword.get(opts, :auto_webp, true)
-       ]
+       ],
+       quality: output.quality,
+       format_qualities: output.format_qualities
      ]}
   end
 
-  defp output_material(_conn, %Output{mode: {:explicit, format}}, _opts) do
-    {:ok, [mode: :explicit, format: format]}
+  defp output_material(_conn, %Output{mode: {:explicit, format}} = output, _opts) do
+    {:ok,
+     [
+       mode: :explicit,
+       format: format,
+       quality: output.quality,
+       format_qualities: output.format_qualities
+     ]}
   end
 
   defp output_material(_conn, output, _opts) do

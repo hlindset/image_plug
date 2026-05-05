@@ -218,6 +218,89 @@ defmodule ImagePlug.Parser.NativeTest do
     assert_output_mode("/_/f:webp/-/f:jpeg/plain/images/cat.jpg", {:explicit, :jpeg})
   end
 
+  test "parses output quality and format quality as output request fields" do
+    assert {:ok,
+            %Plan{
+              output: %ImagePlug.Plan.Output{
+                quality: {:quality, 80},
+                format_qualities: %{webp: {:quality, 70}}
+              }
+            }} = Native.parse(conn(:get, "/_/q:80/fq:webp:70/plain/images/cat.jpg"), [])
+  end
+
+  test "quality zero and format-quality zero normalize to default" do
+    assert {:ok,
+            %Plan{
+              output: %ImagePlug.Plan.Output{
+                quality: :default,
+                format_qualities: %{webp: :default}
+              }
+            }} = Native.parse(conn(:get, "/_/q:0/fq:webp:0/plain/images/cat.jpg"), [])
+  end
+
+  test "repeated format quality assignments replace by normalized format" do
+    assert {:ok,
+            %Plan{
+              output: %ImagePlug.Plan.Output{
+                format_qualities: %{webp: {:quality, 60}}
+              }
+            }} =
+             Native.parse(conn(:get, "/_/fq:webp:70/-/fq:webp:60/plain/images/cat.jpg"), [])
+  end
+
+  test "quality later assignment wins across groups" do
+    assert {:ok, %Plan{output: %ImagePlug.Plan.Output{quality: {:quality, 70}}}} =
+             Native.parse(conn(:get, "/_/q:80/-/q:70/plain/images/cat.jpg"), [])
+  end
+
+  test "format quality normalizes jpg to jpeg" do
+    assert {:ok,
+            %Plan{
+              output: %ImagePlug.Plan.Output{
+                format_qualities: %{jpeg: {:quality, 70}}
+              }
+            }} = Native.parse(conn(:get, "/_/fq:jpg:70/plain/images/cat.jpg"), [])
+  end
+
+  test "rejects invalid output quality values" do
+    assert Native.parse(conn(:get, "/_/q:101/plain/images/cat.jpg"), []) ==
+             {:error, {:invalid_option, :quality, "101"}}
+
+    assert Native.parse(conn(:get, "/_/quality:-1/plain/images/cat.jpg"), []) ==
+             {:error, {:invalid_option, :quality, "-1"}}
+  end
+
+  test "rejects invalid format quality values" do
+    assert Native.parse(conn(:get, "/_/fq:webp:101/plain/images/cat.jpg"), []) ==
+             {:error, {:invalid_option, :quality, "101"}}
+
+    assert Native.parse(conn(:get, "/_/format_quality:webp:-1/plain/images/cat.jpg"), []) ==
+             {:error, {:invalid_option, :quality, "-1"}}
+  end
+
+  test "rejects invalid quality arity" do
+    for segment <- ["q", "q:", "q:80:70", "quality", "quality:", "quality:80:70"] do
+      assert Native.parse(conn(:get, "/_/#{segment}/plain/images/cat.jpg"), []) ==
+               {:error, {:invalid_option_segment, segment}}
+    end
+  end
+
+  test "rejects invalid format quality arity" do
+    for segment <- [
+          "fq",
+          "fq:webp",
+          "fq:webp:",
+          "fq:webp:70:60",
+          "format_quality",
+          "format_quality:webp",
+          "format_quality:webp:",
+          "format_quality:webp:70:60"
+        ] do
+      assert Native.parse(conn(:get, "/_/#{segment}/plain/images/cat.jpg"), []) ==
+               {:error, {:invalid_option_segment, segment}}
+    end
+  end
+
   test "global-only and empty groups do not become executable pipelines" do
     assert {:ok, %Plan{pipelines: [%Pipeline{operations: []}]}} =
              Native.parse(conn(:get, "/_/f:webp/-/plain/images/cat.jpg"), [])

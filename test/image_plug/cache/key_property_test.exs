@@ -52,7 +52,12 @@ defmodule ImagePlug.Cache.KeyPropertyTest do
             ]
           ]
         ],
-        output: [mode: :explicit, format: :webp],
+        output: [
+          mode: :explicit,
+          format: :webp,
+          quality: :default,
+          format_qualities: %{}
+        ],
         selected_headers: [],
         selected_cookies: []
       ]
@@ -60,7 +65,12 @@ defmodule ImagePlug.Cache.KeyPropertyTest do
       material_two = [
         selected_cookies: [],
         selected_headers: [],
-        output: [format: :webp, mode: :explicit],
+        output: [
+          format_qualities: %{},
+          quality: :default,
+          format: :webp,
+          mode: :explicit
+        ],
         pipelines: [
           [
             [
@@ -296,9 +306,16 @@ defmodule ImagePlug.Cache.KeyPropertyTest do
               do: [
                 mode: :automatic,
                 modern_candidates: [:avif, :webp],
-                auto: [avif: true, webp: true]
+                auto: [avif: true, webp: true],
+                quality: :default,
+                format_qualities: %{}
               ],
-              else: [mode: :explicit, format: output]
+              else: [
+                mode: :explicit,
+                format: output,
+                quality: :default,
+                format_qualities: %{}
+              ]
             ),
           selected_headers: [],
           selected_cookies: []

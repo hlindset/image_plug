@@ -101,13 +101,51 @@ defmodule ImagePlug.Plan do
 
   defp validate_source(source), do: {:error, {:unsupported_source, source}}
 
-  defp validate_output(%Output{mode: :automatic}), do: :ok
+  defp validate_output(%Output{mode: :automatic} = output) do
+    validate_output_quality_shape(output)
+  end
 
-  defp validate_output(%Output{mode: {:explicit, format}})
-       when format in [:avif, :webp, :jpeg, :png],
-       do: :ok
+  defp validate_output(%Output{mode: {:explicit, format}} = output)
+       when format in [:avif, :webp, :jpeg, :png] do
+    validate_output_quality_shape(output)
+  end
 
   defp validate_output(output), do: {:error, {:invalid_output_plan, output}}
+
+  defp validate_output_quality_shape(output) do
+    case validate_output_quality(output) do
+      :ok -> :ok
+      :error -> {:error, {:invalid_output_plan, output}}
+    end
+  end
+
+  defp validate_output_quality(%Output{quality: quality, format_qualities: format_qualities})
+       when is_map(format_qualities) do
+    with :ok <- validate_quality(quality),
+         :ok <- validate_format_qualities(format_qualities) do
+      :ok
+    end
+  end
+
+  defp validate_output_quality(_output), do: :error
+
+  defp validate_format_qualities(format_qualities) do
+    if Enum.all?(format_qualities, fn {format, quality} ->
+         format in [:avif, :webp, :jpeg, :png] and valid_quality?(quality)
+       end) do
+      :ok
+    else
+      :error
+    end
+  end
+
+  defp validate_quality(quality) do
+    if valid_quality?(quality), do: :ok, else: :error
+  end
+
+  defp valid_quality?(:default), do: true
+  defp valid_quality?({:quality, value}) when is_integer(value) and value in 1..100, do: true
+  defp valid_quality?(_quality), do: false
 
   defp validate_policy(%Policy{expires: expires}) when is_integer(expires) and expires >= 0,
     do: :ok

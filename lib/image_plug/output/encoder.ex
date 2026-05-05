@@ -2,6 +2,7 @@ defmodule ImagePlug.Output.Encoder do
   @moduledoc false
 
   alias ImagePlug.Output.Format
+  alias ImagePlug.Output.Resolved
 
   defmodule EncodedOutput do
     @moduledoc false
@@ -17,35 +18,56 @@ defmodule ImagePlug.Output.Encoder do
     Format.mime_type(format)
   end
 
-  @spec memory_output(Vix.Vips.Image.t(), term(), keyword()) ::
+  @spec memory_output(Vix.Vips.Image.t(), Resolved.t(), keyword()) ::
           {:ok, EncodedOutput.t()} | {:error, {:encode, Exception.t(), list()}}
-  def memory_output(%Vix.Vips.Image{} = image, format, opts) do
-    with {:ok, mime_type, suffix} <- output_format(format),
-         {:ok, body} <- write_body(Keyword.get(opts, :image_module, Image), image, suffix) do
+  def memory_output(%Vix.Vips.Image{} = image, %Resolved{} = resolved_output, opts) do
+    with {:ok, mime_type, suffix} <- output_format(resolved_output),
+         {:ok, body} <-
+           write_body(
+             Keyword.get(opts, :image_module, Image),
+             image,
+             output_options(suffix, resolved_output)
+           ) do
       {:ok, %EncodedOutput{body: body, content_type: mime_type}}
     end
   end
 
-  @spec limited_memory_output(Vix.Vips.Image.t(), term(), keyword(), non_neg_integer() | nil) ::
-          {:ok, EncodedOutput.t()} | :too_large | {:error, {:encode, Exception.t(), list()}}
-  def limited_memory_output(%Vix.Vips.Image{} = image, format, opts, nil),
-    do: memory_output(image, format, opts)
+  def memory_output(%Vix.Vips.Image{} = _image, output, _opts),
+    do: {:error, {:encode, unsupported_output_format_error(output), []}}
 
-  def limited_memory_output(%Vix.Vips.Image{} = image, format, opts, max_body_bytes)
+  @spec limited_memory_output(
+          Vix.Vips.Image.t(),
+          Resolved.t(),
+          keyword(),
+          non_neg_integer() | nil
+        ) ::
+          {:ok, EncodedOutput.t()} | :too_large | {:error, {:encode, Exception.t(), list()}}
+  def limited_memory_output(%Vix.Vips.Image{} = image, %Resolved{} = resolved_output, opts, nil),
+    do: memory_output(image, resolved_output, opts)
+
+  def limited_memory_output(
+        %Vix.Vips.Image{} = image,
+        %Resolved{} = resolved_output,
+        opts,
+        max_body_bytes
+      )
       when is_integer(max_body_bytes) and max_body_bytes >= 0 do
-    with {:ok, mime_type, suffix} <- output_format(format),
+    with {:ok, mime_type, suffix} <- output_format(resolved_output),
          {:ok, body} <-
            stream_body(
              Keyword.get(opts, :image_module, Image),
              image,
-             suffix,
+             output_options(suffix, resolved_output),
              max_body_bytes
            ) do
       {:ok, %EncodedOutput{body: body, content_type: mime_type}}
     end
   end
 
-  defp output_format(format) when is_atom(format) do
+  def limited_memory_output(%Vix.Vips.Image{} = _image, output, _opts, _max_body_bytes),
+    do: {:error, {:encode, unsupported_output_format_error(output), []}}
+
+  defp output_format(%Resolved{format: format}) when is_atom(format) do
     case mime_type(format) do
       {:ok, mime_type} -> {:ok, mime_type, Format.suffix!(mime_type)}
       :error -> {:error, {:encode, unsupported_output_format_error(format), []}}
@@ -54,8 +76,8 @@ defmodule ImagePlug.Output.Encoder do
 
   defp output_format(format), do: {:error, {:encode, unsupported_output_format_error(format), []}}
 
-  defp write_body(image_module, image, suffix) do
-    case image_module.write(image, :memory, suffix: suffix) do
+  defp write_body(image_module, image, output_options) do
+    case image_module.write(image, :memory, output_options) do
       {:ok, body} -> {:ok, body}
       {:error, %_{} = exception} -> {:error, {:encode, exception, []}}
       {:error, reason} -> {:error, {:encode, RuntimeError.exception(inspect(reason)), []}}
@@ -64,8 +86,8 @@ defmodule ImagePlug.Output.Encoder do
     exception -> {:error, {:encode, exception, __STACKTRACE__}}
   end
 
-  defp stream_body(image_module, image, suffix, max_body_bytes) do
-    image_module.stream!(image, suffix: suffix)
+  defp stream_body(image_module, image, output_options, max_body_bytes) do
+    image_module.stream!(image, output_options)
     |> Enum.reduce_while({[], 0}, fn chunk, {chunks, size} ->
       size = size + byte_size(chunk)
 
@@ -86,4 +108,9 @@ defmodule ImagePlug.Output.Encoder do
   defp unsupported_output_format_error(format) do
     ArgumentError.exception("unsupported output format: #{inspect(format)}")
   end
+
+  defp output_options(suffix, %Resolved{quality: {:quality, value}}),
+    do: [suffix: suffix, quality: value]
+
+  defp output_options(suffix, %Resolved{quality: :default}), do: [suffix: suffix]
 end

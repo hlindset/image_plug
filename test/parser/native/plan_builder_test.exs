@@ -270,6 +270,40 @@ defmodule ImagePlug.Parser.Native.PlanBuilderTest do
     end
   end
 
+  property "output quality does not change planned pipeline operations" do
+    check all %ParsedRequest{} = parsed_request <- parsed_request(),
+              max_runs: 100 do
+      assert {:ok, %ImagePlug.Plan{} = default_plan} =
+               PlanBuilder.to_plan(
+                 %ParsedRequest{
+                   parsed_request
+                   | output: %ImagePlug.Parser.Native.OutputRequest{}
+                 },
+                 []
+               )
+
+      quality_request = %ImagePlug.Parser.Native.OutputRequest{
+        quality: {:quality, 80},
+        format_qualities: %{webp: {:quality, 70}}
+      }
+
+      assert {:ok,
+              %ImagePlug.Plan{
+                output: %ImagePlug.Plan.Output{
+                  mode: :automatic,
+                  quality: {:quality, 80},
+                  format_qualities: %{webp: {:quality, 70}}
+                }
+              } = quality_plan} =
+               PlanBuilder.to_plan(
+                 %ParsedRequest{parsed_request | output: quality_request},
+                 []
+               )
+
+      assert quality_plan.pipelines == default_plan.pipelines
+    end
+  end
+
   test "rejects empty executable pipeline plans" do
     assert {:error, :empty_pipeline_plan} =
              PlanBuilder.to_plan(%ParsedRequest{

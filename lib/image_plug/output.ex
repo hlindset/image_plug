@@ -8,6 +8,7 @@ defmodule ImagePlug.Output do
       Format,
       Policy,
       Encoder,
-      Negotiation
+      Negotiation,
+      Resolved
     ]
 end

@@ -5,6 +5,7 @@ defmodule ImagePlug.Runtime.ResponseCache do
   alias ImagePlug.Cache.Entry
   alias ImagePlug.Cache.Key
   alias ImagePlug.Output.Encoder
+  alias ImagePlug.Output.Resolved
   alias ImagePlug.Plan
   alias ImagePlug.Transform.State
 
@@ -24,17 +25,23 @@ defmodule ImagePlug.Runtime.ResponseCache do
     end
   end
 
-  @spec store(Key.t(), State.t(), atom(), [{String.t(), String.t()}], keyword()) ::
+  @spec store(Key.t(), State.t(), Resolved.t(), [{String.t(), String.t()}], keyword()) ::
           {:ok, Entry.t()} | :skipped | {:error, term()}
-  def store(%Key{} = key, %State{} = state, resolved_format, response_headers, opts) do
+  def store(
+        %Key{} = key,
+        %State{} = state,
+        %Resolved{} = resolved_output,
+        _response_headers,
+        opts
+      ) do
     case Encoder.limited_memory_output(
            state.image,
-           resolved_format,
+           resolved_output,
            opts,
            Cache.max_body_bytes(opts)
          ) do
       {:ok, output} ->
-        store_output(key, output, response_headers, opts)
+        store_output(key, output, resolved_output.representation_headers, opts)
 
       :too_large ->
         :skipped

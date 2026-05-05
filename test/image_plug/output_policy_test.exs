@@ -5,6 +5,7 @@ defmodule ImagePlug.Output.PolicyTest do
   import Plug.Test
 
   alias ImagePlug.Output.Policy
+  alias ImagePlug.Output.Resolved
   alias ImagePlug.Plan.Output
 
   describe "from_output_plan/3" do
@@ -19,7 +20,8 @@ defmodule ImagePlug.Output.PolicyTest do
                  mode: {:explicit, :webp},
                  modern_candidates: [],
                  headers: [],
-                 quality: :default
+                 quality: :default,
+                 format_qualities: %{}
                }
     end
 
@@ -34,7 +36,8 @@ defmodule ImagePlug.Output.PolicyTest do
                  mode: :source,
                  modern_candidates: [:avif, :webp],
                  headers: [{"vary", "Accept"}],
-                 quality: :default
+                 quality: :default,
+                 format_qualities: %{}
                }
     end
   end
@@ -45,14 +48,16 @@ defmodule ImagePlug.Output.PolicyTest do
                mode: {:explicit, :png},
                modern_candidates: [],
                headers: [],
-               quality: :default
+               quality: :default,
+               format_qualities: %{}
              }) == {:selected, :png, :explicit}
 
       assert Policy.resolve_before_origin(%Policy{
                mode: :source,
                modern_candidates: [:avif, :webp],
                headers: [{"vary", "Accept"}],
-               quality: :default
+               quality: :default,
+               format_qualities: %{}
              }) == {:selected, :avif, :auto}
     end
 
@@ -61,7 +66,8 @@ defmodule ImagePlug.Output.PolicyTest do
                mode: :source,
                modern_candidates: [],
                headers: [{"vary", "Accept"}],
-               quality: :default
+               quality: :default,
+               format_qualities: %{}
              }) == :needs_source_format
     end
   end
@@ -72,7 +78,8 @@ defmodule ImagePlug.Output.PolicyTest do
         mode: :source,
         modern_candidates: [],
         headers: [{"vary", "Accept"}],
-        quality: :default
+        quality: :default,
+        format_qualities: %{}
       }
 
       assert Policy.resolve_source_format(policy, :png) == {:selected, :png, :source}
@@ -84,10 +91,49 @@ defmodule ImagePlug.Output.PolicyTest do
         mode: :source,
         modern_candidates: [],
         headers: [{"vary", "Accept"}],
-        quality: :default
+        quality: :default,
+        format_qualities: %{}
       }
 
       assert Policy.resolve_source_format(policy, nil) == {:error, :source_format_required}
+    end
+  end
+
+  describe "resolve/2" do
+    test "explicit global quality wins over matching format quality regardless of URL order" do
+      plan = %Output{
+        mode: {:explicit, :webp},
+        quality: {:quality, 80},
+        format_qualities: %{webp: {:quality, 70}}
+      }
+
+      policy = Policy.from_output_plan(conn(:get, "/image"), plan, [])
+
+      assert Policy.resolve(policy, :jpeg) ==
+               {:ok,
+                %Resolved{
+                  format: :webp,
+                  quality: {:quality, 80},
+                  representation_headers: []
+                }}
+    end
+
+    test "format quality supplies default only when global quality is default" do
+      plan = %Output{
+        mode: {:explicit, :webp},
+        quality: :default,
+        format_qualities: %{webp: {:quality, 70}}
+      }
+
+      policy = Policy.from_output_plan(conn(:get, "/image"), plan, [])
+
+      assert Policy.resolve(policy, :jpeg) ==
+               {:ok,
+                %Resolved{
+                  format: :webp,
+                  quality: {:quality, 70},
+                  representation_headers: []
+                }}
     end
   end
 end

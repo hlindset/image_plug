@@ -7,6 +7,7 @@ defmodule ImagePlug.Runtime.ResponseSender do
 
   alias ImagePlug.Cache.Entry
   alias ImagePlug.Output.Format
+  alias ImagePlug.Output.Resolved
   alias ImagePlug.Runtime.RequestRunner
   alias ImagePlug.Transform.State
 
@@ -24,10 +25,10 @@ defmodule ImagePlug.Runtime.ResponseSender do
 
   def send_result(
         %Plug.Conn{} = conn,
-        {:image, %State{} = state, resolved_format, response_headers},
+        {:image, %State{} = state, %Resolved{} = resolved_output, response_headers},
         opts
       ) do
-    send_result(conn, {:ok, {:image, state, resolved_format, response_headers}}, opts)
+    send_result(conn, {:ok, {:image, state, resolved_output, response_headers}}, opts)
   end
 
   def send_result(%Plug.Conn{} = conn, {:cache, error}, opts) do
@@ -44,10 +45,10 @@ defmodule ImagePlug.Runtime.ResponseSender do
 
   def send_result(
         conn,
-        {:ok, {:image, %State{} = state, resolved_format, response_headers}},
+        {:ok, {:image, %State{} = state, %Resolved{} = resolved_output, response_headers}},
         opts
       ) do
-    send_image(conn, state, resolved_format, opts, response_headers)
+    send_image(conn, state, resolved_output, opts, response_headers)
   end
 
   def send_result(conn, {:error, {:cache, error}}, _opts) do
@@ -164,20 +165,20 @@ defmodule ImagePlug.Runtime.ResponseSender do
   defp send_image(
          %Plug.Conn{} = conn,
          %State{} = state,
-         resolved_format,
+         %Resolved{} = resolved_output,
          opts,
          response_headers
        ) do
-    stream_encoded_image(conn, state, resolved_format, opts, response_headers)
+    stream_encoded_image(conn, state, resolved_output, opts, response_headers)
   end
 
-  defp stream_encoded_image(conn, state, resolved_format, opts, response_headers) do
+  defp stream_encoded_image(conn, state, %Resolved{} = resolved_output, opts, response_headers) do
     image_module = Keyword.get(opts, :image_module, Image)
 
     try do
-      mime_type = Format.mime_type!(resolved_format)
+      mime_type = Format.mime_type!(resolved_output.format)
       suffix = Format.suffix!(mime_type)
-      stream = image_module.stream!(state.image, suffix: suffix)
+      stream = image_module.stream!(state.image, output_options(suffix, resolved_output))
 
       case stream_image(stream, conn, mime_type, response_headers) do
         {:ok, conn} ->
@@ -307,6 +308,11 @@ defmodule ImagePlug.Runtime.ResponseSender do
   defp stream_chunk_error(reason) do
     RuntimeError.exception("stream chunk failed: #{inspect(reason)}")
   end
+
+  defp output_options(suffix, %Resolved{quality: {:quality, value}}),
+    do: [suffix: suffix, quality: value]
+
+  defp output_options(suffix, %Resolved{quality: :default}), do: [suffix: suffix]
 
   defp put_resp_headers(%Plug.Conn{} = conn, response_headers) do
     Enum.reduce(response_headers, conn, fn {name, value}, conn ->

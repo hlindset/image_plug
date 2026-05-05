@@ -6,6 +6,7 @@ defmodule ImagePlug.Runtime.ResponseCacheTest do
 
   alias ImagePlug.Cache.Entry
   alias ImagePlug.Cache.Key
+  alias ImagePlug.Output.Resolved
   alias ImagePlug.Plan
   alias ImagePlug.Plan.Output
   alias ImagePlug.Plan.Pipeline
@@ -56,7 +57,9 @@ defmodule ImagePlug.Runtime.ResponseCacheTest do
     assert key.material[:output] == [
              mode: :automatic,
              modern_candidates: [:avif, :webp],
-             auto: [avif: true, webp: true]
+             auto: [avif: true, webp: true],
+             quality: :default,
+             format_qualities: %{}
            ]
 
     assert_received {:cache_get, ^key, adapter_opts}
@@ -79,18 +82,52 @@ defmodule ImagePlug.Runtime.ResponseCacheTest do
     {:ok, image} = Image.new(1, 1)
     state = %State{image: image}
 
+    resolved_output = %Resolved{
+      format: :png,
+      quality: :default,
+      representation_headers: [{"vary", "Accept"}]
+    }
+
     assert {:ok, %Entry{} = entry} =
-             ResponseCache.store(key, state, :png, [{"vary", "Accept"}],
+             ResponseCache.store(key, state, resolved_output, [], cache: {CaptureAdapter, []})
+
+    assert entry.content_type == "image/png"
+    assert entry.headers == [{"vary", "Accept"}]
+    assert_received {:cache_put, ^key, ^entry, _adapter_opts}
+  end
+
+  test "lookup keys include output quality fields" do
+    conn = conn(:get, "/_/f:webp/q:80/plain/images/cat.jpg")
+
+    plan =
+      plan(
+        output: %Output{
+          mode: {:explicit, :webp},
+          quality: {:quality, 80},
+          format_qualities: %{webp: {:quality, 70}}
+        }
+      )
+
+    assert {:miss, %Key{} = key} =
+             ResponseCache.lookup(
+               conn,
+               plan,
+               "https://origin.test/images/cat.jpg",
                cache: {CaptureAdapter, []}
              )
 
-    assert entry.content_type == "image/png"
-    assert_received {:cache_put, ^key, ^entry, _adapter_opts}
+    assert key.material[:output] == [
+             mode: :explicit,
+             format: :webp,
+             quality: {:quality, 80},
+             format_qualities: %{webp: {:quality, 70}}
+           ]
   end
 
   test "store reports skipped when cache writing is disabled" do
     {:ok, image} = Image.new(1, 1)
     state = %State{image: image}
+    resolved_output = %Resolved{format: :png, quality: :default, representation_headers: []}
 
     key = %Key{
       hash: String.duplicate("a", 64),
@@ -98,12 +135,18 @@ defmodule ImagePlug.Runtime.ResponseCacheTest do
       serialized_material: :erlang.term_to_binary(schema_version: 2)
     }
 
-    assert :skipped = ResponseCache.store(key, state, :png, [], [])
+    assert :skipped = ResponseCache.store(key, state, resolved_output, [], [])
   end
 
   test "store returns tagged encode errors for invalid response headers" do
     {:ok, image} = Image.new(1, 1)
     state = %State{image: image}
+
+    resolved_output = %Resolved{
+      format: :png,
+      quality: :default,
+      representation_headers: [{"invalid header name", "value"}]
+    }
 
     assert {:error, {:encode, %ArgumentError{} = exception, _stacktrace}} =
              ResponseCache.store(
@@ -113,8 +156,8 @@ defmodule ImagePlug.Runtime.ResponseCacheTest do
                  serialized_material: :erlang.term_to_binary(schema_version: 2)
                },
                state,
-               :png,
-               [{"invalid header name", "value"}],
+               resolved_output,
+               [],
                cache: {CaptureAdapter, []}
              )
 

@@ -103,16 +103,64 @@ defmodule ImagePlug.Parser.Native.PlanBuilder do
     end)
   end
 
-  defp output_plan(%OutputRequest{format: nil}), do: {:ok, %Output{mode: :automatic}}
+  defp output_plan(%OutputRequest{format: nil} = request) do
+    with :ok <- validate_output_qualities(request) do
+      {:ok,
+       %Output{
+         mode: :automatic,
+         quality: request.quality,
+         format_qualities: request.format_qualities
+       }}
+    end
+  end
 
   defp output_plan(%OutputRequest{format: :best}),
     do: {:error, {:unsupported_output_format, :best}}
 
-  defp output_plan(%OutputRequest{format: format}) when format in @supported_output_formats,
-    do: {:ok, %Output{mode: {:explicit, format}}}
+  defp output_plan(%OutputRequest{format: format} = request)
+       when format in @supported_output_formats do
+    with :ok <- validate_output_qualities(request) do
+      {:ok,
+       %Output{
+         mode: {:explicit, format},
+         quality: request.quality,
+         format_qualities: request.format_qualities
+       }}
+    end
+  end
 
   defp output_plan(%OutputRequest{format: format}), do: {:error, {:invalid_output_format, format}}
   defp output_plan(output), do: {:error, {:invalid_output_request, output}}
+
+  defp validate_output_qualities(%OutputRequest{
+         quality: quality,
+         format_qualities: format_qualities
+       }) do
+    with :ok <- validate_quality(quality),
+         :ok <- validate_format_qualities(format_qualities) do
+      :ok
+    end
+  end
+
+  defp validate_quality(:default), do: :ok
+  defp validate_quality({:quality, value}) when is_integer(value) and value in 1..100, do: :ok
+  defp validate_quality(value), do: {:error, {:invalid_output_quality, value}}
+
+  defp validate_format_qualities(format_qualities) when is_map(format_qualities) do
+    Enum.reduce_while(format_qualities, :ok, fn
+      {format, quality}, :ok when format in @supported_output_formats ->
+        case validate_quality(quality) do
+          :ok -> {:cont, :ok}
+          {:error, reason} -> {:halt, {:error, reason}}
+        end
+
+      {format, _quality}, :ok ->
+        {:halt, {:error, {:unsupported_output_format, format}}}
+    end)
+  end
+
+  defp validate_format_qualities(format_qualities),
+    do: {:error, {:invalid_format_qualities, format_qualities}}
 
   defp policy_plan(%RequestPolicy{expires: expires}), do: {:ok, %Policy{expires: expires}}
   defp policy_plan(policy), do: {:error, {:invalid_policy_request, policy}}

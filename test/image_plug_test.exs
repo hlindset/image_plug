@@ -1069,7 +1069,9 @@ defmodule ImagePlug.ImagePlugTest do
     assert_cache_get_output(
       mode: :automatic,
       modern_candidates: [:avif, :webp],
-      auto: [avif: true, webp: true]
+      auto: [avif: true, webp: true],
+      quality: :default,
+      format_qualities: %{}
     )
 
     refute_received :origin_was_called
@@ -1095,7 +1097,9 @@ defmodule ImagePlug.ImagePlugTest do
         [
           mode: :automatic,
           modern_candidates: [],
-          auto: [avif: true, webp: true]
+          auto: [avif: true, webp: true],
+          quality: :default,
+          format_qualities: %{}
         ] ->
           {:hit, cached_entry}
 
@@ -1119,7 +1123,9 @@ defmodule ImagePlug.ImagePlugTest do
     assert_cache_get_output(
       mode: :automatic,
       modern_candidates: [],
-      auto: [avif: true, webp: true]
+      auto: [avif: true, webp: true],
+      quality: :default,
+      format_qualities: %{}
     )
 
     refute_received :origin_was_called
@@ -1145,7 +1151,9 @@ defmodule ImagePlug.ImagePlugTest do
         [
           mode: :automatic,
           modern_candidates: [],
-          auto: [avif: false, webp: false]
+          auto: [avif: false, webp: false],
+          quality: :default,
+          format_qualities: %{}
         ] ->
           {:hit, cached_entry}
 
@@ -1171,7 +1179,9 @@ defmodule ImagePlug.ImagePlugTest do
     assert_cache_get_output(
       mode: :automatic,
       modern_candidates: [],
-      auto: [avif: false, webp: false]
+      auto: [avif: false, webp: false],
+      quality: :default,
+      format_qualities: %{}
     )
 
     refute_received :origin_was_called
@@ -1197,7 +1207,9 @@ defmodule ImagePlug.ImagePlugTest do
         [
           mode: :automatic,
           modern_candidates: [],
-          auto: [avif: false, webp: false]
+          auto: [avif: false, webp: false],
+          quality: :default,
+          format_qualities: %{}
         ] ->
           {:hit, cached_entry}
 
@@ -1223,7 +1235,9 @@ defmodule ImagePlug.ImagePlugTest do
     assert_cache_get_output(
       mode: :automatic,
       modern_candidates: [],
-      auto: [avif: false, webp: false]
+      auto: [avif: false, webp: false],
+      quality: :default,
+      format_qualities: %{}
     )
 
     refute_received :origin_was_called
