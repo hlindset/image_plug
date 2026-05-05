@@ -32,6 +32,14 @@
 - Boundary exports should stay narrow. Export behaviours and stable public/internal entry points, not implementation helpers.
 - `ImagePlug.SimpleServer` is dev/test support only and must remain outside prod compilation.
 
+## Boundary library guidelines
+
+- Use `Boundary` declarations to enforce the namespace ownership described above. When adding or moving a top-level namespace, define its dependency direction explicitly instead of relying on implicit compile-time reachability.
+- Keep `deps:` aligned with architecture direction: parser code may depend on plan and transform construction APIs; runtime may depend on plan, cache, output, and the generic transform contract; cache may depend on plan/output/transform material; output may depend on plan; transform should remain independent of parser/runtime/cache/output.
+- Export only behaviours and stable public/internal entry points from each boundary. Do not export implementation helpers just to satisfy a compile error; move the helper to the correct boundary or add a narrow facade.
+- Runtime modules may call generic `ImagePlug.Transform` functions such as `transform_name/1`, `metadata/1`, and `execute/2`, but must not alias or reference concrete operation modules. Parser and planner modules may construct exported concrete operation structs when translating syntax into a product-neutral plan.
+- Boundary rule changes should come with focused architecture tests, especially for runtime avoiding concrete transform modules and parser-specific structs.
+
 ## Elixir architecture guidelines
 
 - Prefer Elixir extension points with explicit behaviours (`ImagePlug.Parser`, `ImagePlug.Transform`, `ImagePlug.Cache`), `@impl` annotations, typed parameter structs, and tagged `{:ok, value}` / `{:error, reason}` returns at runtime boundaries. Reserve raises for invalid initialization/configuration.
