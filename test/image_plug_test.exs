@@ -529,6 +529,22 @@ defmodule ImagePlug.ImagePlugTest do
     end
   end
 
+  test "plug facade delegates response delivery to runtime response sender" do
+    image_plug_source =
+      __DIR__
+      |> Path.join("../lib/image_plug.ex")
+      |> Path.expand()
+      |> File.read!()
+
+    assert image_plug_source =~ "ResponseSender.send_result(conn, result, opts)"
+    assert image_plug_source =~ "ResponseSender.send_origin_error(conn, error)"
+    refute image_plug_source =~ "send_resp"
+    refute image_plug_source =~ "send_chunked"
+    refute image_plug_source =~ "chunk("
+    refute image_plug_source =~ "put_resp_header"
+    refute image_plug_source =~ "put_resp_content_type"
+  end
+
   test "no cache configured preserves the streaming response path" do
     conn = conn(:get, "/_/f:jpeg/plain/images/cat-300.jpg")
     test_pid = self()

@@ -8,6 +8,7 @@ defmodule ImagePlug.RequestRunnerTest do
   alias ImagePlug.Plan.Pipeline
   alias ImagePlug.Plan
   alias ImagePlug.Runtime.RequestRunner
+  alias ImagePlug.Runtime.ResponseSender
   alias ImagePlug.Plan.Source.Plain
   alias ImagePlug.Transform
   alias ImagePlug.Transform.State
@@ -109,6 +110,37 @@ defmodule ImagePlug.RequestRunnerTest do
                "http://origin.test/images/cat-300.jpg",
                cache: {CacheHit, entry: entry}
              )
+  end
+
+  test "response sender sends cache-entry deliveries from request runner results" do
+    entry = %Entry{
+      body: "cached jpeg",
+      content_type: "image/jpeg",
+      headers: [{"Vary", "Accept"}, {"connection", "close"}],
+      created_at: DateTime.utc_now()
+    }
+
+    conn = ResponseSender.send_result(conn(:get, "/image"), {:ok, {:cache_entry, entry}}, [])
+
+    assert conn.status == 200
+    assert conn.resp_body == "cached jpeg"
+    assert Plug.Conn.get_resp_header(conn, "content-type") == ["image/jpeg"]
+    assert Plug.Conn.get_resp_header(conn, "vary") == ["Accept"]
+    assert Plug.Conn.get_resp_header(conn, "connection") == []
+  end
+
+  test "response sender preserves response headers on origin processing errors" do
+    conn =
+      ResponseSender.send_result(
+        conn(:get, "/image"),
+        {:error, {:processing, {:origin, {:bad_status, 404}}, [{"vary", "Accept"}]}},
+        []
+      )
+
+    assert conn.status == 404
+    assert conn.resp_body == "origin image not found"
+    assert Plug.Conn.get_resp_header(conn, "content-type") == ["text/plain; charset=utf-8"]
+    assert Plug.Conn.get_resp_header(conn, "vary") == ["Accept"]
   end
 
   test "automatic cache hit returns without resolving source format" do
