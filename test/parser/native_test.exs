@@ -57,7 +57,7 @@ defmodule ImagePlug.Parser.NativeTest do
 
   test "parses resize and rs full grammar" do
     assert [%Transform.Cover{} = cover_params] =
-             operations_for("/_/resize:fill:300:200:1:0/plain/images/cat.jpg")
+             operations_for("/_/resize:fill:300:200:1/plain/images/cat.jpg")
 
     assert cover_params.width == {:pixels, 300}
     assert cover_params.height == {:pixels, 200}
@@ -68,6 +68,20 @@ defmodule ImagePlug.Parser.NativeTest do
 
     assert scale_params.width == {:pixels, 300}
     assert scale_params.height == {:pixels, 200}
+
+    assert {:ok, parsed} =
+             Native.parse_request(
+               conn(:get, "/_/resize:fill:300:200:1:0/plain/images/cat.jpg"),
+               []
+             )
+
+    [pipeline] = parsed.pipelines
+    assert pipeline.resizing_type == :fill
+    assert pipeline.width == {:pixels, 300}
+    assert pipeline.height == {:pixels, 200}
+    assert pipeline.enlarge == true
+    assert pipeline.extend == false
+    assert pipeline.extend_requested == true
   end
 
   test "parses omitted resize arguments with imgproxy defaults" do
@@ -115,8 +129,18 @@ defmodule ImagePlug.Parser.NativeTest do
   end
 
   test "rejects parsed extend semantics before planning origin work" do
+    for path <- [
+          "/_/resize:fill:300:200:1:0/plain/images/cat.jpg",
+          "/_/rs:fit:300:200:0:0/plain/images/cat.jpg",
+          "/_/size:300:200:0:0/plain/images/cat.jpg",
+          "/_/s:300:200:0:0/plain/images/cat.jpg"
+        ] do
+      assert Native.parse(conn(:get, path), []) ==
+               {:error, {:unsupported_pipeline_semantic, :extend}}
+    end
+
     assert Native.parse(conn(:get, "/_/rs:fit:300:200:0:1:ce:0:0/plain/images/cat.jpg"), []) ==
-             {:error, {:unsupported_extend, true}}
+             {:error, {:unsupported_pipeline_semantic, :extend}}
   end
 
   test "parses size without changing resizing_type" do
@@ -133,6 +157,54 @@ defmodule ImagePlug.Parser.NativeTest do
 
     assert params.width == {:pixels, 100}
     assert params.height == {:pixels, 100}
+  end
+
+  test "parses min size, zoom, dpr, crop, orientation, and extend-aspect-ratio" do
+    assert {:ok, parsed} =
+             Native.parse_request(
+               conn(
+                 :get,
+                 "/_/rs:fit:100:0/mw:300/mh:200/z:2:3/dpr:2/c:0.5:0.25:nowe:10:-5/ar:true/rot:-90/fl:true:false/exar:16:9/plain/images/cat.jpg"
+               ),
+               []
+             )
+
+    [pipeline] = parsed.pipelines
+    assert pipeline.width == {:pixels, 100}
+    assert pipeline.height == {:pixels, 0}
+    assert pipeline.min_width == {:pixels, 300}
+    assert pipeline.min_height == {:pixels, 200}
+    assert pipeline.zoom_x == 2.0
+    assert pipeline.zoom_y == 3.0
+    assert pipeline.dpr == 2.0
+    assert pipeline.crop.width == {:scale, 0.5}
+    assert pipeline.crop.height == {:scale, 0.25}
+    assert pipeline.crop.gravity == {:anchor, :left, :top}
+    assert pipeline.orientation.auto_orient == true
+    assert pipeline.orientation.rotate == 270
+    assert pipeline.orientation.flip == :horizontal
+    assert pipeline.extend_aspect_ratio == {16, 9}
+  end
+
+  test "public parse rejects parsed but unsupported geometry pipeline semantics" do
+    assert Native.parse(conn(:get, "/_/z:2/plain/images/cat.jpg"), []) ==
+             {:error, {:unsupported_pipeline_semantic, :zoom}}
+
+    assert Native.parse(conn(:get, "/_/crop:10:20/plain/images/cat.jpg"), []) ==
+             {:error, {:unsupported_pipeline_semantic, :crop}}
+
+    assert Native.parse(conn(:get, "/_/ar/plain/images/cat.jpg"), []) ==
+             {:error, {:unsupported_pipeline_semantic, :orientation}}
+
+    for segment <- ~w(ar:false rot:0 rot:360 fl:false:false) do
+      assert Native.parse(conn(:get, "/_/#{segment}/plain/images/cat.jpg"), []) ==
+               {:error, {:unsupported_pipeline_semantic, :orientation}}
+    end
+
+    for segment <- ~w(extend:false ex:false) do
+      assert Native.parse(conn(:get, "/_/#{segment}/plain/images/cat.jpg"), []) ==
+               {:error, {:unsupported_pipeline_semantic, :extend}}
+    end
   end
 
   test "parses supported resizing type aliases into plans and rejects unsupported values" do

@@ -9,6 +9,7 @@ defmodule ImagePlug.Parser.Native.PlanBuilder do
   alias ImagePlug.Parser.Native.ResponseRequest
   alias ImagePlug.Plan
   alias ImagePlug.Plan.Cache
+  alias ImagePlug.Plan.Orientation
   alias ImagePlug.Plan.Output
   alias ImagePlug.Plan.Pipeline
   alias ImagePlug.Plan.Policy
@@ -253,11 +254,15 @@ defmodule ImagePlug.Parser.Native.PlanBuilder do
     end
   end
 
-  defp validate_dimensions(%PipelineRequest{width: width, height: height}) do
-    case validate_dimension(:width, width) do
-      :ok -> validate_dimension(:height, height)
-      {:error, _reason} = error -> error
-    end
+  defp validate_dimensions(%PipelineRequest{} = request) do
+    [
+      {:width, request.width},
+      {:height, request.height},
+      {:min_width, request.min_width},
+      {:min_height, request.min_height}
+    ]
+    |> Enum.map(fn {field, value} -> validate_dimension(field, value) end)
+    |> reduce_validation_results()
   end
 
   defp validate_dimension(_field, nil), do: :ok
@@ -290,6 +295,9 @@ defmodule ImagePlug.Parser.Native.PlanBuilder do
     end
   end
 
+  defp validate_extend_semantics(%PipelineRequest{extend_requested: true}),
+    do: {:error, {:unsupported_pipeline_semantic, :extend}}
+
   defp validate_extend_semantics(%PipelineRequest{extend: true}),
     do: {:error, {:unsupported_extend, true}}
 
@@ -312,7 +320,55 @@ defmodule ImagePlug.Parser.Native.PlanBuilder do
        when x_offset != 0.0 or y_offset != 0.0,
        do: {:error, {:unsupported_gravity_offset, {x_offset, y_offset}}}
 
-  defp validate_extend_semantics(%PipelineRequest{}), do: :ok
+  defp validate_extend_semantics(%PipelineRequest{} = request) do
+    validate_pending_pipeline_semantics(request)
+  end
+
+  defp validate_pending_pipeline_semantics(%PipelineRequest{min_width: min_width})
+       when not is_nil(min_width),
+       do: {:error, {:unsupported_pipeline_semantic, :min_width}}
+
+  defp validate_pending_pipeline_semantics(%PipelineRequest{min_height: min_height})
+       when not is_nil(min_height),
+       do: {:error, {:unsupported_pipeline_semantic, :min_height}}
+
+  defp validate_pending_pipeline_semantics(%PipelineRequest{zoom_x: zoom_x})
+       when not is_nil(zoom_x),
+       do: {:error, {:unsupported_pipeline_semantic, :zoom}}
+
+  defp validate_pending_pipeline_semantics(%PipelineRequest{zoom_y: zoom_y})
+       when not is_nil(zoom_y),
+       do: {:error, {:unsupported_pipeline_semantic, :zoom}}
+
+  defp validate_pending_pipeline_semantics(%PipelineRequest{dpr: dpr})
+       when not is_nil(dpr),
+       do: {:error, {:unsupported_pipeline_semantic, :dpr}}
+
+  defp validate_pending_pipeline_semantics(%PipelineRequest{crop: crop})
+       when not is_nil(crop),
+       do: {:error, {:unsupported_pipeline_semantic, :crop}}
+
+  defp validate_pending_pipeline_semantics(%PipelineRequest{
+         extend_aspect_ratio: extend_aspect_ratio
+       })
+       when not is_nil(extend_aspect_ratio),
+       do: {:error, {:unsupported_pipeline_semantic, :extend_aspect_ratio}}
+
+  defp validate_pending_pipeline_semantics(%PipelineRequest{orientation_requested: true}),
+    do: {:error, {:unsupported_pipeline_semantic, :orientation}}
+
+  defp validate_pending_pipeline_semantics(%PipelineRequest{
+         orientation: %Orientation{} = orientation
+       }) do
+    if orientation == %Orientation{} do
+      :ok
+    else
+      {:error, {:unsupported_pipeline_semantic, :orientation}}
+    end
+  end
+
+  defp validate_pending_pipeline_semantics(%PipelineRequest{orientation: orientation}),
+    do: {:error, {:invalid_orientation, orientation}}
 
   defp plan_geometry(%PipelineRequest{resizing_type: :force, width: {:pixels, 0}}),
     do: {:error, {:unsupported_zero_dimension, :force}}

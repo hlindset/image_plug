@@ -8,6 +8,7 @@ defmodule ImagePlug.Plan do
     deps: [ImagePlug.Transform],
     exports: [
       Pipeline,
+      Orientation,
       Output,
       Policy,
       Cache,

@@ -77,6 +77,25 @@ defmodule ImagePlug.Parser.NativePropertyTest do
     end
   end
 
+  property "zoom aliases parse to equivalent native pipeline IR" do
+    check all x <- integer(1..2000),
+              y <- integer(1..2000) do
+      x = decimal_string(x)
+      y = decimal_string(y)
+
+      assert {:ok, zoom_request} =
+               Native.parse_request(conn(:get, "/_/zoom:#{x}:#{y}/plain/images/cat.jpg"), [])
+
+      assert {:ok, alias_request} =
+               Native.parse_request(conn(:get, "/_/z:#{x}:#{y}/plain/images/cat.jpg"), [])
+
+      [zoom_pipeline] = zoom_request.pipelines
+      [alias_pipeline] = alias_request.pipelines
+      assert zoom_pipeline.zoom_x == alias_pipeline.zoom_x
+      assert zoom_pipeline.zoom_y == alias_pipeline.zoom_y
+    end
+  end
+
   defp parse_path(path), do: Native.parse(conn(:get, path), [])
 
   defp safe_parse(options) do
@@ -97,6 +116,8 @@ defmodule ImagePlug.Parser.NativePropertyTest do
       option_path -> "/_/#{option_path}/plain/#{source_path}"
     end
   end
+
+  defp decimal_string(value), do: :erlang.float_to_binary(value / 10, decimals: 1)
 
   defp valid_source_path_with_option_like_segments do
     list_of(one_of([path_segment(), option_like_path_segment()]), min_length: 1, max_length: 6)

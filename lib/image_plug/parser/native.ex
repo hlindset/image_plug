@@ -14,12 +14,14 @@ defmodule ImagePlug.Parser.Native do
   @behaviour ImagePlug.Parser
 
   alias ImagePlug.Parser.Native.CacheRequest
+  alias ImagePlug.Parser.Native.CropRequest
   alias ImagePlug.Parser.Native.OutputRequest
   alias ImagePlug.Parser.Native.ParsedRequest
   alias ImagePlug.Parser.Native.PipelineRequest
   alias ImagePlug.Parser.Native.PlanBuilder
   alias ImagePlug.Parser.Native.RequestPolicy
   alias ImagePlug.Parser.Native.ResponseRequest
+  alias ImagePlug.Plan.Orientation
   alias ImagePlug.Plan.Response.Filename
 
   @source_format_names ~w(webp avif jpeg jpg png best)
@@ -54,6 +56,14 @@ defmodule ImagePlug.Parser.Native do
     "w" => {:width, [:width]},
     "height" => {:height, [:height]},
     "h" => {:height, [:height]},
+    "min-width" => {:min_width, [:min_width]},
+    "min_width" => {:min_width, [:min_width]},
+    "mw" => {:min_width, [:min_width]},
+    "min-height" => {:min_height, [:min_height]},
+    "min_height" => {:min_height, [:min_height]},
+    "mh" => {:min_height, [:min_height]},
+    "enlarge" => {:enlarge, [:enlarge]},
+    "el" => {:enlarge, [:enlarge]},
     "format" => {:format, [:format]},
     "f" => {:format, [:format]},
     "ext" => {:format, [:format]},
@@ -86,23 +96,28 @@ defmodule ImagePlug.Parser.Native do
   def parse(%Plug.Conn{} = conn), do: parse(conn, [])
 
   @impl ImagePlug.Parser
-  def parse(%Plug.Conn{path_info: [signature | path_info]}, opts) do
-    with :ok <- validate_signature(signature),
-         {:ok, option_segments, raw_source_path} <- split_source(path_info),
-         {:ok, request_options} <- parse_request_options(option_segments),
-         {:ok, source_path, source_format} <- parse_plain_source(raw_source_path),
-         {:ok, parsed_request} <-
-           parsed_request(
-             signature,
-             source_path,
-             source_format,
-             request_options
-           ) do
+  def parse(%Plug.Conn{} = conn, opts) do
+    with {:ok, parsed_request} <- parse_request(conn, opts) do
       PlanBuilder.to_plan(parsed_request, opts)
     end
   end
 
-  def parse(%Plug.Conn{path_info: []}, _opts) do
+  @doc false
+  def parse_request(%Plug.Conn{path_info: [signature | path_info]}, _opts) do
+    with :ok <- validate_signature(signature),
+         {:ok, option_segments, raw_source_path} <- split_source(path_info),
+         {:ok, request_options} <- parse_request_options(option_segments),
+         {:ok, source_path, source_format} <- parse_plain_source(raw_source_path) do
+      parsed_request(
+        signature,
+        source_path,
+        source_format,
+        request_options
+      )
+    end
+  end
+
+  def parse_request(%Plug.Conn{path_info: []}, _opts) do
     {:error, :missing_signature}
   end
 
@@ -270,7 +285,20 @@ defmodule ImagePlug.Parser.Native do
   end
 
   defp update_current_pipeline(%{current_pipeline: pipeline} = options, assignments) do
-    %{options | current_pipeline: struct!(pipeline, assignments)}
+    pipeline =
+      Enum.reduce(assignments, pipeline, fn
+        {:orientation, orientation_assignments}, pipeline ->
+          %{
+            pipeline
+            | orientation: struct!(pipeline.orientation, orientation_assignments),
+              orientation_requested: true
+          }
+
+        assignment, pipeline ->
+          struct!(pipeline, [assignment])
+      end)
+
+    %{options | current_pipeline: pipeline}
   end
 
   defp update_output(%{output: output} = options, assignments) do
@@ -304,18 +332,29 @@ defmodule ImagePlug.Parser.Native do
   defp pipeline_empty?(%PipelineRequest{
          width: nil,
          height: nil,
+         min_width: nil,
+         min_height: nil,
          resizing_type: :fit,
+         zoom_x: nil,
+         zoom_y: nil,
+         dpr: nil,
          enlarge: false,
          extend: false,
+         extend_requested: false,
          extend_gravity: nil,
          extend_x_offset: nil,
          extend_y_offset: nil,
+         extend_aspect_ratio: nil,
          gravity: {:anchor, :center, :center},
          gravity_x_offset: gravity_x_offset,
-         gravity_y_offset: gravity_y_offset
+         gravity_y_offset: gravity_y_offset,
+         crop: nil,
+         orientation_requested: false,
+         orientation: %Orientation{} = orientation
        })
-       when gravity_x_offset == 0.0 and gravity_y_offset == 0.0,
-       do: true
+       when gravity_x_offset == 0.0 and gravity_y_offset == 0.0 do
+    orientation == %Orientation{}
+  end
 
   defp pipeline_empty?(%PipelineRequest{}), do: false
 
@@ -348,7 +387,7 @@ defmodule ImagePlug.Parser.Native do
   defp scoped_assignments(_kind, assignments), do: {:pipeline, assignments}
 
   defp parse_known_option(kind, fields, args, segment)
-       when kind in [:resizing_type, :width, :height, :format] do
+       when kind in [:resizing_type, :width, :height, :min_width, :min_height, :enlarge, :format] do
     parse_exact_fields(fields, args, segment)
   end
 
@@ -405,7 +444,12 @@ defmodule ImagePlug.Parser.Native do
          {:ok, assignments} <- parse_fields(fields, base_args, skip_empty: true),
          {:ok, extend_gravity_assignments} <-
            parse_optional_extend_gravity(segment, extend_gravity_parts) do
-      reject_empty_assignments(segment, Keyword.merge(assignments, extend_gravity_assignments))
+      assignments =
+        assignments
+        |> Keyword.merge(explicit_extend_assignment(fields, base_args))
+        |> Keyword.merge(extend_gravity_assignments)
+
+      reject_empty_assignments(segment, assignments)
     end
   end
 
@@ -414,7 +458,12 @@ defmodule ImagePlug.Parser.Native do
          {:ok, assignments} <- parse_fields(fields, base_args, skip_empty: true),
          {:ok, extend_gravity_assignments} <-
            parse_optional_extend_gravity(segment, extend_gravity_parts) do
-      reject_empty_assignments(segment, Keyword.merge(assignments, extend_gravity_assignments))
+      assignments =
+        assignments
+        |> Keyword.merge(explicit_extend_assignment(fields, base_args))
+        |> Keyword.merge(extend_gravity_assignments)
+
+      reject_empty_assignments(segment, assignments)
     end
   end
 
@@ -471,6 +520,17 @@ defmodule ImagePlug.Parser.Native do
   defp reject_empty_assignments(segment, []), do: {:error, {:invalid_option_segment, segment}}
   defp reject_empty_assignments(_segment, assignments), do: {:ok, assignments}
 
+  defp explicit_extend_assignment(fields, args) do
+    index = Enum.find_index(fields, &(&1 == :extend))
+    value = if is_nil(index), do: nil, else: Enum.at(args, index)
+
+    if value in [nil, ""] do
+      []
+    else
+      [extend_requested: true]
+    end
+  end
+
   defp parse_fields(fields, args, opts \\ []) do
     skip_empty? = Keyword.get(opts, :skip_empty, false)
 
@@ -495,6 +555,8 @@ defmodule ImagePlug.Parser.Native do
   defp parse_field(:resizing_type, value), do: parse_resizing_type_value(value)
   defp parse_field(:width, value), do: parse_pixels(value)
   defp parse_field(:height, value), do: parse_pixels(value)
+  defp parse_field(:min_width, value), do: parse_pixels(value)
+  defp parse_field(:min_height, value), do: parse_pixels(value)
   defp parse_field(:enlarge, value), do: parse_boolean(value)
   defp parse_field(:extend, value), do: parse_boolean(value)
   defp parse_field(:format, value), do: parse_format(value)
@@ -550,11 +612,170 @@ defmodule ImagePlug.Parser.Native do
   defp parse_boolean(value) when value in ["0", "f", "false"], do: {:ok, false}
   defp parse_boolean(value), do: {:error, {:invalid_boolean, value}}
 
+  defp parse_special_option(name, args, segment) when name in ["zoom", "z"] do
+    parse_zoom(args, segment)
+  end
+
+  defp parse_special_option("dpr", args, segment) do
+    parse_dpr(args, segment)
+  end
+
+  defp parse_special_option(name, args, segment) when name in ["extend", "ex"] do
+    parse_extend(args, segment)
+  end
+
+  defp parse_special_option(name, args, segment)
+       when name in ["extend_aspect_ratio", "extend_ar", "exar"] do
+    parse_extend_aspect_ratio(args, segment)
+  end
+
+  defp parse_special_option(name, args, segment) when name in ["crop", "c"] do
+    parse_crop(args, segment)
+  end
+
+  defp parse_special_option(name, args, segment) when name in ["auto_rotate", "ar"] do
+    parse_auto_rotate(args, segment)
+  end
+
+  defp parse_special_option(name, args, segment) when name in ["rotate", "rot"] do
+    parse_rotate(args, segment)
+  end
+
+  defp parse_special_option(name, args, segment) when name in ["flip", "fl"] do
+    parse_flip(args, segment)
+  end
+
   defp parse_special_option(name, args, segment) when name in ["gravity", "g"] do
     parse_gravity(args, segment)
   end
 
   defp parse_special_option(name, _args, _segment), do: {:error, {:unknown_option, name}}
+
+  defp parse_zoom([value], _segment) when value != "" do
+    with {:ok, zoom} <- parse_positive_float(value) do
+      {:ok, [zoom_x: zoom, zoom_y: zoom]}
+    end
+  end
+
+  defp parse_zoom([x, y], _segment) when x != "" and y != "" do
+    with {:ok, x} <- parse_positive_float(x),
+         {:ok, y} <- parse_positive_float(y) do
+      {:ok, [zoom_x: x, zoom_y: y]}
+    end
+  end
+
+  defp parse_zoom(_args, segment), do: {:error, {:invalid_option_segment, segment}}
+
+  defp parse_dpr([value], _segment) when value != "" do
+    with {:ok, dpr} <- parse_positive_float(value) do
+      {:ok, [dpr: dpr]}
+    end
+  end
+
+  defp parse_dpr(_args, segment), do: {:error, {:invalid_option_segment, segment}}
+
+  defp parse_extend([value], _segment) when value != "" do
+    with {:ok, extend?} <- parse_boolean(value) do
+      {:ok, [extend: extend?, extend_requested: true]}
+    end
+  end
+
+  defp parse_extend([value | gravity_parts], segment) when value != "" do
+    with {:ok, extend?} <- parse_boolean(value),
+         {:ok, extend_gravity_assignments} <-
+           parse_optional_extend_gravity(segment, gravity_parts) do
+      {:ok, Keyword.merge([extend: extend?, extend_requested: true], extend_gravity_assignments)}
+    end
+  end
+
+  defp parse_extend(_args, segment), do: {:error, {:invalid_option_segment, segment}}
+
+  defp parse_extend_aspect_ratio([width, height], _segment) when width != "" and height != "" do
+    with {:ok, width} <- parse_positive_number(width),
+         {:ok, height} <- parse_positive_number(height) do
+      {:ok, [extend_aspect_ratio: {width, height}]}
+    end
+  end
+
+  defp parse_extend_aspect_ratio(_args, segment),
+    do: {:error, {:invalid_option_segment, segment}}
+
+  defp parse_crop([width, height], _segment) when width != "" and height != "" do
+    with {:ok, width} <- parse_crop_dimension(width),
+         {:ok, height} <- parse_crop_dimension(height) do
+      {:ok, [crop: %CropRequest{width: width, height: height}]}
+    end
+  end
+
+  defp parse_crop([width, height, gravity], _segment)
+       when width != "" and height != "" and gravity != "" do
+    with {:ok, width} <- parse_crop_dimension(width),
+         {:ok, height} <- parse_crop_dimension(height),
+         {:ok, gravity} <- parse_gravity_anchor(gravity) do
+      {:ok, [crop: %CropRequest{width: width, height: height, gravity: gravity}]}
+    end
+  end
+
+  defp parse_crop([width, height, gravity, x_offset, y_offset], _segment)
+       when width != "" and height != "" and gravity != "" and x_offset != "" and y_offset != "" do
+    with {:ok, width} <- parse_crop_dimension(width),
+         {:ok, height} <- parse_crop_dimension(height),
+         {:ok, gravity} <- parse_gravity_anchor(gravity),
+         {:ok, x_offset} <- parse_float(x_offset),
+         {:ok, y_offset} <- parse_float(y_offset) do
+      {:ok,
+       [
+         crop: %CropRequest{
+           width: width,
+           height: height,
+           gravity: gravity,
+           x_offset: x_offset,
+           y_offset: y_offset
+         }
+       ]}
+    end
+  end
+
+  defp parse_crop(_args, segment), do: {:error, {:invalid_option_segment, segment}}
+
+  defp parse_auto_rotate([], _segment), do: {:ok, [orientation: [auto_orient: true]]}
+
+  defp parse_auto_rotate([value], _segment) when value != "" do
+    with {:ok, auto_orient?} <- parse_boolean(value) do
+      {:ok, [orientation: [auto_orient: auto_orient?]]}
+    end
+  end
+
+  defp parse_auto_rotate(_args, segment), do: {:error, {:invalid_option_segment, segment}}
+
+  defp parse_rotate([value], _segment) when value != "" do
+    case Integer.parse(value) do
+      {integer, ""} when rem(integer, 90) == 0 ->
+        {:ok, [orientation: [rotate: normalize_rotation(integer)]]}
+
+      _other ->
+        {:error, {:invalid_rotate, value}}
+    end
+  end
+
+  defp parse_rotate(_args, segment), do: {:error, {:invalid_option_segment, segment}}
+
+  defp parse_flip([], _segment), do: {:ok, [orientation: [flip: :both]]}
+
+  defp parse_flip([horizontal], _segment) when horizontal != "" do
+    with {:ok, horizontal?} <- parse_boolean(horizontal) do
+      {:ok, [orientation: [flip: flip_value(horizontal?, false)]]}
+    end
+  end
+
+  defp parse_flip([horizontal, vertical], _segment) when horizontal != "" and vertical != "" do
+    with {:ok, horizontal?} <- parse_boolean(horizontal),
+         {:ok, vertical?} <- parse_boolean(vertical) do
+      {:ok, [orientation: [flip: flip_value(horizontal?, vertical?)]]}
+    end
+  end
+
+  defp parse_flip(_args, segment), do: {:error, {:invalid_option_segment, segment}}
 
   defp parse_gravity(["sm"], _segment), do: {:ok, [gravity: :sm]}
 
@@ -598,6 +819,63 @@ defmodule ImagePlug.Parser.Native do
 
       {:error, _reason} ->
         {:error, {:invalid_gravity_coordinate, value}}
+    end
+  end
+
+  defp normalize_rotation(value) do
+    value
+    |> rem(360)
+    |> Kernel.+(360)
+    |> rem(360)
+  end
+
+  defp flip_value(true, true), do: :both
+  defp flip_value(true, false), do: :horizontal
+  defp flip_value(false, true), do: :vertical
+  defp flip_value(false, false), do: nil
+
+  defp parse_crop_dimension(value) do
+    case parse_number(value) do
+      {:ok, number} when number == 0 ->
+        {:ok, :auto}
+
+      {:ok, number} when number > 0 and number < 1 ->
+        {:ok, {:scale, number}}
+
+      {:ok, number} when number >= 1 ->
+        {:ok, {:pixels, number}}
+
+      {:ok, _number} ->
+        {:error, {:invalid_crop_dimension, value}}
+
+      {:error, _reason} ->
+        {:error, {:invalid_crop_dimension, value}}
+    end
+  end
+
+  defp parse_positive_float(value) do
+    case parse_float(value) do
+      {:ok, float} when float > 0.0 -> {:ok, float}
+      {:ok, _float} -> {:error, {:invalid_positive_float, value}}
+      {:error, _reason} -> {:error, {:invalid_positive_float, value}}
+    end
+  end
+
+  defp parse_positive_number(value) do
+    case parse_number(value) do
+      {:ok, number} when number > 0 -> {:ok, number}
+      {:ok, _number} -> {:error, {:invalid_positive_number, value}}
+      {:error, _reason} -> {:error, {:invalid_positive_number, value}}
+    end
+  end
+
+  defp parse_number(value) do
+    case Integer.parse(value) do
+      {integer, ""} ->
+        {:ok, integer}
+
+      _other ->
+        parse_float(value)
     end
   end
 

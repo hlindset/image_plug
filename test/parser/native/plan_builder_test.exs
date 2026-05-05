@@ -2,6 +2,9 @@ defmodule ImagePlug.Parser.Native.PlanBuilderTest do
   use ExUnit.Case, async: true
   use ExUnitProperties
 
+  import Plug.Test
+
+  alias ImagePlug.Parser.Native
   alias ImagePlug.Parser.Native.ParsedRequest
   alias ImagePlug.Parser.Native.PipelineRequest
   alias ImagePlug.Parser.Native.PlanBuilder
@@ -149,6 +152,172 @@ defmodule ImagePlug.Parser.Native.PlanBuilderTest do
 
     assert plan_pipeline(gravity_y_offset: -2.0) ==
              {:error, {:unsupported_gravity_offset, {0.0, -2.0}}}
+  end
+
+  test "parsed crop gravity is independent from top-level gravity" do
+    assert {:ok, pipeline} = parsed_pipeline("/_/g:so/c:0.5:0.25:nowe/plain/images/cat.jpg")
+
+    assert pipeline.gravity == {:anchor, :center, :bottom}
+    assert pipeline.crop.gravity == {:anchor, :left, :top}
+  end
+
+  test "parsed rotate normalizes integer multiples of 90" do
+    for {value, expected} <- [
+          {-450, 270},
+          {-90, 270},
+          {0, 0},
+          {90, 90},
+          {360, 0},
+          {450, 90}
+        ] do
+      assert {:ok, pipeline} = parsed_pipeline("/_/rot:#{value}/plain/images/cat.jpg")
+      assert pipeline.orientation.rotate == expected
+    end
+  end
+
+  test "parsed flip booleans normalize to explicit orientation intent" do
+    assert {:ok, pipeline} = parsed_pipeline("/_/flip:true:false/plain/images/cat.jpg")
+    assert pipeline.orientation.flip == :horizontal
+
+    assert {:ok, pipeline} = parsed_pipeline("/_/fl:false:true/plain/images/cat.jpg")
+    assert pipeline.orientation.flip == :vertical
+
+    assert {:ok, pipeline} = parsed_pipeline("/_/fl:true:true/plain/images/cat.jpg")
+    assert pipeline.orientation.flip == :both
+
+    assert {:ok, pipeline} = parsed_pipeline("/_/fl:false:false/plain/images/cat.jpg")
+    assert pipeline.orientation.flip == nil
+  end
+
+  test "parsed zoom supports one shared factor or independent axes" do
+    assert {:ok, pipeline} = parsed_pipeline("/_/zoom:2/plain/images/cat.jpg")
+    assert pipeline.zoom_x == 2.0
+    assert pipeline.zoom_y == 2.0
+
+    assert {:ok, pipeline} = parsed_pipeline("/_/z:2:3/plain/images/cat.jpg")
+    assert pipeline.zoom_x == 2.0
+    assert pipeline.zoom_y == 3.0
+  end
+
+  test "dropped imgproxy options remain parser errors" do
+    for segment <-
+          ~w(raw max_bytes mb max_src_resolution msr max_src_file_size msfs crop_aspect_ratio crop_ar car) do
+      assert {:error, _reason} =
+               Native.parse_request(conn(:get, "/_/#{segment}/plain/images/cat.jpg"), [])
+    end
+  end
+
+  test "dropped imgproxy options with values remain parser errors" do
+    for segment <- ~w(raw:false max_bytes:100 mb:100 crop_ar:1:1) do
+      assert {:error, _reason} =
+               Native.parse_request(conn(:get, "/_/#{segment}/plain/images/cat.jpg"), [])
+    end
+  end
+
+  test "rejects invalid arity for new pipeline options" do
+    invalid_segments = [
+      "zoom",
+      "zoom:",
+      "zoom:1:2:3",
+      "z",
+      "z:",
+      "z:1:2:3",
+      "dpr",
+      "dpr:",
+      "dpr:1:2",
+      "min-width",
+      "min-width:1:2",
+      "mw",
+      "mw:1:2",
+      "min_width",
+      "min_width:1:2",
+      "min-height",
+      "min-height:1:2",
+      "mh",
+      "mh:1:2",
+      "min_height",
+      "min_height:1:2",
+      "enlarge",
+      "enlarge:true:false",
+      "el",
+      "el:true:false",
+      "extend",
+      "extend:",
+      "extend:true:ce:0",
+      "extend:true:ce:0:0:extra",
+      "ex",
+      "ex:",
+      "ex:true:ce:0",
+      "ex:true:ce:0:0:extra",
+      "gravity",
+      "gravity:ce:0",
+      "gravity:ce:0:0:extra",
+      "g",
+      "g:ce:0",
+      "g:ce:0:0:extra",
+      "auto_rotate:",
+      "auto_rotate:true:false",
+      "ar:",
+      "ar:true:false",
+      "rotate",
+      "rotate:",
+      "rotate:90:180",
+      "rot",
+      "rot:",
+      "rot:90:180",
+      "flip:true:false:true",
+      "fl:true:false:true",
+      "extend_aspect_ratio",
+      "extend_aspect_ratio:16",
+      "extend_aspect_ratio:16:9:1",
+      "extend_ar",
+      "extend_ar:16",
+      "extend_ar:16:9:1",
+      "exar",
+      "exar:16",
+      "exar:16:9:1",
+      "crop",
+      "crop:100",
+      "crop:100:200:ce:0",
+      "crop:100:200:ce:0:0:extra",
+      "c",
+      "c:100",
+      "c:100:200:ce:0",
+      "c:100:200:ce:0:0:extra"
+    ]
+
+    for segment <- invalid_segments do
+      assert Native.parse_request(conn(:get, "/_/#{segment}/plain/images/cat.jpg"), []) ==
+               {:error, {:invalid_option_segment, segment}}
+    end
+  end
+
+  test "rejects unsupported parsed pipeline semantics before planning no-op operations" do
+    assert plan_pipeline(min_width: {:pixels, 100}) ==
+             {:error, {:unsupported_pipeline_semantic, :min_width}}
+
+    assert plan_pipeline(min_height: {:pixels, 100}) ==
+             {:error, {:unsupported_pipeline_semantic, :min_height}}
+
+    assert plan_pipeline(zoom_x: 2.0, zoom_y: 2.0) ==
+             {:error, {:unsupported_pipeline_semantic, :zoom}}
+
+    assert plan_pipeline(dpr: 2.0) == {:error, {:unsupported_pipeline_semantic, :dpr}}
+
+    assert plan_pipeline(extend_requested: true) ==
+             {:error, {:unsupported_pipeline_semantic, :extend}}
+
+    assert plan_pipeline(crop: struct(ImagePlug.Parser.Native.CropRequest)) ==
+             {:error, {:unsupported_pipeline_semantic, :crop}}
+
+    assert plan_pipeline(orientation: struct(ImagePlug.Plan.Orientation, auto_orient: true)) ==
+             {:error, {:unsupported_pipeline_semantic, :orientation}}
+
+    assert plan_pipeline(orientation_requested: true) ==
+             {:error, {:unsupported_pipeline_semantic, :orientation}}
+
+    assert plan_pipeline(extend_aspect_ratio: {16, 9}) ==
+             {:error, {:unsupported_pipeline_semantic, :extend_aspect_ratio}}
   end
 
   test "rejects invalid direct pipeline request values" do
@@ -455,6 +624,15 @@ defmodule ImagePlug.Parser.Native.PlanBuilderTest do
 
   defp output_format do
     one_of([constant(nil), member_of([:webp, :avif, :jpeg, :png])])
+  end
+
+  defp parsed_pipeline(path) do
+    with {:ok, parsed} <- Native.parse_request(conn(:get, path), []) do
+      case parsed.pipelines do
+        [pipeline] -> {:ok, pipeline}
+        pipelines -> {:error, {:unexpected_pipelines, pipelines}}
+      end
+    end
   end
 
   defp plan_pipeline(attrs) do
