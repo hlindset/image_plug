@@ -11,7 +11,7 @@ defmodule ImagePlug do
 
   alias ImagePlug.Cache
   alias ImagePlug.Cache.Entry
-  alias ImagePlug.ImageFormat
+  alias ImagePlug.Output.Format
   alias ImagePlug.Origin
   alias ImagePlug.Plan
   alias ImagePlug.RequestRunner
@@ -216,8 +216,8 @@ defmodule ImagePlug do
     image_module = Keyword.get(opts, :image_module, Image)
 
     try do
-      mime_type = ImageFormat.mime_type!(resolved_format)
-      suffix = ImageFormat.suffix!(mime_type)
+      mime_type = Format.mime_type!(resolved_format)
+      suffix = Format.suffix!(mime_type)
       stream = image_module.stream!(state.image, suffix: suffix)
 
       case stream_image(stream, conn, mime_type, response_headers) do

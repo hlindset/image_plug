@@ -4,7 +4,7 @@ defmodule ImagePlug.ResponseCache do
   alias ImagePlug.Cache
   alias ImagePlug.Cache.Entry
   alias ImagePlug.Cache.Key
-  alias ImagePlug.OutputEncoder
+  alias ImagePlug.Output.Encoder
   alias ImagePlug.Plan
   alias ImagePlug.TransformState
 
@@ -27,13 +27,13 @@ defmodule ImagePlug.ResponseCache do
   @spec store(Key.t(), TransformState.t(), atom(), [{String.t(), String.t()}], keyword()) ::
           {:ok, Entry.t()} | :skipped | {:error, term()}
   def store(%Key{} = key, %TransformState{} = state, resolved_format, response_headers, opts) do
-    case OutputEncoder.limited_memory_output(
+    case Encoder.limited_memory_output(
            state,
            resolved_format,
            opts,
            Cache.max_body_bytes(opts)
          ) do
-      {:ok, %OutputEncoder.EncodedOutput{} = output} ->
+      {:ok, %Encoder.EncodedOutput{} = output} ->
         store_output(key, output, response_headers, opts)
 
       :too_large ->
@@ -58,7 +58,7 @@ defmodule ImagePlug.ResponseCache do
     end
   end
 
-  defp entry(%OutputEncoder.EncodedOutput{} = output, response_headers) do
+  defp entry(%Encoder.EncodedOutput{} = output, response_headers) do
     case Entry.new(
            body: output.body,
            content_type: output.content_type,

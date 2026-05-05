@@ -1,4 +1,4 @@
-defmodule ImagePlug.ImageFormat do
+defmodule ImagePlug.Output.Format do
   @moduledoc false
 
   @formats [avif: "image/avif", webp: "image/webp", jpeg: "image/jpeg", png: "image/png"]

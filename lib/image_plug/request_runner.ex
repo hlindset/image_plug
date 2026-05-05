@@ -6,7 +6,7 @@ defmodule ImagePlug.RequestRunner do
   alias ImagePlug.Cache.Key
   alias ImagePlug.Cache.Material
   alias ImagePlug.Plan.Output
-  alias ImagePlug.OutputPolicy
+  alias ImagePlug.Output.Policy
   alias ImagePlug.Plan.Pipeline
   alias ImagePlug.Plan
   alias ImagePlug.Processor
@@ -15,7 +15,7 @@ defmodule ImagePlug.RequestRunner do
 
   @type delivery() ::
           {:cache_entry, Entry.t()}
-          | {:image, TransformState.t(), OutputPolicy.format(), [{String.t(), String.t()}]}
+          | {:image, TransformState.t(), Policy.format(), [{String.t(), String.t()}]}
 
   @type error() ::
           {:cache, term()}
@@ -117,9 +117,9 @@ defmodule ImagePlug.RequestRunner do
          origin_identity,
          opts
        ) do
-    policy = OutputPolicy.from_output_plan(conn, plan.output, opts)
+    policy = Policy.from_output_plan(conn, plan.output, opts)
 
-    case OutputPolicy.resolve_before_origin(policy) do
+    case Policy.resolve_before_origin(policy) do
       {:selected, format, _reason} ->
         plan
         |> Processor.process_origin(pipelines, origin_identity, opts)
@@ -137,7 +137,7 @@ defmodule ImagePlug.RequestRunner do
          origin_identity,
          opts
        ) do
-    policy = OutputPolicy.from_output_plan(conn, plan.output, opts)
+    policy = Policy.from_output_plan(conn, plan.output, opts)
 
     plan
     |> Processor.process_origin(pipelines, origin_identity, opts)
@@ -178,7 +178,7 @@ defmodule ImagePlug.RequestRunner do
          opts,
          policy
        ) do
-    case OutputPolicy.resolve_source_format(policy, source_format) do
+    case Policy.resolve_source_format(policy, source_format) do
       {:selected, format, _reason} ->
         decode_source_format_automatic(
           origin_response,

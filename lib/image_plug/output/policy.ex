@@ -1,10 +1,10 @@
-defmodule ImagePlug.OutputPolicy do
+defmodule ImagePlug.Output.Policy do
   @moduledoc false
 
   import Plug.Conn
 
-  alias ImagePlug.ImageFormat
-  alias ImagePlug.OutputNegotiation
+  alias ImagePlug.Output.Format
+  alias ImagePlug.Output.Negotiation
   alias ImagePlug.Plan.Output
 
   @enforce_keys [:mode, :modern_candidates, :headers, :quality]
@@ -25,7 +25,7 @@ defmodule ImagePlug.OutputPolicy do
   def from_output_plan(%Plug.Conn{} = conn, %Output{mode: :automatic}, opts) do
     %__MODULE__{
       mode: :source,
-      modern_candidates: OutputNegotiation.modern_candidates(accept_header(conn), opts),
+      modern_candidates: Negotiation.modern_candidates(accept_header(conn), opts),
       headers: automatic_headers(),
       quality: :default
     }
@@ -56,7 +56,7 @@ defmodule ImagePlug.OutputPolicy do
   @spec resolve_source_format(t(), format() | nil) ::
           {:selected, format(), :source} | {:error, :source_format_required}
   def resolve_source_format(%__MODULE__{mode: :source}, source_format) do
-    case ImageFormat.mime_type(source_format) do
+    case Format.mime_type(source_format) do
       {:ok, _mime_type} -> {:selected, source_format, :source}
       :error -> {:error, :source_format_required}
     end

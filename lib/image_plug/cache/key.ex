@@ -6,7 +6,7 @@ defmodule ImagePlug.Cache.Key do
   import Plug.Conn
 
   alias ImagePlug.Cache.Material
-  alias ImagePlug.OutputNegotiation
+  alias ImagePlug.Output.Negotiation
   alias ImagePlug.Plan.Output
   alias ImagePlug.Plan.Pipeline
   alias ImagePlug.Plan
@@ -80,7 +80,7 @@ defmodule ImagePlug.Cache.Key do
     {:ok,
      [
        mode: :automatic,
-       modern_candidates: OutputNegotiation.modern_candidates(accept_header, opts),
+       modern_candidates: Negotiation.modern_candidates(accept_header, opts),
        auto: [
          avif: Keyword.get(opts, :auto_avif, true),
          webp: Keyword.get(opts, :auto_webp, true)

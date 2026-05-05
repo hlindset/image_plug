@@ -352,6 +352,6 @@ defmodule ImagePlug.RequestRunnerTest do
     refute request_runner_source =~ "Processing" <> "Request"
     refute request_runner_source =~ "from_request"
     refute request_runner_source =~ "request.format"
-    assert request_runner_source =~ "OutputPolicy.from_output_plan(conn, plan.output, opts)"
+    assert request_runner_source =~ "Policy.from_output_plan(conn, plan.output, opts)"
   end
 end

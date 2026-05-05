@@ -1,7 +1,7 @@
-defmodule ImagePlug.OutputNegotiation do
+defmodule ImagePlug.Output.Negotiation do
   @moduledoc false
 
-  alias ImagePlug.ImageFormat
+  alias ImagePlug.Output.Format
 
   @modern_formats [avif: "image/avif", webp: "image/webp"]
 
@@ -19,13 +19,13 @@ defmodule ImagePlug.OutputNegotiation do
     end
   end
 
-  defdelegate suffix!(mime_type), to: ImageFormat
+  defdelegate suffix!(mime_type), to: Format
 
-  defdelegate format(mime_type), to: ImageFormat
+  defdelegate format(mime_type), to: Format
 
-  defdelegate mime_type(format), to: ImageFormat
+  defdelegate mime_type(format), to: Format
 
-  defdelegate mime_type!(format), to: ImageFormat
+  defdelegate mime_type!(format), to: Format
 
   defp enabled_modern_formats(opts) do
     @modern_formats
@@ -36,11 +36,11 @@ defmodule ImagePlug.OutputNegotiation do
   end
 
   defp acceptable?(mime_type, entries) do
-    mime_type = ImageFormat.canonical_mime_type(mime_type)
+    mime_type = Format.canonical_mime_type(mime_type)
 
     entries =
       Enum.map(entries, fn {accepted, quality} ->
-        {ImageFormat.canonical_mime_type(accepted), quality}
+        {Format.canonical_mime_type(accepted), quality}
       end)
 
     entries

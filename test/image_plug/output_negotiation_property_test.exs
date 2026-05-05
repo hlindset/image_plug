@@ -1,8 +1,8 @@
-defmodule ImagePlug.OutputNegotiationPropertyTest do
+defmodule ImagePlug.Output.NegotiationPropertyTest do
   use ExUnit.Case, async: true
   use ExUnitProperties
 
-  alias ImagePlug.OutputNegotiation
+  alias ImagePlug.Output.Negotiation
 
   property "modern candidates match enabled modern formats accepted by the header" do
     check all accept_header <- accept_header(),
@@ -11,7 +11,7 @@ defmodule ImagePlug.OutputNegotiationPropertyTest do
               max_runs: 100 do
       opts = [auto_avif: auto_avif?, auto_webp: auto_webp?]
 
-      assert OutputNegotiation.modern_candidates(accept_header, opts) ==
+      assert Negotiation.modern_candidates(accept_header, opts) ==
                expected_modern_candidates(accept_header, opts)
     end
   end
@@ -23,7 +23,7 @@ defmodule ImagePlug.OutputNegotiationPropertyTest do
                   [auto_avif: auto_avif?, auto_webp: auto_webp?]
                 end),
               max_runs: 100 do
-      candidates = OutputNegotiation.modern_candidates(accept_header, opts)
+      candidates = Negotiation.modern_candidates(accept_header, opts)
 
       assert candidates in [[], [:avif], [:webp], [:avif, :webp]]
     end
