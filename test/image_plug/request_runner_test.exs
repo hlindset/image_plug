@@ -7,7 +7,7 @@ defmodule ImagePlug.RequestRunnerTest do
   alias ImagePlug.Plan.Output
   alias ImagePlug.Plan.Pipeline
   alias ImagePlug.Plan
-  alias ImagePlug.RequestRunner
+  alias ImagePlug.Runtime.RequestRunner
   alias ImagePlug.Plan.Source.Plain
   alias ImagePlug.Transform
   alias ImagePlug.Transform.State
@@ -345,7 +345,7 @@ defmodule ImagePlug.RequestRunnerTest do
   test "output policy uses output plans without a processing request bridge" do
     request_runner_source =
       __DIR__
-      |> Path.join("../../lib/image_plug/request_runner.ex")
+      |> Path.join("../../lib/image_plug/runtime/request_runner.ex")
       |> Path.expand()
       |> File.read!()
 

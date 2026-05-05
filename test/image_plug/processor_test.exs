@@ -1,11 +1,9 @@
 defmodule ImagePlug.ProcessorTest do
   use ExUnit.Case, async: true
 
-  alias ImagePlug.Origin.StreamStatus
   alias ImagePlug.Plan.Output
   alias ImagePlug.Plan.Pipeline
   alias ImagePlug.Plan
-  alias ImagePlug.Processor
   alias ImagePlug.ProcessorTest.DecodeErrorImageOpen
   alias ImagePlug.ProcessorTest.FirstTransform
   alias ImagePlug.ProcessorTest.InvalidReturnMaterializer
@@ -15,6 +13,8 @@ defmodule ImagePlug.ProcessorTest do
   alias ImagePlug.ProcessorTest.OriginShouldNotFetch
   alias ImagePlug.ProcessorTest.SecondTransform
   alias ImagePlug.ProcessorTest.SequentialFailingTransform
+  alias ImagePlug.Runtime.Origin.StreamStatus
+  alias ImagePlug.Runtime.Processor
   alias ImagePlug.Plan.Source.Plain
   alias ImagePlug.Transform.State
 
@@ -56,7 +56,7 @@ defmodule ImagePlug.ProcessorTest do
 
     assert decoded.source_format == :jpeg
     assert decoded.decode_options == [access: :random, fail_on: :error]
-    assert %ImagePlug.Origin.Response{} = decoded.origin_response
+    assert %ImagePlug.Runtime.Origin.Response{} = decoded.origin_response
 
     Processor.close_pending_origin(decoded.origin_response)
   end
@@ -189,7 +189,7 @@ defmodule ImagePlug.ProcessorTest do
   test "processor keeps pipeline validation at public boundaries" do
     processor_source =
       __DIR__
-      |> Path.join("../../lib/image_plug/processor.ex")
+      |> Path.join("../../lib/image_plug/runtime/processor.ex")
       |> Path.expand()
       |> File.read!()
 
@@ -207,7 +207,7 @@ defmodule ImagePlug.ProcessorTest do
 
     assert decoded.source_format == :jpeg
     assert decoded.decode_options == [access: :random, fail_on: :error]
-    assert %ImagePlug.Origin.Response{} = decoded.origin_response
+    assert %ImagePlug.Runtime.Origin.Response{} = decoded.origin_response
 
     Processor.close_pending_origin(decoded.origin_response)
   end
@@ -237,7 +237,7 @@ defmodule ImagePlug.ProcessorTest do
 
     assert_receive :worker_ready
 
-    origin_response = %ImagePlug.Origin.Response{
+    origin_response = %ImagePlug.Runtime.Origin.Response{
       content_type: "image/jpeg",
       headers: [],
       ref: make_ref(),

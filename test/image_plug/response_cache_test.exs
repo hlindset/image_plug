@@ -9,7 +9,7 @@ defmodule ImagePlug.ResponseCacheTest do
   alias ImagePlug.Plan.Output
   alias ImagePlug.Plan.Pipeline
   alias ImagePlug.Plan
-  alias ImagePlug.ResponseCache
+  alias ImagePlug.Runtime.ResponseCache
   alias ImagePlug.Plan.Source.Plain
   alias ImagePlug.Transform.State
 

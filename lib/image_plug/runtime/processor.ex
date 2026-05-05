@@ -1,12 +1,12 @@
-defmodule ImagePlug.Processor do
+defmodule ImagePlug.Runtime.Processor do
   @moduledoc false
 
   alias ImagePlug.Transform.DecodePlanner
   alias ImagePlug.Output.Format
   alias ImagePlug.Transform.Materializer
-  alias ImagePlug.Origin
   alias ImagePlug.Plan
   alias ImagePlug.Plan.Source.Plain
+  alias ImagePlug.Runtime.Origin
   alias ImagePlug.Transform.Chain
   alias ImagePlug.Transform.State
 
@@ -19,7 +19,7 @@ defmodule ImagePlug.Processor do
     @type t() :: %__MODULE__{
             decode_options: keyword(),
             image: Vix.Vips.Image.t(),
-            origin_response: ImagePlug.Origin.Response.t(),
+            origin_response: ImagePlug.Runtime.Origin.Response.t(),
             source_format: :avif | :webp | :jpeg | :png | nil
           }
   end

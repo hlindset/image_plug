@@ -1,4 +1,4 @@
-defmodule ImagePlug.Origin.StreamStatus do
+defmodule ImagePlug.Runtime.Origin.StreamStatus do
   use GenServer
 
   @moduledoc """
@@ -9,8 +9,8 @@ defmodule ImagePlug.Origin.StreamStatus do
   handling can read that result repeatedly before cache writes or response delivery.
 
   The holder is request-scoped and monitors the process that called
-  `ImagePlug.Origin.fetch/2`, so it exits even when that process exits normally.
-  `ImagePlug.Origin.close/1` cancels the stream worker but intentionally leaves this
+  `ImagePlug.Runtime.Origin.fetch/2`, so it exits even when that process exits normally.
+  `ImagePlug.Runtime.Origin.close/1` cancels the stream worker but intentionally leaves this
   holder alive so callers can still read the last recorded status while the owner
   process is alive and the response remains in scope.
   """

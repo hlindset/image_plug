@@ -1,4 +1,4 @@
-defmodule ImagePlug.ResponseCache do
+defmodule ImagePlug.Runtime.ResponseCache do
   @moduledoc false
 
   alias ImagePlug.Cache

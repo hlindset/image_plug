@@ -1,4 +1,4 @@
-defmodule ImagePlug.Origin do
+defmodule ImagePlug.Runtime.Origin do
   @moduledoc """
   Origin URL construction and guarded HTTP streaming.
 
@@ -12,7 +12,7 @@ defmodule ImagePlug.Origin do
   to the caller out-of-band because Vix consumes enumerables from a separate process.
   """
 
-  alias ImagePlug.Origin.StreamStatus
+  alias ImagePlug.Runtime.Origin.StreamStatus
 
   defmodule Response do
     @moduledoc false

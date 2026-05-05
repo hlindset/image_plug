@@ -2,7 +2,7 @@ defmodule ImagePlug.SequentialCompatibilityTest do
   use ExUnit.Case, async: true
 
   alias ImagePlug.Transform.Materializer
-  alias ImagePlug.Origin
+  alias ImagePlug.Runtime.Origin
   alias ImagePlug.Transform.Contain
   alias ImagePlug.Transform.Scale
   alias ImagePlug.Transform.Chain

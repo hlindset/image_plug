@@ -12,9 +12,9 @@ defmodule ImagePlug do
   alias ImagePlug.Cache
   alias ImagePlug.Cache.Entry
   alias ImagePlug.Output.Format
-  alias ImagePlug.Origin
   alias ImagePlug.Plan
-  alias ImagePlug.RequestRunner
+  alias ImagePlug.Runtime.Origin
+  alias ImagePlug.Runtime.RequestRunner
   alias ImagePlug.Plan.Source.Plain
   alias ImagePlug.Transform.State
 

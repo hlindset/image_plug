@@ -1,4 +1,4 @@
-defmodule ImagePlug.RequestRunner do
+defmodule ImagePlug.Runtime.RequestRunner do
   @moduledoc false
 
   alias ImagePlug.Cache
@@ -8,8 +8,8 @@ defmodule ImagePlug.RequestRunner do
   alias ImagePlug.Output.Policy
   alias ImagePlug.Plan.Pipeline
   alias ImagePlug.Plan
-  alias ImagePlug.Processor
-  alias ImagePlug.ResponseCache
+  alias ImagePlug.Runtime.Processor
+  alias ImagePlug.Runtime.ResponseCache
   alias ImagePlug.Transform.Material
   alias ImagePlug.Transform.State
 
