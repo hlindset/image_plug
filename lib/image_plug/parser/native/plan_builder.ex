@@ -383,15 +383,15 @@ defmodule ImagePlug.Parser.Native.PlanBuilder do
 
   defp plan_geometry(%PipelineRequest{width: {:pixels, 0}, height: {:pixels, 0}}), do: {:ok, []}
 
-  defp plan_geometry(
-         %PipelineRequest{resizing_type: :fit, width: width, height: height} = request
-       ) do
-    case {normalize_dimension(width), normalize_dimension(height)} do
-      {:auto, :auto} ->
-        {:ok, []}
+  defp plan_geometry(%PipelineRequest{resizing_type: :fit} = request) do
+    with {:ok, rule} <- dimension_rule(request) do
+      case {rule.width, rule.height} do
+        {:auto, :auto} ->
+          {:ok, []}
 
-      {planned_width, planned_height} ->
-        build_operation_list(contain(planned_width, planned_height, request))
+        {planned_width, planned_height} ->
+          build_operation_list(contain(planned_width, planned_height, request))
+      end
     end
   end
 
@@ -402,14 +402,16 @@ defmodule ImagePlug.Parser.Native.PlanBuilder do
     do: missing_dimensions(:fill)
 
   defp plan_geometry(%PipelineRequest{resizing_type: :fill} = request) do
-    with {:ok, cover} <-
-           cover(normalize_dimension(request.width), normalize_dimension(request.height), request) do
+    with {:ok, rule} <- dimension_rule(request),
+         {:ok, cover} <- cover(rule.width, rule.height, request) do
       maybe_prepend_focus([cover], request.gravity)
     end
   end
 
-  defp plan_geometry(%PipelineRequest{resizing_type: :force, width: width, height: height}) do
-    build_operation_list(scale(width || :auto, height || :auto))
+  defp plan_geometry(%PipelineRequest{resizing_type: :force} = request) do
+    with {:ok, rule} <- dimension_rule(request) do
+      build_operation_list(scale(rule.width, rule.height))
+    end
   end
 
   defp plan_geometry(%PipelineRequest{resizing_type: resizing_type}),
@@ -441,6 +443,25 @@ defmodule ImagePlug.Parser.Native.PlanBuilder do
       constraint: cover_constraint(request.enlarge)
     )
   end
+
+  defp dimension_rule(%PipelineRequest{} = request) do
+    {:ok,
+     %Transform.Geometry.DimensionRule{
+       mode: dimension_rule_mode(request.resizing_type),
+       width: normalize_dimension(request.width),
+       height: normalize_dimension(request.height),
+       min_width: request.min_width,
+       min_height: request.min_height,
+       zoom_x: request.zoom_x || 1.0,
+       zoom_y: request.zoom_y || 1.0,
+       dpr: request.dpr || 1.0,
+       enlarge: request.enlarge
+     }}
+  end
+
+  defp dimension_rule_mode(:fit), do: :fit
+  defp dimension_rule_mode(:fill), do: :fill
+  defp dimension_rule_mode(:force), do: :force
 
   defp build_operation_list({:ok, operation}), do: {:ok, [operation]}
   defp build_operation_list({:error, _reason} = error), do: error

@@ -10,6 +10,8 @@ defmodule ImagePlug.Transform do
       DecodePlanner,
       Materializer,
       Material,
+      Geometry.DimensionRule,
+      Geometry.DimensionResolver,
       Scale,
       Cover,
       Contain,
