@@ -39,6 +39,32 @@ defmodule ImagePlug.Transform.ChainTest do
     assert {:error, _reason} = Scale.new(type: :dimensions)
   end
 
+  test "scale construction validates malformed attributes" do
+    assert {:error,
+            %ArgumentError{
+              message: "invalid scale dimensions: width and height cannot both be :auto"
+            }} =
+             Scale.new(type: :dimensions, width: :auto, height: :auto)
+
+    assert {:error, %ArgumentError{message: "invalid scale width: :oops"}} =
+             Scale.new(
+               type: :dimensions,
+               width: :oops,
+               height: {:pixels, 100}
+             )
+
+    assert {:error, %ArgumentError{message: "invalid scale ratio: {1, 0}"}} =
+             Scale.new(type: :ratio, ratio: {1, 0})
+
+    assert {:error, %ArgumentError{message: "unknown scale option(s): :extra"}} =
+             Scale.new(
+               type: :dimensions,
+               width: {:pixels, 100},
+               height: :auto,
+               extra: true
+             )
+  end
+
   test "contain construction validates malformed attributes" do
     assert {:error, %ArgumentError{message: "invalid contain ratio: {1, 0}"}} =
              Contain.new(type: :ratio, ratio: {1, 0}, letterbox: false)
@@ -141,5 +167,20 @@ defmodule ImagePlug.Transform.ChainTest do
              Chain.execute(%State{image: image}, chain)
 
     assert state.errors == [{FailingTransform, :failed}]
+  end
+
+  test "scale execution records an error for direct auto/auto structs" do
+    {:ok, image} = Image.new(20, 20, color: :white)
+
+    chain = [
+      %Scale{type: :dimensions, width: :auto, height: :auto}
+    ]
+
+    assert {:error, {:transform_error, state}} =
+             Chain.execute(%State{image: image}, chain)
+
+    assert state.errors == [
+             {Scale, {:error, {:invalid_scale_dimensions, :auto_auto}}}
+           ]
   end
 end

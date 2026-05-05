@@ -87,6 +87,8 @@ defmodule ImagePlug.Transform.Scale do
     end
   end
 
+  defp do_scale(%State{}, :auto, :auto), do: {:error, {:invalid_scale_dimensions, :auto_auto}}
+
   defp do_scale(%State{} = state, width, :auto) do
     target_height = round(width / image_width(state) * image_height(state))
     proportional_scale(state, width, target_height)
@@ -134,17 +136,60 @@ defmodule ImagePlug.Transform.Scale do
 
     case Map.fetch!(attrs, :type) do
       :dimensions ->
-        _width = Map.fetch!(attrs, :width)
-        _height = Map.fetch!(attrs, :height)
-
+        validate_keys!(attrs, [:type, :width, :height])
+        width = Map.fetch!(attrs, :width)
+        height = Map.fetch!(attrs, :height)
+        validate_dimension_pair!(width, height)
         attrs
 
       :ratio ->
-        _ratio = Map.fetch!(attrs, :ratio)
+        validate_keys!(attrs, [:type, :ratio])
+        validate_ratio!(Map.fetch!(attrs, :ratio))
         attrs
 
       type ->
         raise ArgumentError, "invalid scale type: #{inspect(type)}"
     end
   end
+
+  defp validate_keys!(attrs, allowed_keys) do
+    unknown_keys = Map.keys(attrs) -- allowed_keys
+
+    if unknown_keys != [] do
+      keys = unknown_keys |> Enum.sort_by(&inspect/1) |> Enum.map_join(", ", &inspect/1)
+      raise ArgumentError, "unknown scale option(s): #{keys}"
+    end
+  end
+
+  defp validate_dimension_pair!(width, height) do
+    validate_dimension_or_auto!(:width, width)
+    validate_dimension_or_auto!(:height, height)
+
+    if width == :auto and height == :auto do
+      raise ArgumentError, "invalid scale dimensions: width and height cannot both be :auto"
+    end
+  end
+
+  defp validate_dimension_or_auto!(_field, :auto), do: :ok
+
+  defp validate_dimension_or_auto!(field, value), do: validate_dimension!(field, value)
+
+  defp validate_dimension!(_field, value) when is_number(value) and value > 0, do: :ok
+  defp validate_dimension!(_field, {:pixels, value}) when is_number(value) and value > 0, do: :ok
+  defp validate_dimension!(_field, {:percent, value}) when is_number(value) and value > 0, do: :ok
+  defp validate_dimension!(_field, {:scale, value}) when is_number(value) and value > 0, do: :ok
+
+  defp validate_dimension!(_field, {:scale, numerator, denominator})
+       when is_number(numerator) and is_number(denominator) and numerator > 0 and denominator > 0,
+       do: :ok
+
+  defp validate_dimension!(field, value),
+    do: raise(ArgumentError, "invalid scale #{field}: #{inspect(value)}")
+
+  defp validate_ratio!({width, height})
+       when is_number(width) and is_number(height) and width > 0 and height > 0,
+       do: :ok
+
+  defp validate_ratio!(ratio),
+    do: raise(ArgumentError, "invalid scale ratio: #{inspect(ratio)}")
 end
