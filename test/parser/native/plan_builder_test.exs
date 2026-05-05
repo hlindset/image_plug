@@ -142,6 +142,19 @@ defmodule ImagePlug.Parser.Native.PlanBuilderTest do
     end
   end
 
+  test "plans zero dimensions with meaningful min resize rules" do
+    assert {:ok, %Plan{pipelines: [%Pipeline{operations: [%Transform.Resize{} = resize]}]}} =
+             plan_pipeline(
+               width: {:pixels, 0},
+               height: {:pixels, 0},
+               min_width: {:pixels, 300}
+             )
+
+    assert resize.rule.width == :auto
+    assert resize.rule.height == :auto
+    assert resize.rule.min_width == {:pixels, 300}
+  end
+
   test "normalizes single zero fit dimensions to auto resize dimensions" do
     assert {:ok, %Plan{pipelines: [%Pipeline{operations: operations}]}} =
              plan_pipeline(width: {:pixels, 0}, height: {:pixels, 200})
@@ -215,6 +228,21 @@ defmodule ImagePlug.Parser.Native.PlanBuilderTest do
              x_offset: 5.0,
              y_offset: -3.0
            } = List.last(operations)
+  end
+
+  test "explicit false extend prevents parsed extend tails from planning canvas operations" do
+    assert {:ok, %Plan{pipelines: [%Pipeline{operations: operations}]}} =
+             plan_pipeline(
+               width: {:pixels, 100},
+               height: {:pixels, 100},
+               extend: false,
+               extend_requested: true,
+               extend_gravity: {:anchor, :center, :center},
+               extend_x_offset: 5.0,
+               extend_y_offset: -3.0
+             )
+
+    refute Enum.any?(operations, &match?(%Transform.ExtendCanvas{}, &1))
   end
 
   test "rejects unsupported gravity offset semantics" do

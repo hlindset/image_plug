@@ -224,6 +224,11 @@ defmodule ImagePlug.Parser.NativeTest do
       assert {:ok, %Plan{pipelines: [%Pipeline{operations: []}]}} =
                Native.parse(conn(:get, "/_/#{segment}/plain/images/cat.jpg"), [])
     end
+
+    assert {:ok, %Plan{pipelines: [%Pipeline{operations: operations}]}} =
+             Native.parse(conn(:get, "/_/rs:fit:300:200:0:0:ce/plain/images/cat.jpg"), [])
+
+    refute Enum.any?(operations, &match?(%Transform.ExtendCanvas{}, &1))
   end
 
   test "parses supported resizing type aliases into plans and rejects unsupported values" do
@@ -263,6 +268,13 @@ defmodule ImagePlug.Parser.NativeTest do
 
     assert params.rule.width == :auto
     assert params.rule.height == {:pixels, 200}
+
+    assert {:ok, %Plan{pipelines: [%Pipeline{operations: [%Transform.Resize{} = resize]}]}} =
+             Native.parse(conn(:get, "/_/w:0/h:0/mw:300/plain/images/cat.jpg"), [])
+
+    assert resize.rule.width == :auto
+    assert resize.rule.height == :auto
+    assert resize.rule.min_width == {:pixels, 300}
   end
 
   test "rejects gravity-bearing fill and auto until neutral gravity crop support exists" do

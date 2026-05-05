@@ -412,8 +412,13 @@ defmodule ImagePlug.Parser.Native.PlanBuilder do
     end
   end
 
-  defp resize_operations(%PipelineRequest{width: {:pixels, 0}, height: {:pixels, 0}}),
-    do: {:ok, []}
+  defp resize_operations(%PipelineRequest{width: {:pixels, 0}, height: {:pixels, 0}} = request) do
+    if resize_rule_requested?(request) do
+      resize_from_rule(request)
+    else
+      {:ok, []}
+    end
+  end
 
   defp resize_operations(%PipelineRequest{resizing_type: :auto} = request) do
     with {:ok, %Transform.Geometry.DimensionRule{} = rule} <- dimension_rule(request),
@@ -476,6 +481,9 @@ defmodule ImagePlug.Parser.Native.PlanBuilder do
       )
     end
   end
+
+  defp extend_operation_requested?(%PipelineRequest{extend: false, extend_requested: true}),
+    do: false
 
   defp extend_operation_requested?(%PipelineRequest{} = request) do
     request.extend == true or

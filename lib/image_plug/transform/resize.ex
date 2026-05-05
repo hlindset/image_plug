@@ -70,8 +70,8 @@ defmodule ImagePlug.Transform.Resize do
            maybe_crop_fill_image(
              rule,
              image,
-             dimensions.requested_width,
-             dimensions.requested_height
+             dimensions.target_width,
+             dimensions.target_height
            ) do
       state |> set_image(image) |> reset_focus()
     else

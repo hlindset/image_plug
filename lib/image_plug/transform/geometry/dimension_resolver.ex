@@ -6,6 +6,8 @@ defmodule ImagePlug.Transform.Geometry.DimensionResolver do
   @type result() :: %{
           requested_width: pos_integer() | :auto,
           requested_height: pos_integer() | :auto,
+          target_width: pos_integer() | :auto,
+          target_height: pos_integer() | :auto,
           intermediate_width: pos_integer(),
           intermediate_height: pos_integer(),
           effective_dpr: float()
@@ -19,6 +21,7 @@ defmodule ImagePlug.Transform.Geometry.DimensionResolver do
       effective_dpr = effective_dpr(rule, base, source, opts)
       requested = apply_dpr(base, effective_dpr)
       min_dimensions = resolve_min_dimensions(rule, source, effective_dpr)
+      target = target_dimensions(rule.mode, requested, min_dimensions, source, rule.enlarge)
 
       intermediate =
         intermediate_dimensions(rule.mode, requested, min_dimensions, source, rule.enlarge)
@@ -27,6 +30,8 @@ defmodule ImagePlug.Transform.Geometry.DimensionResolver do
        %{
          requested_width: requested.width,
          requested_height: requested.height,
+         target_width: target.width,
+         target_height: target.height,
          intermediate_width: intermediate.width,
          intermediate_height: intermediate.height,
          effective_dpr: effective_dpr
@@ -219,6 +224,25 @@ defmodule ImagePlug.Transform.Geometry.DimensionResolver do
 
   defp scaled_min(nil, _effective_dpr), do: nil
   defp scaled_min(value, effective_dpr), do: positive_round(value * effective_dpr)
+
+  defp target_dimensions(_mode, %{width: :auto, height: :auto}, nil, _source, _enlarge),
+    do: %{width: :auto, height: :auto}
+
+  defp target_dimensions(_mode, %{width: :auto, height: :auto}, min_dimensions, source, enlarge) do
+    clamp_to_source(min_dimensions, source, enlarge)
+  end
+
+  defp target_dimensions(:fill_down, requested, min_dimensions, source, _enlarge) do
+    requested
+    |> target_box_dimensions(min_dimensions)
+    |> clamp_to_source(source, false)
+  end
+
+  defp target_dimensions(_mode, requested, min_dimensions, source, enlarge) do
+    requested
+    |> target_box_dimensions(min_dimensions)
+    |> clamp_to_source(source, enlarge)
+  end
 
   defp intermediate_dimensions(_mode, %{width: :auto, height: :auto}, nil, source, _enlarge),
     do: source

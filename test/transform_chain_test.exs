@@ -364,6 +364,27 @@ defmodule ImagePlug.Transform.ChainTest do
     assert Image.height(image) == 100
   end
 
+  test "fill resize crops to min-adjusted target dimensions" do
+    for mode <- [:fill, :fill_down] do
+      {:ok, image} = Image.new(400, 200, color: :white)
+
+      chain = [
+        %Resize{
+          rule: %DimensionRule{
+            mode: mode,
+            width: {:pixels, 100},
+            height: {:pixels, 50},
+            min_width: {:pixels, 200}
+          }
+        }
+      ]
+
+      assert {:ok, %State{image: image}} = Chain.execute(%State{image: image}, chain)
+      assert Image.width(image) == 200
+      assert Image.height(image) == 100
+    end
+  end
+
   test "fill-down crops clamped images to the requested aspect ratio" do
     {:ok, image} = Image.new(200, 100, color: :white)
 
