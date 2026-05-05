@@ -13,9 +13,13 @@ defmodule ImagePlug.Parser.Native do
 
   @behaviour ImagePlug.Parser
 
+  alias ImagePlug.Parser.Native.CacheRequest
+  alias ImagePlug.Parser.Native.OutputRequest
   alias ImagePlug.Parser.Native.ParsedRequest
   alias ImagePlug.Parser.Native.PipelineRequest
   alias ImagePlug.Parser.Native.PlanBuilder
+  alias ImagePlug.Parser.Native.RequestPolicy
+  alias ImagePlug.Parser.Native.ResponseRequest
 
   @source_format_names ~w(webp avif jpeg jpg png best)
 
@@ -71,16 +75,15 @@ defmodule ImagePlug.Parser.Native do
   @impl ImagePlug.Parser
   def parse(%Plug.Conn{path_info: [signature | path_info]}, opts) do
     with :ok <- validate_signature(signature),
-         {:ok, option_segments, source_path, source_format} <- split_source(path_info),
-         {:ok, pipeline_option_groups, option_format} <-
-           parse_pipeline_option_groups(option_segments),
+         {:ok, option_segments, raw_source_path} <- split_source(path_info),
+         {:ok, request_options} <- parse_request_options(option_segments),
+         {:ok, source_path, source_format} <- parse_plain_source(raw_source_path),
          {:ok, parsed_request} <-
            parsed_request(
              signature,
              source_path,
              source_format,
-             pipeline_option_groups,
-             option_format
+             request_options
            ) do
       PlanBuilder.to_plan(parsed_request, opts)
     end
@@ -104,21 +107,20 @@ defmodule ImagePlug.Parser.Native do
          signature,
          source_path,
          source_format,
-         pipeline_option_groups,
-         option_format
+         request_options
        ) do
-    output_format = source_format || option_format
+    output_format = source_format || request_options.output.format
 
     {:ok,
      %ParsedRequest{
        signature: signature,
        source_kind: :plain,
        source_path: source_path,
-       pipelines:
-         Enum.map(pipeline_option_groups, fn options ->
-           struct!(PipelineRequest, Keyword.delete(options, :format))
-         end),
-       output: %ImagePlug.Parser.Native.OutputRequest{format: output_format}
+       pipelines: request_options.pipelines,
+       output: %{request_options.output | format: output_format},
+       policy: request_options.policy,
+       cache: request_options.cache,
+       response: request_options.response
      }}
   end
 
@@ -131,9 +133,7 @@ defmodule ImagePlug.Parser.Native do
         {:error, {:missing_source_identifier, "plain"}}
 
       {options, ["plain" | source_path]} ->
-        with {:ok, decoded_source_path, source_format} <- parse_plain_source(source_path) do
-          {:ok, options, decoded_source_path, source_format}
-        end
+        {:ok, options, source_path}
     end
   end
 
@@ -179,73 +179,106 @@ defmodule ImagePlug.Parser.Native do
     end
   end
 
-  defp parse_pipeline_option_groups(option_segments) do
-    with {:ok, groups} <- split_pipeline_groups(option_segments),
-         {:ok, parsed_groups} <- parse_option_groups(groups) do
-      {:ok, parsed_groups, output_format(parsed_groups)}
-    end
-  end
+  defp parse_request_options(option_segments) do
+    Enum.reduce_while(option_segments, {:ok, initial_request_options()}, fn
+      "-", {:ok, options} ->
+        {:cont, {:ok, finalize_current_pipeline(options)}}
 
-  defp split_pipeline_groups([]), do: {:ok, [[]]}
+      segment, {:ok, options} ->
+        case parse_option(segment) do
+          {:ok, {:pipeline, assignments}} ->
+            {:cont, {:ok, update_current_pipeline(options, assignments)}}
 
-  defp split_pipeline_groups(option_segments) do
-    {groups, current_group} =
-      Enum.reduce(option_segments, {[], []}, fn
-        "-", {groups, current_group} ->
-          {[Enum.reverse(current_group) | groups], []}
+          {:ok, {:output, assignments}} ->
+            {:cont, {:ok, update_output(options, assignments)}}
 
-        segment, {groups, current_group} ->
-          {groups, [segment | current_group]}
-      end)
-
-    groups = Enum.reverse([Enum.reverse(current_group) | groups])
-
-    if Enum.any?(groups, &(&1 == [])) do
-      {:error, :empty_pipeline_group}
-    else
-      {:ok, groups}
-    end
-  end
-
-  defp parse_option_groups(groups) do
-    Enum.reduce_while(groups, {:ok, []}, fn group, {:ok, parsed_groups} ->
-      case parse_options(group) do
-        {:ok, options} -> {:cont, {:ok, [options | parsed_groups]}}
-        {:error, _reason} = error -> {:halt, error}
-      end
+          {:error, _reason} = error ->
+            {:halt, error}
+        end
     end)
     |> case do
-      {:ok, parsed_groups} -> {:ok, Enum.reverse(parsed_groups)}
+      {:ok, options} -> {:ok, finalize_request_options(options)}
       {:error, _reason} = error -> error
     end
   end
 
-  defp output_format(parsed_groups) do
-    Enum.reduce(parsed_groups, nil, fn options, output_format ->
-      Keyword.get(options, :format, output_format)
-    end)
+  defp initial_request_options do
+    %{
+      current_pipeline: %PipelineRequest{},
+      pipelines: [],
+      output: %OutputRequest{},
+      policy: %RequestPolicy{},
+      cache: %CacheRequest{},
+      response: %ResponseRequest{}
+    }
   end
 
-  defp parse_options(option_segments) do
-    Enum.reduce_while(option_segments, {:ok, []}, fn segment, {:ok, options} ->
-      case parse_option(segment) do
-        {:ok, assignments} ->
-          {:cont, {:ok, Keyword.merge(options, assignments)}}
+  defp finalize_request_options(options) do
+    options = finalize_current_pipeline(options)
+    pipelines = Enum.reverse(options.pipelines)
 
-        {:error, _reason} = error ->
-          {:halt, error}
+    pipelines =
+      if pipelines == [] do
+        [%PipelineRequest{}]
+      else
+        pipelines
       end
-    end)
+
+    %{options | current_pipeline: %PipelineRequest{}, pipelines: pipelines}
   end
+
+  defp finalize_current_pipeline(%{current_pipeline: pipeline, pipelines: pipelines} = options) do
+    if pipeline_empty?(pipeline) do
+      %{options | current_pipeline: %PipelineRequest{}}
+    else
+      %{options | current_pipeline: %PipelineRequest{}, pipelines: [pipeline | pipelines]}
+    end
+  end
+
+  defp update_current_pipeline(%{current_pipeline: pipeline} = options, assignments) do
+    %{options | current_pipeline: struct!(pipeline, assignments)}
+  end
+
+  defp update_output(%{output: output} = options, assignments) do
+    %{options | output: struct!(output, assignments)}
+  end
+
+  defp pipeline_empty?(%PipelineRequest{
+         width: nil,
+         height: nil,
+         resizing_type: :fit,
+         enlarge: false,
+         extend: false,
+         extend_gravity: nil,
+         extend_x_offset: nil,
+         extend_y_offset: nil,
+         gravity: {:anchor, :center, :center},
+         gravity_x_offset: gravity_x_offset,
+         gravity_y_offset: gravity_y_offset
+       })
+       when gravity_x_offset == 0.0 and gravity_y_offset == 0.0,
+       do: true
+
+  defp pipeline_empty?(%PipelineRequest{}), do: false
 
   defp parse_option(segment) do
     [name | args] = String.split(segment, ":")
 
     case Map.fetch(@option_specs, name) do
-      {:ok, {kind, fields}} -> parse_known_option(kind, fields, args, segment)
-      :error -> parse_special_option(name, args, segment)
+      {:ok, {kind, fields}} ->
+        with {:ok, assignments} <- parse_known_option(kind, fields, args, segment) do
+          {:ok, scoped_assignments(kind, assignments)}
+        end
+
+      :error ->
+        with {:ok, assignments} <- parse_special_option(name, args, segment) do
+          {:ok, {:pipeline, assignments}}
+        end
     end
   end
+
+  defp scoped_assignments(:format, assignments), do: {:output, assignments}
+  defp scoped_assignments(_kind, assignments), do: {:pipeline, assignments}
 
   defp parse_known_option(kind, fields, args, segment)
        when kind in [:resizing_type, :width, :height, :format] do

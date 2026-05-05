@@ -204,6 +204,32 @@ defmodule ImagePlug.Parser.NativeTest do
     assert_output_mode("/_/f:webp/plain/images/cat.jpg@png", {:explicit, :png})
   end
 
+  test "global options may appear before and after pipeline separators" do
+    assert_output_mode("/_/f:webp/-/w:100/plain/images/cat.jpg", {:explicit, :webp})
+    assert_output_mode("/_/w:100/-/f:webp/plain/images/cat.jpg", {:explicit, :webp})
+
+    assert {:ok, %Plan{pipelines: [%Pipeline{operations: operations}]}} =
+             Native.parse(conn(:get, "/_/f:webp/-/plain/images/cat.jpg"), [])
+
+    assert operations == []
+  end
+
+  test "later global assignments win across groups" do
+    assert_output_mode("/_/f:webp/-/f:jpeg/plain/images/cat.jpg", {:explicit, :jpeg})
+  end
+
+  test "global-only and empty groups do not become executable pipelines" do
+    assert {:ok, %Plan{pipelines: [%Pipeline{operations: []}]}} =
+             Native.parse(conn(:get, "/_/f:webp/-/plain/images/cat.jpg"), [])
+
+    assert {:ok, %Plan{pipelines: [%Pipeline{operations: operations}]}} =
+             Native.parse(conn(:get, "/_/-/w:100/plain/images/cat.jpg"), [])
+
+    assert length(operations) == 1
+    assert [%{__struct__: _} = operation] = operations
+    assert inspect(operation) =~ "100"
+  end
+
   test "dangling raw @ does not overwrite an explicit format" do
     assert {:ok,
             %Plan{
@@ -215,6 +241,11 @@ defmodule ImagePlug.Parser.NativeTest do
   test "rejects format auto because it is not imgproxy grammar" do
     assert Native.parse(conn(:get, "/_/format:auto/plain/images/cat.jpg"), []) ==
              {:error, {:invalid_format, "auto", ["webp", "avif", "jpeg", "jpg", "png", "best"]}}
+  end
+
+  test "parses processing options before validating source extension" do
+    assert Native.parse(conn(:get, "/_/unknown/plain/images/cat.jpg@unknown"), []) ==
+             {:error, {:unknown_option, "unknown"}}
   end
 
   test "later field assignments overwrite earlier assignments" do
@@ -260,15 +291,32 @@ defmodule ImagePlug.Parser.NativeTest do
     assert second_params.height == {:pixels, 200}
   end
 
-  test "rejects malformed chained native pipeline separators" do
-    assert {:error, :empty_pipeline_group} =
+  test "ignores empty groups around chained native pipeline separators" do
+    assert {:ok, %Plan{pipelines: [%Pipeline{operations: leading_operations}]}} =
              Native.parse(conn(:get, "/_/-/w:500/plain/images/cat.jpg"), [])
 
-    assert {:error, :empty_pipeline_group} =
+    assert [%Transform.Contain{} = leading_params] = leading_operations
+    assert leading_params.width == {:pixels, 500}
+
+    assert {:ok, %Plan{pipelines: [%Pipeline{operations: trailing_operations}]}} =
              Native.parse(conn(:get, "/_/w:500/-/plain/images/cat.jpg"), [])
 
-    assert {:error, :empty_pipeline_group} =
-             Native.parse(conn(:get, "/_/w:500/-/-/h:200/plain/images/cat.jpg"), [])
+    assert [%Transform.Contain{} = trailing_params] = trailing_operations
+    assert trailing_params.width == {:pixels, 500}
+
+    assert {:ok,
+            %Plan{
+              pipelines: [
+                %Pipeline{operations: first_operations},
+                %Pipeline{operations: second_operations}
+              ]
+            }} = Native.parse(conn(:get, "/_/w:500/-/-/h:200/plain/images/cat.jpg"), [])
+
+    assert [%Transform.Contain{} = first_params] = first_operations
+    assert first_params.width == {:pixels, 500}
+
+    assert [%Transform.Contain{} = second_params] = second_operations
+    assert second_params.height == {:pixels, 200}
   end
 
   test "preserves no-op single-pipeline behavior" do

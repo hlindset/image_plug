@@ -59,6 +59,24 @@ defmodule ImagePlug.Parser.NativePropertyTest do
     end
   end
 
+  property "alias-equivalent and order-equivalent dimensions produce the same plan" do
+    check all width <- integer(1..2000),
+              height <- integer(1..2000) do
+      assert {:ok, plan_a} =
+               Native.parse(conn(:get, "/_/w:#{width}/h:#{height}/plain/images/cat.jpg"), [])
+
+      assert {:ok, plan_b} =
+               Native.parse(
+                 conn(:get, "/_/height:#{height}/width:#{width}/plain/images/cat.jpg"),
+                 []
+               )
+
+      assert plan_a.pipelines == plan_b.pipelines
+      assert plan_a.output == plan_b.output
+      assert plan_a.cache == plan_b.cache
+    end
+  end
+
   defp parse_path(path), do: Native.parse(conn(:get, path), [])
 
   defp safe_parse(options) do
