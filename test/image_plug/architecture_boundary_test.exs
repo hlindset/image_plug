@@ -2,7 +2,16 @@ defmodule ImagePlug.ArchitectureBoundaryTest do
   use ExUnit.Case, async: true
 
   @runtime_globs ["lib/image_plug/runtime.ex", "lib/image_plug/runtime/**/*.ex"]
-  @concrete_transform_names [:Scale, :Contain, :Cover, :Crop, :Focus]
+  @concrete_transform_names [
+    :Scale,
+    :Contain,
+    :Cover,
+    :Crop,
+    :Focus,
+    :Resize,
+    :AdaptiveResize,
+    :ExtendCanvas
+  ]
 
   test "runtime does not depend on concrete transform modules" do
     violations =

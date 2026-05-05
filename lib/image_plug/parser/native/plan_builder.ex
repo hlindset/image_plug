@@ -454,17 +454,24 @@ defmodule ImagePlug.Parser.Native.PlanBuilder do
     reduce_results(operations)
   end
 
-  defp extend_operation(%PipelineRequest{extend: false}), do: nil
-
   defp extend_operation(%PipelineRequest{} = request) do
-    Transform.ExtendCanvas.new(
-      rule:
-        {:dimensions, normalize_dimension(request.width), normalize_dimension(request.height)},
-      gravity: request.extend_gravity || @default_gravity,
-      x_offset: request.extend_x_offset || 0.0,
-      y_offset: request.extend_y_offset || 0.0,
-      background: :white
-    )
+    if extend_operation_requested?(request) do
+      Transform.ExtendCanvas.new(
+        rule:
+          {:dimensions, normalize_dimension(request.width), normalize_dimension(request.height)},
+        gravity: request.extend_gravity || @default_gravity,
+        x_offset: request.extend_x_offset || 0.0,
+        y_offset: request.extend_y_offset || 0.0,
+        background: :white
+      )
+    end
+  end
+
+  defp extend_operation_requested?(%PipelineRequest{} = request) do
+    request.extend == true or
+      not is_nil(request.extend_gravity) or
+      not is_nil(request.extend_x_offset) or
+      not is_nil(request.extend_y_offset)
   end
 
   defp extend_aspect_ratio_operation(%PipelineRequest{extend_aspect_ratio: nil}), do: nil
