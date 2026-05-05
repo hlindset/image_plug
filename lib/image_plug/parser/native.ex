@@ -63,6 +63,8 @@ defmodule ImagePlug.Parser.Native do
     "fq" => {:format_quality, [:format, :quality]},
     "cachebuster" => {:cachebuster, [:cachebuster]},
     "cb" => {:cachebuster, [:cachebuster]},
+    "expires" => {:expires, [:expires]},
+    "exp" => {:expires, [:expires]},
     "filename" => {:filename, [:filename]},
     "fn" => {:filename, [:filename]},
     "return_attachment" => {:return_attachment, [:return_attachment]},
@@ -218,6 +220,9 @@ defmodule ImagePlug.Parser.Native do
           {:ok, {:cache, assignments}} ->
             {:cont, {:ok, update_cache(options, assignments)}}
 
+          {:ok, {:policy, assignments}} ->
+            {:cont, {:ok, update_policy(options, assignments)}}
+
           {:ok, {:response, assignments}} ->
             {:cont, {:ok, update_response(options, assignments)}}
 
@@ -288,6 +293,10 @@ defmodule ImagePlug.Parser.Native do
     %{options | cache: struct!(cache, assignments)}
   end
 
+  defp update_policy(%{policy: policy} = options, assignments) do
+    %{options | policy: struct!(policy, assignments)}
+  end
+
   defp update_response(%{response: response} = options, assignments) do
     %{options | response: struct!(response, assignments)}
   end
@@ -331,6 +340,8 @@ defmodule ImagePlug.Parser.Native do
 
   defp scoped_assignments(:cachebuster, assignments), do: {:cache, assignments}
 
+  defp scoped_assignments(:expires, assignments), do: {:policy, assignments}
+
   defp scoped_assignments(kind, assignments) when kind in [:filename, :return_attachment],
     do: {:response, assignments}
 
@@ -347,6 +358,13 @@ defmodule ImagePlug.Parser.Native do
 
   defp parse_known_option(:cachebuster, [:cachebuster], [value], _segment) when value != "" do
     {:ok, [cachebuster: value]}
+  end
+
+  defp parse_known_option(:expires, [:expires], [value], _segment) when value != "" do
+    case parse_non_negative_integer(value) do
+      {:ok, expires} -> {:ok, [expires: expires]}
+      {:error, _reason} -> {:error, {:invalid_expires, value}}
+    end
   end
 
   defp parse_known_option(:filename, [:filename], [value], _segment) when value != "" do

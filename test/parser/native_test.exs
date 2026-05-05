@@ -268,6 +268,58 @@ defmodule ImagePlug.Parser.NativeTest do
              Native.parse(conn(:get, "/_/cb:a/-/cachebuster:b/plain/images/cat.jpg"), [])
   end
 
+  test "expires rejects expired requests with injectable now" do
+    assert Native.parse(conn(:get, "/_/expires:100/plain/images/cat.jpg"), now: 101) ==
+             {:error, {:expired_request, 100}}
+
+    assert {:ok, %Plan{policy: %ImagePlug.Plan.Policy{expires: 100}}} =
+             Native.parse(conn(:get, "/_/exp:100/plain/images/cat.jpg"), now: 100)
+
+    assert {:ok, %Plan{policy: %ImagePlug.Plan.Policy{expires: 0}}} =
+             Native.parse(conn(:get, "/_/expires:0/plain/images/cat.jpg"), now: 999)
+  end
+
+  test "expires later assignment wins across groups" do
+    assert {:ok, %Plan{policy: %ImagePlug.Plan.Policy{expires: 200}}} =
+             Native.parse(conn(:get, "/_/exp:100/-/expires:200/plain/images/cat.jpg"), now: 100)
+  end
+
+  test "now function is called once and normalized once per parse attempt" do
+    test_pid = self()
+
+    now = fn ->
+      send(test_pid, :now_called)
+      100
+    end
+
+    assert {:ok, %Plan{policy: %ImagePlug.Plan.Policy{expires: 100}}} =
+             Native.parse(conn(:get, "/_/exp:100/plain/images/cat.jpg"), now: now)
+
+    assert_received :now_called
+    refute_received :now_called
+  end
+
+  test "expires rejects malformed values and invalid now values" do
+    assert Native.parse(conn(:get, "/_/exp:not-int/plain/images/cat.jpg"), now: 100) ==
+             {:error, {:invalid_expires, "not-int"}}
+
+    assert Native.parse(conn(:get, "/_/exp:-1/plain/images/cat.jpg"), now: 100) ==
+             {:error, {:invalid_expires, "-1"}}
+
+    assert Native.parse(conn(:get, "/_/exp:100/plain/images/cat.jpg"), now: :bad) ==
+             {:error, {:invalid_now, :bad}}
+
+    assert Native.parse(conn(:get, "/_/exp:100/plain/images/cat.jpg"), now: fn -> :bad end) ==
+             {:error, {:invalid_now, :bad}}
+  end
+
+  test "rejects invalid expires arity" do
+    for segment <- ["exp", "exp:", "exp:100:200", "expires", "expires:", "expires:100:200"] do
+      assert Native.parse(conn(:get, "/_/#{segment}/plain/images/cat.jpg"), now: 100) ==
+               {:error, {:invalid_option_segment, segment}}
+    end
+  end
+
   test "rejects invalid cachebuster arity" do
     for segment <- [
           "cb",

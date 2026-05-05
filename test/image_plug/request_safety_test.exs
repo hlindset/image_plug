@@ -2,6 +2,11 @@ defmodule ImagePlug.RequestSafetyTest do
   use ExUnit.Case, async: true
   import Plug.Test
 
+  defmodule CacheProbe do
+    def get(_key, _opts), do: send(self(), :cache_lookup)
+    def put(_key, _entry, _opts), do: send(self(), :cache_put)
+  end
+
   defmodule InvalidPlanParser do
     @behaviour ImagePlug.Parser
 
@@ -33,5 +38,21 @@ defmodule ImagePlug.RequestSafetyTest do
 
     assert conn.status == 400
     assert conn.resp_body =~ "unsupported_source"
+  end
+
+  test "expired native requests return before source identity and cache work" do
+    conn =
+      ImagePlug.call(conn(:get, "/_/exp:100/plain/images/cat.jpg"),
+        parser: ImagePlug.Parser.Native,
+        root_url: "not-a-valid-origin-url",
+        now: 101,
+        cache: {CacheProbe, []},
+        origin_req_options: [plug: ImagePlug.ProcessorTest.OriginShouldNotFetch]
+      )
+
+    assert conn.status == 400
+    assert conn.resp_body =~ "expired_request"
+    refute_received :cache_lookup
+    refute_received :cache_put
   end
 end

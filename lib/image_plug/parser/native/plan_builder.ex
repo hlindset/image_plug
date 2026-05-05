@@ -22,12 +22,12 @@ defmodule ImagePlug.Parser.Native.PlanBuilder do
   @supported_output_formats [:webp, :avif, :jpeg, :png]
 
   @spec to_plan(ParsedRequest.t(), keyword()) :: {:ok, Plan.t()} | {:error, term()}
-  def to_plan(%ParsedRequest{} = request, _opts \\ []) do
+  def to_plan(%ParsedRequest{} = request, opts \\ []) do
     with {:ok, source} <- source_plan(request.source_kind, request.source_path),
          {:ok, pipeline_requests} <- executable_pipeline_requests(request.pipelines),
          :ok <- validate_pipeline_dimensions(pipeline_requests),
          {:ok, output} <- output_plan(request.output),
-         {:ok, policy} <- policy_plan(request.policy),
+         {:ok, policy} <- policy_plan(request.policy, opts),
          {:ok, cache} <- cache_plan(request.cache),
          {:ok, response} <- response_plan(request.response, source),
          {:ok, pipelines} <- build_pipelines(pipeline_requests) do
@@ -176,8 +176,40 @@ defmodule ImagePlug.Parser.Native.PlanBuilder do
   defp validate_format_qualities(format_qualities),
     do: {:error, {:invalid_format_qualities, format_qualities}}
 
-  defp policy_plan(%RequestPolicy{expires: expires}), do: {:ok, %Policy{expires: expires}}
-  defp policy_plan(policy), do: {:error, {:invalid_policy_request, policy}}
+  defp policy_plan(%RequestPolicy{expires: 0}, _opts), do: {:ok, %Policy{expires: 0}}
+
+  defp policy_plan(%RequestPolicy{expires: expires}, opts)
+       when is_integer(expires) and expires > 0 do
+    with {:ok, now} <- now_unix_seconds(opts),
+         :ok <- reject_expired_request(expires, now) do
+      {:ok, %Policy{expires: expires}}
+    end
+  end
+
+  defp policy_plan(%RequestPolicy{expires: expires}, _opts),
+    do: {:error, {:invalid_expires, expires}}
+
+  defp policy_plan(policy, _opts), do: {:error, {:invalid_policy_request, policy}}
+
+  defp reject_expired_request(expires, now) do
+    if Policy.expired?(%Policy{expires: expires}, now) do
+      {:error, {:expired_request, expires}}
+    else
+      :ok
+    end
+  end
+
+  defp now_unix_seconds(opts) do
+    case Keyword.fetch(opts, :now) do
+      {:ok, now} when is_function(now, 0) -> normalize_now(now.())
+      {:ok, now} -> normalize_now(now)
+      :error -> {:ok, DateTime.to_unix(DateTime.utc_now())}
+    end
+  end
+
+  defp normalize_now(%DateTime{} = now), do: {:ok, DateTime.to_unix(now)}
+  defp normalize_now(now) when is_integer(now), do: {:ok, now}
+  defp normalize_now(now), do: {:error, {:invalid_now, now}}
 
   defp cache_plan(%CacheRequest{cachebuster: cachebuster}),
     do: {:ok, %Cache{cachebuster: cachebuster}}
