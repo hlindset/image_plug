@@ -7,6 +7,7 @@ defmodule ImagePlug.PlanTest do
   alias ImagePlug.Plan.Pipeline
   alias ImagePlug.Plan.Policy
   alias ImagePlug.Plan.Response
+  alias ImagePlug.Plan.Response.Filename
   alias ImagePlug.Plan.Source.Plain
   alias ImagePlug.PlanTest.PartialTransform
   alias ImagePlug.PlanTest.RuntimeOnlyTransform
@@ -83,6 +84,13 @@ defmodule ImagePlug.PlanTest do
     assert {:ok, ^plan} = Plan.validate_shape(plan)
   end
 
+  test "validate shape rejects improper plain source path without raising" do
+    source = %Plain{path: ["images" | :bad]}
+
+    assert Plan.validate_shape(plan(source: source)) ==
+             {:error, {:unsupported_source, source}}
+  end
+
   test "validate shape rejects invalid policy expires values" do
     for expires <- [-1, 1.5, "60", nil] do
       policy = %Policy{expires: expires}
@@ -112,6 +120,21 @@ defmodule ImagePlug.PlanTest do
 
   test "validate shape rejects invalid response filename values" do
     for filename <- [:cat, 1, []] do
+      response = %Response{filename: filename}
+
+      assert Plan.validate_shape(plan(response: response)) ==
+               {:error, {:invalid_response_plan, response}}
+    end
+  end
+
+  test "validate shape rejects malformed response filename structs" do
+    for filename <- [
+          %Filename{stem: nil},
+          %Filename{stem: 1},
+          %Filename{stem: "a/b"},
+          %Filename{stem: "a\\b"},
+          %Filename{stem: "a\nb"}
+        ] do
       response = %Response{filename: filename}
 
       assert Plan.validate_shape(plan(response: response)) ==

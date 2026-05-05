@@ -7,6 +7,8 @@ defmodule ImagePlug.Parser.NativeTest do
   alias ImagePlug.Plan
   alias ImagePlug.Plan.Output
   alias ImagePlug.Plan.Pipeline
+  alias ImagePlug.Plan.Response
+  alias ImagePlug.Plan.Response.Filename
   alias ImagePlug.Plan.Source.Plain
   alias ImagePlug.Transform
 
@@ -280,6 +282,100 @@ defmodule ImagePlug.Parser.NativeTest do
     end
   end
 
+  test "parses filename and attachment aliases into response facet" do
+    assert {:ok,
+            %Plan{
+              response: %Response{
+                disposition: :attachment,
+                filename: %Filename{stem: "report"}
+              }
+            }} = Native.parse(conn(:get, "/_/fn:report/att:true/plain/images/cat.jpg"), [])
+
+    assert {:ok, %Plan{response: %Response{disposition: :inline}}} =
+             Native.parse(conn(:get, "/_/return_attachment:false/plain/images/cat.jpg"), [])
+  end
+
+  test "decodes base64url filenames when encoded flag is truthy" do
+    encoded = Base.url_encode64("katt-æøå", padding: false)
+
+    assert {:ok,
+            %Plan{
+              response: %Response{
+                filename: %Filename{stem: "katt-æøå"}
+              }
+            }} = Native.parse(conn(:get, "/_/fn:#{encoded}:true/plain/images/cat.jpg"), [])
+  end
+
+  test "rejects invalid filename values before planning succeeds" do
+    for path <- [
+          "/_/fn:/plain/images/cat.jpg",
+          "/_/fn:a%2Fb/plain/images/cat.jpg",
+          "/_/fn:a%5Cb/plain/images/cat.jpg",
+          "/_/fn:a%0Ab/plain/images/cat.jpg",
+          "/_/fn:not-base64:true/plain/images/cat.jpg",
+          "/_/fn:#{Base.url_encode64(<<255>>, padding: false)}:true/plain/images/cat.jpg",
+          "/_/fn:abcd:true:extra/plain/images/cat.jpg"
+        ] do
+      assert {:error, _reason} = Native.parse(conn(:get, path), [])
+    end
+  end
+
+  test "rejects malformed percent-encoded filename values without raising" do
+    assert Native.parse(conn(:get, "/_/fn:a%ZZ/plain/images/cat.jpg"), []) ==
+             {:error, {:invalid_percent_encoding, "a%ZZ"}}
+  end
+
+  test "explicit filename extensions are kept but source-derived extensions are stripped" do
+    assert {:ok,
+            %Plan{
+              response: %Response{
+                filename: %Filename{stem: "cat.jpg"}
+              }
+            }} = Native.parse(conn(:get, "/_/fn:cat.jpg/plain/images/source.jpg@webp"), [])
+
+    assert {:ok,
+            %Plan{
+              response: %Response{
+                filename: %Filename{stem: "source"}
+              }
+            }} = Native.parse(conn(:get, "/_/plain/images/source.jpg@webp"), [])
+  end
+
+  test "filename and attachment later assignments win across groups" do
+    assert {:ok,
+            %Plan{
+              response: %Response{
+                disposition: :inline,
+                filename: %Filename{stem: "two"}
+              }
+            }} =
+             Native.parse(
+               conn(
+                 :get,
+                 "/_/fn:one/att:true/-/filename:two/return_attachment:false/plain/images/source.jpg"
+               ),
+               []
+             )
+  end
+
+  test "rejects invalid filename and attachment arity" do
+    for segment <- [
+          "fn",
+          "fn:a:true:extra",
+          "filename",
+          "filename:a:false:extra",
+          "att",
+          "att:",
+          "att:true:false",
+          "return_attachment",
+          "return_attachment:",
+          "return_attachment:true:false"
+        ] do
+      assert Native.parse(conn(:get, "/_/#{segment}/plain/images/cat.jpg"), []) ==
+               {:error, {:invalid_option_segment, segment}}
+    end
+  end
+
   test "format quality normalizes jpg to jpeg" do
     assert {:ok,
             %Plan{
@@ -457,6 +553,11 @@ defmodule ImagePlug.Parser.NativeTest do
               source: %Plain{path: ["images", "cat@v1.jpg"]},
               output: %Output{mode: {:explicit, :webp}}
             }} = Native.parse(conn(:get, "/_/plain/images/cat%40v1.jpg@webp"), [])
+  end
+
+  test "rejects malformed percent-encoded source path segments without raising" do
+    assert Native.parse(conn(:get, "/_/plain/images/cat%ZZ.jpg"), []) ==
+             {:error, {:invalid_percent_encoding, "cat%ZZ.jpg"}}
   end
 
   test "parses supported source extensions" do

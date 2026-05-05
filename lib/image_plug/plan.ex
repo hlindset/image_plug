@@ -12,6 +12,7 @@ defmodule ImagePlug.Plan do
       Policy,
       Cache,
       Response,
+      Response.Filename,
       Source.Plain
     ]
 
@@ -20,6 +21,7 @@ defmodule ImagePlug.Plan do
   alias ImagePlug.Plan.Pipeline
   alias ImagePlug.Plan.Policy
   alias ImagePlug.Plan.Response
+  alias ImagePlug.Plan.Response.Filename
   alias ImagePlug.Plan.Source.Plain
   alias ImagePlug.Transform
 
@@ -93,13 +95,17 @@ defmodule ImagePlug.Plan do
 
   defp invalid_operation?(operation), do: not Transform.operation?(operation)
 
-  defp validate_source(%Plain{path: path}) when is_list(path) do
-    if Enum.all?(path, &is_binary/1),
+  defp validate_source(%Plain{path: path} = source) do
+    if valid_source_path?(path),
       do: :ok,
-      else: {:error, {:unsupported_source, %Plain{path: path}}}
+      else: {:error, {:unsupported_source, source}}
   end
 
   defp validate_source(source), do: {:error, {:unsupported_source, source}}
+
+  defp valid_source_path?([]), do: true
+  defp valid_source_path?([segment | rest]) when is_binary(segment), do: valid_source_path?(rest)
+  defp valid_source_path?(_path), do: false
 
   defp validate_output(%Output{mode: :automatic} = output) do
     validate_output_quality_shape(output)
@@ -158,10 +164,14 @@ defmodule ImagePlug.Plan do
 
   defp validate_cache(cache), do: {:error, {:invalid_cache_plan, cache}}
 
-  defp validate_response(%Response{disposition: disposition, filename: filename})
-       when disposition in [:default, :inline, :attachment] and
-              (is_binary(filename) or is_nil(filename)),
-       do: :ok
+  defp validate_response(%Response{disposition: disposition, filename: filename} = response)
+       when disposition in [:default, :inline, :attachment] do
+    if is_nil(filename) or Filename.valid?(filename) do
+      :ok
+    else
+      {:error, {:invalid_response_plan, response}}
+    end
+  end
 
   defp validate_response(response), do: {:error, {:invalid_response_plan, response}}
 end

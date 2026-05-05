@@ -20,6 +20,7 @@ defmodule ImagePlug.Parser.Native do
   alias ImagePlug.Parser.Native.PlanBuilder
   alias ImagePlug.Parser.Native.RequestPolicy
   alias ImagePlug.Parser.Native.ResponseRequest
+  alias ImagePlug.Plan.Response.Filename
 
   @source_format_names ~w(webp avif jpeg jpg png best)
 
@@ -61,7 +62,11 @@ defmodule ImagePlug.Parser.Native do
     "format_quality" => {:format_quality, [:format, :quality]},
     "fq" => {:format_quality, [:format, :quality]},
     "cachebuster" => {:cachebuster, [:cachebuster]},
-    "cb" => {:cachebuster, [:cachebuster]}
+    "cb" => {:cachebuster, [:cachebuster]},
+    "filename" => {:filename, [:filename]},
+    "fn" => {:filename, [:filename]},
+    "return_attachment" => {:return_attachment, [:return_attachment]},
+    "att" => {:return_attachment, [:return_attachment]}
   }
 
   @gravity_anchors %{
@@ -170,12 +175,24 @@ defmodule ImagePlug.Parser.Native do
   end
 
   defp decode_source_path(source, source_format) do
-    decoded =
-      source
-      |> String.split("/", trim: false)
-      |> Enum.map(&URI.decode/1)
+    with {:ok, decoded} <- decode_source_segments(source) do
+      {:ok, decoded, source_format}
+    end
+  end
 
-    {:ok, decoded, source_format}
+  defp decode_source_segments(source) do
+    source
+    |> String.split("/", trim: false)
+    |> Enum.reduce_while({:ok, []}, fn segment, {:ok, decoded_segments} ->
+      case decode_percent_encoded(segment) do
+        {:ok, decoded_segment} -> {:cont, {:ok, [decoded_segment | decoded_segments]}}
+        {:error, _reason} = error -> {:halt, error}
+      end
+    end)
+    |> case do
+      {:ok, decoded_segments} -> {:ok, Enum.reverse(decoded_segments)}
+      {:error, _reason} = error -> error
+    end
   end
 
   defp parse_format(value) do
@@ -200,6 +217,9 @@ defmodule ImagePlug.Parser.Native do
 
           {:ok, {:cache, assignments}} ->
             {:cont, {:ok, update_cache(options, assignments)}}
+
+          {:ok, {:response, assignments}} ->
+            {:cont, {:ok, update_response(options, assignments)}}
 
           {:error, _reason} = error ->
             {:halt, error}
@@ -268,6 +288,10 @@ defmodule ImagePlug.Parser.Native do
     %{options | cache: struct!(cache, assignments)}
   end
 
+  defp update_response(%{response: response} = options, assignments) do
+    %{options | response: struct!(response, assignments)}
+  end
+
   defp pipeline_empty?(%PipelineRequest{
          width: nil,
          height: nil,
@@ -307,6 +331,9 @@ defmodule ImagePlug.Parser.Native do
 
   defp scoped_assignments(:cachebuster, assignments), do: {:cache, assignments}
 
+  defp scoped_assignments(kind, assignments) when kind in [:filename, :return_attachment],
+    do: {:response, assignments}
+
   defp scoped_assignments(_kind, assignments), do: {:pipeline, assignments}
 
   defp parse_known_option(kind, fields, args, segment)
@@ -320,6 +347,30 @@ defmodule ImagePlug.Parser.Native do
 
   defp parse_known_option(:cachebuster, [:cachebuster], [value], _segment) when value != "" do
     {:ok, [cachebuster: value]}
+  end
+
+  defp parse_known_option(:filename, [:filename], [value], _segment) when value != "" do
+    parse_filename(value, false)
+  end
+
+  defp parse_known_option(:filename, [:filename], [value, encoded], segment)
+       when value != "" and encoded != "" do
+    with {:ok, encoded?} <- parse_boolean(encoded),
+         {:ok, assignments} <- parse_filename(value, encoded?) do
+      {:ok, assignments}
+    else
+      {:error, {:invalid_boolean, _value}} -> {:error, {:invalid_option_segment, segment}}
+      {:error, _reason} = error -> error
+    end
+  end
+
+  defp parse_known_option(:return_attachment, [:return_attachment], [value], segment)
+       when value != "" do
+    case parse_boolean(value) do
+      {:ok, true} -> {:ok, [disposition: :attachment]}
+      {:ok, false} -> {:ok, [disposition: :inline]}
+      {:error, {:invalid_boolean, _value}} -> {:error, {:invalid_option_segment, segment}}
+    end
   end
 
   defp parse_known_option(:format_quality, [:format, :quality], [format, value], segment)
@@ -351,6 +402,46 @@ defmodule ImagePlug.Parser.Native do
 
   defp parse_known_option(_kind, _fields, _args, segment),
     do: {:error, {:invalid_option_segment, segment}}
+
+  defp parse_filename(value, false) do
+    with {:ok, decoded} <- decode_percent_encoded(value),
+         {:ok, filename} <- Filename.new(decoded) do
+      {:ok, [filename: filename.stem]}
+    end
+  end
+
+  defp parse_filename(value, true) do
+    with :ok <- reject_base64_padding(value),
+         {:ok, decoded} <- Base.url_decode64(value, padding: false),
+         {:ok, filename} <- Filename.new(decoded) do
+      {:ok, [filename: filename.stem]}
+    else
+      :error -> {:error, {:invalid_response_filename, value}}
+      {:error, _reason} = error -> error
+    end
+  end
+
+  defp reject_base64_padding(value) do
+    if String.contains?(value, "=") do
+      {:error, {:invalid_response_filename, value}}
+    else
+      :ok
+    end
+  end
+
+  defp decode_percent_encoded(value) do
+    if malformed_percent_encoding?(value) do
+      {:error, {:invalid_percent_encoding, value}}
+    else
+      {:ok, URI.decode(value)}
+    end
+  rescue
+    ArgumentError -> {:error, {:invalid_percent_encoding, value}}
+  end
+
+  defp malformed_percent_encoding?(value) do
+    String.match?(value, ~r/%($|[^0-9A-Fa-f]|[0-9A-Fa-f]$|[0-9A-Fa-f][^0-9A-Fa-f])/)
+  end
 
   defp parse_exact_fields(fields, args, _segment) when length(args) == length(fields) do
     parse_fields(fields, args)

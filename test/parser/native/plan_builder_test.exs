@@ -8,6 +8,8 @@ defmodule ImagePlug.Parser.Native.PlanBuilderTest do
   alias ImagePlug.Plan
   alias ImagePlug.Plan.Output
   alias ImagePlug.Plan.Pipeline
+  alias ImagePlug.Plan.Response
+  alias ImagePlug.Plan.Response.Filename
   alias ImagePlug.Plan.Source.Plain
   alias ImagePlug.Transform
 
@@ -326,6 +328,20 @@ defmodule ImagePlug.Parser.Native.PlanBuilderTest do
              })
   end
 
+  test "rejects malformed plain source paths instead of raising during response filename planning" do
+    for source_path <- [:bad, ["images", 1], ["images" | :bad]] do
+      source = %Plain{path: source_path}
+
+      assert PlanBuilder.to_plan(%ParsedRequest{
+               signature: "_",
+               source_kind: :plain,
+               source_path: source_path,
+               pipelines: [%PipelineRequest{}],
+               output: %ImagePlug.Parser.Native.OutputRequest{}
+             }) == {:error, {:unsupported_source, source}}
+    end
+  end
+
   test "rejects malformed pipeline request entries" do
     assert {:error, {:invalid_pipeline_request, :bogus}} =
              PlanBuilder.to_plan(%ParsedRequest{
@@ -357,8 +373,41 @@ defmodule ImagePlug.Parser.Native.PlanBuilderTest do
               output: %ImagePlug.Plan.Output{mode: {:explicit, :webp}},
               policy: %ImagePlug.Plan.Policy{expires: 0},
               cache: %ImagePlug.Plan.Cache{cachebuster: "v1"},
-              response: %ImagePlug.Plan.Response{filename: "cat", disposition: :attachment}
+              response: %Response{
+                filename: %Filename{stem: "cat"},
+                disposition: :attachment
+              }
             }} = PlanBuilder.to_plan(request, now: ~U[2026-05-05 12:00:00Z])
+  end
+
+  test "derives response filename stem from source basename when omitted" do
+    assert {:ok,
+            %Plan{
+              response: %Response{
+                filename: %Filename{stem: "cat"}
+              }
+            }} =
+             PlanBuilder.to_plan(%ParsedRequest{
+               signature: "_",
+               source_kind: :plain,
+               source_path: ["images", "cat.jpg"],
+               pipelines: [%PipelineRequest{}],
+               output: %ImagePlug.Parser.Native.OutputRequest{}
+             })
+
+    assert {:ok,
+            %Plan{
+              response: %Response{
+                filename: %Filename{stem: "image"}
+              }
+            }} =
+             PlanBuilder.to_plan(%ParsedRequest{
+               signature: "_",
+               source_kind: :plain,
+               source_path: ["images", ""],
+               pipelines: [%PipelineRequest{}],
+               output: %ImagePlug.Parser.Native.OutputRequest{}
+             })
   end
 
   defp parsed_request do

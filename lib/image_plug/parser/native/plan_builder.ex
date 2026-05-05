@@ -13,6 +13,7 @@ defmodule ImagePlug.Parser.Native.PlanBuilder do
   alias ImagePlug.Plan.Pipeline
   alias ImagePlug.Plan.Policy
   alias ImagePlug.Plan.Response
+  alias ImagePlug.Plan.Response.Filename
   alias ImagePlug.Plan.Source.Plain
   alias ImagePlug.Transform
 
@@ -28,7 +29,7 @@ defmodule ImagePlug.Parser.Native.PlanBuilder do
          {:ok, output} <- output_plan(request.output),
          {:ok, policy} <- policy_plan(request.policy),
          {:ok, cache} <- cache_plan(request.cache),
-         {:ok, response} <- response_plan(request.response),
+         {:ok, response} <- response_plan(request.response, source),
          {:ok, pipelines} <- build_pipelines(pipeline_requests) do
       {:ok,
        %Plan{
@@ -42,8 +43,21 @@ defmodule ImagePlug.Parser.Native.PlanBuilder do
     end
   end
 
-  defp source_plan(:plain, path), do: {:ok, %Plain{path: path}}
+  defp source_plan(:plain, path) do
+    source = %Plain{path: path}
+
+    if valid_source_path?(path) do
+      {:ok, source}
+    else
+      {:error, {:unsupported_source, source}}
+    end
+  end
+
   defp source_plan(kind, _path), do: {:error, {:unsupported_source_kind, kind}}
+
+  defp valid_source_path?([]), do: true
+  defp valid_source_path?([segment | rest]) when is_binary(segment), do: valid_source_path?(rest)
+  defp valid_source_path?(_path), do: false
 
   defp executable_pipeline_requests([]), do: {:error, :empty_pipeline_plan}
 
@@ -170,11 +184,42 @@ defmodule ImagePlug.Parser.Native.PlanBuilder do
 
   defp cache_plan(cache), do: {:error, {:invalid_cache_request, cache}}
 
-  defp response_plan(%ResponseRequest{filename: filename, disposition: disposition}) do
-    {:ok, %Response{filename: filename, disposition: disposition}}
+  defp response_plan(%ResponseRequest{filename: nil, disposition: disposition}, %Plain{
+         path: source_path
+       }) do
+    with {:ok, filename} <- source_filename(source_path) do
+      {:ok, %Response{filename: filename, disposition: disposition}}
+    end
   end
 
-  defp response_plan(response), do: {:error, {:invalid_response_request, response}}
+  defp response_plan(%ResponseRequest{filename: filename, disposition: disposition}, %Plain{})
+       when is_binary(filename) do
+    with {:ok, filename} <- Filename.new(filename) do
+      {:ok, %Response{filename: filename, disposition: disposition}}
+    end
+  end
+
+  defp response_plan(response, _source), do: {:error, {:invalid_response_request, response}}
+
+  defp source_filename(source_path) do
+    source_path
+    |> List.last()
+    |> source_filename_stem()
+    |> Filename.new()
+    |> case do
+      {:ok, filename} -> {:ok, filename}
+      {:error, _reason} -> Filename.new("image")
+    end
+  end
+
+  defp source_filename_stem(basename) when basename in [nil, ""], do: "image"
+
+  defp source_filename_stem(basename) when is_binary(basename) do
+    case Path.rootname(basename) do
+      "" -> "image"
+      stem -> stem
+    end
+  end
 
   defp validate_dimensions(%PipelineRequest{width: width, height: height}) do
     case validate_dimension(:width, width) do
