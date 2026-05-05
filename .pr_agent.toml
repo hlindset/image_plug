@@ -4,6 +4,11 @@ inline_comments_severity_threshold = 1
 # Show feedback both inline and in summary
 comments_location_policy = "both"
 
+[github_app]
+pr_commands = ["/agentic_describe", "/agentic_review"]
+push_commands = ["/agentic_describe", "/agentic_review"]
+handle_push_trigger = true
+
 # Display more findings and expand contextual sections
 [review_agent_ux]
 finding_overflow_count = 5
