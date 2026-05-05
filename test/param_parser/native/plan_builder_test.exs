@@ -11,6 +11,19 @@ defmodule ImagePlug.ParamParser.Native.PlanBuilderTest do
   alias ImagePlug.Source.Plain
   alias ImagePlug.Transform
 
+  test "native parser builds transforms through operation constructors" do
+    body = File.read!("lib/image_plug/param_parser/native/plan_builder.ex")
+
+    refute body =~ "ScaleParams"
+    refute body =~ "ContainParams"
+    refute body =~ "CoverParams"
+    refute body =~ "CropParams"
+    refute body =~ "FocusParams"
+    refute body =~ "{ImagePlug.Transform."
+    refute body =~ "{Transform."
+    refute body =~ "%Transform."
+  end
+
   test "converts one native pipeline request into a product-neutral plan" do
     request = %ParsedRequest{
       signature: "_",

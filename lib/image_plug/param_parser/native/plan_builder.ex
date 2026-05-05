@@ -202,39 +202,41 @@ defmodule ImagePlug.ParamParser.Native.PlanBuilder do
     do: {:error, {:unsupported_resizing_type, resizing_type}}
 
   defp scale(width, height) do
-    %Transform.Scale{
+    Transform.Scale.new!(
       type: :dimensions,
       width: width,
       height: height
-    }
+    )
   end
 
   defp contain(width, height, %PipelineRequest{} = request) do
-    %Transform.Contain{
+    Transform.Contain.new!(
       type: :dimensions,
       width: width,
       height: height,
       constraint: contain_constraint(request.enlarge),
       letterbox: false
-    }
+    )
   end
 
   defp cover(width, height, %PipelineRequest{} = request) do
-    %Transform.Cover{
+    Transform.Cover.new!(
       type: :dimensions,
       width: width,
       height: height,
       constraint: cover_constraint(request.enlarge)
-    }
+    )
   end
 
   defp maybe_prepend_focus(operations, @default_gravity), do: operations
 
-  defp maybe_prepend_focus([%Transform.Cover{} | _rest] = operations, gravity) do
-    [%Transform.Focus{type: focus_type(gravity)} | operations]
+  defp maybe_prepend_focus([operation | _rest] = operations, gravity) do
+    if Transform.transform_name(operation) == :cover do
+      [Transform.Focus.new!(type: focus_type(gravity)) | operations]
+    else
+      operations
+    end
   end
-
-  defp maybe_prepend_focus(operations, _gravity), do: operations
 
   defp valid_gravity?({:fp, x, y}) do
     is_number(x) and is_number(y) and x >= 0.0 and x <= 1.0 and y >= 0.0 and y <= 1.0
