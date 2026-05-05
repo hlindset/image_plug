@@ -6,9 +6,11 @@ defmodule ImagePlug.Runtime.ProcessorTest do
   alias ImagePlug.Plan.Pipeline
   alias ImagePlug.Plan.Source.Plain
   alias ImagePlug.Runtime.DecodedOrigin
+  alias ImagePlug.Runtime.Origin
   alias ImagePlug.Runtime.Origin.StreamStatus
   alias ImagePlug.Runtime.Processor
   alias ImagePlug.Runtime.ProcessorTest.DecodeErrorImageOpen
+  alias ImagePlug.Runtime.ProcessorTest.DecodeValidImageOpen
   alias ImagePlug.Runtime.ProcessorTest.FirstTransform
   alias ImagePlug.Runtime.ProcessorTest.InvalidReturnMaterializer
   alias ImagePlug.Runtime.ProcessorTest.InvalidStateMaterializer
@@ -277,6 +279,46 @@ defmodule ImagePlug.Runtime.ProcessorTest do
                "http://origin.test/images/cat-300.jpg",
                Keyword.put(opts(), :image_open_module, DecodeErrorImageOpen)
              )
+  end
+
+  test "decode_validate_origin_response closes pending origins on validation errors" do
+    plan = %Plan{
+      plan()
+      | pipelines: [
+          %Pipeline{
+            operations: [
+              %Scale{type: :dimensions, width: {:pixels, 120}, height: :auto}
+            ]
+          }
+        ]
+    }
+
+    pipelines = plan.pipelines
+
+    assert {:ok, origin_response, :jpeg} =
+             Processor.fetch_origin_with_source_format(
+               plan,
+               pipelines,
+               "http://origin.test/images/cat-300.jpg",
+               opts()
+             )
+
+    assert Origin.stream_status(origin_response) == :pending
+
+    worker_ref = Process.monitor(origin_response.worker)
+
+    assert {:error, {:input_limit, {:too_many_input_pixels, 400, 399}}} =
+             Processor.decode_validate_origin_response(
+               origin_response,
+               :jpeg,
+               plan,
+               pipelines,
+               opts()
+               |> Keyword.put(:image_open_module, DecodeValidImageOpen)
+               |> Keyword.put(:max_input_pixels, 399)
+             )
+
+    assert_receive {:DOWN, ^worker_ref, :process, _worker, _reason}
   end
 
   test "process_decoded_origin closes pending origins on transform errors" do

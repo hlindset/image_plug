@@ -108,12 +108,13 @@ defmodule ImagePlug.Runtime.Processor do
         %Plan{} = plan,
         opts
       ) do
-    result =
-      with {:ok, pipelines} <- validated_pipelines(plan) do
+    case validated_pipelines(plan) do
+      {:ok, pipelines} ->
         decode_validate_origin_response(origin_response, source_format, plan, pipelines, opts)
-      end
 
-    close_pending_origin_on_error(result, origin_response)
+      {:error, _reason} = error ->
+        close_pending_origin_on_error(error, origin_response)
+    end
   end
 
   @spec decode_validate_origin_response(
@@ -123,10 +124,17 @@ defmodule ImagePlug.Runtime.Processor do
           [ImagePlug.Plan.Pipeline.t()],
           keyword()
         ) :: {:ok, DecodedOrigin.t()} | {:error, term()}
-  def decode_validate_origin_response(_origin_response, _source_format, %Plan{}, [], _opts),
+  def decode_validate_origin_response(origin_response, source_format, plan, pipelines, opts) do
+    result =
+      do_decode_validate_origin_response(origin_response, source_format, plan, pipelines, opts)
+
+    close_pending_origin_on_error(result, origin_response)
+  end
+
+  defp do_decode_validate_origin_response(_origin_response, _source_format, %Plan{}, [], _opts),
     do: {:error, :empty_pipeline_plan}
 
-  def decode_validate_origin_response(origin_response, source_format, _plan, pipelines, opts) do
+  defp do_decode_validate_origin_response(origin_response, source_format, _plan, pipelines, opts) do
     decode_options = DecodePlanner.open_options(first_pipeline_operations(pipelines))
 
     with {:ok, image} <-
