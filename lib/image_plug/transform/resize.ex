@@ -46,9 +46,13 @@ defmodule ImagePlug.Transform.Resize do
           min_width: nil,
           min_height: nil
         }
-      })
-      when width != :auto or height != :auto,
-      do: %{access: :sequential}
+      }) do
+    if requested_dimension?(width) or requested_dimension?(height) do
+      %{access: :sequential}
+    else
+      %{access: :random}
+    end
+  end
 
   def metadata(%__MODULE__{}), do: %{access: :random}
 
@@ -88,8 +92,8 @@ defmodule ImagePlug.Transform.Resize do
 
   defp maybe_crop_fill_image(%DimensionRule{mode: mode}, image, requested_width, requested_height)
        when mode in [:fill, :fill_down] and requested_width != :auto and requested_height != :auto do
-    crop_width = min(requested_width, Image.width(image))
-    crop_height = min(requested_height, Image.height(image))
+    {crop_width, crop_height} =
+      crop_dimensions_for_aspect_ratio(image, requested_width, requested_height)
 
     if crop_width == Image.width(image) and crop_height == Image.height(image) do
       {:ok, image}
@@ -103,6 +107,29 @@ defmodule ImagePlug.Transform.Resize do
 
   defp maybe_crop_fill_image(%DimensionRule{}, image, _requested_width, _requested_height),
     do: {:ok, image}
+
+  defp crop_dimensions_for_aspect_ratio(image, requested_width, requested_height) do
+    image_width = Image.width(image)
+    image_height = Image.height(image)
+    requested_ratio = requested_width / requested_height
+    image_ratio = image_width / image_height
+
+    if image_ratio > requested_ratio do
+      crop_height = min(requested_height, image_height)
+      crop_width = min(round(crop_height * requested_ratio), image_width)
+
+      {max(crop_width, 1), crop_height}
+    else
+      crop_width = min(requested_width, image_width)
+      crop_height = min(round(crop_width / requested_ratio), image_height)
+
+      {crop_width, max(crop_height, 1)}
+    end
+  end
+
+  defp requested_dimension?(:auto), do: false
+  defp requested_dimension?({:pixels, value}) when is_number(value) and value <= 0, do: false
+  defp requested_dimension?(_dimension), do: true
 
   defp validate_attrs!(attrs) do
     attrs = Map.new(attrs)

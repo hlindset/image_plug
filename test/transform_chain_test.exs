@@ -282,6 +282,14 @@ defmodule ImagePlug.Transform.ChainTest do
     assert Transform.metadata(operation) == %{access: :sequential}
   end
 
+  test "zero-dimension resize rules stay random access" do
+    operation = %Resize{
+      rule: %DimensionRule{mode: :fit, width: {:pixels, 0}, height: :auto}
+    }
+
+    assert Transform.metadata(operation) == %{access: :random}
+  end
+
   test "partial operation structs fail strict dispatch" do
     operation = %PartialTransform{}
 
@@ -349,6 +357,25 @@ defmodule ImagePlug.Transform.ChainTest do
 
     chain = [
       %Resize{rule: %DimensionRule{mode: :fill, width: {:pixels, 100}, height: {:pixels, 100}}}
+    ]
+
+    assert {:ok, %State{image: image}} = Chain.execute(%State{image: image}, chain)
+    assert Image.width(image) == 100
+    assert Image.height(image) == 100
+  end
+
+  test "fill-down crops clamped images to the requested aspect ratio" do
+    {:ok, image} = Image.new(200, 100, color: :white)
+
+    chain = [
+      %Resize{
+        rule: %DimensionRule{
+          mode: :fill_down,
+          width: {:pixels, 300},
+          height: {:pixels, 300},
+          enlarge: true
+        }
+      }
     ]
 
     assert {:ok, %State{image: image}} = Chain.execute(%State{image: image}, chain)
