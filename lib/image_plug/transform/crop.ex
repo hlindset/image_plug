@@ -14,8 +14,8 @@ defmodule ImagePlug.Transform.Crop do
   defstruct [:width, :height, :crop_from]
 
   @type t :: %__MODULE__{
-          width: ImagePlug.imgp_length(),
-          height: ImagePlug.imgp_length(),
+          width: ImagePlug.imgp_length() | :auto,
+          height: ImagePlug.imgp_length() | :auto,
           # Future parser work can output focus + crop actions instead of this special crop_from handling.
           crop_from: :focus | %{left: ImagePlug.imgp_length(), top: ImagePlug.imgp_length()}
         }
@@ -108,17 +108,59 @@ defmodule ImagePlug.Transform.Crop do
   defp validate_attrs!(attrs) do
     attrs = Map.new(attrs)
 
-    _width = Map.fetch!(attrs, :width)
-    _height = Map.fetch!(attrs, :height)
+    validate_keys!(attrs, [:width, :height, :crop_from])
+    validate_dimension_or_auto!(:width, Map.fetch!(attrs, :width))
+    validate_dimension_or_auto!(:height, Map.fetch!(attrs, :height))
     validate_crop_from!(Map.fetch!(attrs, :crop_from))
 
     attrs
   end
 
+  defp validate_keys!(attrs, allowed_keys) do
+    unknown_keys = Map.keys(attrs) -- allowed_keys
+
+    if unknown_keys != [] do
+      keys = unknown_keys |> Enum.sort_by(&inspect/1) |> Enum.map_join(", ", &inspect/1)
+      raise ArgumentError, "unknown crop option(s): #{keys}"
+    end
+  end
+
   defp validate_crop_from!(:focus), do: :ok
 
-  defp validate_crop_from!(%{left: _left, top: _top}), do: :ok
+  defp validate_crop_from!(%{left: left, top: top} = crop_from) do
+    validate_keys!(crop_from, [:left, :top])
+    validate_position!(:crop_from_left, left)
+    validate_position!(:crop_from_top, top)
+  end
 
   defp validate_crop_from!(crop_from),
     do: raise(ArgumentError, "invalid crop_from: #{inspect(crop_from)}")
+
+  defp validate_dimension_or_auto!(_field, :auto), do: :ok
+
+  defp validate_dimension_or_auto!(field, value), do: validate_dimension!(field, value)
+
+  defp validate_dimension!(_field, value) when is_number(value) and value > 0, do: :ok
+  defp validate_dimension!(_field, {:pixels, value}) when is_number(value) and value > 0, do: :ok
+  defp validate_dimension!(_field, {:percent, value}) when is_number(value) and value > 0, do: :ok
+  defp validate_dimension!(_field, {:scale, value}) when is_number(value) and value > 0, do: :ok
+
+  defp validate_dimension!(_field, {:scale, numerator, denominator})
+       when is_number(numerator) and is_number(denominator) and numerator > 0 and denominator > 0,
+       do: :ok
+
+  defp validate_dimension!(field, value),
+    do: raise(ArgumentError, "invalid crop #{field}: #{inspect(value)}")
+
+  defp validate_position!(_field, value) when is_number(value) and value >= 0, do: :ok
+  defp validate_position!(_field, {:pixels, value}) when is_number(value) and value >= 0, do: :ok
+  defp validate_position!(_field, {:percent, value}) when is_number(value) and value >= 0, do: :ok
+  defp validate_position!(_field, {:scale, value}) when is_number(value) and value >= 0, do: :ok
+
+  defp validate_position!(_field, {:scale, numerator, denominator})
+       when is_number(numerator) and is_number(denominator) and numerator >= 0 and denominator > 0,
+       do: :ok
+
+  defp validate_position!(field, value),
+    do: raise(ArgumentError, "invalid crop #{field}: #{inspect(value)}")
 end

@@ -69,9 +69,12 @@ defmodule ImagePlug.Transform.Focus do
 
   defp validate_attrs!(attrs) do
     attrs = Map.new(attrs)
+    validate_keys!(attrs, [:type])
 
     case Map.fetch!(attrs, :type) do
-      {:coordinate, _left, _top} ->
+      {:coordinate, left, top} ->
+        validate_position!(:left, left)
+        validate_position!(:top, top)
         attrs
 
       {:anchor, x, y} when x in [:left, :center, :right] and y in [:top, :center, :bottom] ->
@@ -81,4 +84,25 @@ defmodule ImagePlug.Transform.Focus do
         raise ArgumentError, "invalid focus type: #{inspect(type)}"
     end
   end
+
+  defp validate_keys!(attrs, allowed_keys) do
+    unknown_keys = Map.keys(attrs) -- allowed_keys
+
+    if unknown_keys != [] do
+      keys = unknown_keys |> Enum.sort_by(&inspect/1) |> Enum.map_join(", ", &inspect/1)
+      raise ArgumentError, "unknown focus option(s): #{keys}"
+    end
+  end
+
+  defp validate_position!(_field, value) when is_number(value) and value >= 0, do: :ok
+  defp validate_position!(_field, {:pixels, value}) when is_number(value) and value >= 0, do: :ok
+  defp validate_position!(_field, {:percent, value}) when is_number(value) and value >= 0, do: :ok
+  defp validate_position!(_field, {:scale, value}) when is_number(value) and value >= 0, do: :ok
+
+  defp validate_position!(_field, {:scale, numerator, denominator})
+       when is_number(numerator) and is_number(denominator) and numerator >= 0 and denominator > 0,
+       do: :ok
+
+  defp validate_position!(field, value),
+    do: raise(ArgumentError, "invalid focus #{field}: #{inspect(value)}")
 end

@@ -8,6 +8,8 @@ defmodule ImagePlug.Transform.ChainTest do
   alias ImagePlug.Transform.ChainTest.UnexpectedTransform
   alias ImagePlug.Transform.Contain
   alias ImagePlug.Transform.Cover
+  alias ImagePlug.Transform.Crop
+  alias ImagePlug.Transform.Focus
   alias ImagePlug.Transform.Scale
   alias ImagePlug.Transform.State
 
@@ -109,6 +111,37 @@ defmodule ImagePlug.Transform.ChainTest do
                constraint: :none,
                extra: true
              )
+  end
+
+  test "crop construction validates malformed attributes" do
+    assert {:error, %ArgumentError{message: "invalid crop width: nil"}} =
+             Crop.new(width: nil, height: {:pixels, 100}, crop_from: :focus)
+
+    assert {:error, %ArgumentError{message: "invalid crop crop_from_left: :oops"}} =
+             Crop.new(
+               width: {:pixels, 100},
+               height: {:pixels, 100},
+               crop_from: %{left: :oops, top: {:pixels, 0}}
+             )
+
+    assert {:error, %ArgumentError{message: "unknown crop option(s): :extra"}} =
+             Crop.new(
+               width: {:pixels, 100},
+               height: {:pixels, 100},
+               crop_from: :focus,
+               extra: true
+             )
+  end
+
+  test "focus construction validates malformed attributes" do
+    assert {:error, %ArgumentError{message: "invalid focus left: :oops"}} =
+             Focus.new(type: {:coordinate, :oops, {:percent, 50}})
+
+    assert {:error, %ArgumentError{message: "invalid focus top: nil"}} =
+             Focus.new(type: {:coordinate, {:percent, 50}, nil})
+
+    assert {:error, %ArgumentError{message: "unknown focus option(s): :extra"}} =
+             Focus.new(type: {:anchor, :left, :top}, extra: true)
   end
 
   test "transform name is delegated to operation module" do
