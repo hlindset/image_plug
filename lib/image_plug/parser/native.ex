@@ -59,7 +59,9 @@ defmodule ImagePlug.Parser.Native do
     "quality" => {:quality, [:quality]},
     "q" => {:quality, [:quality]},
     "format_quality" => {:format_quality, [:format, :quality]},
-    "fq" => {:format_quality, [:format, :quality]}
+    "fq" => {:format_quality, [:format, :quality]},
+    "cachebuster" => {:cachebuster, [:cachebuster]},
+    "cb" => {:cachebuster, [:cachebuster]}
   }
 
   @gravity_anchors %{
@@ -196,6 +198,9 @@ defmodule ImagePlug.Parser.Native do
           {:ok, {:output, assignments}} ->
             {:cont, {:ok, update_output(options, assignments)}}
 
+          {:ok, {:cache, assignments}} ->
+            {:cont, {:ok, update_cache(options, assignments)}}
+
           {:error, _reason} = error ->
             {:halt, error}
         end
@@ -259,6 +264,10 @@ defmodule ImagePlug.Parser.Native do
     %{options | output: output}
   end
 
+  defp update_cache(%{cache: cache} = options, assignments) do
+    %{options | cache: struct!(cache, assignments)}
+  end
+
   defp pipeline_empty?(%PipelineRequest{
          width: nil,
          height: nil,
@@ -296,6 +305,8 @@ defmodule ImagePlug.Parser.Native do
   defp scoped_assignments(kind, assignments) when kind in [:format, :quality, :format_quality],
     do: {:output, assignments}
 
+  defp scoped_assignments(:cachebuster, assignments), do: {:cache, assignments}
+
   defp scoped_assignments(_kind, assignments), do: {:pipeline, assignments}
 
   defp parse_known_option(kind, fields, args, segment)
@@ -305,6 +316,10 @@ defmodule ImagePlug.Parser.Native do
 
   defp parse_known_option(:quality, [:quality], [value], segment) when value != "" do
     parse_exact_fields([:quality], [value], segment)
+  end
+
+  defp parse_known_option(:cachebuster, [:cachebuster], [value], _segment) when value != "" do
+    {:ok, [cachebuster: value]}
   end
 
   defp parse_known_option(:format_quality, [:format, :quality], [format, value], segment)

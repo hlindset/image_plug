@@ -92,6 +92,7 @@ defmodule ImagePlug.Cache.KeyTest do
                quality: :default,
                format_qualities: %{}
              ],
+             cache: [cachebuster: nil],
              selected_headers: [],
              selected_cookies: []
            ]
@@ -162,6 +163,45 @@ defmodule ImagePlug.Cache.KeyTest do
     assert key.material[:pipelines]
            |> Enum.flat_map(& &1)
            |> Enum.all?(&Keyword.keyword?/1)
+  end
+
+  test "cachebuster changes cache keys without changing pipeline material" do
+    base_plan = plan()
+    busted_plan = plan(cache: %ImagePlug.Plan.Cache{cachebuster: "v2"})
+
+    conn = conn(:get, "/_/plain/images/cat.jpg")
+    base = build_key!(conn, base_plan, "https://origin.test/images/cat.jpg")
+    busted = build_key!(conn, busted_plan, "https://origin.test/images/cat.jpg")
+
+    assert base.material[:pipelines] == busted.material[:pipelines]
+    assert busted.material[:cache] == [cachebuster: "v2"]
+    refute base.hash == busted.hash
+  end
+
+  test "response delivery metadata is excluded from cache key material" do
+    one = plan(response: %ImagePlug.Plan.Response{disposition: :attachment})
+    two = plan(response: %ImagePlug.Plan.Response{disposition: :inline})
+
+    conn = conn(:get, "/_/plain/images/cat.jpg")
+
+    assert build_key!(conn, one, "https://origin.test/images/cat.jpg").hash ==
+             build_key!(conn, two, "https://origin.test/images/cat.jpg").hash
+  end
+
+  test "output material includes normalized quality rules" do
+    output = %Output{
+      mode: :automatic,
+      quality: :default,
+      format_qualities: %{webp: {:quality, 70}}
+    }
+
+    key =
+      conn(:get, "/_/plain/images/cat.jpg")
+      |> put_req_header("accept", "image/webp")
+      |> build_key!(plan(output: output), "https://origin.test/images/cat.jpg")
+
+    assert key.material[:output][:quality] == :default
+    assert key.material[:output][:format_qualities] == %{webp: {:quality, 70}}
   end
 
   test "automatic output includes modern candidates instead of selected output or raw Accept" do

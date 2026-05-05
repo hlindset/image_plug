@@ -253,6 +253,33 @@ defmodule ImagePlug.Parser.NativeTest do
              Native.parse(conn(:get, "/_/q:80/-/q:70/plain/images/cat.jpg"), [])
   end
 
+  test "parses cachebuster aliases as cache-only facets" do
+    assert {:ok, %Plan{cache: %ImagePlug.Plan.Cache{cachebuster: "abc"}}} =
+             Native.parse(conn(:get, "/_/cb:abc/plain/images/cat.jpg"), [])
+
+    assert {:ok, %Plan{cache: %ImagePlug.Plan.Cache{cachebuster: "def"}}} =
+             Native.parse(conn(:get, "/_/cachebuster:def/plain/images/cat.jpg"), [])
+  end
+
+  test "cachebuster later assignment wins across groups" do
+    assert {:ok, %Plan{cache: %ImagePlug.Plan.Cache{cachebuster: "b"}}} =
+             Native.parse(conn(:get, "/_/cb:a/-/cachebuster:b/plain/images/cat.jpg"), [])
+  end
+
+  test "rejects invalid cachebuster arity" do
+    for segment <- [
+          "cb",
+          "cb:",
+          "cb:a:b",
+          "cachebuster",
+          "cachebuster:",
+          "cachebuster:a:b"
+        ] do
+      assert Native.parse(conn(:get, "/_/#{segment}/plain/images/cat.jpg"), []) ==
+               {:error, {:invalid_option_segment, segment}}
+    end
+  end
+
   test "format quality normalizes jpg to jpeg" do
     assert {:ok,
             %Plan{
