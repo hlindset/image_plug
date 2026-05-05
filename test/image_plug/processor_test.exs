@@ -17,6 +17,8 @@ defmodule ImagePlug.ProcessorTest do
   alias ImagePlug.Runtime.Origin.StreamStatus
   alias ImagePlug.Runtime.Processor
   alias ImagePlug.Plan.Source.Plain
+  alias ImagePlug.Transform.Cover
+  alias ImagePlug.Transform.Scale
   alias ImagePlug.Transform.State
 
   defp opts do
@@ -209,6 +211,41 @@ defmodule ImagePlug.ProcessorTest do
     assert decoded.source_format == :jpeg
     assert decoded.decode_options == [access: :random, fail_on: :error]
     assert %ImagePlug.Runtime.Origin.Response{} = decoded.origin_response
+
+    Processor.close_pending_origin(decoded.origin_response)
+  end
+
+  test "fetch_decode_validate_origin_with_source_format plans decode options from the first pipeline only" do
+    plan = %Plan{
+      source: %Plain{path: ["images", "cat-300.jpg"]},
+      pipelines: [
+        %Pipeline{
+          operations: [
+            %Scale{type: :dimensions, width: {:pixels, 120}, height: :auto}
+          ]
+        },
+        %Pipeline{
+          operations: [
+            %Cover{
+              type: :dimensions,
+              width: {:pixels, 80},
+              height: {:pixels, 80},
+              constraint: :none
+            }
+          ]
+        }
+      ],
+      output: %Output{mode: {:explicit, :jpeg}}
+    }
+
+    assert {:ok, %DecodedOrigin{} = decoded} =
+             Processor.fetch_decode_validate_origin_with_source_format(
+               plan,
+               "http://origin.test/images/cat-300.jpg",
+               opts()
+             )
+
+    assert decoded.decode_options == [access: :sequential, fail_on: :error]
 
     Processor.close_pending_origin(decoded.origin_response)
   end

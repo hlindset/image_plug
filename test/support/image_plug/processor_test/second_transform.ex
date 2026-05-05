@@ -1,6 +1,10 @@
 defmodule ImagePlug.ProcessorTest.SecondTransform do
   @moduledoc false
 
+  use Boundary,
+    top_level?: true,
+    deps: [ImagePlug.Transform]
+
   alias ImagePlug.Transform.State
 
   defstruct [:test_pid, :ref]

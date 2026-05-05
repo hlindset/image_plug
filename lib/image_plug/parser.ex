@@ -3,6 +3,14 @@ defmodule ImagePlug.Parser do
   Behaviour for parsing image request paths into execution plans.
   """
 
+  use Boundary,
+    top_level?: true,
+    deps: [
+      ImagePlug.Plan,
+      ImagePlug.Transform
+    ],
+    exports: [Native]
+
   alias ImagePlug.Plan
 
   @type parse_error() :: term()

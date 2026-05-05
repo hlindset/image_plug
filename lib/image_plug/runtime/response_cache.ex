@@ -28,12 +28,12 @@ defmodule ImagePlug.Runtime.ResponseCache do
           {:ok, Entry.t()} | :skipped | {:error, term()}
   def store(%Key{} = key, %State{} = state, resolved_format, response_headers, opts) do
     case Encoder.limited_memory_output(
-           state,
+           state.image,
            resolved_format,
            opts,
            Cache.max_body_bytes(opts)
          ) do
-      {:ok, %Encoder.EncodedOutput{} = output} ->
+      {:ok, output} ->
         store_output(key, output, response_headers, opts)
 
       :too_large ->
@@ -58,7 +58,7 @@ defmodule ImagePlug.Runtime.ResponseCache do
     end
   end
 
-  defp entry(%Encoder.EncodedOutput{} = output, response_headers) do
+  defp entry(output, response_headers) do
     case Entry.new(
            body: output.body,
            content_type: output.content_type,

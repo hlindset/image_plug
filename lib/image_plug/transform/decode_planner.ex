@@ -1,17 +1,11 @@
 defmodule ImagePlug.Transform.DecodePlanner do
   @moduledoc false
 
-  alias ImagePlug.Plan.Pipeline
-  alias ImagePlug.Plan
   alias ImagePlug.Transform
 
   @type access_requirement() :: :sequential | :random | :neutral
 
-  @spec open_options(Plan.t() | ImagePlug.Transform.Chain.t()) :: keyword()
-  def open_options(%Plan{pipelines: [%Pipeline{operations: operations} | _rest]}) do
-    open_options(operations)
-  end
-
+  @spec open_options(ImagePlug.Transform.Chain.t()) :: keyword()
   def open_options(chain) when is_list(chain) do
     [access: access(chain), fail_on: :error]
   end

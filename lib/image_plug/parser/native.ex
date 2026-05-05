@@ -3,6 +3,14 @@ defmodule ImagePlug.Parser.Native do
   Parser for ImagePlug's native path-oriented URL syntax.
   """
 
+  use Boundary,
+    deps: [
+      ImagePlug.Parser,
+      ImagePlug.Plan,
+      ImagePlug.Transform
+    ],
+    exports: []
+
   @behaviour ImagePlug.Parser
 
   alias ImagePlug.Parser.Native.ParsedRequest

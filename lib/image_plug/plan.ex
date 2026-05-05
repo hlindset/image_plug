@@ -3,6 +3,15 @@ defmodule ImagePlug.Plan do
   Product-neutral execution request produced by parameter parsers.
   """
 
+  use Boundary,
+    top_level?: true,
+    deps: [ImagePlug.Transform],
+    exports: [
+      Pipeline,
+      Output,
+      Source.Plain
+    ]
+
   alias ImagePlug.Plan.Output
   alias ImagePlug.Plan.Pipeline
   alias ImagePlug.Plan.Source.Plain

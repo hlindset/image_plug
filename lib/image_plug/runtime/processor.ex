@@ -115,8 +115,8 @@ defmodule ImagePlug.Runtime.Processor do
           [ImagePlug.Plan.Pipeline.t()],
           keyword()
         ) :: {:ok, DecodedOrigin.t()} | {:error, term()}
-  def decode_validate_origin_response(origin_response, source_format, plan, _pipelines, opts) do
-    decode_options = DecodePlanner.open_options(plan)
+  def decode_validate_origin_response(origin_response, source_format, _plan, pipelines, opts) do
+    decode_options = DecodePlanner.open_options(first_pipeline_operations(pipelines))
 
     with {:ok, image} <-
            decode_origin_response(origin_response, decode_options, opts)
@@ -203,6 +203,9 @@ defmodule ImagePlug.Runtime.Processor do
       {:error, _reason} = error -> {:halt, error}
     end
   end
+
+  defp first_pipeline_operations([%ImagePlug.Plan.Pipeline{operations: operations} | _rest]),
+    do: operations
 
   defp maybe_materialize_between_pipelines(
          %State{} = state,

@@ -1,6 +1,10 @@
 defmodule ImagePlug.ProcessorTest.Materializer do
   @moduledoc false
 
+  use Boundary,
+    top_level?: true,
+    deps: [ImagePlug.Transform]
+
   alias ImagePlug.Transform.State
 
   def materialize(%State{} = state, opts) do

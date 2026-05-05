@@ -3,6 +3,14 @@ defmodule ImagePlug do
   Plug entry point for fetching, transforming, caching, and encoding images.
   """
 
+  use Boundary,
+    deps: [
+      ImagePlug.Parser,
+      ImagePlug.Plan,
+      ImagePlug.Runtime
+    ],
+    exports: []
+
   @behaviour Plug
 
   alias ImagePlug.Plan

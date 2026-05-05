@@ -1,14 +1,16 @@
 defmodule ImagePlug.Application do
   @moduledoc false
 
+  use Boundary,
+    top_level?: true,
+    deps: []
+
   use Application
 
   require Logger
 
   def start(_type, _args) do
-    children = [
-      {Bandit, plug: ImagePlug.SimpleServer}
-    ]
+    children = []
 
     opts = [strategy: :one_for_one, name: ImagePlug.Supervisor]
 

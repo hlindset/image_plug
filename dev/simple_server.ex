@@ -1,6 +1,13 @@
 defmodule ImagePlug.SimpleServer do
   @moduledoc false
 
+  use Boundary,
+    top_level?: true,
+    deps: [
+      ImagePlug,
+      ImagePlug.Parser
+    ]
+
   use Plug.Router
   use Plug.Debugger
 

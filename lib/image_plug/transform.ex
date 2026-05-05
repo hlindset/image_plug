@@ -1,6 +1,22 @@
 defmodule ImagePlug.Transform do
   @moduledoc false
 
+  use Boundary,
+    top_level?: true,
+    deps: [],
+    exports: [
+      State,
+      Chain,
+      DecodePlanner,
+      Materializer,
+      Material,
+      Scale,
+      Cover,
+      Contain,
+      Crop,
+      Focus
+    ]
+
   alias ImagePlug.Transform.State
 
   @type attrs() :: keyword() | map()

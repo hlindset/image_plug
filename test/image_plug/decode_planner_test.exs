@@ -2,10 +2,6 @@ defmodule ImagePlug.Transform.DecodePlannerTest do
   use ExUnit.Case, async: true
 
   alias ImagePlug.Transform.DecodePlanner
-  alias ImagePlug.Plan.Output
-  alias ImagePlug.Plan.Pipeline
-  alias ImagePlug.Plan
-  alias ImagePlug.Plan.Source.Plain
   alias ImagePlug.Transform.Contain
   alias ImagePlug.Transform.Cover
   alias ImagePlug.Transform.Crop
@@ -247,31 +243,5 @@ defmodule ImagePlug.Transform.DecodePlannerTest do
     ]
 
     assert Keyword.keys(DecodePlanner.open_options(chain)) == [:access, :fail_on]
-  end
-
-  test "planned options for plans use the first pipeline only" do
-    plan = %Plan{
-      source: %Plain{path: ["images", "cat-300.jpg"]},
-      pipelines: [
-        %Pipeline{
-          operations: [
-            %Scale{type: :dimensions, width: {:pixels, 120}, height: :auto}
-          ]
-        },
-        %Pipeline{
-          operations: [
-            %Cover{
-              type: :dimensions,
-              width: {:pixels, 80},
-              height: {:pixels, 80},
-              constraint: :none
-            }
-          ]
-        }
-      ],
-      output: %Output{mode: {:explicit, :jpeg}}
-    }
-
-    assert DecodePlanner.open_options(plan) == [access: :sequential, fail_on: :error]
   end
 end
