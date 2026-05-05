@@ -8,6 +8,7 @@ defmodule ImagePlug.Runtime.RequestRunner do
   alias ImagePlug.Output.Policy
   alias ImagePlug.Plan.Pipeline
   alias ImagePlug.Plan
+  alias ImagePlug.Runtime.DecodedOrigin
   alias ImagePlug.Runtime.Processor
   alias ImagePlug.Runtime.ResponseCache
   alias ImagePlug.Transform.Material
@@ -212,7 +213,7 @@ defmodule ImagePlug.Runtime.RequestRunner do
            pipelines,
            opts
          ) do
-      {:ok, %Processor.DecodedOrigin{} = decoded} ->
+      {:ok, %DecodedOrigin{} = decoded} ->
         decoded
         |> Processor.process_decoded_origin(pipelines, opts)
         |> attach_resolved_output(format, response_headers)

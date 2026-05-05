@@ -9,13 +9,12 @@ defmodule ImagePlug do
 
   require Logger
 
-  alias ImagePlug.Cache
   alias ImagePlug.Cache.Entry
   alias ImagePlug.Output.Format
   alias ImagePlug.Plan
-  alias ImagePlug.Runtime.Origin
+  alias ImagePlug.Runtime.Options
   alias ImagePlug.Runtime.RequestRunner
-  alias ImagePlug.Plan.Source.Plain
+  alias ImagePlug.Runtime.SourceIdentity
   alias ImagePlug.Transform.State
 
   @type imgp_number() :: integer() | float()
@@ -25,29 +24,20 @@ defmodule ImagePlug do
   @type imgp_ratio() :: {imgp_number(), imgp_number()}
   @type imgp_length() :: imgp_pixels() | imgp_pct() | imgp_scale()
 
-  @required_options_schema NimbleOptions.new!(
-                             param_parser: [type: :atom, required: true],
-                             root_url: [type: :string, required: true]
-                           )
-
   @impl Plug
-  def init(opts) do
-    opts
-    |> Cache.validate_config!()
-    |> validate_required_opts!()
-  end
+  def init(opts), do: Options.validate!(opts)
 
   @impl Plug
   def call(%Plug.Conn{} = conn, opts) do
-    param_parser = Keyword.fetch!(opts, :param_parser)
+    parser = Keyword.fetch!(opts, :parser)
 
-    with {:ok, %Plan{} = plan} <- param_parser.parse(conn) |> wrap_parser_error(),
-         {:ok, origin_identity} <- origin_identity(plan, opts) |> wrap_origin_error() do
+    with {:ok, %Plan{} = plan} <- parser.parse(conn) |> wrap_parser_error(),
+         {:ok, origin_identity} <- SourceIdentity.resolve(plan, opts) |> wrap_origin_error() do
       result = RequestRunner.run(conn, plan, origin_identity, opts)
       send_runner_result(result, conn, opts)
     else
       {:error, {:parser, error}} ->
-        param_parser.handle_error(conn, error)
+        parser.handle_error(conn, error)
 
       {:error, {:origin, error}} ->
         send_origin_error(conn, error)
@@ -133,27 +123,6 @@ defmodule ImagePlug do
   defp send_plan_validation_error(conn, reason, response_headers) do
     Logger.info("plan_validation_error: #{inspect(reason)}")
     send_transform_error(conn, response_headers)
-  end
-
-  defp origin_identity(%Plan{source: %Plain{path: source_path}}, opts) do
-    root_url = Keyword.fetch!(opts, :root_url)
-    Origin.build_url(root_url, source_path)
-  end
-
-  defp origin_identity(%Plan{source: source}, _opts) do
-    {:error, {:unsupported_source, source}}
-  end
-
-  defp validate_required_opts!(opts) do
-    required_opts = Keyword.take(opts, [:param_parser, :root_url])
-
-    case NimbleOptions.validate(required_opts, @required_options_schema) do
-      {:ok, _validated_opts} ->
-        opts
-
-      {:error, %NimbleOptions.ValidationError{} = error} ->
-        raise ArgumentError, "invalid ImagePlug options: #{Exception.message(error)}"
-    end
   end
 
   defp wrap_parser_error({:error, _} = error), do: {:error, {:parser, error}}

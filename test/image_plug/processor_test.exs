@@ -13,6 +13,7 @@ defmodule ImagePlug.ProcessorTest do
   alias ImagePlug.ProcessorTest.OriginShouldNotFetch
   alias ImagePlug.ProcessorTest.SecondTransform
   alias ImagePlug.ProcessorTest.SequentialFailingTransform
+  alias ImagePlug.Runtime.DecodedOrigin
   alias ImagePlug.Runtime.Origin.StreamStatus
   alias ImagePlug.Runtime.Processor
   alias ImagePlug.Plan.Source.Plain
@@ -47,7 +48,7 @@ defmodule ImagePlug.ProcessorTest do
   end
 
   test "fetch_decode_validate_origin_with_source_format accepts plain plan sources" do
-    assert {:ok, %Processor.DecodedOrigin{} = decoded} =
+    assert {:ok, %DecodedOrigin{} = decoded} =
              Processor.fetch_decode_validate_origin_with_source_format(
                plan(),
                "http://origin.test/images/cat-300.jpg",
@@ -198,7 +199,7 @@ defmodule ImagePlug.ProcessorTest do
   end
 
   test "fetch_decode_validate_origin_with_source_format returns decoded origin context" do
-    assert {:ok, %Processor.DecodedOrigin{} = decoded} =
+    assert {:ok, %DecodedOrigin{} = decoded} =
              Processor.fetch_decode_validate_origin_with_source_format(
                plan(),
                "http://origin.test/images/cat-300.jpg",
@@ -247,7 +248,7 @@ defmodule ImagePlug.ProcessorTest do
       worker: worker
     }
 
-    decoded = %Processor.DecodedOrigin{
+    decoded = %DecodedOrigin{
       decode_options: [access: :sequential, fail_on: :error],
       image: image,
       origin_response: origin_response,

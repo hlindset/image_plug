@@ -6,23 +6,10 @@ defmodule ImagePlug.Runtime.Processor do
   alias ImagePlug.Transform.Materializer
   alias ImagePlug.Plan
   alias ImagePlug.Plan.Source.Plain
+  alias ImagePlug.Runtime.DecodedOrigin
   alias ImagePlug.Runtime.Origin
   alias ImagePlug.Transform.Chain
   alias ImagePlug.Transform.State
-
-  defmodule DecodedOrigin do
-    @moduledoc false
-
-    @enforce_keys [:decode_options, :image, :origin_response, :source_format]
-    defstruct @enforce_keys
-
-    @type t() :: %__MODULE__{
-            decode_options: keyword(),
-            image: Vix.Vips.Image.t(),
-            origin_response: ImagePlug.Runtime.Origin.Response.t(),
-            source_format: :avif | :webp | :jpeg | :png | nil
-          }
-  end
 
   @spec process_origin(Plan.t(), String.t(), keyword()) ::
           {:ok, State.t()} | {:error, term()}

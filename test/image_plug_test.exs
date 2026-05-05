@@ -510,6 +510,25 @@ defmodule ImagePlug.ImagePlugTest do
     end
   end
 
+  test "init normalizes parser option" do
+    opts = ImagePlug.init(parser: ImagePlug.ParamParser.Native, root_url: "https://example.test")
+
+    assert Keyword.fetch!(opts, :parser) == ImagePlug.ParamParser.Native
+  end
+
+  test "init temporarily accepts legacy param_parser option" do
+    opts =
+      ImagePlug.init(param_parser: ImagePlug.ParamParser.Native, root_url: "https://example.test")
+
+    assert Keyword.fetch!(opts, :parser) == ImagePlug.ParamParser.Native
+  end
+
+  test "init rejects missing parser option through required option validation" do
+    assert_raise ArgumentError, ~r/required :parser option not found/, fn ->
+      ImagePlug.init(root_url: "https://example.test")
+    end
+  end
+
   test "no cache configured preserves the streaming response path" do
     conn = conn(:get, "/_/f:jpeg/plain/images/cat-300.jpg")
     test_pid = self()
@@ -518,7 +537,7 @@ defmodule ImagePlug.ImagePlugTest do
       ImagePlug.call(conn,
         root_url: "http://origin.test",
         image_module: StreamingOnlyImage,
-        param_parser: ImagePlug.ParamParser.Native,
+        parser: ImagePlug.ParamParser.Native,
         origin_req_options: [
           plug: fn conn -> CountingOriginImage.call(conn, test_pid: test_pid) end
         ]
@@ -541,7 +560,7 @@ defmodule ImagePlug.ImagePlugTest do
       ImagePlug.call(conn,
         root_url: "http://origin.test",
         image_module: MultiChunkStreamingImage,
-        param_parser: ImagePlug.ParamParser.Native,
+        parser: ImagePlug.ParamParser.Native,
         origin_req_options: [
           plug: fn conn -> CountingOriginImage.call(conn, test_pid: test_pid) end
         ]
@@ -568,7 +587,7 @@ defmodule ImagePlug.ImagePlugTest do
       ImagePlug.call(conn,
         root_url: "http://origin.test",
         image_module: StreamingOnlyImage,
-        param_parser: ImagePlug.ParamParser.Native,
+        parser: ImagePlug.ParamParser.Native,
         origin_req_options: [
           plug: fn conn -> CountingOriginImage.call(conn, test_pid: test_pid) end
         ]
@@ -594,7 +613,7 @@ defmodule ImagePlug.ImagePlugTest do
       ImagePlug.call(conn,
         root_url: "http://origin.test",
         image_module: StreamingOnlyImage,
-        param_parser: ImagePlug.ParamParser.Native,
+        parser: ImagePlug.ParamParser.Native,
         origin_req_options: [
           plug: fn conn -> CountingOriginImage.call(conn, test_pid: test_pid) end
         ]
@@ -614,7 +633,7 @@ defmodule ImagePlug.ImagePlugTest do
     conn =
       ImagePlug.call(conn,
         root_url: "http://origin.test",
-        param_parser: ImagePlug.ParamParser.Native,
+        parser: ImagePlug.ParamParser.Native,
         cache: {CacheProbe, message_target: cache_probe},
         origin_req_options: [plug: OriginShouldNotBeCalled]
       )
@@ -632,7 +651,7 @@ defmodule ImagePlug.ImagePlugTest do
     conn =
       ImagePlug.call(conn,
         root_url: "http://origin.test",
-        param_parser: ImagePlug.ParamParser.Native,
+        parser: ImagePlug.ParamParser.Native,
         cache: {CacheProbe, message_target: cache_probe},
         origin_req_options: [plug: OriginShouldNotBeCalled]
       )
@@ -658,7 +677,7 @@ defmodule ImagePlug.ImagePlugTest do
     conn =
       ImagePlug.call(conn,
         root_url: "http://origin.test",
-        param_parser: ImagePlug.ParamParser.Native,
+        parser: ImagePlug.ParamParser.Native,
         cache: {CacheProbe, message_target: cache_probe, get_result: {:hit, cached_entry}},
         origin_req_options: [plug: OriginShouldNotBeCalled]
       )
@@ -682,7 +701,7 @@ defmodule ImagePlug.ImagePlugTest do
     conn =
       ImagePlug.call(conn,
         root_url: "http://origin.test",
-        param_parser: ImagePlug.ParamParser.Native,
+        parser: ImagePlug.ParamParser.Native,
         cache: {CacheProbe, message_target: cache_probe},
         origin_req_options: [
           plug: fn conn -> CountingOriginImage.call(conn, test_pid: test_pid) end
@@ -713,7 +732,7 @@ defmodule ImagePlug.ImagePlugTest do
     conn =
       ImagePlug.call(conn,
         root_url: "http://origin.test",
-        param_parser: ImagePlug.ParamParser.Native,
+        parser: ImagePlug.ParamParser.Native,
         cache: {CacheProbe, message_target: cache_probe},
         origin_req_options: [
           plug: fn conn -> CountingOriginImage.call(conn, test_pid: test_pid) end
@@ -738,7 +757,7 @@ defmodule ImagePlug.ImagePlugTest do
       |> put_req_header("accept", "image/jpeg")
       |> ImagePlug.call(
         root_url: "http://origin.test",
-        param_parser: ImagePlug.ParamParser.Native,
+        parser: ImagePlug.ParamParser.Native,
         image_module: FailingMemoryImage,
         origin_req_options: [plug: {CountingOriginImage, test_pid: cache_probe}],
         cache: {CacheProbe, message_target: cache_probe}
@@ -758,7 +777,7 @@ defmodule ImagePlug.ImagePlugTest do
     conn =
       ImagePlug.call(conn,
         root_url: "http://origin.test",
-        param_parser: ImagePlug.ParamParser.Native,
+        parser: ImagePlug.ParamParser.Native,
         origin_req_options: [plug: OriginShouldNotBeCalled]
       )
 
@@ -772,7 +791,7 @@ defmodule ImagePlug.ImagePlugTest do
     conn =
       ImagePlug.call(conn,
         root_url: "http://origin.test",
-        param_parser: ImagePlug.ParamParser.Native,
+        parser: ImagePlug.ParamParser.Native,
         origin_req_options: [plug: OriginShouldNotBeCalled]
       )
 
@@ -786,7 +805,7 @@ defmodule ImagePlug.ImagePlugTest do
     conn =
       ImagePlug.call(conn,
         root_url: "http://origin.test",
-        param_parser: EmptyPipelineParser,
+        parser: EmptyPipelineParser,
         origin_req_options: [plug: OriginShouldNotBeCalled]
       )
 
@@ -801,7 +820,7 @@ defmodule ImagePlug.ImagePlugTest do
     conn =
       ImagePlug.call(conn,
         root_url: "http://origin.test",
-        param_parser: UnsupportedSourceKindParser,
+        parser: UnsupportedSourceKindParser,
         origin_req_options: [plug: OriginShouldNotBeCalled]
       )
 
@@ -819,7 +838,7 @@ defmodule ImagePlug.ImagePlugTest do
     conn =
       ImagePlug.call(conn,
         root_url: "http://origin.test",
-        param_parser: ImagePlug.ParamParser.Native,
+        parser: ImagePlug.ParamParser.Native,
         origin_req_options: [plug: OriginImage]
       )
 
@@ -846,7 +865,7 @@ defmodule ImagePlug.ImagePlugTest do
     conn =
       ImagePlug.call(conn,
         root_url: "http://origin.test",
-        param_parser: ImagePlug.ParamParser.Native,
+        parser: ImagePlug.ParamParser.Native,
         origin_req_options: [plug: origin]
       )
 
@@ -861,7 +880,7 @@ defmodule ImagePlug.ImagePlugTest do
     conn =
       ImagePlug.call(conn,
         root_url: "http://origin.test",
-        param_parser: ImagePlug.ParamParser.Native,
+        parser: ImagePlug.ParamParser.Native,
         origin_req_options: [plug: OriginImage]
       )
 
@@ -875,7 +894,7 @@ defmodule ImagePlug.ImagePlugTest do
       ImagePlug.call(
         conn(:get, "/_/f:webp/plain/images/cat-300.jpg@png"),
         root_url: "http://origin.test",
-        param_parser: ImagePlug.ParamParser.Native,
+        parser: ImagePlug.ParamParser.Native,
         origin_req_options: [plug: OriginImage]
       )
 
@@ -893,7 +912,7 @@ defmodule ImagePlug.ImagePlugTest do
     conn =
       ImagePlug.call(conn,
         root_url: "http://origin.test",
-        param_parser: ImagePlug.ParamParser.Native,
+        parser: ImagePlug.ParamParser.Native,
         origin_req_options: [plug: OriginImage]
       )
 
@@ -911,7 +930,7 @@ defmodule ImagePlug.ImagePlugTest do
     conn =
       ImagePlug.call(conn,
         root_url: "http://origin.test",
-        param_parser: ImagePlug.ParamParser.Native,
+        parser: ImagePlug.ParamParser.Native,
         origin_req_options: [plug: OriginImage]
       )
 
@@ -938,7 +957,7 @@ defmodule ImagePlug.ImagePlugTest do
     conn =
       ImagePlug.call(conn,
         root_url: "http://origin.test",
-        param_parser: ImagePlug.ParamParser.Native,
+        parser: ImagePlug.ParamParser.Native,
         cache: {CacheProbe, message_target: cache_probe, get_result: {:hit, cached_entry}},
         origin_req_options: [plug: OriginShouldNotBeCalled]
       )
@@ -988,7 +1007,7 @@ defmodule ImagePlug.ImagePlugTest do
     conn =
       ImagePlug.call(conn,
         root_url: "http://origin.test",
-        param_parser: ImagePlug.ParamParser.Native,
+        parser: ImagePlug.ParamParser.Native,
         cache: {CacheProbe, message_target: cache_probe, get_result_fun: get_result_fun},
         origin_req_options: [plug: OriginShouldNotBeCalled]
       )
@@ -1038,7 +1057,7 @@ defmodule ImagePlug.ImagePlugTest do
     conn =
       ImagePlug.call(conn,
         root_url: "http://origin.test",
-        param_parser: ImagePlug.ParamParser.Native,
+        parser: ImagePlug.ParamParser.Native,
         auto_avif: false,
         auto_webp: false,
         cache: {CacheProbe, message_target: cache_probe, get_result_fun: get_result_fun},
@@ -1090,7 +1109,7 @@ defmodule ImagePlug.ImagePlugTest do
     conn =
       ImagePlug.call(conn,
         root_url: "http://origin.test",
-        param_parser: ImagePlug.ParamParser.Native,
+        parser: ImagePlug.ParamParser.Native,
         auto_avif: false,
         auto_webp: false,
         cache: {CacheProbe, message_target: cache_probe, get_result_fun: get_result_fun},
@@ -1116,7 +1135,7 @@ defmodule ImagePlug.ImagePlugTest do
     conn =
       ImagePlug.call(conn,
         root_url: "http://origin.test",
-        param_parser: ImagePlug.ParamParser.Native,
+        parser: ImagePlug.ParamParser.Native,
         auto_avif: false,
         auto_webp: false,
         origin_req_options: [plug: OriginImage]
@@ -1135,7 +1154,7 @@ defmodule ImagePlug.ImagePlugTest do
     conn =
       ImagePlug.call(conn,
         root_url: "http://origin.test",
-        param_parser: ImagePlug.ParamParser.Native,
+        parser: ImagePlug.ParamParser.Native,
         auto_avif: false,
         auto_webp: false,
         origin_req_options: [plug: OriginImage]
@@ -1155,7 +1174,7 @@ defmodule ImagePlug.ImagePlugTest do
     assert_raise RuntimeError, "source negotiation should happen before decode", fn ->
       ImagePlug.call(conn,
         root_url: "http://origin.test",
-        param_parser: ImagePlug.ParamParser.Native,
+        parser: ImagePlug.ParamParser.Native,
         auto_avif: false,
         auto_webp: false,
         image_open_module: RejectingImageOpen,
@@ -1176,7 +1195,7 @@ defmodule ImagePlug.ImagePlugTest do
       |> put_req_header("accept", "image/png")
       |> ImagePlug.call(
         root_url: root_url,
-        param_parser: ImagePlug.ParamParser.Native,
+        parser: ImagePlug.ParamParser.Native,
         auto_avif: false,
         auto_webp: false
       )
@@ -1194,7 +1213,7 @@ defmodule ImagePlug.ImagePlugTest do
     conn =
       ImagePlug.call(conn,
         root_url: "http://origin.test",
-        param_parser: ImagePlug.ParamParser.Native,
+        parser: ImagePlug.ParamParser.Native,
         cache: {CacheProbe, message_target: cache_probe},
         origin_req_options: [plug: OriginShouldNotBeCalled]
       )
@@ -1210,7 +1229,7 @@ defmodule ImagePlug.ImagePlugTest do
       ImagePlug.call(
         conn(:get, "/_/f:webp/plain/images/cat-300.jpg"),
         root_url: "http://origin.test",
-        param_parser: ImagePlug.ParamParser.Native,
+        parser: ImagePlug.ParamParser.Native,
         origin_req_options: [plug: OriginImage]
       )
 
@@ -1228,7 +1247,7 @@ defmodule ImagePlug.ImagePlugTest do
     conn =
       ImagePlug.call(conn,
         root_url: "http://origin.test",
-        param_parser: ImagePlug.ParamParser.Native,
+        parser: ImagePlug.ParamParser.Native,
         origin_req_options: [plug: OriginImage]
       )
 
@@ -1243,7 +1262,7 @@ defmodule ImagePlug.ImagePlugTest do
       |> ImagePlug.call(
         root_url: "http://origin.test",
         image_open_module: RecordingImageOpen,
-        param_parser: ImagePlug.ParamParser.Native,
+        parser: ImagePlug.ParamParser.Native,
         origin_req_options: [plug: OriginImage]
       )
 
@@ -1259,7 +1278,7 @@ defmodule ImagePlug.ImagePlugTest do
       |> ImagePlug.call(
         root_url: "http://origin.test",
         image_open_module: RecordingImageOpen,
-        param_parser: ImagePlug.ParamParser.Native,
+        parser: ImagePlug.ParamParser.Native,
         origin_req_options: [plug: OriginImage]
       )
 
@@ -1275,7 +1294,7 @@ defmodule ImagePlug.ImagePlugTest do
       |> ImagePlug.call(
         root_url: "http://origin.test",
         image_open_module: RecordingImageOpen,
-        param_parser: ImagePlug.ParamParser.Native,
+        parser: ImagePlug.ParamParser.Native,
         image_materializer_module: FailingMaterializer,
         origin_req_options: [plug: OriginImage]
       )
@@ -1296,7 +1315,7 @@ defmodule ImagePlug.ImagePlugTest do
       |> ImagePlug.call(
         root_url: "http://origin.test",
         image_open_module: RecordingImageOpen,
-        param_parser: ImagePlug.ParamParser.Native,
+        parser: ImagePlug.ParamParser.Native,
         image_materializer: InvalidMaterializer,
         origin_req_options: [plug: OriginImage]
       )
@@ -1318,7 +1337,7 @@ defmodule ImagePlug.ImagePlugTest do
       |> ImagePlug.call(
         root_url: "http://origin.test",
         image_open_module: RecordingImageOpen,
-        param_parser: ImagePlug.ParamParser.Native,
+        parser: ImagePlug.ParamParser.Native,
         image_materializer_module: FailingMaterializer,
         origin_req_options: [plug: OriginImage]
       )
@@ -1339,7 +1358,7 @@ defmodule ImagePlug.ImagePlugTest do
     conn =
       ImagePlug.call(conn,
         root_url: "http://origin.test",
-        param_parser: ImagePlug.ParamParser.Native,
+        parser: ImagePlug.ParamParser.Native,
         origin_req_options: [plug: OriginImage]
       )
 
@@ -1353,7 +1372,7 @@ defmodule ImagePlug.ImagePlugTest do
     conn =
       ImagePlug.call(conn,
         root_url: "http://origin.test",
-        param_parser: BrokenImageParser,
+        parser: BrokenImageParser,
         origin_req_options: [plug: OriginImage]
       )
 
@@ -1371,7 +1390,7 @@ defmodule ImagePlug.ImagePlugTest do
           ImagePlug.call(conn,
             root_url: "http://origin.test",
             image_module: EmptyStreamingImage,
-            param_parser: RaisingAfterFirstChunkParser,
+            parser: RaisingAfterFirstChunkParser,
             origin_req_options: [plug: OriginImage]
           )
 
@@ -1394,7 +1413,7 @@ defmodule ImagePlug.ImagePlugTest do
           ImagePlug.call(conn,
             root_url: "http://origin.test",
             image_module: RaisingAfterFirstChunkImage,
-            param_parser: RaisingAfterFirstChunkParser,
+            parser: RaisingAfterFirstChunkParser,
             origin_req_options: [plug: OriginImage]
           )
 
@@ -1416,7 +1435,7 @@ defmodule ImagePlug.ImagePlugTest do
         conn =
           ImagePlug.call(conn,
             root_url: "http://origin.test",
-            param_parser: FailingTransformParser,
+            parser: FailingTransformParser,
             origin_req_options: [plug: OriginImage]
           )
 
@@ -1443,7 +1462,7 @@ defmodule ImagePlug.ImagePlugTest do
       conn(:get, "/_/w:10/plain/images/large.png")
       |> ImagePlug.call(
         root_url: "http://origin.test",
-        param_parser: ImagePlug.ParamParser.Native,
+        parser: ImagePlug.ParamParser.Native,
         max_input_pixels: 399,
         origin_req_options: [plug: plug]
       )
@@ -1457,7 +1476,7 @@ defmodule ImagePlug.ImagePlugTest do
       conn(:get, "/_/plain/images/large-body.png")
       |> ImagePlug.call(
         root_url: "http://origin.test",
-        param_parser: ImagePlug.ParamParser.Native,
+        parser: ImagePlug.ParamParser.Native,
         max_body_bytes: 5,
         origin_req_options: [plug: OversizedOriginBody]
       )
@@ -1473,7 +1492,7 @@ defmodule ImagePlug.ImagePlugTest do
       conn(:get, "/_/plain/images/large-body.jpg")
       |> ImagePlug.call(
         root_url: "http://origin.test",
-        param_parser: ImagePlug.ParamParser.Native,
+        parser: ImagePlug.ParamParser.Native,
         max_body_bytes: byte_size(body) - 1,
         origin_req_options: [plug: OriginImage]
       )
@@ -1492,7 +1511,7 @@ defmodule ImagePlug.ImagePlugTest do
         conn(:get, "/_/plain/images/slow.jpg"),
         [
           root_url: root_url,
-          param_parser: ImagePlug.ParamParser.Native,
+          parser: ImagePlug.ParamParser.Native,
           origin_receive_timeout: 1_000
         ],
         ref,
@@ -1513,7 +1532,7 @@ defmodule ImagePlug.ImagePlugTest do
       conn(:get, "/_/rt:force/w:100/plain/images/large-body.jpg")
       |> ImagePlug.call(
         root_url: "http://origin.test",
-        param_parser: ImagePlug.ParamParser.Native,
+        parser: ImagePlug.ParamParser.Native,
         max_body_bytes: byte_size(body) - 1,
         origin_req_options: [plug: ChunkedOriginImage]
       )
@@ -1534,7 +1553,7 @@ defmodule ImagePlug.ImagePlugTest do
         conn(:get, "/_/rt:force/w:100/plain/images/slow.jpg"),
         [
           root_url: root_url,
-          param_parser: ImagePlug.ParamParser.Native,
+          parser: ImagePlug.ParamParser.Native,
           origin_receive_timeout: 1_000
         ],
         ref,
@@ -1555,7 +1574,7 @@ defmodule ImagePlug.ImagePlugTest do
       conn(:get, "/_/rt:force/w:100/plain/images/corrupt-tail.jpg")
       |> ImagePlug.call(
         root_url: "http://origin.test",
-        param_parser: ImagePlug.ParamParser.Native,
+        parser: ImagePlug.ParamParser.Native,
         origin_req_options: [plug: CorruptTailOriginImage]
       )
 
@@ -1570,7 +1589,7 @@ defmodule ImagePlug.ImagePlugTest do
       conn(:get, "/_/plain/images/broken.png")
       |> ImagePlug.call(
         root_url: "http://origin.test",
-        param_parser: ImagePlug.ParamParser.Native,
+        parser: ImagePlug.ParamParser.Native,
         origin_req_options: [plug: InvalidOriginImage]
       )
 
@@ -1585,7 +1604,7 @@ defmodule ImagePlug.ImagePlugTest do
       conn(:get, "/_/f:jpeg/plain/images/cat-300.jpg")
       |> ImagePlug.call(
         root_url: "http://origin.test",
-        param_parser: ImagePlug.ParamParser.Native,
+        parser: ImagePlug.ParamParser.Native,
         origin_req_options: [plug: {CountingOriginImage, test_pid: cache_probe}],
         cache: {CacheProbe, message_target: cache_probe, get_result: {:error, :read_failed}}
       )
@@ -1604,7 +1623,7 @@ defmodule ImagePlug.ImagePlugTest do
       conn(:get, "/_/f:jpeg/plain/images/cat-300.jpg")
       |> ImagePlug.call(
         root_url: "http://origin.test",
-        param_parser: ImagePlug.ParamParser.Native,
+        parser: ImagePlug.ParamParser.Native,
         origin_req_options: [plug: {CountingOriginImage, test_pid: cache_probe}],
         cache:
           {CacheProbe,
@@ -1626,7 +1645,7 @@ defmodule ImagePlug.ImagePlugTest do
       conn(:get, "/_/f:jpeg/plain/images/cat-300.jpg")
       |> ImagePlug.call(
         root_url: "http://origin.test",
-        param_parser: ImagePlug.ParamParser.Native,
+        parser: ImagePlug.ParamParser.Native,
         origin_req_options: [plug: {CountingOriginImage, test_pid: cache_probe}],
         cache: {CacheProbe, message_target: cache_probe, put_result: {:error, :write_failed}}
       )
@@ -1646,7 +1665,7 @@ defmodule ImagePlug.ImagePlugTest do
       conn(:get, "/_/f:jpeg/plain/images/cat-300.jpg")
       |> ImagePlug.call(
         root_url: "http://origin.test",
-        param_parser: ImagePlug.ParamParser.Native,
+        parser: ImagePlug.ParamParser.Native,
         origin_req_options: [plug: {CountingOriginImage, test_pid: cache_probe}],
         cache:
           {CacheProbe,
@@ -1671,7 +1690,7 @@ defmodule ImagePlug.ImagePlugTest do
       |> put_req_header("accept", "image/jpeg")
       |> ImagePlug.call(
         root_url: "http://origin.test",
-        param_parser: ImagePlug.ParamParser.Native,
+        parser: ImagePlug.ParamParser.Native,
         origin_req_options: [plug: {CountingOriginImage, test_pid: cache_probe}],
         cache:
           {CacheProbe,
@@ -1695,7 +1714,7 @@ defmodule ImagePlug.ImagePlugTest do
       conn(:get, "/_/f:jpeg/plain/images/cat-300.jpg")
       |> ImagePlug.call(
         root_url: "http://origin.test",
-        param_parser: ImagePlug.ParamParser.Native,
+        parser: ImagePlug.ParamParser.Native,
         origin_req_options: [plug: {CountingOriginImage, test_pid: cache_probe}],
         cache: {CacheProbe, message_target: cache_probe, max_body_bytes: 1}
       )
@@ -1713,7 +1732,7 @@ defmodule ImagePlug.ImagePlugTest do
       conn(:get, "/_/f:jpeg/plain/images/cat-300.jpg")
       |> ImagePlug.call(
         root_url: "http://origin.test",
-        param_parser: ImagePlug.ParamParser.Native,
+        parser: ImagePlug.ParamParser.Native,
         image_module: BoundedCacheStreamingImage,
         origin_req_options: [plug: {CountingOriginImage, test_pid: cache_probe}],
         cache: {CacheProbe, message_target: cache_probe, max_body_bytes: 1}
@@ -1734,7 +1753,7 @@ defmodule ImagePlug.ImagePlugTest do
       conn(:get, "/_/f:jpeg/plain/images/cat-300.jpg")
       |> ImagePlug.call(
         root_url: "http://origin.test",
-        param_parser: ImagePlug.ParamParser.Native,
+        parser: ImagePlug.ParamParser.Native,
         origin_req_options: [plug: InvalidOriginImage],
         cache: {CacheProbe, message_target: cache_probe}
       )
@@ -1760,7 +1779,7 @@ defmodule ImagePlug.ImagePlugTest do
 
       opts = [
         root_url: "http://origin.test",
-        param_parser: ImagePlug.ParamParser.Native,
+        parser: ImagePlug.ParamParser.Native,
         origin_req_options: [plug: {CountingOriginImage, test_pid: cache_probe}],
         cache:
           {ImagePlug.Cache.FileSystem,
