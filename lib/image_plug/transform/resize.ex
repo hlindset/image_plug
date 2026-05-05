@@ -23,7 +23,10 @@ defmodule ImagePlug.Transform.Resize do
   end
 
   @impl ImagePlug.Transform
-  def new!(%__MODULE__{} = operation), do: operation
+  def new!(%__MODULE__{} = operation) do
+    validate_rule!(operation.rule)
+    operation
+  end
 
   def new!(attrs) when is_list(attrs) or is_map(attrs) do
     attrs

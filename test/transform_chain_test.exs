@@ -184,6 +184,9 @@ defmodule ImagePlug.Transform.ChainTest do
     assert {:error, %ArgumentError{message: "invalid resize rule dpr: nil"}} =
              Resize.new(rule: %DimensionRule{dpr: nil})
 
+    assert {:error, %ArgumentError{message: "invalid resize rule dpr: nil"}} =
+             Resize.new(%Resize{rule: %DimensionRule{dpr: nil}})
+
     assert {:error, %ArgumentError{message: "invalid resize rule dpr: 0"}} =
              Resize.new(rule: %DimensionRule{dpr: 0})
 
@@ -195,6 +198,9 @@ defmodule ImagePlug.Transform.ChainTest do
 
     assert {:error, %ArgumentError{message: "invalid adaptive resize rule width: nil"}} =
              AdaptiveResize.new(rule: %DimensionRule{mode: :auto, width: nil})
+
+    assert {:error, %ArgumentError{message: "invalid adaptive resize rule width: nil"}} =
+             AdaptiveResize.new(%AdaptiveResize{rule: %DimensionRule{mode: :auto, width: nil}})
 
     assert {:error, %ArgumentError{message: "invalid adaptive resize rule height: nil"}} =
              AdaptiveResize.new(rule: %DimensionRule{mode: :auto, height: nil})
