@@ -165,6 +165,34 @@ defmodule ImagePlug.Cache.KeyTest do
            |> Enum.all?(&Keyword.keyword?/1)
   end
 
+  test "resize material includes requested zoom and dpr rule inputs" do
+    operation = %ImagePlug.Transform.Resize{
+      rule: %ImagePlug.Transform.Geometry.DimensionRule{
+        mode: :fit,
+        width: {:pixels, 100},
+        height: :auto,
+        zoom_x: 2.0,
+        zoom_y: 1.5,
+        dpr: 2.0,
+        enlarge: false
+      }
+    }
+
+    key =
+      conn(:get, "/_/plain/images/cat.jpg")
+      |> build_key!(
+        plan(pipelines: [%Pipeline{operations: [operation]}]),
+        "https://origin.test/images/cat.jpg"
+      )
+
+    assert [[resize_material]] = key.material[:pipelines]
+    assert resize_material[:op] == :resize
+    assert resize_material[:rule][:zoom_x] == 2.0
+    assert resize_material[:rule][:zoom_y] == 1.5
+    assert resize_material[:rule][:dpr] == 2.0
+    assert resize_material[:rule][:effective_dpr] == :runtime_resolved
+  end
+
   test "cachebuster changes cache keys without changing pipeline material" do
     base_plan = plan()
     busted_plan = plan(cache: %ImagePlug.Plan.Cache{cachebuster: "v2"})

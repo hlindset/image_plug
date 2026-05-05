@@ -34,21 +34,22 @@ defmodule ImagePlug.Parser.Native.PlanBuilderTest do
               output: %Output{mode: :automatic}
             }} = PlanBuilder.to_plan(request, [])
 
-    assert [%Transform.Contain{} = params] = operations
-    assert params.width == {:pixels, 300}
+    assert [%Transform.Resize{} = params] = operations
+    assert params.rule.width == {:pixels, 300}
   end
 
-  test "plans fit requests as non-letterboxed contain operations with enlarge constraints" do
+  test "plans fit requests as neutral resize operations with enlarge rules" do
     assert {:ok, %Plan{pipelines: [%Pipeline{operations: operations}]}} =
              plan_pipeline(width: {:pixels, 300}, height: {:pixels, 200}, enlarge: false)
 
     assert [
-             %Transform.Contain{
-               type: :dimensions,
-               width: {:pixels, 300},
-               height: {:pixels, 200},
-               constraint: :max,
-               letterbox: false
+             %Transform.Resize{
+               rule: %Transform.Geometry.DimensionRule{
+                 mode: :fit,
+                 width: {:pixels, 300},
+                 height: {:pixels, 200},
+                 enlarge: false
+               }
              }
            ] = operations
 
@@ -56,17 +57,18 @@ defmodule ImagePlug.Parser.Native.PlanBuilderTest do
              plan_pipeline(width: {:pixels, 300}, height: {:pixels, 200}, enlarge: true)
 
     assert [
-             %Transform.Contain{
-               type: :dimensions,
-               width: {:pixels, 300},
-               height: {:pixels, 200},
-               constraint: :regular,
-               letterbox: false
+             %Transform.Resize{
+               rule: %Transform.Geometry.DimensionRule{
+                 mode: :fit,
+                 width: {:pixels, 300},
+                 height: {:pixels, 200},
+                 enlarge: true
+               }
              }
            ] = operations
   end
 
-  test "plans fill requests as cover operations with enlarge constraints" do
+  test "plans fill requests as neutral resize operations with enlarge rules" do
     assert {:ok, %Plan{pipelines: [%Pipeline{operations: operations}]}} =
              plan_pipeline(
                resizing_type: :fill,
@@ -76,11 +78,13 @@ defmodule ImagePlug.Parser.Native.PlanBuilderTest do
              )
 
     assert [
-             %Transform.Cover{
-               type: :dimensions,
-               width: {:pixels, 300},
-               height: {:pixels, 200},
-               constraint: :max
+             %Transform.Resize{
+               rule: %Transform.Geometry.DimensionRule{
+                 mode: :fill,
+                 width: {:pixels, 300},
+                 height: {:pixels, 200},
+                 enlarge: false
+               }
              }
            ] = operations
 
@@ -93,11 +97,13 @@ defmodule ImagePlug.Parser.Native.PlanBuilderTest do
              )
 
     assert [
-             %Transform.Cover{
-               type: :dimensions,
-               width: {:pixels, 300},
-               height: {:pixels, 200},
-               constraint: :none
+             %Transform.Resize{
+               rule: %Transform.Geometry.DimensionRule{
+                 mode: :fill,
+                 width: {:pixels, 300},
+                 height: {:pixels, 200},
+                 enlarge: true
+               }
              }
            ] = operations
   end
@@ -113,16 +119,17 @@ defmodule ImagePlug.Parser.Native.PlanBuilderTest do
     end
   end
 
-  test "normalizes single zero fit dimensions to auto contain dimensions" do
+  test "normalizes single zero fit dimensions to auto resize dimensions" do
     assert {:ok, %Plan{pipelines: [%Pipeline{operations: operations}]}} =
              plan_pipeline(width: {:pixels, 0}, height: {:pixels, 200})
 
     assert [
-             %Transform.Contain{
-               width: :auto,
-               height: {:pixels, 200},
-               constraint: :max,
-               letterbox: false
+             %Transform.Resize{
+               rule: %Transform.Geometry.DimensionRule{
+                 mode: :fit,
+                 width: :auto,
+                 height: {:pixels, 200}
+               }
              }
            ] = operations
   end
@@ -135,18 +142,59 @@ defmodule ImagePlug.Parser.Native.PlanBuilderTest do
              {:error, {:unsupported_zero_dimension, :force}}
   end
 
-  test "rejects unsupported extend and gravity offset semantics" do
-    assert plan_pipeline(extend: true) == {:error, {:unsupported_extend, true}}
+  test "plans fit, fill-down, force, and auto as product-neutral resize operations" do
+    assert {:ok,
+            %Plan{pipelines: [%Pipeline{operations: [%ImagePlug.Transform.Resize{} = resize]}]}} =
+             plan_pipeline(resizing_type: :fit, width: {:pixels, 100}, height: {:pixels, 0})
 
-    assert plan_pipeline(extend_gravity: {:anchor, :left, :top}) ==
-             {:error, {:unsupported_extend_gravity, {:anchor, :left, :top}}}
+    assert resize.rule.mode == :fit
 
-    assert plan_pipeline(extend_x_offset: 5.0) ==
-             {:error, {:unsupported_extend_offset, 5.0}}
+    assert {:ok,
+            %Plan{pipelines: [%Pipeline{operations: [%ImagePlug.Transform.Resize{} = down]}]}} =
+             plan_pipeline(
+               resizing_type: :fill_down,
+               width: {:pixels, 100},
+               height: {:pixels, 100}
+             )
 
-    assert plan_pipeline(extend_y_offset: -3.0) ==
-             {:error, {:unsupported_extend_offset, -3.0}}
+    assert down.rule.mode == :fill_down
 
+    assert {:ok,
+            %Plan{pipelines: [%Pipeline{operations: [%ImagePlug.Transform.AdaptiveResize{}]}]}} =
+             plan_pipeline(resizing_type: :auto, width: {:pixels, 100}, height: {:pixels, 100})
+  end
+
+  test "plans extend and extend aspect ratio as neutral canvas operations" do
+    assert {:ok, %Plan{pipelines: [%Pipeline{operations: operations}]}} =
+             plan_pipeline(width: {:pixels, 100}, height: {:pixels, 100}, extend: true)
+
+    assert Enum.any?(operations, &match?(%ImagePlug.Transform.ExtendCanvas{}, &1))
+
+    assert {:ok, %Plan{pipelines: [%Pipeline{operations: operations}]}} =
+             plan_pipeline(extend_aspect_ratio: {16, 9})
+
+    assert Enum.any?(operations, &match?(%ImagePlug.Transform.ExtendCanvas{}, &1))
+  end
+
+  test "plans extend gravity and offsets as neutral canvas operation fields" do
+    assert {:ok, %Plan{pipelines: [%Pipeline{operations: operations}]}} =
+             plan_pipeline(
+               width: {:pixels, 100},
+               height: {:pixels, 100},
+               extend: true,
+               extend_gravity: {:anchor, :left, :top},
+               extend_x_offset: 5.0,
+               extend_y_offset: -3.0
+             )
+
+    assert %Transform.ExtendCanvas{
+             gravity: {:anchor, :left, :top},
+             x_offset: 5.0,
+             y_offset: -3.0
+           } = List.last(operations)
+  end
+
+  test "rejects unsupported gravity offset semantics" do
     assert plan_pipeline(gravity_x_offset: 1.0) ==
              {:error, {:unsupported_gravity_offset, {1.0, 0.0}}}
 
@@ -292,21 +340,24 @@ defmodule ImagePlug.Parser.Native.PlanBuilderTest do
     end
   end
 
+  test "plans neutral resize rule inputs before no-op operations" do
+    assert {:ok, %Plan{pipelines: [%Pipeline{operations: [%Transform.Resize{} = resize]}]}} =
+             plan_pipeline(
+               min_width: {:pixels, 100},
+               min_height: {:pixels, 80},
+               zoom_x: 2.0,
+               zoom_y: 2.0,
+               dpr: 2.0
+             )
+
+    assert resize.rule.min_width == {:pixels, 100}
+    assert resize.rule.min_height == {:pixels, 80}
+    assert resize.rule.zoom_x == 2.0
+    assert resize.rule.zoom_y == 2.0
+    assert resize.rule.dpr == 2.0
+  end
+
   test "rejects unsupported parsed pipeline semantics before planning no-op operations" do
-    assert plan_pipeline(min_width: {:pixels, 100}) ==
-             {:error, {:unsupported_pipeline_semantic, :min_width}}
-
-    assert plan_pipeline(min_height: {:pixels, 100}) ==
-             {:error, {:unsupported_pipeline_semantic, :min_height}}
-
-    assert plan_pipeline(zoom_x: 2.0, zoom_y: 2.0) ==
-             {:error, {:unsupported_pipeline_semantic, :zoom}}
-
-    assert plan_pipeline(dpr: 2.0) == {:error, {:unsupported_pipeline_semantic, :dpr}}
-
-    assert plan_pipeline(extend_requested: true) ==
-             {:error, {:unsupported_pipeline_semantic, :extend}}
-
     assert plan_pipeline(crop: struct(ImagePlug.Parser.Native.CropRequest)) ==
              {:error, {:unsupported_pipeline_semantic, :crop}}
 
@@ -315,9 +366,6 @@ defmodule ImagePlug.Parser.Native.PlanBuilderTest do
 
     assert plan_pipeline(orientation_requested: true) ==
              {:error, {:unsupported_pipeline_semantic, :orientation}}
-
-    assert plan_pipeline(extend_aspect_ratio: {16, 9}) ==
-             {:error, {:unsupported_pipeline_semantic, :extend_aspect_ratio}}
   end
 
   test "rejects invalid direct pipeline request values" do
@@ -360,13 +408,13 @@ defmodule ImagePlug.Parser.Native.PlanBuilderTest do
               ]
             }} = PlanBuilder.to_plan(request, [])
 
-    assert [%Transform.Contain{} = first_params] = first_operations
-    assert first_params.width == {:pixels, 500}
-    assert first_params.height == :auto
+    assert [%Transform.Resize{} = first_params] = first_operations
+    assert first_params.rule.width == {:pixels, 500}
+    assert first_params.rule.height == :auto
 
-    assert [%Transform.Contain{} = second_params] = second_operations
-    assert second_params.width == :auto
-    assert second_params.height == {:pixels, 200}
+    assert [%Transform.Resize{} = second_params] = second_operations
+    assert second_params.rule.width == :auto
+    assert second_params.rule.height == {:pixels, 200}
   end
 
   test "represents output intent outside native pipeline operations" do
@@ -394,9 +442,9 @@ defmodule ImagePlug.Parser.Native.PlanBuilderTest do
                []
              )
 
-    assert [%Transform.Scale{} = automatic_params] = operations
-    assert automatic_params.width == {:pixels, 300}
-    assert automatic_params.height == {:pixels, 200}
+    assert [%Transform.Resize{} = automatic_params] = operations
+    assert automatic_params.rule.width == {:pixels, 300}
+    assert automatic_params.rule.height == {:pixels, 200}
 
     assert {:ok,
             %ImagePlug.Plan{
@@ -405,9 +453,9 @@ defmodule ImagePlug.Parser.Native.PlanBuilderTest do
             }} =
              PlanBuilder.to_plan(request, [])
 
-    assert [%Transform.Scale{} = explicit_params] = operations
-    assert explicit_params.width == {:pixels, 300}
-    assert explicit_params.height == {:pixels, 200}
+    assert [%Transform.Resize{} = explicit_params] = operations
+    assert explicit_params.rule.width == {:pixels, 300}
+    assert explicit_params.rule.height == {:pixels, 200}
   end
 
   property "output format does not change planned pipeline operations" do

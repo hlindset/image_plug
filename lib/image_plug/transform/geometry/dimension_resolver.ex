@@ -82,7 +82,7 @@ defmodule ImagePlug.Transform.Geometry.DimensionResolver do
     end
   end
 
-  defp normalize_mode(mode) when mode in [:fit, :fill, :force], do: {:ok, mode}
+  defp normalize_mode(mode) when mode in [:fit, :fill, :fill_down, :force], do: {:ok, mode}
   defp normalize_mode(mode), do: {:error, {:invalid_dimension_rule_mode, mode}}
 
   defp normalize_bound_dimension(_field, nil), do: {:ok, :auto}
@@ -128,6 +128,13 @@ defmodule ImagePlug.Transform.Geometry.DimensionResolver do
   end
 
   defp resolve_base_dimensions(%DimensionRule{mode: :fill} = rule, source) do
+    rule
+    |> requested_box(source)
+    |> apply_zoom(rule)
+    |> ok()
+  end
+
+  defp resolve_base_dimensions(%DimensionRule{mode: :fill_down} = rule, source) do
     rule
     |> requested_box(source)
     |> apply_zoom(rule)
@@ -231,6 +238,13 @@ defmodule ImagePlug.Transform.Geometry.DimensionResolver do
     |> cover_resize_dimensions(source)
     |> target_box_dimensions(min_dimensions)
     |> clamp_to_source(source, enlarge)
+  end
+
+  defp intermediate_dimensions(:fill_down, requested, min_dimensions, source, _enlarge) do
+    requested
+    |> cover_resize_dimensions(source)
+    |> target_box_dimensions(min_dimensions)
+    |> clamp_to_source(source, false)
   end
 
   defp intermediate_dimensions(_mode, requested, nil, source, enlarge) do

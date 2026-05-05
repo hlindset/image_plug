@@ -276,10 +276,6 @@ defmodule ImagePlug.Parser.Native.PlanBuilder do
     do: {:error, {:unsupported_gravity, :sm}}
 
   defp validate_supported_semantics(%PipelineRequest{resizing_type: resizing_type})
-       when resizing_type in [:auto, :fill_down],
-       do: {:error, {:unsupported_resizing_type, resizing_type}}
-
-  defp validate_supported_semantics(%PipelineRequest{resizing_type: resizing_type})
        when resizing_type not in @supported_resizing_types,
        do: {:error, {:invalid_resizing_type, resizing_type}}
 
@@ -289,75 +285,73 @@ defmodule ImagePlug.Parser.Native.PlanBuilder do
 
   defp validate_supported_semantics(%PipelineRequest{gravity: gravity} = request) do
     if valid_gravity?(gravity) do
-      validate_extend_semantics(request)
+      with :ok <- validate_extend_semantics(request),
+           :ok <- validate_pending_pipeline_semantics(request) do
+        :ok
+      end
     else
       {:error, {:invalid_gravity, gravity}}
     end
   end
 
-  defp validate_extend_semantics(%PipelineRequest{extend_requested: true}),
-    do: {:error, {:unsupported_pipeline_semantic, :extend}}
-
-  defp validate_extend_semantics(%PipelineRequest{extend: true}),
-    do: {:error, {:unsupported_extend, true}}
-
-  defp validate_extend_semantics(%PipelineRequest{extend_gravity: gravity})
-       when not is_nil(gravity),
-       do: {:error, {:unsupported_extend_gravity, gravity}}
-
-  defp validate_extend_semantics(%PipelineRequest{extend_x_offset: offset})
-       when not is_nil(offset),
-       do: {:error, {:unsupported_extend_offset, offset}}
-
-  defp validate_extend_semantics(%PipelineRequest{extend_y_offset: offset})
-       when not is_nil(offset),
-       do: {:error, {:unsupported_extend_offset, offset}}
-
-  defp validate_extend_semantics(%PipelineRequest{
-         gravity_x_offset: x_offset,
-         gravity_y_offset: y_offset
-       })
-       when x_offset != 0.0 or y_offset != 0.0,
-       do: {:error, {:unsupported_gravity_offset, {x_offset, y_offset}}}
-
   defp validate_extend_semantics(%PipelineRequest{} = request) do
-    validate_pending_pipeline_semantics(request)
+    with :ok <- validate_extend_gravity(request.extend_gravity),
+         :ok <- validate_extend_offset(request.extend_x_offset),
+         :ok <- validate_extend_offset(request.extend_y_offset),
+         :ok <- validate_gravity_offsets(request.gravity_x_offset, request.gravity_y_offset) do
+      validate_extend_aspect_ratio(request.extend_aspect_ratio)
+    end
   end
 
-  defp validate_pending_pipeline_semantics(%PipelineRequest{min_width: min_width})
-       when not is_nil(min_width),
-       do: {:error, {:unsupported_pipeline_semantic, :min_width}}
+  defp validate_extend_gravity(nil), do: :ok
 
-  defp validate_pending_pipeline_semantics(%PipelineRequest{min_height: min_height})
-       when not is_nil(min_height),
-       do: {:error, {:unsupported_pipeline_semantic, :min_height}}
+  defp validate_extend_gravity({:anchor, _x, _y} = gravity) do
+    if valid_gravity?(gravity), do: :ok, else: {:error, {:invalid_gravity, gravity}}
+  end
 
-  defp validate_pending_pipeline_semantics(%PipelineRequest{zoom_x: zoom_x})
-       when not is_nil(zoom_x),
-       do: {:error, {:unsupported_pipeline_semantic, :zoom}}
+  defp validate_extend_gravity(gravity), do: {:error, {:invalid_gravity, gravity}}
 
-  defp validate_pending_pipeline_semantics(%PipelineRequest{zoom_y: zoom_y})
-       when not is_nil(zoom_y),
-       do: {:error, {:unsupported_pipeline_semantic, :zoom}}
+  defp validate_extend_offset(nil), do: :ok
+  defp validate_extend_offset(offset) when is_number(offset), do: :ok
+  defp validate_extend_offset(offset), do: {:error, {:invalid_extend_offset, offset}}
 
-  defp validate_pending_pipeline_semantics(%PipelineRequest{dpr: dpr})
-       when not is_nil(dpr),
-       do: {:error, {:unsupported_pipeline_semantic, :dpr}}
+  defp validate_gravity_offsets(x_offset, y_offset) do
+    if x_offset == 0.0 and y_offset == 0.0 do
+      :ok
+    else
+      {:error, {:unsupported_gravity_offset, {x_offset, y_offset}}}
+    end
+  end
 
-  defp validate_pending_pipeline_semantics(%PipelineRequest{crop: crop})
+  defp validate_extend_aspect_ratio(nil), do: :ok
+
+  defp validate_extend_aspect_ratio({width, height})
+       when is_number(width) and is_number(height) and width > 0 and height > 0,
+       do: :ok
+
+  defp validate_extend_aspect_ratio(extend_aspect_ratio),
+    do: {:error, {:invalid_extend_aspect_ratio, extend_aspect_ratio}}
+
+  defp validate_pending_pipeline_semantics(%PipelineRequest{} = request) do
+    with :ok <- validate_factor(:zoom_x, request.zoom_x),
+         :ok <- validate_factor(:zoom_y, request.zoom_y),
+         :ok <- validate_factor(:dpr, request.dpr) do
+      validate_pending_unimplemented_semantics(request)
+    end
+  end
+
+  defp validate_factor(_field, nil), do: :ok
+  defp validate_factor(_field, value) when is_number(value) and value > 0, do: :ok
+  defp validate_factor(field, value), do: {:error, {:invalid_dimension_factor, field, value}}
+
+  defp validate_pending_unimplemented_semantics(%PipelineRequest{crop: crop})
        when not is_nil(crop),
        do: {:error, {:unsupported_pipeline_semantic, :crop}}
 
-  defp validate_pending_pipeline_semantics(%PipelineRequest{
-         extend_aspect_ratio: extend_aspect_ratio
-       })
-       when not is_nil(extend_aspect_ratio),
-       do: {:error, {:unsupported_pipeline_semantic, :extend_aspect_ratio}}
-
-  defp validate_pending_pipeline_semantics(%PipelineRequest{orientation_requested: true}),
+  defp validate_pending_unimplemented_semantics(%PipelineRequest{orientation_requested: true}),
     do: {:error, {:unsupported_pipeline_semantic, :orientation}}
 
-  defp validate_pending_pipeline_semantics(%PipelineRequest{
+  defp validate_pending_unimplemented_semantics(%PipelineRequest{
          orientation: %Orientation{} = orientation
        }) do
     if orientation == %Orientation{} do
@@ -367,7 +361,7 @@ defmodule ImagePlug.Parser.Native.PlanBuilder do
     end
   end
 
-  defp validate_pending_pipeline_semantics(%PipelineRequest{orientation: orientation}),
+  defp validate_pending_unimplemented_semantics(%PipelineRequest{orientation: orientation}),
     do: {:error, {:invalid_orientation, orientation}}
 
   defp plan_geometry(%PipelineRequest{resizing_type: :force, width: {:pixels, 0}}),
@@ -379,68 +373,109 @@ defmodule ImagePlug.Parser.Native.PlanBuilder do
   defp plan_geometry(%PipelineRequest{resizing_type: :fill, width: nil, height: nil}),
     do: missing_dimensions(:fill)
 
-  defp plan_geometry(%PipelineRequest{width: nil, height: nil}), do: {:ok, []}
-
-  defp plan_geometry(%PipelineRequest{width: {:pixels, 0}, height: {:pixels, 0}}), do: {:ok, []}
-
-  defp plan_geometry(%PipelineRequest{resizing_type: :fit} = request) do
-    with {:ok, rule} <- dimension_rule(request) do
-      case {rule.width, rule.height} do
-        {:auto, :auto} ->
-          {:ok, []}
-
-        {planned_width, planned_height} ->
-          build_operation_list(contain(planned_width, planned_height, request))
-      end
-    end
-  end
-
   defp plan_geometry(%PipelineRequest{resizing_type: :fill, width: nil}),
     do: missing_dimensions(:fill)
 
   defp plan_geometry(%PipelineRequest{resizing_type: :fill, height: nil}),
     do: missing_dimensions(:fill)
 
-  defp plan_geometry(%PipelineRequest{resizing_type: :fill} = request) do
-    with {:ok, rule} <- dimension_rule(request),
-         {:ok, cover} <- cover(rule.width, rule.height, request) do
-      maybe_prepend_focus([cover], request.gravity)
+  defp plan_geometry(%PipelineRequest{resizing_type: resizing_type, width: nil})
+       when resizing_type in [:fill_down, :auto],
+       do: missing_dimensions(resizing_type)
+
+  defp plan_geometry(%PipelineRequest{resizing_type: resizing_type, height: nil})
+       when resizing_type in [:fill_down, :auto],
+       do: missing_dimensions(resizing_type)
+
+  defp plan_geometry(%PipelineRequest{} = request) do
+    with {:ok, resize_operations} <- resize_operations(request),
+         {:ok, canvas_operations} <- canvas_operations(request) do
+      {:ok, resize_operations ++ canvas_operations}
     end
   end
 
-  defp plan_geometry(%PipelineRequest{resizing_type: :force} = request) do
-    with {:ok, rule} <- dimension_rule(request) do
-      build_operation_list(scale(rule.width, rule.height))
+  defp resize_operations(%PipelineRequest{width: nil, height: nil} = request) do
+    if resize_rule_requested?(request) do
+      resize_from_rule(request)
+    else
+      {:ok, []}
     end
   end
 
-  defp plan_geometry(%PipelineRequest{resizing_type: resizing_type}),
+  defp resize_operations(%PipelineRequest{width: {:pixels, 0}, height: {:pixels, 0}}),
+    do: {:ok, []}
+
+  defp resize_operations(%PipelineRequest{resizing_type: :auto} = request) do
+    with {:ok, %Transform.Geometry.DimensionRule{} = rule} <- dimension_rule(request),
+         {:ok, operation} <-
+           Transform.AdaptiveResize.new(
+             rule: %Transform.Geometry.DimensionRule{rule | mode: :auto}
+           ) do
+      {:ok, [operation]}
+    end
+  end
+
+  defp resize_operations(%PipelineRequest{resizing_type: resizing_type} = request)
+       when resizing_type in [:fit, :fill, :fill_down, :force] do
+    resize_from_rule(request)
+  end
+
+  defp resize_operations(%PipelineRequest{resizing_type: resizing_type}),
     do: {:error, {:unsupported_resizing_type, resizing_type}}
 
-  defp scale(width, height) do
-    Transform.Scale.new(
-      type: :dimensions,
-      width: width,
-      height: height
+  defp resize_from_rule(%PipelineRequest{} = request) do
+    with {:ok, %Transform.Geometry.DimensionRule{} = rule} <- dimension_rule(request) do
+      case {rule.width, rule.height, resize_rule_requested?(request)} do
+        {:auto, :auto, false} ->
+          {:ok, []}
+
+        {_planned_width, _planned_height, _rule_requested?} ->
+          build_operation_list(Transform.Resize.new(rule: rule))
+      end
+    end
+  end
+
+  defp resize_rule_requested?(%PipelineRequest{} = request) do
+    not is_nil(request.min_width) or
+      not is_nil(request.min_height) or
+      not is_nil(request.zoom_x) or
+      not is_nil(request.zoom_y) or
+      not is_nil(request.dpr)
+  end
+
+  defp canvas_operations(%PipelineRequest{} = request) do
+    operations =
+      [
+        extend_operation(request),
+        extend_aspect_ratio_operation(request)
+      ]
+      |> Enum.reject(&is_nil/1)
+
+    reduce_results(operations)
+  end
+
+  defp extend_operation(%PipelineRequest{extend: false}), do: nil
+
+  defp extend_operation(%PipelineRequest{} = request) do
+    Transform.ExtendCanvas.new(
+      rule:
+        {:dimensions, normalize_dimension(request.width), normalize_dimension(request.height)},
+      gravity: request.extend_gravity || @default_gravity,
+      x_offset: request.extend_x_offset || 0.0,
+      y_offset: request.extend_y_offset || 0.0,
+      background: :white
     )
   end
 
-  defp contain(width, height, %PipelineRequest{} = request) do
-    Transform.Contain.new(
-      type: :dimensions,
-      width: width,
-      height: height,
-      constraint: contain_constraint(request.enlarge),
-      letterbox: false
-    )
-  end
+  defp extend_aspect_ratio_operation(%PipelineRequest{extend_aspect_ratio: nil}), do: nil
 
-  defp cover(width, height, %PipelineRequest{} = request) do
-    Transform.Cover.new(
-      type: :dimensions,
-      width: width,
-      height: height,
-      constraint: cover_constraint(request.enlarge)
+  defp extend_aspect_ratio_operation(%PipelineRequest{extend_aspect_ratio: ratio}) do
+    Transform.ExtendCanvas.new(
+      rule: {:aspect_ratio, ratio},
+      gravity: @default_gravity,
+      x_offset: 0.0,
+      y_offset: 0.0,
+      background: :white
     )
   end
 
@@ -461,22 +496,12 @@ defmodule ImagePlug.Parser.Native.PlanBuilder do
 
   defp dimension_rule_mode(:fit), do: :fit
   defp dimension_rule_mode(:fill), do: :fill
+  defp dimension_rule_mode(:fill_down), do: :fill_down
   defp dimension_rule_mode(:force), do: :force
+  defp dimension_rule_mode(:auto), do: :fit
 
   defp build_operation_list({:ok, operation}), do: {:ok, [operation]}
   defp build_operation_list({:error, _reason} = error), do: error
-
-  defp maybe_prepend_focus(operations, @default_gravity), do: {:ok, operations}
-
-  defp maybe_prepend_focus([operation | _rest] = operations, gravity) do
-    if Transform.transform_name(operation) == :cover do
-      with {:ok, focus} <- Transform.Focus.new(type: focus_type(gravity)) do
-        {:ok, [focus | operations]}
-      end
-    else
-      {:ok, operations}
-    end
-  end
 
   defp valid_gravity?({:fp, x, y}) do
     is_number(x) and is_number(y) and x >= 0.0 and x <= 1.0 and y >= 0.0 and y <= 1.0
@@ -488,18 +513,9 @@ defmodule ImagePlug.Parser.Native.PlanBuilder do
 
   defp valid_gravity?(_gravity), do: false
 
-  defp focus_type({:fp, x, y}), do: {:coordinate, {:percent, x * 100.0}, {:percent, y * 100.0}}
-  defp focus_type({:anchor, _x, _y} = gravity), do: gravity
-
   defp normalize_dimension({:pixels, 0}), do: :auto
   defp normalize_dimension(nil), do: :auto
   defp normalize_dimension(dimension), do: dimension
-
-  defp cover_constraint(true), do: :none
-  defp cover_constraint(false), do: :max
-
-  defp contain_constraint(true), do: :regular
-  defp contain_constraint(false), do: :max
 
   defp missing_dimensions(resizing_type), do: {:error, {:missing_dimensions, resizing_type}}
 end

@@ -6,10 +6,14 @@ defmodule ImagePlug.Transform.ChainTest do
   alias ImagePlug.Transform.ChainTest.FailingTransform
   alias ImagePlug.Transform.ChainTest.PartialTransform
   alias ImagePlug.Transform.ChainTest.UnexpectedTransform
+  alias ImagePlug.Transform.AdaptiveResize
   alias ImagePlug.Transform.Contain
   alias ImagePlug.Transform.Cover
   alias ImagePlug.Transform.Crop
+  alias ImagePlug.Transform.ExtendCanvas
   alias ImagePlug.Transform.Focus
+  alias ImagePlug.Transform.Geometry.DimensionRule
+  alias ImagePlug.Transform.Resize
   alias ImagePlug.Transform.Scale
   alias ImagePlug.Transform.State
 
@@ -26,6 +30,9 @@ defmodule ImagePlug.Transform.ChainTest do
                width: {:pixels, 10},
                height: :auto
              )
+
+    assert %Resize{rule: %DimensionRule{mode: :fit}} =
+             Resize.new!(rule: %DimensionRule{mode: :fit, width: {:pixels, 10}})
   end
 
   test "transform modules support fallible construction" do
@@ -34,6 +41,11 @@ defmodule ImagePlug.Transform.ChainTest do
                type: :dimensions,
                width: {:pixels, 10},
                height: :auto
+             )
+
+    assert {:ok, %AdaptiveResize{}} =
+             AdaptiveResize.new(
+               rule: %DimensionRule{mode: :auto, width: {:pixels, 10}, height: {:pixels, 20}}
              )
   end
 
@@ -144,6 +156,20 @@ defmodule ImagePlug.Transform.ChainTest do
              Focus.new(type: {:anchor, :left, :top}, extra: true)
   end
 
+  test "neutral resize construction validates malformed attributes" do
+    assert {:error, %ArgumentError{message: "invalid resize rule: :oops"}} =
+             Resize.new(rule: :oops)
+
+    assert {:error, %ArgumentError{message: "invalid adaptive resize rule: :oops"}} =
+             AdaptiveResize.new(rule: :oops)
+
+    assert {:error, %ArgumentError{message: "invalid extend canvas rule: :oops"}} =
+             ExtendCanvas.new(rule: :oops)
+
+    assert {:error, %ArgumentError{message: "unknown resize option(s): :extra"}} =
+             Resize.new(rule: %DimensionRule{}, extra: true)
+  end
+
   test "transform name is delegated to operation module" do
     operation =
       Scale.new!(
@@ -215,5 +241,32 @@ defmodule ImagePlug.Transform.ChainTest do
     assert state.errors == [
              {Scale, {:error, {:invalid_scale_dimensions, :auto_auto}}}
            ]
+  end
+
+  test "neutral resize and canvas operations execute through the chain" do
+    {:ok, image} = Image.new(200, 100, color: :white)
+
+    chain = [
+      %Resize{rule: %DimensionRule{mode: :fit, width: {:pixels, 100}, height: {:pixels, 100}}},
+      %ExtendCanvas{rule: {:dimensions, {:pixels, 100}, {:pixels, 100}}}
+    ]
+
+    assert {:ok, %State{image: image}} = Chain.execute(%State{image: image}, chain)
+    assert Image.width(image) == 100
+    assert Image.height(image) == 100
+  end
+
+  test "adaptive resize chooses cover behavior for matching orientation" do
+    {:ok, image} = Image.new(200, 100, color: :white)
+
+    chain = [
+      %AdaptiveResize{
+        rule: %DimensionRule{mode: :auto, width: {:pixels, 100}, height: {:pixels, 50}}
+      }
+    ]
+
+    assert {:ok, %State{image: image}} = Chain.execute(%State{image: image}, chain)
+    assert Image.width(image) == 100
+    assert Image.height(image) == 50
   end
 end

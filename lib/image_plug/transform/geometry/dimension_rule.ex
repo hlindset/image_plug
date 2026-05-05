@@ -2,7 +2,7 @@ defmodule ImagePlug.Transform.Geometry.DimensionRule do
   @moduledoc false
 
   @type dimension() :: :auto | ImagePlug.imgp_pixels()
-  @type mode() :: :fit | :fill | :force
+  @type mode() :: :fit | :fill | :fill_down | :force | :auto
 
   @type t() :: %__MODULE__{
           mode: mode(),
