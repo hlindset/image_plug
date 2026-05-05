@@ -435,8 +435,12 @@ defmodule ImagePlug.Parser.Native.PlanBuilder do
     with {:ok, crop_operations} <- crop_operations(request),
          {:ok, orientation_operations} <- orientation_operations(request),
          {:ok, resize_operations} <- resize_operations(request),
+         {:ok, result_crop_operations} <- result_crop_operations(request, resize_operations),
          {:ok, canvas_operations} <- canvas_operations(request) do
-      {:ok, crop_operations ++ orientation_operations ++ resize_operations ++ canvas_operations}
+      {:ok,
+       crop_operations ++
+         orientation_operations ++
+         resize_operations ++ result_crop_operations ++ canvas_operations}
     end
   end
 
@@ -476,6 +480,43 @@ defmodule ImagePlug.Parser.Native.PlanBuilder do
 
   defp flip_operation(%Orientation{flip: nil}), do: nil
   defp flip_operation(%Orientation{flip: axis}), do: Transform.Flip.new(axis: axis)
+
+  defp result_crop_operations(%PipelineRequest{}, []), do: {:ok, []}
+
+  defp result_crop_operations(
+         %PipelineRequest{resizing_type: resizing_type} = request,
+         _operations
+       )
+       when resizing_type in [:fill, :fill_down, :auto] do
+    with {:ok, %Transform.Geometry.DimensionRule{} = rule} <- result_crop_rule(request) do
+      build_operation_list(
+        Transform.Crop.new(
+          width: :auto,
+          height: :auto,
+          crop_from: :gravity,
+          gravity: request.gravity,
+          x_offset: 0.0,
+          y_offset: 0.0,
+          target_rule: rule
+        )
+      )
+    end
+  end
+
+  defp result_crop_operations(%PipelineRequest{}, _operations), do: {:ok, []}
+
+  defp result_crop_rule(%PipelineRequest{} = request) do
+    with {:ok, %Transform.Geometry.DimensionRule{} = rule} <- dimension_rule(request) do
+      {:ok,
+       %Transform.Geometry.DimensionRule{
+         rule
+         | mode: result_crop_rule_mode(request.resizing_type)
+       }}
+    end
+  end
+
+  defp result_crop_rule_mode(:auto), do: :auto
+  defp result_crop_rule_mode(mode), do: mode
 
   defp resize_operations(%PipelineRequest{width: nil, height: nil} = request) do
     if resize_rule_requested?(request) do

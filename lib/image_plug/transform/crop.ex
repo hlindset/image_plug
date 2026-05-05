@@ -7,6 +7,8 @@ defmodule ImagePlug.Transform.Crop do
   import ImagePlug.Transform.Geometry
 
   alias ImagePlug.Transform.Geometry.CropCoordinateMapper
+  alias ImagePlug.Transform.Geometry.DimensionResolver
+  alias ImagePlug.Transform.Geometry.DimensionRule
   alias ImagePlug.Transform.State
 
   @default_gravity {:anchor, :center, :center}
@@ -22,7 +24,8 @@ defmodule ImagePlug.Transform.Crop do
     gravity: nil,
     x_offset: 0.0,
     y_offset: 0.0,
-    orientation: nil
+    orientation: nil,
+    target_rule: nil
   ]
 
   @type t :: %__MODULE__{
@@ -37,7 +40,8 @@ defmodule ImagePlug.Transform.Crop do
             | nil,
           x_offset: number(),
           y_offset: number(),
-          orientation: map() | struct() | nil
+          orientation: map() | struct() | nil,
+          target_rule: DimensionRule.t() | nil
         }
 
   @impl ImagePlug.Transform
@@ -92,16 +96,18 @@ defmodule ImagePlug.Transform.Crop do
          image_width,
          image_height
        ) do
-    CropCoordinateMapper.map(
-      source_width: image_width,
-      source_height: image_height,
-      crop_width: params.width,
-      crop_height: params.height,
-      gravity: default_if_nil(params.gravity, @default_gravity),
-      x_offset: default_if_nil(params.x_offset, 0.0),
-      y_offset: default_if_nil(params.y_offset, 0.0),
-      orientation: default_if_nil(params.orientation, @default_orientation)
-    )
+    with {:ok, {crop_width, crop_height}} <- crop_dimensions(params, image_width, image_height) do
+      CropCoordinateMapper.map(
+        source_width: image_width,
+        source_height: image_height,
+        crop_width: crop_width,
+        crop_height: crop_height,
+        gravity: default_if_nil(params.gravity, @default_gravity),
+        x_offset: default_if_nil(params.x_offset, 0.0),
+        y_offset: default_if_nil(params.y_offset, 0.0),
+        orientation: default_if_nil(params.orientation, @default_orientation)
+      )
+    end
   end
 
   defp crop_coordinates(%__MODULE__{} = params, %State{} = state, image_width, image_height) do
@@ -133,6 +139,52 @@ defmodule ImagePlug.Transform.Crop do
 
   defp default_if_nil(nil, default), do: default
   defp default_if_nil(value, _default), do: value
+
+  defp crop_dimensions(%__MODULE__{target_rule: nil} = params, _image_width, _image_height) do
+    {:ok, {params.width, params.height}}
+  end
+
+  defp crop_dimensions(
+         %__MODULE__{target_rule: %DimensionRule{} = rule},
+         image_width,
+         image_height
+       ) do
+    rule = resolve_auto_target_rule(rule, image_width, image_height)
+    opts = [source_width: image_width, source_height: image_height]
+
+    with {:ok, dimensions} <- DimensionResolver.resolve(rule, opts) do
+      {:ok, {dimensions.target_width, dimensions.target_height}}
+    end
+  end
+
+  defp resolve_auto_target_rule(%DimensionRule{mode: :auto} = rule, image_width, image_height) do
+    %DimensionRule{rule | mode: adaptive_target_mode(rule, image_width, image_height)}
+  end
+
+  defp resolve_auto_target_rule(%DimensionRule{} = rule, _image_width, _image_height), do: rule
+
+  defp adaptive_target_mode(%DimensionRule{} = rule, image_width, image_height) do
+    with {:ok, width} <- requested_dimension(rule.width, image_width),
+         {:ok, height} <- requested_dimension(rule.height, image_height) do
+      if same_orientation?(image_width, image_height, width, height), do: :fill, else: :fit
+    else
+      :error -> :fit
+    end
+  end
+
+  defp requested_dimension(nil, _source_dimension), do: :error
+  defp requested_dimension(:auto, _source_dimension), do: :error
+
+  defp requested_dimension(dimension, source_dimension),
+    do: {:ok, to_pixels(source_dimension, dimension)}
+
+  defp same_orientation?(source_width, source_height, target_width, target_height) do
+    orientation(source_width, source_height) == orientation(target_width, target_height)
+  end
+
+  defp orientation(width, height) when width > height, do: :landscape
+  defp orientation(width, height) when width < height, do: :portrait
+  defp orientation(_width, _height), do: :square
 
   defp anchor_crop_to_pixels(
          %State{},
@@ -171,7 +223,8 @@ defmodule ImagePlug.Transform.Crop do
       :gravity,
       :x_offset,
       :y_offset,
-      :orientation
+      :orientation,
+      :target_rule
     ])
 
     validate_dimension_or_auto!(:width, Map.fetch!(attrs, :width))
@@ -181,6 +234,7 @@ defmodule ImagePlug.Transform.Crop do
     validate_offset!(:x_offset, Map.get(attrs, :x_offset, 0.0))
     validate_offset!(:y_offset, Map.get(attrs, :y_offset, 0.0))
     validate_orientation!(Map.get(attrs, :orientation))
+    validate_target_rule!(Map.get(attrs, :target_rule))
 
     attrs
   end
@@ -234,6 +288,21 @@ defmodule ImagePlug.Transform.Crop do
 
   defp validate_orientation!(orientation),
     do: raise(ArgumentError, "invalid crop orientation: #{inspect(orientation)}")
+
+  defp validate_target_rule!(nil), do: :ok
+
+  defp validate_target_rule!(%DimensionRule{} = rule) do
+    case DimensionRule.validate(rule, modes: [:fit, :fill, :fill_down, :force, :auto]) do
+      :ok ->
+        :ok
+
+      {:error, {field, value}} ->
+        raise ArgumentError, "invalid crop target_rule #{field}: #{inspect(value)}"
+    end
+  end
+
+  defp validate_target_rule!(target_rule),
+    do: raise(ArgumentError, "invalid crop target_rule: #{inspect(target_rule)}")
 
   defp validate_dimension_or_auto!(_field, :auto), do: :ok
 

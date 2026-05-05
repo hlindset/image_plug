@@ -78,6 +78,46 @@ defmodule ImagePlug.Transform.MaterialTest do
            ]
   end
 
+  test "result crop operations emit target rule material" do
+    assert Material.material(%Transform.Crop{
+             width: :auto,
+             height: :auto,
+             crop_from: :gravity,
+             gravity: {:anchor, :right, :bottom},
+             x_offset: 0.0,
+             y_offset: 0.0,
+             target_rule: %Transform.Geometry.DimensionRule{
+               mode: :fill,
+               width: {:pixels, 100},
+               height: {:pixels, 100}
+             }
+           }) == [
+             op: :crop,
+             width: :auto,
+             height: :auto,
+             crop_from: :gravity,
+             gravity: {:anchor, :right, :bottom},
+             x_offset: 0.0,
+             y_offset: 0.0,
+             orientation: [
+               auto_orient: false,
+               rotate: 0,
+               flip: nil
+             ],
+             target_rule: [
+               mode: :fill,
+               width: {:pixels, 100},
+               height: {:pixels, 100},
+               min_width: nil,
+               min_height: nil,
+               zoom_x: 1.0,
+               zoom_y: 1.0,
+               dpr: 1.0,
+               enlarge: false
+             ]
+           ]
+  end
+
   test "orientation operations emit canonical material" do
     assert Material.material(%Transform.AutoOrient{}) == [
              op: :auto_orient

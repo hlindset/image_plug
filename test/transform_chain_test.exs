@@ -356,12 +356,44 @@ defmodule ImagePlug.Transform.ChainTest do
     {:ok, image} = Image.new(200, 100, color: :white)
 
     chain = [
-      %Resize{rule: %DimensionRule{mode: :fill, width: {:pixels, 100}, height: {:pixels, 100}}}
+      %Resize{rule: %DimensionRule{mode: :fill, width: {:pixels, 100}, height: {:pixels, 100}}},
+      %Crop{
+        width: :auto,
+        height: :auto,
+        crop_from: :gravity,
+        gravity: {:anchor, :center, :center},
+        target_rule: %DimensionRule{mode: :fill, width: {:pixels, 100}, height: {:pixels, 100}}
+      }
     ]
 
     assert {:ok, %State{image: image}} = Chain.execute(%State{image: image}, chain)
     assert Image.width(image) == 100
     assert Image.height(image) == 100
+  end
+
+  test "fill result crop applies non-center gravity after resize" do
+    image =
+      300
+      |> Image.new!(100, color: :black)
+      |> Image.Draw.rect!(0, 0, 100, 100, color: :red)
+      |> Image.Draw.rect!(100, 0, 100, 100, color: :green)
+      |> Image.Draw.rect!(200, 0, 100, 100, color: :blue)
+
+    chain = [
+      %Resize{rule: %DimensionRule{mode: :fill, width: {:pixels, 100}, height: {:pixels, 100}}},
+      %Crop{
+        width: :auto,
+        height: :auto,
+        crop_from: :gravity,
+        gravity: {:anchor, :right, :center},
+        target_rule: %DimensionRule{mode: :fill, width: {:pixels, 100}, height: {:pixels, 100}}
+      }
+    ]
+
+    assert {:ok, %State{image: image}} = Chain.execute(%State{image: image}, chain)
+    assert Image.width(image) == 100
+    assert Image.height(image) == 100
+    assert Image.get_pixel!(image, 50, 50) == [0, 0, 255]
   end
 
   test "fill resize crops to min-adjusted target dimensions" do
@@ -371,6 +403,18 @@ defmodule ImagePlug.Transform.ChainTest do
       chain = [
         %Resize{
           rule: %DimensionRule{
+            mode: mode,
+            width: {:pixels, 100},
+            height: {:pixels, 100},
+            min_width: {:pixels, 300}
+          }
+        },
+        %Crop{
+          width: :auto,
+          height: :auto,
+          crop_from: :gravity,
+          gravity: {:anchor, :center, :center},
+          target_rule: %DimensionRule{
             mode: mode,
             width: {:pixels, 100},
             height: {:pixels, 100},
@@ -430,6 +474,18 @@ defmodule ImagePlug.Transform.ChainTest do
     chain = [
       %Resize{
         rule: %DimensionRule{
+          mode: :fill_down,
+          width: {:pixels, 300},
+          height: {:pixels, 300},
+          enlarge: true
+        }
+      },
+      %Crop{
+        width: :auto,
+        height: :auto,
+        crop_from: :gravity,
+        gravity: {:anchor, :center, :center},
+        target_rule: %DimensionRule{
           mode: :fill_down,
           width: {:pixels, 300},
           height: {:pixels, 300},

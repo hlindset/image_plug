@@ -65,14 +65,7 @@ defmodule ImagePlug.Transform.Resize do
 
     with {:ok, dimensions} <- DimensionResolver.resolve(rule, opts),
          {:ok, image} <-
-           resize_image(state, dimensions.intermediate_width, dimensions.intermediate_height),
-         {:ok, image} <-
-           maybe_crop_fill_image(
-             rule,
-             image,
-             dimensions.target_width,
-             dimensions.target_height
-           ) do
+           resize_image(state, dimensions.intermediate_width, dimensions.intermediate_height) do
       state |> set_image(image) |> reset_focus()
     else
       {:error, _reason} = error -> add_error(state, {__MODULE__, error})
@@ -87,43 +80,6 @@ defmodule ImagePlug.Transform.Resize do
       height_scale = height / image_height(state)
 
       Image.resize(state.image, width_scale, vertical_scale: height_scale)
-    end
-  end
-
-  defp maybe_crop_fill_image(%DimensionRule{mode: mode}, image, requested_width, requested_height)
-       when mode in [:fill, :fill_down] and requested_width != :auto and requested_height != :auto do
-    {crop_width, crop_height} =
-      crop_dimensions_for_aspect_ratio(image, requested_width, requested_height)
-
-    if crop_width == Image.width(image) and crop_height == Image.height(image) do
-      {:ok, image}
-    else
-      left = div(Image.width(image) - crop_width, 2)
-      top = div(Image.height(image) - crop_height, 2)
-
-      Image.crop(image, left, top, crop_width, crop_height)
-    end
-  end
-
-  defp maybe_crop_fill_image(%DimensionRule{}, image, _requested_width, _requested_height),
-    do: {:ok, image}
-
-  defp crop_dimensions_for_aspect_ratio(image, requested_width, requested_height) do
-    image_width = Image.width(image)
-    image_height = Image.height(image)
-    requested_ratio = requested_width / requested_height
-    image_ratio = image_width / image_height
-
-    if image_ratio > requested_ratio do
-      crop_height = min(requested_height, image_height)
-      crop_width = min(round(crop_height * requested_ratio), image_width)
-
-      {max(crop_width, 1), crop_height}
-    else
-      crop_width = min(requested_width, image_width)
-      crop_height = min(round(crop_width / requested_ratio), image_height)
-
-      {crop_width, max(crop_height, 1)}
     end
   end
 
