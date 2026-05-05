@@ -265,21 +265,17 @@ defmodule ImagePlug.Parser.NativeTest do
     assert params.rule.height == {:pixels, 200}
   end
 
-  test "parses gravity anchors and focal point" do
-    assert [%Transform.Resize{} = anchor_resize] =
-             operations_for("/_/g:nowe/rs:fill:300:200/plain/images/cat.jpg")
+  test "rejects gravity-bearing fill until neutral gravity crop support exists" do
+    assert Native.parse(conn(:get, "/_/g:nowe/rs:fill:300:200/plain/images/cat.jpg"), []) ==
+             {:error, {:unsupported_gravity_for_resize, :fill}}
 
-    assert anchor_resize.rule.mode == :fill
+    assert Native.parse(
+             conn(:get, "/_/gravity:fp:0.5:0.25/rs:fill:300:200/plain/images/cat.jpg"),
+             []
+           ) == {:error, {:unsupported_gravity_for_resize, :fill}}
 
-    assert [%Transform.Resize{} = focal_resize] =
-             operations_for("/_/gravity:fp:0.5:0.25/rs:fill:300:200/plain/images/cat.jpg")
-
-    assert focal_resize.rule.mode == :fill
-
-    assert [%Transform.Resize{} = edge_resize] =
-             operations_for("/_/g:fp:1:0/rs:fill:300:200/plain/images/cat.jpg")
-
-    assert edge_resize.rule.mode == :fill
+    assert Native.parse(conn(:get, "/_/g:fp:1:0/rs:fill:300:200/plain/images/cat.jpg"), []) ==
+             {:error, {:unsupported_gravity_for_resize, :fill}}
   end
 
   test "rejects out-of-range focal point coordinates as gravity coordinate errors" do

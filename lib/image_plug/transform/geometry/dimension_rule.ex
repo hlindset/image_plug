@@ -51,7 +51,6 @@ defmodule ImagePlug.Transform.Geometry.DimensionRule do
     if mode in modes, do: :ok, else: {:error, {:mode, mode}}
   end
 
-  defp validate_bound_dimension(_field, nil), do: :ok
   defp validate_bound_dimension(_field, :auto), do: :ok
 
   defp validate_bound_dimension(_field, {:pixels, value}) when is_number(value) and value >= 0,
@@ -67,7 +66,6 @@ defmodule ImagePlug.Transform.Geometry.DimensionRule do
 
   defp validate_min_dimension(field, value), do: {:error, {field, value}}
 
-  defp validate_factor(_field, nil), do: :ok
   defp validate_factor(_field, value) when is_number(value) and value > 0, do: :ok
   defp validate_factor(field, value), do: {:error, {field, value}}
 

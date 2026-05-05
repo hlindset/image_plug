@@ -166,17 +166,53 @@ defmodule ImagePlug.Transform.ChainTest do
     assert {:error, %ArgumentError{message: "invalid resize rule mode: :auto"}} =
              Resize.new(rule: %DimensionRule{mode: :auto})
 
+    assert {:error, %ArgumentError{message: "invalid resize rule width: nil"}} =
+             Resize.new(rule: %DimensionRule{width: nil})
+
+    assert {:error, %ArgumentError{message: "invalid resize rule height: nil"}} =
+             Resize.new(rule: %DimensionRule{height: nil})
+
     assert {:error, %ArgumentError{message: "invalid resize rule width: :oops"}} =
              Resize.new(rule: %DimensionRule{width: :oops})
+
+    assert {:error, %ArgumentError{message: "invalid resize rule zoom_x: nil"}} =
+             Resize.new(rule: %DimensionRule{zoom_x: nil})
+
+    assert {:error, %ArgumentError{message: "invalid resize rule zoom_y: nil"}} =
+             Resize.new(rule: %DimensionRule{zoom_y: nil})
+
+    assert {:error, %ArgumentError{message: "invalid resize rule dpr: nil"}} =
+             Resize.new(rule: %DimensionRule{dpr: nil})
 
     assert {:error, %ArgumentError{message: "invalid resize rule dpr: 0"}} =
              Resize.new(rule: %DimensionRule{dpr: 0})
 
+    assert {:error, %ArgumentError{message: "invalid resize rule enlarge: nil"}} =
+             Resize.new(rule: %DimensionRule{enlarge: nil})
+
     assert {:error, %ArgumentError{message: "invalid adaptive resize rule mode: :fill"}} =
              AdaptiveResize.new(rule: %DimensionRule{mode: :fill})
 
+    assert {:error, %ArgumentError{message: "invalid adaptive resize rule width: nil"}} =
+             AdaptiveResize.new(rule: %DimensionRule{mode: :auto, width: nil})
+
+    assert {:error, %ArgumentError{message: "invalid adaptive resize rule height: nil"}} =
+             AdaptiveResize.new(rule: %DimensionRule{mode: :auto, height: nil})
+
+    assert {:error, %ArgumentError{message: "invalid adaptive resize rule zoom_x: nil"}} =
+             AdaptiveResize.new(rule: %DimensionRule{mode: :auto, zoom_x: nil})
+
+    assert {:error, %ArgumentError{message: "invalid adaptive resize rule zoom_y: nil"}} =
+             AdaptiveResize.new(rule: %DimensionRule{mode: :auto, zoom_y: nil})
+
+    assert {:error, %ArgumentError{message: "invalid adaptive resize rule dpr: nil"}} =
+             AdaptiveResize.new(rule: %DimensionRule{mode: :auto, dpr: nil})
+
     assert {:error, %ArgumentError{message: "invalid adaptive resize rule enlarge: :oops"}} =
              AdaptiveResize.new(rule: %DimensionRule{mode: :auto, enlarge: :oops})
+
+    assert {:error, %ArgumentError{message: "invalid adaptive resize rule enlarge: nil"}} =
+             AdaptiveResize.new(rule: %DimensionRule{mode: :auto, enlarge: nil})
 
     assert {:error, %ArgumentError{message: "invalid extend canvas rule: :oops"}} =
              ExtendCanvas.new(rule: :oops)

@@ -285,7 +285,8 @@ defmodule ImagePlug.Parser.Native.PlanBuilder do
 
   defp validate_supported_semantics(%PipelineRequest{gravity: gravity} = request) do
     if valid_gravity?(gravity) do
-      with :ok <- validate_extend_semantics(request),
+      with :ok <- validate_resize_gravity(request),
+           :ok <- validate_extend_semantics(request),
            :ok <- validate_pending_pipeline_semantics(request) do
         :ok
       end
@@ -293,6 +294,15 @@ defmodule ImagePlug.Parser.Native.PlanBuilder do
       {:error, {:invalid_gravity, gravity}}
     end
   end
+
+  defp validate_resize_gravity(%PipelineRequest{
+         resizing_type: resizing_type,
+         gravity: gravity
+       })
+       when resizing_type in [:fill, :fill_down] and gravity != @default_gravity,
+       do: {:error, {:unsupported_gravity_for_resize, resizing_type}}
+
+  defp validate_resize_gravity(%PipelineRequest{}), do: :ok
 
   defp validate_extend_semantics(%PipelineRequest{} = request) do
     with :ok <- validate_extend_gravity(request.extend_gravity),
