@@ -299,7 +299,7 @@ defmodule ImagePlug.Parser.Native.PlanBuilder do
          resizing_type: resizing_type,
          gravity: gravity
        })
-       when resizing_type in [:fill, :fill_down] and gravity != @default_gravity,
+       when resizing_type in [:fill, :fill_down, :auto] and gravity != @default_gravity,
        do: {:error, {:unsupported_gravity_for_resize, resizing_type}}
 
   defp validate_resize_gravity(%PipelineRequest{}), do: :ok

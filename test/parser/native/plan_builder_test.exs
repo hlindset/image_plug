@@ -108,7 +108,7 @@ defmodule ImagePlug.Parser.Native.PlanBuilderTest do
            ] = operations
   end
 
-  test "rejects gravity-bearing fill and fill-down requests until neutral gravity crop support exists" do
+  test "rejects gravity-bearing fill, fill-down, and auto requests until neutral gravity crop support exists" do
     assert plan_pipeline(
              resizing_type: :fill,
              width: {:pixels, 100},
@@ -122,6 +122,13 @@ defmodule ImagePlug.Parser.Native.PlanBuilderTest do
              height: {:pixels, 100},
              gravity: {:fp, 0.25, 0.75}
            ) == {:error, {:unsupported_gravity_for_resize, :fill_down}}
+
+    assert plan_pipeline(
+             resizing_type: :auto,
+             width: {:pixels, 100},
+             height: {:pixels, 100},
+             gravity: {:anchor, :right, :bottom}
+           ) == {:error, {:unsupported_gravity_for_resize, :auto}}
   end
 
   test "preserves zero fit and fill dimensions as no geometry when both dimensions are auto" do

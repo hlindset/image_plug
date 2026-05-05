@@ -265,7 +265,7 @@ defmodule ImagePlug.Parser.NativeTest do
     assert params.rule.height == {:pixels, 200}
   end
 
-  test "rejects gravity-bearing fill until neutral gravity crop support exists" do
+  test "rejects gravity-bearing fill and auto until neutral gravity crop support exists" do
     assert Native.parse(conn(:get, "/_/g:nowe/rs:fill:300:200/plain/images/cat.jpg"), []) ==
              {:error, {:unsupported_gravity_for_resize, :fill}}
 
@@ -276,6 +276,9 @@ defmodule ImagePlug.Parser.NativeTest do
 
     assert Native.parse(conn(:get, "/_/g:fp:1:0/rs:fill:300:200/plain/images/cat.jpg"), []) ==
              {:error, {:unsupported_gravity_for_resize, :fill}}
+
+    assert Native.parse(conn(:get, "/_/g:soea/rt:auto/w:300/h:200/plain/images/cat.jpg"), []) ==
+             {:error, {:unsupported_gravity_for_resize, :auto}}
   end
 
   test "rejects out-of-range focal point coordinates as gravity coordinate errors" do
