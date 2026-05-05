@@ -58,7 +58,14 @@ defmodule ImagePlug.Transform.Resize do
 
     with {:ok, dimensions} <- DimensionResolver.resolve(rule, opts),
          {:ok, image} <-
-           resize_image(state, dimensions.intermediate_width, dimensions.intermediate_height) do
+           resize_image(state, dimensions.intermediate_width, dimensions.intermediate_height),
+         {:ok, image} <-
+           maybe_crop_fill_image(
+             rule,
+             image,
+             dimensions.requested_width,
+             dimensions.requested_height
+           ) do
       state |> set_image(image) |> reset_focus()
     else
       {:error, _reason} = error -> add_error(state, {__MODULE__, error})
@@ -76,6 +83,24 @@ defmodule ImagePlug.Transform.Resize do
     end
   end
 
+  defp maybe_crop_fill_image(%DimensionRule{mode: mode}, image, requested_width, requested_height)
+       when mode in [:fill, :fill_down] and requested_width != :auto and requested_height != :auto do
+    crop_width = min(requested_width, Image.width(image))
+    crop_height = min(requested_height, Image.height(image))
+
+    if crop_width == Image.width(image) and crop_height == Image.height(image) do
+      {:ok, image}
+    else
+      left = div(Image.width(image) - crop_width, 2)
+      top = div(Image.height(image) - crop_height, 2)
+
+      Image.crop(image, left, top, crop_width, crop_height)
+    end
+  end
+
+  defp maybe_crop_fill_image(%DimensionRule{}, image, _requested_width, _requested_height),
+    do: {:ok, image}
+
   defp validate_attrs!(attrs) do
     attrs = Map.new(attrs)
     validate_keys!(attrs, [:rule])
@@ -92,6 +117,15 @@ defmodule ImagePlug.Transform.Resize do
     end
   end
 
-  defp validate_rule!(%DimensionRule{}), do: :ok
+  defp validate_rule!(%DimensionRule{} = rule) do
+    case DimensionRule.validate(rule, modes: [:fit, :fill, :fill_down, :force]) do
+      :ok ->
+        :ok
+
+      {:error, {field, value}} ->
+        raise ArgumentError, "invalid resize rule #{field}: #{inspect(value)}"
+    end
+  end
+
   defp validate_rule!(rule), do: raise(ArgumentError, "invalid resize rule: #{inspect(rule)}")
 end

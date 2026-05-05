@@ -97,7 +97,15 @@ defmodule ImagePlug.Transform.AdaptiveResize do
     end
   end
 
-  defp validate_rule!(%DimensionRule{}), do: :ok
+  defp validate_rule!(%DimensionRule{} = rule) do
+    case DimensionRule.validate(rule, modes: [:auto]) do
+      :ok ->
+        :ok
+
+      {:error, {field, value}} ->
+        raise ArgumentError, "invalid adaptive resize rule #{field}: #{inspect(value)}"
+    end
+  end
 
   defp validate_rule!(rule),
     do: raise(ArgumentError, "invalid adaptive resize rule: #{inspect(rule)}")

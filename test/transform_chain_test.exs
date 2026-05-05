@@ -163,6 +163,21 @@ defmodule ImagePlug.Transform.ChainTest do
     assert {:error, %ArgumentError{message: "invalid adaptive resize rule: :oops"}} =
              AdaptiveResize.new(rule: :oops)
 
+    assert {:error, %ArgumentError{message: "invalid resize rule mode: :auto"}} =
+             Resize.new(rule: %DimensionRule{mode: :auto})
+
+    assert {:error, %ArgumentError{message: "invalid resize rule width: :oops"}} =
+             Resize.new(rule: %DimensionRule{width: :oops})
+
+    assert {:error, %ArgumentError{message: "invalid resize rule dpr: 0"}} =
+             Resize.new(rule: %DimensionRule{dpr: 0})
+
+    assert {:error, %ArgumentError{message: "invalid adaptive resize rule mode: :fill"}} =
+             AdaptiveResize.new(rule: %DimensionRule{mode: :fill})
+
+    assert {:error, %ArgumentError{message: "invalid adaptive resize rule enlarge: :oops"}} =
+             AdaptiveResize.new(rule: %DimensionRule{mode: :auto, enlarge: :oops})
+
     assert {:error, %ArgumentError{message: "invalid extend canvas rule: :oops"}} =
              ExtendCanvas.new(rule: :oops)
 
@@ -249,6 +264,18 @@ defmodule ImagePlug.Transform.ChainTest do
     chain = [
       %Resize{rule: %DimensionRule{mode: :fit, width: {:pixels, 100}, height: {:pixels, 100}}},
       %ExtendCanvas{rule: {:dimensions, {:pixels, 100}, {:pixels, 100}}}
+    ]
+
+    assert {:ok, %State{image: image}} = Chain.execute(%State{image: image}, chain)
+    assert Image.width(image) == 100
+    assert Image.height(image) == 100
+  end
+
+  test "fill resize crops non-square sources to the requested box" do
+    {:ok, image} = Image.new(200, 100, color: :white)
+
+    chain = [
+      %Resize{rule: %DimensionRule{mode: :fill, width: {:pixels, 100}, height: {:pixels, 100}}}
     ]
 
     assert {:ok, %State{image: image}} = Chain.execute(%State{image: image}, chain)
