@@ -37,7 +37,13 @@ defmodule ImagePlug.Transform.ExtendCanvas do
   end
 
   @impl ImagePlug.Transform
-  def new!(%__MODULE__{} = operation), do: operation
+  def new!(%__MODULE__{} = operation) do
+    operation
+    |> Map.from_struct()
+    |> validate_attrs!()
+
+    operation
+  end
 
   def new!(attrs) when is_list(attrs) or is_map(attrs) do
     attrs

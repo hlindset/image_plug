@@ -227,6 +227,37 @@ defmodule ImagePlug.Transform.ChainTest do
              Resize.new(rule: %DimensionRule{}, extra: true)
   end
 
+  test "existing transform structs validate malformed attributes" do
+    assert {:error, %ArgumentError{message: "invalid scale width: :oops"}} =
+             Scale.new(%Scale{type: :dimensions, width: :oops, height: {:pixels, 100}})
+
+    assert {:error, %ArgumentError{message: "invalid contain width: :oops"}} =
+             Contain.new(%Contain{
+               type: :dimensions,
+               width: :oops,
+               height: {:pixels, 100},
+               constraint: :regular,
+               letterbox: false
+             })
+
+    assert {:error, %ArgumentError{message: "invalid cover width: :oops"}} =
+             Cover.new(%Cover{
+               type: :dimensions,
+               width: :oops,
+               height: {:pixels, 100},
+               constraint: :none
+             })
+
+    assert {:error, %ArgumentError{message: "invalid crop width: nil"}} =
+             Crop.new(%Crop{width: nil, height: {:pixels, 100}, crop_from: :focus})
+
+    assert {:error, %ArgumentError{message: "invalid focus left: :oops"}} =
+             Focus.new(%Focus{type: {:coordinate, :oops, {:percent, 50}}})
+
+    assert {:error, %ArgumentError{message: "invalid extend canvas rule: :oops"}} =
+             ExtendCanvas.new(%ExtendCanvas{rule: :oops})
+  end
+
   test "transform name is delegated to operation module" do
     operation =
       Scale.new!(

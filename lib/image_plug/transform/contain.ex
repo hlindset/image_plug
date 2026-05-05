@@ -40,7 +40,13 @@ defmodule ImagePlug.Transform.Contain do
   end
 
   @impl ImagePlug.Transform
-  def new!(%__MODULE__{} = operation), do: operation
+  def new!(%__MODULE__{} = operation) do
+    operation
+    |> attrs_from_operation()
+    |> validate_attrs!()
+
+    operation
+  end
 
   def new!(attrs) when is_list(attrs) or is_map(attrs) do
     attrs
@@ -192,6 +198,22 @@ defmodule ImagePlug.Transform.Contain do
         raise ArgumentError, "invalid contain type: #{inspect(type)}"
     end
   end
+
+  defp attrs_from_operation(%__MODULE__{type: :dimensions} = operation) do
+    %{
+      type: operation.type,
+      width: operation.width,
+      height: operation.height,
+      constraint: operation.constraint,
+      letterbox: operation.letterbox
+    }
+  end
+
+  defp attrs_from_operation(%__MODULE__{type: :ratio} = operation) do
+    %{type: operation.type, ratio: operation.ratio, letterbox: operation.letterbox}
+  end
+
+  defp attrs_from_operation(%__MODULE__{} = operation), do: %{type: operation.type}
 
   defp validate_keys!(attrs, allowed_keys) do
     unknown_keys = Map.keys(attrs) -- allowed_keys
