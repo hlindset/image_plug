@@ -1,0 +1,10 @@
+# Show multiple severity levels inline
+inline_comments_severity_threshold = 1
+
+# Show feedback both inline and in summary
+comments_location_policy = "both"
+
+# Display more findings and expand contextual sections
+[review_agent_ux]
+finding_overflow_count = 5
+resolved_overflow_count = 5
