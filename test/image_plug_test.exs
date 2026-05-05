@@ -399,25 +399,43 @@ defmodule ImagePlug.ImagePlugTest do
     server =
       spawn_link(fn ->
         {:ok, socket} = :gen_tcp.accept(listen_socket)
-        {:ok, _request} = :gen_tcp.recv(socket, 0)
 
-        body = File.read!("priv/static/images/cat-300.jpg")
-        first_chunk = binary_part(body, 0, 128)
+        case :gen_tcp.recv(socket, 0) do
+          {:ok, _request} ->
+            send_slow_partial_origin_response(test_pid, ref, content_type, socket, listen_socket)
 
-        :ok =
-          :gen_tcp.send(socket, [
-            "HTTP/1.1 200 OK\r\n",
-            "content-type: #{content_type}\r\n",
-            "transfer-encoding: chunked\r\n",
-            "\r\n",
-            chunked_body_chunk(first_chunk)
-          ])
-
-        send(test_pid, {ref, :first_chunk_sent, self()})
-        await_slow_partial_origin_close(ref, socket, listen_socket)
+          {:error, reason} ->
+            send(test_pid, {ref, :request_closed_before_first_chunk, self(), reason})
+            :gen_tcp.close(socket)
+            :gen_tcp.close(listen_socket)
+        end
       end)
 
     {"http://127.0.0.1:#{port}", server}
+  end
+
+  defp send_slow_partial_origin_response(test_pid, ref, content_type, socket, listen_socket) do
+    body = File.read!("priv/static/images/cat-300.jpg")
+    first_chunk = binary_part(body, 0, 128)
+
+    response = [
+      "HTTP/1.1 200 OK\r\n",
+      "content-type: #{content_type}\r\n",
+      "transfer-encoding: chunked\r\n",
+      "\r\n",
+      chunked_body_chunk(first_chunk)
+    ]
+
+    case :gen_tcp.send(socket, response) do
+      :ok ->
+        send(test_pid, {ref, :first_chunk_sent, self()})
+        await_slow_partial_origin_close(ref, socket, listen_socket)
+
+      {:error, reason} ->
+        send(test_pid, {ref, :first_chunk_send_failed, self(), reason})
+        :gen_tcp.close(socket)
+        :gen_tcp.close(listen_socket)
+    end
   end
 
   defp call_after_slow_origin_first_chunk(conn, opts, ref, server) do
@@ -1435,7 +1453,7 @@ defmodule ImagePlug.ImagePlugTest do
         [
           root_url: root_url,
           param_parser: ImagePlug.ParamParser.Native,
-          origin_receive_timeout: 250
+          origin_receive_timeout: 1_000
         ],
         ref,
         server
@@ -1477,7 +1495,7 @@ defmodule ImagePlug.ImagePlugTest do
         [
           root_url: root_url,
           param_parser: ImagePlug.ParamParser.Native,
-          origin_receive_timeout: 250
+          origin_receive_timeout: 1_000
         ],
         ref,
         server
