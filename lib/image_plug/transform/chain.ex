@@ -1,10 +1,10 @@
-defmodule ImagePlug.TransformChain do
+defmodule ImagePlug.Transform.Chain do
   @moduledoc false
 
   require Logger
 
   alias ImagePlug.Transform
-  alias ImagePlug.TransformState
+  alias ImagePlug.Transform.State
 
   @typedoc """
   A struct whose module implements `ImagePlug.Transform`.
@@ -23,12 +23,12 @@ defmodule ImagePlug.TransformChain do
       ...>   %ImagePlug.Transform.Crop{width: {:pixels, 100}, height: {:pixels, 150}, crop_from: :focus}
       ...> ]
       ...> {:ok, empty_image} = Image.new(500, 500)
-      ...> initial_state = %ImagePlug.TransformState{image: empty_image}
-      ...> {:ok, %ImagePlug.TransformState{}} = ImagePlug.TransformChain.execute(initial_state, chain)
+      ...> initial_state = %ImagePlug.Transform.State{image: empty_image}
+      ...> {:ok, %ImagePlug.Transform.State{}} = ImagePlug.Transform.Chain.execute(initial_state, chain)
   """
-  @spec execute(TransformState.t(), t()) ::
-          {:ok, TransformState.t()} | {:error, {:transform_error, TransformState.t()}}
-  def execute(%TransformState{} = state, transform_chain) do
+  @spec execute(State.t(), t()) ::
+          {:ok, State.t()} | {:error, {:transform_error, State.t()}}
+  def execute(%State{} = state, transform_chain) do
     transform_chain
     |> Enum.reduce_while(state, fn operation, state ->
       Logger.info(fn ->
@@ -39,13 +39,13 @@ defmodule ImagePlug.TransformChain do
       next_state = Transform.execute(operation, state)
 
       case next_state do
-        %TransformState{errors: []} -> {:cont, next_state}
-        %TransformState{} -> {:halt, next_state}
+        %State{errors: []} -> {:cont, next_state}
+        %State{} -> {:halt, next_state}
       end
     end)
     |> case do
-      %TransformState{errors: []} = state -> {:ok, state}
-      %TransformState{} = state -> {:error, {:transform_error, state}}
+      %State{errors: []} = state -> {:ok, state}
+      %State{} = state -> {:error, {:transform_error, state}}
     end
   end
 end

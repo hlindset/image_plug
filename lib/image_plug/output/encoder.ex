@@ -2,7 +2,7 @@ defmodule ImagePlug.Output.Encoder do
   @moduledoc false
 
   alias ImagePlug.Output.Format
-  alias ImagePlug.TransformState
+  alias ImagePlug.Transform.State
 
   defmodule EncodedOutput do
     @moduledoc false
@@ -18,21 +18,21 @@ defmodule ImagePlug.Output.Encoder do
     Format.mime_type(format)
   end
 
-  @spec memory_output(TransformState.t(), term(), keyword()) ::
+  @spec memory_output(State.t(), term(), keyword()) ::
           {:ok, EncodedOutput.t()} | {:error, {:encode, Exception.t(), list()}}
-  def memory_output(%TransformState{} = state, format, opts) do
+  def memory_output(%State{} = state, format, opts) do
     with {:ok, mime_type, suffix} <- output_format(format),
          {:ok, body} <- write_body(Keyword.get(opts, :image_module, Image), state.image, suffix) do
       {:ok, %EncodedOutput{body: body, content_type: mime_type}}
     end
   end
 
-  @spec limited_memory_output(TransformState.t(), term(), keyword(), non_neg_integer() | nil) ::
+  @spec limited_memory_output(State.t(), term(), keyword(), non_neg_integer() | nil) ::
           {:ok, EncodedOutput.t()} | :too_large | {:error, {:encode, Exception.t(), list()}}
-  def limited_memory_output(%TransformState{} = state, format, opts, nil),
+  def limited_memory_output(%State{} = state, format, opts, nil),
     do: memory_output(state, format, opts)
 
-  def limited_memory_output(%TransformState{} = state, format, opts, max_body_bytes)
+  def limited_memory_output(%State{} = state, format, opts, max_body_bytes)
       when is_integer(max_body_bytes) and max_body_bytes >= 0 do
     with {:ok, mime_type, suffix} <- output_format(format),
          {:ok, body} <-

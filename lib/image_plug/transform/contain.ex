@@ -3,10 +3,10 @@ defmodule ImagePlug.Transform.Contain do
 
   @behaviour ImagePlug.Transform
 
-  import ImagePlug.TransformState
-  import ImagePlug.Utils
+  import ImagePlug.Transform.State
+  import ImagePlug.Transform.Geometry
 
-  alias ImagePlug.TransformState
+  alias ImagePlug.Transform.State
 
   defstruct [:type, :ratio, :width, :height, :constraint, :letterbox]
 
@@ -70,7 +70,7 @@ defmodule ImagePlug.Transform.Contain do
           #       as the transformation would just return the same image
           letterbox: letterbox
         } = _params,
-        %TransformState{} = state
+        %State{} = state
       ) do
     # compute target width and height based on the ratio
     image_width = image_width(state)
@@ -109,7 +109,7 @@ defmodule ImagePlug.Transform.Contain do
           constraint: constraint,
           letterbox: letterbox
         },
-        %TransformState{} = state
+        %State{} = state
       ) do
     {target_width, target_height} = resolve_auto_size(state, width, height)
     {resize_width, resize_height} = fit_inside(state, target_width, target_height)
@@ -122,7 +122,7 @@ defmodule ImagePlug.Transform.Contain do
     end
   end
 
-  def fit_inside(%TransformState{} = state, target_width, target_height) do
+  def fit_inside(%State{} = state, target_width, target_height) do
     original_ar = image_width(state) / image_height(state)
     target_ar = target_width / target_height
 
@@ -133,22 +133,22 @@ defmodule ImagePlug.Transform.Contain do
     end
   end
 
-  def maybe_scale(%TransformState{} = state, width, height, :min) do
+  def maybe_scale(%State{} = state, width, height, :min) do
     if width > image_width(state) or height > image_height(state),
       do: do_scale(state, width, height),
       else: {:ok, state}
   end
 
-  def maybe_scale(%TransformState{} = state, width, height, :max) do
+  def maybe_scale(%State{} = state, width, height, :max) do
     if width < image_width(state) or height < image_height(state),
       do: do_scale(state, width, height),
       else: {:ok, state}
   end
 
-  def maybe_scale(%TransformState{} = state, width, height, _constraint),
+  def maybe_scale(%State{} = state, width, height, _constraint),
     do: do_scale(state, width, height)
 
-  def do_scale(%TransformState{} = state, width, height) do
+  def do_scale(%State{} = state, width, height) do
     width_scale = width / image_width(state)
     height_scale = height / image_height(state)
 
@@ -159,9 +159,9 @@ defmodule ImagePlug.Transform.Contain do
   end
 
   defp maybe_add_letterbox(state, letterbox?, width, height)
-  defp maybe_add_letterbox(%TransformState{} = state, false, _width, _height), do: {:ok, state}
+  defp maybe_add_letterbox(%State{} = state, false, _width, _height), do: {:ok, state}
 
-  defp maybe_add_letterbox(%TransformState{} = state, true, width, height) do
+  defp maybe_add_letterbox(%State{} = state, true, width, height) do
     case Image.embed(state.image, width, height, background_color: :white) do
       {:ok, letterboxed_image} -> {:ok, set_image(state, letterboxed_image)}
       {:error, _reason} = error -> error

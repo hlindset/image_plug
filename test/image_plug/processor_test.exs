@@ -16,7 +16,7 @@ defmodule ImagePlug.ProcessorTest do
   alias ImagePlug.ProcessorTest.SecondTransform
   alias ImagePlug.ProcessorTest.SequentialFailingTransform
   alias ImagePlug.Plan.Source.Plain
-  alias ImagePlug.TransformState
+  alias ImagePlug.Transform.State
 
   defp opts do
     [origin_req_options: [plug: OriginImage]]
@@ -35,7 +35,7 @@ defmodule ImagePlug.ProcessorTest do
   end
 
   test "process_origin fetches plain plan sources from the resolved origin identity" do
-    assert {:ok, %TransformState{} = state} =
+    assert {:ok, %State{} = state} =
              Processor.process_origin(
                plan(),
                "http://origin.test/images/cat-300.jpg",
@@ -62,7 +62,7 @@ defmodule ImagePlug.ProcessorTest do
   end
 
   test "process_origin fetches, decodes, validates, executes, and materializes a chain" do
-    assert {:ok, %TransformState{} = state} =
+    assert {:ok, %State{} = state} =
              Processor.process_origin(
                plan(),
                "http://origin.test/images/cat-300.jpg",
@@ -92,7 +92,7 @@ defmodule ImagePlug.ProcessorTest do
       |> Keyword.put(:test_pid, test_pid)
       |> Keyword.put(:test_ref, ref)
 
-    assert {:ok, %TransformState{} = state} =
+    assert {:ok, %State{} = state} =
              Processor.process_origin(
                plan,
                "http://origin.test/images/cat-300.jpg",
@@ -142,7 +142,7 @@ defmodule ImagePlug.ProcessorTest do
     assert {:error,
             {:config,
              {:invalid_image_materializer_result, InvalidStateMaterializer,
-              {:ok, %TransformState{image: nil}}}}} =
+              {:ok, %State{image: nil}}}}} =
              Processor.process_origin(
                plan,
                "http://origin.test/images/cat-300.jpg",
@@ -256,7 +256,7 @@ defmodule ImagePlug.ProcessorTest do
 
     worker_ref = Process.monitor(worker)
 
-    assert {:error, {:transform_error, %TransformState{}}} =
+    assert {:error, {:transform_error, %State{}}} =
              Processor.process_decoded_origin(
                decoded,
                %Plan{

@@ -233,8 +233,8 @@ defmodule ImagePlug.ImagePlugTest do
 
     def metadata(%__MODULE__{}), do: %{access: :random}
 
-    def execute(%__MODULE__{}, %ImagePlug.TransformState{} = state) do
-      %ImagePlug.TransformState{state | image: :not_an_image}
+    def execute(%__MODULE__{}, %ImagePlug.Transform.State{} = state) do
+      %ImagePlug.Transform.State{state | image: :not_an_image}
     end
   end
 
@@ -276,8 +276,8 @@ defmodule ImagePlug.ImagePlugTest do
 
     def metadata(%__MODULE__{}), do: %{access: :random}
 
-    def execute(%__MODULE__{}, %ImagePlug.TransformState{} = state) do
-      %ImagePlug.TransformState{state | image: :image}
+    def execute(%__MODULE__{}, %ImagePlug.Transform.State{} = state) do
+      %ImagePlug.Transform.State{state | image: :image}
     end
   end
 
@@ -307,8 +307,8 @@ defmodule ImagePlug.ImagePlugTest do
 
     def metadata(%__MODULE__{}), do: %{access: :random}
 
-    def execute(%__MODULE__{}, %ImagePlug.TransformState{} = state) do
-      ImagePlug.TransformState.add_error(state, {__MODULE__, :failed})
+    def execute(%__MODULE__{}, %ImagePlug.Transform.State{} = state) do
+      ImagePlug.Transform.State.add_error(state, {__MODULE__, :failed})
     end
   end
 
@@ -338,7 +338,7 @@ defmodule ImagePlug.ImagePlugTest do
 
     def metadata(%__MODULE__{}), do: %{access: :random}
 
-    def execute(%__MODULE__{}, %ImagePlug.TransformState{} = state), do: state
+    def execute(%__MODULE__{}, %ImagePlug.Transform.State{} = state), do: state
   end
 
   defmodule EmptyPipelineParser do

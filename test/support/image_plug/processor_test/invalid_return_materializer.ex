@@ -1,7 +1,7 @@
 defmodule ImagePlug.ProcessorTest.InvalidReturnMaterializer do
   @moduledoc false
 
-  alias ImagePlug.TransformState
+  alias ImagePlug.Transform.State
 
-  def materialize(%TransformState{}, _opts), do: {:ok, :not_a_transform_state}
+  def materialize(%State{}, _opts), do: {:ok, :not_a_transform_state}
 end

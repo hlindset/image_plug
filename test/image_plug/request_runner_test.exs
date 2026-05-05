@@ -10,7 +10,7 @@ defmodule ImagePlug.RequestRunnerTest do
   alias ImagePlug.RequestRunner
   alias ImagePlug.Plan.Source.Plain
   alias ImagePlug.Transform
-  alias ImagePlug.TransformState
+  alias ImagePlug.Transform.State
 
   defmodule CacheHit do
     def get(_key, opts), do: Keyword.fetch!(opts, :entry) |> then(&{:hit, &1})
@@ -47,8 +47,8 @@ defmodule ImagePlug.RequestRunnerTest do
 
     def metadata(%__MODULE__{}), do: %{access: :random}
 
-    def execute(%__MODULE__{}, %TransformState{} = state) do
-      %TransformState{state | debug: true}
+    def execute(%__MODULE__{}, %State{} = state) do
+      %State{state | debug: true}
     end
   end
 
@@ -63,20 +63,20 @@ defmodule ImagePlug.RequestRunnerTest do
 
     def metadata(%__MODULE__{}), do: %{access: :random}
 
-    def execute(%__MODULE__{test_pid: test_pid, ref: ref}, %TransformState{} = state) do
+    def execute(%__MODULE__{test_pid: test_pid, ref: ref}, %State{} = state) do
       send(test_pid, {:pipeline_event, ref, :second_transform_ran})
       state
     end
   end
 
   defmodule Materializer do
-    def materialize(%TransformState{} = state, opts) do
+    def materialize(%State{} = state, opts) do
       send(
         Keyword.fetch!(opts, :test_pid),
         {:pipeline_event, Keyword.fetch!(opts, :test_ref), :materialized_between_pipelines}
       )
 
-      ImagePlug.ImageMaterializer.materialize(state, opts)
+      ImagePlug.Transform.Materializer.materialize(state, opts)
     end
   end
 
@@ -206,7 +206,7 @@ defmodule ImagePlug.RequestRunnerTest do
         output: %Output{mode: {:explicit, :jpeg}}
       )
 
-    assert {:ok, {:image, %TransformState{} = state, :jpeg, []}} =
+    assert {:ok, {:image, %State{} = state, :jpeg, []}} =
              RequestRunner.run(
                conn(:get, "/_/f:jpeg/plain/images/cat-300.jpg"),
                plan,
@@ -280,7 +280,7 @@ defmodule ImagePlug.RequestRunnerTest do
       test_ref: ref
     ]
 
-    assert {:ok, {:image, %TransformState{} = state, :jpeg, []}} =
+    assert {:ok, {:image, %State{} = state, :jpeg, []}} =
              RequestRunner.run(
                conn(:get, "/_/f:jpeg/plain/images/cat-300.jpg"),
                plan,

@@ -6,7 +6,7 @@ defmodule ImagePlug.ResponseCache do
   alias ImagePlug.Cache.Key
   alias ImagePlug.Output.Encoder
   alias ImagePlug.Plan
-  alias ImagePlug.TransformState
+  alias ImagePlug.Transform.State
 
   @type lookup_result ::
           :disabled
@@ -24,9 +24,9 @@ defmodule ImagePlug.ResponseCache do
     end
   end
 
-  @spec store(Key.t(), TransformState.t(), atom(), [{String.t(), String.t()}], keyword()) ::
+  @spec store(Key.t(), State.t(), atom(), [{String.t(), String.t()}], keyword()) ::
           {:ok, Entry.t()} | :skipped | {:error, term()}
-  def store(%Key{} = key, %TransformState{} = state, resolved_format, response_headers, opts) do
+  def store(%Key{} = key, %State{} = state, resolved_format, response_headers, opts) do
     case Encoder.limited_memory_output(
            state,
            resolved_format,

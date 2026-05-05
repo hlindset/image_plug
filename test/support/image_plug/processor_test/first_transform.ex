@@ -1,7 +1,7 @@
 defmodule ImagePlug.ProcessorTest.FirstTransform do
   @moduledoc false
 
-  alias ImagePlug.TransformState
+  alias ImagePlug.Transform.State
 
   defstruct []
 
@@ -13,7 +13,7 @@ defmodule ImagePlug.ProcessorTest.FirstTransform do
 
   def metadata(%__MODULE__{}), do: %{access: :random}
 
-  def execute(%__MODULE__{}, %TransformState{} = state) do
-    %TransformState{state | debug: true}
+  def execute(%__MODULE__{}, %State{} = state) do
+    %State{state | debug: true}
   end
 end

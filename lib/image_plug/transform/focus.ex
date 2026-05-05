@@ -3,10 +3,10 @@ defmodule ImagePlug.Transform.Focus do
 
   @behaviour ImagePlug.Transform
 
-  import ImagePlug.TransformState
-  import ImagePlug.Utils
+  import ImagePlug.Transform.State
+  import ImagePlug.Transform.Geometry
 
-  alias ImagePlug.TransformState
+  alias ImagePlug.Transform.State
 
   @doc """
   The parsed operation used by `ImagePlug.Transform.Focus`.
@@ -15,7 +15,7 @@ defmodule ImagePlug.Transform.Focus do
 
   @type t ::
           %__MODULE__{type: {:coordinate, ImagePlug.imgp_length(), ImagePlug.imgp_length()}}
-          | %__MODULE__{type: TransformState.focus_anchor()}
+          | %__MODULE__{type: State.focus_anchor()}
 
   @impl ImagePlug.Transform
   def new(attrs) do
@@ -41,7 +41,7 @@ defmodule ImagePlug.Transform.Focus do
   def metadata(%__MODULE__{}), do: %{access: :random}
 
   @impl ImagePlug.Transform
-  def execute(%__MODULE__{type: {:coordinate, left, top}}, %TransformState{} = state) do
+  def execute(%__MODULE__{type: {:coordinate, left, top}}, %State{} = state) do
     left = to_pixels(image_width(state), left)
     top = to_pixels(image_height(state), top)
 
@@ -54,18 +54,18 @@ defmodule ImagePlug.Transform.Focus do
   end
 
   @impl ImagePlug.Transform
-  def execute(%__MODULE__{type: {:anchor, x, y}}, %TransformState{} = state) do
+  def execute(%__MODULE__{type: {:anchor, x, y}}, %State{} = state) do
     state
     |> set_focus({:anchor, x, y})
     |> maybe_draw_debug_dot()
   end
 
-  defp maybe_draw_debug_dot(%TransformState{debug: true, focus: focus} = state) do
+  defp maybe_draw_debug_dot(%State{debug: true, focus: focus} = state) do
     {left, top} = anchor_to_pixels(focus, image_width(state), image_height(state))
     draw_debug_dot(state, left, top)
   end
 
-  defp maybe_draw_debug_dot(%TransformState{} = state), do: state
+  defp maybe_draw_debug_dot(%State{} = state), do: state
 
   defp validate_attrs!(attrs) do
     attrs = Map.new(attrs)

@@ -6,5 +6,5 @@ defmodule ImagePlug.Plan.Pipeline do
   @enforce_keys [:operations]
   defstruct @enforce_keys
 
-  @type t :: %__MODULE__{operations: ImagePlug.TransformChain.t()}
+  @type t :: %__MODULE__{operations: ImagePlug.Transform.Chain.t()}
 end

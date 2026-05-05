@@ -3,10 +3,10 @@ defmodule ImagePlug.Transform.Crop do
 
   @behaviour ImagePlug.Transform
 
-  import ImagePlug.TransformState
-  import ImagePlug.Utils
+  import ImagePlug.Transform.State
+  import ImagePlug.Transform.Geometry
 
-  alias ImagePlug.TransformState
+  alias ImagePlug.Transform.State
 
   @doc """
   The parsed operation used by `ImagePlug.Transform.Crop`.
@@ -44,7 +44,7 @@ defmodule ImagePlug.Transform.Crop do
   def metadata(%__MODULE__{}), do: %{access: :random}
 
   @impl ImagePlug.Transform
-  def execute(%__MODULE__{} = params, %TransformState{} = state) do
+  def execute(%__MODULE__{} = params, %State{} = state) do
     image_width = image_width(state)
     image_height = image_height(state)
 
@@ -79,7 +79,7 @@ defmodule ImagePlug.Transform.Crop do
   end
 
   defp anchor_crop_to_pixels(
-         %TransformState{},
+         %State{},
          %{left: left, top: top},
          image_width,
          image_height,
@@ -95,7 +95,7 @@ defmodule ImagePlug.Transform.Crop do
   end
 
   defp anchor_crop_to_pixels(
-         %TransformState{} = state,
+         %State{} = state,
          :focus,
          image_width,
          image_height,

@@ -1,4 +1,4 @@
-defmodule ImagePlug.ImageMaterializer do
+defmodule ImagePlug.Transform.Materializer do
   @moduledoc """
   Internal boundary for forcing lazy image graphs into memory.
 
@@ -13,16 +13,16 @@ defmodule ImagePlug.ImageMaterializer do
   changing how the origin is opened.
   """
 
-  alias ImagePlug.TransformState
+  alias ImagePlug.Transform.State
   alias Vix.Vips.Image, as: VipsImage
 
-  @callback materialize(TransformState.t(), keyword()) ::
-              {:ok, TransformState.t()} | {:error, term()}
+  @callback materialize(State.t(), keyword()) ::
+              {:ok, State.t()} | {:error, term()}
 
-  @spec materialize(TransformState.t(), keyword()) :: {:ok, TransformState.t()} | {:error, term()}
-  def materialize(%TransformState{} = state, _opts) do
+  @spec materialize(State.t(), keyword()) :: {:ok, State.t()} | {:error, term()}
+  def materialize(%State{} = state, _opts) do
     with {:ok, image} <- materialize(state.image) do
-      {:ok, TransformState.set_image(state, image)}
+      {:ok, State.set_image(state, image)}
     end
   end
 

@@ -1,14 +1,14 @@
 defmodule ImagePlug.Processor do
   @moduledoc false
 
-  alias ImagePlug.DecodePlanner
+  alias ImagePlug.Transform.DecodePlanner
   alias ImagePlug.Output.Format
-  alias ImagePlug.ImageMaterializer
+  alias ImagePlug.Transform.Materializer
   alias ImagePlug.Origin
   alias ImagePlug.Plan
   alias ImagePlug.Plan.Source.Plain
-  alias ImagePlug.TransformChain
-  alias ImagePlug.TransformState
+  alias ImagePlug.Transform.Chain
+  alias ImagePlug.Transform.State
 
   defmodule DecodedOrigin do
     @moduledoc false
@@ -25,7 +25,7 @@ defmodule ImagePlug.Processor do
   end
 
   @spec process_origin(Plan.t(), String.t(), keyword()) ::
-          {:ok, TransformState.t()} | {:error, term()}
+          {:ok, State.t()} | {:error, term()}
   def process_origin(%Plan{} = plan, origin_identity, opts) do
     with {:ok, pipelines} <- validated_pipelines(plan) do
       process_origin(plan, pipelines, origin_identity, opts)
@@ -33,7 +33,7 @@ defmodule ImagePlug.Processor do
   end
 
   @spec process_origin(Plan.t(), [ImagePlug.Plan.Pipeline.t()], String.t(), keyword()) ::
-          {:ok, TransformState.t()} | {:error, term()}
+          {:ok, State.t()} | {:error, term()}
   def process_origin(%Plan{} = plan, pipelines, origin_identity, opts) when is_list(pipelines) do
     with {:ok, %DecodedOrigin{} = decoded} <-
            fetch_decode_validate_origin_with_source_format(plan, pipelines, origin_identity, opts) do
@@ -146,7 +146,7 @@ defmodule ImagePlug.Processor do
   end
 
   @spec process_decoded_origin(DecodedOrigin.t(), Plan.t(), keyword()) ::
-          {:ok, TransformState.t()} | {:error, term()}
+          {:ok, State.t()} | {:error, term()}
   def process_decoded_origin(%DecodedOrigin{} = decoded, %Plan{} = plan, opts) do
     with {:ok, pipelines} <- validated_pipelines(plan) do
       process_decoded_origin(decoded, pipelines, opts)
@@ -154,11 +154,11 @@ defmodule ImagePlug.Processor do
   end
 
   @spec process_decoded_origin(DecodedOrigin.t(), [ImagePlug.Plan.Pipeline.t()], keyword()) ::
-          {:ok, TransformState.t()} | {:error, term()}
+          {:ok, State.t()} | {:error, term()}
   def process_decoded_origin(%DecodedOrigin{} = decoded, pipelines, opts)
       when is_list(pipelines) do
     result =
-      case execute_pipelines(%TransformState{image: decoded.image}, pipelines, decoded, opts) do
+      case execute_pipelines(%State{image: decoded.image}, pipelines, decoded, opts) do
         {:ok, final_state} ->
           materialize_before_delivery(
             final_state,
@@ -193,7 +193,7 @@ defmodule ImagePlug.Processor do
 
   defp validated_pipelines(%Plan{} = plan), do: Plan.validated_pipelines(plan)
 
-  defp execute_pipelines(%TransformState{} = state, pipelines, %DecodedOrigin{} = decoded, opts) do
+  defp execute_pipelines(%State{} = state, pipelines, %DecodedOrigin{} = decoded, opts) do
     last_index = length(pipelines) - 1
 
     pipelines
@@ -203,13 +203,13 @@ defmodule ImagePlug.Processor do
 
   defp execute_pipeline_step(
          {%ImagePlug.Plan.Pipeline{operations: operations}, index},
-         {:ok, %TransformState{} = state},
+         {:ok, %State{} = state},
          last_index,
          %DecodedOrigin{} = decoded,
          opts
        ) do
-    with {:ok, %TransformState{} = state} <- TransformChain.execute(state, operations),
-         {:ok, %TransformState{} = state} <-
+    with {:ok, %State{} = state} <- Chain.execute(state, operations),
+         {:ok, %State{} = state} <-
            maybe_materialize_between_pipelines(state, index, last_index, decoded, opts) do
       {:cont, {:ok, state}}
     else
@@ -218,7 +218,7 @@ defmodule ImagePlug.Processor do
   end
 
   defp maybe_materialize_between_pipelines(
-         %TransformState{} = state,
+         %State{} = state,
          index,
          last_index,
          %DecodedOrigin{} = decoded,
@@ -229,7 +229,7 @@ defmodule ImagePlug.Processor do
   end
 
   defp maybe_materialize_between_pipelines(
-         %TransformState{} = state,
+         %State{} = state,
          _index,
          _last_index,
          %DecodedOrigin{},
@@ -258,7 +258,7 @@ defmodule ImagePlug.Processor do
   end
 
   defp materialize_before_delivery(
-         %TransformState{} = state,
+         %State{} = state,
          %Origin.Response{} = origin_response,
          decode_options,
          opts
@@ -270,7 +270,7 @@ defmodule ImagePlug.Processor do
   end
 
   defp materialize_sequential_before_delivery(
-         %TransformState{} = state,
+         %State{} = state,
          %Origin.Response{} = origin_response,
          opts
        ) do
@@ -279,7 +279,7 @@ defmodule ImagePlug.Processor do
   end
 
   defp materialize_between_pipelines(
-         %TransformState{} = state,
+         %State{} = state,
          %Origin.Response{} = origin_response,
          opts
        ) do
@@ -287,18 +287,18 @@ defmodule ImagePlug.Processor do
     |> handle_materialization_result(origin_response)
   end
 
-  defp materialize_state(%TransformState{} = state, opts) do
+  defp materialize_state(%State{} = state, opts) do
     materializer =
       Keyword.get(
         opts,
         :image_materializer,
-        Keyword.get(opts, :image_materializer_module, ImageMaterializer)
+        Keyword.get(opts, :image_materializer_module, Materializer)
       )
 
     load_materializer(materializer, state, opts)
   end
 
-  defp load_materializer(materializer, %TransformState{} = state, opts)
+  defp load_materializer(materializer, %State{} = state, opts)
        when is_atom(materializer) do
     case Code.ensure_loaded(materializer) do
       {:module, ^materializer} ->
@@ -309,10 +309,10 @@ defmodule ImagePlug.Processor do
     end
   end
 
-  defp load_materializer(materializer, %TransformState{}, _opts),
+  defp load_materializer(materializer, %State{}, _opts),
     do: {:error, {:config, {:invalid_image_materializer, materializer}}}
 
-  defp dispatch_materializer(materializer, %TransformState{} = state, opts) do
+  defp dispatch_materializer(materializer, %State{} = state, opts) do
     cond do
       function_exported?(materializer, :materialize, 2) ->
         materializer.materialize(state, opts)
@@ -328,7 +328,7 @@ defmodule ImagePlug.Processor do
   end
 
   defp normalize_state_materializer_result(
-         {:ok, %TransformState{image: %Vix.Vips.Image{}} = state},
+         {:ok, %State{image: %Vix.Vips.Image{}} = state},
          _materializer
        ),
        do: {:ok, state}
@@ -344,22 +344,22 @@ defmodule ImagePlug.Processor do
   defp normalize_image_materializer_result(
          {:ok, %Vix.Vips.Image{} = image},
          _materializer,
-         %TransformState{} = state
+         %State{} = state
        ) do
-    {:ok, TransformState.set_image(state, image)}
+    {:ok, State.set_image(state, image)}
   end
 
-  defp normalize_image_materializer_result({:ok, invalid_image}, materializer, %TransformState{}),
+  defp normalize_image_materializer_result({:ok, invalid_image}, materializer, %State{}),
     do: invalid_materializer_result(materializer, {:ok, invalid_image})
 
   defp normalize_image_materializer_result(
          {:error, _reason} = error,
          _materializer,
-         %TransformState{}
+         %State{}
        ),
        do: error
 
-  defp normalize_image_materializer_result(unexpected, materializer, %TransformState{}),
+  defp normalize_image_materializer_result(unexpected, materializer, %State{}),
     do: invalid_materializer_result(materializer, unexpected)
 
   defp invalid_materializer_result(materializer, result),
@@ -372,7 +372,7 @@ defmodule ImagePlug.Processor do
        do: {:error, error}
 
   defp handle_materialization_result(
-         {:ok, %TransformState{} = state},
+         {:ok, %State{} = state},
          %Origin.Response{} = origin_response
        ) do
     case Origin.require_stream_status(origin_response) do

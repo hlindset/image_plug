@@ -11,11 +11,11 @@ defmodule ImagePlug.RequestRunner do
   alias ImagePlug.Plan
   alias ImagePlug.Processor
   alias ImagePlug.ResponseCache
-  alias ImagePlug.TransformState
+  alias ImagePlug.Transform.State
 
   @type delivery() ::
           {:cache_entry, Entry.t()}
-          | {:image, TransformState.t(), Policy.format(), [{String.t(), String.t()}]}
+          | {:image, State.t(), Policy.format(), [{String.t(), String.t()}]}
 
   @type error() ::
           {:cache, term()}

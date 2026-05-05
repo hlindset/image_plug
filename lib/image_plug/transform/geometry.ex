@@ -1,10 +1,10 @@
-defmodule ImagePlug.Utils do
+defmodule ImagePlug.Transform.Geometry do
   @moduledoc false
 
-  alias ImagePlug.TransformState
+  alias ImagePlug.Transform.State
 
-  def image_height(%TransformState{image: image}), do: Image.height(image)
-  def image_width(%TransformState{image: image}), do: Image.width(image)
+  def image_height(%State{image: image}), do: Image.height(image)
+  def image_width(%State{image: image}), do: Image.width(image)
 
   @spec to_pixels(integer(), ImagePlug.imgp_length()) :: integer()
   def to_pixels(length, size_unit)
@@ -50,24 +50,24 @@ defmodule ImagePlug.Utils do
     end
   end
 
-  def resolve_auto_size(%TransformState{} = state, width, :auto) do
+  def resolve_auto_size(%State{} = state, width, :auto) do
     aspect_ratio = image_height(state) / image_width(state)
     auto_height = round(to_pixels(image_width(state), width) * aspect_ratio)
     {to_pixels(image_width(state), width), auto_height}
   end
 
-  def resolve_auto_size(%TransformState{} = state, :auto, height) do
+  def resolve_auto_size(%State{} = state, :auto, height) do
     aspect_ratio = image_width(state) / image_height(state)
     auto_width = round(to_pixels(image_height(state), height) * aspect_ratio)
     {auto_width, to_pixels(image_height(state), height)}
   end
 
-  def resolve_auto_size(%TransformState{} = state, width, height) do
+  def resolve_auto_size(%State{} = state, width, height) do
     {to_pixels(image_width(state), width), to_pixels(image_height(state), height)}
   end
 
   def draw_debug_dot(
-        %TransformState{} = state,
+        %State{} = state,
         left,
         top,
         dot_color \\ :red,
@@ -81,6 +81,6 @@ defmodule ImagePlug.Utils do
       |> Image.Draw.circle!(left, top, 9, color: border_color)
       |> Image.Draw.circle!(left, top, 5, color: dot_color)
 
-    TransformState.set_image(state, image_with_debug_dot)
+    State.set_image(state, image_with_debug_dot)
   end
 end

@@ -1,13 +1,13 @@
-defmodule ImagePlug.TransformChainTest do
+defmodule ImagePlug.Transform.ChainTest do
   use ExUnit.Case, async: true
 
   alias ImagePlug.Transform
   alias ImagePlug.Transform.Contain
   alias ImagePlug.Transform.Scale
-  alias ImagePlug.TransformChain
-  alias ImagePlug.TransformState
+  alias ImagePlug.Transform.Chain
+  alias ImagePlug.Transform.State
 
-  doctest ImagePlug.TransformChain
+  doctest ImagePlug.Transform.Chain
 
   defmodule FailingTransform do
     defstruct []
@@ -21,7 +21,7 @@ defmodule ImagePlug.TransformChainTest do
     def metadata(%__MODULE__{}), do: %{access: :random}
 
     def execute(%__MODULE__{}, state) do
-      TransformState.add_error(state, {__MODULE__, :failed})
+      State.add_error(state, {__MODULE__, :failed})
     end
   end
 
@@ -37,7 +37,7 @@ defmodule ImagePlug.TransformChainTest do
     def metadata(%__MODULE__{}), do: %{access: :random}
 
     def execute(%__MODULE__{}, state) do
-      TransformState.add_error(state, {__MODULE__, :should_not_run})
+      State.add_error(state, {__MODULE__, :should_not_run})
     end
   end
 
@@ -117,7 +117,7 @@ defmodule ImagePlug.TransformChainTest do
     {:ok, image} = Image.new(20, 20, color: :white)
 
     assert_raise ArgumentError, fn ->
-      Transform.execute(operation, %TransformState{image: image})
+      Transform.execute(operation, %State{image: image})
     end
   end
 
@@ -130,7 +130,7 @@ defmodule ImagePlug.TransformChainTest do
     ]
 
     assert {:error, {:transform_error, state}} =
-             TransformChain.execute(%TransformState{image: image}, chain)
+             Chain.execute(%State{image: image}, chain)
 
     assert state.errors == [{FailingTransform, :failed}]
   end

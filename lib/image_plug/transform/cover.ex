@@ -3,10 +3,10 @@ defmodule ImagePlug.Transform.Cover do
 
   @behaviour ImagePlug.Transform
 
-  import ImagePlug.TransformState
-  import ImagePlug.Utils
+  import ImagePlug.Transform.State
+  import ImagePlug.Transform.Geometry
 
-  alias ImagePlug.TransformState
+  alias ImagePlug.Transform.State
 
   @doc """
   The parsed operation used by `ImagePlug.Transform.Cover`.
@@ -60,7 +60,7 @@ defmodule ImagePlug.Transform.Cover do
           type: :ratio,
           ratio: {ratio_width, ratio_height}
         },
-        %TransformState{} = state
+        %State{} = state
       ) do
     # compute target width and height based on the ratio
     image_width = image_width(state)
@@ -97,7 +97,7 @@ defmodule ImagePlug.Transform.Cover do
           height: height,
           constraint: constraint
         },
-        %TransformState{} = state
+        %State{} = state
       ) do
     {requested_crop_width, requested_crop_height} = resolve_auto_size(state, width, height)
     {resize_width, resize_height} = fit_cover(state, requested_crop_width, requested_crop_height)
@@ -118,7 +118,7 @@ defmodule ImagePlug.Transform.Cover do
     end
   end
 
-  def fit_cover(%TransformState{} = state, target_width, target_height) do
+  def fit_cover(%State{} = state, target_width, target_height) do
     # compute aspect ratios
     target_ratio = target_width / target_height
     original_ratio = image_width(state) / image_height(state)
@@ -144,7 +144,7 @@ defmodule ImagePlug.Transform.Cover do
     }
   end
 
-  defp crop_origin(%TransformState{} = state, crop_width, crop_height) do
+  defp crop_origin(%State{} = state, crop_width, crop_height) do
     resized_width = image_width(state)
     resized_height = image_height(state)
     {center_x, center_y} = anchor_to_scale_units(state.focus, resized_width, resized_height)
@@ -158,13 +158,13 @@ defmodule ImagePlug.Transform.Cover do
     {left, top}
   end
 
-  def maybe_scale(%TransformState{} = state, width, height, :min) do
+  def maybe_scale(%State{} = state, width, height, :min) do
     if width > image_width(state) or height > image_height(state),
       do: do_scale(state, width, height),
       else: {:ok, state}
   end
 
-  def maybe_scale(%TransformState{} = state, width, height, :max) do
+  def maybe_scale(%State{} = state, width, height, :max) do
     if width < image_width(state) or height < image_height(state),
       do: do_scale(state, width, height),
       else: {:ok, state}
@@ -173,7 +173,7 @@ defmodule ImagePlug.Transform.Cover do
   def maybe_scale(image, width, height, _constraint),
     do: do_scale(image, width, height)
 
-  def do_scale(%TransformState{} = state, width, height) do
+  def do_scale(%State{} = state, width, height) do
     width_scale = width / image_width(state)
     height_scale = height / image_height(state)
 
@@ -183,7 +183,7 @@ defmodule ImagePlug.Transform.Cover do
     end
   end
 
-  def do_crop(%TransformState{} = state, left, top, width, height) do
+  def do_crop(%State{} = state, left, top, width, height) do
     case Image.crop(state.image, left, top, width, height) do
       {:ok, cropped_image} -> {:ok, set_image(state, cropped_image)}
       {:error, _reason} = error -> error

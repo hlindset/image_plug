@@ -16,7 +16,7 @@ defmodule ImagePlug do
   alias ImagePlug.Plan
   alias ImagePlug.RequestRunner
   alias ImagePlug.Plan.Source.Plain
-  alias ImagePlug.TransformState
+  alias ImagePlug.Transform.State
 
   @type imgp_number() :: integer() | float()
   @type imgp_pixels() :: {:pixels, imgp_number()}
@@ -59,7 +59,7 @@ defmodule ImagePlug do
   end
 
   defp send_runner_result(
-         {:ok, {:image, %TransformState{} = state, resolved_format, response_headers}},
+         {:ok, {:image, %State{} = state, resolved_format, response_headers}},
          conn,
          opts
        ) do
@@ -80,7 +80,7 @@ defmodule ImagePlug do
 
   defp handle_processing_error(
          conn,
-         {:transform_error, %TransformState{errors: errors}},
+         {:transform_error, %State{errors: errors}},
          response_headers
        ) do
     Logger.info("transform_error(s): #{inspect(errors)}")
@@ -204,7 +204,7 @@ defmodule ImagePlug do
 
   defp send_image(
          %Plug.Conn{} = conn,
-         %TransformState{} = state,
+         %State{} = state,
          resolved_format,
          opts,
          response_headers

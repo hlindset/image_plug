@@ -1,4 +1,4 @@
-defmodule ImagePlug.DecodePlanner do
+defmodule ImagePlug.Transform.DecodePlanner do
   @moduledoc false
 
   alias ImagePlug.Plan.Pipeline
@@ -7,7 +7,7 @@ defmodule ImagePlug.DecodePlanner do
 
   @type access_requirement() :: :sequential | :random | :neutral
 
-  @spec open_options(Plan.t() | ImagePlug.TransformChain.t()) :: keyword()
+  @spec open_options(Plan.t() | ImagePlug.Transform.Chain.t()) :: keyword()
   def open_options(%Plan{pipelines: [%Pipeline{operations: operations} | _rest]}) do
     open_options(operations)
   end
@@ -16,7 +16,7 @@ defmodule ImagePlug.DecodePlanner do
     [access: access(chain), fail_on: :error]
   end
 
-  @spec access(ImagePlug.TransformChain.t()) :: :sequential | :random
+  @spec access(ImagePlug.Transform.Chain.t()) :: :sequential | :random
   def access(chain) when is_list(chain) do
     chain
     |> Enum.map(&access_requirement/1)

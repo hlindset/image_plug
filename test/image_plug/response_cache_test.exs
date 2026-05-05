@@ -11,7 +11,7 @@ defmodule ImagePlug.ResponseCacheTest do
   alias ImagePlug.Plan
   alias ImagePlug.ResponseCache
   alias ImagePlug.Plan.Source.Plain
-  alias ImagePlug.TransformState
+  alias ImagePlug.Transform.State
 
   defmodule CaptureAdapter do
     def get(%Key{} = key, opts) do
@@ -77,7 +77,7 @@ defmodule ImagePlug.ResponseCacheTest do
              )
 
     {:ok, image} = Image.new(1, 1)
-    state = %TransformState{image: image}
+    state = %State{image: image}
 
     assert {:ok, %Entry{} = entry} =
              ResponseCache.store(key, state, :png, [{"vary", "Accept"}],
@@ -90,7 +90,7 @@ defmodule ImagePlug.ResponseCacheTest do
 
   test "store reports skipped when cache writing is disabled" do
     {:ok, image} = Image.new(1, 1)
-    state = %TransformState{image: image}
+    state = %State{image: image}
 
     key = %Key{
       hash: String.duplicate("a", 64),
@@ -103,7 +103,7 @@ defmodule ImagePlug.ResponseCacheTest do
 
   test "store returns tagged encode errors for invalid response headers" do
     {:ok, image} = Image.new(1, 1)
-    state = %TransformState{image: image}
+    state = %State{image: image}
 
     assert {:error, {:encode, %ArgumentError{} = exception, _stacktrace}} =
              ResponseCache.store(

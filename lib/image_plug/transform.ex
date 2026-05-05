@@ -1,7 +1,7 @@
 defmodule ImagePlug.Transform do
   @moduledoc false
 
-  alias ImagePlug.TransformState
+  alias ImagePlug.Transform.State
 
   @type attrs() :: keyword() | map()
   @type operation() :: struct()
@@ -10,7 +10,7 @@ defmodule ImagePlug.Transform do
   @callback new!(attrs() | operation()) :: operation()
   @callback name(operation()) :: atom()
   @callback metadata(operation()) :: map()
-  @callback execute(operation(), TransformState.t()) :: TransformState.t()
+  @callback execute(operation(), State.t()) :: State.t()
 
   @spec operation?(term()) :: boolean()
   def operation?(%module{}) do
@@ -57,8 +57,8 @@ defmodule ImagePlug.Transform do
     module.metadata(operation)
   end
 
-  @spec execute(operation(), TransformState.t()) :: TransformState.t()
-  def execute(operation, %TransformState{} = state) do
+  @spec execute(operation(), State.t()) :: State.t()
+  def execute(operation, %State{} = state) do
     %module{} = operation = ensure_operation!(operation)
     module.execute(operation, state)
   end

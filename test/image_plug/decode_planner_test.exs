@@ -1,7 +1,7 @@
-defmodule ImagePlug.DecodePlannerTest do
+defmodule ImagePlug.Transform.DecodePlannerTest do
   use ExUnit.Case, async: true
 
-  alias ImagePlug.DecodePlanner
+  alias ImagePlug.Transform.DecodePlanner
   alias ImagePlug.Plan.Output
   alias ImagePlug.Plan.Pipeline
   alias ImagePlug.Plan

@@ -1,7 +1,7 @@
 defmodule ImagePlug.ProcessorTest.SecondTransform do
   @moduledoc false
 
-  alias ImagePlug.TransformState
+  alias ImagePlug.Transform.State
 
   defstruct [:test_pid, :ref]
 
@@ -13,7 +13,7 @@ defmodule ImagePlug.ProcessorTest.SecondTransform do
 
   def metadata(%__MODULE__{}), do: %{access: :random}
 
-  def execute(%__MODULE__{test_pid: test_pid, ref: ref}, %TransformState{} = state) do
+  def execute(%__MODULE__{test_pid: test_pid, ref: ref}, %State{} = state) do
     send(test_pid, {:pipeline_event, ref, :second_transform_ran})
     state
   end

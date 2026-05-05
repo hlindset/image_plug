@@ -1,12 +1,12 @@
 defmodule ImagePlug.SequentialCompatibilityTest do
   use ExUnit.Case, async: true
 
-  alias ImagePlug.ImageMaterializer
+  alias ImagePlug.Transform.Materializer
   alias ImagePlug.Origin
   alias ImagePlug.Transform.Contain
   alias ImagePlug.Transform.Scale
-  alias ImagePlug.TransformChain
-  alias ImagePlug.TransformState
+  alias ImagePlug.Transform.Chain
+  alias ImagePlug.Transform.State
 
   @cat_path "priv/static/images/cat-300.jpg"
   @dog_path "priv/static/images/dog.jpg"
@@ -149,8 +149,8 @@ defmodule ImagePlug.SequentialCompatibilityTest do
     with {:ok, response} <-
            Origin.fetch("https://img.example/fixture", plug: plug),
          {:ok, image} <- Image.open(response.stream, access: access, fail_on: :error),
-         {:ok, state} <- TransformChain.execute(%TransformState{image: image}, chain),
-         {:ok, materialized_image} <- ImageMaterializer.materialize(state.image) do
+         {:ok, state} <- Chain.execute(%State{image: image}, chain),
+         {:ok, materialized_image} <- Materializer.materialize(state.image) do
       {:ok, materialized_image, response}
     end
   end

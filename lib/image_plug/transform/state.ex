@@ -1,4 +1,4 @@
-defmodule ImagePlug.TransformState do
+defmodule ImagePlug.Transform.State do
   @moduledoc false
 
   @default_focus {:anchor, :center, :center}

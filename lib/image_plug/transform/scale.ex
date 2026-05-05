@@ -3,10 +3,10 @@ defmodule ImagePlug.Transform.Scale do
 
   @behaviour ImagePlug.Transform
 
-  import ImagePlug.TransformState
-  import ImagePlug.Utils
+  import ImagePlug.Transform.State
+  import ImagePlug.Transform.Geometry
 
-  alias ImagePlug.TransformState
+  alias ImagePlug.Transform.State
 
   defstruct [:type, :ratio, :width, :height]
 
@@ -78,7 +78,7 @@ defmodule ImagePlug.Transform.Scale do
   end
 
   @impl ImagePlug.Transform
-  def execute(%__MODULE__{} = params, %TransformState{} = state) do
+  def execute(%__MODULE__{} = params, %State{} = state) do
     %{width: width, height: height} = dimensions_for_scale_type(state, params)
 
     case do_scale(state, width, height) do
@@ -87,17 +87,17 @@ defmodule ImagePlug.Transform.Scale do
     end
   end
 
-  def do_scale(%TransformState{} = state, width, :auto) do
+  def do_scale(%State{} = state, width, :auto) do
     target_height = round(width / image_width(state) * image_height(state))
     proportional_scale(state, width, target_height)
   end
 
-  def do_scale(%TransformState{} = state, :auto, height) do
+  def do_scale(%State{} = state, :auto, height) do
     target_width = round(height / image_height(state) * image_width(state))
     proportional_scale(state, target_width, height)
   end
 
-  def do_scale(%TransformState{} = state, width, height) do
+  def do_scale(%State{} = state, width, height) do
     if proportional?(state, width, height) and downscale?(state, width, height) do
       proportional_scale(state, width, height)
     else
@@ -111,7 +111,7 @@ defmodule ImagePlug.Transform.Scale do
     {:error, {:unhandled_scale_parameters, parameters}}
   end
 
-  defp proportional_scale(%TransformState{} = state, width, height) do
+  defp proportional_scale(%State{} = state, width, height) do
     if downscale?(state, width, height) do
       Image.thumbnail(state.image, "#{width}x#{height}", fit: :contain, resize: :down)
     else
@@ -120,13 +120,13 @@ defmodule ImagePlug.Transform.Scale do
     end
   end
 
-  defp proportional?(%TransformState{} = state, width, height) do
+  defp proportional?(%State{} = state, width, height) do
     original_ratio = image_width(state) / image_height(state)
     target_ratio = width / height
     abs(original_ratio - target_ratio) < 0.001
   end
 
-  defp downscale?(%TransformState{} = state, width, height) do
+  defp downscale?(%State{} = state, width, height) do
     width < image_width(state) and height < image_height(state)
   end
 

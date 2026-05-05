@@ -4,15 +4,17 @@ defmodule ImagePlug.ArchitectureBoundaryTest do
   @expected_core_files [
     "lib/image_plug/cache/material.ex",
     "lib/image_plug/cache/material/contain.ex",
-    "lib/image_plug/decode_planner.ex",
-    "lib/image_plug/image_materializer.ex",
-    "lib/image_plug/output_negotiation.ex",
+    "lib/image_plug/output/negotiation.ex",
     "lib/image_plug/plan.ex",
     "lib/image_plug/plan/output.ex",
     "lib/image_plug/plan/pipeline.ex",
     "lib/image_plug/plan/source/plain.ex",
+    "lib/image_plug/transform/chain.ex",
     "lib/image_plug/transform/contain.ex",
-    "lib/image_plug/transform_chain.ex"
+    "lib/image_plug/transform/decode_planner.ex",
+    "lib/image_plug/transform/geometry.ex",
+    "lib/image_plug/transform/materializer.ex",
+    "lib/image_plug/transform/state.ex"
   ]
 
   @forbidden_parts [
