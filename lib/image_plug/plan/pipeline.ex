@@ -1,4 +1,4 @@
-defmodule ImagePlug.Pipeline do
+defmodule ImagePlug.Plan.Pipeline do
   @moduledoc """
   Ordered image operations separated from source and output intent.
   """

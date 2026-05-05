@@ -1,12 +1,12 @@
 defmodule ImagePlug.ParamParser.Native.PlanBuilder do
   @moduledoc false
 
-  alias ImagePlug.OutputPlan
+  alias ImagePlug.Plan.Output
   alias ImagePlug.ParamParser.Native.ParsedRequest
   alias ImagePlug.ParamParser.Native.PipelineRequest
-  alias ImagePlug.Pipeline
+  alias ImagePlug.Plan.Pipeline
   alias ImagePlug.Plan
-  alias ImagePlug.Source.Plain
+  alias ImagePlug.Plan.Source.Plain
   alias ImagePlug.Transform
 
   @default_gravity {:anchor, :center, :center}
@@ -90,11 +90,11 @@ defmodule ImagePlug.ParamParser.Native.PlanBuilder do
     end)
   end
 
-  defp output_plan(nil), do: {:ok, %OutputPlan{mode: :automatic}}
+  defp output_plan(nil), do: {:ok, %Output{mode: :automatic}}
   defp output_plan(:best), do: {:error, {:unsupported_output_format, :best}}
 
   defp output_plan(format) when format in @supported_output_formats,
-    do: {:ok, %OutputPlan{mode: {:explicit, format}}}
+    do: {:ok, %Output{mode: {:explicit, format}}}
 
   defp output_plan(format), do: {:error, {:invalid_output_format, format}}
 

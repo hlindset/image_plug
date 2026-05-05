@@ -1,10 +1,10 @@
 defmodule ImagePlug.PlanTest do
   use ExUnit.Case, async: true
 
-  alias ImagePlug.OutputPlan
-  alias ImagePlug.Pipeline
+  alias ImagePlug.Plan.Output
+  alias ImagePlug.Plan.Pipeline
   alias ImagePlug.Plan
-  alias ImagePlug.Source.Plain
+  alias ImagePlug.Plan.Source.Plain
   alias ImagePlug.Transform
 
   defmodule PartialTransform do
@@ -31,7 +31,7 @@ defmodule ImagePlug.PlanTest do
     plan = %Plan{
       source: %Plain{path: ["images", "cat.jpg"]},
       pipelines: [%Pipeline{operations: operations}],
-      output: %OutputPlan{mode: {:explicit, :webp}}
+      output: %Output{mode: {:explicit, :webp}}
     }
 
     assert plan.source.path == ["images", "cat.jpg"]
@@ -49,7 +49,7 @@ defmodule ImagePlug.PlanTest do
     plan = %Plan{
       source: %Plain{path: ["images", "cat.jpg"]},
       pipelines: [%Pipeline{operations: [operation]}],
-      output: %OutputPlan{mode: {:explicit, :webp}}
+      output: %Output{mode: {:explicit, :webp}}
     }
 
     assert {:ok, [%Pipeline{operations: [^operation]}]} = Plan.validated_pipelines(plan)
@@ -64,7 +64,7 @@ defmodule ImagePlug.PlanTest do
     plan = %Plan{
       source: %Plain{path: ["images", "cat.jpg"]},
       pipelines: [%Pipeline{operations: [operation]}],
-      output: %OutputPlan{mode: {:explicit, :webp}}
+      output: %Output{mode: {:explicit, :webp}}
     }
 
     assert {:error, {:invalid_pipeline_operation, ^operation}} = Plan.validated_pipelines(plan)
@@ -76,7 +76,7 @@ defmodule ImagePlug.PlanTest do
     plan = %Plan{
       source: %Plain{path: ["images", "cat.jpg"]},
       pipelines: [%Pipeline{operations: [operation]}],
-      output: %OutputPlan{mode: {:explicit, :webp}}
+      output: %Output{mode: {:explicit, :webp}}
     }
 
     assert {:error, {:invalid_pipeline_operation, ^operation}} = Plan.validated_pipelines(plan)

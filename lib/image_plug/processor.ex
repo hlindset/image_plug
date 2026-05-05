@@ -6,7 +6,7 @@ defmodule ImagePlug.Processor do
   alias ImagePlug.ImageMaterializer
   alias ImagePlug.Origin
   alias ImagePlug.Plan
-  alias ImagePlug.Source.Plain
+  alias ImagePlug.Plan.Source.Plain
   alias ImagePlug.TransformChain
   alias ImagePlug.TransformState
 
@@ -32,7 +32,7 @@ defmodule ImagePlug.Processor do
     end
   end
 
-  @spec process_origin(Plan.t(), [ImagePlug.Pipeline.t()], String.t(), keyword()) ::
+  @spec process_origin(Plan.t(), [ImagePlug.Plan.Pipeline.t()], String.t(), keyword()) ::
           {:ok, TransformState.t()} | {:error, term()}
   def process_origin(%Plan{} = plan, pipelines, origin_identity, opts) when is_list(pipelines) do
     with {:ok, %DecodedOrigin{} = decoded} <-
@@ -59,7 +59,7 @@ defmodule ImagePlug.Processor do
 
   @spec fetch_decode_validate_origin_with_source_format(
           Plan.t(),
-          [ImagePlug.Pipeline.t()],
+          [ImagePlug.Plan.Pipeline.t()],
           String.t(),
           keyword()
         ) ::
@@ -87,7 +87,7 @@ defmodule ImagePlug.Processor do
     end
   end
 
-  @spec fetch_origin_with_source_format(Plan.t(), [ImagePlug.Pipeline.t()], String.t(), keyword()) ::
+  @spec fetch_origin_with_source_format(Plan.t(), [ImagePlug.Plan.Pipeline.t()], String.t(), keyword()) ::
           {:ok, Origin.Response.t(), :avif | :webp | :jpeg | :png | nil} | {:error, term()}
   def fetch_origin_with_source_format(%Plan{} = plan, _pipelines, origin_identity, opts) do
     with {:ok, origin_response} <-
@@ -120,7 +120,7 @@ defmodule ImagePlug.Processor do
           Origin.Response.t(),
           :avif | :webp | :jpeg | :png | nil,
           Plan.t(),
-          [ImagePlug.Pipeline.t()],
+          [ImagePlug.Plan.Pipeline.t()],
           keyword()
         ) :: {:ok, DecodedOrigin.t()} | {:error, term()}
   def decode_validate_origin_response(origin_response, source_format, plan, _pipelines, opts) do
@@ -148,7 +148,7 @@ defmodule ImagePlug.Processor do
     end
   end
 
-  @spec process_decoded_origin(DecodedOrigin.t(), [ImagePlug.Pipeline.t()], keyword()) ::
+  @spec process_decoded_origin(DecodedOrigin.t(), [ImagePlug.Plan.Pipeline.t()], keyword()) ::
           {:ok, TransformState.t()} | {:error, term()}
   def process_decoded_origin(%DecodedOrigin{} = decoded, pipelines, opts)
       when is_list(pipelines) do
@@ -197,7 +197,7 @@ defmodule ImagePlug.Processor do
   end
 
   defp execute_pipeline_step(
-         {%ImagePlug.Pipeline{operations: operations}, index},
+         {%ImagePlug.Plan.Pipeline{operations: operations}, index},
          {:ok, %TransformState{} = state},
          last_index,
          %DecodedOrigin{} = decoded,

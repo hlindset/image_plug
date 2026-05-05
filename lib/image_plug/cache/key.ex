@@ -7,10 +7,10 @@ defmodule ImagePlug.Cache.Key do
 
   alias ImagePlug.Cache.Material
   alias ImagePlug.OutputNegotiation
-  alias ImagePlug.OutputPlan
-  alias ImagePlug.Pipeline
+  alias ImagePlug.Plan.Output
+  alias ImagePlug.Plan.Pipeline
   alias ImagePlug.Plan
-  alias ImagePlug.Source.Plain
+  alias ImagePlug.Plan.Source.Plain
 
   @schema_version 2
   @enforce_keys [:hash, :material, :serialized_material]
@@ -74,7 +74,7 @@ defmodule ImagePlug.Cache.Key do
     Material.material(operation)
   end
 
-  defp output_material(conn, %OutputPlan{mode: :automatic}, opts) do
+  defp output_material(conn, %Output{mode: :automatic}, opts) do
     accept_header = conn |> get_req_header("accept") |> Enum.join(",")
 
     {:ok,
@@ -88,7 +88,7 @@ defmodule ImagePlug.Cache.Key do
      ]}
   end
 
-  defp output_material(_conn, %OutputPlan{mode: {:explicit, format}}, _opts) do
+  defp output_material(_conn, %Output{mode: {:explicit, format}}, _opts) do
     {:ok, [mode: :explicit, format: format]}
   end
 

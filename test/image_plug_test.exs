@@ -7,10 +7,10 @@ defmodule ImagePlug.ImagePlugTest do
 
   doctest ImagePlug
 
-  alias ImagePlug.OutputPlan
-  alias ImagePlug.Pipeline
+  alias ImagePlug.Plan.Output
+  alias ImagePlug.Plan.Pipeline
   alias ImagePlug.Plan
-  alias ImagePlug.Source.Plain
+  alias ImagePlug.Plan.Source.Plain
 
   defmodule CacheProbe do
     alias ImagePlug.Cache.Entry
@@ -193,7 +193,7 @@ defmodule ImagePlug.ImagePlugTest do
         [
           source: %Plain{path: ["images", "cat-300.jpg"]},
           pipelines: [%Pipeline{operations: []}],
-          output: %OutputPlan{mode: :automatic}
+          output: %Output{mode: :automatic}
         ],
         overrides
       )
@@ -203,7 +203,7 @@ defmodule ImagePlug.ImagePlugTest do
   def sample_explicit_plan(format, operations \\ []) do
     sample_plan(
       pipelines: [%Pipeline{operations: operations}],
-      output: %OutputPlan{mode: {:explicit, format}}
+      output: %Output{mode: {:explicit, format}}
     )
   end
 
@@ -349,7 +349,7 @@ defmodule ImagePlug.ImagePlugTest do
       {:ok,
        ImagePlug.ImagePlugTest.sample_plan(
          pipelines: [],
-         output: %ImagePlug.OutputPlan{mode: {:explicit, :jpeg}}
+         output: %ImagePlug.Plan.Output{mode: {:explicit, :jpeg}}
        )}
     end
 

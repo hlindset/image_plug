@@ -4,11 +4,11 @@ defmodule ImagePlug.RequestRunnerTest do
   import Plug.Test
 
   alias ImagePlug.Cache.Entry
-  alias ImagePlug.OutputPlan
-  alias ImagePlug.Pipeline
+  alias ImagePlug.Plan.Output
+  alias ImagePlug.Plan.Pipeline
   alias ImagePlug.Plan
   alias ImagePlug.RequestRunner
-  alias ImagePlug.Source.Plain
+  alias ImagePlug.Plan.Source.Plain
   alias ImagePlug.Transform
   alias ImagePlug.TransformState
 
@@ -87,7 +87,7 @@ defmodule ImagePlug.RequestRunnerTest do
         [
           source: %Plain{path: ["images", "cat-300.jpg"]},
           pipelines: [%Pipeline{operations: []}],
-          output: %OutputPlan{mode: {:explicit, :jpeg}}
+          output: %Output{mode: {:explicit, :jpeg}}
         ],
         overrides
       )
@@ -127,7 +127,7 @@ defmodule ImagePlug.RequestRunnerTest do
     assert {:ok, {:cache_entry, ^entry}} =
              RequestRunner.run(
                conn,
-               plan(output: %OutputPlan{mode: :automatic}),
+               plan(output: %Output{mode: :automatic}),
                "http://origin.test/images/cat-300.jpg",
                cache: {CacheHit, entry: entry}
              )
@@ -203,7 +203,7 @@ defmodule ImagePlug.RequestRunnerTest do
     plan =
       plan(
         pipelines: [%Pipeline{operations: [%FirstTransform{}]}],
-        output: %OutputPlan{mode: {:explicit, :jpeg}}
+        output: %Output{mode: {:explicit, :jpeg}}
       )
 
     assert {:ok, {:image, %TransformState{} = state, :jpeg, []}} =

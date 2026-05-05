@@ -1,4 +1,4 @@
-defmodule ImagePlug.OutputPlan do
+defmodule ImagePlug.Plan.Output do
   @moduledoc """
   Requested output intent before runtime format negotiation.
   """

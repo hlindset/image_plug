@@ -1,7 +1,7 @@
 defmodule ImagePlug.DecodePlanner do
   @moduledoc false
 
-  alias ImagePlug.Pipeline
+  alias ImagePlug.Plan.Pipeline
   alias ImagePlug.Plan
   alias ImagePlug.Transform
 

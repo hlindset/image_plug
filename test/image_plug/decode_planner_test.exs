@@ -2,10 +2,10 @@ defmodule ImagePlug.DecodePlannerTest do
   use ExUnit.Case, async: true
 
   alias ImagePlug.DecodePlanner
-  alias ImagePlug.OutputPlan
-  alias ImagePlug.Pipeline
+  alias ImagePlug.Plan.Output
+  alias ImagePlug.Plan.Pipeline
   alias ImagePlug.Plan
-  alias ImagePlug.Source.Plain
+  alias ImagePlug.Plan.Source.Plain
   alias ImagePlug.Transform.Contain
   alias ImagePlug.Transform.Cover
   alias ImagePlug.Transform.Crop
@@ -269,7 +269,7 @@ defmodule ImagePlug.DecodePlannerTest do
           ]
         }
       ],
-      output: %OutputPlan{mode: {:explicit, :jpeg}}
+      output: %Output{mode: {:explicit, :jpeg}}
     }
 
     assert DecodePlanner.open_options(plan) == [access: :sequential, fail_on: :error]

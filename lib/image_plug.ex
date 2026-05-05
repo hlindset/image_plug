@@ -15,7 +15,7 @@ defmodule ImagePlug do
   alias ImagePlug.Origin
   alias ImagePlug.Plan
   alias ImagePlug.RequestRunner
-  alias ImagePlug.Source.Plain
+  alias ImagePlug.Plan.Source.Plain
   alias ImagePlug.TransformState
 
   @type imgp_number() :: integer() | float()

@@ -6,11 +6,11 @@ defmodule ImagePlug.ResponseCacheTest do
 
   alias ImagePlug.Cache.Entry
   alias ImagePlug.Cache.Key
-  alias ImagePlug.OutputPlan
-  alias ImagePlug.Pipeline
+  alias ImagePlug.Plan.Output
+  alias ImagePlug.Plan.Pipeline
   alias ImagePlug.Plan
   alias ImagePlug.ResponseCache
-  alias ImagePlug.Source.Plain
+  alias ImagePlug.Plan.Source.Plain
   alias ImagePlug.TransformState
 
   defmodule CaptureAdapter do
@@ -32,7 +32,7 @@ defmodule ImagePlug.ResponseCacheTest do
         [
           source: %Plain{path: ["images", "cat.jpg"]},
           pipelines: [%Pipeline{operations: []}],
-          output: %OutputPlan{mode: :automatic}
+          output: %Output{mode: :automatic}
         ],
         overrides
       )
@@ -66,7 +66,7 @@ defmodule ImagePlug.ResponseCacheTest do
 
   test "store encodes and writes using a key returned by lookup" do
     conn = conn(:get, "/_/f:png/plain/images/cat.jpg")
-    plan = plan(output: %OutputPlan{mode: {:explicit, :png}})
+    plan = plan(output: %Output{mode: {:explicit, :png}})
 
     assert {:miss, %Key{} = key} =
              ResponseCache.lookup(

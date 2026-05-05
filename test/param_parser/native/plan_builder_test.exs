@@ -2,13 +2,13 @@ defmodule ImagePlug.ParamParser.Native.PlanBuilderTest do
   use ExUnit.Case, async: true
   use ExUnitProperties
 
-  alias ImagePlug.OutputPlan
+  alias ImagePlug.Plan.Output
   alias ImagePlug.ParamParser.Native.ParsedRequest
   alias ImagePlug.ParamParser.Native.PipelineRequest
   alias ImagePlug.ParamParser.Native.PlanBuilder
-  alias ImagePlug.Pipeline
+  alias ImagePlug.Plan.Pipeline
   alias ImagePlug.Plan
-  alias ImagePlug.Source.Plain
+  alias ImagePlug.Plan.Source.Plain
   alias ImagePlug.Transform
 
   test "native parser builds transforms through operation constructors" do
@@ -39,7 +39,7 @@ defmodule ImagePlug.ParamParser.Native.PlanBuilderTest do
               pipelines: [
                 %Pipeline{operations: operations}
               ],
-              output: %OutputPlan{mode: :automatic}
+              output: %Output{mode: :automatic}
             }} = PlanBuilder.to_plan(request)
 
     assert [%Transform.Contain{} = params] = operations
@@ -228,8 +228,8 @@ defmodule ImagePlug.ParamParser.Native.PlanBuilderTest do
 
     assert {:ok,
             %ImagePlug.Plan{
-              pipelines: [%ImagePlug.Pipeline{operations: operations}],
-              output: %ImagePlug.OutputPlan{mode: :automatic}
+              pipelines: [%ImagePlug.Plan.Pipeline{operations: operations}],
+              output: %ImagePlug.Plan.Output{mode: :automatic}
             }} =
              PlanBuilder.to_plan(%ParsedRequest{request | output_format: nil})
 
@@ -239,8 +239,8 @@ defmodule ImagePlug.ParamParser.Native.PlanBuilderTest do
 
     assert {:ok,
             %ImagePlug.Plan{
-              pipelines: [%ImagePlug.Pipeline{operations: operations}],
-              output: %ImagePlug.OutputPlan{mode: {:explicit, :webp}}
+              pipelines: [%ImagePlug.Plan.Pipeline{operations: operations}],
+              output: %ImagePlug.Plan.Output{mode: {:explicit, :webp}}
             }} =
              PlanBuilder.to_plan(request)
 
@@ -255,14 +255,14 @@ defmodule ImagePlug.ParamParser.Native.PlanBuilderTest do
       assert {:ok, %ImagePlug.Plan{} = automatic_plan} =
                PlanBuilder.to_plan(%ParsedRequest{parsed_request | output_format: nil})
 
-      assert automatic_plan.output == %ImagePlug.OutputPlan{mode: :automatic}
-      assert [%ImagePlug.Pipeline{} | _] = automatic_plan.pipelines
+      assert automatic_plan.output == %ImagePlug.Plan.Output{mode: :automatic}
+      assert [%ImagePlug.Plan.Pipeline{} | _] = automatic_plan.pipelines
 
       for format <- [:webp, :avif, :jpeg, :png] do
         assert {:ok, %ImagePlug.Plan{} = explicit_plan} =
                  PlanBuilder.to_plan(%ParsedRequest{parsed_request | output_format: format})
 
-        assert explicit_plan.output == %ImagePlug.OutputPlan{mode: {:explicit, format}}
+        assert explicit_plan.output == %ImagePlug.Plan.Output{mode: {:explicit, format}}
         assert explicit_plan.pipelines == automatic_plan.pipelines
       end
     end

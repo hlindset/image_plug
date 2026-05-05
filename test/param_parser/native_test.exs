@@ -3,11 +3,11 @@ defmodule ImagePlug.ParamParser.NativeTest do
 
   import Plug.Test
 
-  alias ImagePlug.OutputPlan
+  alias ImagePlug.Plan.Output
   alias ImagePlug.ParamParser.Native
-  alias ImagePlug.Pipeline
+  alias ImagePlug.Plan.Pipeline
   alias ImagePlug.Plan
-  alias ImagePlug.Source.Plain
+  alias ImagePlug.Plan.Source.Plain
   alias ImagePlug.Transform
 
   test "parses a plain source with no processing options" do
@@ -15,7 +15,7 @@ defmodule ImagePlug.ParamParser.NativeTest do
             %Plan{
               source: %Plain{path: ["images", "cat.jpg"]},
               pipelines: [%Pipeline{operations: []}],
-              output: %OutputPlan{mode: :automatic}
+              output: %Output{mode: :automatic}
             }} = Native.parse(conn(:get, "/_/plain/images/cat.jpg"))
   end
 
@@ -202,7 +202,7 @@ defmodule ImagePlug.ParamParser.NativeTest do
     assert {:ok,
             %Plan{
               source: %Plain{path: ["images", "cat.jpg"]},
-              output: %OutputPlan{mode: {:explicit, :webp}}
+              output: %Output{mode: {:explicit, :webp}}
             }} = Native.parse(conn(:get, "/_/f:webp/plain/images/cat.jpg@"))
   end
 
@@ -291,7 +291,7 @@ defmodule ImagePlug.ParamParser.NativeTest do
     assert {:ok,
             %Plan{
               source: %Plain{path: ["images", "cat@v1.jpg"]},
-              output: %OutputPlan{mode: {:explicit, :webp}}
+              output: %Output{mode: {:explicit, :webp}}
             }} = conn(:get, "/_/plain/images/cat%40v1.jpg@webp") |> Native.parse()
   end
 
@@ -313,7 +313,7 @@ defmodule ImagePlug.ParamParser.NativeTest do
     assert {:ok,
             %Plan{
               source: %Plain{path: ["images", "cat.jpg"]},
-              output: %OutputPlan{mode: :automatic}
+              output: %Output{mode: :automatic}
             }} = conn(:get, "/_/plain/images/cat.jpg@") |> Native.parse()
   end
 
@@ -346,7 +346,7 @@ defmodule ImagePlug.ParamParser.NativeTest do
   end
 
   defp assert_output_mode(path, mode) do
-    assert {:ok, %Plan{output: %OutputPlan{mode: ^mode}}} =
+    assert {:ok, %Plan{output: %Output{mode: ^mode}}} =
              conn(:get, path) |> Native.parse()
   end
 end

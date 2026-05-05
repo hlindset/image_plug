@@ -6,10 +6,10 @@ defmodule ImagePlug.Cache.KeyPropertyTest do
   import Plug.Test
 
   alias ImagePlug.Cache.Key
-  alias ImagePlug.OutputPlan
-  alias ImagePlug.Pipeline
+  alias ImagePlug.Plan.Output
+  alias ImagePlug.Plan.Pipeline
   alias ImagePlug.Plan
-  alias ImagePlug.Source.Plain
+  alias ImagePlug.Plan.Source.Plain
   alias ImagePlug.Transform
 
   defp build_key!(conn, plan, origin_identity, opts \\ []) do
@@ -111,7 +111,7 @@ defmodule ImagePlug.Cache.KeyPropertyTest do
   end
 
   property "included origin identity and output format change the cache key" do
-    check all plan <- cacheable_plan(output: %OutputPlan{mode: {:explicit, :webp}}),
+    check all plan <- cacheable_plan(output: %Output{mode: {:explicit, :webp}}),
               origin_a <- origin_identity(),
               origin_b <- origin_identity(),
               origin_a != origin_b,
@@ -120,7 +120,7 @@ defmodule ImagePlug.Cache.KeyPropertyTest do
 
       origin_key_a = build_key!(conn, plan, origin_a)
       origin_key_b = build_key!(conn, plan, origin_b)
-      png_key = build_key!(conn, %{plan | output: %OutputPlan{mode: {:explicit, :png}}}, origin_a)
+      png_key = build_key!(conn, %{plan | output: %Output{mode: {:explicit, :png}}}, origin_a)
 
       refute origin_key_a.hash == origin_key_b.hash
       refute origin_key_a.hash == png_key.hash
@@ -212,7 +212,7 @@ defmodule ImagePlug.Cache.KeyPropertyTest do
                   {"image/avif;q=0,image/*", "image/*,image/avif;q=0"}
                 ]),
               max_runs: 100 do
-      plan = plan(output: %OutputPlan{mode: :automatic})
+      plan = plan(output: %Output{mode: :automatic})
       origin = "https://origin.test/images/cat.jpg"
 
       key_a =
@@ -240,7 +240,7 @@ defmodule ImagePlug.Cache.KeyPropertyTest do
                   {"image/avif;q=0,image/*", "image/*"}
                 ]),
               max_runs: 100 do
-      plan = plan(output: %OutputPlan{mode: :automatic})
+      plan = plan(output: %Output{mode: :automatic})
       origin = "https://origin.test/images/cat.jpg"
 
       key_a =
@@ -262,7 +262,7 @@ defmodule ImagePlug.Cache.KeyPropertyTest do
   property "automatic cache key does not depend on runtime-selected source fallback format" do
     check all accept <- accept_header(),
               max_runs: 100 do
-      plan = plan(output: %OutputPlan{mode: :automatic})
+      plan = plan(output: %Output{mode: :automatic})
       origin = "https://origin.test/images/cat.jpg"
 
       key_a =
@@ -340,7 +340,7 @@ defmodule ImagePlug.Cache.KeyPropertyTest do
               ]
             }
           ],
-          output: %OutputPlan{mode: {:explicit, :webp}}
+          output: %Output{mode: {:explicit, :webp}}
         ],
         overrides
       )

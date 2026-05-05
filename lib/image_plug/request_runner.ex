@@ -5,9 +5,9 @@ defmodule ImagePlug.RequestRunner do
   alias ImagePlug.Cache.Entry
   alias ImagePlug.Cache.Key
   alias ImagePlug.Cache.Material
-  alias ImagePlug.OutputPlan
+  alias ImagePlug.Plan.Output
   alias ImagePlug.OutputPolicy
-  alias ImagePlug.Pipeline
+  alias ImagePlug.Plan.Pipeline
   alias ImagePlug.Plan
   alias ImagePlug.Processor
   alias ImagePlug.ResponseCache
@@ -112,7 +112,7 @@ defmodule ImagePlug.RequestRunner do
 
   defp process_request(
          conn,
-         %Plan{output: %OutputPlan{mode: :automatic}} = plan,
+         %Plan{output: %Output{mode: :automatic}} = plan,
          pipelines,
          origin_identity,
          opts
@@ -132,7 +132,7 @@ defmodule ImagePlug.RequestRunner do
 
   defp process_request(
          conn,
-         %Plan{output: %OutputPlan{mode: {:explicit, format}}} = plan,
+         %Plan{output: %Output{mode: {:explicit, format}}} = plan,
          pipelines,
          origin_identity,
          opts

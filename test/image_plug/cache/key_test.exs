@@ -5,10 +5,10 @@ defmodule ImagePlug.Cache.KeyTest do
   import Plug.Test
 
   alias ImagePlug.Cache.Key
-  alias ImagePlug.OutputPlan
-  alias ImagePlug.Pipeline
+  alias ImagePlug.Plan.Output
+  alias ImagePlug.Plan.Pipeline
   alias ImagePlug.Plan
-  alias ImagePlug.Source.Plain
+  alias ImagePlug.Plan.Source.Plain
   alias ImagePlug.Transform
 
   defp plan(overrides \\ []) do
@@ -39,7 +39,7 @@ defmodule ImagePlug.Cache.KeyTest do
               ]
             }
           ],
-          output: %OutputPlan{mode: {:explicit, :webp}}
+          output: %Output{mode: {:explicit, :webp}}
         ],
         overrides
       )
@@ -160,7 +160,7 @@ defmodule ImagePlug.Cache.KeyTest do
   end
 
   test "automatic output includes modern candidates instead of selected output or raw Accept" do
-    automatic_plan = plan(output: %OutputPlan{mode: :automatic})
+    automatic_plan = plan(output: %Output{mode: :automatic})
 
     conn_one =
       :get
@@ -187,7 +187,7 @@ defmodule ImagePlug.Cache.KeyTest do
   end
 
   test "different automatic Accept capabilities change cache key" do
-    automatic_plan = plan(output: %OutputPlan{mode: :automatic})
+    automatic_plan = plan(output: %Output{mode: :automatic})
 
     avif_key =
       :get
@@ -205,7 +205,7 @@ defmodule ImagePlug.Cache.KeyTest do
   end
 
   test "different automatic output feature flags change cache key" do
-    automatic_plan = plan(output: %OutputPlan{mode: :automatic})
+    automatic_plan = plan(output: %Output{mode: :automatic})
 
     conn =
       :get

@@ -5,9 +5,9 @@ defmodule ImagePlug.ParamParser.NativePropertyTest do
   import Plug.Test
 
   alias ImagePlug.ParamParser.Native
-  alias ImagePlug.Pipeline
+  alias ImagePlug.Plan.Pipeline
   alias ImagePlug.Plan
-  alias ImagePlug.Source.Plain
+  alias ImagePlug.Plan.Source.Plain
   alias ImagePlug.Transform
 
   property "parser returns tagged results for arbitrary processing segments" do

@@ -1,4 +1,4 @@
-defmodule ImagePlug.Source.Plain do
+defmodule ImagePlug.Plan.Source.Plain do
   @moduledoc """
   Product-neutral source path for plain origin requests.
   """

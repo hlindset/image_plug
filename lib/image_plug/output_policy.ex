@@ -5,7 +5,7 @@ defmodule ImagePlug.OutputPolicy do
 
   alias ImagePlug.ImageFormat
   alias ImagePlug.OutputNegotiation
-  alias ImagePlug.OutputPlan
+  alias ImagePlug.Plan.Output
 
   @enforce_keys [:mode, :modern_candidates, :headers, :quality]
   defstruct @enforce_keys
@@ -21,8 +21,8 @@ defmodule ImagePlug.OutputPolicy do
           quality: :default
         }
 
-  @spec from_output_plan(Plug.Conn.t(), OutputPlan.t(), keyword()) :: t()
-  def from_output_plan(%Plug.Conn{} = conn, %OutputPlan{mode: :automatic}, opts) do
+  @spec from_output_plan(Plug.Conn.t(), Output.t(), keyword()) :: t()
+  def from_output_plan(%Plug.Conn{} = conn, %Output{mode: :automatic}, opts) do
     %__MODULE__{
       mode: :source,
       modern_candidates: OutputNegotiation.modern_candidates(accept_header(conn), opts),
@@ -31,7 +31,7 @@ defmodule ImagePlug.OutputPolicy do
     }
   end
 
-  def from_output_plan(%Plug.Conn{}, %OutputPlan{mode: {:explicit, format}}, _opts) do
+  def from_output_plan(%Plug.Conn{}, %Output{mode: {:explicit, format}}, _opts) do
     %__MODULE__{
       mode: {:explicit, format},
       modern_candidates: [],

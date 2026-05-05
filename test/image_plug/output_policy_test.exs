@@ -4,7 +4,7 @@ defmodule ImagePlug.OutputPolicyTest do
   import Plug.Conn
   import Plug.Test
 
-  alias ImagePlug.OutputPlan
+  alias ImagePlug.Plan.Output
   alias ImagePlug.OutputPolicy
 
   describe "from_output_plan/3" do
@@ -14,7 +14,7 @@ defmodule ImagePlug.OutputPolicyTest do
         |> conn("/_/f:webp/plain/images/cat.jpg")
         |> put_req_header("accept", "image/jpeg")
 
-      assert OutputPolicy.from_output_plan(conn, %OutputPlan{mode: {:explicit, :webp}}, []) ==
+      assert OutputPolicy.from_output_plan(conn, %Output{mode: {:explicit, :webp}}, []) ==
                %OutputPolicy{
                  mode: {:explicit, :webp},
                  modern_candidates: [],
@@ -29,7 +29,7 @@ defmodule ImagePlug.OutputPolicyTest do
         |> conn("/_/plain/images/cat.jpg")
         |> put_req_header("accept", "image/webp;q=1,image/avif;q=0.1")
 
-      assert OutputPolicy.from_output_plan(conn, %OutputPlan{mode: :automatic}, []) ==
+      assert OutputPolicy.from_output_plan(conn, %Output{mode: :automatic}, []) ==
                %OutputPolicy{
                  mode: :source,
                  modern_candidates: [:avif, :webp],

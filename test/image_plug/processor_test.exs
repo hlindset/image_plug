@@ -2,8 +2,8 @@ defmodule ImagePlug.ProcessorTest do
   use ExUnit.Case, async: true
 
   alias ImagePlug.Origin.StreamStatus
-  alias ImagePlug.OutputPlan
-  alias ImagePlug.Pipeline
+  alias ImagePlug.Plan.Output
+  alias ImagePlug.Plan.Pipeline
   alias ImagePlug.Plan
   alias ImagePlug.Processor
   alias ImagePlug.ProcessorTest.DecodeErrorImageOpen
@@ -15,7 +15,7 @@ defmodule ImagePlug.ProcessorTest do
   alias ImagePlug.ProcessorTest.OriginShouldNotFetch
   alias ImagePlug.ProcessorTest.SecondTransform
   alias ImagePlug.ProcessorTest.SequentialFailingTransform
-  alias ImagePlug.Source.Plain
+  alias ImagePlug.Plan.Source.Plain
   alias ImagePlug.TransformState
 
   defp opts do
@@ -26,7 +26,7 @@ defmodule ImagePlug.ProcessorTest do
     %Plan{
       source: %Plain{path: ["this", "path", "does-not-drive-fetch.jpg"]},
       pipelines: [%Pipeline{operations: []}],
-      output: %OutputPlan{mode: {:explicit, :jpeg}}
+      output: %Output{mode: {:explicit, :jpeg}}
     }
   end
 
@@ -83,7 +83,7 @@ defmodule ImagePlug.ProcessorTest do
         %Pipeline{operations: [%FirstTransform{}]},
         %Pipeline{operations: [%SecondTransform{test_pid: test_pid, ref: ref}]}
       ],
-      output: %OutputPlan{mode: {:explicit, :jpeg}}
+      output: %Output{mode: {:explicit, :jpeg}}
     }
 
     opts =
@@ -115,7 +115,7 @@ defmodule ImagePlug.ProcessorTest do
         %Pipeline{operations: []},
         %Pipeline{operations: []}
       ],
-      output: %OutputPlan{mode: {:explicit, :jpeg}}
+      output: %Output{mode: {:explicit, :jpeg}}
     }
 
     assert {:error,
@@ -136,7 +136,7 @@ defmodule ImagePlug.ProcessorTest do
         %Pipeline{operations: []},
         %Pipeline{operations: []}
       ],
-      output: %OutputPlan{mode: {:explicit, :jpeg}}
+      output: %Output{mode: {:explicit, :jpeg}}
     }
 
     assert {:error,
@@ -157,7 +157,7 @@ defmodule ImagePlug.ProcessorTest do
         %Pipeline{operations: []},
         %Pipeline{operations: []}
       ],
-      output: %OutputPlan{mode: {:explicit, :jpeg}}
+      output: %Output{mode: {:explicit, :jpeg}}
     }
 
     assert {:error, {:config, {:invalid_image_materializer, "not a module"}}} =

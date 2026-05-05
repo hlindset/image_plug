@@ -3,18 +3,18 @@ defmodule ImagePlug.Plan do
   Product-neutral execution request produced by parameter parsers.
   """
 
-  alias ImagePlug.OutputPlan
-  alias ImagePlug.Pipeline
-  alias ImagePlug.Source.Plain
+  alias ImagePlug.Plan.Output
+  alias ImagePlug.Plan.Pipeline
+  alias ImagePlug.Plan.Source.Plain
   alias ImagePlug.Transform
 
   @enforce_keys [:source, :pipelines, :output]
   defstruct @enforce_keys
 
   @type t :: %__MODULE__{
-          source: ImagePlug.Source.Plain.t(),
-          pipelines: [ImagePlug.Pipeline.t()],
-          output: ImagePlug.OutputPlan.t()
+          source: ImagePlug.Plan.Source.Plain.t(),
+          pipelines: [ImagePlug.Plan.Pipeline.t()],
+          output: ImagePlug.Plan.Output.t()
         }
 
   @type pipeline_error() ::
@@ -72,9 +72,9 @@ defmodule ImagePlug.Plan do
 
   defp validate_source(source), do: {:error, {:unsupported_source, source}}
 
-  defp validate_output(%OutputPlan{mode: :automatic}), do: :ok
+  defp validate_output(%Output{mode: :automatic}), do: :ok
 
-  defp validate_output(%OutputPlan{mode: {:explicit, format}})
+  defp validate_output(%Output{mode: {:explicit, format}})
        when format in [:avif, :webp, :jpeg, :png],
        do: :ok
 
