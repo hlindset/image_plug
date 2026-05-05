@@ -530,19 +530,14 @@ defmodule ImagePlug.ImagePlugTest do
     end
   end
 
-  test "init rejects parser modules that do not implement the parser contract" do
-    assert_raise ArgumentError, ~r/expected parse\/1 and handle_error\/2/, fn ->
-      ImagePlug.init(parser: String, root_url: "https://example.test")
-    end
-  end
-
-  test "init rejects parser modules that cannot be loaded" do
-    assert_raise ArgumentError, ~r/module could not be loaded/, fn ->
+  test "init validates parser option shape without loading the parser module" do
+    opts =
       ImagePlug.init(
         parser: ImagePlug.ImagePlugTest.MissingParser,
         root_url: "https://example.test"
       )
-    end
+
+    assert Keyword.fetch!(opts, :parser) == ImagePlug.ImagePlugTest.MissingParser
   end
 
   test "plug facade delegates response delivery to runtime response sender" do
