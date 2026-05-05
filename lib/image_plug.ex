@@ -33,7 +33,8 @@ defmodule ImagePlug do
   def call(%Plug.Conn{} = conn, opts) do
     parser = Keyword.fetch!(opts, :parser)
 
-    with {:ok, %Plan{} = plan} <- parser.parse(conn) |> wrap_parser_error(),
+    with {:ok, %Plan{} = plan} <- parser.parse(conn, opts) |> wrap_parser_error(),
+         {:ok, %Plan{} = plan} <- Plan.validate_shape(plan) |> wrap_parser_error(),
          {:ok, origin_identity} <- SourceIdentity.resolve(plan, opts) |> wrap_origin_error() do
       result = RequestRunner.run(conn, plan, origin_identity, opts)
       ResponseSender.send_result(conn, result, opts)

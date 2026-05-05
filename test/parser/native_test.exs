@@ -16,35 +16,41 @@ defmodule ImagePlug.Parser.NativeTest do
               source: %Plain{path: ["images", "cat.jpg"]},
               pipelines: [%Pipeline{operations: []}],
               output: %Output{mode: :automatic}
-            }} = Native.parse(conn(:get, "/_/plain/images/cat.jpg"))
+            }} = Native.parse(conn(:get, "/_/plain/images/cat.jpg"), [])
+  end
+
+  test "parse/2 accepts parser options and keeps no-option parse/1 as a delegating helper" do
+    conn = conn(:get, "/_/plain/images/cat.jpg")
+
+    assert Native.parse(conn, []) == Native.parse(conn)
   end
 
   test "supports unsafe as the disabled-signing signature segment" do
     assert {:ok, %Plan{source: %Plain{path: ["images", "cat.jpg"]}}} =
-             conn(:get, "/unsafe/plain/images/cat.jpg") |> Native.parse()
+             Native.parse(conn(:get, "/unsafe/plain/images/cat.jpg"), [])
   end
 
   test "rejects unsupported signature segments while signing is disabled" do
-    assert Native.parse(conn(:get, "/signed-value/plain/images/cat.jpg")) ==
+    assert Native.parse(conn(:get, "/signed-value/plain/images/cat.jpg"), []) ==
              {:error, {:unsupported_signature, "signed-value"}}
   end
 
   test "rejects missing signature" do
-    assert Native.parse(conn(:get, "/")) == {:error, :missing_signature}
+    assert Native.parse(conn(:get, "/"), []) == {:error, :missing_signature}
   end
 
   test "rejects missing source kind" do
-    assert Native.parse(conn(:get, "/_/w:300")) == {:error, :missing_source_kind}
+    assert Native.parse(conn(:get, "/_/w:300"), []) == {:error, :missing_source_kind}
   end
 
   test "rejects missing plain source identifier" do
-    assert Native.parse(conn(:get, "/_/plain")) ==
+    assert Native.parse(conn(:get, "/_/plain"), []) ==
              {:error, {:missing_source_identifier, "plain"}}
   end
 
   test "treats option-like segments after plain as source path" do
     assert {:ok, %Plan{source: %Plain{path: ["images", "w:300", "cat.jpg"]}}} =
-             conn(:get, "/_/plain/images/w:300/cat.jpg") |> Native.parse()
+             Native.parse(conn(:get, "/_/plain/images/w:300/cat.jpg"), [])
   end
 
   test "parses resize and rs full grammar" do
@@ -78,7 +84,7 @@ defmodule ImagePlug.Parser.NativeTest do
 
   test "rejects empty resize and size option segments" do
     for segment <- ["rs", "rs:", "rs::", "resize", "resize:", "s", "s:", "s::", "size"] do
-      assert Native.parse(conn(:get, "/_/#{segment}/plain/images/cat.jpg")) ==
+      assert Native.parse(conn(:get, "/_/#{segment}/plain/images/cat.jpg"), []) ==
                {:error, {:invalid_option_segment, segment}}
     end
   end
@@ -92,22 +98,22 @@ defmodule ImagePlug.Parser.NativeTest do
   end
 
   test "omitted extend argument still parses provided extend gravity tail" do
-    assert Native.parse(conn(:get, "/_/rs::::::ce::/plain/images/cat.jpg")) ==
+    assert Native.parse(conn(:get, "/_/rs::::::ce::/plain/images/cat.jpg"), []) ==
              {:error, {:unsupported_extend_gravity, {:anchor, :center, :center}}}
 
-    assert Native.parse(conn(:get, "/_/s:::::ce::/plain/images/cat.jpg")) ==
+    assert Native.parse(conn(:get, "/_/s:::::ce::/plain/images/cat.jpg"), []) ==
              {:error, {:unsupported_extend_gravity, {:anchor, :center, :center}}}
   end
 
   test "extend gravity invalid arity reports the original option segment" do
     segment = "rs:::::1:ce:1"
 
-    assert Native.parse(conn(:get, "/_/#{segment}/plain/images/cat.jpg")) ==
+    assert Native.parse(conn(:get, "/_/#{segment}/plain/images/cat.jpg"), []) ==
              {:error, {:invalid_option_segment, segment}}
   end
 
   test "rejects parsed extend semantics before planning origin work" do
-    assert Native.parse(conn(:get, "/_/rs:fit:300:200:0:1:ce:0:0/plain/images/cat.jpg")) ==
+    assert Native.parse(conn(:get, "/_/rs:fit:300:200:0:1:ce:0:0/plain/images/cat.jpg"), []) ==
              {:error, {:unsupported_extend, true}}
   end
 
@@ -129,23 +135,23 @@ defmodule ImagePlug.Parser.NativeTest do
 
   test "parses supported resizing type aliases into plans and rejects unsupported values" do
     assert {:ok, %Plan{pipelines: [%Pipeline{operations: []}]}} =
-             conn(:get, "/_/rt:fit/plain/images/cat.jpg") |> Native.parse()
+             Native.parse(conn(:get, "/_/rt:fit/plain/images/cat.jpg"), [])
 
     assert {:ok, %Plan{pipelines: [%Pipeline{operations: []}]}} =
-             conn(:get, "/_/rt:force/plain/images/cat.jpg") |> Native.parse()
+             Native.parse(conn(:get, "/_/rt:force/plain/images/cat.jpg"), [])
 
-    assert Native.parse(conn(:get, "/_/rt:fill/plain/images/cat.jpg")) ==
+    assert Native.parse(conn(:get, "/_/rt:fill/plain/images/cat.jpg"), []) ==
              {:error, {:missing_dimensions, :fill}}
 
-    assert Native.parse(conn(:get, "/_/rt:fill-down/plain/images/cat.jpg")) ==
+    assert Native.parse(conn(:get, "/_/rt:fill-down/plain/images/cat.jpg"), []) ==
              {:error, {:unsupported_resizing_type, :fill_down}}
 
-    assert Native.parse(conn(:get, "/_/rt:auto/plain/images/cat.jpg")) ==
+    assert Native.parse(conn(:get, "/_/rt:auto/plain/images/cat.jpg"), []) ==
              {:error, {:unsupported_resizing_type, :auto}}
   end
 
   test "invalid resizing type reports supported values" do
-    assert Native.parse(conn(:get, "/_/rt:crop/plain/images/cat.jpg")) ==
+    assert Native.parse(conn(:get, "/_/rt:crop/plain/images/cat.jpg"), []) ==
              {:error,
               {:invalid_resizing_type, "crop", ["fit", "fill", "fill-down", "force", "auto"]}}
   end
@@ -176,15 +182,15 @@ defmodule ImagePlug.Parser.NativeTest do
   end
 
   test "rejects out-of-range focal point coordinates as gravity coordinate errors" do
-    assert Native.parse(conn(:get, "/_/g:fp:1.2:0.5/plain/images/cat.jpg")) ==
+    assert Native.parse(conn(:get, "/_/g:fp:1.2:0.5/plain/images/cat.jpg"), []) ==
              {:error, {:invalid_gravity_coordinate, "1.2"}}
 
-    assert Native.parse(conn(:get, "/_/g:fp:nope:0.5/plain/images/cat.jpg")) ==
+    assert Native.parse(conn(:get, "/_/g:fp:nope:0.5/plain/images/cat.jpg"), []) ==
              {:error, {:invalid_gravity_coordinate, "nope"}}
   end
 
   test "rejects smart gravity as an unsupported planner semantic" do
-    assert Native.parse(conn(:get, "/_/g:sm/plain/images/cat.jpg")) ==
+    assert Native.parse(conn(:get, "/_/g:sm/plain/images/cat.jpg"), []) ==
              {:error, {:unsupported_gravity, :sm}}
   end
 
@@ -203,11 +209,11 @@ defmodule ImagePlug.Parser.NativeTest do
             %Plan{
               source: %Plain{path: ["images", "cat.jpg"]},
               output: %Output{mode: {:explicit, :webp}}
-            }} = Native.parse(conn(:get, "/_/f:webp/plain/images/cat.jpg@"))
+            }} = Native.parse(conn(:get, "/_/f:webp/plain/images/cat.jpg@"), [])
   end
 
   test "rejects format auto because it is not imgproxy grammar" do
-    assert Native.parse(conn(:get, "/_/format:auto/plain/images/cat.jpg")) ==
+    assert Native.parse(conn(:get, "/_/format:auto/plain/images/cat.jpg"), []) ==
              {:error, {:invalid_format, "auto", ["webp", "avif", "jpeg", "jpg", "png", "best"]}}
   end
 
@@ -243,7 +249,7 @@ defmodule ImagePlug.Parser.NativeTest do
                 %Pipeline{operations: first_operations},
                 %Pipeline{operations: second_operations}
               ]
-            }} = Native.parse(conn(:get, "/_/w:500/-/h:200/plain/images/cat.jpg"))
+            }} = Native.parse(conn(:get, "/_/w:500/-/h:200/plain/images/cat.jpg"), [])
 
     assert [%Transform.Contain{} = first_params] = first_operations
     assert first_params.width == {:pixels, 500}
@@ -256,18 +262,18 @@ defmodule ImagePlug.Parser.NativeTest do
 
   test "rejects malformed chained native pipeline separators" do
     assert {:error, :empty_pipeline_group} =
-             Native.parse(conn(:get, "/_/-/w:500/plain/images/cat.jpg"))
+             Native.parse(conn(:get, "/_/-/w:500/plain/images/cat.jpg"), [])
 
     assert {:error, :empty_pipeline_group} =
-             Native.parse(conn(:get, "/_/w:500/-/plain/images/cat.jpg"))
+             Native.parse(conn(:get, "/_/w:500/-/plain/images/cat.jpg"), [])
 
     assert {:error, :empty_pipeline_group} =
-             Native.parse(conn(:get, "/_/w:500/-/-/h:200/plain/images/cat.jpg"))
+             Native.parse(conn(:get, "/_/w:500/-/-/h:200/plain/images/cat.jpg"), [])
   end
 
   test "preserves no-op single-pipeline behavior" do
     assert {:ok, %Plan{pipelines: [%Pipeline{operations: []}]}} =
-             Native.parse(conn(:get, "/_/plain/images/cat.jpg"))
+             Native.parse(conn(:get, "/_/plain/images/cat.jpg"), [])
   end
 
   test "later field assignments are scoped to each native pipeline" do
@@ -278,7 +284,7 @@ defmodule ImagePlug.Parser.NativeTest do
                 %Pipeline{operations: second_operations}
               ]
             }} =
-             Native.parse(conn(:get, "/_/w:500/w:600/-/h:200/h:300/plain/images/cat.jpg"))
+             Native.parse(conn(:get, "/_/w:500/w:600/-/h:200/h:300/plain/images/cat.jpg"), [])
 
     assert [%Transform.Contain{} = first_params] = first_operations
     assert first_params.width == {:pixels, 600}
@@ -292,7 +298,7 @@ defmodule ImagePlug.Parser.NativeTest do
             %Plan{
               source: %Plain{path: ["images", "cat@v1.jpg"]},
               output: %Output{mode: {:explicit, :webp}}
-            }} = conn(:get, "/_/plain/images/cat%40v1.jpg@webp") |> Native.parse()
+            }} = Native.parse(conn(:get, "/_/plain/images/cat%40v1.jpg@webp"), [])
   end
 
   test "parses supported source extensions" do
@@ -314,39 +320,39 @@ defmodule ImagePlug.Parser.NativeTest do
             %Plan{
               source: %Plain{path: ["images", "cat.jpg"]},
               output: %Output{mode: :automatic}
-            }} = conn(:get, "/_/plain/images/cat.jpg@") |> Native.parse()
+            }} = Native.parse(conn(:get, "/_/plain/images/cat.jpg@"), [])
   end
 
   test "rejects empty plain source before extension" do
-    assert Native.parse(conn(:get, "/_/plain/@webp")) ==
+    assert Native.parse(conn(:get, "/_/plain/@webp"), []) ==
              {:error, {:missing_source_identifier, "plain"}}
   end
 
   test "rejects multiple raw @ source extension separators" do
-    assert Native.parse(conn(:get, "/_/plain/images/cat.jpg@webp@png")) ==
+    assert Native.parse(conn(:get, "/_/plain/images/cat.jpg@webp@png"), []) ==
              {:error, {:multiple_source_format_separators, "images/cat.jpg@webp@png"}}
   end
 
   test "rejects unknown source extensions as parser errors" do
-    assert Native.parse(conn(:get, "/_/plain/images/cat.jpg@unknown")) ==
+    assert Native.parse(conn(:get, "/_/plain/images/cat.jpg@unknown"), []) ==
              {:error,
               {:invalid_format, "unknown", ["webp", "avif", "jpeg", "jpg", "png", "best"]}}
   end
 
   test "rejects best source extension as an unsupported output semantic" do
-    assert Native.parse(conn(:get, "/_/plain/images/cat.jpg@best")) ==
+    assert Native.parse(conn(:get, "/_/plain/images/cat.jpg@best"), []) ==
              {:error, {:unsupported_output_format, :best}}
   end
 
   defp operations_for(path) do
     assert {:ok, %Plan{pipelines: [%Pipeline{operations: operations}]}} =
-             conn(:get, path) |> Native.parse()
+             Native.parse(conn(:get, path), [])
 
     operations
   end
 
   defp assert_output_mode(path, mode) do
     assert {:ok, %Plan{output: %Output{mode: ^mode}}} =
-             conn(:get, path) |> Native.parse()
+             Native.parse(conn(:get, path), [])
   end
 end

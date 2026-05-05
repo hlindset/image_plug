@@ -59,7 +59,7 @@ defmodule ImagePlug.Parser.NativePropertyTest do
     end
   end
 
-  defp parse_path(path), do: conn(:get, path) |> Native.parse()
+  defp parse_path(path), do: Native.parse(conn(:get, path), [])
 
   defp safe_parse(options) do
     options

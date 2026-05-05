@@ -18,7 +18,7 @@ defmodule ImagePlug.Parser do
   @doc """
   Parse a request from a `Plug.Conn`.
   """
-  @callback parse(Plug.Conn.t()) :: {:ok, Plan.t()} | {:error, any()}
+  @callback parse(Plug.Conn.t(), keyword()) :: {:ok, Plan.t()} | {:error, any()}
 
   @doc """
   Render request parsing or request validation errors to the client.

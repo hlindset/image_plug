@@ -2,10 +2,17 @@ defmodule ImagePlug.Parser.Native.PlanBuilder do
   @moduledoc false
 
   alias ImagePlug.Parser.Native.ParsedRequest
+  alias ImagePlug.Parser.Native.CacheRequest
+  alias ImagePlug.Parser.Native.OutputRequest
   alias ImagePlug.Parser.Native.PipelineRequest
+  alias ImagePlug.Parser.Native.RequestPolicy
+  alias ImagePlug.Parser.Native.ResponseRequest
   alias ImagePlug.Plan
+  alias ImagePlug.Plan.Cache
   alias ImagePlug.Plan.Output
   alias ImagePlug.Plan.Pipeline
+  alias ImagePlug.Plan.Policy
+  alias ImagePlug.Plan.Response
   alias ImagePlug.Plan.Source.Plain
   alias ImagePlug.Transform
 
@@ -13,18 +20,24 @@ defmodule ImagePlug.Parser.Native.PlanBuilder do
   @supported_resizing_types [:fit, :fill, :fill_down, :force, :auto]
   @supported_output_formats [:webp, :avif, :jpeg, :png]
 
-  @spec to_plan(ParsedRequest.t()) :: {:ok, Plan.t()} | {:error, term()}
-  def to_plan(%ParsedRequest{} = request) do
+  @spec to_plan(ParsedRequest.t(), keyword()) :: {:ok, Plan.t()} | {:error, term()}
+  def to_plan(%ParsedRequest{} = request, _opts \\ []) do
     with {:ok, source} <- source_plan(request.source_kind, request.source_path),
          {:ok, pipeline_requests} <- executable_pipeline_requests(request.pipelines),
          :ok <- validate_pipeline_dimensions(pipeline_requests),
-         {:ok, output} <- output_plan(request.output_format),
+         {:ok, output} <- output_plan(request.output),
+         {:ok, policy} <- policy_plan(request.policy),
+         {:ok, cache} <- cache_plan(request.cache),
+         {:ok, response} <- response_plan(request.response),
          {:ok, pipelines} <- build_pipelines(pipeline_requests) do
       {:ok,
        %Plan{
          source: source,
          pipelines: pipelines,
-         output: output
+         output: output,
+         policy: policy,
+         cache: cache,
+         response: response
        }}
     end
   end
@@ -90,13 +103,30 @@ defmodule ImagePlug.Parser.Native.PlanBuilder do
     end)
   end
 
-  defp output_plan(nil), do: {:ok, %Output{mode: :automatic}}
-  defp output_plan(:best), do: {:error, {:unsupported_output_format, :best}}
+  defp output_plan(%OutputRequest{format: nil}), do: {:ok, %Output{mode: :automatic}}
 
-  defp output_plan(format) when format in @supported_output_formats,
+  defp output_plan(%OutputRequest{format: :best}),
+    do: {:error, {:unsupported_output_format, :best}}
+
+  defp output_plan(%OutputRequest{format: format}) when format in @supported_output_formats,
     do: {:ok, %Output{mode: {:explicit, format}}}
 
-  defp output_plan(format), do: {:error, {:invalid_output_format, format}}
+  defp output_plan(%OutputRequest{format: format}), do: {:error, {:invalid_output_format, format}}
+  defp output_plan(output), do: {:error, {:invalid_output_request, output}}
+
+  defp policy_plan(%RequestPolicy{expires: expires}), do: {:ok, %Policy{expires: expires}}
+  defp policy_plan(policy), do: {:error, {:invalid_policy_request, policy}}
+
+  defp cache_plan(%CacheRequest{cachebuster: cachebuster}),
+    do: {:ok, %Cache{cachebuster: cachebuster}}
+
+  defp cache_plan(cache), do: {:error, {:invalid_cache_request, cache}}
+
+  defp response_plan(%ResponseRequest{filename: filename, disposition: disposition}) do
+    {:ok, %Response{filename: filename, disposition: disposition}}
+  end
+
+  defp response_plan(response), do: {:error, {:invalid_response_request, response}}
 
   defp validate_dimensions(%PipelineRequest{width: width, height: height}) do
     case validate_dimension(:width, width) do

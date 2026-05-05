@@ -9,21 +9,35 @@ defmodule ImagePlug.Plan do
     exports: [
       Pipeline,
       Output,
+      Policy,
+      Cache,
+      Response,
       Source.Plain
     ]
 
+  alias ImagePlug.Plan.Cache
   alias ImagePlug.Plan.Output
   alias ImagePlug.Plan.Pipeline
+  alias ImagePlug.Plan.Policy
+  alias ImagePlug.Plan.Response
   alias ImagePlug.Plan.Source.Plain
   alias ImagePlug.Transform
 
   @enforce_keys [:source, :pipelines, :output]
-  defstruct @enforce_keys
+  defstruct @enforce_keys ++
+              [
+                policy: %Policy{},
+                cache: %Cache{},
+                response: %Response{}
+              ]
 
   @type t :: %__MODULE__{
           source: ImagePlug.Plan.Source.Plain.t(),
           pipelines: [ImagePlug.Plan.Pipeline.t()],
-          output: ImagePlug.Plan.Output.t()
+          output: ImagePlug.Plan.Output.t(),
+          policy: ImagePlug.Plan.Policy.t(),
+          cache: ImagePlug.Plan.Cache.t(),
+          response: ImagePlug.Plan.Response.t()
         }
 
   @type pipeline_error() ::
@@ -34,11 +48,17 @@ defmodule ImagePlug.Plan do
   @type shape_error() ::
           {:unsupported_source, term()}
           | {:invalid_output_plan, term()}
+          | {:invalid_policy_plan, term()}
+          | {:invalid_cache_plan, term()}
+          | {:invalid_response_plan, term()}
 
   @spec validate_shape(t()) :: {:ok, t()} | {:error, shape_error()}
   def validate_shape(%__MODULE__{} = plan) do
     with :ok <- validate_source(plan.source),
-         :ok <- validate_output(plan.output) do
+         :ok <- validate_output(plan.output),
+         :ok <- validate_policy(plan.policy),
+         :ok <- validate_cache(plan.cache),
+         :ok <- validate_response(plan.response) do
       {:ok, plan}
     end
   end
@@ -88,4 +108,22 @@ defmodule ImagePlug.Plan do
        do: :ok
 
   defp validate_output(output), do: {:error, {:invalid_output_plan, output}}
+
+  defp validate_policy(%Policy{expires: expires}) when is_integer(expires) and expires >= 0,
+    do: :ok
+
+  defp validate_policy(policy), do: {:error, {:invalid_policy_plan, policy}}
+
+  defp validate_cache(%Cache{cachebuster: cachebuster})
+       when is_binary(cachebuster) or is_nil(cachebuster),
+       do: :ok
+
+  defp validate_cache(cache), do: {:error, {:invalid_cache_plan, cache}}
+
+  defp validate_response(%Response{disposition: disposition, filename: filename})
+       when disposition in [:default, :inline, :attachment] and
+              (is_binary(filename) or is_nil(filename)),
+       do: :ok
+
+  defp validate_response(response), do: {:error, {:invalid_response_plan, response}}
 end

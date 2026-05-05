@@ -211,7 +211,7 @@ defmodule ImagePlug.ImagePlugTest do
     @behaviour ImagePlug.Parser
 
     @impl ImagePlug.Parser
-    def parse(_conn) do
+    def parse(_conn, _opts) do
       {:ok,
        ImagePlug.ImagePlugTest.sample_explicit_plan(:jpeg, [
          struct(ImagePlug.ImagePlugTest.BrokenImageTransform)
@@ -242,7 +242,7 @@ defmodule ImagePlug.ImagePlugTest do
     @behaviour ImagePlug.Parser
 
     @impl ImagePlug.Parser
-    def parse(_conn) do
+    def parse(_conn, _opts) do
       {:ok,
        ImagePlug.ImagePlugTest.sample_explicit_plan(:jpeg, [
          struct(ImagePlug.ImagePlugTest.RaisingAfterFirstChunkTransform)
@@ -257,12 +257,14 @@ defmodule ImagePlug.ImagePlugTest do
     @behaviour ImagePlug.Parser
 
     @impl ImagePlug.Parser
-    def parse(_conn) do
+    def parse(_conn, _opts) do
       {:ok, ImagePlug.ImagePlugTest.sample_plan(source: :signed)}
     end
 
     @impl ImagePlug.Parser
-    def handle_error(conn, _error), do: conn
+    def handle_error(conn, {:error, reason}) do
+      Plug.Conn.send_resp(conn, 400, inspect(reason))
+    end
   end
 
   defmodule RaisingAfterFirstChunkTransform do
@@ -285,7 +287,7 @@ defmodule ImagePlug.ImagePlugTest do
     @behaviour ImagePlug.Parser
 
     @impl ImagePlug.Parser
-    def parse(_conn) do
+    def parse(_conn, _opts) do
       {:ok,
        ImagePlug.ImagePlugTest.sample_explicit_plan(:jpeg, [
          struct(ImagePlug.ImagePlugTest.FailingTransform)
@@ -318,7 +320,7 @@ defmodule ImagePlug.ImagePlugTest do
     @behaviour ImagePlug.Parser
 
     @impl ImagePlug.Parser
-    def parse(_conn) do
+    def parse(_conn, _opts) do
       {:ok,
        ImagePlug.ImagePlugTest.sample_explicit_plan(:jpeg, [
          struct(ImagePlug.ImagePlugTest.UnprojectableOperationTransform)
@@ -347,7 +349,7 @@ defmodule ImagePlug.ImagePlugTest do
     @behaviour ImagePlug.Parser
 
     @impl ImagePlug.Parser
-    def parse(_conn) do
+    def parse(_conn, _opts) do
       {:ok,
        ImagePlug.ImagePlugTest.sample_plan(
          pipelines: [],
@@ -912,7 +914,7 @@ defmodule ImagePlug.ImagePlugTest do
     refute_received :origin_was_called
   end
 
-  test "returns an origin error for unsupported source kinds" do
+  test "returns a parser error for unsupported source kinds before origin" do
     conn = conn(:get, "/_/signed/images/cat-300.jpg")
 
     conn =
@@ -922,8 +924,8 @@ defmodule ImagePlug.ImagePlugTest do
         origin_req_options: [plug: OriginShouldNotBeCalled]
       )
 
-    assert conn.status == 502
-    assert conn.resp_body == "error fetching origin image"
+    assert conn.status == 400
+    assert conn.resp_body =~ "unsupported_source"
     refute_received :origin_was_called
   end
 

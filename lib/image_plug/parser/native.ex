@@ -66,8 +66,10 @@ defmodule ImagePlug.Parser.Native do
     "ce" => {:anchor, :center, :center}
   }
 
+  def parse(%Plug.Conn{} = conn), do: parse(conn, [])
+
   @impl ImagePlug.Parser
-  def parse(%Plug.Conn{path_info: [signature | path_info]}) do
+  def parse(%Plug.Conn{path_info: [signature | path_info]}, opts) do
     with :ok <- validate_signature(signature),
          {:ok, option_segments, source_path, source_format} <- split_source(path_info),
          {:ok, pipeline_option_groups, option_format} <-
@@ -80,11 +82,11 @@ defmodule ImagePlug.Parser.Native do
              pipeline_option_groups,
              option_format
            ) do
-      PlanBuilder.to_plan(parsed_request)
+      PlanBuilder.to_plan(parsed_request, opts)
     end
   end
 
-  def parse(%Plug.Conn{path_info: []}) do
+  def parse(%Plug.Conn{path_info: []}, _opts) do
     {:error, :missing_signature}
   end
 
@@ -116,7 +118,7 @@ defmodule ImagePlug.Parser.Native do
          Enum.map(pipeline_option_groups, fn options ->
            struct!(PipelineRequest, Keyword.delete(options, :format))
          end),
-       output_format: output_format
+       output: %ImagePlug.Parser.Native.OutputRequest{format: output_format}
      }}
   end
 

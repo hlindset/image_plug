@@ -17,7 +17,7 @@ defmodule ImagePlug.Parser.Native.PlanBuilderTest do
       source_kind: :plain,
       source_path: ["images", "cat.jpg"],
       pipelines: [%PipelineRequest{width: {:pixels, 300}}],
-      output_format: nil
+      output: %ImagePlug.Parser.Native.OutputRequest{}
     }
 
     assert {:ok,
@@ -27,7 +27,7 @@ defmodule ImagePlug.Parser.Native.PlanBuilderTest do
                 %Pipeline{operations: operations}
               ],
               output: %Output{mode: :automatic}
-            }} = PlanBuilder.to_plan(request)
+            }} = PlanBuilder.to_plan(request, [])
 
     assert [%Transform.Contain{} = params] = operations
     assert params.width == {:pixels, 300}
@@ -178,7 +178,7 @@ defmodule ImagePlug.Parser.Native.PlanBuilderTest do
         %PipelineRequest{width: {:pixels, 500}},
         %PipelineRequest{height: {:pixels, 200}}
       ],
-      output_format: nil
+      output: %ImagePlug.Parser.Native.OutputRequest{}
     }
 
     assert {:ok,
@@ -187,7 +187,7 @@ defmodule ImagePlug.Parser.Native.PlanBuilderTest do
                 %Pipeline{operations: first_operations},
                 %Pipeline{operations: second_operations}
               ]
-            }} = PlanBuilder.to_plan(request)
+            }} = PlanBuilder.to_plan(request, [])
 
     assert [%Transform.Contain{} = first_params] = first_operations
     assert first_params.width == {:pixels, 500}
@@ -210,7 +210,7 @@ defmodule ImagePlug.Parser.Native.PlanBuilderTest do
           height: {:pixels, 200}
         }
       ],
-      output_format: :webp
+      output: %ImagePlug.Parser.Native.OutputRequest{format: :webp}
     }
 
     assert {:ok,
@@ -218,7 +218,10 @@ defmodule ImagePlug.Parser.Native.PlanBuilderTest do
               pipelines: [%ImagePlug.Plan.Pipeline{operations: operations}],
               output: %ImagePlug.Plan.Output{mode: :automatic}
             }} =
-             PlanBuilder.to_plan(%ParsedRequest{request | output_format: nil})
+             PlanBuilder.to_plan(
+               %ParsedRequest{request | output: %ImagePlug.Parser.Native.OutputRequest{}},
+               []
+             )
 
     assert [%Transform.Scale{} = automatic_params] = operations
     assert automatic_params.width == {:pixels, 300}
@@ -229,7 +232,7 @@ defmodule ImagePlug.Parser.Native.PlanBuilderTest do
               pipelines: [%ImagePlug.Plan.Pipeline{operations: operations}],
               output: %ImagePlug.Plan.Output{mode: {:explicit, :webp}}
             }} =
-             PlanBuilder.to_plan(request)
+             PlanBuilder.to_plan(request, [])
 
     assert [%Transform.Scale{} = explicit_params] = operations
     assert explicit_params.width == {:pixels, 300}
@@ -240,14 +243,26 @@ defmodule ImagePlug.Parser.Native.PlanBuilderTest do
     check all %ParsedRequest{} = parsed_request <- parsed_request(),
               max_runs: 100 do
       assert {:ok, %ImagePlug.Plan{} = automatic_plan} =
-               PlanBuilder.to_plan(%ParsedRequest{parsed_request | output_format: nil})
+               PlanBuilder.to_plan(
+                 %ParsedRequest{
+                   parsed_request
+                   | output: %ImagePlug.Parser.Native.OutputRequest{}
+                 },
+                 []
+               )
 
       assert automatic_plan.output == %ImagePlug.Plan.Output{mode: :automatic}
       assert [%ImagePlug.Plan.Pipeline{} | _] = automatic_plan.pipelines
 
       for format <- [:webp, :avif, :jpeg, :png] do
         assert {:ok, %ImagePlug.Plan{} = explicit_plan} =
-                 PlanBuilder.to_plan(%ParsedRequest{parsed_request | output_format: format})
+                 PlanBuilder.to_plan(
+                   %ParsedRequest{
+                     parsed_request
+                     | output: %ImagePlug.Parser.Native.OutputRequest{format: format}
+                   },
+                   []
+                 )
 
         assert explicit_plan.output == %ImagePlug.Plan.Output{mode: {:explicit, format}}
         assert explicit_plan.pipelines == automatic_plan.pipelines
@@ -262,7 +277,7 @@ defmodule ImagePlug.Parser.Native.PlanBuilderTest do
                source_kind: :plain,
                source_path: ["images", "cat.jpg"],
                pipelines: [],
-               output_format: nil
+               output: %ImagePlug.Parser.Native.OutputRequest{}
              })
   end
 
@@ -273,7 +288,7 @@ defmodule ImagePlug.Parser.Native.PlanBuilderTest do
                source_kind: :remote,
                source_path: ["images", "cat.jpg"],
                pipelines: [%PipelineRequest{}],
-               output_format: nil
+               output: %ImagePlug.Parser.Native.OutputRequest{}
              })
   end
 
@@ -284,8 +299,32 @@ defmodule ImagePlug.Parser.Native.PlanBuilderTest do
                source_kind: :plain,
                source_path: ["images", "cat.jpg"],
                pipelines: [%PipelineRequest{}, :bogus],
-               output_format: nil
+               output: %ImagePlug.Parser.Native.OutputRequest{}
              })
+  end
+
+  test "projects native request facets into product-neutral plan facets" do
+    request = %ParsedRequest{
+      signature: "_",
+      source_kind: :plain,
+      source_path: ["images", "cat.jpg"],
+      pipelines: [%PipelineRequest{width: {:pixels, 300}}],
+      output: %ImagePlug.Parser.Native.OutputRequest{format: :webp},
+      policy: %ImagePlug.Parser.Native.RequestPolicy{},
+      cache: %ImagePlug.Parser.Native.CacheRequest{cachebuster: "v1"},
+      response: %ImagePlug.Parser.Native.ResponseRequest{
+        filename: "cat",
+        disposition: :attachment
+      }
+    }
+
+    assert {:ok,
+            %Plan{
+              output: %ImagePlug.Plan.Output{mode: {:explicit, :webp}},
+              policy: %ImagePlug.Plan.Policy{expires: 0},
+              cache: %ImagePlug.Plan.Cache{cachebuster: "v1"},
+              response: %ImagePlug.Plan.Response{filename: "cat", disposition: :attachment}
+            }} = PlanBuilder.to_plan(request, now: ~U[2026-05-05 12:00:00Z])
   end
 
   defp parsed_request do
@@ -295,7 +334,7 @@ defmodule ImagePlug.Parser.Native.PlanBuilderTest do
         source_kind: :plain,
         source_path: ["images", "cat.jpg"],
         pipelines: [pipeline_request],
-        output_format: output_format
+        output: %ImagePlug.Parser.Native.OutputRequest{format: output_format}
       }
     end)
   end
@@ -336,12 +375,15 @@ defmodule ImagePlug.Parser.Native.PlanBuilderTest do
   end
 
   defp plan_pipeline(attrs) do
-    PlanBuilder.to_plan(%ParsedRequest{
-      signature: "_",
-      source_kind: :plain,
-      source_path: ["images", "cat.jpg"],
-      pipelines: [struct!(PipelineRequest, attrs)],
-      output_format: nil
-    })
+    PlanBuilder.to_plan(
+      %ParsedRequest{
+        signature: "_",
+        source_kind: :plain,
+        source_path: ["images", "cat.jpg"],
+        pipelines: [struct!(PipelineRequest, attrs)],
+        output: %ImagePlug.Parser.Native.OutputRequest{}
+      },
+      []
+    )
   end
 end
