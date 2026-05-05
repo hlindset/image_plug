@@ -19,12 +19,13 @@ defmodule ImagePlug.Transform.Geometry.DimensionResolver do
          {:ok, rule} <- normalize_rule(rule),
          {:ok, base} <- resolve_base_dimensions(rule, source) do
       effective_dpr = effective_dpr(rule, base, source, opts)
+      enlarge = effective_enlarge(rule)
       requested = apply_dpr(base, effective_dpr)
       min_dimensions = resolve_min_dimensions(rule, source, effective_dpr)
-      target = target_dimensions(rule.mode, requested, min_dimensions, source, rule.enlarge)
+      target = target_dimensions(rule.mode, requested, min_dimensions, source, enlarge)
 
       intermediate =
-        intermediate_dimensions(rule.mode, requested, min_dimensions, source, rule.enlarge)
+        intermediate_dimensions(rule.mode, requested, min_dimensions, source, enlarge)
 
       {:ok,
        %{
@@ -121,8 +122,15 @@ defmodule ImagePlug.Transform.Geometry.DimensionResolver do
   defp validate_enlarge(enlarge) when enlarge in [true, false], do: :ok
   defp validate_enlarge(enlarge), do: {:error, {:invalid_dimension_rule_enlarge, enlarge}}
 
-  defp resolve_base_dimensions(%DimensionRule{width: :auto, height: :auto}, _source),
-    do: {:ok, %{width: :auto, height: :auto}}
+  defp resolve_base_dimensions(%DimensionRule{width: :auto, height: :auto} = rule, source) do
+    if factor_requested?(rule) do
+      source
+      |> apply_zoom(rule)
+      |> ok()
+    else
+      {:ok, %{width: :auto, height: :auto}}
+    end
+  end
 
   defp resolve_base_dimensions(%DimensionRule{mode: :fit} = rule, source) do
     rule
@@ -180,6 +188,14 @@ defmodule ImagePlug.Transform.Geometry.DimensionResolver do
     %{width: positive_round(width * zoom_x), height: positive_round(height * zoom_y)}
   end
 
+  defp effective_dpr(
+         %DimensionRule{width: :auto, height: :auto, dpr: dpr},
+         _base,
+         _source,
+         _opts
+       ),
+       do: dpr
+
   defp effective_dpr(%DimensionRule{enlarge: true, dpr: dpr}, _base, _source, _opts), do: dpr
 
   defp effective_dpr(%DimensionRule{dpr: dpr}, %{width: :auto, height: :auto}, _source, _opts),
@@ -225,6 +241,16 @@ defmodule ImagePlug.Transform.Geometry.DimensionResolver do
   defp scaled_min(nil, _effective_dpr), do: nil
   defp scaled_min(value, effective_dpr), do: positive_round(value * effective_dpr)
 
+  defp effective_enlarge(%DimensionRule{width: :auto, height: :auto} = rule) do
+    rule.enlarge or factor_requested?(rule)
+  end
+
+  defp effective_enlarge(%DimensionRule{} = rule), do: rule.enlarge
+
+  defp factor_requested?(%DimensionRule{} = rule) do
+    rule.zoom_x != 1.0 or rule.zoom_y != 1.0 or rule.dpr != 1.0
+  end
+
   defp target_dimensions(_mode, %{width: :auto, height: :auto}, nil, _source, _enlarge),
     do: %{width: :auto, height: :auto}
 
@@ -259,15 +285,15 @@ defmodule ImagePlug.Transform.Geometry.DimensionResolver do
 
   defp intermediate_dimensions(:fill, requested, min_dimensions, source, enlarge) do
     requested
-    |> cover_resize_dimensions(source)
     |> target_box_dimensions(min_dimensions)
+    |> cover_resize_dimensions(source)
     |> clamp_to_source(source, enlarge)
   end
 
   defp intermediate_dimensions(:fill_down, requested, min_dimensions, source, _enlarge) do
     requested
-    |> cover_resize_dimensions(source)
     |> target_box_dimensions(min_dimensions)
+    |> cover_resize_dimensions(source)
     |> clamp_to_source(source, false)
   end
 

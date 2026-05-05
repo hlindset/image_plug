@@ -61,6 +61,43 @@ defmodule ImagePlug.Transform.DimensionResolverTest do
     assert result.intermediate_height == 600
   end
 
+  test "zero dimensions with zoom scale from source dimensions" do
+    rule = %DimensionRule{
+      mode: :fit,
+      width: {:pixels, 0},
+      height: {:pixels, 0},
+      zoom_x: 2.0,
+      zoom_y: 1.5,
+      enlarge: false
+    }
+
+    assert {:ok, result} =
+             DimensionResolver.resolve(rule, source_width: 100, source_height: 50)
+
+    assert result.requested_width == 200
+    assert result.requested_height == 75
+    assert result.intermediate_width == 200
+    assert result.intermediate_height == 75
+  end
+
+  test "zero dimensions with dpr scale from source dimensions" do
+    rule = %DimensionRule{
+      mode: :fit,
+      width: {:pixels, 0},
+      height: {:pixels, 0},
+      dpr: 2.0,
+      enlarge: false
+    }
+
+    assert {:ok, result} =
+             DimensionResolver.resolve(rule, source_width: 100, source_height: 50)
+
+    assert result.requested_width == 200
+    assert result.requested_height == 100
+    assert result.intermediate_width == 200
+    assert result.intermediate_height == 100
+  end
+
   test "min height interacts with fit as a scale constraint" do
     rule = %DimensionRule{
       mode: :fit,
@@ -96,7 +133,7 @@ defmodule ImagePlug.Transform.DimensionResolverTest do
     assert result.intermediate_height == 300
   end
 
-  test "fill applies min constraints after resolving the cover resize box" do
+  test "fill applies min constraints before resolving the cover resize box" do
     rule = %DimensionRule{
       mode: :fill,
       width: {:pixels, 300},
@@ -110,11 +147,49 @@ defmodule ImagePlug.Transform.DimensionResolverTest do
 
     assert result.requested_width == 300
     assert result.requested_height == 300
+    assert result.target_width == 500
+    assert result.target_height == 500
+    assert result.intermediate_width == 1000
+    assert result.intermediate_height == 500
+  end
+
+  test "fill expands target before resolving the cover resize box" do
+    rule = %DimensionRule{
+      mode: :fill,
+      width: {:pixels, 100},
+      height: {:pixels, 100},
+      min_width: {:pixels, 300},
+      enlarge: false
+    }
+
+    assert {:ok, result} =
+             DimensionResolver.resolve(rule, source_width: 1000, source_height: 500)
+
+    assert result.target_width == 300
+    assert result.target_height == 300
     assert result.intermediate_width == 600
     assert result.intermediate_height == 300
   end
 
-  test "fill applies min constraints after cover for the opposite aspect ratio" do
+  test "fill-down expands target before resolving the cover resize box" do
+    rule = %DimensionRule{
+      mode: :fill_down,
+      width: {:pixels, 100},
+      height: {:pixels, 100},
+      min_width: {:pixels, 300},
+      enlarge: false
+    }
+
+    assert {:ok, result} =
+             DimensionResolver.resolve(rule, source_width: 1000, source_height: 500)
+
+    assert result.target_width == 300
+    assert result.target_height == 300
+    assert result.intermediate_width == 600
+    assert result.intermediate_height == 300
+  end
+
+  test "fill applies min constraints before cover for the opposite aspect ratio" do
     rule = %DimensionRule{
       mode: :fill,
       width: {:pixels, 300},
@@ -128,8 +203,10 @@ defmodule ImagePlug.Transform.DimensionResolverTest do
 
     assert result.requested_width == 300
     assert result.requested_height == 300
-    assert result.intermediate_width == 300
-    assert result.intermediate_height == 600
+    assert result.target_width == 500
+    assert result.target_height == 500
+    assert result.intermediate_width == 500
+    assert result.intermediate_height == 1000
   end
 
   test "effective dpr clamps below requested dpr for small non-vector sources when enlarge is false" do

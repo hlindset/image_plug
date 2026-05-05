@@ -366,23 +366,62 @@ defmodule ImagePlug.Transform.ChainTest do
 
   test "fill resize crops to min-adjusted target dimensions" do
     for mode <- [:fill, :fill_down] do
-      {:ok, image} = Image.new(400, 200, color: :white)
+      {:ok, image} = Image.new(1000, 500, color: :white)
 
       chain = [
         %Resize{
           rule: %DimensionRule{
             mode: mode,
             width: {:pixels, 100},
-            height: {:pixels, 50},
-            min_width: {:pixels, 200}
+            height: {:pixels, 100},
+            min_width: {:pixels, 300}
           }
         }
       ]
 
       assert {:ok, %State{image: image}} = Chain.execute(%State{image: image}, chain)
-      assert Image.width(image) == 200
-      assert Image.height(image) == 100
+      assert Image.width(image) == 300
+      assert Image.height(image) == 300
     end
+  end
+
+  test "zero-dimension resize with zoom scales from source dimensions" do
+    {:ok, image} = Image.new(100, 50, color: :white)
+
+    chain = [
+      %Resize{
+        rule: %DimensionRule{
+          mode: :fit,
+          width: {:pixels, 0},
+          height: {:pixels, 0},
+          zoom_x: 2.0,
+          zoom_y: 1.5
+        }
+      }
+    ]
+
+    assert {:ok, %State{image: image}} = Chain.execute(%State{image: image}, chain)
+    assert Image.width(image) == 200
+    assert Image.height(image) == 75
+  end
+
+  test "zero-dimension resize with dpr scales from source dimensions" do
+    {:ok, image} = Image.new(100, 50, color: :white)
+
+    chain = [
+      %Resize{
+        rule: %DimensionRule{
+          mode: :fit,
+          width: {:pixels, 0},
+          height: {:pixels, 0},
+          dpr: 2.0
+        }
+      }
+    ]
+
+    assert {:ok, %State{image: image}} = Chain.execute(%State{image: image}, chain)
+    assert Image.width(image) == 200
+    assert Image.height(image) == 100
   end
 
   test "fill-down crops clamped images to the requested aspect ratio" do
