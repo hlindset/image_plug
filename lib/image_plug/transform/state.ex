@@ -22,7 +22,8 @@ defmodule ImagePlug.Transform.State do
   @type t :: %__MODULE__{
           image: Vix.Vips.Image.t() | nil,
           focus: {:coordinate, integer(), integer()} | focus_anchor(),
-          errors: [term()]
+          errors: [term()],
+          debug: boolean()
         }
 
   defp default_focus, do: @default_focus
