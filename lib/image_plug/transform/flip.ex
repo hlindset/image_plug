@@ -1,5 +1,73 @@
 defmodule ImagePlug.Transform.Flip do
-  @moduledoc false
+  @moduledoc """
+  Represents a product-neutral operation that flips the current image on one or
+  both axes.
+
+  ## Construct When
+
+  Construct `Flip` when parser or planner code has explicit orientation intent
+  that mirrors the image horizontally, vertically, or on both axes. The
+  operation is product-neutral; dialect parsers translate compatible flip
+  syntax into the `:axis` field before this operation is constructed.
+
+  Native planner note: Native URLs are declarative, and when orientation
+  requests are present the Native planner emits orientation operations in this
+  suborder: auto-orient, rotate, then flip. That suborder is a Native planner
+  contract, not a universal requirement of the product-neutral transform
+  operation model.
+
+  ## Construction API
+
+  `new/1` accepts a keyword list, map, or existing `%__MODULE__{}` and returns
+  `{:ok, operation}` when attrs are valid or `{:error, exception}` when
+  validation fails. `new!/1` accepts the same inputs and returns the operation
+  or raises `ArgumentError` or `KeyError` for invalid attrs.
+
+  The only accepted attr is `:axis`.
+
+  ## Fields
+
+  Required fields:
+
+  - `axis`: one of `:horizontal`, `:vertical`, or `:both`.
+
+  Unknown fields are rejected. Parser or planner code is responsible for
+  translating dialect-specific booleans, tokens, or aliases into one of these
+  product-neutral axis values.
+
+  ## Execution Semantics
+
+  `execute/2` flips `ImagePlug.Transform.State.image`, stores the flipped image
+  back into state, and resets focus metadata. For `axis: :horizontal` and
+  `axis: :vertical`, execution calls `Image.flip/2` with that axis.
+
+  For `axis: :both`, execution performs a horizontal flip followed by a
+  vertical flip, then stores the resulting image in state. If any flip fails,
+  execution records `{__MODULE__, error}` in the state errors and leaves normal
+  error handling to the transform chain.
+
+  ## Decode Planning Metadata
+
+  `metadata/1` returns `%{access: :random}`. Flipping is not treated as safe for
+  optimized sequential source decoding because the transform may need the full
+  decoded image to remap pixels.
+
+  ## Cache Material
+
+  The `ImagePlug.Transform.Material` implementation emits this exact keyword
+  shape:
+
+      [
+        op: :flip,
+        axis: operation.axis
+      ]
+
+  ## Examples
+
+      {:ok, flip} = ImagePlug.Transform.Flip.new(axis: :horizontal)
+
+      flip = ImagePlug.Transform.Flip.new!(axis: :both)
+  """
 
   @behaviour ImagePlug.Transform
 

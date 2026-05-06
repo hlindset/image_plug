@@ -1,5 +1,118 @@
 defmodule ImagePlug.Transform.Contain do
-  @moduledoc false
+  @moduledoc """
+  Represents a product-neutral contain operation that scales image content to
+  fit inside a requested box or aspect ratio.
+
+  ## Construct When
+
+  Construct `Contain` when parser or planner code needs contain semantics:
+  preserve aspect ratio, fit the current image inside a target geometry, and
+  optionally letterbox the result. `Contain` is an exported standalone
+  operation, not an implementation detail of `Resize`.
+
+  Prefer `Resize` when the request is a planned fit, fill, fill-down, or force
+  resize expressed through a dimension rule. A future dialect parser may choose
+  `Contain` directly when the dialect exposes contain behavior, especially when
+  its syntax couples fit-inside resizing with letterboxing.
+
+  ## Construction API
+
+  `new/1` accepts a keyword list, map, or existing `%Contain{}` and returns
+  `{:ok, operation}` when all fields are valid. Invalid attributes, missing
+  required fields, or unknown keys return `{:error, exception}`.
+
+  `new!/1` accepts the same inputs and returns an operation, raising
+  `ArgumentError` or `KeyError` for invalid attributes.
+
+  ## Fields
+
+  For `type: :dimensions`, these fields are required:
+
+  - `width`: positive length or `:auto`.
+  - `height`: positive length or `:auto`.
+  - `constraint`: `:regular`, `:min`, or `:max`.
+  - `letterbox`: boolean.
+
+  At least one dimension must be a positive length; `width: :auto` with
+  `height: :auto` is rejected. Positive lengths may be numbers,
+  `{:pixels, value}`, `{:percent, value}`, `{:scale, value}`, or
+  `{:scale, numerator, denominator}` with positive numeric values and a
+  positive denominator.
+
+  For `type: :ratio`, these fields are required:
+
+  - `ratio`: `{width, height}` with positive numeric values.
+  - `letterbox`: boolean.
+
+  ## Execution Semantics
+
+  `execute/2` resolves the target size against the current
+  `ImagePlug.Transform.State` image dimensions, computes the largest
+  aspect-preserving size that fits inside that target, and resizes the current
+  image according to `constraint`.
+
+  `constraint: :regular` always scales to the fitted size. `:min` scales only
+  when the fitted size would enlarge at least one axis. `:max` scales only when
+  the fitted size would shrink at least one axis.
+
+  When `letterbox` is `true`, the fitted image is embedded in the requested
+  target box with a white background. Ratio contain requests compute a target
+  box with the requested ratio around the current image; without letterboxing,
+  that ratio form may leave the visible image unchanged.
+
+  On success, the resulting image is stored in state and focus is reset. Image
+  processing failures are added to state as `{ImagePlug.Transform.Contain,
+  error}`.
+
+  ## Decode Planning Metadata
+
+  `metadata/1` returns `%{access: :sequential}` only for `type: :dimensions`
+  with `constraint: :regular` and `letterbox: false`.
+
+  Ratio contain requests, constrained resize requests, and letterboxed requests
+  return `%{access: :random}` because they require source geometry inspection,
+  conditional behavior, or canvas embedding.
+
+  ## Cache Material
+
+  For `type: :ratio`, material emits:
+
+      [
+        op: :contain,
+        type: operation.type,
+        ratio: operation.ratio,
+        letterbox: operation.letterbox
+      ]
+
+  For `type: :dimensions`, material emits:
+
+      [
+        op: :contain,
+        type: operation.type,
+        width: operation.width,
+        height: operation.height,
+        constraint: operation.constraint,
+        letterbox: operation.letterbox
+      ]
+
+  ## Examples
+
+      {:ok, contain} =
+        ImagePlug.Transform.Contain.new(
+          type: :dimensions,
+          width: {:pixels, 800},
+          height: {:pixels, 600},
+          constraint: :regular,
+          letterbox: false
+        )
+
+      letterboxed =
+        ImagePlug.Transform.Contain.new!(
+          type: :ratio,
+          ratio: {16, 9},
+          letterbox: true
+        )
+  """
 
   @behaviour ImagePlug.Transform
 

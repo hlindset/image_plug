@@ -1,5 +1,105 @@
 defmodule ImagePlug.Transform.Scale do
-  @moduledoc false
+  @moduledoc """
+  Represents a product-neutral scale operation that changes image dimensions
+  either to a requested size or to a requested aspect ratio.
+
+  ## Construct When
+
+  Construct `Scale` when parser or planner code needs a direct scaling
+  operation and the source dialect's semantics match this module's behavior.
+  `Scale` is an exported standalone operation, not an implementation detail of
+  `Resize`.
+
+  Prefer the newer `Resize` operation when the request is a planned fit, fill,
+  fill-down, or force resize expressed through a dimension rule. A future
+  dialect parser may choose `Scale` directly when its syntax represents
+  low-level proportional or non-proportional scaling without `Resize` mode
+  semantics.
+
+  ## Construction API
+
+  `new/1` accepts a keyword list, map, or existing `%Scale{}` and returns
+  `{:ok, operation}` when all fields are valid. Invalid attributes, missing
+  required fields, or unknown keys return `{:error, exception}`.
+
+  `new!/1` accepts the same inputs and returns an operation, raising
+  `ArgumentError` or `KeyError` for invalid attributes.
+
+  ## Fields
+
+  For `type: :dimensions`, these fields are required:
+
+  - `width`: positive length or `:auto`.
+  - `height`: positive length or `:auto`.
+
+  At least one dimension must be a positive length; `width: :auto` with
+  `height: :auto` is rejected. Positive lengths may be numbers,
+  `{:pixels, value}`, `{:percent, value}`, `{:scale, value}`, or
+  `{:scale, numerator, denominator}` with positive numeric values and a
+  positive denominator.
+
+  For `type: :ratio`, `ratio` is required and must be `{width, height}` with
+  positive numeric values.
+
+  ## Execution Semantics
+
+  `execute/2` resolves requested lengths against the current
+  `ImagePlug.Transform.State` image dimensions. A single `:auto` side is
+  derived from the other side while preserving the current aspect ratio.
+
+  Ratio scaling computes target dimensions that preserve the current image area
+  while changing to the requested ratio. Dimension scaling resizes to the
+  resolved width and height. Proportional downscales use thumbnailing; other
+  proportional scales use uniform resize; non-proportional scales resize the
+  horizontal and vertical axes independently.
+
+  On success, the scaled image is stored in state and focus is reset. Image
+  processing failures are added to state as `{ImagePlug.Transform.Scale,
+  error}`.
+
+  ## Decode Planning Metadata
+
+  `metadata/1` returns `%{access: :sequential}` only for dimension scaling with
+  exactly one auto side and one concrete requested side. Ratio scaling and
+  fixed two-dimensional scaling return `%{access: :random}`.
+
+  This conservative metadata keeps one-pass sequential decoding limited to the
+  dimension cases that are safe for this operation.
+
+  ## Cache Material
+
+  For `type: :ratio`, material emits:
+
+      [
+        op: :scale,
+        type: operation.type,
+        ratio: operation.ratio
+      ]
+
+  For `type: :dimensions`, material emits:
+
+      [
+        op: :scale,
+        type: operation.type,
+        width: operation.width,
+        height: operation.height
+      ]
+
+  ## Examples
+
+      {:ok, scale} =
+        ImagePlug.Transform.Scale.new(
+          type: :dimensions,
+          width: {:pixels, 320},
+          height: :auto
+        )
+
+      square_ratio =
+        ImagePlug.Transform.Scale.new!(
+          type: :ratio,
+          ratio: {1, 1}
+        )
+  """
 
   @behaviour ImagePlug.Transform
 

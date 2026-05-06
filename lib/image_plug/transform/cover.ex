@@ -1,5 +1,108 @@
 defmodule ImagePlug.Transform.Cover do
-  @moduledoc false
+  @moduledoc """
+  Represents a product-neutral cover operation that scales image content to
+  cover a requested box or aspect ratio and crops overflow from the result.
+
+  ## Construct When
+
+  Construct `Cover` when parser or planner code needs one operation that
+  preserves aspect ratio, ensures the image covers the target geometry, and
+  crops the result around the current transform focus. `Cover` is an exported
+  standalone operation, not an implementation detail of `Resize`.
+
+  Prefer `Resize` plus a separate result `Crop` when a planner needs the newer
+  dimension-rule model or must represent resize and crop as distinct planned
+  operations. A future dialect parser may choose `Cover` directly when the
+  dialect exposes cover semantics as a single reusable operation.
+
+  ## Construction API
+
+  `new/1` accepts a keyword list, map, or existing `%Cover{}` and returns
+  `{:ok, operation}` when all fields are valid. Invalid attributes, missing
+  required fields, or unknown keys return `{:error, exception}`.
+
+  `new!/1` accepts the same inputs and returns an operation, raising
+  `ArgumentError` or `KeyError` for invalid attributes.
+
+  ## Fields
+
+  For `type: :dimensions`, these fields are required:
+
+  - `width`: positive length or `:auto`.
+  - `height`: positive length or `:auto`.
+  - `constraint`: `:none`, `:min`, or `:max`.
+
+  At least one dimension must be a positive length; `width: :auto` with
+  `height: :auto` is rejected. Positive lengths may be numbers,
+  `{:pixels, value}`, `{:percent, value}`, `{:scale, value}`, or
+  `{:scale, numerator, denominator}` with positive numeric values and a
+  positive denominator.
+
+  For `type: :ratio`, `ratio` is required and must be `{width, height}` with
+  positive numeric values.
+
+  ## Execution Semantics
+
+  `execute/2` resolves the requested crop size against the current
+  `ImagePlug.Transform.State` image dimensions, computes the smallest
+  aspect-preserving resize that covers that crop size, and applies
+  `constraint`.
+
+  `constraint: :none` always scales to the cover size. `:min` scales only when
+  the cover size would enlarge at least one axis. `:max` scales only when the
+  cover size would shrink at least one axis.
+
+  After scaling, the operation crops the image to the requested size, clamped to
+  the resized image bounds. The crop is centered on the current transform focus,
+  which may have been set by an earlier `Focus` operation, and the crop origin
+  is clamped so the rectangle remains inside the image.
+
+  On success, the cropped image is stored in state and focus is reset. Image
+  processing failures are added to state as `{ImagePlug.Transform.Cover,
+  error}`.
+
+  ## Decode Planning Metadata
+
+  `metadata/1` returns `%{access: :random}` for every `Cover` operation. Cover
+  requires random access because execution may crop any bounded rectangle from
+  the resized image and may depend on focus state.
+
+  ## Cache Material
+
+  For `type: :ratio`, material emits:
+
+      [
+        op: :cover,
+        type: operation.type,
+        ratio: operation.ratio
+      ]
+
+  For `type: :dimensions`, material emits:
+
+      [
+        op: :cover,
+        type: operation.type,
+        width: operation.width,
+        height: operation.height,
+        constraint: operation.constraint
+      ]
+
+  ## Examples
+
+      {:ok, cover} =
+        ImagePlug.Transform.Cover.new(
+          type: :dimensions,
+          width: {:pixels, 1200},
+          height: {:pixels, 630},
+          constraint: :none
+        )
+
+      poster =
+        ImagePlug.Transform.Cover.new!(
+          type: :ratio,
+          ratio: {2, 3}
+        )
+  """
 
   @behaviour ImagePlug.Transform
 

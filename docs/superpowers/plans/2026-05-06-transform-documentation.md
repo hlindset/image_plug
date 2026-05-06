@@ -762,7 +762,7 @@ git commit -m "docs: document core transform operations"
 - Modify: `lib/image_plug/transform/cover.ex`
 - Modify: `lib/image_plug/transform/focus.ex`
 
-- [ ] **Step 1: Dispatch parallel implementers for remaining operation docs**
+- [x] **Step 1: Dispatch parallel implementers for remaining operation docs**
 
 Use up to 2 implementer subagents in parallel.
 
@@ -787,7 +787,7 @@ Tell both implementers:
 You are not alone in the codebase. Only edit your assigned files. Do not revert or reformat files owned by the other implementer. Preserve the distinction between Native planner behavior and product-neutral transform operation contracts.
 ```
 
-- [ ] **Step 2: Document orientation operations**
+- [x] **Step 2: Document orientation operations**
 
 For `AutoOrient`, `Rotate`, and `Flip`, document:
 
@@ -797,7 +797,7 @@ For `AutoOrient`, `Rotate`, and `Flip`, document:
 - Decode metadata.
 - Exact material fields from the corresponding `lib/image_plug/transform/material/*.ex` files.
 
-- [ ] **Step 3: Document standalone resize-like operations**
+- [x] **Step 3: Document standalone resize-like operations**
 
 For `Scale`, `Contain`, and `Cover`, document:
 
@@ -808,7 +808,7 @@ For `Scale`, `Contain`, and `Cover`, document:
 - Exact material fields.
 - When a future dialect parser may choose them directly.
 
-- [ ] **Step 4: Document `Focus`**
+- [x] **Step 4: Document `Focus`**
 
 Document:
 
@@ -817,7 +817,7 @@ Document:
 - Future parsers may emit `Focus` when their dialect has a distinct focus operation.
 - Exact material fields from `lib/image_plug/transform/material/focus.ex`.
 
-- [ ] **Step 5: Run focused transform tests**
+- [x] **Step 5: Run focused transform tests**
 
 Run:
 
@@ -827,7 +827,7 @@ mise exec -- mix test test/image_plug/transform/material_test.exs test/transform
 
 Expected: PASS.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add lib/image_plug/transform/auto_orient.ex lib/image_plug/transform/rotate.ex lib/image_plug/transform/flip.ex lib/image_plug/transform/scale.ex lib/image_plug/transform/contain.ex lib/image_plug/transform/cover.ex lib/image_plug/transform/focus.ex

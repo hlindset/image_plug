@@ -1,5 +1,82 @@
 defmodule ImagePlug.Transform.Focus do
-  @moduledoc false
+  @moduledoc """
+  Represents a product-neutral focus operation that records where later
+  focus-aware transforms should center their work.
+
+  ## Construct When
+
+  Construct `Focus` when parser or planner code needs to set transform state
+  for a later crop or cover operation. `Focus` is not a visible crop by itself;
+  it records focus metadata on `ImagePlug.Transform.State`.
+
+  The current Native parser does not emit `Focus`. Native focal-point gravity
+  maps to `Crop` gravity fields instead. Future parsers may emit `Focus` when
+  their dialect has a distinct focus operation whose semantics should affect a
+  later crop.
+
+  ## Construction API
+
+  `new/1` accepts a keyword list, map, or existing `%Focus{}` and returns
+  `{:ok, operation}` when all fields are valid. Invalid attributes, missing
+  required fields, or unknown keys return `{:error, exception}`.
+
+  `new!/1` accepts the same inputs and returns an operation, raising
+  `ArgumentError` or `KeyError` for invalid attributes.
+
+  ## Fields
+
+  The required `type` field is one of:
+
+  - `{:coordinate, left, top}` with non-negative coordinate lengths.
+  - `{:anchor, x, y}` where `x` is `:left`, `:center`, or `:right`, and `y` is
+    `:top`, `:center`, or `:bottom`.
+
+  Coordinate lengths may be non-negative numbers, `{:pixels, value}`,
+  `{:percent, value}`, `{:scale, value}`, or
+  `{:scale, numerator, denominator}` with non-negative numeric positions and a
+  positive denominator.
+
+  ## Execution Semantics
+
+  `execute/2` updates `ImagePlug.Transform.State.focus`. Coordinate focus is
+  resolved against the current image dimensions, rounded to pixels, and clamped
+  to the image bounds. Anchor focus is stored as the requested anchor tuple.
+
+  In normal execution, `Focus` only changes focus state. When state debugging is
+  enabled, execution also draws a debug dot at the resolved focus point and
+  stores that debug image in state.
+
+  Later operations such as `Cover` may use the focus state to choose a crop
+  origin. Operations that reset focus after changing image geometry restore the
+  default center focus.
+
+  ## Decode Planning Metadata
+
+  `metadata/1` returns `%{access: :random}`. Focus can require current image
+  dimensions to resolve coordinate focus and is intentionally not treated as a
+  one-pass sequential decode candidate.
+
+  ## Cache Material
+
+  Material emits:
+
+      [
+        op: :focus,
+        type: operation.type
+      ]
+
+  ## Examples
+
+      {:ok, focus} =
+        ImagePlug.Transform.Focus.new(
+          type: {:coordinate, {:percent, 35}, {:percent, 40}}
+        )
+
+      bottom_right =
+        ImagePlug.Transform.Focus.new!(
+          type: {:anchor, :right, :bottom}
+        )
+  """
 
   @behaviour ImagePlug.Transform
 
