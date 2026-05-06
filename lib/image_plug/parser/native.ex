@@ -711,7 +711,16 @@ defmodule ImagePlug.Parser.Native do
        when width != "" and height != "" and gravity != "" do
     with {:ok, width} <- parse_crop_dimension(width),
          {:ok, height} <- parse_crop_dimension(height),
-         {:ok, gravity} <- parse_gravity_anchor(gravity) do
+         {:ok, gravity} <- parse_crop_gravity([gravity]) do
+      {:ok, [crop: %CropRequest{width: width, height: height, gravity: gravity}]}
+    end
+  end
+
+  defp parse_crop([width, height, "fp", x, y], _segment)
+       when width != "" and height != "" and x != "" and y != "" do
+    with {:ok, width} <- parse_crop_dimension(width),
+         {:ok, height} <- parse_crop_dimension(height),
+         {:ok, gravity} <- parse_crop_gravity(["fp", x, y]) do
       {:ok, [crop: %CropRequest{width: width, height: height, gravity: gravity}]}
     end
   end
@@ -721,8 +730,8 @@ defmodule ImagePlug.Parser.Native do
     with {:ok, width} <- parse_crop_dimension(width),
          {:ok, height} <- parse_crop_dimension(height),
          {:ok, gravity} <- parse_gravity_anchor(gravity),
-         {:ok, x_offset} <- parse_float(x_offset),
-         {:ok, y_offset} <- parse_float(y_offset) do
+         {:ok, x_offset} <- parse_gravity_offset(x_offset),
+         {:ok, y_offset} <- parse_gravity_offset(y_offset) do
       {:ok,
        [
          crop: %CropRequest{
@@ -737,6 +746,18 @@ defmodule ImagePlug.Parser.Native do
   end
 
   defp parse_crop(_args, segment), do: {:error, {:invalid_option_segment, segment}}
+
+  defp parse_crop_gravity(["sm"]), do: {:ok, :sm}
+
+  defp parse_crop_gravity(["fp", x, y]) do
+    with {:ok, x} <- parse_focal_coordinate(x),
+         {:ok, y} <- parse_focal_coordinate(y) do
+      {:ok, {:fp, x, y}}
+    end
+  end
+
+  defp parse_crop_gravity([anchor]), do: parse_gravity_anchor(anchor)
+  defp parse_crop_gravity(_args), do: {:error, {:invalid_option_segment, "crop"}}
 
   defp parse_auto_rotate([], _segment), do: {:ok, [orientation: [auto_orient: true]]}
 

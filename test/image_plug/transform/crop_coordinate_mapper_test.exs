@@ -16,7 +16,40 @@ defmodule ImagePlug.Transform.CropCoordinateMapperTest do
                orientation: %{auto_orient: false, rotate: 0, flip: :none}
              )
 
-    assert %{left: 150, top: 125, width: 100, height: 50} = mapped
+    assert %{left: 150, top: 126, width: 100, height: 50} = mapped
+  end
+
+  test "matches imgproxy center rounding for odd crop slack" do
+    assert {:ok, mapped} =
+             CropCoordinateMapper.map(
+               source_width: 401,
+               source_height: 300,
+               crop_width: {:pixels, 100},
+               crop_height: {:pixels, 100},
+               gravity: {:anchor, :center, :center},
+               x_offset: 0.0,
+               y_offset: 0.0,
+               orientation: %{auto_orient: false, rotate: 0, flip: :none}
+             )
+
+    assert %{left: 151, top: 100, width: 100, height: 100} = mapped
+  end
+
+  test "scales absolute offsets by an explicit offset scale" do
+    assert {:ok, mapped} =
+             CropCoordinateMapper.map(
+               source_width: 800,
+               source_height: 800,
+               crop_width: {:pixels, 500},
+               crop_height: {:pixels, 500},
+               gravity: {:anchor, :right, :center},
+               x_offset: {:pixels, -10},
+               y_offset: 0.0,
+               offset_scale: 1.6,
+               orientation: %{auto_orient: false, rotate: 0, flip: :none}
+             )
+
+    assert mapped.left == 284
   end
 
   test "maps center crop through rotate 90 exactly" do
@@ -32,7 +65,7 @@ defmodule ImagePlug.Transform.CropCoordinateMapperTest do
                orientation: %{auto_orient: false, rotate: 90, flip: :none}
              )
 
-    assert %{left: 175, top: 100, width: 50, height: 100} = mapped
+    assert %{left: 176, top: 100, width: 50, height: 100} = mapped
   end
 
   test "maps center crop through rotate 180 exactly" do
@@ -48,7 +81,7 @@ defmodule ImagePlug.Transform.CropCoordinateMapperTest do
                orientation: %{auto_orient: false, rotate: 180, flip: :none}
              )
 
-    assert %{left: 150, top: 125, width: 100, height: 50} = mapped
+    assert %{left: 150, top: 124, width: 100, height: 50} = mapped
   end
 
   test "maps center crop through rotate 270 exactly" do
@@ -64,7 +97,7 @@ defmodule ImagePlug.Transform.CropCoordinateMapperTest do
                orientation: %{auto_orient: false, rotate: 270, flip: :none}
              )
 
-    assert %{left: 175, top: 100, width: 50, height: 100} = mapped
+    assert %{left: 174, top: 100, width: 50, height: 100} = mapped
   end
 
   test "horizontal flip mirrors anchor and absolute offset" do

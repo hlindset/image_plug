@@ -429,7 +429,7 @@ defmodule ImagePlug.Transform.ChainTest do
     end
   end
 
-  test "zero-dimension resize with zoom scales from source dimensions" do
+  test "zero-dimension resize with zoom clamps raster sources when enlarge is false" do
     {:ok, image} = Image.new(100, 50, color: :white)
 
     chain = [
@@ -445,11 +445,11 @@ defmodule ImagePlug.Transform.ChainTest do
     ]
 
     assert {:ok, %State{image: image}} = Chain.execute(%State{image: image}, chain)
-    assert Image.width(image) == 200
-    assert Image.height(image) == 75
+    assert Image.width(image) == 100
+    assert Image.height(image) == 38
   end
 
-  test "zero-dimension resize with dpr scales from source dimensions" do
+  test "zero-dimension resize with dpr preserves raster sources when enlarge is false" do
     {:ok, image} = Image.new(100, 50, color: :white)
 
     chain = [
@@ -464,8 +464,8 @@ defmodule ImagePlug.Transform.ChainTest do
     ]
 
     assert {:ok, %State{image: image}} = Chain.execute(%State{image: image}, chain)
-    assert Image.width(image) == 200
-    assert Image.height(image) == 100
+    assert Image.width(image) == 100
+    assert Image.height(image) == 50
   end
 
   test "fill-down crops clamped images to the requested aspect ratio" do

@@ -328,7 +328,7 @@ defmodule ImagePlug.Parser.Native.PlanBuilderTest do
                gravity_y_offset: {:scale, -0.25}
              )
 
-    assert crop.x_offset == {:pixels, -24.0}
+    assert crop.x_offset == {:pixels, -12.0}
     assert crop.y_offset == {:scale, -0.25}
   end
 
@@ -337,6 +337,37 @@ defmodule ImagePlug.Parser.Native.PlanBuilderTest do
 
     assert pipeline.gravity == {:anchor, :center, :bottom}
     assert pipeline.crop.gravity == {:anchor, :left, :top}
+  end
+
+  test "crop without explicit gravity inherits top-level gravity" do
+    assert {:ok, %Plan{pipelines: [%Pipeline{operations: [%Transform.Crop{} = crop]}]}} =
+             plan_pipeline(
+               gravity: {:anchor, :left, :top},
+               crop: %ImagePlug.Parser.Native.CropRequest{
+                 width: {:pixels, 100},
+                 height: {:pixels, 100},
+                 gravity: nil
+               }
+             )
+
+    assert crop.gravity == {:anchor, :left, :top}
+  end
+
+  test "plans crop focal-point gravity and relative offsets" do
+    assert {:ok, %Plan{pipelines: [%Pipeline{operations: [%Transform.Crop{} = crop]}]}} =
+             plan_pipeline(
+               crop: %ImagePlug.Parser.Native.CropRequest{
+                 width: {:pixels, 100},
+                 height: {:pixels, 100},
+                 gravity: {:fp, 0.25, 0.75},
+                 x_offset: {:scale, 0.25},
+                 y_offset: {:pixels, -12.0}
+               }
+             )
+
+    assert crop.gravity == {:fp, 0.25, 0.75}
+    assert crop.x_offset == {:scale, 0.25}
+    assert crop.y_offset == {:pixels, -12.0}
   end
 
   test "parsed rotate normalizes integer multiples of 90" do

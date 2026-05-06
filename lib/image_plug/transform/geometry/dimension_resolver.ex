@@ -196,15 +196,8 @@ defmodule ImagePlug.Transform.Geometry.DimensionResolver do
     %{width: positive_round(width * zoom_x), height: positive_round(height * zoom_y)}
   end
 
-  defp effective_dpr(
-         %DimensionRule{width: :auto, height: :auto, dpr: dpr},
-         _base,
-         _source,
-         _opts
-       ),
-       do: dpr
-
   defp effective_dpr(%DimensionRule{enlarge: true, dpr: dpr}, _base, _source, _opts), do: dpr
+  defp effective_dpr(%DimensionRule{dpr: 1.0}, _base, _source, _opts), do: 1.0
 
   defp effective_dpr(%DimensionRule{dpr: dpr}, %{width: :auto, height: :auto}, _source, _opts),
     do: dpr
@@ -250,7 +243,7 @@ defmodule ImagePlug.Transform.Geometry.DimensionResolver do
   defp scaled_min(value, effective_dpr), do: positive_round(value * effective_dpr)
 
   defp effective_enlarge(%DimensionRule{width: :auto, height: :auto} = rule) do
-    rule.enlarge or factor_requested?(rule)
+    rule.enlarge
   end
 
   defp effective_enlarge(%DimensionRule{} = rule), do: rule.enlarge
@@ -262,20 +255,20 @@ defmodule ImagePlug.Transform.Geometry.DimensionResolver do
   defp target_dimensions(_mode, %{width: :auto, height: :auto}, nil, _source, _enlarge),
     do: %{width: :auto, height: :auto}
 
-  defp target_dimensions(_mode, %{width: :auto, height: :auto}, min_dimensions, source, enlarge) do
-    clamp_to_source(min_dimensions, source, enlarge)
+  defp target_dimensions(_mode, %{width: :auto, height: :auto}, min_dimensions, source, _enlarge) do
+    target_box_dimensions(source, min_dimensions)
   end
 
   defp target_dimensions(:fill_down, requested, min_dimensions, source, _enlarge) do
     requested
-    |> target_box_dimensions(min_dimensions)
     |> clamp_to_source(source, false)
+    |> target_box_dimensions(min_dimensions)
   end
 
   defp target_dimensions(_mode, requested, min_dimensions, source, enlarge) do
     requested
-    |> target_box_dimensions(min_dimensions)
     |> clamp_to_source(source, enlarge)
+    |> target_box_dimensions(min_dimensions)
   end
 
   defp intermediate_dimensions(_mode, %{width: :auto, height: :auto}, nil, source, _enlarge),
@@ -286,23 +279,23 @@ defmodule ImagePlug.Transform.Geometry.DimensionResolver do
          %{width: :auto, height: :auto},
          min_dimensions,
          source,
-         enlarge
+         _enlarge
        ) do
-    clamp_to_source(min_dimensions, source, enlarge)
+    target_box_dimensions(source, min_dimensions)
   end
 
   defp intermediate_dimensions(:fill, requested, min_dimensions, source, enlarge) do
     requested
+    |> clamp_to_source(source, enlarge)
     |> target_box_dimensions(min_dimensions)
     |> cover_resize_dimensions(source)
-    |> clamp_to_source(source, enlarge)
   end
 
   defp intermediate_dimensions(:fill_down, requested, min_dimensions, source, _enlarge) do
     requested
+    |> clamp_to_source(source, false)
     |> target_box_dimensions(min_dimensions)
     |> cover_resize_dimensions(source)
-    |> clamp_to_source(source, false)
   end
 
   defp intermediate_dimensions(_mode, requested, nil, source, enlarge) do
@@ -311,8 +304,8 @@ defmodule ImagePlug.Transform.Geometry.DimensionResolver do
 
   defp intermediate_dimensions(_mode, requested, min_dimensions, source, enlarge) do
     requested
-    |> target_box_dimensions(min_dimensions)
     |> clamp_to_source(source, enlarge)
+    |> target_box_dimensions(min_dimensions)
   end
 
   defp target_box_dimensions(requested, nil), do: requested

@@ -61,13 +61,13 @@ defmodule ImagePlug.Transform.DimensionResolverTest do
     assert result.intermediate_height == 600
   end
 
-  test "zero dimensions with zoom scale from source dimensions" do
+  test "zero dimensions with zoom do not enlarge raster sources when enlarge is false" do
     rule = %DimensionRule{
       mode: :fit,
       width: {:pixels, 0},
       height: {:pixels, 0},
       zoom_x: 2.0,
-      zoom_y: 1.5,
+      zoom_y: 2.0,
       enlarge: false
     }
 
@@ -75,12 +75,12 @@ defmodule ImagePlug.Transform.DimensionResolverTest do
              DimensionResolver.resolve(rule, source_width: 100, source_height: 50)
 
     assert result.requested_width == 200
-    assert result.requested_height == 75
-    assert result.intermediate_width == 200
-    assert result.intermediate_height == 75
+    assert result.requested_height == 100
+    assert result.intermediate_width == 100
+    assert result.intermediate_height == 50
   end
 
-  test "zero dimensions with dpr scale from source dimensions" do
+  test "zero dimensions with dpr do not enlarge raster sources when enlarge is false" do
     rule = %DimensionRule{
       mode: :fit,
       width: {:pixels, 0},
@@ -92,10 +92,11 @@ defmodule ImagePlug.Transform.DimensionResolverTest do
     assert {:ok, result} =
              DimensionResolver.resolve(rule, source_width: 100, source_height: 50)
 
-    assert result.requested_width == 200
-    assert result.requested_height == 100
-    assert result.intermediate_width == 200
-    assert result.intermediate_height == 100
+    assert result.effective_dpr == 1.0
+    assert result.requested_width == 100
+    assert result.requested_height == 50
+    assert result.intermediate_width == 100
+    assert result.intermediate_height == 50
   end
 
   test "force resize auto dimensions preserve source dimensions" do
@@ -118,6 +119,24 @@ defmodule ImagePlug.Transform.DimensionResolverTest do
     assert result.requested_height == 480
     assert result.intermediate_width == 300
     assert result.intermediate_height == 480
+  end
+
+  test "force zero dimensions honor min dimensions even when enlarge is false" do
+    rule = %DimensionRule{
+      mode: :force,
+      width: :auto,
+      height: :auto,
+      min_width: {:pixels, 300},
+      enlarge: false
+    }
+
+    assert {:ok, result} =
+             DimensionResolver.resolve(rule, source_width: 100, source_height: 50)
+
+    assert result.target_width == 300
+    assert result.target_height == 150
+    assert result.intermediate_width == 300
+    assert result.intermediate_height == 150
   end
 
   test "min height interacts with fit as a scale constraint" do

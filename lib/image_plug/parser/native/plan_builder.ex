@@ -365,11 +365,16 @@ defmodule ImagePlug.Parser.Native.PlanBuilder do
   defp validate_crop_dimension(field, value),
     do: {:error, {:invalid_crop_dimension, field, value}}
 
+  defp validate_crop_gravity(nil), do: :ok
+  defp validate_crop_gravity(:sm), do: {:error, {:unsupported_gravity, :sm}}
+
   defp validate_crop_gravity(gravity) do
     if valid_gravity?(gravity), do: :ok, else: {:error, {:invalid_gravity, gravity}}
   end
 
   defp validate_crop_offset(_field, value) when is_number(value), do: :ok
+  defp validate_crop_offset(_field, {:pixels, value}) when is_number(value), do: :ok
+  defp validate_crop_offset(_field, {:scale, value}) when is_number(value), do: :ok
   defp validate_crop_offset(field, value), do: {:error, {:invalid_crop_offset, field, value}}
 
   defp validate_orientation_semantics(%PipelineRequest{orientation: %Orientation{} = orientation}) do
@@ -437,13 +442,13 @@ defmodule ImagePlug.Parser.Native.PlanBuilder do
 
   defp crop_operations(%PipelineRequest{crop: nil}), do: {:ok, []}
 
-  defp crop_operations(%PipelineRequest{crop: %CropRequest{} = crop}) do
+  defp crop_operations(%PipelineRequest{crop: %CropRequest{} = crop} = request) do
     build_operation_list(
       Transform.Crop.new(
         width: crop.width,
         height: crop.height,
         crop_from: :gravity,
-        gravity: crop.gravity,
+        gravity: crop.gravity || request.gravity,
         x_offset: crop.x_offset,
         y_offset: crop.y_offset
       )
@@ -496,7 +501,7 @@ defmodule ImagePlug.Parser.Native.PlanBuilder do
   defp result_crop_operations(%PipelineRequest{}, _operations), do: {:ok, []}
 
   defp result_crop_x_offset(%PipelineRequest{} = request) do
-    offset = scaled_gravity_offset(request.gravity_x_offset, request.dpr)
+    offset = request.gravity_x_offset
 
     case request.gravity do
       {:anchor, :right, _y} -> negate_offset(offset)
@@ -505,18 +510,13 @@ defmodule ImagePlug.Parser.Native.PlanBuilder do
   end
 
   defp result_crop_y_offset(%PipelineRequest{} = request) do
-    offset = scaled_gravity_offset(request.gravity_y_offset, request.dpr)
+    offset = request.gravity_y_offset
 
     case request.gravity do
       {:anchor, _x, :bottom} -> negate_offset(offset)
       _gravity -> offset
     end
   end
-
-  defp scaled_gravity_offset({:pixels, value}, dpr) when is_number(dpr),
-    do: {:pixels, value * dpr}
-
-  defp scaled_gravity_offset(offset, _dpr), do: offset
 
   defp negate_offset({unit, value}) when unit in [:pixels, :scale] and is_number(value),
     do: {unit, -value}

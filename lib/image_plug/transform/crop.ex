@@ -96,15 +96,16 @@ defmodule ImagePlug.Transform.Crop do
          image_width,
          image_height
        ) do
-    with {:ok, {crop_width, crop_height}} <- crop_dimensions(params, image_width, image_height) do
+    with {:ok, crop} <- crop_dimensions(params, image_width, image_height) do
       CropCoordinateMapper.map(
         source_width: image_width,
         source_height: image_height,
-        crop_width: crop_width,
-        crop_height: crop_height,
+        crop_width: crop.width,
+        crop_height: crop.height,
         gravity: default_if_nil(params.gravity, @default_gravity),
         x_offset: default_if_nil(params.x_offset, 0.0),
         y_offset: default_if_nil(params.y_offset, 0.0),
+        offset_scale: crop.offset_scale,
         orientation: default_if_nil(params.orientation, @default_orientation)
       )
     end
@@ -141,7 +142,7 @@ defmodule ImagePlug.Transform.Crop do
   defp default_if_nil(value, _default), do: value
 
   defp crop_dimensions(%__MODULE__{target_rule: nil} = params, _image_width, _image_height) do
-    {:ok, {params.width, params.height}}
+    {:ok, %{width: params.width, height: params.height, offset_scale: 1.0}}
   end
 
   defp crop_dimensions(
@@ -153,7 +154,12 @@ defmodule ImagePlug.Transform.Crop do
     opts = [source_width: image_width, source_height: image_height]
 
     with {:ok, dimensions} <- DimensionResolver.resolve(rule, opts) do
-      {:ok, {dimensions.target_width, dimensions.target_height}}
+      {:ok,
+       %{
+         width: dimensions.target_width,
+         height: dimensions.target_height,
+         offset_scale: dimensions.effective_dpr
+       }}
     end
   end
 

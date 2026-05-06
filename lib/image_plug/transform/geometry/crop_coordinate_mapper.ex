@@ -18,8 +18,11 @@ defmodule ImagePlug.Transform.Geometry.CropCoordinateMapper do
          {:ok, crop_width} <- dimension(opts[:crop_width], oriented_width),
          {:ok, crop_height} <- dimension(opts[:crop_height], oriented_height),
          {:ok, gravity} <- gravity(opts[:gravity]),
-         {:ok, x_offset} <- offset(Keyword.get(opts, :x_offset, 0.0), oriented_width),
-         {:ok, y_offset} <- offset(Keyword.get(opts, :y_offset, 0.0), oriented_height) do
+         {:ok, offset_scale} <- offset_scale(Keyword.get(opts, :offset_scale, 1.0)),
+         {:ok, x_offset} <-
+           offset(Keyword.get(opts, :x_offset, 0.0), oriented_width, offset_scale),
+         {:ok, y_offset} <-
+           offset(Keyword.get(opts, :y_offset, 0.0), oriented_height, offset_scale) do
       oriented_rect =
         oriented_width
         |> semantic_rect(oriented_height, crop_width, crop_height, gravity, x_offset, y_offset)
@@ -67,7 +70,7 @@ defmodule ImagePlug.Transform.Geometry.CropCoordinateMapper do
 
   defp anchor_origin(:left, _bounds, _crop), do: 0.0
   defp anchor_origin(:top, _bounds, _crop), do: 0.0
-  defp anchor_origin(:center, bounds, crop), do: (bounds - crop) / 2
+  defp anchor_origin(:center, bounds, crop), do: (bounds - crop + 1) / 2
   defp anchor_origin(:right, bounds, crop), do: bounds - crop
   defp anchor_origin(:bottom, bounds, crop), do: bounds - crop
 
@@ -166,17 +169,26 @@ defmodule ImagePlug.Transform.Geometry.CropCoordinateMapper do
 
   defp dimension(value, _bounds), do: {:error, {:invalid_crop_dimension, value}}
 
-  defp offset(value, _bounds) when is_number(value), do: {:ok, value}
+  defp offset(value, _bounds, _offset_scale) when is_number(value), do: {:ok, value}
 
-  defp offset({:scale, numerator, denominator}, bounds)
+  defp offset({:scale, numerator, denominator}, bounds, _offset_scale)
        when is_number(numerator) and is_number(denominator) and denominator != 0 do
     {:ok, bounds * numerator / denominator}
   end
 
-  defp offset({:scale, value}, bounds) when is_number(value), do: {:ok, bounds * value}
-  defp offset({:percent, value}, bounds) when is_number(value), do: {:ok, bounds * value / 100}
-  defp offset({:pixels, value}, _bounds) when is_number(value), do: {:ok, value}
-  defp offset(value, _bounds), do: {:error, {:invalid_crop_offset, value}}
+  defp offset({:scale, value}, bounds, _offset_scale) when is_number(value),
+    do: {:ok, bounds * value}
+
+  defp offset({:percent, value}, bounds, _offset_scale) when is_number(value),
+    do: {:ok, bounds * value / 100}
+
+  defp offset({:pixels, value}, _bounds, offset_scale) when is_number(value),
+    do: {:ok, value * offset_scale}
+
+  defp offset(value, _bounds, _offset_scale), do: {:error, {:invalid_crop_offset, value}}
+
+  defp offset_scale(value) when is_number(value) and value > 0, do: {:ok, value * 1.0}
+  defp offset_scale(value), do: {:error, {:invalid_crop_offset_scale, value}}
 
   defp gravity({:anchor, x, y} = gravity)
        when x in [:left, :center, :right] and y in [:top, :center, :bottom],

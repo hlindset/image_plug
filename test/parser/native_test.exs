@@ -355,6 +355,27 @@ defmodule ImagePlug.Parser.NativeTest do
     assert crop.y_offset == {:scale, 0.25}
   end
 
+  test "parses crop focal-point gravity and relative offsets" do
+    assert {:ok, parsed} =
+             Native.parse_request(
+               conn(:get, "/_/c:100:100:fp:0.25:0.75/plain/images/cat.jpg"),
+               []
+             )
+
+    [pipeline] = parsed.pipelines
+    assert pipeline.crop.gravity == {:fp, 0.25, 0.75}
+
+    assert {:ok, parsed} =
+             Native.parse_request(
+               conn(:get, "/_/c:100:100:nowe:0.25:-0.5/plain/images/cat.jpg"),
+               []
+             )
+
+    [pipeline] = parsed.pipelines
+    assert pipeline.crop.x_offset == {:scale, 0.25}
+    assert pipeline.crop.y_offset == {:scale, -0.5}
+  end
+
   test "rejects out-of-range focal point coordinates as gravity coordinate errors" do
     assert Native.parse(conn(:get, "/_/g:fp:1.2:0.5/plain/images/cat.jpg"), []) ==
              {:error, {:invalid_gravity_coordinate, "1.2"}}

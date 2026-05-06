@@ -3,17 +3,25 @@ defmodule ImagePlug.Parser.Native.CropRequest do
 
   @type dimension() :: :auto | {:scale, number()} | ImagePlug.imgp_pixels()
 
+  @type gravity() ::
+          {:anchor, :left | :center | :right, :top | :center | :bottom}
+          | {:fp, float(), float()}
+          | :sm
+          | nil
+
+  @type offset() :: float() | {:pixels, float()} | {:scale, float()}
+
   @type t() :: %__MODULE__{
           width: dimension(),
           height: dimension(),
-          gravity: {:anchor, :left | :center | :right, :top | :center | :bottom},
-          x_offset: float(),
-          y_offset: float()
+          gravity: gravity(),
+          x_offset: offset(),
+          y_offset: offset()
         }
 
   defstruct width: :auto,
             height: :auto,
-            gravity: {:anchor, :center, :center},
+            gravity: nil,
             x_offset: 0.0,
             y_offset: 0.0
 end
