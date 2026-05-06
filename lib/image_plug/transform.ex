@@ -43,59 +43,23 @@ defmodule ImagePlug.Transform do
   @callback metadata(operation()) :: map()
   @callback execute(operation(), State.t()) :: State.t()
 
-  @spec operation?(term()) :: boolean()
-  def operation?(%module{}) do
-    case Code.ensure_loaded(module) do
-      {:module, ^module} ->
-        function_exported?(module, :name, 1) and
-          function_exported?(module, :validate, 1) and
-          function_exported?(module, :metadata, 1) and
-          function_exported?(module, :execute, 2)
-
-      {:error, _reason} ->
-        false
-    end
-  end
-
-  def operation?(_term), do: false
-
-  @spec ensure_operation!(term()) :: operation()
-  def ensure_operation!(%module{} = operation) do
-    if operation?(operation) do
-      operation
-    else
-      raise ArgumentError,
-            "invalid transform operation #{inspect(operation)}: " <>
-              "#{inspect(module)} must export name/1, validate/1, metadata/1, and execute/2"
-    end
-  end
-
-  def ensure_operation!(operation) do
-    raise ArgumentError,
-          "invalid transform operation #{inspect(operation)}: expected an operation struct"
-  end
-
   @spec transform_name(operation()) :: atom()
-  def transform_name(operation) do
-    %module{} = operation = ensure_operation!(operation)
+  def transform_name(%module{} = operation) do
     module.name(operation)
   end
 
   @spec validate(operation()) :: :ok | {:error, term()}
-  def validate(operation) do
-    %module{} = operation = ensure_operation!(operation)
+  def validate(%module{} = operation) do
     module.validate(operation)
   end
 
   @spec metadata(operation()) :: map()
-  def metadata(operation) do
-    %module{} = operation = ensure_operation!(operation)
+  def metadata(%module{} = operation) do
     module.metadata(operation)
   end
 
   @spec execute(operation(), State.t()) :: State.t()
-  def execute(operation, %State{} = state) do
-    %module{} = operation = ensure_operation!(operation)
+  def execute(%module{} = operation, %State{} = state) do
     module.execute(operation, state)
   end
 end

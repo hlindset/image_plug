@@ -5,7 +5,6 @@ defmodule ImagePlug.Transform.ChainTest do
   alias ImagePlug.Transform.AdaptiveResize
   alias ImagePlug.Transform.Chain
   alias ImagePlug.Transform.ChainTest.FailingTransform
-  alias ImagePlug.Transform.ChainTest.PartialTransform
   alias ImagePlug.Transform.ChainTest.UnexpectedTransform
   alias ImagePlug.Transform.Contain
   alias ImagePlug.Transform.Cover
@@ -101,26 +100,6 @@ defmodule ImagePlug.Transform.ChainTest do
     }
 
     assert Transform.metadata(operation) == %{access: :random}
-  end
-
-  test "partial operation structs fail strict dispatch" do
-    operation = %PartialTransform{}
-
-    refute Transform.operation?(operation)
-
-    assert_raise ArgumentError, fn ->
-      Transform.transform_name(operation)
-    end
-
-    assert_raise ArgumentError, fn ->
-      Transform.metadata(operation)
-    end
-
-    {:ok, image} = Image.new(20, 20, color: :white)
-
-    assert_raise ArgumentError, fn ->
-      Transform.execute(operation, %State{image: image})
-    end
   end
 
   test "stops executing after the first transform error" do

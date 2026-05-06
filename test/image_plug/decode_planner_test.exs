@@ -15,10 +15,6 @@ defmodule ImagePlug.Transform.DecodePlannerTest do
   alias ImagePlug.Transform.Resize
   alias ImagePlug.Transform.Scale
 
-  defmodule UnknownTransform do
-    defstruct []
-  end
-
   defmodule NoGeometryTransform do
     defstruct []
 
@@ -299,17 +295,6 @@ defmodule ImagePlug.Transform.DecodePlannerTest do
                background: :white
              }
            ]) == [access: :random, fail_on: :error]
-  end
-
-  test "unknown transforms raise as programmer errors" do
-    chain = [
-      %Scale{type: :dimensions, width: {:pixels, 120}, height: :auto},
-      %UnknownTransform{}
-    ]
-
-    assert_raise ArgumentError, fn ->
-      DecodePlanner.open_options(chain)
-    end
   end
 
   test "malformed transform metadata stays random" do

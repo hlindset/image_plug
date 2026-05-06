@@ -94,9 +94,11 @@ defmodule ImagePlug.Plan do
     Enum.find(operations, &invalid_operation?/1)
   end
 
-  defp invalid_operation?(operation) do
-    not Transform.operation?(operation) or Transform.validate(operation) != :ok
+  defp invalid_operation?(%_{} = operation) do
+    Transform.validate(operation) != :ok
   end
+
+  defp invalid_operation?(_operation), do: true
 
   defp validate_source(%Plain{path: path} = source) do
     if valid_source_path?(path),
