@@ -839,7 +839,7 @@ git commit -m "docs: document remaining transform operations"
 **Files:**
 - Verify all documentation changes.
 
-- [ ] **Step 1: Run formatter**
+- [x] **Step 1: Run formatter**
 
 Run:
 
@@ -849,7 +849,7 @@ mise exec -- mix format
 
 Expected: exits 0. If it changes files, inspect and include formatting-only changes before running the remaining verification commands.
 
-- [ ] **Step 2: Run Native/parser focused tests**
+- [x] **Step 2: Run Native/parser focused tests**
 
 Run:
 
@@ -859,7 +859,7 @@ mise exec -- mix test test/parser/native_test.exs test/parser/native/plan_builde
 
 Expected: PASS.
 
-- [ ] **Step 3: Run transform focused tests**
+- [x] **Step 3: Run transform focused tests**
 
 Run:
 
@@ -869,7 +869,7 @@ mise exec -- mix test test/image_plug/transform/material_test.exs test/image_plu
 
 Expected: PASS.
 
-- [ ] **Step 4: Run docs generation**
+- [x] **Step 4: Run docs generation**
 
 Run:
 
@@ -879,7 +879,7 @@ mise exec -- mix docs
 
 Expected: PASS. Verify generated docs include `Native Path API` and `Transform Operations`.
 
-- [ ] **Step 5: Run compile with warnings as errors**
+- [x] **Step 5: Run compile with warnings as errors**
 
 Run:
 
@@ -889,7 +889,7 @@ mise exec -- mix compile --warnings-as-errors
 
 Expected: PASS.
 
-- [ ] **Step 6: Run full tests**
+- [x] **Step 6: Run full tests**
 
 Run:
 
@@ -899,7 +899,7 @@ mise exec -- mix test
 
 Expected: PASS.
 
-- [ ] **Step 7: Run strict lint**
+- [x] **Step 7: Run strict lint**
 
 Run:
 
@@ -909,7 +909,7 @@ mise exec -- mix credo --strict
 
 Expected: PASS.
 
-- [ ] **Step 8: Commit final verification fixes if needed**
+- [x] **Step 8: Commit final verification fixes if needed**
 
 If verification changed files:
 
