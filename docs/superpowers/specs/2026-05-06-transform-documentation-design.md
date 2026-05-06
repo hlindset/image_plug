@@ -51,9 +51,10 @@ It must document:
 - URL shape, source path handling, and the `-` pipeline separator.
 - Declarative semantics: URL option order does not define transform execution order.
 - Conflict behavior: later assignments to the same canonical field win.
-- Resize options, including `resizing_type` and the difference between fixed resize types and `auto`.
-- Width, height, min dimensions, zoom, DPR, and enlarge behavior.
-- Crop, gravity, focal-point gravity, and result-crop behavior.
+- Resize options, including `resizing_type`, the difference between fixed resize types and `auto`, and zero dimensions as auto dimensions.
+- Width, height, min dimensions, zoom, DPR, enlarge behavior, and `force` resize behavior when one side is auto.
+- Crop, top-level gravity, crop-specific gravity, focal-point gravity, result-crop behavior, and crop gravity inheritance.
+- Crop and gravity offsets, including the current imgproxy-compatible unit rule where absolute values greater than or equal to `1` are pixels and absolute values below `1` are relative scale offsets.
 - Orientation options: auto-orient, rotate, and flip.
 - Canvas extension and extend-aspect-ratio behavior.
 - Output negotiation: format, automatic output by omitting an explicit format, quality, and format-specific quality.
@@ -101,7 +102,31 @@ The guide should explicitly say `format:auto` is not accepted. Automatic output 
 
 The guide should explicitly document plain source `@extension` as output format syntax. It should state that `@extension` bypasses `Accept` negotiation like explicit `format`, and it should document current precedence when both an option format and source `@extension` are present.
 
-Semantic rejection examples must be verified against tests and current planner behavior. The Native guide should cover examples such as crop combined with auto-orient, smart gravity, unsupported top-level gravity offsets, and force resize with zero dimensions if those remain current behavior. It should distinguish those from supported offsets such as crop offsets and extend offsets.
+Semantic rejection examples must be verified against tests and current planner behavior. After the imgproxy Native parity fixes in `5b9eeff`, the Native guide must not describe these supported behaviors as rejection cases:
+
+- Crop combined with auto-orient is supported and planned in Native canonical order.
+- Top-level gravity offsets are supported for result crops.
+- `force` resize with one zero dimension is supported by preserving the source dimension for the auto side.
+- Explicit crop gravity variants, including focal-point crop gravity, are supported.
+- Explicit crop without its own gravity inherits top-level gravity.
+
+The remaining semantic rejection examples should focus on behavior that is still intentionally unsupported, such as smart gravity (`g:sm` or `c:<width>:<height>:sm`) returning `{:unsupported_gravity, :sm}`. SVG/vector-specific imgproxy parity remains out of scope for this documentation pass unless the implementation changes before docs are written.
+
+The guide should document the current zero-dimension behavior:
+
+- `w:0` and `h:0` map to auto dimensions.
+- Fit/fill with both sides zero produces no geometry transform unless min dimensions or another meaningful size constraint is present.
+- Zoom and DPR do not force raster enlargement for zero-dimension auto sides when `enlarge` is false.
+- `rt:force` with one zero side keeps force semantics while preserving the source dimension for that side.
+
+The guide should document the current crop/gravity behavior:
+
+- Top-level `g:*` applies to result crops produced by fill/fill-down/auto resize planning.
+- Top-level result-crop absolute offsets are resolved by crop execution using the effective DPR.
+- Explicit crop gravity overrides top-level gravity for that crop.
+- Explicit crop without gravity inherits top-level gravity.
+- Crop focal-point gravity uses crop gravity fields, not `ImagePlug.Transform.Focus`.
+- Crop offset signs and unit interpretation must match current imgproxy-compatible parsing and execution tests.
 
 ## Transform Operations Guide
 
@@ -159,8 +184,8 @@ It must document:
   - Parser-specific request structs must not leak into runtime execution.
   - Parser and planner modules may construct exported operation structs.
 
-The guide should include mapping examples from Native URLs to operation chains, including at least fixed resize, adaptive resize, fill with result crop, crop with gravity, focal-point gravity crop, orientation, and canvas extension.
-Native mapping examples should reflect current Native behavior. Native focal-point gravity should be shown as `ImagePlug.Transform.Crop` gravity, not as `ImagePlug.Transform.Focus`, unless the planner starts emitting `Focus`.
+The guide should include mapping examples from Native URLs to operation chains, including at least fixed resize, adaptive resize, fill with result crop, crop with gravity, focal-point gravity crop, explicit crop inheriting top-level gravity, orientation, canvas extension, and zero-dimension resize.
+Native mapping examples should reflect current Native behavior. Native focal-point gravity should be shown as `ImagePlug.Transform.Crop` gravity, not as `ImagePlug.Transform.Focus`, unless the planner starts emitting `Focus`. Result-crop examples should show top-level gravity and top-level gravity offsets flowing into result `Crop` operations, while explicit crop examples should show crop-specific gravity overriding top-level gravity.
 
 The guide may describe `ImagePlug.Transform.Focus` as an exported operation available to future parsers, but it should not claim that current Native URLs emit Focus operations.
 
@@ -185,35 +210,35 @@ Use a consistent module documentation template:
 
 ```elixir
 @moduledoc """
-Represents ...
+Represents the product-neutral operation in one short paragraph.
 
 ## Construct When
 
-...
+State which parser or planner situations should construct this operation.
 
 ## Construction API
 
-...
+Document `new/1`, `new!/1`, accepted attrs, and error behavior.
 
 ## Fields
 
-...
+List required and optional struct fields, accepted values, and defaults.
 
 ## Execution Semantics
 
-...
+Describe how the operation changes `ImagePlug.Transform.State`.
 
 ## Decode Planning Metadata
 
-...
+Describe `metadata/1` and its sequential/random access implications.
 
 ## Cache Material
 
-...
+List the exact canonical material keyword fields emitted for cache keys.
 
 ## Examples
 
-...
+Include a short construction example using `new/1` or `new!/1`.
 """
 ```
 
@@ -253,7 +278,8 @@ The implementation plan should include:
 - `mise exec -- mix docs` verification, with warnings treated as failures if practical, and a check that both new guides appear in generated docs.
 - Doctest or compile checks only where module examples are intentionally executable.
 - Parser fixture tests for Native examples included in `docs/native_path_api.md`.
-- Parser or planner tests for Native semantic rejection examples included in `docs/native_path_api.md`.
+- Parser or planner tests for Native semantic rejection examples included in `docs/native_path_api.md`, currently including smart gravity rejection.
+- Parser or planner tests for parity-sensitive supported Native examples included in `docs/native_path_api.md`, including auto-orient plus crop, top-level gravity offsets, force resize with one zero side, crop focal-point gravity, crop gravity inheritance, and crop offset unit parsing.
 - Plan-shape tests for each mapping example included in `docs/transform_operations.md`.
 - Plan-shape tests that show non-empty Native pipeline groups execute in URL group order while each group uses Native canonical operation order.
 - A focused review that verifies docs match parser behavior and transform module contracts.
