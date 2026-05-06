@@ -26,13 +26,11 @@ defmodule ImagePlug.Parser.Native.PlanBuilder do
   @spec to_plan(ParsedRequest.t(), keyword()) :: {:ok, Plan.t()} | {:error, term()}
   def to_plan(%ParsedRequest{} = request, opts \\ []) do
     with {:ok, source} <- source_plan(request.source_kind, request.source_path),
-         {:ok, pipeline_requests} <- executable_pipeline_requests(request.pipelines),
-         :ok <- validate_pipeline_dimensions(pipeline_requests),
          {:ok, output} <- output_plan(request.output),
          {:ok, policy} <- policy_plan(request.policy, opts),
          {:ok, cache} <- cache_plan(request.cache),
          {:ok, response} <- response_plan(request.response, source),
-         {:ok, pipelines} <- build_pipelines(pipeline_requests) do
+         {:ok, pipelines} <- build_pipelines(request.pipelines) do
       {:ok,
        %Plan{
          source: source,
@@ -45,45 +43,9 @@ defmodule ImagePlug.Parser.Native.PlanBuilder do
     end
   end
 
-  defp source_plan(:plain, path) do
-    source = %Plain{path: path}
-
-    if valid_source_path?(path) do
-      {:ok, source}
-    else
-      {:error, {:unsupported_source, source}}
-    end
-  end
+  defp source_plan(:plain, path), do: {:ok, %Plain{path: path}}
 
   defp source_plan(kind, _path), do: {:error, {:unsupported_source_kind, kind}}
-
-  defp valid_source_path?([]), do: true
-  defp valid_source_path?([segment | rest]) when is_binary(segment), do: valid_source_path?(rest)
-  defp valid_source_path?(_path), do: false
-
-  defp executable_pipeline_requests([]), do: {:error, :empty_pipeline_plan}
-
-  defp executable_pipeline_requests(pipeline_requests) when is_list(pipeline_requests) do
-    Enum.reduce_while(pipeline_requests, {:ok, []}, fn
-      %PipelineRequest{} = pipeline_request, {:ok, valid_pipeline_requests} ->
-        {:cont, {:ok, [pipeline_request | valid_pipeline_requests]}}
-
-      value, {:ok, _valid_pipeline_requests} ->
-        {:halt, {:error, {:invalid_pipeline_request, value}}}
-    end)
-    |> case do
-      {:ok, valid_pipeline_requests} -> {:ok, Enum.reverse(valid_pipeline_requests)}
-      {:error, _reason} = error -> error
-    end
-  end
-
-  defp executable_pipeline_requests(value), do: {:error, {:invalid_pipeline_request, value}}
-
-  defp validate_pipeline_dimensions(pipeline_requests) do
-    pipeline_requests
-    |> Enum.map(&validate_dimensions/1)
-    |> reduce_validation_results()
-  end
 
   defp build_pipelines([]), do: {:error, :empty_pipeline_plan}
 
@@ -94,8 +56,7 @@ defmodule ImagePlug.Parser.Native.PlanBuilder do
   end
 
   defp pipeline(%PipelineRequest{} = pipeline_request) do
-    with :ok <- validate_dimensions(pipeline_request),
-         :ok <- validate_supported_semantics(pipeline_request),
+    with :ok <- validate_supported_semantics(pipeline_request),
          {:ok, operations} <- plan_geometry(pipeline_request) do
       {:ok, %Pipeline{operations: operations}}
     end
@@ -112,22 +73,13 @@ defmodule ImagePlug.Parser.Native.PlanBuilder do
     end
   end
 
-  defp reduce_validation_results(results) do
-    Enum.reduce_while(results, :ok, fn
-      :ok, :ok -> {:cont, :ok}
-      {:error, reason}, :ok -> {:halt, {:error, reason}}
-    end)
-  end
-
   defp output_plan(%OutputRequest{format: nil} = request) do
-    with :ok <- validate_output_qualities(request) do
-      {:ok,
-       %Output{
-         mode: :automatic,
-         quality: request.quality,
-         format_qualities: request.format_qualities
-       }}
-    end
+    {:ok,
+     %Output{
+       mode: :automatic,
+       quality: request.quality,
+       format_qualities: request.format_qualities
+     }}
   end
 
   defp output_plan(%OutputRequest{format: :best}),
@@ -135,46 +87,16 @@ defmodule ImagePlug.Parser.Native.PlanBuilder do
 
   defp output_plan(%OutputRequest{format: format} = request)
        when format in @supported_output_formats do
-    with :ok <- validate_output_qualities(request) do
-      {:ok,
-       %Output{
-         mode: {:explicit, format},
-         quality: request.quality,
-         format_qualities: request.format_qualities
-       }}
-    end
+    {:ok,
+     %Output{
+       mode: {:explicit, format},
+       quality: request.quality,
+       format_qualities: request.format_qualities
+     }}
   end
 
   defp output_plan(%OutputRequest{format: format}), do: {:error, {:invalid_output_format, format}}
   defp output_plan(output), do: {:error, {:invalid_output_request, output}}
-
-  defp validate_output_qualities(%OutputRequest{
-         quality: quality,
-         format_qualities: format_qualities
-       }) do
-    with :ok <- validate_quality(quality),
-         do: validate_format_qualities(format_qualities)
-  end
-
-  defp validate_quality(:default), do: :ok
-  defp validate_quality({:quality, value}) when is_integer(value) and value in 1..100, do: :ok
-  defp validate_quality(value), do: {:error, {:invalid_output_quality, value}}
-
-  defp validate_format_qualities(format_qualities) when is_map(format_qualities) do
-    Enum.reduce_while(format_qualities, :ok, fn
-      {format, quality}, :ok when format in @supported_output_formats ->
-        case validate_quality(quality) do
-          :ok -> {:cont, :ok}
-          {:error, reason} -> {:halt, {:error, reason}}
-        end
-
-      {format, _quality}, :ok ->
-        {:halt, {:error, {:unsupported_output_format, format}}}
-    end)
-  end
-
-  defp validate_format_qualities(format_qualities),
-    do: {:error, {:invalid_format_qualities, format_qualities}}
 
   defp policy_plan(%RequestPolicy{expires: 0}, _opts), do: {:ok, %Policy{expires: 0}}
 
@@ -252,24 +174,6 @@ defmodule ImagePlug.Parser.Native.PlanBuilder do
       stem -> stem
     end
   end
-
-  defp validate_dimensions(%PipelineRequest{} = request) do
-    [
-      {:width, request.width},
-      {:height, request.height},
-      {:min_width, request.min_width},
-      {:min_height, request.min_height}
-    ]
-    |> Enum.map(fn {field, value} -> validate_dimension(field, value) end)
-    |> reduce_validation_results()
-  end
-
-  defp validate_dimension(_field, nil), do: :ok
-
-  defp validate_dimension(_field, {:pixels, value}) when is_number(value) and value >= 0,
-    do: :ok
-
-  defp validate_dimension(field, value), do: {:error, {:invalid_dimension, field, value}}
 
   defp validate_supported_semantics(%PipelineRequest{gravity: :sm}),
     do: {:error, {:unsupported_gravity, :sm}}

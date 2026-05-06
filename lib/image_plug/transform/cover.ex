@@ -17,7 +17,7 @@ defmodule ImagePlug.Transform.Cover do
 
   ## Construction API
 
-  `new/1` accepts a keyword list, map, or existing `%Cover{}` and returns
+  `new/1` accepts a keyword list or map and returns
   `{:ok, operation}` when all fields are valid. Invalid attributes, missing
   required fields, or unknown keys return `{:error, exception}`.
 
@@ -110,6 +110,7 @@ defmodule ImagePlug.Transform.Cover do
   import ImagePlug.Transform.Geometry
 
   alias ImagePlug.Transform.State
+  alias ImagePlug.Transform.Validation
 
   @doc """
   The parsed operation used by `ImagePlug.Transform.Cover`.
@@ -143,19 +144,13 @@ defmodule ImagePlug.Transform.Cover do
   end
 
   @impl ImagePlug.Transform
-  def new!(%__MODULE__{} = operation) do
-    operation
-    |> attrs_from_operation()
-    |> validate_attrs!()
-
-    operation
-  end
-
-  def new!(attrs) when is_list(attrs) or is_map(attrs) do
+  def new!(attrs) when is_list(attrs) or (is_map(attrs) and not is_struct(attrs)) do
     attrs
     |> validate_attrs!()
     |> then(&struct!(__MODULE__, &1))
   end
+
+  def new!(attrs), do: Validation.invalid_options!("cover", attrs)
 
   @impl ImagePlug.Transform
   def name(%__MODULE__{}), do: :cover
@@ -304,81 +299,26 @@ defmodule ImagePlug.Transform.Cover do
 
     case Map.fetch!(attrs, :type) do
       :dimensions ->
-        validate_keys!(attrs, [:type, :width, :height, :constraint])
+        Validation.keys!(attrs, [:type, :width, :height, :constraint], "cover")
         width = Map.fetch!(attrs, :width)
         height = Map.fetch!(attrs, :height)
-        validate_dimension_pair!(width, height)
-        validate_constraint!(Map.fetch!(attrs, :constraint))
+        Validation.positive_dimension_pair!("cover", width, height)
+
+        Validation.one_of!("cover", :constraint, Map.fetch!(attrs, :constraint), [
+          :none,
+          :min,
+          :max
+        ])
+
         attrs
 
       :ratio ->
-        validate_keys!(attrs, [:type, :ratio])
-        validate_ratio!(Map.fetch!(attrs, :ratio))
+        Validation.keys!(attrs, [:type, :ratio], "cover")
+        Validation.ratio!("cover", :ratio, Map.fetch!(attrs, :ratio))
         attrs
 
       type ->
         raise ArgumentError, "invalid cover type: #{inspect(type)}"
     end
   end
-
-  defp attrs_from_operation(%__MODULE__{type: :dimensions} = operation) do
-    %{
-      type: operation.type,
-      width: operation.width,
-      height: operation.height,
-      constraint: operation.constraint
-    }
-  end
-
-  defp attrs_from_operation(%__MODULE__{type: :ratio} = operation) do
-    %{type: operation.type, ratio: operation.ratio}
-  end
-
-  defp attrs_from_operation(%__MODULE__{} = operation), do: %{type: operation.type}
-
-  defp validate_keys!(attrs, allowed_keys) do
-    unknown_keys = Map.keys(attrs) -- allowed_keys
-
-    if unknown_keys != [] do
-      keys = unknown_keys |> Enum.sort_by(&inspect/1) |> Enum.map_join(", ", &inspect/1)
-      raise ArgumentError, "unknown cover option(s): #{keys}"
-    end
-  end
-
-  defp validate_dimension_pair!(width, height) do
-    validate_dimension_or_auto!(:width, width)
-    validate_dimension_or_auto!(:height, height)
-
-    if width == :auto and height == :auto do
-      raise ArgumentError, "invalid cover dimensions: width and height cannot both be :auto"
-    end
-  end
-
-  defp validate_dimension_or_auto!(_field, :auto), do: :ok
-
-  defp validate_dimension_or_auto!(field, value), do: validate_dimension!(field, value)
-
-  defp validate_dimension!(_field, value) when is_number(value) and value > 0, do: :ok
-  defp validate_dimension!(_field, {:pixels, value}) when is_number(value) and value > 0, do: :ok
-  defp validate_dimension!(_field, {:percent, value}) when is_number(value) and value > 0, do: :ok
-  defp validate_dimension!(_field, {:scale, value}) when is_number(value) and value > 0, do: :ok
-
-  defp validate_dimension!(_field, {:scale, numerator, denominator})
-       when is_number(numerator) and is_number(denominator) and numerator > 0 and denominator > 0,
-       do: :ok
-
-  defp validate_dimension!(field, value),
-    do: raise(ArgumentError, "invalid cover #{field}: #{inspect(value)}")
-
-  defp validate_ratio!({width, height})
-       when is_number(width) and is_number(height) and width > 0 and height > 0,
-       do: :ok
-
-  defp validate_ratio!(ratio),
-    do: raise(ArgumentError, "invalid cover ratio: #{inspect(ratio)}")
-
-  defp validate_constraint!(constraint) when constraint in [:none, :min, :max], do: :ok
-
-  defp validate_constraint!(constraint),
-    do: raise(ArgumentError, "invalid cover constraint: #{inspect(constraint)}")
 end

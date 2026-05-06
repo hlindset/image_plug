@@ -18,7 +18,7 @@ defmodule ImagePlug.Transform.ExtendCanvas do
 
   ## Construction API
 
-  `new/1` accepts a keyword list, map, or existing `%__MODULE__{}` and returns
+  `new/1` accepts a keyword list or map and returns
   `{:ok, operation}` when all fields are valid. Invalid attributes, missing
   required fields, or unknown keys return `{:error, exception}`.
 
@@ -114,6 +114,7 @@ defmodule ImagePlug.Transform.ExtendCanvas do
   import ImagePlug.Transform.Geometry
 
   alias ImagePlug.Transform.State
+  alias ImagePlug.Transform.Validation
 
   @default_gravity {:anchor, :center, :center}
 
@@ -144,19 +145,13 @@ defmodule ImagePlug.Transform.ExtendCanvas do
   end
 
   @impl ImagePlug.Transform
-  def new!(%__MODULE__{} = operation) do
-    operation
-    |> Map.from_struct()
-    |> validate_attrs!()
-
-    operation
-  end
-
-  def new!(attrs) when is_list(attrs) or is_map(attrs) do
+  def new!(attrs) when is_list(attrs) or (is_map(attrs) and not is_struct(attrs)) do
     attrs
     |> validate_attrs!()
     |> then(&struct!(__MODULE__, &1))
   end
+
+  def new!(attrs), do: Validation.invalid_options!("extend canvas", attrs)
 
   @impl ImagePlug.Transform
   def name(%__MODULE__{}), do: :extend_canvas
@@ -247,27 +242,23 @@ defmodule ImagePlug.Transform.ExtendCanvas do
   defp background_color(color), do: color
 
   defp validate_attrs!(attrs) do
-    attrs = Map.new(attrs)
-    validate_keys!(attrs, [:rule, :gravity, :x_offset, :y_offset, :background])
+    attrs =
+      Validation.attrs!(
+        attrs,
+        [:rule, :gravity, :x_offset, :y_offset, :background],
+        "extend canvas"
+      )
+
     validate_rule!(Map.fetch!(attrs, :rule))
-    validate_gravity!(Map.get(attrs, :gravity, @default_gravity))
-    validate_offset!(:x_offset, Map.get(attrs, :x_offset, 0.0))
-    validate_offset!(:y_offset, Map.get(attrs, :y_offset, 0.0))
+    Validation.anchor!("extend canvas", :gravity, Map.get(attrs, :gravity, @default_gravity))
+    Validation.number!("extend canvas", :x_offset, Map.get(attrs, :x_offset, 0.0))
+    Validation.number!("extend canvas", :y_offset, Map.get(attrs, :y_offset, 0.0))
     attrs
   end
 
-  defp validate_keys!(attrs, allowed_keys) do
-    unknown_keys = Map.keys(attrs) -- allowed_keys
-
-    if unknown_keys != [] do
-      keys = unknown_keys |> Enum.sort_by(&inspect/1) |> Enum.map_join(", ", &inspect/1)
-      raise ArgumentError, "unknown extend canvas option(s): #{keys}"
-    end
-  end
-
   defp validate_rule!({:dimensions, width, height}) do
-    validate_dimension_or_auto!(:width, width)
-    validate_dimension_or_auto!(:height, height)
+    Validation.non_negative_dimension_or_auto!("extend canvas", :width, width)
+    Validation.non_negative_dimension_or_auto!("extend canvas", :height, height)
   end
 
   defp validate_rule!({:aspect_ratio, {width, height}})
@@ -276,27 +267,4 @@ defmodule ImagePlug.Transform.ExtendCanvas do
 
   defp validate_rule!(rule),
     do: raise(ArgumentError, "invalid extend canvas rule: #{inspect(rule)}")
-
-  defp validate_dimension_or_auto!(_field, :auto), do: :ok
-
-  defp validate_dimension_or_auto!(_field, {:pixels, value}) when is_number(value) and value >= 0,
-    do: :ok
-
-  defp validate_dimension_or_auto!(_field, value) when is_number(value) and value >= 0,
-    do: :ok
-
-  defp validate_dimension_or_auto!(field, value),
-    do: raise(ArgumentError, "invalid extend canvas #{field}: #{inspect(value)}")
-
-  defp validate_gravity!({:anchor, x, y})
-       when x in [:left, :center, :right] and y in [:top, :center, :bottom],
-       do: :ok
-
-  defp validate_gravity!(gravity),
-    do: raise(ArgumentError, "invalid extend canvas gravity: #{inspect(gravity)}")
-
-  defp validate_offset!(_field, value) when is_number(value), do: :ok
-
-  defp validate_offset!(field, value),
-    do: raise(ArgumentError, "invalid extend canvas #{field}: #{inspect(value)}")
 end

@@ -109,6 +109,7 @@ defmodule ImagePlug.Transform.AdaptiveResize do
   alias ImagePlug.Transform.Geometry.DimensionRule
   alias ImagePlug.Transform.Resize
   alias ImagePlug.Transform.State
+  alias ImagePlug.Transform.Validation
 
   defstruct [:rule]
 
@@ -123,16 +124,13 @@ defmodule ImagePlug.Transform.AdaptiveResize do
   end
 
   @impl ImagePlug.Transform
-  def new!(%__MODULE__{} = operation) do
-    validate_rule!(operation.rule)
-    operation
-  end
-
-  def new!(attrs) when is_list(attrs) or is_map(attrs) do
+  def new!(attrs) when is_list(attrs) or (is_map(attrs) and not is_struct(attrs)) do
     attrs
     |> validate_attrs!()
     |> then(&struct!(__MODULE__, &1))
   end
+
+  def new!(attrs), do: Validation.invalid_options!("adaptive resize", attrs)
 
   @impl ImagePlug.Transform
   def name(%__MODULE__{}), do: :adaptive_resize
@@ -186,31 +184,15 @@ defmodule ImagePlug.Transform.AdaptiveResize do
   defp orientation(_width, _height), do: :square
 
   defp validate_attrs!(attrs) do
-    attrs = Map.new(attrs)
-    validate_keys!(attrs, [:rule])
+    attrs = Validation.attrs!(attrs, [:rule], "adaptive resize")
     validate_rule!(Map.fetch!(attrs, :rule))
     attrs
   end
 
-  defp validate_keys!(attrs, allowed_keys) do
-    unknown_keys = Map.keys(attrs) -- allowed_keys
-
-    if unknown_keys != [] do
-      keys = unknown_keys |> Enum.sort_by(&inspect/1) |> Enum.map_join(", ", &inspect/1)
-      raise ArgumentError, "unknown adaptive resize option(s): #{keys}"
-    end
-  end
-
   defp validate_rule!(%DimensionRule{} = rule) do
-    case DimensionRule.validate(rule, modes: [:auto]) do
-      :ok ->
-        :ok
-
-      {:error, {field, value}} ->
-        raise ArgumentError, "invalid adaptive resize rule #{field}: #{inspect(value)}"
-    end
+    Validation.dimension_rule!("adaptive resize", :rule, rule, [:auto])
   end
 
   defp validate_rule!(rule),
-    do: raise(ArgumentError, "invalid adaptive resize rule: #{inspect(rule)}")
+    do: Validation.invalid!("adaptive resize", :rule, rule)
 end

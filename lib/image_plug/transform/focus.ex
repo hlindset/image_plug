@@ -16,7 +16,7 @@ defmodule ImagePlug.Transform.Focus do
 
   ## Construction API
 
-  `new/1` accepts a keyword list, map, or existing `%Focus{}` and returns
+  `new/1` accepts a keyword list or map and returns
   `{:ok, operation}` when all fields are valid. Invalid attributes, missing
   required fields, or unknown keys return `{:error, exception}`.
 
@@ -84,6 +84,7 @@ defmodule ImagePlug.Transform.Focus do
   import ImagePlug.Transform.Geometry
 
   alias ImagePlug.Transform.State
+  alias ImagePlug.Transform.Validation
 
   @doc """
   The parsed operation used by `ImagePlug.Transform.Focus`.
@@ -103,19 +104,13 @@ defmodule ImagePlug.Transform.Focus do
   end
 
   @impl ImagePlug.Transform
-  def new!(%__MODULE__{} = operation) do
-    operation
-    |> Map.from_struct()
-    |> validate_attrs!()
-
-    operation
-  end
-
-  def new!(attrs) when is_list(attrs) or is_map(attrs) do
+  def new!(attrs) when is_list(attrs) or (is_map(attrs) and not is_struct(attrs)) do
     attrs
     |> validate_attrs!()
     |> then(&struct!(__MODULE__, &1))
   end
+
+  def new!(attrs), do: Validation.invalid_options!("focus", attrs)
 
   @impl ImagePlug.Transform
   def name(%__MODULE__{}), do: :focus
@@ -151,13 +146,12 @@ defmodule ImagePlug.Transform.Focus do
   defp maybe_draw_debug_dot(%State{} = state), do: state
 
   defp validate_attrs!(attrs) do
-    attrs = Map.new(attrs)
-    validate_keys!(attrs, [:type])
+    attrs = Validation.attrs!(attrs, [:type], "focus")
 
     case Map.fetch!(attrs, :type) do
       {:coordinate, left, top} ->
-        validate_position!(:left, left)
-        validate_position!(:top, top)
+        Validation.non_negative_position!("focus", :left, left)
+        Validation.non_negative_position!("focus", :top, top)
         attrs
 
       {:anchor, x, y} when x in [:left, :center, :right] and y in [:top, :center, :bottom] ->
@@ -167,25 +161,4 @@ defmodule ImagePlug.Transform.Focus do
         raise ArgumentError, "invalid focus type: #{inspect(type)}"
     end
   end
-
-  defp validate_keys!(attrs, allowed_keys) do
-    unknown_keys = Map.keys(attrs) -- allowed_keys
-
-    if unknown_keys != [] do
-      keys = unknown_keys |> Enum.sort_by(&inspect/1) |> Enum.map_join(", ", &inspect/1)
-      raise ArgumentError, "unknown focus option(s): #{keys}"
-    end
-  end
-
-  defp validate_position!(_field, value) when is_number(value) and value >= 0, do: :ok
-  defp validate_position!(_field, {:pixels, value}) when is_number(value) and value >= 0, do: :ok
-  defp validate_position!(_field, {:percent, value}) when is_number(value) and value >= 0, do: :ok
-  defp validate_position!(_field, {:scale, value}) when is_number(value) and value >= 0, do: :ok
-
-  defp validate_position!(_field, {:scale, numerator, denominator})
-       when is_number(numerator) and is_number(denominator) and numerator >= 0 and denominator > 0,
-       do: :ok
-
-  defp validate_position!(field, value),
-    do: raise(ArgumentError, "invalid focus #{field}: #{inspect(value)}")
 end

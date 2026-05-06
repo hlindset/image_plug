@@ -83,8 +83,6 @@ defmodule ImagePlug.Transform.AutoOrient do
   end
 
   @impl ImagePlug.Transform
-  def new!(%__MODULE__{} = operation), do: operation
-
   def new!(attrs) when attrs in [%{}, []], do: %__MODULE__{}
 
   def new!(attrs), do: raise(ArgumentError, "invalid auto-orient options: #{inspect(attrs)}")

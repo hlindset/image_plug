@@ -17,7 +17,7 @@ defmodule ImagePlug.Transform.Contain do
 
   ## Construction API
 
-  `new/1` accepts a keyword list, map, or existing `%Contain{}` and returns
+  `new/1` accepts a keyword list or map and returns
   `{:ok, operation}` when all fields are valid. Invalid attributes, missing
   required fields, or unknown keys return `{:error, exception}`.
 
@@ -120,6 +120,7 @@ defmodule ImagePlug.Transform.Contain do
   import ImagePlug.Transform.Geometry
 
   alias ImagePlug.Transform.State
+  alias ImagePlug.Transform.Validation
 
   defstruct [:type, :ratio, :width, :height, :constraint, :letterbox]
 
@@ -153,19 +154,13 @@ defmodule ImagePlug.Transform.Contain do
   end
 
   @impl ImagePlug.Transform
-  def new!(%__MODULE__{} = operation) do
-    operation
-    |> attrs_from_operation()
-    |> validate_attrs!()
-
-    operation
-  end
-
-  def new!(attrs) when is_list(attrs) or is_map(attrs) do
+  def new!(attrs) when is_list(attrs) or (is_map(attrs) and not is_struct(attrs)) do
     attrs
     |> validate_attrs!()
     |> then(&struct!(__MODULE__, &1))
   end
+
+  def new!(attrs), do: Validation.invalid_options!("contain", attrs)
 
   @impl ImagePlug.Transform
   def name(%__MODULE__{}), do: :contain
@@ -292,93 +287,23 @@ defmodule ImagePlug.Transform.Contain do
 
     case Map.fetch!(attrs, :type) do
       :dimensions ->
-        validate_keys!(attrs, [:type, :width, :height, :constraint, :letterbox])
+        Validation.keys!(attrs, [:type, :width, :height, :constraint, :letterbox], "contain")
         width = Map.fetch!(attrs, :width)
         height = Map.fetch!(attrs, :height)
         constraint = Map.fetch!(attrs, :constraint)
-        validate_dimension_pair!(width, height)
-        validate_constraint!(constraint, [:regular, :min, :max])
-        validate_letterbox!(Map.fetch!(attrs, :letterbox))
+        Validation.positive_dimension_pair!("contain", width, height)
+        Validation.one_of!("contain", :constraint, constraint, [:regular, :min, :max])
+        Validation.boolean!("contain", :letterbox, Map.fetch!(attrs, :letterbox))
         attrs
 
       :ratio ->
-        validate_keys!(attrs, [:type, :ratio, :letterbox])
-        validate_ratio!(Map.fetch!(attrs, :ratio))
-        validate_letterbox!(Map.fetch!(attrs, :letterbox))
+        Validation.keys!(attrs, [:type, :ratio, :letterbox], "contain")
+        Validation.ratio!("contain", :ratio, Map.fetch!(attrs, :ratio))
+        Validation.boolean!("contain", :letterbox, Map.fetch!(attrs, :letterbox))
         attrs
 
       type ->
         raise ArgumentError, "invalid contain type: #{inspect(type)}"
     end
   end
-
-  defp attrs_from_operation(%__MODULE__{type: :dimensions} = operation) do
-    %{
-      type: operation.type,
-      width: operation.width,
-      height: operation.height,
-      constraint: operation.constraint,
-      letterbox: operation.letterbox
-    }
-  end
-
-  defp attrs_from_operation(%__MODULE__{type: :ratio} = operation) do
-    %{type: operation.type, ratio: operation.ratio, letterbox: operation.letterbox}
-  end
-
-  defp attrs_from_operation(%__MODULE__{} = operation), do: %{type: operation.type}
-
-  defp validate_keys!(attrs, allowed_keys) do
-    unknown_keys = Map.keys(attrs) -- allowed_keys
-
-    if unknown_keys != [] do
-      keys = unknown_keys |> Enum.sort_by(&inspect/1) |> Enum.map_join(", ", &inspect/1)
-      raise ArgumentError, "unknown contain option(s): #{keys}"
-    end
-  end
-
-  defp validate_dimension_pair!(width, height) do
-    validate_dimension_or_auto!(:width, width)
-    validate_dimension_or_auto!(:height, height)
-
-    if width == :auto and height == :auto do
-      raise ArgumentError, "invalid contain dimensions: width and height cannot both be :auto"
-    end
-  end
-
-  defp validate_dimension_or_auto!(_field, :auto), do: :ok
-
-  defp validate_dimension_or_auto!(field, value), do: validate_dimension!(field, value)
-
-  defp validate_dimension!(_field, value) when is_number(value) and value > 0, do: :ok
-  defp validate_dimension!(_field, {:pixels, value}) when is_number(value) and value > 0, do: :ok
-  defp validate_dimension!(_field, {:percent, value}) when is_number(value) and value > 0, do: :ok
-  defp validate_dimension!(_field, {:scale, value}) when is_number(value) and value > 0, do: :ok
-
-  defp validate_dimension!(_field, {:scale, numerator, denominator})
-       when is_number(numerator) and is_number(denominator) and numerator > 0 and denominator > 0,
-       do: :ok
-
-  defp validate_dimension!(field, value),
-    do: raise(ArgumentError, "invalid contain #{field}: #{inspect(value)}")
-
-  defp validate_ratio!({width, height})
-       when is_number(width) and is_number(height) and width > 0 and height > 0,
-       do: :ok
-
-  defp validate_ratio!(ratio),
-    do: raise(ArgumentError, "invalid contain ratio: #{inspect(ratio)}")
-
-  defp validate_constraint!(constraint, allowed) do
-    if constraint in allowed do
-      :ok
-    else
-      raise ArgumentError, "invalid contain constraint: #{inspect(constraint)}"
-    end
-  end
-
-  defp validate_letterbox!(letterbox) when is_boolean(letterbox), do: :ok
-
-  defp validate_letterbox!(letterbox),
-    do: raise(ArgumentError, "invalid contain letterbox: #{inspect(letterbox)}")
 end

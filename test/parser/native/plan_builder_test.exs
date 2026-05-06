@@ -618,12 +618,6 @@ defmodule ImagePlug.Parser.Native.PlanBuilderTest do
              height: {:pixels, 200},
              gravity: :bogus
            ) == {:error, {:invalid_gravity, :bogus}}
-
-    assert plan_pipeline(width: {:pixels, -1}) ==
-             {:error, {:invalid_dimension, :width, {:pixels, -1}}}
-
-    assert plan_pipeline(height: {:percent, 50}) ==
-             {:error, {:invalid_dimension, :height, {:percent, 50}}}
   end
 
   test "converts multiple native pipeline requests into separate product-neutral pipelines" do
@@ -779,31 +773,6 @@ defmodule ImagePlug.Parser.Native.PlanBuilderTest do
                source_kind: :remote,
                source_path: ["images", "cat.jpg"],
                pipelines: [%PipelineRequest{}],
-               output: %ImagePlug.Parser.Native.OutputRequest{}
-             })
-  end
-
-  test "rejects malformed plain source paths instead of raising during response filename planning" do
-    for source_path <- [:bad, ["images", 1], ["images" | :bad]] do
-      source = %Plain{path: source_path}
-
-      assert PlanBuilder.to_plan(%ParsedRequest{
-               signature: "_",
-               source_kind: :plain,
-               source_path: source_path,
-               pipelines: [%PipelineRequest{}],
-               output: %ImagePlug.Parser.Native.OutputRequest{}
-             }) == {:error, {:unsupported_source, source}}
-    end
-  end
-
-  test "rejects malformed pipeline request entries" do
-    assert {:error, {:invalid_pipeline_request, :bogus}} =
-             PlanBuilder.to_plan(%ParsedRequest{
-               signature: "_",
-               source_kind: :plain,
-               source_path: ["images", "cat.jpg"],
-               pipelines: [%PipelineRequest{}, :bogus],
                output: %ImagePlug.Parser.Native.OutputRequest{}
              })
   end

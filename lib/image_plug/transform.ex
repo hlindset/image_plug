@@ -38,8 +38,8 @@ defmodule ImagePlug.Transform do
   @type attrs() :: keyword() | map()
   @type operation() :: struct()
 
-  @callback new(attrs() | operation()) :: {:ok, operation()} | {:error, term()}
-  @callback new!(attrs() | operation()) :: operation()
+  @callback new(attrs()) :: {:ok, operation()} | {:error, term()}
+  @callback new!(attrs()) :: operation()
   @callback name(operation()) :: atom()
   @callback metadata(operation()) :: map()
   @callback execute(operation(), State.t()) :: State.t()

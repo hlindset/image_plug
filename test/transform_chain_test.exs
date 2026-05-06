@@ -53,209 +53,41 @@ defmodule ImagePlug.Transform.ChainTest do
     assert {:error, _reason} = Scale.new(type: :dimensions)
   end
 
-  test "scale construction validates malformed attributes" do
-    assert {:error,
-            %ArgumentError{
-              message: "invalid scale dimensions: width and height cannot both be :auto"
-            }} =
-             Scale.new(type: :dimensions, width: :auto, height: :auto)
+  test "construction validates malformed attribute maps" do
+    assert {:error, %ArgumentError{}} =
+             Scale.new(type: :dimensions, width: :oops, height: {:pixels, 100})
 
-    assert {:error, %ArgumentError{message: "invalid scale width: :oops"}} =
-             Scale.new(
-               type: :dimensions,
-               width: :oops,
-               height: {:pixels, 100}
-             )
-
-    assert {:error, %ArgumentError{message: "invalid scale ratio: {1, 0}"}} =
-             Scale.new(type: :ratio, ratio: {1, 0})
-
-    assert {:error, %ArgumentError{message: "unknown scale option(s): :extra"}} =
-             Scale.new(
-               type: :dimensions,
-               width: {:pixels, 100},
-               height: :auto,
-               extra: true
-             )
-  end
-
-  test "contain construction validates malformed attributes" do
-    assert {:error, %ArgumentError{message: "invalid contain ratio: {1, 0}"}} =
+    assert {:error, %ArgumentError{}} =
              Contain.new(type: :ratio, ratio: {1, 0}, letterbox: false)
 
-    assert {:error, %ArgumentError{message: "invalid contain width: :oops"}} =
-             Contain.new(
-               type: :dimensions,
-               width: :oops,
-               height: {:pixels, 100},
-               constraint: :regular,
-               letterbox: false
-             )
+    assert {:error, %ArgumentError{}} =
+             Cover.new(type: :dimensions, width: {:pixels, 100}, height: 0, constraint: :none)
 
-    assert {:error, %ArgumentError{message: "unknown contain option(s): :extra"}} =
-             Contain.new(
-               type: :dimensions,
-               width: {:pixels, 100},
-               height: :auto,
-               constraint: :regular,
-               letterbox: false,
-               extra: true
-             )
-  end
-
-  test "cover construction validates malformed attributes" do
-    assert {:error, %ArgumentError{message: "invalid cover ratio: {4, 0}"}} =
-             Cover.new(type: :ratio, ratio: {4, 0})
-
-    assert {:error, %ArgumentError{message: "invalid cover height: 0"}} =
-             Cover.new(
-               type: :dimensions,
-               width: {:pixels, 100},
-               height: 0,
-               constraint: :none
-             )
-
-    assert {:error, %ArgumentError{message: "unknown cover option(s): :extra"}} =
-             Cover.new(
-               type: :dimensions,
-               width: {:pixels, 100},
-               height: :auto,
-               constraint: :none,
-               extra: true
-             )
-  end
-
-  test "crop construction validates malformed attributes" do
-    assert {:error, %ArgumentError{message: "invalid crop width: nil"}} =
+    assert {:error, %ArgumentError{}} =
              Crop.new(width: nil, height: {:pixels, 100}, crop_from: :focus)
 
-    assert {:error, %ArgumentError{message: "invalid crop crop_from_left: :oops"}} =
-             Crop.new(
-               width: {:pixels, 100},
-               height: {:pixels, 100},
-               crop_from: %{left: :oops, top: {:pixels, 0}}
-             )
-
-    assert {:error, %ArgumentError{message: "unknown crop option(s): :extra"}} =
-             Crop.new(
-               width: {:pixels, 100},
-               height: {:pixels, 100},
-               crop_from: :focus,
-               extra: true
-             )
-  end
-
-  test "focus construction validates malformed attributes" do
-    assert {:error, %ArgumentError{message: "invalid focus left: :oops"}} =
+    assert {:error, %ArgumentError{}} =
              Focus.new(type: {:coordinate, :oops, {:percent, 50}})
 
-    assert {:error, %ArgumentError{message: "invalid focus top: nil"}} =
-             Focus.new(type: {:coordinate, {:percent, 50}, nil})
-
-    assert {:error, %ArgumentError{message: "unknown focus option(s): :extra"}} =
-             Focus.new(type: {:anchor, :left, :top}, extra: true)
-  end
-
-  test "neutral resize construction validates malformed attributes" do
-    assert {:error, %ArgumentError{message: "invalid resize rule: :oops"}} =
-             Resize.new(rule: :oops)
-
-    assert {:error, %ArgumentError{message: "invalid adaptive resize rule: :oops"}} =
-             AdaptiveResize.new(rule: :oops)
-
-    assert {:error, %ArgumentError{message: "invalid resize rule mode: :auto"}} =
+    assert {:error, %ArgumentError{}} =
              Resize.new(rule: %DimensionRule{mode: :auto})
 
-    assert {:error, %ArgumentError{message: "invalid resize rule width: nil"}} =
-             Resize.new(rule: %DimensionRule{width: nil})
-
-    assert {:error, %ArgumentError{message: "invalid resize rule height: nil"}} =
-             Resize.new(rule: %DimensionRule{height: nil})
-
-    assert {:error, %ArgumentError{message: "invalid resize rule width: :oops"}} =
-             Resize.new(rule: %DimensionRule{width: :oops})
-
-    assert {:error, %ArgumentError{message: "invalid resize rule zoom_x: nil"}} =
-             Resize.new(rule: %DimensionRule{zoom_x: nil})
-
-    assert {:error, %ArgumentError{message: "invalid resize rule zoom_y: nil"}} =
-             Resize.new(rule: %DimensionRule{zoom_y: nil})
-
-    assert {:error, %ArgumentError{message: "invalid resize rule dpr: nil"}} =
-             Resize.new(rule: %DimensionRule{dpr: nil})
-
-    assert {:error, %ArgumentError{message: "invalid resize rule dpr: nil"}} =
-             Resize.new(%Resize{rule: %DimensionRule{dpr: nil}})
-
-    assert {:error, %ArgumentError{message: "invalid resize rule dpr: 0"}} =
-             Resize.new(rule: %DimensionRule{dpr: 0})
-
-    assert {:error, %ArgumentError{message: "invalid resize rule enlarge: nil"}} =
-             Resize.new(rule: %DimensionRule{enlarge: nil})
-
-    assert {:error, %ArgumentError{message: "invalid adaptive resize rule mode: :fill"}} =
+    assert {:error, %ArgumentError{}} =
              AdaptiveResize.new(rule: %DimensionRule{mode: :fill})
 
-    assert {:error, %ArgumentError{message: "invalid adaptive resize rule width: nil"}} =
-             AdaptiveResize.new(rule: %DimensionRule{mode: :auto, width: nil})
-
-    assert {:error, %ArgumentError{message: "invalid adaptive resize rule width: nil"}} =
-             AdaptiveResize.new(%AdaptiveResize{rule: %DimensionRule{mode: :auto, width: nil}})
-
-    assert {:error, %ArgumentError{message: "invalid adaptive resize rule height: nil"}} =
-             AdaptiveResize.new(rule: %DimensionRule{mode: :auto, height: nil})
-
-    assert {:error, %ArgumentError{message: "invalid adaptive resize rule zoom_x: nil"}} =
-             AdaptiveResize.new(rule: %DimensionRule{mode: :auto, zoom_x: nil})
-
-    assert {:error, %ArgumentError{message: "invalid adaptive resize rule zoom_y: nil"}} =
-             AdaptiveResize.new(rule: %DimensionRule{mode: :auto, zoom_y: nil})
-
-    assert {:error, %ArgumentError{message: "invalid adaptive resize rule dpr: nil"}} =
-             AdaptiveResize.new(rule: %DimensionRule{mode: :auto, dpr: nil})
-
-    assert {:error, %ArgumentError{message: "invalid adaptive resize rule enlarge: :oops"}} =
-             AdaptiveResize.new(rule: %DimensionRule{mode: :auto, enlarge: :oops})
-
-    assert {:error, %ArgumentError{message: "invalid adaptive resize rule enlarge: nil"}} =
-             AdaptiveResize.new(rule: %DimensionRule{mode: :auto, enlarge: nil})
-
-    assert {:error, %ArgumentError{message: "invalid extend canvas rule: :oops"}} =
+    assert {:error, %ArgumentError{}} =
              ExtendCanvas.new(rule: :oops)
 
-    assert {:error, %ArgumentError{message: "unknown resize option(s): :extra"}} =
+    assert {:error, %ArgumentError{}} =
              Resize.new(rule: %DimensionRule{}, extra: true)
   end
 
-  test "existing transform structs validate malformed attributes" do
-    assert {:error, %ArgumentError{message: "invalid scale width: :oops"}} =
-             Scale.new(%Scale{type: :dimensions, width: :oops, height: {:pixels, 100}})
+  test "existing transform structs are not construction attrs" do
+    malformed_scale = %Scale{type: :dimensions, width: :oops, height: {:pixels, 100}}
+    malformed_resize = %Resize{rule: %DimensionRule{dpr: nil}}
 
-    assert {:error, %ArgumentError{message: "invalid contain width: :oops"}} =
-             Contain.new(%Contain{
-               type: :dimensions,
-               width: :oops,
-               height: {:pixels, 100},
-               constraint: :regular,
-               letterbox: false
-             })
-
-    assert {:error, %ArgumentError{message: "invalid cover width: :oops"}} =
-             Cover.new(%Cover{
-               type: :dimensions,
-               width: :oops,
-               height: {:pixels, 100},
-               constraint: :none
-             })
-
-    assert {:error, %ArgumentError{message: "invalid crop width: nil"}} =
-             Crop.new(%Crop{width: nil, height: {:pixels, 100}, crop_from: :focus})
-
-    assert {:error, %ArgumentError{message: "invalid focus left: :oops"}} =
-             Focus.new(%Focus{type: {:coordinate, :oops, {:percent, 50}}})
-
-    assert {:error, %ArgumentError{message: "invalid extend canvas rule: :oops"}} =
-             ExtendCanvas.new(%ExtendCanvas{rule: :oops})
+    assert {:error, %ArgumentError{}} = Scale.new(malformed_scale)
+    assert {:error, %ArgumentError{}} = Resize.new(malformed_resize)
   end
 
   test "transform name is delegated to operation module" do

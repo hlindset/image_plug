@@ -18,7 +18,7 @@ defmodule ImagePlug.Transform.Rotate do
 
   ## Construction API
 
-  `new/1` accepts a keyword list, map, or existing `%__MODULE__{}` and returns
+  `new/1` accepts a keyword list or map and returns
   `{:ok, operation}` when attrs are valid or `{:error, exception}` when
   validation fails. `new!/1` accepts the same inputs and returns the operation
   or raises `ArgumentError` or `KeyError` for invalid attrs.
@@ -74,6 +74,7 @@ defmodule ImagePlug.Transform.Rotate do
   import ImagePlug.Transform.State
 
   alias ImagePlug.Transform.State
+  alias ImagePlug.Transform.Validation
 
   defstruct [:angle]
 
@@ -88,19 +89,13 @@ defmodule ImagePlug.Transform.Rotate do
   end
 
   @impl ImagePlug.Transform
-  def new!(%__MODULE__{} = operation) do
-    operation
-    |> Map.from_struct()
-    |> validate_attrs!()
-
-    operation
-  end
-
-  def new!(attrs) when is_list(attrs) or is_map(attrs) do
+  def new!(attrs) when is_list(attrs) or (is_map(attrs) and not is_struct(attrs)) do
     attrs
     |> validate_attrs!()
     |> then(&struct!(__MODULE__, &1))
   end
+
+  def new!(attrs), do: Validation.invalid_options!("rotate", attrs)
 
   @impl ImagePlug.Transform
   def name(%__MODULE__{}), do: :rotate
@@ -119,23 +114,8 @@ defmodule ImagePlug.Transform.Rotate do
   end
 
   defp validate_attrs!(attrs) do
-    attrs = Map.new(attrs)
-    validate_keys!(attrs, [:angle])
-    validate_angle!(Map.fetch!(attrs, :angle))
+    attrs = Validation.attrs!(attrs, [:angle], "rotate")
+    Validation.one_of!("rotate", :angle, Map.fetch!(attrs, :angle), [0, 90, 180, 270])
     attrs
   end
-
-  defp validate_keys!(attrs, allowed_keys) do
-    unknown_keys = Map.keys(attrs) -- allowed_keys
-
-    if unknown_keys != [] do
-      keys = unknown_keys |> Enum.sort_by(&inspect/1) |> Enum.map_join(", ", &inspect/1)
-      raise ArgumentError, "unknown rotate option(s): #{keys}"
-    end
-  end
-
-  defp validate_angle!(angle) when angle in [0, 90, 180, 270], do: :ok
-
-  defp validate_angle!(angle),
-    do: raise(ArgumentError, "invalid rotate angle: #{inspect(angle)}")
 end

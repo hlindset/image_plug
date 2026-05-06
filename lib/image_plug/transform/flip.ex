@@ -18,7 +18,7 @@ defmodule ImagePlug.Transform.Flip do
 
   ## Construction API
 
-  `new/1` accepts a keyword list, map, or existing `%__MODULE__{}` and returns
+  `new/1` accepts a keyword list or map and returns
   `{:ok, operation}` when attrs are valid or `{:error, exception}` when
   validation fails. `new!/1` accepts the same inputs and returns the operation
   or raises `ArgumentError` or `KeyError` for invalid attrs.
@@ -74,6 +74,7 @@ defmodule ImagePlug.Transform.Flip do
   import ImagePlug.Transform.State
 
   alias ImagePlug.Transform.State
+  alias ImagePlug.Transform.Validation
 
   defstruct [:axis]
 
@@ -88,19 +89,13 @@ defmodule ImagePlug.Transform.Flip do
   end
 
   @impl ImagePlug.Transform
-  def new!(%__MODULE__{} = operation) do
-    operation
-    |> Map.from_struct()
-    |> validate_attrs!()
-
-    operation
-  end
-
-  def new!(attrs) when is_list(attrs) or is_map(attrs) do
+  def new!(attrs) when is_list(attrs) or (is_map(attrs) and not is_struct(attrs)) do
     attrs
     |> validate_attrs!()
     |> then(&struct!(__MODULE__, &1))
   end
+
+  def new!(attrs), do: Validation.invalid_options!("flip", attrs)
 
   @impl ImagePlug.Transform
   def name(%__MODULE__{}), do: :flip
@@ -126,23 +121,8 @@ defmodule ImagePlug.Transform.Flip do
   end
 
   defp validate_attrs!(attrs) do
-    attrs = Map.new(attrs)
-    validate_keys!(attrs, [:axis])
-    validate_axis!(Map.fetch!(attrs, :axis))
+    attrs = Validation.attrs!(attrs, [:axis], "flip")
+    Validation.one_of!("flip", :axis, Map.fetch!(attrs, :axis), [:horizontal, :vertical, :both])
     attrs
   end
-
-  defp validate_keys!(attrs, allowed_keys) do
-    unknown_keys = Map.keys(attrs) -- allowed_keys
-
-    if unknown_keys != [] do
-      keys = unknown_keys |> Enum.sort_by(&inspect/1) |> Enum.map_join(", ", &inspect/1)
-      raise ArgumentError, "unknown flip option(s): #{keys}"
-    end
-  end
-
-  defp validate_axis!(axis) when axis in [:horizontal, :vertical, :both], do: :ok
-
-  defp validate_axis!(axis),
-    do: raise(ArgumentError, "invalid flip axis: #{inspect(axis)}")
 end

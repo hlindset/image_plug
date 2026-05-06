@@ -18,7 +18,7 @@ defmodule ImagePlug.Transform.Crop do
 
   ## Construction API
 
-  `new/1` accepts a keyword list, map, or existing `%__MODULE__{}` and returns
+  `new/1` accepts a keyword list or map and returns
   `{:ok, operation}` when all fields are valid. Invalid attributes, missing
   required fields, or unknown keys return `{:error, exception}`.
 
@@ -166,6 +166,7 @@ defmodule ImagePlug.Transform.Crop do
   alias ImagePlug.Transform.Geometry.DimensionResolver
   alias ImagePlug.Transform.Geometry.DimensionRule
   alias ImagePlug.Transform.State
+  alias ImagePlug.Transform.Validation
 
   @default_gravity {:anchor, :center, :center}
   @default_orientation %{auto_orient: false, rotate: 0, flip: nil}
@@ -209,19 +210,13 @@ defmodule ImagePlug.Transform.Crop do
   end
 
   @impl ImagePlug.Transform
-  def new!(%__MODULE__{} = operation) do
-    operation
-    |> Map.from_struct()
-    |> validate_attrs!()
-
-    operation
-  end
-
-  def new!(attrs) when is_list(attrs) or is_map(attrs) do
+  def new!(attrs) when is_list(attrs) or (is_map(attrs) and not is_struct(attrs)) do
     attrs
     |> validate_attrs!()
     |> then(&struct!(__MODULE__, &1))
   end
+
+  def new!(attrs), do: Validation.invalid_options!("crop", attrs)
 
   @impl ImagePlug.Transform
   def name(%__MODULE__{}), do: :crop
@@ -376,128 +371,58 @@ defmodule ImagePlug.Transform.Crop do
   end
 
   defp validate_attrs!(attrs) do
-    attrs = Map.new(attrs)
+    attrs =
+      Validation.attrs!(
+        attrs,
+        [
+          :width,
+          :height,
+          :crop_from,
+          :gravity,
+          :x_offset,
+          :y_offset,
+          :orientation,
+          :target_rule
+        ],
+        "crop"
+      )
 
-    validate_keys!(attrs, [
-      :width,
-      :height,
-      :crop_from,
-      :gravity,
-      :x_offset,
-      :y_offset,
-      :orientation,
-      :target_rule
-    ])
-
-    validate_dimension_or_auto!(:width, Map.fetch!(attrs, :width))
-    validate_dimension_or_auto!(:height, Map.fetch!(attrs, :height))
+    Validation.positive_dimension_or_auto!("crop", :width, Map.fetch!(attrs, :width))
+    Validation.positive_dimension_or_auto!("crop", :height, Map.fetch!(attrs, :height))
     validate_crop_from!(Map.fetch!(attrs, :crop_from))
-    validate_gravity!(Map.get(attrs, :gravity))
-    validate_offset!(:x_offset, Map.get(attrs, :x_offset, 0.0))
-    validate_offset!(:y_offset, Map.get(attrs, :y_offset, 0.0))
-    validate_orientation!(Map.get(attrs, :orientation))
+    Validation.gravity!("crop", :gravity, Map.get(attrs, :gravity))
+    Validation.offset!("crop", :x_offset, Map.get(attrs, :x_offset, 0.0))
+    Validation.offset!("crop", :y_offset, Map.get(attrs, :y_offset, 0.0))
+    Validation.orientation!("crop", :orientation, Map.get(attrs, :orientation))
     validate_target_rule!(Map.get(attrs, :target_rule))
 
     attrs
-  end
-
-  defp validate_keys!(attrs, allowed_keys) do
-    unknown_keys = Map.keys(attrs) -- allowed_keys
-
-    if unknown_keys != [] do
-      keys = unknown_keys |> Enum.sort_by(&inspect/1) |> Enum.map_join(", ", &inspect/1)
-      raise ArgumentError, "unknown crop option(s): #{keys}"
-    end
   end
 
   defp validate_crop_from!(:focus), do: :ok
   defp validate_crop_from!(:gravity), do: :ok
 
   defp validate_crop_from!(%{left: left, top: top} = crop_from) do
-    validate_keys!(crop_from, [:left, :top])
-    validate_position!(:crop_from_left, left)
-    validate_position!(:crop_from_top, top)
+    Validation.keys!(crop_from, [:left, :top], "crop")
+    Validation.non_negative_position!("crop", :crop_from_left, left)
+    Validation.non_negative_position!("crop", :crop_from_top, top)
   end
 
   defp validate_crop_from!(crop_from),
     do: raise(ArgumentError, "invalid crop_from: #{inspect(crop_from)}")
 
-  defp validate_gravity!(nil), do: :ok
-
-  defp validate_gravity!({:fp, x, y})
-       when is_number(x) and is_number(y) and x >= 0.0 and x <= 1.0 and y >= 0.0 and
-              y <= 1.0,
-       do: :ok
-
-  defp validate_gravity!({:anchor, x, y})
-       when x in [:left, :center, :right] and y in [:top, :center, :bottom],
-       do: :ok
-
-  defp validate_gravity!(gravity),
-    do: raise(ArgumentError, "invalid crop gravity: #{inspect(gravity)}")
-
-  defp validate_offset!(_field, value) when is_number(value), do: :ok
-  defp validate_offset!(_field, {:pixels, value}) when is_number(value), do: :ok
-  defp validate_offset!(_field, {:scale, value}) when is_number(value), do: :ok
-  defp validate_offset!(_field, {:percent, value}) when is_number(value), do: :ok
-
-  defp validate_offset!(_field, {:scale, numerator, denominator})
-       when is_number(numerator) and is_number(denominator) and denominator != 0,
-       do: :ok
-
-  defp validate_offset!(field, value),
-    do: raise(ArgumentError, "invalid crop #{field}: #{inspect(value)}")
-
-  defp validate_orientation!(nil), do: :ok
-
-  defp validate_orientation!(%{auto_orient: auto_orient, rotate: rotate, flip: flip})
-       when is_boolean(auto_orient) and rotate in [0, 90, 180, 270] and
-              flip in [nil, :none, :horizontal, :vertical, :both],
-       do: :ok
-
-  defp validate_orientation!(orientation),
-    do: raise(ArgumentError, "invalid crop orientation: #{inspect(orientation)}")
-
   defp validate_target_rule!(nil), do: :ok
 
   defp validate_target_rule!(%DimensionRule{} = rule) do
-    case DimensionRule.validate(rule, modes: [:fit, :fill, :fill_down, :force, :auto]) do
-      :ok ->
-        :ok
-
-      {:error, {field, value}} ->
-        raise ArgumentError, "invalid crop target_rule #{field}: #{inspect(value)}"
-    end
+    Validation.dimension_rule!("crop", :target_rule, rule, [
+      :fit,
+      :fill,
+      :fill_down,
+      :force,
+      :auto
+    ])
   end
 
   defp validate_target_rule!(target_rule),
-    do: raise(ArgumentError, "invalid crop target_rule: #{inspect(target_rule)}")
-
-  defp validate_dimension_or_auto!(_field, :auto), do: :ok
-
-  defp validate_dimension_or_auto!(field, value), do: validate_dimension!(field, value)
-
-  defp validate_dimension!(_field, value) when is_number(value) and value > 0, do: :ok
-  defp validate_dimension!(_field, {:pixels, value}) when is_number(value) and value > 0, do: :ok
-  defp validate_dimension!(_field, {:percent, value}) when is_number(value) and value > 0, do: :ok
-  defp validate_dimension!(_field, {:scale, value}) when is_number(value) and value > 0, do: :ok
-
-  defp validate_dimension!(_field, {:scale, numerator, denominator})
-       when is_number(numerator) and is_number(denominator) and numerator > 0 and denominator > 0,
-       do: :ok
-
-  defp validate_dimension!(field, value),
-    do: raise(ArgumentError, "invalid crop #{field}: #{inspect(value)}")
-
-  defp validate_position!(_field, value) when is_number(value) and value >= 0, do: :ok
-  defp validate_position!(_field, {:pixels, value}) when is_number(value) and value >= 0, do: :ok
-  defp validate_position!(_field, {:percent, value}) when is_number(value) and value >= 0, do: :ok
-  defp validate_position!(_field, {:scale, value}) when is_number(value) and value >= 0, do: :ok
-
-  defp validate_position!(_field, {:scale, numerator, denominator})
-       when is_number(numerator) and is_number(denominator) and numerator >= 0 and denominator > 0,
-       do: :ok
-
-  defp validate_position!(field, value),
-    do: raise(ArgumentError, "invalid crop #{field}: #{inspect(value)}")
+    do: Validation.invalid!("crop", :target_rule, target_rule)
 end
