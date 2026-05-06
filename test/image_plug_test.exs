@@ -848,6 +848,163 @@ defmodule ImagePlug.ImagePlugTest do
     assert entry.headers == [{"vary", "Accept"}]
   end
 
+  test "native cachebuster changes cache key but not transform operations" do
+    cached_entry = %ImagePlug.Cache.Entry{
+      body: "cached jpeg",
+      content_type: "image/jpeg",
+      headers: [],
+      created_at: DateTime.utc_now()
+    }
+
+    cache_probe = start_cache_probe()
+
+    first_conn =
+      conn(:get, "/_/cb:a/w:100/f:jpeg/plain/images/cat-300.jpg")
+      |> ImagePlug.call(
+        root_url: "http://origin.test",
+        parser: ImagePlug.Parser.Native,
+        cache: {CacheProbe, message_target: cache_probe, get_result: {:hit, cached_entry}},
+        origin_req_options: [plug: OriginShouldNotBeCalled]
+      )
+
+    flush_cache_probe(cache_probe)
+    assert first_conn.status == 200
+    assert_received {:cache_get, key_a}
+    refute_received :origin_was_called
+
+    cache_probe = start_cache_probe()
+
+    second_conn =
+      conn(:get, "/_/cb:b/w:100/f:jpeg/plain/images/cat-300.jpg")
+      |> ImagePlug.call(
+        root_url: "http://origin.test",
+        parser: ImagePlug.Parser.Native,
+        cache: {CacheProbe, message_target: cache_probe, get_result: {:hit, cached_entry}},
+        origin_req_options: [plug: OriginShouldNotBeCalled]
+      )
+
+    flush_cache_probe(cache_probe)
+    assert second_conn.status == 200
+    assert_received {:cache_get, key_b}
+    refute_received :origin_was_called
+
+    assert key_a.material[:pipelines] == key_b.material[:pipelines]
+    assert key_a.material[:cache] == [cachebuster: "a"]
+    assert key_b.material[:cache] == [cachebuster: "b"]
+    refute key_a.hash == key_b.hash
+  end
+
+  test "native automatic cache key normalizes equivalent raw Accept headers at cache boundary" do
+    cached_entry = %ImagePlug.Cache.Entry{
+      body: "cached avif",
+      content_type: "image/avif",
+      headers: [{"vary", "Accept"}],
+      created_at: DateTime.utc_now()
+    }
+
+    cache_probe = start_cache_probe()
+
+    first_conn =
+      :get
+      |> conn("/_/plain/images/cat-300.jpg")
+      |> put_req_header("accept", "image/webp;q=1,image/avif;q=0.1")
+      |> ImagePlug.call(
+        root_url: "http://origin.test",
+        parser: ImagePlug.Parser.Native,
+        cache: {CacheProbe, message_target: cache_probe, get_result: {:hit, cached_entry}},
+        origin_req_options: [plug: OriginShouldNotBeCalled]
+      )
+
+    flush_cache_probe(cache_probe)
+    assert first_conn.status == 200
+    assert_received {:cache_get, key_a}
+    refute_received :origin_was_called
+
+    cache_probe = start_cache_probe()
+
+    second_conn =
+      :get
+      |> conn("/_/plain/images/cat-300.jpg")
+      |> put_req_header("accept", "image/avif,image/webp")
+      |> ImagePlug.call(
+        root_url: "http://origin.test",
+        parser: ImagePlug.Parser.Native,
+        cache: {CacheProbe, message_target: cache_probe, get_result: {:hit, cached_entry}},
+        origin_req_options: [plug: OriginShouldNotBeCalled]
+      )
+
+    flush_cache_probe(cache_probe)
+    assert second_conn.status == 200
+    assert_received {:cache_get, key_b}
+    refute_received :origin_was_called
+
+    assert key_a.material[:output] == [
+             mode: :automatic,
+             modern_candidates: [:avif, :webp],
+             auto: [avif: true, webp: true],
+             quality: :default,
+             format_qualities: %{}
+           ]
+
+    refute inspect(key_a.material) =~ "image/webp"
+    refute inspect(key_a.material) =~ "image/avif"
+    assert key_a.material == key_b.material
+    assert key_a.hash == key_b.hash
+  end
+
+  test "native filename and disposition are excluded from cache key material at cache boundary" do
+    cached_entry = %ImagePlug.Cache.Entry{
+      body: "cached jpeg",
+      content_type: "image/jpeg",
+      headers: [],
+      created_at: DateTime.utc_now()
+    }
+
+    cache_probe = start_cache_probe()
+
+    first_conn =
+      conn(:get, "/_/w:100/f:jpeg/fn:one/att:true/plain/images/cat-300.jpg")
+      |> ImagePlug.call(
+        root_url: "http://origin.test",
+        parser: ImagePlug.Parser.Native,
+        cache: {CacheProbe, message_target: cache_probe, get_result: {:hit, cached_entry}},
+        origin_req_options: [plug: OriginShouldNotBeCalled]
+      )
+
+    flush_cache_probe(cache_probe)
+    assert first_conn.status == 200
+    assert get_resp_header(first_conn, "content-disposition") == [
+             ~s(attachment; filename="one.jpg"; filename*=UTF-8''one.jpg)
+           ]
+
+    assert_received {:cache_get, key_a}
+    refute_received :origin_was_called
+
+    cache_probe = start_cache_probe()
+
+    second_conn =
+      conn(:get, "/_/w:100/f:jpeg/fn:two/att:false/plain/images/cat-300.jpg")
+      |> ImagePlug.call(
+        root_url: "http://origin.test",
+        parser: ImagePlug.Parser.Native,
+        cache: {CacheProbe, message_target: cache_probe, get_result: {:hit, cached_entry}},
+        origin_req_options: [plug: OriginShouldNotBeCalled]
+      )
+
+    flush_cache_probe(cache_probe)
+    assert second_conn.status == 200
+    assert get_resp_header(second_conn, "content-disposition") == [
+             ~s(inline; filename="two.jpg"; filename*=UTF-8''two.jpg)
+           ]
+
+    assert_received {:cache_get, key_b}
+    refute_received :origin_was_called
+
+    refute Keyword.has_key?(key_a.material, :response)
+    assert key_a.material == key_b.material
+    assert key_a.hash == key_b.hash
+  end
+
   test "cache-miss memory encode failures are not cached and preserve automatic Vary" do
     cache_probe = start_cache_probe()
 
