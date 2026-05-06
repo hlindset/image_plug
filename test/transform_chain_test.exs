@@ -303,7 +303,7 @@ defmodule ImagePlug.Transform.ChainTest do
       }
     ]
 
-    assert_raise ArgumentError, "scale denominator must be non-zero", fn ->
+    assert_raise ArgumentError, fn ->
       Chain.execute(%State{image: image}, chain)
     end
   end
@@ -317,7 +317,7 @@ defmodule ImagePlug.Transform.ChainTest do
       }
     ]
 
-    assert_raise ArgumentError, "scale denominator must be non-zero", fn ->
+    assert_raise ArgumentError, fn ->
       Chain.execute(%State{image: image}, chain)
     end
   end

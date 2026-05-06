@@ -93,7 +93,6 @@ defmodule ImagePlug.Runtime.ResponseCacheTest do
                key,
                state,
                resolved_output,
-               [{"content-disposition", "attachment; filename=\"cat.png\""}],
                cache: {CaptureAdapter, []}
              )
 
@@ -141,7 +140,7 @@ defmodule ImagePlug.Runtime.ResponseCacheTest do
       serialized_material: :erlang.term_to_binary(schema_version: 2)
     }
 
-    assert :skipped = ResponseCache.store(key, state, resolved_output, [], [])
+    assert :skipped = ResponseCache.store(key, state, resolved_output, [])
   end
 
   test "store returns tagged encode errors for invalid response headers" do
@@ -163,7 +162,6 @@ defmodule ImagePlug.Runtime.ResponseCacheTest do
                },
                state,
                resolved_output,
-               [],
                cache: {CaptureAdapter, []}
              )
 

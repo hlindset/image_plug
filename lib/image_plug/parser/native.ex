@@ -352,7 +352,8 @@ defmodule ImagePlug.Parser.Native do
          orientation_requested: false,
          orientation: %Orientation{} = orientation
        })
-       when gravity_x_offset == 0.0 and gravity_y_offset == 0.0 do
+       when gravity_x_offset in [{:pixels, 0.0}, 0.0] and
+              gravity_y_offset in [{:pixels, 0.0}, 0.0] do
     orientation == %Orientation{}
   end
 
@@ -803,13 +804,14 @@ defmodule ImagePlug.Parser.Native do
   defp parse_gravity(["fp", x, y], _segment) do
     with {:ok, x} <- parse_focal_coordinate(x),
          {:ok, y} <- parse_focal_coordinate(y) do
-      {:ok, [gravity: {:fp, x, y}, gravity_x_offset: 0.0, gravity_y_offset: 0.0]}
+      {:ok,
+       [gravity: {:fp, x, y}, gravity_x_offset: {:pixels, 0.0}, gravity_y_offset: {:pixels, 0.0}]}
     end
   end
 
   defp parse_gravity([anchor], _segment) do
     with {:ok, anchor} <- parse_gravity_anchor(anchor) do
-      {:ok, [gravity: anchor, gravity_x_offset: 0.0, gravity_y_offset: 0.0]}
+      {:ok, [gravity: anchor, gravity_x_offset: {:pixels, 0.0}, gravity_y_offset: {:pixels, 0.0}]}
     end
   end
 
@@ -832,7 +834,7 @@ defmodule ImagePlug.Parser.Native do
 
   defp parse_gravity_offset(value) do
     case parse_float(value) do
-      {:ok, float} when float == 0.0 -> {:ok, 0.0}
+      {:ok, float} when float == 0.0 -> {:ok, {:pixels, 0.0}}
       {:ok, float} when abs(float) >= 1.0 -> {:ok, {:pixels, float}}
       {:ok, float} -> {:ok, {:scale, float}}
       {:error, _reason} = error -> error

@@ -360,7 +360,11 @@ defmodule ImagePlug.ImagePlugTest do
 
   defp start_cache_probe do
     test_pid = self()
-    spawn_link(fn -> cache_probe_loop(test_pid, []) end)
+
+    start_supervised!(%{
+      id: {:cache_probe, make_ref()},
+      start: {Task, :start_link, [fn -> cache_probe_loop(test_pid, []) end]}
+    })
   end
 
   defp cache_probe_loop(test_pid, messages) do

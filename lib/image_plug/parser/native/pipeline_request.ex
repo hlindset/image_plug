@@ -7,7 +7,7 @@ defmodule ImagePlug.Parser.Native.PipelineRequest do
   @type resizing_type() :: :fit | :fill | :fill_down | :force | :auto
   @type gravity_anchor() :: {:anchor, :left | :center | :right, :top | :center | :bottom}
   @type gravity() :: gravity_anchor() | {:fp, float(), float()} | :sm
-  @type gravity_offset() :: float() | {:pixels, float()} | {:scale, float()}
+  @type gravity_offset() :: {:pixels, float()} | {:scale, float()}
 
   @type t() :: %__MODULE__{
           width: ImagePlug.imgp_pixels() | nil,
@@ -49,8 +49,8 @@ defmodule ImagePlug.Parser.Native.PipelineRequest do
             extend_y_offset: nil,
             extend_aspect_ratio: nil,
             gravity: {:anchor, :center, :center},
-            gravity_x_offset: 0.0,
-            gravity_y_offset: 0.0,
+            gravity_x_offset: {:pixels, 0.0},
+            gravity_y_offset: {:pixels, 0.0},
             crop: nil,
             orientation_requested: false,
             orientation: %Orientation{}

@@ -183,7 +183,7 @@ defmodule ImagePlug.Transform.Contain do
         type: :dimensions,
         width: target_width,
         height: target_height,
-        constraint: :none,
+        constraint: :regular,
         letterbox: letterbox
       },
       state

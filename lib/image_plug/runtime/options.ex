@@ -28,8 +28,8 @@ defmodule ImagePlug.Runtime.Options do
     known_opts = Keyword.take(opts, @parser_visible_option_keys)
 
     case NimbleOptions.validate(known_opts, @options_schema) do
-      {:ok, _validated_opts} ->
-        opts
+      {:ok, validated_opts} ->
+        Keyword.merge(opts, validated_opts)
 
       {:error, %NimbleOptions.ValidationError{} = error} ->
         raise ArgumentError, "invalid ImagePlug options: #{Exception.message(error)}"

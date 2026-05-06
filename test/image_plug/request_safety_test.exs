@@ -2,54 +2,9 @@ defmodule ImagePlug.RequestSafetyTest do
   use ExUnit.Case, async: true
   import Plug.Test
 
-  defmodule CacheProbe do
-    def get(_key, _opts), do: send(self(), :cache_lookup)
-    def put(_key, _entry, _opts), do: send(self(), :cache_put)
-  end
-
-  defmodule InvalidPlanParser do
-    @behaviour ImagePlug.Parser
-
-    @impl ImagePlug.Parser
-    def parse(_conn, _opts) do
-      {:ok,
-       %ImagePlug.Plan{
-         source: %ImagePlug.Plan.Source.Plain{path: ["images", "cat.jpg"]},
-         pipelines: [%ImagePlug.Plan.Pipeline{operations: []}],
-         output: :invalid_output,
-         policy: %ImagePlug.Plan.Policy{},
-         cache: %ImagePlug.Plan.Cache{},
-         response: %ImagePlug.Plan.Response{}
-       }}
-    end
-
-    @impl ImagePlug.Parser
-    def handle_error(conn, {:error, reason}) do
-      Plug.Conn.send_resp(conn, 400, inspect(reason))
-    end
-  end
-
-  defmodule InvalidPipelinePlanParser do
-    @behaviour ImagePlug.Parser
-
-    @impl ImagePlug.Parser
-    def parse(_conn, _opts) do
-      {:ok,
-       %ImagePlug.Plan{
-         source: %ImagePlug.Plan.Source.Plain{path: ["images", "cat.jpg"]},
-         pipelines: [:not_a_pipeline],
-         output: %ImagePlug.Plan.Output{mode: :automatic},
-         policy: %ImagePlug.Plan.Policy{},
-         cache: %ImagePlug.Plan.Cache{},
-         response: %ImagePlug.Plan.Response{}
-       }}
-    end
-
-    @impl ImagePlug.Parser
-    def handle_error(conn, {:error, reason}) do
-      Plug.Conn.send_resp(conn, 400, inspect(reason))
-    end
-  end
+  alias ImagePlug.RequestSafetyTest.CacheProbe
+  alias ImagePlug.RequestSafetyTest.InvalidPipelinePlanParser
+  alias ImagePlug.RequestSafetyTest.InvalidPlanParser
 
   test "plug validates product-neutral plan shape before source identity resolution" do
     conn =

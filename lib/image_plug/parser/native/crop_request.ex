@@ -9,7 +9,7 @@ defmodule ImagePlug.Parser.Native.CropRequest do
           | :sm
           | nil
 
-  @type offset() :: float() | {:pixels, float()} | {:scale, float()}
+  @type offset() :: {:pixels, float()} | {:scale, float()}
 
   @type t() :: %__MODULE__{
           width: dimension(),
@@ -22,6 +22,6 @@ defmodule ImagePlug.Parser.Native.CropRequest do
   defstruct width: :auto,
             height: :auto,
             gravity: nil,
-            x_offset: 0.0,
-            y_offset: 0.0
+            x_offset: {:pixels, 0.0},
+            y_offset: {:pixels, 0.0}
 end

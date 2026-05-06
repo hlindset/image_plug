@@ -31,7 +31,7 @@ defmodule ImagePlug.Runtime.ResponseCache do
   def validate_delivery(%Entry{content_type: content_type}, %Response{} = response) do
     case ResponseDisposition.render(response, content_type) do
       {:ok, _content_disposition} -> :ok
-      {:error, reason} -> {:error, reason}
+      error -> error
     end
   end
 
@@ -46,15 +46,9 @@ defmodule ImagePlug.Runtime.ResponseCache do
     end
   end
 
-  @spec store(Key.t(), State.t(), Resolved.t(), [{String.t(), String.t()}], keyword()) ::
+  @spec store(Key.t(), State.t(), Resolved.t(), keyword()) ::
           {:ok, Entry.t()} | :skipped | {:error, term()}
-  def store(
-        %Key{} = key,
-        %State{} = state,
-        %Resolved{} = resolved_output,
-        _response_headers,
-        opts
-      ) do
+  def store(%Key{} = key, %State{} = state, %Resolved{} = resolved_output, opts) do
     case Encoder.limited_memory_output(
            state.image,
            resolved_output,

@@ -50,7 +50,21 @@ defmodule ImagePlug.Transform.Geometry.DimensionRule do
          do: validate_enlarge(rule.enlarge)
   end
 
-  def validate(rule, _opts), do: {:error, {:rule, rule}}
+  @spec material(t()) :: keyword()
+  def material(%__MODULE__{} = rule) do
+    [
+      mode: rule.mode,
+      width: rule.width,
+      height: rule.height,
+      min_width: rule.min_width,
+      min_height: rule.min_height,
+      zoom_x: rule.zoom_x,
+      zoom_y: rule.zoom_y,
+      dpr: rule.dpr,
+      effective_dpr: :runtime_resolved,
+      enlarge: rule.enlarge
+    ]
+  end
 
   defp validate_mode(mode, modes) when is_list(modes) do
     if mode in modes, do: :ok, else: {:error, {:mode, mode}}

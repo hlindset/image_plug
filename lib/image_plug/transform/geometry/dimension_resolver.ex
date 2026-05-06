@@ -26,7 +26,7 @@ defmodule ImagePlug.Transform.Geometry.DimensionResolver do
          {:ok, rule} <- normalize_rule(rule),
          {:ok, base} <- resolve_base_dimensions(rule, source) do
       effective_dpr = effective_dpr(rule, base, source, opts)
-      enlarge = effective_enlarge(rule)
+      enlarge = rule.enlarge
       requested = apply_dpr(base, effective_dpr)
       min_dimensions = resolve_min_dimensions(rule, source, effective_dpr)
       target = target_dimensions(rule.mode, requested, min_dimensions, source, enlarge)
@@ -248,12 +248,6 @@ defmodule ImagePlug.Transform.Geometry.DimensionResolver do
 
   defp scaled_min(nil, _effective_dpr), do: nil
   defp scaled_min(value, effective_dpr), do: positive_round(value * effective_dpr)
-
-  defp effective_enlarge(%DimensionRule{width: :auto, height: :auto} = rule) do
-    rule.enlarge
-  end
-
-  defp effective_enlarge(%DimensionRule{} = rule), do: rule.enlarge
 
   defp factor_requested?(%DimensionRule{} = rule) do
     rule.zoom_x != 1.0 or rule.zoom_y != 1.0 or rule.dpr != 1.0

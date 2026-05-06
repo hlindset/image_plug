@@ -26,6 +26,8 @@ defmodule ImagePlug.Plan do
   alias ImagePlug.Plan.Source.Plain
   alias ImagePlug.Transform
 
+  @supported_formats [:avif, :webp, :jpeg, :png]
+
   @enforce_keys [:source, :pipelines, :output]
   defstruct @enforce_keys ++
               [
@@ -117,7 +119,7 @@ defmodule ImagePlug.Plan do
   end
 
   defp validate_output(%Output{mode: {:explicit, format}} = output)
-       when format in [:avif, :webp, :jpeg, :png] do
+       when format in @supported_formats do
     validate_output_quality_shape(output)
   end
 
@@ -140,7 +142,7 @@ defmodule ImagePlug.Plan do
 
   defp validate_format_qualities(format_qualities) do
     if Enum.all?(format_qualities, fn {format, quality} ->
-         format in [:avif, :webp, :jpeg, :png] and valid_quality?(quality)
+         format in @supported_formats and valid_quality?(quality)
        end) do
       :ok
     else

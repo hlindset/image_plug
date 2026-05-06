@@ -127,7 +127,7 @@ defmodule ImagePlug.Transform.ExtendCanvas do
          {:ok, image} <- embed_image(state, operation, width, height) do
       state |> set_image(image) |> reset_focus()
     else
-      {:error, _reason} = error -> add_error(state, {__MODULE__, error})
+      {:error, reason} -> add_error(state, {__MODULE__, reason})
     end
   end
 

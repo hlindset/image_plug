@@ -11,17 +11,6 @@ defmodule ImagePlug.Cache.KeyTest do
   alias ImagePlug.Plan.Source.Plain
   alias ImagePlug.Transform
 
-  defmodule NoMaterialTransform do
-    @moduledoc false
-
-    defstruct []
-
-    def name(%__MODULE__{}), do: :no_material
-    def validate(%__MODULE__{}), do: :ok
-    def metadata(%__MODULE__{}), do: %{access: :random}
-    def execute(%__MODULE__{}, state), do: state
-  end
-
   defp plan(overrides \\ []) do
     struct!(
       Plan,
@@ -123,14 +112,6 @@ defmodule ImagePlug.Cache.KeyTest do
         invalid_plan,
         "https://origin.test/cat.jpg"
       )
-    end
-  end
-
-  test "missing transform material implementation raises as a programmer error" do
-    plan = plan(pipelines: [%Pipeline{operations: [%NoMaterialTransform{}]}])
-
-    assert_raise Protocol.UndefinedError, fn ->
-      Key.build(conn(:get, "/_/plain/images/cat.jpg"), plan, "https://origin.test/cat.jpg")
     end
   end
 

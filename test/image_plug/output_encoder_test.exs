@@ -87,26 +87,4 @@ defmodule ImagePlug.Output.EncoderTest do
 
     assert_received {:stream_opts, [suffix: ".webp", quality: 80]}
   end
-
-  test "memory_output returns tagged error for unsupported atom format" do
-    {:ok, image} = Image.new(1, 1)
-
-    assert {:error, {:encode, %ArgumentError{}, []}} =
-             Encoder.memory_output(
-               image,
-               %Resolved{
-                 format: :not_a_real_format,
-                 quality: :default,
-                 representation_headers: []
-               },
-               []
-             )
-  end
-
-  test "memory_output returns tagged error for non-atom format" do
-    {:ok, image} = Image.new(1, 1)
-
-    assert {:error, {:encode, %ArgumentError{}, []}} =
-             Encoder.memory_output(image, "png", [])
-  end
 end

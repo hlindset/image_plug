@@ -141,13 +141,21 @@ defmodule ImagePlug.Transform.Resize do
   end
 
   defp resize_image(%State{} = state, width, height) do
-    if width == image_width(state) and height == image_height(state) do
-      {:ok, state.image}
-    else
-      width_scale = width / image_width(state)
-      height_scale = height / image_height(state)
+    source_width = image_width(state)
+    source_height = image_height(state)
 
-      Image.resize(state.image, width_scale, vertical_scale: height_scale)
+    cond do
+      source_width <= 0 or source_height <= 0 ->
+        {:error, {:invalid_source_dimensions, source_width, source_height}}
+
+      width == source_width and height == source_height ->
+        {:ok, state.image}
+
+      true ->
+        width_scale = width / source_width
+        height_scale = height / source_height
+
+        Image.resize(state.image, width_scale, vertical_scale: height_scale)
     end
   end
 

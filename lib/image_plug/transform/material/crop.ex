@@ -35,20 +35,6 @@ defimpl ImagePlug.Transform.Material, for: ImagePlug.Transform.Crop do
   defp maybe_put_target_rule(material, nil), do: material
 
   defp maybe_put_target_rule(material, rule) do
-    material ++ [target_rule: rule_material(rule)]
-  end
-
-  defp rule_material(rule) do
-    [
-      mode: rule.mode,
-      width: rule.width,
-      height: rule.height,
-      min_width: rule.min_width,
-      min_height: rule.min_height,
-      zoom_x: rule.zoom_x,
-      zoom_y: rule.zoom_y,
-      dpr: rule.dpr,
-      enlarge: rule.enlarge
-    ]
+    material ++ [target_rule: ImagePlug.Transform.Geometry.DimensionRule.material(rule)]
   end
 end

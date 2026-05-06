@@ -37,7 +37,7 @@ defmodule ImagePlug.ArchitectureBoundaryTest do
   end
 
   test "concrete transform reference check rejects nested grouped aliases" do
-    file = Path.join(System.tmp_dir!(), "image_plug_architecture_boundary_test_runtime.ex")
+    file = tmp_file("runtime")
 
     on_exit(fn -> File.rm(file) end)
 
@@ -52,7 +52,7 @@ defmodule ImagePlug.ArchitectureBoundaryTest do
   end
 
   test "concrete transform reference check rejects aliases grouped under concrete transforms" do
-    file = Path.join(System.tmp_dir!(), "image_plug_architecture_boundary_test_nested_runtime.ex")
+    file = tmp_file("nested_runtime")
 
     on_exit(fn -> File.rm(file) end)
 
@@ -67,7 +67,7 @@ defmodule ImagePlug.ArchitectureBoundaryTest do
   end
 
   test "native parser reference check rejects grouped and indirect aliases" do
-    file = Path.join(System.tmp_dir!(), "image_plug_architecture_boundary_test_native.ex")
+    file = tmp_file("native")
 
     on_exit(fn -> File.rm(file) end)
 
@@ -97,6 +97,11 @@ defmodule ImagePlug.ArchitectureBoundaryTest do
     |> Enum.sort()
   end
 
+  defp tmp_file(label) do
+    unique = System.unique_integer([:positive])
+    Path.join(System.tmp_dir!(), "image_plug_architecture_boundary_test_#{label}_#{unique}.ex")
+  end
+
   defp concrete_transform_references(file) do
     {:ok, ast} = file |> File.read!() |> Code.string_to_quoted()
 
@@ -113,17 +118,9 @@ defmodule ImagePlug.ArchitectureBoundaryTest do
           |> Enum.map(&violation(meta, concrete_transform_module(&1)))
           |> then(&{node, &1 ++ violations})
 
-        {:__aliases__, meta, [:ImagePlug, :Transform, transform]} = node, violations
-        when transform in @concrete_transform_names ->
-          {node, [violation(meta, concrete_transform_module(transform)) | violations]}
-
         {:__aliases__, meta, [:ImagePlug, :Transform, transform | _rest]} = node, violations
         when transform in @concrete_transform_names ->
           {node, [violation(meta, concrete_transform_module(transform)) | violations]}
-
-        {:__aliases__, meta, [:Transform, transform]} = node, violations
-        when transform in @concrete_transform_names ->
-          {node, [violation(meta, "Transform.#{transform}") | violations]}
 
         {:__aliases__, meta, [:Transform, transform | _rest]} = node, violations
         when transform in @concrete_transform_names ->

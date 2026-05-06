@@ -79,10 +79,11 @@ defmodule ImagePlug.Parser.NativePropertyTest do
   end
 
   property "zoom aliases parse to equivalent native pipeline IR" do
-    check all x <- integer(1..2000),
-              y <- integer(1..2000) do
-      x = decimal_string(x)
-      y = decimal_string(y)
+    check all x_int <- integer(1..2000),
+              y_int <- integer(1..2000),
+              max_runs: 200 do
+      x = decimal_string(x_int)
+      y = decimal_string(y_int)
 
       assert {:ok, zoom_request} =
                Native.parse_request(conn(:get, "/_/zoom:#{x}:#{y}/plain/images/cat.jpg"), [])

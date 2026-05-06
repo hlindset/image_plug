@@ -46,7 +46,7 @@ defmodule ImagePlug.Output.Policy do
   end
 
   @spec resolve_before_origin(t()) ::
-          {:selected, format(), reason()} | :needs_source_format | :needs_encoded_evaluation
+          {:selected, format(), reason()} | :needs_source_format | {:needs_encoded_evaluation}
   def resolve_before_origin(%__MODULE__{mode: {:explicit, format}}),
     do: {:selected, format, :explicit}
 
@@ -56,10 +56,10 @@ defmodule ImagePlug.Output.Policy do
   def resolve_before_origin(%__MODULE__{mode: :source, modern_candidates: []}),
     do: :needs_source_format
 
-  def resolve_before_origin(%__MODULE__{mode: :best}), do: :needs_encoded_evaluation
+  def resolve_before_origin(%__MODULE__{mode: :best}), do: {:needs_encoded_evaluation}
 
   @spec resolve(t(), format() | nil) ::
-          {:ok, Resolved.t()} | {:error, :source_format_required} | :needs_encoded_evaluation
+          {:ok, Resolved.t()} | {:error, :source_format_required} | {:needs_encoded_evaluation}
   def resolve(%__MODULE__{} = policy, source_format) do
     case resolve_before_origin(policy) do
       {:selected, format, _reason} ->
@@ -71,8 +71,8 @@ defmodule ImagePlug.Output.Policy do
           {:error, _reason} = error -> error
         end
 
-      :needs_encoded_evaluation ->
-        :needs_encoded_evaluation
+      {:needs_encoded_evaluation} ->
+        {:needs_encoded_evaluation}
     end
   end
 

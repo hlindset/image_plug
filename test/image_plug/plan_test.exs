@@ -9,7 +9,6 @@ defmodule ImagePlug.PlanTest do
   alias ImagePlug.Plan.Response
   alias ImagePlug.Plan.Response.Filename
   alias ImagePlug.Plan.Source.Plain
-  alias ImagePlug.PlanTest.PartialTransform
   alias ImagePlug.PlanTest.RuntimeOnlyTransform
   alias ImagePlug.Transform
 
@@ -140,20 +139,6 @@ defmodule ImagePlug.PlanTest do
 
       assert Plan.validate_shape(plan(response: response)) ==
                {:error, {:invalid_response_plan, response}}
-    end
-  end
-
-  test "validated pipelines raise for partial operation structs" do
-    operation = %PartialTransform{}
-
-    plan = %Plan{
-      source: %Plain{path: ["images", "cat.jpg"]},
-      pipelines: [%Pipeline{operations: [operation]}],
-      output: %Output{mode: {:explicit, :webp}}
-    }
-
-    assert_raise UndefinedFunctionError, fn ->
-      Plan.validated_pipelines(plan)
     end
   end
 

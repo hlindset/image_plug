@@ -87,10 +87,9 @@ defmodule ImagePlug.Transform.AdaptiveResize do
 
   @impl ImagePlug.Transform
   def execute(%__MODULE__{rule: %DimensionRule{} = rule}, %State{} = state) do
-    rule
-    |> Map.put(:mode, adaptive_mode(state, rule))
-    |> then(&%Resize{rule: &1})
-    |> Resize.execute(state)
+    updated_rule = %{rule | mode: adaptive_mode(state, rule)}
+
+    Resize.execute(%Resize{rule: updated_rule}, state)
   end
 
   defp adaptive_mode(%State{} = state, %DimensionRule{} = rule) do

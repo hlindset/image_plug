@@ -32,9 +32,6 @@ defmodule ImagePlug.Output.Encoder do
     end
   end
 
-  def memory_output(%Vix.Vips.Image{} = _image, output, _opts),
-    do: {:error, {:encode, unsupported_output_format_error(output), []}}
-
   @spec limited_memory_output(
           Vix.Vips.Image.t(),
           Resolved.t(),
@@ -64,17 +61,12 @@ defmodule ImagePlug.Output.Encoder do
     end
   end
 
-  def limited_memory_output(%Vix.Vips.Image{} = _image, output, _opts, _max_body_bytes),
-    do: {:error, {:encode, unsupported_output_format_error(output), []}}
-
   defp output_format(%Resolved{format: format}) when is_atom(format) do
     case mime_type(format) do
       {:ok, mime_type} -> {:ok, mime_type, Format.suffix!(mime_type)}
       :error -> {:error, {:encode, unsupported_output_format_error(format), []}}
     end
   end
-
-  defp output_format(format), do: {:error, {:encode, unsupported_output_format_error(format), []}}
 
   defp write_body(image_module, image, output_options) do
     case image_module.write(image, :memory, output_options) do

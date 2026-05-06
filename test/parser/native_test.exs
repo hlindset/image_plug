@@ -1,5 +1,6 @@
 defmodule ImagePlug.Parser.NativeTest do
   use ExUnit.Case, async: true
+  use ExUnitProperties
 
   import Plug.Test
 
@@ -426,6 +427,27 @@ defmodule ImagePlug.Parser.NativeTest do
 
   test "later global assignments win across groups" do
     assert_output_mode("/_/f:webp/-/f:jpeg/plain/images/cat.jpg", {:explicit, :jpeg})
+  end
+
+  property "global option permutations resolve equivalently across pipeline groups" do
+    options = ["f:webp", "q:80", "fq:webp:70"]
+
+    check all ordered_options <- member_of(permutations(options)),
+              split_at <- integer(1..(length(options) - 1)),
+              max_runs: 50 do
+      {before_separator, after_separator} = Enum.split(ordered_options, split_at)
+      processing = before_separator ++ ["-"] ++ after_separator
+      path = "/_/" <> Enum.join(processing, "/") <> "/plain/images/cat.jpg"
+
+      assert {:ok,
+              %Plan{
+                output: %Output{
+                  mode: {:explicit, :webp},
+                  quality: {:quality, 80},
+                  format_qualities: %{webp: {:quality, 70}}
+                }
+              }} = Native.parse(conn(:get, path), [])
+    end
   end
 
   test "parses output quality and format quality as output request fields" do
@@ -876,5 +898,14 @@ defmodule ImagePlug.Parser.NativeTest do
   defp assert_output_mode(path, mode) do
     assert {:ok, %Plan{output: %Output{mode: ^mode}}} =
              Native.parse(conn(:get, path), [])
+  end
+
+  defp permutations([]), do: [[]]
+
+  defp permutations(list) do
+    for item <- list,
+        rest <- permutations(list -- [item]) do
+      [item | rest]
+    end
   end
 end

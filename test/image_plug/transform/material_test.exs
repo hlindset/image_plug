@@ -113,6 +113,7 @@ defmodule ImagePlug.Transform.MaterialTest do
                zoom_x: 1.0,
                zoom_y: 1.0,
                dpr: 1.0,
+               effective_dpr: :runtime_resolved,
                enlarge: false
              ]
            ]

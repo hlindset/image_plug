@@ -119,7 +119,7 @@ defmodule ImagePlug.Runtime.RequestRunner do
   defp process_cache_miss(conn, plan, pipelines, origin_identity, key, opts) do
     case process_request(conn, plan, pipelines, origin_identity, opts) do
       {:ok, final_state, resolved_output, response_headers} ->
-        case ResponseCache.store(key, final_state, resolved_output, response_headers, opts) do
+        case ResponseCache.store(key, final_state, resolved_output, opts) do
           {:ok, entry} -> {:ok, {:cache_entry, entry, plan.response}}
           :skipped -> {:ok, {:image, final_state, resolved_output, plan.response}}
           error -> {:error, {:processing, processing_reason(error), response_headers}}
