@@ -247,37 +247,16 @@ defmodule ImagePlug.Runtime.Processor do
         Keyword.get(opts, :image_materializer_module, Materializer)
       )
 
-    load_materializer(materializer, state, opts)
+    materialize_with(materializer, state, opts)
   end
 
-  defp load_materializer(materializer, %State{} = state, opts)
-       when is_atom(materializer) do
-    case Code.ensure_loaded(materializer) do
-      {:module, ^materializer} ->
-        dispatch_materializer(materializer, state, opts)
-
-      {:error, reason} ->
-        {:error, {:config, {:invalid_image_materializer, materializer, reason}}}
-    end
+  defp materialize_with(materializer, %State{} = state, opts) when is_atom(materializer) do
+    materializer.materialize(state, opts)
+    |> normalize_state_materializer_result(materializer)
   end
 
-  defp load_materializer(materializer, %State{}, _opts),
+  defp materialize_with(materializer, %State{}, _opts),
     do: {:error, {:config, {:invalid_image_materializer, materializer}}}
-
-  defp dispatch_materializer(materializer, %State{} = state, opts) do
-    cond do
-      function_exported?(materializer, :materialize, 2) ->
-        materializer.materialize(state, opts)
-        |> normalize_state_materializer_result(materializer)
-
-      function_exported?(materializer, :materialize, 1) ->
-        materializer.materialize(state.image)
-        |> normalize_image_materializer_result(materializer, state)
-
-      true ->
-        {:error, {:config, {:invalid_image_materializer, materializer}}}
-    end
-  end
 
   defp normalize_state_materializer_result(
          {:ok, %State{image: %Vix.Vips.Image{}} = state},
@@ -291,27 +270,6 @@ defmodule ImagePlug.Runtime.Processor do
   defp normalize_state_materializer_result({:error, _reason} = error, _materializer), do: error
 
   defp normalize_state_materializer_result(unexpected, materializer),
-    do: invalid_materializer_result(materializer, unexpected)
-
-  defp normalize_image_materializer_result(
-         {:ok, %Vix.Vips.Image{} = image},
-         _materializer,
-         %State{} = state
-       ) do
-    {:ok, State.set_image(state, image)}
-  end
-
-  defp normalize_image_materializer_result({:ok, invalid_image}, materializer, %State{}),
-    do: invalid_materializer_result(materializer, {:ok, invalid_image})
-
-  defp normalize_image_materializer_result(
-         {:error, _reason} = error,
-         _materializer,
-         %State{}
-       ),
-       do: error
-
-  defp normalize_image_materializer_result(unexpected, materializer, %State{}),
     do: invalid_materializer_result(materializer, unexpected)
 
   defp invalid_materializer_result(materializer, result),

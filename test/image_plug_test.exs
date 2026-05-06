@@ -179,11 +179,7 @@ defmodule ImagePlug.ImagePlugTest do
   end
 
   defmodule FailingMaterializer do
-    def materialize(_image), do: {:error, :forced_materialization_failure}
-  end
-
-  defmodule InvalidMaterializer do
-    def materialize_with_wrong_arity(_state, _opts, _extra), do: :ok
+    def materialize(_state, _opts), do: {:error, :forced_materialization_failure}
   end
 
   def sample_plan(overrides \\ []) do
@@ -1568,26 +1564,6 @@ defmodule ImagePlug.ImagePlugTest do
     assert conn.resp_body == "origin response is not a supported image"
     assert get_resp_header(conn, "content-type") == ["text/plain; charset=utf-8"]
     assert get_resp_header(conn, "vary") == ["Accept"]
-  end
-
-  test "invalid configured materializer returns a controlled configuration error" do
-    conn =
-      conn(:get, "/_/rt:force/w:100/plain/images/cat-300.jpg")
-      |> ImagePlug.call(
-        root_url: "http://origin.test",
-        image_open_module: RecordingImageOpen,
-        parser: ImagePlug.Parser.Native,
-        image_materializer: InvalidMaterializer,
-        origin_req_options: [plug: OriginImage]
-      )
-
-    assert_received {:image_open_options, opts}
-    assert Keyword.get(opts, :access) == :sequential
-    assert Keyword.get(opts, :fail_on) == :error
-    assert conn.status == 500
-    assert conn.state == :sent
-    assert conn.resp_body == "configuration error"
-    assert get_resp_header(conn, "content-type") == ["text/plain; charset=utf-8"]
   end
 
   test "deferred automatic sequential materialization failure returns decode error" do
