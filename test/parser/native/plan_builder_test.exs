@@ -309,8 +309,8 @@ defmodule ImagePlug.Parser.Native.PlanBuilderTest do
              )
 
     assert crop.gravity == {:anchor, :right, :bottom}
-    assert crop.x_offset == {:pixels, 12.0}
-    assert crop.y_offset == {:scale, -0.25}
+    assert crop.x_offset == {:pixels, -12.0}
+    assert crop.y_offset == {:scale, 0.25}
   end
 
   test "scales absolute top-level gravity offsets by dpr" do
@@ -323,11 +323,12 @@ defmodule ImagePlug.Parser.Native.PlanBuilderTest do
                width: {:pixels, 100},
                height: {:pixels, 100},
                dpr: 2.0,
+               gravity: {:anchor, :right, :center},
                gravity_x_offset: {:pixels, 12.0},
                gravity_y_offset: {:scale, -0.25}
              )
 
-    assert crop.x_offset == {:pixels, 24.0}
+    assert crop.x_offset == {:pixels, -24.0}
     assert crop.y_offset == {:scale, -0.25}
   end
 

@@ -351,8 +351,8 @@ defmodule ImagePlug.Parser.NativeTest do
              )
 
     assert crop.gravity == {:anchor, :right, :bottom}
-    assert crop.x_offset == {:pixels, 12.0}
-    assert crop.y_offset == {:scale, -0.25}
+    assert crop.x_offset == {:pixels, -12.0}
+    assert crop.y_offset == {:scale, 0.25}
   end
 
   test "rejects out-of-range focal point coordinates as gravity coordinate errors" do

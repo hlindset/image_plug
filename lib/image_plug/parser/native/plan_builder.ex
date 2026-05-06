@@ -485,8 +485,8 @@ defmodule ImagePlug.Parser.Native.PlanBuilder do
           height: :auto,
           crop_from: :gravity,
           gravity: request.gravity,
-          x_offset: scaled_gravity_offset(request.gravity_x_offset, request.dpr),
-          y_offset: scaled_gravity_offset(request.gravity_y_offset, request.dpr),
+          x_offset: result_crop_x_offset(request),
+          y_offset: result_crop_y_offset(request),
           target_rule: rule
         )
       )
@@ -495,10 +495,33 @@ defmodule ImagePlug.Parser.Native.PlanBuilder do
 
   defp result_crop_operations(%PipelineRequest{}, _operations), do: {:ok, []}
 
+  defp result_crop_x_offset(%PipelineRequest{} = request) do
+    offset = scaled_gravity_offset(request.gravity_x_offset, request.dpr)
+
+    case request.gravity do
+      {:anchor, :right, _y} -> negate_offset(offset)
+      _gravity -> offset
+    end
+  end
+
+  defp result_crop_y_offset(%PipelineRequest{} = request) do
+    offset = scaled_gravity_offset(request.gravity_y_offset, request.dpr)
+
+    case request.gravity do
+      {:anchor, _x, :bottom} -> negate_offset(offset)
+      _gravity -> offset
+    end
+  end
+
   defp scaled_gravity_offset({:pixels, value}, dpr) when is_number(dpr),
     do: {:pixels, value * dpr}
 
   defp scaled_gravity_offset(offset, _dpr), do: offset
+
+  defp negate_offset({unit, value}) when unit in [:pixels, :scale] and is_number(value),
+    do: {unit, -value}
+
+  defp negate_offset(value) when is_number(value), do: -value
 
   defp result_crop_rule(%PipelineRequest{} = request) do
     with {:ok, %Transform.Geometry.DimensionRule{} = rule} <- dimension_rule(request) do
