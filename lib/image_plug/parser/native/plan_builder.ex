@@ -20,7 +20,6 @@ defmodule ImagePlug.Parser.Native.PlanBuilder do
   alias ImagePlug.Transform
 
   @default_gravity {:anchor, :center, :center}
-  @supported_resizing_types [:fit, :fill, :fill_down, :force, :auto]
   @supported_output_formats [:webp, :avif, :jpeg, :png]
 
   @spec to_plan(ParsedRequest.t(), keyword()) :: {:ok, Plan.t()} | {:error, term()}
@@ -44,10 +43,6 @@ defmodule ImagePlug.Parser.Native.PlanBuilder do
   end
 
   defp source_plan(:plain, path), do: {:ok, %Plain{path: path}}
-
-  defp source_plan(kind, _path), do: {:error, {:unsupported_source_kind, kind}}
-
-  defp build_pipelines([]), do: {:error, :empty_pipeline_plan}
 
   defp build_pipelines(pipeline_requests) do
     pipeline_requests
@@ -95,9 +90,6 @@ defmodule ImagePlug.Parser.Native.PlanBuilder do
      }}
   end
 
-  defp output_plan(%OutputRequest{format: format}), do: {:error, {:invalid_output_format, format}}
-  defp output_plan(output), do: {:error, {:invalid_output_request, output}}
-
   defp policy_plan(%RequestPolicy{expires: 0}, _opts), do: {:ok, %Policy{expires: 0}}
 
   defp policy_plan(%RequestPolicy{expires: expires}, opts)
@@ -107,11 +99,6 @@ defmodule ImagePlug.Parser.Native.PlanBuilder do
       {:ok, %Policy{expires: expires}}
     end
   end
-
-  defp policy_plan(%RequestPolicy{expires: expires}, _opts),
-    do: {:error, {:invalid_expires, expires}}
-
-  defp policy_plan(policy, _opts), do: {:error, {:invalid_policy_request, policy}}
 
   defp reject_expired_request(expires, now) do
     if Policy.expired?(%Policy{expires: expires}, now) do
@@ -136,8 +123,6 @@ defmodule ImagePlug.Parser.Native.PlanBuilder do
   defp cache_plan(%CacheRequest{cachebuster: cachebuster}),
     do: {:ok, %Cache{cachebuster: cachebuster}}
 
-  defp cache_plan(cache), do: {:error, {:invalid_cache_request, cache}}
-
   defp response_plan(%ResponseRequest{filename: nil, disposition: disposition}, %Plain{
          path: source_path
        }) do
@@ -152,8 +137,6 @@ defmodule ImagePlug.Parser.Native.PlanBuilder do
       {:ok, %Response{filename: filename, disposition: disposition}}
     end
   end
-
-  defp response_plan(response, _source), do: {:error, {:invalid_response_request, response}}
 
   defp source_filename(source_path) do
     source_path
@@ -177,14 +160,6 @@ defmodule ImagePlug.Parser.Native.PlanBuilder do
 
   defp validate_supported_semantics(%PipelineRequest{gravity: :sm}),
     do: {:error, {:unsupported_gravity, :sm}}
-
-  defp validate_supported_semantics(%PipelineRequest{resizing_type: resizing_type})
-       when resizing_type not in @supported_resizing_types,
-       do: {:error, {:invalid_resizing_type, resizing_type}}
-
-  defp validate_supported_semantics(%PipelineRequest{enlarge: enlarge})
-       when enlarge not in [true, false],
-       do: {:error, {:invalid_enlarge, enlarge}}
 
   defp validate_supported_semantics(%PipelineRequest{gravity: gravity} = request) do
     if valid_gravity?(gravity) do
@@ -255,9 +230,6 @@ defmodule ImagePlug.Parser.Native.PlanBuilder do
     end
   end
 
-  defp validate_crop_semantics(%PipelineRequest{crop: crop}),
-    do: {:error, {:invalid_crop_request, crop}}
-
   defp validate_crop_dimension(_field, :auto), do: :ok
 
   defp validate_crop_dimension(_field, {:pixels, value}) when is_number(value) and value > 0,
@@ -281,24 +253,7 @@ defmodule ImagePlug.Parser.Native.PlanBuilder do
   defp validate_crop_offset(_field, {:scale, value}) when is_number(value), do: :ok
   defp validate_crop_offset(field, value), do: {:error, {:invalid_crop_offset, field, value}}
 
-  defp validate_orientation_semantics(%PipelineRequest{orientation: %Orientation{} = orientation}) do
-    cond do
-      not is_boolean(orientation.auto_orient) ->
-        {:error, {:invalid_orientation_auto_orient, orientation.auto_orient}}
-
-      orientation.rotate not in [0, 90, 180, 270] ->
-        {:error, {:invalid_orientation_rotate, orientation.rotate}}
-
-      orientation.flip not in [nil, :horizontal, :vertical, :both] ->
-        {:error, {:invalid_orientation_flip, orientation.flip}}
-
-      true ->
-        :ok
-    end
-  end
-
-  defp validate_orientation_semantics(%PipelineRequest{orientation: orientation}),
-    do: {:error, {:invalid_orientation, orientation}}
+  defp validate_orientation_semantics(%PipelineRequest{orientation: %Orientation{}}), do: :ok
 
   defp validate_pending_pipeline_semantics(%PipelineRequest{} = request) do
     with :ok <- validate_factor(:zoom_x, request.zoom_x),
@@ -470,9 +425,6 @@ defmodule ImagePlug.Parser.Native.PlanBuilder do
        when resizing_type in [:fit, :fill, :fill_down, :force] do
     resize_from_rule(request)
   end
-
-  defp resize_operations(%PipelineRequest{resizing_type: resizing_type}),
-    do: {:error, {:unsupported_resizing_type, resizing_type}}
 
   defp resize_from_rule(%PipelineRequest{} = request) do
     with {:ok, %Transform.Geometry.DimensionRule{} = rule} <- dimension_rule(request) do

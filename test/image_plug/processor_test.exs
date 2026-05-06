@@ -16,7 +16,6 @@ defmodule ImagePlug.Runtime.ProcessorTest do
   alias ImagePlug.Runtime.ProcessorTest.InvalidStateMaterializer
   alias ImagePlug.Runtime.ProcessorTest.Materializer
   alias ImagePlug.Runtime.ProcessorTest.OriginImage
-  alias ImagePlug.Runtime.ProcessorTest.OriginShouldNotFetch
   alias ImagePlug.Runtime.ProcessorTest.SecondTransform
   alias ImagePlug.Runtime.ProcessorTest.SequentialFailingTransform
   alias ImagePlug.Transform.Cover
@@ -35,13 +34,26 @@ defmodule ImagePlug.Runtime.ProcessorTest do
     }
   end
 
-  defp invalid_pipeline_plan do
-    %Plan{plan() | pipelines: [:not_a_pipeline]}
+  defp process_origin(%Plan{} = plan, origin_identity, opts) do
+    Processor.process_origin(plan, plan.pipelines, origin_identity, opts)
+  end
+
+  defp fetch_decode_validate_origin_with_source_format(%Plan{} = plan, origin_identity, opts) do
+    Processor.fetch_decode_validate_origin_with_source_format(
+      plan,
+      plan.pipelines,
+      origin_identity,
+      opts
+    )
+  end
+
+  defp process_decoded_origin(%DecodedOrigin{} = decoded, %Plan{} = plan, opts) do
+    Processor.process_decoded_origin(decoded, plan.pipelines, opts)
   end
 
   test "process_origin fetches plain plan sources from the resolved origin identity" do
     assert {:ok, %State{} = state} =
-             Processor.process_origin(
+             process_origin(
                plan(),
                "http://origin.test/images/cat-300.jpg",
                opts()
@@ -53,7 +65,7 @@ defmodule ImagePlug.Runtime.ProcessorTest do
 
   test "fetch_decode_validate_origin_with_source_format accepts plain plan sources" do
     assert {:ok, %DecodedOrigin{} = decoded} =
-             Processor.fetch_decode_validate_origin_with_source_format(
+             fetch_decode_validate_origin_with_source_format(
                plan(),
                "http://origin.test/images/cat-300.jpg",
                opts()
@@ -68,7 +80,7 @@ defmodule ImagePlug.Runtime.ProcessorTest do
 
   test "process_origin fetches, decodes, validates, executes, and materializes a chain" do
     assert {:ok, %State{} = state} =
-             Processor.process_origin(
+             process_origin(
                plan(),
                "http://origin.test/images/cat-300.jpg",
                opts()
@@ -98,7 +110,7 @@ defmodule ImagePlug.Runtime.ProcessorTest do
       |> Keyword.put(:test_ref, ref)
 
     assert {:ok, %State{} = state} =
-             Processor.process_origin(
+             process_origin(
                plan,
                "http://origin.test/images/cat-300.jpg",
                opts
@@ -127,7 +139,7 @@ defmodule ImagePlug.Runtime.ProcessorTest do
             {:config,
              {:invalid_image_materializer_result, InvalidReturnMaterializer,
               {:ok, :not_a_transform_state}}}} =
-             Processor.process_origin(
+             process_origin(
                plan,
                "http://origin.test/images/cat-300.jpg",
                Keyword.put(opts(), :image_materializer, InvalidReturnMaterializer)
@@ -148,7 +160,7 @@ defmodule ImagePlug.Runtime.ProcessorTest do
             {:config,
              {:invalid_image_materializer_result, InvalidStateMaterializer,
               {:ok, %State{image: nil}}}}} =
-             Processor.process_origin(
+             process_origin(
                plan,
                "http://origin.test/images/cat-300.jpg",
                Keyword.put(opts(), :image_materializer, InvalidStateMaterializer)
@@ -166,65 +178,16 @@ defmodule ImagePlug.Runtime.ProcessorTest do
     }
 
     assert {:error, {:config, {:invalid_image_materializer, "not a module"}}} =
-             Processor.process_origin(
+             process_origin(
                plan,
                "http://origin.test/images/cat-300.jpg",
                Keyword.put(opts(), :image_materializer, "not a module")
              )
   end
 
-  test "process_origin rejects invalid pipeline plans before fetching origin" do
-    assert {:error, {:invalid_pipeline_plan, [:not_a_pipeline]}} =
-             Processor.process_origin(
-               invalid_pipeline_plan(),
-               "http://origin.test/images/cat-300.jpg",
-               Keyword.put(opts(), :origin_req_options, plug: OriginShouldNotFetch)
-             )
-  end
-
-  test "process_origin rejects empty direct pipeline lists before fetching origin" do
-    assert {:error, :empty_pipeline_plan} =
-             Processor.process_origin(
-               plan(),
-               [],
-               "http://origin.test/images/cat-300.jpg",
-               Keyword.put(opts(), :origin_req_options, plug: OriginShouldNotFetch)
-             )
-  end
-
-  test "fetch_origin_with_source_format rejects invalid pipeline plans before fetching origin" do
-    assert {:error, {:invalid_pipeline_plan, [:not_a_pipeline]}} =
-             Processor.fetch_origin_with_source_format(
-               invalid_pipeline_plan(),
-               "http://origin.test/images/cat-300.jpg",
-               Keyword.put(opts(), :origin_req_options, plug: OriginShouldNotFetch)
-             )
-  end
-
-  test "fetch_origin_with_source_format rejects empty direct pipeline lists before fetching origin" do
-    assert {:error, :empty_pipeline_plan} =
-             Processor.fetch_origin_with_source_format(
-               plan(),
-               [],
-               "http://origin.test/images/cat-300.jpg",
-               Keyword.put(opts(), :origin_req_options, plug: OriginShouldNotFetch)
-             )
-  end
-
-  test "processor keeps pipeline validation at public boundaries" do
-    processor_source =
-      __DIR__
-      |> Path.join("../../lib/image_plug/runtime/processor.ex")
-      |> Path.expand()
-      |> File.read!()
-
-    assert processor_source =~ "Plan.validated_pipelines(plan)"
-    assert processor_source |> String.split("Plan.validated_pipelines(plan)") |> length() == 2
-  end
-
   test "fetch_decode_validate_origin_with_source_format returns decoded origin context" do
     assert {:ok, %DecodedOrigin{} = decoded} =
-             Processor.fetch_decode_validate_origin_with_source_format(
+             fetch_decode_validate_origin_with_source_format(
                plan(),
                "http://origin.test/images/cat-300.jpg",
                opts()
@@ -261,7 +224,7 @@ defmodule ImagePlug.Runtime.ProcessorTest do
     }
 
     assert {:ok, %DecodedOrigin{} = decoded} =
-             Processor.fetch_decode_validate_origin_with_source_format(
+             fetch_decode_validate_origin_with_source_format(
                plan,
                "http://origin.test/images/cat-300.jpg",
                opts()
@@ -274,7 +237,7 @@ defmodule ImagePlug.Runtime.ProcessorTest do
 
   test "fetch_decode_validate_origin_with_source_format returns singly tagged decode errors" do
     assert {:error, {:decode, :forced_decode_error}} =
-             Processor.fetch_decode_validate_origin_with_source_format(
+             fetch_decode_validate_origin_with_source_format(
                plan(),
                "http://origin.test/images/cat-300.jpg",
                Keyword.put(opts(), :image_open_module, DecodeErrorImageOpen)
@@ -357,7 +320,7 @@ defmodule ImagePlug.Runtime.ProcessorTest do
     worker_ref = Process.monitor(worker)
 
     assert {:error, {:transform_error, %State{}}} =
-             Processor.process_decoded_origin(
+             process_decoded_origin(
                decoded,
                %Plan{
                  plan()

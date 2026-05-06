@@ -17,9 +17,9 @@ defmodule ImagePlug.Transform.AdaptiveResize do
 
   ## Construction API
 
-  `new/1` accepts a keyword list, map, or `%AdaptiveResize{}` struct and
+  `new/1` accepts a keyword list and
   returns `{:ok, operation}` when the attrs are valid or `{:error, reason}`
-  when validation fails. `new!/1` accepts the same inputs and returns the
+  when validation fails. `new!/1` accepts the same input and returns the
   operation or raises for invalid attrs.
 
   The only accepted attr is `:rule`.
@@ -115,7 +115,6 @@ defmodule ImagePlug.Transform.AdaptiveResize do
 
   @type t :: %__MODULE__{rule: DimensionRule.t()}
 
-  @impl ImagePlug.Transform
   def new(attrs) do
     {:ok, new!(attrs)}
   rescue
@@ -123,8 +122,7 @@ defmodule ImagePlug.Transform.AdaptiveResize do
       {:error, exception}
   end
 
-  @impl ImagePlug.Transform
-  def new!(attrs) when is_list(attrs) or (is_map(attrs) and not is_struct(attrs)) do
+  def new!(attrs) when is_list(attrs) do
     attrs
     |> validate_attrs!()
     |> then(&struct!(__MODULE__, &1))

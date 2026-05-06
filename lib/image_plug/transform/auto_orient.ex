@@ -18,9 +18,8 @@ defmodule ImagePlug.Transform.AutoOrient do
 
   ## Construction API
 
-  `new/1` accepts an empty keyword list, an empty map, or an existing
-  `%__MODULE__{}` and returns `{:ok, operation}`. `new!/1` accepts the same
-  inputs and returns the operation.
+  `new/1` accepts an empty keyword list and returns `{:ok, operation}`.
+  `new!/1` accepts the same input and returns the operation.
 
   Non-empty attrs are invalid. `new/1` returns `{:error, exception}` for
   invalid attrs, while `new!/1` raises `ArgumentError`.
@@ -61,7 +60,7 @@ defmodule ImagePlug.Transform.AutoOrient do
 
       {:ok, auto_orient} = ImagePlug.Transform.AutoOrient.new([])
 
-      auto_orient = ImagePlug.Transform.AutoOrient.new!(%{})
+      auto_orient = ImagePlug.Transform.AutoOrient.new!([])
   """
 
   @behaviour ImagePlug.Transform
@@ -74,7 +73,6 @@ defmodule ImagePlug.Transform.AutoOrient do
 
   @type t :: %__MODULE__{}
 
-  @impl ImagePlug.Transform
   def new(attrs) do
     {:ok, new!(attrs)}
   rescue
@@ -82,8 +80,7 @@ defmodule ImagePlug.Transform.AutoOrient do
       {:error, exception}
   end
 
-  @impl ImagePlug.Transform
-  def new!(attrs) when attrs in [%{}, []], do: %__MODULE__{}
+  def new!([]), do: %__MODULE__{}
 
   def new!(attrs), do: raise(ArgumentError, "invalid auto-orient options: #{inspect(attrs)}")
 

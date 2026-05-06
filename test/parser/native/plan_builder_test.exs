@@ -606,20 +606,6 @@ defmodule ImagePlug.Parser.Native.PlanBuilderTest do
     assert Enum.map(operations, &ImagePlug.Transform.transform_name/1) == [:auto_orient, :crop]
   end
 
-  test "rejects invalid direct pipeline request values" do
-    assert plan_pipeline(resizing_type: :bogus) ==
-             {:error, {:invalid_resizing_type, :bogus}}
-
-    assert plan_pipeline(enlarge: :bogus) == {:error, {:invalid_enlarge, :bogus}}
-
-    assert plan_pipeline(
-             resizing_type: :fill,
-             width: {:pixels, 300},
-             height: {:pixels, 200},
-             gravity: :bogus
-           ) == {:error, {:invalid_gravity, :bogus}}
-  end
-
   test "converts multiple native pipeline requests into separate product-neutral pipelines" do
     request = %ParsedRequest{
       signature: "_",
@@ -753,28 +739,6 @@ defmodule ImagePlug.Parser.Native.PlanBuilderTest do
 
       assert quality_plan.pipelines == default_plan.pipelines
     end
-  end
-
-  test "rejects empty executable pipeline plans" do
-    assert {:error, :empty_pipeline_plan} =
-             PlanBuilder.to_plan(%ParsedRequest{
-               signature: "_",
-               source_kind: :plain,
-               source_path: ["images", "cat.jpg"],
-               pipelines: [],
-               output: %ImagePlug.Parser.Native.OutputRequest{}
-             })
-  end
-
-  test "rejects unsupported source kinds instead of coercing them to plain" do
-    assert {:error, {:unsupported_source_kind, :remote}} =
-             PlanBuilder.to_plan(%ParsedRequest{
-               signature: "_",
-               source_kind: :remote,
-               source_path: ["images", "cat.jpg"],
-               pipelines: [%PipelineRequest{}],
-               output: %ImagePlug.Parser.Native.OutputRequest{}
-             })
   end
 
   test "projects native request facets into product-neutral plan facets" do

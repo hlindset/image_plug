@@ -17,11 +17,11 @@ defmodule ImagePlug.Transform.Contain do
 
   ## Construction API
 
-  `new/1` accepts a keyword list or map and returns
+  `new/1` accepts a keyword list and returns
   `{:ok, operation}` when all fields are valid. Invalid attributes, missing
   required fields, or unknown keys return `{:error, exception}`.
 
-  `new!/1` accepts the same inputs and returns an operation, raising
+  `new!/1` accepts the same input and returns an operation, raising
   `ArgumentError` or `KeyError` for invalid attributes.
 
   ## Fields
@@ -145,7 +145,6 @@ defmodule ImagePlug.Transform.Contain do
               letterbox: boolean()
             }
 
-  @impl ImagePlug.Transform
   def new(attrs) do
     {:ok, new!(attrs)}
   rescue
@@ -153,8 +152,7 @@ defmodule ImagePlug.Transform.Contain do
       {:error, exception}
   end
 
-  @impl ImagePlug.Transform
-  def new!(attrs) when is_list(attrs) or (is_map(attrs) and not is_struct(attrs)) do
+  def new!(attrs) when is_list(attrs) do
     attrs
     |> validate_attrs!()
     |> then(&struct!(__MODULE__, &1))
@@ -283,7 +281,7 @@ defmodule ImagePlug.Transform.Contain do
   end
 
   defp validate_attrs!(attrs) do
-    attrs = Map.new(attrs)
+    attrs = Validation.attrs_map!(attrs, "contain")
 
     case Map.fetch!(attrs, :type) do
       :dimensions ->

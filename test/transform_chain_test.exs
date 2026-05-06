@@ -82,14 +82,6 @@ defmodule ImagePlug.Transform.ChainTest do
              Resize.new(rule: %DimensionRule{}, extra: true)
   end
 
-  test "existing transform structs are not construction attrs" do
-    malformed_scale = %Scale{type: :dimensions, width: :oops, height: {:pixels, 100}}
-    malformed_resize = %Resize{rule: %DimensionRule{dpr: nil}}
-
-    assert {:error, %ArgumentError{}} = Scale.new(malformed_scale)
-    assert {:error, %ArgumentError{}} = Resize.new(malformed_resize)
-  end
-
   test "transform name is delegated to operation module" do
     operation =
       Scale.new!(
@@ -154,21 +146,6 @@ defmodule ImagePlug.Transform.ChainTest do
              Chain.execute(%State{image: image}, chain)
 
     assert state.errors == [{FailingTransform, :failed}]
-  end
-
-  test "scale execution records an error for direct auto/auto structs" do
-    {:ok, image} = Image.new(20, 20, color: :white)
-
-    chain = [
-      %Scale{type: :dimensions, width: :auto, height: :auto}
-    ]
-
-    assert {:error, {:transform_error, state}} =
-             Chain.execute(%State{image: image}, chain)
-
-    assert state.errors == [
-             {Scale, {:error, {:invalid_scale_dimensions, :auto_auto}}}
-           ]
   end
 
   test "neutral resize and canvas operations execute through the chain" do

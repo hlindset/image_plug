@@ -18,9 +18,9 @@ defmodule ImagePlug.Transform.Rotate do
 
   ## Construction API
 
-  `new/1` accepts a keyword list or map and returns
+  `new/1` accepts a keyword list and returns
   `{:ok, operation}` when attrs are valid or `{:error, exception}` when
-  validation fails. `new!/1` accepts the same inputs and returns the operation
+  validation fails. `new!/1` accepts the same input and returns the operation
   or raises `ArgumentError` or `KeyError` for invalid attrs.
 
   The only accepted attr is `:angle`.
@@ -80,7 +80,6 @@ defmodule ImagePlug.Transform.Rotate do
 
   @type t :: %__MODULE__{angle: 0 | 90 | 180 | 270}
 
-  @impl ImagePlug.Transform
   def new(attrs) do
     {:ok, new!(attrs)}
   rescue
@@ -88,8 +87,7 @@ defmodule ImagePlug.Transform.Rotate do
       {:error, exception}
   end
 
-  @impl ImagePlug.Transform
-  def new!(attrs) when is_list(attrs) or (is_map(attrs) and not is_struct(attrs)) do
+  def new!(attrs) when is_list(attrs) do
     attrs
     |> validate_attrs!()
     |> then(&struct!(__MODULE__, &1))

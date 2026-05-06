@@ -35,11 +35,9 @@ defmodule ImagePlug.Transform do
 
   alias ImagePlug.Transform.State
 
-  @type attrs() :: keyword() | map()
+  @type attrs() :: keyword()
   @type operation() :: struct()
 
-  @callback new(attrs()) :: {:ok, operation()} | {:error, term()}
-  @callback new!(attrs()) :: operation()
   @callback name(operation()) :: atom()
   @callback metadata(operation()) :: map()
   @callback execute(operation(), State.t()) :: State.t()

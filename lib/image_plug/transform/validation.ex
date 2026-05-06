@@ -3,11 +3,23 @@ defmodule ImagePlug.Transform.Validation do
 
   alias ImagePlug.Transform.Geometry.DimensionRule
 
-  def attrs!(attrs, allowed_keys, label) do
-    attrs = Map.new(attrs)
+  def attrs!(attrs, allowed_keys, label) when is_list(attrs) do
+    attrs = attrs_map!(attrs, label)
     keys!(attrs, allowed_keys, label)
     attrs
   end
+
+  def attrs!(attrs, _allowed_keys, label), do: invalid_options!(label, attrs)
+
+  def attrs_map!(attrs, label) when is_list(attrs) do
+    if Keyword.keyword?(attrs) do
+      Map.new(attrs)
+    else
+      invalid_options!(label, attrs)
+    end
+  end
+
+  def attrs_map!(attrs, label), do: invalid_options!(label, attrs)
 
   def keys!(attrs, allowed_keys, label) do
     unknown_keys = Map.keys(attrs) -- allowed_keys
