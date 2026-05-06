@@ -1,5 +1,12 @@
 defmodule ImagePlug.Transform.Geometry.CropCoordinateMapper do
-  @moduledoc false
+  @moduledoc """
+  Maps semantic crop coordinates to physical source-image coordinates.
+
+  The mapper resolves crop dimensions, anchor or focal-point gravity, offsets,
+  orientation, rotation, and flip metadata into a bounded pixel rectangle.
+  Relative and absolute inputs are rounded with the same tie-breaking behavior
+  used by crop execution, then clamped to the source bounds.
+  """
 
   @type mapped_crop :: %{
           left: non_neg_integer(),

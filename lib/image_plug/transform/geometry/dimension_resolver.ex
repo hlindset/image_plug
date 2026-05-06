@@ -1,5 +1,12 @@
 defmodule ImagePlug.Transform.Geometry.DimensionResolver do
-  @moduledoc false
+  @moduledoc """
+  Resolves dimension rules against runtime source image metadata.
+
+  The resolver turns product-neutral requested dimensions into concrete target
+  and intermediate dimensions. It accounts for auto dimensions, minimum
+  dimensions, zoom factors, device-pixel-ratio scaling, source vector status,
+  and whether raster output may enlarge beyond the source image.
+  """
 
   alias ImagePlug.Transform.Geometry.DimensionRule
 

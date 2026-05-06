@@ -1,5 +1,12 @@
 defmodule ImagePlug.Transform do
-  @moduledoc false
+  @moduledoc """
+  Behaviour and dispatch facade for transform operations.
+
+  Operation modules implement this behaviour with constructors, metadata, a
+  stable transform name, and execution over `ImagePlug.Transform.State`.
+  Runtime callers dispatch through this module's generic functions so the
+  runtime boundary does not need to know concrete operation modules.
+  """
 
   use Boundary,
     top_level?: true,

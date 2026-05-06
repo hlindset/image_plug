@@ -1,10 +1,11 @@
 defmodule ImagePlug.Transform.Materializer do
   @moduledoc """
-  Internal boundary for forcing lazy image graphs into memory.
+  Decode and materialization boundary for transform execution.
 
-  Sequential input decode can defer origin reads until transform execution. ImagePlug
-  uses this module before cache writes or response headers so request handling can
-  materialize pixels, then check whether the origin stream finished or failed.
+  Sequential input decode can defer origin reads until transform execution.
+  Runtime code uses this module before cache writes or response headers so
+  request handling can materialize pixels, then check whether the origin stream
+  finished or failed.
 
   Multi-pipeline plans also materialize between pipelines. That boundary preserves
   the plan's explicit intermediate image semantics and allows decode planning to use

@@ -1,5 +1,12 @@
 defmodule ImagePlug.Transform.State do
-  @moduledoc false
+  @moduledoc """
+  Execution state carried through a transform chain.
+
+  State holds the current image, focus selection, accumulated transform errors,
+  and debug flag used by product-neutral operations. Operations return an
+  updated state instead of mutating images in place, allowing chain execution to
+  stop cleanly when an error is recorded.
+  """
 
   @default_focus {:anchor, :center, :center}
 

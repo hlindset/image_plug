@@ -585,7 +585,7 @@ git commit -m "docs: explain transform operation mapping"
 - Modify: `lib/image_plug/transform/geometry/dimension_resolver.ex`
 - Modify: `lib/image_plug/transform/geometry/crop_coordinate_mapper.ex`
 
-- [ ] **Step 1: Dispatch parallel implementers for shared contracts**
+- [x] **Step 1: Dispatch parallel implementers for shared contracts**
 
 Use up to 2 implementer subagents in parallel.
 
@@ -610,7 +610,7 @@ Tell both implementers:
 You are not alone in the codebase. Only edit your assigned files. Do not revert or reformat files owned by the other implementer. Keep docs product-neutral and do not reference parser-specific Native structs from shared transform contracts.
 ```
 
-- [ ] **Step 2: Add or revise shared contract module docs**
+- [x] **Step 2: Add or revise shared contract module docs**
 
 For each shared module, write or revise a concise `@moduledoc` with the module's role. Replace `@moduledoc false` only where it is present; do not delete an existing useful moduledoc just to follow the template.
 
@@ -634,7 +634,7 @@ Adapt the exact wording per module:
 - `DimensionResolver`: runtime resolution of dimensions, min dimensions, zoom, DPR, and enlarge.
 - `CropCoordinateMapper`: semantic-to-physical crop coordinate mapping and rounding.
 
-- [ ] **Step 3: Run compile**
+- [x] **Step 3: Run compile**
 
 Run:
 
@@ -644,7 +644,7 @@ mise exec -- mix compile --warnings-as-errors
 
 Expected: PASS.
 
-- [ ] **Step 4: Commit**
+- [x] **Step 4: Commit**
 
 ```bash
 git add lib/image_plug/transform.ex lib/image_plug/transform/chain.ex lib/image_plug/transform/decode_planner.ex lib/image_plug/transform/materializer.ex lib/image_plug/transform/state.ex lib/image_plug/transform/material.ex lib/image_plug/transform/geometry/dimension_rule.ex lib/image_plug/transform/geometry/dimension_resolver.ex lib/image_plug/transform/geometry/crop_coordinate_mapper.ex

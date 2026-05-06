@@ -1,5 +1,12 @@
 defmodule ImagePlug.Transform.DecodePlanner do
-  @moduledoc false
+  @moduledoc """
+  Chooses image decode access from transform operation metadata.
+
+  Decode planning interprets each operation's product-neutral metadata and
+  reduces the chain to either sequential or random image access. It is
+  intentionally conservative: empty chains, missing metadata, invalid access
+  values, and metadata failures all fall back to random access.
+  """
 
   alias ImagePlug.Transform
 

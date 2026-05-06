@@ -1,5 +1,12 @@
 defmodule ImagePlug.Transform.Geometry.DimensionRule do
-  @moduledoc false
+  @moduledoc """
+  Shared dimension contract for resize-like transform operations.
+
+  A dimension rule carries product-neutral width, height, minimum dimension,
+  zoom, device-pixel-ratio, and enlargement settings. Width and height may be
+  concrete pixel dimensions or `:auto`; resize modes describe the intended
+  geometry behavior and are validated against the modes accepted by the caller.
+  """
 
   @type dimension() :: :auto | ImagePlug.imgp_pixels()
   @type mode() :: :fit | :fill | :fill_down | :force | :auto
