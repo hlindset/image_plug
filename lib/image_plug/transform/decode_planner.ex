@@ -1,5 +1,12 @@
 defmodule ImagePlug.Transform.DecodePlanner do
-  @moduledoc false
+  @moduledoc """
+  Chooses image decode access from transform operation metadata.
+
+  Decode planning interprets each operation's product-neutral metadata and
+  reduces the chain to either sequential or random image access. It is
+  intentionally conservative for valid metadata: empty chains, missing access
+  metadata, and invalid access values all fall back to random access.
+  """
 
   alias ImagePlug.Transform
 
@@ -11,6 +18,8 @@ defmodule ImagePlug.Transform.DecodePlanner do
   end
 
   @spec access(ImagePlug.Transform.Chain.t()) :: :sequential | :random
+  def access([]), do: :random
+
   def access(chain) when is_list(chain) do
     chain
     |> Enum.map(&access_requirement/1)
@@ -19,16 +28,8 @@ defmodule ImagePlug.Transform.DecodePlanner do
 
   defp access_requirement(operation) do
     operation
-    |> safe_metadata()
+    |> Transform.metadata()
     |> access_from_metadata()
-  end
-
-  defp safe_metadata(operation) do
-    Transform.metadata(operation)
-  rescue
-    _exception -> %{access: :random}
-  catch
-    _kind, _reason -> %{access: :random}
   end
 
   defp access_from_metadata(%{access: access}), do: normalize_access(access)
@@ -36,8 +37,6 @@ defmodule ImagePlug.Transform.DecodePlanner do
 
   defp normalize_access(access) when access in [:sequential, :random, :neutral], do: access
   defp normalize_access(_access), do: :random
-
-  defp resolve_access([]), do: :random
 
   defp resolve_access(requirements) do
     cond do

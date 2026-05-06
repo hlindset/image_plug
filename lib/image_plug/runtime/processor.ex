@@ -11,14 +11,6 @@ defmodule ImagePlug.Runtime.Processor do
   alias ImagePlug.Transform.Materializer
   alias ImagePlug.Transform.State
 
-  @spec process_origin(Plan.t(), String.t(), keyword()) ::
-          {:ok, State.t()} | {:error, term()}
-  def process_origin(%Plan{} = plan, origin_identity, opts) do
-    with {:ok, pipelines} <- validated_pipelines(plan) do
-      process_origin(plan, pipelines, origin_identity, opts)
-    end
-  end
-
   @spec process_origin(Plan.t(), [ImagePlug.Plan.Pipeline.t()], String.t(), keyword()) ::
           {:ok, State.t()} | {:error, term()}
   def process_origin(%Plan{}, [], _origin_identity, _opts), do: {:error, :empty_pipeline_plan}
@@ -27,22 +19,6 @@ defmodule ImagePlug.Runtime.Processor do
     with {:ok, %DecodedOrigin{} = decoded} <-
            fetch_decode_validate_origin_with_source_format(plan, pipelines, origin_identity, opts) do
       process_decoded_origin(decoded, pipelines, opts)
-    end
-  end
-
-  @spec fetch_decode_validate_origin_with_source_format(
-          Plan.t(),
-          String.t(),
-          keyword()
-        ) ::
-          {:ok, DecodedOrigin.t()} | {:error, term()}
-  def fetch_decode_validate_origin_with_source_format(
-        %Plan{} = plan,
-        origin_identity,
-        opts
-      ) do
-    with {:ok, pipelines} <- validated_pipelines(plan) do
-      fetch_decode_validate_origin_with_source_format(plan, pipelines, origin_identity, opts)
     end
   end
 
@@ -71,14 +47,6 @@ defmodule ImagePlug.Runtime.Processor do
     end
   end
 
-  @spec fetch_origin_with_source_format(Plan.t(), String.t(), keyword()) ::
-          {:ok, Origin.Response.t(), :avif | :webp | :jpeg | :png | nil} | {:error, term()}
-  def fetch_origin_with_source_format(%Plan{} = plan, origin_identity, opts) do
-    with {:ok, pipelines} <- validated_pipelines(plan) do
-      fetch_origin_with_source_format(plan, pipelines, origin_identity, opts)
-    end
-  end
-
   @spec fetch_origin_with_source_format(
           Plan.t(),
           [ImagePlug.Plan.Pipeline.t()],
@@ -93,27 +61,6 @@ defmodule ImagePlug.Runtime.Processor do
     with {:ok, origin_response} <-
            fetch_origin(plan, origin_identity, opts) |> wrap_origin_error() do
       {:ok, origin_response, source_format(origin_response)}
-    end
-  end
-
-  @spec decode_validate_origin_response(
-          Origin.Response.t(),
-          :avif | :webp | :jpeg | :png | nil,
-          Plan.t(),
-          keyword()
-        ) :: {:ok, DecodedOrigin.t()} | {:error, term()}
-  def decode_validate_origin_response(
-        %Origin.Response{} = origin_response,
-        source_format,
-        %Plan{} = plan,
-        opts
-      ) do
-    case validated_pipelines(plan) do
-      {:ok, pipelines} ->
-        decode_validate_origin_response(origin_response, source_format, plan, pipelines, opts)
-
-      {:error, _reason} = error ->
-        close_pending_origin_on_error(error, origin_response)
     end
   end
 
@@ -148,14 +95,6 @@ defmodule ImagePlug.Runtime.Processor do
          origin_response: origin_response,
          source_format: source_format
        }}
-    end
-  end
-
-  @spec process_decoded_origin(DecodedOrigin.t(), Plan.t(), keyword()) ::
-          {:ok, State.t()} | {:error, term()}
-  def process_decoded_origin(%DecodedOrigin{} = decoded, %Plan{} = plan, opts) do
-    with {:ok, pipelines} <- validated_pipelines(plan) do
-      process_decoded_origin(decoded, pipelines, opts)
     end
   end
 
@@ -198,8 +137,6 @@ defmodule ImagePlug.Runtime.Processor do
   end
 
   defp close_pending_origin_on_error(result, %Origin.Response{}), do: result
-
-  defp validated_pipelines(%Plan{} = plan), do: Plan.validated_pipelines(plan)
 
   defp execute_pipelines(%State{} = state, pipelines, %DecodedOrigin{} = decoded, opts) do
     last_index = length(pipelines) - 1
@@ -310,37 +247,16 @@ defmodule ImagePlug.Runtime.Processor do
         Keyword.get(opts, :image_materializer_module, Materializer)
       )
 
-    load_materializer(materializer, state, opts)
+    materialize_with(materializer, state, opts)
   end
 
-  defp load_materializer(materializer, %State{} = state, opts)
-       when is_atom(materializer) do
-    case Code.ensure_loaded(materializer) do
-      {:module, ^materializer} ->
-        dispatch_materializer(materializer, state, opts)
-
-      {:error, reason} ->
-        {:error, {:config, {:invalid_image_materializer, materializer, reason}}}
-    end
+  defp materialize_with(materializer, %State{} = state, opts) when is_atom(materializer) do
+    materializer.materialize(state, opts)
+    |> normalize_state_materializer_result(materializer)
   end
 
-  defp load_materializer(materializer, %State{}, _opts),
+  defp materialize_with(materializer, %State{}, _opts),
     do: {:error, {:config, {:invalid_image_materializer, materializer}}}
-
-  defp dispatch_materializer(materializer, %State{} = state, opts) do
-    cond do
-      function_exported?(materializer, :materialize, 2) ->
-        materializer.materialize(state, opts)
-        |> normalize_state_materializer_result(materializer)
-
-      function_exported?(materializer, :materialize, 1) ->
-        materializer.materialize(state.image)
-        |> normalize_image_materializer_result(materializer, state)
-
-      true ->
-        {:error, {:config, {:invalid_image_materializer, materializer}}}
-    end
-  end
 
   defp normalize_state_materializer_result(
          {:ok, %State{image: %Vix.Vips.Image{}} = state},
@@ -354,27 +270,6 @@ defmodule ImagePlug.Runtime.Processor do
   defp normalize_state_materializer_result({:error, _reason} = error, _materializer), do: error
 
   defp normalize_state_materializer_result(unexpected, materializer),
-    do: invalid_materializer_result(materializer, unexpected)
-
-  defp normalize_image_materializer_result(
-         {:ok, %Vix.Vips.Image{} = image},
-         _materializer,
-         %State{} = state
-       ) do
-    {:ok, State.set_image(state, image)}
-  end
-
-  defp normalize_image_materializer_result({:ok, invalid_image}, materializer, %State{}),
-    do: invalid_materializer_result(materializer, {:ok, invalid_image})
-
-  defp normalize_image_materializer_result(
-         {:error, _reason} = error,
-         _materializer,
-         %State{}
-       ),
-       do: error
-
-  defp normalize_image_materializer_result(unexpected, materializer, %State{}),
     do: invalid_materializer_result(materializer, unexpected)
 
   defp invalid_materializer_result(materializer, result),

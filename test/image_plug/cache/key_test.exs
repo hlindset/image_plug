@@ -86,7 +86,13 @@ defmodule ImagePlug.Cache.KeyTest do
                  ]
                ]
              ],
-             output: [mode: :explicit, format: :webp],
+             output: [
+               mode: :explicit,
+               format: :webp,
+               quality: :default,
+               format_qualities: %{}
+             ],
+             cache: [cachebuster: nil],
              selected_headers: [],
              selected_cookies: []
            ]
@@ -159,6 +165,96 @@ defmodule ImagePlug.Cache.KeyTest do
            |> Enum.all?(&Keyword.keyword?/1)
   end
 
+  test "resize material includes requested zoom and dpr rule inputs" do
+    operation = %ImagePlug.Transform.Resize{
+      rule: %ImagePlug.Transform.Geometry.DimensionRule{
+        mode: :fit,
+        width: {:pixels, 100},
+        height: :auto,
+        zoom_x: 2.0,
+        zoom_y: 1.5,
+        dpr: 2.0,
+        enlarge: false
+      }
+    }
+
+    key =
+      conn(:get, "/_/plain/images/cat.jpg")
+      |> build_key!(
+        plan(pipelines: [%Pipeline{operations: [operation]}]),
+        "https://origin.test/images/cat.jpg"
+      )
+
+    assert [[resize_material]] = key.material[:pipelines]
+    assert resize_material[:op] == :resize
+    assert resize_material[:rule][:zoom_x] == 2.0
+    assert resize_material[:rule][:zoom_y] == 1.5
+    assert resize_material[:rule][:dpr] == 2.0
+    assert resize_material[:rule][:effective_dpr] == :runtime_resolved
+  end
+
+  test "cachebuster changes cache keys without changing pipeline material" do
+    base_plan = plan()
+    busted_plan = plan(cache: %ImagePlug.Plan.Cache{cachebuster: "v2"})
+
+    conn = conn(:get, "/_/plain/images/cat.jpg")
+    base = build_key!(conn, base_plan, "https://origin.test/images/cat.jpg")
+    busted = build_key!(conn, busted_plan, "https://origin.test/images/cat.jpg")
+
+    assert base.material[:pipelines] == busted.material[:pipelines]
+    assert busted.material[:cache] == [cachebuster: "v2"]
+    refute base.hash == busted.hash
+  end
+
+  test "response delivery metadata is excluded from cache key material" do
+    one = plan(response: %ImagePlug.Plan.Response{disposition: :attachment})
+    two = plan(response: %ImagePlug.Plan.Response{disposition: :inline})
+
+    conn = conn(:get, "/_/plain/images/cat.jpg")
+
+    assert build_key!(conn, one, "https://origin.test/images/cat.jpg").hash ==
+             build_key!(conn, two, "https://origin.test/images/cat.jpg").hash
+  end
+
+  test "requests differing only by filename share cache key material" do
+    one =
+      plan(
+        response: %ImagePlug.Plan.Response{
+          disposition: :attachment,
+          filename: %ImagePlug.Plan.Response.Filename{stem: "one"}
+        }
+      )
+
+    two =
+      plan(
+        response: %ImagePlug.Plan.Response{
+          disposition: :inline,
+          filename: %ImagePlug.Plan.Response.Filename{stem: "two"}
+        }
+      )
+
+    conn = conn(:get, "/_/plain/images/cat.jpg")
+
+    assert build_key!(conn, one, "https://origin.test/images/cat.jpg").hash ==
+             build_key!(conn, two, "https://origin.test/images/cat.jpg").hash
+  end
+
+  test "output material includes normalized quality rules" do
+    output = %Output{
+      mode: :automatic,
+      quality: :default,
+      format_qualities: %{webp: {:quality, 70}}
+    }
+
+    key =
+      conn(:get, "/_/plain/images/cat.jpg")
+      |> put_req_header("accept", "image/webp")
+      |> build_key!(plan(output: output), "https://origin.test/images/cat.jpg")
+
+    assert key.material[:output][:quality] == :default
+    assert key.material[:output][:format_qualities] == %{webp: {:quality, 70}}
+  end
+
   test "automatic output includes modern candidates instead of selected output or raw Accept" do
     automatic_plan = plan(output: %Output{mode: :automatic})
 
@@ -178,7 +274,9 @@ defmodule ImagePlug.Cache.KeyTest do
     assert key_one.material[:output] == [
              mode: :automatic,
              modern_candidates: [:avif, :webp],
-             auto: [avif: true, webp: true]
+             auto: [avif: true, webp: true],
+             quality: :default,
+             format_qualities: %{}
            ]
 
     refute inspect(key_one.material) =~ "image/webp"
@@ -222,7 +320,9 @@ defmodule ImagePlug.Cache.KeyTest do
     assert webp_only_key.material[:output] == [
              mode: :automatic,
              modern_candidates: [:webp],
-             auto: [avif: false, webp: true]
+             auto: [avif: false, webp: true],
+             quality: :default,
+             format_qualities: %{}
            ]
   end
 
@@ -234,7 +334,13 @@ defmodule ImagePlug.Cache.KeyTest do
 
     key = build_key!(conn, plan(), "https://origin.test/images/cat.jpg")
 
-    assert key.material[:output] == [mode: :explicit, format: :webp]
+    assert key.material[:output] == [
+             mode: :explicit,
+             format: :webp,
+             quality: :default,
+             format_qualities: %{}
+           ]
+
     refute inspect(key.material) =~ "image/jpeg"
   end
 

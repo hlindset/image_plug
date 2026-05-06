@@ -39,8 +39,8 @@ defmodule ImagePlug.Parser.NativePropertyTest do
                |> native_path(["images", "cat.jpg"])
                |> parse_path()
 
-      assert [%Transform.Contain{} = params] = operations
-      assert params.width == {:pixels, second}
+      assert [%Transform.Resize{} = params] = operations
+      assert params.rule.width == {:pixels, second}
     end
   end
 
@@ -53,13 +53,52 @@ defmodule ImagePlug.Parser.NativePropertyTest do
                |> native_path(["images", "cat.jpg"])
                |> parse_path()
 
-      assert [%Transform.Cover{} = params] = operations
-      assert params.width == {:pixels, width}
-      assert params.height == {:pixels, height}
+      assert [%Transform.Resize{} = params, %Transform.Crop{}] = operations
+      assert params.rule.mode == :fill
+      assert params.rule.width == {:pixels, width}
+      assert params.rule.height == {:pixels, height}
     end
   end
 
-  defp parse_path(path), do: conn(:get, path) |> Native.parse()
+  property "alias-equivalent and order-equivalent dimensions produce the same plan" do
+    check all width <- integer(1..2000),
+              height <- integer(1..2000) do
+      assert {:ok, plan_a} =
+               Native.parse(conn(:get, "/_/w:#{width}/h:#{height}/plain/images/cat.jpg"), [])
+
+      assert {:ok, plan_b} =
+               Native.parse(
+                 conn(:get, "/_/height:#{height}/width:#{width}/plain/images/cat.jpg"),
+                 []
+               )
+
+      assert plan_a.pipelines == plan_b.pipelines
+      assert plan_a.output == plan_b.output
+      assert plan_a.cache == plan_b.cache
+    end
+  end
+
+  property "zoom aliases parse to equivalent native pipeline IR" do
+    check all x_int <- integer(1..2000),
+              y_int <- integer(1..2000),
+              max_runs: 200 do
+      x = decimal_string(x_int)
+      y = decimal_string(y_int)
+
+      assert {:ok, zoom_request} =
+               Native.parse_request(conn(:get, "/_/zoom:#{x}:#{y}/plain/images/cat.jpg"), [])
+
+      assert {:ok, alias_request} =
+               Native.parse_request(conn(:get, "/_/z:#{x}:#{y}/plain/images/cat.jpg"), [])
+
+      [zoom_pipeline] = zoom_request.pipelines
+      [alias_pipeline] = alias_request.pipelines
+      assert zoom_pipeline.zoom_x == alias_pipeline.zoom_x
+      assert zoom_pipeline.zoom_y == alias_pipeline.zoom_y
+    end
+  end
+
+  defp parse_path(path), do: Native.parse(conn(:get, path), [])
 
   defp safe_parse(options) do
     options
@@ -79,6 +118,8 @@ defmodule ImagePlug.Parser.NativePropertyTest do
       option_path -> "/_/#{option_path}/plain/#{source_path}"
     end
   end
+
+  defp decimal_string(value), do: :erlang.float_to_binary(value / 10, decimals: 1)
 
   defp valid_source_path_with_option_like_segments do
     list_of(one_of([path_segment(), option_like_path_segment()]), min_length: 1, max_length: 6)

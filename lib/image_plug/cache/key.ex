@@ -7,6 +7,7 @@ defmodule ImagePlug.Cache.Key do
 
   alias ImagePlug.Output.Negotiation
   alias ImagePlug.Plan
+  alias ImagePlug.Plan.Cache
   alias ImagePlug.Plan.Output
   alias ImagePlug.Plan.Pipeline
   alias ImagePlug.Plan.Source.Plain
@@ -29,13 +30,15 @@ defmodule ImagePlug.Cache.Key do
       when is_binary(origin_identity) and is_list(opts) do
     with {:ok, source} <- source_material(plan.source),
          {:ok, pipelines} <- pipelines_material(plan.pipelines),
-         {:ok, output} <- output_material(conn, plan.output, opts) do
+         {:ok, output} <- output_material(conn, plan.output, opts),
+         {:ok, cache} <- cache_material(plan.cache) do
       material = [
         schema_version: @schema_version,
         origin_identity: origin_identity,
         source: source,
         pipelines: pipelines,
         output: output,
+        cache: cache,
         selected_headers: selected_headers(conn, opts),
         selected_cookies: selected_cookies(conn, opts)
       ]
@@ -66,15 +69,13 @@ defmodule ImagePlug.Cache.Key do
      Enum.map(pipelines, fn %Pipeline{operations: operations} ->
        Enum.map(operations, &operation_material/1)
      end)}
-  rescue
-    exception in Protocol.UndefinedError -> {:error, {:unprojectable_operation, exception.value}}
   end
 
   defp operation_material(operation) do
     Material.material(operation)
   end
 
-  defp output_material(conn, %Output{mode: :automatic}, opts) do
+  defp output_material(conn, %Output{mode: :automatic} = output, opts) do
     accept_header = conn |> get_req_header("accept") |> Enum.join(",")
 
     {:ok,
@@ -84,17 +85,32 @@ defmodule ImagePlug.Cache.Key do
        auto: [
          avif: Keyword.get(opts, :auto_avif, true),
          webp: Keyword.get(opts, :auto_webp, true)
-       ]
+       ],
+       quality: output.quality,
+       format_qualities: output.format_qualities
      ]}
   end
 
-  defp output_material(_conn, %Output{mode: {:explicit, format}}, _opts) do
-    {:ok, [mode: :explicit, format: format]}
+  defp output_material(_conn, %Output{mode: {:explicit, format}} = output, _opts) do
+    {:ok,
+     [
+       mode: :explicit,
+       format: format,
+       quality: output.quality,
+       format_qualities: output.format_qualities
+     ]}
   end
 
   defp output_material(_conn, output, _opts) do
     {:error, {:invalid_output_plan, output}}
   end
+
+  defp cache_material(%Cache{cachebuster: cachebuster})
+       when is_binary(cachebuster) or is_nil(cachebuster) do
+    {:ok, [cachebuster: cachebuster]}
+  end
+
+  defp cache_material(cache), do: {:error, {:invalid_cache_plan, cache}}
 
   defp selected_headers(conn, opts) do
     opts

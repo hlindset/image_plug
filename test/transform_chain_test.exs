@@ -2,190 +2,104 @@ defmodule ImagePlug.Transform.ChainTest do
   use ExUnit.Case, async: true
 
   alias ImagePlug.Transform
+  alias ImagePlug.Transform.AdaptiveResize
   alias ImagePlug.Transform.Chain
   alias ImagePlug.Transform.ChainTest.FailingTransform
-  alias ImagePlug.Transform.ChainTest.PartialTransform
   alias ImagePlug.Transform.ChainTest.UnexpectedTransform
   alias ImagePlug.Transform.Contain
   alias ImagePlug.Transform.Cover
   alias ImagePlug.Transform.Crop
+  alias ImagePlug.Transform.ExtendCanvas
   alias ImagePlug.Transform.Focus
+  alias ImagePlug.Transform.Geometry.DimensionRule
+  alias ImagePlug.Transform.Resize
   alias ImagePlug.Transform.Scale
   alias ImagePlug.Transform.State
 
   doctest ImagePlug.Transform.Chain
 
-  test "transform modules construct operation structs" do
-    assert %Scale{
-             type: :dimensions,
-             width: {:pixels, 10},
-             height: :auto
-           } =
-             Scale.new!(
+  test "transform modules expose valid operation structs" do
+    assert :ok =
+             Transform.validate(%Scale{
                type: :dimensions,
                width: {:pixels, 10},
                height: :auto
-             )
+             })
+
+    assert :ok =
+             Transform.validate(%Resize{
+               rule: %DimensionRule{mode: :fit, width: {:pixels, 10}}
+             })
+
+    assert :ok =
+             Transform.validate(%AdaptiveResize{
+               rule: %DimensionRule{mode: :auto, width: {:pixels, 10}, height: {:pixels, 20}}
+             })
   end
 
-  test "transform modules support fallible construction" do
-    assert {:ok, %Scale{}} =
-             Scale.new(
-               type: :dimensions,
-               width: {:pixels, 10},
-               height: :auto
-             )
-  end
-
-  test "fallible construction returns errors for missing required attrs" do
-    assert {:error, _reason} = Scale.new(type: :dimensions)
-  end
-
-  test "scale construction validates malformed attributes" do
-    assert {:error,
-            %ArgumentError{
-              message: "invalid scale dimensions: width and height cannot both be :auto"
-            }} =
-             Scale.new(type: :dimensions, width: :auto, height: :auto)
-
-    assert {:error, %ArgumentError{message: "invalid scale width: :oops"}} =
-             Scale.new(
+  test "transform validation rejects malformed operation structs" do
+    assert {:error, %ArgumentError{}} =
+             Transform.validate(%Scale{
                type: :dimensions,
                width: :oops,
                height: {:pixels, 100}
-             )
+             })
 
-    assert {:error, %ArgumentError{message: "invalid scale ratio: {1, 0}"}} =
-             Scale.new(type: :ratio, ratio: {1, 0})
+    assert {:error, %ArgumentError{}} =
+             Transform.validate(%Contain{type: :ratio, ratio: {1, 0}, letterbox: false})
 
-    assert {:error, %ArgumentError{message: "unknown scale option(s): :extra"}} =
-             Scale.new(
-               type: :dimensions,
-               width: {:pixels, 100},
-               height: :auto,
-               extra: true
-             )
-  end
-
-  test "contain construction validates malformed attributes" do
-    assert {:error, %ArgumentError{message: "invalid contain ratio: {1, 0}"}} =
-             Contain.new(type: :ratio, ratio: {1, 0}, letterbox: false)
-
-    assert {:error, %ArgumentError{message: "invalid contain width: :oops"}} =
-             Contain.new(
-               type: :dimensions,
-               width: :oops,
-               height: {:pixels, 100},
-               constraint: :regular,
-               letterbox: false
-             )
-
-    assert {:error, %ArgumentError{message: "unknown contain option(s): :extra"}} =
-             Contain.new(
-               type: :dimensions,
-               width: {:pixels, 100},
-               height: :auto,
-               constraint: :regular,
-               letterbox: false,
-               extra: true
-             )
-  end
-
-  test "cover construction validates malformed attributes" do
-    assert {:error, %ArgumentError{message: "invalid cover ratio: {4, 0}"}} =
-             Cover.new(type: :ratio, ratio: {4, 0})
-
-    assert {:error, %ArgumentError{message: "invalid cover height: 0"}} =
-             Cover.new(
+    assert {:error, %ArgumentError{}} =
+             Transform.validate(%Cover{
                type: :dimensions,
                width: {:pixels, 100},
                height: 0,
                constraint: :none
-             )
+             })
 
-    assert {:error, %ArgumentError{message: "unknown cover option(s): :extra"}} =
-             Cover.new(
-               type: :dimensions,
-               width: {:pixels, 100},
-               height: :auto,
-               constraint: :none,
-               extra: true
-             )
-  end
+    assert {:error, %ArgumentError{}} =
+             Transform.validate(%Crop{width: nil, height: {:pixels, 100}, crop_from: :focus})
 
-  test "crop construction validates malformed attributes" do
-    assert {:error, %ArgumentError{message: "invalid crop width: nil"}} =
-             Crop.new(width: nil, height: {:pixels, 100}, crop_from: :focus)
+    assert {:error, %ArgumentError{}} =
+             Transform.validate(%Focus{type: {:coordinate, :oops, {:percent, 50}}})
 
-    assert {:error, %ArgumentError{message: "invalid crop crop_from_left: :oops"}} =
-             Crop.new(
-               width: {:pixels, 100},
-               height: {:pixels, 100},
-               crop_from: %{left: :oops, top: {:pixels, 0}}
-             )
+    assert {:error, %ArgumentError{}} =
+             Transform.validate(%Resize{rule: %DimensionRule{mode: :auto}})
 
-    assert {:error, %ArgumentError{message: "unknown crop option(s): :extra"}} =
-             Crop.new(
-               width: {:pixels, 100},
-               height: {:pixels, 100},
-               crop_from: :focus,
-               extra: true
-             )
-  end
+    assert {:error, %ArgumentError{}} =
+             Transform.validate(%AdaptiveResize{rule: %DimensionRule{mode: :fill}})
 
-  test "focus construction validates malformed attributes" do
-    assert {:error, %ArgumentError{message: "invalid focus left: :oops"}} =
-             Focus.new(type: {:coordinate, :oops, {:percent, 50}})
-
-    assert {:error, %ArgumentError{message: "invalid focus top: nil"}} =
-             Focus.new(type: {:coordinate, {:percent, 50}, nil})
-
-    assert {:error, %ArgumentError{message: "unknown focus option(s): :extra"}} =
-             Focus.new(type: {:anchor, :left, :top}, extra: true)
+    assert {:error, %ArgumentError{}} =
+             Transform.validate(%ExtendCanvas{rule: :oops})
   end
 
   test "transform name is delegated to operation module" do
-    operation =
-      Scale.new!(
-        type: :dimensions,
-        width: {:pixels, 10},
-        height: :auto
-      )
+    operation = %Scale{
+      type: :dimensions,
+      width: {:pixels, 10},
+      height: :auto
+    }
 
     assert Transform.transform_name(operation) == :scale
   end
 
   test "metadata is delegated to operation module" do
-    operation =
-      Contain.new!(
-        type: :dimensions,
-        width: {:pixels, 10},
-        height: :auto,
-        constraint: :regular,
-        letterbox: false
-      )
+    operation = %Contain{
+      type: :dimensions,
+      width: {:pixels, 10},
+      height: :auto,
+      constraint: :regular,
+      letterbox: false
+    }
 
     assert Transform.metadata(operation) == %{access: :sequential}
   end
 
-  test "partial operation structs fail strict dispatch" do
-    operation = %PartialTransform{}
+  test "zero-dimension resize rules stay random access" do
+    operation = %Resize{
+      rule: %DimensionRule{mode: :fit, width: {:pixels, 0}, height: :auto}
+    }
 
-    refute Transform.operation?(operation)
-
-    assert_raise ArgumentError, fn ->
-      Transform.transform_name(operation)
-    end
-
-    assert_raise ArgumentError, fn ->
-      Transform.metadata(operation)
-    end
-
-    {:ok, image} = Image.new(20, 20, color: :white)
-
-    assert_raise ArgumentError, fn ->
-      Transform.execute(operation, %State{image: image})
-    end
+    assert Transform.metadata(operation) == %{access: :random}
   end
 
   test "stops executing after the first transform error" do
@@ -202,18 +116,209 @@ defmodule ImagePlug.Transform.ChainTest do
     assert state.errors == [{FailingTransform, :failed}]
   end
 
-  test "scale execution records an error for direct auto/auto structs" do
-    {:ok, image} = Image.new(20, 20, color: :white)
+  test "neutral resize and canvas operations execute through the chain" do
+    {:ok, image} = Image.new(200, 100, color: :white)
 
     chain = [
-      %Scale{type: :dimensions, width: :auto, height: :auto}
+      %Resize{rule: %DimensionRule{mode: :fit, width: {:pixels, 100}, height: {:pixels, 100}}},
+      %ExtendCanvas{rule: {:dimensions, {:pixels, 100}, {:pixels, 100}}}
     ]
 
-    assert {:error, {:transform_error, state}} =
-             Chain.execute(%State{image: image}, chain)
+    assert {:ok, %State{image: image}} = Chain.execute(%State{image: image}, chain)
+    assert Image.width(image) == 100
+    assert Image.height(image) == 100
+  end
 
-    assert state.errors == [
-             {Scale, {:error, {:invalid_scale_dimensions, :auto_auto}}}
-           ]
+  test "fill resize crops non-square sources to the requested box" do
+    {:ok, image} = Image.new(200, 100, color: :white)
+
+    chain = [
+      %Resize{rule: %DimensionRule{mode: :fill, width: {:pixels, 100}, height: {:pixels, 100}}},
+      %Crop{
+        width: :auto,
+        height: :auto,
+        crop_from: :gravity,
+        gravity: {:anchor, :center, :center},
+        target_rule: %DimensionRule{mode: :fill, width: {:pixels, 100}, height: {:pixels, 100}}
+      }
+    ]
+
+    assert {:ok, %State{image: image}} = Chain.execute(%State{image: image}, chain)
+    assert Image.width(image) == 100
+    assert Image.height(image) == 100
+  end
+
+  test "fill result crop applies non-center gravity after resize" do
+    image =
+      300
+      |> Image.new!(100, color: :black)
+      |> Image.Draw.rect!(0, 0, 100, 100, color: :red)
+      |> Image.Draw.rect!(100, 0, 100, 100, color: :green)
+      |> Image.Draw.rect!(200, 0, 100, 100, color: :blue)
+
+    chain = [
+      %Resize{rule: %DimensionRule{mode: :fill, width: {:pixels, 100}, height: {:pixels, 100}}},
+      %Crop{
+        width: :auto,
+        height: :auto,
+        crop_from: :gravity,
+        gravity: {:anchor, :right, :center},
+        target_rule: %DimensionRule{mode: :fill, width: {:pixels, 100}, height: {:pixels, 100}}
+      }
+    ]
+
+    assert {:ok, %State{image: image}} = Chain.execute(%State{image: image}, chain)
+    assert Image.width(image) == 100
+    assert Image.height(image) == 100
+    assert Image.get_pixel!(image, 50, 50) == [0, 0, 255]
+  end
+
+  test "fill resize crops to min-adjusted target dimensions" do
+    for mode <- [:fill, :fill_down] do
+      {:ok, image} = Image.new(1000, 500, color: :white)
+
+      chain = [
+        %Resize{
+          rule: %DimensionRule{
+            mode: mode,
+            width: {:pixels, 100},
+            height: {:pixels, 100},
+            min_width: {:pixels, 300}
+          }
+        },
+        %Crop{
+          width: :auto,
+          height: :auto,
+          crop_from: :gravity,
+          gravity: {:anchor, :center, :center},
+          target_rule: %DimensionRule{
+            mode: mode,
+            width: {:pixels, 100},
+            height: {:pixels, 100},
+            min_width: {:pixels, 300}
+          }
+        }
+      ]
+
+      assert {:ok, %State{image: image}} = Chain.execute(%State{image: image}, chain)
+      assert Image.width(image) == 300
+      assert Image.height(image) == 300
+    end
+  end
+
+  test "zero-dimension resize with zoom clamps raster sources when enlarge is false" do
+    {:ok, image} = Image.new(100, 50, color: :white)
+
+    chain = [
+      %Resize{
+        rule: %DimensionRule{
+          mode: :fit,
+          width: {:pixels, 0},
+          height: {:pixels, 0},
+          zoom_x: 2.0,
+          zoom_y: 1.5
+        }
+      }
+    ]
+
+    assert {:ok, %State{image: image}} = Chain.execute(%State{image: image}, chain)
+    assert Image.width(image) == 100
+    assert Image.height(image) == 38
+  end
+
+  test "zero-dimension resize with dpr preserves raster sources when enlarge is false" do
+    {:ok, image} = Image.new(100, 50, color: :white)
+
+    chain = [
+      %Resize{
+        rule: %DimensionRule{
+          mode: :fit,
+          width: {:pixels, 0},
+          height: {:pixels, 0},
+          dpr: 2.0
+        }
+      }
+    ]
+
+    assert {:ok, %State{image: image}} = Chain.execute(%State{image: image}, chain)
+    assert Image.width(image) == 100
+    assert Image.height(image) == 50
+  end
+
+  test "fill-down crops clamped images to the requested aspect ratio" do
+    {:ok, image} = Image.new(200, 100, color: :white)
+
+    chain = [
+      %Resize{
+        rule: %DimensionRule{
+          mode: :fill_down,
+          width: {:pixels, 300},
+          height: {:pixels, 300},
+          enlarge: true
+        }
+      },
+      %Crop{
+        width: :auto,
+        height: :auto,
+        crop_from: :gravity,
+        gravity: {:anchor, :center, :center},
+        target_rule: %DimensionRule{
+          mode: :fill_down,
+          width: {:pixels, 300},
+          height: {:pixels, 300},
+          enlarge: true
+        }
+      }
+    ]
+
+    assert {:ok, %State{image: image}} = Chain.execute(%State{image: image}, chain)
+    assert Image.width(image) == 100
+    assert Image.height(image) == 100
+  end
+
+  test "adaptive resize chooses cover behavior for matching orientation" do
+    {:ok, image} = Image.new(200, 100, color: :white)
+
+    chain = [
+      %AdaptiveResize{
+        rule: %DimensionRule{mode: :auto, width: {:pixels, 100}, height: {:pixels, 50}}
+      }
+    ]
+
+    assert {:ok, %State{image: image}} = Chain.execute(%State{image: image}, chain)
+    assert Image.width(image) == 100
+    assert Image.height(image) == 50
+  end
+
+  test "adaptive resize raises for invalid unvalidated runtime dimensions" do
+    {:ok, image} = Image.new(200, 100, color: :white)
+
+    chain = [
+      %AdaptiveResize{
+        rule: %DimensionRule{
+          mode: :auto,
+          width: {:scale, 1, 0},
+          height: {:pixels, 50}
+        }
+      }
+    ]
+
+    assert_raise ArgumentError, fn ->
+      Chain.execute(%State{image: image}, chain)
+    end
+  end
+
+  test "extend canvas raises for invalid unvalidated runtime dimensions" do
+    {:ok, image} = Image.new(100, 100, color: :white)
+
+    chain = [
+      %ExtendCanvas{
+        rule: {:dimensions, {:scale, 1, 0}, {:pixels, 100}}
+      }
+    ]
+
+    assert_raise ArgumentError, fn ->
+      Chain.execute(%State{image: image}, chain)
+    end
   end
 end

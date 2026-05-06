@@ -179,11 +179,7 @@ defmodule ImagePlug.ImagePlugTest do
   end
 
   defmodule FailingMaterializer do
-    def materialize(_image), do: {:error, :forced_materialization_failure}
-  end
-
-  defmodule InvalidMaterializer do
-    def materialize_with_wrong_arity(_state, _opts, _extra), do: :ok
+    def materialize(_state, _opts), do: {:error, :forced_materialization_failure}
   end
 
   def sample_plan(overrides \\ []) do
@@ -211,7 +207,7 @@ defmodule ImagePlug.ImagePlugTest do
     @behaviour ImagePlug.Parser
 
     @impl ImagePlug.Parser
-    def parse(_conn) do
+    def parse(_conn, _opts) do
       {:ok,
        ImagePlug.ImagePlugTest.sample_explicit_plan(:jpeg, [
          struct(ImagePlug.ImagePlugTest.BrokenImageTransform)
@@ -225,11 +221,8 @@ defmodule ImagePlug.ImagePlugTest do
   defmodule BrokenImageTransform do
     defstruct []
 
-    def new(attrs), do: {:ok, new!(attrs)}
-    def new!(%__MODULE__{} = operation), do: operation
-    def new!(attrs), do: struct!(__MODULE__, attrs)
-
     def name(%__MODULE__{}), do: :broken_image
+    def validate(%__MODULE__{}), do: :ok
 
     def metadata(%__MODULE__{}), do: %{access: :random}
 
@@ -242,7 +235,7 @@ defmodule ImagePlug.ImagePlugTest do
     @behaviour ImagePlug.Parser
 
     @impl ImagePlug.Parser
-    def parse(_conn) do
+    def parse(_conn, _opts) do
       {:ok,
        ImagePlug.ImagePlugTest.sample_explicit_plan(:jpeg, [
          struct(ImagePlug.ImagePlugTest.RaisingAfterFirstChunkTransform)
@@ -257,22 +250,21 @@ defmodule ImagePlug.ImagePlugTest do
     @behaviour ImagePlug.Parser
 
     @impl ImagePlug.Parser
-    def parse(_conn) do
+    def parse(_conn, _opts) do
       {:ok, ImagePlug.ImagePlugTest.sample_plan(source: :signed)}
     end
 
     @impl ImagePlug.Parser
-    def handle_error(conn, _error), do: conn
+    def handle_error(conn, {:error, reason}) do
+      Plug.Conn.send_resp(conn, 400, inspect(reason))
+    end
   end
 
   defmodule RaisingAfterFirstChunkTransform do
     defstruct []
 
-    def new(attrs), do: {:ok, new!(attrs)}
-    def new!(%__MODULE__{} = operation), do: operation
-    def new!(attrs), do: struct!(__MODULE__, attrs)
-
     def name(%__MODULE__{}), do: :raising_after_first_chunk
+    def validate(%__MODULE__{}), do: :ok
 
     def metadata(%__MODULE__{}), do: %{access: :random}
 
@@ -285,7 +277,7 @@ defmodule ImagePlug.ImagePlugTest do
     @behaviour ImagePlug.Parser
 
     @impl ImagePlug.Parser
-    def parse(_conn) do
+    def parse(_conn, _opts) do
       {:ok,
        ImagePlug.ImagePlugTest.sample_explicit_plan(:jpeg, [
          struct(ImagePlug.ImagePlugTest.FailingTransform)
@@ -301,11 +293,8 @@ defmodule ImagePlug.ImagePlugTest do
 
     defstruct []
 
-    def new(attrs), do: {:ok, new!(attrs)}
-    def new!(%__MODULE__{} = operation), do: operation
-    def new!(attrs), do: struct!(__MODULE__, attrs)
-
     def name(%__MODULE__{}), do: :failing
+    def validate(%__MODULE__{}), do: :ok
 
     def metadata(%__MODULE__{}), do: %{access: :random}
 
@@ -318,7 +307,7 @@ defmodule ImagePlug.ImagePlugTest do
     @behaviour ImagePlug.Parser
 
     @impl ImagePlug.Parser
-    def parse(_conn) do
+    def parse(_conn, _opts) do
       {:ok,
        ImagePlug.ImagePlugTest.sample_explicit_plan(:jpeg, [
          struct(ImagePlug.ImagePlugTest.UnprojectableOperationTransform)
@@ -332,11 +321,8 @@ defmodule ImagePlug.ImagePlugTest do
   defmodule UnprojectableOperationTransform do
     defstruct []
 
-    def new(attrs), do: {:ok, new!(attrs)}
-    def new!(%__MODULE__{} = operation), do: operation
-    def new!(attrs), do: struct!(__MODULE__, attrs)
-
     def name(%__MODULE__{}), do: :unprojectable
+    def validate(%__MODULE__{}), do: :ok
 
     def metadata(%__MODULE__{}), do: %{access: :random}
 
@@ -347,7 +333,7 @@ defmodule ImagePlug.ImagePlugTest do
     @behaviour ImagePlug.Parser
 
     @impl ImagePlug.Parser
-    def parse(_conn) do
+    def parse(_conn, _opts) do
       {:ok,
        ImagePlug.ImagePlugTest.sample_plan(
          pipelines: [],
@@ -374,7 +360,11 @@ defmodule ImagePlug.ImagePlugTest do
 
   defp start_cache_probe do
     test_pid = self()
-    spawn_link(fn -> cache_probe_loop(test_pid, []) end)
+
+    start_supervised!(%{
+      id: {:cache_probe, make_ref()},
+      start: {Task, :start_link, [fn -> cache_probe_loop(test_pid, []) end]}
+    })
   end
 
   defp cache_probe_loop(test_pid, messages) do
@@ -743,7 +733,7 @@ defmodule ImagePlug.ImagePlugTest do
   end
 
   test "does not touch cache when planner validation fails" do
-    conn = conn(:get, "/_/rs:auto:100:100/plain/images/cat-300.jpg")
+    conn = conn(:get, "/_/g:sm/plain/images/cat-300.jpg")
     cache_probe = start_cache_probe()
 
     conn =
@@ -846,6 +836,165 @@ defmodule ImagePlug.ImagePlugTest do
     assert entry.headers == [{"vary", "Accept"}]
   end
 
+  test "native cachebuster changes cache key but not transform operations" do
+    cached_entry = %ImagePlug.Cache.Entry{
+      body: "cached jpeg",
+      content_type: "image/jpeg",
+      headers: [],
+      created_at: DateTime.utc_now()
+    }
+
+    cache_probe = start_cache_probe()
+
+    first_conn =
+      conn(:get, "/_/cb:a/w:100/f:jpeg/plain/images/cat-300.jpg")
+      |> ImagePlug.call(
+        root_url: "http://origin.test",
+        parser: ImagePlug.Parser.Native,
+        cache: {CacheProbe, message_target: cache_probe, get_result: {:hit, cached_entry}},
+        origin_req_options: [plug: OriginShouldNotBeCalled]
+      )
+
+    flush_cache_probe(cache_probe)
+    assert first_conn.status == 200
+    assert_received {:cache_get, key_a}
+    refute_received :origin_was_called
+
+    cache_probe = start_cache_probe()
+
+    second_conn =
+      conn(:get, "/_/cb:b/w:100/f:jpeg/plain/images/cat-300.jpg")
+      |> ImagePlug.call(
+        root_url: "http://origin.test",
+        parser: ImagePlug.Parser.Native,
+        cache: {CacheProbe, message_target: cache_probe, get_result: {:hit, cached_entry}},
+        origin_req_options: [plug: OriginShouldNotBeCalled]
+      )
+
+    flush_cache_probe(cache_probe)
+    assert second_conn.status == 200
+    assert_received {:cache_get, key_b}
+    refute_received :origin_was_called
+
+    assert key_a.material[:pipelines] == key_b.material[:pipelines]
+    assert key_a.material[:cache] == [cachebuster: "a"]
+    assert key_b.material[:cache] == [cachebuster: "b"]
+    refute key_a.hash == key_b.hash
+  end
+
+  test "native automatic cache key normalizes equivalent raw Accept headers at cache boundary" do
+    cached_entry = %ImagePlug.Cache.Entry{
+      body: "cached avif",
+      content_type: "image/avif",
+      headers: [{"vary", "Accept"}],
+      created_at: DateTime.utc_now()
+    }
+
+    cache_probe = start_cache_probe()
+
+    first_conn =
+      :get
+      |> conn("/_/plain/images/cat-300.jpg")
+      |> put_req_header("accept", "image/webp;q=1,image/avif;q=0.1")
+      |> ImagePlug.call(
+        root_url: "http://origin.test",
+        parser: ImagePlug.Parser.Native,
+        cache: {CacheProbe, message_target: cache_probe, get_result: {:hit, cached_entry}},
+        origin_req_options: [plug: OriginShouldNotBeCalled]
+      )
+
+    flush_cache_probe(cache_probe)
+    assert first_conn.status == 200
+    assert_received {:cache_get, key_a}
+    refute_received :origin_was_called
+
+    cache_probe = start_cache_probe()
+
+    second_conn =
+      :get
+      |> conn("/_/plain/images/cat-300.jpg")
+      |> put_req_header("accept", "image/avif,image/webp")
+      |> ImagePlug.call(
+        root_url: "http://origin.test",
+        parser: ImagePlug.Parser.Native,
+        cache: {CacheProbe, message_target: cache_probe, get_result: {:hit, cached_entry}},
+        origin_req_options: [plug: OriginShouldNotBeCalled]
+      )
+
+    flush_cache_probe(cache_probe)
+    assert second_conn.status == 200
+    assert_received {:cache_get, key_b}
+    refute_received :origin_was_called
+
+    assert key_a.material[:output] == [
+             mode: :automatic,
+             modern_candidates: [:avif, :webp],
+             auto: [avif: true, webp: true],
+             quality: :default,
+             format_qualities: %{}
+           ]
+
+    refute inspect(key_a.material) =~ "image/webp"
+    refute inspect(key_a.material) =~ "image/avif"
+    assert key_a.material == key_b.material
+    assert key_a.hash == key_b.hash
+  end
+
+  test "native filename and disposition are excluded from cache key material at cache boundary" do
+    cached_entry = %ImagePlug.Cache.Entry{
+      body: "cached jpeg",
+      content_type: "image/jpeg",
+      headers: [],
+      created_at: DateTime.utc_now()
+    }
+
+    cache_probe = start_cache_probe()
+
+    first_conn =
+      conn(:get, "/_/w:100/f:jpeg/fn:one/att:true/plain/images/cat-300.jpg")
+      |> ImagePlug.call(
+        root_url: "http://origin.test",
+        parser: ImagePlug.Parser.Native,
+        cache: {CacheProbe, message_target: cache_probe, get_result: {:hit, cached_entry}},
+        origin_req_options: [plug: OriginShouldNotBeCalled]
+      )
+
+    flush_cache_probe(cache_probe)
+    assert first_conn.status == 200
+
+    assert get_resp_header(first_conn, "content-disposition") == [
+             ~s(attachment; filename="one.jpg"; filename*=UTF-8''one.jpg)
+           ]
+
+    assert_received {:cache_get, key_a}
+    refute_received :origin_was_called
+
+    cache_probe = start_cache_probe()
+
+    second_conn =
+      conn(:get, "/_/w:100/f:jpeg/fn:two/att:false/plain/images/cat-300.jpg")
+      |> ImagePlug.call(
+        root_url: "http://origin.test",
+        parser: ImagePlug.Parser.Native,
+        cache: {CacheProbe, message_target: cache_probe, get_result: {:hit, cached_entry}},
+        origin_req_options: [plug: OriginShouldNotBeCalled]
+      )
+
+    flush_cache_probe(cache_probe)
+    assert second_conn.status == 200
+
+    assert get_resp_header(second_conn, "content-disposition") == [
+             ~s(inline; filename="two.jpg"; filename*=UTF-8''two.jpg)
+           ]
+
+    assert_received {:cache_get, key_b}
+    refute_received :origin_was_called
+
+    refute Keyword.has_key?(key_a.material, :response)
+    assert key_a.material == key_b.material
+    assert key_a.hash == key_b.hash
+  end
+
   test "cache-miss memory encode failures are not cached and preserve automatic Vary" do
     cache_probe = start_cache_probe()
 
@@ -884,7 +1033,7 @@ defmodule ImagePlug.ImagePlugTest do
   end
 
   test "does not fetch origin when planner validation fails" do
-    conn = conn(:get, "/_/rs:auto:100:100/plain/images/cat-300.jpg")
+    conn = conn(:get, "/_/g:sm/plain/images/cat-300.jpg")
 
     conn =
       ImagePlug.call(conn,
@@ -912,7 +1061,7 @@ defmodule ImagePlug.ImagePlugTest do
     refute_received :origin_was_called
   end
 
-  test "returns an origin error for unsupported source kinds" do
+  test "returns a controlled response for unsupported source plans before origin" do
     conn = conn(:get, "/_/signed/images/cat-300.jpg")
 
     conn =
@@ -922,8 +1071,8 @@ defmodule ImagePlug.ImagePlugTest do
         origin_req_options: [plug: OriginShouldNotBeCalled]
       )
 
-    assert conn.status == 502
-    assert conn.resp_body == "error fetching origin image"
+    assert conn.status == 422
+    assert conn.resp_body == "invalid image transform"
     refute_received :origin_was_called
   end
 
@@ -1067,7 +1216,9 @@ defmodule ImagePlug.ImagePlugTest do
     assert_cache_get_output(
       mode: :automatic,
       modern_candidates: [:avif, :webp],
-      auto: [avif: true, webp: true]
+      auto: [avif: true, webp: true],
+      quality: :default,
+      format_qualities: %{}
     )
 
     refute_received :origin_was_called
@@ -1093,7 +1244,9 @@ defmodule ImagePlug.ImagePlugTest do
         [
           mode: :automatic,
           modern_candidates: [],
-          auto: [avif: true, webp: true]
+          auto: [avif: true, webp: true],
+          quality: :default,
+          format_qualities: %{}
         ] ->
           {:hit, cached_entry}
 
@@ -1117,7 +1270,9 @@ defmodule ImagePlug.ImagePlugTest do
     assert_cache_get_output(
       mode: :automatic,
       modern_candidates: [],
-      auto: [avif: true, webp: true]
+      auto: [avif: true, webp: true],
+      quality: :default,
+      format_qualities: %{}
     )
 
     refute_received :origin_was_called
@@ -1143,7 +1298,9 @@ defmodule ImagePlug.ImagePlugTest do
         [
           mode: :automatic,
           modern_candidates: [],
-          auto: [avif: false, webp: false]
+          auto: [avif: false, webp: false],
+          quality: :default,
+          format_qualities: %{}
         ] ->
           {:hit, cached_entry}
 
@@ -1169,7 +1326,9 @@ defmodule ImagePlug.ImagePlugTest do
     assert_cache_get_output(
       mode: :automatic,
       modern_candidates: [],
-      auto: [avif: false, webp: false]
+      auto: [avif: false, webp: false],
+      quality: :default,
+      format_qualities: %{}
     )
 
     refute_received :origin_was_called
@@ -1195,7 +1354,9 @@ defmodule ImagePlug.ImagePlugTest do
         [
           mode: :automatic,
           modern_candidates: [],
-          auto: [avif: false, webp: false]
+          auto: [avif: false, webp: false],
+          quality: :default,
+          format_qualities: %{}
         ] ->
           {:hit, cached_entry}
 
@@ -1221,7 +1382,9 @@ defmodule ImagePlug.ImagePlugTest do
     assert_cache_get_output(
       mode: :automatic,
       modern_candidates: [],
-      auto: [avif: false, webp: false]
+      auto: [avif: false, webp: false],
+      quality: :default,
+      format_qualities: %{}
     )
 
     refute_received :origin_was_called
@@ -1305,7 +1468,7 @@ defmodule ImagePlug.ImagePlugTest do
   end
 
   test "does not touch cache or origin when planner rejects unsupported semantics" do
-    conn = conn(:get, "/_/rs:auto:100:100/plain/images/cat-300.jpg")
+    conn = conn(:get, "/_/g:sm/plain/images/cat-300.jpg")
     cache_probe = start_cache_probe()
 
     conn =
@@ -1405,26 +1568,6 @@ defmodule ImagePlug.ImagePlugTest do
     assert conn.resp_body == "origin response is not a supported image"
     assert get_resp_header(conn, "content-type") == ["text/plain; charset=utf-8"]
     assert get_resp_header(conn, "vary") == ["Accept"]
-  end
-
-  test "invalid configured materializer returns a controlled configuration error" do
-    conn =
-      conn(:get, "/_/rt:force/w:100/plain/images/cat-300.jpg")
-      |> ImagePlug.call(
-        root_url: "http://origin.test",
-        image_open_module: RecordingImageOpen,
-        parser: ImagePlug.Parser.Native,
-        image_materializer: InvalidMaterializer,
-        origin_req_options: [plug: OriginImage]
-      )
-
-    assert_received {:image_open_options, opts}
-    assert Keyword.get(opts, :access) == :sequential
-    assert Keyword.get(opts, :fail_on) == :error
-    assert conn.status == 500
-    assert conn.state == :sent
-    assert conn.resp_body == "configuration error"
-    assert get_resp_header(conn, "content-type") == ["text/plain; charset=utf-8"]
   end
 
   test "deferred automatic sequential materialization failure returns decode error" do

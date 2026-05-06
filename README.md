@@ -10,7 +10,7 @@ Name not final!
 
 ## Native Path API
 
-ImagePlug's native API uses path-oriented URLs:
+ImagePlug's native API uses path-oriented and declarative URLs:
 
 ```text
 /<signature>[/<option>...]/plain/<origin_path>
@@ -27,6 +27,8 @@ For local development, the signature segment can be `_` or `unsafe`:
 /_/rs:fill:300:300/plain/images/cat-300.jpg@webp
 ```
 
+The Native grammar accepts selected imgproxy-compatible option names as ImagePlug's own path grammar. Compatibility ends at parsing and planning: runtime, cache, output, and transform code consume product-neutral `ImagePlug.Plan` data.
+
 Options are declarative. Their order in the URL does not define processing order:
 
 ```text
@@ -36,7 +38,11 @@ Options are declarative. Their order in the URL does not define processing order
 
 Both URLs describe the same requested output. ImagePlug owns the fixed processing pipeline so it can optimize origin loading, resize, crop, and output encoding over time.
 
-When multiple options assign the same normalized field, ImagePlug follows imgproxy-style assignment order: later assignments win. For example, `w:100/width:200` normalizes to width `200`, while `width:200/w:100` normalizes to width `100`. This affects request normalization only; it does not change transform execution order.
+When multiple options assign the same canonical field, later assignments win. For example, `w:100/width:200` normalizes to width `200`, while `width:200/w:100` normalizes to width `100`. This affects request normalization only; it does not change transform execution order.
+
+For the complete user-facing URL reference, see [Native Path API](docs/native_path_api.md).
+
+For parser and dialect-author guidance on mapping URL concepts to product-neutral transform operations, see [Transform Operations](docs/transform_operations.md).
 
 ### Options
 
@@ -51,11 +57,49 @@ width:%width
 w:%width
 height:%height
 h:%height
+min-width:%width
+mw:%width
+min-height:%height
+mh:%height
+zoom:%x:%y
+z:%x:%y
+dpr:%ratio
+enlarge:%boolean
+el:%boolean
+extend:%boolean
+ex:%boolean
+extend_aspect_ratio:%width:%height
+extend_ar:%width:%height
+exar:%width:%height
 gravity:%type:%x_offset:%y_offset
 g:%type:%x_offset:%y_offset
+crop:%width:%height:%gravity:%x_offset:%y_offset
+c:%width:%height:%gravity:%x_offset:%y_offset
+auto_rotate:%boolean
+ar:%boolean
+rotate:%angle
+rot:%angle
+flip:%horizontal:%vertical
+flip:%horizontal
+flip
+fl:%horizontal:%vertical
+fl:%horizontal
+fl
+quality:%quality
+q:%quality
+format_quality:%format:%quality
+fq:%format:%quality
 format:%extension
 f:%extension
 ext:%extension
+cachebuster:%value
+cb:%value
+expires:%unix_seconds
+exp:%unix_seconds
+filename:%name:%encoded
+fn:%name:%encoded
+return_attachment:%boolean
+att:%boolean
 plain source @extension
 ```
 
@@ -63,11 +107,17 @@ Recognized resizing types are `fit`, `fill`, `force`, `auto`, and `fill-down`. `
 
 Supported gravity values are the imgproxy compass anchors, `ce`, `no`, `so`, `ea`, `we`, `noea`, `nowe`, `soea`, `sowe`, focal point `fp:%x:%y`, and smart gravity `sm`. Smart gravity parses but is not planned in this slice.
 
+`quality` and `format_quality` configure output encoding. `cachebuster` changes cache key material. `expires` is request validity policy. `filename` and `return_attachment` configure response delivery. These options are not transforms and do not add image pipeline operations.
+
 Supported explicit output extensions are `webp`, `avif`, `jpeg`, `jpg`, `png`, and `best`. `jpg` normalizes to JPEG. `best` parses but is not planned in this slice.
+
+Dropped imgproxy options for this slice, including `raw`, `max_bytes`, `max_src_resolution`, `max_src_file_size`, and `crop_aspect_ratio`, are not accepted by the Native grammar.
 
 The first `plain` segment terminates option parsing. Later path segments are treated as the origin path, even if they look like options.
 
 Omitting an explicit output format enables automatic output selection. ImagePlug defaults automatic AVIF and WebP selection to enabled. `Accept` is used to detect optional modern format support; if no enabled modern format is detected, ImagePlug uses the source image format. Automatic output responses use `Vary: Accept`. Explicit `format`, `f`, `ext`, and plain-source `@extension` bypass `Accept` negotiation and do not set `Vary: Accept`.
+
+Native emits `Content-Disposition` for successful image responses. When `filename` is omitted, Native derives a filename stem from the source path before response sending appends the resolved output extension. `return_attachment:true` emits an attachment disposition, `return_attachment:false` emits inline, and omission uses the configured default disposition.
 
 ## Usage example
 

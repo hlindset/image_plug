@@ -52,7 +52,13 @@ defmodule ImagePlug.Cache.KeyPropertyTest do
             ]
           ]
         ],
-        output: [mode: :explicit, format: :webp],
+        output: [
+          mode: :explicit,
+          format: :webp,
+          quality: :default,
+          format_qualities: %{}
+        ],
+        cache: [cachebuster: nil],
         selected_headers: [],
         selected_cookies: []
       ]
@@ -60,7 +66,13 @@ defmodule ImagePlug.Cache.KeyPropertyTest do
       material_two = [
         selected_cookies: [],
         selected_headers: [],
-        output: [format: :webp, mode: :explicit],
+        output: [
+          format_qualities: %{},
+          quality: :default,
+          format: :webp,
+          mode: :explicit
+        ],
+        cache: [cachebuster: nil],
         pipelines: [
           [
             [
@@ -144,6 +156,33 @@ defmodule ImagePlug.Cache.KeyPropertyTest do
 
       refute build_key!(conn, one_pipeline, origin).hash ==
                build_key!(conn, two_pipelines, origin).hash
+    end
+  end
+
+  property "cachebuster changes cache keys without changing pipeline material" do
+    check all cachebuster_a <- string(:alphanumeric, min_length: 1, max_length: 24),
+              cachebuster_b <- string(:alphanumeric, min_length: 1, max_length: 24),
+              cachebuster_a != cachebuster_b,
+              max_runs: 100 do
+      conn = conn(:get, "/_/plain/images/cat.jpg")
+      origin = "https://origin.test/images/cat.jpg"
+
+      key_a =
+        build_key!(
+          conn,
+          plan(cache: %ImagePlug.Plan.Cache{cachebuster: cachebuster_a}),
+          origin
+        )
+
+      key_b =
+        build_key!(
+          conn,
+          plan(cache: %ImagePlug.Plan.Cache{cachebuster: cachebuster_b}),
+          origin
+        )
+
+      assert key_a.material[:pipelines] == key_b.material[:pipelines]
+      refute key_a.hash == key_b.hash
     end
   end
 
@@ -296,10 +335,18 @@ defmodule ImagePlug.Cache.KeyPropertyTest do
               do: [
                 mode: :automatic,
                 modern_candidates: [:avif, :webp],
-                auto: [avif: true, webp: true]
+                auto: [avif: true, webp: true],
+                quality: :default,
+                format_qualities: %{}
               ],
-              else: [mode: :explicit, format: output]
+              else: [
+                mode: :explicit,
+                format: output,
+                quality: :default,
+                format_qualities: %{}
+              ]
             ),
+          cache: [cachebuster: nil],
           selected_headers: [],
           selected_cookies: []
         ]

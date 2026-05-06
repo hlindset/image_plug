@@ -4,8 +4,13 @@ defmodule ImagePlug.Plan.Output do
   """
 
   @enforce_keys [:mode]
-  defstruct @enforce_keys
+  defstruct mode: :automatic, quality: :default, format_qualities: %{}
 
   @type format :: :avif | :webp | :jpeg | :png
-  @type t :: %__MODULE__{mode: :automatic | {:explicit, format()}}
+  @type quality :: :default | {:quality, 1..100}
+  @type t :: %__MODULE__{
+          mode: :automatic | {:explicit, format()},
+          quality: quality(),
+          format_qualities: %{optional(format()) => quality()}
+        }
 end

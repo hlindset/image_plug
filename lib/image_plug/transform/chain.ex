@@ -1,5 +1,12 @@
 defmodule ImagePlug.Transform.Chain do
-  @moduledoc false
+  @moduledoc """
+  Executes ordered transform operation chains.
+
+  A chain is the ordered list of product-neutral operation structs already
+  selected by parser or planner code. Execution proceeds left to right through
+  `ImagePlug.Transform` and stops at the first operation that records an error
+  in `ImagePlug.Transform.State`.
+  """
 
   require Logger
 

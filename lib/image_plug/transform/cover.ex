@@ -1,5 +1,72 @@
 defmodule ImagePlug.Transform.Cover do
-  @moduledoc false
+  @moduledoc """
+  Represents a product-neutral cover operation that scales image content to
+  cover a requested box or aspect ratio and crops overflow from the result.
+
+  ## Construct When
+
+  Construct `Cover` when parser or planner code needs one operation that
+  preserves aspect ratio, ensures the image covers the target geometry, and
+  crops the result around the current transform focus. `Cover` is an exported
+  standalone operation, not an implementation detail of `Resize`.
+
+  Prefer `Resize` plus a separate result `Crop` when a planner needs the newer
+  dimension-rule model or must represent resize and crop as distinct planned
+  operations. A future dialect parser may choose `Cover` directly when the
+  dialect exposes cover semantics as a single reusable operation.
+
+  ## Fields
+
+  For `type: :dimensions`, these fields are required:
+
+  - `width`: positive length or `:auto`.
+  - `height`: positive length or `:auto`.
+  - `constraint`: `:none`, `:min`, or `:max`.
+
+  At least one dimension must be a positive length; `width: :auto` with
+  `height: :auto` is rejected. Positive lengths may be numbers,
+  `{:pixels, value}`, `{:percent, value}`, `{:scale, value}`, or
+  `{:scale, numerator, denominator}` with positive numeric values and a
+  positive denominator.
+
+  For `type: :ratio`, `ratio` is required and must be `{width, height}` with
+  positive numeric values.
+
+  ## Execution Semantics
+
+  `execute/2` resolves the requested crop size against the current
+  `ImagePlug.Transform.State` image dimensions, computes the smallest
+  aspect-preserving resize that covers that crop size, and applies
+  `constraint`.
+
+  `constraint: :none` always scales to the cover size. `:min` scales only when
+  the cover size would enlarge at least one axis. `:max` scales only when the
+  cover size would shrink at least one axis.
+
+  After scaling, the operation crops the image to the requested size, clamped to
+  the resized image bounds. The crop is centered on the current transform focus,
+  which may have been set by an earlier `Focus` operation, and the crop origin
+  is clamped so the rectangle remains inside the image.
+
+  On success, the cropped image is stored in state and focus is reset. Image
+  processing failures are added to state as `{ImagePlug.Transform.Cover,
+  error}`.
+
+  ## Decode Planning Metadata
+
+  `metadata/1` returns `%{access: :random}` for every `Cover` operation. Cover
+  requires random access because execution may crop any bounded rectangle from
+  the resized image and may depend on focus state.
+
+  ## Examples
+
+      cover = %ImagePlug.Transform.Cover{
+        type: :dimensions,
+        width: {:pixels, 1200},
+        height: {:pixels, 630},
+        constraint: :none
+      }
+  """
 
   @behaviour ImagePlug.Transform
 
@@ -7,6 +74,7 @@ defmodule ImagePlug.Transform.Cover do
   import ImagePlug.Transform.Geometry
 
   alias ImagePlug.Transform.State
+  alias ImagePlug.Transform.Validation
 
   @doc """
   The parsed operation used by `ImagePlug.Transform.Cover`.
@@ -32,24 +100,34 @@ defmodule ImagePlug.Transform.Cover do
             }
 
   @impl ImagePlug.Transform
-  def new(attrs) do
-    {:ok, new!(attrs)}
-  rescue
-    exception in [ArgumentError, KeyError] ->
-      {:error, exception}
-  end
-
-  @impl ImagePlug.Transform
-  def new!(%__MODULE__{} = operation), do: operation
-
-  def new!(attrs) when is_list(attrs) or is_map(attrs) do
-    attrs
-    |> validate_attrs!()
-    |> then(&struct!(__MODULE__, &1))
-  end
-
-  @impl ImagePlug.Transform
   def name(%__MODULE__{}), do: :cover
+
+  @impl ImagePlug.Transform
+  def validate(%__MODULE__{
+        type: :dimensions,
+        ratio: nil,
+        width: width,
+        height: height,
+        constraint: constraint
+      }) do
+    with :ok <- Validation.positive_dimension_pair("cover", width, height) do
+      Validation.one_of("cover", :constraint, constraint, [:none, :min, :max])
+    end
+  end
+
+  def validate(%__MODULE__{
+        type: :ratio,
+        ratio: ratio,
+        width: nil,
+        height: nil,
+        constraint: nil
+      }) do
+    Validation.ratio("cover", :ratio, ratio)
+  end
+
+  def validate(%__MODULE__{type: type}) do
+    {:error, ArgumentError.exception("invalid cover type: #{inspect(type)}")}
+  end
 
   @impl ImagePlug.Transform
   def metadata(%__MODULE__{}), do: %{access: :random}
@@ -189,72 +267,4 @@ defmodule ImagePlug.Transform.Cover do
       {:error, _reason} = error -> error
     end
   end
-
-  defp validate_attrs!(attrs) do
-    attrs = Map.new(attrs)
-
-    case Map.fetch!(attrs, :type) do
-      :dimensions ->
-        validate_keys!(attrs, [:type, :width, :height, :constraint])
-        width = Map.fetch!(attrs, :width)
-        height = Map.fetch!(attrs, :height)
-        validate_dimension_pair!(width, height)
-        validate_constraint!(Map.fetch!(attrs, :constraint))
-        attrs
-
-      :ratio ->
-        validate_keys!(attrs, [:type, :ratio])
-        validate_ratio!(Map.fetch!(attrs, :ratio))
-        attrs
-
-      type ->
-        raise ArgumentError, "invalid cover type: #{inspect(type)}"
-    end
-  end
-
-  defp validate_keys!(attrs, allowed_keys) do
-    unknown_keys = Map.keys(attrs) -- allowed_keys
-
-    if unknown_keys != [] do
-      keys = unknown_keys |> Enum.sort_by(&inspect/1) |> Enum.map_join(", ", &inspect/1)
-      raise ArgumentError, "unknown cover option(s): #{keys}"
-    end
-  end
-
-  defp validate_dimension_pair!(width, height) do
-    validate_dimension_or_auto!(:width, width)
-    validate_dimension_or_auto!(:height, height)
-
-    if width == :auto and height == :auto do
-      raise ArgumentError, "invalid cover dimensions: width and height cannot both be :auto"
-    end
-  end
-
-  defp validate_dimension_or_auto!(_field, :auto), do: :ok
-
-  defp validate_dimension_or_auto!(field, value), do: validate_dimension!(field, value)
-
-  defp validate_dimension!(_field, value) when is_number(value) and value > 0, do: :ok
-  defp validate_dimension!(_field, {:pixels, value}) when is_number(value) and value > 0, do: :ok
-  defp validate_dimension!(_field, {:percent, value}) when is_number(value) and value > 0, do: :ok
-  defp validate_dimension!(_field, {:scale, value}) when is_number(value) and value > 0, do: :ok
-
-  defp validate_dimension!(_field, {:scale, numerator, denominator})
-       when is_number(numerator) and is_number(denominator) and numerator > 0 and denominator > 0,
-       do: :ok
-
-  defp validate_dimension!(field, value),
-    do: raise(ArgumentError, "invalid cover #{field}: #{inspect(value)}")
-
-  defp validate_ratio!({width, height})
-       when is_number(width) and is_number(height) and width > 0 and height > 0,
-       do: :ok
-
-  defp validate_ratio!(ratio),
-    do: raise(ArgumentError, "invalid cover ratio: #{inspect(ratio)}")
-
-  defp validate_constraint!(constraint) when constraint in [:none, :min, :max], do: :ok
-
-  defp validate_constraint!(constraint),
-    do: raise(ArgumentError, "invalid cover constraint: #{inspect(constraint)}")
 end
