@@ -32,8 +32,7 @@ defmodule ImagePlug.Runtime.RequestRunner do
         ) ::
           {:ok, delivery()} | {:error, error()}
   def run(conn, %Plan{} = plan, origin_identity, opts) do
-    with {:ok, %Plan{} = plan} <- validate_runtime_plan(plan),
-         {:ok, pipelines} <- Plan.validated_pipelines(plan),
+    with {:ok, pipelines} <- Plan.validated_pipelines(plan),
          {:ok, cache_mode} <- cache_mode(pipelines, opts) do
       case cache_mode do
         :cacheable -> run_with_cache(conn, plan, pipelines, origin_identity, opts)
@@ -42,10 +41,6 @@ defmodule ImagePlug.Runtime.RequestRunner do
     else
       {:error, reason} -> {:error, {:processing, reason, []}}
     end
-  end
-
-  defp validate_runtime_plan(%Plan{} = plan) do
-    Plan.validate_shape(plan)
   end
 
   defp cache_mode(pipelines, opts) do

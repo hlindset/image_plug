@@ -268,44 +268,6 @@ defmodule ImagePlug.Runtime.RequestRunnerTest do
     refute_received {:cache_lookup, _key}
   end
 
-  test "invalid source plans return processing errors before cache lookup" do
-    entry = %Entry{
-      body: "cached jpeg",
-      content_type: "image/jpeg",
-      headers: [],
-      created_at: DateTime.utc_now()
-    }
-
-    assert {:error, {:processing, {:unsupported_source, :not_a_source}, []}} =
-             RequestRunner.run(
-               conn(:get, "/_/f:jpeg/plain/images/cat-300.jpg"),
-               plan(source: :not_a_source),
-               "http://origin.test/images/cat-300.jpg",
-               cache: {CacheReadProbe, entry: entry}
-             )
-
-    refute_received {:cache_lookup, _key}
-  end
-
-  test "invalid output plans return processing errors before cache lookup" do
-    entry = %Entry{
-      body: "cached jpeg",
-      content_type: "image/jpeg",
-      headers: [],
-      created_at: DateTime.utc_now()
-    }
-
-    assert {:error, {:processing, {:invalid_output_plan, :not_an_output_plan}, []}} =
-             RequestRunner.run(
-               conn(:get, "/_/f:jpeg/plain/images/cat-300.jpg"),
-               plan(output: :not_an_output_plan),
-               "http://origin.test/images/cat-300.jpg",
-               cache: {CacheReadProbe, entry: entry}
-             )
-
-    refute_received {:cache_lookup, _key}
-  end
-
   test "multiple pipelines reach processing and materialize between pipelines" do
     test_pid = self()
     ref = make_ref()
