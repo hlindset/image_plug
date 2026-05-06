@@ -25,6 +25,8 @@ For each task:
 7. Run the focused command listed in the task. Use `mise exec -- ...` exactly.
 8. Commit the task before starting the next task.
 
+Tasks 4, 5, and 6 are module-documentation tasks and may run implementer subagents in parallel. Maximum concurrency is 2 implementers at a time. Parallel implementers must have disjoint file ownership exactly as listed in each task's parallel batches, and each implementer must know that other agents may be editing different files in the same worktree. After both implementers in a batch finish, run the task's focused command, then run the spec compliance reviewer and code quality reviewer over the combined task diff before committing.
+
 Do not open a PR from this documentation plan until all tasks and final verification pass.
 
 ---
@@ -471,7 +473,32 @@ git commit -m "docs: explain transform operation mapping"
 - Modify: `lib/image_plug/transform/geometry/dimension_resolver.ex`
 - Modify: `lib/image_plug/transform/geometry/crop_coordinate_mapper.ex`
 
-- [ ] **Step 1: Replace `@moduledoc false` with shared contract docs**
+- [ ] **Step 1: Dispatch parallel implementers for shared contracts**
+
+Use up to 2 implementer subagents in parallel.
+
+Batch A owns these files:
+
+- `lib/image_plug/transform.ex`
+- `lib/image_plug/transform/chain.ex`
+- `lib/image_plug/transform/decode_planner.ex`
+- `lib/image_plug/transform/materializer.ex`
+- `lib/image_plug/transform/state.ex`
+- `lib/image_plug/transform/material.ex`
+
+Batch B owns these files:
+
+- `lib/image_plug/transform/geometry/dimension_rule.ex`
+- `lib/image_plug/transform/geometry/dimension_resolver.ex`
+- `lib/image_plug/transform/geometry/crop_coordinate_mapper.ex`
+
+Tell both implementers:
+
+```text
+You are not alone in the codebase. Only edit your assigned files. Do not revert or reformat files owned by the other implementer. Keep docs product-neutral and do not reference parser-specific Native structs from shared transform contracts.
+```
+
+- [ ] **Step 2: Replace `@moduledoc false` with shared contract docs**
 
 For each shared module, write a concise `@moduledoc` with the module's role:
 
@@ -495,7 +522,7 @@ Adapt the exact wording per module:
 - `DimensionResolver`: runtime resolution of dimensions, min dimensions, zoom, DPR, and enlarge.
 - `CropCoordinateMapper`: semantic-to-physical crop coordinate mapping and rounding.
 
-- [ ] **Step 2: Run compile**
+- [ ] **Step 3: Run compile**
 
 Run:
 
@@ -505,7 +532,7 @@ mise exec -- mix compile --warnings-as-errors
 
 Expected: PASS.
 
-- [ ] **Step 3: Commit**
+- [ ] **Step 4: Commit**
 
 ```bash
 git add lib/image_plug/transform.ex lib/image_plug/transform/chain.ex lib/image_plug/transform/decode_planner.ex lib/image_plug/transform/materializer.ex lib/image_plug/transform/state.ex lib/image_plug/transform/material.ex lib/image_plug/transform/geometry/dimension_rule.ex lib/image_plug/transform/geometry/dimension_resolver.ex lib/image_plug/transform/geometry/crop_coordinate_mapper.ex
@@ -520,7 +547,27 @@ git commit -m "docs: document shared transform contracts"
 - Modify: `lib/image_plug/transform/crop.ex`
 - Modify: `lib/image_plug/transform/extend_canvas.ex`
 
-- [ ] **Step 1: Add required module doc sections to each module**
+- [ ] **Step 1: Dispatch parallel implementers for core operation docs**
+
+Use up to 2 implementer subagents in parallel.
+
+Batch A owns these files:
+
+- `lib/image_plug/transform/resize.ex`
+- `lib/image_plug/transform/adaptive_resize.ex`
+
+Batch B owns these files:
+
+- `lib/image_plug/transform/crop.ex`
+- `lib/image_plug/transform/extend_canvas.ex`
+
+Tell both implementers:
+
+```text
+You are not alone in the codebase. Only edit your assigned files. Do not revert or reformat files owned by the other implementer. Use the shared module-doc template and keep operation docs field-level and product-neutral. Native URL examples are allowed only when explicitly framed as parser translations.
+```
+
+- [ ] **Step 2: Add required module doc sections to each module**
 
 For each module, add these sections with module-specific content:
 
@@ -533,7 +580,7 @@ For each module, add these sections with module-specific content:
 - `## Cache Material`: exact keyword fields emitted by the module's `ImagePlug.Transform.Material` implementation.
 - `## Examples`: construction examples using `new/1` or `new!/1`.
 
-- [ ] **Step 2: Document `Resize`**
+- [ ] **Step 3: Document `Resize`**
 
 Cover:
 
@@ -543,7 +590,7 @@ Cover:
 - Sequential metadata for safe `:fit` and `:force` requests with requested dimensions.
 - Exact material fields from `lib/image_plug/transform/material/resize.ex`.
 
-- [ ] **Step 3: Document `AdaptiveResize`**
+- [ ] **Step 4: Document `AdaptiveResize`**
 
 Cover:
 
@@ -553,7 +600,7 @@ Cover:
 - Delegation to `Resize.execute/2`.
 - Exact material fields from `lib/image_plug/transform/material/adaptive_resize.ex`.
 
-- [ ] **Step 4: Document `Crop`**
+- [ ] **Step 5: Document `Crop`**
 
 Cover:
 
@@ -564,7 +611,7 @@ Cover:
 - Orientation context and crop coordinate mapper behavior.
 - Exact material fields from `lib/image_plug/transform/material/crop.ex`.
 
-- [ ] **Step 5: Document `ExtendCanvas`**
+- [ ] **Step 6: Document `ExtendCanvas`**
 
 Cover:
 
@@ -573,7 +620,7 @@ Cover:
 - Random decode metadata.
 - Exact material fields from `lib/image_plug/transform/material/extend_canvas.ex`.
 
-- [ ] **Step 6: Run focused transform tests**
+- [ ] **Step 7: Run focused transform tests**
 
 Run:
 
@@ -583,7 +630,7 @@ mise exec -- mix test test/image_plug/transform/material_test.exs test/image_plu
 
 Expected: PASS.
 
-- [ ] **Step 7: Commit**
+- [ ] **Step 8: Commit**
 
 ```bash
 git add lib/image_plug/transform/resize.ex lib/image_plug/transform/adaptive_resize.ex lib/image_plug/transform/crop.ex lib/image_plug/transform/extend_canvas.ex
@@ -601,7 +648,30 @@ git commit -m "docs: document core transform operations"
 - Modify: `lib/image_plug/transform/cover.ex`
 - Modify: `lib/image_plug/transform/focus.ex`
 
-- [ ] **Step 1: Document orientation operations**
+- [ ] **Step 1: Dispatch parallel implementers for remaining operation docs**
+
+Use up to 2 implementer subagents in parallel.
+
+Batch A owns these files:
+
+- `lib/image_plug/transform/auto_orient.ex`
+- `lib/image_plug/transform/rotate.ex`
+- `lib/image_plug/transform/flip.ex`
+
+Batch B owns these files:
+
+- `lib/image_plug/transform/scale.ex`
+- `lib/image_plug/transform/contain.ex`
+- `lib/image_plug/transform/cover.ex`
+- `lib/image_plug/transform/focus.ex`
+
+Tell both implementers:
+
+```text
+You are not alone in the codebase. Only edit your assigned files. Do not revert or reformat files owned by the other implementer. Preserve the distinction between Native planner behavior and product-neutral transform operation contracts.
+```
+
+- [ ] **Step 2: Document orientation operations**
 
 For `AutoOrient`, `Rotate`, and `Flip`, document:
 
@@ -611,7 +681,7 @@ For `AutoOrient`, `Rotate`, and `Flip`, document:
 - Decode metadata.
 - Exact material fields from the corresponding `lib/image_plug/transform/material/*.ex` files.
 
-- [ ] **Step 2: Document standalone resize-like operations**
+- [ ] **Step 3: Document standalone resize-like operations**
 
 For `Scale`, `Contain`, and `Cover`, document:
 
@@ -622,7 +692,7 @@ For `Scale`, `Contain`, and `Cover`, document:
 - Exact material fields.
 - When a future dialect parser may choose them directly.
 
-- [ ] **Step 3: Document `Focus`**
+- [ ] **Step 4: Document `Focus`**
 
 Document:
 
@@ -631,7 +701,7 @@ Document:
 - Future parsers may emit `Focus` when their dialect has a distinct focus operation.
 - Exact material fields from `lib/image_plug/transform/material/focus.ex`.
 
-- [ ] **Step 4: Run focused transform tests**
+- [ ] **Step 5: Run focused transform tests**
 
 Run:
 
@@ -641,7 +711,7 @@ mise exec -- mix test test/image_plug/transform/material_test.exs test/transform
 
 Expected: PASS.
 
-- [ ] **Step 5: Commit**
+- [ ] **Step 6: Commit**
 
 ```bash
 git add lib/image_plug/transform/auto_orient.ex lib/image_plug/transform/rotate.ex lib/image_plug/transform/flip.ex lib/image_plug/transform/scale.ex lib/image_plug/transform/contain.ex lib/image_plug/transform/cover.ex lib/image_plug/transform/focus.ex
