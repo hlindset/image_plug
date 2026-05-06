@@ -1,5 +1,106 @@
 defmodule ImagePlug.Transform.AdaptiveResize do
-  @moduledoc false
+  @moduledoc """
+  Represents a product-neutral resize operation whose fit-or-fill behavior is
+  selected at runtime from source image metadata.
+
+  ## Construct When
+
+  Construct this operation when parser or planner code needs auto resize
+  semantics where the requested target dimensions are known but the final mode
+  depends on the source image orientation. Use `ImagePlug.Transform.Resize`
+  when the mode is already known at planning time.
+
+  A parser may translate a Native auto-resize request into `AdaptiveResize`
+  when the request should choose fill for matching source and target
+  orientations and fit otherwise. The URL syntax is parser specific; the
+  operation itself is product-neutral.
+
+  ## Construction API
+
+  `new/1` accepts a keyword list, map, or `%AdaptiveResize{}` struct and
+  returns `{:ok, operation}` when the attrs are valid or `{:error, reason}`
+  when validation fails. `new!/1` accepts the same inputs and returns the
+  operation or raises for invalid attrs.
+
+  The only accepted attr is `:rule`.
+
+  ## Fields
+
+  `rule` is required and must be an
+  `ImagePlug.Transform.Geometry.DimensionRule` with `mode: :auto`.
+
+  Rule `width` and `height` may be `:auto` or non-negative pixel dimensions.
+  Runtime orientation comparison requires both dimensions to resolve to
+  concrete target pixels; if either side is `:auto`, the operation falls back
+  to fit behavior. Rule `min_width` and `min_height` may be `nil`, `:auto`, or
+  non-negative pixel dimensions. `zoom_x`, `zoom_y`, and `dpr` must be positive
+  numbers. `enlarge` must be a boolean.
+
+  ## Execution Semantics
+
+  `execute/2` compares the current source image orientation with the requested
+  target orientation. If both orientations match, including square-to-square,
+  the rule is changed to `mode: :fill`; otherwise it is changed to
+  `mode: :fit`. If the requested target orientation cannot be computed, the
+  operation chooses `:fit`.
+
+  The operation then delegates to the resize operation with the resolved rule,
+  so state updates, focus reset, no-op handling, and error recording follow
+  `Resize` semantics.
+
+  ## Decode Planning Metadata
+
+  `metadata/1` returns `%{access: :random}`. Adaptive resize must inspect the
+  source image dimensions before it can choose fit or fill behavior, so it is
+  not treated as a one-pass sequential decode candidate.
+
+  ## Cache Material
+
+  The `ImagePlug.Transform.Material` implementation emits this keyword shape:
+
+      [
+        op: :adaptive_resize,
+        rule: [
+          mode: rule.mode,
+          width: rule.width,
+          height: rule.height,
+          min_width: rule.min_width,
+          min_height: rule.min_height,
+          zoom_x: rule.zoom_x,
+          zoom_y: rule.zoom_y,
+          dpr: rule.dpr,
+          effective_dpr: :runtime_resolved,
+          enlarge: rule.enlarge
+        ]
+      ]
+
+  `effective_dpr` is materialized as `:runtime_resolved` because the effective
+  device-pixel ratio may depend on runtime source metadata.
+
+  ## Examples
+
+      alias ImagePlug.Transform.AdaptiveResize
+      alias ImagePlug.Transform.Geometry.DimensionRule
+
+      {:ok, adaptive_resize} =
+        AdaptiveResize.new(
+          rule: %DimensionRule{
+            mode: :auto,
+            width: {:pixels, 300},
+            height: {:pixels, 200}
+          }
+        )
+
+      fill_or_fit =
+        AdaptiveResize.new!(
+          rule: %DimensionRule{
+            mode: :auto,
+            width: {:pixels, 1200},
+            height: {:pixels, 800},
+            dpr: 2.0
+          }
+        )
+  """
 
   @behaviour ImagePlug.Transform
 

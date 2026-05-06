@@ -1,5 +1,161 @@
 defmodule ImagePlug.Transform.Crop do
-  @moduledoc false
+  @moduledoc """
+  Represents a product-neutral crop operation that selects a bounded rectangle
+  from the current image.
+
+  ## Construct When
+
+  Construct `Crop` when parser or planner code has a visible crop to apply to
+  the image. Use it for explicit crop requests, focus- or coordinate-based
+  crops, and result crops that trim an already resized image back to resolved
+  target geometry.
+
+  Native parser translations use explicit crops for `crop`/`c` request fields
+  and result crops after fill, fill-down, or auto resize planning. In that
+  translation layer, a crop-specific gravity overrides top-level gravity, while
+  an explicit crop without its own gravity inherits the top-level gravity before
+  this operation is constructed.
+
+  ## Construction API
+
+  `new/1` accepts a keyword list, map, or existing `%__MODULE__{}` and returns
+  `{:ok, operation}` when all fields are valid. Invalid attributes, missing
+  required fields, or unknown keys return `{:error, exception}`.
+
+  `new!/1` accepts the same inputs and returns an operation, raising
+  `ArgumentError` or `KeyError` for invalid attributes.
+
+  ## Fields
+
+  Required fields:
+
+  - `width`: crop width as a positive length or `:auto`.
+  - `height`: crop height as a positive length or `:auto`.
+  - `crop_from`: crop source, one of `:focus`, `:gravity`, or
+    `%{left: left, top: top}` with non-negative position lengths.
+
+  Optional fields:
+
+  - `gravity`: `nil`, an anchor tuple
+    `{:anchor, :left | :center | :right, :top | :center | :bottom}`, or a
+    focal point tuple `{:fp, x, y}` where `x` and `y` are normalized `0.0..1.0`
+    coordinates.
+  - `x_offset`: horizontal offset as a number, `{:pixels, value}`,
+    `{:scale, value}`, `{:scale, numerator, denominator}`, or
+    `{:percent, value}`. Defaults to `0.0`.
+  - `y_offset`: vertical offset using the same units as `x_offset`. Defaults
+    to `0.0`.
+  - `orientation`: `nil` or a map/struct with `auto_orient`, `rotate`, and
+    `flip` fields. `rotate` must be `0`, `90`, `180`, or `270`; `flip` may be
+    `nil`, `:none`, `:horizontal`, `:vertical`, or `:both`.
+  - `target_rule`: `nil` or an `ImagePlug.Transform.Geometry.DimensionRule`
+    with mode `:fit`, `:fill`, `:fill_down`, `:force`, or `:auto`. Result crops
+    use this rule to resolve crop dimensions from the current image.
+
+  Numeric length units are resolved against the current image dimensions during
+  execution. `:auto` crop dimensions resolve to the current image dimension on
+  that axis.
+
+  ## Execution Semantics
+
+  `execute/2` crops `ImagePlug.Transform.State.image`, stores the cropped image
+  back into the state, and resets focus. If coordinate mapping or image cropping
+  fails, execution records `{__MODULE__, reason}` in the state errors.
+
+  For `crop_from: :gravity`, execution resolves crop dimensions, defaulting
+  gravity to center when none is provided, and delegates rectangle mapping to
+  `ImagePlug.Transform.Geometry.CropCoordinateMapper`. Anchor gravity pins the
+  crop to an edge or center. Focal-point gravity centers the crop around a
+  normalized image point and clamps it into source bounds.
+
+  Result crops are represented as `crop_from: :gravity` with a `target_rule`.
+  The rule resolves the final crop size, including the effective DPR used by
+  resize planning. Pixel offsets are multiplied by that effective DPR during
+  coordinate mapping; scale and percent offsets are resolved relative to the
+  oriented source bounds.
+
+  For `crop_from: :focus`, execution centers the crop on
+  `ImagePlug.Transform.State.focus`. For coordinate crops, `crop_from` is the
+  requested top-left crop position before the rectangle is clamped to image
+  bounds.
+
+  The optional `orientation` context tells `CropCoordinateMapper` how to map
+  semantic crop coordinates through right-angle rotation and flip metadata
+  before returning physical source-image coordinates. Auto-orientation cannot be
+  mapped from metadata alone; parser translations that support auto-orient plus
+  crop should plan auto-orientation as an earlier operation before this crop.
+
+  ## Decode Planning Metadata
+
+  `metadata/1` returns `%{access: :random}`. Crops need random source access
+  because execution may read from any bounded rectangle rather than consuming
+  pixels safely in a single sequential pass.
+
+  ## Cache Material
+
+  For `crop_from: :gravity`, material emits:
+
+  - `:op`
+  - `:width`
+  - `:height`
+  - `:crop_from`
+  - `:gravity`
+  - `:x_offset`
+  - `:y_offset`
+  - `:orientation`
+
+  `:orientation` is a keyword list with `:auto_orient`, `:rotate`, and `:flip`;
+  `nil` orientation materializes as
+  `[auto_orient: false, rotate: 0, flip: nil]`.
+
+  When `target_rule` is present, material also emits `:target_rule` with:
+
+  - `:mode`
+  - `:width`
+  - `:height`
+  - `:min_width`
+  - `:min_height`
+  - `:zoom_x`
+  - `:zoom_y`
+  - `:dpr`
+  - `:enlarge`
+
+  For non-gravity crops, material emits only:
+
+  - `:op`
+  - `:width`
+  - `:height`
+  - `:crop_from`
+
+  ## Examples
+
+      {:ok, crop} =
+        ImagePlug.Transform.Crop.new(
+          width: {:pixels, 300},
+          height: {:pixels, 200},
+          crop_from: :gravity,
+          gravity: {:fp, 0.25, 0.75},
+          x_offset: {:scale, 0.1},
+          y_offset: {:pixels, -12}
+        )
+
+      result_crop =
+        ImagePlug.Transform.Crop.new!(
+          width: :auto,
+          height: :auto,
+          crop_from: :gravity,
+          gravity: {:anchor, :center, :center},
+          target_rule: %ImagePlug.Transform.Geometry.DimensionRule{
+            mode: :fill,
+            width: {:pixels, 300},
+            height: {:pixels, 200}
+          }
+        )
+
+  A Native parser translation for a crop request with focal-point gravity would
+  construct the same kind of `Crop` operation; the URL grammar and aliases stay
+  in the parser documentation.
+  """
 
   @behaviour ImagePlug.Transform
 

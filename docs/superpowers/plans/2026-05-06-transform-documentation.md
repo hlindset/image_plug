@@ -659,7 +659,7 @@ git commit -m "docs: document shared transform contracts"
 - Modify: `lib/image_plug/transform/crop.ex`
 - Modify: `lib/image_plug/transform/extend_canvas.ex`
 
-- [ ] **Step 1: Dispatch parallel implementers for core operation docs**
+- [x] **Step 1: Dispatch parallel implementers for core operation docs**
 
 Use up to 2 implementer subagents in parallel.
 
@@ -681,7 +681,7 @@ Tell both implementers:
 You are not alone in the codebase. Only edit your assigned files. Do not revert or reformat files owned by the other implementer. Use the shared module-doc template and keep operation docs field-level and product-neutral. Native URL examples are allowed only when explicitly framed as parser translations.
 ```
 
-- [ ] **Step 2: Add required module doc sections to each module**
+- [x] **Step 2: Add required module doc sections to each module**
 
 For each module, add these sections with module-specific content:
 
@@ -694,7 +694,7 @@ For each module, add these sections with module-specific content:
 - `## Cache Material`: exact keyword fields emitted by the module's `ImagePlug.Transform.Material` implementation.
 - `## Examples`: construction examples using `new/1` or `new!/1`.
 
-- [ ] **Step 3: Document `Resize`**
+- [x] **Step 3: Document `Resize`**
 
 Cover:
 
@@ -704,7 +704,7 @@ Cover:
 - Sequential metadata for safe `:fit` and `:force` requests with requested dimensions.
 - Exact material fields from `lib/image_plug/transform/material/resize.ex`.
 
-- [ ] **Step 4: Document `AdaptiveResize`**
+- [x] **Step 4: Document `AdaptiveResize`**
 
 Cover:
 
@@ -714,7 +714,7 @@ Cover:
 - Delegation to `Resize.execute/2`.
 - Exact material fields from `lib/image_plug/transform/material/adaptive_resize.ex`.
 
-- [ ] **Step 5: Document `Crop`**
+- [x] **Step 5: Document `Crop`**
 
 Cover:
 
@@ -725,7 +725,7 @@ Cover:
 - Orientation context and crop coordinate mapper behavior.
 - Exact material fields from `lib/image_plug/transform/material/crop.ex`.
 
-- [ ] **Step 6: Document `ExtendCanvas`**
+- [x] **Step 6: Document `ExtendCanvas`**
 
 Cover:
 
@@ -734,7 +734,7 @@ Cover:
 - Random decode metadata.
 - Exact material fields from `lib/image_plug/transform/material/extend_canvas.ex`.
 
-- [ ] **Step 7: Run focused transform tests**
+- [x] **Step 7: Run focused transform tests**
 
 Run:
 
@@ -744,7 +744,7 @@ mise exec -- mix test test/image_plug/transform/material_test.exs test/image_plu
 
 Expected: PASS.
 
-- [ ] **Step 8: Commit**
+- [x] **Step 8: Commit**
 
 ```bash
 git add lib/image_plug/transform/resize.ex lib/image_plug/transform/adaptive_resize.ex lib/image_plug/transform/crop.ex lib/image_plug/transform/extend_canvas.ex

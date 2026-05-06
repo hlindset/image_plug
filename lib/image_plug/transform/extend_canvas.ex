@@ -1,5 +1,112 @@
 defmodule ImagePlug.Transform.ExtendCanvas do
-  @moduledoc false
+  @moduledoc """
+  Represents a product-neutral canvas expansion operation that embeds the
+  current image into a same-size-or-larger canvas.
+
+  ## Construct When
+
+  Construct `ExtendCanvas` when parser or planner code needs letterboxing,
+  padding, or aspect-ratio canvas extension without changing the image content
+  scale. Use it after resize-like operations when the requested output box is
+  larger than the resized image, or when a dialect requests extension to a
+  target aspect ratio.
+
+  Native parser translations construct this operation for supported canvas
+  extension requests such as dimension extension and extend-aspect-ratio
+  requests. The URL option names remain parser concerns; this operation only
+  models the neutral canvas semantics.
+
+  ## Construction API
+
+  `new/1` accepts a keyword list, map, or existing `%__MODULE__{}` and returns
+  `{:ok, operation}` when all fields are valid. Invalid attributes, missing
+  required fields, or unknown keys return `{:error, exception}`.
+
+  `new!/1` accepts the same inputs and returns an operation, raising
+  `ArgumentError` or `KeyError` for invalid attributes.
+
+  ## Fields
+
+  Required fields:
+
+  - `rule`: either `{:dimensions, width, height}` or
+    `{:aspect_ratio, {ratio_width, ratio_height}}`.
+
+  Optional fields:
+
+  - `gravity`: an anchor tuple
+    `{:anchor, :left | :center | :right, :top | :center | :bottom}`. Defaults
+    to center.
+  - `x_offset`: numeric horizontal offset added after gravity placement.
+    Defaults to `0.0`.
+  - `y_offset`: numeric vertical offset added after gravity placement. Defaults
+    to `0.0`.
+  - `background`: background fill passed to `Image.embed/4`. Defaults to
+    `:white`; `:transparent` is converted to an RGBA transparent color.
+
+  Dimension rules accept non-negative numbers, `{:pixels, value}` with a
+  non-negative value, or `:auto` on each axis. Aspect-ratio rules require
+  positive numeric ratio components.
+
+  ## Execution Semantics
+
+  `execute/2` resolves the canvas size from `rule`, embeds
+  `ImagePlug.Transform.State.image` into that canvas, stores the embedded image
+  back into the state, and resets focus. If dimensions are invalid or embedding
+  fails, execution records `{__MODULE__, reason}` in the state errors.
+
+  For `{:dimensions, width, height}`, each requested dimension resolves against
+  the current image size. `:auto` keeps the current size on that axis. The final
+  canvas width and height are never smaller than the current image.
+
+  For `{:aspect_ratio, {ratio_width, ratio_height}}`, execution expands the
+  canvas on the needed axis so the final canvas has the requested ratio while
+  preserving the full current image. The image is not resampled by this
+  operation.
+
+  Gravity chooses the base image placement in the new canvas. Offsets are
+  rounded and added to that placement after gravity resolution, then passed to
+  image embedding.
+
+  ## Decode Planning Metadata
+
+  `metadata/1` returns `%{access: :random}`. Canvas extension needs the whole
+  current image available for embedding into a new canvas and is not treated as
+  safe for optimized sequential source decoding.
+
+  ## Cache Material
+
+  Material emits these exact keyword fields:
+
+  - `:op`
+  - `:rule`
+  - `:gravity`
+  - `:x_offset`
+  - `:y_offset`
+  - `:background`
+
+  ## Examples
+
+      {:ok, canvas} =
+        ImagePlug.Transform.ExtendCanvas.new(
+          rule: {:dimensions, {:pixels, 400}, {:pixels, 300}},
+          gravity: {:anchor, :center, :center},
+          x_offset: 0.0,
+          y_offset: 0.0
+        )
+
+      aspect_canvas =
+        ImagePlug.Transform.ExtendCanvas.new!(
+          rule: {:aspect_ratio, {16, 9}},
+          gravity: {:anchor, :right, :bottom},
+          x_offset: -8.0,
+          y_offset: -4.0,
+          background: :transparent
+        )
+
+  A Native parser translation for extend-aspect-ratio syntax would construct an
+  `ExtendCanvas` operation with an `{:aspect_ratio, ratio}` rule.
+  """
 
   @behaviour ImagePlug.Transform
 
