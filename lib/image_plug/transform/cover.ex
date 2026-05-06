@@ -58,26 +58,6 @@ defmodule ImagePlug.Transform.Cover do
   requires random access because execution may crop any bounded rectangle from
   the resized image and may depend on focus state.
 
-  ## Cache Material
-
-  For `type: :ratio`, material emits:
-
-      [
-        op: :cover,
-        type: operation.type,
-        ratio: operation.ratio
-      ]
-
-  For `type: :dimensions`, material emits:
-
-      [
-        op: :cover,
-        type: operation.type,
-        width: operation.width,
-        height: operation.height,
-        constraint: operation.constraint
-      ]
-
   ## Examples
 
       cover = %ImagePlug.Transform.Cover{

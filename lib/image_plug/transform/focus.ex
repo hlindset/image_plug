@@ -47,15 +47,6 @@ defmodule ImagePlug.Transform.Focus do
   dimensions to resolve coordinate focus and is intentionally not treated as a
   one-pass sequential decode candidate.
 
-  ## Cache Material
-
-  Material emits:
-
-      [
-        op: :focus,
-        type: operation.type
-      ]
-
   ## Examples
 
       focus = %ImagePlug.Transform.Focus{

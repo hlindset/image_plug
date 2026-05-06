@@ -57,25 +57,6 @@ defmodule ImagePlug.Transform.Scale do
   This conservative metadata keeps one-pass sequential decoding limited to the
   dimension cases that are safe for this operation.
 
-  ## Cache Material
-
-  For `type: :ratio`, material emits:
-
-      [
-        op: :scale,
-        type: operation.type,
-        ratio: operation.ratio
-      ]
-
-  For `type: :dimensions`, material emits:
-
-      [
-        op: :scale,
-        type: operation.type,
-        width: operation.width,
-        height: operation.height
-      ]
-
   ## Examples
 
       scale = %ImagePlug.Transform.Scale{

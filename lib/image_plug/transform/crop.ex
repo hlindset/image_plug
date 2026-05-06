@@ -82,42 +82,6 @@ defmodule ImagePlug.Transform.Crop do
   because execution may read from any bounded rectangle rather than consuming
   pixels safely in a single sequential pass.
 
-  ## Cache Material
-
-  For `crop_from: :gravity`, material emits:
-
-  - `:op`
-  - `:width`
-  - `:height`
-  - `:crop_from`
-  - `:gravity`
-  - `:x_offset`
-  - `:y_offset`
-  - `:orientation`
-
-  `:orientation` is a keyword list with `:auto_orient`, `:rotate`, and `:flip`;
-  `nil` orientation materializes as
-  `[auto_orient: false, rotate: 0, flip: nil]`.
-
-  When `target_rule` is present, material also emits `:target_rule` with:
-
-  - `:mode`
-  - `:width`
-  - `:height`
-  - `:min_width`
-  - `:min_height`
-  - `:zoom_x`
-  - `:zoom_y`
-  - `:dpr`
-  - `:enlarge`
-
-  For non-gravity crops, material emits only:
-
-  - `:op`
-  - `:width`
-  - `:height`
-  - `:crop_from`
-
   ## Examples
 
       crop = %ImagePlug.Transform.Crop{

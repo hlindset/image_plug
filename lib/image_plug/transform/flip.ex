@@ -42,16 +42,6 @@ defmodule ImagePlug.Transform.Flip do
   optimized sequential source decoding because the transform may need the full
   decoded image to remap pixels.
 
-  ## Cache Material
-
-  The `ImagePlug.Transform.Material` implementation emits this exact keyword
-  shape:
-
-      [
-        op: :flip,
-        axis: operation.axis
-      ]
-
   ## Examples
 
       flip = %ImagePlug.Transform.Flip{axis: :horizontal}

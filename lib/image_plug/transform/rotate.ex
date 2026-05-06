@@ -43,16 +43,6 @@ defmodule ImagePlug.Transform.Rotate do
   optimized sequential source decoding because the transform may need the full
   decoded image to remap pixels and dimensions.
 
-  ## Cache Material
-
-  The `ImagePlug.Transform.Material` implementation emits this exact keyword
-  shape:
-
-      [
-        op: :rotate,
-        angle: operation.angle
-      ]
-
   ## Examples
 
       rotate = %ImagePlug.Transform.Rotate{angle: 90}

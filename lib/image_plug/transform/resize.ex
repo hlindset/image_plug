@@ -65,29 +65,6 @@ defmodule ImagePlug.Transform.Resize do
   rules without requested geometry return `%{access: :random}` because their
   final geometry depends on source metadata or later crop behavior.
 
-  ## Cache Material
-
-  The `ImagePlug.Transform.Material` implementation emits this keyword shape:
-
-      [
-        op: :resize,
-        rule: [
-          mode: rule.mode,
-          width: rule.width,
-          height: rule.height,
-          min_width: rule.min_width,
-          min_height: rule.min_height,
-          zoom_x: rule.zoom_x,
-          zoom_y: rule.zoom_y,
-          dpr: rule.dpr,
-          effective_dpr: :runtime_resolved,
-          enlarge: rule.enlarge
-        ]
-      ]
-
-  `effective_dpr` is materialized as `:runtime_resolved` because the effective
-  device-pixel ratio may depend on runtime source metadata.
-
   ## Examples
 
       alias ImagePlug.Transform.Geometry.DimensionRule

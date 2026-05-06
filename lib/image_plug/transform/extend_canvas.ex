@@ -65,17 +65,6 @@ defmodule ImagePlug.Transform.ExtendCanvas do
   current image available for embedding into a new canvas and is not treated as
   safe for optimized sequential source decoding.
 
-  ## Cache Material
-
-  Material emits these exact keyword fields:
-
-  - `:op`
-  - `:rule`
-  - `:gravity`
-  - `:x_offset`
-  - `:y_offset`
-  - `:background`
-
   ## Examples
 
       canvas = %ImagePlug.Transform.ExtendCanvas{

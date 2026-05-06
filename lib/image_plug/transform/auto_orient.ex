@@ -39,15 +39,6 @@ defmodule ImagePlug.Transform.AutoOrient do
   an arbitrary crop rectangle, result crop, canvas expansion, or other
   random-access geometry during decode planning.
 
-  ## Cache Material
-
-  The `ImagePlug.Transform.Material` implementation emits this exact keyword
-  shape:
-
-      [
-        op: :auto_orient
-      ]
-
   ## Examples
 
       auto_orient = %ImagePlug.Transform.AutoOrient{}

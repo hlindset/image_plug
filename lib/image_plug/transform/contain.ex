@@ -64,28 +64,6 @@ defmodule ImagePlug.Transform.Contain do
   return `%{access: :random}` because they require source geometry inspection,
   conditional behavior, or canvas embedding.
 
-  ## Cache Material
-
-  For `type: :ratio`, material emits:
-
-      [
-        op: :contain,
-        type: operation.type,
-        ratio: operation.ratio,
-        letterbox: operation.letterbox
-      ]
-
-  For `type: :dimensions`, material emits:
-
-      [
-        op: :contain,
-        type: operation.type,
-        width: operation.width,
-        height: operation.height,
-        constraint: operation.constraint,
-        letterbox: operation.letterbox
-      ]
-
   ## Examples
 
       contain = %ImagePlug.Transform.Contain{

@@ -45,29 +45,6 @@ defmodule ImagePlug.Transform.AdaptiveResize do
   source image dimensions before it can choose fit or fill behavior, so it is
   not treated as a one-pass sequential decode candidate.
 
-  ## Cache Material
-
-  The `ImagePlug.Transform.Material` implementation emits this keyword shape:
-
-      [
-        op: :adaptive_resize,
-        rule: [
-          mode: rule.mode,
-          width: rule.width,
-          height: rule.height,
-          min_width: rule.min_width,
-          min_height: rule.min_height,
-          zoom_x: rule.zoom_x,
-          zoom_y: rule.zoom_y,
-          dpr: rule.dpr,
-          effective_dpr: :runtime_resolved,
-          enlarge: rule.enlarge
-        ]
-      ]
-
-  `effective_dpr` is materialized as `:runtime_resolved` because the effective
-  device-pixel ratio may depend on runtime source metadata.
-
   ## Examples
 
       alias ImagePlug.Transform.AdaptiveResize
