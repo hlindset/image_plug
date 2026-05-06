@@ -150,7 +150,7 @@ defmodule ImagePlug.Parser.Native.PlanBuilderTest do
              )
 
     assert [%Transform.Resize{}, %Transform.Crop{} = crop] = operations
-    assert crop.gravity == {:fp, 0.25, 0.75}
+    assert %Transform.Crop{gravity: {:fp, 0.25, 0.75}} = crop
 
     assert {:ok, %Plan{pipelines: [%Pipeline{operations: operations}]}} =
              plan_pipeline(
@@ -210,6 +210,7 @@ defmodule ImagePlug.Parser.Native.PlanBuilderTest do
     assert resize.rule.mode == :force
     assert resize.rule.width == :auto
     assert resize.rule.height == {:pixels, 200}
+    assert %Transform.Resize{rule: %{mode: :force, width: :auto, height: {:pixels, 200}}} = resize
 
     assert {:ok, %Plan{pipelines: [%Pipeline{operations: [%Transform.Resize{} = resize]}]}} =
              plan_pipeline(resizing_type: :force, width: {:pixels, 300}, height: {:pixels, 0})
@@ -311,6 +312,7 @@ defmodule ImagePlug.Parser.Native.PlanBuilderTest do
     assert crop.gravity == {:anchor, :right, :bottom}
     assert crop.x_offset == {:pixels, -12.0}
     assert crop.y_offset == {:scale, 0.25}
+    assert %Transform.Crop{x_offset: {:pixels, -12.0}, y_offset: {:scale, 0.25}} = crop
   end
 
   test "scales absolute top-level gravity offsets by dpr" do
@@ -426,6 +428,26 @@ defmodule ImagePlug.Parser.Native.PlanBuilderTest do
              Enum.map(two_ops, &ImagePlug.Transform.transform_name/1)
 
     assert Enum.map(one_ops, &ImagePlug.Transform.transform_name/1) == [:rotate, :crop, :resize]
+
+    assert {:ok, %Plan{pipelines: [%Pipeline{operations: operations}]}} =
+             plan_pipeline(
+               auto_orient: true,
+               rotate: 90,
+               flip: :horizontal,
+               crop: %ImagePlug.Parser.Native.CropRequest{
+                 width: {:pixels, 100},
+                 height: {:pixels, 100}
+               },
+               width: {:pixels, 200}
+             )
+
+    assert Enum.map(operations, &ImagePlug.Transform.transform_name/1) == [
+             :auto_orient,
+             :rotate,
+             :flip,
+             :crop,
+             :resize
+           ]
   end
 
   test "planner emits fixed fill result crop before canvas extension" do

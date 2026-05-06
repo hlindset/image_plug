@@ -465,7 +465,7 @@ git commit -m "docs: describe native path api"
 - Modify: `docs/transform_operations.md`
 - Modify: `test/parser/native/plan_builder_test.exs`
 
-- [ ] **Step 1: Document request flow and ordering**
+- [x] **Step 1: Document request flow and ordering**
 
 Add:
 
@@ -475,7 +475,7 @@ Parser syntax is translated into parser-owned request structs, then into `ImageP
 Native URLs are declarative; Native planner code emits operations in Native canonical order. Other dialects may have order-sensitive semantics. When the ordered semantics map cleanly, emit an ordered `ImagePlug.Plan`; otherwise keep dialect-specific quirks isolated in the parser/adapter layer.
 ```
 
-- [ ] **Step 2: Document non-transform request fields**
+- [x] **Step 2: Document non-transform request fields**
 
 Add a section named `Request Fields That Are Not Transform Operations` with:
 
@@ -489,7 +489,7 @@ Add a section named `Request Fields That Are Not Transform Operations` with:
 - attachment disposition
 ```
 
-- [ ] **Step 3: Document exported operation catalog**
+- [x] **Step 3: Document exported operation catalog**
 
 List every exported operation module with one-sentence purpose:
 
@@ -507,7 +507,7 @@ List every exported operation module with one-sentence purpose:
 - `ImagePlug.Transform.Cover`: standalone cover operation.
 ```
 
-- [ ] **Step 4: Document resize-like taxonomy**
+- [x] **Step 4: Document resize-like taxonomy**
 
 Add:
 
@@ -517,7 +517,7 @@ Use `Resize` when the resize mode is known at planning time. Use `AdaptiveResize
 `Scale`, `Contain`, and `Cover` remain exported standalone operations. Do not describe them as implementation details of `Resize`; document when parser authors should emit them directly versus using the newer `Resize` operation.
 ```
 
-- [ ] **Step 5: Document Native mapping examples**
+- [x] **Step 5: Document Native mapping examples**
 
 Add mapping examples and ensure they match current planner tests:
 
@@ -535,7 +535,7 @@ Add mapping examples and ensure they match current planner tests:
 | `extend:true/w:300/h:200` | `Resize`, `ExtendCanvas` |
 ```
 
-- [ ] **Step 6: Add or verify plan-shape tests**
+- [x] **Step 6: Add or verify plan-shape tests**
 
 Verify existing tests cover the mapping examples. Add missing assertions to `test/parser/native/plan_builder_test.exs` only when not already covered.
 
@@ -555,7 +555,7 @@ assert %Transform.Crop{x_offset: {:pixels, -12.0}, y_offset: {:scale, 0.25}} = c
 assert %Transform.Resize{rule: %{mode: :force, width: :auto, height: {:pixels, 200}}} = resize
 ```
 
-- [ ] **Step 7: Run focused planner tests**
+- [x] **Step 7: Run focused planner tests**
 
 Run:
 
@@ -565,7 +565,7 @@ mise exec -- mix test test/parser/native/plan_builder_test.exs
 
 Expected: PASS.
 
-- [ ] **Step 8: Commit**
+- [x] **Step 8: Commit**
 
 ```bash
 git add docs/transform_operations.md test/parser/native/plan_builder_test.exs
