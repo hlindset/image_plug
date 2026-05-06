@@ -38,8 +38,8 @@ defmodule ImagePlug.Transform.Crop do
             {:anchor, :left | :center | :right, :top | :center | :bottom}
             | {:fp, float(), float()}
             | nil,
-          x_offset: number(),
-          y_offset: number(),
+          x_offset: ImagePlug.imgp_length() | number(),
+          y_offset: ImagePlug.imgp_length() | number(),
           orientation: map() | struct() | nil,
           target_rule: DimensionRule.t() | nil
         }
@@ -275,6 +275,13 @@ defmodule ImagePlug.Transform.Crop do
     do: raise(ArgumentError, "invalid crop gravity: #{inspect(gravity)}")
 
   defp validate_offset!(_field, value) when is_number(value), do: :ok
+  defp validate_offset!(_field, {:pixels, value}) when is_number(value), do: :ok
+  defp validate_offset!(_field, {:scale, value}) when is_number(value), do: :ok
+  defp validate_offset!(_field, {:percent, value}) when is_number(value), do: :ok
+
+  defp validate_offset!(_field, {:scale, numerator, denominator})
+       when is_number(numerator) and is_number(denominator) and denominator != 0,
+       do: :ok
 
   defp validate_offset!(field, value),
     do: raise(ArgumentError, "invalid crop #{field}: #{inspect(value)}")

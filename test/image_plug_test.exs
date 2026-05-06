@@ -745,7 +745,7 @@ defmodule ImagePlug.ImagePlugTest do
   end
 
   test "does not touch cache when planner validation fails" do
-    conn = conn(:get, "/_/rs:force:0:100/plain/images/cat-300.jpg")
+    conn = conn(:get, "/_/g:sm/plain/images/cat-300.jpg")
     cache_probe = start_cache_probe()
 
     conn =
@@ -1045,7 +1045,7 @@ defmodule ImagePlug.ImagePlugTest do
   end
 
   test "does not fetch origin when planner validation fails" do
-    conn = conn(:get, "/_/rs:force:0:100/plain/images/cat-300.jpg")
+    conn = conn(:get, "/_/g:sm/plain/images/cat-300.jpg")
 
     conn =
       ImagePlug.call(conn,
@@ -1480,7 +1480,7 @@ defmodule ImagePlug.ImagePlugTest do
   end
 
   test "does not touch cache or origin when planner rejects unsupported semantics" do
-    conn = conn(:get, "/_/rs:force:0:100/plain/images/cat-300.jpg")
+    conn = conn(:get, "/_/g:sm/plain/images/cat-300.jpg")
     cache_probe = start_cache_probe()
 
     conn =

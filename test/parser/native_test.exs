@@ -223,8 +223,10 @@ defmodule ImagePlug.Parser.NativeTest do
                Native.parse(conn(:get, "/_/#{segment}/plain/images/cat.jpg"), [])
     end
 
-    assert Native.parse(conn(:get, "/_/crop:10:20/ar/plain/images/cat.jpg"), []) ==
-             {:error, {:unsupported_pipeline_semantic, :auto_orient_crop}}
+    assert {:ok, %Plan{pipelines: [%Pipeline{operations: operations}]}} =
+             Native.parse(conn(:get, "/_/crop:10:20/ar/plain/images/cat.jpg"), [])
+
+    assert Enum.map(operations, &Transform.transform_name/1) == [:auto_orient, :crop]
 
     for segment <- ~w(extend:false ex:false) do
       assert {:ok, %Plan{pipelines: [%Pipeline{operations: []}]}} =
@@ -328,6 +330,29 @@ defmodule ImagePlug.Parser.NativeTest do
              Native.parse(conn(:get, "/_/g:soea/rt:auto/w:300/h:200/plain/images/cat.jpg"), [])
 
     assert crop.gravity == {:anchor, :right, :bottom}
+  end
+
+  test "parses and plans imgproxy top-level gravity offsets" do
+    assert {:ok, parsed} =
+             Native.parse_request(conn(:get, "/_/g:soea:12:-0.25/plain/images/cat.jpg"), [])
+
+    [pipeline] = parsed.pipelines
+    assert pipeline.gravity == {:anchor, :right, :bottom}
+    assert pipeline.gravity_x_offset == {:pixels, 12.0}
+    assert pipeline.gravity_y_offset == {:scale, -0.25}
+
+    assert {:ok,
+            %Plan{
+              pipelines: [%Pipeline{operations: [%Transform.Resize{}, %Transform.Crop{} = crop]}]
+            }} =
+             Native.parse(
+               conn(:get, "/_/g:soea:12:-0.25/rs:fill:300:200/plain/images/cat.jpg"),
+               []
+             )
+
+    assert crop.gravity == {:anchor, :right, :bottom}
+    assert crop.x_offset == {:pixels, 12.0}
+    assert crop.y_offset == {:scale, -0.25}
   end
 
   test "rejects out-of-range focal point coordinates as gravity coordinate errors" do

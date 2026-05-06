@@ -161,6 +161,14 @@ defmodule ImagePlug.Transform.Geometry.DimensionResolver do
     |> ok()
   end
 
+  defp requested_box(%DimensionRule{mode: :force, width: :auto, height: height}, source) do
+    %{width: source.width, height: height}
+  end
+
+  defp requested_box(%DimensionRule{mode: :force, width: width, height: :auto}, source) do
+    %{width: width, height: source.height}
+  end
+
   defp requested_box(%DimensionRule{width: :auto, height: height}, source) do
     %{width: positive_round(height * source.width / source.height), height: height}
   end

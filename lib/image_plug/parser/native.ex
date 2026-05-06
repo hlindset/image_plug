@@ -794,8 +794,8 @@ defmodule ImagePlug.Parser.Native do
 
   defp parse_gravity([anchor, x_offset, y_offset], _segment) do
     with {:ok, anchor} <- parse_gravity_anchor(anchor),
-         {:ok, x_offset} <- parse_float(x_offset),
-         {:ok, y_offset} <- parse_float(y_offset) do
+         {:ok, x_offset} <- parse_gravity_offset(x_offset),
+         {:ok, y_offset} <- parse_gravity_offset(y_offset) do
       {:ok, [gravity: anchor, gravity_x_offset: x_offset, gravity_y_offset: y_offset]}
     end
   end
@@ -806,6 +806,15 @@ defmodule ImagePlug.Parser.Native do
     case Map.fetch(@gravity_anchors, value) do
       {:ok, anchor} -> {:ok, anchor}
       :error -> {:error, {:invalid_gravity, value}}
+    end
+  end
+
+  defp parse_gravity_offset(value) do
+    case parse_float(value) do
+      {:ok, float} when float == 0.0 -> {:ok, 0.0}
+      {:ok, float} when abs(float) >= 1.0 -> {:ok, {:pixels, float}}
+      {:ok, float} -> {:ok, {:scale, float}}
+      {:error, _reason} = error -> error
     end
   end
 

@@ -287,7 +287,6 @@ defmodule ImagePlug.Parser.Native.PlanBuilder do
       with :ok <- validate_extend_semantics(request),
            :ok <- validate_crop_semantics(request),
            :ok <- validate_orientation_semantics(request),
-           :ok <- validate_crop_orientation_semantics(request),
            do: validate_pending_pipeline_semantics(request)
     else
       {:error, {:invalid_gravity, gravity}}
@@ -298,8 +297,10 @@ defmodule ImagePlug.Parser.Native.PlanBuilder do
     with :ok <- validate_extend_gravity(request.extend_gravity),
          :ok <- validate_extend_offset(request.extend_x_offset),
          :ok <- validate_extend_offset(request.extend_y_offset),
-         :ok <- validate_gravity_offsets(request.gravity_x_offset, request.gravity_y_offset) do
-      validate_extend_aspect_ratio(request.extend_aspect_ratio)
+         :ok <- validate_gravity_offset(:x_offset, request.gravity_x_offset) do
+      with :ok <- validate_gravity_offset(:y_offset, request.gravity_y_offset) do
+        validate_extend_aspect_ratio(request.extend_aspect_ratio)
+      end
     end
   end
 
@@ -315,13 +316,12 @@ defmodule ImagePlug.Parser.Native.PlanBuilder do
   defp validate_extend_offset(offset) when is_number(offset), do: :ok
   defp validate_extend_offset(offset), do: {:error, {:invalid_extend_offset, offset}}
 
-  defp validate_gravity_offsets(x_offset, y_offset) do
-    if x_offset == 0.0 and y_offset == 0.0 do
-      :ok
-    else
-      {:error, {:unsupported_gravity_offset, {x_offset, y_offset}}}
-    end
-  end
+  defp validate_gravity_offset(_field, value) when is_number(value), do: :ok
+  defp validate_gravity_offset(_field, {:pixels, value}) when is_number(value), do: :ok
+  defp validate_gravity_offset(_field, {:scale, value}) when is_number(value), do: :ok
+
+  defp validate_gravity_offset(field, value),
+    do: {:error, {:invalid_gravity_offset, field, value}}
 
   defp validate_extend_aspect_ratio(nil), do: :ok
 
@@ -391,14 +391,6 @@ defmodule ImagePlug.Parser.Native.PlanBuilder do
   defp validate_orientation_semantics(%PipelineRequest{orientation: orientation}),
     do: {:error, {:invalid_orientation, orientation}}
 
-  defp validate_crop_orientation_semantics(%PipelineRequest{
-         crop: %CropRequest{},
-         orientation: %Orientation{auto_orient: true}
-       }),
-       do: {:error, {:unsupported_pipeline_semantic, :auto_orient_crop}}
-
-  defp validate_crop_orientation_semantics(%PipelineRequest{}), do: :ok
-
   defp validate_pending_pipeline_semantics(%PipelineRequest{} = request) do
     with :ok <- validate_factor(:zoom_x, request.zoom_x),
          :ok <- validate_factor(:zoom_y, request.zoom_y),
@@ -412,12 +404,6 @@ defmodule ImagePlug.Parser.Native.PlanBuilder do
   defp validate_factor(field, value), do: {:error, {:invalid_dimension_factor, field, value}}
 
   defp validate_pending_unimplemented_semantics(%PipelineRequest{}), do: :ok
-
-  defp plan_geometry(%PipelineRequest{resizing_type: :force, width: {:pixels, 0}}),
-    do: {:error, {:unsupported_zero_dimension, :force}}
-
-  defp plan_geometry(%PipelineRequest{resizing_type: :force, height: {:pixels, 0}}),
-    do: {:error, {:unsupported_zero_dimension, :force}}
 
   defp plan_geometry(%PipelineRequest{resizing_type: :fill, width: nil, height: nil}),
     do: missing_dimensions(:fill)
@@ -437,21 +423,21 @@ defmodule ImagePlug.Parser.Native.PlanBuilder do
        do: missing_dimensions(resizing_type)
 
   defp plan_geometry(%PipelineRequest{} = request) do
-    with {:ok, crop_operations} <- crop_operations(request),
-         {:ok, orientation_operations} <- orientation_operations(request),
+    with {:ok, orientation_operations} <- orientation_operations(request),
+         {:ok, crop_operations} <- crop_operations(request),
          {:ok, resize_operations} <- resize_operations(request),
          {:ok, result_crop_operations} <- result_crop_operations(request, resize_operations),
          {:ok, canvas_operations} <- canvas_operations(request) do
       {:ok,
-       crop_operations ++
-         orientation_operations ++
+       orientation_operations ++
+         crop_operations ++
          resize_operations ++ result_crop_operations ++ canvas_operations}
     end
   end
 
   defp crop_operations(%PipelineRequest{crop: nil}), do: {:ok, []}
 
-  defp crop_operations(%PipelineRequest{crop: %CropRequest{} = crop, orientation: orientation}) do
+  defp crop_operations(%PipelineRequest{crop: %CropRequest{} = crop}) do
     build_operation_list(
       Transform.Crop.new(
         width: crop.width,
@@ -459,8 +445,7 @@ defmodule ImagePlug.Parser.Native.PlanBuilder do
         crop_from: :gravity,
         gravity: crop.gravity,
         x_offset: crop.x_offset,
-        y_offset: crop.y_offset,
-        orientation: orientation
+        y_offset: crop.y_offset
       )
     )
   end
@@ -500,8 +485,8 @@ defmodule ImagePlug.Parser.Native.PlanBuilder do
           height: :auto,
           crop_from: :gravity,
           gravity: request.gravity,
-          x_offset: 0.0,
-          y_offset: 0.0,
+          x_offset: scaled_gravity_offset(request.gravity_x_offset, request.dpr),
+          y_offset: scaled_gravity_offset(request.gravity_y_offset, request.dpr),
           target_rule: rule
         )
       )
@@ -509,6 +494,11 @@ defmodule ImagePlug.Parser.Native.PlanBuilder do
   end
 
   defp result_crop_operations(%PipelineRequest{}, _operations), do: {:ok, []}
+
+  defp scaled_gravity_offset({:pixels, value}, dpr) when is_number(dpr),
+    do: {:pixels, value * dpr}
+
+  defp scaled_gravity_offset(offset, _dpr), do: offset
 
   defp result_crop_rule(%PipelineRequest{} = request) do
     with {:ok, %Transform.Geometry.DimensionRule{} = rule} <- dimension_rule(request) do

@@ -98,6 +98,28 @@ defmodule ImagePlug.Transform.DimensionResolverTest do
     assert result.intermediate_height == 100
   end
 
+  test "force resize auto dimensions preserve source dimensions" do
+    rule = %DimensionRule{mode: :force, width: :auto, height: {:pixels, 200}}
+
+    assert {:ok, result} =
+             DimensionResolver.resolve(rule, source_width: 640, source_height: 480)
+
+    assert result.requested_width == 640
+    assert result.requested_height == 200
+    assert result.intermediate_width == 640
+    assert result.intermediate_height == 200
+
+    rule = %DimensionRule{mode: :force, width: {:pixels, 300}, height: :auto}
+
+    assert {:ok, result} =
+             DimensionResolver.resolve(rule, source_width: 640, source_height: 480)
+
+    assert result.requested_width == 300
+    assert result.requested_height == 480
+    assert result.intermediate_width == 300
+    assert result.intermediate_height == 480
+  end
+
   test "min height interacts with fit as a scale constraint" do
     rule = %DimensionRule{
       mode: :fit,

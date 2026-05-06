@@ -203,12 +203,20 @@ defmodule ImagePlug.Parser.Native.PlanBuilderTest do
            ] = operations
   end
 
-  test "rejects force requests with zero dimensions" do
-    assert plan_pipeline(resizing_type: :force, width: {:pixels, 0}, height: {:pixels, 200}) ==
-             {:error, {:unsupported_zero_dimension, :force}}
+  test "plans force requests with one zero dimension as source-preserving auto dimensions" do
+    assert {:ok, %Plan{pipelines: [%Pipeline{operations: [%Transform.Resize{} = resize]}]}} =
+             plan_pipeline(resizing_type: :force, width: {:pixels, 0}, height: {:pixels, 200})
 
-    assert plan_pipeline(resizing_type: :force, width: {:pixels, 300}, height: {:pixels, 0}) ==
-             {:error, {:unsupported_zero_dimension, :force}}
+    assert resize.rule.mode == :force
+    assert resize.rule.width == :auto
+    assert resize.rule.height == {:pixels, 200}
+
+    assert {:ok, %Plan{pipelines: [%Pipeline{operations: [%Transform.Resize{} = resize]}]}} =
+             plan_pipeline(resizing_type: :force, width: {:pixels, 300}, height: {:pixels, 0})
+
+    assert resize.rule.mode == :force
+    assert resize.rule.width == {:pixels, 300}
+    assert resize.rule.height == :auto
   end
 
   test "plans fit, fill-down, force, and auto as product-neutral resize operations" do
@@ -286,12 +294,41 @@ defmodule ImagePlug.Parser.Native.PlanBuilderTest do
     refute Enum.any?(operations, &match?(%Transform.ExtendCanvas{}, &1))
   end
 
-  test "rejects unsupported gravity offset semantics" do
-    assert plan_pipeline(gravity_x_offset: 1.0) ==
-             {:error, {:unsupported_gravity_offset, {1.0, 0.0}}}
+  test "plans top-level gravity offsets into result crop operations" do
+    assert {:ok,
+            %Plan{
+              pipelines: [%Pipeline{operations: [%Transform.Resize{}, %Transform.Crop{} = crop]}]
+            }} =
+             plan_pipeline(
+               resizing_type: :fill,
+               width: {:pixels, 100},
+               height: {:pixels, 100},
+               gravity: {:anchor, :right, :bottom},
+               gravity_x_offset: {:pixels, 12.0},
+               gravity_y_offset: {:scale, -0.25}
+             )
 
-    assert plan_pipeline(gravity_y_offset: -2.0) ==
-             {:error, {:unsupported_gravity_offset, {0.0, -2.0}}}
+    assert crop.gravity == {:anchor, :right, :bottom}
+    assert crop.x_offset == {:pixels, 12.0}
+    assert crop.y_offset == {:scale, -0.25}
+  end
+
+  test "scales absolute top-level gravity offsets by dpr" do
+    assert {:ok,
+            %Plan{
+              pipelines: [%Pipeline{operations: [%Transform.Resize{}, %Transform.Crop{} = crop]}]
+            }} =
+             plan_pipeline(
+               resizing_type: :fill,
+               width: {:pixels, 100},
+               height: {:pixels, 100},
+               dpr: 2.0,
+               gravity_x_offset: {:pixels, 12.0},
+               gravity_y_offset: {:scale, -0.25}
+             )
+
+    assert crop.x_offset == {:pixels, 24.0}
+    assert crop.y_offset == {:scale, -0.25}
   end
 
   test "parsed crop gravity is independent from top-level gravity" do
@@ -329,7 +366,7 @@ defmodule ImagePlug.Parser.Native.PlanBuilderTest do
     assert pipeline.orientation.flip == nil
   end
 
-  test "planner emits fixed crop orientation resize order independent of URL order" do
+  test "planner emits fixed orientation crop resize order independent of URL order" do
     one =
       plan_pipeline(
         crop: %ImagePlug.Parser.Native.CropRequest{
@@ -355,6 +392,8 @@ defmodule ImagePlug.Parser.Native.PlanBuilderTest do
 
     assert Enum.map(one_ops, &ImagePlug.Transform.transform_name/1) ==
              Enum.map(two_ops, &ImagePlug.Transform.transform_name/1)
+
+    assert Enum.map(one_ops, &ImagePlug.Transform.transform_name/1) == [:rotate, :crop, :resize]
   end
 
   test "planner emits fixed fill result crop before canvas extension" do
@@ -504,10 +543,13 @@ defmodule ImagePlug.Parser.Native.PlanBuilderTest do
     assert {:ok, %Plan{pipelines: [%Pipeline{operations: []}]}} =
              plan_pipeline(orientation_requested: true)
 
-    assert plan_pipeline(
-             crop: struct(ImagePlug.Parser.Native.CropRequest),
-             orientation: struct(ImagePlug.Plan.Orientation, auto_orient: true)
-           ) == {:error, {:unsupported_pipeline_semantic, :auto_orient_crop}}
+    assert {:ok, %Plan{pipelines: [%Pipeline{operations: operations}]}} =
+             plan_pipeline(
+               crop: struct(ImagePlug.Parser.Native.CropRequest),
+               orientation: struct(ImagePlug.Plan.Orientation, auto_orient: true)
+             )
+
+    assert Enum.map(operations, &ImagePlug.Transform.transform_name/1) == [:auto_orient, :crop]
   end
 
   test "rejects invalid direct pipeline request values" do

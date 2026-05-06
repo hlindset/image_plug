@@ -68,7 +68,7 @@ The guide must state that imgproxy-compatible naming is accepted at the Native g
 Native operation ordering must be explicit:
 
 - Native URL option order is not transform execution order.
-- Native planner order is crop, orientation, resize/adaptive resize, result crop, then canvas extension.
+- Native planner order is orientation, crop, resize/adaptive resize, result crop, then canvas extension.
 - Orientation suborder is auto-orient, rotate, then flip.
 - Non-empty pipeline groups separated by `-` execute in URL group order.
 - Within each pipeline group, transform options are still planned in Native canonical order.
