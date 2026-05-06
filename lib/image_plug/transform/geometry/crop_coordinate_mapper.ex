@@ -195,10 +195,15 @@ defmodule ImagePlug.Transform.Geometry.CropCoordinateMapper do
     flip = Map.get(orientation, :flip, :none) || :none
     auto_orient = Map.get(orientation, :auto_orient, false)
 
-    if is_boolean(auto_orient) and flip in [:none, :horizontal, :vertical, :both] do
-      {:ok, %{auto_orient: auto_orient, rotate: rotate, flip: flip}}
-    else
-      {:error, {:invalid_crop_orientation, orientation}}
+    cond do
+      auto_orient == true ->
+        {:error, {:unsupported_crop_orientation, :auto_orient}}
+
+      is_boolean(auto_orient) and flip in [:none, :horizontal, :vertical, :both] ->
+        {:ok, %{auto_orient: auto_orient, rotate: rotate, flip: flip}}
+
+      true ->
+        {:error, {:invalid_crop_orientation, orientation}}
     end
   end
 

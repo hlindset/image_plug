@@ -56,7 +56,7 @@ defmodule ImagePlug.Parser.NativeTest do
   end
 
   test "parses resize and rs full grammar" do
-    assert [%Transform.Resize{} = fill_params] =
+    assert [%Transform.Resize{} = fill_params, %Transform.Crop{}] =
              operations_for("/_/resize:fill:300:200:1/plain/images/cat.jpg")
 
     assert fill_params.rule.mode == :fill
@@ -110,7 +110,7 @@ defmodule ImagePlug.Parser.NativeTest do
   end
 
   test "omitted meta-option arguments do not overwrite previous field assignments" do
-    assert [%Transform.Resize{} = params] =
+    assert [%Transform.Resize{} = params, %Transform.Crop{}] =
              operations_for("/_/w:500/rs:fill::200/plain/images/cat.jpg")
 
     assert params.rule.mode == :fill
@@ -167,7 +167,7 @@ defmodule ImagePlug.Parser.NativeTest do
   end
 
   test "size overwrites dimensions without resetting resizing_type" do
-    assert [%Transform.Resize{} = params] =
+    assert [%Transform.Resize{} = params, %Transform.Crop{}] =
              operations_for("/_/rs:fill:300:200/s:100:100/plain/images/cat.jpg")
 
     assert params.rule.mode == :fill
@@ -202,23 +202,29 @@ defmodule ImagePlug.Parser.NativeTest do
     assert pipeline.extend_aspect_ratio == {16, 9}
   end
 
-  test "public parse rejects parsed but unsupported geometry pipeline semantics" do
+  test "public parse plans supported geometry pipeline semantics" do
     assert {:ok, %Plan{pipelines: [%Pipeline{operations: [%Transform.Resize{} = resize]}]}} =
              Native.parse(conn(:get, "/_/z:2/plain/images/cat.jpg"), [])
 
     assert resize.rule.zoom_x == 2.0
     assert resize.rule.zoom_y == 2.0
 
-    assert Native.parse(conn(:get, "/_/crop:10:20/plain/images/cat.jpg"), []) ==
-             {:error, {:unsupported_pipeline_semantic, :crop}}
+    assert {:ok, %Plan{pipelines: [%Pipeline{operations: [%Transform.Crop{} = crop]}]}} =
+             Native.parse(conn(:get, "/_/crop:10:20/plain/images/cat.jpg"), [])
 
-    assert Native.parse(conn(:get, "/_/ar/plain/images/cat.jpg"), []) ==
-             {:error, {:unsupported_pipeline_semantic, :orientation}}
+    assert crop.width == {:pixels, 10}
+    assert crop.height == {:pixels, 20}
+
+    assert {:ok, %Plan{pipelines: [%Pipeline{operations: [%Transform.AutoOrient{}]}]}} =
+             Native.parse(conn(:get, "/_/ar/plain/images/cat.jpg"), [])
 
     for segment <- ~w(ar:false rot:0 rot:360 fl:false:false) do
-      assert Native.parse(conn(:get, "/_/#{segment}/plain/images/cat.jpg"), []) ==
-               {:error, {:unsupported_pipeline_semantic, :orientation}}
+      assert {:ok, %Plan{pipelines: [%Pipeline{operations: []}]}} =
+               Native.parse(conn(:get, "/_/#{segment}/plain/images/cat.jpg"), [])
     end
+
+    assert Native.parse(conn(:get, "/_/crop:10:20/ar/plain/images/cat.jpg"), []) ==
+             {:error, {:unsupported_pipeline_semantic, :auto_orient_crop}}
 
     for segment <- ~w(extend:false ex:false) do
       assert {:ok, %Plan{pipelines: [%Pipeline{operations: []}]}} =
@@ -247,12 +253,20 @@ defmodule ImagePlug.Parser.NativeTest do
     assert Native.parse(conn(:get, "/_/rt:auto/plain/images/cat.jpg"), []) ==
              {:error, {:missing_dimensions, :auto}}
 
-    assert {:ok, %Plan{pipelines: [%Pipeline{operations: [%Transform.Resize{} = resize]}]}} =
+    assert {:ok,
+            %Plan{
+              pipelines: [
+                %Pipeline{operations: [%Transform.Resize{} = resize, %Transform.Crop{}]}
+              ]
+            }} =
              Native.parse(conn(:get, "/_/rt:fill-down/w:100/h:100/plain/images/cat.jpg"), [])
 
     assert resize.rule.mode == :fill_down
 
-    assert {:ok, %Plan{pipelines: [%Pipeline{operations: [%Transform.AdaptiveResize{}]}]}} =
+    assert {:ok,
+            %Plan{
+              pipelines: [%Pipeline{operations: [%Transform.AdaptiveResize{}, %Transform.Crop{}]}]
+            }} =
              Native.parse(conn(:get, "/_/rt:auto/w:100/h:100/plain/images/cat.jpg"), [])
   end
 
@@ -277,20 +291,43 @@ defmodule ImagePlug.Parser.NativeTest do
     assert resize.rule.min_width == {:pixels, 300}
   end
 
-  test "rejects gravity-bearing fill and auto until neutral gravity crop support exists" do
-    assert Native.parse(conn(:get, "/_/g:nowe/rs:fill:300:200/plain/images/cat.jpg"), []) ==
-             {:error, {:unsupported_gravity_for_resize, :fill}}
+  test "plans gravity-bearing fill and auto result crops" do
+    assert {:ok,
+            %Plan{
+              pipelines: [%Pipeline{operations: [%Transform.Resize{}, %Transform.Crop{} = crop]}]
+            }} =
+             Native.parse(conn(:get, "/_/g:nowe/rs:fill:300:200/plain/images/cat.jpg"), [])
 
-    assert Native.parse(
-             conn(:get, "/_/gravity:fp:0.5:0.25/rs:fill:300:200/plain/images/cat.jpg"),
-             []
-           ) == {:error, {:unsupported_gravity_for_resize, :fill}}
+    assert crop.gravity == {:anchor, :left, :top}
 
-    assert Native.parse(conn(:get, "/_/g:fp:1:0/rs:fill:300:200/plain/images/cat.jpg"), []) ==
-             {:error, {:unsupported_gravity_for_resize, :fill}}
+    assert {:ok,
+            %Plan{
+              pipelines: [%Pipeline{operations: [%Transform.Resize{}, %Transform.Crop{} = crop]}]
+            }} =
+             Native.parse(
+               conn(:get, "/_/gravity:fp:0.5:0.25/rs:fill:300:200/plain/images/cat.jpg"),
+               []
+             )
 
-    assert Native.parse(conn(:get, "/_/g:soea/rt:auto/w:300/h:200/plain/images/cat.jpg"), []) ==
-             {:error, {:unsupported_gravity_for_resize, :auto}}
+    assert crop.gravity == {:fp, 0.5, 0.25}
+
+    assert {:ok,
+            %Plan{
+              pipelines: [%Pipeline{operations: [%Transform.Resize{}, %Transform.Crop{} = crop]}]
+            }} =
+             Native.parse(conn(:get, "/_/g:fp:1:0/rs:fill:300:200/plain/images/cat.jpg"), [])
+
+    assert crop.gravity == {:fp, 1.0, 0.0}
+
+    assert {:ok,
+            %Plan{
+              pipelines: [
+                %Pipeline{operations: [%Transform.AdaptiveResize{}, %Transform.Crop{} = crop]}
+              ]
+            }} =
+             Native.parse(conn(:get, "/_/g:soea/rt:auto/w:300/h:200/plain/images/cat.jpg"), [])
+
+    assert crop.gravity == {:anchor, :right, :bottom}
   end
 
   test "rejects out-of-range focal point coordinates as gravity coordinate errors" do
@@ -622,14 +659,14 @@ defmodule ImagePlug.Parser.NativeTest do
 
     assert contain_params.rule.width == {:pixels, 200}
 
-    assert [%Transform.Resize{} = resized_params] =
+    assert [%Transform.Resize{} = resized_params, %Transform.Crop{}] =
              operations_for("/_/resize:fill:300:200/w:500/plain/images/cat.jpg")
 
     assert resized_params.rule.mode == :fill
     assert resized_params.rule.width == {:pixels, 500}
     assert resized_params.rule.height == {:pixels, 200}
 
-    assert [%Transform.Resize{} = overwritten_params] =
+    assert [%Transform.Resize{} = overwritten_params, %Transform.Crop{}] =
              operations_for("/_/w:500/resize:fill:300:200/plain/images/cat.jpg")
 
     assert overwritten_params.rule.mode == :fill

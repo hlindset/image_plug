@@ -111,4 +111,17 @@ defmodule ImagePlug.Transform.CropCoordinateMapperTest do
     assert mapped.width == 400
     assert mapped.height == 200
   end
+
+  test "rejects auto-orient crop mapping without resolved orientation metadata" do
+    assert CropCoordinateMapper.map(
+             source_width: 400,
+             source_height: 300,
+             crop_width: {:pixels, 100},
+             crop_height: {:pixels, 50},
+             gravity: {:anchor, :center, :center},
+             x_offset: 0.0,
+             y_offset: 0.0,
+             orientation: %{auto_orient: true, rotate: 0, flip: :none}
+           ) == {:error, {:unsupported_crop_orientation, :auto_orient}}
+  end
 end

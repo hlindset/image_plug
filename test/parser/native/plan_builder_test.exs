@@ -503,6 +503,11 @@ defmodule ImagePlug.Parser.Native.PlanBuilderTest do
 
     assert {:ok, %Plan{pipelines: [%Pipeline{operations: []}]}} =
              plan_pipeline(orientation_requested: true)
+
+    assert plan_pipeline(
+             crop: struct(ImagePlug.Parser.Native.CropRequest),
+             orientation: struct(ImagePlug.Plan.Orientation, auto_orient: true)
+           ) == {:error, {:unsupported_pipeline_semantic, :auto_orient_crop}}
   end
 
   test "rejects invalid direct pipeline request values" do

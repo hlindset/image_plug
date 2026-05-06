@@ -10,7 +10,10 @@ defmodule ImagePlug.ArchitectureBoundaryTest do
     :Focus,
     :Resize,
     :AdaptiveResize,
-    :ExtendCanvas
+    :ExtendCanvas,
+    :AutoOrient,
+    :Rotate,
+    :Flip
   ]
 
   test "runtime does not depend on concrete transform modules" do

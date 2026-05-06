@@ -289,6 +289,7 @@ defmodule ImagePlug.Parser.Native.PlanBuilder do
       with :ok <- validate_extend_semantics(request),
            :ok <- validate_crop_semantics(request),
            :ok <- validate_orientation_semantics(request),
+           :ok <- validate_crop_orientation_semantics(request),
            :ok <- validate_pending_pipeline_semantics(request) do
         :ok
       end
@@ -393,6 +394,14 @@ defmodule ImagePlug.Parser.Native.PlanBuilder do
 
   defp validate_orientation_semantics(%PipelineRequest{orientation: orientation}),
     do: {:error, {:invalid_orientation, orientation}}
+
+  defp validate_crop_orientation_semantics(%PipelineRequest{
+         crop: %CropRequest{},
+         orientation: %Orientation{auto_orient: true}
+       }),
+       do: {:error, {:unsupported_pipeline_semantic, :auto_orient_crop}}
+
+  defp validate_crop_orientation_semantics(%PipelineRequest{}), do: :ok
 
   defp validate_pending_pipeline_semantics(%PipelineRequest{} = request) do
     with :ok <- validate_factor(:zoom_x, request.zoom_x),
