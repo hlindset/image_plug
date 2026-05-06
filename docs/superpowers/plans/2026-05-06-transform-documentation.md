@@ -1,6 +1,6 @@
 # Transform Documentation Implementation Plan
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Add user-facing Native path API docs, contributor-facing transform operation docs, and ExDoc module docs that match the current imgproxy Native implementation after `5b9eeff`.
 
@@ -25,7 +25,7 @@ For each task:
 7. Run the focused command listed in the task. Use `mise exec -- ...` exactly.
 8. Commit the task before starting the next task.
 
-Tasks 4, 5, and 6 are module-documentation tasks and may run implementer subagents in parallel. Maximum concurrency is 2 implementers at a time. Parallel implementers must have disjoint file ownership exactly as listed in each task's parallel batches, and each implementer must know that other agents may be editing different files in the same worktree. After both implementers in a batch finish, run the task's focused command, then run the spec compliance reviewer and code quality reviewer over the combined task diff before committing.
+Tasks 4, 5, and 6 are module-documentation tasks and may run implementer subagents in parallel. Maximum concurrency is 2 implementers at a time. Parallel implementers must have disjoint file ownership exactly as listed in each task's parallel batches, and each implementer must know that other agents may be editing different files in the same worktree. After Batch A and Batch B finish, run the spec compliance reviewer over the combined task diff, fix all Critical, Important, and spec-compliance findings, run the code quality reviewer, fix all Critical and Important findings, then run the task's focused command with `mise exec -- ...`. If any reviewer fix happens after the focused command, rerun the focused command before committing.
 
 Do not open a PR from this documentation plan until all tasks and final verification pass.
 
@@ -201,6 +201,7 @@ git commit -m "docs: add native and transform guide entry points"
 - Modify: `docs/native_path_api.md`
 - Modify: `test/parser/native_test.exs`
 - Modify: `test/parser/native/plan_builder_test.exs`
+- Modify: `test/image_plug_test.exs`
 
 - [ ] **Step 1: Add Native mental model and URL shape**
 
@@ -251,7 +252,48 @@ Examples:
 Pipeline separators scope transform fields to each pipeline group. Global fields such as output format, quality, cachebuster, expiration, filename, and response disposition can appear across groups and still resolve by canonical field.
 ```
 
-- [ ] **Step 4: Document resize and dimension behavior**
+- [ ] **Step 4: Document supported options and aliases**
+
+Add a `Supported Options And Aliases` section before the behavior-specific sections. The table must list every currently supported Native option name from `ImagePlug.Parser.Native`, with aliases and accepted value shape:
+
+```markdown
+| Concept | Options | Accepted values |
+| --- | --- | --- |
+| Resize tuple | `resize`, `rs` | `:<resizing_type>:<width>:<height>:<enlarge>:<extend>[:<extend_gravity>[:<x_offset>:<y_offset>]]` with trailing arguments optional |
+| Size tuple | `size`, `s` | `:<width>:<height>:<enlarge>:<extend>[:<extend_gravity>[:<x_offset>:<y_offset>]]` with trailing arguments optional |
+| Resizing type | `resizing_type`, `rt` | `fit`, `fill`, `fill-down`, `force`, `auto` |
+| Width | `width`, `w` | non-negative pixel integer; `0` means auto |
+| Height | `height`, `h` | non-negative pixel integer; `0` means auto |
+| Minimum width | `min-width`, `min_width`, `mw` | non-negative pixel integer |
+| Minimum height | `min-height`, `min_height`, `mh` | non-negative pixel integer |
+| Enlarge | `enlarge`, `el` | boolean: `1`, `t`, `true`, `0`, `f`, `false` |
+| Zoom | `zoom`, `z` | positive number, or positive `x:y` numbers |
+| DPR | `dpr` | positive number |
+| Extend canvas | `extend`, `ex` | boolean, optionally followed by extend gravity and offsets |
+| Extend aspect ratio | `extend_aspect_ratio`, `exar` | positive `<width>:<height>` ratio numbers |
+| Crop | `crop`, `c` | `<width>:<height>`, optional gravity, optional offsets |
+| Gravity | `gravity`, `g` | anchor, focal point `fp:<x>:<y>`, or unsupported smart gravity `sm` |
+| Auto rotate | `auto_rotate`, `ar` | omitted for true, or boolean |
+| Rotate | `rotate`, `rot` | integer degrees |
+| Flip | `flip`, `fl` | omitted for both axes, one boolean for horizontal, or horizontal and vertical booleans |
+| Quality | `quality`, `q` | integer quality; `0` means configured default |
+| Format quality | `format_quality`, `fq` | `<format>:<quality>` |
+| Format | `format`, `f`, `ext` | `webp`, `avif`, `jpeg`, `jpg`, `png`, `best`; `jpg` normalizes to JPEG |
+| Cachebuster | `cachebuster`, `cb` | string value |
+| Expires | `expires`, `exp` | Unix timestamp integer |
+| Filename | `filename`, `fn` | filename stem, optional encoded flag |
+| Attachment disposition | `return_attachment`, `att` | boolean |
+| Plain source output extension | source path `@extension` | `webp`, `avif`, `jpeg`, `jpg`, `png`, `best`; `best` is rejected by planning |
+```
+
+Document the supported gravity anchors explicitly:
+
+```markdown
+Anchor gravity values are `ce`, `no`, `so`, `ea`, `we`, `noea`, `nowe`, `soea`, and `sowe`.
+Resize and size tuple extend-gravity tails accept anchor gravity alone or anchor gravity with `x_offset` and `y_offset`.
+```
+
+- [ ] **Step 5: Document resize and dimension behavior**
 
 Add accepted Native resize content covering:
 
@@ -264,7 +306,7 @@ Zero dimensions map to `auto`. For `force`, an auto side preserves the source di
 `rt:force/w:300/h:0` forces width to `300` and preserves source height.
 ```
 
-- [ ] **Step 5: Document crop, gravity, offsets, and smart gravity rejection**
+- [ ] **Step 6: Document crop, gravity, offsets, and smart gravity rejection**
 
 Add:
 
@@ -279,11 +321,31 @@ Offsets use imgproxy-style parsing:
 - `abs(offset) < 1` means relative scale.
 
 Top-level gravity offsets apply to result crops. Crop-specific offsets apply to explicit crop.
+Absolute top-level gravity offsets are resolved by crop execution using the effective DPR. The planner should preserve pixel offsets in the result `Crop`; execution applies the DPR scale.
 
 `g:sm` is intentionally unsupported in this Native slice and is rejected as `{:unsupported_gravity, :sm}`.
 ```
 
-- [ ] **Step 6: Document output behavior**
+- [ ] **Step 7: Document orientation and canvas behavior**
+
+Add:
+
+```markdown
+Orientation options are `auto_rotate`/`ar`, `rotate`/`rot`, and `flip`/`fl`.
+
+- `ar` with no argument enables auto-orient; `ar:false` disables it.
+- `rot` accepts integer degrees and normalizes right-angle rotations.
+- `fl` with no arguments flips both axes; `fl:true:false` flips horizontally; `fl:false:true` flips vertically; `fl:false:false` emits no flip operation.
+
+Canvas options are `extend`/`ex`, resize-tail extend arguments, and `extend_aspect_ratio`/`exar`.
+
+- `extend:true` requests canvas extension for the requested resize box.
+- `extend:false` disables canvas extension even when resize-tail values are present.
+- `exar:<width>:<height>` extends canvas to the requested aspect ratio.
+- Extend gravity uses anchor values only, with optional numeric offsets.
+```
+
+- [ ] **Step 8: Document output, quality, cache, and response behavior**
 
 Add:
 
@@ -294,25 +356,47 @@ Omitting an explicit output format enables automatic output negotiation.
 Explicit output formats can be requested with `format`, `f`, `ext`, or plain-source `@extension`. Explicit formats and `@extension` bypass `Accept` negotiation and do not set `Vary: Accept`.
 
 When both an option format and source `@extension` are present, document the current precedence: source `@extension` overrides any explicit format option.
+
+Supported explicit output extensions are `webp`, `avif`, `jpeg`, `jpg`, `png`, and `best`. `jpg` normalizes to JPEG. `best` parses but is rejected by planning in this Native slice.
+
+`quality`/`q` set generic output quality. `format_quality`/`fq` set quality for one explicit format and should be documented separately from generic quality. `0` resets quality to the configured default.
+
+`cachebuster`/`cb` changes cache key material without adding transform operations. `expires`/`exp` is a Unix timestamp request validity policy. `filename`/`fn` sets the delivery filename stem; `return_attachment`/`att` controls inline versus attachment `Content-Disposition`.
 ```
 
-- [ ] **Step 7: Document rejection table**
+- [ ] **Step 9: Document rejection table**
 
 Add:
 
 ```markdown
 | Case | Behavior |
 | --- | --- |
-| Unknown option | Rejected before origin fetch/cache lookup |
-| Known imgproxy option outside this Native slice | Rejected before origin fetch/cache lookup |
-| Supported option with invalid value | Rejected before origin fetch/cache lookup |
-| Valid syntax with unsupported combined semantics | Rejected before origin fetch/cache lookup |
+| Unknown option | HTTP 400 before origin fetch/cache lookup |
+| Known imgproxy option outside this Native slice | HTTP 400 before origin fetch/cache lookup |
+| Supported option with invalid value | HTTP 400 before origin fetch/cache lookup |
+| Valid syntax with unsupported combined semantics | HTTP 400 before origin fetch/cache lookup |
 | Duplicate canonical field | Last value wins |
 
 Unsupported examples include `raw`, `max_bytes`, `max_src_resolution`, `max_src_file_size`, `crop_aspect_ratio`, `format:auto`, `g:sm`, and `c:<width>:<height>:sm`.
 ```
 
-- [ ] **Step 8: Add or verify parser examples**
+- [ ] **Step 10: Add common URL examples**
+
+Add examples for these user-facing URL patterns:
+
+```markdown
+| Goal | Native URL |
+| --- | --- |
+| Fit within a width | `/_/w:300/plain/images/cat.jpg` |
+| Fill a box from a focal point | `/_/rt:fill/w:300/h:200/g:fp:0.25:0.75/plain/images/cat.jpg` |
+| Force one side and preserve the other | `/_/rt:force/w:0/h:200/plain/images/cat.jpg` |
+| Explicit crop with focal gravity | `/_/c:100:100:fp:0.25:0.75/plain/images/cat.jpg` |
+| Auto-orient then crop | `/_/ar/c:100:100/plain/images/cat.jpg` |
+| Explicit output format | `/_/f:webp/plain/images/cat.jpg` |
+| Source extension output format | `/_/plain/images/cat.jpg@png` |
+```
+
+- [ ] **Step 11: Add or verify parser examples**
 
 Add parser test cases only for examples that are not already covered. Use current tests before adding duplicates. Required covered examples:
 
@@ -330,20 +414,48 @@ assert Native.parse(conn(:get, "/_/g:sm/plain/images/cat.jpg"), []) == {:error, 
 assert Native.parse(conn(:get, "/_/c:100:100:sm/plain/images/cat.jpg"), []) == {:error, {:unsupported_gravity, :sm}}
 ```
 
-- [ ] **Step 9: Run focused Native tests**
+- [ ] **Step 12: Add or verify request-level rejection tests**
+
+Verify or add `ImagePlug.call/2` tests proving parser and planner validation failures return HTTP 400 before origin fetch and before cache lookup. Current examples to keep covered:
+
+```elixir
+conn = ImagePlug.call(conn(:get, "/_/w:-1/plain/images/cat-300.jpg"),
+  root_url: "http://origin.test",
+  parser: ImagePlug.Parser.Native,
+  cache: {CacheProbe, message_target: cache_probe},
+  origin_req_options: [plug: OriginShouldNotBeCalled]
+)
+
+assert conn.status == 400
+refute_received {:cache_get, _key}
+refute_received :origin_was_called
+
+conn = ImagePlug.call(conn(:get, "/_/g:sm/plain/images/cat-300.jpg"),
+  root_url: "http://origin.test",
+  parser: ImagePlug.Parser.Native,
+  cache: {CacheProbe, message_target: cache_probe},
+  origin_req_options: [plug: OriginShouldNotBeCalled]
+)
+
+assert conn.status == 400
+refute_received {:cache_get, _key}
+refute_received :origin_was_called
+```
+
+- [ ] **Step 13: Run focused Native tests**
 
 Run:
 
 ```bash
-mise exec -- mix test test/parser/native_test.exs test/parser/native/plan_builder_test.exs
+mise exec -- mix test test/parser/native_test.exs test/parser/native/plan_builder_test.exs test/image_plug_test.exs
 ```
 
 Expected: PASS.
 
-- [ ] **Step 10: Commit**
+- [ ] **Step 14: Commit**
 
 ```bash
-git add docs/native_path_api.md test/parser/native_test.exs test/parser/native/plan_builder_test.exs
+git add docs/native_path_api.md test/parser/native_test.exs test/parser/native/plan_builder_test.exs test/image_plug_test.exs
 git commit -m "docs: describe native path api"
 ```
 
@@ -360,7 +472,7 @@ Add:
 ```markdown
 Parser syntax is translated into parser-owned request structs, then into `ImagePlug.Plan`, then into ordered transform operation chains.
 
-Native URLs are declarative; Native planner code emits operations in Native canonical order. Other dialects may have order-sensitive semantics. If a compatibility dialect needs ordered command behavior, keep that behavior isolated in the dialect parser/adapter and still emit a valid `ImagePlug.Plan`.
+Native URLs are declarative; Native planner code emits operations in Native canonical order. Other dialects may have order-sensitive semantics. When the ordered semantics map cleanly, emit an ordered `ImagePlug.Plan`; otherwise keep dialect-specific quirks isolated in the parser/adapter layer.
 ```
 
 - [ ] **Step 2: Document non-transform request fields**
@@ -498,9 +610,9 @@ Tell both implementers:
 You are not alone in the codebase. Only edit your assigned files. Do not revert or reformat files owned by the other implementer. Keep docs product-neutral and do not reference parser-specific Native structs from shared transform contracts.
 ```
 
-- [ ] **Step 2: Replace `@moduledoc false` with shared contract docs**
+- [ ] **Step 2: Add or revise shared contract module docs**
 
-For each shared module, write a concise `@moduledoc` with the module's role:
+For each shared module, write or revise a concise `@moduledoc` with the module's role. Replace `@moduledoc false` only where it is present; do not delete an existing useful moduledoc just to follow the template.
 
 ```elixir
 @moduledoc """
@@ -560,6 +672,8 @@ Batch B owns these files:
 
 - `lib/image_plug/transform/crop.ex`
 - `lib/image_plug/transform/extend_canvas.ex`
+
+Read-only reference files: `lib/image_plug/transform/material/resize.ex`, `lib/image_plug/transform/material/adaptive_resize.ex`, `lib/image_plug/transform/material/crop.ex`, and `lib/image_plug/transform/material/extend_canvas.ex`. Do not edit material defimpl files in this task.
 
 Tell both implementers:
 
@@ -665,6 +779,8 @@ Batch B owns these files:
 - `lib/image_plug/transform/cover.ex`
 - `lib/image_plug/transform/focus.ex`
 
+Read-only reference files: `lib/image_plug/transform/material/auto_orient.ex`, `lib/image_plug/transform/material/rotate.ex`, `lib/image_plug/transform/material/flip.ex`, `lib/image_plug/transform/material/scale.ex`, `lib/image_plug/transform/material/contain.ex`, `lib/image_plug/transform/material/cover.ex`, and `lib/image_plug/transform/material/focus.ex`. Do not edit material defimpl files in this task.
+
 Tell both implementers:
 
 ```text
@@ -723,7 +839,17 @@ git commit -m "docs: document remaining transform operations"
 **Files:**
 - Verify all documentation changes.
 
-- [ ] **Step 1: Run Native/parser focused tests**
+- [ ] **Step 1: Run formatter**
+
+Run:
+
+```bash
+mise exec -- mix format
+```
+
+Expected: exits 0. If it changes files, inspect and include formatting-only changes before running the remaining verification commands.
+
+- [ ] **Step 2: Run Native/parser focused tests**
 
 Run:
 
@@ -733,7 +859,7 @@ mise exec -- mix test test/parser/native_test.exs test/parser/native/plan_builde
 
 Expected: PASS.
 
-- [ ] **Step 2: Run transform focused tests**
+- [ ] **Step 3: Run transform focused tests**
 
 Run:
 
@@ -743,7 +869,7 @@ mise exec -- mix test test/image_plug/transform/material_test.exs test/image_plu
 
 Expected: PASS.
 
-- [ ] **Step 3: Run docs generation**
+- [ ] **Step 4: Run docs generation**
 
 Run:
 
@@ -753,7 +879,7 @@ mise exec -- mix docs
 
 Expected: PASS. Verify generated docs include `Native Path API` and `Transform Operations`.
 
-- [ ] **Step 4: Run compile with warnings as errors**
+- [ ] **Step 5: Run compile with warnings as errors**
 
 Run:
 
@@ -763,7 +889,7 @@ mise exec -- mix compile --warnings-as-errors
 
 Expected: PASS.
 
-- [ ] **Step 5: Run full tests**
+- [ ] **Step 6: Run full tests**
 
 Run:
 
@@ -772,16 +898,6 @@ mise exec -- mix test
 ```
 
 Expected: PASS.
-
-- [ ] **Step 6: Run formatter**
-
-Run:
-
-```bash
-mise exec -- mix format
-```
-
-Expected: exits 0. If it changes files, inspect and include formatting-only changes.
 
 - [ ] **Step 7: Run strict lint**
 
