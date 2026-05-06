@@ -129,9 +129,7 @@ defmodule ImagePlug.Plan do
   defp validate_output_quality(%Output{quality: quality, format_qualities: format_qualities})
        when is_map(format_qualities) do
     with :ok <- validate_quality(quality),
-         :ok <- validate_format_qualities(format_qualities) do
-      :ok
-    end
+         do: validate_format_qualities(format_qualities)
   end
 
   defp validate_output_quality(_output), do: :error

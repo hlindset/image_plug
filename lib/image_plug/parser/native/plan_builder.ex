@@ -1,10 +1,10 @@
 defmodule ImagePlug.Parser.Native.PlanBuilder do
   @moduledoc false
 
-  alias ImagePlug.Parser.Native.ParsedRequest
   alias ImagePlug.Parser.Native.CacheRequest
   alias ImagePlug.Parser.Native.CropRequest
   alias ImagePlug.Parser.Native.OutputRequest
+  alias ImagePlug.Parser.Native.ParsedRequest
   alias ImagePlug.Parser.Native.PipelineRequest
   alias ImagePlug.Parser.Native.RequestPolicy
   alias ImagePlug.Parser.Native.ResponseRequest
@@ -153,9 +153,7 @@ defmodule ImagePlug.Parser.Native.PlanBuilder do
          format_qualities: format_qualities
        }) do
     with :ok <- validate_quality(quality),
-         :ok <- validate_format_qualities(format_qualities) do
-      :ok
-    end
+         do: validate_format_qualities(format_qualities)
   end
 
   defp validate_quality(:default), do: :ok
@@ -290,9 +288,7 @@ defmodule ImagePlug.Parser.Native.PlanBuilder do
            :ok <- validate_crop_semantics(request),
            :ok <- validate_orientation_semantics(request),
            :ok <- validate_crop_orientation_semantics(request),
-           :ok <- validate_pending_pipeline_semantics(request) do
-        :ok
-      end
+           do: validate_pending_pipeline_semantics(request)
     else
       {:error, {:invalid_gravity, gravity}}
     end

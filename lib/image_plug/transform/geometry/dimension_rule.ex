@@ -40,9 +40,7 @@ defmodule ImagePlug.Transform.Geometry.DimensionRule do
          :ok <- validate_factor(:zoom_x, rule.zoom_x),
          :ok <- validate_factor(:zoom_y, rule.zoom_y),
          :ok <- validate_factor(:dpr, rule.dpr),
-         :ok <- validate_enlarge(rule.enlarge) do
-      :ok
-    end
+         do: validate_enlarge(rule.enlarge)
   end
 
   def validate(rule, _opts), do: {:error, {:rule, rule}}

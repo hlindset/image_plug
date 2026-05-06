@@ -53,7 +53,7 @@ defmodule ImagePlug.Parser.NativePropertyTest do
                |> native_path(["images", "cat.jpg"])
                |> parse_path()
 
-      assert [%Transform.Resize{} = params] = operations
+      assert [%Transform.Resize{} = params, %Transform.Crop{}] = operations
       assert params.rule.mode == :fill
       assert params.rule.width == {:pixels, width}
       assert params.rule.height == {:pixels, height}
