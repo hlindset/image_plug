@@ -50,8 +50,7 @@ defmodule ImagePlug.Cache.Entry do
 
   @spec normalize_headers(term()) :: {:ok, [header()]} | {:error, term()}
   def normalize_headers(headers) when is_list(headers) do
-    Enum.reduce_while(headers, {:ok, []}, &normalize_header(&1, &2, headers))
-    |> case do
+    case Enum.reduce_while(headers, {:ok, []}, &normalize_header(&1, &2, headers)) do
       {:ok, normalized_headers} -> {:ok, Enum.reverse(normalized_headers)}
       {:error, reason} -> {:error, reason}
     end

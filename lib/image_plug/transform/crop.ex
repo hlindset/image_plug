@@ -100,8 +100,10 @@ defmodule ImagePlug.Transform.Crop do
 
   @behaviour ImagePlug.Transform
 
-  import ImagePlug.Transform.State
-  import ImagePlug.Transform.Geometry
+  import ImagePlug.Transform.State, only: [add_error: 2, reset_focus: 1, set_image: 2]
+
+  import ImagePlug.Transform.Geometry,
+    only: [anchor_to_pixels: 3, image_height: 1, image_width: 1, to_pixels!: 2]
 
   alias ImagePlug.Transform.Geometry.CropCoordinateMapper
   alias ImagePlug.Transform.Geometry.DimensionResolver
@@ -127,17 +129,22 @@ defmodule ImagePlug.Transform.Crop do
   ]
 
   @type t :: %__MODULE__{
-          width: ImagePlug.imgp_length() | :auto,
-          height: ImagePlug.imgp_length() | :auto,
+          width: ImagePlug.Transform.Types.length() | :auto,
+          height: ImagePlug.Transform.Types.length() | :auto,
           # Future parser work can output focus + crop actions instead of this special crop_from handling.
           crop_from:
-            :focus | :gravity | %{left: ImagePlug.imgp_length(), top: ImagePlug.imgp_length()},
+            :focus
+            | :gravity
+            | %{
+                left: ImagePlug.Transform.Types.length(),
+                top: ImagePlug.Transform.Types.length()
+              },
           gravity:
             {:anchor, :left | :center | :right, :top | :center | :bottom}
             | {:fp, float(), float()}
             | nil,
-          x_offset: ImagePlug.imgp_length() | number(),
-          y_offset: ImagePlug.imgp_length() | number(),
+          x_offset: ImagePlug.Transform.Types.length() | number(),
+          y_offset: ImagePlug.Transform.Types.length() | number(),
           orientation: map() | struct() | nil,
           target_rule: DimensionRule.t() | nil
         }
@@ -205,8 +212,8 @@ defmodule ImagePlug.Transform.Crop do
     target_height = if params.height == :auto, do: image_height, else: params.height
 
     # make sure crop is within image bounds
-    crop_width = max(1, min(image_width, to_pixels(image_width, target_width)))
-    crop_height = max(1, min(image_height, to_pixels(image_height, target_height)))
+    crop_width = max(1, min(image_width, to_pixels!(image_width, target_width)))
+    crop_height = max(1, min(image_height, to_pixels!(image_height, target_height)))
 
     # figure out the crop anchor
     {center_x, center_y} =
@@ -270,7 +277,7 @@ defmodule ImagePlug.Transform.Crop do
   defp requested_dimension(:auto, _source_dimension), do: :error
 
   defp requested_dimension(dimension, source_dimension),
-    do: {:ok, to_pixels(source_dimension, dimension)}
+    do: {:ok, to_pixels!(source_dimension, dimension)}
 
   defp same_orientation?(source_width, source_height, target_width, target_height) do
     orientation(source_width, source_height) == orientation(target_width, target_height)

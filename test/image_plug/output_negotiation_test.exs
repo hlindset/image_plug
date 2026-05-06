@@ -58,6 +58,13 @@ defmodule ImagePlug.Output.NegotiationTest do
       assert Negotiation.suffix!("image/jpeg") == ".jpg"
       assert Negotiation.suffix!("image/png") == ".png"
     end
+
+    test "returns tagged suffix results without raising" do
+      assert Negotiation.suffix("image/jpeg") == {:ok, ".jpg"}
+
+      assert Negotiation.suffix("image/gif") ==
+               {:error, {:unsupported_output_format, "image/gif"}}
+    end
   end
 
   describe "format conversion" do

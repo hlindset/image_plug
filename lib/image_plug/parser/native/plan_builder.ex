@@ -43,6 +43,9 @@ defmodule ImagePlug.Parser.Native.PlanBuilder do
   end
 
   defp source_plan(:plain, path), do: {:ok, %Plain{path: path}}
+  defp source_plan(kind, _path), do: {:error, {:unsupported_source_kind, kind}}
+
+  defp build_pipelines([]), do: {:error, :empty_pipeline_plan}
 
   defp build_pipelines(pipeline_requests) do
     pipeline_requests
@@ -58,11 +61,13 @@ defmodule ImagePlug.Parser.Native.PlanBuilder do
   end
 
   defp reduce_results(results) do
-    Enum.reduce_while(results, {:ok, []}, fn
-      {:ok, value}, {:ok, values} -> {:cont, {:ok, [value | values]}}
-      {:error, reason}, {:ok, _values} -> {:halt, {:error, reason}}
-    end)
-    |> case do
+    result =
+      Enum.reduce_while(results, {:ok, []}, fn
+        {:ok, value}, {:ok, values} -> {:cont, {:ok, [value | values]}}
+        {:error, reason}, {:ok, _values} -> {:halt, {:error, reason}}
+      end)
+
+    case result do
       {:ok, values} -> {:ok, Enum.reverse(values)}
       {:error, _reason} = error -> error
     end

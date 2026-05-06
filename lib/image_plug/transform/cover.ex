@@ -70,8 +70,16 @@ defmodule ImagePlug.Transform.Cover do
 
   @behaviour ImagePlug.Transform
 
-  import ImagePlug.Transform.State
-  import ImagePlug.Transform.Geometry
+  import ImagePlug.Transform.State, only: [add_error: 2, reset_focus: 1, set_image: 2]
+
+  import ImagePlug.Transform.Geometry,
+    only: [
+      anchor_to_scale_units: 3,
+      image_height: 1,
+      image_width: 1,
+      resolve_auto_size: 3,
+      to_pixels!: 2
+    ]
 
   alias ImagePlug.Transform.State
   alias ImagePlug.Transform.Validation
@@ -84,18 +92,18 @@ defmodule ImagePlug.Transform.Cover do
   @type t ::
           %__MODULE__{
             type: :ratio,
-            ratio: ImagePlug.imgp_ratio()
+            ratio: ImagePlug.Transform.Types.ratio()
           }
           | %__MODULE__{
               type: :dimensions,
-              width: ImagePlug.imgp_length(),
-              height: ImagePlug.imgp_length() | :auto,
+              width: ImagePlug.Transform.Types.length(),
+              height: ImagePlug.Transform.Types.length() | :auto,
               constraint: :none | :min | :max
             }
           | %__MODULE__{
               type: :dimensions,
-              width: ImagePlug.imgp_length() | :auto,
-              height: ImagePlug.imgp_length(),
+              width: ImagePlug.Transform.Types.length() | :auto,
+              height: ImagePlug.Transform.Types.length(),
               constraint: :none | :min | :max
             }
 
@@ -227,8 +235,8 @@ defmodule ImagePlug.Transform.Cover do
     resized_height = image_height(state)
     {center_x, center_y} = anchor_to_scale_units(state.focus, resized_width, resized_height)
 
-    scaled_center_x = to_pixels(resized_width, center_x)
-    scaled_center_y = to_pixels(resized_height, center_y)
+    scaled_center_x = to_pixels!(resized_width, center_x)
+    scaled_center_y = to_pixels!(resized_height, center_y)
 
     left = max(0, min(resized_width - crop_width, round(scaled_center_x - crop_width / 2)))
     top = max(0, min(resized_height - crop_height, round(scaled_center_y - crop_height / 2)))

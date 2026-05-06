@@ -19,13 +19,6 @@ defmodule ImagePlug do
   alias ImagePlug.Runtime.ResponseSender
   alias ImagePlug.Runtime.SourceIdentity
 
-  @type imgp_number() :: integer() | float()
-  @type imgp_pixels() :: {:pixels, imgp_number()}
-  @type imgp_pct() :: {:percent, imgp_number()}
-  @type imgp_scale() :: {:scale, imgp_number(), imgp_number()}
-  @type imgp_ratio() :: {imgp_number(), imgp_number()}
-  @type imgp_length() :: imgp_pixels() | imgp_pct() | imgp_scale()
-
   @impl Plug
   def init(opts), do: Options.validate!(opts)
 

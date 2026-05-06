@@ -33,6 +33,8 @@ defmodule ImagePlug.Runtime.Origin do
 
   @default_max_body_bytes 10_000_000
   @default_receive_timeout 5_000
+  @default_pool_timeout 5_000
+  @default_connect_timeout 5_000
   @default_max_redirects 3
 
   def build_url(root_url, path_segments) when is_binary(root_url) and is_list(path_segments) do
@@ -75,20 +77,31 @@ defmodule ImagePlug.Runtime.Origin do
     max_body_bytes = Keyword.get(req_options, :max_body_bytes, @default_max_body_bytes)
     max_redirects = Keyword.get(req_options, :max_redirects, @default_max_redirects)
     receive_timeout = Keyword.get(req_options, :receive_timeout, @default_receive_timeout)
+    pool_timeout = Keyword.get(req_options, :pool_timeout, @default_pool_timeout)
+    connect_options = connect_options(req_options)
 
     request_options =
       req_options
       |> Keyword.delete(:max_body_bytes)
+      |> Keyword.delete(:receive_timeout)
+      |> Keyword.delete(:pool_timeout)
+      |> Keyword.delete(:connect_options)
       |> Keyword.merge(
         url: url,
         into: :self,
         retry: false,
         redirect: true,
-        max_redirects: max_redirects,
-        receive_timeout: receive_timeout
+        max_redirects: max_redirects
       )
 
-    start_stream(url, request_options, max_body_bytes, receive_timeout)
+    start_stream(
+      url,
+      request_options,
+      max_body_bytes,
+      receive_timeout,
+      pool_timeout,
+      connect_options
+    )
   end
 
   @doc """
@@ -133,7 +146,20 @@ defmodule ImagePlug.Runtime.Origin do
   defp split_path(""), do: []
   defp split_path(path), do: path |> String.trim("/") |> String.split("/", trim: true)
 
-  defp start_stream(url, request_options, max_body_bytes, receive_timeout) do
+  defp connect_options(req_options) do
+    req_options
+    |> Keyword.get(:connect_options, [])
+    |> Keyword.put_new(:timeout, @default_connect_timeout)
+  end
+
+  defp start_stream(
+         url,
+         request_options,
+         max_body_bytes,
+         receive_timeout,
+         pool_timeout,
+         connect_options
+       ) do
     caller = self()
     ref = make_ref()
     {:ok, stream_status} = StreamStatus.start_link()
@@ -147,6 +173,8 @@ defmodule ImagePlug.Runtime.Origin do
           request_options,
           max_body_bytes,
           receive_timeout,
+          pool_timeout,
+          connect_options,
           stream_status
         )
       end)
@@ -186,7 +214,7 @@ defmodule ImagePlug.Runtime.Origin do
 
   defp validate_content_type(%Req.Response{} = response) do
     content_type = response |> Req.Response.get_header("content-type") |> List.first()
-    media_type = content_type |> normalize_content_type()
+    media_type = normalize_content_type(content_type)
 
     if is_binary(media_type) and String.starts_with?(media_type, "image/") do
       {:ok, content_type}
@@ -216,11 +244,17 @@ defmodule ImagePlug.Runtime.Origin do
          request_options,
          max_body_bytes,
          receive_timeout,
+         pool_timeout,
+         connect_options,
          stream_status
        ) do
     caller_monitor_ref = Process.monitor(caller)
 
-    case Req.get(request_options) do
+    case Req.get(request_options,
+           receive_timeout: receive_timeout,
+           pool_timeout: pool_timeout,
+           connect_options: connect_options
+         ) do
       {:ok, %Req.Response{} = response} ->
         with :ok <- validate_status(response),
              {:ok, content_type} <- validate_content_type(response) do
@@ -382,6 +416,6 @@ defmodule ImagePlug.Runtime.Origin do
   defp cancel_response(%Req.Response{} = response) do
     Req.cancel_async_response(response)
   rescue
-    _ -> :ok
+    ArgumentError -> :ok
   end
 end

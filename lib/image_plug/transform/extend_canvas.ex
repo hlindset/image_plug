@@ -195,7 +195,7 @@ defmodule ImagePlug.Transform.ExtendCanvas do
   defp canvas_dimension(_current_size, value) when is_number(value) and value >= 0,
     do: round(value)
 
-  defp canvas_dimension(current_size, size_unit), do: to_pixels(current_size, size_unit)
+  defp canvas_dimension(current_size, size_unit), do: to_pixels!(current_size, size_unit)
 
   defp background_color(:transparent), do: [0, 0, 0, 0]
   defp background_color({:color, color}), do: color

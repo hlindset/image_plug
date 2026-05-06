@@ -77,8 +77,10 @@ defmodule ImagePlug.Transform.Contain do
 
   @behaviour ImagePlug.Transform
 
-  import ImagePlug.Transform.State
-  import ImagePlug.Transform.Geometry
+  import ImagePlug.Transform.State, only: [add_error: 2, reset_focus: 1, set_image: 2]
+
+  import ImagePlug.Transform.Geometry,
+    only: [image_height: 1, image_width: 1, resolve_auto_size: 3]
 
   alias ImagePlug.Transform.State
   alias ImagePlug.Transform.Validation
@@ -88,20 +90,20 @@ defmodule ImagePlug.Transform.Contain do
   @type t ::
           %__MODULE__{
             type: :ratio,
-            ratio: ImagePlug.imgp_ratio(),
+            ratio: ImagePlug.Transform.Types.ratio(),
             letterbox: boolean()
           }
           | %__MODULE__{
               type: :dimensions,
-              width: ImagePlug.imgp_length(),
-              height: ImagePlug.imgp_length() | :auto,
+              width: ImagePlug.Transform.Types.length(),
+              height: ImagePlug.Transform.Types.length() | :auto,
               constraint: :regular | :min | :max,
               letterbox: boolean()
             }
           | %__MODULE__{
               type: :dimensions,
-              width: ImagePlug.imgp_length() | :auto,
-              height: ImagePlug.imgp_length(),
+              width: ImagePlug.Transform.Types.length() | :auto,
+              height: ImagePlug.Transform.Types.length(),
               constraint: :regular | :min | :max,
               letterbox: boolean()
             }
@@ -206,7 +208,7 @@ defmodule ImagePlug.Transform.Contain do
 
     with {:ok, state} <- maybe_scale(state, resize_width, resize_height, constraint),
          {:ok, state} <- maybe_add_letterbox(state, letterbox, target_width, target_height) do
-      state |> reset_focus()
+      reset_focus(state)
     else
       {:error, error} -> add_error(state, {__MODULE__, error})
     end

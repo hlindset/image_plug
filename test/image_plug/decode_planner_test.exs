@@ -315,24 +315,18 @@ defmodule ImagePlug.Transform.DecodePlannerTest do
            ]) == [access: :random, fail_on: :error]
   end
 
-  test "failing transform metadata raises as a programmer error" do
-    assert_raise RuntimeError, "metadata failed", fn ->
-      DecodePlanner.open_options([
-        %RaisingMetadataTransform{}
-      ])
-    end
+  test "failing transform metadata stays random" do
+    assert DecodePlanner.open_options([
+             %RaisingMetadataTransform{}
+           ]) == [access: :random, fail_on: :error]
 
-    assert catch_throw(
-             DecodePlanner.open_options([
-               %ThrowingMetadataTransform{}
-             ])
-           ) == :metadata_failed
+    assert DecodePlanner.open_options([
+             %ThrowingMetadataTransform{}
+           ]) == [access: :random, fail_on: :error]
 
-    assert catch_exit(
-             DecodePlanner.open_options([
-               %ExitingMetadataTransform{}
-             ])
-           ) == :metadata_failed
+    assert DecodePlanner.open_options([
+             %ExitingMetadataTransform{}
+           ]) == [access: :random, fail_on: :error]
   end
 
   test "planned options include only access and fail_on" do

@@ -114,8 +114,8 @@ defmodule ImagePlug.Transform.AdaptiveResize do
   defp requested_dimensions(%State{} = state, %DimensionRule{} = rule) do
     {:ok,
      %{
-       width: to_pixels(image_width(state), rule.width),
-       height: to_pixels(image_height(state), rule.height)
+       width: to_pixels!(image_width(state), rule.width),
+       height: to_pixels!(image_height(state), rule.height)
      }}
   end
 

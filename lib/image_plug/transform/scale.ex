@@ -68,8 +68,8 @@ defmodule ImagePlug.Transform.Scale do
 
   @behaviour ImagePlug.Transform
 
-  import ImagePlug.Transform.State
-  import ImagePlug.Transform.Geometry
+  import ImagePlug.Transform.State, only: [add_error: 2, reset_focus: 1, set_image: 2]
+  import ImagePlug.Transform.Geometry, only: [image_height: 1, image_width: 1, to_pixels!: 2]
 
   alias ImagePlug.Transform.State
   alias ImagePlug.Transform.Validation
@@ -79,17 +79,17 @@ defmodule ImagePlug.Transform.Scale do
   @type t ::
           %__MODULE__{
             type: :ratio,
-            ratio: ImagePlug.imgp_ratio()
+            ratio: ImagePlug.Transform.Types.ratio()
           }
           | %__MODULE__{
               type: :dimensions,
-              width: ImagePlug.imgp_length(),
-              height: ImagePlug.imgp_length() | :auto
+              width: ImagePlug.Transform.Types.length(),
+              height: ImagePlug.Transform.Types.length() | :auto
             }
           | %__MODULE__{
               type: :dimensions,
-              width: ImagePlug.imgp_length() | :auto,
-              height: ImagePlug.imgp_length()
+              width: ImagePlug.Transform.Types.length() | :auto,
+              height: ImagePlug.Transform.Types.length()
             }
 
   @impl ImagePlug.Transform
@@ -191,5 +191,5 @@ defmodule ImagePlug.Transform.Scale do
   end
 
   defp to_pixels_or_auto(_length, :auto), do: :auto
-  defp to_pixels_or_auto(length, size_unit), do: to_pixels(length, size_unit)
+  defp to_pixels_or_auto(length, size_unit), do: to_pixels!(length, size_unit)
 end

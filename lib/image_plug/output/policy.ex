@@ -1,7 +1,7 @@
 defmodule ImagePlug.Output.Policy do
   @moduledoc false
 
-  import Plug.Conn
+  import Plug.Conn, only: [get_req_header: 2]
 
   alias ImagePlug.Output.Format
   alias ImagePlug.Output.Negotiation

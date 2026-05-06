@@ -1,7 +1,15 @@
 defmodule ImagePlug.Runtime.ResponseSender do
   @moduledoc false
 
-  import Plug.Conn
+  import Plug.Conn,
+    only: [
+      chunk: 2,
+      put_resp_content_type: 2,
+      put_resp_content_type: 3,
+      put_resp_header: 3,
+      send_chunked: 2,
+      send_resp: 3
+    ]
 
   require Logger
 
