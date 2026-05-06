@@ -12,7 +12,8 @@
 ## Transform guidelines
 
 - Keep transforms product-neutral and composable. Transform modules should express reusable image operations over `ImagePlug.Transform.State` with explicit parameter structs, not parser-specific or vendor-specific concepts; parsers for dialects such as imgproxy, Thumbor, TwicPics, imgix, Cloudinary, or any other product should translate their syntax into `ImagePlug.Plan` when semantics match cleanly, or remain isolated compatibility adapters when they need dialect-specific ordered behavior.
-- Be conservative with optimized decoding. Only use sequential access for transform chains proven safe for one-pass reads; crop, focus, cover, letterboxing, output-only requests, unknown transforms, and no-geometry requests should continue to use random access.
+- Trust operation structs inside the transform boundary. A transform struct missing required callbacks is a programmer error; validation should validate operation fields, not prove that the module implements the transform behaviour.
+- Be conservative with optimized decoding. Only use sequential access for transform chains proven safe for one-pass reads; crop, focus, cover, letterboxing, output-only requests, and no-geometry requests should continue to use random access.
 
 ## Request safety guidelines
 
@@ -46,8 +47,9 @@
 - Prefer Elixir extension points with explicit behaviours (`ImagePlug.Parser`, `ImagePlug.Transform`, `ImagePlug.Cache`), `@impl` annotations, typed parameter structs, and tagged `{:ok, value}` / `{:error, reason}` returns at runtime boundaries. Reserve raises for invalid initialization/configuration.
 - Validate public options explicitly, preferably with `NimbleOptions` or adapter-owned `validate_options/1`, and reject unknown or malformed options before side effects.
 - Keep validation at real boundaries: external input parsing, explicit construction APIs, runtime side-effect boundaries, cache key material, and output negotiation. Avoid duplicating validation across trusted internal structs just to make malformed hand-built data fail earlier or prettier.
+- For trusted internal behaviour dispatch, call the callback directly and let missing callbacks raise. Do not add runtime duck-typing probes, callback-presence checks, or wrapper functions whose only purpose is to make impossible internal misuse return tidy errors.
 - Constructor APIs should accept the narrowest shape that real callers use. Do not accept both keyword lists and maps, existing structs, or negative guard carve-outs such as `is_map(value) and not is_struct(value)` unless there is a real public caller or contract requiring it.
-- Use pattern matching, small private functions, and `with`/`case` pipelines to keep success paths linear while preserving precise error tags. Avoid catch-all rescues except where the boundary intentionally degrades to a safe default, such as transform metadata falling back to random access.
+- Use pattern matching, small private functions, and `with`/`case` pipelines to keep success paths linear while preserving precise error tags. Avoid catch-all rescues unless a concrete runtime boundary intentionally degrades to a documented safe default; do not rescue trusted transform callback failures such as `metadata/1`.
 
 ## Elixir guidelines
 
