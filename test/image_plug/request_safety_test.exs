@@ -14,8 +14,30 @@ defmodule ImagePlug.RequestSafetyTest do
     def parse(_conn, _opts) do
       {:ok,
        %ImagePlug.Plan{
-         source: :invalid_source,
+         source: %ImagePlug.Plan.Source.Plain{path: ["images", "cat.jpg"]},
          pipelines: [%ImagePlug.Plan.Pipeline{operations: []}],
+         output: :invalid_output,
+         policy: %ImagePlug.Plan.Policy{},
+         cache: %ImagePlug.Plan.Cache{},
+         response: %ImagePlug.Plan.Response{}
+       }}
+    end
+
+    @impl ImagePlug.Parser
+    def handle_error(conn, {:error, reason}) do
+      Plug.Conn.send_resp(conn, 400, inspect(reason))
+    end
+  end
+
+  defmodule InvalidPipelinePlanParser do
+    @behaviour ImagePlug.Parser
+
+    @impl ImagePlug.Parser
+    def parse(_conn, _opts) do
+      {:ok,
+       %ImagePlug.Plan{
+         source: %ImagePlug.Plan.Source.Plain{path: ["images", "cat.jpg"]},
+         pipelines: [:not_a_pipeline],
          output: %ImagePlug.Plan.Output{mode: :automatic},
          policy: %ImagePlug.Plan.Policy{},
          cache: %ImagePlug.Plan.Cache{},
@@ -36,8 +58,49 @@ defmodule ImagePlug.RequestSafetyTest do
         root_url: "http://origin.test"
       )
 
+    assert conn.status == 422
+    assert conn.resp_body == "invalid image transform"
+  end
+
+  test "invalid product-neutral plan fails before source identity, cache lookup, and origin" do
+    conn =
+      ImagePlug.call(conn(:get, "/_/plain/images/cat.jpg"),
+        parser: InvalidPlanParser,
+        root_url: "not-a-valid-origin-url",
+        cache: {CacheProbe, []},
+        origin_req_options: [plug: ImagePlug.Runtime.ProcessorTest.OriginShouldNotFetch]
+      )
+
+    assert conn.status == 422
+    assert conn.resp_body == "invalid image transform"
+    refute_received :cache_lookup
+    refute_received :cache_put
+  end
+
+  test "invalid pipeline plan fails before source identity, cache lookup, and origin" do
+    conn =
+      ImagePlug.call(conn(:get, "/_/plain/images/cat.jpg"),
+        parser: InvalidPipelinePlanParser,
+        root_url: "not-a-valid-origin-url",
+        cache: {CacheProbe, []},
+        origin_req_options: [plug: ImagePlug.Runtime.ProcessorTest.OriginShouldNotFetch]
+      )
+
+    assert conn.status == 422
+    assert conn.resp_body == "invalid image transform"
+    refute_received :cache_lookup
+    refute_received :cache_put
+  end
+
+  test "parser validation failures return before origin fetch" do
+    conn =
+      ImagePlug.call(conn(:get, "/_/raw/plain/images/cat.jpg"),
+        parser: ImagePlug.Parser.Native,
+        root_url: "http://origin.test",
+        origin_req_options: [plug: ImagePlug.Runtime.ProcessorTest.OriginShouldNotFetch]
+      )
+
     assert conn.status == 400
-    assert conn.resp_body =~ "unsupported_source"
   end
 
   test "expired native requests return before source identity and cache work" do
@@ -47,7 +110,7 @@ defmodule ImagePlug.RequestSafetyTest do
         root_url: "not-a-valid-origin-url",
         now: 101,
         cache: {CacheProbe, []},
-        origin_req_options: [plug: ImagePlug.ProcessorTest.OriginShouldNotFetch]
+        origin_req_options: [plug: ImagePlug.Runtime.ProcessorTest.OriginShouldNotFetch]
       )
 
     assert conn.status == 400

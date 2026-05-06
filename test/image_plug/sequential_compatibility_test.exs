@@ -2,14 +2,25 @@ defmodule ImagePlug.SequentialCompatibilityTest do
   use ExUnit.Case, async: true
 
   alias ImagePlug.Runtime.Origin
+  alias ImagePlug.Transform.AutoOrient
   alias ImagePlug.Transform.Chain
   alias ImagePlug.Transform.Contain
+  alias ImagePlug.Transform.Geometry.DimensionRule
   alias ImagePlug.Transform.Materializer
+  alias ImagePlug.Transform.Resize
   alias ImagePlug.Transform.Scale
   alias ImagePlug.Transform.State
 
   @cat_path "priv/static/images/cat-300.jpg"
   @dog_path "priv/static/images/dog.jpg"
+
+  test "auto-orient-only chains match random access after materialization" do
+    chain = [
+      %AutoOrient{}
+    ]
+
+    assert_sequential_matches_random(chain, jpeg_body(@cat_path))
+  end
 
   test "width-only scale matches random access after materialization" do
     chain = [
@@ -38,6 +49,20 @@ defmodule ImagePlug.SequentialCompatibilityTest do
   test "height-only upscale matches random access after materialization" do
     chain = [
       %Scale{type: :dimensions, width: :auto, height: {:pixels, 400}}
+    ]
+
+    assert_sequential_matches_random(chain, jpeg_body(@cat_path))
+  end
+
+  test "force resize matches random access after materialization" do
+    chain = [
+      %Resize{
+        rule: %DimensionRule{
+          mode: :force,
+          width: {:pixels, 100},
+          height: :auto
+        }
+      }
     ]
 
     assert_sequential_matches_random(chain, jpeg_body(@cat_path))

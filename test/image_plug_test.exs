@@ -745,7 +745,7 @@ defmodule ImagePlug.ImagePlugTest do
   end
 
   test "does not touch cache when planner validation fails" do
-    conn = conn(:get, "/_/rs:auto:100:100/plain/images/cat-300.jpg")
+    conn = conn(:get, "/_/rs:force:0:100/plain/images/cat-300.jpg")
     cache_probe = start_cache_probe()
 
     conn =
@@ -886,7 +886,7 @@ defmodule ImagePlug.ImagePlugTest do
   end
 
   test "does not fetch origin when planner validation fails" do
-    conn = conn(:get, "/_/rs:auto:100:100/plain/images/cat-300.jpg")
+    conn = conn(:get, "/_/rs:force:0:100/plain/images/cat-300.jpg")
 
     conn =
       ImagePlug.call(conn,
@@ -914,7 +914,7 @@ defmodule ImagePlug.ImagePlugTest do
     refute_received :origin_was_called
   end
 
-  test "returns a parser error for unsupported source kinds before origin" do
+  test "returns a controlled response for unsupported source plans before origin" do
     conn = conn(:get, "/_/signed/images/cat-300.jpg")
 
     conn =
@@ -924,8 +924,8 @@ defmodule ImagePlug.ImagePlugTest do
         origin_req_options: [plug: OriginShouldNotBeCalled]
       )
 
-    assert conn.status == 400
-    assert conn.resp_body =~ "unsupported_source"
+    assert conn.status == 422
+    assert conn.resp_body == "invalid image transform"
     refute_received :origin_was_called
   end
 
@@ -1321,7 +1321,7 @@ defmodule ImagePlug.ImagePlugTest do
   end
 
   test "does not touch cache or origin when planner rejects unsupported semantics" do
-    conn = conn(:get, "/_/rs:auto:100:100/plain/images/cat-300.jpg")
+    conn = conn(:get, "/_/rs:force:0:100/plain/images/cat-300.jpg")
     cache_probe = start_cache_probe()
 
     conn =

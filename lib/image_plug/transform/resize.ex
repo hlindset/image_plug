@@ -40,13 +40,14 @@ defmodule ImagePlug.Transform.Resize do
   @impl ImagePlug.Transform
   def metadata(%__MODULE__{
         rule: %DimensionRule{
-          mode: :fit,
+          mode: mode,
           width: width,
           height: height,
           min_width: nil,
           min_height: nil
         }
-      }) do
+      })
+      when mode in [:fit, :force] do
     if requested_dimension?(width) or requested_dimension?(height) do
       %{access: :sequential}
     else

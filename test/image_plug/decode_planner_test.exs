@@ -3,15 +3,28 @@ defmodule ImagePlug.Transform.DecodePlannerTest do
 
   alias ImagePlug.Plan.Pipeline
   alias ImagePlug.Runtime.Processor
+  alias ImagePlug.Transform.AdaptiveResize
+  alias ImagePlug.Transform.AutoOrient
   alias ImagePlug.Transform.Contain
   alias ImagePlug.Transform.Cover
   alias ImagePlug.Transform.Crop
   alias ImagePlug.Transform.DecodePlanner
+  alias ImagePlug.Transform.ExtendCanvas
   alias ImagePlug.Transform.Focus
+  alias ImagePlug.Transform.Geometry.DimensionRule
+  alias ImagePlug.Transform.Resize
   alias ImagePlug.Transform.Scale
 
   defmodule UnknownTransform do
     defstruct []
+  end
+
+  defmodule NoGeometryTransform do
+    defstruct []
+
+    def name(%__MODULE__{}), do: :no_geometry
+    def metadata(%__MODULE__{}), do: %{access: :neutral}
+    def execute(%__MODULE__{}, state), do: state
   end
 
   defmodule BogusMetadataTransform do
@@ -60,6 +73,12 @@ defmodule ImagePlug.Transform.DecodePlannerTest do
     assert DecodePlanner.open_options([]) == [access: :random, fail_on: :error]
   end
 
+  test "no-geometry chains open randomly" do
+    assert DecodePlanner.open_options([
+             %NoGeometryTransform{}
+           ]) == [access: :random, fail_on: :error]
+  end
+
   test "width-only scale opens sequentially" do
     chain = [
       %Scale{type: :dimensions, width: {:pixels, 120}, height: :auto}
@@ -74,6 +93,12 @@ defmodule ImagePlug.Transform.DecodePlannerTest do
     ]
 
     assert DecodePlanner.open_options(chain) == [access: :sequential, fail_on: :error]
+  end
+
+  test "auto-orient-only chains open sequentially" do
+    assert DecodePlanner.open_options([
+             %AutoOrient{}
+           ]) == [access: :sequential, fail_on: :error]
   end
 
   test "two-dimensional scale stays random" do
@@ -100,6 +125,32 @@ defmodule ImagePlug.Transform.DecodePlannerTest do
         height: {:pixels, 90},
         constraint: :regular,
         letterbox: false
+      }
+    ]
+
+    assert DecodePlanner.open_options(chain) == [access: :sequential, fail_on: :error]
+  end
+
+  test "force resize with requested dimensions opens sequentially" do
+    chain = [
+      %Resize{
+        rule: %DimensionRule{
+          mode: :force,
+          width: {:pixels, 120},
+          height: :auto
+        }
+      }
+    ]
+
+    assert DecodePlanner.open_options(chain) == [access: :sequential, fail_on: :error]
+
+    chain = [
+      %Resize{
+        rule: %DimensionRule{
+          mode: :force,
+          width: {:pixels, 120},
+          height: {:pixels, 90}
+        }
       }
     ]
 
@@ -194,6 +245,36 @@ defmodule ImagePlug.Transform.DecodePlannerTest do
                width: {:pixels, 80},
                height: {:pixels, 80},
                constraint: :none
+             }
+           ]) == [access: :random, fail_on: :error]
+  end
+
+  test "fill adaptive resize and extend canvas stay random" do
+    assert DecodePlanner.open_options([
+             %Resize{
+               rule: %DimensionRule{
+                 mode: :fill,
+                 width: {:pixels, 80},
+                 height: {:pixels, 80}
+               }
+             }
+           ]) == [access: :random, fail_on: :error]
+
+    assert DecodePlanner.open_options([
+             %AdaptiveResize{
+               rule: %DimensionRule{
+                 mode: :auto,
+                 width: {:pixels, 80},
+                 height: {:pixels, 80}
+               }
+             }
+           ]) == [access: :random, fail_on: :error]
+
+    assert DecodePlanner.open_options([
+             %ExtendCanvas{
+               rule: {:dimensions, {:pixels, 80}, {:pixels, 80}},
+               gravity: {:anchor, :center, :center},
+               background: :white
              }
            ]) == [access: :random, fail_on: :error]
   end

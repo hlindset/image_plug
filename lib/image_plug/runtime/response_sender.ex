@@ -122,6 +122,21 @@ defmodule ImagePlug.Runtime.ResponseSender do
   defp handle_processing_error(conn, {:config, error}, response_headers),
     do: send_config_error(conn, error, response_headers)
 
+  defp handle_processing_error(conn, {:unsupported_source, source}, response_headers),
+    do: send_plan_validation_error(conn, {:unsupported_source, source}, response_headers)
+
+  defp handle_processing_error(conn, {:invalid_output_plan, output}, response_headers),
+    do: send_plan_validation_error(conn, {:invalid_output_plan, output}, response_headers)
+
+  defp handle_processing_error(conn, {:invalid_policy_plan, policy}, response_headers),
+    do: send_plan_validation_error(conn, {:invalid_policy_plan, policy}, response_headers)
+
+  defp handle_processing_error(conn, {:invalid_cache_plan, cache}, response_headers),
+    do: send_plan_validation_error(conn, {:invalid_cache_plan, cache}, response_headers)
+
+  defp handle_processing_error(conn, {:invalid_response_plan, response}, response_headers),
+    do: send_plan_validation_error(conn, {:invalid_response_plan, response}, response_headers)
+
   defp handle_processing_error(conn, :empty_pipeline_plan, response_headers),
     do: send_plan_validation_error(conn, :empty_pipeline_plan, response_headers)
 

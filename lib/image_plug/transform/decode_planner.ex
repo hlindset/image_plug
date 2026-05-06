@@ -11,6 +11,8 @@ defmodule ImagePlug.Transform.DecodePlanner do
   end
 
   @spec access(ImagePlug.Transform.Chain.t()) :: :sequential | :random
+  def access([]), do: :random
+
   def access(chain) when is_list(chain) do
     chain
     |> Enum.map(&access_requirement/1)
@@ -36,8 +38,6 @@ defmodule ImagePlug.Transform.DecodePlanner do
 
   defp normalize_access(access) when access in [:sequential, :random, :neutral], do: access
   defp normalize_access(_access), do: :random
-
-  defp resolve_access([]), do: :random
 
   defp resolve_access(requirements) do
     cond do
