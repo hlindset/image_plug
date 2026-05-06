@@ -141,8 +141,6 @@ defmodule ImagePlug.Transform.AdaptiveResize do
        width: to_pixels(image_width(state), rule.width),
        height: to_pixels(image_height(state), rule.height)
      }}
-  rescue
-    ArgumentError -> :error
   end
 
   defp same_orientation?(source_width, source_height, target_width, target_height) do

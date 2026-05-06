@@ -310,4 +310,36 @@ defmodule ImagePlug.Transform.ChainTest do
     assert Image.width(image) == 100
     assert Image.height(image) == 50
   end
+
+  test "adaptive resize raises for invalid unvalidated runtime dimensions" do
+    {:ok, image} = Image.new(200, 100, color: :white)
+
+    chain = [
+      %AdaptiveResize{
+        rule: %DimensionRule{
+          mode: :auto,
+          width: {:scale, 1, 0},
+          height: {:pixels, 50}
+        }
+      }
+    ]
+
+    assert_raise ArgumentError, "scale denominator must be non-zero", fn ->
+      Chain.execute(%State{image: image}, chain)
+    end
+  end
+
+  test "extend canvas raises for invalid unvalidated runtime dimensions" do
+    {:ok, image} = Image.new(100, 100, color: :white)
+
+    chain = [
+      %ExtendCanvas{
+        rule: {:dimensions, {:scale, 1, 0}, {:pixels, 100}}
+      }
+    ]
+
+    assert_raise ArgumentError, "scale denominator must be non-zero", fn ->
+      Chain.execute(%State{image: image}, chain)
+    end
+  end
 end

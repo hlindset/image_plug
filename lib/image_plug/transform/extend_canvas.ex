@@ -147,8 +147,6 @@ defmodule ImagePlug.Transform.ExtendCanvas do
     height = canvas_dimension(image_height(state), height)
 
     {:ok, {max(image_width(state), width), max(image_height(state), height)}}
-  rescue
-    ArgumentError -> {:error, {:invalid_canvas_dimensions, {width, height}}}
   end
 
   defp canvas_dimensions(%State{} = state, {:aspect_ratio, {ratio_width, ratio_height}})
