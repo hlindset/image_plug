@@ -2,6 +2,7 @@
 
 - Use `mise exec -- ...` to run things in this repo with the correct versions of things
 - This project is a greenfield, unreleased library; backwards compatibility should not be a concern at this point in time
+- Prefer shrinking unsupported API surface over preserving tidy errors for bad internal callers. If a code path exists only to define behavior for impossible internal misuse, delete that behavior and its test instead of adding guards, fallbacks, or replacement tests.
 
 ## Native API guidelines
 
@@ -44,6 +45,8 @@
 
 - Prefer Elixir extension points with explicit behaviours (`ImagePlug.Parser`, `ImagePlug.Transform`, `ImagePlug.Cache`), `@impl` annotations, typed parameter structs, and tagged `{:ok, value}` / `{:error, reason}` returns at runtime boundaries. Reserve raises for invalid initialization/configuration.
 - Validate public options explicitly, preferably with `NimbleOptions` or adapter-owned `validate_options/1`, and reject unknown or malformed options before side effects.
+- Keep validation at real boundaries: external input parsing, explicit construction APIs, runtime side-effect boundaries, cache key material, and output negotiation. Avoid duplicating validation across trusted internal structs just to make malformed hand-built data fail earlier or prettier.
+- Constructor APIs should accept the narrowest shape that real callers use. Do not accept both keyword lists and maps, existing structs, or negative guard carve-outs such as `is_map(value) and not is_struct(value)` unless there is a real public caller or contract requiring it.
 - Use pattern matching, small private functions, and `with`/`case` pipelines to keep success paths linear while preserving precise error tags. Avoid catch-all rescues except where the boundary intentionally degrades to a safe default, such as transform metadata falling back to random access.
 
 ## Elixir guidelines
@@ -95,6 +98,7 @@
 ## Test guidelines
 
 - For behavior changes, add focused ExUnit coverage at the relevant boundary: parser grammar/order-insensitivity, planner mapping, plug-level no-origin-fetch failures, output negotiation including `Vary: Accept`, cache key/corruption behavior, and origin/decode limit handling.
+- Do not test impossible internal misuse. Prefer deleting tests that only assert behavior for bad internal callers, hand-built impossible parser structs, negative guard branches, or exact private validation error strings. Add tests for public behavior and safety boundaries, not for every defensive clause.
 - Add StreamData property tests when correctness depends on invariants across many input shapes or orderings, such as canonicalization, filesystem safety, parser order-insensitivity, cache keys, normalization, and round-trip behavior. Keep focused example tests for specific edge cases and error messages.
 - **Always use `start_supervised!/1`** to start processes in tests as it guarantees cleanup between tests
 - **Avoid** `Process.sleep/1` and `Process.alive?/1` in tests
