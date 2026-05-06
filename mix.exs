@@ -15,7 +15,11 @@ defmodule ImagePlug.MixProject do
       deps: deps(),
       docs: [
         main: "ImagePlug",
-        extras: ["README.md"]
+        extras: [
+          "README.md",
+          "docs/native_path_api.md",
+          "docs/transform_operations.md"
+        ]
       ],
       test_coverage: [tool: ExCoveralls]
     ]

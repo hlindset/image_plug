@@ -40,6 +40,10 @@ Both URLs describe the same requested output. ImagePlug owns the fixed processin
 
 When multiple options assign the same canonical field, later assignments win. For example, `w:100/width:200` normalizes to width `200`, while `width:200/w:100` normalizes to width `100`. This affects request normalization only; it does not change transform execution order.
 
+For the complete user-facing URL reference, see [Native Path API](docs/native_path_api.md).
+
+For parser and dialect-author guidance on mapping URL concepts to product-neutral transform operations, see [Transform Operations](docs/transform_operations.md).
+
 ### Options
 
 ```text

@@ -80,7 +80,7 @@ Do not open a PR from this documentation plan until all tasks and final verifica
 - Modify: `README.md`
 - Modify: `mix.exs`
 
-- [ ] **Step 1: Create guide scaffolds**
+- [x] **Step 1: Create guide scaffolds**
 
 Create `docs/native_path_api.md` with this top-level structure:
 
@@ -144,7 +144,7 @@ Create `docs/transform_operations.md` with this top-level structure:
 ## Mapping Examples
 ```
 
-- [ ] **Step 2: Update ExDoc extras**
+- [x] **Step 2: Update ExDoc extras**
 
 Change `mix.exs` docs config from:
 
@@ -168,7 +168,7 @@ docs: [
 ],
 ```
 
-- [ ] **Step 3: Add README links**
+- [x] **Step 3: Add README links**
 
 In `README.md`, keep the existing Native overview concise and add links near the Native Path API section:
 
@@ -178,7 +178,7 @@ For the complete user-facing URL reference, see [Native Path API](docs/native_pa
 For parser and dialect-author guidance on mapping URL concepts to product-neutral transform operations, see [Transform Operations](docs/transform_operations.md).
 ```
 
-- [ ] **Step 4: Run docs generation**
+- [x] **Step 4: Run docs generation**
 
 Run:
 
@@ -188,7 +188,7 @@ mise exec -- mix docs
 
 Expected: command exits 0 and generated docs include `Native Path API` and `Transform Operations` entries.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add README.md mix.exs docs/native_path_api.md docs/transform_operations.md
