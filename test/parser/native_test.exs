@@ -293,6 +293,18 @@ defmodule ImagePlug.Parser.NativeTest do
     assert resize.rule.min_width == {:pixels, 300}
   end
 
+  test "parses documented Native processing examples" do
+    for path <- [
+          "/_/rt:force/w:0/h:200/plain/images/cat.jpg",
+          "/_/g:fp:0.25:0.75/rs:fill:300:200/plain/images/cat.jpg",
+          "/_/c:100:100:fp:0.25:0.75/plain/images/cat.jpg",
+          "/_/ar/c:100:100/plain/images/cat.jpg",
+          "/_/g:soea:12:-0.25/rs:fill:300:200/plain/images/cat.jpg"
+        ] do
+      assert {:ok, _plan} = Native.parse(conn(:get, path), [])
+    end
+  end
+
   test "plans gravity-bearing fill and auto result crops" do
     assert {:ok,
             %Plan{
@@ -386,6 +398,9 @@ defmodule ImagePlug.Parser.NativeTest do
 
   test "rejects smart gravity as an unsupported planner semantic" do
     assert Native.parse(conn(:get, "/_/g:sm/plain/images/cat.jpg"), []) ==
+             {:error, {:unsupported_gravity, :sm}}
+
+    assert Native.parse(conn(:get, "/_/c:100:100:sm/plain/images/cat.jpg"), []) ==
              {:error, {:unsupported_gravity, :sm}}
   end
 

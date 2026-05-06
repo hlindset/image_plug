@@ -203,7 +203,7 @@ git commit -m "docs: add native and transform guide entry points"
 - Modify: `test/parser/native/plan_builder_test.exs`
 - Modify: `test/image_plug_test.exs`
 
-- [ ] **Step 1: Add Native mental model and URL shape**
+- [x] **Step 1: Add Native mental model and URL shape**
 
 Write these statements in `docs/native_path_api.md`:
 
@@ -218,7 +218,7 @@ The general shape is:
 `plain` source paths are path segments after the source marker. A plain source may end in `@extension` to request an explicit output format from the source path. The `@extension` form bypasses `Accept` negotiation like `format`, `f`, and `ext`.
 ```
 
-- [ ] **Step 2: Document pipeline groups and Native order**
+- [x] **Step 2: Document pipeline groups and Native order**
 
 Add:
 
@@ -236,7 +236,7 @@ Native canonical operation order inside each pipeline group is:
 Orientation suborder is auto-orient, rotate, then flip.
 ```
 
-- [ ] **Step 3: Document conflict resolution**
+- [x] **Step 3: Document conflict resolution**
 
 Add:
 
@@ -252,7 +252,7 @@ Examples:
 Pipeline separators scope transform fields to each pipeline group. Global fields such as output format, quality, cachebuster, expiration, filename, and response disposition can appear across groups and still resolve by canonical field.
 ```
 
-- [ ] **Step 4: Document supported options and aliases**
+- [x] **Step 4: Document supported options and aliases**
 
 Add a `Supported Options And Aliases` section before the behavior-specific sections. The table must list every currently supported Native option name from `ImagePlug.Parser.Native`, with aliases and accepted value shape:
 
@@ -293,7 +293,7 @@ Anchor gravity values are `ce`, `no`, `so`, `ea`, `we`, `noea`, `nowe`, `soea`, 
 Resize and size tuple extend-gravity tails accept anchor gravity alone or anchor gravity with `x_offset` and `y_offset`.
 ```
 
-- [ ] **Step 5: Document resize and dimension behavior**
+- [x] **Step 5: Document resize and dimension behavior**
 
 Add accepted Native resize content covering:
 
@@ -306,7 +306,7 @@ Zero dimensions map to `auto`. For `force`, an auto side preserves the source di
 `rt:force/w:300/h:0` forces width to `300` and preserves source height.
 ```
 
-- [ ] **Step 6: Document crop, gravity, offsets, and smart gravity rejection**
+- [x] **Step 6: Document crop, gravity, offsets, and smart gravity rejection**
 
 Add:
 
@@ -326,7 +326,7 @@ Absolute top-level gravity offsets are resolved by crop execution using the effe
 `g:sm` is intentionally unsupported in this Native slice and is rejected as `{:unsupported_gravity, :sm}`.
 ```
 
-- [ ] **Step 7: Document orientation and canvas behavior**
+- [x] **Step 7: Document orientation and canvas behavior**
 
 Add:
 
@@ -345,7 +345,7 @@ Canvas options are `extend`/`ex`, resize-tail extend arguments, and `extend_aspe
 - Extend gravity uses anchor values only, with optional numeric offsets.
 ```
 
-- [ ] **Step 8: Document output, quality, cache, and response behavior**
+- [x] **Step 8: Document output, quality, cache, and response behavior**
 
 Add:
 
@@ -364,7 +364,7 @@ Supported explicit output extensions are `webp`, `avif`, `jpeg`, `jpg`, `png`, a
 `cachebuster`/`cb` changes cache key material without adding transform operations. `expires`/`exp` is a Unix timestamp request validity policy. `filename`/`fn` sets the delivery filename stem; `return_attachment`/`att` controls inline versus attachment `Content-Disposition`.
 ```
 
-- [ ] **Step 9: Document rejection table**
+- [x] **Step 9: Document rejection table**
 
 Add:
 
@@ -380,7 +380,7 @@ Add:
 Unsupported examples include `raw`, `max_bytes`, `max_src_resolution`, `max_src_file_size`, `crop_aspect_ratio`, `format:auto`, `g:sm`, and `c:<width>:<height>:sm`.
 ```
 
-- [ ] **Step 10: Add common URL examples**
+- [x] **Step 10: Add common URL examples**
 
 Add examples for these user-facing URL patterns:
 
@@ -396,7 +396,7 @@ Add examples for these user-facing URL patterns:
 | Source extension output format | `/_/plain/images/cat.jpg@png` |
 ```
 
-- [ ] **Step 11: Add or verify parser examples**
+- [x] **Step 11: Add or verify parser examples**
 
 Add parser test cases only for examples that are not already covered. Use current tests before adding duplicates. Required covered examples:
 
@@ -414,7 +414,7 @@ assert Native.parse(conn(:get, "/_/g:sm/plain/images/cat.jpg"), []) == {:error, 
 assert Native.parse(conn(:get, "/_/c:100:100:sm/plain/images/cat.jpg"), []) == {:error, {:unsupported_gravity, :sm}}
 ```
 
-- [ ] **Step 12: Add or verify request-level rejection tests**
+- [x] **Step 12: Add or verify request-level rejection tests**
 
 Verify or add `ImagePlug.call/2` tests proving parser and planner validation failures return HTTP 400 before origin fetch and before cache lookup. Current examples to keep covered:
 
@@ -442,7 +442,7 @@ refute_received {:cache_get, _key}
 refute_received :origin_was_called
 ```
 
-- [ ] **Step 13: Run focused Native tests**
+- [x] **Step 13: Run focused Native tests**
 
 Run:
 
@@ -452,7 +452,7 @@ mise exec -- mix test test/parser/native_test.exs test/parser/native/plan_builde
 
 Expected: PASS.
 
-- [ ] **Step 14: Commit**
+- [x] **Step 14: Commit**
 
 ```bash
 git add docs/native_path_api.md test/parser/native_test.exs test/parser/native/plan_builder_test.exs test/image_plug_test.exs
