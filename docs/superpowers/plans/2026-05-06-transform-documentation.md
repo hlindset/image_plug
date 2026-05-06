@@ -687,12 +687,12 @@ For each module, add these sections with module-specific content:
 
 - Opening paragraph: one sentence defining the product-neutral operation.
 - `## Construct When`: when parser/dialect code should construct this operation.
-- `## Construction API`: `new/1` validates attrs and returns `{:ok, operation}` or `{:error, reason}`; `new!/1` returns an operation or raises.
+- `## Struct Contract`: parser/planner code constructs operation structs directly; plan validation rejects malformed operation structs before runtime side effects.
 - `## Fields`: required fields, optional fields, accepted values, and links to shared contracts such as `DimensionRule`.
 - `## Execution Semantics`: how `execute/2` changes `ImagePlug.Transform.State`.
 - `## Decode Planning Metadata`: what `metadata/1` returns and why.
 - `## Cache Material`: exact keyword fields emitted by the module's `ImagePlug.Transform.Material` implementation.
-- `## Examples`: construction examples using `new/1` or `new!/1`.
+- `## Examples`: construction examples using struct literals.
 
 - [x] **Step 3: Document `Resize`**
 

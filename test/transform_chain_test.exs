@@ -19,89 +19,78 @@ defmodule ImagePlug.Transform.ChainTest do
 
   doctest ImagePlug.Transform.Chain
 
-  test "transform modules construct operation structs" do
-    assert %Scale{
-             type: :dimensions,
-             width: {:pixels, 10},
-             height: :auto
-           } =
-             Scale.new!(
+  test "transform modules expose valid operation structs" do
+    assert :ok =
+             Transform.validate(%Scale{
                type: :dimensions,
                width: {:pixels, 10},
                height: :auto
-             )
+             })
 
-    assert %Resize{rule: %DimensionRule{mode: :fit}} =
-             Resize.new!(rule: %DimensionRule{mode: :fit, width: {:pixels, 10}})
-  end
+    assert :ok =
+             Transform.validate(%Resize{
+               rule: %DimensionRule{mode: :fit, width: {:pixels, 10}}
+             })
 
-  test "transform modules support fallible construction" do
-    assert {:ok, %Scale{}} =
-             Scale.new(
-               type: :dimensions,
-               width: {:pixels, 10},
-               height: :auto
-             )
-
-    assert {:ok, %AdaptiveResize{}} =
-             AdaptiveResize.new(
+    assert :ok =
+             Transform.validate(%AdaptiveResize{
                rule: %DimensionRule{mode: :auto, width: {:pixels, 10}, height: {:pixels, 20}}
-             )
+             })
   end
 
-  test "fallible construction returns errors for missing required attrs" do
-    assert {:error, _reason} = Scale.new(type: :dimensions)
-  end
-
-  test "construction validates malformed attribute maps" do
+  test "transform validation rejects malformed operation structs" do
     assert {:error, %ArgumentError{}} =
-             Scale.new(type: :dimensions, width: :oops, height: {:pixels, 100})
-
-    assert {:error, %ArgumentError{}} =
-             Contain.new(type: :ratio, ratio: {1, 0}, letterbox: false)
+             Transform.validate(%Scale{
+               type: :dimensions,
+               width: :oops,
+               height: {:pixels, 100}
+             })
 
     assert {:error, %ArgumentError{}} =
-             Cover.new(type: :dimensions, width: {:pixels, 100}, height: 0, constraint: :none)
+             Transform.validate(%Contain{type: :ratio, ratio: {1, 0}, letterbox: false})
 
     assert {:error, %ArgumentError{}} =
-             Crop.new(width: nil, height: {:pixels, 100}, crop_from: :focus)
+             Transform.validate(%Cover{
+               type: :dimensions,
+               width: {:pixels, 100},
+               height: 0,
+               constraint: :none
+             })
 
     assert {:error, %ArgumentError{}} =
-             Focus.new(type: {:coordinate, :oops, {:percent, 50}})
+             Transform.validate(%Crop{width: nil, height: {:pixels, 100}, crop_from: :focus})
 
     assert {:error, %ArgumentError{}} =
-             Resize.new(rule: %DimensionRule{mode: :auto})
+             Transform.validate(%Focus{type: {:coordinate, :oops, {:percent, 50}}})
 
     assert {:error, %ArgumentError{}} =
-             AdaptiveResize.new(rule: %DimensionRule{mode: :fill})
+             Transform.validate(%Resize{rule: %DimensionRule{mode: :auto}})
 
     assert {:error, %ArgumentError{}} =
-             ExtendCanvas.new(rule: :oops)
+             Transform.validate(%AdaptiveResize{rule: %DimensionRule{mode: :fill}})
 
     assert {:error, %ArgumentError{}} =
-             Resize.new(rule: %DimensionRule{}, extra: true)
+             Transform.validate(%ExtendCanvas{rule: :oops})
   end
 
   test "transform name is delegated to operation module" do
-    operation =
-      Scale.new!(
-        type: :dimensions,
-        width: {:pixels, 10},
-        height: :auto
-      )
+    operation = %Scale{
+      type: :dimensions,
+      width: {:pixels, 10},
+      height: :auto
+    }
 
     assert Transform.transform_name(operation) == :scale
   end
 
   test "metadata is delegated to operation module" do
-    operation =
-      Contain.new!(
-        type: :dimensions,
-        width: {:pixels, 10},
-        height: :auto,
-        constraint: :regular,
-        letterbox: false
-      )
+    operation = %Contain{
+      type: :dimensions,
+      width: {:pixels, 10},
+      height: :auto,
+      constraint: :regular,
+      letterbox: false
+    }
 
     assert Transform.metadata(operation) == %{access: :sequential}
   end

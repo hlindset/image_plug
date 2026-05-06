@@ -225,11 +225,8 @@ defmodule ImagePlug.ImagePlugTest do
   defmodule BrokenImageTransform do
     defstruct []
 
-    def new(attrs), do: {:ok, new!(attrs)}
-    def new!(%__MODULE__{} = operation), do: operation
-    def new!(attrs), do: struct!(__MODULE__, attrs)
-
     def name(%__MODULE__{}), do: :broken_image
+    def validate(%__MODULE__{}), do: :ok
 
     def metadata(%__MODULE__{}), do: %{access: :random}
 
@@ -270,11 +267,8 @@ defmodule ImagePlug.ImagePlugTest do
   defmodule RaisingAfterFirstChunkTransform do
     defstruct []
 
-    def new(attrs), do: {:ok, new!(attrs)}
-    def new!(%__MODULE__{} = operation), do: operation
-    def new!(attrs), do: struct!(__MODULE__, attrs)
-
     def name(%__MODULE__{}), do: :raising_after_first_chunk
+    def validate(%__MODULE__{}), do: :ok
 
     def metadata(%__MODULE__{}), do: %{access: :random}
 
@@ -303,11 +297,8 @@ defmodule ImagePlug.ImagePlugTest do
 
     defstruct []
 
-    def new(attrs), do: {:ok, new!(attrs)}
-    def new!(%__MODULE__{} = operation), do: operation
-    def new!(attrs), do: struct!(__MODULE__, attrs)
-
     def name(%__MODULE__{}), do: :failing
+    def validate(%__MODULE__{}), do: :ok
 
     def metadata(%__MODULE__{}), do: %{access: :random}
 
@@ -334,11 +325,8 @@ defmodule ImagePlug.ImagePlugTest do
   defmodule UnprojectableOperationTransform do
     defstruct []
 
-    def new(attrs), do: {:ok, new!(attrs)}
-    def new!(%__MODULE__{} = operation), do: operation
-    def new!(attrs), do: struct!(__MODULE__, attrs)
-
     def name(%__MODULE__{}), do: :unprojectable
+    def validate(%__MODULE__{}), do: :ok
 
     def metadata(%__MODULE__{}), do: %{access: :random}
 

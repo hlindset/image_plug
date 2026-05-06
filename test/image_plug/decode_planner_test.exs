@@ -23,6 +23,7 @@ defmodule ImagePlug.Transform.DecodePlannerTest do
     defstruct []
 
     def name(%__MODULE__{}), do: :no_geometry
+    def validate(%__MODULE__{}), do: :ok
     def metadata(%__MODULE__{}), do: %{access: :neutral}
     def execute(%__MODULE__{}, state), do: state
   end
@@ -30,43 +31,64 @@ defmodule ImagePlug.Transform.DecodePlannerTest do
   defmodule BogusMetadataTransform do
     defstruct []
 
+    def name(%__MODULE__{}), do: :bogus_metadata
+    def validate(%__MODULE__{}), do: :ok
     def metadata(%__MODULE__{}), do: %{access: :bogus}
+    def execute(%__MODULE__{}, state), do: state
   end
 
   defmodule MissingAccessMetadataTransform do
     defstruct []
 
+    def name(%__MODULE__{}), do: :missing_access_metadata
+    def validate(%__MODULE__{}), do: :ok
     def metadata(%__MODULE__{}), do: %{other: :metadata}
+    def execute(%__MODULE__{}, state), do: state
   end
 
   defmodule NilMetadataTransform do
     defstruct []
 
+    def name(%__MODULE__{}), do: :nil_metadata
+    def validate(%__MODULE__{}), do: :ok
     def metadata(%__MODULE__{}), do: nil
+    def execute(%__MODULE__{}, state), do: state
   end
 
   defmodule KeywordMetadataTransform do
     defstruct []
 
+    def name(%__MODULE__{}), do: :keyword_metadata
+    def validate(%__MODULE__{}), do: :ok
     def metadata(%__MODULE__{}), do: [access: :sequential]
+    def execute(%__MODULE__{}, state), do: state
   end
 
   defmodule RaisingMetadataTransform do
     defstruct []
 
+    def name(%__MODULE__{}), do: :raising_metadata
+    def validate(%__MODULE__{}), do: :ok
     def metadata(%__MODULE__{}), do: raise("metadata failed")
+    def execute(%__MODULE__{}, state), do: state
   end
 
   defmodule ThrowingMetadataTransform do
     defstruct []
 
+    def name(%__MODULE__{}), do: :throwing_metadata
+    def validate(%__MODULE__{}), do: :ok
     def metadata(%__MODULE__{}), do: throw(:metadata_failed)
+    def execute(%__MODULE__{}, state), do: state
   end
 
   defmodule ExitingMetadataTransform do
     defstruct []
 
+    def name(%__MODULE__{}), do: :exiting_metadata
+    def validate(%__MODULE__{}), do: :ok
     def metadata(%__MODULE__{}), do: exit(:metadata_failed)
+    def execute(%__MODULE__{}, state), do: state
   end
 
   test "empty chains open randomly with fail_on error" do
@@ -279,13 +301,15 @@ defmodule ImagePlug.Transform.DecodePlannerTest do
            ]) == [access: :random, fail_on: :error]
   end
 
-  test "unknown transforms stay random" do
+  test "unknown transforms raise as programmer errors" do
     chain = [
       %Scale{type: :dimensions, width: {:pixels, 120}, height: :auto},
       %UnknownTransform{}
     ]
 
-    assert DecodePlanner.open_options(chain) == [access: :random, fail_on: :error]
+    assert_raise ArgumentError, fn ->
+      DecodePlanner.open_options(chain)
+    end
   end
 
   test "malformed transform metadata stays random" do
@@ -306,18 +330,24 @@ defmodule ImagePlug.Transform.DecodePlannerTest do
            ]) == [access: :random, fail_on: :error]
   end
 
-  test "failing transform metadata stays random" do
-    assert DecodePlanner.open_options([
-             %RaisingMetadataTransform{}
-           ]) == [access: :random, fail_on: :error]
+  test "failing transform metadata raises as a programmer error" do
+    assert_raise RuntimeError, "metadata failed", fn ->
+      DecodePlanner.open_options([
+        %RaisingMetadataTransform{}
+      ])
+    end
 
-    assert DecodePlanner.open_options([
-             %ThrowingMetadataTransform{}
-           ]) == [access: :random, fail_on: :error]
+    assert catch_throw(
+             DecodePlanner.open_options([
+               %ThrowingMetadataTransform{}
+             ])
+           ) == :metadata_failed
 
-    assert DecodePlanner.open_options([
-             %ExitingMetadataTransform{}
-           ]) == [access: :random, fail_on: :error]
+    assert catch_exit(
+             DecodePlanner.open_options([
+               %ExitingMetadataTransform{}
+             ])
+           ) == :metadata_failed
   end
 
   test "planned options include only access and fail_on" do

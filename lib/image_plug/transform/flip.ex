@@ -16,24 +16,14 @@ defmodule ImagePlug.Transform.Flip do
   contract, not a universal requirement of the product-neutral transform
   operation model.
 
-  ## Construction API
-
-  `new/1` accepts a keyword list and returns
-  `{:ok, operation}` when attrs are valid or `{:error, exception}` when
-  validation fails. `new!/1` accepts the same input and returns the operation
-  or raises `ArgumentError` or `KeyError` for invalid attrs.
-
-  The only accepted attr is `:axis`.
-
   ## Fields
 
   Required fields:
 
   - `axis`: one of `:horizontal`, `:vertical`, or `:both`.
 
-  Unknown fields are rejected. Parser or planner code is responsible for
-  translating dialect-specific booleans, tokens, or aliases into one of these
-  product-neutral axis values.
+  Parser or planner code is responsible for translating dialect-specific
+  booleans, tokens, or aliases into one of these product-neutral axis values.
 
   ## Execution Semantics
 
@@ -64,9 +54,7 @@ defmodule ImagePlug.Transform.Flip do
 
   ## Examples
 
-      {:ok, flip} = ImagePlug.Transform.Flip.new(axis: :horizontal)
-
-      flip = ImagePlug.Transform.Flip.new!(axis: :both)
+      flip = %ImagePlug.Transform.Flip{axis: :horizontal}
   """
 
   @behaviour ImagePlug.Transform
@@ -80,23 +68,13 @@ defmodule ImagePlug.Transform.Flip do
 
   @type t :: %__MODULE__{axis: :horizontal | :vertical | :both}
 
-  def new(attrs) do
-    {:ok, new!(attrs)}
-  rescue
-    exception in [ArgumentError, KeyError] ->
-      {:error, exception}
-  end
-
-  def new!(attrs) when is_list(attrs) do
-    attrs
-    |> validate_attrs!()
-    |> then(&struct!(__MODULE__, &1))
-  end
-
-  def new!(attrs), do: Validation.invalid_options!("flip", attrs)
-
   @impl ImagePlug.Transform
   def name(%__MODULE__{}), do: :flip
+
+  @impl ImagePlug.Transform
+  def validate(%__MODULE__{axis: axis}) do
+    Validation.one_of("flip", :axis, axis, [:horizontal, :vertical, :both])
+  end
 
   @impl ImagePlug.Transform
   def metadata(%__MODULE__{}), do: %{access: :random}
@@ -116,11 +94,5 @@ defmodule ImagePlug.Transform.Flip do
       {:ok, image} -> state |> set_image(image) |> reset_focus()
       {:error, error} -> add_error(state, {__MODULE__, error})
     end
-  end
-
-  defp validate_attrs!(attrs) do
-    attrs = Validation.attrs!(attrs, [:axis], "flip")
-    Validation.one_of!("flip", :axis, Map.fetch!(attrs, :axis), [:horizontal, :vertical, :both])
-    attrs
   end
 end

@@ -303,14 +303,15 @@ defmodule ImagePlug.Parser.Native.PlanBuilder do
 
   defp crop_operations(%PipelineRequest{crop: %CropRequest{} = crop} = request) do
     build_operation_list(
-      Transform.Crop.new(
-        width: crop.width,
-        height: crop.height,
-        crop_from: :gravity,
-        gravity: crop.gravity || request.gravity,
-        x_offset: crop.x_offset,
-        y_offset: crop.y_offset
-      )
+      {:ok,
+       %Transform.Crop{
+         width: crop.width,
+         height: crop.height,
+         crop_from: :gravity,
+         gravity: crop.gravity || request.gravity,
+         x_offset: crop.x_offset,
+         y_offset: crop.y_offset
+       }}
     )
   end
 
@@ -326,14 +327,14 @@ defmodule ImagePlug.Parser.Native.PlanBuilder do
     reduce_results(operations)
   end
 
-  defp auto_orient_operation(%Orientation{auto_orient: true}), do: Transform.AutoOrient.new([])
+  defp auto_orient_operation(%Orientation{auto_orient: true}), do: {:ok, %Transform.AutoOrient{}}
   defp auto_orient_operation(%Orientation{}), do: nil
 
   defp rotate_operation(%Orientation{rotate: 0}), do: nil
-  defp rotate_operation(%Orientation{rotate: angle}), do: Transform.Rotate.new(angle: angle)
+  defp rotate_operation(%Orientation{rotate: angle}), do: {:ok, %Transform.Rotate{angle: angle}}
 
   defp flip_operation(%Orientation{flip: nil}), do: nil
-  defp flip_operation(%Orientation{flip: axis}), do: Transform.Flip.new(axis: axis)
+  defp flip_operation(%Orientation{flip: axis}), do: {:ok, %Transform.Flip{axis: axis}}
 
   defp result_crop_operations(%PipelineRequest{}, []), do: {:ok, []}
 
@@ -344,15 +345,16 @@ defmodule ImagePlug.Parser.Native.PlanBuilder do
        when resizing_type in [:fill, :fill_down, :auto] do
     with {:ok, %Transform.Geometry.DimensionRule{} = rule} <- result_crop_rule(request) do
       build_operation_list(
-        Transform.Crop.new(
-          width: :auto,
-          height: :auto,
-          crop_from: :gravity,
-          gravity: request.gravity,
-          x_offset: result_crop_x_offset(request),
-          y_offset: result_crop_y_offset(request),
-          target_rule: rule
-        )
+        {:ok,
+         %Transform.Crop{
+           width: :auto,
+           height: :auto,
+           crop_from: :gravity,
+           gravity: request.gravity,
+           x_offset: result_crop_x_offset(request),
+           y_offset: result_crop_y_offset(request),
+           target_rule: rule
+         }}
       )
     end
   end
@@ -414,9 +416,8 @@ defmodule ImagePlug.Parser.Native.PlanBuilder do
   defp resize_operations(%PipelineRequest{resizing_type: :auto} = request) do
     with {:ok, %Transform.Geometry.DimensionRule{} = rule} <- dimension_rule(request),
          {:ok, operation} <-
-           Transform.AdaptiveResize.new(
-             rule: %Transform.Geometry.DimensionRule{rule | mode: :auto}
-           ) do
+           {:ok,
+            %Transform.AdaptiveResize{rule: %Transform.Geometry.DimensionRule{rule | mode: :auto}}} do
       {:ok, [operation]}
     end
   end
@@ -433,7 +434,7 @@ defmodule ImagePlug.Parser.Native.PlanBuilder do
           {:ok, []}
 
         {_planned_width, _planned_height, _rule_requested?} ->
-          build_operation_list(Transform.Resize.new(rule: rule))
+          build_operation_list({:ok, %Transform.Resize{rule: rule}})
       end
     end
   end
@@ -459,14 +460,15 @@ defmodule ImagePlug.Parser.Native.PlanBuilder do
 
   defp extend_operation(%PipelineRequest{} = request) do
     if extend_operation_requested?(request) do
-      Transform.ExtendCanvas.new(
-        rule:
-          {:dimensions, normalize_dimension(request.width), normalize_dimension(request.height)},
-        gravity: request.extend_gravity || @default_gravity,
-        x_offset: request.extend_x_offset || 0.0,
-        y_offset: request.extend_y_offset || 0.0,
-        background: :white
-      )
+      {:ok,
+       %Transform.ExtendCanvas{
+         rule:
+           {:dimensions, normalize_dimension(request.width), normalize_dimension(request.height)},
+         gravity: request.extend_gravity || @default_gravity,
+         x_offset: request.extend_x_offset || 0.0,
+         y_offset: request.extend_y_offset || 0.0,
+         background: :white
+       }}
     end
   end
 
@@ -483,13 +485,14 @@ defmodule ImagePlug.Parser.Native.PlanBuilder do
   defp extend_aspect_ratio_operation(%PipelineRequest{extend_aspect_ratio: nil}), do: nil
 
   defp extend_aspect_ratio_operation(%PipelineRequest{extend_aspect_ratio: ratio}) do
-    Transform.ExtendCanvas.new(
-      rule: {:aspect_ratio, ratio},
-      gravity: @default_gravity,
-      x_offset: 0.0,
-      y_offset: 0.0,
-      background: :white
-    )
+    {:ok,
+     %Transform.ExtendCanvas{
+       rule: {:aspect_ratio, ratio},
+       gravity: @default_gravity,
+       x_offset: 0.0,
+       y_offset: 0.0,
+       background: :white
+     }}
   end
 
   defp dimension_rule(%PipelineRequest{} = request) do
@@ -514,7 +517,6 @@ defmodule ImagePlug.Parser.Native.PlanBuilder do
   defp dimension_rule_mode(:auto), do: :fit
 
   defp build_operation_list({:ok, operation}), do: {:ok, [operation]}
-  defp build_operation_list({:error, _reason} = error), do: error
 
   defp valid_gravity?({:fp, x, y}) do
     is_number(x) and is_number(y) and x >= 0.0 and x <= 1.0 and y >= 0.0 and y <= 1.0

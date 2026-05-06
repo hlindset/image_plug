@@ -51,6 +51,22 @@ defmodule ImagePlug.PlanTest do
     assert {:ok, [%Pipeline{operations: [^operation]}]} = Plan.validated_pipelines(plan)
   end
 
+  test "validated pipelines reject malformed transform operation structs" do
+    operation = %Transform.Scale{
+      type: :dimensions,
+      width: :auto,
+      height: :auto
+    }
+
+    plan = %Plan{
+      source: %Plain{path: ["images", "cat.jpg"]},
+      pipelines: [%Pipeline{operations: [operation]}],
+      output: %Output{mode: {:explicit, :webp}}
+    }
+
+    assert {:error, {:invalid_pipeline_operation, ^operation}} = Plan.validated_pipelines(plan)
+  end
+
   test "validated pipelines accept runtime-only operation structs" do
     operation = %RuntimeOnlyTransform{}
 

@@ -16,14 +16,6 @@ defmodule ImagePlug.Transform.AutoOrient do
   contract, not a universal requirement of the product-neutral transform
   operation model.
 
-  ## Construction API
-
-  `new/1` accepts an empty keyword list and returns `{:ok, operation}`.
-  `new!/1` accepts the same input and returns the operation.
-
-  Non-empty attrs are invalid. `new/1` returns `{:error, exception}` for
-  invalid attrs, while `new!/1` raises `ArgumentError`.
-
   ## Fields
 
   `AutoOrient` has no fields. The source image metadata and pixel data are read
@@ -58,9 +50,7 @@ defmodule ImagePlug.Transform.AutoOrient do
 
   ## Examples
 
-      {:ok, auto_orient} = ImagePlug.Transform.AutoOrient.new([])
-
-      auto_orient = ImagePlug.Transform.AutoOrient.new!([])
+      auto_orient = %ImagePlug.Transform.AutoOrient{}
   """
 
   @behaviour ImagePlug.Transform
@@ -73,19 +63,11 @@ defmodule ImagePlug.Transform.AutoOrient do
 
   @type t :: %__MODULE__{}
 
-  def new(attrs) do
-    {:ok, new!(attrs)}
-  rescue
-    exception in [ArgumentError, KeyError] ->
-      {:error, exception}
-  end
-
-  def new!([]), do: %__MODULE__{}
-
-  def new!(attrs), do: raise(ArgumentError, "invalid auto-orient options: #{inspect(attrs)}")
-
   @impl ImagePlug.Transform
   def name(%__MODULE__{}), do: :auto_orient
+
+  @impl ImagePlug.Transform
+  def validate(%__MODULE__{}), do: :ok
 
   @impl ImagePlug.Transform
   def metadata(%__MODULE__{}), do: %{access: :sequential}

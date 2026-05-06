@@ -17,15 +17,6 @@ defmodule ImagePlug.Transform.Resize do
   `width: :auto`, and `height: {:pixels, 200}`. The URL syntax is parser
   specific; the operation itself is product-neutral.
 
-  ## Construction API
-
-  `new/1` accepts a keyword list and returns
-  `{:ok, operation}` when the attrs are valid or `{:error, reason}` when
-  validation fails. `new!/1` accepts the same input and returns the operation
-  or raises for invalid attrs.
-
-  The only accepted attr is `:rule`.
-
   ## Fields
 
   `rule` is required and must be an
@@ -102,24 +93,14 @@ defmodule ImagePlug.Transform.Resize do
       alias ImagePlug.Transform.Geometry.DimensionRule
       alias ImagePlug.Transform.Resize
 
-      {:ok, resize} =
-        Resize.new(
-          rule: %DimensionRule{
-            mode: :fit,
-            width: {:pixels, 300},
-            height: :auto,
-            enlarge: false
-          }
-        )
-
-      force =
-        Resize.new!(
-          rule: %DimensionRule{
-            mode: :force,
-            width: :auto,
-            height: {:pixels, 200}
-          }
-        )
+      resize = %Resize{
+        rule: %DimensionRule{
+          mode: :fit,
+          width: {:pixels, 300},
+          height: :auto,
+          enlarge: false
+        }
+      }
   """
 
   @behaviour ImagePlug.Transform
@@ -136,23 +117,15 @@ defmodule ImagePlug.Transform.Resize do
 
   @type t :: %__MODULE__{rule: DimensionRule.t()}
 
-  def new(attrs) do
-    {:ok, new!(attrs)}
-  rescue
-    exception in [ArgumentError, KeyError] ->
-      {:error, exception}
-  end
-
-  def new!(attrs) when is_list(attrs) do
-    attrs
-    |> validate_attrs!()
-    |> then(&struct!(__MODULE__, &1))
-  end
-
-  def new!(attrs), do: Validation.invalid_options!("resize", attrs)
-
   @impl ImagePlug.Transform
   def name(%__MODULE__{}), do: :resize
+
+  @impl ImagePlug.Transform
+  def validate(%__MODULE__{rule: %DimensionRule{} = rule}) do
+    Validation.dimension_rule("resize", :rule, rule, [:fit, :fill, :fill_down, :force])
+  end
+
+  def validate(%__MODULE__{rule: rule}), do: Validation.invalid("resize", :rule, rule)
 
   @impl ImagePlug.Transform
   def metadata(%__MODULE__{
@@ -204,16 +177,4 @@ defmodule ImagePlug.Transform.Resize do
   defp requested_dimension?(:auto), do: false
   defp requested_dimension?({:pixels, value}) when is_number(value) and value <= 0, do: false
   defp requested_dimension?(_dimension), do: true
-
-  defp validate_attrs!(attrs) do
-    attrs = Validation.attrs!(attrs, [:rule], "resize")
-    validate_rule!(Map.fetch!(attrs, :rule))
-    attrs
-  end
-
-  defp validate_rule!(%DimensionRule{} = rule) do
-    Validation.dimension_rule!("resize", :rule, rule, [:fit, :fill, :fill_down, :force])
-  end
-
-  defp validate_rule!(rule), do: Validation.invalid!("resize", :rule, rule)
 end

@@ -16,15 +16,6 @@ defmodule ImagePlug.Transform.Scale do
   low-level proportional or non-proportional scaling without `Resize` mode
   semantics.
 
-  ## Construction API
-
-  `new/1` accepts a keyword list and returns
-  `{:ok, operation}` when all fields are valid. Invalid attributes, missing
-  required fields, or unknown keys return `{:error, exception}`.
-
-  `new!/1` accepts the same input and returns an operation, raising
-  `ArgumentError` or `KeyError` for invalid attributes.
-
   ## Fields
 
   For `type: :dimensions`, these fields are required:
@@ -87,18 +78,11 @@ defmodule ImagePlug.Transform.Scale do
 
   ## Examples
 
-      {:ok, scale} =
-        ImagePlug.Transform.Scale.new(
-          type: :dimensions,
-          width: {:pixels, 320},
-          height: :auto
-        )
-
-      square_ratio =
-        ImagePlug.Transform.Scale.new!(
-          type: :ratio,
-          ratio: {1, 1}
-        )
+      scale = %ImagePlug.Transform.Scale{
+        type: :dimensions,
+        width: {:pixels, 320},
+        height: :auto
+      }
   """
 
   @behaviour ImagePlug.Transform
@@ -127,23 +111,21 @@ defmodule ImagePlug.Transform.Scale do
               height: ImagePlug.imgp_length()
             }
 
-  def new(attrs) do
-    {:ok, new!(attrs)}
-  rescue
-    exception in [ArgumentError, KeyError] ->
-      {:error, exception}
-  end
-
-  def new!(attrs) when is_list(attrs) do
-    attrs
-    |> validate_attrs!()
-    |> then(&struct!(__MODULE__, &1))
-  end
-
-  def new!(attrs), do: Validation.invalid_options!("scale", attrs)
-
   @impl ImagePlug.Transform
   def name(%__MODULE__{}), do: :scale
+
+  @impl ImagePlug.Transform
+  def validate(%__MODULE__{type: :dimensions, ratio: nil, width: width, height: height}) do
+    Validation.positive_dimension_pair("scale", width, height)
+  end
+
+  def validate(%__MODULE__{type: :ratio, ratio: ratio, width: nil, height: nil}) do
+    Validation.ratio("scale", :ratio, ratio)
+  end
+
+  def validate(%__MODULE__{type: type}) do
+    {:error, ArgumentError.exception("invalid scale type: #{inspect(type)}")}
+  end
 
   @impl ImagePlug.Transform
   def metadata(%__MODULE__{type: :dimensions, width: :auto, height: height})
@@ -229,25 +211,4 @@ defmodule ImagePlug.Transform.Scale do
 
   defp to_pixels_or_auto(_length, :auto), do: :auto
   defp to_pixels_or_auto(length, size_unit), do: to_pixels(length, size_unit)
-
-  defp validate_attrs!(attrs) do
-    attrs = Validation.attrs_map!(attrs, "scale")
-
-    case Map.fetch!(attrs, :type) do
-      :dimensions ->
-        Validation.keys!(attrs, [:type, :width, :height], "scale")
-        width = Map.fetch!(attrs, :width)
-        height = Map.fetch!(attrs, :height)
-        Validation.positive_dimension_pair!("scale", width, height)
-        attrs
-
-      :ratio ->
-        Validation.keys!(attrs, [:type, :ratio], "scale")
-        Validation.ratio!("scale", :ratio, Map.fetch!(attrs, :ratio))
-        attrs
-
-      type ->
-        raise ArgumentError, "invalid scale type: #{inspect(type)}"
-    end
-  end
 end

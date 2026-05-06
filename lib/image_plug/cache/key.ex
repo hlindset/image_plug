@@ -69,8 +69,6 @@ defmodule ImagePlug.Cache.Key do
      Enum.map(pipelines, fn %Pipeline{operations: operations} ->
        Enum.map(operations, &operation_material/1)
      end)}
-  rescue
-    exception in Protocol.UndefinedError -> {:error, {:unprojectable_operation, exception.value}}
   end
 
   defp operation_material(operation) do

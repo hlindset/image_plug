@@ -53,11 +53,8 @@ defmodule ImagePlug.Runtime.RequestRunnerTest do
   defmodule FirstTransform do
     defstruct []
 
-    def new(attrs), do: {:ok, new!(attrs)}
-    def new!(%__MODULE__{} = operation), do: operation
-    def new!(attrs), do: struct!(__MODULE__, attrs)
-
     def name(%__MODULE__{}), do: :first
+    def validate(%__MODULE__{}), do: :ok
 
     def metadata(%__MODULE__{}), do: %{access: :random}
 
@@ -69,11 +66,8 @@ defmodule ImagePlug.Runtime.RequestRunnerTest do
   defmodule SecondTransform do
     defstruct [:test_pid, :ref]
 
-    def new(attrs), do: {:ok, new!(attrs)}
-    def new!(%__MODULE__{} = operation), do: operation
-    def new!(attrs), do: struct!(__MODULE__, attrs)
-
     def name(%__MODULE__{}), do: :second
+    def validate(%__MODULE__{}), do: :ok
 
     def metadata(%__MODULE__{}), do: %{access: :random}
 

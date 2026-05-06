@@ -15,15 +15,6 @@ defmodule ImagePlug.Transform.Contain do
   `Contain` directly when the dialect exposes contain behavior, especially when
   its syntax couples fit-inside resizing with letterboxing.
 
-  ## Construction API
-
-  `new/1` accepts a keyword list and returns
-  `{:ok, operation}` when all fields are valid. Invalid attributes, missing
-  required fields, or unknown keys return `{:error, exception}`.
-
-  `new!/1` accepts the same input and returns an operation, raising
-  `ArgumentError` or `KeyError` for invalid attributes.
-
   ## Fields
 
   For `type: :dimensions`, these fields are required:
@@ -97,21 +88,13 @@ defmodule ImagePlug.Transform.Contain do
 
   ## Examples
 
-      {:ok, contain} =
-        ImagePlug.Transform.Contain.new(
-          type: :dimensions,
-          width: {:pixels, 800},
-          height: {:pixels, 600},
-          constraint: :regular,
-          letterbox: false
-        )
-
-      letterboxed =
-        ImagePlug.Transform.Contain.new!(
-          type: :ratio,
-          ratio: {16, 9},
-          letterbox: true
-        )
+      contain = %ImagePlug.Transform.Contain{
+        type: :dimensions,
+        width: {:pixels, 800},
+        height: {:pixels, 600},
+        constraint: :regular,
+        letterbox: false
+      }
   """
 
   @behaviour ImagePlug.Transform
@@ -145,23 +128,40 @@ defmodule ImagePlug.Transform.Contain do
               letterbox: boolean()
             }
 
-  def new(attrs) do
-    {:ok, new!(attrs)}
-  rescue
-    exception in [ArgumentError, KeyError] ->
-      {:error, exception}
-  end
-
-  def new!(attrs) when is_list(attrs) do
-    attrs
-    |> validate_attrs!()
-    |> then(&struct!(__MODULE__, &1))
-  end
-
-  def new!(attrs), do: Validation.invalid_options!("contain", attrs)
-
   @impl ImagePlug.Transform
   def name(%__MODULE__{}), do: :contain
+
+  @impl ImagePlug.Transform
+  def validate(%__MODULE__{
+        type: :dimensions,
+        ratio: nil,
+        width: width,
+        height: height,
+        constraint: constraint,
+        letterbox: letterbox
+      }) do
+    with :ok <- Validation.positive_dimension_pair("contain", width, height),
+         :ok <- Validation.one_of("contain", :constraint, constraint, [:regular, :min, :max]) do
+      Validation.boolean("contain", :letterbox, letterbox)
+    end
+  end
+
+  def validate(%__MODULE__{
+        type: :ratio,
+        ratio: ratio,
+        width: nil,
+        height: nil,
+        constraint: nil,
+        letterbox: letterbox
+      }) do
+    with :ok <- Validation.ratio("contain", :ratio, ratio) do
+      Validation.boolean("contain", :letterbox, letterbox)
+    end
+  end
+
+  def validate(%__MODULE__{type: type}) do
+    {:error, ArgumentError.exception("invalid contain type: #{inspect(type)}")}
+  end
 
   @impl ImagePlug.Transform
   def metadata(%__MODULE__{
@@ -277,31 +277,6 @@ defmodule ImagePlug.Transform.Contain do
     case Image.embed(state.image, width, height, background_color: :white) do
       {:ok, letterboxed_image} -> {:ok, set_image(state, letterboxed_image)}
       {:error, _reason} = error -> error
-    end
-  end
-
-  defp validate_attrs!(attrs) do
-    attrs = Validation.attrs_map!(attrs, "contain")
-
-    case Map.fetch!(attrs, :type) do
-      :dimensions ->
-        Validation.keys!(attrs, [:type, :width, :height, :constraint, :letterbox], "contain")
-        width = Map.fetch!(attrs, :width)
-        height = Map.fetch!(attrs, :height)
-        constraint = Map.fetch!(attrs, :constraint)
-        Validation.positive_dimension_pair!("contain", width, height)
-        Validation.one_of!("contain", :constraint, constraint, [:regular, :min, :max])
-        Validation.boolean!("contain", :letterbox, Map.fetch!(attrs, :letterbox))
-        attrs
-
-      :ratio ->
-        Validation.keys!(attrs, [:type, :ratio, :letterbox], "contain")
-        Validation.ratio!("contain", :ratio, Map.fetch!(attrs, :ratio))
-        Validation.boolean!("contain", :letterbox, Map.fetch!(attrs, :letterbox))
-        attrs
-
-      type ->
-        raise ArgumentError, "invalid contain type: #{inspect(type)}"
     end
   end
 end

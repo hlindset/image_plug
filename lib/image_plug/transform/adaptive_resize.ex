@@ -15,15 +15,6 @@ defmodule ImagePlug.Transform.AdaptiveResize do
   orientations and fit otherwise. The URL syntax is parser specific; the
   operation itself is product-neutral.
 
-  ## Construction API
-
-  `new/1` accepts a keyword list and
-  returns `{:ok, operation}` when the attrs are valid or `{:error, reason}`
-  when validation fails. `new!/1` accepts the same input and returns the
-  operation or raises for invalid attrs.
-
-  The only accepted attr is `:rule`.
-
   ## Fields
 
   `rule` is required and must be an
@@ -82,24 +73,13 @@ defmodule ImagePlug.Transform.AdaptiveResize do
       alias ImagePlug.Transform.AdaptiveResize
       alias ImagePlug.Transform.Geometry.DimensionRule
 
-      {:ok, adaptive_resize} =
-        AdaptiveResize.new(
-          rule: %DimensionRule{
-            mode: :auto,
-            width: {:pixels, 300},
-            height: {:pixels, 200}
-          }
-        )
-
-      fill_or_fit =
-        AdaptiveResize.new!(
-          rule: %DimensionRule{
-            mode: :auto,
-            width: {:pixels, 1200},
-            height: {:pixels, 800},
-            dpr: 2.0
-          }
-        )
+      adaptive_resize = %AdaptiveResize{
+        rule: %DimensionRule{
+          mode: :auto,
+          width: {:pixels, 300},
+          height: {:pixels, 200}
+        }
+      }
   """
 
   @behaviour ImagePlug.Transform
@@ -115,23 +95,15 @@ defmodule ImagePlug.Transform.AdaptiveResize do
 
   @type t :: %__MODULE__{rule: DimensionRule.t()}
 
-  def new(attrs) do
-    {:ok, new!(attrs)}
-  rescue
-    exception in [ArgumentError, KeyError] ->
-      {:error, exception}
-  end
-
-  def new!(attrs) when is_list(attrs) do
-    attrs
-    |> validate_attrs!()
-    |> then(&struct!(__MODULE__, &1))
-  end
-
-  def new!(attrs), do: Validation.invalid_options!("adaptive resize", attrs)
-
   @impl ImagePlug.Transform
   def name(%__MODULE__{}), do: :adaptive_resize
+
+  @impl ImagePlug.Transform
+  def validate(%__MODULE__{rule: %DimensionRule{} = rule}) do
+    Validation.dimension_rule("adaptive resize", :rule, rule, [:auto])
+  end
+
+  def validate(%__MODULE__{rule: rule}), do: Validation.invalid("adaptive resize", :rule, rule)
 
   @impl ImagePlug.Transform
   def metadata(%__MODULE__{}), do: %{access: :random}
@@ -180,17 +152,4 @@ defmodule ImagePlug.Transform.AdaptiveResize do
   defp orientation(width, height) when width > height, do: :landscape
   defp orientation(width, height) when width < height, do: :portrait
   defp orientation(_width, _height), do: :square
-
-  defp validate_attrs!(attrs) do
-    attrs = Validation.attrs!(attrs, [:rule], "adaptive resize")
-    validate_rule!(Map.fetch!(attrs, :rule))
-    attrs
-  end
-
-  defp validate_rule!(%DimensionRule{} = rule) do
-    Validation.dimension_rule!("adaptive resize", :rule, rule, [:auto])
-  end
-
-  defp validate_rule!(rule),
-    do: Validation.invalid!("adaptive resize", :rule, rule)
 end

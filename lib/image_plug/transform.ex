@@ -39,6 +39,7 @@ defmodule ImagePlug.Transform do
   @type operation() :: struct()
 
   @callback name(operation()) :: atom()
+  @callback validate(operation()) :: :ok | {:error, term()}
   @callback metadata(operation()) :: map()
   @callback execute(operation(), State.t()) :: State.t()
 
@@ -47,6 +48,7 @@ defmodule ImagePlug.Transform do
     case Code.ensure_loaded(module) do
       {:module, ^module} ->
         function_exported?(module, :name, 1) and
+          function_exported?(module, :validate, 1) and
           function_exported?(module, :metadata, 1) and
           function_exported?(module, :execute, 2)
 
@@ -64,7 +66,7 @@ defmodule ImagePlug.Transform do
     else
       raise ArgumentError,
             "invalid transform operation #{inspect(operation)}: " <>
-              "#{inspect(module)} must export name/1, metadata/1, and execute/2"
+              "#{inspect(module)} must export name/1, validate/1, metadata/1, and execute/2"
     end
   end
 
@@ -77,6 +79,12 @@ defmodule ImagePlug.Transform do
   def transform_name(operation) do
     %module{} = operation = ensure_operation!(operation)
     module.name(operation)
+  end
+
+  @spec validate(operation()) :: :ok | {:error, term()}
+  def validate(operation) do
+    %module{} = operation = ensure_operation!(operation)
+    module.validate(operation)
   end
 
   @spec metadata(operation()) :: map()

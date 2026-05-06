@@ -15,15 +15,6 @@ defmodule ImagePlug.Transform.Cover do
   operations. A future dialect parser may choose `Cover` directly when the
   dialect exposes cover semantics as a single reusable operation.
 
-  ## Construction API
-
-  `new/1` accepts a keyword list and returns
-  `{:ok, operation}` when all fields are valid. Invalid attributes, missing
-  required fields, or unknown keys return `{:error, exception}`.
-
-  `new!/1` accepts the same input and returns an operation, raising
-  `ArgumentError` or `KeyError` for invalid attributes.
-
   ## Fields
 
   For `type: :dimensions`, these fields are required:
@@ -89,19 +80,12 @@ defmodule ImagePlug.Transform.Cover do
 
   ## Examples
 
-      {:ok, cover} =
-        ImagePlug.Transform.Cover.new(
-          type: :dimensions,
-          width: {:pixels, 1200},
-          height: {:pixels, 630},
-          constraint: :none
-        )
-
-      poster =
-        ImagePlug.Transform.Cover.new!(
-          type: :ratio,
-          ratio: {2, 3}
-        )
+      cover = %ImagePlug.Transform.Cover{
+        type: :dimensions,
+        width: {:pixels, 1200},
+        height: {:pixels, 630},
+        constraint: :none
+      }
   """
 
   @behaviour ImagePlug.Transform
@@ -135,23 +119,35 @@ defmodule ImagePlug.Transform.Cover do
               constraint: :none | :min | :max
             }
 
-  def new(attrs) do
-    {:ok, new!(attrs)}
-  rescue
-    exception in [ArgumentError, KeyError] ->
-      {:error, exception}
-  end
-
-  def new!(attrs) when is_list(attrs) do
-    attrs
-    |> validate_attrs!()
-    |> then(&struct!(__MODULE__, &1))
-  end
-
-  def new!(attrs), do: Validation.invalid_options!("cover", attrs)
-
   @impl ImagePlug.Transform
   def name(%__MODULE__{}), do: :cover
+
+  @impl ImagePlug.Transform
+  def validate(%__MODULE__{
+        type: :dimensions,
+        ratio: nil,
+        width: width,
+        height: height,
+        constraint: constraint
+      }) do
+    with :ok <- Validation.positive_dimension_pair("cover", width, height) do
+      Validation.one_of("cover", :constraint, constraint, [:none, :min, :max])
+    end
+  end
+
+  def validate(%__MODULE__{
+        type: :ratio,
+        ratio: ratio,
+        width: nil,
+        height: nil,
+        constraint: nil
+      }) do
+    Validation.ratio("cover", :ratio, ratio)
+  end
+
+  def validate(%__MODULE__{type: type}) do
+    {:error, ArgumentError.exception("invalid cover type: #{inspect(type)}")}
+  end
 
   @impl ImagePlug.Transform
   def metadata(%__MODULE__{}), do: %{access: :random}
@@ -289,34 +285,6 @@ defmodule ImagePlug.Transform.Cover do
     case Image.crop(state.image, left, top, width, height) do
       {:ok, cropped_image} -> {:ok, set_image(state, cropped_image)}
       {:error, _reason} = error -> error
-    end
-  end
-
-  defp validate_attrs!(attrs) do
-    attrs = Validation.attrs_map!(attrs, "cover")
-
-    case Map.fetch!(attrs, :type) do
-      :dimensions ->
-        Validation.keys!(attrs, [:type, :width, :height, :constraint], "cover")
-        width = Map.fetch!(attrs, :width)
-        height = Map.fetch!(attrs, :height)
-        Validation.positive_dimension_pair!("cover", width, height)
-
-        Validation.one_of!("cover", :constraint, Map.fetch!(attrs, :constraint), [
-          :none,
-          :min,
-          :max
-        ])
-
-        attrs
-
-      :ratio ->
-        Validation.keys!(attrs, [:type, :ratio], "cover")
-        Validation.ratio!("cover", :ratio, Map.fetch!(attrs, :ratio))
-        attrs
-
-      type ->
-        raise ArgumentError, "invalid cover type: #{inspect(type)}"
     end
   end
 end

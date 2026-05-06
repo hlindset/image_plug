@@ -16,15 +16,6 @@ defmodule ImagePlug.Transform.Crop do
   an explicit crop without its own gravity inherits the top-level gravity before
   this operation is constructed.
 
-  ## Construction API
-
-  `new/1` accepts a keyword list and returns
-  `{:ok, operation}` when all fields are valid. Invalid attributes, missing
-  required fields, or unknown keys return `{:error, exception}`.
-
-  `new!/1` accepts the same input and returns an operation, raising
-  `ArgumentError` or `KeyError` for invalid attributes.
-
   ## Fields
 
   Required fields:
@@ -129,28 +120,14 @@ defmodule ImagePlug.Transform.Crop do
 
   ## Examples
 
-      {:ok, crop} =
-        ImagePlug.Transform.Crop.new(
-          width: {:pixels, 300},
-          height: {:pixels, 200},
-          crop_from: :gravity,
-          gravity: {:fp, 0.25, 0.75},
-          x_offset: {:scale, 0.1},
-          y_offset: {:pixels, -12}
-        )
-
-      result_crop =
-        ImagePlug.Transform.Crop.new!(
-          width: :auto,
-          height: :auto,
-          crop_from: :gravity,
-          gravity: {:anchor, :center, :center},
-          target_rule: %ImagePlug.Transform.Geometry.DimensionRule{
-            mode: :fill,
-            width: {:pixels, 300},
-            height: {:pixels, 200}
-          }
-        )
+      crop = %ImagePlug.Transform.Crop{
+        width: {:pixels, 300},
+        height: {:pixels, 200},
+        crop_from: :gravity,
+        gravity: {:fp, 0.25, 0.75},
+        x_offset: {:scale, 0.1},
+        y_offset: {:pixels, -12}
+      }
 
   A Native parser translation for a crop request with focal-point gravity would
   construct the same kind of `Crop` operation; the URL grammar and aliases stay
@@ -201,23 +178,21 @@ defmodule ImagePlug.Transform.Crop do
           target_rule: DimensionRule.t() | nil
         }
 
-  def new(attrs) do
-    {:ok, new!(attrs)}
-  rescue
-    exception in [ArgumentError, KeyError] ->
-      {:error, exception}
-  end
-
-  def new!(attrs) when is_list(attrs) do
-    attrs
-    |> validate_attrs!()
-    |> then(&struct!(__MODULE__, &1))
-  end
-
-  def new!(attrs), do: Validation.invalid_options!("crop", attrs)
-
   @impl ImagePlug.Transform
   def name(%__MODULE__{}), do: :crop
+
+  @impl ImagePlug.Transform
+  def validate(%__MODULE__{} = operation) do
+    with :ok <- Validation.positive_dimension_or_auto("crop", :width, operation.width),
+         :ok <- Validation.positive_dimension_or_auto("crop", :height, operation.height),
+         :ok <- validate_crop_from(operation.crop_from),
+         :ok <- Validation.gravity("crop", :gravity, operation.gravity),
+         :ok <- Validation.offset("crop", :x_offset, operation.x_offset),
+         :ok <- Validation.offset("crop", :y_offset, operation.y_offset),
+         :ok <- Validation.orientation("crop", :orientation, operation.orientation) do
+      validate_target_rule(operation.target_rule)
+    end
+  end
 
   @impl ImagePlug.Transform
   def metadata(%__MODULE__{}), do: %{access: :random}
@@ -368,51 +343,26 @@ defmodule ImagePlug.Transform.Crop do
     anchor_to_pixels(state.focus, image_width, image_height)
   end
 
-  defp validate_attrs!(attrs) do
-    attrs =
-      Validation.attrs!(
-        attrs,
-        [
-          :width,
-          :height,
-          :crop_from,
-          :gravity,
-          :x_offset,
-          :y_offset,
-          :orientation,
-          :target_rule
-        ],
-        "crop"
-      )
+  defp validate_crop_from(:focus), do: :ok
+  defp validate_crop_from(:gravity), do: :ok
 
-    Validation.positive_dimension_or_auto!("crop", :width, Map.fetch!(attrs, :width))
-    Validation.positive_dimension_or_auto!("crop", :height, Map.fetch!(attrs, :height))
-    validate_crop_from!(Map.fetch!(attrs, :crop_from))
-    Validation.gravity!("crop", :gravity, Map.get(attrs, :gravity))
-    Validation.offset!("crop", :x_offset, Map.get(attrs, :x_offset, 0.0))
-    Validation.offset!("crop", :y_offset, Map.get(attrs, :y_offset, 0.0))
-    Validation.orientation!("crop", :orientation, Map.get(attrs, :orientation))
-    validate_target_rule!(Map.get(attrs, :target_rule))
-
-    attrs
+  defp validate_crop_from(%{left: left, top: top} = crop_from) do
+    if Map.keys(crop_from) -- [:left, :top] == [] do
+      with :ok <- Validation.non_negative_position("crop", :crop_from_left, left) do
+        Validation.non_negative_position("crop", :crop_from_top, top)
+      end
+    else
+      {:error, ArgumentError.exception("invalid crop_from: #{inspect(crop_from)}")}
+    end
   end
 
-  defp validate_crop_from!(:focus), do: :ok
-  defp validate_crop_from!(:gravity), do: :ok
+  defp validate_crop_from(crop_from),
+    do: {:error, ArgumentError.exception("invalid crop_from: #{inspect(crop_from)}")}
 
-  defp validate_crop_from!(%{left: left, top: top} = crop_from) do
-    Validation.keys!(crop_from, [:left, :top], "crop")
-    Validation.non_negative_position!("crop", :crop_from_left, left)
-    Validation.non_negative_position!("crop", :crop_from_top, top)
-  end
+  defp validate_target_rule(nil), do: :ok
 
-  defp validate_crop_from!(crop_from),
-    do: raise(ArgumentError, "invalid crop_from: #{inspect(crop_from)}")
-
-  defp validate_target_rule!(nil), do: :ok
-
-  defp validate_target_rule!(%DimensionRule{} = rule) do
-    Validation.dimension_rule!("crop", :target_rule, rule, [
+  defp validate_target_rule(%DimensionRule{} = rule) do
+    Validation.dimension_rule("crop", :target_rule, rule, [
       :fit,
       :fill,
       :fill_down,
@@ -421,6 +371,6 @@ defmodule ImagePlug.Transform.Crop do
     ])
   end
 
-  defp validate_target_rule!(target_rule),
-    do: Validation.invalid!("crop", :target_rule, target_rule)
+  defp validate_target_rule(target_rule),
+    do: Validation.invalid("crop", :target_rule, target_rule)
 end

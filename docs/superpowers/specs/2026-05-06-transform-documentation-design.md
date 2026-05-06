@@ -197,7 +197,7 @@ Each exported transform operation module should get `@moduledoc` for contributor
 
 - What product-neutral operation the module represents.
 - When parser/dialect code should construct it.
-- How to construct it through `new/1` and `new!/1`, including accepted attrs and error behavior.
+- How parser/planner code should construct the operation struct and where validation occurs.
 - Which fields are required and what values are accepted.
 - How the operation affects `ImagePlug.Transform.State`.
 - What `metadata/1` means for decode planning.
@@ -216,9 +216,9 @@ Represents the product-neutral operation in one short paragraph.
 
 State which parser or planner situations should construct this operation.
 
-## Construction API
+## Struct Contract
 
-Document `new/1`, `new!/1`, accepted attrs, and error behavior.
+Document direct struct construction, accepted fields, and validation behavior.
 
 ## Fields
 
@@ -238,13 +238,13 @@ List the exact canonical material keyword fields emitted for cache keys.
 
 ## Examples
 
-Include a short construction example using `new/1` or `new!/1`.
+Include a short construction example using a struct literal.
 """
 ```
 
 The Native guide is authoritative for URL grammar and aliases. Module docs are authoritative for operation struct fields and transform semantics. When the same concept appears in both, tests or review must verify that URL-facing values map correctly into the operation contract.
 
-Operation docs should prefer construction examples that use `new/1` or `new!/1`, not raw struct literals, unless the example is explicitly about the struct shape. The docs should explain that `new/1` returns `{:ok, operation}` or `{:error, reason}` and `new!/1` returns an operation or raises for invalid attrs.
+Operation docs should prefer construction examples that use raw struct literals. The docs should explain that `ImagePlug.Plan` validation rejects malformed operation structs before runtime side effects.
 
 Each operation module owns documentation of its exact `ImagePlug.Transform.Material` keyword shape. The shared `Material` protocol docs should describe the purpose and cache-key role of material, but the per-operation module docs should list the operation-specific material fields so cache key contracts do not live only in defimpl code.
 
