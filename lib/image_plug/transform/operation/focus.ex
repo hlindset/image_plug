@@ -1,4 +1,4 @@
-defmodule ImagePlug.Transform.Focus do
+defmodule ImagePlug.Transform.Operation.Focus do
   @moduledoc """
   Represents a product-neutral focus operation that records where later
   focus-aware transforms should center their work.
@@ -49,7 +49,7 @@ defmodule ImagePlug.Transform.Focus do
 
   ## Examples
 
-      focus = %ImagePlug.Transform.Focus{
+      focus = %ImagePlug.Transform.Operation.Focus{
         type: {:coordinate, {:percent, 35}, {:percent, 40}}
       }
   """
@@ -71,7 +71,7 @@ defmodule ImagePlug.Transform.Focus do
   alias ImagePlug.Transform.Validation
 
   @doc """
-  The parsed operation used by `ImagePlug.Transform.Focus`.
+  The parsed operation used by `ImagePlug.Transform.Operation.Focus`.
   """
   defstruct [:type]
 

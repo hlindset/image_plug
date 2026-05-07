@@ -1,4 +1,4 @@
-defmodule ImagePlug.Transform.Resize do
+defmodule ImagePlug.Transform.Operation.Resize do
   @moduledoc """
   Represents a product-neutral resize operation whose dimension mode is known
   before execution.
@@ -9,7 +9,7 @@ defmodule ImagePlug.Transform.Resize do
   concrete resize mode and can express the requested geometry as an
   `ImagePlug.Transform.Geometry.DimensionRule`. Use `Resize` for fixed
   `:fit`, `:fill`, `:fill_down`, and `:force` requests. Use
-  `ImagePlug.Transform.AdaptiveResize` when the mode must be chosen at runtime
+  `ImagePlug.Transform.Operation.AdaptiveResize` when the mode must be chosen at runtime
   from source image metadata.
 
   A parser may translate a Native URL such as
@@ -48,7 +48,7 @@ defmodule ImagePlug.Transform.Resize do
   resolved intermediate width and height, stores the resized image in state,
   and resets focus metadata. If the resolved intermediate dimensions equal the
   current image dimensions, the existing image is kept. Resolver or image
-  resize failures are added to state as `{ImagePlug.Transform.Resize, error}`.
+  resize failures are added to state as `{ImagePlug.Transform.Operation.Resize, error}`.
 
   `Resize` does not perform result cropping. Planners that need cover-style
   output should emit a separate crop operation after a fill-like resize when
@@ -68,7 +68,7 @@ defmodule ImagePlug.Transform.Resize do
   ## Examples
 
       alias ImagePlug.Transform.Geometry.DimensionRule
-      alias ImagePlug.Transform.Resize
+      alias ImagePlug.Transform.Operation.Resize
 
       resize = %Resize{
         rule: %DimensionRule{

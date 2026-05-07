@@ -2,13 +2,13 @@ defmodule ImagePlug.SequentialCompatibilityTest do
   use ExUnit.Case, async: true
 
   alias ImagePlug.Runtime.Origin
-  alias ImagePlug.Transform.AutoOrient
+  alias ImagePlug.Transform.Operation.AutoOrient
   alias ImagePlug.Transform.Chain
-  alias ImagePlug.Transform.Contain
+  alias ImagePlug.Transform.Operation.Contain
   alias ImagePlug.Transform.Geometry.DimensionRule
   alias ImagePlug.Transform.Materializer
-  alias ImagePlug.Transform.Resize
-  alias ImagePlug.Transform.Scale
+  alias ImagePlug.Transform.Operation.Resize
+  alias ImagePlug.Transform.Operation.Scale
   alias ImagePlug.Transform.State
 
   @cat_path "priv/static/images/cat-300.jpg"

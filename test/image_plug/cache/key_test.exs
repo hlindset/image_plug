@@ -20,7 +20,7 @@ defmodule ImagePlug.Cache.KeyTest do
           pipelines: [
             %Pipeline{
               operations: [
-                %Transform.Contain{
+                %Transform.Operation.Contain{
                   type: :dimensions,
                   width: {:pixels, 300},
                   height: :auto,
@@ -31,7 +31,7 @@ defmodule ImagePlug.Cache.KeyTest do
             },
             %Pipeline{
               operations: [
-                %Transform.Crop{
+                %Transform.Operation.Crop{
                   width: {:pixels, 200},
                   height: {:pixels, 100},
                   crop_from: :focus
@@ -166,7 +166,7 @@ defmodule ImagePlug.Cache.KeyTest do
   end
 
   test "resize material includes requested zoom and dpr rule inputs" do
-    operation = %ImagePlug.Transform.Resize{
+    operation = %ImagePlug.Transform.Operation.Resize{
       rule: %ImagePlug.Transform.Geometry.DimensionRule{
         mode: :fit,
         width: {:pixels, 100},

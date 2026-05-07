@@ -15,7 +15,7 @@ defmodule ImagePlug.PlanTest do
 
   test "represents source, image pipelines, and output separately" do
     operations = [
-      %Transform.Contain{
+      %Transform.Operation.Contain{
         type: :dimensions,
         width: {:pixels, 300},
         height: :auto,
@@ -36,7 +36,7 @@ defmodule ImagePlug.PlanTest do
   end
 
   test "validated pipelines accept transform operation structs" do
-    operation = %Transform.Scale{
+    operation = %Transform.Operation.Scale{
       type: :dimensions,
       width: {:pixels, 300},
       height: :auto
@@ -52,7 +52,7 @@ defmodule ImagePlug.PlanTest do
   end
 
   test "validated pipelines reject malformed transform operation structs" do
-    operation = %Transform.Scale{
+    operation = %Transform.Operation.Scale{
       type: :dimensions,
       width: :auto,
       height: :auto

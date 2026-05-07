@@ -18,8 +18,8 @@ defmodule ImagePlug.Runtime.ProcessorTest do
   alias ImagePlug.Runtime.ProcessorTest.OriginImage
   alias ImagePlug.Runtime.ProcessorTest.SecondTransform
   alias ImagePlug.Runtime.ProcessorTest.SequentialFailingTransform
-  alias ImagePlug.Transform.Cover
-  alias ImagePlug.Transform.Scale
+  alias ImagePlug.Transform.Operation.Cover
+  alias ImagePlug.Transform.Operation.Scale
   alias ImagePlug.Transform.State
 
   defp opts do

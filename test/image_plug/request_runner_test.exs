@@ -332,10 +332,10 @@ defmodule ImagePlug.Runtime.RequestRunnerTest do
 
   test "known plan operations are included in cache lookup material" do
     operations = [
-      %Transform.Focus{
+      %Transform.Operation.Focus{
         type: {:anchor, :left, :top}
       },
-      %Transform.Cover{
+      %Transform.Operation.Cover{
         type: :dimensions,
         width: {:pixels, 100},
         height: {:pixels, 100},

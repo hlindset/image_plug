@@ -1,4 +1,4 @@
-defmodule ImagePlug.Transform.AutoOrient do
+defmodule ImagePlug.Transform.Operation.AutoOrient do
   @moduledoc """
   Represents a product-neutral operation that applies embedded image
   orientation metadata to the current image pixels.
@@ -41,7 +41,7 @@ defmodule ImagePlug.Transform.AutoOrient do
 
   ## Examples
 
-      auto_orient = %ImagePlug.Transform.AutoOrient{}
+      auto_orient = %ImagePlug.Transform.Operation.AutoOrient{}
   """
 
   @behaviour ImagePlug.Transform

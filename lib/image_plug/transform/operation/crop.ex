@@ -1,4 +1,4 @@
-defmodule ImagePlug.Transform.Crop do
+defmodule ImagePlug.Transform.Operation.Crop do
   @moduledoc """
   Represents a product-neutral crop operation that selects a bounded rectangle
   from the current image.
@@ -84,7 +84,7 @@ defmodule ImagePlug.Transform.Crop do
 
   ## Examples
 
-      crop = %ImagePlug.Transform.Crop{
+      crop = %ImagePlug.Transform.Operation.Crop{
         width: {:pixels, 300},
         height: {:pixels, 200},
         crop_from: :gravity,
@@ -115,7 +115,7 @@ defmodule ImagePlug.Transform.Crop do
   @default_orientation %{auto_orient: false, rotate: 0, flip: nil}
 
   @doc """
-  The parsed operation used by `ImagePlug.Transform.Crop`.
+  The parsed operation used by `ImagePlug.Transform.Operation.Crop`.
   """
   defstruct [
     :width,

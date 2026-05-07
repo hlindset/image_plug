@@ -1,4 +1,4 @@
-defmodule ImagePlug.Transform.CropCoordinateMapperTest do
+defmodule ImagePlug.Transform.Operation.CropCoordinateMapperTest do
   use ExUnit.Case, async: true
 
   alias ImagePlug.Transform.Geometry.CropCoordinateMapper

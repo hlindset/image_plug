@@ -1,4 +1,4 @@
-defmodule ImagePlug.Transform.Contain do
+defmodule ImagePlug.Transform.Operation.Contain do
   @moduledoc """
   Represents a product-neutral contain operation that scales image content to
   fit inside a requested box or aspect ratio.
@@ -52,7 +52,7 @@ defmodule ImagePlug.Transform.Contain do
   that ratio form may leave the visible image unchanged.
 
   On success, the resulting image is stored in state and focus is reset. Image
-  processing failures are added to state as `{ImagePlug.Transform.Contain,
+  processing failures are added to state as `{ImagePlug.Transform.Operation.Contain,
   error}`.
 
   ## Decode Planning Metadata
@@ -66,7 +66,7 @@ defmodule ImagePlug.Transform.Contain do
 
   ## Examples
 
-      contain = %ImagePlug.Transform.Contain{
+      contain = %ImagePlug.Transform.Operation.Contain{
         type: :dimensions,
         width: {:pixels, 800},
         height: {:pixels, 600},

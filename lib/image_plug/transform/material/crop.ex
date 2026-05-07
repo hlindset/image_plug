@@ -1,5 +1,5 @@
-defimpl ImagePlug.Transform.Material, for: ImagePlug.Transform.Crop do
-  def material(%ImagePlug.Transform.Crop{crop_from: :gravity} = operation) do
+defimpl ImagePlug.Transform.Material, for: ImagePlug.Transform.Operation.Crop do
+  def material(%ImagePlug.Transform.Operation.Crop{crop_from: :gravity} = operation) do
     [
       op: :crop,
       width: operation.width,
@@ -13,7 +13,7 @@ defimpl ImagePlug.Transform.Material, for: ImagePlug.Transform.Crop do
     |> maybe_put_target_rule(operation.target_rule)
   end
 
-  def material(%ImagePlug.Transform.Crop{} = operation) do
+  def material(%ImagePlug.Transform.Operation.Crop{} = operation) do
     [
       op: :crop,
       width: operation.width,

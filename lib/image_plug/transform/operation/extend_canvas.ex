@@ -1,4 +1,4 @@
-defmodule ImagePlug.Transform.ExtendCanvas do
+defmodule ImagePlug.Transform.Operation.ExtendCanvas do
   @moduledoc """
   Represents a product-neutral canvas expansion operation that embeds the
   current image into a same-size-or-larger canvas.
@@ -67,7 +67,7 @@ defmodule ImagePlug.Transform.ExtendCanvas do
 
   ## Examples
 
-      canvas = %ImagePlug.Transform.ExtendCanvas{
+      canvas = %ImagePlug.Transform.Operation.ExtendCanvas{
         rule: {:dimensions, {:pixels, 400}, {:pixels, 300}},
         gravity: {:anchor, :center, :center},
         x_offset: 0.0,

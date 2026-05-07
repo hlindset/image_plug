@@ -1,4 +1,4 @@
-defmodule ImagePlug.Transform.Scale do
+defmodule ImagePlug.Transform.Operation.Scale do
   @moduledoc """
   Represents a product-neutral scale operation that changes image dimensions
   either to a requested size or to a requested aspect ratio.
@@ -45,7 +45,7 @@ defmodule ImagePlug.Transform.Scale do
   horizontal and vertical axes independently.
 
   On success, the scaled image is stored in state and focus is reset. Image
-  processing failures are added to state as `{ImagePlug.Transform.Scale,
+  processing failures are added to state as `{ImagePlug.Transform.Operation.Scale,
   error}`.
 
   ## Decode Planning Metadata
@@ -59,7 +59,7 @@ defmodule ImagePlug.Transform.Scale do
 
   ## Examples
 
-      scale = %ImagePlug.Transform.Scale{
+      scale = %ImagePlug.Transform.Operation.Scale{
         type: :dimensions,
         width: {:pixels, 320},
         height: :auto

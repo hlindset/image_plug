@@ -1,4 +1,4 @@
-defmodule ImagePlug.Transform.Cover do
+defmodule ImagePlug.Transform.Operation.Cover do
   @moduledoc """
   Represents a product-neutral cover operation that scales image content to
   cover a requested box or aspect ratio and crops overflow from the result.
@@ -49,7 +49,7 @@ defmodule ImagePlug.Transform.Cover do
   is clamped so the rectangle remains inside the image.
 
   On success, the cropped image is stored in state and focus is reset. Image
-  processing failures are added to state as `{ImagePlug.Transform.Cover,
+  processing failures are added to state as `{ImagePlug.Transform.Operation.Cover,
   error}`.
 
   ## Decode Planning Metadata
@@ -60,7 +60,7 @@ defmodule ImagePlug.Transform.Cover do
 
   ## Examples
 
-      cover = %ImagePlug.Transform.Cover{
+      cover = %ImagePlug.Transform.Operation.Cover{
         type: :dimensions,
         width: {:pixels, 1200},
         height: {:pixels, 630},
@@ -85,7 +85,7 @@ defmodule ImagePlug.Transform.Cover do
   alias ImagePlug.Transform.Validation
 
   @doc """
-  The parsed operation used by `ImagePlug.Transform.Cover`.
+  The parsed operation used by `ImagePlug.Transform.Operation.Cover`.
   """
   defstruct [:type, :ratio, :width, :height, :constraint]
 

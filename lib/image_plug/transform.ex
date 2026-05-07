@@ -21,17 +21,17 @@ defmodule ImagePlug.Transform do
       Geometry.CropCoordinateMapper,
       Geometry.DimensionRule,
       Geometry.DimensionResolver,
-      Resize,
-      AdaptiveResize,
-      ExtendCanvas,
-      AutoOrient,
-      Rotate,
-      Flip,
-      Scale,
-      Cover,
-      Contain,
-      Crop,
-      Focus
+      Operation.Resize,
+      Operation.AdaptiveResize,
+      Operation.ExtendCanvas,
+      Operation.AutoOrient,
+      Operation.Rotate,
+      Operation.Flip,
+      Operation.Scale,
+      Operation.Cover,
+      Operation.Contain,
+      Operation.Crop,
+      Operation.Focus
     ]
 
   alias ImagePlug.Transform.State
