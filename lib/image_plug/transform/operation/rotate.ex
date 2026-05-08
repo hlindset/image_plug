@@ -1,4 +1,4 @@
-defmodule ImagePlug.Transform.Rotate do
+defmodule ImagePlug.Transform.Operation.Rotate do
   @moduledoc """
   Represents a product-neutral operation that rotates the current image by a
   right-angle amount.
@@ -45,7 +45,7 @@ defmodule ImagePlug.Transform.Rotate do
 
   ## Examples
 
-      rotate = %ImagePlug.Transform.Rotate{angle: 90}
+      rotate = %ImagePlug.Transform.Operation.Rotate{angle: 90}
   """
 
   @behaviour ImagePlug.Transform

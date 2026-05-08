@@ -1,5 +1,5 @@
-defimpl ImagePlug.Transform.Material, for: ImagePlug.Transform.ExtendCanvas do
-  def material(%ImagePlug.Transform.ExtendCanvas{} = operation) do
+defimpl ImagePlug.Transform.Material, for: ImagePlug.Transform.Operation.ExtendCanvas do
+  def material(%ImagePlug.Transform.Operation.ExtendCanvas{} = operation) do
     [
       op: :extend_canvas,
       rule: operation.rule,

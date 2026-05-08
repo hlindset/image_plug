@@ -3,7 +3,7 @@ defmodule ImagePlug.Cache.Key do
   Deterministic cache key material for processed image responses.
   """
 
-  import Plug.Conn
+  import Plug.Conn, only: [fetch_cookies: 1, get_req_header: 2]
 
   alias ImagePlug.Output.Negotiation
   alias ImagePlug.Plan
@@ -162,7 +162,6 @@ defmodule ImagePlug.Cache.Key do
   defp canonicalize(value), do: value
 
   defp hash(serialized_material) do
-    :crypto.hash(:sha256, serialized_material)
-    |> Base.encode16(case: :lower)
+    Base.encode16(:crypto.hash(:sha256, serialized_material), case: :lower)
   end
 end

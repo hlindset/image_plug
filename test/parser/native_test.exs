@@ -57,7 +57,7 @@ defmodule ImagePlug.Parser.NativeTest do
   end
 
   test "parses resize and rs full grammar" do
-    assert [%Transform.Resize{} = fill_params, %Transform.Crop{}] =
+    assert [%Transform.Operation.Resize{} = fill_params, %Transform.Operation.Crop{}] =
              operations_for("/_/resize:fill:300:200:1/plain/images/cat.jpg")
 
     assert fill_params.rule.mode == :fill
@@ -65,7 +65,7 @@ defmodule ImagePlug.Parser.NativeTest do
     assert fill_params.rule.height == {:pixels, 200}
     assert fill_params.rule.enlarge == true
 
-    assert [%Transform.Resize{} = force_params] =
+    assert [%Transform.Operation.Resize{} = force_params] =
              operations_for("/_/rs:force:300:200/plain/images/cat.jpg")
 
     assert force_params.rule.mode == :force
@@ -88,14 +88,14 @@ defmodule ImagePlug.Parser.NativeTest do
   end
 
   test "parses omitted resize arguments with imgproxy defaults" do
-    assert [%Transform.Resize{} = width_params] =
+    assert [%Transform.Operation.Resize{} = width_params] =
              operations_for("/_/rs:fit:300/plain/images/cat.jpg")
 
     assert width_params.rule.mode == :fit
     assert width_params.rule.width == {:pixels, 300}
     assert width_params.rule.height == :auto
 
-    assert [%Transform.Resize{} = dimensions_params] =
+    assert [%Transform.Operation.Resize{} = dimensions_params] =
              operations_for("/_/rs::300:200/plain/images/cat.jpg")
 
     assert dimensions_params.rule.mode == :fit
@@ -111,7 +111,7 @@ defmodule ImagePlug.Parser.NativeTest do
   end
 
   test "omitted meta-option arguments do not overwrite previous field assignments" do
-    assert [%Transform.Resize{} = params, %Transform.Crop{}] =
+    assert [%Transform.Operation.Resize{} = params, %Transform.Operation.Crop{}] =
              operations_for("/_/w:500/rs:fill::200/plain/images/cat.jpg")
 
     assert params.rule.mode == :fill
@@ -123,12 +123,12 @@ defmodule ImagePlug.Parser.NativeTest do
     assert {:ok, %Plan{pipelines: [%Pipeline{operations: operations}]}} =
              Native.parse(conn(:get, "/_/rs::::::ce::/plain/images/cat.jpg"), [])
 
-    assert [%Transform.ExtendCanvas{gravity: {:anchor, :center, :center}}] = operations
+    assert [%Transform.Operation.ExtendCanvas{gravity: {:anchor, :center, :center}}] = operations
 
     assert {:ok, %Plan{pipelines: [%Pipeline{operations: operations}]}} =
              Native.parse(conn(:get, "/_/s:::::ce::/plain/images/cat.jpg"), [])
 
-    assert [%Transform.ExtendCanvas{gravity: {:anchor, :center, :center}}] = operations
+    assert [%Transform.Operation.ExtendCanvas{gravity: {:anchor, :center, :center}}] = operations
   end
 
   test "extend gravity invalid arity reports the original option segment" do
@@ -155,11 +155,11 @@ defmodule ImagePlug.Parser.NativeTest do
                []
              )
 
-    assert Enum.any?(operations, &match?(%Transform.ExtendCanvas{}, &1))
+    assert Enum.any?(operations, &match?(%Transform.Operation.ExtendCanvas{}, &1))
   end
 
   test "parses size without changing resizing_type" do
-    assert [%Transform.Resize{} = params] =
+    assert [%Transform.Operation.Resize{} = params] =
              operations_for("/_/rt:force/s:300:200/plain/images/cat.jpg")
 
     assert params.rule.mode == :force
@@ -168,7 +168,7 @@ defmodule ImagePlug.Parser.NativeTest do
   end
 
   test "size overwrites dimensions without resetting resizing_type" do
-    assert [%Transform.Resize{} = params, %Transform.Crop{}] =
+    assert [%Transform.Operation.Resize{} = params, %Transform.Operation.Crop{}] =
              operations_for("/_/rs:fill:300:200/s:100:100/plain/images/cat.jpg")
 
     assert params.rule.mode == :fill
@@ -204,19 +204,20 @@ defmodule ImagePlug.Parser.NativeTest do
   end
 
   test "public parse plans supported geometry pipeline semantics" do
-    assert {:ok, %Plan{pipelines: [%Pipeline{operations: [%Transform.Resize{} = resize]}]}} =
+    assert {:ok,
+            %Plan{pipelines: [%Pipeline{operations: [%Transform.Operation.Resize{} = resize]}]}} =
              Native.parse(conn(:get, "/_/z:2/plain/images/cat.jpg"), [])
 
     assert resize.rule.zoom_x == 2.0
     assert resize.rule.zoom_y == 2.0
 
-    assert {:ok, %Plan{pipelines: [%Pipeline{operations: [%Transform.Crop{} = crop]}]}} =
+    assert {:ok, %Plan{pipelines: [%Pipeline{operations: [%Transform.Operation.Crop{} = crop]}]}} =
              Native.parse(conn(:get, "/_/crop:10:20/plain/images/cat.jpg"), [])
 
     assert crop.width == {:pixels, 10}
     assert crop.height == {:pixels, 20}
 
-    assert {:ok, %Plan{pipelines: [%Pipeline{operations: [%Transform.AutoOrient{}]}]}} =
+    assert {:ok, %Plan{pipelines: [%Pipeline{operations: [%Transform.Operation.AutoOrient{}]}]}} =
              Native.parse(conn(:get, "/_/ar/plain/images/cat.jpg"), [])
 
     for segment <- ~w(ar:false rot:0 rot:360 fl:false:false) do
@@ -237,7 +238,7 @@ defmodule ImagePlug.Parser.NativeTest do
     assert {:ok, %Plan{pipelines: [%Pipeline{operations: operations}]}} =
              Native.parse(conn(:get, "/_/rs:fit:300:200:0:0:ce/plain/images/cat.jpg"), [])
 
-    refute Enum.any?(operations, &match?(%Transform.ExtendCanvas{}, &1))
+    refute Enum.any?(operations, &match?(%Transform.Operation.ExtendCanvas{}, &1))
   end
 
   test "parses supported resizing type aliases into plans and rejects unsupported values" do
@@ -259,7 +260,12 @@ defmodule ImagePlug.Parser.NativeTest do
     assert {:ok,
             %Plan{
               pipelines: [
-                %Pipeline{operations: [%Transform.Resize{} = resize, %Transform.Crop{}]}
+                %Pipeline{
+                  operations: [
+                    %Transform.Operation.Resize{} = resize,
+                    %Transform.Operation.Crop{}
+                  ]
+                }
               ]
             }} =
              Native.parse(conn(:get, "/_/rt:fill-down/w:100/h:100/plain/images/cat.jpg"), [])
@@ -268,7 +274,11 @@ defmodule ImagePlug.Parser.NativeTest do
 
     assert {:ok,
             %Plan{
-              pipelines: [%Pipeline{operations: [%Transform.AdaptiveResize{}, %Transform.Crop{}]}]
+              pipelines: [
+                %Pipeline{
+                  operations: [%Transform.Operation.AdaptiveResize{}, %Transform.Operation.Crop{}]
+                }
+              ]
             }} =
              Native.parse(conn(:get, "/_/rt:auto/w:100/h:100/plain/images/cat.jpg"), [])
   end
@@ -280,13 +290,14 @@ defmodule ImagePlug.Parser.NativeTest do
   end
 
   test "parses width and height aliases including zero" do
-    assert [%Transform.Resize{} = params] =
+    assert [%Transform.Operation.Resize{} = params] =
              operations_for("/_/w:0/h:200/plain/images/cat.jpg")
 
     assert params.rule.width == :auto
     assert params.rule.height == {:pixels, 200}
 
-    assert {:ok, %Plan{pipelines: [%Pipeline{operations: [%Transform.Resize{} = resize]}]}} =
+    assert {:ok,
+            %Plan{pipelines: [%Pipeline{operations: [%Transform.Operation.Resize{} = resize]}]}} =
              Native.parse(conn(:get, "/_/w:0/h:0/mw:300/plain/images/cat.jpg"), [])
 
     assert resize.rule.width == :auto
@@ -309,7 +320,11 @@ defmodule ImagePlug.Parser.NativeTest do
   test "plans gravity-bearing fill and auto result crops" do
     assert {:ok,
             %Plan{
-              pipelines: [%Pipeline{operations: [%Transform.Resize{}, %Transform.Crop{} = crop]}]
+              pipelines: [
+                %Pipeline{
+                  operations: [%Transform.Operation.Resize{}, %Transform.Operation.Crop{} = crop]
+                }
+              ]
             }} =
              Native.parse(conn(:get, "/_/g:nowe/rs:fill:300:200/plain/images/cat.jpg"), [])
 
@@ -317,7 +332,11 @@ defmodule ImagePlug.Parser.NativeTest do
 
     assert {:ok,
             %Plan{
-              pipelines: [%Pipeline{operations: [%Transform.Resize{}, %Transform.Crop{} = crop]}]
+              pipelines: [
+                %Pipeline{
+                  operations: [%Transform.Operation.Resize{}, %Transform.Operation.Crop{} = crop]
+                }
+              ]
             }} =
              Native.parse(
                conn(:get, "/_/gravity:fp:0.5:0.25/rs:fill:300:200/plain/images/cat.jpg"),
@@ -328,7 +347,11 @@ defmodule ImagePlug.Parser.NativeTest do
 
     assert {:ok,
             %Plan{
-              pipelines: [%Pipeline{operations: [%Transform.Resize{}, %Transform.Crop{} = crop]}]
+              pipelines: [
+                %Pipeline{
+                  operations: [%Transform.Operation.Resize{}, %Transform.Operation.Crop{} = crop]
+                }
+              ]
             }} =
              Native.parse(conn(:get, "/_/g:fp:1:0/rs:fill:300:200/plain/images/cat.jpg"), [])
 
@@ -337,7 +360,12 @@ defmodule ImagePlug.Parser.NativeTest do
     assert {:ok,
             %Plan{
               pipelines: [
-                %Pipeline{operations: [%Transform.AdaptiveResize{}, %Transform.Crop{} = crop]}
+                %Pipeline{
+                  operations: [
+                    %Transform.Operation.AdaptiveResize{},
+                    %Transform.Operation.Crop{} = crop
+                  ]
+                }
               ]
             }} =
              Native.parse(conn(:get, "/_/g:soea/rt:auto/w:300/h:200/plain/images/cat.jpg"), [])
@@ -356,7 +384,11 @@ defmodule ImagePlug.Parser.NativeTest do
 
     assert {:ok,
             %Plan{
-              pipelines: [%Pipeline{operations: [%Transform.Resize{}, %Transform.Crop{} = crop]}]
+              pipelines: [
+                %Pipeline{
+                  operations: [%Transform.Operation.Resize{}, %Transform.Operation.Crop{} = crop]
+                }
+              ]
             }} =
              Native.parse(
                conn(:get, "/_/g:soea:12:-0.25/rs:fill:300:200/plain/images/cat.jpg"),
@@ -737,26 +769,26 @@ defmodule ImagePlug.Parser.NativeTest do
   end
 
   test "later field assignments overwrite earlier assignments" do
-    assert [%Transform.Resize{} = contain_params] =
+    assert [%Transform.Operation.Resize{} = contain_params] =
              operations_for("/_/w:100/width:200/plain/images/cat.jpg")
 
     assert contain_params.rule.width == {:pixels, 200}
 
-    assert [%Transform.Resize{} = resized_params, %Transform.Crop{}] =
+    assert [%Transform.Operation.Resize{} = resized_params, %Transform.Operation.Crop{}] =
              operations_for("/_/resize:fill:300:200/w:500/plain/images/cat.jpg")
 
     assert resized_params.rule.mode == :fill
     assert resized_params.rule.width == {:pixels, 500}
     assert resized_params.rule.height == {:pixels, 200}
 
-    assert [%Transform.Resize{} = overwritten_params, %Transform.Crop{}] =
+    assert [%Transform.Operation.Resize{} = overwritten_params, %Transform.Operation.Crop{}] =
              operations_for("/_/w:500/resize:fill:300:200/plain/images/cat.jpg")
 
     assert overwritten_params.rule.mode == :fill
     assert overwritten_params.rule.width == {:pixels, 300}
     assert overwritten_params.rule.height == {:pixels, 200}
 
-    assert [%Transform.Resize{} = scale_params] =
+    assert [%Transform.Operation.Resize{} = scale_params] =
              operations_for("/_/size:300:200/rt:force/plain/images/cat.jpg")
 
     assert scale_params.rule.mode == :force
@@ -773,11 +805,11 @@ defmodule ImagePlug.Parser.NativeTest do
               ]
             }} = Native.parse(conn(:get, "/_/w:500/-/h:200/plain/images/cat.jpg"), [])
 
-    assert [%Transform.Resize{} = first_params] = first_operations
+    assert [%Transform.Operation.Resize{} = first_params] = first_operations
     assert first_params.rule.width == {:pixels, 500}
     assert first_params.rule.height == :auto
 
-    assert [%Transform.Resize{} = second_params] = second_operations
+    assert [%Transform.Operation.Resize{} = second_params] = second_operations
     assert second_params.rule.width == :auto
     assert second_params.rule.height == {:pixels, 200}
   end
@@ -786,13 +818,13 @@ defmodule ImagePlug.Parser.NativeTest do
     assert {:ok, %Plan{pipelines: [%Pipeline{operations: leading_operations}]}} =
              Native.parse(conn(:get, "/_/-/w:500/plain/images/cat.jpg"), [])
 
-    assert [%Transform.Resize{} = leading_params] = leading_operations
+    assert [%Transform.Operation.Resize{} = leading_params] = leading_operations
     assert leading_params.rule.width == {:pixels, 500}
 
     assert {:ok, %Plan{pipelines: [%Pipeline{operations: trailing_operations}]}} =
              Native.parse(conn(:get, "/_/w:500/-/plain/images/cat.jpg"), [])
 
-    assert [%Transform.Resize{} = trailing_params] = trailing_operations
+    assert [%Transform.Operation.Resize{} = trailing_params] = trailing_operations
     assert trailing_params.rule.width == {:pixels, 500}
 
     assert {:ok,
@@ -803,10 +835,10 @@ defmodule ImagePlug.Parser.NativeTest do
               ]
             }} = Native.parse(conn(:get, "/_/w:500/-/-/h:200/plain/images/cat.jpg"), [])
 
-    assert [%Transform.Resize{} = first_params] = first_operations
+    assert [%Transform.Operation.Resize{} = first_params] = first_operations
     assert first_params.rule.width == {:pixels, 500}
 
-    assert [%Transform.Resize{} = second_params] = second_operations
+    assert [%Transform.Operation.Resize{} = second_params] = second_operations
     assert second_params.rule.height == {:pixels, 200}
   end
 
@@ -825,10 +857,10 @@ defmodule ImagePlug.Parser.NativeTest do
             }} =
              Native.parse(conn(:get, "/_/w:500/w:600/-/h:200/h:300/plain/images/cat.jpg"), [])
 
-    assert [%Transform.Resize{} = first_params] = first_operations
+    assert [%Transform.Operation.Resize{} = first_params] = first_operations
     assert first_params.rule.width == {:pixels, 600}
 
-    assert [%Transform.Resize{} = second_params] = second_operations
+    assert [%Transform.Operation.Resize{} = second_params] = second_operations
     assert second_params.rule.height == {:pixels, 300}
   end
 

@@ -5,7 +5,7 @@ defmodule ImagePlug.Transform.MaterialTest do
   alias ImagePlug.Transform.Material
 
   test "contain operations emit canonical material" do
-    assert Material.material(%Transform.Contain{
+    assert Material.material(%Transform.Operation.Contain{
              type: :dimensions,
              width: {:pixels, 300},
              height: :auto,
@@ -22,7 +22,7 @@ defmodule ImagePlug.Transform.MaterialTest do
   end
 
   test "cover operations emit canonical material" do
-    assert Material.material(%Transform.Cover{
+    assert Material.material(%Transform.Operation.Cover{
              type: :dimensions,
              width: {:pixels, 300},
              height: {:pixels, 200},
@@ -37,7 +37,7 @@ defmodule ImagePlug.Transform.MaterialTest do
   end
 
   test "crop operations emit canonical material" do
-    assert Material.material(%Transform.Crop{
+    assert Material.material(%Transform.Operation.Crop{
              width: {:pixels, 200},
              height: {:pixels, 100},
              crop_from: :focus
@@ -50,7 +50,7 @@ defmodule ImagePlug.Transform.MaterialTest do
   end
 
   test "semantic crop operations emit request and orientation material" do
-    assert Material.material(%Transform.Crop{
+    assert Material.material(%Transform.Operation.Crop{
              width: {:pixels, 200},
              height: {:pixels, 100},
              crop_from: :gravity,
@@ -79,7 +79,7 @@ defmodule ImagePlug.Transform.MaterialTest do
   end
 
   test "result crop operations emit target rule material" do
-    assert Material.material(%Transform.Crop{
+    assert Material.material(%Transform.Operation.Crop{
              width: :auto,
              height: :auto,
              crop_from: :gravity,
@@ -120,23 +120,23 @@ defmodule ImagePlug.Transform.MaterialTest do
   end
 
   test "orientation operations emit canonical material" do
-    assert Material.material(%Transform.AutoOrient{}) == [
+    assert Material.material(%Transform.Operation.AutoOrient{}) == [
              op: :auto_orient
            ]
 
-    assert Material.material(%Transform.Rotate{angle: 90}) == [
+    assert Material.material(%Transform.Operation.Rotate{angle: 90}) == [
              op: :rotate,
              angle: 90
            ]
 
-    assert Material.material(%Transform.Flip{axis: :horizontal}) == [
+    assert Material.material(%Transform.Operation.Flip{axis: :horizontal}) == [
              op: :flip,
              axis: :horizontal
            ]
   end
 
   test "focus operations emit canonical material" do
-    assert Material.material(%Transform.Focus{
+    assert Material.material(%Transform.Operation.Focus{
              type: {:coordinate, {:percent, 25.0}, {:percent, 75.0}}
            }) == [
              op: :focus,
@@ -145,7 +145,7 @@ defmodule ImagePlug.Transform.MaterialTest do
   end
 
   test "scale operations emit canonical material" do
-    assert Material.material(%Transform.Scale{
+    assert Material.material(%Transform.Operation.Scale{
              type: :dimensions,
              width: {:pixels, 300},
              height: :auto
@@ -158,7 +158,7 @@ defmodule ImagePlug.Transform.MaterialTest do
   end
 
   test "resize operations emit canonical rule material" do
-    assert Material.material(%Transform.Resize{
+    assert Material.material(%Transform.Operation.Resize{
              rule: %Transform.Geometry.DimensionRule{
                mode: :fit,
                width: {:pixels, 300},
@@ -188,7 +188,7 @@ defmodule ImagePlug.Transform.MaterialTest do
   end
 
   test "adaptive resize and extend canvas operations emit canonical material" do
-    assert Material.material(%Transform.AdaptiveResize{
+    assert Material.material(%Transform.Operation.AdaptiveResize{
              rule: %Transform.Geometry.DimensionRule{
                mode: :auto,
                width: {:pixels, 300},
@@ -196,7 +196,7 @@ defmodule ImagePlug.Transform.MaterialTest do
              }
            })[:op] == :adaptive_resize
 
-    assert Material.material(%Transform.ExtendCanvas{
+    assert Material.material(%Transform.Operation.ExtendCanvas{
              rule: {:aspect_ratio, {16, 9}},
              gravity: {:anchor, :left, :top},
              x_offset: 5.0,

@@ -1,4 +1,4 @@
-defmodule ImagePlug.Transform.ExtendCanvas do
+defmodule ImagePlug.Transform.Operation.ExtendCanvas do
   @moduledoc """
   Represents a product-neutral canvas expansion operation that embeds the
   current image into a same-size-or-larger canvas.
@@ -67,7 +67,7 @@ defmodule ImagePlug.Transform.ExtendCanvas do
 
   ## Examples
 
-      canvas = %ImagePlug.Transform.ExtendCanvas{
+      canvas = %ImagePlug.Transform.Operation.ExtendCanvas{
         rule: {:dimensions, {:pixels, 400}, {:pixels, 300}},
         gravity: {:anchor, :center, :center},
         x_offset: 0.0,
@@ -195,7 +195,7 @@ defmodule ImagePlug.Transform.ExtendCanvas do
   defp canvas_dimension(_current_size, value) when is_number(value) and value >= 0,
     do: round(value)
 
-  defp canvas_dimension(current_size, size_unit), do: to_pixels(current_size, size_unit)
+  defp canvas_dimension(current_size, size_unit), do: to_pixels!(current_size, size_unit)
 
   defp background_color(:transparent), do: [0, 0, 0, 0]
   defp background_color({:color, color}), do: color

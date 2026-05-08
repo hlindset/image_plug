@@ -24,8 +24,9 @@ defmodule ImagePlug.Cache.FileSystem do
 
   @impl true
   def get(%Key{} = key, opts) when is_list(opts) do
-    with {:ok, paths} <- paths(key, opts) do
-      read_entry(paths, opts)
+    case paths(key, opts) do
+      {:ok, paths} -> read_entry(paths, opts)
+      {:error, _reason} = error -> error
     end
   end
 
@@ -163,23 +164,26 @@ defmodule ImagePlug.Cache.FileSystem do
   end
 
   defp metadata(%Entry{} = entry, body_sha256, body_filename) do
-    with {:ok, headers} <- Entry.normalize_headers(entry.headers) do
-      {:ok,
-       %{
-         metadata_version: @metadata_version,
-         content_type: entry.content_type,
-         headers: headers,
-         created_at: DateTime.to_iso8601(entry.created_at),
-         body_byte_size: byte_size(entry.body),
-         body_sha256: body_sha256,
-         body_filename: body_filename
-       }}
+    case Entry.normalize_headers(entry.headers) do
+      {:ok, headers} ->
+        {:ok,
+         %{
+           metadata_version: @metadata_version,
+           content_type: entry.content_type,
+           headers: headers,
+           created_at: DateTime.to_iso8601(entry.created_at),
+           body_byte_size: byte_size(entry.body),
+           body_sha256: body_sha256,
+           body_filename: body_filename
+         }}
+
+      {:error, _reason} = error ->
+        error
     end
   end
 
   defp body_sha256(body) do
-    :crypto.hash(:sha256, body)
-    |> Base.encode16(case: :lower)
+    Base.encode16(:crypto.hash(:sha256, body), case: :lower)
   end
 
   defp decode_metadata(binary, opts) do
@@ -187,7 +191,7 @@ defmodule ImagePlug.Cache.FileSystem do
     |> :erlang.binary_to_term([:safe])
     |> validate_metadata()
   rescue
-    _error -> handle_invalid_metadata(:decode_failed, opts)
+    ArgumentError -> handle_invalid_metadata(:decode_failed, opts)
   else
     {:ok, metadata} -> {:ok, metadata}
     {:error, reason} -> handle_invalid_metadata(reason, opts)
@@ -256,15 +260,23 @@ defmodule ImagePlug.Cache.FileSystem do
   end
 
   defp write_and_commit(paths, body_filename, body, encoded_metadata) do
-    with {:ok, body_tmp_path} <- write_temp(paths, body) do
-      case write_temp(paths, encoded_metadata) do
-        {:ok, meta_tmp_path} ->
-          commit(paths, body_filename, body_tmp_path, meta_tmp_path)
+    case write_temp(paths, body) do
+      {:ok, body_tmp_path} ->
+        write_metadata_and_commit(paths, body_filename, body_tmp_path, encoded_metadata)
 
-        {:error, reason} ->
-          cleanup_temp_files([body_tmp_path])
-          {:error, reason}
-      end
+      {:error, _reason} = error ->
+        error
+    end
+  end
+
+  defp write_metadata_and_commit(paths, body_filename, body_tmp_path, encoded_metadata) do
+    case write_temp(paths, encoded_metadata) do
+      {:ok, meta_tmp_path} ->
+        commit(paths, body_filename, body_tmp_path, meta_tmp_path)
+
+      {:error, reason} ->
+        cleanup_temp_files([body_tmp_path])
+        {:error, reason}
     end
   end
 

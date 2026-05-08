@@ -28,8 +28,17 @@ defmodule ImagePlug.Transform.DecodePlanner do
 
   defp access_requirement(operation) do
     operation
-    |> Transform.metadata()
+    |> safe_metadata()
     |> access_from_metadata()
+  end
+
+  defp safe_metadata(operation) do
+    Transform.metadata(operation)
+  rescue
+    _exception in [ArgumentError, FunctionClauseError, RuntimeError, UndefinedFunctionError] ->
+      %{access: :random}
+  catch
+    :throw, _reason -> %{access: :random}
   end
 
   defp access_from_metadata(%{access: access}), do: normalize_access(access)

@@ -43,6 +43,9 @@ defmodule ImagePlug.Parser.Native.PlanBuilder do
   end
 
   defp source_plan(:plain, path), do: {:ok, %Plain{path: path}}
+  defp source_plan(kind, _path), do: {:error, {:unsupported_source_kind, kind}}
+
+  defp build_pipelines([]), do: {:error, :empty_pipeline_plan}
 
   defp build_pipelines(pipeline_requests) do
     pipeline_requests
@@ -58,11 +61,13 @@ defmodule ImagePlug.Parser.Native.PlanBuilder do
   end
 
   defp reduce_results(results) do
-    Enum.reduce_while(results, {:ok, []}, fn
-      {:ok, value}, {:ok, values} -> {:cont, {:ok, [value | values]}}
-      {:error, reason}, {:ok, _values} -> {:halt, {:error, reason}}
-    end)
-    |> case do
+    result =
+      Enum.reduce_while(results, {:ok, []}, fn
+        {:ok, value}, {:ok, values} -> {:cont, {:ok, [value | values]}}
+        {:error, reason}, {:ok, _values} -> {:halt, {:error, reason}}
+      end)
+
+    case result do
       {:ok, values} -> {:ok, Enum.reverse(values)}
       {:error, _reason} = error -> error
     end
@@ -304,7 +309,7 @@ defmodule ImagePlug.Parser.Native.PlanBuilder do
   defp crop_operations(%PipelineRequest{crop: %CropRequest{} = crop} = request) do
     build_operation_list(
       {:ok,
-       %Transform.Crop{
+       %Transform.Operation.Crop{
          width: crop.width,
          height: crop.height,
          crop_from: :gravity,
@@ -327,14 +332,18 @@ defmodule ImagePlug.Parser.Native.PlanBuilder do
     reduce_results(operations)
   end
 
-  defp auto_orient_operation(%Orientation{auto_orient: true}), do: {:ok, %Transform.AutoOrient{}}
+  defp auto_orient_operation(%Orientation{auto_orient: true}),
+    do: {:ok, %Transform.Operation.AutoOrient{}}
+
   defp auto_orient_operation(%Orientation{}), do: nil
 
   defp rotate_operation(%Orientation{rotate: 0}), do: nil
-  defp rotate_operation(%Orientation{rotate: angle}), do: {:ok, %Transform.Rotate{angle: angle}}
+
+  defp rotate_operation(%Orientation{rotate: angle}),
+    do: {:ok, %Transform.Operation.Rotate{angle: angle}}
 
   defp flip_operation(%Orientation{flip: nil}), do: nil
-  defp flip_operation(%Orientation{flip: axis}), do: {:ok, %Transform.Flip{axis: axis}}
+  defp flip_operation(%Orientation{flip: axis}), do: {:ok, %Transform.Operation.Flip{axis: axis}}
 
   defp result_crop_operations(%PipelineRequest{}, []), do: {:ok, []}
 
@@ -346,7 +355,7 @@ defmodule ImagePlug.Parser.Native.PlanBuilder do
     with {:ok, %Transform.Geometry.DimensionRule{} = rule} <- result_crop_rule(request) do
       build_operation_list(
         {:ok,
-         %Transform.Crop{
+         %Transform.Operation.Crop{
            width: :auto,
            height: :auto,
            crop_from: :gravity,
@@ -417,7 +426,9 @@ defmodule ImagePlug.Parser.Native.PlanBuilder do
     with {:ok, %Transform.Geometry.DimensionRule{} = rule} <- dimension_rule(request),
          {:ok, operation} <-
            {:ok,
-            %Transform.AdaptiveResize{rule: %Transform.Geometry.DimensionRule{rule | mode: :auto}}} do
+            %Transform.Operation.AdaptiveResize{
+              rule: %Transform.Geometry.DimensionRule{rule | mode: :auto}
+            }} do
       {:ok, [operation]}
     end
   end
@@ -434,7 +445,7 @@ defmodule ImagePlug.Parser.Native.PlanBuilder do
           {:ok, []}
 
         {_planned_width, _planned_height, _rule_requested?} ->
-          build_operation_list({:ok, %Transform.Resize{rule: rule}})
+          build_operation_list({:ok, %Transform.Operation.Resize{rule: rule}})
       end
     end
   end
@@ -461,7 +472,7 @@ defmodule ImagePlug.Parser.Native.PlanBuilder do
   defp extend_operation(%PipelineRequest{} = request) do
     if extend_operation_requested?(request) do
       {:ok,
-       %Transform.ExtendCanvas{
+       %Transform.Operation.ExtendCanvas{
          rule:
            {:dimensions, normalize_dimension(request.width), normalize_dimension(request.height)},
          gravity: request.extend_gravity || @default_gravity,
@@ -486,7 +497,7 @@ defmodule ImagePlug.Parser.Native.PlanBuilder do
 
   defp extend_aspect_ratio_operation(%PipelineRequest{extend_aspect_ratio: ratio}) do
     {:ok,
-     %Transform.ExtendCanvas{
+     %Transform.Operation.ExtendCanvas{
        rule: {:aspect_ratio, ratio},
        gravity: @default_gravity,
        x_offset: 0.0,

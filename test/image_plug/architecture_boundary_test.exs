@@ -43,11 +43,11 @@ defmodule ImagePlug.ArchitectureBoundaryTest do
 
     File.write!(file, """
     defmodule ImagePlug.Runtime.BoundaryExample do
-      alias ImagePlug.Transform.{Scale.Params}
+      alias ImagePlug.Transform.Operation.{Scale.Params}
     end
     """)
 
-    assert [%{line: 2, module: "ImagePlug.Transform.Scale"}] =
+    assert [%{line: 2, module: "ImagePlug.Transform.Operation.Scale"}] =
              concrete_transform_references(file)
   end
 
@@ -58,11 +58,11 @@ defmodule ImagePlug.ArchitectureBoundaryTest do
 
     File.write!(file, """
     defmodule ImagePlug.Runtime.BoundaryExample do
-      alias ImagePlug.Transform.{Scale.{Params}}
+      alias ImagePlug.Transform.Operation.{Scale.{Params}}
     end
     """)
 
-    assert [%{line: 2, module: "ImagePlug.Transform.Scale"}] =
+    assert [%{line: 2, module: "ImagePlug.Transform.Operation.Scale"}] =
              concrete_transform_references(file)
   end
 
@@ -118,13 +118,14 @@ defmodule ImagePlug.ArchitectureBoundaryTest do
           |> Enum.map(&violation(meta, concrete_transform_module(&1)))
           |> then(&{node, &1 ++ violations})
 
-        {:__aliases__, meta, [:ImagePlug, :Transform, transform | _rest]} = node, violations
+        {:__aliases__, meta, [:ImagePlug, :Transform, :Operation, transform | _rest]} = node,
+        violations
         when transform in @concrete_transform_names ->
           {node, [violation(meta, concrete_transform_module(transform)) | violations]}
 
-        {:__aliases__, meta, [:Transform, transform | _rest]} = node, violations
+        {:__aliases__, meta, [:Transform, :Operation, transform | _rest]} = node, violations
         when transform in @concrete_transform_names ->
-          {node, [violation(meta, "Transform.#{transform}") | violations]}
+          {node, [violation(meta, "Transform.Operation.#{transform}") | violations]}
 
         node, violations ->
           {node, violations}
@@ -207,11 +208,11 @@ defmodule ImagePlug.ArchitectureBoundaryTest do
     |> concrete_transform_name()
   end
 
-  defp concrete_transform_name([:ImagePlug, :Transform, transform | _rest])
+  defp concrete_transform_name([:ImagePlug, :Transform, :Operation, transform | _rest])
        when transform in @concrete_transform_names,
        do: transform
 
-  defp concrete_transform_name([:Transform, transform | _rest])
+  defp concrete_transform_name([:Transform, :Operation, transform | _rest])
        when transform in @concrete_transform_names,
        do: transform
 
@@ -233,7 +234,7 @@ defmodule ImagePlug.ArchitectureBoundaryTest do
   defp concrete_transform_module({:__aliases__, _meta, [transform | _rest]}),
     do: concrete_transform_module(transform)
 
-  defp concrete_transform_module(transform), do: "ImagePlug.Transform.#{transform}"
+  defp concrete_transform_module(transform), do: "ImagePlug.Transform.Operation.#{transform}"
 
   defp violation(meta, module) do
     %{line: Keyword.fetch!(meta, :line), module: module}

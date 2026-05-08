@@ -3,17 +3,17 @@ defmodule ImagePlug.Transform.DecodePlannerTest do
 
   alias ImagePlug.Plan.Pipeline
   alias ImagePlug.Runtime.Processor
-  alias ImagePlug.Transform.AdaptiveResize
-  alias ImagePlug.Transform.AutoOrient
-  alias ImagePlug.Transform.Contain
-  alias ImagePlug.Transform.Cover
-  alias ImagePlug.Transform.Crop
+  alias ImagePlug.Transform.Operation.AdaptiveResize
+  alias ImagePlug.Transform.Operation.AutoOrient
+  alias ImagePlug.Transform.Operation.Contain
+  alias ImagePlug.Transform.Operation.Cover
+  alias ImagePlug.Transform.Operation.Crop
   alias ImagePlug.Transform.DecodePlanner
-  alias ImagePlug.Transform.ExtendCanvas
-  alias ImagePlug.Transform.Focus
+  alias ImagePlug.Transform.Operation.ExtendCanvas
+  alias ImagePlug.Transform.Operation.Focus
   alias ImagePlug.Transform.Geometry.DimensionRule
-  alias ImagePlug.Transform.Resize
-  alias ImagePlug.Transform.Scale
+  alias ImagePlug.Transform.Operation.Resize
+  alias ImagePlug.Transform.Operation.Scale
 
   defmodule NoGeometryTransform do
     defstruct []
@@ -315,18 +315,14 @@ defmodule ImagePlug.Transform.DecodePlannerTest do
            ]) == [access: :random, fail_on: :error]
   end
 
-  test "failing transform metadata raises as a programmer error" do
-    assert_raise RuntimeError, "metadata failed", fn ->
-      DecodePlanner.open_options([
-        %RaisingMetadataTransform{}
-      ])
-    end
+  test "failing transform metadata stays random" do
+    assert DecodePlanner.open_options([
+             %RaisingMetadataTransform{}
+           ]) == [access: :random, fail_on: :error]
 
-    assert catch_throw(
-             DecodePlanner.open_options([
-               %ThrowingMetadataTransform{}
-             ])
-           ) == :metadata_failed
+    assert DecodePlanner.open_options([
+             %ThrowingMetadataTransform{}
+           ]) == [access: :random, fail_on: :error]
 
     assert catch_exit(
              DecodePlanner.open_options([

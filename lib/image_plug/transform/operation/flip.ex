@@ -1,4 +1,4 @@
-defmodule ImagePlug.Transform.Flip do
+defmodule ImagePlug.Transform.Operation.Flip do
   @moduledoc """
   Represents a product-neutral operation that flips the current image on one or
   both axes.
@@ -44,7 +44,7 @@ defmodule ImagePlug.Transform.Flip do
 
   ## Examples
 
-      flip = %ImagePlug.Transform.Flip{axis: :horizontal}
+      flip = %ImagePlug.Transform.Operation.Flip{axis: :horizontal}
   """
 
   @behaviour ImagePlug.Transform

@@ -97,6 +97,13 @@ defmodule ImagePlug.Runtime.OriginTest do
     StreamStatus.stop(stream_status)
   end
 
+  test "stream status holder formats status without monitor internals" do
+    owner_ref = make_ref()
+
+    assert StreamStatus.format_status(%{state: %{owner_ref: owner_ref, status: :pending}}) ==
+             %{state: %{status: :pending}}
+  end
+
   test "require_stream_status fails pending streams before delivery" do
     plug = fn conn ->
       conn
@@ -193,6 +200,36 @@ defmodule ImagePlug.Runtime.OriginTest do
 
     assert Enum.join(response.stream) == "img.example/cat.jpg"
     assert response.url == "https://img.example/cat.jpg"
+  end
+
+  test "fetch passes bounded Req timeouts by default and preserves timeout overrides" do
+    test_pid = self()
+    assert_req_async_contract!()
+    adapter = capturing_async_adapter(test_pid)
+
+    assert {:ok, %Origin.Response{} = default_response} =
+             Origin.fetch("https://img.example/cat.jpg", adapter: adapter)
+
+    assert_receive {:request_options, default_options}
+    assert default_options[:receive_timeout] == 5_000
+    assert default_options[:pool_timeout] == 5_000
+    assert default_options[:connect_options][:timeout] == 5_000
+    assert Enum.join(default_response.stream) == "image bytes"
+
+    assert {:ok, %Origin.Response{} = override_response} =
+             Origin.fetch("https://img.example/cat.jpg",
+               adapter: adapter,
+               receive_timeout: 123,
+               pool_timeout: 234,
+               connect_options: [timeout: 345, protocols: [:http1]]
+             )
+
+    assert_receive {:request_options, override_options}
+    assert override_options[:receive_timeout] == 123
+    assert override_options[:pool_timeout] == 234
+    assert override_options[:connect_options][:timeout] == 345
+    assert override_options[:connect_options][:protocols] == [:http1]
+    assert Enum.join(override_response.stream) == "image bytes"
   end
 
   test "fetch allows redirect limits to be configured" do
@@ -339,6 +376,41 @@ defmodule ImagePlug.Runtime.OriginTest do
       end)
 
     {port, server}
+  end
+
+  defp capturing_async_adapter(test_pid) do
+    fn request ->
+      send(test_pid, {:request_options, request.options})
+
+      ref = make_ref()
+      send(self(), {ref, {:data, "image bytes"}})
+      send(self(), {ref, :done})
+
+      async = %Req.Response.Async{
+        pid: self(),
+        ref: ref,
+        stream_fun: &stream_test_message/2,
+        cancel_fun: fn _ref -> :ok end
+      }
+
+      response =
+        Req.Response.new(status: 200, headers: [{"content-type", "image/jpeg"}], body: async)
+
+      {request, response}
+    end
+  end
+
+  defp stream_test_message(ref, {ref, {:data, data}}), do: {:ok, [data: data]}
+  defp stream_test_message(ref, {ref, :done}), do: {:ok, [:done]}
+  defp stream_test_message(ref, {ref, data}) when is_binary(data), do: {:ok, [data: data]}
+  defp stream_test_message(_ref, {:ok, data}) when is_binary(data), do: {:ok, [data: data]}
+  defp stream_test_message(_ref, _message), do: :unknown
+
+  defp assert_req_async_contract! do
+    required_keys = [:cancel_fun, :pid, :ref, :stream_fun]
+    async_keys = Map.keys(%Req.Response.Async{})
+
+    assert required_keys -- async_keys == []
   end
 
   defp await_slow_chunked_origin_close(ref, socket, listen_socket) do

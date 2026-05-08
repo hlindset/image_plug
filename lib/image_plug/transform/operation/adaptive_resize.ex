@@ -1,4 +1,4 @@
-defmodule ImagePlug.Transform.AdaptiveResize do
+defmodule ImagePlug.Transform.Operation.AdaptiveResize do
   @moduledoc """
   Represents a product-neutral resize operation whose fit-or-fill behavior is
   selected at runtime from source image metadata.
@@ -7,7 +7,7 @@ defmodule ImagePlug.Transform.AdaptiveResize do
 
   Construct this operation when parser or planner code needs auto resize
   semantics where the requested target dimensions are known but the final mode
-  depends on the source image orientation. Use `ImagePlug.Transform.Resize`
+  depends on the source image orientation. Use `ImagePlug.Transform.Operation.Resize`
   when the mode is already known at planning time.
 
   A parser may translate a Native auto-resize request into `AdaptiveResize`
@@ -47,7 +47,7 @@ defmodule ImagePlug.Transform.AdaptiveResize do
 
   ## Examples
 
-      alias ImagePlug.Transform.AdaptiveResize
+      alias ImagePlug.Transform.Operation.AdaptiveResize
       alias ImagePlug.Transform.Geometry.DimensionRule
 
       adaptive_resize = %AdaptiveResize{
@@ -64,7 +64,7 @@ defmodule ImagePlug.Transform.AdaptiveResize do
   import ImagePlug.Transform.Geometry
 
   alias ImagePlug.Transform.Geometry.DimensionRule
-  alias ImagePlug.Transform.Resize
+  alias ImagePlug.Transform.Operation.Resize
   alias ImagePlug.Transform.State
   alias ImagePlug.Transform.Validation
 
@@ -114,8 +114,8 @@ defmodule ImagePlug.Transform.AdaptiveResize do
   defp requested_dimensions(%State{} = state, %DimensionRule{} = rule) do
     {:ok,
      %{
-       width: to_pixels(image_width(state), rule.width),
-       height: to_pixels(image_height(state), rule.height)
+       width: to_pixels!(image_width(state), rule.width),
+       height: to_pixels!(image_height(state), rule.height)
      }}
   end
 

@@ -1,5 +1,5 @@
-defimpl ImagePlug.Transform.Material, for: ImagePlug.Transform.Contain do
-  def material(%ImagePlug.Transform.Contain{type: :ratio} = operation) do
+defimpl ImagePlug.Transform.Material, for: ImagePlug.Transform.Operation.Contain do
+  def material(%ImagePlug.Transform.Operation.Contain{type: :ratio} = operation) do
     [
       op: :contain,
       type: operation.type,
@@ -8,7 +8,7 @@ defimpl ImagePlug.Transform.Material, for: ImagePlug.Transform.Contain do
     ]
   end
 
-  def material(%ImagePlug.Transform.Contain{} = operation) do
+  def material(%ImagePlug.Transform.Operation.Contain{} = operation) do
     [
       op: :contain,
       type: operation.type,

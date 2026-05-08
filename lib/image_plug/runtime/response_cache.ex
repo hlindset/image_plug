@@ -67,8 +67,9 @@ defmodule ImagePlug.Runtime.ResponseCache do
   end
 
   defp store_output(key, output, response_headers, opts) do
-    with {:ok, entry} <- entry(output, response_headers) do
-      put_entry(key, entry, opts)
+    case entry(output, response_headers) do
+      {:ok, entry} -> put_entry(key, entry, opts)
+      {:error, _reason} = error -> error
     end
   end
 

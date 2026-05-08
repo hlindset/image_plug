@@ -9,12 +9,13 @@ defmodule ImagePlug.PlanTest do
   alias ImagePlug.Plan.Response
   alias ImagePlug.Plan.Response.Filename
   alias ImagePlug.Plan.Source.Plain
+  alias ImagePlug.PlanTest.PartialTransform
   alias ImagePlug.PlanTest.RuntimeOnlyTransform
   alias ImagePlug.Transform
 
   test "represents source, image pipelines, and output separately" do
     operations = [
-      %Transform.Contain{
+      %Transform.Operation.Contain{
         type: :dimensions,
         width: {:pixels, 300},
         height: :auto,
@@ -35,7 +36,7 @@ defmodule ImagePlug.PlanTest do
   end
 
   test "validated pipelines accept transform operation structs" do
-    operation = %Transform.Scale{
+    operation = %Transform.Operation.Scale{
       type: :dimensions,
       width: {:pixels, 300},
       height: :auto
@@ -51,7 +52,7 @@ defmodule ImagePlug.PlanTest do
   end
 
   test "validated pipelines reject malformed transform operation structs" do
-    operation = %Transform.Scale{
+    operation = %Transform.Operation.Scale{
       type: :dimensions,
       width: :auto,
       height: :auto
@@ -154,5 +155,18 @@ defmodule ImagePlug.PlanTest do
         overrides
       )
     )
+  end
+
+  test "ensure_operation returns tagged results without raising" do
+    valid_operation = %RuntimeOnlyTransform{}
+    invalid_operation = %PartialTransform{}
+
+    assert Transform.ensure_operation(valid_operation) == {:ok, valid_operation}
+
+    assert {:error, {:invalid_operation, ^invalid_operation, PartialTransform}} =
+             Transform.ensure_operation(invalid_operation)
+
+    assert {:error, {:invalid_operation, :bogus, :not_a_struct}} =
+             Transform.ensure_operation(:bogus)
   end
 end

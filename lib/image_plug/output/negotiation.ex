@@ -14,10 +14,14 @@ defmodule ImagePlug.Output.Negotiation do
       entries ->
         opts
         |> enabled_modern_formats()
-        |> Enum.filter(fn {_format, mime_type} -> acceptable?(mime_type, entries) end)
-        |> Enum.map(fn {format, _mime_type} -> format end)
+        |> Enum.flat_map(fn
+          {format, mime_type} ->
+            if acceptable?(mime_type, entries), do: [format], else: []
+        end)
     end
   end
+
+  defdelegate suffix(mime_type), to: Format
 
   defdelegate suffix!(mime_type), to: Format
 
@@ -28,10 +32,13 @@ defmodule ImagePlug.Output.Negotiation do
   defdelegate mime_type!(format), to: Format
 
   defp enabled_modern_formats(opts) do
-    @modern_formats
-    |> Enum.reject(fn
-      {:avif, _mime_type} -> Keyword.get(opts, :auto_avif, true) == false
-      {:webp, _mime_type} -> Keyword.get(opts, :auto_webp, true) == false
+    enabled? = %{
+      avif: Keyword.get(opts, :auto_avif, true),
+      webp: Keyword.get(opts, :auto_webp, true)
+    }
+
+    Enum.reject(@modern_formats, fn {format, _mime_type} ->
+      not Map.fetch!(enabled?, format)
     end)
   end
 

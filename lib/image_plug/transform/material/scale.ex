@@ -1,5 +1,5 @@
-defimpl ImagePlug.Transform.Material, for: ImagePlug.Transform.Scale do
-  def material(%ImagePlug.Transform.Scale{type: :ratio} = operation) do
+defimpl ImagePlug.Transform.Material, for: ImagePlug.Transform.Operation.Scale do
+  def material(%ImagePlug.Transform.Operation.Scale{type: :ratio} = operation) do
     [
       op: :scale,
       type: operation.type,
@@ -7,7 +7,7 @@ defimpl ImagePlug.Transform.Material, for: ImagePlug.Transform.Scale do
     ]
   end
 
-  def material(%ImagePlug.Transform.Scale{} = operation) do
+  def material(%ImagePlug.Transform.Operation.Scale{} = operation) do
     [
       op: :scale,
       type: operation.type,

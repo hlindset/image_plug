@@ -67,6 +67,11 @@ defmodule ImagePlug.Runtime.Origin.StreamStatus do
   end
 
   @impl GenServer
+  def format_status(%{state: state} = status) do
+    %{status | state: %{status: state.status}}
+  end
+
+  @impl GenServer
   def handle_info({:DOWN, owner_ref, :process, _owner, _reason}, %{owner_ref: owner_ref} = state) do
     {:stop, :normal, state}
   end

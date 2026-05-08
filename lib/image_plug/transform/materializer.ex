@@ -22,8 +22,9 @@ defmodule ImagePlug.Transform.Materializer do
 
   @spec materialize(State.t(), keyword()) :: {:ok, State.t()} | {:error, term()}
   def materialize(%State{} = state, _opts) do
-    with {:ok, image} <- materialize(state.image) do
-      {:ok, State.set_image(state, image)}
+    case materialize(state.image) do
+      {:ok, image} -> {:ok, State.set_image(state, image)}
+      {:error, _reason} = error -> error
     end
   end
 

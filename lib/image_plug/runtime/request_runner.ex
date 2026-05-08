@@ -51,8 +51,9 @@ defmodule ImagePlug.Runtime.RequestRunner do
   end
 
   defp configured_cache_mode(pipelines, opts) do
-    with :ok <- Cache.validate_config(opts) do
-      {:ok, cache_mode_for_pipelines(pipelines)}
+    case Cache.validate_config(opts) do
+      :ok -> {:ok, cache_mode_for_pipelines(pipelines)}
+      {:error, _reason} = error -> error
     end
   end
 

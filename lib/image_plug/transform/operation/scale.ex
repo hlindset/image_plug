@@ -1,4 +1,4 @@
-defmodule ImagePlug.Transform.Scale do
+defmodule ImagePlug.Transform.Operation.Scale do
   @moduledoc """
   Represents a product-neutral scale operation that changes image dimensions
   either to a requested size or to a requested aspect ratio.
@@ -45,7 +45,7 @@ defmodule ImagePlug.Transform.Scale do
   horizontal and vertical axes independently.
 
   On success, the scaled image is stored in state and focus is reset. Image
-  processing failures are added to state as `{ImagePlug.Transform.Scale,
+  processing failures are added to state as `{ImagePlug.Transform.Operation.Scale,
   error}`.
 
   ## Decode Planning Metadata
@@ -59,7 +59,7 @@ defmodule ImagePlug.Transform.Scale do
 
   ## Examples
 
-      scale = %ImagePlug.Transform.Scale{
+      scale = %ImagePlug.Transform.Operation.Scale{
         type: :dimensions,
         width: {:pixels, 320},
         height: :auto
@@ -68,8 +68,8 @@ defmodule ImagePlug.Transform.Scale do
 
   @behaviour ImagePlug.Transform
 
-  import ImagePlug.Transform.State
-  import ImagePlug.Transform.Geometry
+  import ImagePlug.Transform.State, only: [add_error: 2, reset_focus: 1, set_image: 2]
+  import ImagePlug.Transform.Geometry, only: [image_height: 1, image_width: 1, to_pixels!: 2]
 
   alias ImagePlug.Transform.State
   alias ImagePlug.Transform.Validation
@@ -79,17 +79,17 @@ defmodule ImagePlug.Transform.Scale do
   @type t ::
           %__MODULE__{
             type: :ratio,
-            ratio: ImagePlug.imgp_ratio()
+            ratio: ImagePlug.Transform.Types.ratio()
           }
           | %__MODULE__{
               type: :dimensions,
-              width: ImagePlug.imgp_length(),
-              height: ImagePlug.imgp_length() | :auto
+              width: ImagePlug.Transform.Types.length(),
+              height: ImagePlug.Transform.Types.length() | :auto
             }
           | %__MODULE__{
               type: :dimensions,
-              width: ImagePlug.imgp_length() | :auto,
-              height: ImagePlug.imgp_length()
+              width: ImagePlug.Transform.Types.length() | :auto,
+              height: ImagePlug.Transform.Types.length()
             }
 
   @impl ImagePlug.Transform
@@ -145,7 +145,7 @@ defmodule ImagePlug.Transform.Scale do
 
     case do_scale(state, width, height) do
       {:ok, image} -> state |> set_image(image) |> reset_focus()
-      {:error, _reason} = error -> add_error(state, {__MODULE__, error})
+      {:error, reason} -> add_error(state, {__MODULE__, reason})
     end
   end
 
@@ -191,5 +191,5 @@ defmodule ImagePlug.Transform.Scale do
   end
 
   defp to_pixels_or_auto(_length, :auto), do: :auto
-  defp to_pixels_or_auto(length, size_unit), do: to_pixels(length, size_unit)
+  defp to_pixels_or_auto(length, size_unit), do: to_pixels!(length, size_unit)
 end

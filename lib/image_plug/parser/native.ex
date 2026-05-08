@@ -182,8 +182,9 @@ defmodule ImagePlug.Parser.Native do
         decode_source_path(source, nil)
 
       [source, extension] ->
-        with {:ok, format} <- parse_format(extension) do
-          decode_source_path(source, format)
+        case parse_format(extension) do
+          {:ok, format} -> decode_source_path(source, format)
+          {:error, _reason} = error -> error
         end
 
       _parts ->
@@ -535,19 +536,21 @@ defmodule ImagePlug.Parser.Native do
   defp parse_fields(fields, args, opts \\ []) do
     skip_empty? = Keyword.get(opts, :skip_empty, false)
 
-    fields
-    |> Enum.zip(args)
-    |> Enum.reduce_while({:ok, []}, fn
-      {_field, value}, {:ok, assignments} when skip_empty? and value in [nil, ""] ->
-        {:cont, {:ok, assignments}}
+    result =
+      fields
+      |> Enum.zip(args)
+      |> Enum.reduce_while({:ok, []}, fn
+        {_field, value}, {:ok, assignments} when skip_empty? and value in [nil, ""] ->
+          {:cont, {:ok, assignments}}
 
-      {field, value}, {:ok, assignments} ->
-        case parse_field(field, value) do
-          {:ok, parsed_value} -> {:cont, {:ok, [{field, parsed_value} | assignments]}}
-          {:error, _reason} = error -> {:halt, error}
-        end
-    end)
-    |> case do
+        {field, value}, {:ok, assignments} ->
+          case parse_field(field, value) do
+            {:ok, parsed_value} -> {:cont, {:ok, [{field, parsed_value} | assignments]}}
+            {:error, _reason} = error -> {:halt, error}
+          end
+      end)
+
+    case result do
       {:ok, assignments} -> {:ok, Enum.reverse(assignments)}
       {:error, _reason} = error -> error
     end
@@ -569,14 +572,16 @@ defmodule ImagePlug.Parser.Native do
   defp parse_optional_extend_gravity(_segment, ["", "", ""]), do: {:ok, []}
 
   defp parse_optional_extend_gravity(_segment, [gravity]) do
-    with {:ok, anchor} <- parse_gravity_anchor(gravity) do
-      {:ok, [extend_gravity: anchor]}
+    case parse_gravity_anchor(gravity) do
+      {:ok, anchor} -> {:ok, [extend_gravity: anchor]}
+      {:error, _reason} = error -> error
     end
   end
 
   defp parse_optional_extend_gravity(_segment, [gravity, "", ""]) do
-    with {:ok, anchor} <- parse_gravity_anchor(gravity) do
-      {:ok, [extend_gravity: anchor]}
+    case parse_gravity_anchor(gravity) do
+      {:ok, anchor} -> {:ok, [extend_gravity: anchor]}
+      {:error, _reason} = error -> error
     end
   end
 
@@ -604,8 +609,9 @@ defmodule ImagePlug.Parser.Native do
   end
 
   defp parse_pixels(value) do
-    with {:ok, integer} <- parse_non_negative_integer(value) do
-      {:ok, {:pixels, integer}}
+    case parse_non_negative_integer(value) do
+      {:ok, integer} -> {:ok, {:pixels, integer}}
+      {:error, _reason} = error -> error
     end
   end
 

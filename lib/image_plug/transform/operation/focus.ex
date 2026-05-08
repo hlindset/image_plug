@@ -1,4 +1,4 @@
-defmodule ImagePlug.Transform.Focus do
+defmodule ImagePlug.Transform.Operation.Focus do
   @moduledoc """
   Represents a product-neutral focus operation that records where later
   focus-aware transforms should center their work.
@@ -49,26 +49,38 @@ defmodule ImagePlug.Transform.Focus do
 
   ## Examples
 
-      focus = %ImagePlug.Transform.Focus{
+      focus = %ImagePlug.Transform.Operation.Focus{
         type: {:coordinate, {:percent, 35}, {:percent, 40}}
       }
   """
 
   @behaviour ImagePlug.Transform
 
-  import ImagePlug.Transform.State
-  import ImagePlug.Transform.Geometry
+  import ImagePlug.Transform.State, only: [set_focus: 2]
+
+  import ImagePlug.Transform.Geometry,
+    only: [
+      anchor_to_pixels: 3,
+      draw_debug_dot: 3,
+      image_height: 1,
+      image_width: 1,
+      to_pixels!: 2
+    ]
 
   alias ImagePlug.Transform.State
   alias ImagePlug.Transform.Validation
 
   @doc """
-  The parsed operation used by `ImagePlug.Transform.Focus`.
+  The parsed operation used by `ImagePlug.Transform.Operation.Focus`.
   """
   defstruct [:type]
 
   @type t ::
-          %__MODULE__{type: {:coordinate, ImagePlug.imgp_length(), ImagePlug.imgp_length()}}
+          %__MODULE__{
+            type:
+              {:coordinate, ImagePlug.Transform.Types.length(),
+               ImagePlug.Transform.Types.length()}
+          }
           | %__MODULE__{type: State.focus_anchor()}
 
   @impl ImagePlug.Transform
@@ -94,8 +106,8 @@ defmodule ImagePlug.Transform.Focus do
 
   @impl ImagePlug.Transform
   def execute(%__MODULE__{type: {:coordinate, left, top}}, %State{} = state) do
-    left = to_pixels(image_width(state), left)
-    top = to_pixels(image_height(state), top)
+    left = to_pixels!(image_width(state), left)
+    top = to_pixels!(image_height(state), top)
 
     focus =
       {:coordinate, max(min(image_width(state), left), 0), max(min(image_height(state), top), 0)}

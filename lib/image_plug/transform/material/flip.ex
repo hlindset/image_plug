@@ -1,5 +1,5 @@
-defimpl ImagePlug.Transform.Material, for: ImagePlug.Transform.Flip do
-  def material(%ImagePlug.Transform.Flip{} = operation) do
+defimpl ImagePlug.Transform.Material, for: ImagePlug.Transform.Operation.Flip do
+  def material(%ImagePlug.Transform.Operation.Flip{} = operation) do
     [
       op: :flip,
       axis: operation.axis

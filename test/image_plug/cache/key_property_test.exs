@@ -377,7 +377,7 @@ defmodule ImagePlug.Cache.KeyPropertyTest do
           pipelines: [
             %Pipeline{
               operations: [
-                %Transform.Contain{
+                %Transform.Operation.Contain{
                   type: :dimensions,
                   width: {:pixels, 300},
                   height: :auto,
@@ -411,7 +411,7 @@ defmodule ImagePlug.Cache.KeyPropertyTest do
   defp operation do
     one_of([
       map({maybe_dimension(), maybe_dimension()}, fn {width, height} ->
-        %Transform.Contain{
+        %Transform.Operation.Contain{
           type: :dimensions,
           width: width || {:pixels, 100},
           height: height || :auto,
@@ -420,7 +420,7 @@ defmodule ImagePlug.Cache.KeyPropertyTest do
         }
       end),
       map({pixel_dimension(), pixel_dimension()}, fn {width, height} ->
-        %Transform.Crop{
+        %Transform.Operation.Crop{
           width: width,
           height: height,
           crop_from: :focus

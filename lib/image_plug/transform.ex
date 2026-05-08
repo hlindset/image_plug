@@ -17,20 +17,21 @@ defmodule ImagePlug.Transform do
       DecodePlanner,
       Materializer,
       Material,
+      Types,
       Geometry.CropCoordinateMapper,
       Geometry.DimensionRule,
       Geometry.DimensionResolver,
-      Resize,
-      AdaptiveResize,
-      ExtendCanvas,
-      AutoOrient,
-      Rotate,
-      Flip,
-      Scale,
-      Cover,
-      Contain,
-      Crop,
-      Focus
+      Operation.Resize,
+      Operation.AdaptiveResize,
+      Operation.ExtendCanvas,
+      Operation.AutoOrient,
+      Operation.Rotate,
+      Operation.Flip,
+      Operation.Scale,
+      Operation.Cover,
+      Operation.Contain,
+      Operation.Crop,
+      Operation.Focus
     ]
 
   alias ImagePlug.Transform.State
@@ -42,6 +43,50 @@ defmodule ImagePlug.Transform do
   @callback validate(operation()) :: :ok | {:error, term()}
   @callback metadata(operation()) :: map()
   @callback execute(operation(), State.t()) :: State.t()
+
+  @spec operation?(term()) :: boolean()
+  def operation?(%module{}) do
+    case Code.ensure_loaded(module) do
+      {:module, ^module} ->
+        function_exported?(module, :name, 1) and
+          function_exported?(module, :validate, 1) and
+          function_exported?(module, :metadata, 1) and
+          function_exported?(module, :execute, 2)
+
+      {:error, _reason} ->
+        false
+    end
+  end
+
+  def operation?(_term), do: false
+
+  @spec ensure_operation(term()) :: {:ok, operation()} | {:error, term()}
+  def ensure_operation(%module{} = operation) do
+    if operation?(operation) do
+      {:ok, operation}
+    else
+      {:error, {:invalid_operation, operation, module}}
+    end
+  end
+
+  def ensure_operation(operation), do: {:error, {:invalid_operation, operation, :not_a_struct}}
+
+  @spec ensure_operation!(term()) :: operation()
+  def ensure_operation!(operation) do
+    case ensure_operation(operation) do
+      {:ok, operation} ->
+        operation
+
+      {:error, {:invalid_operation, %_module{} = operation, module}} ->
+        raise ArgumentError,
+              "invalid transform operation #{inspect(operation)}: " <>
+                "#{inspect(module)} must export name/1, validate/1, metadata/1, and execute/2"
+
+      {:error, {:invalid_operation, operation, :not_a_struct}} ->
+        raise ArgumentError,
+              "invalid transform operation #{inspect(operation)}: expected an operation struct"
+    end
+  end
 
   @spec transform_name(operation()) :: atom()
   def transform_name(%module{} = operation) do
