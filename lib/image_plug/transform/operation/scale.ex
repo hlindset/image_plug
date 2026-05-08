@@ -145,7 +145,7 @@ defmodule ImagePlug.Transform.Operation.Scale do
 
     case do_scale(state, width, height) do
       {:ok, image} -> state |> set_image(image) |> reset_focus()
-      {:error, _reason} = error -> add_error(state, {__MODULE__, error})
+      {:error, reason} -> add_error(state, {__MODULE__, reason})
     end
   end
 

@@ -324,9 +324,11 @@ defmodule ImagePlug.Transform.DecodePlannerTest do
              %ThrowingMetadataTransform{}
            ]) == [access: :random, fail_on: :error]
 
-    assert DecodePlanner.open_options([
-             %ExitingMetadataTransform{}
-           ]) == [access: :random, fail_on: :error]
+    assert catch_exit(
+             DecodePlanner.open_options([
+               %ExitingMetadataTransform{}
+             ])
+           ) == :metadata_failed
   end
 
   test "planned options include only access and fail_on" do

@@ -38,7 +38,7 @@ defmodule ImagePlug.Transform.DecodePlanner do
     _exception in [ArgumentError, FunctionClauseError, RuntimeError, UndefinedFunctionError] ->
       %{access: :random}
   catch
-    _kind, _reason -> %{access: :random}
+    :throw, _reason -> %{access: :random}
   end
 
   defp access_from_metadata(%{access: access}), do: normalize_access(access)

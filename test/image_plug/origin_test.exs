@@ -204,6 +204,7 @@ defmodule ImagePlug.Runtime.OriginTest do
 
   test "fetch passes bounded Req timeouts by default and preserves timeout overrides" do
     test_pid = self()
+    assert_req_async_contract!()
     adapter = capturing_async_adapter(test_pid)
 
     assert {:ok, %Origin.Response{} = default_response} =
@@ -401,7 +402,16 @@ defmodule ImagePlug.Runtime.OriginTest do
 
   defp stream_test_message(ref, {ref, {:data, data}}), do: {:ok, [data: data]}
   defp stream_test_message(ref, {ref, :done}), do: {:ok, [:done]}
+  defp stream_test_message(ref, {ref, data}) when is_binary(data), do: {:ok, [data: data]}
+  defp stream_test_message(_ref, {:ok, data}) when is_binary(data), do: {:ok, [data: data]}
   defp stream_test_message(_ref, _message), do: :unknown
+
+  defp assert_req_async_contract! do
+    required_keys = [:cancel_fun, :pid, :ref, :stream_fun]
+    async_keys = Map.keys(%Req.Response.Async{})
+
+    assert required_keys -- async_keys == []
+  end
 
   defp await_slow_chunked_origin_close(ref, socket, listen_socket) do
     receive do
