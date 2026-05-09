@@ -63,6 +63,8 @@ Target flow:
 
 ```text
 ImagePlug.Parser.*
+  -> parser-normalized dialect commands
+       aliases, vendor defaults, option order, and scoped fields resolved
   -> ImagePlug.Plan
        source/output/policy/cache/response
        pipelines: [%ImagePlug.Plan.Pipeline{
@@ -80,9 +82,10 @@ ImagePlug.Parser.*
 ```
 
 `ImagePlug.Plan.Pipeline` remains the canonical request pipeline container.
-Its `operations` field should contain semantic plan steps. Some steps mutate
-semantic context, and some steps change pixels. Runtime should not care about
-that distinction; resolver and material code should.
+Its `operations` field should contain canonical semantic operations with
+explicit guides and normalized geometry. Parser-local compatibility commands
+may exist before this point, but raw vendor syntax and parser context should
+not leak into canonical plan material.
 
 The resolver belongs under `ImagePlug.Transform` because it owns transform
 semantics, source-metadata resolution, decode implications, capability checks,
@@ -98,11 +101,6 @@ extension points proven by vendor pressure tests.
 
 ### MVP Operations
 
-Context steps:
-
-- `SetFocus`
-- `SetGravity`
-
 Crop operations:
 
 - `CropRegion`
@@ -113,7 +111,8 @@ Resize operations:
 - `ResizeFit`
 - `ResizeCover`
 - `ResizeStretch`
-- `ResizeScale`
+- `ResizeScale`, only if current imgproxy-compatible behavior needs standalone
+  scale/factor semantics that cannot be expressed as fit, cover, or stretch
 
 Layout operations:
 
@@ -125,25 +124,10 @@ Orientation operations:
 - `Rotate`
 - `Flip`
 
-Compatibility operation:
-
-- `ResizeByOrientation`, only if current imgproxy `auto` behavior remains
-  supported in the first implementation slice.
-
-`ResizeByOrientation` should not be a broad adaptive-resize abstraction. It is a
-narrow conditional semantic step with explicit branches:
-
-```elixir
-%ImagePlug.Plan.Operation.ResizeByOrientation{
-  condition: %ImagePlug.Plan.Condition.SourceTargetOrientationMatches{},
-  then: %ImagePlug.Plan.Operation.ResizeCover{},
-  else: %ImagePlug.Plan.Operation.ResizeFit{}
-}
-```
-
-If this proves too abstract for the first slice, it may live in an
-imgproxy-compatibility namespace and be lowered before canonical semantic
-material is produced.
+The canonical MVP does not include `SetFocus`, `SetGravity`, or a general
+conditional resize operation. Canonical operations should carry explicit guide
+values. Parser adapters may use context or compatibility commands internally
+and lower them before canonical semantic material is produced.
 
 ### Deferred Operations
 
@@ -153,6 +137,8 @@ feature cannot be represented without them:
 - `CropAspectRatio`
 - standalone `CropSmart`
 - `ResizeContain`
+- canonical `SetFocus`
+- canonical `SetGravity`
 - `Pad`
 - `Trim`
 
@@ -176,13 +162,19 @@ Standalone `CropSmart` should not be an initial semantic operation. Smartness
 usually guides a concrete crop or cover operation. Represent smart behavior as
 guide strategies attached to `CropGuided` or `ResizeCover`.
 
-## Context Steps And Guides
+`resize:auto` should not introduce a general conditional IR in the first slice.
+Represent it as an imgproxy adapter-local compatibility command, then lower it
+to `ResizeCover` or `ResizeFit` after source dimensions are known. The selected
+branch is resolver material.
 
-`SetFocus` and `SetGravity` are semantic context steps, not pixel-changing
-operations. They exist because some dialects, notably TwicPics-style chains,
-can change the context of later transformations.
+## Adapter Context Commands And Guides
 
-Costs of context steps:
+Some dialects, notably TwicPics-style chains, have context-changing commands
+that affect later transformations without changing pixels. ImagePlug may model
+those inside the adapter layer as parser-normalized commands such as focus or
+gravity context updates.
+
+Costs of making context commands canonical operations:
 
 - They appear in step indexes and diagnostics.
 - They complicate lowering and optimization.
@@ -191,13 +183,15 @@ Costs of context steps:
 
 The design therefore constrains them:
 
-- Context steps may be present in parser output.
-- Resolver normalization should fold context into explicit guides on later
-  geometry operations where possible.
+- Context commands may be present in adapter-local parser output.
+- Parser or resolver normalization should fold context into explicit guides on
+  later geometry operations where possible.
 - Canonical semantic material should represent the normalized effect, not raw
   parser spelling.
-- A context step that does not affect later visible output should be elided
-  from canonical material.
+- A context command may be elided only after normalization proves it has no
+  visible effect on any later supported operation in the same pipeline.
+- Unknown, unsupported, or deferred operations must prevent context elision
+  unless policy explicitly allows ignoring that context.
 
 Guides should be explicit value structs:
 
@@ -232,6 +226,10 @@ Geometry-bearing operations must declare their coordinate space. The parser may
 normalize vendor syntax into a common space, or it may preserve a source-space
 request for resolver handling, but the plan must not leave this implicit.
 
+Coordinates have both a reference space and a unit. A ratio coordinate is not a
+space by itself; it must be resolved against the dimensions of its declared
+space.
+
 Coordinate spaces:
 
 - `:current` means coordinates apply to the image as it exists at that point in
@@ -240,11 +238,15 @@ Coordinate spaces:
   region/size/rotation stages.
 - `:post_orient` means coordinates apply after orientation normalization but
   before later resize/crop work.
-- `:normalized` means coordinates are normalized ratios, usually `0..1`, and
-  must be resolved against the declared reference dimensions.
 - `:vendor` is not allowed in canonical plan operations. Parser adapters must
   translate vendor-defined coordinates into one of the supported spaces or
   reject the request.
+
+Coordinate units:
+
+- `:pixels` means the coordinate value is pixel-based in the declared space.
+- `:ratio` means the coordinate value is a deterministic rational value,
+  usually in `0..1`, resolved against the declared space.
 
 Examples:
 
@@ -254,14 +256,15 @@ Examples:
   y: ...,
   width: ...,
   height: ...,
-  unit: :pixels,
-  space: :source
+  space: :source,
+  unit: :pixels
 }
 
 %ImagePlug.Plan.Guide.FocalPoint{
   x: ...,
   y: ...,
-  space: :normalized
+  space: :source,
+  unit: :ratio
 }
 ```
 
@@ -301,14 +304,17 @@ Rules:
   RGBA with integer color channels and deterministic alpha.
 - Omitted dimensions must normalize according to the parser contract before
   materialization.
-- Gravity and focus defaults must be inserted by resolver normalization before
+- Source-independent defaults should be inserted before prefetch-safe
   materialization when they affect output.
+- Source-dependent defaults or decisions should be inserted during source-aware
+  resolution and recorded in resolver material.
 - No-op operations that do not affect visible output should be elided from
   canonical material after validation.
 - Resolver decisions that affect pixels must be separate deterministic material,
   not hidden inside diagnostics.
 
-Every semantic struct should eventually have a small material contract. Example
+No canonical semantic operation may be introduced without a deterministic
+material contract and tests proving parser-syntax-free equivalence. Example
 shape:
 
 ```elixir
@@ -422,8 +428,20 @@ For each feature or strategy, capability planning should be able to answer:
 - local backend can approximate it
 - configured policy allows approximation
 
-This can be represented by a capability profile plus planning results, rather
-than a flat map of booleans.
+This is the target model for vendor fixture expansion. The first implementation
+does not need a general capability-planning framework unless the
+imgproxy-compatible slice requires one.
+
+A pragmatic first resolver result is enough:
+
+```elixir
+{:ok, exact_plan}
+{:ok, approximate_plan, decisions, diagnostics}
+{:error, diagnostics}
+```
+
+The richer profile can be introduced when a non-imgproxy fixture requires
+representable-but-not-executable behavior.
 
 Examples:
 
@@ -501,6 +519,11 @@ Cache lookup:
 - Uses deterministic prefetch-safe material.
 - Must include enough configuration and capability profile material to avoid
   stale entries when output-affecting resolver behavior changes.
+- If final pixel-affecting resolver decisions depend on source metadata that is
+  unavailable before origin access, final output cache lookup must wait until
+  that metadata is available, or the implementation must introduce a two-stage
+  metadata cache. The first implementation should use the conservative strategy:
+  delay final output cache lookup for source-metadata-dependent transforms.
 
 Decode/open planning:
 
@@ -547,8 +570,8 @@ Semantics:
 - Runtime preserves the materialization boundary between pipelines.
 - Cache material preserves pipeline boundaries.
 - Semantic context resets at each pipeline boundary by default.
-- Each pipeline starts with default focus and gravity unless the parser emits
-  `SetFocus` or `SetGravity` in that pipeline.
+- Each pipeline starts with default focus and gravity unless the adapter emits
+  context commands that normalize into explicit guides for that pipeline.
 
 If a dialect has persistent cross-group context, its parser must re-emit
 context setters in later pipelines or use a future explicit persistence
@@ -562,6 +585,7 @@ cross-group behavior.
 Use explicit material layers:
 
 ```text
+transform_material_version
 semantic_material(plan)
 resolver_material(resolved_decisions)
 backend_profile_material(profile)
@@ -576,6 +600,10 @@ The final key combines those layers with:
 - cachebuster
 - parser compatibility mode
 - config defaults that affect visible output
+
+The transform material version must change when canonicalization, rounding,
+resolver semantics, or backend decision material changes in a way that could
+alter output or key interpretation.
 
 Raw parser syntax, aliases, and vendor option spelling must not appear in cache
 material.
@@ -599,6 +627,18 @@ a mapping as:
 Add new semantic operations only when a fixture cannot be represented cleanly
 with the current core.
 
+First-wave fixtures:
+
+- imgproxy, the compatibility target
+- TwicPics, to test context mutation and ordered chains
+- IIIF, to test source-space region/size semantics
+
+Second-wave fixtures:
+
+- imgix
+- Cloudinary
+- Fastly
+
 ### Imgproxy
 
 The current `ImagePlug.Parser.Native` should be renamed to
@@ -614,7 +654,9 @@ must not inherit imgproxy quirks by default.
 
 Mapping:
 
-- `gravity` maps to `SetGravity`, scoped to the current pipeline group.
+- `gravity` maps to an adapter-local gravity context command, scoped to the
+  current pipeline group, or directly to explicit guides on crop/cover
+  operations.
 - `crop` maps to `CropGuided`; crop-specific gravity becomes an explicit guide
   or local gravity override.
 - Crop dimension rules remain parser-owned:
@@ -625,8 +667,9 @@ Mapping:
 - `resize:fill` and `resize:fill-down` map to `ResizeCover` with enlargement
   policy.
 - `resize:force` maps to `ResizeStretch`.
-- `resize:auto` maps to `ResizeByOrientation` or an adapter-owned
-  compatibility step with explicit fit/cover branches.
+- `resize:auto` maps to an imgproxy adapter-owned compatibility command and is
+  resolved to `ResizeCover` or `ResizeFit` after source dimensions are known.
+  The selected branch is resolver material.
 - `extend` and `extend_aspect_ratio` map to `Canvas`.
 - Smart/object/face gravity maps to strategy guides only when parser policy
   supports those strategies.
@@ -635,8 +678,8 @@ Mapping:
 
 Mapping pressure tests:
 
-- `focus=<anchor>` maps to `SetFocus`.
-- `focus=<x,y>` maps to `SetFocus`.
+- `focus=<anchor>` maps to adapter-local focus context.
+- `focus=<x,y>` maps to adapter-local focus context.
 - `focus=auto` maps to a strategy guide and is capability-gated.
 - `crop=<w>x<h>` maps to `CropGuided` with focus guide.
 - `crop=<w>x<h>@<x,y>` maps to `CropRegion`.
@@ -648,7 +691,7 @@ Mapping pressure tests:
 
 ### Imgix
 
-Mapping pressure tests:
+Second-wave mapping notes:
 
 - `fit=crop&w=...&h=...` maps to `ResizeCover`, not source-region crop.
 - `crop=top,bottom,left,right` maps to cover alignment or guide preferences.
@@ -663,7 +706,7 @@ Mapping pressure tests:
 
 ### Cloudinary
 
-Mapping pressure tests:
+Second-wave mapping notes:
 
 - fill maps to cover-style resize/crop behavior.
 - fit maps to fit-style resize behavior.
@@ -677,10 +720,13 @@ Mapping pressure tests:
 
 ### Fastly
 
-Fastly has a documented operation order. Its parser should emit an ordered
-semantic pipeline matching that order. If Fastly exposes meaningful group or
-materialization boundaries, those should become separate `Plan.Pipeline`
-entries; otherwise one ordered semantic pipeline is sufficient.
+Second-wave mapping notes:
+
+- Fastly has a documented operation order. Its parser should emit an ordered
+  semantic pipeline matching that order.
+- If Fastly exposes meaningful group or materialization boundaries, those
+  should become separate `Plan.Pipeline` entries; otherwise one ordered
+  semantic pipeline is sufficient.
 
 ### IIIF
 
@@ -725,11 +771,22 @@ Canonicalization tests should cover:
 - parser defaults become explicit material only when output-affecting
 - no-op operations are elided when they do not affect visible output
 - color and unit normalization are deterministic
+- normalization is idempotent
+- material generation is deterministic across repeated normalization
+- visibly different outputs do not intentionally collapse to the same material
 
-Vendor mapping fixtures should cover TwicPics, imgix, IIIF, Cloudinary, and
-Fastly as non-executing tests before full parsers are implemented. Each fixture
-should classify support as supported, representable, intentionally unsupported,
-or approximate.
+Geometry helper tests should cover:
+
+- clamped crop regions never produce dimensions outside resolved bounds
+- rounding never produces zero-size backend operations unless validation rejects
+  the request first
+- no-op elimination is idempotent
+
+Vendor mapping fixtures should cover imgproxy, TwicPics, and IIIF first as
+non-executing tests before full parsers are implemented. Each fixture should
+classify support as supported, representable, intentionally unsupported, or
+approximate. Imgix, Cloudinary, and Fastly fixtures are second-wave pressure
+tests after the first resolver slice lands.
 
 Runtime tests should stay focused:
 
@@ -771,10 +828,11 @@ but keep the first slice narrow.
 7. Switch parser output to semantic operations.
 8. Switch cache/decode/runtime to consume resolved output through generic
    facades.
-9. Add vendor mapping fixtures for TwicPics, imgix, IIIF, Cloudinary, and
-   Fastly as non-executing tests.
+9. Add first-wave vendor mapping fixtures for imgproxy, TwicPics, and IIIF as
+   non-executing tests.
 10. Expand semantic IR only for mappings that fail those fixtures.
-11. Add actual parsers incrementally.
+11. Add second-wave mapping fixtures for imgix, Cloudinary, and Fastly.
+12. Add actual parsers incrementally.
 
 ## Non-Goals
 
