@@ -62,9 +62,10 @@ Use a semantic plan IR plus backend lowering.
 Target flow:
 
 ```text
-ImagePlug.Parser.*
+parser raw syntax
   -> parser-normalized dialect commands
        aliases, vendor defaults, option order, and scoped fields resolved
+  -> adapter canonicalization
   -> ImagePlug.Plan
        source/output/policy/cache/response
        pipelines: [%ImagePlug.Plan.Pipeline{
@@ -86,6 +87,14 @@ Its `operations` field should contain canonical semantic operations with
 explicit guides and normalized geometry. Parser-local compatibility commands
 may exist before this point, but raw vendor syntax and parser context should
 not leak into canonical plan material.
+
+Adapter-local normalized commands are internal parser or adapter data. They
+must not appear in canonical `ImagePlug.Plan.Pipeline.operations` unless a
+later design explicitly promotes that command to a canonical semantic
+operation. Example namespaces:
+
+- `ImagePlug.Parser.Imgproxy.Command.ResizeAuto`
+- `ImagePlug.Parser.TwicPics.Command.SetFocus`
 
 The resolver belongs under `ImagePlug.Transform` because it owns transform
 semantics, source-metadata resolution, decode implications, capability checks,
@@ -129,6 +138,25 @@ conditional resize operation. Canonical operations should carry explicit guide
 values. Parser adapters may use context or compatibility commands internally
 and lower them before canonical semantic material is produced.
 
+## First Slice Hard Limits
+
+The first implementation slice may introduce only:
+
+- semantic operations required by current documented imgproxy-compatible
+  behavior
+- canonical material for those operations
+- source-aware resolution for those operations
+- lowering to existing executable transform operations where possible
+
+The first implementation slice must not introduce:
+
+- general capability planning
+- backend operation structs unless existing executable operations cannot
+  represent resolved work correctly
+- smart, face, or object strategy execution
+- second-wave parser implementations
+- generalized conditional IR
+
 ### Deferred Operations
 
 Do not implement these in the first slice unless a current imgproxy-compatible
@@ -157,6 +185,11 @@ ResizeFit -> Canvas
 
 This keeps "contain" as parser or vendor vocabulary instead of core IR
 vocabulary unless a later adapter proves it has distinct semantic value.
+
+`Canvas` places the current image onto a target canvas. It must not choose a
+resize scale by itself. Scaling must be represented by a preceding resize
+operation. This keeps `Canvas` from becoming a disguised contain/pad
+mega-operation.
 
 Standalone `CropSmart` should not be an initial semantic operation. Smartness
 usually guides a concrete crop or cover operation. Represent smart behavior as
@@ -272,17 +305,43 @@ Rules:
 
 - `CropRegion` must carry a region with an explicit space.
 - `CropGuided` must carry a size and guide with explicit units/spaces.
-- `ResizeCover` guides must declare whether focal or anchor values are current,
-  normalized, or post-orientation.
+- `ResizeCover` guides must declare both reference space, such as `:current`,
+  `:source`, or `:post_orient`, and unit, such as `:pixels` or `:ratio`.
 - IIIF region syntax should map to `CropRegion` in source space.
-- Current imgproxy crop and gravity syntax should normally be normalized by the
-  parser into current-space semantic values for the relevant pipeline group.
+- Imgproxy parser code should normalize crop/gravity syntax into explicit
+  semantic value forms. Any value depending on source dimensions, current
+  dimensions, orientation, DPR, or previous operations is resolved by
+  `ImagePlug.Transform`, not by the parser.
 - Resolver processes operations in order and updates current dimensions after
   each pixel-changing step.
+
+Each geometry value struct must define its valid ratio range. Focal points are
+normally bounded to `0..1`. Relative sizes may allow values greater than `1`
+only when the operation explicitly supports enlargement. Offsets may allow
+negative ratios only when documented by that operation.
 
 Operation ordering remains a parser responsibility. Declarative parsers emit
 operations in their canonical order. Ordered-command parsers emit operations in
 the order required by the dialect.
+
+## Orientation And Coordinate Semantics
+
+Orientation operations must define how they affect later coordinate spaces:
+
+- `AutoOrient` changes subsequent `:current` dimensions when it is present in
+  the semantic operation order.
+- `AutoOrient` does not change `:source` coordinates.
+- `:post_orient` coordinates are resolved after EXIF orientation normalization
+  and before later semantic operations.
+- `Rotate` and `Flip` update subsequent `:current` dimensions or anchors.
+- The MVP only supports orientation behavior that the current
+  imgproxy-compatible surface already supports, including right-angle rotation
+  if that is currently exposed. Arbitrary-angle rotation should be a fixture
+  classification, not MVP behavior.
+
+Geometry lowering should go through shared space-resolution helpers, for
+example a future `ImagePlug.Transform.Geometry.Space.resolve_region/3`, instead
+of duplicating coordinate conversion inside operations.
 
 ## Canonicalization Rules
 
@@ -292,7 +351,7 @@ implementation afterthought, because cache material depends on it.
 Rules:
 
 - Parser aliases must be normalized before semantic operations are built.
-- Default values must be explicit in canonical material.
+- Output-affecting defaults must be explicit in canonical material.
 - Equivalent aspect ratios should use reduced integer ratios, for example
   `{16, 9}` instead of `1.7777778`.
 - Prefer integer pixels, integer ratios, and rational scale values over floats
@@ -352,12 +411,29 @@ Rules to define before each operation is implemented:
 Do not duplicate this logic across operation modules. Resolver and backend
 lowering should call shared geometry helpers.
 
+## DPR And Pixel Density
+
+DPR must be explicit in plan material and resolver decisions when it affects
+visible output.
+
+Rules:
+
+- Parser code records requested logical dimensions and requested DPR separately
+  where the dialect exposes DPR.
+- Canonical material must say whether a value is logical pixels, physical
+  pixels, or a ratio.
+- Resolver applies DPR at a documented phase before backend integer pixel
+  lowering.
+- Crop offsets or gravity offsets that are DPR-scaled must record that scaling
+  decision in resolver material.
+- DPR values that affect output must be part of cache material.
+
 ## Resolver Design
 
 Expose a narrow public API:
 
 ```elixir
-ImagePlug.Transform.resolve(plan_or_pipelines, source_metadata, opts)
+ImagePlug.Transform.resolve(%ImagePlug.Plan{} = plan, source_metadata, opts)
 ```
 
 Internally, split responsibilities into phases even if they live under one
@@ -365,6 +441,7 @@ boundary:
 
 ```text
 semantic validation
+  -> source-independent normalization
   -> source-aware normalization
   -> capability planning
   -> backend lowering
@@ -519,6 +596,10 @@ Cache lookup:
 - Uses deterministic prefetch-safe material.
 - Must include enough configuration and capability profile material to avoid
   stale entries when output-affecting resolver behavior changes.
+- Final output cache lookup requires final output material. Prefetch-safe
+  material may be used for validation, metrics, or a future metadata-cache
+  lookup, but not as the final transformed-output cache key when source-aware
+  decisions are still unresolved.
 - If final pixel-affecting resolver decisions depend on source metadata that is
   unavailable before origin access, final output cache lookup must wait until
   that metadata is available, or the implementation must introduce a two-stage
@@ -742,9 +823,11 @@ Boundary direction should remain explicit:
 - Plan owns the canonical request model and semantic operation structs.
 - Transform owns resolver phases, backend representation, decode planning,
   execution, and materialization.
-- Runtime depends on Plan, Cache, Output, and generic Transform entry points.
-- Runtime must not reference concrete plan operation modules or concrete
-  backend operation modules.
+- Request runtime/orchestration depends on Plan, Cache, Output, and generic
+  Transform entry points. It must not contain operation-specific branching or
+  reference concrete plan operation modules.
+- The Transform resolver/executor may pattern match on concrete semantic
+  operations and backend instructions inside the Transform boundary.
 - Cache may depend on Plan semantic material and Transform resolver material
   facades, but not parser-specific structs.
 
@@ -762,6 +845,16 @@ Resolver tests should come first for the current imgproxy-compatible subset:
 - canvas extension updates dimensions independently from crop.
 - chained pipelines reset semantic focus/gravity context while preserving pixel
   state and pipeline material boundaries.
+
+Characterization and old-vs-new equivalence tests should freeze current
+imgproxy-compatible behavior before replacing internals:
+
+- parser output for documented options
+- output dimensions for representative resize/crop/canvas/orientation requests
+- crop regions or backend operation parameters where stable
+- encoded image hash where stable, or pixel/perceptual diff where encoding is
+  not stable
+- cache key material expectations
 
 Canonicalization tests should cover:
 
@@ -815,24 +908,26 @@ Boundary tests should assert:
 Because the project is greenfield, prefer replacement over compatibility shims,
 but keep the first slice narrow.
 
-1. Rename `Native` parser/docs/tests to `Imgproxy`.
-2. Introduce minimal semantic operations needed for current
-   imgproxy-compatible behavior.
+1. Add characterization tests for current imgproxy-compatible parser,
+   transform, cache, and chained-pipeline behavior.
+2. Rename `Native` parser/docs/tests to `Imgproxy`.
 3. Add canonical geometry/value structs and material functions.
-4. Add resolver phases that validate and lower only the current
+4. Introduce minimal semantic operations needed for current
+   imgproxy-compatible behavior.
+5. Add resolver phases that validate and lower only the current
    imgproxy-compatible subset.
-5. Add backend instruction or operation representation only where runtime needs
-   it.
-6. Keep current executable transform implementation behind generic facade calls
-   while semantic planning is introduced.
-7. Switch parser output to semantic operations.
-8. Switch cache/decode/runtime to consume resolved output through generic
+6. Initially lower to the existing executable transform representation where
+   possible.
+7. Add backend instruction or operation representation only when existing
+   operations block correctness, materialization, or generic dispatch.
+8. Switch parser output to semantic operations.
+9. Switch cache/decode/runtime to consume resolved output through generic
    facades.
-9. Add first-wave vendor mapping fixtures for imgproxy, TwicPics, and IIIF as
+10. Add first-wave vendor mapping fixtures for imgproxy, TwicPics, and IIIF as
    non-executing tests.
-10. Expand semantic IR only for mappings that fail those fixtures.
-11. Add second-wave mapping fixtures for imgix, Cloudinary, and Fastly.
-12. Add actual parsers incrementally.
+11. Expand semantic IR only for mappings that fail those fixtures.
+12. Add second-wave mapping fixtures for imgix, Cloudinary, and Fastly.
+13. Add actual parsers incrementally.
 
 ## Non-Goals
 
