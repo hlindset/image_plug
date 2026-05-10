@@ -109,7 +109,7 @@ defmodule ImagePlug.CacheTest do
     end
 
     assert_raise ArgumentError, ~r/required :root_url option not found/, fn ->
-      ImagePlug.init(parser: ImagePlug.Parser.Native)
+      ImagePlug.init(parser: ImagePlug.Parser.Imgproxy)
     end
   end
 

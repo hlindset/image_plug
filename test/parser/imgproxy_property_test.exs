@@ -1,10 +1,10 @@
-defmodule ImagePlug.Parser.NativePropertyTest do
+defmodule ImagePlug.Parser.ImgproxyPropertyTest do
   use ExUnit.Case, async: true
   use ExUnitProperties
 
   import Plug.Test
 
-  alias ImagePlug.Parser.Native
+  alias ImagePlug.Parser.Imgproxy
   alias ImagePlug.Plan
   alias ImagePlug.Plan.Pipeline
   alias ImagePlug.Plan.Source.Plain
@@ -25,7 +25,7 @@ defmodule ImagePlug.Parser.NativePropertyTest do
               max_runs: 100 do
       assert {:ok, %Plan{source: %Plain{path: ^source_path}}} =
                ["w:300"]
-               |> native_path(source_path)
+               |> imgproxy_path(source_path)
                |> parse_path()
     end
   end
@@ -36,7 +36,7 @@ defmodule ImagePlug.Parser.NativePropertyTest do
               max_runs: 100 do
       assert {:ok, %Plan{pipelines: [%Pipeline{operations: operations}]}} =
                ["w:#{first}", "w:#{second}"]
-               |> native_path(["images", "cat.jpg"])
+               |> imgproxy_path(["images", "cat.jpg"])
                |> parse_path()
 
       assert [%Transform.Operation.Resize{} = params] = operations
@@ -50,7 +50,7 @@ defmodule ImagePlug.Parser.NativePropertyTest do
               max_runs: 100 do
       assert {:ok, %Plan{pipelines: [%Pipeline{operations: operations}]}} =
                ["w:999", "h:888", "rs:fill:#{width}:#{height}"]
-               |> native_path(["images", "cat.jpg"])
+               |> imgproxy_path(["images", "cat.jpg"])
                |> parse_path()
 
       assert [%Transform.Operation.Resize{} = params, %Transform.Operation.Crop{}] = operations
@@ -64,10 +64,10 @@ defmodule ImagePlug.Parser.NativePropertyTest do
     check all width <- integer(1..2000),
               height <- integer(1..2000) do
       assert {:ok, plan_a} =
-               Native.parse(conn(:get, "/_/w:#{width}/h:#{height}/plain/images/cat.jpg"), [])
+               Imgproxy.parse(conn(:get, "/_/w:#{width}/h:#{height}/plain/images/cat.jpg"), [])
 
       assert {:ok, plan_b} =
-               Native.parse(
+               Imgproxy.parse(
                  conn(:get, "/_/height:#{height}/width:#{width}/plain/images/cat.jpg"),
                  []
                )
@@ -78,7 +78,7 @@ defmodule ImagePlug.Parser.NativePropertyTest do
     end
   end
 
-  property "zoom aliases parse to equivalent native pipeline IR" do
+  property "zoom aliases parse to equivalent imgproxy pipeline IR" do
     check all x_int <- integer(1..2000),
               y_int <- integer(1..2000),
               max_runs: 200 do
@@ -86,10 +86,10 @@ defmodule ImagePlug.Parser.NativePropertyTest do
       y = decimal_string(y_int)
 
       assert {:ok, zoom_request} =
-               Native.parse_request(conn(:get, "/_/zoom:#{x}:#{y}/plain/images/cat.jpg"), [])
+               Imgproxy.parse_request(conn(:get, "/_/zoom:#{x}:#{y}/plain/images/cat.jpg"), [])
 
       assert {:ok, alias_request} =
-               Native.parse_request(conn(:get, "/_/z:#{x}:#{y}/plain/images/cat.jpg"), [])
+               Imgproxy.parse_request(conn(:get, "/_/z:#{x}:#{y}/plain/images/cat.jpg"), [])
 
       [zoom_pipeline] = zoom_request.pipelines
       [alias_pipeline] = alias_request.pipelines
@@ -98,11 +98,11 @@ defmodule ImagePlug.Parser.NativePropertyTest do
     end
   end
 
-  defp parse_path(path), do: Native.parse(conn(:get, path), [])
+  defp parse_path(path), do: Imgproxy.parse(conn(:get, path), [])
 
   defp safe_parse(options) do
     options
-    |> native_path(["images", "cat.jpg"])
+    |> imgproxy_path(["images", "cat.jpg"])
     |> parse_path()
   rescue
     exception -> {:raised, exception}
@@ -110,7 +110,7 @@ defmodule ImagePlug.Parser.NativePropertyTest do
     kind, reason -> {:caught, kind, reason}
   end
 
-  defp native_path(options, source_path) do
+  defp imgproxy_path(options, source_path) do
     source_path = Enum.join(source_path, "/")
 
     case Enum.join(options, "/") do

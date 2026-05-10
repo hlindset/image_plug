@@ -4,7 +4,7 @@ defmodule ImagePlug.TransformIRCharacterizationTest do
   import Plug.Test
 
   alias ImagePlug.Cache.Entry
-  alias ImagePlug.Parser.Native
+  alias ImagePlug.Parser.Imgproxy
   alias ImagePlug.Runtime.RequestRunner
   alias ImagePlug.Transform.State
 
@@ -45,7 +45,7 @@ defmodule ImagePlug.TransformIRCharacterizationTest do
 
   defp parse_plan!(path) do
     conn = conn(:get, path)
-    assert {:ok, plan} = Native.parse(conn, [])
+    assert {:ok, plan} = Imgproxy.parse(conn, [])
     {conn, plan}
   end
 

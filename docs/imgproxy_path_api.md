@@ -1,13 +1,13 @@
-# Native Path API
+# Imgproxy Path API
 
 ## Mental Model
 
-A Native URL describes desired output, not a step-by-step image pipeline.
-ImagePlug normalizes aliases, resolves conflicts, builds a product-neutral plan, and executes transforms in Native canonical order.
+An Imgproxy URL describes desired output, not a step-by-step image pipeline.
+ImagePlug normalizes aliases, resolves conflicts, builds a product-neutral plan, and executes transforms in Imgproxy canonical order.
 
-The Native URL API accepts imgproxy-compatible option names where ImagePlug supports the same semantics. ImagePlug processing remains declarative and product-neutral internally.
+The Imgproxy URL API accepts imgproxy-compatible option names where ImagePlug supports the same semantics. ImagePlug processing remains declarative and product-neutral internally.
 
-URL option order is not execution order. The parser and planner own the fixed Native transform order.
+URL option order is not execution order. The parser and planner own the fixed Imgproxy transform order.
 
 ## URL Shape
 
@@ -19,9 +19,9 @@ The general shape is:
 
 ## Pipeline Groups
 
-`-` separates Native pipeline groups. Non-empty groups execute in URL group order. Inside each group, URL option order still does not define transform order. Empty pipeline groups are ignored.
+`-` separates Imgproxy pipeline groups. Non-empty groups execute in URL group order. Inside each group, URL option order still does not define transform order. Empty pipeline groups are ignored.
 
-Native canonical operation order inside each pipeline group is:
+Imgproxy canonical operation order inside each pipeline group is:
 
 1. orientation (`auto_orient`, `rotate`, `flip`)
 2. explicit crop
@@ -31,7 +31,7 @@ Native canonical operation order inside each pipeline group is:
 
 Orientation suborder is auto-orient, rotate, then flip.
 
-This fixed order is a Native API contract. It is not a universal requirement for every future compatibility dialect; dialect-specific ordered quirks belong in parser or adapter code when they cannot translate cleanly into the Native declarative model.
+This fixed order is an Imgproxy API contract. It is not a universal requirement for every future compatibility dialect; dialect-specific ordered quirks belong in parser or adapter code when they cannot translate cleanly into the Imgproxy declarative model.
 
 ## Option Ordering And Conflict Resolution
 
@@ -113,7 +113,7 @@ Absolute top-level gravity offsets are resolved by crop execution using the effe
 
 Crop offset signs and unit interpretation match current imgproxy-compatible parsing and execution behavior.
 
-`g:sm` is intentionally unsupported in this Native slice and is rejected as `{:unsupported_gravity, :sm}`. `c:<width>:<height>:sm` is rejected the same way.
+`g:sm` is intentionally unsupported in this Imgproxy slice and is rejected as `{:unsupported_gravity, :sm}`. `c:<width>:<height>:sm` is rejected the same way.
 
 ## Orientation
 
@@ -141,7 +141,7 @@ Explicit output formats can be requested with `format`, `f`, `ext`, or plain-sou
 
 When both an option format and source `@extension` are present, source `@extension` overrides any explicit format option.
 
-Supported explicit output extensions are `webp`, `avif`, `jpeg`, `jpg`, `png`, and `best`. `jpg` normalizes to JPEG. `best` parses but is rejected by planning in this Native slice.
+Supported explicit output extensions are `webp`, `avif`, `jpeg`, `jpg`, `png`, and `best`. `jpg` normalizes to JPEG. `best` parses but is rejected by planning in this Imgproxy slice.
 
 `quality`/`q` set generic output quality. `format_quality`/`fq` set quality for one explicit format and should be documented separately from generic quality. `0` resets quality to the configured default.
 
@@ -149,7 +149,7 @@ Supported explicit output extensions are `webp`, `avif`, `jpeg`, `jpg`, `png`, a
 
 `cachebuster`/`cb` changes cache key material without adding transform operations. `expires`/`exp` is a Unix timestamp request validity policy.
 
-Only successful encoded responses are cached. Rejected Native requests return before origin fetch and cache lookup.
+Only successful encoded responses are cached. Rejected Imgproxy requests return before origin fetch and cache lookup.
 
 ## Response Filename And Disposition
 
@@ -157,25 +157,25 @@ Only successful encoded responses are cached. Rejected Native requests return be
 
 ## Unsupported And Rejected Options
 
-Unsupported imgproxy options are not silently ignored. Options outside this supported Native slice are rejected.
+Unsupported imgproxy options are not silently ignored. Options outside this supported Imgproxy slice are rejected.
 
 | Case | Behavior |
 | --- | --- |
 | Unknown option | HTTP 400 before origin fetch/cache lookup |
-| Known imgproxy option outside this Native slice | HTTP 400 before origin fetch/cache lookup |
+| Known imgproxy option outside this Imgproxy slice | HTTP 400 before origin fetch/cache lookup |
 | Supported option with invalid value | HTTP 400 before origin fetch/cache lookup |
 | Valid syntax with unsupported combined semantics | HTTP 400 before origin fetch/cache lookup |
 | Duplicate canonical field | Last value wins |
 
 Unsupported examples include `raw`, `max_bytes`, `max_src_resolution`, `max_src_file_size`, `crop_aspect_ratio`, `format:auto`, `g:sm`, and `c:<width>:<height>:sm`.
 
-Crop combined with auto-orient is supported and planned in Native canonical order. Top-level gravity offsets are supported for result crops. `force` resize with one zero dimension is supported by preserving the source dimension for the auto side. Explicit crop gravity variants, including focal-point crop gravity, are supported. Explicit crop without its own gravity inherits top-level gravity.
+Crop combined with auto-orient is supported and planned in Imgproxy canonical order. Top-level gravity offsets are supported for result crops. `force` resize with one zero dimension is supported by preserving the source dimension for the auto side. Explicit crop gravity variants, including focal-point crop gravity, are supported. Explicit crop without its own gravity inherits top-level gravity.
 
-SVG/vector-specific imgproxy parity is out of scope for this Native documentation pass.
+SVG/vector-specific imgproxy parity is out of scope for this Imgproxy documentation pass.
 
 ## Examples
 
-| Goal | Native URL |
+| Goal | Imgproxy URL |
 | --- | --- |
 | Fit within a width | `/_/w:300/plain/images/cat.jpg` |
 | Fill a box from a focal point | `/_/rt:fill/w:300/h:200/g:fp:0.25:0.75/plain/images/cat.jpg` |

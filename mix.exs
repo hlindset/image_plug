@@ -17,7 +17,7 @@ defmodule ImagePlug.MixProject do
         main: "ImagePlug",
         extras: [
           "README.md",
-          "docs/native_path_api.md",
+          "docs/imgproxy_path_api.md",
           "docs/transform_operations.md"
         ]
       ],

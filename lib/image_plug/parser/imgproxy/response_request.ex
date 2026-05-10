@@ -1,4 +1,4 @@
-defmodule ImagePlug.Parser.Native.ResponseRequest do
+defmodule ImagePlug.Parser.Imgproxy.ResponseRequest do
   @moduledoc false
 
   defstruct filename: nil, disposition: :default

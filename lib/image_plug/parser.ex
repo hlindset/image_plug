@@ -9,7 +9,7 @@ defmodule ImagePlug.Parser do
       ImagePlug.Plan,
       ImagePlug.Transform
     ],
-    exports: [Native]
+    exports: [Imgproxy]
 
   alias ImagePlug.Plan
 

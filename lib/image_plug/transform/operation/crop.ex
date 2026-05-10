@@ -10,7 +10,7 @@ defmodule ImagePlug.Transform.Operation.Crop do
   crops, and result crops that trim an already resized image back to resolved
   target geometry.
 
-  Native parser translations use explicit crops for `crop`/`c` request fields
+  Imgproxy parser translations use explicit crops for `crop`/`c` request fields
   and result crops after fill, fill-down, or auto resize planning. In that
   translation layer, a crop-specific gravity overrides top-level gravity, while
   an explicit crop without its own gravity inherits the top-level gravity before
@@ -93,7 +93,7 @@ defmodule ImagePlug.Transform.Operation.Crop do
         y_offset: {:pixels, -12}
       }
 
-  A Native parser translation for a crop request with focal-point gravity would
+  An Imgproxy parser translation for a crop request with focal-point gravity would
   construct the same kind of `Crop` operation; the URL grammar and aliases stay
   in the parser documentation.
   """

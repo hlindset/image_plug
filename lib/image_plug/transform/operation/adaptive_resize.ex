@@ -10,7 +10,7 @@ defmodule ImagePlug.Transform.Operation.AdaptiveResize do
   depends on the source image orientation. Use `ImagePlug.Transform.Operation.Resize`
   when the mode is already known at planning time.
 
-  A parser may translate a Native auto-resize request into `AdaptiveResize`
+  A parser may translate an Imgproxy auto-resize request into `AdaptiveResize`
   when the request should choose fill for matching source and target
   orientations and fit otherwise. The URL syntax is parser specific; the
   operation itself is product-neutral.

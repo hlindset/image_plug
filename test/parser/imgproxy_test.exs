@@ -1,10 +1,10 @@
-defmodule ImagePlug.Parser.NativeTest do
+defmodule ImagePlug.Parser.ImgproxyTest do
   use ExUnit.Case, async: true
   use ExUnitProperties
 
   import Plug.Test
 
-  alias ImagePlug.Parser.Native
+  alias ImagePlug.Parser.Imgproxy
   alias ImagePlug.Plan
   alias ImagePlug.Plan.Output
   alias ImagePlug.Plan.Pipeline
@@ -19,41 +19,41 @@ defmodule ImagePlug.Parser.NativeTest do
               source: %Plain{path: ["images", "cat.jpg"]},
               pipelines: [%Pipeline{operations: []}],
               output: %Output{mode: :automatic}
-            }} = Native.parse(conn(:get, "/_/plain/images/cat.jpg"), [])
+            }} = Imgproxy.parse(conn(:get, "/_/plain/images/cat.jpg"), [])
   end
 
   test "parse/2 accepts parser options and keeps no-option parse/1 as a delegating helper" do
     conn = conn(:get, "/_/plain/images/cat.jpg")
 
-    assert Native.parse(conn, []) == Native.parse(conn)
+    assert Imgproxy.parse(conn, []) == Imgproxy.parse(conn)
   end
 
   test "supports unsafe as the disabled-signing signature segment" do
     assert {:ok, %Plan{source: %Plain{path: ["images", "cat.jpg"]}}} =
-             Native.parse(conn(:get, "/unsafe/plain/images/cat.jpg"), [])
+             Imgproxy.parse(conn(:get, "/unsafe/plain/images/cat.jpg"), [])
   end
 
   test "rejects unsupported signature segments while signing is disabled" do
-    assert Native.parse(conn(:get, "/signed-value/plain/images/cat.jpg"), []) ==
+    assert Imgproxy.parse(conn(:get, "/signed-value/plain/images/cat.jpg"), []) ==
              {:error, {:unsupported_signature, "signed-value"}}
   end
 
   test "rejects missing signature" do
-    assert Native.parse(conn(:get, "/"), []) == {:error, :missing_signature}
+    assert Imgproxy.parse(conn(:get, "/"), []) == {:error, :missing_signature}
   end
 
   test "rejects missing source kind" do
-    assert Native.parse(conn(:get, "/_/w:300"), []) == {:error, :missing_source_kind}
+    assert Imgproxy.parse(conn(:get, "/_/w:300"), []) == {:error, :missing_source_kind}
   end
 
   test "rejects missing plain source identifier" do
-    assert Native.parse(conn(:get, "/_/plain"), []) ==
+    assert Imgproxy.parse(conn(:get, "/_/plain"), []) ==
              {:error, {:missing_source_identifier, "plain"}}
   end
 
   test "treats option-like segments after plain as source path" do
     assert {:ok, %Plan{source: %Plain{path: ["images", "w:300", "cat.jpg"]}}} =
-             Native.parse(conn(:get, "/_/plain/images/w:300/cat.jpg"), [])
+             Imgproxy.parse(conn(:get, "/_/plain/images/w:300/cat.jpg"), [])
   end
 
   test "parses resize and rs full grammar" do
@@ -73,7 +73,7 @@ defmodule ImagePlug.Parser.NativeTest do
     assert force_params.rule.height == {:pixels, 200}
 
     assert {:ok, parsed} =
-             Native.parse_request(
+             Imgproxy.parse_request(
                conn(:get, "/_/resize:fill:300:200:1:0/plain/images/cat.jpg"),
                []
              )
@@ -105,7 +105,7 @@ defmodule ImagePlug.Parser.NativeTest do
 
   test "rejects empty resize and size option segments" do
     for segment <- ["rs", "rs:", "rs::", "resize", "resize:", "s", "s:", "s::", "size"] do
-      assert Native.parse(conn(:get, "/_/#{segment}/plain/images/cat.jpg"), []) ==
+      assert Imgproxy.parse(conn(:get, "/_/#{segment}/plain/images/cat.jpg"), []) ==
                {:error, {:invalid_option_segment, segment}}
     end
   end
@@ -121,12 +121,12 @@ defmodule ImagePlug.Parser.NativeTest do
 
   test "omitted extend argument still parses provided extend gravity tail" do
     assert {:ok, %Plan{pipelines: [%Pipeline{operations: operations}]}} =
-             Native.parse(conn(:get, "/_/rs::::::ce::/plain/images/cat.jpg"), [])
+             Imgproxy.parse(conn(:get, "/_/rs::::::ce::/plain/images/cat.jpg"), [])
 
     assert [%Transform.Operation.ExtendCanvas{gravity: {:anchor, :center, :center}}] = operations
 
     assert {:ok, %Plan{pipelines: [%Pipeline{operations: operations}]}} =
-             Native.parse(conn(:get, "/_/s:::::ce::/plain/images/cat.jpg"), [])
+             Imgproxy.parse(conn(:get, "/_/s:::::ce::/plain/images/cat.jpg"), [])
 
     assert [%Transform.Operation.ExtendCanvas{gravity: {:anchor, :center, :center}}] = operations
   end
@@ -134,7 +134,7 @@ defmodule ImagePlug.Parser.NativeTest do
   test "extend gravity invalid arity reports the original option segment" do
     segment = "rs:::::1:ce:1"
 
-    assert Native.parse(conn(:get, "/_/#{segment}/plain/images/cat.jpg"), []) ==
+    assert Imgproxy.parse(conn(:get, "/_/#{segment}/plain/images/cat.jpg"), []) ==
              {:error, {:invalid_option_segment, segment}}
   end
 
@@ -146,11 +146,11 @@ defmodule ImagePlug.Parser.NativeTest do
           "/_/s:300:200:0:0/plain/images/cat.jpg"
         ] do
       assert {:ok, %Plan{pipelines: [%Pipeline{}]}} =
-               Native.parse(conn(:get, path), [])
+               Imgproxy.parse(conn(:get, path), [])
     end
 
     assert {:ok, %Plan{pipelines: [%Pipeline{operations: operations}]}} =
-             Native.parse(
+             Imgproxy.parse(
                conn(:get, "/_/rs:fit:300:200:0:1:ce:0:0/plain/images/cat.jpg"),
                []
              )
@@ -178,7 +178,7 @@ defmodule ImagePlug.Parser.NativeTest do
 
   test "parses min size, zoom, dpr, crop, orientation, and extend-aspect-ratio" do
     assert {:ok, parsed} =
-             Native.parse_request(
+             Imgproxy.parse_request(
                conn(
                  :get,
                  "/_/rs:fit:100:0/mw:300/mh:200/z:2:3/dpr:2/c:0.5:0.25:nowe:10:-5/ar:true/rot:-90/fl:true:false/exar:16:9/plain/images/cat.jpg"
@@ -206,55 +206,55 @@ defmodule ImagePlug.Parser.NativeTest do
   test "public parse plans supported geometry pipeline semantics" do
     assert {:ok,
             %Plan{pipelines: [%Pipeline{operations: [%Transform.Operation.Resize{} = resize]}]}} =
-             Native.parse(conn(:get, "/_/z:2/plain/images/cat.jpg"), [])
+             Imgproxy.parse(conn(:get, "/_/z:2/plain/images/cat.jpg"), [])
 
     assert resize.rule.zoom_x == 2.0
     assert resize.rule.zoom_y == 2.0
 
     assert {:ok, %Plan{pipelines: [%Pipeline{operations: [%Transform.Operation.Crop{} = crop]}]}} =
-             Native.parse(conn(:get, "/_/crop:10:20/plain/images/cat.jpg"), [])
+             Imgproxy.parse(conn(:get, "/_/crop:10:20/plain/images/cat.jpg"), [])
 
     assert crop.width == {:pixels, 10}
     assert crop.height == {:pixels, 20}
 
     assert {:ok, %Plan{pipelines: [%Pipeline{operations: [%Transform.Operation.AutoOrient{}]}]}} =
-             Native.parse(conn(:get, "/_/ar/plain/images/cat.jpg"), [])
+             Imgproxy.parse(conn(:get, "/_/ar/plain/images/cat.jpg"), [])
 
     for segment <- ~w(ar:false rot:0 rot:360 fl:false:false) do
       assert {:ok, %Plan{pipelines: [%Pipeline{operations: []}]}} =
-               Native.parse(conn(:get, "/_/#{segment}/plain/images/cat.jpg"), [])
+               Imgproxy.parse(conn(:get, "/_/#{segment}/plain/images/cat.jpg"), [])
     end
 
     assert {:ok, %Plan{pipelines: [%Pipeline{operations: operations}]}} =
-             Native.parse(conn(:get, "/_/crop:10:20/ar/plain/images/cat.jpg"), [])
+             Imgproxy.parse(conn(:get, "/_/crop:10:20/ar/plain/images/cat.jpg"), [])
 
     assert Enum.map(operations, &Transform.transform_name/1) == [:auto_orient, :crop]
 
     for segment <- ~w(extend:false ex:false) do
       assert {:ok, %Plan{pipelines: [%Pipeline{operations: []}]}} =
-               Native.parse(conn(:get, "/_/#{segment}/plain/images/cat.jpg"), [])
+               Imgproxy.parse(conn(:get, "/_/#{segment}/plain/images/cat.jpg"), [])
     end
 
     assert {:ok, %Plan{pipelines: [%Pipeline{operations: operations}]}} =
-             Native.parse(conn(:get, "/_/rs:fit:300:200:0:0:ce/plain/images/cat.jpg"), [])
+             Imgproxy.parse(conn(:get, "/_/rs:fit:300:200:0:0:ce/plain/images/cat.jpg"), [])
 
     refute Enum.any?(operations, &match?(%Transform.Operation.ExtendCanvas{}, &1))
   end
 
   test "parses supported resizing type aliases into plans and rejects unsupported values" do
     assert {:ok, %Plan{pipelines: [%Pipeline{operations: []}]}} =
-             Native.parse(conn(:get, "/_/rt:fit/plain/images/cat.jpg"), [])
+             Imgproxy.parse(conn(:get, "/_/rt:fit/plain/images/cat.jpg"), [])
 
     assert {:ok, %Plan{pipelines: [%Pipeline{operations: []}]}} =
-             Native.parse(conn(:get, "/_/rt:force/plain/images/cat.jpg"), [])
+             Imgproxy.parse(conn(:get, "/_/rt:force/plain/images/cat.jpg"), [])
 
-    assert Native.parse(conn(:get, "/_/rt:fill/plain/images/cat.jpg"), []) ==
+    assert Imgproxy.parse(conn(:get, "/_/rt:fill/plain/images/cat.jpg"), []) ==
              {:error, {:missing_dimensions, :fill}}
 
-    assert Native.parse(conn(:get, "/_/rt:fill-down/plain/images/cat.jpg"), []) ==
+    assert Imgproxy.parse(conn(:get, "/_/rt:fill-down/plain/images/cat.jpg"), []) ==
              {:error, {:missing_dimensions, :fill_down}}
 
-    assert Native.parse(conn(:get, "/_/rt:auto/plain/images/cat.jpg"), []) ==
+    assert Imgproxy.parse(conn(:get, "/_/rt:auto/plain/images/cat.jpg"), []) ==
              {:error, {:missing_dimensions, :auto}}
 
     assert {:ok,
@@ -268,7 +268,7 @@ defmodule ImagePlug.Parser.NativeTest do
                 }
               ]
             }} =
-             Native.parse(conn(:get, "/_/rt:fill-down/w:100/h:100/plain/images/cat.jpg"), [])
+             Imgproxy.parse(conn(:get, "/_/rt:fill-down/w:100/h:100/plain/images/cat.jpg"), [])
 
     assert resize.rule.mode == :fill_down
 
@@ -280,11 +280,11 @@ defmodule ImagePlug.Parser.NativeTest do
                 }
               ]
             }} =
-             Native.parse(conn(:get, "/_/rt:auto/w:100/h:100/plain/images/cat.jpg"), [])
+             Imgproxy.parse(conn(:get, "/_/rt:auto/w:100/h:100/plain/images/cat.jpg"), [])
   end
 
   test "invalid resizing type reports supported values" do
-    assert Native.parse(conn(:get, "/_/rt:crop/plain/images/cat.jpg"), []) ==
+    assert Imgproxy.parse(conn(:get, "/_/rt:crop/plain/images/cat.jpg"), []) ==
              {:error,
               {:invalid_resizing_type, "crop", ["fit", "fill", "fill-down", "force", "auto"]}}
   end
@@ -298,14 +298,14 @@ defmodule ImagePlug.Parser.NativeTest do
 
     assert {:ok,
             %Plan{pipelines: [%Pipeline{operations: [%Transform.Operation.Resize{} = resize]}]}} =
-             Native.parse(conn(:get, "/_/w:0/h:0/mw:300/plain/images/cat.jpg"), [])
+             Imgproxy.parse(conn(:get, "/_/w:0/h:0/mw:300/plain/images/cat.jpg"), [])
 
     assert resize.rule.width == :auto
     assert resize.rule.height == :auto
     assert resize.rule.min_width == {:pixels, 300}
   end
 
-  test "parses documented Native processing examples" do
+  test "parses documented Imgproxy processing examples" do
     for path <- [
           "/_/rt:force/w:0/h:200/plain/images/cat.jpg",
           "/_/g:fp:0.25:0.75/rs:fill:300:200/plain/images/cat.jpg",
@@ -313,7 +313,7 @@ defmodule ImagePlug.Parser.NativeTest do
           "/_/ar/c:100:100/plain/images/cat.jpg",
           "/_/g:soea:12:-0.25/rs:fill:300:200/plain/images/cat.jpg"
         ] do
-      assert {:ok, _plan} = Native.parse(conn(:get, path), [])
+      assert {:ok, _plan} = Imgproxy.parse(conn(:get, path), [])
     end
   end
 
@@ -326,7 +326,7 @@ defmodule ImagePlug.Parser.NativeTest do
                 }
               ]
             }} =
-             Native.parse(conn(:get, "/_/g:nowe/rs:fill:300:200/plain/images/cat.jpg"), [])
+             Imgproxy.parse(conn(:get, "/_/g:nowe/rs:fill:300:200/plain/images/cat.jpg"), [])
 
     assert crop.gravity == {:anchor, :left, :top}
 
@@ -338,7 +338,7 @@ defmodule ImagePlug.Parser.NativeTest do
                 }
               ]
             }} =
-             Native.parse(
+             Imgproxy.parse(
                conn(:get, "/_/gravity:fp:0.5:0.25/rs:fill:300:200/plain/images/cat.jpg"),
                []
              )
@@ -353,7 +353,7 @@ defmodule ImagePlug.Parser.NativeTest do
                 }
               ]
             }} =
-             Native.parse(conn(:get, "/_/g:fp:1:0/rs:fill:300:200/plain/images/cat.jpg"), [])
+             Imgproxy.parse(conn(:get, "/_/g:fp:1:0/rs:fill:300:200/plain/images/cat.jpg"), [])
 
     assert crop.gravity == {:fp, 1.0, 0.0}
 
@@ -368,14 +368,14 @@ defmodule ImagePlug.Parser.NativeTest do
                 }
               ]
             }} =
-             Native.parse(conn(:get, "/_/g:soea/rt:auto/w:300/h:200/plain/images/cat.jpg"), [])
+             Imgproxy.parse(conn(:get, "/_/g:soea/rt:auto/w:300/h:200/plain/images/cat.jpg"), [])
 
     assert crop.gravity == {:anchor, :right, :bottom}
   end
 
   test "parses and plans imgproxy top-level gravity offsets" do
     assert {:ok, parsed} =
-             Native.parse_request(conn(:get, "/_/g:soea:12:-0.25/plain/images/cat.jpg"), [])
+             Imgproxy.parse_request(conn(:get, "/_/g:soea:12:-0.25/plain/images/cat.jpg"), [])
 
     [pipeline] = parsed.pipelines
     assert pipeline.gravity == {:anchor, :right, :bottom}
@@ -390,7 +390,7 @@ defmodule ImagePlug.Parser.NativeTest do
                 }
               ]
             }} =
-             Native.parse(
+             Imgproxy.parse(
                conn(:get, "/_/g:soea:12:-0.25/rs:fill:300:200/plain/images/cat.jpg"),
                []
              )
@@ -402,7 +402,7 @@ defmodule ImagePlug.Parser.NativeTest do
 
   test "parses crop focal-point gravity and relative offsets" do
     assert {:ok, parsed} =
-             Native.parse_request(
+             Imgproxy.parse_request(
                conn(:get, "/_/c:100:100:fp:0.25:0.75/plain/images/cat.jpg"),
                []
              )
@@ -411,7 +411,7 @@ defmodule ImagePlug.Parser.NativeTest do
     assert pipeline.crop.gravity == {:fp, 0.25, 0.75}
 
     assert {:ok, parsed} =
-             Native.parse_request(
+             Imgproxy.parse_request(
                conn(:get, "/_/c:100:100:nowe:0.25:-0.5/plain/images/cat.jpg"),
                []
              )
@@ -422,18 +422,18 @@ defmodule ImagePlug.Parser.NativeTest do
   end
 
   test "rejects out-of-range focal point coordinates as gravity coordinate errors" do
-    assert Native.parse(conn(:get, "/_/g:fp:1.2:0.5/plain/images/cat.jpg"), []) ==
+    assert Imgproxy.parse(conn(:get, "/_/g:fp:1.2:0.5/plain/images/cat.jpg"), []) ==
              {:error, {:invalid_gravity_coordinate, "1.2"}}
 
-    assert Native.parse(conn(:get, "/_/g:fp:nope:0.5/plain/images/cat.jpg"), []) ==
+    assert Imgproxy.parse(conn(:get, "/_/g:fp:nope:0.5/plain/images/cat.jpg"), []) ==
              {:error, {:invalid_gravity_coordinate, "nope"}}
   end
 
   test "rejects smart gravity as an unsupported planner semantic" do
-    assert Native.parse(conn(:get, "/_/g:sm/plain/images/cat.jpg"), []) ==
+    assert Imgproxy.parse(conn(:get, "/_/g:sm/plain/images/cat.jpg"), []) ==
              {:error, {:unsupported_gravity, :sm}}
 
-    assert Native.parse(conn(:get, "/_/c:100:100:sm/plain/images/cat.jpg"), []) ==
+    assert Imgproxy.parse(conn(:get, "/_/c:100:100:sm/plain/images/cat.jpg"), []) ==
              {:error, {:unsupported_gravity, :sm}}
   end
 
@@ -452,7 +452,7 @@ defmodule ImagePlug.Parser.NativeTest do
     assert_output_mode("/_/w:100/-/f:webp/plain/images/cat.jpg", {:explicit, :webp})
 
     assert {:ok, %Plan{pipelines: [%Pipeline{operations: operations}]}} =
-             Native.parse(conn(:get, "/_/f:webp/-/plain/images/cat.jpg"), [])
+             Imgproxy.parse(conn(:get, "/_/f:webp/-/plain/images/cat.jpg"), [])
 
     assert operations == []
   end
@@ -478,7 +478,7 @@ defmodule ImagePlug.Parser.NativeTest do
                   quality: {:quality, 80},
                   format_qualities: %{webp: {:quality, 70}}
                 }
-              }} = Native.parse(conn(:get, path), [])
+              }} = Imgproxy.parse(conn(:get, path), [])
     end
   end
 
@@ -489,7 +489,7 @@ defmodule ImagePlug.Parser.NativeTest do
                 quality: {:quality, 80},
                 format_qualities: %{webp: {:quality, 70}}
               }
-            }} = Native.parse(conn(:get, "/_/q:80/fq:webp:70/plain/images/cat.jpg"), [])
+            }} = Imgproxy.parse(conn(:get, "/_/q:80/fq:webp:70/plain/images/cat.jpg"), [])
   end
 
   test "quality zero and format-quality zero normalize to default" do
@@ -499,7 +499,7 @@ defmodule ImagePlug.Parser.NativeTest do
                 quality: :default,
                 format_qualities: %{webp: :default}
               }
-            }} = Native.parse(conn(:get, "/_/q:0/fq:webp:0/plain/images/cat.jpg"), [])
+            }} = Imgproxy.parse(conn(:get, "/_/q:0/fq:webp:0/plain/images/cat.jpg"), [])
   end
 
   test "repeated format quality assignments replace by normalized format" do
@@ -509,41 +509,41 @@ defmodule ImagePlug.Parser.NativeTest do
                 format_qualities: %{webp: {:quality, 60}}
               }
             }} =
-             Native.parse(conn(:get, "/_/fq:webp:70/-/fq:webp:60/plain/images/cat.jpg"), [])
+             Imgproxy.parse(conn(:get, "/_/fq:webp:70/-/fq:webp:60/plain/images/cat.jpg"), [])
   end
 
   test "quality later assignment wins across groups" do
     assert {:ok, %Plan{output: %ImagePlug.Plan.Output{quality: {:quality, 70}}}} =
-             Native.parse(conn(:get, "/_/q:80/-/q:70/plain/images/cat.jpg"), [])
+             Imgproxy.parse(conn(:get, "/_/q:80/-/q:70/plain/images/cat.jpg"), [])
   end
 
   test "parses cachebuster aliases as cache-only facets" do
     assert {:ok, %Plan{cache: %ImagePlug.Plan.Cache{cachebuster: "abc"}}} =
-             Native.parse(conn(:get, "/_/cb:abc/plain/images/cat.jpg"), [])
+             Imgproxy.parse(conn(:get, "/_/cb:abc/plain/images/cat.jpg"), [])
 
     assert {:ok, %Plan{cache: %ImagePlug.Plan.Cache{cachebuster: "def"}}} =
-             Native.parse(conn(:get, "/_/cachebuster:def/plain/images/cat.jpg"), [])
+             Imgproxy.parse(conn(:get, "/_/cachebuster:def/plain/images/cat.jpg"), [])
   end
 
   test "cachebuster later assignment wins across groups" do
     assert {:ok, %Plan{cache: %ImagePlug.Plan.Cache{cachebuster: "b"}}} =
-             Native.parse(conn(:get, "/_/cb:a/-/cachebuster:b/plain/images/cat.jpg"), [])
+             Imgproxy.parse(conn(:get, "/_/cb:a/-/cachebuster:b/plain/images/cat.jpg"), [])
   end
 
   test "expires rejects expired requests with injectable now" do
-    assert Native.parse(conn(:get, "/_/expires:100/plain/images/cat.jpg"), now: 101) ==
+    assert Imgproxy.parse(conn(:get, "/_/expires:100/plain/images/cat.jpg"), now: 101) ==
              {:error, {:expired_request, 100}}
 
     assert {:ok, %Plan{policy: %ImagePlug.Plan.Policy{expires: 100}}} =
-             Native.parse(conn(:get, "/_/exp:100/plain/images/cat.jpg"), now: 100)
+             Imgproxy.parse(conn(:get, "/_/exp:100/plain/images/cat.jpg"), now: 100)
 
     assert {:ok, %Plan{policy: %ImagePlug.Plan.Policy{expires: 0}}} =
-             Native.parse(conn(:get, "/_/expires:0/plain/images/cat.jpg"), now: 999)
+             Imgproxy.parse(conn(:get, "/_/expires:0/plain/images/cat.jpg"), now: 999)
   end
 
   test "expires later assignment wins across groups" do
     assert {:ok, %Plan{policy: %ImagePlug.Plan.Policy{expires: 200}}} =
-             Native.parse(conn(:get, "/_/exp:100/-/expires:200/plain/images/cat.jpg"), now: 100)
+             Imgproxy.parse(conn(:get, "/_/exp:100/-/expires:200/plain/images/cat.jpg"), now: 100)
   end
 
   test "now function is called once and normalized once per parse attempt" do
@@ -555,29 +555,29 @@ defmodule ImagePlug.Parser.NativeTest do
     end
 
     assert {:ok, %Plan{policy: %ImagePlug.Plan.Policy{expires: 100}}} =
-             Native.parse(conn(:get, "/_/exp:100/plain/images/cat.jpg"), now: now)
+             Imgproxy.parse(conn(:get, "/_/exp:100/plain/images/cat.jpg"), now: now)
 
     assert_received :now_called
     refute_received :now_called
   end
 
   test "expires rejects malformed values and invalid now values" do
-    assert Native.parse(conn(:get, "/_/exp:not-int/plain/images/cat.jpg"), now: 100) ==
+    assert Imgproxy.parse(conn(:get, "/_/exp:not-int/plain/images/cat.jpg"), now: 100) ==
              {:error, {:invalid_expires, "not-int"}}
 
-    assert Native.parse(conn(:get, "/_/exp:-1/plain/images/cat.jpg"), now: 100) ==
+    assert Imgproxy.parse(conn(:get, "/_/exp:-1/plain/images/cat.jpg"), now: 100) ==
              {:error, {:invalid_expires, "-1"}}
 
-    assert Native.parse(conn(:get, "/_/exp:100/plain/images/cat.jpg"), now: :bad) ==
+    assert Imgproxy.parse(conn(:get, "/_/exp:100/plain/images/cat.jpg"), now: :bad) ==
              {:error, {:invalid_now, :bad}}
 
-    assert Native.parse(conn(:get, "/_/exp:100/plain/images/cat.jpg"), now: fn -> :bad end) ==
+    assert Imgproxy.parse(conn(:get, "/_/exp:100/plain/images/cat.jpg"), now: fn -> :bad end) ==
              {:error, {:invalid_now, :bad}}
   end
 
   test "rejects invalid expires arity" do
     for segment <- ["exp", "exp:", "exp:100:200", "expires", "expires:", "expires:100:200"] do
-      assert Native.parse(conn(:get, "/_/#{segment}/plain/images/cat.jpg"), now: 100) ==
+      assert Imgproxy.parse(conn(:get, "/_/#{segment}/plain/images/cat.jpg"), now: 100) ==
                {:error, {:invalid_option_segment, segment}}
     end
   end
@@ -591,7 +591,7 @@ defmodule ImagePlug.Parser.NativeTest do
           "cachebuster:",
           "cachebuster:a:b"
         ] do
-      assert Native.parse(conn(:get, "/_/#{segment}/plain/images/cat.jpg"), []) ==
+      assert Imgproxy.parse(conn(:get, "/_/#{segment}/plain/images/cat.jpg"), []) ==
                {:error, {:invalid_option_segment, segment}}
     end
   end
@@ -603,10 +603,10 @@ defmodule ImagePlug.Parser.NativeTest do
                 disposition: :attachment,
                 filename: %Filename{stem: "report"}
               }
-            }} = Native.parse(conn(:get, "/_/fn:report/att:true/plain/images/cat.jpg"), [])
+            }} = Imgproxy.parse(conn(:get, "/_/fn:report/att:true/plain/images/cat.jpg"), [])
 
     assert {:ok, %Plan{response: %Response{disposition: :inline}}} =
-             Native.parse(conn(:get, "/_/return_attachment:false/plain/images/cat.jpg"), [])
+             Imgproxy.parse(conn(:get, "/_/return_attachment:false/plain/images/cat.jpg"), [])
   end
 
   test "decodes base64url filenames when encoded flag is truthy" do
@@ -617,7 +617,7 @@ defmodule ImagePlug.Parser.NativeTest do
               response: %Response{
                 filename: %Filename{stem: "katt-æøå"}
               }
-            }} = Native.parse(conn(:get, "/_/fn:#{encoded}:true/plain/images/cat.jpg"), [])
+            }} = Imgproxy.parse(conn(:get, "/_/fn:#{encoded}:true/plain/images/cat.jpg"), [])
   end
 
   test "rejects invalid filename values before planning succeeds" do
@@ -630,12 +630,12 @@ defmodule ImagePlug.Parser.NativeTest do
           "/_/fn:#{Base.url_encode64(<<255>>, padding: false)}:true/plain/images/cat.jpg",
           "/_/fn:abcd:true:extra/plain/images/cat.jpg"
         ] do
-      assert {:error, _reason} = Native.parse(conn(:get, path), [])
+      assert {:error, _reason} = Imgproxy.parse(conn(:get, path), [])
     end
   end
 
   test "rejects malformed percent-encoded filename values without raising" do
-    assert Native.parse(conn(:get, "/_/fn:a%ZZ/plain/images/cat.jpg"), []) ==
+    assert Imgproxy.parse(conn(:get, "/_/fn:a%ZZ/plain/images/cat.jpg"), []) ==
              {:error, {:invalid_percent_encoding, "a%ZZ"}}
   end
 
@@ -645,14 +645,14 @@ defmodule ImagePlug.Parser.NativeTest do
               response: %Response{
                 filename: %Filename{stem: "cat.jpg"}
               }
-            }} = Native.parse(conn(:get, "/_/fn:cat.jpg/plain/images/source.jpg@webp"), [])
+            }} = Imgproxy.parse(conn(:get, "/_/fn:cat.jpg/plain/images/source.jpg@webp"), [])
 
     assert {:ok,
             %Plan{
               response: %Response{
                 filename: %Filename{stem: "source"}
               }
-            }} = Native.parse(conn(:get, "/_/plain/images/source.jpg@webp"), [])
+            }} = Imgproxy.parse(conn(:get, "/_/plain/images/source.jpg@webp"), [])
   end
 
   test "filename and attachment later assignments win across groups" do
@@ -663,7 +663,7 @@ defmodule ImagePlug.Parser.NativeTest do
                 filename: %Filename{stem: "two"}
               }
             }} =
-             Native.parse(
+             Imgproxy.parse(
                conn(
                  :get,
                  "/_/fn:one/att:true/-/filename:two/return_attachment:false/plain/images/source.jpg"
@@ -685,7 +685,7 @@ defmodule ImagePlug.Parser.NativeTest do
           "return_attachment:",
           "return_attachment:true:false"
         ] do
-      assert Native.parse(conn(:get, "/_/#{segment}/plain/images/cat.jpg"), []) ==
+      assert Imgproxy.parse(conn(:get, "/_/#{segment}/plain/images/cat.jpg"), []) ==
                {:error, {:invalid_option_segment, segment}}
     end
   end
@@ -696,28 +696,28 @@ defmodule ImagePlug.Parser.NativeTest do
               output: %ImagePlug.Plan.Output{
                 format_qualities: %{jpeg: {:quality, 70}}
               }
-            }} = Native.parse(conn(:get, "/_/fq:jpg:70/plain/images/cat.jpg"), [])
+            }} = Imgproxy.parse(conn(:get, "/_/fq:jpg:70/plain/images/cat.jpg"), [])
   end
 
   test "rejects invalid output quality values" do
-    assert Native.parse(conn(:get, "/_/q:101/plain/images/cat.jpg"), []) ==
+    assert Imgproxy.parse(conn(:get, "/_/q:101/plain/images/cat.jpg"), []) ==
              {:error, {:invalid_option, :quality, "101"}}
 
-    assert Native.parse(conn(:get, "/_/quality:-1/plain/images/cat.jpg"), []) ==
+    assert Imgproxy.parse(conn(:get, "/_/quality:-1/plain/images/cat.jpg"), []) ==
              {:error, {:invalid_option, :quality, "-1"}}
   end
 
   test "rejects invalid format quality values" do
-    assert Native.parse(conn(:get, "/_/fq:webp:101/plain/images/cat.jpg"), []) ==
+    assert Imgproxy.parse(conn(:get, "/_/fq:webp:101/plain/images/cat.jpg"), []) ==
              {:error, {:invalid_option, :quality, "101"}}
 
-    assert Native.parse(conn(:get, "/_/format_quality:webp:-1/plain/images/cat.jpg"), []) ==
+    assert Imgproxy.parse(conn(:get, "/_/format_quality:webp:-1/plain/images/cat.jpg"), []) ==
              {:error, {:invalid_option, :quality, "-1"}}
   end
 
   test "rejects invalid quality arity" do
     for segment <- ["q", "q:", "q:80:70", "quality", "quality:", "quality:80:70"] do
-      assert Native.parse(conn(:get, "/_/#{segment}/plain/images/cat.jpg"), []) ==
+      assert Imgproxy.parse(conn(:get, "/_/#{segment}/plain/images/cat.jpg"), []) ==
                {:error, {:invalid_option_segment, segment}}
     end
   end
@@ -733,17 +733,17 @@ defmodule ImagePlug.Parser.NativeTest do
           "format_quality:webp:",
           "format_quality:webp:70:60"
         ] do
-      assert Native.parse(conn(:get, "/_/#{segment}/plain/images/cat.jpg"), []) ==
+      assert Imgproxy.parse(conn(:get, "/_/#{segment}/plain/images/cat.jpg"), []) ==
                {:error, {:invalid_option_segment, segment}}
     end
   end
 
   test "global-only and empty groups do not become executable pipelines" do
     assert {:ok, %Plan{pipelines: [%Pipeline{operations: []}]}} =
-             Native.parse(conn(:get, "/_/f:webp/-/plain/images/cat.jpg"), [])
+             Imgproxy.parse(conn(:get, "/_/f:webp/-/plain/images/cat.jpg"), [])
 
     assert {:ok, %Plan{pipelines: [%Pipeline{operations: operations}]}} =
-             Native.parse(conn(:get, "/_/-/w:100/plain/images/cat.jpg"), [])
+             Imgproxy.parse(conn(:get, "/_/-/w:100/plain/images/cat.jpg"), [])
 
     assert length(operations) == 1
     assert [%{__struct__: _} = operation] = operations
@@ -755,16 +755,16 @@ defmodule ImagePlug.Parser.NativeTest do
             %Plan{
               source: %Plain{path: ["images", "cat.jpg"]},
               output: %Output{mode: {:explicit, :webp}}
-            }} = Native.parse(conn(:get, "/_/f:webp/plain/images/cat.jpg@"), [])
+            }} = Imgproxy.parse(conn(:get, "/_/f:webp/plain/images/cat.jpg@"), [])
   end
 
   test "rejects format auto because it is not imgproxy grammar" do
-    assert Native.parse(conn(:get, "/_/format:auto/plain/images/cat.jpg"), []) ==
+    assert Imgproxy.parse(conn(:get, "/_/format:auto/plain/images/cat.jpg"), []) ==
              {:error, {:invalid_format, "auto", ["webp", "avif", "jpeg", "jpg", "png", "best"]}}
   end
 
   test "parses processing options before validating source extension" do
-    assert Native.parse(conn(:get, "/_/unknown/plain/images/cat.jpg@unknown"), []) ==
+    assert Imgproxy.parse(conn(:get, "/_/unknown/plain/images/cat.jpg@unknown"), []) ==
              {:error, {:unknown_option, "unknown"}}
   end
 
@@ -796,14 +796,14 @@ defmodule ImagePlug.Parser.NativeTest do
     assert scale_params.rule.height == {:pixels, 200}
   end
 
-  test "parses chained native pipeline separators into multiple pipelines" do
+  test "parses chained imgproxy pipeline separators into multiple pipelines" do
     assert {:ok,
             %Plan{
               pipelines: [
                 %Pipeline{operations: first_operations},
                 %Pipeline{operations: second_operations}
               ]
-            }} = Native.parse(conn(:get, "/_/w:500/-/h:200/plain/images/cat.jpg"), [])
+            }} = Imgproxy.parse(conn(:get, "/_/w:500/-/h:200/plain/images/cat.jpg"), [])
 
     assert [%Transform.Operation.Resize{} = first_params] = first_operations
     assert first_params.rule.width == {:pixels, 500}
@@ -814,15 +814,15 @@ defmodule ImagePlug.Parser.NativeTest do
     assert second_params.rule.height == {:pixels, 200}
   end
 
-  test "ignores empty groups around chained native pipeline separators" do
+  test "ignores empty groups around chained imgproxy pipeline separators" do
     assert {:ok, %Plan{pipelines: [%Pipeline{operations: leading_operations}]}} =
-             Native.parse(conn(:get, "/_/-/w:500/plain/images/cat.jpg"), [])
+             Imgproxy.parse(conn(:get, "/_/-/w:500/plain/images/cat.jpg"), [])
 
     assert [%Transform.Operation.Resize{} = leading_params] = leading_operations
     assert leading_params.rule.width == {:pixels, 500}
 
     assert {:ok, %Plan{pipelines: [%Pipeline{operations: trailing_operations}]}} =
-             Native.parse(conn(:get, "/_/w:500/-/plain/images/cat.jpg"), [])
+             Imgproxy.parse(conn(:get, "/_/w:500/-/plain/images/cat.jpg"), [])
 
     assert [%Transform.Operation.Resize{} = trailing_params] = trailing_operations
     assert trailing_params.rule.width == {:pixels, 500}
@@ -833,7 +833,7 @@ defmodule ImagePlug.Parser.NativeTest do
                 %Pipeline{operations: first_operations},
                 %Pipeline{operations: second_operations}
               ]
-            }} = Native.parse(conn(:get, "/_/w:500/-/-/h:200/plain/images/cat.jpg"), [])
+            }} = Imgproxy.parse(conn(:get, "/_/w:500/-/-/h:200/plain/images/cat.jpg"), [])
 
     assert [%Transform.Operation.Resize{} = first_params] = first_operations
     assert first_params.rule.width == {:pixels, 500}
@@ -844,10 +844,10 @@ defmodule ImagePlug.Parser.NativeTest do
 
   test "preserves no-op single-pipeline behavior" do
     assert {:ok, %Plan{pipelines: [%Pipeline{operations: []}]}} =
-             Native.parse(conn(:get, "/_/plain/images/cat.jpg"), [])
+             Imgproxy.parse(conn(:get, "/_/plain/images/cat.jpg"), [])
   end
 
-  test "later field assignments are scoped to each native pipeline" do
+  test "later field assignments are scoped to each imgproxy pipeline" do
     assert {:ok,
             %Plan{
               pipelines: [
@@ -855,7 +855,7 @@ defmodule ImagePlug.Parser.NativeTest do
                 %Pipeline{operations: second_operations}
               ]
             }} =
-             Native.parse(conn(:get, "/_/w:500/w:600/-/h:200/h:300/plain/images/cat.jpg"), [])
+             Imgproxy.parse(conn(:get, "/_/w:500/w:600/-/h:200/h:300/plain/images/cat.jpg"), [])
 
     assert [%Transform.Operation.Resize{} = first_params] = first_operations
     assert first_params.rule.width == {:pixels, 600}
@@ -869,11 +869,11 @@ defmodule ImagePlug.Parser.NativeTest do
             %Plan{
               source: %Plain{path: ["images", "cat@v1.jpg"]},
               output: %Output{mode: {:explicit, :webp}}
-            }} = Native.parse(conn(:get, "/_/plain/images/cat%40v1.jpg@webp"), [])
+            }} = Imgproxy.parse(conn(:get, "/_/plain/images/cat%40v1.jpg@webp"), [])
   end
 
   test "rejects malformed percent-encoded source path segments without raising" do
-    assert Native.parse(conn(:get, "/_/plain/images/cat%ZZ.jpg"), []) ==
+    assert Imgproxy.parse(conn(:get, "/_/plain/images/cat%ZZ.jpg"), []) ==
              {:error, {:invalid_percent_encoding, "cat%ZZ.jpg"}}
   end
 
@@ -896,40 +896,40 @@ defmodule ImagePlug.Parser.NativeTest do
             %Plan{
               source: %Plain{path: ["images", "cat.jpg"]},
               output: %Output{mode: :automatic}
-            }} = Native.parse(conn(:get, "/_/plain/images/cat.jpg@"), [])
+            }} = Imgproxy.parse(conn(:get, "/_/plain/images/cat.jpg@"), [])
   end
 
   test "rejects empty plain source before extension" do
-    assert Native.parse(conn(:get, "/_/plain/@webp"), []) ==
+    assert Imgproxy.parse(conn(:get, "/_/plain/@webp"), []) ==
              {:error, {:missing_source_identifier, "plain"}}
   end
 
   test "rejects multiple raw @ source extension separators" do
-    assert Native.parse(conn(:get, "/_/plain/images/cat.jpg@webp@png"), []) ==
+    assert Imgproxy.parse(conn(:get, "/_/plain/images/cat.jpg@webp@png"), []) ==
              {:error, {:multiple_source_format_separators, "images/cat.jpg@webp@png"}}
   end
 
   test "rejects unknown source extensions as parser errors" do
-    assert Native.parse(conn(:get, "/_/plain/images/cat.jpg@unknown"), []) ==
+    assert Imgproxy.parse(conn(:get, "/_/plain/images/cat.jpg@unknown"), []) ==
              {:error,
               {:invalid_format, "unknown", ["webp", "avif", "jpeg", "jpg", "png", "best"]}}
   end
 
   test "rejects best source extension as an unsupported output semantic" do
-    assert Native.parse(conn(:get, "/_/plain/images/cat.jpg@best"), []) ==
+    assert Imgproxy.parse(conn(:get, "/_/plain/images/cat.jpg@best"), []) ==
              {:error, {:unsupported_output_format, :best}}
   end
 
   defp operations_for(path) do
     assert {:ok, %Plan{pipelines: [%Pipeline{operations: operations}]}} =
-             Native.parse(conn(:get, path), [])
+             Imgproxy.parse(conn(:get, path), [])
 
     operations
   end
 
   defp assert_output_mode(path, mode) do
     assert {:ok, %Plan{output: %Output{mode: ^mode}}} =
-             Native.parse(conn(:get, path), [])
+             Imgproxy.parse(conn(:get, path), [])
   end
 
   defp permutations([]), do: [[]]

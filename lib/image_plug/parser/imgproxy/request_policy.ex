@@ -1,4 +1,4 @@
-defmodule ImagePlug.Parser.Native.RequestPolicy do
+defmodule ImagePlug.Parser.Imgproxy.RequestPolicy do
   @moduledoc false
 
   defstruct expires: 0

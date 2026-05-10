@@ -1,13 +1,13 @@
-defmodule ImagePlug.Parser.Native.PlanBuilderTest do
+defmodule ImagePlug.Parser.Imgproxy.PlanBuilderTest do
   use ExUnit.Case, async: true
   use ExUnitProperties
 
   import Plug.Test
 
-  alias ImagePlug.Parser.Native
-  alias ImagePlug.Parser.Native.ParsedRequest
-  alias ImagePlug.Parser.Native.PipelineRequest
-  alias ImagePlug.Parser.Native.PlanBuilder
+  alias ImagePlug.Parser.Imgproxy
+  alias ImagePlug.Parser.Imgproxy.ParsedRequest
+  alias ImagePlug.Parser.Imgproxy.PipelineRequest
+  alias ImagePlug.Parser.Imgproxy.PlanBuilder
   alias ImagePlug.Plan
   alias ImagePlug.Plan.Output
   alias ImagePlug.Plan.Pipeline
@@ -16,13 +16,13 @@ defmodule ImagePlug.Parser.Native.PlanBuilderTest do
   alias ImagePlug.Plan.Source.Plain
   alias ImagePlug.Transform
 
-  test "converts one native pipeline request into a product-neutral plan" do
+  test "converts one imgproxy pipeline request into a product-neutral plan" do
     request = %ParsedRequest{
       signature: "_",
       source_kind: :plain,
       source_path: ["images", "cat.jpg"],
       pipelines: [%PipelineRequest{width: {:pixels, 300}}],
-      output: %ImagePlug.Parser.Native.OutputRequest{}
+      output: %ImagePlug.Parser.Imgproxy.OutputRequest{}
     }
 
     assert {:ok,
@@ -375,7 +375,7 @@ defmodule ImagePlug.Parser.Native.PlanBuilderTest do
     assert {:ok, %Plan{pipelines: [%Pipeline{operations: [%Transform.Operation.Crop{} = crop]}]}} =
              plan_pipeline(
                gravity: {:anchor, :left, :top},
-               crop: %ImagePlug.Parser.Native.CropRequest{
+               crop: %ImagePlug.Parser.Imgproxy.CropRequest{
                  width: {:pixels, 100},
                  height: {:pixels, 100},
                  gravity: nil
@@ -388,7 +388,7 @@ defmodule ImagePlug.Parser.Native.PlanBuilderTest do
   test "plans crop focal-point gravity and relative offsets" do
     assert {:ok, %Plan{pipelines: [%Pipeline{operations: [%Transform.Operation.Crop{} = crop]}]}} =
              plan_pipeline(
-               crop: %ImagePlug.Parser.Native.CropRequest{
+               crop: %ImagePlug.Parser.Imgproxy.CropRequest{
                  width: {:pixels, 100},
                  height: {:pixels, 100},
                  gravity: {:fp, 0.25, 0.75},
@@ -433,7 +433,7 @@ defmodule ImagePlug.Parser.Native.PlanBuilderTest do
   test "planner emits fixed orientation crop resize order independent of URL order" do
     one =
       plan_pipeline(
-        crop: %ImagePlug.Parser.Native.CropRequest{
+        crop: %ImagePlug.Parser.Imgproxy.CropRequest{
           width: {:pixels, 100},
           height: {:pixels, 100}
         },
@@ -445,7 +445,7 @@ defmodule ImagePlug.Parser.Native.PlanBuilderTest do
       plan_pipeline(
         width: {:pixels, 200},
         rotate: 90,
-        crop: %ImagePlug.Parser.Native.CropRequest{
+        crop: %ImagePlug.Parser.Imgproxy.CropRequest{
           width: {:pixels, 100},
           height: {:pixels, 100}
         }
@@ -464,7 +464,7 @@ defmodule ImagePlug.Parser.Native.PlanBuilderTest do
                auto_orient: true,
                rotate: 90,
                flip: :horizontal,
-               crop: %ImagePlug.Parser.Native.CropRequest{
+               crop: %ImagePlug.Parser.Imgproxy.CropRequest{
                  width: {:pixels, 100},
                  height: {:pixels, 100}
                },
@@ -511,14 +511,14 @@ defmodule ImagePlug.Parser.Native.PlanBuilderTest do
     for segment <-
           ~w(raw max_bytes mb max_src_resolution msr max_src_file_size msfs crop_aspect_ratio crop_ar car) do
       assert {:error, _reason} =
-               Native.parse_request(conn(:get, "/_/#{segment}/plain/images/cat.jpg"), [])
+               Imgproxy.parse_request(conn(:get, "/_/#{segment}/plain/images/cat.jpg"), [])
     end
   end
 
   test "dropped imgproxy options with values remain parser errors" do
     for segment <- ~w(raw:false max_bytes:100 mb:100 crop_ar:1:1) do
       assert {:error, _reason} =
-               Native.parse_request(conn(:get, "/_/#{segment}/plain/images/cat.jpg"), [])
+               Imgproxy.parse_request(conn(:get, "/_/#{segment}/plain/images/cat.jpg"), [])
     end
   end
 
@@ -595,7 +595,7 @@ defmodule ImagePlug.Parser.Native.PlanBuilderTest do
     ]
 
     for segment <- invalid_segments do
-      assert Native.parse_request(conn(:get, "/_/#{segment}/plain/images/cat.jpg"), []) ==
+      assert Imgproxy.parse_request(conn(:get, "/_/#{segment}/plain/images/cat.jpg"), []) ==
                {:error, {:invalid_option_segment, segment}}
     end
   end
@@ -620,7 +620,7 @@ defmodule ImagePlug.Parser.Native.PlanBuilderTest do
 
   test "plans parsed crop and orientation semantics before no-op operations" do
     assert {:ok, %Plan{pipelines: [%Pipeline{operations: [%Transform.Operation.Crop{}]}]}} =
-             plan_pipeline(crop: struct(ImagePlug.Parser.Native.CropRequest))
+             plan_pipeline(crop: struct(ImagePlug.Parser.Imgproxy.CropRequest))
 
     assert {:ok, %Plan{pipelines: [%Pipeline{operations: [%Transform.Operation.AutoOrient{}]}]}} =
              plan_pipeline(orientation: struct(ImagePlug.Plan.Orientation, auto_orient: true))
@@ -630,14 +630,14 @@ defmodule ImagePlug.Parser.Native.PlanBuilderTest do
 
     assert {:ok, %Plan{pipelines: [%Pipeline{operations: operations}]}} =
              plan_pipeline(
-               crop: struct(ImagePlug.Parser.Native.CropRequest),
+               crop: struct(ImagePlug.Parser.Imgproxy.CropRequest),
                orientation: struct(ImagePlug.Plan.Orientation, auto_orient: true)
              )
 
     assert Enum.map(operations, &ImagePlug.Transform.transform_name/1) == [:auto_orient, :crop]
   end
 
-  test "converts multiple native pipeline requests into separate product-neutral pipelines" do
+  test "converts multiple imgproxy pipeline requests into separate product-neutral pipelines" do
     request = %ParsedRequest{
       signature: "_",
       source_kind: :plain,
@@ -646,7 +646,7 @@ defmodule ImagePlug.Parser.Native.PlanBuilderTest do
         %PipelineRequest{width: {:pixels, 500}},
         %PipelineRequest{height: {:pixels, 200}}
       ],
-      output: %ImagePlug.Parser.Native.OutputRequest{}
+      output: %ImagePlug.Parser.Imgproxy.OutputRequest{}
     }
 
     assert {:ok,
@@ -666,7 +666,7 @@ defmodule ImagePlug.Parser.Native.PlanBuilderTest do
     assert second_params.rule.height == {:pixels, 200}
   end
 
-  test "represents output intent outside native pipeline operations" do
+  test "represents output intent outside imgproxy pipeline operations" do
     request = %ParsedRequest{
       signature: "_",
       source_kind: :plain,
@@ -678,7 +678,7 @@ defmodule ImagePlug.Parser.Native.PlanBuilderTest do
           height: {:pixels, 200}
         }
       ],
-      output: %ImagePlug.Parser.Native.OutputRequest{format: :webp}
+      output: %ImagePlug.Parser.Imgproxy.OutputRequest{format: :webp}
     }
 
     assert {:ok,
@@ -687,7 +687,7 @@ defmodule ImagePlug.Parser.Native.PlanBuilderTest do
               output: %ImagePlug.Plan.Output{mode: :automatic}
             }} =
              PlanBuilder.to_plan(
-               %ParsedRequest{request | output: %ImagePlug.Parser.Native.OutputRequest{}},
+               %ParsedRequest{request | output: %ImagePlug.Parser.Imgproxy.OutputRequest{}},
                []
              )
 
@@ -714,7 +714,7 @@ defmodule ImagePlug.Parser.Native.PlanBuilderTest do
                PlanBuilder.to_plan(
                  %ParsedRequest{
                    parsed_request
-                   | output: %ImagePlug.Parser.Native.OutputRequest{}
+                   | output: %ImagePlug.Parser.Imgproxy.OutputRequest{}
                  },
                  []
                )
@@ -727,7 +727,7 @@ defmodule ImagePlug.Parser.Native.PlanBuilderTest do
                  PlanBuilder.to_plan(
                    %ParsedRequest{
                      parsed_request
-                     | output: %ImagePlug.Parser.Native.OutputRequest{format: format}
+                     | output: %ImagePlug.Parser.Imgproxy.OutputRequest{format: format}
                    },
                    []
                  )
@@ -745,12 +745,12 @@ defmodule ImagePlug.Parser.Native.PlanBuilderTest do
                PlanBuilder.to_plan(
                  %ParsedRequest{
                    parsed_request
-                   | output: %ImagePlug.Parser.Native.OutputRequest{}
+                   | output: %ImagePlug.Parser.Imgproxy.OutputRequest{}
                  },
                  []
                )
 
-      quality_request = %ImagePlug.Parser.Native.OutputRequest{
+      quality_request = %ImagePlug.Parser.Imgproxy.OutputRequest{
         quality: {:quality, 80},
         format_qualities: %{webp: {:quality, 70}}
       }
@@ -772,16 +772,16 @@ defmodule ImagePlug.Parser.Native.PlanBuilderTest do
     end
   end
 
-  test "projects native request facets into product-neutral plan facets" do
+  test "projects imgproxy request facets into product-neutral plan facets" do
     request = %ParsedRequest{
       signature: "_",
       source_kind: :plain,
       source_path: ["images", "cat.jpg"],
       pipelines: [%PipelineRequest{width: {:pixels, 300}}],
-      output: %ImagePlug.Parser.Native.OutputRequest{format: :webp},
-      policy: %ImagePlug.Parser.Native.RequestPolicy{},
-      cache: %ImagePlug.Parser.Native.CacheRequest{cachebuster: "v1"},
-      response: %ImagePlug.Parser.Native.ResponseRequest{
+      output: %ImagePlug.Parser.Imgproxy.OutputRequest{format: :webp},
+      policy: %ImagePlug.Parser.Imgproxy.RequestPolicy{},
+      cache: %ImagePlug.Parser.Imgproxy.CacheRequest{cachebuster: "v1"},
+      response: %ImagePlug.Parser.Imgproxy.ResponseRequest{
         filename: "cat",
         disposition: :attachment
       }
@@ -811,7 +811,7 @@ defmodule ImagePlug.Parser.Native.PlanBuilderTest do
                source_kind: :plain,
                source_path: ["images", "cat.jpg"],
                pipelines: [%PipelineRequest{}],
-               output: %ImagePlug.Parser.Native.OutputRequest{}
+               output: %ImagePlug.Parser.Imgproxy.OutputRequest{}
              })
 
     assert {:ok,
@@ -825,7 +825,7 @@ defmodule ImagePlug.Parser.Native.PlanBuilderTest do
                source_kind: :plain,
                source_path: ["images", ""],
                pipelines: [%PipelineRequest{}],
-               output: %ImagePlug.Parser.Native.OutputRequest{}
+               output: %ImagePlug.Parser.Imgproxy.OutputRequest{}
              })
   end
 
@@ -836,7 +836,7 @@ defmodule ImagePlug.Parser.Native.PlanBuilderTest do
         source_kind: :plain,
         source_path: ["images", "cat.jpg"],
         pipelines: [pipeline_request],
-        output: %ImagePlug.Parser.Native.OutputRequest{format: output_format}
+        output: %ImagePlug.Parser.Imgproxy.OutputRequest{format: output_format}
       }
     end)
   end
@@ -877,7 +877,7 @@ defmodule ImagePlug.Parser.Native.PlanBuilderTest do
   end
 
   defp parsed_pipeline(path) do
-    with {:ok, parsed} <- Native.parse_request(conn(:get, path), []) do
+    with {:ok, parsed} <- Imgproxy.parse_request(conn(:get, path), []) do
       case parsed.pipelines do
         [pipeline] -> {:ok, pipeline}
         pipelines -> {:error, {:unexpected_pipelines, pipelines}}
@@ -894,7 +894,7 @@ defmodule ImagePlug.Parser.Native.PlanBuilderTest do
         source_kind: :plain,
         source_path: ["images", "cat.jpg"],
         pipelines: [struct!(PipelineRequest, attrs)],
-        output: %ImagePlug.Parser.Native.OutputRequest{}
+        output: %ImagePlug.Parser.Imgproxy.OutputRequest{}
       },
       []
     )

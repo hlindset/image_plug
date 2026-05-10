@@ -1,4 +1,4 @@
-defmodule ImagePlug.Parser.Native.CropRequest do
+defmodule ImagePlug.Parser.Imgproxy.CropRequest do
   @moduledoc false
 
   @type dimension() :: :auto | {:scale, number()} | ImagePlug.imgp_pixels()

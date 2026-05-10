@@ -1,11 +1,11 @@
-defmodule ImagePlug.Parser.Native.ParsedRequest do
+defmodule ImagePlug.Parser.Imgproxy.ParsedRequest do
   @moduledoc false
 
-  alias ImagePlug.Parser.Native.CacheRequest
-  alias ImagePlug.Parser.Native.OutputRequest
-  alias ImagePlug.Parser.Native.PipelineRequest
-  alias ImagePlug.Parser.Native.RequestPolicy
-  alias ImagePlug.Parser.Native.ResponseRequest
+  alias ImagePlug.Parser.Imgproxy.CacheRequest
+  alias ImagePlug.Parser.Imgproxy.OutputRequest
+  alias ImagePlug.Parser.Imgproxy.PipelineRequest
+  alias ImagePlug.Parser.Imgproxy.RequestPolicy
+  alias ImagePlug.Parser.Imgproxy.ResponseRequest
 
   @enforce_keys [:signature, :source_kind, :source_path, :pipelines]
   defstruct @enforce_keys ++

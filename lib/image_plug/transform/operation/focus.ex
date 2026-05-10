@@ -9,7 +9,7 @@ defmodule ImagePlug.Transform.Operation.Focus do
   for a later crop or cover operation. `Focus` is not a visible crop by itself;
   it records focus metadata on `ImagePlug.Transform.State`.
 
-  The current Native parser does not emit `Focus`. Native focal-point gravity
+  The current Imgproxy parser does not emit `Focus`. Imgproxy focal-point gravity
   maps to `Crop` gravity fields instead. Future parsers may emit `Focus` when
   their dialect has a distinct focus operation whose semantics should affect a
   later crop.

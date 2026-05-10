@@ -50,7 +50,7 @@ defmodule ImagePlug.RequestSafetyTest do
   test "parser validation failures return before origin fetch" do
     conn =
       ImagePlug.call(conn(:get, "/_/raw/plain/images/cat.jpg"),
-        parser: ImagePlug.Parser.Native,
+        parser: ImagePlug.Parser.Imgproxy,
         root_url: "http://origin.test",
         origin_req_options: [plug: ImagePlug.Runtime.ProcessorTest.OriginShouldNotFetch]
       )
@@ -58,10 +58,10 @@ defmodule ImagePlug.RequestSafetyTest do
     assert conn.status == 400
   end
 
-  test "expired native requests return before source identity and cache work" do
+  test "expired imgproxy requests return before source identity and cache work" do
     conn =
       ImagePlug.call(conn(:get, "/_/exp:100/plain/images/cat.jpg"),
-        parser: ImagePlug.Parser.Native,
+        parser: ImagePlug.Parser.Imgproxy,
         root_url: "not-a-valid-origin-url",
         now: 101,
         cache: {CacheProbe, []},

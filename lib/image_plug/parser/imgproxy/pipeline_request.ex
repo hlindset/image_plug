@@ -1,7 +1,7 @@
-defmodule ImagePlug.Parser.Native.PipelineRequest do
+defmodule ImagePlug.Parser.Imgproxy.PipelineRequest do
   @moduledoc false
 
-  alias ImagePlug.Parser.Native.CropRequest
+  alias ImagePlug.Parser.Imgproxy.CropRequest
   alias ImagePlug.Plan.Orientation
 
   @type resizing_type() :: :fit | :fill | :fill_down | :force | :auto

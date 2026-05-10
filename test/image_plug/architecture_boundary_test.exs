@@ -26,11 +26,11 @@ defmodule ImagePlug.ArchitectureBoundaryTest do
     assert violations == []
   end
 
-  test "runtime does not depend on native parser structs" do
+  test "runtime does not depend on imgproxy parser structs" do
     violations =
       for file <- runtime_files(),
-          violation <- native_parser_references(file) do
-        "#{file}:#{violation.line} must not name #{violation.module}; keep Native parser dependencies out of runtime"
+          violation <- imgproxy_parser_references(file) do
+        "#{file}:#{violation.line} must not name #{violation.module}; keep Imgproxy parser dependencies out of runtime"
       end
 
     assert violations == []
@@ -66,29 +66,29 @@ defmodule ImagePlug.ArchitectureBoundaryTest do
              concrete_transform_references(file)
   end
 
-  test "native parser reference check rejects grouped and indirect aliases" do
-    file = tmp_file("native")
+  test "imgproxy parser reference check rejects grouped and indirect aliases" do
+    file = tmp_file("imgproxy")
 
     on_exit(fn -> File.rm(file) end)
 
     File.write!(file, """
     defmodule ImagePlug.Runtime.BoundaryExample do
-      alias ImagePlug.Parser.{Native}
+      alias ImagePlug.Parser.{Imgproxy}
 
-      def parse(path), do: Native.parse(path)
+      def parse(path), do: Imgproxy.parse(path)
 
       alias ImagePlug.Parser
-      def parse_again(path), do: Parser.Native.parse(path)
-      def struct_reference, do: %Parser.Native.SomeStruct{}
+      def parse_again(path), do: Parser.Imgproxy.parse(path)
+      def struct_reference, do: %Parser.Imgproxy.SomeStruct{}
     end
     """)
 
     assert [
-             %{line: 2, module: "ImagePlug.Parser.Native"},
-             %{line: 4, module: "Native"},
-             %{line: 7, module: "Parser.Native"},
-             %{line: 8, module: "Parser.Native"}
-           ] = native_parser_references(file)
+             %{line: 2, module: "ImagePlug.Parser.Imgproxy"},
+             %{line: 4, module: "Imgproxy"},
+             %{line: 7, module: "Parser.Imgproxy"},
+             %{line: 8, module: "Parser.Imgproxy"}
+           ] = imgproxy_parser_references(file)
   end
 
   defp runtime_files do
@@ -136,7 +136,7 @@ defmodule ImagePlug.ArchitectureBoundaryTest do
     |> Enum.uniq()
   end
 
-  defp native_parser_references(file) do
+  defp imgproxy_parser_references(file) do
     {:ok, ast} = file |> File.read!() |> Code.string_to_quoted()
 
     {_ast, violations} =
@@ -148,27 +148,27 @@ defmodule ImagePlug.ArchitectureBoundaryTest do
          ]} = node,
         violations ->
           grouped_aliases
-          |> Enum.filter(&native_parser_alias?/1)
-          |> Enum.map(&violation(meta, native_parser_module(&1)))
+          |> Enum.filter(&imgproxy_parser_alias?/1)
+          |> Enum.map(&violation(meta, imgproxy_parser_module(&1)))
           |> then(&{node, &1 ++ violations})
 
-        {:__aliases__, meta, [:ImagePlug, :Parser, :Native]} = node, violations ->
-          {node, [violation(meta, "ImagePlug.Parser.Native") | violations]}
+        {:__aliases__, meta, [:ImagePlug, :Parser, :Imgproxy]} = node, violations ->
+          {node, [violation(meta, "ImagePlug.Parser.Imgproxy") | violations]}
 
-        {:__aliases__, meta, [:ImagePlug, :Parser, :Native | _rest]} = node, violations ->
-          {node, [violation(meta, "ImagePlug.Parser.Native") | violations]}
+        {:__aliases__, meta, [:ImagePlug, :Parser, :Imgproxy | _rest]} = node, violations ->
+          {node, [violation(meta, "ImagePlug.Parser.Imgproxy") | violations]}
 
-        {:__aliases__, meta, [:Parser, :Native]} = node, violations ->
-          {node, [violation(meta, "Parser.Native") | violations]}
+        {:__aliases__, meta, [:Parser, :Imgproxy]} = node, violations ->
+          {node, [violation(meta, "Parser.Imgproxy") | violations]}
 
-        {:__aliases__, meta, [:Parser, :Native | _rest]} = node, violations ->
-          {node, [violation(meta, "Parser.Native") | violations]}
+        {:__aliases__, meta, [:Parser, :Imgproxy | _rest]} = node, violations ->
+          {node, [violation(meta, "Parser.Imgproxy") | violations]}
 
-        {:__aliases__, meta, [:Native]} = node, violations ->
-          {node, [violation(meta, "Native") | violations]}
+        {:__aliases__, meta, [:Imgproxy]} = node, violations ->
+          {node, [violation(meta, "Imgproxy") | violations]}
 
-        {:__aliases__, meta, [:Native | _rest]} = node, violations ->
-          {node, [violation(meta, "Native") | violations]}
+        {:__aliases__, meta, [:Imgproxy | _rest]} = node, violations ->
+          {node, [violation(meta, "Imgproxy") | violations]}
 
         node, violations ->
           {node, violations}
@@ -180,24 +180,25 @@ defmodule ImagePlug.ArchitectureBoundaryTest do
     |> reject_grouped_alias_child_duplicates()
   end
 
-  defp native_parser_alias?({:__aliases__, _meta, [:Native]}), do: true
-  defp native_parser_alias?({:__aliases__, _meta, [:Native | _rest]}), do: true
-  defp native_parser_alias?(_ast), do: false
+  defp imgproxy_parser_alias?({:__aliases__, _meta, [:Imgproxy]}), do: true
+  defp imgproxy_parser_alias?({:__aliases__, _meta, [:Imgproxy | _rest]}), do: true
+  defp imgproxy_parser_alias?(_ast), do: false
 
-  defp native_parser_module({:__aliases__, _meta, [:Native]}), do: "ImagePlug.Parser.Native"
+  defp imgproxy_parser_module({:__aliases__, _meta, [:Imgproxy]}),
+    do: "ImagePlug.Parser.Imgproxy"
 
-  defp native_parser_module({:__aliases__, _meta, [:Native | _rest]}),
-    do: "ImagePlug.Parser.Native"
+  defp imgproxy_parser_module({:__aliases__, _meta, [:Imgproxy | _rest]}),
+    do: "ImagePlug.Parser.Imgproxy"
 
   defp reject_grouped_alias_child_duplicates(violations) do
     grouped_alias_lines =
       violations
-      |> Enum.filter(&(&1.module == "ImagePlug.Parser.Native"))
+      |> Enum.filter(&(&1.module == "ImagePlug.Parser.Imgproxy"))
       |> MapSet.new(& &1.line)
 
     Enum.reject(
       violations,
-      &(&1.module == "Native" and MapSet.member?(grouped_alias_lines, &1.line))
+      &(&1.module == "Imgproxy" and MapSet.member?(grouped_alias_lines, &1.line))
     )
   end
 

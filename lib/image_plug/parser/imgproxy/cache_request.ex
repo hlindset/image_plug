@@ -1,4 +1,4 @@
-defmodule ImagePlug.Parser.Native.CacheRequest do
+defmodule ImagePlug.Parser.Imgproxy.CacheRequest do
   @moduledoc false
 
   defstruct cachebuster: nil

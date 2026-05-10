@@ -1,4 +1,4 @@
-defmodule ImagePlug.Parser.Native.OutputRequest do
+defmodule ImagePlug.Parser.Imgproxy.OutputRequest do
   @moduledoc false
 
   defstruct format: nil, quality: :default, format_qualities: %{}

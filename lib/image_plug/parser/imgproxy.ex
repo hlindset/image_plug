@@ -1,6 +1,6 @@
-defmodule ImagePlug.Parser.Native do
+defmodule ImagePlug.Parser.Imgproxy do
   @moduledoc """
-  Parser for ImagePlug's native path-oriented URL syntax.
+  Parser for ImagePlug's imgproxy path-oriented URL syntax.
   """
 
   use Boundary,
@@ -13,14 +13,14 @@ defmodule ImagePlug.Parser.Native do
 
   @behaviour ImagePlug.Parser
 
-  alias ImagePlug.Parser.Native.CacheRequest
-  alias ImagePlug.Parser.Native.CropRequest
-  alias ImagePlug.Parser.Native.OutputRequest
-  alias ImagePlug.Parser.Native.ParsedRequest
-  alias ImagePlug.Parser.Native.PipelineRequest
-  alias ImagePlug.Parser.Native.PlanBuilder
-  alias ImagePlug.Parser.Native.RequestPolicy
-  alias ImagePlug.Parser.Native.ResponseRequest
+  alias ImagePlug.Parser.Imgproxy.CacheRequest
+  alias ImagePlug.Parser.Imgproxy.CropRequest
+  alias ImagePlug.Parser.Imgproxy.OutputRequest
+  alias ImagePlug.Parser.Imgproxy.ParsedRequest
+  alias ImagePlug.Parser.Imgproxy.PipelineRequest
+  alias ImagePlug.Parser.Imgproxy.PlanBuilder
+  alias ImagePlug.Parser.Imgproxy.RequestPolicy
+  alias ImagePlug.Parser.Imgproxy.ResponseRequest
   alias ImagePlug.Plan.Orientation
   alias ImagePlug.Plan.Response.Filename
 

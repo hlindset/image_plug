@@ -12,7 +12,7 @@ defmodule ImagePlug.Transform.Operation.Resize do
   `ImagePlug.Transform.Operation.AdaptiveResize` when the mode must be chosen at runtime
   from source image metadata.
 
-  A parser may translate a Native URL such as
+  A parser may translate an Imgproxy URL such as
   `/_/rt:force/w:0/h:200/plain/image.jpg` into a `Resize` with `mode: :force`,
   `width: :auto`, and `height: {:pixels, 200}`. The URL syntax is parser
   specific; the operation itself is product-neutral.

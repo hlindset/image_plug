@@ -10,9 +10,9 @@ defmodule ImagePlug.Transform.Operation.Rotate do
   The operation is product-neutral; dialect parsers translate compatible
   rotation syntax into the `:angle` field before this operation is constructed.
 
-  Native planner note: Native URLs are declarative, and when orientation
-  requests are present the Native planner emits orientation operations in this
-  suborder: auto-orient, rotate, then flip. That suborder is a Native planner
+  Imgproxy planner note: Imgproxy URLs are declarative, and when orientation
+  requests are present the Imgproxy planner emits orientation operations in this
+  suborder: auto-orient, rotate, then flip. That suborder is an Imgproxy planner
   contract, not a universal requirement of the product-neutral transform
   operation model.
 

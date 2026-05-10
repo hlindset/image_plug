@@ -35,15 +35,15 @@ operation structs when translating syntax into a product-neutral plan.
 
 Operation chains are ordered once represented in `ImagePlug.Plan`.
 
-Native URLs are declarative; Native planner code emits operations in Native
-canonical order. URL option order does not define Native transform order. The
-Native canonical order is documented in `docs/native_path_api.md` and is a
-Native API contract, not a universal requirement for every future dialect.
+Imgproxy URLs are declarative; Imgproxy planner code emits operations in Imgproxy
+canonical order. URL option order does not define Imgproxy transform order. The
+Imgproxy canonical order is documented in `docs/imgproxy_path_api.md` and is a
+Imgproxy API contract, not a universal requirement for every future dialect.
 
 Other dialects may have order-sensitive semantics. When the ordered semantics
 map cleanly, emit an ordered `ImagePlug.Plan`; otherwise keep dialect-specific
 quirks isolated in the parser/adapter layer. Do not force ordered command
-semantics into the Native API or into product-neutral transform operation
+semantics into the Imgproxy API or into product-neutral transform operation
 contracts.
 
 ## Request Fields That Are Not Transform Operations
@@ -84,7 +84,7 @@ format without changing the transform operation sequence.
 ## Choosing Resize-Like Operations
 
 Use `Resize` when the resize mode is known at planning time. Use
-`AdaptiveResize` for Native/imgproxy `auto` behavior, because execution chooses
+`AdaptiveResize` for Imgproxy `auto` behavior, because execution chooses
 fit or fill after source dimensions are known.
 
 `Scale`, `Contain`, and `Cover` remain exported standalone operations. Do not
@@ -103,19 +103,19 @@ Use `Crop` for visible crop operations. Crop gravity, offsets, target rules, and
 orientation context belong on `ImagePlug.Transform.Crop` when the dialect maps
 cleanly to those fields.
 
-Native focal-point gravity maps to `ImagePlug.Transform.Crop` gravity. Current
-Native URLs do not emit `ImagePlug.Transform.Focus`.
+Imgproxy focal-point gravity maps to `ImagePlug.Transform.Crop` gravity. Current
+Imgproxy URLs do not emit `ImagePlug.Transform.Focus`.
 
 `Focus` is available for future parsers that model focus as state for later crop
 operations rather than as a visible operation by itself. Do not use `Focus` to
-represent current Native focal-point crop syntax.
+represent current Imgproxy focal-point crop syntax.
 
 ## Orientation Operations
 
 Use `AutoOrient` for EXIF-aware orientation, `Rotate` for explicit right-angle
 rotation, and `Flip` for horizontal, vertical, or both-axis flips.
 
-Native orientation suborder is auto-orient, rotate, then flip. Other dialects
+Imgproxy orientation suborder is auto-orient, rotate, then flip. Other dialects
 should preserve their own semantics in the adapter layer and emit the ordered
 operation chain that matches those semantics.
 
@@ -149,11 +149,11 @@ syntax into operation cache material.
 
 ## Mapping Examples
 
-These examples show current Native URL concepts translated into operation
-chains. They describe Native planner behavior only; future dialect docs should
+These examples show current Imgproxy URL concepts translated into operation
+chains. They describe Imgproxy planner behavior only; future dialect docs should
 describe their own URL syntax separately.
 
-| Native URL concept | Operation chain |
+| Imgproxy URL concept | Operation chain |
 | --- | --- |
 | `w:300` | `Resize` |
 | `rt:force/w:0/h:200` | `Resize` with force mode and auto width |
@@ -168,7 +168,7 @@ describe their own URL syntax separately.
 ## Boundary Rules
 
 Runtime dispatches through `ImagePlug.Transform`. Runtime should not depend on
-parser-specific Native structs, and parser-specific request structs must not
+parser-specific Imgproxy structs, and parser-specific request structs must not
 leak into runtime execution.
 
 Parser and planner modules may construct exported operation structs when they

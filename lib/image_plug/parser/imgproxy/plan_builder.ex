@@ -1,13 +1,13 @@
-defmodule ImagePlug.Parser.Native.PlanBuilder do
+defmodule ImagePlug.Parser.Imgproxy.PlanBuilder do
   @moduledoc false
 
-  alias ImagePlug.Parser.Native.CacheRequest
-  alias ImagePlug.Parser.Native.CropRequest
-  alias ImagePlug.Parser.Native.OutputRequest
-  alias ImagePlug.Parser.Native.ParsedRequest
-  alias ImagePlug.Parser.Native.PipelineRequest
-  alias ImagePlug.Parser.Native.RequestPolicy
-  alias ImagePlug.Parser.Native.ResponseRequest
+  alias ImagePlug.Parser.Imgproxy.CacheRequest
+  alias ImagePlug.Parser.Imgproxy.CropRequest
+  alias ImagePlug.Parser.Imgproxy.OutputRequest
+  alias ImagePlug.Parser.Imgproxy.ParsedRequest
+  alias ImagePlug.Parser.Imgproxy.PipelineRequest
+  alias ImagePlug.Parser.Imgproxy.RequestPolicy
+  alias ImagePlug.Parser.Imgproxy.ResponseRequest
   alias ImagePlug.Plan
   alias ImagePlug.Plan.Cache
   alias ImagePlug.Plan.Orientation

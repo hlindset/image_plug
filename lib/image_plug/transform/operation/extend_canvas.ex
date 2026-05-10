@@ -11,7 +11,7 @@ defmodule ImagePlug.Transform.Operation.ExtendCanvas do
   larger than the resized image, or when a dialect requests extension to a
   target aspect ratio.
 
-  Native parser translations construct this operation for supported canvas
+  Imgproxy parser translations construct this operation for supported canvas
   extension requests such as dimension extension and extend-aspect-ratio
   requests. The URL option names remain parser concerns; this operation only
   models the neutral canvas semantics.
@@ -74,7 +74,7 @@ defmodule ImagePlug.Transform.Operation.ExtendCanvas do
         y_offset: 0.0
       }
 
-  A Native parser translation for extend-aspect-ratio syntax would construct an
+  An Imgproxy parser translation for extend-aspect-ratio syntax would construct an
   `ExtendCanvas` operation with an `{:aspect_ratio, ratio}` rule.
   """
 

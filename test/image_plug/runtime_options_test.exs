@@ -4,7 +4,7 @@ defmodule ImagePlug.RuntimeOptionsTest do
   alias ImagePlug.Runtime.Options
 
   @base_opts [
-    parser: ImagePlug.Parser.Native,
+    parser: ImagePlug.Parser.Imgproxy,
     root_url: "http://origin.test"
   ]
 

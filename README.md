@@ -8,9 +8,9 @@ Probably not quite ready for prime time yet.
 
 Name not final!
 
-## Native Path API
+## Imgproxy Path API
 
-ImagePlug's native API uses path-oriented and declarative URLs:
+ImagePlug's Imgproxy API uses path-oriented and declarative URLs:
 
 ```text
 /<signature>[/<option>...]/plain/<origin_path>
@@ -27,7 +27,7 @@ For local development, the signature segment can be `_` or `unsafe`:
 /_/rs:fill:300:300/plain/images/cat-300.jpg@webp
 ```
 
-The Native grammar accepts selected imgproxy-compatible option names as ImagePlug's own path grammar. Compatibility ends at parsing and planning: runtime, cache, output, and transform code consume product-neutral `ImagePlug.Plan` data.
+The Imgproxy grammar accepts selected imgproxy-compatible option names as ImagePlug's own path grammar. Compatibility ends at parsing and planning: runtime, cache, output, and transform code consume product-neutral `ImagePlug.Plan` data.
 
 Options are declarative. Their order in the URL does not define processing order:
 
@@ -40,7 +40,7 @@ Both URLs describe the same requested output. ImagePlug owns the fixed processin
 
 When multiple options assign the same canonical field, later assignments win. For example, `w:100/width:200` normalizes to width `200`, while `width:200/w:100` normalizes to width `100`. This affects request normalization only; it does not change transform execution order.
 
-For the complete user-facing URL reference, see [Native Path API](docs/native_path_api.md).
+For the complete user-facing URL reference, see [Imgproxy Path API](docs/imgproxy_path_api.md).
 
 For parser and dialect-author guidance on mapping URL concepts to product-neutral transform operations, see [Transform Operations](docs/transform_operations.md).
 
@@ -111,13 +111,13 @@ Supported gravity values are the imgproxy compass anchors, `ce`, `no`, `so`, `ea
 
 Supported explicit output extensions are `webp`, `avif`, `jpeg`, `jpg`, `png`, and `best`. `jpg` normalizes to JPEG. `best` parses but is not planned in this slice.
 
-Dropped imgproxy options for this slice, including `raw`, `max_bytes`, `max_src_resolution`, `max_src_file_size`, and `crop_aspect_ratio`, are not accepted by the Native grammar.
+Dropped imgproxy options for this slice, including `raw`, `max_bytes`, `max_src_resolution`, `max_src_file_size`, and `crop_aspect_ratio`, are not accepted by the Imgproxy grammar.
 
 The first `plain` segment terminates option parsing. Later path segments are treated as the origin path, even if they look like options.
 
 Omitting an explicit output format enables automatic output selection. ImagePlug defaults automatic AVIF and WebP selection to enabled. `Accept` is used to detect optional modern format support; if no enabled modern format is detected, ImagePlug uses the source image format. Automatic output responses use `Vary: Accept`. Explicit `format`, `f`, `ext`, and plain-source `@extension` bypass `Accept` negotiation and do not set `Vary: Accept`.
 
-Native emits `Content-Disposition` for successful image responses. When `filename` is omitted, Native derives a filename stem from the source path before response sending appends the resolved output extension. `return_attachment:true` emits an attachment disposition, `return_attachment:false` emits inline, and omission uses the configured default disposition.
+Imgproxy emits `Content-Disposition` for successful image responses. When `filename` is omitted, Imgproxy derives a filename stem from the source path before response sending appends the resolved output extension. `return_attachment:true` emits an attachment disposition, `return_attachment:false` emits inline, and omission uses the configured default disposition.
 
 ## Usage example
 
@@ -141,7 +141,7 @@ defmodule ImagePlug.SimpleServer do
     to: ImagePlug,
     init_opts: [
       root_url: "http://localhost:4000",
-      parser: ImagePlug.Parser.Native
+      parser: ImagePlug.Parser.Imgproxy
     ]
 end
 ```
@@ -155,7 +155,7 @@ forward "/",
   to: ImagePlug,
   init_opts: [
     root_url: "http://localhost:4000",
-    parser: ImagePlug.Parser.Native,
+    parser: ImagePlug.Parser.Imgproxy,
     cache:
       {ImagePlug.Cache.FileSystem,
        root: "/var/cache/image_plug",
@@ -184,7 +184,7 @@ Treat the cache root as trusted local configuration. Generated paths are validat
 
 ## Operational Notes
 
-`ImagePlug` parses native path options before fetching the origin image. Invalid processing requests return `400` without origin traffic.
+`ImagePlug` parses imgproxy path options before fetching the origin image. Invalid processing requests return `400` without origin traffic.
 
 Origin fetches use non-bang Req calls with bounded redirects, receive timeout, image content-type validation, and a maximum response body size. Configure these with `:origin_max_redirects`, `:origin_receive_timeout`, `:max_body_bytes`, and `:max_input_pixels`.
 
