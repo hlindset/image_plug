@@ -77,6 +77,7 @@ defmodule ImagePlug.Plan.GeometryTest do
   test "gravity material includes explicit guide space" do
     assert {:ok, anchor} = Gravity.anchor(:center, :bottom)
     assert {:ok, focal_point} = Gravity.focal_point(1, 4, 3, 4)
+    assert {:ok, edge_focal_point} = Gravity.focal_point(0, 1, 3, 4)
 
     assert Material.material(anchor) == [
              type: :anchor,
@@ -92,11 +93,15 @@ defmodule ImagePlug.Plan.GeometryTest do
              space: :current
            ]
 
+    assert Material.material(edge_focal_point) == [
+             type: :focal_point,
+             x: [unit: :ratio, numerator: 0, denominator: 1],
+             y: [unit: :ratio, numerator: 3, denominator: 4],
+             space: :current
+           ]
+
     assert Gravity.anchor(:middle, :bottom) ==
              {:error, {:invalid_gravity, {:anchor, :middle, :bottom}}}
-
-    assert Gravity.focal_point(0, 1, 3, 4) ==
-             {:error, {:invalid_gravity, {:focal_point, 0, 1, 3, 4, :current}}}
 
     assert Gravity.focal_point(1, 4, 3, 4, :invalid) ==
              {:error, {:invalid_gravity, {:focal_point, 1, 4, 3, 4, :invalid}}}

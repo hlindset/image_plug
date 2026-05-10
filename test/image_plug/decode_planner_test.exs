@@ -327,6 +327,18 @@ defmodule ImagePlug.Transform.DecodePlannerTest do
     assert DecodePlanner.open_options([crop_region]) == [access: :random, fail_on: :error]
   end
 
+  test "semantic fit and stretch with requested dimensions stay sequential" do
+    assert {:ok, width} = Dimension.pixels(100)
+    assert {:ok, height} = Dimension.auto()
+    assert {:ok, size} = Size.new(width: width, height: height, dpr: 1.0)
+
+    assert {:ok, fit} = Operation.resize_fit(size: size, enlargement: :deny)
+    assert {:ok, stretch} = Operation.resize_stretch(size: size, enlargement: :deny)
+
+    assert DecodePlanner.open_options([fit]) == [access: :sequential, fail_on: :error]
+    assert DecodePlanner.open_options([stretch]) == [access: :sequential, fail_on: :error]
+  end
+
   test "malformed transform metadata stays random" do
     assert DecodePlanner.open_options([
              %BogusMetadataTransform{}

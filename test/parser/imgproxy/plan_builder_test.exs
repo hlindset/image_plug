@@ -9,12 +9,13 @@ defmodule ImagePlug.Parser.Imgproxy.PlanBuilderTest do
   alias ImagePlug.Parser.Imgproxy.PipelineRequest
   alias ImagePlug.Parser.Imgproxy.PlanBuilder
   alias ImagePlug.Plan
+  alias ImagePlug.Plan.Geometry.Dimension
+  alias ImagePlug.Plan.Operation
   alias ImagePlug.Plan.Output
   alias ImagePlug.Plan.Pipeline
   alias ImagePlug.Plan.Response
   alias ImagePlug.Plan.Response.Filename
   alias ImagePlug.Plan.Source.Plain
-  alias ImagePlug.Transform
 
   test "converts one imgproxy pipeline request into a product-neutral plan" do
     request = %ParsedRequest{
@@ -34,38 +35,29 @@ defmodule ImagePlug.Parser.Imgproxy.PlanBuilderTest do
               output: %Output{mode: :automatic}
             }} = PlanBuilder.to_plan(request, [])
 
-    assert [%Transform.Operation.Resize{} = params] = operations
-    assert params.rule.width == {:pixels, 300}
+    assert [%Operation.ResizeFit{} = params] = operations
+    assert params.size.width == %Dimension{unit: :logical_px, value: 300}
+    assert params.size.height == %Dimension{unit: :auto}
+    assert params.size.dpr == 1.0
+    assert params.enlargement == :deny
   end
 
   test "plans fit requests as neutral resize operations with enlarge rules" do
     assert {:ok, %Plan{pipelines: [%Pipeline{operations: operations}]}} =
              plan_pipeline(width: {:pixels, 300}, height: {:pixels, 200}, enlarge: false)
 
-    assert [
-             %Transform.Operation.Resize{
-               rule: %Transform.Geometry.DimensionRule{
-                 mode: :fit,
-                 width: {:pixels, 300},
-                 height: {:pixels, 200},
-                 enlarge: false
-               }
-             }
-           ] = operations
+    assert [%Operation.ResizeFit{} = resize] = operations
+    assert resize.size.width == pixels(300)
+    assert resize.size.height == pixels(200)
+    assert resize.enlargement == :deny
 
     assert {:ok, %Plan{pipelines: [%Pipeline{operations: operations}]}} =
              plan_pipeline(width: {:pixels, 300}, height: {:pixels, 200}, enlarge: true)
 
-    assert [
-             %Transform.Operation.Resize{
-               rule: %Transform.Geometry.DimensionRule{
-                 mode: :fit,
-                 width: {:pixels, 300},
-                 height: {:pixels, 200},
-                 enlarge: true
-               }
-             }
-           ] = operations
+    assert [%Operation.ResizeFit{} = resize] = operations
+    assert resize.size.width == pixels(300)
+    assert resize.size.height == pixels(200)
+    assert resize.enlargement == :allow
   end
 
   test "plans fill requests as neutral resize operations with enlarge rules" do
@@ -77,26 +69,11 @@ defmodule ImagePlug.Parser.Imgproxy.PlanBuilderTest do
                enlarge: false
              )
 
-    assert [
-             %Transform.Operation.Resize{
-               rule: %Transform.Geometry.DimensionRule{
-                 mode: :fill,
-                 width: {:pixels, 300},
-                 height: {:pixels, 200},
-                 enlarge: false
-               }
-             },
-             %Transform.Operation.Crop{
-               crop_from: :gravity,
-               gravity: {:anchor, :center, :center},
-               target_rule: %Transform.Geometry.DimensionRule{
-                 mode: :fill,
-                 width: {:pixels, 300},
-                 height: {:pixels, 200},
-                 enlarge: false
-               }
-             }
-           ] = operations
+    assert [%Operation.ResizeCover{} = resize] = operations
+    assert resize.size.width == pixels(300)
+    assert resize.size.height == pixels(200)
+    assert resize.enlargement == :deny
+    assert anchor(resize.guide) == {:center, :center}
 
     assert {:ok, %Plan{pipelines: [%Pipeline{operations: operations}]}} =
              plan_pipeline(
@@ -106,26 +83,11 @@ defmodule ImagePlug.Parser.Imgproxy.PlanBuilderTest do
                enlarge: true
              )
 
-    assert [
-             %Transform.Operation.Resize{
-               rule: %Transform.Geometry.DimensionRule{
-                 mode: :fill,
-                 width: {:pixels, 300},
-                 height: {:pixels, 200},
-                 enlarge: true
-               }
-             },
-             %Transform.Operation.Crop{
-               crop_from: :gravity,
-               gravity: {:anchor, :center, :center},
-               target_rule: %Transform.Geometry.DimensionRule{
-                 mode: :fill,
-                 width: {:pixels, 300},
-                 height: {:pixels, 200},
-                 enlarge: true
-               }
-             }
-           ] = operations
+    assert [%Operation.ResizeCover{} = resize] = operations
+    assert resize.size.width == pixels(300)
+    assert resize.size.height == pixels(200)
+    assert resize.enlargement == :allow
+    assert anchor(resize.guide) == {:center, :center}
   end
 
   test "plans gravity-bearing fill, fill-down, and auto with result crop operations" do
@@ -137,9 +99,8 @@ defmodule ImagePlug.Parser.Imgproxy.PlanBuilderTest do
                gravity: {:anchor, :left, :top}
              )
 
-    assert [%Transform.Operation.Resize{}, %Transform.Operation.Crop{} = crop] = operations
-    assert crop.crop_from == :gravity
-    assert crop.gravity == {:anchor, :left, :top}
+    assert [%Operation.ResizeCover{} = resize] = operations
+    assert anchor(resize.guide) == {:left, :top}
 
     assert {:ok, %Plan{pipelines: [%Pipeline{operations: operations}]}} =
              plan_pipeline(
@@ -149,8 +110,9 @@ defmodule ImagePlug.Parser.Imgproxy.PlanBuilderTest do
                gravity: {:fp, 0.25, 0.75}
              )
 
-    assert [%Transform.Operation.Resize{}, %Transform.Operation.Crop{} = crop] = operations
-    assert %Transform.Operation.Crop{gravity: {:fp, 0.25, 0.75}} = crop
+    assert [%Operation.ResizeCover{} = resize] = operations
+    assert focal_point(resize.guide) == {1, 4, 3, 4}
+    assert resize.enlargement == :deny
 
     assert {:ok, %Plan{pipelines: [%Pipeline{operations: operations}]}} =
              plan_pipeline(
@@ -160,10 +122,8 @@ defmodule ImagePlug.Parser.Imgproxy.PlanBuilderTest do
                gravity: {:anchor, :right, :bottom}
              )
 
-    assert [%Transform.Operation.AdaptiveResize{}, %Transform.Operation.Crop{} = crop] =
-             operations
-
-    assert crop.gravity == {:anchor, :right, :bottom}
+    assert [%Operation.ResizeAuto{} = resize] = operations
+    assert anchor(resize.guide) == {:right, :bottom}
   end
 
   test "preserves zero fit and fill dimensions as no geometry when both dimensions are auto" do
@@ -178,74 +138,59 @@ defmodule ImagePlug.Parser.Imgproxy.PlanBuilderTest do
   end
 
   test "plans zero dimensions with meaningful min resize rules" do
-    assert {:ok,
-            %Plan{pipelines: [%Pipeline{operations: [%Transform.Operation.Resize{} = resize]}]}} =
+    assert {:ok, %Plan{pipelines: [%Pipeline{operations: [%Operation.ResizeFit{} = resize]}]}} =
              plan_pipeline(
                width: {:pixels, 0},
                height: {:pixels, 0},
                min_width: {:pixels, 300}
              )
 
-    assert resize.rule.width == :auto
-    assert resize.rule.height == :auto
-    assert resize.rule.min_width == {:pixels, 300}
+    assert resize.size.width == auto()
+    assert resize.size.height == auto()
+    assert resize.min_width == pixels(300)
   end
 
   test "normalizes single zero fit dimensions to auto resize dimensions" do
     assert {:ok, %Plan{pipelines: [%Pipeline{operations: operations}]}} =
              plan_pipeline(width: {:pixels, 0}, height: {:pixels, 200})
 
-    assert [
-             %Transform.Operation.Resize{
-               rule: %Transform.Geometry.DimensionRule{
-                 mode: :fit,
-                 width: :auto,
-                 height: {:pixels, 200}
-               }
-             }
-           ] = operations
+    assert [%Operation.ResizeFit{} = resize] = operations
+    assert resize.size.width == auto()
+    assert resize.size.height == pixels(200)
   end
 
   test "plans force requests with one zero dimension as source-preserving auto dimensions" do
-    assert {:ok,
-            %Plan{pipelines: [%Pipeline{operations: [%Transform.Operation.Resize{} = resize]}]}} =
+    assert {:ok, %Plan{pipelines: [%Pipeline{operations: [%Operation.ResizeStretch{} = resize]}]}} =
              plan_pipeline(resizing_type: :force, width: {:pixels, 0}, height: {:pixels, 200})
 
-    assert resize.rule.mode == :force
-    assert resize.rule.width == :auto
-    assert resize.rule.height == {:pixels, 200}
+    assert resize.size.width == auto()
+    assert resize.size.height == pixels(200)
 
-    assert %Transform.Operation.Resize{
-             rule: %{mode: :force, width: :auto, height: {:pixels, 200}}
-           } = resize
-
-    assert {:ok,
-            %Plan{pipelines: [%Pipeline{operations: [%Transform.Operation.Resize{} = resize]}]}} =
+    assert {:ok, %Plan{pipelines: [%Pipeline{operations: [%Operation.ResizeStretch{} = resize]}]}} =
              plan_pipeline(resizing_type: :force, width: {:pixels, 300}, height: {:pixels, 0})
 
-    assert resize.rule.mode == :force
-    assert resize.rule.width == {:pixels, 300}
-    assert resize.rule.height == :auto
+    assert resize.size.width == pixels(300)
+    assert resize.size.height == auto()
   end
 
   test "plans fit, fill-down, force, and auto as product-neutral resize operations" do
     assert {:ok,
             %Plan{
               pipelines: [
-                %Pipeline{operations: [%ImagePlug.Transform.Operation.Resize{} = resize]}
+                %Pipeline{operations: [%Operation.ResizeFit{} = resize]}
               ]
             }} =
              plan_pipeline(resizing_type: :fit, width: {:pixels, 100}, height: {:pixels, 0})
 
-    assert resize.rule.mode == :fit
+    assert resize.size.width == pixels(100)
+    assert resize.size.height == auto()
 
     assert {:ok,
             %Plan{
               pipelines: [
                 %Pipeline{
                   operations: [
-                    %ImagePlug.Transform.Operation.Resize{} = down,
-                    %Transform.Operation.Crop{}
+                    %Operation.ResizeCover{} = down
                   ]
                 }
               ]
@@ -256,15 +201,14 @@ defmodule ImagePlug.Parser.Imgproxy.PlanBuilderTest do
                height: {:pixels, 100}
              )
 
-    assert down.rule.mode == :fill_down
+    assert down.enlargement == :deny
 
     assert {:ok,
             %Plan{
               pipelines: [
                 %Pipeline{
                   operations: [
-                    %ImagePlug.Transform.Operation.AdaptiveResize{},
-                    %Transform.Operation.Crop{}
+                    %Operation.ResizeAuto{}
                   ]
                 }
               ]
@@ -276,12 +220,13 @@ defmodule ImagePlug.Parser.Imgproxy.PlanBuilderTest do
     assert {:ok, %Plan{pipelines: [%Pipeline{operations: operations}]}} =
              plan_pipeline(width: {:pixels, 100}, height: {:pixels, 100}, extend: true)
 
-    assert Enum.any?(operations, &match?(%ImagePlug.Transform.Operation.ExtendCanvas{}, &1))
+    assert Enum.any?(operations, &match?(%Operation.Canvas{}, &1))
 
-    assert {:ok, %Plan{pipelines: [%Pipeline{operations: operations}]}} =
+    assert {:ok, %Plan{pipelines: [%Pipeline{operations: operations}]} = plan} =
              plan_pipeline(extend_aspect_ratio: {16, 9})
 
-    assert Enum.any?(operations, &match?(%ImagePlug.Transform.Operation.ExtendCanvas{}, &1))
+    assert Enum.any?(operations, &match?(%Operation.Canvas{}, &1))
+    assert {:ok, _pipelines} = ImagePlug.Transform.validate_prefetch_safe_plan(plan)
   end
 
   test "plans extend gravity and offsets as neutral canvas operation fields" do
@@ -295,11 +240,13 @@ defmodule ImagePlug.Parser.Imgproxy.PlanBuilderTest do
                extend_y_offset: -3.0
              )
 
-    assert %Transform.Operation.ExtendCanvas{
-             gravity: {:anchor, :left, :top},
+    assert %Operation.Canvas{
+             placement: placement,
              x_offset: 5.0,
              y_offset: -3.0
            } = List.last(operations)
+
+    assert anchor(placement) == {:left, :top}
   end
 
   test "explicit false extend prevents parsed extend tails from planning canvas operations" do
@@ -314,7 +261,7 @@ defmodule ImagePlug.Parser.Imgproxy.PlanBuilderTest do
                extend_y_offset: -3.0
              )
 
-    refute Enum.any?(operations, &match?(%Transform.Operation.ExtendCanvas{}, &1))
+    refute Enum.any?(operations, &match?(%Operation.Canvas{}, &1))
   end
 
   test "plans top-level gravity offsets into result crop operations" do
@@ -322,7 +269,7 @@ defmodule ImagePlug.Parser.Imgproxy.PlanBuilderTest do
             %Plan{
               pipelines: [
                 %Pipeline{
-                  operations: [%Transform.Operation.Resize{}, %Transform.Operation.Crop{} = crop]
+                  operations: [%Operation.ResizeCover{} = crop]
                 }
               ]
             }} =
@@ -335,10 +282,9 @@ defmodule ImagePlug.Parser.Imgproxy.PlanBuilderTest do
                gravity_y_offset: {:scale, -0.25}
              )
 
-    assert crop.gravity == {:anchor, :right, :bottom}
+    assert anchor(crop.guide) == {:right, :bottom}
     assert crop.x_offset == {:pixels, -12.0}
     assert crop.y_offset == {:scale, 0.25}
-    assert %Transform.Operation.Crop{x_offset: {:pixels, -12.0}, y_offset: {:scale, 0.25}} = crop
   end
 
   test "scales absolute top-level gravity offsets by dpr" do
@@ -346,7 +292,7 @@ defmodule ImagePlug.Parser.Imgproxy.PlanBuilderTest do
             %Plan{
               pipelines: [
                 %Pipeline{
-                  operations: [%Transform.Operation.Resize{}, %Transform.Operation.Crop{} = crop]
+                  operations: [%Operation.ResizeCover{} = crop]
                 }
               ]
             }} =
@@ -372,7 +318,7 @@ defmodule ImagePlug.Parser.Imgproxy.PlanBuilderTest do
   end
 
   test "crop without explicit gravity inherits top-level gravity" do
-    assert {:ok, %Plan{pipelines: [%Pipeline{operations: [%Transform.Operation.Crop{} = crop]}]}} =
+    assert {:ok, %Plan{pipelines: [%Pipeline{operations: [%Operation.CropGuided{} = crop]}]}} =
              plan_pipeline(
                gravity: {:anchor, :left, :top},
                crop: %ImagePlug.Parser.Imgproxy.CropRequest{
@@ -382,11 +328,11 @@ defmodule ImagePlug.Parser.Imgproxy.PlanBuilderTest do
                }
              )
 
-    assert crop.gravity == {:anchor, :left, :top}
+    assert anchor(crop.guide) == {:left, :top}
   end
 
   test "plans crop focal-point gravity and relative offsets" do
-    assert {:ok, %Plan{pipelines: [%Pipeline{operations: [%Transform.Operation.Crop{} = crop]}]}} =
+    assert {:ok, %Plan{pipelines: [%Pipeline{operations: [%Operation.CropGuided{} = crop]}]}} =
              plan_pipeline(
                crop: %ImagePlug.Parser.Imgproxy.CropRequest{
                  width: {:pixels, 100},
@@ -397,7 +343,7 @@ defmodule ImagePlug.Parser.Imgproxy.PlanBuilderTest do
                }
              )
 
-    assert crop.gravity == {:fp, 0.25, 0.75}
+    assert focal_point(crop.guide) == {1, 4, 3, 4}
     assert crop.x_offset == {:scale, 0.25}
     assert crop.y_offset == {:pixels, -12.0}
   end
@@ -454,10 +400,9 @@ defmodule ImagePlug.Parser.Imgproxy.PlanBuilderTest do
     assert {:ok, %Plan{pipelines: [%Pipeline{operations: one_ops}]}} = one
     assert {:ok, %Plan{pipelines: [%Pipeline{operations: two_ops}]}} = two
 
-    assert Enum.map(one_ops, &ImagePlug.Transform.transform_name/1) ==
-             Enum.map(two_ops, &ImagePlug.Transform.transform_name/1)
+    assert operation_names(one_ops) == operation_names(two_ops)
 
-    assert Enum.map(one_ops, &ImagePlug.Transform.transform_name/1) == [:rotate, :crop, :resize]
+    assert operation_names(one_ops) == [:rotate, :crop_guided, :resize_fit]
 
     assert {:ok, %Plan{pipelines: [%Pipeline{operations: operations}]}} =
              plan_pipeline(
@@ -471,12 +416,12 @@ defmodule ImagePlug.Parser.Imgproxy.PlanBuilderTest do
                width: {:pixels, 200}
              )
 
-    assert Enum.map(operations, &ImagePlug.Transform.transform_name/1) == [
+    assert operation_names(operations) == [
              :auto_orient,
              :rotate,
              :flip,
-             :crop,
-             :resize
+             :crop_guided,
+             :resize_fit
            ]
   end
 
@@ -490,11 +435,7 @@ defmodule ImagePlug.Parser.Imgproxy.PlanBuilderTest do
                extend: true
              )
 
-    assert Enum.map(operations, &ImagePlug.Transform.transform_name/1) == [
-             :resize,
-             :crop,
-             :extend_canvas
-           ]
+    assert operation_names(operations) == [:resize_cover, :canvas]
   end
 
   test "parsed zoom supports one shared factor or independent axes" do
@@ -601,8 +542,7 @@ defmodule ImagePlug.Parser.Imgproxy.PlanBuilderTest do
   end
 
   test "plans neutral resize rule inputs before no-op operations" do
-    assert {:ok,
-            %Plan{pipelines: [%Pipeline{operations: [%Transform.Operation.Resize{} = resize]}]}} =
+    assert {:ok, %Plan{pipelines: [%Pipeline{operations: [%Operation.ResizeFit{} = resize]}]}} =
              plan_pipeline(
                min_width: {:pixels, 100},
                min_height: {:pixels, 80},
@@ -611,18 +551,18 @@ defmodule ImagePlug.Parser.Imgproxy.PlanBuilderTest do
                dpr: 2.0
              )
 
-    assert resize.rule.min_width == {:pixels, 100}
-    assert resize.rule.min_height == {:pixels, 80}
-    assert resize.rule.zoom_x == 2.0
-    assert resize.rule.zoom_y == 2.0
-    assert resize.rule.dpr == 2.0
+    assert resize.min_width == pixels(100)
+    assert resize.min_height == pixels(80)
+    assert resize.zoom_x == 2.0
+    assert resize.zoom_y == 2.0
+    assert resize.size.dpr == 2.0
   end
 
   test "plans parsed crop and orientation semantics before no-op operations" do
-    assert {:ok, %Plan{pipelines: [%Pipeline{operations: [%Transform.Operation.Crop{}]}]}} =
+    assert {:ok, %Plan{pipelines: [%Pipeline{operations: [%Operation.CropGuided{}]}]}} =
              plan_pipeline(crop: struct(ImagePlug.Parser.Imgproxy.CropRequest))
 
-    assert {:ok, %Plan{pipelines: [%Pipeline{operations: [%Transform.Operation.AutoOrient{}]}]}} =
+    assert {:ok, %Plan{pipelines: [%Pipeline{operations: [%Operation.AutoOrient{}]}]}} =
              plan_pipeline(orientation: struct(ImagePlug.Plan.Orientation, auto_orient: true))
 
     assert {:ok, %Plan{pipelines: [%Pipeline{operations: []}]}} =
@@ -634,7 +574,7 @@ defmodule ImagePlug.Parser.Imgproxy.PlanBuilderTest do
                orientation: struct(ImagePlug.Plan.Orientation, auto_orient: true)
              )
 
-    assert Enum.map(operations, &ImagePlug.Transform.transform_name/1) == [:auto_orient, :crop]
+    assert operation_names(operations) == [:auto_orient, :crop_guided]
   end
 
   test "converts multiple imgproxy pipeline requests into separate product-neutral pipelines" do
@@ -657,13 +597,13 @@ defmodule ImagePlug.Parser.Imgproxy.PlanBuilderTest do
               ]
             }} = PlanBuilder.to_plan(request, [])
 
-    assert [%Transform.Operation.Resize{} = first_params] = first_operations
-    assert first_params.rule.width == {:pixels, 500}
-    assert first_params.rule.height == :auto
+    assert [%Operation.ResizeFit{} = first_params] = first_operations
+    assert first_params.size.width == pixels(500)
+    assert first_params.size.height == auto()
 
-    assert [%Transform.Operation.Resize{} = second_params] = second_operations
-    assert second_params.rule.width == :auto
-    assert second_params.rule.height == {:pixels, 200}
+    assert [%Operation.ResizeFit{} = second_params] = second_operations
+    assert second_params.size.width == auto()
+    assert second_params.size.height == pixels(200)
   end
 
   test "represents output intent outside imgproxy pipeline operations" do
@@ -691,9 +631,9 @@ defmodule ImagePlug.Parser.Imgproxy.PlanBuilderTest do
                []
              )
 
-    assert [%Transform.Operation.Resize{} = automatic_params] = operations
-    assert automatic_params.rule.width == {:pixels, 300}
-    assert automatic_params.rule.height == {:pixels, 200}
+    assert [%Operation.ResizeStretch{} = automatic_params] = operations
+    assert automatic_params.size.width == pixels(300)
+    assert automatic_params.size.height == pixels(200)
 
     assert {:ok,
             %ImagePlug.Plan{
@@ -702,9 +642,9 @@ defmodule ImagePlug.Parser.Imgproxy.PlanBuilderTest do
             }} =
              PlanBuilder.to_plan(request, [])
 
-    assert [%Transform.Operation.Resize{} = explicit_params] = operations
-    assert explicit_params.rule.width == {:pixels, 300}
-    assert explicit_params.rule.height == {:pixels, 200}
+    assert [%Operation.ResizeStretch{} = explicit_params] = operations
+    assert explicit_params.size.width == pixels(300)
+    assert explicit_params.size.height == pixels(200)
   end
 
   property "output format does not change planned pipeline operations" do
@@ -828,6 +768,31 @@ defmodule ImagePlug.Parser.Imgproxy.PlanBuilderTest do
                output: %ImagePlug.Parser.Imgproxy.OutputRequest{}
              })
   end
+
+  defp pixels(value), do: %Dimension{unit: :logical_px, value: value}
+  defp auto, do: %Dimension{unit: :auto}
+
+  defp anchor(%ImagePlug.Plan.Guide.Gravity{type: :anchor, x: x, y: y}), do: {x, y}
+
+  defp focal_point(%ImagePlug.Plan.Guide.Gravity{
+         type: :focal_point,
+         x: %Dimension{unit: :ratio, numerator: x_numerator, denominator: x_denominator},
+         y: %Dimension{unit: :ratio, numerator: y_numerator, denominator: y_denominator}
+       }) do
+    {x_numerator, x_denominator, y_numerator, y_denominator}
+  end
+
+  defp operation_names(operations), do: Enum.map(operations, &operation_name/1)
+
+  defp operation_name(%Operation.AutoOrient{}), do: :auto_orient
+  defp operation_name(%Operation.Rotate{}), do: :rotate
+  defp operation_name(%Operation.Flip{}), do: :flip
+  defp operation_name(%Operation.CropGuided{}), do: :crop_guided
+  defp operation_name(%Operation.ResizeFit{}), do: :resize_fit
+  defp operation_name(%Operation.ResizeCover{}), do: :resize_cover
+  defp operation_name(%Operation.ResizeStretch{}), do: :resize_stretch
+  defp operation_name(%Operation.ResizeAuto{}), do: :resize_auto
+  defp operation_name(%Operation.Canvas{}), do: :canvas
 
   defp parsed_request do
     map({valid_pipeline_request(), output_format()}, fn {pipeline_request, output_format} ->

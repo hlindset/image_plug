@@ -6,9 +6,10 @@ defmodule ImagePlug.Parser.ImgproxyPropertyTest do
 
   alias ImagePlug.Parser.Imgproxy
   alias ImagePlug.Plan
+  alias ImagePlug.Plan.Geometry.Dimension
+  alias ImagePlug.Plan.Operation
   alias ImagePlug.Plan.Pipeline
   alias ImagePlug.Plan.Source.Plain
-  alias ImagePlug.Transform
 
   property "parser returns tagged results for arbitrary processing segments" do
     check all segments <- list_of(processing_segment(), max_length: 5),
@@ -39,8 +40,8 @@ defmodule ImagePlug.Parser.ImgproxyPropertyTest do
                |> imgproxy_path(["images", "cat.jpg"])
                |> parse_path()
 
-      assert [%Transform.Operation.Resize{} = params] = operations
-      assert params.rule.width == {:pixels, second}
+      assert [%Operation.ResizeFit{} = params] = operations
+      assert params.size.width == pixels(second)
     end
   end
 
@@ -53,10 +54,9 @@ defmodule ImagePlug.Parser.ImgproxyPropertyTest do
                |> imgproxy_path(["images", "cat.jpg"])
                |> parse_path()
 
-      assert [%Transform.Operation.Resize{} = params, %Transform.Operation.Crop{}] = operations
-      assert params.rule.mode == :fill
-      assert params.rule.width == {:pixels, width}
-      assert params.rule.height == {:pixels, height}
+      assert [%Operation.ResizeCover{} = params] = operations
+      assert params.size.width == pixels(width)
+      assert params.size.height == pixels(height)
     end
   end
 
@@ -99,6 +99,8 @@ defmodule ImagePlug.Parser.ImgproxyPropertyTest do
   end
 
   defp parse_path(path), do: Imgproxy.parse(conn(:get, path), [])
+
+  defp pixels(value), do: %Dimension{unit: :logical_px, value: value}
 
   defp safe_parse(options) do
     options

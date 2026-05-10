@@ -10,6 +10,10 @@ defmodule ImagePlug.Parser.Imgproxy.PlanBuilder do
   alias ImagePlug.Parser.Imgproxy.ResponseRequest
   alias ImagePlug.Plan
   alias ImagePlug.Plan.Cache
+  alias ImagePlug.Plan.Geometry.Dimension
+  alias ImagePlug.Plan.Geometry.Size
+  alias ImagePlug.Plan.Guide.Gravity
+  alias ImagePlug.Plan.Operation
   alias ImagePlug.Plan.Orientation
   alias ImagePlug.Plan.Output
   alias ImagePlug.Plan.Pipeline
@@ -17,7 +21,6 @@ defmodule ImagePlug.Parser.Imgproxy.PlanBuilder do
   alias ImagePlug.Plan.Response
   alias ImagePlug.Plan.Response.Filename
   alias ImagePlug.Plan.Source.Plain
-  alias ImagePlug.Transform
 
   @default_gravity {:anchor, :center, :center}
   @supported_output_formats [:webp, :avif, :jpeg, :png]
@@ -295,29 +298,28 @@ defmodule ImagePlug.Parser.Imgproxy.PlanBuilder do
     with {:ok, orientation_operations} <- orientation_operations(request),
          {:ok, crop_operations} <- crop_operations(request),
          {:ok, resize_operations} <- resize_operations(request),
-         {:ok, result_crop_operations} <- result_crop_operations(request, resize_operations),
          {:ok, canvas_operations} <- canvas_operations(request) do
       {:ok,
        orientation_operations ++
          crop_operations ++
-         resize_operations ++ result_crop_operations ++ canvas_operations}
+         resize_operations ++ canvas_operations}
     end
   end
 
   defp crop_operations(%PipelineRequest{crop: nil}), do: {:ok, []}
 
   defp crop_operations(%PipelineRequest{crop: %CropRequest{} = crop} = request) do
-    build_operation_list(
-      {:ok,
-       %Transform.Operation.Crop{
-         width: crop.width,
-         height: crop.height,
-         crop_from: :gravity,
-         gravity: crop.gravity || request.gravity,
-         x_offset: crop.x_offset,
-         y_offset: crop.y_offset
-       }}
-    )
+    with {:ok, size} <- crop_size(crop.width, crop.height, 1.0),
+         {:ok, guide} <- gravity(crop.gravity || request.gravity),
+         {:ok, operation} <-
+           Operation.crop_guided(
+             size: size,
+             guide: guide,
+             x_offset: crop.x_offset,
+             y_offset: crop.y_offset
+           ) do
+      {:ok, [operation]}
+    end
   end
 
   defp orientation_operations(%PipelineRequest{orientation: %Orientation{} = orientation}) do
@@ -333,42 +335,17 @@ defmodule ImagePlug.Parser.Imgproxy.PlanBuilder do
   end
 
   defp auto_orient_operation(%Orientation{auto_orient: true}),
-    do: {:ok, %Transform.Operation.AutoOrient{}}
+    do: Operation.auto_orient()
 
   defp auto_orient_operation(%Orientation{}), do: nil
 
   defp rotate_operation(%Orientation{rotate: 0}), do: nil
 
   defp rotate_operation(%Orientation{rotate: angle}),
-    do: {:ok, %Transform.Operation.Rotate{angle: angle}}
+    do: Operation.rotate(angle)
 
   defp flip_operation(%Orientation{flip: nil}), do: nil
-  defp flip_operation(%Orientation{flip: axis}), do: {:ok, %Transform.Operation.Flip{axis: axis}}
-
-  defp result_crop_operations(%PipelineRequest{}, []), do: {:ok, []}
-
-  defp result_crop_operations(
-         %PipelineRequest{resizing_type: resizing_type} = request,
-         _operations
-       )
-       when resizing_type in [:fill, :fill_down, :auto] do
-    with {:ok, %Transform.Geometry.DimensionRule{} = rule} <- result_crop_rule(request) do
-      build_operation_list(
-        {:ok,
-         %Transform.Operation.Crop{
-           width: :auto,
-           height: :auto,
-           crop_from: :gravity,
-           gravity: request.gravity,
-           x_offset: result_crop_x_offset(request),
-           y_offset: result_crop_y_offset(request),
-           target_rule: rule
-         }}
-      )
-    end
-  end
-
-  defp result_crop_operations(%PipelineRequest{}, _operations), do: {:ok, []}
+  defp flip_operation(%Orientation{flip: axis}), do: Operation.flip(axis)
 
   defp result_crop_x_offset(%PipelineRequest{} = request) do
     offset = request.gravity_x_offset
@@ -393,19 +370,6 @@ defmodule ImagePlug.Parser.Imgproxy.PlanBuilder do
 
   defp negate_offset(value) when is_number(value), do: -value
 
-  defp result_crop_rule(%PipelineRequest{} = request) do
-    with {:ok, %Transform.Geometry.DimensionRule{} = rule} <- dimension_rule(request) do
-      {:ok,
-       %Transform.Geometry.DimensionRule{
-         rule
-         | mode: result_crop_rule_mode(request.resizing_type)
-       }}
-    end
-  end
-
-  defp result_crop_rule_mode(:auto), do: :auto
-  defp result_crop_rule_mode(mode), do: mode
-
   defp resize_operations(%PipelineRequest{width: nil, height: nil} = request) do
     if resize_rule_requested?(request) do
       resize_from_rule(request)
@@ -423,12 +387,7 @@ defmodule ImagePlug.Parser.Imgproxy.PlanBuilder do
   end
 
   defp resize_operations(%PipelineRequest{resizing_type: :auto} = request) do
-    with {:ok, %Transform.Geometry.DimensionRule{} = rule} <- dimension_rule(request),
-         {:ok, operation} <-
-           {:ok,
-            %Transform.Operation.AdaptiveResize{
-              rule: %Transform.Geometry.DimensionRule{rule | mode: :auto}
-            }} do
+    with {:ok, operation} <- resize_operation(request) do
       {:ok, [operation]}
     end
   end
@@ -439,13 +398,13 @@ defmodule ImagePlug.Parser.Imgproxy.PlanBuilder do
   end
 
   defp resize_from_rule(%PipelineRequest{} = request) do
-    with {:ok, %Transform.Geometry.DimensionRule{} = rule} <- dimension_rule(request) do
-      case {rule.width, rule.height, resize_rule_requested?(request)} do
-        {:auto, :auto, false} ->
+    with {:ok, size} <- resize_size(request) do
+      case {size.width, size.height, resize_rule_requested?(request)} do
+        {%Dimension{unit: :auto}, %Dimension{unit: :auto}, false} ->
           {:ok, []}
 
         {_planned_width, _planned_height, _rule_requested?} ->
-          build_operation_list({:ok, %Transform.Operation.Resize{rule: rule}})
+          build_operation_list(resize_operation(request))
       end
     end
   end
@@ -471,15 +430,17 @@ defmodule ImagePlug.Parser.Imgproxy.PlanBuilder do
 
   defp extend_operation(%PipelineRequest{} = request) do
     if extend_operation_requested?(request) do
-      {:ok,
-       %Transform.Operation.ExtendCanvas{
-         rule:
-           {:dimensions, normalize_dimension(request.width), normalize_dimension(request.height)},
-         gravity: request.extend_gravity || @default_gravity,
-         x_offset: request.extend_x_offset || 0.0,
-         y_offset: request.extend_y_offset || 0.0,
-         background: :white
-       }}
+      with {:ok, size} <- resize_size(request),
+           {:ok, placement} <- gravity(request.extend_gravity || @default_gravity) do
+        Operation.canvas(
+          size: size,
+          placement: placement,
+          background: :white,
+          overflow: :reject,
+          x_offset: request.extend_x_offset || 0.0,
+          y_offset: request.extend_y_offset || 0.0
+        )
+      end
     end
   end
 
@@ -496,36 +457,116 @@ defmodule ImagePlug.Parser.Imgproxy.PlanBuilder do
   defp extend_aspect_ratio_operation(%PipelineRequest{extend_aspect_ratio: nil}), do: nil
 
   defp extend_aspect_ratio_operation(%PipelineRequest{extend_aspect_ratio: ratio}) do
-    {:ok,
-     %Transform.Operation.ExtendCanvas{
-       rule: {:aspect_ratio, ratio},
-       gravity: @default_gravity,
-       x_offset: 0.0,
-       y_offset: 0.0,
-       background: :white
-     }}
+    with {:ok, width} <- decimal_ratio(elem(ratio, 0)),
+         {:ok, height} <- decimal_ratio(elem(ratio, 1)),
+         {:ok, size} <- Size.new(width: width, height: height, dpr: 1.0),
+         {:ok, placement} <- gravity(@default_gravity) do
+      Operation.canvas(size: size, placement: placement, background: :white, overflow: :reject)
+    end
   end
 
-  defp dimension_rule(%PipelineRequest{} = request) do
-    {:ok,
-     %Transform.Geometry.DimensionRule{
-       mode: dimension_rule_mode(request.resizing_type),
-       width: normalize_dimension(request.width),
-       height: normalize_dimension(request.height),
-       min_width: request.min_width,
-       min_height: request.min_height,
-       zoom_x: request.zoom_x || 1.0,
-       zoom_y: request.zoom_y || 1.0,
-       dpr: request.dpr || 1.0,
-       enlarge: request.enlarge
-     }}
+  defp resize_operation(%PipelineRequest{resizing_type: :fit} = request) do
+    with {:ok, attrs} <- resize_attrs(request) do
+      Operation.resize_fit(attrs)
+    end
   end
 
-  defp dimension_rule_mode(:fit), do: :fit
-  defp dimension_rule_mode(:fill), do: :fill
-  defp dimension_rule_mode(:fill_down), do: :fill_down
-  defp dimension_rule_mode(:force), do: :force
-  defp dimension_rule_mode(:auto), do: :fit
+  defp resize_operation(%PipelineRequest{resizing_type: resizing_type} = request)
+       when resizing_type in [:fill, :fill_down] do
+    with {:ok, attrs} <- resize_attrs(request),
+         {:ok, guide} <- gravity(request.gravity) do
+      Operation.resize_cover(
+        Keyword.merge(attrs,
+          guide: guide,
+          x_offset: result_crop_x_offset(request),
+          y_offset: result_crop_y_offset(request)
+        )
+      )
+    end
+  end
+
+  defp resize_operation(%PipelineRequest{resizing_type: :force} = request) do
+    with {:ok, attrs} <- resize_attrs(request) do
+      Operation.resize_stretch(attrs)
+    end
+  end
+
+  defp resize_operation(%PipelineRequest{resizing_type: :auto} = request) do
+    with {:ok, attrs} <- resize_attrs(request),
+         {:ok, guide} <- gravity(request.gravity) do
+      Operation.resize_auto(
+        Keyword.merge(attrs,
+          guide: guide,
+          x_offset: result_crop_x_offset(request),
+          y_offset: result_crop_y_offset(request)
+        )
+      )
+    end
+  end
+
+  defp resize_attrs(%PipelineRequest{} = request) do
+    with {:ok, size} <- resize_size(request),
+         {:ok, min_width} <- optional_resize_dimension(request.min_width),
+         {:ok, min_height} <- optional_resize_dimension(request.min_height) do
+      {:ok,
+       [
+         size: size,
+         enlargement: enlargement(request),
+         min_width: min_width,
+         min_height: min_height,
+         zoom_x: request.zoom_x || 1.0,
+         zoom_y: request.zoom_y || 1.0
+       ]}
+    end
+  end
+
+  defp resize_size(%PipelineRequest{} = request) do
+    with {:ok, width} <- imgproxy_resize_dimension(request.width),
+         {:ok, height} <- imgproxy_resize_dimension(request.height) do
+      Size.new(width: width, height: height, dpr: request.dpr || 1.0)
+    end
+  end
+
+  defp crop_size(width, height, dpr) do
+    with {:ok, width} <- imgproxy_crop_dimension(width),
+         {:ok, height} <- imgproxy_crop_dimension(height) do
+      Size.new(width: width, height: height, dpr: dpr)
+    end
+  end
+
+  defp imgproxy_resize_dimension(nil), do: Dimension.auto()
+  defp imgproxy_resize_dimension(:auto), do: Dimension.auto()
+  defp imgproxy_resize_dimension({:pixels, 0}), do: Dimension.auto()
+
+  defp imgproxy_resize_dimension({:pixels, value}) when is_integer(value) and value > 0,
+    do: Dimension.pixels(value)
+
+  defp imgproxy_resize_dimension({:scale, value}), do: decimal_ratio(value)
+
+  defp imgproxy_crop_dimension(:auto), do: Dimension.full_axis()
+  defp imgproxy_crop_dimension({:pixels, 0}), do: Dimension.full_axis()
+
+  defp imgproxy_crop_dimension({:pixels, value}) when is_integer(value) and value > 0,
+    do: Dimension.pixels(value)
+
+  defp imgproxy_crop_dimension({:scale, value}), do: decimal_ratio(value)
+
+  defp optional_resize_dimension(nil), do: {:ok, nil}
+  defp optional_resize_dimension({:pixels, 0}), do: Dimension.auto()
+  defp optional_resize_dimension(dimension), do: imgproxy_resize_dimension(dimension)
+
+  defp gravity({:anchor, x, y}), do: Gravity.anchor(x, y)
+
+  defp gravity({:fp, x, y}) do
+    with {:ok, {x_numerator, x_denominator}} <- decimal_ratio_parts(x),
+         {:ok, {y_numerator, y_denominator}} <- decimal_ratio_parts(y) do
+      Gravity.focal_point(x_numerator, x_denominator, y_numerator, y_denominator)
+    end
+  end
+
+  defp enlargement(%PipelineRequest{resizing_type: :fill_down}), do: :deny
+  defp enlargement(%PipelineRequest{enlarge: true}), do: :allow
+  defp enlargement(%PipelineRequest{}), do: :deny
 
   defp build_operation_list({:ok, operation}), do: {:ok, [operation]}
 
@@ -539,9 +580,40 @@ defmodule ImagePlug.Parser.Imgproxy.PlanBuilder do
 
   defp valid_gravity?(_gravity), do: false
 
-  defp normalize_dimension({:pixels, 0}), do: :auto
-  defp normalize_dimension(nil), do: :auto
-  defp normalize_dimension(dimension), do: dimension
+  defp decimal_ratio(value) do
+    with {:ok, {numerator, denominator}} <- decimal_ratio_parts(value) do
+      Dimension.ratio(numerator, denominator)
+    end
+  end
+
+  # Parser values are already floats for decimal syntax. Preserve the decimal
+  # spelling Elixir prints for compatibility, instead of materializing the raw
+  # IEEE-754 fraction.
+  defp decimal_ratio_parts(value) when is_integer(value) and value >= 0, do: {:ok, {value, 1}}
+
+  defp decimal_ratio_parts(value) when is_float(value) and value >= 0.0 do
+    value
+    |> :erlang.float_to_binary([:compact, decimals: 12])
+    |> decimal_string_ratio()
+  end
+
+  defp decimal_string_ratio(value) do
+    case String.split(value, ".") do
+      [integer] ->
+        {numerator, ""} = Integer.parse(integer)
+        {:ok, {numerator, 1}}
+
+      [integer, fraction_text] ->
+        {integer, ""} = Integer.parse(integer)
+        {fraction, ""} = Integer.parse(fraction_text)
+        denominator = integer_power(10, String.length(fraction_text))
+        {:ok, {integer * denominator + fraction, denominator}}
+    end
+  end
+
+  defp integer_power(base, exponent) do
+    Enum.reduce(1..exponent//1, 1, fn _index, product -> product * base end)
+  end
 
   defp missing_dimensions(resizing_type), do: {:error, {:missing_dimensions, resizing_type}}
 end

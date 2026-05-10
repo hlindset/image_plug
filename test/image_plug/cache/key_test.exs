@@ -226,6 +226,13 @@ defmodule ImagePlug.Cache.KeyTest do
                dpr: 1.0
              ],
              enlargement: :deny,
+             guide: [type: :anchor, x: :center, y: :center, space: :current],
+             min_width: nil,
+             min_height: nil,
+             zoom_x: 1.0,
+             zoom_y: 1.0,
+             x_offset: {:pixels, 0.0},
+             y_offset: {:pixels, 0.0},
              rule: :imgproxy_orientation_match_v1
            ]
 

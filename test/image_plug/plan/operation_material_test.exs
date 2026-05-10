@@ -19,20 +19,34 @@ defmodule ImagePlug.Plan.OperationMaterialTest do
     assert Material.material(fit) == [
              op: :resize_fit,
              size: size_material(300, 200, 2.0),
-             enlargement: :allow
+             enlargement: :allow,
+             min_width: nil,
+             min_height: nil,
+             zoom_x: 1.0,
+             zoom_y: 1.0
            ]
 
     assert Material.material(cover) == [
              op: :resize_cover,
              size: size_material(300, 200, 2.0),
              enlargement: :deny,
-             guide: [type: :anchor, x: :center, y: :bottom, space: :current]
+             guide: [type: :anchor, x: :center, y: :bottom, space: :current],
+             min_width: nil,
+             min_height: nil,
+             zoom_x: 1.0,
+             zoom_y: 1.0,
+             x_offset: {:pixels, 0.0},
+             y_offset: {:pixels, 0.0}
            ]
 
     assert Material.material(stretch) == [
              op: :resize_stretch,
              size: size_material(300, 200, 2.0),
-             enlargement: :allow
+             enlargement: :allow,
+             min_width: nil,
+             min_height: nil,
+             zoom_x: 1.0,
+             zoom_y: 1.0
            ]
   end
 
@@ -46,6 +60,13 @@ defmodule ImagePlug.Plan.OperationMaterialTest do
              op: :resize_auto,
              size: size_material(300, 200, 2.0),
              enlargement: :deny,
+             guide: [type: :anchor, x: :center, y: :center, space: :current],
+             min_width: nil,
+             min_height: nil,
+             zoom_x: 1.0,
+             zoom_y: 1.0,
+             x_offset: {:pixels, 0.0},
+             y_offset: {:pixels, 0.0},
              rule: :imgproxy_orientation_match_v1
            ]
 
@@ -69,7 +90,9 @@ defmodule ImagePlug.Plan.OperationMaterialTest do
     assert material == [
              op: :crop_guided,
              size: size_material(50, 50, 1.0),
-             guide: [type: :anchor, x: :center, y: :center, space: :current]
+             guide: [type: :anchor, x: :center, y: :center, space: :current],
+             x_offset: {:pixels, 0.0},
+             y_offset: {:pixels, 0.0}
            ]
 
     refute inspect(material) =~ "imgproxy"
@@ -109,7 +132,9 @@ defmodule ImagePlug.Plan.OperationMaterialTest do
              size: size_material(320, 240, 1.0),
              placement: [type: :anchor, x: :center, y: :center, space: :current],
              background: :white,
-             overflow: :reject
+             overflow: :reject,
+             x_offset: 0.0,
+             y_offset: 0.0
            ]
   end
 

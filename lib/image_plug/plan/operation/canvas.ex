@@ -7,12 +7,14 @@ defmodule ImagePlug.Plan.Operation.Canvas do
   alias ImagePlug.Plan.Guide.Gravity
 
   @enforce_keys [:size, :placement, :background, :overflow]
-  defstruct @enforce_keys
+  defstruct @enforce_keys ++ [x_offset: 0.0, y_offset: 0.0]
 
   @type t :: %__MODULE__{
           size: Size.t(),
           placement: Gravity.t(),
           background: :white,
-          overflow: :reject
+          overflow: :reject,
+          x_offset: number(),
+          y_offset: number()
         }
 end

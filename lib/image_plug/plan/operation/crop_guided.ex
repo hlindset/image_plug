@@ -7,7 +7,13 @@ defmodule ImagePlug.Plan.Operation.CropGuided do
   alias ImagePlug.Plan.Guide.Gravity
 
   @enforce_keys [:size, :guide]
-  defstruct @enforce_keys
+  defstruct @enforce_keys ++ [x_offset: {:pixels, 0.0}, y_offset: {:pixels, 0.0}]
 
-  @type t :: %__MODULE__{size: Size.t(), guide: Gravity.t()}
+  @type offset :: number() | {:pixels, number()} | {:scale, number()}
+  @type t :: %__MODULE__{
+          size: Size.t(),
+          guide: Gravity.t(),
+          x_offset: offset(),
+          y_offset: offset()
+        }
 end

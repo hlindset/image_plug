@@ -34,8 +34,8 @@ defmodule ImagePlug.Plan.Guide.Gravity do
 
   def focal_point(x_numerator, x_denominator, y_numerator, y_denominator, space)
       when space in @spaces do
-    with {:ok, x} <- Dimension.ratio(x_numerator, x_denominator),
-         {:ok, y} <- Dimension.ratio(y_numerator, y_denominator) do
+    with {:ok, x} <- focal_ratio(x_numerator, x_denominator),
+         {:ok, y} <- focal_ratio(y_numerator, y_denominator) do
       {:ok, %__MODULE__{type: :focal_point, x: x, y: y, space: space}}
     else
       {:error, _reason} ->
@@ -50,4 +50,10 @@ defmodule ImagePlug.Plan.Guide.Gravity do
       {:error,
        {:invalid_gravity,
         {:focal_point, x_numerator, x_denominator, y_numerator, y_denominator, space}}}
+
+  defp focal_ratio(0, denominator) when is_integer(denominator) and denominator > 0 do
+    {:ok, %Dimension{unit: :ratio, numerator: 0, denominator: 1}}
+  end
+
+  defp focal_ratio(numerator, denominator), do: Dimension.ratio(numerator, denominator)
 end

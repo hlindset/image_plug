@@ -6,12 +6,13 @@ defmodule ImagePlug.Parser.ImgproxyTest do
 
   alias ImagePlug.Parser.Imgproxy
   alias ImagePlug.Plan
+  alias ImagePlug.Plan.Geometry.Dimension
+  alias ImagePlug.Plan.Operation
   alias ImagePlug.Plan.Output
   alias ImagePlug.Plan.Pipeline
   alias ImagePlug.Plan.Response
   alias ImagePlug.Plan.Response.Filename
   alias ImagePlug.Plan.Source.Plain
-  alias ImagePlug.Transform
 
   test "parses a plain source with no processing options" do
     assert {:ok,
@@ -57,20 +58,18 @@ defmodule ImagePlug.Parser.ImgproxyTest do
   end
 
   test "parses resize and rs full grammar" do
-    assert [%Transform.Operation.Resize{} = fill_params, %Transform.Operation.Crop{}] =
+    assert [%Operation.ResizeCover{} = fill_params] =
              operations_for("/_/resize:fill:300:200:1/plain/images/cat.jpg")
 
-    assert fill_params.rule.mode == :fill
-    assert fill_params.rule.width == {:pixels, 300}
-    assert fill_params.rule.height == {:pixels, 200}
-    assert fill_params.rule.enlarge == true
+    assert fill_params.size.width == pixels(300)
+    assert fill_params.size.height == pixels(200)
+    assert fill_params.enlargement == :allow
 
-    assert [%Transform.Operation.Resize{} = force_params] =
+    assert [%Operation.ResizeStretch{} = force_params] =
              operations_for("/_/rs:force:300:200/plain/images/cat.jpg")
 
-    assert force_params.rule.mode == :force
-    assert force_params.rule.width == {:pixels, 300}
-    assert force_params.rule.height == {:pixels, 200}
+    assert force_params.size.width == pixels(300)
+    assert force_params.size.height == pixels(200)
 
     assert {:ok, parsed} =
              Imgproxy.parse_request(
@@ -88,19 +87,17 @@ defmodule ImagePlug.Parser.ImgproxyTest do
   end
 
   test "parses omitted resize arguments with imgproxy defaults" do
-    assert [%Transform.Operation.Resize{} = width_params] =
+    assert [%Operation.ResizeFit{} = width_params] =
              operations_for("/_/rs:fit:300/plain/images/cat.jpg")
 
-    assert width_params.rule.mode == :fit
-    assert width_params.rule.width == {:pixels, 300}
-    assert width_params.rule.height == :auto
+    assert width_params.size.width == pixels(300)
+    assert width_params.size.height == auto()
 
-    assert [%Transform.Operation.Resize{} = dimensions_params] =
+    assert [%Operation.ResizeFit{} = dimensions_params] =
              operations_for("/_/rs::300:200/plain/images/cat.jpg")
 
-    assert dimensions_params.rule.mode == :fit
-    assert dimensions_params.rule.width == {:pixels, 300}
-    assert dimensions_params.rule.height == {:pixels, 200}
+    assert dimensions_params.size.width == pixels(300)
+    assert dimensions_params.size.height == pixels(200)
   end
 
   test "rejects empty resize and size option segments" do
@@ -111,24 +108,25 @@ defmodule ImagePlug.Parser.ImgproxyTest do
   end
 
   test "omitted meta-option arguments do not overwrite previous field assignments" do
-    assert [%Transform.Operation.Resize{} = params, %Transform.Operation.Crop{}] =
+    assert [%Operation.ResizeCover{} = params] =
              operations_for("/_/w:500/rs:fill::200/plain/images/cat.jpg")
 
-    assert params.rule.mode == :fill
-    assert params.rule.width == {:pixels, 500}
-    assert params.rule.height == {:pixels, 200}
+    assert params.size.width == pixels(500)
+    assert params.size.height == pixels(200)
   end
 
   test "omitted extend argument still parses provided extend gravity tail" do
     assert {:ok, %Plan{pipelines: [%Pipeline{operations: operations}]}} =
              Imgproxy.parse(conn(:get, "/_/rs::::::ce::/plain/images/cat.jpg"), [])
 
-    assert [%Transform.Operation.ExtendCanvas{gravity: {:anchor, :center, :center}}] = operations
+    assert [%Operation.Canvas{placement: placement}] = operations
+    assert anchor(placement) == {:center, :center}
 
     assert {:ok, %Plan{pipelines: [%Pipeline{operations: operations}]}} =
              Imgproxy.parse(conn(:get, "/_/s:::::ce::/plain/images/cat.jpg"), [])
 
-    assert [%Transform.Operation.ExtendCanvas{gravity: {:anchor, :center, :center}}] = operations
+    assert [%Operation.Canvas{placement: placement}] = operations
+    assert anchor(placement) == {:center, :center}
   end
 
   test "extend gravity invalid arity reports the original option segment" do
@@ -155,25 +153,23 @@ defmodule ImagePlug.Parser.ImgproxyTest do
                []
              )
 
-    assert Enum.any?(operations, &match?(%Transform.Operation.ExtendCanvas{}, &1))
+    assert Enum.any?(operations, &match?(%Operation.Canvas{}, &1))
   end
 
   test "parses size without changing resizing_type" do
-    assert [%Transform.Operation.Resize{} = params] =
+    assert [%Operation.ResizeStretch{} = params] =
              operations_for("/_/rt:force/s:300:200/plain/images/cat.jpg")
 
-    assert params.rule.mode == :force
-    assert params.rule.width == {:pixels, 300}
-    assert params.rule.height == {:pixels, 200}
+    assert params.size.width == pixels(300)
+    assert params.size.height == pixels(200)
   end
 
   test "size overwrites dimensions without resetting resizing_type" do
-    assert [%Transform.Operation.Resize{} = params, %Transform.Operation.Crop{}] =
+    assert [%Operation.ResizeCover{} = params] =
              operations_for("/_/rs:fill:300:200/s:100:100/plain/images/cat.jpg")
 
-    assert params.rule.mode == :fill
-    assert params.rule.width == {:pixels, 100}
-    assert params.rule.height == {:pixels, 100}
+    assert params.size.width == pixels(100)
+    assert params.size.height == pixels(100)
   end
 
   test "parses min size, zoom, dpr, crop, orientation, and extend-aspect-ratio" do
@@ -204,20 +200,19 @@ defmodule ImagePlug.Parser.ImgproxyTest do
   end
 
   test "public parse plans supported geometry pipeline semantics" do
-    assert {:ok,
-            %Plan{pipelines: [%Pipeline{operations: [%Transform.Operation.Resize{} = resize]}]}} =
+    assert {:ok, %Plan{pipelines: [%Pipeline{operations: [%Operation.ResizeFit{} = resize]}]}} =
              Imgproxy.parse(conn(:get, "/_/z:2/plain/images/cat.jpg"), [])
 
-    assert resize.rule.zoom_x == 2.0
-    assert resize.rule.zoom_y == 2.0
+    assert resize.zoom_x == 2.0
+    assert resize.zoom_y == 2.0
 
-    assert {:ok, %Plan{pipelines: [%Pipeline{operations: [%Transform.Operation.Crop{} = crop]}]}} =
+    assert {:ok, %Plan{pipelines: [%Pipeline{operations: [%Operation.CropGuided{} = crop]}]}} =
              Imgproxy.parse(conn(:get, "/_/crop:10:20/plain/images/cat.jpg"), [])
 
-    assert crop.width == {:pixels, 10}
-    assert crop.height == {:pixels, 20}
+    assert crop.size.width == pixels(10)
+    assert crop.size.height == pixels(20)
 
-    assert {:ok, %Plan{pipelines: [%Pipeline{operations: [%Transform.Operation.AutoOrient{}]}]}} =
+    assert {:ok, %Plan{pipelines: [%Pipeline{operations: [%Operation.AutoOrient{}]}]}} =
              Imgproxy.parse(conn(:get, "/_/ar/plain/images/cat.jpg"), [])
 
     for segment <- ~w(ar:false rot:0 rot:360 fl:false:false) do
@@ -228,7 +223,7 @@ defmodule ImagePlug.Parser.ImgproxyTest do
     assert {:ok, %Plan{pipelines: [%Pipeline{operations: operations}]}} =
              Imgproxy.parse(conn(:get, "/_/crop:10:20/ar/plain/images/cat.jpg"), [])
 
-    assert Enum.map(operations, &Transform.transform_name/1) == [:auto_orient, :crop]
+    assert operation_names(operations) == [:auto_orient, :crop_guided]
 
     for segment <- ~w(extend:false ex:false) do
       assert {:ok, %Plan{pipelines: [%Pipeline{operations: []}]}} =
@@ -238,7 +233,7 @@ defmodule ImagePlug.Parser.ImgproxyTest do
     assert {:ok, %Plan{pipelines: [%Pipeline{operations: operations}]}} =
              Imgproxy.parse(conn(:get, "/_/rs:fit:300:200:0:0:ce/plain/images/cat.jpg"), [])
 
-    refute Enum.any?(operations, &match?(%Transform.Operation.ExtendCanvas{}, &1))
+    refute Enum.any?(operations, &match?(%Operation.Canvas{}, &1))
   end
 
   test "parses supported resizing type aliases into plans and rejects unsupported values" do
@@ -262,21 +257,20 @@ defmodule ImagePlug.Parser.ImgproxyTest do
               pipelines: [
                 %Pipeline{
                   operations: [
-                    %Transform.Operation.Resize{} = resize,
-                    %Transform.Operation.Crop{}
+                    %Operation.ResizeCover{} = resize
                   ]
                 }
               ]
             }} =
              Imgproxy.parse(conn(:get, "/_/rt:fill-down/w:100/h:100/plain/images/cat.jpg"), [])
 
-    assert resize.rule.mode == :fill_down
+    assert resize.enlargement == :deny
 
     assert {:ok,
             %Plan{
               pipelines: [
                 %Pipeline{
-                  operations: [%Transform.Operation.AdaptiveResize{}, %Transform.Operation.Crop{}]
+                  operations: [%Operation.ResizeAuto{}]
                 }
               ]
             }} =
@@ -290,19 +284,18 @@ defmodule ImagePlug.Parser.ImgproxyTest do
   end
 
   test "parses width and height aliases including zero" do
-    assert [%Transform.Operation.Resize{} = params] =
+    assert [%Operation.ResizeFit{} = params] =
              operations_for("/_/w:0/h:200/plain/images/cat.jpg")
 
-    assert params.rule.width == :auto
-    assert params.rule.height == {:pixels, 200}
+    assert params.size.width == auto()
+    assert params.size.height == pixels(200)
 
-    assert {:ok,
-            %Plan{pipelines: [%Pipeline{operations: [%Transform.Operation.Resize{} = resize]}]}} =
+    assert {:ok, %Plan{pipelines: [%Pipeline{operations: [%Operation.ResizeFit{} = resize]}]}} =
              Imgproxy.parse(conn(:get, "/_/w:0/h:0/mw:300/plain/images/cat.jpg"), [])
 
-    assert resize.rule.width == :auto
-    assert resize.rule.height == :auto
-    assert resize.rule.min_width == {:pixels, 300}
+    assert resize.size.width == auto()
+    assert resize.size.height == auto()
+    assert resize.min_width == pixels(300)
   end
 
   test "parses documented Imgproxy processing examples" do
@@ -322,19 +315,19 @@ defmodule ImagePlug.Parser.ImgproxyTest do
             %Plan{
               pipelines: [
                 %Pipeline{
-                  operations: [%Transform.Operation.Resize{}, %Transform.Operation.Crop{} = crop]
+                  operations: [%Operation.ResizeCover{} = crop]
                 }
               ]
             }} =
              Imgproxy.parse(conn(:get, "/_/g:nowe/rs:fill:300:200/plain/images/cat.jpg"), [])
 
-    assert crop.gravity == {:anchor, :left, :top}
+    assert anchor(crop.guide) == {:left, :top}
 
     assert {:ok,
             %Plan{
               pipelines: [
                 %Pipeline{
-                  operations: [%Transform.Operation.Resize{}, %Transform.Operation.Crop{} = crop]
+                  operations: [%Operation.ResizeCover{} = crop]
                 }
               ]
             }} =
@@ -343,34 +336,34 @@ defmodule ImagePlug.Parser.ImgproxyTest do
                []
              )
 
-    assert crop.gravity == {:fp, 0.5, 0.25}
+    assert focal_point(crop.guide) == {1, 2, 1, 4}
 
     assert {:ok,
             %Plan{
               pipelines: [
                 %Pipeline{
-                  operations: [%Transform.Operation.Resize{}, %Transform.Operation.Crop{} = crop]
+                  operations: [%Operation.ResizeCover{} = crop]
                 }
               ]
-            }} =
+            } = plan} =
              Imgproxy.parse(conn(:get, "/_/g:fp:1:0/rs:fill:300:200/plain/images/cat.jpg"), [])
 
-    assert crop.gravity == {:fp, 1.0, 0.0}
+    assert focal_point(crop.guide) == {1, 1, 0, 1}
+    assert {:ok, _pipelines} = ImagePlug.Transform.validate_prefetch_safe_plan(plan)
 
     assert {:ok,
             %Plan{
               pipelines: [
                 %Pipeline{
                   operations: [
-                    %Transform.Operation.AdaptiveResize{},
-                    %Transform.Operation.Crop{} = crop
+                    %Operation.ResizeAuto{} = crop
                   ]
                 }
               ]
             }} =
              Imgproxy.parse(conn(:get, "/_/g:soea/rt:auto/w:300/h:200/plain/images/cat.jpg"), [])
 
-    assert crop.gravity == {:anchor, :right, :bottom}
+    assert anchor(crop.guide) == {:right, :bottom}
   end
 
   test "parses and plans imgproxy top-level gravity offsets" do
@@ -386,7 +379,7 @@ defmodule ImagePlug.Parser.ImgproxyTest do
             %Plan{
               pipelines: [
                 %Pipeline{
-                  operations: [%Transform.Operation.Resize{}, %Transform.Operation.Crop{} = crop]
+                  operations: [%Operation.ResizeCover{} = crop]
                 }
               ]
             }} =
@@ -395,7 +388,7 @@ defmodule ImagePlug.Parser.ImgproxyTest do
                []
              )
 
-    assert crop.gravity == {:anchor, :right, :bottom}
+    assert anchor(crop.guide) == {:right, :bottom}
     assert crop.x_offset == {:pixels, -12.0}
     assert crop.y_offset == {:scale, 0.25}
   end
@@ -769,31 +762,28 @@ defmodule ImagePlug.Parser.ImgproxyTest do
   end
 
   test "later field assignments overwrite earlier assignments" do
-    assert [%Transform.Operation.Resize{} = contain_params] =
+    assert [%Operation.ResizeFit{} = contain_params] =
              operations_for("/_/w:100/width:200/plain/images/cat.jpg")
 
-    assert contain_params.rule.width == {:pixels, 200}
+    assert contain_params.size.width == pixels(200)
 
-    assert [%Transform.Operation.Resize{} = resized_params, %Transform.Operation.Crop{}] =
+    assert [%Operation.ResizeCover{} = resized_params] =
              operations_for("/_/resize:fill:300:200/w:500/plain/images/cat.jpg")
 
-    assert resized_params.rule.mode == :fill
-    assert resized_params.rule.width == {:pixels, 500}
-    assert resized_params.rule.height == {:pixels, 200}
+    assert resized_params.size.width == pixels(500)
+    assert resized_params.size.height == pixels(200)
 
-    assert [%Transform.Operation.Resize{} = overwritten_params, %Transform.Operation.Crop{}] =
+    assert [%Operation.ResizeCover{} = overwritten_params] =
              operations_for("/_/w:500/resize:fill:300:200/plain/images/cat.jpg")
 
-    assert overwritten_params.rule.mode == :fill
-    assert overwritten_params.rule.width == {:pixels, 300}
-    assert overwritten_params.rule.height == {:pixels, 200}
+    assert overwritten_params.size.width == pixels(300)
+    assert overwritten_params.size.height == pixels(200)
 
-    assert [%Transform.Operation.Resize{} = scale_params] =
+    assert [%Operation.ResizeStretch{} = scale_params] =
              operations_for("/_/size:300:200/rt:force/plain/images/cat.jpg")
 
-    assert scale_params.rule.mode == :force
-    assert scale_params.rule.width == {:pixels, 300}
-    assert scale_params.rule.height == {:pixels, 200}
+    assert scale_params.size.width == pixels(300)
+    assert scale_params.size.height == pixels(200)
   end
 
   test "parses chained imgproxy pipeline separators into multiple pipelines" do
@@ -805,27 +795,27 @@ defmodule ImagePlug.Parser.ImgproxyTest do
               ]
             }} = Imgproxy.parse(conn(:get, "/_/w:500/-/h:200/plain/images/cat.jpg"), [])
 
-    assert [%Transform.Operation.Resize{} = first_params] = first_operations
-    assert first_params.rule.width == {:pixels, 500}
-    assert first_params.rule.height == :auto
+    assert [%Operation.ResizeFit{} = first_params] = first_operations
+    assert first_params.size.width == pixels(500)
+    assert first_params.size.height == auto()
 
-    assert [%Transform.Operation.Resize{} = second_params] = second_operations
-    assert second_params.rule.width == :auto
-    assert second_params.rule.height == {:pixels, 200}
+    assert [%Operation.ResizeFit{} = second_params] = second_operations
+    assert second_params.size.width == auto()
+    assert second_params.size.height == pixels(200)
   end
 
   test "ignores empty groups around chained imgproxy pipeline separators" do
     assert {:ok, %Plan{pipelines: [%Pipeline{operations: leading_operations}]}} =
              Imgproxy.parse(conn(:get, "/_/-/w:500/plain/images/cat.jpg"), [])
 
-    assert [%Transform.Operation.Resize{} = leading_params] = leading_operations
-    assert leading_params.rule.width == {:pixels, 500}
+    assert [%Operation.ResizeFit{} = leading_params] = leading_operations
+    assert leading_params.size.width == pixels(500)
 
     assert {:ok, %Plan{pipelines: [%Pipeline{operations: trailing_operations}]}} =
              Imgproxy.parse(conn(:get, "/_/w:500/-/plain/images/cat.jpg"), [])
 
-    assert [%Transform.Operation.Resize{} = trailing_params] = trailing_operations
-    assert trailing_params.rule.width == {:pixels, 500}
+    assert [%Operation.ResizeFit{} = trailing_params] = trailing_operations
+    assert trailing_params.size.width == pixels(500)
 
     assert {:ok,
             %Plan{
@@ -835,11 +825,11 @@ defmodule ImagePlug.Parser.ImgproxyTest do
               ]
             }} = Imgproxy.parse(conn(:get, "/_/w:500/-/-/h:200/plain/images/cat.jpg"), [])
 
-    assert [%Transform.Operation.Resize{} = first_params] = first_operations
-    assert first_params.rule.width == {:pixels, 500}
+    assert [%Operation.ResizeFit{} = first_params] = first_operations
+    assert first_params.size.width == pixels(500)
 
-    assert [%Transform.Operation.Resize{} = second_params] = second_operations
-    assert second_params.rule.height == {:pixels, 200}
+    assert [%Operation.ResizeFit{} = second_params] = second_operations
+    assert second_params.size.height == pixels(200)
   end
 
   test "preserves no-op single-pipeline behavior" do
@@ -857,11 +847,11 @@ defmodule ImagePlug.Parser.ImgproxyTest do
             }} =
              Imgproxy.parse(conn(:get, "/_/w:500/w:600/-/h:200/h:300/plain/images/cat.jpg"), [])
 
-    assert [%Transform.Operation.Resize{} = first_params] = first_operations
-    assert first_params.rule.width == {:pixels, 600}
+    assert [%Operation.ResizeFit{} = first_params] = first_operations
+    assert first_params.size.width == pixels(600)
 
-    assert [%Transform.Operation.Resize{} = second_params] = second_operations
-    assert second_params.rule.height == {:pixels, 300}
+    assert [%Operation.ResizeFit{} = second_params] = second_operations
+    assert second_params.size.height == pixels(300)
   end
 
   test "detects raw source extension before percent decoding" do
@@ -931,6 +921,24 @@ defmodule ImagePlug.Parser.ImgproxyTest do
     assert {:ok, %Plan{output: %Output{mode: ^mode}}} =
              Imgproxy.parse(conn(:get, path), [])
   end
+
+  defp pixels(value), do: %Dimension{unit: :logical_px, value: value}
+  defp auto, do: %Dimension{unit: :auto}
+
+  defp anchor(%ImagePlug.Plan.Guide.Gravity{type: :anchor, x: x, y: y}), do: {x, y}
+
+  defp focal_point(%ImagePlug.Plan.Guide.Gravity{
+         type: :focal_point,
+         x: %Dimension{unit: :ratio, numerator: x_numerator, denominator: x_denominator},
+         y: %Dimension{unit: :ratio, numerator: y_numerator, denominator: y_denominator}
+       }) do
+    {x_numerator, x_denominator, y_numerator, y_denominator}
+  end
+
+  defp operation_names(operations), do: Enum.map(operations, &operation_name/1)
+
+  defp operation_name(%Operation.AutoOrient{}), do: :auto_orient
+  defp operation_name(%Operation.CropGuided{}), do: :crop_guided
 
   defp permutations([]), do: [[]]
 

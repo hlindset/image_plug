@@ -62,7 +62,9 @@ defimpl ImagePlug.Transform.Material, for: ImagePlug.Plan.Operation.CropGuided d
     [
       op: :crop_guided,
       size: ImagePlug.Transform.Material.material(operation.size),
-      guide: ImagePlug.Transform.Material.material(operation.guide)
+      guide: ImagePlug.Transform.Material.material(operation.guide),
+      x_offset: operation.x_offset,
+      y_offset: operation.y_offset
     ]
   end
 end
@@ -83,7 +85,9 @@ defimpl ImagePlug.Transform.Material, for: ImagePlug.Plan.Operation.Canvas do
       size: ImagePlug.Transform.Material.material(operation.size),
       placement: ImagePlug.Transform.Material.material(operation.placement),
       background: operation.background,
-      overflow: operation.overflow
+      overflow: operation.overflow,
+      x_offset: operation.x_offset,
+      y_offset: operation.y_offset
     ]
   end
 end
@@ -111,9 +115,16 @@ defimpl ImagePlug.Transform.Material, for: ImagePlug.Plan.Operation.ResizeFit do
     [
       op: :resize_fit,
       size: ImagePlug.Transform.Material.material(operation.size),
-      enlargement: operation.enlargement
+      enlargement: operation.enlargement,
+      min_width: material_or_nil(operation.min_width),
+      min_height: material_or_nil(operation.min_height),
+      zoom_x: operation.zoom_x,
+      zoom_y: operation.zoom_y
     ]
   end
+
+  defp material_or_nil(nil), do: nil
+  defp material_or_nil(value), do: ImagePlug.Transform.Material.material(value)
 end
 
 defimpl ImagePlug.Transform.Material, for: ImagePlug.Plan.Operation.ResizeCover do
@@ -122,9 +133,18 @@ defimpl ImagePlug.Transform.Material, for: ImagePlug.Plan.Operation.ResizeCover 
       op: :resize_cover,
       size: ImagePlug.Transform.Material.material(operation.size),
       enlargement: operation.enlargement,
-      guide: ImagePlug.Transform.Material.material(operation.guide)
+      guide: ImagePlug.Transform.Material.material(operation.guide),
+      min_width: material_or_nil(operation.min_width),
+      min_height: material_or_nil(operation.min_height),
+      zoom_x: operation.zoom_x,
+      zoom_y: operation.zoom_y,
+      x_offset: operation.x_offset,
+      y_offset: operation.y_offset
     ]
   end
+
+  defp material_or_nil(nil), do: nil
+  defp material_or_nil(value), do: ImagePlug.Transform.Material.material(value)
 end
 
 defimpl ImagePlug.Transform.Material, for: ImagePlug.Plan.Operation.ResizeStretch do
@@ -132,9 +152,16 @@ defimpl ImagePlug.Transform.Material, for: ImagePlug.Plan.Operation.ResizeStretc
     [
       op: :resize_stretch,
       size: ImagePlug.Transform.Material.material(operation.size),
-      enlargement: operation.enlargement
+      enlargement: operation.enlargement,
+      min_width: material_or_nil(operation.min_width),
+      min_height: material_or_nil(operation.min_height),
+      zoom_x: operation.zoom_x,
+      zoom_y: operation.zoom_y
     ]
   end
+
+  defp material_or_nil(nil), do: nil
+  defp material_or_nil(value), do: ImagePlug.Transform.Material.material(value)
 end
 
 defimpl ImagePlug.Transform.Material, for: ImagePlug.Plan.Operation.ResizeAuto do
@@ -143,7 +170,17 @@ defimpl ImagePlug.Transform.Material, for: ImagePlug.Plan.Operation.ResizeAuto d
       op: :resize_auto,
       size: ImagePlug.Transform.Material.material(operation.size),
       enlargement: operation.enlargement,
+      guide: ImagePlug.Transform.Material.material(operation.guide),
+      min_width: material_or_nil(operation.min_width),
+      min_height: material_or_nil(operation.min_height),
+      zoom_x: operation.zoom_x,
+      zoom_y: operation.zoom_y,
+      x_offset: operation.x_offset,
+      y_offset: operation.y_offset,
       rule: :imgproxy_orientation_match_v1
     ]
   end
+
+  defp material_or_nil(nil), do: nil
+  defp material_or_nil(value), do: ImagePlug.Transform.Material.material(value)
 end

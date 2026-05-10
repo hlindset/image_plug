@@ -35,7 +35,7 @@ defmodule ImagePlug.Transform.Resolver.Lowering do
 
   def lower(%ResizeCover{} = operation, _context) do
     with {:ok, rule} <- dimension_rule(operation, :cover) do
-      {:ok, cover_operations(rule, operation.guide), []}
+      {:ok, cover_operations(rule, operation.guide, operation), []}
     end
   end
 
@@ -58,7 +58,7 @@ defmodule ImagePlug.Transform.Resolver.Lowering do
          {:ok, rule} <- dimension_rule(operation, branch) do
       derivation = derivation(branch, context)
 
-      {:ok, executable_operations(branch, rule), [derivation]}
+      {:ok, executable_operations(branch, rule, operation), [derivation]}
     end
   end
 
@@ -66,7 +66,17 @@ defmodule ImagePlug.Transform.Resolver.Lowering do
     with {:ok, width} <- crop_dimension(operation.size.width),
          {:ok, height} <- crop_dimension(operation.size.height),
          {:ok, gravity} <- legacy_gravity(operation.guide) do
-      {:ok, [%Crop{width: width, height: height, crop_from: :gravity, gravity: gravity}], []}
+      {:ok,
+       [
+         %Crop{
+           width: width,
+           height: height,
+           crop_from: :gravity,
+           gravity: gravity,
+           x_offset: operation.x_offset,
+           y_offset: operation.y_offset
+         }
+       ], []}
     end
   end
 
@@ -96,8 +106,10 @@ defmodule ImagePlug.Transform.Resolver.Lowering do
       {:ok,
        [
          %ExtendCanvas{
-           rule: {:dimensions, width, height},
+           rule: canvas_rule(width, height),
            gravity: gravity,
+           x_offset: operation.x_offset,
+           y_offset: operation.y_offset,
            background: operation.background
          }
        ], []}
@@ -121,6 +133,10 @@ defmodule ImagePlug.Transform.Resolver.Lowering do
          mode: dimension_rule_mode(mode),
          width: width,
          height: height,
+         min_width: legacy_optional_dimension(operation.min_width),
+         min_height: legacy_optional_dimension(operation.min_height),
+         zoom_x: operation.zoom_x,
+         zoom_y: operation.zoom_y,
          dpr: operation.size.dpr,
          enlarge: operation.enlargement == :allow
        }}
@@ -137,15 +153,19 @@ defmodule ImagePlug.Transform.Resolver.Lowering do
   defp legacy_dimension(%Dimension{} = dimension),
     do: {:error, {:unsupported_resize_auto_dimension, dimension}}
 
-  defp executable_operations(:cover, %DimensionRule{} = rule), do: cover_operations(rule, nil)
-  defp executable_operations(:fit, %DimensionRule{} = rule), do: [%Resize{rule: rule}]
+  defp executable_operations(:cover, %DimensionRule{} = rule, operation),
+    do: cover_operations(rule, operation.guide, operation)
 
-  defp cover_operations(%DimensionRule{} = rule, guide) do
+  defp executable_operations(:fit, %DimensionRule{} = rule, _operation), do: [%Resize{rule: rule}]
+
+  defp cover_operations(%DimensionRule{} = rule, guide, operation) do
     gravity =
       case legacy_gravity(guide) do
         {:ok, gravity} -> gravity
         {:error, _reason} -> @default_gravity
       end
+
+    {x_offset, y_offset} = crop_offsets(operation)
 
     [
       %Resize{rule: rule},
@@ -154,6 +174,8 @@ defmodule ImagePlug.Transform.Resolver.Lowering do
         height: :auto,
         crop_from: :gravity,
         gravity: gravity,
+        x_offset: x_offset,
+        y_offset: y_offset,
         target_rule: rule
       }
     ]
@@ -172,11 +194,17 @@ defmodule ImagePlug.Transform.Resolver.Lowering do
   defp crop_dimension(%Dimension{unit: :full_axis}), do: {:ok, :auto}
   defp crop_dimension(%Dimension{unit: :logical_px, value: value}), do: {:ok, {:pixels, value}}
 
+  defp crop_dimension(%Dimension{unit: :ratio, numerator: numerator, denominator: denominator}),
+    do: {:ok, {:scale, numerator / denominator}}
+
   defp crop_dimension(%Dimension{} = dimension),
     do: {:error, {:unsupported_crop_dimension, dimension}}
 
   defp canvas_dimension(%Dimension{unit: :auto}), do: {:ok, :auto}
   defp canvas_dimension(%Dimension{unit: :logical_px, value: value}), do: {:ok, {:pixels, value}}
+
+  defp canvas_dimension(%Dimension{unit: :ratio, numerator: numerator, denominator: denominator}),
+    do: {:ok, {:ratio, numerator / denominator}}
 
   defp canvas_dimension(%Dimension{} = dimension),
     do: {:error, {:unsupported_canvas_dimension, dimension}}
@@ -227,4 +255,19 @@ defmodule ImagePlug.Transform.Resolver.Lowering do
 
   defp ratio_to_float(%Dimension{} = dimension),
     do: {:error, {:unsupported_focal_point_dimension, dimension}}
+
+  defp legacy_optional_dimension(nil), do: nil
+
+  defp legacy_optional_dimension(%Dimension{} = dimension) do
+    case legacy_dimension(dimension) do
+      {:ok, value} -> value
+      {:error, _reason} -> nil
+    end
+  end
+
+  defp canvas_rule({:ratio, width}, {:ratio, height}), do: {:aspect_ratio, {width, height}}
+  defp canvas_rule(width, height), do: {:dimensions, width, height}
+
+  defp crop_offsets(nil), do: {{:pixels, 0.0}, {:pixels, 0.0}}
+  defp crop_offsets(operation), do: {operation.x_offset, operation.y_offset}
 end
