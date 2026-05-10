@@ -93,14 +93,16 @@ must not appear in canonical `ImagePlug.Plan.Pipeline.operations` unless a
 later design explicitly promotes that command to a canonical semantic
 operation. Example namespaces:
 
-- `ImagePlug.Parser.Imgproxy.Command.ResizeAuto`
+- `ImagePlug.Parser.Imgproxy.Command.GravityContext`
 - `ImagePlug.Parser.TwicPics.Command.SetFocus`
 
 The resolver belongs under `ImagePlug.Transform` because it owns transform
 semantics, source-metadata resolution, decode implications, capability checks,
 and backend lowering. `ImagePlug.Plan` should not depend on concrete backends.
-Parsers may construct exported plan operation structs. Runtime should not
-construct or reference concrete semantic or backend operation modules directly.
+Parsers should construct semantic operations through exported Plan constructors
+or builders rather than raw struct literals, except in tests. Runtime should
+not construct or reference concrete semantic or backend operation modules
+directly.
 
 ## Initial Semantic Operation Family
 
@@ -120,6 +122,8 @@ Resize operations:
 - `ResizeFit`
 - `ResizeCover`
 - `ResizeStretch`
+- `ResizeAuto`, a narrow source-dependent resize operation for the current
+  imgproxy-compatible `auto` behavior
 - `ResizeScale`, only if current imgproxy-compatible behavior needs standalone
   scale/factor semantics that cannot be expressed as fit, cover, or stretch
 
@@ -133,10 +137,15 @@ Orientation operations:
 - `Rotate`
 - `Flip`
 
-The canonical MVP does not include `SetFocus`, `SetGravity`, or a general
-conditional resize operation. Canonical operations should carry explicit guide
-values. Parser adapters may use context or compatibility commands internally
-and lower them before canonical semantic material is produced.
+Before adding `ResizeScale`, first attempt to express all current scale-like
+behavior as source-aware `ResizeFit`, `ResizeCover`, or `ResizeStretch`. Add
+`ResizeScale` only if preserving scale factor semantics is required for
+correctness or stable material.
+
+The canonical MVP does not include `SetFocus`, `SetGravity`, or generalized
+conditional IR. Canonical operations should carry explicit guide values. Parser
+adapters may use context or compatibility commands internally and lower them
+before canonical semantic material is produced.
 
 ## First Slice Hard Limits
 
@@ -150,7 +159,7 @@ The first implementation slice may introduce only:
 
 The first implementation slice must not introduce:
 
-- general capability planning
+- general capability planning beyond simple backend support checks
 - backend operation structs unless existing executable operations cannot
   represent resolved work correctly
 - smart, face, or object strategy execution
@@ -195,10 +204,16 @@ Standalone `CropSmart` should not be an initial semantic operation. Smartness
 usually guides a concrete crop or cover operation. Represent smart behavior as
 guide strategies attached to `CropGuided` or `ResizeCover`.
 
-`resize:auto` should not introduce a general conditional IR in the first slice.
-Represent it as an imgproxy adapter-local compatibility command, then lower it
-to `ResizeCover` or `ResizeFit` after source dimensions are known. The selected
-branch is resolver material.
+`resize:auto` should not introduce generalized conditional IR in the first
+slice. Represent it as a narrow canonical `ResizeAuto` operation, not as an
+adapter-local parser command that leaks into `ImagePlug.Plan`.
+
+`ResizeAuto` is source-dependent semantic intent. Its canonical material is
+parser-syntax-free and may remain unresolved before source metadata is known,
+for example `{:resize_auto, size, enlargement_policy}`. Transform lowering
+selects `ResizeCover` or `ResizeFit` after source dimensions are known. The
+selected branch is recorded as a resolver decision and becomes resolver
+material only when not already determined by existing key material.
 
 ## Adapter Context Commands And Guides
 
@@ -217,8 +232,9 @@ Costs of making context commands canonical operations:
 The design therefore constrains them:
 
 - Context commands may be present in adapter-local parser output.
-- Parser or resolver normalization should fold context into explicit guides on
-  later geometry operations where possible.
+- Adapter canonicalization should fold context into explicit guides on later
+  geometry operations where possible before canonical `ImagePlug.Plan` is
+  built.
 - Canonical semantic material should represent the normalized effect, not raw
   parser spelling.
 - A context command may be elided only after normalization proves it has no
@@ -435,6 +451,11 @@ Rules:
   pixels, or a ratio.
 - Resolver applies DPR at a documented phase before backend integer pixel
   lowering.
+- DPR application must be idempotent and have a single owner. Canonical
+  semantic material stores requested logical values and DPR separately. Backend
+  lowering is the only phase that converts DPR-affected logical geometry into
+  physical integer pixels unless a dialect explicitly defines physical-pixel
+  input.
 - Crop offsets or gravity offsets that are DPR-scaled must record that scaling
   decision in resolver material.
 - DPR values that affect output must be part of cache material.
@@ -454,7 +475,7 @@ boundary:
 semantic validation
   -> source-independent normalization
   -> source-aware normalization
-  -> capability planning
+  -> backend support checks
   -> backend lowering
   -> material decision collection
 ```
@@ -595,7 +616,8 @@ Decision examples:
 - applied approximation mode for a guide strategy
 
 Diagnostics that do not affect visible output do not belong in cache keys.
-Decisions that affect visible output do belong in cache keys.
+Decisions that affect visible output belong in cache keys only when they add
+output-affecting information not already determined by existing key material.
 
 ## Decode And Request-Safety Phases
 
@@ -605,9 +627,10 @@ Keep request-safety boundaries explicit:
 parse validation
   -> early semantic validation
   -> prefetch-safe cache material subset
-  -> cache lookup / origin fetch
+  -> optional cache lookup or origin fetch decision
   -> decode/open planning
   -> post-decode source-aware resolution
+  -> final output cache lookup if not already safe
   -> backend execution
   -> output encoding
 ```
@@ -628,6 +651,8 @@ Cache lookup:
   source image and final pipeline order.
 - Final output cache lookup does not need to wait for source metadata merely to
   replace deterministic semantic intent with resolved backend decisions.
+  This assumes the source identity/freshness invariant described in Cache
+  Material.
 - Final output cache lookup must wait for source metadata only when the final
   cache material truly depends on metadata not already represented by source
   identity, canonical semantic material, configuration, backend profile, output
@@ -788,20 +813,22 @@ Mapping:
   operations.
 - `crop` maps to `CropGuided`; crop-specific gravity becomes an explicit guide
   or local gravity override.
-- Crop dimension rules remain parser-owned:
-  - `0` means full current/source dimension for that axis.
-  - `abs(value) < 1` means relative scale.
-  - `abs(value) >= 1` means pixels.
+- Crop dimension token classification remains parser-owned:
+  - `0` becomes `:full_axis`.
+  - `abs(value) < 1` becomes `{:relative, rational}`.
+  - `abs(value) >= 1` becomes `{:pixels, integer}`.
+  Transform resolves those typed forms against source/current dimensions, DPR,
+  orientation, and previous operations.
 - `resize:fit` maps to `ResizeFit`.
 - `resize:fill` and `resize:fill-down` map to `ResizeCover` with enlargement
   policy.
 - `resize:force` maps to `ResizeStretch`.
-- `resize:auto` maps to an imgproxy adapter-owned compatibility command and is
-  resolved to `ResizeCover` or `ResizeFit` after source dimensions are known.
-  The selected branch is recorded as a resolver decision. It becomes resolver
-  material only when not already determined by source identity, canonical
-  semantic material, configuration, backend profile, output negotiation, and
-  pipeline order.
+- `resize:auto` maps to canonical `ResizeAuto`, a source-dependent semantic
+  resize operation with parser-syntax-free material. Transform resolves it to
+  `ResizeCover` or `ResizeFit` after source dimensions are known. The selected
+  branch is recorded as a resolver decision. It becomes resolver material only
+  when not already determined by source identity, canonical semantic material,
+  configuration, backend profile, output negotiation, and pipeline order.
 - `extend` and `extend_aspect_ratio` map to `Canvas`.
 - Smart/object/face gravity maps to strategy guides only when parser policy
   supports those strategies.
@@ -845,7 +872,7 @@ Second-wave mapping notes:
 - pad and fill-pad map to fit/cover plus explicit canvas behavior where
   semantics match cleanly.
 - automatic gravity, face gravity, and object gravity map to strategy guides
-  and require capability planning.
+  and require later capability planning.
 - Cloudinary-specific automatic behavior should be classified as exact,
   representable-but-not-executable, approximate, or unsupported; do not hide it
   behind generic smart crop.
@@ -911,13 +938,15 @@ Canonicalization tests should cover:
 
 - aliases normalize away before material
 - equivalent ratios produce identical material
-- strategy fallback order is preserved
 - parser defaults become explicit material only when output-affecting
 - no-op operations are elided when they do not affect visible output
 - color and unit normalization are deterministic
 - normalization is idempotent
 - material generation is deterministic across repeated normalization
 - visibly different outputs do not intentionally collapse to the same material
+
+When strategy guides are introduced, canonicalization tests should cover that
+strategy fallback order is preserved.
 
 Geometry helper tests should cover:
 
@@ -948,6 +977,11 @@ Cache tests should assert:
 - deterministic unresolved semantic intent, such as imgproxy `resize:auto`, is
   sufficient cache material when source identity and pipeline order determine
   the output
+- changed source bytes or metadata are represented by changed source identity,
+  source fingerprint, cachebuster, immutable origin version, or equivalent
+  freshness material
+- deterministic unresolved semantic intent does not reuse stale output when
+  source identity or freshness material changes
 - resolver fallback decisions are included only when they add output-affecting
   information not already determined by existing key material
 - backend capability profile changes that affect pixels change material
@@ -966,20 +1000,20 @@ but keep the first slice narrow.
 1. Add characterization tests for current imgproxy-compatible parser,
    transform, cache, and chained-pipeline behavior.
 2. Rename `Native` parser/docs/tests to `Imgproxy`.
-3. Add canonical geometry/value structs and material functions.
-4. Introduce minimal semantic operations needed for current
-   imgproxy-compatible behavior.
-5. Add resolver phases that validate and lower only the current
-   imgproxy-compatible subset.
-6. Initially lower to the existing executable transform representation where
-   possible.
-7. Add backend instruction or operation representation only when existing
-   operations block correctness, materialization, or generic dispatch.
-8. Switch parser output to semantic operations.
-9. Switch cache/decode/runtime to consume resolved output through generic
-   facades.
-10. Add first-wave vendor mapping fixtures for imgproxy, TwicPics, and IIIF as
+3. Add first-wave vendor mapping fixtures for imgproxy, TwicPics, and IIIF as
    non-executing tests.
+4. Introduce minimal semantic operation constructors and material contracts for
+   imgproxy-compatible behavior.
+5. Add only the canonical geometry/value structs required by those operations.
+6. Add resolver phases that validate and lower only the current
+   imgproxy-compatible subset.
+7. Initially lower to the existing executable transform representation where
+   possible.
+8. Add backend instruction or operation representation only when existing
+   operations block correctness, materialization, or generic dispatch.
+9. Switch parser output to semantic operations.
+10. Switch cache/decode/runtime to consume resolved output through generic
+   facades.
 11. Expand semantic IR only for mappings that fail those fixtures.
 12. Add second-wave mapping fixtures for imgix, Cloudinary, and Fastly.
 13. Add actual parsers incrementally.
