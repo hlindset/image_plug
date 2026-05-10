@@ -10,8 +10,9 @@ defmodule ImagePlug.Transform.Operation.Resize do
   `ImagePlug.Plan.Operation.*` through Plan constructors.
 
   Use `Resize` for resolved `:fit`, `:fill`, `:fill_down`, and `:force` work.
-  Use `ImagePlug.Transform.Operation.AdaptiveResize` only for legacy executable
-  compatibility when the mode must be chosen from source image metadata.
+  Use `ImagePlug.Transform.Operation.AdaptiveResize` only when direct
+  transform-chain execution must choose the resize mode from current image
+  metadata.
 
   ## Fields
 

@@ -34,8 +34,9 @@ defmodule ImagePlug.Transform.Resolver.Lowering do
   end
 
   def lower(%ResizeCover{} = operation, _context) do
-    with {:ok, rule} <- dimension_rule(operation, :cover) do
-      {:ok, cover_operations(rule, operation.guide, operation), []}
+    with {:ok, rule} <- dimension_rule(operation, :cover),
+         {:ok, operations} <- cover_operations(rule, operation.guide, operation) do
+      {:ok, operations, []}
     end
   end
 
@@ -55,17 +56,18 @@ defmodule ImagePlug.Transform.Resolver.Lowering do
              width,
              height
            ),
-         {:ok, rule} <- dimension_rule(operation, branch) do
+         {:ok, rule} <- dimension_rule(operation, branch),
+         {:ok, operations} <- executable_operations(branch, rule, operation) do
       derivation = derivation(branch, context)
 
-      {:ok, executable_operations(branch, rule, operation), [derivation]}
+      {:ok, operations, [derivation]}
     end
   end
 
   def lower(%CropGuided{} = operation, _context) do
     with {:ok, width} <- crop_dimension(operation.size.width),
          {:ok, height} <- crop_dimension(operation.size.height),
-         {:ok, gravity} <- legacy_gravity(operation.guide) do
+         {:ok, gravity} <- executable_gravity(operation.guide) do
       {:ok,
        [
          %Crop{
@@ -102,7 +104,7 @@ defmodule ImagePlug.Transform.Resolver.Lowering do
   def lower(%Canvas{} = operation, _context) do
     with {:ok, width} <- canvas_dimension(operation.size.width),
          {:ok, height} <- canvas_dimension(operation.size.height),
-         {:ok, gravity} <- legacy_gravity(operation.placement) do
+         {:ok, gravity} <- executable_gravity(operation.placement) do
       {:ok,
        [
          %ExtendCanvas{
@@ -126,15 +128,17 @@ defmodule ImagePlug.Transform.Resolver.Lowering do
   defp logical_pixels(%Dimension{}), do: {:ok, :unknown}
 
   defp dimension_rule(operation, mode) do
-    with {:ok, width} <- legacy_dimension(operation.size.width),
-         {:ok, height} <- legacy_dimension(operation.size.height) do
+    with {:ok, width} <- executable_resize_dimension(operation.size.width),
+         {:ok, height} <- executable_resize_dimension(operation.size.height),
+         {:ok, min_width} <- executable_optional_resize_dimension(operation.min_width),
+         {:ok, min_height} <- executable_optional_resize_dimension(operation.min_height) do
       {:ok,
        %DimensionRule{
          mode: dimension_rule_mode(mode),
          width: width,
          height: height,
-         min_width: legacy_optional_dimension(operation.min_width),
-         min_height: legacy_optional_dimension(operation.min_height),
+         min_width: min_width,
+         min_height: min_height,
          zoom_x: operation.zoom_x,
          zoom_y: operation.zoom_y,
          dpr: operation.size.dpr,
@@ -147,38 +151,38 @@ defmodule ImagePlug.Transform.Resolver.Lowering do
   defp dimension_rule_mode(:fit), do: :fit
   defp dimension_rule_mode(:stretch), do: :force
 
-  defp legacy_dimension(%Dimension{unit: :auto}), do: {:ok, :auto}
-  defp legacy_dimension(%Dimension{unit: :logical_px, value: value}), do: {:ok, {:pixels, value}}
+  defp executable_resize_dimension(%Dimension{unit: :auto}), do: {:ok, :auto}
 
-  defp legacy_dimension(%Dimension{} = dimension),
-    do: {:error, {:unsupported_resize_auto_dimension, dimension}}
+  defp executable_resize_dimension(%Dimension{unit: :logical_px, value: value}),
+    do: {:ok, {:pixels, value}}
+
+  defp executable_resize_dimension(%Dimension{} = dimension),
+    do: {:error, {:unsupported_resize_dimension, dimension}}
 
   defp executable_operations(:cover, %DimensionRule{} = rule, operation),
     do: cover_operations(rule, operation.guide, operation)
 
-  defp executable_operations(:fit, %DimensionRule{} = rule, _operation), do: [%Resize{rule: rule}]
+  defp executable_operations(:fit, %DimensionRule{} = rule, _operation),
+    do: {:ok, [%Resize{rule: rule}]}
 
   defp cover_operations(%DimensionRule{} = rule, guide, operation) do
-    gravity =
-      case legacy_gravity(guide) do
-        {:ok, gravity} -> gravity
-        {:error, _reason} -> @default_gravity
-      end
+    with {:ok, gravity} <- executable_gravity(guide) do
+      {x_offset, y_offset} = crop_offsets(operation)
 
-    {x_offset, y_offset} = crop_offsets(operation)
-
-    [
-      %Resize{rule: rule},
-      %Crop{
-        width: :auto,
-        height: :auto,
-        crop_from: :gravity,
-        gravity: gravity,
-        x_offset: x_offset,
-        y_offset: y_offset,
-        target_rule: rule
-      }
-    ]
+      {:ok,
+       [
+         %Resize{rule: rule},
+         %Crop{
+           width: :auto,
+           height: :auto,
+           crop_from: :gravity,
+           gravity: gravity,
+           x_offset: x_offset,
+           y_offset: y_offset,
+           target_rule: rule
+         }
+       ]}
+    end
   end
 
   defp derivation(branch, context) do
@@ -260,10 +264,10 @@ defmodule ImagePlug.Transform.Resolver.Lowering do
   defp region_dimension(%Dimension{} = dimension, _axis),
     do: {:error, {:unsupported_crop_region_dimension, dimension}}
 
-  defp legacy_gravity(nil), do: {:ok, @default_gravity}
-  defp legacy_gravity(%Gravity{type: :anchor, x: x, y: y}), do: {:ok, {:anchor, x, y}}
+  defp executable_gravity(nil), do: {:ok, @default_gravity}
+  defp executable_gravity(%Gravity{type: :anchor, x: x, y: y}), do: {:ok, {:anchor, x, y}}
 
-  defp legacy_gravity(%Gravity{type: :focal_point} = gravity) do
+  defp executable_gravity(%Gravity{type: :focal_point} = gravity) do
     with {:ok, x} <- ratio_to_float(gravity.x),
          {:ok, y} <- ratio_to_float(gravity.y) do
       {:ok, {:fp, x, y}}
@@ -277,14 +281,10 @@ defmodule ImagePlug.Transform.Resolver.Lowering do
   defp ratio_to_float(%Dimension{} = dimension),
     do: {:error, {:unsupported_focal_point_dimension, dimension}}
 
-  defp legacy_optional_dimension(nil), do: nil
+  defp executable_optional_resize_dimension(nil), do: {:ok, nil}
 
-  defp legacy_optional_dimension(%Dimension{} = dimension) do
-    case legacy_dimension(dimension) do
-      {:ok, value} -> value
-      {:error, _reason} -> nil
-    end
-  end
+  defp executable_optional_resize_dimension(%Dimension{} = dimension),
+    do: executable_resize_dimension(dimension)
 
   defp canvas_rule({:ratio, width}, {:ratio, height}), do: {:aspect_ratio, {width, height}}
   defp canvas_rule(width, height), do: {:dimensions, width, height}

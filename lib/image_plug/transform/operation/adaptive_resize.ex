@@ -10,9 +10,9 @@ defmodule ImagePlug.Transform.Operation.AdaptiveResize do
   through Plan constructors.
 
   `ImagePlug.Plan.Operation.ResizeAuto` is the canonical semantic intent for
-  Imgproxy-compatible auto resize. `AdaptiveResize` remains an executable
-  compatibility target for transform-chain behavior that chooses fill for
-  matching current/target orientations and fit otherwise.
+  Imgproxy-compatible auto resize. `AdaptiveResize` is an executable transform
+  operation for direct transform-chain behavior that chooses fill for matching
+  current/target orientations and fit otherwise.
 
   ## Fields
 
