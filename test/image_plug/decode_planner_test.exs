@@ -7,7 +7,6 @@ defmodule ImagePlug.Transform.DecodePlannerTest do
   alias ImagePlug.Plan.Operation
   alias ImagePlug.Plan.Pipeline
   alias ImagePlug.Runtime.Processor
-  alias ImagePlug.Transform.Operation.AdaptiveResize
   alias ImagePlug.Transform.Operation.AutoOrient
   alias ImagePlug.Transform.Operation.Contain
   alias ImagePlug.Transform.Operation.Cover
@@ -61,6 +60,14 @@ defmodule ImagePlug.Transform.DecodePlannerTest do
     def name(%__MODULE__{}), do: :keyword_metadata
     def validate(%__MODULE__{}), do: :ok
     def metadata(%__MODULE__{}), do: [access: :sequential]
+    def execute(%__MODULE__{}, state), do: state
+  end
+
+  defmodule MissingMetadataCallbackTransform do
+    defstruct []
+
+    def name(%__MODULE__{}), do: :missing_metadata_callback
+    def validate(%__MODULE__{}), do: :ok
     def execute(%__MODULE__{}, state), do: state
   end
 
@@ -271,21 +278,11 @@ defmodule ImagePlug.Transform.DecodePlannerTest do
            ]) == [access: :random, fail_on: :error]
   end
 
-  test "fill adaptive resize and extend canvas stay random" do
+  test "fill resize and extend canvas stay random" do
     assert DecodePlanner.open_options([
              %Resize{
                rule: %DimensionRule{
                  mode: :fill,
-                 width: {:pixels, 80},
-                 height: {:pixels, 80}
-               }
-             }
-           ]) == [access: :random, fail_on: :error]
-
-    assert DecodePlanner.open_options([
-             %AdaptiveResize{
-               rule: %DimensionRule{
-                 mode: :auto,
                  width: {:pixels, 80},
                  height: {:pixels, 80}
                }
@@ -357,14 +354,24 @@ defmodule ImagePlug.Transform.DecodePlannerTest do
            ]) == [access: :random, fail_on: :error]
   end
 
-  test "failing transform metadata stays random" do
-    assert DecodePlanner.open_options([
-             %RaisingMetadataTransform{}
-           ]) == [access: :random, fail_on: :error]
+  test "trusted transform metadata callback failures propagate" do
+    assert_raise UndefinedFunctionError, fn ->
+      DecodePlanner.open_options([
+        %MissingMetadataCallbackTransform{}
+      ])
+    end
 
-    assert DecodePlanner.open_options([
-             %ThrowingMetadataTransform{}
-           ]) == [access: :random, fail_on: :error]
+    assert_raise RuntimeError, "metadata failed", fn ->
+      DecodePlanner.open_options([
+        %RaisingMetadataTransform{}
+      ])
+    end
+
+    assert catch_throw(
+             DecodePlanner.open_options([
+               %ThrowingMetadataTransform{}
+             ])
+           ) == :metadata_failed
 
     assert catch_exit(
              DecodePlanner.open_options([

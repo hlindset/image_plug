@@ -21,14 +21,15 @@ defmodule ImagePlug.Transform.Resolver do
 
   @spec resolve(Plan.t(), SourceMetadata.t(), keyword()) ::
           {:ok, ResolvedPlan.t()} | {:error, term()}
-  def resolve(%Plan{} = plan, %SourceMetadata{} = source_metadata, _opts \\ []) do
+  def resolve(%Plan{} = plan, %SourceMetadata{} = source_metadata, opts \\ []) do
     with :ok <- SourceMetadata.validate(source_metadata),
+         {:ok, backend_profile_material} <- BackendProfile.material_from_options(opts),
          {:ok, pipelines, derivations} <- resolve_pipelines(plan.pipelines, source_metadata) do
       {:ok,
        %ResolvedPlan{
          pipelines: pipelines,
          derivations: derivations,
-         backend_profile_material: BackendProfile.material(BackendProfile.default())
+         backend_profile_material: backend_profile_material
        }}
     end
   end
@@ -37,8 +38,10 @@ defmodule ImagePlug.Transform.Resolver do
     context = %{
       source_width: source_metadata.width,
       source_height: source_metadata.height,
+      source_orientation: source_metadata.orientation,
       current_width: source_metadata.width,
       current_height: source_metadata.height,
+      current_dimensions_known?: true,
       source_aligned: true
     }
 
@@ -50,15 +53,20 @@ defmodule ImagePlug.Transform.Resolver do
 
       case resolve_pipeline(pipeline, context) do
         {:ok, operations, pipeline_derivations, context} ->
-          {:cont, {:ok, [operations | pipelines], derivations ++ pipeline_derivations, context}}
+          {:cont,
+           {:ok, [operations | pipelines], prepend_reversed(pipeline_derivations, derivations),
+            context}}
 
         {:error, reason} ->
           {:halt, {:error, reason}}
       end
     end)
     |> case do
-      {:ok, pipelines, derivations, _context} -> {:ok, Enum.reverse(pipelines), derivations}
-      {:error, reason} -> {:error, reason}
+      {:ok, pipelines, derivations, _context} ->
+        {:ok, Enum.reverse(pipelines), Enum.reverse(derivations)}
+
+      {:error, reason} ->
+        {:error, reason}
     end
   end
 
@@ -69,13 +77,13 @@ defmodule ImagePlug.Transform.Resolver do
                                                     {:ok, resolved, derivations, context} ->
       operation_context = Map.put(context, :operation_index, operation_index)
 
-      case Lowering.lower(operation, operation_context) do
+      case Lowering.lower(operation, lowering_context(operation_context)) do
         {:ok, executable_operations, operation_derivations} ->
           case advance_context(operation_context, executable_operations) do
             {:ok, context} ->
               {:cont,
-               {:ok, resolved ++ executable_operations, derivations ++ operation_derivations,
-                context}}
+               {:ok, prepend_reversed(executable_operations, resolved),
+                prepend_reversed(operation_derivations, derivations), context}}
 
             {:error, reason} ->
               {:halt, {:error, reason}}
@@ -85,7 +93,24 @@ defmodule ImagePlug.Transform.Resolver do
           {:halt, {:error, reason}}
       end
     end)
+    |> case do
+      {:ok, resolved, derivations, context} ->
+        {:ok, Enum.reverse(resolved), Enum.reverse(derivations), context}
+
+      {:error, reason} ->
+        {:error, reason}
+    end
   end
+
+  defp prepend_reversed(items, acc) do
+    Enum.reduce(items, acc, fn item, acc -> [item | acc] end)
+  end
+
+  defp lowering_context(%{current_dimensions_known?: false} = context) do
+    %{context | current_width: :unknown, current_height: :unknown}
+  end
+
+  defp lowering_context(context), do: context
 
   defp advance_context(context, operations) do
     Enum.reduce_while(operations, {:ok, context}, fn operation, {:ok, context} ->
@@ -94,6 +119,10 @@ defmodule ImagePlug.Transform.Resolver do
         {:error, reason} -> {:halt, {:error, reason}}
       end
     end)
+  end
+
+  defp advance_context_for_operation(%{current_dimensions_known?: false} = context, %Resize{}) do
+    {:ok, context}
   end
 
   defp advance_context_for_operation(context, %Resize{rule: %DimensionRule{} = rule}) do
@@ -172,11 +201,22 @@ defmodule ImagePlug.Transform.Resolver do
     {:ok, mark_source_unaligned(context)}
   end
 
-  defp advance_context_for_operation(context, %AutoOrient{}) do
-    {:ok, mark_source_unaligned(context)}
-  end
+  defp advance_context_for_operation(context, %AutoOrient{}),
+    do: advance_auto_orient_context(context.source_orientation, context)
 
   defp advance_context_for_operation(context, _operation), do: {:ok, context}
+
+  defp advance_auto_orient_context({:exif, orientation}, context) when orientation in 5..8 do
+    {:ok, put_current_dimensions(context, context.current_height, context.current_width)}
+  end
+
+  defp advance_auto_orient_context(:unknown, context) do
+    {:ok, mark_current_dimensions_unknown(context)}
+  end
+
+  defp advance_auto_orient_context(_orientation, context) do
+    {:ok, mark_source_unaligned(context)}
+  end
 
   defp resolve_dimensions(context, %DimensionRule{} = rule) do
     DimensionResolver.resolve(rule,
@@ -205,7 +245,17 @@ defmodule ImagePlug.Transform.Resolver do
   defp concrete_axis(axis, _current_axis), do: axis
 
   defp put_current_dimensions(context, width, height) do
-    %{context | current_width: width, current_height: height, source_aligned: false}
+    %{
+      context
+      | current_width: width,
+        current_height: height,
+        current_dimensions_known?: true,
+        source_aligned: false
+    }
+  end
+
+  defp mark_current_dimensions_unknown(context) do
+    %{context | current_dimensions_known?: false, source_aligned: false}
   end
 
   defp mark_source_unaligned(context), do: %{context | source_aligned: false}

@@ -24,10 +24,26 @@ defmodule ImagePlug.Plan.GeometryTest do
            ]
   end
 
-  test "dimension pixels reject zero and invalid ratio values" do
-    assert Dimension.pixels(0) == {:error, {:invalid_dimension, :pixels, 0}}
+  test "dimension ratios can represent zero coordinates" do
+    assert {:ok, ratio} = Dimension.ratio(0, 8)
+
+    assert Material.material(ratio) == [
+             unit: :ratio,
+             numerator: 0,
+             denominator: 1
+           ]
+  end
+
+  test "dimension pixels represent zero coordinates and ratios reject invalid values" do
+    assert {:ok, zero_pixels} = Dimension.pixels(0)
+
+    assert Material.material(zero_pixels) == [
+             unit: :logical_px,
+             value: 0
+           ]
+
     assert Dimension.pixels(-1) == {:error, {:invalid_dimension, :pixels, -1}}
-    assert Dimension.ratio(0, 1) == {:error, {:invalid_dimension, :ratio, {0, 1}}}
+    assert Dimension.ratio(-1, 1) == {:error, {:invalid_dimension, :ratio, {-1, 1}}}
     assert Dimension.ratio(1, 0) == {:error, {:invalid_dimension, :ratio, {1, 0}}}
   end
 
@@ -53,8 +69,8 @@ defmodule ImagePlug.Plan.GeometryTest do
   end
 
   test "source-space crop region material stays source-metadata-free" do
-    assert {:ok, x} = Dimension.ratio(1, 10)
-    assert {:ok, y} = Dimension.ratio(1, 10)
+    assert {:ok, x} = Dimension.ratio(0, 1)
+    assert {:ok, y} = Dimension.ratio(0, 1)
     assert {:ok, width} = Dimension.ratio(1, 2)
     assert {:ok, height} = Dimension.ratio(1, 2)
 
@@ -63,8 +79,8 @@ defmodule ImagePlug.Plan.GeometryTest do
 
     assert Material.material(region) == [
              space: :source,
-             x: [unit: :ratio, numerator: 1, denominator: 10],
-             y: [unit: :ratio, numerator: 1, denominator: 10],
+             x: [unit: :ratio, numerator: 0, denominator: 1],
+             y: [unit: :ratio, numerator: 0, denominator: 1],
              width: [unit: :ratio, numerator: 1, denominator: 2],
              height: [unit: :ratio, numerator: 1, denominator: 2]
            ]

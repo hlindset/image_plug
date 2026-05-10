@@ -7,6 +7,13 @@ defmodule ImagePlug.ArchitectureBoundaryTest do
     "lib/image_plug/parser/imgproxy/**/*.ex"
   ]
   @cache_key_files ["lib/image_plug/cache/key.ex"]
+  @boundary_files %{
+    ImagePlug.Cache => "lib/image_plug/cache.ex",
+    ImagePlug.Parser => "lib/image_plug/parser.ex",
+    ImagePlug.Parser.Imgproxy => "lib/image_plug/parser/imgproxy.ex",
+    ImagePlug.Runtime => "lib/image_plug/runtime.ex",
+    ImagePlug.Transform => "lib/image_plug/transform.ex"
+  }
   @concrete_plan_names [
     :AutoOrient,
     :Canvas,
@@ -26,12 +33,103 @@ defmodule ImagePlug.ArchitectureBoundaryTest do
     :Crop,
     :Focus,
     :Resize,
-    :AdaptiveResize,
     :Rotate,
     :Flip,
     :AutoOrient,
     :ExtendCanvas
   ]
+  @post_fetch_transform_state_modules [
+    ImagePlug.Transform.Resolver,
+    ImagePlug.Transform.SourceMetadata,
+    ImagePlug.Transform.ResolvedPlan,
+    ImagePlug.Transform.Derivation
+  ]
+
+  test "parser boundary declarations stay limited to parser, plan, and transform construction APIs" do
+    parser = boundary_declaration(ImagePlug.Parser)
+    imgproxy = boundary_declaration(ImagePlug.Parser.Imgproxy)
+
+    assert_boundary_deps(parser, [ImagePlug.Plan])
+    assert_boundary_exports(parser, [ImagePlug.Parser.Imgproxy])
+
+    assert_boundary_deps(imgproxy, [ImagePlug.Parser, ImagePlug.Plan])
+    assert_boundary_exports(imgproxy, [])
+
+    assert_allowed_deps(parser, [ImagePlug.Plan, ImagePlug.Transform])
+    assert_allowed_deps(imgproxy, [ImagePlug.Parser, ImagePlug.Plan, ImagePlug.Transform])
+  end
+
+  test "runtime boundary declaration depends on generic facades only" do
+    runtime = boundary_declaration(ImagePlug.Runtime)
+
+    assert_boundary_deps(runtime, [
+      ImagePlug.Plan,
+      ImagePlug.Cache,
+      ImagePlug.Output,
+      ImagePlug.Transform
+    ])
+
+    refute_boundary_deps(runtime, [ImagePlug.Parser | concrete_transform_modules()])
+
+    assert_boundary_exports(runtime, [
+      ImagePlug.Runtime.RequestRunner,
+      ImagePlug.Runtime.Origin,
+      ImagePlug.Runtime.ResponseDisposition,
+      ImagePlug.Runtime.ResponseSender,
+      ImagePlug.Runtime.SourceIdentity,
+      ImagePlug.Runtime.Options
+    ])
+  end
+
+  test "cache boundary declaration avoids post-fetch transform state dependencies" do
+    cache = boundary_declaration(ImagePlug.Cache)
+
+    assert_boundary_deps(cache, [
+      ImagePlug.Plan,
+      ImagePlug.Output,
+      ImagePlug.Transform
+    ])
+
+    refute_boundary_deps(cache, @post_fetch_transform_state_modules)
+
+    assert_boundary_exports(cache, [
+      ImagePlug.Cache.Entry,
+      ImagePlug.Cache.Key,
+      ImagePlug.Cache.FileSystem
+    ])
+  end
+
+  test "transform boundary declaration depends on plan and not higher layers" do
+    transform = boundary_declaration(ImagePlug.Transform)
+
+    assert_boundary_deps(transform, [ImagePlug.Plan])
+
+    refute_boundary_deps(transform, [
+      ImagePlug.Parser,
+      ImagePlug.Runtime,
+      ImagePlug.Cache,
+      ImagePlug.Output
+    ])
+
+    assert_boundary_exports_include(transform, [
+      ImagePlug.Transform.State,
+      ImagePlug.Transform.Chain,
+      ImagePlug.Transform.DecodePlanner,
+      ImagePlug.Transform.Materializer,
+      ImagePlug.Transform.Material,
+      ImagePlug.Transform.Types,
+      ImagePlug.Transform.Operation.Resize,
+      ImagePlug.Transform.Operation.ExtendCanvas,
+      ImagePlug.Transform.Operation.AutoOrient,
+      ImagePlug.Transform.Operation.Rotate,
+      ImagePlug.Transform.Operation.Flip,
+      ImagePlug.Transform.Operation.Scale,
+      ImagePlug.Transform.Operation.Cover,
+      ImagePlug.Transform.Operation.Contain,
+      ImagePlug.Transform.Operation.Crop,
+      ImagePlug.Transform.Operation.Focus
+    ])
+  end
 
   test "runtime does not depend on concrete transform modules" do
     violations =
@@ -43,11 +141,25 @@ defmodule ImagePlug.ArchitectureBoundaryTest do
     assert violations == []
   end
 
+  test "stale adaptive resize executable operation is removed" do
+    refute Code.ensure_loaded?(Module.concat(ImagePlug.Transform.Operation, AdaptiveResize))
+  end
+
   test "runtime does not depend on concrete plan operation modules" do
     violations =
       for file <- runtime_files(),
           violation <- concrete_plan_references(file) do
         "#{file}:#{violation.line} must not name #{violation.module}; use generic Plan/Transform facades instead"
+      end
+
+    assert violations == []
+  end
+
+  test "runtime does not inspect plan operation semantic staging" do
+    violations =
+      for file <- runtime_files(),
+          violation <- plan_operation_semantic_references(file) do
+        "#{file}:#{violation.line} must not call #{violation.module}.semantic?/1; use ImagePlug.Transform executable planning instead"
       end
 
     assert violations == []
@@ -194,6 +306,127 @@ defmodule ImagePlug.ArchitectureBoundaryTest do
     |> Enum.sort()
   end
 
+  defp boundary_declaration(module) do
+    file = Map.fetch!(@boundary_files, module)
+    {:ok, ast} = file |> File.read!() |> Code.string_to_quoted()
+
+    opts =
+      ast
+      |> boundary_module_ast(module)
+      |> boundary_use_opts()
+
+    %{
+      module: module,
+      deps: opts |> Keyword.get(:deps, []) |> Enum.map(&normalize_boundary_dep/1),
+      exports: opts |> Keyword.get(:exports, []) |> normalize_boundary_exports(module)
+    }
+  end
+
+  defp assert_boundary_deps(declaration, expected_deps) do
+    actual_deps = boundary_dep_names(declaration)
+
+    assert actual_deps == Enum.sort(expected_deps)
+    assert Enum.all?(declaration.deps, &runtime_dep?/1)
+  end
+
+  defp assert_allowed_deps(declaration, allowed_deps) do
+    unexpected_deps = declaration |> boundary_dep_names() |> Kernel.--(allowed_deps)
+
+    assert unexpected_deps == []
+  end
+
+  defp refute_boundary_deps(declaration, forbidden_deps) do
+    forbidden_deps = MapSet.new(forbidden_deps)
+
+    violations =
+      declaration
+      |> boundary_dep_names()
+      |> Enum.filter(&MapSet.member?(forbidden_deps, &1))
+
+    assert violations == []
+  end
+
+  defp assert_boundary_exports(declaration, expected_exports) do
+    assert declaration.exports == Enum.sort(expected_exports)
+  end
+
+  defp assert_boundary_exports_include(declaration, expected_exports) do
+    missing_exports = Enum.sort(expected_exports) -- declaration.exports
+
+    assert missing_exports == []
+  end
+
+  defp concrete_transform_modules do
+    Enum.map(@concrete_transform_names, &Module.concat(ImagePlug.Transform.Operation, &1))
+  end
+
+  defp boundary_dep_names(declaration) do
+    declaration.deps
+    |> Enum.map(fn {dep, _mode} -> dep end)
+    |> Enum.sort()
+  end
+
+  defp runtime_dep?({_dep, :runtime}), do: true
+  defp runtime_dep?({_dep, _mode}), do: false
+
+  defp boundary_module_ast(ast, module) do
+    {_ast, module_ast} =
+      Macro.prewalk(ast, nil, fn
+        {:defmodule, _meta, [{:__aliases__, _module_meta, parts}, [do: block]]} = node, acc ->
+          case Module.concat(parts) do
+            ^module -> {node, block}
+            _other -> {node, acc}
+          end
+
+        node, acc ->
+          {node, acc}
+      end)
+
+    module_ast
+  end
+
+  defp boundary_use_opts(module_ast) do
+    {_ast, opts} =
+      Macro.prewalk(module_ast, nil, fn
+        {:use, _meta, [{:__aliases__, _boundary_meta, [:Boundary]}, opts]} = node, _acc
+        when is_list(opts) ->
+          {node, opts}
+
+        node, acc ->
+          {node, acc}
+      end)
+
+    opts
+  end
+
+  defp normalize_boundary_dep({dep, mode}) when mode in [:compile, :runtime] do
+    {module_alias(dep), mode}
+  end
+
+  defp normalize_boundary_dep(dep), do: {module_alias(dep), :runtime}
+
+  defp normalize_boundary_exports(:all, _boundary), do: :all
+
+  defp normalize_boundary_exports(exports, boundary) do
+    exports
+    |> Enum.map(&boundary_export_module(boundary, &1))
+    |> Enum.sort()
+  end
+
+  defp boundary_export_module(boundary, {export, _opts}) do
+    boundary_export_module(boundary, export)
+  end
+
+  defp boundary_export_module(_boundary, {:__aliases__, _meta, [:ImagePlug | _rest] = parts}) do
+    Module.concat(parts)
+  end
+
+  defp boundary_export_module(boundary, {:__aliases__, _meta, parts}) do
+    Module.concat([boundary | parts])
+  end
+
+  defp module_alias({:__aliases__, _meta, parts}), do: Module.concat(parts)
+
   defp imgproxy_parser_files do
     @imgproxy_parser_globs
     |> Enum.flat_map(&Path.wildcard/1)
@@ -233,6 +466,35 @@ defmodule ImagePlug.ArchitectureBoundaryTest do
         {:__aliases__, meta, [:Operation, operation | _rest]} = node, violations
         when operation in @concrete_plan_names ->
           {node, [violation(meta, "Operation.#{operation}") | violations]}
+
+        node, violations ->
+          {node, violations}
+      end)
+
+    violations
+    |> Enum.reverse()
+    |> Enum.uniq()
+  end
+
+  defp plan_operation_semantic_references(file) do
+    {:ok, ast} = file |> File.read!() |> Code.string_to_quoted()
+
+    {_ast, violations} =
+      Macro.prewalk(ast, [], fn
+        {{:., meta, [{:__aliases__, _alias_meta, [:ImagePlug, :Plan, :Operation]}, :semantic?]},
+         _call_meta, _args} = node,
+        violations ->
+          {node, [violation(meta, "ImagePlug.Plan.Operation") | violations]}
+
+        {{:., meta, [{:__aliases__, _alias_meta, [:Plan, :Operation]}, :semantic?]}, _call_meta,
+         _args} = node,
+        violations ->
+          {node, [violation(meta, "Plan.Operation") | violations]}
+
+        {{:., meta, [{:__aliases__, _alias_meta, [:Operation]}, :semantic?]}, _call_meta, _args} =
+            node,
+        violations ->
+          {node, [violation(meta, "Operation") | violations]}
 
         node, violations ->
           {node, violations}

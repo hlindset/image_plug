@@ -5,6 +5,7 @@ defmodule ImagePlug.Transform.SourceMetadata do
 
   @orientations [:normal, :unknown]
   @source_types [:raster, :animated_raster, :vector]
+  @keys [:width, :height, :orientation, :has_alpha?, :format, :source_type]
 
   defstruct width: nil,
             height: nil,
@@ -25,15 +26,17 @@ defmodule ImagePlug.Transform.SourceMetadata do
           source_type: source_type()
         }
 
-  @type error :: {:invalid_source_metadata, term()}
+  @type error :: {:invalid_source_metadata, term()} | {:unknown_source_metadata_options, [atom()]}
 
   @spec new(keyword()) :: {:ok, t()} | {:error, error()}
   def new(attrs) when is_list(attrs) do
-    metadata = struct(__MODULE__, attrs)
+    with :ok <- validate_known_options(attrs) do
+      metadata = struct!(__MODULE__, attrs)
 
-    case validate(metadata) do
-      :ok -> {:ok, metadata}
-      {:error, reason} -> {:error, reason}
+      case validate(metadata) do
+        :ok -> {:ok, metadata}
+        {:error, reason} -> {:error, reason}
+      end
     end
   end
 
@@ -70,4 +73,11 @@ defmodule ImagePlug.Transform.SourceMetadata do
 
   defp validate_source_type(source_type),
     do: {:error, {:invalid_source_metadata, {:source_type, source_type}}}
+
+  defp validate_known_options(attrs) do
+    case Keyword.keys(attrs) -- @keys do
+      [] -> :ok
+      unknown_keys -> {:error, {:unknown_source_metadata_options, Enum.uniq(unknown_keys)}}
+    end
+  end
 end

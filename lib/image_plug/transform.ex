@@ -27,7 +27,6 @@ defmodule ImagePlug.Transform do
       Geometry.DimensionRule,
       Geometry.DimensionResolver,
       Operation.Resize,
-      Operation.AdaptiveResize,
       Operation.ExtendCanvas,
       Operation.AutoOrient,
       Operation.Rotate,
@@ -42,7 +41,10 @@ defmodule ImagePlug.Transform do
   alias ImagePlug.Transform.State
   alias ImagePlug.Plan
   alias ImagePlug.Plan.Operation
+  alias ImagePlug.Plan.Operation.CropRegion
   alias ImagePlug.Plan.Pipeline
+  alias ImagePlug.Transform.ResolvedPlan
+  alias ImagePlug.Transform.SourceMetadata
 
   @type attrs() :: keyword()
   @type operation() :: struct()
@@ -92,21 +94,40 @@ defmodule ImagePlug.Transform do
     ImagePlug.Transform.Resolver.resolve(plan, source_metadata, opts)
   end
 
-  defp validate_prefetch_safe_pipelines(pipelines) do
-    case Enum.find_value(pipelines, &invalid_prefetch_operation/1) do
-      nil -> :ok
-      operation -> {:error, {:invalid_pipeline_operation, operation}}
+  @spec executable_pipelines(Plan.t(), SourceMetadata.t(), keyword()) ::
+          {:ok, [[operation()]]} | {:error, term()}
+  def executable_pipelines(%Plan{} = plan, %SourceMetadata{} = source_metadata, opts \\ []) do
+    case semantic_plan?(plan) do
+      true ->
+        with {:ok, %ResolvedPlan{} = resolved} <- resolve(plan, source_metadata, opts) do
+          {:ok, resolved.pipelines}
+        end
+
+      false ->
+        {:ok, pipeline_operations(plan.pipelines)}
     end
   end
 
-  defp invalid_prefetch_operation(%Pipeline{operations: operations}) do
-    Enum.find(operations, &invalid_prefetch_operation?/1)
+  defp validate_prefetch_safe_pipelines(pipelines) do
+    pipelines
+    |> Enum.reduce_while(:source, &validate_prefetch_safe_pipeline/2)
+    |> case do
+      {:error, _reason} = error -> error
+      _alignment -> :ok
+    end
   end
 
-  defp invalid_prefetch_operation?(operation) do
+  defp validate_prefetch_safe_pipeline(%Pipeline{operations: operations}, alignment) do
+    case Enum.reduce_while(operations, alignment, &validate_prefetch_safe_operation/2) do
+      {:error, _reason} = error -> {:halt, error}
+      next_alignment -> {:cont, next_alignment}
+    end
+  end
+
+  defp validate_prefetch_safe_operation(operation, alignment) do
     case validate_prefetch_operation(operation) do
-      :ok -> false
-      {:error, _reason} -> true
+      :ok -> validate_prefetch_alignment(operation, alignment)
+      {:error, _reason} = error -> {:halt, error}
     end
   end
 
@@ -115,5 +136,21 @@ defmodule ImagePlug.Transform do
       true -> Operation.validate_prefetch_safe(operation)
       false -> {:error, {:invalid_pipeline_operation, operation}}
     end
+  end
+
+  defp validate_prefetch_alignment(%CropRegion{region: %{space: :source}} = operation, :current) do
+    {:halt, {:error, {:invalid_pipeline_operation, operation}}}
+  end
+
+  defp validate_prefetch_alignment(_operation, _alignment), do: {:cont, :current}
+
+  defp semantic_plan?(%Plan{pipelines: pipelines}) do
+    Enum.any?(pipelines, fn %Pipeline{operations: operations} ->
+      Enum.any?(operations, &Operation.semantic?/1)
+    end)
+  end
+
+  defp pipeline_operations(pipelines) do
+    Enum.map(pipelines, fn %Pipeline{operations: operations} -> operations end)
   end
 end

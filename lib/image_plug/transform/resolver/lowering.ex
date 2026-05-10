@@ -227,8 +227,8 @@ defmodule ImagePlug.Transform.Resolver.Lowering do
     do: {:error, {:unsupported_crop_region_space, region.space}}
 
   defp crop_region(%Region{} = region, axis_width, axis_height) do
-    with {:ok, left} <- region_dimension(region.x, axis_width),
-         {:ok, top} <- region_dimension(region.y, axis_height),
+    with {:ok, left} <- region_coordinate(region.x, axis_width),
+         {:ok, top} <- region_coordinate(region.y, axis_height),
          {:ok, width} <- region_dimension(region.width, axis_width),
          {:ok, height} <- region_dimension(region.height, axis_height) do
       {:ok,
@@ -251,9 +251,26 @@ defmodule ImagePlug.Transform.Resolver.Lowering do
       context.operation_index}}
   end
 
-  defp region_dimension(%Dimension{unit: :logical_px, value: value}, _axis), do: {:ok, value}
+  defp region_dimension(%Dimension{unit: :logical_px, value: value}, _axis)
+       when value > 0,
+       do: {:ok, value}
 
   defp region_dimension(
+         %Dimension{unit: :ratio, numerator: numerator, denominator: denominator},
+         axis
+       )
+       when is_integer(axis) and axis > 0 and numerator > 0 do
+    {:ok, round(axis * numerator / denominator)}
+  end
+
+  defp region_dimension(%Dimension{} = dimension, _axis),
+    do: {:error, {:unsupported_crop_region_dimension, dimension}}
+
+  defp region_coordinate(%Dimension{unit: :logical_px, value: value}, _axis)
+       when value >= 0,
+       do: {:ok, value}
+
+  defp region_coordinate(
          %Dimension{unit: :ratio, numerator: numerator, denominator: denominator},
          axis
        )
@@ -261,13 +278,18 @@ defmodule ImagePlug.Transform.Resolver.Lowering do
     {:ok, round(axis * numerator / denominator)}
   end
 
-  defp region_dimension(%Dimension{} = dimension, _axis),
+  defp region_coordinate(%Dimension{} = dimension, _axis),
     do: {:error, {:unsupported_crop_region_dimension, dimension}}
 
   defp executable_gravity(nil), do: {:ok, @default_gravity}
-  defp executable_gravity(%Gravity{type: :anchor, x: x, y: y}), do: {:ok, {:anchor, x, y}}
 
-  defp executable_gravity(%Gravity{type: :focal_point} = gravity) do
+  defp executable_gravity(%Gravity{space: space}) when space in [:source, :post_orient],
+    do: {:error, {:unsupported_gravity_space, space}}
+
+  defp executable_gravity(%Gravity{type: :anchor, x: x, y: y, space: :current}),
+    do: {:ok, {:anchor, x, y}}
+
+  defp executable_gravity(%Gravity{type: :focal_point, space: :current} = gravity) do
     with {:ok, x} <- ratio_to_float(gravity.x),
          {:ok, y} <- ratio_to_float(gravity.y) do
       {:ok, {:fp, x, y}}

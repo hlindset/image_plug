@@ -3,7 +3,6 @@ defmodule ImagePlug.TransformExecutableCharacterizationTest do
 
   alias ImagePlug.Transform.Chain
   alias ImagePlug.Transform.Geometry.DimensionRule
-  alias ImagePlug.Transform.Operation.AdaptiveResize
   alias ImagePlug.Transform.Operation.Crop
   alias ImagePlug.Transform.Operation.ExtendCanvas
   alias ImagePlug.Transform.Operation.Resize
@@ -49,27 +48,9 @@ defmodule ImagePlug.TransformExecutableCharacterizationTest do
         %Resize{rule: %DimensionRule{mode: :force, width: :auto, height: {:pixels, 100}}}
       ])
 
-    auto_landscape_intermediate =
-      generated_state(300, 200)
-      |> execute!([
-        %AdaptiveResize{
-          rule: %DimensionRule{mode: :auto, width: {:pixels, 100}, height: {:pixels, 50}}
-        }
-      ])
-
-    auto_portrait =
-      generated_state(300, 200)
-      |> execute!([
-        %AdaptiveResize{
-          rule: %DimensionRule{mode: :auto, width: {:pixels, 50}, height: {:pixels, 100}}
-        }
-      ])
-
     assert dimensions(fit) == {100, 67}
     assert dimensions(fill) == {100, 100}
     assert dimensions(force) == {300, 100}
-    assert dimensions(auto_landscape_intermediate) == {100, 67}
-    assert dimensions(auto_portrait) == {50, 33}
   end
 
   test "canvas extension changes canvas dimensions independently from resize scale" do

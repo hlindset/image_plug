@@ -187,15 +187,7 @@ defmodule ImagePlug.Transform.MaterialTest do
            ]
   end
 
-  test "adaptive resize and extend canvas operations emit canonical material" do
-    assert Material.material(%Transform.Operation.AdaptiveResize{
-             rule: %Transform.Geometry.DimensionRule{
-               mode: :auto,
-               width: {:pixels, 300},
-               height: {:pixels, 200}
-             }
-           })[:op] == :adaptive_resize
-
+  test "extend canvas operations emit canonical material" do
     assert Material.material(%Transform.Operation.ExtendCanvas{
              rule: {:aspect_ratio, {16, 9}},
              gravity: {:anchor, :left, :top},

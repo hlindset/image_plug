@@ -13,7 +13,6 @@ defmodule ImagePlug.TransformIRCharacterizationTest do
   alias ImagePlug.Transform
   alias ImagePlug.Transform.Chain
   alias ImagePlug.Transform.Geometry.DimensionRule
-  alias ImagePlug.Transform.Operation.AdaptiveResize
   alias ImagePlug.Transform.Operation.Crop
   alias ImagePlug.Transform.Operation.ExtendCanvas
   alias ImagePlug.Transform.Operation.Resize
@@ -98,6 +97,13 @@ defmodule ImagePlug.TransformIRCharacterizationTest do
     {Image.width(image), Image.height(image)}
   end
 
+  defp execute_image(image, operations) do
+    assert {:ok, %State{image: image}} = Chain.execute(%State{image: image}, operations)
+    image
+  end
+
+  defp image_dimensions(image), do: {Image.width(image), Image.height(image)}
+
   defp resolve_dimensions(semantic_operations, source \\ {300, 200}) do
     {width, height} = source
 
@@ -115,6 +121,15 @@ defmodule ImagePlug.TransformIRCharacterizationTest do
     |> execute_dimensions(source)
   end
 
+  defp resolve_operations(plan, source) do
+    {width, height} = source
+    metadata = %SourceMetadata{width: width, height: height, orientation: :normal, format: :png}
+
+    assert {:ok, resolved} = Transform.resolve(plan, metadata, [])
+
+    List.flatten(resolved.pipelines)
+  end
+
   defp size(width, height) do
     assert {:ok, width} = semantic_dimension(width)
     assert {:ok, height} = semantic_dimension(height)
@@ -128,6 +143,14 @@ defmodule ImagePlug.TransformIRCharacterizationTest do
   defp center_gravity do
     assert {:ok, gravity} = Gravity.anchor(:center, :center)
     gravity
+  end
+
+  defp banded_source do
+    400
+    |> Image.new!(200, color: :red)
+    |> Image.Draw.rect!(100, 0, 100, 200, color: :green)
+    |> Image.Draw.rect!(200, 0, 100, 200, color: :blue)
+    |> Image.Draw.rect!(300, 0, 100, 200, color: :yellow)
   end
 
   test "cache hit returns before origin fetch for auto resize requests" do
@@ -155,10 +178,6 @@ defmodule ImagePlug.TransformIRCharacterizationTest do
   end
 
   test "parser/request-level resize:auto preserves visible current dimensions" do
-    # Current request-visible behavior resolves ResizeAuto through fill plus a
-    # result Crop for matching landscape orientation. Executable AdaptiveResize
-    # alone produces {100, 67} for 300x200 -> 100x50, while the request path
-    # below produces the final visible {100, 50}.
     cases = [
       %{source: {300, 200}, target: {100, 50}, expected: {100, 50}},
       %{source: {300, 200}, target: {50, 100}, expected: {50, 33}},
@@ -181,6 +200,44 @@ defmodule ImagePlug.TransformIRCharacterizationTest do
 
     refute Enum.any?(operations, &transform_operation?/1)
     assert Enum.all?(operations, &Operation.semantic?/1)
+  end
+
+  test "imgproxy fill lowering preserves dpr and gravity offsets into executable behavior" do
+    {_conn, plan} =
+      parse_plan!("/_/rt:fill/w:100/h:100/dpr:2/g:ce:25:0/f:png/plain/generated/400x200.png")
+
+    assert [%Resize{rule: rule}, %Crop{} = crop] =
+             operations = resolve_operations(plan, {400, 200})
+
+    assert rule == %DimensionRule{
+             mode: :fill,
+             width: {:pixels, 100},
+             height: {:pixels, 100},
+             dpr: 2.0,
+             enlarge: false
+           }
+
+    assert crop.gravity == {:anchor, :center, :center}
+    assert crop.x_offset == {:pixels, 25.0}
+    assert crop.y_offset == {:pixels, 0.0}
+    assert crop.target_rule == rule
+
+    image = execute_image(banded_source(), operations)
+
+    assert image_dimensions(image) == {200, 200}
+    assert Image.get_pixel!(image, 0, 100) == [0, 128, 0]
+    assert Image.get_pixel!(image, 100, 100) == [0, 0, 255]
+    assert Image.get_pixel!(image, 199, 100) == [255, 255, 0]
+  end
+
+  test "imgproxy fill-down does not enlarge smaller raster sources" do
+    {_conn, plan} =
+      parse_plan!("/_/rt:fill-down/w:200/h:200/f:png/plain/generated/80x60.png")
+
+    operations = resolve_operations(plan, {80, 60})
+
+    assert [%Resize{rule: %DimensionRule{mode: :fill, enlarge: false}}, %Crop{}] = operations
+    assert execute_dimensions(operations, {80, 60}) == {60, 60}
   end
 
   test "semantic lowering preserves current executable dimensions for first-slice examples" do
@@ -238,7 +295,7 @@ defmodule ImagePlug.TransformIRCharacterizationTest do
       %{
         name: :auto_landscape_target,
         old: [
-          %AdaptiveResize{rule: auto_rule},
+          %Resize{rule: %DimensionRule{auto_rule | mode: :fill}},
           %Crop{
             width: :auto,
             height: :auto,

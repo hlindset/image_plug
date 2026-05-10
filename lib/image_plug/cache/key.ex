@@ -79,26 +79,8 @@ defmodule ImagePlug.Cache.Key do
   end
 
   defp backend_material(opts) do
-    case Keyword.get(opts, :backend_profile, BackendProfile.default()) do
-      profile when is_list(profile) and profile == [] ->
-        {:ok, BackendProfile.material(profile)}
-
-      [{key, _value} | _rest] = profile when is_atom(key) ->
-        backend_keyword_material(profile, profile)
-
-      profile ->
-        {:error, {:invalid_backend_profile, profile}}
-    end
+    BackendProfile.material_from_options(opts)
   end
-
-  defp backend_keyword_material([], profile), do: {:ok, BackendProfile.material(profile)}
-
-  defp backend_keyword_material([{key, _value} | rest], profile) when is_atom(key) do
-    backend_keyword_material(rest, profile)
-  end
-
-  defp backend_keyword_material(_invalid, profile),
-    do: {:error, {:invalid_backend_profile, profile}}
 
   defp output_material(conn, %Output{mode: :automatic} = output, opts) do
     accept_header = conn |> get_req_header("accept") |> Enum.join(",")

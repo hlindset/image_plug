@@ -8,7 +8,6 @@ defmodule ImagePlug.Transform.DecodePlanner do
   metadata, and invalid access values all fall back to random access.
   """
 
-  alias ImagePlug.Plan.Geometry.Dimension
   alias ImagePlug.Plan.Operation
   alias ImagePlug.Transform
 
@@ -29,22 +28,15 @@ defmodule ImagePlug.Transform.DecodePlanner do
   end
 
   defp access_requirement(operation) do
-    operation
-    |> safe_metadata()
-    |> access_from_metadata()
-  end
+    case Operation.semantic?(operation) do
+      true ->
+        Operation.decode_access(operation)
 
-  defp safe_metadata(operation) do
-    if Operation.semantic?(operation) do
-      semantic_metadata(operation)
-    else
-      Transform.metadata(operation)
+      false ->
+        operation
+        |> Transform.metadata()
+        |> access_from_metadata()
     end
-  rescue
-    _exception in [ArgumentError, FunctionClauseError, RuntimeError, UndefinedFunctionError] ->
-      %{access: :random}
-  catch
-    :throw, _reason -> %{access: :random}
   end
 
   defp access_from_metadata(%{access: access}), do: normalize_access(access)
@@ -52,34 +44,6 @@ defmodule ImagePlug.Transform.DecodePlanner do
 
   defp normalize_access(access) when access in [:sequential, :random, :neutral], do: access
   defp normalize_access(_access), do: :random
-
-  defp semantic_metadata(%Operation.ResizeFit{} = operation), do: resize_metadata(operation)
-  defp semantic_metadata(%Operation.ResizeStretch{} = operation), do: resize_metadata(operation)
-  defp semantic_metadata(%Operation.AutoOrient{}), do: %{access: :sequential}
-  defp semantic_metadata(%Operation.ResizeCover{}), do: %{access: :random}
-  defp semantic_metadata(%Operation.ResizeAuto{}), do: %{access: :random}
-  defp semantic_metadata(%Operation.CropGuided{}), do: %{access: :random}
-  defp semantic_metadata(%Operation.CropRegion{}), do: %{access: :random}
-  defp semantic_metadata(%Operation.Canvas{}), do: %{access: :random}
-  defp semantic_metadata(%Operation.Rotate{}), do: %{access: :random}
-  defp semantic_metadata(%Operation.Flip{}), do: %{access: :random}
-  defp semantic_metadata(_operation), do: %{access: :random}
-
-  defp resize_metadata(%{size: size, min_width: nil, min_height: nil}) do
-    if requested_dimension?(size.width) or requested_dimension?(size.height) do
-      %{access: :sequential}
-    else
-      %{access: :random}
-    end
-  end
-
-  defp resize_metadata(_operation), do: %{access: :random}
-
-  defp requested_dimension?(%Dimension{unit: :logical_px, value: value})
-       when is_integer(value) and value > 0,
-       do: true
-
-  defp requested_dimension?(_dimension), do: false
 
   defp resolve_access(requirements) do
     cond do

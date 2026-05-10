@@ -8,7 +8,10 @@ defmodule ImagePlug.ImagePlugTest do
   doctest ImagePlug
 
   alias ImagePlug.Plan
+  alias ImagePlug.Plan.Geometry.Dimension
+  alias ImagePlug.Plan.Geometry.Region
   alias ImagePlug.Plan.Output
+  alias ImagePlug.Plan.Operation
   alias ImagePlug.Plan.Pipeline
   alias ImagePlug.Plan.Source.Plain
 
@@ -266,6 +269,40 @@ defmodule ImagePlug.ImagePlugTest do
     def handle_error(conn, _error), do: conn
   end
 
+  defmodule UnsupportedSemanticPipelineParser do
+    @behaviour ImagePlug.Parser
+
+    @impl ImagePlug.Parser
+    def parse(_conn, _opts) do
+      {:ok,
+       ImagePlug.ImagePlugTest.sample_explicit_plan(:jpeg, [
+         resize_fit_operation(),
+         source_crop_region_operation()
+       ])}
+    end
+
+    @impl ImagePlug.Parser
+    def handle_error(conn, _error), do: conn
+
+    defp resize_fit_operation do
+      {:ok, width} = Dimension.pixels(100)
+      {:ok, height} = Dimension.pixels(100)
+      {:ok, size} = ImagePlug.Plan.Geometry.Size.new(width: width, height: height, dpr: 1.0)
+      {:ok, operation} = Operation.resize_fit(size: size, enlargement: :deny)
+      operation
+    end
+
+    defp source_crop_region_operation do
+      {:ok, x} = Dimension.pixels(1)
+      {:ok, y} = Dimension.pixels(1)
+      {:ok, width} = Dimension.pixels(10)
+      {:ok, height} = Dimension.pixels(10)
+      {:ok, region} = Region.new(x: x, y: y, width: width, height: height, space: :source)
+      {:ok, operation} = Operation.crop_region(region: region)
+      operation
+    end
+  end
+
   defmodule RaisingAfterFirstChunkImage do
     def stream!(_image, suffix: ".jpg") do
       Stream.resource(
@@ -429,7 +466,7 @@ defmodule ImagePlug.ImagePlugTest do
     assert Keyword.fetch!(opts, :parser) == ImagePlug.Parser.Imgproxy
   end
 
-  test "init rejects legacy param_parser without parser option" do
+  test "init requires parser option even if unrelated param_parser option is present" do
     assert_raise ArgumentError, ~r/required :parser option not found/, fn ->
       ImagePlug.init(param_parser: ImagePlug.Parser.Imgproxy, root_url: "https://example.test")
     end
@@ -474,7 +511,8 @@ defmodule ImagePlug.ImagePlugTest do
     assert boundary_option(image_plug_ast, :deps) |> boundary_aliases() == [
              [:ImagePlug, :Parser],
              [:ImagePlug, :Plan],
-             [:ImagePlug, :Runtime]
+             [:ImagePlug, :Runtime],
+             [:ImagePlug, :Transform]
            ]
   end
 
@@ -667,6 +705,24 @@ defmodule ImagePlug.ImagePlugTest do
 
     flush_cache_probe(cache_probe)
     assert conn.status == 400
+    refute_received {:cache_get, _key}
+    refute_received :origin_was_called
+  end
+
+  test "semantic pipeline validation fails before source identity, cache, or origin access" do
+    conn = conn(:get, "/image")
+    cache_probe = start_cache_probe()
+
+    conn =
+      ImagePlug.call(conn,
+        parser: UnsupportedSemanticPipelineParser,
+        cache: {CacheProbe, message_target: cache_probe},
+        origin_req_options: [plug: OriginShouldNotBeCalled]
+      )
+
+    flush_cache_probe(cache_probe)
+    assert conn.status == 422
+    assert conn.resp_body == "invalid image transform"
     refute_received {:cache_get, _key}
     refute_received :origin_was_called
   end

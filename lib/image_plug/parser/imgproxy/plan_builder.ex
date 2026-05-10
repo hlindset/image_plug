@@ -51,9 +51,18 @@ defmodule ImagePlug.Parser.Imgproxy.PlanBuilder do
   defp build_pipelines([]), do: {:error, :empty_pipeline_plan}
 
   defp build_pipelines(pipeline_requests) do
-    pipeline_requests
-    |> Enum.map(&pipeline/1)
-    |> reduce_results()
+    result =
+      Enum.reduce_while(pipeline_requests, [], fn pipeline_request, pipelines ->
+        case pipeline(pipeline_request) do
+          {:ok, pipeline} -> {:cont, [pipeline | pipelines]}
+          {:error, reason} -> {:halt, {:error, reason}}
+        end
+      end)
+
+    case result do
+      {:error, _reason} = error -> error
+      pipelines -> {:ok, Enum.reverse(pipelines)}
+    end
   end
 
   defp pipeline(%PipelineRequest{} = pipeline_request) do

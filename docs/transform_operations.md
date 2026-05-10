@@ -95,10 +95,6 @@ describe work over `ImagePlug.Transform.State`, not parser request material:
 
 - `ImagePlug.Transform.Operation.Resize`: resolved resize with a known
   dimension-rule mode.
-- `ImagePlug.Transform.Operation.AdaptiveResize`: executable operation for
-  direct transform-chain source-dependent auto resize. `ResizeAuto` is the
-  canonical semantic Plan operation and parsers should not emit
-  `AdaptiveResize`.
 - `ImagePlug.Transform.Operation.Crop`: resolved crop using gravity, offsets,
   optional orientation context, and optional target rule.
 - `ImagePlug.Transform.Operation.ExtendCanvas`: resolved canvas/letterbox work.

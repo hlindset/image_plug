@@ -29,6 +29,9 @@ defmodule ImagePlug.Plan.OperationTest do
       assert {:ok, size} = size()
       assert {:ok, guide} = Gravity.anchor(:center, :center)
 
+      assert Operation.resize_fit(size: size, enlargement: :allow, min_heigth: 100) ==
+               {:error, {:unknown_operation_options, :resize_fit, [:min_heigth]}}
+
       assert Operation.resize_fit(size: :not_size, enlargement: :allow) ==
                {:error, {:invalid_operation, :resize_fit, [size: :not_size, enlargement: :allow]}}
 
@@ -40,6 +43,14 @@ defmodule ImagePlug.Plan.OperationTest do
                 {:invalid_operation, :resize_cover,
                  [size: size, enlargement: :allow, guide: :center]}}
 
+      assert Operation.resize_cover(
+               size: size,
+               enlargement: :allow,
+               guide: guide,
+               placement: guide
+             ) ==
+               {:error, {:unknown_operation_options, :resize_cover, [:placement]}}
+
       assert Operation.resize_cover(size: size, enlargement: :deny, guide: guide) ==
                {:ok, %Operation.ResizeCover{size: size, enlargement: :deny, guide: guide}}
 
@@ -47,8 +58,14 @@ defmodule ImagePlug.Plan.OperationTest do
                {:error,
                 {:invalid_operation, :resize_stretch, [size: :not_size, enlargement: :allow]}}
 
+      assert Operation.resize_stretch(size: size, enlargement: :allow, fit: :cover) ==
+               {:error, {:unknown_operation_options, :resize_stretch, [:fit]}}
+
       assert Operation.resize_auto(size: size, enlargement: :maybe) ==
                {:error, {:invalid_operation, :resize_auto, [size: size, enlargement: :maybe]}}
+
+      assert Operation.resize_auto(size: size, enlargement: :allow, guide: guide, focal: guide) ==
+               {:error, {:unknown_operation_options, :resize_auto, [:focal]}}
     end
   end
 
@@ -76,8 +93,14 @@ defmodule ImagePlug.Plan.OperationTest do
       assert Operation.crop_guided(size: size, guide: :center) ==
                {:error, {:invalid_operation, :crop_guided, [size: size, guide: :center]}}
 
+      assert Operation.crop_guided(size: size, guide: guide, gravity: guide) ==
+               {:error, {:unknown_operation_options, :crop_guided, [:gravity]}}
+
       assert Operation.crop_region(region: :not_region) ==
                {:error, {:invalid_operation, :crop_region, [region: :not_region]}}
+
+      assert Operation.crop_region(region: region, space: :source) ==
+               {:error, {:unknown_operation_options, :crop_region, [:space]}}
 
       assert Operation.crop_region(region: region) == {:ok, %Operation.CropRegion{region: region}}
     end
@@ -136,6 +159,15 @@ defmodule ImagePlug.Plan.OperationTest do
                {:error,
                 {:invalid_operation, :canvas,
                  [size: size, placement: placement, background: :white, overflow: :crop]}}
+
+      assert Operation.canvas(
+               size: size,
+               placement: placement,
+               background: :white,
+               overflow: :reject,
+               source: :image
+             ) ==
+               {:error, {:unknown_operation_options, :canvas, [:source]}}
     end
   end
 
@@ -149,6 +181,55 @@ defmodule ImagePlug.Plan.OperationTest do
     test "reject invalid orientation inputs without raising" do
       assert Operation.rotate(45) == {:error, {:invalid_operation, :rotate, 45}}
       assert Operation.flip(:diagonal) == {:error, {:invalid_operation, :flip, :diagonal}}
+    end
+  end
+
+  describe "access metadata" do
+    test "reports semantic operation decode access metadata" do
+      assert {:ok, size} = size()
+      assert {:ok, guide} = Gravity.anchor(:center, :center)
+      assert {:ok, region} = region()
+      assert {:ok, fit} = Operation.resize_fit(size: size, enlargement: :deny)
+      assert {:ok, cover} = Operation.resize_cover(size: size, enlargement: :deny, guide: guide)
+      assert {:ok, stretch} = Operation.resize_stretch(size: size, enlargement: :deny)
+      assert {:ok, auto} = Operation.resize_auto(size: size, enlargement: :deny)
+      assert {:ok, guided} = Operation.crop_guided(size: size, guide: guide)
+      assert {:ok, region_crop} = Operation.crop_region(region: region)
+
+      assert Operation.access_metadata(fit) == %{access: :sequential}
+      assert Operation.access_metadata(stretch) == %{access: :sequential}
+      assert Operation.access_metadata(cover) == %{access: :random}
+      assert Operation.access_metadata(auto) == %{access: :random}
+      assert Operation.access_metadata(guided) == %{access: :random}
+      assert Operation.access_metadata(region_crop) == %{access: :random}
+
+      assert {:ok, canvas} =
+               Operation.canvas(
+                 size: size,
+                 placement: guide,
+                 background: :white,
+                 overflow: :reject
+               )
+
+      assert {:ok, auto_orient} = Operation.auto_orient()
+      assert {:ok, rotate} = Operation.rotate(90)
+      assert {:ok, flip} = Operation.flip(:horizontal)
+
+      assert Operation.access_metadata(canvas) == %{access: :random}
+      assert Operation.access_metadata(auto_orient) == %{access: :sequential}
+      assert Operation.access_metadata(rotate) == %{access: :random}
+      assert Operation.access_metadata(flip) == %{access: :random}
+    end
+
+    test "reports fit and stretch without requested dimensions as random access" do
+      assert {:ok, auto_width} = Dimension.auto()
+      assert {:ok, auto_height} = Dimension.auto()
+      assert {:ok, size} = Size.new(width: auto_width, height: auto_height, dpr: 1.0)
+      assert {:ok, fit} = Operation.resize_fit(size: size, enlargement: :deny)
+      assert {:ok, stretch} = Operation.resize_stretch(size: size, enlargement: :deny)
+
+      assert Operation.access_metadata(fit) == %{access: :random}
+      assert Operation.access_metadata(stretch) == %{access: :random}
     end
   end
 

@@ -2,7 +2,6 @@ defmodule ImagePlug.Transform.ChainTest do
   use ExUnit.Case, async: true
 
   alias ImagePlug.Transform
-  alias ImagePlug.Transform.Operation.AdaptiveResize
   alias ImagePlug.Transform.Chain
   alias ImagePlug.Transform.ChainTest.FailingTransform
   alias ImagePlug.Transform.ChainTest.UnexpectedTransform
@@ -29,11 +28,6 @@ defmodule ImagePlug.Transform.ChainTest do
     assert :ok =
              Transform.validate(%Resize{
                rule: %DimensionRule{mode: :fit, width: {:pixels, 10}}
-             })
-
-    assert :ok =
-             Transform.validate(%AdaptiveResize{
-               rule: %DimensionRule{mode: :auto, width: {:pixels, 10}, height: {:pixels, 20}}
              })
   end
 
@@ -64,9 +58,6 @@ defmodule ImagePlug.Transform.ChainTest do
 
     assert {:error, %ArgumentError{}} =
              Transform.validate(%Resize{rule: %DimensionRule{mode: :auto}})
-
-    assert {:error, %ArgumentError{}} =
-             Transform.validate(%AdaptiveResize{rule: %DimensionRule{mode: :fill}})
 
     assert {:error, %ArgumentError{}} =
              Transform.validate(%ExtendCanvas{rule: :oops})
@@ -274,38 +265,6 @@ defmodule ImagePlug.Transform.ChainTest do
     assert {:ok, %State{image: image}} = Chain.execute(%State{image: image}, chain)
     assert Image.width(image) == 100
     assert Image.height(image) == 100
-  end
-
-  test "adaptive resize chooses cover behavior for matching orientation" do
-    {:ok, image} = Image.new(200, 100, color: :white)
-
-    chain = [
-      %AdaptiveResize{
-        rule: %DimensionRule{mode: :auto, width: {:pixels, 100}, height: {:pixels, 50}}
-      }
-    ]
-
-    assert {:ok, %State{image: image}} = Chain.execute(%State{image: image}, chain)
-    assert Image.width(image) == 100
-    assert Image.height(image) == 50
-  end
-
-  test "adaptive resize raises for invalid unvalidated runtime dimensions" do
-    {:ok, image} = Image.new(200, 100, color: :white)
-
-    chain = [
-      %AdaptiveResize{
-        rule: %DimensionRule{
-          mode: :auto,
-          width: {:scale, 1, 0},
-          height: {:pixels, 50}
-        }
-      }
-    ]
-
-    assert_raise ArgumentError, fn ->
-      Chain.execute(%State{image: image}, chain)
-    end
   end
 
   test "extend canvas raises for invalid unvalidated runtime dimensions" do

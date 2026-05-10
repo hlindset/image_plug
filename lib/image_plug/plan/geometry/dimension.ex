@@ -8,8 +8,8 @@ defmodule ImagePlug.Plan.Geometry.Dimension do
 
   @type t :: %__MODULE__{
           unit: :auto | :full_axis | :logical_px | :ratio,
-          value: pos_integer() | nil,
-          numerator: pos_integer() | nil,
+          value: non_neg_integer() | nil,
+          numerator: non_neg_integer() | nil,
           denominator: pos_integer() | nil
         }
 
@@ -24,7 +24,7 @@ defmodule ImagePlug.Plan.Geometry.Dimension do
   def full_axis, do: {:ok, %__MODULE__{unit: :full_axis}}
 
   @spec pixels(term()) :: {:ok, t()} | {:error, error()}
-  def pixels(value) when is_integer(value) and value > 0 do
+  def pixels(value) when is_integer(value) and value >= 0 do
     {:ok, %__MODULE__{unit: :logical_px, value: value}}
   end
 
@@ -32,7 +32,7 @@ defmodule ImagePlug.Plan.Geometry.Dimension do
 
   @spec ratio(term(), term()) :: {:ok, t()} | {:error, error()}
   def ratio(numerator, denominator)
-      when is_integer(numerator) and is_integer(denominator) and numerator > 0 and
+      when is_integer(numerator) and is_integer(denominator) and numerator >= 0 and
              denominator > 0 do
     gcd = Integer.gcd(numerator, denominator)
 

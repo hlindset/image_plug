@@ -3,7 +3,6 @@ defmodule ImagePlug.Runtime.Processor do
 
   alias ImagePlug.Output.Format
   alias ImagePlug.Plan
-  alias ImagePlug.Plan.Operation
   alias ImagePlug.Plan.Source.Plain
   alias ImagePlug.Runtime.DecodedOrigin
   alias ImagePlug.Runtime.Origin
@@ -11,7 +10,6 @@ defmodule ImagePlug.Runtime.Processor do
   alias ImagePlug.Transform.Chain
   alias ImagePlug.Transform.DecodePlanner
   alias ImagePlug.Transform.Materializer
-  alias ImagePlug.Transform.ResolvedPlan
   alias ImagePlug.Transform.SourceMetadata
   alias ImagePlug.Transform.State
 
@@ -151,22 +149,7 @@ defmodule ImagePlug.Runtime.Processor do
   end
 
   defp executable_pipelines(%Plan{} = plan, %DecodedOrigin{} = decoded, opts) do
-    case semantic_plan?(plan) do
-      true ->
-        with {:ok, %ResolvedPlan{} = resolved} <-
-               Transform.resolve(plan, decoded.source_metadata, opts) do
-          {:ok, resolved.pipelines}
-        end
-
-      false ->
-        {:ok, pipeline_operations(plan.pipelines)}
-    end
-  end
-
-  defp semantic_plan?(%Plan{pipelines: pipelines}) do
-    Enum.any?(pipelines, fn %ImagePlug.Plan.Pipeline{operations: operations} ->
-      Enum.any?(operations, &Operation.semantic?/1)
-    end)
+    Transform.executable_pipelines(plan, decoded.source_metadata, opts)
   end
 
   defp pipeline_operations(pipelines) do

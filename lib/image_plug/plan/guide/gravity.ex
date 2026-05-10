@@ -51,9 +51,5 @@ defmodule ImagePlug.Plan.Guide.Gravity do
        {:invalid_gravity,
         {:focal_point, x_numerator, x_denominator, y_numerator, y_denominator, space}}}
 
-  defp focal_ratio(0, denominator) when is_integer(denominator) and denominator > 0 do
-    {:ok, %Dimension{unit: :ratio, numerator: 0, denominator: 1}}
-  end
-
   defp focal_ratio(numerator, denominator), do: Dimension.ratio(numerator, denominator)
 end
