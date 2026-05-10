@@ -74,7 +74,7 @@ parser raw syntax
   -> ImagePlug.Transform.resolve/3
        validates semantic operations
        applies source metadata
-       applies backend capabilities
+       checks backend support
        records diagnostics and decisions
        lowers to executable backend work
   -> resolved transform plan
@@ -84,9 +84,9 @@ parser raw syntax
 
 `ImagePlug.Plan.Pipeline` remains the canonical request pipeline container.
 Its `operations` field should contain canonical semantic operations with
-explicit guides and normalized geometry. Parser-local compatibility commands
-may exist before this point, but raw vendor syntax and parser context should
-not leak into canonical plan material.
+explicit guides and normalized geometry. Parser-local context or compatibility
+commands may exist before this point, but raw vendor syntax and parser context
+should not leak into canonical plan material.
 
 Adapter-local normalized commands are internal parser or adapter data. They
 must not appear in canonical `ImagePlug.Plan.Pipeline.operations` unless a
@@ -200,6 +200,11 @@ resize scale by itself. Scaling must be represented by a preceding resize
 operation. This keeps `Canvas` from becoming a disguised contain/pad
 mega-operation.
 
+The initial `Canvas` contract should define target size, placement,
+background, and overflow behavior. Overflow must be explicit, for example
+reject, clip, or allow only when a later fixture proves that behavior is
+required.
+
 Standalone `CropSmart` should not be an initial semantic operation. Smartness
 usually guides a concrete crop or cover operation. Represent smart behavior as
 guide strategies attached to `CropGuided` or `ResizeCover`.
@@ -211,9 +216,16 @@ adapter-local parser command that leaks into `ImagePlug.Plan`.
 `ResizeAuto` is source-dependent semantic intent. Its canonical material is
 parser-syntax-free and may remain unresolved before source metadata is known,
 for example `{:resize_auto, size, enlargement_policy}`. Transform lowering
-selects `ResizeCover` or `ResizeFit` after source dimensions are known. The
-selected branch is recorded as a resolver decision and becomes resolver
+selects `ResizeCover` when the current image orientation matches the requested
+target orientation, including square-to-square, and `ResizeFit` otherwise. If
+the requested target orientation cannot be computed, it selects `ResizeFit`.
+The selected branch is recorded as a resolver decision and becomes resolver
 material only when not already determined by existing key material.
+
+`ResizeAuto` must not grow beyond the current documented imgproxy-compatible
+auto behavior. If a later adapter has source-dependent resize selection with
+different branch rules, add a new semantic operation or adapter policy instead
+of extending `ResizeAuto` implicitly.
 
 ## Adapter Context Commands And Guides
 
@@ -296,6 +308,10 @@ Coordinate spaces:
   translate vendor-defined coordinates into one of the supported spaces or
   reject the request.
 
+`:post_orient` is intentionally a source-derived reference space, not a
+general pipeline phase. It may only refer to the source image after orientation
+normalization and before any non-orientation semantic operation.
+
 Coordinate units:
 
 - `:pixels` means the coordinate value is pixel-based in the declared space.
@@ -344,6 +360,10 @@ negative ratios only when documented by that operation.
 Operation ordering remains a parser responsibility. Declarative parsers emit
 operations in their canonical order. Ordered-command parsers emit operations in
 the order required by the dialect.
+
+Once canonical `ImagePlug.Plan` is built, the resolver must preserve semantic
+operation order except for validation-preserving no-op elision or explicitly
+tested pixel-equivalent optimization.
 
 ## Orientation And Coordinate Semantics
 
@@ -488,7 +508,9 @@ Inputs:
 
 - semantic pipelines from `ImagePlug.Plan`
 - source metadata: width, height, orientation metadata, alpha, format, and
-  source type
+  source type. The implementation plan should define a minimal
+  `ImagePlug.Transform.SourceMetadata` struct early instead of passing loose
+  maps between resolver phases.
 - backend capability profile
 - parser or compatibility policy
 - config defaults that affect visible output
@@ -520,6 +542,9 @@ After `ImagePlug.Transform.resolve/3` succeeds:
 - diagnostics with severity `:error` have been handled according to policy
 - request runtime can execute through generic Transform entry points without
   parser knowledge
+
+These invariants apply to the source-aware resolved transform plan, not to the
+prefetch-safe semantic material used before source metadata is available.
 
 ## Backend Representation
 
@@ -596,8 +621,11 @@ Diagnostic fields:
 
 - `severity: :info | :warning | :error`
 - `code: atom`
+- `phase: :parser | :adapter | :semantic | :resolver | :backend`
 - `pipeline_index`
 - `operation_index`
+- optional parser or adapter location when the diagnostic happens before a
+  canonical semantic operation exists
 - compact `details` map
 
 Useful diagnostic codes:
@@ -754,6 +782,11 @@ semantic intent can be cache material. For example, imgproxy `resize:auto` may
 remain `resize:auto` in semantic material instead of forcing the selected fit
 or cover branch into the key.
 
+Any unresolved semantic operation allowed in final cache material has a proof
+obligation: tests must show that for fixed source identity/freshness material,
+semantic material, backend profile, configuration, output negotiation, and
+pipeline order, resolver choices produce one deterministic output.
+
 This cache invariant assumes source identity is stable for caching purposes.
 Changed source bytes or metadata must be represented by a different resolved
 origin identity, source fingerprint, immutable origin version, cachebuster, or
@@ -819,16 +852,20 @@ Mapping:
   - `abs(value) >= 1` becomes `{:pixels, integer}`.
   Transform resolves those typed forms against source/current dimensions, DPR,
   orientation, and previous operations.
+  Parser token classification must preserve current documented
+  imgproxy-compatible validation for negative, decimal, and zero forms. It must
+  not silently round decimal pixel tokens unless current behavior already does.
 - `resize:fit` maps to `ResizeFit`.
 - `resize:fill` and `resize:fill-down` map to `ResizeCover` with enlargement
   policy.
 - `resize:force` maps to `ResizeStretch`.
 - `resize:auto` maps to canonical `ResizeAuto`, a source-dependent semantic
   resize operation with parser-syntax-free material. Transform resolves it to
-  `ResizeCover` or `ResizeFit` after source dimensions are known. The selected
-  branch is recorded as a resolver decision. It becomes resolver material only
-  when not already determined by source identity, canonical semantic material,
-  configuration, backend profile, output negotiation, and pipeline order.
+  `ResizeCover` or `ResizeFit` after the current input dimensions are known
+  during source-aware resolution. The selected branch is recorded as a resolver
+  decision. It becomes resolver material only when not already determined by
+  source identity, canonical semantic material, configuration, backend profile,
+  output negotiation, and pipeline order.
 - `extend` and `extend_aspect_ratio` map to `Canvas`.
 - Smart/object/face gravity maps to strategy guides only when parser policy
   supports those strategies.
@@ -977,6 +1014,9 @@ Cache tests should assert:
 - deterministic unresolved semantic intent, such as imgproxy `resize:auto`, is
   sufficient cache material when source identity and pipeline order determine
   the output
+- unresolved semantic operations used in final cache material have tests
+  proving deterministic output for fixed source identity, semantic material,
+  backend profile, configuration, output negotiation, and pipeline order
 - changed source bytes or metadata are represented by changed source identity,
   source fingerprint, cachebuster, immutable origin version, or equivalent
   freshness material
