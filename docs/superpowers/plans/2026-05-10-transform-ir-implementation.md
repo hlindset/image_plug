@@ -86,6 +86,7 @@ Do not introduce backend operation structs in this plan unless an executable ope
 - On cache miss, runtime must store under the same cache key returned by the prefetch-safe lookup; it must not build a resolved-operation key after source-aware resolution.
 - Runtime may call generic Plan/Transform validation and execution facades, but it must not pattern-match on concrete `ImagePlug.Plan.Operation.*` or `ImagePlug.Transform.Operation.*` modules.
 - Runtime may carry executable transform structs opaquely through `ImagePlug.Transform.Chain`, but must not branch on their concrete modules.
+- Semantic Plan constructor APIs must return `{:ok, value}` or `{:error, reason}`. Do not introduce public bang constructors for semantic Plan values or operations; local test helpers such as `build_key!/3` or `execute!/2` are fine when they wrap assertions.
 - Parser defaults that affect output, such as center gravity, DPR `1.0`, and enlargement policy, must be explicit in canonical Plan material.
 - `ResizeAuto` and `ResizeCover` behavior must be verified against current parser/request-level behavior before lowering is finalized.
 - First-slice resolver output is expected to contain derivations and no selections. Add selections only if current imgproxy-compatible behavior proves a prefetch-safe output-affecting choice that is not already materialized elsewhere.
@@ -1329,7 +1330,7 @@ Do not call `Transform.resolve/3`, image metadata readers, or origin fetch modul
 
 - [ ] **Step 4: Add source-independent semantic validation facade**
 
-Add a narrow source-independent validation facade such as `ImagePlug.Plan.validate_prefetch_safe/1` or `ImagePlug.Transform.validate_semantic_plan/1`.
+Add a narrow source-independent validation facade such as `ImagePlug.Transform.validate_prefetch_safe_plan/1`.
 
 This facade should:
 
@@ -1340,7 +1341,7 @@ This facade should:
 
 `RequestRunner` may call this facade before cache lookup. It must not pattern-match on concrete `ImagePlug.Plan.Operation.*` modules itself.
 
-Add focused tests, preferably in `test/image_plug/plan/prefetch_validation_test.exs`, proving:
+Add focused tests, preferably in `test/image_plug/transform/prefetch_validation_test.exs`, proving:
 
 - semantic Plan operations pass
 - executable `ImagePlug.Transform.Operation.*` structs in a canonical Plan fail after Task 9/10

@@ -3,11 +3,12 @@ defmodule ImagePlug.Plan.Operation do
   Constructor facade for canonical semantic Plan operations.
   """
 
+  alias ImagePlug.Plan.Geometry.Dimension
+  alias ImagePlug.Plan.Geometry.Region
   alias ImagePlug.Plan.Geometry.Size
   alias ImagePlug.Plan.Guide.Gravity
   alias ImagePlug.Plan.Operation.AutoOrient
   alias ImagePlug.Plan.Operation.Canvas
-  alias ImagePlug.Plan.Geometry.Region
   alias ImagePlug.Plan.Operation.CropGuided
   alias ImagePlug.Plan.Operation.CropRegion
   alias ImagePlug.Plan.Operation.Flip
@@ -20,6 +21,21 @@ defmodule ImagePlug.Plan.Operation do
   @enlargements [:allow, :deny]
   @right_angles [0, 90, 180, 270]
   @flip_axes [:horizontal, :vertical, :both]
+  @prefetch_spaces [:source, :current]
+  @x_anchors [:left, :center, :right]
+  @y_anchors [:top, :center, :bottom]
+  @semantic_modules [
+    CropGuided,
+    CropRegion,
+    Canvas,
+    AutoOrient,
+    Rotate,
+    Flip,
+    ResizeFit,
+    ResizeCover,
+    ResizeStretch,
+    ResizeAuto
+  ]
 
   @type resize_operation ::
           ResizeFit.t()
@@ -42,6 +58,7 @@ defmodule ImagePlug.Plan.Operation do
           | orientation_operation()
 
   @type error :: {:invalid_operation, atom(), term()}
+  @type validation_error :: {:invalid_pipeline_operation, term()}
 
   @spec crop_guided(keyword()) :: {:ok, CropGuided.t()} | {:error, error()}
   def crop_guided(size: %Size{} = size, guide: %Gravity{} = guide) do
@@ -118,5 +135,192 @@ defmodule ImagePlug.Plan.Operation do
 
   def resize_auto(attrs), do: invalid(:resize_auto, attrs)
 
+  @spec semantic?(term()) :: boolean()
+  def semantic?(%module{}), do: module in @semantic_modules
+  def semantic?(_operation), do: false
+
+  @spec validate_prefetch_safe(term()) :: :ok | {:error, validation_error()}
+  def validate_prefetch_safe(%ResizeFit{size: size, enlargement: enlargement} = operation)
+      when enlargement in @enlargements do
+    validate_resize_size(size, operation)
+  end
+
+  def validate_prefetch_safe(
+        %ResizeCover{
+          size: size,
+          enlargement: enlargement,
+          guide: guide
+        } = operation
+      )
+      when enlargement in @enlargements do
+    with :ok <- validate_resize_size(size, operation) do
+      validate_gravity(guide, operation)
+    end
+  end
+
+  def validate_prefetch_safe(%ResizeStretch{size: size, enlargement: enlargement} = operation)
+      when enlargement in @enlargements do
+    validate_resize_size(size, operation)
+  end
+
+  def validate_prefetch_safe(%ResizeAuto{size: size, enlargement: enlargement} = operation)
+      when enlargement in @enlargements do
+    validate_resize_size(size, operation)
+  end
+
+  def validate_prefetch_safe(%CropGuided{size: size, guide: guide} = operation) do
+    with :ok <- validate_crop_size(size, operation) do
+      validate_gravity(guide, operation)
+    end
+  end
+
+  def validate_prefetch_safe(%CropRegion{region: region} = operation) do
+    validate_region(region, operation)
+  end
+
+  def validate_prefetch_safe(
+        %Canvas{
+          size: size,
+          placement: placement,
+          background: :white,
+          overflow: :reject
+        } = operation
+      ) do
+    with :ok <- validate_canvas_size(size, operation) do
+      validate_gravity(placement, operation)
+    end
+  end
+
+  def validate_prefetch_safe(%AutoOrient{}), do: :ok
+
+  def validate_prefetch_safe(%Rotate{angle: angle}) when angle in @right_angles, do: :ok
+
+  def validate_prefetch_safe(%Flip{axis: axis}) when axis in @flip_axes, do: :ok
+
+  def validate_prefetch_safe(operation), do: invalid_pipeline_operation(operation)
+
   defp invalid(operation, attrs), do: {:error, {:invalid_operation, operation, attrs}}
+
+  defp validate_resize_size(%Size{} = size, operation) do
+    with :ok <- validate_resize_dimension(size.width, operation),
+         :ok <- validate_resize_dimension(size.height, operation) do
+      validate_dpr(size.dpr, operation)
+    end
+  end
+
+  defp validate_resize_size(_size, operation), do: invalid_pipeline_operation(operation)
+
+  defp validate_crop_size(%Size{} = size, operation) do
+    with :ok <- validate_crop_dimension(size.width, operation),
+         :ok <- validate_crop_dimension(size.height, operation) do
+      validate_dpr(size.dpr, operation)
+    end
+  end
+
+  defp validate_crop_size(_size, operation), do: invalid_pipeline_operation(operation)
+
+  defp validate_canvas_size(%Size{} = size, operation) do
+    with :ok <- validate_resize_dimension(size.width, operation),
+         :ok <- validate_resize_dimension(size.height, operation) do
+      validate_dpr(size.dpr, operation)
+    end
+  end
+
+  defp validate_canvas_size(_size, operation), do: invalid_pipeline_operation(operation)
+
+  defp validate_region(%Region{} = region, operation) when region.space in @prefetch_spaces do
+    with :ok <- validate_region_dimension(region.x, operation),
+         :ok <- validate_region_dimension(region.y, operation),
+         :ok <- validate_region_dimension(region.width, operation) do
+      validate_region_dimension(region.height, operation)
+    end
+  end
+
+  defp validate_region(_region, operation), do: invalid_pipeline_operation(operation)
+
+  defp validate_gravity(%Gravity{type: :anchor, x: x, y: y, space: space}, _operation)
+       when x in @x_anchors and y in @y_anchors and space in @prefetch_spaces,
+       do: :ok
+
+  defp validate_gravity(%Gravity{type: :focal_point, x: x, y: y, space: space}, operation)
+       when space in @prefetch_spaces do
+    with :ok <- validate_ratio_dimension(x, operation) do
+      validate_ratio_dimension(y, operation)
+    end
+  end
+
+  defp validate_gravity(_gravity, operation), do: invalid_pipeline_operation(operation)
+
+  defp validate_resize_dimension(
+         %Dimension{unit: :auto, value: nil, numerator: nil, denominator: nil},
+         _operation
+       ),
+       do: :ok
+
+  defp validate_resize_dimension(
+         %Dimension{unit: :logical_px, value: value, numerator: nil, denominator: nil},
+         _operation
+       )
+       when is_integer(value) and value > 0,
+       do: :ok
+
+  defp validate_resize_dimension(_dimension, operation), do: invalid_pipeline_operation(operation)
+
+  defp validate_crop_dimension(
+         %Dimension{unit: :full_axis, value: nil, numerator: nil, denominator: nil},
+         _operation
+       ),
+       do: :ok
+
+  defp validate_crop_dimension(
+         %Dimension{unit: :logical_px, value: value, numerator: nil, denominator: nil},
+         _operation
+       )
+       when is_integer(value) and value > 0,
+       do: :ok
+
+  defp validate_crop_dimension(_dimension, operation), do: invalid_pipeline_operation(operation)
+
+  defp validate_region_dimension(
+         %Dimension{unit: :logical_px, value: value, numerator: nil, denominator: nil},
+         _operation
+       )
+       when is_integer(value) and value > 0,
+       do: :ok
+
+  defp validate_region_dimension(
+         %Dimension{unit: :ratio, value: nil, numerator: numerator, denominator: denominator},
+         operation
+       )
+       when is_integer(numerator) and is_integer(denominator) and numerator > 0 and
+              denominator > 0 do
+    if Integer.gcd(numerator, denominator) == 1 do
+      :ok
+    else
+      invalid_pipeline_operation(operation)
+    end
+  end
+
+  defp validate_region_dimension(_dimension, operation), do: invalid_pipeline_operation(operation)
+
+  defp validate_ratio_dimension(
+         %Dimension{unit: :ratio, value: nil, numerator: numerator, denominator: denominator},
+         operation
+       )
+       when is_integer(numerator) and is_integer(denominator) and numerator > 0 and
+              denominator > 0 do
+    if Integer.gcd(numerator, denominator) == 1 do
+      :ok
+    else
+      invalid_pipeline_operation(operation)
+    end
+  end
+
+  defp validate_ratio_dimension(_dimension, operation), do: invalid_pipeline_operation(operation)
+
+  defp validate_dpr(dpr, _operation) when is_number(dpr) and dpr > 0, do: :ok
+  defp validate_dpr(_dpr, operation), do: invalid_pipeline_operation(operation)
+
+  defp invalid_pipeline_operation(operation),
+    do: {:error, {:invalid_pipeline_operation, operation}}
 end

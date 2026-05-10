@@ -11,6 +11,7 @@ defmodule ImagePlug.Cache.Key do
   alias ImagePlug.Plan.Output
   alias ImagePlug.Plan.Pipeline
   alias ImagePlug.Plan.Source.Plain
+  alias ImagePlug.Transform.BackendProfile
   alias ImagePlug.Transform.Material
 
   @schema_version 2
@@ -30,6 +31,7 @@ defmodule ImagePlug.Cache.Key do
       when is_binary(origin_identity) and is_list(opts) do
     with {:ok, source} <- source_material(plan.source),
          {:ok, pipelines} <- pipelines_material(plan.pipelines),
+         {:ok, backend} <- backend_material(opts),
          {:ok, output} <- output_material(conn, plan.output, opts),
          {:ok, cache} <- cache_material(plan.cache) do
       material = [
@@ -37,6 +39,7 @@ defmodule ImagePlug.Cache.Key do
         origin_identity: origin_identity,
         source: source,
         pipelines: pipelines,
+        backend: backend,
         output: output,
         cache: cache,
         selected_headers: selected_headers(conn, opts),
@@ -74,6 +77,28 @@ defmodule ImagePlug.Cache.Key do
   defp operation_material(operation) do
     Material.material(operation)
   end
+
+  defp backend_material(opts) do
+    case Keyword.get(opts, :backend_profile, BackendProfile.default()) do
+      profile when is_list(profile) and profile == [] ->
+        {:ok, BackendProfile.material(profile)}
+
+      [{key, _value} | _rest] = profile when is_atom(key) ->
+        backend_keyword_material(profile, profile)
+
+      profile ->
+        {:error, {:invalid_backend_profile, profile}}
+    end
+  end
+
+  defp backend_keyword_material([], profile), do: {:ok, BackendProfile.material(profile)}
+
+  defp backend_keyword_material([{key, _value} | rest], profile) when is_atom(key) do
+    backend_keyword_material(rest, profile)
+  end
+
+  defp backend_keyword_material(_invalid, profile),
+    do: {:error, {:invalid_backend_profile, profile}}
 
   defp output_material(conn, %Output{mode: :automatic} = output, opts) do
     accept_header = conn |> get_req_header("accept") |> Enum.join(",")

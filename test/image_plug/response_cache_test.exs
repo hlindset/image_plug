@@ -129,6 +129,38 @@ defmodule ImagePlug.Runtime.ResponseCacheTest do
            ]
   end
 
+  test "lookup keys include configured backend profile material" do
+    custom_backend = [
+      backend: :vips,
+      material_version: 2,
+      geometry_rules_version: 1,
+      orientation_policy_version: 1,
+      dpr_policy_version: 1,
+      smart_strategy_support: :none
+    ]
+
+    assert {:miss, %Key{} = key} =
+             ResponseCache.lookup(
+               conn(:get, "/_/f:jpeg/plain/images/cat.jpg"),
+               plan(output: %Output{mode: {:explicit, :jpeg}}),
+               "https://origin.test/images/cat.jpg",
+               cache: {CaptureAdapter, []},
+               backend_profile: custom_backend
+             )
+
+    assert key.material[:backend] == custom_backend
+  end
+
+  test "lookup returns cache read error for invalid backend profile material" do
+    assert ResponseCache.lookup(
+             conn(:get, "/_/f:jpeg/plain/images/cat.jpg"),
+             plan(output: %Output{mode: {:explicit, :jpeg}}),
+             "https://origin.test/images/cat.jpg",
+             cache: {CaptureAdapter, []},
+             backend_profile: :not_a_profile
+           ) == {:error, {:invalid_backend_profile, :not_a_profile}}
+  end
+
   test "store reports skipped when cache writing is disabled" do
     {:ok, image} = Image.new(1, 1)
     state = %State{image: image}

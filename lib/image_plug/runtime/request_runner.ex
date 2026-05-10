@@ -13,6 +13,7 @@ defmodule ImagePlug.Runtime.RequestRunner do
   alias ImagePlug.Runtime.DecodedOrigin
   alias ImagePlug.Runtime.Processor
   alias ImagePlug.Runtime.ResponseCache
+  alias ImagePlug.Transform
   alias ImagePlug.Transform.Material
   alias ImagePlug.Transform.State
 
@@ -32,7 +33,7 @@ defmodule ImagePlug.Runtime.RequestRunner do
         ) ::
           {:ok, delivery()} | {:error, error()}
   def run(conn, %Plan{} = plan, origin_identity, opts) do
-    with {:ok, pipelines} <- Plan.validated_pipelines(plan),
+    with {:ok, pipelines} <- Transform.validate_prefetch_safe_plan(plan),
          {:ok, cache_mode} <- cache_mode(pipelines, opts) do
       case cache_mode do
         :cacheable -> run_with_cache(conn, plan, pipelines, origin_identity, opts)

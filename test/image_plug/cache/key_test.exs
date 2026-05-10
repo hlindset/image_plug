@@ -6,6 +6,9 @@ defmodule ImagePlug.Cache.KeyTest do
 
   alias ImagePlug.Cache.Key
   alias ImagePlug.Plan
+  alias ImagePlug.Plan.Geometry.Dimension
+  alias ImagePlug.Plan.Geometry.Size
+  alias ImagePlug.Plan.Operation
   alias ImagePlug.Plan.Output
   alias ImagePlug.Plan.Pipeline
   alias ImagePlug.Plan.Source.Plain
@@ -85,6 +88,14 @@ defmodule ImagePlug.Cache.KeyTest do
                    crop_from: :focus
                  ]
                ]
+             ],
+             backend: [
+               backend: :vips,
+               material_version: 1,
+               geometry_rules_version: 1,
+               orientation_policy_version: 1,
+               dpr_policy_version: 1,
+               smart_strategy_support: :none
              ],
              output: [
                mode: :explicit,
@@ -191,6 +202,97 @@ defmodule ImagePlug.Cache.KeyTest do
     assert resize_material[:rule][:zoom_y] == 1.5
     assert resize_material[:rule][:dpr] == 2.0
     assert resize_material[:rule][:effective_dpr] == :runtime_resolved
+  end
+
+  test "resize auto cache material stays unresolved and source-metadata-free" do
+    assert {:ok, width} = Dimension.pixels(300)
+    assert {:ok, height} = Dimension.pixels(200)
+    assert {:ok, size} = Size.new(width: width, height: height, dpr: 1.0)
+    assert {:ok, operation} = Operation.resize_auto(size: size, enlargement: :deny)
+
+    semantic_plan = plan(pipelines: [%Pipeline{operations: [operation]}])
+    conn = conn(:get, "/_/rt:auto/w:300/h:200/f:jpeg/plain/images/cat.jpg")
+
+    key_a = build_key!(conn, semantic_plan, "origin-version-a")
+    key_b = build_key!(conn, semantic_plan, "origin-version-b")
+
+    assert [[material]] = key_a.material[:pipelines]
+
+    assert material == [
+             op: :resize_auto,
+             size: [
+               width: [unit: :logical_px, value: 300],
+               height: [unit: :logical_px, value: 200],
+               dpr: 1.0
+             ],
+             enlargement: :deny,
+             rule: :imgproxy_orientation_match_v1
+           ]
+
+    serialized = Key.serialize_material(key_a.material)
+    refute Keyword.has_key?(material, :selected_branch)
+    refute serialized =~ "source_width"
+    refute serialized =~ "source_height"
+    refute serialized =~ "selected_branch"
+    refute key_a.hash == key_b.hash
+  end
+
+  test "backend profile material participates in the cache key" do
+    conn = conn(:get, "/_/plain/images/cat.jpg")
+    default_key = build_key!(conn, plan(), "https://origin.test/images/cat.jpg")
+
+    custom_backend = [
+      backend: :vips,
+      material_version: 2,
+      geometry_rules_version: 1,
+      orientation_policy_version: 1,
+      dpr_policy_version: 1,
+      smart_strategy_support: :none
+    ]
+
+    custom_key =
+      build_key!(conn, plan(), "https://origin.test/images/cat.jpg",
+        backend_profile: custom_backend
+      )
+
+    assert default_key.material[:pipelines] == custom_key.material[:pipelines]
+    assert custom_key.material[:backend] == custom_backend
+    refute default_key.hash == custom_key.hash
+  end
+
+  test "invalid backend profile material returns a tagged error" do
+    assert Key.build(
+             conn(:get, "/_/plain/images/cat.jpg"),
+             plan(),
+             "https://origin.test/images/cat.jpg",
+             backend_profile: :not_a_profile
+           ) == {:error, {:invalid_backend_profile, :not_a_profile}}
+
+    invalid_profile = [{:bad, :ok} | :tail]
+
+    assert Key.build(
+             conn(:get, "/_/plain/images/cat.jpg"),
+             plan(),
+             "https://origin.test/images/cat.jpg",
+             backend_profile: invalid_profile
+           ) == {:error, {:invalid_backend_profile, invalid_profile}}
+  end
+
+  test "cache key construction does not reference source-aware resolution" do
+    source =
+      __DIR__
+      |> Path.join("../../../lib/image_plug/cache/key.ex")
+      |> Path.expand()
+      |> File.read!()
+
+    refute source =~ "Transform.resolve"
+    refute source =~ "ImagePlug.Transform.Resolver"
+    refute source =~ "SourceMetadata"
+    refute source =~ "ResolvedPlan"
+    refute source =~ "Derivation"
+    refute source =~ "Resolver.Geometry"
+    refute source =~ "source_width"
+    refute source =~ "source_height"
   end
 
   test "cachebuster changes cache keys without changing pipeline material" do

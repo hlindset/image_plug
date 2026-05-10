@@ -42,6 +42,10 @@ defmodule ImagePlug.Transform do
     ]
 
   alias ImagePlug.Transform.State
+  alias ImagePlug.Plan
+  alias ImagePlug.Plan.Operation
+  alias ImagePlug.Plan.Pipeline
+  alias ImagePlug.Transform.Material
 
   @type attrs() :: keyword()
   @type operation() :: struct()
@@ -105,6 +109,16 @@ defmodule ImagePlug.Transform do
     module.validate(operation)
   end
 
+  @spec validate_prefetch_safe_plan(Plan.t()) ::
+          {:ok, [Pipeline.t()]} | {:error, term()}
+  def validate_prefetch_safe_plan(%Plan{} = plan) do
+    with {:ok, %Plan{}} <- Plan.validate_shape(plan),
+         {:ok, pipelines} <- Plan.validated_pipelines(plan),
+         :ok <- validate_prefetch_safe_pipelines(pipelines) do
+      {:ok, pipelines}
+    end
+  end
+
   @spec metadata(operation()) :: map()
   def metadata(%module{} = operation) do
     module.metadata(operation)
@@ -123,5 +137,39 @@ defmodule ImagePlug.Transform do
         opts \\ []
       ) do
     ImagePlug.Transform.Resolver.resolve(plan, source_metadata, opts)
+  end
+
+  defp validate_prefetch_safe_pipelines(pipelines) do
+    case Enum.find_value(pipelines, &invalid_prefetch_operation/1) do
+      nil -> :ok
+      operation -> {:error, {:invalid_pipeline_operation, operation}}
+    end
+  end
+
+  defp invalid_prefetch_operation(%Pipeline{operations: operations}) do
+    Enum.find(operations, &invalid_prefetch_operation?/1)
+  end
+
+  defp invalid_prefetch_operation?(operation) do
+    case validate_prefetch_operation(operation) do
+      :ok -> false
+      {:error, _reason} -> true
+    end
+  end
+
+  defp validate_prefetch_operation(operation) do
+    cond do
+      Operation.semantic?(operation) ->
+        Operation.validate_prefetch_safe(operation)
+
+      operation?(operation) ->
+        :ok
+
+      Material.impl_for(operation) ->
+        :ok
+
+      true ->
+        {:error, {:invalid_pipeline_operation, operation}}
+    end
   end
 end

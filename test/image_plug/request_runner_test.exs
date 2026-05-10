@@ -6,6 +6,9 @@ defmodule ImagePlug.Runtime.RequestRunnerTest do
   alias ImagePlug.Cache.Entry
   alias ImagePlug.Output.Resolved
   alias ImagePlug.Plan
+  alias ImagePlug.Plan.Geometry.Dimension
+  alias ImagePlug.Plan.Geometry.Size
+  alias ImagePlug.Plan.Operation
   alias ImagePlug.Plan.Output
   alias ImagePlug.Plan.Pipeline
   alias ImagePlug.Plan.Source.Plain
@@ -175,6 +178,32 @@ defmodule ImagePlug.Runtime.RequestRunnerTest do
                "http://origin.test/images/cat-300.jpg",
                cache: {CacheHit, entry: entry}
              )
+  end
+
+  test "semantic resize auto cache hit does not fetch source or resolve derivations" do
+    entry = %Entry{
+      body: "cached jpeg",
+      content_type: "image/jpeg",
+      headers: [],
+      created_at: DateTime.utc_now()
+    }
+
+    assert {:ok, width} = Dimension.pixels(100)
+    assert {:ok, height} = Dimension.pixels(100)
+    assert {:ok, size} = Size.new(width: width, height: height, dpr: 1.0)
+    assert {:ok, operation} = Operation.resize_auto(size: size, enlargement: :deny)
+
+    assert {:ok, {:cache_entry, ^entry, %ImagePlug.Plan.Response{}}} =
+             RequestRunner.run(
+               conn(:get, "/_/rt:auto/w:100/h:100/f:jpeg/plain/images/cat-300.jpg"),
+               plan(pipelines: [%Pipeline{operations: [operation]}]),
+               "origin-version-1",
+               cache: {CacheReadProbe, entry: entry}
+             )
+
+    assert_received {:cache_lookup, key}
+    assert key.material[:origin_identity] == "origin-version-1"
+    refute ImagePlug.Cache.Key.serialize_material(key.material) =~ "selected_branch"
   end
 
   test "empty pipeline plans return processing errors before cache lookup" do
@@ -430,6 +459,7 @@ defmodule ImagePlug.Runtime.RequestRunnerTest do
 
     assert_received {:cache_lookup, key}
     assert_received {:cache_put, ^key, %Entry{content_type: "image/jpeg"}, _opts}
+    refute_received {:cache_lookup, _another_key}
 
     assert {:error, {:cache, {:unsupported_delivery_content_type, "image/gif"}}} =
              RequestRunner.run(

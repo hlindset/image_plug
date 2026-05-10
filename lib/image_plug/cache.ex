@@ -23,7 +23,7 @@ defmodule ImagePlug.Cache do
   alias ImagePlug.Plan
 
   @shared_cache_option_keys [:key_headers, :key_cookies, :max_body_bytes, :fail_on_cache_error]
-  @key_option_keys [:auto_avif, :auto_webp]
+  @key_option_keys [:auto_avif, :auto_webp, :backend_profile]
   @shared_cache_options_schema NimbleOptions.new!(
                                  key_headers: [
                                    type: {:list, :string}
