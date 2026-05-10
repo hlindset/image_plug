@@ -578,7 +578,7 @@ Execute this task as vertical subtasks, not one large commit:
 - 4D: canvas operation struct/constructor/material.
 - 4E: orientation operation structs/constructors/material.
 
-Each subtask should add constructors, validation, material, focused tests, `mise exec -- mix format`, `mise exec -- mix compile --warnings-as-errors`, and the relevant focused ExUnit file before moving on. Commit each subtask separately when git identity is available:
+Each subtask should add tagged-tuple constructors, validation, material, focused tests, `mise exec -- mix format`, `mise exec -- mix compile --warnings-as-errors`, and the relevant focused ExUnit file before moving on. Commit each subtask separately when git identity is available:
 
 - `feat: add semantic geometry values`
 - `feat: add semantic resize operations`
@@ -600,53 +600,49 @@ defmodule ImagePlug.Plan.OperationTest do
   alias ImagePlug.Plan.Operation
 
   test "builds resize operations through exported constructors" do
-    size = Size.new!(width: Dimension.pixels!(300), height: Dimension.auto!(), dpr: 1.0)
+    assert {:ok, width} = Dimension.pixels(300)
+    assert {:ok, height} = Dimension.auto()
+    assert {:ok, size} = Size.new(width: width, height: height, dpr: 1.0)
+    assert {:ok, guide} = Gravity.anchor(:center, :center)
 
-    assert %Operation.ResizeFit{size: ^size, enlargement: :allow} =
-             Operation.resize_fit!(size: size, enlargement: :allow)
+    assert {:ok, %Operation.ResizeFit{size: ^size, enlargement: :allow}} =
+             Operation.resize_fit(size: size, enlargement: :allow)
 
-    assert %Operation.ResizeCover{size: ^size, enlargement: :deny, guide: %Gravity{}} =
-             Operation.resize_cover!(
-               size: size,
-               enlargement: :deny,
-               guide: Gravity.anchor!(:center, :center)
-             )
+    assert {:ok, %Operation.ResizeCover{size: ^size, enlargement: :deny, guide: ^guide}} =
+             Operation.resize_cover(size: size, enlargement: :deny, guide: guide)
 
-    assert %Operation.ResizeStretch{size: ^size} =
-             Operation.resize_stretch!(size: size, enlargement: :allow)
+    assert {:ok, %Operation.ResizeStretch{size: ^size}} =
+             Operation.resize_stretch(size: size, enlargement: :allow)
 
-    assert %Operation.ResizeAuto{size: ^size} =
-             Operation.resize_auto!(size: size, enlargement: :deny)
+    assert {:ok, %Operation.ResizeAuto{size: ^size}} =
+             Operation.resize_auto(size: size, enlargement: :deny)
   end
 
   test "builds guided crop and canvas operations through exported constructors" do
-    size = Size.new!(width: Dimension.pixels!(120), height: Dimension.pixels!(50), dpr: 1.0)
+    assert {:ok, width} = Dimension.pixels(120)
+    assert {:ok, height} = Dimension.pixels(50)
+    assert {:ok, size} = Size.new(width: width, height: height, dpr: 1.0)
+    assert {:ok, guide} = Gravity.anchor(:center, :center)
 
-    assert %Operation.CropGuided{} =
-             Operation.crop_guided!(
-               size: size,
-               guide: Gravity.anchor!(:center, :center)
-             )
+    assert {:ok, %Operation.CropGuided{}} = Operation.crop_guided(size: size, guide: guide)
 
-    assert %Operation.Canvas{} =
-             Operation.canvas!(
+    assert {:ok, %Operation.Canvas{}} =
+             Operation.canvas(
                size: size,
-               placement: Gravity.anchor!(:center, :center),
+               placement: guide,
                background: :white,
                overflow: :reject
              )
   end
 
   test "size rejects invalid DPR values" do
-    dimension = Dimension.pixels!(100)
+    assert {:ok, dimension} = Dimension.pixels(100)
 
-    assert_raise ArgumentError, fn ->
-      Size.new!(width: dimension, height: dimension, dpr: 0)
-    end
+    assert {:error, {:invalid_size, _attrs}} =
+             Size.new(width: dimension, height: dimension, dpr: 0)
 
-    assert_raise ArgumentError, fn ->
-      Size.new!(width: dimension, height: dimension, dpr: -1)
-    end
+    assert {:error, {:invalid_size, _attrs}} =
+             Size.new(width: dimension, height: dimension, dpr: -1)
   end
 end
 ```
@@ -668,14 +664,12 @@ defmodule ImagePlug.Plan.OperationMaterialTest do
 
   test "resize auto material is unresolved semantic intent" do
     operation =
-      Operation.resize_auto!(
-        size: Size.new!(
-          width: Dimension.pixels!(300),
-          height: Dimension.pixels!(200),
-          dpr: 2.0
-        ),
-        enlargement: :deny
-      )
+      with {:ok, width} <- Dimension.pixels(300),
+           {:ok, height} <- Dimension.pixels(200),
+           {:ok, size} <- Size.new(width: width, height: height, dpr: 2.0),
+           {:ok, operation} <- Operation.resize_auto(size: size, enlargement: :deny) do
+        operation
+      end
 
     assert Material.material(operation) == [
              op: :resize_auto,
@@ -691,16 +685,14 @@ defmodule ImagePlug.Plan.OperationMaterialTest do
 
   test "source-space crop region material stays source-metadata-free" do
     operation =
-      Operation.crop_region!(
-        region:
-          Region.new!(
-            x: Dimension.ratio!(1, 10),
-            y: Dimension.ratio!(1, 10),
-            width: Dimension.ratio!(1, 2),
-            height: Dimension.ratio!(1, 2),
-            space: :source
-          )
-      )
+      with {:ok, x} <- Dimension.ratio(1, 10),
+           {:ok, y} <- Dimension.ratio(1, 10),
+           {:ok, width} <- Dimension.ratio(1, 2),
+           {:ok, height} <- Dimension.ratio(1, 2),
+           {:ok, region} <- Region.new(x: x, y: y, width: width, height: height, space: :source),
+           {:ok, operation} <- Operation.crop_region(region: region) do
+        operation
+      end
 
     assert Material.material(operation) == [
              op: :crop_region,
@@ -715,16 +707,21 @@ defmodule ImagePlug.Plan.OperationMaterialTest do
   end
 
   test "ratio material is canonicalized" do
-    assert Material.material(Dimension.ratio!(2, 4)) ==
+    assert {:ok, ratio} = Dimension.ratio(2, 4)
+
+    assert Material.material(ratio) ==
              [unit: :ratio, numerator: 1, denominator: 2]
   end
 
   test "guided crop material contains explicit guide and no parser syntax" do
     operation =
-      Operation.crop_guided!(
-        size: Size.new!(width: Dimension.pixels!(50), height: Dimension.pixels!(50), dpr: 1.0),
-        guide: Gravity.anchor!(:center, :center)
-      )
+      with {:ok, width} <- Dimension.pixels(50),
+           {:ok, height} <- Dimension.pixels(50),
+           {:ok, size} <- Size.new(width: width, height: height, dpr: 1.0),
+           {:ok, guide} <- Gravity.anchor(:center, :center),
+           {:ok, operation} <- Operation.crop_guided(size: size, guide: guide) do
+        operation
+      end
 
     material = Material.material(operation)
 
@@ -741,50 +738,50 @@ end
 Add `ImagePlug.Plan.Geometry.Dimension`, `Size`, `Region`, and `ImagePlug.Plan.Guide.Gravity` with these public constructors:
 
 ```elixir
-Dimension.auto!()
-Dimension.full_axis!()
-Dimension.pixels!(pos_integer())
-Dimension.ratio!(pos_integer(), pos_integer())
-Size.new!(width: dimension, height: dimension, dpr: pos_number)
-Region.new!(x: dimension, y: dimension, width: dimension, height: dimension, space: :source | :current | :post_orient)
-Gravity.anchor!(:left | :center | :right, :top | :center | :bottom)
-Gravity.focal_point!(x_numerator, x_denominator, y_numerator, y_denominator, space \\ :current)
+Dimension.auto()
+Dimension.full_axis()
+Dimension.pixels(pos_integer())
+Dimension.ratio(pos_integer(), pos_integer())
+Size.new(width: dimension, height: dimension, dpr: pos_number)
+Region.new(x: dimension, y: dimension, width: dimension, height: dimension, space: :source | :current | :post_orient)
+Gravity.anchor(:left | :center | :right, :top | :center | :bottom)
+Gravity.focal_point(x_numerator, x_denominator, y_numerator, y_denominator, space \\ :current)
 ```
 
-Use `raise ArgumentError` in bang constructors for invalid programmer input. `Dimension.pixels!/1` must reject `0`; resize auto-axis and crop full-axis semantics must be represented explicitly by `Dimension.auto!/0` and `Dimension.full_axis!/0`.
+Constructors return `{:ok, value}` or `{:error, reason}`. Do not make public bang constructors the primary Plan API: these constructors are used by parser/adapter translation, where malformed syntax is external input and should compose with `with`. `Dimension.pixels/1` must reject `0`; resize auto-axis and crop full-axis semantics must be represented explicitly by `Dimension.auto/0` and `Dimension.full_axis/0`.
 
-`Dimension.ratio!/2` must reduce ratios with `Integer.gcd/2` so equivalent ratios materialize identically.
+`Dimension.ratio/2` must reduce ratios with `Integer.gcd/2` so equivalent ratios materialize identically.
 
 Dimension material must be exact and source-fetch-free:
 
 ```elixir
-Dimension.auto!() -> [unit: :auto]
-Dimension.full_axis!() -> [unit: :full_axis]
-Dimension.pixels!(n) -> [unit: :logical_px, value: n]
-Dimension.ratio!(a, b) -> [unit: :ratio, numerator: reduced_a, denominator: reduced_b]
+Dimension.auto() -> {:ok, dimension}; material(dimension) -> [unit: :auto]
+Dimension.full_axis() -> {:ok, dimension}; material(dimension) -> [unit: :full_axis]
+Dimension.pixels(n) -> {:ok, dimension}; material(dimension) -> [unit: :logical_px, value: n]
+Dimension.ratio(a, b) -> {:ok, dimension}; material(dimension) -> [unit: :ratio, numerator: reduced_a, denominator: reduced_b]
 ```
 
-`Dimension.pixels!/1` represents logical pixels in canonical material. DPR conversion to physical integer pixels is owned by lowering.
+`Dimension.pixels/1` represents logical pixels in canonical material. DPR conversion to physical integer pixels is owned by lowering.
 
 Operation constructors should accept the exact semantic value structs they require, such as `%Size{}` and `%Gravity{}`, plus primitive arguments. Do not accept arbitrary maps, keyword-shaped pseudo-values, existing executable transform structs, or broad coercions.
 
-`Gravity.anchor!/2` should default to `space: :current`. If a future caller needs another space, add an explicit constructor or option and materialize that default.
+`Gravity.anchor/2` should default to `space: :current`. If a future caller needs another space, add an explicit constructor or option and materialize that default.
 
 - [ ] **Step 4: Add semantic operation structs and constructors**
 
 Add `ImagePlug.Plan.Operation` as the only parser-facing constructor facade. Each constructor returns a narrow struct with enforced keys:
 
 ```elixir
-Operation.crop_region!(region: region)
-Operation.crop_guided!(size: size, guide: guide)
-Operation.resize_fit!(size: size, enlargement: :allow | :deny)
-Operation.resize_cover!(size: size, enlargement: :allow | :deny, guide: guide)
-Operation.resize_stretch!(size: size, enlargement: :allow | :deny)
-Operation.resize_auto!(size: size, enlargement: :allow | :deny)
-Operation.canvas!(size: size, placement: gravity, background: :white, overflow: :reject)
-Operation.auto_orient!()
-Operation.rotate!(0 | 90 | 180 | 270)
-Operation.flip!(:horizontal | :vertical | :both)
+Operation.crop_region(region: region)
+Operation.crop_guided(size: size, guide: guide)
+Operation.resize_fit(size: size, enlargement: :allow | :deny)
+Operation.resize_cover(size: size, enlargement: :allow | :deny, guide: guide)
+Operation.resize_stretch(size: size, enlargement: :allow | :deny)
+Operation.resize_auto(size: size, enlargement: :allow | :deny)
+Operation.canvas(size: size, placement: gravity, background: :white, overflow: :reject)
+Operation.auto_orient()
+Operation.rotate(0 | 90 | 180 | 270)
+Operation.flip(:horizontal | :vertical | :both)
 ```
 
 Do not add `SetFocus`, `SetGravity`, `StrategyList`, `ResizeContain`, or backend operation structs.
@@ -904,15 +901,14 @@ defmodule ImagePlug.Transform.ResolverTest do
   end
 
   defp size(width, height) do
-    Size.new!(
-      width: Dimension.pixels!(width),
-      height: Dimension.pixels!(height),
-      dpr: 1.0
-    )
+    {:ok, width} = Dimension.pixels(width)
+    {:ok, height} = Dimension.pixels(height)
+    {:ok, size} = Size.new(width: width, height: height, dpr: 1.0)
+    size
   end
 
   test "resize auto derives cover for matching current and target orientation" do
-    operation = Operation.resize_auto!(size: size(300, 200), enlargement: :deny)
+    assert {:ok, operation} = Operation.resize_auto(size: size(300, 200), enlargement: :deny)
     metadata = %SourceMetadata{width: 1600, height: 900, orientation: :normal, format: :jpeg}
 
     assert {:ok, resolved} = Transform.resolve(plan([operation]), metadata, [])
@@ -930,7 +926,7 @@ defmodule ImagePlug.Transform.ResolverTest do
   end
 
   test "resize auto derives fit for differing current and target orientation" do
-    operation = Operation.resize_auto!(size: size(200, 300), enlargement: :deny)
+    assert {:ok, operation} = Operation.resize_auto(size: size(200, 300), enlargement: :deny)
     metadata = %SourceMetadata{width: 1600, height: 900, orientation: :normal, format: :jpeg}
 
     assert {:ok, resolved} = Transform.resolve(plan([operation]), metadata, [])
@@ -941,11 +937,10 @@ defmodule ImagePlug.Transform.ResolverTest do
   end
 
   test "resize auto derives fit when target orientation is unknown" do
-    operation =
-      Operation.resize_auto!(
-        size: Size.new!(width: Dimension.pixels!(300), height: Dimension.auto!(), dpr: 1.0),
-        enlargement: :deny
-      )
+    assert {:ok, width} = Dimension.pixels(300)
+    assert {:ok, height} = Dimension.auto()
+    assert {:ok, size} = Size.new(width: width, height: height, dpr: 1.0)
+    assert {:ok, operation} = Operation.resize_auto(size: size, enlargement: :deny)
 
     metadata = %SourceMetadata{width: 1600, height: 900, orientation: :normal, format: :jpeg}
 
@@ -974,7 +969,7 @@ Add:
 
 Defaults: `orientation: :normal`, `has_alpha?: false`, `source_type: :raster`.
 
-Provide `SourceMetadata.new!/1`, and have the resolver entrypoint validate raw struct literals as a backstop. Invalid width, height, orientation, format, or source type should fail before lowering. Tests may use raw struct literals when clearer, but production code should have one obvious constructor path.
+Provide `SourceMetadata.new/1`, and have the resolver entrypoint validate raw struct literals as a backstop. Invalid width, height, orientation, format, or source type should fail before lowering. Tests may use raw struct literals when clearer, but production code should have one obvious constructor path.
 
 First-slice resolver may treat non-`:normal` orientation conservatively unless current imgproxy-compatible behavior already exposes and tests EXIF-aware geometry. Do not overbuild EXIF coordinate handling in this task.
 
@@ -1136,19 +1131,18 @@ defmodule ImagePlug.Transform.ResolverLoweringTest do
   defp metadata, do: %SourceMetadata{width: 300, height: 200, orientation: :normal, format: :jpeg}
 
   defp size(width, height) do
-    Size.new!(width: Dimension.pixels!(width), height: Dimension.pixels!(height), dpr: 1.0)
+    {:ok, width} = Dimension.pixels(width)
+    {:ok, height} = Dimension.pixels(height)
+    {:ok, size} = Size.new(width: width, height: height, dpr: 1.0)
+    size
   end
 
   test "resize fit, cover, and stretch lower to existing resize rules" do
-    operations = [
-      Operation.resize_fit!(size: size(100, 80), enlargement: :deny),
-      Operation.resize_cover!(
-        size: size(50, 50),
-        enlargement: :allow,
-        guide: Gravity.anchor!(:center, :center)
-      ),
-      Operation.resize_stretch!(size: size(20, 10), enlargement: :allow)
-    ]
+    assert {:ok, guide} = Gravity.anchor(:center, :center)
+    assert {:ok, fit} = Operation.resize_fit(size: size(100, 80), enlargement: :deny)
+    assert {:ok, cover} = Operation.resize_cover(size: size(50, 50), enlargement: :allow, guide: guide)
+    assert {:ok, stretch} = Operation.resize_stretch(size: size(20, 10), enlargement: :allow)
+    operations = [fit, cover, stretch]
 
     assert {:ok, resolved} = Transform.resolve(plan(operations), metadata(), [])
 
@@ -1161,24 +1155,20 @@ defmodule ImagePlug.Transform.ResolverLoweringTest do
   end
 
   test "guided crop lowers to existing gravity crop" do
-    operation =
-      Operation.crop_guided!(
-        size: Size.new!(width: Dimension.pixels!(50), height: Dimension.full_axis!(), dpr: 1.0),
-        guide: Gravity.anchor!(:center, :center)
-      )
+    assert {:ok, width} = Dimension.pixels(50)
+    assert {:ok, height} = Dimension.full_axis()
+    assert {:ok, size} = Size.new(width: width, height: height, dpr: 1.0)
+    assert {:ok, guide} = Gravity.anchor(:center, :center)
+    assert {:ok, operation} = Operation.crop_guided(size: size, guide: guide)
 
     assert {:ok, resolved} = Transform.resolve(plan([operation]), metadata(), [])
     assert [[%Crop{width: {:pixels, 50}, height: :auto, crop_from: :gravity}]] = resolved.pipelines
   end
 
   test "canvas lowers to extend canvas without choosing resize scale" do
-    operation =
-      Operation.canvas!(
-        size: size(320, 240),
-        placement: Gravity.anchor!(:center, :center),
-        background: :white,
-        overflow: :reject
-      )
+    assert {:ok, placement} = Gravity.anchor(:center, :center)
+    assert {:ok, operation} =
+             Operation.canvas(size: size(320, 240), placement: placement, background: :white, overflow: :reject)
 
     assert {:ok, resolved} = Transform.resolve(plan([operation]), metadata(), [])
 
@@ -1187,17 +1177,13 @@ defmodule ImagePlug.Transform.ResolverLoweringTest do
   end
 
   test "source-space ratio crop resolves to integer backend crop and derivation" do
-    operation =
-      Operation.crop_region!(
-        region:
-          ImagePlug.Plan.Geometry.Region.new!(
-            x: Dimension.ratio!(1, 10),
-            y: Dimension.ratio!(1, 10),
-            width: Dimension.ratio!(1, 2),
-            height: Dimension.ratio!(1, 2),
-            space: :source
-          )
-      )
+    assert {:ok, x} = Dimension.ratio(1, 10)
+    assert {:ok, y} = Dimension.ratio(1, 10)
+    assert {:ok, width} = Dimension.ratio(1, 2)
+    assert {:ok, height} = Dimension.ratio(1, 2)
+    assert {:ok, region} =
+             ImagePlug.Plan.Geometry.Region.new(x: x, y: y, width: width, height: height, space: :source)
+    assert {:ok, operation} = Operation.crop_region(region: region)
 
     assert {:ok, resolved} = Transform.resolve(plan([operation]), metadata(), [])
     assert [%{code: :crop_region_resolved, material?: false}] = resolved.derivations
@@ -1216,7 +1202,7 @@ For each semantic operation, add one lowering function and run the focused test 
 - `ResizeFit` -> existing `%Resize{rule: %DimensionRule{mode: :fit}}`
 - `ResizeCover` -> the existing executable sequence required to preserve current fill/cover behavior. If Task 1 proves current request-visible cover/fill uses resize plus result crop, lower to `%Resize{rule: %DimensionRule{mode: :fill}}` followed by `%Crop{target_rule: same_fill_rule, crop_from: :gravity}`. If Task 1 proves `%Resize{mode: :fill}` alone already produces final cover dimensions, assert only resize and update these tests accordingly.
 - `ResizeStretch` -> existing `%Resize{rule: %DimensionRule{mode: :force}}`
-- `CropGuided` -> existing `%Crop{crop_from: :gravity}`. `Dimension.full_axis!()` lowers to the existing crop full-axis representation, such as `:auto`, only in this crop-axis context.
+- `CropGuided` -> existing `%Crop{crop_from: :gravity}`. `Dimension.full_axis()` lowers to the existing crop full-axis representation, such as `:auto`, only in this crop-axis context.
 - `CropRegion` -> existing `%Crop{crop_from: %{left: x, top: y}}` only when exact current-space pixels can be resolved; source-space regions must use shared geometry derivation
 - `Canvas` -> existing `%ExtendCanvas{}`
 - `AutoOrient`, `Rotate`, `Flip` -> existing orientation operations
@@ -1271,16 +1257,10 @@ Add to `test/image_plug/cache/key_test.exs`:
 
 ```elixir
 test "resize auto cache material stays unresolved and source-metadata-free" do
-  operation =
-    ImagePlug.Plan.Operation.resize_auto!(
-      size:
-        ImagePlug.Plan.Geometry.Size.new!(
-          width: ImagePlug.Plan.Geometry.Dimension.pixels!(300),
-          height: ImagePlug.Plan.Geometry.Dimension.pixels!(200),
-          dpr: 1.0
-        ),
-      enlargement: :deny
-    )
+  assert {:ok, width} = ImagePlug.Plan.Geometry.Dimension.pixels(300)
+  assert {:ok, height} = ImagePlug.Plan.Geometry.Dimension.pixels(200)
+  assert {:ok, size} = ImagePlug.Plan.Geometry.Size.new(width: width, height: height, dpr: 1.0)
+  assert {:ok, operation} = ImagePlug.Plan.Operation.resize_auto(size: size, enlargement: :deny)
 
   plan = plan(pipelines: [%Pipeline{operations: [operation]}])
   conn = conn(:get, "/_/rt:auto/w:300/h:200/f:jpeg/plain/images/cat.jpg")
@@ -1318,16 +1298,10 @@ test "semantic resize auto cache hit does not fetch source or resolve derivation
     created_at: DateTime.utc_now()
   }
 
-  operation =
-    ImagePlug.Plan.Operation.resize_auto!(
-      size:
-        ImagePlug.Plan.Geometry.Size.new!(
-          width: ImagePlug.Plan.Geometry.Dimension.pixels!(100),
-          height: ImagePlug.Plan.Geometry.Dimension.pixels!(100),
-          dpr: 1.0
-        ),
-      enlargement: :deny
-    )
+  assert {:ok, width} = ImagePlug.Plan.Geometry.Dimension.pixels(100)
+  assert {:ok, height} = ImagePlug.Plan.Geometry.Dimension.pixels(100)
+  assert {:ok, size} = ImagePlug.Plan.Geometry.Size.new(width: width, height: height, dpr: 1.0)
+  assert {:ok, operation} = ImagePlug.Plan.Operation.resize_auto(size: size, enlargement: :deny)
 
   assert {:ok, {:cache_entry, ^entry, %ImagePlug.Plan.Response{}}} =
            RequestRunner.run(
@@ -1429,16 +1403,10 @@ Add to `test/image_plug/runtime/request_runner_test.exs` a test that uses semant
 
 ```elixir
 test "cache miss resolves semantic operations after origin fetch and stores under original key" do
-  operation =
-    ImagePlug.Plan.Operation.resize_fit!(
-      size:
-        ImagePlug.Plan.Geometry.Size.new!(
-          width: ImagePlug.Plan.Geometry.Dimension.pixels!(100),
-          height: ImagePlug.Plan.Geometry.Dimension.auto!(),
-          dpr: 1.0
-        ),
-      enlargement: :deny
-    )
+  assert {:ok, width} = ImagePlug.Plan.Geometry.Dimension.pixels(100)
+  assert {:ok, height} = ImagePlug.Plan.Geometry.Dimension.auto()
+  assert {:ok, size} = ImagePlug.Plan.Geometry.Size.new(width: width, height: height, dpr: 1.0)
+  assert {:ok, operation} = ImagePlug.Plan.Operation.resize_fit(size: size, enlargement: :deny)
 
   assert {:ok, {:cache_entry, %Entry{content_type: "image/jpeg"}, %ImagePlug.Plan.Response{}}} =
            RequestRunner.run(
@@ -1575,19 +1543,19 @@ alias ImagePlug.Plan.Guide.Gravity
 
 Change resize planning to call:
 
-- `Operation.resize_fit!`
-- `Operation.resize_cover!`
-- `Operation.resize_stretch!`
-- `Operation.resize_auto!`
+- `Operation.resize_fit`
+- `Operation.resize_cover`
+- `Operation.resize_stretch`
+- `Operation.resize_auto`
 
 Use existing request fields to build `Size`:
 
 ```elixir
-Size.new!(
-  width: imgproxy_resize_dimension(request.width),
-  height: imgproxy_resize_dimension(request.height),
-  dpr: request.dpr || 1.0
-)
+with {:ok, width} <- imgproxy_resize_dimension(request.width),
+     {:ok, height} <- imgproxy_resize_dimension(request.height),
+     {:ok, size} <- Size.new(width: width, height: height, dpr: request.dpr || 1.0) do
+  ...
+end
 ```
 
 Use `:allow` when `request.enlarge == true`; use `:deny` otherwise.
@@ -1597,36 +1565,36 @@ Use `:allow` when `request.enlarge == true`; use `:deny` otherwise.
 Add private helpers:
 
 ```elixir
-defp imgproxy_resize_dimension(nil), do: Dimension.auto!()
-defp imgproxy_resize_dimension(:auto), do: Dimension.auto!()
-defp imgproxy_resize_dimension({:pixels, 0}), do: Dimension.auto!()
-defp imgproxy_resize_dimension({:pixels, value}) when value > 0, do: Dimension.pixels!(value)
-defp imgproxy_resize_dimension({:scale, value}), do: decimal_ratio!(value)
+defp imgproxy_resize_dimension(nil), do: Dimension.auto()
+defp imgproxy_resize_dimension(:auto), do: Dimension.auto()
+defp imgproxy_resize_dimension({:pixels, 0}), do: Dimension.auto()
+defp imgproxy_resize_dimension({:pixels, value}) when value > 0, do: Dimension.pixels(value)
+defp imgproxy_resize_dimension({:scale, value}), do: decimal_ratio(value)
 
-defp imgproxy_crop_dimension(:auto), do: Dimension.full_axis!()
-defp imgproxy_crop_dimension({:pixels, 0}), do: Dimension.full_axis!()
-defp imgproxy_crop_dimension({:pixels, value}) when value > 0, do: Dimension.pixels!(value)
-defp imgproxy_crop_dimension({:scale, value}), do: decimal_ratio!(value)
+defp imgproxy_crop_dimension(:auto), do: Dimension.full_axis()
+defp imgproxy_crop_dimension({:pixels, 0}), do: Dimension.full_axis()
+defp imgproxy_crop_dimension({:pixels, value}) when value > 0, do: Dimension.pixels(value)
+defp imgproxy_crop_dimension({:scale, value}), do: decimal_ratio(value)
 ```
 
-Use `Operation.crop_guided!` with `Gravity.anchor!/2` or `Gravity.focal_point!/5`.
+Use `Operation.crop_guided` with `Gravity.anchor/2` or `Gravity.focal_point/5`.
 
 Preserve current imgproxy validation behavior. Do not globally map `0`, `nil`, or `:auto` through one helper; resize and crop semantics differ. Parser defaults that affect output must be explicit, including center gravity when syntax omits guide/focus.
 
-No parser path may call `Dimension.pixels!(0)`. Zero must be normalized to the context-specific semantic value before constructor calls.
+No parser path may call `Dimension.pixels(0)`. Zero must be normalized to the context-specific semantic value before constructor calls.
 
-Canvas dimension helpers must reject zero dimensions or preserve current imgproxy validation behavior; they must not pass zero to `Dimension.pixels!/1`.
+Canvas dimension helpers must reject zero dimensions or preserve current imgproxy validation behavior; they must not pass zero to `Dimension.pixels/1`.
 
-Prefer exact decimal-string-to-rational conversion when the raw token is available. If the current parser has already converted scale input to float, use a named helper such as `decimal_ratio!/1` that reduces through `Dimension.ratio!/2` and documents the compatibility rounding policy.
+Prefer exact decimal-string-to-rational conversion when the raw token is available. If the current parser has already converted scale input to float, use a named helper such as `decimal_ratio/1` that reduces through `Dimension.ratio/2` and documents the compatibility rounding policy.
 
 - [ ] **Step 5: Replace canvas and orientation construction**
 
 Map:
 
-- extend/extend-aspect-ratio -> `Operation.canvas!`
-- auto-orient -> `Operation.auto_orient!`
-- rotate -> `Operation.rotate!`
-- flip -> `Operation.flip!`
+- extend/extend-aspect-ratio -> `Operation.canvas`
+- auto-orient -> `Operation.auto_orient`
+- rotate -> `Operation.rotate`
+- flip -> `Operation.flip`
 
 - [ ] **Step 6: Run parser tests**
 

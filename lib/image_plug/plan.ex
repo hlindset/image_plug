@@ -14,7 +14,11 @@ defmodule ImagePlug.Plan do
       Cache,
       Response,
       Response.Filename,
-      Source.Plain
+      Source.Plain,
+      Geometry.Dimension,
+      Geometry.Size,
+      Geometry.Region,
+      Guide.Gravity
     ]
 
   alias ImagePlug.Plan.Cache
