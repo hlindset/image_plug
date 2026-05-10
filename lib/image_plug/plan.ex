@@ -5,7 +5,7 @@ defmodule ImagePlug.Plan do
 
   use Boundary,
     top_level?: true,
-    deps: [ImagePlug.Transform],
+    deps: [],
     exports: [
       Pipeline,
       Orientation,
@@ -39,7 +39,6 @@ defmodule ImagePlug.Plan do
   alias ImagePlug.Plan.Response
   alias ImagePlug.Plan.Response.Filename
   alias ImagePlug.Plan.Source.Plain
-  alias ImagePlug.Transform
 
   @supported_formats [:avif, :webp, :jpeg, :png]
 
@@ -111,10 +110,7 @@ defmodule ImagePlug.Plan do
     Enum.find(operations, &invalid_operation?/1)
   end
 
-  defp invalid_operation?(%_{} = operation) do
-    Transform.validate(operation) != :ok
-  end
-
+  defp invalid_operation?(%_{}), do: false
   defp invalid_operation?(_operation), do: true
 
   defp validate_source(%Plain{path: path} = source) do

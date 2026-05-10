@@ -10,7 +10,7 @@ defmodule ImagePlug.Transform do
 
   use Boundary,
     top_level?: true,
-    deps: [],
+    deps: [ImagePlug.Plan],
     exports: [
       State,
       Chain,
@@ -18,6 +18,13 @@ defmodule ImagePlug.Transform do
       Materializer,
       Material,
       Types,
+      SourceMetadata,
+      ResolvedPlan,
+      Derivation,
+      BackendProfile,
+      Resolver,
+      Resolver.Geometry,
+      Resolver.Lowering,
       Geometry.CropCoordinateMapper,
       Geometry.DimensionRule,
       Geometry.DimensionResolver,
@@ -106,5 +113,15 @@ defmodule ImagePlug.Transform do
   @spec execute(operation(), State.t()) :: State.t()
   def execute(%module{} = operation, %State{} = state) do
     module.execute(operation, state)
+  end
+
+  @spec resolve(ImagePlug.Plan.t(), ImagePlug.Transform.SourceMetadata.t(), keyword()) ::
+          {:ok, ImagePlug.Transform.ResolvedPlan.t()} | {:error, term()}
+  def resolve(
+        %ImagePlug.Plan{} = plan,
+        %ImagePlug.Transform.SourceMetadata{} = source_metadata,
+        opts \\ []
+      ) do
+    ImagePlug.Transform.Resolver.resolve(plan, source_metadata, opts)
   end
 end

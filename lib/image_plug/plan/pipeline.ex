@@ -7,6 +7,6 @@ defmodule ImagePlug.Plan.Pipeline do
   defstruct @enforce_keys
 
   @type semantic_operation :: ImagePlug.Plan.Operation.semantic_operation()
-  @type operation :: semantic_operation() | ImagePlug.Transform.Chain.item()
+  @type operation :: semantic_operation() | struct()
   @type t :: %__MODULE__{operations: [operation()]}
 end
