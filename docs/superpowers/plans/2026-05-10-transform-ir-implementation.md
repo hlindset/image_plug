@@ -26,7 +26,7 @@ Create these semantic Plan files:
 - `lib/image_plug/plan/operation/rotate.ex` - semantic right-angle rotate operation.
 - `lib/image_plug/plan/operation/flip.ex` - semantic flip operation.
 - `lib/image_plug/plan/geometry/dimension.ex` - `:auto`, `:full_axis`, logical pixels, and ratio dimension values.
-- `lib/image_plug/plan/geometry/size.ex` - width/height value pair with DPR and enlargement policy.
+- `lib/image_plug/plan/geometry/size.ex` - width/height value pair with DPR.
 - `lib/image_plug/plan/geometry/region.ex` - explicit x/y/width/height region with space/unit.
 - `lib/image_plug/plan/guide/gravity.ex` - anchor/focal guide value for guided crop and cover.
 
@@ -78,51 +78,83 @@ Do not introduce backend operation structs in this plan unless an executable ope
 
 ---
 
+## Implementation Guardrails
+
+- Cache key construction must not call `Transform.resolve/3`, origin fetch, metadata extraction, image decode/open, or source-aware geometry helpers.
+- The final output cache key must be built before origin fetch and must not be rebuilt or mutated after post-fetch source-aware resolution.
+- Runtime may call generic Plan/Transform validation and execution facades, but it must not pattern-match on concrete `ImagePlug.Plan.Operation.*` or `ImagePlug.Transform.Operation.*` modules.
+- Runtime may carry executable transform structs opaquely through `ImagePlug.Transform.Chain`, but must not branch on their concrete modules.
+- Parser defaults that affect output, such as center gravity, DPR `1.0`, and enlargement policy, must be explicit in canonical Plan material.
+- `ResizeAuto` and `ResizeCover` behavior must be verified against current parser/request-level behavior before lowering is finalized.
+- First-slice resolver output is expected to contain derivations and no selections. Add selections only if current imgproxy-compatible behavior proves a prefetch-safe output-affecting choice that is not already materialized elsewhere.
+- Parser output must eventually contain only canonical `ImagePlug.Plan.Operation.*` structs, never executable `ImagePlug.Transform.Operation.*` structs.
+
+---
+
+### Task 0: Inspect Current Shapes And Test Scaffolding
+
+**Files:**
+- Modify: none
+
+- [ ] **Step 1: Inspect current APIs before writing exact scaffolding**
+
+Inspect the existing runtime, cache, transform, and image test helpers. Do not change behavior in this task.
+
+Run:
+
+```bash
+rg "defmodule ImagePlug.Cache.Entry|defmodule ImagePlug.Cache.Key|defmodule ImagePlug.Runtime.RequestRunner|defmodule ImagePlug.Runtime.ResponseCache|defmodule ImagePlug.Transform.State" lib test
+rg "def run\\(|def build|def get\\(|def put\\(|Image\\.new|Vix" lib test
+```
+
+Record the actual shapes for:
+
+- `ImagePlug.Cache.Entry`
+- `ImagePlug.Cache.Key`
+- runtime request runner entry point
+- response cache callback return values
+- origin/cache test probes
+- `ImagePlug.Transform.State`
+- image creation/dimension helpers used in existing tests
+
+- [ ] **Step 2: Run current focused tests**
+
+Run the smallest currently relevant tests that exist in this repo. If a listed file does not exist, replace it with the closest existing runtime/cache/transform test discovered in Step 1.
+
+```bash
+mise exec -- mix test test/image_plug/cache/key_test.exs test/image_plug/runtime/request_runner_test.exs test/transform_chain_test.exs test/image_plug/request_safety_test.exs
+```
+
+Expected: existing focused tests pass before plan changes. Later snippets in this plan may need minor scaffolding adjustments to match the actual APIs discovered here, but their assertions and architectural intent should not change.
+
+---
+
 ### Task 1: Characterize Current Imgproxy-Compatible Behavior
 
 **Files:**
 - Create: `test/image_plug/transform_ir_characterization_test.exs`
+- Create: `test/image_plug/transform_executable_characterization_test.exs`
 - Modify: none
 
 - [ ] **Step 1: Write current behavior characterization tests**
 
-Create `test/image_plug/transform_ir_characterization_test.exs` with tests that avoid asserting current internal parser structs. These tests freeze observable dimensions, operation order, cache lookup before origin fetch, and cache key boundaries.
+Split characterization into two files:
+
+- `test/image_plug/transform_executable_characterization_test.exs` freezes existing executable operation behavior for later old-vs-new equivalence tests.
+- `test/image_plug/transform_ir_characterization_test.exs` freezes parser/request/cache behavior through public-ish request paths and avoids asserting parser implementation structs.
+
+Directly constructing executable operation structs is acceptable only in `transform_executable_characterization_test.exs`. Parser-facing behavior should parse real imgproxy-compatible requests or run the current request path.
 
 ```elixir
-defmodule ImagePlug.TransformIRCharacterizationTest do
+defmodule ImagePlug.TransformExecutableCharacterizationTest do
   use ExUnit.Case, async: true
 
-  import Plug.Test
-
-  alias ImagePlug.Cache.Entry
-  alias ImagePlug.Plan
-  alias ImagePlug.Plan.Output
-  alias ImagePlug.Plan.Pipeline
-  alias ImagePlug.Plan.Source.Plain
-  alias ImagePlug.Runtime.RequestRunner
-  alias ImagePlug.Transform
   alias ImagePlug.Transform.Geometry.DimensionRule
   alias ImagePlug.Transform.Operation.AdaptiveResize
   alias ImagePlug.Transform.Operation.Crop
   alias ImagePlug.Transform.Operation.ExtendCanvas
   alias ImagePlug.Transform.Operation.Resize
   alias ImagePlug.Transform.State
-
-  defmodule CacheHitProbe do
-    def get(key, opts) do
-      send(Keyword.fetch!(opts, :test_pid), {:cache_get, key})
-      {:hit, Keyword.fetch!(opts, :entry)}
-    end
-
-    def put(_key, _entry, _opts), do: raise("cache hit must not write")
-  end
-
-  defmodule OriginShouldNotFetch do
-    def call(_conn, _opts) do
-      send(self(), :origin_was_called)
-      raise "origin should not fetch on cache hit"
-    end
-  end
 
   defp generated_state(width, height) do
     {:ok, image} = Image.new(width, height, color: :white)
@@ -136,7 +168,7 @@ defmodule ImagePlug.TransformIRCharacterizationTest do
 
   defp dimensions(%State{image: image}), do: {Image.width(image), Image.height(image)}
 
-  test "fit, fill, force, and auto resize preserve documented output dimensions" do
+  test "existing executable resize modes preserve current dimensions" do
     fit =
       generated_state(300, 200)
       |> execute!([
@@ -164,7 +196,7 @@ defmodule ImagePlug.TransformIRCharacterizationTest do
         %Resize{rule: %DimensionRule{mode: :force, width: :auto, height: {:pixels, 100}}}
       ])
 
-    auto_landscape =
+    auto_landscape_intermediate =
       generated_state(300, 200)
       |> execute!([
         %AdaptiveResize{
@@ -183,7 +215,9 @@ defmodule ImagePlug.TransformIRCharacterizationTest do
     assert dimensions(fit) == {100, 67}
     assert dimensions(fill) == {100, 100}
     assert dimensions(force) == {300, 100}
-    assert dimensions(auto_landscape) == {100, 67}
+    # This is executable AdaptiveResize alone. Parser/request-level resize:auto may
+    # currently emit additional result crop work to produce the visible cover output.
+    assert dimensions(auto_landscape_intermediate) == {100, 67}
     assert dimensions(auto_portrait) == {50, 33}
   end
 
@@ -201,6 +235,39 @@ defmodule ImagePlug.TransformIRCharacterizationTest do
       ])
 
     assert dimensions(state) == {120, 80}
+  end
+
+end
+```
+
+Create `test/image_plug/transform_ir_characterization_test.exs` with cache and parser/request-level behavior. Use the existing helpers discovered in Task 0, and keep the origin probe simple: it should raise if called.
+
+```elixir
+defmodule ImagePlug.TransformIRCharacterizationTest do
+  use ExUnit.Case, async: true
+
+  import Plug.Test
+
+  alias ImagePlug.Cache.Entry
+  alias ImagePlug.Plan
+  alias ImagePlug.Plan.Output
+  alias ImagePlug.Plan.Pipeline
+  alias ImagePlug.Plan.Source.Plain
+  alias ImagePlug.Runtime.RequestRunner
+  alias ImagePlug.Transform.Geometry.DimensionRule
+  alias ImagePlug.Transform.Operation.AdaptiveResize
+
+  defmodule CacheHitProbe do
+    def get(key, opts) do
+      send(Keyword.fetch!(opts, :test_pid), {:cache_get, key})
+      {:hit, Keyword.fetch!(opts, :entry)}
+    end
+
+    def put(_key, _entry, _opts), do: raise("cache hit must not write")
+  end
+
+  defmodule OriginShouldNotFetch do
+    def call(_conn, _opts), do: raise("origin should not fetch on cache hit")
   end
 
   test "cache hit returns before origin fetch for auto resize requests" do
@@ -240,27 +307,35 @@ defmodule ImagePlug.TransformIRCharacterizationTest do
 
     assert_received {:cache_get, key}
     assert key.material[:origin_identity] == "http://origin.test/images/cat-300.jpg"
-    refute_received :origin_was_called
   end
 end
 ```
+
+Also add a real parser/request-level characterization for `resize:auto` using the helpers discovered in Task 0. It must prove the visible current behavior for:
+
+- source `300x200`, target `100x50`
+- source `300x200`, target `50x100`
+- source `100x100`, target `50x50`
+- source `100x100`, target `50x80`
+
+Use that test to reconcile current behavior with the design rule before implementing `ResizeAuto` lowering. Do not leave this as a placeholder test.
 
 - [ ] **Step 2: Run the characterization tests**
 
 Run:
 
 ```bash
-mise exec -- mix test test/image_plug/transform_ir_characterization_test.exs
+mise exec -- mix test test/image_plug/transform_executable_characterization_test.exs test/image_plug/transform_ir_characterization_test.exs
 ```
 
-Expected: all tests pass against the current implementation. If a dimension assertion fails, inspect the actual output and update the expected value only when the current code proves the documented behavior is different.
+Expected: all tests pass against the current implementation. If a dimension assertion fails, inspect the actual output and update the expected value only when the current code proves the documented behavior is different. Before leaving this task, explicitly answer whether current imgproxy-compatible cover/fill requires `Resize` plus result `Crop`, because Tasks 5 and 6 depend on that.
 
 - [ ] **Step 3: Commit characterization coverage**
 
 Run:
 
 ```bash
-mise exec -- git add test/image_plug/transform_ir_characterization_test.exs
+mise exec -- git add test/image_plug/transform_executable_characterization_test.exs test/image_plug/transform_ir_characterization_test.exs
 mise exec -- git commit -m "test: characterize current transform behavior"
 ```
 
@@ -296,13 +371,19 @@ mise exec -- git mv docs/native_path_api.md docs/imgproxy_path_api.md
 
 - [ ] **Step 2: Rename modules and aliases**
 
-Apply a mechanical text replacement:
+Apply a narrow mechanical text replacement for module and docs path references only:
 
 ```bash
-perl -pi -e 's/ImagePlug\\.Parser\\.Native/ImagePlug.Parser.Imgproxy/g; s/Parser\\.Native/Parser.Imgproxy/g; s/\\bNative\\b/Imgproxy/g' lib/image_plug/parser/imgproxy.ex lib/image_plug/parser/imgproxy/*.ex test/parser/imgproxy_test.exs test/parser/imgproxy_property_test.exs test/parser/imgproxy/plan_builder_test.exs test/image_plug_test.exs test/image_plug/request_safety_test.exs test/image_plug/runtime_options_test.exs test/image_plug/cache_test.exs docs/imgproxy_path_api.md docs/transform_operations.md
+perl -pi -e 's/ImagePlug\\.Parser\\.Native/ImagePlug.Parser.Imgproxy/g; s/Parser\\.Native/Parser.Imgproxy/g; s/native_path_api/imgproxy_path_api/g' lib/image_plug/parser/imgproxy.ex lib/image_plug/parser/imgproxy/*.ex test/parser/imgproxy_test.exs test/parser/imgproxy_property_test.exs test/parser/imgproxy/plan_builder_test.exs test/image_plug_test.exs test/image_plug/request_safety_test.exs test/image_plug/runtime_options_test.exs test/image_plug/cache_test.exs docs/imgproxy_path_api.md docs/transform_operations.md
 ```
 
-Then manually review the docs and keep human-facing wording as `imgproxy-compatible` instead of `Imgproxy` where grammar needs it.
+Then search and manually review remaining uses:
+
+```bash
+rg "ImagePlug.Parser.Native|Parser.Native|\\bNative\\b|native_path_api|native parser|Native parser" lib test docs README.md mix.exs
+```
+
+Do not run a global `s/\bNative\b/Imgproxy/g` replacement. Keep human-facing prose as `imgproxy-compatible` where grammar needs it, and keep generic "native ImagePlug model" wording when it means the product-neutral `ImagePlug.Plan` model rather than the old parser namespace.
 
 - [ ] **Step 3: Update parser boundary export**
 
@@ -435,6 +516,13 @@ defmodule ImagePlug.Plan.VendorMappingFixtureTest do
                is_binary(fixture.notes)
            end)
   end
+
+  test "non-imgproxy fixtures do not expand first-slice parser scope" do
+    assert Enum.all?(@fixtures, fn
+             %{vendor: :imgproxy} -> true
+             %{classification: classification} -> classification != :supported_now
+           end)
+  end
 end
 ```
 
@@ -468,6 +556,16 @@ mise exec -- git commit -m "test: add transform IR vendor mapping fixtures"
 - Modify: `lib/image_plug/transform/material.ex`
 - Create: `test/image_plug/plan/operation_test.exs`
 - Create: `test/image_plug/plan/operation_material_test.exs`
+
+Execute this task as vertical subtasks, not one large commit:
+
+- 4A: `Dimension`, `Size`, `Region`, `Gravity`, and value material tests.
+- 4B: resize operation structs/constructors/material.
+- 4C: crop operation structs/constructors/material.
+- 4D: canvas operation struct/constructor/material.
+- 4E: orientation operation structs/constructors/material.
+
+Each subtask should add constructors, validation, material, focused tests, `mise exec -- mix format`, `mise exec -- mix compile --warnings-as-errors`, and the relevant focused ExUnit file before moving on.
 
 - [ ] **Step 1: Write failing constructor tests**
 
@@ -503,7 +601,7 @@ defmodule ImagePlug.Plan.OperationTest do
   end
 
   test "builds guided crop and canvas operations through exported constructors" do
-    size = Size.new!(width: Dimension.full_axis!(), height: Dimension.pixels!(50), dpr: 1.0)
+    size = Size.new!(width: Dimension.pixels!(120), height: Dimension.pixels!(50), dpr: 1.0)
 
     assert %Operation.CropGuided{} =
              Operation.crop_guided!(
@@ -585,6 +683,11 @@ defmodule ImagePlug.Plan.OperationMaterialTest do
            ]
   end
 
+  test "ratio material is canonicalized" do
+    assert Material.material(Dimension.ratio!(2, 4)) ==
+             [unit: :ratio, numerator: 1, denominator: 2]
+  end
+
   test "guided crop material contains explicit guide and no parser syntax" do
     operation =
       Operation.crop_guided!(
@@ -609,7 +712,7 @@ Add `ImagePlug.Plan.Geometry.Dimension`, `Size`, `Region`, and `ImagePlug.Plan.G
 ```elixir
 Dimension.auto!()
 Dimension.full_axis!()
-Dimension.pixels!(non_neg_integer())
+Dimension.pixels!(pos_integer())
 Dimension.ratio!(pos_integer(), pos_integer())
 Size.new!(width: dimension, height: dimension, dpr: pos_number)
 Region.new!(x: dimension, y: dimension, width: dimension, height: dimension, space: :source | :current | :post_orient)
@@ -617,7 +720,13 @@ Gravity.anchor!(:left | :center | :right, :top | :center | :bottom)
 Gravity.focal_point!(x_numerator, x_denominator, y_numerator, y_denominator, space \\ :current)
 ```
 
-Use `raise ArgumentError` in bang constructors for invalid programmer input. Do not accept maps or existing structs in constructors.
+Use `raise ArgumentError` in bang constructors for invalid programmer input. `Dimension.pixels!/1` must reject `0`; resize auto-axis and crop full-axis semantics must be represented explicitly by `Dimension.auto!/0` and `Dimension.full_axis!/0`.
+
+`Dimension.ratio!/2` must reduce ratios with `Integer.gcd/2` so equivalent ratios materialize identically.
+
+Constructors should accept only the exact expected value structs and primitive arguments. Do not accept arbitrary maps, keyword-shaped pseudo-values, existing executable transform structs, or broad coercions.
+
+`Gravity.anchor!/2` should default to `space: :current`. If a future caller needs another space, add an explicit constructor or option and materialize that default.
 
 - [ ] **Step 4: Add semantic operation structs and constructors**
 
@@ -640,7 +749,9 @@ Do not add `SetFocus`, `SetGravity`, `StrategyList`, `ResizeContain`, or backend
 
 - [ ] **Step 5: Implement `ImagePlug.Transform.Material` for semantic operations**
 
-Implement material in files under `lib/image_plug/plan/operation/material/*.ex` or one focused `lib/image_plug/plan/operation/material.ex`. Keep the protocol module as `ImagePlug.Transform.Material` for first-slice cache compatibility.
+Implement material in one focused file first: `lib/image_plug/plan/operation/material.ex`. Split later only if the implementation becomes unwieldy.
+
+Preserve the existing public API and dispatch style of `ImagePlug.Transform.Material`. If it is a protocol, add `defimpl`s for semantic operation/value structs rather than replacing protocol semantics. This is a first-slice compatibility bridge for cache material; semantic material must remain source-fetch-free and must not depend on resolver state.
 
 Material must be keyword lists and source-fetch-free. `ResizeAuto` material must not contain selected fit/cover branch.
 
@@ -734,6 +845,8 @@ defmodule ImagePlug.Transform.ResolverTest do
   alias ImagePlug.Plan.Pipeline
   alias ImagePlug.Plan.Source.Plain
   alias ImagePlug.Transform
+  alias ImagePlug.Transform.Geometry.DimensionRule
+  alias ImagePlug.Transform.Operation.Crop
   alias ImagePlug.Transform.Operation.Resize
   alias ImagePlug.Transform.SourceMetadata
 
@@ -755,10 +868,14 @@ defmodule ImagePlug.Transform.ResolverTest do
 
   test "resize auto derives cover for matching current and target orientation" do
     operation = Operation.resize_auto!(size: size(300, 200), enlargement: :deny)
-    metadata = %SourceMetadata{width: 1600, height: 900, orientation: :none, format: :jpeg}
+    metadata = %SourceMetadata{width: 1600, height: 900, orientation: :normal, format: :jpeg}
 
     assert {:ok, resolved} = Transform.resolve(plan([operation]), metadata, [])
-    assert [[%Resize{rule: %{mode: :fill}}]] = resolved.pipelines
+
+    assert [[
+              %Resize{rule: %DimensionRule{mode: :fill}},
+              %Crop{target_rule: %DimensionRule{mode: :fill}, crop_from: :gravity}
+            ]] = resolved.pipelines
 
     assert [%{code: :resize_auto_branch, value: :cover, material?: false}] =
              resolved.derivations
@@ -769,10 +886,10 @@ defmodule ImagePlug.Transform.ResolverTest do
 
   test "resize auto derives fit for differing current and target orientation" do
     operation = Operation.resize_auto!(size: size(200, 300), enlargement: :deny)
-    metadata = %SourceMetadata{width: 1600, height: 900, orientation: :none, format: :jpeg}
+    metadata = %SourceMetadata{width: 1600, height: 900, orientation: :normal, format: :jpeg}
 
     assert {:ok, resolved} = Transform.resolve(plan([operation]), metadata, [])
-    assert [[%Resize{rule: %{mode: :fit}}]] = resolved.pipelines
+    assert [[%Resize{rule: %DimensionRule{mode: :fit}}]] = resolved.pipelines
 
     assert [%{code: :resize_auto_branch, value: :fit, material?: false}] =
              resolved.derivations
@@ -785,10 +902,10 @@ defmodule ImagePlug.Transform.ResolverTest do
         enlargement: :deny
       )
 
-    metadata = %SourceMetadata{width: 1600, height: 900, orientation: :none, format: :jpeg}
+    metadata = %SourceMetadata{width: 1600, height: 900, orientation: :normal, format: :jpeg}
 
     assert {:ok, resolved} = Transform.resolve(plan([operation]), metadata, [])
-    assert [[%Resize{rule: %{mode: :fit}}]] = resolved.pipelines
+    assert [[%Resize{rule: %DimensionRule{mode: :fit}}]] = resolved.pipelines
   end
 end
 ```
@@ -801,14 +918,14 @@ Add:
 %ImagePlug.Transform.SourceMetadata{
   width: pos_integer(),
   height: pos_integer(),
-  orientation: term(),
+  orientation: :normal | :unknown | {:exif, 1..8},
   has_alpha?: boolean(),
   format: atom() | nil,
   source_type: :raster | :animated_raster | :vector
 }
 ```
 
-Defaults: `has_alpha?: false`, `source_type: :raster`.
+Defaults: `orientation: :normal`, `has_alpha?: false`, `source_type: :raster`.
 
 Add:
 
@@ -835,6 +952,8 @@ Add:
   backend_profile_material: []
 }
 ```
+
+First-slice `ResolvedPlan.pipelines` is a nested list of executable transform operations, preserving the same pipeline grouping as `Plan.pipelines`. Return shape is always `{:ok, %ResolvedPlan{}} | {:error, diagnostics}`; do not add polymorphic success tuples.
 
 - [ ] **Step 3: Add backend profile material**
 
@@ -891,13 +1010,15 @@ Rules:
 
 - [ ] **Step 6: Implement first ResizeAuto lowering**
 
-Lower `Operation.ResizeAuto` to existing `%ImagePlug.Transform.Operation.Resize{rule: %DimensionRule{}}`:
+Lower `Operation.ResizeAuto` to the existing executable sequence required to preserve current imgproxy-compatible visible behavior:
 
-- `:cover` -> `mode: :fill`
+- `:cover` -> `%Resize{rule: %DimensionRule{mode: :fill}}` plus the result crop sequence that current fill/cover behavior requires
 - `:fit` -> `mode: :fit`
 - `enlargement: :allow` -> `enlarge: true`
 - `enlargement: :deny` -> `enlarge: false`
 - requested logical size and DPR are carried into the `DimensionRule`
+
+If Task 1 proves that `%Resize{mode: :fill}` alone already produces exact cover output, document that proof in the test and simplify this lowering. Otherwise default to resize-plus-result-crop.
 
 Record a `%Derivation{code: :resize_auto_branch, value: :cover | :fit, material?: false}`.
 
@@ -907,6 +1028,7 @@ Run:
 
 ```bash
 mise exec -- mix format lib/image_plug/transform.ex lib/image_plug/transform/source_metadata.ex lib/image_plug/transform/resolved_plan.ex lib/image_plug/transform/derivation.ex lib/image_plug/transform/backend_profile.ex lib/image_plug/transform/resolver.ex lib/image_plug/transform/resolver/*.ex test/image_plug/transform/resolver_test.exs
+mise exec -- mix compile --warnings-as-errors
 mise exec -- mix test test/image_plug/transform/resolver_test.exs
 ```
 
@@ -946,6 +1068,7 @@ defmodule ImagePlug.Transform.ResolverLoweringTest do
   alias ImagePlug.Plan.Pipeline
   alias ImagePlug.Plan.Source.Plain
   alias ImagePlug.Transform
+  alias ImagePlug.Transform.Geometry.DimensionRule
   alias ImagePlug.Transform.Operation.Crop
   alias ImagePlug.Transform.Operation.ExtendCanvas
   alias ImagePlug.Transform.Operation.Resize
@@ -959,7 +1082,7 @@ defmodule ImagePlug.Transform.ResolverLoweringTest do
     }
   end
 
-  defp metadata, do: %SourceMetadata{width: 300, height: 200, orientation: :none, format: :jpeg}
+  defp metadata, do: %SourceMetadata{width: 300, height: 200, orientation: :normal, format: :jpeg}
 
   defp size(width, height) do
     Size.new!(width: Dimension.pixels!(width), height: Dimension.pixels!(height), dpr: 1.0)
@@ -979,9 +1102,10 @@ defmodule ImagePlug.Transform.ResolverLoweringTest do
     assert {:ok, resolved} = Transform.resolve(plan(operations), metadata(), [])
 
     assert [[
-              %Resize{rule: %{mode: :fit, width: {:pixels, 100}, height: {:pixels, 80}}},
-              %Resize{rule: %{mode: :fill, width: {:pixels, 50}, height: {:pixels, 50}}},
-              %Resize{rule: %{mode: :force, width: {:pixels, 20}, height: {:pixels, 10}}}
+              %Resize{rule: %DimensionRule{mode: :fit, width: {:pixels, 100}, height: {:pixels, 80}}},
+              %Resize{rule: %DimensionRule{mode: :fill, width: {:pixels, 50}, height: {:pixels, 50}}},
+              %Crop{target_rule: %DimensionRule{mode: :fill}, crop_from: :gravity},
+              %Resize{rule: %DimensionRule{mode: :force, width: {:pixels, 20}, height: {:pixels, 10}}}
             ]] = resolved.pipelines
   end
 
@@ -1010,6 +1134,24 @@ defmodule ImagePlug.Transform.ResolverLoweringTest do
     assert [[%ExtendCanvas{rule: {:dimensions, {:pixels, 320}, {:pixels, 240}}}]] =
              resolved.pipelines
   end
+
+  test "source-space ratio crop resolves to integer backend crop and derivation" do
+    operation =
+      Operation.crop_region!(
+        region:
+          ImagePlug.Plan.Geometry.Region.new!(
+            x: Dimension.ratio!(1, 10),
+            y: Dimension.ratio!(1, 10),
+            width: Dimension.ratio!(1, 2),
+            height: Dimension.ratio!(1, 2),
+            space: :source
+          )
+      )
+
+    assert {:ok, resolved} = Transform.resolve(plan([operation]), metadata(), [])
+    assert [%{code: :crop_region_resolved, material?: false}] = resolved.derivations
+    assert [[%Crop{}]] = resolved.pipelines
+  end
 end
 ```
 
@@ -1017,10 +1159,10 @@ end
 
 For each semantic operation, add one lowering function and run the focused test before moving to the next operation:
 
-- `ResizeFit` -> existing `%Resize{rule: %{mode: :fit}}`
-- `ResizeCover` -> existing `%Resize{rule: %{mode: :fill}}`; keep guide for result crop when parser emits a separate guided crop
-- `ResizeStretch` -> existing `%Resize{rule: %{mode: :force}}`
-- `CropGuided` -> existing `%Crop{crop_from: :gravity}`
+- `ResizeFit` -> existing `%Resize{rule: %DimensionRule{mode: :fit}}`
+- `ResizeCover` -> the existing executable sequence required to preserve current fill/cover behavior. If current behavior uses resize plus result crop, lower to `%Resize{rule: %DimensionRule{mode: :fill}}` followed by `%Crop{target_rule: same_fill_rule, crop_from: :gravity}`.
+- `ResizeStretch` -> existing `%Resize{rule: %DimensionRule{mode: :force}}`
+- `CropGuided` -> existing `%Crop{crop_from: :gravity}`. `Dimension.full_axis!()` lowers to the existing crop full-axis representation, such as `:auto`, only in this crop-axis context.
 - `CropRegion` -> existing `%Crop{crop_from: %{left: x, top: y}}` only when exact current-space pixels can be resolved; source-space regions must use shared geometry derivation
 - `Canvas` -> existing `%ExtendCanvas{}`
 - `AutoOrient`, `Rotate`, `Flip` -> existing orientation operations
@@ -1042,6 +1184,7 @@ Run:
 
 ```bash
 mise exec -- mix format lib/image_plug/transform/resolver/*.ex test/image_plug/transform/resolver_lowering_test.exs
+mise exec -- mix compile --warnings-as-errors
 mise exec -- mix test test/image_plug/transform/resolver_test.exs test/image_plug/transform/resolver_lowering_test.exs test/image_plug/transform_ir_characterization_test.exs
 ```
 
@@ -1064,6 +1207,8 @@ mise exec -- git commit -m "feat: lower semantic operations to executable transf
 - Modify: `lib/image_plug/parser/imgproxy/plan_builder.ex`
 - Modify: `test/parser/imgproxy/plan_builder_test.exs`
 - Modify: `test/parser/imgproxy_test.exs`
+
+**Execution prerequisite:** Runtime miss-path resolver support and semantic cache key support must exist before parser output is switched. If executing this plan strictly task-by-task, complete Tasks 8 and 9 before this task, then return here. This avoids a broken intermediate state where parsed requests produce semantic operations that runtime cannot execute.
 
 - [ ] **Step 1: Update parser tests to expect semantic operations**
 
@@ -1111,8 +1256,8 @@ Use existing request fields to build `Size`:
 
 ```elixir
 Size.new!(
-  width: imgproxy_dimension(request.width),
-  height: imgproxy_dimension(request.height),
+  width: imgproxy_resize_dimension(request.width),
+  height: imgproxy_resize_dimension(request.height),
   dpr: request.dpr || 1.0
 )
 ```
@@ -1124,16 +1269,23 @@ Use `:allow` when `request.enlarge == true`; use `:deny` otherwise.
 Add private helpers:
 
 ```elixir
-defp imgproxy_dimension(nil), do: Dimension.auto!()
-defp imgproxy_dimension({:pixels, 0}), do: Dimension.auto!()
-defp imgproxy_dimension({:pixels, value}), do: Dimension.pixels!(value)
-defp imgproxy_dimension({:scale, value}), do: Dimension.ratio!(round(value * 1_000_000), 1_000_000)
-defp imgproxy_dimension(:auto), do: Dimension.full_axis!()
+defp imgproxy_resize_dimension(nil), do: Dimension.auto!()
+defp imgproxy_resize_dimension(:auto), do: Dimension.auto!()
+defp imgproxy_resize_dimension({:pixels, 0}), do: Dimension.auto!()
+defp imgproxy_resize_dimension({:pixels, value}), do: Dimension.pixels!(value)
+defp imgproxy_resize_dimension({:scale, value}), do: decimal_ratio!(value)
+
+defp imgproxy_crop_dimension(:auto), do: Dimension.full_axis!()
+defp imgproxy_crop_dimension({:pixels, 0}), do: Dimension.full_axis!()
+defp imgproxy_crop_dimension({:pixels, value}), do: Dimension.pixels!(value)
+defp imgproxy_crop_dimension({:scale, value}), do: decimal_ratio!(value)
 ```
 
 Use `Operation.crop_guided!` with `Gravity.anchor!/2` or `Gravity.focal_point!/5`.
 
-Preserve current imgproxy validation behavior. Do not add decimal pixel rounding not already accepted by the parser.
+Preserve current imgproxy validation behavior. Do not globally map `0`, `nil`, or `:auto` through one helper; resize and crop semantics differ. Parser defaults that affect output must be explicit, including center gravity when syntax omits guide/focus.
+
+Prefer exact decimal-string-to-rational conversion when the raw token is available. If the current parser has already converted scale input to float, use a named helper such as `decimal_ratio!/1` that reduces through `Dimension.ratio!/2` and documents the compatibility rounding policy.
 
 - [ ] **Step 5: Replace canvas and orientation construction**
 
@@ -1171,6 +1323,7 @@ mise exec -- git commit -m "feat: emit semantic operations from imgproxy parser"
 **Files:**
 - Modify: `lib/image_plug/cache/key.ex`
 - Modify: `lib/image_plug/runtime/request_runner.ex`
+- Modify: `lib/image_plug/runtime/response_cache.ex`
 - Test: `test/image_plug/cache/key_test.exs`
 - Test: `test/image_plug/runtime/request_runner_test.exs`
 - Test: `test/image_plug/response_cache_test.exs`
@@ -1255,7 +1408,20 @@ backend: ImagePlug.Transform.BackendProfile.material(ImagePlug.Transform.Backend
 
 Do not call `Transform.resolve/3`, image metadata readers, or origin fetch modules from cache key code.
 
-- [ ] **Step 4: Ensure runtime does not second-lookup with derived material**
+- [ ] **Step 4: Add source-independent semantic validation facade**
+
+Add a narrow source-independent validation facade such as `ImagePlug.Plan.validate_prefetch_safe/1` or `ImagePlug.Transform.validate_semantic_plan/1`.
+
+This facade should:
+
+- reject malformed semantic operation structs before cache lookup
+- reject parser/adapter command structs in canonical `Plan`
+- reject unsupported first-slice strategy guides or capability-only concepts
+- avoid source metadata, origin fetch, decode/open, and `Transform.resolve/3`
+
+`RequestRunner` may call this facade before cache lookup. It must not pattern-match on concrete `ImagePlug.Plan.Operation.*` modules itself.
+
+- [ ] **Step 5: Ensure runtime does not second-lookup with derived material**
 
 `RequestRunner.run/4` must:
 
@@ -1267,18 +1433,21 @@ Do not call `Transform.resolve/3`, image metadata readers, or origin fetch modul
 
 Do not rebuild a second final key after `Transform.resolve/3`.
 
-- [ ] **Step 5: Run cache tests**
+Add a cache probe test that fails if lookup is called more than once. Prefer an existing test helper or `start_supervised!/1` process over process dictionary state if calls can cross processes.
+
+- [ ] **Step 6: Run cache tests**
 
 Run:
 
 ```bash
-mise exec -- mix format lib/image_plug/cache/key.ex lib/image_plug/runtime/request_runner.ex test/image_plug/cache/key_test.exs test/image_plug/runtime/request_runner_test.exs test/image_plug/response_cache_test.exs
+mise exec -- mix format lib/image_plug/cache/key.ex lib/image_plug/runtime/request_runner.ex lib/image_plug/runtime/response_cache.ex test/image_plug/cache/key_test.exs test/image_plug/runtime/request_runner_test.exs test/image_plug/response_cache_test.exs
+mise exec -- mix compile --warnings-as-errors
 mise exec -- mix test test/image_plug/cache/key_test.exs test/image_plug/cache/key_property_test.exs test/image_plug/runtime/request_runner_test.exs test/image_plug/response_cache_test.exs
 ```
 
 Expected: semantic ResizeAuto stays unresolved in cache material, origin identity changes key, cache hits return before source work.
 
-- [ ] **Step 6: Commit metadata-free cache lookup**
+- [ ] **Step 7: Commit metadata-free cache lookup**
 
 Run:
 
@@ -1297,6 +1466,8 @@ mise exec -- git commit -m "feat: key transform cache by semantic intent"
 - Modify: `lib/image_plug/transform/decode_planner.ex`
 - Test: `test/image_plug/request_runner_test.exs`
 - Test: `test/image_plug/decode_planner_test.exs`
+
+Runtime must be capable of accepting semantic plans before Task 7 switches the Imgproxy parser to emit semantic operations. Implement this task before parser output is switched if working through the plan linearly.
 
 - [ ] **Step 1: Add miss-path resolver test**
 
@@ -1331,7 +1502,19 @@ end
 
 Adjust the local cache probe if it currently cannot return `:miss`; add a small `CacheMissWriteProbe` test module when clearer.
 
-- [ ] **Step 2: Extract source metadata after fetch/decode**
+- [ ] **Step 2: Keep decode/open planning conservative before metadata**
+
+On a cache miss, the first-slice sequence is:
+
+1. origin fetch
+2. conservative decode/open planning from source-fetch-free semantic operation metadata
+3. image open and source metadata discovery
+4. source-aware semantic resolution
+5. executable transform execution
+
+Do not imply that source metadata is available before decode/open planning unless the current code already has a metadata-only open path. The first slice can use conservative random access before metadata for correctness.
+
+- [ ] **Step 3: Extract source metadata after image open**
 
 In `Processor.decode_validate_origin_response/5`, after image open succeeds, derive:
 
@@ -1339,7 +1522,7 @@ In `Processor.decode_validate_origin_response/5`, after image open succeeds, der
 %ImagePlug.Transform.SourceMetadata{
   width: Image.width(image),
   height: Image.height(image),
-  orientation: :none,
+  orientation: :normal,
   format: source_format,
   source_type: :raster
 }
@@ -1347,7 +1530,7 @@ In `Processor.decode_validate_origin_response/5`, after image open succeeds, der
 
 Store the metadata in `DecodedOrigin` if needed, or return it alongside decoded image. Prefer adding a `source_metadata` field to `ImagePlug.Runtime.DecodedOrigin`.
 
-- [ ] **Step 3: Resolve before `Chain.execute/2`**
+- [ ] **Step 4: Resolve before `Chain.execute/2`**
 
 Change processor execution so semantic pipelines are resolved after source metadata is available:
 
@@ -1361,22 +1544,27 @@ end
 
 `execute_pipelines/4` should continue to receive lists of executable transform operations.
 
-- [ ] **Step 4: Keep decode planning conservative**
+- [ ] **Step 5: Keep runtime generic**
+
+Runtime may pass executable operation structs to `ImagePlug.Transform.Chain.execute/2` opaquely, but it must not branch on concrete executable modules. Any operation-specific behavior belongs in `ImagePlug.Transform.Resolver`, `ImagePlug.Transform.Resolver.Lowering`, or existing transform callbacks.
+
+- [ ] **Step 6: Keep decode planning conservative**
 
 Decode planning can use semantic operation metadata before resolve only when source-fetch-free. For first slice, keep random access for semantic operation chains that have not been resolved. Add or update `DecodePlanner` so unknown semantic operation structs return random access until resolved executable work is available.
 
-- [ ] **Step 5: Run runtime and decode tests**
+- [ ] **Step 7: Run runtime and decode tests**
 
 Run:
 
 ```bash
 mise exec -- mix format lib/image_plug/runtime/request_runner.ex lib/image_plug/runtime/processor.ex lib/image_plug/runtime/decoded_origin.ex lib/image_plug/transform/decode_planner.ex test/image_plug/request_runner_test.exs test/image_plug/decode_planner_test.exs
+mise exec -- mix compile --warnings-as-errors
 mise exec -- mix test test/image_plug/request_runner_test.exs test/image_plug/decode_planner_test.exs test/image_plug/request_safety_test.exs
 ```
 
 Expected: cache hit still avoids origin; cache miss resolves and executes semantic operations; invalid parser/plan requests still fail before cache and origin.
 
-- [ ] **Step 6: Commit resolver runtime path**
+- [ ] **Step 8: Commit resolver runtime path**
 
 Run:
 
@@ -1419,12 +1607,15 @@ Update `test/image_plug/architecture_boundary_test.exs`:
 - Runtime must not reference `ImagePlug.Plan.Operation.*`.
 - Runtime must not reference `ImagePlug.Transform.Operation.*`.
 - Parser-specific structs under `ImagePlug.Parser.Imgproxy.*` must not appear in runtime.
+- Cache key construction must not reference `ImagePlug.Transform.Resolver`, `ImagePlug.Transform.SourceMetadata`, `ImagePlug.Transform.ResolvedPlan`, or `ImagePlug.Transform.Derivation`.
 
 Keep Transform resolver allowed to reference concrete semantic and executable operation modules.
 
 - [ ] **Step 4: Remove impossible internal misuse guards if exposed by refactor**
 
 Review `ImagePlug.Transform.operation?/1`, `ensure_operation/1`, and `ensure_operation!/1`. If they now exist only for impossible internal misuse, remove them and the exact tests that assert tidy errors for malformed hand-built structs. Keep `Transform.validate/1`, `metadata/1`, and `execute/2` as trusted behaviour dispatch helpers for executable work.
+
+Do not remove defensive behavior merely because it is untidy if current public-ish tests or runtime boundaries still rely on it. Prefer shrinking unsupported internal API surface when the code path is unreachable after semantic validation.
 
 - [ ] **Step 5: Run boundary and docs-related tests**
 
@@ -1479,12 +1670,24 @@ test "post-fetch derivations are not accepted as final output cache key inputs" 
     details: %{}
   }
 
-  refute ImagePlug.Cache.Key.serialize_material(key_before.material) =~
-           ImagePlug.Cache.Key.serialize_material(derivation)
+  key_after_resolve =
+    build_key!(
+      conn(:get, "/_/rt:auto/w:300/h:200/plain/images/cat.jpg"),
+      plan_with_resize_auto(),
+      "origin-version-1"
+    )
+
+  serialized = ImagePlug.Cache.Key.serialize_material(key_before.material)
+
+  assert key_before == key_after_resolve
+  refute serialized =~ "resize_auto_branch"
+  refute serialized =~ "selected_branch"
+  refute serialized =~ "Derivation"
+  refute serialized =~ ImagePlug.Cache.Key.serialize_material(derivation)
 end
 ```
 
-Use a private `plan_with_resize_auto/0` helper in that test file. The assertion proves the cache key material does not include derivation structs.
+Use a private `plan_with_resize_auto/0` helper in that test file. The assertion proves the cache key material does not include derivation structs or derived branch labels. If `Cache.Key` has a public builder, also add a negative test that it accepts a semantic `Plan` and does not accept `ResolvedPlan`.
 
 - [ ] **Step 2: Add ResizeAuto determinism examples**
 
@@ -1533,18 +1736,28 @@ For each case:
 3. Execute resolved executable operations against the same generated image.
 4. Assert final dimensions match.
 
-- [ ] **Step 5: Run regression suite**
+- [ ] **Step 5: Add parser and cache boundary regressions**
+
+Add focused regressions that prove:
+
+- After Task 7, parsed plans contain no `ImagePlug.Transform.Operation.*` structs.
+- A semantic `ResizeAuto` cache hit returns without origin fetch, metadata read, decode/open, or source-aware lowering.
+- Cache key construction does not call `Transform.resolve/3`.
+- Runtime does not perform a second lookup after source-aware resolution.
+
+- [ ] **Step 6: Run regression suite**
 
 Run:
 
 ```bash
 mise exec -- mix format test/image_plug/cache/key_test.exs test/image_plug/cache/key_property_test.exs test/image_plug/transform/resolver_test.exs test/image_plug/transform_ir_characterization_test.exs
+mise exec -- mix compile --warnings-as-errors
 mise exec -- mix test test/image_plug/cache/key_test.exs test/image_plug/cache/key_property_test.exs test/image_plug/transform/resolver_test.exs test/image_plug/transform_ir_characterization_test.exs
 ```
 
 Expected: cache material remains semantic and source-fetch-free; semantic resolution preserves current executable results for the first-slice examples.
 
-- [ ] **Step 6: Commit regression tests**
+- [ ] **Step 7: Commit regression tests**
 
 Run:
 
@@ -1577,7 +1790,7 @@ Update docs to reflect:
 Run:
 
 ```bash
-rg "Parser.Native|ImagePlug.Parser.Native|Native Path API|native_path_api" lib test docs README.md mix.exs
+rg "Parser.Native|ImagePlug.Parser.Native|Native Path API|native_path_api|native parser|Native parser" lib test docs README.md mix.exs
 ```
 
 Expected: no stale references, except historical wording in the approved design spec if intentionally retained.
