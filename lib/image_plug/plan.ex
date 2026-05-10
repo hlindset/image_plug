@@ -18,6 +18,7 @@ defmodule ImagePlug.Plan do
       Operation,
       Operation.CropGuided,
       Operation.CropRegion,
+      Operation.Canvas,
       Operation.ResizeFit,
       Operation.ResizeCover,
       Operation.ResizeStretch,

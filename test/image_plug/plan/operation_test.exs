@@ -83,6 +83,62 @@ defmodule ImagePlug.Plan.OperationTest do
     end
   end
 
+  describe "canvas constructor" do
+    test "builds canvas operation through exported constructor" do
+      assert {:ok, size} = size()
+      assert {:ok, placement} = Gravity.anchor(:center, :center)
+
+      assert {:ok,
+              %Operation.Canvas{
+                size: ^size,
+                placement: ^placement,
+                background: :white,
+                overflow: :reject
+              }} =
+               Operation.canvas(
+                 size: size,
+                 placement: placement,
+                 background: :white,
+                 overflow: :reject
+               )
+    end
+
+    test "rejects unsupported canvas values without raising" do
+      assert {:ok, size} = size()
+      assert {:ok, placement} = Gravity.anchor(:center, :center)
+
+      assert Operation.canvas(
+               size: :not_size,
+               placement: placement,
+               background: :white,
+               overflow: :reject
+             ) ==
+               {:error,
+                {:invalid_operation, :canvas,
+                 [size: :not_size, placement: placement, background: :white, overflow: :reject]}}
+
+      assert Operation.canvas(
+               size: size,
+               placement: placement,
+               background: :transparent,
+               overflow: :reject
+             ) ==
+               {:error,
+                {:invalid_operation, :canvas,
+                 [size: size, placement: placement, background: :transparent, overflow: :reject]}}
+
+      assert Operation.canvas(
+               size: size,
+               placement: placement,
+               background: :white,
+               overflow: :crop
+             ) ==
+               {:error,
+                {:invalid_operation, :canvas,
+                 [size: size, placement: placement, background: :white, overflow: :crop]}}
+    end
+  end
+
   defp size do
     with {:ok, width} <- Dimension.pixels(300),
          {:ok, height} <- Dimension.auto() do

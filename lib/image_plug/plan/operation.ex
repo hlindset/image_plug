@@ -5,6 +5,7 @@ defmodule ImagePlug.Plan.Operation do
 
   alias ImagePlug.Plan.Geometry.Size
   alias ImagePlug.Plan.Guide.Gravity
+  alias ImagePlug.Plan.Operation.Canvas
   alias ImagePlug.Plan.Geometry.Region
   alias ImagePlug.Plan.Operation.CropGuided
   alias ImagePlug.Plan.Operation.CropRegion
@@ -25,7 +26,9 @@ defmodule ImagePlug.Plan.Operation do
           CropGuided.t()
           | CropRegion.t()
 
-  @type semantic_operation :: resize_operation() | crop_operation()
+  @type canvas_operation :: Canvas.t()
+
+  @type semantic_operation :: resize_operation() | crop_operation() | canvas_operation()
 
   @type error :: {:invalid_operation, atom(), term()}
 
@@ -42,6 +45,18 @@ defmodule ImagePlug.Plan.Operation do
   end
 
   def crop_region(attrs), do: invalid(:crop_region, attrs)
+
+  @spec canvas(keyword()) :: {:ok, Canvas.t()} | {:error, error()}
+  def canvas(
+        size: %Size{} = size,
+        placement: %Gravity{} = placement,
+        background: :white,
+        overflow: :reject
+      ) do
+    {:ok, %Canvas{size: size, placement: placement, background: :white, overflow: :reject}}
+  end
+
+  def canvas(attrs), do: invalid(:canvas, attrs)
 
   @spec resize_fit(keyword()) :: {:ok, ResizeFit.t()} | {:error, error()}
   def resize_fit(size: %Size{} = size, enlargement: enlargement)
