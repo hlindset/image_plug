@@ -7,10 +7,13 @@ defmodule ImagePlug.Cache.KeyPropertyTest do
 
   alias ImagePlug.Cache.Key
   alias ImagePlug.Plan
+  alias ImagePlug.Plan.Geometry.Dimension
+  alias ImagePlug.Plan.Geometry.Size
+  alias ImagePlug.Plan.Guide.Gravity
+  alias ImagePlug.Plan.Operation
   alias ImagePlug.Plan.Output
   alias ImagePlug.Plan.Pipeline
   alias ImagePlug.Plan.Source.Plain
-  alias ImagePlug.Transform
 
   defp build_key!(conn, plan, origin_identity, opts \\ []) do
     assert {:ok, key} = Key.build(conn, plan, origin_identity, opts)
@@ -376,15 +379,7 @@ defmodule ImagePlug.Cache.KeyPropertyTest do
           source: %Plain{path: ["images", "cat.jpg"]},
           pipelines: [
             %Pipeline{
-              operations: [
-                %Transform.Operation.Contain{
-                  type: :dimensions,
-                  width: {:pixels, 300},
-                  height: :auto,
-                  constraint: :max,
-                  letterbox: false
-                }
-              ]
+              operations: [resize_fit_operation(300, :auto)]
             }
           ],
           output: %Output{mode: {:explicit, :webp}}
@@ -410,47 +405,70 @@ defmodule ImagePlug.Cache.KeyPropertyTest do
 
   defp operation do
     one_of([
-      map({maybe_dimension(), maybe_dimension()}, fn {width, height} ->
-        %Transform.Operation.Contain{
-          type: :dimensions,
-          width: width || {:pixels, 100},
-          height: height || :auto,
-          constraint: :max,
-          letterbox: false
-        }
+      map({positive_pixel(), maybe_dimension_atom()}, fn {width, height} ->
+        resize_fit_operation(width, height)
       end),
-      map({pixel_dimension(), pixel_dimension()}, fn {width, height} ->
-        %Transform.Operation.Crop{
-          width: width,
-          height: height,
-          crop_from: :focus
-        }
+      map({positive_pixel(), positive_pixel()}, fn {width, height} ->
+        crop_guided_operation(width, height)
       end)
     ])
   end
 
   defp operation_material do
     one_of([
-      map({maybe_dimension(), maybe_dimension()}, fn {width, height} ->
+      map({positive_pixel(), maybe_dimension_atom()}, fn {width, height} ->
         [
-          op: :contain,
-          type: :dimensions,
-          width: width || {:pixels, 100},
-          height: height || :auto,
-          constraint: :max,
-          letterbox: false
+          op: :resize_fit,
+          size: [
+            width: [unit: :logical_px, value: width],
+            height: dimension_material(height),
+            dpr: 1.0
+          ],
+          enlargement: :deny,
+          min_width: nil,
+          min_height: nil,
+          zoom_x: 1.0,
+          zoom_y: 1.0
         ]
       end),
-      map({pixel_dimension(), pixel_dimension()}, fn {width, height} ->
+      map({positive_pixel(), positive_pixel()}, fn {width, height} ->
         [
-          op: :crop,
-          width: width,
-          height: height,
-          crop_from: :focus
+          op: :crop_guided,
+          size: [
+            width: [unit: :logical_px, value: width],
+            height: [unit: :logical_px, value: height],
+            dpr: 1.0
+          ],
+          guide: [type: :anchor, x: :center, y: :center, space: :current],
+          x_offset: {:pixels, 0.0},
+          y_offset: {:pixels, 0.0}
         ]
       end)
     ])
   end
+
+  defp resize_fit_operation(width, height) do
+    {:ok, width} = Dimension.pixels(width)
+    {:ok, height} = semantic_dimension(height)
+    {:ok, size} = Size.new(width: width, height: height, dpr: 1.0)
+    {:ok, operation} = Operation.resize_fit(size: size, enlargement: :deny)
+    operation
+  end
+
+  defp crop_guided_operation(width, height) do
+    {:ok, width} = Dimension.pixels(width)
+    {:ok, height} = Dimension.pixels(height)
+    {:ok, size} = Size.new(width: width, height: height, dpr: 1.0)
+    {:ok, guide} = Gravity.anchor(:center, :center)
+    {:ok, operation} = Operation.crop_guided(size: size, guide: guide)
+    operation
+  end
+
+  defp semantic_dimension(:auto), do: Dimension.auto()
+  defp semantic_dimension(pixels), do: Dimension.pixels(pixels)
+
+  defp dimension_material(:auto), do: [unit: :auto]
+  defp dimension_material(pixels), do: [unit: :logical_px, value: pixels]
 
   defp origin_identity do
     map(source_path(), fn path -> "https://origin.test/#{Enum.join(path, "/")}" end)
@@ -459,7 +477,9 @@ defmodule ImagePlug.Cache.KeyPropertyTest do
   defp source_path, do: list_of(path_segment(), min_length: 1, max_length: 4)
   defp path_segment, do: string(:alphanumeric, min_length: 1, max_length: 16)
   defp maybe_dimension, do: one_of([constant(nil), constant(:auto), pixel_dimension()])
+  defp maybe_dimension_atom, do: one_of([constant(:auto), positive_pixel()])
   defp pixel_dimension, do: map(integer(1..10_000), &{:pixels, &1})
+  defp positive_pixel, do: integer(1..10_000)
 
   defp accept_header do
     map(list_of(media_range_with_optional_quality(), max_length: 5), &Enum.join(&1, ","))

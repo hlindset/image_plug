@@ -210,15 +210,15 @@ defmodule ImagePlug.Runtime.RequestRunnerTest do
     refute ImagePlug.Cache.Key.serialize_material(key.material) =~ "selected_branch"
   end
 
-  test "cache miss resolves semantic operations after origin fetch and stores under original key" do
+  test "cache miss resolves source-aware semantic operations and stores under original key" do
     assert {:ok, width} = Dimension.pixels(100)
-    assert {:ok, height} = Dimension.auto()
+    assert {:ok, height} = Dimension.pixels(100)
     assert {:ok, size} = Size.new(width: width, height: height, dpr: 1.0)
-    assert {:ok, operation} = Operation.resize_fit(size: size, enlargement: :deny)
+    assert {:ok, operation} = Operation.resize_auto(size: size, enlargement: :deny)
 
     assert {:ok, {:cache_entry, %Entry{content_type: "image/jpeg"}, %ImagePlug.Plan.Response{}}} =
              RequestRunner.run(
-               conn(:get, "/_/w:100/f:jpeg/plain/images/cat-300.jpg"),
+               conn(:get, "/_/rt:auto/w:100/h:100/f:jpeg/plain/images/cat-300.jpg"),
                plan(pipelines: [%Pipeline{operations: [operation]}]),
                "http://origin.test/images/cat-300.jpg",
                cache: {CacheMissWriteProbe, []},
@@ -227,6 +227,7 @@ defmodule ImagePlug.Runtime.RequestRunnerTest do
 
     assert_received {:cache_lookup, key}
     assert_received {:cache_put, ^key, %Entry{}, _opts}
+    refute_received {:cache_lookup, _second_key}
   end
 
   test "empty pipeline plans return processing errors before cache lookup" do

@@ -76,6 +76,38 @@ defmodule ImagePlug.Transform.ResolverTest do
     assert [[%Resize{rule: %DimensionRule{mode: :fit}}]] = resolved.pipelines
   end
 
+  for {source, target, expected} <- [
+        {{1600, 900}, {300, 200}, :cover},
+        {{1600, 900}, {200, 300}, :fit},
+        {{1000, 1000}, {300, 300}, :cover},
+        {{1000, 1000}, {300, 200}, :fit}
+      ] do
+    test "resize auto #{inspect(source)} to #{inspect(target)} derives #{expected}" do
+      {source_width, source_height} = unquote(Macro.escape(source))
+      {target_width, target_height} = unquote(Macro.escape(target))
+      expected = unquote(expected)
+
+      assert {:ok, operation} =
+               Operation.resize_auto(size: size(target_width, target_height), enlargement: :deny)
+
+      metadata = %SourceMetadata{
+        width: source_width,
+        height: source_height,
+        orientation: :normal,
+        format: :jpeg
+      }
+
+      assert {:ok, resolved} = Transform.resolve(plan([operation]), metadata, [])
+
+      assert [%{code: :resize_auto_branch, value: ^expected, material?: false}] =
+               resolved.derivations
+
+      expected_mode = unquote(if expected == :cover, do: :fill, else: :fit)
+
+      assert [[%Resize{rule: %DimensionRule{mode: ^expected_mode}} | _rest]] = resolved.pipelines
+    end
+  end
+
   test "source metadata constructor validates required resolver inputs" do
     assert {:ok, %SourceMetadata{width: 300, height: 200}} =
              SourceMetadata.new(width: 300, height: 200, format: :jpeg)

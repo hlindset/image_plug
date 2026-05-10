@@ -8,11 +8,11 @@ defmodule ImagePlug.Cache.KeyTest do
   alias ImagePlug.Plan
   alias ImagePlug.Plan.Geometry.Dimension
   alias ImagePlug.Plan.Geometry.Size
+  alias ImagePlug.Plan.Guide.Gravity
   alias ImagePlug.Plan.Operation
   alias ImagePlug.Plan.Output
   alias ImagePlug.Plan.Pipeline
   alias ImagePlug.Plan.Source.Plain
-  alias ImagePlug.Transform
 
   defp plan(overrides \\ []) do
     struct!(
@@ -22,24 +22,10 @@ defmodule ImagePlug.Cache.KeyTest do
           source: %Plain{path: ["images", "cat.jpg"]},
           pipelines: [
             %Pipeline{
-              operations: [
-                %Transform.Operation.Contain{
-                  type: :dimensions,
-                  width: {:pixels, 300},
-                  height: :auto,
-                  constraint: :max,
-                  letterbox: false
-                }
-              ]
+              operations: [resize_fit_operation(300, :auto)]
             },
             %Pipeline{
-              operations: [
-                %Transform.Operation.Crop{
-                  width: {:pixels, 200},
-                  height: {:pixels, 100},
-                  crop_from: :focus
-                }
-              ]
+              operations: [crop_guided_operation(200, 100)]
             }
           ],
           output: %Output{mode: {:explicit, :webp}}
@@ -53,6 +39,47 @@ defmodule ImagePlug.Cache.KeyTest do
     assert {:ok, key} = Key.build(conn, plan, origin_identity, opts)
     key
   end
+
+  defp plan_with_resize_auto do
+    plan(pipelines: [%Pipeline{operations: [resize_auto_operation(300, 200)]}])
+  end
+
+  defp resize_fit_operation(width, height, attrs \\ []) do
+    assert {:ok, width} = semantic_dimension(width)
+    assert {:ok, height} = semantic_dimension(height)
+
+    assert {:ok, size} =
+             Size.new(width: width, height: height, dpr: Keyword.get(attrs, :dpr, 1.0))
+
+    operation_attrs =
+      attrs
+      |> Keyword.drop([:dpr])
+      |> Keyword.put_new(:enlargement, :deny)
+      |> Keyword.put(:size, size)
+
+    assert {:ok, operation} = Operation.resize_fit(operation_attrs)
+    operation
+  end
+
+  defp crop_guided_operation(width, height) do
+    assert {:ok, width} = semantic_dimension(width)
+    assert {:ok, height} = semantic_dimension(height)
+    assert {:ok, size} = Size.new(width: width, height: height, dpr: 1.0)
+    assert {:ok, guide} = Gravity.anchor(:center, :center)
+    assert {:ok, operation} = Operation.crop_guided(size: size, guide: guide)
+    operation
+  end
+
+  defp resize_auto_operation(width, height) do
+    assert {:ok, width} = semantic_dimension(width)
+    assert {:ok, height} = semantic_dimension(height)
+    assert {:ok, size} = Size.new(width: width, height: height, dpr: 1.0)
+    assert {:ok, operation} = Operation.resize_auto(size: size, enlargement: :deny)
+    operation
+  end
+
+  defp semantic_dimension(:auto), do: Dimension.auto()
+  defp semantic_dimension(pixels), do: Dimension.pixels(pixels)
 
   test "builds stable hash and material from canonical plan fields and origin identity" do
     conn = conn(:get, "/sig-one/w:100/plain/images/cat.jpg?ignored=true")
@@ -72,20 +99,30 @@ defmodule ImagePlug.Cache.KeyTest do
              pipelines: [
                [
                  [
-                   op: :contain,
-                   type: :dimensions,
-                   width: {:pixels, 300},
-                   height: :auto,
-                   constraint: :max,
-                   letterbox: false
+                   op: :resize_fit,
+                   size: [
+                     width: [unit: :logical_px, value: 300],
+                     height: [unit: :auto],
+                     dpr: 1.0
+                   ],
+                   enlargement: :deny,
+                   min_width: nil,
+                   min_height: nil,
+                   zoom_x: 1.0,
+                   zoom_y: 1.0
                  ]
                ],
                [
                  [
-                   op: :crop,
-                   width: {:pixels, 200},
-                   height: {:pixels, 100},
-                   crop_from: :focus
+                   op: :crop_guided,
+                   size: [
+                     width: [unit: :logical_px, value: 200],
+                     height: [unit: :logical_px, value: 100],
+                     dpr: 1.0
+                   ],
+                   guide: [type: :anchor, x: :center, y: :center, space: :current],
+                   x_offset: {:pixels, 0.0},
+                   y_offset: {:pixels, 0.0}
                  ]
                ]
              ],
@@ -145,20 +182,30 @@ defmodule ImagePlug.Cache.KeyTest do
     assert key.material[:pipelines] == [
              [
                [
-                 op: :contain,
-                 type: :dimensions,
-                 width: {:pixels, 300},
-                 height: :auto,
-                 constraint: :max,
-                 letterbox: false
+                 op: :resize_fit,
+                 size: [
+                   width: [unit: :logical_px, value: 300],
+                   height: [unit: :auto],
+                   dpr: 1.0
+                 ],
+                 enlargement: :deny,
+                 min_width: nil,
+                 min_height: nil,
+                 zoom_x: 1.0,
+                 zoom_y: 1.0
                ]
              ],
              [
                [
-                 op: :crop,
-                 width: {:pixels, 200},
-                 height: {:pixels, 100},
-                 crop_from: :focus
+                 op: :crop_guided,
+                 size: [
+                   width: [unit: :logical_px, value: 200],
+                   height: [unit: :logical_px, value: 100],
+                   dpr: 1.0
+                 ],
+                 guide: [type: :anchor, x: :center, y: :center, space: :current],
+                 x_offset: {:pixels, 0.0},
+                 y_offset: {:pixels, 0.0}
                ]
              ]
            ]
@@ -177,17 +224,7 @@ defmodule ImagePlug.Cache.KeyTest do
   end
 
   test "resize material includes requested zoom and dpr rule inputs" do
-    operation = %ImagePlug.Transform.Operation.Resize{
-      rule: %ImagePlug.Transform.Geometry.DimensionRule{
-        mode: :fit,
-        width: {:pixels, 100},
-        height: :auto,
-        zoom_x: 2.0,
-        zoom_y: 1.5,
-        dpr: 2.0,
-        enlarge: false
-      }
-    }
+    operation = resize_fit_operation(100, :auto, dpr: 2.0, zoom_x: 2.0, zoom_y: 1.5)
 
     key =
       conn(:get, "/_/plain/images/cat.jpg")
@@ -197,18 +234,14 @@ defmodule ImagePlug.Cache.KeyTest do
       )
 
     assert [[resize_material]] = key.material[:pipelines]
-    assert resize_material[:op] == :resize
-    assert resize_material[:rule][:zoom_x] == 2.0
-    assert resize_material[:rule][:zoom_y] == 1.5
-    assert resize_material[:rule][:dpr] == 2.0
-    assert resize_material[:rule][:effective_dpr] == :runtime_resolved
+    assert resize_material[:op] == :resize_fit
+    assert resize_material[:size][:dpr] == 2.0
+    assert resize_material[:zoom_x] == 2.0
+    assert resize_material[:zoom_y] == 1.5
   end
 
   test "resize auto cache material stays unresolved and source-metadata-free" do
-    assert {:ok, width} = Dimension.pixels(300)
-    assert {:ok, height} = Dimension.pixels(200)
-    assert {:ok, size} = Size.new(width: width, height: height, dpr: 1.0)
-    assert {:ok, operation} = Operation.resize_auto(size: size, enlargement: :deny)
+    operation = resize_auto_operation(300, 200)
 
     semantic_plan = plan(pipelines: [%Pipeline{operations: [operation]}])
     conn = conn(:get, "/_/rt:auto/w:300/h:200/f:jpeg/plain/images/cat.jpg")
@@ -241,6 +274,78 @@ defmodule ImagePlug.Cache.KeyTest do
     refute serialized =~ "source_width"
     refute serialized =~ "source_height"
     refute serialized =~ "selected_branch"
+    refute key_a.hash == key_b.hash
+  end
+
+  test "post-fetch derivations are not accepted as final output cache key inputs" do
+    conn = conn(:get, "/_/rt:auto/w:300/h:200/plain/images/cat.jpg")
+    key_before = build_key!(conn, plan_with_resize_auto(), "origin-version-1")
+
+    derivation = %ImagePlug.Transform.Derivation{
+      code: :resize_auto_branch,
+      value: :cover,
+      pipeline_index: 0,
+      operation_index: 0,
+      material?: false,
+      details: %{}
+    }
+
+    key_after_resolve = build_key!(conn, plan_with_resize_auto(), "origin-version-1")
+    serialized = Key.serialize_material(key_before.material)
+
+    assert_raise FunctionClauseError, fn ->
+      apply(Key, :build, [
+        conn,
+        %ImagePlug.Transform.ResolvedPlan{
+          pipelines: [],
+          derivations: [derivation],
+          resolver_material: [resize_auto_branch: :cover]
+        },
+        "origin-version-1"
+      ])
+    end
+
+    assert key_before == key_after_resolve
+    assert [[material]] = key_before.material[:pipelines]
+    assert material[:op] == :resize_auto
+    refute Keyword.has_key?(material, :selected_branch)
+    refute Keyword.has_key?(material, :branch)
+    refute serialized =~ "resize_auto_branch"
+    refute serialized =~ "selected_branch"
+    refute serialized =~ "Derivation"
+    refute Keyword.has_key?(key_before.material, :derivations)
+    assert key_before.material[:resolver_material] in [nil, []]
+  end
+
+  test "cache key builder accepts semantic plans and rejects resolved plans" do
+    assert {:ok, key} =
+             Key.build(
+               conn(:get, "/_/rt:auto/w:300/h:200/plain/images/cat.jpg"),
+               plan_with_resize_auto(),
+               "origin-version-1"
+             )
+
+    assert key.material[:pipelines]
+
+    assert_raise FunctionClauseError, fn ->
+      apply(Key, :build, [
+        conn(:get, "/_/rt:auto/w:300/h:200/plain/images/cat.jpg"),
+        struct(ImagePlug.Transform.ResolvedPlan),
+        "origin-version-1"
+      ])
+    end
+  end
+
+  test "source freshness identity changes cache key without changing semantic material" do
+    conn = conn(:get, "/_/rt:auto/w:300/h:200/plain/images/cat.jpg")
+    semantic_plan = plan_with_resize_auto()
+
+    key_a = build_key!(conn, semantic_plan, "asset:cat:v1")
+    key_a_same = build_key!(conn, semantic_plan, "asset:cat:v1")
+    key_b = build_key!(conn, semantic_plan, "asset:cat:v2")
+
+    assert key_a.hash == key_a_same.hash
+    assert key_a.material[:pipelines] == key_b.material[:pipelines]
     refute key_a.hash == key_b.hash
   end
 
