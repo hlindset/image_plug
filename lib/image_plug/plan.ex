@@ -16,6 +16,8 @@ defmodule ImagePlug.Plan do
       Response.Filename,
       Source.Plain,
       Operation,
+      Operation.CropGuided,
+      Operation.CropRegion,
       Operation.ResizeFit,
       Operation.ResizeCover,
       Operation.ResizeStretch,

@@ -57,6 +57,25 @@ defimpl ImagePlug.Transform.Material, for: ImagePlug.Plan.Guide.Gravity do
   end
 end
 
+defimpl ImagePlug.Transform.Material, for: ImagePlug.Plan.Operation.CropGuided do
+  def material(%ImagePlug.Plan.Operation.CropGuided{} = operation) do
+    [
+      op: :crop_guided,
+      size: ImagePlug.Transform.Material.material(operation.size),
+      guide: ImagePlug.Transform.Material.material(operation.guide)
+    ]
+  end
+end
+
+defimpl ImagePlug.Transform.Material, for: ImagePlug.Plan.Operation.CropRegion do
+  def material(%ImagePlug.Plan.Operation.CropRegion{} = operation) do
+    [
+      op: :crop_region,
+      region: ImagePlug.Transform.Material.material(operation.region)
+    ]
+  end
+end
+
 defimpl ImagePlug.Transform.Material, for: ImagePlug.Plan.Operation.ResizeFit do
   def material(%ImagePlug.Plan.Operation.ResizeFit{} = operation) do
     [

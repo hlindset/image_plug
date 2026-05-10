@@ -2,6 +2,7 @@ defmodule ImagePlug.Plan.OperationMaterialTest do
   use ExUnit.Case, async: true
 
   alias ImagePlug.Plan.Geometry.Dimension
+  alias ImagePlug.Plan.Geometry.Region
   alias ImagePlug.Plan.Geometry.Size
   alias ImagePlug.Plan.Guide.Gravity
   alias ImagePlug.Plan.Operation
@@ -58,6 +59,39 @@ defmodule ImagePlug.Plan.OperationMaterialTest do
     refute inspect(material) =~ "selected_branch"
   end
 
+  test "guided crop material contains explicit guide and no parser syntax" do
+    assert {:ok, size} = size(width: 50, height: 50, dpr: 1.0)
+    assert {:ok, guide} = Gravity.anchor(:center, :center)
+    assert {:ok, operation} = Operation.crop_guided(size: size, guide: guide)
+
+    material = Material.material(operation)
+
+    assert material == [
+             op: :crop_guided,
+             size: size_material(50, 50, 1.0),
+             guide: [type: :anchor, x: :center, y: :center, space: :current]
+           ]
+
+    refute inspect(material) =~ "imgproxy"
+    refute inspect(material) =~ "gravity:"
+  end
+
+  test "source-space crop region material stays source-metadata-free" do
+    assert {:ok, region} = region()
+    assert {:ok, operation} = Operation.crop_region(region: region)
+
+    assert Material.material(operation) == [
+             op: :crop_region,
+             region: [
+               space: :source,
+               x: [unit: :ratio, numerator: 1, denominator: 10],
+               y: [unit: :ratio, numerator: 1, denominator: 10],
+               width: [unit: :ratio, numerator: 1, denominator: 2],
+               height: [unit: :ratio, numerator: 1, denominator: 2]
+             ]
+           ]
+  end
+
   defp size(width: width, height: height, dpr: dpr) do
     with {:ok, width} <- Dimension.pixels(width),
          {:ok, height} <- Dimension.pixels(height) do
@@ -71,5 +105,14 @@ defmodule ImagePlug.Plan.OperationMaterialTest do
       height: [unit: :logical_px, value: height],
       dpr: dpr
     ]
+  end
+
+  defp region do
+    with {:ok, x} <- Dimension.ratio(1, 10),
+         {:ok, y} <- Dimension.ratio(1, 10),
+         {:ok, width} <- Dimension.ratio(1, 2),
+         {:ok, height} <- Dimension.ratio(1, 2) do
+      Region.new(x: x, y: y, width: width, height: height, space: :source)
+    end
   end
 end
