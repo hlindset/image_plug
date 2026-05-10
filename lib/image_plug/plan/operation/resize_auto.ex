@@ -1,0 +1,13 @@
+defmodule ImagePlug.Plan.Operation.ResizeAuto do
+  @moduledoc """
+  Imgproxy-compatible source-dependent resize semantic intent.
+  """
+
+  alias ImagePlug.Plan.Geometry.Size
+
+  @enforce_keys [:size, :enlargement]
+  defstruct @enforce_keys
+
+  @type enlargement :: :allow | :deny
+  @type t :: %__MODULE__{size: Size.t(), enlargement: enlargement()}
+end

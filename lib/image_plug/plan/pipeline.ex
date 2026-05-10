@@ -6,5 +6,7 @@ defmodule ImagePlug.Plan.Pipeline do
   @enforce_keys [:operations]
   defstruct @enforce_keys
 
-  @type t :: %__MODULE__{operations: ImagePlug.Transform.Chain.t()}
+  @type semantic_operation :: ImagePlug.Plan.Operation.resize_operation()
+  @type operation :: semantic_operation() | ImagePlug.Transform.Chain.item()
+  @type t :: %__MODULE__{operations: [operation()]}
 end
