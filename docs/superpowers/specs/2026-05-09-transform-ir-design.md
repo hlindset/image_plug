@@ -97,8 +97,9 @@ operation. Example namespaces:
 - `ImagePlug.Parser.TwicPics.Command.SetFocus`
 
 The resolver belongs under `ImagePlug.Transform` because it owns transform
-semantics, source-metadata resolution, decode implications, capability checks,
-and backend lowering. `ImagePlug.Plan` should not depend on concrete backends.
+semantics, source-metadata resolution, decode implications, backend support
+checks, and backend lowering. `ImagePlug.Plan` should not depend on concrete
+backends.
 Parsers should construct semantic operations through exported Plan constructors
 or builders rather than raw struct literals, except in tests. Runtime should
 not construct or reference concrete semantic or backend operation modules
@@ -221,6 +222,16 @@ target orientation, including square-to-square, and `ResizeFit` otherwise. If
 the requested target orientation cannot be computed, it selects `ResizeFit`.
 The selected branch is recorded as a resolver derivation, not resolver
 material, because it is deterministic from existing key material.
+
+`ResizeAuto` compares the requested target orientation with the current
+dimensions at that point in the semantic pipeline, not necessarily the original
+source dimensions. Examples:
+
+- current `1600x900`, target `300x200`: landscape matches landscape, so cover
+- current `1600x900`, target `200x300`: landscape differs from portrait, so fit
+- current `1000x1000`, target `300x300`: square matches square, so cover
+- current `1000x1000`, target `300x200`: square differs from landscape, so fit
+- target width only or height only: target orientation is unknown, so fit
 
 `ResizeAuto` must not grow beyond the current documented imgproxy-compatible
 auto behavior. If a later adapter has source-dependent resize selection with
@@ -399,7 +410,8 @@ Rules:
   in semantic material.
 - Parsed finite decimal values should be normalized to deterministic rational
   or scaled-integer forms before materialization.
-- Strategy fallback list order is significant and must be preserved.
+- When strategy guides are introduced, strategy fallback list order is
+  significant and must be preserved.
 - Color values should normalize to a single representation, for example sRGB
   RGBA with integer color channels and deterministic alpha.
 - Omitted dimensions must normalize according to the parser contract before
@@ -515,7 +527,7 @@ Inputs:
   source type. The implementation plan should define a minimal
   `ImagePlug.Transform.SourceMetadata` struct early instead of passing loose
   maps between resolver phases.
-- backend capability profile
+- backend support/profile material
 - parser or compatibility policy
 - config defaults that affect visible output
 
@@ -672,8 +684,8 @@ parse validation
   -> early semantic validation
   -> final output cache lookup from prefetch-safe material
   -> origin fetch only on cache miss
-  -> decode/open planning
-  -> post-decode source-aware resolution
+  -> source metadata discovery and decode/open planning
+  -> post-fetch source-aware resolution
   -> backend execution
   -> output encoding
 ```
@@ -704,7 +716,7 @@ Cache lookup:
   it is not required for correctness when deterministic unresolved semantic
   material is sufficient.
 
-Decode/open planning:
+Source metadata discovery and decode/open planning:
 
 - Uses semantic operations before image decode.
 - Must choose a safe source access mode.
@@ -712,13 +724,14 @@ Decode/open planning:
   source-metadata-dependent requests should remain conservative unless proven
   safe.
 
-Post-decode resolution:
+Post-fetch source-aware resolution:
 
 - May refine backend operations and future materialization decisions.
 - Cannot invalidate an already-started source access mode.
 
-This separates origin fetch, cache lookup, decode/open mode, and post-decode
-execution planning instead of treating them as one boundary.
+This separates origin fetch, cache lookup, source metadata discovery,
+decode/open mode, and source-aware execution planning instead of treating them
+as one boundary.
 
 ## Chained Pipelines
 
@@ -808,6 +821,28 @@ origin identity, source fingerprint, immutable origin version, cachebuster, or
 equivalent configured freshness material. ImagePlug does not need to solve
 mutable URL freshness in the transform IR.
 
+### Origin Identity Contract
+
+Final output cache lookup is source-fetch-free, so source identity or freshness
+material must stand in for all source properties that can affect transform
+output, including bytes, dimensions, format, animation properties, alpha, and
+EXIF orientation.
+
+Strong origin identity is content-addressed or versioned such that changed
+output-affecting bytes or metadata produce different freshness material.
+Examples include immutable origin versions, source fingerprints, explicit
+cachebusters, asset revisions, or equivalent freshness tokens available before
+origin fetch.
+
+Weak origin identity, such as a mutable URL without a validator or cachebuster,
+may be allowed by cache policy, but stale output is then a cache freshness
+tradeoff, not a Transform IR correctness issue. For example, changing only EXIF
+orientation must change source freshness material or be accepted as stale-cache
+risk under weak origin identity policy.
+
+The Transform IR must not compensate for weak origin freshness by fetching the
+image before final output cache lookup.
+
 Source-metadata-derived resolver results are derivations. They may be recorded
 for diagnostics, tests, observability, or execution traces, but they do not
 participate in the normal final output cache key. Examples include
@@ -822,6 +857,10 @@ output negotiation, or pipeline order. Backend capability profile changes that
 can alter pixels must appear in backend profile material. This prevents a
 deployment that gains face detection or changes smartcrop strategy support from
 reusing stale cache entries produced by older behavior.
+
+The first slice should not produce resolver selections unless a current
+imgproxy-compatible feature already has a prefetch-safe output-affecting choice
+not represented by semantic material.
 
 If an output-affecting choice is not deterministic from prefetch-safe key
 material and is not available before cache lookup, the first slice must reject
@@ -1041,6 +1080,11 @@ Cache tests should assert:
 - deterministic unresolved semantic intent, such as imgproxy `resize:auto`, is
   sufficient cache material when source identity and pipeline order determine
   the output
+- `ResizeAuto` cache material is unchanged across sources with different
+  dimensions when source freshness material differs, and post-fetch derivation
+  selects the expected branch for each source
+- a `ResizeAuto` cache hit returns output without origin fetch, metadata read,
+  decode, or source-aware lowering
 - unresolved semantic operations used in final cache material have tests
   proving deterministic output for fixed source identity, semantic material,
   backend profile, configuration, output negotiation, and pipeline order
