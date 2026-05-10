@@ -106,6 +106,13 @@ defmodule ImagePlug.ImagePlugTest do
     end
   end
 
+  defmodule FailingStreamBeforeHeaderImage do
+    def stream!(_image, suffix: ".jpg") do
+      send(self(), :stream_encoder_called)
+      raise "forced stream encode failure"
+    end
+  end
+
   defmodule FailingMemoryImage do
     def write(_image, :memory, suffix: ".jpg") do
       send(self(), :memory_encoder_called)
@@ -203,49 +210,6 @@ defmodule ImagePlug.ImagePlugTest do
     )
   end
 
-  defmodule BrokenImageParser do
-    @behaviour ImagePlug.Parser
-
-    @impl ImagePlug.Parser
-    def parse(_conn, _opts) do
-      {:ok,
-       ImagePlug.ImagePlugTest.sample_explicit_plan(:jpeg, [
-         struct(ImagePlug.ImagePlugTest.BrokenImageTransform)
-       ])}
-    end
-
-    @impl ImagePlug.Parser
-    def handle_error(conn, _error), do: conn
-  end
-
-  defmodule BrokenImageTransform do
-    defstruct []
-
-    def name(%__MODULE__{}), do: :broken_image
-    def validate(%__MODULE__{}), do: :ok
-
-    def metadata(%__MODULE__{}), do: %{access: :random}
-
-    def execute(%__MODULE__{}, %ImagePlug.Transform.State{} = state) do
-      %ImagePlug.Transform.State{state | image: :not_an_image}
-    end
-  end
-
-  defmodule RaisingAfterFirstChunkParser do
-    @behaviour ImagePlug.Parser
-
-    @impl ImagePlug.Parser
-    def parse(_conn, _opts) do
-      {:ok,
-       ImagePlug.ImagePlugTest.sample_explicit_plan(:jpeg, [
-         struct(ImagePlug.ImagePlugTest.RaisingAfterFirstChunkTransform)
-       ])}
-    end
-
-    @impl ImagePlug.Parser
-    def handle_error(conn, _error), do: conn
-  end
-
   defmodule UnsupportedSourceKindParser do
     @behaviour ImagePlug.Parser
 
@@ -257,49 +221,6 @@ defmodule ImagePlug.ImagePlugTest do
     @impl ImagePlug.Parser
     def handle_error(conn, {:error, reason}) do
       Plug.Conn.send_resp(conn, 400, inspect(reason))
-    end
-  end
-
-  defmodule RaisingAfterFirstChunkTransform do
-    defstruct []
-
-    def name(%__MODULE__{}), do: :raising_after_first_chunk
-    def validate(%__MODULE__{}), do: :ok
-
-    def metadata(%__MODULE__{}), do: %{access: :random}
-
-    def execute(%__MODULE__{}, %ImagePlug.Transform.State{} = state) do
-      %ImagePlug.Transform.State{state | image: :image}
-    end
-  end
-
-  defmodule FailingTransformParser do
-    @behaviour ImagePlug.Parser
-
-    @impl ImagePlug.Parser
-    def parse(_conn, _opts) do
-      {:ok,
-       ImagePlug.ImagePlugTest.sample_explicit_plan(:jpeg, [
-         struct(ImagePlug.ImagePlugTest.FailingTransform)
-       ])}
-    end
-
-    @impl ImagePlug.Parser
-    def handle_error(conn, _error), do: conn
-  end
-
-  defmodule FailingTransform do
-    alias ImagePlug.Transform.State
-
-    defstruct []
-
-    def name(%__MODULE__{}), do: :failing
-    def validate(%__MODULE__{}), do: :ok
-
-    def metadata(%__MODULE__{}), do: %{access: :random}
-
-    def execute(%__MODULE__{}, %State{} = state) do
-      State.add_error(state, {__MODULE__, :failed})
     end
   end
 
@@ -346,7 +267,7 @@ defmodule ImagePlug.ImagePlugTest do
   end
 
   defmodule RaisingAfterFirstChunkImage do
-    def stream!(:image, suffix: ".jpg") do
+    def stream!(_image, suffix: ".jpg") do
       Stream.resource(
         fn -> :first end,
         fn
@@ -1610,16 +1531,24 @@ defmodule ImagePlug.ImagePlugTest do
   test "returns text 500 when encoding fails before sending chunked headers" do
     conn = conn(:get, "/_/plain/images/cat-300.jpg")
 
-    conn =
-      ImagePlug.call(conn,
-        root_url: "http://origin.test",
-        parser: BrokenImageParser,
-        origin_req_options: [plug: OriginImage]
-      )
+    log =
+      capture_log(fn ->
+        conn =
+          ImagePlug.call(conn,
+            root_url: "http://origin.test",
+            parser: ImagePlug.Parser.Imgproxy,
+            image_module: FailingStreamBeforeHeaderImage,
+            origin_req_options: [plug: OriginImage]
+          )
 
-    assert conn.status == 500
-    assert conn.resp_body == "error encoding image"
-    assert get_resp_header(conn, "content-type") == ["text/plain; charset=utf-8"]
+        assert conn.status == 500
+        assert conn.resp_body == "error encoding image"
+        assert get_resp_header(conn, "content-type") == ["text/plain; charset=utf-8"]
+      end)
+
+    assert log =~ "encode_error:"
+    assert log =~ "forced stream encode failure"
+    assert_received :stream_encoder_called
   end
 
   test "returns text 500 when encoder produces an empty stream" do
@@ -1631,7 +1560,7 @@ defmodule ImagePlug.ImagePlugTest do
           ImagePlug.call(conn,
             root_url: "http://origin.test",
             image_module: EmptyStreamingImage,
-            parser: RaisingAfterFirstChunkParser,
+            parser: ImagePlug.Parser.Imgproxy,
             origin_req_options: [plug: OriginImage]
           )
 
@@ -1654,7 +1583,7 @@ defmodule ImagePlug.ImagePlugTest do
           ImagePlug.call(conn,
             root_url: "http://origin.test",
             image_module: RaisingAfterFirstChunkImage,
-            parser: RaisingAfterFirstChunkParser,
+            parser: ImagePlug.Parser.Imgproxy,
             origin_req_options: [plug: OriginImage]
           )
 
@@ -1666,27 +1595,6 @@ defmodule ImagePlug.ImagePlugTest do
 
     assert log =~ "encode_error:"
     assert log =~ "boom after first chunk"
-  end
-
-  test "transform errors return a stable client message and log details" do
-    conn = conn(:get, "/_/plain/images/cat-300.jpg")
-
-    log =
-      capture_log(fn ->
-        conn =
-          ImagePlug.call(conn,
-            root_url: "http://origin.test",
-            parser: FailingTransformParser,
-            origin_req_options: [plug: OriginImage]
-          )
-
-        assert conn.status == 422
-        assert conn.resp_body == "invalid image transform"
-        assert get_resp_header(conn, "content-type") == ["text/plain; charset=utf-8"]
-      end)
-
-    assert log =~ "transform_error(s):"
-    assert log =~ "ImagePlug.ImagePlugTest.FailingTransform"
   end
 
   test "rejects decoded images above the configured pixel limit" do

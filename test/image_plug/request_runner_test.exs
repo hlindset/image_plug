@@ -8,13 +8,13 @@ defmodule ImagePlug.Runtime.RequestRunnerTest do
   alias ImagePlug.Plan
   alias ImagePlug.Plan.Geometry.Dimension
   alias ImagePlug.Plan.Geometry.Size
+  alias ImagePlug.Plan.Guide.Gravity
   alias ImagePlug.Plan.Operation
   alias ImagePlug.Plan.Output
   alias ImagePlug.Plan.Pipeline
   alias ImagePlug.Plan.Source.Plain
   alias ImagePlug.Runtime.RequestRunner
   alias ImagePlug.Runtime.ResponseSender
-  alias ImagePlug.Transform
   alias ImagePlug.Transform.State
 
   defmodule CacheHit do
@@ -65,33 +65,6 @@ defmodule ImagePlug.Runtime.RequestRunnerTest do
     end
   end
 
-  defmodule FirstTransform do
-    defstruct []
-
-    def name(%__MODULE__{}), do: :first
-    def validate(%__MODULE__{}), do: :ok
-
-    def metadata(%__MODULE__{}), do: %{access: :random}
-
-    def execute(%__MODULE__{}, %State{} = state) do
-      %State{state | debug: true}
-    end
-  end
-
-  defmodule SecondTransform do
-    defstruct [:test_pid, :ref]
-
-    def name(%__MODULE__{}), do: :second
-    def validate(%__MODULE__{}), do: :ok
-
-    def metadata(%__MODULE__{}), do: %{access: :random}
-
-    def execute(%__MODULE__{test_pid: test_pid, ref: ref}, %State{} = state) do
-      send(test_pid, {:pipeline_event, ref, :second_transform_ran})
-      state
-    end
-  end
-
   defmodule Materializer do
     alias ImagePlug.Transform.Materializer
 
@@ -118,6 +91,25 @@ defmodule ImagePlug.Runtime.RequestRunnerTest do
       )
     )
   end
+
+  defp resize_fit_operation(width, height) do
+    assert {:ok, width} = semantic_dimension(width)
+    assert {:ok, height} = semantic_dimension(height)
+    assert {:ok, size} = Size.new(width: width, height: height, dpr: 1.0)
+    assert {:ok, operation} = Operation.resize_fit(size: size, enlargement: :deny)
+    operation
+  end
+
+  defp resize_cover_operation(width, height, guide) do
+    assert {:ok, width} = semantic_dimension(width)
+    assert {:ok, height} = semantic_dimension(height)
+    assert {:ok, size} = Size.new(width: width, height: height, dpr: 1.0)
+    assert {:ok, operation} = Operation.resize_cover(size: size, enlargement: :deny, guide: guide)
+    operation
+  end
+
+  defp semantic_dimension(:auto), do: Dimension.auto()
+  defp semantic_dimension(pixels), do: Dimension.pixels(pixels)
 
   test "explicit cache hit returns a cache-entry delivery without processing origin" do
     entry = %Entry{
@@ -294,40 +286,6 @@ defmodule ImagePlug.Runtime.RequestRunnerTest do
     refute_received {:cache_lookup, _key}
   end
 
-  test "operations without cache material process uncached instead of rejecting the request" do
-    test_pid = self()
-
-    entry = %Entry{
-      body: "cached jpeg",
-      content_type: "image/jpeg",
-      headers: [],
-      created_at: DateTime.utc_now()
-    }
-
-    plan =
-      plan(
-        pipelines: [%Pipeline{operations: [%FirstTransform{}]}],
-        output: %Output{mode: {:explicit, :jpeg}}
-      )
-
-    assert {:ok,
-            {:image, %State{} = state,
-             %Resolved{format: :jpeg, quality: :default, representation_headers: []},
-             %ImagePlug.Plan.Response{}}} =
-             RequestRunner.run(
-               conn(:get, "/_/f:jpeg/plain/images/cat-300.jpg"),
-               plan,
-               "http://origin.test/images/cat-300.jpg",
-               cache: {CacheReadProbe, entry: entry},
-               origin_req_options: [plug: OriginImage],
-               test_pid: test_pid
-             )
-
-    assert state.image
-    assert state.debug
-    refute_received {:cache_lookup, _key}
-  end
-
   test "multiple pipelines reach processing and materialize between pipelines" do
     test_pid = self()
     ref = make_ref()
@@ -335,10 +293,8 @@ defmodule ImagePlug.Runtime.RequestRunnerTest do
     plan =
       plan(
         pipelines: [
-          %Pipeline{operations: [%FirstTransform{}]},
-          %Pipeline{
-            operations: [%SecondTransform{test_pid: test_pid, ref: ref}]
-          }
+          %Pipeline{operations: [resize_fit_operation(100, :auto)]},
+          %Pipeline{operations: [resize_fit_operation(80, :auto)]}
         ]
       )
 
@@ -361,11 +317,8 @@ defmodule ImagePlug.Runtime.RequestRunnerTest do
              )
 
     assert state.image
-    assert state.debug
     assert_receive first_message
     assert first_message == {:pipeline_event, ref, :materialized_between_pipelines}
-    assert_receive second_message
-    assert second_message == {:pipeline_event, ref, :second_transform_ran}
   end
 
   test "resolved output carries effective explicit quality" do
@@ -391,17 +344,8 @@ defmodule ImagePlug.Runtime.RequestRunnerTest do
   end
 
   test "known plan operations are included in cache lookup material" do
-    operations = [
-      %Transform.Operation.Focus{
-        type: {:anchor, :left, :top}
-      },
-      %Transform.Operation.Cover{
-        type: :dimensions,
-        width: {:pixels, 100},
-        height: {:pixels, 100},
-        constraint: :min
-      }
-    ]
+    assert {:ok, guide} = Gravity.anchor(:left, :top)
+    operations = [resize_cover_operation(100, 100, guide)]
 
     entry = %Entry{
       body: "cached jpeg",
@@ -424,13 +368,21 @@ defmodule ImagePlug.Runtime.RequestRunnerTest do
 
     assert key.material[:pipelines] == [
              [
-               [op: :focus, type: {:anchor, :left, :top}],
                [
-                 op: :cover,
-                 type: :dimensions,
-                 width: {:pixels, 100},
-                 height: {:pixels, 100},
-                 constraint: :min
+                 op: :resize_cover,
+                 size: [
+                   width: [unit: :logical_px, value: 100],
+                   height: [unit: :logical_px, value: 100],
+                   dpr: 1.0
+                 ],
+                 enlargement: :deny,
+                 guide: [type: :anchor, x: :left, y: :top, space: :current],
+                 min_width: nil,
+                 min_height: nil,
+                 zoom_x: 1.0,
+                 zoom_y: 1.0,
+                 x_offset: {:pixels, 0.0},
+                 y_offset: {:pixels, 0.0}
                ]
              ]
            ]

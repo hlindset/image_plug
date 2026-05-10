@@ -1,20 +1,13 @@
 defmodule ImagePlug.Transform.Operation.AutoOrient do
   @moduledoc """
-  Represents a product-neutral operation that applies embedded image
+  Represents an executable operation that applies embedded image
   orientation metadata to the current image pixels.
 
   ## Construct When
 
-  Construct `AutoOrient` when parser or planner code has orientation intent
-  that should honor source metadata such as EXIF orientation. The operation
-  itself is not tied to any URL dialect; dialect parsers translate their own
-  orientation syntax into this operation when the requested semantics match.
-
-  Imgproxy planner note: Imgproxy URLs are declarative, and when orientation
-  requests are present the Imgproxy planner emits orientation operations in this
-  suborder: auto-orient, rotate, then flip. That suborder is an Imgproxy planner
-  contract, not a universal requirement of the product-neutral transform
-  operation model.
+  The Transform resolver may lower semantic Plan operations to this executable
+  operation. Parser modules should construct `ImagePlug.Plan.Operation.*`
+  through Plan constructors.
 
   ## Fields
 

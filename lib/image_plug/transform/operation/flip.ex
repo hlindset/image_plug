@@ -1,20 +1,13 @@
 defmodule ImagePlug.Transform.Operation.Flip do
   @moduledoc """
-  Represents a product-neutral operation that flips the current image on one or
+  Represents an executable operation that flips the current image on one or
   both axes.
 
   ## Construct When
 
-  Construct `Flip` when parser or planner code has explicit orientation intent
-  that mirrors the image horizontally, vertically, or on both axes. The
-  operation is product-neutral; dialect parsers translate compatible flip
-  syntax into the `:axis` field before this operation is constructed.
-
-  Imgproxy planner note: Imgproxy URLs are declarative, and when orientation
-  requests are present the Imgproxy planner emits orientation operations in this
-  suborder: auto-orient, rotate, then flip. That suborder is an Imgproxy planner
-  contract, not a universal requirement of the product-neutral transform
-  operation model.
+  The Transform resolver may lower semantic Plan operations to this executable
+  operation. Parser modules should construct `ImagePlug.Plan.Operation.*`
+  through Plan constructors.
 
   ## Fields
 
@@ -22,8 +15,9 @@ defmodule ImagePlug.Transform.Operation.Flip do
 
   - `axis`: one of `:horizontal`, `:vertical`, or `:both`.
 
-  Parser or planner code is responsible for translating dialect-specific
-  booleans, tokens, or aliases into one of these product-neutral axis values.
+  Semantic planning is responsible for translating dialect-specific booleans,
+  tokens, or aliases into one of these product-neutral axis values before
+  lowering.
 
   ## Execution Semantics
 

@@ -1,20 +1,18 @@
 defmodule ImagePlug.Transform.Operation.Crop do
   @moduledoc """
-  Represents a product-neutral crop operation that selects a bounded rectangle
+  Represents an executable crop operation that selects a bounded rectangle
   from the current image.
 
   ## Construct When
 
-  Construct `Crop` when parser or planner code has a visible crop to apply to
-  the image. Use it for explicit crop requests, focus- or coordinate-based
-  crops, and result crops that trim an already resized image back to resolved
-  target geometry.
+  The Transform resolver may lower semantic Plan operations to this executable
+  operation. Parser modules should construct `ImagePlug.Plan.Operation.*`
+  through Plan constructors.
 
-  Imgproxy parser translations use explicit crops for `crop`/`c` request fields
-  and result crops after fill, fill-down, or auto resize planning. In that
-  translation layer, a crop-specific gravity overrides top-level gravity, while
-  an explicit crop without its own gravity inherits the top-level gravity before
-  this operation is constructed.
+  Use `Crop` for resolved visible crop work, focus- or coordinate-based crops,
+  and result crops that trim an already resized image back to resolved target
+  geometry. Parser-specific gravity inheritance belongs in the parser/adapter
+  layer before semantic Plan operations are constructed.
 
   ## Fields
 
@@ -93,9 +91,8 @@ defmodule ImagePlug.Transform.Operation.Crop do
         y_offset: {:pixels, -12}
       }
 
-  An Imgproxy parser translation for a crop request with focal-point gravity would
-  construct the same kind of `Crop` operation; the URL grammar and aliases stay
-  in the parser documentation.
+  A semantic crop request with focal-point guide may lower to the same kind of
+  `Crop` operation. URL grammar and aliases stay in parser documentation.
   """
 
   @behaviour ImagePlug.Transform
@@ -115,7 +112,7 @@ defmodule ImagePlug.Transform.Operation.Crop do
   @default_orientation %{auto_orient: false, rotate: 0, flip: nil}
 
   @doc """
-  The parsed operation used by `ImagePlug.Transform.Operation.Crop`.
+  The executable operation used by `ImagePlug.Transform.Operation.Crop`.
   """
   defstruct [
     :width,
@@ -131,7 +128,7 @@ defmodule ImagePlug.Transform.Operation.Crop do
   @type t :: %__MODULE__{
           width: ImagePlug.Transform.Types.length() | :auto,
           height: ImagePlug.Transform.Types.length() | :auto,
-          # Future parser work can output focus + crop actions instead of this special crop_from handling.
+          # Future lowering work can output focus + crop actions instead of this special crop_from handling.
           crop_from:
             :focus
             | :gravity

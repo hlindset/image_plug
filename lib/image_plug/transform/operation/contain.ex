@@ -1,19 +1,16 @@
 defmodule ImagePlug.Transform.Operation.Contain do
   @moduledoc """
-  Represents a product-neutral contain operation that scales image content to
+  Represents an executable contain operation that scales image content to
   fit inside a requested box or aspect ratio.
 
   ## Construct When
 
-  Construct `Contain` when parser or planner code needs contain semantics:
-  preserve aspect ratio, fit the current image inside a target geometry, and
-  optionally letterbox the result. `Contain` is an exported standalone
-  operation, not an implementation detail of `Resize`.
+  The Transform resolver may lower semantic Plan operations to this executable
+  operation. Parser modules should construct `ImagePlug.Plan.Operation.*`
+  through Plan constructors.
 
-  Prefer `Resize` when the request is a planned fit, fill, fill-down, or force
-  resize expressed through a dimension rule. A future dialect parser may choose
-  `Contain` directly when the dialect exposes contain behavior, especially when
-  its syntax couples fit-inside resizing with letterboxing.
+  `Contain` is retained as an exported standalone executable operation, not an
+  implementation detail of `Resize`.
 
   ## Fields
 

@@ -12,16 +12,6 @@ defmodule ImagePlug.Transform.PrefetchValidationTest do
   alias ImagePlug.Plan.Pipeline
   alias ImagePlug.Plan.Source.Plain
   alias ImagePlug.Transform
-  alias ImagePlug.Transform.State
-
-  defmodule RuntimeOnlyTransform do
-    defstruct []
-
-    def name(%__MODULE__{}), do: :runtime_only
-    def validate(%__MODULE__{}), do: :ok
-    def metadata(%__MODULE__{}), do: %{access: :random}
-    def execute(%__MODULE__{}, %State{} = state), do: state
-  end
 
   test "semantic Plan operations pass source-independent validation" do
     assert {:ok, operation} = Operation.resize_auto(size: size(), enlargement: :deny)
@@ -76,11 +66,17 @@ defmodule ImagePlug.Transform.PrefetchValidationTest do
              {:error, {:invalid_pipeline_operation, operation}}
   end
 
-  test "runtime transform operations are temporarily accepted during parser migration" do
-    operation = %RuntimeOnlyTransform{}
+  test "runtime transform operations fail source-independent validation after parser migration" do
+    operation = %ImagePlug.Transform.Operation.Resize{
+      rule: %ImagePlug.Transform.Geometry.DimensionRule{
+        mode: :fit,
+        width: {:pixels, 100},
+        height: :auto
+      }
+    }
 
-    assert {:ok, [%Pipeline{operations: [^operation]}]} =
-             Transform.validate_prefetch_safe_plan(plan([operation]))
+    assert Transform.validate_prefetch_safe_plan(plan([operation])) ==
+             {:error, {:invalid_pipeline_operation, operation}}
   end
 
   defp plan(operations) do

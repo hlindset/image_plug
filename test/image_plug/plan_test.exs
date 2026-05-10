@@ -9,20 +9,12 @@ defmodule ImagePlug.PlanTest do
   alias ImagePlug.Plan.Response
   alias ImagePlug.Plan.Response.Filename
   alias ImagePlug.Plan.Source.Plain
-  alias ImagePlug.PlanTest.PartialTransform
-  alias ImagePlug.PlanTest.RuntimeOnlyTransform
-  alias ImagePlug.Transform
+  alias ImagePlug.Plan.Geometry.Dimension
+  alias ImagePlug.Plan.Geometry.Size
+  alias ImagePlug.Plan.Operation
 
   test "represents source, image pipelines, and output separately" do
-    operations = [
-      %Transform.Operation.Contain{
-        type: :dimensions,
-        width: {:pixels, 300},
-        height: :auto,
-        constraint: :max,
-        letterbox: false
-      }
-    ]
+    operations = [resize_operation()]
 
     plan = %Plan{
       source: %Plain{path: ["images", "cat.jpg"]},
@@ -35,24 +27,8 @@ defmodule ImagePlug.PlanTest do
     assert plan.output.mode == {:explicit, :webp}
   end
 
-  test "validated pipelines accept transform operation structs" do
-    operation = %Transform.Operation.Scale{
-      type: :dimensions,
-      width: {:pixels, 300},
-      height: :auto
-    }
-
-    plan = %Plan{
-      source: %Plain{path: ["images", "cat.jpg"]},
-      pipelines: [%Pipeline{operations: [operation]}],
-      output: %Output{mode: {:explicit, :webp}}
-    }
-
-    assert {:ok, [%Pipeline{operations: [^operation]}]} = Plan.validated_pipelines(plan)
-  end
-
-  test "validated pipelines accept runtime-only operation structs" do
-    operation = %RuntimeOnlyTransform{}
+  test "validated pipelines accept semantic operation structs" do
+    operation = resize_operation()
 
     plan = %Plan{
       source: %Plain{path: ["images", "cat.jpg"]},
@@ -141,16 +117,11 @@ defmodule ImagePlug.PlanTest do
     )
   end
 
-  test "ensure_operation returns tagged results without raising" do
-    valid_operation = %RuntimeOnlyTransform{}
-    invalid_operation = %PartialTransform{}
-
-    assert Transform.ensure_operation(valid_operation) == {:ok, valid_operation}
-
-    assert {:error, {:invalid_operation, ^invalid_operation, PartialTransform}} =
-             Transform.ensure_operation(invalid_operation)
-
-    assert {:error, {:invalid_operation, :bogus, :not_a_struct}} =
-             Transform.ensure_operation(:bogus)
+  defp resize_operation do
+    assert {:ok, width} = Dimension.pixels(300)
+    assert {:ok, height} = Dimension.auto()
+    assert {:ok, size} = Size.new(width: width, height: height, dpr: 1.0)
+    assert {:ok, operation} = Operation.resize_fit(size: size, enlargement: :deny)
+    operation
   end
 end

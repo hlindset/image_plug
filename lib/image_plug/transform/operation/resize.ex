@@ -1,21 +1,17 @@
 defmodule ImagePlug.Transform.Operation.Resize do
   @moduledoc """
-  Represents a product-neutral resize operation whose dimension mode is known
+  Represents an executable resize operation whose dimension mode is known
   before execution.
 
   ## Construct When
 
-  Construct this operation when parser or planner code has already selected a
-  concrete resize mode and can express the requested geometry as an
-  `ImagePlug.Transform.Geometry.DimensionRule`. Use `Resize` for fixed
-  `:fit`, `:fill`, `:fill_down`, and `:force` requests. Use
-  `ImagePlug.Transform.Operation.AdaptiveResize` when the mode must be chosen at runtime
-  from source image metadata.
+  The Transform resolver may lower semantic Plan operations to this executable
+  operation after a cache miss. Parser modules should construct
+  `ImagePlug.Plan.Operation.*` through Plan constructors.
 
-  A parser may translate an Imgproxy URL such as
-  `/_/rt:force/w:0/h:200/plain/image.jpg` into a `Resize` with `mode: :force`,
-  `width: :auto`, and `height: {:pixels, 200}`. The URL syntax is parser
-  specific; the operation itself is product-neutral.
+  Use `Resize` for resolved `:fit`, `:fill`, `:fill_down`, and `:force` work.
+  Use `ImagePlug.Transform.Operation.AdaptiveResize` only for legacy executable
+  compatibility when the mode must be chosen from source image metadata.
 
   ## Fields
 
@@ -50,8 +46,8 @@ defmodule ImagePlug.Transform.Operation.Resize do
   current image dimensions, the existing image is kept. Resolver or image
   resize failures are added to state as `{ImagePlug.Transform.Operation.Resize, error}`.
 
-  `Resize` does not perform result cropping. Planners that need cover-style
-  output should emit a separate crop operation after a fill-like resize when
+  `Resize` does not perform result cropping. Resolver lowering for cover-style
+  output should include a separate crop operation after a fill-like resize when
   that matches the requested semantics.
 
   ## Decode Planning Metadata

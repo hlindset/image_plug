@@ -2,6 +2,23 @@ defmodule ImagePlug.ArchitectureBoundaryTest do
   use ExUnit.Case, async: true
 
   @runtime_globs ["lib/image_plug/runtime.ex", "lib/image_plug/runtime/**/*.ex"]
+  @imgproxy_parser_globs [
+    "lib/image_plug/parser/imgproxy.ex",
+    "lib/image_plug/parser/imgproxy/**/*.ex"
+  ]
+  @cache_key_files ["lib/image_plug/cache/key.ex"]
+  @concrete_plan_names [
+    :AutoOrient,
+    :Canvas,
+    :CropGuided,
+    :CropRegion,
+    :Flip,
+    :ResizeAuto,
+    :ResizeCover,
+    :ResizeFit,
+    :ResizeStretch,
+    :Rotate
+  ]
   @concrete_transform_names [
     :Scale,
     :Contain,
@@ -26,6 +43,16 @@ defmodule ImagePlug.ArchitectureBoundaryTest do
     assert violations == []
   end
 
+  test "runtime does not depend on concrete plan operation modules" do
+    violations =
+      for file <- runtime_files(),
+          violation <- concrete_plan_references(file) do
+        "#{file}:#{violation.line} must not name #{violation.module}; use generic Plan/Transform facades instead"
+      end
+
+    assert violations == []
+  end
+
   test "runtime does not depend on imgproxy parser structs" do
     violations =
       for file <- runtime_files(),
@@ -34,6 +61,41 @@ defmodule ImagePlug.ArchitectureBoundaryTest do
       end
 
     assert violations == []
+  end
+
+  test "cache key construction does not depend on post-fetch resolver state" do
+    violations =
+      for file <- @cache_key_files,
+          violation <- post_fetch_resolver_references(file) do
+        "#{file}:#{violation.line} must not name #{violation.module}; final cache keys are prefetch-safe"
+      end
+
+    assert violations == []
+  end
+
+  test "imgproxy parser does not depend on executable transform operation modules" do
+    violations =
+      for file <- imgproxy_parser_files(),
+          violation <- concrete_transform_references(file) do
+        "#{file}:#{violation.line} must not name #{violation.module}; parser output is semantic Plan operations"
+      end
+
+    assert violations == []
+  end
+
+  test "concrete plan reference check rejects nested grouped aliases" do
+    file = tmp_file("runtime_plan")
+
+    on_exit(fn -> File.rm(file) end)
+
+    File.write!(file, """
+    defmodule ImagePlug.Runtime.BoundaryExample do
+      alias ImagePlug.Plan.Operation.{ResizeFit.Params}
+    end
+    """)
+
+    assert [%{line: 2, module: "ImagePlug.Plan.Operation.ResizeFit"}] =
+             concrete_plan_references(file)
   end
 
   test "concrete transform reference check rejects nested grouped aliases" do
@@ -64,6 +126,41 @@ defmodule ImagePlug.ArchitectureBoundaryTest do
 
     assert [%{line: 2, module: "ImagePlug.Transform.Operation.Scale"}] =
              concrete_transform_references(file)
+  end
+
+  test "concrete transform reference check rejects relative Operation aliases" do
+    file = tmp_file("relative_runtime")
+
+    on_exit(fn -> File.rm(file) end)
+
+    File.write!(file, """
+    defmodule ImagePlug.Runtime.BoundaryExample do
+      alias ImagePlug.Transform.Operation
+      def build, do: %Operation.Resize{}
+    end
+    """)
+
+    assert [%{line: 3, module: "Operation.Resize"}] = concrete_transform_references(file)
+  end
+
+  test "post-fetch resolver reference check rejects resolver state modules" do
+    file = tmp_file("cache_key")
+
+    on_exit(fn -> File.rm(file) end)
+
+    File.write!(file, """
+    defmodule ImagePlug.Cache.Key.BoundaryExample do
+      alias ImagePlug.Transform.{Resolver, SourceMetadata}
+      def material(%ImagePlug.Transform.ResolvedPlan{}), do: %ImagePlug.Transform.Derivation{}
+    end
+    """)
+
+    assert post_fetch_resolver_references(file) |> Enum.sort_by(&{&1.line, &1.module}) == [
+             %{line: 2, module: "ImagePlug.Transform.Resolver"},
+             %{line: 2, module: "ImagePlug.Transform.SourceMetadata"},
+             %{line: 3, module: "ImagePlug.Transform.Derivation"},
+             %{line: 3, module: "ImagePlug.Transform.ResolvedPlan"}
+           ]
   end
 
   test "imgproxy parser reference check rejects grouped and indirect aliases" do
@@ -97,9 +194,53 @@ defmodule ImagePlug.ArchitectureBoundaryTest do
     |> Enum.sort()
   end
 
+  defp imgproxy_parser_files do
+    @imgproxy_parser_globs
+    |> Enum.flat_map(&Path.wildcard/1)
+    |> Enum.sort()
+  end
+
   defp tmp_file(label) do
     unique = System.unique_integer([:positive])
     Path.join(System.tmp_dir!(), "image_plug_architecture_boundary_test_#{label}_#{unique}.ex")
+  end
+
+  defp concrete_plan_references(file) do
+    {:ok, ast} = file |> File.read!() |> Code.string_to_quoted()
+
+    {_ast, violations} =
+      Macro.prewalk(ast, [], fn
+        {:alias, meta,
+         [
+           {{:., _dot_meta, [grouped_alias_prefix, :{}]}, _call_meta, grouped_aliases}
+         ]} = node,
+        violations ->
+          grouped_aliases
+          |> Enum.map(&concrete_plan_grouped_alias(grouped_alias_prefix, &1))
+          |> Enum.reject(&is_nil/1)
+          |> Enum.map(&violation(meta, concrete_plan_module(&1)))
+          |> then(&{node, &1 ++ violations})
+
+        {:__aliases__, meta, [:ImagePlug, :Plan, :Operation, operation | _rest]} = node,
+        violations
+        when operation in @concrete_plan_names ->
+          {node, [violation(meta, concrete_plan_module(operation)) | violations]}
+
+        {:__aliases__, meta, [:Plan, :Operation, operation | _rest]} = node, violations
+        when operation in @concrete_plan_names ->
+          {node, [violation(meta, "Plan.Operation.#{operation}") | violations]}
+
+        {:__aliases__, meta, [:Operation, operation | _rest]} = node, violations
+        when operation in @concrete_plan_names ->
+          {node, [violation(meta, "Operation.#{operation}") | violations]}
+
+        node, violations ->
+          {node, violations}
+      end)
+
+    violations
+    |> Enum.reverse()
+    |> Enum.uniq()
   end
 
   defp concrete_transform_references(file) do
@@ -126,6 +267,44 @@ defmodule ImagePlug.ArchitectureBoundaryTest do
         {:__aliases__, meta, [:Transform, :Operation, transform | _rest]} = node, violations
         when transform in @concrete_transform_names ->
           {node, [violation(meta, "Transform.Operation.#{transform}") | violations]}
+
+        {:__aliases__, meta, [:Operation, transform | _rest]} = node, violations
+        when transform in @concrete_transform_names ->
+          {node, [violation(meta, "Operation.#{transform}") | violations]}
+
+        node, violations ->
+          {node, violations}
+      end)
+
+    violations
+    |> Enum.reverse()
+    |> Enum.uniq()
+  end
+
+  defp post_fetch_resolver_references(file) do
+    {:ok, ast} = file |> File.read!() |> Code.string_to_quoted()
+
+    {_ast, violations} =
+      Macro.prewalk(ast, [], fn
+        {:alias, meta,
+         [
+           {{:., _dot_meta, [{:__aliases__, _module_meta, [:ImagePlug, :Transform]}, :{}]},
+            _call_meta, grouped_aliases}
+         ]} = node,
+        violations ->
+          grouped_aliases
+          |> Enum.map(&post_fetch_resolver_alias/1)
+          |> Enum.reject(&is_nil/1)
+          |> Enum.map(&violation(meta, &1))
+          |> then(&{node, &1 ++ violations})
+
+        {:__aliases__, meta, [:ImagePlug, :Transform, module | _rest]} = node, violations
+        when module in [:Resolver, :SourceMetadata, :ResolvedPlan, :Derivation] ->
+          {node, [violation(meta, "ImagePlug.Transform.#{module}") | violations]}
+
+        {:__aliases__, meta, [:Transform, module | _rest]} = node, violations
+        when module in [:Resolver, :SourceMetadata, :ResolvedPlan, :Derivation] ->
+          {node, [violation(meta, "Transform.#{module}") | violations]}
 
         node, violations ->
           {node, violations}
@@ -209,11 +388,36 @@ defmodule ImagePlug.ArchitectureBoundaryTest do
     |> concrete_transform_name()
   end
 
+  defp concrete_plan_grouped_alias(prefix, alias) do
+    prefix
+    |> alias_parts()
+    |> Kernel.++(grouped_alias_parts(alias))
+    |> concrete_plan_name()
+  end
+
+  defp concrete_plan_name([:ImagePlug, :Plan, :Operation, operation | _rest])
+       when operation in @concrete_plan_names,
+       do: operation
+
+  defp concrete_plan_name([:Plan, :Operation, operation | _rest])
+       when operation in @concrete_plan_names,
+       do: operation
+
+  defp concrete_plan_name([:Operation, operation | _rest])
+       when operation in @concrete_plan_names,
+       do: operation
+
+  defp concrete_plan_name(_parts), do: nil
+
   defp concrete_transform_name([:ImagePlug, :Transform, :Operation, transform | _rest])
        when transform in @concrete_transform_names,
        do: transform
 
   defp concrete_transform_name([:Transform, :Operation, transform | _rest])
+       when transform in @concrete_transform_names,
+       do: transform
+
+  defp concrete_transform_name([:Operation, transform | _rest])
        when transform in @concrete_transform_names,
        do: transform
 
@@ -236,6 +440,24 @@ defmodule ImagePlug.ArchitectureBoundaryTest do
     do: concrete_transform_module(transform)
 
   defp concrete_transform_module(transform), do: "ImagePlug.Transform.Operation.#{transform}"
+
+  defp concrete_plan_module({:__aliases__, _meta, [operation]}),
+    do: concrete_plan_module(operation)
+
+  defp concrete_plan_module({:__aliases__, _meta, [operation | _rest]}),
+    do: concrete_plan_module(operation)
+
+  defp concrete_plan_module(operation), do: "ImagePlug.Plan.Operation.#{operation}"
+
+  defp post_fetch_resolver_alias({:__aliases__, _meta, [module]})
+       when module in [:Resolver, :SourceMetadata, :ResolvedPlan, :Derivation],
+       do: "ImagePlug.Transform.#{module}"
+
+  defp post_fetch_resolver_alias({:__aliases__, _meta, [module | _rest]})
+       when module in [:Resolver, :SourceMetadata, :ResolvedPlan, :Derivation],
+       do: "ImagePlug.Transform.#{module}"
+
+  defp post_fetch_resolver_alias(_alias), do: nil
 
   defp violation(meta, module) do
     %{line: Keyword.fetch!(meta, :line), module: module}

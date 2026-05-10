@@ -1,20 +1,16 @@
 defmodule ImagePlug.Transform.Operation.Scale do
   @moduledoc """
-  Represents a product-neutral scale operation that changes image dimensions
+  Represents an executable scale operation that changes image dimensions
   either to a requested size or to a requested aspect ratio.
 
   ## Construct When
 
-  Construct `Scale` when parser or planner code needs a direct scaling
-  operation and the source dialect's semantics match this module's behavior.
-  `Scale` is an exported standalone operation, not an implementation detail of
-  `Resize`.
+  The Transform resolver may lower semantic Plan operations to this executable
+  operation. Parser modules should construct `ImagePlug.Plan.Operation.*`
+  through Plan constructors.
 
-  Prefer the newer `Resize` operation when the request is a planned fit, fill,
-  fill-down, or force resize expressed through a dimension rule. A future
-  dialect parser may choose `Scale` directly when its syntax represents
-  low-level proportional or non-proportional scaling without `Resize` mode
-  semantics.
+  `Scale` is retained as an exported standalone executable operation, not an
+  implementation detail of `Resize`.
 
   ## Fields
 

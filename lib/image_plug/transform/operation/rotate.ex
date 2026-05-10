@@ -1,20 +1,13 @@
 defmodule ImagePlug.Transform.Operation.Rotate do
   @moduledoc """
-  Represents a product-neutral operation that rotates the current image by a
+  Represents an executable operation that rotates the current image by a
   right-angle amount.
 
   ## Construct When
 
-  Construct `Rotate` when parser or planner code has explicit orientation
-  intent that should rotate the image by `0`, `90`, `180`, or `270` degrees.
-  The operation is product-neutral; dialect parsers translate compatible
-  rotation syntax into the `:angle` field before this operation is constructed.
-
-  Imgproxy planner note: Imgproxy URLs are declarative, and when orientation
-  requests are present the Imgproxy planner emits orientation operations in this
-  suborder: auto-orient, rotate, then flip. That suborder is an Imgproxy planner
-  contract, not a universal requirement of the product-neutral transform
-  operation model.
+  The Transform resolver may lower semantic Plan operations to this executable
+  operation. Parser modules should construct `ImagePlug.Plan.Operation.*`
+  through Plan constructors.
 
   ## Fields
 
@@ -22,9 +15,9 @@ defmodule ImagePlug.Transform.Operation.Rotate do
 
   - `angle`: one of `0`, `90`, `180`, or `270`.
 
-  The operation does not normalize arbitrary degree values; parser or planner
-  code must translate compatible syntax into one of the accepted right-angle
-  values before constructing the struct.
+  The operation does not normalize arbitrary degree values; semantic planning
+  must translate compatible syntax into one of the accepted right-angle values
+  before lowering.
 
   ## Execution Semantics
 

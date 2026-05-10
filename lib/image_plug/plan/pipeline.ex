@@ -6,7 +6,6 @@ defmodule ImagePlug.Plan.Pipeline do
   @enforce_keys [:operations]
   defstruct @enforce_keys
 
-  @type semantic_operation :: ImagePlug.Plan.Operation.semantic_operation()
-  @type operation :: semantic_operation() | struct()
+  @type operation :: ImagePlug.Plan.Operation.semantic_operation()
   @type t :: %__MODULE__{operations: [operation()]}
 end

@@ -1,18 +1,17 @@
 defmodule ImagePlug.Transform.Operation.Focus do
   @moduledoc """
-  Represents a product-neutral focus operation that records where later
+  Represents an executable focus operation that records where later
   focus-aware transforms should center their work.
 
   ## Construct When
 
-  Construct `Focus` when parser or planner code needs to set transform state
-  for a later crop or cover operation. `Focus` is not a visible crop by itself;
-  it records focus metadata on `ImagePlug.Transform.State`.
+  The Transform resolver may lower semantic Plan operations to this executable
+  operation. Parser modules should construct `ImagePlug.Plan.Operation.*`
+  through Plan constructors.
 
-  The current Imgproxy parser does not emit `Focus`. Imgproxy focal-point gravity
-  maps to `Crop` gravity fields instead. Future parsers may emit `Focus` when
-  their dialect has a distinct focus operation whose semantics should affect a
-  later crop.
+  `Focus` is not a visible crop by itself; it records focus metadata on
+  `ImagePlug.Transform.State`. The current Imgproxy-compatible semantic plan
+  maps focal-point guides to crop/cover lowering instead of emitting `Focus`.
 
   ## Fields
 
@@ -71,7 +70,7 @@ defmodule ImagePlug.Transform.Operation.Focus do
   alias ImagePlug.Transform.Validation
 
   @doc """
-  The parsed operation used by `ImagePlug.Transform.Operation.Focus`.
+  The executable operation used by `ImagePlug.Transform.Operation.Focus`.
   """
   defstruct [:type]
 

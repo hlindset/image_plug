@@ -1,19 +1,18 @@
 defmodule ImagePlug.Transform.Operation.AdaptiveResize do
   @moduledoc """
-  Represents a product-neutral resize operation whose fit-or-fill behavior is
+  Represents an executable resize operation whose fit-or-fill behavior is
   selected at runtime from source image metadata.
 
   ## Construct When
 
-  Construct this operation when parser or planner code needs auto resize
-  semantics where the requested target dimensions are known but the final mode
-  depends on the source image orientation. Use `ImagePlug.Transform.Operation.Resize`
-  when the mode is already known at planning time.
+  The Transform resolver may lower semantic Plan operations to this executable
+  operation. Parser modules should construct `ImagePlug.Plan.Operation.*`
+  through Plan constructors.
 
-  A parser may translate an Imgproxy auto-resize request into `AdaptiveResize`
-  when the request should choose fill for matching source and target
-  orientations and fit otherwise. The URL syntax is parser specific; the
-  operation itself is product-neutral.
+  `ImagePlug.Plan.Operation.ResizeAuto` is the canonical semantic intent for
+  Imgproxy-compatible auto resize. `AdaptiveResize` remains an executable
+  compatibility target for transform-chain behavior that chooses fill for
+  matching current/target orientations and fit otherwise.
 
   ## Fields
 

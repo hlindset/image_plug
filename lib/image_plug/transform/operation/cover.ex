@@ -1,19 +1,17 @@
 defmodule ImagePlug.Transform.Operation.Cover do
   @moduledoc """
-  Represents a product-neutral cover operation that scales image content to
+  Represents an executable cover operation that scales image content to
   cover a requested box or aspect ratio and crops overflow from the result.
 
   ## Construct When
 
-  Construct `Cover` when parser or planner code needs one operation that
-  preserves aspect ratio, ensures the image covers the target geometry, and
-  crops the result around the current transform focus. `Cover` is an exported
-  standalone operation, not an implementation detail of `Resize`.
+  The Transform resolver may lower semantic Plan operations to this executable
+  operation. Parser modules should construct `ImagePlug.Plan.Operation.*`
+  through Plan constructors.
 
-  Prefer `Resize` plus a separate result `Crop` when a planner needs the newer
-  dimension-rule model or must represent resize and crop as distinct planned
-  operations. A future dialect parser may choose `Cover` directly when the
-  dialect exposes cover semantics as a single reusable operation.
+  `Cover` is retained as an exported standalone executable operation. Prefer
+  resolver lowering to `Resize` plus a separate result `Crop` when the semantic
+  plan must represent resize and crop as distinct executable work.
 
   ## Fields
 
@@ -85,7 +83,7 @@ defmodule ImagePlug.Transform.Operation.Cover do
   alias ImagePlug.Transform.Validation
 
   @doc """
-  The parsed operation used by `ImagePlug.Transform.Operation.Cover`.
+  The executable operation used by `ImagePlug.Transform.Operation.Cover`.
   """
   defstruct [:type, :ratio, :width, :height, :constraint]
 

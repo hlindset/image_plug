@@ -1,20 +1,16 @@
 defmodule ImagePlug.Transform.Operation.ExtendCanvas do
   @moduledoc """
-  Represents a product-neutral canvas expansion operation that embeds the
+  Represents an executable canvas expansion operation that embeds the
   current image into a same-size-or-larger canvas.
 
   ## Construct When
 
-  Construct `ExtendCanvas` when parser or planner code needs letterboxing,
-  padding, or aspect-ratio canvas extension without changing the image content
-  scale. Use it after resize-like operations when the requested output box is
-  larger than the resized image, or when a dialect requests extension to a
-  target aspect ratio.
+  The Transform resolver may lower semantic Plan operations to this executable
+  operation. Parser modules should construct `ImagePlug.Plan.Operation.*`
+  through Plan constructors.
 
-  Imgproxy parser translations construct this operation for supported canvas
-  extension requests such as dimension extension and extend-aspect-ratio
-  requests. The URL option names remain parser concerns; this operation only
-  models the neutral canvas semantics.
+  Use it for resolved letterboxing, padding, or aspect-ratio canvas extension
+  without changing the image content scale.
 
   ## Fields
 
@@ -74,7 +70,7 @@ defmodule ImagePlug.Transform.Operation.ExtendCanvas do
         y_offset: 0.0
       }
 
-  An Imgproxy parser translation for extend-aspect-ratio syntax would construct an
+  A semantic canvas request for extend-aspect-ratio may lower to an
   `ExtendCanvas` operation with an `{:aspect_ratio, ratio}` rule.
   """
 
