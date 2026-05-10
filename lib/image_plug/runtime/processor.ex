@@ -3,12 +3,16 @@ defmodule ImagePlug.Runtime.Processor do
 
   alias ImagePlug.Output.Format
   alias ImagePlug.Plan
+  alias ImagePlug.Plan.Operation
   alias ImagePlug.Plan.Source.Plain
   alias ImagePlug.Runtime.DecodedOrigin
   alias ImagePlug.Runtime.Origin
+  alias ImagePlug.Transform
   alias ImagePlug.Transform.Chain
   alias ImagePlug.Transform.DecodePlanner
   alias ImagePlug.Transform.Materializer
+  alias ImagePlug.Transform.ResolvedPlan
+  alias ImagePlug.Transform.SourceMetadata
   alias ImagePlug.Transform.State
 
   @spec process_origin(Plan.t(), [ImagePlug.Plan.Pipeline.t()], String.t(), keyword()) ::
@@ -18,7 +22,7 @@ defmodule ImagePlug.Runtime.Processor do
   def process_origin(%Plan{} = plan, pipelines, origin_identity, opts) when is_list(pipelines) do
     with {:ok, %DecodedOrigin{} = decoded} <-
            fetch_decode_validate_origin_with_source_format(plan, pipelines, origin_identity, opts) do
-      process_decoded_origin(decoded, pipelines, opts)
+      process_decoded_origin(decoded, plan, opts)
     end
   end
 
@@ -87,23 +91,48 @@ defmodule ImagePlug.Runtime.Processor do
     with {:ok, image} <-
            decode_origin_response(origin_response, decode_options, opts)
            |> wrap_origin_decode_error(),
-         :ok <- validate_input_image(image, opts) |> wrap_input_limit_error() do
+         :ok <- validate_input_image(image, opts) |> wrap_input_limit_error(),
+         {:ok, %SourceMetadata{} = source_metadata} <-
+           source_metadata(image, source_format) |> wrap_source_metadata_error() do
       {:ok,
        %DecodedOrigin{
          decode_options: decode_options,
          image: image,
          origin_response: origin_response,
-         source_format: source_format
+         source_format: source_format,
+         source_metadata: source_metadata
        }}
     end
   end
 
-  @spec process_decoded_origin(DecodedOrigin.t(), [ImagePlug.Plan.Pipeline.t()], keyword()) ::
+  @spec process_decoded_origin(
+          DecodedOrigin.t(),
+          Plan.t() | [ImagePlug.Plan.Pipeline.t()],
+          keyword()
+        ) ::
           {:ok, State.t()} | {:error, term()}
   def process_decoded_origin(%DecodedOrigin{}, [], _opts), do: {:error, :empty_pipeline_plan}
 
+  def process_decoded_origin(%DecodedOrigin{}, %Plan{pipelines: []}, _opts),
+    do: {:error, :empty_pipeline_plan}
+
+  def process_decoded_origin(%DecodedOrigin{} = decoded, %Plan{} = plan, opts) do
+    case executable_pipelines(plan, decoded, opts) do
+      {:ok, pipelines} ->
+        process_executable_pipelines(decoded, pipelines, opts)
+
+      {:error, _reason} = error ->
+        close_pending_origin_on_error(error, decoded.origin_response)
+    end
+  end
+
   def process_decoded_origin(%DecodedOrigin{} = decoded, pipelines, opts)
       when is_list(pipelines) do
+    process_executable_pipelines(decoded, pipeline_operations(pipelines), opts)
+  end
+
+  defp process_executable_pipelines(%DecodedOrigin{} = decoded, pipelines, opts)
+       when is_list(pipelines) do
     result =
       case execute_pipelines(%State{image: decoded.image}, pipelines, decoded, opts) do
         {:ok, final_state} ->
@@ -119,6 +148,29 @@ defmodule ImagePlug.Runtime.Processor do
       end
 
     close_pending_origin_on_error(result, decoded.origin_response)
+  end
+
+  defp executable_pipelines(%Plan{} = plan, %DecodedOrigin{} = decoded, opts) do
+    case semantic_plan?(plan) do
+      true ->
+        with {:ok, %ResolvedPlan{} = resolved} <-
+               Transform.resolve(plan, decoded.source_metadata, opts) do
+          {:ok, resolved.pipelines}
+        end
+
+      false ->
+        {:ok, pipeline_operations(plan.pipelines)}
+    end
+  end
+
+  defp semantic_plan?(%Plan{pipelines: pipelines}) do
+    Enum.any?(pipelines, fn %ImagePlug.Plan.Pipeline{operations: operations} ->
+      Enum.any?(operations, &Operation.semantic?/1)
+    end)
+  end
+
+  defp pipeline_operations(pipelines) do
+    Enum.map(pipelines, fn %ImagePlug.Plan.Pipeline{operations: operations} -> operations end)
   end
 
   def close_pending_origin(%Origin.Response{} = origin_response) do
@@ -147,7 +199,7 @@ defmodule ImagePlug.Runtime.Processor do
   end
 
   defp execute_pipeline_step(
-         {%ImagePlug.Plan.Pipeline{operations: operations}, index},
+         {operations, index},
          {:ok, %State{} = state},
          last_index,
          %DecodedOrigin{} = decoded,
@@ -350,6 +402,19 @@ defmodule ImagePlug.Runtime.Processor do
 
   defp wrap_input_limit_error(:ok), do: :ok
   defp wrap_input_limit_error({:error, error}), do: {:error, {:input_limit, error}}
+
+  defp source_metadata(image, source_format) do
+    SourceMetadata.new(
+      width: Image.width(image),
+      height: Image.height(image),
+      orientation: :normal,
+      format: source_format,
+      source_type: :raster
+    )
+  end
+
+  defp wrap_source_metadata_error({:error, error}), do: {:error, {:source_metadata, error}}
+  defp wrap_source_metadata_error(result), do: result
 
   defp source_format(%Origin.Response{content_type: content_type}) do
     case Format.format(content_type) do

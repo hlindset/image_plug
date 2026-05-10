@@ -2,6 +2,9 @@ defmodule ImagePlug.Runtime.ProcessorTest do
   use ExUnit.Case, async: true
 
   alias ImagePlug.Plan
+  alias ImagePlug.Plan.Geometry.Dimension
+  alias ImagePlug.Plan.Geometry.Region
+  alias ImagePlug.Plan.Operation
   alias ImagePlug.Plan.Output
   alias ImagePlug.Plan.Pipeline
   alias ImagePlug.Plan.Source.Plain
@@ -18,6 +21,7 @@ defmodule ImagePlug.Runtime.ProcessorTest do
   alias ImagePlug.Runtime.ProcessorTest.OriginImage
   alias ImagePlug.Runtime.ProcessorTest.SecondTransform
   alias ImagePlug.Runtime.ProcessorTest.SequentialFailingTransform
+  alias ImagePlug.Transform.SourceMetadata
   alias ImagePlug.Transform.Operation.Cover
   alias ImagePlug.Transform.Operation.Scale
   alias ImagePlug.Transform.State
@@ -48,7 +52,7 @@ defmodule ImagePlug.Runtime.ProcessorTest do
   end
 
   defp process_decoded_origin(%DecodedOrigin{} = decoded, %Plan{} = plan, opts) do
-    Processor.process_decoded_origin(decoded, plan.pipelines, opts)
+    Processor.process_decoded_origin(decoded, plan, opts)
   end
 
   test "process_origin fetches plain plan sources from the resolved origin identity" do
@@ -314,7 +318,14 @@ defmodule ImagePlug.Runtime.ProcessorTest do
       decode_options: [access: :sequential, fail_on: :error],
       image: image,
       origin_response: origin_response,
-      source_format: :jpeg
+      source_format: :jpeg,
+      source_metadata: %SourceMetadata{
+        width: Image.width(image),
+        height: Image.height(image),
+        orientation: :normal,
+        format: :jpeg,
+        source_type: :raster
+      }
     }
 
     worker_ref = Process.monitor(worker)
@@ -327,6 +338,76 @@ defmodule ImagePlug.Runtime.ProcessorTest do
                  | pipelines: [
                      %Pipeline{
                        operations: [%SequentialFailingTransform{}]
+                     }
+                   ]
+               },
+               opts()
+             )
+
+    assert_receive {:DOWN, ^worker_ref, :process, ^worker, _reason}
+    StreamStatus.stop(stream_status)
+  end
+
+  test "process_decoded_origin closes pending origins on semantic resolution errors" do
+    {:ok, image} = Image.new(1, 1)
+    {:ok, stream_status} = StreamStatus.start_link()
+    test_pid = self()
+
+    worker =
+      spawn_link(fn ->
+        send(test_pid, :worker_ready)
+
+        receive do
+          {:cancel, _ref} -> :ok
+        end
+      end)
+
+    assert_receive :worker_ready
+
+    origin_response = %ImagePlug.Runtime.Origin.Response{
+      content_type: "image/jpeg",
+      headers: [],
+      ref: make_ref(),
+      stream: [],
+      stream_status: stream_status,
+      url: "http://origin.test/images/cat-300.jpg",
+      worker: worker
+    }
+
+    decoded = %DecodedOrigin{
+      decode_options: [access: :random, fail_on: :error],
+      image: image,
+      origin_response: origin_response,
+      source_format: :jpeg,
+      source_metadata: %SourceMetadata{
+        width: Image.width(image),
+        height: Image.height(image),
+        orientation: :normal,
+        format: :jpeg,
+        source_type: :raster
+      }
+    }
+
+    assert {:ok, x} = Dimension.pixels(1)
+    assert {:ok, y} = Dimension.pixels(1)
+    assert {:ok, width} = Dimension.pixels(1)
+    assert {:ok, height} = Dimension.pixels(1)
+
+    assert {:ok, region} =
+             Region.new(x: x, y: y, width: width, height: height, space: :post_orient)
+
+    assert {:ok, operation} = Operation.crop_region(region: region)
+
+    worker_ref = Process.monitor(worker)
+
+    assert {:error, {:unsupported_crop_region_space, :post_orient}} =
+             process_decoded_origin(
+               decoded,
+               %Plan{
+                 plan()
+                 | pipelines: [
+                     %Pipeline{
+                       operations: [operation]
                      }
                    ]
                },

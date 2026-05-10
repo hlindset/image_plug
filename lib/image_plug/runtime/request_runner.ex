@@ -242,7 +242,7 @@ defmodule ImagePlug.Runtime.RequestRunner do
          ) do
       {:ok, %DecodedOrigin{} = decoded} ->
         decoded
-        |> Processor.process_decoded_origin(pipelines, opts)
+        |> Processor.process_decoded_origin(plan, opts)
         |> attach_resolved_output(resolved_output)
 
       error ->
