@@ -75,7 +75,7 @@ parser raw syntax
        validates semantic operations
        applies source metadata
        checks backend support
-       records diagnostics and decisions
+       records diagnostics, derivations, and selections
        lowers to executable backend work
   -> resolved transform plan
   -> ImagePlug.Transform facade
@@ -219,8 +219,8 @@ for example `{:resize_auto, size, enlargement_policy}`. Transform lowering
 selects `ResizeCover` when the current image orientation matches the requested
 target orientation, including square-to-square, and `ResizeFit` otherwise. If
 the requested target orientation cannot be computed, it selects `ResizeFit`.
-The selected branch is recorded as a resolver decision and becomes resolver
-material only when not already determined by existing key material.
+The selected branch is recorded as a resolver derivation, not resolver
+material, because it is deterministic from existing key material.
 
 `ResizeAuto` must not grow beyond the current documented imgproxy-compatible
 auto behavior. If a later adapter has source-dependent resize selection with
@@ -412,10 +412,13 @@ Rules:
   when doing so cannot change diagnostics, policy outcomes, output metadata, or
   later operation semantics. The normalized plan may still retain them for
   debugging or diagnostics.
-- Resolver decisions need separate material only when they introduce an
-  output-affecting choice that is not already determined by source identity,
-  canonical semantic material, configuration, backend profile, and pipeline
-  order.
+- Source-aware lowering results are derivations when they are deterministic
+  consequences of source identity/freshness material, canonical semantic
+  material, configuration, backend profile, output negotiation, and pipeline
+  order. Derivations do not need separate cache material.
+- Resolver selections need separate material only when they introduce an
+  output-affecting choice that is not already determined by prefetch-safe key
+  material.
 
 No canonical semantic operation may be introduced without a deterministic
 material contract and tests proving parser-syntax-free equivalence. Example
@@ -458,7 +461,7 @@ lowering should call shared geometry helpers.
 
 ## DPR And Pixel Density
 
-DPR must be explicit in plan material and resolver decisions when it affects
+DPR must be explicit in plan material and resolver derivations when it affects
 visible output.
 
 Rules:
@@ -477,7 +480,8 @@ Rules:
   physical integer pixels unless a dialect explicitly defines physical-pixel
   input.
 - Crop offsets or gravity offsets that are DPR-scaled must record that scaling
-  decision in resolver material.
+  derivation in resolver output for diagnostics and tests, but it must not be
+  required for final output cache lookup.
 - DPR values that affect output must be part of cache material.
 
 ## Resolver Design
@@ -497,7 +501,7 @@ semantic validation
   -> source-aware normalization
   -> backend support checks
   -> backend lowering
-  -> material decision collection
+  -> derivation and selection recording
 ```
 
 The external API should remain small. The implementation should avoid one
@@ -519,13 +523,16 @@ Outputs:
 
 - resolved executable work
 - diagnostics
-- decisions that affect visible output
-- optional resolver material contribution
+- derivations, which are deterministic source-aware lowering results
+- selections, which are output-affecting choices not already determined by
+  prefetch-safe key material
+- optional prefetch-safe resolver material contribution for selections
 - output metadata for later pipelines
 
-Policy decides which diagnostics become errors. Decisions that affect pixels
-are not just diagnostics. They become resolver material only when the existing
-key material does not already determine the decision.
+Policy decides which diagnostics become errors. Source-metadata-derived
+lowering results are derivations, not final-cache material. Selections become
+resolver material only when they are available before origin fetch/cache lookup
+and existing key material does not already determine them.
 
 ## Resolved Plan Invariants
 
@@ -537,8 +544,8 @@ After `ImagePlug.Transform.resolve/3` succeeds:
   to backend-native execution
 - backend work has integer pixel dimensions or documented deferred
   backend-native values
-- output-affecting resolver decisions are represented either by existing key
-  material or by resolver material
+- output-affecting selections are represented either by existing key material or
+  by prefetch-safe resolver material
 - diagnostics with severity `:error` have been handled according to policy
 - request runtime can execute through generic Transform entry points without
   parser knowledge
@@ -587,7 +594,7 @@ A pragmatic first resolver result is enough:
 
 ```elixir
 {:ok, exact_plan}
-{:ok, approximate_plan, decisions, diagnostics}
+{:ok, approximate_plan, derivations, selections, diagnostics}
 {:error, diagnostics}
 ```
 
@@ -612,10 +619,12 @@ Unsupported capability handling:
 - Compatibility modes may allow declared fallbacks such as
   `faces -> entropy -> center`.
 
-## Diagnostics And Decisions
+## Diagnostics, Derivations, And Selections
 
-Diagnostics describe what happened or what could not happen. Decisions describe
-which output-affecting choice the resolver made.
+Diagnostics describe what happened or what could not happen. Derivations
+describe deterministic source-aware lowering results. Selections describe
+output-affecting choices that are not already determined by prefetch-safe key
+material.
 
 Diagnostic fields:
 
@@ -636,16 +645,23 @@ Useful diagnostic codes:
 - `:gravity_offset_approximated`
 - `:backend_capability_missing`
 
-Decision examples:
+Derivation examples:
 
-- selected `:entropy` after `:faces` was unavailable
 - selected cover branch for orientation-based resize
 - selected fit branch for orientation-based resize
+- resolved a source-space crop region to backend integer pixels
+- converted logical dimensions plus DPR to physical backend pixels
+
+Selection examples:
+
+- selected `:entropy` after `:faces` was unavailable
 - applied approximation mode for a guide strategy
 
 Diagnostics that do not affect visible output do not belong in cache keys.
-Decisions that affect visible output belong in cache keys only when they add
-output-affecting information not already determined by existing key material.
+Derivations do not belong in final output cache keys. Selections belong in
+cache keys only when they add output-affecting information not already
+determined by prefetch-safe key material. In the first slice, no post-fetch
+resolver output may alter the final output cache key.
 
 ## Decode And Request-Safety Phases
 
@@ -654,11 +670,10 @@ Keep request-safety boundaries explicit:
 ```text
 parse validation
   -> early semantic validation
-  -> prefetch-safe cache material subset
-  -> optional cache lookup or origin fetch decision
+  -> final output cache lookup from prefetch-safe material
+  -> origin fetch only on cache miss
   -> decode/open planning
   -> post-decode source-aware resolution
-  -> final output cache lookup if not already safe
   -> backend execution
   -> output encoding
 ```
@@ -671,20 +686,20 @@ Early validation:
 
 Cache lookup:
 
-- Uses deterministic canonical material.
-- Must include enough configuration and capability profile material to avoid
-  stale entries when output-affecting resolver behavior changes.
-- Final output cache material may include unresolved semantic intent such as
-  imgproxy `resize:auto` when the operation is deterministic for the resolved
-  source image and final pipeline order.
-- Final output cache lookup does not need to wait for source metadata merely to
-  replace deterministic semantic intent with resolved backend decisions.
-  This assumes the source identity/freshness invariant described in Cache
-  Material.
-- Final output cache lookup must wait for source metadata only when the final
-  cache material truly depends on metadata not already represented by source
-  identity, canonical semantic material, configuration, backend profile, output
+- Uses deterministic canonical material and must not require source fetch,
+  image decode, or source metadata extraction.
+- Must include enough configuration and backend profile material to avoid stale
+  entries when output-affecting resolver behavior changes.
+- Source-dependent semantic operations remain unresolved in final cache
+  material when they are deterministic for the source identity/freshness
+  material and final pipeline order.
+- Source-metadata-derived resolver choices are derivations, not key material,
+  when they are deterministic from source identity/freshness material,
+  canonical semantic material, configuration, backend profile, output
   negotiation, and pipeline order.
+- Resolver material may include only output-affecting selections that are
+  available before origin fetch/cache lookup and are not already represented by
+  existing key material.
 - A future metadata cache may optimize source-metadata-dependent planning, but
   it is not required for correctness when deterministic unresolved semantic
   material is sufficient.
@@ -755,23 +770,23 @@ Use explicit material layers:
 ```text
 transform_material_version
 semantic_material(plan)
-resolver_material(extra_output_affecting_decisions)
 backend_profile_material(profile)
 output_material(output_negotiation)
+resolver_material(prefetch_safe_selections_only)
 ```
 
-The final key combines those layers with:
+The final output key must be constructible before origin fetch, image decode,
+or source metadata extraction. It combines those layers with:
 
-- resolved origin identity
-- source path or source identity material
+- resolved origin identity or configured source freshness material
 - configured vary inputs
 - cachebuster
 - parser compatibility mode
 - config defaults that affect visible output
 
 The transform material version must change when canonicalization, rounding,
-resolver semantics, or backend decision material changes in a way that could
-alter output or key interpretation.
+source-aware derivation semantics, or backend/profile material changes in a way
+that could alter output or key interpretation.
 
 Raw parser syntax, aliases, and vendor option spelling must not appear in cache
 material.
@@ -793,13 +808,24 @@ origin identity, source fingerprint, immutable origin version, cachebuster, or
 equivalent configured freshness material. ImagePlug does not need to solve
 mutable URL freshness in the transform IR.
 
-Resolver decisions appear in resolver material only when they add
-output-affecting information not already determined by source identity,
-semantic material, backend profile, configuration, output negotiation, and
-pipeline order. Backend capability profile changes that can alter pixels must
-appear in backend profile material. This prevents a deployment that gains face
-detection or changes smartcrop strategy support from reusing stale cache entries
-produced by older behavior.
+Source-metadata-derived resolver results are derivations. They may be recorded
+for diagnostics, tests, observability, or execution traces, but they do not
+participate in the normal final output cache key. Examples include
+`ResizeAuto` selecting fit or cover, source-space crop lowering, ratio
+dimension resolution, orientation-aware dimensions, and DPR conversion to
+physical pixels.
+
+Resolver material is reserved for prefetch-safe selections: output-affecting
+choices that are available before origin fetch/cache lookup and not already
+represented by semantic material, backend profile material, configuration,
+output negotiation, or pipeline order. Backend capability profile changes that
+can alter pixels must appear in backend profile material. This prevents a
+deployment that gains face detection or changes smartcrop strategy support from
+reusing stale cache entries produced by older behavior.
+
+If an output-affecting choice is not deterministic from prefetch-safe key
+material and is not available before cache lookup, the first slice must reject
+it before cache lookup or leave it out of scope.
 
 ## Parser And Vendor Mapping
 
@@ -862,10 +888,10 @@ Mapping:
 - `resize:auto` maps to canonical `ResizeAuto`, a source-dependent semantic
   resize operation with parser-syntax-free material. Transform resolves it to
   `ResizeCover` or `ResizeFit` after the current input dimensions are known
-  during source-aware resolution. The selected branch is recorded as a resolver
-  decision. It becomes resolver material only when not already determined by
-  source identity, canonical semantic material, configuration, backend profile,
-  output negotiation, and pipeline order.
+  during source-aware resolution. The selected branch is a resolver derivation,
+  not resolver material, because it is deterministic from source
+  identity/freshness material, canonical semantic material, configuration,
+  backend profile, output negotiation, and pipeline order.
 - `extend` and `extend_aspect_ratio` map to `Canvas`.
 - Smart/object/face gravity maps to strategy guides only when parser policy
   supports those strategies.
@@ -943,8 +969,9 @@ Boundary direction should remain explicit:
   reference concrete plan operation modules.
 - The Transform resolver/executor may pattern match on concrete semantic
   operations and backend instructions inside the Transform boundary.
-- Cache may depend on Plan semantic material and Transform resolver material
-  facades, but not parser-specific structs.
+- Cache may depend on Plan semantic material, Transform backend/profile material
+  facades, and prefetch-safe resolver selection material, but not
+  parser-specific structs.
 
 Boundary exports should stay narrow. Do not export implementation helpers just
 to satisfy compile errors.
@@ -1022,8 +1049,9 @@ Cache tests should assert:
   freshness material
 - deterministic unresolved semantic intent does not reuse stale output when
   source identity or freshness material changes
-- resolver fallback decisions are included only when they add output-affecting
-  information not already determined by existing key material
+- resolver fallback selections are included only when they are prefetch-safe and
+  add output-affecting information not already determined by existing key
+  material
 - backend capability profile changes that affect pixels change material
 
 Boundary tests should assert:
