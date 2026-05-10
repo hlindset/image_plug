@@ -233,10 +233,9 @@ Guides should be explicit value structs:
 %ImagePlug.Plan.Guide.Gravity{}
 %ImagePlug.Plan.Guide.Anchor{}
 %ImagePlug.Plan.Guide.FocalPoint{}
-%ImagePlug.Plan.Guide.StrategyList{}
 ```
 
-Smart behavior belongs in strategy guides:
+Smart behavior will eventually belong in strategy guides:
 
 ```elixir
 %ImagePlug.Plan.Guide.StrategyList{
@@ -248,6 +247,12 @@ Smart behavior belongs in strategy guides:
   fallback_policy: :first_available
 }
 ```
+
+`StrategyList` is the expected future representation for smart, face, object,
+entropy, and attention behavior. It is useful for vendor fixture
+classification, but first-slice runtime and resolver code must not execute
+strategy guides unless current imgproxy-compatible behavior already requires
+that behavior.
 
 `CropGuided` and `ResizeCover` may carry these guides directly. This avoids a
 standalone smart-crop operation whose stage, dimensions, and output semantics
@@ -367,8 +372,10 @@ Rules:
   materialization when they affect output.
 - Source-dependent values may remain as canonical semantic intent when the
   operation is deterministic for the source image and final pipeline order.
-- No-op operations that do not affect visible output should be elided from
-  canonical material after validation.
+- Pixel no-ops may be elided from pixel cache material after validation only
+  when doing so cannot change diagnostics, policy outcomes, output metadata, or
+  later operation semantics. The normalized plan may still retain them for
+  debugging or diagnostics.
 - Resolver decisions need separate material only when they introduce an
   output-affecting choice that is not already determined by source identity,
   canonical semantic material, configuration, backend profile, and pipeline
@@ -422,6 +429,8 @@ Rules:
 
 - Parser code records requested logical dimensions and requested DPR separately
   where the dialect exposes DPR.
+- Canonical semantic sizes should remain requested logical dimensions plus DPR
+  where the dialect exposes DPR.
 - Canonical material must say whether a value is logical pixels, physical
   pixels, or a ratio.
 - Resolver applies DPR at a documented phase before backend integer pixel
@@ -474,6 +483,22 @@ Outputs:
 Policy decides which diagnostics become errors. Decisions that affect pixels
 are not just diagnostics. They become resolver material only when the existing
 key material does not already determine the decision.
+
+## Resolved Plan Invariants
+
+After `ImagePlug.Transform.resolve/3` succeeds:
+
+- no adapter-local command structs remain
+- no parser-specific structs remain
+- no source-dependent dimensions remain unresolved unless explicitly delegated
+  to backend-native execution
+- backend work has integer pixel dimensions or documented deferred
+  backend-native values
+- output-affecting resolver decisions are represented either by existing key
+  material or by resolver material
+- diagnostics with severity `:error` have been handled according to policy
+- request runtime can execute through generic Transform entry points without
+  parser knowledge
 
 ## Backend Representation
 
@@ -561,7 +586,6 @@ Useful diagnostic codes:
 - `:smart_crop_approximated`
 - `:gravity_offset_approximated`
 - `:backend_capability_missing`
-- `:vendor_semantics_preserved_by_adapter`
 
 Decision examples:
 
@@ -654,7 +678,11 @@ Semantics:
 
 - Pipelines execute in list order.
 - Pixel state flows from one pipeline to the next.
-- Runtime preserves the materialization boundary between pipelines.
+- Runtime preserves pipeline boundaries semantically and in cache material.
+- Physical materialization between pipelines is required only when needed to
+  preserve externally observable behavior or current compatibility semantics.
+  Cross-pipeline fusion is allowed only if proven pixel-equivalent and
+  cache/material boundaries remain intact.
 - Cache material preserves pipeline boundaries.
 - Semantic context resets at each pipeline boundary by default.
 - Each pipeline starts with default focus and gravity unless the adapter emits
@@ -700,6 +728,12 @@ and final canonical pipeline order. Therefore, unresolved deterministic
 semantic intent can be cache material. For example, imgproxy `resize:auto` may
 remain `resize:auto` in semantic material instead of forcing the selected fit
 or cover branch into the key.
+
+This cache invariant assumes source identity is stable for caching purposes.
+Changed source bytes or metadata must be represented by a different resolved
+origin identity, source fingerprint, immutable origin version, cachebuster, or
+equivalent configured freshness material. ImagePlug does not need to solve
+mutable URL freshness in the transform IR.
 
 Resolver decisions appear in resolver material only when they add
 output-affecting information not already determined by source identity,
@@ -764,7 +798,10 @@ Mapping:
 - `resize:force` maps to `ResizeStretch`.
 - `resize:auto` maps to an imgproxy adapter-owned compatibility command and is
   resolved to `ResizeCover` or `ResizeFit` after source dimensions are known.
-  The selected branch is resolver material.
+  The selected branch is recorded as a resolver decision. It becomes resolver
+  material only when not already determined by source identity, canonical
+  semantic material, configuration, backend profile, output negotiation, and
+  pipeline order.
 - `extend` and `extend_aspect_ratio` map to `Canvas`.
 - Smart/object/face gravity maps to strategy guides only when parser policy
   supports those strategies.
