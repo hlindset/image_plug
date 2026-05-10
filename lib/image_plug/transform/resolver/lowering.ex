@@ -209,11 +209,24 @@ defmodule ImagePlug.Transform.Resolver.Lowering do
   defp canvas_dimension(%Dimension{} = dimension),
     do: {:error, {:unsupported_canvas_dimension, dimension}}
 
-  defp crop_region(%Region{space: space} = region, context) when space in [:source, :current] do
-    with {:ok, left} <- region_dimension(region.x, context.current_width),
-         {:ok, top} <- region_dimension(region.y, context.current_height),
-         {:ok, width} <- region_dimension(region.width, context.current_width),
-         {:ok, height} <- region_dimension(region.height, context.current_height) do
+  defp crop_region(%Region{space: :source} = region, context) do
+    with :ok <- validate_source_space_crop_position(context) do
+      crop_region(region, context.source_width, context.source_height)
+    end
+  end
+
+  defp crop_region(%Region{space: :current} = region, context) do
+    crop_region(region, context.current_width, context.current_height)
+  end
+
+  defp crop_region(%Region{} = region, _context),
+    do: {:error, {:unsupported_crop_region_space, region.space}}
+
+  defp crop_region(%Region{} = region, axis_width, axis_height) do
+    with {:ok, left} <- region_dimension(region.x, axis_width),
+         {:ok, top} <- region_dimension(region.y, axis_height),
+         {:ok, width} <- region_dimension(region.width, axis_width),
+         {:ok, height} <- region_dimension(region.height, axis_height) do
       {:ok,
        %Crop{
          width: {:pixels, width},
@@ -223,8 +236,16 @@ defmodule ImagePlug.Transform.Resolver.Lowering do
     end
   end
 
-  defp crop_region(%Region{} = region, _context),
-    do: {:error, {:unsupported_crop_region_space, region.space}}
+  defp validate_source_space_crop_position(%{
+         source_aligned: true
+       }),
+       do: :ok
+
+  defp validate_source_space_crop_position(context) do
+    {:error,
+     {:unsupported_source_space_crop_after_current_geometry, context.pipeline_index,
+      context.operation_index}}
+  end
 
   defp region_dimension(%Dimension{unit: :logical_px, value: value}, _axis), do: {:ok, value}
 

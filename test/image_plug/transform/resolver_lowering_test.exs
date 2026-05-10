@@ -136,6 +136,91 @@ defmodule ImagePlug.Transform.ResolverLoweringTest do
            ] = resolved.pipelines
   end
 
+  test "source-aware operations use current dimensions after earlier semantic operations" do
+    assert {:ok, crop_size} = size(100, 200)
+    assert {:ok, auto_size} = size(100, 50)
+    assert {:ok, guide} = Gravity.anchor(:center, :center)
+    assert {:ok, crop} = Operation.crop_guided(size: crop_size, guide: guide)
+    assert {:ok, auto} = Operation.resize_auto(size: auto_size, enlargement: :deny)
+
+    assert {:ok, resolved} = Transform.resolve(plan([crop, auto]), metadata(), [])
+
+    assert [
+             [
+               %Crop{width: {:pixels, 100}, height: {:pixels, 200}},
+               %Resize{
+                 rule: %DimensionRule{mode: :fit, width: {:pixels, 100}, height: {:pixels, 50}}
+               }
+             ]
+           ] = resolved.pipelines
+
+    assert [%{code: :resize_auto_branch, value: :fit, operation_index: 1}] =
+             resolved.derivations
+  end
+
+  test "current-space crop regions resolve against dimensions produced by earlier operations" do
+    assert {:ok, resize_size} = size(100, 50)
+    assert {:ok, resize} = Operation.resize_fit(size: resize_size, enlargement: :deny)
+    assert {:ok, x} = Dimension.ratio(1, 10)
+    assert {:ok, y} = Dimension.ratio(1, 10)
+    assert {:ok, width} = Dimension.ratio(1, 2)
+    assert {:ok, height} = Dimension.ratio(1, 2)
+
+    assert {:ok, region} =
+             Region.new(x: x, y: y, width: width, height: height, space: :current)
+
+    assert {:ok, crop} = Operation.crop_region(region: region)
+
+    assert {:ok, resolved} = Transform.resolve(plan([resize, crop]), metadata(), [])
+
+    assert [
+             [
+               %Resize{rule: %DimensionRule{mode: :fit}},
+               %Crop{
+                 width: {:pixels, 38},
+                 height: {:pixels, 25},
+                 crop_from: %{left: {:pixels, 8}, top: {:pixels, 5}}
+               }
+             ]
+           ] = resolved.pipelines
+
+    assert [%{code: :crop_region_resolved, operation_index: 1, material?: false}] =
+             resolved.derivations
+  end
+
+  test "source-space crop regions after geometry-changing operations are rejected" do
+    assert {:ok, resize_size} = size(100, 50)
+    assert {:ok, resize} = Operation.resize_fit(size: resize_size, enlargement: :deny)
+    assert {:ok, x} = Dimension.ratio(1, 10)
+    assert {:ok, y} = Dimension.ratio(1, 10)
+    assert {:ok, width} = Dimension.ratio(1, 2)
+    assert {:ok, height} = Dimension.ratio(1, 2)
+
+    assert {:ok, region} =
+             Region.new(x: x, y: y, width: width, height: height, space: :source)
+
+    assert {:ok, crop} = Operation.crop_region(region: region)
+
+    assert Transform.resolve(plan([resize, crop]), metadata(), []) ==
+             {:error, {:unsupported_source_space_crop_after_current_geometry, 0, 1}}
+  end
+
+  test "source-space crop regions after coordinate-changing operations are rejected" do
+    assert {:ok, flip} = Operation.flip(:horizontal)
+    assert {:ok, x} = Dimension.ratio(1, 10)
+    assert {:ok, y} = Dimension.ratio(1, 10)
+    assert {:ok, width} = Dimension.ratio(1, 2)
+    assert {:ok, height} = Dimension.ratio(1, 2)
+
+    assert {:ok, region} =
+             Region.new(x: x, y: y, width: width, height: height, space: :source)
+
+    assert {:ok, crop} = Operation.crop_region(region: region)
+
+    assert Transform.resolve(plan([flip, crop]), metadata(), []) ==
+             {:error, {:unsupported_source_space_crop_after_current_geometry, 0, 1}}
+  end
+
   test "canvas lowers to extend canvas without choosing resize scale" do
     assert {:ok, placement} = Gravity.anchor(:center, :center)
     assert {:ok, canvas_size} = size(320, 240)

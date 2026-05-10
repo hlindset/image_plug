@@ -23,8 +23,6 @@ defmodule ImagePlug.Transform do
       Derivation,
       BackendProfile,
       Resolver,
-      Resolver.Geometry,
-      Resolver.Lowering,
       Geometry.CropCoordinateMapper,
       Geometry.DimensionRule,
       Geometry.DimensionResolver,
