@@ -88,6 +88,24 @@ defimpl ImagePlug.Transform.Material, for: ImagePlug.Plan.Operation.Canvas do
   end
 end
 
+defimpl ImagePlug.Transform.Material, for: ImagePlug.Plan.Operation.AutoOrient do
+  def material(%ImagePlug.Plan.Operation.AutoOrient{}) do
+    [op: :auto_orient]
+  end
+end
+
+defimpl ImagePlug.Transform.Material, for: ImagePlug.Plan.Operation.Rotate do
+  def material(%ImagePlug.Plan.Operation.Rotate{} = operation) do
+    [op: :rotate, angle: operation.angle]
+  end
+end
+
+defimpl ImagePlug.Transform.Material, for: ImagePlug.Plan.Operation.Flip do
+  def material(%ImagePlug.Plan.Operation.Flip{} = operation) do
+    [op: :flip, axis: operation.axis]
+  end
+end
+
 defimpl ImagePlug.Transform.Material, for: ImagePlug.Plan.Operation.ResizeFit do
   def material(%ImagePlug.Plan.Operation.ResizeFit{} = operation) do
     [

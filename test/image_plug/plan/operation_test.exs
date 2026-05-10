@@ -139,6 +139,19 @@ defmodule ImagePlug.Plan.OperationTest do
     end
   end
 
+  describe "orientation constructors" do
+    test "build orientation operations through exported constructors" do
+      assert {:ok, %Operation.AutoOrient{}} = Operation.auto_orient()
+      assert {:ok, %Operation.Rotate{angle: 90}} = Operation.rotate(90)
+      assert {:ok, %Operation.Flip{axis: :horizontal}} = Operation.flip(:horizontal)
+    end
+
+    test "reject invalid orientation inputs without raising" do
+      assert Operation.rotate(45) == {:error, {:invalid_operation, :rotate, 45}}
+      assert Operation.flip(:diagonal) == {:error, {:invalid_operation, :flip, :diagonal}}
+    end
+  end
+
   defp size do
     with {:ok, width} <- Dimension.pixels(300),
          {:ok, height} <- Dimension.auto() do

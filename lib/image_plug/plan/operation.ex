@@ -5,16 +5,21 @@ defmodule ImagePlug.Plan.Operation do
 
   alias ImagePlug.Plan.Geometry.Size
   alias ImagePlug.Plan.Guide.Gravity
+  alias ImagePlug.Plan.Operation.AutoOrient
   alias ImagePlug.Plan.Operation.Canvas
   alias ImagePlug.Plan.Geometry.Region
   alias ImagePlug.Plan.Operation.CropGuided
   alias ImagePlug.Plan.Operation.CropRegion
+  alias ImagePlug.Plan.Operation.Flip
   alias ImagePlug.Plan.Operation.ResizeAuto
   alias ImagePlug.Plan.Operation.ResizeCover
   alias ImagePlug.Plan.Operation.ResizeFit
   alias ImagePlug.Plan.Operation.ResizeStretch
+  alias ImagePlug.Plan.Operation.Rotate
 
   @enlargements [:allow, :deny]
+  @right_angles [0, 90, 180, 270]
+  @flip_axes [:horizontal, :vertical, :both]
 
   @type resize_operation ::
           ResizeFit.t()
@@ -28,7 +33,13 @@ defmodule ImagePlug.Plan.Operation do
 
   @type canvas_operation :: Canvas.t()
 
-  @type semantic_operation :: resize_operation() | crop_operation() | canvas_operation()
+  @type orientation_operation :: AutoOrient.t() | Rotate.t() | Flip.t()
+
+  @type semantic_operation ::
+          resize_operation()
+          | crop_operation()
+          | canvas_operation()
+          | orientation_operation()
 
   @type error :: {:invalid_operation, atom(), term()}
 
@@ -57,6 +68,23 @@ defmodule ImagePlug.Plan.Operation do
   end
 
   def canvas(attrs), do: invalid(:canvas, attrs)
+
+  @spec auto_orient() :: {:ok, AutoOrient.t()}
+  def auto_orient, do: {:ok, %AutoOrient{}}
+
+  @spec rotate(term()) :: {:ok, Rotate.t()} | {:error, error()}
+  def rotate(angle) when angle in @right_angles do
+    {:ok, %Rotate{angle: angle}}
+  end
+
+  def rotate(angle), do: invalid(:rotate, angle)
+
+  @spec flip(term()) :: {:ok, Flip.t()} | {:error, error()}
+  def flip(axis) when axis in @flip_axes do
+    {:ok, %Flip{axis: axis}}
+  end
+
+  def flip(axis), do: invalid(:flip, axis)
 
   @spec resize_fit(keyword()) :: {:ok, ResizeFit.t()} | {:error, error()}
   def resize_fit(size: %Size{} = size, enlargement: enlargement)

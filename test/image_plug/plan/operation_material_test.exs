@@ -113,6 +113,16 @@ defmodule ImagePlug.Plan.OperationMaterialTest do
            ]
   end
 
+  test "orientation material is source-fetch-free semantic intent" do
+    assert {:ok, auto_orient} = Operation.auto_orient()
+    assert {:ok, rotate} = Operation.rotate(270)
+    assert {:ok, flip} = Operation.flip(:both)
+
+    assert Material.material(auto_orient) == [op: :auto_orient]
+    assert Material.material(rotate) == [op: :rotate, angle: 270]
+    assert Material.material(flip) == [op: :flip, axis: :both]
+  end
+
   defp size(width: width, height: height, dpr: dpr) do
     with {:ok, width} <- Dimension.pixels(width),
          {:ok, height} <- Dimension.pixels(height) do
