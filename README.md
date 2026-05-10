@@ -27,7 +27,7 @@ For local development, the signature segment can be `_` or `unsafe`:
 /_/rs:fill:300:300/plain/images/cat-300.jpg@webp
 ```
 
-The Imgproxy grammar accepts selected imgproxy-compatible option names as ImagePlug's own path grammar. Compatibility ends at parsing and planning: runtime, cache, output, and transform code consume product-neutral `ImagePlug.Plan` data.
+The Imgproxy grammar accepts selected imgproxy-compatible option names as ImagePlug's own path grammar. Compatibility ends at parsing and planning: runtime, cache, output, and transform code consume product-neutral `ImagePlug.Plan` data with canonical `ImagePlug.Plan.Operation.*` transform intent.
 
 Options are declarative. Their order in the URL does not define processing order:
 
@@ -103,7 +103,7 @@ att:%boolean
 plain source @extension
 ```
 
-Recognized resizing types are `fit`, `fill`, `force`, `auto`, and `fill-down`. `auto` and `fill-down` parse but return unsupported semantic errors in this slice. Width and height values are pixel dimensions; `0` means unconstrained when accepted by the selected option.
+Recognized resizing types are `fit`, `fill`, `force`, `auto`, and `fill-down`. `auto` maps to semantic `ResizeAuto`; the selected fit/cover branch is derived after a cache miss from the current dimensions at that point in the semantic pipeline. Width and height values are pixel dimensions; `0` means unconstrained when accepted by the selected option.
 
 Supported gravity values are the imgproxy compass anchors, `ce`, `no`, `so`, `ea`, `we`, `noea`, `nowe`, `soea`, `sowe`, focal point `fp:%x:%y`, and smart gravity `sm`. Smart gravity parses but is not planned in this slice.
 
@@ -168,9 +168,9 @@ forward "/",
   ]
 ```
 
-Cache lookup happens only after the request parses, the pipeline plans, and the origin URL is resolved. Invalid requests return `400` before origin or cache access. Parser, planner, origin fetch, decode, transform, negotiation, and encode errors are never cached.
+Cache lookup happens only after the request parses, the pipeline plans, and the origin identity/freshness material is resolved. It does not fetch, decode, or read metadata from the origin image. Invalid requests return `400` before origin or cache access. Parser, planner, origin fetch, decode, transform, negotiation, and encode errors are never cached.
 
-Cache keys include the resolved origin URL, canonical processing request fields, configured `:key_headers` and `:key_cookies`, and normalized automatic-output inputs when output is automatic: detected modern output candidates plus `:auto_avif` / `:auto_webp` flags. They exclude request signatures, raw request paths, query strings, raw `Accept` headers, and unconfigured headers or cookies. Key material includes a schema version and deterministic primitive serialization. Explicit formats bypass `Accept` negotiation and therefore do not vary by `Accept`.
+Cache keys include resolved origin identity/freshness material, canonical semantic Plan operation material, backend/profile material, configured `:key_headers` and `:key_cookies`, and normalized automatic-output inputs when output is automatic: detected modern output candidates plus `:auto_avif` / `:auto_webp` flags. They exclude request signatures, raw request paths, query strings, raw `Accept` headers, source metadata, decoded image properties, resolver derivations, and unconfigured headers or cookies. Key material includes a schema version and deterministic primitive serialization. Explicit formats bypass `Accept` negotiation and therefore do not vary by `Accept`.
 
 Cached response headers are restricted to `vary` and `cache-control`. Header names are normalized to lowercase, and duplicate allowed headers are preserved.
 
