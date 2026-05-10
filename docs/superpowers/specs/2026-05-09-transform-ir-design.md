@@ -365,12 +365,14 @@ Rules:
   materialization.
 - Source-independent defaults should be inserted before prefetch-safe
   materialization when they affect output.
-- Source-dependent defaults or decisions should be inserted during source-aware
-  resolution and recorded in resolver material.
+- Source-dependent values may remain as canonical semantic intent when the
+  operation is deterministic for the source image and final pipeline order.
 - No-op operations that do not affect visible output should be elided from
   canonical material after validation.
-- Resolver decisions that affect pixels must be separate deterministic material,
-  not hidden inside diagnostics.
+- Resolver decisions need separate material only when they introduce an
+  output-affecting choice that is not already determined by source identity,
+  canonical semantic material, configuration, backend profile, and pipeline
+  order.
 
 No canonical semantic operation may be introduced without a deterministic
 material contract and tests proving parser-syntax-free equivalence. Example
@@ -466,11 +468,12 @@ Outputs:
 - resolved executable work
 - diagnostics
 - decisions that affect visible output
-- resolver material contribution
+- optional resolver material contribution
 - output metadata for later pipelines
 
 Policy decides which diagnostics become errors. Decisions that affect pixels
-are not just diagnostics; they are materialized resolver decisions.
+are not just diagnostics. They become resolver material only when the existing
+key material does not already determine the decision.
 
 ## Backend Representation
 
@@ -593,18 +596,21 @@ Early validation:
 
 Cache lookup:
 
-- Uses deterministic prefetch-safe material.
+- Uses deterministic canonical material.
 - Must include enough configuration and capability profile material to avoid
   stale entries when output-affecting resolver behavior changes.
-- Final output cache lookup requires final output material. Prefetch-safe
-  material may be used for validation, metrics, or a future metadata-cache
-  lookup, but not as the final transformed-output cache key when source-aware
-  decisions are still unresolved.
-- If final pixel-affecting resolver decisions depend on source metadata that is
-  unavailable before origin access, final output cache lookup must wait until
-  that metadata is available, or the implementation must introduce a two-stage
-  metadata cache. The first implementation should use the conservative strategy:
-  delay final output cache lookup for source-metadata-dependent transforms.
+- Final output cache material may include unresolved semantic intent such as
+  imgproxy `resize:auto` when the operation is deterministic for the resolved
+  source image and final pipeline order.
+- Final output cache lookup does not need to wait for source metadata merely to
+  replace deterministic semantic intent with resolved backend decisions.
+- Final output cache lookup must wait for source metadata only when the final
+  cache material truly depends on metadata not already represented by source
+  identity, canonical semantic material, configuration, backend profile, output
+  negotiation, and pipeline order.
+- A future metadata cache may optimize source-metadata-dependent planning, but
+  it is not required for correctness when deterministic unresolved semantic
+  material is sufficient.
 
 Decode/open planning:
 
@@ -668,7 +674,7 @@ Use explicit material layers:
 ```text
 transform_material_version
 semantic_material(plan)
-resolver_material(resolved_decisions)
+resolver_material(extra_output_affecting_decisions)
 backend_profile_material(profile)
 output_material(output_negotiation)
 ```
@@ -689,11 +695,19 @@ alter output or key interpretation.
 Raw parser syntax, aliases, and vendor option spelling must not appear in cache
 material.
 
-Resolver decisions that affect pixels must appear in resolver material.
-Backend capability profile changes that can alter pixels must appear in backend
-profile material. This prevents a deployment that gains face detection or
-changes smartcrop strategy support from reusing stale cache entries produced by
-older behavior.
+Image operations are expected to be deterministic for a resolved source image
+and final canonical pipeline order. Therefore, unresolved deterministic
+semantic intent can be cache material. For example, imgproxy `resize:auto` may
+remain `resize:auto` in semantic material instead of forcing the selected fit
+or cover branch into the key.
+
+Resolver decisions appear in resolver material only when they add
+output-affecting information not already determined by source identity,
+semantic material, backend profile, configuration, output negotiation, and
+pipeline order. Backend capability profile changes that can alter pixels must
+appear in backend profile material. This prevents a deployment that gains face
+detection or changes smartcrop strategy support from reusing stale cache entries
+produced by older behavior.
 
 ## Parser And Vendor Mapping
 
@@ -894,7 +908,11 @@ Cache tests should assert:
 - semantic material changes when semantic operation fields change
 - parser aliases do not affect material after normalization
 - pipeline boundaries are preserved in material
-- resolver fallback decisions that affect pixels are included deterministically
+- deterministic unresolved semantic intent, such as imgproxy `resize:auto`, is
+  sufficient cache material when source identity and pipeline order determine
+  the output
+- resolver fallback decisions are included only when they add output-affecting
+  information not already determined by existing key material
 - backend capability profile changes that affect pixels change material
 
 Boundary tests should assert:
