@@ -80,7 +80,7 @@ Do not introduce backend operation structs in this plan unless an executable ope
 
 ## Implementation Guardrails
 
-- Safe execution order is Tasks 0 through 12 as written. Cache key construction and runtime miss-path resolution must support semantic plans before Task 9 switches Imgproxy parser output.
+- Safe execution order is Tasks 0 through 12 as written. Task 9 switches Imgproxy parser output; Tasks 7 and 8 must pass before Task 9 starts.
 - Cache key construction must not call `Transform.resolve/3`, origin fetch, metadata extraction, image decode/open, or source-aware geometry helpers.
 - The final output cache key must be built before origin fetch and must not be rebuilt or mutated after post-fetch source-aware resolution.
 - On cache miss, runtime must store under the same cache key returned by the prefetch-safe lookup; it must not build a resolved-operation key after source-aware resolution.
@@ -149,6 +149,8 @@ Split characterization into two files:
 Directly constructing executable operation structs is acceptable only in `transform_executable_characterization_test.exs`. Parser-facing behavior should parse real imgproxy-compatible requests or run the current request path.
 
 Use the image library/helpers already used by existing transform tests. The shown `Image.new/3`, `Image.width/1`, and `Image.height/1` calls are illustrative and may need alias/import adjustment based on Task 0.
+
+Before pasting this module, replace `Image.new/3`, `Image.width/1`, and `Image.height/1` with the actual image helper or alias found in Task 0.
 
 ```elixir
 defmodule ImagePlug.TransformExecutableCharacterizationTest do
@@ -326,6 +328,8 @@ Add a numbered request-level test, not a placeholder, that characterizes `resize
 Use that test to reconcile current behavior with the design rule before implementing `ResizeAuto` lowering. Do not leave this as a placeholder test.
 
 If current test infrastructure cannot easily execute a parsed request against generated images, add a helper local to the characterization test that parses/builds a plan, runs the current runtime/processor path, and reads encoded output dimensions using the same image library/helper used elsewhere in the test suite.
+
+Do not proceed to Task 5 until these request-level `ResizeAuto` cases pass and the expected cover/fill executable sequence is written down in a test assertion or comment.
 
 - [ ] **Step 2: Run the characterization tests**
 
@@ -817,7 +821,10 @@ Guide.Gravity
 
 Update `lib/image_plug/plan/pipeline.ex` type to include semantic operations. During the migration, keep executable operations in the type if current parser/runtime still emits them before Task 9; narrow the type to semantic-only in Task 10 after parser output is switched.
 
+If this exact semantic-only type breaks compilation, docs, or specs before Task 9, temporarily union the existing executable operation type and remove that temporary union in Task 10.
+
 ```elixir
+# Final type after Task 10:
 @type operation() ::
         ImagePlug.Plan.Operation.CropRegion.t()
         | ImagePlug.Plan.Operation.CropGuided.t()
@@ -967,7 +974,7 @@ Add:
 
 Defaults: `orientation: :normal`, `has_alpha?: false`, `source_type: :raster`.
 
-Provide `SourceMetadata.new!/1` or validate these fields at the resolver entrypoint so invalid width, height, orientation, format, or source type fails before lowering. Tests may use raw struct literals when clearer, but production resolver entry must validate.
+Provide `SourceMetadata.new!/1`, and have the resolver entrypoint validate raw struct literals as a backstop. Invalid width, height, orientation, format, or source type should fail before lowering. Tests may use raw struct literals when clearer, but production code should have one obvious constructor path.
 
 First-slice resolver may treat non-`:normal` orientation conservatively unless current imgproxy-compatible behavior already exposes and tests EXIF-aware geometry. Do not overbuild EXIF coordinate handling in this task.
 
@@ -1294,6 +1301,10 @@ end
 
 Add a second cache test that passes a non-default backend profile or backend material version and proves the final key changes while semantic pipeline material stays the same. This forces backend/profile material to be parameterized rather than hardcoded.
 
+Implementation hint: the cache key builder should accept backend profile material through options/config, for example `backend_profile: custom_profile` or equivalent based on Task 0 findings, instead of hardcoding `BackendProfile.default/0` in a way callers cannot override.
+
+When backend profile material is added, update existing cache key fixtures or snapshots intentionally. Do not weaken semantic cache assertions merely to make changed snapshots pass.
+
 - [ ] **Step 2: Add cache-hit no-origin test for semantic ResizeAuto**
 
 Add to `test/image_plug/runtime/request_runner_test.exs`:
@@ -1355,6 +1366,13 @@ This facade should:
 
 `RequestRunner` may call this facade before cache lookup. It must not pattern-match on concrete `ImagePlug.Plan.Operation.*` modules itself.
 
+Add focused tests, preferably in `test/image_plug/plan/prefetch_validation_test.exs`, proving:
+
+- semantic Plan operations pass
+- executable `ImagePlug.Transform.Operation.*` structs in a canonical Plan fail after Task 9/10
+- parser-local command structs fail
+- validation does not call resolver, source metadata, origin fetch, or decode/open code
+
 - [ ] **Step 5: Ensure runtime does not second-lookup with derived material**
 
 `RequestRunner.run/4` must:
@@ -1400,14 +1418,14 @@ mise exec -- git commit -m "feat: key transform cache by semantic intent"
 - Modify: `lib/image_plug/runtime/request_runner.ex`
 - Modify: `lib/image_plug/runtime/processor.ex`
 - Modify: `lib/image_plug/transform/decode_planner.ex`
-- Test: `test/image_plug/request_runner_test.exs`
+- Test: `test/image_plug/runtime/request_runner_test.exs`
 - Test: `test/image_plug/decode_planner_test.exs`
 
 Runtime must be capable of accepting semantic plans before Task 9 switches the Imgproxy parser to emit semantic operations.
 
 - [ ] **Step 1: Add miss-path resolver test**
 
-Add to `test/image_plug/request_runner_test.exs` a test that uses semantic operations, cache miss, and existing origin image:
+Add to `test/image_plug/runtime/request_runner_test.exs` a test that uses semantic operations, cache miss, and existing origin image. If Task 0 finds the runtime test at a different path, use that discovered path consistently in this task.
 
 ```elixir
 test "cache miss resolves semantic operations after origin fetch and stores under original key" do
@@ -1495,9 +1513,9 @@ Add a decode planner test proving that a semantic plan containing unresolved sou
 Run:
 
 ```bash
-mise exec -- mix format lib/image_plug/runtime/request_runner.ex lib/image_plug/runtime/processor.ex lib/image_plug/runtime/decoded_origin.ex lib/image_plug/transform/decode_planner.ex test/image_plug/request_runner_test.exs test/image_plug/decode_planner_test.exs
+mise exec -- mix format lib/image_plug/runtime/request_runner.ex lib/image_plug/runtime/processor.ex lib/image_plug/runtime/decoded_origin.ex lib/image_plug/transform/decode_planner.ex test/image_plug/runtime/request_runner_test.exs test/image_plug/decode_planner_test.exs
 mise exec -- mix compile --warnings-as-errors
-mise exec -- mix test test/image_plug/request_runner_test.exs test/image_plug/decode_planner_test.exs test/image_plug/request_safety_test.exs
+mise exec -- mix test test/image_plug/runtime/request_runner_test.exs test/image_plug/decode_planner_test.exs test/image_plug/request_safety_test.exs
 ```
 
 Expected: cache hit still avoids origin; cache miss resolves and executes semantic operations; invalid parser/plan requests still fail before cache and origin.
@@ -1507,7 +1525,7 @@ Expected: cache hit still avoids origin; cache miss resolves and executes semant
 Run:
 
 ```bash
-mise exec -- git add lib/image_plug/runtime lib/image_plug/transform/decode_planner.ex test/image_plug/request_runner_test.exs test/image_plug/decode_planner_test.exs test/image_plug/request_safety_test.exs
+mise exec -- git add lib/image_plug/runtime lib/image_plug/transform/decode_planner.ex test/image_plug/runtime/request_runner_test.exs test/image_plug/decode_planner_test.exs test/image_plug/request_safety_test.exs
 mise exec -- git commit -m "feat: resolve semantic operations on cache miss"
 ```
 
@@ -1744,17 +1762,19 @@ test "post-fetch derivations are not accepted as final output cache key inputs" 
   serialized = ImagePlug.Cache.Key.serialize_material(key_before.material)
 
   assert key_before == key_after_resolve
+  assert [[material]] = key_before.material[:pipelines]
+  assert material[:op] == :resize_auto
+  refute Keyword.has_key?(material, :selected_branch)
+  refute Keyword.has_key?(material, :branch)
   refute serialized =~ "resize_auto_branch"
   refute serialized =~ "selected_branch"
   refute serialized =~ "Derivation"
-  refute serialized =~ "cover"
-  refute serialized =~ "fit"
   refute Keyword.has_key?(key_before.material, :derivations)
   assert key_before.material[:resolver_material] in [nil, []]
 end
 ```
 
-Use a private `plan_with_resize_auto/0` helper in that test file. The assertion proves the cache key material does not include derivation structs or derived branch labels. The `cover` and `fit` substring checks are valid only for this `ResizeAuto` key case; do not use them for a `ResizeCover` semantic plan. If `Cache.Key` has a public builder, also add a negative test that it accepts a semantic `Plan` and does not accept `ResolvedPlan`.
+Use a private `plan_with_resize_auto/0` helper in that test file. The assertion proves the cache key material does not include derivation structs or derived branch labels. Prefer structural material assertions over broad substring checks; use serialization only as a fallback for absence checks when material shape is opaque. If `Cache.Key` has a public builder, also add a negative test that it accepts a semantic `Plan` and does not accept `ResolvedPlan`.
 
 - [ ] **Step 2: Add ResizeAuto determinism examples**
 
@@ -1870,7 +1890,7 @@ Run:
 ```bash
 mise exec -- mix format --check-formatted
 mise exec -- mix compile --warnings-as-errors
-mise exec -- mix test test/parser/imgproxy_test.exs test/parser/imgproxy_property_test.exs test/parser/imgproxy/plan_builder_test.exs test/image_plug/transform/resolver_test.exs test/image_plug/cache/key_test.exs test/image_plug/request_runner_test.exs test/image_plug/request_safety_test.exs test/image_plug/architecture_boundary_test.exs
+mise exec -- mix test test/parser/imgproxy_test.exs test/parser/imgproxy_property_test.exs test/parser/imgproxy/plan_builder_test.exs test/image_plug/transform/resolver_test.exs test/image_plug/cache/key_test.exs test/image_plug/runtime/request_runner_test.exs test/image_plug/request_safety_test.exs test/image_plug/architecture_boundary_test.exs
 ```
 
 Expected: all commands pass.
