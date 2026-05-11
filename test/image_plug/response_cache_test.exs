@@ -12,7 +12,6 @@ defmodule ImagePlug.Runtime.ResponseCacheTest do
   alias ImagePlug.Plan.Pipeline
   alias ImagePlug.Plan.Source.Plain
   alias ImagePlug.Runtime.ResponseCache
-  alias ImagePlug.Transform.BackendProfile
   alias ImagePlug.Transform.State
 
   defmodule CaptureAdapter do
@@ -130,29 +129,16 @@ defmodule ImagePlug.Runtime.ResponseCacheTest do
            ]
   end
 
-  test "lookup keys include configured backend profile material" do
-    custom_backend = %BackendProfile{BackendProfile.default() | material_version: 2}
-
+  test "lookup keys include transform material version" do
     assert {:miss, %Key{} = key} =
              ResponseCache.lookup(
                conn(:get, "/_/f:jpeg/plain/images/cat.jpg"),
                plan(output: %Output{mode: {:explicit, :jpeg}}),
                "https://origin.test/images/cat.jpg",
-               cache: {CaptureAdapter, []},
-               backend_profile: custom_backend
+               cache: {CaptureAdapter, []}
              )
 
-    assert key.material[:backend] == BackendProfile.material(custom_backend)
-  end
-
-  test "lookup returns cache read error for invalid backend profile material" do
-    assert ResponseCache.lookup(
-             conn(:get, "/_/f:jpeg/plain/images/cat.jpg"),
-             plan(output: %Output{mode: {:explicit, :jpeg}}),
-             "https://origin.test/images/cat.jpg",
-             cache: {CaptureAdapter, []},
-             backend_profile: :not_a_profile
-           ) == {:error, {:invalid_backend_profile, :not_a_profile}}
+    assert key.material[:transform] == [material_version: 1]
   end
 
   test "store reports skipped when cache writing is disabled" do

@@ -27,7 +27,7 @@ The request flow is:
 3. Planner code translates compatible semantics into canonical
    `ImagePlug.Plan.Operation.*` structs.
 4. Cache keys are built from source-fetch-free plan material plus source
-   freshness, output, config, and backend/profile material.
+   freshness, output, config, and the cache key's transform material version.
 5. On cache miss, `ImagePlug.Transform.Resolver` lowers semantic Plan
    operations to executable `ImagePlug.Transform.Operation.*` work.
 6. Runtime executes resolved work by dispatching through `ImagePlug.Transform`.

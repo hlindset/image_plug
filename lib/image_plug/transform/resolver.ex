@@ -5,7 +5,6 @@ defmodule ImagePlug.Transform.Resolver do
 
   alias ImagePlug.Plan
   alias ImagePlug.Plan.Pipeline
-  alias ImagePlug.Transform.BackendProfile
   alias ImagePlug.Transform.Geometry
   alias ImagePlug.Transform.Geometry.DimensionResolver
   alias ImagePlug.Transform.Geometry.DimensionRule
@@ -21,14 +20,9 @@ defmodule ImagePlug.Transform.Resolver do
 
   @spec resolve(Plan.t(), SourceMetadata.t(), keyword()) ::
           {:ok, ResolvedPlan.t()} | {:error, term()}
-  def resolve(%Plan{} = plan, %SourceMetadata{} = source_metadata, opts \\ []) do
-    with {:ok, backend_profile_material} <- BackendProfile.material_from_options(opts),
-         {:ok, pipelines} <- resolve_pipelines(plan.pipelines, source_metadata) do
-      {:ok,
-       %ResolvedPlan{
-         pipelines: pipelines,
-         backend_profile_material: backend_profile_material
-       }}
+  def resolve(%Plan{} = plan, %SourceMetadata{} = source_metadata, _opts \\ []) do
+    with {:ok, pipelines} <- resolve_pipelines(plan.pipelines, source_metadata) do
+      {:ok, %ResolvedPlan{pipelines: pipelines}}
     end
   end
 

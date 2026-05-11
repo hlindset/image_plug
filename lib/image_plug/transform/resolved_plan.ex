@@ -6,14 +6,12 @@ defmodule ImagePlug.Transform.ResolvedPlan do
   defstruct pipelines: [],
             diagnostics: [],
             selections: [],
-            resolver_material: [],
-            backend_profile_material: []
+            resolver_material: []
 
   @type t :: %__MODULE__{
           pipelines: [[ImagePlug.Transform.operation()]],
           diagnostics: list(),
           selections: list(),
-          resolver_material: keyword(),
-          backend_profile_material: keyword()
+          resolver_material: keyword()
         }
 end

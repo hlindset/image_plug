@@ -151,7 +151,7 @@ Supported explicit output extensions are `webp`, `avif`, `jpeg`, `jpg`, `png`, a
 
 `cachebuster`/`cb` changes cache key material without adding transform operations. `expires`/`exp` is a Unix timestamp request validity policy.
 
-Final cache lookup is source-fetch-free: it is built from semantic Plan material, resolved origin identity/freshness material, output/config/vary material, and backend/profile material. It does not fetch, decode, or read source metadata. Source-aware resolver choices such as `ResizeAuto` selecting fit or cover do not enter the normal final cache key.
+Final cache lookup is source-fetch-free: it is built from semantic Plan material, resolved origin identity/freshness material, output/config/vary material, and the cache key's transform material version. It does not fetch, decode, or read source metadata. Source-aware resolver choices such as `ResizeAuto` selecting fit or cover do not enter the normal final cache key.
 
 Only successful encoded responses are cached. Rejected Imgproxy requests return before origin fetch and cache lookup.
 

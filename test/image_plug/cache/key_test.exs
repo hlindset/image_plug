@@ -13,7 +13,6 @@ defmodule ImagePlug.Cache.KeyTest do
   alias ImagePlug.Plan.Output
   alias ImagePlug.Plan.Pipeline
   alias ImagePlug.Plan.Source.Plain
-  alias ImagePlug.Transform.BackendProfile
 
   defp plan(overrides \\ []) do
     struct!(
@@ -127,14 +126,7 @@ defmodule ImagePlug.Cache.KeyTest do
                  ]
                ]
              ],
-             backend: [
-               backend: :vips,
-               material_version: 1,
-               geometry_rules_version: 1,
-               orientation_policy_version: 1,
-               dpr_policy_version: 1,
-               smart_strategy_support: :none
-             ],
+             transform: [material_version: 1],
              output: [
                mode: :explicit,
                format: :webp,
@@ -307,38 +299,11 @@ defmodule ImagePlug.Cache.KeyTest do
     refute key_a.hash == key_b.hash
   end
 
-  test "backend profile material participates in the cache key" do
+  test "transform material version participates in the cache key" do
     conn = conn(:get, "/_/plain/images/cat.jpg")
-    default_key = build_key!(conn, plan(), "https://origin.test/images/cat.jpg")
+    key = build_key!(conn, plan(), "https://origin.test/images/cat.jpg")
 
-    custom_backend = %BackendProfile{BackendProfile.default() | material_version: 2}
-
-    custom_key =
-      build_key!(conn, plan(), "https://origin.test/images/cat.jpg",
-        backend_profile: custom_backend
-      )
-
-    assert default_key.material[:pipelines] == custom_key.material[:pipelines]
-    assert custom_key.material[:backend] == BackendProfile.material(custom_backend)
-    refute default_key.hash == custom_key.hash
-  end
-
-  test "invalid backend profile material returns a tagged error" do
-    assert Key.build(
-             conn(:get, "/_/plain/images/cat.jpg"),
-             plan(),
-             "https://origin.test/images/cat.jpg",
-             backend_profile: :not_a_profile
-           ) == {:error, {:invalid_backend_profile, :not_a_profile}}
-
-    invalid_profile = [{:bad, :ok} | :tail]
-
-    assert Key.build(
-             conn(:get, "/_/plain/images/cat.jpg"),
-             plan(),
-             "https://origin.test/images/cat.jpg",
-             backend_profile: invalid_profile
-           ) == {:error, {:invalid_backend_profile, invalid_profile}}
+    assert key.material[:transform] == [material_version: 1]
   end
 
   test "cache key construction does not reference source-aware resolution" do

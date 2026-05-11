@@ -33,15 +33,6 @@ defmodule ImagePlug.Runtime.ProcessorTest do
     }
   end
 
-  defp plan_with_resize do
-    {:ok, width} = Dimension.pixels(1)
-    {:ok, height} = Dimension.pixels(1)
-    {:ok, size} = ImagePlug.Plan.Geometry.Size.new(width: width, height: height, dpr: 1.0)
-    {:ok, operation} = Operation.resize_fit(size: size, enlargement: :deny)
-
-    %Plan{plan() | pipelines: [%Pipeline{operations: [operation]}]}
-  end
-
   defp resize_fit(width, height) do
     {:ok, width} = resize_dimension(width)
     {:ok, height} = resize_dimension(height)
@@ -283,59 +274,6 @@ defmodule ImagePlug.Runtime.ProcessorTest do
              )
 
     assert_receive {:DOWN, ^worker_ref, :process, _worker, _reason}
-  end
-
-  test "process_decoded_origin closes pending origins on semantic resolution errors" do
-    {:ok, image} = Image.new(1, 1)
-    {:ok, stream_status} = StreamStatus.start_link()
-    test_pid = self()
-
-    worker =
-      spawn_link(fn ->
-        send(test_pid, :worker_ready)
-
-        receive do
-          {:cancel, _ref} -> :ok
-        end
-      end)
-
-    assert_receive :worker_ready
-
-    origin_response = %ImagePlug.Runtime.Origin.Response{
-      content_type: "image/jpeg",
-      headers: [],
-      ref: make_ref(),
-      stream: [],
-      stream_status: stream_status,
-      url: "http://origin.test/images/cat-300.jpg",
-      worker: worker
-    }
-
-    decoded = %DecodedOrigin{
-      decode_options: [access: :sequential, fail_on: :error],
-      image: image,
-      origin_response: origin_response,
-      source_format: :jpeg,
-      source_metadata: %SourceMetadata{
-        width: Image.width(image),
-        height: Image.height(image),
-        orientation: :normal,
-        format: :jpeg,
-        source_type: :raster
-      }
-    }
-
-    worker_ref = Process.monitor(worker)
-
-    assert {:error, {:invalid_backend_profile, :not_a_profile}} =
-             process_decoded_origin(
-               decoded,
-               plan_with_resize(),
-               Keyword.put(opts(), :backend_profile, :not_a_profile)
-             )
-
-    assert_receive {:DOWN, ^worker_ref, :process, ^worker, _reason}
-    StreamStatus.stop(stream_status)
   end
 
   test "process_decoded_origin closes pending origins on prefetch validation errors" do

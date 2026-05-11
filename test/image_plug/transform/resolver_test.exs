@@ -9,7 +9,6 @@ defmodule ImagePlug.Transform.ResolverTest do
   alias ImagePlug.Plan.Pipeline
   alias ImagePlug.Plan.Source.Plain
   alias ImagePlug.Transform
-  alias ImagePlug.Transform.BackendProfile
   alias ImagePlug.Transform.Geometry.DimensionRule
   alias ImagePlug.Transform.Operation.Crop
   alias ImagePlug.Transform.Operation.Resize
@@ -76,7 +75,6 @@ defmodule ImagePlug.Transform.ResolverTest do
 
     assert resolved.selections == []
     assert resolved.resolver_material == []
-    assert resolved.backend_profile_material == BackendProfile.material(BackendProfile.default())
   end
 
   test "executable pipelines facade lowers semantic operations" do
@@ -93,26 +91,6 @@ defmodule ImagePlug.Transform.ResolverTest do
                 }
               ]
             ]} = Transform.executable_pipelines(plan([operation]), metadata, [])
-  end
-
-  test "backend profile material follows resolver options" do
-    assert {:ok, operation} = Operation.resize_auto(size: size(300, 200), enlargement: :deny)
-    metadata = %SourceMetadata{width: 1600, height: 900, orientation: :normal, format: :jpeg}
-
-    backend_profile = %BackendProfile{BackendProfile.default() | material_version: 2}
-
-    assert {:ok, resolved} =
-             Transform.resolve(plan([operation]), metadata, backend_profile: backend_profile)
-
-    assert resolved.backend_profile_material == BackendProfile.material(backend_profile)
-  end
-
-  test "invalid backend profile material returns a tagged resolver error" do
-    assert {:ok, operation} = Operation.resize_auto(size: size(300, 200), enlargement: :deny)
-    metadata = %SourceMetadata{width: 1600, height: 900, orientation: :normal, format: :jpeg}
-
-    assert Transform.resolve(plan([operation]), metadata, backend_profile: :not_a_profile) ==
-             {:error, {:invalid_backend_profile, :not_a_profile}}
   end
 
   test "resize auto derives fit for differing current and target orientation" do
