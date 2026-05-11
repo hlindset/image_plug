@@ -74,9 +74,6 @@ defmodule ImagePlug.Transform.ResolverTest do
              ]
            ] = resolved.pipelines
 
-    assert [%{code: :resize_auto_branch, value: :cover, material?: false}] =
-             resolved.derivations
-
     assert resolved.selections == []
     assert resolved.resolver_material == []
     assert resolved.backend_profile_material == BackendProfile.material(BackendProfile.default())
@@ -124,9 +121,6 @@ defmodule ImagePlug.Transform.ResolverTest do
 
     assert {:ok, resolved} = Transform.resolve(plan([operation]), metadata, [])
     assert [[%Resize{rule: %DimensionRule{mode: :fit, enlarge: false}}]] = resolved.pipelines
-
-    assert [%{code: :resize_auto_branch, value: :fit, material?: false}] =
-             resolved.derivations
   end
 
   test "resize auto derives fit when target orientation is unknown" do
@@ -162,9 +156,6 @@ defmodule ImagePlug.Transform.ResolverTest do
                  %Crop{target_rule: %DimensionRule{mode: :fill}}
                ]
              ] = resolved.pipelines
-
-      assert [%{code: :resize_auto_branch, value: :cover, operation_index: 1}] =
-               resolved.derivations
     end
   end
 
@@ -176,8 +167,13 @@ defmodule ImagePlug.Transform.ResolverTest do
 
     assert {:ok, resolved} = Transform.resolve(plan([auto_orient, resize_auto]), metadata, [])
 
-    assert [%{code: :resize_auto_branch, value: :cover, operation_index: 1}] =
-             resolved.derivations
+    assert [
+             [
+               %ImagePlug.Transform.Operation.AutoOrient{},
+               %Resize{rule: %DimensionRule{mode: :fill}},
+               %Crop{target_rule: %DimensionRule{mode: :fill}}
+             ]
+           ] = resolved.pipelines
   end
 
   test "auto orient with unknown orientation makes resize auto choose conservative fit" do
@@ -194,9 +190,6 @@ defmodule ImagePlug.Transform.ResolverTest do
                %Resize{rule: %DimensionRule{mode: :fit}}
              ]
            ] = resolved.pipelines
-
-    assert [%{code: :resize_auto_branch, value: :fit, operation_index: 1}] =
-             resolved.derivations
   end
 
   test "auto orient keeps source alignment invalidated for later source-space crops" do
@@ -209,7 +202,7 @@ defmodule ImagePlug.Transform.ResolverTest do
              {:error, {:invalid_pipeline_operation, crop}}
   end
 
-  test "preserves pipeline, emitted operation, and derivation order" do
+  test "preserves pipeline and emitted operation order" do
     assert {:ok, first_resize} =
              Operation.resize_auto(size: size(100, 50), enlargement: :deny)
 
@@ -239,12 +232,6 @@ defmodule ImagePlug.Transform.ResolverTest do
                %Crop{target_rule: %DimensionRule{mode: :fill}}
              ]
            ] = resolved.pipelines
-
-    assert [
-             %{code: :resize_auto_branch, pipeline_index: 0, operation_index: 0},
-             %{code: :crop_region_resolved, pipeline_index: 0, operation_index: 1},
-             %{code: :resize_auto_branch, pipeline_index: 1, operation_index: 0}
-           ] = resolved.derivations
   end
 
   for {source, target, expected} <- [
@@ -256,7 +243,6 @@ defmodule ImagePlug.Transform.ResolverTest do
     test "resize auto #{inspect(source)} to #{inspect(target)} derives #{expected}" do
       {source_width, source_height} = unquote(Macro.escape(source))
       {target_width, target_height} = unquote(Macro.escape(target))
-      expected = unquote(expected)
 
       assert {:ok, operation} =
                Operation.resize_auto(size: size(target_width, target_height), enlargement: :deny)
@@ -269,9 +255,6 @@ defmodule ImagePlug.Transform.ResolverTest do
       }
 
       assert {:ok, resolved} = Transform.resolve(plan([operation]), metadata, [])
-
-      assert [%{code: :resize_auto_branch, value: ^expected, material?: false}] =
-               resolved.derivations
 
       expected_mode = unquote(if expected == :cover, do: :fill, else: :fit)
 

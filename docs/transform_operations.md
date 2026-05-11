@@ -79,8 +79,8 @@ Parser/planner code should use these semantic operations:
   plus guide for the result crop.
 - `ImagePlug.Plan.Operation.ResizeStretch`: force/stretch resize.
 - `ImagePlug.Plan.Operation.ResizeAuto`: imgproxy-compatible source-dependent
-  resize intent. The selected fit/cover branch is a post-fetch derivation, not
-  cache key material.
+  resize intent. The selected fit/cover branch is post-fetch execution state,
+  not cache key material.
 - `ImagePlug.Plan.Operation.CropGuided`: crop by size plus guide.
 - `ImagePlug.Plan.Operation.CropRegion`: explicit region crop.
 - `ImagePlug.Plan.Operation.Canvas`: place the current image on a target canvas.
@@ -114,8 +114,7 @@ force/stretch semantics.
 Use `ResizeAuto` only for the imgproxy-compatible source-dependent rule:
 orientation match derives cover, orientation mismatch derives fit, and unknown
 target orientation derives fit. The unresolved `ResizeAuto` operation is the
-cache-addressing material; the selected branch is a resolver derivation after a
-cache miss.
+cache-addressing material; the selected branch is resolved after a cache miss.
 
 Do not use `ResizeAuto` as a generic conditional resize operation. If a future
 adapter has different source-dependent branch rules, add a new semantic
@@ -167,9 +166,10 @@ behavior that cannot be represented cleanly by product-neutral semantic Plan
 operations, keep that behavior isolated in parser/adapter code rather than
 encoding dialect syntax into operation cache material.
 
-Source-aware resolver derivations such as `ResizeAuto` selecting fit/cover,
-ratio crop resolution, and DPR conversion are useful diagnostics, but they do
-not participate in the normal final output cache key.
+Source-aware resolver choices such as `ResizeAuto` selecting fit/cover, ratio
+crop resolution, and DPR conversion are reflected in resolved executable work
+after a cache miss, but they do not participate in the normal final output
+cache key.
 
 ## Mapping Examples
 

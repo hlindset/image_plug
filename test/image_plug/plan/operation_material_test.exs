@@ -76,7 +76,6 @@ defmodule ImagePlug.Plan.OperationMaterialTest do
     refute Keyword.has_key?(material, :source_height)
     refute inspect(material) =~ "source_width"
     refute inspect(material) =~ "source_height"
-    refute inspect(material) =~ "derivation"
     refute inspect(material) =~ "selected_branch"
   end
 

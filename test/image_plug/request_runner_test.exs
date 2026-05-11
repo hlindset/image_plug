@@ -195,7 +195,7 @@ defmodule ImagePlug.Runtime.RequestRunnerTest do
              )
   end
 
-  test "semantic resize auto cache hit does not fetch source or resolve derivations" do
+  test "semantic resize auto cache hit does not fetch source or resolve operations" do
     entry = %Entry{
       body: "cached jpeg",
       content_type: "image/jpeg",

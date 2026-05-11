@@ -15,7 +15,6 @@ defmodule ImagePlug.Transform.Resolver.Lowering do
   alias ImagePlug.Plan.Operation.ResizeStretch
   alias ImagePlug.Plan.Operation.ResizeAuto
   alias ImagePlug.Plan.Operation.Rotate
-  alias ImagePlug.Transform.Derivation
   alias ImagePlug.Transform.Geometry.DimensionRule
   alias ImagePlug.Transform.Operation.Crop
   alias ImagePlug.Transform.Operation.AutoOrient, as: ExecutableAutoOrient
@@ -25,19 +24,19 @@ defmodule ImagePlug.Transform.Resolver.Lowering do
   alias ImagePlug.Transform.Operation.Rotate, as: ExecutableRotate
   alias ImagePlug.Transform.Resolver.Geometry
 
-  @spec lower(Operation.semantic_operation(), map()) :: {[struct()], [Derivation.t()]}
+  @spec lower(Operation.semantic_operation(), map()) :: [struct()]
   def lower(%ResizeFit{} = operation, _context) do
-    {[%Resize{rule: dimension_rule(operation, :fit)}], []}
+    [%Resize{rule: dimension_rule(operation, :fit)}]
   end
 
   def lower(%ResizeCover{} = operation, _context) do
     rule = dimension_rule(operation, :cover)
 
-    {cover_operations(rule, operation.guide, operation), []}
+    cover_operations(rule, operation.guide, operation)
   end
 
   def lower(%ResizeStretch{} = operation, _context) do
-    {[%Resize{rule: dimension_rule(operation, :stretch)}], []}
+    [%Resize{rule: dimension_rule(operation, :stretch)}]
   end
 
   def lower(%ResizeAuto{} = operation, context) do
@@ -53,67 +52,45 @@ defmodule ImagePlug.Transform.Resolver.Lowering do
       )
 
     rule = dimension_rule(operation, branch)
-    derivation = derivation(branch, context)
 
-    {executable_operations(branch, rule, operation), [derivation]}
+    executable_operations(branch, rule, operation)
   end
 
   def lower(%CropGuided{} = operation, _context) do
-    {
-      [
-        %Crop{
-          width: crop_dimension(operation.size.width),
-          height: crop_dimension(operation.size.height),
-          crop_from: :gravity,
-          gravity: executable_gravity(operation.guide),
-          x_offset: operation.x_offset,
-          y_offset: operation.y_offset
-        }
-      ],
-      []
-    }
+    [
+      %Crop{
+        width: crop_dimension(operation.size.width),
+        height: crop_dimension(operation.size.height),
+        crop_from: :gravity,
+        gravity: executable_gravity(operation.guide),
+        x_offset: operation.x_offset,
+        y_offset: operation.y_offset
+      }
+    ]
   end
 
   def lower(%CropRegion{} = operation, context) do
-    crop = crop_region(operation.region, context)
-
-    derivation = %Derivation{
-      code: :crop_region_resolved,
-      value: %{
-        left: crop.crop_from.left,
-        top: crop.crop_from.top,
-        width: crop.width,
-        height: crop.height
-      },
-      pipeline_index: context.pipeline_index,
-      operation_index: context.operation_index,
-      material?: false
-    }
-
-    {[crop], [derivation]}
+    [crop_region(operation.region, context)]
   end
 
   def lower(%Canvas{} = operation, _context) do
     width = canvas_dimension(operation.size.width)
     height = canvas_dimension(operation.size.height)
 
-    {
-      [
-        %ExtendCanvas{
-          rule: canvas_rule(width, height),
-          gravity: executable_gravity(operation.placement),
-          x_offset: operation.x_offset,
-          y_offset: operation.y_offset,
-          background: operation.background
-        }
-      ],
-      []
-    }
+    [
+      %ExtendCanvas{
+        rule: canvas_rule(width, height),
+        gravity: executable_gravity(operation.placement),
+        x_offset: operation.x_offset,
+        y_offset: operation.y_offset,
+        background: operation.background
+      }
+    ]
   end
 
-  def lower(%AutoOrient{}, _context), do: {[%ExecutableAutoOrient{}], []}
-  def lower(%Rotate{angle: angle}, _context), do: {[%ExecutableRotate{angle: angle}], []}
-  def lower(%Flip{axis: axis}, _context), do: {[%ExecutableFlip{axis: axis}], []}
+  def lower(%AutoOrient{}, _context), do: [%ExecutableAutoOrient{}]
+  def lower(%Rotate{angle: angle}, _context), do: [%ExecutableRotate{angle: angle}]
+  def lower(%Flip{axis: axis}, _context), do: [%ExecutableFlip{axis: axis}]
 
   defp logical_pixels(%Dimension{unit: :logical_px, value: value}), do: value
   defp logical_pixels(%Dimension{}), do: :unknown
@@ -162,16 +139,6 @@ defmodule ImagePlug.Transform.Resolver.Lowering do
         target_rule: rule
       }
     ]
-  end
-
-  defp derivation(branch, context) do
-    %Derivation{
-      code: :resize_auto_branch,
-      value: branch,
-      pipeline_index: context.pipeline_index,
-      operation_index: context.operation_index,
-      material?: false
-    }
   end
 
   defp crop_dimension(%Dimension{unit: :full_axis}), do: :auto

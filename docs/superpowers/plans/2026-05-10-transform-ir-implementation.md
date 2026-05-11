@@ -4,7 +4,7 @@
 
 **Goal:** Replace the current overloaded executable transform structs with a narrow semantic Plan IR for the current imgproxy-compatible behavior, while keeping final output cache lookup source-fetch-free.
 
-**Architecture:** Add canonical semantic operation structs under `ImagePlug.Plan.Operation.*`, keep parser quirks in the renamed `ImagePlug.Parser.Imgproxy`, and resolve semantic plans to executable transform work inside `ImagePlug.Transform`. Cache keys are built from prefetch-safe semantic material, source freshness identity, output/config material, and backend/profile material; source-aware lowering facts are derivations and never mutate final cache keys.
+**Architecture:** Add canonical semantic operation structs under `ImagePlug.Plan.Operation.*`, keep parser quirks in the renamed `ImagePlug.Parser.Imgproxy`, and resolve semantic plans to executable transform work inside `ImagePlug.Transform`. Cache keys are built from prefetch-safe semantic material, source freshness identity, output/config material, and backend/profile material; source-aware lowering choices stay internal to resolved executable work and never mutate final cache keys.
 
 **Tech Stack:** Elixir 1.17, ExUnit, StreamData, Boundary, Plug, Vix/Image, existing `ImagePlug.Transform` facade.
 
@@ -33,10 +33,9 @@ Create these semantic Plan files:
 Create these Transform resolver files:
 
 - `lib/image_plug/transform/source_metadata.ex` - minimal source metadata struct passed to resolver.
-- `lib/image_plug/transform/resolved_plan.ex` - resolved executable work plus diagnostics, derivations, selections.
-- `lib/image_plug/transform/derivation.ex` - typed derivation struct for source-aware lowering facts.
+- `lib/image_plug/transform/resolved_plan.ex` - resolved executable work plus diagnostics and selections.
 - `lib/image_plug/transform/backend_profile.ex` - first-slice backend/profile material.
-- `lib/image_plug/transform/resolver.ex` - orchestration for semantic validation, source-aware lowering, support checks, and derivation recording.
+- `lib/image_plug/transform/resolver.ex` - orchestration for semantic validation, source-aware lowering, and support checks.
 - `lib/image_plug/transform/resolver/geometry.ex` - shared integer geometry, orientation, DPR, and ResizeAuto branch helpers.
 - `lib/image_plug/transform/resolver/lowering.ex` - lowers semantic operations to existing executable `ImagePlug.Transform.Operation.*` structs.
 
@@ -89,7 +88,7 @@ Do not introduce backend operation structs in this plan unless an executable ope
 - Semantic Plan constructor APIs must return `{:ok, value}` or `{:error, reason}`. Do not introduce public bang constructors for semantic Plan values or operations; local test helpers such as `build_key!/3` or `execute!/2` are fine when they wrap assertions.
 - Parser defaults that affect output, such as center gravity, DPR `1.0`, and enlargement policy, must be explicit in canonical Plan material.
 - `ResizeAuto` and `ResizeCover` behavior must be verified against current parser/request-level behavior before lowering is finalized.
-- First-slice resolver output is expected to contain derivations and no selections. Add selections only if current imgproxy-compatible behavior proves a prefetch-safe output-affecting choice that is not already materialized elsewhere.
+- First-slice resolver output is expected to contain no selections. Add selections only if current imgproxy-compatible behavior proves a prefetch-safe output-affecting choice that is not already materialized elsewhere.
 - Parser output must eventually contain only canonical `ImagePlug.Plan.Operation.*` structs, never executable `ImagePlug.Transform.Operation.*` structs.
 - Commit steps are checkpoints when git identity is available. If commits are unavailable in the execution environment, leave changes staged or report the intended commit boundary.
 
@@ -482,7 +481,7 @@ defmodule ImagePlug.Plan.VendorMappingFixtureTest do
       input: "rt:auto/w:300/h:200",
       classification: :supported_now,
       semantic_shape: [:resize_auto],
-      notes: "branch is a source-aware derivation, not cache key material"
+      notes: "branch is source-aware execution state, not cache key material"
     },
     %{
       vendor: :twicpics,
@@ -860,12 +859,11 @@ mise exec -- git commit -m "feat: add semantic plan operations"
 
 ---
 
-### Task 5: Add Transform Resolver And ResizeAuto Derivations
+### Task 5: Add Transform Resolver And ResizeAuto Lowering
 
 **Files:**
 - Create: `lib/image_plug/transform/source_metadata.ex`
 - Create: `lib/image_plug/transform/resolved_plan.ex`
-- Create: `lib/image_plug/transform/derivation.ex`
 - Create: `lib/image_plug/transform/backend_profile.ex`
 - Create: `lib/image_plug/transform/resolver.ex`
 - Create: `lib/image_plug/transform/resolver/geometry.ex`
@@ -919,9 +917,6 @@ defmodule ImagePlug.Transform.ResolverTest do
               %Crop{target_rule: %DimensionRule{mode: :fill}, crop_from: :gravity}
             ]] = resolved.pipelines
 
-    assert [%{code: :resize_auto_branch, value: :cover, material?: false}] =
-             resolved.derivations
-
     assert resolved.selections == []
     assert resolved.resolver_material == []
   end
@@ -932,9 +927,6 @@ defmodule ImagePlug.Transform.ResolverTest do
 
     assert {:ok, resolved} = Transform.resolve(plan([operation]), metadata, [])
     assert [[%Resize{rule: %DimensionRule{mode: :fit}}]] = resolved.pipelines
-
-    assert [%{code: :resize_auto_branch, value: :fit, material?: false}] =
-             resolved.derivations
   end
 
   test "resize auto derives fit when target orientation is unknown" do
@@ -977,23 +969,9 @@ First-slice resolver may treat non-`:normal` orientation conservatively unless c
 Add:
 
 ```elixir
-%ImagePlug.Transform.Derivation{
-  code: atom(),
-  value: term(),
-  pipeline_index: non_neg_integer(),
-  operation_index: non_neg_integer(),
-  material?: false,
-  details: map()
-}
-```
-
-Add:
-
-```elixir
 %ImagePlug.Transform.ResolvedPlan{
   pipelines: [[ImagePlug.Transform.operation()]],
   diagnostics: [],
-  derivations: [],
   selections: [],
   resolver_material: [],
   backend_profile_material: []
@@ -1035,7 +1013,7 @@ end
 2. Iterate pipelines in order.
 3. Maintain current dimensions in resolver state.
 4. Lower each semantic operation through `Resolver.Lowering`.
-5. Append derivations for ResizeAuto, DPR conversion, and source-aware dimensions when implemented.
+5. Reflect source-aware choices in resolved executable work.
 6. Return no selections in first slice.
 
 - [ ] **Step 5: Implement ResizeAuto orientation helper**
@@ -1067,19 +1045,17 @@ Lower `Operation.ResizeAuto` to the existing executable sequence required to pre
 
 If Task 1 proves that `%Resize{mode: :fill}` alone already produces exact cover output, document that proof in the test and simplify this lowering. Otherwise default to resize-plus-result-crop.
 
-Record a `%Derivation{code: :resize_auto_branch, value: :cover | :fit, material?: false}`.
-
 - [ ] **Step 7: Run resolver tests**
 
 Run:
 
 ```bash
-mise exec -- mix format lib/image_plug/transform.ex lib/image_plug/transform/source_metadata.ex lib/image_plug/transform/resolved_plan.ex lib/image_plug/transform/derivation.ex lib/image_plug/transform/backend_profile.ex lib/image_plug/transform/resolver.ex lib/image_plug/transform/resolver/*.ex test/image_plug/transform/resolver_test.exs
+mise exec -- mix format lib/image_plug/transform.ex lib/image_plug/transform/source_metadata.ex lib/image_plug/transform/resolved_plan.ex lib/image_plug/transform/backend_profile.ex lib/image_plug/transform/resolver.ex lib/image_plug/transform/resolver/*.ex test/image_plug/transform/resolver_test.exs
 mise exec -- mix compile --warnings-as-errors
 mise exec -- mix test test/image_plug/transform/resolver_test.exs
 ```
 
-Expected: ResizeAuto branch derivations are recorded and `resolver_material` remains empty.
+Expected: ResizeAuto lowers to the expected executable branch and `resolver_material` remains empty.
 
 - [ ] **Step 8: Commit resolver foundation**
 
@@ -1177,7 +1153,7 @@ defmodule ImagePlug.Transform.ResolverLoweringTest do
              resolved.pipelines
   end
 
-  test "source-space ratio crop resolves to integer backend crop and derivation" do
+  test "source-space ratio crop resolves to integer backend crop" do
     assert {:ok, x} = Dimension.ratio(1, 10)
     assert {:ok, y} = Dimension.ratio(1, 10)
     assert {:ok, width} = Dimension.ratio(1, 2)
@@ -1187,7 +1163,6 @@ defmodule ImagePlug.Transform.ResolverLoweringTest do
     assert {:ok, operation} = Operation.crop_region(region: region)
 
     assert {:ok, resolved} = Transform.resolve(plan([operation]), metadata(), [])
-    assert [%{code: :crop_region_resolved, material?: false}] = resolved.derivations
     assert [[%Crop{} = crop]] = resolved.pipelines
     assert_existing_crop_fields_encode(crop, left: 30, top: 20, width: 150, height: 100)
   end
@@ -1204,20 +1179,20 @@ For each semantic operation, add one lowering function and run the focused test 
 - `ResizeCover` -> the existing executable sequence required to preserve current fill/cover behavior. If Task 1 proves current request-visible cover/fill uses resize plus result crop, lower to `%Resize{rule: %DimensionRule{mode: :fill}}` followed by `%Crop{target_rule: same_fill_rule, crop_from: :gravity}`. If Task 1 proves `%Resize{mode: :fill}` alone already produces final cover dimensions, assert only resize and update these tests accordingly.
 - `ResizeStretch` -> existing `%Resize{rule: %DimensionRule{mode: :force}}`
 - `CropGuided` -> existing `%Crop{crop_from: :gravity}`. `Dimension.full_axis()` lowers to the existing crop full-axis representation, such as `:auto`, only in this crop-axis context.
-- `CropRegion` -> existing `%Crop{crop_from: %{left: x, top: y}}` only when exact current-space pixels can be resolved; source-space regions must use shared geometry derivation
+- `CropRegion` -> existing `%Crop{crop_from: %{left: x, top: y}}` only when exact current-space pixels can be resolved; source-space regions must use shared geometry lowering helpers
 - `Canvas` -> existing `%ExtendCanvas{}`
 - `AutoOrient`, `Rotate`, `Flip` -> existing orientation operations
 
-- [ ] **Step 3: Add derivations for source-aware values**
+- [ ] **Step 3: Keep source-aware lowering facts internal**
 
-When lowering resolves a source/current dependent value, append a derivation with `material?: false`. Use these codes:
+When lowering resolves a source/current dependent value, reflect the result in
+the executable operations and focused resolver tests. Do not add first-class
+recorded lowering artifacts unless a current caller consumes them. First-slice
+resolved plans must keep `selections: []` and `resolver_material: []`.
 
-- `:resize_auto_branch`
-- `:dpr_applied`
-- `:crop_region_resolved`
-- `:dimension_resolved`
-
-First-slice resolved plans must keep `selections: []` and `resolver_material: []`.
+Useful test labels for source-aware cases include `resize_auto_branch`,
+`dpr_applied`, `crop_region_resolved`, and `dimension_resolved`, but these are
+test names/diagnostic labels rather than cache material.
 
 - [ ] **Step 4: Run lowering and characterization tests**
 
@@ -1291,7 +1266,7 @@ When backend profile material is added, update existing cache key fixtures or sn
 Add to `test/image_plug/runtime/request_runner_test.exs`:
 
 ```elixir
-test "semantic resize auto cache hit does not fetch source or resolve derivations" do
+test "semantic resize auto cache hit does not fetch source or resolve operations" do
   entry = %Entry{
     body: "cached jpeg",
     content_type: "image/jpeg",
@@ -1651,7 +1626,7 @@ Update `test/image_plug/architecture_boundary_test.exs`:
 - Runtime must not alias, import, construct, or pattern match on concrete `ImagePlug.Plan.Operation.*` modules.
 - Runtime must not alias, import, construct, or pattern match on concrete `ImagePlug.Transform.Operation.*` modules.
 - Parser-specific structs under `ImagePlug.Parser.Imgproxy.*` must not appear in runtime.
-- Cache key construction must not reference `ImagePlug.Transform.Resolver`, `ImagePlug.Transform.SourceMetadata`, `ImagePlug.Transform.ResolvedPlan`, or `ImagePlug.Transform.Derivation`.
+- Cache key construction must not reference `ImagePlug.Transform.Resolver`, `ImagePlug.Transform.SourceMetadata`, or `ImagePlug.Transform.ResolvedPlan`.
 - `ImagePlug.Parser.Imgproxy` must not reference executable `ImagePlug.Transform.Operation.*` modules after Task 9.
 
 Keep Transform resolver allowed to reference concrete semantic and executable operation modules:
@@ -1690,7 +1665,7 @@ mise exec -- git commit -m "refactor: document semantic transform boundary"
 
 ---
 
-### Task 11: Add Cache, Derivation, And Equivalence Regression Tests
+### Task 11: Add Cache, Resolver, And Equivalence Regression Tests
 
 **Files:**
 - Modify: `test/image_plug/cache/key_test.exs`
@@ -1704,22 +1679,13 @@ mise exec -- git commit -m "refactor: document semantic transform boundary"
 Add to `test/image_plug/cache/key_test.exs`:
 
 ```elixir
-test "post-fetch derivations are not accepted as final output cache key inputs" do
+test "post-fetch resize auto branch is not accepted as final output cache key input" do
   key_before =
     build_key!(
       conn(:get, "/_/rt:auto/w:300/h:200/plain/images/cat.jpg"),
       plan_with_resize_auto(),
       "origin-version-1"
     )
-
-  derivation = %ImagePlug.Transform.Derivation{
-    code: :resize_auto_branch,
-    value: :cover,
-    pipeline_index: 0,
-    operation_index: 0,
-    material?: false,
-    details: %{}
-  }
 
   key_after_resolve =
     build_key!(
@@ -1737,13 +1703,11 @@ test "post-fetch derivations are not accepted as final output cache key inputs" 
   refute Keyword.has_key?(material, :branch)
   refute serialized =~ "resize_auto_branch"
   refute serialized =~ "selected_branch"
-  refute serialized =~ "Derivation"
-  refute Keyword.has_key?(key_before.material, :derivations)
   assert key_before.material[:resolver_material] in [nil, []]
 end
 ```
 
-Use a private `plan_with_resize_auto/0` helper in that test file. The assertion proves the cache key material does not include derivation structs or derived branch labels. Prefer structural material assertions over broad substring checks; use serialization only as a fallback for absence checks when material shape is opaque. If `Cache.Key` has a public builder, also add a negative test that it accepts a semantic `Plan` and does not accept `ResolvedPlan`.
+Use a private `plan_with_resize_auto/0` helper in that test file. The assertion proves the cache key material does not include derived branch labels. Prefer structural material assertions over broad substring checks; use serialization only as a fallback for absence checks when material shape is opaque. If `Cache.Key` has a public builder, also add a negative test that it accepts a semantic `Plan` and does not accept `ResolvedPlan`.
 
 - [ ] **Step 2: Add ResizeAuto determinism examples**
 
@@ -1762,7 +1726,7 @@ for {source, target, expected} <- [
 end
 ```
 
-Generate source metadata and semantic operation per case. Assert the derivation value and lowered resize mode.
+Generate source metadata and semantic operation per case. Assert the lowered resize mode and, for cover cases, the expected result-crop sequence if characterization proved cover requires it.
 
 - [ ] **Step 3: Add source freshness cache tests**
 
@@ -1840,7 +1804,7 @@ Update docs to reflect:
 - The native ImagePlug model is `ImagePlug.Plan`, not a URL syntax.
 - Parser syntax maps into `ImagePlug.Plan.Operation.*`.
 - Final cache lookup is source-fetch-free and uses semantic material.
-- `ResizeAuto` is cache-keyed as semantic intent; selected fit/cover branch is a derivation.
+- `ResizeAuto` is cache-keyed as semantic intent; selected fit/cover branch is source-aware execution state.
 
 - [ ] **Step 2: Search for stale Native parser references**
 
@@ -1892,12 +1856,12 @@ Spec coverage:
 - Current imgproxy-compatible behavior first: Tasks 1, 2, 9, and 11.
 - Rename Native to Imgproxy: Task 2.
 - Canonical Plan operations: Task 4.
-- Resolver and source-aware derivations: Tasks 5, 6, and 8.
+- Resolver and source-aware lowering: Tasks 5, 6, and 8.
 - Final output cache lookup source-fetch-free: Tasks 7 and 11.
 - Runtime generic boundary: Tasks 8 and 10.
 - No first-slice capability framework or strategy execution: File Structure, Task 3, Task 5, and Task 10 explicitly avoid them.
 - Vendor fixtures before IR expansion: Task 3.
-- Vertical operation slices: Tasks 4, 5, 6, 9, and 11 require constructor/material/lowering/derivation/cache tests.
+- Vertical operation slices: Tasks 4, 5, 6, 9, and 11 require constructor/material/lowering/cache tests.
 
 Placeholder scan:
 
@@ -1908,6 +1872,6 @@ Placeholder scan:
 Type consistency:
 
 - Semantic operations live under `ImagePlug.Plan.Operation.*`.
-- Source metadata, derivations, resolved plans, and backend profile live under `ImagePlug.Transform.*`.
+- Source metadata, resolved plans, and backend profile live under `ImagePlug.Transform.*`.
 - Parser namespace is consistently `ImagePlug.Parser.Imgproxy` after Task 2.
-- First-slice resolver output uses derivations and empty selections/resolver material.
+- First-slice resolver output uses empty selections/resolver material.

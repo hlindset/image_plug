@@ -26,7 +26,7 @@ Imgproxy canonical semantic operation order inside each pipeline group is:
 1. orientation (`auto_orient`, `rotate`, `flip`)
 2. explicit crop
 3. resize intent, including semantic `ResizeAuto`
-4. result crop derivation for fill/fill-down/auto target geometry
+4. result crop for fill/fill-down/auto target geometry
 5. canvas extension
 
 Orientation suborder is auto-orient, rotate, then flip.
@@ -151,7 +151,7 @@ Supported explicit output extensions are `webp`, `avif`, `jpeg`, `jpg`, `png`, a
 
 `cachebuster`/`cb` changes cache key material without adding transform operations. `expires`/`exp` is a Unix timestamp request validity policy.
 
-Final cache lookup is source-fetch-free: it is built from semantic Plan material, resolved origin identity/freshness material, output/config/vary material, and backend/profile material. It does not fetch, decode, or read source metadata. Resolver derivations such as `ResizeAuto` selecting fit or cover do not enter the normal final cache key.
+Final cache lookup is source-fetch-free: it is built from semantic Plan material, resolved origin identity/freshness material, output/config/vary material, and backend/profile material. It does not fetch, decode, or read source metadata. Source-aware resolver choices such as `ResizeAuto` selecting fit or cover do not enter the normal final cache key.
 
 Only successful encoded responses are cached. Rejected Imgproxy requests return before origin fetch and cache lookup.
 

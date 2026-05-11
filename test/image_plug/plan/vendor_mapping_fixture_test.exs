@@ -21,7 +21,7 @@ defmodule ImagePlug.Plan.VendorMappingFixtureTest do
       input: "rt:auto/w:300/h:200",
       classification: :supported_now,
       semantic_shape: [:resize_auto],
-      notes: "branch is a source-aware derivation, not cache key material"
+      notes: "branch is source-aware execution, not cache key material"
     },
     %{
       vendor: :twicpics,

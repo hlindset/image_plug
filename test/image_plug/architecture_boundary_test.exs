@@ -41,8 +41,7 @@ defmodule ImagePlug.ArchitectureBoundaryTest do
   @post_fetch_transform_state_modules [
     ImagePlug.Transform.Resolver,
     ImagePlug.Transform.SourceMetadata,
-    ImagePlug.Transform.ResolvedPlan,
-    ImagePlug.Transform.Derivation
+    ImagePlug.Transform.ResolvedPlan
   ]
 
   test "parser boundary declarations stay limited to parser, plan, and transform construction APIs" do
@@ -263,14 +262,13 @@ defmodule ImagePlug.ArchitectureBoundaryTest do
     File.write!(file, """
     defmodule ImagePlug.Cache.Key.BoundaryExample do
       alias ImagePlug.Transform.{Resolver, SourceMetadata}
-      def material(%ImagePlug.Transform.ResolvedPlan{}), do: %ImagePlug.Transform.Derivation{}
+      def material(%ImagePlug.Transform.ResolvedPlan{}), do: :ok
     end
     """)
 
     assert post_fetch_resolver_references(file) |> Enum.sort_by(&{&1.line, &1.module}) == [
              %{line: 2, module: "ImagePlug.Transform.Resolver"},
              %{line: 2, module: "ImagePlug.Transform.SourceMetadata"},
-             %{line: 3, module: "ImagePlug.Transform.Derivation"},
              %{line: 3, module: "ImagePlug.Transform.ResolvedPlan"}
            ]
   end
@@ -561,11 +559,11 @@ defmodule ImagePlug.ArchitectureBoundaryTest do
           |> then(&{node, &1 ++ violations})
 
         {:__aliases__, meta, [:ImagePlug, :Transform, module | _rest]} = node, violations
-        when module in [:Resolver, :SourceMetadata, :ResolvedPlan, :Derivation] ->
+        when module in [:Resolver, :SourceMetadata, :ResolvedPlan] ->
           {node, [violation(meta, "ImagePlug.Transform.#{module}") | violations]}
 
         {:__aliases__, meta, [:Transform, module | _rest]} = node, violations
-        when module in [:Resolver, :SourceMetadata, :ResolvedPlan, :Derivation] ->
+        when module in [:Resolver, :SourceMetadata, :ResolvedPlan] ->
           {node, [violation(meta, "Transform.#{module}") | violations]}
 
         node, violations ->
@@ -712,11 +710,11 @@ defmodule ImagePlug.ArchitectureBoundaryTest do
   defp concrete_plan_module(operation), do: "ImagePlug.Plan.Operation.#{operation}"
 
   defp post_fetch_resolver_alias({:__aliases__, _meta, [module]})
-       when module in [:Resolver, :SourceMetadata, :ResolvedPlan, :Derivation],
+       when module in [:Resolver, :SourceMetadata, :ResolvedPlan],
        do: "ImagePlug.Transform.#{module}"
 
   defp post_fetch_resolver_alias({:__aliases__, _meta, [module | _rest]})
-       when module in [:Resolver, :SourceMetadata, :ResolvedPlan, :Derivation],
+       when module in [:Resolver, :SourceMetadata, :ResolvedPlan],
        do: "ImagePlug.Transform.#{module}"
 
   defp post_fetch_resolver_alias(_alias), do: nil

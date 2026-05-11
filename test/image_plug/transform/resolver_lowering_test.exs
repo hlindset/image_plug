@@ -90,7 +90,6 @@ defmodule ImagePlug.Transform.ResolverLoweringTest do
              ]
            ] = resolved.pipelines
 
-    assert resolved.derivations == []
     assert resolved.selections == []
     assert resolved.resolver_material == []
   end
@@ -106,11 +105,9 @@ defmodule ImagePlug.Transform.ResolverLoweringTest do
 
     assert [[%Crop{width: {:pixels, 50}, height: :auto, crop_from: :gravity}]] =
              resolved.pipelines
-
-    assert resolved.derivations == []
   end
 
-  test "source-space ratio crop resolves to integer backend crop and derivation" do
+  test "source-space ratio crop resolves to integer backend crop" do
     assert {:ok, x} = Dimension.ratio(0, 1)
     assert {:ok, y} = Dimension.ratio(0, 1)
     assert {:ok, width} = Dimension.ratio(1, 2)
@@ -122,8 +119,6 @@ defmodule ImagePlug.Transform.ResolverLoweringTest do
     assert {:ok, operation} = Operation.crop_region(region: region)
 
     assert {:ok, resolved} = Transform.resolve(plan([operation]), metadata(), [])
-
-    assert [%{code: :crop_region_resolved, material?: false}] = resolved.derivations
 
     assert [
              [
@@ -153,9 +148,6 @@ defmodule ImagePlug.Transform.ResolverLoweringTest do
                }
              ]
            ] = resolved.pipelines
-
-    assert [%{code: :resize_auto_branch, value: :fit, operation_index: 1}] =
-             resolved.derivations
   end
 
   test "current-space crop regions resolve against dimensions produced by earlier operations" do
@@ -183,9 +175,6 @@ defmodule ImagePlug.Transform.ResolverLoweringTest do
                }
              ]
            ] = resolved.pipelines
-
-    assert [%{code: :crop_region_resolved, operation_index: 1, material?: false}] =
-             resolved.derivations
   end
 
   test "crop region lowering allows zero pixel coordinates" do
@@ -297,7 +286,5 @@ defmodule ImagePlug.Transform.ResolverLoweringTest do
 
     assert [[%AutoOrient{}, %Rotate{angle: 90}, %Flip{axis: :horizontal}]] =
              resolved.pipelines
-
-    assert resolved.derivations == []
   end
 end

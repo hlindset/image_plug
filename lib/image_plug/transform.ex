@@ -20,7 +20,6 @@ defmodule ImagePlug.Transform do
       Types,
       SourceMetadata,
       ResolvedPlan,
-      Derivation,
       BackendProfile,
       Resolver,
       Geometry.CropCoordinateMapper,

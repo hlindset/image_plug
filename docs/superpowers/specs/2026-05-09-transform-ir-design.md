@@ -75,7 +75,7 @@ parser raw syntax
        validates semantic operations
        applies source metadata
        checks backend support
-       records diagnostics, derivations, and selections
+       records diagnostics and prefetch-safe selections when needed
        lowers to executable backend work
   -> resolved transform plan
   -> ImagePlug.Transform facade
@@ -220,8 +220,8 @@ for example `{:resize_auto, size, enlargement_policy}`. Transform lowering
 selects `ResizeCover` when the current image orientation matches the requested
 target orientation, including square-to-square, and `ResizeFit` otherwise. If
 the requested target orientation cannot be computed, it selects `ResizeFit`.
-The selected branch is recorded as a resolver derivation, not resolver
-material, because it is deterministic from existing key material.
+The selected branch is source-aware execution state, not resolver material,
+because it is deterministic from existing key material.
 
 `ResizeAuto` compares the requested target orientation with the current
 dimensions at that point in the semantic pipeline, not necessarily the original
@@ -424,10 +424,10 @@ Rules:
   when doing so cannot change diagnostics, policy outcomes, output metadata, or
   later operation semantics. The normalized plan may still retain them for
   debugging or diagnostics.
-- Source-aware lowering results are derivations when they are deterministic
-  consequences of source identity/freshness material, canonical semantic
-  material, configuration, backend profile, output negotiation, and pipeline
-  order. Derivations do not need separate cache material.
+- Source-aware lowering results need no separate cache material when they are
+  deterministic consequences of source identity/freshness material, canonical
+  semantic material, configuration, backend profile, output negotiation, and
+  pipeline order.
 - Resolver selections need separate material only when they introduce an
   output-affecting choice that is not already determined by prefetch-safe key
   material.
@@ -473,8 +473,7 @@ lowering should call shared geometry helpers.
 
 ## DPR And Pixel Density
 
-DPR must be explicit in plan material and resolver derivations when it affects
-visible output.
+DPR must be explicit in plan material when it affects visible output.
 
 Rules:
 
@@ -491,9 +490,9 @@ Rules:
   lowering is the only phase that converts DPR-affected logical geometry into
   physical integer pixels unless a dialect explicitly defines physical-pixel
   input.
-- Crop offsets or gravity offsets that are DPR-scaled must record that scaling
-  derivation in resolver output for diagnostics and tests, but it must not be
-  required for final output cache lookup.
+- Crop offsets or gravity offsets that are DPR-scaled must remain deterministic
+  from prefetch-safe material and documented resolver semantics; they must not
+  require final output cache lookup to include post-fetch data.
 - DPR values that affect output must be part of cache material.
 
 ## Resolver Design
@@ -513,7 +512,7 @@ semantic validation
   -> source-aware normalization
   -> backend support checks
   -> backend lowering
-  -> derivation and selection recording
+  -> diagnostics and prefetch-safe selection material
 ```
 
 The external API should remain small. The implementation should avoid one
@@ -535,16 +534,15 @@ Outputs:
 
 - resolved executable work
 - diagnostics
-- derivations, which are deterministic source-aware lowering results
 - selections, which are output-affecting choices not already determined by
   prefetch-safe key material
 - optional prefetch-safe resolver material contribution for selections
 - output metadata for later pipelines
 
 Policy decides which diagnostics become errors. Source-metadata-derived
-lowering results are derivations, not final-cache material. Selections become
-resolver material only when they are available before origin fetch/cache lookup
-and existing key material does not already determine them.
+lowering results are internal execution choices, not final-cache material.
+Selections become resolver material only when they are available before origin
+fetch/cache lookup and existing key material does not already determine them.
 
 ## Resolved Plan Invariants
 
@@ -605,8 +603,7 @@ imgproxy-compatible slice requires one.
 A pragmatic first resolver result is enough:
 
 ```elixir
-{:ok, exact_plan}
-{:ok, approximate_plan, derivations, selections, diagnostics}
+{:ok, resolved_plan}
 {:error, diagnostics}
 ```
 
@@ -631,12 +628,11 @@ Unsupported capability handling:
 - Compatibility modes may allow declared fallbacks such as
   `faces -> entropy -> center`.
 
-## Diagnostics, Derivations, And Selections
+## Diagnostics And Selections
 
-Diagnostics describe what happened or what could not happen. Derivations
-describe deterministic source-aware lowering results. Selections describe
-output-affecting choices that are not already determined by prefetch-safe key
-material.
+Diagnostics describe what happened or what could not happen. Selections
+describe output-affecting choices that are not already determined by
+prefetch-safe key material.
 
 Diagnostic fields:
 
@@ -657,23 +653,17 @@ Useful diagnostic codes:
 - `:gravity_offset_approximated`
 - `:backend_capability_missing`
 
-Derivation examples:
-
-- selected cover branch for orientation-based resize
-- selected fit branch for orientation-based resize
-- resolved a source-space crop region to backend integer pixels
-- converted logical dimensions plus DPR to physical backend pixels
-
 Selection examples:
 
 - selected `:entropy` after `:faces` was unavailable
 - applied approximation mode for a guide strategy
 
 Diagnostics that do not affect visible output do not belong in cache keys.
-Derivations do not belong in final output cache keys. Selections belong in
-cache keys only when they add output-affecting information not already
-determined by prefetch-safe key material. In the first slice, no post-fetch
-resolver output may alter the final output cache key.
+Source-aware lowering facts such as selected resize branches, resolved crop
+pixels, and DPR-adjusted backend dimensions do not belong in final output cache
+keys. Selections belong in cache keys only when they add output-affecting
+information not already determined by prefetch-safe key material. In the first
+slice, no post-fetch resolver output may alter the final output cache key.
 
 ## Decode And Request-Safety Phases
 
@@ -705,9 +695,9 @@ Cache lookup:
 - Source-dependent semantic operations remain unresolved in final cache
   material when they are deterministic for the source identity/freshness
   material and final pipeline order.
-- Source-metadata-derived resolver choices are derivations, not key material,
-  when they are deterministic from source identity/freshness material,
-  canonical semantic material, configuration, backend profile, output
+- Source-metadata-derived resolver choices are execution choices, not key
+  material, when they are deterministic from source identity/freshness
+  material, canonical semantic material, configuration, backend profile, output
   negotiation, and pipeline order.
 - Resolver material may include only output-affecting selections that are
   available before origin fetch/cache lookup and are not already represented by
@@ -798,7 +788,7 @@ or source metadata extraction. It combines those layers with:
 - config defaults that affect visible output
 
 The transform material version must change when canonicalization, rounding,
-source-aware derivation semantics, or backend/profile material changes in a way
+source-aware lowering semantics, or backend/profile material changes in a way
 that could alter output or key interpretation.
 
 Raw parser syntax, aliases, and vendor option spelling must not appear in cache
@@ -843,12 +833,12 @@ risk under weak origin identity policy.
 The Transform IR must not compensate for weak origin freshness by fetching the
 image before final output cache lookup.
 
-Source-metadata-derived resolver results are derivations. They may be recorded
-for diagnostics, tests, observability, or execution traces, but they do not
-participate in the normal final output cache key. Examples include
-`ResizeAuto` selecting fit or cover, source-space crop lowering, ratio
-dimension resolution, orientation-aware dimensions, and DPR conversion to
-physical pixels.
+Source-metadata-derived resolver results are internal execution choices. They
+may be reflected in resolved executable work, diagnostics, tests, observability,
+or execution traces, but they do not participate in the normal final output
+cache key. Examples include `ResizeAuto` selecting fit or cover, source-space
+crop lowering, ratio dimension resolution, orientation-aware dimensions, and
+DPR conversion to physical pixels.
 
 Resolver material is reserved for prefetch-safe selections: output-affecting
 choices that are available before origin fetch/cache lookup and not already
@@ -927,8 +917,8 @@ Mapping:
 - `resize:auto` maps to canonical `ResizeAuto`, a source-dependent semantic
   resize operation with parser-syntax-free material. Transform resolves it to
   `ResizeCover` or `ResizeFit` after the current input dimensions are known
-  during source-aware resolution. The selected branch is a resolver derivation,
-  not resolver material, because it is deterministic from source
+  during source-aware resolution. The selected branch is source-aware execution
+  state, not resolver material, because it is deterministic from source
   identity/freshness material, canonical semantic material, configuration,
   backend profile, output negotiation, and pipeline order.
 - `extend` and `extend_aspect_ratio` map to `Canvas`.
@@ -1081,7 +1071,7 @@ Cache tests should assert:
   sufficient cache material when source identity and pipeline order determine
   the output
 - `ResizeAuto` cache material is unchanged across sources with different
-  dimensions when source freshness material differs, and post-fetch derivation
+  dimensions when source freshness material differs, and post-fetch resolution
   selects the expected branch for each source
 - a `ResizeAuto` cache hit returns output without origin fetch, metadata read,
   decode, or source-aware lowering

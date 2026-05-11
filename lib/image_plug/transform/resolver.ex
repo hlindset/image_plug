@@ -23,11 +23,10 @@ defmodule ImagePlug.Transform.Resolver do
           {:ok, ResolvedPlan.t()} | {:error, term()}
   def resolve(%Plan{} = plan, %SourceMetadata{} = source_metadata, opts \\ []) do
     with {:ok, backend_profile_material} <- BackendProfile.material_from_options(opts),
-         {:ok, pipelines, derivations} <- resolve_pipelines(plan.pipelines, source_metadata) do
+         {:ok, pipelines} <- resolve_pipelines(plan.pipelines, source_metadata) do
       {:ok,
        %ResolvedPlan{
          pipelines: pipelines,
-         derivations: derivations,
          backend_profile_material: backend_profile_material
        }}
     end
@@ -46,23 +45,21 @@ defmodule ImagePlug.Transform.Resolver do
 
     pipelines
     |> Enum.with_index()
-    |> Enum.reduce_while({:ok, [], [], context}, fn {pipeline, pipeline_index},
-                                                    {:ok, pipelines, derivations, context} ->
+    |> Enum.reduce_while({:ok, [], context}, fn {pipeline, pipeline_index},
+                                                {:ok, pipelines, context} ->
       context = Map.put(context, :pipeline_index, pipeline_index)
 
       case resolve_pipeline(pipeline, context) do
-        {:ok, operations, pipeline_derivations, context} ->
-          {:cont,
-           {:ok, [operations | pipelines], prepend_reversed(pipeline_derivations, derivations),
-            context}}
+        {:ok, operations, context} ->
+          {:cont, {:ok, [operations | pipelines], context}}
 
         {:error, reason} ->
           {:halt, {:error, reason}}
       end
     end)
     |> case do
-      {:ok, pipelines, derivations, _context} ->
-        {:ok, Enum.reverse(pipelines), Enum.reverse(derivations)}
+      {:ok, pipelines, _context} ->
+        {:ok, Enum.reverse(pipelines)}
 
       {:error, reason} ->
         {:error, reason}
@@ -72,26 +69,23 @@ defmodule ImagePlug.Transform.Resolver do
   defp resolve_pipeline(%Pipeline{operations: operations}, context) do
     operations
     |> Enum.with_index()
-    |> Enum.reduce_while({:ok, [], [], context}, fn {operation, operation_index},
-                                                    {:ok, resolved, derivations, context} ->
+    |> Enum.reduce_while({:ok, [], context}, fn {operation, operation_index},
+                                                {:ok, resolved, context} ->
       operation_context = Map.put(context, :operation_index, operation_index)
 
-      {executable_operations, operation_derivations} =
-        Lowering.lower(operation, lowering_context(operation_context))
+      executable_operations = Lowering.lower(operation, lowering_context(operation_context))
 
       case advance_context(operation_context, executable_operations) do
         {:ok, context} ->
-          {:cont,
-           {:ok, prepend_reversed(executable_operations, resolved),
-            prepend_reversed(operation_derivations, derivations), context}}
+          {:cont, {:ok, prepend_reversed(executable_operations, resolved), context}}
 
         {:error, reason} ->
           {:halt, {:error, reason}}
       end
     end)
     |> case do
-      {:ok, resolved, derivations, context} ->
-        {:ok, Enum.reverse(resolved), Enum.reverse(derivations), context}
+      {:ok, resolved, context} ->
+        {:ok, Enum.reverse(resolved), context}
 
       {:error, reason} ->
         {:error, reason}

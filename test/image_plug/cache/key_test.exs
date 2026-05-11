@@ -266,7 +266,7 @@ defmodule ImagePlug.Cache.KeyTest do
     refute key_a.hash == key_b.hash
   end
 
-  test "post-fetch derivations are not accepted as final output cache key inputs" do
+  test "post-fetch resize auto branch is not accepted as final output cache key input" do
     conn = conn(:get, "/_/rt:auto/w:300/h:200/plain/images/cat.jpg")
     key_before = build_key!(conn, plan_with_resize_auto(), "origin-version-1")
 
@@ -280,8 +280,6 @@ defmodule ImagePlug.Cache.KeyTest do
     refute Keyword.has_key?(material, :branch)
     refute serialized =~ "resize_auto_branch"
     refute serialized =~ "selected_branch"
-    refute serialized =~ "Derivation"
-    refute Keyword.has_key?(key_before.material, :derivations)
     assert key_before.material[:resolver_material] in [nil, []]
   end
 
@@ -354,7 +352,6 @@ defmodule ImagePlug.Cache.KeyTest do
     refute source =~ "ImagePlug.Transform.Resolver"
     refute source =~ "SourceMetadata"
     refute source =~ "ResolvedPlan"
-    refute source =~ "Derivation"
     refute source =~ "Resolver.Geometry"
     refute source =~ "source_width"
     refute source =~ "source_height"
