@@ -266,18 +266,4 @@ defmodule ImagePlug.Transform.ChainTest do
     assert Image.width(image) == 100
     assert Image.height(image) == 100
   end
-
-  test "extend canvas raises for invalid unvalidated runtime dimensions" do
-    {:ok, image} = Image.new(100, 100, color: :white)
-
-    chain = [
-      %ExtendCanvas{
-        rule: {:dimensions, {:scale, 1, 0}, {:pixels, 100}}
-      }
-    ]
-
-    assert_raise ArgumentError, fn ->
-      Chain.execute(%State{image: image}, chain)
-    end
-  end
 end

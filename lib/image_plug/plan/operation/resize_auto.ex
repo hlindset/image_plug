@@ -6,10 +6,9 @@ defmodule ImagePlug.Plan.Operation.ResizeAuto do
   alias ImagePlug.Plan.Geometry.Size
   alias ImagePlug.Plan.Guide.Gravity
 
-  @enforce_keys [:size, :enlargement]
+  @enforce_keys [:size, :enlargement, :guide]
   defstruct @enforce_keys ++
               [
-                guide: nil,
                 min_width: nil,
                 min_height: nil,
                 zoom_x: 1.0,

@@ -22,8 +22,7 @@ defmodule ImagePlug.Transform.Resolver do
   @spec resolve(Plan.t(), SourceMetadata.t(), keyword()) ::
           {:ok, ResolvedPlan.t()} | {:error, term()}
   def resolve(%Plan{} = plan, %SourceMetadata{} = source_metadata, opts \\ []) do
-    with :ok <- SourceMetadata.validate(source_metadata),
-         {:ok, backend_profile_material} <- BackendProfile.material_from_options(opts),
+    with {:ok, backend_profile_material} <- BackendProfile.material_from_options(opts),
          {:ok, pipelines, derivations} <- resolve_pipelines(plan.pipelines, source_metadata) do
       {:ok,
        %ResolvedPlan{
@@ -77,17 +76,14 @@ defmodule ImagePlug.Transform.Resolver do
                                                     {:ok, resolved, derivations, context} ->
       operation_context = Map.put(context, :operation_index, operation_index)
 
-      case Lowering.lower(operation, lowering_context(operation_context)) do
-        {:ok, executable_operations, operation_derivations} ->
-          case advance_context(operation_context, executable_operations) do
-            {:ok, context} ->
-              {:cont,
-               {:ok, prepend_reversed(executable_operations, resolved),
-                prepend_reversed(operation_derivations, derivations), context}}
+      {executable_operations, operation_derivations} =
+        Lowering.lower(operation, lowering_context(operation_context))
 
-            {:error, reason} ->
-              {:halt, {:error, reason}}
-          end
+      case advance_context(operation_context, executable_operations) do
+        {:ok, context} ->
+          {:cont,
+           {:ok, prepend_reversed(executable_operations, resolved),
+            prepend_reversed(operation_derivations, derivations), context}}
 
         {:error, reason} ->
           {:halt, {:error, reason}}
@@ -203,8 +199,6 @@ defmodule ImagePlug.Transform.Resolver do
 
   defp advance_context_for_operation(context, %AutoOrient{}),
     do: advance_auto_orient_context(context.source_orientation, context)
-
-  defp advance_context_for_operation(context, _operation), do: {:ok, context}
 
   defp advance_auto_orient_context({:exif, orientation}, context) when orientation in 5..8 do
     {:ok, put_current_dimensions(context, context.current_height, context.current_width)}

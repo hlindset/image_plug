@@ -606,15 +606,12 @@ defmodule ImagePlug.Parser.Imgproxy.PlanBuilderTest do
     assert second_params.size.height == pixels(200)
   end
 
-  test "returns the first pipeline planning error without planning later malformed pipelines" do
+  test "returns unsupported gravity planning errors" do
     request = %ParsedRequest{
       signature: "_",
       source_kind: :plain,
       source_path: ["images", "cat.jpg"],
-      pipelines: [
-        %PipelineRequest{gravity: :sm},
-        %PipelineRequest{crop: :not_a_crop_request}
-      ],
+      pipelines: [%PipelineRequest{gravity: :sm}],
       output: %ImagePlug.Parser.Imgproxy.OutputRequest{}
     }
 

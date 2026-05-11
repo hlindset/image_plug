@@ -34,6 +34,7 @@ defmodule ImagePlug.Plan do
 
   alias ImagePlug.Plan.Cache
   alias ImagePlug.Plan.Output
+  alias ImagePlug.Plan.Operation
   alias ImagePlug.Plan.Pipeline
   alias ImagePlug.Plan.Policy
   alias ImagePlug.Plan.Response
@@ -110,7 +111,7 @@ defmodule ImagePlug.Plan do
     Enum.find(operations, &invalid_operation?/1)
   end
 
-  defp invalid_operation?(%_{}), do: false
+  defp invalid_operation?(%_{} = operation), do: not Operation.semantic?(operation)
   defp invalid_operation?(_operation), do: true
 
   defp validate_source(%Plain{path: path} = source) do

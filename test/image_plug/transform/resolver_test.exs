@@ -13,7 +13,6 @@ defmodule ImagePlug.Transform.ResolverTest do
   alias ImagePlug.Transform.Geometry.DimensionRule
   alias ImagePlug.Transform.Operation.Crop
   alias ImagePlug.Transform.Operation.Resize
-  alias ImagePlug.Transform.Operation.Scale
   alias ImagePlug.Transform.SourceMetadata
 
   defp plan(operations) do
@@ -83,18 +82,6 @@ defmodule ImagePlug.Transform.ResolverTest do
     assert resolved.backend_profile_material == BackendProfile.material(BackendProfile.default())
   end
 
-  test "executable pipelines facade preserves already executable operations" do
-    scale = %Scale{type: :dimensions, width: {:pixels, 320}, height: :auto}
-    metadata = %SourceMetadata{width: 1600, height: 900, orientation: :normal, format: :jpeg}
-
-    assert {:ok, [[^scale]]} =
-             Transform.executable_pipelines(
-               plan_with_pipelines([%Pipeline{operations: [scale]}]),
-               metadata,
-               []
-             )
-  end
-
   test "executable pipelines facade lowers semantic operations" do
     assert {:ok, operation} = Operation.resize_auto(size: size(300, 200), enlargement: :deny)
     metadata = %SourceMetadata{width: 1600, height: 900, orientation: :normal, format: :jpeg}
@@ -115,14 +102,7 @@ defmodule ImagePlug.Transform.ResolverTest do
     assert {:ok, operation} = Operation.resize_auto(size: size(300, 200), enlargement: :deny)
     metadata = %SourceMetadata{width: 1600, height: 900, orientation: :normal, format: :jpeg}
 
-    backend_profile = [
-      backend: :vips,
-      material_version: 2,
-      geometry_rules_version: 1,
-      orientation_policy_version: 1,
-      dpr_policy_version: 1,
-      smart_strategy_support: :none
-    ]
+    backend_profile = %BackendProfile{BackendProfile.default() | material_version: 2}
 
     assert {:ok, resolved} =
              Transform.resolve(plan([operation]), metadata, backend_profile: backend_profile)
@@ -226,7 +206,7 @@ defmodule ImagePlug.Transform.ResolverTest do
     metadata = %SourceMetadata{width: 1600, height: 900, orientation: {:exif, 6}, format: :jpeg}
 
     assert Transform.resolve(plan([auto_orient, crop]), metadata, []) ==
-             {:error, {:unsupported_source_space_crop_after_current_geometry, 0, 1}}
+             {:error, {:invalid_pipeline_operation, crop}}
   end
 
   test "preserves pipeline, emitted operation, and derivation order" do

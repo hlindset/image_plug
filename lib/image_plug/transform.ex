@@ -91,20 +91,16 @@ defmodule ImagePlug.Transform do
         %ImagePlug.Transform.SourceMetadata{} = source_metadata,
         opts \\ []
       ) do
-    ImagePlug.Transform.Resolver.resolve(plan, source_metadata, opts)
+    with {:ok, _pipelines} <- validate_prefetch_safe_plan(plan) do
+      ImagePlug.Transform.Resolver.resolve(plan, source_metadata, opts)
+    end
   end
 
   @spec executable_pipelines(Plan.t(), SourceMetadata.t(), keyword()) ::
           {:ok, [[operation()]]} | {:error, term()}
   def executable_pipelines(%Plan{} = plan, %SourceMetadata{} = source_metadata, opts \\ []) do
-    case semantic_plan?(plan) do
-      true ->
-        with {:ok, %ResolvedPlan{} = resolved} <- resolve(plan, source_metadata, opts) do
-          {:ok, resolved.pipelines}
-        end
-
-      false ->
-        {:ok, pipeline_operations(plan.pipelines)}
+    with {:ok, %ResolvedPlan{} = resolved} <- resolve(plan, source_metadata, opts) do
+      {:ok, resolved.pipelines}
     end
   end
 
@@ -143,14 +139,4 @@ defmodule ImagePlug.Transform do
   end
 
   defp validate_prefetch_alignment(_operation, _alignment), do: {:cont, :current}
-
-  defp semantic_plan?(%Plan{pipelines: pipelines}) do
-    Enum.any?(pipelines, fn %Pipeline{operations: operations} ->
-      Enum.any?(operations, &Operation.semantic?/1)
-    end)
-  end
-
-  defp pipeline_operations(pipelines) do
-    Enum.map(pipelines, fn %Pipeline{operations: operations} -> operations end)
-  end
 end

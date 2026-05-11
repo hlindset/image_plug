@@ -5,8 +5,6 @@ defmodule ImagePlug.Transform.DecodePlannerTest do
   alias ImagePlug.Plan.Geometry.Region
   alias ImagePlug.Plan.Geometry.Size
   alias ImagePlug.Plan.Operation
-  alias ImagePlug.Plan.Pipeline
-  alias ImagePlug.Runtime.Processor
   alias ImagePlug.Transform.Operation.AutoOrient
   alias ImagePlug.Transform.Operation.Contain
   alias ImagePlug.Transform.Operation.Cover
@@ -24,42 +22,6 @@ defmodule ImagePlug.Transform.DecodePlannerTest do
     def name(%__MODULE__{}), do: :no_geometry
     def validate(%__MODULE__{}), do: :ok
     def metadata(%__MODULE__{}), do: %{access: :neutral}
-    def execute(%__MODULE__{}, state), do: state
-  end
-
-  defmodule BogusMetadataTransform do
-    defstruct []
-
-    def name(%__MODULE__{}), do: :bogus_metadata
-    def validate(%__MODULE__{}), do: :ok
-    def metadata(%__MODULE__{}), do: %{access: :bogus}
-    def execute(%__MODULE__{}, state), do: state
-  end
-
-  defmodule MissingAccessMetadataTransform do
-    defstruct []
-
-    def name(%__MODULE__{}), do: :missing_access_metadata
-    def validate(%__MODULE__{}), do: :ok
-    def metadata(%__MODULE__{}), do: %{other: :metadata}
-    def execute(%__MODULE__{}, state), do: state
-  end
-
-  defmodule NilMetadataTransform do
-    defstruct []
-
-    def name(%__MODULE__{}), do: :nil_metadata
-    def validate(%__MODULE__{}), do: :ok
-    def metadata(%__MODULE__{}), do: nil
-    def execute(%__MODULE__{}, state), do: state
-  end
-
-  defmodule KeywordMetadataTransform do
-    defstruct []
-
-    def name(%__MODULE__{}), do: :keyword_metadata
-    def validate(%__MODULE__{}), do: :ok
-    def metadata(%__MODULE__{}), do: [access: :sequential]
     def execute(%__MODULE__{}, state), do: state
   end
 
@@ -336,24 +298,6 @@ defmodule ImagePlug.Transform.DecodePlannerTest do
     assert DecodePlanner.open_options([stretch]) == [access: :sequential, fail_on: :error]
   end
 
-  test "malformed transform metadata stays random" do
-    assert DecodePlanner.open_options([
-             %BogusMetadataTransform{}
-           ]) == [access: :random, fail_on: :error]
-
-    assert DecodePlanner.open_options([
-             %MissingAccessMetadataTransform{}
-           ]) == [access: :random, fail_on: :error]
-
-    assert DecodePlanner.open_options([
-             %NilMetadataTransform{}
-           ]) == [access: :random, fail_on: :error]
-
-    assert DecodePlanner.open_options([
-             %KeywordMetadataTransform{}
-           ]) == [access: :random, fail_on: :error]
-  end
-
   test "trusted transform metadata callback failures propagate" do
     assert_raise UndefinedFunctionError, fn ->
       DecodePlanner.open_options([
@@ -386,33 +330,5 @@ defmodule ImagePlug.Transform.DecodePlannerTest do
     ]
 
     assert Keyword.keys(DecodePlanner.open_options(chain)) == [:access, :fail_on]
-  end
-
-  test "processor first-pipeline operations feed decode planner options" do
-    pipelines = [
-      %Pipeline{
-        operations: [
-          %Scale{type: :dimensions, width: {:pixels, 120}, height: :auto}
-        ]
-      },
-      %Pipeline{
-        operations: [
-          %Cover{
-            type: :dimensions,
-            width: {:pixels, 80},
-            height: {:pixels, 80},
-            constraint: :none
-          }
-        ]
-      }
-    ]
-
-    decode_options =
-      pipelines
-      |> Processor.first_pipeline_operations()
-      |> DecodePlanner.open_options()
-
-    assert decode_options == [access: :sequential, fail_on: :error]
-    assert Keyword.keys(decode_options) == [:access, :fail_on]
   end
 end

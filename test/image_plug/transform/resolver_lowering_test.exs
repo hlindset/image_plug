@@ -188,25 +188,7 @@ defmodule ImagePlug.Transform.ResolverLoweringTest do
              resolved.derivations
   end
 
-  test "crop region lowering rejects zero-sized ratio dimensions" do
-    assert {:ok, zero} = Dimension.ratio(0, 1)
-    assert {:ok, x} = Dimension.ratio(0, 1)
-    assert {:ok, y} = Dimension.ratio(0, 1)
-    assert {:ok, positive} = Dimension.ratio(1, 2)
-
-    for attrs <- [
-          [x: x, y: y, width: zero, height: positive, space: :source],
-          [x: x, y: y, width: positive, height: zero, space: :source]
-        ] do
-      assert {:ok, region} = Region.new(attrs)
-      assert {:ok, operation} = Operation.crop_region(region: region)
-
-      assert Transform.resolve(plan([operation]), metadata(), []) ==
-               {:error, {:unsupported_crop_region_dimension, zero}}
-    end
-  end
-
-  test "crop region lowering allows zero pixel coordinates but rejects zero pixel dimensions" do
+  test "crop region lowering allows zero pixel coordinates" do
     assert {:ok, zero} = Dimension.pixels(0)
     assert {:ok, width} = Dimension.pixels(150)
     assert {:ok, height} = Dimension.pixels(100)
@@ -227,17 +209,6 @@ defmodule ImagePlug.Transform.ResolverLoweringTest do
                }
              ]
            ] = resolved.pipelines
-
-    for attrs <- [
-          [x: zero, y: zero, width: zero, height: height, space: :source],
-          [x: zero, y: zero, width: width, height: zero, space: :source]
-        ] do
-      assert {:ok, invalid_region} = Region.new(attrs)
-      assert {:ok, invalid_operation} = Operation.crop_region(region: invalid_region)
-
-      assert Transform.resolve(plan([invalid_operation]), metadata(), []) ==
-               {:error, {:unsupported_crop_region_dimension, zero}}
-    end
   end
 
   test "source-space crop regions after geometry-changing operations are rejected" do
@@ -254,7 +225,7 @@ defmodule ImagePlug.Transform.ResolverLoweringTest do
     assert {:ok, crop} = Operation.crop_region(region: region)
 
     assert Transform.resolve(plan([resize, crop]), metadata(), []) ==
-             {:error, {:unsupported_source_space_crop_after_current_geometry, 0, 1}}
+             {:error, {:invalid_pipeline_operation, crop}}
   end
 
   test "source-space crop after identity resize is rejected by conservative ordering policy" do
@@ -273,7 +244,7 @@ defmodule ImagePlug.Transform.ResolverLoweringTest do
     # A source-sized resize is still a prior geometry operation; do not special-case it
     # into source-space crop eligibility after source metadata is available.
     assert Transform.resolve(plan([resize, crop]), metadata(), []) ==
-             {:error, {:unsupported_source_space_crop_after_current_geometry, 0, 1}}
+             {:error, {:invalid_pipeline_operation, crop}}
   end
 
   test "source-space crop regions after coordinate-changing operations are rejected" do
@@ -289,7 +260,7 @@ defmodule ImagePlug.Transform.ResolverLoweringTest do
     assert {:ok, crop} = Operation.crop_region(region: region)
 
     assert Transform.resolve(plan([flip, crop]), metadata(), []) ==
-             {:error, {:unsupported_source_space_crop_after_current_geometry, 0, 1}}
+             {:error, {:invalid_pipeline_operation, crop}}
   end
 
   test "canvas lowers to extend canvas without choosing resize scale" do
@@ -317,14 +288,6 @@ defmodule ImagePlug.Transform.ResolverLoweringTest do
            ] = resolved.pipelines
   end
 
-  test "non-current guide spaces do not lower until space-aware gravity exists" do
-    for space <- [:source, :post_orient],
-        operation <- guided_operations(space) do
-      assert Transform.resolve(plan([operation]), metadata(), []) ==
-               {:error, {:unsupported_gravity_space, space}}
-    end
-  end
-
   test "orientation operations lower to existing orientation transforms" do
     assert {:ok, auto_orient} = Operation.auto_orient()
     assert {:ok, rotate} = Operation.rotate(90)
@@ -336,29 +299,5 @@ defmodule ImagePlug.Transform.ResolverLoweringTest do
              resolved.pipelines
 
     assert resolved.derivations == []
-  end
-
-  defp guided_operations(space) do
-    assert {:ok, guide} = Gravity.focal_point(1, 4, 3, 4, space)
-    assert {:ok, operation_size} = size(100, 80)
-    assert {:ok, canvas_size} = size(320, 240)
-
-    assert {:ok, crop_guided} = Operation.crop_guided(size: operation_size, guide: guide)
-
-    assert {:ok, resize_cover} =
-             Operation.resize_cover(size: operation_size, enlargement: :deny, guide: guide)
-
-    assert {:ok, resize_auto} =
-             Operation.resize_auto(size: operation_size, enlargement: :deny, guide: guide)
-
-    assert {:ok, canvas} =
-             Operation.canvas(
-               size: canvas_size,
-               placement: guide,
-               background: :white,
-               overflow: :reject
-             )
-
-    [crop_guided, resize_cover, resize_auto, canvas]
   end
 end

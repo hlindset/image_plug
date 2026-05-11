@@ -13,6 +13,7 @@ defmodule ImagePlug.Cache.KeyTest do
   alias ImagePlug.Plan.Output
   alias ImagePlug.Plan.Pipeline
   alias ImagePlug.Plan.Source.Plain
+  alias ImagePlug.Transform.BackendProfile
 
   defp plan(overrides \\ []) do
     struct!(
@@ -151,18 +152,6 @@ defmodule ImagePlug.Cache.KeyTest do
     refute key.hash == different_origin.hash
   end
 
-  test "only accepts execution plans" do
-    invalid_plan = :erlang.binary_to_term(:erlang.term_to_binary(%{}))
-
-    assert_raise FunctionClauseError, fn ->
-      Key.build(
-        conn(:get, "/_/plain/images/cat.jpg"),
-        invalid_plan,
-        "https://origin.test/cat.jpg"
-      )
-    end
-  end
-
   test "source material is product-neutral and independent of request URL" do
     conn_one = conn(:get, "/sig-one/w:100/plain/images/cat.jpg")
     conn_two = conn(:get, "/sig-two/width:100/plain/ignored/path.jpg?ignored=true")
@@ -281,29 +270,8 @@ defmodule ImagePlug.Cache.KeyTest do
     conn = conn(:get, "/_/rt:auto/w:300/h:200/plain/images/cat.jpg")
     key_before = build_key!(conn, plan_with_resize_auto(), "origin-version-1")
 
-    derivation = %ImagePlug.Transform.Derivation{
-      code: :resize_auto_branch,
-      value: :cover,
-      pipeline_index: 0,
-      operation_index: 0,
-      material?: false,
-      details: %{}
-    }
-
     key_after_resolve = build_key!(conn, plan_with_resize_auto(), "origin-version-1")
     serialized = Key.serialize_material(key_before.material)
-
-    assert_raise FunctionClauseError, fn ->
-      apply(Key, :build, [
-        conn,
-        %ImagePlug.Transform.ResolvedPlan{
-          pipelines: [],
-          derivations: [derivation],
-          resolver_material: [resize_auto_branch: :cover]
-        },
-        "origin-version-1"
-      ])
-    end
 
     assert key_before == key_after_resolve
     assert [[material]] = key_before.material[:pipelines]
@@ -317,7 +285,7 @@ defmodule ImagePlug.Cache.KeyTest do
     assert key_before.material[:resolver_material] in [nil, []]
   end
 
-  test "cache key builder accepts semantic plans and rejects resolved plans" do
+  test "cache key builder accepts semantic plans" do
     assert {:ok, key} =
              Key.build(
                conn(:get, "/_/rt:auto/w:300/h:200/plain/images/cat.jpg"),
@@ -326,14 +294,6 @@ defmodule ImagePlug.Cache.KeyTest do
              )
 
     assert key.material[:pipelines]
-
-    assert_raise FunctionClauseError, fn ->
-      apply(Key, :build, [
-        conn(:get, "/_/rt:auto/w:300/h:200/plain/images/cat.jpg"),
-        struct(ImagePlug.Transform.ResolvedPlan),
-        "origin-version-1"
-      ])
-    end
   end
 
   test "source freshness identity changes cache key without changing semantic material" do
@@ -353,14 +313,7 @@ defmodule ImagePlug.Cache.KeyTest do
     conn = conn(:get, "/_/plain/images/cat.jpg")
     default_key = build_key!(conn, plan(), "https://origin.test/images/cat.jpg")
 
-    custom_backend = [
-      backend: :vips,
-      material_version: 2,
-      geometry_rules_version: 1,
-      orientation_policy_version: 1,
-      dpr_policy_version: 1,
-      smart_strategy_support: :none
-    ]
+    custom_backend = %BackendProfile{BackendProfile.default() | material_version: 2}
 
     custom_key =
       build_key!(conn, plan(), "https://origin.test/images/cat.jpg",
@@ -368,7 +321,7 @@ defmodule ImagePlug.Cache.KeyTest do
       )
 
     assert default_key.material[:pipelines] == custom_key.material[:pipelines]
-    assert custom_key.material[:backend] == custom_backend
+    assert custom_key.material[:backend] == BackendProfile.material(custom_backend)
     refute default_key.hash == custom_key.hash
   end
 

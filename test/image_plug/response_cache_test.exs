@@ -12,6 +12,7 @@ defmodule ImagePlug.Runtime.ResponseCacheTest do
   alias ImagePlug.Plan.Pipeline
   alias ImagePlug.Plan.Source.Plain
   alias ImagePlug.Runtime.ResponseCache
+  alias ImagePlug.Transform.BackendProfile
   alias ImagePlug.Transform.State
 
   defmodule CaptureAdapter do
@@ -130,14 +131,7 @@ defmodule ImagePlug.Runtime.ResponseCacheTest do
   end
 
   test "lookup keys include configured backend profile material" do
-    custom_backend = [
-      backend: :vips,
-      material_version: 2,
-      geometry_rules_version: 1,
-      orientation_policy_version: 1,
-      dpr_policy_version: 1,
-      smart_strategy_support: :none
-    ]
+    custom_backend = %BackendProfile{BackendProfile.default() | material_version: 2}
 
     assert {:miss, %Key{} = key} =
              ResponseCache.lookup(
@@ -148,7 +142,7 @@ defmodule ImagePlug.Runtime.ResponseCacheTest do
                backend_profile: custom_backend
              )
 
-    assert key.material[:backend] == custom_backend
+    assert key.material[:backend] == BackendProfile.material(custom_backend)
   end
 
   test "lookup returns cache read error for invalid backend profile material" do

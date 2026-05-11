@@ -14,16 +14,11 @@ defmodule ImagePlug.Runtime.ProcessorTest do
   alias ImagePlug.Runtime.Processor
   alias ImagePlug.Runtime.ProcessorTest.DecodeErrorImageOpen
   alias ImagePlug.Runtime.ProcessorTest.DecodeValidImageOpen
-  alias ImagePlug.Runtime.ProcessorTest.FirstTransform
   alias ImagePlug.Runtime.ProcessorTest.InvalidReturnMaterializer
   alias ImagePlug.Runtime.ProcessorTest.InvalidStateMaterializer
   alias ImagePlug.Runtime.ProcessorTest.Materializer
   alias ImagePlug.Runtime.ProcessorTest.OriginImage
-  alias ImagePlug.Runtime.ProcessorTest.SecondTransform
-  alias ImagePlug.Runtime.ProcessorTest.SequentialFailingTransform
   alias ImagePlug.Transform.SourceMetadata
-  alias ImagePlug.Transform.Operation.Cover
-  alias ImagePlug.Transform.Operation.Scale
   alias ImagePlug.Transform.State
 
   defp opts do
@@ -38,17 +33,41 @@ defmodule ImagePlug.Runtime.ProcessorTest do
     }
   end
 
+  defp plan_with_resize do
+    {:ok, width} = Dimension.pixels(1)
+    {:ok, height} = Dimension.pixels(1)
+    {:ok, size} = ImagePlug.Plan.Geometry.Size.new(width: width, height: height, dpr: 1.0)
+    {:ok, operation} = Operation.resize_fit(size: size, enlargement: :deny)
+
+    %Plan{plan() | pipelines: [%Pipeline{operations: [operation]}]}
+  end
+
+  defp resize_fit(width, height) do
+    {:ok, width} = resize_dimension(width)
+    {:ok, height} = resize_dimension(height)
+    {:ok, size} = ImagePlug.Plan.Geometry.Size.new(width: width, height: height, dpr: 1.0)
+
+    Operation.resize_fit(size: size, enlargement: :deny)
+  end
+
+  defp resize_cover(width, height) do
+    {:ok, width} = resize_dimension(width)
+    {:ok, height} = resize_dimension(height)
+    {:ok, size} = ImagePlug.Plan.Geometry.Size.new(width: width, height: height, dpr: 1.0)
+    {:ok, guide} = ImagePlug.Plan.Guide.Gravity.anchor(:center, :center)
+
+    Operation.resize_cover(size: size, enlargement: :deny, guide: guide)
+  end
+
+  defp resize_dimension(:auto), do: Dimension.auto()
+  defp resize_dimension(pixels), do: Dimension.pixels(pixels)
+
   defp process_origin(%Plan{} = plan, origin_identity, opts) do
-    Processor.process_origin(plan, plan.pipelines, origin_identity, opts)
+    Processor.process_origin(plan, origin_identity, opts)
   end
 
   defp fetch_decode_validate_origin_with_source_format(%Plan{} = plan, origin_identity, opts) do
-    Processor.fetch_decode_validate_origin_with_source_format(
-      plan,
-      plan.pipelines,
-      origin_identity,
-      opts
-    )
+    Processor.fetch_decode_validate_origin_with_source_format(plan, origin_identity, opts)
   end
 
   defp process_decoded_origin(%DecodedOrigin{} = decoded, %Plan{} = plan, opts) do
@@ -100,10 +119,7 @@ defmodule ImagePlug.Runtime.ProcessorTest do
 
     plan = %Plan{
       source: %Plain{path: ["images", "cat-300.jpg"]},
-      pipelines: [
-        %Pipeline{operations: [%FirstTransform{}]},
-        %Pipeline{operations: [%SecondTransform{test_pid: test_pid, ref: ref}]}
-      ],
+      pipelines: [%Pipeline{operations: []}, %Pipeline{operations: []}],
       output: %Output{mode: {:explicit, :jpeg}}
     }
 
@@ -121,12 +137,9 @@ defmodule ImagePlug.Runtime.ProcessorTest do
              )
 
     assert state.image
-    assert state.debug
     assert state.errors == []
     assert_receive first_message
     assert first_message == {:pipeline_event, ref, :materialized_between_pipelines}
-    assert_receive second_message
-    assert second_message == {:pipeline_event, ref, :second_transform_ran}
   end
 
   test "process_origin returns a controlled config error for invalid materializer results" do
@@ -205,24 +218,14 @@ defmodule ImagePlug.Runtime.ProcessorTest do
   end
 
   test "fetch_decode_validate_origin_with_source_format plans decode options from the first pipeline only" do
+    {:ok, first_operation} = resize_fit(120, :auto)
+    {:ok, second_operation} = resize_cover(80, 80)
+
     plan = %Plan{
       source: %Plain{path: ["images", "cat-300.jpg"]},
       pipelines: [
-        %Pipeline{
-          operations: [
-            %Scale{type: :dimensions, width: {:pixels, 120}, height: :auto}
-          ]
-        },
-        %Pipeline{
-          operations: [
-            %Cover{
-              type: :dimensions,
-              width: {:pixels, 80},
-              height: {:pixels, 80},
-              constraint: :none
-            }
-          ]
-        }
+        %Pipeline{operations: [first_operation]},
+        %Pipeline{operations: [second_operation]}
       ],
       output: %Output{mode: {:explicit, :jpeg}}
     }
@@ -249,23 +252,18 @@ defmodule ImagePlug.Runtime.ProcessorTest do
   end
 
   test "decode_validate_origin_response closes pending origins on validation errors" do
+    {:ok, operation} = resize_fit(120, :auto)
+
     plan = %Plan{
       plan()
       | pipelines: [
-          %Pipeline{
-            operations: [
-              %Scale{type: :dimensions, width: {:pixels, 120}, height: :auto}
-            ]
-          }
+          %Pipeline{operations: [operation]}
         ]
     }
-
-    pipelines = plan.pipelines
 
     assert {:ok, origin_response, :jpeg} =
              Processor.fetch_origin_with_source_format(
                plan,
-               pipelines,
                "http://origin.test/images/cat-300.jpg",
                opts()
              )
@@ -279,7 +277,6 @@ defmodule ImagePlug.Runtime.ProcessorTest do
                origin_response,
                :jpeg,
                plan,
-               pipelines,
                opts()
                |> Keyword.put(:image_open_module, DecodeValidImageOpen)
                |> Keyword.put(:max_input_pixels, 399)
@@ -288,7 +285,7 @@ defmodule ImagePlug.Runtime.ProcessorTest do
     assert_receive {:DOWN, ^worker_ref, :process, _worker, _reason}
   end
 
-  test "process_decoded_origin closes pending origins on transform errors" do
+  test "process_decoded_origin closes pending origins on semantic resolution errors" do
     {:ok, image} = Image.new(1, 1)
     {:ok, stream_status} = StreamStatus.start_link()
     test_pid = self()
@@ -330,25 +327,18 @@ defmodule ImagePlug.Runtime.ProcessorTest do
 
     worker_ref = Process.monitor(worker)
 
-    assert {:error, {:transform_error, %State{}}} =
+    assert {:error, {:invalid_backend_profile, :not_a_profile}} =
              process_decoded_origin(
                decoded,
-               %Plan{
-                 plan()
-                 | pipelines: [
-                     %Pipeline{
-                       operations: [%SequentialFailingTransform{}]
-                     }
-                   ]
-               },
-               opts()
+               plan_with_resize(),
+               Keyword.put(opts(), :backend_profile, :not_a_profile)
              )
 
     assert_receive {:DOWN, ^worker_ref, :process, ^worker, _reason}
     StreamStatus.stop(stream_status)
   end
 
-  test "process_decoded_origin closes pending origins on semantic resolution errors" do
+  test "process_decoded_origin closes pending origins on prefetch validation errors" do
     {:ok, image} = Image.new(1, 1)
     {:ok, stream_status} = StreamStatus.start_link()
     test_pid = self()
@@ -388,26 +378,27 @@ defmodule ImagePlug.Runtime.ProcessorTest do
       }
     }
 
-    assert {:ok, x} = Dimension.pixels(1)
-    assert {:ok, y} = Dimension.pixels(1)
+    assert {:ok, resize} = resize_fit(1, 1)
+    assert {:ok, x} = Dimension.pixels(0)
+    assert {:ok, y} = Dimension.pixels(0)
     assert {:ok, width} = Dimension.pixels(1)
     assert {:ok, height} = Dimension.pixels(1)
 
     assert {:ok, region} =
-             Region.new(x: x, y: y, width: width, height: height, space: :post_orient)
+             Region.new(x: x, y: y, width: width, height: height, space: :source)
 
-    assert {:ok, operation} = Operation.crop_region(region: region)
+    assert {:ok, crop} = Operation.crop_region(region: region)
 
     worker_ref = Process.monitor(worker)
 
-    assert {:error, {:unsupported_crop_region_space, :post_orient}} =
+    assert {:error, {:invalid_pipeline_operation, ^crop}} =
              process_decoded_origin(
                decoded,
                %Plan{
                  plan()
                  | pipelines: [
                      %Pipeline{
-                       operations: [operation]
+                       operations: [resize, crop]
                      }
                    ]
                },

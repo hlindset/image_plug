@@ -66,12 +66,36 @@ defmodule ImagePlug.Plan.OperationTest do
 
       assert Operation.resize_auto(size: size, enlargement: :allow, guide: guide, focal: guide) ==
                {:error, {:unknown_operation_options, :resize_auto, [:focal]}}
+
+      assert Operation.resize_auto(size: size, enlargement: :allow, guide: nil) ==
+               {:error,
+                {:invalid_operation, :resize_auto, [size: size, enlargement: :allow, guide: nil]}}
+    end
+
+    test "reject unsupported resize dimensions at construction" do
+      assert {:ok, ratio} = Dimension.ratio(1, 2)
+      assert {:ok, pixels} = Dimension.pixels(100)
+      assert {:ok, guide} = Gravity.anchor(:center, :center)
+      assert {:ok, size} = Size.new(width: ratio, height: pixels, dpr: 1.0)
+
+      assert {:error, {:invalid_operation, :resize_fit, attrs}} =
+               Operation.resize_fit(size: size, enlargement: :deny)
+
+      assert attrs[:size] == size
+      assert attrs[:enlargement] == :deny
+
+      assert {:error, {:invalid_operation, :resize_cover, attrs}} =
+               Operation.resize_cover(size: size, enlargement: :deny, guide: guide)
+
+      assert attrs[:size] == size
+      assert attrs[:enlargement] == :deny
+      assert attrs[:guide] == guide
     end
   end
 
   describe "crop constructors" do
     test "build crop operations through exported constructors" do
-      assert {:ok, size} = size()
+      assert {:ok, size} = crop_size()
       assert {:ok, guide} = Gravity.anchor(:center, :center)
       assert {:ok, region} = region()
 
@@ -83,7 +107,7 @@ defmodule ImagePlug.Plan.OperationTest do
     end
 
     test "reject invalid crop constructor inputs without raising" do
-      assert {:ok, size} = size()
+      assert {:ok, size} = crop_size()
       assert {:ok, guide} = Gravity.anchor(:center, :center)
       assert {:ok, region} = region()
 
@@ -104,11 +128,53 @@ defmodule ImagePlug.Plan.OperationTest do
 
       assert Operation.crop_region(region: region) == {:ok, %Operation.CropRegion{region: region}}
     end
+
+    test "reject unsupported crop region dimensions and spaces at construction" do
+      assert {:ok, zero} = Dimension.ratio(0, 1)
+      assert {:ok, x} = Dimension.ratio(0, 1)
+      assert {:ok, y} = Dimension.ratio(0, 1)
+      assert {:ok, positive} = Dimension.ratio(1, 2)
+
+      for attrs <- [
+            [x: x, y: y, width: zero, height: positive, space: :source],
+            [x: x, y: y, width: positive, height: zero, space: :source],
+            [x: x, y: y, width: positive, height: positive, space: :post_orient]
+          ] do
+        assert {:ok, region} = Region.new(attrs)
+
+        assert Operation.crop_region(region: region) ==
+                 {:error, {:invalid_operation, :crop_region, [region: region]}}
+      end
+    end
+
+    test "allow zero crop region coordinates at construction" do
+      assert {:ok, zero} = Dimension.pixels(0)
+      assert {:ok, width} = Dimension.pixels(100)
+      assert {:ok, height} = Dimension.pixels(50)
+
+      assert {:ok, region} =
+               Region.new(x: zero, y: zero, width: width, height: height, space: :source)
+
+      assert Operation.crop_region(region: region) == {:ok, %Operation.CropRegion{region: region}}
+    end
+
+    test "reject unsupported crop guide values at construction" do
+      assert {:ok, size} = crop_size()
+      assert {:ok, point} = Dimension.pixels(10)
+      pixel_focal = %Gravity{type: :focal_point, x: point, y: point, space: :current}
+      source_anchor = %Gravity{type: :anchor, x: :center, y: :center, space: :source}
+
+      assert Operation.crop_guided(size: size, guide: pixel_focal) ==
+               {:error, {:invalid_operation, :crop_guided, [size: size, guide: pixel_focal]}}
+
+      assert Operation.crop_guided(size: size, guide: source_anchor) ==
+               {:error, {:invalid_operation, :crop_guided, [size: size, guide: source_anchor]}}
+    end
   end
 
   describe "canvas constructor" do
     test "builds canvas operation through exported constructor" do
-      assert {:ok, size} = size()
+      assert {:ok, size} = crop_size()
       assert {:ok, placement} = Gravity.anchor(:center, :center)
 
       assert {:ok,
@@ -193,7 +259,8 @@ defmodule ImagePlug.Plan.OperationTest do
       assert {:ok, cover} = Operation.resize_cover(size: size, enlargement: :deny, guide: guide)
       assert {:ok, stretch} = Operation.resize_stretch(size: size, enlargement: :deny)
       assert {:ok, auto} = Operation.resize_auto(size: size, enlargement: :deny)
-      assert {:ok, guided} = Operation.crop_guided(size: size, guide: guide)
+      assert {:ok, crop_size} = crop_size()
+      assert {:ok, guided} = Operation.crop_guided(size: crop_size, guide: guide)
       assert {:ok, region_crop} = Operation.crop_region(region: region)
 
       assert Operation.access_metadata(fit) == %{access: :sequential}
@@ -236,6 +303,13 @@ defmodule ImagePlug.Plan.OperationTest do
   defp size do
     with {:ok, width} <- Dimension.pixels(300),
          {:ok, height} <- Dimension.auto() do
+      Size.new(width: width, height: height, dpr: 1.0)
+    end
+  end
+
+  defp crop_size do
+    with {:ok, width} <- Dimension.pixels(300),
+         {:ok, height} <- Dimension.pixels(200) do
       Size.new(width: width, height: height, dpr: 1.0)
     end
   end

@@ -4,8 +4,8 @@ defmodule ImagePlug.Transform.DecodePlanner do
 
   Decode planning interprets each operation's product-neutral metadata and
   reduces the chain to either sequential or random image access. It is
-  intentionally conservative for valid metadata: empty chains, missing access
-  metadata, and invalid access values all fall back to random access.
+  intentionally conservative for valid metadata: empty chains and neutral
+  access both fall back to random access.
   """
 
   alias ImagePlug.Plan.Operation
@@ -39,11 +39,8 @@ defmodule ImagePlug.Transform.DecodePlanner do
     end
   end
 
-  defp access_from_metadata(%{access: access}), do: normalize_access(access)
-  defp access_from_metadata(_metadata), do: :random
-
-  defp normalize_access(access) when access in [:sequential, :random, :neutral], do: access
-  defp normalize_access(_access), do: :random
+  defp access_from_metadata(%{access: access}) when access in [:sequential, :random, :neutral],
+    do: access
 
   defp resolve_access(requirements) do
     cond do

@@ -75,7 +75,8 @@ defmodule ImagePlug.Plan.Operation do
          {:ok, guide} <- fetch_struct(attrs, :guide, Gravity),
          {:ok, x_offset} <- offset(attrs, :x_offset, {:pixels, 0.0}),
          {:ok, y_offset} <- offset(attrs, :y_offset, {:pixels, 0.0}) do
-      {:ok, %CropGuided{size: size, guide: guide, x_offset: x_offset, y_offset: y_offset}}
+      %CropGuided{size: size, guide: guide, x_offset: x_offset, y_offset: y_offset}
+      |> validate_constructed(:crop_guided, attrs)
     else
       error -> constructor_error(error, :crop_guided, attrs)
     end
@@ -87,7 +88,8 @@ defmodule ImagePlug.Plan.Operation do
   def crop_region(attrs) when is_list(attrs) do
     with :ok <- validate_known_options(:crop_region, attrs, @crop_region_keys),
          {:ok, region} <- fetch_struct(attrs, :region, Region) do
-      {:ok, %CropRegion{region: region}}
+      %CropRegion{region: region}
+      |> validate_constructed(:crop_region, attrs)
     else
       error -> constructor_error(error, :crop_region, attrs)
     end
@@ -104,15 +106,15 @@ defmodule ImagePlug.Plan.Operation do
          {:ok, :reject} <- fetch_exact(attrs, :overflow, :reject),
          {:ok, x_offset} <- signed_numeric(attrs, :x_offset, 0.0),
          {:ok, y_offset} <- signed_numeric(attrs, :y_offset, 0.0) do
-      {:ok,
-       %Canvas{
-         size: size,
-         placement: placement,
-         background: :white,
-         overflow: :reject,
-         x_offset: x_offset,
-         y_offset: y_offset
-       }}
+      %Canvas{
+        size: size,
+        placement: placement,
+        background: :white,
+        overflow: :reject,
+        x_offset: x_offset,
+        y_offset: y_offset
+      }
+      |> validate_constructed(:canvas, attrs)
     else
       error -> constructor_error(error, :canvas, attrs)
     end
@@ -141,7 +143,9 @@ defmodule ImagePlug.Plan.Operation do
   def resize_fit(attrs) when is_list(attrs) do
     with :ok <- validate_known_options(:resize_fit, attrs, @resize_keys),
          {:ok, attrs} <- resize_attrs(:resize_fit, attrs) do
-      {:ok, struct!(ResizeFit, attrs)}
+      ResizeFit
+      |> struct!(attrs)
+      |> validate_constructed(:resize_fit, attrs)
     end
   end
 
@@ -155,11 +159,11 @@ defmodule ImagePlug.Plan.Operation do
          {:ok, guide} <- fetch_struct(attrs, :guide, Gravity),
          {:ok, x_offset} <- offset(attrs, :x_offset, {:pixels, 0.0}),
          {:ok, y_offset} <- offset(attrs, :y_offset, {:pixels, 0.0}) do
-      {:ok,
-       struct!(
-         ResizeCover,
-         Keyword.merge(resize_attrs, guide: guide, x_offset: x_offset, y_offset: y_offset)
-       )}
+      ResizeCover
+      |> struct!(
+        Keyword.merge(resize_attrs, guide: guide, x_offset: x_offset, y_offset: y_offset)
+      )
+      |> validate_constructed(:resize_cover, attrs)
     else
       error -> constructor_error(error, :resize_cover, attrs)
     end
@@ -171,7 +175,9 @@ defmodule ImagePlug.Plan.Operation do
   def resize_stretch(attrs) when is_list(attrs) do
     with :ok <- validate_known_options(:resize_stretch, attrs, @resize_keys),
          {:ok, attrs} <- resize_attrs(:resize_stretch, attrs) do
-      {:ok, struct!(ResizeStretch, attrs)}
+      ResizeStretch
+      |> struct!(attrs)
+      |> validate_constructed(:resize_stretch, attrs)
     end
   end
 
@@ -186,11 +192,11 @@ defmodule ImagePlug.Plan.Operation do
            optional_struct(attrs, :guide, Gravity, fn -> Gravity.anchor(:center, :center) end),
          {:ok, x_offset} <- offset(attrs, :x_offset, {:pixels, 0.0}),
          {:ok, y_offset} <- offset(attrs, :y_offset, {:pixels, 0.0}) do
-      {:ok,
-       struct!(
-         ResizeAuto,
-         Keyword.merge(resize_attrs, guide: guide, x_offset: x_offset, y_offset: y_offset)
-       )}
+      ResizeAuto
+      |> struct!(
+        Keyword.merge(resize_attrs, guide: guide, x_offset: x_offset, y_offset: y_offset)
+      )
+      |> validate_constructed(:resize_auto, attrs)
     else
       error -> constructor_error(error, :resize_auto, attrs)
     end
@@ -316,6 +322,13 @@ defmodule ImagePlug.Plan.Operation do
        do: {:error, reason}
 
   defp constructor_error({:error, _reason}, operation, attrs), do: invalid(operation, attrs)
+
+  defp validate_constructed(operation, operation_name, attrs) do
+    case validate_prefetch_safe(operation) do
+      :ok -> {:ok, operation}
+      {:error, _reason} -> invalid(operation_name, attrs)
+    end
+  end
 
   defp validate_known_options(operation, attrs, known_keys) do
     case Keyword.keys(attrs) -- known_keys do
@@ -523,8 +536,8 @@ defmodule ImagePlug.Plan.Operation do
   defp resize_attrs(operation, attrs) do
     with {:ok, size} <- fetch_struct(attrs, :size, Size),
          {:ok, enlargement} <- fetch_member(attrs, :enlargement, @enlargements),
-         {:ok, min_width} <- optional_struct(attrs, :min_width, Dimension, fn -> {:ok, nil} end),
-         {:ok, min_height} <- optional_struct(attrs, :min_height, Dimension, fn -> {:ok, nil} end),
+         {:ok, min_width} <- optional_nilable_struct(attrs, :min_width, Dimension),
+         {:ok, min_height} <- optional_nilable_struct(attrs, :min_height, Dimension),
          {:ok, zoom_x} <- numeric(attrs, :zoom_x, 1.0),
          {:ok, zoom_y} <- numeric(attrs, :zoom_y, 1.0) do
       {:ok,
@@ -544,14 +557,24 @@ defmodule ImagePlug.Plan.Operation do
   defp fetch_struct(attrs, key, module) do
     case Keyword.fetch(attrs, key) do
       {:ok, %^module{} = value} -> {:ok, value}
+      {:ok, nil} -> {:error, {key, module}}
       _other -> {:error, {key, module}}
+    end
+  end
+
+  defp optional_nilable_struct(attrs, key, module) do
+    case Keyword.fetch(attrs, key) do
+      {:ok, %^module{} = value} -> {:ok, value}
+      {:ok, nil} -> {:ok, nil}
+      {:ok, _value} -> {:error, {key, module}}
+      :error -> {:ok, nil}
     end
   end
 
   defp optional_struct(attrs, key, module, default_fun) do
     case Keyword.fetch(attrs, key) do
       {:ok, %^module{} = value} -> {:ok, value}
-      {:ok, nil} -> {:ok, nil}
+      {:ok, nil} -> {:error, {key, module}}
       {:ok, _value} -> {:error, {key, module}}
       :error -> default_fun.()
     end

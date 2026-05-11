@@ -4,185 +4,164 @@ defmodule ImagePlug.Transform.Resolver.Lowering do
   alias ImagePlug.Plan.Geometry.Dimension
   alias ImagePlug.Plan.Geometry.Region
   alias ImagePlug.Plan.Guide.Gravity
-  alias ImagePlug.Plan.Operation.AutoOrient, as: SemanticAutoOrient
+  alias ImagePlug.Plan.Operation
+  alias ImagePlug.Plan.Operation.AutoOrient
   alias ImagePlug.Plan.Operation.Canvas
   alias ImagePlug.Plan.Operation.CropGuided
   alias ImagePlug.Plan.Operation.CropRegion
-  alias ImagePlug.Plan.Operation.Flip, as: SemanticFlip
+  alias ImagePlug.Plan.Operation.Flip
   alias ImagePlug.Plan.Operation.ResizeCover
   alias ImagePlug.Plan.Operation.ResizeFit
   alias ImagePlug.Plan.Operation.ResizeStretch
   alias ImagePlug.Plan.Operation.ResizeAuto
-  alias ImagePlug.Plan.Operation.Rotate, as: SemanticRotate
+  alias ImagePlug.Plan.Operation.Rotate
   alias ImagePlug.Transform.Derivation
   alias ImagePlug.Transform.Geometry.DimensionRule
-  alias ImagePlug.Transform.Operation.AutoOrient
   alias ImagePlug.Transform.Operation.Crop
+  alias ImagePlug.Transform.Operation.AutoOrient, as: ExecutableAutoOrient
   alias ImagePlug.Transform.Operation.ExtendCanvas
-  alias ImagePlug.Transform.Operation.Flip
+  alias ImagePlug.Transform.Operation.Flip, as: ExecutableFlip
   alias ImagePlug.Transform.Operation.Resize
-  alias ImagePlug.Transform.Operation.Rotate
+  alias ImagePlug.Transform.Operation.Rotate, as: ExecutableRotate
   alias ImagePlug.Transform.Resolver.Geometry
 
-  @default_gravity {:anchor, :center, :center}
-
-  @spec lower(term(), map()) :: {:ok, [struct()], [Derivation.t()]} | {:error, term()}
+  @spec lower(Operation.semantic_operation(), map()) :: {[struct()], [Derivation.t()]}
   def lower(%ResizeFit{} = operation, _context) do
-    with {:ok, rule} <- dimension_rule(operation, :fit) do
-      {:ok, [%Resize{rule: rule}], []}
-    end
+    {[%Resize{rule: dimension_rule(operation, :fit)}], []}
   end
 
   def lower(%ResizeCover{} = operation, _context) do
-    with {:ok, rule} <- dimension_rule(operation, :cover),
-         {:ok, operations} <- cover_operations(rule, operation.guide, operation) do
-      {:ok, operations, []}
-    end
+    rule = dimension_rule(operation, :cover)
+
+    {cover_operations(rule, operation.guide, operation), []}
   end
 
   def lower(%ResizeStretch{} = operation, _context) do
-    with {:ok, rule} <- dimension_rule(operation, :stretch) do
-      {:ok, [%Resize{rule: rule}], []}
-    end
+    {[%Resize{rule: dimension_rule(operation, :stretch)}], []}
   end
 
   def lower(%ResizeAuto{} = operation, context) do
-    with {:ok, width} <- logical_pixels(operation.size.width),
-         {:ok, height} <- logical_pixels(operation.size.height),
-         branch =
-           Geometry.resize_auto_branch(
-             context.current_width,
-             context.current_height,
-             width,
-             height
-           ),
-         {:ok, rule} <- dimension_rule(operation, branch),
-         {:ok, operations} <- executable_operations(branch, rule, operation) do
-      derivation = derivation(branch, context)
+    width = logical_pixels(operation.size.width)
+    height = logical_pixels(operation.size.height)
 
-      {:ok, operations, [derivation]}
-    end
+    branch =
+      Geometry.resize_auto_branch(
+        context.current_width,
+        context.current_height,
+        width,
+        height
+      )
+
+    rule = dimension_rule(operation, branch)
+    derivation = derivation(branch, context)
+
+    {executable_operations(branch, rule, operation), [derivation]}
   end
 
   def lower(%CropGuided{} = operation, _context) do
-    with {:ok, width} <- crop_dimension(operation.size.width),
-         {:ok, height} <- crop_dimension(operation.size.height),
-         {:ok, gravity} <- executable_gravity(operation.guide) do
-      {:ok,
-       [
-         %Crop{
-           width: width,
-           height: height,
-           crop_from: :gravity,
-           gravity: gravity,
-           x_offset: operation.x_offset,
-           y_offset: operation.y_offset
-         }
-       ], []}
-    end
+    {
+      [
+        %Crop{
+          width: crop_dimension(operation.size.width),
+          height: crop_dimension(operation.size.height),
+          crop_from: :gravity,
+          gravity: executable_gravity(operation.guide),
+          x_offset: operation.x_offset,
+          y_offset: operation.y_offset
+        }
+      ],
+      []
+    }
   end
 
   def lower(%CropRegion{} = operation, context) do
-    with {:ok, crop} <- crop_region(operation.region, context) do
-      derivation = %Derivation{
-        code: :crop_region_resolved,
-        value: %{
-          left: crop.crop_from.left,
-          top: crop.crop_from.top,
-          width: crop.width,
-          height: crop.height
-        },
-        pipeline_index: context.pipeline_index,
-        operation_index: context.operation_index,
-        material?: false
-      }
+    crop = crop_region(operation.region, context)
 
-      {:ok, [crop], [derivation]}
-    end
+    derivation = %Derivation{
+      code: :crop_region_resolved,
+      value: %{
+        left: crop.crop_from.left,
+        top: crop.crop_from.top,
+        width: crop.width,
+        height: crop.height
+      },
+      pipeline_index: context.pipeline_index,
+      operation_index: context.operation_index,
+      material?: false
+    }
+
+    {[crop], [derivation]}
   end
 
   def lower(%Canvas{} = operation, _context) do
-    with {:ok, width} <- canvas_dimension(operation.size.width),
-         {:ok, height} <- canvas_dimension(operation.size.height),
-         {:ok, gravity} <- executable_gravity(operation.placement) do
-      {:ok,
-       [
-         %ExtendCanvas{
-           rule: canvas_rule(width, height),
-           gravity: gravity,
-           x_offset: operation.x_offset,
-           y_offset: operation.y_offset,
-           background: operation.background
-         }
-       ], []}
-    end
+    width = canvas_dimension(operation.size.width)
+    height = canvas_dimension(operation.size.height)
+
+    {
+      [
+        %ExtendCanvas{
+          rule: canvas_rule(width, height),
+          gravity: executable_gravity(operation.placement),
+          x_offset: operation.x_offset,
+          y_offset: operation.y_offset,
+          background: operation.background
+        }
+      ],
+      []
+    }
   end
 
-  def lower(%SemanticAutoOrient{}, _context), do: {:ok, [%AutoOrient{}], []}
-  def lower(%SemanticRotate{angle: angle}, _context), do: {:ok, [%Rotate{angle: angle}], []}
-  def lower(%SemanticFlip{axis: axis}, _context), do: {:ok, [%Flip{axis: axis}], []}
+  def lower(%AutoOrient{}, _context), do: {[%ExecutableAutoOrient{}], []}
+  def lower(%Rotate{angle: angle}, _context), do: {[%ExecutableRotate{angle: angle}], []}
+  def lower(%Flip{axis: axis}, _context), do: {[%ExecutableFlip{axis: axis}], []}
 
-  def lower(operation, _context), do: {:error, {:unsupported_semantic_operation, operation}}
-
-  defp logical_pixels(%Dimension{unit: :logical_px, value: value}), do: {:ok, value}
-  defp logical_pixels(%Dimension{}), do: {:ok, :unknown}
+  defp logical_pixels(%Dimension{unit: :logical_px, value: value}), do: value
+  defp logical_pixels(%Dimension{}), do: :unknown
 
   defp dimension_rule(operation, mode) do
-    with {:ok, width} <- executable_resize_dimension(operation.size.width),
-         {:ok, height} <- executable_resize_dimension(operation.size.height),
-         {:ok, min_width} <- executable_optional_resize_dimension(operation.min_width),
-         {:ok, min_height} <- executable_optional_resize_dimension(operation.min_height) do
-      {:ok,
-       %DimensionRule{
-         mode: dimension_rule_mode(mode),
-         width: width,
-         height: height,
-         min_width: min_width,
-         min_height: min_height,
-         zoom_x: operation.zoom_x,
-         zoom_y: operation.zoom_y,
-         dpr: operation.size.dpr,
-         enlarge: operation.enlargement == :allow
-       }}
-    end
+    %DimensionRule{
+      mode: dimension_rule_mode(mode),
+      width: executable_resize_dimension(operation.size.width),
+      height: executable_resize_dimension(operation.size.height),
+      min_width: executable_optional_resize_dimension(operation.min_width),
+      min_height: executable_optional_resize_dimension(operation.min_height),
+      zoom_x: operation.zoom_x,
+      zoom_y: operation.zoom_y,
+      dpr: operation.size.dpr,
+      enlarge: operation.enlargement == :allow
+    }
   end
 
   defp dimension_rule_mode(:cover), do: :fill
   defp dimension_rule_mode(:fit), do: :fit
   defp dimension_rule_mode(:stretch), do: :force
 
-  defp executable_resize_dimension(%Dimension{unit: :auto}), do: {:ok, :auto}
+  defp executable_resize_dimension(%Dimension{unit: :auto}), do: :auto
 
   defp executable_resize_dimension(%Dimension{unit: :logical_px, value: value}),
-    do: {:ok, {:pixels, value}}
-
-  defp executable_resize_dimension(%Dimension{} = dimension),
-    do: {:error, {:unsupported_resize_dimension, dimension}}
+    do: {:pixels, value}
 
   defp executable_operations(:cover, %DimensionRule{} = rule, operation),
     do: cover_operations(rule, operation.guide, operation)
 
   defp executable_operations(:fit, %DimensionRule{} = rule, _operation),
-    do: {:ok, [%Resize{rule: rule}]}
+    do: [%Resize{rule: rule}]
 
   defp cover_operations(%DimensionRule{} = rule, guide, operation) do
-    with {:ok, gravity} <- executable_gravity(guide) do
-      {x_offset, y_offset} = crop_offsets(operation)
+    {x_offset, y_offset} = crop_offsets(operation)
 
-      {:ok,
-       [
-         %Resize{rule: rule},
-         %Crop{
-           width: :auto,
-           height: :auto,
-           crop_from: :gravity,
-           gravity: gravity,
-           x_offset: x_offset,
-           y_offset: y_offset,
-           target_rule: rule
-         }
-       ]}
-    end
+    [
+      %Resize{rule: rule},
+      %Crop{
+        width: :auto,
+        height: :auto,
+        crop_from: :gravity,
+        gravity: executable_gravity(guide),
+        x_offset: x_offset,
+        y_offset: y_offset,
+        target_rule: rule
+      }
+    ]
   end
 
   defp derivation(branch, context) do
@@ -195,115 +174,73 @@ defmodule ImagePlug.Transform.Resolver.Lowering do
     }
   end
 
-  defp crop_dimension(%Dimension{unit: :full_axis}), do: {:ok, :auto}
-  defp crop_dimension(%Dimension{unit: :logical_px, value: value}), do: {:ok, {:pixels, value}}
+  defp crop_dimension(%Dimension{unit: :full_axis}), do: :auto
+  defp crop_dimension(%Dimension{unit: :logical_px, value: value}), do: {:pixels, value}
 
   defp crop_dimension(%Dimension{unit: :ratio, numerator: numerator, denominator: denominator}),
-    do: {:ok, {:scale, numerator / denominator}}
+    do: {:scale, numerator / denominator}
 
-  defp crop_dimension(%Dimension{} = dimension),
-    do: {:error, {:unsupported_crop_dimension, dimension}}
-
-  defp canvas_dimension(%Dimension{unit: :auto}), do: {:ok, :auto}
-  defp canvas_dimension(%Dimension{unit: :logical_px, value: value}), do: {:ok, {:pixels, value}}
+  defp canvas_dimension(%Dimension{unit: :auto}), do: :auto
+  defp canvas_dimension(%Dimension{unit: :logical_px, value: value}), do: {:pixels, value}
 
   defp canvas_dimension(%Dimension{unit: :ratio, numerator: numerator, denominator: denominator}),
-    do: {:ok, {:ratio, numerator / denominator}}
-
-  defp canvas_dimension(%Dimension{} = dimension),
-    do: {:error, {:unsupported_canvas_dimension, dimension}}
+    do: {:ratio, numerator / denominator}
 
   defp crop_region(%Region{space: :source} = region, context) do
-    with :ok <- validate_source_space_crop_position(context) do
-      crop_region(region, context.source_width, context.source_height)
-    end
+    crop_region(region, context.source_width, context.source_height)
   end
 
   defp crop_region(%Region{space: :current} = region, context) do
     crop_region(region, context.current_width, context.current_height)
   end
 
-  defp crop_region(%Region{} = region, _context),
-    do: {:error, {:unsupported_crop_region_space, region.space}}
-
   defp crop_region(%Region{} = region, axis_width, axis_height) do
-    with {:ok, left} <- region_coordinate(region.x, axis_width),
-         {:ok, top} <- region_coordinate(region.y, axis_height),
-         {:ok, width} <- region_dimension(region.width, axis_width),
-         {:ok, height} <- region_dimension(region.height, axis_height) do
-      {:ok,
-       %Crop{
-         width: {:pixels, width},
-         height: {:pixels, height},
-         crop_from: %{left: {:pixels, left}, top: {:pixels, top}}
-       }}
-    end
-  end
-
-  defp validate_source_space_crop_position(%{
-         source_aligned: true
-       }),
-       do: :ok
-
-  defp validate_source_space_crop_position(context) do
-    {:error,
-     {:unsupported_source_space_crop_after_current_geometry, context.pipeline_index,
-      context.operation_index}}
+    %Crop{
+      width: {:pixels, region_dimension(region.width, axis_width)},
+      height: {:pixels, region_dimension(region.height, axis_height)},
+      crop_from: %{
+        left: {:pixels, region_coordinate(region.x, axis_width)},
+        top: {:pixels, region_coordinate(region.y, axis_height)}
+      }
+    }
   end
 
   defp region_dimension(%Dimension{unit: :logical_px, value: value}, _axis)
        when value > 0,
-       do: {:ok, value}
+       do: value
 
   defp region_dimension(
          %Dimension{unit: :ratio, numerator: numerator, denominator: denominator},
          axis
        )
        when is_integer(axis) and axis > 0 and numerator > 0 do
-    {:ok, round(axis * numerator / denominator)}
+    round(axis * numerator / denominator)
   end
-
-  defp region_dimension(%Dimension{} = dimension, _axis),
-    do: {:error, {:unsupported_crop_region_dimension, dimension}}
 
   defp region_coordinate(%Dimension{unit: :logical_px, value: value}, _axis)
        when value >= 0,
-       do: {:ok, value}
+       do: value
 
   defp region_coordinate(
          %Dimension{unit: :ratio, numerator: numerator, denominator: denominator},
          axis
        )
        when is_integer(axis) and axis > 0 do
-    {:ok, round(axis * numerator / denominator)}
+    round(axis * numerator / denominator)
   end
 
-  defp region_coordinate(%Dimension{} = dimension, _axis),
-    do: {:error, {:unsupported_crop_region_dimension, dimension}}
-
-  defp executable_gravity(nil), do: {:ok, @default_gravity}
-
-  defp executable_gravity(%Gravity{space: space}) when space in [:source, :post_orient],
-    do: {:error, {:unsupported_gravity_space, space}}
-
   defp executable_gravity(%Gravity{type: :anchor, x: x, y: y, space: :current}),
-    do: {:ok, {:anchor, x, y}}
+    do: {:anchor, x, y}
 
   defp executable_gravity(%Gravity{type: :focal_point, space: :current} = gravity) do
-    with {:ok, x} <- ratio_to_float(gravity.x),
-         {:ok, y} <- ratio_to_float(gravity.y) do
-      {:ok, {:fp, x, y}}
-    end
+    {:fp, ratio_to_float(gravity.x), ratio_to_float(gravity.y)}
   end
 
   defp ratio_to_float(%Dimension{unit: :ratio, numerator: numerator, denominator: denominator}) do
-    {:ok, numerator / denominator}
+    numerator / denominator
   end
 
-  defp ratio_to_float(%Dimension{} = dimension),
-    do: {:error, {:unsupported_focal_point_dimension, dimension}}
-
-  defp executable_optional_resize_dimension(nil), do: {:ok, nil}
+  defp executable_optional_resize_dimension(nil), do: nil
 
   defp executable_optional_resize_dimension(%Dimension{} = dimension),
     do: executable_resize_dimension(dimension)
@@ -311,6 +248,5 @@ defmodule ImagePlug.Transform.Resolver.Lowering do
   defp canvas_rule({:ratio, width}, {:ratio, height}), do: {:aspect_ratio, {width, height}}
   defp canvas_rule(width, height), do: {:dimensions, width, height}
 
-  defp crop_offsets(nil), do: {{:pixels, 0.0}, {:pixels, 0.0}}
   defp crop_offsets(operation), do: {operation.x_offset, operation.y_offset}
 end

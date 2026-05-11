@@ -13,53 +13,54 @@ defmodule ImagePlug.Runtime.Processor do
   alias ImagePlug.Transform.SourceMetadata
   alias ImagePlug.Transform.State
 
-  @spec process_origin(Plan.t(), [ImagePlug.Plan.Pipeline.t()], String.t(), keyword()) ::
+  @spec process_origin(Plan.t(), String.t(), keyword()) ::
           {:ok, State.t()} | {:error, term()}
-  def process_origin(%Plan{}, [], _origin_identity, _opts), do: {:error, :empty_pipeline_plan}
+  def process_origin(%Plan{pipelines: []}, _origin_identity, _opts),
+    do: {:error, :empty_pipeline_plan}
 
-  def process_origin(%Plan{} = plan, pipelines, origin_identity, opts) when is_list(pipelines) do
+  def process_origin(%Plan{} = plan, origin_identity, opts) do
     with {:ok, %DecodedOrigin{} = decoded} <-
-           fetch_decode_validate_origin_with_source_format(plan, pipelines, origin_identity, opts) do
+           fetch_decode_validate_origin_with_source_format(plan, origin_identity, opts) do
       process_decoded_origin(decoded, plan, opts)
     end
   end
 
   @spec fetch_decode_validate_origin_with_source_format(
           Plan.t(),
-          [ImagePlug.Plan.Pipeline.t()],
           String.t(),
           keyword()
         ) ::
           {:ok, DecodedOrigin.t()} | {:error, term()}
-  def fetch_decode_validate_origin_with_source_format(%Plan{}, [], _origin_identity, _opts),
-    do: {:error, :empty_pipeline_plan}
+  def fetch_decode_validate_origin_with_source_format(
+        %Plan{pipelines: []},
+        _origin_identity,
+        _opts
+      ),
+      do: {:error, :empty_pipeline_plan}
 
   def fetch_decode_validate_origin_with_source_format(
         %Plan{} = plan,
-        pipelines,
         origin_identity,
         opts
-      )
-      when is_list(pipelines) do
+      ) do
     with {:ok, origin_response, source_format} <-
-           fetch_origin_with_source_format(plan, pipelines, origin_identity, opts),
+           fetch_origin_with_source_format(plan, origin_identity, opts),
          {:ok, %DecodedOrigin{} = decoded} <-
-           decode_validate_origin_response(origin_response, source_format, plan, pipelines, opts) do
+           decode_validate_origin_response(origin_response, source_format, plan, opts) do
       {:ok, decoded}
     end
   end
 
   @spec fetch_origin_with_source_format(
           Plan.t(),
-          [ImagePlug.Plan.Pipeline.t()],
           String.t(),
           keyword()
         ) ::
           {:ok, Origin.Response.t(), :avif | :webp | :jpeg | :png | nil} | {:error, term()}
-  def fetch_origin_with_source_format(%Plan{}, [], _origin_identity, _opts),
+  def fetch_origin_with_source_format(%Plan{pipelines: []}, _origin_identity, _opts),
     do: {:error, :empty_pipeline_plan}
 
-  def fetch_origin_with_source_format(%Plan{} = plan, _pipelines, origin_identity, opts) do
+  def fetch_origin_with_source_format(%Plan{} = plan, origin_identity, opts) do
     with {:ok, origin_response} <-
            fetch_origin(plan, origin_identity, opts) |> wrap_origin_error() do
       {:ok, origin_response, source_format(origin_response)}
@@ -70,21 +71,25 @@ defmodule ImagePlug.Runtime.Processor do
           Origin.Response.t(),
           :avif | :webp | :jpeg | :png | nil,
           Plan.t(),
-          [ImagePlug.Plan.Pipeline.t()],
           keyword()
         ) :: {:ok, DecodedOrigin.t()} | {:error, term()}
-  def decode_validate_origin_response(origin_response, source_format, plan, pipelines, opts) do
+  def decode_validate_origin_response(origin_response, source_format, plan, opts) do
     result =
-      do_decode_validate_origin_response(origin_response, source_format, plan, pipelines, opts)
+      do_decode_validate_origin_response(origin_response, source_format, plan, opts)
 
     close_pending_origin_on_error(result, origin_response)
   end
 
-  defp do_decode_validate_origin_response(_origin_response, _source_format, %Plan{}, [], _opts),
-    do: {:error, :empty_pipeline_plan}
+  defp do_decode_validate_origin_response(
+         _origin_response,
+         _source_format,
+         %Plan{pipelines: []},
+         _opts
+       ),
+       do: {:error, :empty_pipeline_plan}
 
-  defp do_decode_validate_origin_response(origin_response, source_format, _plan, pipelines, opts) do
-    decode_options = DecodePlanner.open_options(first_pipeline_operations(pipelines))
+  defp do_decode_validate_origin_response(origin_response, source_format, %Plan{} = plan, opts) do
+    decode_options = DecodePlanner.open_options(first_pipeline_operations(plan))
 
     with {:ok, image} <-
            decode_origin_response(origin_response, decode_options, opts)
@@ -105,12 +110,10 @@ defmodule ImagePlug.Runtime.Processor do
 
   @spec process_decoded_origin(
           DecodedOrigin.t(),
-          Plan.t() | [ImagePlug.Plan.Pipeline.t()],
+          Plan.t(),
           keyword()
         ) ::
           {:ok, State.t()} | {:error, term()}
-  def process_decoded_origin(%DecodedOrigin{}, [], _opts), do: {:error, :empty_pipeline_plan}
-
   def process_decoded_origin(%DecodedOrigin{}, %Plan{pipelines: []}, _opts),
     do: {:error, :empty_pipeline_plan}
 
@@ -122,11 +125,6 @@ defmodule ImagePlug.Runtime.Processor do
       {:error, _reason} = error ->
         close_pending_origin_on_error(error, decoded.origin_response)
     end
-  end
-
-  def process_decoded_origin(%DecodedOrigin{} = decoded, pipelines, opts)
-      when is_list(pipelines) do
-    process_executable_pipelines(decoded, pipeline_operations(pipelines), opts)
   end
 
   defp process_executable_pipelines(%DecodedOrigin{} = decoded, pipelines, opts)
@@ -150,10 +148,6 @@ defmodule ImagePlug.Runtime.Processor do
 
   defp executable_pipelines(%Plan{} = plan, %DecodedOrigin{} = decoded, opts) do
     Transform.executable_pipelines(plan, decoded.source_metadata, opts)
-  end
-
-  defp pipeline_operations(pipelines) do
-    Enum.map(pipelines, fn %ImagePlug.Plan.Pipeline{operations: operations} -> operations end)
   end
 
   def close_pending_origin(%Origin.Response{} = origin_response) do
@@ -197,12 +191,10 @@ defmodule ImagePlug.Runtime.Processor do
     end
   end
 
-  @doc false
-  @spec first_pipeline_operations([ImagePlug.Plan.Pipeline.t()]) :: Chain.t()
-  def first_pipeline_operations([%ImagePlug.Plan.Pipeline{operations: operations} | _rest]),
-    do: operations
-
-  def first_pipeline_operations([]), do: []
+  defp first_pipeline_operations(%Plan{
+         pipelines: [%ImagePlug.Plan.Pipeline{operations: operations} | _rest]
+       }),
+       do: operations
 
   defp maybe_materialize_between_pipelines(
          %State{} = state,

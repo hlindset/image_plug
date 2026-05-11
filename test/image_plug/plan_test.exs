@@ -39,6 +39,26 @@ defmodule ImagePlug.PlanTest do
     assert {:ok, [%Pipeline{operations: [^operation]}]} = Plan.validated_pipelines(plan)
   end
 
+  test "validated pipelines reject parser-local command structs" do
+    operation = %ImagePlug.Parser.Imgproxy.PipelineRequest{}
+
+    assert Plan.validated_pipelines(plan(pipelines: [%Pipeline{operations: [operation]}])) ==
+             {:error, {:invalid_pipeline_operation, operation}}
+  end
+
+  test "validated pipelines reject executable transform structs" do
+    operation = %ImagePlug.Transform.Operation.Resize{
+      rule: %ImagePlug.Transform.Geometry.DimensionRule{
+        mode: :fit,
+        width: {:pixels, 100},
+        height: :auto
+      }
+    }
+
+    assert Plan.validated_pipelines(plan(pipelines: [%Pipeline{operations: [operation]}])) ==
+             {:error, {:invalid_pipeline_operation, operation}}
+  end
+
   test "validate shape accepts default product-neutral facets" do
     plan = plan()
 
