@@ -426,8 +426,8 @@ Rules:
   debugging or diagnostics.
 - Source-aware lowering results need no separate cache material when they are
   deterministic consequences of source identity/freshness material, canonical
-  semantic material, configuration, backend profile, output negotiation, and
-  pipeline order.
+  semantic material, configuration, output negotiation, the cache key's
+  transform material version, and pipeline order.
 - Resolver selections need separate material only when they introduce an
   output-affecting choice that is not already determined by prefetch-safe key
   material.
@@ -526,7 +526,7 @@ Inputs:
   source type. The implementation plan should define a minimal
   `ImagePlug.Transform.SourceMetadata` struct early instead of passing loose
   maps between resolver phases.
-- backend support/profile material
+- backend support/configuration
 - parser or compatibility policy
 - config defaults that affect visible output
 
@@ -690,15 +690,16 @@ Cache lookup:
 
 - Uses deterministic canonical material and must not require source fetch,
   image decode, or source metadata extraction.
-- Must include enough configuration and backend profile material to avoid stale
-  entries when output-affecting resolver behavior changes.
+- Must include enough configuration and a cache-owned transform material
+  version to avoid stale entries when output-affecting transform semantics
+  change.
 - Source-dependent semantic operations remain unresolved in final cache
   material when they are deterministic for the source identity/freshness
   material and final pipeline order.
 - Source-metadata-derived resolver choices are execution choices, not key
   material, when they are deterministic from source identity/freshness
-  material, canonical semantic material, configuration, backend profile, output
-  negotiation, and pipeline order.
+  material, canonical semantic material, configuration, output negotiation, the
+  cache key's transform material version, and pipeline order.
 - Resolver material may include only output-affecting selections that are
   available before origin fetch/cache lookup and are not already represented by
   existing key material.
@@ -773,7 +774,6 @@ Use explicit material layers:
 ```text
 transform_material_version
 semantic_material(plan)
-backend_profile_material(profile)
 output_material(output_negotiation)
 resolver_material(prefetch_safe_selections_only)
 ```
@@ -787,9 +787,11 @@ or source metadata extraction. It combines those layers with:
 - parser compatibility mode
 - config defaults that affect visible output
 
-The transform material version must change when canonicalization, rounding,
-source-aware lowering semantics, or backend/profile material changes in a way
-that could alter output or key interpretation.
+The transform material version is owned by `ImagePlug.Cache.Key`. It must
+change when canonicalization, rounding, source-aware lowering semantics,
+backend execution semantics, or transform material interpretation changes in a
+way that could alter output or key interpretation. Do not introduce a separate
+Transform-owned backend profile abstraction for the first slice.
 
 Raw parser syntax, aliases, and vendor option spelling must not appear in cache
 material.
@@ -802,8 +804,9 @@ or cover branch into the key.
 
 Any unresolved semantic operation allowed in final cache material has a proof
 obligation: tests must show that for fixed source identity/freshness material,
-semantic material, backend profile, configuration, output negotiation, and
-pipeline order, resolver choices produce one deterministic output.
+semantic material, configuration, output negotiation, the cache key's transform
+material version, and pipeline order, resolver choices produce one
+deterministic output.
 
 This cache invariant assumes source identity is stable for caching purposes.
 Changed source bytes or metadata must be represented by a different resolved
@@ -842,11 +845,11 @@ DPR conversion to physical pixels.
 
 Resolver material is reserved for prefetch-safe selections: output-affecting
 choices that are available before origin fetch/cache lookup and not already
-represented by semantic material, backend profile material, configuration,
-output negotiation, or pipeline order. Backend capability profile changes that
-can alter pixels must appear in backend profile material. This prevents a
-deployment that gains face detection or changes smartcrop strategy support from
-reusing stale cache entries produced by older behavior.
+represented by semantic material, configuration, output negotiation, the cache
+key's transform material version, or pipeline order. Output-affecting backend
+execution changes must bump the cache key's transform material version. This
+prevents deployments with changed transform behavior from reusing stale cache
+entries produced by older behavior.
 
 The first slice should not produce resolver selections unless a current
 imgproxy-compatible feature already has a prefetch-safe output-affecting choice
@@ -920,7 +923,8 @@ Mapping:
   during source-aware resolution. The selected branch is source-aware execution
   state, not resolver material, because it is deterministic from source
   identity/freshness material, canonical semantic material, configuration,
-  backend profile, output negotiation, and pipeline order.
+  output negotiation, the cache key's transform material version, and pipeline
+  order.
 - `extend` and `extend_aspect_ratio` map to `Canvas`.
 - Smart/object/face gravity maps to strategy guides only when parser policy
   supports those strategies.
@@ -998,9 +1002,9 @@ Boundary direction should remain explicit:
   reference concrete plan operation modules.
 - The Transform resolver/executor may pattern match on concrete semantic
   operations and backend instructions inside the Transform boundary.
-- Cache may depend on Plan semantic material, Transform backend/profile material
-  facades, and prefetch-safe resolver selection material, but not
-  parser-specific structs.
+- Cache may depend on Plan semantic material, Transform material facades for
+  operation material, and prefetch-safe resolver selection material, but not
+  parser-specific structs or Transform resolver internals.
 
 Boundary exports should stay narrow. Do not export implementation helpers just
 to satisfy compile errors.
@@ -1077,7 +1081,8 @@ Cache tests should assert:
   decode, or source-aware lowering
 - unresolved semantic operations used in final cache material have tests
   proving deterministic output for fixed source identity, semantic material,
-  backend profile, configuration, output negotiation, and pipeline order
+  configuration, output negotiation, the cache key's transform material
+  version, and pipeline order
 - changed source bytes or metadata are represented by changed source identity,
   source fingerprint, cachebuster, immutable origin version, or equivalent
   freshness material
@@ -1086,7 +1091,8 @@ Cache tests should assert:
 - resolver fallback selections are included only when they are prefetch-safe and
   add output-affecting information not already determined by existing key
   material
-- backend capability profile changes that affect pixels change material
+- transform semantic changes that affect pixels bump the cache key's transform
+  material version
 
 Boundary tests should assert:
 

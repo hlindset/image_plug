@@ -4,7 +4,7 @@
 
 **Goal:** Replace the current overloaded executable transform structs with a narrow semantic Plan IR for the current imgproxy-compatible behavior, while keeping final output cache lookup source-fetch-free.
 
-**Architecture:** Add canonical semantic operation structs under `ImagePlug.Plan.Operation.*`, keep parser quirks in the renamed `ImagePlug.Parser.Imgproxy`, and resolve semantic plans to executable transform work inside `ImagePlug.Transform`. Cache keys are built from prefetch-safe semantic material, source freshness identity, output/config material, and backend/profile material; source-aware lowering choices stay internal to resolved executable work and never mutate final cache keys.
+**Architecture:** Add canonical semantic operation structs under `ImagePlug.Plan.Operation.*`, keep parser quirks in the renamed `ImagePlug.Parser.Imgproxy`, and resolve semantic plans to executable transform work inside `ImagePlug.Transform`. Cache keys are built from prefetch-safe semantic material, source freshness identity, output/config material, and the cache key's transform material version; source-aware lowering choices stay internal to resolved executable work and never mutate final cache keys.
 
 **Tech Stack:** Elixir 1.17, ExUnit, StreamData, Boundary, Plug, Vix/Image, existing `ImagePlug.Transform` facade.
 
@@ -34,7 +34,6 @@ Create these Transform resolver files:
 
 - `lib/image_plug/transform/source_metadata.ex` - minimal source metadata struct passed to resolver.
 - `lib/image_plug/transform/resolved_plan.ex` - resolved executable work plus diagnostics and selections.
-- `lib/image_plug/transform/backend_profile.ex` - first-slice backend/profile material.
 - `lib/image_plug/transform/resolver.ex` - orchestration for semantic validation, source-aware lowering, and support checks.
 - `lib/image_plug/transform/resolver/geometry.ex` - shared integer geometry, orientation, DPR, and ResizeAuto branch helpers.
 - `lib/image_plug/transform/resolver/lowering.ex` - lowers semantic operations to existing executable `ImagePlug.Transform.Operation.*` structs.
@@ -54,10 +53,10 @@ Modify these existing files:
 - `lib/image_plug/plan/pipeline.ex` - type operations as semantic Plan operations instead of executable transform chains.
 - `lib/image_plug/parser.ex` - export `Imgproxy`, not `Native`.
 - `lib/image_plug/parser/imgproxy/plan_builder.ex` - emit semantic Plan operations through constructors.
-- `lib/image_plug/cache/key.ex` - materialize semantic Plan operations and include backend/profile/config material.
+- `lib/image_plug/cache/key.ex` - materialize semantic Plan operations and include output/config material plus the cache key's transform material version.
 - `lib/image_plug/runtime/request_runner.ex` - build cache key before source fetch; resolve semantic plan only on cache miss or uncached execution.
 - `lib/image_plug/runtime/processor.ex` - accept resolved executable work from `ImagePlug.Transform.resolve/3`.
-- `lib/image_plug/transform.ex` - add semantic `resolve/3`, backend profile/material helpers, and remove defensive operation duck-typing once semantic validation replaces it.
+- `lib/image_plug/transform.ex` - add semantic `resolve/3` and remove defensive operation duck-typing once semantic validation replaces it.
 - `lib/image_plug/transform/decode_planner.ex` - use resolved executable work for decode/open planning after cache miss.
 - `docs/transform_operations.md` - update parser author guidance from executable operations to semantic Plan operations plus Transform resolver.
 - `mix.exs` - point docs extras at `docs/imgproxy_path_api.md`.
@@ -864,7 +863,6 @@ mise exec -- git commit -m "feat: add semantic plan operations"
 **Files:**
 - Create: `lib/image_plug/transform/source_metadata.ex`
 - Create: `lib/image_plug/transform/resolved_plan.ex`
-- Create: `lib/image_plug/transform/backend_profile.ex`
 - Create: `lib/image_plug/transform/resolver.ex`
 - Create: `lib/image_plug/transform/resolver/geometry.ex`
 - Create: `lib/image_plug/transform/resolver/lowering.ex`
@@ -973,29 +971,13 @@ Add:
   pipelines: [[ImagePlug.Transform.operation()]],
   diagnostics: [],
   selections: [],
-  resolver_material: [],
-  backend_profile_material: []
+  resolver_material: []
 }
 ```
 
 First-slice `ResolvedPlan.pipelines` is a nested list of executable transform operations, preserving the same pipeline grouping as `Plan.pipelines`. Return shape is always `{:ok, %ResolvedPlan{}} | {:error, diagnostics}`; do not add polymorphic success tuples.
 
-- [ ] **Step 3: Add backend profile material**
-
-Add `ImagePlug.Transform.BackendProfile.default/0` and `material/1`:
-
-```elixir
-[
-  backend: :vips,
-  material_version: 1,
-  geometry_rules_version: 1,
-  orientation_policy_version: 1,
-  dpr_policy_version: 1,
-  smart_strategy_support: :none
-]
-```
-
-- [ ] **Step 4: Implement resolver orchestration**
+- [ ] **Step 3: Implement resolver orchestration**
 
 Expose in `ImagePlug.Transform`:
 
@@ -1050,7 +1032,7 @@ If Task 1 proves that `%Resize{mode: :fill}` alone already produces exact cover 
 Run:
 
 ```bash
-mise exec -- mix format lib/image_plug/transform.ex lib/image_plug/transform/source_metadata.ex lib/image_plug/transform/resolved_plan.ex lib/image_plug/transform/backend_profile.ex lib/image_plug/transform/resolver.ex lib/image_plug/transform/resolver/*.ex test/image_plug/transform/resolver_test.exs
+mise exec -- mix format lib/image_plug/transform.ex lib/image_plug/transform/source_metadata.ex lib/image_plug/transform/resolved_plan.ex lib/image_plug/transform/resolver.ex lib/image_plug/transform/resolver/*.ex test/image_plug/transform/resolver_test.exs
 mise exec -- mix compile --warnings-as-errors
 mise exec -- mix test test/image_plug/transform/resolver_test.exs
 ```
@@ -1255,11 +1237,13 @@ test "resize auto cache material stays unresolved and source-metadata-free" do
 end
 ```
 
-Add a second cache test that passes a non-default backend profile or backend material version and proves the final key changes while semantic pipeline material stays the same. This forces backend/profile material to be parameterized rather than hardcoded.
+Add a cache test that asserts `Cache.Key` includes its transform material version directly, for example:
 
-Implementation hint: the cache key builder should accept backend profile material through options/config, for example `backend_profile: custom_profile` or equivalent based on Task 0 findings, instead of hardcoding `BackendProfile.default/0` in a way callers cannot override.
+```elixir
+assert key.material[:transform] == [material_version: 1]
+```
 
-When backend profile material is added, update existing cache key fixtures or snapshots intentionally. Do not weaken semantic cache assertions merely to make changed snapshots pass.
+Do not add a configurable backend profile option in the first slice. If transform material semantics change later, bump the cache-owned transform material version.
 
 - [ ] **Step 2: Add cache-hit no-origin test for semantic ResizeAuto**
 
@@ -1293,12 +1277,12 @@ test "semantic resize auto cache hit does not fetch source or resolve operations
 end
 ```
 
-- [ ] **Step 3: Update `Cache.Key` material wording and backend profile material**
+- [ ] **Step 3: Update `Cache.Key` material wording and transform material version**
 
-Keep `Cache.Key.build/4` source-fetch-free. Add backend/profile material to the key with default profile:
+Keep `Cache.Key.build/4` source-fetch-free. Add the cache-owned transform material version directly to the key:
 
 ```elixir
-backend: ImagePlug.Transform.BackendProfile.material(ImagePlug.Transform.BackendProfile.default())
+transform: [material_version: 1]
 ```
 
 Do not call `Transform.resolve/3`, image metadata readers, or origin fetch modules from cache key code.
@@ -1349,7 +1333,7 @@ mise exec -- mix compile --warnings-as-errors
 mise exec -- mix test test/image_plug/cache/key_test.exs test/image_plug/cache/key_property_test.exs test/image_plug/runtime/request_runner_test.exs test/image_plug/response_cache_test.exs
 ```
 
-Expected: semantic ResizeAuto stays unresolved in cache material, origin identity changes key, backend profile material changes key, cache hits return before source work, and existing executable-operation cache tests continue to pass until parser output is switched in Task 9.
+Expected: semantic ResizeAuto stays unresolved in cache material, origin identity changes key, `Cache.Key` includes its transform material version, cache hits return before source work, and existing executable-operation cache tests continue to pass until parser output is switched in Task 9.
 
 - [ ] **Step 7: Commit metadata-free cache lookup**
 
@@ -1735,7 +1719,7 @@ Add tests that show:
 - same semantic material + same source freshness identity -> same key
 - same semantic material + changed source freshness identity -> different key
 - changed cachebuster -> different key without changing pipeline material
-- changed backend profile/material version -> different key without changing pipeline material
+- changed transform semantics -> bump `Cache.Key` transform material version
 
 Use `origin_identity` strings such as `"asset:cat:v1"` and `"asset:cat:v2"` to model strong freshness material without origin fetch.
 
@@ -1872,6 +1856,6 @@ Placeholder scan:
 Type consistency:
 
 - Semantic operations live under `ImagePlug.Plan.Operation.*`.
-- Source metadata, resolved plans, and backend profile live under `ImagePlug.Transform.*`.
+- Source metadata and resolved plans live under `ImagePlug.Transform.*`.
 - Parser namespace is consistently `ImagePlug.Parser.Imgproxy` after Task 2.
 - First-slice resolver output uses empty selections/resolver material.
