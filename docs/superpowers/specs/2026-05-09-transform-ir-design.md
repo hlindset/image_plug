@@ -790,8 +790,7 @@ or source metadata extraction. It combines those layers with:
 The transform material version is owned by `ImagePlug.Cache.Key`. It must
 change when canonicalization, rounding, source-aware lowering semantics,
 backend execution semantics, or transform material interpretation changes in a
-way that could alter output or key interpretation. Do not introduce a separate
-Transform-owned backend profile abstraction for the first slice.
+way that could alter output or key interpretation.
 
 Raw parser syntax, aliases, and vendor option spelling must not appear in cache
 material.
