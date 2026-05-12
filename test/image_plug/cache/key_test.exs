@@ -204,6 +204,43 @@ defmodule ImagePlug.Cache.KeyTest do
            |> Enum.all?(&Keyword.keyword?/1)
   end
 
+  test "unified resize operation contributes prefetch-safe cache key data" do
+    assert {:ok, operation} =
+             Operation.resize(:auto, {:px, 300}, {:px, 200},
+               dpr: "1.00",
+               enlargement: :deny
+             )
+
+    key =
+      conn(:get, "/_/rt:auto/w:300/h:200/f:webp/plain/images/cat.jpg")
+      |> build_key!(
+        plan(pipelines: [%Pipeline{operations: [operation]}]),
+        "https://origin.test/images/cat.jpg"
+      )
+
+    assert key.material[:pipelines] == [
+             [
+               [
+                 op: :resize,
+                 mode: :auto,
+                 width: [unit: :logical_px, value: 300],
+                 height: [unit: :logical_px, value: 200],
+                 dpr: [unit: :ratio, numerator: 1, denominator: 1],
+                 enlargement: :deny,
+                 guide: :center,
+                 min_width: nil,
+                 min_height: nil,
+                 zoom_x: 1.0,
+                 zoom_y: 1.0,
+                 rule: :imgproxy_orientation_match_v1
+               ]
+             ]
+           ]
+
+    refute inspect(key.material[:pipelines]) =~ "selected_branch"
+    refute inspect(key.material[:pipelines]) =~ "resize_auto"
+  end
+
   test "resize material includes requested zoom and dpr rule inputs" do
     operation = resize_fit_operation(100, :auto, dpr: 2.0, zoom_x: 2.0, zoom_y: 1.5)
 

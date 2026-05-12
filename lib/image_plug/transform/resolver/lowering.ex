@@ -10,6 +10,7 @@ defmodule ImagePlug.Transform.Resolver.Lowering do
   alias ImagePlug.Plan.Operation.CropGuided
   alias ImagePlug.Plan.Operation.CropRegion
   alias ImagePlug.Plan.Operation.Flip
+  alias ImagePlug.Plan.Operation.Resize, as: PlanResize
   alias ImagePlug.Plan.Operation.ResizeCover
   alias ImagePlug.Plan.Operation.ResizeFit
   alias ImagePlug.Plan.Operation.ResizeStretch
@@ -25,6 +26,34 @@ defmodule ImagePlug.Transform.Resolver.Lowering do
   alias ImagePlug.Transform.Resolver.Geometry
 
   @spec lower(Operation.semantic_operation(), map()) :: [struct()]
+  def lower(%PlanResize{mode: :fit} = operation, _context) do
+    [%Resize{rule: tagged_dimension_rule(operation, :fit)}]
+  end
+
+  def lower(%PlanResize{mode: :cover} = operation, _context) do
+    rule = tagged_dimension_rule(operation, :cover)
+
+    cover_resize_and_crop(rule, tagged_executable_gravity(operation.guide), {0.0, 0.0})
+  end
+
+  def lower(%PlanResize{mode: :stretch} = operation, _context) do
+    [%Resize{rule: tagged_dimension_rule(operation, :stretch)}]
+  end
+
+  def lower(%PlanResize{mode: :auto} = operation, context) do
+    branch =
+      Geometry.resize_auto_branch(
+        context.current_width,
+        context.current_height,
+        tagged_logical_pixels(operation.width),
+        tagged_logical_pixels(operation.height)
+      )
+
+    rule = tagged_dimension_rule(operation, branch)
+
+    tagged_executable_operations(branch, rule, operation)
+  end
+
   def lower(%ResizeFit{} = operation, _context) do
     [%Resize{rule: dimension_rule(operation, :fit)}]
   end
@@ -95,6 +124,23 @@ defmodule ImagePlug.Transform.Resolver.Lowering do
   defp logical_pixels(%Dimension{unit: :logical_px, value: value}), do: value
   defp logical_pixels(%Dimension{}), do: :unknown
 
+  defp tagged_logical_pixels({:px, value}), do: value
+  defp tagged_logical_pixels(_dimension), do: :unknown
+
+  defp tagged_dimension_rule(operation, mode) do
+    %DimensionRule{
+      mode: dimension_rule_mode(mode),
+      width: tagged_executable_resize_dimension(operation.width),
+      height: tagged_executable_resize_dimension(operation.height),
+      min_width: tagged_executable_optional_resize_dimension(operation.min_width),
+      min_height: tagged_executable_optional_resize_dimension(operation.min_height),
+      zoom_x: operation.zoom_x,
+      zoom_y: operation.zoom_y,
+      dpr: tagged_dpr_float(operation.dpr),
+      enlarge: operation.enlargement == :allow
+    }
+  end
+
   defp dimension_rule(operation, mode) do
     %DimensionRule{
       mode: dimension_rule_mode(mode),
@@ -118,6 +164,20 @@ defmodule ImagePlug.Transform.Resolver.Lowering do
   defp executable_resize_dimension(%Dimension{unit: :logical_px, value: value}),
     do: {:pixels, value}
 
+  defp tagged_executable_resize_dimension(:auto), do: :auto
+  defp tagged_executable_resize_dimension({:px, value}), do: {:pixels, value}
+
+  defp tagged_executable_optional_resize_dimension(nil), do: nil
+
+  defp tagged_executable_optional_resize_dimension(dimension),
+    do: tagged_executable_resize_dimension(dimension)
+
+  defp tagged_executable_operations(:cover, %DimensionRule{} = rule, operation),
+    do: cover_resize_and_crop(rule, tagged_executable_gravity(operation.guide), {0.0, 0.0})
+
+  defp tagged_executable_operations(:fit, %DimensionRule{} = rule, _operation),
+    do: [%Resize{rule: rule}]
+
   defp executable_operations(:cover, %DimensionRule{} = rule, operation),
     do: cover_operations(rule, operation.guide, operation)
 
@@ -127,13 +187,17 @@ defmodule ImagePlug.Transform.Resolver.Lowering do
   defp cover_operations(%DimensionRule{} = rule, guide, operation) do
     {x_offset, y_offset} = crop_offsets(operation)
 
+    cover_resize_and_crop(rule, executable_gravity(guide), {x_offset, y_offset})
+  end
+
+  defp cover_resize_and_crop(%DimensionRule{} = rule, gravity, {x_offset, y_offset}) do
     [
       %Resize{rule: rule},
       %Crop{
         width: :auto,
         height: :auto,
         crop_from: :gravity,
-        gravity: executable_gravity(guide),
+        gravity: gravity,
         x_offset: x_offset,
         y_offset: y_offset,
         target_rule: rule
@@ -203,9 +267,19 @@ defmodule ImagePlug.Transform.Resolver.Lowering do
     {:fp, ratio_to_float(gravity.x), ratio_to_float(gravity.y)}
   end
 
+  defp tagged_executable_gravity(:center), do: {:anchor, :center, :center}
+  defp tagged_executable_gravity({:anchor, x, y}), do: {:anchor, x, y}
+
+  defp tagged_executable_gravity({:focal, x, y}),
+    do: {:fp, tagged_ratio_to_float(x), tagged_ratio_to_float(y)}
+
   defp ratio_to_float(%Dimension{unit: :ratio, numerator: numerator, denominator: denominator}) do
     numerator / denominator
   end
+
+  defp tagged_ratio_to_float({:ratio, numerator, denominator}), do: numerator / denominator
+
+  defp tagged_dpr_float({:ratio, numerator, denominator}), do: numerator / denominator
 
   defp executable_optional_resize_dimension(nil), do: nil
 

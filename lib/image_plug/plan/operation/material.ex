@@ -127,6 +127,12 @@ defimpl ImagePlug.Transform.Material, for: ImagePlug.Plan.Operation.ResizeFit do
   defp material_or_nil(value), do: ImagePlug.Transform.Material.material(value)
 end
 
+defimpl ImagePlug.Transform.Material, for: ImagePlug.Plan.Operation.Resize do
+  def material(%ImagePlug.Plan.Operation.Resize{} = operation) do
+    ImagePlug.Transform.KeyData.data(operation)
+  end
+end
+
 defimpl ImagePlug.Transform.Material, for: ImagePlug.Plan.Operation.ResizeCover do
   def material(%ImagePlug.Plan.Operation.ResizeCover{} = operation) do
     [

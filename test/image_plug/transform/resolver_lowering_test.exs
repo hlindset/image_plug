@@ -94,6 +94,87 @@ defmodule ImagePlug.Transform.ResolverLoweringTest do
     assert resolved.resolver_material == []
   end
 
+  test "unified resize modes lower to existing resize rules" do
+    assert {:ok, fit} = Operation.resize(:fit, {:px, 100}, {:px, 80}, enlargement: :deny)
+
+    assert {:ok, cover} =
+             Operation.resize(:cover, {:px, 50}, {:px, 50},
+               enlargement: :allow,
+               guide: {:anchor, :center, :center}
+             )
+
+    assert {:ok, stretch} =
+             Operation.resize(:stretch, {:px, 20}, {:px, 10}, enlargement: :allow)
+
+    assert {:ok, resolved} = Transform.resolve(plan([fit, cover, stretch]), metadata(), [])
+
+    assert [
+             [
+               %Resize{
+                 rule: %DimensionRule{
+                   mode: :fit,
+                   width: {:pixels, 100},
+                   height: {:pixels, 80},
+                   enlarge: false
+                 }
+               },
+               %Resize{
+                 rule: %DimensionRule{
+                   mode: :fill,
+                   width: {:pixels, 50},
+                   height: {:pixels, 50},
+                   enlarge: true
+                 }
+               },
+               %Crop{
+                 target_rule: %DimensionRule{
+                   mode: :fill,
+                   width: {:pixels, 50},
+                   height: {:pixels, 50}
+                 },
+                 crop_from: :gravity,
+                 gravity: {:anchor, :center, :center}
+               },
+               %Resize{
+                 rule: %DimensionRule{
+                   mode: :force,
+                   width: {:pixels, 20},
+                   height: {:pixels, 10},
+                   enlarge: true
+                 }
+               }
+             ]
+           ] = resolved.pipelines
+  end
+
+  test "unified resize auto lowers through current source-aware branch rule" do
+    assert {:ok, operation} =
+             Operation.resize(:auto, {:px, 100}, {:px, 50}, enlargement: :deny)
+
+    assert {:ok, resolved} = Transform.resolve(plan([operation]), metadata(), [])
+
+    assert [
+             [
+               %Resize{
+                 rule: %DimensionRule{
+                   mode: :fill,
+                   width: {:pixels, 100},
+                   height: {:pixels, 50}
+                 }
+               },
+               %Crop{
+                 target_rule: %DimensionRule{
+                   mode: :fill,
+                   width: {:pixels, 100},
+                   height: {:pixels, 50}
+                 },
+                 crop_from: :gravity,
+                 gravity: {:anchor, :center, :center}
+               }
+             ]
+           ] = resolved.pipelines
+  end
+
   test "guided crop lowers to existing gravity crop" do
     assert {:ok, width} = Dimension.pixels(50)
     assert {:ok, height} = Dimension.full_axis()
