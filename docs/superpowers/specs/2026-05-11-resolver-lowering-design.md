@@ -1,0 +1,682 @@
+# Semantic Transform Execution Design
+
+## Status
+
+Proposed long-term design refinement for the current Transform IR branch.
+
+This document narrows the resolver/lowering/execution part of the Transform IR
+design after implementation review. It changes the target from "resolve the
+whole plan, then execute" to "execute ordered semantic operations against the
+current image state."
+
+## Problem
+
+ImagePlug has the right high-level cache boundary:
+
+```text
+Plan semantic intent
+  -> source-fetch-free final cache lookup
+  -> origin fetch/decode on miss
+  -> semantic transform execution
+  -> output encoding/storage under the original key
+```
+
+The weak part is treating resolver/lowering as a whole-plan compiler or as a
+metadata-only geometry simulator.
+
+Some operation choices need current image dimensions:
+
+- `ResizeAuto` needs current dimensions.
+- ratio crops need current dimensions.
+- canvas ratios may need current dimensions.
+- DPR, enlargement, and backend rounding can affect actual results.
+- orientation can change dimensions.
+
+The wrong long-term answer is to predict all of that in a resolver context. The
+image is already open during execution, and querying its current dimensions is
+cheap compared with the transform work. The executor should ask the image
+directly instead of maintaining a shadow model of current geometry.
+
+## Goals
+
+- Keep final transformed-output cache lookup source-fetch-free and
+  source-metadata-free.
+- Keep runtime generic. Runtime may call `ImagePlug.Transform` facades and
+  carry executable operation structs opaquely, but must not branch on concrete
+  operation modules.
+- Keep parser/vendor quirks outside `ImagePlug.Transform`.
+- Make Plan operation order define the image state each operation sees.
+- Execute semantic operations one at a time, lowering each operation against
+  the actual current image state.
+- Avoid source-space/current-space flags in Transform. By the time a request is
+  a canonical Plan, coordinate semantics are represented by operation order.
+- Do not carry pipeline/operation indexes unless structured diagnostics
+  actually use them.
+- Do not reintroduce derivation structs. Source-aware choices are reflected in
+  executed work and tests.
+- Keep first-slice scope narrow: current imgproxy-compatible behavior only.
+
+## Non-Goals
+
+- No broad backend capability planner.
+- No smart/face/object crop execution.
+- No second-wave parser implementation.
+- No backend operation ontology unless existing executable operations cannot
+  represent first-slice behavior.
+- No requirement to produce a complete `%ResolvedPlan{}` before executing a
+  request.
+- No general admission path for arbitrary executable Transform operations into
+  Plan pipelines.
+- No coordinate mapping for "original source coordinates after later
+  transforms" in the first slice.
+
+## Core Rule
+
+Plan operation order defines state.
+
+Every semantic operation is interpreted against the image state at its position
+in the pipeline.
+
+Therefore Transform should not need to know whether a crop originally came from
+source-space syntax, current-space syntax, or some vendor-specific region
+syntax. Parser/adapter canonicalization owns that translation.
+
+Examples:
+
+- If a dialect means "crop source region, then resize", the parser emits
+  `CropRegion` before `ResizeFit`.
+- If a dialect lists resize before source-region crop but defines source-region
+  semantics, the adapter reorders into canonical Plan order.
+- If a dialect truly means "apply original source coordinates after arbitrary
+  later transforms", that is not ordinary crop. It needs a future explicit
+  mapped-coordinate operation and should remain out of the first slice.
+
+Long-term `CropRegion` should not carry `space: :source | :current`. It should
+mean "crop this region from the current image at this operation point."
+
+## Thin Ordered Plan Shape
+
+This design adopts the useful part of a thin op-list architecture:
+
+```text
+vendor parser
+  -> ordered canonical Plan operations
+  -> cache lookup from semantic material
+  -> semantic execution one operation at a time
+  -> existing executable Transform operations/libvips
+```
+
+The canonical Plan should stay only one conceptual step above executable image
+work. It should not become a universal vendor ontology, a capability planner,
+or a framework of compatibility reports.
+
+ImagePlug should still prefer narrow structs over raw tagged tuples for the
+canonical request model. Structs give us constructor validation, stable cache
+material, boundary ownership, and clear pattern matching without accepting
+arbitrary keyword shapes. The target is therefore not:
+
+```elixir
+[
+  {:resize, width: 1200, height: 800, fit: :cover, position: :center}
+]
+```
+
+but the same level of thinness expressed as canonical Plan operations:
+
+```elixir
+%ImagePlug.Plan{
+  pipelines: [
+    %ImagePlug.Plan.Pipeline{
+      operations: [
+        %ImagePlug.Plan.Operation.ResizeCover{...},
+        %ImagePlug.Plan.Operation.CropRegion{...}
+      ]
+    }
+  ],
+  output: %ImagePlug.Plan.Output{...}
+}
+```
+
+The number of semantic operation types should remain small. If separate
+resize structs stop paying for themselves, a later cleanup may collapse them
+into one narrow resize operation with `mode: :fit | :cover | :stretch | :auto`.
+That is optional; the required alignment is ordered semantic execution, not a
+tuple representation.
+
+Output format and quality should remain under `ImagePlug.Output` /
+`ImagePlug.Plan.Output`, not in the transform operation list.
+
+## Layers
+
+### Plan Layer
+
+`ImagePlug.Plan` owns canonical request intent. Plan operations are prefetch
+safe:
+
+- they can be materialized for the final cache key before source fetch;
+- they do not contain source metadata;
+- they do not contain resolved backend execution traces.
+- they are interpreted against the current image state at their position in
+  the ordered Plan;
+- they represent canonical ImagePlug image operations, not raw vendor syntax;
+- they must be executable by `ImagePlug.Transform` for the supported first
+  slice.
+
+Examples:
+
+- `ResizeAuto` remains unresolved semantic intent.
+- `ResizeCover` means cover/fill intent plus guide.
+- `CropRegion` stores a region relative to the current image at that point.
+- `Canvas` stores target canvas intent.
+
+### Canonical Plan Operation Contract
+
+A canonical Plan operation:
+
+- is prefetch-safe;
+- has stable cache material;
+- does not contain source metadata;
+- does not contain resolved backend traces;
+- is interpreted against the current image state at its position in the Plan;
+- is constructed by parser/planner boundary code, not by runtime;
+- must not encode vendor-specific parser quirks unless intentionally preserved
+  as unsupported or degraded intent;
+- should stay small enough that the equivalent thin op-list form would be
+  obvious.
+
+`CropRegion` is not a representation of vendor crop syntax. It is a canonical
+image operation: crop this region from the current image at this operation
+point. Vendor source/current/original coordinate semantics must be consumed
+before Plan construction. Future unusual source-mapped behavior should use a
+distinct semantic operation rather than adding flags to `CropRegion`.
+
+### Semantic Execution Layer
+
+`ImagePlug.Transform.execute_semantic_plan/4` owns source-aware execution.
+
+Inputs:
+
+- `%ImagePlug.Plan{}`
+- `%ImagePlug.Transform.State{}` with decoded source image
+- `%ImagePlug.Transform.SourceMetadata{}`
+- runtime transform options
+
+Output:
+
+```elixir
+{:ok, %ImagePlug.Transform.State{}}
+| {:error, transform_error}
+```
+
+The semantic executor:
+
+- validates the prefetch-safe plan through the public Transform facade;
+- trusts `%SourceMetadata{}` as already validated at the runtime/source
+  boundary;
+- walks pipelines and operations in order;
+- refreshes current image facts from `Transform.State.image` before lowering
+  each semantic operation;
+- executes one semantic operation at a time through a small operation execution
+  step;
+- keeps any executable-operation lowering inside that operation execution step;
+- returns the final transform state.
+
+### Executable Transform Layer
+
+`ImagePlug.Transform.Operation.*` modules own executable work over
+`ImagePlug.Transform.State`.
+
+Runtime executes these through generic Transform/Chain entry points. The
+executable layer is allowed to contain backend-oriented concepts like
+`DimensionRule`, target-rule result crops, and concrete crop coordinates.
+
+## Public Entry Points
+
+The long-term runtime-facing entry point should be:
+
+```elixir
+ImagePlug.Transform.execute_semantic_plan(plan, initial_state, source_metadata, opts)
+```
+
+Runtime should call this from the processor after source fetch/decode and source
+metadata discovery. Runtime should not ask for fully resolved executable
+pipelines up front.
+
+These whole-plan compile helpers may remain temporarily for tests or migration,
+but they are not the long-term runtime API:
+
+```elixir
+ImagePlug.Transform.resolve(plan, source_metadata, opts)
+ImagePlug.Transform.executable_pipelines(plan, source_metadata, opts)
+```
+
+`ImagePlug.Transform.Resolver.*` modules should be treated as internal
+implementation. They should not be exported as stable boundary entry points.
+
+## Source Metadata And Options
+
+Do not introduce a resolver context struct for the primary execution path.
+
+Semantic operation execution receives:
+
+- the current `ImagePlug.Transform.State`;
+- the already validated `ImagePlug.Transform.SourceMetadata`;
+- runtime transform options.
+
+Current image facts should come from the actual image:
+
+```elixir
+current_width = Image.width(state.image)
+current_height = Image.height(state.image)
+```
+
+or existing `Transform.State`/geometry helpers. Operations should prefer
+current image facts from `State.image`. `SourceMetadata` is only for facts that
+the current decoded image cannot provide.
+
+Facts the current image cannot provide stay in `SourceMetadata` or options:
+
+- original source orientation metadata;
+- original source type/format;
+- runtime transform options that affect execution but are not cache-key
+  identity material.
+
+The cache key's transform material version is owned by `ImagePlug.Cache.Key`.
+
+Do not carry:
+
+- `pipeline_index`;
+- `operation_index`;
+- `source_aligned?`;
+- predicted current dimensions;
+- a mutable context cache.
+
+## Semantic Executor Walk
+
+The executor preserves pipeline grouping and consumes operation lists in order.
+Each semantic operation is lowered and executed before moving to the next
+semantic operation.
+
+Target shape:
+
+```elixir
+def execute_semantic_plan(%Plan{} = plan, %State{} = state, %SourceMetadata{} = metadata, opts) do
+  with {:ok, pipelines} <- Transform.validate_prefetch_safe_plan(plan),
+       {:ok, state} <- execute_pipelines(pipelines, state, metadata, opts) do
+    {:ok, state}
+  end
+end
+```
+
+Pipeline walk:
+
+```elixir
+defp execute_pipelines(pipelines, state, metadata, opts) do
+  Enum.reduce_while(pipelines, {:ok, state}, fn pipeline, {:ok, state} ->
+    case execute_pipeline(pipeline, state, metadata, opts) do
+      {:ok, state} -> {:cont, {:ok, state}}
+      {:error, reason} -> {:halt, {:error, reason}}
+    end
+  end)
+end
+```
+
+Operation walk:
+
+```elixir
+defp execute_pipeline(%Pipeline{operations: operations}, state, metadata, opts) do
+  Enum.reduce_while(operations, {:ok, state}, fn operation, {:ok, state} ->
+    case execute_operation(operation, state, metadata, opts) do
+      {:ok, state} -> {:cont, {:ok, state}}
+      {:error, reason} -> {:halt, {:error, reason}}
+    end
+  end)
+end
+
+defp execute_operation(operation, state, metadata, opts) do
+  with {:ok, executable_operations} <- Lowering.lower(operation, state, metadata, opts),
+       {:ok, state} <- Chain.execute(state, executable_operations) do
+    {:ok, state}
+  end
+end
+```
+
+The exact `Chain.execute/2` call should preserve the repo's existing
+error/warning behavior. The semantic executor must not accidentally drop
+diagnostics or warnings from previously executed semantic operations. The
+important design point is that the next semantic operation sees the actual
+image state produced by the previous semantic operation.
+
+The main walk should be framed as semantic execution. Lowering to executable
+operations is an implementation detail of `execute_operation/4`, not a
+whole-plan compiler phase.
+
+## Lowering Contract
+
+Lowering is state-aware and local. It lowers one semantic operation at a time
+as part of executing that operation.
+
+```elixir
+@spec lower(Plan.Operation.semantic_operation(), State.t(), SourceMetadata.t(), keyword()) ::
+        {:ok, [ImagePlug.Transform.operation()]}
+        | {:error, resolver_error()}
+```
+
+Lowering must be total for every prefetch-valid first-slice operation:
+
+- produce executable operations; or
+- return a tagged error.
+
+It must not rely on missing function clauses for reachable invalid state.
+
+Recommended error shapes:
+
+```elixir
+{:unsupported_canvas_geometry, operation}
+{:invalid_resolved_geometry, operation, details}
+{:invalid_source_metadata, reason}
+```
+
+There is no `:barrier` return. Each semantic operation is already an execution
+boundary.
+
+## Lowering Responsibilities
+
+### Resize
+
+`ResizeFit`, `ResizeCover`, and `ResizeStretch` lower to existing executable
+`Resize` and optional result `Crop`.
+
+`ResizeAuto`:
+
+- reads current dimensions from `state.image`;
+- stores the requested auto behavior in cache material, not the execution-time
+  branch;
+- computes branch from current orientation and requested target orientation;
+- selects cover when both orientations are known and equal, including
+  square-to-square;
+- selects fit otherwise;
+- emits the existing executable sequence for that branch.
+
+### Crop
+
+`CropGuided` lowers to executable gravity/focal crop.
+
+`CropRegion` lowers against the current image at its operation point:
+
+- ratio dimensions use current image width/height;
+- logical pixel dimensions are emitted directly after validation;
+- ratio-derived crop dimensions clamp to at least `1` pixel;
+- coordinates may resolve to `0`.
+
+There is no source-space flag in Transform long term. Parser/adapter
+canonicalization owns operation ordering for dialects with source-region
+syntax.
+
+`CropRegion` should remain brutally simple. It should not grow `space`,
+`source_aligned?`, `mapped_from_source`, or similar flags.
+
+### Canvas
+
+Canvas lowering must choose one coherent executable representation:
+
+- both axes ratio -> aspect-ratio canvas;
+- both axes pixel/auto -> dimensions canvas;
+- mixed ratio and pixel/auto -> unsupported unless first-slice imgproxy
+  behavior proves a compatible interpretation.
+
+Recommended first-slice behavior for mixed ratio/pixel canvas:
+
+```elixir
+{:error, {:unsupported_canvas_geometry, operation}}
+```
+
+Mixed-unit canvas is not invalid in principle; it is unsupported until an
+imgproxy-compatible interpretation is deliberately implemented.
+
+### Orientation
+
+`AutoOrient`, `Rotate`, and `Flip` lower to existing executable operations.
+
+Because each semantic operation is executed before the next one lowers, later
+operations can read the actual image dimensions after orientation has run.
+There is no need to predict swapped dimensions in resolver state.
+
+## Parser And Planner Ordering
+
+Parser/adapter canonicalization owns dialect-specific operation ordering.
+
+For imgproxy-compatible behavior, the parser should emit canonical Plan order
+that reproduces existing observable semantics. If a dialect exposes a
+source-region concept, the adapter must emit the crop where that region is
+meaningful.
+
+Two parser modes are enough conceptually:
+
+- Fixed-order/declarative parsers, such as imgproxy-compatible syntax, parse
+  vendor options into a bag and then emit canonical Plan operations in the
+  ImagePlug order that matches the vendor's semantics.
+- Ordered-chain parsers, such as TwicPics-style syntax, emit canonical Plan
+  operations in URL-chain order because each operation is interpreted after the
+  previous operation.
+
+After parsing, Transform does not care which mode produced the Plan. It only
+executes the ordered operation list.
+
+Transform should not carry source/current coordinate-space flags to compensate
+for parser ordering. If a future dialect needs original-source coordinates after
+later transforms, introduce a distinct semantic operation with explicit mapping
+semantics rather than overloading ordinary `CropRegion`.
+
+Positions and guides should also remain small:
+
+- anchors such as `:center`, `:top_left`, `:bottom_right`;
+- focal points when first-slice behavior already supports them;
+- explicit vendor/smart intent only as unsupported or degraded parser policy,
+  not as a fake universal smart-crop model.
+
+Smart/object/face crop strategies should stay out of first-slice Transform
+execution unless ImagePlug can reproduce the underlying detection behavior.
+
+## Source Metadata
+
+Runtime must not lie about orientation.
+
+Runtime/source-opening code owns source metadata validation. It should build
+metadata through:
+
+```elixir
+SourceMetadata.new(
+  width: Image.width(image),
+  height: Image.height(image),
+  orientation: discovered_orientation,
+  format: source_format,
+  source_type: source_type
+)
+```
+
+`execute_semantic_plan/4` accepts `%SourceMetadata{}` and trusts it. It should
+not revalidate metadata fields on every internal call just to protect against
+malformed hand-built structs.
+
+Hardcoding:
+
+```elixir
+orientation: :normal
+```
+
+is only correct if orientation metadata has been read and proven normal.
+
+Long-term policy:
+
+- if orientation metadata is known, pass `{:exif, n}` or `:normal`;
+- if metadata cannot be read in the first slice, pass `:unknown`;
+- never default unknown metadata to `:normal`.
+
+## Primitive Orientation Operations
+
+The semantic wrappers:
+
+- `ImagePlug.Plan.Operation.AutoOrient`
+- `ImagePlug.Plan.Operation.Rotate`
+- `ImagePlug.Plan.Operation.Flip`
+
+add little semantic value because they lower one-to-one to product-neutral
+executable operations.
+
+Long-term preferred direction:
+
+- allow a narrow set of canonical executable primitives directly in request
+  plans:
+  - `ImagePlug.Transform.Operation.AutoOrient`
+  - `ImagePlug.Transform.Operation.Rotate`
+  - `ImagePlug.Transform.Operation.Flip`
+- do not allow arbitrary executable Transform operations into Plan pipelines;
+- keep parser construction behind a facade so parser code does not depend on a
+  broad Transform operation namespace;
+- keep cache material protocol-based and source-fetch-free;
+- keep validation in `ImagePlug.Transform.validate_prefetch_safe_plan/1`.
+
+Do not do this during semantic execution alignment. Keep the wrappers until
+semantic execution lands and boundary tests are green. This should be a
+separate cleanup after semantic execution is in place. It must include boundary
+tests so the exception stays narrow. If this boundary becomes awkward, keep the
+wrappers.
+
+## Cache Invariant
+
+Final cache keys continue to use semantic Plan material:
+
+```text
+semantic plan material
+source freshness identity
+output/config/vary material
+Cache.Key transform material version
+```
+
+Semantic execution output never mutates the final key.
+
+Tests should prove:
+
+- `ResizeAuto` cache material remains unresolved semantic intent;
+- different current image states can execute through different branches while
+  cache material remains semantic;
+- source freshness identity changes the final key;
+- cache hit does not enter semantic execution;
+- cache miss stores under the original prefetch-safe key.
+
+## Boundary Rules
+
+- `ImagePlug.Runtime.*` may call
+  `ImagePlug.Transform.execute_semantic_plan/4`.
+- `ImagePlug.Runtime.*` must not alias, construct, or pattern match on concrete
+  Plan or Transform operation modules.
+- `ImagePlug.Cache.*` must not reference resolver, source metadata, resolved
+  plan, or semantic executor internals.
+- `ImagePlug.Parser.*` must not reference resolver, source metadata, resolved
+  plan, or semantic executor internals.
+- `ImagePlug.Transform.Resolver.*` may reference semantic Plan operations and
+  executable Transform operations.
+- `ImagePlug.Transform.Resolver.*` should not be exported as stable boundary
+  entry points.
+
+Architecture tests should scan the whole cache namespace, not only
+`lib/image_plug/cache/key.ex`.
+
+## Test Strategy
+
+Add focused semantic executor tests:
+
+- `rotate(0)` alone and before `ResizeAuto` is a no-op.
+- resize followed by ratio `CropRegion` executes the resize first, then lowers
+  the crop using actual post-resize image dimensions.
+- auto-orient followed by `ResizeAuto` executes orientation first, then lowers
+  resize using actual post-orientation dimensions.
+- ratio crop dimensions on tiny images clamp to `1`.
+- mixed ratio/pixel canvas is rejected, or explicitly lowers if support is
+  intentionally added.
+
+Add parser/planner tests:
+
+- dialect source-region syntax emits ordinary ordered `CropRegion` at the
+  correct point in the canonical Plan.
+- parsed/canonicalized plans do not rely on `space: :source | :current`.
+
+Add runtime/source metadata tests:
+
+- unknown orientation is not converted to `:normal`;
+- if EXIF orientation is supported, runtime passes it into `SourceMetadata`.
+
+Add cache/runtime invariant tests:
+
+- cache hit does not enter semantic execution;
+- cache miss stores under the original key;
+- execution branch differences do not enter key material.
+
+Remove tests that only prove impossible internal misuse, such as fake transform
+modules with broken callback metadata, unless those modules represent a real
+public boundary.
+
+## Migration Order
+
+1. Introduce semantic executor facade.
+   - Add `Transform.execute_semantic_plan/4`.
+   - Route runtime miss/uncached processing through it.
+   - Keep existing whole-plan resolve helpers temporarily for tests if needed.
+
+2. Make lowering one-operation-at-a-time and state-aware.
+   - Pass current `State` into lowering.
+   - Query current image dimensions directly when needed.
+   - Remove pending segment and barrier ideas.
+   - Fix `rotate(0)`.
+   - Clamp ratio crop dimensions.
+   - Reject unsupported canvas geometry.
+
+3. Remove resolver context from the primary path.
+   - Pass `State`, `SourceMetadata`, and opts to lowering.
+   - Keep source metadata/backend facts in `SourceMetadata` or opts.
+   - Remove predicted current dimensions.
+   - Remove `source_aligned?`.
+   - Remove `pipeline_index` and `operation_index`.
+
+4. Move coordinate-space responsibility to parser/planner.
+   - Remove `space` from long-term `CropRegion`.
+   - Update parser canonicalization so operation order expresses source/current
+     semantics.
+   - Keep any temporary compatibility fields behind migration tests only.
+
+5. Tighten boundaries.
+   - Stop exporting resolver internals.
+   - Expand architecture tests for cache/parser post-fetch dependencies.
+
+6. Correct source metadata orientation.
+   - Use real metadata when available.
+   - Otherwise use `:unknown`, not `:normal`.
+
+7. Revisit orientation wrappers.
+   - Either keep them deliberately, or replace them with a narrow canonical
+     primitive allowlist.
+   - Do not allow arbitrary executable Transform operations into Plan.
+
+8. Optionally collapse overly split operation structs.
+   - Evaluate `ResizeFit`, `ResizeCover`, `ResizeStretch`, and `ResizeAuto`
+     after semantic execution is in place.
+   - Collapse them only if one narrow resize struct with an explicit mode makes
+     material, parser construction, and lowering simpler.
+   - Do not perform this as part of the execution-alignment step unless it is
+     clearly mechanical and low risk.
+
+## Success Criteria
+
+- `Transform.execute_semantic_plan/4` executes semantic operations in order,
+  consulting the actual current image before each lowering.
+- No valid semantic Plan causes a resolver/lowering `FunctionClauseError`.
+- Runtime remains generic.
+- Cache lookup remains source-fetch-free.
+- Resolver/executor internals are not public boundary exports.
+- There is no mutable resolver context duplicating backend geometry behavior.
+- Transform does not know source-space/current-space crop flags in the long
+  term.
+- Parser/planner canonical order owns dialect coordinate semantics.
+- Orientation/resize/crop/canvas behavior is covered by focused tests.
+- No derivation structs or derived branch material are introduced.
