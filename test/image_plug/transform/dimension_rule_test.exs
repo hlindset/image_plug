@@ -1,7 +1,6 @@
-defmodule ImagePlug.Transform.DimensionResolverTest do
+defmodule ImagePlug.Transform.DimensionRuleTest do
   use ExUnit.Case, async: true
 
-  alias ImagePlug.Transform.Geometry.DimensionResolver
   alias ImagePlug.Transform.Geometry.DimensionRule
 
   test "min width interacts with fit without zoom" do
@@ -14,7 +13,7 @@ defmodule ImagePlug.Transform.DimensionResolverTest do
     }
 
     assert {:ok, result} =
-             DimensionResolver.resolve(rule, source_width: 1000, source_height: 1000)
+             DimensionRule.resolve(rule, source_width: 1000, source_height: 1000)
 
     assert result.requested_width == 100
     assert result.requested_height == 100
@@ -34,7 +33,7 @@ defmodule ImagePlug.Transform.DimensionResolverTest do
     }
 
     assert {:ok, result} =
-             DimensionResolver.resolve(rule, source_width: 1000, source_height: 1000)
+             DimensionRule.resolve(rule, source_width: 1000, source_height: 1000)
 
     assert result.requested_width == 200
     assert result.requested_height == 200
@@ -53,7 +52,7 @@ defmodule ImagePlug.Transform.DimensionResolverTest do
     }
 
     assert {:ok, result} =
-             DimensionResolver.resolve(rule, source_width: 1000, source_height: 1000)
+             DimensionRule.resolve(rule, source_width: 1000, source_height: 1000)
 
     assert result.requested_width == 200
     assert result.requested_height == 200
@@ -72,7 +71,7 @@ defmodule ImagePlug.Transform.DimensionResolverTest do
     }
 
     assert {:ok, result} =
-             DimensionResolver.resolve(rule, source_width: 100, source_height: 50)
+             DimensionRule.resolve(rule, source_width: 100, source_height: 50)
 
     assert result.requested_width == 200
     assert result.requested_height == 100
@@ -90,7 +89,7 @@ defmodule ImagePlug.Transform.DimensionResolverTest do
     }
 
     assert {:ok, result} =
-             DimensionResolver.resolve(rule, source_width: 100, source_height: 50)
+             DimensionRule.resolve(rule, source_width: 100, source_height: 50)
 
     assert result.effective_dpr == 1.0
     assert result.requested_width == 100
@@ -103,7 +102,7 @@ defmodule ImagePlug.Transform.DimensionResolverTest do
     rule = %DimensionRule{mode: :force, width: :auto, height: {:pixels, 200}}
 
     assert {:ok, result} =
-             DimensionResolver.resolve(rule, source_width: 640, source_height: 480)
+             DimensionRule.resolve(rule, source_width: 640, source_height: 480)
 
     assert result.requested_width == 640
     assert result.requested_height == 200
@@ -113,7 +112,7 @@ defmodule ImagePlug.Transform.DimensionResolverTest do
     rule = %DimensionRule{mode: :force, width: {:pixels, 300}, height: :auto}
 
     assert {:ok, result} =
-             DimensionResolver.resolve(rule, source_width: 640, source_height: 480)
+             DimensionRule.resolve(rule, source_width: 640, source_height: 480)
 
     assert result.requested_width == 300
     assert result.requested_height == 480
@@ -131,7 +130,7 @@ defmodule ImagePlug.Transform.DimensionResolverTest do
     }
 
     assert {:ok, result} =
-             DimensionResolver.resolve(rule, source_width: 100, source_height: 50)
+             DimensionRule.resolve(rule, source_width: 100, source_height: 50)
 
     assert result.target_width == 300
     assert result.target_height == 150
@@ -149,7 +148,7 @@ defmodule ImagePlug.Transform.DimensionResolverTest do
     }
 
     assert {:ok, result} =
-             DimensionResolver.resolve(rule, source_width: 1000, source_height: 500)
+             DimensionRule.resolve(rule, source_width: 1000, source_height: 500)
 
     assert result.requested_width == 100
     assert result.requested_height == 50
@@ -166,7 +165,7 @@ defmodule ImagePlug.Transform.DimensionResolverTest do
     }
 
     assert {:ok, result} =
-             DimensionResolver.resolve(rule, source_width: 1000, source_height: 500)
+             DimensionRule.resolve(rule, source_width: 1000, source_height: 500)
 
     assert result.requested_width == 300
     assert result.requested_height == 300
@@ -184,7 +183,7 @@ defmodule ImagePlug.Transform.DimensionResolverTest do
     }
 
     assert {:ok, result} =
-             DimensionResolver.resolve(rule, source_width: 1000, source_height: 500)
+             DimensionRule.resolve(rule, source_width: 1000, source_height: 500)
 
     assert result.requested_width == 300
     assert result.requested_height == 300
@@ -204,7 +203,7 @@ defmodule ImagePlug.Transform.DimensionResolverTest do
     }
 
     assert {:ok, result} =
-             DimensionResolver.resolve(rule, source_width: 1000, source_height: 500)
+             DimensionRule.resolve(rule, source_width: 1000, source_height: 500)
 
     assert result.target_width == 300
     assert result.target_height == 300
@@ -222,7 +221,7 @@ defmodule ImagePlug.Transform.DimensionResolverTest do
     }
 
     assert {:ok, result} =
-             DimensionResolver.resolve(rule, source_width: 1000, source_height: 500)
+             DimensionRule.resolve(rule, source_width: 1000, source_height: 500)
 
     assert result.target_width == 300
     assert result.target_height == 300
@@ -240,7 +239,7 @@ defmodule ImagePlug.Transform.DimensionResolverTest do
     }
 
     assert {:ok, result} =
-             DimensionResolver.resolve(rule, source_width: 500, source_height: 1000)
+             DimensionRule.resolve(rule, source_width: 500, source_height: 1000)
 
     assert result.requested_width == 300
     assert result.requested_height == 300
@@ -259,7 +258,7 @@ defmodule ImagePlug.Transform.DimensionResolverTest do
       enlarge: false
     }
 
-    assert {:ok, result} = DimensionResolver.resolve(rule, source_width: 800, source_height: 800)
+    assert {:ok, result} = DimensionRule.resolve(rule, source_width: 800, source_height: 800)
     assert result.effective_dpr == 1.6
     assert result.requested_width == 800
     assert result.requested_height == 800

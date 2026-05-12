@@ -80,7 +80,6 @@ defmodule ImagePlug.Transform.Operation.Resize do
   import ImagePlug.Transform.State
   import ImagePlug.Transform.Geometry
 
-  alias ImagePlug.Transform.Geometry.DimensionResolver
   alias ImagePlug.Transform.Geometry.DimensionRule
   alias ImagePlug.Transform.State
   alias ImagePlug.Transform.Validation
@@ -126,7 +125,7 @@ defmodule ImagePlug.Transform.Operation.Resize do
       source_height: image_height(state)
     ]
 
-    with {:ok, dimensions} <- DimensionResolver.resolve(rule, opts),
+    with {:ok, dimensions} <- DimensionRule.resolve(rule, opts),
          {:ok, image} <-
            resize_image(state, dimensions.intermediate_width, dimensions.intermediate_height) do
       set_image(state, image)

@@ -20,7 +20,6 @@ defmodule ImagePlug.Transform do
       Types,
       SourceMetadata,
       Geometry.DimensionRule,
-      Geometry.DimensionResolver,
       Operation.Resize,
       Operation.ExtendCanvas,
       Operation.AutoOrient,

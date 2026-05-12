@@ -90,7 +90,6 @@ defmodule ImagePlug.Transform.Operation.Crop do
   import ImagePlug.Transform.Geometry,
     only: [anchor_to_pixels: 3, image_height: 1, image_width: 1, to_pixels!: 2]
 
-  alias ImagePlug.Transform.Geometry.DimensionResolver
   alias ImagePlug.Transform.Geometry.DimensionRule
   alias ImagePlug.Transform.State
   alias ImagePlug.Transform.Validation
@@ -226,7 +225,7 @@ defmodule ImagePlug.Transform.Operation.Crop do
     rule = resolve_auto_target_rule(rule, image_width, image_height)
     opts = [source_width: image_width, source_height: image_height]
 
-    with {:ok, dimensions} <- DimensionResolver.resolve(rule, opts) do
+    with {:ok, dimensions} <- DimensionRule.resolve(rule, opts) do
       {:ok,
        %{
          width: dimensions.target_width,
