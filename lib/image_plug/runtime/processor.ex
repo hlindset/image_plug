@@ -93,9 +93,9 @@ defmodule ImagePlug.Runtime.Processor do
     with {:ok, image} <-
            decode_origin_response(origin_response, decode_options, opts)
            |> wrap_origin_decode_error(),
-         :ok <- validate_input_image(image, opts) |> wrap_input_limit_error(),
-         {:ok, %SourceMetadata{} = source_metadata} <-
-           source_metadata(image, source_format) |> wrap_source_metadata_error() do
+         :ok <- validate_input_image(image, opts) |> wrap_input_limit_error() do
+      source_metadata = source_metadata(image, source_format)
+
       {:ok,
        %DecodedOrigin{
          decode_options: decode_options,
@@ -378,15 +378,12 @@ defmodule ImagePlug.Runtime.Processor do
   defp wrap_input_limit_error({:error, error}), do: {:error, {:input_limit, error}}
 
   defp source_metadata(_image, source_format) do
-    SourceMetadata.new(
+    %SourceMetadata{
       orientation: :unknown,
       format: source_format,
       source_type: :raster
-    )
+    }
   end
-
-  defp wrap_source_metadata_error({:error, error}), do: {:error, {:source_metadata, error}}
-  defp wrap_source_metadata_error(result), do: result
 
   defp source_format(%Origin.Response{content_type: content_type}) do
     case Format.format(content_type) do

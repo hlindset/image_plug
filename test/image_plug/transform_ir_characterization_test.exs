@@ -102,7 +102,7 @@ defmodule ImagePlug.TransformIRCharacterizationTest do
   end
 
   defp execute_plan_dimensions(source, operations) do
-    assert {:ok, metadata} = SourceMetadata.new(format: :png, source_type: :raster)
+    metadata = %SourceMetadata{format: :png, source_type: :raster}
 
     assert {:ok, %State{} = state} =
              Transform.execute_plan(

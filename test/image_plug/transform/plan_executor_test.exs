@@ -309,8 +309,7 @@ defmodule ImagePlug.Transform.PlanExecutorTest do
   defp assert_resize_auto_visible_crop(false, _image), do: :ok
 
   defp metadata do
-    {:ok, metadata} = SourceMetadata.new(format: :jpeg, source_type: :raster)
-    metadata
+    %SourceMetadata{format: :jpeg, source_type: :raster}
   end
 
   defp dimensions(image), do: {Image.width(image), Image.height(image)}
