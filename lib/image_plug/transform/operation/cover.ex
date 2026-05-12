@@ -5,13 +5,14 @@ defmodule ImagePlug.Transform.Operation.Cover do
 
   ## Construct When
 
-  The Transform resolver may lower semantic Plan operations to this executable
-  operation. Parser modules should construct `ImagePlug.Plan.Operation.*`
-  through Plan constructors.
+  Transform Plan execution may convert semantic Plan operations to this
+  executable operation. Parser modules should construct
+  `ImagePlug.Plan.Operation.*` through Plan constructors.
 
   `Cover` is retained as an exported standalone executable operation. Prefer
-  resolver lowering to `Resize` plus a separate result `Crop` when the semantic
-  plan must represent resize and crop as distinct executable work.
+  Transform Plan execution conversion to `Resize` plus a separate result `Crop`
+  when the semantic plan must represent resize and crop as distinct executable
+  work.
 
   ## Fields
 

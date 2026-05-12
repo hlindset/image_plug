@@ -5,8 +5,9 @@ defmodule ImagePlug.Transform.Operation.Rotate do
 
   ## Construct When
 
-  Parser modules may place this narrow executable primitive directly in
-  `ImagePlug.Plan` pipelines when translating compatible orientation syntax.
+  Transform Plan execution may pass this narrow executable primitive through
+  unchanged. Parser modules should construct semantic `ImagePlug.Plan.Operation.*`
+  through Plan constructors for non-orientation transform intent.
 
   ## Fields
 

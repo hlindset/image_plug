@@ -5,9 +5,9 @@ defmodule ImagePlug.Transform.Operation.ExtendCanvas do
 
   ## Construct When
 
-  The Transform resolver may lower semantic Plan operations to this executable
-  operation. Parser modules should construct `ImagePlug.Plan.Operation.*`
-  through Plan constructors.
+  Transform Plan execution may convert semantic Plan operations to this
+  executable operation. Parser modules should construct
+  `ImagePlug.Plan.Operation.*` through Plan constructors.
 
   Use it for resolved letterboxing, padding, or aspect-ratio canvas extension
   without changing the image content scale.

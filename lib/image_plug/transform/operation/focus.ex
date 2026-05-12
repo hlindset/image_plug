@@ -5,9 +5,9 @@ defmodule ImagePlug.Transform.Operation.Focus do
 
   ## Construct When
 
-  The Transform resolver may lower semantic Plan operations to this executable
-  operation. Parser modules should construct `ImagePlug.Plan.Operation.*`
-  through Plan constructors.
+  Transform Plan execution may convert semantic Plan operations to this
+  executable operation. Parser modules should construct
+  `ImagePlug.Plan.Operation.*` through Plan constructors.
 
   `Focus` is not a visible crop by itself; it records focus metadata on
   `ImagePlug.Transform.State`. The current Imgproxy-compatible semantic plan

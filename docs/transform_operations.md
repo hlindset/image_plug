@@ -10,8 +10,8 @@ of runtime/cache boundaries.
 Parser authors should construct canonical semantic operations under
 `ImagePlug.Plan.Operation.*` through `ImagePlug.Plan.Operation`. The executable
 modules under `ImagePlug.Transform.Operation.*` are local lowering targets used
-by `ImagePlug.Transform.Resolver` and `ImagePlug.Transform.Chain`; parsers
-should not emit them.
+by Transform Plan execution and `ImagePlug.Transform.Chain`; parsers should not
+emit them except for the explicit first-slice orientation primitive allowlist.
 
 ## Request Flow
 
@@ -26,14 +26,14 @@ The request flow is:
    isolated.
 3. Planner code translates compatible semantics into canonical
    `ImagePlug.Plan.Operation.*` structs.
-4. Cache keys are built from source-fetch-free plan material plus source
-   freshness, output, config, and the cache key's transform material version.
-5. On cache miss, `ImagePlug.Transform.Resolver` lowers semantic Plan
+4. Cache keys are built from source-fetch-free Plan key data plus source
+   freshness, output, config, and the cache key's transform key data version.
+5. On cache miss, `ImagePlug.Transform.execute_plan/4` converts semantic Plan
    operations to executable `ImagePlug.Transform.Operation.*` work.
 6. Runtime executes resolved work by dispatching through `ImagePlug.Transform`.
 
 Runtime code should not reference concrete operation modules such as
-`ImagePlug.Plan.Operation.ResizeFit` or `ImagePlug.Transform.Operation.Resize`.
+`ImagePlug.Plan.Operation.Resize` or `ImagePlug.Transform.Operation.Resize`.
 It may carry resolved executable structs opaquely through generic
 `ImagePlug.Transform` facades.
 
@@ -66,7 +66,7 @@ or output encoding. They should be translated into the appropriate
 - filename
 - attachment disposition
 
-Keeping these fields out of transform chains matters for cache material and
+Keeping these fields out of transform chains matters for cache key data and
 runtime boundaries. Output negotiation, for example, may change the encoded
 format without changing the transform operation sequence.
 
@@ -74,19 +74,18 @@ format without changing the transform operation sequence.
 
 Parser/planner code should use these semantic operations:
 
-- `ImagePlug.Plan.Operation.ResizeFit`: aspect-preserving fit resize.
-- `ImagePlug.Plan.Operation.ResizeCover`: aspect-preserving cover/fill resize
-  plus guide for the result crop.
-- `ImagePlug.Plan.Operation.ResizeStretch`: force/stretch resize.
-- `ImagePlug.Plan.Operation.ResizeAuto`: imgproxy-compatible source-dependent
-  resize intent. The selected fit/cover branch is post-fetch execution state,
-  not cache key material.
+- `ImagePlug.Plan.Operation.Resize`: product-neutral resize intent with
+  `mode: :fit`, `:cover`, `:stretch`, or `:auto`. `mode: :auto` is semantic
+  Plan intent; the selected fit/cover branch is post-fetch execution state, not
+  cache key data.
 - `ImagePlug.Plan.Operation.CropGuided`: crop by size plus guide.
 - `ImagePlug.Plan.Operation.CropRegion`: explicit region crop.
 - `ImagePlug.Plan.Operation.Canvas`: place the current image on a target canvas.
-- `ImagePlug.Plan.Operation.AutoOrient`: EXIF-aware auto orientation intent.
-- `ImagePlug.Plan.Operation.Rotate`: explicit right-angle rotation.
-- `ImagePlug.Plan.Operation.Flip`: horizontal, vertical, or both-axis flip.
+
+Plan pipelines may also contain the explicit orientation primitive allowlist:
+`ImagePlug.Transform.Operation.AutoOrient`, `ImagePlug.Transform.Operation.Rotate`,
+and `ImagePlug.Transform.Operation.Flip`. Parsers should not use other
+executable Transform operation modules as Plan output.
 
 ## Executable Operation Catalog
 
@@ -105,27 +104,31 @@ describe work over `ImagePlug.Transform.State`, not parser request material:
   standalone executable operations retained for local transform execution and
   future lowering paths, not first-slice parser output.
 
+`ImagePlug.Transform.Operation.AdaptiveResize` is obsolete. Resize
+`mode: :auto` belongs in `ImagePlug.Plan.Operation.Resize`; parsers must not
+emit an executable adaptive-resize operation.
+
 ## Choosing Resize-Like Semantic Operations
 
-Use `ResizeFit` for aspect-preserving fit semantics. Use `ResizeCover` for
-cover/fill semantics that require result cropping. Use `ResizeStretch` for
-force/stretch semantics.
+Use `ImagePlug.Plan.Operation.Resize` with `mode: :fit` for aspect-preserving
+fit semantics, `mode: :cover` for cover/fill semantics that require result
+cropping, and `mode: :stretch` for force/stretch semantics.
 
-Use `ResizeAuto` only for the imgproxy-compatible source-dependent rule:
+Use `mode: :auto` only for the imgproxy-compatible source-dependent rule:
 orientation match derives cover, orientation mismatch derives fit, and unknown
-target orientation derives fit. The unresolved `ResizeAuto` operation is the
-cache-addressing material; the selected branch is resolved after a cache miss.
+target orientation derives fit. The unresolved semantic resize operation is the
+cache-addressing key data; the selected branch is resolved after a cache miss.
 
-Do not use `ResizeAuto` as a generic conditional resize operation. If a future
+Do not use `mode: :auto` as a generic conditional resize operation. If a future
 adapter has different source-dependent branch rules, add a new semantic
-operation or adapter policy instead of extending `ResizeAuto` implicitly.
+operation or adapter policy instead of extending `mode: :auto` implicitly.
 
 ## Crop, Gravity, And Focus
 
 Use `CropGuided` for visible crop operations expressed as size plus guide. Use
 `CropRegion` for explicit source/current-space region crops. Parser-specific
 gravity spellings, focal-point tokens, and default inheritance rules should be
-translated into explicit Plan guide values before cache material is built.
+translated into explicit Plan guide values before cache key data is built.
 
 Current Imgproxy focal-point gravity maps to semantic guide values. The first
 slice does not model a separate semantic focus operation; future dialects can
@@ -134,7 +137,8 @@ work.
 
 ## Orientation Operations
 
-Use semantic `AutoOrient`, `Rotate`, and `Flip` for orientation intent.
+Use the explicit `AutoOrient`, `Rotate`, and `Flip` orientation primitive
+allowlist for orientation intent.
 
 Imgproxy orientation suborder is auto-orient, rotate, then flip. Other dialects
 should preserve their own semantics in the adapter layer and emit the ordered
@@ -151,25 +155,25 @@ really requests a larger canvas around image content.
 
 Before source metadata is available, semantic Plan operations must be treated
 conservatively for decode/open planning. After a cache miss, source metadata may
-be discovered and the Transform resolver may lower semantic intent to
+be discovered and Transform Plan execution may convert semantic intent to
 executable work. The exact executable `metadata/1` contract belongs in the
 `ImagePlug.Transform.Operation.*` module docs.
 
-## Cache Material
+## Cache Key Data
 
-Final output cache material is canonical semantic intent, not resolved backend
+Final output cache key data is canonical semantic intent, not resolved backend
 execution. It should be stable for equivalent plans and independent of
 parser-specific spelling, aliases, and compatibility quirks.
 
-Parser-specific quirks must not leak into transform material. If a dialect has
+Parser-specific quirks must not leak into transform key data. If a dialect has
 behavior that cannot be represented cleanly by product-neutral semantic Plan
 operations, keep that behavior isolated in parser/adapter code rather than
-encoding dialect syntax into operation cache material.
+encoding dialect syntax into operation cache key data.
 
-Source-aware resolver choices such as `ResizeAuto` selecting fit/cover, ratio
-crop resolution, and DPR conversion are reflected in resolved executable work
-after a cache miss, but they do not participate in the normal final output
-cache key.
+Source-aware execution choices such as resize `mode: :auto` selecting
+fit/cover, ratio crop resolution, and DPR conversion are reflected in
+executable work after a cache miss, but they do not participate in the normal
+final output cache key.
 
 ## Mapping Examples
 
@@ -179,15 +183,15 @@ should describe their own URL syntax separately.
 
 | Imgproxy URL concept | Semantic Plan operations |
 | --- | --- |
-| `w:300` | `ResizeFit` |
-| `rt:force/w:0/h:200` | `ResizeStretch` with auto width |
-| `rt:auto/w:300/h:200` | `ResizeAuto` |
-| `rt:fill/w:300/h:200/g:fp:0.25:0.75` | `ResizeCover` with focal-point guide |
-| `rt:fill/w:300/h:200/g:soea:12:-0.25` | `ResizeCover` with top-level gravity offsets |
+| `w:300` | `Resize` with `mode: :fit` |
+| `rt:force/w:0/h:200` | `Resize` with `mode: :stretch` and auto width |
+| `rt:auto/w:300/h:200` | `Resize` with `mode: :auto` |
+| `rt:fill/w:300/h:200/g:fp:0.25:0.75` | `Resize` with `mode: :cover` and focal-point guide |
+| `rt:fill/w:300/h:200/g:soea:12:-0.25` | `Resize` with `mode: :cover` and top-level gravity offsets |
 | `c:100:100/g:so` | `CropGuided` inheriting explicit top-level guide |
 | `c:100:100:fp:0.25:0.75` | `CropGuided` with crop-specific focal-point guide |
 | `ar/rot:90/fl:true:false/c:100:100` | `AutoOrient`, `Rotate`, `Flip`, `CropGuided` |
-| `extend:true/w:300/h:200` | `ResizeFit`, `Canvas` |
+| `extend:true/w:300/h:200` | `Resize` with `mode: :fit`, `Canvas` |
 
 ## Boundary Rules
 
@@ -197,9 +201,9 @@ Imgproxy structs, and parser-specific request structs must not leak into runtime
 execution.
 
 Parser and planner modules construct exported semantic Plan operation structs
-when they translate syntax into `ImagePlug.Plan`. The Transform resolver may
+when they translate syntax into `ImagePlug.Plan`. Transform Plan execution may
 reference both semantic Plan operations and executable Transform operations
-because it owns lowering between those boundaries.
+because it owns conversion between those boundaries.
 
 Boundary exports should stay narrow: export behaviours and stable
 public/internal entry points, not implementation helpers.

@@ -5,9 +5,9 @@ defmodule ImagePlug.Transform.Operation.Contain do
 
   ## Construct When
 
-  The Transform resolver may lower semantic Plan operations to this executable
-  operation. Parser modules should construct `ImagePlug.Plan.Operation.*`
-  through Plan constructors.
+  Transform Plan execution may convert semantic Plan operations to this
+  executable operation. Parser modules should construct
+  `ImagePlug.Plan.Operation.*` through Plan constructors.
 
   `Contain` is retained as an exported standalone executable operation, not an
   implementation detail of `Resize`.

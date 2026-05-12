@@ -5,8 +5,8 @@ defmodule ImagePlug.Transform.Operation.Resize do
 
   ## Construct When
 
-  The Transform resolver may lower semantic Plan operations to this executable
-  operation after a cache miss. Parser modules should construct
+  Transform Plan execution may convert semantic Plan operations to this
+  executable operation after a cache miss. Parser modules should construct
   `ImagePlug.Plan.Operation.*` through Plan constructors.
 
   Use `Resize` for resolved `:fit`, `:fill`, `:fill_down`, and `:force` work.
@@ -41,12 +41,13 @@ defmodule ImagePlug.Transform.Operation.Resize do
   `ImagePlug.Transform.State` image dimensions, resizes the image to the
   resolved intermediate width and height, stores the resized image in state,
   and resets focus metadata. If the resolved intermediate dimensions equal the
-  current image dimensions, the existing image is kept. Resolver or image
-  resize failures are added to state as `{ImagePlug.Transform.Operation.Resize, error}`.
+  current image dimensions, the existing image is kept. Dimension resolution or
+  image resize failures are added to state as
+  `{ImagePlug.Transform.Operation.Resize, error}`.
 
-  `Resize` does not perform result cropping. Resolver lowering for cover-style
-  output should include a separate crop operation after a fill-like resize when
-  that matches the requested semantics.
+  `Resize` does not perform result cropping. Transform Plan execution for
+  cover-style output should include a separate crop operation after a fill-like
+  resize when that matches the requested semantics.
 
   ## Decode Planning Metadata
 

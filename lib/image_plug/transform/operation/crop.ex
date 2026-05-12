@@ -5,9 +5,9 @@ defmodule ImagePlug.Transform.Operation.Crop do
 
   ## Construct When
 
-  The Transform resolver may lower semantic Plan operations to this executable
-  operation. Parser modules should construct `ImagePlug.Plan.Operation.*`
-  through Plan constructors.
+  Transform Plan execution may convert semantic Plan operations to this
+  executable operation. Parser modules should construct
+  `ImagePlug.Plan.Operation.*` through Plan constructors.
 
   Use `Crop` for resolved visible crop work, focus- or coordinate-based crops,
   and result crops that trim an already resized image back to resolved target
