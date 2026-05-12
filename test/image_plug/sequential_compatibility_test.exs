@@ -2,9 +2,9 @@ defmodule ImagePlug.SequentialCompatibilityTest do
   use ExUnit.Case, async: true
 
   alias ImagePlug.Runtime.Origin
-  alias ImagePlug.Transform.Operation.AutoOrient
   alias ImagePlug.Transform.Chain
   alias ImagePlug.Transform.Materializer
+  alias ImagePlug.Transform.Operation.AutoOrient
   alias ImagePlug.Transform.Operation.Resize
   alias ImagePlug.Transform.State
 
@@ -75,26 +75,12 @@ defmodule ImagePlug.SequentialCompatibilityTest do
     assert_sequential_matches_random(chain, alpha_png_body(), "image/png")
   end
 
-  test "successful sequential materialization drains origin stream before delivery" do
-    chain = [
-      %Resize{mode: :fit, width: {:pixels, 100}, height: :auto}
-    ]
-
-    {:ok, _sequential_image, sequential_response} =
-      run_chain(chain, :sequential, jpeg_body(@cat_path), "image/jpeg")
-
-    assert Origin.stream_status(sequential_response) == :done
-    assert Origin.stream_status(sequential_response) == :done
-  end
-
   defp assert_sequential_matches_random(chain, body, content_type \\ "image/jpeg") do
     {:ok, random_image, _random_response} = run_chain(chain, :random, body, content_type)
 
-    {:ok, sequential_image, sequential_response} =
+    {:ok, sequential_image, _sequential_response} =
       run_chain(chain, :sequential, body, content_type)
 
-    assert Origin.stream_status(sequential_response) == :done
-    assert Origin.stream_status(sequential_response) == :done
     assert Image.width(sequential_image) == Image.width(random_image)
     assert Image.height(sequential_image) == Image.height(random_image)
     assert Image.has_alpha?(sequential_image) == Image.has_alpha?(random_image)

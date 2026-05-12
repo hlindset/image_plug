@@ -7,9 +7,9 @@ defmodule ImagePlug.Transform.KeyData do
   key data never depends on raw IEEE float representation.
   """
 
+  alias ImagePlug.Plan.Operation.Canvas
   alias ImagePlug.Plan.Operation.CropGuided
   alias ImagePlug.Plan.Operation.CropRegion
-  alias ImagePlug.Plan.Operation.Canvas
   alias ImagePlug.Plan.Operation.Resize
   alias ImagePlug.Transform.Operation.AutoOrient
   alias ImagePlug.Transform.Operation.Flip

@@ -3,6 +3,7 @@ defmodule ImagePlug.PlanTest do
 
   alias ImagePlug.Plan
   alias ImagePlug.Plan.Cache
+  alias ImagePlug.Plan.Operation
   alias ImagePlug.Plan.Output
   alias ImagePlug.Plan.Pipeline
   alias ImagePlug.Plan.Policy
@@ -12,7 +13,6 @@ defmodule ImagePlug.PlanTest do
   alias ImagePlug.Transform.Operation.AutoOrient
   alias ImagePlug.Transform.Operation.Flip
   alias ImagePlug.Transform.Operation.Rotate
-  alias ImagePlug.Plan.Operation
 
   test "represents source, image pipelines, and output separately" do
     operations = [resize_operation()]

@@ -8,7 +8,6 @@ defmodule ImagePlug.Runtime.ProcessorTest do
   alias ImagePlug.Plan.Source.Plain
   alias ImagePlug.Runtime.DecodedOrigin
   alias ImagePlug.Runtime.Origin
-  alias ImagePlug.Runtime.Origin.StreamStatus
   alias ImagePlug.Runtime.Processor
   alias ImagePlug.Runtime.ProcessorTest.DecodeErrorImageOpen
   alias ImagePlug.Runtime.ProcessorTest.DecodeValidImageOpen
@@ -78,9 +77,6 @@ defmodule ImagePlug.Runtime.ProcessorTest do
 
     assert decoded.source_format == :jpeg
     assert decoded.decode_options == [access: :random, fail_on: :error]
-    assert %ImagePlug.Runtime.Origin.Response{} = decoded.origin_response
-
-    Processor.close_pending_origin(decoded.origin_response)
   end
 
   test "process_origin fetches, decodes, validates, executes, and materializes a chain" do
@@ -195,9 +191,6 @@ defmodule ImagePlug.Runtime.ProcessorTest do
     assert decoded.source_format == :jpeg
     assert decoded.source_metadata.orientation == :unknown
     assert decoded.decode_options == [access: :random, fail_on: :error]
-    assert %ImagePlug.Runtime.Origin.Response{} = decoded.origin_response
-
-    Processor.close_pending_origin(decoded.origin_response)
   end
 
   test "fetch_decode_validate_origin_with_source_format plans decode options from the first pipeline only" do
@@ -221,8 +214,6 @@ defmodule ImagePlug.Runtime.ProcessorTest do
              )
 
     assert decoded.decode_options == [access: :sequential, fail_on: :error]
-
-    Processor.close_pending_origin(decoded.origin_response)
   end
 
   test "fetch_decode_validate_origin_with_source_format returns singly tagged decode errors" do
@@ -234,7 +225,7 @@ defmodule ImagePlug.Runtime.ProcessorTest do
              )
   end
 
-  test "decode_validate_origin_response closes pending origins on validation errors" do
+  test "decode_validate_origin_response returns input limit errors" do
     {:ok, operation} = resize_fit(120, :auto)
 
     plan = %Plan{
@@ -244,60 +235,28 @@ defmodule ImagePlug.Runtime.ProcessorTest do
         ]
     }
 
-    assert {:ok, origin_response, :jpeg} =
-             Processor.fetch_origin_with_source_format(
-               plan,
+    assert {:ok, origin_response} =
+             Origin.fetch(
                "http://origin.test/images/cat-300.jpg",
-               opts()
+               Keyword.fetch!(opts(), :origin_req_options)
              )
-
-    assert Origin.stream_status(origin_response) == :pending
-
-    worker_ref = Process.monitor(origin_response.worker)
 
     assert {:error, {:input_limit, {:too_many_input_pixels, 400, 399}}} =
              Processor.decode_validate_origin_response(
                origin_response,
-               :jpeg,
                plan,
                opts()
                |> Keyword.put(:image_open_module, DecodeValidImageOpen)
                |> Keyword.put(:max_input_pixels, 399)
              )
-
-    assert_receive {:DOWN, ^worker_ref, :process, _worker, _reason}
   end
 
-  test "process_decoded_origin closes pending origins on prefetch validation errors" do
+  test "process_decoded_origin returns prefetch validation errors" do
     {:ok, image} = Image.new(1, 1)
-    {:ok, stream_status} = StreamStatus.start_link()
-    test_pid = self()
-
-    worker =
-      spawn_link(fn ->
-        send(test_pid, :worker_ready)
-
-        receive do
-          {:cancel, _ref} -> :ok
-        end
-      end)
-
-    assert_receive :worker_ready
-
-    origin_response = %ImagePlug.Runtime.Origin.Response{
-      content_type: "image/jpeg",
-      headers: [],
-      ref: make_ref(),
-      stream: [],
-      stream_status: stream_status,
-      url: "http://origin.test/images/cat-300.jpg",
-      worker: worker
-    }
 
     decoded = %DecodedOrigin{
       decode_options: [access: :random, fail_on: :error],
       image: image,
-      origin_response: origin_response,
       source_format: :jpeg,
       source_metadata: %SourceMetadata{
         orientation: :normal,
@@ -307,8 +266,6 @@ defmodule ImagePlug.Runtime.ProcessorTest do
     }
 
     invalid_operation = :not_a_plan_operation
-
-    worker_ref = Process.monitor(worker)
 
     assert {:error, {:invalid_pipeline_operation, ^invalid_operation}} =
              process_decoded_origin(
@@ -323,8 +280,5 @@ defmodule ImagePlug.Runtime.ProcessorTest do
                },
                opts()
              )
-
-    assert_receive {:DOWN, ^worker_ref, :process, ^worker, _reason}
-    StreamStatus.stop(stream_status)
   end
 end

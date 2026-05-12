@@ -2,9 +2,9 @@ defmodule ImagePlug.Transform.DecodePlannerTest do
   use ExUnit.Case, async: true
 
   alias ImagePlug.Plan.Operation
+  alias ImagePlug.Transform.DecodePlanner
   alias ImagePlug.Transform.Operation.AutoOrient
   alias ImagePlug.Transform.Operation.Crop
-  alias ImagePlug.Transform.DecodePlanner
   alias ImagePlug.Transform.Operation.ExtendCanvas
   alias ImagePlug.Transform.Operation.Resize
 

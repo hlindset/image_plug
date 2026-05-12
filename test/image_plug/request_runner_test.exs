@@ -4,11 +4,13 @@ defmodule ImagePlug.Runtime.RequestRunnerTest do
   import Plug.Test
 
   alias ImagePlug.Cache.Entry
+  alias ImagePlug.Cache.Key
   alias ImagePlug.Output.Resolved
   alias ImagePlug.Plan
   alias ImagePlug.Plan.Operation
   alias ImagePlug.Plan.Output
   alias ImagePlug.Plan.Pipeline
+  alias ImagePlug.Plan.Response
   alias ImagePlug.Plan.Source.Plain
   alias ImagePlug.Runtime.RequestRunner
   alias ImagePlug.Runtime.ResponseSender
@@ -149,7 +151,7 @@ defmodule ImagePlug.Runtime.RequestRunnerTest do
       created_at: DateTime.utc_now()
     }
 
-    assert {:ok, {:cache_entry, ^entry, %ImagePlug.Plan.Response{}}} =
+    assert {:ok, {:cache_entry, ^entry, %Response{}}} =
              RequestRunner.run(
                conn(:get, "/_/f:jpeg/plain/images/cat-300.jpg"),
                plan(),
@@ -242,7 +244,7 @@ defmodule ImagePlug.Runtime.RequestRunnerTest do
     assert [[operation_data]] = key.data[:pipelines]
     assert operation_data[:op] == :resize
     assert operation_data[:mode] == :auto
-    serialized_data = ImagePlug.Cache.Key.serialize_key_data(key.data)
+    serialized_data = Key.serialize_key_data(key.data)
     refute serialized_data =~ "selected_branch"
     refute serialized_data =~ "source_width"
     refute serialized_data =~ "source_height"

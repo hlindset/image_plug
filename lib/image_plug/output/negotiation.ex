@@ -14,10 +14,7 @@ defmodule ImagePlug.Output.Negotiation do
       entries ->
         opts
         |> enabled_modern_formats()
-        |> Enum.flat_map(fn
-          {format, mime_type} ->
-            if acceptable?(mime_type, entries), do: [format], else: []
-        end)
+        |> Enum.flat_map(&modern_candidate(&1, entries))
     end
   end
 
@@ -40,6 +37,10 @@ defmodule ImagePlug.Output.Negotiation do
     Enum.reject(@modern_formats, fn {format, _mime_type} ->
       not Map.fetch!(enabled?, format)
     end)
+  end
+
+  defp modern_candidate({format, mime_type}, entries) do
+    if acceptable?(mime_type, entries), do: [format], else: []
   end
 
   defp acceptable?(mime_type, entries) do

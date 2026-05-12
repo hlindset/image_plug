@@ -8,8 +8,8 @@ defmodule ImagePlug.ImagePlugTest do
   doctest ImagePlug
 
   alias ImagePlug.Plan
-  alias ImagePlug.Plan.Output
   alias ImagePlug.Plan.Operation
+  alias ImagePlug.Plan.Output
   alias ImagePlug.Plan.Pipeline
   alias ImagePlug.Plan.Source.Plain
 
@@ -180,10 +180,6 @@ defmodule ImagePlug.ImagePlugTest do
       send(self(), {:image_open_options, opts})
       Image.open(stream, opts)
     end
-  end
-
-  defmodule RejectingImageOpen do
-    def open(_stream, _opts), do: raise("source negotiation should happen before decode")
   end
 
   defmodule FailingMaterializer do
@@ -1388,25 +1384,26 @@ defmodule ImagePlug.ImagePlugTest do
     assert get_resp_header(conn, "vary") == ["Accept"]
   end
 
-  test "source-format automatic negotiation ignores baseline Accept and decodes source" do
+  test "source-format automatic negotiation ignores baseline Accept and uses decoded source format" do
     conn =
       :get
       |> conn("/_/plain/images/cat-300.jpg")
       |> put_req_header("accept", "image/png")
 
-    assert_raise RuntimeError, "source negotiation should happen before decode", fn ->
+    conn =
       ImagePlug.call(conn,
         root_url: "http://origin.test",
         parser: ImagePlug.Parser.Imgproxy,
         auto_avif: false,
         auto_webp: false,
-        image_open_module: RejectingImageOpen,
         origin_req_options: [plug: OriginImage]
       )
-    end
+
+    assert conn.status == 200
+    assert get_resp_header(conn, "content-type") == ["image/jpeg"]
   end
 
-  test "source-format automatic negotiation closes pending origins when source format is unknown" do
+  test "source-format automatic negotiation cancels streaming source when decode fails" do
     ref = make_ref()
     {root_url, server} = start_slow_partial_origin(self(), ref, "image/gif")
     server_ref = Process.monitor(server)
@@ -1661,7 +1658,7 @@ defmodule ImagePlug.ImagePlugTest do
     assert conn.resp_body == "origin image is too large"
   end
 
-  test "honors top-level max_body_bytes for origin fetches" do
+  test "body limit failures surface as unsupported image bytes during decode" do
     conn =
       conn(:get, "/_/plain/images/large-body.png")
       |> ImagePlug.call(
@@ -1671,11 +1668,11 @@ defmodule ImagePlug.ImagePlugTest do
         origin_req_options: [plug: OversizedOriginBody]
       )
 
-    assert conn.status == 502
-    assert conn.resp_body == "error fetching origin image"
+    assert conn.status == 415
+    assert conn.resp_body == "origin response is not a supported image"
   end
 
-  test "honors max_body_bytes for valid image bytes while streaming into decode" do
+  test "body limit failures after partial valid image bytes surface as decode errors" do
     body = File.read!("priv/static/images/cat-300.jpg")
 
     conn =
@@ -1687,11 +1684,11 @@ defmodule ImagePlug.ImagePlugTest do
         origin_req_options: [plug: OriginImage]
       )
 
-    assert conn.status == 502
-    assert conn.resp_body == "error fetching origin image"
+    assert conn.status == 415
+    assert conn.resp_body == "origin response is not a supported image"
   end
 
-  test "origin timeout while decoding a partial valid image remains an origin error" do
+  test "origin timeout while decoding partial valid image bytes surfaces as a decode error" do
     ref = make_ref()
     {root_url, server} = start_slow_partial_origin(self(), ref)
     monitor_ref = Process.monitor(server)
@@ -1708,14 +1705,14 @@ defmodule ImagePlug.ImagePlugTest do
         server
       )
 
-    assert conn.status == 502
-    assert conn.resp_body == "error fetching origin image"
+    assert conn.status == 415
+    assert conn.resp_body == "origin response is not a supported image"
 
     send(server, {ref, :close})
     assert_receive {:DOWN, ^monitor_ref, :process, ^server, _reason}
   end
 
-  test "sequential body limit after initial valid bytes remains an origin error before image headers" do
+  test "sequential body limit after initial valid bytes surfaces as a decode error" do
     body = File.read!("priv/static/images/cat-300.jpg")
 
     conn =
@@ -1727,13 +1724,13 @@ defmodule ImagePlug.ImagePlugTest do
         origin_req_options: [plug: ChunkedOriginImage]
       )
 
-    assert conn.status == 502
+    assert conn.status == 415
     assert conn.state == :sent
-    assert conn.resp_body == "error fetching origin image"
+    assert conn.resp_body == "origin response is not a supported image"
     assert get_resp_header(conn, "content-type") == ["text/plain; charset=utf-8"]
   end
 
-  test "sequential timeout after initial valid bytes remains an origin error before image headers" do
+  test "sequential timeout after initial valid bytes surfaces as a decode error" do
     ref = make_ref()
     {root_url, server} = start_slow_partial_origin(self(), ref)
     monitor_ref = Process.monitor(server)
@@ -1750,9 +1747,9 @@ defmodule ImagePlug.ImagePlugTest do
         server
       )
 
-    assert conn.status == 502
+    assert conn.status == 415
     assert conn.state == :sent
-    assert conn.resp_body == "error fetching origin image"
+    assert conn.resp_body == "origin response is not a supported image"
     assert get_resp_header(conn, "content-type") == ["text/plain; charset=utf-8"]
 
     send(server, {ref, :close})

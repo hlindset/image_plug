@@ -23,8 +23,8 @@ defmodule ImagePlug.Plan do
     ]
 
   alias ImagePlug.Plan.Cache
-  alias ImagePlug.Plan.Output
   alias ImagePlug.Plan.Operation
+  alias ImagePlug.Plan.Output
   alias ImagePlug.Plan.Pipeline
   alias ImagePlug.Plan.Policy
   alias ImagePlug.Plan.Response

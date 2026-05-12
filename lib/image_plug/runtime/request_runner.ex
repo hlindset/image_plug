@@ -164,66 +164,24 @@ defmodule ImagePlug.Runtime.RequestRunner do
   defp processing_reason(reason), do: reason
 
   defp process_source_format_automatic(plan, origin_identity, opts, policy) do
-    case Processor.fetch_origin_with_source_format(plan, origin_identity, opts) do
-      {:ok, origin_response, source_format} ->
-        resolve_source_format_automatic(
-          origin_response,
-          source_format,
-          plan,
-          opts,
-          policy
-        )
+    case Processor.fetch_decode_validate_origin_with_source_format(plan, origin_identity, opts) do
+      {:ok, %DecodedOrigin{} = decoded} ->
+        resolve_source_format_automatic(decoded, plan, opts, policy)
 
       error ->
         {:error, error, policy.headers}
     end
   end
 
-  defp resolve_source_format_automatic(
-         origin_response,
-         source_format,
-         plan,
-         opts,
-         policy
-       ) do
-    case Policy.resolve(policy, source_format) do
+  defp resolve_source_format_automatic(%DecodedOrigin{} = decoded, plan, opts, policy) do
+    case Policy.resolve(policy, decoded.source_format) do
       {:ok, %Resolved{} = resolved_output} ->
-        decode_source_format_automatic(
-          origin_response,
-          source_format,
-          plan,
-          resolved_output,
-          opts,
-          resolved_output.representation_headers
-        )
-
-      {:error, error} ->
-        Processor.close_pending_origin(origin_response)
-        {:error, error, policy.headers}
-    end
-  end
-
-  defp decode_source_format_automatic(
-         origin_response,
-         source_format,
-         plan,
-         resolved_output,
-         opts,
-         response_headers
-       ) do
-    case Processor.decode_validate_origin_response(
-           origin_response,
-           source_format,
-           plan,
-           opts
-         ) do
-      {:ok, %DecodedOrigin{} = decoded} ->
         decoded
         |> Processor.process_decoded_origin(plan, opts)
         |> attach_resolved_output(resolved_output)
 
-      error ->
-        {:error, error, response_headers}
+      {:error, error} ->
+        {:error, error, policy.headers}
     end
   end
 end

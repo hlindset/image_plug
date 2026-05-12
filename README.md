@@ -186,7 +186,7 @@ Treat the cache root as trusted local configuration. Generated paths are validat
 
 `ImagePlug` parses imgproxy path options before fetching the origin image. Invalid processing requests return `400` without origin traffic.
 
-Origin fetches use non-bang Req calls with bounded redirects, receive timeout, image content-type validation, and a maximum response body size. Configure these with `:origin_max_redirects`, `:origin_receive_timeout`, `:max_body_bytes`, and `:max_input_pixels`.
+Origin fetches use non-bang Req calls with bounded redirects, receive timeout, and a maximum response body size. The source format is read from the decoded image rather than trusted HTTP headers. Configure these with `:origin_max_redirects`, `:origin_receive_timeout`, `:max_body_bytes`, and `:max_input_pixels`.
 
 For transform chains that are proven to be safe for one-pass reads, ImagePlug may open the origin image with libvips sequential access before resizing. The first supported shapes are fit/force resize requests with concrete target dimensions; these shapes may use sequential access whether the result downscales or upscales. Chains involving crop, cover/fill result crops, canvas extension, unknown transforms, output-only requests, or no geometry transform continue to use random access.
 
