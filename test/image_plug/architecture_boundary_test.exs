@@ -135,11 +135,7 @@ defmodule ImagePlug.ArchitectureBoundaryTest do
       ImagePlug.Transform.Operation.AutoOrient,
       ImagePlug.Transform.Operation.Rotate,
       ImagePlug.Transform.Operation.Flip,
-      ImagePlug.Transform.Operation.Scale,
-      ImagePlug.Transform.Operation.Cover,
-      ImagePlug.Transform.Operation.Contain,
-      ImagePlug.Transform.Operation.Crop,
-      ImagePlug.Transform.Operation.Focus
+      ImagePlug.Transform.Operation.Crop
     ])
   end
 
@@ -153,8 +149,16 @@ defmodule ImagePlug.ArchitectureBoundaryTest do
     assert violations == []
   end
 
-  test "stale adaptive resize executable operation is removed" do
-    refute Code.ensure_loaded?(Module.concat(ImagePlug.Transform.Operation, AdaptiveResize))
+  test "stale executable transform operations are removed" do
+    stale_modules = [
+      Module.concat(ImagePlug.Transform.Operation, AdaptiveResize),
+      Module.concat(ImagePlug.Transform.Operation, Scale),
+      Module.concat(ImagePlug.Transform.Operation, Contain),
+      Module.concat(ImagePlug.Transform.Operation, Cover),
+      Module.concat(ImagePlug.Transform.Operation, Focus)
+    ]
+
+    assert Enum.reject(stale_modules, &Code.ensure_loaded?/1) == stale_modules
   end
 
   test "stale transform IR implementation modules are removed" do

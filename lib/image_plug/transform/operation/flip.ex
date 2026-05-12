@@ -22,8 +22,8 @@ defmodule ImagePlug.Transform.Operation.Flip do
   ## Execution Semantics
 
   `execute/2` flips `ImagePlug.Transform.State.image`, stores the flipped image
-  back into state, and resets focus metadata. For `axis: :horizontal` and
-  `axis: :vertical`, execution calls `Image.flip/2` with that axis.
+  back into state. For `axis: :horizontal` and `axis: :vertical`, execution
+  calls `Image.flip/2` with that axis.
 
   For `axis: :both`, execution performs a horizontal flip followed by a
   vertical flip, then stores the resulting image in state. If any flip fails,
@@ -67,7 +67,7 @@ defmodule ImagePlug.Transform.Operation.Flip do
   def execute(%__MODULE__{axis: :both}, %State{} = state) do
     with {:ok, image} <- Image.flip(state.image, :horizontal),
          {:ok, image} <- Image.flip(image, :vertical) do
-      state |> set_image(image) |> reset_focus()
+      set_image(state, image)
     else
       {:error, error} -> add_error(state, {__MODULE__, error})
     end
@@ -75,7 +75,7 @@ defmodule ImagePlug.Transform.Operation.Flip do
 
   def execute(%__MODULE__{axis: axis}, %State{} = state) do
     case Image.flip(state.image, axis) do
-      {:ok, image} -> state |> set_image(image) |> reset_focus()
+      {:ok, image} -> set_image(state, image)
       {:error, error} -> add_error(state, {__MODULE__, error})
     end
   end

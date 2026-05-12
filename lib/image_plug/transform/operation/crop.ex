@@ -9,10 +9,10 @@ defmodule ImagePlug.Transform.Operation.Crop do
   executable operation. Parser modules should construct
   `ImagePlug.Plan.Operation.*` through Plan constructors.
 
-  Use `Crop` for resolved visible crop work, focus- or coordinate-based crops,
-  and result crops that trim an already resized image back to resolved target
-  geometry. Parser-specific gravity inheritance belongs in the parser/adapter
-  layer before semantic Plan operations are constructed.
+  Use `Crop` for resolved visible crop work, coordinate-based crops, and result
+  crops that trim an already resized image back to resolved target geometry.
+  Parser-specific gravity inheritance belongs in the parser/adapter layer
+  before semantic Plan operations are constructed.
 
   ## Fields
 
@@ -20,8 +20,8 @@ defmodule ImagePlug.Transform.Operation.Crop do
 
   - `width`: crop width as a positive length or `:auto`.
   - `height`: crop height as a positive length or `:auto`.
-  - `crop_from`: crop source, one of `:focus`, `:gravity`, or
-    `%{left: left, top: top}` with non-negative position lengths.
+  - `crop_from`: crop source, either `:gravity` or `%{left: left, top: top}`
+    with non-negative position lengths.
 
   Optional fields:
 
@@ -47,9 +47,9 @@ defmodule ImagePlug.Transform.Operation.Crop do
 
   ## Execution Semantics
 
-  `execute/2` crops `ImagePlug.Transform.State.image`, stores the cropped image
-  back into the state, and resets focus. If coordinate mapping or image cropping
-  fails, execution records `{__MODULE__, reason}` in the state errors.
+  `execute/2` crops `ImagePlug.Transform.State.image` and stores the cropped
+  image back into the state. If coordinate mapping or image cropping fails,
+  execution records `{__MODULE__, reason}` in the state errors.
 
   For `crop_from: :gravity`, execution resolves crop dimensions, defaulting
   gravity to center when none is provided, and delegates rectangle mapping to
@@ -63,10 +63,8 @@ defmodule ImagePlug.Transform.Operation.Crop do
   coordinate mapping; scale and percent offsets are resolved relative to the
   oriented source bounds.
 
-  For `crop_from: :focus`, execution centers the crop on
-  `ImagePlug.Transform.State.focus`. For coordinate crops, `crop_from` is the
-  requested top-left crop position before the rectangle is clamped to image
-  bounds.
+  For coordinate crops, `crop_from` is the requested top-left crop position
+  before the rectangle is clamped to image bounds.
 
   The optional `orientation` context tells `CropCoordinateMapper` how to map
   semantic crop coordinates through right-angle rotation and flip metadata
@@ -97,7 +95,7 @@ defmodule ImagePlug.Transform.Operation.Crop do
 
   @behaviour ImagePlug.Transform
 
-  import ImagePlug.Transform.State, only: [add_error: 2, reset_focus: 1, set_image: 2]
+  import ImagePlug.Transform.State, only: [add_error: 2, set_image: 2]
 
   import ImagePlug.Transform.Geometry,
     only: [anchor_to_pixels: 3, image_height: 1, image_width: 1, to_pixels!: 2]
@@ -128,10 +126,8 @@ defmodule ImagePlug.Transform.Operation.Crop do
   @type t :: %__MODULE__{
           width: ImagePlug.Transform.Types.length() | :auto,
           height: ImagePlug.Transform.Types.length() | :auto,
-          # Future execution work can output focus + crop actions instead of this special crop_from handling.
           crop_from:
-            :focus
-            | :gravity
+            :gravity
             | %{
                 left: ImagePlug.Transform.Types.length(),
                 top: ImagePlug.Transform.Types.length()
@@ -173,7 +169,7 @@ defmodule ImagePlug.Transform.Operation.Crop do
     case crop_coordinates(params, state, image_width, image_height) do
       {:ok, %{left: left, top: top, width: crop_width, height: crop_height}} ->
         case Image.crop(state.image, left, top, crop_width, crop_height) do
-          {:ok, cropped_image} -> state |> set_image(cropped_image) |> reset_focus()
+          {:ok, cropped_image} -> set_image(state, cropped_image)
           {:error, error} -> add_error(state, {__MODULE__, error})
         end
 
@@ -203,7 +199,7 @@ defmodule ImagePlug.Transform.Operation.Crop do
     end
   end
 
-  defp crop_coordinates(%__MODULE__{} = params, %State{} = state, image_width, image_height) do
+  defp crop_coordinates(%__MODULE__{} = params, %State{}, image_width, image_height) do
     # keep :auto dimensions as is
     target_width = if params.width == :auto, do: image_width, else: params.width
     target_height = if params.height == :auto, do: image_height, else: params.height
@@ -214,14 +210,7 @@ defmodule ImagePlug.Transform.Operation.Crop do
 
     # figure out the crop anchor
     {center_x, center_y} =
-      anchor_crop_to_pixels(
-        state,
-        params.crop_from,
-        image_width,
-        image_height,
-        crop_width,
-        crop_height
-      )
+      anchor_crop_to_pixels(params.crop_from, image_width, image_height, crop_width, crop_height)
 
     # ...and make sure crop still stays within bounds
     left = max(0, min(image_width - crop_width, round(center_x - crop_width / 2)))
@@ -285,7 +274,6 @@ defmodule ImagePlug.Transform.Operation.Crop do
   defp orientation(_width, _height), do: :square
 
   defp anchor_crop_to_pixels(
-         %State{},
          %{left: left, top: top},
          image_width,
          image_height,
@@ -300,18 +288,6 @@ defmodule ImagePlug.Transform.Operation.Crop do
     {center_x, center_y}
   end
 
-  defp anchor_crop_to_pixels(
-         %State{} = state,
-         :focus,
-         image_width,
-         image_height,
-         _crop_width,
-         _crop_height
-       ) do
-    anchor_to_pixels(state.focus, image_width, image_height)
-  end
-
-  defp validate_crop_from(:focus), do: :ok
   defp validate_crop_from(:gravity), do: :ok
 
   defp validate_crop_from(%{left: left, top: top} = crop_from) do

@@ -102,10 +102,6 @@ describe work over `ImagePlug.Transform.State`, not parser request syntax:
 - `ImagePlug.Transform.Operation.AutoOrient`: executable EXIF autorotation.
 - `ImagePlug.Transform.Operation.Rotate`: executable right-angle rotation.
 - `ImagePlug.Transform.Operation.Flip`: executable flip.
-- `ImagePlug.Transform.Operation.Focus`, `Scale`, `Contain`, and `Cover`:
-  standalone executable operations retained for local transform execution and
-  future execution paths, not first-slice parser output.
-
 `ImagePlug.Transform.Operation.AdaptiveResize` is obsolete. Resize
 `mode: :auto` belongs in `ImagePlug.Plan.Operation.Resize`; parsers must not
 emit an executable adaptive-resize operation.
@@ -125,7 +121,7 @@ Do not use `mode: :auto` as a generic conditional resize operation. If a future
 adapter has different source-dependent branch rules, add a new semantic
 operation or adapter policy instead of extending `mode: :auto` implicitly.
 
-## Crop, Gravity, And Focus
+## Crop And Gravity
 
 Use `CropGuided` for visible crop operations expressed as size plus guide. Use
 `CropRegion` for explicit source/current-space region crops. Parser-specific
@@ -133,9 +129,8 @@ gravity spellings, focal-point tokens, and default inheritance rules should be
 translated into explicit Plan guide values before cache key data is built.
 
 Current Imgproxy focal-point gravity maps to semantic guide values. The first
-slice does not model a separate semantic focus operation; future dialects can
-add one if they expose focus state independently from visible crop/canvas/cover
-work.
+slice does not model a separate focus operation; future dialects can add one if
+they expose focus state independently from visible crop/canvas/cover work.
 
 ## Orientation Operations
 

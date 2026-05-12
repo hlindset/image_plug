@@ -17,10 +17,10 @@ defmodule ImagePlug.Transform.Operation.AutoOrient do
   ## Execution Semantics
 
   `execute/2` calls `Image.autorotate/1` for
-  `ImagePlug.Transform.State.image`, stores the oriented image back into state,
-  and resets focus metadata. The image library may return flags describing the
-  orientation work; this operation discards those flags because the transform
-  state stores the resulting image, not parser-specific orientation metadata.
+  `ImagePlug.Transform.State.image` and stores the oriented image back into
+  state. The image library may return flags describing the orientation work;
+  this operation discards those flags because the transform state stores the
+  resulting image, not parser-specific orientation metadata.
 
   If autorotation fails, execution records `{__MODULE__, error}` in the state
   errors and leaves normal error handling to the transform chain.
@@ -59,7 +59,7 @@ defmodule ImagePlug.Transform.Operation.AutoOrient do
   @impl ImagePlug.Transform
   def execute(%__MODULE__{}, %State{} = state) do
     case Image.autorotate(state.image) do
-      {:ok, {image, _flags}} -> state |> set_image(image) |> reset_focus()
+      {:ok, {image, _flags}} -> set_image(state, image)
       {:error, error} -> add_error(state, {__MODULE__, error})
     end
   end

@@ -25,8 +25,8 @@ defmodule ImagePlug.Transform.Operation.Rotate do
   `ImagePlug.Transform.State` unchanged.
 
   For `90`, `180`, and `270`, execution calls `Image.rotate/2` for
-  `ImagePlug.Transform.State.image`, stores the rotated image back into state,
-  and resets focus metadata. If rotation fails, execution records
+  `ImagePlug.Transform.State.image` and stores the rotated image back into
+  state. If rotation fails, execution records
   `{__MODULE__, error}` in the state errors and leaves normal error handling to
   the transform chain.
 
@@ -68,7 +68,7 @@ defmodule ImagePlug.Transform.Operation.Rotate do
 
   def execute(%__MODULE__{angle: angle}, %State{} = state) do
     case Image.rotate(state.image, angle) do
-      {:ok, image} -> state |> set_image(image) |> reset_focus()
+      {:ok, image} -> set_image(state, image)
       {:error, error} -> add_error(state, {__MODULE__, error})
     end
   end

@@ -39,10 +39,10 @@ defmodule ImagePlug.Transform.Operation.Resize do
 
   `execute/2` resolves the rule against the current
   `ImagePlug.Transform.State` image dimensions, resizes the image to the
-  resolved intermediate width and height, stores the resized image in state,
-  and resets focus metadata. If the resolved intermediate dimensions equal the
-  current image dimensions, the existing image is kept. Dimension resolution or
-  image resize failures are added to state as
+  resolved intermediate width and height, and stores the resized image in
+  state. If the resolved intermediate dimensions equal the current image
+  dimensions, the existing image is kept. Dimension resolution or image resize
+  failures are added to state as
   `{ImagePlug.Transform.Operation.Resize, error}`.
 
   `Resize` does not perform result cropping. Transform Plan execution for
@@ -129,7 +129,7 @@ defmodule ImagePlug.Transform.Operation.Resize do
     with {:ok, dimensions} <- DimensionResolver.resolve(rule, opts),
          {:ok, image} <-
            resize_image(state, dimensions.intermediate_width, dimensions.intermediate_height) do
-      state |> set_image(image) |> reset_focus()
+      set_image(state, image)
     else
       {:error, _reason} = error -> add_error(state, {__MODULE__, error})
     end

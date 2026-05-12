@@ -3,15 +3,11 @@ defmodule ImagePlug.Transform.DecodePlannerTest do
 
   alias ImagePlug.Plan.Operation
   alias ImagePlug.Transform.Operation.AutoOrient
-  alias ImagePlug.Transform.Operation.Contain
-  alias ImagePlug.Transform.Operation.Cover
   alias ImagePlug.Transform.Operation.Crop
   alias ImagePlug.Transform.DecodePlanner
   alias ImagePlug.Transform.Operation.ExtendCanvas
-  alias ImagePlug.Transform.Operation.Focus
   alias ImagePlug.Transform.Geometry.DimensionRule
   alias ImagePlug.Transform.Operation.Resize
-  alias ImagePlug.Transform.Operation.Scale
 
   defmodule NoGeometryTransform do
     defstruct []
@@ -67,17 +63,17 @@ defmodule ImagePlug.Transform.DecodePlannerTest do
            ]) == [access: :random, fail_on: :error]
   end
 
-  test "width-only scale opens sequentially" do
+  test "width-only fit resize opens sequentially" do
     chain = [
-      %Scale{type: :dimensions, width: {:pixels, 120}, height: :auto}
+      %Resize{rule: %DimensionRule{mode: :fit, width: {:pixels, 120}, height: :auto}}
     ]
 
     assert DecodePlanner.open_options(chain) == [access: :sequential, fail_on: :error]
   end
 
-  test "height-only scale opens sequentially" do
+  test "height-only fit resize opens sequentially" do
     chain = [
-      %Scale{type: :dimensions, width: :auto, height: {:pixels, 120}}
+      %Resize{rule: %DimensionRule{mode: :fit, width: :auto, height: {:pixels, 120}}}
     ]
 
     assert DecodePlanner.open_options(chain) == [access: :sequential, fail_on: :error]
@@ -89,30 +85,10 @@ defmodule ImagePlug.Transform.DecodePlannerTest do
            ]) == [access: :sequential, fail_on: :error]
   end
 
-  test "two-dimensional scale stays random" do
+  test "two-dimensional fit resize opens sequentially" do
     chain = [
-      %Scale{type: :dimensions, width: {:pixels, 120}, height: {:pixels, 90}}
-    ]
-
-    assert DecodePlanner.open_options(chain) == [access: :random, fail_on: :error]
-  end
-
-  test "ratio scale stays random" do
-    chain = [
-      %Scale{type: :ratio, ratio: {4, 3}}
-    ]
-
-    assert DecodePlanner.open_options(chain) == [access: :random, fail_on: :error]
-  end
-
-  test "regular non-letterboxed dimension contain opens sequentially" do
-    chain = [
-      %Contain{
-        type: :dimensions,
-        width: {:pixels, 120},
-        height: {:pixels, 90},
-        constraint: :regular,
-        letterbox: false
+      %Resize{
+        rule: %DimensionRule{mode: :fit, width: {:pixels, 120}, height: {:pixels, 90}}
       }
     ]
 
@@ -145,95 +121,9 @@ defmodule ImagePlug.Transform.DecodePlannerTest do
     assert DecodePlanner.open_options(chain) == [access: :sequential, fail_on: :error]
   end
 
-  test "width-only and height-only regular non-letterboxed contain open sequentially" do
+  test "crops stay random" do
     assert DecodePlanner.open_options([
-             %Contain{
-               type: :dimensions,
-               width: {:pixels, 120},
-               height: :auto,
-               constraint: :regular,
-               letterbox: false
-             }
-           ]) == [access: :sequential, fail_on: :error]
-
-    assert DecodePlanner.open_options([
-             %Contain{
-               type: :dimensions,
-               width: :auto,
-               height: {:pixels, 90},
-               constraint: :regular,
-               letterbox: false
-             }
-           ]) == [access: :sequential, fail_on: :error]
-  end
-
-  test "ratio contain stays random" do
-    chain = [
-      %Contain{type: :ratio, ratio: {4, 3}, letterbox: false}
-    ]
-
-    assert DecodePlanner.open_options(chain) == [access: :random, fail_on: :error]
-  end
-
-  test "min contain stays random" do
-    chain = [
-      %Contain{
-        type: :dimensions,
-        width: {:pixels, 120},
-        height: {:pixels, 90},
-        constraint: :min,
-        letterbox: false
-      }
-    ]
-
-    assert DecodePlanner.open_options(chain) == [access: :random, fail_on: :error]
-  end
-
-  test "max contain stays random" do
-    chain = [
-      %Contain{
-        type: :dimensions,
-        width: {:pixels, 120},
-        height: {:pixels, 90},
-        constraint: :max,
-        letterbox: false
-      }
-    ]
-
-    assert DecodePlanner.open_options(chain) == [access: :random, fail_on: :error]
-  end
-
-  test "letterboxed contain stays random" do
-    chain = [
-      %Contain{
-        type: :dimensions,
-        width: {:pixels, 120},
-        height: {:pixels, 90},
-        constraint: :regular,
-        letterbox: true
-      }
-    ]
-
-    assert DecodePlanner.open_options(chain) == [access: :random, fail_on: :error]
-  end
-
-  test "focus crop and cover stay random" do
-    assert DecodePlanner.open_options([
-             %Focus{type: {:anchor, :left, :top}},
-             %Scale{type: :dimensions, width: {:pixels, 120}, height: :auto}
-           ]) == [access: :random, fail_on: :error]
-
-    assert DecodePlanner.open_options([
-             %Crop{width: {:pixels, 80}, height: {:pixels, 80}, crop_from: :focus}
-           ]) == [access: :random, fail_on: :error]
-
-    assert DecodePlanner.open_options([
-             %Cover{
-               type: :dimensions,
-               width: {:pixels, 80},
-               height: {:pixels, 80},
-               constraint: :none
-             }
+             %Crop{width: {:pixels, 80}, height: {:pixels, 80}, crop_from: :gravity}
            ]) == [access: :random, fail_on: :error]
   end
 
@@ -308,7 +198,7 @@ defmodule ImagePlug.Transform.DecodePlannerTest do
 
   test "planned options include only access and fail_on" do
     chain = [
-      %Scale{type: :dimensions, width: {:pixels, 120}, height: :auto}
+      %Resize{rule: %DimensionRule{mode: :fit, width: {:pixels, 120}, height: :auto}}
     ]
 
     assert Keyword.keys(DecodePlanner.open_options(chain)) == [:access, :fail_on]

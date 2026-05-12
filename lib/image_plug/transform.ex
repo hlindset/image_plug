@@ -27,11 +27,7 @@ defmodule ImagePlug.Transform do
       Operation.AutoOrient,
       Operation.Rotate,
       Operation.Flip,
-      Operation.Scale,
-      Operation.Cover,
-      Operation.Contain,
-      Operation.Crop,
-      Operation.Focus
+      Operation.Crop
     ]
 
   alias ImagePlug.Plan

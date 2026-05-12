@@ -38,9 +38,9 @@ defmodule ImagePlug.Transform.Operation.ExtendCanvas do
   ## Execution Semantics
 
   `execute/2` resolves the canvas size from `rule`, embeds
-  `ImagePlug.Transform.State.image` into that canvas, stores the embedded image
-  back into the state, and resets focus. If dimensions are invalid or embedding
-  fails, execution records `{__MODULE__, reason}` in the state errors.
+  `ImagePlug.Transform.State.image` into that canvas, and stores the embedded
+  image back into the state. If dimensions are invalid or embedding fails,
+  execution records `{__MODULE__, reason}` in the state errors.
 
   For `{:dimensions, width, height}`, each requested dimension resolves against
   the current image size. `:auto` keeps the current size on that axis. The final
@@ -96,7 +96,7 @@ defmodule ImagePlug.Transform.Operation.ExtendCanvas do
 
   @type t :: %__MODULE__{
           rule: canvas_rule(),
-          gravity: State.focus_anchor(),
+          gravity: {:anchor, :left | :center | :right, :top | :center | :bottom},
           x_offset: number(),
           y_offset: number(),
           background: term()
@@ -121,7 +121,7 @@ defmodule ImagePlug.Transform.Operation.ExtendCanvas do
   def execute(%__MODULE__{} = operation, %State{} = state) do
     with {:ok, {width, height}} <- canvas_dimensions(state, operation.rule),
          {:ok, image} <- embed_image(state, operation, width, height) do
-      state |> set_image(image) |> reset_focus()
+      set_image(state, image)
     else
       {:error, reason} -> add_error(state, {__MODULE__, reason})
     end

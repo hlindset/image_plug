@@ -5,56 +5,31 @@ defmodule ImagePlug.Transform.ChainTest do
   alias ImagePlug.Transform.Chain
   alias ImagePlug.Transform.ChainTest.FailingTransform
   alias ImagePlug.Transform.ChainTest.UnexpectedTransform
-  alias ImagePlug.Transform.Operation.Contain
-  alias ImagePlug.Transform.Operation.Cover
   alias ImagePlug.Transform.Operation.Crop
   alias ImagePlug.Transform.Operation.ExtendCanvas
-  alias ImagePlug.Transform.Operation.Focus
   alias ImagePlug.Transform.Geometry.DimensionRule
   alias ImagePlug.Transform.Operation.Resize
-  alias ImagePlug.Transform.Operation.Scale
   alias ImagePlug.Transform.State
 
   doctest ImagePlug.Transform.Chain
 
   test "transform modules expose valid operation structs" do
     assert :ok =
-             Transform.validate(%Scale{
-               type: :dimensions,
-               width: {:pixels, 10},
-               height: :auto
+             Transform.validate(%Resize{
+               rule: %DimensionRule{mode: :fit, width: {:pixels, 10}}
              })
 
     assert :ok =
-             Transform.validate(%Resize{
-               rule: %DimensionRule{mode: :fit, width: {:pixels, 10}}
+             Transform.validate(%Crop{
+               width: {:pixels, 10},
+               height: {:pixels, 10},
+               crop_from: :gravity
              })
   end
 
   test "transform validation rejects malformed operation structs" do
     assert {:error, %ArgumentError{}} =
-             Transform.validate(%Scale{
-               type: :dimensions,
-               width: :oops,
-               height: {:pixels, 100}
-             })
-
-    assert {:error, %ArgumentError{}} =
-             Transform.validate(%Contain{type: :ratio, ratio: {1, 0}, letterbox: false})
-
-    assert {:error, %ArgumentError{}} =
-             Transform.validate(%Cover{
-               type: :dimensions,
-               width: {:pixels, 100},
-               height: 0,
-               constraint: :none
-             })
-
-    assert {:error, %ArgumentError{}} =
-             Transform.validate(%Crop{width: nil, height: {:pixels, 100}, crop_from: :focus})
-
-    assert {:error, %ArgumentError{}} =
-             Transform.validate(%Focus{type: {:coordinate, :oops, {:percent, 50}}})
+             Transform.validate(%Crop{width: nil, height: {:pixels, 100}, crop_from: :gravity})
 
     assert {:error, %ArgumentError{}} =
              Transform.validate(%Resize{rule: %DimensionRule{mode: :auto}})
@@ -64,23 +39,13 @@ defmodule ImagePlug.Transform.ChainTest do
   end
 
   test "transform name is delegated to operation module" do
-    operation = %Scale{
-      type: :dimensions,
-      width: {:pixels, 10},
-      height: :auto
-    }
+    operation = %Resize{rule: %DimensionRule{mode: :fit, width: {:pixels, 10}, height: :auto}}
 
-    assert Transform.transform_name(operation) == :scale
+    assert Transform.transform_name(operation) == :resize
   end
 
   test "metadata is delegated to operation module" do
-    operation = %Contain{
-      type: :dimensions,
-      width: {:pixels, 10},
-      height: :auto,
-      constraint: :regular,
-      letterbox: false
-    }
+    operation = %Resize{rule: %DimensionRule{mode: :fit, width: {:pixels, 10}, height: :auto}}
 
     assert Transform.metadata(operation) == %{access: :sequential}
   end

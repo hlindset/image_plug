@@ -103,7 +103,8 @@ Top-level `g`/`gravity` applies to result crops produced by fill, fill-down, and
 
 Gravity supports anchors and focal points. Focal point gravity uses `fp:x:y`, where `x` and `y` are normalized coordinates from `0.0` to `1.0`.
 
-Crop focal-point gravity uses crop gravity fields, not `ImagePlug.Transform.Focus`.
+Crop focal-point gravity uses crop gravity fields; it does not require a
+separate focus operation.
 
 Offsets use imgproxy-style parsing:
 

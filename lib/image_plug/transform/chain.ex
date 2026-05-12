@@ -26,8 +26,13 @@ defmodule ImagePlug.Transform.Chain do
   ## Examples
 
       iex> chain = [
-      ...>   %ImagePlug.Transform.Operation.Focus{type: {:coordinate, {:pixels, 20}, {:pixels, 30}}},
-      ...>   %ImagePlug.Transform.Operation.Crop{width: {:pixels, 100}, height: {:pixels, 150}, crop_from: :focus}
+      ...>   %ImagePlug.Transform.Operation.Resize{
+      ...>     rule: %ImagePlug.Transform.Geometry.DimensionRule{
+      ...>       mode: :fit,
+      ...>       width: {:pixels, 100},
+      ...>       height: :auto
+      ...>     }
+      ...>   }
       ...> ]
       ...> {:ok, empty_image} = Image.new(500, 500)
       ...> initial_state = %ImagePlug.Transform.State{image: empty_image}

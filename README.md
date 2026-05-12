@@ -188,7 +188,7 @@ Treat the cache root as trusted local configuration. Generated paths are validat
 
 Origin fetches use non-bang Req calls with bounded redirects, receive timeout, image content-type validation, and a maximum response body size. Configure these with `:origin_max_redirects`, `:origin_receive_timeout`, `:max_body_bytes`, and `:max_input_pixels`.
 
-For transform chains that are proven to be safe for one-pass reads, ImagePlug may open the origin image with libvips sequential access before resizing. The first supported shapes are width-only scale, height-only scale, and regular non-letterboxed contain; these shapes may use sequential access whether the result downscales or upscales. Chains involving crop, focus, cover, letterboxing, unknown transforms, output-only requests, or no geometry transform continue to use random access.
+For transform chains that are proven to be safe for one-pass reads, ImagePlug may open the origin image with libvips sequential access before resizing. The first supported shapes are fit/force resize requests with concrete target dimensions; these shapes may use sequential access whether the result downscales or upscales. Chains involving crop, cover/fill result crops, canvas extension, unknown transforms, output-only requests, or no geometry transform continue to use random access.
 
 When a parsed plan contains multiple image pipelines, ImagePlug materializes the image between pipelines. This preserves the explicit pipeline boundary and lets origin decode planning consider the first pipeline only: later pipelines may contain operations that ImagePlug classifies as requiring random access, and those operations should run against a memory-backed intermediate image instead of changing how the origin image is opened.
 
