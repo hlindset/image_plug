@@ -43,6 +43,13 @@ defmodule ImagePlug.Plan.VendorMappingFixtureTest do
       classification: :representable_not_executable,
       semantic_shape: [:crop_region, :resize_fit],
       notes: "IIIF region is source-space before size"
+    },
+    %{
+      vendor: :cloudinary,
+      input: "c_fill,g_auto,w_300,h_200",
+      classification: :representable_not_executable,
+      semantic_shape: [:resize_cover, :strategy_guide],
+      notes: "smart crop can map to guided cover once strategy guides exist"
     }
   ]
 
@@ -53,7 +60,8 @@ defmodule ImagePlug.Plan.VendorMappingFixtureTest do
              :imgproxy,
              :twicpics,
              :twicpics,
-             :iiif
+             :iiif,
+             :cloudinary
            ]
 
     assert Enum.all?(
@@ -67,10 +75,20 @@ defmodule ImagePlug.Plan.VendorMappingFixtureTest do
            )
 
     assert Enum.all?(@fixtures, fn fixture ->
-             is_binary(fixture.input) and
+             MapSet.new(Map.keys(fixture)) ==
+               MapSet.new([:classification, :input, :notes, :semantic_shape, :vendor]) and
+               fixture.vendor in [:imgproxy, :twicpics, :iiif, :cloudinary] and
+               is_binary(fixture.input) and
                is_list(fixture.semantic_shape) and
+               Enum.all?(fixture.semantic_shape, &is_atom/1) and
                is_binary(fixture.notes)
            end)
+  end
+
+  test "fixture identities are unique by vendor and input" do
+    identities = Enum.map(@fixtures, &{&1.vendor, &1.input})
+
+    assert Enum.uniq(identities) == identities
   end
 
   test "non-imgproxy fixtures do not expand first-slice parser scope" do
