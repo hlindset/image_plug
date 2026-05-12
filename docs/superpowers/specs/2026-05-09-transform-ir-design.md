@@ -2,13 +2,28 @@
 
 ## Status
 
-Approved design direction, revised after review. This document is the basis for
-a later implementation plan, not implementation approval by itself.
+Superseded design direction. This document records the initial Transform IR
+design discussion and remains useful background for why ImagePlug moved toward
+canonical Plan operations, parser-owned vendor semantics, and prefetch-safe
+cache key data.
 
-The accepted direction is semantic plan IR plus transform resolver plus backend
-lowering. The revised scope is intentionally smaller than the original design
-round: build the minimum semantic core needed to replace current
-imgproxy-compatible behavior, then grow the IR from vendor mapping fixtures.
+The current implementation target is defined by:
+
+- `docs/superpowers/specs/2026-05-11-transform-plan-execution-design.md`
+- `docs/superpowers/plans/2026-05-10-transform-ir-implementation.md`
+
+Those documents replace this file's resolver-based sections. In particular, the
+implemented/current direction is:
+
+- `ImagePlug.Transform.execute_plan/4`, not `Transform.resolve/3`.
+- Ordered, stateful Plan execution against the actual current image.
+- No `ImagePlug.Transform.Resolver.*`, `%ImagePlug.Transform.ResolvedPlan{}`,
+  derivation structs, or resolver key data.
+- No Plan geometry structs or split semantic resize modules.
+- Cache key inputs are key data, not material.
+
+Read any remaining references to resolver phases, backend lowering, selections,
+or material in this file as historical context, not current design guidance.
 
 ## Goals
 
