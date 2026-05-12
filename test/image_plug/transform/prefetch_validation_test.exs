@@ -3,7 +3,6 @@ defmodule ImagePlug.Transform.PrefetchValidationTest do
 
   alias ImagePlug.Plan
   alias ImagePlug.Plan.Geometry.Dimension
-  alias ImagePlug.Plan.Geometry.Region
   alias ImagePlug.Plan.Geometry.Size
   alias ImagePlug.Plan.Operation
   alias ImagePlug.Plan.Output
@@ -18,29 +17,19 @@ defmodule ImagePlug.Transform.PrefetchValidationTest do
              Transform.validate_prefetch_safe_plan(plan([operation]))
   end
 
-  test "source-space crop regions are valid at the start of a first-slice pipeline" do
-    operation = source_crop_region_operation()
+  test "crop regions are prefetch-safe semantic operations" do
+    operation = crop_region_operation()
 
     assert {:ok, [%Pipeline{operations: [^operation]}]} =
              Transform.validate_prefetch_safe_plan(plan([operation]))
   end
 
-  test "source-space crop regions after prior geometry fail source-independent validation" do
+  test "crop regions after prior geometry remain current-image-relative operations" do
     resize = resize_fit_operation()
-    crop = source_crop_region_operation()
+    crop = crop_region_operation()
 
-    assert Transform.validate_prefetch_safe_plan(plan([resize, crop])) ==
-             {:error, {:invalid_pipeline_operation, crop}}
-  end
-
-  test "source-space crop after source-sized resize is rejected before no-op evaluation" do
-    resize = resize_fit_operation(300, 200)
-    crop = source_crop_region_operation()
-
-    # Conservative first-slice policy is positional: prior geometry makes source-space ambiguous,
-    # even when source metadata could later prove the resize is an identity operation.
-    assert Transform.validate_prefetch_safe_plan(plan([resize, crop])) ==
-             {:error, {:invalid_pipeline_operation, crop}}
+    assert {:ok, [%Pipeline{operations: [^resize, ^crop]}]} =
+             Transform.validate_prefetch_safe_plan(plan([resize, crop]))
   end
 
   defp plan(operations) do
@@ -68,13 +57,8 @@ defmodule ImagePlug.Transform.PrefetchValidationTest do
     operation
   end
 
-  defp source_crop_region_operation do
-    {:ok, x} = Dimension.pixels(1)
-    {:ok, y} = Dimension.pixels(1)
-    {:ok, width} = Dimension.pixels(10)
-    {:ok, height} = Dimension.pixels(10)
-    {:ok, region} = Region.new(x: x, y: y, width: width, height: height, space: :source)
-    {:ok, operation} = Operation.crop_region(region: region)
+  defp crop_region_operation do
+    {:ok, operation} = Operation.crop_region({:px, 1}, {:px, 1}, {:px, 10}, {:px, 10})
     operation
   end
 

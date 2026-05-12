@@ -328,7 +328,7 @@ defmodule ImagePlug.Parser.Imgproxy.PlanBuilderTest do
                }
              )
 
-    assert anchor(crop.guide) == {:left, :top}
+    assert crop.guide == :top_left
   end
 
   test "plans crop focal-point gravity and relative offsets" do
@@ -784,7 +784,15 @@ defmodule ImagePlug.Parser.Imgproxy.PlanBuilderTest do
   defp pixels(value), do: %Dimension{unit: :logical_px, value: value}
   defp auto, do: %Dimension{unit: :auto}
 
+  defp anchor({:anchor, x, y}), do: {x, y}
+
   defp anchor(%ImagePlug.Plan.Guide.Gravity{type: :anchor, x: x, y: y}), do: {x, y}
+
+  defp focal_point(
+         {:focal, {:ratio, x_numerator, x_denominator}, {:ratio, y_numerator, y_denominator}}
+       ) do
+    {x_numerator, x_denominator, y_numerator, y_denominator}
+  end
 
   defp focal_point(%ImagePlug.Plan.Guide.Gravity{
          type: :focal_point,

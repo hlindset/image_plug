@@ -9,7 +9,6 @@ defmodule ImagePlug.ImagePlugTest do
 
   alias ImagePlug.Plan
   alias ImagePlug.Plan.Geometry.Dimension
-  alias ImagePlug.Plan.Geometry.Region
   alias ImagePlug.Plan.Output
   alias ImagePlug.Plan.Operation
   alias ImagePlug.Plan.Pipeline
@@ -277,7 +276,7 @@ defmodule ImagePlug.ImagePlugTest do
       {:ok,
        ImagePlug.ImagePlugTest.sample_explicit_plan(:jpeg, [
          resize_fit_operation(),
-         source_crop_region_operation()
+         :not_a_plan_operation
        ])}
     end
 
@@ -289,16 +288,6 @@ defmodule ImagePlug.ImagePlugTest do
       {:ok, height} = Dimension.pixels(100)
       {:ok, size} = ImagePlug.Plan.Geometry.Size.new(width: width, height: height, dpr: 1.0)
       {:ok, operation} = Operation.resize_fit(size: size, enlargement: :deny)
-      operation
-    end
-
-    defp source_crop_region_operation do
-      {:ok, x} = Dimension.pixels(1)
-      {:ok, y} = Dimension.pixels(1)
-      {:ok, width} = Dimension.pixels(10)
-      {:ok, height} = Dimension.pixels(10)
-      {:ok, region} = Region.new(x: x, y: y, width: width, height: height, space: :source)
-      {:ok, operation} = Operation.crop_region(region: region)
       operation
     end
   end

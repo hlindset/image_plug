@@ -318,12 +318,14 @@ defmodule ImagePlug.Parser.Imgproxy.PlanBuilder do
   defp crop_operations(%PipelineRequest{crop: nil}), do: {:ok, []}
 
   defp crop_operations(%PipelineRequest{crop: %CropRequest{} = crop} = request) do
-    with {:ok, size} <- crop_size(crop.width, crop.height, 1.0),
-         {:ok, guide} <- gravity(crop.gravity || request.gravity),
+    with {:ok, width} <- imgproxy_tagged_crop_dimension(crop.width),
+         {:ok, height} <- imgproxy_tagged_crop_dimension(crop.height),
+         {:ok, guide} <- tagged_gravity(crop.gravity || request.gravity),
          {:ok, operation} <-
            Operation.crop_guided(
-             size: size,
-             guide: guide,
+             width,
+             height,
+             guide,
              x_offset: crop.x_offset,
              y_offset: crop.y_offset
            ) do
@@ -536,13 +538,6 @@ defmodule ImagePlug.Parser.Imgproxy.PlanBuilder do
     end
   end
 
-  defp crop_size(width, height, dpr) do
-    with {:ok, width} <- imgproxy_crop_dimension(width),
-         {:ok, height} <- imgproxy_crop_dimension(height) do
-      Size.new(width: width, height: height, dpr: dpr)
-    end
-  end
-
   defp imgproxy_resize_dimension(nil), do: Dimension.auto()
   defp imgproxy_resize_dimension(:auto), do: Dimension.auto()
   defp imgproxy_resize_dimension({:pixels, 0}), do: Dimension.auto()
@@ -552,13 +547,15 @@ defmodule ImagePlug.Parser.Imgproxy.PlanBuilder do
 
   defp imgproxy_resize_dimension({:scale, value}), do: decimal_ratio(value)
 
-  defp imgproxy_crop_dimension(:auto), do: Dimension.full_axis()
-  defp imgproxy_crop_dimension({:pixels, 0}), do: Dimension.full_axis()
+  defp imgproxy_tagged_crop_dimension(:auto), do: {:ok, :full_axis}
+  defp imgproxy_tagged_crop_dimension({:pixels, 0}), do: {:ok, :full_axis}
 
-  defp imgproxy_crop_dimension({:pixels, value}) when is_integer(value) and value > 0,
-    do: Dimension.pixels(value)
+  defp imgproxy_tagged_crop_dimension({:pixels, value}) when is_integer(value) and value > 0,
+    do: {:ok, {:px, value}}
 
-  defp imgproxy_crop_dimension({:scale, value}), do: decimal_ratio(value)
+  defp imgproxy_tagged_crop_dimension({:scale, value}) do
+    tagged_ratio_from_decimal(value)
+  end
 
   defp optional_resize_dimension(nil), do: {:ok, nil}
   defp optional_resize_dimension({:pixels, 0}), do: Dimension.auto()
@@ -572,6 +569,32 @@ defmodule ImagePlug.Parser.Imgproxy.PlanBuilder do
       Gravity.focal_point(x_numerator, x_denominator, y_numerator, y_denominator)
     end
   end
+
+  defp tagged_gravity({:anchor, x, y}), do: {:ok, crop_anchor_guide(x, y)}
+
+  defp tagged_gravity({:fp, x, y}) do
+    with {:ok, x} <- tagged_ratio_from_decimal(x),
+         {:ok, y} <- tagged_ratio_from_decimal(y) do
+      {:ok, {:focal, x, y}}
+    end
+  end
+
+  defp tagged_ratio_from_decimal(value) do
+    with {:ok, {numerator, denominator}} <- decimal_ratio_parts(value) do
+      gcd = Integer.gcd(numerator, denominator)
+      {:ok, {:ratio, div(numerator, gcd), div(denominator, gcd)}}
+    end
+  end
+
+  defp crop_anchor_guide(:center, :center), do: :center
+  defp crop_anchor_guide(:left, :top), do: :top_left
+  defp crop_anchor_guide(:center, :top), do: :top
+  defp crop_anchor_guide(:right, :top), do: :top_right
+  defp crop_anchor_guide(:left, :center), do: :left
+  defp crop_anchor_guide(:right, :center), do: :right
+  defp crop_anchor_guide(:left, :bottom), do: :bottom_left
+  defp crop_anchor_guide(:center, :bottom), do: :bottom
+  defp crop_anchor_guide(:right, :bottom), do: :bottom_right
 
   defp enlargement(%PipelineRequest{resizing_type: :fill_down}), do: :deny
   defp enlargement(%PipelineRequest{enlarge: true}), do: :allow

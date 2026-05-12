@@ -3,7 +3,6 @@ defmodule ImagePlug.Runtime.ProcessorTest do
 
   alias ImagePlug.Plan
   alias ImagePlug.Plan.Geometry.Dimension
-  alias ImagePlug.Plan.Geometry.Region
   alias ImagePlug.Plan.Operation
   alias ImagePlug.Plan.Output
   alias ImagePlug.Plan.Pipeline
@@ -316,27 +315,18 @@ defmodule ImagePlug.Runtime.ProcessorTest do
       }
     }
 
-    assert {:ok, resize} = resize_fit(1, 1)
-    assert {:ok, x} = Dimension.pixels(0)
-    assert {:ok, y} = Dimension.pixels(0)
-    assert {:ok, width} = Dimension.pixels(1)
-    assert {:ok, height} = Dimension.pixels(1)
-
-    assert {:ok, region} =
-             Region.new(x: x, y: y, width: width, height: height, space: :source)
-
-    assert {:ok, crop} = Operation.crop_region(region: region)
+    invalid_operation = :not_a_plan_operation
 
     worker_ref = Process.monitor(worker)
 
-    assert {:error, {:invalid_pipeline_operation, ^crop}} =
+    assert {:error, {:invalid_pipeline_operation, ^invalid_operation}} =
              process_decoded_origin(
                decoded,
                %Plan{
                  plan()
                  | pipelines: [
                      %Pipeline{
-                       operations: [resize, crop]
+                       operations: [invalid_operation]
                      }
                    ]
                },

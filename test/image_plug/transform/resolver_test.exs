@@ -3,7 +3,6 @@ defmodule ImagePlug.Transform.ResolverTest do
 
   alias ImagePlug.Plan
   alias ImagePlug.Plan.Geometry.Dimension
-  alias ImagePlug.Plan.Geometry.Region
   alias ImagePlug.Plan.Geometry.Size
   alias ImagePlug.Plan.Operation
   alias ImagePlug.Plan.Pipeline
@@ -31,30 +30,6 @@ defmodule ImagePlug.Transform.ResolverTest do
     {:ok, height} = Dimension.pixels(height)
     {:ok, size} = Size.new(width: width, height: height, dpr: 1.0)
     size
-  end
-
-  defp current_ratio_region do
-    assert {:ok, x} = Dimension.ratio(1, 10)
-    assert {:ok, y} = Dimension.ratio(1, 10)
-    assert {:ok, width} = Dimension.ratio(1, 2)
-    assert {:ok, height} = Dimension.ratio(1, 2)
-
-    assert {:ok, region} =
-             Region.new(x: x, y: y, width: width, height: height, space: :current)
-
-    region
-  end
-
-  defp source_ratio_region do
-    assert {:ok, x} = Dimension.ratio(1, 10)
-    assert {:ok, y} = Dimension.ratio(1, 10)
-    assert {:ok, width} = Dimension.ratio(1, 2)
-    assert {:ok, height} = Dimension.ratio(1, 2)
-
-    assert {:ok, region} =
-             Region.new(x: x, y: y, width: width, height: height, space: :source)
-
-    region
   end
 
   test "resize auto derives cover for matching current and target orientation" do
@@ -170,21 +145,17 @@ defmodule ImagePlug.Transform.ResolverTest do
            ] = resolved.pipelines
   end
 
-  test "auto orient keeps source alignment invalidated for later source-space crops" do
-    assert {:ok, auto_orient} = Operation.auto_orient()
-    assert {:ok, crop} = Operation.crop_region(region: source_ratio_region())
-
-    metadata = %SourceMetadata{width: 1600, height: 900, orientation: {:exif, 6}, format: :jpeg}
-
-    assert Transform.resolve(plan([auto_orient, crop]), metadata, []) ==
-             {:error, {:invalid_pipeline_operation, crop}}
-  end
-
   test "preserves pipeline and emitted operation order" do
     assert {:ok, first_resize} =
              Operation.resize_auto(size: size(100, 50), enlargement: :deny)
 
-    assert {:ok, current_crop} = Operation.crop_region(region: current_ratio_region())
+    assert {:ok, current_crop} =
+             Operation.crop_region(
+               {:ratio, 1, 10},
+               {:ratio, 1, 10},
+               {:ratio, 1, 2},
+               {:ratio, 1, 2}
+             )
 
     assert {:ok, second_resize} =
              Operation.resize_auto(size: size(30, 20), enlargement: :deny)
@@ -203,7 +174,11 @@ defmodule ImagePlug.Transform.ResolverTest do
              [
                %Resize{rule: %DimensionRule{mode: :fill, width: {:pixels, 100}}},
                %Crop{target_rule: %DimensionRule{mode: :fill}},
-               %Crop{width: {:pixels, 50}, height: {:pixels, 25}}
+               %Crop{
+                 width: {:scale, 1, 2},
+                 height: {:scale, 1, 2},
+                 crop_from: %{left: {:scale, 1, 10}, top: {:scale, 1, 10}}
+               }
              ],
              [
                %Resize{rule: %DimensionRule{mode: :fill, width: {:pixels, 30}}},

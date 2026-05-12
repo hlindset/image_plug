@@ -2,7 +2,6 @@ defmodule ImagePlug.Transform.DecodePlannerTest do
   use ExUnit.Case, async: true
 
   alias ImagePlug.Plan.Geometry.Dimension
-  alias ImagePlug.Plan.Geometry.Region
   alias ImagePlug.Plan.Geometry.Size
   alias ImagePlug.Plan.Operation
   alias ImagePlug.Transform.Operation.AutoOrient
@@ -266,21 +265,13 @@ defmodule ImagePlug.Transform.DecodePlannerTest do
     assert {:ok, size} = Size.new(width: width, height: height, dpr: 1.0)
     assert {:ok, resize_auto} = Operation.resize_auto(size: size, enlargement: :deny)
 
-    assert {:ok, x} = Dimension.ratio(1, 4)
-    assert {:ok, y} = Dimension.ratio(1, 4)
-    assert {:ok, region_width} = Dimension.ratio(1, 2)
-    assert {:ok, region_height} = Dimension.ratio(1, 2)
-
-    assert {:ok, region} =
-             Region.new(
-               x: x,
-               y: y,
-               width: region_width,
-               height: region_height,
-               space: :source
+    assert {:ok, crop_region} =
+             Operation.crop_region(
+               {:ratio, 1, 4},
+               {:ratio, 1, 4},
+               {:ratio, 1, 2},
+               {:ratio, 1, 2}
              )
-
-    assert {:ok, crop_region} = Operation.crop_region(region: region)
 
     assert DecodePlanner.open_options([resize_auto]) == [access: :random, fail_on: :error]
     assert DecodePlanner.open_options([crop_region]) == [access: :random, fail_on: :error]

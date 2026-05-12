@@ -9,7 +9,6 @@ defmodule ImagePlug.Cache.KeyPropertyTest do
   alias ImagePlug.Plan
   alias ImagePlug.Plan.Geometry.Dimension
   alias ImagePlug.Plan.Geometry.Size
-  alias ImagePlug.Plan.Guide.Gravity
   alias ImagePlug.Plan.Operation
   alias ImagePlug.Plan.Output
   alias ImagePlug.Plan.Pipeline
@@ -434,12 +433,9 @@ defmodule ImagePlug.Cache.KeyPropertyTest do
       map({positive_pixel(), positive_pixel()}, fn {width, height} ->
         [
           op: :crop_guided,
-          size: [
-            width: [unit: :logical_px, value: width],
-            height: [unit: :logical_px, value: height],
-            dpr: 1.0
-          ],
-          guide: [type: :anchor, x: :center, y: :center, space: :current],
+          width: [unit: :logical_px, value: width],
+          height: [unit: :logical_px, value: height],
+          guide: :center,
           x_offset: {:pixels, 0.0},
           y_offset: {:pixels, 0.0}
         ]
@@ -456,11 +452,7 @@ defmodule ImagePlug.Cache.KeyPropertyTest do
   end
 
   defp crop_guided_operation(width, height) do
-    {:ok, width} = Dimension.pixels(width)
-    {:ok, height} = Dimension.pixels(height)
-    {:ok, size} = Size.new(width: width, height: height, dpr: 1.0)
-    {:ok, guide} = Gravity.anchor(:center, :center)
-    {:ok, operation} = Operation.crop_guided(size: size, guide: guide)
+    {:ok, operation} = Operation.crop_guided({:px, width}, {:px, height}, :center)
     operation
   end
 

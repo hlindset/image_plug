@@ -7,7 +7,6 @@ defmodule ImagePlug.Runtime.RequestRunnerTest do
   alias ImagePlug.Output.Resolved
   alias ImagePlug.Plan
   alias ImagePlug.Plan.Geometry.Dimension
-  alias ImagePlug.Plan.Geometry.Region
   alias ImagePlug.Plan.Geometry.Size
   alias ImagePlug.Plan.Guide.Gravity
   alias ImagePlug.Plan.Operation
@@ -106,16 +105,6 @@ defmodule ImagePlug.Runtime.RequestRunnerTest do
     assert {:ok, height} = semantic_dimension(height)
     assert {:ok, size} = Size.new(width: width, height: height, dpr: 1.0)
     assert {:ok, operation} = Operation.resize_cover(size: size, enlargement: :deny, guide: guide)
-    operation
-  end
-
-  defp source_crop_region_operation do
-    assert {:ok, x} = Dimension.pixels(1)
-    assert {:ok, y} = Dimension.pixels(1)
-    assert {:ok, width} = Dimension.pixels(10)
-    assert {:ok, height} = Dimension.pixels(10)
-    assert {:ok, region} = Region.new(x: x, y: y, width: width, height: height, space: :source)
-    assert {:ok, operation} = Operation.crop_region(region: region)
     operation
   end
 
@@ -296,41 +285,6 @@ defmodule ImagePlug.Runtime.RequestRunnerTest do
              )
 
     refute_received {:cache_lookup, _key}
-  end
-
-  test "source-space crop after prior geometry returns processing error before cache lookup" do
-    resize = resize_fit_operation(100, 100)
-    crop = source_crop_region_operation()
-
-    entry = %Entry{
-      body: "cached jpeg",
-      content_type: "image/jpeg",
-      headers: [],
-      created_at: DateTime.utc_now()
-    }
-
-    assert {:error, {:processing, {:invalid_pipeline_operation, ^crop}, []}} =
-             RequestRunner.run(
-               conn(:get, "/_/f:jpeg/plain/images/cat-300.jpg"),
-               plan(pipelines: [%Pipeline{operations: [resize, crop]}]),
-               "http://origin.test/images/cat-300.jpg",
-               cache: {CacheReadProbe, entry: entry}
-             )
-
-    refute_received {:cache_lookup, _key}
-  end
-
-  test "source-space crop after prior geometry returns processing error before origin fetch" do
-    resize = resize_fit_operation(100, 100)
-    crop = source_crop_region_operation()
-
-    assert {:error, {:processing, {:invalid_pipeline_operation, ^crop}, []}} =
-             RequestRunner.run(
-               conn(:get, "/_/f:jpeg/plain/images/cat-300.jpg"),
-               plan(pipelines: [%Pipeline{operations: [resize, crop]}]),
-               "http://origin.test/images/cat-300.jpg",
-               origin_req_options: [plug: ImagePlug.Runtime.ProcessorTest.OriginShouldNotFetch]
-             )
   end
 
   test "multiple pipelines reach processing and materialize between pipelines" do

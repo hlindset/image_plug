@@ -209,8 +209,9 @@ defmodule ImagePlug.Parser.ImgproxyTest do
     assert {:ok, %Plan{pipelines: [%Pipeline{operations: [%Operation.CropGuided{} = crop]}]}} =
              Imgproxy.parse(conn(:get, "/_/crop:10:20/plain/images/cat.jpg"), [])
 
-    assert crop.size.width == pixels(10)
-    assert crop.size.height == pixels(20)
+    assert crop.width == {:px, 10}
+    assert crop.height == {:px, 20}
+    assert crop.guide == :center
 
     assert {:ok, %Plan{pipelines: [%Pipeline{operations: [%Operation.AutoOrient{}]}]}} =
              Imgproxy.parse(conn(:get, "/_/ar/plain/images/cat.jpg"), [])
@@ -925,7 +926,15 @@ defmodule ImagePlug.Parser.ImgproxyTest do
   defp pixels(value), do: %Dimension{unit: :logical_px, value: value}
   defp auto, do: %Dimension{unit: :auto}
 
+  defp anchor({:anchor, x, y}), do: {x, y}
+
   defp anchor(%ImagePlug.Plan.Guide.Gravity{type: :anchor, x: x, y: y}), do: {x, y}
+
+  defp focal_point(
+         {:focal, {:ratio, x_numerator, x_denominator}, {:ratio, y_numerator, y_denominator}}
+       ) do
+    {x_numerator, x_denominator, y_numerator, y_denominator}
+  end
 
   defp focal_point(%ImagePlug.Plan.Guide.Gravity{
          type: :focal_point,
