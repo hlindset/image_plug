@@ -31,7 +31,7 @@ defmodule ImagePlug.Runtime.Origin do
 
     with :ok <- validate_root_url(root_uri, root_url),
          :ok <- validate_path_segments(path_segments) do
-      {:ok, build_safe_url(root_uri, path_segments)}
+      {:ok, build_origin_url(root_uri, path_segments)}
     end
   end
 
@@ -165,22 +165,19 @@ defmodule ImagePlug.Runtime.Origin do
       else: :ok
   end
 
-  defp build_safe_url(root_uri, path_segments) do
-    root_path_segments = split_path(root_uri.path)
-
-    encoded_path_segments =
-      Enum.map(path_segments, fn segment ->
-        URI.encode(segment, &URI.char_unreserved?/1)
-      end)
-
-    path = "/" <> Enum.join(root_path_segments ++ encoded_path_segments, "/")
+  defp build_origin_url(root_uri, path_segments) do
+    path =
+      (split_path(root_uri.path) ++ Enum.map(path_segments, &encode_path_segment/1))
+      |> Enum.join("/")
 
     root_uri
-    |> Map.put(:path, path)
+    |> Map.put(:path, "/" <> path)
     |> Map.put(:query, nil)
     |> Map.put(:fragment, nil)
     |> URI.to_string()
   end
+
+  defp encode_path_segment(segment), do: URI.encode(segment, &URI.char_unreserved?/1)
 
   defp split_path(nil), do: []
   defp split_path(""), do: []
