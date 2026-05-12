@@ -163,6 +163,36 @@ defmodule ImagePlug.Transform.PlanExecutorTest do
     assert dimensions(state.image) == {300, 200}
   end
 
+  for {source, target, expected_dimensions, visible_crop?} <- [
+        {{1600, 900}, {300, 200}, {300, 200}, true},
+        {{1600, 900}, {200, 300}, {200, 113}, false},
+        {{1000, 1000}, {300, 300}, {300, 300}, false},
+        {{1000, 1000}, {300, 200}, {200, 200}, false}
+      ] do
+    test "resize auto #{inspect(source)} to #{inspect(target)} returns #{inspect(expected_dimensions)}" do
+      source = unquote(Macro.escape(source))
+      {target_width, target_height} = unquote(Macro.escape(target))
+      expected_dimensions = unquote(Macro.escape(expected_dimensions))
+      visible_crop? = unquote(visible_crop?)
+
+      assert {:ok, operation} =
+               Operation.resize(:auto, {:px, target_width}, {:px, target_height},
+                 enlargement: :allow
+               )
+
+      assert {:ok, %State{} = state} =
+               Transform.execute_plan(
+                 plan([operation]),
+                 state_with_resize_auto_source(source),
+                 metadata(),
+                 []
+               )
+
+      assert dimensions(state.image) == expected_dimensions
+      assert_resize_auto_visible_crop(visible_crop?, state.image)
+    end
+  end
+
   test "ordered resize then ratio crop uses actual post-resize dimensions" do
     assert {:ok, resize} = Operation.resize(:fit, {:px, 300}, {:px, 200}, enlargement: :deny)
 
@@ -253,6 +283,30 @@ defmodule ImagePlug.Transform.PlanExecutorTest do
 
     %State{image: image}
   end
+
+  defp state_with_resize_auto_source({1600, 900}) do
+    image =
+      1600
+      |> Image.new!(900, color: :white)
+      |> Image.Draw.rect!(0, 0, 90, 900, color: :red)
+      |> Image.Draw.rect!(1510, 0, 90, 900, color: :blue)
+
+    %State{image: image}
+  end
+
+  defp state_with_resize_auto_source(source), do: state_with_image(source)
+
+  defp assert_resize_auto_visible_crop(true, image) do
+    assert Image.get_pixel!(image, 0, div(Image.height(image), 2)) == [255, 255, 255]
+
+    assert Image.get_pixel!(image, Image.width(image) - 1, div(Image.height(image), 2)) == [
+             255,
+             255,
+             255
+           ]
+  end
+
+  defp assert_resize_auto_visible_crop(false, _image), do: :ok
 
   defp metadata do
     {:ok, metadata} = SourceMetadata.new(format: :jpeg, source_type: :raster)

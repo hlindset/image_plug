@@ -380,6 +380,7 @@ defmodule ImagePlug.Cache.KeyTest do
     refute serialized =~ "selected_branch"
     refute Keyword.has_key?(key_before.data, :resolver_material)
     refute Keyword.has_key?(key_before.data, :resolver_key_data)
+    refute Keyword.has_key?(key_before.data, :derivations)
   end
 
   test "cache key builder accepts semantic plans" do
@@ -409,8 +410,14 @@ defmodule ImagePlug.Cache.KeyTest do
   test "transform key data version participates in the cache key" do
     conn = conn(:get, "/_/plain/images/cat.jpg")
     key = build_key!(conn, plan(), "https://origin.test/images/cat.jpg")
+    changed_data = Keyword.put(key.data, :transform, key_data_version: 2)
+    changed_serialized_data = Key.serialize_key_data(changed_data)
 
     assert key.data[:transform] == [key_data_version: 1]
+    refute key.serialized_data == changed_serialized_data
+
+    refute key.hash ==
+             Base.encode16(:crypto.hash(:sha256, changed_serialized_data), case: :lower)
   end
 
   test "cache key construction does not reference source-aware resolution" do

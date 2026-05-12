@@ -14,6 +14,12 @@ defmodule ImagePlug.Parser.ImgproxyTest do
   alias ImagePlug.Plan.Source.Plain
   alias ImagePlug.Transform.Operation.AutoOrient
 
+  @allowed_parsed_transform_operations [
+    ImagePlug.Transform.Operation.AutoOrient,
+    ImagePlug.Transform.Operation.Rotate,
+    ImagePlug.Transform.Operation.Flip
+  ]
+
   test "parses a plain source with no processing options" do
     assert {:ok,
             %Plan{
@@ -310,6 +316,20 @@ defmodule ImagePlug.Parser.ImgproxyTest do
           "/_/g:soea:12:-0.25/rs:fill:300:200/plain/images/cat.jpg"
         ] do
       assert {:ok, _plan} = Imgproxy.parse(conn(:get, path), [])
+    end
+  end
+
+  test "parsed plans contain no executable transform operations except orientation primitives" do
+    for path <- [
+          "/_/rt:force/w:0/h:200/plain/images/cat.jpg",
+          "/_/g:fp:0.25:0.75/rs:fill:300:200/plain/images/cat.jpg",
+          "/_/c:100:100:fp:0.25:0.75/plain/images/cat.jpg",
+          "/_/rs:fit:300:200:0:1:ce:0:0/plain/images/cat.jpg",
+          "/_/ar/rot:-90/fl:true:false/plain/images/cat.jpg"
+        ] do
+      assert {:ok, %Plan{} = plan} = Imgproxy.parse(conn(:get, path), [])
+
+      assert forbidden_parsed_transform_operations(plan) == []
     end
   end
 
@@ -960,6 +980,25 @@ defmodule ImagePlug.Parser.ImgproxyTest do
 
   defp operation_name(%AutoOrient{}), do: :auto_orient
   defp operation_name(%Operation.CropGuided{}), do: :crop_guided
+
+  defp forbidden_parsed_transform_operations(%Plan{} = plan) do
+    plan.pipelines
+    |> Enum.flat_map(& &1.operations)
+    |> Enum.filter(&forbidden_parsed_transform_operation?/1)
+  end
+
+  defp forbidden_parsed_transform_operation?(%{__struct__: module}) do
+    transform_operation_module?(module) and module not in @allowed_parsed_transform_operations
+  end
+
+  defp forbidden_parsed_transform_operation?(_operation), do: false
+
+  defp transform_operation_module?(module) do
+    module
+    |> Module.split()
+    |> Enum.take(3)
+    |> Kernel.==(["ImagePlug", "Transform", "Operation"])
+  end
 
   defp permutations([]), do: [[]]
 

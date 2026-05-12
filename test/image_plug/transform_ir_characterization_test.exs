@@ -5,7 +5,19 @@ defmodule ImagePlug.TransformIRCharacterizationTest do
 
   alias ImagePlug.Cache.Entry
   alias ImagePlug.Parser.Imgproxy
+  alias ImagePlug.Plan
+  alias ImagePlug.Plan.Operation
+  alias ImagePlug.Plan.Output
+  alias ImagePlug.Plan.Pipeline
+  alias ImagePlug.Plan.Source.Plain
   alias ImagePlug.Runtime.RequestRunner
+  alias ImagePlug.Transform
+  alias ImagePlug.Transform.Chain
+  alias ImagePlug.Transform.Geometry.DimensionRule
+  alias ImagePlug.Transform.Operation.Crop
+  alias ImagePlug.Transform.Operation.ExtendCanvas
+  alias ImagePlug.Transform.Operation.Resize
+  alias ImagePlug.Transform.SourceMetadata
   alias ImagePlug.Transform.State
 
   defmodule CacheHitProbe do
@@ -71,6 +83,120 @@ defmodule ImagePlug.TransformIRCharacterizationTest do
 
   defp source_basename({width, height}), do: "#{width}x#{height}.png"
 
+  defp semantic_plan(operations) do
+    %Plan{
+      source: %Plain{path: ["generated", "source.png"]},
+      pipelines: [%Pipeline{operations: operations}],
+      output: %Output{mode: {:explicit, :jpeg}}
+    }
+  end
+
+  defp generated_state({width, height}) do
+    {:ok, image} = Image.new(width, height, color: :white)
+    %State{image: image}
+  end
+
+  defp execute_old_dimensions(source, operations) do
+    assert {:ok, %State{} = state} = Chain.execute(generated_state(source), operations)
+    dimensions(state.image)
+  end
+
+  defp execute_plan_dimensions(source, operations) do
+    assert {:ok, metadata} = SourceMetadata.new(format: :png, source_type: :raster)
+
+    assert {:ok, %State{} = state} =
+             Transform.execute_plan(
+               semantic_plan(operations),
+               generated_state(source),
+               metadata,
+               []
+             )
+
+    dimensions(state.image)
+  end
+
+  defp dimensions(image), do: {Image.width(image), Image.height(image)}
+
+  defp plan_resize!(mode, width, height, opts \\ []) do
+    assert {:ok, operation} =
+             Operation.resize(
+               mode,
+               plan_resize_dimension(width),
+               plan_resize_dimension(height),
+               opts
+             )
+
+    operation
+  end
+
+  defp plan_crop_center!(width, height) do
+    assert {:ok, operation} = Operation.crop_guided({:px, width}, {:px, height}, :center)
+    operation
+  end
+
+  defp plan_canvas!(width, height) do
+    assert {:ok, operation} = Operation.canvas({:px, width}, {:px, height}, :center)
+    operation
+  end
+
+  defp old_resize(mode, width, height, opts \\ []) do
+    %Resize{
+      rule:
+        struct!(
+          DimensionRule,
+          Keyword.merge(
+            [
+              mode: mode,
+              width: executable_resize_dimension(width),
+              height: executable_resize_dimension(height),
+              enlarge: Keyword.get(opts, :enlarge, false)
+            ],
+            Keyword.drop(opts, [:enlarge])
+          )
+        )
+    }
+  end
+
+  defp old_cover(width, height) do
+    rule = %DimensionRule{mode: :fill, width: {:pixels, width}, height: {:pixels, height}}
+
+    [
+      %Resize{rule: rule},
+      %Crop{
+        width: :auto,
+        height: :auto,
+        crop_from: :gravity,
+        gravity: {:anchor, :center, :center},
+        target_rule: rule
+      }
+    ]
+  end
+
+  defp old_crop_center(width, height) do
+    %Crop{
+      width: {:pixels, width},
+      height: {:pixels, height},
+      crop_from: :gravity,
+      gravity: {:anchor, :center, :center}
+    }
+  end
+
+  defp old_canvas(width, height) do
+    %ExtendCanvas{
+      rule: {:dimensions, {:pixels, width}, {:pixels, height}},
+      gravity: {:anchor, :center, :center},
+      x_offset: 0.0,
+      y_offset: 0.0,
+      background: :white
+    }
+  end
+
+  defp plan_resize_dimension(:auto), do: :auto
+  defp plan_resize_dimension(pixels), do: {:px, pixels}
+
+  defp executable_resize_dimension(:auto), do: :auto
+  defp executable_resize_dimension(pixels), do: {:pixels, pixels}
+
   test "cache hit returns before origin fetch for resize:auto requests" do
     entry = %Entry{
       body: "cached jpeg",
@@ -111,5 +237,26 @@ defmodule ImagePlug.TransformIRCharacterizationTest do
 
   test "4. request-level resize:auto from 100x100 to 50x80 returns 50x50" do
     assert_auto_resize_dimensions({100, 100}, {50, 80}, {50, 50})
+  end
+
+  test "simplified Plan execution preserves representative executable chain dimensions" do
+    cases = [
+      {"fit 300x200", {640, 480}, [old_resize(:fit, 300, 200)], [plan_resize!(:fit, 300, 200)]},
+      {"fill 100x100 center", {300, 200}, old_cover(100, 100),
+       [plan_resize!(:cover, 100, 100, guide: :center)]},
+      {"auto landscape target", {1600, 900}, old_cover(300, 200),
+       [plan_resize!(:auto, 300, 200, guide: :center)]},
+      {"force width auto", {640, 480}, [old_resize(:force, 300, :auto)],
+       [plan_resize!(:stretch, 300, :auto)]},
+      {"explicit crop center 50x50", {300, 200}, [old_crop_center(50, 50)],
+       [plan_crop_center!(50, 50)]},
+      {"canvas extend 320x240", {300, 200}, [old_canvas(320, 240)], [plan_canvas!(320, 240)]}
+    ]
+
+    for {label, source, old_operations, plan_operations} <- cases do
+      assert execute_plan_dimensions(source, plan_operations) ==
+               execute_old_dimensions(source, old_operations),
+             label
+    end
   end
 end
