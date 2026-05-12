@@ -307,8 +307,6 @@ defmodule ImagePlug.Runtime.ProcessorTest do
       origin_response: origin_response,
       source_format: :jpeg,
       source_metadata: %SourceMetadata{
-        width: Image.width(image),
-        height: Image.height(image),
         orientation: :normal,
         format: :jpeg,
         source_type: :raster

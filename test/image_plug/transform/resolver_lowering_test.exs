@@ -27,7 +27,11 @@ defmodule ImagePlug.Transform.ResolverLoweringTest do
   end
 
   defp metadata do
-    %SourceMetadata{width: 300, height: 200, orientation: :normal, format: :jpeg}
+    %SourceMetadata{orientation: :normal, format: :jpeg}
+  end
+
+  defp resolve(%Plan{} = plan) do
+    Transform.resolve(plan, metadata(), source_width: 300, source_height: 200)
   end
 
   defp size(width, height) do
@@ -49,7 +53,7 @@ defmodule ImagePlug.Transform.ResolverLoweringTest do
 
     assert {:ok, stretch} = Operation.resize_stretch(size: stretch_size, enlargement: :allow)
 
-    assert {:ok, resolved} = Transform.resolve(plan([fit, cover, stretch]), metadata(), [])
+    assert {:ok, resolved} = resolve(plan([fit, cover, stretch]))
 
     assert [
              [
@@ -105,7 +109,7 @@ defmodule ImagePlug.Transform.ResolverLoweringTest do
     assert {:ok, stretch} =
              Operation.resize(:stretch, {:px, 20}, {:px, 10}, enlargement: :allow)
 
-    assert {:ok, resolved} = Transform.resolve(plan([fit, cover, stretch]), metadata(), [])
+    assert {:ok, resolved} = resolve(plan([fit, cover, stretch]))
 
     assert [
              [
@@ -150,7 +154,7 @@ defmodule ImagePlug.Transform.ResolverLoweringTest do
     assert {:ok, operation} =
              Operation.resize(:auto, {:px, 100}, {:px, 50}, enlargement: :deny)
 
-    assert {:ok, resolved} = Transform.resolve(plan([operation]), metadata(), [])
+    assert {:ok, resolved} = resolve(plan([operation]))
 
     assert [
              [
@@ -181,7 +185,7 @@ defmodule ImagePlug.Transform.ResolverLoweringTest do
                y_offset: {:scale, 0.25}
              )
 
-    assert {:ok, resolved} = Transform.resolve(plan([operation]), metadata(), [])
+    assert {:ok, resolved} = resolve(plan([operation]))
 
     assert [
              [
@@ -201,7 +205,7 @@ defmodule ImagePlug.Transform.ResolverLoweringTest do
     assert {:ok, operation} =
              Operation.crop_region({:ratio, 0, 1}, {:ratio, 0, 1}, {:ratio, 1, 2}, {:ratio, 1, 2})
 
-    assert {:ok, resolved} = Transform.resolve(plan([operation]), metadata(), [])
+    assert {:ok, resolved} = resolve(plan([operation]))
 
     assert [
              [
@@ -219,7 +223,7 @@ defmodule ImagePlug.Transform.ResolverLoweringTest do
     assert {:ok, crop} = Operation.crop_guided({:px, 100}, {:px, 200}, :center)
     assert {:ok, auto} = Operation.resize_auto(size: auto_size, enlargement: :deny)
 
-    assert {:ok, resolved} = Transform.resolve(plan([crop, auto]), metadata(), [])
+    assert {:ok, resolved} = resolve(plan([crop, auto]))
 
     assert [
              [
@@ -238,7 +242,7 @@ defmodule ImagePlug.Transform.ResolverLoweringTest do
     assert {:ok, crop} =
              Operation.crop_region({:ratio, 0, 1}, {:ratio, 0, 1}, {:ratio, 1, 2}, {:ratio, 1, 2})
 
-    assert {:ok, resolved} = Transform.resolve(plan([resize, crop]), metadata(), [])
+    assert {:ok, resolved} = resolve(plan([resize, crop]))
 
     assert [
              [
@@ -255,7 +259,7 @@ defmodule ImagePlug.Transform.ResolverLoweringTest do
   test "crop region lowering allows zero pixel coordinates" do
     assert {:ok, operation} = Operation.crop_region({:px, 0}, {:px, 0}, {:px, 150}, {:px, 100})
 
-    assert {:ok, resolved} = Transform.resolve(plan([operation]), metadata(), [])
+    assert {:ok, resolved} = resolve(plan([operation]))
 
     assert [
              [
@@ -272,7 +276,7 @@ defmodule ImagePlug.Transform.ResolverLoweringTest do
     assert {:ok, operation} =
              Operation.canvas({:px, 320}, {:px, 240}, :center)
 
-    assert {:ok, resolved} = Transform.resolve(plan([operation]), metadata(), [])
+    assert {:ok, resolved} = resolve(plan([operation]))
 
     assert [
              [
@@ -291,8 +295,7 @@ defmodule ImagePlug.Transform.ResolverLoweringTest do
     no_op_rotate = %Rotate{angle: 0}
     flip = %Flip{axis: :horizontal}
 
-    assert {:ok, resolved} =
-             Transform.resolve(plan([auto_orient, rotate, no_op_rotate, flip]), metadata(), [])
+    assert {:ok, resolved} = resolve(plan([auto_orient, rotate, no_op_rotate, flip]))
 
     assert [[%AutoOrient{}, %Rotate{angle: 90}, %Rotate{angle: 0}, %Flip{axis: :horizontal}]] =
              resolved.pipelines

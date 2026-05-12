@@ -147,7 +147,12 @@ defmodule ImagePlug.Runtime.Processor do
   end
 
   defp executable_pipelines(%Plan{} = plan, %DecodedOrigin{} = decoded, opts) do
-    Transform.executable_pipelines(plan, decoded.source_metadata, opts)
+    resolver_opts =
+      opts
+      |> Keyword.put(:source_width, Image.width(decoded.image))
+      |> Keyword.put(:source_height, Image.height(decoded.image))
+
+    Transform.executable_pipelines(plan, decoded.source_metadata, resolver_opts)
   end
 
   def close_pending_origin(%Origin.Response{} = origin_response) do
@@ -378,10 +383,8 @@ defmodule ImagePlug.Runtime.Processor do
   defp wrap_input_limit_error(:ok), do: :ok
   defp wrap_input_limit_error({:error, error}), do: {:error, {:input_limit, error}}
 
-  defp source_metadata(image, source_format) do
+  defp source_metadata(_image, source_format) do
     SourceMetadata.new(
-      width: Image.width(image),
-      height: Image.height(image),
       orientation: :normal,
       format: source_format,
       source_type: :raster

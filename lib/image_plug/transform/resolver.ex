@@ -20,19 +20,20 @@ defmodule ImagePlug.Transform.Resolver do
 
   @spec resolve(Plan.t(), SourceMetadata.t(), keyword()) ::
           {:ok, ResolvedPlan.t()} | {:error, term()}
-  def resolve(%Plan{} = plan, %SourceMetadata{} = source_metadata, _opts \\ []) do
-    with {:ok, pipelines} <- resolve_pipelines(plan.pipelines, source_metadata) do
+  def resolve(%Plan{} = plan, %SourceMetadata{} = source_metadata, opts \\ []) do
+    with {:ok, {source_width, source_height}} <- source_dimensions(opts),
+         {:ok, pipelines} <- resolve_pipelines(plan.pipelines, source_metadata, source_width, source_height) do
       {:ok, %ResolvedPlan{pipelines: pipelines}}
     end
   end
 
-  defp resolve_pipelines(pipelines, %SourceMetadata{} = source_metadata) do
+  defp resolve_pipelines(pipelines, %SourceMetadata{} = source_metadata, source_width, source_height) do
     context = %{
-      source_width: source_metadata.width,
-      source_height: source_metadata.height,
+      source_width: source_width,
+      source_height: source_height,
       source_orientation: source_metadata.orientation,
-      current_width: source_metadata.width,
-      current_height: source_metadata.height,
+      current_width: source_width,
+      current_height: source_height,
       current_dimensions_known?: true,
       source_aligned: true
     }
@@ -243,4 +244,15 @@ defmodule ImagePlug.Transform.Resolver do
   end
 
   defp mark_source_unaligned(context), do: %{context | source_aligned: false}
+
+  defp source_dimensions(opts) do
+    with {:ok, width} <- Keyword.fetch(opts, :source_width),
+         {:ok, height} <- Keyword.fetch(opts, :source_height),
+         true <- is_integer(width) and width > 0,
+         true <- is_integer(height) and height > 0 do
+      {:ok, {width, height}}
+    else
+      _missing_or_invalid -> {:error, {:missing_source_dimensions, __MODULE__}}
+    end
+  end
 end

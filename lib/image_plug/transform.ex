@@ -36,12 +36,13 @@ defmodule ImagePlug.Transform do
       Operation.Focus
     ]
 
-  alias ImagePlug.Transform.State
   alias ImagePlug.Plan
   alias ImagePlug.Plan.Operation
   alias ImagePlug.Plan.Pipeline
+  alias ImagePlug.Transform.PlanExecutor
   alias ImagePlug.Transform.ResolvedPlan
   alias ImagePlug.Transform.SourceMetadata
+  alias ImagePlug.Transform.State
 
   @type attrs() :: keyword()
   @type operation() :: struct()
@@ -79,6 +80,12 @@ defmodule ImagePlug.Transform do
   @spec execute(operation(), State.t()) :: State.t()
   def execute(%module{} = operation, %State{} = state) do
     module.execute(operation, state)
+  end
+
+  @spec execute_plan(Plan.t(), State.t(), SourceMetadata.t(), keyword()) ::
+          {:ok, State.t()} | {:error, term()}
+  def execute_plan(%Plan{} = plan, %State{} = state, %SourceMetadata{} = metadata, opts \\ []) do
+    PlanExecutor.execute(plan, state, metadata, opts)
   end
 
   @spec resolve(ImagePlug.Plan.t(), ImagePlug.Transform.SourceMetadata.t(), keyword()) ::

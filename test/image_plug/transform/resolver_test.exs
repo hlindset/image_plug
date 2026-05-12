@@ -33,11 +33,22 @@ defmodule ImagePlug.Transform.ResolverTest do
     size
   end
 
+  defp metadata(orientation \\ :normal),
+    do: %SourceMetadata{orientation: orientation, format: :jpeg}
+
+  defp resolve(%Plan{} = plan, %SourceMetadata{} = metadata, {source_width, source_height}) do
+    Transform.resolve(plan, metadata, source_width: source_width, source_height: source_height)
+  end
+
+  defp resolve(%Plan{} = plan, %SourceMetadata{} = metadata) do
+    resolve(plan, metadata, {1600, 900})
+  end
+
   test "resize auto derives cover for matching current and target orientation" do
     assert {:ok, operation} = Operation.resize_auto(size: size(300, 200), enlargement: :deny)
-    metadata = %SourceMetadata{width: 1600, height: 900, orientation: :normal, format: :jpeg}
+    metadata = metadata()
 
-    assert {:ok, resolved} = Transform.resolve(plan([operation]), metadata, [])
+    assert {:ok, resolved} = resolve(plan([operation]), metadata)
 
     assert [
              [
@@ -55,7 +66,7 @@ defmodule ImagePlug.Transform.ResolverTest do
 
   test "executable pipelines facade lowers semantic operations" do
     assert {:ok, operation} = Operation.resize_auto(size: size(300, 200), enlargement: :deny)
-    metadata = %SourceMetadata{width: 1600, height: 900, orientation: :normal, format: :jpeg}
+    metadata = metadata()
 
     assert {:ok,
             [
@@ -66,14 +77,18 @@ defmodule ImagePlug.Transform.ResolverTest do
                   crop_from: :gravity
                 }
               ]
-            ]} = Transform.executable_pipelines(plan([operation]), metadata, [])
+            ]} =
+             Transform.executable_pipelines(plan([operation]), metadata,
+               source_width: 1600,
+               source_height: 900
+             )
   end
 
   test "resize auto derives fit for differing current and target orientation" do
     assert {:ok, operation} = Operation.resize_auto(size: size(200, 300), enlargement: :deny)
-    metadata = %SourceMetadata{width: 1600, height: 900, orientation: :normal, format: :jpeg}
+    metadata = metadata()
 
-    assert {:ok, resolved} = Transform.resolve(plan([operation]), metadata, [])
+    assert {:ok, resolved} = resolve(plan([operation]), metadata)
     assert [[%Resize{rule: %DimensionRule{mode: :fit, enlarge: false}}]] = resolved.pipelines
   end
 
@@ -83,9 +98,9 @@ defmodule ImagePlug.Transform.ResolverTest do
     assert {:ok, size} = Size.new(width: width, height: height, dpr: 1.0)
     assert {:ok, operation} = Operation.resize_auto(size: size, enlargement: :deny)
 
-    metadata = %SourceMetadata{width: 1600, height: 900, orientation: :normal, format: :jpeg}
+    metadata = metadata()
 
-    assert {:ok, resolved} = Transform.resolve(plan([operation]), metadata, [])
+    assert {:ok, resolved} = resolve(plan([operation]), metadata)
     assert [[%Resize{rule: %DimensionRule{mode: :fit}}]] = resolved.pipelines
   end
 
@@ -94,14 +109,9 @@ defmodule ImagePlug.Transform.ResolverTest do
       auto_orient = %AutoOrient{}
       assert {:ok, resize_auto} = Operation.resize_auto(size: size(200, 300), enlargement: :deny)
 
-      metadata = %SourceMetadata{
-        width: 1600,
-        height: 900,
-        orientation: {:exif, unquote(exif_orientation)},
-        format: :jpeg
-      }
+      metadata = metadata({:exif, unquote(exif_orientation)})
 
-      assert {:ok, resolved} = Transform.resolve(plan([auto_orient, resize_auto]), metadata, [])
+      assert {:ok, resolved} = resolve(plan([auto_orient, resize_auto]), metadata)
 
       assert [
                [
@@ -117,9 +127,9 @@ defmodule ImagePlug.Transform.ResolverTest do
     auto_orient = %AutoOrient{}
     assert {:ok, resize_auto} = Operation.resize_auto(size: size(300, 200), enlargement: :deny)
 
-    metadata = %SourceMetadata{width: 1600, height: 900, orientation: {:exif, 3}, format: :jpeg}
+    metadata = metadata({:exif, 3})
 
-    assert {:ok, resolved} = Transform.resolve(plan([auto_orient, resize_auto]), metadata, [])
+    assert {:ok, resolved} = resolve(plan([auto_orient, resize_auto]), metadata)
 
     assert [
              [
@@ -134,9 +144,9 @@ defmodule ImagePlug.Transform.ResolverTest do
     auto_orient = %AutoOrient{}
     assert {:ok, resize_auto} = Operation.resize_auto(size: size(300, 200), enlargement: :deny)
 
-    metadata = %SourceMetadata{width: 1600, height: 900, orientation: :unknown, format: :jpeg}
+    metadata = metadata(:unknown)
 
-    assert {:ok, resolved} = Transform.resolve(plan([auto_orient, resize_auto]), metadata, [])
+    assert {:ok, resolved} = resolve(plan([auto_orient, resize_auto]), metadata)
 
     assert [
              [
@@ -161,7 +171,7 @@ defmodule ImagePlug.Transform.ResolverTest do
     assert {:ok, second_resize} =
              Operation.resize_auto(size: size(30, 20), enlargement: :deny)
 
-    metadata = %SourceMetadata{width: 300, height: 200, orientation: :normal, format: :jpeg}
+    metadata = metadata()
 
     plan =
       plan_with_pipelines([
@@ -169,7 +179,7 @@ defmodule ImagePlug.Transform.ResolverTest do
         %Pipeline{operations: [second_resize]}
       ])
 
-    assert {:ok, resolved} = Transform.resolve(plan, metadata, [])
+    assert {:ok, resolved} = resolve(plan, metadata, {300, 200})
 
     assert [
              [
@@ -201,14 +211,10 @@ defmodule ImagePlug.Transform.ResolverTest do
       assert {:ok, operation} =
                Operation.resize_auto(size: size(target_width, target_height), enlargement: :deny)
 
-      metadata = %SourceMetadata{
-        width: source_width,
-        height: source_height,
-        orientation: :normal,
-        format: :jpeg
-      }
+      metadata = metadata()
 
-      assert {:ok, resolved} = Transform.resolve(plan([operation]), metadata, [])
+      assert {:ok, resolved} =
+               resolve(plan([operation]), metadata, {source_width, source_height})
 
       expected_mode = unquote(if expected == :cover, do: :fill, else: :fit)
 
@@ -216,17 +222,17 @@ defmodule ImagePlug.Transform.ResolverTest do
     end
   end
 
-  test "source metadata constructor validates required resolver inputs" do
-    assert {:ok, %SourceMetadata{width: 300, height: 200}} =
-             SourceMetadata.new(width: 300, height: 200, format: :jpeg)
+  test "source metadata constructor validates source-only facts" do
+    assert {:ok, %SourceMetadata{format: :jpeg, orientation: :normal}} =
+             SourceMetadata.new(format: :jpeg)
 
-    assert SourceMetadata.new(width: 0, height: 200) ==
-             {:error, {:invalid_source_metadata, {:width, 0}}}
+    assert SourceMetadata.new(width: 300, height: 200, format: :jpeg) ==
+             {:error, {:unknown_source_metadata_options, [:width, :height]}}
 
-    assert SourceMetadata.new(width: 300, height: 200, orientation: {:exif, 9}) ==
+    assert SourceMetadata.new(orientation: {:exif, 9}) ==
              {:error, {:invalid_source_metadata, {:orientation, {:exif, 9}}}}
 
-    assert SourceMetadata.new(width: 300, height: 200, source: :origin) ==
+    assert SourceMetadata.new(source: :origin) ==
              {:error, {:unknown_source_metadata_options, [:source]}}
   end
 end
