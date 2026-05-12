@@ -71,15 +71,7 @@ end
 
 defimpl ImagePlug.Transform.Material, for: ImagePlug.Plan.Operation.Canvas do
   def material(%ImagePlug.Plan.Operation.Canvas{} = operation) do
-    [
-      op: :canvas,
-      size: ImagePlug.Transform.Material.material(operation.size),
-      placement: ImagePlug.Transform.Material.material(operation.placement),
-      background: operation.background,
-      overflow: operation.overflow,
-      x_offset: operation.x_offset,
-      y_offset: operation.y_offset
-    ]
+    ImagePlug.Transform.KeyData.data(operation)
   end
 end
 

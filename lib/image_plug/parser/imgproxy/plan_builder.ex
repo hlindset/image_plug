@@ -441,11 +441,13 @@ defmodule ImagePlug.Parser.Imgproxy.PlanBuilder do
 
   defp extend_operation(%PipelineRequest{} = request) do
     if extend_operation_requested?(request) do
-      with {:ok, size} <- resize_size(request),
-           {:ok, placement} <- gravity(request.extend_gravity || @default_gravity) do
+      with {:ok, width} <- imgproxy_canvas_dimension(request.width),
+           {:ok, height} <- imgproxy_canvas_dimension(request.height),
+           {:ok, placement} <- canvas_placement(request.extend_gravity || @default_gravity) do
         Operation.canvas(
-          size: size,
-          placement: placement,
+          width,
+          height,
+          placement,
           background: :white,
           overflow: :reject,
           x_offset: request.extend_x_offset || 0.0,
@@ -470,9 +472,10 @@ defmodule ImagePlug.Parser.Imgproxy.PlanBuilder do
   defp extend_aspect_ratio_operation(%PipelineRequest{extend_aspect_ratio: ratio}) do
     with {:ok, width} <- decimal_ratio(elem(ratio, 0)),
          {:ok, height} <- decimal_ratio(elem(ratio, 1)),
-         {:ok, size} <- Size.new(width: width, height: height, dpr: 1.0),
-         {:ok, placement} <- gravity(@default_gravity) do
-      Operation.canvas(size: size, placement: placement, background: :white, overflow: :reject)
+         {:ok, width} <- canvas_ratio_dimension(width),
+         {:ok, height} <- canvas_ratio_dimension(height),
+         {:ok, placement} <- canvas_placement(@default_gravity) do
+      Operation.canvas(width, height, placement, background: :white, overflow: :reject)
     end
   end
 
@@ -557,6 +560,15 @@ defmodule ImagePlug.Parser.Imgproxy.PlanBuilder do
     tagged_ratio_from_decimal(value)
   end
 
+  defp imgproxy_canvas_dimension(nil), do: {:ok, :auto}
+  defp imgproxy_canvas_dimension(:auto), do: {:ok, :auto}
+  defp imgproxy_canvas_dimension({:pixels, 0}), do: {:ok, :auto}
+
+  defp imgproxy_canvas_dimension({:pixels, value}) when is_integer(value) and value > 0,
+    do: {:ok, {:px, value}}
+
+  defp imgproxy_canvas_dimension({:scale, value}), do: tagged_ratio_from_decimal(value)
+
   defp optional_resize_dimension(nil), do: {:ok, nil}
   defp optional_resize_dimension({:pixels, 0}), do: Dimension.auto()
   defp optional_resize_dimension(dimension), do: imgproxy_resize_dimension(dimension)
@@ -577,6 +589,23 @@ defmodule ImagePlug.Parser.Imgproxy.PlanBuilder do
          {:ok, y} <- tagged_ratio_from_decimal(y) do
       {:ok, {:focal, x, y}}
     end
+  end
+
+  defp canvas_placement({:anchor, x, y}), do: {:ok, crop_anchor_guide(x, y)}
+
+  defp canvas_placement({:fp, x, y}) do
+    with {:ok, x} <- tagged_ratio_from_decimal(x),
+         {:ok, y} <- tagged_ratio_from_decimal(y) do
+      {:ok, {:focal, x, y}}
+    end
+  end
+
+  defp canvas_ratio_dimension(%Dimension{
+         unit: :ratio,
+         numerator: numerator,
+         denominator: denominator
+       }) do
+    {:ok, {:ratio, numerator, denominator}}
   end
 
   defp tagged_ratio_from_decimal(value) do

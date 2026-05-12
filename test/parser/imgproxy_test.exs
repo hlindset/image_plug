@@ -120,13 +120,13 @@ defmodule ImagePlug.Parser.ImgproxyTest do
              Imgproxy.parse(conn(:get, "/_/rs::::::ce::/plain/images/cat.jpg"), [])
 
     assert [%Operation.Canvas{placement: placement}] = operations
-    assert anchor(placement) == {:center, :center}
+    assert placement == :center
 
     assert {:ok, %Plan{pipelines: [%Pipeline{operations: operations}]}} =
              Imgproxy.parse(conn(:get, "/_/s:::::ce::/plain/images/cat.jpg"), [])
 
     assert [%Operation.Canvas{placement: placement}] = operations
-    assert anchor(placement) == {:center, :center}
+    assert placement == :center
   end
 
   test "extend gravity invalid arity reports the original option segment" do

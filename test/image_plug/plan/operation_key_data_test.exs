@@ -133,4 +133,32 @@ defmodule ImagePlug.Plan.OperationKeyDataTest do
       refute Keyword.has_key?(material, :coordinate_space)
     end
   end
+
+  describe "canvas operation data" do
+    test "materializes canvas semantic intent" do
+      assert {:ok, operation} =
+               Operation.canvas(
+                 {:ratio, 16, 9},
+                 {:ratio, 1, 1},
+                 {:focal, {:ratio, 1, 3}, {:ratio, 2, 3}},
+                 x_offset: 5.0,
+                 y_offset: -3.0
+               )
+
+      assert KeyData.data(operation) == [
+               op: :canvas,
+               width: [unit: :ratio, numerator: 16, denominator: 9],
+               height: [unit: :ratio, numerator: 1, denominator: 1],
+               placement: [
+                 type: :focal,
+                 x: [unit: :ratio, numerator: 1, denominator: 3],
+                 y: [unit: :ratio, numerator: 2, denominator: 3]
+               ],
+               background: :white,
+               overflow: :reject,
+               x_offset: 5.0,
+               y_offset: -3.0
+             ]
+    end
+  end
 end

@@ -115,21 +115,14 @@ defmodule ImagePlug.Plan.OperationMaterialTest do
   end
 
   test "canvas material contains explicit placement and first-slice policies" do
-    assert {:ok, size} = size(width: 320, height: 240, dpr: 1.0)
-    assert {:ok, placement} = Gravity.anchor(:center, :center)
-
     assert {:ok, operation} =
-             Operation.canvas(
-               size: size,
-               placement: placement,
-               background: :white,
-               overflow: :reject
-             )
+             Operation.canvas({:px, 320}, {:px, 240}, :center)
 
     assert Material.material(operation) == [
              op: :canvas,
-             size: size_material(320, 240, 1.0),
-             placement: [type: :anchor, x: :center, y: :center, space: :current],
+             width: [unit: :logical_px, value: 320],
+             height: [unit: :logical_px, value: 240],
+             placement: :center,
              background: :white,
              overflow: :reject,
              x_offset: 0.0,

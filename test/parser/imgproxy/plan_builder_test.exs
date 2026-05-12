@@ -246,7 +246,7 @@ defmodule ImagePlug.Parser.Imgproxy.PlanBuilderTest do
              y_offset: -3.0
            } = List.last(operations)
 
-    assert anchor(placement) == {:left, :top}
+    assert placement == :top_left
   end
 
   test "explicit false extend prevents parsed extend tails from planning canvas operations" do

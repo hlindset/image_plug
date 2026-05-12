@@ -11,6 +11,7 @@ defmodule ImagePlug.Transform.KeyData do
 
   alias ImagePlug.Plan.Operation.CropGuided
   alias ImagePlug.Plan.Operation.CropRegion
+  alias ImagePlug.Plan.Operation.Canvas
   alias ImagePlug.Plan.Operation.Resize
 
   @crop_anchor_guides [
@@ -37,7 +38,21 @@ defmodule ImagePlug.Transform.KeyData do
           | {:denominator, pos_integer()}
         ]
 
-  @spec data(geometry_value() | CropGuided.t() | CropRegion.t() | Resize.t()) :: keyword()
+  @spec data(geometry_value() | Canvas.t() | CropGuided.t() | CropRegion.t() | Resize.t()) ::
+          keyword()
+  def data(%Canvas{} = operation) do
+    [
+      op: :canvas,
+      width: data(operation.width),
+      height: data(operation.height),
+      placement: guide_data(operation.placement),
+      background: operation.background,
+      overflow: operation.overflow,
+      x_offset: operation.x_offset,
+      y_offset: operation.y_offset
+    ]
+  end
+
   def data(%CropGuided{} = operation) do
     [
       op: :crop_guided,

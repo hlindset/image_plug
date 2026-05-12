@@ -40,7 +40,7 @@ defmodule ImagePlug.Plan.Operation do
   @resize_keys [:size, :enlargement, :min_width, :min_height, :zoom_x, :zoom_y]
   @resize_placement_keys [:guide, :x_offset, :y_offset]
   @crop_guided_keys [:x_offset, :y_offset]
-  @canvas_keys [:size, :placement, :background, :overflow, :x_offset, :y_offset]
+  @canvas_keys [:background, :overflow, :x_offset, :y_offset]
   @semantic_modules [
     CropGuided,
     CropRegion,
@@ -128,30 +128,40 @@ defmodule ImagePlug.Plan.Operation do
 
   def crop_region(attrs), do: invalid(:crop_region, attrs)
 
-  @spec canvas(keyword()) :: {:ok, Canvas.t()} | {:error, error()}
-  def canvas(attrs) when is_list(attrs) do
-    with :ok <- validate_known_options(:canvas, attrs, @canvas_keys),
-         {:ok, size} <- fetch_struct(attrs, :size, Size),
-         {:ok, placement} <- fetch_struct(attrs, :placement, Gravity),
-         {:ok, :white} <- fetch_exact(attrs, :background, :white),
-         {:ok, :reject} <- fetch_exact(attrs, :overflow, :reject),
-         {:ok, x_offset} <- signed_numeric(attrs, :x_offset, 0.0),
-         {:ok, y_offset} <- signed_numeric(attrs, :y_offset, 0.0) do
-      %Canvas{
-        size: size,
-        placement: placement,
-        background: :white,
-        overflow: :reject,
-        x_offset: x_offset,
-        y_offset: y_offset
-      }
-      |> validate_constructed(:canvas, attrs)
+  @spec canvas(term(), term(), term(), keyword()) :: {:ok, Canvas.t()} | {:error, error()}
+  def canvas(width, height, placement, opts \\ [])
+
+  def canvas(width, height, placement, opts) when is_list(opts) do
+    with :ok <- validate_known_options(:canvas, opts, @canvas_keys),
+         {:ok, width} <- tagged_canvas_dimension(width),
+         {:ok, height} <- tagged_canvas_dimension(height),
+         {:ok, placement} <- tagged_canvas_placement(placement),
+         :ok <- validate_canvas_dimension_pair(width, height, :canvas),
+         {:ok, :white} <- optional_exact(opts, :background, :white),
+         {:ok, :reject} <- optional_exact(opts, :overflow, :reject),
+         {:ok, x_offset} <- signed_numeric(opts, :x_offset, 0.0),
+         {:ok, y_offset} <- signed_numeric(opts, :y_offset, 0.0) do
+      {:ok,
+       %Canvas{
+         width: width,
+         height: height,
+         placement: placement,
+         background: :white,
+         overflow: :reject,
+         x_offset: x_offset,
+         y_offset: y_offset
+       }}
     else
-      error -> constructor_error(error, :canvas, attrs)
+      {:error, {:unknown_operation_options, _operation, _keys} = reason} ->
+        {:error, reason}
+
+      {:error, _reason} ->
+        invalid(:canvas, [width, height, placement, opts])
     end
   end
 
-  def canvas(attrs), do: invalid(:canvas, attrs)
+  def canvas(width, height, placement, opts),
+    do: invalid(:canvas, [width, height, placement, opts])
 
   @spec auto_orient() :: {:ok, AutoOrient.t()}
   def auto_orient, do: {:ok, %AutoOrient{}}
@@ -380,14 +390,19 @@ defmodule ImagePlug.Plan.Operation do
 
   def validate_prefetch_safe(
         %Canvas{
-          size: size,
+          width: width,
+          height: height,
           placement: placement,
           background: :white,
           overflow: :reject
         } = operation
       ) do
-    with :ok <- validate_canvas_size(size, operation) do
-      validate_gravity(placement, operation)
+    with :ok <- validate_tagged_canvas_dimension(width, operation),
+         :ok <- validate_tagged_canvas_dimension(height, operation),
+         :ok <- validate_canvas_dimension_pair(width, height, operation),
+         :ok <- validate_tagged_canvas_placement(placement, operation),
+         :ok <- validate_tagged_offset(operation.x_offset, operation) do
+      validate_tagged_offset(operation.y_offset, operation)
     end
   end
 
@@ -593,6 +608,30 @@ defmodule ImagePlug.Plan.Operation do
 
   defp tagged_crop_guide(_guide), do: {:error, :guide}
 
+  defp tagged_canvas_dimension(:auto), do: {:ok, :auto}
+
+  defp tagged_canvas_dimension({:px, value}) when is_integer(value) and value > 0,
+    do: {:ok, {:px, value}}
+
+  defp tagged_canvas_dimension({:ratio, numerator, denominator})
+       when is_integer(numerator) and is_integer(denominator) and numerator > 0 and
+              denominator > 0,
+       do: canonical_ratio(numerator, denominator)
+
+  defp tagged_canvas_dimension(_dimension), do: {:error, :dimension}
+
+  defp tagged_canvas_placement(placement) when placement in @crop_anchor_guides,
+    do: {:ok, placement}
+
+  defp tagged_canvas_placement({:focal, x, y}) do
+    with :ok <- tagged_ratio(x),
+         :ok <- tagged_ratio(y) do
+      {:ok, {:focal, normalize_ratio(x), normalize_ratio(y)}}
+    end
+  end
+
+  defp tagged_canvas_placement(_placement), do: {:error, :placement}
+
   defp validate_tagged_resize_dimension(:auto, _operation), do: :ok
 
   defp validate_tagged_resize_dimension({:px, value}, _operation)
@@ -701,6 +740,61 @@ defmodule ImagePlug.Plan.Operation do
 
   defp validate_tagged_crop_guide(_guide, operation), do: invalid_pipeline_operation(operation)
 
+  defp validate_tagged_canvas_dimension(:auto, _operation), do: :ok
+
+  defp validate_tagged_canvas_dimension({:px, value}, _operation)
+       when is_integer(value) and value > 0,
+       do: :ok
+
+  defp validate_tagged_canvas_dimension({:ratio, numerator, denominator}, operation)
+       when is_integer(numerator) and is_integer(denominator) and numerator > 0 and
+              denominator > 0 do
+    if Integer.gcd(numerator, denominator) == 1 do
+      :ok
+    else
+      invalid_pipeline_operation(operation)
+    end
+  end
+
+  defp validate_tagged_canvas_dimension(_dimension, operation),
+    do: invalid_pipeline_operation(operation)
+
+  defp validate_canvas_dimension_pair(
+         {:ratio, _width_numerator, _width_denominator},
+         {:ratio, _height_numerator, _height_denominator},
+         _operation
+       ),
+       do: :ok
+
+  defp validate_canvas_dimension_pair(
+         {:ratio, _width_numerator, _width_denominator},
+         _height,
+         operation
+       ),
+       do: invalid_pipeline_operation(operation)
+
+  defp validate_canvas_dimension_pair(
+         _width,
+         {:ratio, _height_numerator, _height_denominator},
+         operation
+       ),
+       do: invalid_pipeline_operation(operation)
+
+  defp validate_canvas_dimension_pair(_width, _height, _operation), do: :ok
+
+  defp validate_tagged_canvas_placement(placement, _operation)
+       when placement in @crop_anchor_guides,
+       do: :ok
+
+  defp validate_tagged_canvas_placement({:focal, x, y}, operation) do
+    with :ok <- validate_tagged_ratio(x, operation) do
+      validate_tagged_ratio(y, operation)
+    end
+  end
+
+  defp validate_tagged_canvas_placement(_placement, operation),
+    do: invalid_pipeline_operation(operation)
+
   defp validate_tagged_offset(value, _operation) when is_number(value), do: :ok
 
   defp validate_tagged_offset({unit, value}, _operation)
@@ -731,6 +825,16 @@ defmodule ImagePlug.Plan.Operation do
 
   defp tagged_ratio(_ratio), do: {:error, :ratio}
 
+  defp normalize_ratio({:ratio, numerator, denominator}) do
+    gcd = Integer.gcd(numerator, denominator)
+    {:ratio, div(numerator, gcd), div(denominator, gcd)}
+  end
+
+  defp canonical_ratio(numerator, denominator) do
+    gcd = Integer.gcd(numerator, denominator)
+    {:ok, {:ratio, div(numerator, gcd), div(denominator, gcd)}}
+  end
+
   defp validate_resize_size(%Size{} = size, operation) do
     with :ok <- validate_resize_dimension(size.width, operation),
          :ok <- validate_resize_dimension(size.height, operation) do
@@ -747,15 +851,6 @@ defmodule ImagePlug.Plan.Operation do
       validate_factor(operation.zoom_y, operation)
     end
   end
-
-  defp validate_canvas_size(%Size{} = size, operation) do
-    with :ok <- validate_canvas_dimension(size.width, operation),
-         :ok <- validate_canvas_dimension(size.height, operation) do
-      validate_dpr(size.dpr, operation)
-    end
-  end
-
-  defp validate_canvas_size(_size, operation), do: invalid_pipeline_operation(operation)
 
   defp validate_gravity(%Gravity{type: :anchor, x: x, y: y, space: space}, _operation)
        when x in @x_anchors and y in @y_anchors and space in @prefetch_gravity_spaces,
@@ -789,30 +884,6 @@ defmodule ImagePlug.Plan.Operation do
 
   defp validate_optional_resize_dimension(%Dimension{} = dimension, operation),
     do: validate_resize_dimension(dimension, operation)
-
-  defp validate_canvas_dimension(%Dimension{unit: :auto}, _operation), do: :ok
-
-  defp validate_canvas_dimension(
-         %Dimension{unit: :logical_px, value: value, numerator: nil, denominator: nil},
-         _operation
-       )
-       when is_integer(value) and value > 0,
-       do: :ok
-
-  defp validate_canvas_dimension(
-         %Dimension{unit: :ratio, value: nil, numerator: numerator, denominator: denominator},
-         operation
-       )
-       when is_integer(numerator) and is_integer(denominator) and numerator > 0 and
-              denominator > 0 do
-    if Integer.gcd(numerator, denominator) == 1 do
-      :ok
-    else
-      invalid_pipeline_operation(operation)
-    end
-  end
-
-  defp validate_canvas_dimension(_dimension, operation), do: invalid_pipeline_operation(operation)
 
   defp validate_ratio_dimension(
          %Dimension{unit: :ratio, value: nil, numerator: numerator, denominator: denominator},
@@ -882,10 +953,11 @@ defmodule ImagePlug.Plan.Operation do
     end
   end
 
-  defp fetch_exact(attrs, key, expected) do
+  defp optional_exact(attrs, key, expected) do
     case Keyword.fetch(attrs, key) do
       {:ok, ^expected} -> {:ok, expected}
-      _other -> {:error, {key, expected}}
+      {:ok, _value} -> {:error, {key, expected}}
+      :error -> {:ok, expected}
     end
   end
 

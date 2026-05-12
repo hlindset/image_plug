@@ -269,16 +269,8 @@ defmodule ImagePlug.Transform.ResolverLoweringTest do
   end
 
   test "canvas lowers to extend canvas without choosing resize scale" do
-    assert {:ok, placement} = Gravity.anchor(:center, :center)
-    assert {:ok, canvas_size} = size(320, 240)
-
     assert {:ok, operation} =
-             Operation.canvas(
-               size: canvas_size,
-               placement: placement,
-               background: :white,
-               overflow: :reject
-             )
+             Operation.canvas({:px, 320}, {:px, 240}, :center)
 
     assert {:ok, resolved} = Transform.resolve(plan([operation]), metadata(), [])
 

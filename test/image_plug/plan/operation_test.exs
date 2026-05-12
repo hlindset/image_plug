@@ -1,9 +1,6 @@
 defmodule ImagePlug.Plan.OperationTest do
   use ExUnit.Case, async: true
 
-  alias ImagePlug.Plan.Geometry.Dimension
-  alias ImagePlug.Plan.Geometry.Size
-  alias ImagePlug.Plan.Guide.Gravity
   alias ImagePlug.Plan.Operation
 
   describe "resize constructors" do
@@ -157,65 +154,63 @@ defmodule ImagePlug.Plan.OperationTest do
 
   describe "canvas constructor" do
     test "builds canvas operation through exported constructor" do
-      assert {:ok, size} = crop_size()
-      assert {:ok, placement} = Gravity.anchor(:center, :center)
+      assert {:ok,
+              %Operation.Canvas{
+                width: {:px, 300},
+                height: {:px, 200},
+                placement: :center,
+                background: :white,
+                overflow: :reject
+              } = operation} =
+               Operation.canvas({:px, 300}, {:px, 200}, :center,
+                 background: :white,
+                 overflow: :reject
+               )
+
+      assert operation.x_offset == 0.0
+      assert operation.y_offset == 0.0
 
       assert {:ok,
               %Operation.Canvas{
-                size: ^size,
-                placement: ^placement,
-                background: :white,
-                overflow: :reject
+                width: {:ratio, 16, 9},
+                height: {:ratio, 1, 1},
+                placement: {:focal, {:ratio, 1, 3}, {:ratio, 2, 3}},
+                x_offset: 5.0,
+                y_offset: -3.0
               }} =
                Operation.canvas(
-                 size: size,
-                 placement: placement,
-                 background: :white,
-                 overflow: :reject
+                 {:ratio, 16, 9},
+                 {:ratio, 1, 1},
+                 {:focal, {:ratio, 1, 3}, {:ratio, 2, 3}},
+                 x_offset: 5.0,
+                 y_offset: -3.0
                )
     end
 
     test "rejects unsupported canvas values without raising" do
-      assert {:ok, size} = size()
-      assert {:ok, placement} = Gravity.anchor(:center, :center)
+      assert Operation.canvas(:full_axis, {:px, 200}, :center) ==
+               {:error, {:invalid_operation, :canvas, [:full_axis, {:px, 200}, :center, []]}}
 
-      assert Operation.canvas(
-               size: :not_size,
-               placement: placement,
-               background: :white,
-               overflow: :reject
-             ) ==
+      assert Operation.canvas({:px, 0}, {:px, 200}, :center) ==
+               {:error, {:invalid_operation, :canvas, [{:px, 0}, {:px, 200}, :center, []]}}
+
+      assert Operation.canvas({:ratio, 16, 9}, {:px, 200}, :center) ==
+               {:error, {:invalid_operation, :canvas, [{:ratio, 16, 9}, {:px, 200}, :center, []]}}
+
+      assert Operation.canvas({:px, 300}, {:px, 200}, :middle) ==
+               {:error, {:invalid_operation, :canvas, [{:px, 300}, {:px, 200}, :middle, []]}}
+
+      assert Operation.canvas({:px, 300}, {:px, 200}, :center, background: :transparent) ==
                {:error,
                 {:invalid_operation, :canvas,
-                 [size: :not_size, placement: placement, background: :white, overflow: :reject]}}
+                 [{:px, 300}, {:px, 200}, :center, [background: :transparent]]}}
 
-      assert Operation.canvas(
-               size: size,
-               placement: placement,
-               background: :transparent,
-               overflow: :reject
-             ) ==
+      assert Operation.canvas({:px, 300}, {:px, 200}, :center, overflow: :crop) ==
                {:error,
                 {:invalid_operation, :canvas,
-                 [size: size, placement: placement, background: :transparent, overflow: :reject]}}
+                 [{:px, 300}, {:px, 200}, :center, [overflow: :crop]]}}
 
-      assert Operation.canvas(
-               size: size,
-               placement: placement,
-               background: :white,
-               overflow: :crop
-             ) ==
-               {:error,
-                {:invalid_operation, :canvas,
-                 [size: size, placement: placement, background: :white, overflow: :crop]}}
-
-      assert Operation.canvas(
-               size: size,
-               placement: placement,
-               background: :white,
-               overflow: :reject,
-               source: :image
-             ) ==
+      assert Operation.canvas({:px, 300}, {:px, 200}, :center, source: :image) ==
                {:error, {:unknown_operation_options, :canvas, [:source]}}
     end
   end
@@ -235,8 +230,6 @@ defmodule ImagePlug.Plan.OperationTest do
 
   describe "access metadata" do
     test "reports semantic operation decode access metadata" do
-      assert {:ok, size} = size()
-      assert {:ok, guide} = Gravity.anchor(:center, :center)
       assert {:ok, fit} = Operation.resize(:fit, {:px, 300}, :auto)
       assert {:ok, cover} = Operation.resize(:cover, {:px, 300}, :auto)
       assert {:ok, stretch} = Operation.resize(:stretch, {:px, 300}, :auto)
@@ -258,13 +251,7 @@ defmodule ImagePlug.Plan.OperationTest do
       assert Operation.access_metadata(guided) == %{access: :random}
       assert Operation.access_metadata(region_crop) == %{access: :random}
 
-      assert {:ok, canvas} =
-               Operation.canvas(
-                 size: size,
-                 placement: guide,
-                 background: :white,
-                 overflow: :reject
-               )
+      assert {:ok, canvas} = Operation.canvas({:px, 300}, {:px, 200}, :center)
 
       assert {:ok, auto_orient} = Operation.auto_orient()
       assert {:ok, rotate} = Operation.rotate(90)
@@ -282,20 +269,6 @@ defmodule ImagePlug.Plan.OperationTest do
 
       assert Operation.access_metadata(fit) == %{access: :random}
       assert Operation.access_metadata(stretch) == %{access: :random}
-    end
-  end
-
-  defp size do
-    with {:ok, width} <- Dimension.pixels(300),
-         {:ok, height} <- Dimension.auto() do
-      Size.new(width: width, height: height, dpr: 1.0)
-    end
-  end
-
-  defp crop_size do
-    with {:ok, width} <- Dimension.pixels(300),
-         {:ok, height} <- Dimension.pixels(200) do
-      Size.new(width: width, height: height, dpr: 1.0)
     end
   end
 end

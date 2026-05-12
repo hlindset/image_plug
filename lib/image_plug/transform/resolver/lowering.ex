@@ -111,13 +111,13 @@ defmodule ImagePlug.Transform.Resolver.Lowering do
   end
 
   def lower(%Canvas{} = operation, _context) do
-    width = canvas_dimension(operation.size.width)
-    height = canvas_dimension(operation.size.height)
+    width = canvas_dimension(operation.width)
+    height = canvas_dimension(operation.height)
 
     [
       %ExtendCanvas{
         rule: canvas_rule(width, height),
-        gravity: executable_gravity(operation.placement),
+        gravity: tagged_executable_gravity(operation.placement),
         x_offset: operation.x_offset,
         y_offset: operation.y_offset,
         background: operation.background
@@ -231,6 +231,10 @@ defmodule ImagePlug.Transform.Resolver.Lowering do
 
   defp canvas_dimension(%Dimension{unit: :ratio, numerator: numerator, denominator: denominator}),
     do: {:ratio, numerator / denominator}
+
+  defp canvas_dimension(:auto), do: :auto
+  defp canvas_dimension({:px, value}), do: {:pixels, value}
+  defp canvas_dimension({:ratio, numerator, denominator}), do: {:ratio, numerator / denominator}
 
   defp executable_gravity(%Gravity{type: :anchor, x: x, y: y, space: :current}),
     do: {:anchor, x, y}
