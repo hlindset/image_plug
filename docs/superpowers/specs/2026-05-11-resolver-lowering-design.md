@@ -41,9 +41,9 @@ directly instead of maintaining a shadow model of current geometry.
 
 - Keep final transformed-output cache lookup source-fetch-free and
   source-metadata-free.
-- Keep runtime generic. Runtime may call `ImagePlug.Transform` facades and
-  carry executable operation structs opaquely, but must not branch on concrete
-  operation modules.
+- Keep runtime generic. Runtime may call `ImagePlug.Transform` facades and pass
+  canonical plans/states through opaquely, but must not branch on concrete
+  Plan or Transform operation modules.
 - Keep parser/vendor quirks outside `ImagePlug.Transform`.
 - Make Plan operation order define the image state each operation sees.
 - Execute semantic operations one at a time, lowering each operation against
@@ -278,8 +278,12 @@ Facts the current image cannot provide stay in `SourceMetadata` or options:
 
 - original source orientation metadata;
 - original source type/format;
-- runtime transform options that affect execution but are not cache-key
-  identity material.
+- runtime transform options that affect execution mechanics but not output
+  identity.
+
+Runtime options that affect output bytes must be represented in semantic
+Plan/output/config/vary material. Options that affect execution mechanics only
+may remain outside cache-key identity material.
 
 The cache key's transform material version is owned by `ImagePlug.Cache.Key`.
 
@@ -362,10 +366,8 @@ as part of executing that operation.
         | {:error, resolver_error()}
 ```
 
-Lowering must be total for every prefetch-valid first-slice operation:
-
-- produce executable operations; or
-- return a tagged error.
+Lowering must handle every prefetch-valid first-slice operation explicitly:
+produce executable operations or return a tagged error.
 
 It must not rely on missing function clauses for reachable invalid state.
 
@@ -468,6 +470,11 @@ for parser ordering. If a future dialect needs original-source coordinates after
 later transforms, introduce a distinct semantic operation with explicit mapping
 semantics rather than overloading ordinary `CropRegion`.
 
+If a parser cannot translate a vendor's coordinate semantics into ordinary
+ordered Plan operations, it must either reject the request or apply an explicit
+parser-owned degradation policy. It must not add vendor-specific coordinate
+flags to canonical Transform operations.
+
 Positions and guides should also remain small:
 
 - anchors such as `:center`, `:top_left`, `:bottom_right`;
@@ -537,10 +544,9 @@ Long-term preferred direction:
 - keep cache material protocol-based and source-fetch-free;
 - keep validation in `ImagePlug.Transform.validate_prefetch_safe_plan/1`.
 
-Do not do this during semantic execution alignment. Keep the wrappers until
-semantic execution lands and boundary tests are green. This should be a
-separate cleanup after semantic execution is in place. It must include boundary
-tests so the exception stays narrow. If this boundary becomes awkward, keep the
+This cleanup may happen in the same PR as semantic execution alignment, but it
+must be a separate step with focused boundary and cache-material tests. Do not
+mix it into the executor rewrite. If this boundary becomes awkward, keep the
 wrappers.
 
 ## Cache Invariant
@@ -582,6 +588,12 @@ Tests should prove:
 
 Architecture tests should scan the whole cache namespace, not only
 `lib/image_plug/cache/key.ex`.
+
+The `Resolver` namespace may remain during migration, but its long-term role is
+local semantic-operation execution/lowering, not whole-plan resolution. A
+rename to a boring semantic-execution namespace, such as
+`ImagePlug.Transform.SemanticExecutor` plus local lowering helpers, is allowed
+in this PR if it is done as a separate mechanical step with boundary tests.
 
 ## Test Strategy
 
@@ -647,6 +659,8 @@ public boundary.
 
 5. Tighten boundaries.
    - Stop exporting resolver internals.
+   - Rename resolver internals if doing so clarifies that the long-term role is
+     semantic operation execution, not whole-plan resolution.
    - Expand architecture tests for cache/parser post-fetch dependencies.
 
 6. Correct source metadata orientation.
@@ -657,14 +671,16 @@ public boundary.
    - Either keep them deliberately, or replace them with a narrow canonical
      primitive allowlist.
    - Do not allow arbitrary executable Transform operations into Plan.
+   - This may be included in the same PR if it is isolated behind focused
+     boundary/cache-material tests.
 
-8. Optionally collapse overly split operation structs.
+8. Collapse overly split operation structs if it simplifies the final model.
    - Evaluate `ResizeFit`, `ResizeCover`, `ResizeStretch`, and `ResizeAuto`
      after semantic execution is in place.
    - Collapse them only if one narrow resize struct with an explicit mode makes
      material, parser construction, and lowering simpler.
-   - Do not perform this as part of the execution-alignment step unless it is
-     clearly mechanical and low risk.
+   - This may be included in the same PR, but only as a separate step with
+     focused constructor/material/parser/lowering tests.
 
 ## Success Criteria
 
