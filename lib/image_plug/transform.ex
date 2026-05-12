@@ -19,7 +19,6 @@ defmodule ImagePlug.Transform do
       KeyData,
       Types,
       SourceMetadata,
-      Geometry.CropCoordinateMapper,
       Geometry.DimensionRule,
       Geometry.DimensionResolver,
       Operation.Resize,

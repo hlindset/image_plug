@@ -100,15 +100,6 @@ defmodule ImagePlug.Transform.Validation do
   def number(_label, _field, value) when is_number(value), do: :ok
   def number(label, field, value), do: invalid(label, field, value)
 
-  def orientation(_label, _field, nil), do: :ok
-
-  def orientation(_label, _field, %{auto_orient: auto_orient, rotate: rotate, flip: flip})
-      when is_boolean(auto_orient) and rotate in [0, 90, 180, 270] and
-             flip in [nil, :none, :horizontal, :vertical, :both],
-      do: :ok
-
-  def orientation(label, field, value), do: invalid(label, field, value)
-
   def dimension_rule(label, field, %DimensionRule{} = rule, modes) do
     case DimensionRule.validate(rule, modes: modes) do
       :ok ->

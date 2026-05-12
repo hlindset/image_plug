@@ -129,6 +129,50 @@ defmodule ImagePlug.Transform.ChainTest do
     assert Image.get_pixel!(image, 50, 50) == [0, 0, 255]
   end
 
+  test "gravity crop uses current-image center rounding" do
+    image =
+      401
+      |> Image.new!(300, color: :black)
+      |> Image.Draw.rect!(151, 100, 1, 1, color: :red)
+
+    chain = [
+      %Crop{
+        width: {:pixels, 100},
+        height: {:pixels, 100},
+        crop_from: :gravity,
+        gravity: {:anchor, :center, :center}
+      }
+    ]
+
+    assert {:ok, %State{image: image}} = Chain.execute(%State{image: image}, chain)
+    assert Image.width(image) == 100
+    assert Image.height(image) == 100
+    assert Image.get_pixel!(image, 0, 0) == [255, 0, 0]
+  end
+
+  test "focal-point gravity clamps crop into current image bounds" do
+    image =
+      300
+      |> Image.new!(100, color: :black)
+      |> Image.Draw.rect!(0, 0, 100, 100, color: :red)
+      |> Image.Draw.rect!(100, 0, 100, 100, color: :green)
+      |> Image.Draw.rect!(200, 0, 100, 100, color: :blue)
+
+    chain = [
+      %Crop{
+        width: {:pixels, 100},
+        height: {:pixels, 100},
+        crop_from: :gravity,
+        gravity: {:fp, 1.0, 0.5}
+      }
+    ]
+
+    assert {:ok, %State{image: image}} = Chain.execute(%State{image: image}, chain)
+    assert Image.width(image) == 100
+    assert Image.height(image) == 100
+    assert Image.get_pixel!(image, 50, 50) == [0, 0, 255]
+  end
+
   test "fill resize crops to min-adjusted target dimensions" do
     for mode <- [:fill, :fill_down] do
       {:ok, image} = Image.new(1000, 500, color: :white)

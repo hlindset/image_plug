@@ -34,9 +34,6 @@ defmodule ImagePlug.Transform.Operation.Crop do
     `{:percent, value}`. Defaults to `0.0`.
   - `y_offset`: vertical offset using the same units as `x_offset`. Defaults
     to `0.0`.
-  - `orientation`: `nil` or a map/struct with `auto_orient`, `rotate`, and
-    `flip` fields. `rotate` must be `0`, `90`, `180`, or `270`; `flip` may be
-    `nil`, `:none`, `:horizontal`, `:vertical`, or `:both`.
   - `target_rule`: `nil` or an `ImagePlug.Transform.Geometry.DimensionRule`
     with mode `:fit`, `:fill`, `:fill_down`, `:force`, or `:auto`. Result crops
     use this rule to resolve crop dimensions from the current image.
@@ -51,26 +48,19 @@ defmodule ImagePlug.Transform.Operation.Crop do
   image back into the state. If coordinate mapping or image cropping fails,
   execution records `{__MODULE__, reason}` in the state errors.
 
-  For `crop_from: :gravity`, execution resolves crop dimensions, defaulting
-  gravity to center when none is provided, and delegates rectangle mapping to
-  `ImagePlug.Transform.Geometry.CropCoordinateMapper`. Anchor gravity pins the
-  crop to an edge or center. Focal-point gravity centers the crop around a
-  normalized image point and clamps it into source bounds.
+  For `crop_from: :gravity`, execution resolves crop dimensions against the
+  current image, defaulting gravity to center when none is provided. Anchor
+  gravity pins the crop to an edge or center. Focal-point gravity centers the
+  crop around a normalized current-image point and clamps it into image bounds.
 
   Result crops are represented as `crop_from: :gravity` with a `target_rule`.
   The rule resolves the final crop size, including the effective DPR used by
   resize planning. Pixel offsets are multiplied by that effective DPR during
   coordinate mapping; scale and percent offsets are resolved relative to the
-  oriented source bounds.
+  current image bounds.
 
   For coordinate crops, `crop_from` is the requested top-left crop position
   before the rectangle is clamped to image bounds.
-
-  The optional `orientation` context tells `CropCoordinateMapper` how to map
-  semantic crop coordinates through right-angle rotation and flip metadata
-  before returning physical source-image coordinates. Auto-orientation cannot be
-  mapped from metadata alone; parser translations that support auto-orient plus
-  crop should plan auto-orientation as an earlier operation before this crop.
 
   ## Decode Planning Metadata
 
@@ -100,14 +90,12 @@ defmodule ImagePlug.Transform.Operation.Crop do
   import ImagePlug.Transform.Geometry,
     only: [anchor_to_pixels: 3, image_height: 1, image_width: 1, to_pixels!: 2]
 
-  alias ImagePlug.Transform.Geometry.CropCoordinateMapper
   alias ImagePlug.Transform.Geometry.DimensionResolver
   alias ImagePlug.Transform.Geometry.DimensionRule
   alias ImagePlug.Transform.State
   alias ImagePlug.Transform.Validation
 
   @default_gravity {:anchor, :center, :center}
-  @default_orientation %{auto_orient: false, rotate: 0, flip: nil}
 
   @doc """
   The executable operation used by `ImagePlug.Transform.Operation.Crop`.
@@ -119,7 +107,6 @@ defmodule ImagePlug.Transform.Operation.Crop do
     gravity: nil,
     x_offset: 0.0,
     y_offset: 0.0,
-    orientation: nil,
     target_rule: nil
   ]
 
@@ -138,7 +125,6 @@ defmodule ImagePlug.Transform.Operation.Crop do
             | nil,
           x_offset: ImagePlug.Transform.Types.length() | number(),
           y_offset: ImagePlug.Transform.Types.length() | number(),
-          orientation: map() | struct() | nil,
           target_rule: DimensionRule.t() | nil
         }
 
@@ -152,8 +138,7 @@ defmodule ImagePlug.Transform.Operation.Crop do
          :ok <- validate_crop_from(operation.crop_from),
          :ok <- Validation.gravity("crop", :gravity, operation.gravity),
          :ok <- Validation.offset("crop", :x_offset, operation.x_offset),
-         :ok <- Validation.offset("crop", :y_offset, operation.y_offset),
-         :ok <- Validation.orientation("crop", :orientation, operation.orientation) do
+         :ok <- Validation.offset("crop", :y_offset, operation.y_offset) do
       validate_target_rule(operation.target_rule)
     end
   end
@@ -184,18 +169,25 @@ defmodule ImagePlug.Transform.Operation.Crop do
          image_width,
          image_height
        ) do
-    with {:ok, crop} <- crop_dimensions(params, image_width, image_height) do
-      CropCoordinateMapper.map(
-        source_width: image_width,
-        source_height: image_height,
-        crop_width: crop.width,
-        crop_height: crop.height,
-        gravity: default_if_nil(params.gravity, @default_gravity),
-        x_offset: default_if_nil(params.x_offset, 0.0),
-        y_offset: default_if_nil(params.y_offset, 0.0),
-        offset_scale: crop.offset_scale,
-        orientation: default_if_nil(params.orientation, @default_orientation)
-      )
+    with {:ok, crop} <- crop_dimensions(params, image_width, image_height),
+         {:ok, crop_width} <- crop_dimension(crop.width, image_width),
+         {:ok, crop_height} <- crop_dimension(crop.height, image_height),
+         {:ok, gravity} <- crop_gravity(default_if_nil(params.gravity, @default_gravity)),
+         {:ok, offset_scale} <- offset_scale(crop.offset_scale),
+         {:ok, x_offset} <-
+           crop_offset(default_if_nil(params.x_offset, 0.0), image_width, offset_scale),
+         {:ok, y_offset} <-
+           crop_offset(default_if_nil(params.y_offset, 0.0), image_height, offset_scale) do
+      {:ok,
+       gravity_crop_coordinates(
+         image_width,
+         image_height,
+         crop_width,
+         crop_height,
+         gravity,
+         x_offset,
+         y_offset
+       )}
     end
   end
 
@@ -272,6 +264,127 @@ defmodule ImagePlug.Transform.Operation.Crop do
   defp orientation(width, height) when width > height, do: :landscape
   defp orientation(width, height) when width < height, do: :portrait
   defp orientation(_width, _height), do: :square
+
+  defp gravity_crop_coordinates(
+         image_width,
+         image_height,
+         crop_width,
+         crop_height,
+         gravity,
+         x_offset,
+         y_offset
+       ) do
+    crop_width = max(1, min(image_width, crop_width))
+    crop_height = max(1, min(image_height, crop_height))
+
+    {left, top} = gravity_origin(gravity, image_width, image_height, crop_width, crop_height)
+
+    %{
+      left: clamp_position(round_ties_to_even(left + x_offset), image_width - crop_width),
+      top: clamp_position(round_ties_to_even(top + y_offset), image_height - crop_height),
+      width: crop_width,
+      height: crop_height
+    }
+  end
+
+  defp gravity_origin(
+         {:anchor, x_anchor, y_anchor},
+         image_width,
+         image_height,
+         crop_width,
+         crop_height
+       ) do
+    {
+      anchor_origin(x_anchor, image_width, crop_width),
+      anchor_origin(y_anchor, image_height, crop_height)
+    }
+  end
+
+  defp gravity_origin({:fp, x, y}, image_width, image_height, crop_width, crop_height) do
+    {
+      x * image_width - crop_width / 2,
+      y * image_height - crop_height / 2
+    }
+  end
+
+  defp anchor_origin(:left, _bounds, _crop), do: 0.0
+  defp anchor_origin(:top, _bounds, _crop), do: 0.0
+  defp anchor_origin(:center, bounds, crop), do: (bounds - crop + 1) / 2
+  defp anchor_origin(:right, bounds, crop), do: bounds - crop
+  defp anchor_origin(:bottom, bounds, crop), do: bounds - crop
+
+  defp clamp_position(value, max_value), do: max(0, min(max_value, value))
+
+  defp crop_dimension(:auto, bounds), do: {:ok, bounds}
+
+  defp crop_dimension(value, bounds) when is_integer(value) and value > 0,
+    do: {:ok, min(value, bounds)}
+
+  defp crop_dimension(value, bounds) when is_float(value) and value > 0,
+    do: {:ok, min(round_ties_to_even(value), bounds)}
+
+  defp crop_dimension({:pixels, value}, bounds), do: crop_dimension(value, bounds)
+
+  defp crop_dimension({:scale, numerator, denominator}, bounds)
+       when is_number(numerator) and is_number(denominator) and numerator > 0 and denominator > 0 do
+    {:ok, min(round_ties_to_even(bounds * numerator / denominator), bounds)}
+  end
+
+  defp crop_dimension({:scale, value}, bounds) when is_number(value) and value > 0 do
+    {:ok, min(round_ties_to_even(bounds * value), bounds)}
+  end
+
+  defp crop_dimension({:percent, value}, bounds) when is_number(value) and value > 0 do
+    {:ok, min(round_ties_to_even(bounds * value / 100), bounds)}
+  end
+
+  defp crop_dimension(value, _bounds), do: {:error, {:invalid_crop_dimension, value}}
+
+  defp crop_offset(value, _bounds, _offset_scale) when is_number(value), do: {:ok, value}
+
+  defp crop_offset({:scale, numerator, denominator}, bounds, _offset_scale)
+       when is_number(numerator) and is_number(denominator) and denominator != 0 do
+    {:ok, bounds * numerator / denominator}
+  end
+
+  defp crop_offset({:scale, value}, bounds, _offset_scale) when is_number(value),
+    do: {:ok, bounds * value}
+
+  defp crop_offset({:percent, value}, bounds, _offset_scale) when is_number(value),
+    do: {:ok, bounds * value / 100}
+
+  defp crop_offset({:pixels, value}, _bounds, offset_scale) when is_number(value),
+    do: {:ok, value * offset_scale}
+
+  defp crop_offset(value, _bounds, _offset_scale), do: {:error, {:invalid_crop_offset, value}}
+
+  defp offset_scale(value) when is_number(value) and value > 0, do: {:ok, value * 1.0}
+  defp offset_scale(value), do: {:error, {:invalid_crop_offset_scale, value}}
+
+  defp crop_gravity({:anchor, x, y} = gravity)
+       when x in [:left, :center, :right] and y in [:top, :center, :bottom],
+       do: {:ok, gravity}
+
+  defp crop_gravity({:fp, x, y} = gravity)
+       when is_number(x) and is_number(y) and x >= 0.0 and x <= 1.0 and y >= 0.0 and y <= 1.0,
+       do: {:ok, gravity}
+
+  defp crop_gravity(value), do: {:error, {:invalid_crop_gravity, value}}
+
+  defp round_ties_to_even(value) when is_integer(value), do: value
+
+  defp round_ties_to_even(value) when is_float(value) do
+    floor = Float.floor(value)
+    fraction = value - floor
+    floor = trunc(floor)
+
+    cond do
+      fraction < 0.5 -> floor
+      fraction > 0.5 -> floor + 1
+      rem(floor, 2) == 0 -> floor
+      true -> floor + 1
+    end
+  end
 
   defp anchor_crop_to_pixels(
          %{left: left, top: top},
