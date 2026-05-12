@@ -1,8 +1,6 @@
 defmodule ImagePlug.Transform.DecodePlannerTest do
   use ExUnit.Case, async: true
 
-  alias ImagePlug.Plan.Geometry.Dimension
-  alias ImagePlug.Plan.Geometry.Size
   alias ImagePlug.Plan.Operation
   alias ImagePlug.Transform.Operation.AutoOrient
   alias ImagePlug.Transform.Operation.Contain
@@ -260,10 +258,7 @@ defmodule ImagePlug.Transform.DecodePlannerTest do
   end
 
   test "unresolved semantic source-dependent operations stay random before metadata" do
-    assert {:ok, width} = Dimension.pixels(80)
-    assert {:ok, height} = Dimension.pixels(80)
-    assert {:ok, size} = Size.new(width: width, height: height, dpr: 1.0)
-    assert {:ok, resize_auto} = Operation.resize_auto(size: size, enlargement: :deny)
+    assert {:ok, resize_auto} = Operation.resize(:auto, {:px, 80}, {:px, 80})
 
     assert {:ok, crop_region} =
              Operation.crop_region(
@@ -278,12 +273,8 @@ defmodule ImagePlug.Transform.DecodePlannerTest do
   end
 
   test "semantic fit and stretch with requested dimensions stay sequential" do
-    assert {:ok, width} = Dimension.pixels(100)
-    assert {:ok, height} = Dimension.auto()
-    assert {:ok, size} = Size.new(width: width, height: height, dpr: 1.0)
-
-    assert {:ok, fit} = Operation.resize_fit(size: size, enlargement: :deny)
-    assert {:ok, stretch} = Operation.resize_stretch(size: size, enlargement: :deny)
+    assert {:ok, fit} = Operation.resize(:fit, {:px, 100}, :auto)
+    assert {:ok, stretch} = Operation.resize(:stretch, {:px, 100}, :auto)
 
     assert DecodePlanner.open_options([fit]) == [access: :sequential, fail_on: :error]
     assert DecodePlanner.open_options([stretch]) == [access: :sequential, fail_on: :error]

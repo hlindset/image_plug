@@ -7,8 +7,6 @@ defmodule ImagePlug.Cache.KeyPropertyTest do
 
   alias ImagePlug.Cache.Key
   alias ImagePlug.Plan
-  alias ImagePlug.Plan.Geometry.Dimension
-  alias ImagePlug.Plan.Geometry.Size
   alias ImagePlug.Plan.Operation
   alias ImagePlug.Plan.Output
   alias ImagePlug.Plan.Pipeline
@@ -378,7 +376,7 @@ defmodule ImagePlug.Cache.KeyPropertyTest do
           source: %Plain{path: ["images", "cat.jpg"]},
           pipelines: [
             %Pipeline{
-              operations: [resize_fit_operation(300, :auto)]
+              operations: [resize_operation(300, :auto)]
             }
           ],
           output: %Output{mode: {:explicit, :webp}}
@@ -405,7 +403,7 @@ defmodule ImagePlug.Cache.KeyPropertyTest do
   defp operation do
     one_of([
       map({positive_pixel(), maybe_dimension_atom()}, fn {width, height} ->
-        resize_fit_operation(width, height)
+        resize_operation(width, height)
       end),
       map({positive_pixel(), positive_pixel()}, fn {width, height} ->
         crop_guided_operation(width, height)
@@ -417,13 +415,15 @@ defmodule ImagePlug.Cache.KeyPropertyTest do
     one_of([
       map({positive_pixel(), maybe_dimension_atom()}, fn {width, height} ->
         [
-          op: :resize_fit,
-          size: [
-            width: [unit: :logical_px, value: width],
-            height: dimension_data(height),
-            dpr: 1.0
-          ],
+          op: :resize,
+          mode: :fit,
+          width: [unit: :logical_px, value: width],
+          height: dimension_data(height),
+          dpr: [unit: :ratio, numerator: 1, denominator: 1],
           enlargement: :deny,
+          guide: :center,
+          x_offset: {:pixels, 0.0},
+          y_offset: {:pixels, 0.0},
           min_width: nil,
           min_height: nil,
           zoom_x: 1.0,
@@ -443,11 +443,10 @@ defmodule ImagePlug.Cache.KeyPropertyTest do
     ])
   end
 
-  defp resize_fit_operation(width, height) do
-    {:ok, width} = Dimension.pixels(width)
-    {:ok, height} = semantic_dimension(height)
-    {:ok, size} = Size.new(width: width, height: height, dpr: 1.0)
-    {:ok, operation} = Operation.resize_fit(size: size, enlargement: :deny)
+  defp resize_operation(width, height) do
+    {:ok, operation} =
+      Operation.resize(:fit, {:px, width}, tagged_resize_dimension(height), enlargement: :deny)
+
     operation
   end
 
@@ -456,11 +455,11 @@ defmodule ImagePlug.Cache.KeyPropertyTest do
     operation
   end
 
-  defp semantic_dimension(:auto), do: Dimension.auto()
-  defp semantic_dimension(pixels), do: Dimension.pixels(pixels)
-
   defp dimension_data(:auto), do: [unit: :auto]
   defp dimension_data(pixels), do: [unit: :logical_px, value: pixels]
+
+  defp tagged_resize_dimension(:auto), do: :auto
+  defp tagged_resize_dimension(pixels), do: {:px, pixels}
 
   defp origin_identity do
     map(source_path(), fn path -> "https://origin.test/#{Enum.join(path, "/")}" end)

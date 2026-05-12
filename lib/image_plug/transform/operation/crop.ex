@@ -91,8 +91,8 @@ defmodule ImagePlug.Transform.Operation.Crop do
         y_offset: {:pixels, -12}
       }
 
-  A semantic crop request with focal-point guide may lower to the same kind of
-  `Crop` operation. URL grammar and aliases stay in parser documentation.
+  A semantic crop request with focal-point guide may execute as the same kind
+  of `Crop` operation. URL grammar and aliases stay in parser documentation.
   """
 
   @behaviour ImagePlug.Transform
@@ -128,7 +128,7 @@ defmodule ImagePlug.Transform.Operation.Crop do
   @type t :: %__MODULE__{
           width: ImagePlug.Transform.Types.length() | :auto,
           height: ImagePlug.Transform.Types.length() | :auto,
-          # Future lowering work can output focus + crop actions instead of this special crop_from handling.
+          # Future execution work can output focus + crop actions instead of this special crop_from handling.
           crop_from:
             :focus
             | :gravity

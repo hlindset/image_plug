@@ -103,11 +103,11 @@ att:%boolean
 plain source @extension
 ```
 
-Recognized resizing types are `fit`, `fill`, `force`, `auto`, and `fill-down`. `auto` maps to semantic `ResizeAuto`; the selected fit/cover branch is derived after a cache miss from the current dimensions at that point in the semantic pipeline. Width and height values are pixel dimensions; `0` means unconstrained when accepted by the selected option.
+Recognized resizing types are `fit`, `fill`, `force`, `auto`, and `fill-down`. `auto` maps to a semantic resize operation with `mode: :auto`; the selected fit/cover branch is derived after a cache miss from the current dimensions at that point in the Plan. Width and height values are pixel dimensions; `0` means unconstrained when accepted by the selected option.
 
 Supported gravity values are the imgproxy compass anchors, `ce`, `no`, `so`, `ea`, `we`, `noea`, `nowe`, `soea`, `sowe`, focal point `fp:%x:%y`, and smart gravity `sm`. Smart gravity parses but is not planned in this slice.
 
-`quality` and `format_quality` configure output encoding. `cachebuster` changes cache key material. `expires` is request validity policy. `filename` and `return_attachment` configure response delivery. These options are not transforms and do not add image pipeline operations.
+`quality` and `format_quality` configure output encoding. `cachebuster` changes cache key data. `expires` is request validity policy. `filename` and `return_attachment` configure response delivery. These options are not transforms and do not add image pipeline operations.
 
 Supported explicit output extensions are `webp`, `avif`, `jpeg`, `jpg`, `png`, and `best`. `jpg` normalizes to JPEG. `best` parses but is not planned in this slice.
 
@@ -168,9 +168,9 @@ forward "/",
   ]
 ```
 
-Cache lookup happens only after the request parses, the pipeline plans, and the origin identity/freshness material is resolved. It does not fetch, decode, or read metadata from the origin image. Invalid requests return `400` before origin or cache access. Parser, planner, origin fetch, decode, transform, negotiation, and encode errors are never cached.
+Cache lookup happens only after the request parses, the pipeline plans, and the origin identity/freshness data is resolved. It does not fetch, decode, or read metadata from the origin image. Invalid requests return `400` before origin or cache access. Parser, planner, origin fetch, decode, transform, negotiation, and encode errors are never cached.
 
-Cache keys include resolved origin identity/freshness material, canonical semantic Plan operation material, the cache key's transform material version, configured `:key_headers` and `:key_cookies`, and normalized automatic-output inputs when output is automatic: detected modern output candidates plus `:auto_avif` / `:auto_webp` flags. They exclude request signatures, raw request paths, query strings, raw `Accept` headers, source metadata, decoded image properties, source-aware resolver choices, and unconfigured headers or cookies. Key material includes a schema version and deterministic primitive serialization. Explicit formats bypass `Accept` negotiation and therefore do not vary by `Accept`.
+Cache keys include resolved origin identity/freshness data, canonical Plan operation key data, the cache key's transform key data version, configured `:key_headers` and `:key_cookies`, and normalized automatic-output inputs when output is automatic: detected modern output candidates plus `:auto_avif` / `:auto_webp` flags. They exclude request signatures, raw request paths, query strings, raw `Accept` headers, source metadata, decoded image properties, source-aware execution choices, and unconfigured headers or cookies. Key data includes a schema version and deterministic primitive serialization. Explicit formats bypass `Accept` negotiation and therefore do not vary by `Accept`.
 
 Cached response headers are restricted to `vary` and `cache-control`. Header names are normalized to lowercase, and duplicate allowed headers are preserved.
 

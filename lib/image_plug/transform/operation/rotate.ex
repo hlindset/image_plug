@@ -17,7 +17,7 @@ defmodule ImagePlug.Transform.Operation.Rotate do
 
   The operation does not normalize arbitrary degree values; semantic planning
   must translate compatible syntax into one of the accepted right-angle values
-  before lowering.
+  before Plan execution.
 
   ## Execution Semantics
 

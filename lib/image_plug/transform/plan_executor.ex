@@ -2,16 +2,10 @@ defmodule ImagePlug.Transform.PlanExecutor do
   @moduledoc false
 
   alias ImagePlug.Plan
-  alias ImagePlug.Plan.Geometry.Dimension
-  alias ImagePlug.Plan.Guide.Gravity
   alias ImagePlug.Plan.Operation.Canvas
   alias ImagePlug.Plan.Operation.CropGuided
   alias ImagePlug.Plan.Operation.CropRegion
   alias ImagePlug.Plan.Operation.Resize, as: PlanResize
-  alias ImagePlug.Plan.Operation.ResizeAuto
-  alias ImagePlug.Plan.Operation.ResizeCover
-  alias ImagePlug.Plan.Operation.ResizeFit
-  alias ImagePlug.Plan.Operation.ResizeStretch
   alias ImagePlug.Plan.Pipeline
   alias ImagePlug.Transform.Chain
   alias ImagePlug.Transform.Geometry.DimensionRule
@@ -89,34 +83,6 @@ defmodule ImagePlug.Transform.PlanExecutor do
     tagged_executable_resize_operations(branch, rule, operation)
   end
 
-  defp executable_operations(%ResizeFit{} = operation, %State{}, _metadata, _opts) do
-    [%Resize{rule: dimension_rule(operation, :fit)}]
-  end
-
-  defp executable_operations(%ResizeCover{} = operation, %State{}, _metadata, _opts) do
-    operation
-    |> dimension_rule(:cover)
-    |> cover_resize_and_crop(executable_gravity(operation.guide), crop_offsets(operation))
-  end
-
-  defp executable_operations(%ResizeStretch{} = operation, %State{}, _metadata, _opts) do
-    [%Resize{rule: dimension_rule(operation, :stretch)}]
-  end
-
-  defp executable_operations(%ResizeAuto{} = operation, %State{} = state, _metadata, _opts) do
-    branch =
-      resize_auto_branch(
-        Image.width(state.image),
-        Image.height(state.image),
-        logical_pixels(operation.size.width),
-        logical_pixels(operation.size.height)
-      )
-
-    rule = dimension_rule(operation, branch)
-
-    executable_resize_operations(branch, rule, operation)
-  end
-
   defp executable_operations(%CropGuided{} = operation, %State{}, _metadata, _opts) do
     [
       %Crop{
@@ -176,14 +142,6 @@ defmodule ImagePlug.Transform.PlanExecutor do
     [%Resize{rule: rule}]
   end
 
-  defp executable_resize_operations(:cover, %DimensionRule{} = rule, operation) do
-    cover_resize_and_crop(rule, executable_gravity(operation.guide), crop_offsets(operation))
-  end
-
-  defp executable_resize_operations(:fit, %DimensionRule{} = rule, _operation) do
-    [%Resize{rule: rule}]
-  end
-
   defp cover_resize_and_crop(%DimensionRule{} = rule, gravity, {x_offset, y_offset}) do
     [
       %Resize{rule: rule},
@@ -213,20 +171,6 @@ defmodule ImagePlug.Transform.PlanExecutor do
     }
   end
 
-  defp dimension_rule(operation, mode) do
-    %DimensionRule{
-      mode: dimension_rule_mode(mode),
-      width: executable_resize_dimension(operation.size.width),
-      height: executable_resize_dimension(operation.size.height),
-      min_width: executable_optional_resize_dimension(operation.min_width),
-      min_height: executable_optional_resize_dimension(operation.min_height),
-      zoom_x: operation.zoom_x,
-      zoom_y: operation.zoom_y,
-      dpr: operation.size.dpr,
-      enlarge: operation.enlargement == :allow
-    }
-  end
-
   defp dimension_rule_mode(:cover), do: :fill
   defp dimension_rule_mode(:fit), do: :fit
   defp dimension_rule_mode(:stretch), do: :force
@@ -239,34 +183,12 @@ defmodule ImagePlug.Transform.PlanExecutor do
   defp tagged_executable_optional_resize_dimension(dimension),
     do: tagged_executable_resize_dimension(dimension)
 
-  defp executable_resize_dimension(%Dimension{unit: :auto}), do: :auto
-
-  defp executable_resize_dimension(%Dimension{unit: :logical_px, value: value}),
-    do: {:pixels, value}
-
-  defp executable_optional_resize_dimension(nil), do: nil
-
-  defp executable_optional_resize_dimension(%Dimension{} = dimension),
-    do: executable_resize_dimension(dimension)
-
-  defp crop_dimension(%Dimension{unit: :full_axis}), do: :auto
-  defp crop_dimension(%Dimension{unit: :logical_px, value: value}), do: {:pixels, value}
-
-  defp crop_dimension(%Dimension{unit: :ratio, numerator: numerator, denominator: denominator}),
-    do: {:scale, numerator / denominator}
-
   defp crop_dimension(:full_axis), do: :auto
   defp crop_dimension({:px, value}), do: {:pixels, value}
   defp crop_dimension({:ratio, numerator, denominator}), do: {:scale, numerator, denominator}
 
   defp crop_coordinate({:px, value}), do: {:pixels, value}
   defp crop_coordinate({:ratio, numerator, denominator}), do: {:scale, numerator, denominator}
-
-  defp canvas_dimension(%Dimension{unit: :auto}), do: :auto
-  defp canvas_dimension(%Dimension{unit: :logical_px, value: value}), do: {:pixels, value}
-
-  defp canvas_dimension(%Dimension{unit: :ratio, numerator: numerator, denominator: denominator}),
-    do: {:ratio, numerator / denominator}
 
   defp canvas_dimension(:auto), do: :auto
   defp canvas_dimension({:px, value}), do: {:pixels, value}
@@ -289,26 +211,12 @@ defmodule ImagePlug.Transform.PlanExecutor do
   defp tagged_executable_gravity({:focal, x, y}),
     do: {:fp, tagged_ratio_to_float(x), tagged_ratio_to_float(y)}
 
-  defp executable_gravity(%Gravity{type: :anchor, x: x, y: y, space: :current}),
-    do: {:anchor, x, y}
-
-  defp executable_gravity(%Gravity{type: :focal_point, space: :current} = gravity) do
-    {:fp, ratio_to_float(gravity.x), ratio_to_float(gravity.y)}
-  end
-
   defp tagged_logical_pixels({:px, value}), do: value
   defp tagged_logical_pixels(_dimension), do: :unknown
-
-  defp logical_pixels(%Dimension{unit: :logical_px, value: value}), do: value
-  defp logical_pixels(%Dimension{}), do: :unknown
 
   defp tagged_dpr_float({:ratio, numerator, denominator}), do: numerator / denominator
 
   defp tagged_ratio_to_float({:ratio, numerator, denominator}), do: numerator / denominator
-
-  defp ratio_to_float(%Dimension{unit: :ratio, numerator: numerator, denominator: denominator}) do
-    numerator / denominator
-  end
 
   defp crop_offsets(operation), do: {operation.x_offset, operation.y_offset}
 

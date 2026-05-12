@@ -6,8 +6,6 @@ defmodule ImagePlug.Cache.KeyTest do
 
   alias ImagePlug.Cache.Key
   alias ImagePlug.Plan
-  alias ImagePlug.Plan.Geometry.Dimension
-  alias ImagePlug.Plan.Geometry.Size
   alias ImagePlug.Plan.Operation
   alias ImagePlug.Plan.Output
   alias ImagePlug.Plan.Pipeline
@@ -44,19 +42,18 @@ defmodule ImagePlug.Cache.KeyTest do
   end
 
   defp resize_fit_operation(width, height, attrs \\ []) do
-    assert {:ok, width} = semantic_dimension(width)
-    assert {:ok, height} = semantic_dimension(height)
-
-    assert {:ok, size} =
-             Size.new(width: width, height: height, dpr: Keyword.get(attrs, :dpr, 1.0))
-
     operation_attrs =
       attrs
-      |> Keyword.drop([:dpr])
       |> Keyword.put_new(:enlargement, :deny)
-      |> Keyword.put(:size, size)
 
-    assert {:ok, operation} = Operation.resize_fit(operation_attrs)
+    assert {:ok, operation} =
+             Operation.resize(
+               :fit,
+               tagged_resize_dimension(width),
+               tagged_resize_dimension(height),
+               operation_attrs
+             )
+
     operation
   end
 
@@ -79,9 +76,6 @@ defmodule ImagePlug.Cache.KeyTest do
 
     operation
   end
-
-  defp semantic_dimension(:auto), do: Dimension.auto()
-  defp semantic_dimension(pixels), do: Dimension.pixels(pixels)
 
   defp tagged_dimension(:auto), do: :full_axis
   defp tagged_dimension(pixels), do: {:px, pixels}
@@ -106,13 +100,15 @@ defmodule ImagePlug.Cache.KeyTest do
              pipelines: [
                [
                  [
-                   op: :resize_fit,
-                   size: [
-                     width: [unit: :logical_px, value: 300],
-                     height: [unit: :auto],
-                     dpr: 1.0
-                   ],
+                   op: :resize,
+                   mode: :fit,
+                   width: [unit: :logical_px, value: 300],
+                   height: [unit: :auto],
+                   dpr: [unit: :ratio, numerator: 1, denominator: 1],
                    enlargement: :deny,
+                   guide: :center,
+                   x_offset: {:pixels, 0.0},
+                   y_offset: {:pixels, 0.0},
                    min_width: nil,
                    min_height: nil,
                    zoom_x: 1.0,
@@ -167,13 +163,15 @@ defmodule ImagePlug.Cache.KeyTest do
     assert key.data[:pipelines] == [
              [
                [
-                 op: :resize_fit,
-                 size: [
-                   width: [unit: :logical_px, value: 300],
-                   height: [unit: :auto],
-                   dpr: 1.0
-                 ],
+                 op: :resize,
+                 mode: :fit,
+                 width: [unit: :logical_px, value: 300],
+                 height: [unit: :auto],
+                 dpr: [unit: :ratio, numerator: 1, denominator: 1],
                  enlargement: :deny,
+                 guide: :center,
+                 x_offset: {:pixels, 0.0},
+                 y_offset: {:pixels, 0.0},
                  min_width: nil,
                  min_height: nil,
                  zoom_x: 1.0,
@@ -290,8 +288,9 @@ defmodule ImagePlug.Cache.KeyTest do
       )
 
     assert [[resize_data]] = key.data[:pipelines]
-    assert resize_data[:op] == :resize_fit
-    assert resize_data[:size][:dpr] == 2.0
+    assert resize_data[:op] == :resize
+    assert resize_data[:mode] == :fit
+    assert resize_data[:dpr] == [unit: :ratio, numerator: 2, denominator: 1]
     assert resize_data[:zoom_x] == 2.0
     assert resize_data[:zoom_y] == 1.5
   end
@@ -378,8 +377,6 @@ defmodule ImagePlug.Cache.KeyTest do
     refute Keyword.has_key?(key_data, :branch)
     refute serialized =~ "resize_auto_branch"
     refute serialized =~ "selected_branch"
-    refute Keyword.has_key?(key_before.data, :resolver_material)
-    refute Keyword.has_key?(key_before.data, :resolver_key_data)
     refute Keyword.has_key?(key_before.data, :derivations)
   end
 
@@ -428,10 +425,7 @@ defmodule ImagePlug.Cache.KeyTest do
       |> File.read!()
 
     refute source =~ "Transform.resolve"
-    refute source =~ "ImagePlug.Transform.Resolver"
     refute source =~ "SourceMetadata"
-    refute source =~ "ResolvedPlan"
-    refute source =~ "Resolver.Geometry"
     refute source =~ "source_width"
     refute source =~ "source_height"
   end

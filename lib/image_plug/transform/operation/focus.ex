@@ -11,7 +11,8 @@ defmodule ImagePlug.Transform.Operation.Focus do
 
   `Focus` is not a visible crop by itself; it records focus metadata on
   `ImagePlug.Transform.State`. The current Imgproxy-compatible semantic plan
-  maps focal-point guides to crop/cover lowering instead of emitting `Focus`.
+  maps focal-point guides to crop/cover executable work instead of emitting
+  `Focus`.
 
   ## Fields
 

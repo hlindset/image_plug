@@ -6,7 +6,7 @@ defmodule ImagePlug.Plan.VendorMappingFixtureTest do
       vendor: :imgproxy,
       input: "rt:fill/w:300/h:200/g:fp:0.25:0.75",
       classification: :supported_now,
-      semantic_shape: [:resize_cover],
+      semantic_shape: [resize: :cover],
       notes: "focal guide belongs on cover-style semantic operation"
     },
     %{
@@ -20,8 +20,8 @@ defmodule ImagePlug.Plan.VendorMappingFixtureTest do
       vendor: :imgproxy,
       input: "rt:auto/w:300/h:200",
       classification: :supported_now,
-      semantic_shape: [:resize_auto],
-      notes: "branch is source-aware execution, not cache key material"
+      semantic_shape: [resize: :auto],
+      notes: "branch is source-aware execution, not cache key data"
     },
     %{
       vendor: :twicpics,
@@ -41,14 +41,14 @@ defmodule ImagePlug.Plan.VendorMappingFixtureTest do
       vendor: :iiif,
       input: "pct:10,10,80,80/300,",
       classification: :representable_not_executable,
-      semantic_shape: [:crop_region, :resize_fit],
+      semantic_shape: [:crop_region, {:resize, :fit}],
       notes: "IIIF region is source-space before size"
     },
     %{
       vendor: :cloudinary,
       input: "c_fill,g_auto,w_300,h_200",
       classification: :representable_not_executable,
-      semantic_shape: [:resize_cover, :strategy_guide],
+      semantic_shape: [{:resize, :cover}, :strategy_guide],
       notes: "smart crop can map to guided cover once strategy guides exist"
     }
   ]
@@ -80,7 +80,7 @@ defmodule ImagePlug.Plan.VendorMappingFixtureTest do
                fixture.vendor in [:imgproxy, :twicpics, :iiif, :cloudinary] and
                is_binary(fixture.input) and
                is_list(fixture.semantic_shape) and
-               Enum.all?(fixture.semantic_shape, &is_atom/1) and
+               Enum.all?(fixture.semantic_shape, &semantic_shape?/1) and
                is_binary(fixture.notes)
            end)
   end
@@ -97,4 +97,8 @@ defmodule ImagePlug.Plan.VendorMappingFixtureTest do
              %{classification: classification} -> classification != :supported_now
            end)
   end
+
+  defp semantic_shape?(shape) when is_atom(shape), do: true
+  defp semantic_shape?({:resize, mode}) when mode in [:fit, :cover, :stretch, :auto], do: true
+  defp semantic_shape?(_shape), do: false
 end

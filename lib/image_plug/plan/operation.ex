@@ -3,22 +3,14 @@ defmodule ImagePlug.Plan.Operation do
   Constructor facade for canonical semantic Plan operations.
   """
 
-  alias ImagePlug.Plan.Geometry.Dimension
-  alias ImagePlug.Plan.Geometry.Size
-  alias ImagePlug.Plan.Guide.Gravity
   alias ImagePlug.Plan.Operation.Canvas
   alias ImagePlug.Plan.Operation.CropGuided
   alias ImagePlug.Plan.Operation.CropRegion
   alias ImagePlug.Plan.Operation.Resize
-  alias ImagePlug.Plan.Operation.ResizeAuto
-  alias ImagePlug.Plan.Operation.ResizeCover
-  alias ImagePlug.Plan.Operation.ResizeFit
-  alias ImagePlug.Plan.Operation.ResizeStretch
 
   @enlargements [:allow, :deny]
   @right_angles [0, 90, 180, 270]
   @flip_axes [:horizontal, :vertical, :both]
-  @prefetch_gravity_spaces [:current]
   @x_anchors [:left, :center, :right]
   @y_anchors [:top, :center, :bottom]
   @crop_anchor_guides [
@@ -44,8 +36,6 @@ defmodule ImagePlug.Plan.Operation do
     :zoom_x,
     :zoom_y
   ]
-  @resize_keys [:size, :enlargement, :min_width, :min_height, :zoom_x, :zoom_y]
-  @resize_placement_keys [:guide, :x_offset, :y_offset]
   @crop_guided_keys [:x_offset, :y_offset]
   @canvas_keys [:background, :overflow, :x_offset, :y_offset]
   # Keep the orientation primitive allowlist centralized without importing
@@ -54,23 +44,9 @@ defmodule ImagePlug.Plan.Operation do
   @rotate_module :"Elixir.ImagePlug.Transform.Operation.Rotate"
   @flip_module :"Elixir.ImagePlug.Transform.Operation.Flip"
   @orientation_primitive_modules [@auto_orient_module, @rotate_module, @flip_module]
-  @semantic_modules [
-    CropGuided,
-    CropRegion,
-    Canvas,
-    Resize,
-    ResizeFit,
-    ResizeCover,
-    ResizeStretch,
-    ResizeAuto
-  ]
+  @semantic_modules [CropGuided, CropRegion, Canvas, Resize]
 
-  @type resize_operation ::
-          Resize.t()
-          | ResizeFit.t()
-          | ResizeCover.t()
-          | ResizeStretch.t()
-          | ResizeAuto.t()
+  @type resize_operation :: Resize.t()
 
   @type crop_operation ::
           CropGuided.t()
@@ -222,71 +198,6 @@ defmodule ImagePlug.Plan.Operation do
 
   def resize(mode, width, height, opts), do: invalid(:resize, [mode, width, height, opts])
 
-  @spec resize_fit(keyword()) :: {:ok, ResizeFit.t()} | {:error, error()}
-  def resize_fit(attrs) when is_list(attrs) do
-    with :ok <- validate_known_options(:resize_fit, attrs, @resize_keys),
-         {:ok, attrs} <- resize_attrs(:resize_fit, attrs) do
-      ResizeFit
-      |> struct!(attrs)
-      |> validate_constructed(:resize_fit, attrs)
-    end
-  end
-
-  def resize_fit(attrs), do: invalid(:resize_fit, attrs)
-
-  @spec resize_cover(keyword()) :: {:ok, ResizeCover.t()} | {:error, error()}
-  def resize_cover(attrs) when is_list(attrs) do
-    with :ok <-
-           validate_known_options(:resize_cover, attrs, @resize_keys ++ @resize_placement_keys),
-         {:ok, resize_attrs} <- resize_attrs(:resize_cover, attrs),
-         {:ok, guide} <- fetch_struct(attrs, :guide, Gravity),
-         {:ok, x_offset} <- offset(attrs, :x_offset, {:pixels, 0.0}),
-         {:ok, y_offset} <- offset(attrs, :y_offset, {:pixels, 0.0}) do
-      ResizeCover
-      |> struct!(
-        Keyword.merge(resize_attrs, guide: guide, x_offset: x_offset, y_offset: y_offset)
-      )
-      |> validate_constructed(:resize_cover, attrs)
-    else
-      error -> constructor_error(error, :resize_cover, attrs)
-    end
-  end
-
-  def resize_cover(attrs), do: invalid(:resize_cover, attrs)
-
-  @spec resize_stretch(keyword()) :: {:ok, ResizeStretch.t()} | {:error, error()}
-  def resize_stretch(attrs) when is_list(attrs) do
-    with :ok <- validate_known_options(:resize_stretch, attrs, @resize_keys),
-         {:ok, attrs} <- resize_attrs(:resize_stretch, attrs) do
-      ResizeStretch
-      |> struct!(attrs)
-      |> validate_constructed(:resize_stretch, attrs)
-    end
-  end
-
-  def resize_stretch(attrs), do: invalid(:resize_stretch, attrs)
-
-  @spec resize_auto(keyword()) :: {:ok, ResizeAuto.t()} | {:error, error()}
-  def resize_auto(attrs) when is_list(attrs) do
-    with :ok <-
-           validate_known_options(:resize_auto, attrs, @resize_keys ++ @resize_placement_keys),
-         {:ok, resize_attrs} <- resize_attrs(:resize_auto, attrs),
-         {:ok, guide} <-
-           optional_struct(attrs, :guide, Gravity, fn -> Gravity.anchor(:center, :center) end),
-         {:ok, x_offset} <- offset(attrs, :x_offset, {:pixels, 0.0}),
-         {:ok, y_offset} <- offset(attrs, :y_offset, {:pixels, 0.0}) do
-      ResizeAuto
-      |> struct!(
-        Keyword.merge(resize_attrs, guide: guide, x_offset: x_offset, y_offset: y_offset)
-      )
-      |> validate_constructed(:resize_auto, attrs)
-    else
-      error -> constructor_error(error, :resize_auto, attrs)
-    end
-  end
-
-  def resize_auto(attrs), do: invalid(:resize_auto, attrs)
-
   @spec semantic?(term()) :: boolean()
   def semantic?(%module{}),
     do: module in @semantic_modules or module in @orientation_primitive_modules
@@ -304,10 +215,6 @@ defmodule ImagePlug.Plan.Operation do
   def access_metadata(%Resize{mode: :fit} = operation), do: resize_access_metadata(operation)
   def access_metadata(%Resize{mode: :stretch} = operation), do: resize_access_metadata(operation)
   def access_metadata(%Resize{mode: mode}) when mode in [:cover, :auto], do: %{access: :random}
-  def access_metadata(%ResizeFit{} = operation), do: resize_access_metadata(operation)
-  def access_metadata(%ResizeStretch{} = operation), do: resize_access_metadata(operation)
-  def access_metadata(%ResizeCover{}), do: %{access: :random}
-  def access_metadata(%ResizeAuto{}), do: %{access: :random}
   def access_metadata(%CropGuided{}), do: %{access: :random}
   def access_metadata(%CropRegion{}), do: %{access: :random}
   def access_metadata(%Canvas{}), do: %{access: :random}
@@ -336,44 +243,6 @@ defmodule ImagePlug.Plan.Operation do
          :ok <- validate_tagged_resize_offsets(mode, operation),
          :ok <- validate_tagged_resize_modifiers(operation) do
       validate_tagged_resize_access(mode, operation)
-    end
-  end
-
-  def validate_prefetch_safe(%ResizeFit{size: size, enlargement: enlargement} = operation)
-      when enlargement in @enlargements do
-    with :ok <- validate_resize_size(size, operation) do
-      validate_resize_modifiers(operation)
-    end
-  end
-
-  def validate_prefetch_safe(
-        %ResizeCover{
-          size: size,
-          enlargement: enlargement,
-          guide: guide
-        } = operation
-      )
-      when enlargement in @enlargements do
-    with :ok <- validate_resize_size(size, operation),
-         :ok <- validate_resize_modifiers(operation) do
-      validate_gravity(guide, operation)
-    end
-  end
-
-  def validate_prefetch_safe(%ResizeStretch{size: size, enlargement: enlargement} = operation)
-      when enlargement in @enlargements do
-    with :ok <- validate_resize_size(size, operation) do
-      validate_resize_modifiers(operation)
-    end
-  end
-
-  def validate_prefetch_safe(
-        %ResizeAuto{size: size, enlargement: enlargement, guide: guide} = operation
-      )
-      when enlargement in @enlargements do
-    with :ok <- validate_resize_size(size, operation),
-         :ok <- validate_resize_modifiers(operation) do
-      validate_gravity(guide, operation)
     end
   end
 
@@ -437,41 +306,12 @@ defmodule ImagePlug.Plan.Operation do
     end
   end
 
-  defp resize_access_metadata(%{size: size, min_width: nil, min_height: nil}) do
-    case requested_resize_dimension?(size.width) or requested_resize_dimension?(size.height) do
-      true -> %{access: :sequential}
-      false -> %{access: :random}
-    end
-  end
-
   defp resize_access_metadata(_operation), do: %{access: :random}
 
   defp requested_tagged_resize_dimension?({:px, value}) when is_integer(value) and value > 0,
     do: true
 
   defp requested_tagged_resize_dimension?(_dimension), do: false
-
-  defp requested_resize_dimension?(%Dimension{unit: :logical_px, value: value})
-       when is_integer(value) and value > 0,
-       do: true
-
-  defp requested_resize_dimension?(_dimension), do: false
-
-  defp constructor_error(
-         {:error, {:unknown_operation_options, _operation, _keys} = reason},
-         _op,
-         _attrs
-       ),
-       do: {:error, reason}
-
-  defp constructor_error({:error, _reason}, operation, attrs), do: invalid(operation, attrs)
-
-  defp validate_constructed(operation, operation_name, attrs) do
-    case validate_prefetch_safe(operation) do
-      :ok -> {:ok, operation}
-      {:error, _reason} -> invalid(operation_name, attrs)
-    end
-  end
 
   defp validate_known_options(operation, attrs, known_keys) do
     case Keyword.keys(attrs) -- known_keys do
@@ -870,136 +710,14 @@ defmodule ImagePlug.Plan.Operation do
     {:ok, {:ratio, div(numerator, gcd), div(denominator, gcd)}}
   end
 
-  defp validate_resize_size(%Size{} = size, operation) do
-    with :ok <- validate_resize_dimension(size.width, operation),
-         :ok <- validate_resize_dimension(size.height, operation) do
-      validate_dpr(size.dpr, operation)
-    end
-  end
-
-  defp validate_resize_size(_size, operation), do: invalid_pipeline_operation(operation)
-
-  defp validate_resize_modifiers(operation) do
-    with :ok <- validate_optional_resize_dimension(operation.min_width, operation),
-         :ok <- validate_optional_resize_dimension(operation.min_height, operation),
-         :ok <- validate_factor(operation.zoom_x, operation) do
-      validate_factor(operation.zoom_y, operation)
-    end
-  end
-
-  defp validate_gravity(%Gravity{type: :anchor, x: x, y: y, space: space}, _operation)
-       when x in @x_anchors and y in @y_anchors and space in @prefetch_gravity_spaces,
-       do: :ok
-
-  defp validate_gravity(%Gravity{type: :focal_point, x: x, y: y, space: space}, operation)
-       when space in @prefetch_gravity_spaces do
-    with :ok <- validate_ratio_dimension(x, operation) do
-      validate_ratio_dimension(y, operation)
-    end
-  end
-
-  defp validate_gravity(_gravity, operation), do: invalid_pipeline_operation(operation)
-
-  defp validate_resize_dimension(
-         %Dimension{unit: :auto, value: nil, numerator: nil, denominator: nil},
-         _operation
-       ),
-       do: :ok
-
-  defp validate_resize_dimension(
-         %Dimension{unit: :logical_px, value: value, numerator: nil, denominator: nil},
-         _operation
-       )
-       when is_integer(value) and value > 0,
-       do: :ok
-
-  defp validate_resize_dimension(_dimension, operation), do: invalid_pipeline_operation(operation)
-
-  defp validate_optional_resize_dimension(nil, _operation), do: :ok
-
-  defp validate_optional_resize_dimension(%Dimension{} = dimension, operation),
-    do: validate_resize_dimension(dimension, operation)
-
-  defp validate_ratio_dimension(
-         %Dimension{unit: :ratio, value: nil, numerator: numerator, denominator: denominator},
-         operation
-       )
-       when is_integer(numerator) and is_integer(denominator) and numerator >= 0 and
-              denominator > 0 do
-    if Integer.gcd(numerator, denominator) == 1 do
-      :ok
-    else
-      invalid_pipeline_operation(operation)
-    end
-  end
-
-  defp validate_ratio_dimension(_dimension, operation), do: invalid_pipeline_operation(operation)
-
-  defp validate_dpr(dpr, _operation) when is_number(dpr) and dpr > 0, do: :ok
-  defp validate_dpr(_dpr, operation), do: invalid_pipeline_operation(operation)
-
   defp validate_factor(value, _operation) when is_number(value) and value > 0, do: :ok
   defp validate_factor(_value, operation), do: invalid_pipeline_operation(operation)
-
-  defp resize_attrs(operation, attrs) do
-    with {:ok, size} <- fetch_struct(attrs, :size, Size),
-         {:ok, enlargement} <- fetch_member(attrs, :enlargement, @enlargements),
-         {:ok, min_width} <- optional_nilable_struct(attrs, :min_width, Dimension),
-         {:ok, min_height} <- optional_nilable_struct(attrs, :min_height, Dimension),
-         {:ok, zoom_x} <- numeric(attrs, :zoom_x, 1.0),
-         {:ok, zoom_y} <- numeric(attrs, :zoom_y, 1.0) do
-      {:ok,
-       [
-         size: size,
-         enlargement: enlargement,
-         min_width: min_width,
-         min_height: min_height,
-         zoom_x: zoom_x,
-         zoom_y: zoom_y
-       ]}
-    else
-      {:error, _reason} -> invalid(operation, attrs)
-    end
-  end
-
-  defp fetch_struct(attrs, key, module) do
-    case Keyword.fetch(attrs, key) do
-      {:ok, %^module{} = value} -> {:ok, value}
-      {:ok, nil} -> {:error, {key, module}}
-      _other -> {:error, {key, module}}
-    end
-  end
-
-  defp optional_nilable_struct(attrs, key, module) do
-    case Keyword.fetch(attrs, key) do
-      {:ok, %^module{} = value} -> {:ok, value}
-      {:ok, nil} -> {:ok, nil}
-      {:ok, _value} -> {:error, {key, module}}
-      :error -> {:ok, nil}
-    end
-  end
-
-  defp optional_struct(attrs, key, module, default_fun) do
-    case Keyword.fetch(attrs, key) do
-      {:ok, %^module{} = value} -> {:ok, value}
-      {:ok, nil} -> {:error, {key, module}}
-      {:ok, _value} -> {:error, {key, module}}
-      :error -> default_fun.()
-    end
-  end
 
   defp optional_exact(attrs, key, expected) do
     case Keyword.fetch(attrs, key) do
       {:ok, ^expected} -> {:ok, expected}
       {:ok, _value} -> {:error, {key, expected}}
       :error -> {:ok, expected}
-    end
-  end
-
-  defp fetch_member(attrs, key, values) do
-    case Keyword.fetch(attrs, key) do
-      {:ok, value} -> if value in values, do: {:ok, value}, else: {:error, {key, values}}
-      _other -> {:error, {key, values}}
     end
   end
 

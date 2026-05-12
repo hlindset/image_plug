@@ -8,13 +8,11 @@ defmodule ImagePlug.Runtime.RequestRunner do
   alias ImagePlug.Output.Resolved
   alias ImagePlug.Plan
   alias ImagePlug.Plan.Output
-  alias ImagePlug.Plan.Pipeline
   alias ImagePlug.Plan.Response
   alias ImagePlug.Runtime.DecodedOrigin
   alias ImagePlug.Runtime.Processor
   alias ImagePlug.Runtime.ResponseCache
   alias ImagePlug.Transform
-  alias ImagePlug.Transform.Material
   alias ImagePlug.Transform.State
 
   @type delivery() ::
@@ -58,15 +56,7 @@ defmodule ImagePlug.Runtime.RequestRunner do
     end
   end
 
-  defp cache_mode_for_pipelines(pipelines) do
-    if cacheable_operations?(pipelines), do: :cacheable, else: :skip_cache
-  end
-
-  defp cacheable_operations?(pipelines) do
-    Enum.all?(pipelines, fn %Pipeline{operations: operations} ->
-      Enum.all?(operations, fn operation -> Material.impl_for(operation) end)
-    end)
-  end
+  defp cache_mode_for_pipelines(_pipelines), do: :cacheable
 
   defp run_with_cache(conn, plan, origin_identity, opts) do
     case ResponseCache.lookup(conn, plan, origin_identity, opts) do

@@ -2,17 +2,18 @@ defmodule ImagePlug.Transform.KeyData do
   @moduledoc """
   Canonical keyword data helpers for transform cache keys.
 
-  Tagged geometry values are already-normalized semantic values. DPR floats are
-  first rounded and formatted at fixed decimal precision before reduction, so
-  cache material never depends on raw IEEE float representation.
+  Tagged geometry values are already-normalized semantic values. Plan
+  constructors normalize DPR before operations reach cache key construction, so
+  key data never depends on raw IEEE float representation.
   """
-
-  @dpr_float_decimal_places 7
 
   alias ImagePlug.Plan.Operation.CropGuided
   alias ImagePlug.Plan.Operation.CropRegion
   alias ImagePlug.Plan.Operation.Canvas
   alias ImagePlug.Plan.Operation.Resize
+  alias ImagePlug.Transform.Operation.AutoOrient
+  alias ImagePlug.Transform.Operation.Flip
+  alias ImagePlug.Transform.Operation.Rotate
 
   @crop_anchor_guides [
     :center,
@@ -38,8 +39,16 @@ defmodule ImagePlug.Transform.KeyData do
           | {:denominator, pos_integer()}
         ]
 
-  @spec data(geometry_value() | Canvas.t() | CropGuided.t() | CropRegion.t() | Resize.t()) ::
-          keyword()
+  @spec data(
+          geometry_value()
+          | Canvas.t()
+          | CropGuided.t()
+          | CropRegion.t()
+          | Resize.t()
+          | AutoOrient.t()
+          | Rotate.t()
+          | Flip.t()
+        ) :: keyword()
   def data(%Canvas{} = operation) do
     [
       op: :canvas,
@@ -93,6 +102,10 @@ defmodule ImagePlug.Transform.KeyData do
     |> resize_rule_data(operation)
   end
 
+  def data(%AutoOrient{}), do: [op: :auto_orient]
+  def data(%Rotate{} = operation), do: [op: :rotate, angle: operation.angle]
+  def data(%Flip{} = operation), do: [op: :flip, axis: operation.axis]
+
   def data(:auto), do: [unit: :auto]
   def data(:full_axis), do: [unit: :full_axis]
 
@@ -103,22 +116,6 @@ defmodule ImagePlug.Transform.KeyData do
       when is_integer(numerator) and is_integer(denominator) and numerator >= 0 and
              denominator > 0 do
     ratio_data(numerator, denominator)
-  end
-
-  @spec dpr_data(pos_integer() | float() | String.t()) :: ratio_data()
-  def dpr_data(value) when is_integer(value) and value > 0 do
-    ratio_data(value, 1)
-  end
-
-  def dpr_data(value) when is_float(value) and value > 0.0 do
-    value
-    |> Float.round(@dpr_float_decimal_places)
-    |> :erlang.float_to_binary(decimals: @dpr_float_decimal_places)
-    |> decimal_string_ratio_data()
-  end
-
-  def dpr_data(value) when is_binary(value) do
-    decimal_string_ratio_data(value)
   end
 
   defp optional_data(nil), do: nil
@@ -137,36 +134,6 @@ defmodule ImagePlug.Transform.KeyData do
 
   defp resize_rule_data(data, %Resize{}), do: data
 
-  defp decimal_string_ratio_data(value) do
-    value
-    |> decimal_string_ratio()
-    |> dpr_ratio_data()
-  end
-
-  defp decimal_string_ratio(value) do
-    case String.split(value, ".", parts: 2) do
-      [integer] -> {parse_digits!(integer), 1}
-      [integer, fraction] -> decimal_ratio(integer, fraction)
-    end
-  end
-
-  defp decimal_ratio(integer, fraction) when byte_size(fraction) > 0 do
-    denominator = integer_power(10, byte_size(fraction))
-    numerator = parse_digits!(integer) * denominator + parse_digits!(fraction)
-
-    {numerator, denominator}
-  end
-
-  defp parse_digits!(value) do
-    case Integer.parse(value) do
-      {integer, ""} when integer > 0 -> integer
-      {0, ""} -> 0
-    end
-  end
-
-  defp dpr_ratio_data({numerator, denominator}) when numerator > 0,
-    do: ratio_data(numerator, denominator)
-
   defp ratio_data(numerator, denominator) do
     gcd = Integer.gcd(numerator, denominator)
 
@@ -175,9 +142,5 @@ defmodule ImagePlug.Transform.KeyData do
       numerator: div(numerator, gcd),
       denominator: div(denominator, gcd)
     ]
-  end
-
-  defp integer_power(base, exponent) do
-    Enum.reduce(1..exponent//1, 1, fn _step, product -> product * base end)
   end
 end

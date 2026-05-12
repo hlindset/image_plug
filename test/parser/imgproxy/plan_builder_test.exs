@@ -436,7 +436,7 @@ defmodule ImagePlug.Parser.Imgproxy.PlanBuilderTest do
 
     assert operation_names(one_ops) == operation_names(two_ops)
 
-    assert operation_names(one_ops) == [:rotate, :crop_guided, :resize_fit]
+    assert operation_names(one_ops) == [:rotate, :crop_guided, {:resize, :fit}]
 
     assert {:ok, %Plan{pipelines: [%Pipeline{operations: operations}]}} =
              plan_pipeline(
@@ -455,7 +455,7 @@ defmodule ImagePlug.Parser.Imgproxy.PlanBuilderTest do
              :rotate,
              :flip,
              :crop_guided,
-             :resize_fit
+             {:resize, :fit}
            ]
   end
 
@@ -469,7 +469,7 @@ defmodule ImagePlug.Parser.Imgproxy.PlanBuilderTest do
                extend: true
              )
 
-    assert operation_names(operations) == [:resize_cover, :canvas]
+    assert operation_names(operations) == [{:resize, :cover}, :canvas]
   end
 
   test "parsed zoom supports one shared factor or independent axes" do
@@ -835,10 +835,7 @@ defmodule ImagePlug.Parser.Imgproxy.PlanBuilderTest do
   defp operation_name(%Rotate{}), do: :rotate
   defp operation_name(%Flip{}), do: :flip
   defp operation_name(%Operation.CropGuided{}), do: :crop_guided
-  defp operation_name(%Operation.Resize{mode: :fit}), do: :resize_fit
-  defp operation_name(%Operation.Resize{mode: :cover}), do: :resize_cover
-  defp operation_name(%Operation.Resize{mode: :stretch}), do: :resize_stretch
-  defp operation_name(%Operation.Resize{mode: :auto}), do: :resize_auto
+  defp operation_name(%Operation.Resize{mode: mode}), do: {:resize, mode}
   defp operation_name(%Operation.Canvas{}), do: :canvas
 
   defp parsed_request do

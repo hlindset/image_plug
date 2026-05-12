@@ -6,9 +6,6 @@ defmodule ImagePlug.Runtime.RequestRunnerTest do
   alias ImagePlug.Cache.Entry
   alias ImagePlug.Output.Resolved
   alias ImagePlug.Plan
-  alias ImagePlug.Plan.Geometry.Dimension
-  alias ImagePlug.Plan.Geometry.Size
-  alias ImagePlug.Plan.Guide.Gravity
   alias ImagePlug.Plan.Operation
   alias ImagePlug.Plan.Output
   alias ImagePlug.Plan.Pipeline
@@ -117,23 +114,32 @@ defmodule ImagePlug.Runtime.RequestRunnerTest do
   end
 
   defp resize_fit_operation(width, height) do
-    assert {:ok, width} = semantic_dimension(width)
-    assert {:ok, height} = semantic_dimension(height)
-    assert {:ok, size} = Size.new(width: width, height: height, dpr: 1.0)
-    assert {:ok, operation} = Operation.resize_fit(size: size, enlargement: :deny)
+    assert {:ok, operation} =
+             Operation.resize(
+               :fit,
+               tagged_resize_dimension(width),
+               tagged_resize_dimension(height),
+               enlargement: :deny
+             )
+
     operation
   end
 
   defp resize_cover_operation(width, height, guide) do
-    assert {:ok, width} = semantic_dimension(width)
-    assert {:ok, height} = semantic_dimension(height)
-    assert {:ok, size} = Size.new(width: width, height: height, dpr: 1.0)
-    assert {:ok, operation} = Operation.resize_cover(size: size, enlargement: :deny, guide: guide)
+    assert {:ok, operation} =
+             Operation.resize(
+               :cover,
+               tagged_resize_dimension(width),
+               tagged_resize_dimension(height),
+               enlargement: :deny,
+               guide: guide
+             )
+
     operation
   end
 
-  defp semantic_dimension(:auto), do: Dimension.auto()
-  defp semantic_dimension(pixels), do: Dimension.pixels(pixels)
+  defp tagged_resize_dimension(:auto), do: :auto
+  defp tagged_resize_dimension(pixels), do: {:px, pixels}
 
   test "explicit cache hit returns a cache-entry delivery without processing origin" do
     entry = %Entry{
@@ -387,8 +393,7 @@ defmodule ImagePlug.Runtime.RequestRunnerTest do
   end
 
   test "known plan operations are included in cache lookup key data" do
-    assert {:ok, guide} = Gravity.anchor(:left, :top)
-    operations = [resize_cover_operation(100, 100, guide)]
+    operations = [resize_cover_operation(100, 100, {:anchor, :left, :top})]
 
     entry = %Entry{
       body: "cached jpeg",
@@ -412,20 +417,19 @@ defmodule ImagePlug.Runtime.RequestRunnerTest do
     assert key.data[:pipelines] == [
              [
                [
-                 op: :resize_cover,
-                 size: [
-                   width: [unit: :logical_px, value: 100],
-                   height: [unit: :logical_px, value: 100],
-                   dpr: 1.0
-                 ],
+                 op: :resize,
+                 mode: :cover,
+                 width: [unit: :logical_px, value: 100],
+                 height: [unit: :logical_px, value: 100],
+                 dpr: [unit: :ratio, numerator: 1, denominator: 1],
                  enlargement: :deny,
-                 guide: [type: :anchor, x: :left, y: :top, space: :current],
+                 guide: [type: :anchor, x: :left, y: :top],
+                 x_offset: {:pixels, 0.0},
+                 y_offset: {:pixels, 0.0},
                  min_width: nil,
                  min_height: nil,
                  zoom_x: 1.0,
-                 zoom_y: 1.0,
-                 x_offset: {:pixels, 0.0},
-                 y_offset: {:pixels, 0.0}
+                 zoom_y: 1.0
                ]
              ]
            ]

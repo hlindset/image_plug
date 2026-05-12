@@ -16,8 +16,8 @@ defmodule ImagePlug.Transform.Operation.Flip do
   - `axis`: one of `:horizontal`, `:vertical`, or `:both`.
 
   Semantic planning is responsible for translating dialect-specific booleans,
-  tokens, or aliases into one of these product-neutral axis values before
-  lowering.
+  tokens, or aliases into one of these product-neutral axis values before Plan
+  execution.
 
   ## Execution Semantics
 

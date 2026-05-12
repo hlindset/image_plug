@@ -12,8 +12,6 @@ defmodule ImagePlug.PlanTest do
   alias ImagePlug.Transform.Operation.AutoOrient
   alias ImagePlug.Transform.Operation.Flip
   alias ImagePlug.Transform.Operation.Rotate
-  alias ImagePlug.Plan.Geometry.Dimension
-  alias ImagePlug.Plan.Geometry.Size
   alias ImagePlug.Plan.Operation
 
   test "represents source, image pipelines, and output separately" do
@@ -150,10 +148,7 @@ defmodule ImagePlug.PlanTest do
   end
 
   defp resize_operation do
-    assert {:ok, width} = Dimension.pixels(300)
-    assert {:ok, height} = Dimension.auto()
-    assert {:ok, size} = Size.new(width: width, height: height, dpr: 1.0)
-    assert {:ok, operation} = Operation.resize_fit(size: size, enlargement: :deny)
+    assert {:ok, operation} = Operation.resize(:fit, {:px, 300}, :auto, enlargement: :deny)
     operation
   end
 end

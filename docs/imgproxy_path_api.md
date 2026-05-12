@@ -5,7 +5,7 @@
 An Imgproxy URL describes desired output, not a step-by-step image pipeline.
 ImagePlug normalizes aliases, resolves conflicts, builds a product-neutral plan, and executes transforms in Imgproxy canonical order.
 
-The Imgproxy URL API accepts imgproxy-compatible option names where ImagePlug supports the same semantics. ImagePlug processing remains declarative and product-neutral internally: parser syntax maps into canonical `ImagePlug.Plan.Operation.*` intent, and executable transform work is derived later by the Transform resolver.
+The Imgproxy URL API accepts imgproxy-compatible option names where ImagePlug supports the same semantics. ImagePlug processing remains declarative and product-neutral internally: parser syntax maps into canonical `ImagePlug.Plan.Operation.*` intent, and executable transform work is derived later by `ImagePlug.Transform.execute_plan/4`.
 
 URL option order is not execution order. The parser and planner own the fixed Imgproxy transform order.
 
@@ -25,7 +25,7 @@ Imgproxy canonical semantic operation order inside each pipeline group is:
 
 1. orientation (`auto_orient`, `rotate`, `flip`)
 2. explicit crop
-3. resize intent, including semantic `ResizeAuto`
+3. resize intent, including `mode: :auto`
 4. result crop for fill/fill-down/auto target geometry
 5. canvas extension
 
@@ -86,9 +86,9 @@ Resize and size tuple extend-gravity tails accept anchor gravity alone or anchor
 
 Supported resizing types are `fit`, `fill`, `fill-down`, `force`, and `auto`.
 
-Zero dimensions map to `auto`. For `force`, an auto side preserves the source dimension. For `fit` and proportional resize rules, an auto side is resolved from source aspect ratio. Min dimensions, zoom, DPR, and `enlarge` are applied by ImagePlug's dimension resolver.
+Zero dimensions map to `auto`. For `force`, an auto side preserves the source dimension. For `fit` and proportional resize rules, an auto side is resolved from source aspect ratio. Min dimensions, zoom, DPR, and `enlarge` are applied when target dimensions are computed during transform execution.
 
-`auto` is cache-keyed as semantic `ResizeAuto` intent. It stays unresolved in final cache material; after a cache miss, current dimensions at that point in the semantic pipeline derive the selected fit or cover branch. Matching current and target orientation derives cover, differing orientation derives fit, and unknown target orientation derives fit.
+`auto` is cache-keyed as semantic resize intent with `mode: :auto`. It stays unresolved in final cache key data; after a cache miss, current dimensions at that point in the Plan derive the selected fit or cover branch. Matching current and target orientation derives cover, differing orientation derives fit, and unknown target orientation derives fit.
 
 `rt:force/w:0/h:200` preserves source width and forces height to `200`.
 `rt:force/w:300/h:0` forces width to `300` and preserves source height.
@@ -149,9 +149,9 @@ Supported explicit output extensions are `webp`, `avif`, `jpeg`, `jpg`, `png`, a
 
 ## Cache And Expiration
 
-`cachebuster`/`cb` changes cache key material without adding transform operations. `expires`/`exp` is a Unix timestamp request validity policy.
+`cachebuster`/`cb` changes cache key data without adding transform operations. `expires`/`exp` is a Unix timestamp request validity policy.
 
-Final cache lookup is source-fetch-free: it is built from semantic Plan material, resolved origin identity/freshness material, output/config/vary material, and the cache key's transform material version. It does not fetch, decode, or read source metadata. Source-aware resolver choices such as `ResizeAuto` selecting fit or cover do not enter the normal final cache key.
+Final cache lookup is source-fetch-free: it is built from Plan operation key data, resolved origin identity/freshness data, output/config/vary key data, and the cache key's transform key data version. It does not fetch, decode, or read source metadata. Source-aware execution choices such as `mode: :auto` selecting fit or cover do not enter the normal final cache key.
 
 Only successful encoded responses are cached. Rejected Imgproxy requests return before origin fetch and cache lookup.
 

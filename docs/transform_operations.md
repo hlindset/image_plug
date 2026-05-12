@@ -9,7 +9,7 @@ of runtime/cache boundaries.
 
 Parser authors should construct canonical semantic operations under
 `ImagePlug.Plan.Operation.*` through `ImagePlug.Plan.Operation`. The executable
-modules under `ImagePlug.Transform.Operation.*` are local lowering targets used
+modules under `ImagePlug.Transform.Operation.*` are local execution targets used
 by Transform Plan execution and `ImagePlug.Transform.Chain`; parsers should not
 emit them except for the explicit first-slice orientation primitive allowlist.
 
@@ -28,14 +28,16 @@ The request flow is:
    `ImagePlug.Plan.Operation.*` structs.
 4. Cache keys are built from source-fetch-free Plan key data plus source
    freshness, output, config, and the cache key's transform key data version.
-5. On cache miss, `ImagePlug.Transform.execute_plan/4` converts semantic Plan
-   operations to executable `ImagePlug.Transform.Operation.*` work.
-6. Runtime executes resolved work by dispatching through `ImagePlug.Transform`.
+5. On cache miss, `ImagePlug.Transform.execute_plan/4` executes semantic Plan
+   operations in order, converting each one to executable
+   `ImagePlug.Transform.Operation.*` work as an implementation detail.
+6. Runtime observes only the final transform state returned by
+   `ImagePlug.Transform`.
 
 Runtime code should not reference concrete operation modules such as
 `ImagePlug.Plan.Operation.Resize` or `ImagePlug.Transform.Operation.Resize`.
-It may carry resolved executable structs opaquely through generic
-`ImagePlug.Transform` facades.
+For Plan execution, runtime calls `ImagePlug.Transform.execute_plan/4`;
+executable structs stay inside Transform execution.
 
 ## Operation Ordering
 
@@ -89,8 +91,8 @@ executable Transform operation modules as Plan output.
 
 ## Executable Operation Catalog
 
-`ImagePlug.Transform.Operation.*` modules are executable lowering targets. They
-describe work over `ImagePlug.Transform.State`, not parser request material:
+`ImagePlug.Transform.Operation.*` modules are executable operation targets. They
+describe work over `ImagePlug.Transform.State`, not parser request syntax:
 
 - `ImagePlug.Transform.Operation.Resize`: resolved resize with a known
   dimension-rule mode.
@@ -102,7 +104,7 @@ describe work over `ImagePlug.Transform.State`, not parser request material:
 - `ImagePlug.Transform.Operation.Flip`: executable flip.
 - `ImagePlug.Transform.Operation.Focus`, `Scale`, `Contain`, and `Cover`:
   standalone executable operations retained for local transform execution and
-  future lowering paths, not first-slice parser output.
+  future execution paths, not first-slice parser output.
 
 `ImagePlug.Transform.Operation.AdaptiveResize` is obsolete. Resize
 `mode: :auto` belongs in `ImagePlug.Plan.Operation.Resize`; parsers must not

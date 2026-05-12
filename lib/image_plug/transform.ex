@@ -16,11 +16,9 @@ defmodule ImagePlug.Transform do
       Chain,
       DecodePlanner,
       Materializer,
-      Material,
+      KeyData,
       Types,
       SourceMetadata,
-      ResolvedPlan,
-      Resolver,
       Geometry.CropCoordinateMapper,
       Geometry.DimensionRule,
       Geometry.DimensionResolver,
@@ -40,7 +38,6 @@ defmodule ImagePlug.Transform do
   alias ImagePlug.Plan.Operation
   alias ImagePlug.Plan.Pipeline
   alias ImagePlug.Transform.PlanExecutor
-  alias ImagePlug.Transform.ResolvedPlan
   alias ImagePlug.Transform.SourceMetadata
   alias ImagePlug.Transform.State
 
@@ -86,26 +83,6 @@ defmodule ImagePlug.Transform do
           {:ok, State.t()} | {:error, term()}
   def execute_plan(%Plan{} = plan, %State{} = state, %SourceMetadata{} = metadata, opts \\ []) do
     PlanExecutor.execute(plan, state, metadata, opts)
-  end
-
-  @spec resolve(ImagePlug.Plan.t(), ImagePlug.Transform.SourceMetadata.t(), keyword()) ::
-          {:ok, ImagePlug.Transform.ResolvedPlan.t()} | {:error, term()}
-  def resolve(
-        %ImagePlug.Plan{} = plan,
-        %ImagePlug.Transform.SourceMetadata{} = source_metadata,
-        opts \\ []
-      ) do
-    with {:ok, _pipelines} <- validate_prefetch_safe_plan(plan) do
-      ImagePlug.Transform.Resolver.resolve(plan, source_metadata, opts)
-    end
-  end
-
-  @spec executable_pipelines(Plan.t(), SourceMetadata.t(), keyword()) ::
-          {:ok, [[operation()]]} | {:error, term()}
-  def executable_pipelines(%Plan{} = plan, %SourceMetadata{} = source_metadata, opts \\ []) do
-    with {:ok, %ResolvedPlan{} = resolved} <- resolve(plan, source_metadata, opts) do
-      {:ok, resolved.pipelines}
-    end
   end
 
   defp validate_prefetch_safe_pipelines(pipelines) do

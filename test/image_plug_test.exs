@@ -8,7 +8,6 @@ defmodule ImagePlug.ImagePlugTest do
   doctest ImagePlug
 
   alias ImagePlug.Plan
-  alias ImagePlug.Plan.Geometry.Dimension
   alias ImagePlug.Plan.Output
   alias ImagePlug.Plan.Operation
   alias ImagePlug.Plan.Pipeline
@@ -284,10 +283,7 @@ defmodule ImagePlug.ImagePlugTest do
     def handle_error(conn, _error), do: conn
 
     defp resize_fit_operation do
-      {:ok, width} = Dimension.pixels(100)
-      {:ok, height} = Dimension.pixels(100)
-      {:ok, size} = ImagePlug.Plan.Geometry.Size.new(width: width, height: height, dpr: 1.0)
-      {:ok, operation} = Operation.resize_fit(size: size, enlargement: :deny)
+      {:ok, operation} = Operation.resize(:fit, {:px, 100}, {:px, 100}, enlargement: :deny)
       operation
     end
   end

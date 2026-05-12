@@ -70,7 +70,7 @@ defmodule ImagePlug.Transform.Operation.ExtendCanvas do
         y_offset: 0.0
       }
 
-  A semantic canvas request for extend-aspect-ratio may lower to an
+  A semantic canvas request for extend-aspect-ratio may execute as an
   `ExtendCanvas` operation with an `{:aspect_ratio, ratio}` rule.
   """
 

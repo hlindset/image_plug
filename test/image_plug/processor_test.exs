@@ -2,7 +2,6 @@ defmodule ImagePlug.Runtime.ProcessorTest do
   use ExUnit.Case, async: true
 
   alias ImagePlug.Plan
-  alias ImagePlug.Plan.Geometry.Dimension
   alias ImagePlug.Plan.Operation
   alias ImagePlug.Plan.Output
   alias ImagePlug.Plan.Pipeline
@@ -33,24 +32,17 @@ defmodule ImagePlug.Runtime.ProcessorTest do
   end
 
   defp resize_fit(width, height) do
-    {:ok, width} = resize_dimension(width)
-    {:ok, height} = resize_dimension(height)
-    {:ok, size} = ImagePlug.Plan.Geometry.Size.new(width: width, height: height, dpr: 1.0)
-
-    Operation.resize_fit(size: size, enlargement: :deny)
+    Operation.resize(:fit, resize_dimension(width), resize_dimension(height), enlargement: :deny)
   end
 
   defp resize_cover(width, height) do
-    {:ok, width} = resize_dimension(width)
-    {:ok, height} = resize_dimension(height)
-    {:ok, size} = ImagePlug.Plan.Geometry.Size.new(width: width, height: height, dpr: 1.0)
-    {:ok, guide} = ImagePlug.Plan.Guide.Gravity.anchor(:center, :center)
-
-    Operation.resize_cover(size: size, enlargement: :deny, guide: guide)
+    Operation.resize(:cover, resize_dimension(width), resize_dimension(height),
+      enlargement: :deny
+    )
   end
 
-  defp resize_dimension(:auto), do: Dimension.auto()
-  defp resize_dimension(pixels), do: Dimension.pixels(pixels)
+  defp resize_dimension(:auto), do: :auto
+  defp resize_dimension(pixels), do: {:px, pixels}
 
   defp process_origin(%Plan{} = plan, origin_identity, opts) do
     Processor.process_origin(plan, origin_identity, opts)

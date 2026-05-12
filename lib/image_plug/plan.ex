@@ -19,15 +19,7 @@ defmodule ImagePlug.Plan do
       Operation.CropGuided,
       Operation.CropRegion,
       Operation.Canvas,
-      Operation.Resize,
-      Operation.ResizeFit,
-      Operation.ResizeCover,
-      Operation.ResizeStretch,
-      Operation.ResizeAuto,
-      Geometry.Dimension,
-      Geometry.Size,
-      Geometry.Region,
-      Guide.Gravity
+      Operation.Resize
     ]
 
   alias ImagePlug.Plan.Cache

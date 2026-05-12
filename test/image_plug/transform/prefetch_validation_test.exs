@@ -2,8 +2,6 @@ defmodule ImagePlug.Transform.PrefetchValidationTest do
   use ExUnit.Case, async: true
 
   alias ImagePlug.Plan
-  alias ImagePlug.Plan.Geometry.Dimension
-  alias ImagePlug.Plan.Geometry.Size
   alias ImagePlug.Plan.Operation
   alias ImagePlug.Plan.Output
   alias ImagePlug.Plan.Pipeline
@@ -15,7 +13,7 @@ defmodule ImagePlug.Transform.PrefetchValidationTest do
   alias ImagePlug.Transform.Operation.Rotate
 
   test "semantic Plan operations pass source-independent validation" do
-    assert {:ok, operation} = Operation.resize_auto(size: size(), enlargement: :deny)
+    assert {:ok, operation} = Operation.resize(:auto, {:px, 100}, {:px, 100}, enlargement: :deny)
 
     assert {:ok, [%Pipeline{operations: [^operation]}]} =
              Transform.validate_prefetch_safe_plan(plan([operation]))
@@ -29,7 +27,7 @@ defmodule ImagePlug.Transform.PrefetchValidationTest do
   end
 
   test "crop regions after prior geometry remain current-image-relative operations" do
-    resize = resize_fit_operation()
+    resize = resize_operation()
     crop = crop_region_operation()
 
     assert {:ok, [%Pipeline{operations: [^resize, ^crop]}]} =
@@ -58,31 +56,13 @@ defmodule ImagePlug.Transform.PrefetchValidationTest do
     }
   end
 
-  defp size do
-    {:ok, width} = Dimension.pixels(100)
-    {:ok, height} = Dimension.pixels(100)
-    {:ok, size} = Size.new(width: width, height: height, dpr: 1.0)
-    size
-  end
-
-  defp resize_fit_operation do
-    resize_fit_operation(100, 100)
-  end
-
-  defp resize_fit_operation(width, height) do
-    {:ok, operation_size} = size(width, height)
-    {:ok, operation} = Operation.resize_fit(size: operation_size, enlargement: :deny)
+  defp resize_operation do
+    {:ok, operation} = Operation.resize(:fit, {:px, 100}, {:px, 100}, enlargement: :deny)
     operation
   end
 
   defp crop_region_operation do
     {:ok, operation} = Operation.crop_region({:px, 1}, {:px, 1}, {:px, 10}, {:px, 10})
     operation
-  end
-
-  defp size(width, height) do
-    {:ok, width} = Dimension.pixels(width)
-    {:ok, height} = Dimension.pixels(height)
-    Size.new(width: width, height: height, dpr: 1.0)
   end
 end

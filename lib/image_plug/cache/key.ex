@@ -11,7 +11,7 @@ defmodule ImagePlug.Cache.Key do
   alias ImagePlug.Plan.Output
   alias ImagePlug.Plan.Pipeline
   alias ImagePlug.Plan.Source.Plain
-  alias ImagePlug.Transform.Material
+  alias ImagePlug.Transform.KeyData
 
   @schema_version 2
   @transform_key_data_version 1
@@ -74,7 +74,7 @@ defmodule ImagePlug.Cache.Key do
   end
 
   defp operation_data(operation) do
-    Material.material(operation)
+    KeyData.data(operation)
   end
 
   defp transform_data, do: [key_data_version: @transform_key_data_version]
