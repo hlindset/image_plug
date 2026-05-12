@@ -5,9 +5,8 @@ defmodule ImagePlug.Transform.Operation.Flip do
 
   ## Construct When
 
-  The Transform resolver may lower semantic Plan operations to this executable
-  operation. Parser modules should construct `ImagePlug.Plan.Operation.*`
-  through Plan constructors.
+  Parser modules may place this narrow executable primitive directly in
+  `ImagePlug.Plan` pipelines when translating compatible orientation syntax.
 
   ## Fields
 

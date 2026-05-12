@@ -4,24 +4,21 @@ defmodule ImagePlug.Transform.Resolver.Lowering do
   alias ImagePlug.Plan.Geometry.Dimension
   alias ImagePlug.Plan.Guide.Gravity
   alias ImagePlug.Plan.Operation
-  alias ImagePlug.Plan.Operation.AutoOrient
   alias ImagePlug.Plan.Operation.Canvas
   alias ImagePlug.Plan.Operation.CropGuided
   alias ImagePlug.Plan.Operation.CropRegion
-  alias ImagePlug.Plan.Operation.Flip
   alias ImagePlug.Plan.Operation.Resize, as: PlanResize
   alias ImagePlug.Plan.Operation.ResizeCover
   alias ImagePlug.Plan.Operation.ResizeFit
   alias ImagePlug.Plan.Operation.ResizeStretch
   alias ImagePlug.Plan.Operation.ResizeAuto
-  alias ImagePlug.Plan.Operation.Rotate
   alias ImagePlug.Transform.Geometry.DimensionRule
   alias ImagePlug.Transform.Operation.Crop
-  alias ImagePlug.Transform.Operation.AutoOrient, as: ExecutableAutoOrient
+  alias ImagePlug.Transform.Operation.AutoOrient
   alias ImagePlug.Transform.Operation.ExtendCanvas
-  alias ImagePlug.Transform.Operation.Flip, as: ExecutableFlip
+  alias ImagePlug.Transform.Operation.Flip
   alias ImagePlug.Transform.Operation.Resize
-  alias ImagePlug.Transform.Operation.Rotate, as: ExecutableRotate
+  alias ImagePlug.Transform.Operation.Rotate
   alias ImagePlug.Transform.Resolver.Geometry
 
   @spec lower(Operation.semantic_operation(), map()) :: [struct()]
@@ -125,9 +122,9 @@ defmodule ImagePlug.Transform.Resolver.Lowering do
     ]
   end
 
-  def lower(%AutoOrient{}, _context), do: [%ExecutableAutoOrient{}]
-  def lower(%Rotate{angle: angle}, _context), do: [%ExecutableRotate{angle: angle}]
-  def lower(%Flip{axis: axis}, _context), do: [%ExecutableFlip{axis: axis}]
+  def lower(%AutoOrient{} = operation, _context), do: [operation]
+  def lower(%Rotate{} = operation, _context), do: [operation]
+  def lower(%Flip{} = operation, _context), do: [operation]
 
   defp logical_pixels(%Dimension{unit: :logical_px, value: value}), do: value
   defp logical_pixels(%Dimension{}), do: :unknown

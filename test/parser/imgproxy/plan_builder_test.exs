@@ -16,6 +16,9 @@ defmodule ImagePlug.Parser.Imgproxy.PlanBuilderTest do
   alias ImagePlug.Plan.Response
   alias ImagePlug.Plan.Response.Filename
   alias ImagePlug.Plan.Source.Plain
+  alias ImagePlug.Transform.Operation.AutoOrient
+  alias ImagePlug.Transform.Operation.Flip
+  alias ImagePlug.Transform.Operation.Rotate
 
   test "converts one imgproxy pipeline request into a product-neutral plan" do
     request = %ParsedRequest{
@@ -562,7 +565,7 @@ defmodule ImagePlug.Parser.Imgproxy.PlanBuilderTest do
     assert {:ok, %Plan{pipelines: [%Pipeline{operations: [%Operation.CropGuided{}]}]}} =
              plan_pipeline(crop: struct(ImagePlug.Parser.Imgproxy.CropRequest))
 
-    assert {:ok, %Plan{pipelines: [%Pipeline{operations: [%Operation.AutoOrient{}]}]}} =
+    assert {:ok, %Plan{pipelines: [%Pipeline{operations: [%AutoOrient{}]}]}} =
              plan_pipeline(orientation: struct(ImagePlug.Plan.Orientation, auto_orient: true))
 
     assert {:ok, %Plan{pipelines: [%Pipeline{operations: []}]}} =
@@ -804,9 +807,9 @@ defmodule ImagePlug.Parser.Imgproxy.PlanBuilderTest do
 
   defp operation_names(operations), do: Enum.map(operations, &operation_name/1)
 
-  defp operation_name(%Operation.AutoOrient{}), do: :auto_orient
-  defp operation_name(%Operation.Rotate{}), do: :rotate
-  defp operation_name(%Operation.Flip{}), do: :flip
+  defp operation_name(%AutoOrient{}), do: :auto_orient
+  defp operation_name(%Rotate{}), do: :rotate
+  defp operation_name(%Flip{}), do: :flip
   defp operation_name(%Operation.CropGuided{}), do: :crop_guided
   defp operation_name(%Operation.ResizeFit{}), do: :resize_fit
   defp operation_name(%Operation.ResizeCover{}), do: :resize_cover

@@ -9,6 +9,7 @@ defmodule ImagePlug.Transform.ResolverTest do
   alias ImagePlug.Plan.Source.Plain
   alias ImagePlug.Transform
   alias ImagePlug.Transform.Geometry.DimensionRule
+  alias ImagePlug.Transform.Operation.AutoOrient
   alias ImagePlug.Transform.Operation.Crop
   alias ImagePlug.Transform.Operation.Resize
   alias ImagePlug.Transform.SourceMetadata
@@ -90,7 +91,7 @@ defmodule ImagePlug.Transform.ResolverTest do
 
   for exif_orientation <- [6, 8] do
     test "auto orient swaps current dimensions before resize auto for EXIF #{exif_orientation}" do
-      assert {:ok, auto_orient} = Operation.auto_orient()
+      auto_orient = %AutoOrient{}
       assert {:ok, resize_auto} = Operation.resize_auto(size: size(200, 300), enlargement: :deny)
 
       metadata = %SourceMetadata{
@@ -113,7 +114,7 @@ defmodule ImagePlug.Transform.ResolverTest do
   end
 
   test "auto orient keeps current dimensions for 180 degree EXIF orientation before resize auto" do
-    assert {:ok, auto_orient} = Operation.auto_orient()
+    auto_orient = %AutoOrient{}
     assert {:ok, resize_auto} = Operation.resize_auto(size: size(300, 200), enlargement: :deny)
 
     metadata = %SourceMetadata{width: 1600, height: 900, orientation: {:exif, 3}, format: :jpeg}
@@ -130,7 +131,7 @@ defmodule ImagePlug.Transform.ResolverTest do
   end
 
   test "auto orient with unknown orientation makes resize auto choose conservative fit" do
-    assert {:ok, auto_orient} = Operation.auto_orient()
+    auto_orient = %AutoOrient{}
     assert {:ok, resize_auto} = Operation.resize_auto(size: size(300, 200), enlargement: :deny)
 
     metadata = %SourceMetadata{width: 1600, height: 900, orientation: :unknown, format: :jpeg}

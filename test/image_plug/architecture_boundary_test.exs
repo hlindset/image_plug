@@ -15,16 +15,13 @@ defmodule ImagePlug.ArchitectureBoundaryTest do
     ImagePlug.Transform => "lib/image_plug/transform.ex"
   }
   @concrete_plan_names [
-    :AutoOrient,
     :Canvas,
     :CropGuided,
     :CropRegion,
-    :Flip,
     :ResizeAuto,
     :ResizeCover,
     :ResizeFit,
-    :ResizeStretch,
-    :Rotate
+    :ResizeStretch
   ]
   @concrete_transform_names [
     :Scale,
@@ -38,6 +35,11 @@ defmodule ImagePlug.ArchitectureBoundaryTest do
     :AutoOrient,
     :ExtendCanvas
   ]
+  @orientation_transform_modules [
+    "ImagePlug.Transform.Operation.AutoOrient",
+    "ImagePlug.Transform.Operation.Rotate",
+    "ImagePlug.Transform.Operation.Flip"
+  ]
   @post_fetch_transform_state_modules [
     ImagePlug.Transform.Resolver,
     ImagePlug.Transform.SourceMetadata,
@@ -48,10 +50,10 @@ defmodule ImagePlug.ArchitectureBoundaryTest do
     parser = boundary_declaration(ImagePlug.Parser)
     imgproxy = boundary_declaration(ImagePlug.Parser.Imgproxy)
 
-    assert_boundary_deps(parser, [ImagePlug.Plan])
+    assert_boundary_deps(parser, [ImagePlug.Plan, ImagePlug.Transform])
     assert_boundary_exports(parser, [ImagePlug.Parser.Imgproxy])
 
-    assert_boundary_deps(imgproxy, [ImagePlug.Parser, ImagePlug.Plan])
+    assert_boundary_deps(imgproxy, [ImagePlug.Parser, ImagePlug.Plan, ImagePlug.Transform])
     assert_boundary_exports(imgproxy, [])
 
     assert_allowed_deps(parser, [ImagePlug.Plan, ImagePlug.Transform])
@@ -187,7 +189,8 @@ defmodule ImagePlug.ArchitectureBoundaryTest do
   test "imgproxy parser does not depend on executable transform operation modules" do
     violations =
       for file <- imgproxy_parser_files(),
-          violation <- concrete_transform_references(file) do
+          violation <- concrete_transform_references(file),
+          violation.module not in @orientation_transform_modules do
         "#{file}:#{violation.line} must not name #{violation.module}; parser output is semantic Plan operations"
       end
 

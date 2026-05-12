@@ -2,6 +2,9 @@ defmodule ImagePlug.Plan.OperationTest do
   use ExUnit.Case, async: true
 
   alias ImagePlug.Plan.Operation
+  alias ImagePlug.Transform.Operation.AutoOrient
+  alias ImagePlug.Transform.Operation.Flip
+  alias ImagePlug.Transform.Operation.Rotate
 
   describe "resize constructors" do
     test "build unified resize operations through exported constructor" do
@@ -215,16 +218,23 @@ defmodule ImagePlug.Plan.OperationTest do
     end
   end
 
-  describe "orientation constructors" do
-    test "build orientation operations through exported constructors" do
-      assert {:ok, %Operation.AutoOrient{}} = Operation.auto_orient()
-      assert {:ok, %Operation.Rotate{angle: 90}} = Operation.rotate(90)
-      assert {:ok, %Operation.Flip{axis: :horizontal}} = Operation.flip(:horizontal)
+  describe "orientation primitive allowlist" do
+    test "allows executable orientation primitives as semantic plan operations" do
+      assert Operation.semantic?(%AutoOrient{})
+      assert Operation.semantic?(%Rotate{angle: 90})
+      assert Operation.semantic?(%Flip{axis: :horizontal})
     end
 
-    test "reject invalid orientation inputs without raising" do
-      assert Operation.rotate(45) == {:error, {:invalid_operation, :rotate, 45}}
-      assert Operation.flip(:diagonal) == {:error, {:invalid_operation, :flip, :diagonal}}
+    test "validates executable orientation primitive fields" do
+      assert Operation.validate_prefetch_safe(%AutoOrient{}) == :ok
+      assert Operation.validate_prefetch_safe(%Rotate{angle: 270}) == :ok
+      assert Operation.validate_prefetch_safe(%Flip{axis: :both}) == :ok
+
+      assert Operation.validate_prefetch_safe(%Rotate{angle: 45}) ==
+               {:error, {:invalid_pipeline_operation, %Rotate{angle: 45}}}
+
+      assert Operation.validate_prefetch_safe(%Flip{axis: :diagonal}) ==
+               {:error, {:invalid_pipeline_operation, %Flip{axis: :diagonal}}}
     end
   end
 
@@ -253,9 +263,9 @@ defmodule ImagePlug.Plan.OperationTest do
 
       assert {:ok, canvas} = Operation.canvas({:px, 300}, {:px, 200}, :center)
 
-      assert {:ok, auto_orient} = Operation.auto_orient()
-      assert {:ok, rotate} = Operation.rotate(90)
-      assert {:ok, flip} = Operation.flip(:horizontal)
+      auto_orient = %AutoOrient{}
+      rotate = %Rotate{angle: 90}
+      flip = %Flip{axis: :horizontal}
 
       assert Operation.access_metadata(canvas) == %{access: :random}
       assert Operation.access_metadata(auto_orient) == %{access: :sequential}

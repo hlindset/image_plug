@@ -9,6 +9,9 @@ defmodule ImagePlug.PlanTest do
   alias ImagePlug.Plan.Response
   alias ImagePlug.Plan.Response.Filename
   alias ImagePlug.Plan.Source.Plain
+  alias ImagePlug.Transform.Operation.AutoOrient
+  alias ImagePlug.Transform.Operation.Flip
+  alias ImagePlug.Transform.Operation.Rotate
   alias ImagePlug.Plan.Geometry.Dimension
   alias ImagePlug.Plan.Geometry.Size
   alias ImagePlug.Plan.Operation
@@ -39,6 +42,15 @@ defmodule ImagePlug.PlanTest do
     assert {:ok, [%Pipeline{operations: [^operation]}]} = Plan.validated_pipelines(plan)
   end
 
+  test "validated pipelines accept explicit orientation primitive allowlist" do
+    operations = [%AutoOrient{}, %Rotate{angle: 90}, %Flip{axis: :horizontal}]
+
+    plan =
+      plan(pipelines: [%Pipeline{operations: operations}])
+
+    assert {:ok, [%Pipeline{operations: ^operations}]} = Plan.validated_pipelines(plan)
+  end
+
   test "validated pipelines reject parser-local command structs" do
     operation = %ImagePlug.Parser.Imgproxy.PipelineRequest{}
 
@@ -46,7 +58,7 @@ defmodule ImagePlug.PlanTest do
              {:error, {:invalid_pipeline_operation, operation}}
   end
 
-  test "validated pipelines reject executable transform structs" do
+  test "validated pipelines reject non-orientation executable transform structs" do
     operation = %ImagePlug.Transform.Operation.Resize{
       rule: %ImagePlug.Transform.Geometry.DimensionRule{
         mode: :fit,

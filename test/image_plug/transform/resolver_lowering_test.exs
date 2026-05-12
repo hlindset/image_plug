@@ -286,13 +286,15 @@ defmodule ImagePlug.Transform.ResolverLoweringTest do
   end
 
   test "orientation operations lower to existing orientation transforms" do
-    assert {:ok, auto_orient} = Operation.auto_orient()
-    assert {:ok, rotate} = Operation.rotate(90)
-    assert {:ok, flip} = Operation.flip(:horizontal)
+    auto_orient = %AutoOrient{}
+    rotate = %Rotate{angle: 90}
+    no_op_rotate = %Rotate{angle: 0}
+    flip = %Flip{axis: :horizontal}
 
-    assert {:ok, resolved} = Transform.resolve(plan([auto_orient, rotate, flip]), metadata(), [])
+    assert {:ok, resolved} =
+             Transform.resolve(plan([auto_orient, rotate, no_op_rotate, flip]), metadata(), [])
 
-    assert [[%AutoOrient{}, %Rotate{angle: 90}, %Flip{axis: :horizontal}]] =
+    assert [[%AutoOrient{}, %Rotate{angle: 90}, %Rotate{angle: 0}, %Flip{axis: :horizontal}]] =
              resolved.pipelines
   end
 end

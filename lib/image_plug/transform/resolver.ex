@@ -177,6 +177,8 @@ defmodule ImagePlug.Transform.Resolver do
     {:ok, put_current_dimensions(context, context.current_height, context.current_width)}
   end
 
+  defp advance_context_for_operation(context, %Rotate{angle: 0}), do: {:ok, context}
+
   defp advance_context_for_operation(context, %Rotate{angle: angle}) when angle in [180] do
     {:ok, mark_source_unaligned(context)}
   end

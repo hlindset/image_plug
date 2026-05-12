@@ -9,6 +9,10 @@ defmodule ImagePlug.Transform.PrefetchValidationTest do
   alias ImagePlug.Plan.Pipeline
   alias ImagePlug.Plan.Source.Plain
   alias ImagePlug.Transform
+  alias ImagePlug.Transform.Operation.AutoOrient
+  alias ImagePlug.Transform.Operation.Flip
+  alias ImagePlug.Transform.Operation.Resize
+  alias ImagePlug.Transform.Operation.Rotate
 
   test "semantic Plan operations pass source-independent validation" do
     assert {:ok, operation} = Operation.resize_auto(size: size(), enlargement: :deny)
@@ -30,6 +34,20 @@ defmodule ImagePlug.Transform.PrefetchValidationTest do
 
     assert {:ok, [%Pipeline{operations: [^resize, ^crop]}]} =
              Transform.validate_prefetch_safe_plan(plan([resize, crop]))
+  end
+
+  test "executable orientation primitives pass source-independent validation" do
+    operations = [%AutoOrient{}, %Rotate{angle: 90}, %Flip{axis: :horizontal}]
+
+    assert {:ok, [%Pipeline{operations: ^operations}]} =
+             Transform.validate_prefetch_safe_plan(plan(operations))
+  end
+
+  test "non-orientation executable transforms fail source-independent validation" do
+    operation = %Resize{}
+
+    assert Transform.validate_prefetch_safe_plan(plan([operation])) ==
+             {:error, {:invalid_pipeline_operation, operation}}
   end
 
   defp plan(operations) do

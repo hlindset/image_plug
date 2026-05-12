@@ -21,6 +21,9 @@ defmodule ImagePlug.Parser.Imgproxy.PlanBuilder do
   alias ImagePlug.Plan.Response
   alias ImagePlug.Plan.Response.Filename
   alias ImagePlug.Plan.Source.Plain
+  alias ImagePlug.Transform.Operation.AutoOrient
+  alias ImagePlug.Transform.Operation.Flip
+  alias ImagePlug.Transform.Operation.Rotate
 
   @default_gravity {:anchor, :center, :center}
   @supported_output_formats [:webp, :avif, :jpeg, :png]
@@ -346,17 +349,19 @@ defmodule ImagePlug.Parser.Imgproxy.PlanBuilder do
   end
 
   defp auto_orient_operation(%Orientation{auto_orient: true}),
-    do: Operation.auto_orient()
+    do: {:ok, %AutoOrient{}}
 
   defp auto_orient_operation(%Orientation{}), do: nil
 
   defp rotate_operation(%Orientation{rotate: 0}), do: nil
 
-  defp rotate_operation(%Orientation{rotate: angle}),
-    do: Operation.rotate(angle)
+  defp rotate_operation(%Orientation{rotate: angle}) when angle in [90, 180, 270],
+    do: {:ok, %Rotate{angle: angle}}
 
   defp flip_operation(%Orientation{flip: nil}), do: nil
-  defp flip_operation(%Orientation{flip: axis}), do: Operation.flip(axis)
+
+  defp flip_operation(%Orientation{flip: axis}) when axis in [:horizontal, :vertical, :both],
+    do: {:ok, %Flip{axis: axis}}
 
   defp result_crop_x_offset(%PipelineRequest{} = request) do
     offset = request.gravity_x_offset

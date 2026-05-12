@@ -6,6 +6,9 @@ defmodule ImagePlug.Plan.OperationMaterialTest do
   alias ImagePlug.Plan.Guide.Gravity
   alias ImagePlug.Plan.Operation
   alias ImagePlug.Transform.Material
+  alias ImagePlug.Transform.Operation.AutoOrient
+  alias ImagePlug.Transform.Operation.Flip
+  alias ImagePlug.Transform.Operation.Rotate
 
   test "resize material is canonical semantic intent" do
     assert {:ok, size} = size(width: 300, height: 200, dpr: 2.0)
@@ -131,9 +134,9 @@ defmodule ImagePlug.Plan.OperationMaterialTest do
   end
 
   test "orientation material is source-fetch-free semantic intent" do
-    assert {:ok, auto_orient} = Operation.auto_orient()
-    assert {:ok, rotate} = Operation.rotate(270)
-    assert {:ok, flip} = Operation.flip(:both)
+    auto_orient = %AutoOrient{}
+    rotate = %Rotate{angle: 270}
+    flip = %Flip{axis: :both}
 
     assert Material.material(auto_orient) == [op: :auto_orient]
     assert Material.material(rotate) == [op: :rotate, angle: 270]

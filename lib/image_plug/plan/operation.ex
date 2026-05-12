@@ -6,17 +6,14 @@ defmodule ImagePlug.Plan.Operation do
   alias ImagePlug.Plan.Geometry.Dimension
   alias ImagePlug.Plan.Geometry.Size
   alias ImagePlug.Plan.Guide.Gravity
-  alias ImagePlug.Plan.Operation.AutoOrient
   alias ImagePlug.Plan.Operation.Canvas
   alias ImagePlug.Plan.Operation.CropGuided
   alias ImagePlug.Plan.Operation.CropRegion
-  alias ImagePlug.Plan.Operation.Flip
   alias ImagePlug.Plan.Operation.Resize
   alias ImagePlug.Plan.Operation.ResizeAuto
   alias ImagePlug.Plan.Operation.ResizeCover
   alias ImagePlug.Plan.Operation.ResizeFit
   alias ImagePlug.Plan.Operation.ResizeStretch
-  alias ImagePlug.Plan.Operation.Rotate
 
   @enlargements [:allow, :deny]
   @right_angles [0, 90, 180, 270]
@@ -41,13 +38,16 @@ defmodule ImagePlug.Plan.Operation do
   @resize_placement_keys [:guide, :x_offset, :y_offset]
   @crop_guided_keys [:x_offset, :y_offset]
   @canvas_keys [:background, :overflow, :x_offset, :y_offset]
+  # Keep the orientation primitive allowlist centralized without importing
+  # executable operation modules into the Plan operation facade.
+  @auto_orient_module :"Elixir.ImagePlug.Transform.Operation.AutoOrient"
+  @rotate_module :"Elixir.ImagePlug.Transform.Operation.Rotate"
+  @flip_module :"Elixir.ImagePlug.Transform.Operation.Flip"
+  @orientation_primitive_modules [@auto_orient_module, @rotate_module, @flip_module]
   @semantic_modules [
     CropGuided,
     CropRegion,
     Canvas,
-    AutoOrient,
-    Rotate,
-    Flip,
     Resize,
     ResizeFit,
     ResizeCover,
@@ -68,7 +68,10 @@ defmodule ImagePlug.Plan.Operation do
 
   @type canvas_operation :: Canvas.t()
 
-  @type orientation_operation :: AutoOrient.t() | Rotate.t() | Flip.t()
+  @type orientation_operation ::
+          ImagePlug.Transform.Operation.AutoOrient.t()
+          | ImagePlug.Transform.Operation.Rotate.t()
+          | ImagePlug.Transform.Operation.Flip.t()
 
   @type semantic_operation ::
           resize_operation()
@@ -162,23 +165,6 @@ defmodule ImagePlug.Plan.Operation do
 
   def canvas(width, height, placement, opts),
     do: invalid(:canvas, [width, height, placement, opts])
-
-  @spec auto_orient() :: {:ok, AutoOrient.t()}
-  def auto_orient, do: {:ok, %AutoOrient{}}
-
-  @spec rotate(term()) :: {:ok, Rotate.t()} | {:error, error()}
-  def rotate(angle) when angle in @right_angles do
-    {:ok, %Rotate{angle: angle}}
-  end
-
-  def rotate(angle), do: invalid(:rotate, angle)
-
-  @spec flip(term()) :: {:ok, Flip.t()} | {:error, error()}
-  def flip(axis) when axis in @flip_axes do
-    {:ok, %Flip{axis: axis}}
-  end
-
-  def flip(axis), do: invalid(:flip, axis)
 
   @spec resize(Resize.mode(), term(), term(), keyword()) ::
           {:ok, Resize.t()} | {:error, error()}
@@ -287,7 +273,9 @@ defmodule ImagePlug.Plan.Operation do
   def resize_auto(attrs), do: invalid(:resize_auto, attrs)
 
   @spec semantic?(term()) :: boolean()
-  def semantic?(%module{}), do: module in @semantic_modules
+  def semantic?(%module{}),
+    do: module in @semantic_modules or module in @orientation_primitive_modules
+
   def semantic?(_operation), do: false
 
   @spec decode_access(semantic_operation()) :: access_requirement()
@@ -303,14 +291,14 @@ defmodule ImagePlug.Plan.Operation do
   def access_metadata(%Resize{mode: mode}) when mode in [:cover, :auto], do: %{access: :random}
   def access_metadata(%ResizeFit{} = operation), do: resize_access_metadata(operation)
   def access_metadata(%ResizeStretch{} = operation), do: resize_access_metadata(operation)
-  def access_metadata(%AutoOrient{}), do: %{access: :sequential}
   def access_metadata(%ResizeCover{}), do: %{access: :random}
   def access_metadata(%ResizeAuto{}), do: %{access: :random}
   def access_metadata(%CropGuided{}), do: %{access: :random}
   def access_metadata(%CropRegion{}), do: %{access: :random}
   def access_metadata(%Canvas{}), do: %{access: :random}
-  def access_metadata(%Rotate{}), do: %{access: :random}
-  def access_metadata(%Flip{}), do: %{access: :random}
+  def access_metadata(%{__struct__: @auto_orient_module}), do: %{access: :sequential}
+  def access_metadata(%{__struct__: @rotate_module}), do: %{access: :random}
+  def access_metadata(%{__struct__: @flip_module}), do: %{access: :random}
 
   @spec validate_prefetch_safe(term()) :: :ok | {:error, validation_error()}
   def validate_prefetch_safe(
@@ -406,11 +394,14 @@ defmodule ImagePlug.Plan.Operation do
     end
   end
 
-  def validate_prefetch_safe(%AutoOrient{}), do: :ok
+  def validate_prefetch_safe(%{__struct__: @auto_orient_module}), do: :ok
 
-  def validate_prefetch_safe(%Rotate{angle: angle}) when angle in @right_angles, do: :ok
+  def validate_prefetch_safe(%{__struct__: @rotate_module, angle: angle})
+      when angle in @right_angles,
+      do: :ok
 
-  def validate_prefetch_safe(%Flip{axis: axis}) when axis in @flip_axes, do: :ok
+  def validate_prefetch_safe(%{__struct__: @flip_module, axis: axis}) when axis in @flip_axes,
+    do: :ok
 
   def validate_prefetch_safe(operation), do: invalid_pipeline_operation(operation)
 

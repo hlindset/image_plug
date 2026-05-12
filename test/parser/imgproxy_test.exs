@@ -13,6 +13,7 @@ defmodule ImagePlug.Parser.ImgproxyTest do
   alias ImagePlug.Plan.Response
   alias ImagePlug.Plan.Response.Filename
   alias ImagePlug.Plan.Source.Plain
+  alias ImagePlug.Transform.Operation.AutoOrient
 
   test "parses a plain source with no processing options" do
     assert {:ok,
@@ -213,7 +214,7 @@ defmodule ImagePlug.Parser.ImgproxyTest do
     assert crop.height == {:px, 20}
     assert crop.guide == :center
 
-    assert {:ok, %Plan{pipelines: [%Pipeline{operations: [%Operation.AutoOrient{}]}]}} =
+    assert {:ok, %Plan{pipelines: [%Pipeline{operations: [%AutoOrient{}]}]}} =
              Imgproxy.parse(conn(:get, "/_/ar/plain/images/cat.jpg"), [])
 
     for segment <- ~w(ar:false rot:0 rot:360 fl:false:false) do
@@ -946,7 +947,7 @@ defmodule ImagePlug.Parser.ImgproxyTest do
 
   defp operation_names(operations), do: Enum.map(operations, &operation_name/1)
 
-  defp operation_name(%Operation.AutoOrient{}), do: :auto_orient
+  defp operation_name(%AutoOrient{}), do: :auto_orient
   defp operation_name(%Operation.CropGuided{}), do: :crop_guided
 
   defp permutations([]), do: [[]]
