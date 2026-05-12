@@ -22,6 +22,7 @@ defmodule ImagePlug.Plan do
       Operation.AutoOrient,
       Operation.Rotate,
       Operation.Flip,
+      Operation.Resize,
       Operation.ResizeFit,
       Operation.ResizeCover,
       Operation.ResizeStretch,

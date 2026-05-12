@@ -9,6 +9,8 @@ defmodule ImagePlug.Transform.KeyData do
 
   @dpr_float_decimal_places 7
 
+  alias ImagePlug.Plan.Operation.Resize
+
   @type geometry_value ::
           :auto
           | :full_axis
@@ -21,7 +23,24 @@ defmodule ImagePlug.Transform.KeyData do
           | {:denominator, pos_integer()}
         ]
 
-  @spec data(geometry_value()) :: keyword()
+  @spec data(geometry_value() | Resize.t()) :: keyword()
+  def data(%Resize{} = operation) do
+    [
+      op: :resize,
+      mode: operation.mode,
+      width: data(operation.width),
+      height: data(operation.height),
+      dpr: data(operation.dpr),
+      enlargement: operation.enlargement,
+      guide: guide_data(operation.guide),
+      min_width: optional_data(operation.min_width),
+      min_height: optional_data(operation.min_height),
+      zoom_x: operation.zoom_x,
+      zoom_y: operation.zoom_y
+    ]
+    |> resize_rule_data(operation)
+  end
+
   def data(:auto), do: [unit: :auto]
   def data(:full_axis), do: [unit: :full_axis]
 
@@ -49,6 +68,20 @@ defmodule ImagePlug.Transform.KeyData do
   def dpr_data(value) when is_binary(value) do
     decimal_string_ratio_data(value)
   end
+
+  defp optional_data(nil), do: nil
+  defp optional_data(value), do: data(value)
+
+  defp guide_data(:center), do: :center
+
+  defp guide_data({:anchor, x, y}), do: [type: :anchor, x: x, y: y]
+
+  defp guide_data({:focal, x, y}), do: [type: :focal, x: data(x), y: data(y)]
+
+  defp resize_rule_data(data, %Resize{mode: :auto}),
+    do: data ++ [rule: :imgproxy_orientation_match_v1]
+
+  defp resize_rule_data(data, %Resize{}), do: data
 
   defp decimal_string_ratio_data(value) do
     value

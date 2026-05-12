@@ -1,6 +1,7 @@
 defmodule ImagePlug.Plan.OperationKeyDataTest do
   use ExUnit.Case, async: true
 
+  alias ImagePlug.Plan.Operation
   alias ImagePlug.Transform.KeyData
 
   describe "tagged geometry data" do
@@ -48,6 +49,44 @@ defmodule ImagePlug.Plan.OperationKeyDataTest do
                numerator: 133_242_321,
                denominator: 100_000_000
              ]
+    end
+  end
+
+  describe "resize operation data" do
+    test "materializes unresolved resize auto semantic intent" do
+      assert {:ok, operation} =
+               Operation.resize(:auto, {:px, 300}, {:px, 200}, dpr: 2.0)
+
+      material = KeyData.data(operation)
+
+      assert material == [
+               op: :resize,
+               mode: :auto,
+               width: [unit: :logical_px, value: 300],
+               height: [unit: :logical_px, value: 200],
+               dpr: [unit: :ratio, numerator: 2, denominator: 1],
+               enlargement: :deny,
+               guide: :center,
+               min_width: nil,
+               min_height: nil,
+               zoom_x: 1.0,
+               zoom_y: 1.0,
+               rule: :imgproxy_orientation_match_v1
+             ]
+
+      refute Keyword.has_key?(material, :selected_branch)
+      refute Keyword.has_key?(material, :branch)
+      refute inspect(material) =~ "resize_fit"
+      refute inspect(material) =~ "resize_cover"
+    end
+
+    test "canonicalizes equivalent DPR values through operation key data" do
+      expected_dpr = [unit: :ratio, numerator: 1, denominator: 1]
+
+      for dpr <- [1, 1.0, "1.00"] do
+        assert {:ok, operation} = Operation.resize(:fit, {:px, 300}, :auto, dpr: dpr)
+        assert KeyData.data(operation)[:dpr] == expected_dpr
+      end
     end
   end
 end

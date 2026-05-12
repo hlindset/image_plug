@@ -8,88 +8,71 @@ defmodule ImagePlug.Plan.OperationTest do
   alias ImagePlug.Plan.Operation
 
   describe "resize constructors" do
-    test "build resize operations through exported constructors" do
-      assert {:ok, size} = size()
-      assert {:ok, guide} = Gravity.anchor(:center, :center)
-
-      assert {:ok, %Operation.ResizeFit{size: ^size, enlargement: :allow}} =
-               Operation.resize_fit(size: size, enlargement: :allow)
-
-      assert {:ok, %Operation.ResizeCover{size: ^size, enlargement: :deny, guide: ^guide}} =
-               Operation.resize_cover(size: size, enlargement: :deny, guide: guide)
-
-      assert {:ok, %Operation.ResizeStretch{size: ^size, enlargement: :allow}} =
-               Operation.resize_stretch(size: size, enlargement: :allow)
-
-      assert {:ok, %Operation.ResizeAuto{size: ^size, enlargement: :deny}} =
-               Operation.resize_auto(size: size, enlargement: :deny)
+    test "build unified resize operations through exported constructor" do
+      for mode <- [:fit, :cover, :stretch, :auto] do
+        assert {:ok,
+                %Operation.Resize{
+                  mode: ^mode,
+                  width: {:px, 300},
+                  height: :auto,
+                  dpr: {:ratio, 1, 1},
+                  enlargement: :deny,
+                  guide: :center,
+                  min_width: nil,
+                  min_height: nil,
+                  zoom_x: 1.0,
+                  zoom_y: 1.0
+                }} = Operation.resize(mode, {:px, 300}, :auto)
+      end
     end
 
-    test "reject invalid resize constructor inputs without raising" do
-      assert {:ok, size} = size()
-      assert {:ok, guide} = Gravity.anchor(:center, :center)
-
-      assert Operation.resize_fit(size: size, enlargement: :allow, min_heigth: 100) ==
-               {:error, {:unknown_operation_options, :resize_fit, [:min_heigth]}}
-
-      assert Operation.resize_fit(size: :not_size, enlargement: :allow) ==
-               {:error, {:invalid_operation, :resize_fit, [size: :not_size, enlargement: :allow]}}
-
-      assert Operation.resize_fit(size: size, enlargement: :maybe) ==
-               {:error, {:invalid_operation, :resize_fit, [size: size, enlargement: :maybe]}}
-
-      assert Operation.resize_cover(size: size, enlargement: :allow, guide: :center) ==
-               {:error,
-                {:invalid_operation, :resize_cover,
-                 [size: size, enlargement: :allow, guide: :center]}}
-
-      assert Operation.resize_cover(
-               size: size,
-               enlargement: :allow,
-               guide: guide,
-               placement: guide
-             ) ==
-               {:error, {:unknown_operation_options, :resize_cover, [:placement]}}
-
-      assert Operation.resize_cover(size: size, enlargement: :deny, guide: guide) ==
-               {:ok, %Operation.ResizeCover{size: size, enlargement: :deny, guide: guide}}
-
-      assert Operation.resize_stretch(size: :not_size, enlargement: :allow) ==
-               {:error,
-                {:invalid_operation, :resize_stretch, [size: :not_size, enlargement: :allow]}}
-
-      assert Operation.resize_stretch(size: size, enlargement: :allow, fit: :cover) ==
-               {:error, {:unknown_operation_options, :resize_stretch, [:fit]}}
-
-      assert Operation.resize_auto(size: size, enlargement: :maybe) ==
-               {:error, {:invalid_operation, :resize_auto, [size: size, enlargement: :maybe]}}
-
-      assert Operation.resize_auto(size: size, enlargement: :allow, guide: guide, focal: guide) ==
-               {:error, {:unknown_operation_options, :resize_auto, [:focal]}}
-
-      assert Operation.resize_auto(size: size, enlargement: :allow, guide: nil) ==
-               {:error,
-                {:invalid_operation, :resize_auto, [size: size, enlargement: :allow, guide: nil]}}
+    test "builds resize operation with explicit optional fields" do
+      assert {:ok,
+              %Operation.Resize{
+                mode: :cover,
+                width: {:px, 300},
+                height: {:px, 200},
+                dpr: {:ratio, 3, 2},
+                enlargement: :allow,
+                guide: {:anchor, :center, :bottom},
+                min_width: {:px, 100},
+                min_height: {:px, 50},
+                zoom_x: 1.25,
+                zoom_y: 2
+              }} =
+               Operation.resize(:cover, {:px, 300}, {:px, 200},
+                 dpr: "1.50",
+                 enlargement: :allow,
+                 guide: {:anchor, :center, :bottom},
+                 min_width: {:px, 100},
+                 min_height: {:px, 50},
+                 zoom_x: 1.25,
+                 zoom_y: 2
+               )
     end
 
-    test "reject unsupported resize dimensions at construction" do
-      assert {:ok, ratio} = Dimension.ratio(1, 2)
-      assert {:ok, pixels} = Dimension.pixels(100)
-      assert {:ok, guide} = Gravity.anchor(:center, :center)
-      assert {:ok, size} = Size.new(width: ratio, height: pixels, dpr: 1.0)
+    test "reject malformed resize construction without raising" do
+      assert Operation.resize(:fill, {:px, 300}, :auto) ==
+               {:error, {:invalid_operation, :resize, [:fill, {:px, 300}, :auto, []]}}
 
-      assert {:error, {:invalid_operation, :resize_fit, attrs}} =
-               Operation.resize_fit(size: size, enlargement: :deny)
+      assert Operation.resize(:fit, {:px, 0}, :auto) ==
+               {:error, {:invalid_operation, :resize, [:fit, {:px, 0}, :auto, []]}}
 
-      assert attrs[:size] == size
-      assert attrs[:enlargement] == :deny
+      assert Operation.resize(:fit, {:ratio, 1, 2}, :auto) ==
+               {:error, {:invalid_operation, :resize, [:fit, {:ratio, 1, 2}, :auto, []]}}
 
-      assert {:error, {:invalid_operation, :resize_cover, attrs}} =
-               Operation.resize_cover(size: size, enlargement: :deny, guide: guide)
+      assert Operation.resize(:fit, {:px, 300}, :auto, min_width: {:px, 0}) ==
+               {:error,
+                {:invalid_operation, :resize, [:fit, {:px, 300}, :auto, [min_width: {:px, 0}]]}}
 
-      assert attrs[:size] == size
-      assert attrs[:enlargement] == :deny
-      assert attrs[:guide] == guide
+      assert Operation.resize(:fit, {:px, 300}, :auto, dpr: 0) ==
+               {:error, {:invalid_operation, :resize, [:fit, {:px, 300}, :auto, [dpr: 0]]}}
+
+      assert Operation.resize(:fit, {:px, 300}, :auto, dpr: "1.x") ==
+               {:error, {:invalid_operation, :resize, [:fit, {:px, 300}, :auto, [dpr: "1.x"]]}}
+
+      assert Operation.resize(:fit, {:px, 300}, :auto, zoom_x: 0) ==
+               {:error, {:invalid_operation, :resize, [:fit, {:px, 300}, :auto, [zoom_x: 0]]}}
     end
   end
 
@@ -255,10 +238,10 @@ defmodule ImagePlug.Plan.OperationTest do
       assert {:ok, size} = size()
       assert {:ok, guide} = Gravity.anchor(:center, :center)
       assert {:ok, region} = region()
-      assert {:ok, fit} = Operation.resize_fit(size: size, enlargement: :deny)
-      assert {:ok, cover} = Operation.resize_cover(size: size, enlargement: :deny, guide: guide)
-      assert {:ok, stretch} = Operation.resize_stretch(size: size, enlargement: :deny)
-      assert {:ok, auto} = Operation.resize_auto(size: size, enlargement: :deny)
+      assert {:ok, fit} = Operation.resize(:fit, {:px, 300}, :auto)
+      assert {:ok, cover} = Operation.resize(:cover, {:px, 300}, :auto)
+      assert {:ok, stretch} = Operation.resize(:stretch, {:px, 300}, :auto)
+      assert {:ok, auto} = Operation.resize(:auto, {:px, 300}, :auto)
       assert {:ok, crop_size} = crop_size()
       assert {:ok, guided} = Operation.crop_guided(size: crop_size, guide: guide)
       assert {:ok, region_crop} = Operation.crop_region(region: region)
@@ -289,11 +272,8 @@ defmodule ImagePlug.Plan.OperationTest do
     end
 
     test "reports fit and stretch without requested dimensions as random access" do
-      assert {:ok, auto_width} = Dimension.auto()
-      assert {:ok, auto_height} = Dimension.auto()
-      assert {:ok, size} = Size.new(width: auto_width, height: auto_height, dpr: 1.0)
-      assert {:ok, fit} = Operation.resize_fit(size: size, enlargement: :deny)
-      assert {:ok, stretch} = Operation.resize_stretch(size: size, enlargement: :deny)
+      assert {:ok, fit} = Operation.resize(:fit, :auto, :auto)
+      assert {:ok, stretch} = Operation.resize(:stretch, :auto, :auto)
 
       assert Operation.access_metadata(fit) == %{access: :random}
       assert Operation.access_metadata(stretch) == %{access: :random}

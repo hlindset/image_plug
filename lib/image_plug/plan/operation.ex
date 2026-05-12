@@ -12,6 +12,7 @@ defmodule ImagePlug.Plan.Operation do
   alias ImagePlug.Plan.Operation.CropGuided
   alias ImagePlug.Plan.Operation.CropRegion
   alias ImagePlug.Plan.Operation.Flip
+  alias ImagePlug.Plan.Operation.Resize
   alias ImagePlug.Plan.Operation.ResizeAuto
   alias ImagePlug.Plan.Operation.ResizeCover
   alias ImagePlug.Plan.Operation.ResizeFit
@@ -25,6 +26,8 @@ defmodule ImagePlug.Plan.Operation do
   @prefetch_gravity_spaces [:current]
   @x_anchors [:left, :center, :right]
   @y_anchors [:top, :center, :bottom]
+  @resize_modes [:fit, :cover, :stretch, :auto]
+  @semantic_resize_keys [:dpr, :enlargement, :guide, :min_width, :min_height, :zoom_x, :zoom_y]
   @resize_keys [:size, :enlargement, :min_width, :min_height, :zoom_x, :zoom_y]
   @resize_placement_keys [:guide, :x_offset, :y_offset]
   @crop_guided_keys [:size, :guide, :x_offset, :y_offset]
@@ -37,6 +40,7 @@ defmodule ImagePlug.Plan.Operation do
     AutoOrient,
     Rotate,
     Flip,
+    Resize,
     ResizeFit,
     ResizeCover,
     ResizeStretch,
@@ -44,7 +48,8 @@ defmodule ImagePlug.Plan.Operation do
   ]
 
   @type resize_operation ::
-          ResizeFit.t()
+          Resize.t()
+          | ResizeFit.t()
           | ResizeCover.t()
           | ResizeStretch.t()
           | ResizeAuto.t()
@@ -139,6 +144,47 @@ defmodule ImagePlug.Plan.Operation do
 
   def flip(axis), do: invalid(:flip, axis)
 
+  @spec resize(Resize.mode(), term(), term(), keyword()) ::
+          {:ok, Resize.t()} | {:error, error()}
+  def resize(mode, width, height, opts \\ [])
+
+  def resize(mode, width, height, opts) when is_list(opts) do
+    with :ok <- validate_known_options(:resize, opts, @semantic_resize_keys),
+         {:ok, mode} <- resize_mode(mode),
+         {:ok, width} <- tagged_resize_dimension(width),
+         {:ok, height} <- tagged_resize_dimension(height),
+         {:ok, dpr} <- resize_dpr(Keyword.get(opts, :dpr, 1)),
+         {:ok, enlargement} <-
+           optional_member(opts, :enlargement, @enlargements, :deny),
+         {:ok, guide} <- resize_guide(Keyword.get(opts, :guide, :center)),
+         {:ok, min_width} <- optional_tagged_resize_dimension(opts, :min_width),
+         {:ok, min_height} <- optional_tagged_resize_dimension(opts, :min_height),
+         {:ok, zoom_x} <- numeric(opts, :zoom_x, 1.0),
+         {:ok, zoom_y} <- numeric(opts, :zoom_y, 1.0) do
+      {:ok,
+       %Resize{
+         mode: mode,
+         width: width,
+         height: height,
+         dpr: dpr,
+         enlargement: enlargement,
+         guide: guide,
+         min_width: min_width,
+         min_height: min_height,
+         zoom_x: zoom_x,
+         zoom_y: zoom_y
+       }}
+    else
+      {:error, {:unknown_operation_options, _operation, _keys} = reason} ->
+        {:error, reason}
+
+      {:error, _reason} ->
+        invalid(:resize, [mode, width, height, opts])
+    end
+  end
+
+  def resize(mode, width, height, opts), do: invalid(:resize, [mode, width, height, opts])
+
   @spec resize_fit(keyword()) :: {:ok, ResizeFit.t()} | {:error, error()}
   def resize_fit(attrs) when is_list(attrs) do
     with :ok <- validate_known_options(:resize_fit, attrs, @resize_keys),
@@ -216,6 +262,9 @@ defmodule ImagePlug.Plan.Operation do
   end
 
   @spec access_metadata(semantic_operation()) :: %{access: access_requirement()}
+  def access_metadata(%Resize{mode: :fit} = operation), do: resize_access_metadata(operation)
+  def access_metadata(%Resize{mode: :stretch} = operation), do: resize_access_metadata(operation)
+  def access_metadata(%Resize{mode: mode}) when mode in [:cover, :auto], do: %{access: :random}
   def access_metadata(%ResizeFit{} = operation), do: resize_access_metadata(operation)
   def access_metadata(%ResizeStretch{} = operation), do: resize_access_metadata(operation)
   def access_metadata(%AutoOrient{}), do: %{access: :sequential}
@@ -228,6 +277,26 @@ defmodule ImagePlug.Plan.Operation do
   def access_metadata(%Flip{}), do: %{access: :random}
 
   @spec validate_prefetch_safe(term()) :: :ok | {:error, validation_error()}
+  def validate_prefetch_safe(
+        %Resize{
+          mode: mode,
+          width: width,
+          height: height,
+          dpr: dpr,
+          enlargement: enlargement,
+          guide: guide
+        } = operation
+      )
+      when mode in @resize_modes and enlargement in @enlargements do
+    with :ok <- validate_tagged_resize_dimension(width, operation),
+         :ok <- validate_tagged_resize_dimension(height, operation),
+         :ok <- validate_tagged_dpr(dpr, operation),
+         :ok <- validate_tagged_guide(guide, operation),
+         :ok <- validate_tagged_resize_modifiers(operation) do
+      validate_tagged_resize_access(mode, operation)
+    end
+  end
+
   def validate_prefetch_safe(%ResizeFit{size: size, enlargement: enlargement} = operation)
       when enlargement in @enlargements do
     with :ok <- validate_resize_size(size, operation) do
@@ -299,6 +368,18 @@ defmodule ImagePlug.Plan.Operation do
 
   defp invalid(operation, attrs), do: {:error, {:invalid_operation, operation, attrs}}
 
+  defp resize_access_metadata(%Resize{
+         width: width,
+         height: height,
+         min_width: nil,
+         min_height: nil
+       }) do
+    case requested_tagged_resize_dimension?(width) or requested_tagged_resize_dimension?(height) do
+      true -> %{access: :sequential}
+      false -> %{access: :random}
+    end
+  end
+
   defp resize_access_metadata(%{size: size, min_width: nil, min_height: nil}) do
     case requested_resize_dimension?(size.width) or requested_resize_dimension?(size.height) do
       true -> %{access: :sequential}
@@ -307,6 +388,11 @@ defmodule ImagePlug.Plan.Operation do
   end
 
   defp resize_access_metadata(_operation), do: %{access: :random}
+
+  defp requested_tagged_resize_dimension?({:px, value}) when is_integer(value) and value > 0,
+    do: true
+
+  defp requested_tagged_resize_dimension?(_dimension), do: false
 
   defp requested_resize_dimension?(%Dimension{unit: :logical_px, value: value})
        when is_integer(value) and value > 0,
@@ -336,6 +422,168 @@ defmodule ImagePlug.Plan.Operation do
       unknown_keys -> {:error, {:unknown_operation_options, operation, Enum.uniq(unknown_keys)}}
     end
   end
+
+  defp resize_mode(mode) when mode in @resize_modes, do: {:ok, mode}
+  defp resize_mode(_mode), do: {:error, :mode}
+
+  defp tagged_resize_dimension(:auto), do: {:ok, :auto}
+
+  defp tagged_resize_dimension({:px, value}) when is_integer(value) and value > 0,
+    do: {:ok, {:px, value}}
+
+  defp tagged_resize_dimension(_dimension), do: {:error, :dimension}
+
+  defp optional_tagged_resize_dimension(attrs, key) do
+    case Keyword.fetch(attrs, key) do
+      {:ok, nil} -> {:ok, nil}
+      {:ok, value} -> tagged_resize_dimension(value)
+      :error -> {:ok, nil}
+    end
+  end
+
+  defp resize_dpr(value) when is_integer(value) and value > 0, do: {:ok, {:ratio, value, 1}}
+
+  defp resize_dpr(value) when is_float(value) and value > 0.0 do
+    value
+    |> Float.round(7)
+    |> :erlang.float_to_binary(decimals: 7)
+    |> decimal_string_ratio()
+  end
+
+  defp resize_dpr(value) when is_binary(value), do: decimal_string_ratio(value)
+  defp resize_dpr(_value), do: {:error, :dpr}
+
+  defp decimal_string_ratio(value) do
+    value
+    |> String.split(".", parts: 2)
+    |> decimal_string_parts_ratio()
+  end
+
+  defp decimal_string_parts_ratio([integer]) do
+    with {:ok, numerator} <- parse_non_negative_digits(integer) do
+      canonical_dpr_ratio(numerator, 1)
+    end
+  end
+
+  defp decimal_string_parts_ratio([integer, fraction]) when byte_size(fraction) > 0 do
+    with {:ok, integer} <- parse_non_negative_digits(integer),
+         {:ok, fraction_value} <- parse_non_negative_digits(fraction) do
+      denominator = integer_power(10, byte_size(fraction))
+      canonical_dpr_ratio(integer * denominator + fraction_value, denominator)
+    end
+  end
+
+  defp decimal_string_parts_ratio(_parts), do: {:error, :dpr}
+
+  defp parse_non_negative_digits(value) when byte_size(value) > 0 do
+    if digits?(value) do
+      {:ok, String.to_integer(value)}
+    else
+      {:error, :dpr}
+    end
+  end
+
+  defp parse_non_negative_digits(_value), do: {:error, :dpr}
+
+  defp digits?(value) do
+    value
+    |> String.to_charlist()
+    |> Enum.all?(&(&1 in ?0..?9))
+  end
+
+  defp canonical_dpr_ratio(numerator, denominator) when numerator > 0 do
+    gcd = Integer.gcd(numerator, denominator)
+    {:ok, {:ratio, div(numerator, gcd), div(denominator, gcd)}}
+  end
+
+  defp canonical_dpr_ratio(_numerator, _denominator), do: {:error, :dpr}
+
+  defp resize_guide(:center), do: {:ok, :center}
+
+  defp resize_guide({:anchor, x, y} = guide) when x in @x_anchors and y in @y_anchors,
+    do: {:ok, guide}
+
+  defp resize_guide({:focal, x, y} = guide) do
+    with :ok <- validate_tagged_ratio(x, guide),
+         :ok <- validate_tagged_ratio(y, guide) do
+      {:ok, guide}
+    else
+      {:error, _reason} -> {:error, :guide}
+    end
+  end
+
+  defp resize_guide(_guide), do: {:error, :guide}
+
+  defp validate_tagged_resize_dimension(:auto, _operation), do: :ok
+
+  defp validate_tagged_resize_dimension({:px, value}, _operation)
+       when is_integer(value) and value > 0, do: :ok
+
+  defp validate_tagged_resize_dimension(_dimension, operation),
+    do: invalid_pipeline_operation(operation)
+
+  defp validate_tagged_dpr({:ratio, numerator, denominator}, operation)
+       when is_integer(numerator) and is_integer(denominator) and numerator > 0 and
+              denominator > 0 do
+    if Integer.gcd(numerator, denominator) == 1 do
+      :ok
+    else
+      invalid_pipeline_operation(operation)
+    end
+  end
+
+  defp validate_tagged_dpr(_dpr, operation), do: invalid_pipeline_operation(operation)
+
+  defp validate_tagged_guide(:center, _operation), do: :ok
+
+  defp validate_tagged_guide({:anchor, x, y}, _operation)
+       when x in @x_anchors and y in @y_anchors,
+       do: :ok
+
+  defp validate_tagged_guide({:focal, x, y}, operation) do
+    with :ok <- validate_tagged_ratio(x, operation) do
+      validate_tagged_ratio(y, operation)
+    end
+  end
+
+  defp validate_tagged_guide(_guide, operation), do: invalid_pipeline_operation(operation)
+
+  defp validate_tagged_resize_modifiers(operation) do
+    with :ok <- validate_optional_tagged_resize_dimension(operation.min_width, operation),
+         :ok <- validate_optional_tagged_resize_dimension(operation.min_height, operation),
+         :ok <- validate_factor(operation.zoom_x, operation) do
+      validate_factor(operation.zoom_y, operation)
+    end
+  end
+
+  defp validate_optional_tagged_resize_dimension(nil, _operation), do: :ok
+
+  defp validate_optional_tagged_resize_dimension(dimension, operation),
+    do: validate_tagged_resize_dimension(dimension, operation)
+
+  defp validate_tagged_resize_access(mode, operation) when mode in [:fit, :stretch] do
+    case resize_access_metadata(operation) do
+      %{access: :sequential} -> :ok
+      %{access: :random} -> :ok
+    end
+  end
+
+  defp validate_tagged_resize_access(_mode, _operation), do: :ok
+
+  defp validate_tagged_ratio(
+         {:ratio, numerator, denominator},
+         operation
+       )
+       when is_integer(numerator) and is_integer(denominator) and numerator >= 0 and
+              denominator > 0 do
+    if Integer.gcd(numerator, denominator) == 1 do
+      :ok
+    else
+      invalid_pipeline_operation(operation)
+    end
+  end
+
+  defp validate_tagged_ratio(_ratio, operation), do: invalid_pipeline_operation(operation)
 
   defp validate_resize_size(%Size{} = size, operation) do
     with :ok <- validate_resize_dimension(size.width, operation),
@@ -594,6 +842,13 @@ defmodule ImagePlug.Plan.Operation do
     end
   end
 
+  defp optional_member(attrs, key, values, default) do
+    case Keyword.fetch(attrs, key) do
+      {:ok, value} -> if value in values, do: {:ok, value}, else: {:error, {key, values}}
+      :error -> {:ok, default}
+    end
+  end
+
   defp numeric(attrs, key, default) do
     case Keyword.fetch(attrs, key) do
       {:ok, value} when is_number(value) and value > 0 -> {:ok, value}
@@ -624,6 +879,10 @@ defmodule ImagePlug.Plan.Operation do
       :error ->
         {:ok, default}
     end
+  end
+
+  defp integer_power(base, exponent) do
+    Enum.reduce(1..exponent//1, 1, fn _step, product -> product * base end)
   end
 
   defp invalid_pipeline_operation(operation),
