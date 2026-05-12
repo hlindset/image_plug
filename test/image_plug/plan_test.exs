@@ -58,11 +58,9 @@ defmodule ImagePlug.PlanTest do
 
   test "validated pipelines reject non-orientation executable transform structs" do
     operation = %ImagePlug.Transform.Operation.Resize{
-      rule: %ImagePlug.Transform.Geometry.DimensionRule{
-        mode: :fit,
-        width: {:pixels, 100},
-        height: :auto
-      }
+      mode: :fit,
+      width: {:pixels, 100},
+      height: :auto
     }
 
     assert Plan.validated_pipelines(plan(pipelines: [%Pipeline{operations: [operation]}])) ==

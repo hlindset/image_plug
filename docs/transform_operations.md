@@ -94,10 +94,10 @@ executable Transform operation modules as Plan output.
 `ImagePlug.Transform.Operation.*` modules are executable operation targets. They
 describe work over `ImagePlug.Transform.State`, not parser request syntax:
 
-- `ImagePlug.Transform.Operation.Resize`: resolved resize with a known
-  dimension-rule mode.
+- `ImagePlug.Transform.Operation.Resize`: executable resize with flattened mode
+  and dimension fields.
 - `ImagePlug.Transform.Operation.Crop`: resolved crop using gravity, offsets,
-  optional orientation context, and optional target rule.
+  and explicit crop dimensions.
 - `ImagePlug.Transform.Operation.ExtendCanvas`: resolved canvas/letterbox work.
 - `ImagePlug.Transform.Operation.AutoOrient`: executable EXIF autorotation.
 - `ImagePlug.Transform.Operation.Rotate`: executable right-angle rotation.

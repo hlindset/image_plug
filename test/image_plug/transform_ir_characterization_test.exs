@@ -13,7 +13,6 @@ defmodule ImagePlug.TransformIRCharacterizationTest do
   alias ImagePlug.Runtime.RequestRunner
   alias ImagePlug.Transform
   alias ImagePlug.Transform.Chain
-  alias ImagePlug.Transform.Geometry.DimensionRule
   alias ImagePlug.Transform.Operation.Crop
   alias ImagePlug.Transform.Operation.ExtendCanvas
   alias ImagePlug.Transform.Operation.Resize
@@ -140,34 +139,28 @@ defmodule ImagePlug.TransformIRCharacterizationTest do
   end
 
   defp old_resize(mode, width, height, opts \\ []) do
-    %Resize{
-      rule:
-        struct!(
-          DimensionRule,
-          Keyword.merge(
-            [
-              mode: mode,
-              width: executable_resize_dimension(width),
-              height: executable_resize_dimension(height),
-              enlarge: Keyword.get(opts, :enlarge, false)
-            ],
-            Keyword.drop(opts, [:enlarge])
-          )
-        )
-    }
+    struct!(
+      Resize,
+      Keyword.merge(
+        [
+          mode: mode,
+          width: executable_resize_dimension(width),
+          height: executable_resize_dimension(height),
+          enlarge: Keyword.get(opts, :enlarge, false)
+        ],
+        Keyword.drop(opts, [:enlarge])
+      )
+    )
   end
 
   defp old_cover(width, height) do
-    rule = %DimensionRule{mode: :fill, width: {:pixels, width}, height: {:pixels, height}}
-
     [
-      %Resize{rule: rule},
+      %Resize{mode: :fill, width: {:pixels, width}, height: {:pixels, height}},
       %Crop{
-        width: :auto,
-        height: :auto,
+        width: {:pixels, width},
+        height: {:pixels, height},
         crop_from: :gravity,
-        gravity: {:anchor, :center, :center},
-        target_rule: rule
+        gravity: {:anchor, :center, :center}
       }
     ]
   end

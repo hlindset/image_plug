@@ -34,9 +34,8 @@ defmodule ImagePlug.Transform.Operation.Crop do
     `{:percent, value}`. Defaults to `0.0`.
   - `y_offset`: vertical offset using the same units as `x_offset`. Defaults
     to `0.0`.
-  - `target_rule`: `nil` or an `ImagePlug.Transform.Geometry.DimensionRule`
-    with mode `:fit`, `:fill`, `:fill_down`, `:force`, or `:auto`. Result crops
-    use this rule to resolve crop dimensions from the current image.
+  - `offset_scale`: multiplier applied to pixel offsets, usually the effective
+    DPR used by the preceding resize. Defaults to `1.0`.
 
   Numeric length units are resolved against the current image dimensions during
   execution. `:auto` crop dimensions resolve to the current image dimension on
@@ -53,11 +52,9 @@ defmodule ImagePlug.Transform.Operation.Crop do
   gravity pins the crop to an edge or center. Focal-point gravity centers the
   crop around a normalized current-image point and clamps it into image bounds.
 
-  Result crops are represented as `crop_from: :gravity` with a `target_rule`.
-  The rule resolves the final crop size, including the effective DPR used by
-  resize planning. Pixel offsets are multiplied by that effective DPR during
-  coordinate mapping; scale and percent offsets are resolved relative to the
-  current image bounds.
+  Result crops are represented as `crop_from: :gravity` with explicit `width`
+  and `height`. Pixel offsets are multiplied by `offset_scale`; scale and
+  percent offsets are resolved relative to the current image bounds.
 
   For coordinate crops, `crop_from` is the requested top-left crop position
   before the rectangle is clamped to image bounds.
@@ -90,7 +87,6 @@ defmodule ImagePlug.Transform.Operation.Crop do
   import ImagePlug.Transform.Geometry,
     only: [anchor_to_pixels: 3, image_height: 1, image_width: 1, to_pixels!: 2]
 
-  alias ImagePlug.Transform.Geometry.DimensionRule
   alias ImagePlug.Transform.State
   alias ImagePlug.Transform.Validation
 
@@ -106,7 +102,7 @@ defmodule ImagePlug.Transform.Operation.Crop do
     gravity: nil,
     x_offset: 0.0,
     y_offset: 0.0,
-    target_rule: nil
+    offset_scale: 1.0
   ]
 
   @type t :: %__MODULE__{
@@ -124,7 +120,7 @@ defmodule ImagePlug.Transform.Operation.Crop do
             | nil,
           x_offset: ImagePlug.Transform.Types.length() | number(),
           y_offset: ImagePlug.Transform.Types.length() | number(),
-          target_rule: DimensionRule.t() | nil
+          offset_scale: pos_integer() | float()
         }
 
   @impl ImagePlug.Transform
@@ -138,7 +134,7 @@ defmodule ImagePlug.Transform.Operation.Crop do
          :ok <- Validation.gravity("crop", :gravity, operation.gravity),
          :ok <- Validation.offset("crop", :x_offset, operation.x_offset),
          :ok <- Validation.offset("crop", :y_offset, operation.y_offset) do
-      validate_target_rule(operation.target_rule)
+      validate_offset_scale(operation.offset_scale)
     end
   end
 
@@ -213,56 +209,9 @@ defmodule ImagePlug.Transform.Operation.Crop do
   defp default_if_nil(nil, default), do: default
   defp default_if_nil(value, _default), do: value
 
-  defp crop_dimensions(%__MODULE__{target_rule: nil} = params, _image_width, _image_height) do
-    {:ok, %{width: params.width, height: params.height, offset_scale: 1.0}}
+  defp crop_dimensions(%__MODULE__{} = params, _image_width, _image_height) do
+    {:ok, %{width: params.width, height: params.height, offset_scale: params.offset_scale}}
   end
-
-  defp crop_dimensions(
-         %__MODULE__{target_rule: %DimensionRule{} = rule},
-         image_width,
-         image_height
-       ) do
-    rule = resolve_auto_target_rule(rule, image_width, image_height)
-    opts = [source_width: image_width, source_height: image_height]
-
-    with {:ok, dimensions} <- DimensionRule.resolve(rule, opts) do
-      {:ok,
-       %{
-         width: dimensions.target_width,
-         height: dimensions.target_height,
-         offset_scale: dimensions.effective_dpr
-       }}
-    end
-  end
-
-  defp resolve_auto_target_rule(%DimensionRule{mode: :auto} = rule, image_width, image_height) do
-    %DimensionRule{rule | mode: adaptive_target_mode(rule, image_width, image_height)}
-  end
-
-  defp resolve_auto_target_rule(%DimensionRule{} = rule, _image_width, _image_height), do: rule
-
-  defp adaptive_target_mode(%DimensionRule{} = rule, image_width, image_height) do
-    with {:ok, width} <- requested_dimension(rule.width, image_width),
-         {:ok, height} <- requested_dimension(rule.height, image_height) do
-      if same_orientation?(image_width, image_height, width, height), do: :fill, else: :fit
-    else
-      :error -> :fit
-    end
-  end
-
-  defp requested_dimension(nil, _source_dimension), do: :error
-  defp requested_dimension(:auto, _source_dimension), do: :error
-
-  defp requested_dimension(dimension, source_dimension),
-    do: {:ok, to_pixels!(source_dimension, dimension)}
-
-  defp same_orientation?(source_width, source_height, target_width, target_height) do
-    orientation(source_width, source_height) == orientation(target_width, target_height)
-  end
-
-  defp orientation(width, height) when width > height, do: :landscape
-  defp orientation(width, height) when width < height, do: :portrait
-  defp orientation(_width, _height), do: :square
 
   defp gravity_crop_coordinates(
          image_width,
@@ -415,18 +364,6 @@ defmodule ImagePlug.Transform.Operation.Crop do
   defp validate_crop_from(crop_from),
     do: {:error, {:invalid_crop_from, crop_from}}
 
-  defp validate_target_rule(nil), do: :ok
-
-  defp validate_target_rule(%DimensionRule{} = rule) do
-    Validation.dimension_rule("crop", :target_rule, rule, [
-      :fit,
-      :fill,
-      :fill_down,
-      :force,
-      :auto
-    ])
-  end
-
-  defp validate_target_rule(target_rule),
-    do: Validation.invalid("crop", :target_rule, target_rule)
+  defp validate_offset_scale(value) when is_number(value) and value > 0, do: :ok
+  defp validate_offset_scale(value), do: Validation.invalid("crop", :offset_scale, value)
 end

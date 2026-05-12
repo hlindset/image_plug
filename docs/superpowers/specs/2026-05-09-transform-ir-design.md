@@ -62,7 +62,8 @@ Several structs combine multiple meanings:
 
 - `Crop` represents exact region extraction, gravity-guided crops,
   focus-guided crops, and result crops after cover/fill resizing.
-- `Resize` represents several resize modes through `DimensionRule`.
+- `Resize` represents several resize modes through flattened mode and dimension
+  fields.
 - `ExtendCanvas` represents canvas extension and some padding/letterbox-like
   behavior.
 

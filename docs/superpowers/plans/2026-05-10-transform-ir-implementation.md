@@ -283,7 +283,6 @@ Before pasting this module, replace `Image.new/3`, `Image.width/1`, and `Image.h
 defmodule ImagePlug.TransformExecutableCharacterizationTest do
   use ExUnit.Case, async: true
 
-  alias ImagePlug.Transform.Geometry.DimensionRule
   alias ImagePlug.Transform.Operation.AdaptiveResize
   alias ImagePlug.Transform.Operation.Crop
   alias ImagePlug.Transform.Operation.ExtendCanvas
@@ -306,35 +305,35 @@ defmodule ImagePlug.TransformExecutableCharacterizationTest do
     fit =
       generated_state(300, 200)
       |> execute!([
-        %Resize{rule: %DimensionRule{mode: :fit, width: {:pixels, 100}, height: {:pixels, 100}}}
+        %Resize{mode: :fit, width: {:pixels, 100}, height: {:pixels, 100}}
       ])
 
     fill =
       generated_state(300, 200)
       |> execute!([
-        %Resize{rule: %DimensionRule{mode: :fill, width: {:pixels, 100}, height: {:pixels, 100}}},
+        %Resize{mode: :fill, width: {:pixels, 100}, height: {:pixels, 100}},
         %Crop{
-          width: :auto,
-          height: :auto,
+          width: {:pixels, 100},
+          height: {:pixels, 100},
           crop_from: :gravity,
           gravity: {:anchor, :center, :center},
           x_offset: {:pixels, 0},
-          y_offset: {:pixels, 0},
-          target_rule: %DimensionRule{mode: :fill, width: {:pixels, 100}, height: {:pixels, 100}}
+          y_offset: {:pixels, 0}
         }
       ])
 
     force =
       generated_state(300, 200)
       |> execute!([
-        %Resize{rule: %DimensionRule{mode: :force, width: :auto, height: {:pixels, 100}}}
+        %Resize{mode: :force, width: :auto, height: {:pixels, 100}}
       ])
 
     auto_landscape_intermediate =
       generated_state(300, 200)
       |> execute!([
         %AdaptiveResize{
-          rule: %DimensionRule{mode: :auto, width: {:pixels, 100}, height: {:pixels, 50}}
+          width: {:pixels, 100},
+          height: {:pixels, 50}
         }
       ])
 
@@ -342,7 +341,8 @@ defmodule ImagePlug.TransformExecutableCharacterizationTest do
       generated_state(300, 200)
       |> execute!([
         %AdaptiveResize{
-          rule: %DimensionRule{mode: :auto, width: {:pixels, 50}, height: {:pixels, 100}}
+          width: {:pixels, 50},
+          height: {:pixels, 100}
         }
       ])
 
@@ -388,7 +388,6 @@ defmodule ImagePlug.TransformIRCharacterizationTest do
   alias ImagePlug.Plan.Pipeline
   alias ImagePlug.Plan.Source.Plain
   alias ImagePlug.Runtime.RequestRunner
-  alias ImagePlug.Transform.Geometry.DimensionRule
   alias ImagePlug.Transform.Operation.AdaptiveResize
 
   defmodule CacheHitProbe do
@@ -418,11 +417,8 @@ defmodule ImagePlug.TransformIRCharacterizationTest do
         %Pipeline{
           operations: [
             %AdaptiveResize{
-              rule: %DimensionRule{
-                mode: :auto,
-                width: {:pixels, 100},
-                height: {:pixels, 100}
-              }
+              width: {:pixels, 100},
+              height: {:pixels, 100}
             }
           ]
         }
@@ -1049,9 +1045,9 @@ mise exec -- git commit -m "feat: execute transform plans in order"
 
 Add table-driven tests for:
 
-- `Resize` mode `:fit` -> existing `%Resize{rule: %DimensionRule{mode: :fit}}`
+- `Resize` mode `:fit` -> existing `%Resize{mode: :fit}`
 - `Resize` mode `:cover` -> existing cover/fill sequence proven by Task 1
-- `Resize` mode `:stretch` -> existing `%Resize{rule: %DimensionRule{mode: :force}}`
+- `Resize` mode `:stretch` -> existing `%Resize{mode: :force}`
 - `CropGuided` -> existing `%Crop{crop_from: :gravity}`
 - `CropRegion` -> existing `%Crop{crop_from: %{left: x, top: y}}`, using actual current image dimensions for ratios
 - `Canvas` -> existing `%ExtendCanvas{}` for supported geometry

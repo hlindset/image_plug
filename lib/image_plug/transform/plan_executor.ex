@@ -8,7 +8,6 @@ defmodule ImagePlug.Transform.PlanExecutor do
   alias ImagePlug.Plan.Operation.Resize, as: PlanResize
   alias ImagePlug.Plan.Pipeline
   alias ImagePlug.Transform.Chain
-  alias ImagePlug.Transform.Geometry.DimensionRule
   alias ImagePlug.Transform.Operation.AutoOrient
   alias ImagePlug.Transform.Operation.Crop
   alias ImagePlug.Transform.Operation.ExtendCanvas
@@ -51,17 +50,27 @@ defmodule ImagePlug.Transform.PlanExecutor do
   end
 
   defp executable_operations(%PlanResize{mode: :fit} = operation, %State{}, _metadata, _opts) do
-    [%Resize{rule: tagged_dimension_rule(operation, :fit)}]
+    [struct!(Resize, tagged_resize_attrs(operation, :fit))]
   end
 
-  defp executable_operations(%PlanResize{mode: :cover} = operation, %State{}, _metadata, _opts) do
+  defp executable_operations(
+         %PlanResize{mode: :cover} = operation,
+         %State{} = state,
+         _metadata,
+         _opts
+       ) do
     operation
-    |> tagged_dimension_rule(:cover)
-    |> cover_resize_and_crop(tagged_executable_gravity(operation.guide), crop_offsets(operation))
+    |> tagged_resize_attrs(:cover)
+    |> then(&struct!(Resize, &1))
+    |> cover_resize_and_crop(
+      state,
+      tagged_executable_gravity(operation.guide),
+      crop_offsets(operation)
+    )
   end
 
   defp executable_operations(%PlanResize{mode: :stretch} = operation, %State{}, _metadata, _opts) do
-    [%Resize{rule: tagged_dimension_rule(operation, :stretch)}]
+    [struct!(Resize, tagged_resize_attrs(operation, :stretch))]
   end
 
   defp executable_operations(
@@ -78,9 +87,9 @@ defmodule ImagePlug.Transform.PlanExecutor do
         tagged_logical_pixels(operation.height)
       )
 
-    rule = tagged_dimension_rule(operation, branch)
+    resize = struct!(Resize, tagged_resize_attrs(operation, branch))
 
-    tagged_executable_resize_operations(branch, rule, operation)
+    tagged_executable_resize_operations(branch, resize, operation, state)
   end
 
   defp executable_operations(%CropGuided{} = operation, %State{}, _metadata, _opts) do
@@ -130,36 +139,48 @@ defmodule ImagePlug.Transform.PlanExecutor do
   defp executable_operations(%Rotate{} = operation, %State{}, _metadata, _opts), do: [operation]
   defp executable_operations(%Flip{} = operation, %State{}, _metadata, _opts), do: [operation]
 
-  defp tagged_executable_resize_operations(:cover, %DimensionRule{} = rule, operation) do
+  defp tagged_executable_resize_operations(
+         :cover,
+         %Resize{} = resize,
+         operation,
+         %State{} = state
+       ) do
     cover_resize_and_crop(
-      rule,
+      resize,
+      state,
       tagged_executable_gravity(operation.guide),
       crop_offsets(operation)
     )
   end
 
-  defp tagged_executable_resize_operations(:fit, %DimensionRule{} = rule, _operation) do
-    [%Resize{rule: rule}]
+  defp tagged_executable_resize_operations(:fit, %Resize{} = resize, _operation, %State{}) do
+    [resize]
   end
 
-  defp cover_resize_and_crop(%DimensionRule{} = rule, gravity, {x_offset, y_offset}) do
+  defp cover_resize_and_crop(%Resize{} = resize, %State{} = state, gravity, {x_offset, y_offset}) do
+    {:ok, dimensions} =
+      Resize.resolve_dimensions(resize,
+        source_width: Image.width(state.image),
+        source_height: Image.height(state.image)
+      )
+
     [
-      %Resize{rule: rule},
+      resize,
       %Crop{
-        width: :auto,
-        height: :auto,
+        width: dimensions.target_width,
+        height: dimensions.target_height,
         crop_from: :gravity,
         gravity: gravity,
         x_offset: x_offset,
         y_offset: y_offset,
-        target_rule: rule
+        offset_scale: dimensions.effective_dpr
       }
     ]
   end
 
-  defp tagged_dimension_rule(operation, mode) do
-    %DimensionRule{
-      mode: dimension_rule_mode(mode),
+  defp tagged_resize_attrs(operation, mode) do
+    [
+      mode: resize_mode(mode),
       width: tagged_executable_resize_dimension(operation.width),
       height: tagged_executable_resize_dimension(operation.height),
       min_width: tagged_executable_optional_resize_dimension(operation.min_width),
@@ -168,12 +189,12 @@ defmodule ImagePlug.Transform.PlanExecutor do
       zoom_y: operation.zoom_y,
       dpr: tagged_dpr_float(operation.dpr),
       enlarge: operation.enlargement == :allow
-    }
+    ]
   end
 
-  defp dimension_rule_mode(:cover), do: :fill
-  defp dimension_rule_mode(:fit), do: :fit
-  defp dimension_rule_mode(:stretch), do: :force
+  defp resize_mode(:cover), do: :fill
+  defp resize_mode(:fit), do: :fit
+  defp resize_mode(:stretch), do: :force
 
   defp tagged_executable_resize_dimension(:auto), do: :auto
   defp tagged_executable_resize_dimension({:px, value}), do: {:pixels, value}

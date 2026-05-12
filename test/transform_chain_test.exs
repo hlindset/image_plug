@@ -7,7 +7,6 @@ defmodule ImagePlug.Transform.ChainTest do
   alias ImagePlug.Transform.ChainTest.UnexpectedTransform
   alias ImagePlug.Transform.Operation.Crop
   alias ImagePlug.Transform.Operation.ExtendCanvas
-  alias ImagePlug.Transform.Geometry.DimensionRule
   alias ImagePlug.Transform.Operation.Resize
   alias ImagePlug.Transform.State
 
@@ -16,7 +15,8 @@ defmodule ImagePlug.Transform.ChainTest do
   test "transform modules expose valid operation structs" do
     assert :ok =
              Transform.validate(%Resize{
-               rule: %DimensionRule{mode: :fit, width: {:pixels, 10}}
+               mode: :fit,
+               width: {:pixels, 10}
              })
 
     assert :ok =
@@ -31,28 +31,30 @@ defmodule ImagePlug.Transform.ChainTest do
     assert {:error, {:invalid_parameter, "crop", :width, nil}} =
              Transform.validate(%Crop{width: nil, height: {:pixels, 100}, crop_from: :gravity})
 
-    assert {:error, {:invalid_parameter, "resize", :rule, :mode, :auto}} =
-             Transform.validate(%Resize{rule: %DimensionRule{mode: :auto}})
+    assert {:error, {:invalid_parameter, "resize", :mode, :auto}} =
+             Transform.validate(%Resize{mode: :auto})
 
     assert {:error, {:invalid_extend_canvas_rule, :oops}} =
              Transform.validate(%ExtendCanvas{rule: :oops})
   end
 
   test "transform name is delegated to operation module" do
-    operation = %Resize{rule: %DimensionRule{mode: :fit, width: {:pixels, 10}, height: :auto}}
+    operation = %Resize{mode: :fit, width: {:pixels, 10}, height: :auto}
 
     assert Transform.transform_name(operation) == :resize
   end
 
   test "metadata is delegated to operation module" do
-    operation = %Resize{rule: %DimensionRule{mode: :fit, width: {:pixels, 10}, height: :auto}}
+    operation = %Resize{mode: :fit, width: {:pixels, 10}, height: :auto}
 
     assert Transform.metadata(operation) == %{access: :sequential}
   end
 
   test "zero-dimension resize rules stay random access" do
     operation = %Resize{
-      rule: %DimensionRule{mode: :fit, width: {:pixels, 0}, height: :auto}
+      mode: :fit,
+      width: {:pixels, 0},
+      height: :auto
     }
 
     assert Transform.metadata(operation) == %{access: :random}
@@ -76,7 +78,7 @@ defmodule ImagePlug.Transform.ChainTest do
     {:ok, image} = Image.new(200, 100, color: :white)
 
     chain = [
-      %Resize{rule: %DimensionRule{mode: :fit, width: {:pixels, 100}, height: {:pixels, 100}}},
+      %Resize{mode: :fit, width: {:pixels, 100}, height: {:pixels, 100}},
       %ExtendCanvas{rule: {:dimensions, {:pixels, 100}, {:pixels, 100}}}
     ]
 
@@ -89,13 +91,12 @@ defmodule ImagePlug.Transform.ChainTest do
     {:ok, image} = Image.new(200, 100, color: :white)
 
     chain = [
-      %Resize{rule: %DimensionRule{mode: :fill, width: {:pixels, 100}, height: {:pixels, 100}}},
+      %Resize{mode: :fill, width: {:pixels, 100}, height: {:pixels, 100}},
       %Crop{
-        width: :auto,
-        height: :auto,
+        width: {:pixels, 100},
+        height: {:pixels, 100},
         crop_from: :gravity,
-        gravity: {:anchor, :center, :center},
-        target_rule: %DimensionRule{mode: :fill, width: {:pixels, 100}, height: {:pixels, 100}}
+        gravity: {:anchor, :center, :center}
       }
     ]
 
@@ -113,13 +114,12 @@ defmodule ImagePlug.Transform.ChainTest do
       |> Image.Draw.rect!(200, 0, 100, 100, color: :blue)
 
     chain = [
-      %Resize{rule: %DimensionRule{mode: :fill, width: {:pixels, 100}, height: {:pixels, 100}}},
+      %Resize{mode: :fill, width: {:pixels, 100}, height: {:pixels, 100}},
       %Crop{
-        width: :auto,
-        height: :auto,
+        width: {:pixels, 100},
+        height: {:pixels, 100},
         crop_from: :gravity,
-        gravity: {:anchor, :right, :center},
-        target_rule: %DimensionRule{mode: :fill, width: {:pixels, 100}, height: {:pixels, 100}}
+        gravity: {:anchor, :right, :center}
       }
     ]
 
@@ -179,24 +179,16 @@ defmodule ImagePlug.Transform.ChainTest do
 
       chain = [
         %Resize{
-          rule: %DimensionRule{
-            mode: mode,
-            width: {:pixels, 100},
-            height: {:pixels, 100},
-            min_width: {:pixels, 300}
-          }
+          mode: mode,
+          width: {:pixels, 100},
+          height: {:pixels, 100},
+          min_width: {:pixels, 300}
         },
         %Crop{
-          width: :auto,
-          height: :auto,
+          width: {:pixels, 300},
+          height: {:pixels, 300},
           crop_from: :gravity,
-          gravity: {:anchor, :center, :center},
-          target_rule: %DimensionRule{
-            mode: mode,
-            width: {:pixels, 100},
-            height: {:pixels, 100},
-            min_width: {:pixels, 300}
-          }
+          gravity: {:anchor, :center, :center}
         }
       ]
 
@@ -210,15 +202,7 @@ defmodule ImagePlug.Transform.ChainTest do
     {:ok, image} = Image.new(100, 50, color: :white)
 
     chain = [
-      %Resize{
-        rule: %DimensionRule{
-          mode: :fit,
-          width: {:pixels, 0},
-          height: {:pixels, 0},
-          zoom_x: 2.0,
-          zoom_y: 1.5
-        }
-      }
+      %Resize{mode: :fit, width: {:pixels, 0}, height: {:pixels, 0}, zoom_x: 2.0, zoom_y: 1.5}
     ]
 
     assert {:ok, %State{image: image}} = Chain.execute(%State{image: image}, chain)
@@ -230,14 +214,7 @@ defmodule ImagePlug.Transform.ChainTest do
     {:ok, image} = Image.new(100, 50, color: :white)
 
     chain = [
-      %Resize{
-        rule: %DimensionRule{
-          mode: :fit,
-          width: {:pixels, 0},
-          height: {:pixels, 0},
-          dpr: 2.0
-        }
-      }
+      %Resize{mode: :fit, width: {:pixels, 0}, height: {:pixels, 0}, dpr: 2.0}
     ]
 
     assert {:ok, %State{image: image}} = Chain.execute(%State{image: image}, chain)
@@ -249,25 +226,12 @@ defmodule ImagePlug.Transform.ChainTest do
     {:ok, image} = Image.new(200, 100, color: :white)
 
     chain = [
-      %Resize{
-        rule: %DimensionRule{
-          mode: :fill_down,
-          width: {:pixels, 300},
-          height: {:pixels, 300},
-          enlarge: true
-        }
-      },
+      %Resize{mode: :fill_down, width: {:pixels, 300}, height: {:pixels, 300}, enlarge: true},
       %Crop{
-        width: :auto,
-        height: :auto,
+        width: {:pixels, 100},
+        height: {:pixels, 100},
         crop_from: :gravity,
-        gravity: {:anchor, :center, :center},
-        target_rule: %DimensionRule{
-          mode: :fill_down,
-          width: {:pixels, 300},
-          height: {:pixels, 300},
-          enlarge: true
-        }
+        gravity: {:anchor, :center, :center}
       }
     ]
 

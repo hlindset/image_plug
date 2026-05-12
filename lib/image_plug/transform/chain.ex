@@ -27,11 +27,9 @@ defmodule ImagePlug.Transform.Chain do
 
       iex> chain = [
       ...>   %ImagePlug.Transform.Operation.Resize{
-      ...>     rule: %ImagePlug.Transform.Geometry.DimensionRule{
-      ...>       mode: :fit,
-      ...>       width: {:pixels, 100},
-      ...>       height: :auto
-      ...>     }
+      ...>     mode: :fit,
+      ...>     width: {:pixels, 100},
+      ...>     height: :auto
       ...>   }
       ...> ]
       ...> {:ok, empty_image} = Image.new(500, 500)

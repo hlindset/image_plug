@@ -247,8 +247,8 @@ The Plan executor:
 `ImagePlug.Transform.State`.
 
 Runtime executes these through generic Transform/Chain entry points. The
-executable layer is allowed to contain backend-oriented concepts like
-`DimensionRule`, target-rule result crops, and concrete crop coordinates.
+executable layer is allowed to contain backend-oriented concepts like flattened
+resize sizing fields, explicit result crops, and concrete crop coordinates.
 
 ## Public Entry Points
 

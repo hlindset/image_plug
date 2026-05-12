@@ -1,8 +1,6 @@
 defmodule ImagePlug.Transform.Validation do
   @moduledoc false
 
-  alias ImagePlug.Transform.Geometry.DimensionRule
-
   def one_of(label, field, value, allowed) do
     if value in allowed, do: :ok, else: invalid(label, field, value)
   end
@@ -99,18 +97,6 @@ defmodule ImagePlug.Transform.Validation do
 
   def number(_label, _field, value) when is_number(value), do: :ok
   def number(label, field, value), do: invalid(label, field, value)
-
-  def dimension_rule(label, field, %DimensionRule{} = rule, modes) do
-    case DimensionRule.validate(rule, modes: modes) do
-      :ok ->
-        :ok
-
-      {:error, {invalid_field, value}} ->
-        {:error, {:invalid_parameter, label, field, invalid_field, value}}
-    end
-  end
-
-  def dimension_rule(label, field, value, _modes), do: invalid(label, field, value)
 
   def invalid(label, field, value) do
     {:error, {:invalid_parameter, label, field, value}}

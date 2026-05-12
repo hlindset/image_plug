@@ -2,7 +2,6 @@ defmodule ImagePlug.TransformExecutableCharacterizationTest do
   use ExUnit.Case, async: true
 
   alias ImagePlug.Transform.Chain
-  alias ImagePlug.Transform.Geometry.DimensionRule
   alias ImagePlug.Transform.Operation.Crop
   alias ImagePlug.Transform.Operation.ExtendCanvas
   alias ImagePlug.Transform.Operation.Resize
@@ -24,28 +23,27 @@ defmodule ImagePlug.TransformExecutableCharacterizationTest do
     fit =
       generated_state(300, 200)
       |> execute!([
-        %Resize{rule: %DimensionRule{mode: :fit, width: {:pixels, 100}, height: {:pixels, 100}}}
+        %Resize{mode: :fit, width: {:pixels, 100}, height: {:pixels, 100}}
       ])
 
     fill =
       generated_state(300, 200)
       |> execute!([
-        %Resize{rule: %DimensionRule{mode: :fill, width: {:pixels, 100}, height: {:pixels, 100}}},
+        %Resize{mode: :fill, width: {:pixels, 100}, height: {:pixels, 100}},
         %Crop{
-          width: :auto,
-          height: :auto,
+          width: {:pixels, 100},
+          height: {:pixels, 100},
           crop_from: :gravity,
           gravity: {:anchor, :center, :center},
           x_offset: {:pixels, 0},
-          y_offset: {:pixels, 0},
-          target_rule: %DimensionRule{mode: :fill, width: {:pixels, 100}, height: {:pixels, 100}}
+          y_offset: {:pixels, 0}
         }
       ])
 
     force =
       generated_state(300, 200)
       |> execute!([
-        %Resize{rule: %DimensionRule{mode: :force, width: :auto, height: {:pixels, 100}}}
+        %Resize{mode: :force, width: :auto, height: {:pixels, 100}}
       ])
 
     assert dimensions(fit) == {100, 67}
@@ -73,19 +71,18 @@ defmodule ImagePlug.TransformExecutableCharacterizationTest do
     resize_only =
       generated_state(300, 200)
       |> execute!([
-        %Resize{rule: %DimensionRule{mode: :fill, width: {:pixels, 100}, height: {:pixels, 50}}}
+        %Resize{mode: :fill, width: {:pixels, 100}, height: {:pixels, 50}}
       ])
 
     resize_then_crop =
       generated_state(300, 200)
       |> execute!([
-        %Resize{rule: %DimensionRule{mode: :fill, width: {:pixels, 100}, height: {:pixels, 50}}},
+        %Resize{mode: :fill, width: {:pixels, 100}, height: {:pixels, 50}},
         %Crop{
-          width: :auto,
-          height: :auto,
+          width: {:pixels, 100},
+          height: {:pixels, 50},
           crop_from: :gravity,
-          gravity: {:anchor, :center, :center},
-          target_rule: %DimensionRule{mode: :fill, width: {:pixels, 100}, height: {:pixels, 50}}
+          gravity: {:anchor, :center, :center}
         }
       ])
 
