@@ -152,6 +152,16 @@ where:
 @type ratio :: {:ratio, non_neg_integer(), pos_integer()}
 ```
 
+`ratio()` is unsigned. Signed scale offsets are not represented as `ratio()` in
+the first slice; they remain offset fields and are normalized separately.
+
+Normalize DPR key data so equivalent inputs such as `1`, `1.0`, and `1.00`
+produce identical key data, for example:
+
+```elixir
+dpr: [unit: :ratio, numerator: 1, denominator: 1]
+```
+
 Constructor facade shape:
 
 ```elixir
@@ -162,6 +172,18 @@ Operation.canvas(width, height, placement, opts \\ [])
 ```
 
 Use keyword options only for genuinely optional fields. Do not accept multiple equivalent input shapes in internal constructors.
+
+---
+
+## Terminology Decisions
+
+- The runtime entry point is `ImagePlug.Transform.execute_plan/4`. Do not add `execute_semantic_plan/4`; older design notes used that name.
+- Cache key inputs are called key data. Old `material` naming should be renamed or treated as legacy during migration.
+- A unified semantic resize operation uses key data `op: :resize, mode: ...`. Do not introduce `op: :resize_auto`.
+- `ratio()` is unsigned and canonicalized with `Integer.gcd/2`. Signed offsets are separate offset fields, not `ratio()`.
+- `SourceMetadata` does not carry current width/height in the first slice; Plan execution reads dimensions from `State.image`.
+- Parsed plans may contain only semantic Plan operations plus the explicit orientation primitive allowlist: `AutoOrient`, `Rotate`, and `Flip`.
+- Before Task 7, existing tests may use `key.material`. Task 7 is the migration point to `key.data`; update characterization tests during Task 7 if the key struct field is renamed.
 
 ---
 
@@ -177,8 +199,7 @@ Use keyword options only for genuinely optional fields. Do not accept multiple e
 - Parser defaults that affect output, such as center gravity, DPR `1.0`, and enlargement policy, must be explicit in canonical Plan key data.
 - `ResizeAuto` and cover behavior must be verified against current parser/request-level behavior before Plan execution is finalized.
 - Do not model first-slice selections, resolver key data, or derivations. Execution choices are reflected in executed work and tests, not stored in a separate data structure.
-- Parser output must eventually contain only canonical `ImagePlug.Plan.Operation.*` structs, never executable `ImagePlug.Transform.Operation.*` structs.
-- Exception: parser output may contain the explicit orientation primitive allowlist: `AutoOrient`, `Rotate`, and `Flip`.
+- Parser output must eventually contain only canonical `ImagePlug.Plan.Operation.*` structs plus the explicit orientation primitive allowlist: `AutoOrient`, `Rotate`, and `Flip`.
 - Commit steps are checkpoints when git identity is available. If commits are unavailable in the execution environment, leave changes staged or report the intended commit boundary.
 
 ---
@@ -746,7 +767,7 @@ defmodule ImagePlug.Plan.OperationKeyDataTest do
              mode: :auto,
              width: [unit: :logical_px, value: 300],
              height: [unit: :logical_px, value: 200],
-             dpr: 2.0,
+             dpr: [unit: :ratio, numerator: 2, denominator: 1],
              enlargement: :deny,
              guide: :center,
              rule: :imgproxy_orientation_match_v1
@@ -840,6 +861,7 @@ Run:
 
 ```bash
 mise exec -- mix format lib/image_plug/plan.ex lib/image_plug/plan/pipeline.ex lib/image_plug/plan/operation.ex lib/image_plug/plan/operation/*.ex lib/image_plug/transform/key_data.ex test/image_plug/plan/operation_test.exs test/image_plug/plan/operation_key_data_test.exs
+mise exec -- mix compile --warnings-as-errors
 mise exec -- mix test test/image_plug/plan/operation_test.exs test/image_plug/plan/operation_key_data_test.exs test/image_plug/transform/key_data_test.exs
 ```
 
@@ -1080,7 +1102,8 @@ test "resize auto key data stays unresolved and source-metadata-free" do
   key_b = build_key!(conn, plan, "origin-version-b")
 
   assert [[operation_key_data]] = key_a.data[:pipelines]
-  assert operation_key_data[:op] == :resize_auto
+  assert operation_key_data[:op] == :resize
+  assert operation_key_data[:mode] == :auto
   refute Keyword.has_key?(operation_key_data, :selected_branch)
   serialized = ImagePlug.Cache.Key.serialize_key_data(key_a.data)
   refute serialized =~ "source_width"
@@ -1154,6 +1177,8 @@ This facade should:
 
 `RequestRunner` may call this facade before cache lookup. It must not pattern-match on concrete `ImagePlug.Plan.Operation.*` modules itself.
 
+Keep the orientation primitive allowlist in one place, either in this facade or in `ImagePlug.Plan.Pipeline.allowed_operation?/1`. Do not scatter `%AutoOrient{}`, `%Rotate{}`, or `%Flip{}` checks across parser, runtime, cache, and transform code.
+
 Add focused tests, preferably in `test/image_plug/transform/prefetch_validation_test.exs`, proving:
 
 - semantic Plan operations pass
@@ -1187,7 +1212,7 @@ mise exec -- mix compile --warnings-as-errors
 mise exec -- mix test test/image_plug/cache/key_test.exs test/image_plug/cache/key_property_test.exs test/image_plug/runtime/request_runner_test.exs test/image_plug/response_cache_test.exs
 ```
 
-Expected: semantic ResizeAuto stays unresolved in key data, origin identity changes key, `Cache.Key` includes its transform key data version, cache hits return before source work, and existing executable-operation cache tests continue to pass until parser output is switched in Task 9.
+Expected: semantic ResizeAuto stays unresolved in key data, origin identity changes key, and `Cache.Key` includes its transform key data version. Existing executable-operation cache tests should continue to pass where they still describe supported compatibility behavior; update tests that assert old material naming or old parser-surface behavior.
 
 - [ ] **Step 7: Commit metadata-free cache lookup**
 
@@ -1496,7 +1521,8 @@ test "post-fetch resize auto branch is not accepted as final output cache key in
 
   assert key_before == key_after_resolve
   assert [[operation_key_data]] = key_before.data[:pipelines]
-  assert operation_key_data[:op] == :resize_auto
+  assert operation_key_data[:op] == :resize
+  assert operation_key_data[:mode] == :auto
   refute Keyword.has_key?(operation_key_data, :selected_branch)
   refute Keyword.has_key?(operation_key_data, :branch)
   refute serialized =~ "resize_auto_branch"
@@ -1559,7 +1585,7 @@ For each case:
 
 Add focused regressions that prove:
 
-- After Task 9, parsed plans contain no `ImagePlug.Transform.Operation.*` structs.
+- After Task 9, parsed plans contain no `ImagePlug.Transform.Operation.*` structs except the explicit orientation primitive allowlist: `AutoOrient`, `Rotate`, and `Flip`.
 - A semantic `ResizeAuto` cache hit returns without origin fetch, metadata read, decode/open, or Plan execution.
 - Cache key construction does not call `Transform.execute_plan/4`.
 - Runtime does not perform a second lookup after Plan execution.
@@ -1613,6 +1639,14 @@ rg "Parser.Native|ImagePlug.Parser.Native|Native Path API|native_path_api|native
 ```
 
 Expected: no stale references, except historical wording in the approved design spec if intentionally retained.
+
+Also check for stale key-data naming:
+
+```bash
+rg "Transform.Material|serialize_material|material" lib test docs README.md mix.exs
+```
+
+Expected: no stale code references to `Transform.Material` or `serialize_material`; remaining `material` hits should be unrelated English prose or explicit migration notes.
 
 - [ ] **Step 3: Run focused verification**
 
