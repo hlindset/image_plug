@@ -65,6 +65,10 @@ defmodule ImagePlug.Runtime.RequestRunnerTest do
     end
   end
 
+  defmodule OriginShouldNotFetch do
+    def call(_conn, _opts), do: raise("origin should not fetch on cache hit")
+  end
+
   defmodule Materializer do
     alias ImagePlug.Transform.Materializer
 
@@ -192,29 +196,38 @@ defmodule ImagePlug.Runtime.RequestRunnerTest do
       created_at: DateTime.utc_now()
     }
 
-    assert {:ok, width} = Dimension.pixels(100)
-    assert {:ok, height} = Dimension.pixels(100)
-    assert {:ok, size} = Size.new(width: width, height: height, dpr: 1.0)
-    assert {:ok, operation} = Operation.resize_auto(size: size, enlargement: :deny)
+    assert {:ok, operation} =
+             Operation.resize(:auto, {:px, 100}, {:px, 100},
+               dpr: 1.0,
+               enlargement: :deny
+             )
 
     assert {:ok, {:cache_entry, ^entry, %ImagePlug.Plan.Response{}}} =
              RequestRunner.run(
                conn(:get, "/_/rt:auto/w:100/h:100/f:jpeg/plain/images/cat-300.jpg"),
                plan(pipelines: [%Pipeline{operations: [operation]}]),
                "origin-version-1",
-               cache: {CacheReadProbe, entry: entry}
+               cache: {CacheReadProbe, entry: entry},
+               origin_req_options: [plug: OriginShouldNotFetch]
              )
 
     assert_received {:cache_lookup, key}
-    assert key.material[:origin_identity] == "origin-version-1"
-    refute ImagePlug.Cache.Key.serialize_material(key.material) =~ "selected_branch"
+    assert key.data[:origin_identity] == "origin-version-1"
+    assert [[operation_data]] = key.data[:pipelines]
+    assert operation_data[:op] == :resize
+    assert operation_data[:mode] == :auto
+    serialized_data = ImagePlug.Cache.Key.serialize_key_data(key.data)
+    refute serialized_data =~ "selected_branch"
+    refute serialized_data =~ "source_width"
+    refute serialized_data =~ "source_height"
   end
 
   test "cache miss resolves source-aware semantic operations and stores under original key" do
-    assert {:ok, width} = Dimension.pixels(100)
-    assert {:ok, height} = Dimension.pixels(100)
-    assert {:ok, size} = Size.new(width: width, height: height, dpr: 1.0)
-    assert {:ok, operation} = Operation.resize_auto(size: size, enlargement: :deny)
+    assert {:ok, operation} =
+             Operation.resize(:auto, {:px, 100}, {:px, 100},
+               dpr: 1.0,
+               enlargement: :deny
+             )
 
     assert {:ok, {:cache_entry, %Entry{content_type: "image/jpeg"}, %ImagePlug.Plan.Response{}}} =
              RequestRunner.run(
@@ -344,7 +357,7 @@ defmodule ImagePlug.Runtime.RequestRunnerTest do
              )
   end
 
-  test "known plan operations are included in cache lookup material" do
+  test "known plan operations are included in cache lookup key data" do
     assert {:ok, guide} = Gravity.anchor(:left, :top)
     operations = [resize_cover_operation(100, 100, guide)]
 
@@ -367,7 +380,7 @@ defmodule ImagePlug.Runtime.RequestRunnerTest do
 
     assert_received {:cache_lookup, key}
 
-    assert key.material[:pipelines] == [
+    assert key.data[:pipelines] == [
              [
                [
                  op: :resize_cover,

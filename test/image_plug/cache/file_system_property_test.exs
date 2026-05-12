@@ -84,8 +84,8 @@ defmodule ImagePlug.Cache.FileSystemPropertyTest do
   defp key(hash \\ String.duplicate("a", 64)) do
     %Key{
       hash: hash,
-      material: [schema_version: 1],
-      serialized_material: :erlang.term_to_binary([schema_version: 1], [:deterministic])
+      data: [schema_version: 1],
+      serialized_data: :erlang.term_to_binary([schema_version: 1], [:deterministic])
     }
   end
 

@@ -54,7 +54,7 @@ defmodule ImagePlug.Runtime.ResponseCacheTest do
                cache: {CaptureAdapter, key_headers: ["accept"]}
              )
 
-    assert key.material[:output] == [
+    assert key.data[:output] == [
              mode: :automatic,
              modern_candidates: [:avif, :webp],
              auto: [avif: true, webp: true],
@@ -121,7 +121,7 @@ defmodule ImagePlug.Runtime.ResponseCacheTest do
                cache: {CaptureAdapter, []}
              )
 
-    assert key.material[:output] == [
+    assert key.data[:output] == [
              mode: :explicit,
              format: :webp,
              quality: {:quality, 80},
@@ -129,7 +129,7 @@ defmodule ImagePlug.Runtime.ResponseCacheTest do
            ]
   end
 
-  test "lookup keys include transform material version" do
+  test "lookup keys include transform key_data version" do
     assert {:miss, %Key{} = key} =
              ResponseCache.lookup(
                conn(:get, "/_/f:jpeg/plain/images/cat.jpg"),
@@ -138,7 +138,7 @@ defmodule ImagePlug.Runtime.ResponseCacheTest do
                cache: {CaptureAdapter, []}
              )
 
-    assert key.material[:transform] == [material_version: 1]
+    assert key.data[:transform] == [key_data_version: 1]
   end
 
   test "store reports skipped when cache writing is disabled" do
@@ -148,8 +148,8 @@ defmodule ImagePlug.Runtime.ResponseCacheTest do
 
     key = %Key{
       hash: String.duplicate("a", 64),
-      material: [schema_version: 2],
-      serialized_material: :erlang.term_to_binary(schema_version: 2)
+      data: [schema_version: 2],
+      serialized_data: :erlang.term_to_binary(schema_version: 2)
     }
 
     assert :skipped = ResponseCache.store(key, state, resolved_output, [])
@@ -169,8 +169,8 @@ defmodule ImagePlug.Runtime.ResponseCacheTest do
              ResponseCache.store(
                %Key{
                  hash: String.duplicate("a", 64),
-                 material: [schema_version: 2],
-                 serialized_material: :erlang.term_to_binary(schema_version: 2)
+                 data: [schema_version: 2],
+                 serialized_data: :erlang.term_to_binary(schema_version: 2)
                },
                state,
                resolved_output,

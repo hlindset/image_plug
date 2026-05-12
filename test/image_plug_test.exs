@@ -354,7 +354,7 @@ defmodule ImagePlug.ImagePlugTest do
   defp assert_cache_get_output(expected_output, remaining, seen_outputs) do
     receive do
       {:cache_get, %ImagePlug.Cache.Key{} = key} ->
-        output = key.material[:output]
+        output = key.data[:output]
 
         if output == expected_output do
           assert true
@@ -743,7 +743,7 @@ defmodule ImagePlug.ImagePlugTest do
     assert get_resp_header(conn, "vary") == ["Accept"]
     assert get_resp_header(conn, "connection") == []
     assert_received {:cache_get, key}
-    assert key.material[:origin_identity] == "http://origin.test/images/cat-300.jpg"
+    assert key.data[:origin_identity] == "http://origin.test/images/cat-300.jpg"
     refute_received :origin_was_called
   end
 
@@ -842,9 +842,9 @@ defmodule ImagePlug.ImagePlugTest do
     assert_received {:cache_get, key_b}
     refute_received :origin_was_called
 
-    assert key_a.material[:pipelines] == key_b.material[:pipelines]
-    assert key_a.material[:cache] == [cachebuster: "a"]
-    assert key_b.material[:cache] == [cachebuster: "b"]
+    assert key_a.data[:pipelines] == key_b.data[:pipelines]
+    assert key_a.data[:cache] == [cachebuster: "a"]
+    assert key_b.data[:cache] == [cachebuster: "b"]
     refute key_a.hash == key_b.hash
   end
 
@@ -892,7 +892,7 @@ defmodule ImagePlug.ImagePlugTest do
     assert_received {:cache_get, key_b}
     refute_received :origin_was_called
 
-    assert key_a.material[:output] == [
+    assert key_a.data[:output] == [
              mode: :automatic,
              modern_candidates: [:avif, :webp],
              auto: [avif: true, webp: true],
@@ -900,13 +900,13 @@ defmodule ImagePlug.ImagePlugTest do
              format_qualities: %{}
            ]
 
-    refute inspect(key_a.material) =~ "image/webp"
-    refute inspect(key_a.material) =~ "image/avif"
-    assert key_a.material == key_b.material
+    refute inspect(key_a.data) =~ "image/webp"
+    refute inspect(key_a.data) =~ "image/avif"
+    assert key_a.data == key_b.data
     assert key_a.hash == key_b.hash
   end
 
-  test "imgproxy filename and disposition are excluded from cache key material at cache boundary" do
+  test "imgproxy filename and disposition are excluded from cache key data at cache boundary" do
     cached_entry = %ImagePlug.Cache.Entry{
       body: "cached jpeg",
       content_type: "image/jpeg",
@@ -956,8 +956,8 @@ defmodule ImagePlug.ImagePlugTest do
     assert_received {:cache_get, key_b}
     refute_received :origin_was_called
 
-    refute Keyword.has_key?(key_a.material, :response)
-    assert key_a.material == key_b.material
+    refute Keyword.has_key?(key_a.data, :response)
+    assert key_a.data == key_b.data
     assert key_a.hash == key_b.hash
   end
 
@@ -1206,7 +1206,7 @@ defmodule ImagePlug.ImagePlugTest do
       |> put_req_header("accept", "image/jpeg")
 
     get_result_fun = fn key ->
-      case key.material[:output] do
+      case key.data[:output] do
         [
           mode: :automatic,
           modern_candidates: [],
@@ -1260,7 +1260,7 @@ defmodule ImagePlug.ImagePlugTest do
       |> put_req_header("accept", "image/avif")
 
     get_result_fun = fn key ->
-      case key.material[:output] do
+      case key.data[:output] do
         [
           mode: :automatic,
           modern_candidates: [],
@@ -1316,7 +1316,7 @@ defmodule ImagePlug.ImagePlugTest do
       |> put_req_header("accept", "image/*")
 
     get_result_fun = fn key ->
-      case key.material[:output] do
+      case key.data[:output] do
         [
           mode: :automatic,
           modern_candidates: [],

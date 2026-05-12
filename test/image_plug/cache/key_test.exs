@@ -68,10 +68,15 @@ defmodule ImagePlug.Cache.KeyTest do
   end
 
   defp resize_auto_operation(width, height) do
-    assert {:ok, width} = semantic_dimension(width)
-    assert {:ok, height} = semantic_dimension(height)
-    assert {:ok, size} = Size.new(width: width, height: height, dpr: 1.0)
-    assert {:ok, operation} = Operation.resize_auto(size: size, enlargement: :deny)
+    assert {:ok, operation} =
+             Operation.resize(
+               :auto,
+               tagged_resize_dimension(width),
+               tagged_resize_dimension(height),
+               dpr: 1.0,
+               enlargement: :deny
+             )
+
     operation
   end
 
@@ -80,8 +85,10 @@ defmodule ImagePlug.Cache.KeyTest do
 
   defp tagged_dimension(:auto), do: :full_axis
   defp tagged_dimension(pixels), do: {:px, pixels}
+  defp tagged_resize_dimension(:auto), do: :auto
+  defp tagged_resize_dimension(pixels), do: {:px, pixels}
 
-  test "builds stable hash and material from canonical plan fields and origin identity" do
+  test "builds stable hash and key data from canonical plan fields and origin identity" do
     conn = conn(:get, "/sig-one/w:100/plain/images/cat.jpg?ignored=true")
 
     key = build_key!(conn, plan(), "https://origin-a.test/images/cat.jpg")
@@ -90,9 +97,9 @@ defmodule ImagePlug.Cache.KeyTest do
 
     assert key.hash == same.hash
     assert key.hash =~ ~r/\A[0-9a-f]{64}\z/
-    assert is_binary(key.serialized_material)
+    assert is_binary(key.serialized_data)
 
-    assert key.material == [
+    assert key.data == [
              schema_version: 2,
              origin_identity: "https://origin-a.test/images/cat.jpg",
              source: [kind: :plain, path: ["images", "cat.jpg"]],
@@ -123,7 +130,7 @@ defmodule ImagePlug.Cache.KeyTest do
                  ]
                ]
              ],
-             transform: [material_version: 1],
+             transform: [key_data_version: 1],
              output: [
                mode: :explicit,
                format: :webp,
@@ -135,29 +142,29 @@ defmodule ImagePlug.Cache.KeyTest do
              selected_cookies: []
            ]
 
-    assert key.serialized_material == Key.serialize_material(key.material)
-    refute inspect(key.material) =~ "sig-one"
-    refute inspect(key.material) =~ "ignored=true"
+    assert key.serialized_data == Key.serialize_key_data(key.data)
+    refute inspect(key.data) =~ "sig-one"
+    refute inspect(key.data) =~ "ignored=true"
     refute key.hash == different_origin.hash
   end
 
-  test "source material is product-neutral and independent of request URL" do
+  test "source key data is product-neutral and independent of request URL" do
     conn_one = conn(:get, "/sig-one/w:100/plain/images/cat.jpg")
     conn_two = conn(:get, "/sig-two/width:100/plain/ignored/path.jpg?ignored=true")
 
     key_one = build_key!(conn_one, plan(), "https://origin.test/images/cat.jpg")
     key_two = build_key!(conn_two, plan(), "https://origin.test/images/cat.jpg")
 
-    assert key_one.material[:source] == [kind: :plain, path: ["images", "cat.jpg"]]
+    assert key_one.data[:source] == [kind: :plain, path: ["images", "cat.jpg"]]
     assert key_one.hash == key_two.hash
   end
 
-  test "pipelines material preserves pipeline boundaries" do
+  test "pipelines key data preserves pipeline boundaries" do
     key =
       conn(:get, "/_/f:webp/plain/images/cat.jpg")
       |> build_key!(plan(), "https://origin.test/images/cat.jpg")
 
-    assert key.material[:pipelines] == [
+    assert key.data[:pipelines] == [
              [
                [
                  op: :resize_fit,
@@ -186,14 +193,14 @@ defmodule ImagePlug.Cache.KeyTest do
            ]
   end
 
-  test "pipelines material uses canonical operations instead of raw transform tuples or structs" do
+  test "pipelines key data uses canonical operations instead of raw transform tuples or structs" do
     key =
       conn(:get, "/_/f:webp/plain/images/cat.jpg")
       |> build_key!(plan(), "https://origin.test/images/cat.jpg")
 
-    refute inspect(key.material[:pipelines]) =~ "ImagePlug.Transform"
+    refute inspect(key.data[:pipelines]) =~ "ImagePlug.Transform"
 
-    assert key.material[:pipelines]
+    assert key.data[:pipelines]
            |> Enum.flat_map(& &1)
            |> Enum.all?(&Keyword.keyword?/1)
   end
@@ -212,7 +219,7 @@ defmodule ImagePlug.Cache.KeyTest do
         "https://origin.test/images/cat.jpg"
       )
 
-    assert key.material[:pipelines] == [
+    assert key.data[:pipelines] == [
              [
                [
                  op: :resize,
@@ -231,8 +238,8 @@ defmodule ImagePlug.Cache.KeyTest do
              ]
            ]
 
-    refute inspect(key.material[:pipelines]) =~ "selected_branch"
-    refute inspect(key.material[:pipelines]) =~ "resize_auto"
+    refute inspect(key.data[:pipelines]) =~ "selected_branch"
+    refute inspect(key.data[:pipelines]) =~ "resize_auto"
   end
 
   test "crop operations contribute prefetch-safe cache key data" do
@@ -249,7 +256,7 @@ defmodule ImagePlug.Cache.KeyTest do
         "https://origin.test/images/cat.jpg"
       )
 
-    assert key.material[:pipelines] == [
+    assert key.data[:pipelines] == [
              [
                [
                  op: :crop_guided,
@@ -270,7 +277,7 @@ defmodule ImagePlug.Cache.KeyTest do
            ]
   end
 
-  test "resize material includes requested zoom and dpr rule inputs" do
+  test "resize key data includes requested zoom and dpr rule inputs" do
     operation = resize_fit_operation(100, :auto, dpr: 2.0, zoom_x: 2.0, zoom_y: 1.5)
 
     key =
@@ -280,14 +287,14 @@ defmodule ImagePlug.Cache.KeyTest do
         "https://origin.test/images/cat.jpg"
       )
 
-    assert [[resize_material]] = key.material[:pipelines]
-    assert resize_material[:op] == :resize_fit
-    assert resize_material[:size][:dpr] == 2.0
-    assert resize_material[:zoom_x] == 2.0
-    assert resize_material[:zoom_y] == 1.5
+    assert [[resize_data]] = key.data[:pipelines]
+    assert resize_data[:op] == :resize_fit
+    assert resize_data[:size][:dpr] == 2.0
+    assert resize_data[:zoom_x] == 2.0
+    assert resize_data[:zoom_y] == 1.5
   end
 
-  test "resize auto cache material stays unresolved and source-metadata-free" do
+  test "resize auto cache key data stays unresolved and source-metadata-free" do
     operation = resize_auto_operation(300, 200)
 
     semantic_plan = plan(pipelines: [%Pipeline{operations: [operation]}])
@@ -296,28 +303,25 @@ defmodule ImagePlug.Cache.KeyTest do
     key_a = build_key!(conn, semantic_plan, "origin-version-a")
     key_b = build_key!(conn, semantic_plan, "origin-version-b")
 
-    assert [[material]] = key_a.material[:pipelines]
+    assert [[key_data]] = key_a.data[:pipelines]
 
-    assert material == [
-             op: :resize_auto,
-             size: [
-               width: [unit: :logical_px, value: 300],
-               height: [unit: :logical_px, value: 200],
-               dpr: 1.0
-             ],
+    assert key_data == [
+             op: :resize,
+             mode: :auto,
+             width: [unit: :logical_px, value: 300],
+             height: [unit: :logical_px, value: 200],
+             dpr: [unit: :ratio, numerator: 1, denominator: 1],
              enlargement: :deny,
-             guide: [type: :anchor, x: :center, y: :center, space: :current],
+             guide: :center,
              min_width: nil,
              min_height: nil,
              zoom_x: 1.0,
              zoom_y: 1.0,
-             x_offset: {:pixels, 0.0},
-             y_offset: {:pixels, 0.0},
              rule: :imgproxy_orientation_match_v1
            ]
 
-    serialized = Key.serialize_material(key_a.material)
-    refute Keyword.has_key?(material, :selected_branch)
+    serialized = Key.serialize_key_data(key_a.data)
+    refute Keyword.has_key?(key_data, :selected_branch)
     refute serialized =~ "source_width"
     refute serialized =~ "source_height"
     refute serialized =~ "selected_branch"
@@ -329,16 +333,18 @@ defmodule ImagePlug.Cache.KeyTest do
     key_before = build_key!(conn, plan_with_resize_auto(), "origin-version-1")
 
     key_after_resolve = build_key!(conn, plan_with_resize_auto(), "origin-version-1")
-    serialized = Key.serialize_material(key_before.material)
+    serialized = Key.serialize_key_data(key_before.data)
 
     assert key_before == key_after_resolve
-    assert [[material]] = key_before.material[:pipelines]
-    assert material[:op] == :resize_auto
-    refute Keyword.has_key?(material, :selected_branch)
-    refute Keyword.has_key?(material, :branch)
+    assert [[key_data]] = key_before.data[:pipelines]
+    assert key_data[:op] == :resize
+    assert key_data[:mode] == :auto
+    refute Keyword.has_key?(key_data, :selected_branch)
+    refute Keyword.has_key?(key_data, :branch)
     refute serialized =~ "resize_auto_branch"
     refute serialized =~ "selected_branch"
-    assert key_before.material[:resolver_material] in [nil, []]
+    refute Keyword.has_key?(key_before.data, :resolver_material)
+    refute Keyword.has_key?(key_before.data, :resolver_key_data)
   end
 
   test "cache key builder accepts semantic plans" do
@@ -349,10 +355,10 @@ defmodule ImagePlug.Cache.KeyTest do
                "origin-version-1"
              )
 
-    assert key.material[:pipelines]
+    assert key.data[:pipelines]
   end
 
-  test "source freshness identity changes cache key without changing semantic material" do
+  test "source freshness identity changes cache key without changing semantic key data" do
     conn = conn(:get, "/_/rt:auto/w:300/h:200/plain/images/cat.jpg")
     semantic_plan = plan_with_resize_auto()
 
@@ -361,15 +367,15 @@ defmodule ImagePlug.Cache.KeyTest do
     key_b = build_key!(conn, semantic_plan, "asset:cat:v2")
 
     assert key_a.hash == key_a_same.hash
-    assert key_a.material[:pipelines] == key_b.material[:pipelines]
+    assert key_a.data[:pipelines] == key_b.data[:pipelines]
     refute key_a.hash == key_b.hash
   end
 
-  test "transform material version participates in the cache key" do
+  test "transform key data version participates in the cache key" do
     conn = conn(:get, "/_/plain/images/cat.jpg")
     key = build_key!(conn, plan(), "https://origin.test/images/cat.jpg")
 
-    assert key.material[:transform] == [material_version: 1]
+    assert key.data[:transform] == [key_data_version: 1]
   end
 
   test "cache key construction does not reference source-aware resolution" do
@@ -388,7 +394,7 @@ defmodule ImagePlug.Cache.KeyTest do
     refute source =~ "source_height"
   end
 
-  test "cachebuster changes cache keys without changing pipeline material" do
+  test "cachebuster changes cache keys without changing pipeline key data" do
     base_plan = plan()
     busted_plan = plan(cache: %ImagePlug.Plan.Cache{cachebuster: "v2"})
 
@@ -396,12 +402,12 @@ defmodule ImagePlug.Cache.KeyTest do
     base = build_key!(conn, base_plan, "https://origin.test/images/cat.jpg")
     busted = build_key!(conn, busted_plan, "https://origin.test/images/cat.jpg")
 
-    assert base.material[:pipelines] == busted.material[:pipelines]
-    assert busted.material[:cache] == [cachebuster: "v2"]
+    assert base.data[:pipelines] == busted.data[:pipelines]
+    assert busted.data[:cache] == [cachebuster: "v2"]
     refute base.hash == busted.hash
   end
 
-  test "response delivery metadata is excluded from cache key material" do
+  test "response delivery metadata is excluded from cache key data" do
     one = plan(response: %ImagePlug.Plan.Response{disposition: :attachment})
     two = plan(response: %ImagePlug.Plan.Response{disposition: :inline})
 
@@ -411,7 +417,7 @@ defmodule ImagePlug.Cache.KeyTest do
              build_key!(conn, two, "https://origin.test/images/cat.jpg").hash
   end
 
-  test "requests differing only by filename share cache key material" do
+  test "requests differing only by filename share cache key data" do
     one =
       plan(
         response: %ImagePlug.Plan.Response{
@@ -434,7 +440,7 @@ defmodule ImagePlug.Cache.KeyTest do
              build_key!(conn, two, "https://origin.test/images/cat.jpg").hash
   end
 
-  test "output material includes normalized quality rules" do
+  test "output key data includes normalized quality rules" do
     output = %Output{
       mode: :automatic,
       quality: :default,
@@ -446,8 +452,8 @@ defmodule ImagePlug.Cache.KeyTest do
       |> put_req_header("accept", "image/webp")
       |> build_key!(plan(output: output), "https://origin.test/images/cat.jpg")
 
-    assert key.material[:output][:quality] == :default
-    assert key.material[:output][:format_qualities] == %{webp: {:quality, 70}}
+    assert key.data[:output][:quality] == :default
+    assert key.data[:output][:format_qualities] == %{webp: {:quality, 70}}
   end
 
   test "automatic output includes modern candidates instead of selected output or raw Accept" do
@@ -466,7 +472,7 @@ defmodule ImagePlug.Cache.KeyTest do
     key_one = build_key!(conn_one, automatic_plan, "https://origin.test/images/cat.jpg")
     key_two = build_key!(conn_two, automatic_plan, "https://origin.test/images/cat.jpg")
 
-    assert key_one.material[:output] == [
+    assert key_one.data[:output] == [
              mode: :automatic,
              modern_candidates: [:avif, :webp],
              auto: [avif: true, webp: true],
@@ -474,8 +480,8 @@ defmodule ImagePlug.Cache.KeyTest do
              format_qualities: %{}
            ]
 
-    refute inspect(key_one.material) =~ "image/webp"
-    refute inspect(key_one.material) =~ "image/avif"
+    refute inspect(key_one.data) =~ "image/webp"
+    refute inspect(key_one.data) =~ "image/avif"
     assert key_one.hash == key_two.hash
   end
 
@@ -512,7 +518,7 @@ defmodule ImagePlug.Cache.KeyTest do
 
     refute default_key.hash == webp_only_key.hash
 
-    assert webp_only_key.material[:output] == [
+    assert webp_only_key.data[:output] == [
              mode: :automatic,
              modern_candidates: [:webp],
              auto: [avif: false, webp: true],
@@ -521,7 +527,7 @@ defmodule ImagePlug.Cache.KeyTest do
            ]
   end
 
-  test "explicit formats do not include Accept material or automatic marker" do
+  test "explicit formats do not include Accept key data or automatic marker" do
     conn =
       :get
       |> conn("/_/f:webp/plain/images/cat.jpg")
@@ -529,14 +535,14 @@ defmodule ImagePlug.Cache.KeyTest do
 
     key = build_key!(conn, plan(), "https://origin.test/images/cat.jpg")
 
-    assert key.material[:output] == [
+    assert key.data[:output] == [
              mode: :explicit,
              format: :webp,
              quality: :default,
              format_qualities: %{}
            ]
 
-    refute inspect(key.material) =~ "image/jpeg"
+    refute inspect(key.data) =~ "image/jpeg"
   end
 
   test "only configured headers and cookies are included" do
@@ -553,9 +559,9 @@ defmodule ImagePlug.Cache.KeyTest do
         key_cookies: ["tenant"]
       )
 
-    assert key.material[:selected_headers] == [{"accept-language", ["en-US"]}]
-    assert key.material[:selected_cookies] == [{"tenant", "acme"}]
-    refute inspect(key.material) =~ "x-ignored"
-    refute inspect(key.material) =~ "ignored_cookie"
+    assert key.data[:selected_headers] == [{"accept-language", ["en-US"]}]
+    assert key.data[:selected_cookies] == [{"tenant", "acme"}]
+    refute inspect(key.data) =~ "x-ignored"
+    refute inspect(key.data) =~ "ignored_cookie"
   end
 end

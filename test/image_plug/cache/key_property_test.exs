@@ -19,20 +19,20 @@ defmodule ImagePlug.Cache.KeyPropertyTest do
     key
   end
 
-  property "cache key serialization is deterministic for canonical material" do
-    check all material <- key_material(),
+  property "cache key serialization is deterministic for canonical key data" do
+    check all key_data <- key_data(),
               max_runs: 100 do
-      assert Key.serialize_material(material) == Key.serialize_material(material)
+      assert Key.serialize_key_data(key_data) == Key.serialize_key_data(key_data)
     end
   end
 
-  property "nested map and keyword ordering does not affect serialized key material" do
+  property "nested map and keyword ordering does not affect serialized key data" do
     check all origin <- origin_identity(),
               source_path <- source_path(),
               width <- maybe_dimension(),
               height <- maybe_dimension(),
               max_runs: 100 do
-      material_one = [
+      data_one = [
         schema_version: 2,
         origin_identity: origin,
         source: [
@@ -65,7 +65,7 @@ defmodule ImagePlug.Cache.KeyPropertyTest do
         selected_cookies: []
       ]
 
-      material_two = [
+      data_two = [
         selected_cookies: [],
         selected_headers: [],
         output: [
@@ -98,7 +98,7 @@ defmodule ImagePlug.Cache.KeyPropertyTest do
         schema_version: 2
       ]
 
-      assert Key.serialize_material(material_one) == Key.serialize_material(material_two)
+      assert Key.serialize_key_data(data_one) == Key.serialize_key_data(data_two)
     end
   end
 
@@ -161,7 +161,7 @@ defmodule ImagePlug.Cache.KeyPropertyTest do
     end
   end
 
-  property "cachebuster changes cache keys without changing pipeline material" do
+  property "cachebuster changes cache keys without changing pipeline key data" do
     check all cachebuster_a <- string(:alphanumeric, min_length: 1, max_length: 24),
               cachebuster_b <- string(:alphanumeric, min_length: 1, max_length: 24),
               cachebuster_a != cachebuster_b,
@@ -183,7 +183,7 @@ defmodule ImagePlug.Cache.KeyPropertyTest do
           origin
         )
 
-      assert key_a.material[:pipelines] == key_b.material[:pipelines]
+      assert key_a.data[:pipelines] == key_b.data[:pipelines]
       refute key_a.hash == key_b.hash
     end
   end
@@ -322,7 +322,7 @@ defmodule ImagePlug.Cache.KeyPropertyTest do
     end
   end
 
-  defp key_material do
+  defp key_data do
     map(
       {origin_identity(), source_path(), pipelines(),
        member_of([:automatic, :webp, :avif, :jpeg, :png])},
@@ -396,7 +396,7 @@ defmodule ImagePlug.Cache.KeyPropertyTest do
   end
 
   defp pipelines do
-    list_of(list_of(operation_material(), min_length: 0, max_length: 3),
+    list_of(list_of(operation_data(), min_length: 0, max_length: 3),
       min_length: 1,
       max_length: 3
     )
@@ -413,14 +413,14 @@ defmodule ImagePlug.Cache.KeyPropertyTest do
     ])
   end
 
-  defp operation_material do
+  defp operation_data do
     one_of([
       map({positive_pixel(), maybe_dimension_atom()}, fn {width, height} ->
         [
           op: :resize_fit,
           size: [
             width: [unit: :logical_px, value: width],
-            height: dimension_material(height),
+            height: dimension_data(height),
             dpr: 1.0
           ],
           enlargement: :deny,
@@ -459,8 +459,8 @@ defmodule ImagePlug.Cache.KeyPropertyTest do
   defp semantic_dimension(:auto), do: Dimension.auto()
   defp semantic_dimension(pixels), do: Dimension.pixels(pixels)
 
-  defp dimension_material(:auto), do: [unit: :auto]
-  defp dimension_material(pixels), do: [unit: :logical_px, value: pixels]
+  defp dimension_data(:auto), do: [unit: :auto]
+  defp dimension_data(pixels), do: [unit: :logical_px, value: pixels]
 
   defp origin_identity do
     map(source_path(), fn path -> "https://origin.test/#{Enum.join(path, "/")}" end)

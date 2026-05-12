@@ -94,7 +94,7 @@ defmodule ImagePlug.TransformIRCharacterizationTest do
              )
 
     assert_received {:cache_get, key}
-    assert key.material[:origin_identity] == origin_identity
+    assert key.data[:origin_identity] == origin_identity
   end
 
   test "1. request-level resize:auto from 300x200 to 100x50 returns 100x50" do
