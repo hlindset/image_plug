@@ -381,8 +381,8 @@ Recommended error shapes:
 {:invalid_source_metadata, reason}
 ```
 
-There is no `:barrier` return. Each Plan operation is already an execution
-boundary.
+Do not add a separate return value to split execution into pending segments.
+Each Plan operation is already an execution boundary.
 
 ## Executable Operation Responsibilities
 
@@ -638,7 +638,8 @@ public boundary.
 2. Make executable-operation conversion one-operation-at-a-time and state-aware.
    - Pass current `State` into executable-operation conversion.
    - Query current image dimensions directly when needed.
-   - Remove pending segment and barrier ideas.
+   - Do not introduce pending segment or explicit execution-boundary return
+     values.
    - Fix `rotate(0)`.
    - Clamp ratio crop dimensions.
    - Reject unsupported canvas geometry.
