@@ -8,7 +8,7 @@ defmodule ImagePlug.Transform.SourceMetadata do
   @source_types [:raster, :animated_raster, :vector]
   @keys [:orientation, :has_alpha?, :format, :source_type]
 
-  defstruct orientation: :normal,
+  defstruct orientation: :unknown,
             has_alpha?: false,
             format: nil,
             source_type: :raster

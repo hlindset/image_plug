@@ -166,6 +166,16 @@ defmodule ImagePlug.ArchitectureBoundaryTest do
     assert violations == []
   end
 
+  test "runtime does not call post-fetch resolver execution APIs" do
+    violations =
+      for file <- runtime_files(),
+          violation <- runtime_resolver_execution_references(file) do
+        "#{file}:#{violation.line} must not use #{violation.module}; execute canonical plans through ImagePlug.Transform.execute_plan/4"
+      end
+
+    assert violations == []
+  end
+
   test "runtime does not depend on imgproxy parser structs" do
     violations =
       for file <- runtime_files(),
@@ -273,6 +283,32 @@ defmodule ImagePlug.ArchitectureBoundaryTest do
              %{line: 2, module: "ImagePlug.Transform.Resolver"},
              %{line: 2, module: "ImagePlug.Transform.SourceMetadata"},
              %{line: 3, module: "ImagePlug.Transform.ResolvedPlan"}
+           ]
+  end
+
+  test "runtime resolver execution reference check rejects calls and resolved plans" do
+    file = tmp_file("runtime_resolver")
+
+    on_exit(fn -> File.rm(file) end)
+
+    File.write!(file, """
+    defmodule ImagePlug.Runtime.BoundaryExample do
+      alias ImagePlug.Transform.{Resolver, ResolvedPlan}
+
+      def resolve(plan, metadata), do: ImagePlug.Transform.resolve(plan, metadata)
+      def executable(plan, metadata), do: Transform.executable_pipelines(plan, metadata)
+      def direct(plan, metadata), do: Resolver.resolve(plan, metadata)
+      def struct_reference, do: %ResolvedPlan{}
+    end
+    """)
+
+    assert runtime_resolver_execution_references(file) |> Enum.sort_by(&{&1.line, &1.module}) == [
+             %{line: 2, module: "ImagePlug.Transform.ResolvedPlan"},
+             %{line: 2, module: "ImagePlug.Transform.Resolver"},
+             %{line: 4, module: "ImagePlug.Transform.resolve"},
+             %{line: 5, module: "Transform.executable_pipelines"},
+             %{line: 6, module: "Resolver.resolve"},
+             %{line: 7, module: "ResolvedPlan"}
            ]
   end
 
@@ -506,6 +542,72 @@ defmodule ImagePlug.ArchitectureBoundaryTest do
     |> Enum.uniq()
   end
 
+  defp runtime_resolver_execution_references(file) do
+    {:ok, ast} = file |> File.read!() |> Code.string_to_quoted()
+
+    {_ast, violations} =
+      Macro.prewalk(ast, [], fn
+        {:alias, meta,
+         [
+           {{:., _dot_meta, [{:__aliases__, _module_meta, [:ImagePlug, :Transform]}, :{}]},
+            _call_meta, grouped_aliases}
+         ]} = node,
+        violations ->
+          grouped_aliases
+          |> Enum.map(&runtime_resolver_alias/1)
+          |> Enum.reject(&is_nil/1)
+          |> Enum.map(&violation(meta, &1))
+          |> then(&{node, &1 ++ violations})
+
+        {{:., meta, [{:__aliases__, _alias_meta, [:ImagePlug, :Transform]}, function]},
+         _call_meta, _args} = node,
+        violations
+        when function in [:resolve, :executable_pipelines] ->
+          {node, [violation(meta, "ImagePlug.Transform.#{function}") | violations]}
+
+        {{:., meta, [{:__aliases__, _alias_meta, [:Transform]}, function]}, _call_meta, _args} =
+            node,
+        violations
+        when function in [:resolve, :executable_pipelines] ->
+          {node, [violation(meta, "Transform.#{function}") | violations]}
+
+        {{:., meta, [{:__aliases__, _alias_meta, [:ImagePlug, :Transform, :Resolver]}, :resolve]},
+         _call_meta, _args} = node,
+        violations ->
+          {node, [violation(meta, "ImagePlug.Transform.Resolver.resolve") | violations]}
+
+        {{:., meta, [{:__aliases__, _alias_meta, [:Transform, :Resolver]}, :resolve]}, _call_meta,
+         _args} = node,
+        violations ->
+          {node, [violation(meta, "Transform.Resolver.resolve") | violations]}
+
+        {{:., meta, [{:__aliases__, _alias_meta, [:Resolver]}, :resolve]}, _call_meta, _args} =
+            node,
+        violations ->
+          {node, [violation(meta, "Resolver.resolve") | violations]}
+
+        {:__aliases__, meta, [:ImagePlug, :Transform, module | _rest]} = node, violations
+        when module in [:Resolver, :ResolvedPlan] ->
+          {node, [violation(meta, "ImagePlug.Transform.#{module}") | violations]}
+
+        {:__aliases__, meta, [:Transform, module | _rest]} = node, violations
+        when module in [:Resolver, :ResolvedPlan] ->
+          {node, [violation(meta, "Transform.#{module}") | violations]}
+
+        {:__aliases__, meta, [module | _rest]} = node, violations
+        when module in [:Resolver, :ResolvedPlan] ->
+          {node, [violation(meta, "#{module}") | violations]}
+
+        node, violations ->
+          {node, violations}
+      end)
+
+    violations
+    |> Enum.reverse()
+    |> Enum.uniq()
+    |> reject_runtime_resolver_child_duplicates()
+  end
+
   defp concrete_transform_references(file) do
     {:ok, ast} = file |> File.read!() |> Code.string_to_quoted()
 
@@ -644,6 +746,29 @@ defmodule ImagePlug.ArchitectureBoundaryTest do
     )
   end
 
+  defp reject_runtime_resolver_child_duplicates(violations) do
+    grouped_alias_lines =
+      violations
+      |> Enum.filter(
+        &(&1.module in ["ImagePlug.Transform.Resolver", "ImagePlug.Transform.ResolvedPlan"])
+      )
+      |> MapSet.new(& &1.line)
+
+    resolver_call_lines =
+      violations
+      |> Enum.filter(&(&1.module in ["Resolver.resolve", "Transform.Resolver.resolve"]))
+      |> MapSet.new(& &1.line)
+
+    Enum.reject(violations, fn
+      %{module: module, line: line}
+      when module in ["Resolver", "ResolvedPlan"] ->
+        MapSet.member?(grouped_alias_lines, line) or MapSet.member?(resolver_call_lines, line)
+
+      _violation ->
+        false
+    end)
+  end
+
   defp concrete_transform_grouped_alias(prefix, alias) do
     prefix
     |> alias_parts()
@@ -721,6 +846,16 @@ defmodule ImagePlug.ArchitectureBoundaryTest do
        do: "ImagePlug.Transform.#{module}"
 
   defp post_fetch_resolver_alias(_alias), do: nil
+
+  defp runtime_resolver_alias({:__aliases__, _meta, [module]})
+       when module in [:Resolver, :ResolvedPlan],
+       do: "ImagePlug.Transform.#{module}"
+
+  defp runtime_resolver_alias({:__aliases__, _meta, [module | _rest]})
+       when module in [:Resolver, :ResolvedPlan],
+       do: "ImagePlug.Transform.#{module}"
+
+  defp runtime_resolver_alias(_alias), do: nil
 
   defp violation(meta, module) do
     %{line: Keyword.fetch!(meta, :line), module: module}

@@ -44,24 +44,44 @@ defmodule ImagePlug.Runtime.RequestRunnerTest do
   end
 
   defmodule CacheMissWriteProbe do
-    def get(key, _opts) do
+    def get(key, opts) do
+      emit(opts, {:cache_lookup, key})
       send(self(), {:cache_lookup, key})
       :miss
     end
 
     def put(key, entry, opts) do
+      emit(opts, {:cache_put, key})
       send(self(), {:cache_put, key, entry, opts})
       :ok
+    end
+
+    defp emit(opts, event) do
+      case Keyword.fetch(opts, :test_pid) do
+        {:ok, pid} -> send(pid, {:runner_event, Keyword.fetch!(opts, :test_ref), event})
+        :error -> :ok
+      end
     end
   end
 
   defmodule OriginImage do
-    def call(%Plug.Conn{request_path: "/images/cat-300.jpg"} = conn, _opts) do
+    def init(opts), do: opts
+
+    def call(%Plug.Conn{request_path: "/images/cat-300.jpg"} = conn, opts) do
+      emit(opts)
+
       body = File.read!("priv/static/images/cat-300.jpg")
 
       conn
       |> Plug.Conn.put_resp_content_type("image/jpeg")
       |> Plug.Conn.send_resp(200, body)
+    end
+
+    defp emit(opts) do
+      case Keyword.fetch(opts, :test_pid) do
+        {:ok, pid} -> send(pid, {:runner_event, Keyword.fetch!(opts, :test_ref), :origin_fetch})
+        :error -> :ok
+      end
     end
   end
 
@@ -222,7 +242,9 @@ defmodule ImagePlug.Runtime.RequestRunnerTest do
     refute serialized_data =~ "source_height"
   end
 
-  test "cache miss resolves source-aware semantic operations and stores under original key" do
+  test "cache miss executes semantic plan after fetch and stores under original key" do
+    ref = make_ref()
+
     assert {:ok, operation} =
              Operation.resize(:auto, {:px, 100}, {:px, 100},
                dpr: 1.0,
@@ -234,9 +256,16 @@ defmodule ImagePlug.Runtime.RequestRunnerTest do
                conn(:get, "/_/rt:auto/w:100/h:100/f:jpeg/plain/images/cat-300.jpg"),
                plan(pipelines: [%Pipeline{operations: [operation]}]),
                "http://origin.test/images/cat-300.jpg",
-               cache: {CacheMissWriteProbe, []},
-               origin_req_options: [plug: OriginImage]
+               cache: {CacheMissWriteProbe, test_pid: self(), test_ref: ref},
+               origin_req_options: [plug: {OriginImage, test_pid: self(), test_ref: ref}]
              )
+
+    assert_receive {:runner_event, ^ref, first_event}
+    assert {:cache_lookup, key} = first_event
+    assert_receive {:runner_event, ^ref, second_event}
+    assert second_event == :origin_fetch
+    assert_receive {:runner_event, ^ref, third_event}
+    assert {:cache_put, ^key} = third_event
 
     assert_received {:cache_lookup, key}
     assert_received {:cache_put, ^key, %Entry{}, _opts}

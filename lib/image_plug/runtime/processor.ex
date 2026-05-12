@@ -7,7 +7,6 @@ defmodule ImagePlug.Runtime.Processor do
   alias ImagePlug.Runtime.DecodedOrigin
   alias ImagePlug.Runtime.Origin
   alias ImagePlug.Transform
-  alias ImagePlug.Transform.Chain
   alias ImagePlug.Transform.DecodePlanner
   alias ImagePlug.Transform.Materializer
   alias ImagePlug.Transform.SourceMetadata
@@ -118,19 +117,8 @@ defmodule ImagePlug.Runtime.Processor do
     do: {:error, :empty_pipeline_plan}
 
   def process_decoded_origin(%DecodedOrigin{} = decoded, %Plan{} = plan, opts) do
-    case executable_pipelines(plan, decoded, opts) do
-      {:ok, pipelines} ->
-        process_executable_pipelines(decoded, pipelines, opts)
-
-      {:error, _reason} = error ->
-        close_pending_origin_on_error(error, decoded.origin_response)
-    end
-  end
-
-  defp process_executable_pipelines(%DecodedOrigin{} = decoded, pipelines, opts)
-       when is_list(pipelines) do
     result =
-      case execute_pipelines(%State{image: decoded.image}, pipelines, decoded, opts) do
+      case execute_plan_pipelines(%State{image: decoded.image}, plan, decoded, opts) do
         {:ok, final_state} ->
           materialize_before_delivery(
             final_state,
@@ -144,15 +132,6 @@ defmodule ImagePlug.Runtime.Processor do
       end
 
     close_pending_origin_on_error(result, decoded.origin_response)
-  end
-
-  defp executable_pipelines(%Plan{} = plan, %DecodedOrigin{} = decoded, opts) do
-    resolver_opts =
-      opts
-      |> Keyword.put(:source_width, Image.width(decoded.image))
-      |> Keyword.put(:source_height, Image.height(decoded.image))
-
-    Transform.executable_pipelines(plan, decoded.source_metadata, resolver_opts)
   end
 
   def close_pending_origin(%Origin.Response{} = origin_response) do
@@ -172,22 +151,37 @@ defmodule ImagePlug.Runtime.Processor do
 
   defp close_pending_origin_on_error(result, %Origin.Response{}), do: result
 
-  defp execute_pipelines(%State{} = state, pipelines, %DecodedOrigin{} = decoded, opts) do
+  defp execute_plan_pipelines(
+         %State{} = state,
+         %Plan{pipelines: pipelines} = plan,
+         %DecodedOrigin{} = decoded,
+         opts
+       ) do
     last_index = length(pipelines) - 1
 
     pipelines
     |> Enum.with_index()
-    |> Enum.reduce_while({:ok, state}, &execute_pipeline_step(&1, &2, last_index, decoded, opts))
+    |> Enum.reduce_while(
+      {:ok, state},
+      &execute_plan_pipeline_step(&1, &2, last_index, decoded, plan, opts)
+    )
   end
 
-  defp execute_pipeline_step(
-         {operations, index},
+  defp execute_plan_pipeline_step(
+         {pipeline, index},
          {:ok, %State{} = state},
          last_index,
          %DecodedOrigin{} = decoded,
+         %Plan{} = plan,
          opts
        ) do
-    with {:ok, %State{} = state} <- Chain.execute(state, operations),
+    with {:ok, %State{} = state} <-
+           Transform.execute_plan(
+             %Plan{plan | pipelines: [pipeline]},
+             state,
+             decoded.source_metadata,
+             opts
+           ),
          {:ok, %State{} = state} <-
            maybe_materialize_between_pipelines(state, index, last_index, decoded, opts) do
       {:cont, {:ok, state}}
@@ -385,7 +379,7 @@ defmodule ImagePlug.Runtime.Processor do
 
   defp source_metadata(_image, source_format) do
     SourceMetadata.new(
-      orientation: :normal,
+      orientation: :unknown,
       format: source_format,
       source_type: :raster
     )

@@ -223,7 +223,7 @@ defmodule ImagePlug.Transform.ResolverTest do
   end
 
   test "source metadata constructor validates source-only facts" do
-    assert {:ok, %SourceMetadata{format: :jpeg, orientation: :normal}} =
+    assert {:ok, %SourceMetadata{format: :jpeg, orientation: :unknown}} =
              SourceMetadata.new(format: :jpeg)
 
     assert SourceMetadata.new(width: 300, height: 200, format: :jpeg) ==
