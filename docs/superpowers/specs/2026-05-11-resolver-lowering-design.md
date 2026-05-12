@@ -46,8 +46,8 @@ directly instead of maintaining a shadow model of current geometry.
   Plan or Transform operation modules.
 - Keep parser/vendor quirks outside `ImagePlug.Transform`.
 - Make Plan operation order define the image state each operation sees.
-- Execute semantic operations one at a time, lowering each operation against
-  the actual current image state.
+- Execute semantic operations one at a time against the actual current image
+  state; any lowering to executable operations is local to that operation.
 - Avoid source-space/current-space flags in Transform. By the time a request is
   a canonical Plan, coordinate semantics are represented by operation order.
 - Do not carry pipeline/operation indexes unless structured diagnostics
@@ -77,7 +77,7 @@ Plan operation order defines state.
 Every semantic operation is interpreted against the image state at its position
 in the pipeline.
 
-Therefore Transform should not need to know whether a crop originally came from
+Therefore Transform must not depend on whether a crop originally came from
 source-space syntax, current-space syntax, or some vendor-specific region
 syntax. Parser/adapter canonicalization owns that translation.
 
@@ -106,9 +106,9 @@ vendor parser
   -> existing executable Transform operations/libvips
 ```
 
-The canonical Plan should stay only one conceptual step above executable image
-work. It should not become a universal vendor ontology, a capability planner,
-or a framework of compatibility reports.
+The canonical Plan should stay close to executable image work. It should not
+become a universal vendor ontology, a capability planner, or a framework of
+compatibility reports.
 
 ImagePlug should still prefer narrow structs over raw tagged tuples for the
 canonical request model. Structs give us constructor validation, stable cache
@@ -155,12 +155,8 @@ safe:
 
 - they can be materialized for the final cache key before source fetch;
 - they do not contain source metadata;
-- they do not contain resolved backend execution traces.
-- they are interpreted against the current image state at their position in
-  the ordered Plan;
-- they represent canonical ImagePlug image operations, not raw vendor syntax;
-- they must be executable by `ImagePlug.Transform` for the supported first
-  slice.
+- they do not contain resolved backend execution traces;
+- they represent canonical ImagePlug image operations, not raw vendor syntax.
 
 Examples:
 
@@ -179,10 +175,10 @@ A canonical Plan operation:
 - does not contain resolved backend traces;
 - is interpreted against the current image state at its position in the Plan;
 - is constructed by parser/planner boundary code, not by runtime;
-- must not encode vendor-specific parser quirks unless intentionally preserved
-  as unsupported or degraded intent;
-- should stay small enough that the equivalent thin op-list form would be
-  obvious.
+- must not encode vendor-specific parser quirks, except as explicit
+  parser-owned unsupported/degraded intent that Transform does not interpret as
+  normal geometry;
+- should stay small enough to map directly to a simple ordered op-list form.
 
 `CropRegion` is not a representation of vendor crop syntax. It is a canonical
 image operation: crop this region from the current image at this operation
@@ -261,7 +257,7 @@ Semantic operation execution receives:
 
 - the current `ImagePlug.Transform.State`;
 - the already validated `ImagePlug.Transform.SourceMetadata`;
-- runtime transform options.
+- execution options that do not affect output identity.
 
 Current image facts should come from the actual image:
 
@@ -274,7 +270,8 @@ or existing `Transform.State`/geometry helpers. Operations should prefer
 current image facts from `State.image`. `SourceMetadata` is only for facts that
 the current decoded image cannot provide.
 
-Facts the current image cannot provide stay in `SourceMetadata` or options:
+Facts the current image cannot provide stay in `SourceMetadata` or execution
+options:
 
 - original source orientation metadata;
 - original source type/format;
@@ -355,10 +352,10 @@ The main walk should be framed as semantic execution. Lowering to executable
 operations is an implementation detail of `execute_operation/4`, not a
 whole-plan compiler phase.
 
-## Lowering Contract
+## Local Lowering Contract
 
-Lowering is state-aware and local. It lowers one semantic operation at a time
-as part of executing that operation.
+Local lowering is an implementation detail of semantic operation execution. It
+lowers one semantic operation at a time as part of executing that operation.
 
 ```elixir
 @spec lower(Plan.Operation.semantic_operation(), State.t(), SourceMetadata.t(), keyword()) ::
@@ -415,7 +412,7 @@ There is no source-space flag in Transform long term. Parser/adapter
 canonicalization owns operation ordering for dialects with source-region
 syntax.
 
-`CropRegion` should remain brutally simple. It should not grow `space`,
+`CropRegion` should remain narrow. It should not grow `space`,
 `source_aligned?`, `mapped_from_source`, or similar flags.
 
 ### Canvas
@@ -534,10 +531,9 @@ executable operations.
 Long-term preferred direction:
 
 - allow a narrow set of canonical executable primitives directly in request
-  plans:
-  - `ImagePlug.Transform.Operation.AutoOrient`
-  - `ImagePlug.Transform.Operation.Rotate`
-  - `ImagePlug.Transform.Operation.Flip`
+  plans: `ImagePlug.Transform.Operation.AutoOrient`,
+  `ImagePlug.Transform.Operation.Rotate`, and
+  `ImagePlug.Transform.Operation.Flip`;
 - do not allow arbitrary executable Transform operations into Plan pipelines;
 - keep parser construction behind a facade so parser code does not depend on a
   broad Transform operation namespace;
@@ -646,7 +642,8 @@ public boundary.
 
 3. Remove resolver context from the primary path.
    - Pass `State`, `SourceMetadata`, and opts to lowering.
-   - Keep source metadata/backend facts in `SourceMetadata` or opts.
+   - Keep source metadata in `SourceMetadata`; keep execution-only options in
+     opts.
    - Remove predicted current dimensions.
    - Remove `source_aligned?`.
    - Remove `pipeline_index` and `operation_index`.
@@ -671,16 +668,17 @@ public boundary.
    - Either keep them deliberately, or replace them with a narrow canonical
      primitive allowlist.
    - Do not allow arbitrary executable Transform operations into Plan.
-   - This may be included in the same PR if it is isolated behind focused
-     boundary/cache-material tests.
+   - This may be a later step in the same PR after the semantic executor path
+     is covered by focused boundary/cache-material tests.
 
 8. Collapse overly split operation structs if it simplifies the final model.
    - Evaluate `ResizeFit`, `ResizeCover`, `ResizeStretch`, and `ResizeAuto`
      after semantic execution is in place.
    - Collapse them only if one narrow resize struct with an explicit mode makes
      material, parser construction, and lowering simpler.
-   - This may be included in the same PR, but only as a separate step with
-     focused constructor/material/parser/lowering tests.
+   - This may be a later step in the same PR, but only after the semantic
+     executor path is covered and only as a separate step with focused
+     constructor/material/parser/lowering tests.
 
 ## Success Criteria
 
