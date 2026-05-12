@@ -6,7 +6,6 @@ defmodule ImagePlug.Parser.ImgproxyPropertyTest do
 
   alias ImagePlug.Parser.Imgproxy
   alias ImagePlug.Plan
-  alias ImagePlug.Plan.Geometry.Dimension
   alias ImagePlug.Plan.Operation
   alias ImagePlug.Plan.Pipeline
   alias ImagePlug.Plan.Source.Plain
@@ -40,8 +39,8 @@ defmodule ImagePlug.Parser.ImgproxyPropertyTest do
                |> imgproxy_path(["images", "cat.jpg"])
                |> parse_path()
 
-      assert [%Operation.ResizeFit{} = params] = operations
-      assert params.size.width == pixels(second)
+      assert [%Operation.Resize{mode: :fit} = params] = operations
+      assert params.width == pixels(second)
     end
   end
 
@@ -54,9 +53,9 @@ defmodule ImagePlug.Parser.ImgproxyPropertyTest do
                |> imgproxy_path(["images", "cat.jpg"])
                |> parse_path()
 
-      assert [%Operation.ResizeCover{} = params] = operations
-      assert params.size.width == pixels(width)
-      assert params.size.height == pixels(height)
+      assert [%Operation.Resize{mode: :cover} = params] = operations
+      assert params.width == pixels(width)
+      assert params.height == pixels(height)
     end
   end
 
@@ -100,7 +99,7 @@ defmodule ImagePlug.Parser.ImgproxyPropertyTest do
 
   defp parse_path(path), do: Imgproxy.parse(conn(:get, path), [])
 
-  defp pixels(value), do: %Dimension{unit: :logical_px, value: value}
+  defp pixels(value), do: {:px, value}
 
   defp safe_parse(options) do
     options

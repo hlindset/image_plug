@@ -83,6 +83,8 @@ defmodule ImagePlug.Transform.KeyData do
       dpr: data(operation.dpr),
       enlargement: operation.enlargement,
       guide: guide_data(operation.guide),
+      x_offset: operation.x_offset,
+      y_offset: operation.y_offset,
       min_width: optional_data(operation.min_width),
       min_height: optional_data(operation.min_height),
       zoom_x: operation.zoom_x,

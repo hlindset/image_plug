@@ -4,7 +4,15 @@ defmodule ImagePlug.Plan.Operation.Resize do
   """
 
   @enforce_keys [:mode, :width, :height, :dpr, :enlargement, :guide]
-  defstruct @enforce_keys ++ [min_width: nil, min_height: nil, zoom_x: 1.0, zoom_y: 1.0]
+  defstruct @enforce_keys ++
+              [
+                x_offset: {:pixels, 0.0},
+                y_offset: {:pixels, 0.0},
+                min_width: nil,
+                min_height: nil,
+                zoom_x: 1.0,
+                zoom_y: 1.0
+              ]
 
   @type mode :: :fit | :cover | :stretch | :auto
   @type dimension :: :auto | {:px, pos_integer()}
@@ -13,6 +21,7 @@ defmodule ImagePlug.Plan.Operation.Resize do
   @type anchor :: :left | :center | :right | :top | :bottom
   @type guide :: :center | {:anchor, anchor(), anchor()} | {:focal, ratio(), ratio()}
   @type ratio :: {:ratio, non_neg_integer(), pos_integer()}
+  @type offset :: number() | {:pixels | :scale, number()}
 
   @type t :: %__MODULE__{
           mode: mode(),
@@ -21,6 +30,8 @@ defmodule ImagePlug.Plan.Operation.Resize do
           dpr: dpr(),
           enlargement: enlargement(),
           guide: guide(),
+          x_offset: offset(),
+          y_offset: offset(),
           min_width: dimension() | nil,
           min_height: dimension() | nil,
           zoom_x: pos_integer() | float(),

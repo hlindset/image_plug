@@ -63,7 +63,7 @@ defmodule ImagePlug.Transform.PlanExecutor do
   defp executable_operations(%PlanResize{mode: :cover} = operation, %State{}, _metadata, _opts) do
     operation
     |> tagged_dimension_rule(:cover)
-    |> cover_resize_and_crop(tagged_executable_gravity(operation.guide), {0.0, 0.0})
+    |> cover_resize_and_crop(tagged_executable_gravity(operation.guide), crop_offsets(operation))
   end
 
   defp executable_operations(%PlanResize{mode: :stretch} = operation, %State{}, _metadata, _opts) do
@@ -165,7 +165,11 @@ defmodule ImagePlug.Transform.PlanExecutor do
   defp executable_operations(%Flip{} = operation, %State{}, _metadata, _opts), do: [operation]
 
   defp tagged_executable_resize_operations(:cover, %DimensionRule{} = rule, operation) do
-    cover_resize_and_crop(rule, tagged_executable_gravity(operation.guide), {0.0, 0.0})
+    cover_resize_and_crop(
+      rule,
+      tagged_executable_gravity(operation.guide),
+      crop_offsets(operation)
+    )
   end
 
   defp tagged_executable_resize_operations(:fit, %DimensionRule{} = rule, _operation) do

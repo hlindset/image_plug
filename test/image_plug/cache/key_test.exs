@@ -229,6 +229,8 @@ defmodule ImagePlug.Cache.KeyTest do
                  dpr: [unit: :ratio, numerator: 1, denominator: 1],
                  enlargement: :deny,
                  guide: :center,
+                 x_offset: {:pixels, 0.0},
+                 y_offset: {:pixels, 0.0},
                  min_width: nil,
                  min_height: nil,
                  zoom_x: 1.0,
@@ -313,6 +315,8 @@ defmodule ImagePlug.Cache.KeyTest do
              dpr: [unit: :ratio, numerator: 1, denominator: 1],
              enlargement: :deny,
              guide: :center,
+             x_offset: {:pixels, 0.0},
+             y_offset: {:pixels, 0.0},
              min_width: nil,
              min_height: nil,
              zoom_x: 1.0,
@@ -326,6 +330,37 @@ defmodule ImagePlug.Cache.KeyTest do
     refute serialized =~ "source_height"
     refute serialized =~ "selected_branch"
     refute key_a.hash == key_b.hash
+  end
+
+  test "unified resize offsets participate in cache key data" do
+    assert {:ok, no_offset} = Operation.resize(:cover, {:px, 300}, {:px, 200})
+
+    assert {:ok, with_offset} =
+             Operation.resize(:cover, {:px, 300}, {:px, 200},
+               x_offset: {:pixels, 12.0},
+               y_offset: {:scale, -0.25}
+             )
+
+    conn = conn(:get, "/_/rs:fill:300:200/f:jpeg/plain/images/cat.jpg")
+
+    no_offset_key =
+      build_key!(
+        conn,
+        plan(pipelines: [%Pipeline{operations: [no_offset]}]),
+        "https://origin.test/images/cat.jpg"
+      )
+
+    with_offset_key =
+      build_key!(
+        conn,
+        plan(pipelines: [%Pipeline{operations: [with_offset]}]),
+        "https://origin.test/images/cat.jpg"
+      )
+
+    assert [[resize_data]] = with_offset_key.data[:pipelines]
+    assert resize_data[:x_offset] == {:pixels, 12.0}
+    assert resize_data[:y_offset] == {:scale, -0.25}
+    refute no_offset_key.data[:pipelines] == with_offset_key.data[:pipelines]
   end
 
   test "post-fetch resize auto branch is not accepted as final output cache key input" do

@@ -34,6 +34,26 @@ defmodule ImagePlug.Transform.PlanExecutorTest do
         assert dimensions(state.image) == expected_dimensions
       end
     end
+
+    test "resize cover applies offsets to the result crop" do
+      assert {:ok, operation} =
+               Operation.resize(:cover, {:px, 100}, {:px, 100},
+                 enlargement: :allow,
+                 guide: {:anchor, :left, :center},
+                 x_offset: {:pixels, 200}
+               )
+
+      assert {:ok, %State{} = state} =
+               Transform.execute_plan(
+                 plan([operation]),
+                 state_with_wide_offset_image(),
+                 metadata(),
+                 []
+               )
+
+      assert dimensions(state.image) == {100, 100}
+      assert Image.get_pixel!(state.image, 50, 50) == [0, 0, 255]
+    end
   end
 
   describe "crop execution" do
@@ -180,6 +200,26 @@ defmodule ImagePlug.Transform.PlanExecutorTest do
     assert dimensions(state.image) == {100, 200}
   end
 
+  test "resize auto cover branch applies offsets to the result crop" do
+    assert {:ok, operation} =
+             Operation.resize(:auto, {:px, 100}, {:px, 50},
+               enlargement: :allow,
+               guide: {:anchor, :left, :center},
+               x_offset: {:pixels, 50}
+             )
+
+    assert {:ok, %State{} = state} =
+             Transform.execute_plan(
+               plan([operation]),
+               state_with_wide_offset_image(),
+               metadata(),
+               []
+             )
+
+    assert dimensions(state.image) == {100, 50}
+    assert Image.get_pixel!(state.image, 75, 25) == [0, 0, 255]
+  end
+
   defp plan(operations) do
     %Plan{
       source: %Plain{path: ["images", "cat.jpg"]},
@@ -201,6 +241,15 @@ defmodule ImagePlug.Transform.PlanExecutorTest do
       |> Image.new!(1, color: :black)
       |> Image.Draw.rect!(0, 0, 1, 1, color: :red)
       |> Image.Draw.rect!(1, 0, 1, 1, color: :blue)
+
+    %State{image: image}
+  end
+
+  defp state_with_wide_offset_image do
+    image =
+      300
+      |> Image.new!(100, color: :red)
+      |> Image.Draw.rect!(200, 0, 100, 100, color: :blue)
 
     %State{image: image}
   end

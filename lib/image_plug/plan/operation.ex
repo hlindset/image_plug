@@ -33,7 +33,17 @@ defmodule ImagePlug.Plan.Operation do
     :bottom_right
   ]
   @resize_modes [:fit, :cover, :stretch, :auto]
-  @semantic_resize_keys [:dpr, :enlargement, :guide, :min_width, :min_height, :zoom_x, :zoom_y]
+  @semantic_resize_keys [
+    :dpr,
+    :enlargement,
+    :guide,
+    :x_offset,
+    :y_offset,
+    :min_width,
+    :min_height,
+    :zoom_x,
+    :zoom_y
+  ]
   @resize_keys [:size, :enlargement, :min_width, :min_height, :zoom_x, :zoom_y]
   @resize_placement_keys [:guide, :x_offset, :y_offset]
   @crop_guided_keys [:x_offset, :y_offset]
@@ -179,6 +189,9 @@ defmodule ImagePlug.Plan.Operation do
          {:ok, enlargement} <-
            optional_member(opts, :enlargement, @enlargements, :deny),
          {:ok, guide} <- resize_guide(Keyword.get(opts, :guide, :center)),
+         {:ok, x_offset} <- offset(opts, :x_offset, {:pixels, 0.0}),
+         {:ok, y_offset} <- offset(opts, :y_offset, {:pixels, 0.0}),
+         {:ok, {x_offset, y_offset}} <- resize_offsets(mode, x_offset, y_offset),
          {:ok, min_width} <- optional_tagged_resize_dimension(opts, :min_width),
          {:ok, min_height} <- optional_tagged_resize_dimension(opts, :min_height),
          {:ok, zoom_x} <- numeric(opts, :zoom_x, 1.0),
@@ -191,6 +204,8 @@ defmodule ImagePlug.Plan.Operation do
          dpr: dpr,
          enlargement: enlargement,
          guide: guide,
+         x_offset: x_offset,
+         y_offset: y_offset,
          min_width: min_width,
          min_height: min_height,
          zoom_x: zoom_x,
@@ -316,6 +331,9 @@ defmodule ImagePlug.Plan.Operation do
          :ok <- validate_tagged_resize_dimension(height, operation),
          :ok <- validate_tagged_dpr(dpr, operation),
          :ok <- validate_tagged_guide(guide, operation),
+         :ok <- validate_tagged_offset(operation.x_offset, operation),
+         :ok <- validate_tagged_offset(operation.y_offset, operation),
+         :ok <- validate_tagged_resize_offsets(mode, operation),
          :ok <- validate_tagged_resize_modifiers(operation) do
       validate_tagged_resize_access(mode, operation)
     end
@@ -553,6 +571,22 @@ defmodule ImagePlug.Plan.Operation do
 
   defp resize_guide(_guide), do: {:error, :guide}
 
+  defp resize_offsets(mode, x_offset, y_offset) when mode in [:cover, :auto],
+    do: {:ok, {x_offset, y_offset}}
+
+  defp resize_offsets(_mode, x_offset, y_offset) do
+    if zero_offset?(x_offset) and zero_offset?(y_offset) do
+      {:ok, {{:pixels, 0.0}, {:pixels, 0.0}}}
+    else
+      {:error, :offset}
+    end
+  end
+
+  defp zero_offset?(value) when is_number(value), do: value == 0
+
+  defp zero_offset?({unit, value}) when unit in [:pixels, :scale] and is_number(value),
+    do: value == 0
+
   defp tagged_crop_dimension(:full_axis), do: {:ok, :full_axis}
 
   defp tagged_crop_dimension({:px, value}) when is_integer(value) and value > 0,
@@ -656,6 +690,16 @@ defmodule ImagePlug.Plan.Operation do
   end
 
   defp validate_tagged_guide(_guide, operation), do: invalid_pipeline_operation(operation)
+
+  defp validate_tagged_resize_offsets(mode, _operation) when mode in [:cover, :auto], do: :ok
+
+  defp validate_tagged_resize_offsets(_mode, operation) do
+    if operation.x_offset == {:pixels, 0.0} and operation.y_offset == {:pixels, 0.0} do
+      :ok
+    else
+      invalid_pipeline_operation(operation)
+    end
+  end
 
   defp validate_tagged_resize_modifiers(operation) do
     with :ok <- validate_optional_tagged_resize_dimension(operation.min_width, operation),

@@ -55,7 +55,11 @@ defmodule ImagePlug.Plan.OperationKeyDataTest do
   describe "resize operation data" do
     test "materializes unresolved resize auto semantic intent" do
       assert {:ok, operation} =
-               Operation.resize(:auto, {:px, 300}, {:px, 200}, dpr: 2.0)
+               Operation.resize(:auto, {:px, 300}, {:px, 200},
+                 dpr: 2.0,
+                 x_offset: {:pixels, 8.0},
+                 y_offset: {:scale, -0.25}
+               )
 
       material = KeyData.data(operation)
 
@@ -67,6 +71,8 @@ defmodule ImagePlug.Plan.OperationKeyDataTest do
                dpr: [unit: :ratio, numerator: 2, denominator: 1],
                enlargement: :deny,
                guide: :center,
+               x_offset: {:pixels, 8.0},
+               y_offset: {:scale, -0.25},
                min_width: nil,
                min_height: nil,
                zoom_x: 1.0,

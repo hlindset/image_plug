@@ -29,7 +29,11 @@ defmodule ImagePlug.Transform.Resolver.Lowering do
   def lower(%PlanResize{mode: :cover} = operation, _context) do
     rule = tagged_dimension_rule(operation, :cover)
 
-    cover_resize_and_crop(rule, tagged_executable_gravity(operation.guide), {0.0, 0.0})
+    cover_resize_and_crop(
+      rule,
+      tagged_executable_gravity(operation.guide),
+      crop_offsets(operation)
+    )
   end
 
   def lower(%PlanResize{mode: :stretch} = operation, _context) do
@@ -178,7 +182,12 @@ defmodule ImagePlug.Transform.Resolver.Lowering do
     do: tagged_executable_resize_dimension(dimension)
 
   defp tagged_executable_operations(:cover, %DimensionRule{} = rule, operation),
-    do: cover_resize_and_crop(rule, tagged_executable_gravity(operation.guide), {0.0, 0.0})
+    do:
+      cover_resize_and_crop(
+        rule,
+        tagged_executable_gravity(operation.guide),
+        crop_offsets(operation)
+      )
 
   defp tagged_executable_operations(:fit, %DimensionRule{} = rule, _operation),
     do: [%Resize{rule: rule}]

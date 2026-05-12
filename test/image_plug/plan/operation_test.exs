@@ -8,6 +8,8 @@ defmodule ImagePlug.Plan.OperationTest do
 
   describe "resize constructors" do
     test "build unified resize operations through exported constructor" do
+      default_offset = {:pixels, 0.0}
+
       for mode <- [:fit, :cover, :stretch, :auto] do
         assert {:ok,
                 %Operation.Resize{
@@ -17,6 +19,8 @@ defmodule ImagePlug.Plan.OperationTest do
                   dpr: {:ratio, 1, 1},
                   enlargement: :deny,
                   guide: :center,
+                  x_offset: ^default_offset,
+                  y_offset: ^default_offset,
                   min_width: nil,
                   min_height: nil,
                   zoom_x: 1.0,
@@ -34,6 +38,8 @@ defmodule ImagePlug.Plan.OperationTest do
                 dpr: {:ratio, 3, 2},
                 enlargement: :allow,
                 guide: {:anchor, :center, :bottom},
+                x_offset: {:pixels, 12.0},
+                y_offset: {:scale, -0.25},
                 min_width: {:px, 100},
                 min_height: {:px, 50},
                 zoom_x: 1.25,
@@ -43,6 +49,8 @@ defmodule ImagePlug.Plan.OperationTest do
                  dpr: "1.50",
                  enlargement: :allow,
                  guide: {:anchor, :center, :bottom},
+                 x_offset: {:pixels, 12.0},
+                 y_offset: {:scale, -0.25},
                  min_width: {:px, 100},
                  min_height: {:px, 50},
                  zoom_x: 1.25,
@@ -72,6 +80,46 @@ defmodule ImagePlug.Plan.OperationTest do
 
       assert Operation.resize(:fit, {:px, 300}, :auto, zoom_x: 0) ==
                {:error, {:invalid_operation, :resize, [:fit, {:px, 300}, :auto, [zoom_x: 0]]}}
+
+      assert Operation.resize(:cover, {:px, 300}, {:px, 200}, x_offset: {:scale, :bad}) ==
+               {:error,
+                {:invalid_operation, :resize,
+                 [:cover, {:px, 300}, {:px, 200}, [x_offset: {:scale, :bad}]]}}
+
+      assert {:ok, resize} =
+               Operation.resize(:fit, {:px, 300}, :auto,
+                 x_offset: {:scale, 0.0},
+                 y_offset: 0
+               )
+
+      assert resize.x_offset == {:pixels, 0.0}
+      assert resize.y_offset == {:pixels, 0.0}
+
+      assert Operation.resize(:fit, {:px, 300}, :auto, x_offset: {:pixels, 1.0}) ==
+               {:error,
+                {:invalid_operation, :resize,
+                 [:fit, {:px, 300}, :auto, [x_offset: {:pixels, 1.0}]]}}
+    end
+  end
+
+  describe "prefetch validation" do
+    test "validates unified resize offsets" do
+      assert {:ok, operation} =
+               Operation.resize(:cover, {:px, 300}, {:px, 200}, x_offset: {:pixels, 12.0})
+
+      assert Operation.validate_prefetch_safe(operation) == :ok
+
+      assert Operation.validate_prefetch_safe(%{operation | x_offset: {:scale, :bad}}) ==
+               {:error, {:invalid_pipeline_operation, %{operation | x_offset: {:scale, :bad}}}}
+
+      assert Operation.validate_prefetch_safe(%{operation | y_offset: {:pixels, :bad}}) ==
+               {:error, {:invalid_pipeline_operation, %{operation | y_offset: {:pixels, :bad}}}}
+
+      assert Operation.validate_prefetch_safe(%{operation | mode: :stretch}) ==
+               {:error, {:invalid_pipeline_operation, %{operation | mode: :stretch}}}
+
+      assert Operation.validate_prefetch_safe(%{operation | mode: :fit, x_offset: 0.0}) ==
+               {:error, {:invalid_pipeline_operation, %{operation | mode: :fit, x_offset: 0.0}}}
     end
   end
 
