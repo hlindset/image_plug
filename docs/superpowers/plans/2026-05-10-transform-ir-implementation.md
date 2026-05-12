@@ -113,7 +113,7 @@ Target Plan operation shape:
   mode: :fit | :cover | :stretch | :auto,
   width: :auto | {:px, pos_integer()},
   height: :auto | {:px, pos_integer()},
-  dpr: pos_integer() | float(),
+  dpr: ratio(),
   enlargement: :allow | :deny,
   guide: :center | :top_left | {:fp, ratio(), ratio()},
   min_width: nil | {:px, pos_integer()},
@@ -156,11 +156,27 @@ where:
 the first slice; they remain offset fields and are normalized separately.
 
 Normalize DPR key data so equivalent inputs such as `1`, `1.0`, and `1.00`
-produce identical key data, for example:
+produce identical key data. Plan operations should store normalized DPR as a
+ratio; executable-operation conversion may convert it to a float only when the
+existing executable/backend layer expects a number. For example:
 
 ```elixir
 dpr: [unit: :ratio, numerator: 1, denominator: 1]
 ```
+
+Plan constructors may accept DPR as an integer, float, or decimal string at the
+parser/API boundary. Normalize immediately:
+
+```elixir
+1 -> {:ratio, 1, 1}
+1.0 -> {:ratio, 1, 1}
+"1.00" -> {:ratio, 1, 1}
+1.3324232 -> {:ratio, 1_665_529, 1_250_000}
+```
+
+Decimal strings should parse exactly. Floats should use a documented fixed
+decimal precision policy, then reduce with `Integer.gcd/2`; do not use raw IEEE
+float representation in key data.
 
 Constructor facade shape:
 
@@ -181,6 +197,7 @@ Use keyword options only for genuinely optional fields. Do not accept multiple e
 - Cache key inputs are called key data. Old `material` naming should be renamed or treated as legacy during migration.
 - A unified semantic resize operation uses key data `op: :resize, mode: ...`. Do not introduce `op: :resize_auto`.
 - `ratio()` is unsigned and canonicalized with `Integer.gcd/2`. Signed offsets are separate offset fields, not `ratio()`.
+- DPR accepts integer, float, or decimal-string input at the boundary, but Plan operations store it as canonical `ratio()`.
 - `SourceMetadata` does not carry current width/height in the first slice; Plan execution reads dimensions from `State.image`.
 - Parsed plans may contain only semantic Plan operations plus the explicit orientation primitive allowlist: `AutoOrient`, `Rotate`, and `Flip`.
 - Before Task 7, existing tests may use `key.material`. Task 7 is the migration point to `key.data`; update characterization tests during Task 7 if the key struct field is renamed.
@@ -791,6 +808,19 @@ defmodule ImagePlug.Plan.OperationKeyDataTest do
     assert KeyData.data({:ratio, 2, 4}) ==
              [unit: :ratio, numerator: 1, denominator: 2]
   end
+
+  test "DPR key data is canonicalized" do
+    for dpr <- [1, 1.0, "1.00"] do
+      assert {:ok, operation} =
+               Operation.resize(:fit, {:px, 300}, :auto,
+                 dpr: dpr,
+                 enlargement: :deny
+               )
+
+      assert KeyData.data(operation)[:dpr] ==
+               [unit: :ratio, numerator: 1, denominator: 1]
+    end
+  end
 end
 ```
 
@@ -808,6 +838,8 @@ Do not add `Dimension`, `Size`, `Region`, or `Gravity` structs. Keep geometry va
 ```
 
 Normalize ratios with `Integer.gcd/2` so equivalent ratios produce identical key data. Reject `{:px, 0}` where the axis must be positive; parser code must translate imgproxy zero tokens to `:auto` or `:full_axis` before calling constructors.
+
+Normalize DPR in the constructor boundary. Accept integers, floats, and decimal strings. Store canonical `ratio()` in the Plan operation. Decimal strings parse exactly; floats use a documented fixed decimal precision policy before reducing. Reject non-positive DPR values.
 
 - [ ] **Step 4: Add simplified operation structs and constructors**
 
@@ -1351,7 +1383,7 @@ Change resize planning to call one constructor:
 
 ```elixir
 Operation.resize(mode, width, height,
-  dpr: dpr,
+  dpr: normalized_dpr_input,
   enlargement: enlargement,
   guide: guide,
   min_width: min_width,
@@ -1361,7 +1393,7 @@ Operation.resize(mode, width, height,
 )
 ```
 
-Use `:allow` when `request.enlarge == true`; use `:deny` otherwise. Parser defaults that affect output must be explicit, including center guide and DPR `1.0`.
+Use `:allow` when `request.enlarge == true`; use `:deny` otherwise. Parser defaults that affect output must be explicit, including center guide and DPR `1.0`. Pass DPR as the raw parser value when available, preferably a decimal string; `Operation.resize/4` owns normalization to canonical ratio form.
 
 - [ ] **Step 4: Replace dimension, crop, guide, and canvas construction**
 
@@ -1387,6 +1419,8 @@ Guides should be simple values such as `:center`, `:top_left`, or `{:fp, ratio_x
 Canvas dimension helpers must reject zero dimensions or preserve current imgproxy validation behavior; they must not pass `{:px, 0}` into Plan constructors.
 
 Prefer exact decimal-string-to-rational conversion when the raw token is available. If the current parser has already converted scale input to float, use a named helper such as `decimal_ratio/1` that reduces to `{:ratio, numerator, denominator}` and documents the compatibility rounding policy.
+
+Apply the same exact-string-first policy to DPR. If DPR is already a float, normalize it through the same fixed precision helper used for other decimal compatibility inputs.
 
 - [ ] **Step 5: Replace canvas and orientation construction**
 
