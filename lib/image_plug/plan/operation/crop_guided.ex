@@ -3,16 +3,31 @@ defmodule ImagePlug.Plan.Operation.CropGuided do
   Semantic crop operation that crops to a size using a guide.
   """
 
-  alias ImagePlug.Plan.Geometry.Size
-  alias ImagePlug.Plan.Guide.Gravity
-
-  @enforce_keys [:size, :guide]
+  @enforce_keys [:width, :height, :guide]
   defstruct @enforce_keys ++ [x_offset: {:pixels, 0.0}, y_offset: {:pixels, 0.0}]
 
+  @type dimension :: :full_axis | {:px, pos_integer()} | {:ratio, pos_integer(), pos_integer()}
+  @type anchor ::
+          :center
+          | :top_left
+          | :top
+          | :top_right
+          | :left
+          | :right
+          | :bottom_left
+          | :bottom
+          | :bottom_right
+  @type guide ::
+          anchor()
+          | {:anchor, :left | :center | :right, :top | :center | :bottom}
+          | {:focal, {:ratio, non_neg_integer(), pos_integer()},
+             {:ratio, non_neg_integer(), pos_integer()}}
   @type offset :: number() | {:pixels, number()} | {:scale, number()}
+
   @type t :: %__MODULE__{
-          size: Size.t(),
-          guide: Gravity.t(),
+          width: dimension(),
+          height: dimension(),
+          guide: guide(),
           x_offset: offset(),
           y_offset: offset()
         }

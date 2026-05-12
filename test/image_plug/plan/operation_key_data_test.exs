@@ -89,4 +89,48 @@ defmodule ImagePlug.Plan.OperationKeyDataTest do
       end
     end
   end
+
+  describe "crop operation data" do
+    test "materializes guided crop semantic intent" do
+      assert {:ok, operation} =
+               Operation.crop_guided(
+                 {:px, 300},
+                 :full_axis,
+                 {:focal, {:ratio, 1, 3}, {:ratio, 2, 3}},
+                 x_offset: {:pixels, 4},
+                 y_offset: {:scale, 0.25}
+               )
+
+      assert KeyData.data(operation) == [
+               op: :crop_guided,
+               width: [unit: :logical_px, value: 300],
+               height: [unit: :full_axis],
+               guide: [
+                 type: :focal,
+                 x: [unit: :ratio, numerator: 1, denominator: 3],
+                 y: [unit: :ratio, numerator: 2, denominator: 3]
+               ],
+               x_offset: {:pixels, 4},
+               y_offset: {:scale, 0.25}
+             ]
+    end
+
+    test "materializes crop region without coordinate-space material" do
+      assert {:ok, operation} =
+               Operation.crop_region({:px, 0}, {:ratio, 0, 1}, {:ratio, 1, 2}, {:px, 100})
+
+      material = KeyData.data(operation)
+
+      assert material == [
+               op: :crop_region,
+               x: [unit: :logical_px, value: 0],
+               y: [unit: :ratio, numerator: 0, denominator: 1],
+               width: [unit: :ratio, numerator: 1, denominator: 2],
+               height: [unit: :logical_px, value: 100]
+             ]
+
+      refute Keyword.has_key?(material, :space)
+      refute Keyword.has_key?(material, :coordinate_space)
+    end
+  end
 end

@@ -2,7 +2,6 @@ defmodule ImagePlug.Transform.Resolver.Lowering do
   @moduledoc false
 
   alias ImagePlug.Plan.Geometry.Dimension
-  alias ImagePlug.Plan.Geometry.Region
   alias ImagePlug.Plan.Guide.Gravity
   alias ImagePlug.Plan.Operation
   alias ImagePlug.Plan.Operation.AutoOrient
@@ -88,18 +87,27 @@ defmodule ImagePlug.Transform.Resolver.Lowering do
   def lower(%CropGuided{} = operation, _context) do
     [
       %Crop{
-        width: crop_dimension(operation.size.width),
-        height: crop_dimension(operation.size.height),
+        width: crop_dimension(operation.width),
+        height: crop_dimension(operation.height),
         crop_from: :gravity,
-        gravity: executable_gravity(operation.guide),
+        gravity: tagged_executable_gravity(operation.guide),
         x_offset: operation.x_offset,
         y_offset: operation.y_offset
       }
     ]
   end
 
-  def lower(%CropRegion{} = operation, context) do
-    [crop_region(operation.region, context)]
+  def lower(%CropRegion{} = operation, _context) do
+    [
+      %Crop{
+        width: crop_dimension(operation.width),
+        height: crop_dimension(operation.height),
+        crop_from: %{
+          left: crop_coordinate(operation.x),
+          top: crop_coordinate(operation.y)
+        }
+      }
+    ]
   end
 
   def lower(%Canvas{} = operation, _context) do
@@ -211,54 +219,18 @@ defmodule ImagePlug.Transform.Resolver.Lowering do
   defp crop_dimension(%Dimension{unit: :ratio, numerator: numerator, denominator: denominator}),
     do: {:scale, numerator / denominator}
 
+  defp crop_dimension(:full_axis), do: :auto
+  defp crop_dimension({:px, value}), do: {:pixels, value}
+  defp crop_dimension({:ratio, numerator, denominator}), do: {:scale, numerator, denominator}
+
+  defp crop_coordinate({:px, value}), do: {:pixels, value}
+  defp crop_coordinate({:ratio, numerator, denominator}), do: {:scale, numerator, denominator}
+
   defp canvas_dimension(%Dimension{unit: :auto}), do: :auto
   defp canvas_dimension(%Dimension{unit: :logical_px, value: value}), do: {:pixels, value}
 
   defp canvas_dimension(%Dimension{unit: :ratio, numerator: numerator, denominator: denominator}),
     do: {:ratio, numerator / denominator}
-
-  defp crop_region(%Region{space: :source} = region, context) do
-    crop_region(region, context.source_width, context.source_height)
-  end
-
-  defp crop_region(%Region{space: :current} = region, context) do
-    crop_region(region, context.current_width, context.current_height)
-  end
-
-  defp crop_region(%Region{} = region, axis_width, axis_height) do
-    %Crop{
-      width: {:pixels, region_dimension(region.width, axis_width)},
-      height: {:pixels, region_dimension(region.height, axis_height)},
-      crop_from: %{
-        left: {:pixels, region_coordinate(region.x, axis_width)},
-        top: {:pixels, region_coordinate(region.y, axis_height)}
-      }
-    }
-  end
-
-  defp region_dimension(%Dimension{unit: :logical_px, value: value}, _axis)
-       when value > 0,
-       do: value
-
-  defp region_dimension(
-         %Dimension{unit: :ratio, numerator: numerator, denominator: denominator},
-         axis
-       )
-       when is_integer(axis) and axis > 0 and numerator > 0 do
-    round(axis * numerator / denominator)
-  end
-
-  defp region_coordinate(%Dimension{unit: :logical_px, value: value}, _axis)
-       when value >= 0,
-       do: value
-
-  defp region_coordinate(
-         %Dimension{unit: :ratio, numerator: numerator, denominator: denominator},
-         axis
-       )
-       when is_integer(axis) and axis > 0 do
-    round(axis * numerator / denominator)
-  end
 
   defp executable_gravity(%Gravity{type: :anchor, x: x, y: y, space: :current}),
     do: {:anchor, x, y}
@@ -268,6 +240,14 @@ defmodule ImagePlug.Transform.Resolver.Lowering do
   end
 
   defp tagged_executable_gravity(:center), do: {:anchor, :center, :center}
+  defp tagged_executable_gravity(:top_left), do: {:anchor, :left, :top}
+  defp tagged_executable_gravity(:top), do: {:anchor, :center, :top}
+  defp tagged_executable_gravity(:top_right), do: {:anchor, :right, :top}
+  defp tagged_executable_gravity(:left), do: {:anchor, :left, :center}
+  defp tagged_executable_gravity(:right), do: {:anchor, :right, :center}
+  defp tagged_executable_gravity(:bottom_left), do: {:anchor, :left, :bottom}
+  defp tagged_executable_gravity(:bottom), do: {:anchor, :center, :bottom}
+  defp tagged_executable_gravity(:bottom_right), do: {:anchor, :right, :bottom}
   defp tagged_executable_gravity({:anchor, x, y}), do: {:anchor, x, y}
 
   defp tagged_executable_gravity({:focal, x, y}),

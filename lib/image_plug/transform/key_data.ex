@@ -9,7 +9,21 @@ defmodule ImagePlug.Transform.KeyData do
 
   @dpr_float_decimal_places 7
 
+  alias ImagePlug.Plan.Operation.CropGuided
+  alias ImagePlug.Plan.Operation.CropRegion
   alias ImagePlug.Plan.Operation.Resize
+
+  @crop_anchor_guides [
+    :center,
+    :top_left,
+    :top,
+    :top_right,
+    :left,
+    :right,
+    :bottom_left,
+    :bottom,
+    :bottom_right
+  ]
 
   @type geometry_value ::
           :auto
@@ -23,7 +37,28 @@ defmodule ImagePlug.Transform.KeyData do
           | {:denominator, pos_integer()}
         ]
 
-  @spec data(geometry_value() | Resize.t()) :: keyword()
+  @spec data(geometry_value() | CropGuided.t() | CropRegion.t() | Resize.t()) :: keyword()
+  def data(%CropGuided{} = operation) do
+    [
+      op: :crop_guided,
+      width: data(operation.width),
+      height: data(operation.height),
+      guide: guide_data(operation.guide),
+      x_offset: operation.x_offset,
+      y_offset: operation.y_offset
+    ]
+  end
+
+  def data(%CropRegion{} = operation) do
+    [
+      op: :crop_region,
+      x: data(operation.x),
+      y: data(operation.y),
+      width: data(operation.width),
+      height: data(operation.height)
+    ]
+  end
+
   def data(%Resize{} = operation) do
     [
       op: :resize,
@@ -44,7 +79,7 @@ defmodule ImagePlug.Transform.KeyData do
   def data(:auto), do: [unit: :auto]
   def data(:full_axis), do: [unit: :full_axis]
 
-  def data({:px, value}) when is_integer(value) and value > 0,
+  def data({:px, value}) when is_integer(value) and value >= 0,
     do: [unit: :logical_px, value: value]
 
   def data({:ratio, numerator, denominator})
@@ -73,6 +108,8 @@ defmodule ImagePlug.Transform.KeyData do
   defp optional_data(value), do: data(value)
 
   defp guide_data(:center), do: :center
+
+  defp guide_data(guide) when guide in @crop_anchor_guides, do: guide
 
   defp guide_data({:anchor, x, y}), do: [type: :anchor, x: x, y: y]
 

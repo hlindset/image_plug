@@ -8,7 +8,6 @@ defmodule ImagePlug.Cache.KeyTest do
   alias ImagePlug.Plan
   alias ImagePlug.Plan.Geometry.Dimension
   alias ImagePlug.Plan.Geometry.Size
-  alias ImagePlug.Plan.Guide.Gravity
   alias ImagePlug.Plan.Operation
   alias ImagePlug.Plan.Output
   alias ImagePlug.Plan.Pipeline
@@ -62,11 +61,9 @@ defmodule ImagePlug.Cache.KeyTest do
   end
 
   defp crop_guided_operation(width, height) do
-    assert {:ok, width} = semantic_dimension(width)
-    assert {:ok, height} = semantic_dimension(height)
-    assert {:ok, size} = Size.new(width: width, height: height, dpr: 1.0)
-    assert {:ok, guide} = Gravity.anchor(:center, :center)
-    assert {:ok, operation} = Operation.crop_guided(size: size, guide: guide)
+    assert {:ok, operation} =
+             Operation.crop_guided(tagged_dimension(width), tagged_dimension(height), :center)
+
     operation
   end
 
@@ -80,6 +77,9 @@ defmodule ImagePlug.Cache.KeyTest do
 
   defp semantic_dimension(:auto), do: Dimension.auto()
   defp semantic_dimension(pixels), do: Dimension.pixels(pixels)
+
+  defp tagged_dimension(:auto), do: :full_axis
+  defp tagged_dimension(pixels), do: {:px, pixels}
 
   test "builds stable hash and material from canonical plan fields and origin identity" do
     conn = conn(:get, "/sig-one/w:100/plain/images/cat.jpg?ignored=true")
@@ -115,12 +115,9 @@ defmodule ImagePlug.Cache.KeyTest do
                [
                  [
                    op: :crop_guided,
-                   size: [
-                     width: [unit: :logical_px, value: 200],
-                     height: [unit: :logical_px, value: 100],
-                     dpr: 1.0
-                   ],
-                   guide: [type: :anchor, x: :center, y: :center, space: :current],
+                   width: [unit: :logical_px, value: 200],
+                   height: [unit: :logical_px, value: 100],
+                   guide: :center,
                    x_offset: {:pixels, 0.0},
                    y_offset: {:pixels, 0.0}
                  ]
@@ -179,12 +176,9 @@ defmodule ImagePlug.Cache.KeyTest do
              [
                [
                  op: :crop_guided,
-                 size: [
-                   width: [unit: :logical_px, value: 200],
-                   height: [unit: :logical_px, value: 100],
-                   dpr: 1.0
-                 ],
-                 guide: [type: :anchor, x: :center, y: :center, space: :current],
+                 width: [unit: :logical_px, value: 200],
+                 height: [unit: :logical_px, value: 100],
+                 guide: :center,
                  x_offset: {:pixels, 0.0},
                  y_offset: {:pixels, 0.0}
                ]
@@ -239,6 +233,41 @@ defmodule ImagePlug.Cache.KeyTest do
 
     refute inspect(key.material[:pipelines]) =~ "selected_branch"
     refute inspect(key.material[:pipelines]) =~ "resize_auto"
+  end
+
+  test "crop operations contribute prefetch-safe cache key data" do
+    assert {:ok, guided} =
+             Operation.crop_guided({:px, 120}, :full_axis, :bottom_right, x_offset: {:pixels, 3})
+
+    assert {:ok, region} =
+             Operation.crop_region({:px, 0}, {:ratio, 0, 1}, {:ratio, 1, 2}, {:px, 80})
+
+    key =
+      conn(:get, "/_/plain/images/cat.jpg")
+      |> build_key!(
+        plan(pipelines: [%Pipeline{operations: [guided, region]}]),
+        "https://origin.test/images/cat.jpg"
+      )
+
+    assert key.material[:pipelines] == [
+             [
+               [
+                 op: :crop_guided,
+                 width: [unit: :logical_px, value: 120],
+                 height: [unit: :full_axis],
+                 guide: :bottom_right,
+                 x_offset: {:pixels, 3},
+                 y_offset: {:pixels, 0.0}
+               ],
+               [
+                 op: :crop_region,
+                 x: [unit: :logical_px, value: 0],
+                 y: [unit: :ratio, numerator: 0, denominator: 1],
+                 width: [unit: :ratio, numerator: 1, denominator: 2],
+                 height: [unit: :logical_px, value: 80]
+               ]
+             ]
+           ]
   end
 
   test "resize material includes requested zoom and dpr rule inputs" do

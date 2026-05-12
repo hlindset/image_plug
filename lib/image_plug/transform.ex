@@ -39,7 +39,6 @@ defmodule ImagePlug.Transform do
   alias ImagePlug.Transform.State
   alias ImagePlug.Plan
   alias ImagePlug.Plan.Operation
-  alias ImagePlug.Plan.Operation.CropRegion
   alias ImagePlug.Plan.Pipeline
   alias ImagePlug.Transform.ResolvedPlan
   alias ImagePlug.Transform.SourceMetadata
@@ -130,10 +129,6 @@ defmodule ImagePlug.Transform do
       true -> Operation.validate_prefetch_safe(operation)
       false -> {:error, {:invalid_pipeline_operation, operation}}
     end
-  end
-
-  defp validate_prefetch_alignment(%CropRegion{region: %{space: :source}} = operation, :current) do
-    {:halt, {:error, {:invalid_pipeline_operation, operation}}}
   end
 
   defp validate_prefetch_alignment(_operation, _alignment), do: {:cont, :current}
