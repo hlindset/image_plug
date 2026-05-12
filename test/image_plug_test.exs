@@ -1570,7 +1570,7 @@ defmodule ImagePlug.ImagePlugTest do
     assert get_resp_header(conn, "vary") == ["Accept"]
   end
 
-  test "processes a imgproxy path URL with dimensions and explicit output format" do
+  test "processes an imgproxy path URL with dimensions and explicit output format" do
     conn = conn(:get, "/_/w:100/h:100/f:jpeg/plain/images/cat-300.jpg")
 
     conn =

@@ -117,7 +117,7 @@ The first `plain` segment terminates option parsing. Later path segments are tre
 
 Omitting an explicit output format enables automatic output selection. ImagePlug defaults automatic AVIF and WebP selection to enabled. `Accept` is used to detect optional modern format support; if no enabled modern format is detected, ImagePlug uses the source image format. Automatic output responses use `Vary: Accept`. Explicit `format`, `f`, `ext`, and plain-source `@extension` bypass `Accept` negotiation and do not set `Vary: Accept`.
 
-Imgproxy emits `Content-Disposition` for successful image responses. When `filename` is omitted, Imgproxy derives a filename stem from the source path before response sending appends the resolved output extension. `return_attachment:true` emits an attachment disposition, `return_attachment:false` emits inline, and omission uses the configured default disposition.
+ImagePlug emits `Content-Disposition` for successful image responses. When `filename` is omitted, the imgproxy-compatible parser derives a filename stem from the source path before response sending appends the resolved output extension. `return_attachment:true` emits an attachment disposition, `return_attachment:false` emits inline, and omission uses the configured default disposition.
 
 ## Usage example
 
