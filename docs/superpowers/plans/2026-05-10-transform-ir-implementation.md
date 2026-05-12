@@ -4,7 +4,7 @@
 
 **Goal:** Replace the current overloaded executable transform structs with a narrow semantic Plan IR for the current imgproxy-compatible behavior, while keeping final output cache lookup source-fetch-free.
 
-**Architecture:** Add canonical semantic operation structs under `ImagePlug.Plan.Operation.*`, keep parser quirks in the renamed `ImagePlug.Parser.Imgproxy`, and resolve semantic plans to executable transform work inside `ImagePlug.Transform`. Cache keys are built from prefetch-safe semantic material, source freshness identity, output/config material, and the cache key's transform material version; source-aware lowering choices stay internal to resolved executable work and never mutate final cache keys.
+**Architecture:** Add canonical semantic operation structs under `ImagePlug.Plan.Operation.*`, keep parser quirks in the renamed `ImagePlug.Parser.Imgproxy`, and resolve semantic plans to executable transform work inside `ImagePlug.Transform`. Cache keys are built from prefetch-safe semantic key data, source freshness identity, output/config key data, and the cache key's transform key data version; source-aware lowering choices stay internal to resolved executable work and never mutate final cache keys.
 
 **Tech Stack:** Elixir 1.17, ExUnit, StreamData, Boundary, Plug, Vix/Image, existing `ImagePlug.Transform` facade.
 
@@ -53,7 +53,7 @@ Modify these existing files:
 - `lib/image_plug/plan/pipeline.ex` - type operations as semantic Plan operations instead of executable transform chains.
 - `lib/image_plug/parser.ex` - export `Imgproxy`, not `Native`.
 - `lib/image_plug/parser/imgproxy/plan_builder.ex` - emit semantic Plan operations through constructors.
-- `lib/image_plug/cache/key.ex` - materialize semantic Plan operations and include output/config material plus the cache key's transform material version.
+- `lib/image_plug/cache/key.ex` - collect semantic Plan operation key data and include output/config key data plus the cache key's transform key data version.
 - `lib/image_plug/runtime/request_runner.ex` - build cache key before source fetch; resolve semantic plan only on cache miss or uncached execution.
 - `lib/image_plug/runtime/processor.ex` - accept resolved executable work from `ImagePlug.Transform.resolve/3`.
 - `lib/image_plug/transform.ex` - add semantic `resolve/3` and remove defensive operation duck-typing once semantic validation replaces it.
@@ -85,9 +85,9 @@ Do not introduce backend operation structs in this plan unless an executable ope
 - Runtime may call generic Plan/Transform validation and execution facades, but it must not pattern-match on concrete `ImagePlug.Plan.Operation.*` or `ImagePlug.Transform.Operation.*` modules.
 - Runtime may carry executable transform structs opaquely through `ImagePlug.Transform.Chain`, but must not branch on their concrete modules.
 - Semantic Plan constructor APIs must return `{:ok, value}` or `{:error, reason}`. Do not introduce public bang constructors for semantic Plan values or operations; local test helpers such as `build_key!/3` or `execute!/2` are fine when they wrap assertions.
-- Parser defaults that affect output, such as center gravity, DPR `1.0`, and enlargement policy, must be explicit in canonical Plan material.
+- Parser defaults that affect output, such as center gravity, DPR `1.0`, and enlargement policy, must be explicit in canonical Plan key data.
 - `ResizeAuto` and `ResizeCover` behavior must be verified against current parser/request-level behavior before lowering is finalized.
-- First-slice resolver output is expected to contain no selections. Add selections only if current imgproxy-compatible behavior proves a prefetch-safe output-affecting choice that is not already materialized elsewhere.
+- First-slice resolver output is expected to contain no selections. Add selections only if current imgproxy-compatible behavior proves a prefetch-safe output-affecting choice that is not already represented in key data elsewhere.
 - Parser output must eventually contain only canonical `ImagePlug.Plan.Operation.*` structs, never executable `ImagePlug.Transform.Operation.*` structs.
 - Commit steps are checkpoints when git identity is available. If commits are unavailable in the execution environment, leave changes staged or report the intended commit boundary.
 
@@ -480,7 +480,7 @@ defmodule ImagePlug.Plan.VendorMappingFixtureTest do
       input: "rt:auto/w:300/h:200",
       classification: :supported_now,
       semantic_shape: [:resize_auto],
-      notes: "branch is source-aware execution state, not cache key material"
+      notes: "branch is source-aware execution state, not cache key data"
     },
     %{
       vendor: :twicpics,
@@ -559,25 +559,25 @@ mise exec -- git commit -m "test: add transform IR vendor mapping fixtures"
 
 ---
 
-### Task 4: Add Semantic Operation Constructors And Prefetch-Safe Material
+### Task 4: Add Semantic Operation Constructors And Prefetch-Safe Key Data
 
 **Files:**
 - Create: Plan operation/value files listed in File Structure
 - Modify: `lib/image_plug/plan.ex`
 - Modify: `lib/image_plug/plan/pipeline.ex`
-- Modify: `lib/image_plug/transform/material.ex`
+- Rename/modify: `lib/image_plug/transform/material.ex` -> `lib/image_plug/transform/key_data.ex`
 - Create: `test/image_plug/plan/operation_test.exs`
-- Create: `test/image_plug/plan/operation_material_test.exs`
+- Create: `test/image_plug/plan/operation_key_data_test.exs`
 
 Execute this task as vertical subtasks, not one large commit:
 
-- 4A: `Dimension`, `Size`, `Region`, `Gravity`, and value material tests.
-- 4B: resize operation structs/constructors/material.
-- 4C: crop operation structs/constructors/material.
-- 4D: canvas operation struct/constructor/material.
-- 4E: orientation operation structs/constructors/material.
+- 4A: `Dimension`, `Size`, `Region`, `Gravity`, and value key data tests.
+- 4B: resize operation structs/constructors/key data.
+- 4C: crop operation structs/constructors/key data.
+- 4D: canvas operation struct/constructor/key data.
+- 4E: orientation operation structs/constructors/key data.
 
-Each subtask should add tagged-tuple constructors, validation, material, focused tests, `mise exec -- mix format`, `mise exec -- mix compile --warnings-as-errors`, and the relevant focused ExUnit file before moving on. Commit each subtask separately when git identity is available:
+Each subtask should add tagged-tuple constructors, validation, key data, focused tests, `mise exec -- mix format`, `mise exec -- mix compile --warnings-as-errors`, and the relevant focused ExUnit file before moving on. Commit each subtask separately when git identity is available:
 
 - `feat: add semantic geometry values`
 - `feat: add semantic resize operations`
@@ -646,12 +646,12 @@ defmodule ImagePlug.Plan.OperationTest do
 end
 ```
 
-- [ ] **Step 2: Write failing semantic material tests**
+- [ ] **Step 2: Write failing semantic key data tests**
 
-Create `test/image_plug/plan/operation_material_test.exs`:
+Create `test/image_plug/plan/operation_key_data_test.exs`:
 
 ```elixir
-defmodule ImagePlug.Plan.OperationMaterialTest do
+defmodule ImagePlug.Plan.OperationKeyDataTest do
   use ExUnit.Case, async: true
 
   alias ImagePlug.Plan.Geometry.Dimension
@@ -659,9 +659,9 @@ defmodule ImagePlug.Plan.OperationMaterialTest do
   alias ImagePlug.Plan.Geometry.Size
   alias ImagePlug.Plan.Guide.Gravity
   alias ImagePlug.Plan.Operation
-  alias ImagePlug.Transform.Material
+  alias ImagePlug.Transform.KeyData
 
-  test "resize auto material is unresolved semantic intent" do
+  test "resize auto key data is unresolved semantic intent" do
     operation =
       with {:ok, width} <- Dimension.pixels(300),
            {:ok, height} <- Dimension.pixels(200),
@@ -670,7 +670,7 @@ defmodule ImagePlug.Plan.OperationMaterialTest do
         operation
       end
 
-    assert Material.material(operation) == [
+    assert KeyData.data(operation) == [
              op: :resize_auto,
              size: [
                width: [unit: :logical_px, value: 300],
@@ -682,7 +682,7 @@ defmodule ImagePlug.Plan.OperationMaterialTest do
            ]
   end
 
-  test "source-space crop region material stays source-metadata-free" do
+  test "source-space crop region key data stays source-metadata-free" do
     operation =
       with {:ok, x} <- Dimension.ratio(1, 10),
            {:ok, y} <- Dimension.ratio(1, 10),
@@ -693,7 +693,7 @@ defmodule ImagePlug.Plan.OperationMaterialTest do
         operation
       end
 
-    assert Material.material(operation) == [
+    assert KeyData.data(operation) == [
              op: :crop_region,
              region: [
                space: :source,
@@ -705,14 +705,14 @@ defmodule ImagePlug.Plan.OperationMaterialTest do
            ]
   end
 
-  test "ratio material is canonicalized" do
+  test "ratio key data is canonicalized" do
     assert {:ok, ratio} = Dimension.ratio(2, 4)
 
-    assert Material.material(ratio) ==
+    assert KeyData.data(ratio) ==
              [unit: :ratio, numerator: 1, denominator: 2]
   end
 
-  test "guided crop material contains explicit guide and no parser syntax" do
+  test "guided crop key data contains explicit guide and no parser syntax" do
     operation =
       with {:ok, width} <- Dimension.pixels(50),
            {:ok, height} <- Dimension.pixels(50),
@@ -722,12 +722,12 @@ defmodule ImagePlug.Plan.OperationMaterialTest do
         operation
       end
 
-    material = Material.material(operation)
+    key_data = KeyData.data(operation)
 
-    assert material[:op] == :crop_guided
-    assert material[:guide] == [type: :anchor, x: :center, y: :center, space: :current]
-    refute inspect(material) =~ "imgproxy"
-    refute inspect(material) =~ "gravity:"
+    assert key_data[:op] == :crop_guided
+    assert key_data[:guide] == [type: :anchor, x: :center, y: :center, space: :current]
+    refute inspect(key_data) =~ "imgproxy"
+    refute inspect(key_data) =~ "gravity:"
   end
 end
 ```
@@ -749,22 +749,22 @@ Gravity.focal_point(x_numerator, x_denominator, y_numerator, y_denominator, spac
 
 Constructors return `{:ok, value}` or `{:error, reason}`. Do not make public bang constructors the primary Plan API: these constructors are used by parser/adapter translation, where malformed syntax is external input and should compose with `with`. `Dimension.pixels/1` must reject `0`; resize auto-axis and crop full-axis semantics must be represented explicitly by `Dimension.auto/0` and `Dimension.full_axis/0`.
 
-`Dimension.ratio/2` must reduce ratios with `Integer.gcd/2` so equivalent ratios materialize identically.
+`Dimension.ratio/2` must reduce ratios with `Integer.gcd/2` so equivalent ratios produce identical key data.
 
-Dimension material must be exact and source-fetch-free:
+Dimension key data must be exact and source-fetch-free:
 
 ```elixir
-Dimension.auto() -> {:ok, dimension}; material(dimension) -> [unit: :auto]
-Dimension.full_axis() -> {:ok, dimension}; material(dimension) -> [unit: :full_axis]
-Dimension.pixels(n) -> {:ok, dimension}; material(dimension) -> [unit: :logical_px, value: n]
-Dimension.ratio(a, b) -> {:ok, dimension}; material(dimension) -> [unit: :ratio, numerator: reduced_a, denominator: reduced_b]
+Dimension.auto() -> {:ok, dimension}; KeyData.data(dimension) -> [unit: :auto]
+Dimension.full_axis() -> {:ok, dimension}; KeyData.data(dimension) -> [unit: :full_axis]
+Dimension.pixels(n) -> {:ok, dimension}; KeyData.data(dimension) -> [unit: :logical_px, value: n]
+Dimension.ratio(a, b) -> {:ok, dimension}; KeyData.data(dimension) -> [unit: :ratio, numerator: reduced_a, denominator: reduced_b]
 ```
 
-`Dimension.pixels/1` represents logical pixels in canonical material. DPR conversion to physical integer pixels is owned by lowering.
+`Dimension.pixels/1` represents logical pixels in canonical key data. DPR conversion to physical integer pixels is owned by lowering.
 
 Operation constructors should accept the exact semantic value structs they require, such as `%Size{}` and `%Gravity{}`, plus primitive arguments. Do not accept arbitrary maps, keyword-shaped pseudo-values, existing executable transform structs, or broad coercions.
 
-`Gravity.anchor/2` should default to `space: :current`. If a future caller needs another space, add an explicit constructor or option and materialize that default.
+`Gravity.anchor/2` should default to `space: :current`. If a future caller needs another space, add an explicit constructor or option and include that default in key data.
 
 - [ ] **Step 4: Add semantic operation structs and constructors**
 
@@ -785,13 +785,15 @@ Operation.flip(:horizontal | :vertical | :both)
 
 Do not add `SetFocus`, `SetGravity`, `StrategyList`, `ResizeContain`, or backend operation structs.
 
-- [ ] **Step 5: Implement `ImagePlug.Transform.Material` for semantic operations**
+- [ ] **Step 5: Rename material terminology to key data and implement `ImagePlug.Transform.KeyData` for semantic operations**
 
-Implement material in one focused file first: `lib/image_plug/plan/operation/material.ex`. Split later only if the implementation becomes unwieldy.
+Rename the transform cache-key protocol/facade from `ImagePlug.Transform.Material` to `ImagePlug.Transform.KeyData`, with `KeyData.data/1` as the preferred API. Update existing call sites and tests in the same step so new code does not introduce more `material` terminology.
 
-Preserve the existing public API and dispatch style of `ImagePlug.Transform.Material`. If it is a protocol, add `defimpl`s for semantic operation/value structs rather than replacing protocol semantics. This is a first-slice compatibility bridge for cache material; semantic material must remain source-fetch-free and must not depend on resolver state.
+Implement key data in one focused file first, for example `lib/image_plug/plan/operation/key_data.ex`. Split later only if the implementation becomes unwieldy.
 
-Material must be keyword lists and source-fetch-free. `ResizeAuto` material must not contain selected fit/cover branch.
+Preserve the existing dispatch style while renaming it. If `ImagePlug.Transform.Material` is a protocol, rename the protocol to `ImagePlug.Transform.KeyData` and add `defimpl`s for semantic operation/value structs. If compatibility with already-written branch code is temporarily needed, keep a private or deprecated shim only inside this task and remove it before Task 10.
+
+Key data must be keyword lists and source-fetch-free. `ResizeAuto` key data must not contain the selected fit/cover branch.
 
 - [ ] **Step 6: Export Plan operation modules**
 
@@ -841,19 +843,19 @@ If this exact semantic-only type breaks compilation, docs, or specs before Task 
 Run:
 
 ```bash
-mise exec -- mix format lib/image_plug/plan.ex lib/image_plug/plan/pipeline.ex lib/image_plug/plan/operation.ex lib/image_plug/plan/operation/*.ex lib/image_plug/plan/geometry/*.ex lib/image_plug/plan/guide/*.ex test/image_plug/plan/operation_test.exs test/image_plug/plan/operation_material_test.exs
-mise exec -- mix test test/image_plug/plan/operation_test.exs test/image_plug/plan/operation_material_test.exs test/image_plug/transform/material_test.exs
+mise exec -- mix format lib/image_plug/plan.ex lib/image_plug/plan/pipeline.ex lib/image_plug/plan/operation.ex lib/image_plug/plan/operation/*.ex lib/image_plug/plan/geometry/*.ex lib/image_plug/plan/guide/*.ex lib/image_plug/transform/key_data.ex test/image_plug/plan/operation_test.exs test/image_plug/plan/operation_key_data_test.exs
+mise exec -- mix test test/image_plug/plan/operation_test.exs test/image_plug/plan/operation_key_data_test.exs test/image_plug/transform/key_data_test.exs
 ```
 
-Expected: new Plan operation tests pass, existing transform material tests still pass.
+Expected: new Plan operation tests pass, and transform key data tests cover the renamed protocol/facade.
 
-- [ ] **Step 8: Commit semantic operation material**
+- [ ] **Step 8: Commit semantic operation key data**
 
 If the 4A-4E subtasks were not already committed individually, run:
 
 ```bash
-mise exec -- git add lib/image_plug/plan lib/image_plug/transform/material.ex test/image_plug/plan
-mise exec -- git commit -m "feat: add semantic plan operations"
+mise exec -- git add lib/image_plug/plan lib/image_plug/transform/key_data.ex test/image_plug/plan test/image_plug/transform/key_data_test.exs
+mise exec -- git commit -m "feat: add semantic plan operation key data"
 ```
 
 ---
@@ -916,7 +918,7 @@ defmodule ImagePlug.Transform.ResolverTest do
             ]] = resolved.pipelines
 
     assert resolved.selections == []
-    assert resolved.resolver_material == []
+    assert resolved.resolver_key_data == []
   end
 
   test "resize auto derives fit for differing current and target orientation" do
@@ -971,7 +973,7 @@ Add:
   pipelines: [[ImagePlug.Transform.operation()]],
   diagnostics: [],
   selections: [],
-  resolver_material: []
+  resolver_key_data: []
 }
 ```
 
@@ -1037,7 +1039,7 @@ mise exec -- mix compile --warnings-as-errors
 mise exec -- mix test test/image_plug/transform/resolver_test.exs
 ```
 
-Expected: ResizeAuto lowers to the expected executable branch and `resolver_material` remains empty.
+Expected: ResizeAuto lowers to the expected executable branch and `resolver_key_data` remains empty.
 
 - [ ] **Step 8: Commit resolver foundation**
 
@@ -1170,11 +1172,11 @@ For each semantic operation, add one lowering function and run the focused test 
 When lowering resolves a source/current dependent value, reflect the result in
 the executable operations and focused resolver tests. Do not add first-class
 recorded lowering artifacts unless a current caller consumes them. First-slice
-resolved plans must keep `selections: []` and `resolver_material: []`.
+resolved plans must keep `selections: []` and `resolver_key_data: []`.
 
 Useful test labels for source-aware cases include `resize_auto_branch`,
 `dpr_applied`, `crop_region_resolved`, and `dimension_resolved`, but these are
-test names/diagnostic labels rather than cache material.
+test names/diagnostic labels rather than cache key data.
 
 - [ ] **Step 4: Run lowering and characterization tests**
 
@@ -1199,7 +1201,7 @@ mise exec -- git commit -m "feat: lower semantic operations to executable transf
 
 ---
 
-### Task 7: Make Cache Key Construction Use Semantic Material Before Source Fetch
+### Task 7: Make Cache Key Construction Use Semantic Key Data Before Source Fetch
 
 **Files:**
 - Modify: `lib/image_plug/cache/key.ex`
@@ -1209,12 +1211,12 @@ mise exec -- git commit -m "feat: lower semantic operations to executable transf
 - Test: `test/image_plug/runtime/request_runner_test.exs`
 - Test: `test/image_plug/response_cache_test.exs`
 
-- [ ] **Step 1: Add ResizeAuto cache tests**
+- [ ] **Step 1: Add ResizeAuto key data cache tests**
 
 Add to `test/image_plug/cache/key_test.exs`:
 
 ```elixir
-test "resize auto cache material stays unresolved and source-metadata-free" do
+test "resize auto key data stays unresolved and source-metadata-free" do
   assert {:ok, width} = ImagePlug.Plan.Geometry.Dimension.pixels(300)
   assert {:ok, height} = ImagePlug.Plan.Geometry.Dimension.pixels(200)
   assert {:ok, size} = ImagePlug.Plan.Geometry.Size.new(width: width, height: height, dpr: 1.0)
@@ -1226,10 +1228,10 @@ test "resize auto cache material stays unresolved and source-metadata-free" do
   key_a = build_key!(conn, plan, "origin-version-a")
   key_b = build_key!(conn, plan, "origin-version-b")
 
-  assert [[material]] = key_a.material[:pipelines]
-  assert material[:op] == :resize_auto
-  refute Keyword.has_key?(material, :selected_branch)
-  serialized = ImagePlug.Cache.Key.serialize_material(key_a.material)
+  assert [[operation_key_data]] = key_a.data[:pipelines]
+  assert operation_key_data[:op] == :resize_auto
+  refute Keyword.has_key?(operation_key_data, :selected_branch)
+  serialized = ImagePlug.Cache.Key.serialize_key_data(key_a.data)
   refute serialized =~ "source_width"
   refute serialized =~ "source_height"
   refute serialized =~ "selected_branch"
@@ -1237,13 +1239,13 @@ test "resize auto cache material stays unresolved and source-metadata-free" do
 end
 ```
 
-Add a cache test that asserts `Cache.Key` includes its transform material version directly, for example:
+Add a cache test that asserts `Cache.Key` includes its transform key data version directly, for example:
 
 ```elixir
-assert key.material[:transform] == [material_version: 1]
+assert key.data[:transform] == [key_data_version: 1]
 ```
 
-Do not add a configurable backend profile option in the first slice. If transform material semantics change later, bump the cache-owned transform material version.
+Do not add a configurable backend profile option in the first slice. If transform key data semantics change later, bump the cache-owned transform key data version.
 
 - [ ] **Step 2: Add cache-hit no-origin test for semantic ResizeAuto**
 
@@ -1272,17 +1274,17 @@ test "semantic resize auto cache hit does not fetch source or resolve operations
            )
 
   assert_received {:cache_lookup, key}
-  assert key.material[:origin_identity] == "origin-version-1"
-  refute ImagePlug.Cache.Key.serialize_material(key.material) =~ "selected_branch"
+  assert key.data[:origin_identity] == "origin-version-1"
+  refute ImagePlug.Cache.Key.serialize_key_data(key.data) =~ "selected_branch"
 end
 ```
 
-- [ ] **Step 3: Update `Cache.Key` material wording and transform material version**
+- [ ] **Step 3: Rename legacy cache material wording and add transform key data version**
 
-Keep `Cache.Key.build/4` source-fetch-free. Add the cache-owned transform material version directly to the key:
+Keep `Cache.Key.build/4` source-fetch-free. Rename cache-key internals from `material` to `data` where practical in this branch, including helper names such as `serialize_material/1` -> `serialize_key_data/1`. Add the cache-owned transform key data version directly to the key:
 
 ```elixir
-transform: [material_version: 1]
+transform: [key_data_version: 1]
 ```
 
 Do not call `Transform.resolve/3`, image metadata readers, or origin fetch modules from cache key code.
@@ -1307,7 +1309,7 @@ Add focused tests, preferably in `test/image_plug/transform/prefetch_validation_
 - parser-local command structs fail
 - validation does not call resolver, source metadata, origin fetch, or decode/open code
 
-- [ ] **Step 5: Ensure runtime does not second-lookup with derived material**
+- [ ] **Step 5: Ensure runtime does not second-lookup with derived key data**
 
 `RequestRunner.run/4` must:
 
@@ -1333,7 +1335,7 @@ mise exec -- mix compile --warnings-as-errors
 mise exec -- mix test test/image_plug/cache/key_test.exs test/image_plug/cache/key_property_test.exs test/image_plug/runtime/request_runner_test.exs test/image_plug/response_cache_test.exs
 ```
 
-Expected: semantic ResizeAuto stays unresolved in cache material, origin identity changes key, `Cache.Key` includes its transform material version, cache hits return before source work, and existing executable-operation cache tests continue to pass until parser output is switched in Task 9.
+Expected: semantic ResizeAuto stays unresolved in key data, origin identity changes key, `Cache.Key` includes its transform key data version, cache hits return before source work, and existing executable-operation cache tests continue to pass until parser output is switched in Task 9.
 
 - [ ] **Step 7: Commit metadata-free cache lookup**
 
@@ -1633,7 +1635,7 @@ Run:
 
 ```bash
 mise exec -- mix format lib/image_plug/transform.ex lib/image_plug/transform/operation/*.ex test/image_plug/architecture_boundary_test.exs
-mise exec -- mix test test/image_plug/architecture_boundary_test.exs test/image_plug/transform/material_test.exs test/transform_chain_test.exs
+mise exec -- mix test test/image_plug/architecture_boundary_test.exs test/image_plug/transform/key_data_test.exs test/transform_chain_test.exs
 ```
 
 Expected: boundary tests enforce the new runtime shape; transform chain tests still pass.
@@ -1678,20 +1680,20 @@ test "post-fetch resize auto branch is not accepted as final output cache key in
       "origin-version-1"
     )
 
-  serialized = ImagePlug.Cache.Key.serialize_material(key_before.material)
+  serialized = ImagePlug.Cache.Key.serialize_key_data(key_before.data)
 
   assert key_before == key_after_resolve
-  assert [[material]] = key_before.material[:pipelines]
-  assert material[:op] == :resize_auto
-  refute Keyword.has_key?(material, :selected_branch)
-  refute Keyword.has_key?(material, :branch)
+  assert [[operation_key_data]] = key_before.data[:pipelines]
+  assert operation_key_data[:op] == :resize_auto
+  refute Keyword.has_key?(operation_key_data, :selected_branch)
+  refute Keyword.has_key?(operation_key_data, :branch)
   refute serialized =~ "resize_auto_branch"
   refute serialized =~ "selected_branch"
-  assert key_before.material[:resolver_material] in [nil, []]
+  assert key_before.data[:resolver_key_data] in [nil, []]
 end
 ```
 
-Use a private `plan_with_resize_auto/0` helper in that test file. The assertion proves the cache key material does not include derived branch labels. Prefer structural material assertions over broad substring checks; use serialization only as a fallback for absence checks when material shape is opaque. If `Cache.Key` has a public builder, also add a negative test that it accepts a semantic `Plan` and does not accept `ResolvedPlan`.
+Use a private `plan_with_resize_auto/0` helper in that test file. The assertion proves the cache key data does not include derived branch labels. Prefer structural key data assertions over broad substring checks; use serialization only as a fallback for absence checks when key data shape is opaque. If `Cache.Key` has a public builder, also add a negative test that it accepts a semantic `Plan` and does not accept `ResolvedPlan`.
 
 - [ ] **Step 2: Add ResizeAuto determinism examples**
 
@@ -1716,12 +1718,12 @@ Generate source metadata and semantic operation per case. Assert the lowered res
 
 Add tests that show:
 
-- same semantic material + same source freshness identity -> same key
-- same semantic material + changed source freshness identity -> different key
-- changed cachebuster -> different key without changing pipeline material
-- changed transform semantics -> bump `Cache.Key` transform material version
+- same semantic key data + same source freshness identity -> same key
+- same semantic key data + changed source freshness identity -> different key
+- changed cachebuster -> different key without changing pipeline key data
+- changed transform semantics -> bump `Cache.Key` transform key data version
 
-Use `origin_identity` strings such as `"asset:cat:v1"` and `"asset:cat:v2"` to model strong freshness material without origin fetch.
+Use `origin_identity` strings such as `"asset:cat:v1"` and `"asset:cat:v2"` to model strong source freshness data without origin fetch.
 
 - [ ] **Step 4: Add old-vs-new executable equivalence tests**
 
@@ -1760,7 +1762,7 @@ mise exec -- mix compile --warnings-as-errors
 mise exec -- mix test test/image_plug/cache/key_test.exs test/image_plug/cache/key_property_test.exs test/image_plug/transform/resolver_test.exs test/image_plug/transform_ir_characterization_test.exs
 ```
 
-Expected: cache material remains semantic and source-fetch-free; semantic resolution preserves current executable results for the first-slice examples.
+Expected: cache key data remains semantic and source-fetch-free; semantic resolution preserves current executable results for the first-slice examples.
 
 - [ ] **Step 7: Commit regression tests**
 
@@ -1787,7 +1789,7 @@ Update docs to reflect:
 - `ImagePlug.Parser.Imgproxy` is the compatibility parser.
 - The native ImagePlug model is `ImagePlug.Plan`, not a URL syntax.
 - Parser syntax maps into `ImagePlug.Plan.Operation.*`.
-- Final cache lookup is source-fetch-free and uses semantic material.
+- Final cache lookup is source-fetch-free and uses semantic key data.
 - `ResizeAuto` is cache-keyed as semantic intent; selected fit/cover branch is source-aware execution state.
 
 - [ ] **Step 2: Search for stale Native parser references**
@@ -1845,7 +1847,7 @@ Spec coverage:
 - Runtime generic boundary: Tasks 8 and 10.
 - No first-slice capability framework or strategy execution: File Structure, Task 3, Task 5, and Task 10 explicitly avoid them.
 - Vendor fixtures before IR expansion: Task 3.
-- Vertical operation slices: Tasks 4, 5, 6, 9, and 11 require constructor/material/lowering/cache tests.
+- Vertical operation slices: Tasks 4, 5, 6, 9, and 11 require constructor/key-data/lowering/cache tests.
 
 Placeholder scan:
 
@@ -1858,4 +1860,4 @@ Type consistency:
 - Semantic operations live under `ImagePlug.Plan.Operation.*`.
 - Source metadata and resolved plans live under `ImagePlug.Transform.*`.
 - Parser namespace is consistently `ImagePlug.Parser.Imgproxy` after Task 2.
-- First-slice resolver output uses empty selections/resolver material.
+- First-slice resolver output uses empty selections/resolver key data.
