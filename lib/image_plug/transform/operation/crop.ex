@@ -296,12 +296,12 @@ defmodule ImagePlug.Transform.Operation.Crop do
         Validation.non_negative_position("crop", :crop_from_top, top)
       end
     else
-      {:error, ArgumentError.exception("invalid crop_from: #{inspect(crop_from)}")}
+      {:error, {:invalid_crop_from, crop_from}}
     end
   end
 
   defp validate_crop_from(crop_from),
-    do: {:error, ArgumentError.exception("invalid crop_from: #{inspect(crop_from)}")}
+    do: {:error, {:invalid_crop_from, crop_from}}
 
   defp validate_target_rule(nil), do: :ok
 

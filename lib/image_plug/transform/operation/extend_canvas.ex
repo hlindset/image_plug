@@ -208,6 +208,6 @@ defmodule ImagePlug.Transform.Operation.ExtendCanvas do
        do: :ok
 
   defp validate_rule(rule) do
-    {:error, ArgumentError.exception("invalid extend canvas rule: #{inspect(rule)}")}
+    {:error, {:invalid_extend_canvas_rule, rule}}
   end
 end

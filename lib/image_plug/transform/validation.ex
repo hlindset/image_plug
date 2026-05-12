@@ -31,10 +31,7 @@ defmodule ImagePlug.Transform.Validation do
     with :ok <- positive_dimension_or_auto(label, :width, width),
          :ok <- positive_dimension_or_auto(label, :height, height) do
       if width == :auto and height == :auto do
-        {:error,
-         ArgumentError.exception(
-           "invalid #{label} dimensions: width and height cannot both be :auto"
-         )}
+        {:error, {:invalid_dimensions, label, :both_auto}}
       else
         :ok
       end
@@ -118,14 +115,13 @@ defmodule ImagePlug.Transform.Validation do
         :ok
 
       {:error, {invalid_field, value}} ->
-        {:error,
-         ArgumentError.exception("invalid #{label} #{field} #{invalid_field}: #{inspect(value)}")}
+        {:error, {:invalid_parameter, label, field, invalid_field, value}}
     end
   end
 
   def dimension_rule(label, field, value, _modes), do: invalid(label, field, value)
 
   def invalid(label, field, value) do
-    {:error, ArgumentError.exception("invalid #{label} #{field}: #{inspect(value)}")}
+    {:error, {:invalid_parameter, label, field, value}}
   end
 end

@@ -28,13 +28,13 @@ defmodule ImagePlug.Transform.ChainTest do
   end
 
   test "transform validation rejects malformed operation structs" do
-    assert {:error, %ArgumentError{}} =
+    assert {:error, {:invalid_parameter, "crop", :width, nil}} =
              Transform.validate(%Crop{width: nil, height: {:pixels, 100}, crop_from: :gravity})
 
-    assert {:error, %ArgumentError{}} =
+    assert {:error, {:invalid_parameter, "resize", :rule, :mode, :auto}} =
              Transform.validate(%Resize{rule: %DimensionRule{mode: :auto}})
 
-    assert {:error, %ArgumentError{}} =
+    assert {:error, {:invalid_extend_canvas_rule, :oops}} =
              Transform.validate(%ExtendCanvas{rule: :oops})
   end
 
