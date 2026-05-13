@@ -82,17 +82,19 @@ Responsibilities:
 - Verify a request signature against normalized config.
 - Return tagged parser errors for malformed or invalid signatures.
 
-Core request option validation should call a narrow parser hook when available:
+Core request option validation should call an explicit parser behaviour
+callback:
 
 ```elixir
-@optional_callbacks validate_options!: 1
+@callback validate_options!(keyword()) :: keyword()
 ```
 
-`ImagePlug.Request.Options.validate!/1` can fetch the selected parser and call
-`validate_options!/1` if the parser exports it. The imgproxy parser owns the
-NimbleOptions schema for `:imgproxy` and returns the same top-level options
-with normalized parser config, such as decoded key/salt pairs. Core should not
-know the shape of imgproxy signing options.
+`ImagePlug.Request.Options.validate!/1` should fetch the selected parser and
+call `validate_options!/1` after core option validation. Parsers that do not
+need parser-specific options can return the options unchanged. The imgproxy
+parser owns the NimbleOptions schema for `:imgproxy` and returns the same
+top-level options with normalized parser config, such as decoded key/salt
+pairs. Core should not know the shape of imgproxy signing options.
 
 This keeps dependencies aligned:
 
@@ -185,10 +187,13 @@ Add request safety tests:
   origin fetch.
 - Trusted signature and equivalent HMAC-signed request share cache identity.
 
-### Upstream Compatibility Vectors
+### Upstream Primitive Compatibility Vectors
 
-Copy these upstream imgproxy vectors into ImagePlug tests so the implementation
-is pinned to imgproxy-compatible signing behavior.
+Copy these upstream imgproxy vectors into low-level signature module tests so
+the implementation is pinned to imgproxy-compatible signing behavior. These are
+direct `VerifySignature/2` vectors over exact signed bytes. The upstream
+primitive vector signs `"asd"` without a leading slash; parser and request tests
+must use signed paths that begin with `/`.
 
 From `local/imgproxy-master/security/signature_test.go`:
 
@@ -217,8 +222,8 @@ The same upstream test also covers key rotation:
 }
 ```
 
-Trusted-signature compatibility should preserve imgproxy's exact fixture,
-including the upstream spelling:
+Trusted-signature compatibility should preserve imgproxy's exact primitive
+fixture, including the upstream spelling:
 
 ```elixir
 %{
@@ -229,9 +234,25 @@ including the upstream spelling:
 }
 ```
 
-From `local/imgproxy-master/processing_handler_test.go`, use a request-level
-fixture proving `unsafe` fails when signing is enabled and the signed path
-succeeds:
+Add an ImagePlug-specific trusted-signature vector with a malformed Base64URL
+signature to prove trusted signatures are accepted by exact match before Base64
+decoding:
+
+```elixir
+%{
+  trusted_signatures: ["local-dev!"],
+  accepted_signature: "local-dev!",
+  signed_path: "/w:300/plain/images/cat.jpg"
+}
+```
+
+### Upstream Request-Handler Fixture
+
+From `local/imgproxy-master/processing_handler_test.go`, keep this fixture as
+upstream request-handler evidence that `unsafe` fails when signing is enabled
+and the signed path succeeds. Do not use it as an ImagePlug parser contract:
+`local:///test1.png` is imgproxy source syntax, while this ImagePlug slice
+continues to model plain sources as paths resolved against `root_url`.
 
 ```elixir
 %{
@@ -243,8 +264,12 @@ succeeds:
 }
 ```
 
+### Public Documentation Vector
+
 From `local/imgproxy-docs-master/.../usage/signing_url.mdx`, include the public
-documentation vector as an algorithm drift check:
+documentation vector as an algorithm drift check. This vector also uses
+upstream-supported syntax that ImagePlug does not fully support in this slice,
+so it belongs in signature-module tests, not parser tests.
 
 ```elixir
 %{
@@ -256,10 +281,22 @@ documentation vector as an algorithm drift check:
 }
 ```
 
-For ImagePlug parser tests, prefer paths that ImagePlug already supports. Use
-the upstream `Signature` unit vectors directly against the parser-owned
-signature module, then add one parser-level signed URL generated from an
-ImagePlug-supported path such as `/w:300/plain/images/cat.jpg`.
+### ImagePlug Parser Vector
+
+Parser tests should use paths that ImagePlug already supports. Use this fixed
+ImagePlug-supported parser URL vector rather than generating the expected
+signature inside the test:
+
+```elixir
+%{
+  keys: ["746573742d6b6579"],
+  salts: ["746573742d73616c74"],
+  signed_path: "/w:300/plain/images/cat.jpg",
+  signature: "NSbxuO5fQqTgDkui_3o6ho1UCFFcmzsugB2Uksho49o",
+  signed_request_path:
+    "/NSbxuO5fQqTgDkui_3o6ho1UCFFcmzsugB2Uksho49o/w:300/plain/images/cat.jpg"
+}
+```
 
 ## Documentation
 
