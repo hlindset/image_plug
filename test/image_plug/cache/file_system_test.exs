@@ -95,7 +95,7 @@ defmodule ImagePlug.Cache.FileSystemTest do
     assert FileSystem.validate_options(root: root, path_prefx: "processed") ==
              {:error, {:unknown_options, [:path_prefx]}}
 
-    assert FileSystem.validate_options(root: root, fail_on_cache_error: true) == :ok
+    assert FileSystem.validate_options(root: root, fail_on_cache_error: true) == {:ok, root: root}
   end
 
   test "accepts filesystem root as cache root" do

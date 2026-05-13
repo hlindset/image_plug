@@ -69,28 +69,27 @@ defmodule ImagePlug.Plan do
   def validated_pipelines(%__MODULE__{pipelines: []}), do: {:error, :empty_pipeline_plan}
 
   def validated_pipelines(%__MODULE__{pipelines: pipelines}) when is_list(pipelines) do
-    if Enum.all?(pipelines, &valid_pipeline_shape?/1) do
-      validate_pipeline_operations(pipelines)
-    else
-      {:error, {:invalid_pipeline_plan, pipelines}}
+    case do_validate_pipelines(pipelines) do
+      {:ok, valid_pipelines} -> {:ok, Enum.reverse(valid_pipelines)}
+      {:error, _reason} = error -> error
     end
   end
 
   def validated_pipelines(%__MODULE__{pipelines: pipelines}),
     do: {:error, {:invalid_pipeline_plan, pipelines}}
 
-  defp valid_pipeline_shape?(%Pipeline{operations: operations}) when is_list(operations), do: true
-  defp valid_pipeline_shape?(_pipeline), do: false
+  defp do_validate_pipelines(pipelines) do
+    Enum.reduce_while(pipelines, {:ok, []}, fn
+      %Pipeline{operations: operations} = pipeline, {:ok, valid_pipelines}
+      when is_list(operations) ->
+        case Enum.find(operations, &invalid_operation?/1) do
+          nil -> {:cont, {:ok, [pipeline | valid_pipelines]}}
+          operation -> {:halt, {:error, {:invalid_pipeline_operation, operation}}}
+        end
 
-  defp validate_pipeline_operations(pipelines) do
-    case Enum.find_value(pipelines, &invalid_operation/1) do
-      nil -> {:ok, pipelines}
-      operation -> {:error, {:invalid_pipeline_operation, operation}}
-    end
-  end
-
-  defp invalid_operation(%Pipeline{operations: operations}) do
-    Enum.find(operations, &invalid_operation?/1)
+      _pipeline, _acc ->
+        {:halt, {:error, {:invalid_pipeline_plan, pipelines}}}
+    end)
   end
 
   defp invalid_operation?(%_{} = operation), do: not Operation.semantic?(operation)

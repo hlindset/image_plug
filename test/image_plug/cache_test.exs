@@ -131,6 +131,20 @@ defmodule ImagePlug.CacheTest do
     end
   end
 
+  test "ImagePlug init preserves normalized filesystem cache options" do
+    root = Path.join(System.tmp_dir!(), "image_plug_cache_init")
+
+    opts =
+      ImagePlug.init(
+        parser: ImagePlug.Parser.Imgproxy,
+        root_url: "https://origin.test",
+        cache: {ImagePlug.Cache.FileSystem, root: root <> "/../image_plug_cache_init"}
+      )
+
+    assert Keyword.fetch!(opts, :cache) ==
+             {ImagePlug.Cache.FileSystem, root: Path.expand(root)}
+  end
+
   test "returns hits with the generated key" do
     configured_entry = entry()
 

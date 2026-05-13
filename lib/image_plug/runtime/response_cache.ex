@@ -34,17 +34,6 @@ defmodule ImagePlug.Runtime.ResponseCache do
     end
   end
 
-  @spec fail_on_cache_error?(keyword()) :: boolean()
-  def fail_on_cache_error?(opts) when is_list(opts) do
-    case Keyword.get(opts, :cache) do
-      {_adapter, cache_opts} when is_list(cache_opts) ->
-        Keyword.get(cache_opts, :fail_on_cache_error, false)
-
-      _other ->
-        false
-    end
-  end
-
   @spec store(Key.t(), State.t(), Resolved.t(), keyword()) ::
           {:ok, Entry.t()} | :skipped | {:error, term()}
   def store(%Key{} = key, %State{} = state, %Resolved{} = resolved_output, opts) do

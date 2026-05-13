@@ -56,7 +56,9 @@ defmodule ImagePlug.Cache.FileSystem do
       dir = Path.join([root, path_prefix, first_partition, second_partition])
       meta_path = Path.join(dir, String.duplicate("0", 64) <> ".meta")
 
-      validate_cache_paths(root, dir, meta_path)
+      with :ok <- validate_cache_paths(root, dir, meta_path) do
+        {:ok, validated_opts}
+      end
     end
   end
 

@@ -41,8 +41,14 @@ defmodule ImagePlug.Runtime.RequestRunner do
 
   defp validate_cache_config(opts) do
     case Keyword.get(opts, :cache) do
-      nil -> :ok
-      _cache -> Cache.validate_config(opts)
+      nil ->
+        :ok
+
+      _cache ->
+        case Cache.validate_config(opts) do
+          {:ok, _opts} -> :ok
+          {:error, _reason} = error -> error
+        end
     end
   end
 
@@ -80,7 +86,7 @@ defmodule ImagePlug.Runtime.RequestRunner do
   end
 
   defp handle_cache_delivery_error(conn, plan, origin_identity, key, opts, error) do
-    if ResponseCache.fail_on_cache_error?(opts) do
+    if Cache.fail_on_cache_error?(opts) do
       {:error, {:cache, error}}
     else
       process_cache_miss(conn, plan, origin_identity, key, opts)
