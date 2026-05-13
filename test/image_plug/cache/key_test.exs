@@ -599,4 +599,65 @@ defmodule ImagePlug.Cache.KeyTest do
     refute inspect(key.data) =~ "x-ignored"
     refute inspect(key.data) =~ "ignored_cookie"
   end
+
+  test "cache key excludes imgproxy signature authorization proof" do
+    signed_opts =
+      ImagePlug.init(
+        parser: ImagePlug.Parser.Imgproxy,
+        root_url: "http://origin.test",
+        imgproxy: [
+          signature: [
+            keys: ["746573742d6b6579"],
+            salts: ["746573742d73616c74"]
+          ]
+        ]
+      )
+
+    trusted_opts =
+      ImagePlug.init(
+        parser: ImagePlug.Parser.Imgproxy,
+        root_url: "http://origin.test",
+        imgproxy: [
+          signature: [
+            keys: ["746573742d6b6579"],
+            salts: ["746573742d73616c74"],
+            trusted_signatures: ["local-dev!"]
+          ]
+        ]
+      )
+
+    assert {:ok, signed_plan} =
+             ImagePlug.Parser.Imgproxy.parse(
+               conn(
+                 :get,
+                 "/NSbxuO5fQqTgDkui_3o6ho1UCFFcmzsugB2Uksho49o/w:300/plain/images/cat.jpg"
+               ),
+               signed_opts
+             )
+
+    assert {:ok, trusted_plan} =
+             ImagePlug.Parser.Imgproxy.parse(
+               conn(:get, "/local-dev!/w:300/plain/images/cat.jpg"),
+               trusted_opts
+             )
+
+    signed_key =
+      build_key!(
+        conn(:get, "/NSbxuO5fQqTgDkui_3o6ho1UCFFcmzsugB2Uksho49o/w:300/plain/images/cat.jpg"),
+        signed_plan,
+        "https://origin.test/images/cat.jpg"
+      )
+
+    trusted_key =
+      build_key!(
+        conn(:get, "/local-dev!/w:300/plain/images/cat.jpg"),
+        trusted_plan,
+        "https://origin.test/images/cat.jpg"
+      )
+
+    assert signed_plan == trusted_plan
+    assert signed_key.hash == trusted_key.hash
+    refute inspect(signed_key.data) =~ "NSbxuO5fQqTgDkui"
+    refute inspect(trusted_key.data) =~ "local-dev"
+  end
 end
