@@ -57,10 +57,13 @@ Add imgproxy-specific parser configuration under the existing Plug options:
 ]
 ```
 
-`keys` and `salts` are hex-encoded binaries. Their list lengths must match.
+`keys` and `salts` are hex-encoded non-empty strings. Their list lengths must
+match when either list is present.
 `signature_size` is the number of digest bytes used before Base64 encoding and
 must be in `1..32`; it defaults to `32`. `trusted_signatures` defaults to `[]`
-and must be a list of non-empty binaries.
+and must be a list of non-empty strings. At least one authorization method is
+required when `imgproxy[:signature]` is present: either one or more key/salt
+pairs, one or more trusted signatures, or both.
 
 If `imgproxy[:signature]` is absent, signature checking is disabled and the
 current `_` and `unsafe` placeholders remain the only valid signature segments.
@@ -82,23 +85,20 @@ Responsibilities:
 - Verify a request signature against normalized config.
 - Return tagged parser errors for malformed or invalid signatures.
 
-Core request option validation should call an explicit parser behaviour
-callback:
+`ImagePlug.init/1` should validate core/cache options first, then dispatch
+parser-owned option validation from the top-level `ImagePlug` module, where the
+parser boundary is already an allowed dependency. `ImagePlug.Request.Options`
+must remain parser-free. In this slice, use a narrow explicit clause for
+`ImagePlug.Parser.Imgproxy` instead of adding a broad parser behaviour callback.
 
-```elixir
-@callback validate_options!(keyword()) :: keyword()
-```
-
-`ImagePlug.Request.Options.validate!/1` should fetch the selected parser and
-call `validate_options!/1` after core option validation. Parsers that do not
-need parser-specific options can return the options unchanged. The imgproxy
-parser owns the NimbleOptions schema for `:imgproxy` and returns the same
-top-level options with normalized parser config, such as decoded key/salt
-pairs. Core should not know the shape of imgproxy signing options.
+The imgproxy parser owns the NimbleOptions schema for `:imgproxy` and returns a
+normalized parser config, including decoded key/salt pairs. Core should not know
+the shape of imgproxy signing options.
 
 This keeps dependencies aligned:
 
-- `ImagePlug.Request` depends on the parser behaviour only.
+- `ImagePlug` coordinates selected-parser option validation.
+- `ImagePlug.Request` remains independent of parser modules.
 - `ImagePlug.Parser.Imgproxy` owns imgproxy option validation.
 - `ImagePlug.Plan`, `ImagePlug.Cache`, request execution, origin fetching,
   response sending, output, and transform code do not depend on signature
@@ -109,7 +109,8 @@ This keeps dependencies aligned:
 `ImagePlug.Parser.Imgproxy.parse_request/2` should extract:
 
 - `signature`: the first `path_info` segment.
-- `signed_path`: `"/" <> Enum.join(path_info_after_signature, "/")`.
+- `signed_path`: the raw request path after the signature segment, including
+  its leading slash and preserving empty path segments and trailing slashes.
 
 The parser verifies `signature` against `signed_path` before splitting the
 source marker or parsing options.
@@ -130,9 +131,12 @@ Verification behavior:
 6. Use constant-time comparison for equal-length binaries.
 7. Accept when any configured pair matches, otherwise reject.
 
-Use the raw `path_info` segments for `signed_path`. Do not use decoded source
-segments or canonicalized plan data. This matches the parser-visible URL path
-and avoids making signatures depend on later imgproxy planning behavior.
+Use the parser-visible raw request path for `signed_path`, not decoded source
+segments, canonicalized plan data, or normalized `conn.path_info`. When
+ImagePlug is mounted under a Plug `script_name`, strip only the mounted prefix
+before removing the first signature segment. This preserves imgproxy's
+slash-sensitive signing semantics while keeping signatures scoped to the path
+seen by this parser.
 
 ## Errors
 
@@ -180,11 +184,17 @@ Add initialization tests:
 - Key/salt count mismatch raises.
 - `signature_size` outside `1..32` raises.
 - `trusted_signatures` rejects non-lists and empty/non-binary values.
+- Empty decoded key/salt values raise.
+- Trusted-only configuration is valid and accepts exact trusted signatures.
 
 Add request safety tests:
 
 - Invalid signature returns before source identity resolution, cache lookup, and
   origin fetch.
+- Positive raw-path parser vectors prove signatures are computed over duplicate
+  slash and trailing slash paths without normalization.
+- Mounted `script_name` requests strip only the mounted prefix before signature
+  verification.
 - Trusted signature and equivalent HMAC-signed request share cache identity.
 
 ### Upstream Primitive Compatibility Vectors

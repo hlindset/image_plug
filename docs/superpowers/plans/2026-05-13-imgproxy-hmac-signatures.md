@@ -4,7 +4,7 @@
 
 **Goal:** Add imgproxy-compatible HMAC URL signature verification, including trusted signatures, as an imgproxy parser-only feature.
 
-**Architecture:** Signature configuration and verification live under `ImagePlug.Parser.Imgproxy.*`. Core request option validation calls an explicit parser behaviour callback, but core does not know the shape of imgproxy signing config. Verified signatures authorize parsing only; signature strings never enter `ImagePlug.Plan`, cache keys, output, runtime, origin, response, or transform boundaries.
+**Architecture:** Signature configuration and verification live under `ImagePlug.Parser.Imgproxy.*`. `ImagePlug.init/1` keeps core/cache option validation in `ImagePlug.Request.Options`, then dispatches imgproxy-owned option validation from the top-level `ImagePlug` module where parser dependencies are already allowed. Verified signatures authorize parsing only; signature strings never enter `ImagePlug.Plan`, cache keys, request execution, origin, response, output, or transform boundaries.
 
 **Tech Stack:** Elixir, Plug, ExUnit, NimbleOptions, `:crypto.mac/4`, URL-safe Base64, `Plug.Crypto.secure_compare/2`, Boundary.
 
@@ -12,182 +12,24 @@
 
 ## File Structure
 
-- Modify `lib/image_plug/parser.ex`: add the explicit parser option validation callback.
-- Modify `lib/image_plug/request/options.ex`: call the parser callback after core/cache option validation.
-- Modify `lib/image_plug/parser/imgproxy.ex`: implement `validate_options!/1`, alias signature support, build raw signed paths, and verify before option/source parsing.
+- Modify `lib/image_plug.ex`: dispatch imgproxy option validation during Plug initialization.
+- Modify `lib/image_plug/parser/imgproxy.ex`: expose imgproxy option validation, build slash-preserving raw signed paths, and verify signatures before option/source parsing.
 - Create `lib/image_plug/parser/imgproxy/signature.ex`: own imgproxy signature config normalization and request-time verification.
-- Modify `test/support/image_plug/request_safety_test/invalid_plan_parser.ex`: implement the new parser callback.
-- Modify `test/support/image_plug/request_safety_test/invalid_pipeline_plan_parser.ex`: implement the new parser callback.
-- Create `test/support/image_plug/request_options_test/parser_with_options.ex`: prove core dispatches parser-specific option validation explicitly.
-- Modify `test/image_plug/request_options_test.exs`: cover parser callback dispatch and parser config errors.
-- Create `test/parser/imgproxy/signature_test.exs`: cover config normalization and upstream compatibility vectors.
-- Modify `test/parser/imgproxy_test.exs`: cover signed parser URLs, disabled-signing compatibility, and trusted-signature parser behavior.
+- Create `test/parser/imgproxy/signature_test.exs`: cover config validation and upstream compatibility vectors.
+- Modify `test/parser/imgproxy_test.exs`: cover signed parser URLs, disabled-signing compatibility, raw slash sensitivity, and trusted-signature parser behavior.
+- Modify `test/image_plug_test.exs`: cover `ImagePlug.init/1` parser option validation and ensure non-imgproxy test parsers remain unaffected.
 - Modify `test/image_plug/request_safety_test.exs`: prove invalid signatures return before origin identity, cache lookup, and origin fetch.
 - Modify `test/image_plug/cache/key_test.exs`: prove HMAC and trusted signatures for the same canonical request share cache identity.
 - Modify `README.md`: document signing configuration and disabled-signing behavior.
 - Modify `docs/imgproxy_path_api.md`: document signature verification semantics.
-- Modify `docs/imgproxy_support_matrix.md`: change HMAC URL signatures from `Missing` to `Supported`.
+- Modify `docs/imgproxy_support_matrix.md`: update required signature and HMAC signature rows.
 
-## Task 1: Add Explicit Parser Option Validation Contract
-
-**Files:**
-- Modify: `lib/image_plug/parser.ex`
-- Modify: `lib/image_plug/request/options.ex`
-- Modify: `test/support/image_plug/request_safety_test/invalid_plan_parser.ex`
-- Modify: `test/support/image_plug/request_safety_test/invalid_pipeline_plan_parser.ex`
-- Create: `test/support/image_plug/request_options_test/parser_with_options.ex`
-- Modify: `test/image_plug/request_options_test.exs`
-
-- [ ] **Step 1: Add failing tests for parser option validation dispatch**
-
-Append these tests to `test/image_plug/request_options_test.exs`:
-
-```elixir
-test "validate! delegates parser-owned options to the selected parser" do
-  opts =
-    Options.validate!(
-      Keyword.put(@base_opts, :parser, ImagePlug.RequestOptionsTest.ParserWithOptions)
-      |> Keyword.put(:parser_option, "accepted")
-    )
-
-  assert opts[:parser_validated?] == true
-  assert opts[:parser_option] == "accepted"
-end
-
-test "validate! surfaces parser-owned option validation errors as invalid ImagePlug options" do
-  assert_raise ArgumentError,
-               ~r/invalid ImagePlug options: invalid parser options/,
-               fn ->
-                 Options.validate!(
-                   Keyword.put(@base_opts, :parser, ImagePlug.RequestOptionsTest.ParserWithOptions)
-                   |> Keyword.put(:parser_option, "rejected")
-                 )
-               end
-end
-```
-
-Create `test/support/image_plug/request_options_test/parser_with_options.ex`:
-
-```elixir
-defmodule ImagePlug.RequestOptionsTest.ParserWithOptions do
-  @behaviour ImagePlug.Parser
-
-  @impl ImagePlug.Parser
-  def validate_options!(opts) do
-    case Keyword.fetch(opts, :parser_option) do
-      {:ok, "accepted"} ->
-        Keyword.put(opts, :parser_validated?, true)
-
-      {:ok, "rejected"} ->
-        raise ArgumentError, "invalid parser options: parser_option must be accepted"
-
-      :error ->
-        opts
-    end
-  end
-
-  @impl ImagePlug.Parser
-  def parse(_conn, _opts), do: {:error, :unused}
-
-  @impl ImagePlug.Parser
-  def handle_error(conn, {:error, _reason}), do: conn
-end
-```
-
-- [ ] **Step 2: Run test to verify it fails**
-
-Run:
-
-```bash
-mise exec -- mix test test/image_plug/request_options_test.exs
-```
-
-Expected: compile failure because `ImagePlug.Parser` has no `validate_options!/1` callback or assertion failure because `parser_validated?` is missing.
-
-- [ ] **Step 3: Add parser callback to `ImagePlug.Parser`**
-
-In `lib/image_plug/parser.ex`, insert this callback before `parse/2`:
-
-```elixir
-@doc """
-Validate and normalize parser-owned options during Plug initialization.
-"""
-@callback validate_options!(keyword()) :: keyword()
-```
-
-- [ ] **Step 4: Dispatch parser option validation in `ImagePlug.Request.Options`**
-
-Change `validate!/1` in `lib/image_plug/request/options.ex` to:
-
-```elixir
-def validate!(opts) do
-  opts
-  |> Cache.validate_config!()
-  |> validate_known_opts!()
-  |> validate_parser_opts!()
-end
-```
-
-Add this private function below `validate_known_opts!/1`:
-
-```elixir
-defp validate_parser_opts!(opts) do
-  parser = Keyword.fetch!(opts, :parser)
-
-  try do
-    parser.validate_options!(opts)
-  rescue
-    error in ArgumentError ->
-      raise ArgumentError, "invalid ImagePlug options: #{Exception.message(error)}"
-  end
-end
-```
-
-- [ ] **Step 5: Implement pass-through callbacks for existing parser modules**
-
-Add to `lib/image_plug/parser/imgproxy.ex` after `def parse(%Plug.Conn{} = conn)`:
-
-```elixir
-@impl ImagePlug.Parser
-def validate_options!(opts), do: opts
-```
-
-Add this callback implementation to both request safety support parsers:
-
-```elixir
-@impl ImagePlug.Parser
-def validate_options!(opts), do: opts
-```
-
-The files are:
-
-- `test/support/image_plug/request_safety_test/invalid_plan_parser.ex`
-- `test/support/image_plug/request_safety_test/invalid_pipeline_plan_parser.ex`
-
-- [ ] **Step 6: Run focused tests**
-
-Run:
-
-```bash
-mise exec -- mix test test/image_plug/request_options_test.exs test/image_plug/request_safety_test.exs
-```
-
-Expected: all tests pass.
-
-- [ ] **Step 7: Commit Task 1**
-
-```bash
-mise exec -- git add lib/image_plug/parser.ex lib/image_plug/request/options.ex lib/image_plug/parser/imgproxy.ex test/support/image_plug/request_safety_test/invalid_plan_parser.ex test/support/image_plug/request_safety_test/invalid_pipeline_plan_parser.ex test/support/image_plug/request_options_test/parser_with_options.ex test/image_plug/request_options_test.exs
-mise exec -- git commit -m "Add parser option validation callback"
-```
-
-## Task 2: Add Imgproxy Signature Config Normalization
+## Task 1: Add Imgproxy Signature Config Normalization
 
 **Files:**
 - Create: `lib/image_plug/parser/imgproxy/signature.ex`
 - Modify: `lib/image_plug/parser/imgproxy.ex`
 - Create: `test/parser/imgproxy/signature_test.exs`
-- Modify: `test/image_plug/request_options_test.exs`
 
 - [ ] **Step 1: Write failing config tests**
 
@@ -199,66 +41,103 @@ defmodule ImagePlug.Parser.Imgproxy.SignatureTest do
 
   alias ImagePlug.Parser.Imgproxy.Signature
 
-  describe "from_options/1" do
+  describe "validate_options!/1" do
     test "returns disabled config when imgproxy signature config is absent" do
-      assert %Signature{mode: :disabled, key_salt_pairs: [], signature_size: 32} =
-               Signature.from_options([])
+      assert [signature: %Signature{mode: :disabled, key_salt_pairs: [], signature_size: 32}] =
+               Signature.validate_options!([])
     end
 
     test "normalizes hex key and salt pairs" do
-      opts = [
-        imgproxy: [
-          signature: [
-            keys: ["746573742d6b6579"],
-            salts: ["746573742d73616c74"],
-            signature_size: 8,
-            trusted_signatures: ["local-dev!"]
-          ]
-        ]
-      ]
+      assert [
+               signature: %Signature{
+                 mode: :enabled,
+                 key_salt_pairs: [{"test-key", "test-salt"}],
+                 signature_size: 8,
+                 trusted_signatures: trusted_signatures
+               }
+             ] =
+               Signature.validate_options!(
+                 signature: [
+                   keys: ["746573742d6b6579"],
+                   salts: ["746573742d73616c74"],
+                   signature_size: 8,
+                   trusted_signatures: ["local-dev!"]
+                 ]
+               )
 
-      assert %Signature{
-               mode: :enabled,
-               key_salt_pairs: [{"test-key", "test-salt"}],
-               signature_size: 8,
-               trusted_signatures: trusted_signatures
-             } = Signature.from_options(opts)
+      assert MapSet.equal?(trusted_signatures, MapSet.new(["local-dev!"]))
+    end
+
+    test "rejects unknown signature options" do
+      assert_raise ArgumentError, ~r/unknown options.*:trusted_signature/, fn ->
+        Signature.validate_options!(
+          signature: [
+            keys: ["74657374"],
+            salts: ["73616c74"],
+            trusted_signature: ["typo"]
+          ]
+        )
+      end
+    end
+
+    test "rejects empty signing config" do
+      assert_raise ArgumentError, ~r/at least one key\/salt pair or trusted signature is required/, fn ->
+        Signature.validate_options!(signature: [keys: [], salts: []])
+      end
+    end
+
+    test "supports trusted-only signing config" do
+      assert [
+               signature: %Signature{
+                 mode: :enabled,
+                 key_salt_pairs: [],
+                 trusted_signatures: trusted_signatures
+               }
+             ] = Signature.validate_options!(signature: [trusted_signatures: ["local-dev!"]])
 
       assert MapSet.equal?(trusted_signatures, MapSet.new(["local-dev!"]))
     end
 
     test "rejects mismatched key and salt counts" do
-      opts = [imgproxy: [signature: [keys: ["74657374"], salts: []]]]
-
       assert_raise ArgumentError, ~r/keys and salts must have the same length/, fn ->
-        Signature.validate_options!(opts)
+        Signature.validate_options!(signature: [keys: ["74657374"], salts: []])
       end
     end
 
     test "rejects malformed hex key and salt values" do
       for config <- [
             [keys: ["not-hex"], salts: ["74657374"]],
-            [keys: ["74657374"], salts: ["not-hex"]]
+            [keys: ["74657374"], salts: ["not-hex"]],
+            [keys: [""], salts: ["74657374"]],
+            [keys: ["74657374"], salts: [""]]
           ] do
-        assert_raise ArgumentError, ~r/invalid imgproxy signature config/, fn ->
-          Signature.validate_options!(imgproxy: [signature: config])
+        assert_raise ArgumentError, ~r/keys and salts must be non-empty hex-encoded strings/, fn ->
+          Signature.validate_options!(signature: config)
         end
       end
     end
 
     test "rejects signature sizes outside 1..32" do
-      for signature_size <- [0, 33, "8"] do
+      for signature_size <- [0, 33] do
         assert_raise ArgumentError, ~r/signature_size must be an integer from 1 to 32/, fn ->
           Signature.validate_options!(
-            imgproxy: [
-              signature: [
-                keys: ["74657374"],
-                salts: ["73616c74"],
-                signature_size: signature_size
-              ]
+            signature: [
+              keys: ["74657374"],
+              salts: ["73616c74"],
+              signature_size: signature_size
             ]
           )
         end
+      end
+
+      assert_raise ArgumentError, ~r/invalid value for :signature_size option/, fn ->
+        Signature.validate_options!(
+          signature: [
+            keys: ["74657374"],
+            salts: ["73616c74"],
+            signature_size: "8"
+          ]
+        )
       end
     end
 
@@ -266,12 +145,10 @@ defmodule ImagePlug.Parser.Imgproxy.SignatureTest do
       for trusted_signatures <- ["local-dev", [""], [:not_binary]] do
         assert_raise ArgumentError, ~r/trusted_signatures must be a list of non-empty strings/, fn ->
           Signature.validate_options!(
-            imgproxy: [
-              signature: [
-                keys: ["74657374"],
-                salts: ["73616c74"],
-                trusted_signatures: trusted_signatures
-              ]
+            signature: [
+              keys: ["74657374"],
+              salts: ["73616c74"],
+              trusted_signatures: trusted_signatures
             ]
           )
         end
@@ -281,47 +158,33 @@ defmodule ImagePlug.Parser.Imgproxy.SignatureTest do
 end
 ```
 
-Append this test to `test/image_plug/request_options_test.exs`:
-
-```elixir
-test "validate! normalizes imgproxy signature options through the imgproxy parser" do
-  opts =
-    Options.validate!(
-      Keyword.put(@base_opts, :imgproxy,
-        signature: [
-          keys: ["746573742d6b6579"],
-          salts: ["746573742d73616c74"],
-          signature_size: 8,
-          trusted_signatures: ["local-dev!"]
-        ]
-      )
-    )
-
-  assert %ImagePlug.Parser.Imgproxy.Signature{
-           mode: :enabled,
-           key_salt_pairs: [{"test-key", "test-salt"}],
-           signature_size: 8
-         } = get_in(opts, [:imgproxy, :signature])
-end
-```
-
-- [ ] **Step 2: Run tests to verify they fail**
+- [ ] **Step 2: Run test to verify it fails**
 
 Run:
 
 ```bash
-mise exec -- mix test test/parser/imgproxy/signature_test.exs test/image_plug/request_options_test.exs
+mise exec -- mix test test/parser/imgproxy/signature_test.exs
 ```
 
 Expected: compile failure because `ImagePlug.Parser.Imgproxy.Signature` does not exist.
 
-- [ ] **Step 3: Implement signature config module**
+- [ ] **Step 3: Implement signature config module with NimbleOptions**
 
 Create `lib/image_plug/parser/imgproxy/signature.ex`:
 
 ```elixir
 defmodule ImagePlug.Parser.Imgproxy.Signature do
   @moduledoc false
+
+  @signature_schema NimbleOptions.new!(
+                      keys: [type: {:list, :string}, default: []],
+                      salts: [type: {:list, :string}, default: []],
+                      signature_size: [type: :integer, default: 32],
+                      trusted_signatures: [
+                        type: {:custom, __MODULE__, :validate_trusted_signatures, []},
+                        default: []
+                      ]
+                    )
 
   @enforce_keys [:mode, :key_salt_pairs, :signature_size, :trusted_signatures]
   defstruct @enforce_keys
@@ -333,27 +196,8 @@ defmodule ImagePlug.Parser.Imgproxy.Signature do
           trusted_signatures: MapSet.t(String.t())
         }
 
-  @spec validate_options!(keyword()) :: keyword()
-  def validate_options!(opts) do
-    signature = from_options(opts)
-
-    imgproxy =
-      opts
-      |> Keyword.get(:imgproxy, [])
-      |> Keyword.put(:signature, signature)
-
-    Keyword.put(opts, :imgproxy, imgproxy)
-  end
-
-  @spec from_options(keyword()) :: t()
-  def from_options(opts) do
-    opts
-    |> Keyword.get(:imgproxy, [])
-    |> Keyword.get(:signature)
-    |> normalize_config()
-  end
-
-  defp normalize_config(nil) do
+  @spec disabled() :: t()
+  def disabled do
     %__MODULE__{
       mode: :disabled,
       key_salt_pairs: [],
@@ -362,99 +206,107 @@ defmodule ImagePlug.Parser.Imgproxy.Signature do
     }
   end
 
-  defp normalize_config(%__MODULE__{} = signature), do: signature
+  @spec validate_options!(keyword()) :: keyword()
+  def validate_options!(imgproxy_opts) when is_list(imgproxy_opts) do
+    signature =
+      imgproxy_opts
+      |> Keyword.get(:signature)
+      |> normalize_signature!()
 
-  defp normalize_config(config) when is_list(config) do
-    keys = Keyword.get(config, :keys, [])
-    salts = Keyword.get(config, :salts, [])
-    signature_size = Keyword.get(config, :signature_size, 32)
-    trusted_signatures = Keyword.get(config, :trusted_signatures, [])
-
-    with {:ok, key_salt_pairs} <- key_salt_pairs(keys, salts),
-         {:ok, signature_size} <- signature_size(signature_size),
-         {:ok, trusted_signatures} <- trusted_signatures(trusted_signatures) do
-      %__MODULE__{
-        mode: :enabled,
-        key_salt_pairs: key_salt_pairs,
-        signature_size: signature_size,
-        trusted_signatures: trusted_signatures
-      }
-    else
-      {:error, reason} -> raise ArgumentError, "invalid imgproxy signature config: #{reason}"
-    end
+    Keyword.put(imgproxy_opts, :signature, signature)
   end
 
-  defp normalize_config(_config),
-    do: raise(ArgumentError, "invalid imgproxy signature config: signature must be a keyword list")
+  def validate_options!(_imgproxy_opts),
+    do: raise(ArgumentError, "invalid imgproxy options: expected a keyword list")
 
-  defp key_salt_pairs(keys, salts) when is_list(keys) and is_list(salts) do
-    case length(keys) == length(salts) do
-      true -> decode_key_salt_pairs(keys, salts)
-      false -> {:error, "keys and salts must have the same length"}
-    end
-  end
-
-  defp key_salt_pairs(_keys, _salts), do: {:error, "keys and salts must be lists"}
-
-  defp decode_key_salt_pairs([], []), do: {:ok, []}
-
-  defp decode_key_salt_pairs(keys, salts) do
-    result =
-      keys
-      |> Enum.zip(salts)
-      |> Enum.reduce_while({:ok, []}, fn {key, salt}, {:ok, pairs} ->
-        with {:ok, key} <- decode_hex(key),
-             {:ok, salt} <- decode_hex(salt) do
-          {:cont, {:ok, [{key, salt} | pairs]}}
-        else
-          {:error, reason} -> {:halt, {:error, reason}}
-        end
-      end)
-
-    case result do
-      {:ok, pairs} -> {:ok, Enum.reverse(pairs)}
-      {:error, reason} -> {:error, reason}
-    end
-  end
-
-  defp decode_hex(value) when is_binary(value) do
-    case Base.decode16(value, case: :mixed) do
-      {:ok, decoded} -> {:ok, decoded}
-      :error -> {:error, "keys and salts must be hex-encoded strings"}
-    end
-  end
-
-  defp decode_hex(_value), do: {:error, "keys and salts must be hex-encoded strings"}
-
-  defp signature_size(value) when is_integer(value) and value in 1..32, do: {:ok, value}
-  defp signature_size(_value), do: {:error, "signature_size must be an integer from 1 to 32"}
-
-  defp trusted_signatures(values) when is_list(values) do
+  @doc false
+  def validate_trusted_signatures(values) when is_list(values) do
     if Enum.all?(values, &(is_binary(&1) and &1 != "")) do
-      {:ok, MapSet.new(values)}
+      {:ok, values}
     else
       {:error, "trusted_signatures must be a list of non-empty strings"}
     end
   end
 
-  defp trusted_signatures(_values),
+  def validate_trusted_signatures(_values),
     do: {:error, "trusted_signatures must be a list of non-empty strings"}
+
+  defp normalize_signature!(nil), do: disabled()
+
+  defp normalize_signature!(config) when is_list(config) do
+    with {:ok, validated} <- NimbleOptions.validate(config, @signature_schema),
+         {:ok, signature_size} <- validate_signature_size(validated[:signature_size]),
+         {:ok, pairs} <-
+           key_salt_pairs(validated[:keys], validated[:salts], validated[:trusted_signatures]) do
+      %__MODULE__{
+        mode: :enabled,
+        key_salt_pairs: pairs,
+        signature_size: signature_size,
+        trusted_signatures: MapSet.new(validated[:trusted_signatures])
+      }
+    else
+      {:error, %NimbleOptions.ValidationError{} = error} ->
+        raise ArgumentError, "invalid imgproxy signature config: #{Exception.message(error)}"
+
+      {:error, reason} ->
+        raise ArgumentError, "invalid imgproxy signature config: #{reason}"
+    end
+  end
+
+  defp normalize_signature!(_config),
+    do: raise(ArgumentError, "invalid imgproxy signature config: signature must be a keyword list")
+
+  defp validate_signature_size(value) when value in 1..32, do: {:ok, value}
+  defp validate_signature_size(_value), do: {:error, "signature_size must be an integer from 1 to 32"}
+
+  defp key_salt_pairs(keys, salts, _trusted_signatures) when length(keys) != length(salts),
+    do: {:error, "keys and salts must have the same length"}
+
+  defp key_salt_pairs([], [], []),
+    do: {:error, "at least one key/salt pair or trusted signature is required"}
+
+  defp key_salt_pairs([], [], _trusted_signatures), do: {:ok, []}
+
+  defp key_salt_pairs(keys, salts, _trusted_signatures) do
+    keys
+    |> Enum.zip(salts)
+    |> Enum.reduce_while({:ok, []}, fn {key, salt}, {:ok, pairs} ->
+      with {:ok, key} <- decode_hex(key),
+           {:ok, salt} <- decode_hex(salt) do
+        {:cont, {:ok, [{key, salt} | pairs]}}
+      else
+        {:error, reason} -> {:halt, {:error, reason}}
+      end
+    end)
+    |> case do
+      {:ok, pairs} -> {:ok, Enum.reverse(pairs)}
+      {:error, reason} -> {:error, reason}
+    end
+  end
+
+  defp decode_hex(value) do
+    case Base.decode16(value, case: :mixed) do
+      {:ok, ""} -> {:error, "keys and salts must be non-empty hex-encoded strings"}
+      {:ok, decoded} -> {:ok, decoded}
+      :error -> {:error, "keys and salts must be non-empty hex-encoded strings"}
+    end
+  end
 end
 ```
 
-- [ ] **Step 4: Wire imgproxy parser option validation**
+- [ ] **Step 4: Expose imgproxy option validation**
 
-Replace the temporary `validate_options!/1` in `lib/image_plug/parser/imgproxy.ex` with:
+In `lib/image_plug/parser/imgproxy.ex`, add the alias:
 
 ```elixir
 alias ImagePlug.Parser.Imgproxy.Signature
 ```
 
-and:
+Add this public function after `def parse(%Plug.Conn{} = conn), do: parse(conn, [])`:
 
 ```elixir
-@impl ImagePlug.Parser
-def validate_options!(opts), do: Signature.validate_options!(opts)
+@doc false
+def validate_options!(imgproxy_opts), do: Signature.validate_options!(imgproxy_opts)
 ```
 
 - [ ] **Step 5: Run focused tests**
@@ -462,16 +314,126 @@ def validate_options!(opts), do: Signature.validate_options!(opts)
 Run:
 
 ```bash
-mise exec -- mix test test/parser/imgproxy/signature_test.exs test/image_plug/request_options_test.exs
+mise exec -- mix test test/parser/imgproxy/signature_test.exs --warnings-as-errors
 ```
 
 Expected: all tests pass.
 
-- [ ] **Step 6: Commit Task 2**
+- [ ] **Step 6: Commit Task 1**
 
 ```bash
-mise exec -- git add lib/image_plug/parser/imgproxy/signature.ex lib/image_plug/parser/imgproxy.ex test/parser/imgproxy/signature_test.exs test/image_plug/request_options_test.exs
+mise exec -- git add lib/image_plug/parser/imgproxy/signature.ex lib/image_plug/parser/imgproxy.ex test/parser/imgproxy/signature_test.exs
 mise exec -- git commit -m "Add imgproxy signature configuration"
+```
+
+## Task 2: Validate Imgproxy Options From ImagePlug Init
+
+**Files:**
+- Modify: `lib/image_plug.ex`
+- Modify: `test/image_plug_test.exs`
+
+- [ ] **Step 1: Add failing init tests**
+
+Add these tests to `test/image_plug_test.exs` near existing init option tests:
+
+```elixir
+test "init normalizes imgproxy signature options through the imgproxy parser" do
+  opts =
+    ImagePlug.init(
+      parser: ImagePlug.Parser.Imgproxy,
+      root_url: "http://origin.test",
+      imgproxy: [
+        signature: [
+          keys: ["746573742d6b6579"],
+          salts: ["746573742d73616c74"],
+          signature_size: 8,
+          trusted_signatures: ["local-dev!"]
+        ]
+      ]
+    )
+
+  assert %ImagePlug.Parser.Imgproxy.Signature{
+           mode: :enabled,
+           key_salt_pairs: [{"test-key", "test-salt"}],
+           signature_size: 8
+         } = get_in(opts, [:imgproxy, :signature])
+end
+
+test "init rejects malformed imgproxy signature options before requests" do
+  assert_raise ArgumentError,
+               ~r/invalid imgproxy signature config/,
+               fn ->
+                 ImagePlug.init(
+                   parser: ImagePlug.Parser.Imgproxy,
+                   root_url: "http://origin.test",
+                   imgproxy: [
+                     signature: [
+                       keys: ["not-hex"],
+                       salts: ["74657374"]
+                     ]
+                   ]
+                 )
+               end
+end
+```
+
+- [ ] **Step 2: Run test to verify it fails**
+
+Run:
+
+```bash
+mise exec -- mix test test/image_plug_test.exs --warnings-as-errors
+```
+
+Expected: assertion failure because `ImagePlug.init/1` still returns raw `:imgproxy` options.
+
+- [ ] **Step 3: Dispatch imgproxy validation from `ImagePlug.init/1`**
+
+Change `init/1` in `lib/image_plug.ex` to:
+
+```elixir
+@impl Plug
+def init(opts) do
+  opts
+  |> Options.validate!()
+  |> validate_parser_options!()
+end
+```
+
+Add this private function near the other private helpers:
+
+```elixir
+defp validate_parser_options!(opts) do
+  case Keyword.fetch!(opts, :parser) do
+    ImagePlug.Parser.Imgproxy ->
+      imgproxy_opts =
+        opts
+        |> Keyword.get(:imgproxy, [])
+        |> ImagePlug.Parser.Imgproxy.validate_options!()
+
+      Keyword.put(opts, :imgproxy, imgproxy_opts)
+
+    _parser ->
+      opts
+  end
+end
+```
+
+- [ ] **Step 4: Run focused init tests**
+
+Run:
+
+```bash
+mise exec -- mix test test/image_plug_test.exs --warnings-as-errors
+```
+
+Expected: all tests pass. The inline test parsers in `test/image_plug_test.exs` do not need new callbacks because parser option validation is an explicit `ImagePlug.Parser.Imgproxy` clause, not a required behaviour callback.
+
+- [ ] **Step 5: Commit Task 2**
+
+```bash
+mise exec -- git add lib/image_plug.ex test/image_plug_test.exs
+mise exec -- git commit -m "Validate imgproxy options during init"
 ```
 
 ## Task 3: Verify HMAC and Trusted Signatures
@@ -487,7 +449,7 @@ Append to `test/parser/imgproxy/signature_test.exs`:
 ```elixir
 describe "verify/3" do
   test "accepts disabled-signing placeholders when signing is disabled" do
-    config = Signature.from_options([])
+    config = Signature.disabled()
 
     assert :ok = Signature.verify("_", "/plain/images/cat.jpg", config)
     assert :ok = Signature.verify("unsafe", "/plain/images/cat.jpg", config)
@@ -496,24 +458,20 @@ describe "verify/3" do
   end
 
   test "matches upstream full and truncated primitive HMAC vectors" do
-    full =
-      Signature.from_options(
-        imgproxy: [
-          signature: [
-            keys: ["746573742d6b6579"],
-            salts: ["746573742d73616c74"]
-          ]
+    [signature: full] =
+      Signature.validate_options!(
+        signature: [
+          keys: ["746573742d6b6579"],
+          salts: ["746573742d73616c74"]
         ]
       )
 
-    truncated =
-      Signature.from_options(
-        imgproxy: [
-          signature: [
-            keys: ["746573742d6b6579"],
-            salts: ["746573742d73616c74"],
-            signature_size: 8
-          ]
+    [signature: truncated] =
+      Signature.validate_options!(
+        signature: [
+          keys: ["746573742d6b6579"],
+          salts: ["746573742d73616c74"],
+          signature_size: 8
         ]
       )
 
@@ -523,13 +481,11 @@ describe "verify/3" do
   end
 
   test "matches upstream key rotation vectors" do
-    config =
-      Signature.from_options(
-        imgproxy: [
-          signature: [
-            keys: ["746573742d6b6579", "746573742d6b657932"],
-            salts: ["746573742d73616c74", "746573742d73616c7432"]
-          ]
+    [signature: config] =
+      Signature.validate_options!(
+        signature: [
+          keys: ["746573742d6b6579", "746573742d6b657932"],
+          salts: ["746573742d73616c74", "746573742d73616c7432"]
         ]
       )
 
@@ -538,14 +494,10 @@ describe "verify/3" do
   end
 
   test "accepts exact trusted signatures before Base64 decoding" do
-    config =
-      Signature.from_options(
-        imgproxy: [
-          signature: [
-            keys: ["746573742d6b6579"],
-            salts: ["746573742d73616c74"],
-            trusted_signatures: ["truested", "local-dev!"]
-          ]
+    [signature: config] =
+      Signature.validate_options!(
+        signature: [
+          trusted_signatures: ["truested", "local-dev!"]
         ]
       )
 
@@ -555,13 +507,11 @@ describe "verify/3" do
   end
 
   test "matches public docs signing vector" do
-    config =
-      Signature.from_options(
-        imgproxy: [
-          signature: [
-            keys: ["736563726574"],
-            salts: ["68656c6c6f"]
-          ]
+    [signature: config] =
+      Signature.validate_options!(
+        signature: [
+          keys: ["736563726574"],
+          salts: ["68656c6c6f"]
         ]
       )
 
@@ -577,13 +527,11 @@ describe "verify/3" do
   end
 
   test "rejects malformed Base64 and wrong signatures" do
-    config =
-      Signature.from_options(
-        imgproxy: [
-          signature: [
-            keys: ["746573742d6b6579"],
-            salts: ["746573742d73616c74"]
-          ]
+    [signature: config] =
+      Signature.validate_options!(
+        signature: [
+          keys: ["746573742d6b6579"],
+          salts: ["746573742d73616c74"]
         ]
       )
 
@@ -596,12 +544,12 @@ describe "verify/3" do
 end
 ```
 
-- [ ] **Step 2: Run tests to verify they fail**
+- [ ] **Step 2: Run test to verify it fails**
 
 Run:
 
 ```bash
-mise exec -- mix test test/parser/imgproxy/signature_test.exs
+mise exec -- mix test test/parser/imgproxy/signature_test.exs --warnings-as-errors
 ```
 
 Expected: compile failure because `Signature.verify/3` is undefined.
@@ -664,7 +612,7 @@ end
 Run:
 
 ```bash
-mise exec -- mix test test/parser/imgproxy/signature_test.exs
+mise exec -- mix test test/parser/imgproxy/signature_test.exs --warnings-as-errors
 ```
 
 Expected: all tests pass.
@@ -684,19 +632,17 @@ mise exec -- git commit -m "Verify imgproxy request signatures"
 
 - [ ] **Step 1: Add failing parser tests**
 
-Add these tests near the existing signature tests in `test/parser/imgproxy_test.exs`:
+Add these helpers and tests near the existing signature tests in `test/parser/imgproxy_test.exs`:
 
 ```elixir
-@signed_parser_opts [
-  imgproxy: [
-    signature: %ImagePlug.Parser.Imgproxy.Signature{
-      mode: :enabled,
-      key_salt_pairs: [{"test-key", "test-salt"}],
-      signature_size: 32,
-      trusted_signatures: MapSet.new()
-    }
-  ]
-]
+defp signed_parser_opts(overrides \\ []) do
+  imgproxy_opts =
+    [signature: [keys: ["746573742d6b6579"], salts: ["746573742d73616c74"]]]
+    |> Keyword.merge(overrides)
+    |> ImagePlug.Parser.Imgproxy.validate_options!()
+
+  [imgproxy: imgproxy_opts]
+end
 
 test "accepts valid signed imgproxy URLs when signing is enabled" do
   assert {:ok, %Plan{source: {:plain, ["images", "cat.jpg"]}}} =
@@ -705,46 +651,71 @@ test "accepts valid signed imgproxy URLs when signing is enabled" do
                :get,
                "/NSbxuO5fQqTgDkui_3o6ho1UCFFcmzsugB2Uksho49o/w:300/plain/images/cat.jpg"
              ),
-             @signed_parser_opts
+             signed_parser_opts()
            )
 end
 
 test "rejects disabled-signing placeholders when signing is enabled" do
-  assert Imgproxy.parse(conn(:get, "/_/plain/images/cat.jpg"), @signed_parser_opts) ==
-           {:error, :invalid_signature}
+  assert Imgproxy.parse(conn(:get, "/_/plain/images/cat.jpg"), signed_parser_opts()) ==
+           {:error, {:invalid_signature_encoding, "_"}}
 
-  assert Imgproxy.parse(conn(:get, "/unsafe/plain/images/cat.jpg"), @signed_parser_opts) ==
+  assert Imgproxy.parse(conn(:get, "/unsafe/plain/images/cat.jpg"), signed_parser_opts()) ==
            {:error, :invalid_signature}
 end
 
 test "accepts exact trusted signatures before HMAC decoding" do
-  opts = [
-    imgproxy: [
-      signature: %ImagePlug.Parser.Imgproxy.Signature{
-        mode: :enabled,
-        key_salt_pairs: [{"test-key", "test-salt"}],
-        signature_size: 32,
-        trusted_signatures: MapSet.new(["local-dev!"])
-      }
-    ]
-  ]
+  opts = signed_parser_opts(signature: [
+    trusted_signatures: ["local-dev!"]
+  ])
 
   assert {:ok, %Plan{source: {:plain, ["images", "cat.jpg"]}}} =
            Imgproxy.parse(conn(:get, "/local-dev!/w:300/plain/images/cat.jpg"), opts)
 end
 
 test "rejects invalid signature encodings before parsing options" do
-  assert Imgproxy.parse(conn(:get, "/local-dev!/raw/plain/images/cat.jpg"), @signed_parser_opts) ==
+  assert Imgproxy.parse(conn(:get, "/local-dev!/raw/plain/images/cat.jpg"), signed_parser_opts()) ==
            {:error, {:invalid_signature_encoding, "local-dev!"}}
+end
+
+test "raw signed path accepts signatures computed over duplicate slashes" do
+  assert {:ok, %Plan{source: {:plain, ["", "images", "cat.jpg"]}}} =
+           Imgproxy.parse(
+             conn(:get, "/LybQypsQbz5rUNXKD0FkRZHzpY7OnbJ8DQcWndArBCw/w:300/plain//images/cat.jpg"),
+             signed_parser_opts()
+           )
+end
+
+test "raw signed path accepts signatures computed over trailing slashes" do
+  assert {:ok, %Plan{source: {:plain, ["images", "cat.jpg", ""]}}} =
+           Imgproxy.parse(
+             conn(:get, "/gIg1_oHgCof_KbsU6mYJKyL-SN6TJjbHGQAd9uvh8GU/w:300/plain/images/cat.jpg/"),
+             signed_parser_opts()
+           )
+end
+
+test "raw signed path strips only mounted script_name before verification" do
+  conn =
+    conn(:get, "/proxy/NSbxuO5fQqTgDkui_3o6ho1UCFFcmzsugB2Uksho49o/w:300/plain/images/cat.jpg")
+    |> Map.put(:script_name, ["proxy"])
+    |> Map.put(:path_info, [
+      "NSbxuO5fQqTgDkui_3o6ho1UCFFcmzsugB2Uksho49o",
+      "w:300",
+      "plain",
+      "images",
+      "cat.jpg"
+    ])
+
+  assert {:ok, %Plan{source: {:plain, ["images", "cat.jpg"]}}} =
+           Imgproxy.parse(conn, signed_parser_opts())
 end
 ```
 
-- [ ] **Step 2: Run tests to verify they fail**
+- [ ] **Step 2: Run test to verify it fails**
 
 Run:
 
 ```bash
-mise exec -- mix test test/parser/imgproxy_test.exs
+mise exec -- mix test test/parser/imgproxy_test.exs --warnings-as-errors
 ```
 
 Expected: signed URL test fails because parser still accepts only `_` and `unsafe`.
@@ -754,8 +725,8 @@ Expected: signed URL test fails because parser still accepts only `_` and `unsaf
 In `lib/image_plug/parser/imgproxy.ex`, update `parse_request/2`:
 
 ```elixir
-def parse_request(%Plug.Conn{path_info: [signature | path_info]}, opts) do
-  with :ok <- verify_signature(signature, path_info, opts),
+def parse_request(%Plug.Conn{path_info: [signature | path_info]} = conn, opts) do
+  with :ok <- verify_signature(conn, signature, opts),
        {:ok, option_segments, raw_source_path} <- split_source(path_info),
        {:ok, request_options} <- parse_request_options(option_segments),
        {:ok, source_path, source_format} <- parse_plain_source(raw_source_path) do
@@ -772,12 +743,40 @@ end
 Replace the existing `validate_signature/1` helpers with:
 
 ```elixir
-defp verify_signature(signature, path_info, opts) do
-  signed_path = "/" <> Enum.join(path_info, "/")
-
+defp verify_signature(%Plug.Conn{} = conn, signature, opts) do
   opts
-  |> Signature.from_options()
-  |> then(&Signature.verify(signature, signed_path, &1))
+  |> signature_config()
+  |> then(&Signature.verify(signature, signed_path(conn), &1))
+end
+
+defp signature_config(opts) do
+  opts
+  |> Keyword.get(:imgproxy, [])
+  |> Keyword.get(:signature, Signature.disabled())
+end
+
+defp signed_path(%Plug.Conn{} = conn) do
+  conn
+  |> parser_request_path()
+  |> strip_signature_segment()
+end
+
+defp parser_request_path(%Plug.Conn{request_path: request_path, script_name: []}), do: request_path
+
+defp parser_request_path(%Plug.Conn{request_path: request_path, script_name: script_name}) do
+  prefix = "/" <> Enum.join(script_name, "/")
+
+  case String.replace_prefix(request_path, prefix, "") do
+    "" -> "/"
+    path -> path
+  end
+end
+
+defp strip_signature_segment("/" <> raw_path) do
+  case :binary.split(raw_path, "/") do
+    [_signature, rest] -> "/" <> rest
+    [_signature] -> ""
+  end
 end
 ```
 
@@ -786,7 +785,7 @@ end
 Run:
 
 ```bash
-mise exec -- mix test test/parser/imgproxy_test.exs test/parser/imgproxy/signature_test.exs
+mise exec -- mix test test/parser/imgproxy_test.exs test/parser/imgproxy/signature_test.exs --warnings-as-errors
 ```
 
 Expected: all tests pass.
@@ -798,13 +797,13 @@ mise exec -- git add lib/image_plug/parser/imgproxy.ex test/parser/imgproxy_test
 mise exec -- git commit -m "Enforce imgproxy signatures in parser"
 ```
 
-## Task 5: Add Request Safety and Cache Identity Coverage
+## Task 5: Add Request Safety and Cache Identity Regression Coverage
 
 **Files:**
 - Modify: `test/image_plug/request_safety_test.exs`
 - Modify: `test/image_plug/cache/key_test.exs`
 
-- [ ] **Step 1: Add failing request safety test**
+- [ ] **Step 1: Add request safety regression coverage**
 
 Append to `test/image_plug/request_safety_test.exs`:
 
@@ -812,16 +811,18 @@ Append to `test/image_plug/request_safety_test.exs`:
 test "invalid imgproxy signatures return before source identity, cache lookup, and origin" do
   conn =
     ImagePlug.call(conn(:get, "/invalid/w:300/plain/images/cat.jpg"),
-      parser: ImagePlug.Parser.Imgproxy,
-      root_url: "not-a-valid-origin-url",
-      imgproxy: [
-        signature: [
-          keys: ["746573742d6b6579"],
-          salts: ["746573742d73616c74"]
-        ]
-      ],
-      cache: {CacheProbe, []},
-      origin_req_options: [plug: ImagePlug.Request.ProcessorTest.OriginShouldNotFetch]
+      ImagePlug.init(
+        parser: ImagePlug.Parser.Imgproxy,
+        root_url: "not-a-valid-origin-url",
+        imgproxy: [
+          signature: [
+            keys: ["746573742d6b6579"],
+            salts: ["746573742d73616c74"]
+          ]
+        ],
+        cache: {CacheProbe, []},
+        origin_req_options: [plug: ImagePlug.Request.ProcessorTest.OriginShouldNotFetch]
+      )
     )
 
   assert conn.status == 400
@@ -831,39 +832,50 @@ test "invalid imgproxy signatures return before source identity, cache lookup, a
 end
 ```
 
-- [ ] **Step 2: Add failing cache identity test**
+- [ ] **Step 2: Add cache identity regression coverage**
 
 Append to `test/image_plug/cache/key_test.exs`:
 
 ```elixir
 test "cache key excludes imgproxy signature authorization proof" do
+  signed_opts =
+    ImagePlug.init(
+      parser: ImagePlug.Parser.Imgproxy,
+      root_url: "http://origin.test",
+      imgproxy: [
+        signature: [
+          keys: ["746573742d6b6579"],
+          salts: ["746573742d73616c74"]
+        ]
+      ]
+    )
+
+  trusted_opts =
+    ImagePlug.init(
+      parser: ImagePlug.Parser.Imgproxy,
+      root_url: "http://origin.test",
+      imgproxy: [
+        signature: [
+          keys: ["746573742d6b6579"],
+          salts: ["746573742d73616c74"],
+          trusted_signatures: ["local-dev!"]
+        ]
+      ]
+    )
+
   assert {:ok, signed_plan} =
            ImagePlug.Parser.Imgproxy.parse(
              conn(
                :get,
                "/NSbxuO5fQqTgDkui_3o6ho1UCFFcmzsugB2Uksho49o/w:300/plain/images/cat.jpg"
              ),
-             imgproxy: [
-               signature: %ImagePlug.Parser.Imgproxy.Signature{
-                 mode: :enabled,
-                 key_salt_pairs: [{"test-key", "test-salt"}],
-                 signature_size: 32,
-                 trusted_signatures: MapSet.new()
-               }
-             ]
+             signed_opts
            )
 
   assert {:ok, trusted_plan} =
            ImagePlug.Parser.Imgproxy.parse(
              conn(:get, "/local-dev!/w:300/plain/images/cat.jpg"),
-             imgproxy: [
-               signature: %ImagePlug.Parser.Imgproxy.Signature{
-                 mode: :enabled,
-                 key_salt_pairs: [{"test-key", "test-salt"}],
-                 signature_size: 32,
-                 trusted_signatures: MapSet.new(["local-dev!"])
-               }
-             ]
+             trusted_opts
            )
 
   signed_key =
@@ -887,15 +899,15 @@ test "cache key excludes imgproxy signature authorization proof" do
 end
 ```
 
-- [ ] **Step 3: Run tests to verify behavior**
+- [ ] **Step 3: Run focused tests**
 
 Run:
 
 ```bash
-mise exec -- mix test test/image_plug/request_safety_test.exs test/image_plug/cache/key_test.exs
+mise exec -- mix test test/image_plug/request_safety_test.exs test/image_plug/cache/key_test.exs --warnings-as-errors
 ```
 
-Expected: all tests pass if Tasks 1-4 are complete. If a test fails, fix parser ordering or cache assertions before proceeding.
+Expected: all tests pass if Tasks 1-4 are complete.
 
 - [ ] **Step 4: Commit Task 5**
 
@@ -913,7 +925,7 @@ mise exec -- git commit -m "Cover imgproxy signature safety boundaries"
 
 - [ ] **Step 1: Update README signature section**
 
-In `README.md`, replace the paragraph that says local development can use `_` or `unsafe` with:
+In `README.md`, replace the local-development signature paragraph and its following signature-only text code block with this expanded signature section. Preserve the later processing examples that document resize/format URLs.
 
 ````markdown
 For unsigned local development, the signature segment can be `_` or `unsafe`:
@@ -957,23 +969,27 @@ The signature segment is verified before option parsing, planning, source
 identity resolution, cache lookup, or origin fetch. With no `:imgproxy`
 signature configuration, ImagePlug accepts only `_` and `unsafe` as
 disabled-signing placeholders. With signing configured, the signature must be a
-URL-safe Base64 HMAC-SHA256 digest of the path after the signature, including
-the leading slash, or an exact configured trusted signature.
+URL-safe Base64 HMAC-SHA256 digest of the raw path after the signature,
+including the leading slash, or an exact configured trusted signature.
 ```
 
-- [ ] **Step 3: Update support matrix**
+- [ ] **Step 3: Update support matrix signature rows**
 
-In `docs/imgproxy_support_matrix.md`, change the HMAC row from:
+In `docs/imgproxy_support_matrix.md`, change these rows:
 
 ```markdown
+| Required signature path segment | Partial | Only disabled-signing placeholders `_` and `unsafe` are accepted. |
 | HMAC URL signatures | Missing | No key/salt verification or signed path validation yet. |
 ```
 
 to:
 
 ```markdown
+| Required signature path segment | Supported | `_` and `unsafe` are accepted when signing is disabled; HMAC and exact trusted signatures are accepted when signing is configured. |
 | HMAC URL signatures | Supported | Imgproxy parser verifies URL-safe Base64 HMAC-SHA256 signatures with hex key/salt pairs, optional truncation, rotation pairs, and exact trusted signatures. |
 ```
+
+Also remove HMAC signatures from `## Suggested Next Additions` so the matrix does not continue listing this completed feature as future work.
 
 - [ ] **Step 4: Run docs diff check**
 
@@ -1002,30 +1018,30 @@ mise exec -- git commit -m "Document imgproxy signature support"
 Run:
 
 ```bash
-mise exec -- mix format lib/image_plug/parser.ex lib/image_plug/request/options.ex lib/image_plug/parser/imgproxy.ex lib/image_plug/parser/imgproxy/signature.ex test/support/image_plug/request_safety_test/invalid_plan_parser.ex test/support/image_plug/request_safety_test/invalid_pipeline_plan_parser.ex test/support/image_plug/request_options_test/parser_with_options.ex test/image_plug/request_options_test.exs test/parser/imgproxy/signature_test.exs test/parser/imgproxy_test.exs test/image_plug/request_safety_test.exs test/image_plug/cache/key_test.exs
+mise exec -- mix format lib/image_plug.ex lib/image_plug/parser/imgproxy.ex lib/image_plug/parser/imgproxy/signature.ex test/image_plug_test.exs test/parser/imgproxy/signature_test.exs test/parser/imgproxy_test.exs test/image_plug/request_safety_test.exs test/image_plug/cache/key_test.exs
 ```
 
 Expected: command exits 0 and may rewrite formatted files.
 
-- [ ] **Step 2: Run focused test suite**
+- [ ] **Step 2: Run focused test suite with warnings as errors**
 
 Run:
 
 ```bash
-mise exec -- mix test test/parser/imgproxy/signature_test.exs test/parser/imgproxy_test.exs test/image_plug/request_options_test.exs test/image_plug/request_safety_test.exs test/image_plug/cache/key_test.exs
+mise exec -- mix test test/parser/imgproxy/signature_test.exs test/parser/imgproxy_test.exs test/image_plug_test.exs test/image_plug/request_safety_test.exs test/image_plug/cache/key_test.exs --warnings-as-errors
 ```
 
-Expected: all tests pass.
+Expected: all tests pass with no warnings.
 
-- [ ] **Step 3: Run full test suite**
+- [ ] **Step 3: Run full test suite with warnings as errors**
 
 Run:
 
 ```bash
-mise exec -- mix test
+mise exec -- mix test --warnings-as-errors
 ```
 
-Expected: all tests pass.
+Expected: all tests pass with no warnings.
 
 - [ ] **Step 4: Compile with warnings as errors**
 
@@ -1062,5 +1078,6 @@ If `git status --short` is empty, skip this commit.
 ## Self-Review
 
 - Spec coverage: Tasks 1-4 implement parser-owned configuration and verification; Task 5 covers safety and cache boundaries; Task 6 updates public docs and the support matrix; Task 7 verifies formatting, focused tests, full tests, and warning-free compilation.
+- Review coverage: This revision addresses the subagent findings by preserving raw slash structure, adding positive raw-path and `script_name` tests, keeping parser validation out of `ImagePlug.Request`, using NimbleOptions for public config, requiring at least one authorization method, rejecting empty decoded key/salt values, supporting trusted-only config, avoiding hand-built signature structs outside signature tests, updating both support-matrix signature rows and suggested next additions, and running tests with warnings as errors.
 - Placeholder scan: This plan contains no deferred implementation markers. Each code-changing task names concrete files, commands, and expected outcomes.
-- Type consistency: The plan consistently uses `ImagePlug.Parser.Imgproxy.Signature`, `%Signature{mode, key_salt_pairs, signature_size, trusted_signatures}`, `validate_options!/1`, `from_options/1`, and `verify/3` across tests and implementation.
+- Type consistency: The plan consistently uses `ImagePlug.Parser.Imgproxy.Signature`, `%Signature{mode, key_salt_pairs, signature_size, trusted_signatures}`, `disabled/0`, `validate_options!/1`, and `verify/3` across tests and implementation.
