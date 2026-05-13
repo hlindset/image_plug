@@ -1,8 +1,8 @@
-defmodule ImagePlug.Runtime.SourceIdentity do
+defmodule ImagePlug.Origin.Identity do
   @moduledoc false
 
   alias ImagePlug.Plan
-  alias ImagePlug.Runtime.Origin
+  alias ImagePlug.Origin
 
   @spec resolve(Plan.t(), keyword()) :: {:ok, String.t()} | {:error, term()}
   def resolve(%Plan{source: {:plain, source_path}}, opts) do

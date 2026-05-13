@@ -1,4 +1,4 @@
-defmodule ImagePlug.Runtime.ProcessorTest.OriginShouldNotFetch do
+defmodule ImagePlug.Request.ProcessorTest.OriginShouldNotFetch do
   @moduledoc false
 
   @spec call(Plug.Conn.t(), keyword()) :: no_return()

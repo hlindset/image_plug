@@ -5,9 +5,11 @@ defmodule ImagePlug do
 
   use Boundary,
     deps: [
+      ImagePlug.Origin,
       ImagePlug.Parser,
       ImagePlug.Plan,
-      ImagePlug.Runtime,
+      ImagePlug.Request,
+      ImagePlug.Response,
       ImagePlug.Transform
     ],
     exports: []
@@ -15,10 +17,10 @@ defmodule ImagePlug do
   @behaviour Plug
 
   alias ImagePlug.Plan
-  alias ImagePlug.Runtime.Options
-  alias ImagePlug.Runtime.RequestRunner
-  alias ImagePlug.Runtime.ResponseSender
-  alias ImagePlug.Runtime.SourceIdentity
+  alias ImagePlug.Request.Options
+  alias ImagePlug.Request.Runner
+  alias ImagePlug.Response.Sender
+  alias ImagePlug.Origin.Identity
   alias ImagePlug.Transform
 
   @impl Plug
@@ -30,18 +32,18 @@ defmodule ImagePlug do
 
     with {:ok, %Plan{} = plan} <- parser.parse(conn, opts) |> wrap_parser_error(),
          {:ok, %Plan{} = plan} <- validate_client_plan(plan),
-         {:ok, origin_identity} <- SourceIdentity.resolve(plan, opts) |> wrap_origin_error() do
-      result = RequestRunner.run(conn, plan, origin_identity, opts)
-      ResponseSender.send_result(conn, result, opts)
+         {:ok, origin_identity} <- Identity.resolve(plan, opts) |> wrap_origin_error() do
+      result = Runner.run(conn, plan, origin_identity, opts)
+      Sender.send_result(conn, result, opts)
     else
       {:error, {:parser, error}} ->
         parser.handle_error(conn, error)
 
       {:error, {:plan_validation, error}} ->
-        ResponseSender.send_result(conn, {:error, {:processing, error, []}}, opts)
+        Sender.send_result(conn, {:error, {:processing, error, []}}, opts)
 
       {:error, {:origin, error}} ->
-        ResponseSender.send_origin_error(conn, error)
+        Sender.send_origin_error(conn, error)
     end
   end
 

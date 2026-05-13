@@ -23,7 +23,7 @@ defmodule ImagePlug.RequestSafetyTest do
         parser: InvalidPlanParser,
         root_url: "not-a-valid-origin-url",
         cache: {CacheProbe, []},
-        origin_req_options: [plug: ImagePlug.Runtime.ProcessorTest.OriginShouldNotFetch]
+        origin_req_options: [plug: ImagePlug.Request.ProcessorTest.OriginShouldNotFetch]
       )
 
     assert conn.status == 422
@@ -38,7 +38,7 @@ defmodule ImagePlug.RequestSafetyTest do
         parser: InvalidPipelinePlanParser,
         root_url: "not-a-valid-origin-url",
         cache: {CacheProbe, []},
-        origin_req_options: [plug: ImagePlug.Runtime.ProcessorTest.OriginShouldNotFetch]
+        origin_req_options: [plug: ImagePlug.Request.ProcessorTest.OriginShouldNotFetch]
       )
 
     assert conn.status == 422
@@ -52,7 +52,7 @@ defmodule ImagePlug.RequestSafetyTest do
       ImagePlug.call(conn(:get, "/_/raw/plain/images/cat.jpg"),
         parser: ImagePlug.Parser.Imgproxy,
         root_url: "http://origin.test",
-        origin_req_options: [plug: ImagePlug.Runtime.ProcessorTest.OriginShouldNotFetch]
+        origin_req_options: [plug: ImagePlug.Request.ProcessorTest.OriginShouldNotFetch]
       )
 
     assert conn.status == 400
@@ -65,7 +65,7 @@ defmodule ImagePlug.RequestSafetyTest do
         root_url: "not-a-valid-origin-url",
         clock: fn -> DateTime.from_unix!(101) end,
         cache: {CacheProbe, []},
-        origin_req_options: [plug: ImagePlug.Runtime.ProcessorTest.OriginShouldNotFetch]
+        origin_req_options: [plug: ImagePlug.Request.ProcessorTest.OriginShouldNotFetch]
       )
 
     assert conn.status == 400

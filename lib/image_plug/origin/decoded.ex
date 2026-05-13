@@ -1,4 +1,4 @@
-defmodule ImagePlug.Runtime.DecodedOrigin do
+defmodule ImagePlug.Origin.Decoded do
   @moduledoc false
 
   @enforce_keys [:decode_options, :image, :source_format]

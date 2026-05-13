@@ -1,4 +1,4 @@
-defmodule ImagePlug.Runtime.RequestRunner do
+defmodule ImagePlug.Request.Runner do
   @moduledoc false
 
   alias ImagePlug.Cache
@@ -10,8 +10,8 @@ defmodule ImagePlug.Runtime.RequestRunner do
   alias ImagePlug.Plan
   alias ImagePlug.Plan.Output
   alias ImagePlug.Plan.Response
-  alias ImagePlug.Runtime.DecodedOrigin
-  alias ImagePlug.Runtime.Processor
+  alias ImagePlug.Origin.Decoded
+  alias ImagePlug.Request.Processor
   alias ImagePlug.Transform
   alias ImagePlug.Transform.State
 
@@ -216,7 +216,7 @@ defmodule ImagePlug.Runtime.RequestRunner do
 
   defp process_source_format_automatic(plan, origin_identity, opts, policy) do
     case Processor.fetch_decode_validate_origin_with_source_format(plan, origin_identity, opts) do
-      {:ok, %DecodedOrigin{} = decoded} ->
+      {:ok, %Decoded{} = decoded} ->
         resolve_source_format_automatic(decoded, plan, opts, policy)
 
       {:error, error} ->
@@ -224,7 +224,7 @@ defmodule ImagePlug.Runtime.RequestRunner do
     end
   end
 
-  defp resolve_source_format_automatic(%DecodedOrigin{} = decoded, plan, opts, policy) do
+  defp resolve_source_format_automatic(%Decoded{} = decoded, plan, opts, policy) do
     case Policy.resolve(policy, decoded.source_format) do
       {:ok, %Resolved{} = resolved_output} ->
         process_decoded_origin_with_output(decoded, plan, opts, resolved_output)

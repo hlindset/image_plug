@@ -1,19 +1,15 @@
-defmodule ImagePlug.Runtime do
+defmodule ImagePlug.Response do
   @moduledoc false
 
   use Boundary,
     top_level?: true,
     deps: [
-      ImagePlug.Plan,
       ImagePlug.Cache,
       ImagePlug.Output,
+      ImagePlug.Plan,
       ImagePlug.Transform
     ],
     exports: [
-      RequestRunner,
-      Origin,
-      ResponseSender,
-      SourceIdentity,
-      Options
+      Sender
     ]
 end

@@ -1,4 +1,4 @@
-defmodule ImagePlug.Runtime.ResponseSender do
+defmodule ImagePlug.Response.Sender do
   @moduledoc false
 
   import Plug.Conn,
@@ -17,8 +17,15 @@ defmodule ImagePlug.Runtime.ResponseSender do
   alias ImagePlug.Output.Format
   alias ImagePlug.Output.Resolved
   alias ImagePlug.Plan.Response
-  alias ImagePlug.Runtime.RequestRunner
   alias ImagePlug.Transform.State
+
+  @type delivery() ::
+          {:cache_entry, Entry.t(), Response.t()}
+          | {:image, State.t(), Resolved.t(), Response.t()}
+
+  @type error() ::
+          {:cache, term()}
+          | {:processing, term(), [{String.t(), String.t()}]}
 
   @plan_validation_error_tags [
     :unsupported_source,
@@ -33,8 +40,8 @@ defmodule ImagePlug.Runtime.ResponseSender do
 
   @spec send_result(
           Plug.Conn.t(),
-          {:ok, RequestRunner.delivery()}
-          | {:error, RequestRunner.error()},
+          {:ok, delivery()}
+          | {:error, error()},
           keyword()
         ) :: Plug.Conn.t()
   def send_result(
