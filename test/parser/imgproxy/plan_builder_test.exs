@@ -781,7 +781,7 @@ defmodule ImagePlug.Parser.Imgproxy.PlanBuilderTest do
                 filename: "cat",
                 disposition: :attachment
               }
-            }} = PlanBuilder.to_plan(request, now: ~U[2026-05-05 12:00:00Z])
+            }} = PlanBuilder.to_plan(request, clock: fn -> ~U[2026-05-05 12:00:00Z] end)
   end
 
   test "derives response filename stem from source basename when omitted" do

@@ -3,11 +3,11 @@ defmodule ImagePlug.Runtime.Options do
 
   alias ImagePlug.Cache
 
-  @parser_visible_option_keys [:parser, :root_url, :now]
+  @parser_visible_option_keys [:parser, :root_url, :clock]
   @options_schema NimbleOptions.new!(
                     parser: [type: :atom, required: true],
                     root_url: [type: :string, required: true],
-                    now: [type: {:custom, __MODULE__, :validate_now, []}]
+                    clock: [type: {:custom, __MODULE__, :validate_clock, []}]
                   )
 
   def validate!(opts) do
@@ -17,12 +17,10 @@ defmodule ImagePlug.Runtime.Options do
   end
 
   @doc false
-  def validate_now(now) when is_integer(now), do: {:ok, now}
-  def validate_now(%DateTime{} = now), do: {:ok, now}
-  def validate_now(now) when is_function(now, 0), do: {:ok, now}
+  def validate_clock(clock) when is_function(clock, 0), do: {:ok, clock}
 
-  def validate_now(_now),
-    do: {:error, "expected integer Unix timestamp, DateTime, or zero-arity function"}
+  def validate_clock(_clock),
+    do: {:error, "expected zero-arity function"}
 
   defp validate_known_opts!(opts) do
     known_opts = Keyword.take(opts, @parser_visible_option_keys)

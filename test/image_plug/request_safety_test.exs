@@ -63,7 +63,7 @@ defmodule ImagePlug.RequestSafetyTest do
       ImagePlug.call(conn(:get, "/_/exp:100/plain/images/cat.jpg"),
         parser: ImagePlug.Parser.Imgproxy,
         root_url: "not-a-valid-origin-url",
-        now: 101,
+        clock: fn -> DateTime.from_unix!(101) end,
         cache: {CacheProbe, []},
         origin_req_options: [plug: ImagePlug.Runtime.ProcessorTest.OriginShouldNotFetch]
       )

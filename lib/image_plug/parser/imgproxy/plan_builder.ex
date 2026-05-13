@@ -107,8 +107,7 @@ defmodule ImagePlug.Parser.Imgproxy.PlanBuilder do
 
   defp expires_plan(%RequestPolicy{expires: expires}, opts)
        when is_integer(expires) and expires > 0 do
-    with {:ok, now} <- now_unix_seconds(opts),
-         :ok <- reject_expired_request(expires, now) do
+    with :ok <- reject_expired_request(expires, now_unix_seconds(opts)) do
       {:ok, expires}
     end
   end
@@ -122,16 +121,10 @@ defmodule ImagePlug.Parser.Imgproxy.PlanBuilder do
   end
 
   defp now_unix_seconds(opts) do
-    case Keyword.fetch(opts, :now) do
-      {:ok, now} when is_function(now, 0) -> normalize_now(now.())
-      {:ok, now} -> normalize_now(now)
-      :error -> {:ok, DateTime.to_unix(DateTime.utc_now())}
-    end
+    opts
+    |> Keyword.get(:clock, &DateTime.utc_now/0)
+    |> then(&DateTime.to_unix(&1.()))
   end
-
-  defp normalize_now(%DateTime{} = now), do: {:ok, DateTime.to_unix(now)}
-  defp normalize_now(now) when is_integer(now), do: {:ok, now}
-  defp normalize_now(now), do: {:error, {:invalid_now, now}}
 
   defp cachebuster_plan(%CacheRequest{cachebuster: cachebuster}),
     do: {:ok, cachebuster}

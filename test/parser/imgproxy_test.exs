@@ -563,54 +563,55 @@ defmodule ImagePlug.Parser.ImgproxyTest do
              Imgproxy.parse(conn(:get, "/_/cb:a/-/cachebuster:b/plain/images/cat.jpg"), [])
   end
 
-  test "expires rejects expired requests with injectable now" do
-    assert Imgproxy.parse(conn(:get, "/_/expires:100/plain/images/cat.jpg"), now: 101) ==
+  test "expires rejects expired requests with injectable clock" do
+    clock = clock_at(101)
+
+    assert Imgproxy.parse(conn(:get, "/_/expires:100/plain/images/cat.jpg"), clock: clock) ==
              {:error, {:expired_request, 100}}
 
     assert {:ok, %Plan{expires: 100}} =
-             Imgproxy.parse(conn(:get, "/_/exp:100/plain/images/cat.jpg"), now: 100)
+             Imgproxy.parse(conn(:get, "/_/exp:100/plain/images/cat.jpg"), clock: clock_at(100))
 
     assert {:ok, %Plan{expires: 0}} =
-             Imgproxy.parse(conn(:get, "/_/expires:0/plain/images/cat.jpg"), now: 999)
+             Imgproxy.parse(conn(:get, "/_/expires:0/plain/images/cat.jpg"), clock: clock_at(999))
   end
 
   test "expires later assignment wins across groups" do
     assert {:ok, %Plan{expires: 200}} =
-             Imgproxy.parse(conn(:get, "/_/exp:100/-/expires:200/plain/images/cat.jpg"), now: 100)
+             Imgproxy.parse(
+               conn(:get, "/_/exp:100/-/expires:200/plain/images/cat.jpg"),
+               clock: clock_at(100)
+             )
   end
 
-  test "now function is called once and normalized once per parse attempt" do
+  test "clock function is called once per parse attempt" do
     test_pid = self()
 
-    now = fn ->
-      send(test_pid, :now_called)
-      100
+    clock = fn ->
+      send(test_pid, :clock_called)
+      DateTime.from_unix!(100)
     end
 
     assert {:ok, %Plan{expires: 100}} =
-             Imgproxy.parse(conn(:get, "/_/exp:100/plain/images/cat.jpg"), now: now)
+             Imgproxy.parse(conn(:get, "/_/exp:100/plain/images/cat.jpg"), clock: clock)
 
-    assert_received :now_called
-    refute_received :now_called
+    assert_received :clock_called
+    refute_received :clock_called
   end
 
-  test "expires rejects malformed values and invalid now values" do
-    assert Imgproxy.parse(conn(:get, "/_/exp:not-int/plain/images/cat.jpg"), now: 100) ==
+  test "expires rejects malformed values" do
+    assert Imgproxy.parse(conn(:get, "/_/exp:not-int/plain/images/cat.jpg"), clock: clock_at(100)) ==
              {:error, {:invalid_expires, "not-int"}}
 
-    assert Imgproxy.parse(conn(:get, "/_/exp:-1/plain/images/cat.jpg"), now: 100) ==
+    assert Imgproxy.parse(conn(:get, "/_/exp:-1/plain/images/cat.jpg"), clock: clock_at(100)) ==
              {:error, {:invalid_expires, "-1"}}
-
-    assert Imgproxy.parse(conn(:get, "/_/exp:100/plain/images/cat.jpg"), now: :bad) ==
-             {:error, {:invalid_now, :bad}}
-
-    assert Imgproxy.parse(conn(:get, "/_/exp:100/plain/images/cat.jpg"), now: fn -> :bad end) ==
-             {:error, {:invalid_now, :bad}}
   end
 
   test "rejects invalid expires arity" do
     for segment <- ["exp", "exp:", "exp:100:200", "expires", "expires:", "expires:100:200"] do
-      assert Imgproxy.parse(conn(:get, "/_/#{segment}/plain/images/cat.jpg"), now: 100) ==
+      assert Imgproxy.parse(conn(:get, "/_/#{segment}/plain/images/cat.jpg"),
+               clock: clock_at(100)
+             ) ==
                {:error, {:invalid_option_segment, segment}}
     end
   end
@@ -964,6 +965,7 @@ defmodule ImagePlug.Parser.ImgproxyTest do
 
   defp pixels(value), do: {:px, value}
   defp auto, do: :auto
+  defp clock_at(unix), do: fn -> DateTime.from_unix!(unix) end
 
   defp anchor(:center), do: {:center, :center}
   defp anchor({:anchor, x, y}), do: {x, y}
