@@ -16,9 +16,6 @@ defmodule ImagePlug.Runtime.Processor do
 
   @spec process_origin(Plan.t(), String.t(), keyword()) ::
           {:ok, State.t()} | {:error, term()}
-  def process_origin(%Plan{pipelines: []}, _origin_identity, _opts),
-    do: {:error, :empty_pipeline_plan}
-
   def process_origin(%Plan{} = plan, origin_identity, opts) do
     with {:ok, %DecodedOrigin{} = decoded} <-
            fetch_decode_validate_origin_with_source_format(plan, origin_identity, opts) do
@@ -28,13 +25,6 @@ defmodule ImagePlug.Runtime.Processor do
 
   @spec fetch_decode_validate_origin_with_source_format(Plan.t(), String.t(), keyword()) ::
           {:ok, DecodedOrigin.t()} | {:error, term()}
-  def fetch_decode_validate_origin_with_source_format(
-        %Plan{pipelines: []},
-        _origin_identity,
-        _opts
-      ),
-      do: {:error, :empty_pipeline_plan}
-
   def fetch_decode_validate_origin_with_source_format(%Plan{} = plan, origin_identity, opts) do
     with {:ok, origin_response} <- fetch_origin(plan, origin_identity, opts) do
       decode_validate_origin_response(origin_response, plan, opts)
@@ -43,9 +33,6 @@ defmodule ImagePlug.Runtime.Processor do
 
   @spec decode_validate_origin_response(Origin.Response.t(), Plan.t(), keyword()) ::
           {:ok, DecodedOrigin.t()} | {:error, term()}
-  def decode_validate_origin_response(_origin_response, %Plan{pipelines: []}, _opts),
-    do: {:error, :empty_pipeline_plan}
-
   def decode_validate_origin_response(%Origin.Response{} = origin_response, %Plan{} = plan, opts) do
     decode_options = DecodePlanner.open_options(first_pipeline_operations(plan))
 
@@ -67,9 +54,6 @@ defmodule ImagePlug.Runtime.Processor do
 
   @spec process_decoded_origin(DecodedOrigin.t(), Plan.t(), keyword()) ::
           {:ok, State.t()} | {:error, term()}
-  def process_decoded_origin(%DecodedOrigin{}, %Plan{pipelines: []}, _opts),
-    do: {:error, :empty_pipeline_plan}
-
   def process_decoded_origin(%DecodedOrigin{} = decoded, %Plan{} = plan, opts) do
     with {:ok, final_state} <-
            execute_plan_pipelines(%State{image: decoded.image}, plan, decoded, opts) do
@@ -155,33 +139,8 @@ defmodule ImagePlug.Runtime.Processor do
         Keyword.get(opts, :image_materializer_module, Materializer)
       )
 
-    materialize_with(materializer, state, opts)
-  end
-
-  defp materialize_with(materializer, %State{} = state, opts) when is_atom(materializer) do
     materializer.materialize(state, opts)
-    |> normalize_state_materializer_result(materializer)
   end
-
-  defp materialize_with(materializer, %State{}, _opts),
-    do: {:error, {:config, {:invalid_image_materializer, materializer}}}
-
-  defp normalize_state_materializer_result(
-         {:ok, %State{image: %Vix.Vips.Image{}} = state},
-         _materializer
-       ),
-       do: {:ok, state}
-
-  defp normalize_state_materializer_result({:ok, invalid_state}, materializer),
-    do: invalid_materializer_result(materializer, {:ok, invalid_state})
-
-  defp normalize_state_materializer_result({:error, _reason} = error, _materializer), do: error
-
-  defp normalize_state_materializer_result(unexpected, materializer),
-    do: invalid_materializer_result(materializer, unexpected)
-
-  defp invalid_materializer_result(materializer, result),
-    do: {:error, {:config, {:invalid_image_materializer_result, materializer, result}}}
 
   defp handle_materialization_result({:error, {:config, _reason} = error}), do: {:error, error}
 

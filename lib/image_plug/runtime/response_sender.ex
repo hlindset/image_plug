@@ -18,41 +18,25 @@ defmodule ImagePlug.Runtime.ResponseSender do
   alias ImagePlug.Output.Resolved
   alias ImagePlug.Plan.Response
   alias ImagePlug.Runtime.RequestRunner
-  alias ImagePlug.Runtime.ResponseDisposition
   alias ImagePlug.Transform.State
+
+  @plan_validation_error_tags [
+    :unsupported_source,
+    :invalid_output_plan,
+    :invalid_policy_plan,
+    :invalid_cache_plan,
+    :invalid_response_plan,
+    :invalid_pipeline_plan,
+    :invalid_pipeline_operation,
+    :unprojectable_operation_for_cache_adapter
+  ]
 
   @spec send_result(
           Plug.Conn.t(),
-          RequestRunner.delivery()
-          | RequestRunner.error()
-          | {:ok, RequestRunner.delivery()}
+          {:ok, RequestRunner.delivery()}
           | {:error, RequestRunner.error()},
           keyword()
         ) :: Plug.Conn.t()
-  def send_result(
-        %Plug.Conn{} = conn,
-        {:cache_entry, %Entry{} = entry, %Response{} = response},
-        opts
-      ) do
-    send_result(conn, {:ok, {:cache_entry, entry, response}}, opts)
-  end
-
-  def send_result(
-        %Plug.Conn{} = conn,
-        {:image, %State{} = state, %Resolved{} = resolved_output, %Response{} = response},
-        opts
-      ) do
-    send_result(conn, {:ok, {:image, state, resolved_output, response}}, opts)
-  end
-
-  def send_result(%Plug.Conn{} = conn, {:cache, error}, opts) do
-    send_result(conn, {:error, {:cache, error}}, opts)
-  end
-
-  def send_result(%Plug.Conn{} = conn, {:processing, reason, response_headers}, opts) do
-    send_result(conn, {:error, {:processing, reason, response_headers}}, opts)
-  end
-
   def send_result(
         %Plug.Conn{} = conn,
         {:ok, {:cache_entry, %Entry{} = entry, %Response{} = response}},
@@ -130,42 +114,13 @@ defmodule ImagePlug.Runtime.ResponseSender do
   defp handle_processing_error(conn, {:config, error}, response_headers),
     do: send_config_error(conn, error, response_headers)
 
-  defp handle_processing_error(conn, {:unsupported_source, source}, response_headers),
-    do: send_plan_validation_error(conn, {:unsupported_source, source}, response_headers)
-
-  defp handle_processing_error(conn, {:invalid_output_plan, output}, response_headers),
-    do: send_plan_validation_error(conn, {:invalid_output_plan, output}, response_headers)
-
-  defp handle_processing_error(conn, {:invalid_policy_plan, policy}, response_headers),
-    do: send_plan_validation_error(conn, {:invalid_policy_plan, policy}, response_headers)
-
-  defp handle_processing_error(conn, {:invalid_cache_plan, cache}, response_headers),
-    do: send_plan_validation_error(conn, {:invalid_cache_plan, cache}, response_headers)
-
-  defp handle_processing_error(conn, {:invalid_response_plan, response}, response_headers),
-    do: send_plan_validation_error(conn, {:invalid_response_plan, response}, response_headers)
-
   defp handle_processing_error(conn, :empty_pipeline_plan, response_headers),
     do: send_plan_validation_error(conn, :empty_pipeline_plan, response_headers)
 
-  defp handle_processing_error(conn, {:invalid_pipeline_plan, pipelines}, response_headers),
-    do: send_plan_validation_error(conn, {:invalid_pipeline_plan, pipelines}, response_headers)
-
-  defp handle_processing_error(conn, {:invalid_pipeline_operation, operation}, response_headers),
-    do:
-      send_plan_validation_error(conn, {:invalid_pipeline_operation, operation}, response_headers)
-
-  defp handle_processing_error(
-         conn,
-         {:unprojectable_operation_for_cache_adapter, operation},
-         response_headers
-       ),
-       do:
-         send_plan_validation_error(
-           conn,
-           {:unprojectable_operation_for_cache_adapter, operation},
-           response_headers
-         )
+  defp handle_processing_error(conn, {tag, _value} = reason, response_headers)
+       when tag in @plan_validation_error_tags do
+    send_plan_validation_error(conn, reason, response_headers)
+  end
 
   defp send_plan_validation_error(conn, reason, response_headers) do
     Logger.info("plan_validation_error: #{inspect(reason)}")
@@ -371,7 +326,7 @@ defmodule ImagePlug.Runtime.ResponseSender do
   defp output_options(suffix, %Resolved{quality: :default}), do: [suffix: suffix]
 
   defp delivery_headers(response_headers, %Response{} = response, content_type) do
-    with {:ok, content_disposition} <- ResponseDisposition.render(response, content_type) do
+    with {:ok, content_disposition} <- Response.content_disposition(response, content_type) do
       {:ok, response_headers ++ [{"content-disposition", content_disposition}]}
     end
   end

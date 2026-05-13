@@ -12,7 +12,6 @@ defmodule ImagePlug.Runtime do
     exports: [
       RequestRunner,
       Origin,
-      ResponseDisposition,
       ResponseSender,
       SourceIdentity,
       Options

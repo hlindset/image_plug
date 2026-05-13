@@ -85,7 +85,6 @@ defmodule ImagePlug.ArchitectureBoundaryTest do
     assert_boundary_exports(runtime, [
       ImagePlug.Runtime.RequestRunner,
       ImagePlug.Runtime.Origin,
-      ImagePlug.Runtime.ResponseDisposition,
       ImagePlug.Runtime.ResponseSender,
       ImagePlug.Runtime.SourceIdentity,
       ImagePlug.Runtime.Options

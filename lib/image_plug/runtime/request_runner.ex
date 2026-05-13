@@ -31,32 +31,27 @@ defmodule ImagePlug.Runtime.RequestRunner do
         ) ::
           {:ok, delivery()} | {:error, error()}
   def run(conn, %Plan{} = plan, origin_identity, opts) do
-    with {:ok, pipelines} <- Transform.validate_prefetch_safe_plan(plan),
-         {:ok, cache_mode} <- cache_mode(pipelines, opts) do
-      case cache_mode do
-        :cacheable -> run_with_cache(conn, plan, origin_identity, opts)
-        :skip_cache -> process_uncached(conn, plan, origin_identity, opts)
-      end
+    with {:ok, _pipelines} <- Transform.validate_prefetch_safe_plan(plan),
+         :ok <- validate_cache_config(opts) do
+      run_with_cache_config(conn, plan, origin_identity, opts)
     else
       {:error, reason} -> {:error, {:processing, reason, []}}
     end
   end
 
-  defp cache_mode(pipelines, opts) do
+  defp validate_cache_config(opts) do
     case Keyword.get(opts, :cache) do
-      nil -> {:ok, :skip_cache}
-      _cache -> configured_cache_mode(pipelines, opts)
+      nil -> :ok
+      _cache -> Cache.validate_config(opts)
     end
   end
 
-  defp configured_cache_mode(pipelines, opts) do
-    case Cache.validate_config(opts) do
-      :ok -> {:ok, cache_mode_for_pipelines(pipelines)}
-      {:error, _reason} = error -> error
+  defp run_with_cache_config(conn, plan, origin_identity, opts) do
+    case Keyword.get(opts, :cache) do
+      nil -> process_uncached(conn, plan, origin_identity, opts)
+      _cache -> run_with_cache(conn, plan, origin_identity, opts)
     end
   end
-
-  defp cache_mode_for_pipelines(_pipelines), do: :cacheable
 
   defp run_with_cache(conn, plan, origin_identity, opts) do
     case ResponseCache.lookup(conn, plan, origin_identity, opts) do
@@ -98,7 +93,7 @@ defmodule ImagePlug.Runtime.RequestRunner do
         {:ok, {:image, final_state, resolved_output, plan.response}}
 
       {:error, error, response_headers} ->
-        {:error, {:processing, processing_reason(error), response_headers}}
+        {:error, {:processing, error, response_headers}}
     end
   end
 
@@ -108,11 +103,11 @@ defmodule ImagePlug.Runtime.RequestRunner do
         case ResponseCache.store(key, final_state, resolved_output, opts) do
           {:ok, entry} -> {:ok, {:cache_entry, entry, plan.response}}
           :skipped -> {:ok, {:image, final_state, resolved_output, plan.response}}
-          error -> {:error, {:processing, processing_reason(error), response_headers}}
+          {:error, error} -> {:error, {:processing, error, response_headers}}
         end
 
       {:error, error, response_headers} ->
-        {:error, {:processing, processing_reason(error), response_headers}}
+        {:error, {:processing, error, response_headers}}
     end
   end
 
@@ -126,9 +121,7 @@ defmodule ImagePlug.Runtime.RequestRunner do
 
     case Policy.resolve(policy, nil) do
       {:ok, %Resolved{} = resolved_output} ->
-        plan
-        |> Processor.process_origin(origin_identity, opts)
-        |> attach_resolved_output(resolved_output)
+        process_origin_with_output(plan, origin_identity, opts, resolved_output)
 
       {:error, :source_format_required} ->
         process_source_format_automatic(plan, origin_identity, opts, policy)
@@ -143,32 +136,41 @@ defmodule ImagePlug.Runtime.RequestRunner do
        ) do
     policy = Policy.from_output_plan(conn, plan.output, opts)
 
-    plan
-    |> Processor.process_origin(origin_identity, opts)
-    |> attach_resolved_output(Policy.resolve(policy, format))
+    case Policy.resolve(policy, format) do
+      {:ok, %Resolved{} = resolved_output} ->
+        process_origin_with_output(plan, origin_identity, opts, resolved_output)
+
+      {:error, error} ->
+        {:error, error, policy.headers}
+    end
   end
 
-  defp attach_resolved_output({:ok, final_state}, {:ok, %Resolved{} = resolved_output}),
-    do: attach_resolved_output({:ok, final_state}, resolved_output)
+  defp process_origin_with_output(plan, origin_identity, opts, %Resolved{} = resolved_output) do
+    case Processor.process_origin(plan, origin_identity, opts) do
+      {:ok, final_state} ->
+        {:ok, final_state, resolved_output, resolved_output.representation_headers}
 
-  defp attach_resolved_output({:ok, final_state}, %Resolved{} = resolved_output),
-    do: {:ok, final_state, resolved_output, resolved_output.representation_headers}
+      {:error, reason} ->
+        {:error, reason, resolved_output.representation_headers}
+    end
+  end
 
-  defp attach_resolved_output(error, {:ok, %Resolved{} = resolved_output}),
-    do: attach_resolved_output(error, resolved_output)
+  defp process_decoded_origin_with_output(decoded, plan, opts, %Resolved{} = resolved_output) do
+    case Processor.process_decoded_origin(decoded, plan, opts) do
+      {:ok, final_state} ->
+        {:ok, final_state, resolved_output, resolved_output.representation_headers}
 
-  defp attach_resolved_output(error, %Resolved{} = resolved_output),
-    do: {:error, error, resolved_output.representation_headers}
-
-  defp processing_reason({:error, reason}), do: reason
-  defp processing_reason(reason), do: reason
+      {:error, reason} ->
+        {:error, reason, resolved_output.representation_headers}
+    end
+  end
 
   defp process_source_format_automatic(plan, origin_identity, opts, policy) do
     case Processor.fetch_decode_validate_origin_with_source_format(plan, origin_identity, opts) do
       {:ok, %DecodedOrigin{} = decoded} ->
         resolve_source_format_automatic(decoded, plan, opts, policy)
 
-      error ->
+      {:error, error} ->
         {:error, error, policy.headers}
     end
   end
@@ -176,9 +178,7 @@ defmodule ImagePlug.Runtime.RequestRunner do
   defp resolve_source_format_automatic(%DecodedOrigin{} = decoded, plan, opts, policy) do
     case Policy.resolve(policy, decoded.source_format) do
       {:ok, %Resolved{} = resolved_output} ->
-        decoded
-        |> Processor.process_decoded_origin(plan, opts)
-        |> attach_resolved_output(resolved_output)
+        process_decoded_origin_with_output(decoded, plan, opts, resolved_output)
 
       {:error, error} ->
         {:error, error, policy.headers}

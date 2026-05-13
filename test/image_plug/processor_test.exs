@@ -11,8 +11,6 @@ defmodule ImagePlug.Runtime.ProcessorTest do
   alias ImagePlug.Runtime.Processor
   alias ImagePlug.Runtime.ProcessorTest.DecodeErrorImageOpen
   alias ImagePlug.Runtime.ProcessorTest.DecodeValidImageOpen
-  alias ImagePlug.Runtime.ProcessorTest.InvalidReturnMaterializer
-  alias ImagePlug.Runtime.ProcessorTest.InvalidStateMaterializer
   alias ImagePlug.Runtime.ProcessorTest.Materializer
   alias ImagePlug.Runtime.ProcessorTest.OriginImage
   alias ImagePlug.Transform.SourceMetadata
@@ -118,66 +116,6 @@ defmodule ImagePlug.Runtime.ProcessorTest do
     assert state.errors == []
     assert_receive first_message
     assert first_message == {:pipeline_event, ref, :materialized_between_pipelines}
-  end
-
-  test "process_origin returns a controlled config error for invalid materializer results" do
-    plan = %Plan{
-      source: %Plain{path: ["images", "cat-300.jpg"]},
-      pipelines: [
-        %Pipeline{operations: []},
-        %Pipeline{operations: []}
-      ],
-      output: %Output{mode: {:explicit, :jpeg}}
-    }
-
-    assert {:error,
-            {:config,
-             {:invalid_image_materializer_result, InvalidReturnMaterializer,
-              {:ok, :not_a_transform_state}}}} =
-             process_origin(
-               plan,
-               "http://origin.test/images/cat-300.jpg",
-               Keyword.put(opts(), :image_materializer, InvalidReturnMaterializer)
-             )
-  end
-
-  test "process_origin returns a controlled config error for materialized states without images" do
-    plan = %Plan{
-      source: %Plain{path: ["images", "cat-300.jpg"]},
-      pipelines: [
-        %Pipeline{operations: []},
-        %Pipeline{operations: []}
-      ],
-      output: %Output{mode: {:explicit, :jpeg}}
-    }
-
-    assert {:error,
-            {:config,
-             {:invalid_image_materializer_result, InvalidStateMaterializer,
-              {:ok, %State{image: nil}}}}} =
-             process_origin(
-               plan,
-               "http://origin.test/images/cat-300.jpg",
-               Keyword.put(opts(), :image_materializer, InvalidStateMaterializer)
-             )
-  end
-
-  test "process_origin returns a controlled config error for non-module materializers" do
-    plan = %Plan{
-      source: %Plain{path: ["images", "cat-300.jpg"]},
-      pipelines: [
-        %Pipeline{operations: []},
-        %Pipeline{operations: []}
-      ],
-      output: %Output{mode: {:explicit, :jpeg}}
-    }
-
-    assert {:error, {:config, {:invalid_image_materializer, "not a module"}}} =
-             process_origin(
-               plan,
-               "http://origin.test/images/cat-300.jpg",
-               Keyword.put(opts(), :image_materializer, "not a module")
-             )
   end
 
   test "fetch_decode_validate_origin_with_source_format returns decoded origin context" do

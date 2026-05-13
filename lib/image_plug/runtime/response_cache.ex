@@ -8,7 +8,6 @@ defmodule ImagePlug.Runtime.ResponseCache do
   alias ImagePlug.Output.Resolved
   alias ImagePlug.Plan
   alias ImagePlug.Plan.Response
-  alias ImagePlug.Runtime.ResponseDisposition
   alias ImagePlug.Transform.State
 
   @type lookup_result ::
@@ -29,7 +28,7 @@ defmodule ImagePlug.Runtime.ResponseCache do
 
   @spec validate_delivery(Entry.t(), Response.t()) :: :ok | {:error, term()}
   def validate_delivery(%Entry{content_type: content_type}, %Response{} = response) do
-    case ResponseDisposition.render(response, content_type) do
+    case Response.content_disposition(response, content_type) do
       {:ok, _content_disposition} -> :ok
       error -> error
     end
