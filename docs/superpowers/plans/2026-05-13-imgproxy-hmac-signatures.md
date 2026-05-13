@@ -251,6 +251,7 @@ defmodule ImagePlug.Parser.Imgproxy.Signature do
   def validate_trusted_signatures(_values),
     do: {:error, "trusted_signatures must be a list of non-empty strings"}
 
+  # NimbleOptions rejects explicit `signature: nil`; this branch represents an absent key.
   defp normalize_signature!(nil), do: disabled()
 
   defp normalize_signature!(config) when is_list(config) do
@@ -392,6 +393,30 @@ test "init rejects malformed imgproxy signature options before requests" do
                        salts: ["74657374"]
                      ]
                    ]
+                 )
+               end
+end
+
+test "init rejects unknown top-level imgproxy options before requests" do
+  assert_raise ArgumentError,
+               ~r/invalid imgproxy config: unknown options.*:trusted_signatures/,
+               fn ->
+                 ImagePlug.init(
+                   parser: ImagePlug.Parser.Imgproxy,
+                   root_url: "http://origin.test",
+                   imgproxy: [trusted_signatures: ["local-dev!"]]
+                 )
+               end
+end
+
+test "init rejects explicit nil imgproxy signature config before requests" do
+  assert_raise ArgumentError,
+               ~r/invalid imgproxy config: invalid value for :signature option/,
+               fn ->
+                 ImagePlug.init(
+                   parser: ImagePlug.Parser.Imgproxy,
+                   root_url: "http://origin.test",
+                   imgproxy: [signature: nil]
                  )
                end
 end
@@ -721,6 +746,9 @@ end
 test "signature-only paths fail before verification" do
   assert Imgproxy.parse(conn(:get, "/invalid"), signed_parser_opts()) ==
            {:error, :missing_signed_path}
+
+  assert Imgproxy.parse(conn(:get, "//w:300/plain/images/cat.jpg"), signed_parser_opts()) ==
+           {:error, :missing_signature}
 end
 
 test "fixPath decodes option separators before verification and parsing" do
@@ -878,7 +906,7 @@ defp parser_request_path(%Plug.Conn{request_path: request_path, script_name: scr
   end
 end
 
-defp raw_path_parts([""]), do: {:error, :missing_signature}
+defp raw_path_parts(["" | _raw_path_info]), do: {:error, :missing_signature}
 defp raw_path_parts([_signature]), do: {:error, :missing_signed_path}
 
 defp raw_path_parts([signature | raw_path_info]) do
@@ -1207,7 +1235,7 @@ The signature segment is verified before option parsing, planning, source
 identity resolution, cache lookup, or origin fetch. With no `:imgproxy`
 signature configuration, ImagePlug accepts only `_` and `unsafe` as
 disabled-signing placeholders. With signing configured, the signature must be a
-URL-safe Base64 HMAC-SHA256 digest of the raw path after the signature,
+raw/unpadded Base64URL HMAC-SHA256 digest of the raw path after the signature,
 including the leading slash, or an exact configured trusted signature.
 Before verification, ImagePlug applies imgproxy-compatible `fixPath`
 normalization: `%3A` in processing options is treated as `:`, and normalized
@@ -1233,7 +1261,7 @@ to:
 
 ```markdown
 | Required signature path segment | Supported | `_` and `unsafe` are accepted when signing is disabled; HMAC and exact trusted signatures are accepted when signing is configured. This is intentionally narrower than upstream disabled-signing behavior. |
-| HMAC URL signatures | Supported | Imgproxy parser verifies URL-safe Base64 HMAC-SHA256 signatures with hex key/salt pairs, optional truncation, rotation pairs, exact trusted signatures, and imgproxy-compatible `fixPath` before verification. Signature failures return 403. |
+| HMAC URL signatures | Supported | Imgproxy parser verifies raw/unpadded Base64URL HMAC-SHA256 signatures with hex key/salt pairs, optional truncation, rotation pairs, exact trusted signatures, and imgproxy-compatible `fixPath` before verification. Signature failures return 403. |
 ```
 
 Also remove HMAC signatures from `## Suggested Next Additions` so the matrix does not continue listing this completed feature as future work.
@@ -1270,7 +1298,17 @@ mise exec -- mix format lib/image_plug.ex lib/image_plug/parser/imgproxy.ex lib/
 
 Expected: command exits 0 and may rewrite formatted files.
 
-- [ ] **Step 2: Run focused test suite with warnings as errors**
+- [ ] **Step 2: Run strict Credo**
+
+Run:
+
+```bash
+mise exec -- mix credo --strict
+```
+
+Expected: command exits 0.
+
+- [ ] **Step 3: Run focused test suite with warnings as errors**
 
 Run:
 
@@ -1280,7 +1318,7 @@ mise exec -- mix test test/parser/imgproxy/signature_test.exs test/parser/imgpro
 
 Expected: all tests pass with no warnings.
 
-- [ ] **Step 3: Run full test suite with warnings as errors**
+- [ ] **Step 4: Run full test suite with warnings as errors**
 
 Run:
 
@@ -1290,7 +1328,7 @@ mise exec -- mix test --warnings-as-errors
 
 Expected: all tests pass with no warnings.
 
-- [ ] **Step 4: Compile with warnings as errors**
+- [ ] **Step 5: Compile with warnings as errors**
 
 Run:
 
@@ -1300,7 +1338,7 @@ mise exec -- mix compile --warnings-as-errors
 
 Expected: command exits 0.
 
-- [ ] **Step 5: Inspect final diff**
+- [ ] **Step 6: Inspect final diff**
 
 Run:
 
@@ -1311,7 +1349,7 @@ mise exec -- git diff --stat HEAD
 
 Expected: only intended implementation, test, and documentation files are modified.
 
-- [ ] **Step 6: Commit final formatting or verification fixes**
+- [ ] **Step 7: Commit final formatting or verification fixes**
 
 If Step 1 rewrote files after the previous task commits, run:
 
