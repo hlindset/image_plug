@@ -21,6 +21,7 @@ defmodule ImagePlug.Parser.Imgproxy do
   alias ImagePlug.Parser.Imgproxy.PlanBuilder
   alias ImagePlug.Parser.Imgproxy.RequestPolicy
   alias ImagePlug.Parser.Imgproxy.ResponseRequest
+  alias ImagePlug.Parser.Imgproxy.Signature
   alias ImagePlug.Plan.Orientation
   alias ImagePlug.Plan.Response
 
@@ -94,6 +95,9 @@ defmodule ImagePlug.Parser.Imgproxy do
   }
 
   def parse(%Plug.Conn{} = conn), do: parse(conn, [])
+
+  @doc false
+  def validate_options!(imgproxy_opts), do: Signature.validate_options!(imgproxy_opts)
 
   @impl ImagePlug.Parser
   def parse(%Plug.Conn{} = conn, opts) do
