@@ -1,0 +1,199 @@
+# Imgproxy HMAC Signatures Design
+
+## Context
+
+ImagePlug currently accepts imgproxy-compatible URLs with a required signature
+path segment, but only the disabled-signing placeholders `_` and `unsafe` are
+valid. The support matrix marks HMAC URL signatures as missing.
+
+The local imgproxy reference implementation verifies signatures before parsing
+processing options or resolving the source image. It computes a URL-safe
+Base64 HMAC-SHA256 digest over the path after the signature, including the
+leading slash. The HMAC message is `salt <> signed_path`, and multiple key/salt
+pairs are supported for rotation. Imgproxy also supports `trusted_signatures`,
+which are exact signature strings accepted before HMAC decoding.
+
+ImagePlug should add this as imgproxy-provider compatibility only. Signature
+validation is request authorization, not product-neutral image intent, so it
+must not enter `ImagePlug.Plan`, transform operations, output negotiation, or
+cache key data.
+
+## Goals
+
+- Support imgproxy-compatible HMAC signatures for `ImagePlug.Parser.Imgproxy`.
+- Support trusted signatures in the same first slice.
+- Validate signing configuration during Plug initialization.
+- Reject invalid signatures before option parsing, planning, origin identity,
+  cache lookup, or origin fetch.
+- Keep the canonical request model product-neutral.
+- Keep disabled-signing behavior narrow: without signing config, only `_` and
+  `unsafe` remain accepted placeholders.
+
+## Non-Goals
+
+- Do not add signatures to `ImagePlug.Plan`.
+- Do not vary cache keys by signature string.
+- Do not add absolute source URL support, encoded source URLs, encrypted source
+  URLs, or imgproxy info endpoints.
+- Do not implement imgproxy `fixPath` compatibility in this slice.
+- Do not add globally generic signing support for every parser.
+
+## Configuration
+
+Add imgproxy-specific parser configuration under the existing Plug options:
+
+```elixir
+[
+  parser: ImagePlug.Parser.Imgproxy,
+  root_url: "http://origin.test",
+  imgproxy: [
+    signature: [
+      keys: ["736563726574"],
+      salts: ["68656c6c6f"],
+      signature_size: 32,
+      trusted_signatures: ["local-dev", "migration-token"]
+    ]
+  ]
+]
+```
+
+`keys` and `salts` are hex-encoded binaries. Their list lengths must match.
+`signature_size` is the number of digest bytes used before Base64 encoding and
+must be in `1..32`; it defaults to `32`. `trusted_signatures` defaults to `[]`
+and must be a list of non-empty binaries.
+
+If `imgproxy[:signature]` is absent, signature checking is disabled and the
+current `_` and `unsafe` placeholders remain the only valid signature segments.
+If signing config is present, `_` and `unsafe` are not special unless explicitly
+listed in `trusted_signatures`.
+
+## Architecture
+
+Add a parser-owned signature module:
+
+```elixir
+ImagePlug.Parser.Imgproxy.Signature
+```
+
+Responsibilities:
+
+- Validate and normalize signature config.
+- Decode hex key/salt values during initialization.
+- Verify a request signature against normalized config.
+- Return tagged parser errors for malformed or invalid signatures.
+
+Core request option validation should call a narrow parser hook when available:
+
+```elixir
+@optional_callbacks validate_options!: 1
+```
+
+`ImagePlug.Request.Options.validate!/1` can fetch the selected parser and call
+`validate_options!/1` if the parser exports it. The imgproxy parser owns the
+NimbleOptions schema for `:imgproxy` and returns the same top-level options
+with normalized parser config, such as decoded key/salt pairs. Core should not
+know the shape of imgproxy signing options.
+
+This keeps dependencies aligned:
+
+- `ImagePlug.Request` depends on the parser behaviour only.
+- `ImagePlug.Parser.Imgproxy` owns imgproxy option validation.
+- `ImagePlug.Plan`, `ImagePlug.Cache`, request execution, origin fetching,
+  response sending, output, and transform code do not depend on signature
+  details.
+
+## Request Flow
+
+`ImagePlug.Parser.Imgproxy.parse_request/2` should extract:
+
+- `signature`: the first `path_info` segment.
+- `signed_path`: `"/" <> Enum.join(path_info_after_signature, "/")`.
+
+The parser verifies `signature` against `signed_path` before splitting the
+source marker or parsing options.
+
+Verification behavior:
+
+1. If signing is disabled, accept only `_` and `unsafe`.
+2. If signing is enabled and `signature` exactly matches a trusted signature,
+   accept without Base64 decoding or HMAC verification.
+3. Otherwise decode `signature` using URL-safe Base64 without padding.
+4. For each configured key/salt pair, compute:
+
+   ```elixir
+   :crypto.mac(:hmac, :sha256, key, salt <> signed_path)
+   ```
+
+5. Truncate the digest to `signature_size` bytes before comparison.
+6. Use constant-time comparison for equal-length binaries.
+7. Accept when any configured pair matches, otherwise reject.
+
+Use the raw `path_info` segments for `signed_path`. Do not use decoded source
+segments or canonicalized plan data. This matches the parser-visible URL path
+and avoids making signatures depend on later imgproxy planning behavior.
+
+## Errors
+
+Keep errors parser-owned and stable enough for tests without over-specifying
+private formatting. Suggested tags:
+
+- `{:unsupported_signature, signature}` for disabled signing with a non-placeholder.
+- `{:invalid_signature_encoding, signature}` for malformed Base64 signatures.
+- `:invalid_signature` for HMAC mismatch.
+- `{:invalid_imgproxy_signature_config, reason}` for initialization errors.
+
+All request-time signature failures should return through
+`ImagePlug.Parser.Imgproxy.handle_error/2` as HTTP 400. Initialization failures
+should raise `ArgumentError` through option validation.
+
+## Cache Semantics
+
+Signatures must not participate in cache identity. A valid HMAC signature and a
+trusted signature for the same source, options, output policy, and configured
+vary inputs should resolve to the same cache key.
+
+This follows ImagePlug's current cache contract: cache identity is based on
+resolved origin identity, canonical plan fields, configured vary inputs, and
+normalized automatic output negotiation inputs. Request authorization proofs do
+not change image output.
+
+## Testing
+
+Add focused parser tests:
+
+- Disabled signing accepts `_` and `unsafe`.
+- Disabled signing rejects arbitrary signatures.
+- Enabled signing accepts a valid full-size HMAC signature.
+- Enabled signing rejects `_` and `unsafe` unless trusted.
+- Enabled signing rejects invalid Base64 signatures.
+- Enabled signing rejects valid Base64 with the wrong digest.
+- Multiple key/salt pairs allow key rotation.
+- `signature_size` supports truncated signatures.
+- Trusted signatures are accepted before HMAC decoding.
+- Trusted signatures are exact string matches.
+
+Add initialization tests:
+
+- Malformed hex key/salt values raise.
+- Key/salt count mismatch raises.
+- `signature_size` outside `1..32` raises.
+- `trusted_signatures` rejects non-lists and empty/non-binary values.
+
+Add request safety tests:
+
+- Invalid signature returns before source identity resolution, cache lookup, and
+  origin fetch.
+- Trusted signature and equivalent HMAC-signed request share cache identity.
+
+## Documentation
+
+Update:
+
+- `README.md` Imgproxy Path API examples and option notes.
+- `docs/imgproxy_path_api.md` signature section.
+- `docs/imgproxy_support_matrix.md`, changing HMAC URL signatures from
+  `Missing` to `Supported`.
+
+Document that ImagePlug's signing support is currently imgproxy-parser specific,
+that disabled signing accepts only `_` and `unsafe`, and that trusted signatures
+are exact bypass strings for deployments that deliberately configure them.
