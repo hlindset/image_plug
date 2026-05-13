@@ -127,6 +127,9 @@ parsing inputs from the parser-visible raw request path:
 - `path_info`: slash-preserving parser segments from the same raw path used for
   `signed_path`.
 
+Requests with no path after the signature segment should fail before signature
+verification, matching upstream's request slicing.
+
 The parser verifies `signature` against `signed_path` before splitting the
 source marker or parsing options.
 
@@ -142,7 +145,8 @@ Verification behavior:
 1. If signing is disabled, accept only `_` and `unsafe`.
 2. If signing is enabled and `signature` exactly matches a trusted signature,
    accept without Base64 decoding or HMAC verification.
-3. Otherwise decode `signature` using URL-safe Base64 without padding.
+3. Otherwise decode `signature` using URL-safe Base64 without padding. Reject
+   padded signatures before decoding.
 4. For each configured key/salt pair, compute:
 
    ```elixir
@@ -194,6 +198,7 @@ Add focused parser tests:
 
 - Disabled signing accepts `_` and `unsafe`.
 - Disabled signing rejects arbitrary signatures.
+- Signature-only paths fail before signature verification.
 - Enabled signing accepts a valid full-size HMAC signature.
 - Enabled signing rejects `_` and `unsafe` unless trusted.
 - Enabled signing rejects invalid Base64 signatures.
@@ -207,6 +212,7 @@ Add initialization tests:
 
 - Unknown top-level `:imgproxy` keys raise instead of silently disabling
   signing.
+- Explicit `signature: nil` raises; only absent `:signature` disables signing.
 - Malformed hex key/salt values raise.
 - Key/salt count mismatch raises.
 - `signature_size` outside `1..32` raises.

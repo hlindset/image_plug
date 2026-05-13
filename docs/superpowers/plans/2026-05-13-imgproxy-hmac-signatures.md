@@ -90,6 +90,12 @@ defmodule ImagePlug.Parser.Imgproxy.SignatureTest do
       end
     end
 
+    test "rejects explicit nil signature config" do
+      assert_raise ArgumentError, ~r/invalid value for :signature option/, fn ->
+        Signature.validate_options!(signature: nil)
+      end
+    end
+
     test "rejects empty signing config" do
       assert_raise ArgumentError, ~r/at least one key\/salt pair or trusted signature is required/, fn ->
         Signature.validate_options!(signature: [keys: [], salts: []])
@@ -187,7 +193,7 @@ defmodule ImagePlug.Parser.Imgproxy.Signature do
   @moduledoc false
 
   @imgproxy_schema NimbleOptions.new!(
-                     signature: [type: {:or, [:keyword_list, nil]}, default: nil]
+                     signature: [type: :keyword_list, required: false]
                    )
 
   @signature_schema NimbleOptions.new!(
@@ -577,6 +583,9 @@ describe "verify/3" do
     assert Signature.verify("local-dev!", "/w:300/plain/images/cat.jpg", config) ==
              {:error, {:invalid_signature_encoding, "local-dev!"}}
 
+    assert Signature.verify("dtLwhdnPPiu_epMl1LrzheLpvHas-4mwvY6L3Z8WwlY=", "asd", config) ==
+             {:error, {:invalid_signature_encoding, "dtLwhdnPPiu_epMl1LrzheLpvHas-4mwvY6L3Z8WwlY="}}
+
     assert Signature.verify("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "/w:300/plain/images/cat.jpg", config) ==
              {:error, :invalid_signature}
   end
@@ -624,9 +633,13 @@ defp verify_hmac_signature(signature, signed_path, %__MODULE__{} = config) do
 end
 
 defp decode_signature(signature) do
-  case Base.url_decode64(signature, padding: false) do
-    {:ok, decoded} -> {:ok, decoded}
-    :error -> {:error, {:invalid_signature_encoding, signature}}
+  if String.contains?(signature, "=") do
+    {:error, {:invalid_signature_encoding, signature}}
+  else
+    case Base.url_decode64(signature, padding: false) do
+      {:ok, decoded} -> {:ok, decoded}
+      :error -> {:error, {:invalid_signature_encoding, signature}}
+    end
   end
 end
 
@@ -703,6 +716,11 @@ test "signature verification excludes query strings" do
              ),
              signed_parser_opts()
            )
+end
+
+test "signature-only paths fail before verification" do
+  assert Imgproxy.parse(conn(:get, "/invalid"), signed_parser_opts()) ==
+           {:error, :missing_signed_path}
 end
 
 test "fixPath decodes option separators before verification and parsing" do
@@ -861,7 +879,7 @@ defp parser_request_path(%Plug.Conn{request_path: request_path, script_name: scr
 end
 
 defp raw_path_parts([""]), do: {:error, :missing_signature}
-defp raw_path_parts([signature]), do: {:ok, signature, "", []}
+defp raw_path_parts([_signature]), do: {:error, :missing_signed_path}
 
 defp raw_path_parts([signature | raw_path_info]) do
   signed_path =
