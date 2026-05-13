@@ -16,7 +16,7 @@ ImagePlug's Imgproxy API uses path-oriented and declarative URLs:
 /<signature>[/<option>...]/plain/<origin_path>
 ```
 
-For local development, the signature segment can be `_` or `unsafe`:
+For unsigned local development, the signature segment can be `_` or `unsafe`:
 
 ```text
 /_/plain/images/cat-300.jpg
@@ -26,6 +26,32 @@ For local development, the signature segment can be `_` or `unsafe`:
 /_/rt:force/w:300/h:200/plain/images/cat-300.jpg
 /_/rs:fill:300:300/plain/images/cat-300.jpg@webp
 ```
+
+For production-style imgproxy compatibility, configure hex-encoded key/salt
+pairs under `:imgproxy`:
+
+```elixir
+forward "/",
+  to: ImagePlug,
+  init_opts: [
+    root_url: "http://localhost:4000",
+    parser: ImagePlug.Parser.Imgproxy,
+    imgproxy: [
+      signature: [
+        keys: ["736563726574"],
+        salts: ["68656c6c6f"],
+        signature_size: 32,
+        trusted_signatures: []
+      ]
+    ]
+  ]
+```
+
+When signing is configured, `_` and `unsafe` are rejected unless explicitly
+listed in `trusted_signatures`. Trusted signatures are exact path-segment
+matches accepted before HMAC decoding. This is intentionally narrower than
+upstream imgproxy's disabled-signing behavior, which accepts any signature
+segment when no key/salt pair is configured.
 
 The Imgproxy grammar accepts selected imgproxy-compatible option names as ImagePlug's own path grammar. Compatibility ends at parsing and planning: runtime, cache, output, and transform code consume product-neutral `ImagePlug.Plan` data with canonical `ImagePlug.Plan.Operation.*` transform intent.
 
