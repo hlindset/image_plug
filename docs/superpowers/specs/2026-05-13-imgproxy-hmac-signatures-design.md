@@ -38,8 +38,8 @@ cache key data.
 - Do not implement imgproxy `fixPath` compatibility in this slice.
 - Do not match every imgproxy wire-level behavior. ImagePlug intentionally keeps
   disabled signing narrower than upstream, treats trusted-only config as exact
-  trusted-signature authorization instead of disabled signing, and returns its
-  existing parser error status for signature failures.
+  trusted-signature authorization instead of disabled signing, and does not
+  implement `fixPath` compatibility in this slice.
 - Do not add globally generic signing support for every parser.
 
 ## Configuration
@@ -164,10 +164,10 @@ private formatting. Suggested tags:
 - `{:invalid_imgproxy_signature_config, reason}` for initialization errors.
 
 All request-time signature failures should return through
-`ImagePlug.Parser.Imgproxy.handle_error/2` as HTTP 400. This intentionally uses
-ImagePlug's current parser-validation status instead of upstream imgproxy's 403
-signature failure status. Initialization failures should raise `ArgumentError`
-through option validation.
+`ImagePlug.Parser.Imgproxy.handle_error/2` as HTTP 403, matching upstream
+imgproxy's authorization failure status. Other parser validation failures should
+continue returning HTTP 400. Initialization failures should raise
+`ArgumentError` through option validation.
 
 ## Cache Semantics
 
