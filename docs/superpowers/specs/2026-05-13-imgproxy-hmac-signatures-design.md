@@ -92,8 +92,10 @@ must remain parser-free. In this slice, use a narrow explicit clause for
 `ImagePlug.Parser.Imgproxy` instead of adding a broad parser behaviour callback.
 
 The imgproxy parser owns the NimbleOptions schema for `:imgproxy` and returns a
-normalized parser config, including decoded key/salt pairs. Core should not know
-the shape of imgproxy signing options.
+normalized parser config, including decoded key/salt pairs. The top-level
+`:imgproxy` schema should reject unknown keys; signing values belong under
+`:imgproxy[:signature]`. Core should not know the shape of imgproxy signing
+options.
 
 This keeps dependencies aligned:
 
@@ -106,11 +108,14 @@ This keeps dependencies aligned:
 
 ## Request Flow
 
-`ImagePlug.Parser.Imgproxy.parse_request/2` should extract:
+`ImagePlug.Parser.Imgproxy.parse_request/2` should derive both verification and
+parsing inputs from the parser-visible raw request path:
 
-- `signature`: the first `path_info` segment.
+- `signature`: the first raw path segment after any mounted `script_name`.
 - `signed_path`: the raw request path after the signature segment, including
   its leading slash and preserving empty path segments and trailing slashes.
+- `path_info`: slash-preserving parser segments from the same raw path used for
+  `signed_path`.
 
 The parser verifies `signature` against `signed_path` before splitting the
 source marker or parsing options.
@@ -131,12 +136,12 @@ Verification behavior:
 6. Use constant-time comparison for equal-length binaries.
 7. Accept when any configured pair matches, otherwise reject.
 
-Use the parser-visible raw request path for `signed_path`, not decoded source
-segments, canonicalized plan data, or normalized `conn.path_info`. When
-ImagePlug is mounted under a Plug `script_name`, strip only the mounted prefix
-before removing the first signature segment. This preserves imgproxy's
-slash-sensitive signing semantics while keeping signatures scoped to the path
-seen by this parser.
+Use the parser-visible raw request path for `signed_path` and for subsequent
+imgproxy option/source parsing, not decoded source segments, canonicalized plan
+data, or normalized `conn.path_info`. When ImagePlug is mounted under a Plug
+`script_name`, strip only the mounted prefix before removing the first signature
+segment. This preserves imgproxy's slash-sensitive signing semantics while
+keeping signatures scoped to the path seen by this parser.
 
 ## Errors
 
@@ -180,6 +185,8 @@ Add focused parser tests:
 
 Add initialization tests:
 
+- Unknown top-level `:imgproxy` keys raise instead of silently disabling
+  signing.
 - Malformed hex key/salt values raise.
 - Key/salt count mismatch raises.
 - `signature_size` outside `1..32` raises.
@@ -191,6 +198,8 @@ Add request safety tests:
 
 - Invalid signature returns before source identity resolution, cache lookup, and
   origin fetch.
+- Invalid signature returns before option parsing and planning through the
+  public Plug entry point.
 - Positive raw-path parser vectors prove signatures are computed over duplicate
   slash and trailing slash paths without normalization.
 - Mounted `script_name` requests strip only the mounted prefix before signature
@@ -205,7 +214,7 @@ direct `VerifySignature/2` vectors over exact signed bytes. The upstream
 primitive vector signs `"asd"` without a leading slash; parser and request tests
 must use signed paths that begin with `/`.
 
-From `local/imgproxy-master/security/signature_test.go`:
+From `/Users/hlindset/src/image_plug/local/imgproxy-master/security/signature_test.go`:
 
 ```elixir
 %{
@@ -258,7 +267,7 @@ decoding:
 
 ### Upstream Request-Handler Fixture
 
-From `local/imgproxy-master/processing_handler_test.go`, keep this fixture as
+From `/Users/hlindset/src/image_plug/local/imgproxy-master/processing_handler_test.go`, keep this fixture as
 upstream request-handler evidence that `unsafe` fails when signing is enabled
 and the signed path succeeds. Do not use it as an ImagePlug parser contract:
 `local:///test1.png` is imgproxy source syntax, while this ImagePlug slice
@@ -276,7 +285,7 @@ continues to model plain sources as paths resolved against `root_url`.
 
 ### Public Documentation Vector
 
-From `local/imgproxy-docs-master/.../usage/signing_url.mdx`, include the public
+From `/Users/hlindset/src/image_plug/local/imgproxy-docs-master/.../usage/signing_url.mdx`, include the public
 documentation vector as an algorithm drift check. This vector also uses
 upstream-supported syntax that ImagePlug does not fully support in this slice,
 so it belongs in signature-module tests, not parser tests.

@@ -80,6 +80,16 @@ defmodule ImagePlug.Parser.Imgproxy.SignatureTest do
       end
     end
 
+    test "rejects unknown top-level imgproxy options" do
+      assert_raise ArgumentError, ~r/unknown options.*:trusted_signatures/, fn ->
+        Signature.validate_options!(trusted_signatures: ["local-dev!"])
+      end
+
+      assert_raise ArgumentError, ~r/unknown options.*:keys/, fn ->
+        Signature.validate_options!(keys: ["74657374"], salts: ["73616c74"])
+      end
+    end
+
     test "rejects empty signing config" do
       assert_raise ArgumentError, ~r/at least one key\/salt pair or trusted signature is required/, fn ->
         Signature.validate_options!(signature: [keys: [], salts: []])
@@ -176,6 +186,10 @@ Create `lib/image_plug/parser/imgproxy/signature.ex`:
 defmodule ImagePlug.Parser.Imgproxy.Signature do
   @moduledoc false
 
+  @imgproxy_schema NimbleOptions.new!(
+                     signature: [type: {:or, [:keyword_list, nil]}, default: nil]
+                   )
+
   @signature_schema NimbleOptions.new!(
                       keys: [type: {:list, :string}, default: []],
                       salts: [type: {:list, :string}, default: []],
@@ -208,12 +222,12 @@ defmodule ImagePlug.Parser.Imgproxy.Signature do
 
   @spec validate_options!(keyword()) :: keyword()
   def validate_options!(imgproxy_opts) when is_list(imgproxy_opts) do
-    signature =
-      imgproxy_opts
-      |> Keyword.get(:signature)
-      |> normalize_signature!()
-
-    Keyword.put(imgproxy_opts, :signature, signature)
+    with {:ok, validated} <- NimbleOptions.validate(imgproxy_opts, @imgproxy_schema) do
+      Keyword.put(validated, :signature, normalize_signature!(validated[:signature]))
+    else
+      {:error, %NimbleOptions.ValidationError{} = error} ->
+        raise ArgumentError, "invalid imgproxy config: #{Exception.message(error)}"
+    end
   end
 
   def validate_options!(_imgproxy_opts),
@@ -503,7 +517,8 @@ describe "verify/3" do
 
     assert :ok = Signature.verify("truested", "asd", config)
     assert :ok = Signature.verify("local-dev!", "/w:300/plain/images/cat.jpg", config)
-    assert Signature.verify("untrusted", "asd", config) == {:error, :invalid_signature}
+    assert Signature.verify("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "asd", config) ==
+             {:error, :invalid_signature}
   end
 
   test "matches public docs signing vector" do
@@ -720,13 +735,15 @@ mise exec -- mix test test/parser/imgproxy_test.exs --warnings-as-errors
 
 Expected: signed URL test fails because parser still accepts only `_` and `unsafe`.
 
-- [ ] **Step 3: Verify signatures before source and option parsing**
+- [ ] **Step 3: Verify and parse from the same slash-preserving raw path**
 
-In `lib/image_plug/parser/imgproxy.ex`, update `parse_request/2`:
+In `lib/image_plug/parser/imgproxy.ex`, update `parse_request/2` so signature
+verification and request parsing both use the same parser-visible raw path:
 
 ```elixir
-def parse_request(%Plug.Conn{path_info: [signature | path_info]} = conn, opts) do
-  with :ok <- verify_signature(conn, signature, opts),
+def parse_request(%Plug.Conn{} = conn, opts) do
+  with {:ok, signature, signed_path, path_info} <- parse_raw_path(conn),
+       :ok <- verify_signature(signature, signed_path, opts),
        {:ok, option_segments, raw_source_path} <- split_source(path_info),
        {:ok, request_options} <- parse_request_options(option_segments),
        {:ok, source_path, source_format} <- parse_plain_source(raw_source_path) do
@@ -743,10 +760,10 @@ end
 Replace the existing `validate_signature/1` helpers with:
 
 ```elixir
-defp verify_signature(%Plug.Conn{} = conn, signature, opts) do
+defp verify_signature(signature, signed_path, opts) do
   opts
   |> signature_config()
-  |> then(&Signature.verify(signature, signed_path(conn), &1))
+  |> then(&Signature.verify(signature, signed_path, &1))
 end
 
 defp signature_config(opts) do
@@ -755,10 +772,19 @@ defp signature_config(opts) do
   |> Keyword.get(:signature, Signature.disabled())
 end
 
-defp signed_path(%Plug.Conn{} = conn) do
-  conn
-  |> parser_request_path()
-  |> strip_signature_segment()
+defp parse_raw_path(%Plug.Conn{} = conn) do
+  case parser_request_path(conn) do
+    "/" ->
+      {:error, :missing_signature}
+
+    "/" <> raw_path ->
+      raw_path
+      |> :binary.split("/", [:global])
+      |> raw_path_parts()
+
+    _path ->
+      {:error, :missing_signature}
+  end
 end
 
 defp parser_request_path(%Plug.Conn{request_path: request_path, script_name: []}), do: request_path
@@ -772,11 +798,11 @@ defp parser_request_path(%Plug.Conn{request_path: request_path, script_name: scr
   end
 end
 
-defp strip_signature_segment("/" <> raw_path) do
-  case :binary.split(raw_path, "/") do
-    [_signature, rest] -> "/" <> rest
-    [_signature] -> ""
-  end
+defp raw_path_parts([""]), do: {:error, :missing_signature}
+defp raw_path_parts([signature]), do: {:ok, signature, "", []}
+
+defp raw_path_parts([signature | path_info]) do
+  {:ok, signature, "/" <> Enum.join(path_info, "/"), path_info}
 end
 ```
 
@@ -829,6 +855,47 @@ test "invalid imgproxy signatures return before source identity, cache lookup, a
   assert conn.resp_body =~ "invalid_signature"
   refute_received :cache_lookup
   refute_received :cache_put
+end
+
+test "invalid imgproxy signatures return before origin fetch with a valid root URL" do
+  conn =
+    ImagePlug.call(conn(:get, "/invalid/w:300/plain/images/cat.jpg"),
+      ImagePlug.init(
+        parser: ImagePlug.Parser.Imgproxy,
+        root_url: "http://origin.test",
+        imgproxy: [
+          signature: [
+            keys: ["746573742d6b6579"],
+            salts: ["746573742d73616c74"]
+          ]
+        ],
+        origin_req_options: [plug: ImagePlug.Request.ProcessorTest.OriginShouldNotFetch]
+      )
+    )
+
+  assert conn.status == 400
+  assert conn.resp_body =~ "invalid_signature"
+end
+
+test "invalid imgproxy signatures return before option parsing at the plug boundary" do
+  conn =
+    ImagePlug.call(conn(:get, "/invalid/raw/plain/images/cat.jpg"),
+      ImagePlug.init(
+        parser: ImagePlug.Parser.Imgproxy,
+        root_url: "http://origin.test",
+        imgproxy: [
+          signature: [
+            keys: ["746573742d6b6579"],
+            salts: ["746573742d73616c74"]
+          ]
+        ],
+        origin_req_options: [plug: ImagePlug.Request.ProcessorTest.OriginShouldNotFetch]
+      )
+    )
+
+  assert conn.status == 400
+  assert conn.resp_body =~ "invalid_signature"
+  refute conn.resp_body =~ "unsupported_option"
 end
 ```
 
@@ -925,15 +992,22 @@ mise exec -- git commit -m "Cover imgproxy signature safety boundaries"
 
 - [ ] **Step 1: Update README signature section**
 
-In `README.md`, replace the local-development signature paragraph and its following signature-only text code block with this expanded signature section. Preserve the later processing examples that document resize/format URLs.
+In `README.md`, replace only this sentence:
+
+```markdown
+For local development, the signature segment can be `_` or `unsafe`:
+```
+
+with:
 
 ````markdown
 For unsigned local development, the signature segment can be `_` or `unsafe`:
+````
 
-```text
-/_/plain/images/cat-300.jpg
-/unsafe/w:300/plain/images/cat-300.jpg
-```
+Leave the existing text code block of local examples in place. After that code
+block, add this production-style signing section:
+
+````markdown
 
 For production-style imgproxy compatibility, configure hex-encoded key/salt
 pairs under `:imgproxy`:
@@ -962,7 +1036,20 @@ matches accepted before HMAC decoding.
 
 - [ ] **Step 2: Update `docs/imgproxy_path_api.md` URL Shape section**
 
-Add this after the paragraph that defines the general URL shape:
+In `docs/imgproxy_path_api.md`, change the URL shape from:
+
+```text
+    /_/option[:arg...]/option[:arg...]/plain/path/to/image[@extension]
+```
+
+to:
+
+```text
+    /<signature>/option[:arg...]/option[:arg...]/plain/path/to/image[@extension]
+```
+
+Then replace the sentence that says `_` is the disabled-signing signature
+segment with:
 
 ```markdown
 The signature segment is verified before option parsing, planning, source
@@ -971,6 +1058,11 @@ signature configuration, ImagePlug accepts only `_` and `unsafe` as
 disabled-signing placeholders. With signing configured, the signature must be a
 URL-safe Base64 HMAC-SHA256 digest of the raw path after the signature,
 including the leading slash, or an exact configured trusted signature.
+
+`plain` source paths are path segments after the source marker. A plain source
+may end in `@extension` to request an explicit output format from the source
+path. The `@extension` form bypasses `Accept` negotiation like `format`, `f`,
+and `ext`.
 ```
 
 - [ ] **Step 3: Update support matrix signature rows**
@@ -1078,6 +1170,6 @@ If `git status --short` is empty, skip this commit.
 ## Self-Review
 
 - Spec coverage: Tasks 1-4 implement parser-owned configuration and verification; Task 5 covers safety and cache boundaries; Task 6 updates public docs and the support matrix; Task 7 verifies formatting, focused tests, full tests, and warning-free compilation.
-- Review coverage: This revision addresses the subagent findings by preserving raw slash structure, adding positive raw-path and `script_name` tests, keeping parser validation out of `ImagePlug.Request`, using NimbleOptions for public config, requiring at least one authorization method, rejecting empty decoded key/salt values, supporting trusted-only config, avoiding hand-built signature structs outside signature tests, updating both support-matrix signature rows and suggested next additions, and running tests with warnings as errors.
+- Review coverage: This revision addresses the subagent findings by preserving raw slash structure, parsing from the same raw path used for signature verification, adding positive raw-path and `script_name` tests, keeping parser validation out of `ImagePlug.Request`, using NimbleOptions for top-level and nested public config, requiring at least one authorization method, rejecting empty decoded key/salt values, supporting trusted-only config, avoiding hand-built signature structs outside signature tests, updating both support-matrix signature rows and suggested next additions, and running tests with warnings as errors.
 - Placeholder scan: This plan contains no deferred implementation markers. Each code-changing task names concrete files, commands, and expected outcomes.
 - Type consistency: The plan consistently uses `ImagePlug.Parser.Imgproxy.Signature`, `%Signature{mode, key_salt_pairs, signature_size, trusted_signatures}`, `disabled/0`, `validate_options!/1`, and `verify/3` across tests and implementation.
