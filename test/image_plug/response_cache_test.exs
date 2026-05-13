@@ -176,6 +176,6 @@ defmodule ImagePlug.Runtime.ResponseCacheTest do
                cache: {CaptureAdapter, []}
              )
 
-    assert Exception.message(exception) =~ "invalid cache entry"
+    assert Exception.message(exception) =~ "invalid cache headers"
   end
 end

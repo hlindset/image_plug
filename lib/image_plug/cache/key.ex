@@ -67,12 +67,8 @@ defmodule ImagePlug.Cache.Key do
   defp pipelines_data(pipelines) do
     {:ok,
      Enum.map(pipelines, fn %Pipeline{operations: operations} ->
-       Enum.map(operations, &operation_data/1)
+       Enum.map(operations, &KeyData.data/1)
      end)}
-  end
-
-  defp operation_data(operation) do
-    KeyData.data(operation)
   end
 
   defp transform_data, do: [key_data_version: @transform_key_data_version]

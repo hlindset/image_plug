@@ -210,7 +210,7 @@ defmodule ImagePlug.Runtime.ResponseSender do
   end
 
   defp send_cache_entry(%Plug.Conn{} = conn, %Entry{} = entry, %Response{} = response) do
-    with {:ok, headers} <- Entry.normalize_headers(entry.headers),
+    with {:ok, headers} <- Entry.cacheable_headers(entry.headers),
          {:ok, headers} <- delivery_headers(headers, response, entry.content_type) do
       send_normalized_cache_entry(conn, entry, headers)
     else

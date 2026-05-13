@@ -41,13 +41,14 @@ defmodule ImagePlug.Cache.FileSystemPropertyTest do
       try do
         cache_key = key(hash)
 
-        entry =
-          Entry.new!(
-            body: body,
-            content_type: content_type,
-            headers: headers,
-            created_at: ~U[2026-04-29 10:15:00Z]
-          )
+        {:ok, cached_headers} = Entry.cacheable_headers(headers)
+
+        entry = %Entry{
+          body: body,
+          content_type: content_type,
+          headers: cached_headers,
+          created_at: ~U[2026-04-29 10:15:00Z]
+        }
 
         assert :ok = FileSystem.put(cache_key, entry, root: root)
         assert {:hit, cached_entry} = FileSystem.get(cache_key, root: root)

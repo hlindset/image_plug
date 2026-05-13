@@ -80,18 +80,19 @@ defmodule ImagePlug.Runtime.ResponseCache do
   end
 
   defp entry(output, response_headers) do
-    case Entry.new(
+    case Entry.cacheable_headers(response_headers) do
+      {:ok, headers} ->
+        {:ok,
+         %Entry{
            body: output.body,
            content_type: output.content_type,
-           headers: response_headers,
+           headers: headers,
            created_at: DateTime.utc_now()
-         ) do
-      {:ok, entry} ->
-        {:ok, entry}
+         }}
 
       {:error, reason} ->
         {:error,
-         {:encode, ArgumentError.exception("invalid cache entry: #{inspect(reason)}"), []}}
+         {:encode, ArgumentError.exception("invalid cache headers: #{inspect(reason)}"), []}}
     end
   end
 end
