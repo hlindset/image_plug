@@ -19,19 +19,22 @@ defmodule ImagePlug.Output.Encoder do
   end
 
   @spec memory_output(Vix.Vips.Image.t(), Resolved.t(), keyword()) ::
-          {:ok, EncodedOutput.t()} | {:error, {:encode, Exception.t(), list()}}
+          {:ok, EncodedOutput.t()} | :too_large | {:error, {:encode, Exception.t(), list()}}
   def memory_output(%Vix.Vips.Image{} = image, %Resolved{} = resolved_output, opts) do
-    memory_output(image, resolved_output, opts, nil)
+    memory_output_with_limit(
+      image,
+      resolved_output,
+      opts,
+      Keyword.get(opts, :max_body_bytes)
+    )
   end
 
-  @spec memory_output(
-          Vix.Vips.Image.t(),
-          Resolved.t(),
-          keyword(),
-          non_neg_integer() | nil
-        ) ::
-          {:ok, EncodedOutput.t()} | :too_large | {:error, {:encode, Exception.t(), list()}}
-  def memory_output(%Vix.Vips.Image{} = image, %Resolved{} = resolved_output, opts, nil) do
+  defp memory_output_with_limit(
+         %Vix.Vips.Image{} = image,
+         %Resolved{} = resolved_output,
+         opts,
+         nil
+       ) do
     with {:ok, mime_type, suffix} <- output_format(resolved_output),
          {:ok, body} <-
            write_body(
@@ -43,13 +46,13 @@ defmodule ImagePlug.Output.Encoder do
     end
   end
 
-  def memory_output(
-        %Vix.Vips.Image{} = image,
-        %Resolved{} = resolved_output,
-        opts,
-        max_body_bytes
-      )
-      when is_integer(max_body_bytes) and max_body_bytes >= 0 do
+  defp memory_output_with_limit(
+         %Vix.Vips.Image{} = image,
+         %Resolved{} = resolved_output,
+         opts,
+         max_body_bytes
+       )
+       when is_integer(max_body_bytes) and max_body_bytes >= 0 do
     with {:ok, mime_type, suffix} <- output_format(resolved_output),
          {:ok, body} <-
            stream_body(

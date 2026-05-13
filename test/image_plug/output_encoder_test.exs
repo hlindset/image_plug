@@ -81,8 +81,8 @@ defmodule ImagePlug.Output.EncoderTest do
              Encoder.memory_output(
                image,
                resolved_output,
-               [image_module: CaptureImage],
-               100
+               image_module: CaptureImage,
+               max_body_bytes: 100
              )
 
     assert_received {:stream_opts, [suffix: ".webp", quality: 80]}

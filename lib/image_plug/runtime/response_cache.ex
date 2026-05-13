@@ -51,8 +51,7 @@ defmodule ImagePlug.Runtime.ResponseCache do
     case Encoder.memory_output(
            state.image,
            resolved_output,
-           opts,
-           Cache.max_body_bytes(opts)
+           Keyword.put(opts, :max_body_bytes, Cache.max_body_bytes(opts))
          ) do
       {:ok, output} ->
         store_output(key, output, resolved_output.representation_headers, opts)
