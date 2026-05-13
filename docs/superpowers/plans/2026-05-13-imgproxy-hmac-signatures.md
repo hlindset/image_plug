@@ -694,6 +694,17 @@ test "accepts valid signed imgproxy URLs when signing is enabled" do
            )
 end
 
+test "signature verification excludes query strings" do
+  assert {:ok, %Plan{source: {:plain, ["images", "cat.jpg"]}}} =
+           Imgproxy.parse(
+             conn(
+               :get,
+               "/NSbxuO5fQqTgDkui_3o6ho1UCFFcmzsugB2Uksho49o/w:300/plain/images/cat.jpg?ignored=true"
+             ),
+             signed_parser_opts()
+           )
+end
+
 test "rejects disabled-signing placeholders when signing is enabled" do
   assert Imgproxy.parse(conn(:get, "/_/plain/images/cat.jpg"), signed_parser_opts()) ==
            {:error, {:invalid_signature_encoding, "_"}}
@@ -816,9 +827,10 @@ defp parser_request_path(%Plug.Conn{request_path: request_path, script_name: []}
 defp parser_request_path(%Plug.Conn{request_path: request_path, script_name: script_name}) do
   prefix = "/" <> Enum.join(script_name, "/")
 
-  case String.replace_prefix(request_path, prefix, "") do
-    "" -> "/"
-    path -> path
+  cond do
+    request_path == prefix -> "/"
+    String.starts_with?(request_path, prefix <> "/") -> String.replace_prefix(request_path, prefix, "")
+    true -> request_path
   end
 end
 
@@ -1055,7 +1067,9 @@ forward "/",
 
 When signing is configured, `_` and `unsafe` are rejected unless explicitly
 listed in `trusted_signatures`. Trusted signatures are exact path-segment
-matches accepted before HMAC decoding.
+matches accepted before HMAC decoding. This is intentionally narrower than
+upstream imgproxy's disabled-signing behavior, which accepts any signature
+segment when no key/salt pair is configured.
 ````
 
 - [ ] **Step 2: Update `docs/imgproxy_path_api.md` URL Shape section**
@@ -1082,6 +1096,8 @@ signature configuration, ImagePlug accepts only `_` and `unsafe` as
 disabled-signing placeholders. With signing configured, the signature must be a
 URL-safe Base64 HMAC-SHA256 digest of the raw path after the signature,
 including the leading slash, or an exact configured trusted signature.
+ImagePlug does not implement imgproxy `fixPath` normalization in this slice, so
+sign URLs exactly as ImagePlug receives and parses them.
 
 `plain` source paths are path segments after the source marker. A plain source
 may end in `@extension` to request an explicit output format from the source
@@ -1101,8 +1117,8 @@ In `docs/imgproxy_support_matrix.md`, change these rows:
 to:
 
 ```markdown
-| Required signature path segment | Supported | `_` and `unsafe` are accepted when signing is disabled; HMAC and exact trusted signatures are accepted when signing is configured. |
-| HMAC URL signatures | Supported | Imgproxy parser verifies URL-safe Base64 HMAC-SHA256 signatures with hex key/salt pairs, optional truncation, rotation pairs, and exact trusted signatures. |
+| Required signature path segment | Supported | `_` and `unsafe` are accepted when signing is disabled; HMAC and exact trusted signatures are accepted when signing is configured. This is intentionally narrower than upstream disabled-signing behavior. |
+| HMAC URL signatures | Supported | Imgproxy parser verifies URL-safe Base64 HMAC-SHA256 signatures with hex key/salt pairs, optional truncation, rotation pairs, and exact trusted signatures. Uses ImagePlug parser-error status and does not implement imgproxy `fixPath` normalization. |
 ```
 
 Also remove HMAC signatures from `## Suggested Next Additions` so the matrix does not continue listing this completed feature as future work.
@@ -1144,7 +1160,7 @@ Expected: command exits 0 and may rewrite formatted files.
 Run:
 
 ```bash
-mise exec -- mix test test/parser/imgproxy/signature_test.exs test/parser/imgproxy_test.exs test/image_plug_test.exs test/image_plug/request_safety_test.exs test/image_plug/cache/key_test.exs --warnings-as-errors
+mise exec -- mix test test/parser/imgproxy/signature_test.exs test/parser/imgproxy_test.exs test/image_plug_test.exs test/image_plug/request_safety_test.exs test/image_plug/cache/key_test.exs test/image_plug/architecture_boundary_test.exs --warnings-as-errors
 ```
 
 Expected: all tests pass with no warnings.
@@ -1194,6 +1210,6 @@ If `git status --short` is empty, skip this commit.
 ## Self-Review
 
 - Spec coverage: Tasks 1-4 implement parser-owned configuration and verification; Task 5 covers safety and cache boundaries; Task 6 updates public docs and the support matrix; Task 7 verifies formatting, focused tests, full tests, and warning-free compilation.
-- Review coverage: This revision addresses the subagent findings by preserving raw slash structure, parsing from the same raw path used for signature verification, adding positive raw-path and `script_name` tests, keeping parser validation out of `ImagePlug.Request`, using NimbleOptions for top-level and nested public config, requiring at least one authorization method, rejecting empty decoded key/salt values, supporting trusted-only config, avoiding hand-built signature structs outside signature tests, updating both support-matrix signature rows and suggested next additions, and running tests with warnings as errors.
+- Review coverage: This revision addresses the subagent findings by preserving raw slash structure, parsing from the same raw path used for signature verification, excluding query strings from signed bytes, adding positive raw-path and `script_name` tests, boundary-checking mounted prefix stripping, keeping parser validation out of `ImagePlug.Request`, using NimbleOptions for top-level and nested public config, requiring at least one authorization method, rejecting empty decoded key/salt values, documenting intentional divergences from upstream disabled-signing, trusted-only, status-code, and `fixPath` behavior, avoiding hand-built signature structs outside signature tests, updating both support-matrix signature rows and suggested next additions, and running tests with warnings as errors.
 - Placeholder scan: This plan contains no deferred implementation markers. Each code-changing task names concrete files, commands, and expected outcomes.
 - Type consistency: The plan consistently uses `ImagePlug.Parser.Imgproxy.Signature`, `%Signature{mode, key_salt_pairs, signature_size, trusted_signatures}`, `disabled/0`, `validate_options!/1`, and `verify/3` across tests and implementation.

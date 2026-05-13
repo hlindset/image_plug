@@ -36,6 +36,10 @@ cache key data.
 - Do not add absolute source URL support, encoded source URLs, encrypted source
   URLs, or imgproxy info endpoints.
 - Do not implement imgproxy `fixPath` compatibility in this slice.
+- Do not match every imgproxy wire-level behavior. ImagePlug intentionally keeps
+  disabled signing narrower than upstream, treats trusted-only config as exact
+  trusted-signature authorization instead of disabled signing, and returns its
+  existing parser error status for signature failures.
 - Do not add globally generic signing support for every parser.
 
 ## Configuration
@@ -69,6 +73,12 @@ If `imgproxy[:signature]` is absent, signature checking is disabled and the
 current `_` and `unsafe` placeholders remain the only valid signature segments.
 If signing config is present, `_` and `unsafe` are not special unless explicitly
 listed in `trusted_signatures`.
+
+This disabled-signing behavior is an intentional ImagePlug hardening divergence
+from upstream imgproxy, which accepts any signature segment when no key/salt
+pairs are configured. Trusted-only config is also intentionally stricter:
+ImagePlug accepts only configured trusted signatures, while upstream returns
+success before checking trusted signatures when key/salt pairs are absent.
 
 ## Architecture
 
@@ -154,8 +164,10 @@ private formatting. Suggested tags:
 - `{:invalid_imgproxy_signature_config, reason}` for initialization errors.
 
 All request-time signature failures should return through
-`ImagePlug.Parser.Imgproxy.handle_error/2` as HTTP 400. Initialization failures
-should raise `ArgumentError` through option validation.
+`ImagePlug.Parser.Imgproxy.handle_error/2` as HTTP 400. This intentionally uses
+ImagePlug's current parser-validation status instead of upstream imgproxy's 403
+signature failure status. Initialization failures should raise `ArgumentError`
+through option validation.
 
 ## Cache Semantics
 
@@ -200,6 +212,8 @@ Add request safety tests:
   origin fetch.
 - Invalid signature returns before option parsing and planning through the
   public Plug entry point.
+- Query strings are excluded from the signed bytes, matching upstream request
+  handler behavior.
 - Positive raw-path parser vectors prove signatures are computed over duplicate
   slash and trailing slash paths without normalization.
 - Mounted `script_name` requests strip only the mounted prefix before signature
@@ -330,3 +344,5 @@ Update:
 Document that ImagePlug's signing support is currently imgproxy-parser specific,
 that disabled signing accepts only `_` and `unsafe`, and that trusted signatures
 are exact bypass strings for deployments that deliberately configure them.
+Avoid claiming full imgproxy path-normalization compatibility: upstream verifies
+after `fixPath`, while this slice deliberately does not implement `fixPath`.
