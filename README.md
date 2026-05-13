@@ -42,6 +42,9 @@ When multiple options assign the same canonical field, later assignments win. Fo
 
 For the complete user-facing URL reference, see [Imgproxy Path API](docs/imgproxy_path_api.md).
 
+For a feature-by-feature comparison with imgproxy's processing URL surface, see
+[Imgproxy Support Matrix](docs/imgproxy_support_matrix.md).
+
 For parser and dialect-author guidance on mapping URL concepts to product-neutral transform operations, see [Transform Operations](docs/transform_operations.md).
 
 ### Options

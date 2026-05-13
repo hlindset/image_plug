@@ -9,6 +9,9 @@ The Imgproxy URL API accepts imgproxy-compatible option names where ImagePlug su
 
 URL option order is not execution order. The parser and planner own the fixed Imgproxy transform order.
 
+For a feature-by-feature comparison with imgproxy's processing URL surface, see
+[Imgproxy Support Matrix](imgproxy_support_matrix.md).
+
 ## URL Shape
 
 The general shape is:
