@@ -185,6 +185,82 @@ Add request safety tests:
   origin fetch.
 - Trusted signature and equivalent HMAC-signed request share cache identity.
 
+### Upstream Compatibility Vectors
+
+Copy these upstream imgproxy vectors into ImagePlug tests so the implementation
+is pinned to imgproxy-compatible signing behavior.
+
+From `local/imgproxy-master/security/signature_test.go`:
+
+```elixir
+%{
+  keys: ["746573742d6b6579"],
+  salts: ["746573742d73616c74"],
+  signed_path: "asd",
+  signature_size: 32,
+  valid_signature: "dtLwhdnPPiu_epMl1LrzheLpvHas-4mwvY6L3Z8WwlY",
+  truncated_signature_size: 8,
+  truncated_signature: "dtLwhdnPPis"
+}
+```
+
+The same upstream test also covers key rotation:
+
+```elixir
+%{
+  keys: ["746573742d6b6579", "746573742d6b657932"],
+  salts: ["746573742d73616c74", "746573742d73616c7432"],
+  signed_path: "asd",
+  first_signature: "dtLwhdnPPiu_epMl1LrzheLpvHas-4mwvY6L3Z8WwlY",
+  second_signature: "jbDffNPt1-XBgDccsaE-XJB9lx8JIJqdeYIZKgOqZpg",
+  invalid_truncated_signature_at_default_size: "dtLwhdnPPis"
+}
+```
+
+Trusted-signature compatibility should preserve imgproxy's exact fixture,
+including the upstream spelling:
+
+```elixir
+%{
+  trusted_signatures: ["truested"],
+  accepted_signature: "truested",
+  rejected_signature: "untrusted",
+  signed_path: "asd"
+}
+```
+
+From `local/imgproxy-master/processing_handler_test.go`, use a request-level
+fixture proving `unsafe` fails when signing is enabled and the signed path
+succeeds:
+
+```elixir
+%{
+  keys: ["746573742d6b6579"],
+  salts: ["746573742d73616c74"],
+  unsigned_request_path: "/unsafe/rs:fill:4:4/plain/local:///test1.png",
+  signed_request_path:
+    "/My9d3xq_PYpVHsPrCyww0Kh1w5KZeZhIlWhsa4az1TI/rs:fill:4:4/plain/local:///test1.png"
+}
+```
+
+From `local/imgproxy-docs-master/.../usage/signing_url.mdx`, include the public
+documentation vector as an algorithm drift check:
+
+```elixir
+%{
+  keys: ["736563726574"],
+  salts: ["68656c6c6f"],
+  signed_path:
+    "/rs:fill:300:400:0/g:sm/aHR0cDovL2V4YW1w/bGUuY29tL2ltYWdl/cy9jdXJpb3NpdHku/anBn.png",
+  signature: "oKfUtW34Dvo2BGQehJFR4Nr0_rIjOtdtzJ3QFsUcXH8"
+}
+```
+
+For ImagePlug parser tests, prefer paths that ImagePlug already supports. Use
+the upstream `Signature` unit vectors directly against the parser-owned
+signature module, then add one parser-level signed URL generated from an
+ImagePlug-supported path such as `/w:300/plain/images/cat.jpg`.
+
 ## Documentation
 
 Update:
