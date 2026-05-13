@@ -4,28 +4,21 @@ defmodule ImagePlug.Transform.DecodePlannerTest do
   alias ImagePlug.Plan.Operation
   alias ImagePlug.Transform.DecodePlanner
   alias ImagePlug.Transform.Operation.AutoOrient
-  alias ImagePlug.Transform.Operation.Crop
-  alias ImagePlug.Transform.Operation.ExtendCanvas
-  alias ImagePlug.Transform.Operation.Resize
 
   test "empty chains open randomly with fail_on error" do
     assert DecodePlanner.open_options([]) == [access: :random, fail_on: :error]
   end
 
   test "width-only fit resize opens sequentially" do
-    chain = [
-      %Resize{mode: :fit, width: {:pixels, 120}, height: :auto}
-    ]
+    assert {:ok, resize} = Operation.resize(:fit, {:px, 120}, :auto)
 
-    assert DecodePlanner.open_options(chain) == [access: :sequential, fail_on: :error]
+    assert DecodePlanner.open_options([resize]) == [access: :sequential, fail_on: :error]
   end
 
   test "height-only fit resize opens sequentially" do
-    chain = [
-      %Resize{mode: :fit, width: :auto, height: {:pixels, 120}}
-    ]
+    assert {:ok, resize} = Operation.resize(:fit, :auto, {:px, 120})
 
-    assert DecodePlanner.open_options(chain) == [access: :sequential, fail_on: :error]
+    assert DecodePlanner.open_options([resize]) == [access: :sequential, fail_on: :error]
   end
 
   test "auto-orient-only chains open sequentially" do
@@ -35,45 +28,25 @@ defmodule ImagePlug.Transform.DecodePlannerTest do
   end
 
   test "two-dimensional fit resize opens sequentially" do
-    chain = [
-      %Resize{mode: :fit, width: {:pixels, 120}, height: {:pixels, 90}}
-    ]
+    assert {:ok, resize} = Operation.resize(:fit, {:px, 120}, {:px, 90})
 
-    assert DecodePlanner.open_options(chain) == [access: :sequential, fail_on: :error]
+    assert DecodePlanner.open_options([resize]) == [access: :sequential, fail_on: :error]
   end
 
-  test "force resize with requested dimensions opens sequentially" do
-    chain = [
-      %Resize{mode: :force, width: {:pixels, 120}, height: :auto}
-    ]
+  test "stretch resize with requested dimensions opens sequentially" do
+    assert {:ok, width_only} = Operation.resize(:stretch, {:px, 120}, :auto)
 
-    assert DecodePlanner.open_options(chain) == [access: :sequential, fail_on: :error]
+    assert DecodePlanner.open_options([width_only]) == [access: :sequential, fail_on: :error]
 
-    chain = [
-      %Resize{mode: :force, width: {:pixels, 120}, height: {:pixels, 90}}
-    ]
+    assert {:ok, dimensions} = Operation.resize(:stretch, {:px, 120}, {:px, 90})
 
-    assert DecodePlanner.open_options(chain) == [access: :sequential, fail_on: :error]
+    assert DecodePlanner.open_options([dimensions]) == [access: :sequential, fail_on: :error]
   end
 
   test "crops stay random" do
-    assert DecodePlanner.open_options([
-             %Crop{width: {:pixels, 80}, height: {:pixels, 80}, crop_from: :gravity}
-           ]) == [access: :random, fail_on: :error]
-  end
+    assert {:ok, crop} = Operation.crop_guided({:px, 80}, {:px, 80}, :center)
 
-  test "fill resize and extend canvas stay random" do
-    assert DecodePlanner.open_options([
-             %Resize{mode: :fill, width: {:pixels, 80}, height: {:pixels, 80}}
-           ]) == [access: :random, fail_on: :error]
-
-    assert DecodePlanner.open_options([
-             %ExtendCanvas{
-               rule: {:dimensions, {:pixels, 80}, {:pixels, 80}},
-               gravity: {:anchor, :center, :center},
-               background: :white
-             }
-           ]) == [access: :random, fail_on: :error]
+    assert DecodePlanner.open_options([crop]) == [access: :random, fail_on: :error]
   end
 
   test "unresolved semantic source-dependent operations stay random before metadata" do
@@ -100,10 +73,8 @@ defmodule ImagePlug.Transform.DecodePlannerTest do
   end
 
   test "planned options include only access and fail_on" do
-    chain = [
-      %Resize{mode: :fit, width: {:pixels, 120}, height: :auto}
-    ]
+    assert {:ok, resize} = Operation.resize(:fit, {:px, 120}, :auto)
 
-    assert Keyword.keys(DecodePlanner.open_options(chain)) == [:access, :fail_on]
+    assert Keyword.keys(DecodePlanner.open_options([resize])) == [:access, :fail_on]
   end
 end

@@ -4,6 +4,7 @@ defmodule ImagePlug.Runtime.RequestRunner do
   alias ImagePlug.Cache
   alias ImagePlug.Cache.Entry
   alias ImagePlug.Cache.Key
+  alias ImagePlug.Output.Encoder
   alias ImagePlug.Output.Policy
   alias ImagePlug.Output.Resolved
   alias ImagePlug.Plan
@@ -11,7 +12,6 @@ defmodule ImagePlug.Runtime.RequestRunner do
   alias ImagePlug.Plan.Response
   alias ImagePlug.Runtime.DecodedOrigin
   alias ImagePlug.Runtime.Processor
-  alias ImagePlug.Runtime.ResponseCache
   alias ImagePlug.Transform
   alias ImagePlug.Transform.State
 
@@ -60,7 +60,7 @@ defmodule ImagePlug.Runtime.RequestRunner do
   end
 
   defp run_with_cache(conn, plan, origin_identity, opts) do
-    case ResponseCache.lookup(conn, plan, origin_identity, opts) do
+    case Cache.lookup(conn, plan, origin_identity, opts) do
       :disabled ->
         process_uncached(conn, plan, origin_identity, opts)
 
@@ -70,14 +70,14 @@ defmodule ImagePlug.Runtime.RequestRunner do
       {:miss, %Key{} = key} ->
         process_cache_miss(conn, plan, origin_identity, key, opts)
 
-      {:error, error} ->
+      {:error, {:cache_read, error}} ->
         {:error, {:cache, error}}
     end
   end
 
   defp handle_cache_hit(conn, plan, origin_identity, key, entry, opts) do
-    case ResponseCache.validate_delivery(entry, plan.response) do
-      :ok ->
+    case Response.content_disposition(plan.response, entry.content_type) do
+      {:ok, _content_disposition} ->
         {:ok, {:cache_entry, entry, plan.response}}
 
       {:error, error} ->
@@ -106,7 +106,7 @@ defmodule ImagePlug.Runtime.RequestRunner do
   defp process_cache_miss(conn, plan, origin_identity, key, opts) do
     case process_request(conn, plan, origin_identity, opts) do
       {:ok, final_state, resolved_output, response_headers} ->
-        case ResponseCache.store(key, final_state, resolved_output, opts) do
+        case store_cache_entry(key, final_state, resolved_output, opts) do
           {:ok, entry} -> {:ok, {:cache_entry, entry, plan.response}}
           :skipped -> {:ok, {:image, final_state, resolved_output, plan.response}}
           {:error, error} -> {:error, {:processing, error, response_headers}}
@@ -116,6 +116,48 @@ defmodule ImagePlug.Runtime.RequestRunner do
         {:error, {:processing, error, response_headers}}
     end
   end
+
+  defp store_cache_entry(%Key{} = key, %State{} = state, %Resolved{} = resolved_output, opts) do
+    case Encoder.memory_output(
+           state.image,
+           resolved_output,
+           Keyword.put(opts, :max_body_bytes, Cache.max_body_bytes(opts))
+         ) do
+      {:ok, output} ->
+        output
+        |> cache_entry(resolved_output.representation_headers)
+        |> put_cache_entry(key, opts)
+
+      :too_large ->
+        :skipped
+
+      {:error, _reason} = error ->
+        error
+    end
+  end
+
+  defp cache_entry(output, response_headers) do
+    with {:ok, headers} <- Entry.cacheable_headers(response_headers) do
+      {:ok,
+       %Entry{
+         body: output.body,
+         content_type: output.content_type,
+         headers: headers,
+         created_at: DateTime.utc_now()
+       }}
+    end
+  end
+
+  defp put_cache_entry({:ok, entry}, key, opts) do
+    case Cache.put(key, entry, opts) do
+      :ok -> {:ok, entry}
+      :skipped -> :skipped
+      {:error, _reason} = error -> error
+    end
+  end
+
+  defp put_cache_entry({:error, reason}, _key, _opts),
+    do: {:error, {:invalid_cache_headers, reason}}
 
   defp process_request(
          conn,

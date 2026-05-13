@@ -25,7 +25,6 @@ defmodule ImagePlug.Runtime.OriginTest do
              Origin.fetch("https://img.example/cat.jpg", plug: plug)
 
     assert Enum.join(response.stream) == "image bytes"
-    assert response.url == "https://img.example/cat.jpg"
   end
 
   test "fetch does not allow request options to override safe options" do
@@ -43,7 +42,6 @@ defmodule ImagePlug.Runtime.OriginTest do
              )
 
     assert Enum.join(response.stream) == "img.example/cat.jpg"
-    assert response.url == "https://img.example/cat.jpg"
   end
 
   test "fetch accepts Req timeout overrides" do

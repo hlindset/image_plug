@@ -127,7 +127,6 @@ defmodule ImagePlug.ArchitectureBoundaryTest do
       ImagePlug.Transform.DecodePlanner,
       ImagePlug.Transform.Materializer,
       ImagePlug.Transform.KeyData,
-      ImagePlug.Transform.Types,
       ImagePlug.Transform.Operation.Resize,
       ImagePlug.Transform.Operation.ExtendCanvas,
       ImagePlug.Transform.Operation.AutoOrient,

@@ -17,7 +17,6 @@ defmodule ImagePlug.Transform do
       DecodePlanner,
       Materializer,
       KeyData,
-      Types,
       Operation.Resize,
       Operation.ExtendCanvas,
       Operation.AutoOrient,

@@ -11,12 +11,11 @@ defmodule ImagePlug.Runtime.Origin do
   defmodule Response do
     @moduledoc false
 
-    @enforce_keys [:stream, :url]
+    @enforce_keys [:stream]
     defstruct @enforce_keys
 
     @type t() :: %__MODULE__{
-            stream: Enumerable.t(),
-            url: String.t()
+            stream: Enumerable.t()
           }
   end
 
@@ -38,8 +37,7 @@ defmodule ImagePlug.Runtime.Origin do
   def fetch(url, req_options \\ []) when is_binary(url) and is_list(req_options) do
     {:ok,
      %Response{
-       stream: response_stream(url, req_options),
-       url: url
+       stream: response_stream(url, req_options)
      }}
   end
 

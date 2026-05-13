@@ -13,20 +13,17 @@ defmodule ImagePlug.Transform.DecodePlanner do
   alias ImagePlug.Plan.Operation.CropRegion
   alias ImagePlug.Plan.Operation.Resize, as: PlanResize
   alias ImagePlug.Transform.Operation.AutoOrient
-  alias ImagePlug.Transform.Operation.Crop
-  alias ImagePlug.Transform.Operation.ExtendCanvas
   alias ImagePlug.Transform.Operation.Flip
-  alias ImagePlug.Transform.Operation.Resize
   alias ImagePlug.Transform.Operation.Rotate
 
   @type access_requirement() :: :sequential | :random | :neutral
 
-  @spec open_options(ImagePlug.Transform.Chain.t()) :: keyword()
+  @spec open_options([ImagePlug.Plan.Pipeline.operation()]) :: keyword()
   def open_options(chain) when is_list(chain) do
     [access: access(chain), fail_on: :error]
   end
 
-  @spec access(ImagePlug.Transform.Chain.t()) :: :sequential | :random
+  @spec access([ImagePlug.Plan.Pipeline.operation()]) :: :sequential | :random
   def access([]), do: :random
 
   def access(chain) when is_list(chain) do
@@ -43,13 +40,6 @@ defmodule ImagePlug.Transform.DecodePlanner do
   defp access_requirement(%CropRegion{}), do: :random
   defp access_requirement(%Canvas{}), do: :random
   defp access_requirement(%AutoOrient{}), do: :sequential
-
-  defp access_requirement(%Resize{mode: mode} = operation) when mode in [:fit, :force],
-    do: executable_resize_access_requirement(operation)
-
-  defp access_requirement(%Resize{}), do: :random
-  defp access_requirement(%Crop{}), do: :random
-  defp access_requirement(%ExtendCanvas{}), do: :random
   defp access_requirement(%Rotate{}), do: :random
   defp access_requirement(%Flip{}), do: :random
 
@@ -67,29 +57,8 @@ defmodule ImagePlug.Transform.DecodePlanner do
 
   defp resize_access_requirement(%PlanResize{}), do: :random
 
-  defp executable_resize_access_requirement(%Resize{
-         width: width,
-         height: height,
-         min_width: nil,
-         min_height: nil
-       }) do
-    case executable_requested_resize_dimension?(width) or
-           executable_requested_resize_dimension?(height) do
-      true -> :sequential
-      false -> :random
-    end
-  end
-
-  defp executable_resize_access_requirement(%Resize{}), do: :random
-
   defp requested_resize_dimension?({:px, value}) when is_integer(value) and value > 0, do: true
   defp requested_resize_dimension?(_dimension), do: false
-
-  defp executable_requested_resize_dimension?({:pixels, value})
-       when is_number(value) and value > 0,
-       do: true
-
-  defp executable_requested_resize_dimension?(_dimension), do: false
 
   defp resolve_access(requirements) do
     cond do

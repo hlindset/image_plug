@@ -6,7 +6,15 @@ defmodule ImagePlug.Transform.Geometry do
   def image_height(%State{image: image}), do: Image.height(image)
   def image_width(%State{image: image}), do: Image.width(image)
 
-  @spec to_pixels(integer(), ImagePlug.Transform.Types.length()) :: integer()
+  @type scalar() :: integer() | float()
+  @type length_unit() ::
+          scalar()
+          | {:pixels, scalar()}
+          | {:percent, scalar()}
+          | {:scale, scalar()}
+          | {:scale, scalar(), scalar()}
+
+  @spec to_pixels(integer(), length_unit()) :: integer()
   def to_pixels(length, size_unit)
   def to_pixels(_length, num) when is_integer(num), do: num
   def to_pixels(_length, num) when is_float(num), do: round(num)

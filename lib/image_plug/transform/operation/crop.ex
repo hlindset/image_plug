@@ -105,20 +105,20 @@ defmodule ImagePlug.Transform.Operation.Crop do
   ]
 
   @type t :: %__MODULE__{
-          width: ImagePlug.Transform.Types.length() | :auto,
-          height: ImagePlug.Transform.Types.length() | :auto,
+          width: ImagePlug.Transform.Geometry.length_unit() | :auto,
+          height: ImagePlug.Transform.Geometry.length_unit() | :auto,
           crop_from:
             :gravity
             | %{
-                left: ImagePlug.Transform.Types.length(),
-                top: ImagePlug.Transform.Types.length()
+                left: ImagePlug.Transform.Geometry.length_unit(),
+                top: ImagePlug.Transform.Geometry.length_unit()
               },
           gravity:
             {:anchor, :left | :center | :right, :top | :center | :bottom}
             | {:fp, float(), float()}
             | nil,
-          x_offset: ImagePlug.Transform.Types.length() | number(),
-          y_offset: ImagePlug.Transform.Types.length() | number(),
+          x_offset: ImagePlug.Transform.Geometry.length_unit() | number(),
+          y_offset: ImagePlug.Transform.Geometry.length_unit() | number(),
           offset_scale: pos_integer() | float()
         }
 
