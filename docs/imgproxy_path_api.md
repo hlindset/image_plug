@@ -24,6 +24,9 @@ signature configuration, ImagePlug accepts only `_` and `unsafe` as
 disabled-signing placeholders. With signing configured, the signature must be a
 raw/unpadded Base64URL HMAC-SHA256 digest of the raw path after the signature,
 including the leading slash, or an exact configured trusted signature.
+Trusted-only configuration accepts only exact trusted signatures; unlike
+upstream imgproxy, it does not make every signature segment valid when no
+key/salt pair is configured.
 Before verification, ImagePlug applies imgproxy-compatible `fixPath`
 normalization: `%3A` in processing options is treated as `:`, and normalized
 plain URL schemes such as `http:/x` and `local:/x` are repaired to `http://x`

@@ -22,7 +22,7 @@ before origin fetch or cache lookup; they are not silently ignored.
 
 | Imgproxy feature | Status | Notes |
 | --- | --- | --- |
-| Required signature path segment | Supported | `_` and `unsafe` are accepted when signing is disabled; HMAC and exact trusted signatures are accepted when signing is configured. This is intentionally narrower than upstream disabled-signing behavior. |
+| Required signature path segment | Supported | `_` and `unsafe` are accepted when signing is disabled; HMAC and exact trusted signatures are accepted when signing is configured. Trusted-only config accepts only exact trusted signatures. This is intentionally narrower than upstream disabled-signing behavior. |
 | HMAC URL signatures | Supported | Imgproxy parser verifies raw/unpadded Base64URL HMAC-SHA256 signatures with hex key/salt pairs, optional truncation, rotation pairs, exact trusted signatures, and imgproxy-compatible `fixPath` before verification. Signature failures return 403. |
 | Plain source URLs via `/plain/` | Partial | ImagePlug treats the value as path segments resolved against configured `root_url`; arbitrary absolute source URLs are not modeled. |
 | Plain source `@extension` | Supported | Overrides option format and bypasses `Accept` negotiation. |

@@ -273,5 +273,20 @@ defmodule ImagePlug.Parser.Imgproxy.SignatureTest do
                config
              ) == {:error, :invalid_signature}
     end
+
+    test "rejects overlong encoded signatures before decoding" do
+      [signature: config] =
+        Signature.validate_options!(
+          signature: [
+            keys: ["746573742d6b6579"],
+            salts: ["746573742d73616c74"]
+          ]
+        )
+
+      overlong_signature = String.duplicate("a", 1_000)
+
+      assert Signature.verify(overlong_signature, "/w:300/plain/images/cat.jpg", config) ==
+               {:error, :invalid_signature}
+    end
   end
 end
