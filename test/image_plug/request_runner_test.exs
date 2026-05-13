@@ -301,6 +301,18 @@ defmodule ImagePlug.Runtime.RequestRunnerTest do
     refute_received {:cache_lookup, _key}
   end
 
+  test "invalid cache config returns cache errors before cache lookup" do
+    assert {:error, {:cache, {:invalid_cache_config, {:fail_on_cache_error, "false"}}}} =
+             RequestRunner.run(
+               conn(:get, "/_/f:jpeg/plain/images/cat-300.jpg"),
+               plan(),
+               "http://origin.test/images/cat-300.jpg",
+               cache: {CacheReadProbe, entry: nil, fail_on_cache_error: "false"}
+             )
+
+    refute_received {:cache_lookup, _key}
+  end
+
   test "multiple pipelines reach processing and materialize between pipelines" do
     test_pid = self()
     ref = make_ref()

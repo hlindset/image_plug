@@ -35,6 +35,7 @@ defmodule ImagePlug.Runtime.RequestRunner do
          :ok <- validate_cache_config(opts) do
       run_with_cache_config(conn, plan, origin_identity, opts)
     else
+      {:error, {:cache, reason}} -> {:error, {:cache, reason}}
       {:error, reason} -> {:error, {:processing, reason, []}}
     end
   end
@@ -47,7 +48,7 @@ defmodule ImagePlug.Runtime.RequestRunner do
       _cache ->
         case Cache.validate_config(opts) do
           {:ok, _opts} -> :ok
-          {:error, _reason} = error -> error
+          {:error, reason} -> {:error, {:cache, reason}}
         end
     end
   end

@@ -90,8 +90,10 @@ defmodule ImagePlug.Runtime.Origin do
     end
   end
 
-  defp stream_response(%{response: response} = state) do
-    with {:ok, message} <- next_message(state.receive_timeout),
+  defp stream_response(
+         %{response: %Req.Response{body: %Req.Response.Async{ref: ref}} = response} = state
+       ) do
+    with {:ok, message} <- next_message(ref, state.receive_timeout),
          {:ok, chunks} <- parse_message(response, message),
          {:ok, data_chunks, size} <- data_chunks(chunks, state) do
       if Enum.any?(chunks, &(&1 == :done)) do
@@ -105,9 +107,9 @@ defmodule ImagePlug.Runtime.Origin do
     end
   end
 
-  defp next_message(receive_timeout) do
+  defp next_message(ref, receive_timeout) do
     receive do
-      message -> {:ok, message}
+      {^ref, _message} = message -> {:ok, message}
     after
       receive_timeout -> {:error, {:timeout, receive_timeout}}
     end

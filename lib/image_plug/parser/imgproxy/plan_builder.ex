@@ -141,7 +141,11 @@ defmodule ImagePlug.Parser.Imgproxy.PlanBuilder do
          {:plain, _path}
        )
        when is_binary(filename) do
-    {:ok, %Response{filename: filename, disposition: disposition}}
+    if Response.valid_filename?(filename) do
+      {:ok, %Response{filename: filename, disposition: disposition}}
+    else
+      {:error, {:invalid_filename, filename}}
+    end
   end
 
   defp source_filename(source_path) do

@@ -132,6 +132,17 @@ defmodule ImagePlug.Runtime.OriginTest do
     assert Enum.to_list(response.stream) == []
   end
 
+  test "stream receive ignores unrelated mailbox messages" do
+    assert_req_async_contract!()
+    send(self(), {:unrelated, :message})
+
+    assert {:ok, %Origin.Response{} = response} =
+             Origin.fetch("https://img.example/cat.jpg", adapter: streaming_async_adapter())
+
+    assert Enum.join(response.stream) == "image bytes"
+    assert_receive {:unrelated, :message}
+  end
+
   test "stream cleanup cancels the async response" do
     test_pid = self()
 

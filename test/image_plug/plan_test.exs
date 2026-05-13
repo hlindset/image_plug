@@ -63,6 +63,20 @@ defmodule ImagePlug.PlanTest do
              {:error, {:invalid_pipeline_operation, operation}}
   end
 
+  test "validated pipelines reject malformed semantic operation structs" do
+    operation = %Operation.Resize{
+      mode: :bogus,
+      width: nil,
+      height: nil,
+      dpr: {:ratio, 1, 1},
+      enlargement: :deny,
+      guide: :center
+    }
+
+    assert Plan.validated_pipelines(plan(pipelines: [%Pipeline{operations: [operation]}])) ==
+             {:error, {:invalid_pipeline_operation, operation}}
+  end
+
   test "validate shape accepts default product-neutral facets" do
     plan = plan()
 

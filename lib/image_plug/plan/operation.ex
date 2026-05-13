@@ -43,7 +43,6 @@ defmodule ImagePlug.Plan.Operation do
   @auto_orient_module :"Elixir.ImagePlug.Transform.Operation.AutoOrient"
   @rotate_module :"Elixir.ImagePlug.Transform.Operation.Rotate"
   @flip_module :"Elixir.ImagePlug.Transform.Operation.Flip"
-  @semantic_modules [CropGuided, CropRegion, Canvas, Resize]
 
   @type resize_operation :: Resize.t()
 
@@ -184,13 +183,75 @@ defmodule ImagePlug.Plan.Operation do
   end
 
   @spec semantic?(term()) :: boolean()
-  def semantic?(%module{}) when module in @semantic_modules, do: true
+  def semantic?(%Resize{} = operation), do: valid_resize?(operation)
+  def semantic?(%CropGuided{} = operation), do: valid_crop_guided?(operation)
+  def semantic?(%CropRegion{} = operation), do: valid_crop_region?(operation)
+  def semantic?(%Canvas{} = operation), do: valid_canvas?(operation)
   def semantic?(%{__struct__: @auto_orient_module}), do: true
   def semantic?(%{__struct__: @rotate_module, angle: angle}) when angle in @right_angles, do: true
   def semantic?(%{__struct__: @flip_module, axis: axis}) when axis in @flip_axes, do: true
   def semantic?(_operation), do: false
 
   defp invalid(operation, attrs), do: {:error, {:invalid_operation, operation, attrs}}
+
+  defp valid_resize?(%Resize{} = operation) do
+    with {:ok, mode} <- resize_mode(operation.mode),
+         {:ok, _width} <- tagged_resize_dimension(operation.width),
+         {:ok, _height} <- tagged_resize_dimension(operation.height),
+         :ok <- tagged_dpr_ratio(operation.dpr),
+         {:ok, _enlargement} <-
+           member(operation.enlargement, @enlargements),
+         {:ok, _guide} <- resize_guide(operation.guide),
+         :ok <- tagged_offset(operation.x_offset),
+         :ok <- tagged_offset(operation.y_offset),
+         {:ok, _offsets} <- resize_offsets(mode, operation.x_offset, operation.y_offset),
+         :ok <- optional_resize_dimension(operation.min_width),
+         :ok <- optional_resize_dimension(operation.min_height),
+         :ok <- positive_number(operation.zoom_x),
+         :ok <- positive_number(operation.zoom_y) do
+      true
+    else
+      _error -> false
+    end
+  end
+
+  defp valid_crop_guided?(%CropGuided{} = operation) do
+    with {:ok, _width} <- tagged_crop_dimension(operation.width),
+         {:ok, _height} <- tagged_crop_dimension(operation.height),
+         {:ok, _guide} <- tagged_crop_guide(operation.guide),
+         :ok <- tagged_offset(operation.x_offset),
+         :ok <- tagged_offset(operation.y_offset) do
+      true
+    else
+      _error -> false
+    end
+  end
+
+  defp valid_crop_region?(%CropRegion{} = operation) do
+    with {:ok, _x} <- tagged_crop_coordinate(operation.x),
+         {:ok, _y} <- tagged_crop_coordinate(operation.y),
+         {:ok, _width} <- tagged_crop_region_dimension(operation.width),
+         {:ok, _height} <- tagged_crop_region_dimension(operation.height) do
+      true
+    else
+      _error -> false
+    end
+  end
+
+  defp valid_canvas?(%Canvas{} = operation) do
+    with {:ok, width} <- tagged_canvas_dimension(operation.width),
+         {:ok, height} <- tagged_canvas_dimension(operation.height),
+         {:ok, _placement} <- tagged_canvas_placement(operation.placement),
+         :ok <- validate_canvas_dimension_pair(width, height, :canvas),
+         {:ok, _background} <- member(operation.background, [:white]),
+         {:ok, _overflow} <- member(operation.overflow, [:reject]),
+         :ok <- number(operation.x_offset),
+         :ok <- number(operation.y_offset) do
+      true
+    else
+      _error -> false
+    end
+  end
 
   defp validate_known_options(operation, attrs, known_keys) do
     case Keyword.keys(attrs) -- known_keys do
@@ -228,6 +289,13 @@ defmodule ImagePlug.Plan.Operation do
 
   defp resize_dpr(value) when is_binary(value), do: decimal_string_ratio(value)
   defp resize_dpr(_value), do: {:error, :dpr}
+
+  defp tagged_dpr_ratio({:ratio, numerator, denominator})
+       when is_integer(numerator) and is_integer(denominator) and numerator > 0 and
+              denominator > 0,
+       do: :ok
+
+  defp tagged_dpr_ratio(_dpr), do: {:error, :dpr}
 
   defp decimal_string_ratio(value) do
     value
@@ -305,6 +373,15 @@ defmodule ImagePlug.Plan.Operation do
 
   defp zero_offset?({unit, value}) when unit in [:pixels, :scale] and is_number(value),
     do: value == 0
+
+  defp optional_resize_dimension(nil), do: :ok
+
+  defp optional_resize_dimension(dimension) do
+    case tagged_resize_dimension(dimension) do
+      {:ok, _dimension} -> :ok
+      {:error, _reason} = error -> error
+    end
+  end
 
   defp tagged_crop_dimension(:full_axis), do: {:ok, :full_axis}
 
@@ -430,6 +507,23 @@ defmodule ImagePlug.Plan.Operation do
       :error -> {:ok, default}
     end
   end
+
+  defp member(value, values) do
+    if value in values, do: {:ok, value}, else: {:error, :member}
+  end
+
+  defp positive_number(value) when is_number(value) and value > 0, do: :ok
+  defp positive_number(_value), do: {:error, :number}
+
+  defp number(value) when is_number(value), do: :ok
+  defp number(_value), do: {:error, :number}
+
+  defp tagged_offset(value) when is_number(value), do: :ok
+
+  defp tagged_offset({unit, value}) when unit in [:pixels, :scale] and is_number(value),
+    do: :ok
+
+  defp tagged_offset(_value), do: {:error, :offset}
 
   defp numeric(attrs, key, default) do
     case Keyword.fetch(attrs, key) do

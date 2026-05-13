@@ -235,17 +235,9 @@ defmodule ImagePlug.Transform.Operation.Resize do
   defp effective_dpr(%__MODULE__{dpr: dpr}, %{width: :auto, height: :auto}, _source, _opts),
     do: dpr
 
-  defp effective_dpr(%__MODULE__{dpr: dpr}, base, source, opts) do
-    if vector_source?(opts) do
-      dpr
-    else
-      max_dpr = min(source.width / base.width, source.height / base.height)
-      min(dpr, max_dpr)
-    end
-  end
-
-  defp vector_source?(opts) do
-    Keyword.get(opts, :vector?, false) or Keyword.get(opts, :source_type) == :vector
+  defp effective_dpr(%__MODULE__{dpr: dpr}, base, source, _opts) do
+    max_dpr = min(source.width / base.width, source.height / base.height)
+    min(dpr, max_dpr)
   end
 
   defp apply_dpr(%{width: :auto, height: :auto}, _effective_dpr),

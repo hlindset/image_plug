@@ -814,6 +814,22 @@ defmodule ImagePlug.Parser.Imgproxy.PlanBuilderTest do
              })
   end
 
+  test "rejects invalid explicit response filenames" do
+    request = %ParsedRequest{
+      signature: "_",
+      source_kind: :plain,
+      source_path: ["images", "cat.jpg"],
+      pipelines: [%PipelineRequest{}],
+      output: %ImagePlug.Parser.Imgproxy.OutputRequest{},
+      response: %ImagePlug.Parser.Imgproxy.ResponseRequest{
+        filename: "../cat",
+        disposition: :attachment
+      }
+    }
+
+    assert PlanBuilder.to_plan(request, []) == {:error, {:invalid_filename, "../cat"}}
+  end
+
   defp pixels(value), do: {:px, value}
   defp auto, do: :auto
   defp ratio(numerator, denominator), do: {:ratio, numerator, denominator}

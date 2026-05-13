@@ -41,7 +41,7 @@ defmodule ImagePlug.Transform.PrefetchValidationTest do
   end
 
   test "non-orientation executable transforms fail source-independent validation" do
-    operation = %Resize{}
+    operation = %Resize{mode: :fit, width: {:pixels, 100}, height: :auto}
 
     assert Transform.validate_prefetch_safe_plan(plan([operation])) ==
              {:error, {:invalid_pipeline_operation, operation}}
