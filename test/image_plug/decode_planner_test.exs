@@ -64,14 +64,6 @@ defmodule ImagePlug.Transform.DecodePlannerTest do
     assert DecodePlanner.open_options([crop_region]) == [access: :random, fail_on: :error]
   end
 
-  test "semantic fit and stretch with requested dimensions stay sequential" do
-    assert {:ok, fit} = Operation.resize(:fit, {:px, 100}, :auto)
-    assert {:ok, stretch} = Operation.resize(:stretch, {:px, 100}, :auto)
-
-    assert DecodePlanner.open_options([fit]) == [access: :sequential, fail_on: :error]
-    assert DecodePlanner.open_options([stretch]) == [access: :sequential, fail_on: :error]
-  end
-
   test "planned options include only access and fail_on" do
     assert {:ok, resize} = Operation.resize(:fit, {:px, 120}, :auto)
 

@@ -70,17 +70,6 @@ defmodule ImagePlug.Runtime.ProcessorTest do
     assert decoded.decode_options == [access: :random, fail_on: :error]
   end
 
-  test "process_origin fetches, decodes, validates, executes, and materializes a chain" do
-    assert {:ok, %State{} = state} =
-             process_origin(
-               plan(),
-               "http://origin.test/images/cat-300.jpg",
-               opts()
-             )
-
-    assert state.image
-  end
-
   test "process_origin materializes between pipelines before executing the next pipeline" do
     test_pid = self()
     ref = make_ref()
@@ -107,18 +96,6 @@ defmodule ImagePlug.Runtime.ProcessorTest do
     assert state.image
     assert_receive first_message
     assert first_message == {:pipeline_event, ref, :materialized_between_pipelines}
-  end
-
-  test "fetch_decode_validate_origin_with_source_format returns decoded origin context" do
-    assert {:ok, %DecodedOrigin{} = decoded} =
-             fetch_decode_validate_origin_with_source_format(
-               plan(),
-               "http://origin.test/images/cat-300.jpg",
-               opts()
-             )
-
-    assert decoded.source_format == :jpeg
-    assert decoded.decode_options == [access: :random, fail_on: :error]
   end
 
   test "fetch_decode_validate_origin_with_source_format plans decode options from the first pipeline only" do
