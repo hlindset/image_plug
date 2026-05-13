@@ -146,6 +146,17 @@ defmodule ImagePlug.SimpleServer do
 end
 ```
 
+The repository includes a dev-only simple server for local testing:
+
+```sh
+mise exec -- mix image_plug.server
+mise exec -- mix image_plug.server --port 4001
+mise exec -- mix image_plug.server --cache
+```
+
+The simple server runs without cache by default. Pass `--cache` to enable the filesystem cache
+under `_build/dev/image_plug/cache`, or `--no-cache` to make the disabled state explicit.
+
 ## Filesystem Cache
 
 ImagePlug can cache complete encoded responses after successful processing:

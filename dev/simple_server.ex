@@ -25,10 +25,31 @@ defmodule ImagePlug.SimpleServer do
     send_resp(conn, 404, "404 Not Found")
   end
 
-  forward "/",
-    to: ImagePlug,
-    init_opts: [
-      root_url: "http://localhost:4000",
+  match _ do
+    ImagePlug.call(conn, image_plug_opts())
+  end
+
+  defp image_plug_opts do
+    [
+      root_url: root_url(),
       parser: ImagePlug.Parser.Imgproxy
     ]
+    |> maybe_put_cache(cache_config())
+    |> ImagePlug.init()
+  end
+
+  defp root_url do
+    :image_plug
+    |> Application.get_env(__MODULE__, [])
+    |> Keyword.get(:root_url, "http://localhost:4000")
+  end
+
+  defp cache_config do
+    :image_plug
+    |> Application.get_env(__MODULE__, [])
+    |> Keyword.get(:cache)
+  end
+
+  defp maybe_put_cache(opts, nil), do: opts
+  defp maybe_put_cache(opts, cache), do: Keyword.put(opts, :cache, cache)
 end
