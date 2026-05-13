@@ -9,7 +9,7 @@ defmodule ImagePlug.TransformIRCharacterizationTest do
   alias ImagePlug.Plan.Operation
   alias ImagePlug.Plan.Output
   alias ImagePlug.Plan.Pipeline
-  alias ImagePlug.Runtime.RequestRunner
+  alias ImagePlug.Request.Runner
   alias ImagePlug.Transform
   alias ImagePlug.Transform.Chain
   alias ImagePlug.Transform.Operation.Crop
@@ -62,7 +62,7 @@ defmodule ImagePlug.TransformIRCharacterizationTest do
     origin_identity = origin_identity(source)
 
     assert {:ok, {:image, %State{image: image}, _resolved_output, _response}} =
-             RequestRunner.run(
+             Runner.run(
                conn,
                plan,
                origin_identity,
@@ -199,7 +199,7 @@ defmodule ImagePlug.TransformIRCharacterizationTest do
     origin_identity = origin_identity(source)
 
     assert {:ok, {:cache_entry, ^entry, %ImagePlug.Plan.Response{}}} =
-             RequestRunner.run(
+             Runner.run(
                conn,
                plan,
                origin_identity,

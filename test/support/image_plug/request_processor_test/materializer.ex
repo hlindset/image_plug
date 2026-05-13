@@ -1,4 +1,4 @@
-defmodule ImagePlug.Runtime.ProcessorTest.Materializer do
+defmodule ImagePlug.Request.ProcessorTest.Materializer do
   @moduledoc false
 
   use Boundary,

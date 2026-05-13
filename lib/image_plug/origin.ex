@@ -1,4 +1,4 @@
-defmodule ImagePlug.Runtime.Origin do
+defmodule ImagePlug.Origin do
   @moduledoc """
   Origin URL construction and minimal Req-backed HTTP streaming.
 
@@ -7,6 +7,15 @@ defmodule ImagePlug.Runtime.Origin do
   enumerates the body, which is required because libvips consumes source
   enumerables outside the request process.
   """
+
+  use Boundary,
+    top_level?: true,
+    deps: [ImagePlug.Plan],
+    exports: [
+      Decoded,
+      Identity,
+      Response
+    ]
 
   defmodule Response do
     @moduledoc false

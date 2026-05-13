@@ -467,7 +467,7 @@ defmodule ImagePlug.ImagePlugTest do
     assert Keyword.fetch!(opts, :parser) == ImagePlug.ImagePlugTest.MissingParser
   end
 
-  test "plug facade delegates response delivery to runtime response sender" do
+  test "plug facade delegates response delivery to response sender" do
     image_plug_ast =
       __DIR__
       |> Path.join("../lib/image_plug.ex")
@@ -475,8 +475,8 @@ defmodule ImagePlug.ImagePlugTest do
       |> File.read!()
       |> Code.string_to_quoted!()
 
-    assert remote_call?(image_plug_ast, [:ResponseSender], :send_result, 3)
-    assert remote_call?(image_plug_ast, [:ResponseSender], :send_origin_error, 2)
+    assert remote_call?(image_plug_ast, [:Sender], :send_result, 3)
+    assert remote_call?(image_plug_ast, [:Sender], :send_origin_error, 2)
 
     refute remote_call?(image_plug_ast, [:Plug, :Conn], :send_resp)
     refute remote_call?(image_plug_ast, [:Plug, :Conn], :send_chunked)
@@ -488,9 +488,11 @@ defmodule ImagePlug.ImagePlugTest do
     assert boundary_option(image_plug_ast, :exports) == []
 
     assert boundary_option(image_plug_ast, :deps) |> boundary_aliases() == [
+             [:ImagePlug, :Origin],
              [:ImagePlug, :Parser],
              [:ImagePlug, :Plan],
-             [:ImagePlug, :Runtime],
+             [:ImagePlug, :Request],
+             [:ImagePlug, :Response],
              [:ImagePlug, :Transform]
            ]
   end

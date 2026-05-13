@@ -1,4 +1,4 @@
-defmodule ImagePlug.Runtime.Options do
+defmodule ImagePlug.Request.Options do
   @moduledoc false
 
   alias ImagePlug.Cache

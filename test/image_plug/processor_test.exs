@@ -1,17 +1,17 @@
-defmodule ImagePlug.Runtime.ProcessorTest do
+defmodule ImagePlug.Request.ProcessorTest do
   use ExUnit.Case, async: true
 
   alias ImagePlug.Plan
   alias ImagePlug.Plan.Operation
   alias ImagePlug.Plan.Output
   alias ImagePlug.Plan.Pipeline
-  alias ImagePlug.Runtime.DecodedOrigin
-  alias ImagePlug.Runtime.Origin
-  alias ImagePlug.Runtime.Processor
-  alias ImagePlug.Runtime.ProcessorTest.DecodeErrorImageOpen
-  alias ImagePlug.Runtime.ProcessorTest.DecodeValidImageOpen
-  alias ImagePlug.Runtime.ProcessorTest.Materializer
-  alias ImagePlug.Runtime.ProcessorTest.OriginImage
+  alias ImagePlug.Origin.Decoded
+  alias ImagePlug.Origin
+  alias ImagePlug.Request.Processor
+  alias ImagePlug.Request.ProcessorTest.DecodeErrorImageOpen
+  alias ImagePlug.Request.ProcessorTest.DecodeValidImageOpen
+  alias ImagePlug.Request.ProcessorTest.Materializer
+  alias ImagePlug.Request.ProcessorTest.OriginImage
   alias ImagePlug.Transform.State
 
   defp opts do
@@ -59,7 +59,7 @@ defmodule ImagePlug.Runtime.ProcessorTest do
   end
 
   test "fetch_decode_validate_origin_with_source_format accepts plain plan sources" do
-    assert {:ok, %DecodedOrigin{} = decoded} =
+    assert {:ok, %Decoded{} = decoded} =
              fetch_decode_validate_origin_with_source_format(
                plan(),
                "http://origin.test/images/cat-300.jpg",
@@ -111,7 +111,7 @@ defmodule ImagePlug.Runtime.ProcessorTest do
       output: %Output{mode: {:explicit, :jpeg}}
     }
 
-    assert {:ok, %DecodedOrigin{} = decoded} =
+    assert {:ok, %Decoded{} = decoded} =
              fetch_decode_validate_origin_with_source_format(
                plan,
                "http://origin.test/images/cat-300.jpg",

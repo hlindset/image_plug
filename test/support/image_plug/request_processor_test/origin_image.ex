@@ -1,4 +1,4 @@
-defmodule ImagePlug.Runtime.ProcessorTest.OriginImage do
+defmodule ImagePlug.Request.ProcessorTest.OriginImage do
   @moduledoc false
 
   def call(%Plug.Conn{request_path: "/images/cat-300.jpg"} = conn, _opts) do

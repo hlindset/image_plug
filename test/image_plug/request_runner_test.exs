@@ -1,4 +1,4 @@
-defmodule ImagePlug.Runtime.RequestRunnerTest do
+defmodule ImagePlug.Request.RunnerTest do
   use ExUnit.Case, async: true
 
   import Plug.Test
@@ -11,7 +11,7 @@ defmodule ImagePlug.Runtime.RequestRunnerTest do
   alias ImagePlug.Plan.Output
   alias ImagePlug.Plan.Pipeline
   alias ImagePlug.Plan.Response
-  alias ImagePlug.Runtime.RequestRunner
+  alias ImagePlug.Request.Runner
   alias ImagePlug.Transform.State
 
   defmodule CacheHit do
@@ -150,7 +150,7 @@ defmodule ImagePlug.Runtime.RequestRunnerTest do
     }
 
     assert {:ok, {:cache_entry, ^entry, %Response{}}} =
-             RequestRunner.run(
+             Runner.run(
                conn(:get, "/_/f:jpeg/plain/images/cat-300.jpg"),
                plan(),
                "http://origin.test/images/cat-300.jpg",
@@ -172,7 +172,7 @@ defmodule ImagePlug.Runtime.RequestRunnerTest do
       |> Plug.Conn.put_req_header("accept", "image/jpeg")
 
     assert {:ok, {:cache_entry, ^entry, %ImagePlug.Plan.Response{}}} =
-             RequestRunner.run(
+             Runner.run(
                conn,
                plan(output: %Output{mode: :automatic}),
                "http://origin.test/images/cat-300.jpg",
@@ -195,7 +195,7 @@ defmodule ImagePlug.Runtime.RequestRunnerTest do
              )
 
     assert {:ok, {:cache_entry, ^entry, %ImagePlug.Plan.Response{}}} =
-             RequestRunner.run(
+             Runner.run(
                conn(:get, "/_/rt:auto/w:100/h:100/f:jpeg/plain/images/cat-300.jpg"),
                plan(pipelines: [%Pipeline{operations: [operation]}]),
                "origin-version-1",
@@ -224,7 +224,7 @@ defmodule ImagePlug.Runtime.RequestRunnerTest do
              )
 
     assert {:ok, {:cache_entry, %Entry{content_type: "image/jpeg"}, %ImagePlug.Plan.Response{}}} =
-             RequestRunner.run(
+             Runner.run(
                conn(:get, "/_/rt:auto/w:100/h:100/f:jpeg/plain/images/cat-300.jpg"),
                plan(pipelines: [%Pipeline{operations: [operation]}]),
                "http://origin.test/images/cat-300.jpg",
@@ -253,7 +253,7 @@ defmodule ImagePlug.Runtime.RequestRunnerTest do
     }
 
     assert {:error, {:processing, :empty_pipeline_plan, []}} =
-             RequestRunner.run(
+             Runner.run(
                conn(:get, "/_/f:jpeg/plain/images/cat-300.jpg"),
                plan(pipelines: []),
                "http://origin.test/images/cat-300.jpg",
@@ -272,7 +272,7 @@ defmodule ImagePlug.Runtime.RequestRunnerTest do
     }
 
     assert {:error, {:processing, {:invalid_pipeline_plan, [:not_a_pipeline]}, []}} =
-             RequestRunner.run(
+             Runner.run(
                conn(:get, "/_/f:jpeg/plain/images/cat-300.jpg"),
                plan(pipelines: [:not_a_pipeline]),
                "http://origin.test/images/cat-300.jpg",
@@ -291,7 +291,7 @@ defmodule ImagePlug.Runtime.RequestRunnerTest do
     }
 
     assert {:error, {:processing, {:invalid_pipeline_operation, :not_operation}, []}} =
-             RequestRunner.run(
+             Runner.run(
                conn(:get, "/_/f:jpeg/plain/images/cat-300.jpg"),
                plan(pipelines: [%Pipeline{operations: [:not_operation]}]),
                "http://origin.test/images/cat-300.jpg",
@@ -303,7 +303,7 @@ defmodule ImagePlug.Runtime.RequestRunnerTest do
 
   test "invalid cache config returns cache errors before cache lookup" do
     assert {:error, {:cache, {:invalid_cache_config, {:fail_on_cache_error, "false"}}}} =
-             RequestRunner.run(
+             Runner.run(
                conn(:get, "/_/f:jpeg/plain/images/cat-300.jpg"),
                plan(),
                "http://origin.test/images/cat-300.jpg",
@@ -336,7 +336,7 @@ defmodule ImagePlug.Runtime.RequestRunnerTest do
             {:image, %State{} = state,
              %Resolved{format: :jpeg, quality: :default, representation_headers: []},
              %ImagePlug.Plan.Response{}}} =
-             RequestRunner.run(
+             Runner.run(
                conn(:get, "/_/f:jpeg/plain/images/cat-300.jpg"),
                plan,
                "http://origin.test/images/cat-300.jpg",
@@ -362,7 +362,7 @@ defmodule ImagePlug.Runtime.RequestRunnerTest do
             {:image, %State{},
              %Resolved{format: :webp, quality: {:quality, 70}, representation_headers: []},
              %ImagePlug.Plan.Response{}}} =
-             RequestRunner.run(
+             Runner.run(
                conn(:get, "/_/f:webp/fq:webp:70/plain/images/cat-300.jpg"),
                plan,
                "http://origin.test/images/cat-300.jpg",
@@ -383,7 +383,7 @@ defmodule ImagePlug.Runtime.RequestRunnerTest do
     plan = plan(pipelines: [%Pipeline{operations: operations}])
 
     assert {:ok, {:cache_entry, ^entry, %ImagePlug.Plan.Response{}}} =
-             RequestRunner.run(
+             Runner.run(
                conn(:get, "/_/f:jpeg/plain/images/cat-300.jpg"),
                plan,
                "http://origin.test/images/cat-300.jpg",
@@ -420,7 +420,7 @@ defmodule ImagePlug.Runtime.RequestRunnerTest do
     }
 
     assert {:ok, {:image, %State{}, %ImagePlug.Output.Resolved{}, ^response}} =
-             RequestRunner.run(
+             Runner.run(
                conn(:get, "/_/f:jpeg/plain/images/cat-300.jpg"),
                plan(response: response),
                "http://origin.test/images/cat-300.jpg",
@@ -435,7 +435,7 @@ defmodule ImagePlug.Runtime.RequestRunnerTest do
     }
 
     assert {:ok, {:cache_entry, ^entry, ^response}} =
-             RequestRunner.run(
+             Runner.run(
                conn(:get, "/_/f:jpeg/plain/images/cat-300.jpg"),
                plan(response: response),
                "http://origin.test/images/cat-300.jpg",
@@ -457,7 +457,7 @@ defmodule ImagePlug.Runtime.RequestRunnerTest do
     }
 
     assert {:ok, {:cache_entry, %Entry{content_type: "image/jpeg"}, ^response}} =
-             RequestRunner.run(
+             Runner.run(
                conn(:get, "/_/f:jpeg/plain/images/cat-300.jpg"),
                plan(response: response),
                "http://origin.test/images/cat-300.jpg",
@@ -470,7 +470,7 @@ defmodule ImagePlug.Runtime.RequestRunnerTest do
     refute_received {:cache_lookup, _another_key}
 
     assert {:error, {:cache, {:unsupported_delivery_content_type, "image/gif"}}} =
-             RequestRunner.run(
+             Runner.run(
                conn(:get, "/_/f:jpeg/plain/images/cat-300.jpg"),
                plan(response: response),
                "http://origin.test/images/cat-300.jpg",
@@ -481,7 +481,7 @@ defmodule ImagePlug.Runtime.RequestRunnerTest do
   test "output policy uses output plans without a processing request bridge" do
     request_runner_source =
       __DIR__
-      |> Path.join("../../lib/image_plug/runtime/request_runner.ex")
+      |> Path.join("../../lib/image_plug/request/runner.ex")
       |> Path.expand()
       |> File.read!()
 

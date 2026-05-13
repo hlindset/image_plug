@@ -1,7 +1,14 @@
 defmodule ImagePlug.ArchitectureBoundaryTest do
   use ExUnit.Case, async: true
 
-  @runtime_globs ["lib/image_plug/runtime.ex", "lib/image_plug/runtime/**/*.ex"]
+  @request_origin_response_globs [
+    "lib/image_plug/request.ex",
+    "lib/image_plug/request/**/*.ex",
+    "lib/image_plug/origin.ex",
+    "lib/image_plug/origin/**/*.ex",
+    "lib/image_plug/response.ex",
+    "lib/image_plug/response/**/*.ex"
+  ]
   @imgproxy_parser_globs [
     "lib/image_plug/parser/imgproxy.ex",
     "lib/image_plug/parser/imgproxy/**/*.ex"
@@ -9,9 +16,11 @@ defmodule ImagePlug.ArchitectureBoundaryTest do
   @cache_key_files ["lib/image_plug/cache/key.ex"]
   @boundary_files %{
     ImagePlug.Cache => "lib/image_plug/cache.ex",
+    ImagePlug.Origin => "lib/image_plug/origin.ex",
     ImagePlug.Parser => "lib/image_plug/parser.ex",
     ImagePlug.Parser.Imgproxy => "lib/image_plug/parser/imgproxy.ex",
-    ImagePlug.Runtime => "lib/image_plug/runtime.ex",
+    ImagePlug.Request => "lib/image_plug/request.ex",
+    ImagePlug.Response => "lib/image_plug/response.ex",
     ImagePlug.Transform => "lib/image_plug/transform.ex"
   }
   @concrete_plan_names [
@@ -63,25 +72,109 @@ defmodule ImagePlug.ArchitectureBoundaryTest do
     assert_allowed_deps(imgproxy, [ImagePlug.Parser, ImagePlug.Plan, ImagePlug.Transform])
   end
 
-  test "runtime boundary declaration depends on generic facades only" do
-    runtime = boundary_declaration(ImagePlug.Runtime)
+  test "request boundary declaration depends on generic facades only" do
+    request = boundary_declaration(ImagePlug.Request)
 
-    assert_boundary_deps(runtime, [
+    assert_boundary_deps(request, [
       ImagePlug.Plan,
       ImagePlug.Cache,
+      ImagePlug.Origin,
       ImagePlug.Output,
+      ImagePlug.Response,
       ImagePlug.Transform
     ])
 
-    refute_boundary_deps(runtime, [ImagePlug.Parser | concrete_transform_modules()])
+    refute_boundary_deps(request, [ImagePlug.Parser | concrete_transform_modules()])
 
-    assert_boundary_exports(runtime, [
-      ImagePlug.Runtime.RequestRunner,
-      ImagePlug.Runtime.Origin,
-      ImagePlug.Runtime.ResponseSender,
-      ImagePlug.Runtime.SourceIdentity,
-      ImagePlug.Runtime.Options
+    assert_boundary_exports(request, [
+      ImagePlug.Request.Options,
+      ImagePlug.Request.Runner
     ])
+  end
+
+  test "origin boundary owns origin identity and fetch context" do
+    origin = boundary_declaration(ImagePlug.Origin)
+
+    assert_boundary_deps(origin, [ImagePlug.Plan])
+    refute_boundary_deps(origin, [ImagePlug.Request, ImagePlug.Response, ImagePlug.Cache])
+
+    assert_boundary_exports(origin, [
+      ImagePlug.Origin.Decoded,
+      ImagePlug.Origin.Identity,
+      ImagePlug.Origin.Response
+    ])
+  end
+
+  test "response boundary owns plug response delivery" do
+    response = boundary_declaration(ImagePlug.Response)
+
+    assert_boundary_deps(response, [
+      ImagePlug.Cache,
+      ImagePlug.Output,
+      ImagePlug.Plan,
+      ImagePlug.Transform
+    ])
+
+    refute_boundary_deps(response, [ImagePlug.Request, ImagePlug.Origin])
+
+    assert_boundary_exports(response, [
+      ImagePlug.Response.Sender
+    ])
+  end
+
+  test "old Runtime namespace files are gone" do
+    refute File.exists?("lib/image_plug/runtime.ex")
+    assert Path.wildcard("lib/image_plug/runtime/**/*.ex") == []
+  end
+
+  test "request, origin, and response code does not depend on concrete transform modules" do
+    violations =
+      for file <- request_origin_response_files(),
+          violation <- concrete_transform_references(file) do
+        "#{file}:#{violation.line} must not name #{violation.module}; use ImagePlug.Transform dispatch instead"
+      end
+
+    assert violations == []
+  end
+
+  test "request, origin, and response code does not depend on concrete plan operation modules" do
+    violations =
+      for file <- request_origin_response_files(),
+          violation <- concrete_plan_references(file) do
+        "#{file}:#{violation.line} must not name #{violation.module}; use generic Plan/Transform facades instead"
+      end
+
+    assert violations == []
+  end
+
+  test "request, origin, and response code does not inspect plan operation semantic staging" do
+    violations =
+      for file <- request_origin_response_files(),
+          violation <- plan_operation_semantic_references(file) do
+        "#{file}:#{violation.line} must not call #{violation.module}.semantic?/1; use ImagePlug.Transform executable planning instead"
+      end
+
+    assert violations == []
+  end
+
+  test "request, origin, and response code does not call removed or internal transform execution APIs" do
+    violations =
+      for file <- request_origin_response_files(),
+          violation <- runtime_forbidden_transform_execution_references(file) do
+        "#{file}:#{violation.line} must not use #{violation.module}; execute canonical plans through ImagePlug.Transform.execute_plan/3"
+      end
+
+    assert violations == []
+  end
+
+  test "request, origin, and response code does not depend on imgproxy parser structs" do
+    violations =
+      for file <- request_origin_response_files(),
+          violation <- imgproxy_parser_references(file) do
+        "#{file}:#{violation.line} must not name #{violation.module}; keep Imgproxy parser dependencies out of request, origin, and response code"
+      end
+
+    assert violations == []
   end
 
   test "cache boundary declaration avoids post-fetch transform state dependencies" do
@@ -109,7 +202,10 @@ defmodule ImagePlug.ArchitectureBoundaryTest do
 
     refute_boundary_deps(transform, [
       ImagePlug.Parser,
-      ImagePlug.Runtime,
+      ImagePlug.Request.Runner,
+      ImagePlug.Request,
+      ImagePlug.Origin,
+      ImagePlug.Response,
       ImagePlug.Cache,
       ImagePlug.Output
     ])
@@ -127,56 +223,6 @@ defmodule ImagePlug.ArchitectureBoundaryTest do
       ImagePlug.Transform.Operation.Flip,
       ImagePlug.Transform.Operation.Crop
     ])
-  end
-
-  test "runtime does not depend on concrete transform modules" do
-    violations =
-      for file <- runtime_files(),
-          violation <- concrete_transform_references(file) do
-        "#{file}:#{violation.line} must not name #{violation.module}; use ImagePlug.Transform dispatch instead"
-      end
-
-    assert violations == []
-  end
-
-  test "runtime does not depend on concrete plan operation modules" do
-    violations =
-      for file <- runtime_files(),
-          violation <- concrete_plan_references(file) do
-        "#{file}:#{violation.line} must not name #{violation.module}; use generic Plan/Transform facades instead"
-      end
-
-    assert violations == []
-  end
-
-  test "runtime does not inspect plan operation semantic staging" do
-    violations =
-      for file <- runtime_files(),
-          violation <- plan_operation_semantic_references(file) do
-        "#{file}:#{violation.line} must not call #{violation.module}.semantic?/1; use ImagePlug.Transform executable planning instead"
-      end
-
-    assert violations == []
-  end
-
-  test "runtime does not call removed or internal transform execution APIs" do
-    violations =
-      for file <- runtime_files(),
-          violation <- runtime_forbidden_transform_execution_references(file) do
-        "#{file}:#{violation.line} must not use #{violation.module}; execute canonical plans through ImagePlug.Transform.execute_plan/3"
-      end
-
-    assert violations == []
-  end
-
-  test "runtime does not depend on imgproxy parser structs" do
-    violations =
-      for file <- runtime_files(),
-          violation <- imgproxy_parser_references(file) do
-        "#{file}:#{violation.line} must not name #{violation.module}; keep Imgproxy parser dependencies out of runtime"
-      end
-
-    assert violations == []
   end
 
   test "cache key construction does not depend on post-fetch transform execution state" do
@@ -200,8 +246,8 @@ defmodule ImagePlug.ArchitectureBoundaryTest do
     assert violations == []
   end
 
-  defp runtime_files do
-    @runtime_globs
+  defp request_origin_response_files do
+    @request_origin_response_globs
     |> Enum.flat_map(&Path.wildcard/1)
     |> Enum.sort()
   end

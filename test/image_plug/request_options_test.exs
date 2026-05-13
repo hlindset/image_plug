@@ -1,7 +1,7 @@
-defmodule ImagePlug.RuntimeOptionsTest do
+defmodule ImagePlug.RequestOptionsTest do
   use ExUnit.Case, async: true
 
-  alias ImagePlug.Runtime.Options
+  alias ImagePlug.Request.Options
 
   @base_opts [
     parser: ImagePlug.Parser.Imgproxy,

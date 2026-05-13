@@ -1,9 +1,9 @@
-defmodule ImagePlug.Runtime.Processor do
+defmodule ImagePlug.Request.Processor do
   @moduledoc false
 
   alias ImagePlug.Plan
-  alias ImagePlug.Runtime.DecodedOrigin
-  alias ImagePlug.Runtime.Origin
+  alias ImagePlug.Origin.Decoded
+  alias ImagePlug.Origin
   alias ImagePlug.Transform
   alias ImagePlug.Transform.DecodePlanner
   alias ImagePlug.Transform.Materializer
@@ -15,14 +15,14 @@ defmodule ImagePlug.Runtime.Processor do
   @spec process_origin(Plan.t(), String.t(), keyword()) ::
           {:ok, State.t()} | {:error, term()}
   def process_origin(%Plan{} = plan, origin_identity, opts) do
-    with {:ok, %DecodedOrigin{} = decoded} <-
+    with {:ok, %Decoded{} = decoded} <-
            fetch_decode_validate_origin_with_source_format(plan, origin_identity, opts) do
       process_decoded_origin(decoded, plan, opts)
     end
   end
 
   @spec fetch_decode_validate_origin_with_source_format(Plan.t(), String.t(), keyword()) ::
-          {:ok, DecodedOrigin.t()} | {:error, term()}
+          {:ok, Decoded.t()} | {:error, term()}
   def fetch_decode_validate_origin_with_source_format(%Plan{} = plan, origin_identity, opts) do
     with {:ok, origin_response} <- fetch_origin(plan, origin_identity, opts) do
       decode_validate_origin_response(origin_response, plan, opts)
@@ -30,7 +30,7 @@ defmodule ImagePlug.Runtime.Processor do
   end
 
   @spec decode_validate_origin_response(Origin.Response.t(), Plan.t(), keyword()) ::
-          {:ok, DecodedOrigin.t()} | {:error, term()}
+          {:ok, Decoded.t()} | {:error, term()}
   def decode_validate_origin_response(%Origin.Response{} = origin_response, %Plan{} = plan, opts) do
     decode_options = DecodePlanner.open_options(first_pipeline_operations(plan))
 
@@ -41,7 +41,7 @@ defmodule ImagePlug.Runtime.Processor do
       source_format = source_format(image)
 
       {:ok,
-       %DecodedOrigin{
+       %Decoded{
          decode_options: decode_options,
          image: image,
          source_format: source_format
@@ -49,9 +49,9 @@ defmodule ImagePlug.Runtime.Processor do
     end
   end
 
-  @spec process_decoded_origin(DecodedOrigin.t(), Plan.t(), keyword()) ::
+  @spec process_decoded_origin(Decoded.t(), Plan.t(), keyword()) ::
           {:ok, State.t()} | {:error, term()}
-  def process_decoded_origin(%DecodedOrigin{} = decoded, %Plan{} = plan, opts) do
+  def process_decoded_origin(%Decoded{} = decoded, %Plan{} = plan, opts) do
     with {:ok, final_state} <-
            execute_plan_pipelines(%State{image: decoded.image}, plan, opts) do
       materialize_before_delivery(final_state, decoded.decode_options, opts)

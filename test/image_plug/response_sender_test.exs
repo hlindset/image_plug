@@ -1,11 +1,11 @@
-defmodule ImagePlug.Runtime.ResponseSenderTest do
+defmodule ImagePlug.Response.SenderTest do
   use ExUnit.Case, async: true
 
   import Plug.Test
 
   alias ImagePlug.Cache.Entry
   alias ImagePlug.Plan.Response
-  alias ImagePlug.Runtime.ResponseSender
+  alias ImagePlug.Response.Sender
 
   test "cache hits apply content disposition from plan response" do
     entry = %Entry{
@@ -18,7 +18,7 @@ defmodule ImagePlug.Runtime.ResponseSenderTest do
     response = %Response{disposition: :attachment, filename: "report"}
 
     conn =
-      ResponseSender.send_result(conn(:get, "/image"), {:ok, {:cache_entry, entry, response}}, [])
+      Sender.send_result(conn(:get, "/image"), {:ok, {:cache_entry, entry, response}}, [])
 
     assert conn.status == 200
 
@@ -39,7 +39,7 @@ defmodule ImagePlug.Runtime.ResponseSenderTest do
     response = %Response{disposition: :inline, filename: "miss"}
 
     conn =
-      ResponseSender.send_result(
+      Sender.send_result(
         conn(:get, "/image"),
         {:ok, {:image, state, resolved, response}},
         image_module: Image

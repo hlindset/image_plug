@@ -1,4 +1,4 @@
-defmodule ImagePlug.Runtime.ProcessorTest.DecodeValidImageOpen do
+defmodule ImagePlug.Request.ProcessorTest.DecodeValidImageOpen do
   @moduledoc false
 
   def open(_stream, _decode_options) do
