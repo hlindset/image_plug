@@ -705,6 +705,31 @@ test "signature verification excludes query strings" do
            )
 end
 
+test "fixPath decodes option separators before verification and parsing" do
+  assert {:ok, %Plan{source: {:plain, ["images", "cat.jpg"]}}} =
+           Imgproxy.parse(
+             conn(
+               :get,
+               "/NSbxuO5fQqTgDkui_3o6ho1UCFFcmzsugB2Uksho49o/w%3A300/plain/images/cat.jpg"
+             ),
+             signed_parser_opts()
+           )
+end
+
+test "fixPath repairs normalized plain URL schemes before verification and parsing" do
+  assert {:ok, %Plan{source: {:plain, ["http:", "", "example.com", "image.jpg"]}}} =
+           Imgproxy.parse(
+             conn(:get, "/rvUfkOxjt_gv1jphcFemDz8PPpIntOx93-72pYGwqV0/plain/http:/example.com/image.jpg"),
+             signed_parser_opts()
+           )
+
+  assert {:ok, %Plan{source: {:plain, ["local:", "", "", "test1.png"]}}} =
+           Imgproxy.parse(
+             conn(:get, "/My9d3xq_PYpVHsPrCyww0Kh1w5KZeZhIlWhsa4az1TI/rs:fill:4:4/plain/local:/test1.png"),
+             signed_parser_opts()
+           )
+end
+
 test "rejects disabled-signing placeholders when signing is enabled" do
   assert Imgproxy.parse(conn(:get, "/_/plain/images/cat.jpg"), signed_parser_opts()) ==
            {:error, {:invalid_signature_encoding, "_"}}
@@ -770,10 +795,11 @@ mise exec -- mix test test/parser/imgproxy_test.exs --warnings-as-errors
 
 Expected: signed URL test fails because parser still accepts only `_` and `unsafe`.
 
-- [ ] **Step 3: Verify and parse from the same slash-preserving raw path**
+- [ ] **Step 3: Apply fixPath, then verify and parse from the same slash-preserving path**
 
 In `lib/image_plug/parser/imgproxy.ex`, update `parse_request/2` so signature
-verification and request parsing both use the same parser-visible raw path:
+verification and request parsing both use the same parser-visible path after
+imgproxy-compatible `fixPath` normalization:
 
 ```elixir
 def parse_request(%Plug.Conn{} = conn, opts) do
@@ -837,8 +863,45 @@ end
 defp raw_path_parts([""]), do: {:error, :missing_signature}
 defp raw_path_parts([signature]), do: {:ok, signature, "", []}
 
-defp raw_path_parts([signature | path_info]) do
-  {:ok, signature, "/" <> Enum.join(path_info, "/"), path_info}
+defp raw_path_parts([signature | raw_path_info]) do
+  signed_path =
+    raw_path_info
+    |> Enum.join("/")
+    |> then(&("/" <> &1))
+    |> fix_path()
+
+  {:ok, signature, signed_path, path_info_from_signed_path(signed_path)}
+end
+
+defp path_info_from_signed_path(""), do: []
+defp path_info_from_signed_path("/" <> path), do: :binary.split(path, "/", [:global])
+
+defp fix_path(path) do
+  case :binary.split(path, "/plain/") do
+    [options, plain_url] ->
+      fix_options_path(options) <> "/plain/" <> fix_plain_url_path(plain_url)
+
+    [options] ->
+      fix_options_path(options)
+  end
+end
+
+defp fix_options_path(options), do: String.replace(options, "%3A", ":")
+
+defp fix_plain_url_path(plain_url) do
+  case Regex.run(~r/^(\S+):\/([^\/])/, plain_url) do
+    [match, scheme, first] ->
+      replacement =
+        case scheme do
+          "local" -> "local:///" <> first
+          scheme -> scheme <> "://" <> first
+        end
+
+      String.replace_prefix(plain_url, match, replacement)
+
+    nil ->
+      plain_url
+  end
 end
 ```
 
@@ -1128,8 +1191,10 @@ signature configuration, ImagePlug accepts only `_` and `unsafe` as
 disabled-signing placeholders. With signing configured, the signature must be a
 URL-safe Base64 HMAC-SHA256 digest of the raw path after the signature,
 including the leading slash, or an exact configured trusted signature.
-ImagePlug does not implement imgproxy `fixPath` normalization in this slice, so
-sign URLs exactly as ImagePlug receives and parses them.
+Before verification, ImagePlug applies imgproxy-compatible `fixPath`
+normalization: `%3A` in processing options is treated as `:`, and normalized
+plain URL schemes such as `http:/x` and `local:/x` are repaired to `http://x`
+and `local:///x`.
 
 `plain` source paths are path segments after the source marker. A plain source
 may end in `@extension` to request an explicit output format from the source
@@ -1150,7 +1215,7 @@ to:
 
 ```markdown
 | Required signature path segment | Supported | `_` and `unsafe` are accepted when signing is disabled; HMAC and exact trusted signatures are accepted when signing is configured. This is intentionally narrower than upstream disabled-signing behavior. |
-| HMAC URL signatures | Supported | Imgproxy parser verifies URL-safe Base64 HMAC-SHA256 signatures with hex key/salt pairs, optional truncation, rotation pairs, and exact trusted signatures. Signature failures return 403; this slice does not implement imgproxy `fixPath` normalization. |
+| HMAC URL signatures | Supported | Imgproxy parser verifies URL-safe Base64 HMAC-SHA256 signatures with hex key/salt pairs, optional truncation, rotation pairs, exact trusted signatures, and imgproxy-compatible `fixPath` before verification. Signature failures return 403. |
 ```
 
 Also remove HMAC signatures from `## Suggested Next Additions` so the matrix does not continue listing this completed feature as future work.
@@ -1242,6 +1307,6 @@ If `git status --short` is empty, skip this commit.
 ## Self-Review
 
 - Spec coverage: Tasks 1-4 implement parser-owned configuration and verification; Task 5 covers safety and cache boundaries; Task 6 updates public docs and the support matrix; Task 7 verifies formatting, focused tests, full tests, and warning-free compilation.
-- Review coverage: This revision addresses the subagent findings by preserving raw slash structure, parsing from the same raw path used for signature verification, excluding query strings from signed bytes, adding positive raw-path and `script_name` tests, boundary-checking mounted prefix stripping, keeping parser validation out of `ImagePlug.Request`, using NimbleOptions for top-level and nested public config, requiring at least one authorization method, rejecting empty decoded key/salt values, returning 403 for signature failures, documenting intentional divergences from upstream disabled-signing, trusted-only, and `fixPath` behavior, avoiding hand-built signature structs outside signature tests, updating both support-matrix signature rows and suggested next additions, and running tests with warnings as errors.
+- Review coverage: This revision addresses the subagent findings by preserving raw slash structure, parsing from the same fixed path used for signature verification, excluding query strings from signed bytes, adding positive raw-path, `fixPath`, and `script_name` tests, boundary-checking mounted prefix stripping, keeping parser validation out of `ImagePlug.Request`, using NimbleOptions for top-level and nested public config, requiring at least one authorization method, rejecting empty decoded key/salt values, returning 403 for signature failures, documenting intentional divergences from upstream disabled-signing and trusted-only behavior, avoiding hand-built signature structs outside signature tests, updating both support-matrix signature rows and suggested next additions, and running tests with warnings as errors.
 - Placeholder scan: This plan contains no deferred implementation markers. Each code-changing task names concrete files, commands, and expected outcomes.
 - Type consistency: The plan consistently uses `ImagePlug.Parser.Imgproxy.Signature`, `%Signature{mode, key_salt_pairs, signature_size, trusted_signatures}`, `disabled/0`, `validate_options!/1`, and `verify/3` across tests and implementation.

@@ -35,11 +35,11 @@ cache key data.
 - Do not vary cache keys by signature string.
 - Do not add absolute source URL support, encoded source URLs, encrypted source
   URLs, or imgproxy info endpoints.
-- Do not implement imgproxy `fixPath` compatibility in this slice.
 - Do not match every imgproxy wire-level behavior. ImagePlug intentionally keeps
   disabled signing narrower than upstream, treats trusted-only config as exact
-  trusted-signature authorization instead of disabled signing, and does not
-  implement `fixPath` compatibility in this slice.
+  trusted-signature authorization instead of disabled signing, and keeps URL
+  source execution out of this slice even though signature parsing should
+  already apply imgproxy `fixPath`.
 - Do not add globally generic signing support for every parser.
 
 ## Configuration
@@ -130,6 +130,13 @@ parsing inputs from the parser-visible raw request path:
 The parser verifies `signature` against `signed_path` before splitting the
 source marker or parsing options.
 
+Before verification and parsing, apply imgproxy-compatible `fixPath` to the path
+after the signature:
+
+- Replace `%3A` with `:` in the options portion before `/plain/`.
+- Repair normalized source URL schemes in the `/plain/` portion, so `scheme:/x`
+  becomes `scheme://x`, and `local:/x` becomes `local:///x`.
+
 Verification behavior:
 
 1. If signing is disabled, accept only `_` and `unsafe`.
@@ -146,12 +153,13 @@ Verification behavior:
 6. Use constant-time comparison for equal-length binaries.
 7. Accept when any configured pair matches, otherwise reject.
 
-Use the parser-visible raw request path for `signed_path` and for subsequent
-imgproxy option/source parsing, not decoded source segments, canonicalized plan
-data, or normalized `conn.path_info`. When ImagePlug is mounted under a Plug
-`script_name`, strip only the mounted prefix before removing the first signature
-segment. This preserves imgproxy's slash-sensitive signing semantics while
-keeping signatures scoped to the path seen by this parser.
+Use the parser-visible request path, after `fixPath`, for `signed_path` and for
+subsequent imgproxy option/source parsing, not decoded source segments,
+canonicalized plan data, or normalized `conn.path_info`. When ImagePlug is
+mounted under a Plug `script_name`, strip only the mounted prefix before
+removing the first signature segment. This preserves imgproxy's slash-sensitive
+signing semantics while keeping signatures scoped to the path seen by this
+parser.
 
 ## Errors
 
@@ -214,6 +222,10 @@ Add request safety tests:
   public Plug entry point.
 - Query strings are excluded from the signed bytes, matching upstream request
   handler behavior.
+- `fixPath` decoding of `%3A` in options is applied before signature
+  verification and option parsing.
+- `fixPath` repair of `/plain/` URL schemes is applied before signature
+  verification and source parsing.
 - Positive raw-path parser vectors prove signatures are computed over duplicate
   slash and trailing slash paths without normalization.
 - Mounted `script_name` requests strip only the mounted prefix before signature
@@ -344,5 +356,5 @@ Update:
 Document that ImagePlug's signing support is currently imgproxy-parser specific,
 that disabled signing accepts only `_` and `unsafe`, and that trusted signatures
 are exact bypass strings for deployments that deliberately configure them.
-Avoid claiming full imgproxy path-normalization compatibility: upstream verifies
-after `fixPath`, while this slice deliberately does not implement `fixPath`.
+Document that signatures are verified against the path after imgproxy-compatible
+`fixPath`, even though absolute URL source execution remains broader parser work.
