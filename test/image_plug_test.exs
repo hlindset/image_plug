@@ -11,6 +11,7 @@ defmodule ImagePlug.ImagePlugTest do
   alias ImagePlug.Plan.Operation
   alias ImagePlug.Plan.Output
   alias ImagePlug.Plan.Pipeline
+  alias ImagePlug.Parser.Imgproxy.Signature
 
   defmodule CacheProbe do
     alias ImagePlug.Cache.Entry
@@ -465,6 +466,68 @@ defmodule ImagePlug.ImagePlugTest do
       )
 
     assert Keyword.fetch!(opts, :parser) == ImagePlug.ImagePlugTest.MissingParser
+  end
+
+  test "init normalizes imgproxy signature options through the imgproxy parser" do
+    opts =
+      ImagePlug.init(
+        parser: ImagePlug.Parser.Imgproxy,
+        root_url: "https://example.test",
+        imgproxy: [
+          signature: [
+            keys: ["746573742d6b6579"],
+            salts: ["746573742d73616c74"],
+            signature_size: 8,
+            trusted_signatures: ["local-dev!"]
+          ]
+        ]
+      )
+
+    assert [
+             signature: %Signature{
+               mode: :enabled,
+               key_salt_pairs: [{"test-key", "test-salt"}],
+               signature_size: 8,
+               trusted_signatures: trusted_signatures
+             }
+           ] = Keyword.fetch!(opts, :imgproxy)
+
+    assert MapSet.equal?(trusted_signatures, MapSet.new(["local-dev!"]))
+  end
+
+  test "init rejects malformed imgproxy signature options before requests" do
+    assert_raise ArgumentError, ~r/keys and salts must be non-empty hex-encoded strings/, fn ->
+      ImagePlug.init(
+        parser: ImagePlug.Parser.Imgproxy,
+        root_url: "https://example.test",
+        imgproxy: [
+          signature: [
+            keys: ["not-hex"],
+            salts: ["73616c74"]
+          ]
+        ]
+      )
+    end
+  end
+
+  test "init rejects unknown top-level imgproxy options before requests" do
+    assert_raise ArgumentError, ~r/unknown options.*:trusted_signatures/, fn ->
+      ImagePlug.init(
+        parser: ImagePlug.Parser.Imgproxy,
+        root_url: "https://example.test",
+        imgproxy: [trusted_signatures: ["local-dev!"]]
+      )
+    end
+  end
+
+  test "init rejects explicit nil signature config before requests" do
+    assert_raise ArgumentError, ~r/invalid value for :signature option/, fn ->
+      ImagePlug.init(
+        parser: ImagePlug.Parser.Imgproxy,
+        root_url: "https://example.test",
+        imgproxy: [signature: nil]
+      )
+    end
   end
 
   test "plug facade delegates response delivery to response sender" do

@@ -17,6 +17,7 @@ defmodule ImagePlug do
   @behaviour Plug
 
   alias ImagePlug.Plan
+  alias ImagePlug.Parser.Imgproxy
   alias ImagePlug.Request.Options
   alias ImagePlug.Request.Runner
   alias ImagePlug.Response.Sender
@@ -24,7 +25,11 @@ defmodule ImagePlug do
   alias ImagePlug.Transform
 
   @impl Plug
-  def init(opts), do: Options.validate!(opts)
+  def init(opts) do
+    opts
+    |> Options.validate!()
+    |> validate_parser_options()
+  end
 
   @impl Plug
   def call(%Plug.Conn{} = conn, opts) do
@@ -62,4 +67,21 @@ defmodule ImagePlug do
 
   defp wrap_origin_error({:error, error}), do: {:error, {:origin, error}}
   defp wrap_origin_error(result), do: result
+
+  defp validate_parser_options(opts) do
+    opts
+    |> Keyword.fetch!(:parser)
+    |> validate_parser_options(opts)
+  end
+
+  defp validate_parser_options(Imgproxy, opts) do
+    imgproxy_opts =
+      opts
+      |> Keyword.get(:imgproxy, [])
+      |> Imgproxy.validate_options!()
+
+    Keyword.put(opts, :imgproxy, imgproxy_opts)
+  end
+
+  defp validate_parser_options(_parser, opts), do: opts
 end
