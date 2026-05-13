@@ -48,7 +48,7 @@ defmodule ImagePlug.MixProject do
     [
       {:plug, "~> 1.18"},
       {:nimble_options, "~> 1.1"},
-      {:image, "~> 0.37"},
+      {:image, "~> 0.67"},
       {:req, "~> 0.5"},
       {:bandit, "~> 1.0", only: [:test, :dev]},
       {:stream_data, "~> 1.0", only: [:test, :dev]},
