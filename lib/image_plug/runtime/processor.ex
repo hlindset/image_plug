@@ -7,7 +7,6 @@ defmodule ImagePlug.Runtime.Processor do
   alias ImagePlug.Transform
   alias ImagePlug.Transform.DecodePlanner
   alias ImagePlug.Transform.Materializer
-  alias ImagePlug.Transform.SourceMetadata
   alias ImagePlug.Transform.State
   alias Vix.Vips.Image, as: VipsImage
 
@@ -45,8 +44,7 @@ defmodule ImagePlug.Runtime.Processor do
        %DecodedOrigin{
          decode_options: decode_options,
          image: image,
-         source_format: source_format,
-         source_metadata: source_metadata(source_format)
+         source_format: source_format
        }}
     end
   end
@@ -55,7 +53,7 @@ defmodule ImagePlug.Runtime.Processor do
           {:ok, State.t()} | {:error, term()}
   def process_decoded_origin(%DecodedOrigin{} = decoded, %Plan{} = plan, opts) do
     with {:ok, final_state} <-
-           execute_plan_pipelines(%State{image: decoded.image}, plan, decoded, opts) do
+           execute_plan_pipelines(%State{image: decoded.image}, plan, opts) do
       materialize_before_delivery(final_state, decoded.decode_options, opts)
     end
   end
@@ -63,7 +61,6 @@ defmodule ImagePlug.Runtime.Processor do
   defp execute_plan_pipelines(
          %State{} = state,
          %Plan{pipelines: pipelines} = plan,
-         %DecodedOrigin{} = decoded,
          opts
        ) do
     last_index = length(pipelines) - 1
@@ -72,7 +69,7 @@ defmodule ImagePlug.Runtime.Processor do
     |> Enum.with_index()
     |> Enum.reduce_while(
       {:ok, state},
-      &execute_plan_pipeline_step(&1, &2, last_index, decoded, plan, opts)
+      &execute_plan_pipeline_step(&1, &2, last_index, plan, opts)
     )
   end
 
@@ -80,7 +77,6 @@ defmodule ImagePlug.Runtime.Processor do
          {pipeline, index},
          {:ok, %State{} = state},
          last_index,
-         %DecodedOrigin{} = decoded,
          %Plan{} = plan,
          opts
        ) do
@@ -88,7 +84,6 @@ defmodule ImagePlug.Runtime.Processor do
            Transform.execute_plan(
              %Plan{plan | pipelines: [pipeline]},
              state,
-             decoded.source_metadata,
              opts
            ),
          {:ok, %State{} = state} <-
@@ -181,14 +176,6 @@ defmodule ImagePlug.Runtime.Processor do
 
   defp wrap_input_limit_error(:ok), do: :ok
   defp wrap_input_limit_error({:error, error}), do: {:error, {:input_limit, error}}
-
-  defp source_metadata(source_format) do
-    %SourceMetadata{
-      orientation: :unknown,
-      format: source_format,
-      source_type: :raster
-    }
-  end
 
   defp source_format(image) do
     case VipsImage.header_value(image, "vips-loader") do

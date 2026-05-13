@@ -77,53 +77,49 @@ defmodule ImagePlug.Transform.Operation.Resize do
 
   @impl ImagePlug.Transform
   def execute(%__MODULE__{} = operation, %State{} = state) do
-    opts = [
-      source_width: image_width(state),
-      source_height: image_height(state)
-    ]
+    dimensions =
+      resolve_dimensions(operation,
+        source_width: image_width(state),
+        source_height: image_height(state)
+      )
 
-    with {:ok, dimensions} <- resolve_dimensions(operation, opts),
-         {:ok, image} <-
-           resize_image(state, dimensions.intermediate_width, dimensions.intermediate_height) do
-      set_image(state, image)
-    else
-      {:error, _reason} = error -> add_error(state, {__MODULE__, error})
+    case resize_image(state, dimensions.intermediate_width, dimensions.intermediate_height) do
+      {:ok, image} -> set_image(state, image)
+      {:error, reason} -> add_error(state, {__MODULE__, reason})
     end
   end
 
   @doc false
-  @spec resolve_dimensions(t(), keyword()) :: {:ok, resolved_dimensions()} | {:error, term()}
+  @spec resolve_dimensions(t(), keyword()) :: resolved_dimensions()
   def resolve_dimensions(%__MODULE__{} = operation, opts) when is_list(opts) do
-    with {:ok, source} <- source_dimensions(opts),
-         {:ok, operation} <- normalize(operation),
-         {:ok, base} <- resolve_base_dimensions(operation, source) do
-      effective_dpr = effective_dpr(operation, base, source, opts)
-      requested = apply_dpr(base, effective_dpr)
-      min_dimensions = resolve_min_dimensions(operation, source, effective_dpr)
+    source = source_dimensions(opts)
+    operation = normalize(operation)
+    base = resolve_base_dimensions(operation, source)
+    effective_dpr = effective_dpr(operation, base, source, opts)
+    requested = apply_dpr(base, effective_dpr)
+    min_dimensions = resolve_min_dimensions(operation, source, effective_dpr)
 
-      target =
-        target_dimensions(operation.mode, requested, min_dimensions, source, operation.enlarge)
+    target =
+      target_dimensions(operation.mode, requested, min_dimensions, source, operation.enlarge)
 
-      intermediate =
-        intermediate_dimensions(
-          operation.mode,
-          requested,
-          min_dimensions,
-          source,
-          operation.enlarge
-        )
+    intermediate =
+      intermediate_dimensions(
+        operation.mode,
+        requested,
+        min_dimensions,
+        source,
+        operation.enlarge
+      )
 
-      {:ok,
-       %{
-         requested_width: requested.width,
-         requested_height: requested.height,
-         target_width: target.width,
-         target_height: target.height,
-         intermediate_width: intermediate.width,
-         intermediate_height: intermediate.height,
-         effective_dpr: effective_dpr
-       }}
-    end
+    %{
+      requested_width: requested.width,
+      requested_height: requested.height,
+      target_width: target.width,
+      target_height: target.height,
+      intermediate_width: intermediate.width,
+      intermediate_height: intermediate.height,
+      effective_dpr: effective_dpr
+    }
   end
 
   defp resize_image(%State{} = state, width, height) do
@@ -131,9 +127,6 @@ defmodule ImagePlug.Transform.Operation.Resize do
     source_height = image_height(state)
 
     cond do
-      source_width <= 0 or source_height <= 0 ->
-        {:error, {:invalid_source_dimensions, source_width, source_height}}
-
       width == source_width and height == source_height ->
         {:ok, state.image}
 
@@ -146,87 +139,44 @@ defmodule ImagePlug.Transform.Operation.Resize do
   end
 
   defp source_dimensions(opts) do
-    with {:ok, source_width} <- fetch_positive_integer(opts, :source_width),
-         {:ok, source_height} <- fetch_positive_integer(opts, :source_height) do
-      {:ok, %{width: source_width, height: source_height}}
-    end
-  end
-
-  defp fetch_positive_integer(opts, key) do
-    case Keyword.fetch(opts, key) do
-      {:ok, value} when is_number(value) and value > 0 ->
-        {:ok, positive_round(value)}
-
-      {:ok, value} ->
-        {:error, {:invalid_source_dimension, key, value}}
-
-      :error ->
-        {:error, {:missing_source_dimension, key}}
-    end
+    %{
+      width: positive_round(Keyword.fetch!(opts, :source_width)),
+      height: positive_round(Keyword.fetch!(opts, :source_height))
+    }
   end
 
   defp normalize(%__MODULE__{} = operation) do
-    with {:ok, mode} <- normalize_mode(operation.mode),
-         {:ok, width} <- normalize_bound_dimension(:width, operation.width),
-         {:ok, height} <- normalize_bound_dimension(:height, operation.height),
-         {:ok, min_width} <- normalize_min_dimension(:min_width, operation.min_width),
-         {:ok, min_height} <- normalize_min_dimension(:min_height, operation.min_height),
-         {:ok, zoom_x} <- normalize_factor(:zoom_x, operation.zoom_x, 1.0),
-         {:ok, zoom_y} <- normalize_factor(:zoom_y, operation.zoom_y, 1.0),
-         {:ok, dpr} <- normalize_factor(:dpr, operation.dpr, 1.0) do
-      {:ok,
-       %__MODULE__{
-         operation
-         | mode: mode,
-           width: width,
-           height: height,
-           min_width: min_width,
-           min_height: min_height,
-           zoom_x: zoom_x,
-           zoom_y: zoom_y,
-           dpr: dpr
-       }}
-    end
+    %__MODULE__{
+      operation
+      | width: normalize_bound_dimension(operation.width),
+        height: normalize_bound_dimension(operation.height),
+        min_width: normalize_min_dimension(operation.min_width),
+        min_height: normalize_min_dimension(operation.min_height),
+        zoom_x: normalize_factor(operation.zoom_x, 1.0),
+        zoom_y: normalize_factor(operation.zoom_y, 1.0),
+        dpr: normalize_factor(operation.dpr, 1.0)
+    }
   end
 
-  defp normalize_mode(mode) when mode in [:fit, :fill, :fill_down, :force], do: {:ok, mode}
-  defp normalize_mode(mode), do: {:error, {:invalid_resize_mode, mode}}
+  defp normalize_bound_dimension(nil), do: :auto
+  defp normalize_bound_dimension(:auto), do: :auto
+  defp normalize_bound_dimension({:pixels, 0}), do: :auto
+  defp normalize_bound_dimension({:pixels, value}), do: positive_round(value)
 
-  defp normalize_bound_dimension(_field, nil), do: {:ok, :auto}
-  defp normalize_bound_dimension(_field, :auto), do: {:ok, :auto}
-  defp normalize_bound_dimension(_field, {:pixels, 0}), do: {:ok, :auto}
+  defp normalize_min_dimension(nil), do: nil
+  defp normalize_min_dimension(:auto), do: nil
+  defp normalize_min_dimension({:pixels, 0}), do: nil
+  defp normalize_min_dimension({:pixels, value}), do: positive_round(value)
 
-  defp normalize_bound_dimension(_field, {:pixels, value}) when is_number(value) and value > 0,
-    do: {:ok, positive_round(value)}
-
-  defp normalize_bound_dimension(field, value),
-    do: {:error, {:invalid_resize_dimension, field, value}}
-
-  defp normalize_min_dimension(_field, nil), do: {:ok, nil}
-  defp normalize_min_dimension(_field, :auto), do: {:ok, nil}
-  defp normalize_min_dimension(_field, {:pixels, 0}), do: {:ok, nil}
-
-  defp normalize_min_dimension(_field, {:pixels, value}) when is_number(value) and value > 0,
-    do: {:ok, positive_round(value)}
-
-  defp normalize_min_dimension(field, value),
-    do: {:error, {:invalid_resize_dimension, field, value}}
-
-  defp normalize_factor(_field, nil, default), do: {:ok, default}
-
-  defp normalize_factor(_field, value, _default) when is_number(value) and value > 0,
-    do: {:ok, value * 1.0}
-
-  defp normalize_factor(field, value, _default),
-    do: {:error, {:invalid_resize_factor, field, value}}
+  defp normalize_factor(nil, default), do: default
+  defp normalize_factor(value, _default), do: value * 1.0
 
   defp resolve_base_dimensions(%__MODULE__{width: :auto, height: :auto} = operation, source) do
     if factor_requested?(operation) do
       source
       |> apply_zoom(operation)
-      |> ok()
     else
-      {:ok, %{width: :auto, height: :auto}}
+      %{width: :auto, height: :auto}
     end
   end
 
@@ -235,7 +185,6 @@ defmodule ImagePlug.Transform.Operation.Resize do
     |> requested_box(source)
     |> fit_inside(source)
     |> apply_zoom(operation)
-    |> ok()
   end
 
   defp resolve_base_dimensions(%__MODULE__{mode: mode} = operation, source)
@@ -243,7 +192,6 @@ defmodule ImagePlug.Transform.Operation.Resize do
     operation
     |> requested_box(source)
     |> apply_zoom(operation)
-    |> ok()
   end
 
   defp requested_box(%__MODULE__{mode: :force, width: :auto, height: height}, source) do
@@ -433,6 +381,4 @@ defmodule ImagePlug.Transform.Operation.Resize do
   defp requested_dimension?(:auto), do: false
   defp requested_dimension?({:pixels, value}) when is_number(value) and value <= 0, do: false
   defp requested_dimension?(_dimension), do: true
-
-  defp ok(value), do: {:ok, value}
 end

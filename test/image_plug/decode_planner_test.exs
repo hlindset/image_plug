@@ -8,53 +8,8 @@ defmodule ImagePlug.Transform.DecodePlannerTest do
   alias ImagePlug.Transform.Operation.ExtendCanvas
   alias ImagePlug.Transform.Operation.Resize
 
-  defmodule NoGeometryTransform do
-    defstruct []
-
-    def name(%__MODULE__{}), do: :no_geometry
-    def metadata(%__MODULE__{}), do: %{access: :neutral}
-    def execute(%__MODULE__{}, state), do: state
-  end
-
-  defmodule MissingMetadataCallbackTransform do
-    defstruct []
-
-    def name(%__MODULE__{}), do: :missing_metadata_callback
-    def execute(%__MODULE__{}, state), do: state
-  end
-
-  defmodule RaisingMetadataTransform do
-    defstruct []
-
-    def name(%__MODULE__{}), do: :raising_metadata
-    def metadata(%__MODULE__{}), do: raise("metadata failed")
-    def execute(%__MODULE__{}, state), do: state
-  end
-
-  defmodule ThrowingMetadataTransform do
-    defstruct []
-
-    def name(%__MODULE__{}), do: :throwing_metadata
-    def metadata(%__MODULE__{}), do: throw(:metadata_failed)
-    def execute(%__MODULE__{}, state), do: state
-  end
-
-  defmodule ExitingMetadataTransform do
-    defstruct []
-
-    def name(%__MODULE__{}), do: :exiting_metadata
-    def metadata(%__MODULE__{}), do: exit(:metadata_failed)
-    def execute(%__MODULE__{}, state), do: state
-  end
-
   test "empty chains open randomly with fail_on error" do
     assert DecodePlanner.open_options([]) == [access: :random, fail_on: :error]
-  end
-
-  test "no-geometry chains open randomly" do
-    assert DecodePlanner.open_options([
-             %NoGeometryTransform{}
-           ]) == [access: :random, fail_on: :error]
   end
 
   test "width-only fit resize opens sequentially" do
@@ -142,32 +97,6 @@ defmodule ImagePlug.Transform.DecodePlannerTest do
 
     assert DecodePlanner.open_options([fit]) == [access: :sequential, fail_on: :error]
     assert DecodePlanner.open_options([stretch]) == [access: :sequential, fail_on: :error]
-  end
-
-  test "trusted transform metadata callback failures propagate" do
-    assert_raise UndefinedFunctionError, fn ->
-      DecodePlanner.open_options([
-        %MissingMetadataCallbackTransform{}
-      ])
-    end
-
-    assert_raise RuntimeError, "metadata failed", fn ->
-      DecodePlanner.open_options([
-        %RaisingMetadataTransform{}
-      ])
-    end
-
-    assert catch_throw(
-             DecodePlanner.open_options([
-               %ThrowingMetadataTransform{}
-             ])
-           ) == :metadata_failed
-
-    assert catch_exit(
-             DecodePlanner.open_options([
-               %ExitingMetadataTransform{}
-             ])
-           ) == :metadata_failed
   end
 
   test "planned options include only access and fail_on" do

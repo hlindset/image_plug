@@ -15,7 +15,6 @@ defmodule ImagePlug.TransformIRCharacterizationTest do
   alias ImagePlug.Transform.Operation.Crop
   alias ImagePlug.Transform.Operation.ExtendCanvas
   alias ImagePlug.Transform.Operation.Resize
-  alias ImagePlug.Transform.SourceMetadata
   alias ImagePlug.Transform.State
 
   defmodule CacheHitProbe do
@@ -100,13 +99,10 @@ defmodule ImagePlug.TransformIRCharacterizationTest do
   end
 
   defp execute_plan_dimensions(source, operations) do
-    metadata = %SourceMetadata{format: :png, source_type: :raster}
-
     assert {:ok, %State{} = state} =
              Transform.execute_plan(
                semantic_plan(operations),
                generated_state(source),
-               metadata,
                []
              )
 

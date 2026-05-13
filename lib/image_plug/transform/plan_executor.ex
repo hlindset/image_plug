@@ -14,12 +14,11 @@ defmodule ImagePlug.Transform.PlanExecutor do
   alias ImagePlug.Transform.Operation.Flip
   alias ImagePlug.Transform.Operation.Resize
   alias ImagePlug.Transform.Operation.Rotate
-  alias ImagePlug.Transform.SourceMetadata
   alias ImagePlug.Transform.State
 
-  @spec execute(Plan.t(), State.t(), SourceMetadata.t(), keyword()) ::
+  @spec execute(Plan.t(), State.t(), keyword()) ::
           {:ok, State.t()} | {:error, term()}
-  def execute(%Plan{pipelines: pipelines}, %State{} = state, %SourceMetadata{}, _opts) do
+  def execute(%Plan{pipelines: pipelines}, %State{} = state, _opts) do
     execute_pipelines(pipelines, state)
   end
 
@@ -145,7 +144,7 @@ defmodule ImagePlug.Transform.PlanExecutor do
   end
 
   defp cover_resize_and_crop(%Resize{} = resize, %State{} = state, gravity, {x_offset, y_offset}) do
-    {:ok, dimensions} =
+    dimensions =
       Resize.resolve_dimensions(resize,
         source_width: Image.width(state.image),
         source_height: Image.height(state.image)

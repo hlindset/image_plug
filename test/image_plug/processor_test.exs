@@ -121,7 +121,6 @@ defmodule ImagePlug.Runtime.ProcessorTest do
              )
 
     assert decoded.source_format == :jpeg
-    assert decoded.source_metadata.orientation == :unknown
     assert decoded.decode_options == [access: :random, fail_on: :error]
   end
 

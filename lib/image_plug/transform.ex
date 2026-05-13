@@ -18,7 +18,6 @@ defmodule ImagePlug.Transform do
       Materializer,
       KeyData,
       Types,
-      SourceMetadata,
       Operation.Resize,
       Operation.ExtendCanvas,
       Operation.AutoOrient,
@@ -30,7 +29,6 @@ defmodule ImagePlug.Transform do
   alias ImagePlug.Plan
   alias ImagePlug.Plan.Pipeline
   alias ImagePlug.Transform.PlanExecutor
-  alias ImagePlug.Transform.SourceMetadata
   alias ImagePlug.Transform.State
 
   @type attrs() :: keyword()
@@ -64,9 +62,9 @@ defmodule ImagePlug.Transform do
     module.execute(operation, state)
   end
 
-  @spec execute_plan(Plan.t(), State.t(), SourceMetadata.t(), keyword()) ::
+  @spec execute_plan(Plan.t(), State.t(), keyword()) ::
           {:ok, State.t()} | {:error, term()}
-  def execute_plan(%Plan{} = plan, %State{} = state, %SourceMetadata{} = metadata, opts \\ []) do
-    PlanExecutor.execute(plan, state, metadata, opts)
+  def execute_plan(%Plan{} = plan, %State{} = state, opts \\ []) do
+    PlanExecutor.execute(plan, state, opts)
   end
 end

@@ -8,7 +8,6 @@ defmodule ImagePlug.Transform.PlanExecutorTest do
   alias ImagePlug.Transform.Operation.AutoOrient
   alias ImagePlug.Transform.Operation.Flip
   alias ImagePlug.Transform.Operation.Rotate
-  alias ImagePlug.Transform.SourceMetadata
   alias ImagePlug.Transform.State
 
   describe "resize execution" do
@@ -26,7 +25,6 @@ defmodule ImagePlug.Transform.PlanExecutorTest do
                  Transform.execute_plan(
                    plan([operation]),
                    state_with_image(source_dimensions),
-                   metadata(),
                    []
                  )
 
@@ -46,7 +44,6 @@ defmodule ImagePlug.Transform.PlanExecutorTest do
                Transform.execute_plan(
                  plan([operation]),
                  state_with_wide_offset_image(),
-                 metadata(),
                  []
                )
 
@@ -63,7 +60,6 @@ defmodule ImagePlug.Transform.PlanExecutorTest do
                Transform.execute_plan(
                  plan([operation]),
                  state_with_image(300, 200),
-                 metadata(),
                  []
                )
 
@@ -86,7 +82,6 @@ defmodule ImagePlug.Transform.PlanExecutorTest do
                Transform.execute_plan(
                  plan([resize, crop]),
                  state_with_image(800, 600),
-                 metadata(),
                  []
                )
 
@@ -102,7 +97,6 @@ defmodule ImagePlug.Transform.PlanExecutorTest do
                Transform.execute_plan(
                  plan([operation]),
                  state_with_image(100, 50),
-                 metadata(),
                  []
                )
 
@@ -116,7 +110,6 @@ defmodule ImagePlug.Transform.PlanExecutorTest do
                Transform.execute_plan(
                  plan([operation]),
                  state_with_image(100, 100),
-                 metadata(),
                  []
                )
 
@@ -130,7 +123,6 @@ defmodule ImagePlug.Transform.PlanExecutorTest do
                Transform.execute_plan(
                  plan([%AutoOrient{}, %Rotate{angle: 90}]),
                  state_with_image(80, 40),
-                 metadata(),
                  []
                )
 
@@ -140,7 +132,6 @@ defmodule ImagePlug.Transform.PlanExecutorTest do
                Transform.execute_plan(
                  plan([%Flip{axis: :horizontal}]),
                  state_with_split_image(),
-                 metadata(),
                  []
                )
 
@@ -154,10 +145,9 @@ defmodule ImagePlug.Transform.PlanExecutorTest do
              Operation.resize(:auto, {:px, 300}, {:px, 200}, enlargement: :deny)
 
     state = state_with_image(1600, 900)
-    metadata = metadata()
 
     assert {:ok, %State{} = state} =
-             Transform.execute_plan(plan([operation]), state, metadata, [])
+             Transform.execute_plan(plan([operation]), state, [])
 
     assert dimensions(state.image) == {300, 200}
   end
@@ -183,7 +173,6 @@ defmodule ImagePlug.Transform.PlanExecutorTest do
                Transform.execute_plan(
                  plan([operation]),
                  state_with_resize_auto_source(source),
-                 metadata(),
                  []
                )
 
@@ -207,7 +196,6 @@ defmodule ImagePlug.Transform.PlanExecutorTest do
              Transform.execute_plan(
                plan([resize, crop]),
                state_with_image(600, 400),
-               metadata(),
                []
              )
 
@@ -222,7 +210,6 @@ defmodule ImagePlug.Transform.PlanExecutorTest do
              Transform.execute_plan(
                plan([crop, resize]),
                state_with_image(600, 400),
-               metadata(),
                []
              )
 
@@ -241,7 +228,6 @@ defmodule ImagePlug.Transform.PlanExecutorTest do
              Transform.execute_plan(
                plan([operation]),
                state_with_wide_offset_image(),
-               metadata(),
                []
              )
 
@@ -306,10 +292,6 @@ defmodule ImagePlug.Transform.PlanExecutorTest do
   end
 
   defp assert_resize_auto_visible_crop(false, _image), do: :ok
-
-  defp metadata do
-    %SourceMetadata{format: :jpeg, source_type: :raster}
-  end
 
   defp dimensions(image), do: {Image.width(image), Image.height(image)}
 end

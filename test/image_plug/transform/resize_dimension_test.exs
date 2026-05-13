@@ -12,8 +12,7 @@ defmodule ImagePlug.Transform.ResizeDimensionTest do
       enlarge: false
     }
 
-    assert {:ok, result} =
-             Resize.resolve_dimensions(operation, source_width: 1000, source_height: 1000)
+    result = Resize.resolve_dimensions(operation, source_width: 1000, source_height: 1000)
 
     assert result.requested_width == 100
     assert result.requested_height == 100
@@ -32,8 +31,7 @@ defmodule ImagePlug.Transform.ResizeDimensionTest do
       enlarge: false
     }
 
-    assert {:ok, result} =
-             Resize.resolve_dimensions(operation, source_width: 1000, source_height: 1000)
+    result = Resize.resolve_dimensions(operation, source_width: 1000, source_height: 1000)
 
     assert result.requested_width == 200
     assert result.requested_height == 200
@@ -51,8 +49,7 @@ defmodule ImagePlug.Transform.ResizeDimensionTest do
       enlarge: false
     }
 
-    assert {:ok, result} =
-             Resize.resolve_dimensions(operation, source_width: 1000, source_height: 1000)
+    result = Resize.resolve_dimensions(operation, source_width: 1000, source_height: 1000)
 
     assert result.requested_width == 200
     assert result.requested_height == 200
@@ -70,8 +67,7 @@ defmodule ImagePlug.Transform.ResizeDimensionTest do
       enlarge: false
     }
 
-    assert {:ok, result} =
-             Resize.resolve_dimensions(operation, source_width: 100, source_height: 50)
+    result = Resize.resolve_dimensions(operation, source_width: 100, source_height: 50)
 
     assert result.requested_width == 200
     assert result.requested_height == 100
@@ -88,8 +84,7 @@ defmodule ImagePlug.Transform.ResizeDimensionTest do
       enlarge: false
     }
 
-    assert {:ok, result} =
-             Resize.resolve_dimensions(operation, source_width: 100, source_height: 50)
+    result = Resize.resolve_dimensions(operation, source_width: 100, source_height: 50)
 
     assert result.effective_dpr == 1.0
     assert result.requested_width == 100
@@ -101,8 +96,7 @@ defmodule ImagePlug.Transform.ResizeDimensionTest do
   test "force resize auto dimensions preserve source dimensions" do
     operation = %Resize{mode: :force, width: :auto, height: {:pixels, 200}}
 
-    assert {:ok, result} =
-             Resize.resolve_dimensions(operation, source_width: 640, source_height: 480)
+    result = Resize.resolve_dimensions(operation, source_width: 640, source_height: 480)
 
     assert result.requested_width == 640
     assert result.requested_height == 200
@@ -111,8 +105,7 @@ defmodule ImagePlug.Transform.ResizeDimensionTest do
 
     operation = %Resize{mode: :force, width: {:pixels, 300}, height: :auto}
 
-    assert {:ok, result} =
-             Resize.resolve_dimensions(operation, source_width: 640, source_height: 480)
+    result = Resize.resolve_dimensions(operation, source_width: 640, source_height: 480)
 
     assert result.requested_width == 300
     assert result.requested_height == 480
@@ -129,8 +122,7 @@ defmodule ImagePlug.Transform.ResizeDimensionTest do
       enlarge: false
     }
 
-    assert {:ok, result} =
-             Resize.resolve_dimensions(operation, source_width: 100, source_height: 50)
+    result = Resize.resolve_dimensions(operation, source_width: 100, source_height: 50)
 
     assert result.target_width == 300
     assert result.target_height == 150
@@ -147,8 +139,7 @@ defmodule ImagePlug.Transform.ResizeDimensionTest do
       enlarge: false
     }
 
-    assert {:ok, result} =
-             Resize.resolve_dimensions(operation, source_width: 1000, source_height: 500)
+    result = Resize.resolve_dimensions(operation, source_width: 1000, source_height: 500)
 
     assert result.requested_width == 100
     assert result.requested_height == 50
@@ -164,8 +155,7 @@ defmodule ImagePlug.Transform.ResizeDimensionTest do
       enlarge: false
     }
 
-    assert {:ok, result} =
-             Resize.resolve_dimensions(operation, source_width: 1000, source_height: 500)
+    result = Resize.resolve_dimensions(operation, source_width: 1000, source_height: 500)
 
     assert result.requested_width == 300
     assert result.requested_height == 300
@@ -182,8 +172,7 @@ defmodule ImagePlug.Transform.ResizeDimensionTest do
       enlarge: false
     }
 
-    assert {:ok, result} =
-             Resize.resolve_dimensions(operation, source_width: 1000, source_height: 500)
+    result = Resize.resolve_dimensions(operation, source_width: 1000, source_height: 500)
 
     assert result.requested_width == 300
     assert result.requested_height == 300
@@ -202,8 +191,7 @@ defmodule ImagePlug.Transform.ResizeDimensionTest do
       enlarge: false
     }
 
-    assert {:ok, result} =
-             Resize.resolve_dimensions(operation, source_width: 1000, source_height: 500)
+    result = Resize.resolve_dimensions(operation, source_width: 1000, source_height: 500)
 
     assert result.target_width == 300
     assert result.target_height == 300
@@ -220,8 +208,7 @@ defmodule ImagePlug.Transform.ResizeDimensionTest do
       enlarge: false
     }
 
-    assert {:ok, result} =
-             Resize.resolve_dimensions(operation, source_width: 1000, source_height: 500)
+    result = Resize.resolve_dimensions(operation, source_width: 1000, source_height: 500)
 
     assert result.target_width == 300
     assert result.target_height == 300
@@ -238,8 +225,7 @@ defmodule ImagePlug.Transform.ResizeDimensionTest do
       enlarge: false
     }
 
-    assert {:ok, result} =
-             Resize.resolve_dimensions(operation, source_width: 500, source_height: 1000)
+    result = Resize.resolve_dimensions(operation, source_width: 500, source_height: 1000)
 
     assert result.requested_width == 300
     assert result.requested_height == 300
@@ -258,8 +244,7 @@ defmodule ImagePlug.Transform.ResizeDimensionTest do
       enlarge: false
     }
 
-    assert {:ok, result} =
-             Resize.resolve_dimensions(operation, source_width: 800, source_height: 800)
+    result = Resize.resolve_dimensions(operation, source_width: 800, source_height: 800)
 
     assert result.effective_dpr == 1.6
     assert result.requested_width == 800

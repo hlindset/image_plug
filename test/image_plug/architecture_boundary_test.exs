@@ -128,7 +128,6 @@ defmodule ImagePlug.ArchitectureBoundaryTest do
       ImagePlug.Transform.Materializer,
       ImagePlug.Transform.KeyData,
       ImagePlug.Transform.Types,
-      ImagePlug.Transform.SourceMetadata,
       ImagePlug.Transform.Operation.Resize,
       ImagePlug.Transform.Operation.ExtendCanvas,
       ImagePlug.Transform.Operation.AutoOrient,
@@ -165,6 +164,7 @@ defmodule ImagePlug.ArchitectureBoundaryTest do
       Module.concat([ImagePlug, Transform, Material]),
       Module.concat([ImagePlug, Transform, ResolvedPlan]),
       Module.concat([ImagePlug, Transform, Resolver]),
+      Module.concat([ImagePlug, Transform, SourceMetadata]),
       Module.concat([ImagePlug, Transform, Resolver, Geometry]),
       Module.concat([ImagePlug, Transform, Resolver, Lowering]),
       Module.concat([ImagePlug, Plan, Operation, ResizeFit]),
@@ -370,10 +370,10 @@ defmodule ImagePlug.ArchitectureBoundaryTest do
       alias ImagePlug.Transform.PlanExecutor
 
       def execute(plan, state, metadata) do
-        ImagePlug.Transform.execute_plan(plan, state, metadata)
+        ImagePlug.Transform.execute_plan(plan, state, [])
         Transform.resolve(plan, metadata)
         ImagePlug.Transform.executable_pipelines(plan, metadata)
-        PlanExecutor.execute(plan, state, metadata, [])
+        PlanExecutor.execute(plan, state, [])
       end
     end
     """)
