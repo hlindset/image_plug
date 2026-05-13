@@ -8,8 +8,14 @@ defmodule ImagePlug.Transform.DecodePlanner do
   access both fall back to random access.
   """
 
-  alias ImagePlug.Plan.Operation
+  alias ImagePlug.Plan.Operation.Canvas
+  alias ImagePlug.Plan.Operation.CropGuided
+  alias ImagePlug.Plan.Operation.CropRegion
+  alias ImagePlug.Plan.Operation.Resize, as: PlanResize
   alias ImagePlug.Transform
+  alias ImagePlug.Transform.Operation.AutoOrient
+  alias ImagePlug.Transform.Operation.Flip
+  alias ImagePlug.Transform.Operation.Rotate
 
   @type access_requirement() :: :sequential | :random | :neutral
 
@@ -27,17 +33,39 @@ defmodule ImagePlug.Transform.DecodePlanner do
     |> resolve_access()
   end
 
-  defp access_requirement(operation) do
-    case Operation.semantic?(operation) do
-      true ->
-        Operation.decode_access(operation)
+  defp access_requirement(%PlanResize{mode: mode} = operation) when mode in [:fit, :stretch],
+    do: resize_access_requirement(operation)
 
-      false ->
-        operation
-        |> Transform.metadata()
-        |> access_from_metadata()
+  defp access_requirement(%PlanResize{mode: mode}) when mode in [:cover, :auto], do: :random
+  defp access_requirement(%CropGuided{}), do: :random
+  defp access_requirement(%CropRegion{}), do: :random
+  defp access_requirement(%Canvas{}), do: :random
+  defp access_requirement(%AutoOrient{}), do: :sequential
+  defp access_requirement(%Rotate{}), do: :random
+  defp access_requirement(%Flip{}), do: :random
+
+  defp access_requirement(operation) do
+    operation
+    |> Transform.metadata()
+    |> access_from_metadata()
+  end
+
+  defp resize_access_requirement(%PlanResize{
+         width: width,
+         height: height,
+         min_width: nil,
+         min_height: nil
+       }) do
+    case requested_resize_dimension?(width) or requested_resize_dimension?(height) do
+      true -> :sequential
+      false -> :random
     end
   end
+
+  defp resize_access_requirement(%PlanResize{}), do: :random
+
+  defp requested_resize_dimension?({:px, value}) when is_integer(value) and value > 0, do: true
+  defp requested_resize_dimension?(_dimension), do: false
 
   defp access_from_metadata(%{access: access}) when access in [:sequential, :random, :neutral],
     do: access

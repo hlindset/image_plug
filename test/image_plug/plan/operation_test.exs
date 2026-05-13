@@ -257,48 +257,4 @@ defmodule ImagePlug.Plan.OperationTest do
       refute Operation.semantic?(%Flip{axis: :diagonal})
     end
   end
-
-  describe "access metadata" do
-    test "reports semantic operation decode access metadata" do
-      assert {:ok, fit} = Operation.resize(:fit, {:px, 300}, :auto)
-      assert {:ok, cover} = Operation.resize(:cover, {:px, 300}, :auto)
-      assert {:ok, stretch} = Operation.resize(:stretch, {:px, 300}, :auto)
-      assert {:ok, auto} = Operation.resize(:auto, {:px, 300}, :auto)
-      assert {:ok, guided} = Operation.crop_guided({:px, 300}, {:px, 200}, :center)
-
-      assert {:ok, region_crop} =
-               Operation.crop_region(
-                 {:ratio, 1, 10},
-                 {:ratio, 1, 10},
-                 {:ratio, 1, 2},
-                 {:ratio, 1, 2}
-               )
-
-      assert Operation.access_metadata(fit) == %{access: :sequential}
-      assert Operation.access_metadata(stretch) == %{access: :sequential}
-      assert Operation.access_metadata(cover) == %{access: :random}
-      assert Operation.access_metadata(auto) == %{access: :random}
-      assert Operation.access_metadata(guided) == %{access: :random}
-      assert Operation.access_metadata(region_crop) == %{access: :random}
-
-      assert {:ok, canvas} = Operation.canvas({:px, 300}, {:px, 200}, :center)
-
-      auto_orient = %AutoOrient{}
-      rotate = %Rotate{angle: 90}
-      flip = %Flip{axis: :horizontal}
-
-      assert Operation.access_metadata(canvas) == %{access: :random}
-      assert Operation.access_metadata(auto_orient) == %{access: :sequential}
-      assert Operation.access_metadata(rotate) == %{access: :random}
-      assert Operation.access_metadata(flip) == %{access: :random}
-    end
-
-    test "reports fit and stretch without requested dimensions as random access" do
-      assert {:ok, fit} = Operation.resize(:fit, :auto, :auto)
-      assert {:ok, stretch} = Operation.resize(:stretch, :auto, :auto)
-
-      assert Operation.access_metadata(fit) == %{access: :random}
-      assert Operation.access_metadata(stretch) == %{access: :random}
-    end
-  end
 end

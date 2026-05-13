@@ -66,7 +66,6 @@ defmodule ImagePlug.Plan.Operation do
 
   @type error ::
           {:invalid_operation, atom(), term()} | {:unknown_operation_options, atom(), [atom()]}
-  @type access_requirement :: :sequential | :random | :neutral
 
   @spec crop_guided(term(), term(), term(), keyword()) ::
           {:ok, CropGuided.t()} | {:error, error()}
@@ -96,11 +95,6 @@ defmodule ImagePlug.Plan.Operation do
     end
   end
 
-  def crop_guided(width, height, guide, opts),
-    do: invalid(:crop_guided, [width, height, guide, opts])
-
-  def crop_guided(attrs), do: invalid(:crop_guided, attrs)
-
   @spec crop_region(term(), term(), term(), term()) :: {:ok, CropRegion.t()} | {:error, error()}
   def crop_region(x, y, width, height) do
     with {:ok, x} <- tagged_crop_coordinate(x),
@@ -112,8 +106,6 @@ defmodule ImagePlug.Plan.Operation do
       {:error, _reason} -> invalid(:crop_region, [x, y, width, height])
     end
   end
-
-  def crop_region(attrs), do: invalid(:crop_region, attrs)
 
   @spec canvas(term(), term(), term(), keyword()) :: {:ok, Canvas.t()} | {:error, error()}
   def canvas(width, height, placement, opts \\ [])
@@ -146,9 +138,6 @@ defmodule ImagePlug.Plan.Operation do
         invalid(:canvas, [width, height, placement, opts])
     end
   end
-
-  def canvas(width, height, placement, opts),
-    do: invalid(:canvas, [width, height, placement, opts])
 
   @spec resize(Resize.mode(), term(), term(), keyword()) ::
           {:ok, Resize.t()} | {:error, error()}
@@ -194,8 +183,6 @@ defmodule ImagePlug.Plan.Operation do
     end
   end
 
-  def resize(mode, width, height, opts), do: invalid(:resize, [mode, width, height, opts])
-
   @spec semantic?(term()) :: boolean()
   def semantic?(%module{}) when module in @semantic_modules, do: true
   def semantic?(%{__struct__: @auto_orient_module}), do: true
@@ -203,44 +190,7 @@ defmodule ImagePlug.Plan.Operation do
   def semantic?(%{__struct__: @flip_module, axis: axis}) when axis in @flip_axes, do: true
   def semantic?(_operation), do: false
 
-  @spec decode_access(semantic_operation()) :: access_requirement()
-  def decode_access(operation) do
-    operation
-    |> access_metadata()
-    |> Map.fetch!(:access)
-  end
-
-  @spec access_metadata(semantic_operation()) :: %{access: access_requirement()}
-  def access_metadata(%Resize{mode: :fit} = operation), do: resize_access_metadata(operation)
-  def access_metadata(%Resize{mode: :stretch} = operation), do: resize_access_metadata(operation)
-  def access_metadata(%Resize{mode: mode}) when mode in [:cover, :auto], do: %{access: :random}
-  def access_metadata(%CropGuided{}), do: %{access: :random}
-  def access_metadata(%CropRegion{}), do: %{access: :random}
-  def access_metadata(%Canvas{}), do: %{access: :random}
-  def access_metadata(%{__struct__: @auto_orient_module}), do: %{access: :sequential}
-  def access_metadata(%{__struct__: @rotate_module}), do: %{access: :random}
-  def access_metadata(%{__struct__: @flip_module}), do: %{access: :random}
-
   defp invalid(operation, attrs), do: {:error, {:invalid_operation, operation, attrs}}
-
-  defp resize_access_metadata(%Resize{
-         width: width,
-         height: height,
-         min_width: nil,
-         min_height: nil
-       }) do
-    case requested_tagged_resize_dimension?(width) or requested_tagged_resize_dimension?(height) do
-      true -> %{access: :sequential}
-      false -> %{access: :random}
-    end
-  end
-
-  defp resize_access_metadata(_operation), do: %{access: :random}
-
-  defp requested_tagged_resize_dimension?({:px, value}) when is_integer(value) and value > 0,
-    do: true
-
-  defp requested_tagged_resize_dimension?(_dimension), do: false
 
   defp validate_known_options(operation, attrs, known_keys) do
     case Keyword.keys(attrs) -- known_keys do
