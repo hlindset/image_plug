@@ -7,7 +7,6 @@ defmodule ImagePlug.Cache.Key do
 
   alias ImagePlug.Output.Negotiation
   alias ImagePlug.Plan
-  alias ImagePlug.Plan.Cache
   alias ImagePlug.Plan.Output
   alias ImagePlug.Plan.Pipeline
   alias ImagePlug.Plan.Source.Plain
@@ -32,7 +31,7 @@ defmodule ImagePlug.Cache.Key do
     with {:ok, source} <- source_data(plan.source),
          {:ok, pipelines} <- pipelines_data(plan.pipelines),
          {:ok, output} <- output_data(conn, plan.output, opts),
-         {:ok, cache} <- cache_data(plan.cache) do
+         {:ok, cache} <- cache_data(plan.cachebuster) do
       data = [
         schema_version: @schema_version,
         origin_identity: origin_identity,
@@ -109,12 +108,11 @@ defmodule ImagePlug.Cache.Key do
     {:error, {:invalid_output_plan, output}}
   end
 
-  defp cache_data(%Cache{cachebuster: cachebuster})
-       when is_binary(cachebuster) or is_nil(cachebuster) do
+  defp cache_data(cachebuster) when is_binary(cachebuster) or is_nil(cachebuster) do
     {:ok, [cachebuster: cachebuster]}
   end
 
-  defp cache_data(cache), do: {:error, {:invalid_cache_plan, cache}}
+  defp cache_data(cachebuster), do: {:error, {:invalid_cachebuster, cachebuster}}
 
   defp selected_headers(conn, opts) do
     opts

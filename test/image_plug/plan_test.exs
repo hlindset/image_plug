@@ -2,11 +2,9 @@ defmodule ImagePlug.PlanTest do
   use ExUnit.Case, async: true
 
   alias ImagePlug.Plan
-  alias ImagePlug.Plan.Cache
   alias ImagePlug.Plan.Operation
   alias ImagePlug.Plan.Output
   alias ImagePlug.Plan.Pipeline
-  alias ImagePlug.Plan.Policy
   alias ImagePlug.Plan.Response
   alias ImagePlug.Plan.Response.Filename
   alias ImagePlug.Plan.Source.Plain
@@ -80,21 +78,17 @@ defmodule ImagePlug.PlanTest do
              {:error, {:unsupported_source, source}}
   end
 
-  test "validate shape rejects invalid policy expires values" do
+  test "validate shape rejects invalid expires values" do
     for expires <- [-1, 1.5, "60", nil] do
-      policy = %Policy{expires: expires}
-
-      assert Plan.validate_shape(plan(policy: policy)) ==
-               {:error, {:invalid_policy_plan, policy}}
+      assert Plan.validate_shape(plan(expires: expires)) ==
+               {:error, {:invalid_expires, expires}}
     end
   end
 
-  test "validate shape rejects invalid cache cachebuster values" do
+  test "validate shape rejects invalid cachebuster values" do
     for cachebuster <- [:v1, 1, []] do
-      cache = %Cache{cachebuster: cachebuster}
-
-      assert Plan.validate_shape(plan(cache: cache)) ==
-               {:error, {:invalid_cache_plan, cache}}
+      assert Plan.validate_shape(plan(cachebuster: cachebuster)) ==
+               {:error, {:invalid_cachebuster, cachebuster}}
     end
   end
 

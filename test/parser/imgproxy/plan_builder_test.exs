@@ -777,8 +777,8 @@ defmodule ImagePlug.Parser.Imgproxy.PlanBuilderTest do
     assert {:ok,
             %Plan{
               output: %ImagePlug.Plan.Output{mode: {:explicit, :webp}},
-              policy: %ImagePlug.Plan.Policy{expires: 0},
-              cache: %ImagePlug.Plan.Cache{cachebuster: "v1"},
+              expires: 0,
+              cachebuster: "v1",
               response: %Response{
                 filename: %Filename{stem: "cat"},
                 disposition: :attachment

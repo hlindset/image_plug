@@ -10,8 +10,6 @@ defmodule ImagePlug.Plan do
       Pipeline,
       Orientation,
       Output,
-      Policy,
-      Cache,
       Response,
       Response.Filename,
       Source.Plain,
@@ -22,11 +20,9 @@ defmodule ImagePlug.Plan do
       Operation.Resize
     ]
 
-  alias ImagePlug.Plan.Cache
   alias ImagePlug.Plan.Operation
   alias ImagePlug.Plan.Output
   alias ImagePlug.Plan.Pipeline
-  alias ImagePlug.Plan.Policy
   alias ImagePlug.Plan.Response
   alias ImagePlug.Plan.Response.Filename
   alias ImagePlug.Plan.Source.Plain
@@ -36,8 +32,8 @@ defmodule ImagePlug.Plan do
   @enforce_keys [:source, :pipelines, :output]
   defstruct @enforce_keys ++
               [
-                policy: %Policy{},
-                cache: %Cache{},
+                expires: 0,
+                cachebuster: nil,
                 response: %Response{}
               ]
 
@@ -45,8 +41,8 @@ defmodule ImagePlug.Plan do
           source: ImagePlug.Plan.Source.Plain.t(),
           pipelines: [ImagePlug.Plan.Pipeline.t()],
           output: ImagePlug.Plan.Output.t(),
-          policy: ImagePlug.Plan.Policy.t(),
-          cache: ImagePlug.Plan.Cache.t(),
+          expires: non_neg_integer(),
+          cachebuster: String.t() | nil,
           response: ImagePlug.Plan.Response.t()
         }
 
@@ -58,16 +54,16 @@ defmodule ImagePlug.Plan do
   @type shape_error() ::
           {:unsupported_source, term()}
           | {:invalid_output_plan, term()}
-          | {:invalid_policy_plan, term()}
-          | {:invalid_cache_plan, term()}
+          | {:invalid_expires, term()}
+          | {:invalid_cachebuster, term()}
           | {:invalid_response_plan, term()}
 
   @spec validate_shape(t()) :: {:ok, t()} | {:error, shape_error()}
   def validate_shape(%__MODULE__{} = plan) do
     with :ok <- validate_source(plan.source),
          :ok <- validate_output(plan.output),
-         :ok <- validate_policy(plan.policy),
-         :ok <- validate_cache(plan.cache),
+         :ok <- validate_expires(plan.expires),
+         :ok <- validate_cachebuster(plan.cachebuster),
          :ok <- validate_response(plan.response) do
       {:ok, plan}
     end
@@ -160,16 +156,14 @@ defmodule ImagePlug.Plan do
   defp valid_quality?({:quality, value}) when is_integer(value) and value in 1..100, do: true
   defp valid_quality?(_quality), do: false
 
-  defp validate_policy(%Policy{expires: expires}) when is_integer(expires) and expires >= 0,
+  defp validate_expires(expires) when is_integer(expires) and expires >= 0, do: :ok
+
+  defp validate_expires(expires), do: {:error, {:invalid_expires, expires}}
+
+  defp validate_cachebuster(cachebuster) when is_binary(cachebuster) or is_nil(cachebuster),
     do: :ok
 
-  defp validate_policy(policy), do: {:error, {:invalid_policy_plan, policy}}
-
-  defp validate_cache(%Cache{cachebuster: cachebuster})
-       when is_binary(cachebuster) or is_nil(cachebuster),
-       do: :ok
-
-  defp validate_cache(cache), do: {:error, {:invalid_cache_plan, cache}}
+  defp validate_cachebuster(cachebuster), do: {:error, {:invalid_cachebuster, cachebuster}}
 
   defp validate_response(%Response{disposition: disposition, filename: filename} = response)
        when disposition in [:default, :inline, :attachment] do

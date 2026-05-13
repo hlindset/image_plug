@@ -553,15 +553,15 @@ defmodule ImagePlug.Parser.ImgproxyTest do
   end
 
   test "parses cachebuster aliases as cache-only facets" do
-    assert {:ok, %Plan{cache: %ImagePlug.Plan.Cache{cachebuster: "abc"}}} =
+    assert {:ok, %Plan{cachebuster: "abc"}} =
              Imgproxy.parse(conn(:get, "/_/cb:abc/plain/images/cat.jpg"), [])
 
-    assert {:ok, %Plan{cache: %ImagePlug.Plan.Cache{cachebuster: "def"}}} =
+    assert {:ok, %Plan{cachebuster: "def"}} =
              Imgproxy.parse(conn(:get, "/_/cachebuster:def/plain/images/cat.jpg"), [])
   end
 
   test "cachebuster later assignment wins across groups" do
-    assert {:ok, %Plan{cache: %ImagePlug.Plan.Cache{cachebuster: "b"}}} =
+    assert {:ok, %Plan{cachebuster: "b"}} =
              Imgproxy.parse(conn(:get, "/_/cb:a/-/cachebuster:b/plain/images/cat.jpg"), [])
   end
 
@@ -569,15 +569,15 @@ defmodule ImagePlug.Parser.ImgproxyTest do
     assert Imgproxy.parse(conn(:get, "/_/expires:100/plain/images/cat.jpg"), now: 101) ==
              {:error, {:expired_request, 100}}
 
-    assert {:ok, %Plan{policy: %ImagePlug.Plan.Policy{expires: 100}}} =
+    assert {:ok, %Plan{expires: 100}} =
              Imgproxy.parse(conn(:get, "/_/exp:100/plain/images/cat.jpg"), now: 100)
 
-    assert {:ok, %Plan{policy: %ImagePlug.Plan.Policy{expires: 0}}} =
+    assert {:ok, %Plan{expires: 0}} =
              Imgproxy.parse(conn(:get, "/_/expires:0/plain/images/cat.jpg"), now: 999)
   end
 
   test "expires later assignment wins across groups" do
-    assert {:ok, %Plan{policy: %ImagePlug.Plan.Policy{expires: 200}}} =
+    assert {:ok, %Plan{expires: 200}} =
              Imgproxy.parse(conn(:get, "/_/exp:100/-/expires:200/plain/images/cat.jpg"), now: 100)
   end
 
@@ -589,7 +589,7 @@ defmodule ImagePlug.Parser.ImgproxyTest do
       100
     end
 
-    assert {:ok, %Plan{policy: %ImagePlug.Plan.Policy{expires: 100}}} =
+    assert {:ok, %Plan{expires: 100}} =
              Imgproxy.parse(conn(:get, "/_/exp:100/plain/images/cat.jpg"), now: now)
 
     assert_received :now_called

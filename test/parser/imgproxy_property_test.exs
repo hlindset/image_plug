@@ -73,7 +73,7 @@ defmodule ImagePlug.Parser.ImgproxyPropertyTest do
 
       assert plan_a.pipelines == plan_b.pipelines
       assert plan_a.output == plan_b.output
-      assert plan_a.cache == plan_b.cache
+      assert plan_a.cachebuster == plan_b.cachebuster
     end
   end
 

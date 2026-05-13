@@ -170,14 +170,14 @@ defmodule ImagePlug.Cache.KeyPropertyTest do
       key_a =
         build_key!(
           conn,
-          plan(cache: %ImagePlug.Plan.Cache{cachebuster: cachebuster_a}),
+          plan(cachebuster: cachebuster_a),
           origin
         )
 
       key_b =
         build_key!(
           conn,
-          plan(cache: %ImagePlug.Plan.Cache{cachebuster: cachebuster_b}),
+          plan(cachebuster: cachebuster_b),
           origin
         )
 

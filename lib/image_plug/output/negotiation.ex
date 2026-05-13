@@ -96,35 +96,22 @@ defmodule ImagePlug.Output.Negotiation do
 
   defp parse_accept(accept_header) do
     accept_header
-    |> String.split(",")
+    |> Plug.Conn.Utils.list()
     |> Enum.map(&parse_accept_entry/1)
     |> Enum.reject(&is_nil/1)
   end
 
   defp parse_accept_entry(entry) do
-    [media_range | params] =
-      entry
-      |> String.split(";")
-      |> Enum.map(&String.trim/1)
-
-    media_range = String.downcase(media_range)
-
-    if media_range == "", do: nil, else: {media_range, quality_from_params(params)}
-  end
-
-  defp quality_from_params(params) do
-    Enum.find_value(params, 1.0, &quality_param/1)
-  end
-
-  defp quality_param(param) do
-    case String.split(param, "=", parts: 2) do
-      [name, value] -> maybe_parse_quality(name, value)
-      _ -> nil
+    case Plug.Conn.Utils.media_type(entry) do
+      {:ok, type, subtype, params} -> {type <> "/" <> subtype, quality_from_params(params)}
+      :error -> nil
     end
   end
 
-  defp maybe_parse_quality(name, value) do
-    if String.downcase(String.trim(name)) == "q", do: parse_quality(value)
+  defp quality_from_params(params) do
+    params
+    |> Map.get("q", "1.0")
+    |> parse_quality()
   end
 
   defp parse_quality(value) do

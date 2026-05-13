@@ -10,8 +10,6 @@ defmodule ImagePlug.RequestSafetyTest.InvalidPlanParser do
        source: %ImagePlug.Plan.Source.Plain{path: ["images", "cat.jpg"]},
        pipelines: [%ImagePlug.Plan.Pipeline{operations: []}],
        output: :invalid_output,
-       policy: %ImagePlug.Plan.Policy{},
-       cache: %ImagePlug.Plan.Cache{},
        response: %ImagePlug.Plan.Response{}
      }}
   end

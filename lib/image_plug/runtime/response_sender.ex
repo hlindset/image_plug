@@ -23,8 +23,8 @@ defmodule ImagePlug.Runtime.ResponseSender do
   @plan_validation_error_tags [
     :unsupported_source,
     :invalid_output_plan,
-    :invalid_policy_plan,
-    :invalid_cache_plan,
+    :invalid_expires,
+    :invalid_cachebuster,
     :invalid_response_plan,
     :invalid_pipeline_plan,
     :invalid_pipeline_operation,

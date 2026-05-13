@@ -432,7 +432,7 @@ defmodule ImagePlug.Cache.KeyTest do
 
   test "cachebuster changes cache keys without changing pipeline key data" do
     base_plan = plan()
-    busted_plan = plan(cache: %ImagePlug.Plan.Cache{cachebuster: "v2"})
+    busted_plan = plan(cachebuster: "v2")
 
     conn = conn(:get, "/_/plain/images/cat.jpg")
     base = build_key!(conn, base_plan, "https://origin.test/images/cat.jpg")

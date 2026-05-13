@@ -3,12 +3,7 @@ defmodule ImagePlug.Plan.Response do
 
   alias ImagePlug.Plan.Response.Filename
 
-  @content_type_extensions %{
-    "image/jpeg" => "jpg",
-    "image/png" => "png",
-    "image/webp" => "webp",
-    "image/avif" => "avif"
-  }
+  @delivery_content_types ["image/jpeg", "image/png", "image/webp", "image/avif"]
 
   defstruct disposition: :default, filename: nil
 
@@ -25,11 +20,19 @@ defmodule ImagePlug.Plan.Response do
   end
 
   defp delivery_extension(content_type) do
-    case Map.fetch(@content_type_extensions, content_type) do
-      {:ok, extension} -> {:ok, extension}
-      :error -> {:error, {:unsupported_delivery_content_type, content_type}}
+    if content_type in @delivery_content_types do
+      content_type
+      |> MIME.extensions()
+      |> delivery_extension(content_type)
+    else
+      {:error, {:unsupported_delivery_content_type, content_type}}
     end
   end
+
+  defp delivery_extension([extension | _rest], _content_type), do: {:ok, extension}
+
+  defp delivery_extension([], content_type),
+    do: {:error, {:unsupported_delivery_content_type, content_type}}
 
   defp render_disposition(%__MODULE__{filename: nil} = response, _extension) do
     disposition(response.disposition)

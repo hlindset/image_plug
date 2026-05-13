@@ -9,12 +9,10 @@ defmodule ImagePlug.Parser.Imgproxy.PlanBuilder do
   alias ImagePlug.Parser.Imgproxy.RequestPolicy
   alias ImagePlug.Parser.Imgproxy.ResponseRequest
   alias ImagePlug.Plan
-  alias ImagePlug.Plan.Cache
   alias ImagePlug.Plan.Operation
   alias ImagePlug.Plan.Orientation
   alias ImagePlug.Plan.Output
   alias ImagePlug.Plan.Pipeline
-  alias ImagePlug.Plan.Policy
   alias ImagePlug.Plan.Response
   alias ImagePlug.Plan.Response.Filename
   alias ImagePlug.Plan.Source.Plain
@@ -29,8 +27,8 @@ defmodule ImagePlug.Parser.Imgproxy.PlanBuilder do
   def to_plan(%ParsedRequest{} = request, opts \\ []) do
     with {:ok, source} <- source_plan(request.source_kind, request.source_path),
          {:ok, output} <- output_plan(request.output),
-         {:ok, policy} <- policy_plan(request.policy, opts),
-         {:ok, cache} <- cache_plan(request.cache),
+         {:ok, expires} <- expires_plan(request.policy, opts),
+         {:ok, cachebuster} <- cachebuster_plan(request.cache),
          {:ok, response} <- response_plan(request.response, source),
          {:ok, pipelines} <- build_pipelines(request.pipelines) do
       {:ok,
@@ -38,8 +36,8 @@ defmodule ImagePlug.Parser.Imgproxy.PlanBuilder do
          source: source,
          pipelines: pipelines,
          output: output,
-         policy: policy,
-         cache: cache,
+         expires: expires,
+         cachebuster: cachebuster,
          response: response
        }}
     end
@@ -107,18 +105,18 @@ defmodule ImagePlug.Parser.Imgproxy.PlanBuilder do
      }}
   end
 
-  defp policy_plan(%RequestPolicy{expires: 0}, _opts), do: {:ok, %Policy{expires: 0}}
+  defp expires_plan(%RequestPolicy{expires: 0}, _opts), do: {:ok, 0}
 
-  defp policy_plan(%RequestPolicy{expires: expires}, opts)
+  defp expires_plan(%RequestPolicy{expires: expires}, opts)
        when is_integer(expires) and expires > 0 do
     with {:ok, now} <- now_unix_seconds(opts),
          :ok <- reject_expired_request(expires, now) do
-      {:ok, %Policy{expires: expires}}
+      {:ok, expires}
     end
   end
 
   defp reject_expired_request(expires, now) do
-    if Policy.expired?(%Policy{expires: expires}, now) do
+    if expires > 0 and expires < now do
       {:error, {:expired_request, expires}}
     else
       :ok
@@ -137,8 +135,8 @@ defmodule ImagePlug.Parser.Imgproxy.PlanBuilder do
   defp normalize_now(now) when is_integer(now), do: {:ok, now}
   defp normalize_now(now), do: {:error, {:invalid_now, now}}
 
-  defp cache_plan(%CacheRequest{cachebuster: cachebuster}),
-    do: {:ok, %Cache{cachebuster: cachebuster}}
+  defp cachebuster_plan(%CacheRequest{cachebuster: cachebuster}),
+    do: {:ok, cachebuster}
 
   defp response_plan(%ResponseRequest{filename: nil, disposition: disposition}, %Plain{
          path: source_path
