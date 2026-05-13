@@ -6,7 +6,6 @@ defmodule ImagePlug.PlanTest do
   alias ImagePlug.Plan.Output
   alias ImagePlug.Plan.Pipeline
   alias ImagePlug.Plan.Response
-  alias ImagePlug.Plan.Response.Filename
   alias ImagePlug.Transform.Operation.AutoOrient
   alias ImagePlug.Transform.Operation.Flip
   alias ImagePlug.Transform.Operation.Rotate
@@ -109,13 +108,14 @@ defmodule ImagePlug.PlanTest do
     end
   end
 
-  test "validate shape rejects malformed response filename structs" do
+  test "validate shape rejects malformed response filename strings" do
     for filename <- [
-          %Filename{stem: nil},
-          %Filename{stem: 1},
-          %Filename{stem: "a/b"},
-          %Filename{stem: "a\\b"},
-          %Filename{stem: "a\nb"}
+          "",
+          <<255>>,
+          1,
+          "a/b",
+          "a\\b",
+          "a\nb"
         ] do
       response = %Response{filename: filename}
 

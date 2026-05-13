@@ -14,7 +14,6 @@ defmodule ImagePlug.Parser.Imgproxy.PlanBuilder do
   alias ImagePlug.Plan.Output
   alias ImagePlug.Plan.Pipeline
   alias ImagePlug.Plan.Response
-  alias ImagePlug.Plan.Response.Filename
   alias ImagePlug.Transform.Operation.AutoOrient
   alias ImagePlug.Transform.Operation.Flip
   alias ImagePlug.Transform.Operation.Rotate
@@ -141,9 +140,7 @@ defmodule ImagePlug.Parser.Imgproxy.PlanBuilder do
          %ResponseRequest{filename: nil, disposition: disposition},
          {:plain, source_path}
        ) do
-    with {:ok, filename} <- source_filename(source_path) do
-      {:ok, %Response{filename: filename, disposition: disposition}}
-    end
+    {:ok, %Response{filename: source_filename(source_path), disposition: disposition}}
   end
 
   defp response_plan(
@@ -151,20 +148,14 @@ defmodule ImagePlug.Parser.Imgproxy.PlanBuilder do
          {:plain, _path}
        )
        when is_binary(filename) do
-    with {:ok, filename} <- Filename.new(filename) do
-      {:ok, %Response{filename: filename, disposition: disposition}}
-    end
+    {:ok, %Response{filename: filename, disposition: disposition}}
   end
 
   defp source_filename(source_path) do
     source_path
     |> List.last()
     |> source_filename_stem()
-    |> Filename.new()
-    |> case do
-      {:ok, filename} -> {:ok, filename}
-      {:error, _reason} -> Filename.new("image")
-    end
+    |> valid_source_filename()
   end
 
   defp source_filename_stem(basename) when basename in [nil, ""], do: "image"
@@ -174,6 +165,10 @@ defmodule ImagePlug.Parser.Imgproxy.PlanBuilder do
       "" -> "image"
       stem -> stem
     end
+  end
+
+  defp valid_source_filename(stem) do
+    if Response.valid_filename?(stem), do: stem, else: "image"
   end
 
   defp validate_supported_semantics(%PipelineRequest{gravity: :sm}),

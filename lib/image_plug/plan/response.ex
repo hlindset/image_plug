@@ -1,16 +1,22 @@
 defmodule ImagePlug.Plan.Response do
   @moduledoc false
 
-  alias ImagePlug.Plan.Response.Filename
-
   @delivery_content_types ["image/jpeg", "image/png", "image/webp", "image/avif"]
 
   defstruct disposition: :default, filename: nil
 
   @type t :: %__MODULE__{
           disposition: :default | :inline | :attachment,
-          filename: Filename.t() | nil
+          filename: String.t() | nil
         }
+
+  @spec valid_filename?(term()) :: boolean()
+  def valid_filename?(stem) when is_binary(stem) do
+    String.valid?(stem) and stem != "" and not String.contains?(stem, ["/", "\\"]) and
+      not has_control_character?(stem)
+  end
+
+  def valid_filename?(_stem), do: false
 
   @spec content_disposition(t(), String.t()) :: {:ok, String.t()} | {:error, term()}
   def content_disposition(%__MODULE__{} = response, content_type) when is_binary(content_type) do
@@ -38,7 +44,8 @@ defmodule ImagePlug.Plan.Response do
     disposition(response.disposition)
   end
 
-  defp render_disposition(%__MODULE__{filename: %Filename{stem: stem}} = response, extension) do
+  defp render_disposition(%__MODULE__{filename: stem} = response, extension)
+       when is_binary(stem) do
     filename = stem <> "." <> extension
     encoded_filename = URI.encode(filename, &URI.char_unreserved?/1)
 
@@ -55,4 +62,10 @@ defmodule ImagePlug.Plan.Response do
   defp disposition(:attachment), do: "attachment"
   defp disposition(:inline), do: "inline"
   defp disposition(:default), do: "inline"
+
+  defp has_control_character?(stem) do
+    stem
+    |> String.to_charlist()
+    |> Enum.any?(&(&1 in 0..31 or &1 == 127))
+  end
 end

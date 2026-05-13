@@ -10,7 +10,6 @@ defmodule ImagePlug.Parser.ImgproxyTest do
   alias ImagePlug.Plan.Output
   alias ImagePlug.Plan.Pipeline
   alias ImagePlug.Plan.Response
-  alias ImagePlug.Plan.Response.Filename
   alias ImagePlug.Transform.Operation.AutoOrient
 
   @allowed_parsed_transform_operations [
@@ -635,7 +634,7 @@ defmodule ImagePlug.Parser.ImgproxyTest do
             %Plan{
               response: %Response{
                 disposition: :attachment,
-                filename: %Filename{stem: "report"}
+                filename: "report"
               }
             }} = Imgproxy.parse(conn(:get, "/_/fn:report/att:true/plain/images/cat.jpg"), [])
 
@@ -649,7 +648,7 @@ defmodule ImagePlug.Parser.ImgproxyTest do
     assert {:ok,
             %Plan{
               response: %Response{
-                filename: %Filename{stem: "katt-æøå"}
+                filename: "katt-æøå"
               }
             }} = Imgproxy.parse(conn(:get, "/_/fn:#{encoded}:true/plain/images/cat.jpg"), [])
   end
@@ -677,14 +676,14 @@ defmodule ImagePlug.Parser.ImgproxyTest do
     assert {:ok,
             %Plan{
               response: %Response{
-                filename: %Filename{stem: "cat.jpg"}
+                filename: "cat.jpg"
               }
             }} = Imgproxy.parse(conn(:get, "/_/fn:cat.jpg/plain/images/source.jpg@webp"), [])
 
     assert {:ok,
             %Plan{
               response: %Response{
-                filename: %Filename{stem: "source"}
+                filename: "source"
               }
             }} = Imgproxy.parse(conn(:get, "/_/plain/images/source.jpg@webp"), [])
   end
@@ -694,7 +693,7 @@ defmodule ImagePlug.Parser.ImgproxyTest do
             %Plan{
               response: %Response{
                 disposition: :inline,
-                filename: %Filename{stem: "two"}
+                filename: "two"
               }
             }} =
              Imgproxy.parse(

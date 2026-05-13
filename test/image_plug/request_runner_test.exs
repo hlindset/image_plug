@@ -404,7 +404,7 @@ defmodule ImagePlug.Runtime.RequestRunnerTest do
   test "cache hits and misses carry plan response delivery metadata" do
     response = %ImagePlug.Plan.Response{
       disposition: :attachment,
-      filename: %ImagePlug.Plan.Response.Filename{stem: "carried"}
+      filename: "carried"
     }
 
     assert {:ok, {:image, %State{}, %ImagePlug.Output.Resolved{}, ^response}} =
@@ -441,7 +441,7 @@ defmodule ImagePlug.Runtime.RequestRunnerTest do
 
     response = %ImagePlug.Plan.Response{
       disposition: :inline,
-      filename: %ImagePlug.Plan.Response.Filename{stem: "report"}
+      filename: "report"
     }
 
     assert {:ok, {:cache_entry, %Entry{content_type: "image/jpeg"}, ^response}} =

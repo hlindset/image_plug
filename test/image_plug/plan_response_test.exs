@@ -2,17 +2,16 @@ defmodule ImagePlug.Plan.ResponseTest do
   use ExUnit.Case, async: true
 
   alias ImagePlug.Plan.Response
-  alias ImagePlug.Plan.Response.Filename
 
   test "renders attachment with ASCII filename parameters" do
-    response = %Response{disposition: :attachment, filename: %Filename{stem: "report"}}
+    response = %Response{disposition: :attachment, filename: "report"}
 
     assert Response.content_disposition(response, "image/webp") ==
              {:ok, ~s(attachment; filename="report.webp")}
   end
 
   test "renders encoded filename and UTF-8 filename star when filename needs encoding" do
-    response = %Response{disposition: :inline, filename: %Filename{stem: "katt-æøå"}}
+    response = %Response{disposition: :inline, filename: "katt-æøå"}
 
     assert Response.content_disposition(response, "image/webp") ==
              {:ok,
@@ -20,7 +19,7 @@ defmodule ImagePlug.Plan.ResponseTest do
   end
 
   test "uses encoded filename when the whole stem needs encoding" do
-    response = %Response{disposition: :inline, filename: %Filename{stem: "東京"}}
+    response = %Response{disposition: :inline, filename: "東京"}
 
     assert Response.content_disposition(response, "image/png") ==
              {:ok,
@@ -28,7 +27,7 @@ defmodule ImagePlug.Plan.ResponseTest do
   end
 
   test "rejects unsupported cached content type for delivery filename extension" do
-    response = %Response{disposition: :inline, filename: %Filename{stem: "report"}}
+    response = %Response{disposition: :inline, filename: "report"}
 
     assert Response.content_disposition(response, "image/gif") ==
              {:error, {:unsupported_delivery_content_type, "image/gif"}}

@@ -22,7 +22,7 @@ defmodule ImagePlug.Parser.Imgproxy do
   alias ImagePlug.Parser.Imgproxy.RequestPolicy
   alias ImagePlug.Parser.Imgproxy.ResponseRequest
   alias ImagePlug.Plan.Orientation
-  alias ImagePlug.Plan.Response.Filename
+  alias ImagePlug.Plan.Response
 
   @source_format_names ~w(webp avif jpeg jpg png best)
 
@@ -474,17 +474,22 @@ defmodule ImagePlug.Parser.Imgproxy do
 
   defp parse_filename(value, false) do
     with {:ok, decoded} <- decode_percent_encoded(value),
-         {:ok, filename} <- Filename.new(decoded) do
-      {:ok, [filename: filename.stem]}
+         true <- Response.valid_filename?(decoded) do
+      {:ok, [filename: decoded]}
+    else
+      false -> {:error, {:invalid_response_filename, value}}
+      :error -> {:error, {:invalid_response_filename, value}}
+      {:error, _reason} = error -> error
     end
   end
 
   defp parse_filename(value, true) do
     with :ok <- reject_base64_padding(value),
          {:ok, decoded} <- Base.url_decode64(value, padding: false),
-         {:ok, filename} <- Filename.new(decoded) do
-      {:ok, [filename: filename.stem]}
+         true <- Response.valid_filename?(decoded) do
+      {:ok, [filename: decoded]}
     else
+      false -> {:error, {:invalid_response_filename, value}}
       :error -> {:error, {:invalid_response_filename, value}}
       {:error, _reason} = error -> error
     end

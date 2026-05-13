@@ -5,7 +5,6 @@ defmodule ImagePlug.Runtime.ResponseSenderTest do
 
   alias ImagePlug.Cache.Entry
   alias ImagePlug.Plan.Response
-  alias ImagePlug.Plan.Response.Filename
   alias ImagePlug.Runtime.ResponseSender
 
   test "cache hits apply content disposition from plan response" do
@@ -16,7 +15,7 @@ defmodule ImagePlug.Runtime.ResponseSenderTest do
       created_at: DateTime.utc_now()
     }
 
-    response = %Response{disposition: :attachment, filename: %Filename{stem: "report"}}
+    response = %Response{disposition: :attachment, filename: "report"}
 
     conn =
       ResponseSender.send_result(conn(:get, "/image"), {:ok, {:cache_entry, entry, response}}, [])
@@ -37,7 +36,7 @@ defmodule ImagePlug.Runtime.ResponseSenderTest do
       representation_headers: []
     }
 
-    response = %Response{disposition: :inline, filename: %Filename{stem: "miss"}}
+    response = %Response{disposition: :inline, filename: "miss"}
 
     conn =
       ResponseSender.send_result(

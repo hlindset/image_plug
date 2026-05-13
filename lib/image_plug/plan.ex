@@ -11,7 +11,6 @@ defmodule ImagePlug.Plan do
       Orientation,
       Output,
       Response,
-      Response.Filename,
       Operation,
       Operation.CropGuided,
       Operation.CropRegion,
@@ -23,7 +22,6 @@ defmodule ImagePlug.Plan do
   alias ImagePlug.Plan.Output
   alias ImagePlug.Plan.Pipeline
   alias ImagePlug.Plan.Response
-  alias ImagePlug.Plan.Response.Filename
 
   @supported_formats [:avif, :webp, :jpeg, :png]
 
@@ -165,7 +163,7 @@ defmodule ImagePlug.Plan do
 
   defp validate_response(%Response{disposition: disposition, filename: filename} = response)
        when disposition in [:default, :inline, :attachment] do
-    if is_nil(filename) or Filename.valid?(filename) do
+    if is_nil(filename) or Response.valid_filename?(filename) do
       :ok
     else
       {:error, {:invalid_response_plan, response}}

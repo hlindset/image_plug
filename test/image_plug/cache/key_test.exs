@@ -457,7 +457,7 @@ defmodule ImagePlug.Cache.KeyTest do
       plan(
         response: %ImagePlug.Plan.Response{
           disposition: :attachment,
-          filename: %ImagePlug.Plan.Response.Filename{stem: "one"}
+          filename: "one"
         }
       )
 
@@ -465,7 +465,7 @@ defmodule ImagePlug.Cache.KeyTest do
       plan(
         response: %ImagePlug.Plan.Response{
           disposition: :inline,
-          filename: %ImagePlug.Plan.Response.Filename{stem: "two"}
+          filename: "two"
         }
       )
 

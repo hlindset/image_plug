@@ -13,7 +13,6 @@ defmodule ImagePlug.Parser.Imgproxy.PlanBuilderTest do
   alias ImagePlug.Plan.Output
   alias ImagePlug.Plan.Pipeline
   alias ImagePlug.Plan.Response
-  alias ImagePlug.Plan.Response.Filename
   alias ImagePlug.Transform.Operation.AutoOrient
   alias ImagePlug.Transform.Operation.Flip
   alias ImagePlug.Transform.Operation.Rotate
@@ -779,7 +778,7 @@ defmodule ImagePlug.Parser.Imgproxy.PlanBuilderTest do
               expires: 0,
               cachebuster: "v1",
               response: %Response{
-                filename: %Filename{stem: "cat"},
+                filename: "cat",
                 disposition: :attachment
               }
             }} = PlanBuilder.to_plan(request, now: ~U[2026-05-05 12:00:00Z])
@@ -789,7 +788,7 @@ defmodule ImagePlug.Parser.Imgproxy.PlanBuilderTest do
     assert {:ok,
             %Plan{
               response: %Response{
-                filename: %Filename{stem: "cat"}
+                filename: "cat"
               }
             }} =
              PlanBuilder.to_plan(%ParsedRequest{
@@ -803,7 +802,7 @@ defmodule ImagePlug.Parser.Imgproxy.PlanBuilderTest do
     assert {:ok,
             %Plan{
               response: %Response{
-                filename: %Filename{stem: "image"}
+                filename: "image"
               }
             }} =
              PlanBuilder.to_plan(%ParsedRequest{
