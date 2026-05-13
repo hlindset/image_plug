@@ -19,64 +19,53 @@ defmodule ImagePlug.Transform.PlanExecutor do
 
   @spec execute(Plan.t(), State.t(), SourceMetadata.t(), keyword()) ::
           {:ok, State.t()} | {:error, term()}
-  def execute(%Plan{pipelines: pipelines}, %State{} = state, %SourceMetadata{} = metadata, opts) do
-    execute_pipelines(pipelines, state, metadata, opts)
+  def execute(%Plan{pipelines: pipelines}, %State{} = state, %SourceMetadata{}, _opts) do
+    execute_pipelines(pipelines, state)
   end
 
-  defp execute_pipelines(pipelines, %State{} = state, %SourceMetadata{} = metadata, opts) do
+  defp execute_pipelines(pipelines, %State{} = state) do
     Enum.reduce_while(pipelines, {:ok, state}, fn pipeline, {:ok, state} ->
-      case execute_pipeline(pipeline, state, metadata, opts) do
+      case execute_pipeline(pipeline, state) do
         {:ok, %State{} = state} -> {:cont, {:ok, state}}
         {:error, _reason} = error -> {:halt, error}
       end
     end)
   end
 
-  defp execute_pipeline(%Pipeline{operations: operations}, %State{} = state, metadata, opts) do
+  defp execute_pipeline(%Pipeline{operations: operations}, %State{} = state) do
     Enum.reduce_while(operations, {:ok, state}, fn operation, {:ok, state} ->
-      case execute_operation(operation, state, metadata, opts) do
+      case execute_operation(operation, state) do
         {:ok, %State{} = state} -> {:cont, {:ok, state}}
         {:error, _reason} = error -> {:halt, error}
       end
     end)
   end
 
-  defp execute_operation(operation, %State{} = state, %SourceMetadata{} = metadata, opts) do
+  defp execute_operation(operation, %State{} = state) do
     operation
-    |> executable_operations(state, metadata, opts)
+    |> executable_operations(state)
     |> then(&Chain.execute(state, &1))
   end
 
-  defp executable_operations(%PlanResize{mode: :fit} = operation, %State{}, _metadata, _opts) do
-    [struct!(Resize, tagged_resize_attrs(operation, :fit))]
+  defp executable_operations(%PlanResize{mode: :fit} = operation, %State{}) do
+    [resize_from(operation, :fit)]
   end
 
-  defp executable_operations(
-         %PlanResize{mode: :cover} = operation,
-         %State{} = state,
-         _metadata,
-         _opts
-       ) do
+  defp executable_operations(%PlanResize{mode: :cover} = operation, %State{} = state) do
     operation
-    |> tagged_resize_attrs(:cover)
-    |> then(&struct!(Resize, &1))
+    |> resize_from(:cover)
     |> cover_resize_and_crop(
       state,
       tagged_executable_gravity(operation.guide),
-      crop_offsets(operation)
+      {operation.x_offset, operation.y_offset}
     )
   end
 
-  defp executable_operations(%PlanResize{mode: :stretch} = operation, %State{}, _metadata, _opts) do
-    [struct!(Resize, tagged_resize_attrs(operation, :stretch))]
+  defp executable_operations(%PlanResize{mode: :stretch} = operation, %State{}) do
+    [resize_from(operation, :stretch)]
   end
 
-  defp executable_operations(
-         %PlanResize{mode: :auto} = operation,
-         %State{} = state,
-         _metadata,
-         _opts
-       ) do
+  defp executable_operations(%PlanResize{mode: :auto} = operation, %State{} = state) do
     branch =
       resize_auto_branch(
         Image.width(state.image),
@@ -85,12 +74,12 @@ defmodule ImagePlug.Transform.PlanExecutor do
         tagged_logical_pixels(operation.height)
       )
 
-    resize = struct!(Resize, tagged_resize_attrs(operation, branch))
+    resize = resize_from(operation, branch)
 
     tagged_executable_resize_operations(branch, resize, operation, state)
   end
 
-  defp executable_operations(%CropGuided{} = operation, %State{}, _metadata, _opts) do
+  defp executable_operations(%CropGuided{} = operation, %State{}) do
     [
       %Crop{
         width: crop_dimension(operation.width),
@@ -103,7 +92,7 @@ defmodule ImagePlug.Transform.PlanExecutor do
     ]
   end
 
-  defp executable_operations(%CropRegion{} = operation, %State{}, _metadata, _opts) do
+  defp executable_operations(%CropRegion{} = operation, %State{}) do
     [
       %Crop{
         width: crop_dimension(operation.width),
@@ -116,7 +105,7 @@ defmodule ImagePlug.Transform.PlanExecutor do
     ]
   end
 
-  defp executable_operations(%Canvas{} = operation, %State{}, _metadata, _opts) do
+  defp executable_operations(%Canvas{} = operation, %State{}) do
     width = canvas_dimension(operation.width)
     height = canvas_dimension(operation.height)
 
@@ -131,11 +120,11 @@ defmodule ImagePlug.Transform.PlanExecutor do
     ]
   end
 
-  defp executable_operations(%AutoOrient{} = operation, %State{}, _metadata, _opts),
+  defp executable_operations(%AutoOrient{} = operation, %State{}),
     do: [operation]
 
-  defp executable_operations(%Rotate{} = operation, %State{}, _metadata, _opts), do: [operation]
-  defp executable_operations(%Flip{} = operation, %State{}, _metadata, _opts), do: [operation]
+  defp executable_operations(%Rotate{} = operation, %State{}), do: [operation]
+  defp executable_operations(%Flip{} = operation, %State{}), do: [operation]
 
   defp tagged_executable_resize_operations(
          :cover,
@@ -147,7 +136,7 @@ defmodule ImagePlug.Transform.PlanExecutor do
       resize,
       state,
       tagged_executable_gravity(operation.guide),
-      crop_offsets(operation)
+      {operation.x_offset, operation.y_offset}
     )
   end
 
@@ -176,8 +165,8 @@ defmodule ImagePlug.Transform.PlanExecutor do
     ]
   end
 
-  defp tagged_resize_attrs(operation, mode) do
-    [
+  defp resize_from(operation, mode) do
+    %Resize{
       mode: resize_mode(mode),
       width: tagged_executable_resize_dimension(operation.width),
       height: tagged_executable_resize_dimension(operation.height),
@@ -187,7 +176,7 @@ defmodule ImagePlug.Transform.PlanExecutor do
       zoom_y: operation.zoom_y,
       dpr: tagged_dpr_float(operation.dpr),
       enlarge: operation.enlargement == :allow
-    ]
+    }
   end
 
   defp resize_mode(:cover), do: :fill
@@ -236,8 +225,6 @@ defmodule ImagePlug.Transform.PlanExecutor do
   defp tagged_dpr_float({:ratio, numerator, denominator}), do: numerator / denominator
 
   defp tagged_ratio_to_float({:ratio, numerator, denominator}), do: numerator / denominator
-
-  defp crop_offsets(operation), do: {operation.x_offset, operation.y_offset}
 
   defp resize_auto_branch(current_width, current_height, target_width, target_height) do
     current_orientation = orientation(current_width, current_height)
