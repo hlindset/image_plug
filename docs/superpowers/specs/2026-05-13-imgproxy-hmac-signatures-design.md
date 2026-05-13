@@ -269,9 +269,10 @@ decoding:
 
 From `/Users/hlindset/src/image_plug/local/imgproxy-master/processing_handler_test.go`, keep this fixture as
 upstream request-handler evidence that `unsafe` fails when signing is enabled
-and the signed path succeeds. Do not use it as an ImagePlug parser contract:
-`local:///test1.png` is imgproxy source syntax, while this ImagePlug slice
-continues to model plain sources as paths resolved against `root_url`.
+and the signed path succeeds. Use it as a low-level signature-module vector,
+not as an ImagePlug parser contract: `local:///test1.png` is imgproxy source
+syntax, while this ImagePlug slice continues to model plain sources as paths
+resolved against `root_url`.
 
 ```elixir
 %{

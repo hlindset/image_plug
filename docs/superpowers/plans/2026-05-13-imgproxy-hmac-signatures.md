@@ -517,8 +517,32 @@ describe "verify/3" do
 
     assert :ok = Signature.verify("truested", "asd", config)
     assert :ok = Signature.verify("local-dev!", "/w:300/plain/images/cat.jpg", config)
+    assert Signature.verify("untrusted", "asd", config) ==
+             {:error, {:invalid_signature_encoding, "untrusted"}}
+
     assert Signature.verify("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "asd", config) ==
              {:error, :invalid_signature}
+  end
+
+  test "matches upstream processing handler request fixture" do
+    [signature: config] =
+      Signature.validate_options!(
+        signature: [
+          keys: ["746573742d6b6579"],
+          salts: ["746573742d73616c74"]
+        ]
+      )
+
+    signed_path = "/rs:fill:4:4/plain/local:///test1.png"
+
+    assert :ok =
+             Signature.verify(
+               "My9d3xq_PYpVHsPrCyww0Kh1w5KZeZhIlWhsa4az1TI",
+               signed_path,
+               config
+             )
+
+    assert Signature.verify("unsafe", signed_path, config) == {:error, :invalid_signature}
   end
 
   test "matches public docs signing vector" do
