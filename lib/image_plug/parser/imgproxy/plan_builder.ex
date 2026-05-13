@@ -62,7 +62,7 @@ defmodule ImagePlug.Parser.Imgproxy.PlanBuilder do
   end
 
   defp pipeline(%PipelineRequest{} = pipeline_request) do
-    with :ok <- validate_supported_semantics(pipeline_request),
+    with :ok <- reject_unsupported_semantics(pipeline_request),
          {:ok, operations} <- plan_geometry(pipeline_request) do
       {:ok, %Pipeline{operations: operations}}
     end
@@ -164,116 +164,13 @@ defmodule ImagePlug.Parser.Imgproxy.PlanBuilder do
     if Response.valid_filename?(stem), do: stem, else: "image"
   end
 
-  defp validate_supported_semantics(%PipelineRequest{gravity: :sm}),
+  defp reject_unsupported_semantics(%PipelineRequest{gravity: :sm}),
     do: {:error, {:unsupported_gravity, :sm}}
 
-  defp validate_supported_semantics(%PipelineRequest{gravity: gravity} = request) do
-    if valid_gravity?(gravity) do
-      with :ok <- validate_extend_semantics(request),
-           :ok <- validate_crop_semantics(request),
-           :ok <- validate_orientation_semantics(request),
-           do: validate_pending_pipeline_semantics(request)
-    else
-      {:error, {:invalid_gravity, gravity}}
-    end
-  end
+  defp reject_unsupported_semantics(%PipelineRequest{crop: %CropRequest{gravity: :sm}}),
+    do: {:error, {:unsupported_gravity, :sm}}
 
-  defp validate_extend_semantics(%PipelineRequest{} = request) do
-    with :ok <- validate_extend_gravity(request.extend_gravity),
-         :ok <- validate_extend_offset(request.extend_x_offset),
-         :ok <- validate_extend_offset(request.extend_y_offset),
-         :ok <- validate_gravity_offset(:x_offset, request.gravity_x_offset) do
-      with :ok <- validate_gravity_offset(:y_offset, request.gravity_y_offset) do
-        validate_extend_aspect_ratio(request.extend_aspect_ratio)
-      end
-    end
-  end
-
-  defp validate_extend_gravity(nil), do: :ok
-
-  defp validate_extend_gravity({:anchor, _x, _y} = gravity) do
-    if valid_gravity?(gravity), do: :ok, else: {:error, {:invalid_gravity, gravity}}
-  end
-
-  defp validate_extend_gravity(gravity), do: {:error, {:invalid_gravity, gravity}}
-
-  defp validate_extend_offset(nil), do: :ok
-  defp validate_extend_offset(offset) when is_number(offset), do: :ok
-  defp validate_extend_offset(offset), do: {:error, {:invalid_extend_offset, offset}}
-
-  defp validate_gravity_offset(_field, value) when is_number(value), do: :ok
-  defp validate_gravity_offset(_field, {:pixels, value}) when is_number(value), do: :ok
-  defp validate_gravity_offset(_field, {:scale, value}) when is_number(value), do: :ok
-
-  defp validate_gravity_offset(field, value),
-    do: {:error, {:invalid_gravity_offset, field, value}}
-
-  defp validate_extend_aspect_ratio(nil), do: :ok
-
-  defp validate_extend_aspect_ratio({width, height})
-       when is_number(width) and is_number(height) and width > 0 and height > 0,
-       do: :ok
-
-  defp validate_extend_aspect_ratio(extend_aspect_ratio),
-    do: {:error, {:invalid_extend_aspect_ratio, extend_aspect_ratio}}
-
-  defp validate_crop_semantics(%PipelineRequest{crop: nil}), do: :ok
-
-  defp validate_crop_semantics(%PipelineRequest{
-         crop: %CropRequest{
-           width: width,
-           height: height,
-           gravity: gravity,
-           x_offset: x_offset,
-           y_offset: y_offset
-         }
-       }) do
-    with :ok <- validate_crop_dimension(:width, width),
-         :ok <- validate_crop_dimension(:height, height),
-         :ok <- validate_crop_gravity(gravity),
-         :ok <- validate_crop_offset(:x_offset, x_offset) do
-      validate_crop_offset(:y_offset, y_offset)
-    end
-  end
-
-  defp validate_crop_dimension(_field, :auto), do: :ok
-
-  defp validate_crop_dimension(_field, {:pixels, value}) when is_number(value) and value > 0,
-    do: :ok
-
-  defp validate_crop_dimension(_field, {:scale, value}) when is_number(value) and value > 0,
-    do: :ok
-
-  defp validate_crop_dimension(field, value),
-    do: {:error, {:invalid_crop_dimension, field, value}}
-
-  defp validate_crop_gravity(nil), do: :ok
-  defp validate_crop_gravity(:sm), do: {:error, {:unsupported_gravity, :sm}}
-
-  defp validate_crop_gravity(gravity) do
-    if valid_gravity?(gravity), do: :ok, else: {:error, {:invalid_gravity, gravity}}
-  end
-
-  defp validate_crop_offset(_field, value) when is_number(value), do: :ok
-  defp validate_crop_offset(_field, {:pixels, value}) when is_number(value), do: :ok
-  defp validate_crop_offset(_field, {:scale, value}) when is_number(value), do: :ok
-  defp validate_crop_offset(field, value), do: {:error, {:invalid_crop_offset, field, value}}
-
-  defp validate_orientation_semantics(%PipelineRequest{orientation: %Orientation{}}), do: :ok
-
-  defp validate_pending_pipeline_semantics(%PipelineRequest{} = request) do
-    with :ok <- validate_factor(:zoom_x, request.zoom_x),
-         :ok <- validate_factor(:zoom_y, request.zoom_y),
-         :ok <- validate_factor(:dpr, request.dpr) do
-      validate_pending_unimplemented_semantics(request)
-    end
-  end
-
-  defp validate_factor(_field, nil), do: :ok
-  defp validate_factor(_field, value) when is_number(value) and value > 0, do: :ok
-  defp validate_factor(field, value), do: {:error, {:invalid_dimension_factor, field, value}}
-
-  defp validate_pending_unimplemented_semantics(%PipelineRequest{}), do: :ok
+  defp reject_unsupported_semantics(%PipelineRequest{}), do: :ok
 
   defp plan_geometry(%PipelineRequest{resizing_type: :fill, width: nil, height: nil}),
     do: missing_dimensions(:fill)
@@ -407,7 +304,9 @@ defmodule ImagePlug.Parser.Imgproxy.PlanBuilder do
           {:ok, []}
 
         {_planned_width, _planned_height, _rule_requested?} ->
-          build_operation_list(resize_operation(request))
+          with {:ok, operation} <- resize_operation(request) do
+            {:ok, [operation]}
+          end
       end
     end
   end
@@ -461,9 +360,9 @@ defmodule ImagePlug.Parser.Imgproxy.PlanBuilder do
 
   defp extend_aspect_ratio_operation(%PipelineRequest{extend_aspect_ratio: nil}), do: nil
 
-  defp extend_aspect_ratio_operation(%PipelineRequest{extend_aspect_ratio: ratio}) do
-    with {:ok, width} <- tagged_ratio_from_decimal(elem(ratio, 0)),
-         {:ok, height} <- tagged_ratio_from_decimal(elem(ratio, 1)),
+  defp extend_aspect_ratio_operation(%PipelineRequest{extend_aspect_ratio: {width, height}}) do
+    with {:ok, width} <- tagged_ratio_from_decimal(width),
+         {:ok, height} <- tagged_ratio_from_decimal(height),
          {:ok, placement} <- canvas_placement(@default_gravity) do
       Operation.canvas(width, height, placement, background: :white, overflow: :reject)
     end
@@ -590,18 +489,6 @@ defmodule ImagePlug.Parser.Imgproxy.PlanBuilder do
   defp enlargement(%PipelineRequest{resizing_type: :fill_down}), do: :deny
   defp enlargement(%PipelineRequest{enlarge: true}), do: :allow
   defp enlargement(%PipelineRequest{}), do: :deny
-
-  defp build_operation_list({:ok, operation}), do: {:ok, [operation]}
-
-  defp valid_gravity?({:fp, x, y}) do
-    is_number(x) and is_number(y) and x >= 0.0 and x <= 1.0 and y >= 0.0 and y <= 1.0
-  end
-
-  defp valid_gravity?({:anchor, x, y}) do
-    x in [:left, :center, :right] and y in [:top, :center, :bottom]
-  end
-
-  defp valid_gravity?(_gravity), do: false
 
   # Parser values are already floats for decimal syntax. Preserve the decimal
   # spelling Elixir prints for compatibility, instead of materializing the raw
