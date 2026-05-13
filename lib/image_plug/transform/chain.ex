@@ -4,8 +4,7 @@ defmodule ImagePlug.Transform.Chain do
 
   A chain is the ordered list of product-neutral operation structs already
   selected by parser or planner code. Execution proceeds left to right through
-  `ImagePlug.Transform` and stops at the first operation that records an error
-  in `ImagePlug.Transform.State`.
+  `ImagePlug.Transform` and stops at the first operation error.
   """
 
   require Logger
@@ -37,25 +36,18 @@ defmodule ImagePlug.Transform.Chain do
       ...> {:ok, %ImagePlug.Transform.State{}} = ImagePlug.Transform.Chain.execute(initial_state, chain)
   """
   @spec execute(State.t(), t()) ::
-          {:ok, State.t()} | {:error, {:transform_error, State.t()}}
+          {:ok, State.t()} | {:error, {:transform_error, term()}}
   def execute(%State{} = state, transform_chain) do
-    transform_chain
-    |> Enum.reduce_while(state, fn operation, state ->
+    Enum.reduce_while(transform_chain, {:ok, state}, fn operation, {:ok, state} ->
       Logger.debug(fn ->
         name = Transform.transform_name(operation)
         "executing transform: #{name} with operation #{inspect(operation)}"
       end)
 
-      next_state = Transform.execute(operation, state)
-
-      case next_state do
-        %State{errors: []} -> {:cont, next_state}
-        %State{} -> {:halt, next_state}
+      case Transform.execute(operation, state) do
+        {:ok, %State{} = next_state} -> {:cont, {:ok, next_state}}
+        {:error, reason} -> {:halt, {:error, {:transform_error, reason}}}
       end
     end)
-    |> case do
-      %State{errors: []} = state -> {:ok, state}
-      %State{} = state -> {:error, {:transform_error, state}}
-    end
   end
 end

@@ -242,7 +242,7 @@ defmodule ImagePlug.ImagePlugTest do
 
     def metadata(%__MODULE__{}), do: %{access: :random}
 
-    def execute(%__MODULE__{}, %ImagePlug.Transform.State{} = state), do: state
+    def execute(%__MODULE__{}, %ImagePlug.Transform.State{} = state), do: {:ok, state}
   end
 
   defmodule EmptyPipelineParser do

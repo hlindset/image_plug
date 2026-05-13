@@ -5,15 +5,11 @@ defmodule ImagePlug.Runtime.ProcessorTest.SequentialFailingTransform do
     top_level?: true,
     deps: [ImagePlug.Transform]
 
-  alias ImagePlug.Transform.State
-
   defstruct []
 
   def name(%__MODULE__{}), do: :sequential_failing
 
   def metadata(%__MODULE__{}), do: %{access: :sequential}
 
-  def execute(%__MODULE__{}, state) do
-    State.add_error(state, {__MODULE__, :failed})
-  end
+  def execute(%__MODULE__{}, _state), do: {:error, {__MODULE__, :failed}}
 end

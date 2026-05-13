@@ -42,10 +42,8 @@ defmodule ImagePlug.Transform.ChainTest do
       %UnexpectedTransform{}
     ]
 
-    assert {:error, {:transform_error, state}} =
+    assert {:error, {:transform_error, {FailingTransform, :failed}}} =
              Chain.execute(%State{image: image}, chain)
-
-    assert state.errors == [{FailingTransform, :failed}]
   end
 
   test "neutral resize and canvas operations execute through the chain" do

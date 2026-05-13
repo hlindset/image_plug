@@ -43,9 +43,9 @@ defmodule ImagePlug.Transform.Operation.Crop do
 
   ## Execution Semantics
 
-  `execute/2` crops `ImagePlug.Transform.State.image` and stores the cropped
-  image back into the state. If coordinate mapping or image cropping fails,
-  execution records `{__MODULE__, reason}` in the state errors.
+  `execute/2` crops `ImagePlug.Transform.State.image` and returns a state with
+  the cropped image. If coordinate mapping or image cropping fails, execution
+  returns `{:error, {__MODULE__, reason}}`.
 
   For `crop_from: :gravity`, execution resolves crop dimensions against the
   current image, defaulting gravity to center when none is provided. Anchor
@@ -82,7 +82,7 @@ defmodule ImagePlug.Transform.Operation.Crop do
 
   @behaviour ImagePlug.Transform
 
-  import ImagePlug.Transform.State, only: [add_error: 2, set_image: 2]
+  import ImagePlug.Transform.State, only: [set_image: 2]
 
   import ImagePlug.Transform.Geometry,
     only: [anchor_to_pixels: 3, image_height: 1, image_width: 1, to_pixels: 2]
@@ -136,12 +136,12 @@ defmodule ImagePlug.Transform.Operation.Crop do
     case crop_coordinates(params, state, image_width, image_height) do
       {:ok, %{left: left, top: top, width: crop_width, height: crop_height}} ->
         case Image.crop(state.image, left, top, crop_width, crop_height) do
-          {:ok, cropped_image} -> set_image(state, cropped_image)
-          {:error, error} -> add_error(state, {__MODULE__, error})
+          {:ok, cropped_image} -> {:ok, set_image(state, cropped_image)}
+          {:error, error} -> {:error, {__MODULE__, error}}
         end
 
       {:error, error} ->
-        add_error(state, {__MODULE__, error})
+        {:error, {__MODULE__, error}}
     end
   end
 

@@ -86,10 +86,10 @@ defmodule ImagePlug.Runtime.ResponseSender do
 
   defp handle_processing_error(
          conn,
-         {:transform_error, %State{errors: errors}},
+         {:transform_error, reason},
          response_headers
        ) do
-    Logger.info("transform_error(s): #{inspect(errors)}")
+    Logger.info("transform_error: #{inspect(reason)}")
     send_transform_error(conn, response_headers)
   end
 

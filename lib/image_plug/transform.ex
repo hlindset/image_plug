@@ -36,7 +36,7 @@ defmodule ImagePlug.Transform do
 
   @callback name(operation()) :: atom()
   @callback metadata(operation()) :: map()
-  @callback execute(operation(), State.t()) :: State.t()
+  @callback execute(operation(), State.t()) :: {:ok, State.t()} | {:error, term()}
 
   @spec transform_name(operation()) :: atom()
   def transform_name(%module{} = operation) do
@@ -57,7 +57,7 @@ defmodule ImagePlug.Transform do
     module.metadata(operation)
   end
 
-  @spec execute(operation(), State.t()) :: State.t()
+  @spec execute(operation(), State.t()) :: {:ok, State.t()} | {:error, term()}
   def execute(%module{} = operation, %State{} = state) do
     module.execute(operation, state)
   end

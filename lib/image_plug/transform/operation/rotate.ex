@@ -26,9 +26,7 @@ defmodule ImagePlug.Transform.Operation.Rotate do
 
   For `90`, `180`, and `270`, execution calls `Image.rotate/2` for
   `ImagePlug.Transform.State.image` and stores the rotated image back into
-  state. If rotation fails, execution records
-  `{__MODULE__, error}` in the state errors and leaves normal error handling to
-  the transform chain.
+  state. If rotation fails, execution returns `{:error, {__MODULE__, error}}`.
 
   ## Decode Planning Metadata
 
@@ -58,12 +56,12 @@ defmodule ImagePlug.Transform.Operation.Rotate do
   def metadata(%__MODULE__{}), do: %{access: :random}
 
   @impl ImagePlug.Transform
-  def execute(%__MODULE__{angle: 0}, %State{} = state), do: state
+  def execute(%__MODULE__{angle: 0}, %State{} = state), do: {:ok, state}
 
   def execute(%__MODULE__{angle: angle}, %State{} = state) do
     case Image.rotate(state.image, angle) do
-      {:ok, image} -> set_image(state, image)
-      {:error, error} -> add_error(state, {__MODULE__, error})
+      {:ok, image} -> {:ok, set_image(state, image)}
+      {:error, error} -> {:error, {__MODULE__, error}}
     end
   end
 end

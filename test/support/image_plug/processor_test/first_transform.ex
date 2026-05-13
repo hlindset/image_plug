@@ -14,6 +14,6 @@ defmodule ImagePlug.Runtime.ProcessorTest.FirstTransform do
   def metadata(%__MODULE__{}), do: %{access: :random}
 
   def execute(%__MODULE__{}, %State{} = state) do
-    %State{state | debug: true}
+    {:ok, %State{state | debug: true}}
   end
 end

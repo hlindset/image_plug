@@ -84,8 +84,8 @@ defmodule ImagePlug.Transform.Operation.Resize do
       )
 
     case resize_image(state, dimensions.intermediate_width, dimensions.intermediate_height) do
-      {:ok, image} -> set_image(state, image)
-      {:error, reason} -> add_error(state, {__MODULE__, reason})
+      {:ok, image} -> {:ok, set_image(state, image)}
+      {:error, reason} -> {:error, {__MODULE__, reason}}
     end
   end
 

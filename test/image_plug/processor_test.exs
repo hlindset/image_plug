@@ -56,7 +56,6 @@ defmodule ImagePlug.Runtime.ProcessorTest do
              )
 
     assert state.image
-    assert state.errors == []
   end
 
   test "fetch_decode_validate_origin_with_source_format accepts plain plan sources" do
@@ -80,7 +79,6 @@ defmodule ImagePlug.Runtime.ProcessorTest do
              )
 
     assert state.image
-    assert state.errors == []
   end
 
   test "process_origin materializes between pipelines before executing the next pipeline" do
@@ -107,7 +105,6 @@ defmodule ImagePlug.Runtime.ProcessorTest do
              )
 
     assert state.image
-    assert state.errors == []
     assert_receive first_message
     assert first_message == {:pipeline_event, ref, :materialized_between_pipelines}
   end

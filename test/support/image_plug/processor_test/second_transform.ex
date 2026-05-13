@@ -15,6 +15,6 @@ defmodule ImagePlug.Runtime.ProcessorTest.SecondTransform do
 
   def execute(%__MODULE__{test_pid: test_pid, ref: ref}, %State{} = state) do
     send(test_pid, {:pipeline_event, ref, :second_transform_ran})
-    state
+    {:ok, state}
   end
 end

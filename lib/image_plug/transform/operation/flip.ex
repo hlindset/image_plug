@@ -27,8 +27,7 @@ defmodule ImagePlug.Transform.Operation.Flip do
 
   For `axis: :both`, execution performs a horizontal flip followed by a
   vertical flip, then stores the resulting image in state. If any flip fails,
-  execution records `{__MODULE__, error}` in the state errors and leaves normal
-  error handling to the transform chain.
+  execution returns `{:error, {__MODULE__, error}}`.
 
   ## Decode Planning Metadata
 
@@ -61,16 +60,16 @@ defmodule ImagePlug.Transform.Operation.Flip do
   def execute(%__MODULE__{axis: :both}, %State{} = state) do
     with {:ok, image} <- Image.flip(state.image, :horizontal),
          {:ok, image} <- Image.flip(image, :vertical) do
-      set_image(state, image)
+      {:ok, set_image(state, image)}
     else
-      {:error, error} -> add_error(state, {__MODULE__, error})
+      {:error, error} -> {:error, {__MODULE__, error}}
     end
   end
 
   def execute(%__MODULE__{axis: axis}, %State{} = state) do
     case Image.flip(state.image, axis) do
-      {:ok, image} -> set_image(state, image)
-      {:error, error} -> add_error(state, {__MODULE__, error})
+      {:ok, image} -> {:ok, set_image(state, image)}
+      {:error, error} -> {:error, {__MODULE__, error}}
     end
   end
 end

@@ -22,8 +22,7 @@ defmodule ImagePlug.Transform.Operation.AutoOrient do
   this operation discards those flags because the transform state stores the
   resulting image, not parser-specific orientation metadata.
 
-  If autorotation fails, execution records `{__MODULE__, error}` in the state
-  errors and leaves normal error handling to the transform chain.
+  If autorotation fails, execution returns `{:error, {__MODULE__, error}}`.
 
   ## Decode Planning Metadata
 
@@ -56,8 +55,8 @@ defmodule ImagePlug.Transform.Operation.AutoOrient do
   @impl ImagePlug.Transform
   def execute(%__MODULE__{}, %State{} = state) do
     case Image.autorotate(state.image) do
-      {:ok, {image, _flags}} -> set_image(state, image)
-      {:error, error} -> add_error(state, {__MODULE__, error})
+      {:ok, {image, _flags}} -> {:ok, set_image(state, image)}
+      {:error, error} -> {:error, {__MODULE__, error}}
     end
   end
 end
