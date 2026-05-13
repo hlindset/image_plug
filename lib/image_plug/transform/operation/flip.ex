@@ -1,20 +1,13 @@
 defmodule ImagePlug.Transform.Operation.Flip do
   @moduledoc """
-  Represents a product-neutral operation that flips the current image on one or
+  Represents an executable operation that flips the current image on one or
   both axes.
 
   ## Construct When
 
-  Construct `Flip` when parser or planner code has explicit orientation intent
-  that mirrors the image horizontally, vertically, or on both axes. The
-  operation is product-neutral; dialect parsers translate compatible flip
-  syntax into the `:axis` field before this operation is constructed.
-
-  Native planner note: Native URLs are declarative, and when orientation
-  requests are present the Native planner emits orientation operations in this
-  suborder: auto-orient, rotate, then flip. That suborder is a Native planner
-  contract, not a universal requirement of the product-neutral transform
-  operation model.
+  Transform Plan execution may pass this narrow executable primitive through
+  unchanged. Parser modules should construct semantic `ImagePlug.Plan.Operation.*`
+  through Plan constructors for non-orientation transform intent.
 
   ## Fields
 
@@ -22,19 +15,19 @@ defmodule ImagePlug.Transform.Operation.Flip do
 
   - `axis`: one of `:horizontal`, `:vertical`, or `:both`.
 
-  Parser or planner code is responsible for translating dialect-specific
-  booleans, tokens, or aliases into one of these product-neutral axis values.
+  Semantic planning is responsible for translating dialect-specific booleans,
+  tokens, or aliases into one of these product-neutral axis values before Plan
+  execution.
 
   ## Execution Semantics
 
   `execute/2` flips `ImagePlug.Transform.State.image`, stores the flipped image
-  back into state, and resets focus metadata. For `axis: :horizontal` and
-  `axis: :vertical`, execution calls `Image.flip/2` with that axis.
+  back into state. For `axis: :horizontal` and `axis: :vertical`, execution
+  calls `Image.flip/2` with that axis.
 
   For `axis: :both`, execution performs a horizontal flip followed by a
   vertical flip, then stores the resulting image in state. If any flip fails,
-  execution records `{__MODULE__, error}` in the state errors and leaves normal
-  error handling to the transform chain.
+  execution returns `{:error, {__MODULE__, error}}`.
 
   ## Decode Planning Metadata
 
@@ -52,7 +45,6 @@ defmodule ImagePlug.Transform.Operation.Flip do
   import ImagePlug.Transform.State
 
   alias ImagePlug.Transform.State
-  alias ImagePlug.Transform.Validation
 
   defstruct [:axis]
 
@@ -62,27 +54,22 @@ defmodule ImagePlug.Transform.Operation.Flip do
   def name(%__MODULE__{}), do: :flip
 
   @impl ImagePlug.Transform
-  def validate(%__MODULE__{axis: axis}) do
-    Validation.one_of("flip", :axis, axis, [:horizontal, :vertical, :both])
-  end
-
-  @impl ImagePlug.Transform
   def metadata(%__MODULE__{}), do: %{access: :random}
 
   @impl ImagePlug.Transform
   def execute(%__MODULE__{axis: :both}, %State{} = state) do
     with {:ok, image} <- Image.flip(state.image, :horizontal),
          {:ok, image} <- Image.flip(image, :vertical) do
-      state |> set_image(image) |> reset_focus()
+      {:ok, set_image(state, image)}
     else
-      {:error, error} -> add_error(state, {__MODULE__, error})
+      {:error, error} -> {:error, {__MODULE__, error}}
     end
   end
 
   def execute(%__MODULE__{axis: axis}, %State{} = state) do
     case Image.flip(state.image, axis) do
-      {:ok, image} -> state |> set_image(image) |> reset_focus()
-      {:error, error} -> add_error(state, {__MODULE__, error})
+      {:ok, image} -> {:ok, set_image(state, image)}
+      {:error, error} -> {:error, {__MODULE__, error}}
     end
   end
 end

@@ -7,7 +7,8 @@ defmodule ImagePlug do
     deps: [
       ImagePlug.Parser,
       ImagePlug.Plan,
-      ImagePlug.Runtime
+      ImagePlug.Runtime,
+      ImagePlug.Transform
     ],
     exports: []
 
@@ -18,6 +19,7 @@ defmodule ImagePlug do
   alias ImagePlug.Runtime.RequestRunner
   alias ImagePlug.Runtime.ResponseSender
   alias ImagePlug.Runtime.SourceIdentity
+  alias ImagePlug.Transform
 
   @impl Plug
   def init(opts), do: Options.validate!(opts)
@@ -44,8 +46,7 @@ defmodule ImagePlug do
   end
 
   defp validate_client_plan(%Plan{} = plan) do
-    with {:ok, %Plan{} = plan} <- Plan.validate_shape(plan),
-         {:ok, _pipelines} <- Plan.validated_pipelines(plan) do
+    with {:ok, _pipelines} <- Transform.validate_prefetch_safe_plan(plan) do
       {:ok, plan}
     end
     |> wrap_plan_validation_error()

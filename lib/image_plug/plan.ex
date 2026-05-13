@@ -5,43 +5,40 @@ defmodule ImagePlug.Plan do
 
   use Boundary,
     top_level?: true,
-    deps: [ImagePlug.Transform],
+    deps: [],
     exports: [
       Pipeline,
       Orientation,
       Output,
-      Policy,
-      Cache,
       Response,
-      Response.Filename,
-      Source.Plain
+      Operation,
+      Operation.CropGuided,
+      Operation.CropRegion,
+      Operation.Canvas,
+      Operation.Resize
     ]
 
-  alias ImagePlug.Plan.Cache
+  alias ImagePlug.Plan.Operation
   alias ImagePlug.Plan.Output
   alias ImagePlug.Plan.Pipeline
-  alias ImagePlug.Plan.Policy
   alias ImagePlug.Plan.Response
-  alias ImagePlug.Plan.Response.Filename
-  alias ImagePlug.Plan.Source.Plain
-  alias ImagePlug.Transform
 
   @supported_formats [:avif, :webp, :jpeg, :png]
 
   @enforce_keys [:source, :pipelines, :output]
   defstruct @enforce_keys ++
               [
-                policy: %Policy{},
-                cache: %Cache{},
+                expires: 0,
+                cachebuster: nil,
                 response: %Response{}
               ]
 
   @type t :: %__MODULE__{
-          source: ImagePlug.Plan.Source.Plain.t(),
+          source: {:plain, [String.t()]},
           pipelines: [ImagePlug.Plan.Pipeline.t()],
           output: ImagePlug.Plan.Output.t(),
-          policy: ImagePlug.Plan.Policy.t(),
-          cache: ImagePlug.Plan.Cache.t(),
+          expires: non_neg_integer(),
+          cachebuster: String.t() | nil,
           response: ImagePlug.Plan.Response.t()
         }
 
@@ -53,16 +50,16 @@ defmodule ImagePlug.Plan do
   @type shape_error() ::
           {:unsupported_source, term()}
           | {:invalid_output_plan, term()}
-          | {:invalid_policy_plan, term()}
-          | {:invalid_cache_plan, term()}
+          | {:invalid_expires, term()}
+          | {:invalid_cachebuster, term()}
           | {:invalid_response_plan, term()}
 
   @spec validate_shape(t()) :: {:ok, t()} | {:error, shape_error()}
   def validate_shape(%__MODULE__{} = plan) do
     with :ok <- validate_source(plan.source),
          :ok <- validate_output(plan.output),
-         :ok <- validate_policy(plan.policy),
-         :ok <- validate_cache(plan.cache),
+         :ok <- validate_expires(plan.expires),
+         :ok <- validate_cachebuster(plan.cachebuster),
          :ok <- validate_response(plan.response) do
       {:ok, plan}
     end
@@ -72,37 +69,33 @@ defmodule ImagePlug.Plan do
   def validated_pipelines(%__MODULE__{pipelines: []}), do: {:error, :empty_pipeline_plan}
 
   def validated_pipelines(%__MODULE__{pipelines: pipelines}) when is_list(pipelines) do
-    if Enum.all?(pipelines, &valid_pipeline_shape?/1) do
-      validate_pipeline_operations(pipelines)
-    else
-      {:error, {:invalid_pipeline_plan, pipelines}}
+    case do_validate_pipelines(pipelines) do
+      {:ok, valid_pipelines} -> {:ok, Enum.reverse(valid_pipelines)}
+      {:error, _reason} = error -> error
     end
   end
 
   def validated_pipelines(%__MODULE__{pipelines: pipelines}),
     do: {:error, {:invalid_pipeline_plan, pipelines}}
 
-  defp valid_pipeline_shape?(%Pipeline{operations: operations}) when is_list(operations), do: true
-  defp valid_pipeline_shape?(_pipeline), do: false
+  defp do_validate_pipelines(pipelines) do
+    Enum.reduce_while(pipelines, {:ok, []}, fn
+      %Pipeline{operations: operations} = pipeline, {:ok, valid_pipelines}
+      when is_list(operations) ->
+        case Enum.find(operations, &invalid_operation?/1) do
+          nil -> {:cont, {:ok, [pipeline | valid_pipelines]}}
+          operation -> {:halt, {:error, {:invalid_pipeline_operation, operation}}}
+        end
 
-  defp validate_pipeline_operations(pipelines) do
-    case Enum.find_value(pipelines, &invalid_operation/1) do
-      nil -> {:ok, pipelines}
-      operation -> {:error, {:invalid_pipeline_operation, operation}}
-    end
+      _pipeline, _acc ->
+        {:halt, {:error, {:invalid_pipeline_plan, pipelines}}}
+    end)
   end
 
-  defp invalid_operation(%Pipeline{operations: operations}) do
-    Enum.find(operations, &invalid_operation?/1)
-  end
-
-  defp invalid_operation?(%_{} = operation) do
-    Transform.validate(operation) != :ok
-  end
-
+  defp invalid_operation?(%_{} = operation), do: not Operation.semantic?(operation)
   defp invalid_operation?(_operation), do: true
 
-  defp validate_source(%Plain{path: path} = source) do
+  defp validate_source({:plain, path} = source) do
     if valid_source_path?(path),
       do: :ok,
       else: {:error, {:unsupported_source, source}}
@@ -158,20 +151,18 @@ defmodule ImagePlug.Plan do
   defp valid_quality?({:quality, value}) when is_integer(value) and value in 1..100, do: true
   defp valid_quality?(_quality), do: false
 
-  defp validate_policy(%Policy{expires: expires}) when is_integer(expires) and expires >= 0,
+  defp validate_expires(expires) when is_integer(expires) and expires >= 0, do: :ok
+
+  defp validate_expires(expires), do: {:error, {:invalid_expires, expires}}
+
+  defp validate_cachebuster(cachebuster) when is_binary(cachebuster) or is_nil(cachebuster),
     do: :ok
 
-  defp validate_policy(policy), do: {:error, {:invalid_policy_plan, policy}}
-
-  defp validate_cache(%Cache{cachebuster: cachebuster})
-       when is_binary(cachebuster) or is_nil(cachebuster),
-       do: :ok
-
-  defp validate_cache(cache), do: {:error, {:invalid_cache_plan, cache}}
+  defp validate_cachebuster(cachebuster), do: {:error, {:invalid_cachebuster, cachebuster}}
 
   defp validate_response(%Response{disposition: disposition, filename: filename} = response)
        when disposition in [:default, :inline, :attachment] do
-    if is_nil(filename) or Filename.valid?(filename) do
+    if is_nil(filename) or Response.valid_filename?(filename) do
       :ok
     else
       {:error, {:invalid_response_plan, response}}

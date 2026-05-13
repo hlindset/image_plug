@@ -41,7 +41,7 @@ defmodule ImagePlug.Cache do
 
   @callback get(Key.t(), keyword()) :: {:hit, Entry.t()} | :miss | {:error, term()}
   @callback put(Key.t(), Entry.t(), keyword()) :: :ok | {:error, term()}
-  @callback validate_options(keyword()) :: :ok | {:error, term()}
+  @callback validate_options(keyword()) :: {:ok, keyword()} | {:error, term()}
 
   @optional_callbacks validate_options: 1
 
@@ -52,20 +52,16 @@ defmodule ImagePlug.Cache do
           | {:error, {:cache_read, term()}}
 
   @doc false
-  @spec validate_config(keyword()) :: :ok | {:error, term()}
+  @spec validate_config(keyword()) :: {:ok, keyword()} | {:error, term()}
   def validate_config(opts) when is_list(opts) do
-    case cache_config(opts) do
-      nil -> :ok
-      {:ok, _adapter, _cache_opts} -> :ok
-      {:error, reason} -> {:error, reason}
-    end
+    normalize_config(opts)
   end
 
   @doc false
   @spec validate_config!(keyword()) :: keyword()
   def validate_config!(opts) when is_list(opts) do
     case validate_config(opts) do
-      :ok -> opts
+      {:ok, opts} -> opts
       {:error, reason} -> raise ArgumentError, "invalid cache config: #{inspect(reason)}"
     end
   end
@@ -79,6 +75,15 @@ defmodule ImagePlug.Cache do
     case cache_config(opts) do
       {:ok, _adapter, cache_opts} -> Keyword.get(cache_opts, :max_body_bytes)
       _other -> nil
+    end
+  end
+
+  @doc false
+  @spec fail_on_cache_error?(keyword()) :: boolean()
+  def fail_on_cache_error?(opts) when is_list(opts) do
+    case cache_config(opts) do
+      {:ok, _adapter, cache_opts} -> Keyword.get(cache_opts, :fail_on_cache_error, false)
+      _other -> false
     end
   end
 
@@ -123,6 +128,21 @@ defmodule ImagePlug.Cache do
     end
   end
 
+  defp normalize_config(opts) do
+    case Keyword.fetch(opts, :cache) do
+      :error ->
+        {:ok, opts}
+
+      {:ok, {adapter, cache_opts}} when is_list(cache_opts) ->
+        with {:ok, adapter, cache_opts} <- configured_cache(adapter, cache_opts) do
+          {:ok, Keyword.put(opts, :cache, {adapter, cache_opts})}
+        end
+
+      {:ok, invalid} ->
+        {:error, {:invalid_cache_config, invalid}}
+    end
+  end
+
   defp lookup_configured(adapter, conn, plan, origin_identity, opts, cache_opts) do
     case Key.build(conn, plan, origin_identity, key_options(opts, cache_opts)) do
       {:ok, key} -> get_configured(adapter, key, cache_opts)
@@ -157,8 +177,8 @@ defmodule ImagePlug.Cache do
   defp validate_configured_cache(adapter, cache_opts) do
     with :ok <- validate_adapter(adapter),
          {:ok, cache_opts} <- normalize_shared_options(cache_opts),
-         :ok <- validate_adapter_options(adapter, adapter_options(cache_opts)) do
-      {:ok, adapter, cache_opts}
+         {:ok, adapter_opts} <- normalize_adapter_options(adapter, adapter_options(cache_opts)) do
+      {:ok, adapter, Keyword.merge(cache_opts, adapter_opts)}
     end
   end
 
@@ -192,15 +212,15 @@ defmodule ImagePlug.Cache do
 
   defp adapter_options(cache_opts), do: Keyword.drop(cache_opts, @shared_cache_option_keys)
 
-  defp validate_adapter_options(adapter, cache_opts) do
+  defp normalize_adapter_options(adapter, cache_opts) do
     if function_exported?(adapter, :validate_options, 1) do
       case adapter.validate_options(cache_opts) do
-        :ok -> :ok
+        {:ok, normalized_opts} when is_list(normalized_opts) -> {:ok, normalized_opts}
         {:error, reason} -> {:error, {:invalid_cache_config, reason}}
         unexpected -> {:error, {:invalid_cache_config, {:adapter_options, unexpected}}}
       end
     else
-      :ok
+      {:ok, cache_opts}
     end
   end
 

@@ -25,7 +25,7 @@ defmodule ImagePlug.Cache.FileSystem do
   @impl true
   def get(%Key{} = key, opts) when is_list(opts) do
     case paths(key, opts) do
-      {:ok, paths} -> read_entry(paths, opts)
+      {:ok, paths} -> read_entry(paths)
       {:error, _reason} = error -> error
     end
   end
@@ -56,7 +56,9 @@ defmodule ImagePlug.Cache.FileSystem do
       dir = Path.join([root, path_prefix, first_partition, second_partition])
       meta_path = Path.join(dir, String.duplicate("0", 64) <> ".meta")
 
-      validate_cache_paths(root, dir, meta_path)
+      with :ok <- validate_cache_paths(root, dir, meta_path) do
+        {:ok, validated_opts}
+      end
     end
   end
 
@@ -116,55 +118,49 @@ defmodule ImagePlug.Cache.FileSystem do
   defp options_validation_error(%NimbleOptions.ValidationError{key: :path_prefix, value: prefix}),
     do: {:invalid_path_prefix, prefix}
 
-  defp read_entry(paths, opts) do
-    with {:ok, meta_binary} <- read_cache_file(paths.meta_path, :metadata, opts),
-         {:ok, metadata} <- decode_metadata(meta_binary, opts),
-         {:ok, body_path} <- body_path_from_metadata(paths, metadata, opts),
-         {:ok, body} <- read_cache_file(body_path, :body, opts),
-         :ok <- validate_body(body, metadata, opts),
-         {:ok, created_at} <- parse_created_at(metadata.created_at, opts),
-         {:ok, entry} <- entry(body, metadata, created_at, opts) do
-      {:hit, entry}
-    else
-      :miss ->
-        :miss
-
-      {:error, {:invalid_metadata, _reason}} = error ->
-        error
-
-      {:error, _reason} = error ->
-        error
+  defp read_entry(paths) do
+    with {:ok, meta_binary} <- read_cache_file(paths.meta_path, :metadata),
+         {:ok, metadata} <- decode_metadata(meta_binary),
+         {:ok, body_path} <- body_path_from_metadata(paths, metadata),
+         {:ok, body} <- read_cache_file(body_path, :body),
+         :ok <- validate_body(body, metadata),
+         {:ok, created_at} <- parse_created_at(metadata.created_at) do
+      {:hit,
+       %Entry{
+         body: body,
+         content_type: metadata.content_type,
+         headers: metadata.headers,
+         created_at: created_at
+       }}
     end
   end
 
-  defp read_cache_file(path, kind, opts) do
+  defp read_cache_file(path, kind) do
     case File.read(path) do
       {:ok, binary} -> {:ok, binary}
       {:error, :enoent} -> :miss
-      {:error, reason} -> handle_read_error(read_error(kind, reason), opts)
+      {:error, reason} -> {:error, read_error(kind, reason)}
     end
   end
 
   defp read_error(:metadata, reason), do: {:metadata_read, reason}
   defp read_error(:body, reason), do: {:body_read, reason}
 
-  defp handle_read_error(reason, _opts), do: {:error, reason}
-
-  defp validate_body(body, %{body_byte_size: body_byte_size}, opts)
+  defp validate_body(body, %{body_byte_size: body_byte_size})
        when byte_size(body) != body_byte_size do
-    handle_invalid_metadata(:body_byte_size_mismatch, opts)
+    handle_invalid_metadata(:body_byte_size_mismatch)
   end
 
-  defp validate_body(body, %{body_sha256: body_sha256}, opts) do
+  defp validate_body(body, %{body_sha256: body_sha256}) do
     if body_sha256(body) == body_sha256 do
       :ok
     else
-      handle_invalid_metadata(:body_digest_mismatch, opts)
+      handle_invalid_metadata(:body_digest_mismatch)
     end
   end
 
   defp metadata(%Entry{} = entry, body_sha256, body_filename) do
-    case Entry.normalize_headers(entry.headers) do
+    case Entry.cacheable_headers(entry.headers) do
       {:ok, headers} ->
         {:ok,
          %{
@@ -186,15 +182,15 @@ defmodule ImagePlug.Cache.FileSystem do
     Base.encode16(:crypto.hash(:sha256, body), case: :lower)
   end
 
-  defp decode_metadata(binary, opts) do
+  defp decode_metadata(binary) do
     binary
     |> :erlang.binary_to_term([:safe])
     |> validate_metadata()
   rescue
-    ArgumentError -> handle_invalid_metadata(:decode_failed, opts)
+    ArgumentError -> handle_invalid_metadata(:decode_failed)
   else
     {:ok, metadata} -> {:ok, metadata}
-    {:error, reason} -> handle_invalid_metadata(reason, opts)
+    {:error, reason} -> handle_invalid_metadata(reason)
   end
 
   defp validate_metadata(%{
@@ -223,31 +219,18 @@ defmodule ImagePlug.Cache.FileSystem do
   defp validate_metadata(%{metadata_version: _version}), do: {:error, :version_mismatch}
   defp validate_metadata(_metadata), do: {:error, :invalid_shape}
 
-  defp handle_invalid_metadata(reason, _opts), do: {:error, {:invalid_metadata, reason}}
+  defp handle_invalid_metadata(reason), do: {:error, {:invalid_metadata, reason}}
 
-  defp parse_created_at(created_at, opts) do
+  defp parse_created_at(created_at) do
     case DateTime.from_iso8601(created_at) do
       {:ok, datetime, _offset} -> {:ok, datetime}
-      {:error, reason} -> handle_invalid_metadata({:invalid_created_at, reason}, opts)
-    end
-  end
-
-  defp entry(body, metadata, created_at, opts) do
-    case Entry.new(
-           body: body,
-           content_type: metadata.content_type,
-           headers: metadata.headers,
-           created_at: created_at
-         ) do
-      {:ok, entry} -> {:ok, entry}
-      {:error, reason} -> handle_invalid_metadata({:invalid_entry, reason}, opts)
+      {:error, reason} -> handle_invalid_metadata({:invalid_created_at, reason})
     end
   end
 
   defp body_path_from_metadata(
          paths,
-         %{body_filename: body_filename, body_sha256: body_sha256},
-         opts
+         %{body_filename: body_filename, body_sha256: body_sha256}
        ) do
     expected_body_filename = body_filename(paths.hash, body_sha256)
 
@@ -255,7 +238,7 @@ defmodule ImagePlug.Cache.FileSystem do
          Regex.match?(@body_filename_pattern, body_filename) do
       {:ok, Path.join(paths.dir, body_filename)}
     else
-      handle_invalid_metadata(:invalid_body_filename, opts)
+      handle_invalid_metadata(:invalid_body_filename)
     end
   end
 
@@ -360,8 +343,9 @@ defmodule ImagePlug.Cache.FileSystem do
 
   @doc false
   def paths(%Key{hash: hash}, opts) do
-    with {:ok, root} <- root(opts),
-         {:ok, path_prefix} <- path_prefix(opts),
+    with {:ok, opts} <- validate_known_options(opts),
+         root = Keyword.fetch!(opts, :root),
+         path_prefix = Keyword.get(opts, :path_prefix, ""),
          {:ok, {first_partition, second_partition}} <- partitions(hash) do
       dir = Path.join([root, path_prefix, first_partition, second_partition])
       meta_path = Path.join(dir, hash <> ".meta")
@@ -370,44 +354,6 @@ defmodule ImagePlug.Cache.FileSystem do
            :ok <- validate_under_root(root, meta_path) do
         {:ok, %{root: root, dir: dir, meta_path: meta_path, hash: hash}}
       end
-    end
-  end
-
-  defp root(opts) do
-    case Keyword.fetch(opts, :root) do
-      {:ok, root} when is_binary(root) ->
-        if Path.type(root) == :absolute do
-          {:ok, Path.expand(root)}
-        else
-          {:error, {:invalid_root, root}}
-        end
-
-      {:ok, root} ->
-        {:error, {:invalid_root, root}}
-
-      :error ->
-        {:error, {:missing_required_option, :root}}
-    end
-  end
-
-  defp path_prefix(opts) do
-    prefix = Keyword.get(opts, :path_prefix, "")
-
-    cond do
-      not is_binary(prefix) ->
-        {:error, {:invalid_path_prefix, prefix}}
-
-      prefix == "" ->
-        {:ok, ""}
-
-      Path.type(prefix) == :absolute ->
-        {:error, {:invalid_path_prefix, prefix}}
-
-      String.contains?(prefix, "\\") or invalid_path_prefix?(prefix) ->
-        {:error, {:invalid_path_prefix, prefix}}
-
-      true ->
-        {:ok, prefix}
     end
   end
 

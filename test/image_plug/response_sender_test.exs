@@ -5,7 +5,6 @@ defmodule ImagePlug.Runtime.ResponseSenderTest do
 
   alias ImagePlug.Cache.Entry
   alias ImagePlug.Plan.Response
-  alias ImagePlug.Plan.Response.Filename
   alias ImagePlug.Runtime.ResponseSender
 
   test "cache hits apply content disposition from plan response" do
@@ -16,7 +15,7 @@ defmodule ImagePlug.Runtime.ResponseSenderTest do
       created_at: DateTime.utc_now()
     }
 
-    response = %Response{disposition: :attachment, filename: %Filename{stem: "report"}}
+    response = %Response{disposition: :attachment, filename: "report"}
 
     conn =
       ResponseSender.send_result(conn(:get, "/image"), {:ok, {:cache_entry, entry, response}}, [])
@@ -24,7 +23,7 @@ defmodule ImagePlug.Runtime.ResponseSenderTest do
     assert conn.status == 200
 
     assert Plug.Conn.get_resp_header(conn, "content-disposition") ==
-             [~s(attachment; filename="report.webp"; filename*=UTF-8''report.webp)]
+             [~s(attachment; filename="report.webp")]
   end
 
   test "image responses apply content disposition on cache misses" do
@@ -37,7 +36,7 @@ defmodule ImagePlug.Runtime.ResponseSenderTest do
       representation_headers: []
     }
 
-    response = %Response{disposition: :inline, filename: %Filename{stem: "miss"}}
+    response = %Response{disposition: :inline, filename: "miss"}
 
     conn =
       ResponseSender.send_result(
@@ -49,6 +48,6 @@ defmodule ImagePlug.Runtime.ResponseSenderTest do
     assert conn.status == 200
 
     assert Plug.Conn.get_resp_header(conn, "content-disposition") ==
-             [~s(inline; filename="miss.webp"; filename*=UTF-8''miss.webp)]
+             [~s(inline; filename="miss.webp")]
   end
 end

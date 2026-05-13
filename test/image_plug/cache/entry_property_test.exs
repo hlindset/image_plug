@@ -7,29 +7,17 @@ defmodule ImagePlug.Cache.EntryPropertyTest do
   property "entry stores only lowercase allowlisted headers" do
     check all headers <- list_of(header(), max_length: 30),
               max_runs: 100 do
-      {:ok, entry} =
-        Entry.new(
-          body: "body",
-          content_type: "image/webp",
-          headers: headers,
-          created_at: ~U[2026-04-29 10:15:00Z]
-        )
+      {:ok, cached_headers} = Entry.cacheable_headers(headers)
 
-      assert Enum.all?(entry.headers, fn {name, _value} -> name in ["vary", "cache-control"] end)
-      assert Enum.all?(entry.headers, fn {name, _value} -> name == String.downcase(name) end)
+      assert Enum.all?(cached_headers, fn {name, _value} -> name in ["vary", "cache-control"] end)
+      assert Enum.all?(cached_headers, fn {name, _value} -> name == String.downcase(name) end)
     end
   end
 
   property "allowed headers preserve relative input order" do
     check all headers <- list_of(header(), max_length: 30),
               max_runs: 100 do
-      {:ok, entry} =
-        Entry.new(
-          body: "body",
-          content_type: "image/webp",
-          headers: headers,
-          created_at: ~U[2026-04-29 10:15:00Z]
-        )
+      {:ok, cached_headers} = Entry.cacheable_headers(headers)
 
       expected =
         headers
@@ -43,7 +31,7 @@ defmodule ImagePlug.Cache.EntryPropertyTest do
           end
         end)
 
-      assert entry.headers == expected
+      assert cached_headers == expected
     end
   end
 

@@ -8,8 +8,8 @@ defmodule ImagePlug.Cache.FileSystemTest do
   defp key(hash \\ String.duplicate("a", 64)) do
     %Key{
       hash: hash,
-      material: [schema_version: 1],
-      serialized_material: :erlang.term_to_binary([schema_version: 1], [:deterministic])
+      data: [schema_version: 1],
+      serialized_data: :erlang.term_to_binary([schema_version: 1], [:deterministic])
     }
   end
 
@@ -95,7 +95,7 @@ defmodule ImagePlug.Cache.FileSystemTest do
     assert FileSystem.validate_options(root: root, path_prefx: "processed") ==
              {:error, {:unknown_options, [:path_prefx]}}
 
-    assert FileSystem.validate_options(root: root, fail_on_cache_error: true) == :ok
+    assert FileSystem.validate_options(root: root, fail_on_cache_error: true) == {:ok, root: root}
   end
 
   test "accepts filesystem root as cache root" do

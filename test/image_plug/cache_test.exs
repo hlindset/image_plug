@@ -10,7 +10,6 @@ defmodule ImagePlug.CacheTest do
   alias ImagePlug.Plan
   alias ImagePlug.Plan.Output
   alias ImagePlug.Plan.Pipeline
-  alias ImagePlug.Plan.Source.Plain
 
   defmodule HitAdapter do
     def get(%Key{}, opts), do: {:hit, Keyword.fetch!(opts, :entry)}
@@ -57,7 +56,7 @@ defmodule ImagePlug.CacheTest do
       Plan,
       Keyword.merge(
         [
-          source: %Plain{path: ["images", "cat.jpg"]},
+          source: {:plain, ["images", "cat.jpg"]},
           pipelines: [%Pipeline{operations: []}],
           output: %Output{mode: {:explicit, :webp}}
         ],
@@ -73,8 +72,8 @@ defmodule ImagePlug.CacheTest do
   defp cache_key do
     %Key{
       hash: String.duplicate("a", 64),
-      material: [schema_version: 2],
-      serialized_material: :erlang.term_to_binary([schema_version: 2], [:deterministic])
+      data: [schema_version: 2],
+      serialized_data: :erlang.term_to_binary([schema_version: 2], [:deterministic])
     }
   end
 
@@ -109,7 +108,7 @@ defmodule ImagePlug.CacheTest do
     end
 
     assert_raise ArgumentError, ~r/required :root_url option not found/, fn ->
-      ImagePlug.init(parser: ImagePlug.Parser.Native)
+      ImagePlug.init(parser: ImagePlug.Parser.Imgproxy)
     end
   end
 
@@ -132,6 +131,20 @@ defmodule ImagePlug.CacheTest do
     end
   end
 
+  test "ImagePlug init preserves normalized filesystem cache options" do
+    root = Path.join(System.tmp_dir!(), "image_plug_cache_init")
+
+    opts =
+      ImagePlug.init(
+        parser: ImagePlug.Parser.Imgproxy,
+        root_url: "https://origin.test",
+        cache: {ImagePlug.Cache.FileSystem, root: root <> "/../image_plug_cache_init"}
+      )
+
+    assert Keyword.fetch!(opts, :cache) ==
+             {ImagePlug.Cache.FileSystem, root: Path.expand(root)}
+  end
+
   test "returns hits with the generated key" do
     configured_entry = entry()
 
@@ -143,7 +156,7 @@ defmodule ImagePlug.CacheTest do
                cache: {HitAdapter, entry: configured_entry}
              )
 
-    assert key.material[:origin_identity] == "https://origin.test/cat.jpg"
+    assert key.data[:origin_identity] == "https://origin.test/cat.jpg"
   end
 
   test "returns miss with the generated key" do
@@ -170,7 +183,7 @@ defmodule ImagePlug.CacheTest do
                cache: {CaptureAdapter, key_headers: ["accept-language"]}
              )
 
-    assert key.material[:output] == [
+    assert key.data[:output] == [
              mode: :automatic,
              modern_candidates: [:webp],
              auto: [avif: false, webp: true],
@@ -185,7 +198,7 @@ defmodule ImagePlug.CacheTest do
     assert Keyword.fetch!(adapter_opts, :key_headers) == ["accept-language"]
   end
 
-  test "adapter-private options named like automatic output flags do not affect key material" do
+  test "adapter-private options named like automatic output flags do not affect key data" do
     assert {:miss, %Key{} = key} =
              Cache.lookup(
                :get
@@ -196,7 +209,7 @@ defmodule ImagePlug.CacheTest do
                cache: {CaptureAdapter, auto_avif: false, auto_webp: false}
              )
 
-    assert key.material[:output][:auto] == [avif: true, webp: true]
+    assert key.data[:output][:auto] == [avif: true, webp: true]
 
     assert_received {:cache_get, ^key, adapter_opts}
     assert Keyword.fetch!(adapter_opts, :auto_avif) == false

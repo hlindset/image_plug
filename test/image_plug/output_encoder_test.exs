@@ -67,7 +67,7 @@ defmodule ImagePlug.Output.EncoderTest do
     assert_received {:write_opts, [suffix: ".webp"]}
   end
 
-  test "limited_memory_output passes explicit quality to the image streamer" do
+  test "memory_output with a byte limit passes explicit quality to the image streamer" do
     {:ok, image} = Image.new(1, 1)
     Process.put(:test_pid, self())
 
@@ -78,11 +78,11 @@ defmodule ImagePlug.Output.EncoderTest do
     }
 
     assert {:ok, %Encoder.EncodedOutput{body: "encoded", content_type: "image/webp"}} =
-             Encoder.limited_memory_output(
+             Encoder.memory_output(
                image,
                resolved_output,
-               [image_module: CaptureImage],
-               100
+               image_module: CaptureImage,
+               max_body_bytes: 100
              )
 
     assert_received {:stream_opts, [suffix: ".webp", quality: 80]}

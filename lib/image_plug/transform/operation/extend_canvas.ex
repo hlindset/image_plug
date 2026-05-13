@@ -1,20 +1,16 @@
 defmodule ImagePlug.Transform.Operation.ExtendCanvas do
   @moduledoc """
-  Represents a product-neutral canvas expansion operation that embeds the
+  Represents an executable canvas expansion operation that embeds the
   current image into a same-size-or-larger canvas.
 
   ## Construct When
 
-  Construct `ExtendCanvas` when parser or planner code needs letterboxing,
-  padding, or aspect-ratio canvas extension without changing the image content
-  scale. Use it after resize-like operations when the requested output box is
-  larger than the resized image, or when a dialect requests extension to a
-  target aspect ratio.
+  Transform Plan execution may convert semantic Plan operations to this
+  executable operation. Parser modules should construct
+  `ImagePlug.Plan.Operation.*` through Plan constructors.
 
-  Native parser translations construct this operation for supported canvas
-  extension requests such as dimension extension and extend-aspect-ratio
-  requests. The URL option names remain parser concerns; this operation only
-  models the neutral canvas semantics.
+  Use it for resolved letterboxing, padding, or aspect-ratio canvas extension
+  without changing the image content scale.
 
   ## Fields
 
@@ -42,9 +38,9 @@ defmodule ImagePlug.Transform.Operation.ExtendCanvas do
   ## Execution Semantics
 
   `execute/2` resolves the canvas size from `rule`, embeds
-  `ImagePlug.Transform.State.image` into that canvas, stores the embedded image
-  back into the state, and resets focus. If dimensions are invalid or embedding
-  fails, execution records `{__MODULE__, reason}` in the state errors.
+  `ImagePlug.Transform.State.image` into that canvas, and stores the embedded
+  image back into the state. If dimensions are invalid or embedding fails,
+  execution returns `{:error, {__MODULE__, reason}}`.
 
   For `{:dimensions, width, height}`, each requested dimension resolves against
   the current image size. `:auto` keeps the current size on that axis. The final
@@ -74,7 +70,7 @@ defmodule ImagePlug.Transform.Operation.ExtendCanvas do
         y_offset: 0.0
       }
 
-  A Native parser translation for extend-aspect-ratio syntax would construct an
+  A semantic canvas request for extend-aspect-ratio may execute as an
   `ExtendCanvas` operation with an `{:aspect_ratio, ratio}` rule.
   """
 
@@ -84,7 +80,6 @@ defmodule ImagePlug.Transform.Operation.ExtendCanvas do
   import ImagePlug.Transform.Geometry
 
   alias ImagePlug.Transform.State
-  alias ImagePlug.Transform.Validation
 
   @default_gravity {:anchor, :center, :center}
 
@@ -100,7 +95,7 @@ defmodule ImagePlug.Transform.Operation.ExtendCanvas do
 
   @type t :: %__MODULE__{
           rule: canvas_rule(),
-          gravity: State.focus_anchor(),
+          gravity: {:anchor, :left | :center | :right, :top | :center | :bottom},
           x_offset: number(),
           y_offset: number(),
           background: term()
@@ -110,24 +105,15 @@ defmodule ImagePlug.Transform.Operation.ExtendCanvas do
   def name(%__MODULE__{}), do: :extend_canvas
 
   @impl ImagePlug.Transform
-  def validate(%__MODULE__{} = operation) do
-    with :ok <- validate_rule(operation.rule),
-         :ok <- Validation.anchor("extend canvas", :gravity, operation.gravity),
-         :ok <- Validation.number("extend canvas", :x_offset, operation.x_offset) do
-      Validation.number("extend canvas", :y_offset, operation.y_offset)
-    end
-  end
-
-  @impl ImagePlug.Transform
   def metadata(%__MODULE__{}), do: %{access: :random}
 
   @impl ImagePlug.Transform
   def execute(%__MODULE__{} = operation, %State{} = state) do
     with {:ok, {width, height}} <- canvas_dimensions(state, operation.rule),
          {:ok, image} <- embed_image(state, operation, width, height) do
-      state |> set_image(image) |> reset_focus()
+      {:ok, set_image(state, image)}
     else
-      {:error, reason} -> add_error(state, {__MODULE__, reason})
+      {:error, reason} -> {:error, {__MODULE__, reason}}
     end
   end
 
@@ -195,23 +181,9 @@ defmodule ImagePlug.Transform.Operation.ExtendCanvas do
   defp canvas_dimension(_current_size, value) when is_number(value) and value >= 0,
     do: round(value)
 
-  defp canvas_dimension(current_size, size_unit), do: to_pixels!(current_size, size_unit)
+  defp canvas_dimension(current_size, size_unit), do: to_pixels(current_size, size_unit)
 
   defp background_color(:transparent), do: [0, 0, 0, 0]
   defp background_color({:color, color}), do: color
   defp background_color(color), do: color
-
-  defp validate_rule({:dimensions, width, height}) do
-    with :ok <- Validation.non_negative_dimension_or_auto("extend canvas", :width, width) do
-      Validation.non_negative_dimension_or_auto("extend canvas", :height, height)
-    end
-  end
-
-  defp validate_rule({:aspect_ratio, {width, height}})
-       when is_number(width) and is_number(height) and width > 0 and height > 0,
-       do: :ok
-
-  defp validate_rule(rule) do
-    {:error, ArgumentError.exception("invalid extend canvas rule: #{inspect(rule)}")}
-  end
 end

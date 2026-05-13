@@ -7,30 +7,29 @@ defmodule ImagePlug.Cache.KeyPropertyTest do
 
   alias ImagePlug.Cache.Key
   alias ImagePlug.Plan
+  alias ImagePlug.Plan.Operation
   alias ImagePlug.Plan.Output
   alias ImagePlug.Plan.Pipeline
-  alias ImagePlug.Plan.Source.Plain
-  alias ImagePlug.Transform
 
   defp build_key!(conn, plan, origin_identity, opts \\ []) do
     assert {:ok, key} = Key.build(conn, plan, origin_identity, opts)
     key
   end
 
-  property "cache key serialization is deterministic for canonical material" do
-    check all material <- key_material(),
+  property "cache key serialization is deterministic for canonical key data" do
+    check all key_data <- key_data(),
               max_runs: 100 do
-      assert Key.serialize_material(material) == Key.serialize_material(material)
+      assert Key.serialize_key_data(key_data) == Key.serialize_key_data(key_data)
     end
   end
 
-  property "nested map and keyword ordering does not affect serialized key material" do
+  property "nested map and keyword ordering does not affect serialized key data" do
     check all origin <- origin_identity(),
               source_path <- source_path(),
               width <- maybe_dimension(),
               height <- maybe_dimension(),
               max_runs: 100 do
-      material_one = [
+      data_one = [
         schema_version: 2,
         origin_identity: origin,
         source: [
@@ -63,7 +62,7 @@ defmodule ImagePlug.Cache.KeyPropertyTest do
         selected_cookies: []
       ]
 
-      material_two = [
+      data_two = [
         selected_cookies: [],
         selected_headers: [],
         output: [
@@ -96,7 +95,7 @@ defmodule ImagePlug.Cache.KeyPropertyTest do
         schema_version: 2
       ]
 
-      assert Key.serialize_material(material_one) == Key.serialize_material(material_two)
+      assert Key.serialize_key_data(data_one) == Key.serialize_key_data(data_two)
     end
   end
 
@@ -159,7 +158,7 @@ defmodule ImagePlug.Cache.KeyPropertyTest do
     end
   end
 
-  property "cachebuster changes cache keys without changing pipeline material" do
+  property "cachebuster changes cache keys without changing pipeline key data" do
     check all cachebuster_a <- string(:alphanumeric, min_length: 1, max_length: 24),
               cachebuster_b <- string(:alphanumeric, min_length: 1, max_length: 24),
               cachebuster_a != cachebuster_b,
@@ -170,18 +169,18 @@ defmodule ImagePlug.Cache.KeyPropertyTest do
       key_a =
         build_key!(
           conn,
-          plan(cache: %ImagePlug.Plan.Cache{cachebuster: cachebuster_a}),
+          plan(cachebuster: cachebuster_a),
           origin
         )
 
       key_b =
         build_key!(
           conn,
-          plan(cache: %ImagePlug.Plan.Cache{cachebuster: cachebuster_b}),
+          plan(cachebuster: cachebuster_b),
           origin
         )
 
-      assert key_a.material[:pipelines] == key_b.material[:pipelines]
+      assert key_a.data[:pipelines] == key_b.data[:pipelines]
       refute key_a.hash == key_b.hash
     end
   end
@@ -320,7 +319,7 @@ defmodule ImagePlug.Cache.KeyPropertyTest do
     end
   end
 
-  defp key_material do
+  defp key_data do
     map(
       {origin_identity(), source_path(), pipelines(),
        member_of([:automatic, :webp, :avif, :jpeg, :png])},
@@ -359,7 +358,7 @@ defmodule ImagePlug.Cache.KeyPropertyTest do
       plan(
         Keyword.merge(
           [
-            source: %Plain{path: source_path},
+            source: {:plain, source_path},
             pipelines: pipelines
           ],
           overrides
@@ -373,18 +372,10 @@ defmodule ImagePlug.Cache.KeyPropertyTest do
       Plan,
       Keyword.merge(
         [
-          source: %Plain{path: ["images", "cat.jpg"]},
+          source: {:plain, ["images", "cat.jpg"]},
           pipelines: [
             %Pipeline{
-              operations: [
-                %Transform.Operation.Contain{
-                  type: :dimensions,
-                  width: {:pixels, 300},
-                  height: :auto,
-                  constraint: :max,
-                  letterbox: false
-                }
-              ]
+              operations: [resize_operation(300, :auto)]
             }
           ],
           output: %Output{mode: {:explicit, :webp}}
@@ -402,7 +393,7 @@ defmodule ImagePlug.Cache.KeyPropertyTest do
   end
 
   defp pipelines do
-    list_of(list_of(operation_material(), min_length: 0, max_length: 3),
+    list_of(list_of(operation_data(), min_length: 0, max_length: 3),
       min_length: 1,
       max_length: 3
     )
@@ -410,47 +401,64 @@ defmodule ImagePlug.Cache.KeyPropertyTest do
 
   defp operation do
     one_of([
-      map({maybe_dimension(), maybe_dimension()}, fn {width, height} ->
-        %Transform.Operation.Contain{
-          type: :dimensions,
-          width: width || {:pixels, 100},
-          height: height || :auto,
-          constraint: :max,
-          letterbox: false
-        }
+      map({positive_pixel(), maybe_dimension_atom()}, fn {width, height} ->
+        resize_operation(width, height)
       end),
-      map({pixel_dimension(), pixel_dimension()}, fn {width, height} ->
-        %Transform.Operation.Crop{
-          width: width,
-          height: height,
-          crop_from: :focus
-        }
+      map({positive_pixel(), positive_pixel()}, fn {width, height} ->
+        crop_guided_operation(width, height)
       end)
     ])
   end
 
-  defp operation_material do
+  defp operation_data do
     one_of([
-      map({maybe_dimension(), maybe_dimension()}, fn {width, height} ->
+      map({positive_pixel(), maybe_dimension_atom()}, fn {width, height} ->
         [
-          op: :contain,
-          type: :dimensions,
-          width: width || {:pixels, 100},
-          height: height || :auto,
-          constraint: :max,
-          letterbox: false
+          op: :resize,
+          mode: :fit,
+          width: [unit: :logical_px, value: width],
+          height: dimension_data(height),
+          dpr: [unit: :ratio, numerator: 1, denominator: 1],
+          enlargement: :deny,
+          guide: :center,
+          x_offset: {:pixels, 0.0},
+          y_offset: {:pixels, 0.0},
+          min_width: nil,
+          min_height: nil,
+          zoom_x: 1.0,
+          zoom_y: 1.0
         ]
       end),
-      map({pixel_dimension(), pixel_dimension()}, fn {width, height} ->
+      map({positive_pixel(), positive_pixel()}, fn {width, height} ->
         [
-          op: :crop,
-          width: width,
-          height: height,
-          crop_from: :focus
+          op: :crop_guided,
+          width: [unit: :logical_px, value: width],
+          height: [unit: :logical_px, value: height],
+          guide: :center,
+          x_offset: {:pixels, 0.0},
+          y_offset: {:pixels, 0.0}
         ]
       end)
     ])
   end
+
+  defp resize_operation(width, height) do
+    {:ok, operation} =
+      Operation.resize(:fit, {:px, width}, tagged_resize_dimension(height), enlargement: :deny)
+
+    operation
+  end
+
+  defp crop_guided_operation(width, height) do
+    {:ok, operation} = Operation.crop_guided({:px, width}, {:px, height}, :center)
+    operation
+  end
+
+  defp dimension_data(:auto), do: [unit: :auto]
+  defp dimension_data(pixels), do: [unit: :logical_px, value: pixels]
+
+  defp tagged_resize_dimension(:auto), do: :auto
+  defp tagged_resize_dimension(pixels), do: {:px, pixels}
 
   defp origin_identity do
     map(source_path(), fn path -> "https://origin.test/#{Enum.join(path, "/")}" end)
@@ -459,7 +467,9 @@ defmodule ImagePlug.Cache.KeyPropertyTest do
   defp source_path, do: list_of(path_segment(), min_length: 1, max_length: 4)
   defp path_segment, do: string(:alphanumeric, min_length: 1, max_length: 16)
   defp maybe_dimension, do: one_of([constant(nil), constant(:auto), pixel_dimension()])
+  defp maybe_dimension_atom, do: one_of([constant(:auto), positive_pixel()])
   defp pixel_dimension, do: map(integer(1..10_000), &{:pixels, &1})
+  defp positive_pixel, do: integer(1..10_000)
 
   defp accept_header do
     map(list_of(media_range_with_optional_quality(), max_length: 5), &Enum.join(&1, ","))

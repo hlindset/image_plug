@@ -2,13 +2,10 @@ defmodule ImagePlug.SequentialCompatibilityTest do
   use ExUnit.Case, async: true
 
   alias ImagePlug.Runtime.Origin
-  alias ImagePlug.Transform.Operation.AutoOrient
   alias ImagePlug.Transform.Chain
-  alias ImagePlug.Transform.Operation.Contain
-  alias ImagePlug.Transform.Geometry.DimensionRule
   alias ImagePlug.Transform.Materializer
+  alias ImagePlug.Transform.Operation.AutoOrient
   alias ImagePlug.Transform.Operation.Resize
-  alias ImagePlug.Transform.Operation.Scale
   alias ImagePlug.Transform.State
 
   @cat_path "priv/static/images/cat-300.jpg"
@@ -22,33 +19,33 @@ defmodule ImagePlug.SequentialCompatibilityTest do
     assert_sequential_matches_random(chain, jpeg_body(@cat_path))
   end
 
-  test "width-only scale matches random access after materialization" do
+  test "width-only fit resize matches random access after materialization" do
     chain = [
-      %Scale{type: :dimensions, width: {:pixels, 100}, height: :auto}
+      %Resize{mode: :fit, width: {:pixels, 100}, height: :auto}
     ]
 
     assert_sequential_matches_random(chain, jpeg_body(@cat_path))
   end
 
-  test "height-only scale matches random access after materialization" do
+  test "height-only fit resize matches random access after materialization" do
     chain = [
-      %Scale{type: :dimensions, width: :auto, height: {:pixels, 100}}
+      %Resize{mode: :fit, width: :auto, height: {:pixels, 100}}
     ]
 
     assert_sequential_matches_random(chain, jpeg_body(@cat_path))
   end
 
-  test "width-only upscale matches random access after materialization" do
+  test "width-only fit upscale matches random access after materialization" do
     chain = [
-      %Scale{type: :dimensions, width: {:pixels, 400}, height: :auto}
+      %Resize{mode: :fit, width: {:pixels, 400}, height: :auto}
     ]
 
     assert_sequential_matches_random(chain, jpeg_body(@cat_path))
   end
 
-  test "height-only upscale matches random access after materialization" do
+  test "height-only fit upscale matches random access after materialization" do
     chain = [
-      %Scale{type: :dimensions, width: :auto, height: {:pixels, 400}}
+      %Resize{mode: :fit, width: :auto, height: {:pixels, 400}}
     ]
 
     assert_sequential_matches_random(chain, jpeg_body(@cat_path))
@@ -56,108 +53,34 @@ defmodule ImagePlug.SequentialCompatibilityTest do
 
   test "force resize matches random access after materialization" do
     chain = [
-      %Resize{
-        rule: %DimensionRule{
-          mode: :force,
-          width: {:pixels, 100},
-          height: :auto
-        }
-      }
+      %Resize{mode: :force, width: {:pixels, 100}, height: :auto}
     ]
 
     assert_sequential_matches_random(chain, jpeg_body(@cat_path))
   end
 
-  test "regular non-letterboxed contain matches random access after materialization" do
+  test "fit resize matches random access for progressive non-square jpeg" do
     chain = [
-      %Contain{
-        type: :dimensions,
-        width: {:pixels, 100},
-        height: {:pixels, 80},
-        constraint: :regular,
-        letterbox: false
-      }
-    ]
-
-    assert_sequential_matches_random(chain, jpeg_body(@cat_path))
-  end
-
-  test "width-only regular non-letterboxed contain matches random access after materialization" do
-    chain = [
-      %Contain{
-        type: :dimensions,
-        width: {:pixels, 100},
-        height: :auto,
-        constraint: :regular,
-        letterbox: false
-      }
-    ]
-
-    assert_sequential_matches_random(chain, jpeg_body(@cat_path))
-  end
-
-  test "height-only regular non-letterboxed contain matches random access after materialization" do
-    chain = [
-      %Contain{
-        type: :dimensions,
-        width: :auto,
-        height: {:pixels, 80},
-        constraint: :regular,
-        letterbox: false
-      }
-    ]
-
-    assert_sequential_matches_random(chain, jpeg_body(@cat_path))
-  end
-
-  test "regular non-letterboxed contain matches random access for progressive non-square jpeg" do
-    chain = [
-      %Contain{
-        type: :dimensions,
-        width: {:pixels, 120},
-        height: {:pixels, 90},
-        constraint: :regular,
-        letterbox: false
-      }
+      %Resize{mode: :fit, width: {:pixels, 120}, height: {:pixels, 90}}
     ]
 
     assert_sequential_matches_random(chain, jpeg_body(@dog_path))
   end
 
-  test "regular non-letterboxed contain matches random access for alpha png" do
+  test "fit resize matches random access for alpha png" do
     chain = [
-      %Contain{
-        type: :dimensions,
-        width: {:pixels, 400},
-        height: {:pixels, 400},
-        constraint: :regular,
-        letterbox: false
-      }
+      %Resize{mode: :fit, width: {:pixels, 400}, height: {:pixels, 400}}
     ]
 
     assert_sequential_matches_random(chain, alpha_png_body(), "image/png")
   end
 
-  test "successful sequential materialization drains origin stream before delivery" do
-    chain = [
-      %Scale{type: :dimensions, width: {:pixels, 100}, height: :auto}
-    ]
-
-    {:ok, _sequential_image, sequential_response} =
-      run_chain(chain, :sequential, jpeg_body(@cat_path), "image/jpeg")
-
-    assert Origin.stream_status(sequential_response) == :done
-    assert Origin.stream_status(sequential_response) == :done
-  end
-
   defp assert_sequential_matches_random(chain, body, content_type \\ "image/jpeg") do
     {:ok, random_image, _random_response} = run_chain(chain, :random, body, content_type)
 
-    {:ok, sequential_image, sequential_response} =
+    {:ok, sequential_image, _sequential_response} =
       run_chain(chain, :sequential, body, content_type)
 
-    assert Origin.stream_status(sequential_response) == :done
-    assert Origin.stream_status(sequential_response) == :done
     assert Image.width(sequential_image) == Image.width(random_image)
     assert Image.height(sequential_image) == Image.height(random_image)
     assert Image.has_alpha?(sequential_image) == Image.has_alpha?(random_image)

@@ -10,92 +10,45 @@ defmodule ImagePlug.Transform do
 
   use Boundary,
     top_level?: true,
-    deps: [],
+    deps: [ImagePlug.Plan],
     exports: [
       State,
       Chain,
       DecodePlanner,
       Materializer,
-      Material,
-      Types,
-      Geometry.CropCoordinateMapper,
-      Geometry.DimensionRule,
-      Geometry.DimensionResolver,
+      KeyData,
       Operation.Resize,
-      Operation.AdaptiveResize,
       Operation.ExtendCanvas,
       Operation.AutoOrient,
       Operation.Rotate,
       Operation.Flip,
-      Operation.Scale,
-      Operation.Cover,
-      Operation.Contain,
-      Operation.Crop,
-      Operation.Focus
+      Operation.Crop
     ]
 
+  alias ImagePlug.Plan
+  alias ImagePlug.Plan.Pipeline
+  alias ImagePlug.Transform.PlanExecutor
   alias ImagePlug.Transform.State
 
   @type attrs() :: keyword()
   @type operation() :: struct()
 
   @callback name(operation()) :: atom()
-  @callback validate(operation()) :: :ok | {:error, term()}
   @callback metadata(operation()) :: map()
-  @callback execute(operation(), State.t()) :: State.t()
-
-  @spec operation?(term()) :: boolean()
-  def operation?(%module{}) do
-    case Code.ensure_loaded(module) do
-      {:module, ^module} ->
-        function_exported?(module, :name, 1) and
-          function_exported?(module, :validate, 1) and
-          function_exported?(module, :metadata, 1) and
-          function_exported?(module, :execute, 2)
-
-      {:error, _reason} ->
-        false
-    end
-  end
-
-  def operation?(_term), do: false
-
-  @spec ensure_operation(term()) :: {:ok, operation()} | {:error, term()}
-  def ensure_operation(%module{} = operation) do
-    if operation?(operation) do
-      {:ok, operation}
-    else
-      {:error, {:invalid_operation, operation, module}}
-    end
-  end
-
-  def ensure_operation(operation), do: {:error, {:invalid_operation, operation, :not_a_struct}}
-
-  @spec ensure_operation!(term()) :: operation()
-  def ensure_operation!(operation) do
-    case ensure_operation(operation) do
-      {:ok, operation} ->
-        operation
-
-      {:error, {:invalid_operation, %_module{} = operation, module}} ->
-        raise ArgumentError,
-              "invalid transform operation #{inspect(operation)}: " <>
-                "#{inspect(module)} must export name/1, validate/1, metadata/1, and execute/2"
-
-      {:error, {:invalid_operation, operation, :not_a_struct}} ->
-        raise ArgumentError,
-              "invalid transform operation #{inspect(operation)}: expected an operation struct"
-    end
-  end
+  @callback execute(operation(), State.t()) :: {:ok, State.t()} | {:error, term()}
 
   @spec transform_name(operation()) :: atom()
   def transform_name(%module{} = operation) do
     module.name(operation)
   end
 
-  @spec validate(operation()) :: :ok | {:error, term()}
-  def validate(%module{} = operation) do
-    module.validate(operation)
+  @spec validate_prefetch_safe_plan(Plan.t()) ::
+          {:ok, [Pipeline.t()]} | {:error, term()}
+  def validate_prefetch_safe_plan(%Plan{} = plan) do
+    case Plan.validate_shape(plan) do
+      {:ok, %Plan{}} -> Plan.validated_pipelines(plan)
+      {:error, _reason} = error -> error
+    end
   end
 
   @spec metadata(operation()) :: map()
@@ -103,8 +56,14 @@ defmodule ImagePlug.Transform do
     module.metadata(operation)
   end
 
-  @spec execute(operation(), State.t()) :: State.t()
+  @spec execute(operation(), State.t()) :: {:ok, State.t()} | {:error, term()}
   def execute(%module{} = operation, %State{} = state) do
     module.execute(operation, state)
+  end
+
+  @spec execute_plan(Plan.t(), State.t(), keyword()) ::
+          {:ok, State.t()} | {:error, term()}
+  def execute_plan(%Plan{} = plan, %State{} = state, opts \\ []) do
+    PlanExecutor.execute(plan, state, opts)
   end
 end

@@ -1,242 +1,128 @@
 defmodule ImagePlug.Runtime.Processor do
   @moduledoc false
 
-  alias ImagePlug.Output.Format
   alias ImagePlug.Plan
-  alias ImagePlug.Plan.Source.Plain
   alias ImagePlug.Runtime.DecodedOrigin
   alias ImagePlug.Runtime.Origin
-  alias ImagePlug.Transform.Chain
+  alias ImagePlug.Transform
   alias ImagePlug.Transform.DecodePlanner
   alias ImagePlug.Transform.Materializer
   alias ImagePlug.Transform.State
+  alias Vix.Vips.Image, as: VipsImage
 
-  @spec process_origin(Plan.t(), [ImagePlug.Plan.Pipeline.t()], String.t(), keyword()) ::
+  @type source_format() :: :avif | :webp | :jpeg | :png | nil
+
+  @spec process_origin(Plan.t(), String.t(), keyword()) ::
           {:ok, State.t()} | {:error, term()}
-  def process_origin(%Plan{}, [], _origin_identity, _opts), do: {:error, :empty_pipeline_plan}
-
-  def process_origin(%Plan{} = plan, pipelines, origin_identity, opts) when is_list(pipelines) do
+  def process_origin(%Plan{} = plan, origin_identity, opts) do
     with {:ok, %DecodedOrigin{} = decoded} <-
-           fetch_decode_validate_origin_with_source_format(plan, pipelines, origin_identity, opts) do
-      process_decoded_origin(decoded, pipelines, opts)
+           fetch_decode_validate_origin_with_source_format(plan, origin_identity, opts) do
+      process_decoded_origin(decoded, plan, opts)
     end
   end
 
-  @spec fetch_decode_validate_origin_with_source_format(
-          Plan.t(),
-          [ImagePlug.Plan.Pipeline.t()],
-          String.t(),
-          keyword()
-        ) ::
+  @spec fetch_decode_validate_origin_with_source_format(Plan.t(), String.t(), keyword()) ::
           {:ok, DecodedOrigin.t()} | {:error, term()}
-  def fetch_decode_validate_origin_with_source_format(%Plan{}, [], _origin_identity, _opts),
-    do: {:error, :empty_pipeline_plan}
-
-  def fetch_decode_validate_origin_with_source_format(
-        %Plan{} = plan,
-        pipelines,
-        origin_identity,
-        opts
-      )
-      when is_list(pipelines) do
-    with {:ok, origin_response, source_format} <-
-           fetch_origin_with_source_format(plan, pipelines, origin_identity, opts),
-         {:ok, %DecodedOrigin{} = decoded} <-
-           decode_validate_origin_response(origin_response, source_format, plan, pipelines, opts) do
-      {:ok, decoded}
+  def fetch_decode_validate_origin_with_source_format(%Plan{} = plan, origin_identity, opts) do
+    with {:ok, origin_response} <- fetch_origin(plan, origin_identity, opts) do
+      decode_validate_origin_response(origin_response, plan, opts)
     end
   end
 
-  @spec fetch_origin_with_source_format(
-          Plan.t(),
-          [ImagePlug.Plan.Pipeline.t()],
-          String.t(),
-          keyword()
-        ) ::
-          {:ok, Origin.Response.t(), :avif | :webp | :jpeg | :png | nil} | {:error, term()}
-  def fetch_origin_with_source_format(%Plan{}, [], _origin_identity, _opts),
-    do: {:error, :empty_pipeline_plan}
-
-  def fetch_origin_with_source_format(%Plan{} = plan, _pipelines, origin_identity, opts) do
-    with {:ok, origin_response} <-
-           fetch_origin(plan, origin_identity, opts) |> wrap_origin_error() do
-      {:ok, origin_response, source_format(origin_response)}
-    end
-  end
-
-  @spec decode_validate_origin_response(
-          Origin.Response.t(),
-          :avif | :webp | :jpeg | :png | nil,
-          Plan.t(),
-          [ImagePlug.Plan.Pipeline.t()],
-          keyword()
-        ) :: {:ok, DecodedOrigin.t()} | {:error, term()}
-  def decode_validate_origin_response(origin_response, source_format, plan, pipelines, opts) do
-    result =
-      do_decode_validate_origin_response(origin_response, source_format, plan, pipelines, opts)
-
-    close_pending_origin_on_error(result, origin_response)
-  end
-
-  defp do_decode_validate_origin_response(_origin_response, _source_format, %Plan{}, [], _opts),
-    do: {:error, :empty_pipeline_plan}
-
-  defp do_decode_validate_origin_response(origin_response, source_format, _plan, pipelines, opts) do
-    decode_options = DecodePlanner.open_options(first_pipeline_operations(pipelines))
+  @spec decode_validate_origin_response(Origin.Response.t(), Plan.t(), keyword()) ::
+          {:ok, DecodedOrigin.t()} | {:error, term()}
+  def decode_validate_origin_response(%Origin.Response{} = origin_response, %Plan{} = plan, opts) do
+    decode_options = DecodePlanner.open_options(first_pipeline_operations(plan))
 
     with {:ok, image} <-
            decode_origin_response(origin_response, decode_options, opts)
-           |> wrap_origin_decode_error(),
+           |> wrap_decode_error(),
          :ok <- validate_input_image(image, opts) |> wrap_input_limit_error() do
+      source_format = source_format(image)
+
       {:ok,
        %DecodedOrigin{
          decode_options: decode_options,
          image: image,
-         origin_response: origin_response,
          source_format: source_format
        }}
     end
   end
 
-  @spec process_decoded_origin(DecodedOrigin.t(), [ImagePlug.Plan.Pipeline.t()], keyword()) ::
+  @spec process_decoded_origin(DecodedOrigin.t(), Plan.t(), keyword()) ::
           {:ok, State.t()} | {:error, term()}
-  def process_decoded_origin(%DecodedOrigin{}, [], _opts), do: {:error, :empty_pipeline_plan}
-
-  def process_decoded_origin(%DecodedOrigin{} = decoded, pipelines, opts)
-      when is_list(pipelines) do
-    result =
-      case execute_pipelines(%State{image: decoded.image}, pipelines, decoded, opts) do
-        {:ok, final_state} ->
-          materialize_before_delivery(
-            final_state,
-            decoded.origin_response,
-            decoded.decode_options,
-            opts
-          )
-
-        {:error, _reason} = error ->
-          error
-      end
-
-    close_pending_origin_on_error(result, decoded.origin_response)
-  end
-
-  def close_pending_origin(%Origin.Response{} = origin_response) do
-    case Origin.stream_status(origin_response) do
-      :pending -> Origin.close(origin_response)
-      _status -> :ok
+  def process_decoded_origin(%DecodedOrigin{} = decoded, %Plan{} = plan, opts) do
+    with {:ok, final_state} <-
+           execute_plan_pipelines(%State{image: decoded.image}, plan, opts) do
+      materialize_before_delivery(final_state, decoded.decode_options, opts)
     end
   end
 
-  defp close_pending_origin_on_error(
-         {:error, _reason} = error,
-         %Origin.Response{} = origin_response
+  defp execute_plan_pipelines(
+         %State{} = state,
+         %Plan{pipelines: pipelines} = plan,
+         opts
        ) do
-    close_pending_origin(origin_response)
-    error
-  end
-
-  defp close_pending_origin_on_error(result, %Origin.Response{}), do: result
-
-  defp execute_pipelines(%State{} = state, pipelines, %DecodedOrigin{} = decoded, opts) do
     last_index = length(pipelines) - 1
 
     pipelines
     |> Enum.with_index()
-    |> Enum.reduce_while({:ok, state}, &execute_pipeline_step(&1, &2, last_index, decoded, opts))
+    |> Enum.reduce_while(
+      {:ok, state},
+      &execute_plan_pipeline_step(&1, &2, last_index, plan, opts)
+    )
   end
 
-  defp execute_pipeline_step(
-         {%ImagePlug.Plan.Pipeline{operations: operations}, index},
+  defp execute_plan_pipeline_step(
+         {pipeline, index},
          {:ok, %State{} = state},
          last_index,
-         %DecodedOrigin{} = decoded,
+         %Plan{} = plan,
          opts
        ) do
-    with {:ok, %State{} = state} <- Chain.execute(state, operations),
+    with {:ok, %State{} = state} <-
+           Transform.execute_plan(
+             %Plan{plan | pipelines: [pipeline]},
+             state,
+             opts
+           ),
          {:ok, %State{} = state} <-
-           maybe_materialize_between_pipelines(state, index, last_index, decoded, opts) do
+           maybe_materialize_between_pipelines(state, index, last_index, opts) do
       {:cont, {:ok, state}}
     else
       {:error, _reason} = error -> {:halt, error}
     end
   end
 
-  @doc false
-  @spec first_pipeline_operations([ImagePlug.Plan.Pipeline.t()]) :: Chain.t()
-  def first_pipeline_operations([%ImagePlug.Plan.Pipeline{operations: operations} | _rest]),
-    do: operations
+  defp first_pipeline_operations(%Plan{
+         pipelines: [%ImagePlug.Plan.Pipeline{operations: operations} | _rest]
+       }),
+       do: operations
 
-  def first_pipeline_operations([]), do: []
-
-  defp maybe_materialize_between_pipelines(
-         %State{} = state,
-         index,
-         last_index,
-         %DecodedOrigin{} = decoded,
-         opts
-       )
+  defp maybe_materialize_between_pipelines(%State{} = state, index, last_index, opts)
        when index < last_index do
-    materialize_between_pipelines(state, decoded.origin_response, opts)
+    materialize_between_pipelines(state, opts)
   end
 
-  defp maybe_materialize_between_pipelines(
-         %State{} = state,
-         _index,
-         _last_index,
-         %DecodedOrigin{},
-         _opts
-       ),
-       do: {:ok, state}
+  defp maybe_materialize_between_pipelines(%State{} = state, _index, _last_index, _opts),
+    do: {:ok, state}
 
   defp decode_origin_response(%Origin.Response{} = origin_response, decode_options, opts) do
     image_open_module = Keyword.get(opts, :image_open_module, Image)
 
-    case image_open_module.open(origin_response.stream, decode_options) do
-      {:ok, image} ->
-        case Origin.stream_status(origin_response) do
-          {:error, reason} -> {:error, {:origin, reason}}
-          :done -> {:ok, image}
-          :pending -> {:ok, image}
-        end
-
-      {:error, decode_error} ->
-        case Origin.stream_status(origin_response) do
-          {:error, reason} -> {:error, {:origin, reason}}
-          :done -> {:error, decode_error}
-          :pending -> close_pending_origin_with_decode_error(origin_response, decode_error)
-        end
-    end
+    image_open_module.open(origin_response.stream, decode_options)
   end
 
-  defp materialize_before_delivery(
-         %State{} = state,
-         %Origin.Response{} = origin_response,
-         decode_options,
-         opts
-       ) do
+  defp materialize_before_delivery(%State{} = state, decode_options, opts) do
     case Keyword.fetch!(decode_options, :access) do
-      :sequential -> materialize_sequential_before_delivery(state, origin_response, opts)
+      :sequential -> materialize_state(state, opts) |> handle_materialization_result()
       :random -> {:ok, state}
     end
   end
 
-  defp materialize_sequential_before_delivery(
-         %State{} = state,
-         %Origin.Response{} = origin_response,
-         opts
-       ) do
+  defp materialize_between_pipelines(%State{} = state, opts) do
     materialize_state(state, opts)
-    |> handle_materialization_result(origin_response)
-  end
-
-  defp materialize_between_pipelines(
-         %State{} = state,
-         %Origin.Response{} = origin_response,
-         opts
-       ) do
-    materialize_state(state, opts)
-    |> handle_materialization_result(origin_response)
+    |> handle_materialization_result()
   end
 
   defp materialize_state(%State{} = state, opts) do
@@ -247,70 +133,17 @@ defmodule ImagePlug.Runtime.Processor do
         Keyword.get(opts, :image_materializer_module, Materializer)
       )
 
-    materialize_with(materializer, state, opts)
-  end
-
-  defp materialize_with(materializer, %State{} = state, opts) when is_atom(materializer) do
     materializer.materialize(state, opts)
-    |> normalize_state_materializer_result(materializer)
   end
 
-  defp materialize_with(materializer, %State{}, _opts),
-    do: {:error, {:config, {:invalid_image_materializer, materializer}}}
+  defp handle_materialization_result({:error, {:config, _reason} = error}), do: {:error, error}
 
-  defp normalize_state_materializer_result(
-         {:ok, %State{image: %Vix.Vips.Image{}} = state},
-         _materializer
-       ),
-       do: {:ok, state}
+  defp handle_materialization_result({:error, materialize_error}),
+    do: {:error, {:decode, materialize_error}}
 
-  defp normalize_state_materializer_result({:ok, invalid_state}, materializer),
-    do: invalid_materializer_result(materializer, {:ok, invalid_state})
+  defp handle_materialization_result({:ok, %State{} = state}), do: {:ok, state}
 
-  defp normalize_state_materializer_result({:error, _reason} = error, _materializer), do: error
-
-  defp normalize_state_materializer_result(unexpected, materializer),
-    do: invalid_materializer_result(materializer, unexpected)
-
-  defp invalid_materializer_result(materializer, result),
-    do: {:error, {:config, {:invalid_image_materializer_result, materializer, result}}}
-
-  defp handle_materialization_result(
-         {:error, {:config, _reason} = error},
-         %Origin.Response{}
-       ),
-       do: {:error, error}
-
-  defp handle_materialization_result(
-         {:ok, %State{} = state},
-         %Origin.Response{} = origin_response
-       ) do
-    case Origin.require_stream_status(origin_response) do
-      :done -> {:ok, state}
-      {:error, reason} -> {:error, {:origin, reason}}
-    end
-  end
-
-  defp handle_materialization_result(
-         {:error, materialize_error},
-         %Origin.Response{} = origin_response
-       ) do
-    case Origin.stream_status(origin_response) do
-      {:error, reason} -> {:error, {:origin, reason}}
-      :done -> {:error, {:decode, materialize_error}}
-      :pending -> close_pending_origin_with_decode_error(origin_response, materialize_error)
-    end
-  end
-
-  defp close_pending_origin_with_decode_error(
-         %Origin.Response{} = origin_response,
-         materialize_error
-       ) do
-    close_pending_origin(origin_response)
-    {:error, {:decode, materialize_error}}
-  end
-
-  defp fetch_origin(%Plan{source: %Plain{}}, origin_identity, opts) do
+  defp fetch_origin(%Plan{source: {:plain, _path}}, origin_identity, opts) do
     Origin.fetch(origin_identity, origin_req_options(opts))
   end
 
@@ -327,15 +160,8 @@ defmodule ImagePlug.Runtime.Processor do
 
   defp put_origin_req_option(req_options, _key, :error), do: req_options
 
-  defp wrap_origin_error({:error, error}), do: {:error, {:origin, error}}
-  defp wrap_origin_error(result), do: result
-
   defp wrap_decode_error({:error, error}), do: {:error, {:decode, error}}
   defp wrap_decode_error(result), do: result
-
-  defp wrap_origin_decode_error({:error, {:origin, error}}), do: {:error, {:origin, error}}
-  defp wrap_origin_decode_error({:error, {:decode, error}}), do: {:error, {:decode, error}}
-  defp wrap_origin_decode_error(result), do: wrap_decode_error(result)
 
   defp validate_input_image(image, opts) do
     max_input_pixels = Keyword.get(opts, :max_input_pixels, 40_000_000)
@@ -351,10 +177,16 @@ defmodule ImagePlug.Runtime.Processor do
   defp wrap_input_limit_error(:ok), do: :ok
   defp wrap_input_limit_error({:error, error}), do: {:error, {:input_limit, error}}
 
-  defp source_format(%Origin.Response{content_type: content_type}) do
-    case Format.format(content_type) do
-      {:ok, format} -> format
-      {:error, {:unsupported_output_format, _mime_type}} -> nil
+  defp source_format(image) do
+    case VipsImage.header_value(image, "vips-loader") do
+      {:ok, loader} when is_binary(loader) -> loader_format(loader)
+      {:error, _reason} -> nil
     end
   end
+
+  defp loader_format("jpegload" <> _suffix), do: :jpeg
+  defp loader_format("pngload" <> _suffix), do: :png
+  defp loader_format("webpload" <> _suffix), do: :webp
+  defp loader_format("heifload" <> _suffix), do: :avif
+  defp loader_format(_loader), do: nil
 end

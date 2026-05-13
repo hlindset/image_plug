@@ -2,48 +2,33 @@ defmodule ImagePlug.PlanTest do
   use ExUnit.Case, async: true
 
   alias ImagePlug.Plan
-  alias ImagePlug.Plan.Cache
+  alias ImagePlug.Plan.Operation
   alias ImagePlug.Plan.Output
   alias ImagePlug.Plan.Pipeline
-  alias ImagePlug.Plan.Policy
   alias ImagePlug.Plan.Response
-  alias ImagePlug.Plan.Response.Filename
-  alias ImagePlug.Plan.Source.Plain
-  alias ImagePlug.PlanTest.PartialTransform
-  alias ImagePlug.PlanTest.RuntimeOnlyTransform
-  alias ImagePlug.Transform
+  alias ImagePlug.Transform.Operation.AutoOrient
+  alias ImagePlug.Transform.Operation.Flip
+  alias ImagePlug.Transform.Operation.Rotate
 
   test "represents source, image pipelines, and output separately" do
-    operations = [
-      %Transform.Operation.Contain{
-        type: :dimensions,
-        width: {:pixels, 300},
-        height: :auto,
-        constraint: :max,
-        letterbox: false
-      }
-    ]
+    operations = [resize_operation()]
 
     plan = %Plan{
-      source: %Plain{path: ["images", "cat.jpg"]},
+      source: {:plain, ["images", "cat.jpg"]},
       pipelines: [%Pipeline{operations: operations}],
       output: %Output{mode: {:explicit, :webp}}
     }
 
-    assert plan.source.path == ["images", "cat.jpg"]
+    assert plan.source == {:plain, ["images", "cat.jpg"]}
     assert [%Pipeline{operations: ^operations}] = plan.pipelines
     assert plan.output.mode == {:explicit, :webp}
   end
 
-  test "validated pipelines accept transform operation structs" do
-    operation = %Transform.Operation.Scale{
-      type: :dimensions,
-      width: {:pixels, 300},
-      height: :auto
-    }
+  test "validated pipelines accept semantic operation structs" do
+    operation = resize_operation()
 
     plan = %Plan{
-      source: %Plain{path: ["images", "cat.jpg"]},
+      source: {:plain, ["images", "cat.jpg"]},
       pipelines: [%Pipeline{operations: [operation]}],
       output: %Output{mode: {:explicit, :webp}}
     }
@@ -51,32 +36,45 @@ defmodule ImagePlug.PlanTest do
     assert {:ok, [%Pipeline{operations: [^operation]}]} = Plan.validated_pipelines(plan)
   end
 
-  test "validated pipelines reject malformed transform operation structs" do
-    operation = %Transform.Operation.Scale{
-      type: :dimensions,
-      width: :auto,
+  test "validated pipelines accept explicit orientation primitive allowlist" do
+    operations = [%AutoOrient{}, %Rotate{angle: 90}, %Flip{axis: :horizontal}]
+
+    plan =
+      plan(pipelines: [%Pipeline{operations: operations}])
+
+    assert {:ok, [%Pipeline{operations: ^operations}]} = Plan.validated_pipelines(plan)
+  end
+
+  test "validated pipelines reject parser-local command structs" do
+    operation = %ImagePlug.Parser.Imgproxy.PipelineRequest{}
+
+    assert Plan.validated_pipelines(plan(pipelines: [%Pipeline{operations: [operation]}])) ==
+             {:error, {:invalid_pipeline_operation, operation}}
+  end
+
+  test "validated pipelines reject non-orientation executable transform structs" do
+    operation = %ImagePlug.Transform.Operation.Resize{
+      mode: :fit,
+      width: {:pixels, 100},
       height: :auto
     }
 
-    plan = %Plan{
-      source: %Plain{path: ["images", "cat.jpg"]},
-      pipelines: [%Pipeline{operations: [operation]}],
-      output: %Output{mode: {:explicit, :webp}}
-    }
-
-    assert {:error, {:invalid_pipeline_operation, ^operation}} = Plan.validated_pipelines(plan)
+    assert Plan.validated_pipelines(plan(pipelines: [%Pipeline{operations: [operation]}])) ==
+             {:error, {:invalid_pipeline_operation, operation}}
   end
 
-  test "validated pipelines accept runtime-only operation structs" do
-    operation = %RuntimeOnlyTransform{}
-
-    plan = %Plan{
-      source: %Plain{path: ["images", "cat.jpg"]},
-      pipelines: [%Pipeline{operations: [operation]}],
-      output: %Output{mode: {:explicit, :webp}}
+  test "validated pipelines reject malformed semantic operation structs" do
+    operation = %Operation.Resize{
+      mode: :bogus,
+      width: nil,
+      height: nil,
+      dpr: {:ratio, 1, 1},
+      enlargement: :deny,
+      guide: :center
     }
 
-    assert {:ok, [%Pipeline{operations: [^operation]}]} = Plan.validated_pipelines(plan)
+    assert Plan.validated_pipelines(plan(pipelines: [%Pipeline{operations: [operation]}])) ==
+             {:error, {:invalid_pipeline_operation, operation}}
   end
 
   test "validate shape accepts default product-neutral facets" do
@@ -86,27 +84,23 @@ defmodule ImagePlug.PlanTest do
   end
 
   test "validate shape rejects improper plain source path without raising" do
-    source = %Plain{path: ["images" | :bad]}
+    source = {:plain, ["images" | :bad]}
 
     assert Plan.validate_shape(plan(source: source)) ==
              {:error, {:unsupported_source, source}}
   end
 
-  test "validate shape rejects invalid policy expires values" do
+  test "validate shape rejects invalid expires values" do
     for expires <- [-1, 1.5, "60", nil] do
-      policy = %Policy{expires: expires}
-
-      assert Plan.validate_shape(plan(policy: policy)) ==
-               {:error, {:invalid_policy_plan, policy}}
+      assert Plan.validate_shape(plan(expires: expires)) ==
+               {:error, {:invalid_expires, expires}}
     end
   end
 
-  test "validate shape rejects invalid cache cachebuster values" do
+  test "validate shape rejects invalid cachebuster values" do
     for cachebuster <- [:v1, 1, []] do
-      cache = %Cache{cachebuster: cachebuster}
-
-      assert Plan.validate_shape(plan(cache: cache)) ==
-               {:error, {:invalid_cache_plan, cache}}
+      assert Plan.validate_shape(plan(cachebuster: cachebuster)) ==
+               {:error, {:invalid_cachebuster, cachebuster}}
     end
   end
 
@@ -128,13 +122,14 @@ defmodule ImagePlug.PlanTest do
     end
   end
 
-  test "validate shape rejects malformed response filename structs" do
+  test "validate shape rejects malformed response filename strings" do
     for filename <- [
-          %Filename{stem: nil},
-          %Filename{stem: 1},
-          %Filename{stem: "a/b"},
-          %Filename{stem: "a\\b"},
-          %Filename{stem: "a\nb"}
+          "",
+          <<255>>,
+          1,
+          "a/b",
+          "a\\b",
+          "a\nb"
         ] do
       response = %Response{filename: filename}
 
@@ -148,7 +143,7 @@ defmodule ImagePlug.PlanTest do
       Plan,
       Keyword.merge(
         [
-          source: %Plain{path: ["images", "cat.jpg"]},
+          source: {:plain, ["images", "cat.jpg"]},
           pipelines: [%Pipeline{operations: []}],
           output: %Output{mode: :automatic}
         ],
@@ -157,16 +152,8 @@ defmodule ImagePlug.PlanTest do
     )
   end
 
-  test "ensure_operation returns tagged results without raising" do
-    valid_operation = %RuntimeOnlyTransform{}
-    invalid_operation = %PartialTransform{}
-
-    assert Transform.ensure_operation(valid_operation) == {:ok, valid_operation}
-
-    assert {:error, {:invalid_operation, ^invalid_operation, PartialTransform}} =
-             Transform.ensure_operation(invalid_operation)
-
-    assert {:error, {:invalid_operation, :bogus, :not_a_struct}} =
-             Transform.ensure_operation(:bogus)
+  defp resize_operation do
+    assert {:ok, operation} = Operation.resize(:fit, {:px, 300}, :auto, enlargement: :deny)
+    operation
   end
 end

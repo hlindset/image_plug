@@ -2,53 +2,20 @@ defmodule ImagePlug.Transform.State do
   @moduledoc """
   Execution state carried through a transform chain.
 
-  State holds the current image, focus selection, accumulated transform errors,
-  and debug flag used by product-neutral operations. Operations return an
-  updated state instead of mutating images in place, allowing chain execution to
-  stop cleanly when an error is recorded.
+  State holds the current image and debug flag used by product-neutral
+  operations. Operations return an updated state instead of mutating images in
+  place.
   """
 
-  @default_focus {:anchor, :center, :center}
-
   defstruct image: nil,
-            focus: @default_focus,
-            errors: [],
             debug: false
-
-  @type focus_anchor() ::
-          {:anchor, :center, :center}
-          | {:anchor, :center, :bottom}
-          | {:anchor, :left, :bottom}
-          | {:anchor, :right, :bottom}
-          | {:anchor, :left, :center}
-          | {:anchor, :center, :top}
-          | {:anchor, :left, :top}
-          | {:anchor, :right, :top}
-          | {:anchor, :right, :center}
 
   @type t :: %__MODULE__{
           image: Vix.Vips.Image.t() | nil,
-          focus: {:coordinate, integer(), integer()} | focus_anchor(),
-          errors: [term()],
           debug: boolean()
         }
 
-  defp default_focus, do: @default_focus
-
-  def set_focus(%__MODULE__{} = state, focus) do
-    %__MODULE__{state | focus: focus}
-  end
-
-  def reset_focus(%__MODULE__{} = state) do
-    set_focus(state, default_focus())
-  end
-
   def set_image(%__MODULE__{} = state, %Vix.Vips.Image{} = image) do
     %__MODULE__{state | image: image}
-  end
-
-  @spec add_error(t(), term()) :: t()
-  def add_error(%__MODULE__{} = state, error) do
-    %__MODULE__{state | errors: [error | state.errors]}
   end
 end

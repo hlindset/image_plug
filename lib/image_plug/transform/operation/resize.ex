@@ -1,83 +1,15 @@
 defmodule ImagePlug.Transform.Operation.Resize do
   @moduledoc """
-  Represents a product-neutral resize operation whose dimension mode is known
+  Represents an executable resize operation whose dimension mode is known
   before execution.
 
-  ## Construct When
+  Transform Plan execution may convert semantic Plan operations to this
+  executable operation after a cache miss. Parser modules should construct
+  `ImagePlug.Plan.Operation.*` through Plan constructors.
 
-  Construct this operation when parser or planner code has already selected a
-  concrete resize mode and can express the requested geometry as an
-  `ImagePlug.Transform.Geometry.DimensionRule`. Use `Resize` for fixed
-  `:fit`, `:fill`, `:fill_down`, and `:force` requests. Use
-  `ImagePlug.Transform.Operation.AdaptiveResize` when the mode must be chosen at runtime
-  from source image metadata.
-
-  A parser may translate a Native URL such as
-  `/_/rt:force/w:0/h:200/plain/image.jpg` into a `Resize` with `mode: :force`,
-  `width: :auto`, and `height: {:pixels, 200}`. The URL syntax is parser
-  specific; the operation itself is product-neutral.
-
-  ## Fields
-
-  `rule` is required and must be an
-  `ImagePlug.Transform.Geometry.DimensionRule` with one of these modes:
-
-  - `:fit` scales the image proportionally so it fits inside the requested box.
-  - `:fill` scales the image proportionally to cover the requested box; any
-    visible crop is represented by a separate crop operation.
-  - `:fill_down` behaves like fill but does not enlarge raster sources beyond
-    their source dimensions.
-  - `:force` resizes each requested side independently and may change aspect
-    ratio.
-
-  Rule `width` and `height` may be `:auto` or non-negative pixel dimensions.
-  `{:pixels, 0}` is normalized by dimension resolution as `:auto`. For
-  `:force`, an auto side preserves the corresponding source dimension, so a
-  zero-width force resize with a requested height keeps the source width and
-  forces the height. For proportional modes, an auto side is resolved from the
-  source aspect ratio.
-
-  Rule `min_width` and `min_height` may be `nil`, `:auto`, or non-negative
-  pixel dimensions. `zoom_x`, `zoom_y`, and `dpr` must be positive numbers.
-  `enlarge` must be a boolean.
-
-  ## Execution Semantics
-
-  `execute/2` resolves the rule against the current
-  `ImagePlug.Transform.State` image dimensions, resizes the image to the
-  resolved intermediate width and height, stores the resized image in state,
-  and resets focus metadata. If the resolved intermediate dimensions equal the
-  current image dimensions, the existing image is kept. Resolver or image
-  resize failures are added to state as `{ImagePlug.Transform.Operation.Resize, error}`.
-
-  `Resize` does not perform result cropping. Planners that need cover-style
-  output should emit a separate crop operation after a fill-like resize when
-  that matches the requested semantics.
-
-  ## Decode Planning Metadata
-
-  `metadata/1` returns `%{access: :sequential}` only for `:fit` and `:force`
-  rules with no minimum dimensions and at least one requested positive
-  dimension. Requested dimensions exclude `:auto` and non-positive pixel
-  dimensions.
-
-  All `:fill` and `:fill_down` requests, rules with minimum dimensions, and
-  rules without requested geometry return `%{access: :random}` because their
-  final geometry depends on source metadata or later crop behavior.
-
-  ## Examples
-
-      alias ImagePlug.Transform.Geometry.DimensionRule
-      alias ImagePlug.Transform.Operation.Resize
-
-      resize = %Resize{
-        rule: %DimensionRule{
-          mode: :fit,
-          width: {:pixels, 300},
-          height: :auto,
-          enlarge: false
-        }
-      }
+  `Resize` does not perform result cropping. Transform Plan execution for
+  cover-style output should include a separate crop operation after a fill-like
+  resize when that matches the requested semantics.
   """
 
   @behaviour ImagePlug.Transform
@@ -85,34 +17,53 @@ defmodule ImagePlug.Transform.Operation.Resize do
   import ImagePlug.Transform.State
   import ImagePlug.Transform.Geometry
 
-  alias ImagePlug.Transform.Geometry.DimensionResolver
-  alias ImagePlug.Transform.Geometry.DimensionRule
   alias ImagePlug.Transform.State
-  alias ImagePlug.Transform.Validation
 
-  defstruct [:rule]
+  @type dimension() :: :auto | ImagePlug.imgp_pixels()
+  @type mode() :: :fit | :fill | :fill_down | :force
 
-  @type t :: %__MODULE__{rule: DimensionRule.t()}
+  @type t :: %__MODULE__{
+          mode: mode(),
+          width: dimension(),
+          height: dimension(),
+          min_width: ImagePlug.imgp_pixels() | nil,
+          min_height: ImagePlug.imgp_pixels() | nil,
+          zoom_x: float(),
+          zoom_y: float(),
+          dpr: float(),
+          enlarge: boolean()
+        }
+
+  @type resolved_dimensions() :: %{
+          requested_width: pos_integer() | :auto,
+          requested_height: pos_integer() | :auto,
+          target_width: pos_integer() | :auto,
+          target_height: pos_integer() | :auto,
+          intermediate_width: pos_integer(),
+          intermediate_height: pos_integer(),
+          effective_dpr: float()
+        }
+
+  defstruct mode: :fit,
+            width: :auto,
+            height: :auto,
+            min_width: nil,
+            min_height: nil,
+            zoom_x: 1.0,
+            zoom_y: 1.0,
+            dpr: 1.0,
+            enlarge: false
 
   @impl ImagePlug.Transform
   def name(%__MODULE__{}), do: :resize
 
   @impl ImagePlug.Transform
-  def validate(%__MODULE__{rule: %DimensionRule{} = rule}) do
-    Validation.dimension_rule("resize", :rule, rule, [:fit, :fill, :fill_down, :force])
-  end
-
-  def validate(%__MODULE__{rule: rule}), do: Validation.invalid("resize", :rule, rule)
-
-  @impl ImagePlug.Transform
   def metadata(%__MODULE__{
-        rule: %DimensionRule{
-          mode: mode,
-          width: width,
-          height: height,
-          min_width: nil,
-          min_height: nil
-        }
+        mode: mode,
+        width: width,
+        height: height,
+        min_width: nil,
+        min_height: nil
       })
       when mode in [:fit, :force] do
     if requested_dimension?(width) or requested_dimension?(height) do
@@ -125,19 +76,50 @@ defmodule ImagePlug.Transform.Operation.Resize do
   def metadata(%__MODULE__{}), do: %{access: :random}
 
   @impl ImagePlug.Transform
-  def execute(%__MODULE__{rule: %DimensionRule{} = rule}, %State{} = state) do
-    opts = [
-      source_width: image_width(state),
-      source_height: image_height(state)
-    ]
+  def execute(%__MODULE__{} = operation, %State{} = state) do
+    dimensions =
+      resolve_dimensions(operation,
+        source_width: image_width(state),
+        source_height: image_height(state)
+      )
 
-    with {:ok, dimensions} <- DimensionResolver.resolve(rule, opts),
-         {:ok, image} <-
-           resize_image(state, dimensions.intermediate_width, dimensions.intermediate_height) do
-      state |> set_image(image) |> reset_focus()
-    else
-      {:error, _reason} = error -> add_error(state, {__MODULE__, error})
+    case resize_image(state, dimensions.intermediate_width, dimensions.intermediate_height) do
+      {:ok, image} -> {:ok, set_image(state, image)}
+      {:error, reason} -> {:error, {__MODULE__, reason}}
     end
+  end
+
+  @doc false
+  @spec resolve_dimensions(t(), keyword()) :: resolved_dimensions()
+  def resolve_dimensions(%__MODULE__{} = operation, opts) when is_list(opts) do
+    source = source_dimensions(opts)
+    operation = normalize(operation)
+    base = resolve_base_dimensions(operation, source)
+    effective_dpr = effective_dpr(operation, base, source, opts)
+    requested = apply_dpr(base, effective_dpr)
+    min_dimensions = resolve_min_dimensions(operation, source, effective_dpr)
+
+    target =
+      target_dimensions(operation.mode, requested, min_dimensions, source, operation.enlarge)
+
+    intermediate =
+      intermediate_dimensions(
+        operation.mode,
+        requested,
+        min_dimensions,
+        source,
+        operation.enlarge
+      )
+
+    %{
+      requested_width: requested.width,
+      requested_height: requested.height,
+      target_width: target.width,
+      target_height: target.height,
+      intermediate_width: intermediate.width,
+      intermediate_height: intermediate.height,
+      effective_dpr: effective_dpr
+    }
   end
 
   defp resize_image(%State{} = state, width, height) do
@@ -145,9 +127,6 @@ defmodule ImagePlug.Transform.Operation.Resize do
     source_height = image_height(state)
 
     cond do
-      source_width <= 0 or source_height <= 0 ->
-        {:error, {:invalid_source_dimensions, source_width, source_height}}
-
       width == source_width and height == source_height ->
         {:ok, state.image}
 
@@ -157,6 +136,238 @@ defmodule ImagePlug.Transform.Operation.Resize do
 
         Image.resize(state.image, width_scale, vertical_scale: height_scale)
     end
+  end
+
+  defp source_dimensions(opts) do
+    %{
+      width: positive_round(Keyword.fetch!(opts, :source_width)),
+      height: positive_round(Keyword.fetch!(opts, :source_height))
+    }
+  end
+
+  defp normalize(%__MODULE__{} = operation) do
+    %__MODULE__{
+      operation
+      | width: normalize_bound_dimension(operation.width),
+        height: normalize_bound_dimension(operation.height),
+        min_width: normalize_min_dimension(operation.min_width),
+        min_height: normalize_min_dimension(operation.min_height),
+        zoom_x: normalize_factor(operation.zoom_x, 1.0),
+        zoom_y: normalize_factor(operation.zoom_y, 1.0),
+        dpr: normalize_factor(operation.dpr, 1.0)
+    }
+  end
+
+  defp normalize_bound_dimension(nil), do: :auto
+  defp normalize_bound_dimension(:auto), do: :auto
+  defp normalize_bound_dimension({:pixels, 0}), do: :auto
+  defp normalize_bound_dimension({:pixels, value}), do: positive_round(value)
+
+  defp normalize_min_dimension(nil), do: nil
+  defp normalize_min_dimension(:auto), do: nil
+  defp normalize_min_dimension({:pixels, 0}), do: nil
+  defp normalize_min_dimension({:pixels, value}), do: positive_round(value)
+
+  defp normalize_factor(nil, default), do: default
+  defp normalize_factor(value, _default), do: value * 1.0
+
+  defp resolve_base_dimensions(%__MODULE__{width: :auto, height: :auto} = operation, source) do
+    if factor_requested?(operation) do
+      source
+      |> apply_zoom(operation)
+    else
+      %{width: :auto, height: :auto}
+    end
+  end
+
+  defp resolve_base_dimensions(%__MODULE__{mode: :fit} = operation, source) do
+    operation
+    |> requested_box(source)
+    |> fit_inside(source)
+    |> apply_zoom(operation)
+  end
+
+  defp resolve_base_dimensions(%__MODULE__{mode: mode} = operation, source)
+       when mode in [:fill, :fill_down, :force] do
+    operation
+    |> requested_box(source)
+    |> apply_zoom(operation)
+  end
+
+  defp requested_box(%__MODULE__{mode: :force, width: :auto, height: height}, source) do
+    %{width: source.width, height: height}
+  end
+
+  defp requested_box(%__MODULE__{mode: :force, width: width, height: :auto}, source) do
+    %{width: width, height: source.height}
+  end
+
+  defp requested_box(%__MODULE__{width: :auto, height: height}, source) do
+    %{width: positive_round(height * source.width / source.height), height: height}
+  end
+
+  defp requested_box(%__MODULE__{width: width, height: :auto}, source) do
+    %{width: width, height: positive_round(width * source.height / source.width)}
+  end
+
+  defp requested_box(%__MODULE__{width: width, height: height}, _source) do
+    %{width: width, height: height}
+  end
+
+  defp fit_inside(%{width: width, height: height}, source) do
+    source_ratio = source.width / source.height
+    target_ratio = width / height
+
+    if source_ratio > target_ratio do
+      %{width: width, height: positive_round(width / source_ratio)}
+    else
+      %{width: positive_round(height * source_ratio), height: height}
+    end
+  end
+
+  defp apply_zoom(%{width: width, height: height}, %__MODULE__{zoom_x: zoom_x, zoom_y: zoom_y}) do
+    %{width: positive_round(width * zoom_x), height: positive_round(height * zoom_y)}
+  end
+
+  defp effective_dpr(%__MODULE__{enlarge: true, dpr: dpr}, _base, _source, _opts), do: dpr
+  defp effective_dpr(%__MODULE__{dpr: 1.0}, _base, _source, _opts), do: 1.0
+
+  defp effective_dpr(%__MODULE__{dpr: dpr}, %{width: :auto, height: :auto}, _source, _opts),
+    do: dpr
+
+  defp effective_dpr(%__MODULE__{dpr: dpr}, base, source, _opts) do
+    max_dpr = min(source.width / base.width, source.height / base.height)
+    min(dpr, max_dpr)
+  end
+
+  defp apply_dpr(%{width: :auto, height: :auto}, _effective_dpr),
+    do: %{width: :auto, height: :auto}
+
+  defp apply_dpr(%{width: width, height: height}, effective_dpr) do
+    %{
+      width: positive_round(width * effective_dpr),
+      height: positive_round(height * effective_dpr)
+    }
+  end
+
+  defp resolve_min_dimensions(
+         %__MODULE__{min_width: nil, min_height: nil},
+         _source,
+         _effective_dpr
+       ),
+       do: nil
+
+  defp resolve_min_dimensions(%__MODULE__{} = operation, source, effective_dpr) do
+    width = scaled_min(operation.min_width, effective_dpr)
+    height = scaled_min(operation.min_height, effective_dpr)
+
+    requested_box(%__MODULE__{operation | width: width || :auto, height: height || :auto}, source)
+  end
+
+  defp scaled_min(nil, _effective_dpr), do: nil
+  defp scaled_min(value, effective_dpr), do: positive_round(value * effective_dpr)
+
+  defp factor_requested?(%__MODULE__{} = operation) do
+    operation.zoom_x != 1.0 or operation.zoom_y != 1.0 or operation.dpr != 1.0
+  end
+
+  defp target_dimensions(_mode, %{width: :auto, height: :auto}, nil, _source, _enlarge),
+    do: %{width: :auto, height: :auto}
+
+  defp target_dimensions(_mode, %{width: :auto, height: :auto}, min_dimensions, source, _enlarge) do
+    target_box_dimensions(source, min_dimensions)
+  end
+
+  defp target_dimensions(:fill_down, requested, min_dimensions, source, _enlarge) do
+    requested
+    |> clamp_to_source(source, false)
+    |> target_box_dimensions(min_dimensions)
+  end
+
+  defp target_dimensions(_mode, requested, min_dimensions, source, enlarge) do
+    requested
+    |> clamp_to_source(source, enlarge)
+    |> target_box_dimensions(min_dimensions)
+  end
+
+  defp intermediate_dimensions(_mode, %{width: :auto, height: :auto}, nil, source, _enlarge),
+    do: source
+
+  defp intermediate_dimensions(
+         _mode,
+         %{width: :auto, height: :auto},
+         min_dimensions,
+         source,
+         _enlarge
+       ) do
+    target_box_dimensions(source, min_dimensions)
+  end
+
+  defp intermediate_dimensions(:fill, requested, min_dimensions, source, enlarge) do
+    requested
+    |> clamp_to_source(source, enlarge)
+    |> target_box_dimensions(min_dimensions)
+    |> cover_resize_dimensions(source)
+  end
+
+  defp intermediate_dimensions(:fill_down, requested, min_dimensions, source, _enlarge) do
+    requested
+    |> clamp_to_source(source, false)
+    |> target_box_dimensions(min_dimensions)
+    |> cover_resize_dimensions(source)
+  end
+
+  defp intermediate_dimensions(_mode, requested, nil, source, enlarge) do
+    clamp_to_source(requested, source, enlarge)
+  end
+
+  defp intermediate_dimensions(_mode, requested, min_dimensions, source, enlarge) do
+    requested
+    |> clamp_to_source(source, enlarge)
+    |> target_box_dimensions(min_dimensions)
+  end
+
+  defp target_box_dimensions(requested, nil), do: requested
+
+  defp target_box_dimensions(requested, min_dimensions) do
+    width_scale = min_dimensions.width / requested.width
+    height_scale = min_dimensions.height / requested.height
+    scale = max(1.0, max(width_scale, height_scale))
+
+    scale_dimensions(requested, scale)
+  end
+
+  defp cover_resize_dimensions(%{width: width, height: height}, source) do
+    source_ratio = source.width / source.height
+    target_ratio = width / height
+
+    if source_ratio > target_ratio do
+      %{width: positive_round(height * source_ratio), height: height}
+    else
+      %{width: width, height: positive_round(width / source_ratio)}
+    end
+  end
+
+  defp scale_dimensions(%{width: width, height: height}, scale) do
+    %{width: positive_round(width * scale), height: positive_round(height * scale)}
+  end
+
+  defp clamp_to_source(dimensions, _source, true), do: dimensions
+
+  defp clamp_to_source(%{width: width, height: height} = dimensions, source, false) do
+    scale = min(1.0, min(source.width / width, source.height / height))
+
+    if scale < 1.0 do
+      scale_dimensions(dimensions, scale)
+    else
+      dimensions
+    end
+  end
+
+  defp positive_round(value) when is_number(value) do
+    value
+    |> round()
+    |> max(1)
   end
 
   defp requested_dimension?(:auto), do: false

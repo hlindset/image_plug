@@ -29,6 +29,6 @@ defmodule ImagePlug.SimpleServer do
     to: ImagePlug,
     init_opts: [
       root_url: "http://localhost:4000",
-      parser: ImagePlug.Parser.Native
+      parser: ImagePlug.Parser.Imgproxy
     ]
 end
