@@ -8,7 +8,6 @@ defmodule ImagePlug.Parser.ImgproxyPropertyTest do
   alias ImagePlug.Plan
   alias ImagePlug.Plan.Operation
   alias ImagePlug.Plan.Pipeline
-  alias ImagePlug.Plan.Source.Plain
 
   property "parser returns tagged results for arbitrary processing segments" do
     check all segments <- list_of(processing_segment(), max_length: 5),
@@ -23,7 +22,7 @@ defmodule ImagePlug.Parser.ImgproxyPropertyTest do
   property "segments after plain are preserved as source path" do
     check all source_path <- valid_source_path_with_option_like_segments(),
               max_runs: 100 do
-      assert {:ok, %Plan{source: %Plain{path: ^source_path}}} =
+      assert {:ok, %Plan{source: {:plain, ^source_path}}} =
                ["w:300"]
                |> imgproxy_path(source_path)
                |> parse_path()

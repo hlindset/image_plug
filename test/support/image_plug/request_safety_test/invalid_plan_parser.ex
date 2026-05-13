@@ -7,7 +7,7 @@ defmodule ImagePlug.RequestSafetyTest.InvalidPlanParser do
   def parse(_conn, _opts) do
     {:ok,
      %ImagePlug.Plan{
-       source: %ImagePlug.Plan.Source.Plain{path: ["images", "cat.jpg"]},
+       source: {:plain, ["images", "cat.jpg"]},
        pipelines: [%ImagePlug.Plan.Pipeline{operations: []}],
        output: :invalid_output,
        response: %ImagePlug.Plan.Response{}

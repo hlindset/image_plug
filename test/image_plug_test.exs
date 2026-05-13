@@ -11,7 +11,6 @@ defmodule ImagePlug.ImagePlugTest do
   alias ImagePlug.Plan.Operation
   alias ImagePlug.Plan.Output
   alias ImagePlug.Plan.Pipeline
-  alias ImagePlug.Plan.Source.Plain
 
   defmodule CacheProbe do
     alias ImagePlug.Cache.Entry
@@ -191,7 +190,7 @@ defmodule ImagePlug.ImagePlugTest do
       Plan,
       Keyword.merge(
         [
-          source: %Plain{path: ["images", "cat-300.jpg"]},
+          source: {:plain, ["images", "cat-300.jpg"]},
           pipelines: [%Pipeline{operations: []}],
           output: %Output{mode: :automatic}
         ],

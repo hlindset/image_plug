@@ -15,7 +15,6 @@ defmodule ImagePlug.Parser.Imgproxy.PlanBuilder do
   alias ImagePlug.Plan.Pipeline
   alias ImagePlug.Plan.Response
   alias ImagePlug.Plan.Response.Filename
-  alias ImagePlug.Plan.Source.Plain
   alias ImagePlug.Transform.Operation.AutoOrient
   alias ImagePlug.Transform.Operation.Flip
   alias ImagePlug.Transform.Operation.Rotate
@@ -43,7 +42,7 @@ defmodule ImagePlug.Parser.Imgproxy.PlanBuilder do
     end
   end
 
-  defp source_plan(:plain, path), do: {:ok, %Plain{path: path}}
+  defp source_plan(:plain, path), do: {:ok, {:plain, path}}
   defp source_plan(kind, _path), do: {:error, {:unsupported_source_kind, kind}}
 
   defp build_pipelines([]), do: {:error, :empty_pipeline_plan}
@@ -138,15 +137,19 @@ defmodule ImagePlug.Parser.Imgproxy.PlanBuilder do
   defp cachebuster_plan(%CacheRequest{cachebuster: cachebuster}),
     do: {:ok, cachebuster}
 
-  defp response_plan(%ResponseRequest{filename: nil, disposition: disposition}, %Plain{
-         path: source_path
-       }) do
+  defp response_plan(
+         %ResponseRequest{filename: nil, disposition: disposition},
+         {:plain, source_path}
+       ) do
     with {:ok, filename} <- source_filename(source_path) do
       {:ok, %Response{filename: filename, disposition: disposition}}
     end
   end
 
-  defp response_plan(%ResponseRequest{filename: filename, disposition: disposition}, %Plain{})
+  defp response_plan(
+         %ResponseRequest{filename: filename, disposition: disposition},
+         {:plain, _path}
+       )
        when is_binary(filename) do
     with {:ok, filename} <- Filename.new(filename) do
       {:ok, %Response{filename: filename, disposition: disposition}}

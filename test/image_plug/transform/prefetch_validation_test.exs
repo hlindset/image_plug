@@ -5,7 +5,6 @@ defmodule ImagePlug.Transform.PrefetchValidationTest do
   alias ImagePlug.Plan.Operation
   alias ImagePlug.Plan.Output
   alias ImagePlug.Plan.Pipeline
-  alias ImagePlug.Plan.Source.Plain
   alias ImagePlug.Transform
   alias ImagePlug.Transform.Operation.AutoOrient
   alias ImagePlug.Transform.Operation.Flip
@@ -50,7 +49,7 @@ defmodule ImagePlug.Transform.PrefetchValidationTest do
 
   defp plan(operations) do
     %Plan{
-      source: %Plain{path: ["images", "cat.jpg"]},
+      source: {:plain, ["images", "cat.jpg"]},
       pipelines: [%Pipeline{operations: operations}],
       output: %Output{mode: {:explicit, :jpeg}}
     }

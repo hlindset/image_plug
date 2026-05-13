@@ -10,7 +10,6 @@ defmodule ImagePlug.Cache.KeyPropertyTest do
   alias ImagePlug.Plan.Operation
   alias ImagePlug.Plan.Output
   alias ImagePlug.Plan.Pipeline
-  alias ImagePlug.Plan.Source.Plain
 
   defp build_key!(conn, plan, origin_identity, opts \\ []) do
     assert {:ok, key} = Key.build(conn, plan, origin_identity, opts)
@@ -359,7 +358,7 @@ defmodule ImagePlug.Cache.KeyPropertyTest do
       plan(
         Keyword.merge(
           [
-            source: %Plain{path: source_path},
+            source: {:plain, source_path},
             pipelines: pipelines
           ],
           overrides
@@ -373,7 +372,7 @@ defmodule ImagePlug.Cache.KeyPropertyTest do
       Plan,
       Keyword.merge(
         [
-          source: %Plain{path: ["images", "cat.jpg"]},
+          source: {:plain, ["images", "cat.jpg"]},
           pipelines: [
             %Pipeline{
               operations: [resize_operation(300, :auto)]

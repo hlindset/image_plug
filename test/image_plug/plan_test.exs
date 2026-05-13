@@ -7,7 +7,6 @@ defmodule ImagePlug.PlanTest do
   alias ImagePlug.Plan.Pipeline
   alias ImagePlug.Plan.Response
   alias ImagePlug.Plan.Response.Filename
-  alias ImagePlug.Plan.Source.Plain
   alias ImagePlug.Transform.Operation.AutoOrient
   alias ImagePlug.Transform.Operation.Flip
   alias ImagePlug.Transform.Operation.Rotate
@@ -16,12 +15,12 @@ defmodule ImagePlug.PlanTest do
     operations = [resize_operation()]
 
     plan = %Plan{
-      source: %Plain{path: ["images", "cat.jpg"]},
+      source: {:plain, ["images", "cat.jpg"]},
       pipelines: [%Pipeline{operations: operations}],
       output: %Output{mode: {:explicit, :webp}}
     }
 
-    assert plan.source.path == ["images", "cat.jpg"]
+    assert plan.source == {:plain, ["images", "cat.jpg"]}
     assert [%Pipeline{operations: ^operations}] = plan.pipelines
     assert plan.output.mode == {:explicit, :webp}
   end
@@ -30,7 +29,7 @@ defmodule ImagePlug.PlanTest do
     operation = resize_operation()
 
     plan = %Plan{
-      source: %Plain{path: ["images", "cat.jpg"]},
+      source: {:plain, ["images", "cat.jpg"]},
       pipelines: [%Pipeline{operations: [operation]}],
       output: %Output{mode: {:explicit, :webp}}
     }
@@ -72,7 +71,7 @@ defmodule ImagePlug.PlanTest do
   end
 
   test "validate shape rejects improper plain source path without raising" do
-    source = %Plain{path: ["images" | :bad]}
+    source = {:plain, ["images" | :bad]}
 
     assert Plan.validate_shape(plan(source: source)) ==
              {:error, {:unsupported_source, source}}
@@ -130,7 +129,7 @@ defmodule ImagePlug.PlanTest do
       Plan,
       Keyword.merge(
         [
-          source: %Plain{path: ["images", "cat.jpg"]},
+          source: {:plain, ["images", "cat.jpg"]},
           pipelines: [%Pipeline{operations: []}],
           output: %Output{mode: :automatic}
         ],

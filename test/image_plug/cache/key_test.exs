@@ -9,14 +9,13 @@ defmodule ImagePlug.Cache.KeyTest do
   alias ImagePlug.Plan.Operation
   alias ImagePlug.Plan.Output
   alias ImagePlug.Plan.Pipeline
-  alias ImagePlug.Plan.Source.Plain
 
   defp plan(overrides \\ []) do
     struct!(
       Plan,
       Keyword.merge(
         [
-          source: %Plain{path: ["images", "cat.jpg"]},
+          source: {:plain, ["images", "cat.jpg"]},
           pipelines: [
             %Pipeline{
               operations: [resize_fit_operation(300, :auto)]

@@ -14,7 +14,6 @@ defmodule ImagePlug.Parser.Imgproxy.PlanBuilderTest do
   alias ImagePlug.Plan.Pipeline
   alias ImagePlug.Plan.Response
   alias ImagePlug.Plan.Response.Filename
-  alias ImagePlug.Plan.Source.Plain
   alias ImagePlug.Transform.Operation.AutoOrient
   alias ImagePlug.Transform.Operation.Flip
   alias ImagePlug.Transform.Operation.Rotate
@@ -30,7 +29,7 @@ defmodule ImagePlug.Parser.Imgproxy.PlanBuilderTest do
 
     assert {:ok,
             %Plan{
-              source: %Plain{path: ["images", "cat.jpg"]},
+              source: {:plain, ["images", "cat.jpg"]},
               pipelines: [
                 %Pipeline{operations: operations}
               ],

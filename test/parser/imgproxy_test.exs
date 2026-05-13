@@ -11,7 +11,6 @@ defmodule ImagePlug.Parser.ImgproxyTest do
   alias ImagePlug.Plan.Pipeline
   alias ImagePlug.Plan.Response
   alias ImagePlug.Plan.Response.Filename
-  alias ImagePlug.Plan.Source.Plain
   alias ImagePlug.Transform.Operation.AutoOrient
 
   @allowed_parsed_transform_operations [
@@ -23,7 +22,7 @@ defmodule ImagePlug.Parser.ImgproxyTest do
   test "parses a plain source with no processing options" do
     assert {:ok,
             %Plan{
-              source: %Plain{path: ["images", "cat.jpg"]},
+              source: {:plain, ["images", "cat.jpg"]},
               pipelines: [%Pipeline{operations: []}],
               output: %Output{mode: :automatic}
             }} = Imgproxy.parse(conn(:get, "/_/plain/images/cat.jpg"), [])
@@ -36,7 +35,7 @@ defmodule ImagePlug.Parser.ImgproxyTest do
   end
 
   test "supports unsafe as the disabled-signing signature segment" do
-    assert {:ok, %Plan{source: %Plain{path: ["images", "cat.jpg"]}}} =
+    assert {:ok, %Plan{source: {:plain, ["images", "cat.jpg"]}}} =
              Imgproxy.parse(conn(:get, "/unsafe/plain/images/cat.jpg"), [])
   end
 
@@ -59,7 +58,7 @@ defmodule ImagePlug.Parser.ImgproxyTest do
   end
 
   test "treats option-like segments after plain as source path" do
-    assert {:ok, %Plan{source: %Plain{path: ["images", "w:300", "cat.jpg"]}}} =
+    assert {:ok, %Plan{source: {:plain, ["images", "w:300", "cat.jpg"]}}} =
              Imgproxy.parse(conn(:get, "/_/plain/images/w:300/cat.jpg"), [])
   end
 
@@ -788,7 +787,7 @@ defmodule ImagePlug.Parser.ImgproxyTest do
   test "dangling raw @ does not overwrite an explicit format" do
     assert {:ok,
             %Plan{
-              source: %Plain{path: ["images", "cat.jpg"]},
+              source: {:plain, ["images", "cat.jpg"]},
               output: %Output{mode: {:explicit, :webp}}
             }} = Imgproxy.parse(conn(:get, "/_/f:webp/plain/images/cat.jpg@"), [])
   end
@@ -899,7 +898,7 @@ defmodule ImagePlug.Parser.ImgproxyTest do
   test "detects raw source extension before percent decoding" do
     assert {:ok,
             %Plan{
-              source: %Plain{path: ["images", "cat@v1.jpg"]},
+              source: {:plain, ["images", "cat@v1.jpg"]},
               output: %Output{mode: {:explicit, :webp}}
             }} = Imgproxy.parse(conn(:get, "/_/plain/images/cat%40v1.jpg@webp"), [])
   end
@@ -926,7 +925,7 @@ defmodule ImagePlug.Parser.ImgproxyTest do
   test "dangling raw @ leaves output automatic when no explicit format exists" do
     assert {:ok,
             %Plan{
-              source: %Plain{path: ["images", "cat.jpg"]},
+              source: {:plain, ["images", "cat.jpg"]},
               output: %Output{mode: :automatic}
             }} = Imgproxy.parse(conn(:get, "/_/plain/images/cat.jpg@"), [])
   end

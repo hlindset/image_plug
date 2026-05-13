@@ -9,7 +9,6 @@ defmodule ImagePlug.TransformIRCharacterizationTest do
   alias ImagePlug.Plan.Operation
   alias ImagePlug.Plan.Output
   alias ImagePlug.Plan.Pipeline
-  alias ImagePlug.Plan.Source.Plain
   alias ImagePlug.Runtime.RequestRunner
   alias ImagePlug.Transform
   alias ImagePlug.Transform.Chain
@@ -84,7 +83,7 @@ defmodule ImagePlug.TransformIRCharacterizationTest do
 
   defp semantic_plan(operations) do
     %Plan{
-      source: %Plain{path: ["generated", "source.png"]},
+      source: {:plain, ["generated", "source.png"]},
       pipelines: [%Pipeline{operations: operations}],
       output: %Output{mode: {:explicit, :jpeg}}
     }

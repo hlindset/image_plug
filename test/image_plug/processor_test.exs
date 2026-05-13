@@ -5,7 +5,6 @@ defmodule ImagePlug.Runtime.ProcessorTest do
   alias ImagePlug.Plan.Operation
   alias ImagePlug.Plan.Output
   alias ImagePlug.Plan.Pipeline
-  alias ImagePlug.Plan.Source.Plain
   alias ImagePlug.Runtime.DecodedOrigin
   alias ImagePlug.Runtime.Origin
   alias ImagePlug.Runtime.Processor
@@ -21,7 +20,7 @@ defmodule ImagePlug.Runtime.ProcessorTest do
 
   defp plan do
     %Plan{
-      source: %Plain{path: ["this", "path", "does-not-drive-fetch.jpg"]},
+      source: {:plain, ["this", "path", "does-not-drive-fetch.jpg"]},
       pipelines: [%Pipeline{operations: []}],
       output: %Output{mode: {:explicit, :jpeg}}
     }
@@ -89,7 +88,7 @@ defmodule ImagePlug.Runtime.ProcessorTest do
     ref = make_ref()
 
     plan = %Plan{
-      source: %Plain{path: ["images", "cat-300.jpg"]},
+      source: {:plain, ["images", "cat-300.jpg"]},
       pipelines: [%Pipeline{operations: []}, %Pipeline{operations: []}],
       output: %Output{mode: {:explicit, :jpeg}}
     }
@@ -131,7 +130,7 @@ defmodule ImagePlug.Runtime.ProcessorTest do
     {:ok, second_operation} = resize_cover(80, 80)
 
     plan = %Plan{
-      source: %Plain{path: ["images", "cat-300.jpg"]},
+      source: {:plain, ["images", "cat-300.jpg"]},
       pipelines: [
         %Pipeline{operations: [first_operation]},
         %Pipeline{operations: [second_operation]}

@@ -9,7 +9,6 @@ defmodule ImagePlug.Cache.Key do
   alias ImagePlug.Plan
   alias ImagePlug.Plan.Output
   alias ImagePlug.Plan.Pipeline
-  alias ImagePlug.Plan.Source.Plain
   alias ImagePlug.Transform.KeyData
 
   @schema_version 2
@@ -62,7 +61,7 @@ defmodule ImagePlug.Cache.Key do
     |> :erlang.term_to_binary([:deterministic])
   end
 
-  defp source_data(%Plain{path: path}), do: {:ok, [kind: :plain, path: path]}
+  defp source_data({:plain, path}), do: {:ok, [kind: :plain, path: path]}
   defp source_data(source), do: {:error, {:unsupported_source, source}}
 
   defp pipelines_data(pipelines) do

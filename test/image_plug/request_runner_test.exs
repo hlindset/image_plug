@@ -11,7 +11,6 @@ defmodule ImagePlug.Runtime.RequestRunnerTest do
   alias ImagePlug.Plan.Output
   alias ImagePlug.Plan.Pipeline
   alias ImagePlug.Plan.Response
-  alias ImagePlug.Plan.Source.Plain
   alias ImagePlug.Runtime.RequestRunner
   alias ImagePlug.Transform.State
 
@@ -105,7 +104,7 @@ defmodule ImagePlug.Runtime.RequestRunnerTest do
       Plan,
       Keyword.merge(
         [
-          source: %Plain{path: ["images", "cat-300.jpg"]},
+          source: {:plain, ["images", "cat-300.jpg"]},
           pipelines: [%Pipeline{operations: []}],
           output: %Output{mode: {:explicit, :jpeg}}
         ],

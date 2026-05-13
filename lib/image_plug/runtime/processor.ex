@@ -2,7 +2,6 @@ defmodule ImagePlug.Runtime.Processor do
   @moduledoc false
 
   alias ImagePlug.Plan
-  alias ImagePlug.Plan.Source.Plain
   alias ImagePlug.Runtime.DecodedOrigin
   alias ImagePlug.Runtime.Origin
   alias ImagePlug.Transform
@@ -149,7 +148,7 @@ defmodule ImagePlug.Runtime.Processor do
 
   defp handle_materialization_result({:ok, %State{} = state}), do: {:ok, state}
 
-  defp fetch_origin(%Plan{source: %Plain{}}, origin_identity, opts) do
+  defp fetch_origin(%Plan{source: {:plain, _path}}, origin_identity, opts) do
     Origin.fetch(origin_identity, origin_req_options(opts))
   end
 

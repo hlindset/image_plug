@@ -12,7 +12,6 @@ defmodule ImagePlug.Plan do
       Output,
       Response,
       Response.Filename,
-      Source.Plain,
       Operation,
       Operation.CropGuided,
       Operation.CropRegion,
@@ -25,7 +24,6 @@ defmodule ImagePlug.Plan do
   alias ImagePlug.Plan.Pipeline
   alias ImagePlug.Plan.Response
   alias ImagePlug.Plan.Response.Filename
-  alias ImagePlug.Plan.Source.Plain
 
   @supported_formats [:avif, :webp, :jpeg, :png]
 
@@ -38,7 +36,7 @@ defmodule ImagePlug.Plan do
               ]
 
   @type t :: %__MODULE__{
-          source: ImagePlug.Plan.Source.Plain.t(),
+          source: {:plain, [String.t()]},
           pipelines: [ImagePlug.Plan.Pipeline.t()],
           output: ImagePlug.Plan.Output.t(),
           expires: non_neg_integer(),
@@ -100,7 +98,7 @@ defmodule ImagePlug.Plan do
   defp invalid_operation?(%_{} = operation), do: not Operation.semantic?(operation)
   defp invalid_operation?(_operation), do: true
 
-  defp validate_source(%Plain{path: path} = source) do
+  defp validate_source({:plain, path} = source) do
     if valid_source_path?(path),
       do: :ok,
       else: {:error, {:unsupported_source, source}}
