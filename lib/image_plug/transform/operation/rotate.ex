@@ -46,7 +46,6 @@ defmodule ImagePlug.Transform.Operation.Rotate do
   import ImagePlug.Transform.State
 
   alias ImagePlug.Transform.State
-  alias ImagePlug.Transform.Validation
 
   defstruct [:angle]
 
@@ -54,11 +53,6 @@ defmodule ImagePlug.Transform.Operation.Rotate do
 
   @impl ImagePlug.Transform
   def name(%__MODULE__{}), do: :rotate
-
-  @impl ImagePlug.Transform
-  def validate(%__MODULE__{angle: angle}) do
-    Validation.one_of("rotate", :angle, angle, [0, 90, 180, 270])
-  end
 
   @impl ImagePlug.Transform
   def metadata(%__MODULE__{}), do: %{access: :random}

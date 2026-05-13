@@ -21,6 +21,17 @@ defmodule ImagePlug.Output.Encoder do
   @spec memory_output(Vix.Vips.Image.t(), Resolved.t(), keyword()) ::
           {:ok, EncodedOutput.t()} | {:error, {:encode, Exception.t(), list()}}
   def memory_output(%Vix.Vips.Image{} = image, %Resolved{} = resolved_output, opts) do
+    memory_output(image, resolved_output, opts, nil)
+  end
+
+  @spec memory_output(
+          Vix.Vips.Image.t(),
+          Resolved.t(),
+          keyword(),
+          non_neg_integer() | nil
+        ) ::
+          {:ok, EncodedOutput.t()} | :too_large | {:error, {:encode, Exception.t(), list()}}
+  def memory_output(%Vix.Vips.Image{} = image, %Resolved{} = resolved_output, opts, nil) do
     with {:ok, mime_type, suffix} <- output_format(resolved_output),
          {:ok, body} <-
            write_body(
@@ -32,17 +43,7 @@ defmodule ImagePlug.Output.Encoder do
     end
   end
 
-  @spec limited_memory_output(
-          Vix.Vips.Image.t(),
-          Resolved.t(),
-          keyword(),
-          non_neg_integer() | nil
-        ) ::
-          {:ok, EncodedOutput.t()} | :too_large | {:error, {:encode, Exception.t(), list()}}
-  def limited_memory_output(%Vix.Vips.Image{} = image, %Resolved{} = resolved_output, opts, nil),
-    do: memory_output(image, resolved_output, opts)
-
-  def limited_memory_output(
+  def memory_output(
         %Vix.Vips.Image{} = image,
         %Resolved{} = resolved_output,
         opts,

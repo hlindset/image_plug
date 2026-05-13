@@ -48,7 +48,7 @@ defmodule ImagePlug.Runtime.ResponseCache do
   @spec store(Key.t(), State.t(), Resolved.t(), keyword()) ::
           {:ok, Entry.t()} | :skipped | {:error, term()}
   def store(%Key{} = key, %State{} = state, %Resolved{} = resolved_output, opts) do
-    case Encoder.limited_memory_output(
+    case Encoder.memory_output(
            state.image,
            resolved_output,
            opts,

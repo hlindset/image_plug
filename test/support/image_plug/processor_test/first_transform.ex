@@ -10,7 +10,6 @@ defmodule ImagePlug.Runtime.ProcessorTest.FirstTransform do
   defstruct []
 
   def name(%__MODULE__{}), do: :first
-  def validate(%__MODULE__{}), do: :ok
 
   def metadata(%__MODULE__{}), do: %{access: :random}
 

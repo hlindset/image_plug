@@ -43,7 +43,6 @@ defmodule ImagePlug.Plan.Operation do
   @auto_orient_module :"Elixir.ImagePlug.Transform.Operation.AutoOrient"
   @rotate_module :"Elixir.ImagePlug.Transform.Operation.Rotate"
   @flip_module :"Elixir.ImagePlug.Transform.Operation.Flip"
-  @orientation_primitive_modules [@auto_orient_module, @rotate_module, @flip_module]
   @semantic_modules [CropGuided, CropRegion, Canvas, Resize]
 
   @type resize_operation :: Resize.t()
@@ -67,7 +66,6 @@ defmodule ImagePlug.Plan.Operation do
 
   @type error ::
           {:invalid_operation, atom(), term()} | {:unknown_operation_options, atom(), [atom()]}
-  @type validation_error :: {:invalid_pipeline_operation, term()}
   @type access_requirement :: :sequential | :random | :neutral
 
   @spec crop_guided(term(), term(), term(), keyword()) ::
@@ -199,9 +197,10 @@ defmodule ImagePlug.Plan.Operation do
   def resize(mode, width, height, opts), do: invalid(:resize, [mode, width, height, opts])
 
   @spec semantic?(term()) :: boolean()
-  def semantic?(%module{}),
-    do: module in @semantic_modules or module in @orientation_primitive_modules
-
+  def semantic?(%module{}) when module in @semantic_modules, do: true
+  def semantic?(%{__struct__: @auto_orient_module}), do: true
+  def semantic?(%{__struct__: @rotate_module, angle: angle}) when angle in @right_angles, do: true
+  def semantic?(%{__struct__: @flip_module, axis: axis}) when axis in @flip_axes, do: true
   def semantic?(_operation), do: false
 
   @spec decode_access(semantic_operation()) :: access_requirement()
@@ -221,76 +220,6 @@ defmodule ImagePlug.Plan.Operation do
   def access_metadata(%{__struct__: @auto_orient_module}), do: %{access: :sequential}
   def access_metadata(%{__struct__: @rotate_module}), do: %{access: :random}
   def access_metadata(%{__struct__: @flip_module}), do: %{access: :random}
-
-  @spec validate_prefetch_safe(term()) :: :ok | {:error, validation_error()}
-  def validate_prefetch_safe(
-        %Resize{
-          mode: mode,
-          width: width,
-          height: height,
-          dpr: dpr,
-          enlargement: enlargement,
-          guide: guide
-        } = operation
-      )
-      when mode in @resize_modes and enlargement in @enlargements do
-    with :ok <- validate_tagged_resize_dimension(width, operation),
-         :ok <- validate_tagged_resize_dimension(height, operation),
-         :ok <- validate_tagged_dpr(dpr, operation),
-         :ok <- validate_tagged_guide(guide, operation),
-         :ok <- validate_tagged_offset(operation.x_offset, operation),
-         :ok <- validate_tagged_offset(operation.y_offset, operation),
-         :ok <- validate_tagged_resize_offsets(mode, operation),
-         :ok <- validate_tagged_resize_modifiers(operation) do
-      validate_tagged_resize_access(mode, operation)
-    end
-  end
-
-  def validate_prefetch_safe(%CropGuided{width: width, height: height, guide: guide} = operation) do
-    with :ok <- validate_tagged_crop_dimension(width, operation),
-         :ok <- validate_tagged_crop_dimension(height, operation),
-         :ok <- validate_tagged_crop_guide(guide, operation),
-         :ok <- validate_tagged_offset(operation.x_offset, operation) do
-      validate_tagged_offset(operation.y_offset, operation)
-    end
-  end
-
-  def validate_prefetch_safe(%CropRegion{x: x, y: y, width: width, height: height} = operation) do
-    with :ok <- validate_tagged_crop_coordinate(x, operation),
-         :ok <- validate_tagged_crop_coordinate(y, operation),
-         :ok <- validate_tagged_crop_region_dimension(width, operation) do
-      validate_tagged_crop_region_dimension(height, operation)
-    end
-  end
-
-  def validate_prefetch_safe(
-        %Canvas{
-          width: width,
-          height: height,
-          placement: placement,
-          background: :white,
-          overflow: :reject
-        } = operation
-      ) do
-    with :ok <- validate_tagged_canvas_dimension(width, operation),
-         :ok <- validate_tagged_canvas_dimension(height, operation),
-         :ok <- validate_canvas_dimension_pair(width, height, operation),
-         :ok <- validate_tagged_canvas_placement(placement, operation),
-         :ok <- validate_tagged_offset(operation.x_offset, operation) do
-      validate_tagged_offset(operation.y_offset, operation)
-    end
-  end
-
-  def validate_prefetch_safe(%{__struct__: @auto_orient_module}), do: :ok
-
-  def validate_prefetch_safe(%{__struct__: @rotate_module, angle: angle})
-      when angle in @right_angles,
-      do: :ok
-
-  def validate_prefetch_safe(%{__struct__: @flip_module, axis: axis}) when axis in @flip_axes,
-    do: :ok
-
-  def validate_prefetch_safe(operation), do: invalid_pipeline_operation(operation)
 
   defp invalid(operation, attrs), do: {:error, {:invalid_operation, operation, attrs}}
 
@@ -401,8 +330,8 @@ defmodule ImagePlug.Plan.Operation do
     do: {:ok, guide}
 
   defp resize_guide({:focal, x, y} = guide) do
-    with :ok <- validate_tagged_ratio(x, guide),
-         :ok <- validate_tagged_ratio(y, guide) do
+    with :ok <- tagged_ratio(x),
+         :ok <- tagged_ratio(y) do
       {:ok, guide}
     else
       {:error, _reason} -> {:error, :guide}
@@ -497,201 +426,28 @@ defmodule ImagePlug.Plan.Operation do
 
   defp tagged_canvas_placement(_placement), do: {:error, :placement}
 
-  defp validate_tagged_resize_dimension(:auto, _operation), do: :ok
-
-  defp validate_tagged_resize_dimension({:px, value}, _operation)
-       when is_integer(value) and value > 0, do: :ok
-
-  defp validate_tagged_resize_dimension(_dimension, operation),
-    do: invalid_pipeline_operation(operation)
-
-  defp validate_tagged_dpr({:ratio, numerator, denominator}, operation)
-       when is_integer(numerator) and is_integer(denominator) and numerator > 0 and
-              denominator > 0 do
-    if Integer.gcd(numerator, denominator) == 1 do
-      :ok
-    else
-      invalid_pipeline_operation(operation)
-    end
-  end
-
-  defp validate_tagged_dpr(_dpr, operation), do: invalid_pipeline_operation(operation)
-
-  defp validate_tagged_guide(:center, _operation), do: :ok
-
-  defp validate_tagged_guide({:anchor, x, y}, _operation)
-       when x in @x_anchors and y in @y_anchors,
-       do: :ok
-
-  defp validate_tagged_guide({:focal, x, y}, operation) do
-    with :ok <- validate_tagged_ratio(x, operation) do
-      validate_tagged_ratio(y, operation)
-    end
-  end
-
-  defp validate_tagged_guide(_guide, operation), do: invalid_pipeline_operation(operation)
-
-  defp validate_tagged_resize_offsets(mode, _operation) when mode in [:cover, :auto], do: :ok
-
-  defp validate_tagged_resize_offsets(_mode, operation) do
-    if operation.x_offset == {:pixels, 0.0} and operation.y_offset == {:pixels, 0.0} do
-      :ok
-    else
-      invalid_pipeline_operation(operation)
-    end
-  end
-
-  defp validate_tagged_resize_modifiers(operation) do
-    with :ok <- validate_optional_tagged_resize_dimension(operation.min_width, operation),
-         :ok <- validate_optional_tagged_resize_dimension(operation.min_height, operation),
-         :ok <- validate_factor(operation.zoom_x, operation) do
-      validate_factor(operation.zoom_y, operation)
-    end
-  end
-
-  defp validate_optional_tagged_resize_dimension(nil, _operation), do: :ok
-
-  defp validate_optional_tagged_resize_dimension(dimension, operation),
-    do: validate_tagged_resize_dimension(dimension, operation)
-
-  defp validate_tagged_resize_access(mode, operation) when mode in [:fit, :stretch] do
-    case resize_access_metadata(operation) do
-      %{access: :sequential} -> :ok
-      %{access: :random} -> :ok
-    end
-  end
-
-  defp validate_tagged_resize_access(_mode, _operation), do: :ok
-
-  defp validate_tagged_crop_dimension(:full_axis, _operation), do: :ok
-
-  defp validate_tagged_crop_dimension({:px, value}, _operation)
-       when is_integer(value) and value > 0,
-       do: :ok
-
-  defp validate_tagged_crop_dimension({:ratio, numerator, denominator}, _operation)
-       when is_integer(numerator) and is_integer(denominator) and numerator > 0 and
-              denominator > 0,
-       do: :ok
-
-  defp validate_tagged_crop_dimension(_dimension, operation),
-    do: invalid_pipeline_operation(operation)
-
-  defp validate_tagged_crop_coordinate({:px, value}, _operation)
-       when is_integer(value) and value >= 0,
-       do: :ok
-
-  defp validate_tagged_crop_coordinate({:ratio, numerator, denominator}, _operation)
-       when is_integer(numerator) and is_integer(denominator) and numerator >= 0 and
-              denominator > 0,
-       do: :ok
-
-  defp validate_tagged_crop_coordinate(_coordinate, operation),
-    do: invalid_pipeline_operation(operation)
-
-  defp validate_tagged_crop_region_dimension({:px, value}, _operation)
-       when is_integer(value) and value > 0,
-       do: :ok
-
-  defp validate_tagged_crop_region_dimension({:ratio, numerator, denominator}, _operation)
-       when is_integer(numerator) and is_integer(denominator) and numerator > 0 and
-              denominator > 0,
-       do: :ok
-
-  defp validate_tagged_crop_region_dimension(_dimension, operation),
-    do: invalid_pipeline_operation(operation)
-
-  defp validate_tagged_crop_guide(guide, _operation) when guide in @crop_anchor_guides, do: :ok
-
-  defp validate_tagged_crop_guide({:anchor, x, y}, _operation)
-       when x in @x_anchors and y in @y_anchors,
-       do: :ok
-
-  defp validate_tagged_crop_guide({:focal, x, y}, operation) do
-    with :ok <- validate_tagged_ratio(x, operation) do
-      validate_tagged_ratio(y, operation)
-    end
-  end
-
-  defp validate_tagged_crop_guide(_guide, operation), do: invalid_pipeline_operation(operation)
-
-  defp validate_tagged_canvas_dimension(:auto, _operation), do: :ok
-
-  defp validate_tagged_canvas_dimension({:px, value}, _operation)
-       when is_integer(value) and value > 0,
-       do: :ok
-
-  defp validate_tagged_canvas_dimension({:ratio, numerator, denominator}, operation)
-       when is_integer(numerator) and is_integer(denominator) and numerator > 0 and
-              denominator > 0 do
-    if Integer.gcd(numerator, denominator) == 1 do
-      :ok
-    else
-      invalid_pipeline_operation(operation)
-    end
-  end
-
-  defp validate_tagged_canvas_dimension(_dimension, operation),
-    do: invalid_pipeline_operation(operation)
-
   defp validate_canvas_dimension_pair(
          {:ratio, _width_numerator, _width_denominator},
          {:ratio, _height_numerator, _height_denominator},
-         _operation
+         _context
        ),
        do: :ok
 
   defp validate_canvas_dimension_pair(
          {:ratio, _width_numerator, _width_denominator},
          _height,
-         operation
+         _context
        ),
-       do: invalid_pipeline_operation(operation)
+       do: {:error, :mixed_canvas_units}
 
   defp validate_canvas_dimension_pair(
          _width,
          {:ratio, _height_numerator, _height_denominator},
-         operation
+         _context
        ),
-       do: invalid_pipeline_operation(operation)
+       do: {:error, :mixed_canvas_units}
 
-  defp validate_canvas_dimension_pair(_width, _height, _operation), do: :ok
-
-  defp validate_tagged_canvas_placement(placement, _operation)
-       when placement in @crop_anchor_guides,
-       do: :ok
-
-  defp validate_tagged_canvas_placement({:focal, x, y}, operation) do
-    with :ok <- validate_tagged_ratio(x, operation) do
-      validate_tagged_ratio(y, operation)
-    end
-  end
-
-  defp validate_tagged_canvas_placement(_placement, operation),
-    do: invalid_pipeline_operation(operation)
-
-  defp validate_tagged_offset(value, _operation) when is_number(value), do: :ok
-
-  defp validate_tagged_offset({unit, value}, _operation)
-       when unit in [:pixels, :scale] and is_number(value),
-       do: :ok
-
-  defp validate_tagged_offset(_value, operation), do: invalid_pipeline_operation(operation)
-
-  defp validate_tagged_ratio(
-         {:ratio, numerator, denominator},
-         operation
-       )
-       when is_integer(numerator) and is_integer(denominator) and numerator >= 0 and
-              denominator > 0 do
-    if Integer.gcd(numerator, denominator) == 1 do
-      :ok
-    else
-      invalid_pipeline_operation(operation)
-    end
-  end
-
-  defp validate_tagged_ratio(_ratio, operation), do: invalid_pipeline_operation(operation)
+  defp validate_canvas_dimension_pair(_width, _height, _context), do: :ok
 
   defp tagged_ratio({:ratio, numerator, denominator})
        when is_integer(numerator) and is_integer(denominator) and numerator >= 0 and
@@ -709,9 +465,6 @@ defmodule ImagePlug.Plan.Operation do
     gcd = Integer.gcd(numerator, denominator)
     {:ok, {:ratio, div(numerator, gcd), div(denominator, gcd)}}
   end
-
-  defp validate_factor(value, _operation) when is_number(value) and value > 0, do: :ok
-  defp validate_factor(_value, operation), do: invalid_pipeline_operation(operation)
 
   defp optional_exact(attrs, key, expected) do
     case Keyword.fetch(attrs, key) do
@@ -763,7 +516,4 @@ defmodule ImagePlug.Plan.Operation do
   defp integer_power(base, exponent) do
     Enum.reduce(1..exponent//1, 1, fn _step, product -> product * base end)
   end
-
-  defp invalid_pipeline_operation(operation),
-    do: {:error, {:invalid_pipeline_operation, operation}}
 end

@@ -18,7 +18,6 @@ defmodule ImagePlug.Transform.Operation.Resize do
   import ImagePlug.Transform.Geometry
 
   alias ImagePlug.Transform.State
-  alias ImagePlug.Transform.Validation
 
   @type dimension() :: :auto | ImagePlug.imgp_pixels()
   @type mode() :: :fit | :fill | :fill_down | :force
@@ -57,23 +56,6 @@ defmodule ImagePlug.Transform.Operation.Resize do
 
   @impl ImagePlug.Transform
   def name(%__MODULE__{}), do: :resize
-
-  @impl ImagePlug.Transform
-  def validate(%__MODULE__{} = operation) do
-    with :ok <- validate_mode(operation.mode),
-         :ok <- validate_bound_dimension(:width, operation.width),
-         :ok <- validate_bound_dimension(:height, operation.height),
-         :ok <- validate_min_dimension(:min_width, operation.min_width),
-         :ok <- validate_min_dimension(:min_height, operation.min_height),
-         :ok <- Validation.number("resize", :zoom_x, operation.zoom_x),
-         :ok <- validate_positive_factor(:zoom_x, operation.zoom_x),
-         :ok <- Validation.number("resize", :zoom_y, operation.zoom_y),
-         :ok <- validate_positive_factor(:zoom_y, operation.zoom_y),
-         :ok <- Validation.number("resize", :dpr, operation.dpr),
-         :ok <- validate_positive_factor(:dpr, operation.dpr) do
-      Validation.boolean("resize", :enlarge, operation.enlarge)
-    end
-  end
 
   @impl ImagePlug.Transform
   def metadata(%__MODULE__{
@@ -191,8 +173,7 @@ defmodule ImagePlug.Transform.Operation.Resize do
          {:ok, min_height} <- normalize_min_dimension(:min_height, operation.min_height),
          {:ok, zoom_x} <- normalize_factor(:zoom_x, operation.zoom_x, 1.0),
          {:ok, zoom_y} <- normalize_factor(:zoom_y, operation.zoom_y, 1.0),
-         {:ok, dpr} <- normalize_factor(:dpr, operation.dpr, 1.0),
-         :ok <- validate_enlarge(operation.enlarge) do
+         {:ok, dpr} <- normalize_factor(:dpr, operation.dpr, 1.0) do
       {:ok,
        %__MODULE__{
          operation
@@ -208,21 +189,8 @@ defmodule ImagePlug.Transform.Operation.Resize do
     end
   end
 
-  defp validate_mode(mode) when mode in [:fit, :fill, :fill_down, :force], do: :ok
-  defp validate_mode(mode), do: Validation.invalid("resize", :mode, mode)
-
   defp normalize_mode(mode) when mode in [:fit, :fill, :fill_down, :force], do: {:ok, mode}
   defp normalize_mode(mode), do: {:error, {:invalid_resize_mode, mode}}
-
-  defp validate_bound_dimension(field, value) do
-    case normalize_bound_dimension(field, value) do
-      {:ok, _value} ->
-        :ok
-
-      {:error, {:invalid_resize_dimension, ^field, _value}} ->
-        Validation.invalid("resize", field, value)
-    end
-  end
 
   defp normalize_bound_dimension(_field, nil), do: {:ok, :auto}
   defp normalize_bound_dimension(_field, :auto), do: {:ok, :auto}
@@ -234,16 +202,6 @@ defmodule ImagePlug.Transform.Operation.Resize do
   defp normalize_bound_dimension(field, value),
     do: {:error, {:invalid_resize_dimension, field, value}}
 
-  defp validate_min_dimension(field, value) do
-    case normalize_min_dimension(field, value) do
-      {:ok, _value} ->
-        :ok
-
-      {:error, {:invalid_resize_dimension, ^field, _value}} ->
-        Validation.invalid("resize", field, value)
-    end
-  end
-
   defp normalize_min_dimension(_field, nil), do: {:ok, nil}
   defp normalize_min_dimension(_field, :auto), do: {:ok, nil}
   defp normalize_min_dimension(_field, {:pixels, 0}), do: {:ok, nil}
@@ -254,9 +212,6 @@ defmodule ImagePlug.Transform.Operation.Resize do
   defp normalize_min_dimension(field, value),
     do: {:error, {:invalid_resize_dimension, field, value}}
 
-  defp validate_positive_factor(_field, value) when value > 0, do: :ok
-  defp validate_positive_factor(field, value), do: Validation.invalid("resize", field, value)
-
   defp normalize_factor(_field, nil, default), do: {:ok, default}
 
   defp normalize_factor(_field, value, _default) when is_number(value) and value > 0,
@@ -264,9 +219,6 @@ defmodule ImagePlug.Transform.Operation.Resize do
 
   defp normalize_factor(field, value, _default),
     do: {:error, {:invalid_resize_factor, field, value}}
-
-  defp validate_enlarge(enlarge) when enlarge in [true, false], do: :ok
-  defp validate_enlarge(enlarge), do: {:error, {:invalid_resize_enlarge, enlarge}}
 
   defp resolve_base_dimensions(%__MODULE__{width: :auto, height: :auto} = operation, source) do
     if factor_requested?(operation) do

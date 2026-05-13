@@ -10,7 +10,6 @@ defmodule ImagePlug.Runtime.ProcessorTest.SequentialFailingTransform do
   defstruct []
 
   def name(%__MODULE__{}), do: :sequential_failing
-  def validate(%__MODULE__{}), do: :ok
 
   def metadata(%__MODULE__{}), do: %{access: :sequential}
 

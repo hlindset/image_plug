@@ -12,32 +12,6 @@ defmodule ImagePlug.Transform.ChainTest do
 
   doctest ImagePlug.Transform.Chain
 
-  test "transform modules expose valid operation structs" do
-    assert :ok =
-             Transform.validate(%Resize{
-               mode: :fit,
-               width: {:pixels, 10}
-             })
-
-    assert :ok =
-             Transform.validate(%Crop{
-               width: {:pixels, 10},
-               height: {:pixels, 10},
-               crop_from: :gravity
-             })
-  end
-
-  test "transform validation rejects malformed operation structs" do
-    assert {:error, {:invalid_parameter, "crop", :width, nil}} =
-             Transform.validate(%Crop{width: nil, height: {:pixels, 100}, crop_from: :gravity})
-
-    assert {:error, {:invalid_parameter, "resize", :mode, :auto}} =
-             Transform.validate(%Resize{mode: :auto})
-
-    assert {:error, {:invalid_extend_canvas_rule, :oops}} =
-             Transform.validate(%ExtendCanvas{rule: :oops})
-  end
-
   test "transform name is delegated to operation module" do
     operation = %Resize{mode: :fit, width: {:pixels, 10}, height: :auto}
 

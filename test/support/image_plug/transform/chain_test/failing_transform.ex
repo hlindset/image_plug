@@ -6,7 +6,6 @@ defmodule ImagePlug.Transform.ChainTest.FailingTransform do
   defstruct []
 
   def name(%__MODULE__{}), do: :failing
-  def validate(%__MODULE__{}), do: :ok
   def metadata(%__MODULE__{}), do: %{access: :random}
 
   def execute(%__MODULE__{}, state) do

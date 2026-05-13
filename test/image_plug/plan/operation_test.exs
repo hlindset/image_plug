@@ -102,27 +102,6 @@ defmodule ImagePlug.Plan.OperationTest do
     end
   end
 
-  describe "prefetch validation" do
-    test "validates unified resize offsets" do
-      assert {:ok, operation} =
-               Operation.resize(:cover, {:px, 300}, {:px, 200}, x_offset: {:pixels, 12.0})
-
-      assert Operation.validate_prefetch_safe(operation) == :ok
-
-      assert Operation.validate_prefetch_safe(%{operation | x_offset: {:scale, :bad}}) ==
-               {:error, {:invalid_pipeline_operation, %{operation | x_offset: {:scale, :bad}}}}
-
-      assert Operation.validate_prefetch_safe(%{operation | y_offset: {:pixels, :bad}}) ==
-               {:error, {:invalid_pipeline_operation, %{operation | y_offset: {:pixels, :bad}}}}
-
-      assert Operation.validate_prefetch_safe(%{operation | mode: :stretch}) ==
-               {:error, {:invalid_pipeline_operation, %{operation | mode: :stretch}}}
-
-      assert Operation.validate_prefetch_safe(%{operation | mode: :fit, x_offset: 0.0}) ==
-               {:error, {:invalid_pipeline_operation, %{operation | mode: :fit, x_offset: 0.0}}}
-    end
-  end
-
   describe "crop constructors" do
     test "build crop operations through exported constructors" do
       default_offset = {:pixels, 0.0}
@@ -273,16 +252,9 @@ defmodule ImagePlug.Plan.OperationTest do
       assert Operation.semantic?(%Flip{axis: :horizontal})
     end
 
-    test "validates executable orientation primitive fields" do
-      assert Operation.validate_prefetch_safe(%AutoOrient{}) == :ok
-      assert Operation.validate_prefetch_safe(%Rotate{angle: 270}) == :ok
-      assert Operation.validate_prefetch_safe(%Flip{axis: :both}) == :ok
-
-      assert Operation.validate_prefetch_safe(%Rotate{angle: 45}) ==
-               {:error, {:invalid_pipeline_operation, %Rotate{angle: 45}}}
-
-      assert Operation.validate_prefetch_safe(%Flip{axis: :diagonal}) ==
-               {:error, {:invalid_pipeline_operation, %Flip{axis: :diagonal}}}
+    test "rejects orientation primitive values outside the explicit allowlist" do
+      refute Operation.semantic?(%Rotate{angle: 45})
+      refute Operation.semantic?(%Flip{axis: :diagonal})
     end
   end
 

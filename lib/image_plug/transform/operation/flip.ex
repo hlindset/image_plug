@@ -46,7 +46,6 @@ defmodule ImagePlug.Transform.Operation.Flip do
   import ImagePlug.Transform.State
 
   alias ImagePlug.Transform.State
-  alias ImagePlug.Transform.Validation
 
   defstruct [:axis]
 
@@ -54,11 +53,6 @@ defmodule ImagePlug.Transform.Operation.Flip do
 
   @impl ImagePlug.Transform
   def name(%__MODULE__{}), do: :flip
-
-  @impl ImagePlug.Transform
-  def validate(%__MODULE__{axis: axis}) do
-    Validation.one_of("flip", :axis, axis, [:horizontal, :vertical, :both])
-  end
 
   @impl ImagePlug.Transform
   def metadata(%__MODULE__{}), do: %{access: :random}

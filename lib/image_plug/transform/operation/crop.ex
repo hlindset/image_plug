@@ -88,7 +88,6 @@ defmodule ImagePlug.Transform.Operation.Crop do
     only: [anchor_to_pixels: 3, image_height: 1, image_width: 1, to_pixels!: 2]
 
   alias ImagePlug.Transform.State
-  alias ImagePlug.Transform.Validation
 
   @default_gravity {:anchor, :center, :center}
 
@@ -125,18 +124,6 @@ defmodule ImagePlug.Transform.Operation.Crop do
 
   @impl ImagePlug.Transform
   def name(%__MODULE__{}), do: :crop
-
-  @impl ImagePlug.Transform
-  def validate(%__MODULE__{} = operation) do
-    with :ok <- Validation.positive_dimension_or_auto("crop", :width, operation.width),
-         :ok <- Validation.positive_dimension_or_auto("crop", :height, operation.height),
-         :ok <- validate_crop_from(operation.crop_from),
-         :ok <- Validation.gravity("crop", :gravity, operation.gravity),
-         :ok <- Validation.offset("crop", :x_offset, operation.x_offset),
-         :ok <- Validation.offset("crop", :y_offset, operation.y_offset) do
-      validate_offset_scale(operation.offset_scale)
-    end
-  end
 
   @impl ImagePlug.Transform
   def metadata(%__MODULE__{}), do: %{access: :random}
@@ -348,22 +335,4 @@ defmodule ImagePlug.Transform.Operation.Crop do
     center_y = round(top + crop_height / 2)
     {center_x, center_y}
   end
-
-  defp validate_crop_from(:gravity), do: :ok
-
-  defp validate_crop_from(%{left: left, top: top} = crop_from) do
-    if Map.keys(crop_from) -- [:left, :top] == [] do
-      with :ok <- Validation.non_negative_position("crop", :crop_from_left, left) do
-        Validation.non_negative_position("crop", :crop_from_top, top)
-      end
-    else
-      {:error, {:invalid_crop_from, crop_from}}
-    end
-  end
-
-  defp validate_crop_from(crop_from),
-    do: {:error, {:invalid_crop_from, crop_from}}
-
-  defp validate_offset_scale(value) when is_number(value) and value > 0, do: :ok
-  defp validate_offset_scale(value), do: Validation.invalid("crop", :offset_scale, value)
 end

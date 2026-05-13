@@ -13,7 +13,6 @@ defmodule ImagePlug.Runtime.ProcessorTest do
   alias ImagePlug.Runtime.ProcessorTest.DecodeValidImageOpen
   alias ImagePlug.Runtime.ProcessorTest.Materializer
   alias ImagePlug.Runtime.ProcessorTest.OriginImage
-  alias ImagePlug.Transform.SourceMetadata
   alias ImagePlug.Transform.State
 
   defp opts do
@@ -47,10 +46,6 @@ defmodule ImagePlug.Runtime.ProcessorTest do
 
   defp fetch_decode_validate_origin_with_source_format(%Plan{} = plan, origin_identity, opts) do
     Processor.fetch_decode_validate_origin_with_source_format(plan, origin_identity, opts)
-  end
-
-  defp process_decoded_origin(%DecodedOrigin{} = decoded, %Plan{} = plan, opts) do
-    Processor.process_decoded_origin(decoded, plan, opts)
   end
 
   test "process_origin fetches plain plan sources from the resolved origin identity" do
@@ -186,37 +181,6 @@ defmodule ImagePlug.Runtime.ProcessorTest do
                opts()
                |> Keyword.put(:image_open_module, DecodeValidImageOpen)
                |> Keyword.put(:max_input_pixels, 399)
-             )
-  end
-
-  test "process_decoded_origin returns prefetch validation errors" do
-    {:ok, image} = Image.new(1, 1)
-
-    decoded = %DecodedOrigin{
-      decode_options: [access: :random, fail_on: :error],
-      image: image,
-      source_format: :jpeg,
-      source_metadata: %SourceMetadata{
-        orientation: :normal,
-        format: :jpeg,
-        source_type: :raster
-      }
-    }
-
-    invalid_operation = :not_a_plan_operation
-
-    assert {:error, {:invalid_pipeline_operation, ^invalid_operation}} =
-             process_decoded_origin(
-               decoded,
-               %Plan{
-                 plan()
-                 | pipelines: [
-                     %Pipeline{
-                       operations: [invalid_operation]
-                     }
-                   ]
-               },
-               opts()
              )
   end
 end

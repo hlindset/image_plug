@@ -51,9 +51,6 @@ defmodule ImagePlug.Transform.Operation.AutoOrient do
   def name(%__MODULE__{}), do: :auto_orient
 
   @impl ImagePlug.Transform
-  def validate(%__MODULE__{}), do: :ok
-
-  @impl ImagePlug.Transform
   def metadata(%__MODULE__{}), do: %{access: :sequential}
 
   @impl ImagePlug.Transform

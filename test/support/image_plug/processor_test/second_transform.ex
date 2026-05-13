@@ -10,7 +10,6 @@ defmodule ImagePlug.Runtime.ProcessorTest.SecondTransform do
   defstruct [:test_pid, :ref]
 
   def name(%__MODULE__{}), do: :second
-  def validate(%__MODULE__{}), do: :ok
 
   def metadata(%__MODULE__{}), do: %{access: :random}
 

@@ -19,10 +19,8 @@ defmodule ImagePlug.Transform.PlanExecutor do
 
   @spec execute(Plan.t(), State.t(), SourceMetadata.t(), keyword()) ::
           {:ok, State.t()} | {:error, term()}
-  def execute(%Plan{} = plan, %State{} = state, %SourceMetadata{} = metadata, opts) do
-    with {:ok, pipelines} <- ImagePlug.Transform.validate_prefetch_safe_plan(plan) do
-      execute_pipelines(pipelines, state, metadata, opts)
-    end
+  def execute(%Plan{pipelines: pipelines}, %State{} = state, %SourceMetadata{} = metadata, opts) do
+    execute_pipelines(pipelines, state, metadata, opts)
   end
 
   defp execute_pipelines(pipelines, %State{} = state, %SourceMetadata{} = metadata, opts) do

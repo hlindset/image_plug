@@ -80,7 +80,6 @@ defmodule ImagePlug.Transform.Operation.ExtendCanvas do
   import ImagePlug.Transform.Geometry
 
   alias ImagePlug.Transform.State
-  alias ImagePlug.Transform.Validation
 
   @default_gravity {:anchor, :center, :center}
 
@@ -104,15 +103,6 @@ defmodule ImagePlug.Transform.Operation.ExtendCanvas do
 
   @impl ImagePlug.Transform
   def name(%__MODULE__{}), do: :extend_canvas
-
-  @impl ImagePlug.Transform
-  def validate(%__MODULE__{} = operation) do
-    with :ok <- validate_rule(operation.rule),
-         :ok <- Validation.anchor("extend canvas", :gravity, operation.gravity),
-         :ok <- Validation.number("extend canvas", :x_offset, operation.x_offset) do
-      Validation.number("extend canvas", :y_offset, operation.y_offset)
-    end
-  end
 
   @impl ImagePlug.Transform
   def metadata(%__MODULE__{}), do: %{access: :random}
@@ -196,18 +186,4 @@ defmodule ImagePlug.Transform.Operation.ExtendCanvas do
   defp background_color(:transparent), do: [0, 0, 0, 0]
   defp background_color({:color, color}), do: color
   defp background_color(color), do: color
-
-  defp validate_rule({:dimensions, width, height}) do
-    with :ok <- Validation.non_negative_dimension_or_auto("extend canvas", :width, width) do
-      Validation.non_negative_dimension_or_auto("extend canvas", :height, height)
-    end
-  end
-
-  defp validate_rule({:aspect_ratio, {width, height}})
-       when is_number(width) and is_number(height) and width > 0 and height > 0,
-       do: :ok
-
-  defp validate_rule(rule) do
-    {:error, {:invalid_extend_canvas_rule, rule}}
-  end
 end

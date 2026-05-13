@@ -12,7 +12,6 @@ defmodule ImagePlug.Transform.DecodePlannerTest do
     defstruct []
 
     def name(%__MODULE__{}), do: :no_geometry
-    def validate(%__MODULE__{}), do: :ok
     def metadata(%__MODULE__{}), do: %{access: :neutral}
     def execute(%__MODULE__{}, state), do: state
   end
@@ -21,7 +20,6 @@ defmodule ImagePlug.Transform.DecodePlannerTest do
     defstruct []
 
     def name(%__MODULE__{}), do: :missing_metadata_callback
-    def validate(%__MODULE__{}), do: :ok
     def execute(%__MODULE__{}, state), do: state
   end
 
@@ -29,7 +27,6 @@ defmodule ImagePlug.Transform.DecodePlannerTest do
     defstruct []
 
     def name(%__MODULE__{}), do: :raising_metadata
-    def validate(%__MODULE__{}), do: :ok
     def metadata(%__MODULE__{}), do: raise("metadata failed")
     def execute(%__MODULE__{}, state), do: state
   end
@@ -38,7 +35,6 @@ defmodule ImagePlug.Transform.DecodePlannerTest do
     defstruct []
 
     def name(%__MODULE__{}), do: :throwing_metadata
-    def validate(%__MODULE__{}), do: :ok
     def metadata(%__MODULE__{}), do: throw(:metadata_failed)
     def execute(%__MODULE__{}, state), do: state
   end
@@ -47,7 +43,6 @@ defmodule ImagePlug.Transform.DecodePlannerTest do
     defstruct []
 
     def name(%__MODULE__{}), do: :exiting_metadata
-    def validate(%__MODULE__{}), do: :ok
     def metadata(%__MODULE__{}), do: exit(:metadata_failed)
     def execute(%__MODULE__{}, state), do: state
   end

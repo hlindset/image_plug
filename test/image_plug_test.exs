@@ -240,7 +240,6 @@ defmodule ImagePlug.ImagePlugTest do
     defstruct []
 
     def name(%__MODULE__{}), do: :unprojectable
-    def validate(%__MODULE__{}), do: :ok
 
     def metadata(%__MODULE__{}), do: %{access: :random}
 

@@ -28,7 +28,6 @@ defmodule ImagePlug.Transform do
     ]
 
   alias ImagePlug.Plan
-  alias ImagePlug.Plan.Operation
   alias ImagePlug.Plan.Pipeline
   alias ImagePlug.Transform.PlanExecutor
   alias ImagePlug.Transform.SourceMetadata
@@ -38,7 +37,6 @@ defmodule ImagePlug.Transform do
   @type operation() :: struct()
 
   @callback name(operation()) :: atom()
-  @callback validate(operation()) :: :ok | {:error, term()}
   @callback metadata(operation()) :: map()
   @callback execute(operation(), State.t()) :: State.t()
 
@@ -47,18 +45,12 @@ defmodule ImagePlug.Transform do
     module.name(operation)
   end
 
-  @spec validate(operation()) :: :ok | {:error, term()}
-  def validate(%module{} = operation) do
-    module.validate(operation)
-  end
-
   @spec validate_prefetch_safe_plan(Plan.t()) ::
           {:ok, [Pipeline.t()]} | {:error, term()}
   def validate_prefetch_safe_plan(%Plan{} = plan) do
-    with {:ok, %Plan{}} <- Plan.validate_shape(plan),
-         {:ok, pipelines} <- Plan.validated_pipelines(plan),
-         :ok <- validate_prefetch_safe_pipelines(pipelines) do
-      {:ok, pipelines}
+    case Plan.validate_shape(plan) do
+      {:ok, %Plan{}} -> Plan.validated_pipelines(plan)
+      {:error, _reason} = error -> error
     end
   end
 
@@ -77,36 +69,4 @@ defmodule ImagePlug.Transform do
   def execute_plan(%Plan{} = plan, %State{} = state, %SourceMetadata{} = metadata, opts \\ []) do
     PlanExecutor.execute(plan, state, metadata, opts)
   end
-
-  defp validate_prefetch_safe_pipelines(pipelines) do
-    pipelines
-    |> Enum.reduce_while(:source, &validate_prefetch_safe_pipeline/2)
-    |> case do
-      {:error, _reason} = error -> error
-      _alignment -> :ok
-    end
-  end
-
-  defp validate_prefetch_safe_pipeline(%Pipeline{operations: operations}, alignment) do
-    case Enum.reduce_while(operations, alignment, &validate_prefetch_safe_operation/2) do
-      {:error, _reason} = error -> {:halt, error}
-      next_alignment -> {:cont, next_alignment}
-    end
-  end
-
-  defp validate_prefetch_safe_operation(operation, alignment) do
-    case validate_prefetch_operation(operation) do
-      :ok -> validate_prefetch_alignment(operation, alignment)
-      {:error, _reason} = error -> {:halt, error}
-    end
-  end
-
-  defp validate_prefetch_operation(operation) do
-    case Operation.semantic?(operation) do
-      true -> Operation.validate_prefetch_safe(operation)
-      false -> {:error, {:invalid_pipeline_operation, operation}}
-    end
-  end
-
-  defp validate_prefetch_alignment(_operation, _alignment), do: {:cont, :current}
 end
