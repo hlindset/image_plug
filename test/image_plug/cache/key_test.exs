@@ -5,6 +5,7 @@ defmodule ImagePlug.Cache.KeyTest do
   import Plug.Test
 
   alias ImagePlug.Cache.Key
+  alias ImagePlug.Parser.Imgproxy
   alias ImagePlug.Plan
   alias ImagePlug.Plan.Operation
   alias ImagePlug.Plan.Output
@@ -627,7 +628,7 @@ defmodule ImagePlug.Cache.KeyTest do
       )
 
     assert {:ok, signed_plan} =
-             ImagePlug.Parser.Imgproxy.parse(
+             Imgproxy.parse(
                conn(
                  :get,
                  "/NSbxuO5fQqTgDkui_3o6ho1UCFFcmzsugB2Uksho49o/w:300/plain/images/cat.jpg"
@@ -636,7 +637,7 @@ defmodule ImagePlug.Cache.KeyTest do
              )
 
     assert {:ok, trusted_plan} =
-             ImagePlug.Parser.Imgproxy.parse(
+             Imgproxy.parse(
                conn(:get, "/local-dev!/w:300/plain/images/cat.jpg"),
                trusted_opts
              )

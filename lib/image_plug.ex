@@ -16,12 +16,12 @@ defmodule ImagePlug do
 
   @behaviour Plug
 
-  alias ImagePlug.Plan
+  alias ImagePlug.Origin.Identity
   alias ImagePlug.Parser.Imgproxy
+  alias ImagePlug.Plan
   alias ImagePlug.Request.Options
   alias ImagePlug.Request.Runner
   alias ImagePlug.Response.Sender
-  alias ImagePlug.Origin.Identity
   alias ImagePlug.Transform
 
   @impl Plug

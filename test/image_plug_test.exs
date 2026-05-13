@@ -7,11 +7,11 @@ defmodule ImagePlug.ImagePlugTest do
 
   doctest ImagePlug
 
+  alias ImagePlug.Parser.Imgproxy.Signature
   alias ImagePlug.Plan
   alias ImagePlug.Plan.Operation
   alias ImagePlug.Plan.Output
   alias ImagePlug.Plan.Pipeline
-  alias ImagePlug.Parser.Imgproxy.Signature
 
   defmodule CacheProbe do
     alias ImagePlug.Cache.Entry

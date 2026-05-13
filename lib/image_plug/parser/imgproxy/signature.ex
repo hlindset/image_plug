@@ -35,9 +35,14 @@ defmodule ImagePlug.Parser.Imgproxy.Signature do
 
   @spec validate_options!(keyword()) :: keyword()
   def validate_options!(imgproxy_opts) when is_list(imgproxy_opts) do
-    with {:ok, validated} <- NimbleOptions.validate(imgproxy_opts, @imgproxy_schema) do
-      Keyword.put(validated, :signature, normalize_signature!(Keyword.get(validated, :signature)))
-    else
+    case NimbleOptions.validate(imgproxy_opts, @imgproxy_schema) do
+      {:ok, validated} ->
+        Keyword.put(
+          validated,
+          :signature,
+          normalize_signature!(Keyword.get(validated, :signature))
+        )
+
       {:error, %NimbleOptions.ValidationError{} = error} ->
         raise ArgumentError, "invalid imgproxy config: #{Exception.message(error)}"
     end
