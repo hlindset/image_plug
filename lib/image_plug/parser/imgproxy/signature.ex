@@ -46,6 +46,21 @@ defmodule ImagePlug.Parser.Imgproxy.Signature do
   def validate_options!(_imgproxy_opts),
     do: raise(ArgumentError, "invalid imgproxy options: expected a keyword list")
 
+  @spec verify(String.t(), binary(), t()) :: :ok | {:error, term()}
+  def verify(signature, _signed_path, %__MODULE__{mode: :disabled})
+      when signature in ["_", "unsafe"],
+      do: :ok
+
+  def verify(signature, _signed_path, %__MODULE__{mode: :disabled}),
+    do: {:error, {:unsupported_signature, signature}}
+
+  def verify(signature, signed_path, %__MODULE__{mode: :enabled} = config) do
+    case trusted_signature?(signature, config.trusted_signatures) do
+      true -> :ok
+      false -> verify_hmac_signature(signature, signed_path, config)
+    end
+  end
+
   @doc false
   def validate_trusted_signatures(values) when is_list(values) do
     case Enum.all?(values, &(is_binary(&1) and &1 != "")) do
@@ -56,6 +71,52 @@ defmodule ImagePlug.Parser.Imgproxy.Signature do
 
   def validate_trusted_signatures(_values),
     do: {:error, "trusted_signatures must be a list of non-empty strings"}
+
+  defp trusted_signature?(signature, trusted_signatures) do
+    Enum.any?(trusted_signatures, &same_signature?(&1, signature))
+  end
+
+  defp same_signature?(left, right) do
+    byte_size(left) == byte_size(right) and Plug.Crypto.secure_compare(left, right)
+  end
+
+  defp verify_hmac_signature(signature, signed_path, %__MODULE__{} = config) do
+    with {:ok, decoded_signature} <- decode_signature(signature),
+         true <- matching_signature?(decoded_signature, signed_path, config) do
+      :ok
+    else
+      {:error, _reason} = error -> error
+      false -> {:error, :invalid_signature}
+    end
+  end
+
+  defp decode_signature(signature) do
+    case String.contains?(signature, "=") do
+      true -> {:error, {:invalid_signature_encoding, signature}}
+      false -> decode_unpadded_base64(signature)
+    end
+  end
+
+  defp decode_unpadded_base64(signature) do
+    case Base.url_decode64(signature, padding: false) do
+      {:ok, decoded} -> {:ok, decoded}
+      :error -> {:error, {:invalid_signature_encoding, signature}}
+    end
+  end
+
+  defp matching_signature?(decoded_signature, signed_path, %__MODULE__{} = config) do
+    Enum.any?(config.key_salt_pairs, fn {key, salt} ->
+      expected = signature_for(signed_path, key, salt, config.signature_size)
+
+      byte_size(decoded_signature) == byte_size(expected) and
+        Plug.Crypto.secure_compare(decoded_signature, expected)
+    end)
+  end
+
+  defp signature_for(signed_path, key, salt, signature_size) do
+    :crypto.mac(:hmac, :sha256, key, salt <> signed_path)
+    |> binary_part(0, signature_size)
+  end
 
   # NimbleOptions rejects explicit `signature: nil`; this branch represents an absent key.
   defp normalize_signature!(nil), do: disabled()

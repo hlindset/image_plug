@@ -144,4 +144,134 @@ defmodule ImagePlug.Parser.Imgproxy.SignatureTest do
       end
     end
   end
+
+  describe "verify/3" do
+    test "accepts disabled-signing placeholders when signing is disabled" do
+      config = Signature.disabled()
+
+      assert :ok = Signature.verify("_", "/plain/images/cat.jpg", config)
+      assert :ok = Signature.verify("unsafe", "/plain/images/cat.jpg", config)
+
+      assert Signature.verify("signed-value", "/plain/images/cat.jpg", config) ==
+               {:error, {:unsupported_signature, "signed-value"}}
+    end
+
+    test "matches upstream full and truncated primitive HMAC vectors" do
+      [signature: full] =
+        Signature.validate_options!(
+          signature: [
+            keys: ["746573742d6b6579"],
+            salts: ["746573742d73616c74"]
+          ]
+        )
+
+      [signature: truncated] =
+        Signature.validate_options!(
+          signature: [
+            keys: ["746573742d6b6579"],
+            salts: ["746573742d73616c74"],
+            signature_size: 8
+          ]
+        )
+
+      assert :ok = Signature.verify("dtLwhdnPPiu_epMl1LrzheLpvHas-4mwvY6L3Z8WwlY", "asd", full)
+      assert :ok = Signature.verify("dtLwhdnPPis", "asd", truncated)
+      assert Signature.verify("dtLwhdnPPis", "asd", full) == {:error, :invalid_signature}
+    end
+
+    test "matches upstream key rotation vectors" do
+      [signature: config] =
+        Signature.validate_options!(
+          signature: [
+            keys: ["746573742d6b6579", "746573742d6b657932"],
+            salts: ["746573742d73616c74", "746573742d73616c7432"]
+          ]
+        )
+
+      assert :ok = Signature.verify("dtLwhdnPPiu_epMl1LrzheLpvHas-4mwvY6L3Z8WwlY", "asd", config)
+      assert :ok = Signature.verify("jbDffNPt1-XBgDccsaE-XJB9lx8JIJqdeYIZKgOqZpg", "asd", config)
+    end
+
+    test "accepts exact trusted signatures before Base64 decoding" do
+      [signature: config] =
+        Signature.validate_options!(
+          signature: [
+            trusted_signatures: ["truested", "local-dev!"]
+          ]
+        )
+
+      assert :ok = Signature.verify("truested", "asd", config)
+      assert :ok = Signature.verify("local-dev!", "/w:300/plain/images/cat.jpg", config)
+
+      assert Signature.verify("untrusted", "asd", config) ==
+               {:error, {:invalid_signature_encoding, "untrusted"}}
+
+      assert Signature.verify("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "asd", config) ==
+               {:error, :invalid_signature}
+    end
+
+    test "matches upstream processing handler request fixture" do
+      [signature: config] =
+        Signature.validate_options!(
+          signature: [
+            keys: ["746573742d6b6579"],
+            salts: ["746573742d73616c74"]
+          ]
+        )
+
+      signed_path = "/rs:fill:4:4/plain/local:///test1.png"
+
+      assert :ok =
+               Signature.verify(
+                 "My9d3xq_PYpVHsPrCyww0Kh1w5KZeZhIlWhsa4az1TI",
+                 signed_path,
+                 config
+               )
+
+      assert Signature.verify("unsafe", signed_path, config) == {:error, :invalid_signature}
+    end
+
+    test "matches public docs signing vector" do
+      [signature: config] =
+        Signature.validate_options!(
+          signature: [
+            keys: ["736563726574"],
+            salts: ["68656c6c6f"]
+          ]
+        )
+
+      signed_path =
+        "/rs:fill:300:400:0/g:sm/aHR0cDovL2V4YW1w/bGUuY29tL2ltYWdl/cy9jdXJpb3NpdHku/anBn.png"
+
+      assert :ok =
+               Signature.verify(
+                 "oKfUtW34Dvo2BGQehJFR4Nr0_rIjOtdtzJ3QFsUcXH8",
+                 signed_path,
+                 config
+               )
+    end
+
+    test "rejects malformed Base64 and wrong signatures" do
+      [signature: config] =
+        Signature.validate_options!(
+          signature: [
+            keys: ["746573742d6b6579"],
+            salts: ["746573742d73616c74"]
+          ]
+        )
+
+      assert Signature.verify("local-dev!", "/w:300/plain/images/cat.jpg", config) ==
+               {:error, {:invalid_signature_encoding, "local-dev!"}}
+
+      assert Signature.verify("dtLwhdnPPiu_epMl1LrzheLpvHas-4mwvY6L3Z8WwlY=", "asd", config) ==
+               {:error,
+                {:invalid_signature_encoding, "dtLwhdnPPiu_epMl1LrzheLpvHas-4mwvY6L3Z8WwlY="}}
+
+      assert Signature.verify(
+               "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+               "/w:300/plain/images/cat.jpg",
+               config
+             ) == {:error, :invalid_signature}
+    end
+  end
 end
