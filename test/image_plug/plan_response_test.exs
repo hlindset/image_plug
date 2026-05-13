@@ -8,22 +8,23 @@ defmodule ImagePlug.Plan.ResponseTest do
     response = %Response{disposition: :attachment, filename: %Filename{stem: "report"}}
 
     assert Response.content_disposition(response, "image/webp") ==
-             {:ok, ~s(attachment; filename="report.webp"; filename*=UTF-8''report.webp)}
+             {:ok, ~s(attachment; filename="report.webp")}
   end
 
-  test "renders deterministic ASCII fallback and UTF-8 filename star" do
+  test "renders encoded filename and UTF-8 filename star when filename needs encoding" do
     response = %Response{disposition: :inline, filename: %Filename{stem: "katt-æøå"}}
 
     assert Response.content_disposition(response, "image/webp") ==
              {:ok,
-              ~s(inline; filename="katt-___.webp"; filename*=UTF-8''katt-%C3%A6%C3%B8%C3%A5.webp)}
+              ~s(inline; filename="katt-%C3%A6%C3%B8%C3%A5.webp"; filename*=utf-8''katt-%C3%A6%C3%B8%C3%A5.webp)}
   end
 
-  test "uses download fallback when ASCII fallback becomes empty" do
+  test "uses encoded filename when the whole stem needs encoding" do
     response = %Response{disposition: :inline, filename: %Filename{stem: "東京"}}
 
     assert Response.content_disposition(response, "image/png") ==
-             {:ok, ~s(inline; filename="download.png"; filename*=UTF-8''%E6%9D%B1%E4%BA%AC.png)}
+             {:ok,
+              ~s(inline; filename="%E6%9D%B1%E4%BA%AC.png"; filename*=utf-8''%E6%9D%B1%E4%BA%AC.png)}
   end
 
   test "rejects unsupported cached content type for delivery filename extension" do

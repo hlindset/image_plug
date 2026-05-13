@@ -24,7 +24,7 @@ defmodule ImagePlug.Runtime.ResponseSenderTest do
     assert conn.status == 200
 
     assert Plug.Conn.get_resp_header(conn, "content-disposition") ==
-             [~s(attachment; filename="report.webp"; filename*=UTF-8''report.webp)]
+             [~s(attachment; filename="report.webp")]
   end
 
   test "image responses apply content disposition on cache misses" do
@@ -49,6 +49,6 @@ defmodule ImagePlug.Runtime.ResponseSenderTest do
     assert conn.status == 200
 
     assert Plug.Conn.get_resp_header(conn, "content-disposition") ==
-             [~s(inline; filename="miss.webp"; filename*=UTF-8''miss.webp)]
+             [~s(inline; filename="miss.webp")]
   end
 end

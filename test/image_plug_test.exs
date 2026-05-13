@@ -920,7 +920,7 @@ defmodule ImagePlug.ImagePlugTest do
     assert first_conn.status == 200
 
     assert get_resp_header(first_conn, "content-disposition") == [
-             ~s(attachment; filename="one.jpg"; filename*=UTF-8''one.jpg)
+             ~s(attachment; filename="one.jpg")
            ]
 
     assert_received {:cache_get, key_a}
@@ -941,7 +941,7 @@ defmodule ImagePlug.ImagePlugTest do
     assert second_conn.status == 200
 
     assert get_resp_header(second_conn, "content-disposition") == [
-             ~s(inline; filename="two.jpg"; filename*=UTF-8''two.jpg)
+             ~s(inline; filename="two.jpg")
            ]
 
     assert_received {:cache_get, key_b}
