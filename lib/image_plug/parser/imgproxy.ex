@@ -19,6 +19,7 @@ defmodule ImagePlug.Parser.Imgproxy do
   alias ImagePlug.Parser.Imgproxy.ParsedRequest
   alias ImagePlug.Parser.Imgproxy.PipelineRequest
   alias ImagePlug.Parser.Imgproxy.PlanBuilder
+  alias ImagePlug.Parser.Imgproxy.Presets
   alias ImagePlug.Parser.Imgproxy.RequestPolicy
   alias ImagePlug.Parser.Imgproxy.ResponseRequest
   alias ImagePlug.Parser.Imgproxy.Signature
@@ -26,6 +27,14 @@ defmodule ImagePlug.Parser.Imgproxy do
   alias ImagePlug.Plan.Response
 
   @source_format_names ~w(webp avif jpeg jpg png best)
+
+  @imgproxy_schema NimbleOptions.new!(
+                     signature: [type: :keyword_list, required: false],
+                     presets: [
+                       type: {:custom, Presets, :validate_config, []},
+                       default: Presets.empty()
+                     ]
+                   )
 
   @source_formats %{
     "webp" => :webp,
@@ -97,7 +106,23 @@ defmodule ImagePlug.Parser.Imgproxy do
   def parse(%Plug.Conn{} = conn), do: parse(conn, [])
 
   @doc false
-  def validate_options!(imgproxy_opts), do: Signature.validate_options!(imgproxy_opts)
+  def validate_options!(imgproxy_opts) when is_list(imgproxy_opts) do
+    case NimbleOptions.validate(imgproxy_opts, @imgproxy_schema) do
+      {:ok, validated} ->
+        Keyword.update(
+          validated,
+          :signature,
+          Signature.disabled(),
+          &Signature.normalize_config!/1
+        )
+
+      {:error, %NimbleOptions.ValidationError{} = error} ->
+        raise ArgumentError, "invalid imgproxy config: #{Exception.message(error)}"
+    end
+  end
+
+  def validate_options!(_imgproxy_opts),
+    do: raise(ArgumentError, "invalid imgproxy options: expected a keyword list")
 
   @impl ImagePlug.Parser
   def parse(%Plug.Conn{} = conn, opts) do

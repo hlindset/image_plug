@@ -40,7 +40,7 @@ defmodule ImagePlug.Parser.Imgproxy.Signature do
         Keyword.put(
           validated,
           :signature,
-          normalize_signature!(Keyword.get(validated, :signature))
+          normalize_config!(Keyword.get(validated, :signature))
         )
 
       {:error, %NimbleOptions.ValidationError{} = error} ->
@@ -144,10 +144,11 @@ defmodule ImagePlug.Parser.Imgproxy.Signature do
     |> binary_part(0, signature_size)
   end
 
+  @spec normalize_config!(nil | keyword()) :: t()
   # NimbleOptions rejects explicit `signature: nil`; this branch represents an absent key.
-  defp normalize_signature!(nil), do: disabled()
+  def normalize_config!(nil), do: disabled()
 
-  defp normalize_signature!(config) when is_list(config) do
+  def normalize_config!(config) when is_list(config) do
     with {:ok, validated} <- NimbleOptions.validate(config, @signature_schema),
          {:ok, signature_size} <-
            validate_signature_size(Keyword.fetch!(validated, :signature_size)),
@@ -172,7 +173,7 @@ defmodule ImagePlug.Parser.Imgproxy.Signature do
     end
   end
 
-  defp normalize_signature!(_config),
+  def normalize_config!(_config),
     do:
       raise(ArgumentError, "invalid imgproxy signature config: signature must be a keyword list")
 

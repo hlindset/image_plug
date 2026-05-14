@@ -5,7 +5,10 @@ defmodule ImagePlug.Parser.Imgproxy.SignatureTest do
   alias ImagePlug.Parser.Imgproxy.Signature
 
   test "imgproxy parser exposes parser-owned option validation" do
-    assert [signature: %Signature{mode: :disabled}] = Imgproxy.validate_options!([])
+    options = Imgproxy.validate_options!([])
+
+    assert %Signature{mode: :disabled} = Keyword.fetch!(options, :signature)
+    assert %ImagePlug.Parser.Imgproxy.Presets{} = Keyword.fetch!(options, :presets)
   end
 
   describe "validate_options!/1" do
