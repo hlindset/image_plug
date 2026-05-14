@@ -983,6 +983,66 @@ defmodule ImagePlug.Parser.ImgproxyTest do
     assert scale_params.height == pixels(200)
   end
 
+  test "expands named imgproxy presets into normal processing plans" do
+    opts = preset_opts(%{"thumb" => "rt:fill/w:120/h:90"})
+
+    assert {:ok, %Plan{pipelines: [%Pipeline{operations: [%Operation.Resize{} = resize]}]}} =
+             Imgproxy.parse(conn(:get, "/_/preset:thumb/plain/images/cat.jpg"), opts)
+
+    assert resize.mode == :cover
+    assert resize.width == pixels(120)
+    assert resize.height == pixels(90)
+  end
+
+  test "expands pr alias and multiple preset names in order" do
+    opts =
+      preset_opts(%{
+        "thumb" => "w:120/h:90",
+        "wide" => "w:320",
+        "jpeg" => "f:jpg/q:82"
+      })
+
+    assert {:ok,
+            %Plan{
+              pipelines: [%Pipeline{operations: [%Operation.Resize{} = resize]}],
+              output: %Output{mode: {:explicit, :jpeg}, quality: {:quality, 82}}
+            }} = Imgproxy.parse(conn(:get, "/_/pr:thumb:wide:jpeg/plain/images/cat.jpg"), opts)
+
+    assert resize.width == pixels(320)
+    assert resize.height == pixels(90)
+  end
+
+  test "applies default preset before URL options so URL fields can override it" do
+    opts = preset_opts(%{"default" => "rt:fill/w:300/h:200/q:70"})
+
+    assert {:ok,
+            %Plan{
+              pipelines: [%Pipeline{operations: [%Operation.Resize{} = resize]}],
+              output: %Output{quality: {:quality, 70}}
+            }} = Imgproxy.parse(conn(:get, "/_/w:150/plain/images/cat.jpg"), opts)
+
+    assert resize.mode == :cover
+    assert resize.width == pixels(150)
+    assert resize.height == pixels(200)
+  end
+
+  test "expands presets that reference other presets" do
+    opts =
+      preset_opts(%{
+        "thumb" => "w:120/h:90",
+        "sharp-thumb" => "pr:thumb/q:82"
+      })
+
+    assert {:ok,
+            %Plan{
+              pipelines: [%Pipeline{operations: [%Operation.Resize{} = resize]}],
+              output: %Output{quality: {:quality, 82}}
+            }} = Imgproxy.parse(conn(:get, "/_/pr:sharp-thumb/plain/images/cat.jpg"), opts)
+
+    assert resize.width == pixels(120)
+    assert resize.height == pixels(90)
+  end
+
   test "parses chained imgproxy pipeline separators into multiple pipelines" do
     assert {:ok,
             %Plan{
@@ -1126,6 +1186,10 @@ defmodule ImagePlug.Parser.ImgproxyTest do
       |> Imgproxy.validate_options!()
 
     [imgproxy: imgproxy_opts]
+  end
+
+  defp preset_opts(definitions) do
+    [imgproxy: Imgproxy.validate_options!(presets: definitions)]
   end
 
   defp assert_error_status(reason, status) do

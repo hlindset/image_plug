@@ -136,7 +136,7 @@ defmodule ImagePlug.Parser.Imgproxy do
     with {:ok, signature, signed_path, path_info} <- parse_raw_path(conn),
          :ok <- verify_signature(signature, signed_path, opts),
          {:ok, option_segments, raw_source_path} <- split_source(path_info),
-         {:ok, request_options} <- parse_request_options(option_segments),
+         {:ok, request_options} <- parse_request_options(option_segments, preset_config(opts)),
          {:ok, source_path, source_format} <- parse_plain_source(raw_source_path) do
       parsed_request(
         signature,
@@ -183,6 +183,12 @@ defmodule ImagePlug.Parser.Imgproxy do
     opts
     |> Keyword.get(:imgproxy, [])
     |> Keyword.get(:signature, Signature.disabled())
+  end
+
+  defp preset_config(opts) do
+    opts
+    |> Keyword.get(:imgproxy, [])
+    |> Keyword.get(:presets, Presets.empty())
   end
 
   defp parse_raw_path(%Plug.Conn{} = conn) do
@@ -348,41 +354,18 @@ defmodule ImagePlug.Parser.Imgproxy do
     end
   end
 
-  defp parse_request_options(option_segments) do
-    Enum.reduce_while(option_segments, {:ok, initial_request_options()}, fn
-      "-", {:ok, options} ->
-        {:cont, {:ok, finalize_current_pipeline(options)}}
-
-      segment, {:ok, options} ->
-        case parse_option(segment) do
-          {:ok, {:pipeline, assignments}} ->
-            {:cont, {:ok, update_current_pipeline(options, assignments)}}
-
-          {:ok, {:output, assignments}} ->
-            {:cont, {:ok, update_output(options, assignments)}}
-
-          {:ok, {:cache, assignments}} ->
-            {:cont, {:ok, update_cache(options, assignments)}}
-
-          {:ok, {:policy, assignments}} ->
-            {:cont, {:ok, update_policy(options, assignments)}}
-
-          {:ok, {:response, assignments}} ->
-            {:cont, {:ok, update_response(options, assignments)}}
-
-          {:error, _reason} = error ->
-            {:halt, error}
-        end
-    end)
-    |> case do
-      {:ok, options} -> {:ok, finalize_request_options(options)}
-      {:error, _reason} = error -> error
+  defp parse_request_options(option_segments, %Presets{} = presets) do
+    with {:ok, options} <- initial_request_options() |> apply_default_preset(presets),
+         {:ok, options} <- apply_segments(option_segments, options, presets, []),
+         {:ok, options} <- drain_queued_preset_groups(options, presets) do
+      {:ok, finalize_request_options(options)}
     end
   end
 
   defp initial_request_options do
     %{
       current_pipeline: %PipelineRequest{},
+      queued_preset_groups: [],
       pipelines: [],
       output: %OutputRequest{},
       policy: %RequestPolicy{},
@@ -402,7 +385,136 @@ defmodule ImagePlug.Parser.Imgproxy do
         pipelines
       end
 
-    %{options | current_pipeline: %PipelineRequest{}, pipelines: pipelines}
+    %{
+      options
+      | current_pipeline: %PipelineRequest{},
+        queued_preset_groups: [],
+        pipelines: pipelines
+    }
+  end
+
+  defp apply_default_preset(options, %Presets{} = presets) do
+    case Presets.configured?(presets, "default") do
+      true -> apply_preset("default", options, presets, [])
+      false -> {:ok, options}
+    end
+  end
+
+  defp apply_segments(segments, options, presets, active_presets) do
+    Enum.reduce_while(segments, {:ok, options}, fn segment, {:ok, options} ->
+      case apply_segment(segment, options, presets, active_presets) do
+        {:ok, options} -> {:cont, {:ok, options}}
+        {:error, _reason} = error -> {:halt, error}
+      end
+    end)
+  end
+
+  defp apply_segment("-", options, presets, _active_presets) do
+    options
+    |> finalize_current_pipeline()
+    |> apply_next_queued_preset_group(presets)
+  end
+
+  defp apply_segment(segment, options, presets, active_presets) do
+    case parse_option(segment) do
+      {:ok, {:preset, names}} ->
+        apply_preset_names(names, options, presets, active_presets)
+
+      {:ok, {:pipeline, assignments}} ->
+        {:ok, update_current_pipeline(options, assignments)}
+
+      {:ok, {:output, assignments}} ->
+        {:ok, update_output(options, assignments)}
+
+      {:ok, {:cache, assignments}} ->
+        {:ok, update_cache(options, assignments)}
+
+      {:ok, {:policy, assignments}} ->
+        {:ok, update_policy(options, assignments)}
+
+      {:ok, {:response, assignments}} ->
+        {:ok, update_response(options, assignments)}
+
+      {:error, _reason} = error ->
+        error
+    end
+  end
+
+  defp apply_preset_names(names, options, presets, active_presets) do
+    Enum.reduce_while(names, {:ok, options}, fn name, {:ok, options} ->
+      case apply_preset(name, options, presets, active_presets) do
+        {:ok, options} -> {:cont, {:ok, options}}
+        {:error, _reason} = error -> {:halt, error}
+      end
+    end)
+  end
+
+  defp apply_preset(name, options, presets, active_presets) do
+    case name in active_presets do
+      true ->
+        {:ok, options}
+
+      false ->
+        case Presets.fetch(presets, name) do
+          {:ok, groups} -> apply_preset_groups(groups, options, presets, [name | active_presets])
+          :error -> {:error, {:unknown_preset, name}}
+        end
+    end
+  end
+
+  defp apply_preset_groups([], options, _presets, _active_presets), do: {:ok, options}
+
+  defp apply_preset_groups([first_group | remaining_groups], options, presets, active_presets) do
+    with {:ok, options} <- apply_segments(first_group, options, presets, active_presets) do
+      {:ok, enqueue_preset_groups(options, remaining_groups, active_presets)}
+    end
+  end
+
+  defp enqueue_preset_groups(options, [], _active_presets), do: options
+
+  defp enqueue_preset_groups(%{queued_preset_groups: queue} = options, groups, active_presets) do
+    levels = Enum.map(groups, &[{&1, active_presets}])
+    %{options | queued_preset_groups: merge_queued_preset_levels(queue, levels)}
+  end
+
+  defp apply_next_queued_preset_group(%{queued_preset_groups: []} = options, _presets),
+    do: {:ok, options}
+
+  defp apply_next_queued_preset_group(
+         %{queued_preset_groups: [entries | queue]} = options,
+         presets
+       ) do
+    options
+    |> Map.put(:queued_preset_groups, queue)
+    |> apply_queued_preset_entries(entries, presets)
+  end
+
+  defp apply_queued_preset_entries(options, entries, presets) do
+    Enum.reduce_while(entries, {:ok, options}, fn {segments, active_presets}, {:ok, options} ->
+      case apply_segments(segments, options, presets, active_presets) do
+        {:ok, options} -> {:cont, {:ok, options}}
+        {:error, _reason} = error -> {:halt, error}
+      end
+    end)
+  end
+
+  defp merge_queued_preset_levels([], levels), do: levels
+  defp merge_queued_preset_levels(queue, []), do: queue
+
+  defp merge_queued_preset_levels([queue_level | queue], [new_level | levels]) do
+    [queue_level ++ new_level | merge_queued_preset_levels(queue, levels)]
+  end
+
+  defp drain_queued_preset_groups(%{queued_preset_groups: []} = options, _presets),
+    do: {:ok, options}
+
+  defp drain_queued_preset_groups(options, presets) do
+    with {:ok, options} <-
+           options
+           |> finalize_current_pipeline()
+           |> apply_next_queued_preset_group(presets) do
+      drain_queued_preset_groups(options, presets)
+    end
   end
 
   defp finalize_current_pipeline(%{current_pipeline: pipeline, pipelines: pipelines} = options) do
@@ -491,6 +603,14 @@ defmodule ImagePlug.Parser.Imgproxy do
   defp parse_option(segment) do
     [name | args] = String.split(segment, ":")
 
+    case parse_preset_option(name, args, segment) do
+      {:ok, _names} = preset -> preset
+      :not_preset -> parse_non_preset_option(name, args, segment)
+      {:error, _reason} = error -> error
+    end
+  end
+
+  defp parse_non_preset_option(name, args, segment) do
     case Map.fetch(@option_specs, name) do
       {:ok, {kind, fields}} ->
         with {:ok, assignments} <- parse_known_option(kind, fields, args, segment) do
@@ -503,6 +623,14 @@ defmodule ImagePlug.Parser.Imgproxy do
         end
     end
   end
+
+  defp parse_preset_option(name, [], segment) when name in ["preset", "pr"],
+    do: {:error, {:invalid_option_segment, segment}}
+
+  defp parse_preset_option(name, args, _segment) when name in ["preset", "pr"],
+    do: {:ok, {:preset, args}}
+
+  defp parse_preset_option(_name, _args, _segment), do: :not_preset
 
   defp scoped_assignments(kind, assignments) when kind in [:format, :quality, :format_quality],
     do: {:output, assignments}
