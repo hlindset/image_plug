@@ -114,7 +114,7 @@ defmodule ImagePlug.Transform.PlanExecutor do
         gravity: tagged_executable_gravity(operation.placement),
         x_offset: operation.x_offset,
         y_offset: operation.y_offset,
-        background: operation.background
+        background: operation.fill
       }
     ]
   end

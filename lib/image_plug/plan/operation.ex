@@ -6,6 +6,8 @@ defmodule ImagePlug.Plan.Operation do
   alias ImagePlug.Plan.Operation.Canvas
   alias ImagePlug.Plan.Operation.CropGuided
   alias ImagePlug.Plan.Operation.CropRegion
+  alias ImagePlug.Plan.Operation.FlattenBackground
+  alias ImagePlug.Plan.Operation.Padding
   alias ImagePlug.Plan.Operation.Resize
   alias ImagePlug.Plan.Color
 
@@ -38,7 +40,8 @@ defmodule ImagePlug.Plan.Operation do
     :zoom_y
   ]
   @crop_guided_keys [:x_offset, :y_offset]
-  @canvas_keys [:background, :overflow, :x_offset, :y_offset]
+  @canvas_keys [:fill, :overflow, :x_offset, :y_offset]
+  @padding_keys [:pixel_ratio, :fill]
   # Keep the orientation primitive allowlist centralized without importing
   # executable operation modules into the Plan operation facade.
   @auto_orient_module :"Elixir.ImagePlug.Transform.Operation.AutoOrient"
@@ -53,6 +56,10 @@ defmodule ImagePlug.Plan.Operation do
 
   @type canvas_operation :: Canvas.t()
 
+  @type padding_operation :: Padding.t()
+
+  @type flatten_background_operation :: FlattenBackground.t()
+
   @type orientation_operation ::
           ImagePlug.Transform.Operation.AutoOrient.t()
           | ImagePlug.Transform.Operation.Rotate.t()
@@ -62,6 +69,8 @@ defmodule ImagePlug.Plan.Operation do
           resize_operation()
           | crop_operation()
           | canvas_operation()
+          | padding_operation()
+          | flatten_background_operation()
           | orientation_operation()
 
   @type error ::
@@ -119,7 +128,7 @@ defmodule ImagePlug.Plan.Operation do
          {:ok, height} <- tagged_canvas_dimension(height),
          {:ok, placement} <- tagged_canvas_placement(placement),
          :ok <- validate_canvas_dimension_pair(width, height, :canvas),
-         {:ok, :white} <- optional_exact(opts, :background, :white),
+         {:ok, fill} <- optional_fill(opts, :fill, :transparent),
          {:ok, :reject} <- optional_exact(opts, :overflow, :reject),
          {:ok, x_offset} <- signed_numeric(opts, :x_offset, 0.0),
          {:ok, y_offset} <- signed_numeric(opts, :y_offset, 0.0) do
@@ -128,7 +137,7 @@ defmodule ImagePlug.Plan.Operation do
          width: width,
          height: height,
          placement: placement,
-         background: :white,
+         fill: fill,
          overflow: :reject,
          x_offset: x_offset,
          y_offset: y_offset
@@ -141,6 +150,47 @@ defmodule ImagePlug.Plan.Operation do
         invalid(:canvas, [width, height, placement, opts])
     end
   end
+
+  @spec padding(term(), term(), term(), term(), keyword()) ::
+          {:ok, Padding.t()} | {:error, error()}
+  def padding(top, right, bottom, left, opts \\ [])
+
+  def padding(top, right, bottom, left, opts) when is_list(opts) do
+    with :ok <- validate_known_options(:padding, opts, @padding_keys),
+         {:ok, top} <- tagged_padding_side(top),
+         {:ok, right} <- tagged_padding_side(right),
+         {:ok, bottom} <- tagged_padding_side(bottom),
+         {:ok, left} <- tagged_padding_side(left),
+         :ok <- validate_positive_padding([top, right, bottom, left]),
+         :ok <- tagged_dpr_ratio(Keyword.get(opts, :pixel_ratio, {:ratio, 1, 1})),
+         {:ok, fill} <- optional_fill(opts, :fill, :transparent) do
+      {:ok,
+       %Padding{
+         top: top,
+         right: right,
+         bottom: bottom,
+         left: left,
+         pixel_ratio: Keyword.get(opts, :pixel_ratio, {:ratio, 1, 1}),
+         fill: fill
+       }}
+    else
+      {:error, {:unknown_operation_options, _operation, _keys} = reason} ->
+        {:error, reason}
+
+      {:error, _reason} ->
+        invalid(:padding, [top, right, bottom, left, opts])
+    end
+  end
+
+  @spec flatten_background(term()) :: {:ok, FlattenBackground.t()} | {:error, error()}
+  def flatten_background(%Color{} = color) do
+    case Color.valid?(color) do
+      true -> {:ok, %FlattenBackground{color: color}}
+      false -> invalid(:flatten_background, [color])
+    end
+  end
+
+  def flatten_background(color), do: invalid(:flatten_background, [color])
 
   @spec resize(Resize.mode(), term(), term(), keyword()) ::
           {:ok, Resize.t()} | {:error, error()}
@@ -191,6 +241,8 @@ defmodule ImagePlug.Plan.Operation do
   def semantic?(%CropGuided{} = operation), do: valid_crop_guided?(operation)
   def semantic?(%CropRegion{} = operation), do: valid_crop_region?(operation)
   def semantic?(%Canvas{} = operation), do: valid_canvas?(operation)
+  def semantic?(%Padding{} = operation), do: valid_padding?(operation)
+  def semantic?(%FlattenBackground{} = operation), do: valid_flatten_background?(operation)
   def semantic?(%{__struct__: @auto_orient_module}), do: true
   def semantic?(%{__struct__: @rotate_module, angle: angle}) when angle in @right_angles, do: true
   def semantic?(%{__struct__: @flip_module, axis: axis}) when axis in @flip_axes, do: true
@@ -247,7 +299,7 @@ defmodule ImagePlug.Plan.Operation do
          {:ok, height} <- tagged_canvas_dimension(operation.height),
          {:ok, _placement} <- tagged_canvas_placement(operation.placement),
          :ok <- validate_canvas_dimension_pair(width, height, :canvas),
-         {:ok, _background} <- member(operation.background, [:white]),
+         {:ok, _fill} <- tagged_fill(operation.fill),
          {:ok, _overflow} <- member(operation.overflow, [:reject]),
          :ok <- number(operation.x_offset),
          :ok <- number(operation.y_offset) do
@@ -256,6 +308,22 @@ defmodule ImagePlug.Plan.Operation do
       _error -> false
     end
   end
+
+  defp valid_padding?(%Padding{} = operation) do
+    with {:ok, top} <- tagged_padding_side(operation.top),
+         {:ok, right} <- tagged_padding_side(operation.right),
+         {:ok, bottom} <- tagged_padding_side(operation.bottom),
+         {:ok, left} <- tagged_padding_side(operation.left),
+         :ok <- validate_positive_padding([top, right, bottom, left]),
+         :ok <- tagged_dpr_ratio(operation.pixel_ratio),
+         {:ok, _fill} <- tagged_fill(operation.fill) do
+      true
+    else
+      _error -> false
+    end
+  end
+
+  defp valid_flatten_background?(%FlattenBackground{color: color}), do: Color.valid?(color)
 
   defp validate_known_options(operation, attrs, known_keys) do
     case Keyword.keys(attrs) -- known_keys do
@@ -444,6 +512,36 @@ defmodule ImagePlug.Plan.Operation do
        do: canonical_ratio(numerator, denominator)
 
   defp tagged_canvas_dimension(_dimension), do: {:error, :dimension}
+
+  defp tagged_padding_side({:px, value}) when is_integer(value) and value >= 0,
+    do: {:ok, {:px, value}}
+
+  defp tagged_padding_side(_side), do: {:error, :padding}
+
+  defp validate_positive_padding(sides) do
+    case Enum.any?(sides, fn {:px, value} -> value > 0 end) do
+      true -> :ok
+      false -> {:error, :padding}
+    end
+  end
+
+  defp optional_fill(attrs, key, default) do
+    case Keyword.fetch(attrs, key) do
+      {:ok, value} -> tagged_fill(value)
+      :error -> {:ok, default}
+    end
+  end
+
+  defp tagged_fill(:transparent), do: {:ok, :transparent}
+
+  defp tagged_fill({:solid, %Color{} = color}) do
+    case Color.valid?(color) do
+      true -> {:ok, {:solid, color}}
+      false -> {:error, :fill}
+    end
+  end
+
+  defp tagged_fill(_fill), do: {:error, :fill}
 
   defp tagged_canvas_placement(placement) when placement in @crop_anchor_guides,
     do: {:ok, placement}

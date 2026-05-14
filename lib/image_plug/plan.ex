@@ -16,6 +16,8 @@ defmodule ImagePlug.Plan do
       Operation.CropGuided,
       Operation.CropRegion,
       Operation.Canvas,
+      Operation.Padding,
+      Operation.FlattenBackground,
       Operation.Resize
     ]
 

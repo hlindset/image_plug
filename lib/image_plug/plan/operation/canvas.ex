@@ -3,11 +3,12 @@ defmodule ImagePlug.Plan.Operation.Canvas do
   Semantic operation that places the current image onto a canvas.
   """
 
-  @enforce_keys [:width, :height, :placement, :background, :overflow]
+  @enforce_keys [:width, :height, :placement, :fill, :overflow]
   defstruct @enforce_keys ++ [x_offset: 0.0, y_offset: 0.0]
 
   @type ratio :: {:ratio, non_neg_integer(), pos_integer()}
   @type dimension :: :auto | {:px, pos_integer()} | ratio()
+  @type fill :: :transparent | {:solid, ImagePlug.Plan.Color.t()}
 
   @type t :: %__MODULE__{
           width: dimension(),
@@ -23,7 +24,7 @@ defmodule ImagePlug.Plan.Operation.Canvas do
             | :bottom
             | :bottom_right
             | {:focal, ratio(), ratio()},
-          background: :white,
+          fill: fill(),
           overflow: :reject,
           x_offset: number(),
           y_offset: number()

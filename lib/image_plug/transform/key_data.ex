@@ -7,6 +7,7 @@ defmodule ImagePlug.Transform.KeyData do
   key data never depends on raw IEEE float representation.
   """
 
+  alias ImagePlug.Plan.Color
   alias ImagePlug.Plan.Operation.Canvas
   alias ImagePlug.Plan.Operation.CropGuided
   alias ImagePlug.Plan.Operation.CropRegion
@@ -55,7 +56,7 @@ defmodule ImagePlug.Transform.KeyData do
       width: data(operation.width),
       height: data(operation.height),
       placement: guide_data(operation.placement),
-      background: operation.background,
+      fill: fill_data(operation.fill),
       overflow: operation.overflow,
       x_offset: operation.x_offset,
       y_offset: operation.y_offset
@@ -120,6 +121,9 @@ defmodule ImagePlug.Transform.KeyData do
 
   defp optional_data(nil), do: nil
   defp optional_data(value), do: data(value)
+
+  defp fill_data(:transparent), do: :transparent
+  defp fill_data({:solid, %Color{} = color}), do: [type: :solid, color: Color.key_data(color)]
 
   defp guide_data(:center), do: :center
 
