@@ -64,6 +64,15 @@ defmodule ImagePlug.Transform.DecodePlannerTest do
     assert DecodePlanner.open_options([crop_region]) == [access: :random, fail_on: :error]
   end
 
+  test "composition operations force random access" do
+    assert {:ok, padding} = Operation.padding({:px, 1}, {:px, 0}, {:px, 0}, {:px, 0})
+    assert {:ok, red} = Operation.color(255, 0, 0)
+    assert {:ok, flatten} = Operation.flatten_background(red)
+
+    assert DecodePlanner.open_options([padding]) == [access: :random, fail_on: :error]
+    assert DecodePlanner.open_options([flatten]) == [access: :random, fail_on: :error]
+  end
+
   test "planned options include only access and fail_on" do
     assert {:ok, resize} = Operation.resize(:fit, {:px, 120}, :auto)
 

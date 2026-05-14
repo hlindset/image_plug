@@ -11,6 +11,8 @@ defmodule ImagePlug.Transform.DecodePlanner do
   alias ImagePlug.Plan.Operation.Canvas
   alias ImagePlug.Plan.Operation.CropGuided
   alias ImagePlug.Plan.Operation.CropRegion
+  alias ImagePlug.Plan.Operation.FlattenBackground
+  alias ImagePlug.Plan.Operation.Padding
   alias ImagePlug.Plan.Operation.Resize, as: PlanResize
   alias ImagePlug.Transform.Operation.AutoOrient
   alias ImagePlug.Transform.Operation.Flip
@@ -39,6 +41,8 @@ defmodule ImagePlug.Transform.DecodePlanner do
   defp access_requirement(%CropGuided{}), do: :random
   defp access_requirement(%CropRegion{}), do: :random
   defp access_requirement(%Canvas{}), do: :random
+  defp access_requirement(%Padding{}), do: :random
+  defp access_requirement(%FlattenBackground{}), do: :random
   defp access_requirement(%AutoOrient{}), do: :sequential
   defp access_requirement(%Rotate{}), do: :random
   defp access_requirement(%Flip{}), do: :random

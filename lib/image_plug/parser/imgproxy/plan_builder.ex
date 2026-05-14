@@ -457,7 +457,7 @@ defmodule ImagePlug.Parser.Imgproxy.PlanBuilder do
 
   defp dpr_ratio(%PipelineRequest{dpr: dpr}) do
     case Operation.resize(:fit, :auto, :auto, dpr: dpr) do
-      {:ok, %Operation.Resize{dpr: ratio}} -> ratio
+      {:ok, %{dpr: ratio}} -> ratio
     end
   end
 

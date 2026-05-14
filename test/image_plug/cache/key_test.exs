@@ -77,6 +77,25 @@ defmodule ImagePlug.Cache.KeyTest do
     operation
   end
 
+  defp padding_operation(top, right, bottom, left, attrs) do
+    assert {:ok, operation} =
+             Operation.padding(
+               {:px, top},
+               {:px, right},
+               {:px, bottom},
+               {:px, left},
+               attrs
+             )
+
+    operation
+  end
+
+  defp flatten_background_operation(red, green, blue) do
+    assert {:ok, color} = Operation.color(red, green, blue)
+    assert {:ok, operation} = Operation.flatten_background(color)
+    operation
+  end
+
   defp tagged_dimension(:auto), do: :full_axis
   defp tagged_dimension(pixels), do: {:px, pixels}
   defp tagged_resize_dimension(:auto), do: :auto
@@ -126,7 +145,7 @@ defmodule ImagePlug.Cache.KeyTest do
                  ]
                ]
              ],
-             transform: [key_data_version: 1],
+             transform: [key_data_version: 2],
              output: [
                mode: :explicit,
                format: :webp,
@@ -404,13 +423,85 @@ defmodule ImagePlug.Cache.KeyTest do
     refute key_a.hash == key_b.hash
   end
 
+  test "composition operations contribute canonical cache key data" do
+    key =
+      conn(:get, "/_/plain/images/cat.jpg")
+      |> build_key!(
+        plan(
+          pipelines: [
+            %Pipeline{
+              operations: [
+                padding_operation(1, 2, 3, 4, pixel_ratio: {:ratio, 3, 2}),
+                flatten_background_operation(255, 0, 0)
+              ]
+            }
+          ]
+        ),
+        "https://origin.test/images/cat.jpg"
+      )
+
+    assert key.data[:transform] == [key_data_version: 2]
+
+    assert key.data[:pipelines] == [
+             [
+               [
+                 op: :padding,
+                 top: [unit: :logical_px, value: 1],
+                 right: [unit: :logical_px, value: 2],
+                 bottom: [unit: :logical_px, value: 3],
+                 left: [unit: :logical_px, value: 4],
+                 pixel_ratio: [unit: :ratio, numerator: 3, denominator: 2],
+                 fill: :transparent
+               ],
+               [
+                 op: :flatten_background,
+                 color: [
+                   space: :srgb,
+                   red: 255,
+                   green: 0,
+                   blue: 0,
+                   alpha: [unit: :ratio, numerator: 1, denominator: 1]
+                 ]
+               ]
+             ]
+           ]
+  end
+
+  test "equivalent imgproxy aliases and color spellings produce identical cache keys" do
+    conn_a = conn(:get, "/_/bg:f00/pd:10/plain/images/cat.jpg")
+    conn_b = conn(:get, "/_/background:255:0:0/padding:10/plain/images/cat.jpg")
+
+    assert {:ok, plan_a} = Imgproxy.parse(conn_a, [])
+    assert {:ok, plan_b} = Imgproxy.parse(conn_b, [])
+
+    key_a = build_key!(conn_a, plan_a, "https://origin.test/images/cat.jpg")
+    key_b = build_key!(conn_b, plan_b, "https://origin.test/images/cat.jpg")
+
+    assert key_a.data[:pipelines] == key_b.data[:pipelines]
+    assert key_a.hash == key_b.hash
+  end
+
+  test "equivalent imgproxy composition options in different URL order produce identical cache keys" do
+    conn_a = conn(:get, "/_/bg:f00/pd:10/w:100/plain/images/cat.jpg")
+    conn_b = conn(:get, "/_/pd:10/w:100/bg:f00/plain/images/cat.jpg")
+
+    assert {:ok, plan_a} = Imgproxy.parse(conn_a, [])
+    assert {:ok, plan_b} = Imgproxy.parse(conn_b, [])
+
+    key_a = build_key!(conn_a, plan_a, "https://origin.test/images/cat.jpg")
+    key_b = build_key!(conn_b, plan_b, "https://origin.test/images/cat.jpg")
+
+    assert key_a.data[:pipelines] == key_b.data[:pipelines]
+    assert key_a.hash == key_b.hash
+  end
+
   test "transform key data version participates in the cache key" do
     conn = conn(:get, "/_/plain/images/cat.jpg")
     key = build_key!(conn, plan(), "https://origin.test/images/cat.jpg")
-    changed_data = Keyword.put(key.data, :transform, key_data_version: 2)
+    changed_data = Keyword.put(key.data, :transform, key_data_version: 3)
     changed_serialized_data = Key.serialize_key_data(changed_data)
 
-    assert key.data[:transform] == [key_data_version: 1]
+    assert key.data[:transform] == [key_data_version: 2]
     refute key.serialized_data == changed_serialized_data
 
     refute key.hash ==

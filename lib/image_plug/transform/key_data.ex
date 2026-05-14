@@ -11,6 +11,8 @@ defmodule ImagePlug.Transform.KeyData do
   alias ImagePlug.Plan.Operation.Canvas
   alias ImagePlug.Plan.Operation.CropGuided
   alias ImagePlug.Plan.Operation.CropRegion
+  alias ImagePlug.Plan.Operation.FlattenBackground
+  alias ImagePlug.Plan.Operation.Padding
   alias ImagePlug.Plan.Operation.Resize
   alias ImagePlug.Transform.Operation.AutoOrient
   alias ImagePlug.Transform.Operation.Flip
@@ -45,6 +47,8 @@ defmodule ImagePlug.Transform.KeyData do
           | Canvas.t()
           | CropGuided.t()
           | CropRegion.t()
+          | FlattenBackground.t()
+          | Padding.t()
           | Resize.t()
           | AutoOrient.t()
           | Rotate.t()
@@ -101,6 +105,22 @@ defmodule ImagePlug.Transform.KeyData do
       zoom_y: operation.zoom_y
     ]
     |> resize_rule_data(operation)
+  end
+
+  def data(%Padding{} = operation) do
+    [
+      op: :padding,
+      top: data(operation.top),
+      right: data(operation.right),
+      bottom: data(operation.bottom),
+      left: data(operation.left),
+      pixel_ratio: data(operation.pixel_ratio),
+      fill: fill_data(operation.fill)
+    ]
+  end
+
+  def data(%FlattenBackground{} = operation) do
+    [op: :flatten_background, color: Color.key_data(operation.color)]
   end
 
   def data(%AutoOrient{}), do: [op: :auto_orient]

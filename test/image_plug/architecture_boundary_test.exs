@@ -17,6 +17,7 @@ defmodule ImagePlug.ArchitectureBoundaryTest do
   @boundary_files %{
     ImagePlug.Cache => "lib/image_plug/cache.ex",
     ImagePlug.Origin => "lib/image_plug/origin.ex",
+    ImagePlug.Plan => "lib/image_plug/plan.ex",
     ImagePlug.Parser => "lib/image_plug/parser.ex",
     ImagePlug.Parser.Imgproxy => "lib/image_plug/parser/imgproxy.ex",
     ImagePlug.Request => "lib/image_plug/request.ex",
@@ -27,6 +28,8 @@ defmodule ImagePlug.ArchitectureBoundaryTest do
     :Canvas,
     :CropGuided,
     :CropRegion,
+    :FlattenBackground,
+    :Padding,
     :Resize
   ]
   @concrete_transform_names [
@@ -38,8 +41,10 @@ defmodule ImagePlug.ArchitectureBoundaryTest do
     :Resize,
     :Rotate,
     :Flip,
+    :FlattenBackground,
     :AutoOrient,
     :ExtendCanvas,
+    :Padding,
     :AdaptiveResize
   ]
   @orientation_transform_modules [
@@ -218,11 +223,40 @@ defmodule ImagePlug.ArchitectureBoundaryTest do
       ImagePlug.Transform.KeyData,
       ImagePlug.Transform.Operation.Resize,
       ImagePlug.Transform.Operation.ExtendCanvas,
+      ImagePlug.Transform.Operation.Padding,
+      ImagePlug.Transform.Operation.FlattenBackground,
       ImagePlug.Transform.Operation.AutoOrient,
       ImagePlug.Transform.Operation.Rotate,
       ImagePlug.Transform.Operation.Flip,
       ImagePlug.Transform.Operation.Crop
     ])
+  end
+
+  test "plan boundary exports canonical composition modules and remains dependency-free" do
+    plan = boundary_declaration(ImagePlug.Plan)
+
+    assert_boundary_deps(plan, [])
+
+    assert_boundary_exports_include(plan, [
+      ImagePlug.Plan.Color,
+      ImagePlug.Plan.Operation.Padding,
+      ImagePlug.Plan.Operation.FlattenBackground
+    ])
+  end
+
+  test "external color dependency stays behind the Plan color module" do
+    allowed_files = MapSet.new(["lib/image_plug/plan/color.ex"])
+
+    violations =
+      for file <- Path.wildcard("lib/**/*.ex"),
+          not MapSet.member?(allowed_files, file),
+          line <- file |> File.read!() |> String.split("\n") |> Enum.with_index(1),
+          external_color_reference?(line) do
+        {text, number} = line
+        "#{file}:#{number} must not call or name external Color dependency APIs: #{text}"
+      end
+
+    assert violations == []
   end
 
   test "cache key construction does not depend on post-fetch transform execution state" do
@@ -300,6 +334,11 @@ defmodule ImagePlug.ArchitectureBoundaryTest do
     missing_exports = Enum.sort(expected_exports) -- declaration.exports
 
     assert missing_exports == []
+  end
+
+  defp external_color_reference?({line, _number}) do
+    String.contains?(line, "Color.SRGB") or
+      String.contains?(line, "Color.new")
   end
 
   defp concrete_transform_modules do
