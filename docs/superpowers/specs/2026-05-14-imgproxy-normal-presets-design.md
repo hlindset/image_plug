@@ -16,7 +16,8 @@ The compatibility target is imgproxy's normal processing URL behavior:
 - A configured `default` preset applies automatically to every normal
   processing request before URL options.
 - Presets may reference other presets.
-- Recursive preset references are rejected before cache lookup or origin fetch.
+- Recursive preset re-entry is detected during expansion and skipped, matching
+  imgproxy behavior.
 - Presets may contain pipeline separators (`-`) when their semantics can be
   merged into ImagePlug's existing pipeline groups.
 
@@ -100,15 +101,14 @@ the `imgproxy: [presets: ...]` option. It also does not support custom argument
 separators.
 
 Configuration validation should tokenize preset definitions at
-`ImagePlug.init/1` time so malformed preset definitions and preset graph cycles
-fail at startup. It should reject:
+`ImagePlug.init/1` time so malformed preset definitions fail at startup. It
+should reject:
 
 - non-map `:presets`
 - non-binary or empty preset names
 - non-binary or empty preset values
 - preset values containing malformed preset syntax, such as empty `preset`/`pr`
   arguments or other shapes that cannot be represented as option groups
-- recursive preset references, including cycles that involve `default`
 
 Validation should not reject a preset only because it contains a non-preset
 option that is currently unsupported by ImagePlug. Unsupported non-preset
@@ -118,6 +118,11 @@ from local imgproxy startup validation, which applies all configured presets at
 startup. ImagePlug is a greenfield library with a smaller supported API surface;
 unused compatibility presets should not force support or startup failure for
 options ImagePlug does not yet implement.
+
+Validation should also allow recursive preset graphs. Current imgproxy detects
+recursive re-entry at expansion time, logs a warning, and skips the repeated
+preset instead of failing startup or the request. ImagePlug should match that
+request behavior, though logging is optional for this slice.
 
 ## Parsing And Expansion
 
@@ -149,14 +154,15 @@ default group, and later default groups are queued at the start of later URL
 groups or become trailing groups if the URL has fewer groups.
 
 Unknown preset names return a parser error such as `{:unknown_preset, name}`.
-Direct and indirect recursion return a parser error such as
-`{:recursive_preset, path}`, where `path` describes the cycle encountered.
 These parser errors render as existing 400 parser failures and occur before
 origin or cache side effects.
 
-Runtime expansion should still track the active preset stack even though
-configuration validation rejects cycles. That keeps `parse/2` robust if future
-callers provide already-tokenized preset data or bypass `ImagePlug.init/1`.
+Runtime expansion tracks the active preset stack. If expansion encounters a
+preset name that is already active, it skips that nested preset and continues
+with the rest of the current preset or URL option list. For example,
+`a=pr:a/w:100` expands as if the nested `pr:a` were absent and then applies
+`w:100`; `a=pr:b/w:100` and `b=pr:a/h:200` skip the recursive `pr:a` while
+continuing to apply the non-recursive options reachable before and after it.
 
 Unsupported options inside a used preset are handled exactly like unsupported
 options in a URL. For example, a used `sharp=sharpen:0.7` preset remains a 400
@@ -216,22 +222,26 @@ return HTTP 400 for normal parser failures.
 
 Required failures:
 
-- Missing preset name in `preset` or `pr` returns
-  `{:invalid_option_segment, segment}`.
+- Missing all preset arguments, such as `preset` or `pr` with no `:` argument
+  separator, returns `{:invalid_option_segment, segment}`.
+- Empty preset arguments, such as `preset:`, are treated as unknown preset
+  names and return `{:unknown_preset, ""}`. This matches imgproxy's normal
+  argument splitting behavior.
 - Unknown preset returns `{:unknown_preset, name}`.
-- Direct recursion, such as `a=pr:a`, returns
-  `{:recursive_preset, ["a", "a"]}` or an equivalent cycle-bearing error.
-- Indirect recursion, such as `a=pr:b` and `b=pr:a`, returns
-  `{:recursive_preset, ["a", "b", "a"]}` or an equivalent cycle-bearing error.
 - Unsupported options in a used preset return the same unsupported option errors
   as direct URL usage.
 - Parser and planner validation failures return before origin fetch and cache
   lookup.
 
-ImagePlug intentionally differs from current upstream imgproxy on recursion:
-local imgproxy code warns and skips recursive re-entry, while this slice rejects
-recursive preset references because the requested ImagePlug contract requires a
-pre-side-effect rejection.
+Required recursive behavior:
+
+- Direct recursion, such as `a=pr:a`, skips the nested `pr:a` and continues.
+- Indirect recursion, such as `a=pr:b` and `b=pr:a`, skips the nested repeated
+  preset when it is encountered and continues.
+
+ImagePlug intentionally matches current imgproxy recursion behavior: recursive
+preset re-entry is detected during expansion and skipped instead of becoming a
+request error.
 
 ## Test Plan
 
@@ -243,7 +253,8 @@ Add focused ExUnit coverage for parser behavior:
 - URL options can override fields set by `default`.
 - Presets can reference other presets.
 - Unknown presets fail before plan construction.
-- Direct and indirect recursive presets fail.
+- Direct and indirect recursive presets skip recursive re-entry and still apply
+  non-recursive options in the expansion path.
 - Unsupported options inside a used preset fail with parser errors.
 - Presets with pipeline separators merge with URL pipeline groups using the
   imgproxy documented example.
@@ -251,8 +262,7 @@ Add focused ExUnit coverage for parser behavior:
 
 Add request-safety coverage:
 
-- Unknown or recursive preset requests return before cache lookup and origin
-  fetch.
+- Unknown preset requests return before cache lookup and origin fetch.
 - A used preset containing unsupported options returns before cache lookup and
   origin fetch.
 
@@ -268,10 +278,10 @@ Add cache-key coverage:
 Update docs:
 
 - `docs/imgproxy_support_matrix.md`: mark normal processing named presets,
-  multiple preset arguments, default preset, recursion rejection, and pipeline
-  preset merging as supported or partial as appropriate. Keep presets-only mode,
-  info endpoint presets, file loading, and environment-variable parity out of
-  scope or missing.
+  multiple preset arguments, default preset, recursive re-entry skipping, and
+  pipeline preset merging as supported or partial as appropriate. Keep
+  presets-only mode, info endpoint presets, file loading, and environment-
+  variable parity out of scope or missing.
 - `docs/imgproxy_path_api.md`: document configuration shape, `preset`/`pr`
   grammar, default expansion, pipeline merge behavior, error behavior, and cache
   key semantics.
