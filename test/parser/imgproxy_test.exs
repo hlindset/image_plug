@@ -89,6 +89,17 @@ defmodule ImagePlug.Parser.ImgproxyTest do
              )
 
     assert resize.width == pixels(300)
+
+    assert {:ok, %Plan{pipelines: [%Pipeline{operations: [%Operation.Resize{} = resize]}]}} =
+             Imgproxy.parse(
+               conn(
+                 :get,
+                 "/NSbxuO5fQqTgDkui_3o6ho1UCFFcmzsugB2Uksho49o/w%3a300/plain/images/cat.jpg"
+               ),
+               signed_parser_opts()
+             )
+
+    assert resize.width == pixels(300)
   end
 
   test "fixPath repairs normalized plain URL schemes before verification and parsing" do

@@ -219,7 +219,7 @@ defmodule ImagePlug.Parser.Imgproxy do
     end
   end
 
-  defp fix_options_path(options), do: String.replace(options, "%3A", ":")
+  defp fix_options_path(options), do: String.replace(options, ~r/%3a/i, ":")
 
   defp fix_plain_url_path(plain_url) do
     case Regex.run(~r/^(\S+):\/([^\/])/, plain_url) do

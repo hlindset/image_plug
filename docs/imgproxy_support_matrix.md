@@ -172,7 +172,7 @@ before origin fetch or cache lookup; they are not silently ignored.
 
 The highest-value additions that fit ImagePlug's current architecture are:
 
-1. Base64 encoded source URLs, if ImagePlug should support absolute upstream URLs.
+1. Base64-encoded source URLs, if ImagePlug should support absolute upstream URLs.
 2. Presets, implemented as parser-layer expansion into the existing request model.
 3. Background and padding, likely through a richer product-neutral canvas operation.
 4. Blur and sharpen as product-neutral transform operations.
