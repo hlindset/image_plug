@@ -145,7 +145,7 @@ defmodule ImagePlug.Cache.KeyTest do
                  ]
                ]
              ],
-             transform: [key_data_version: 2],
+             transform: [key_data_version: 1],
              output: [
                mode: :explicit,
                format: :webp,
@@ -440,7 +440,7 @@ defmodule ImagePlug.Cache.KeyTest do
         "https://origin.test/images/cat.jpg"
       )
 
-    assert key.data[:transform] == [key_data_version: 2]
+    assert key.data[:transform] == [key_data_version: 1]
 
     assert key.data[:pipelines] == [
              [
@@ -498,10 +498,10 @@ defmodule ImagePlug.Cache.KeyTest do
   test "transform key data version participates in the cache key" do
     conn = conn(:get, "/_/plain/images/cat.jpg")
     key = build_key!(conn, plan(), "https://origin.test/images/cat.jpg")
-    changed_data = Keyword.put(key.data, :transform, key_data_version: 3)
+    changed_data = Keyword.put(key.data, :transform, key_data_version: 2)
     changed_serialized_data = Key.serialize_key_data(changed_data)
 
-    assert key.data[:transform] == [key_data_version: 2]
+    assert key.data[:transform] == [key_data_version: 1]
     refute key.serialized_data == changed_serialized_data
 
     refute key.hash ==

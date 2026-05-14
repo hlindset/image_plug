@@ -12,7 +12,7 @@ defmodule ImagePlug.Cache.Key do
   alias ImagePlug.Transform.KeyData
 
   @schema_version 2
-  @transform_key_data_version 2
+  @transform_key_data_version 1
   @enforce_keys [:hash, :data, :serialized_data]
 
   defstruct @enforce_keys
