@@ -69,6 +69,40 @@ Pipeline separators scope transform fields to each pipeline group. Duplicate tra
 
 Generic quality and format-specific quality are separate canonical fields.
 
+## Presets
+
+Normal processing URLs support configured imgproxy presets:
+
+```elixir
+ImagePlug.init(
+  parser: ImagePlug.Parser.Imgproxy,
+  root_url: "https://origin.example",
+  imgproxy: [
+    presets: %{
+      "default" => "rt:fill/el:1",
+      "thumb" => "rs:fit:120:120",
+      "sharp-thumb" => "pr:thumb/q:82",
+      "responsive" => "w:900/-/w:450"
+    }
+  ]
+)
+```
+
+`preset` and `pr` accept one or more preset names in a single option segment:
+
+    /_/preset:thumb/plain/images/cat.jpg
+    /_/pr:thumb:sharp/plain/images/cat.jpg
+
+Preset expansion happens inside `ImagePlug.Parser.Imgproxy` before plan construction, source identity resolution, cache lookup, or origin fetch. Preset names are not stored in `ImagePlug.Plan`, runtime state, output negotiation, transform state, or cache data. A request using `pr:thumb` and a request spelling out the same expanded options share the same cache key for the same resolved origin identity and vary inputs.
+
+A configured preset named `default` is applied to every normal processing request before URL options. URL assignments in the same merged pipeline group can override fields from `default`.
+
+Presets may reference other presets. Recursive re-entry is skipped, matching imgproxy behavior: if `a` expands to `pr:a/w:100`, the nested `pr:a` is ignored and `w:100` still applies.
+
+Preset values may contain `-` pipeline separators. The first preset group is applied to the current URL pipeline group. Later preset groups are queued for following URL groups; URL options in those later groups can override queued preset fields. Remaining queued groups become trailing pipelines.
+
+This slice does not support presets-only mode, info endpoint presets, `IMGPROXY_PRESETS`, `IMGPROXY_PRESETS_SEPARATOR`, `IMGPROXY_PRESETS_PATH`, preset file loading, or custom argument separators.
+
 ## Supported Options And Aliases
 
 | Concept | Options | Accepted values |
@@ -97,6 +131,7 @@ Generic quality and format-specific quality are separate canonical fields.
 | Expires | `expires`, `exp` | Unix timestamp integer |
 | Filename | `filename`, `fn` | filename stem, optional encoded flag |
 | Attachment disposition | `return_attachment`, `att` | boolean |
+| Preset | `preset`, `pr` | one or more configured preset names |
 | Plain source output extension | source path `@extension` | `webp`, `avif`, `jpeg`, `jpg`, `png`, `best`; `best` is rejected by planning |
 
 Anchor gravity values are `ce`, `no`, `so`, `ea`, `we`, `noea`, `nowe`, `soea`, and `sowe`.
@@ -190,6 +225,9 @@ Unsupported imgproxy options are not silently ignored. Options outside this supp
 | Known imgproxy option outside this Imgproxy slice | HTTP 400 before origin fetch/cache lookup |
 | Supported option with invalid value | HTTP 400 before origin fetch/cache lookup |
 | Valid syntax with unsupported combined semantics | HTTP 400 before origin fetch/cache lookup |
+| Unknown preset | HTTP 400 before origin fetch/cache lookup |
+| Recursive preset reference | Recursive re-entry is skipped and remaining reachable options continue |
+| Unsupported option inside a used preset | HTTP 400 before origin fetch/cache lookup |
 | Duplicate canonical field | Last value wins |
 
 Unsupported examples include `raw`, `max_bytes`, `max_src_resolution`, `max_src_file_size`, `crop_aspect_ratio`, `format:auto`, `g:sm`, and `c:<width>:<height>:sm`.
