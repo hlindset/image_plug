@@ -483,16 +483,87 @@ defmodule ImagePlug.ImagePlugTest do
         ]
       )
 
-    assert [
-             signature: %Signature{
-               mode: :enabled,
-               key_salt_pairs: [{"test-key", "test-salt"}],
-               signature_size: 8,
-               trusted_signatures: trusted_signatures
-             }
-           ] = Keyword.fetch!(opts, :imgproxy)
+    imgproxy = Keyword.fetch!(opts, :imgproxy)
+
+    assert %Signature{
+             mode: :enabled,
+             key_salt_pairs: [{"test-key", "test-salt"}],
+             signature_size: 8,
+             trusted_signatures: trusted_signatures
+           } = Keyword.fetch!(imgproxy, :signature)
 
     assert MapSet.equal?(trusted_signatures, MapSet.new(["local-dev!"]))
+  end
+
+  test "init normalizes imgproxy presets through the imgproxy parser" do
+    opts =
+      ImagePlug.init(
+        parser: ImagePlug.Parser.Imgproxy,
+        root_url: "https://example.test",
+        imgproxy: [
+          presets: %{
+            "default" => "rt:fill/el:1",
+            "thumb" => "rs:fit:120:120",
+            "nested" => "pr:thumb/q:82",
+            "responsive" => "w:900/-/w:450",
+            "future" => "sharpen:0.7"
+          }
+        ]
+      )
+
+    imgproxy = Keyword.fetch!(opts, :imgproxy)
+
+    assert %Signature{mode: :disabled} = Keyword.fetch!(imgproxy, :signature)
+    assert %ImagePlug.Parser.Imgproxy.Presets{} = presets = Keyword.fetch!(imgproxy, :presets)
+
+    assert {:ok, [["rt:fill", "el:1"]]} =
+             ImagePlug.Parser.Imgproxy.Presets.fetch(presets, "default")
+
+    assert {:ok, [["rs:fit:120:120"]]} =
+             ImagePlug.Parser.Imgproxy.Presets.fetch(presets, "thumb")
+
+    assert {:ok, [["w:900"], ["w:450"]]} =
+             ImagePlug.Parser.Imgproxy.Presets.fetch(presets, "responsive")
+
+    assert {:ok, [["sharpen:0.7"]]} =
+             ImagePlug.Parser.Imgproxy.Presets.fetch(presets, "future")
+  end
+
+  test "init rejects malformed imgproxy presets before requests" do
+    invalid_configs = [
+      [presets: []],
+      [presets: %{"" => "w:100"}],
+      [presets: %{:thumb => "w:100"}],
+      [presets: %{"thumb" => ""}],
+      [presets: %{"thumb" => 100}],
+      [presets: %{"thumb" => "pr"}],
+      [presets: %{"thumb" => "pr:"}],
+      [presets: %{"thumb" => "pr: "}],
+      [presets: %{"thumb" => "pr: other"}],
+      [presets: %{"thumb" => "pr:other "}],
+      [presets: %{"thumb" => "w:100//h:100"}],
+      [presets: %ImagePlug.Parser.Imgproxy.Presets{definitions: %{"thumb" => [["w:100"]]}}]
+    ]
+
+    for imgproxy <- invalid_configs do
+      assert_raise ArgumentError, ~r/invalid imgproxy config/, fn ->
+        ImagePlug.init(
+          parser: ImagePlug.Parser.Imgproxy,
+          root_url: "https://example.test",
+          imgproxy: imgproxy
+        )
+      end
+    end
+  end
+
+  test "init keeps rejecting unknown top-level imgproxy options after presets are added" do
+    assert_raise ArgumentError, ~r/unknown options.*:trusted_signatures/, fn ->
+      ImagePlug.init(
+        parser: ImagePlug.Parser.Imgproxy,
+        root_url: "https://example.test",
+        imgproxy: [presets: %{}, trusted_signatures: ["local-dev!"]]
+      )
+    end
   end
 
   test "init rejects malformed imgproxy signature options before requests" do
@@ -1503,6 +1574,72 @@ defmodule ImagePlug.ImagePlugTest do
 
     flush_cache_probe(cache_probe)
     assert conn.status == 400
+    refute_received {:cache_get, _key}
+    refute_received :origin_was_called
+  end
+
+  test "does not touch cache or origin when imgproxy preset is unknown" do
+    conn = conn(:get, "/_/pr:missing/plain/images/cat-300.jpg")
+    cache_probe = start_cache_probe()
+
+    opts =
+      ImagePlug.init(
+        root_url: "http://origin.test",
+        parser: ImagePlug.Parser.Imgproxy,
+        imgproxy: [presets: %{"thumb" => "w:100"}],
+        cache: {CacheProbe, message_target: cache_probe},
+        origin_req_options: [plug: OriginShouldNotBeCalled]
+      )
+
+    conn = ImagePlug.call(conn, opts)
+
+    flush_cache_probe(cache_probe)
+    assert conn.status == 400
+    assert conn.resp_body =~ "unknown_preset"
+    refute_received {:cache_get, _key}
+    refute_received :origin_was_called
+  end
+
+  test "does not touch cache or origin when a used imgproxy preset contains unsupported options" do
+    conn = conn(:get, "/_/pr:future/plain/images/cat-300.jpg")
+    cache_probe = start_cache_probe()
+
+    opts =
+      ImagePlug.init(
+        root_url: "http://origin.test",
+        parser: ImagePlug.Parser.Imgproxy,
+        imgproxy: [presets: %{"future" => "sharpen:0.7"}],
+        cache: {CacheProbe, message_target: cache_probe},
+        origin_req_options: [plug: OriginShouldNotBeCalled]
+      )
+
+    conn = ImagePlug.call(conn, opts)
+
+    flush_cache_probe(cache_probe)
+    assert conn.status == 400
+    assert conn.resp_body =~ "unknown_option"
+    refute_received {:cache_get, _key}
+    refute_received :origin_was_called
+  end
+
+  test "does not touch cache or origin when a used imgproxy preset reaches planner rejection" do
+    conn = conn(:get, "/_/pr:smart/plain/images/cat-300.jpg")
+    cache_probe = start_cache_probe()
+
+    opts =
+      ImagePlug.init(
+        root_url: "http://origin.test",
+        parser: ImagePlug.Parser.Imgproxy,
+        imgproxy: [presets: %{"smart" => "g:sm"}],
+        cache: {CacheProbe, message_target: cache_probe},
+        origin_req_options: [plug: OriginShouldNotBeCalled]
+      )
+
+    conn = ImagePlug.call(conn, opts)
+
+    flush_cache_probe(cache_probe)
+    assert conn.status == 400
+    assert conn.resp_body =~ "unsupported_gravity"
     refute_received {:cache_get, _key}
     refute_received :origin_was_called
   end

@@ -661,4 +661,23 @@ defmodule ImagePlug.Cache.KeyTest do
     refute inspect(signed_key.data) =~ "NSbxuO5fQqTgDkui"
     refute inspect(trusted_key.data) =~ "local-dev"
   end
+
+  test "imgproxy preset and equivalent expanded options produce identical cache keys" do
+    conn = conn(:get, "/_/pr:thumb/plain/images/cat.jpg")
+    expanded_conn = conn(:get, "/_/rt:fill/w:120/h:90/q:82/plain/images/cat.jpg")
+
+    opts = [
+      imgproxy: Imgproxy.validate_options!(presets: %{"thumb" => "rt:fill/w:120/h:90/q:82"})
+    ]
+
+    assert {:ok, preset_plan} = Imgproxy.parse(conn, opts)
+    assert {:ok, expanded_plan} = Imgproxy.parse(expanded_conn, [])
+
+    assert {:ok, preset_key} = Key.build(conn, preset_plan, "origin-id", [])
+    assert {:ok, expanded_key} = Key.build(expanded_conn, expanded_plan, "origin-id", [])
+
+    assert preset_key.data == expanded_key.data
+    assert preset_key.hash == expanded_key.hash
+    refute inspect(preset_key.data) =~ "thumb"
+  end
 end

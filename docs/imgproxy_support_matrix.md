@@ -146,7 +146,7 @@ before origin fetch or cache lookup; they are not silently ignored.
 | `expires` | `exp` | Supported | Rejects expired requests before origin/cache side effects. |
 | `filename` | `fn` | Supported | Percent-decoded or URL-safe Base64 filename stem. |
 | `return_attachment` | `att` | Supported | Controls `Content-Disposition` disposition. |
-| `preset` | `pr` | Missing | No preset registry, default preset, or presets-only mode. |
+| `preset` | `pr` | Partial | Normal processing URLs support configured named presets, multiple names in one segment, `default` automatic expansion, nested presets with recursive re-entry skipped, and documented chained-pipeline merge semantics. Presets-only mode, info endpoint presets, env/file loading, and custom separators are not supported. |
 | `hashsum` | `hs` | Missing | Pro source integrity check. |
 
 ## Security Limit Overrides
@@ -163,21 +163,24 @@ before origin fetch or cache lookup; they are not silently ignored.
 
 | Imgproxy feature | Status | Notes |
 | --- | --- | --- |
-| Named presets | Missing | No parser option or configured preset expansion. |
-| `default` preset | Missing | No automatic preset injection. |
-| Presets-only mode | Missing | No alternate URL grammar for preset lists. |
+| Named presets | Supported | Configured through `imgproxy: [presets: %{name => options}]`; expanded while parsing normal processing URLs. |
+| Multiple preset arguments | Supported | `pr:thumb:sharp` applies each named preset in order. |
+| `default` preset | Supported | Applied before URL options on every normal processing request. URL fields can override fields in the same merged group. |
+| Presets referencing presets | Supported | Presets may use `preset`/`pr`; recursive re-entry is skipped to match imgproxy behavior. |
+| Preset chained pipelines | Partial | Supports documented Pro merge semantics for preset values containing `-` when the referenced options are otherwise supported by ImagePlug. |
+| Presets-only mode | Missing | Deliberately excluded from this slice. |
 | Info endpoint presets | Missing | ImagePlug does not currently expose imgproxy info endpoints. |
+| Preset env/file loading | Missing | `IMGPROXY_PRESETS`, `IMGPROXY_PRESETS_SEPARATOR`, and `IMGPROXY_PRESETS_PATH` parity is excluded; pass already-materialized presets through config instead. |
 
 ## Suggested Next Additions
 
 The highest-value additions that fit ImagePlug's current architecture are:
 
 1. Base64-encoded source URLs, if ImagePlug should support absolute upstream URLs.
-2. Presets, implemented as parser-layer expansion into the existing request model.
-3. Background and padding, likely through a richer product-neutral canvas operation.
-4. Blur and sharpen as product-neutral transform operations.
-5. Metadata stripping and color profile policy under output/encoding.
-6. `max_bytes`, if iterative encoding is acceptable for the runtime cost.
+2. Background and padding, likely through a richer product-neutral canvas operation.
+3. Blur and sharpen as product-neutral transform operations.
+4. Metadata stripping and color profile policy under output/encoding.
+5. `max_bytes`, if iterative encoding is acceptable for the runtime cost.
 
 Object detection, SVG style injection, custom watermark sources, and advanced
 encoder knobs are missing today. If implemented, they should stay isolated in

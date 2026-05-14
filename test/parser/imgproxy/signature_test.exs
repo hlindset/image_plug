@@ -5,31 +5,30 @@ defmodule ImagePlug.Parser.Imgproxy.SignatureTest do
   alias ImagePlug.Parser.Imgproxy.Signature
 
   test "imgproxy parser exposes parser-owned option validation" do
-    assert [signature: %Signature{mode: :disabled}] = Imgproxy.validate_options!([])
+    options = Imgproxy.validate_options!([])
+
+    assert %Signature{mode: :disabled} = Keyword.fetch!(options, :signature)
+    assert %ImagePlug.Parser.Imgproxy.Presets{} = Keyword.fetch!(options, :presets)
   end
 
-  describe "validate_options!/1" do
+  describe "normalize_config!/1" do
     test "returns disabled config when imgproxy signature config is absent" do
-      assert [signature: %Signature{mode: :disabled, key_salt_pairs: [], signature_size: 32}] =
-               Signature.validate_options!([])
+      assert %Signature{mode: :disabled, key_salt_pairs: [], signature_size: 32} =
+               Signature.normalize_config!(nil)
     end
 
     test "normalizes hex key and salt pairs" do
-      assert [
-               signature: %Signature{
-                 mode: :enabled,
-                 key_salt_pairs: [{"test-key", "test-salt"}],
+      assert %Signature{
+               mode: :enabled,
+               key_salt_pairs: [{"test-key", "test-salt"}],
+               signature_size: 8,
+               trusted_signatures: trusted_signatures
+             } =
+               Signature.normalize_config!(
+                 keys: ["746573742d6b6579"],
+                 salts: ["746573742d73616c74"],
                  signature_size: 8,
-                 trusted_signatures: trusted_signatures
-               }
-             ] =
-               Signature.validate_options!(
-                 signature: [
-                   keys: ["746573742d6b6579"],
-                   salts: ["746573742d73616c74"],
-                   signature_size: 8,
-                   trusted_signatures: ["local-dev!"]
-                 ]
+                 trusted_signatures: ["local-dev!"]
                )
 
       assert MapSet.equal?(trusted_signatures, MapSet.new(["local-dev!"]))
@@ -37,29 +36,11 @@ defmodule ImagePlug.Parser.Imgproxy.SignatureTest do
 
     test "rejects unknown signature options" do
       assert_raise ArgumentError, ~r/unknown options.*:trusted_signature/, fn ->
-        Signature.validate_options!(
-          signature: [
-            keys: ["74657374"],
-            salts: ["73616c74"],
-            trusted_signature: ["typo"]
-          ]
+        Signature.normalize_config!(
+          keys: ["74657374"],
+          salts: ["73616c74"],
+          trusted_signature: ["typo"]
         )
-      end
-    end
-
-    test "rejects unknown top-level imgproxy options" do
-      assert_raise ArgumentError, ~r/unknown options.*:trusted_signatures/, fn ->
-        Signature.validate_options!(trusted_signatures: ["local-dev!"])
-      end
-
-      assert_raise ArgumentError, ~r/unknown options.*:keys/, fn ->
-        Signature.validate_options!(keys: ["74657374"], salts: ["73616c74"])
-      end
-    end
-
-    test "rejects explicit nil signature config" do
-      assert_raise ArgumentError, ~r/invalid value for :signature option/, fn ->
-        Signature.validate_options!(signature: nil)
       end
     end
 
@@ -67,25 +48,23 @@ defmodule ImagePlug.Parser.Imgproxy.SignatureTest do
       assert_raise ArgumentError,
                    ~r/at least one key\/salt pair or trusted signature is required/,
                    fn ->
-                     Signature.validate_options!(signature: [keys: [], salts: []])
+                     Signature.normalize_config!(keys: [], salts: [])
                    end
     end
 
     test "supports trusted-only signing config" do
-      assert [
-               signature: %Signature{
-                 mode: :enabled,
-                 key_salt_pairs: [],
-                 trusted_signatures: trusted_signatures
-               }
-             ] = Signature.validate_options!(signature: [trusted_signatures: ["local-dev!"]])
+      assert %Signature{
+               mode: :enabled,
+               key_salt_pairs: [],
+               trusted_signatures: trusted_signatures
+             } = Signature.normalize_config!(trusted_signatures: ["local-dev!"])
 
       assert MapSet.equal?(trusted_signatures, MapSet.new(["local-dev!"]))
     end
 
     test "rejects mismatched key and salt counts" do
       assert_raise ArgumentError, ~r/keys and salts must have the same length/, fn ->
-        Signature.validate_options!(signature: [keys: ["74657374"], salts: []])
+        Signature.normalize_config!(keys: ["74657374"], salts: [])
       end
     end
 
@@ -99,7 +78,7 @@ defmodule ImagePlug.Parser.Imgproxy.SignatureTest do
         assert_raise ArgumentError,
                      ~r/keys and salts must be non-empty hex-encoded strings/,
                      fn ->
-                       Signature.validate_options!(signature: config)
+                       Signature.normalize_config!(config)
                      end
       end
     end
@@ -107,23 +86,19 @@ defmodule ImagePlug.Parser.Imgproxy.SignatureTest do
     test "rejects signature sizes outside 1..32" do
       for signature_size <- [0, 33] do
         assert_raise ArgumentError, ~r/signature_size must be an integer from 1 to 32/, fn ->
-          Signature.validate_options!(
-            signature: [
-              keys: ["74657374"],
-              salts: ["73616c74"],
-              signature_size: signature_size
-            ]
+          Signature.normalize_config!(
+            keys: ["74657374"],
+            salts: ["73616c74"],
+            signature_size: signature_size
           )
         end
       end
 
       assert_raise ArgumentError, ~r/invalid value for :signature_size option/, fn ->
-        Signature.validate_options!(
-          signature: [
-            keys: ["74657374"],
-            salts: ["73616c74"],
-            signature_size: "8"
-          ]
+        Signature.normalize_config!(
+          keys: ["74657374"],
+          salts: ["73616c74"],
+          signature_size: "8"
         )
       end
     end
@@ -133,12 +108,10 @@ defmodule ImagePlug.Parser.Imgproxy.SignatureTest do
         assert_raise ArgumentError,
                      ~r/trusted_signatures must be a list of non-empty strings/,
                      fn ->
-                       Signature.validate_options!(
-                         signature: [
-                           keys: ["74657374"],
-                           salts: ["73616c74"],
-                           trusted_signatures: trusted_signatures
-                         ]
+                       Signature.normalize_config!(
+                         keys: ["74657374"],
+                         salts: ["73616c74"],
+                         trusted_signatures: trusted_signatures
                        )
                      end
       end
@@ -157,21 +130,17 @@ defmodule ImagePlug.Parser.Imgproxy.SignatureTest do
     end
 
     test "matches upstream full and truncated primitive HMAC vectors" do
-      [signature: full] =
-        Signature.validate_options!(
-          signature: [
-            keys: ["746573742d6b6579"],
-            salts: ["746573742d73616c74"]
-          ]
+      full =
+        Signature.normalize_config!(
+          keys: ["746573742d6b6579"],
+          salts: ["746573742d73616c74"]
         )
 
-      [signature: truncated] =
-        Signature.validate_options!(
-          signature: [
-            keys: ["746573742d6b6579"],
-            salts: ["746573742d73616c74"],
-            signature_size: 8
-          ]
+      truncated =
+        Signature.normalize_config!(
+          keys: ["746573742d6b6579"],
+          salts: ["746573742d73616c74"],
+          signature_size: 8
         )
 
       assert :ok = Signature.verify("dtLwhdnPPiu_epMl1LrzheLpvHas-4mwvY6L3Z8WwlY", "asd", full)
@@ -180,12 +149,10 @@ defmodule ImagePlug.Parser.Imgproxy.SignatureTest do
     end
 
     test "matches upstream key rotation vectors" do
-      [signature: config] =
-        Signature.validate_options!(
-          signature: [
-            keys: ["746573742d6b6579", "746573742d6b657932"],
-            salts: ["746573742d73616c74", "746573742d73616c7432"]
-          ]
+      config =
+        Signature.normalize_config!(
+          keys: ["746573742d6b6579", "746573742d6b657932"],
+          salts: ["746573742d73616c74", "746573742d73616c7432"]
         )
 
       assert :ok = Signature.verify("dtLwhdnPPiu_epMl1LrzheLpvHas-4mwvY6L3Z8WwlY", "asd", config)
@@ -193,12 +160,7 @@ defmodule ImagePlug.Parser.Imgproxy.SignatureTest do
     end
 
     test "accepts exact trusted signatures before Base64 decoding" do
-      [signature: config] =
-        Signature.validate_options!(
-          signature: [
-            trusted_signatures: ["truested", "local-dev!"]
-          ]
-        )
+      config = Signature.normalize_config!(trusted_signatures: ["truested", "local-dev!"])
 
       assert :ok = Signature.verify("truested", "asd", config)
       assert :ok = Signature.verify("local-dev!", "/w:300/plain/images/cat.jpg", config)
@@ -211,12 +173,10 @@ defmodule ImagePlug.Parser.Imgproxy.SignatureTest do
     end
 
     test "matches upstream processing handler request fixture" do
-      [signature: config] =
-        Signature.validate_options!(
-          signature: [
-            keys: ["746573742d6b6579"],
-            salts: ["746573742d73616c74"]
-          ]
+      config =
+        Signature.normalize_config!(
+          keys: ["746573742d6b6579"],
+          salts: ["746573742d73616c74"]
         )
 
       signed_path = "/rs:fill:4:4/plain/local:///test1.png"
@@ -232,12 +192,10 @@ defmodule ImagePlug.Parser.Imgproxy.SignatureTest do
     end
 
     test "matches public docs signing vector" do
-      [signature: config] =
-        Signature.validate_options!(
-          signature: [
-            keys: ["736563726574"],
-            salts: ["68656c6c6f"]
-          ]
+      config =
+        Signature.normalize_config!(
+          keys: ["736563726574"],
+          salts: ["68656c6c6f"]
         )
 
       signed_path =
@@ -252,12 +210,10 @@ defmodule ImagePlug.Parser.Imgproxy.SignatureTest do
     end
 
     test "rejects malformed Base64 and wrong signatures" do
-      [signature: config] =
-        Signature.validate_options!(
-          signature: [
-            keys: ["746573742d6b6579"],
-            salts: ["746573742d73616c74"]
-          ]
+      config =
+        Signature.normalize_config!(
+          keys: ["746573742d6b6579"],
+          salts: ["746573742d73616c74"]
         )
 
       assert Signature.verify("local-dev!", "/w:300/plain/images/cat.jpg", config) ==
@@ -275,12 +231,10 @@ defmodule ImagePlug.Parser.Imgproxy.SignatureTest do
     end
 
     test "rejects overlong encoded signatures before decoding" do
-      [signature: config] =
-        Signature.validate_options!(
-          signature: [
-            keys: ["746573742d6b6579"],
-            salts: ["746573742d73616c74"]
-          ]
+      config =
+        Signature.normalize_config!(
+          keys: ["746573742d6b6579"],
+          salts: ["746573742d73616c74"]
         )
 
       overlong_signature = String.duplicate("a", 1_000)
@@ -291,6 +245,24 @@ defmodule ImagePlug.Parser.Imgproxy.SignatureTest do
 
       assert Signature.verify(overlong_padded_signature, "/w:300/plain/images/cat.jpg", config) ==
                {:error, :invalid_signature}
+    end
+  end
+
+  describe "Imgproxy.validate_options!/1" do
+    test "rejects unknown top-level imgproxy options" do
+      assert_raise ArgumentError, ~r/unknown options.*:trusted_signatures/, fn ->
+        Imgproxy.validate_options!(trusted_signatures: ["local-dev!"])
+      end
+
+      assert_raise ArgumentError, ~r/unknown options.*:keys/, fn ->
+        Imgproxy.validate_options!(keys: ["74657374"], salts: ["73616c74"])
+      end
+    end
+
+    test "rejects explicit nil signature config" do
+      assert_raise ArgumentError, ~r/invalid value for :signature option/, fn ->
+        Imgproxy.validate_options!(signature: nil)
+      end
     end
   end
 end
