@@ -377,30 +377,32 @@ defmodule ImagePlug.Parser.Imgproxy.PlanBuilder do
     end
   end
 
-  defp padding_operations(%PipelineRequest{} = request) do
-    sides = [
-      request.padding_top,
-      request.padding_right,
-      request.padding_bottom,
-      request.padding_left
-    ]
+  defp padding_operations(%PipelineRequest{
+         padding_top: 0,
+         padding_right: 0,
+         padding_bottom: 0,
+         padding_left: 0
+       }),
+       do: {:ok, []}
 
-    case sides do
-      [0, 0, 0, 0] ->
-        {:ok, []}
-
-      [top, right, bottom, left] ->
-        with {:ok, operation} <-
-               Operation.padding(
-                 {:px, top},
-                 {:px, right},
-                 {:px, bottom},
-                 {:px, left},
-                 pixel_ratio: effective_padding_pixel_ratio(request),
-                 fill: :transparent
-               ) do
-          {:ok, [operation]}
-        end
+  defp padding_operations(
+         %PipelineRequest{
+           padding_top: top,
+           padding_right: right,
+           padding_bottom: bottom,
+           padding_left: left
+         } = request
+       ) do
+    with {:ok, operation} <-
+           Operation.padding(
+             {:px, top},
+             {:px, right},
+             {:px, bottom},
+             {:px, left},
+             pixel_ratio: effective_padding_pixel_ratio(request),
+             fill: :transparent
+           ) do
+      {:ok, [operation]}
     end
   end
 
