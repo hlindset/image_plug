@@ -59,7 +59,7 @@ before origin fetch or cache lookup; they are not silently ignored.
 | `crop` | `c` | Supported | Absolute, relative, or full-axis dimensions; anchor/focal/smart gravity parsing. Smart gravity is rejected at planning. |
 | `crop_aspect_ratio` | `crop_ar`, `car` | Missing | Documented as unsupported in current ImagePlug docs. |
 | `trim` | `t` | Missing | Requires full-image memory behavior and trim operation. |
-| `padding` | `pd` | Missing | Could map to canvas, but CSS-style padding and background semantics are not modeled. |
+| `padding` | `pd` | Supported | CSS-style sparse shorthand, accumulated field behavior, effective DPR scaling, and `padding:` no-op compatibility. |
 | `auto_rotate` | `ar` | Supported | Omitted argument enables auto-orient; boolean form supported. |
 | `rotate` | `rot` | Supported | Right-angle multiples normalize to `0`, `90`, `180`, or `270`. |
 | `flip` | `fl` | Supported | No args means both axes; one or two booleans are supported. |
@@ -68,8 +68,8 @@ before origin fetch or cache lookup; they are not silently ignored.
 
 | Imgproxy option | Aliases | Status | Notes |
 | --- | --- | --- | --- |
-| `background` | `bg` | Missing | Current canvas background is fixed to white internally. |
-| `background_alpha` | `bga` | Missing | Pro alpha background feature. |
+| `background` | `bg` | Supported | Opaque RGB decimal and 3/6 digit hex colors; `background:` clears a previous background value. |
+| `background_alpha` | `bga` | Missing | Pro alpha background feature; explicitly unsupported in this slice. |
 | `adjust` | `a` | Missing | Pro meta-option for brightness, contrast, and saturation. |
 | `brightness` | `br` | Missing | Pro color adjustment. |
 | `contrast` | `co` | Missing | Pro color adjustment. |
@@ -177,10 +177,9 @@ before origin fetch or cache lookup; they are not silently ignored.
 The highest-value additions that fit ImagePlug's current architecture are:
 
 1. Base64-encoded source URLs, if ImagePlug should support absolute upstream URLs.
-2. Background and padding, likely through a richer product-neutral canvas operation.
-3. Blur and sharpen as product-neutral transform operations.
-4. Metadata stripping and color profile policy under output/encoding.
-5. `max_bytes`, if iterative encoding is acceptable for the runtime cost.
+2. Blur and sharpen as product-neutral transform operations.
+3. Metadata stripping and color profile policy under output/encoding.
+4. `max_bytes`, if iterative encoding is acceptable for the runtime cost.
 
 Object detection, SVG style injection, custom watermark sources, and advanced
 encoder knobs are missing today. If implemented, they should stay isolated in
