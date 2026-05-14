@@ -1574,6 +1574,72 @@ defmodule ImagePlug.ImagePlugTest do
     refute_received :origin_was_called
   end
 
+  test "does not touch cache or origin when imgproxy preset is unknown" do
+    conn = conn(:get, "/_/pr:missing/plain/images/cat-300.jpg")
+    cache_probe = start_cache_probe()
+
+    opts =
+      ImagePlug.init(
+        root_url: "http://origin.test",
+        parser: ImagePlug.Parser.Imgproxy,
+        imgproxy: [presets: %{"thumb" => "w:100"}],
+        cache: {CacheProbe, message_target: cache_probe},
+        origin_req_options: [plug: OriginShouldNotBeCalled]
+      )
+
+    conn = ImagePlug.call(conn, opts)
+
+    flush_cache_probe(cache_probe)
+    assert conn.status == 400
+    assert conn.resp_body =~ "unknown_preset"
+    refute_received {:cache_get, _key}
+    refute_received :origin_was_called
+  end
+
+  test "does not touch cache or origin when a used imgproxy preset contains unsupported options" do
+    conn = conn(:get, "/_/pr:future/plain/images/cat-300.jpg")
+    cache_probe = start_cache_probe()
+
+    opts =
+      ImagePlug.init(
+        root_url: "http://origin.test",
+        parser: ImagePlug.Parser.Imgproxy,
+        imgproxy: [presets: %{"future" => "sharpen:0.7"}],
+        cache: {CacheProbe, message_target: cache_probe},
+        origin_req_options: [plug: OriginShouldNotBeCalled]
+      )
+
+    conn = ImagePlug.call(conn, opts)
+
+    flush_cache_probe(cache_probe)
+    assert conn.status == 400
+    assert conn.resp_body =~ "unknown_option"
+    refute_received {:cache_get, _key}
+    refute_received :origin_was_called
+  end
+
+  test "does not touch cache or origin when a used imgproxy preset reaches planner rejection" do
+    conn = conn(:get, "/_/pr:smart/plain/images/cat-300.jpg")
+    cache_probe = start_cache_probe()
+
+    opts =
+      ImagePlug.init(
+        root_url: "http://origin.test",
+        parser: ImagePlug.Parser.Imgproxy,
+        imgproxy: [presets: %{"smart" => "g:sm"}],
+        cache: {CacheProbe, message_target: cache_probe},
+        origin_req_options: [plug: OriginShouldNotBeCalled]
+      )
+
+    conn = ImagePlug.call(conn, opts)
+
+    flush_cache_probe(cache_probe)
+    assert conn.status == 400
+    assert conn.resp_body =~ "unsupported_gravity"
+    refute_received {:cache_get, _key}
+    refute_received :origin_was_called
+  end
+
   test "explicit output format does not set Vary on uncached streaming responses" do
     conn =
       ImagePlug.call(
