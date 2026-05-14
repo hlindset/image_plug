@@ -379,10 +379,10 @@ defmodule ImagePlug.Parser.Imgproxy.PlanBuilder do
 
   defp padding_operations(%PipelineRequest{} = request) do
     sides = [
-      request.padding_top || 0,
-      request.padding_right || 0,
-      request.padding_bottom || 0,
-      request.padding_left || 0
+      request.padding_top,
+      request.padding_right,
+      request.padding_bottom,
+      request.padding_left
     ]
 
     case sides do

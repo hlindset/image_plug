@@ -593,10 +593,10 @@ defmodule ImagePlug.Parser.Imgproxy do
          extend_x_offset: nil,
          extend_y_offset: nil,
          extend_aspect_ratio: nil,
-         padding_top: nil,
-         padding_right: nil,
-         padding_bottom: nil,
-         padding_left: nil,
+         padding_top: 0,
+         padding_right: 0,
+         padding_bottom: 0,
+         padding_left: 0,
          background_color: nil,
          background_alpha: nil,
          gravity: {:anchor, :center, :center},
@@ -989,7 +989,7 @@ defmodule ImagePlug.Parser.Imgproxy do
   defp padding_value(:unset, current), do: current
   defp padding_value(value, _current) when is_integer(value), do: value
 
-  defp fallback_padding(nil, current), do: current
+  defp fallback_padding(:unset, current), do: current
   defp fallback_padding(value, _current), do: value
 
   defp apply_background_color(%PipelineRequest{} = pipeline, nil) do

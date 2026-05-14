@@ -502,7 +502,6 @@ defmodule ImagePlug.Parser.Imgproxy.PlanBuilderTest do
 
   test "padding no-op forms emit no padding operation" do
     for attrs <- [
-          [padding_top: nil, padding_right: nil, padding_bottom: nil, padding_left: nil],
           [padding_top: 0, padding_right: 0, padding_bottom: 0, padding_left: 0]
         ] do
       assert {:ok, %Plan{pipelines: [%Pipeline{operations: operations}]}} = plan_pipeline(attrs)

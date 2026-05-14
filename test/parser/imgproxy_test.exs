@@ -379,7 +379,7 @@ defmodule ImagePlug.Parser.ImgproxyTest do
       assert %{padding_top: 10, padding_right: 10, padding_bottom: 10, padding_left: 10} =
                parsed_pipeline!("/_/padding:10:/plain/images/cat.jpg")
 
-      assert %{padding_top: nil, padding_right: 20, padding_bottom: nil, padding_left: 20} =
+      assert %{padding_top: 0, padding_right: 20, padding_bottom: 0, padding_left: 20} =
                parsed_pipeline!("/_/padding::20/plain/images/cat.jpg")
 
       assert %{padding_top: 10, padding_right: 10, padding_bottom: 30, padding_left: 10} =
@@ -390,7 +390,7 @@ defmodule ImagePlug.Parser.ImgproxyTest do
     end
 
     test "padding empty and zero forms are accepted by source-compatible parser behavior" do
-      assert %{padding_top: nil, padding_right: nil, padding_bottom: nil, padding_left: nil} =
+      assert %{padding_top: 0, padding_right: 0, padding_bottom: 0, padding_left: 0} =
                parsed_pipeline!("/_/padding:/plain/images/cat.jpg")
 
       assert %{padding_top: 0, padding_right: 0, padding_bottom: 0, padding_left: 0} =
