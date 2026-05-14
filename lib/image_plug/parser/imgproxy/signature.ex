@@ -1,8 +1,6 @@
 defmodule ImagePlug.Parser.Imgproxy.Signature do
   @moduledoc false
 
-  @imgproxy_schema NimbleOptions.new!(signature: [type: :keyword_list, required: false])
-
   @signature_schema NimbleOptions.new!(
                       keys: [type: {:list, :string}, default: []],
                       salts: [type: {:list, :string}, default: []],
@@ -32,24 +30,6 @@ defmodule ImagePlug.Parser.Imgproxy.Signature do
       trusted_signatures: MapSet.new()
     }
   end
-
-  @spec validate_options!(keyword()) :: keyword()
-  def validate_options!(imgproxy_opts) when is_list(imgproxy_opts) do
-    case NimbleOptions.validate(imgproxy_opts, @imgproxy_schema) do
-      {:ok, validated} ->
-        Keyword.put(
-          validated,
-          :signature,
-          normalize_config!(Keyword.get(validated, :signature))
-        )
-
-      {:error, %NimbleOptions.ValidationError{} = error} ->
-        raise ArgumentError, "invalid imgproxy config: #{Exception.message(error)}"
-    end
-  end
-
-  def validate_options!(_imgproxy_opts),
-    do: raise(ArgumentError, "invalid imgproxy options: expected a keyword list")
 
   @spec verify(String.t(), binary(), t()) :: :ok | {:error, term()}
   def verify(signature, _signed_path, %__MODULE__{mode: :disabled})

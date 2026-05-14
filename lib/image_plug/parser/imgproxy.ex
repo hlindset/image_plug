@@ -394,9 +394,9 @@ defmodule ImagePlug.Parser.Imgproxy do
   end
 
   defp apply_default_preset(options, %Presets{} = presets) do
-    case Presets.configured?(presets, "default") do
-      true -> apply_preset("default", options, presets, [])
-      false -> {:ok, options}
+    case Presets.fetch(presets, "default") do
+      {:ok, groups} -> apply_preset_groups(groups, options, presets, ["default"])
+      :error -> {:ok, options}
     end
   end
 
@@ -462,8 +462,6 @@ defmodule ImagePlug.Parser.Imgproxy do
     end
   end
 
-  defp apply_preset_groups([], options, _presets, _active_presets), do: {:ok, options}
-
   defp apply_preset_groups([first_group | remaining_groups], options, presets, active_presets) do
     with {:ok, options} <- apply_segments(first_group, options, presets, active_presets) do
       {:ok, enqueue_preset_groups(options, remaining_groups, active_presets)}
@@ -484,8 +482,7 @@ defmodule ImagePlug.Parser.Imgproxy do
          %{queued_preset_groups: [entries | queue]} = options,
          presets
        ) do
-    options
-    |> Map.put(:queued_preset_groups, queue)
+    %{options | queued_preset_groups: queue}
     |> apply_queued_preset_entries(entries, presets)
   end
 
@@ -601,12 +598,15 @@ defmodule ImagePlug.Parser.Imgproxy do
   defp pipeline_empty?(%PipelineRequest{}), do: false
 
   defp parse_option(segment) do
-    [name | args] = String.split(segment, ":")
+    case String.split(segment, ":") do
+      [name] when name in ["preset", "pr"] ->
+        {:error, {:invalid_option_segment, segment}}
 
-    case parse_preset_option(name, args, segment) do
-      {:ok, _names} = preset -> preset
-      :not_preset -> parse_non_preset_option(name, args, segment)
-      {:error, _reason} = error -> error
+      [name | args] when name in ["preset", "pr"] ->
+        {:ok, {:preset, args}}
+
+      [name | args] ->
+        parse_non_preset_option(name, args, segment)
     end
   end
 
@@ -623,14 +623,6 @@ defmodule ImagePlug.Parser.Imgproxy do
         end
     end
   end
-
-  defp parse_preset_option(name, [], segment) when name in ["preset", "pr"],
-    do: {:error, {:invalid_option_segment, segment}}
-
-  defp parse_preset_option(name, args, _segment) when name in ["preset", "pr"],
-    do: {:ok, {:preset, args}}
-
-  defp parse_preset_option(_name, _args, _segment), do: :not_preset
 
   defp scoped_assignments(kind, assignments) when kind in [:format, :quality, :format_quality],
     do: {:output, assignments}

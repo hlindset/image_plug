@@ -36,10 +36,6 @@ defmodule ImagePlug.Parser.Imgproxy.Presets do
   def fetch(%__MODULE__{definitions: definitions}, name) when is_binary(name),
     do: Map.fetch(definitions, name)
 
-  @spec configured?(t(), String.t()) :: boolean()
-  def configured?(%__MODULE__{definitions: definitions}, name) when is_binary(name),
-    do: Map.has_key?(definitions, name)
-
   defp validate_name(name) when is_binary(name) and name != "", do: :ok
   defp validate_name(_name), do: {:error, "preset names must be non-empty strings"}
 
