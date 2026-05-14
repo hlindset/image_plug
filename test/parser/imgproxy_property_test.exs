@@ -76,6 +76,22 @@ defmodule ImagePlug.Parser.ImgproxyPropertyTest do
     end
   end
 
+  test "imgproxy composition URL option order does not define operation order" do
+    assert {:ok, plan_a} = Imgproxy.parse(conn(:get, "/_/bg:f00/pd:10/w:100/plain/images/cat.jpg"), [])
+    assert {:ok, plan_b} = Imgproxy.parse(conn(:get, "/_/pd:10/w:100/bg:f00/plain/images/cat.jpg"), [])
+
+    [%ImagePlug.Plan.Pipeline{operations: operations_a}] = plan_a.pipelines
+    [%ImagePlug.Plan.Pipeline{operations: operations_b}] = plan_b.pipelines
+
+    assert Enum.map(operations_a, & &1.__struct__) == Enum.map(operations_b, & &1.__struct__)
+
+    assert Enum.map(operations_a, & &1.__struct__) == [
+             Operation.Resize,
+             Operation.Padding,
+             Operation.FlattenBackground
+           ]
+  end
+
   property "zoom aliases parse to equivalent imgproxy pipeline IR" do
     check all x_int <- integer(1..2000),
               y_int <- integer(1..2000),

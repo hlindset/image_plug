@@ -197,11 +197,16 @@ defmodule ImagePlug.Parser.Imgproxy.PlanBuilder do
     with {:ok, orientation_operations} <- orientation_operations(request),
          {:ok, crop_operations} <- crop_operations(request),
          {:ok, resize_operations} <- resize_operations(request),
-         {:ok, canvas_operations} <- canvas_operations(request) do
+         {:ok, canvas_operations} <- canvas_operations(request),
+         {:ok, padding_operations} <- padding_operations(request),
+         {:ok, background_operations} <- background_operations(request) do
       {:ok,
        orientation_operations ++
          crop_operations ++
-         resize_operations ++ canvas_operations}
+         resize_operations ++
+         canvas_operations ++
+         padding_operations ++
+         background_operations}
     end
   end
 
@@ -372,6 +377,41 @@ defmodule ImagePlug.Parser.Imgproxy.PlanBuilder do
     end
   end
 
+  defp padding_operations(%PipelineRequest{} = request) do
+    sides = [
+      request.padding_top || 0,
+      request.padding_right || 0,
+      request.padding_bottom || 0,
+      request.padding_left || 0
+    ]
+
+    case sides do
+      [0, 0, 0, 0] ->
+        {:ok, []}
+
+      [top, right, bottom, left] ->
+        with {:ok, operation} <-
+               Operation.padding(
+                 {:px, top},
+                 {:px, right},
+                 {:px, bottom},
+                 {:px, left},
+                 pixel_ratio: dpr_ratio(request),
+                 fill: :transparent
+               ) do
+          {:ok, [operation]}
+        end
+    end
+  end
+
+  defp background_operations(%PipelineRequest{background_color: nil}), do: {:ok, []}
+
+  defp background_operations(%PipelineRequest{background_color: color}) do
+    with {:ok, operation} <- Operation.flatten_background(color) do
+      {:ok, [operation]}
+    end
+  end
+
   defp resize_operation(%PipelineRequest{} = request) do
     with {:ok, width} <- imgproxy_resize_dimension(request.width),
          {:ok, height} <- imgproxy_resize_dimension(request.height),
@@ -412,6 +452,14 @@ defmodule ImagePlug.Parser.Imgproxy.PlanBuilder do
   defp resize_mode(:fill_down), do: :cover
   defp resize_mode(:force), do: :stretch
   defp resize_mode(:auto), do: :auto
+
+  defp dpr_ratio(%PipelineRequest{dpr: nil}), do: {:ratio, 1, 1}
+
+  defp dpr_ratio(%PipelineRequest{dpr: dpr}) do
+    case Operation.resize(:fit, :auto, :auto, dpr: dpr) do
+      {:ok, %Operation.Resize{dpr: ratio}} -> ratio
+    end
+  end
 
   defp imgproxy_resize_dimension(nil), do: {:ok, :auto}
   defp imgproxy_resize_dimension(:auto), do: {:ok, :auto}

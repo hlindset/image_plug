@@ -470,6 +470,65 @@ defmodule ImagePlug.Parser.Imgproxy.PlanBuilderTest do
     assert operation_names(operations) == [{:resize, :cover}, :canvas]
   end
 
+  test "plans padding after canvas and before flatten background" do
+    assert {:ok, red} = Operation.color(255, 0, 0)
+
+    assert {:ok, %Plan{pipelines: [%Pipeline{operations: operations}]}} =
+             plan_pipeline(
+               width: {:pixels, 100},
+               height: {:pixels, 100},
+               extend: true,
+               padding_top: 1,
+               padding_right: 2,
+               padding_bottom: 3,
+               padding_left: 4,
+               background_color: red
+             )
+
+    assert [
+             %Operation.Resize{},
+             %Operation.Canvas{fill: :transparent},
+             %Operation.Padding{
+               top: {:px, 1},
+               right: {:px, 2},
+               bottom: {:px, 3},
+               left: {:px, 4},
+               fill: :transparent,
+               pixel_ratio: {:ratio, 1, 1}
+             },
+             %Operation.FlattenBackground{color: ^red}
+           ] = operations
+  end
+
+  test "padding no-op forms emit no padding operation" do
+    for attrs <- [
+          [padding_top: nil, padding_right: nil, padding_bottom: nil, padding_left: nil],
+          [padding_top: 0, padding_right: 0, padding_bottom: 0, padding_left: 0]
+        ] do
+      assert {:ok, %Plan{pipelines: [%Pipeline{operations: operations}]}} = plan_pipeline(attrs)
+      refute Enum.any?(operations, &match?(%Operation.Padding{}, &1))
+    end
+  end
+
+  test "padding carries requested DPR as pixel ratio" do
+    assert {:ok,
+            %Plan{
+              pipelines: [
+                %Pipeline{operations: [%Operation.Resize{}, %Operation.Padding{} = padding]}
+              ]
+            }} =
+             plan_pipeline(width: {:pixels, 100}, dpr: 1.5, padding_top: 2)
+
+    assert padding.pixel_ratio == {:ratio, 3, 2}
+  end
+
+  test "background unset or cleared emits no flatten operation" do
+    assert {:ok, %Plan{pipelines: [%Pipeline{operations: operations}]}} =
+             plan_pipeline(background_color: nil)
+
+    refute Enum.any?(operations, &match?(%Operation.FlattenBackground{}, &1))
+  end
+
   test "parsed zoom supports one shared factor or independent axes" do
     assert {:ok, pipeline} = parsed_pipeline("/_/zoom:2/plain/images/cat.jpg")
     assert pipeline.zoom_x == 2.0
@@ -851,6 +910,8 @@ defmodule ImagePlug.Parser.Imgproxy.PlanBuilderTest do
   defp operation_name(%Operation.CropGuided{}), do: :crop_guided
   defp operation_name(%Operation.Resize{mode: mode}), do: {:resize, mode}
   defp operation_name(%Operation.Canvas{}), do: :canvas
+  defp operation_name(%Operation.Padding{}), do: :padding
+  defp operation_name(%Operation.FlattenBackground{}), do: :flatten_background
 
   defp parsed_request do
     map({valid_pipeline_request(), output_format()}, fn {pipeline_request, output_format} ->
