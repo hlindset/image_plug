@@ -538,6 +538,9 @@ defmodule ImagePlug.ImagePlugTest do
       [presets: %{"thumb" => 100}],
       [presets: %{"thumb" => "pr"}],
       [presets: %{"thumb" => "pr:"}],
+      [presets: %{"thumb" => "pr: "}],
+      [presets: %{"thumb" => "pr: other"}],
+      [presets: %{"thumb" => "pr:other "}],
       [presets: %{"thumb" => "w:100//h:100"}],
       [presets: %ImagePlug.Parser.Imgproxy.Presets{definitions: %{"thumb" => [["w:100"]]}}]
     ]

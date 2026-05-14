@@ -1083,7 +1083,10 @@ defmodule ImagePlug.Parser.ImgproxyTest do
              {:error, {:invalid_option_segment, "pr"}}
 
     assert Imgproxy.parse(conn(:get, "/_/preset:/plain/images/cat.jpg"), opts) ==
-             {:error, {:unknown_preset, ""}}
+             {:error, {:invalid_option_segment, "preset:"}}
+
+    assert Imgproxy.parse(conn(:get, "/_/pr::/plain/images/cat.jpg"), opts) ==
+             {:error, {:invalid_option_segment, "pr::"}}
 
     assert Imgproxy.parse(conn(:get, "/_/pr:missing/plain/images/cat.jpg"), opts) ==
              {:error, {:unknown_preset, "missing"}}

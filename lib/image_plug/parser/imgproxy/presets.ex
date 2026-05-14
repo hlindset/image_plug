@@ -64,11 +64,11 @@ defmodule ImagePlug.Parser.Imgproxy.Presets do
       {:ok, []} ->
         {:halt, {:error, "preset references must include at least one non-empty preset name"}}
 
-      {:ok, names} ->
-        case Enum.any?(names, &(&1 == "")) do
-          true -> {:halt, {:error, "preset references must include non-empty preset names"}}
-          false -> {:cont, {:ok, [[segment | group] | groups]}}
-        end
+      {:ok, _names} ->
+        {:cont, {:ok, [[segment | group] | groups]}}
+
+      {:error, reason} ->
+        {:halt, {:error, reason}}
 
       :not_preset ->
         {:cont, {:ok, [[segment | group] | groups]}}
@@ -77,8 +77,21 @@ defmodule ImagePlug.Parser.Imgproxy.Presets do
 
   defp preset_reference_args(segment) do
     case String.split(segment, ":") do
-      [name | args] when name in ["preset", "pr"] -> {:ok, args}
-      _parts -> :not_preset
+      [name | args] when name in ["preset", "pr"] ->
+        normalize_preset_reference_args(args)
+
+      _parts ->
+        :not_preset
     end
   end
+
+  defp normalize_preset_reference_args(args) do
+    case Enum.all?(args, &valid_preset_reference_name?/1) do
+      true -> {:ok, args}
+      false -> {:error, "preset references must include non-empty preset names"}
+    end
+  end
+
+  defp valid_preset_reference_name?(name) when is_binary(name),
+    do: name != "" and String.trim(name) == name
 end

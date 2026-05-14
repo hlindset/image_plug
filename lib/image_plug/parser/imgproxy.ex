@@ -603,10 +603,17 @@ defmodule ImagePlug.Parser.Imgproxy do
         {:error, {:invalid_option_segment, segment}}
 
       [name | args] when name in ["preset", "pr"] ->
-        {:ok, {:preset, args}}
+        parse_preset_args(args, segment)
 
       [name | args] ->
         parse_non_preset_option(name, args, segment)
+    end
+  end
+
+  defp parse_preset_args(args, segment) do
+    case Enum.any?(args, &(&1 == "")) do
+      true -> {:error, {:invalid_option_segment, segment}}
+      false -> {:ok, {:preset, args}}
     end
   end
 

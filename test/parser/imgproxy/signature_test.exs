@@ -44,22 +44,6 @@ defmodule ImagePlug.Parser.Imgproxy.SignatureTest do
       end
     end
 
-    test "imgproxy parser rejects unknown top-level imgproxy options" do
-      assert_raise ArgumentError, ~r/unknown options.*:trusted_signatures/, fn ->
-        Imgproxy.validate_options!(trusted_signatures: ["local-dev!"])
-      end
-
-      assert_raise ArgumentError, ~r/unknown options.*:keys/, fn ->
-        Imgproxy.validate_options!(keys: ["74657374"], salts: ["73616c74"])
-      end
-    end
-
-    test "imgproxy parser rejects explicit nil signature config" do
-      assert_raise ArgumentError, ~r/invalid value for :signature option/, fn ->
-        Imgproxy.validate_options!(signature: nil)
-      end
-    end
-
     test "rejects empty signing config" do
       assert_raise ArgumentError,
                    ~r/at least one key\/salt pair or trusted signature is required/,
@@ -261,6 +245,24 @@ defmodule ImagePlug.Parser.Imgproxy.SignatureTest do
 
       assert Signature.verify(overlong_padded_signature, "/w:300/plain/images/cat.jpg", config) ==
                {:error, :invalid_signature}
+    end
+  end
+
+  describe "Imgproxy.validate_options!/1" do
+    test "rejects unknown top-level imgproxy options" do
+      assert_raise ArgumentError, ~r/unknown options.*:trusted_signatures/, fn ->
+        Imgproxy.validate_options!(trusted_signatures: ["local-dev!"])
+      end
+
+      assert_raise ArgumentError, ~r/unknown options.*:keys/, fn ->
+        Imgproxy.validate_options!(keys: ["74657374"], salts: ["73616c74"])
+      end
+    end
+
+    test "rejects explicit nil signature config" do
+      assert_raise ArgumentError, ~r/invalid value for :signature option/, fn ->
+        Imgproxy.validate_options!(signature: nil)
+      end
     end
   end
 end

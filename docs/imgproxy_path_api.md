@@ -73,20 +73,18 @@ Generic quality and format-specific quality are separate canonical fields.
 
 Normal processing URLs support configured imgproxy presets:
 
-```elixir
-ImagePlug.init(
-  parser: ImagePlug.Parser.Imgproxy,
-  root_url: "https://origin.example",
-  imgproxy: [
-    presets: %{
-      "default" => "rt:fill/el:1",
-      "thumb" => "rs:fit:120:120",
-      "sharp-thumb" => "pr:thumb/q:82",
-      "responsive" => "w:900/-/w:450"
-    }
-  ]
-)
-```
+    ImagePlug.init(
+      parser: ImagePlug.Parser.Imgproxy,
+      root_url: "https://origin.example",
+      imgproxy: [
+        presets: %{
+          "default" => "rt:fill/el:1",
+          "thumb" => "rs:fit:120:120",
+          "sharp-thumb" => "pr:thumb/q:82",
+          "responsive" => "w:900/-/w:450"
+        }
+      ]
+    )
 
 `preset` and `pr` accept one or more preset names in a single option segment:
 
