@@ -22,6 +22,7 @@
 ## Cache guidelines
 
 - Cache behavior is part of the contract. Cache only successful encoded responses; keep keys deterministic and based on resolved origin identity, canonical plan fields, configured vary inputs, and normalized `Accept` for `format:auto`; cache errors fail open by default unless `fail_on_cache_error: true`.
+- Because this library is greenfield and unreleased, do not bump internal cache key data versions for normal feature work or cache-shape changes. Reshape the canonical key data and update tests in place unless there is an explicit compatibility requirement to read or preserve old cache entries.
 
 ## Namespace boundary guidelines
 
