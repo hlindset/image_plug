@@ -1043,6 +1043,199 @@ defmodule ImagePlug.Parser.ImgproxyTest do
     assert resize.height == pixels(90)
   end
 
+  test "skips direct recursive preset re-entry and continues expansion" do
+    opts = preset_opts(%{"loop" => "pr:loop/w:100/h:80/q:72"})
+
+    assert {:ok,
+            %Plan{
+              pipelines: [%Pipeline{operations: [%Operation.Resize{} = resize]}],
+              output: %Output{quality: {:quality, 72}}
+            }} = Imgproxy.parse(conn(:get, "/_/pr:loop/plain/images/cat.jpg"), opts)
+
+    assert resize.width == pixels(100)
+    assert resize.height == pixels(80)
+  end
+
+  test "skips indirect recursive preset re-entry and keeps reachable options" do
+    opts =
+      preset_opts(%{
+        "a" => "w:100/pr:b/q:70",
+        "b" => "h:80/pr:a/f:webp"
+      })
+
+    assert {:ok,
+            %Plan{
+              pipelines: [%Pipeline{operations: [%Operation.Resize{} = resize]}],
+              output: %Output{mode: {:explicit, :webp}, quality: {:quality, 70}}
+            }} = Imgproxy.parse(conn(:get, "/_/pr:a/plain/images/cat.jpg"), opts)
+
+    assert resize.width == pixels(100)
+    assert resize.height == pixels(80)
+  end
+
+  test "returns parser errors for missing empty and unknown preset references" do
+    opts = preset_opts(%{"thumb" => "w:100"})
+
+    assert Imgproxy.parse(conn(:get, "/_/preset/plain/images/cat.jpg"), opts) ==
+             {:error, {:invalid_option_segment, "preset"}}
+
+    assert Imgproxy.parse(conn(:get, "/_/pr/plain/images/cat.jpg"), opts) ==
+             {:error, {:invalid_option_segment, "pr"}}
+
+    assert Imgproxy.parse(conn(:get, "/_/preset:/plain/images/cat.jpg"), opts) ==
+             {:error, {:unknown_preset, ""}}
+
+    assert Imgproxy.parse(conn(:get, "/_/pr:missing/plain/images/cat.jpg"), opts) ==
+             {:error, {:unknown_preset, "missing"}}
+  end
+
+  test "rejects unsupported options inside a used preset like direct URL options" do
+    opts = preset_opts(%{"future" => "sharpen:0.7"})
+
+    assert Imgproxy.parse(conn(:get, "/_/pr:future/plain/images/cat.jpg"), opts) ==
+             {:error, {:unknown_option, "sharpen"}}
+  end
+
+  test "rejects planner-unsupported output values inside a used preset like direct URL options" do
+    opts = preset_opts(%{"best" => "f:best"})
+
+    assert Imgproxy.parse(conn(:get, "/_/pr:best/plain/images/cat.jpg"), opts) ==
+             {:error, {:unsupported_output_format, :best}}
+  end
+
+  test "rejects planner-unsupported transform semantics inside a used preset like direct URL options" do
+    opts = preset_opts(%{"smart" => "g:sm"})
+
+    assert Imgproxy.parse(conn(:get, "/_/pr:smart/plain/images/cat.jpg"), opts) ==
+             {:error, {:unsupported_gravity, :sm}}
+  end
+
+  test "merges preset pipeline groups with URL pipeline groups" do
+    opts =
+      preset_opts(%{
+        "test" => "width:300/height:300/-/width:200/height:200/-/width:100/height:200"
+      })
+
+    assert {:ok,
+            %Plan{
+              pipelines: [
+                %Pipeline{operations: first_operations},
+                %Pipeline{operations: second_operations},
+                %Pipeline{operations: third_operations},
+                %Pipeline{operations: fourth_operations}
+              ]
+            }} =
+             Imgproxy.parse(
+               conn(
+                 :get,
+                 "/_/width:400/-/preset:test/width:500/-/width:600/plain/images/cat.jpg"
+               ),
+               opts
+             )
+
+    assert [%Operation.Resize{} = first] = first_operations
+    assert first.width == pixels(400)
+    assert first.height == auto()
+
+    assert [%Operation.Resize{} = second] = second_operations
+    assert second.width == pixels(500)
+    assert second.height == pixels(300)
+
+    assert [%Operation.Resize{} = third] = third_operations
+    assert third.width == pixels(600)
+    assert third.height == pixels(200)
+
+    assert [%Operation.Resize{} = fourth] = fourth_operations
+    assert fourth.width == pixels(100)
+    assert fourth.height == pixels(200)
+  end
+
+  test "turns trailing queued preset groups into trailing pipelines" do
+    opts = preset_opts(%{"responsive" => "w:900/-/w:450"})
+
+    assert {:ok,
+            %Plan{
+              pipelines: [
+                %Pipeline{operations: first_operations},
+                %Pipeline{operations: second_operations}
+              ]
+            }} = Imgproxy.parse(conn(:get, "/_/pr:responsive/plain/images/cat.jpg"), opts)
+
+    assert [%Operation.Resize{} = first] = first_operations
+    assert first.width == pixels(900)
+
+    assert [%Operation.Resize{} = second] = second_operations
+    assert second.width == pixels(450)
+  end
+
+  test "applies default preset pipeline groups before URL groups" do
+    opts = preset_opts(%{"default" => "w:900/-/w:450"})
+
+    assert {:ok,
+            %Plan{
+              pipelines: [
+                %Pipeline{operations: first_operations},
+                %Pipeline{operations: second_operations}
+              ]
+            }} = Imgproxy.parse(conn(:get, "/_/w:100/-/h:200/plain/images/cat.jpg"), opts)
+
+    assert [%Operation.Resize{} = first] = first_operations
+    assert first.width == pixels(100)
+    assert first.height == auto()
+
+    assert [%Operation.Resize{} = second] = second_operations
+    assert second.width == pixels(450)
+    assert second.height == pixels(200)
+  end
+
+  test "merges same-offset queued groups from multiple presets into the same later pipeline" do
+    opts =
+      preset_opts(%{
+        "wide" => "w:300/-/w:100",
+        "tall" => "h:300/-/h:200"
+      })
+
+    assert {:ok,
+            %Plan{
+              pipelines: [
+                %Pipeline{operations: first_operations},
+                %Pipeline{operations: second_operations}
+              ]
+            }} = Imgproxy.parse(conn(:get, "/_/pr:wide:tall/-/h:400/plain/images/cat.jpg"), opts)
+
+    assert [%Operation.Resize{} = first] = first_operations
+    assert first.width == pixels(300)
+    assert first.height == pixels(300)
+
+    assert [%Operation.Resize{} = second] = second_operations
+    assert second.width == pixels(100)
+    assert second.height == pixels(400)
+  end
+
+  test "merges same-offset default and explicit preset groups into the same later pipeline" do
+    opts =
+      preset_opts(%{
+        "default" => "w:900/-/h:450",
+        "responsive" => "h:900/-/w:450"
+      })
+
+    assert {:ok,
+            %Plan{
+              pipelines: [
+                %Pipeline{operations: first_operations},
+                %Pipeline{operations: second_operations}
+              ]
+            }} = Imgproxy.parse(conn(:get, "/_/pr:responsive/-/h:100/plain/images/cat.jpg"), opts)
+
+    assert [%Operation.Resize{} = first] = first_operations
+    assert first.width == pixels(900)
+    assert first.height == pixels(900)
+
+    assert [%Operation.Resize{} = second] = second_operations
+    assert second.width == pixels(450)
+    assert second.height == pixels(100)
+  end
+
   test "parses chained imgproxy pipeline separators into multiple pipelines" do
     assert {:ok,
             %Plan{
