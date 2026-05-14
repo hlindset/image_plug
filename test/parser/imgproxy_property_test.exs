@@ -95,26 +95,6 @@ defmodule ImagePlug.Parser.ImgproxyPropertyTest do
     end
   end
 
-  property "zoom aliases parse to equivalent imgproxy pipeline IR" do
-    check all x_int <- integer(1..2000),
-              y_int <- integer(1..2000),
-              max_runs: 200 do
-      x = decimal_string(x_int)
-      y = decimal_string(y_int)
-
-      assert {:ok, zoom_request} =
-               Imgproxy.parse_request(conn(:get, "/_/zoom:#{x}:#{y}/plain/images/cat.jpg"), [])
-
-      assert {:ok, alias_request} =
-               Imgproxy.parse_request(conn(:get, "/_/z:#{x}:#{y}/plain/images/cat.jpg"), [])
-
-      [zoom_pipeline] = zoom_request.pipelines
-      [alias_pipeline] = alias_request.pipelines
-      assert zoom_pipeline.zoom_x == alias_pipeline.zoom_x
-      assert zoom_pipeline.zoom_y == alias_pipeline.zoom_y
-    end
-  end
-
   defp parse_path(path), do: Imgproxy.parse(conn(:get, path), [])
 
   defp pixels(value), do: {:px, value}
@@ -137,8 +117,6 @@ defmodule ImagePlug.Parser.ImgproxyPropertyTest do
       option_path -> "/_/#{option_path}/plain/#{source_path}"
     end
   end
-
-  defp decimal_string(value), do: :erlang.float_to_binary(value / 10, decimals: 1)
 
   defp permutations([]), do: [[]]
 

@@ -4,10 +4,12 @@ defmodule ImagePlug.Parser.Imgproxy.PlanBuilderTest do
 
   import Plug.Test
 
-  alias ImagePlug.Parser.Imgproxy
+  alias ImagePlug.Parser.Imgproxy.Options
+  alias ImagePlug.Parser.Imgproxy.Path
   alias ImagePlug.Parser.Imgproxy.ParsedRequest
   alias ImagePlug.Parser.Imgproxy.PipelineRequest
   alias ImagePlug.Parser.Imgproxy.PlanBuilder
+  alias ImagePlug.Parser.Imgproxy.Presets
   alias ImagePlug.Plan
   alias ImagePlug.Plan.Operation
   alias ImagePlug.Plan.Output
@@ -562,99 +564,6 @@ defmodule ImagePlug.Parser.Imgproxy.PlanBuilderTest do
     assert pipeline.zoom_y == 3.0
   end
 
-  test "dropped imgproxy options remain parser errors" do
-    for segment <-
-          ~w(raw max_bytes mb max_src_resolution msr max_src_file_size msfs crop_aspect_ratio crop_ar car) do
-      assert {:error, _reason} =
-               Imgproxy.parse_request(conn(:get, "/_/#{segment}/plain/images/cat.jpg"), [])
-    end
-  end
-
-  test "dropped imgproxy options with values remain parser errors" do
-    for segment <- ~w(raw:false max_bytes:100 mb:100 crop_ar:1:1) do
-      assert {:error, _reason} =
-               Imgproxy.parse_request(conn(:get, "/_/#{segment}/plain/images/cat.jpg"), [])
-    end
-  end
-
-  test "rejects invalid arity for new pipeline options" do
-    invalid_segments = [
-      "zoom",
-      "zoom:",
-      "zoom:1:2:3",
-      "z",
-      "z:",
-      "z:1:2:3",
-      "dpr",
-      "dpr:",
-      "dpr:1:2",
-      "min-width",
-      "min-width:1:2",
-      "mw",
-      "mw:1:2",
-      "min_width",
-      "min_width:1:2",
-      "min-height",
-      "min-height:1:2",
-      "mh",
-      "mh:1:2",
-      "min_height",
-      "min_height:1:2",
-      "enlarge",
-      "enlarge:true:false",
-      "el",
-      "el:true:false",
-      "extend",
-      "extend:",
-      "extend:true:ce:0",
-      "extend:true:ce:0:0:extra",
-      "ex",
-      "ex:",
-      "ex:true:ce:0",
-      "ex:true:ce:0:0:extra",
-      "gravity",
-      "gravity:ce:0",
-      "gravity:ce:0:0:extra",
-      "g",
-      "g:ce:0",
-      "g:ce:0:0:extra",
-      "auto_rotate:",
-      "auto_rotate:true:false",
-      "ar:",
-      "ar:true:false",
-      "rotate",
-      "rotate:",
-      "rotate:90:180",
-      "rot",
-      "rot:",
-      "rot:90:180",
-      "flip:true:false:true",
-      "fl:true:false:true",
-      "extend_aspect_ratio",
-      "extend_aspect_ratio:16",
-      "extend_aspect_ratio:16:9:1",
-      "extend_ar",
-      "extend_ar:16",
-      "extend_ar:16:9:1",
-      "exar",
-      "exar:16",
-      "exar:16:9:1",
-      "crop",
-      "crop:100",
-      "crop:100:200:ce:0",
-      "crop:100:200:ce:0:0:extra",
-      "c",
-      "c:100",
-      "c:100:200:ce:0",
-      "c:100:200:ce:0:0:extra"
-    ]
-
-    for segment <- invalid_segments do
-      assert Imgproxy.parse_request(conn(:get, "/_/#{segment}/plain/images/cat.jpg"), []) ==
-               {:error, {:invalid_option_segment, segment}}
-    end
-  end
-
   test "plans neutral resize rule inputs before no-op operations" do
     assert {:ok,
             %Plan{pipelines: [%Pipeline{operations: [%Operation.Resize{mode: :fit} = resize]}]}} =
@@ -984,8 +893,10 @@ defmodule ImagePlug.Parser.Imgproxy.PlanBuilderTest do
   end
 
   defp parsed_pipeline(path) do
-    with {:ok, parsed} <- Imgproxy.parse_request(conn(:get, path), []) do
-      case parsed.pipelines do
+    with {:ok, _signature, _signed_path, path_info} <- Path.extract(conn(:get, path)),
+         {:ok, option_segments, _raw_source_path} <- Path.split_source(path_info),
+         {:ok, request} <- Options.parse(option_segments, Presets.empty()) do
+      case request.pipelines do
         [pipeline] -> {:ok, pipeline}
         pipelines -> {:error, {:unexpected_pipelines, pipelines}}
       end

@@ -9,6 +9,18 @@ defmodule ImagePlug.ArchitectureBoundaryTest do
     "lib/image_plug/response.ex",
     "lib/image_plug/response/**/*.ex"
   ]
+  @parser_forbidden_globs [
+    "lib/image_plug/request.ex",
+    "lib/image_plug/request/**/*.ex",
+    "lib/image_plug/origin.ex",
+    "lib/image_plug/origin/**/*.ex",
+    "lib/image_plug/response.ex",
+    "lib/image_plug/response/**/*.ex",
+    "lib/image_plug/cache.ex",
+    "lib/image_plug/cache/**/*.ex",
+    "lib/image_plug/output.ex",
+    "lib/image_plug/output/**/*.ex"
+  ]
   @imgproxy_parser_globs [
     "lib/image_plug/parser/imgproxy.ex",
     "lib/image_plug/parser/imgproxy/**/*.ex"
@@ -172,11 +184,11 @@ defmodule ImagePlug.ArchitectureBoundaryTest do
     assert violations == []
   end
 
-  test "request, origin, and response code does not depend on imgproxy parser structs" do
+  test "request, origin, response, cache, and output code does not depend on imgproxy parser structs" do
     violations =
-      for file <- request_origin_response_files(),
+      for file <- parser_forbidden_files(),
           violation <- imgproxy_parser_references(file) do
-        "#{file}:#{violation.line} must not name #{violation.module}; keep Imgproxy parser dependencies out of request, origin, and response code"
+        "#{file}:#{violation.line} must not name #{violation.module}; keep Imgproxy parser dependencies out of request, origin, response, cache, and output code"
       end
 
     assert violations == []
@@ -283,6 +295,13 @@ defmodule ImagePlug.ArchitectureBoundaryTest do
   defp request_origin_response_files do
     @request_origin_response_globs
     |> Enum.flat_map(&Path.wildcard/1)
+    |> Enum.sort()
+  end
+
+  defp parser_forbidden_files do
+    @parser_forbidden_globs
+    |> Enum.flat_map(&Path.wildcard/1)
+    |> Enum.uniq()
     |> Enum.sort()
   end
 
