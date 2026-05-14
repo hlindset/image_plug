@@ -185,8 +185,17 @@ defmodule ImagePlug.Parser.ImgproxyTest do
 
   test "signature authorization errors render HTTP 403" do
     assert_error_status(:invalid_signature, 403)
-    assert_error_status({:invalid_signature_encoding, "_"}, 403)
-    assert_error_status({:unsupported_signature, "signed-value"}, 403)
+
+    invalid_encoding_conn =
+      assert_error_status({:invalid_signature_encoding, "very-secret-signature"}, 403)
+
+    assert invalid_encoding_conn.resp_body =~ "invalid_signature_encoding"
+    refute invalid_encoding_conn.resp_body =~ "very-secret-signature"
+
+    unsupported_conn = assert_error_status({:unsupported_signature, "signed-value"}, 403)
+    assert unsupported_conn.resp_body =~ "unsupported_signature"
+    refute unsupported_conn.resp_body =~ "signed-value"
+
     assert_error_status(:missing_signature, 400)
   end
 
@@ -1123,6 +1132,8 @@ defmodule ImagePlug.Parser.ImgproxyTest do
     conn = Imgproxy.handle_error(conn(:get, "/"), {:error, reason})
 
     assert conn.status == status
+
+    conn
   end
 
   defp pixels(value), do: {:px, value}

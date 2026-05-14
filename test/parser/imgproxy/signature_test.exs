@@ -284,8 +284,12 @@ defmodule ImagePlug.Parser.Imgproxy.SignatureTest do
         )
 
       overlong_signature = String.duplicate("a", 1_000)
+      overlong_padded_signature = overlong_signature <> "="
 
       assert Signature.verify(overlong_signature, "/w:300/plain/images/cat.jpg", config) ==
+               {:error, :invalid_signature}
+
+      assert Signature.verify(overlong_padded_signature, "/w:300/plain/images/cat.jpg", config) ==
                {:error, :invalid_signature}
     end
   end

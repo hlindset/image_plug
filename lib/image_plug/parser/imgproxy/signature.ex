@@ -86,8 +86,8 @@ defmodule ImagePlug.Parser.Imgproxy.Signature do
   end
 
   defp verify_hmac_signature(signature, signed_path, %__MODULE__{} = config) do
-    with :ok <- reject_padded_signature(signature),
-         :ok <- validate_encoded_signature_size(signature, config.signature_size),
+    with :ok <- validate_encoded_signature_size(signature, config.signature_size),
+         :ok <- reject_padded_signature(signature),
          {:ok, decoded_signature} <- decode_unpadded_base64(signature),
          true <- matching_signature?(decoded_signature, signed_path, config) do
       :ok
@@ -105,13 +105,23 @@ defmodule ImagePlug.Parser.Imgproxy.Signature do
   end
 
   defp validate_encoded_signature_size(signature, signature_size) do
-    case byte_size(signature) <= encoded_signature_size(signature_size) do
+    max_size = max_encoded_signature_size(signature, signature_size)
+
+    case byte_size(signature) <= max_size do
       true -> :ok
       false -> {:error, :invalid_signature}
     end
   end
 
+  defp max_encoded_signature_size(signature, signature_size) do
+    case String.contains?(signature, "=") do
+      true -> padded_encoded_signature_size(signature_size)
+      false -> encoded_signature_size(signature_size)
+    end
+  end
+
   defp encoded_signature_size(signature_size), do: div(signature_size * 8 + 5, 6)
+  defp padded_encoded_signature_size(signature_size), do: div(signature_size + 2, 3) * 4
 
   defp decode_unpadded_base64(signature) do
     case Base.url_decode64(signature, padding: false) do

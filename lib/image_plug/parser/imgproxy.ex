@@ -129,13 +129,13 @@ defmodule ImagePlug.Parser.Imgproxy do
 
   def handle_error(
         %Plug.Conn{} = conn,
-        {:error, {:invalid_signature_encoding, _signature} = reason}
+        {:error, {:invalid_signature_encoding, _signature}}
       ) do
-    send_signature_error(conn, reason)
+    send_signature_error(conn, :invalid_signature_encoding)
   end
 
-  def handle_error(%Plug.Conn{} = conn, {:error, {:unsupported_signature, _signature} = reason}) do
-    send_signature_error(conn, reason)
+  def handle_error(%Plug.Conn{} = conn, {:error, {:unsupported_signature, _signature}}) do
+    send_signature_error(conn, :unsupported_signature)
   end
 
   def handle_error(%Plug.Conn{} = conn, {:error, reason}) do
