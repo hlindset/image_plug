@@ -146,14 +146,14 @@ defmodule ImagePlug.Transform.Operation.ExtendCanvas do
     x = offset(:x, operation.gravity, operation.x_offset, image_width(state), width)
     y = offset(:y, operation.gravity, operation.y_offset, image_height(state), height)
 
-    image = alpha_ready_image(state.image, operation.background)
-
-    Image.embed(image, width, height, %{
-      x: x,
-      y: y,
-      background_color: background_color(operation.background, image),
-      extend_mode: :VIPS_EXTEND_BACKGROUND
-    })
+    with {:ok, image} <- alpha_ready_image(state.image, operation.background) do
+      Image.embed(image, width, height, %{
+        x: x,
+        y: y,
+        background_color: background_color(operation.background, image),
+        extend_mode: :VIPS_EXTEND_BACKGROUND
+      })
+    end
   end
 
   defp offset(axis, gravity, configured_offset, image_size, canvas_size) do
@@ -188,12 +188,12 @@ defmodule ImagePlug.Transform.Operation.ExtendCanvas do
 
   defp alpha_ready_image(image, :transparent) do
     case Image.has_alpha?(image) do
-      true -> image
-      false -> Image.add_alpha!(image, :opaque)
+      true -> {:ok, image}
+      false -> Image.add_alpha(image, :opaque)
     end
   end
 
-  defp alpha_ready_image(image, _background), do: image
+  defp alpha_ready_image(image, _background), do: {:ok, image}
 
   defp background_color(:transparent, _image), do: [0, 0, 0, 0]
   defp background_color(:white, image), do: alpha_aware_color([255, 255, 255], image)

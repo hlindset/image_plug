@@ -163,8 +163,10 @@ defmodule ImagePlug.Plan.Operation do
          {:ok, bottom} <- tagged_padding_side(bottom),
          {:ok, left} <- tagged_padding_side(left),
          :ok <- validate_positive_padding([top, right, bottom, left]),
-         pixel_ratio = Keyword.get(opts, :pixel_ratio, {:ratio, 1, 1}),
-         :ok <- tagged_padding_pixel_ratio(pixel_ratio),
+         {:ok, pixel_ratio} <-
+           opts
+           |> Keyword.get(:pixel_ratio, {:ratio, 1, 1})
+           |> tagged_padding_pixel_ratio(),
          {:ok, fill} <- optional_fill(opts, :fill, :transparent) do
       {:ok,
        %Padding{
@@ -317,7 +319,7 @@ defmodule ImagePlug.Plan.Operation do
          {:ok, bottom} <- tagged_padding_side(operation.bottom),
          {:ok, left} <- tagged_padding_side(operation.left),
          :ok <- validate_positive_padding([top, right, bottom, left]),
-         :ok <- tagged_padding_pixel_ratio(operation.pixel_ratio),
+         {:ok, _pixel_ratio} <- tagged_padding_pixel_ratio(operation.pixel_ratio),
          {:ok, _fill} <- tagged_fill(operation.fill) do
       true
     else
@@ -371,12 +373,20 @@ defmodule ImagePlug.Plan.Operation do
 
   defp tagged_dpr_ratio(_dpr), do: {:error, :dpr}
 
-  defp tagged_padding_pixel_ratio({:ratio, _numerator, _denominator} = ratio),
-    do: tagged_dpr_ratio(ratio)
+  defp tagged_padding_pixel_ratio({:ratio, _numerator, _denominator} = ratio) do
+    case tagged_dpr_ratio(ratio) do
+      :ok -> {:ok, ratio}
+      {:error, reason} -> {:error, reason}
+    end
+  end
 
   defp tagged_padding_pixel_ratio({:effective, fallback, mode})
-       when mode in @effective_padding_modes,
-       do: tagged_dpr_ratio(fallback)
+       when mode in @effective_padding_modes do
+    case tagged_dpr_ratio(fallback) do
+      :ok -> {:ok, {:effective, fallback, mode}}
+      {:error, reason} -> {:error, reason}
+    end
+  end
 
   defp tagged_padding_pixel_ratio(_pixel_ratio), do: {:error, :pixel_ratio}
 

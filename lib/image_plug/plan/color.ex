@@ -38,7 +38,9 @@ defmodule ImagePlug.Plan.Color do
 
   @spec valid?(term()) :: boolean()
   def valid?(%__MODULE__{space: :srgb, channels: {red, green, blue}, alpha: {:ratio, 1, 1}}) do
-    match?({:ok, %__MODULE__{}}, rgb(red, green, blue))
+    is_integer(red) and red in 0..255 and
+      is_integer(green) and green in 0..255 and
+      is_integer(blue) and blue in 0..255
   end
 
   def valid?(_color), do: false
