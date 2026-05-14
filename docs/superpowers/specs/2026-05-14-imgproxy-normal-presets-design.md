@@ -22,18 +22,20 @@ The compatibility target is imgproxy's normal processing URL behavior:
 
 Source references used for this design:
 
-- `/Users/hlindset/src/image_plug/local/imgproxy-docs-master/versioned_docs/version-3.31.x/usage/presets.mdx`
-- `/Users/hlindset/src/image_plug/local/imgproxy-docs-master/versioned_docs/version-3.31.x/usage/processing.mdx`
-- `/Users/hlindset/src/image_plug/local/imgproxy-docs-master/versioned_docs/version-3.31.x/features/chained_pipelines.mdx`
-- `/Users/hlindset/src/image_plug/local/imgproxy-docs-master/versioned_docs/version-3.31.x/configuration/options.mdx`
-- `/Users/hlindset/src/image_plug/local/imgproxy-master/options/presets.go`
-- `/Users/hlindset/src/image_plug/local/imgproxy-master/options/processing_options.go`
-- `/Users/hlindset/src/image_plug/local/imgproxy-master/options/url_options.go`
+- `/Users/hlindset/src/image_plug/local/imgproxy-docs/usage/presets.mdx`
+- `/Users/hlindset/src/image_plug/local/imgproxy-docs/usage/processing.mdx`
+- `/Users/hlindset/src/image_plug/local/imgproxy-docs/features/chained_pipelines.mdx`
+- `/Users/hlindset/src/image_plug/local/imgproxy-docs/configuration/options.mdx`
+- `/Users/hlindset/src/image_plug/local/imgproxy-master/options/parser/presets.go`
+- `/Users/hlindset/src/image_plug/local/imgproxy-master/options/parser/processing_options.go`
+- `/Users/hlindset/src/image_plug/local/imgproxy-master/options/parser/url_options.go`
+- `/Users/hlindset/src/image_plug/local/imgproxy-master/options/parser/apply.go`
 
 The local imgproxy docs and local imgproxy source disagree on preset pipeline
 separators: the chained-pipelines docs describe presets containing `-`, while
-the current `options/presets.go` parser rejects `-` because `url_options.go`
-treats a segment without an argument separator as the start of the source URL.
+the current `options/parser/presets.go` parser rejects `-` because
+`options/parser/url_options.go` treats a segment without an argument separator
+as the start of the source URL.
 This design deliberately follows the documented chained-pipeline compatibility
 behavior because the requested ImagePlug slice explicitly includes preset
 definitions containing `-` when they can map cleanly to existing pipeline
@@ -86,7 +88,7 @@ meaning they have in direct ImagePlug imgproxy URLs.
 
 This slice deliberately does not support imgproxy's
 `IMGPROXY_PRESETS`, `IMGPROXY_PRESETS_SEPARATOR`, `IMGPROXY_PRESETS_PATH`,
-or command-line preset file behavior. It also does not support custom argument
+or preset env/file loading behavior. It also does not support custom argument
 separators.
 
 Configuration validation should tokenize preset definitions at
