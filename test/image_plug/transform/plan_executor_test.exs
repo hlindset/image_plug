@@ -117,6 +117,63 @@ defmodule ImagePlug.Transform.PlanExecutorTest do
     end
   end
 
+  describe "composition execution" do
+    test "padding expands dimensions and places the source image by left and top" do
+      assert {:ok, padding} =
+               Operation.padding({:px, 1}, {:px, 2}, {:px, 3}, {:px, 4})
+
+      assert {:ok, %State{} = state} =
+               Transform.execute_plan(plan([padding]), state_with_split_image(), [])
+
+      assert dimensions(state.image) == {8, 5}
+      assert rgb_pixel(state.image, 4, 1) == [255, 0, 0]
+      assert rgb_pixel(state.image, 5, 1) == [0, 0, 255]
+    end
+
+    test "padding scales sides with round-half-to-even" do
+      assert {:ok, padding} =
+               Operation.padding({:px, 1}, {:px, 3}, {:px, 5}, {:px, 7},
+                 pixel_ratio: {:ratio, 1, 2}
+               )
+
+      assert {:ok, %State{} = state} =
+               Transform.execute_plan(plan([padding]), state_with_image(10, 10), [])
+
+      assert dimensions(state.image) == {16, 12}
+    end
+
+    test "transparent padding over an RGB source preserves alpha in generated pixels" do
+      assert {:ok, padding} = Operation.padding({:px, 1}, {:px, 0}, {:px, 0}, {:px, 1})
+
+      assert {:ok, %State{} = state} =
+               Transform.execute_plan(plan([padding]), state_with_image(2, 2), [])
+
+      assert alpha_value(state.image, 0, 0) == 0
+    end
+
+    test "flatten background composites transparent generated pixels without changing dimensions" do
+      assert {:ok, padding} = Operation.padding({:px, 1}, {:px, 0}, {:px, 0}, {:px, 1})
+      assert {:ok, red} = Operation.color(255, 0, 0)
+      assert {:ok, flatten} = Operation.flatten_background(red)
+
+      assert {:ok, %State{} = state} =
+               Transform.execute_plan(plan([padding, flatten]), state_with_image(2, 2), [])
+
+      assert dimensions(state.image) == {3, 3}
+      assert rgb_pixel(state.image, 0, 0) == [255, 0, 0]
+      assert is_nil(Enum.at(Image.get_pixel!(state.image, 0, 0), 3))
+    end
+
+    test "transparent canvas over an RGB source preserves alpha in generated pixels" do
+      assert {:ok, canvas} = Operation.canvas({:px, 4}, {:px, 4}, :center)
+
+      assert {:ok, %State{} = state} =
+               Transform.execute_plan(plan([canvas]), state_with_image(2, 2), [])
+
+      assert alpha_value(state.image, 0, 0) == 0
+    end
+  end
+
   describe "orientation primitives" do
     test "auto orient, rotate, and flip execute as allowed primitive operations" do
       assert {:ok, %State{} = state} =
@@ -280,6 +337,18 @@ defmodule ImagePlug.Transform.PlanExecutorTest do
   end
 
   defp state_with_resize_auto_source(source), do: state_with_image(source)
+
+  defp rgb_pixel(image, x, y) do
+    image
+    |> Image.get_pixel!(x, y)
+    |> Enum.take(3)
+  end
+
+  defp alpha_value(image, x, y) do
+    image
+    |> Image.get_pixel!(x, y)
+    |> Enum.at(3)
+  end
 
   defp assert_resize_auto_visible_crop(true, image) do
     assert Image.get_pixel!(image, 0, div(Image.height(image), 2)) == [255, 255, 255]

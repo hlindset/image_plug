@@ -2,9 +2,12 @@ defmodule ImagePlug.Transform.PlanExecutor do
   @moduledoc false
 
   alias ImagePlug.Plan
+  alias ImagePlug.Plan.Color
   alias ImagePlug.Plan.Operation.Canvas
   alias ImagePlug.Plan.Operation.CropGuided
   alias ImagePlug.Plan.Operation.CropRegion
+  alias ImagePlug.Plan.Operation.FlattenBackground, as: PlanFlattenBackground
+  alias ImagePlug.Plan.Operation.Padding, as: PlanPadding
   alias ImagePlug.Plan.Operation.Resize, as: PlanResize
   alias ImagePlug.Plan.Pipeline
   alias ImagePlug.Transform.Chain
@@ -12,6 +15,8 @@ defmodule ImagePlug.Transform.PlanExecutor do
   alias ImagePlug.Transform.Operation.Crop
   alias ImagePlug.Transform.Operation.ExtendCanvas
   alias ImagePlug.Transform.Operation.Flip
+  alias ImagePlug.Transform.Operation.FlattenBackground
+  alias ImagePlug.Transform.Operation.Padding
   alias ImagePlug.Transform.Operation.Resize
   alias ImagePlug.Transform.Operation.Rotate
   alias ImagePlug.Transform.State
@@ -114,9 +119,27 @@ defmodule ImagePlug.Transform.PlanExecutor do
         gravity: tagged_executable_gravity(operation.placement),
         x_offset: operation.x_offset,
         y_offset: operation.y_offset,
-        background: operation.fill
+        background: executable_fill(operation.fill)
       }
     ]
+  end
+
+  defp executable_operations(%PlanPadding{} = operation, %State{} = state) do
+    scale = effective_padding_scale(operation, state)
+
+    [
+      %Padding{
+        top: scaled_padding_side(operation.top, scale),
+        right: scaled_padding_side(operation.right, scale),
+        bottom: scaled_padding_side(operation.bottom, scale),
+        left: scaled_padding_side(operation.left, scale),
+        fill: executable_fill(operation.fill)
+      }
+    ]
+  end
+
+  defp executable_operations(%PlanFlattenBackground{} = operation, %State{}) do
+    [%FlattenBackground{color: Color.to_rgb_list(operation.color)}]
   end
 
   defp executable_operations(%AutoOrient{} = operation, %State{}),
@@ -203,6 +226,26 @@ defmodule ImagePlug.Transform.PlanExecutor do
 
   defp canvas_rule({:ratio, width}, {:ratio, height}), do: {:aspect_ratio, {width, height}}
   defp canvas_rule(width, height), do: {:dimensions, width, height}
+
+  defp executable_fill(:transparent), do: :transparent
+  defp executable_fill({:solid, %Color{} = color}), do: {:color, Color.to_rgb_list(color)}
+
+  defp effective_padding_scale(%PlanPadding{pixel_ratio: {:ratio, numerator, denominator}}, %State{}),
+    do: numerator / denominator
+
+  defp scaled_padding_side({:px, value}, scale), do: round_half_to_even(value * scale)
+
+  defp round_half_to_even(value) do
+    floor = Float.floor(value)
+    fraction = value - floor
+
+    cond do
+      fraction < 0.5 -> trunc(floor)
+      fraction > 0.5 -> trunc(floor) + 1
+      rem(trunc(floor), 2) == 0 -> trunc(floor)
+      true -> trunc(floor) + 1
+    end
+  end
 
   defp tagged_executable_gravity(:center), do: {:anchor, :center, :center}
   defp tagged_executable_gravity(:top_left), do: {:anchor, :left, :top}
