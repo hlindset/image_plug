@@ -172,6 +172,33 @@ defmodule ImagePlug.Transform.PlanExecutorTest do
 
       assert alpha_value(state.image, 0, 0) == 0
     end
+
+    test "padding after no-enlarge resize uses effective DPR instead of raw requested DPR" do
+      assert {:ok, resize} =
+               Operation.resize(:fit, {:px, 1000}, :auto, dpr: 2.0, enlargement: :deny)
+
+      assert {:ok, padding} =
+               Operation.padding({:px, 10}, {:px, 0}, {:px, 0}, {:px, 0},
+                 pixel_ratio: {:ratio, 2, 1}
+               )
+
+      assert {:ok, %State{} = state} =
+               Transform.execute_plan(plan([resize, padding]), state_with_image(100, 50), [])
+
+      assert dimensions(state.image) == {100, 60}
+    end
+
+    test "padding without a preceding resize uses requested pixel ratio" do
+      assert {:ok, padding} =
+               Operation.padding({:px, 10}, {:px, 0}, {:px, 0}, {:px, 0},
+                 pixel_ratio: {:ratio, 2, 1}
+               )
+
+      assert {:ok, %State{} = state} =
+               Transform.execute_plan(plan([padding]), state_with_image(100, 50), [])
+
+      assert dimensions(state.image) == {100, 70}
+    end
   end
 
   describe "orientation primitives" do

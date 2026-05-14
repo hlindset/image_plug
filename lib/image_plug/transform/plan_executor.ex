@@ -37,25 +37,42 @@ defmodule ImagePlug.Transform.PlanExecutor do
   end
 
   defp execute_pipeline(%Pipeline{operations: operations}, %State{} = state) do
-    Enum.reduce_while(operations, {:ok, state}, fn operation, {:ok, state} ->
-      case execute_operation(operation, state) do
-        {:ok, %State{} = state} -> {:cont, {:ok, state}}
+    initial_context = %{effective_padding_scale: nil}
+
+    Enum.reduce_while(operations, {:ok, state, initial_context}, fn operation,
+                                                                    {:ok, state, context} ->
+      context = update_execution_context(operation, state, context)
+
+      case execute_operation(operation, state, context) do
+        {:ok, %State{} = state} -> {:cont, {:ok, state, context}}
         {:error, _reason} = error -> {:halt, error}
       end
     end)
+    |> case do
+      {:ok, state, _context} -> {:ok, state}
+      {:error, _reason} = error -> error
+    end
   end
 
-  defp execute_operation(operation, %State{} = state) do
+  defp execute_operation(operation, %State{} = state, context) do
     operation
-    |> executable_operations(state)
+    |> executable_operations(state, context)
     |> then(&Chain.execute(state, &1))
   end
 
-  defp executable_operations(%PlanResize{mode: :fit} = operation, %State{}) do
+  defp update_execution_context(%PlanResize{} = operation, %State{} = state, context) do
+    scale = resize_padding_scale(operation, state)
+
+    %{context | effective_padding_scale: scale}
+  end
+
+  defp update_execution_context(_operation, %State{}, context), do: context
+
+  defp executable_operations(%PlanResize{mode: :fit} = operation, %State{}, _context) do
     [resize_from(operation, :fit)]
   end
 
-  defp executable_operations(%PlanResize{mode: :cover} = operation, %State{} = state) do
+  defp executable_operations(%PlanResize{mode: :cover} = operation, %State{} = state, _context) do
     operation
     |> resize_from(:cover)
     |> cover_resize_and_crop(
@@ -65,11 +82,11 @@ defmodule ImagePlug.Transform.PlanExecutor do
     )
   end
 
-  defp executable_operations(%PlanResize{mode: :stretch} = operation, %State{}) do
+  defp executable_operations(%PlanResize{mode: :stretch} = operation, %State{}, _context) do
     [resize_from(operation, :stretch)]
   end
 
-  defp executable_operations(%PlanResize{mode: :auto} = operation, %State{} = state) do
+  defp executable_operations(%PlanResize{mode: :auto} = operation, %State{} = state, _context) do
     branch =
       resize_auto_branch(
         Image.width(state.image),
@@ -83,7 +100,7 @@ defmodule ImagePlug.Transform.PlanExecutor do
     tagged_executable_resize_operations(branch, resize, operation, state)
   end
 
-  defp executable_operations(%CropGuided{} = operation, %State{}) do
+  defp executable_operations(%CropGuided{} = operation, %State{}, _context) do
     [
       %Crop{
         width: crop_dimension(operation.width),
@@ -96,7 +113,7 @@ defmodule ImagePlug.Transform.PlanExecutor do
     ]
   end
 
-  defp executable_operations(%CropRegion{} = operation, %State{}) do
+  defp executable_operations(%CropRegion{} = operation, %State{}, _context) do
     [
       %Crop{
         width: crop_dimension(operation.width),
@@ -109,7 +126,7 @@ defmodule ImagePlug.Transform.PlanExecutor do
     ]
   end
 
-  defp executable_operations(%Canvas{} = operation, %State{}) do
+  defp executable_operations(%Canvas{} = operation, %State{}, _context) do
     width = canvas_dimension(operation.width)
     height = canvas_dimension(operation.height)
 
@@ -124,8 +141,8 @@ defmodule ImagePlug.Transform.PlanExecutor do
     ]
   end
 
-  defp executable_operations(%PlanPadding{} = operation, %State{} = state) do
-    scale = effective_padding_scale(operation, state)
+  defp executable_operations(%PlanPadding{} = operation, %State{} = state, context) do
+    scale = effective_padding_scale(operation, state, context)
 
     [
       %Padding{
@@ -138,15 +155,15 @@ defmodule ImagePlug.Transform.PlanExecutor do
     ]
   end
 
-  defp executable_operations(%PlanFlattenBackground{} = operation, %State{}) do
+  defp executable_operations(%PlanFlattenBackground{} = operation, %State{}, _context) do
     [%FlattenBackground{color: Color.to_rgb_list(operation.color)}]
   end
 
-  defp executable_operations(%AutoOrient{} = operation, %State{}),
+  defp executable_operations(%AutoOrient{} = operation, %State{}, _context),
     do: [operation]
 
-  defp executable_operations(%Rotate{} = operation, %State{}), do: [operation]
-  defp executable_operations(%Flip{} = operation, %State{}), do: [operation]
+  defp executable_operations(%Rotate{} = operation, %State{}, _context), do: [operation]
+  defp executable_operations(%Flip{} = operation, %State{}, _context), do: [operation]
 
   defp tagged_executable_resize_operations(
          :cover,
@@ -230,8 +247,70 @@ defmodule ImagePlug.Transform.PlanExecutor do
   defp executable_fill(:transparent), do: :transparent
   defp executable_fill({:solid, %Color{} = color}), do: {:color, Color.to_rgb_list(color)}
 
-  defp effective_padding_scale(%PlanPadding{pixel_ratio: {:ratio, numerator, denominator}}, %State{}),
+  defp effective_padding_scale(%PlanPadding{}, %State{}, %{effective_padding_scale: scale})
+       when is_number(scale),
+       do: scale
+
+  defp effective_padding_scale(
+         %PlanPadding{pixel_ratio: {:ratio, numerator, denominator}},
+         %State{},
+         _context
+       ),
     do: numerator / denominator
+
+  defp resize_padding_scale(%PlanResize{enlargement: :allow} = operation, %State{}),
+    do: tagged_dpr_float(operation.dpr)
+
+  defp resize_padding_scale(%PlanResize{} = operation, %State{} = state) do
+    requested_scale = tagged_dpr_float(operation.dpr)
+    branch = plan_resize_branch(operation, state)
+    resize = resize_from(operation, branch)
+
+    base =
+      %{resize | dpr: 1.0, enlarge: true}
+      |> Resize.resolve_dimensions(
+        source_width: Image.width(state.image),
+        source_height: Image.height(state.image)
+      )
+
+    max_without_enlarge = max_padding_scale_without_enlarge(base, state)
+    compensated = compensate_no_enlarge_padding_scale(requested_scale, max_without_enlarge)
+
+    clamp_padding_scale(compensated, max_without_enlarge)
+  end
+
+  defp max_padding_scale_without_enlarge(%{requested_width: :auto, requested_height: :auto}, %State{}),
+    do: :unbounded
+
+  defp max_padding_scale_without_enlarge(%{requested_width: width, requested_height: height}, %State{} = state) do
+    min(Image.width(state.image) / width, Image.height(state.image) / height)
+  end
+
+  defp compensate_no_enlarge_padding_scale(requested_scale, :unbounded), do: requested_scale
+
+  defp compensate_no_enlarge_padding_scale(requested_scale, max_without_enlarge)
+       when max_without_enlarge < 1.0 do
+    requested_scale / max_without_enlarge
+  end
+
+  defp compensate_no_enlarge_padding_scale(requested_scale, _max_without_enlarge),
+    do: requested_scale
+
+  defp clamp_padding_scale(scale, :unbounded), do: scale
+  defp clamp_padding_scale(scale, max_without_enlarge), do: min(scale, max(max_without_enlarge, 1.0))
+
+  defp plan_resize_branch(%PlanResize{mode: :fit}, %State{}), do: :fit
+  defp plan_resize_branch(%PlanResize{mode: :cover}, %State{}), do: :cover
+  defp plan_resize_branch(%PlanResize{mode: :stretch}, %State{}), do: :stretch
+
+  defp plan_resize_branch(%PlanResize{mode: :auto} = operation, %State{} = state) do
+    resize_auto_branch(
+      Image.width(state.image),
+      Image.height(state.image),
+      tagged_logical_pixels(operation.width),
+      tagged_logical_pixels(operation.height)
+    )
+  end
 
   defp scaled_padding_side({:px, value}, scale), do: round_half_to_even(value * scale)
 
