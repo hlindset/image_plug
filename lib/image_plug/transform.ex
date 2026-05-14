@@ -20,7 +20,7 @@ defmodule ImagePlug.Transform do
       Operation.Resize,
       Operation.ExtendCanvas,
       Operation.Padding,
-      Operation.FlattenBackground,
+      Operation.Background,
       Operation.AutoOrient,
       Operation.Rotate,
       Operation.Flip,

@@ -6,6 +6,7 @@ defmodule ImagePlug.Parser.ImgproxyTest do
 
   alias ImagePlug.Parser.Imgproxy
   alias ImagePlug.Plan
+  alias ImagePlug.Plan.Color
   alias ImagePlug.Plan.Operation
   alias ImagePlug.Plan.Output
   alias ImagePlug.Plan.Pipeline
@@ -423,14 +424,31 @@ defmodule ImagePlug.Parser.ImgproxyTest do
                parsed_pipeline!("/_/bg:f00/background:/plain/images/cat.jpg")
     end
 
-    test "rejects malformed and unsupported background options" do
+    test "background alpha applies to the accumulated background color" do
+      assert %{background_color: %Color{channels: {255, 0, 0}, alpha: {:ratio, 1, 2}}} =
+               parsed_pipeline!("/_/bg:f00/background_alpha:0.5/plain/images/cat.jpg")
+
+      assert %{background_color: %Color{channels: {0, 0, 255}, alpha: {:ratio, 1, 4}}} =
+               parsed_pipeline!("/_/bga:0.25/bg:00f/plain/images/cat.jpg")
+
+      assert %{background_color: %Color{channels: {0, 0, 0}, alpha: {:ratio, 1, 2}}} =
+               parsed_pipeline!("/_/bga:0.5/plain/images/cat.jpg")
+    end
+
+    test "background clear removes accumulated alpha" do
+      assert %{background_color: nil} =
+               parsed_pipeline!("/_/bg:f00/bga:0.5/background:/plain/images/cat.jpg")
+    end
+
+    test "rejects malformed background options" do
       for path <- [
             "/_/background:256:0:0/plain/images/cat.jpg",
             "/_/background:1:2/plain/images/cat.jpg",
             "/_/background:1::2/plain/images/cat.jpg",
             "/_/background:ffff/plain/images/cat.jpg",
-            "/_/background_alpha:0.5/plain/images/cat.jpg",
-            "/_/bga:0.5/plain/images/cat.jpg"
+            "/_/background_alpha:/plain/images/cat.jpg",
+            "/_/bga:0/plain/images/cat.jpg",
+            "/_/bga:1.1/plain/images/cat.jpg"
           ] do
         assert {:error, _reason} = Imgproxy.parse_request(conn(:get, path), [])
       end

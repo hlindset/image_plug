@@ -536,6 +536,12 @@ defmodule ImagePlug.Parser.Imgproxy do
         {:padding, padding_args}, pipeline ->
           apply_padding(pipeline, padding_args)
 
+        {:background_color, color}, pipeline ->
+          apply_background_color(pipeline, color)
+
+        {:background_alpha, alpha}, pipeline ->
+          apply_background_alpha(pipeline, alpha)
+
         assignment, pipeline ->
           struct!(pipeline, [assignment])
       end)
@@ -592,6 +598,7 @@ defmodule ImagePlug.Parser.Imgproxy do
          padding_bottom: nil,
          padding_left: nil,
          background_color: nil,
+         background_alpha: nil,
          gravity: {:anchor, :center, :center},
          gravity_x_offset: gravity_x_offset,
          gravity_y_offset: gravity_y_offset,
@@ -933,8 +940,9 @@ defmodule ImagePlug.Parser.Imgproxy do
     parse_background(args, segment)
   end
 
-  defp parse_special_option(name, _args, _segment) when name in ["background_alpha", "bga"],
-    do: {:error, {:unsupported_option, name}}
+  defp parse_special_option(name, args, segment) when name in ["background_alpha", "bga"] do
+    parse_background_alpha(args, segment)
+  end
 
   defp parse_special_option(name, _args, _segment), do: {:error, {:unknown_option, name}}
 
@@ -981,6 +989,23 @@ defmodule ImagePlug.Parser.Imgproxy do
   defp fallback_padding(nil, current), do: current
   defp fallback_padding(value, _current), do: value
 
+  defp apply_background_color(%PipelineRequest{} = pipeline, nil) do
+    %{pipeline | background_color: nil, background_alpha: nil}
+  end
+
+  defp apply_background_color(%PipelineRequest{} = pipeline, %Color{} = color) do
+    %{pipeline | background_color: color_with_alpha!(color, pipeline.background_alpha)}
+  end
+
+  defp apply_background_alpha(%PipelineRequest{} = pipeline, alpha) do
+    color =
+      pipeline.background_color
+      |> default_background_color()
+      |> color_with_alpha!(alpha)
+
+    %{pipeline | background_color: color, background_alpha: alpha}
+  end
+
   defp parse_background([""], _segment), do: {:ok, [background_color: nil]}
 
   defp parse_background([hex], _segment) when hex != "" do
@@ -1005,6 +1030,57 @@ defmodule ImagePlug.Parser.Imgproxy do
   end
 
   defp parse_background(args, _segment), do: {:error, {:invalid_background, args}}
+
+  defp parse_background_alpha([alpha], _segment) when alpha != "" do
+    with {:ok, alpha} <- parse_alpha_ratio(alpha) do
+      {:ok, [background_alpha: alpha]}
+    else
+      {:error, _reason} -> {:error, {:invalid_background_alpha, alpha}}
+    end
+  end
+
+  defp parse_background_alpha(args, _segment), do: {:error, {:invalid_background_alpha, args}}
+
+  defp parse_alpha_ratio(value) do
+    case String.split(value, ".", parts: 2) do
+      [integer] -> parse_alpha_integer(integer)
+      [integer, fraction] -> parse_alpha_decimal(integer, fraction)
+    end
+  end
+
+  defp parse_alpha_integer("1"), do: {:ok, {:ratio, 1, 1}}
+  defp parse_alpha_integer(_integer), do: {:error, :alpha}
+
+  defp parse_alpha_decimal(integer, fraction) when integer in ["0", "1"] and fraction != "" do
+    with true <- decimal_digits?(fraction),
+         {fraction_value, ""} <- Integer.parse(fraction, 10) do
+      denominator = Integer.pow(10, byte_size(fraction))
+      numerator = String.to_integer(integer) * denominator + fraction_value
+
+      case numerator > 0 and numerator <= denominator do
+        true -> {:ok, {:ratio, numerator, denominator}}
+        false -> {:error, :alpha}
+      end
+    else
+      _reason -> {:error, :alpha}
+    end
+  end
+
+  defp parse_alpha_decimal(_integer, _fraction), do: {:error, :alpha}
+
+  defp default_background_color(nil) do
+    {:ok, black} = Color.rgb(0, 0, 0)
+    black
+  end
+
+  defp default_background_color(%Color{} = color), do: color
+
+  defp color_with_alpha!(%Color{} = color, nil), do: color
+
+  defp color_with_alpha!(%Color{} = color, alpha) do
+    {:ok, color} = Color.with_alpha(color, alpha)
+    color
+  end
 
   defp parse_hex_color(hex) when byte_size(hex) == 3 do
     case hex_digits?(hex) do
@@ -1036,6 +1112,12 @@ defmodule ImagePlug.Parser.Imgproxy do
     value
     |> String.to_charlist()
     |> Enum.all?(&(&1 in ?0..?9 or &1 in ?a..?f or &1 in ?A..?F))
+  end
+
+  defp decimal_digits?(value) do
+    value
+    |> String.to_charlist()
+    |> Enum.all?(&(&1 in ?0..?9))
   end
 
   defp reduce_results(results) do

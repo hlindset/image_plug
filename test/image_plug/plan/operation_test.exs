@@ -308,18 +308,18 @@ defmodule ImagePlug.Plan.OperationTest do
                  ]}}
     end
 
-    test "flatten background stores canonical color" do
-      assert {:ok, red} = Operation.color(255, 0, 0)
-      assert Operation.flatten_background(red) == {:ok, %Operation.FlattenBackground{color: red}}
+    test "background stores canonical alpha-capable color" do
+      assert {:ok, red} = Operation.color(255, 0, 0, {:ratio, 1, 2})
+      assert Operation.background(red) == {:ok, %Operation.Background{color: red}}
     end
 
     test "semantic validation accepts composition structs" do
       assert {:ok, padding} = Operation.padding({:px, 1}, {:px, 0}, {:px, 0}, {:px, 0})
       assert {:ok, red} = Operation.color(255, 0, 0)
-      assert {:ok, flatten} = Operation.flatten_background(red)
+      assert {:ok, background} = Operation.background(red)
 
       assert Operation.semantic?(padding)
-      assert Operation.semantic?(flatten)
+      assert Operation.semantic?(background)
 
       refute Operation.semantic?(%Operation.Padding{
                top: {:px, 0},

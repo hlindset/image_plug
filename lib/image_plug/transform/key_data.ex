@@ -8,10 +8,10 @@ defmodule ImagePlug.Transform.KeyData do
   """
 
   alias ImagePlug.Plan.Color
+  alias ImagePlug.Plan.Operation.Background
   alias ImagePlug.Plan.Operation.Canvas
   alias ImagePlug.Plan.Operation.CropGuided
   alias ImagePlug.Plan.Operation.CropRegion
-  alias ImagePlug.Plan.Operation.FlattenBackground
   alias ImagePlug.Plan.Operation.Padding
   alias ImagePlug.Plan.Operation.Resize
   alias ImagePlug.Transform.Operation.AutoOrient
@@ -45,9 +45,9 @@ defmodule ImagePlug.Transform.KeyData do
   @spec data(
           geometry_value()
           | Canvas.t()
+          | Background.t()
           | CropGuided.t()
           | CropRegion.t()
-          | FlattenBackground.t()
           | Padding.t()
           | Resize.t()
           | AutoOrient.t()
@@ -119,8 +119,8 @@ defmodule ImagePlug.Transform.KeyData do
     ]
   end
 
-  def data(%FlattenBackground{} = operation) do
-    [op: :flatten_background, color: Color.key_data(operation.color)]
+  def data(%Background{} = operation) do
+    [op: :background, color: Color.key_data(operation.color)]
   end
 
   def data(%AutoOrient{}), do: [op: :auto_orient]

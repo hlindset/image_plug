@@ -91,7 +91,7 @@ defmodule ImagePlug.Parser.ImgproxyPropertyTest do
     assert Enum.map(operations_a, & &1.__struct__) == [
              Operation.Resize,
              Operation.Padding,
-             Operation.FlattenBackground
+             Operation.Background
            ]
   end
 

@@ -470,8 +470,8 @@ defmodule ImagePlug.Parser.Imgproxy.PlanBuilderTest do
     assert operation_names(operations) == [{:resize, :cover}, :canvas]
   end
 
-  test "plans padding after canvas and before flatten background" do
-    assert {:ok, red} = Operation.color(255, 0, 0)
+  test "plans padding after canvas and before background composition" do
+    assert {:ok, red} = Operation.color(255, 0, 0, {:ratio, 1, 2})
 
     assert {:ok, %Plan{pipelines: [%Pipeline{operations: operations}]}} =
              plan_pipeline(
@@ -496,7 +496,7 @@ defmodule ImagePlug.Parser.Imgproxy.PlanBuilderTest do
                fill: :transparent,
                pixel_ratio: {:effective, {:ratio, 1, 1}, :canvas_preserving}
              },
-             %Operation.FlattenBackground{color: ^red}
+             %Operation.Background{color: ^red}
            ] = operations
   end
 
@@ -546,11 +546,11 @@ defmodule ImagePlug.Parser.Imgproxy.PlanBuilderTest do
     assert padding.pixel_ratio == {:effective, {:ratio, 1, 2}, :canvas_preserving}
   end
 
-  test "background unset or cleared emits no flatten operation" do
+  test "background unset or cleared emits no background operation" do
     assert {:ok, %Plan{pipelines: [%Pipeline{operations: operations}]}} =
              plan_pipeline(background_color: nil)
 
-    refute Enum.any?(operations, &match?(%Operation.FlattenBackground{}, &1))
+    refute Enum.any?(operations, &match?(%Operation.Background{}, &1))
   end
 
   test "parsed zoom supports one shared factor or independent axes" do
@@ -935,7 +935,7 @@ defmodule ImagePlug.Parser.Imgproxy.PlanBuilderTest do
   defp operation_name(%Operation.Resize{mode: mode}), do: {:resize, mode}
   defp operation_name(%Operation.Canvas{}), do: :canvas
   defp operation_name(%Operation.Padding{}), do: :padding
-  defp operation_name(%Operation.FlattenBackground{}), do: :flatten_background
+  defp operation_name(%Operation.Background{}), do: :background
 
   defp parsed_request do
     map({valid_pipeline_request(), output_format()}, fn {pipeline_request, output_format} ->

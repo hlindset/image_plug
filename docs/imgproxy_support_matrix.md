@@ -68,8 +68,8 @@ before origin fetch or cache lookup; they are not silently ignored.
 
 | Imgproxy option | Aliases | Status | Notes |
 | --- | --- | --- | --- |
-| `background` | `bg` | Supported | Opaque RGB decimal and 3/6 digit hex colors; `background:` clears a previous background value. |
-| `background_alpha` | `bga` | Missing | Pro alpha background feature; explicitly unsupported in this slice. |
+| `background` | `bg` | Supported | RGB decimal and 3/6 digit hex colors; `background:` clears previous background color and alpha. |
+| `background_alpha` | `bga` | Supported | Applies an alpha channel to the accumulated background color; without an explicit background color, uses imgproxy's default black background. |
 | `adjust` | `a` | Missing | Pro meta-option for brightness, contrast, and saturation. |
 | `brightness` | `br` | Missing | Pro color adjustment. |
 | `contrast` | `co` | Missing | Pro color adjustment. |

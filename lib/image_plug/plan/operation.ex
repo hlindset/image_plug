@@ -3,10 +3,10 @@ defmodule ImagePlug.Plan.Operation do
   Constructor facade for canonical semantic Plan operations.
   """
 
+  alias ImagePlug.Plan.Operation.Background
   alias ImagePlug.Plan.Operation.Canvas
   alias ImagePlug.Plan.Operation.CropGuided
   alias ImagePlug.Plan.Operation.CropRegion
-  alias ImagePlug.Plan.Operation.FlattenBackground
   alias ImagePlug.Plan.Operation.Padding
   alias ImagePlug.Plan.Operation.Resize
   alias ImagePlug.Plan.Color
@@ -59,7 +59,7 @@ defmodule ImagePlug.Plan.Operation do
 
   @type padding_operation :: Padding.t()
 
-  @type flatten_background_operation :: FlattenBackground.t()
+  @type background_operation :: Background.t()
 
   @type orientation_operation ::
           ImagePlug.Transform.Operation.AutoOrient.t()
@@ -71,7 +71,7 @@ defmodule ImagePlug.Plan.Operation do
           | crop_operation()
           | canvas_operation()
           | padding_operation()
-          | flatten_background_operation()
+          | background_operation()
           | orientation_operation()
 
   @type error ::
@@ -79,6 +79,9 @@ defmodule ImagePlug.Plan.Operation do
 
   @spec color(term(), term(), term()) :: {:ok, Color.t()} | {:error, term()}
   def color(red, green, blue), do: Color.rgb(red, green, blue)
+
+  @spec color(term(), term(), term(), term()) :: {:ok, Color.t()} | {:error, term()}
+  def color(red, green, blue, alpha), do: Color.rgba(red, green, blue, alpha)
 
   @spec crop_guided(term(), term(), term(), keyword()) ::
           {:ok, CropGuided.t()} | {:error, error()}
@@ -186,15 +189,15 @@ defmodule ImagePlug.Plan.Operation do
     end
   end
 
-  @spec flatten_background(term()) :: {:ok, FlattenBackground.t()} | {:error, error()}
-  def flatten_background(%Color{} = color) do
+  @spec background(term()) :: {:ok, Background.t()} | {:error, error()}
+  def background(%Color{} = color) do
     case Color.valid?(color) do
-      true -> {:ok, %FlattenBackground{color: color}}
-      false -> invalid(:flatten_background, [color])
+      true -> {:ok, %Background{color: color}}
+      false -> invalid(:background, [color])
     end
   end
 
-  def flatten_background(color), do: invalid(:flatten_background, [color])
+  def background(color), do: invalid(:background, [color])
 
   @spec resize(Resize.mode(), term(), term(), keyword()) ::
           {:ok, Resize.t()} | {:error, error()}
@@ -246,7 +249,7 @@ defmodule ImagePlug.Plan.Operation do
   def semantic?(%CropRegion{} = operation), do: valid_crop_region?(operation)
   def semantic?(%Canvas{} = operation), do: valid_canvas?(operation)
   def semantic?(%Padding{} = operation), do: valid_padding?(operation)
-  def semantic?(%FlattenBackground{} = operation), do: valid_flatten_background?(operation)
+  def semantic?(%Background{} = operation), do: valid_background?(operation)
   def semantic?(%{__struct__: @auto_orient_module}), do: true
   def semantic?(%{__struct__: @rotate_module, angle: angle}) when angle in @right_angles, do: true
   def semantic?(%{__struct__: @flip_module, axis: axis}) when axis in @flip_axes, do: true
@@ -327,7 +330,7 @@ defmodule ImagePlug.Plan.Operation do
     end
   end
 
-  defp valid_flatten_background?(%FlattenBackground{color: color}), do: Color.valid?(color)
+  defp valid_background?(%Background{color: color}), do: Color.valid?(color)
 
   defp validate_known_options(operation, attrs, known_keys) do
     case Keyword.keys(attrs) -- known_keys do

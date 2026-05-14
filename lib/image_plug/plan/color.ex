@@ -2,16 +2,16 @@ defmodule ImagePlug.Plan.Color do
   @moduledoc """
   Canonical product-neutral color model for Plan operations.
 
-  The first slice supports opaque sRGB RGB colors only. The `:color`
-  dependency stays behind this module so parser, runtime, and cache data do
-  not depend on third-party structs.
+  The first slice supports sRGB RGB colors with a canonical alpha ratio. The
+  `:color` dependency stays behind this module so parser, runtime, and cache
+  data do not depend on third-party structs.
   """
 
   @enforce_keys [:space, :channels, :alpha]
   defstruct @enforce_keys
 
   @type channel :: 0..255
-  @type alpha :: {:ratio, pos_integer(), pos_integer()}
+  @type alpha :: {:ratio, non_neg_integer(), pos_integer()}
   @type t :: %__MODULE__{
           space: :srgb,
           channels: {channel(), channel(), channel()},
@@ -22,25 +22,46 @@ defmodule ImagePlug.Plan.Color do
   def rgb(red, green, blue)
       when is_integer(red) and red in 0..255 and is_integer(green) and green in 0..255 and
              is_integer(blue) and blue in 0..255 do
-    with {:ok, _external} <- Color.new([red, green, blue]) do
-      {:ok,
-       %__MODULE__{
-         space: :srgb,
-         channels: {red, green, blue},
-         alpha: {:ratio, 1, 1}
-       }}
-    else
-      {:error, _reason} -> {:error, {:invalid_color, [red, green, blue]}}
-    end
+    rgba(red, green, blue, {:ratio, 1, 1})
   end
 
   def rgb(red, green, blue), do: {:error, {:invalid_color, [red, green, blue]}}
 
+  @spec rgba(term(), term(), term(), term()) :: {:ok, t()} | {:error, term()}
+  def rgba(red, green, blue, alpha)
+      when is_integer(red) and red in 0..255 and is_integer(green) and green in 0..255 and
+             is_integer(blue) and blue in 0..255 do
+    with {:ok, alpha} <- alpha_ratio(alpha),
+         {:ok, _external} <- Color.new([red, green, blue]) do
+      {:ok,
+       %__MODULE__{
+         space: :srgb,
+         channels: {red, green, blue},
+         alpha: alpha
+       }}
+    else
+      {:error, _reason} -> {:error, {:invalid_color, [red, green, blue, alpha]}}
+    end
+  end
+
+  def rgba(red, green, blue, alpha), do: {:error, {:invalid_color, [red, green, blue, alpha]}}
+
+  @spec with_alpha(t(), alpha()) :: {:ok, t()} | {:error, term()}
+  def with_alpha(%__MODULE__{} = color, alpha) do
+    with true <- valid?(color),
+         {:ok, alpha} <- alpha_ratio(alpha) do
+      {:ok, %{color | alpha: alpha}}
+    else
+      _reason -> {:error, {:invalid_color, [color, alpha]}}
+    end
+  end
+
   @spec valid?(term()) :: boolean()
-  def valid?(%__MODULE__{space: :srgb, channels: {red, green, blue}, alpha: {:ratio, 1, 1}}) do
+  def valid?(%__MODULE__{space: :srgb, channels: {red, green, blue}, alpha: alpha}) do
     is_integer(red) and red in 0..255 and
       is_integer(green) and green in 0..255 and
-      is_integer(blue) and blue in 0..255
+      is_integer(blue) and blue in 0..255 and
+      match?({:ok, _alpha}, alpha_ratio(alpha))
   end
 
   def valid?(_color), do: false
@@ -49,17 +70,33 @@ defmodule ImagePlug.Plan.Color do
   def key_data(%__MODULE__{
         space: :srgb,
         channels: {red, green, blue},
-        alpha: {:ratio, 1, 1}
+        alpha: {:ratio, numerator, denominator}
       }) do
     [
       space: :srgb,
       red: red,
       green: green,
       blue: blue,
-      alpha: [unit: :ratio, numerator: 1, denominator: 1]
+      alpha: [unit: :ratio, numerator: numerator, denominator: denominator]
     ]
   end
 
   @spec to_rgb_list(t()) :: [channel()]
   def to_rgb_list(%__MODULE__{channels: {red, green, blue}}), do: [red, green, blue]
+
+  @spec to_rgba_list(t()) :: [channel()]
+  def to_rgba_list(%__MODULE__{channels: {red, green, blue}, alpha: alpha}) do
+    [red, green, blue, alpha_byte(alpha)]
+  end
+
+  defp alpha_ratio({:ratio, numerator, denominator})
+       when is_integer(numerator) and is_integer(denominator) and numerator >= 0 and
+              denominator > 0 and numerator <= denominator do
+    divisor = Integer.gcd(numerator, denominator)
+    {:ok, {:ratio, div(numerator, divisor), div(denominator, divisor)}}
+  end
+
+  defp alpha_ratio(_alpha), do: {:error, :alpha}
+
+  defp alpha_byte({:ratio, numerator, denominator}), do: round(255 * numerator / denominator)
 end

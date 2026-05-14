@@ -62,7 +62,7 @@ defmodule ImagePlug.RequestSafetyTest do
     for path <- [
           "/_/pd:-1/plain/images/cat.jpg",
           "/_/bg:256:0:0/plain/images/cat.jpg",
-          "/_/bga:0.5/plain/images/cat.jpg"
+          "/_/bga:1.1/plain/images/cat.jpg"
         ] do
       conn =
         ImagePlug.call(conn(:get, path),

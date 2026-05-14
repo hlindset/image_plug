@@ -3,19 +3,19 @@ defmodule ImagePlug.Transform.PlanExecutor do
 
   alias ImagePlug.Plan
   alias ImagePlug.Plan.Color
+  alias ImagePlug.Plan.Operation.Background, as: PlanBackground
   alias ImagePlug.Plan.Operation.Canvas
   alias ImagePlug.Plan.Operation.CropGuided
   alias ImagePlug.Plan.Operation.CropRegion
-  alias ImagePlug.Plan.Operation.FlattenBackground, as: PlanFlattenBackground
   alias ImagePlug.Plan.Operation.Padding, as: PlanPadding
   alias ImagePlug.Plan.Operation.Resize, as: PlanResize
   alias ImagePlug.Plan.Pipeline
   alias ImagePlug.Transform.Chain
   alias ImagePlug.Transform.Operation.AutoOrient
+  alias ImagePlug.Transform.Operation.Background
   alias ImagePlug.Transform.Operation.Crop
   alias ImagePlug.Transform.Operation.ExtendCanvas
   alias ImagePlug.Transform.Operation.Flip
-  alias ImagePlug.Transform.Operation.FlattenBackground
   alias ImagePlug.Transform.Operation.Padding
   alias ImagePlug.Transform.Operation.Resize
   alias ImagePlug.Transform.Operation.Rotate
@@ -160,8 +160,8 @@ defmodule ImagePlug.Transform.PlanExecutor do
     ]
   end
 
-  defp executable_operations(%PlanFlattenBackground{} = operation, %State{}, _context) do
-    [%FlattenBackground{color: Color.to_rgb_list(operation.color)}]
+  defp executable_operations(%PlanBackground{} = operation, %State{}, _context) do
+    [%Background{color: Color.to_rgba_list(operation.color)}]
   end
 
   defp executable_operations(%AutoOrient{} = operation, %State{}, _context),
@@ -250,7 +250,13 @@ defmodule ImagePlug.Transform.PlanExecutor do
   defp canvas_rule(width, height), do: {:dimensions, width, height}
 
   defp executable_fill(:transparent), do: :transparent
-  defp executable_fill({:solid, %Color{} = color}), do: {:color, Color.to_rgb_list(color)}
+
+  defp executable_fill({:solid, %Color{alpha: {:ratio, numerator, denominator}} = color})
+       when numerator == denominator do
+    {:color, Color.to_rgb_list(color)}
+  end
+
+  defp executable_fill({:solid, %Color{} = color}), do: {:color, Color.to_rgba_list(color)}
 
   defp effective_padding_scale(
          %PlanPadding{pixel_ratio: {:effective, _fallback, :resize}},

@@ -407,7 +407,7 @@ defmodule ImagePlug.Parser.Imgproxy.PlanBuilder do
   defp background_operations(%PipelineRequest{background_color: nil}), do: {:ok, []}
 
   defp background_operations(%PipelineRequest{background_color: color}) do
-    with {:ok, operation} <- Operation.flatten_background(color) do
+    with {:ok, operation} <- Operation.background(color) do
       {:ok, [operation]}
     end
   end

@@ -25,10 +25,10 @@ defmodule ImagePlug.ArchitectureBoundaryTest do
     ImagePlug.Transform => "lib/image_plug/transform.ex"
   }
   @concrete_plan_names [
+    :Background,
     :Canvas,
     :CropGuided,
     :CropRegion,
-    :FlattenBackground,
     :Padding,
     :Resize
   ]
@@ -41,7 +41,7 @@ defmodule ImagePlug.ArchitectureBoundaryTest do
     :Resize,
     :Rotate,
     :Flip,
-    :FlattenBackground,
+    :Background,
     :AutoOrient,
     :ExtendCanvas,
     :Padding,
@@ -224,7 +224,7 @@ defmodule ImagePlug.ArchitectureBoundaryTest do
       ImagePlug.Transform.Operation.Resize,
       ImagePlug.Transform.Operation.ExtendCanvas,
       ImagePlug.Transform.Operation.Padding,
-      ImagePlug.Transform.Operation.FlattenBackground,
+      ImagePlug.Transform.Operation.Background,
       ImagePlug.Transform.Operation.AutoOrient,
       ImagePlug.Transform.Operation.Rotate,
       ImagePlug.Transform.Operation.Flip,
@@ -240,7 +240,7 @@ defmodule ImagePlug.ArchitectureBoundaryTest do
     assert_boundary_exports_include(plan, [
       ImagePlug.Plan.Color,
       ImagePlug.Plan.Operation.Padding,
-      ImagePlug.Plan.Operation.FlattenBackground
+      ImagePlug.Plan.Operation.Background
     ])
   end
 
@@ -349,8 +349,21 @@ defmodule ImagePlug.ArchitectureBoundaryTest do
 
   defp external_color_call?(line) do
     case Regex.run(~r/\bColor\.([a-zA-Z_][a-zA-Z0-9_]*[?!]?)/, line) do
-      [_match, function] -> function not in ["t", "rgb", "valid?", "key_data", "to_rgb_list"]
-      nil -> false
+      [_match, function] ->
+        function not in [
+          "alpha",
+          "t",
+          "rgb",
+          "rgba",
+          "with_alpha",
+          "valid?",
+          "key_data",
+          "to_rgb_list",
+          "to_rgba_list"
+        ]
+
+      nil ->
+        false
     end
   end
 

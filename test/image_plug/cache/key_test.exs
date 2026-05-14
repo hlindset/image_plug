@@ -90,9 +90,9 @@ defmodule ImagePlug.Cache.KeyTest do
     operation
   end
 
-  defp flatten_background_operation(red, green, blue) do
-    assert {:ok, color} = Operation.color(red, green, blue)
-    assert {:ok, operation} = Operation.flatten_background(color)
+  defp background_operation(red, green, blue, alpha) do
+    assert {:ok, color} = Operation.color(red, green, blue, alpha)
+    assert {:ok, operation} = Operation.background(color)
     operation
   end
 
@@ -432,7 +432,7 @@ defmodule ImagePlug.Cache.KeyTest do
             %Pipeline{
               operations: [
                 padding_operation(1, 2, 3, 4, pixel_ratio: {:ratio, 3, 2}),
-                flatten_background_operation(255, 0, 0)
+                background_operation(255, 0, 0, {:ratio, 1, 2})
               ]
             }
           ]
@@ -454,13 +454,13 @@ defmodule ImagePlug.Cache.KeyTest do
                  fill: :transparent
                ],
                [
-                 op: :flatten_background,
+                 op: :background,
                  color: [
                    space: :srgb,
                    red: 255,
                    green: 0,
                    blue: 0,
-                   alpha: [unit: :ratio, numerator: 1, denominator: 1]
+                   alpha: [unit: :ratio, numerator: 1, denominator: 2]
                  ]
                ]
              ]

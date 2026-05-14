@@ -90,15 +90,15 @@ defmodule ImagePlug.TransformExecutableCharacterizationTest do
     assert dimensions(resize_then_crop) == {100, 50}
   end
 
-  test "executable flatten background uses Image.flatten with RGB color" do
+  test "executable background supports alpha-capable composition" do
     {:ok, image} = Image.new(2, 2, color: [0, 0, 0, 0])
     state = %State{image: image}
 
     state =
       execute!(state, [
-        %ImagePlug.Transform.Operation.FlattenBackground{color: [255, 0, 0]}
+        %ImagePlug.Transform.Operation.Background{color: [255, 0, 0, 128]}
       ])
 
-    assert Image.get_pixel!(state.image, 0, 0) |> Enum.take(3) == [255, 0, 0]
+    assert Image.get_pixel!(state.image, 0, 0) == [255, 0, 0, 128]
   end
 end

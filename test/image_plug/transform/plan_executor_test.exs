@@ -151,17 +151,29 @@ defmodule ImagePlug.Transform.PlanExecutorTest do
       assert alpha_value(state.image, 0, 0) == 0
     end
 
-    test "flatten background composites transparent generated pixels without changing dimensions" do
+    test "opaque background composites transparent generated pixels without changing dimensions" do
       assert {:ok, padding} = Operation.padding({:px, 1}, {:px, 0}, {:px, 0}, {:px, 1})
       assert {:ok, red} = Operation.color(255, 0, 0)
-      assert {:ok, flatten} = Operation.flatten_background(red)
+      assert {:ok, background} = Operation.background(red)
 
       assert {:ok, %State{} = state} =
-               Transform.execute_plan(plan([padding, flatten]), state_with_image(2, 2), [])
+               Transform.execute_plan(plan([padding, background]), state_with_image(2, 2), [])
 
       assert dimensions(state.image) == {3, 3}
       assert rgb_pixel(state.image, 0, 0) == [255, 0, 0]
       assert is_nil(Enum.at(Image.get_pixel!(state.image, 0, 0), 3))
+    end
+
+    test "alpha background preserves output alpha for alpha-capable encoders" do
+      assert {:ok, padding} = Operation.padding({:px, 1}, {:px, 0}, {:px, 0}, {:px, 1})
+      assert {:ok, red} = Operation.color(255, 0, 0, {:ratio, 1, 2})
+      assert {:ok, background} = Operation.background(red)
+
+      assert {:ok, %State{} = state} =
+               Transform.execute_plan(plan([padding, background]), state_with_image(2, 2), [])
+
+      assert dimensions(state.image) == {3, 3}
+      assert Image.get_pixel!(state.image, 0, 0) == [255, 0, 0, 128]
     end
 
     test "transparent canvas over an RGB source preserves alpha in generated pixels" do
@@ -171,6 +183,16 @@ defmodule ImagePlug.Transform.PlanExecutorTest do
                Transform.execute_plan(plan([canvas]), state_with_image(2, 2), [])
 
       assert alpha_value(state.image, 0, 0) == 0
+    end
+
+    test "alpha solid canvas fill preserves alpha in generated pixels" do
+      assert {:ok, red} = Operation.color(255, 0, 0, {:ratio, 1, 2})
+      assert {:ok, canvas} = Operation.canvas({:px, 4}, {:px, 4}, :center, fill: {:solid, red})
+
+      assert {:ok, %State{} = state} =
+               Transform.execute_plan(plan([canvas]), state_with_image(2, 2), [])
+
+      assert Image.get_pixel!(state.image, 0, 0) == [255, 0, 0, 128]
     end
 
     test "padding after resize keeps explicit pixel ratio authoritative" do

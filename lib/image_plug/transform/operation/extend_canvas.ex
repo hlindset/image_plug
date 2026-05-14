@@ -193,6 +193,13 @@ defmodule ImagePlug.Transform.Operation.ExtendCanvas do
     end
   end
 
+  defp alpha_ready_image(image, {:color, [_red, _green, _blue, _alpha]}) do
+    case Image.has_alpha?(image) do
+      true -> {:ok, image}
+      false -> Image.add_alpha(image, :opaque)
+    end
+  end
+
   defp alpha_ready_image(image, _background), do: {:ok, image}
 
   defp background_color(:transparent, _image), do: [0, 0, 0, 0]
@@ -200,6 +207,8 @@ defmodule ImagePlug.Transform.Operation.ExtendCanvas do
   defp background_color(:black, image), do: alpha_aware_color([0, 0, 0], image)
   defp background_color({:color, color}, image), do: alpha_aware_color(color, image)
   defp background_color(color, _image), do: color
+
+  defp alpha_aware_color([_red, _green, _blue, _alpha] = color, _image), do: color
 
   defp alpha_aware_color(color, image) do
     case Image.has_alpha?(image) do
