@@ -172,7 +172,7 @@ defmodule ImagePlug.Plan.OperationKeyDataTest do
                  x: [unit: :ratio, numerator: 1, denominator: 3],
                  y: [unit: :ratio, numerator: 2, denominator: 3]
                ],
-               background: :white,
+               fill: :transparent,
                overflow: :reject,
                x_offset: 5.0,
                y_offset: -3.0

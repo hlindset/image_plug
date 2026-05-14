@@ -410,7 +410,10 @@ defmodule ImagePlug.Parser.ImgproxyTest do
   describe "background parsing" do
     test "parses decimal and hex background colors into Plan color" do
       assert {:ok, red} = ImagePlug.Plan.Color.rgb(255, 0, 0)
-      assert %{background_color: ^red} = parsed_pipeline!("/_/background:255:0:0/plain/images/cat.jpg")
+
+      assert %{background_color: ^red} =
+               parsed_pipeline!("/_/background:255:0:0/plain/images/cat.jpg")
+
       assert %{background_color: ^red} = parsed_pipeline!("/_/bg:f00/plain/images/cat.jpg")
       assert %{background_color: ^red} = parsed_pipeline!("/_/bg:FF0000/plain/images/cat.jpg")
     end

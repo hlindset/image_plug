@@ -256,7 +256,7 @@ defmodule ImagePlug.Transform.PlanExecutor do
          %State{},
          _context
        ),
-    do: numerator / denominator
+       do: numerator / denominator
 
   defp resize_padding_scale(%PlanResize{enlargement: :allow} = operation, %State{}),
     do: tagged_dpr_float(operation.dpr)
@@ -279,10 +279,16 @@ defmodule ImagePlug.Transform.PlanExecutor do
     clamp_padding_scale(compensated, max_without_enlarge)
   end
 
-  defp max_padding_scale_without_enlarge(%{requested_width: :auto, requested_height: :auto}, %State{}),
-    do: :unbounded
+  defp max_padding_scale_without_enlarge(
+         %{requested_width: :auto, requested_height: :auto},
+         %State{}
+       ),
+       do: :unbounded
 
-  defp max_padding_scale_without_enlarge(%{requested_width: width, requested_height: height}, %State{} = state) do
+  defp max_padding_scale_without_enlarge(
+         %{requested_width: width, requested_height: height},
+         %State{} = state
+       ) do
     min(Image.width(state.image) / width, Image.height(state.image) / height)
   end
 
@@ -297,7 +303,9 @@ defmodule ImagePlug.Transform.PlanExecutor do
     do: requested_scale
 
   defp clamp_padding_scale(scale, :unbounded), do: scale
-  defp clamp_padding_scale(scale, max_without_enlarge), do: min(scale, max(max_without_enlarge, 1.0))
+
+  defp clamp_padding_scale(scale, max_without_enlarge),
+    do: min(scale, max(max_without_enlarge, 1.0))
 
   defp plan_resize_branch(%PlanResize{mode: :fit}, %State{}), do: :fit
   defp plan_resize_branch(%PlanResize{mode: :cover}, %State{}), do: :cover

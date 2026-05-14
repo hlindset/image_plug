@@ -192,9 +192,7 @@ defmodule ImagePlug.Plan.OperationTest do
                 fill: :transparent,
                 overflow: :reject
               } = operation} =
-               Operation.canvas({:px, 300}, {:px, 200}, :center,
-                 overflow: :reject
-               )
+               Operation.canvas({:px, 300}, {:px, 200}, :center, overflow: :reject)
 
       assert operation.x_offset == 0.0
       assert operation.y_offset == 0.0
@@ -231,8 +229,7 @@ defmodule ImagePlug.Plan.OperationTest do
 
       assert Operation.canvas({:px, 300}, {:px, 200}, :center, fill: :white) ==
                {:error,
-                {:invalid_operation, :canvas,
-                 [{:px, 300}, {:px, 200}, :center, [fill: :white]]}}
+                {:invalid_operation, :canvas, [{:px, 300}, {:px, 200}, :center, [fill: :white]]}}
 
       assert Operation.canvas({:px, 300}, {:px, 200}, :center, overflow: :crop) ==
                {:error,
@@ -273,13 +270,11 @@ defmodule ImagePlug.Plan.OperationTest do
     test "padding rejects all-zero and malformed sides" do
       assert Operation.padding({:px, 0}, {:px, 0}, {:px, 0}, {:px, 0}) ==
                {:error,
-                {:invalid_operation, :padding,
-                 [{:px, 0}, {:px, 0}, {:px, 0}, {:px, 0}, []]}}
+                {:invalid_operation, :padding, [{:px, 0}, {:px, 0}, {:px, 0}, {:px, 0}, []]}}
 
       assert Operation.padding({:px, -1}, {:px, 0}, {:px, 0}, {:px, 0}) ==
                {:error,
-                {:invalid_operation, :padding,
-                 [{:px, -1}, {:px, 0}, {:px, 0}, {:px, 0}, []]}}
+                {:invalid_operation, :padding, [{:px, -1}, {:px, 0}, {:px, 0}, {:px, 0}, []]}}
     end
 
     test "flatten background stores canonical color" do
