@@ -31,15 +31,14 @@ Source references used for this design:
 - `/Users/hlindset/src/image_plug/local/imgproxy-master/options/parser/url_options.go`
 - `/Users/hlindset/src/image_plug/local/imgproxy-master/options/parser/apply.go`
 
-The local imgproxy docs and local imgproxy source disagree on preset pipeline
-separators: the chained-pipelines docs describe presets containing `-`, while
-the current `options/parser/presets.go` parser rejects `-` because
+The local imgproxy chained-pipelines docs are marked Pro and describe presets
+containing `-`. The local non-Pro source tree does not include that parser
+behavior: the current `options/parser/presets.go` parser rejects `-` because
 `options/parser/url_options.go` treats a segment without an argument separator
-as the start of the source URL.
-This design deliberately follows the documented chained-pipeline compatibility
-behavior because the requested ImagePlug slice explicitly includes preset
-definitions containing `-` when they can map cleanly to existing pipeline
-groups.
+as the start of the source URL. This design deliberately follows the documented
+Pro chained-pipeline compatibility behavior because the requested ImagePlug
+slice explicitly includes preset definitions containing `-` when they can map
+cleanly to existing pipeline groups.
 
 ## Architecture
 
