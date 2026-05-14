@@ -1012,8 +1012,7 @@ defmodule ImagePlug.Parser.Imgproxy do
   defp parse_background([""], _segment), do: {:ok, [background_color: nil]}
 
   defp parse_background([hex], _segment) when hex != "" do
-    with {:ok, {red, green, blue}} <- parse_hex_color(hex),
-         {:ok, color} <- Color.rgb(red, green, blue) do
+    with {:ok, color} <- Color.rgb_hex(hex) do
       {:ok, [background_color: color]}
     else
       {:error, _reason} -> {:error, {:invalid_background, hex}}
@@ -1083,38 +1082,6 @@ defmodule ImagePlug.Parser.Imgproxy do
   defp color_with_alpha!(%Color{} = color, alpha) do
     {:ok, color} = Color.with_alpha(color, alpha)
     color
-  end
-
-  defp parse_hex_color(hex) when byte_size(hex) == 3 do
-    case hex_digits?(hex) do
-      true ->
-        <<red::binary-size(1), green::binary-size(1), blue::binary-size(1)>> =
-          String.downcase(hex)
-
-        parse_hex_color(red <> red <> green <> green <> blue <> blue)
-
-      false ->
-        {:error, :hex}
-    end
-  end
-
-  defp parse_hex_color(hex) when byte_size(hex) == 6 do
-    with true <- hex_digits?(hex),
-         {red, ""} <- hex |> binary_part(0, 2) |> Integer.parse(16),
-         {green, ""} <- hex |> binary_part(2, 2) |> Integer.parse(16),
-         {blue, ""} <- hex |> binary_part(4, 2) |> Integer.parse(16) do
-      {:ok, {red, green, blue}}
-    else
-      _reason -> {:error, :hex}
-    end
-  end
-
-  defp parse_hex_color(_hex), do: {:error, :hex}
-
-  defp hex_digits?(value) do
-    value
-    |> String.to_charlist()
-    |> Enum.all?(&(&1 in ?0..?9 or &1 in ?a..?f or &1 in ?A..?F))
   end
 
   defp decimal_digits?(value) do

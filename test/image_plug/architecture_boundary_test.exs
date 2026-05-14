@@ -354,6 +354,7 @@ defmodule ImagePlug.ArchitectureBoundaryTest do
           "alpha",
           "t",
           "rgb",
+          "rgb_hex",
           "rgba",
           "with_alpha",
           "valid?",

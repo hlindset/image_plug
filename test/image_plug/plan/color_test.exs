@@ -19,6 +19,18 @@ defmodule ImagePlug.Plan.ColorTest do
     assert Color.rgb(0, 0, 1.5) == {:error, {:invalid_color, [0, 0, 1.5]}}
   end
 
+  test "constructs opaque sRGB color from 3 and 6 digit RGB hex" do
+    assert Color.rgb_hex("f0a") == Color.rgb(255, 0, 170)
+    assert Color.rgb_hex("ff00aa") == Color.rgb(255, 0, 170)
+    assert Color.rgb_hex("FF00AA") == Color.rgb(255, 0, 170)
+  end
+
+  test "rejects CSS color forms outside raw RGB hex" do
+    assert Color.rgb_hex("#f0a") == {:error, {:invalid_color, ["#f0a"]}}
+    assert Color.rgb_hex("f0a8") == {:error, {:invalid_color, ["f0a8"]}}
+    assert Color.rgb_hex("red") == {:error, {:invalid_color, ["red"]}}
+  end
+
   test "constructs sRGB color with canonical alpha ratio" do
     assert {:ok,
             %Color{

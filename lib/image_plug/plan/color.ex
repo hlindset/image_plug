@@ -27,6 +27,18 @@ defmodule ImagePlug.Plan.Color do
 
   def rgb(red, green, blue), do: {:error, {:invalid_color, [red, green, blue]}}
 
+  @spec rgb_hex(term()) :: {:ok, t()} | {:error, term()}
+  def rgb_hex(hex) when is_binary(hex) and byte_size(hex) in [3, 6] do
+    with {:ok, %Elixir.Color.SRGB{} = external} <- Elixir.Color.SRGB.parse("#" <> hex),
+         {red, green, blue} <- Elixir.Color.SRGB.scale255(external) do
+      rgb(round(red), round(green), round(blue))
+    else
+      {:error, _reason} -> {:error, {:invalid_color, [hex]}}
+    end
+  end
+
+  def rgb_hex(hex), do: {:error, {:invalid_color, [hex]}}
+
   @spec rgba(term(), term(), term(), term()) :: {:ok, t()} | {:error, term()}
   def rgba(red, green, blue, alpha)
       when is_integer(red) and red in 0..255 and is_integer(green) and green in 0..255 and
