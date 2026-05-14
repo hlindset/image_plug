@@ -955,11 +955,14 @@ defmodule ImagePlug.Parser.Imgproxy do
   defp parse_padding(_args, segment), do: {:error, {:invalid_option_segment, segment}}
 
   defp parse_padding_args(args, segment) do
-    args
-    |> Enum.map(&parse_padding_arg/1)
-    |> reduce_results()
-    |> case do
-      {:ok, values} -> {:ok, values}
+    parse_padding_args(args, segment, [])
+  end
+
+  defp parse_padding_args([], _segment, values), do: {:ok, Enum.reverse(values)}
+
+  defp parse_padding_args([arg | args], segment, values) do
+    case parse_padding_arg(arg) do
+      {:ok, value} -> parse_padding_args(args, segment, [value | values])
       {:error, _reason} -> {:error, {:invalid_option_segment, segment}}
     end
   end
@@ -1118,18 +1121,6 @@ defmodule ImagePlug.Parser.Imgproxy do
     value
     |> String.to_charlist()
     |> Enum.all?(&(&1 in ?0..?9))
-  end
-
-  defp reduce_results(results) do
-    results
-    |> Enum.reduce_while({:ok, []}, fn
-      {:ok, value}, {:ok, values} -> {:cont, {:ok, [value | values]}}
-      {:error, reason}, {:ok, _values} -> {:halt, {:error, reason}}
-    end)
-    |> case do
-      {:ok, values} -> {:ok, Enum.reverse(values)}
-      {:error, _reason} = error -> error
-    end
   end
 
   defp parse_zoom([value], _segment) when value != "" do
