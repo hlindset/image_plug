@@ -7,6 +7,7 @@ defmodule ImagePlug.Plan.Operation do
   alias ImagePlug.Plan.Operation.CropGuided
   alias ImagePlug.Plan.Operation.CropRegion
   alias ImagePlug.Plan.Operation.Resize
+  alias ImagePlug.Plan.Color
 
   @enlargements [:allow, :deny]
   @right_angles [0, 90, 180, 270]
@@ -65,6 +66,9 @@ defmodule ImagePlug.Plan.Operation do
 
   @type error ::
           {:invalid_operation, atom(), term()} | {:unknown_operation_options, atom(), [atom()]}
+
+  @spec color(term(), term(), term()) :: {:ok, Color.t()} | {:error, term()}
+  def color(red, green, blue), do: Color.rgb(red, green, blue)
 
   @spec crop_guided(term(), term(), term(), keyword()) ::
           {:ok, CropGuided.t()} | {:error, error()}

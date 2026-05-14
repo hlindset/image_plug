@@ -11,6 +11,7 @@ defmodule ImagePlug.Plan do
       Orientation,
       Output,
       Response,
+      Color,
       Operation,
       Operation.CropGuided,
       Operation.CropRegion,
