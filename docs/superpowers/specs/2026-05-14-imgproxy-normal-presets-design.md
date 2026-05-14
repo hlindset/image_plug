@@ -85,9 +85,18 @@ arguments are separated by `:`, pipeline groups are separated by `-`, and
 recognized no-argument processing options such as `ar` and `fl` keep the same
 meaning they have in direct ImagePlug imgproxy URLs.
 
-This slice deliberately does not support imgproxy's
-`IMGPROXY_PRESETS`, `IMGPROXY_PRESETS_SEPARATOR`, `IMGPROXY_PRESETS_PATH`,
-or preset env/file loading behavior. It also does not support custom argument
+This slice deliberately does not support imgproxy's preset environment and file
+loading configuration:
+
+- `IMGPROXY_PRESETS`: imgproxy's environment variable for defining one or more
+  preset definitions inline, usually separated by commas.
+- `IMGPROXY_PRESETS_SEPARATOR`: imgproxy's environment variable for changing
+  the separator used to split multiple inline `IMGPROXY_PRESETS` definitions.
+- `IMGPROXY_PRESETS_PATH`: imgproxy's environment variable for loading preset
+  definitions from a file, one definition per line.
+
+ImagePlug only accepts already-materialized preset definitions passed through
+the `imgproxy: [presets: ...]` option. It also does not support custom argument
 separators.
 
 Configuration validation should tokenize preset definitions at
