@@ -343,7 +343,7 @@ defmodule ImagePlug.Parser.Imgproxy.PlanBuilder do
           width,
           height,
           placement,
-          background: :white,
+          fill: :transparent,
           overflow: :reject,
           x_offset: request.extend_x_offset || 0.0,
           y_offset: request.extend_y_offset || 0.0
@@ -368,7 +368,7 @@ defmodule ImagePlug.Parser.Imgproxy.PlanBuilder do
     with {:ok, width} <- tagged_ratio_from_decimal(width),
          {:ok, height} <- tagged_ratio_from_decimal(height),
          {:ok, placement} <- canvas_placement(@default_gravity) do
-      Operation.canvas(width, height, placement, background: :white, overflow: :reject)
+      Operation.canvas(width, height, placement, fill: :transparent, overflow: :reject)
     end
   end
 

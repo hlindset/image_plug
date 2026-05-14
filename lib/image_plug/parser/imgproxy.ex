@@ -23,6 +23,7 @@ defmodule ImagePlug.Parser.Imgproxy do
   alias ImagePlug.Parser.Imgproxy.RequestPolicy
   alias ImagePlug.Parser.Imgproxy.ResponseRequest
   alias ImagePlug.Parser.Imgproxy.Signature
+  alias ImagePlug.Plan.Color
   alias ImagePlug.Plan.Orientation
   alias ImagePlug.Plan.Response
 
@@ -532,6 +533,9 @@ defmodule ImagePlug.Parser.Imgproxy do
               orientation_requested: true
           }
 
+        {:padding, padding_args}, pipeline ->
+          apply_padding(pipeline, padding_args)
+
         assignment, pipeline ->
           struct!(pipeline, [assignment])
       end)
@@ -583,6 +587,11 @@ defmodule ImagePlug.Parser.Imgproxy do
          extend_x_offset: nil,
          extend_y_offset: nil,
          extend_aspect_ratio: nil,
+         padding_top: nil,
+         padding_right: nil,
+         padding_bottom: nil,
+         padding_left: nil,
+         background_color: nil,
          gravity: {:anchor, :center, :center},
          gravity_x_offset: gravity_x_offset,
          gravity_y_offset: gravity_y_offset,
@@ -916,7 +925,130 @@ defmodule ImagePlug.Parser.Imgproxy do
     parse_gravity(args, segment)
   end
 
+  defp parse_special_option(name, args, segment) when name in ["padding", "pd"] do
+    parse_padding(args, segment)
+  end
+
+  defp parse_special_option(name, args, segment) when name in ["background", "bg"] do
+    parse_background(args, segment)
+  end
+
+  defp parse_special_option(name, _args, _segment) when name in ["background_alpha", "bga"],
+    do: {:error, {:unsupported_option, name}}
+
   defp parse_special_option(name, _args, _segment), do: {:error, {:unknown_option, name}}
+
+  defp parse_padding(args, segment) when length(args) <= 4 do
+    with {:ok, parsed_args} <- parse_padding_args(args, segment) do
+      {:ok, [padding: parsed_args]}
+    end
+  end
+
+  defp parse_padding(_args, segment), do: {:error, {:invalid_option_segment, segment}}
+
+  defp parse_padding_args(args, segment) do
+    args
+    |> Enum.map(&parse_padding_arg/1)
+    |> reduce_results()
+    |> case do
+      {:ok, values} -> {:ok, values}
+      {:error, _reason} -> {:error, {:invalid_option_segment, segment}}
+    end
+  end
+
+  defp parse_padding_arg(""), do: {:ok, :unset}
+  defp parse_padding_arg(value), do: parse_non_negative_integer(value)
+
+  defp apply_padding(%PipelineRequest{} = pipeline, values) do
+    top = padding_value(Enum.at(values, 0), pipeline.padding_top)
+    right = padding_value(Enum.at(values, 1), fallback_padding(top, pipeline.padding_right))
+    bottom = padding_value(Enum.at(values, 2), fallback_padding(top, pipeline.padding_bottom))
+    left = padding_value(Enum.at(values, 3), fallback_padding(right, pipeline.padding_left))
+
+    %{
+      pipeline
+      | padding_top: top,
+        padding_right: right,
+        padding_bottom: bottom,
+        padding_left: left
+    }
+  end
+
+  defp padding_value(nil, current), do: current
+  defp padding_value(:unset, current), do: current
+  defp padding_value(value, _current) when is_integer(value), do: value
+
+  defp fallback_padding(nil, current), do: current
+  defp fallback_padding(value, _current), do: value
+
+  defp parse_background([""], _segment), do: {:ok, [background_color: nil]}
+
+  defp parse_background([hex], _segment) when hex != "" do
+    with {:ok, {red, green, blue}} <- parse_hex_color(hex),
+         {:ok, color} <- Color.rgb(red, green, blue) do
+      {:ok, [background_color: color]}
+    else
+      {:error, _reason} -> {:error, {:invalid_background, hex}}
+    end
+  end
+
+  defp parse_background([red, green, blue], _segment)
+       when red != "" and green != "" and blue != "" do
+    with {:ok, red} <- parse_non_negative_integer(red),
+         {:ok, green} <- parse_non_negative_integer(green),
+         {:ok, blue} <- parse_non_negative_integer(blue),
+         {:ok, color} <- Color.rgb(red, green, blue) do
+      {:ok, [background_color: color]}
+    else
+      {:error, _reason} -> {:error, {:invalid_background, [red, green, blue]}}
+    end
+  end
+
+  defp parse_background(args, _segment), do: {:error, {:invalid_background, args}}
+
+  defp parse_hex_color(hex) when byte_size(hex) == 3 do
+    case hex_digits?(hex) do
+      true ->
+        <<red::binary-size(1), green::binary-size(1), blue::binary-size(1)>> =
+          String.downcase(hex)
+
+        parse_hex_color(red <> red <> green <> green <> blue <> blue)
+
+      false ->
+        {:error, :hex}
+    end
+  end
+
+  defp parse_hex_color(hex) when byte_size(hex) == 6 do
+    with true <- hex_digits?(hex),
+         {red, ""} <- hex |> binary_part(0, 2) |> Integer.parse(16),
+         {green, ""} <- hex |> binary_part(2, 2) |> Integer.parse(16),
+         {blue, ""} <- hex |> binary_part(4, 2) |> Integer.parse(16) do
+      {:ok, {red, green, blue}}
+    else
+      _reason -> {:error, :hex}
+    end
+  end
+
+  defp parse_hex_color(_hex), do: {:error, :hex}
+
+  defp hex_digits?(value) do
+    value
+    |> String.to_charlist()
+    |> Enum.all?(&(&1 in ?0..?9 or &1 in ?a..?f or &1 in ?A..?F))
+  end
+
+  defp reduce_results(results) do
+    results
+    |> Enum.reduce_while({:ok, []}, fn
+      {:ok, value}, {:ok, values} -> {:cont, {:ok, [value | values]}}
+      {:error, reason}, {:ok, _values} -> {:halt, {:error, reason}}
+    end)
+    |> case do
+      {:ok, values} -> {:ok, Enum.reverse(values)}
+      {:error, _reason} = error -> error
+    end
+  end
 
   defp parse_zoom([value], _segment) when value != "" do
     with {:ok, zoom} <- parse_positive_float(value) do
