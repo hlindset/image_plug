@@ -19,6 +19,8 @@ defmodule ImagePlug.Transform do
       KeyData,
       Operation.Resize,
       Operation.ExtendCanvas,
+      Operation.Padding,
+      Operation.Background,
       Operation.AutoOrient,
       Operation.Rotate,
       Operation.Flip,

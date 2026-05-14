@@ -48,6 +48,8 @@ Imgproxy canonical semantic operation order inside each pipeline group is:
 3. resize intent, including `mode: :auto`
 4. result crop for fill/fill-down/auto target geometry
 5. canvas extension
+6. padding
+7. background flattening
 
 Orientation suborder is auto-orient, rotate, then flip.
 
@@ -117,6 +119,8 @@ This slice does not support presets-only mode, info endpoint presets, `IMGPROXY_
 | DPR | `dpr` | positive number |
 | Extend canvas | `extend`, `ex` | boolean, optionally followed by extend gravity and offsets |
 | Extend aspect ratio | `extend_aspect_ratio`, `extend_ar`, `exar` | positive `<width>:<height>` ratio numbers |
+| Padding | `padding`, `pd` | optional top/right/bottom/left non-negative pixel integers |
+| Background | `background`, `bg` | `R:G:B`, 3 digit hex, 6 digit hex, or empty to clear |
 | Crop | `crop`, `c` | `<width>:<height>`, optional gravity, optional offsets |
 | Gravity | `gravity`, `g` | anchor, anchor with offsets `<anchor>:<x_offset>:<y_offset>`, focal point `fp:<x>:<y>`, or unsupported smart gravity `sm` |
 | Auto rotate | `auto_rotate`, `ar` | omitted for true, or boolean |
@@ -187,6 +191,46 @@ Canvas options are `extend`/`ex`, resize-tail extend arguments, and `extend_aspe
 - `extend:false` disables canvas extension even when resize-tail values are present.
 - `exar:<width>:<height>` extends canvas to the requested aspect ratio.
 - Extend gravity uses anchor values only, with optional numeric offsets.
+
+## Composition
+
+### Padding
+
+`padding:%top:%right:%bottom:%left` and `pd:%top:%right:%bottom:%left` add
+transparent edge padding after resize and canvas extension. Missing values
+follow imgproxy shorthand semantics:
+
+- one value applies to all sides;
+- two values apply vertical then horizontal sides;
+- three values apply top, horizontal, then bottom;
+- four values apply top, right, bottom, and left.
+
+Sparse repeated padding follows imgproxy's accumulated field behavior. For
+example, `pd:10:20:30:40/padding::5` keeps top at `10` and bottom at `30`,
+then sets right and left to `5`. `padding:` and all-zero padding are valid
+no-ops.
+
+Padding uses the effective DPR scale at execution. When a no-enlarge resize
+clamps image scaling, padding follows imgproxy's compensated effective DPR
+rather than blindly using the requested `dpr`. For imgproxy `extend` and
+`extend_aspect_ratio` composition, padding uses imgproxy's canvas-preserving
+effective DPR branch, which skips the no-enlarge DPR compensation before the
+final no-enlarge clamp.
+
+### Background
+
+`background:%R:%G:%B`, `bg:%R:%G:%B`, `background:%hex`, and `bg:%hex`
+flatten the current image over an opaque sRGB color after padding. Decimal
+channels are `0..255`. Hex accepts 3 digit RGB and 6 digit RRGGBB forms.
+`background:` clears an earlier background value in the same resolved request.
+
+Background flattening is separate from canvas and padding fill. Canvas and
+padding create transparent generated pixels; explicit background then flattens
+both those generated pixels and any source alpha over the requested color.
+
+Composition order is fixed by ImagePlug's imgproxy planner: canvas extension,
+padding, then background flattening. URL option order only determines final
+field assignment.
 
 ## Output Format And Quality
 

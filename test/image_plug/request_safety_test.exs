@@ -58,6 +58,26 @@ defmodule ImagePlug.RequestSafetyTest do
     assert conn.status == 400
   end
 
+  test "invalid composition parser failures return before source identity, cache lookup, and origin" do
+    for path <- [
+          "/_/pd:-1/plain/images/cat.jpg",
+          "/_/bg:256:0:0/plain/images/cat.jpg",
+          "/_/bga:1.1/plain/images/cat.jpg"
+        ] do
+      conn =
+        ImagePlug.call(conn(:get, path),
+          parser: ImagePlug.Parser.Imgproxy,
+          root_url: "not-a-valid-origin-url",
+          cache: {CacheProbe, []},
+          origin_req_options: [plug: ImagePlug.Request.ProcessorTest.OriginShouldNotFetch]
+        )
+
+      assert conn.status == 400
+      refute_received :cache_lookup
+      refute_received :cache_put
+    end
+  end
+
   test "expired imgproxy requests return before source identity and cache work" do
     conn =
       ImagePlug.call(conn(:get, "/_/exp:100/plain/images/cat.jpg"),

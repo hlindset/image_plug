@@ -2,6 +2,7 @@ defmodule ImagePlug.Parser.Imgproxy.PipelineRequest do
   @moduledoc false
 
   alias ImagePlug.Parser.Imgproxy.CropRequest
+  alias ImagePlug.Plan.Color
   alias ImagePlug.Plan.Orientation
 
   @type resizing_type() :: :fit | :fill | :fill_down | :force | :auto
@@ -25,6 +26,12 @@ defmodule ImagePlug.Parser.Imgproxy.PipelineRequest do
           extend_x_offset: float() | nil,
           extend_y_offset: float() | nil,
           extend_aspect_ratio: ImagePlug.imgp_ratio() | nil,
+          padding_top: non_neg_integer(),
+          padding_right: non_neg_integer(),
+          padding_bottom: non_neg_integer(),
+          padding_left: non_neg_integer(),
+          background_color: Color.t() | nil,
+          background_alpha: Color.alpha() | nil,
           gravity: gravity(),
           gravity_x_offset: gravity_offset(),
           gravity_y_offset: gravity_offset(),
@@ -48,6 +55,12 @@ defmodule ImagePlug.Parser.Imgproxy.PipelineRequest do
             extend_x_offset: nil,
             extend_y_offset: nil,
             extend_aspect_ratio: nil,
+            padding_top: 0,
+            padding_right: 0,
+            padding_bottom: 0,
+            padding_left: 0,
+            background_color: nil,
+            background_alpha: nil,
             gravity: {:anchor, :center, :center},
             gravity_x_offset: {:pixels, 0.0},
             gravity_y_offset: {:pixels, 0.0},

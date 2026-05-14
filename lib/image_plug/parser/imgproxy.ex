@@ -23,6 +23,7 @@ defmodule ImagePlug.Parser.Imgproxy do
   alias ImagePlug.Parser.Imgproxy.RequestPolicy
   alias ImagePlug.Parser.Imgproxy.ResponseRequest
   alias ImagePlug.Parser.Imgproxy.Signature
+  alias ImagePlug.Plan.Color
   alias ImagePlug.Plan.Orientation
   alias ImagePlug.Plan.Response
 
@@ -532,6 +533,15 @@ defmodule ImagePlug.Parser.Imgproxy do
               orientation_requested: true
           }
 
+        {:padding, padding_args}, pipeline ->
+          apply_padding(pipeline, padding_args)
+
+        {:background_color, color}, pipeline ->
+          apply_background_color(pipeline, color)
+
+        {:background_alpha, alpha}, pipeline ->
+          apply_background_alpha(pipeline, alpha)
+
         assignment, pipeline ->
           struct!(pipeline, [assignment])
       end)
@@ -583,6 +593,12 @@ defmodule ImagePlug.Parser.Imgproxy do
          extend_x_offset: nil,
          extend_y_offset: nil,
          extend_aspect_ratio: nil,
+         padding_top: 0,
+         padding_right: 0,
+         padding_bottom: 0,
+         padding_left: 0,
+         background_color: nil,
+         background_alpha: nil,
          gravity: {:anchor, :center, :center},
          gravity_x_offset: gravity_x_offset,
          gravity_y_offset: gravity_y_offset,
@@ -916,7 +932,163 @@ defmodule ImagePlug.Parser.Imgproxy do
     parse_gravity(args, segment)
   end
 
+  defp parse_special_option(name, args, segment) when name in ["padding", "pd"] do
+    parse_padding(args, segment)
+  end
+
+  defp parse_special_option(name, args, segment) when name in ["background", "bg"] do
+    parse_background(args, segment)
+  end
+
+  defp parse_special_option(name, args, segment) when name in ["background_alpha", "bga"] do
+    parse_background_alpha(args, segment)
+  end
+
   defp parse_special_option(name, _args, _segment), do: {:error, {:unknown_option, name}}
+
+  defp parse_padding(args, segment) when length(args) <= 4 do
+    with {:ok, parsed_args} <- parse_padding_args(args, segment) do
+      {:ok, [padding: parsed_args]}
+    end
+  end
+
+  defp parse_padding(_args, segment), do: {:error, {:invalid_option_segment, segment}}
+
+  defp parse_padding_args(args, segment) do
+    parse_padding_args(args, segment, [])
+  end
+
+  defp parse_padding_args([], _segment, values), do: {:ok, Enum.reverse(values)}
+
+  defp parse_padding_args([arg | args], segment, values) do
+    case parse_padding_arg(arg) do
+      {:ok, value} -> parse_padding_args(args, segment, [value | values])
+      {:error, _reason} -> {:error, {:invalid_option_segment, segment}}
+    end
+  end
+
+  defp parse_padding_arg(""), do: {:ok, :unset}
+  defp parse_padding_arg(value), do: parse_non_negative_integer(value)
+
+  defp apply_padding(%PipelineRequest{} = pipeline, values) do
+    top = padding_value(Enum.at(values, 0), pipeline.padding_top)
+    right = padding_value(Enum.at(values, 1), fallback_padding(top, pipeline.padding_right))
+    bottom = padding_value(Enum.at(values, 2), fallback_padding(top, pipeline.padding_bottom))
+    left = padding_value(Enum.at(values, 3), fallback_padding(right, pipeline.padding_left))
+
+    %{
+      pipeline
+      | padding_top: top,
+        padding_right: right,
+        padding_bottom: bottom,
+        padding_left: left
+    }
+  end
+
+  defp padding_value(nil, current), do: current
+  defp padding_value(:unset, current), do: current
+  defp padding_value(value, _current) when is_integer(value), do: value
+
+  defp fallback_padding(:unset, current), do: current
+  defp fallback_padding(value, _current), do: value
+
+  defp apply_background_color(%PipelineRequest{} = pipeline, nil) do
+    %{pipeline | background_color: nil, background_alpha: nil}
+  end
+
+  defp apply_background_color(%PipelineRequest{} = pipeline, %Color{} = color) do
+    %{pipeline | background_color: color_with_alpha!(color, pipeline.background_alpha)}
+  end
+
+  defp apply_background_alpha(%PipelineRequest{} = pipeline, alpha) do
+    color =
+      pipeline.background_color
+      |> default_background_color()
+      |> color_with_alpha!(alpha)
+
+    %{pipeline | background_color: color, background_alpha: alpha}
+  end
+
+  defp parse_background([""], _segment), do: {:ok, [background_color: nil]}
+
+  defp parse_background([hex], _segment) when hex != "" do
+    with {:ok, color} <- Color.rgb_hex(hex) do
+      {:ok, [background_color: color]}
+    else
+      {:error, _reason} -> {:error, {:invalid_background, hex}}
+    end
+  end
+
+  defp parse_background([red, green, blue], _segment)
+       when red != "" and green != "" and blue != "" do
+    with {:ok, red} <- parse_non_negative_integer(red),
+         {:ok, green} <- parse_non_negative_integer(green),
+         {:ok, blue} <- parse_non_negative_integer(blue),
+         {:ok, color} <- Color.rgb(red, green, blue) do
+      {:ok, [background_color: color]}
+    else
+      {:error, _reason} -> {:error, {:invalid_background, [red, green, blue]}}
+    end
+  end
+
+  defp parse_background(args, _segment), do: {:error, {:invalid_background, args}}
+
+  defp parse_background_alpha([alpha], _segment) when alpha != "" do
+    with {:ok, alpha} <- parse_alpha_ratio(alpha) do
+      {:ok, [background_alpha: alpha]}
+    else
+      {:error, _reason} -> {:error, {:invalid_background_alpha, alpha}}
+    end
+  end
+
+  defp parse_background_alpha(args, _segment), do: {:error, {:invalid_background_alpha, args}}
+
+  defp parse_alpha_ratio(value) do
+    case String.split(value, ".", parts: 2) do
+      [integer] -> parse_alpha_integer(integer)
+      [integer, fraction] -> parse_alpha_decimal(integer, fraction)
+    end
+  end
+
+  defp parse_alpha_integer("1"), do: {:ok, {:ratio, 1, 1}}
+  defp parse_alpha_integer(_integer), do: {:error, :alpha}
+
+  defp parse_alpha_decimal(integer, fraction) when integer in ["0", "1"] and fraction != "" do
+    with true <- decimal_digits?(fraction),
+         {fraction_value, ""} <- Integer.parse(fraction, 10) do
+      denominator = Integer.pow(10, byte_size(fraction))
+      numerator = String.to_integer(integer) * denominator + fraction_value
+
+      case numerator > 0 and numerator <= denominator do
+        true -> {:ok, {:ratio, numerator, denominator}}
+        false -> {:error, :alpha}
+      end
+    else
+      _reason -> {:error, :alpha}
+    end
+  end
+
+  defp parse_alpha_decimal(_integer, _fraction), do: {:error, :alpha}
+
+  defp default_background_color(nil) do
+    {:ok, black} = Color.rgb(0, 0, 0)
+    black
+  end
+
+  defp default_background_color(%Color{} = color), do: color
+
+  defp color_with_alpha!(%Color{} = color, nil), do: color
+
+  defp color_with_alpha!(%Color{} = color, alpha) do
+    {:ok, color} = Color.with_alpha(color, alpha)
+    color
+  end
+
+  defp decimal_digits?(value) do
+    value
+    |> String.to_charlist()
+    |> Enum.all?(&(&1 in ?0..?9))
+  end
 
   defp parse_zoom([value], _segment) when value != "" do
     with {:ok, zoom} <- parse_positive_float(value) do

@@ -11,10 +11,13 @@ defmodule ImagePlug.Plan do
       Orientation,
       Output,
       Response,
+      Color,
       Operation,
+      Operation.Background,
       Operation.CropGuided,
       Operation.CropRegion,
       Operation.Canvas,
+      Operation.Padding,
       Operation.Resize
     ]
 

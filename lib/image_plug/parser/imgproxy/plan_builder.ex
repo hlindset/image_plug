@@ -197,11 +197,16 @@ defmodule ImagePlug.Parser.Imgproxy.PlanBuilder do
     with {:ok, orientation_operations} <- orientation_operations(request),
          {:ok, crop_operations} <- crop_operations(request),
          {:ok, resize_operations} <- resize_operations(request),
-         {:ok, canvas_operations} <- canvas_operations(request) do
+         {:ok, canvas_operations} <- canvas_operations(request),
+         {:ok, padding_operations} <- padding_operations(request),
+         {:ok, background_operations} <- background_operations(request) do
       {:ok,
        orientation_operations ++
          crop_operations ++
-         resize_operations ++ canvas_operations}
+         resize_operations ++
+         canvas_operations ++
+         padding_operations ++
+         background_operations}
     end
   end
 
@@ -343,7 +348,7 @@ defmodule ImagePlug.Parser.Imgproxy.PlanBuilder do
           width,
           height,
           placement,
-          background: :white,
+          fill: :transparent,
           overflow: :reject,
           x_offset: request.extend_x_offset || 0.0,
           y_offset: request.extend_y_offset || 0.0
@@ -368,7 +373,44 @@ defmodule ImagePlug.Parser.Imgproxy.PlanBuilder do
     with {:ok, width} <- tagged_ratio_from_decimal(width),
          {:ok, height} <- tagged_ratio_from_decimal(height),
          {:ok, placement} <- canvas_placement(@default_gravity) do
-      Operation.canvas(width, height, placement, background: :white, overflow: :reject)
+      Operation.canvas(width, height, placement, fill: :transparent, overflow: :reject)
+    end
+  end
+
+  defp padding_operations(%PipelineRequest{
+         padding_top: 0,
+         padding_right: 0,
+         padding_bottom: 0,
+         padding_left: 0
+       }),
+       do: {:ok, []}
+
+  defp padding_operations(
+         %PipelineRequest{
+           padding_top: top,
+           padding_right: right,
+           padding_bottom: bottom,
+           padding_left: left
+         } = request
+       ) do
+    with {:ok, operation} <-
+           Operation.padding(
+             {:px, top},
+             {:px, right},
+             {:px, bottom},
+             {:px, left},
+             pixel_ratio: effective_padding_pixel_ratio(request),
+             fill: :transparent
+           ) do
+      {:ok, [operation]}
+    end
+  end
+
+  defp background_operations(%PipelineRequest{background_color: nil}), do: {:ok, []}
+
+  defp background_operations(%PipelineRequest{background_color: color}) do
+    with {:ok, operation} <- Operation.background(color) do
+      {:ok, [operation]}
     end
   end
 
@@ -412,6 +454,25 @@ defmodule ImagePlug.Parser.Imgproxy.PlanBuilder do
   defp resize_mode(:fill_down), do: :cover
   defp resize_mode(:force), do: :stretch
   defp resize_mode(:auto), do: :auto
+
+  defp dpr_ratio(%PipelineRequest{dpr: nil}), do: {:ratio, 1, 1}
+
+  defp dpr_ratio(%PipelineRequest{dpr: dpr}) do
+    case Operation.resize(:fit, :auto, :auto, dpr: dpr) do
+      {:ok, %{dpr: ratio}} -> ratio
+    end
+  end
+
+  defp effective_padding_pixel_ratio(%PipelineRequest{} = request) do
+    mode =
+      if extend_operation_requested?(request) or not is_nil(request.extend_aspect_ratio) do
+        :canvas_preserving
+      else
+        :resize
+      end
+
+    {:effective, dpr_ratio(request), mode}
+  end
 
   defp imgproxy_resize_dimension(nil), do: {:ok, :auto}
   defp imgproxy_resize_dimension(:auto), do: {:ok, :auto}

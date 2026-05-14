@@ -7,9 +7,12 @@ defmodule ImagePlug.Transform.KeyData do
   key data never depends on raw IEEE float representation.
   """
 
+  alias ImagePlug.Plan.Color
+  alias ImagePlug.Plan.Operation.Background
   alias ImagePlug.Plan.Operation.Canvas
   alias ImagePlug.Plan.Operation.CropGuided
   alias ImagePlug.Plan.Operation.CropRegion
+  alias ImagePlug.Plan.Operation.Padding
   alias ImagePlug.Plan.Operation.Resize
   alias ImagePlug.Transform.Operation.AutoOrient
   alias ImagePlug.Transform.Operation.Flip
@@ -42,8 +45,10 @@ defmodule ImagePlug.Transform.KeyData do
   @spec data(
           geometry_value()
           | Canvas.t()
+          | Background.t()
           | CropGuided.t()
           | CropRegion.t()
+          | Padding.t()
           | Resize.t()
           | AutoOrient.t()
           | Rotate.t()
@@ -55,7 +60,7 @@ defmodule ImagePlug.Transform.KeyData do
       width: data(operation.width),
       height: data(operation.height),
       placement: guide_data(operation.placement),
-      background: operation.background,
+      fill: fill_data(operation.fill),
       overflow: operation.overflow,
       x_offset: operation.x_offset,
       y_offset: operation.y_offset
@@ -102,6 +107,22 @@ defmodule ImagePlug.Transform.KeyData do
     |> resize_rule_data(operation)
   end
 
+  def data(%Padding{} = operation) do
+    [
+      op: :padding,
+      top: data(operation.top),
+      right: data(operation.right),
+      bottom: data(operation.bottom),
+      left: data(operation.left),
+      pixel_ratio: data(operation.pixel_ratio),
+      fill: fill_data(operation.fill)
+    ]
+  end
+
+  def data(%Background{} = operation) do
+    [op: :background, color: Color.key_data(operation.color)]
+  end
+
   def data(%AutoOrient{}), do: [op: :auto_orient]
   def data(%Rotate{} = operation), do: [op: :rotate, angle: operation.angle]
   def data(%Flip{} = operation), do: [op: :flip, axis: operation.axis]
@@ -118,8 +139,19 @@ defmodule ImagePlug.Transform.KeyData do
     ratio_data(numerator, denominator)
   end
 
+  def data({:effective, fallback, mode}) when mode in [:resize, :canvas_preserving] do
+    [
+      unit: :effective_resize_pixel_ratio,
+      fallback: data(fallback),
+      mode: mode
+    ]
+  end
+
   defp optional_data(nil), do: nil
   defp optional_data(value), do: data(value)
+
+  defp fill_data(:transparent), do: :transparent
+  defp fill_data({:solid, %Color{} = color}), do: [type: :solid, color: Color.key_data(color)]
 
   defp guide_data(:center), do: :center
 
