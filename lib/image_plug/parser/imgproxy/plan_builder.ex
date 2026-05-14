@@ -396,7 +396,7 @@ defmodule ImagePlug.Parser.Imgproxy.PlanBuilder do
                  {:px, right},
                  {:px, bottom},
                  {:px, left},
-                 pixel_ratio: dpr_ratio(request),
+                 pixel_ratio: effective_padding_pixel_ratio(request),
                  fill: :transparent
                ) do
           {:ok, [operation]}
@@ -459,6 +459,17 @@ defmodule ImagePlug.Parser.Imgproxy.PlanBuilder do
     case Operation.resize(:fit, :auto, :auto, dpr: dpr) do
       {:ok, %{dpr: ratio}} -> ratio
     end
+  end
+
+  defp effective_padding_pixel_ratio(%PipelineRequest{} = request) do
+    mode =
+      if extend_operation_requested?(request) or not is_nil(request.extend_aspect_ratio) do
+        :canvas_preserving
+      else
+        :resize
+      end
+
+    {:effective, dpr_ratio(request), mode}
   end
 
   defp imgproxy_resize_dimension(nil), do: {:ok, :auto}

@@ -161,7 +161,10 @@ Do not use canvas fill to model a whole-image background flattening request.
 Use semantic `Padding` when a dialect requests edge insets around the current
 image. Padding expands relative to current dimensions; it is not a target canvas
 size. Padding has logical top/right/bottom/left sides, a requested pixel ratio,
-and a fill value. Execution scales sides with round-half-to-even semantics.
+and a fill value. The pixel ratio can be explicit, or it can request the
+effective scale produced by a preceding resize for compatibility dialects whose
+padding follows resize DPR semantics. Execution scales sides with
+round-half-to-even semantics.
 
 Use semantic `FlattenBackground` when a dialect requests alpha compositing over
 an opaque background color. Flattening applies to source alpha as well as

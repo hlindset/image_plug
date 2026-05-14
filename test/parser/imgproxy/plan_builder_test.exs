@@ -494,7 +494,7 @@ defmodule ImagePlug.Parser.Imgproxy.PlanBuilderTest do
                bottom: {:px, 3},
                left: {:px, 4},
                fill: :transparent,
-               pixel_ratio: {:ratio, 1, 1}
+               pixel_ratio: {:effective, {:ratio, 1, 1}, :canvas_preserving}
              },
              %Operation.FlattenBackground{color: ^red}
            ] = operations
@@ -510,7 +510,7 @@ defmodule ImagePlug.Parser.Imgproxy.PlanBuilderTest do
     end
   end
 
-  test "padding carries requested DPR as pixel ratio" do
+  test "padding carries requested DPR as fallback for effective pixel ratio" do
     assert {:ok,
             %Plan{
               pipelines: [
@@ -519,7 +519,31 @@ defmodule ImagePlug.Parser.Imgproxy.PlanBuilderTest do
             }} =
              plan_pipeline(width: {:pixels, 100}, dpr: 1.5, padding_top: 2)
 
-    assert padding.pixel_ratio == {:ratio, 3, 2}
+    assert padding.pixel_ratio == {:effective, {:ratio, 3, 2}, :resize}
+  end
+
+  test "padding planned with extend uses canvas-preserving effective pixel ratio" do
+    assert {:ok,
+            %Plan{
+              pipelines: [
+                %Pipeline{
+                  operations: [
+                    %Operation.Resize{},
+                    %Operation.Canvas{},
+                    %Operation.Padding{} = padding
+                  ]
+                }
+              ]
+            }} =
+             plan_pipeline(
+               width: {:pixels, 200},
+               height: {:pixels, 100},
+               dpr: 0.5,
+               extend: true,
+               padding_top: 10
+             )
+
+    assert padding.pixel_ratio == {:effective, {:ratio, 1, 2}, :canvas_preserving}
   end
 
   test "background unset or cleared emits no flatten operation" do

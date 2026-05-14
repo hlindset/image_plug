@@ -337,8 +337,21 @@ defmodule ImagePlug.ArchitectureBoundaryTest do
   end
 
   defp external_color_reference?({line, _number}) do
-    String.contains?(line, "Color.SRGB") or
-      String.contains?(line, "Color.new")
+    direct_external_color_module?(line) or
+      external_color_call?(line)
+  end
+
+  defp direct_external_color_module?(line) do
+    Regex.match?(~r/\balias\s+Color\b/, line) or
+      Regex.match?(~r/%Color\./, line) or
+      Regex.match?(~r/\bColor\.(SRGB|HSL|HSV|Lab|LCH|XYZ|new|parse|convert)\b/, line)
+  end
+
+  defp external_color_call?(line) do
+    case Regex.run(~r/\bColor\.([a-zA-Z_][a-zA-Z0-9_]*[?!]?)/, line) do
+      [_match, function] -> function not in ["t", "rgb", "valid?", "key_data", "to_rgb_list"]
+      nil -> false
+    end
   end
 
   defp concrete_transform_modules do

@@ -42,6 +42,7 @@ defmodule ImagePlug.Plan.Operation do
   @crop_guided_keys [:x_offset, :y_offset]
   @canvas_keys [:fill, :overflow, :x_offset, :y_offset]
   @padding_keys [:pixel_ratio, :fill]
+  @effective_padding_modes [:resize, :canvas_preserving]
   # Keep the orientation primitive allowlist centralized without importing
   # executable operation modules into the Plan operation facade.
   @auto_orient_module :"Elixir.ImagePlug.Transform.Operation.AutoOrient"
@@ -162,7 +163,8 @@ defmodule ImagePlug.Plan.Operation do
          {:ok, bottom} <- tagged_padding_side(bottom),
          {:ok, left} <- tagged_padding_side(left),
          :ok <- validate_positive_padding([top, right, bottom, left]),
-         :ok <- tagged_dpr_ratio(Keyword.get(opts, :pixel_ratio, {:ratio, 1, 1})),
+         pixel_ratio = Keyword.get(opts, :pixel_ratio, {:ratio, 1, 1}),
+         :ok <- tagged_padding_pixel_ratio(pixel_ratio),
          {:ok, fill} <- optional_fill(opts, :fill, :transparent) do
       {:ok,
        %Padding{
@@ -170,7 +172,7 @@ defmodule ImagePlug.Plan.Operation do
          right: right,
          bottom: bottom,
          left: left,
-         pixel_ratio: Keyword.get(opts, :pixel_ratio, {:ratio, 1, 1}),
+         pixel_ratio: pixel_ratio,
          fill: fill
        }}
     else
@@ -315,7 +317,7 @@ defmodule ImagePlug.Plan.Operation do
          {:ok, bottom} <- tagged_padding_side(operation.bottom),
          {:ok, left} <- tagged_padding_side(operation.left),
          :ok <- validate_positive_padding([top, right, bottom, left]),
-         :ok <- tagged_dpr_ratio(operation.pixel_ratio),
+         :ok <- tagged_padding_pixel_ratio(operation.pixel_ratio),
          {:ok, _fill} <- tagged_fill(operation.fill) do
       true
     else
@@ -368,6 +370,15 @@ defmodule ImagePlug.Plan.Operation do
        do: :ok
 
   defp tagged_dpr_ratio(_dpr), do: {:error, :dpr}
+
+  defp tagged_padding_pixel_ratio({:ratio, _numerator, _denominator} = ratio),
+    do: tagged_dpr_ratio(ratio)
+
+  defp tagged_padding_pixel_ratio({:effective, fallback, mode})
+       when mode in @effective_padding_modes,
+       do: tagged_dpr_ratio(fallback)
+
+  defp tagged_padding_pixel_ratio(_pixel_ratio), do: {:error, :pixel_ratio}
 
   defp decimal_string_ratio(value) do
     value

@@ -173,7 +173,7 @@ defmodule ImagePlug.Transform.PlanExecutorTest do
       assert alpha_value(state.image, 0, 0) == 0
     end
 
-    test "padding after no-enlarge resize uses effective DPR instead of raw requested DPR" do
+    test "padding after resize keeps explicit pixel ratio authoritative" do
       assert {:ok, resize} =
                Operation.resize(:fit, {:px, 1000}, :auto, dpr: 2.0, enlargement: :deny)
 
@@ -185,7 +185,46 @@ defmodule ImagePlug.Transform.PlanExecutorTest do
       assert {:ok, %State{} = state} =
                Transform.execute_plan(plan([resize, padding]), state_with_image(100, 50), [])
 
+      assert dimensions(state.image) == {100, 70}
+    end
+
+    test "effective padding after no-enlarge resize uses effective DPR" do
+      assert {:ok, resize} =
+               Operation.resize(:fit, {:px, 1000}, :auto, dpr: 2.0, enlargement: :deny)
+
+      assert {:ok, padding} =
+               Operation.padding({:px, 10}, {:px, 0}, {:px, 0}, {:px, 0},
+                 pixel_ratio: {:effective, {:ratio, 2, 1}, :resize}
+               )
+
+      assert {:ok, %State{} = state} =
+               Transform.execute_plan(plan([resize, padding]), state_with_image(100, 50), [])
+
       assert dimensions(state.image) == {100, 60}
+    end
+
+    test "canvas-preserving effective padding skips no-enlarge DPR compensation" do
+      assert {:ok, resize} =
+               Operation.resize(:fit, {:px, 200}, {:px, 100},
+                 dpr: 0.5,
+                 enlargement: :deny
+               )
+
+      assert {:ok, canvas} = Operation.canvas({:px, 200}, {:px, 100}, :center)
+
+      assert {:ok, padding} =
+               Operation.padding({:px, 10}, {:px, 0}, {:px, 0}, {:px, 0},
+                 pixel_ratio: {:effective, {:ratio, 1, 2}, :canvas_preserving}
+               )
+
+      assert {:ok, %State{} = state} =
+               Transform.execute_plan(
+                 plan([resize, canvas, padding]),
+                 state_with_image(100, 50),
+                 []
+               )
+
+      assert dimensions(state.image) == {200, 105}
     end
 
     test "padding without a preceding resize uses requested pixel ratio" do

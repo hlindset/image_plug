@@ -211,7 +211,10 @@ right and left to `5`. `padding:` and all-zero padding are valid no-ops.
 
 Padding uses the effective DPR scale at execution. When a no-enlarge resize
 clamps image scaling, padding follows imgproxy's compensated effective DPR
-rather than blindly using the requested `dpr`.
+rather than blindly using the requested `dpr`. For imgproxy `extend` and
+`extend_aspect_ratio` composition, padding uses imgproxy's canvas-preserving
+effective DPR branch, which skips the no-enlarge DPR compensation before the
+final no-enlarge clamp.
 
 ### Background
 

@@ -37,7 +37,7 @@ defmodule ImagePlug.Transform.PlanExecutor do
   end
 
   defp execute_pipeline(%Pipeline{operations: operations}, %State{} = state) do
-    initial_context = %{effective_padding_scale: nil}
+    initial_context = %{effective_padding_scale: nil, canvas_preserving_padding_scale: nil}
 
     Enum.reduce_while(operations, {:ok, state, initial_context}, fn operation,
                                                                     {:ok, state, context} ->
@@ -61,9 +61,14 @@ defmodule ImagePlug.Transform.PlanExecutor do
   end
 
   defp update_execution_context(%PlanResize{} = operation, %State{} = state, context) do
-    scale = resize_padding_scale(operation, state)
+    scale = resize_padding_scale(operation, state, :resize)
+    canvas_preserving_scale = resize_padding_scale(operation, state, :canvas_preserving)
 
-    %{context | effective_padding_scale: scale}
+    %{
+      context
+      | effective_padding_scale: scale,
+        canvas_preserving_padding_scale: canvas_preserving_scale
+    }
   end
 
   defp update_execution_context(_operation, %State{}, context), do: context
@@ -247,7 +252,19 @@ defmodule ImagePlug.Transform.PlanExecutor do
   defp executable_fill(:transparent), do: :transparent
   defp executable_fill({:solid, %Color{} = color}), do: {:color, Color.to_rgb_list(color)}
 
-  defp effective_padding_scale(%PlanPadding{}, %State{}, %{effective_padding_scale: scale})
+  defp effective_padding_scale(
+         %PlanPadding{pixel_ratio: {:effective, _fallback, :resize}},
+         %State{},
+         %{effective_padding_scale: scale}
+       )
+       when is_number(scale),
+       do: scale
+
+  defp effective_padding_scale(
+         %PlanPadding{pixel_ratio: {:effective, _fallback, :canvas_preserving}},
+         %State{},
+         %{canvas_preserving_padding_scale: scale}
+       )
        when is_number(scale),
        do: scale
 
@@ -258,10 +275,17 @@ defmodule ImagePlug.Transform.PlanExecutor do
        ),
        do: numerator / denominator
 
-  defp resize_padding_scale(%PlanResize{enlargement: :allow} = operation, %State{}),
+  defp effective_padding_scale(
+         %PlanPadding{pixel_ratio: {:effective, {:ratio, numerator, denominator}, _mode}},
+         %State{},
+         _context
+       ),
+       do: numerator / denominator
+
+  defp resize_padding_scale(%PlanResize{enlargement: :allow} = operation, %State{}, _mode),
     do: tagged_dpr_float(operation.dpr)
 
-  defp resize_padding_scale(%PlanResize{} = operation, %State{} = state) do
+  defp resize_padding_scale(%PlanResize{} = operation, %State{} = state, mode) do
     requested_scale = tagged_dpr_float(operation.dpr)
     branch = plan_resize_branch(operation, state)
     resize = resize_from(operation, branch)
@@ -274,7 +298,7 @@ defmodule ImagePlug.Transform.PlanExecutor do
       )
 
     max_without_enlarge = max_padding_scale_without_enlarge(base, state)
-    compensated = compensate_no_enlarge_padding_scale(requested_scale, max_without_enlarge)
+    compensated = compensate_no_enlarge_padding_scale(requested_scale, max_without_enlarge, mode)
 
     clamp_padding_scale(compensated, max_without_enlarge)
   end
@@ -292,14 +316,24 @@ defmodule ImagePlug.Transform.PlanExecutor do
     min(Image.width(state.image) / width, Image.height(state.image) / height)
   end
 
-  defp compensate_no_enlarge_padding_scale(requested_scale, :unbounded), do: requested_scale
+  defp compensate_no_enlarge_padding_scale(requested_scale, :unbounded, _mode),
+    do: requested_scale
 
-  defp compensate_no_enlarge_padding_scale(requested_scale, max_without_enlarge)
+  # Canvas-preserving composition keeps padding tied to the clamped resize scale
+  # instead of compensating DPR upward when enlargement is disabled.
+  defp compensate_no_enlarge_padding_scale(
+         requested_scale,
+         _max_without_enlarge,
+         :canvas_preserving
+       ),
+       do: requested_scale
+
+  defp compensate_no_enlarge_padding_scale(requested_scale, max_without_enlarge, :resize)
        when max_without_enlarge < 1.0 do
     requested_scale / max_without_enlarge
   end
 
-  defp compensate_no_enlarge_padding_scale(requested_scale, _max_without_enlarge),
+  defp compensate_no_enlarge_padding_scale(requested_scale, _max_without_enlarge, _mode),
     do: requested_scale
 
   defp clamp_padding_scale(scale, :unbounded), do: scale
