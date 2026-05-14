@@ -189,13 +189,10 @@ defmodule ImagePlug.Plan.OperationTest do
                 width: {:px, 300},
                 height: {:px, 200},
                 placement: :center,
-                background: :white,
+                fill: :transparent,
                 overflow: :reject
               } = operation} =
-               Operation.canvas({:px, 300}, {:px, 200}, :center,
-                 background: :white,
-                 overflow: :reject
-               )
+               Operation.canvas({:px, 300}, {:px, 200}, :center, overflow: :reject)
 
       assert operation.x_offset == 0.0
       assert operation.y_offset == 0.0
@@ -230,10 +227,9 @@ defmodule ImagePlug.Plan.OperationTest do
       assert Operation.canvas({:px, 300}, {:px, 200}, :middle) ==
                {:error, {:invalid_operation, :canvas, [{:px, 300}, {:px, 200}, :middle, []]}}
 
-      assert Operation.canvas({:px, 300}, {:px, 200}, :center, background: :transparent) ==
+      assert Operation.canvas({:px, 300}, {:px, 200}, :center, fill: :white) ==
                {:error,
-                {:invalid_operation, :canvas,
-                 [{:px, 300}, {:px, 200}, :center, [background: :transparent]]}}
+                {:invalid_operation, :canvas, [{:px, 300}, {:px, 200}, :center, [fill: :white]]}}
 
       assert Operation.canvas({:px, 300}, {:px, 200}, :center, overflow: :crop) ==
                {:error,
@@ -242,6 +238,167 @@ defmodule ImagePlug.Plan.OperationTest do
 
       assert Operation.canvas({:px, 300}, {:px, 200}, :center, source: :image) ==
                {:error, {:unknown_operation_options, :canvas, [:source]}}
+    end
+  end
+
+  describe "composition operation constructors" do
+    test "canvas uses product-neutral fill instead of background" do
+      assert {:ok, %Operation.Canvas{fill: :transparent}} =
+               Operation.canvas({:px, 300}, {:px, 200}, :center)
+
+      assert {:ok, red} = Operation.color(255, 0, 0)
+
+      assert {:ok, %Operation.Canvas{fill: {:solid, ^red}}} =
+               Operation.canvas({:px, 300}, {:px, 200}, :center, fill: {:solid, red})
+    end
+
+    test "padding stores logical sides, pixel ratio, and fill" do
+      assert {:ok,
+              %Operation.Padding{
+                top: {:px, 1},
+                right: {:px, 2},
+                bottom: {:px, 3},
+                left: {:px, 4},
+                pixel_ratio: {:ratio, 3, 2},
+                fill: :transparent
+              }} =
+               Operation.padding({:px, 1}, {:px, 2}, {:px, 3}, {:px, 4},
+                 pixel_ratio: {:ratio, 3, 2}
+               )
+    end
+
+    test "padding can request effective resize pixel ratio semantics" do
+      assert {:ok,
+              %Operation.Padding{
+                pixel_ratio: {:effective, {:ratio, 3, 2}, :resize}
+              }} =
+               Operation.padding({:px, 1}, {:px, 0}, {:px, 0}, {:px, 0},
+                 pixel_ratio: {:effective, {:ratio, 3, 2}, :resize}
+               )
+
+      assert {:ok,
+              %Operation.Padding{
+                pixel_ratio: {:effective, {:ratio, 1, 2}, :canvas_preserving}
+              }} =
+               Operation.padding({:px, 1}, {:px, 0}, {:px, 0}, {:px, 0},
+                 pixel_ratio: {:effective, {:ratio, 1, 2}, :canvas_preserving}
+               )
+    end
+
+    test "padding rejects all-zero and malformed sides" do
+      assert Operation.padding({:px, 0}, {:px, 0}, {:px, 0}, {:px, 0}) ==
+               {:error,
+                {:invalid_operation, :padding, [{:px, 0}, {:px, 0}, {:px, 0}, {:px, 0}, []]}}
+
+      assert Operation.padding({:px, -1}, {:px, 0}, {:px, 0}, {:px, 0}) ==
+               {:error,
+                {:invalid_operation, :padding, [{:px, -1}, {:px, 0}, {:px, 0}, {:px, 0}, []]}}
+
+      assert Operation.padding({:px, 1}, {:px, 0}, {:px, 0}, {:px, 0},
+               pixel_ratio: {:effective, {:ratio, 1, 1}, :unknown}
+             ) ==
+               {:error,
+                {:invalid_operation, :padding,
+                 [
+                   {:px, 1},
+                   {:px, 0},
+                   {:px, 0},
+                   {:px, 0},
+                   [pixel_ratio: {:effective, {:ratio, 1, 1}, :unknown}]
+                 ]}}
+    end
+
+    test "flatten background stores canonical color" do
+      assert {:ok, red} = Operation.color(255, 0, 0)
+      assert Operation.flatten_background(red) == {:ok, %Operation.FlattenBackground{color: red}}
+    end
+
+    test "semantic validation accepts composition structs" do
+      assert {:ok, padding} = Operation.padding({:px, 1}, {:px, 0}, {:px, 0}, {:px, 0})
+      assert {:ok, red} = Operation.color(255, 0, 0)
+      assert {:ok, flatten} = Operation.flatten_background(red)
+
+      assert Operation.semantic?(padding)
+      assert Operation.semantic?(flatten)
+
+      refute Operation.semantic?(%Operation.Padding{
+               top: {:px, 0},
+               right: {:px, 0},
+               bottom: {:px, 0},
+               left: {:px, 0},
+               pixel_ratio: {:ratio, 1, 1},
+               fill: :transparent
+             })
+    end
+
+    test "padding accepts solid fill color" do
+      assert {:ok, green} = Operation.color(0, 255, 0)
+
+      assert {:ok, %Operation.Padding{fill: {:solid, ^green}}} =
+               Operation.padding({:px, 5}, {:px, 0}, {:px, 0}, {:px, 0}, fill: {:solid, green})
+    end
+
+    test "padding rejects invalid fill values" do
+      assert {:error, {:invalid_operation, :padding, _}} =
+               Operation.padding({:px, 5}, {:px, 0}, {:px, 0}, {:px, 0}, fill: :white)
+
+      assert {:error, {:invalid_operation, :padding, _}} =
+               Operation.padding({:px, 5}, {:px, 0}, {:px, 0}, {:px, 0}, fill: :black)
+    end
+
+    test "padding rejects unknown option keys" do
+      assert {:error, {:unknown_operation_options, :padding, [:background]}} =
+               Operation.padding({:px, 5}, {:px, 0}, {:px, 0}, {:px, 0}, background: :white)
+    end
+
+    test "flatten_background rejects non-Color values" do
+      assert {:error, {:invalid_operation, :flatten_background, _}} =
+               Operation.flatten_background(:white)
+
+      assert {:error, {:invalid_operation, :flatten_background, _}} =
+               Operation.flatten_background({255, 0, 0})
+
+      assert {:error, {:invalid_operation, :flatten_background, _}} =
+               Operation.flatten_background(nil)
+    end
+
+    test "flatten_background rejects malformed Color struct with out-of-range channels" do
+      malformed = %ImagePlug.Plan.Color{
+        space: :srgb,
+        channels: {300, 0, 0},
+        alpha: {:ratio, 1, 1}
+      }
+
+      assert {:error, {:invalid_operation, :flatten_background, _}} =
+               Operation.flatten_background(malformed)
+    end
+
+    test "semantic? rejects FlattenBackground with invalid color" do
+      malformed = %Operation.FlattenBackground{
+        color: %ImagePlug.Plan.Color{space: :srgb, channels: {999, 0, 0}, alpha: {:ratio, 1, 1}}
+      }
+
+      refute Operation.semantic?(malformed)
+    end
+
+    test "semantic? rejects Padding with invalid pixel ratio mode" do
+      invalid = %Operation.Padding{
+        top: {:px, 1},
+        right: {:px, 0},
+        bottom: {:px, 0},
+        left: {:px, 0},
+        pixel_ratio: {:effective, {:ratio, 1, 1}, :unknown_mode},
+        fill: :transparent
+      }
+
+      refute Operation.semantic?(invalid)
+    end
+
+    test "padding with only one positive side is valid" do
+      assert {:ok, _} = Operation.padding({:px, 1}, {:px, 0}, {:px, 0}, {:px, 0})
+      assert {:ok, _} = Operation.padding({:px, 0}, {:px, 1}, {:px, 0}, {:px, 0})
+      assert {:ok, _} = Operation.padding({:px, 0}, {:px, 0}, {:px, 1}, {:px, 0})
+      assert {:ok, _} = Operation.padding({:px, 0}, {:px, 0}, {:px, 0}, {:px, 1})
     end
   end
 

@@ -89,4 +89,75 @@ defmodule ImagePlug.TransformExecutableCharacterizationTest do
     assert dimensions(resize_only) == {100, 67}
     assert dimensions(resize_then_crop) == {100, 50}
   end
+
+  test "executable flatten background uses Image.flatten with RGB color" do
+    {:ok, image} = Image.new(2, 2, color: [0, 0, 0, 0])
+    state = %State{image: image}
+
+    state =
+      execute!(state, [
+        %ImagePlug.Transform.Operation.FlattenBackground{color: [255, 0, 0]}
+      ])
+
+    assert Image.get_pixel!(state.image, 0, 0) |> Enum.take(3) == [255, 0, 0]
+  end
+
+  test "executable padding with all-zero sides is a no-op" do
+    {:ok, image} = Image.new(10, 10, color: :white)
+    state = %State{image: image}
+
+    state =
+      execute!(state, [
+        %ImagePlug.Transform.Operation.Padding{
+          top: 0,
+          right: 0,
+          bottom: 0,
+          left: 0,
+          fill: :transparent
+        }
+      ])
+
+    assert dimensions(state) == {10, 10}
+  end
+
+  test "executable padding expands dimensions from all four sides" do
+    {:ok, image} = Image.new(10, 10, color: :white)
+    state = %State{image: image}
+
+    state =
+      execute!(state, [
+        %ImagePlug.Transform.Operation.Padding{
+          top: 5,
+          right: 3,
+          bottom: 7,
+          left: 2,
+          fill: :transparent
+        }
+      ])
+
+    assert dimensions(state) == {15, 22}
+  end
+
+  test "executable flatten background removes alpha channel when applied over transparent padding" do
+    {:ok, image} = Image.new(5, 5, color: :white)
+    state = %State{image: image}
+
+    state =
+      execute!(state, [
+        %ImagePlug.Transform.Operation.Padding{
+          top: 1,
+          right: 0,
+          bottom: 0,
+          left: 0,
+          fill: :transparent
+        },
+        %ImagePlug.Transform.Operation.FlattenBackground{color: [0, 255, 0]}
+      ])
+
+    pixel = Image.get_pixel!(state.image, 0, 0)
+    # Transparent padding pixel flattened over green should give green
+    assert Enum.take(pixel, 3) == [0, 255, 0]
+    # No alpha channel after flatten
+    assert is_nil(Enum.at(pixel, 3))
+  end
 end
