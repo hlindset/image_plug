@@ -2,7 +2,7 @@ defmodule ImagePlug.Plan.Color do
   @moduledoc """
   Canonical product-neutral color model for Plan operations.
 
-  The first slice supports sRGB RGB colors with a canonical alpha ratio. The
+  Colors are represented as sRGB channels with a canonical alpha ratio. The
   `:color` dependency stays behind this module so parser, runtime, and cache
   data do not depend on third-party structs.
   """
