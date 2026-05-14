@@ -76,23 +76,23 @@ defmodule ImagePlug.Parser.ImgproxyPropertyTest do
     end
   end
 
-  test "imgproxy composition URL option order does not define operation order" do
+  property "imgproxy composition URL option order does not define operation order" do
     assert {:ok, plan_a} =
              Imgproxy.parse(conn(:get, "/_/bg:f00/pd:10/w:100/plain/images/cat.jpg"), [])
 
-    assert {:ok, plan_b} =
-             Imgproxy.parse(conn(:get, "/_/pd:10/w:100/bg:f00/plain/images/cat.jpg"), [])
-
     [%ImagePlug.Plan.Pipeline{operations: operations_a}] = plan_a.pipelines
-    [%ImagePlug.Plan.Pipeline{operations: operations_b}] = plan_b.pipelines
 
-    assert Enum.map(operations_a, & &1.__struct__) == Enum.map(operations_b, & &1.__struct__)
+    check all option_segments <- member_of(permutations(["bg:f00", "pd:10", "w:100"])) do
+      assert {:ok, plan_b} =
+               option_segments
+               |> imgproxy_path(["images", "cat.jpg"])
+               |> parse_path()
 
-    assert Enum.map(operations_a, & &1.__struct__) == [
-             Operation.Resize,
-             Operation.Padding,
-             Operation.Background
-           ]
+      [%ImagePlug.Plan.Pipeline{operations: operations_b}] = plan_b.pipelines
+
+      assert operations_a == operations_b
+      assert plan_a.pipelines == plan_b.pipelines
+    end
   end
 
   property "zoom aliases parse to equivalent imgproxy pipeline IR" do
@@ -139,6 +139,15 @@ defmodule ImagePlug.Parser.ImgproxyPropertyTest do
   end
 
   defp decimal_string(value), do: :erlang.float_to_binary(value / 10, decimals: 1)
+
+  defp permutations([]), do: [[]]
+
+  defp permutations(values) do
+    for value <- values,
+        tail <- permutations(values -- [value]) do
+      [value | tail]
+    end
+  end
 
   defp valid_source_path_with_option_like_segments do
     list_of(one_of([path_segment(), option_like_path_segment()]), min_length: 1, max_length: 6)

@@ -206,8 +206,9 @@ follow imgproxy shorthand semantics:
 - four values apply top, right, bottom, and left.
 
 Sparse repeated padding follows imgproxy's accumulated field behavior. For
-example, `pd:10:20:30:40/padding::5` keeps top and bottom at `10` and sets
-right and left to `5`. `padding:` and all-zero padding are valid no-ops.
+example, `pd:10:20:30:40/padding::5` keeps top at `10` and bottom at `30`,
+then sets right and left to `5`. `padding:` and all-zero padding are valid
+no-ops.
 
 Padding uses the effective DPR scale at execution. When a no-enlarge resize
 clamps image scaling, padding follows imgproxy's compensated effective DPR
