@@ -538,7 +538,8 @@ defmodule ImagePlug.ImagePlugTest do
       [presets: %{"thumb" => 100}],
       [presets: %{"thumb" => "pr"}],
       [presets: %{"thumb" => "pr:"}],
-      [presets: %{"thumb" => "w:100//h:100"}]
+      [presets: %{"thumb" => "w:100//h:100"}],
+      [presets: %ImagePlug.Parser.Imgproxy.Presets{definitions: %{"thumb" => [["w:100"]]}}]
     ]
 
     for imgproxy <- invalid_configs do

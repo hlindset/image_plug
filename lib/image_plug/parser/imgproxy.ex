@@ -32,7 +32,7 @@ defmodule ImagePlug.Parser.Imgproxy do
                      signature: [type: :keyword_list, required: false],
                      presets: [
                        type: {:custom, Presets, :validate_config, []},
-                       default: Presets.empty()
+                       default: %{}
                      ]
                    )
 

@@ -91,7 +91,7 @@ ImagePlug.init(
 `preset` and `pr` accept one or more preset names in a single option segment:
 
     /_/preset:thumb/plain/images/cat.jpg
-    /_/pr:thumb:sharp/plain/images/cat.jpg
+    /_/pr:thumb:sharp-thumb/plain/images/cat.jpg
 
 Preset expansion happens inside `ImagePlug.Parser.Imgproxy` before plan construction, source identity resolution, cache lookup, or origin fetch. Preset names are not stored in `ImagePlug.Plan`, runtime state, output negotiation, transform state, or cache data. A request using `pr:thumb` and a request spelling out the same expanded options share the same cache key for the same resolved origin identity and vary inputs.
 

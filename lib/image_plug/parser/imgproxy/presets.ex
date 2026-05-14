@@ -11,7 +11,7 @@ defmodule ImagePlug.Parser.Imgproxy.Presets do
   def empty, do: %__MODULE__{definitions: %{}}
 
   @spec validate_config(term()) :: {:ok, t()} | {:error, String.t()}
-  def validate_config(%__MODULE__{} = presets), do: {:ok, presets}
+  def validate_config(%_{}), do: {:error, "presets must be a map"}
 
   def validate_config(presets) when is_map(presets) do
     presets
