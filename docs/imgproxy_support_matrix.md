@@ -22,8 +22,8 @@ before origin fetch or cache lookup; they are not silently ignored.
 
 | Imgproxy feature | Status | Notes |
 | --- | --- | --- |
-| Required signature path segment | Partial | Only disabled-signing placeholders `_` and `unsafe` are accepted. |
-| HMAC URL signatures | Missing | No key/salt verification or signed path validation yet. |
+| Required signature path segment | Supported | `_` and `unsafe` are accepted when signing is disabled; HMAC and exact trusted signatures are accepted when signing is configured. Trusted-only config accepts only exact trusted signatures. This is intentionally narrower than upstream disabled-signing behavior. |
+| HMAC URL signatures | Supported | Imgproxy parser verifies raw/unpadded Base64URL HMAC-SHA256 signatures with hex key/salt pairs, optional truncation, rotation pairs, exact trusted signatures, and imgproxy-compatible `fixPath` before verification. Signature failures return 403. |
 | Plain source URLs via `/plain/` | Partial | ImagePlug treats the value as path segments resolved against configured `root_url`; arbitrary absolute source URLs are not modeled. |
 | Plain source `@extension` | Supported | Overrides option format and bypasses `Accept` negotiation. |
 | Base64 encoded source URL | Missing | No encoded source parsing or absolute URL source model. |
@@ -172,13 +172,12 @@ before origin fetch or cache lookup; they are not silently ignored.
 
 The highest-value additions that fit ImagePlug's current architecture are:
 
-1. HMAC signatures for request integrity.
-2. Base64 encoded source URLs, if ImagePlug should support absolute upstream URLs.
-3. Presets, implemented as parser-layer expansion into the existing request model.
-4. Background and padding, likely through a richer product-neutral canvas operation.
-5. Blur and sharpen as product-neutral transform operations.
-6. Metadata stripping and color profile policy under output/encoding.
-7. `max_bytes`, if iterative encoding is acceptable for the runtime cost.
+1. Base64-encoded source URLs, if ImagePlug should support absolute upstream URLs.
+2. Presets, implemented as parser-layer expansion into the existing request model.
+3. Background and padding, likely through a richer product-neutral canvas operation.
+4. Blur and sharpen as product-neutral transform operations.
+5. Metadata stripping and color profile policy under output/encoding.
+6. `max_bytes`, if iterative encoding is acceptable for the runtime cost.
 
 Object detection, SVG style injection, custom watermark sources, and advanced
 encoder knobs are missing today. If implemented, they should stay isolated in

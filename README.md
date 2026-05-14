@@ -16,7 +16,7 @@ ImagePlug's Imgproxy API uses path-oriented and declarative URLs:
 /<signature>[/<option>...]/plain/<origin_path>
 ```
 
-For local development, the signature segment can be `_` or `unsafe`:
+For unsigned local development, the signature segment can be `_` or `unsafe`:
 
 ```text
 /_/plain/images/cat-300.jpg
@@ -26,6 +26,33 @@ For local development, the signature segment can be `_` or `unsafe`:
 /_/rt:force/w:300/h:200/plain/images/cat-300.jpg
 /_/rs:fill:300:300/plain/images/cat-300.jpg@webp
 ```
+
+For production-style imgproxy compatibility, configure hex-encoded key/salt
+pairs under `:imgproxy`:
+
+```elixir
+forward "/",
+  to: ImagePlug,
+  init_opts: [
+    root_url: "http://localhost:4000",
+    parser: ImagePlug.Parser.Imgproxy,
+    imgproxy: [
+      signature: [
+        keys: ["736563726574"],
+        salts: ["68656c6c6f"],
+        signature_size: 32,
+        trusted_signatures: []
+      ]
+    ]
+  ]
+```
+
+When signing is configured, `_` and `unsafe` are rejected unless explicitly
+listed in `trusted_signatures`. Trusted signatures are exact path-segment
+matches accepted before HMAC decoding. A trusted-only configuration accepts only
+those exact trusted signatures. This is intentionally narrower than upstream
+imgproxy's disabled-signing behavior, which accepts any signature segment when
+no key/salt pair is configured.
 
 The Imgproxy grammar accepts selected imgproxy-compatible option names as ImagePlug's own path grammar. Compatibility ends at parsing and planning: runtime, cache, output, and transform code consume product-neutral `ImagePlug.Plan` data with canonical `ImagePlug.Plan.Operation.*` transform intent.
 
@@ -182,7 +209,7 @@ forward "/",
   ]
 ```
 
-Cache lookup happens only after the request parses, the pipeline plans, and the origin identity/freshness data is resolved. It does not fetch, decode, or read metadata from the origin image. Invalid requests return `400` before origin or cache access. Parser, planner, origin fetch, decode, transform, negotiation, and encode errors are never cached.
+Cache lookup happens only after the request parses, the pipeline plans, and the origin identity/freshness data is resolved. It does not fetch, decode, or read metadata from the origin image. Invalid parser and planner requests return `400` before origin or cache access; invalid imgproxy signatures return `403`. Parser, planner, origin fetch, decode, transform, negotiation, and encode errors are never cached.
 
 Cache keys include resolved origin identity/freshness data, canonical Plan operation key data, the cache key's transform key data version, configured `:key_headers` and `:key_cookies`, and normalized automatic-output inputs when output is automatic: detected modern output candidates plus `:auto_avif` / `:auto_webp` flags. They exclude request signatures, raw request paths, query strings, raw `Accept` headers, source metadata, decoded image properties, source-aware execution choices, and unconfigured headers or cookies. Key data includes a schema version and deterministic primitive serialization. Explicit formats bypass `Accept` negotiation and therefore do not vary by `Accept`.
 
@@ -198,7 +225,7 @@ Treat the cache root as trusted local configuration. Generated paths are validat
 
 ## Operational Notes
 
-`ImagePlug` parses imgproxy path options before fetching the origin image. Invalid processing requests return `400` without origin traffic.
+`ImagePlug` verifies imgproxy signatures and parses imgproxy path options before fetching the origin image. Invalid signatures return `403`, and invalid processing requests return `400`, both without origin traffic.
 
 Origin fetches use non-bang Req calls with bounded redirects, receive timeout, and a maximum response body size. The source format is read from the decoded image rather than trusted HTTP headers. Configure these with `:origin_max_redirects`, `:origin_receive_timeout`, `:max_body_bytes`, and `:max_input_pixels`.
 

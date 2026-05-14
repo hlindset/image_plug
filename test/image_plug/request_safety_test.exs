@@ -73,4 +73,71 @@ defmodule ImagePlug.RequestSafetyTest do
     refute_received :cache_lookup
     refute_received :cache_put
   end
+
+  test "invalid imgproxy signatures return before source identity, cache lookup, and origin" do
+    conn =
+      ImagePlug.call(
+        conn(:get, "/invalid/w:300/plain/images/cat.jpg"),
+        ImagePlug.init(
+          parser: ImagePlug.Parser.Imgproxy,
+          root_url: "not-a-valid-origin-url",
+          imgproxy: [
+            signature: [
+              keys: ["746573742d6b6579"],
+              salts: ["746573742d73616c74"]
+            ]
+          ],
+          cache: {CacheProbe, []},
+          origin_req_options: [plug: ImagePlug.Request.ProcessorTest.OriginShouldNotFetch]
+        )
+      )
+
+    assert conn.status == 403
+    assert conn.resp_body =~ "invalid_signature"
+    refute_received :cache_lookup
+    refute_received :cache_put
+  end
+
+  test "invalid imgproxy signatures return before origin fetch with a valid root URL" do
+    conn =
+      ImagePlug.call(
+        conn(:get, "/invalid/w:300/plain/images/cat.jpg"),
+        ImagePlug.init(
+          parser: ImagePlug.Parser.Imgproxy,
+          root_url: "http://origin.test",
+          imgproxy: [
+            signature: [
+              keys: ["746573742d6b6579"],
+              salts: ["746573742d73616c74"]
+            ]
+          ],
+          origin_req_options: [plug: ImagePlug.Request.ProcessorTest.OriginShouldNotFetch]
+        )
+      )
+
+    assert conn.status == 403
+    assert conn.resp_body =~ "invalid_signature"
+  end
+
+  test "invalid imgproxy signatures return before option parsing at the plug boundary" do
+    conn =
+      ImagePlug.call(
+        conn(:get, "/invalid/raw/plain/images/cat.jpg"),
+        ImagePlug.init(
+          parser: ImagePlug.Parser.Imgproxy,
+          root_url: "http://origin.test",
+          imgproxy: [
+            signature: [
+              keys: ["746573742d6b6579"],
+              salts: ["746573742d73616c74"]
+            ]
+          ],
+          origin_req_options: [plug: ImagePlug.Request.ProcessorTest.OriginShouldNotFetch]
+        )
+      )
+
+    assert conn.status == 403
+    assert conn.resp_body =~ "invalid_signature"
+    refute conn.resp_body =~ "unsupported_option"
+  end
 end

@@ -16,9 +16,26 @@ For a feature-by-feature comparison with imgproxy's processing URL surface, see
 
 The general shape is:
 
-    /_/option[:arg...]/option[:arg...]/plain/path/to/image[@extension]
+    /<signature>/option[:arg...]/option[:arg...]/plain/path/to/image[@extension]
 
-`_` is the disabled-signing signature segment. `plain` source paths are path segments after the source marker. A plain source may end in `@extension` to request an explicit output format from the source path. The `@extension` form bypasses `Accept` negotiation like `format`, `f`, and `ext`.
+The signature segment is verified before option parsing, planning, source
+identity resolution, cache lookup, or origin fetch. With no `:imgproxy`
+signature configuration, ImagePlug accepts only `_` and `unsafe` as
+disabled-signing placeholders. With signing configured, the signature must be a
+raw/unpadded Base64URL HMAC-SHA256 digest of the raw path after the signature,
+including the leading slash, or an exact configured trusted signature.
+Trusted-only configuration accepts only exact trusted signatures; unlike
+upstream imgproxy, it does not make every signature segment valid when no
+key/salt pair is configured.
+Before verification, ImagePlug applies imgproxy-compatible `fixPath`
+normalization: `%3A` in processing options is treated as `:`, and normalized
+plain URL schemes such as `http:/x` and `local:/x` are repaired to `http://x`
+and `local:///x`.
+
+`plain` source paths are path segments after the source marker. A plain source
+may end in `@extension` to request an explicit output format from the source
+path. The `@extension` form bypasses `Accept` negotiation like `format`, `f`,
+and `ext`.
 
 ## Pipeline Groups
 

@@ -21,6 +21,7 @@ defmodule ImagePlug.Parser.Imgproxy do
   alias ImagePlug.Parser.Imgproxy.PlanBuilder
   alias ImagePlug.Parser.Imgproxy.RequestPolicy
   alias ImagePlug.Parser.Imgproxy.ResponseRequest
+  alias ImagePlug.Parser.Imgproxy.Signature
   alias ImagePlug.Plan.Orientation
   alias ImagePlug.Plan.Response
 
@@ -95,6 +96,9 @@ defmodule ImagePlug.Parser.Imgproxy do
 
   def parse(%Plug.Conn{} = conn), do: parse(conn, [])
 
+  @doc false
+  def validate_options!(imgproxy_opts), do: Signature.validate_options!(imgproxy_opts)
+
   @impl ImagePlug.Parser
   def parse(%Plug.Conn{} = conn, opts) do
     with {:ok, parsed_request} <- parse_request(conn, opts) do
@@ -103,8 +107,9 @@ defmodule ImagePlug.Parser.Imgproxy do
   end
 
   @doc false
-  def parse_request(%Plug.Conn{path_info: [signature | path_info]}, _opts) do
-    with :ok <- validate_signature(signature),
+  def parse_request(%Plug.Conn{} = conn, opts) do
+    with {:ok, signature, signed_path, path_info} <- parse_raw_path(conn),
+         :ok <- verify_signature(signature, signed_path, opts),
          {:ok, option_segments, raw_source_path} <- split_source(path_info),
          {:ok, request_options} <- parse_request_options(option_segments),
          {:ok, source_path, source_format} <- parse_plain_source(raw_source_path) do
@@ -117,19 +122,117 @@ defmodule ImagePlug.Parser.Imgproxy do
     end
   end
 
-  def parse_request(%Plug.Conn{path_info: []}, _opts) do
-    {:error, :missing_signature}
+  @impl ImagePlug.Parser
+  def handle_error(%Plug.Conn{} = conn, {:error, :invalid_signature}) do
+    send_signature_error(conn, :invalid_signature)
   end
 
-  @impl ImagePlug.Parser
+  def handle_error(
+        %Plug.Conn{} = conn,
+        {:error, {:invalid_signature_encoding, _signature}}
+      ) do
+    send_signature_error(conn, :invalid_signature_encoding)
+  end
+
+  def handle_error(%Plug.Conn{} = conn, {:error, {:unsupported_signature, _signature}}) do
+    send_signature_error(conn, :unsupported_signature)
+  end
+
   def handle_error(%Plug.Conn{} = conn, {:error, reason}) do
     conn
     |> Plug.Conn.put_resp_content_type("text/plain")
     |> Plug.Conn.send_resp(400, "invalid image request: #{inspect(reason)}")
   end
 
-  defp validate_signature(signature) when signature in ["_", "unsafe"], do: :ok
-  defp validate_signature(signature), do: {:error, {:unsupported_signature, signature}}
+  defp send_signature_error(%Plug.Conn{} = conn, reason) do
+    conn
+    |> Plug.Conn.put_resp_content_type("text/plain")
+    |> Plug.Conn.send_resp(403, "invalid image request: #{inspect(reason)}")
+  end
+
+  defp verify_signature(signature, signed_path, opts) do
+    Signature.verify(signature, signed_path, signature_config(opts))
+  end
+
+  defp signature_config(opts) do
+    opts
+    |> Keyword.get(:imgproxy, [])
+    |> Keyword.get(:signature, Signature.disabled())
+  end
+
+  defp parse_raw_path(%Plug.Conn{} = conn) do
+    case parser_request_path(conn) do
+      "/" ->
+        {:error, :missing_signature}
+
+      "/" <> raw_path ->
+        raw_path
+        |> :binary.split("/", [:global])
+        |> raw_path_parts()
+
+      _path ->
+        {:error, :missing_signature}
+    end
+  end
+
+  defp parser_request_path(%Plug.Conn{request_path: request_path, script_name: []}),
+    do: request_path
+
+  defp parser_request_path(%Plug.Conn{request_path: request_path, script_name: script_name}) do
+    prefix = "/" <> Enum.join(script_name, "/")
+
+    cond do
+      request_path == prefix ->
+        "/"
+
+      String.starts_with?(request_path, prefix <> "/") ->
+        String.replace_prefix(request_path, prefix, "")
+
+      true ->
+        request_path
+    end
+  end
+
+  defp raw_path_parts(["" | _raw_path_info]), do: {:error, :missing_signature}
+  defp raw_path_parts([_signature]), do: {:error, :missing_signed_path}
+
+  defp raw_path_parts([signature | raw_path_info]) do
+    signed_path =
+      raw_path_info
+      |> Enum.join("/")
+      |> then(&("/" <> &1))
+      |> fix_path()
+
+    {:ok, signature, signed_path, path_info_from_signed_path(signed_path)}
+  end
+
+  defp path_info_from_signed_path(""), do: []
+  defp path_info_from_signed_path("/" <> path), do: :binary.split(path, "/", [:global])
+
+  defp fix_path(path) do
+    case :binary.split(path, "/plain/") do
+      [options, plain_url] ->
+        fix_options_path(options) <> "/plain/" <> fix_plain_url_path(plain_url)
+
+      [options] ->
+        fix_options_path(options)
+    end
+  end
+
+  defp fix_options_path(options), do: String.replace(options, ~r/%3a/i, ":")
+
+  defp fix_plain_url_path(plain_url) do
+    case Regex.run(~r/^(\S+):\/([^\/])/, plain_url) do
+      [match, "local", first] ->
+        String.replace_prefix(plain_url, match, "local:///" <> first)
+
+      [match, scheme, first] ->
+        String.replace_prefix(plain_url, match, scheme <> "://" <> first)
+
+      nil ->
+        plain_url
+    end
+  end
 
   defp parsed_request(
          signature,

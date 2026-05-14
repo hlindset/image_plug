@@ -43,6 +43,162 @@ defmodule ImagePlug.Parser.ImgproxyTest do
              {:error, {:unsupported_signature, "signed-value"}}
   end
 
+  test "accepts valid signed imgproxy URLs when signing is enabled" do
+    assert {:ok, %Plan{source: {:plain, ["images", "cat.jpg"]}}} =
+             Imgproxy.parse(
+               conn(
+                 :get,
+                 "/NSbxuO5fQqTgDkui_3o6ho1UCFFcmzsugB2Uksho49o/w:300/plain/images/cat.jpg"
+               ),
+               signed_parser_opts()
+             )
+  end
+
+  test "signature verification excludes query strings" do
+    assert {:ok, %Plan{source: {:plain, ["images", "cat.jpg"]}}} =
+             Imgproxy.parse(
+               conn(
+                 :get,
+                 "/NSbxuO5fQqTgDkui_3o6ho1UCFFcmzsugB2Uksho49o/w:300/plain/images/cat.jpg?ignored=true"
+               ),
+               signed_parser_opts()
+             )
+  end
+
+  test "signature-only paths fail before verification" do
+    assert Imgproxy.parse(conn(:get, "/invalid"), signed_parser_opts()) ==
+             {:error, :missing_signed_path}
+
+    empty_signature_conn =
+      conn(:get, "/")
+      |> Map.put(:request_path, "//w:300/plain/images/cat.jpg")
+      |> Map.put(:path_info, ["", "w:300", "plain", "images", "cat.jpg"])
+
+    assert Imgproxy.parse(empty_signature_conn, signed_parser_opts()) ==
+             {:error, :missing_signature}
+  end
+
+  test "fixPath decodes option separators before verification and parsing" do
+    assert {:ok, %Plan{pipelines: [%Pipeline{operations: [%Operation.Resize{} = resize]}]}} =
+             Imgproxy.parse(
+               conn(
+                 :get,
+                 "/NSbxuO5fQqTgDkui_3o6ho1UCFFcmzsugB2Uksho49o/w%3A300/plain/images/cat.jpg"
+               ),
+               signed_parser_opts()
+             )
+
+    assert resize.width == pixels(300)
+
+    assert {:ok, %Plan{pipelines: [%Pipeline{operations: [%Operation.Resize{} = resize]}]}} =
+             Imgproxy.parse(
+               conn(
+                 :get,
+                 "/NSbxuO5fQqTgDkui_3o6ho1UCFFcmzsugB2Uksho49o/w%3a300/plain/images/cat.jpg"
+               ),
+               signed_parser_opts()
+             )
+
+    assert resize.width == pixels(300)
+  end
+
+  test "fixPath repairs normalized plain URL schemes before verification and parsing" do
+    assert {:ok, %Plan{source: {:plain, ["http:", "", "example.com", "image.jpg"]}}} =
+             Imgproxy.parse(
+               conn(
+                 :get,
+                 "/rvUfkOxjt_gv1jphcFemDz8PPpIntOx93-72pYGwqV0/plain/http:/example.com/image.jpg"
+               ),
+               signed_parser_opts()
+             )
+
+    assert {:ok, %Plan{source: {:plain, ["local:", "", "", "test1.png"]}}} =
+             Imgproxy.parse(
+               conn(
+                 :get,
+                 "/My9d3xq_PYpVHsPrCyww0Kh1w5KZeZhIlWhsa4az1TI/rs:fill:4:4/plain/local:/test1.png"
+               ),
+               signed_parser_opts()
+             )
+  end
+
+  test "rejects disabled-signing placeholders when signing is enabled" do
+    assert Imgproxy.parse(conn(:get, "/_/plain/images/cat.jpg"), signed_parser_opts()) ==
+             {:error, {:invalid_signature_encoding, "_"}}
+
+    assert Imgproxy.parse(conn(:get, "/unsafe/plain/images/cat.jpg"), signed_parser_opts()) ==
+             {:error, :invalid_signature}
+  end
+
+  test "accepts exact trusted signatures before HMAC decoding" do
+    opts = signed_parser_opts(signature: [trusted_signatures: ["local-dev!"]])
+
+    assert {:ok, %Plan{source: {:plain, ["images", "cat.jpg"]}}} =
+             Imgproxy.parse(conn(:get, "/local-dev!/w:300/plain/images/cat.jpg"), opts)
+  end
+
+  test "rejects invalid signature encodings before parsing options" do
+    assert Imgproxy.parse(
+             conn(:get, "/local-dev!/raw/plain/images/cat.jpg"),
+             signed_parser_opts()
+           ) ==
+             {:error, {:invalid_signature_encoding, "local-dev!"}}
+  end
+
+  test "raw signed path accepts signatures computed over duplicate slashes" do
+    assert {:ok, %Plan{source: {:plain, ["", "images", "cat.jpg"]}}} =
+             Imgproxy.parse(
+               conn(
+                 :get,
+                 "/LybQypsQbz5rUNXKD0FkRZHzpY7OnbJ8DQcWndArBCw/w:300/plain//images/cat.jpg"
+               ),
+               signed_parser_opts()
+             )
+  end
+
+  test "raw signed path accepts signatures computed over trailing slashes" do
+    assert {:ok, %Plan{source: {:plain, ["images", "cat.jpg", ""]}}} =
+             Imgproxy.parse(
+               conn(
+                 :get,
+                 "/gIg1_oHgCof_KbsU6mYJKyL-SN6TJjbHGQAd9uvh8GU/w:300/plain/images/cat.jpg/"
+               ),
+               signed_parser_opts()
+             )
+  end
+
+  test "raw signed path strips only mounted script_name before verification" do
+    conn =
+      conn(:get, "/proxy/NSbxuO5fQqTgDkui_3o6ho1UCFFcmzsugB2Uksho49o/w:300/plain/images/cat.jpg")
+      |> Map.put(:script_name, ["proxy"])
+      |> Map.put(:path_info, [
+        "NSbxuO5fQqTgDkui_3o6ho1UCFFcmzsugB2Uksho49o",
+        "w:300",
+        "plain",
+        "images",
+        "cat.jpg"
+      ])
+
+    assert {:ok, %Plan{source: {:plain, ["images", "cat.jpg"]}}} =
+             Imgproxy.parse(conn, signed_parser_opts())
+  end
+
+  test "signature authorization errors render HTTP 403" do
+    assert_error_status(:invalid_signature, 403)
+
+    invalid_encoding_conn =
+      assert_error_status({:invalid_signature_encoding, "very-secret-signature"}, 403)
+
+    assert invalid_encoding_conn.resp_body =~ "invalid_signature_encoding"
+    refute invalid_encoding_conn.resp_body =~ "very-secret-signature"
+
+    unsupported_conn = assert_error_status({:unsupported_signature, "signed-value"}, 403)
+    assert unsupported_conn.resp_body =~ "unsupported_signature"
+    refute unsupported_conn.resp_body =~ "signed-value"
+
+    assert_error_status(:missing_signature, 400)
+  end
+
   test "rejects missing signature" do
     assert Imgproxy.parse(conn(:get, "/"), []) == {:error, :missing_signature}
   end
@@ -961,6 +1117,23 @@ defmodule ImagePlug.Parser.ImgproxyTest do
   defp assert_output_mode(path, mode) do
     assert {:ok, %Plan{output: %Output{mode: ^mode}}} =
              Imgproxy.parse(conn(:get, path), [])
+  end
+
+  defp signed_parser_opts(overrides \\ []) do
+    imgproxy_opts =
+      [signature: [keys: ["746573742d6b6579"], salts: ["746573742d73616c74"]]]
+      |> Keyword.merge(overrides)
+      |> Imgproxy.validate_options!()
+
+    [imgproxy: imgproxy_opts]
+  end
+
+  defp assert_error_status(reason, status) do
+    conn = Imgproxy.handle_error(conn(:get, "/"), {:error, reason})
+
+    assert conn.status == status
+
+    conn
   end
 
   defp pixels(value), do: {:px, value}
