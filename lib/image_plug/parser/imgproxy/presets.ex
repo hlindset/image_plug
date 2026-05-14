@@ -14,17 +14,7 @@ defmodule ImagePlug.Parser.Imgproxy.Presets do
   def validate_config(%_{}), do: {:error, "presets must be a map"}
 
   def validate_config(presets) when is_map(presets) do
-    presets
-    |> Enum.reduce_while({:ok, %{}}, fn {name, value}, {:ok, definitions} ->
-      with :ok <- validate_name(name),
-           :ok <- validate_value(name, value),
-           {:ok, groups} <- tokenize(value) do
-        {:cont, {:ok, Map.put(definitions, name, groups)}}
-      else
-        {:error, reason} -> {:halt, {:error, reason}}
-      end
-    end)
-    |> case do
+    case Enum.reduce_while(presets, {:ok, %{}}, &validate_preset/2) do
       {:ok, definitions} -> {:ok, %__MODULE__{definitions: definitions}}
       {:error, reason} -> {:error, reason}
     end
@@ -35,6 +25,16 @@ defmodule ImagePlug.Parser.Imgproxy.Presets do
   @spec fetch(t(), String.t()) :: {:ok, [group()]} | :error
   def fetch(%__MODULE__{definitions: definitions}, name) when is_binary(name),
     do: Map.fetch(definitions, name)
+
+  defp validate_preset({name, value}, {:ok, definitions}) do
+    with :ok <- validate_name(name),
+         :ok <- validate_value(name, value),
+         {:ok, groups} <- tokenize(value) do
+      {:cont, {:ok, Map.put(definitions, name, groups)}}
+    else
+      {:error, reason} -> {:halt, {:error, reason}}
+    end
+  end
 
   defp validate_name(name) when is_binary(name) and name != "", do: :ok
   defp validate_name(_name), do: {:error, "preset names must be non-empty strings"}
