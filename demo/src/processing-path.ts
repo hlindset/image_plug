@@ -1,7 +1,7 @@
 export type ResizeMode = "fit" | "fill" | "fill-down" | "force" | "auto";
 export type Gravity = "ce" | "no" | "so" | "ea" | "we" | "noea" | "nowe" | "soea" | "sowe";
 export type CropGravity = "inherit" | Gravity;
-export type OutputFormat = "auto" | "webp" | "avif" | "jpeg" | "png";
+export type OutputFormat = "webp" | "avif" | "jpeg" | "png";
 export type Signature = "_" | "unsafe";
 export type SourceImage = "images/dog.jpg" | "images/cat-300.jpg";
 
@@ -46,7 +46,7 @@ export const defaultDemoState: DemoState = {
   cropHeight: 420,
   cropGravity: "inherit",
   formatEnabled: false,
-  format: "auto",
+  format: "jpeg",
   qualityEnabled: true,
   quality: 85
 };
@@ -83,7 +83,7 @@ export function optionSegments(currentState: DemoState): string[] {
     segments.push(`g:${currentState.gravity}`);
   }
 
-  if (currentState.formatEnabled && currentState.format !== "auto") {
+  if (currentState.formatEnabled) {
     segments.push(`f:${currentState.format}`);
   }
 
@@ -95,7 +95,7 @@ export function optionSegments(currentState: DemoState): string[] {
 }
 
 export function resolvedOutputLabel(currentState: DemoState): string {
-  if (currentState.format === "auto") {
+  if (!currentState.formatEnabled) {
     return "auto -> webp";
   }
 

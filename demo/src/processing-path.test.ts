@@ -15,6 +15,10 @@ describe("processing path generation", () => {
     );
   });
 
+  it("keeps jpeg selected as the default explicit format", () => {
+    expect(defaultDemoState.format).toBe("jpeg");
+  });
+
   it("includes crop options before resize options when crop is enabled", () => {
     const state = {
       ...defaultDemoState,
@@ -151,7 +155,7 @@ describe("processing path generation", () => {
 
   it("shows the negotiated output label for automatic formats", () => {
     expect(resolvedOutputLabel(defaultDemoState)).toBe("auto -> webp");
-    expect(resolvedOutputLabel({ ...defaultDemoState, format: "png" })).toBe("png");
+    expect(resolvedOutputLabel({ ...defaultDemoState, formatEnabled: true, format: "png" })).toBe("png");
   });
 
   it("formats the processed image dimensions and encoded byte size", () => {
