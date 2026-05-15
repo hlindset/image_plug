@@ -169,21 +169,66 @@
 
       <section class="tool-section">
         <div class="tool-heading">
-          <h2>Output</h2>
+          <div>
+            <h2>Gravity</h2>
+            <p>{state.gravityEnabled ? `g:${state.gravity}` : "Off"}</p>
+          </div>
+          <Switch.Root
+            class="switch-root"
+            aria-label="Enable gravity"
+            bind:checked={state.gravityEnabled}
+          >
+            <Switch.Thumb class="switch-thumb" />
+          </Switch.Root>
         </div>
 
-        <label class="field">
-          <span>Format</span>
-          <select bind:value={state.format}>
-            <option value="auto">auto</option>
-            <option value="webp">webp</option>
-            <option value="avif">avif</option>
-            <option value="jpeg">jpeg</option>
-            <option value="png">png</option>
-          </select>
-        </label>
+        {#if state.gravityEnabled}
+          <label class="field">
+            <span>Gravity</span>
+            <select bind:value={state.gravity}>
+              <option value="ce">center</option>
+              <option value="no">north</option>
+              <option value="so">south</option>
+              <option value="ea">east</option>
+              <option value="we">west</option>
+              <option value="noea">north east</option>
+              <option value="nowe">north west</option>
+              <option value="soea">south east</option>
+              <option value="sowe">south west</option>
+            </select>
+          </label>
+        {/if}
+      </section>
 
-        <RangeNumber label="Quality" bind:value={state.quality} min={0} max={100} step={1} />
+      <section class="tool-section">
+        <div class="tool-heading">
+          <div>
+            <h2>Output</h2>
+            <p>{state.outputEnabled ? `${state.format}, q:${state.quality}` : "Off"}</p>
+          </div>
+          <Switch.Root
+            class="switch-root"
+            aria-label="Enable output"
+            bind:checked={state.outputEnabled}
+          >
+            <Switch.Thumb class="switch-thumb" />
+          </Switch.Root>
+        </div>
+
+        {#if state.outputEnabled}
+          <label class="field">
+            <span>Format</span>
+            <select bind:value={state.format}>
+              <option value="auto">auto</option>
+              <option value="webp">webp</option>
+              <option value="avif">avif</option>
+              <option value="jpeg">jpeg</option>
+              <option value="png">png</option>
+            </select>
+          </label>
+
+          <RangeNumber label="Quality" bind:value={state.quality} min={0} max={100} step={1} />
+        {/if}
       </section>
 
       <section class="tool-section">

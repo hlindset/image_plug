@@ -82,6 +82,29 @@ describe("processing path generation", () => {
     expect(buildProcessingPath(state)).toBe("/_/rs:fill:640:360:0/g:ce/plain/images/dog.jpg");
   });
 
+  it("omits output options when output is disabled", () => {
+    const state = {
+      ...defaultDemoState,
+      outputEnabled: false,
+      format: "png" as const,
+      quality: 42
+    };
+
+    expect(optionSegments(state)).toEqual(["rs:fill:640:360:0", "g:ce"]);
+    expect(buildProcessingPath(state)).toBe("/_/rs:fill:640:360:0/g:ce/plain/images/dog.jpg");
+  });
+
+  it("omits top-level gravity when gravity is disabled", () => {
+    const state = {
+      ...defaultDemoState,
+      gravityEnabled: false,
+      gravity: "sowe" as const
+    };
+
+    expect(optionSegments(state)).toEqual(["rs:fill:640:360:0", "q:85"]);
+    expect(buildProcessingPath(state)).toBe("/_/rs:fill:640:360:0/q:85/plain/images/dog.jpg");
+  });
+
   it("omits resize and gravity options when resize is disabled", () => {
     const state = {
       ...defaultDemoState,

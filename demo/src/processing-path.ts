@@ -12,12 +12,14 @@ export type DemoState = {
   resizeMode: ResizeMode;
   width: number;
   height: number;
+  gravityEnabled: boolean;
   gravity: Gravity;
   enlarge: boolean;
   cropEnabled: boolean;
   cropWidth: number;
   cropHeight: number;
   cropGravity: CropGravity;
+  outputEnabled: boolean;
   format: OutputFormat;
   quality: number;
 };
@@ -35,12 +37,14 @@ export const defaultDemoState: DemoState = {
   resizeMode: "fill",
   width: 640,
   height: 360,
+  gravityEnabled: true,
   gravity: "ce",
   enlarge: false,
   cropEnabled: false,
   cropWidth: 640,
   cropHeight: 420,
   cropGravity: "inherit",
+  outputEnabled: true,
   format: "auto",
   quality: 85
 };
@@ -70,15 +74,18 @@ export function optionSegments(currentState: DemoState): string[] {
     );
   }
 
-  if (currentState.resizeEnabled || (currentState.cropEnabled && currentState.cropGravity === "inherit")) {
+  if (
+    currentState.gravityEnabled &&
+    (currentState.resizeEnabled || (currentState.cropEnabled && currentState.cropGravity === "inherit"))
+  ) {
     segments.push(`g:${currentState.gravity}`);
   }
 
-  if (currentState.format !== "auto") {
+  if (currentState.outputEnabled && currentState.format !== "auto") {
     segments.push(`f:${currentState.format}`);
   }
 
-  if (currentState.quality > 0) {
+  if (currentState.outputEnabled && currentState.quality > 0) {
     segments.push(`q:${currentState.quality}`);
   }
 
