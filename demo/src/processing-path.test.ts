@@ -31,6 +31,47 @@ describe("processing path generation", () => {
     ]);
   });
 
+  it("does not write inherited crop gravity into the crop segment", () => {
+    const state = {
+      ...defaultDemoState,
+      cropEnabled: true,
+      cropGravity: "inherit" as const,
+      gravity: "nowe" as const
+    };
+
+    expect(optionSegments(state)).toEqual([
+      "c:640:420",
+      "rs:fill:640:360:0",
+      "g:nowe",
+      "q:85"
+    ]);
+  });
+
+  it("uses shared gravity as the top-level gravity option", () => {
+    const state = {
+      ...defaultDemoState,
+      gravity: "sowe" as const
+    };
+
+    expect(optionSegments(state)).toEqual(["rs:fill:640:360:0", "g:sowe", "q:85"]);
+  });
+
+  it("allows crop to use an explicit gravity", () => {
+    const state = {
+      ...defaultDemoState,
+      cropEnabled: true,
+      cropGravity: "soea" as const,
+      gravity: "ce" as const
+    };
+
+    expect(optionSegments(state)).toEqual([
+      "c:640:420:soea",
+      "rs:fill:640:360:0",
+      "g:ce",
+      "q:85"
+    ]);
+  });
+
   it("omits explicit format and quality when the controls request automatic output", () => {
     const state = {
       ...defaultDemoState,

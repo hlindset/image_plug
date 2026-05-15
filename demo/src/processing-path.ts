@@ -1,5 +1,6 @@
 export type ResizeMode = "fit" | "fill" | "fill-down" | "force" | "auto";
 export type Gravity = "ce" | "no" | "so" | "ea" | "we" | "noea" | "nowe" | "soea" | "sowe";
+export type CropGravity = "inherit" | Gravity;
 export type OutputFormat = "auto" | "webp" | "avif" | "jpeg" | "png";
 export type Signature = "_" | "unsafe";
 export type SourceImage = "images/dog.jpg" | "images/cat-300.jpg";
@@ -16,6 +17,7 @@ export type DemoState = {
   cropEnabled: boolean;
   cropWidth: number;
   cropHeight: number;
+  cropGravity: CropGravity;
   format: OutputFormat;
   quality: number;
 };
@@ -38,6 +40,7 @@ export const defaultDemoState: DemoState = {
   cropEnabled: false,
   cropWidth: 640,
   cropHeight: 420,
+  cropGravity: "inherit",
   format: "auto",
   quality: 85
 };
@@ -46,7 +49,13 @@ export function optionSegments(currentState: DemoState): string[] {
   const segments: string[] = [];
 
   if (currentState.cropEnabled) {
-    segments.push(`c:${currentState.cropWidth}:${currentState.cropHeight}`);
+    const cropSegment = ["c", currentState.cropWidth, currentState.cropHeight];
+
+    if (currentState.cropGravity !== "inherit") {
+      cropSegment.push(currentState.cropGravity);
+    }
+
+    segments.push(cropSegment.join(":"));
   }
 
   if (currentState.resizeEnabled) {
@@ -57,9 +66,12 @@ export function optionSegments(currentState: DemoState): string[] {
         currentState.width,
         currentState.height,
         currentState.enlarge ? 1 : 0
-      ].join(":"),
-      `g:${currentState.gravity}`
+      ].join(":")
     );
+  }
+
+  if (currentState.resizeEnabled || (currentState.cropEnabled && currentState.cropGravity === "inherit")) {
+    segments.push(`g:${currentState.gravity}`);
   }
 
   if (currentState.format !== "auto") {

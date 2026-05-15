@@ -110,33 +110,16 @@
           <RangeNumber label="Width" bind:value={state.width} min={0} max={1600} step={1} />
           <RangeNumber label="Height" bind:value={state.height} min={0} max={1000} step={1} />
 
-          <div class="field-grid">
-            <label class="field">
-              <span>Type</span>
-              <select bind:value={state.resizeMode}>
-                <option value="fit">fit</option>
-                <option value="fill">fill</option>
-                <option value="fill-down">fill-down</option>
-                <option value="force">force</option>
-                <option value="auto">auto</option>
-              </select>
-            </label>
-
-            <label class="field">
-              <span>Gravity</span>
-              <select bind:value={state.gravity}>
-                <option value="ce">center</option>
-                <option value="no">north</option>
-                <option value="so">south</option>
-                <option value="ea">east</option>
-                <option value="we">west</option>
-                <option value="noea">north east</option>
-                <option value="nowe">north west</option>
-                <option value="soea">south east</option>
-                <option value="sowe">south west</option>
-              </select>
-            </label>
-          </div>
+          <label class="field">
+            <span>Type</span>
+            <select bind:value={state.resizeMode}>
+              <option value="fit">fit</option>
+              <option value="fill">fill</option>
+              <option value="fill-down">fill-down</option>
+              <option value="force">force</option>
+              <option value="auto">auto</option>
+            </select>
+          </label>
 
           <label class="switch-field">
             <Switch.Root class="switch-root" bind:checked={state.enlarge}>
@@ -165,6 +148,22 @@
         {#if state.cropEnabled}
           <RangeNumber label="Crop width" bind:value={state.cropWidth} min={80} max={1200} step={1} />
           <RangeNumber label="Crop height" bind:value={state.cropHeight} min={80} max={900} step={1} />
+
+          <label class="field">
+            <span>Gravity</span>
+            <select bind:value={state.cropGravity}>
+              <option value="inherit">&lt;inherit&gt;</option>
+              <option value="ce">center</option>
+              <option value="no">north</option>
+              <option value="so">south</option>
+              <option value="ea">east</option>
+              <option value="we">west</option>
+              <option value="noea">north east</option>
+              <option value="nowe">north west</option>
+              <option value="soea">south east</option>
+              <option value="sowe">south west</option>
+            </select>
+          </label>
         {/if}
       </section>
 
@@ -488,12 +487,6 @@
     display: flex;
     justify-content: space-between;
     gap: 12px;
-  }
-
-  .field-grid {
-    display: grid;
-    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
-    gap: 10px;
   }
 
   select {
