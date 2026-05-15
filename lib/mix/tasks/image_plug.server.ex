@@ -163,7 +163,7 @@ defmodule Mix.Tasks.ImagePlug.Server do
         IO.write(data)
         stream_vite_output(port)
 
-      {^port, {:exit_status, 0}} ->
+      {^port, {:exit_status, status}} when status in [0, 130, 143] ->
         :ok
 
       {^port, {:exit_status, status}} ->

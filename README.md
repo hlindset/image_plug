@@ -187,6 +187,25 @@ mise exec -- mix image_plug.server --cache
 The simple server runs without cache by default. Pass `--cache` to enable the filesystem cache
 under `_build/dev/image_plug/cache`, or `--no-cache` to make the disabled state explicit.
 
+The simple server also serves a dev-only demo fiddle at `/demo`. The fiddle is a
+small Svelte/Vite UI for changing common path options and previewing the
+generated SimpleServer request. Starting `mix image_plug.server` also starts the
+Vite dev server on `http://localhost:5173`, while the demo itself remains
+available through the simple server:
+
+```sh
+mise exec -- mix image_plug.server
+open http://localhost:4000/demo
+```
+
+![Demo fiddle desktop screenshot](docs/demo-fiddle-desktop.png)
+
+Pass `--no-vite` to run only the image server without the demo asset server:
+
+```sh
+mise exec -- mix image_plug.server --no-vite
+```
+
 ## Filesystem Cache
 
 ImagePlug can cache complete encoded responses after successful processing:
