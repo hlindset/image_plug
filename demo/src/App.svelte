@@ -1,21 +1,20 @@
 <script lang="ts">
-  import { Switch, Tabs } from "bits-ui";
+  import { Switch } from "bits-ui";
   import RangeNumber from "./RangeNumber.svelte";
   import {
     buildProcessingPath,
     defaultDemoState,
-    optionSegments,
+    resolvedOutputLabel,
     type DemoState
   } from "./processing-path";
 
-  type Panel = "resize" | "crop" | "output" | "request";
-
-  let activePanel: string = "resize";
   let copyLabel = "Copy URL";
+  let drawerOpen = false;
   let state: DemoState = { ...defaultDemoState };
 
   $: path = buildProcessingPath(state);
-  $: fragment = optionSegments(state).join("/");
+  $: previewParameters = path.replace(/^\/(?:_|unsafe)\//, "");
+  $: outputLabel = resolvedOutputLabel(state);
 
   async function copyGeneratedUrl(): Promise<void> {
     const absoluteUrl = new URL(path, window.location.origin).toString();
@@ -32,119 +31,111 @@
       copyLabel = "Copy failed";
     });
   }
-
-  const panels: { value: Panel; label: string }[] = [
-    { value: "resize", label: "Resize" },
-    { value: "crop", label: "Crop" },
-    { value: "output", label: "Output" },
-    { value: "request", label: "Request" }
-  ];
 </script>
 
 <main class="fiddle-shell">
-  <header class="top-bar">
-    <div class="brand-mark" aria-hidden="true">IP</div>
-    <div>
-      <h1>ImagePlug Fiddle</h1>
-      <p>SimpleServer · Svelte · TypeScript · processing path syntax</p>
+  <button
+    class="mobile-scrim"
+    class:is-open={drawerOpen}
+    type="button"
+    aria-label="Close tools"
+    onclick={() => (drawerOpen = false)}
+  ></button>
+
+  <aside class="tools-sidebar" class:is-open={drawerOpen} aria-label="Processing controls">
+    <div class="drawer-topbar">
+      <strong>Tools</strong>
+      <button
+        class="icon-button"
+        type="button"
+        aria-label="Close tools"
+        onclick={() => (drawerOpen = false)}
+      >
+        ×
+      </button>
     </div>
-  </header>
 
-  <Tabs.Root class="workspace" aria-label="ImagePlug processing fiddle" bind:value={activePanel} orientation="vertical">
-    <Tabs.List class="tool-rail" aria-label="Control groups">
-      {#each panels as panel}
-        <Tabs.Trigger class="tool-button" value={panel.value}>{panel.label}</Tabs.Trigger>
-      {/each}
-    </Tabs.List>
-
-    <section class="preview-stage" aria-label="Processed image preview">
-      <div class="preview-head">
-        <div class="live-label"><span aria-hidden="true"></span> Live processed preview</div>
-        <code>{fragment}</code>
-      </div>
-
-      <div class="image-viewport">
-        <div class="image-frame">
-          <img src={path} alt="Processed sample source" />
-          <div class="target-frame" aria-hidden="true"></div>
-        </div>
-      </div>
-    </section>
-
-    <aside class="inspector" aria-label="Processing controls">
-      <Tabs.Content class="panel" value="resize" data-panel="resize">
-        <div class="panel-head">
+    <div class="tool-stack">
+      <section class="tool-section">
+        <div class="tool-heading">
           <div>
             <h2>Resize</h2>
-            <p>Maps to <code>rs</code>, <code>w</code>, <code>h</code>, and <code>g</code>.</p>
+            <p>{state.resizeEnabled ? `rs:${state.resizeMode}:${state.width}:${state.height}` : "Off"}</p>
           </div>
-          <button class="copy-button" type="button" onclick={copyUrl}>{copyLabel}</button>
-        </div>
-
-        <RangeNumber label="Width" bind:value={state.width} min={0} max={1600} step={1} />
-        <RangeNumber label="Height" bind:value={state.height} min={0} max={1000} step={1} />
-
-        <div class="field-grid">
-          <label class="field">
-            <span>Resizing type</span>
-            <select bind:value={state.resizeMode}>
-              <option value="fit">fit</option>
-              <option value="fill">fill</option>
-              <option value="fill-down">fill-down</option>
-              <option value="force">force</option>
-              <option value="auto">auto</option>
-            </select>
-          </label>
-
-          <label class="field">
-            <span>Gravity</span>
-            <select bind:value={state.gravity}>
-              <option value="ce">center</option>
-              <option value="no">north</option>
-              <option value="so">south</option>
-              <option value="ea">east</option>
-              <option value="we">west</option>
-              <option value="noea">north east</option>
-              <option value="nowe">north west</option>
-              <option value="soea">south east</option>
-              <option value="sowe">south west</option>
-            </select>
-          </label>
-        </div>
-
-        <label class="switch-field">
-          <Switch.Root class="switch-root" bind:checked={state.enlarge}>
+          <Switch.Root
+            class="switch-root"
+            aria-label="Enable resize"
+            bind:checked={state.resizeEnabled}
+          >
             <Switch.Thumb class="switch-thumb" />
           </Switch.Root>
-          <span>Allow enlargement</span>
-        </label>
-      </Tabs.Content>
+        </div>
 
-      <Tabs.Content class="panel" value="crop" data-panel="crop">
-        <div class="panel-head">
+        {#if state.resizeEnabled}
+          <RangeNumber label="Width" bind:value={state.width} min={0} max={1600} step={1} />
+          <RangeNumber label="Height" bind:value={state.height} min={0} max={1000} step={1} />
+
+          <div class="field-grid">
+            <label class="field">
+              <span>Type</span>
+              <select bind:value={state.resizeMode}>
+                <option value="fit">fit</option>
+                <option value="fill">fill</option>
+                <option value="fill-down">fill-down</option>
+                <option value="force">force</option>
+                <option value="auto">auto</option>
+              </select>
+            </label>
+
+            <label class="field">
+              <span>Gravity</span>
+              <select bind:value={state.gravity}>
+                <option value="ce">center</option>
+                <option value="no">north</option>
+                <option value="so">south</option>
+                <option value="ea">east</option>
+                <option value="we">west</option>
+                <option value="noea">north east</option>
+                <option value="nowe">north west</option>
+                <option value="soea">south east</option>
+                <option value="sowe">south west</option>
+              </select>
+            </label>
+          </div>
+
+          <label class="switch-field">
+            <Switch.Root class="switch-root" bind:checked={state.enlarge}>
+              <Switch.Thumb class="switch-thumb" />
+            </Switch.Root>
+            <span>Allow enlargement</span>
+          </label>
+        {/if}
+      </section>
+
+      <section class="tool-section">
+        <div class="tool-heading">
           <div>
             <h2>Crop</h2>
-            <p>Add an explicit <code>c</code> option before resize planning.</p>
+            <p>{state.cropEnabled ? `c:${state.cropWidth}:${state.cropHeight}` : "Off"}</p>
           </div>
-        </div>
-
-        <label class="switch-field">
-          <Switch.Root class="switch-root" bind:checked={state.cropEnabled}>
+          <Switch.Root
+            class="switch-root"
+            aria-label="Enable crop"
+            bind:checked={state.cropEnabled}
+          >
             <Switch.Thumb class="switch-thumb" />
           </Switch.Root>
-          <span>Enable crop</span>
-        </label>
+        </div>
 
-        <RangeNumber label="Crop width" bind:value={state.cropWidth} min={80} max={1200} step={1} />
-        <RangeNumber label="Crop height" bind:value={state.cropHeight} min={80} max={900} step={1} />
-      </Tabs.Content>
+        {#if state.cropEnabled}
+          <RangeNumber label="Crop width" bind:value={state.cropWidth} min={80} max={1200} step={1} />
+          <RangeNumber label="Crop height" bind:value={state.cropHeight} min={80} max={900} step={1} />
+        {/if}
+      </section>
 
-      <Tabs.Content class="panel" value="output" data-panel="output">
-        <div class="panel-head">
-          <div>
-            <h2>Output</h2>
-            <p>Explicit formats bypass <code>Accept</code> negotiation.</p>
-          </div>
+      <section class="tool-section">
+        <div class="tool-heading">
+          <h2>Output</h2>
         </div>
 
         <label class="field">
@@ -159,14 +150,11 @@
         </label>
 
         <RangeNumber label="Quality" bind:value={state.quality} min={0} max={100} step={1} />
-      </Tabs.Content>
+      </section>
 
-      <Tabs.Content class="panel" value="request" data-panel="request">
-        <div class="panel-head">
-          <div>
-            <h2>Request</h2>
-            <p>Choose a local source served by SimpleServer.</p>
-          </div>
+      <section class="tool-section">
+        <div class="tool-heading">
+          <h2>Request</h2>
         </div>
 
         <label class="field">
@@ -180,20 +168,46 @@
         <label class="field">
           <span>Signature</span>
           <select bind:value={state.signature}>
-            <option value="_">_</option>
+            <option value="_">unsigned</option>
             <option value="unsafe">unsafe</option>
           </select>
         </label>
-      </Tabs.Content>
-    </aside>
-  </Tabs.Root>
-
-  <section class="url-tray" aria-label="Generated processing URL">
-    <div>
-      <span>Generated URL</span>
-      <strong>processing path</strong>
+      </section>
     </div>
-    <code>{path}</code>
-    <a class="open-link" href={path} target="_blank" rel="noreferrer">Open</a>
+
+    <div class="drawer-actions">
+      <button class="copy-button" type="button" onclick={copyUrl}>{copyLabel}</button>
+      <a class="open-link" href={path} target="_blank" rel="noreferrer">Open</a>
+    </div>
+  </aside>
+
+  <section class="preview-workspace" aria-label="Processed image preview">
+    <header class="preview-command-bar">
+      <button
+        class="icon-button menu-button"
+        type="button"
+        aria-label="Open tools"
+        onclick={() => (drawerOpen = true)}
+      >
+        ☰
+      </button>
+      <code class="parameter-preview">{previewParameters}</code>
+      <div class="desktop-actions">
+        <button class="copy-button copy-button-secondary" type="button" onclick={copyUrl}>{copyLabel}</button>
+        <a class="open-link" href={path} target="_blank" rel="noreferrer">Open</a>
+      </div>
+    </header>
+
+    <div class="preview-canvas">
+      <div class="image-frame">
+        <figure>
+          <img src={path} alt="Processed sample source" />
+          <figcaption>
+            <span>{state.width} × {state.height}</span>
+            <span>{outputLabel}</span>
+          </figcaption>
+        </figure>
+      </div>
+    </div>
   </section>
 </main>

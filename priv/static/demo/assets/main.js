@@ -119,7 +119,6 @@ var DESTROYING = 1 << 25;
 var EFFECT_TRANSPARENT = 65536;
 var EFFECT_PRESERVED = 1 << 19;
 var USER_EFFECT = 1 << 20;
-var EFFECT_OFFSCREEN = 1 << 25;
 /**
 * Tells that we marked this derived and its reactions as visited during the "mark as (maybe) dirty"-phase.
 * Will be lifted during execution of the derived and during checking its dirty state (both are necessary
@@ -160,16 +159,6 @@ function lifecycle_outside_component(name) {
 */
 function async_derived_orphan() {
 	throw new Error(`https://svelte.dev/e/async_derived_orphan`);
-}
-/**
-* Keyed each block has duplicate key `%value%` at indexes %a% and %b%
-* @param {string} a
-* @param {string} b
-* @param {string | undefined | null} [value]
-* @returns {never}
-*/
-function each_key_duplicate(a, b, value) {
-	throw new Error(`https://svelte.dev/e/each_key_duplicate`);
 }
 /**
 * `%rune%` cannot be used inside an effect cleanup function
@@ -2515,14 +2504,6 @@ function sibling(node, count = 1, is_text = false) {
 	return next_sibling;
 }
 /**
-* @template {Node} N
-* @param {N} node
-* @returns {void}
-*/
-function clear_text_content(node) {
-	node.textContent = "";
-}
-/**
 * Returns `true` if we're updating the current block, for example `condition` in
 * an `{#if condition}` block just changed. In this case, the branch should be
 * appended (or removed) at the same time as other updates within the
@@ -3689,24 +3670,6 @@ function from_html(content, flags) {
 	};
 }
 /**
-* Don't mark this as side-effect-free, hydration needs to walk all nodes
-* @param {any} value
-*/
-function text(value = "") {
-	if (!hydrating) {
-		var t = create_text(value + "");
-		assign_nodes(t, t);
-		return t;
-	}
-	var node = hydrate_node;
-	if (node.nodeType !== 3) {
-		node.before(node = create_text());
-		set_hydrate_node(node);
-	} else merge_text_nodes(node);
-	assign_nodes(node, node);
-	return node;
-}
-/**
 * @returns {TemplateNode | DocumentFragment}
 */
 function comment() {
@@ -4207,418 +4170,6 @@ function if_block(node, fn, elseif = false) {
 		});
 		if (!has_branch) update_branch(-1, null);
 	}, flags);
-}
-//#endregion
-//#region node_modules/.pnpm/svelte@5.55.7/node_modules/svelte/src/internal/client/dom/blocks/each.js
-/** @import { EachItem, EachOutroGroup, EachState, Effect, EffectNodes, MaybeSource, Source, TemplateNode, TransitionManager, Value } from '#client' */
-/** @import { Batch } from '../../reactivity/batch.js'; */
-/**
-* @param {any} _
-* @param {number} i
-*/
-function index$1(_, i) {
-	return i;
-}
-/**
-* Pause multiple effects simultaneously, and coordinate their
-* subsequent destruction. Used in each blocks
-* @param {EachState} state
-* @param {Effect[]} to_destroy
-* @param {null | Node} controlled_anchor
-*/
-function pause_effects(state, to_destroy, controlled_anchor) {
-	/** @type {TransitionManager[]} */
-	var transitions = [];
-	var length = to_destroy.length;
-	/** @type {EachOutroGroup} */
-	var group;
-	var remaining = to_destroy.length;
-	for (var i = 0; i < length; i++) {
-		let effect = to_destroy[i];
-		pause_effect(effect, () => {
-			if (group) {
-				group.pending.delete(effect);
-				group.done.add(effect);
-				if (group.pending.size === 0) {
-					var groups = state.outrogroups;
-					destroy_effects(state, array_from(group.done));
-					groups.delete(group);
-					if (groups.size === 0) state.outrogroups = null;
-				}
-			} else remaining -= 1;
-		}, false);
-	}
-	if (remaining === 0) {
-		var fast_path = transitions.length === 0 && controlled_anchor !== null;
-		if (fast_path) {
-			var anchor = controlled_anchor;
-			var parent_node = anchor.parentNode;
-			clear_text_content(parent_node);
-			parent_node.append(anchor);
-			state.items.clear();
-		}
-		destroy_effects(state, to_destroy, !fast_path);
-	} else {
-		group = {
-			pending: new Set(to_destroy),
-			done: /* @__PURE__ */ new Set()
-		};
-		(state.outrogroups ??= /* @__PURE__ */ new Set()).add(group);
-	}
-}
-/**
-* @param {EachState} state
-* @param {Effect[]} to_destroy
-* @param {boolean} remove_dom
-*/
-function destroy_effects(state, to_destroy, remove_dom = true) {
-	/** @type {Set<Effect> | undefined} */
-	var preserved_effects;
-	if (state.pending.size > 0) {
-		preserved_effects = /* @__PURE__ */ new Set();
-		for (const keys of state.pending.values()) for (const key of keys) preserved_effects.add(
-			/** @type {EachItem} */
-			state.items.get(key).e
-		);
-	}
-	for (var i = 0; i < to_destroy.length; i++) {
-		var e = to_destroy[i];
-		if (preserved_effects?.has(e)) {
-			e.f |= EFFECT_OFFSCREEN;
-			move_effect(e, document.createDocumentFragment());
-		} else destroy_effect(to_destroy[i], remove_dom);
-	}
-}
-/** @type {TemplateNode} */
-var offscreen_anchor;
-/**
-* @template V
-* @param {Element | Comment} node The next sibling node, or the parent node if this is a 'controlled' block
-* @param {number} flags
-* @param {() => V[]} get_collection
-* @param {(value: V, index: number) => any} get_key
-* @param {(anchor: Node, item: MaybeSource<V>, index: MaybeSource<number>) => void} render_fn
-* @param {null | ((anchor: Node) => void)} fallback_fn
-* @returns {void}
-*/
-function each(node, flags, get_collection, get_key, render_fn, fallback_fn = null) {
-	var anchor = node;
-	/** @type {Map<any, EachItem>} */
-	var items = /* @__PURE__ */ new Map();
-	if ((flags & 4) !== 0) {
-		var parent_node = node;
-		anchor = hydrating ? set_hydrate_node(/* @__PURE__ */ get_first_child(parent_node)) : parent_node.appendChild(create_text());
-	}
-	if (hydrating) hydrate_next();
-	/** @type {Effect | null} */
-	var fallback = null;
-	var each_array = /* @__PURE__ */ derived_safe_equal(() => {
-		var collection = get_collection();
-		return is_array(collection) ? collection : collection == null ? [] : array_from(collection);
-	});
-	/** @type {V[]} */
-	var array;
-	/** @type {Map<Batch, Set<any>>} */
-	var pending = /* @__PURE__ */ new Map();
-	var first_run = true;
-	/**
-	* @param {Batch} batch
-	*/
-	function commit(batch) {
-		if ((state.effect.f & 16384) !== 0) return;
-		state.pending.delete(batch);
-		state.fallback = fallback;
-		reconcile(state, array, anchor, flags, get_key);
-		if (fallback !== null) if (array.length === 0) if ((fallback.f & 33554432) === 0) resume_effect(fallback);
-		else {
-			fallback.f ^= EFFECT_OFFSCREEN;
-			move(fallback, null, anchor);
-		}
-		else pause_effect(fallback, () => {
-			fallback = null;
-		});
-	}
-	/**
-	* @param {Batch} batch
-	*/
-	function discard(batch) {
-		state.pending.delete(batch);
-	}
-	/** @type {EachState} */
-	var state = {
-		effect: block(() => {
-			array = get(each_array);
-			var length = array.length;
-			/** `true` if there was a hydration mismatch. Needs to be a `let` or else it isn't treeshaken out */
-			let mismatch = false;
-			if (hydrating) {
-				if (read_hydration_instruction(anchor) === "[!" !== (length === 0)) {
-					anchor = skip_nodes();
-					set_hydrate_node(anchor);
-					set_hydrating(false);
-					mismatch = true;
-				}
-			}
-			var keys = /* @__PURE__ */ new Set();
-			var batch = current_batch;
-			var defer = should_defer_append();
-			for (var index = 0; index < length; index += 1) {
-				if (hydrating && hydrate_node.nodeType === 8 && hydrate_node.data === "]") {
-					anchor = hydrate_node;
-					mismatch = true;
-					set_hydrating(false);
-				}
-				var value = array[index];
-				var key = get_key(value, index);
-				var item = first_run ? null : items.get(key);
-				if (item) {
-					if (item.v) internal_set(item.v, value);
-					if (item.i) internal_set(item.i, index);
-					if (defer) batch.unskip_effect(item.e);
-				} else {
-					item = create_item(items, first_run ? anchor : offscreen_anchor ??= create_text(), value, key, index, render_fn, flags, get_collection);
-					if (!first_run) item.e.f |= EFFECT_OFFSCREEN;
-					items.set(key, item);
-				}
-				keys.add(key);
-			}
-			if (length === 0 && fallback_fn && !fallback) if (first_run) fallback = branch(() => fallback_fn(anchor));
-			else {
-				fallback = branch(() => fallback_fn(offscreen_anchor ??= create_text()));
-				fallback.f |= EFFECT_OFFSCREEN;
-			}
-			if (length > keys.size) each_key_duplicate("", "", "");
-			if (hydrating && length > 0) set_hydrate_node(skip_nodes());
-			if (!first_run) {
-				pending.set(batch, keys);
-				if (defer) {
-					for (const [key, item] of items) if (!keys.has(key)) batch.skip_effect(item.e);
-					batch.oncommit(commit);
-					batch.ondiscard(discard);
-				} else commit(batch);
-			}
-			if (mismatch) set_hydrating(true);
-			get(each_array);
-		}),
-		flags,
-		items,
-		pending,
-		outrogroups: null,
-		fallback
-	};
-	first_run = false;
-	if (hydrating) anchor = hydrate_node;
-}
-/**
-* Skip past any non-branch effects (which could be created with `createSubscriber`, for example) to find the next branch effect
-* @param {Effect | null} effect
-* @returns {Effect | null}
-*/
-function skip_to_branch(effect) {
-	while (effect !== null && (effect.f & 32) === 0) effect = effect.next;
-	return effect;
-}
-/**
-* Add, remove, or reorder items output by an each block as its input changes
-* @template V
-* @param {EachState} state
-* @param {Array<V>} array
-* @param {Element | Comment | Text} anchor
-* @param {number} flags
-* @param {(value: V, index: number) => any} get_key
-* @returns {void}
-*/
-function reconcile(state, array, anchor, flags, get_key) {
-	var is_animated = (flags & 8) !== 0;
-	var length = array.length;
-	var items = state.items;
-	var current = skip_to_branch(state.effect.first);
-	/** @type {undefined | Set<Effect>} */
-	var seen;
-	/** @type {Effect | null} */
-	var prev = null;
-	/** @type {undefined | Set<Effect>} */
-	var to_animate;
-	/** @type {Effect[]} */
-	var matched = [];
-	/** @type {Effect[]} */
-	var stashed = [];
-	/** @type {V} */
-	var value;
-	/** @type {any} */
-	var key;
-	/** @type {Effect | undefined} */
-	var effect;
-	/** @type {number} */
-	var i;
-	if (is_animated) for (i = 0; i < length; i += 1) {
-		value = array[i];
-		key = get_key(value, i);
-		effect = items.get(key).e;
-		if ((effect.f & 33554432) === 0) {
-			effect.nodes?.a?.measure();
-			(to_animate ??= /* @__PURE__ */ new Set()).add(effect);
-		}
-	}
-	for (i = 0; i < length; i += 1) {
-		value = array[i];
-		key = get_key(value, i);
-		effect = items.get(key).e;
-		if (state.outrogroups !== null) for (const group of state.outrogroups) {
-			group.pending.delete(effect);
-			group.done.delete(effect);
-		}
-		if ((effect.f & 8192) !== 0) {
-			resume_effect(effect);
-			if (is_animated) {
-				effect.nodes?.a?.unfix();
-				(to_animate ??= /* @__PURE__ */ new Set()).delete(effect);
-			}
-		}
-		if ((effect.f & 33554432) !== 0) {
-			effect.f ^= EFFECT_OFFSCREEN;
-			if (effect === current) move(effect, null, anchor);
-			else {
-				var next = prev ? prev.next : current;
-				if (effect === state.effect.last) state.effect.last = effect.prev;
-				if (effect.prev) effect.prev.next = effect.next;
-				if (effect.next) effect.next.prev = effect.prev;
-				link(state, prev, effect);
-				link(state, effect, next);
-				move(effect, next, anchor);
-				prev = effect;
-				matched = [];
-				stashed = [];
-				current = skip_to_branch(prev.next);
-				continue;
-			}
-		}
-		if (effect !== current) {
-			if (seen !== void 0 && seen.has(effect)) {
-				if (matched.length < stashed.length) {
-					var start = stashed[0];
-					var j;
-					prev = start.prev;
-					var a = matched[0];
-					var b = matched[matched.length - 1];
-					for (j = 0; j < matched.length; j += 1) move(matched[j], start, anchor);
-					for (j = 0; j < stashed.length; j += 1) seen.delete(stashed[j]);
-					link(state, a.prev, b.next);
-					link(state, prev, a);
-					link(state, b, start);
-					current = start;
-					prev = b;
-					i -= 1;
-					matched = [];
-					stashed = [];
-				} else {
-					seen.delete(effect);
-					move(effect, current, anchor);
-					link(state, effect.prev, effect.next);
-					link(state, effect, prev === null ? state.effect.first : prev.next);
-					link(state, prev, effect);
-					prev = effect;
-				}
-				continue;
-			}
-			matched = [];
-			stashed = [];
-			while (current !== null && current !== effect) {
-				(seen ??= /* @__PURE__ */ new Set()).add(current);
-				stashed.push(current);
-				current = skip_to_branch(current.next);
-			}
-			if (current === null) continue;
-		}
-		if ((effect.f & 33554432) === 0) matched.push(effect);
-		prev = effect;
-		current = skip_to_branch(effect.next);
-	}
-	if (state.outrogroups !== null) {
-		for (const group of state.outrogroups) if (group.pending.size === 0) {
-			destroy_effects(state, array_from(group.done));
-			state.outrogroups?.delete(group);
-		}
-		if (state.outrogroups.size === 0) state.outrogroups = null;
-	}
-	if (current !== null || seen !== void 0) {
-		/** @type {Effect[]} */
-		var to_destroy = [];
-		if (seen !== void 0) {
-			for (effect of seen) if ((effect.f & 8192) === 0) to_destroy.push(effect);
-		}
-		while (current !== null) {
-			if ((current.f & 8192) === 0 && current !== state.fallback) to_destroy.push(current);
-			current = skip_to_branch(current.next);
-		}
-		var destroy_length = to_destroy.length;
-		if (destroy_length > 0) {
-			var controlled_anchor = (flags & 4) !== 0 && length === 0 ? anchor : null;
-			if (is_animated) {
-				for (i = 0; i < destroy_length; i += 1) to_destroy[i].nodes?.a?.measure();
-				for (i = 0; i < destroy_length; i += 1) to_destroy[i].nodes?.a?.fix();
-			}
-			pause_effects(state, to_destroy, controlled_anchor);
-		}
-	}
-	if (is_animated) queue_micro_task(() => {
-		if (to_animate === void 0) return;
-		for (effect of to_animate) effect.nodes?.a?.apply();
-	});
-}
-/**
-* @template V
-* @param {Map<any, EachItem>} items
-* @param {Node} anchor
-* @param {V} value
-* @param {unknown} key
-* @param {number} index
-* @param {(anchor: Node, item: V | Source<V>, index: number | Value<number>, collection: () => V[]) => void} render_fn
-* @param {number} flags
-* @param {() => V[]} get_collection
-* @returns {EachItem}
-*/
-function create_item(items, anchor, value, key, index, render_fn, flags, get_collection) {
-	var v = (flags & 1) !== 0 ? (flags & 16) === 0 ? /* @__PURE__ */ mutable_source(value, false, false) : source(value) : null;
-	var i = (flags & 2) !== 0 ? source(index) : null;
-	return {
-		v,
-		i,
-		e: branch(() => {
-			render_fn(anchor, v ?? value, i ?? index, get_collection);
-			return () => {
-				items.delete(key);
-			};
-		})
-	};
-}
-/**
-* @param {Effect} effect
-* @param {Effect | null} next
-* @param {Text | Element | Comment} anchor
-*/
-function move(effect, next, anchor) {
-	if (!effect.nodes) return;
-	var node = effect.nodes.start;
-	var end = effect.nodes.end;
-	var dest = next && (next.f & 33554432) === 0 ? next.nodes.start : anchor;
-	while (node !== null) {
-		var next_node = /* @__PURE__ */ get_next_sibling(node);
-		dest.before(node);
-		if (node === end) return;
-		node = next_node;
-	}
-}
-/**
-* @param {EachState} state
-* @param {Effect | null} prev
-* @param {Effect | null} next
-*/
-function link(state, prev, next) {
-	if (prev === null) state.effect.first = next;
-	else prev.next = next;
-	if (next === null) state.effect.last = prev;
-	else next.prev = prev;
 }
 //#endregion
 //#region node_modules/.pnpm/svelte@5.55.7/node_modules/svelte/src/internal/client/dom/elements/attachments.js
@@ -5520,9 +5071,6 @@ function prop(props, key, flags, fallback) {
 if (typeof HTMLElement === "function");
 //#endregion
 //#region node_modules/.pnpm/svelte-toolbelt@0.10.6_svelte@5.55.7/node_modules/svelte-toolbelt/dist/utils/is.js
-function isFunction(value) {
-	return typeof value === "function";
-}
 function isObject(value) {
 	return value !== null && typeof value === "object";
 }
@@ -5573,98 +5121,6 @@ function boxWith(getter, setter) {
 function isBox(value) {
 	return isObject(value) && BoxSymbol in value;
 }
-/**
-* @returns Whether the value is a WritableBox
-*
-* @see {@link https://runed.dev/docs/functions/box}
-*/
-function isWritableBox(value) {
-	return isBox(value) && isWritableSymbol in value;
-}
-function boxFrom(value) {
-	if (isBox(value)) return value;
-	if (isFunction(value)) return boxWith(value);
-	return simpleBox(value);
-}
-/**
-* Function that gets an object of boxes, and returns an object of reactive values
-*
-* @example
-* const count = box(0)
-* const flat = box.flatten({ count, double: box.with(() => count.current) })
-* // type of flat is { count: number, readonly double: number }
-*
-* @see {@link https://runed.dev/docs/functions/box}
-*/
-function boxFlatten(boxes) {
-	return Object.entries(boxes).reduce((acc, [key, b]) => {
-		if (!isBox(b)) return Object.assign(acc, { [key]: b });
-		if (isWritableBox(b)) Object.defineProperty(acc, key, {
-			get() {
-				return b.current;
-			},
-			set(v) {
-				b.current = v;
-			}
-		});
-		else Object.defineProperty(acc, key, { get() {
-			return b.current;
-		} });
-		return acc;
-	}, {});
-}
-/**
-* Function that converts a box to a readonly box.
-*
-* @example
-* const count = box(0) // WritableBox<number>
-* const countReadonly = box.readonly(count) // ReadableBox<number>
-*
-* @see {@link https://runed.dev/docs/functions/box}
-*/
-function toReadonlyBox(b) {
-	if (!isWritableBox(b)) return b;
-	return {
-		[BoxSymbol]: true,
-		get current() {
-			return b.current;
-		}
-	};
-}
-function simpleBox(initialValue) {
-	let current = /* @__PURE__ */ state(proxy(initialValue));
-	return {
-		[BoxSymbol]: true,
-		[isWritableSymbol]: true,
-		get current() {
-			return get(current);
-		},
-		set current(v) {
-			set(current, v, true);
-		}
-	};
-}
-//#endregion
-//#region node_modules/.pnpm/svelte-toolbelt@0.10.6_svelte@5.55.7/node_modules/svelte-toolbelt/dist/box/box.svelte.js
-function box(initialValue) {
-	let current = /* @__PURE__ */ state(proxy(initialValue));
-	return {
-		[BoxSymbol]: true,
-		[isWritableSymbol]: true,
-		get current() {
-			return get(current);
-		},
-		set current(v) {
-			set(current, v, true);
-		}
-	};
-}
-box.from = boxFrom;
-box.with = boxWith;
-box.flatten = boxFlatten;
-box.readonly = toReadonlyBox;
-box.isBox = isBox;
-box.isWritableBox = isWritableBox;
 //#endregion
 //#region node_modules/.pnpm/svelte-toolbelt@0.10.6_svelte@5.55.7/node_modules/svelte-toolbelt/dist/utils/compose-handlers.js
 /**
@@ -6257,196 +5713,6 @@ function getActiveElement$1(document) {
 	return activeElement;
 }
 //#endregion
-//#region node_modules/.pnpm/svelte@5.55.7/node_modules/svelte/src/reactivity/map.js
-/** @import { Source } from '#client' */
-/**
-* A reactive version of the built-in [`Map`](https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/Map) object.
-* Reading contents of the map (by iterating, or by reading `map.size` or calling `map.get(...)` or `map.has(...)` as in the [tic-tac-toe example](https://svelte.dev/playground/0b0ff4aa49c9443f9b47fe5203c78293) below) in an [effect](https://svelte.dev/docs/svelte/$effect) or [derived](https://svelte.dev/docs/svelte/$derived)
-* will cause it to be re-evaluated as necessary when the map is updated.
-*
-* Note that values in a reactive map are _not_ made [deeply reactive](https://svelte.dev/docs/svelte/$state#Deep-state).
-*
-* ```svelte
-* <script>
-* 	import { SvelteMap } from 'svelte/reactivity';
-* 	import { result } from './game.js';
-*
-* 	let board = new SvelteMap();
-* 	let player = $state('x');
-* 	let winner = $derived(result(board));
-*
-* 	function reset() {
-* 		player = 'x';
-* 		board.clear();
-* 	}
-* <\/script>
-*
-* <div class="board">
-* 	{#each Array(9), i}
-* 		<button
-* 			disabled={board.has(i) || winner}
-* 			onclick={() => {
-* 				board.set(i, player);
-* 				player = player === 'x' ? 'o' : 'x';
-* 			}}
-* 		>{board.get(i)}</button>
-* 	{/each}
-* </div>
-*
-* {#if winner}
-* 	<p>{winner} wins!</p>
-* 	<button onclick={reset}>reset</button>
-* {:else}
-* 	<p>{player} is next</p>
-* {/if}
-* ```
-*
-* @template K
-* @template V
-* @extends {Map<K, V>}
-*/
-var SvelteMap = class extends Map {
-	/** @type {Map<K, Source<number>>} */
-	#sources = /* @__PURE__ */ new Map();
-	#version = /* @__PURE__ */ state(0);
-	#size = /* @__PURE__ */ state(0);
-	#update_version = update_version || -1;
-	/**
-	* @param {Iterable<readonly [K, V]> | null | undefined} [value]
-	*/
-	constructor(value) {
-		super();
-		if (value) {
-			for (var [key, v] of value) super.set(key, v);
-			this.#size.v = super.size;
-		}
-	}
-	/**
-	* If the source is being created inside the same reaction as the SvelteMap instance,
-	* we use `state` so that it will not be a dependency of the reaction. Otherwise we
-	* use `source` so it will be.
-	*
-	* @template T
-	* @param {T} value
-	* @returns {Source<T>}
-	*/
-	#source(value) {
-		return update_version === this.#update_version ? /* @__PURE__ */ state(value) : source(value);
-	}
-	/** @param {K} key */
-	has(key) {
-		var sources = this.#sources;
-		var s = sources.get(key);
-		if (s === void 0) if (super.has(key)) {
-			s = this.#source(0);
-			sources.set(key, s);
-		} else {
-			get(this.#version);
-			return false;
-		}
-		get(s);
-		return true;
-	}
-	/**
-	* @param {(value: V, key: K, map: Map<K, V>) => void} callbackfn
-	* @param {any} [this_arg]
-	*/
-	forEach(callbackfn, this_arg) {
-		this.#read_all();
-		super.forEach(callbackfn, this_arg);
-	}
-	/** @param {K} key */
-	get(key) {
-		var sources = this.#sources;
-		var s = sources.get(key);
-		if (s === void 0) if (super.has(key)) {
-			s = this.#source(0);
-			sources.set(key, s);
-		} else {
-			get(this.#version);
-			return;
-		}
-		get(s);
-		return super.get(key);
-	}
-	/**
-	* @param {K} key
-	* @param {V} value
-	* */
-	set(key, value) {
-		var sources = this.#sources;
-		var s = sources.get(key);
-		var prev_res = super.get(key);
-		var res = super.set(key, value);
-		var version = this.#version;
-		if (s === void 0) {
-			s = this.#source(0);
-			sources.set(key, s);
-			set(this.#size, super.size);
-			increment(version);
-		} else if (prev_res !== value) {
-			increment(s);
-			var v_reactions = version.reactions === null ? null : new Set(version.reactions);
-			if (v_reactions === null || !s.reactions?.every((r) => v_reactions.has(r))) increment(version);
-		}
-		return res;
-	}
-	/** @param {K} key */
-	delete(key) {
-		var sources = this.#sources;
-		var s = sources.get(key);
-		var res = super.delete(key);
-		if (s !== void 0) {
-			sources.delete(key);
-			set(s, -1);
-		}
-		if (res) {
-			set(this.#size, super.size);
-			increment(this.#version);
-		}
-		return res;
-	}
-	clear() {
-		if (super.size === 0) return;
-		super.clear();
-		var sources = this.#sources;
-		set(this.#size, 0);
-		for (var s of sources.values()) set(s, -1);
-		increment(this.#version);
-		sources.clear();
-	}
-	#read_all() {
-		get(this.#version);
-		var sources = this.#sources;
-		if (this.#size.v !== sources.size) {
-			for (var key of super.keys()) if (!sources.has(key)) {
-				var s = this.#source(0);
-				sources.set(key, s);
-			}
-		}
-		for ([, s] of this.#sources) get(s);
-	}
-	keys() {
-		get(this.#version);
-		return super.keys();
-	}
-	values() {
-		this.#read_all();
-		return super.values();
-	}
-	entries() {
-		this.#read_all();
-		return super.entries();
-	}
-	[Symbol.iterator]() {
-		return this.entries();
-	}
-	get size() {
-		get(this.#size);
-		return super.size;
-	}
-};
-//#endregion
 //#region node_modules/.pnpm/runed@0.35.1_svelte@5.55.7/node_modules/runed/dist/utilities/active-element/active-element.svelte.js
 var ActiveElement = class {
 	#document;
@@ -6877,60 +6143,6 @@ var ARROW_LEFT = "ArrowLeft";
 var ARROW_RIGHT = "ArrowRight";
 var ARROW_UP = "ArrowUp";
 var HOME = "Home";
-var PAGE_DOWN = "PageDown";
-var PAGE_UP = "PageUp";
-//#endregion
-//#region node_modules/.pnpm/bits-ui@2.18.1_@internationalized+date@3.12.1_svelte@5.55.7/node_modules/bits-ui/dist/internal/locale.js
-/**
-* Detects the text direction in the element.
-* @returns {Direction} The text direction ('ltr' for left-to-right or 'rtl' for right-to-left).
-*/
-function getElemDirection(elem) {
-	return window.getComputedStyle(elem).getPropertyValue("direction");
-}
-//#endregion
-//#region node_modules/.pnpm/bits-ui@2.18.1_@internationalized+date@3.12.1_svelte@5.55.7/node_modules/bits-ui/dist/internal/get-directional-keys.js
-var FIRST_KEYS = [
-	ARROW_DOWN,
-	PAGE_UP,
-	HOME
-];
-var LAST_KEYS = [
-	ARROW_UP,
-	PAGE_DOWN,
-	"End"
-];
-[...FIRST_KEYS, ...LAST_KEYS];
-/**
-* A utility function that returns the next key based on the direction and orientation.
-*/
-function getNextKey(dir = "ltr", orientation = "horizontal") {
-	return {
-		horizontal: dir === "rtl" ? ARROW_LEFT : ARROW_RIGHT,
-		vertical: ARROW_DOWN
-	}[orientation];
-}
-/**
-* A utility function that returns the previous key based on the direction and orientation.
-*/
-function getPrevKey(dir = "ltr", orientation = "horizontal") {
-	return {
-		horizontal: dir === "rtl" ? ARROW_RIGHT : ARROW_LEFT,
-		vertical: ARROW_UP
-	}[orientation];
-}
-/**
-* A utility function that returns the next and previous keys based on the direction
-* and orientation.
-*/
-function getDirectionalKeys(dir = "ltr", orientation = "horizontal") {
-	if (!["ltr", "rtl"].includes(dir)) dir = "ltr";
-	if (!["horizontal", "vertical"].includes(orientation)) orientation = "horizontal";
-	return {
-		nextKey: getNextKey(dir, orientation),
-		prevKey: getPrevKey(dir, orientation)
-	};
-}
 //#endregion
 //#region node_modules/.pnpm/bits-ui@2.18.1_@internationalized+date@3.12.1_svelte@5.55.7/node_modules/bits-ui/dist/internal/is.js
 var isBrowser = typeof document !== "undefined";
@@ -6938,83 +6150,9 @@ getIsIOS();
 function getIsIOS() {
 	return isBrowser && window?.navigator?.userAgent && (/iP(ad|hone|od)/.test(window.navigator.userAgent) || window?.navigator?.maxTouchPoints > 2 && /iPad|Macintosh/.test(window?.navigator.userAgent));
 }
-function isHTMLElement(element) {
-	return element instanceof HTMLElement;
-}
 function isElementOrSVGElement(element) {
 	return element instanceof Element || element instanceof SVGElement;
 }
-//#endregion
-//#region node_modules/.pnpm/bits-ui@2.18.1_@internationalized+date@3.12.1_svelte@5.55.7/node_modules/bits-ui/dist/internal/roving-focus-group.js
-var RovingFocusGroup = class {
-	#opts;
-	#currentTabStopId = box(null);
-	constructor(opts) {
-		this.#opts = opts;
-	}
-	getCandidateNodes() {
-		if (!this.#opts.rootNode.current) return [];
-		if (this.#opts.candidateSelector) return Array.from(this.#opts.rootNode.current.querySelectorAll(this.#opts.candidateSelector));
-		else if (this.#opts.candidateAttr) return Array.from(this.#opts.rootNode.current.querySelectorAll(`[${this.#opts.candidateAttr}]:not([data-disabled])`));
-		return [];
-	}
-	focusFirstCandidate() {
-		const items = this.getCandidateNodes();
-		if (!items.length) return;
-		items[0]?.focus();
-	}
-	handleKeydown(node, e, both = false) {
-		const rootNode = this.#opts.rootNode.current;
-		if (!rootNode || !node) return;
-		const items = this.getCandidateNodes();
-		if (!items.length) return;
-		const currentIndex = items.indexOf(node);
-		const { nextKey, prevKey } = getDirectionalKeys(getElemDirection(rootNode), this.#opts.orientation.current);
-		const loop = this.#opts.loop.current;
-		const keyToIndex = {
-			[nextKey]: currentIndex + 1,
-			[prevKey]: currentIndex - 1,
-			[HOME]: 0,
-			["End"]: items.length - 1
-		};
-		if (both) {
-			const altNextKey = nextKey === "ArrowDown" ? ARROW_RIGHT : ARROW_DOWN;
-			const altPrevKey = prevKey === "ArrowUp" ? ARROW_LEFT : ARROW_UP;
-			keyToIndex[altNextKey] = currentIndex + 1;
-			keyToIndex[altPrevKey] = currentIndex - 1;
-		}
-		let itemIndex = keyToIndex[e.key];
-		if (itemIndex === void 0) return;
-		e.preventDefault();
-		if (itemIndex < 0 && loop) itemIndex = items.length - 1;
-		else if (itemIndex === items.length && loop) itemIndex = 0;
-		const itemToFocus = items[itemIndex];
-		if (!itemToFocus) return;
-		itemToFocus.focus();
-		this.#currentTabStopId.current = itemToFocus.id;
-		this.#opts.onCandidateFocus?.(itemToFocus);
-		return itemToFocus;
-	}
-	getTabIndex(node) {
-		const items = this.getCandidateNodes();
-		const anyActive = this.#currentTabStopId.current !== null;
-		if (node && !anyActive && items[0] === node) {
-			this.#currentTabStopId.current = node.id;
-			return 0;
-		} else if (node?.id === this.#currentTabStopId.current) return 0;
-		return -1;
-	}
-	setCurrentTabStopId(id) {
-		this.#currentTabStopId.current = id;
-	}
-	focusCurrentTabStop() {
-		const currentTabStopId = this.#currentTabStopId.current;
-		if (!currentTabStopId) return;
-		const currentTabStop = this.#opts.rootNode.current?.querySelector(`#${currentTabStopId}`);
-		if (!currentTabStop || !isHTMLElement(currentTabStop)) return;
-		currentTabStop.focus();
-	}
-};
 //#endregion
 //#region node_modules/.pnpm/bits-ui@2.18.1_@internationalized+date@3.12.1_svelte@5.55.7/node_modules/bits-ui/dist/internal/noop.js
 /**
@@ -7040,8 +6178,8 @@ function isValidIndex(index, arr) {
 }
 //#endregion
 //#region node_modules/.pnpm/bits-ui@2.18.1_@internationalized+date@3.12.1_svelte@5.55.7/node_modules/bits-ui/dist/bits/utilities/hidden-input.svelte
-var root_1$2 = /* @__PURE__ */ from_html(`<input/>`);
-var root_2$9 = /* @__PURE__ */ from_html(`<input/>`);
+var root_1$1 = /* @__PURE__ */ from_html(`<input/>`);
+var root_2$6 = /* @__PURE__ */ from_html(`<input/>`);
 function Hidden_input($$anchor, $$props) {
 	push($$props, true);
 	let value = prop($$props, "value", 15), restProps = /* @__PURE__ */ rest_props($$props, [
@@ -7063,7 +6201,7 @@ function Hidden_input($$anchor, $$props) {
 	var fragment = comment();
 	var node = first_child(fragment);
 	var consequent = ($$anchor) => {
-		var input = root_1$2();
+		var input = root_1$1();
 		attribute_effect(input, () => ({
 			...get(mergedProps),
 			value: value()
@@ -7071,7 +6209,7 @@ function Hidden_input($$anchor, $$props) {
 		append($$anchor, input);
 	};
 	var alternate = ($$anchor) => {
-		var input_1 = root_2$9();
+		var input_1 = root_2$6();
 		attribute_effect(input_1, () => ({ ...get(mergedProps) }), void 0, void 0, void 0, void 0, true);
 		bind_value(input_1, value);
 		append($$anchor, input_1);
@@ -7982,7 +7120,7 @@ var SliderThumbState = class SliderThumbState {
 };
 //#endregion
 //#region node_modules/.pnpm/bits-ui@2.18.1_@internationalized+date@3.12.1_svelte@5.55.7/node_modules/bits-ui/dist/bits/slider/components/slider.svelte
-var root_2$8 = /* @__PURE__ */ from_html(`<span><!></span>`);
+var root_2$5 = /* @__PURE__ */ from_html(`<span><!></span>`);
 function Slider($$anchor, $$props) {
 	const uid = props_id();
 	push($$props, true);
@@ -8062,7 +7200,7 @@ function Slider($$anchor, $$props) {
 		append($$anchor, fragment_1);
 	};
 	var alternate = ($$anchor) => {
-		var span = root_2$8();
+		var span = root_2$5();
 		attribute_effect(span, () => ({ ...get(mergedProps) }));
 		snippet(child(span), () => $$props.children ?? noop$1, () => rootState.snippetProps);
 		reset(span);
@@ -8077,7 +7215,7 @@ function Slider($$anchor, $$props) {
 }
 //#endregion
 //#region node_modules/.pnpm/bits-ui@2.18.1_@internationalized+date@3.12.1_svelte@5.55.7/node_modules/bits-ui/dist/bits/slider/components/slider-range.svelte
-var root_2$7 = /* @__PURE__ */ from_html(`<span><!></span>`);
+var root_2$4 = /* @__PURE__ */ from_html(`<span><!></span>`);
 function Slider_range($$anchor, $$props) {
 	const uid = props_id();
 	push($$props, true);
@@ -8103,7 +7241,7 @@ function Slider_range($$anchor, $$props) {
 		append($$anchor, fragment_1);
 	};
 	var alternate = ($$anchor) => {
-		var span = root_2$7();
+		var span = root_2$4();
 		attribute_effect(span, () => ({ ...get(mergedProps) }));
 		snippet(child(span), () => $$props.children ?? noop$1);
 		reset(span);
@@ -8118,7 +7256,7 @@ function Slider_range($$anchor, $$props) {
 }
 //#endregion
 //#region node_modules/.pnpm/bits-ui@2.18.1_@internationalized+date@3.12.1_svelte@5.55.7/node_modules/bits-ui/dist/bits/slider/components/slider-thumb.svelte
-var root_2$6 = /* @__PURE__ */ from_html(`<span><!></span>`);
+var root_2$3 = /* @__PURE__ */ from_html(`<span><!></span>`);
 function Slider_thumb($$anchor, $$props) {
 	const uid = props_id();
 	push($$props, true);
@@ -8155,7 +7293,7 @@ function Slider_thumb($$anchor, $$props) {
 		append($$anchor, fragment_1);
 	};
 	var alternate = ($$anchor) => {
-		var span = root_2$6();
+		var span = root_2$3();
 		attribute_effect(span, () => ({ ...get(mergedProps) }));
 		var node_2 = child(span);
 		{
@@ -8321,7 +7459,7 @@ function Switch_input($$anchor, $$props) {
 }
 //#endregion
 //#region node_modules/.pnpm/bits-ui@2.18.1_@internationalized+date@3.12.1_svelte@5.55.7/node_modules/bits-ui/dist/bits/switch/components/switch.svelte
-var root_2$5 = /* @__PURE__ */ from_html(`<button><!></button>`);
+var root_2$2 = /* @__PURE__ */ from_html(`<button><!></button>`);
 var root$2 = /* @__PURE__ */ from_html(`<!> <!>`, 1);
 function Switch($$anchor, $$props) {
 	const uid = props_id();
@@ -8370,7 +7508,7 @@ function Switch($$anchor, $$props) {
 		append($$anchor, fragment_1);
 	};
 	var alternate = ($$anchor) => {
-		var button = root_2$5();
+		var button = root_2$2();
 		attribute_effect(button, () => ({ ...get(mergedProps) }));
 		snippet(child(button), () => $$props.children ?? noop$1, () => rootState.snippetProps);
 		reset(button);
@@ -8386,7 +7524,7 @@ function Switch($$anchor, $$props) {
 }
 //#endregion
 //#region node_modules/.pnpm/bits-ui@2.18.1_@internationalized+date@3.12.1_svelte@5.55.7/node_modules/bits-ui/dist/bits/switch/components/switch-thumb.svelte
-var root_2$4 = /* @__PURE__ */ from_html(`<span><!></span>`);
+var root_2$1 = /* @__PURE__ */ from_html(`<span><!></span>`);
 function Switch_thumb($$anchor, $$props) {
 	const uid = props_id();
 	push($$props, true);
@@ -8419,7 +7557,7 @@ function Switch_thumb($$anchor, $$props) {
 		append($$anchor, fragment_1);
 	};
 	var alternate = ($$anchor) => {
-		var span = root_2$4();
+		var span = root_2$1();
 		attribute_effect(span, () => ({ ...get(mergedProps) }));
 		snippet(child(span), () => $$props.children ?? noop$1, () => thumbState.snippetProps);
 		reset(span);
@@ -8433,401 +7571,8 @@ function Switch_thumb($$anchor, $$props) {
 	pop();
 }
 //#endregion
-//#region node_modules/.pnpm/bits-ui@2.18.1_@internationalized+date@3.12.1_svelte@5.55.7/node_modules/bits-ui/dist/bits/tabs/tabs.svelte.js
-var tabsAttrs = createBitsAttrs({
-	component: "tabs",
-	parts: [
-		"root",
-		"list",
-		"trigger",
-		"content"
-	]
-});
-var TabsRootContext = new Context("Tabs.Root");
-var TabsRootState = class TabsRootState {
-	static create(opts) {
-		return TabsRootContext.set(new TabsRootState(opts));
-	}
-	opts;
-	attachment;
-	rovingFocusGroup;
-	#triggerIds = /* @__PURE__ */ state(proxy([]));
-	get triggerIds() {
-		return get(this.#triggerIds);
-	}
-	set triggerIds(value) {
-		set(this.#triggerIds, value, true);
-	}
-	valueToTriggerId = new SvelteMap();
-	valueToContentId = new SvelteMap();
-	constructor(opts) {
-		this.opts = opts;
-		this.attachment = attachRef(opts.ref);
-		this.rovingFocusGroup = new RovingFocusGroup({
-			candidateAttr: tabsAttrs.trigger,
-			rootNode: this.opts.ref,
-			loop: this.opts.loop,
-			orientation: this.opts.orientation
-		});
-	}
-	registerTrigger(id, value) {
-		this.triggerIds.push(id);
-		this.valueToTriggerId.set(value, id);
-		return () => {
-			this.triggerIds = this.triggerIds.filter((triggerId) => triggerId !== id);
-			this.valueToTriggerId.delete(value);
-		};
-	}
-	registerContent(id, value) {
-		this.valueToContentId.set(value, id);
-		return () => {
-			this.valueToContentId.delete(value);
-		};
-	}
-	setValue(v) {
-		this.opts.value.current = v;
-	}
-	#props = /* @__PURE__ */ user_derived(() => ({
-		id: this.opts.id.current,
-		"data-orientation": this.opts.orientation.current,
-		[tabsAttrs.root]: "",
-		...this.attachment
-	}));
-	get props() {
-		return get(this.#props);
-	}
-	set props(value) {
-		set(this.#props, value);
-	}
-};
-var TabsListState = class TabsListState {
-	static create(opts) {
-		return new TabsListState(opts, TabsRootContext.get());
-	}
-	opts;
-	root;
-	attachment;
-	#isDisabled = /* @__PURE__ */ user_derived(() => this.root.opts.disabled.current);
-	constructor(opts, root) {
-		this.opts = opts;
-		this.root = root;
-		this.attachment = attachRef(opts.ref);
-	}
-	#props = /* @__PURE__ */ user_derived(() => ({
-		id: this.opts.id.current,
-		role: "tablist",
-		"aria-orientation": this.root.opts.orientation.current,
-		"data-orientation": this.root.opts.orientation.current,
-		[tabsAttrs.list]: "",
-		"data-disabled": boolToEmptyStrOrUndef(get(this.#isDisabled)),
-		...this.attachment
-	}));
-	get props() {
-		return get(this.#props);
-	}
-	set props(value) {
-		set(this.#props, value);
-	}
-};
-var TabsTriggerState = class TabsTriggerState {
-	static create(opts) {
-		return new TabsTriggerState(opts, TabsRootContext.get());
-	}
-	opts;
-	root;
-	attachment;
-	#tabIndex = /* @__PURE__ */ state(0);
-	#isActive = /* @__PURE__ */ user_derived(() => this.root.opts.value.current === this.opts.value.current);
-	#isDisabled = /* @__PURE__ */ user_derived(() => this.opts.disabled.current || this.root.opts.disabled.current);
-	#ariaControls = /* @__PURE__ */ user_derived(() => this.root.valueToContentId.get(this.opts.value.current));
-	constructor(opts, root) {
-		this.opts = opts;
-		this.root = root;
-		this.attachment = attachRef(opts.ref);
-		watch([() => this.opts.id.current, () => this.opts.value.current], ([id, value]) => {
-			return this.root.registerTrigger(id, value);
-		});
-		user_effect(() => {
-			this.root.triggerIds.length;
-			if (get(this.#isActive) || !this.root.opts.value.current) set(this.#tabIndex, 0);
-			else set(this.#tabIndex, -1);
-		});
-		this.onfocus = this.onfocus.bind(this);
-		this.onclick = this.onclick.bind(this);
-		this.onkeydown = this.onkeydown.bind(this);
-	}
-	#activate() {
-		if (this.root.opts.value.current === this.opts.value.current) return;
-		this.root.setValue(this.opts.value.current);
-	}
-	onfocus(_) {
-		if (this.root.opts.activationMode.current !== "automatic" || get(this.#isDisabled)) return;
-		this.#activate();
-	}
-	onclick(_) {
-		if (get(this.#isDisabled)) return;
-		this.#activate();
-	}
-	onkeydown(e) {
-		if (get(this.#isDisabled)) return;
-		if (e.key === " " || e.key === "Enter") {
-			e.preventDefault();
-			this.#activate();
-			return;
-		}
-		this.root.rovingFocusGroup.handleKeydown(this.opts.ref.current, e);
-	}
-	#props = /* @__PURE__ */ user_derived(() => ({
-		id: this.opts.id.current,
-		role: "tab",
-		"data-state": getTabDataState(get(this.#isActive)),
-		"data-value": this.opts.value.current,
-		"data-orientation": this.root.opts.orientation.current,
-		"data-disabled": boolToEmptyStrOrUndef(get(this.#isDisabled)),
-		"aria-selected": boolToStr(get(this.#isActive)),
-		"aria-controls": get(this.#ariaControls),
-		[tabsAttrs.trigger]: "",
-		disabled: boolToTrueOrUndef(get(this.#isDisabled)),
-		tabindex: get(this.#tabIndex),
-		onclick: this.onclick,
-		onfocus: this.onfocus,
-		onkeydown: this.onkeydown,
-		...this.attachment
-	}));
-	get props() {
-		return get(this.#props);
-	}
-	set props(value) {
-		set(this.#props, value);
-	}
-};
-var TabsContentState = class TabsContentState {
-	static create(opts) {
-		return new TabsContentState(opts, TabsRootContext.get());
-	}
-	opts;
-	root;
-	attachment;
-	#isActive = /* @__PURE__ */ user_derived(() => this.root.opts.value.current === this.opts.value.current);
-	#ariaLabelledBy = /* @__PURE__ */ user_derived(() => this.root.valueToTriggerId.get(this.opts.value.current));
-	constructor(opts, root) {
-		this.opts = opts;
-		this.root = root;
-		this.attachment = attachRef(opts.ref);
-		watch([() => this.opts.id.current, () => this.opts.value.current], ([id, value]) => {
-			return this.root.registerContent(id, value);
-		});
-	}
-	#props = /* @__PURE__ */ user_derived(() => ({
-		id: this.opts.id.current,
-		role: "tabpanel",
-		hidden: boolToTrueOrUndef(!get(this.#isActive)),
-		tabindex: 0,
-		"data-value": this.opts.value.current,
-		"data-state": getTabDataState(get(this.#isActive)),
-		"aria-labelledby": get(this.#ariaLabelledBy),
-		"data-orientation": this.root.opts.orientation.current,
-		[tabsAttrs.content]: "",
-		...this.attachment
-	}));
-	get props() {
-		return get(this.#props);
-	}
-	set props(value) {
-		set(this.#props, value);
-	}
-};
-function getTabDataState(condition) {
-	return condition ? "active" : "inactive";
-}
-//#endregion
-//#region node_modules/.pnpm/bits-ui@2.18.1_@internationalized+date@3.12.1_svelte@5.55.7/node_modules/bits-ui/dist/bits/tabs/components/tabs.svelte
-var root_2$3 = /* @__PURE__ */ from_html(`<div><!></div>`);
-function Tabs($$anchor, $$props) {
-	const uid = props_id();
-	push($$props, true);
-	let id = prop($$props, "id", 19, () => createId(uid)), ref = prop($$props, "ref", 15, null), value = prop($$props, "value", 15, ""), onValueChange = prop($$props, "onValueChange", 3, noop), orientation = prop($$props, "orientation", 3, "horizontal"), loop = prop($$props, "loop", 3, true), activationMode = prop($$props, "activationMode", 3, "automatic"), disabled = prop($$props, "disabled", 3, false), restProps = /* @__PURE__ */ rest_props($$props, [
-		"$$slots",
-		"$$events",
-		"$$legacy",
-		"id",
-		"ref",
-		"value",
-		"onValueChange",
-		"orientation",
-		"loop",
-		"activationMode",
-		"disabled",
-		"children",
-		"child"
-	]);
-	const rootState = TabsRootState.create({
-		id: boxWith(() => id()),
-		value: boxWith(() => value(), (v) => {
-			value(v);
-			onValueChange()(v);
-		}),
-		orientation: boxWith(() => orientation()),
-		loop: boxWith(() => loop()),
-		activationMode: boxWith(() => activationMode()),
-		disabled: boxWith(() => disabled()),
-		ref: boxWith(() => ref(), (v) => ref(v))
-	});
-	const mergedProps = /* @__PURE__ */ user_derived(() => mergeProps(restProps, rootState.props));
-	var fragment = comment();
-	var node = first_child(fragment);
-	var consequent = ($$anchor) => {
-		var fragment_1 = comment();
-		snippet(first_child(fragment_1), () => $$props.child, () => ({ props: get(mergedProps) }));
-		append($$anchor, fragment_1);
-	};
-	var alternate = ($$anchor) => {
-		var div = root_2$3();
-		attribute_effect(div, () => ({ ...get(mergedProps) }));
-		snippet(child(div), () => $$props.children ?? noop$1);
-		reset(div);
-		append($$anchor, div);
-	};
-	if_block(node, ($$render) => {
-		if ($$props.child) $$render(consequent);
-		else $$render(alternate, -1);
-	});
-	append($$anchor, fragment);
-	pop();
-}
-//#endregion
-//#region node_modules/.pnpm/bits-ui@2.18.1_@internationalized+date@3.12.1_svelte@5.55.7/node_modules/bits-ui/dist/bits/tabs/components/tabs-content.svelte
-var root_2$2 = /* @__PURE__ */ from_html(`<div><!></div>`);
-function Tabs_content($$anchor, $$props) {
-	const uid = props_id();
-	push($$props, true);
-	let id = prop($$props, "id", 19, () => createId(uid)), ref = prop($$props, "ref", 15, null), restProps = /* @__PURE__ */ rest_props($$props, [
-		"$$slots",
-		"$$events",
-		"$$legacy",
-		"children",
-		"child",
-		"id",
-		"ref",
-		"value"
-	]);
-	const contentState = TabsContentState.create({
-		value: boxWith(() => $$props.value),
-		id: boxWith(() => id()),
-		ref: boxWith(() => ref(), (v) => ref(v))
-	});
-	const mergedProps = /* @__PURE__ */ user_derived(() => mergeProps(restProps, contentState.props));
-	var fragment = comment();
-	var node = first_child(fragment);
-	var consequent = ($$anchor) => {
-		var fragment_1 = comment();
-		snippet(first_child(fragment_1), () => $$props.child, () => ({ props: get(mergedProps) }));
-		append($$anchor, fragment_1);
-	};
-	var alternate = ($$anchor) => {
-		var div = root_2$2();
-		attribute_effect(div, () => ({ ...get(mergedProps) }));
-		snippet(child(div), () => $$props.children ?? noop$1);
-		reset(div);
-		append($$anchor, div);
-	};
-	if_block(node, ($$render) => {
-		if ($$props.child) $$render(consequent);
-		else $$render(alternate, -1);
-	});
-	append($$anchor, fragment);
-	pop();
-}
-//#endregion
-//#region node_modules/.pnpm/bits-ui@2.18.1_@internationalized+date@3.12.1_svelte@5.55.7/node_modules/bits-ui/dist/bits/tabs/components/tabs-list.svelte
-var root_2$1 = /* @__PURE__ */ from_html(`<div><!></div>`);
-function Tabs_list($$anchor, $$props) {
-	const uid = props_id();
-	push($$props, true);
-	let id = prop($$props, "id", 19, () => createId(uid)), ref = prop($$props, "ref", 15, null), restProps = /* @__PURE__ */ rest_props($$props, [
-		"$$slots",
-		"$$events",
-		"$$legacy",
-		"child",
-		"children",
-		"id",
-		"ref"
-	]);
-	const listState = TabsListState.create({
-		id: boxWith(() => id()),
-		ref: boxWith(() => ref(), (v) => ref(v))
-	});
-	const mergedProps = /* @__PURE__ */ user_derived(() => mergeProps(restProps, listState.props));
-	var fragment = comment();
-	var node = first_child(fragment);
-	var consequent = ($$anchor) => {
-		var fragment_1 = comment();
-		snippet(first_child(fragment_1), () => $$props.child, () => ({ props: get(mergedProps) }));
-		append($$anchor, fragment_1);
-	};
-	var alternate = ($$anchor) => {
-		var div = root_2$1();
-		attribute_effect(div, () => ({ ...get(mergedProps) }));
-		snippet(child(div), () => $$props.children ?? noop$1);
-		reset(div);
-		append($$anchor, div);
-	};
-	if_block(node, ($$render) => {
-		if ($$props.child) $$render(consequent);
-		else $$render(alternate, -1);
-	});
-	append($$anchor, fragment);
-	pop();
-}
-//#endregion
-//#region node_modules/.pnpm/bits-ui@2.18.1_@internationalized+date@3.12.1_svelte@5.55.7/node_modules/bits-ui/dist/bits/tabs/components/tabs-trigger.svelte
-var root_2 = /* @__PURE__ */ from_html(`<button><!></button>`);
-function Tabs_trigger($$anchor, $$props) {
-	const uid = props_id();
-	push($$props, true);
-	let disabled = prop($$props, "disabled", 3, false), id = prop($$props, "id", 19, () => createId(uid)), type = prop($$props, "type", 3, "button"), ref = prop($$props, "ref", 15, null), restProps = /* @__PURE__ */ rest_props($$props, [
-		"$$slots",
-		"$$events",
-		"$$legacy",
-		"child",
-		"children",
-		"disabled",
-		"id",
-		"type",
-		"value",
-		"ref"
-	]);
-	const triggerState = TabsTriggerState.create({
-		id: boxWith(() => id()),
-		disabled: boxWith(() => disabled() ?? false),
-		value: boxWith(() => $$props.value),
-		ref: boxWith(() => ref(), (v) => ref(v))
-	});
-	const mergedProps = /* @__PURE__ */ user_derived(() => mergeProps(restProps, triggerState.props, { type: type() }));
-	var fragment = comment();
-	var node = first_child(fragment);
-	var consequent = ($$anchor) => {
-		var fragment_1 = comment();
-		snippet(first_child(fragment_1), () => $$props.child, () => ({ props: get(mergedProps) }));
-		append($$anchor, fragment_1);
-	};
-	var alternate = ($$anchor) => {
-		var button = root_2();
-		attribute_effect(button, () => ({ ...get(mergedProps) }));
-		snippet(child(button), () => $$props.children ?? noop$1);
-		reset(button);
-		append($$anchor, button);
-	};
-	if_block(node, ($$render) => {
-		if ($$props.child) $$render(consequent);
-		else $$render(alternate, -1);
-	});
-	append($$anchor, fragment);
-	pop();
-}
-//#endregion
 //#region demo/src/RangeNumber.svelte
-var root_1$1 = /* @__PURE__ */ from_html(`<!> <!>`, 1);
+var root_1 = /* @__PURE__ */ from_html(`<!> <!>`, 1);
 var root$1 = /* @__PURE__ */ from_html(`<div class="range-number"><label class="value-row"><span> </span> <input type="number"/></label> <!></div>`);
 function RangeNumber($$anchor, $$props) {
 	let label = prop($$props, "label", 8);
@@ -8875,7 +7620,7 @@ function RangeNumber($$anchor, $$props) {
 			value($$value);
 		},
 		children: ($$anchor, $$slotProps) => {
-			var fragment = root_1$1();
+			var fragment = root_1();
 			var node_1 = first_child(fragment);
 			Slider_range(node_1, { class: "slider-range" });
 			Slider_thumb(sibling(node_1, 2), {
@@ -8905,29 +7650,35 @@ delegate(["input"]);
 var defaultDemoState = {
 	signature: "_",
 	source: "images/dog.jpg",
+	resizeEnabled: true,
 	resizeMode: "fill",
-	width: 1160,
-	height: 540,
+	width: 640,
+	height: 360,
 	gravity: "ce",
 	enlarge: false,
 	cropEnabled: false,
 	cropWidth: 640,
 	cropHeight: 420,
-	format: "webp",
-	quality: 82
+	format: "auto",
+	quality: 85
 };
 function optionSegments(currentState) {
-	const segments = [[
+	const segments = [];
+	if (currentState.cropEnabled) segments.push(`c:${currentState.cropWidth}:${currentState.cropHeight}`);
+	if (currentState.resizeEnabled) segments.push([
 		"rs",
 		currentState.resizeMode,
 		currentState.width,
 		currentState.height,
 		currentState.enlarge ? 1 : 0
-	].join(":"), `g:${currentState.gravity}`];
-	if (currentState.cropEnabled) segments.unshift(`c:${currentState.cropWidth}:${currentState.cropHeight}`);
+	].join(":"), `g:${currentState.gravity}`);
 	if (currentState.format !== "auto") segments.push(`f:${currentState.format}`);
 	if (currentState.quality > 0) segments.push(`q:${currentState.quality}`);
 	return segments;
+}
+function resolvedOutputLabel(currentState) {
+	if (currentState.format === "auto") return "auto -> webp";
+	return currentState.format;
 }
 function buildProcessingPath(currentState) {
 	const options = optionSegments(currentState).join("/");
@@ -8935,18 +7686,16 @@ function buildProcessingPath(currentState) {
 }
 //#endregion
 //#region demo/src/App.svelte
-var root_5 = /* @__PURE__ */ from_html(`<div class="panel-head"><div><h2>Resize</h2> <p>Maps to <code>rs</code>, <code>w</code>, <code>h</code>, and <code>g</code>.</p></div> <button class="copy-button" type="button"> </button></div> <!> <!> <div class="field-grid"><label class="field"><span>Resizing type</span> <select><option>fit</option><option>fill</option><option>fill-down</option><option>force</option><option>auto</option></select></label> <label class="field"><span>Gravity</span> <select><option>center</option><option>north</option><option>south</option><option>east</option><option>west</option><option>north east</option><option>north west</option><option>south east</option><option>south west</option></select></label></div> <label class="switch-field"><!> <span>Allow enlargement</span></label>`, 1);
-var root_7 = /* @__PURE__ */ from_html(`<div class="panel-head"><div><h2>Crop</h2> <p>Add an explicit <code>c</code> option before resize planning.</p></div></div> <label class="switch-field"><!> <span>Enable crop</span></label> <!> <!>`, 1);
-var root_9 = /* @__PURE__ */ from_html(`<div class="panel-head"><div><h2>Output</h2> <p>Explicit formats bypass <code>Accept</code> negotiation.</p></div></div> <label class="field"><span>Format</span> <select><option>auto</option><option>webp</option><option>avif</option><option>jpeg</option><option>png</option></select></label> <!>`, 1);
-var root_10 = /* @__PURE__ */ from_html(`<div class="panel-head"><div><h2>Request</h2> <p>Choose a local source served by SimpleServer.</p></div></div> <label class="field"><span>Source image</span> <select><option>dog.jpg</option><option>cat-300.jpg</option></select></label> <label class="field"><span>Signature</span> <select><option>_</option><option>unsafe</option></select></label>`, 1);
-var root_1 = /* @__PURE__ */ from_html(`<!> <section class="preview-stage" aria-label="Processed image preview"><div class="preview-head"><div class="live-label"><span aria-hidden="true"></span> Live processed preview</div> <code> </code></div> <div class="image-viewport"><div class="image-frame"><img alt="Processed sample source"/> <div class="target-frame" aria-hidden="true"></div></div></div></section> <aside class="inspector" aria-label="Processing controls"><!> <!> <!> <!></aside>`, 1);
-var root = /* @__PURE__ */ from_html(`<main class="fiddle-shell"><header class="top-bar"><div class="brand-mark" aria-hidden="true">IP</div> <div><h1>ImagePlug Fiddle</h1> <p>SimpleServer · Svelte · TypeScript · processing path syntax</p></div></header> <!> <section class="url-tray" aria-label="Generated processing URL"><div><span>Generated URL</span> <strong>processing path</strong></div> <code> </code> <a class="open-link" target="_blank" rel="noreferrer">Open</a></section></main>`);
+var root_2 = /* @__PURE__ */ from_html(`<!> <!> <div class="field-grid"><label class="field"><span>Type</span> <select><option>fit</option><option>fill</option><option>fill-down</option><option>force</option><option>auto</option></select></label> <label class="field"><span>Gravity</span> <select><option>center</option><option>north</option><option>south</option><option>east</option><option>west</option><option>north east</option><option>north west</option><option>south east</option><option>south west</option></select></label></div> <label class="switch-field"><!> <span>Allow enlargement</span></label>`, 1);
+var root_5 = /* @__PURE__ */ from_html(`<!> <!>`, 1);
+var root = /* @__PURE__ */ from_html(`<main class="fiddle-shell"><button type="button" aria-label="Close tools"></button> <aside aria-label="Processing controls"><div class="drawer-topbar"><strong>Tools</strong> <button class="icon-button" type="button" aria-label="Close tools">×</button></div> <div class="tool-stack"><section class="tool-section"><div class="tool-heading"><div><h2>Resize</h2> <p> </p></div> <!></div> <!></section> <section class="tool-section"><div class="tool-heading"><div><h2>Crop</h2> <p> </p></div> <!></div> <!></section> <section class="tool-section"><div class="tool-heading"><h2>Output</h2></div> <label class="field"><span>Format</span> <select><option>auto</option><option>webp</option><option>avif</option><option>jpeg</option><option>png</option></select></label> <!></section> <section class="tool-section"><div class="tool-heading"><h2>Request</h2></div> <label class="field"><span>Source image</span> <select><option>dog.jpg</option><option>cat-300.jpg</option></select></label> <label class="field"><span>Signature</span> <select><option>unsigned</option><option>unsafe</option></select></label></section></div> <div class="drawer-actions"><button class="copy-button" type="button"> </button> <a class="open-link" target="_blank" rel="noreferrer">Open</a></div></aside> <section class="preview-workspace" aria-label="Processed image preview"><header class="preview-command-bar"><button class="icon-button menu-button" type="button" aria-label="Open tools">☰</button> <code class="parameter-preview"> </code> <div class="desktop-actions"><button class="copy-button copy-button-secondary" type="button"> </button> <a class="open-link" target="_blank" rel="noreferrer">Open</a></div></header> <div class="preview-canvas"><div class="image-frame"><figure><img alt="Processed sample source"/> <figcaption><span> </span> <span> </span></figcaption></figure></div></div></section></main>`);
 function App($$anchor, $$props) {
 	push($$props, false);
 	const path = /* @__PURE__ */ mutable_source();
-	const fragment = /* @__PURE__ */ mutable_source();
-	let activePanel = /* @__PURE__ */ mutable_source("resize");
+	const previewParameters = /* @__PURE__ */ mutable_source();
+	const outputLabel = /* @__PURE__ */ mutable_source();
 	let copyLabel = /* @__PURE__ */ mutable_source("Copy URL");
+	let drawerOpen = /* @__PURE__ */ mutable_source(false);
 	let state = /* @__PURE__ */ mutable_source({ ...defaultDemoState });
 	async function copyGeneratedUrl() {
 		const absoluteUrl = new URL(get(path), window.location.origin).toString();
@@ -8961,331 +7710,309 @@ function App($$anchor, $$props) {
 			set(copyLabel, "Copy failed");
 		});
 	}
-	const panels = [
-		{
-			value: "resize",
-			label: "Resize"
-		},
-		{
-			value: "crop",
-			label: "Crop"
-		},
-		{
-			value: "output",
-			label: "Output"
-		},
-		{
-			value: "request",
-			label: "Request"
-		}
-	];
 	legacy_pre_effect(() => get(state), () => {
 		set(path, buildProcessingPath(get(state)));
 	});
+	legacy_pre_effect(() => get(path), () => {
+		set(previewParameters, get(path).replace(/^\/(?:_|unsafe)\//, ""));
+	});
 	legacy_pre_effect(() => get(state), () => {
-		set(fragment, optionSegments(get(state)).join("/"));
+		set(outputLabel, resolvedOutputLabel(get(state)));
 	});
 	legacy_pre_effect_reset();
 	init();
 	var main = root();
-	var node = sibling(child(main), 2);
-	Tabs(node, {
-		class: "workspace",
-		"aria-label": "ImagePlug processing fiddle",
-		orientation: "vertical",
-		get value() {
-			return get(activePanel);
+	var button = child(main);
+	let classes;
+	var aside = sibling(button, 2);
+	let classes_1;
+	var div = child(aside);
+	var button_1 = sibling(child(div), 2);
+	reset(div);
+	var div_1 = sibling(div, 2);
+	var section = child(div_1);
+	var div_2 = child(section);
+	var div_3 = child(div_2);
+	var p = sibling(child(div_3), 2);
+	var text = child(p, true);
+	reset(p);
+	reset(div_3);
+	Switch(sibling(div_3, 2), {
+		class: "switch-root",
+		"aria-label": "Enable resize",
+		get checked() {
+			return get(state).resizeEnabled;
 		},
-		set value($$value) {
-			set(activePanel, $$value);
+		set checked($$value) {
+			mutate(state, get(state).resizeEnabled = $$value);
 		},
 		children: ($$anchor, $$slotProps) => {
-			var fragment_1 = root_1();
-			var node_1 = first_child(fragment_1);
-			Tabs_list(node_1, {
-				class: "tool-rail",
-				"aria-label": "Control groups",
-				children: ($$anchor, $$slotProps) => {
-					var fragment_2 = comment();
-					each(first_child(fragment_2), 1, () => panels, index$1, ($$anchor, panel) => {
-						Tabs_trigger($$anchor, {
-							class: "tool-button",
-							get value() {
-								return get(panel), untrack(() => get(panel).value);
-							},
-							children: ($$anchor, $$slotProps) => {
-								next();
-								var text$1 = text();
-								template_effect(() => set_text(text$1, (get(panel), untrack(() => get(panel).label))));
-								append($$anchor, text$1);
-							},
-							$$slots: { default: true }
-						});
-					});
-					append($$anchor, fragment_2);
-				},
-				$$slots: { default: true }
-			});
-			var section = sibling(node_1, 2);
-			var div = child(section);
-			var code = sibling(child(div), 2);
-			var text_1 = child(code, true);
-			reset(code);
-			reset(div);
-			var div_1 = sibling(div, 2);
-			var div_2 = child(div_1);
-			var img = child(div_2);
-			next(2);
-			reset(div_2);
-			reset(div_1);
-			reset(section);
-			var aside = sibling(section, 2);
-			var node_3 = child(aside);
-			Tabs_content(node_3, {
-				class: "panel",
-				value: "resize",
-				"data-panel": "resize",
-				children: ($$anchor, $$slotProps) => {
-					var fragment_5 = root_5();
-					var div_3 = first_child(fragment_5);
-					var button = sibling(child(div_3), 2);
-					var text_2 = child(button, true);
-					reset(button);
-					reset(div_3);
-					var node_4 = sibling(div_3, 2);
-					RangeNumber(node_4, {
-						label: "Width",
-						min: 0,
-						max: 1600,
-						step: 1,
-						get value() {
-							return get(state).width;
-						},
-						set value($$value) {
-							mutate(state, get(state).width = $$value);
-						},
-						$$legacy: true
-					});
-					var node_5 = sibling(node_4, 2);
-					RangeNumber(node_5, {
-						label: "Height",
-						min: 0,
-						max: 1e3,
-						step: 1,
-						get value() {
-							return get(state).height;
-						},
-						set value($$value) {
-							mutate(state, get(state).height = $$value);
-						},
-						$$legacy: true
-					});
-					var div_4 = sibling(node_5, 2);
-					var label = child(div_4);
-					var select = sibling(child(label), 2);
-					var option = child(select);
-					option.value = option.__value = "fit";
-					var option_1 = sibling(option);
-					option_1.value = option_1.__value = "fill";
-					var option_2 = sibling(option_1);
-					option_2.value = option_2.__value = "fill-down";
-					var option_3 = sibling(option_2);
-					option_3.value = option_3.__value = "force";
-					var option_4 = sibling(option_3);
-					option_4.value = option_4.__value = "auto";
-					reset(select);
-					reset(label);
-					var label_1 = sibling(label, 2);
-					var select_1 = sibling(child(label_1), 2);
-					var option_5 = child(select_1);
-					option_5.value = option_5.__value = "ce";
-					var option_6 = sibling(option_5);
-					option_6.value = option_6.__value = "no";
-					var option_7 = sibling(option_6);
-					option_7.value = option_7.__value = "so";
-					var option_8 = sibling(option_7);
-					option_8.value = option_8.__value = "ea";
-					var option_9 = sibling(option_8);
-					option_9.value = option_9.__value = "we";
-					var option_10 = sibling(option_9);
-					option_10.value = option_10.__value = "noea";
-					var option_11 = sibling(option_10);
-					option_11.value = option_11.__value = "nowe";
-					var option_12 = sibling(option_11);
-					option_12.value = option_12.__value = "soea";
-					var option_13 = sibling(option_12);
-					option_13.value = option_13.__value = "sowe";
-					reset(select_1);
-					reset(label_1);
-					reset(div_4);
-					var label_2 = sibling(div_4, 2);
-					Switch(child(label_2), {
-						class: "switch-root",
-						get checked() {
-							return get(state).enlarge;
-						},
-						set checked($$value) {
-							mutate(state, get(state).enlarge = $$value);
-						},
-						children: ($$anchor, $$slotProps) => {
-							Switch_thumb($$anchor, { class: "switch-thumb" });
-						},
-						$$slots: { default: true },
-						$$legacy: true
-					});
-					next(2);
-					reset(label_2);
-					template_effect(() => set_text(text_2, get(copyLabel)));
-					delegated("click", button, copyUrl);
-					bind_select_value(select, () => get(state).resizeMode, ($$value) => mutate(state, get(state).resizeMode = $$value));
-					bind_select_value(select_1, () => get(state).gravity, ($$value) => mutate(state, get(state).gravity = $$value));
-					append($$anchor, fragment_5);
-				},
-				$$slots: { default: true }
-			});
-			var node_7 = sibling(node_3, 2);
-			Tabs_content(node_7, {
-				class: "panel",
-				value: "crop",
-				"data-panel": "crop",
-				children: ($$anchor, $$slotProps) => {
-					var fragment_7 = root_7();
-					var label_3 = sibling(first_child(fragment_7), 2);
-					Switch(child(label_3), {
-						class: "switch-root",
-						get checked() {
-							return get(state).cropEnabled;
-						},
-						set checked($$value) {
-							mutate(state, get(state).cropEnabled = $$value);
-						},
-						children: ($$anchor, $$slotProps) => {
-							Switch_thumb($$anchor, { class: "switch-thumb" });
-						},
-						$$slots: { default: true },
-						$$legacy: true
-					});
-					next(2);
-					reset(label_3);
-					var node_9 = sibling(label_3, 2);
-					RangeNumber(node_9, {
-						label: "Crop width",
-						min: 80,
-						max: 1200,
-						step: 1,
-						get value() {
-							return get(state).cropWidth;
-						},
-						set value($$value) {
-							mutate(state, get(state).cropWidth = $$value);
-						},
-						$$legacy: true
-					});
-					RangeNumber(sibling(node_9, 2), {
-						label: "Crop height",
-						min: 80,
-						max: 900,
-						step: 1,
-						get value() {
-							return get(state).cropHeight;
-						},
-						set value($$value) {
-							mutate(state, get(state).cropHeight = $$value);
-						},
-						$$legacy: true
-					});
-					append($$anchor, fragment_7);
-				},
-				$$slots: { default: true }
-			});
-			var node_11 = sibling(node_7, 2);
-			Tabs_content(node_11, {
-				class: "panel",
-				value: "output",
-				"data-panel": "output",
-				children: ($$anchor, $$slotProps) => {
-					var fragment_9 = root_9();
-					var label_4 = sibling(first_child(fragment_9), 2);
-					var select_2 = sibling(child(label_4), 2);
-					var option_14 = child(select_2);
-					option_14.value = option_14.__value = "auto";
-					var option_15 = sibling(option_14);
-					option_15.value = option_15.__value = "webp";
-					var option_16 = sibling(option_15);
-					option_16.value = option_16.__value = "avif";
-					var option_17 = sibling(option_16);
-					option_17.value = option_17.__value = "jpeg";
-					var option_18 = sibling(option_17);
-					option_18.value = option_18.__value = "png";
-					reset(select_2);
-					reset(label_4);
-					RangeNumber(sibling(label_4, 2), {
-						label: "Quality",
-						min: 0,
-						max: 100,
-						step: 1,
-						get value() {
-							return get(state).quality;
-						},
-						set value($$value) {
-							mutate(state, get(state).quality = $$value);
-						},
-						$$legacy: true
-					});
-					bind_select_value(select_2, () => get(state).format, ($$value) => mutate(state, get(state).format = $$value));
-					append($$anchor, fragment_9);
-				},
-				$$slots: { default: true }
-			});
-			Tabs_content(sibling(node_11, 2), {
-				class: "panel",
-				value: "request",
-				"data-panel": "request",
-				children: ($$anchor, $$slotProps) => {
-					var fragment_10 = root_10();
-					var label_5 = sibling(first_child(fragment_10), 2);
-					var select_3 = sibling(child(label_5), 2);
-					var option_19 = child(select_3);
-					option_19.value = option_19.__value = "images/dog.jpg";
-					var option_20 = sibling(option_19);
-					option_20.value = option_20.__value = "images/cat-300.jpg";
-					reset(select_3);
-					reset(label_5);
-					var label_6 = sibling(label_5, 2);
-					var select_4 = sibling(child(label_6), 2);
-					var option_21 = child(select_4);
-					option_21.value = option_21.__value = "_";
-					var option_22 = sibling(option_21);
-					option_22.value = option_22.__value = "unsafe";
-					reset(select_4);
-					reset(label_6);
-					bind_select_value(select_3, () => get(state).source, ($$value) => mutate(state, get(state).source = $$value));
-					bind_select_value(select_4, () => get(state).signature, ($$value) => mutate(state, get(state).signature = $$value));
-					append($$anchor, fragment_10);
-				},
-				$$slots: { default: true }
-			});
-			reset(aside);
-			template_effect(() => {
-				set_text(text_1, get(fragment));
-				set_attribute(img, "src", get(path));
-			});
-			append($$anchor, fragment_1);
+			Switch_thumb($$anchor, { class: "switch-thumb" });
 		},
 		$$slots: { default: true },
 		$$legacy: true
 	});
-	var section_1 = sibling(node, 2);
-	var code_1 = sibling(child(section_1), 2);
-	var text_3 = child(code_1, true);
-	reset(code_1);
-	var a = sibling(code_1, 2);
+	reset(div_2);
+	var node_1 = sibling(div_2, 2);
+	var consequent = ($$anchor) => {
+		var fragment_1 = root_2();
+		var node_2 = first_child(fragment_1);
+		RangeNumber(node_2, {
+			label: "Width",
+			min: 0,
+			max: 1600,
+			step: 1,
+			get value() {
+				return get(state).width;
+			},
+			set value($$value) {
+				mutate(state, get(state).width = $$value);
+			},
+			$$legacy: true
+		});
+		var node_3 = sibling(node_2, 2);
+		RangeNumber(node_3, {
+			label: "Height",
+			min: 0,
+			max: 1e3,
+			step: 1,
+			get value() {
+				return get(state).height;
+			},
+			set value($$value) {
+				mutate(state, get(state).height = $$value);
+			},
+			$$legacy: true
+		});
+		var div_4 = sibling(node_3, 2);
+		var label = child(div_4);
+		var select = sibling(child(label), 2);
+		var option = child(select);
+		option.value = option.__value = "fit";
+		var option_1 = sibling(option);
+		option_1.value = option_1.__value = "fill";
+		var option_2 = sibling(option_1);
+		option_2.value = option_2.__value = "fill-down";
+		var option_3 = sibling(option_2);
+		option_3.value = option_3.__value = "force";
+		var option_4 = sibling(option_3);
+		option_4.value = option_4.__value = "auto";
+		reset(select);
+		reset(label);
+		var label_1 = sibling(label, 2);
+		var select_1 = sibling(child(label_1), 2);
+		var option_5 = child(select_1);
+		option_5.value = option_5.__value = "ce";
+		var option_6 = sibling(option_5);
+		option_6.value = option_6.__value = "no";
+		var option_7 = sibling(option_6);
+		option_7.value = option_7.__value = "so";
+		var option_8 = sibling(option_7);
+		option_8.value = option_8.__value = "ea";
+		var option_9 = sibling(option_8);
+		option_9.value = option_9.__value = "we";
+		var option_10 = sibling(option_9);
+		option_10.value = option_10.__value = "noea";
+		var option_11 = sibling(option_10);
+		option_11.value = option_11.__value = "nowe";
+		var option_12 = sibling(option_11);
+		option_12.value = option_12.__value = "soea";
+		var option_13 = sibling(option_12);
+		option_13.value = option_13.__value = "sowe";
+		reset(select_1);
+		reset(label_1);
+		reset(div_4);
+		var label_2 = sibling(div_4, 2);
+		Switch(child(label_2), {
+			class: "switch-root",
+			get checked() {
+				return get(state).enlarge;
+			},
+			set checked($$value) {
+				mutate(state, get(state).enlarge = $$value);
+			},
+			children: ($$anchor, $$slotProps) => {
+				Switch_thumb($$anchor, { class: "switch-thumb" });
+			},
+			$$slots: { default: true },
+			$$legacy: true
+		});
+		next(2);
+		reset(label_2);
+		bind_select_value(select, () => get(state).resizeMode, ($$value) => mutate(state, get(state).resizeMode = $$value));
+		bind_select_value(select_1, () => get(state).gravity, ($$value) => mutate(state, get(state).gravity = $$value));
+		append($$anchor, fragment_1);
+	};
+	if_block(node_1, ($$render) => {
+		if (get(state), untrack(() => get(state).resizeEnabled)) $$render(consequent);
+	});
+	reset(section);
+	var section_1 = sibling(section, 2);
+	var div_5 = child(section_1);
+	var div_6 = child(div_5);
+	var p_1 = sibling(child(div_6), 2);
+	var text_1 = child(p_1, true);
+	reset(p_1);
+	reset(div_6);
+	Switch(sibling(div_6, 2), {
+		class: "switch-root",
+		"aria-label": "Enable crop",
+		get checked() {
+			return get(state).cropEnabled;
+		},
+		set checked($$value) {
+			mutate(state, get(state).cropEnabled = $$value);
+		},
+		children: ($$anchor, $$slotProps) => {
+			Switch_thumb($$anchor, { class: "switch-thumb" });
+		},
+		$$slots: { default: true },
+		$$legacy: true
+	});
+	reset(div_5);
+	var node_6 = sibling(div_5, 2);
+	var consequent_1 = ($$anchor) => {
+		var fragment_4 = root_5();
+		var node_7 = first_child(fragment_4);
+		RangeNumber(node_7, {
+			label: "Crop width",
+			min: 80,
+			max: 1200,
+			step: 1,
+			get value() {
+				return get(state).cropWidth;
+			},
+			set value($$value) {
+				mutate(state, get(state).cropWidth = $$value);
+			},
+			$$legacy: true
+		});
+		RangeNumber(sibling(node_7, 2), {
+			label: "Crop height",
+			min: 80,
+			max: 900,
+			step: 1,
+			get value() {
+				return get(state).cropHeight;
+			},
+			set value($$value) {
+				mutate(state, get(state).cropHeight = $$value);
+			},
+			$$legacy: true
+		});
+		append($$anchor, fragment_4);
+	};
+	if_block(node_6, ($$render) => {
+		if (get(state), untrack(() => get(state).cropEnabled)) $$render(consequent_1);
+	});
 	reset(section_1);
+	var section_2 = sibling(section_1, 2);
+	var label_3 = sibling(child(section_2), 2);
+	var select_2 = sibling(child(label_3), 2);
+	var option_14 = child(select_2);
+	option_14.value = option_14.__value = "auto";
+	var option_15 = sibling(option_14);
+	option_15.value = option_15.__value = "webp";
+	var option_16 = sibling(option_15);
+	option_16.value = option_16.__value = "avif";
+	var option_17 = sibling(option_16);
+	option_17.value = option_17.__value = "jpeg";
+	var option_18 = sibling(option_17);
+	option_18.value = option_18.__value = "png";
+	reset(select_2);
+	reset(label_3);
+	RangeNumber(sibling(label_3, 2), {
+		label: "Quality",
+		min: 0,
+		max: 100,
+		step: 1,
+		get value() {
+			return get(state).quality;
+		},
+		set value($$value) {
+			mutate(state, get(state).quality = $$value);
+		},
+		$$legacy: true
+	});
+	reset(section_2);
+	var section_3 = sibling(section_2, 2);
+	var label_4 = sibling(child(section_3), 2);
+	var select_3 = sibling(child(label_4), 2);
+	var option_19 = child(select_3);
+	option_19.value = option_19.__value = "images/dog.jpg";
+	var option_20 = sibling(option_19);
+	option_20.value = option_20.__value = "images/cat-300.jpg";
+	reset(select_3);
+	reset(label_4);
+	var label_5 = sibling(label_4, 2);
+	var select_4 = sibling(child(label_5), 2);
+	var option_21 = child(select_4);
+	option_21.value = option_21.__value = "_";
+	var option_22 = sibling(option_21);
+	option_22.value = option_22.__value = "unsafe";
+	reset(select_4);
+	reset(label_5);
+	reset(section_3);
+	reset(div_1);
+	var div_7 = sibling(div_1, 2);
+	var button_2 = child(div_7);
+	var text_2 = child(button_2, true);
+	reset(button_2);
+	var a = sibling(button_2, 2);
+	reset(div_7);
+	reset(aside);
+	var section_4 = sibling(aside, 2);
+	var header = child(section_4);
+	var button_3 = child(header);
+	var code = sibling(button_3, 2);
+	var text_3 = child(code, true);
+	reset(code);
+	var div_8 = sibling(code, 2);
+	var button_4 = child(div_8);
+	var text_4 = child(button_4, true);
+	reset(button_4);
+	var a_1 = sibling(button_4, 2);
+	reset(div_8);
+	reset(header);
+	var div_9 = sibling(header, 2);
+	var div_10 = child(div_9);
+	var figure = child(div_10);
+	var img = child(figure);
+	var figcaption = sibling(img, 2);
+	var span = child(figcaption);
+	var text_5 = child(span);
+	reset(span);
+	var span_1 = sibling(span, 2);
+	var text_6 = child(span_1, true);
+	reset(span_1);
+	reset(figcaption);
+	reset(figure);
+	reset(div_10);
+	reset(div_9);
+	reset(section_4);
 	reset(main);
 	template_effect(() => {
-		set_text(text_3, get(path));
+		classes = set_class(button, 1, "mobile-scrim", null, classes, { "is-open": get(drawerOpen) });
+		classes_1 = set_class(aside, 1, "tools-sidebar", null, classes_1, { "is-open": get(drawerOpen) });
+		set_text(text, (get(state), untrack(() => get(state).resizeEnabled ? `rs:${get(state).resizeMode}:${get(state).width}:${get(state).height}` : "Off")));
+		set_text(text_1, (get(state), untrack(() => get(state).cropEnabled ? `c:${get(state).cropWidth}:${get(state).cropHeight}` : "Off")));
+		set_text(text_2, get(copyLabel));
 		set_attribute(a, "href", get(path));
+		set_text(text_3, get(previewParameters));
+		set_text(text_4, get(copyLabel));
+		set_attribute(a_1, "href", get(path));
+		set_attribute(img, "src", get(path));
+		set_text(text_5, `${(get(state), untrack(() => get(state).width)) ?? ""} × ${(get(state), untrack(() => get(state).height)) ?? ""}`);
+		set_text(text_6, get(outputLabel));
 	});
+	delegated("click", button, () => set(drawerOpen, false));
+	delegated("click", button_1, () => set(drawerOpen, false));
+	bind_select_value(select_2, () => get(state).format, ($$value) => mutate(state, get(state).format = $$value));
+	bind_select_value(select_3, () => get(state).source, ($$value) => mutate(state, get(state).source = $$value));
+	bind_select_value(select_4, () => get(state).signature, ($$value) => mutate(state, get(state).signature = $$value));
+	delegated("click", button_2, copyUrl);
+	delegated("click", button_3, () => set(drawerOpen, true));
+	delegated("click", button_4, copyUrl);
 	append($$anchor, main);
 	pop();
 }

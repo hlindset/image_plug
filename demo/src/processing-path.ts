@@ -7,6 +7,7 @@ export type SourceImage = "images/dog.jpg" | "images/cat-300.jpg";
 export type DemoState = {
   signature: Signature;
   source: SourceImage;
+  resizeEnabled: boolean;
   resizeMode: ResizeMode;
   width: number;
   height: number;
@@ -22,31 +23,37 @@ export type DemoState = {
 export const defaultDemoState: DemoState = {
   signature: "_",
   source: "images/dog.jpg",
+  resizeEnabled: true,
   resizeMode: "fill",
-  width: 1160,
-  height: 540,
+  width: 640,
+  height: 360,
   gravity: "ce",
   enlarge: false,
   cropEnabled: false,
   cropWidth: 640,
   cropHeight: 420,
-  format: "webp",
-  quality: 82
+  format: "auto",
+  quality: 85
 };
 
 export function optionSegments(currentState: DemoState): string[] {
-  const resize = [
-    "rs",
-    currentState.resizeMode,
-    currentState.width,
-    currentState.height,
-    currentState.enlarge ? 1 : 0
-  ].join(":");
-
-  const segments = [resize, `g:${currentState.gravity}`];
+  const segments: string[] = [];
 
   if (currentState.cropEnabled) {
-    segments.unshift(`c:${currentState.cropWidth}:${currentState.cropHeight}`);
+    segments.push(`c:${currentState.cropWidth}:${currentState.cropHeight}`);
+  }
+
+  if (currentState.resizeEnabled) {
+    segments.push(
+      [
+        "rs",
+        currentState.resizeMode,
+        currentState.width,
+        currentState.height,
+        currentState.enlarge ? 1 : 0
+      ].join(":"),
+      `g:${currentState.gravity}`
+    );
   }
 
   if (currentState.format !== "auto") {
@@ -58,6 +65,14 @@ export function optionSegments(currentState: DemoState): string[] {
   }
 
   return segments;
+}
+
+export function resolvedOutputLabel(currentState: DemoState): string {
+  if (currentState.format === "auto") {
+    return "auto -> webp";
+  }
+
+  return currentState.format;
 }
 
 export function buildProcessingPath(currentState: DemoState): string {
