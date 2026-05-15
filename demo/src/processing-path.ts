@@ -3,6 +3,7 @@ export type Gravity = "ce" | "no" | "so" | "ea" | "we" | "noea" | "nowe" | "soea
 export type CropGravity = "inherit" | Gravity;
 export type OutputFormat = "webp" | "avif" | "jpeg" | "png";
 export type Flip = "none" | "horizontal" | "vertical" | "both";
+export type Rotate = 0 | 90 | 180 | 270;
 export type CanvasMode = "extend" | "aspectRatio";
 export type Signature = "_" | "unsafe";
 export type SourceImage = "images/dog.jpg" | "images/cat-300.jpg";
@@ -12,6 +13,7 @@ export type DemoState = {
   source: SourceImage;
   autoRotateEnabled: boolean;
   flip: Flip;
+  rotate: Rotate;
   resizeEnabled: boolean;
   resizeMode: ResizeMode;
   width: number;
@@ -61,6 +63,7 @@ export const defaultDemoState: DemoState = {
   source: "images/dog.jpg",
   autoRotateEnabled: false,
   flip: "none",
+  rotate: 0,
   resizeEnabled: false,
   resizeMode: "fill",
   width: 640,
@@ -116,6 +119,10 @@ export function optionSegments(currentState: DemoState): string[] {
 
   if (currentState.flip === "both") {
     segments.push("fl");
+  }
+
+  if (currentState.rotate !== 0) {
+    segments.push(`rot:${currentState.rotate}`);
   }
 
   if (currentState.cropEnabled) {

@@ -41,6 +41,12 @@ describe("processing path generation", () => {
     expect(optionSegments({ ...defaultDemoState, flip: "both" })).toEqual(["fl"]);
   });
 
+  it("includes rotate when a right-angle rotation is selected", () => {
+    expect(optionSegments({ ...defaultDemoState, rotate: 90 })).toEqual(["rot:90"]);
+    expect(optionSegments({ ...defaultDemoState, rotate: 180 })).toEqual(["rot:180"]);
+    expect(optionSegments({ ...defaultDemoState, rotate: 270 })).toEqual(["rot:270"]);
+  });
+
   it("includes canvas extend after resize when enabled", () => {
     const state = {
       ...defaultDemoState,

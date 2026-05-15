@@ -21,8 +21,13 @@
   $: outputLabel = resolvedOutputLabel(state);
   $: sizeLabel = processedSizeLabel(processedMetadata);
   $: orientationSummary =
-    [state.autoRotateEnabled ? "ar:1" : null, flipSegment(state.flip)].filter(Boolean).join("/") ||
-    "Off";
+    [
+      state.autoRotateEnabled ? "ar:1" : null,
+      flipSegment(state.flip),
+      state.rotate === 0 ? null : `rot:${state.rotate}`
+    ]
+      .filter(Boolean)
+      .join("/") || "Off";
   $: canvasSummary = state.canvasEnabled
     ? state.canvasMode === "extend"
       ? "ex:1"
@@ -153,6 +158,16 @@
             <option value="horizontal">horizontal</option>
             <option value="vertical">vertical</option>
             <option value="both">both</option>
+          </select>
+        </label>
+
+        <label class="field">
+          <span>Rotate</span>
+          <select bind:value={state.rotate}>
+            <option value={0}>none</option>
+            <option value={90}>90°</option>
+            <option value={180}>180°</option>
+            <option value={270}>270°</option>
           </select>
         </label>
       </section>
