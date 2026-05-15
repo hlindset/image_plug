@@ -8,11 +8,17 @@ import {
   resolvedOutputLabel
 } from "./processing-path";
 
+const activeDemoState = {
+  ...defaultDemoState,
+  resizeEnabled: true,
+  gravityEnabled: true,
+  qualityEnabled: true
+};
+
 describe("processing path generation", () => {
   it("builds the default SimpleServer-compatible processing path", () => {
-    expect(buildProcessingPath(defaultDemoState)).toBe(
-      "/_/rs:fill:640:360:0/g:ce/q:85/plain/images/dog.jpg"
-    );
+    expect(optionSegments(defaultDemoState)).toEqual([]);
+    expect(buildProcessingPath(defaultDemoState)).toBe("/_/plain/images/dog.jpg");
   });
 
   it("keeps jpeg selected as the default explicit format", () => {
@@ -21,7 +27,7 @@ describe("processing path generation", () => {
 
   it("includes crop options before resize options when crop is enabled", () => {
     const state = {
-      ...defaultDemoState,
+      ...activeDemoState,
       cropEnabled: true,
       cropWidth: 320,
       cropHeight: 240
@@ -37,7 +43,7 @@ describe("processing path generation", () => {
 
   it("does not write inherited crop gravity into the crop segment", () => {
     const state = {
-      ...defaultDemoState,
+      ...activeDemoState,
       cropEnabled: true,
       cropGravity: "inherit" as const,
       gravity: "nowe" as const
@@ -53,7 +59,7 @@ describe("processing path generation", () => {
 
   it("uses shared gravity as the top-level gravity option", () => {
     const state = {
-      ...defaultDemoState,
+      ...activeDemoState,
       gravity: "sowe" as const
     };
 
@@ -62,7 +68,7 @@ describe("processing path generation", () => {
 
   it("allows crop to use an explicit gravity", () => {
     const state = {
-      ...defaultDemoState,
+      ...activeDemoState,
       cropEnabled: true,
       cropGravity: "soea" as const,
       gravity: "ce" as const
@@ -78,7 +84,7 @@ describe("processing path generation", () => {
 
   it("omits explicit format when format is disabled", () => {
     const state = {
-      ...defaultDemoState,
+      ...activeDemoState,
       formatEnabled: false,
       format: "png" as const
     };
@@ -88,7 +94,7 @@ describe("processing path generation", () => {
 
   it("includes explicit format when format is enabled", () => {
     const state = {
-      ...defaultDemoState,
+      ...activeDemoState,
       formatEnabled: true,
       format: "png" as const
     };
@@ -98,7 +104,7 @@ describe("processing path generation", () => {
 
   it("omits quality when quality is disabled", () => {
     const state = {
-      ...defaultDemoState,
+      ...activeDemoState,
       qualityEnabled: false,
       quality: 42
     };
@@ -109,7 +115,7 @@ describe("processing path generation", () => {
 
   it("includes zero quality when quality is enabled", () => {
     const state = {
-      ...defaultDemoState,
+      ...activeDemoState,
       qualityEnabled: true,
       quality: 0
     };
@@ -120,7 +126,7 @@ describe("processing path generation", () => {
 
   it("omits top-level gravity when gravity is disabled", () => {
     const state = {
-      ...defaultDemoState,
+      ...activeDemoState,
       gravityEnabled: false,
       gravity: "sowe" as const
     };
@@ -131,7 +137,7 @@ describe("processing path generation", () => {
 
   it("omits resize and gravity options when resize is disabled", () => {
     const state = {
-      ...defaultDemoState,
+      ...activeDemoState,
       resizeEnabled: false
     };
 

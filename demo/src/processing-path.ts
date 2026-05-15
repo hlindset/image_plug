@@ -34,11 +34,11 @@ export type ProcessedImageMetadata = {
 export const defaultDemoState: DemoState = {
   signature: "_",
   source: "images/dog.jpg",
-  resizeEnabled: true,
+  resizeEnabled: false,
   resizeMode: "fill",
   width: 640,
   height: 360,
-  gravityEnabled: true,
+  gravityEnabled: false,
   gravity: "ce",
   enlarge: false,
   cropEnabled: false,
@@ -47,7 +47,7 @@ export const defaultDemoState: DemoState = {
   cropGravity: "inherit",
   formatEnabled: false,
   format: "jpeg",
-  qualityEnabled: true,
+  qualityEnabled: false,
   quality: 85
 };
 
