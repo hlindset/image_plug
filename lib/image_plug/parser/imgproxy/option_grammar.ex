@@ -2,19 +2,9 @@ defmodule ImagePlug.Parser.Imgproxy.OptionGrammar do
   @moduledoc false
 
   alias ImagePlug.Parser.Imgproxy.CropRequest
+  alias ImagePlug.Parser.Imgproxy.Format
   alias ImagePlug.Plan.Color
   alias ImagePlug.Plan.Response
-
-  @source_format_names ~w(webp avif jpeg jpg png best)
-
-  @source_formats %{
-    "webp" => :webp,
-    "avif" => :avif,
-    "jpeg" => :jpeg,
-    "jpg" => :jpeg,
-    "png" => :png,
-    "best" => :best
-  }
 
   @resizing_types %{
     "fit" => :fit,
@@ -304,15 +294,8 @@ defmodule ImagePlug.Parser.Imgproxy.OptionGrammar do
   defp parse_field(:min_height, value), do: parse_pixels(value)
   defp parse_field(:enlarge, value), do: parse_boolean(value)
   defp parse_field(:extend, value), do: parse_boolean(value)
-  defp parse_field(:format, value), do: parse_format(value)
+  defp parse_field(:format, value), do: Format.parse(value)
   defp parse_field(:quality, value), do: parse_quality(value)
-
-  defp parse_format(value) do
-    case Map.fetch(@source_formats, value) do
-      {:ok, parsed_value} -> {:ok, parsed_value}
-      :error -> {:error, {:invalid_format, value, @source_format_names}}
-    end
-  end
 
   defp parse_optional_extend_gravity(_segment, []), do: {:ok, []}
   defp parse_optional_extend_gravity(_segment, [""]), do: {:ok, []}

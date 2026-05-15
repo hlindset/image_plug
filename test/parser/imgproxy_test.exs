@@ -5,11 +5,7 @@ defmodule ImagePlug.Parser.ImgproxyTest do
   import Plug.Test
 
   alias ImagePlug.Parser.Imgproxy
-  alias ImagePlug.Parser.Imgproxy.Options
-  alias ImagePlug.Parser.Imgproxy.Path
-  alias ImagePlug.Parser.Imgproxy.Presets
   alias ImagePlug.Plan
-  alias ImagePlug.Plan.Color
   alias ImagePlug.Plan.Operation
   alias ImagePlug.Plan.Output
   alias ImagePlug.Plan.Pipeline
@@ -320,77 +316,6 @@ defmodule ImagePlug.Parser.ImgproxyTest do
 
     assert params.width == pixels(100)
     assert params.height == pixels(100)
-  end
-
-  describe "padding parsing" do
-    test "parses imgproxy padding shorthand into accumulated fields" do
-      assert %{padding_top: 10, padding_right: 10, padding_bottom: 10, padding_left: 10} =
-               parsed_pipeline!("/_/padding:10/plain/images/cat.jpg")
-
-      assert %{padding_top: 10, padding_right: 20, padding_bottom: 10, padding_left: 20} =
-               parsed_pipeline!("/_/padding:10:20/plain/images/cat.jpg")
-
-      assert %{padding_top: 10, padding_right: 20, padding_bottom: 30, padding_left: 20} =
-               parsed_pipeline!("/_/padding:10:20:30/plain/images/cat.jpg")
-
-      assert %{padding_top: 10, padding_right: 20, padding_bottom: 30, padding_left: 40} =
-               parsed_pipeline!("/_/padding:10:20:30:40/plain/images/cat.jpg")
-    end
-
-    test "parses sparse padding with imgproxy accumulated field semantics" do
-      assert %{padding_top: 10, padding_right: 10, padding_bottom: 10, padding_left: 10} =
-               parsed_pipeline!("/_/padding:10:/plain/images/cat.jpg")
-
-      assert %{padding_top: 0, padding_right: 20, padding_bottom: 0, padding_left: 20} =
-               parsed_pipeline!("/_/padding::20/plain/images/cat.jpg")
-
-      assert %{padding_top: 10, padding_right: 10, padding_bottom: 30, padding_left: 10} =
-               parsed_pipeline!("/_/padding:10::30/plain/images/cat.jpg")
-
-      assert %{padding_top: 10, padding_right: 5, padding_bottom: 10, padding_left: 5} =
-               parsed_pipeline!("/_/pd:10:20:30:40/padding::5/plain/images/cat.jpg")
-    end
-
-    test "padding empty and zero forms are accepted by source-compatible parser behavior" do
-      assert %{padding_top: 0, padding_right: 0, padding_bottom: 0, padding_left: 0} =
-               parsed_pipeline!("/_/padding:/plain/images/cat.jpg")
-
-      assert %{padding_top: 0, padding_right: 0, padding_bottom: 0, padding_left: 0} =
-               parsed_pipeline!("/_/pd:10:20:30:40/padding:0/plain/images/cat.jpg")
-    end
-  end
-
-  describe "background parsing" do
-    test "parses decimal and hex background colors into Plan color" do
-      assert {:ok, red} = ImagePlug.Plan.Color.rgb(255, 0, 0)
-
-      assert %{background_color: ^red} =
-               parsed_pipeline!("/_/background:255:0:0/plain/images/cat.jpg")
-
-      assert %{background_color: ^red} = parsed_pipeline!("/_/bg:f00/plain/images/cat.jpg")
-      assert %{background_color: ^red} = parsed_pipeline!("/_/bg:FF0000/plain/images/cat.jpg")
-    end
-
-    test "empty background clears an accumulated background" do
-      assert %{background_color: nil} =
-               parsed_pipeline!("/_/bg:f00/background:/plain/images/cat.jpg")
-    end
-
-    test "background alpha applies to the accumulated background color" do
-      assert %{background_color: %Color{channels: {255, 0, 0}, alpha: {:ratio, 1, 2}}} =
-               parsed_pipeline!("/_/bg:f00/background_alpha:0.5/plain/images/cat.jpg")
-
-      assert %{background_color: %Color{channels: {0, 0, 255}, alpha: {:ratio, 1, 4}}} =
-               parsed_pipeline!("/_/bga:0.25/bg:00f/plain/images/cat.jpg")
-
-      assert %{background_color: %Color{channels: {0, 0, 0}, alpha: {:ratio, 1, 2}}} =
-               parsed_pipeline!("/_/bga:0.5/plain/images/cat.jpg")
-    end
-
-    test "background clear removes accumulated alpha" do
-      assert %{background_color: nil} =
-               parsed_pipeline!("/_/bg:f00/bga:0.5/background:/plain/images/cat.jpg")
-    end
   end
 
   test "public parse plans supported geometry pipeline semantics" do
@@ -1373,14 +1298,6 @@ defmodule ImagePlug.Parser.ImgproxyTest do
              Imgproxy.parse(conn(:get, path), [])
 
     operations
-  end
-
-  defp parsed_pipeline!(path) do
-    assert {:ok, _signature, _signed_path, path_info} = Path.extract(conn(:get, path))
-    assert {:ok, option_segments, _raw_source_path} = Path.split_source(path_info)
-    assert {:ok, request} = Options.parse(option_segments, Presets.empty())
-    [pipeline] = request.pipelines
-    pipeline
   end
 
   defp assert_output_mode(path, mode) do

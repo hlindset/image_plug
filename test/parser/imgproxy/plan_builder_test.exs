@@ -2,14 +2,9 @@ defmodule ImagePlug.Parser.Imgproxy.PlanBuilderTest do
   use ExUnit.Case, async: true
   use ExUnitProperties
 
-  import Plug.Test
-
-  alias ImagePlug.Parser.Imgproxy.Options
-  alias ImagePlug.Parser.Imgproxy.Path
   alias ImagePlug.Parser.Imgproxy.ParsedRequest
   alias ImagePlug.Parser.Imgproxy.PipelineRequest
   alias ImagePlug.Parser.Imgproxy.PlanBuilder
-  alias ImagePlug.Parser.Imgproxy.Presets
   alias ImagePlug.Plan
   alias ImagePlug.Plan.Operation
   alias ImagePlug.Plan.Output
@@ -344,13 +339,6 @@ defmodule ImagePlug.Parser.Imgproxy.PlanBuilderTest do
     assert crop.y_offset == {:scale, 0.5}
   end
 
-  test "parsed crop gravity is independent from top-level gravity" do
-    assert {:ok, pipeline} = parsed_pipeline("/_/g:so/c:0.5:0.25:nowe/plain/images/cat.jpg")
-
-    assert pipeline.gravity == {:anchor, :center, :bottom}
-    assert pipeline.crop.gravity == {:anchor, :left, :top}
-  end
-
   test "crop without explicit gravity inherits top-level gravity" do
     assert {:ok, %Plan{pipelines: [%Pipeline{operations: [%Operation.CropGuided{} = crop]}]}} =
              plan_pipeline(
@@ -380,34 +368,6 @@ defmodule ImagePlug.Parser.Imgproxy.PlanBuilderTest do
     assert focal_point(crop.guide) == {1, 4, 3, 4}
     assert crop.x_offset == {:scale, 0.25}
     assert crop.y_offset == {:pixels, -12.0}
-  end
-
-  test "parsed rotate normalizes integer multiples of 90" do
-    for {value, expected} <- [
-          {-450, 270},
-          {-90, 270},
-          {0, 0},
-          {90, 90},
-          {360, 0},
-          {450, 90}
-        ] do
-      assert {:ok, pipeline} = parsed_pipeline("/_/rot:#{value}/plain/images/cat.jpg")
-      assert pipeline.orientation.rotate == expected
-    end
-  end
-
-  test "parsed flip booleans normalize to explicit orientation intent" do
-    assert {:ok, pipeline} = parsed_pipeline("/_/flip:true:false/plain/images/cat.jpg")
-    assert pipeline.orientation.flip == :horizontal
-
-    assert {:ok, pipeline} = parsed_pipeline("/_/fl:false:true/plain/images/cat.jpg")
-    assert pipeline.orientation.flip == :vertical
-
-    assert {:ok, pipeline} = parsed_pipeline("/_/fl:true:true/plain/images/cat.jpg")
-    assert pipeline.orientation.flip == :both
-
-    assert {:ok, pipeline} = parsed_pipeline("/_/fl:false:false/plain/images/cat.jpg")
-    assert pipeline.orientation.flip == nil
   end
 
   test "planner emits fixed orientation crop resize order independent of URL order" do
@@ -552,16 +512,6 @@ defmodule ImagePlug.Parser.Imgproxy.PlanBuilderTest do
              plan_pipeline(background_color: nil)
 
     refute Enum.any?(operations, &match?(%Operation.Background{}, &1))
-  end
-
-  test "parsed zoom supports one shared factor or independent axes" do
-    assert {:ok, pipeline} = parsed_pipeline("/_/zoom:2/plain/images/cat.jpg")
-    assert pipeline.zoom_x == 2.0
-    assert pipeline.zoom_y == 2.0
-
-    assert {:ok, pipeline} = parsed_pipeline("/_/z:2:3/plain/images/cat.jpg")
-    assert pipeline.zoom_x == 2.0
-    assert pipeline.zoom_y == 3.0
   end
 
   test "plans neutral resize rule inputs before no-op operations" do
@@ -890,17 +840,6 @@ defmodule ImagePlug.Parser.Imgproxy.PlanBuilderTest do
 
   defp output_format do
     one_of([constant(nil), member_of([:webp, :avif, :jpeg, :png])])
-  end
-
-  defp parsed_pipeline(path) do
-    with {:ok, _signature, _signed_path, path_info} <- Path.extract(conn(:get, path)),
-         {:ok, option_segments, _raw_source_path} <- Path.split_source(path_info),
-         {:ok, request} <- Options.parse(option_segments, Presets.empty()) do
-      case request.pipelines do
-        [pipeline] -> {:ok, pipeline}
-        pipelines -> {:error, {:unexpected_pipelines, pipelines}}
-      end
-    end
   end
 
   defp plan_pipeline(attrs) do

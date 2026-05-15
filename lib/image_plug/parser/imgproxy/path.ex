@@ -1,16 +1,7 @@
 defmodule ImagePlug.Parser.Imgproxy.Path do
   @moduledoc false
 
-  @source_format_names ~w(webp avif jpeg jpg png best)
-
-  @source_formats %{
-    "webp" => :webp,
-    "avif" => :avif,
-    "jpeg" => :jpeg,
-    "jpg" => :jpeg,
-    "png" => :png,
-    "best" => :best
-  }
+  alias ImagePlug.Parser.Imgproxy.Format
 
   def extract(%Plug.Conn{} = conn) do
     case parser_request_path(conn) do
@@ -57,7 +48,7 @@ defmodule ImagePlug.Parser.Imgproxy.Path do
         decode_source_path(source, nil)
 
       [source, extension] ->
-        case parse_format(extension) do
+        case Format.parse(extension) do
           {:ok, format} -> decode_source_path(source, format)
           {:error, _reason} = error -> error
         end
@@ -144,13 +135,6 @@ defmodule ImagePlug.Parser.Imgproxy.Path do
     |> case do
       {:ok, decoded_segments} -> {:ok, Enum.reverse(decoded_segments)}
       {:error, _reason} = error -> error
-    end
-  end
-
-  defp parse_format(value) do
-    case Map.fetch(@source_formats, value) do
-      {:ok, parsed_value} -> {:ok, parsed_value}
-      :error -> {:error, {:invalid_format, value, @source_format_names}}
     end
   end
 
