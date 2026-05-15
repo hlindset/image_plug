@@ -124,6 +124,20 @@ describe("processing path generation", () => {
     expect(buildProcessingPath(state)).toBe("/_/q:85/plain/images/dog.jpg");
   });
 
+  it("does not emit an empty option segment when all tools are disabled", () => {
+    const state = {
+      ...defaultDemoState,
+      resizeEnabled: false,
+      cropEnabled: false,
+      gravityEnabled: false,
+      formatEnabled: false,
+      qualityEnabled: false
+    };
+
+    expect(optionSegments(state)).toEqual([]);
+    expect(buildProcessingPath(state)).toBe("/_/plain/images/dog.jpg");
+  });
+
   it("shows the negotiated output label for automatic formats", () => {
     expect(resolvedOutputLabel(defaultDemoState)).toBe("auto -> webp");
     expect(resolvedOutputLabel({ ...defaultDemoState, format: "png" })).toBe("png");

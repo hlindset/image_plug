@@ -120,6 +120,7 @@ export function processedSizeLabel(metadata: ProcessedImageMetadata | null): str
 
 export function buildProcessingPath(currentState: DemoState): string {
   const options = optionSegments(currentState).join("/");
+  const optionsPath = options === "" ? "" : `/${options}`;
 
-  return `/${currentState.signature}/${options}/plain/${currentState.source}`;
+  return `/${currentState.signature}${optionsPath}/plain/${currentState.source}`;
 }
