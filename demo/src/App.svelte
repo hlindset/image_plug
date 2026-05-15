@@ -4,17 +4,52 @@
   import {
     buildProcessingPath,
     defaultDemoState,
+    processedSizeLabel,
     resolvedOutputLabel,
-    type DemoState
+    type DemoState,
+    type ProcessedImageMetadata
   } from "./processing-path";
 
   let copyLabel = "Copy URL";
   let drawerOpen = false;
   let state: DemoState = { ...defaultDemoState };
+  let processedMetadata: ProcessedImageMetadata | null = null;
+  let metadataRequestId = 0;
 
   $: path = buildProcessingPath(state);
   $: previewParameters = path.replace(/^\/(?:_|unsafe)\//, "");
   $: outputLabel = resolvedOutputLabel(state);
+  $: sizeLabel = processedSizeLabel(processedMetadata);
+
+  async function updateProcessedMetadata(event: Event): Promise<void> {
+    const image = event.currentTarget;
+
+    if (!(image instanceof HTMLImageElement)) {
+      return;
+    }
+
+    const requestId = ++metadataRequestId;
+    const imagePath = image.currentSrc || image.src;
+    const dimensions = {
+      width: image.naturalWidth,
+      height: image.naturalHeight
+    };
+
+    processedMetadata = { ...dimensions, bytes: null };
+
+    try {
+      const response = await fetch(imagePath, { cache: "force-cache" });
+      const blob = await response.blob();
+
+      if (requestId === metadataRequestId) {
+        processedMetadata = { ...dimensions, bytes: blob.size };
+      }
+    } catch {
+      if (requestId === metadataRequestId) {
+        processedMetadata = { ...dimensions, bytes: null };
+      }
+    }
+  }
 
   async function copyGeneratedUrl(): Promise<void> {
     const absoluteUrl = new URL(path, window.location.origin).toString();
@@ -201,9 +236,9 @@
     <div class="preview-canvas">
       <div class="image-frame">
         <figure>
-          <img src={path} alt="Processed sample source" />
+          <img src={path} alt="Processed sample source" onload={updateProcessedMetadata} />
           <figcaption>
-            <span>{state.width} × {state.height}</span>
+            <span>{sizeLabel}</span>
             <span>{outputLabel}</span>
           </figcaption>
         </figure>

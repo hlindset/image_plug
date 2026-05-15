@@ -3455,6 +3455,23 @@ var all_registered_events = /* @__PURE__ */ new Set();
 /** @type {Set<(events: Array<string>) => void>} */
 var root_event_handles = /* @__PURE__ */ new Set();
 /**
+* SSR adds onload and onerror attributes to catch those events before the hydration.
+* This function detects those cases, removes the attributes and replays the events.
+* @param {HTMLElement} dom
+*/
+function replay_events(dom) {
+	if (!hydrating) return;
+	dom.removeAttribute("onload");
+	dom.removeAttribute("onerror");
+	const event = dom.__e;
+	if (event !== void 0) {
+		dom.__e = void 0;
+		queueMicrotask(() => {
+			if (dom.isConnected) dom.dispatchEvent(event);
+		});
+	}
+}
+/**
 * @param {string} event_name
 * @param {EventTarget} dom
 * @param {EventListener} [handler]
@@ -7680,6 +7697,12 @@ function resolvedOutputLabel(currentState) {
 	if (currentState.format === "auto") return "auto -> webp";
 	return currentState.format;
 }
+function processedSizeLabel(metadata) {
+	if (metadata === null) return "Loading";
+	const dimensions = `${metadata.width} × ${metadata.height}`;
+	if (metadata.bytes === null) return dimensions;
+	return `${dimensions} (${Math.max(1, Math.round(metadata.bytes / 1024))} kB)`;
+}
 function buildProcessingPath(currentState) {
 	const options = optionSegments(currentState).join("/");
 	return `/${currentState.signature}/${options}/plain/${currentState.source}`;
@@ -7694,9 +7717,38 @@ function App($$anchor, $$props) {
 	const path = /* @__PURE__ */ mutable_source();
 	const previewParameters = /* @__PURE__ */ mutable_source();
 	const outputLabel = /* @__PURE__ */ mutable_source();
+	const sizeLabel = /* @__PURE__ */ mutable_source();
 	let copyLabel = /* @__PURE__ */ mutable_source("Copy URL");
 	let drawerOpen = /* @__PURE__ */ mutable_source(false);
 	let state = /* @__PURE__ */ mutable_source({ ...defaultDemoState });
+	let processedMetadata = /* @__PURE__ */ mutable_source(null);
+	let metadataRequestId = 0;
+	async function updateProcessedMetadata(event) {
+		const image = event.currentTarget;
+		if (!(image instanceof HTMLImageElement)) return;
+		const requestId = ++metadataRequestId;
+		const imagePath = image.currentSrc || image.src;
+		const dimensions = {
+			width: image.naturalWidth,
+			height: image.naturalHeight
+		};
+		set(processedMetadata, {
+			...dimensions,
+			bytes: null
+		});
+		try {
+			const blob = await (await fetch(imagePath, { cache: "force-cache" })).blob();
+			if (requestId === metadataRequestId) set(processedMetadata, {
+				...dimensions,
+				bytes: blob.size
+			});
+		} catch {
+			if (requestId === metadataRequestId) set(processedMetadata, {
+				...dimensions,
+				bytes: null
+			});
+		}
+	}
 	async function copyGeneratedUrl() {
 		const absoluteUrl = new URL(get(path), window.location.origin).toString();
 		await navigator.clipboard.writeText(absoluteUrl);
@@ -7718,6 +7770,9 @@ function App($$anchor, $$props) {
 	});
 	legacy_pre_effect(() => get(state), () => {
 		set(outputLabel, resolvedOutputLabel(get(state)));
+	});
+	legacy_pre_effect(() => get(processedMetadata), () => {
+		set(sizeLabel, processedSizeLabel(get(processedMetadata)));
 	});
 	legacy_pre_effect_reset();
 	init();
@@ -7980,7 +8035,7 @@ function App($$anchor, $$props) {
 	var img = child(figure);
 	var figcaption = sibling(img, 2);
 	var span = child(figcaption);
-	var text_5 = child(span);
+	var text_5 = child(span, true);
 	reset(span);
 	var span_1 = sibling(span, 2);
 	var text_6 = child(span_1, true);
@@ -8002,7 +8057,7 @@ function App($$anchor, $$props) {
 		set_text(text_4, get(copyLabel));
 		set_attribute(a_1, "href", get(path));
 		set_attribute(img, "src", get(path));
-		set_text(text_5, `${(get(state), untrack(() => get(state).width)) ?? ""} × ${(get(state), untrack(() => get(state).height)) ?? ""}`);
+		set_text(text_5, get(sizeLabel));
 		set_text(text_6, get(outputLabel));
 	});
 	delegated("click", button, () => set(drawerOpen, false));
@@ -8013,6 +8068,8 @@ function App($$anchor, $$props) {
 	delegated("click", button_2, copyUrl);
 	delegated("click", button_3, () => set(drawerOpen, true));
 	delegated("click", button_4, copyUrl);
+	event("load", img, updateProcessedMetadata);
+	replay_events(img);
 	append($$anchor, main);
 	pop();
 }

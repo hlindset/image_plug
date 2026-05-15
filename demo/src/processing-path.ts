@@ -20,6 +20,12 @@ export type DemoState = {
   quality: number;
 };
 
+export type ProcessedImageMetadata = {
+  width: number;
+  height: number;
+  bytes: number | null;
+};
+
 export const defaultDemoState: DemoState = {
   signature: "_",
   source: "images/dog.jpg",
@@ -73,6 +79,22 @@ export function resolvedOutputLabel(currentState: DemoState): string {
   }
 
   return currentState.format;
+}
+
+export function processedSizeLabel(metadata: ProcessedImageMetadata | null): string {
+  if (metadata === null) {
+    return "Loading";
+  }
+
+  const dimensions = `${metadata.width} × ${metadata.height}`;
+
+  if (metadata.bytes === null) {
+    return dimensions;
+  }
+
+  const kilobytes = Math.max(1, Math.round(metadata.bytes / 1024));
+
+  return `${dimensions} (${kilobytes} kB)`;
 }
 
 export function buildProcessingPath(currentState: DemoState): string {

@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import {
   buildProcessingPath,
   defaultDemoState,
+  processedSizeLabel,
   optionSegments,
   resolvedOutputLabel
 } from "./processing-path";
@@ -53,5 +54,12 @@ describe("processing path generation", () => {
   it("shows the negotiated output label for automatic formats", () => {
     expect(resolvedOutputLabel(defaultDemoState)).toBe("auto -> webp");
     expect(resolvedOutputLabel({ ...defaultDemoState, format: "png" })).toBe("png");
+  });
+
+  it("formats the processed image dimensions and encoded byte size", () => {
+    expect(processedSizeLabel({ width: 640, height: 480, bytes: 552_960 })).toBe(
+      "640 × 480 (540 kB)"
+    );
+    expect(processedSizeLabel({ width: 300, height: 200, bytes: null })).toBe("300 × 200");
   });
 });
