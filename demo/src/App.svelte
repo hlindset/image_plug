@@ -28,6 +28,9 @@
       ? "ex:1"
       : `exar:${state.extendAspectWidth}:${state.extendAspectHeight}`
     : "Off";
+  $: paddingSummary = state.paddingEnabled
+    ? `pd:${state.paddingTop}:${state.paddingRight}:${state.paddingBottom}:${state.paddingLeft}`
+    : "Off";
   $: resizeExtras = [
     state.zoomEnabled ? `z:${state.zoom}` : null,
     state.dprEnabled ? `dpr:${state.dpr}` : null,
@@ -147,6 +150,29 @@
             <option value="both">both</option>
           </select>
         </label>
+      </section>
+
+      <section class="tool-section">
+        <div class="tool-heading">
+          <div>
+            <h2>Padding</h2>
+            <p>{paddingSummary}</p>
+          </div>
+          <Switch.Root
+            class="switch-root"
+            aria-label="Enable padding"
+            bind:checked={state.paddingEnabled}
+          >
+            <Switch.Thumb class="switch-thumb" />
+          </Switch.Root>
+        </div>
+
+        {#if state.paddingEnabled}
+          <RangeNumber label="Top" bind:value={state.paddingTop} min={0} max={240} step={1} />
+          <RangeNumber label="Right" bind:value={state.paddingRight} min={0} max={240} step={1} />
+          <RangeNumber label="Bottom" bind:value={state.paddingBottom} min={0} max={240} step={1} />
+          <RangeNumber label="Left" bind:value={state.paddingLeft} min={0} max={240} step={1} />
+        {/if}
       </section>
 
       <section class="tool-section">

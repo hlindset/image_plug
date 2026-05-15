@@ -66,6 +66,22 @@ describe("processing path generation", () => {
     expect(buildProcessingPath(state)).toBe("/_/exar:16:9/plain/images/dog.jpg");
   });
 
+  it("includes explicit four-sided padding after canvas options", () => {
+    const state = {
+      ...defaultDemoState,
+      canvasEnabled: true,
+      canvasMode: "extend" as const,
+      paddingEnabled: true,
+      paddingTop: 8,
+      paddingRight: 16,
+      paddingBottom: 24,
+      paddingLeft: 32
+    };
+
+    expect(optionSegments(state)).toEqual(["ex:1", "pd:8:16:24:32"]);
+    expect(buildProcessingPath(state)).toBe("/_/ex:1/pd:8:16:24:32/plain/images/dog.jpg");
+  });
+
   it("includes crop options before resize options when crop is enabled", () => {
     const state = {
       ...activeDemoState,

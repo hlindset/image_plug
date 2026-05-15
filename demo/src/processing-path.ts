@@ -28,6 +28,11 @@ export type DemoState = {
   canvasMode: CanvasMode;
   extendAspectWidth: number;
   extendAspectHeight: number;
+  paddingEnabled: boolean;
+  paddingTop: number;
+  paddingRight: number;
+  paddingBottom: number;
+  paddingLeft: number;
   gravityEnabled: boolean;
   gravity: Gravity;
   enlarge: boolean;
@@ -68,6 +73,11 @@ export const defaultDemoState: DemoState = {
   canvasMode: "extend",
   extendAspectWidth: 16,
   extendAspectHeight: 9,
+  paddingEnabled: false,
+  paddingTop: 24,
+  paddingRight: 24,
+  paddingBottom: 24,
+  paddingLeft: 24,
   gravityEnabled: false,
   gravity: "ce",
   enlarge: false,
@@ -144,6 +154,18 @@ export function optionSegments(currentState: DemoState): string[] {
 
   if (currentState.canvasEnabled && currentState.canvasMode === "aspectRatio") {
     segments.push(`exar:${currentState.extendAspectWidth}:${currentState.extendAspectHeight}`);
+  }
+
+  if (currentState.paddingEnabled) {
+    segments.push(
+      [
+        "pd",
+        currentState.paddingTop,
+        currentState.paddingRight,
+        currentState.paddingBottom,
+        currentState.paddingLeft
+      ].join(":")
+    );
   }
 
   if (
