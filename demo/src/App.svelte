@@ -23,6 +23,11 @@
   $: orientationSummary =
     [state.autoRotateEnabled ? "ar:1" : null, flipSegment(state.flip)].filter(Boolean).join("/") ||
     "Off";
+  $: canvasSummary = state.canvasEnabled
+    ? state.canvasMode === "extend"
+      ? "ex:1"
+      : `exar:${state.extendAspectWidth}:${state.extendAspectHeight}`
+    : "Off";
 
   function flipSegment(flip: DemoState["flip"]): string | null {
     if (flip === "horizontal") {
@@ -172,6 +177,49 @@
             </Switch.Root>
             <span>Allow enlargement</span>
           </label>
+        {/if}
+      </section>
+
+      <section class="tool-section">
+        <div class="tool-heading">
+          <div>
+            <h2>Canvas</h2>
+            <p>{canvasSummary}</p>
+          </div>
+          <Switch.Root
+            class="switch-root"
+            aria-label="Enable canvas"
+            bind:checked={state.canvasEnabled}
+          >
+            <Switch.Thumb class="switch-thumb" />
+          </Switch.Root>
+        </div>
+
+        {#if state.canvasEnabled}
+          <label class="field">
+            <span>Mode</span>
+            <select bind:value={state.canvasMode}>
+              <option value="extend">extend</option>
+              <option value="aspectRatio">aspect ratio</option>
+            </select>
+          </label>
+
+          {#if state.canvasMode === "aspectRatio"}
+            <RangeNumber
+              label="Ratio width"
+              bind:value={state.extendAspectWidth}
+              min={1}
+              max={32}
+              step={1}
+            />
+            <RangeNumber
+              label="Ratio height"
+              bind:value={state.extendAspectHeight}
+              min={1}
+              max={32}
+              step={1}
+            />
+          {/if}
         {/if}
       </section>
 

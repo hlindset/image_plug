@@ -41,6 +41,31 @@ describe("processing path generation", () => {
     expect(optionSegments({ ...defaultDemoState, flip: "both" })).toEqual(["fl"]);
   });
 
+  it("includes canvas extend after resize when enabled", () => {
+    const state = {
+      ...defaultDemoState,
+      resizeEnabled: true,
+      canvasEnabled: true,
+      canvasMode: "extend" as const
+    };
+
+    expect(optionSegments(state)).toEqual(["rs:fill:640:360:0", "ex:1"]);
+    expect(buildProcessingPath(state)).toBe("/_/rs:fill:640:360:0/ex:1/plain/images/dog.jpg");
+  });
+
+  it("includes extend aspect ratio when canvas aspect ratio mode is enabled", () => {
+    const state = {
+      ...defaultDemoState,
+      canvasEnabled: true,
+      canvasMode: "aspectRatio" as const,
+      extendAspectWidth: 16,
+      extendAspectHeight: 9
+    };
+
+    expect(optionSegments(state)).toEqual(["exar:16:9"]);
+    expect(buildProcessingPath(state)).toBe("/_/exar:16:9/plain/images/dog.jpg");
+  });
+
   it("includes crop options before resize options when crop is enabled", () => {
     const state = {
       ...activeDemoState,

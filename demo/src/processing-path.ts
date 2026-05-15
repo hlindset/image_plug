@@ -3,6 +3,7 @@ export type Gravity = "ce" | "no" | "so" | "ea" | "we" | "noea" | "nowe" | "soea
 export type CropGravity = "inherit" | Gravity;
 export type OutputFormat = "webp" | "avif" | "jpeg" | "png";
 export type Flip = "none" | "horizontal" | "vertical" | "both";
+export type CanvasMode = "extend" | "aspectRatio";
 export type Signature = "_" | "unsafe";
 export type SourceImage = "images/dog.jpg" | "images/cat-300.jpg";
 
@@ -15,6 +16,10 @@ export type DemoState = {
   resizeMode: ResizeMode;
   width: number;
   height: number;
+  canvasEnabled: boolean;
+  canvasMode: CanvasMode;
+  extendAspectWidth: number;
+  extendAspectHeight: number;
   gravityEnabled: boolean;
   gravity: Gravity;
   enlarge: boolean;
@@ -43,6 +48,10 @@ export const defaultDemoState: DemoState = {
   resizeMode: "fill",
   width: 640,
   height: 360,
+  canvasEnabled: false,
+  canvasMode: "extend",
+  extendAspectWidth: 16,
+  extendAspectHeight: 9,
   gravityEnabled: false,
   gravity: "ce",
   enlarge: false,
@@ -95,6 +104,14 @@ export function optionSegments(currentState: DemoState): string[] {
         currentState.enlarge ? 1 : 0
       ].join(":")
     );
+  }
+
+  if (currentState.canvasEnabled && currentState.canvasMode === "extend") {
+    segments.push("ex:1");
+  }
+
+  if (currentState.canvasEnabled && currentState.canvasMode === "aspectRatio") {
+    segments.push(`exar:${currentState.extendAspectWidth}:${currentState.extendAspectHeight}`);
   }
 
   if (
