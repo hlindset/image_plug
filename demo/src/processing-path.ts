@@ -2,12 +2,15 @@ export type ResizeMode = "fit" | "fill" | "fill-down" | "force" | "auto";
 export type Gravity = "ce" | "no" | "so" | "ea" | "we" | "noea" | "nowe" | "soea" | "sowe";
 export type CropGravity = "inherit" | Gravity;
 export type OutputFormat = "webp" | "avif" | "jpeg" | "png";
+export type Flip = "none" | "horizontal" | "vertical" | "both";
 export type Signature = "_" | "unsafe";
 export type SourceImage = "images/dog.jpg" | "images/cat-300.jpg";
 
 export type DemoState = {
   signature: Signature;
   source: SourceImage;
+  autoRotateEnabled: boolean;
+  flip: Flip;
   resizeEnabled: boolean;
   resizeMode: ResizeMode;
   width: number;
@@ -34,6 +37,8 @@ export type ProcessedImageMetadata = {
 export const defaultDemoState: DemoState = {
   signature: "_",
   source: "images/dog.jpg",
+  autoRotateEnabled: false,
+  flip: "none",
   resizeEnabled: false,
   resizeMode: "fill",
   width: 640,
@@ -53,6 +58,22 @@ export const defaultDemoState: DemoState = {
 
 export function optionSegments(currentState: DemoState): string[] {
   const segments: string[] = [];
+
+  if (currentState.autoRotateEnabled) {
+    segments.push("ar:1");
+  }
+
+  if (currentState.flip === "horizontal") {
+    segments.push("fl:1");
+  }
+
+  if (currentState.flip === "vertical") {
+    segments.push("fl:0:1");
+  }
+
+  if (currentState.flip === "both") {
+    segments.push("fl");
+  }
 
   if (currentState.cropEnabled) {
     const cropSegment = ["c", currentState.cropWidth, currentState.cropHeight];

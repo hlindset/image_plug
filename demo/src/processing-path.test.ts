@@ -25,6 +25,22 @@ describe("processing path generation", () => {
     expect(defaultDemoState.format).toBe("jpeg");
   });
 
+  it("includes auto rotate as an explicit orientation option", () => {
+    const state = {
+      ...defaultDemoState,
+      autoRotateEnabled: true
+    };
+
+    expect(optionSegments(state)).toEqual(["ar:1"]);
+    expect(buildProcessingPath(state)).toBe("/_/ar:1/plain/images/dog.jpg");
+  });
+
+  it("includes flip options for each supported flip axis", () => {
+    expect(optionSegments({ ...defaultDemoState, flip: "horizontal" })).toEqual(["fl:1"]);
+    expect(optionSegments({ ...defaultDemoState, flip: "vertical" })).toEqual(["fl:0:1"]);
+    expect(optionSegments({ ...defaultDemoState, flip: "both" })).toEqual(["fl"]);
+  });
+
   it("includes crop options before resize options when crop is enabled", () => {
     const state = {
       ...activeDemoState,

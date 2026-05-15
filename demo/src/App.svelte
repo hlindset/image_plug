@@ -20,6 +20,25 @@
   $: previewParameters = path.replace(/^\/(?:_|unsafe)\//, "");
   $: outputLabel = resolvedOutputLabel(state);
   $: sizeLabel = processedSizeLabel(processedMetadata);
+  $: orientationSummary =
+    [state.autoRotateEnabled ? "ar:1" : null, flipSegment(state.flip)].filter(Boolean).join("/") ||
+    "Off";
+
+  function flipSegment(flip: DemoState["flip"]): string | null {
+    if (flip === "horizontal") {
+      return "fl:1";
+    }
+
+    if (flip === "vertical") {
+      return "fl:0:1";
+    }
+
+    if (flip === "both") {
+      return "fl";
+    }
+
+    return null;
+  }
 
   async function updateProcessedMetadata(event: Event): Promise<void> {
     const image = event.currentTarget;
@@ -91,6 +110,32 @@
     </div>
 
     <div class="tool-stack">
+      <section class="tool-section">
+        <div class="tool-heading">
+          <div>
+            <h2>Orientation</h2>
+            <p>{orientationSummary}</p>
+          </div>
+        </div>
+
+        <label class="switch-field">
+          <Switch.Root class="switch-root" bind:checked={state.autoRotateEnabled}>
+            <Switch.Thumb class="switch-thumb" />
+          </Switch.Root>
+          <span>Auto rotate</span>
+        </label>
+
+        <label class="field">
+          <span>Flip</span>
+          <select bind:value={state.flip}>
+            <option value="none">none</option>
+            <option value="horizontal">horizontal</option>
+            <option value="vertical">vertical</option>
+            <option value="both">both</option>
+          </select>
+        </label>
+      </section>
+
       <section class="tool-section">
         <div class="tool-heading">
           <div>
