@@ -33,6 +33,10 @@ export type DemoState = {
   paddingRight: number;
   paddingBottom: number;
   paddingLeft: number;
+  backgroundEnabled: boolean;
+  backgroundColor: string;
+  backgroundAlphaEnabled: boolean;
+  backgroundAlpha: number;
   gravityEnabled: boolean;
   gravity: Gravity;
   enlarge: boolean;
@@ -78,6 +82,10 @@ export const defaultDemoState: DemoState = {
   paddingRight: 24,
   paddingBottom: 24,
   paddingLeft: 24,
+  backgroundEnabled: false,
+  backgroundColor: "#ffffff",
+  backgroundAlphaEnabled: false,
+  backgroundAlpha: 0.5,
   gravityEnabled: false,
   gravity: "ce",
   enlarge: false,
@@ -166,6 +174,14 @@ export function optionSegments(currentState: DemoState): string[] {
         currentState.paddingLeft
       ].join(":")
     );
+  }
+
+  if (currentState.backgroundEnabled) {
+    segments.push(`bg:${currentState.backgroundColor.replace(/^#/, "")}`);
+
+    if (currentState.backgroundAlphaEnabled) {
+      segments.push(`bga:${currentState.backgroundAlpha}`);
+    }
   }
 
   if (

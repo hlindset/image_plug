@@ -82,6 +82,24 @@ describe("processing path generation", () => {
     expect(buildProcessingPath(state)).toBe("/_/ex:1/pd:8:16:24:32/plain/images/dog.jpg");
   });
 
+  it("includes background color and optional alpha after padding", () => {
+    const state = {
+      ...defaultDemoState,
+      paddingEnabled: true,
+      paddingTop: 8,
+      paddingRight: 8,
+      paddingBottom: 8,
+      paddingLeft: 8,
+      backgroundEnabled: true,
+      backgroundColor: "#ffcc00",
+      backgroundAlphaEnabled: true,
+      backgroundAlpha: 0.5
+    };
+
+    expect(optionSegments(state)).toEqual(["pd:8:8:8:8", "bg:ffcc00", "bga:0.5"]);
+    expect(buildProcessingPath(state)).toBe("/_/pd:8:8:8:8/bg:ffcc00/bga:0.5/plain/images/dog.jpg");
+  });
+
   it("includes crop options before resize options when crop is enabled", () => {
     const state = {
       ...activeDemoState,

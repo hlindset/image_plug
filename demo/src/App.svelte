@@ -31,6 +31,11 @@
   $: paddingSummary = state.paddingEnabled
     ? `pd:${state.paddingTop}:${state.paddingRight}:${state.paddingBottom}:${state.paddingLeft}`
     : "Off";
+  $: backgroundSummary = state.backgroundEnabled
+    ? `bg:${state.backgroundColor.replace(/^#/, "")}${
+        state.backgroundAlphaEnabled ? `/bga:${state.backgroundAlpha}` : ""
+      }`
+    : "Off";
   $: resizeExtras = [
     state.zoomEnabled ? `z:${state.zoom}` : null,
     state.dprEnabled ? `dpr:${state.dpr}` : null,
@@ -150,6 +155,46 @@
             <option value="both">both</option>
           </select>
         </label>
+      </section>
+
+      <section class="tool-section">
+        <div class="tool-heading">
+          <div>
+            <h2>Background</h2>
+            <p>{backgroundSummary}</p>
+          </div>
+          <Switch.Root
+            class="switch-root"
+            aria-label="Enable background"
+            bind:checked={state.backgroundEnabled}
+          >
+            <Switch.Thumb class="switch-thumb" />
+          </Switch.Root>
+        </div>
+
+        {#if state.backgroundEnabled}
+          <label class="field">
+            <span>Color</span>
+            <input class="color-input" type="color" bind:value={state.backgroundColor} />
+          </label>
+
+          <label class="switch-field">
+            <Switch.Root class="switch-root" bind:checked={state.backgroundAlphaEnabled}>
+              <Switch.Thumb class="switch-thumb" />
+            </Switch.Root>
+            <span>Alpha</span>
+          </label>
+
+          {#if state.backgroundAlphaEnabled}
+            <RangeNumber
+              label="Alpha"
+              bind:value={state.backgroundAlpha}
+              min={0.1}
+              max={1}
+              step={0.1}
+            />
+          {/if}
+        {/if}
       </section>
 
       <section class="tool-section">
@@ -771,6 +816,16 @@
       calc(100% - 12px) 16px;
     background-size: 5px 5px;
     background-repeat: no-repeat;
+  }
+
+  .color-input {
+    width: 100%;
+    height: 38px;
+    border: 1px solid var(--border-strong);
+    border-radius: 7px;
+    background: var(--surface-control);
+    padding: 4px;
+    cursor: pointer;
   }
 
   .switch-field {
