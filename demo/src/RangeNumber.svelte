@@ -62,7 +62,7 @@
     display: flex;
     flex-direction: column;
     gap: 8px;
-    color: var(--label);
+    color: var(--text-label);
     font-size: 13px;
     line-height: 18px;
   }
@@ -78,27 +78,27 @@
     border: 1px solid transparent;
     border-radius: 6px;
     background: transparent;
-    color: var(--text);
+    color: var(--text-primary);
     font-family: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
     font-size: 13px;
     line-height: 18px;
     text-align: right;
     appearance: textfield;
     -moz-appearance: textfield;
-  }
 
-  input[type="number"]::-webkit-inner-spin-button,
-  input[type="number"]::-webkit-outer-spin-button {
-    margin: 0;
-    appearance: none;
-    -webkit-appearance: none;
-  }
+    &::-webkit-inner-spin-button,
+    &::-webkit-outer-spin-button {
+      margin: 0;
+      appearance: none;
+      -webkit-appearance: none;
+    }
 
-  input[type="number"]:hover,
-  input[type="number"]:focus {
-    border-color: var(--line-strong);
-    background: var(--control);
-    outline: none;
+    &:hover,
+    &:focus {
+      border-color: var(--border-strong);
+      background: var(--surface-control);
+      outline: none;
+    }
   }
 
   .range-number :global(.slider-root) {
@@ -116,26 +116,26 @@
     position: absolute;
     inset: 11px 0;
     border-radius: 999px;
-    background: var(--control-track);
+    background: var(--surface-control-track);
   }
 
   .range-number :global(.slider-range) {
     position: absolute;
     height: 6px;
     border-radius: 999px;
-    background: var(--amber);
+    background: var(--accent);
   }
 
   .range-number :global(.slider-thumb) {
     width: 20px;
     height: 20px;
-    border: 2px solid var(--sidebar);
+    border: 2px solid var(--surface-sidebar);
     border-radius: 999px;
-    background: var(--text);
+    background: var(--text-primary);
   }
 
   .range-number :global(.slider-thumb:focus-visible) {
-    outline: 2px solid var(--amber);
+    outline: 2px solid var(--focus-ring);
     outline-offset: 2px;
   }
 </style>

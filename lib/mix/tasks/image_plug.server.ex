@@ -5,6 +5,7 @@ defmodule Mix.Tasks.ImagePlug.Server do
       $ mix image_plug.server
       $ mix image_plug.server --port 4001
       $ mix image_plug.server --cache
+      $ mix image_plug.server --no-vite
 
   The server uses `ImagePlug.SimpleServer` and is available only in dev and test.
   """
@@ -15,6 +16,7 @@ defmodule Mix.Tasks.ImagePlug.Server do
   @shortdoc "Starts the ImagePlug development server"
 
   @default_port 4000
+  @default_vite_port 5173
   @default_cache_root "_build/dev/image_plug/cache"
   @port_range 1..65_535
 
@@ -32,13 +34,21 @@ defmodule Mix.Tasks.ImagePlug.Server do
   @doc false
   def parse_args(args) do
     args
-    |> OptionParser.parse(strict: [cache: :boolean, port: :integer], aliases: [p: :port])
+    |> OptionParser.parse(
+      strict: [cache: :boolean, port: :integer, vite: :boolean],
+      aliases: [p: :port]
+    )
     |> parse_options()
   end
 
   defp parse_options({opts, [], []}) do
     with {:ok, port} <- opts |> Keyword.get(:port, @default_port) |> validate_port() do
-      {:ok, %{cache?: Keyword.get(opts, :cache, false), port: port}}
+      {:ok,
+       %{
+         cache?: Keyword.get(opts, :cache, false),
+         port: port,
+         vite?: Keyword.get(opts, :vite, true)
+       }}
     end
   end
 
@@ -55,19 +65,23 @@ defmodule Mix.Tasks.ImagePlug.Server do
   defp validate_port(_port),
     do: {:error, "expected --port to be between #{@port_range.first} and #{@port_range.last}"}
 
-  defp start_server(%{cache?: cache?, port: port}) do
+  defp start_server(%{cache?: cache?, port: port, vite?: vite?}) do
     root_url = "http://localhost:#{port}"
+    vite_origin = "http://localhost:#{@default_vite_port}"
 
     Application.put_env(:image_plug, ImagePlug.SimpleServer,
       cache: cache_config(cache?),
-      root_url: root_url
+      root_url: root_url,
+      vite_origin: vite_origin
     )
 
     Mix.Task.run("app.start")
 
+    maybe_start_vite(vite?)
     {:ok, _pid} = start_bandit(port)
 
     Mix.shell().info("ImagePlug simple server running at #{root_url}")
+    maybe_print_vite_info(vite_origin, vite?)
     maybe_print_cache_info(cache?)
     Process.sleep(:infinity)
   end
@@ -93,9 +107,79 @@ defmodule Mix.Tasks.ImagePlug.Server do
     end
   end
 
+  defp maybe_start_vite(false), do: :ok
+
+  defp maybe_start_vite(true) do
+    case System.find_executable("node") do
+      nil ->
+        Mix.raise("node is required to run the demo Vite dev server")
+
+      node ->
+        {:ok, _pid} =
+          Task.start_link(fn ->
+            run_vite(node, vite_bin_path())
+          end)
+
+        :ok
+    end
+  end
+
+  defp vite_bin_path do
+    path = Path.expand("node_modules/vite/bin/vite.js", File.cwd!())
+
+    case File.regular?(path) do
+      true ->
+        path
+
+      false ->
+        Mix.raise("Vite is not installed; run pnpm install before starting the demo server")
+    end
+  end
+
+  defp run_vite(node, vite_bin_path) do
+    port =
+      Port.open({:spawn_executable, node}, [
+        :binary,
+        :exit_status,
+        :stderr_to_stdout,
+        {:args,
+         [
+           vite_bin_path,
+           "--host",
+           "localhost",
+           "--port",
+           Integer.to_string(@default_vite_port),
+           "--strictPort"
+         ]},
+        {:cd, File.cwd!()}
+      ])
+
+    stream_vite_output(port)
+  end
+
+  defp stream_vite_output(port) do
+    receive do
+      {^port, {:data, data}} ->
+        IO.write(data)
+        stream_vite_output(port)
+
+      {^port, {:exit_status, 0}} ->
+        :ok
+
+      {^port, {:exit_status, status}} ->
+        raise "Vite dev server exited with status #{status}"
+    end
+  end
+
   defp maybe_print_cache_info(false), do: :ok
 
   defp maybe_print_cache_info(true) do
     Mix.shell().info("Filesystem cache enabled at #{Path.expand(@default_cache_root)}")
+  end
+
+  defp maybe_print_vite_info(_vite_origin, false), do: :ok
+
+  defp maybe_print_vite_info(vite_origin, true) do
+    Mix.shell().info("Demo assets served by Vite at #{vite_origin}")
   end
 end

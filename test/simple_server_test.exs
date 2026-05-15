@@ -23,26 +23,8 @@ defmodule ImagePlug.SimpleServerTest do
     assert conn.status == 200
     assert get_resp_header(conn, "content-type") == ["text/html; charset=utf-8"]
     assert conn.resp_body =~ "ImagePlug Fiddle"
-    assert conn.resp_body =~ ~s(src="/demo/assets/main.js")
-    assert conn.resp_body =~ ~s(href="/demo/assets/main.css")
-  end
-
-  test "serves demo fiddle assets" do
-    js_conn =
-      :get
-      |> conn("/demo/assets/main.js")
-      |> ImagePlug.SimpleServer.call([])
-
-    css_conn =
-      :get
-      |> conn("/demo/assets/main.css")
-      |> ImagePlug.SimpleServer.call([])
-
-    assert js_conn.status == 200
-    assert get_resp_header(js_conn, "content-type") == ["text/javascript"]
-
-    assert css_conn.status == 200
-    assert get_resp_header(css_conn, "content-type") == ["text/css"]
-    assert css_conn.resp_body =~ "fiddle-shell"
+    assert conn.resp_body =~ ~s(src="http://localhost:5173/@vite/client")
+    assert conn.resp_body =~ ~s(src="http://localhost:5173/demo/src/main.ts")
+    refute conn.resp_body =~ "/demo/assets/"
   end
 end

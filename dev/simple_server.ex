@@ -14,7 +14,7 @@ defmodule ImagePlug.SimpleServer do
   plug Plug.Static,
     at: "/",
     from: {:image_plug, "priv/static"},
-    only: ~w(demo images)
+    only: ~w(images)
 
   plug :match
   plug :dispatch
@@ -28,15 +28,11 @@ defmodule ImagePlug.SimpleServer do
   get "/demo" do
     conn
     |> put_resp_content_type("text/html")
-    |> send_file(200, demo_path("index.html"))
+    |> send_resp(200, demo_html())
   end
 
   match _ do
     ImagePlug.call(conn, image_plug_opts())
-  end
-
-  defp demo_path(filename) do
-    Path.join([:code.priv_dir(:image_plug), "static", "demo", filename])
   end
 
   defp image_plug_opts do
@@ -58,6 +54,18 @@ defmodule ImagePlug.SimpleServer do
     :image_plug
     |> Application.get_env(__MODULE__, [])
     |> Keyword.get(:cache)
+  end
+
+  defp demo_html do
+    "demo/dev.html"
+    |> File.read!()
+    |> String.replace("{{VITE_ORIGIN}}", vite_origin())
+  end
+
+  defp vite_origin do
+    :image_plug
+    |> Application.get_env(__MODULE__, [])
+    |> Keyword.get(:vite_origin, "http://localhost:5173")
   end
 
   defp maybe_put_cache(opts, nil), do: opts

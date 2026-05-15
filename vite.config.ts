@@ -5,6 +5,11 @@ export default defineConfig({
   root: "demo",
   base: "/demo/",
   plugins: [svelte()],
+  server: {
+    host: "localhost",
+    port: 5173,
+    strictPort: true
+  },
   build: {
     outDir: "../priv/static/demo",
     emptyOutDir: true,

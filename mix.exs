@@ -64,6 +64,7 @@ defmodule ImagePlug.MixProject do
     [
       "demo.build": ["cmd pnpm run demo:build"],
       "demo.check": ["cmd pnpm run demo:check"],
+      "demo.dev": ["cmd pnpm run demo:dev"],
       "demo.lint": ["cmd pnpm run demo:lint"],
       "demo.test": ["cmd pnpm run demo:test"],
       "demo.verify": ["demo.test", "demo.check", "demo.lint", "demo.build"],

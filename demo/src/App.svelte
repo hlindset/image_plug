@@ -253,7 +253,7 @@
     height: 100dvh;
     display: flex;
     overflow: hidden;
-    background: var(--bg);
+    background: var(--surface-app);
   }
 
   .tools-sidebar {
@@ -262,9 +262,9 @@
     display: flex;
     flex-direction: column;
     flex-shrink: 0;
-    background: var(--sidebar);
-    border-right: 1px solid var(--line);
-    color: var(--text);
+    background: var(--surface-sidebar);
+    border-inline-end: 1px solid var(--border-subtle);
+    color: var(--text-primary);
   }
 
   .drawer-topbar {
@@ -277,7 +277,7 @@
     padding: 18px;
     overflow-y: auto;
     scrollbar-width: thin;
-    scrollbar-color: var(--line-strong) transparent;
+    scrollbar-color: var(--border-strong) transparent;
   }
 
   .tool-stack::-webkit-scrollbar {
@@ -285,9 +285,9 @@
   }
 
   .tool-stack::-webkit-scrollbar-thumb {
-    border: 3px solid var(--sidebar);
+    border: 3px solid var(--surface-sidebar);
     border-radius: 999px;
-    background: var(--line-strong);
+    background: var(--border-strong);
   }
 
   .tool-section {
@@ -295,7 +295,7 @@
     flex-direction: column;
     gap: 14px;
     padding: 14px;
-    border-bottom: 1px solid var(--line);
+    border-bottom: 1px solid var(--border-subtle);
   }
 
   .tool-heading {
@@ -304,26 +304,24 @@
     align-items: center;
     justify-content: space-between;
     gap: 12px;
-  }
 
-  .tool-heading h2,
-  .tool-heading p,
-  figure {
-    margin: 0;
-  }
+    :where(h2, p) {
+      margin: 0;
+    }
 
-  .tool-heading h2 {
-    font-size: 16px;
-    line-height: 20px;
-    font-weight: 650;
-    color: #fff;
-  }
+    h2 {
+      font-size: 16px;
+      line-height: 20px;
+      font-weight: 650;
+      color: var(--text-heading);
+    }
 
-  .tool-heading p {
-    margin-top: 2px;
-    color: var(--muted);
-    font-size: 12px;
-    line-height: 16px;
+    p {
+      margin-block-start: 2px;
+      color: var(--text-muted);
+      font-size: 12px;
+      line-height: 16px;
+    }
   }
 
   .preview-workspace {
@@ -332,7 +330,7 @@
     flex: 1;
     display: flex;
     flex-direction: column;
-    background: var(--bg);
+    background: var(--surface-app);
   }
 
   .preview-command-bar {
@@ -341,16 +339,17 @@
     align-items: center;
     gap: 14px;
     flex-shrink: 0;
-    padding: 12px 18px;
-    border-bottom: 1px solid var(--line);
-    background: var(--bar);
+    padding-block: 12px;
+    padding-inline: 18px;
+    border-block-end: 1px solid var(--border-subtle);
+    background: var(--surface-bar);
   }
 
   .parameter-preview {
     min-width: 0;
     flex: 1;
     overflow: hidden;
-    color: var(--muted);
+    color: var(--text-muted);
     font-size: 13px;
     line-height: 18px;
     text-overflow: ellipsis;
@@ -384,7 +383,6 @@
     align-items: center;
     justify-content: center;
     padding: 0 16px;
-    color: var(--bg);
     font-size: 14px;
     line-height: 18px;
     font-weight: 700;
@@ -392,16 +390,18 @@
 
   .copy-button {
     min-width: 104px;
-    background: var(--text);
+    background: var(--button-secondary-bg);
+    color: var(--button-secondary-text);
   }
 
   .copy-button-secondary {
-    background: var(--text);
+    background: var(--button-secondary-bg);
   }
 
   .open-link {
     min-width: 76px;
-    background: var(--amber);
+    background: var(--button-primary-bg);
+    color: var(--button-primary-text);
   }
 
   .icon-button {
@@ -410,9 +410,9 @@
     display: inline-flex;
     align-items: center;
     justify-content: center;
-    border: 1px solid var(--line-strong);
-    background: #151922;
-    color: var(--text);
+    border: 1px solid var(--border-strong);
+    background: var(--surface-button-quiet);
+    color: var(--text-primary);
     font-size: 18px;
     line-height: 1;
   }
@@ -430,7 +430,7 @@
     overflow: hidden;
     padding: 28px;
     background:
-      repeating-conic-gradient(#1b222b 0 25%, var(--canvas) 0 50%)
+      repeating-conic-gradient(var(--checker-square) 0 25%, var(--surface-canvas) 0 50%)
       50% / 20px 20px;
   }
 
@@ -440,40 +440,40 @@
     display: flex;
     align-items: center;
     justify-content: center;
-  }
 
-  .image-frame figure {
-    position: relative;
-    display: inline-flex;
-    box-shadow: 0 22px 80px rgba(0, 0, 0, 0.38);
-  }
+    figure {
+      position: relative;
+      display: inline-flex;
+      margin: 0;
+      box-shadow: var(--image-shadow);
+    }
 
-  .image-frame img {
-    display: block;
-    width: auto;
-    height: auto;
-    max-width: 100%;
-    max-height: calc(100dvh - 160px);
-  }
+    img {
+      display: block;
+      width: auto;
+      height: auto;
+      max-width: 100%;
+      max-height: calc(100dvh - 160px);
+    }
 
-  .image-frame figcaption {
-    position: absolute;
-    right: 14px;
-    bottom: 14px;
-    left: 14px;
-    display: flex;
-    justify-content: space-between;
-    gap: 12px;
-    color: rgba(246, 241, 231, 0.82);
-    font-family: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
-    font-size: 12px;
-    line-height: 16px;
-    pointer-events: none;
+    figcaption {
+      position: absolute;
+      inset-inline: 14px;
+      inset-block-end: 14px;
+      display: flex;
+      justify-content: space-between;
+      gap: 12px;
+      color: var(--image-overlay-text);
+      font-family: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+      font-size: 12px;
+      line-height: 16px;
+      pointer-events: none;
+    }
   }
 
   .field,
   .switch-field {
-    color: var(--label);
+    color: var(--text-label);
     font-size: 13px;
     line-height: 18px;
   }
@@ -500,17 +500,17 @@
     min-width: 0;
     width: 100%;
     height: 38px;
-    border: 1px solid var(--line-strong);
+    border: 1px solid var(--border-strong);
     border-radius: 7px;
-    background: var(--control);
-    color: var(--text);
-    padding: 0 34px 0 12px;
+    background: var(--surface-control);
+    color: var(--text-primary);
+    padding-inline: 12px 34px;
     font-size: 14px;
     line-height: 18px;
     appearance: none;
     background-image:
-      linear-gradient(45deg, transparent 50%, var(--muted) 50%),
-      linear-gradient(135deg, var(--muted) 50%, transparent 50%);
+      linear-gradient(45deg, transparent 50%, var(--text-muted) 50%),
+      linear-gradient(135deg, var(--text-muted) 50%, transparent 50%);
     background-position:
       calc(100% - 17px) 16px,
       calc(100% - 12px) 16px;
@@ -533,14 +533,14 @@
     justify-content: flex-start;
     border: 0;
     border-radius: 999px;
-    background: var(--control-track);
+    background: var(--surface-control-track);
     padding: 2px;
     cursor: pointer;
   }
 
   .fiddle-shell :global(.switch-root[data-state="checked"]) {
     justify-content: flex-end;
-    background: var(--amber);
+    background: var(--accent);
   }
 
   .fiddle-shell :global(.switch-thumb) {
@@ -548,19 +548,16 @@
     width: 20px;
     height: 20px;
     border-radius: 999px;
-    background: var(--muted);
+    background: var(--text-muted);
   }
 
   .fiddle-shell :global(.switch-root[data-state="checked"] .switch-thumb) {
-    background: var(--sidebar);
+    background: var(--surface-sidebar);
   }
 
   .fiddle-shell :global(.switch-root:focus-visible),
-  .copy-button:focus-visible,
-  .open-link:focus-visible,
-  .icon-button:focus-visible,
-  select:focus-visible {
-    outline: 2px solid var(--amber);
+  :where(.copy-button, .open-link, .icon-button, select):focus-visible {
+    outline: 2px solid var(--focus-ring);
     outline-offset: 2px;
   }
 
@@ -572,11 +569,12 @@
     .tools-sidebar {
       position: fixed;
       z-index: 3;
-      inset: 0 auto 0 0;
+      inset-block: 0;
+      inset-inline-start: 0;
       width: min(326px, calc(100vw - 48px));
       transform: translateX(-100%);
       transition: transform 180ms ease;
-      box-shadow: 18px 0 60px rgba(0, 0, 0, 0.45);
+      box-shadow: var(--drawer-shadow);
     }
 
     .tools-sidebar.is-open {
@@ -589,9 +587,10 @@
       align-items: center;
       justify-content: space-between;
       flex-shrink: 0;
-      padding: 8px 14px;
-      border-bottom: 1px solid var(--line);
-      background: var(--sidebar);
+      padding-block: 8px;
+      padding-inline: 14px;
+      border-block-end: 1px solid var(--border-subtle);
+      background: var(--surface-sidebar);
     }
 
     .drawer-topbar strong {
@@ -613,9 +612,10 @@
       height: 61px;
       display: flex;
       flex-shrink: 0;
-      padding: 12px 14px;
-      border-top: 1px solid var(--line);
-      background: var(--sidebar);
+      padding-block: 12px;
+      padding-inline: 14px;
+      border-block-start: 1px solid var(--border-subtle);
+      background: var(--surface-sidebar);
     }
 
     .drawer-actions .copy-button {
@@ -628,7 +628,7 @@
       inset: 0;
       display: block;
       border: 0;
-      background: rgba(0, 0, 0, 0.42);
+      background: var(--scrim);
       opacity: 0;
       pointer-events: none;
       transition: opacity 180ms ease;
@@ -646,7 +646,8 @@
     .preview-command-bar {
       height: 58px;
       gap: 10px;
-      padding: 10px 12px;
+      padding-block: 10px;
+      padding-inline: 12px;
     }
 
     .menu-button {
@@ -678,9 +679,8 @@
     }
 
     .image-frame figcaption {
-      right: 10px;
-      bottom: 10px;
-      left: 10px;
+      inset-inline: 10px;
+      inset-block-end: 10px;
       font-size: 11px;
       line-height: 14px;
     }
