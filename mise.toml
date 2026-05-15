@@ -1,4 +1,4 @@
 [tools]
 elixir = "1.20.0-rc.4-otp-29"
-node = "26.1.0"
-pnpm = "10.6.4"
+node = "latest"
+pnpm = "latest"
