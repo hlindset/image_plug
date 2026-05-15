@@ -150,6 +150,68 @@ defmodule ImagePlug.Parser.Imgproxy.OptionsTest do
     assert second.height == {:pixels, 200}
   end
 
+  test "empty segments with no presets produce one default pipeline" do
+    assert {:ok, request} = Options.parse([], Presets.empty())
+    assert [pipeline] = request.pipelines
+    assert pipeline.width == nil
+    assert pipeline.height == nil
+    assert pipeline.resizing_type == :fit
+  end
+
+  test "scoped options accumulate outside the current pipeline" do
+    assert {:ok, request} =
+             Options.parse(
+               ~w(f:webp q:80 fq:jpeg:70 cb:abc exp:999 fn:report att:true),
+               Presets.empty()
+             )
+
+    assert request.output.format == :webp
+    assert request.output.quality == {:quality, 80}
+    assert request.output.format_qualities == %{jpeg: {:quality, 70}}
+    assert request.cache.cachebuster == "abc"
+    assert request.policy.expires == 999
+    assert request.response.filename == "report"
+    assert request.response.disposition == :attachment
+  end
+
+  test "pipeline separators finalize the current pipeline and start the next one" do
+    assert {:ok, request} = Options.parse(~w(w:500 - h:200), Presets.empty())
+
+    assert [first, second] = request.pipelines
+    assert first.width == {:pixels, 500}
+    assert first.height == nil
+    assert second.width == nil
+    assert second.height == {:pixels, 200}
+  end
+
+  test "named presets expand and later URL options can overwrite their fields" do
+    assert {:ok, presets} = Presets.validate_config(%{"thumb" => "w:120/h:90"})
+    assert {:ok, request} = Options.parse(~w(preset:thumb w:200), presets)
+
+    assert [pipeline] = request.pipelines
+    assert pipeline.width == {:pixels, 200}
+    assert pipeline.height == {:pixels, 90}
+  end
+
+  test "recursive presets skip active preset re-entry and keep reachable options" do
+    assert {:ok, presets} = Presets.validate_config(%{"loop" => "pr:loop/w:100"})
+    assert {:ok, request} = Options.parse(~w(preset:loop), presets)
+
+    assert [pipeline] = request.pipelines
+    assert pipeline.width == {:pixels, 100}
+  end
+
+  test "option and preset errors halt parsing with parser errors" do
+    assert Options.parse(~w(preset:missing), Presets.empty()) ==
+             {:error, {:unknown_preset, "missing"}}
+
+    assert Options.parse(~w(w), Presets.empty()) ==
+             {:error, {:invalid_option_segment, "w"}}
+
+    assert Options.parse(~w(sharpen:0.5), Presets.empty()) ==
+             {:error, {:unknown_option, "sharpen"}}
+  end
+
   defp pipeline_for(option_segments) do
     assert {:ok, request} = Options.parse(option_segments, Presets.empty())
     [pipeline] = request.pipelines
