@@ -14,7 +14,7 @@ defmodule ImagePlug.SimpleServer do
   plug Plug.Static,
     at: "/",
     from: {:image_plug, "priv/static"},
-    only: ~w(images)
+    only: ~w(demo images)
 
   plug :match
   plug :dispatch
@@ -25,8 +25,18 @@ defmodule ImagePlug.SimpleServer do
     send_resp(conn, 404, "404 Not Found")
   end
 
+  get "/demo" do
+    conn
+    |> put_resp_content_type("text/html")
+    |> send_file(200, demo_path("index.html"))
+  end
+
   match _ do
     ImagePlug.call(conn, image_plug_opts())
+  end
+
+  defp demo_path(filename) do
+    Path.join([:code.priv_dir(:image_plug), "static", "demo", filename])
   end
 
   defp image_plug_opts do

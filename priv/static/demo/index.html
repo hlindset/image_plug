@@ -1,0 +1,197 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>ImagePlug Fiddle</title>
+    <link rel="stylesheet" href="/demo/styles.css" />
+    <script type="module" src="/demo/app.js"></script>
+  </head>
+  <body>
+    <main class="fiddle-shell">
+      <header class="top-bar">
+        <div class="brand-mark" aria-hidden="true">IP</div>
+        <div>
+          <h1>ImagePlug Fiddle</h1>
+          <p>SimpleServer · vanilla JS · processing path syntax</p>
+        </div>
+      </header>
+
+      <section class="workspace" aria-label="ImagePlug processing fiddle">
+        <nav class="tool-rail" aria-label="Control groups">
+          <button class="tool-button is-active" type="button" data-panel-target="resize">Resize</button>
+          <button class="tool-button" type="button" data-panel-target="crop">Crop</button>
+          <button class="tool-button" type="button" data-panel-target="output">Output</button>
+          <button class="tool-button" type="button" data-panel-target="request">Request</button>
+        </nav>
+
+        <section class="preview-stage" aria-label="Processed image preview">
+          <div class="preview-head">
+            <div class="live-label"><span aria-hidden="true"></span> Live processed preview</div>
+            <code data-preview-fragment></code>
+          </div>
+
+          <div class="image-viewport">
+            <div class="image-frame">
+              <img data-preview-image alt="Processed sample source" />
+              <div class="target-frame" aria-hidden="true"></div>
+            </div>
+          </div>
+        </section>
+
+        <aside class="inspector" aria-label="Processing controls">
+          <div class="panel is-active" data-panel="resize">
+            <div class="panel-head">
+              <div>
+                <h2>Resize</h2>
+                <p>Maps to <code>rs</code>, <code>w</code>, <code>h</code>, and <code>g</code>.</p>
+              </div>
+              <button class="copy-button" type="button" data-copy-url>Copy URL</button>
+            </div>
+
+            <label class="field range-field">
+              <span>
+                <span>Width</span>
+                <input class="value-input" type="number" min="0" max="1600" step="1" value="1160" data-number-for="width" />
+              </span>
+              <input type="range" data-option="width" min="0" max="1600" step="1" value="1160" />
+            </label>
+
+            <label class="field range-field">
+              <span>
+                <span>Height</span>
+                <input class="value-input" type="number" min="0" max="1000" step="1" value="540" data-number-for="height" />
+              </span>
+              <input type="range" data-option="height" min="0" max="1000" step="1" value="540" />
+            </label>
+
+            <div class="field-grid">
+              <label class="field">
+                <span>Resizing type</span>
+                <select data-option="resizeMode">
+                  <option value="fit">fit</option>
+                  <option value="fill" selected>fill</option>
+                  <option value="fill-down">fill-down</option>
+                  <option value="force">force</option>
+                  <option value="auto">auto</option>
+                </select>
+              </label>
+
+              <label class="field">
+                <span>Gravity</span>
+                <select data-option="gravity">
+                  <option value="ce" selected>center</option>
+                  <option value="no">north</option>
+                  <option value="so">south</option>
+                  <option value="ea">east</option>
+                  <option value="we">west</option>
+                  <option value="noea">north east</option>
+                  <option value="nowe">north west</option>
+                  <option value="soea">south east</option>
+                  <option value="sowe">south west</option>
+                </select>
+              </label>
+            </div>
+
+            <label class="switch-field">
+              <input type="checkbox" data-option="enlarge" />
+              <span>Allow enlargement</span>
+            </label>
+          </div>
+
+          <div class="panel" data-panel="crop">
+            <div class="panel-head">
+              <div>
+                <h2>Crop</h2>
+                <p>Add an explicit <code>c</code> option before resize planning.</p>
+              </div>
+            </div>
+
+            <label class="switch-field">
+              <input type="checkbox" data-option="cropEnabled" />
+              <span>Enable crop</span>
+            </label>
+
+            <label class="field range-field">
+              <span>
+                <span>Crop width</span>
+                <input class="value-input" type="number" min="80" max="1200" step="1" value="640" data-number-for="cropWidth" />
+              </span>
+              <input type="range" data-option="cropWidth" min="80" max="1200" step="1" value="640" />
+            </label>
+
+            <label class="field range-field">
+              <span>
+                <span>Crop height</span>
+                <input class="value-input" type="number" min="80" max="900" step="1" value="420" data-number-for="cropHeight" />
+              </span>
+              <input type="range" data-option="cropHeight" min="80" max="900" step="1" value="420" />
+            </label>
+          </div>
+
+          <div class="panel" data-panel="output">
+            <div class="panel-head">
+              <div>
+                <h2>Output</h2>
+                <p>Explicit formats bypass <code>Accept</code> negotiation.</p>
+              </div>
+            </div>
+
+            <label class="field">
+              <span>Format</span>
+              <select data-option="format">
+                <option value="auto">auto</option>
+                <option value="webp" selected>webp</option>
+                <option value="avif">avif</option>
+                <option value="jpeg">jpeg</option>
+                <option value="png">png</option>
+              </select>
+            </label>
+
+            <label class="field range-field">
+              <span>
+                <span>Quality</span>
+                <input class="value-input" type="number" min="0" max="100" step="1" value="82" data-number-for="quality" />
+              </span>
+              <input type="range" data-option="quality" min="0" max="100" step="1" value="82" />
+            </label>
+          </div>
+
+          <div class="panel" data-panel="request">
+            <div class="panel-head">
+              <div>
+                <h2>Request</h2>
+                <p>Choose a local source served by SimpleServer.</p>
+              </div>
+            </div>
+
+            <label class="field">
+              <span>Source image</span>
+              <select data-option="source">
+                <option value="images/dog.jpg" selected>dog.jpg</option>
+                <option value="images/cat-300.jpg">cat-300.jpg</option>
+              </select>
+            </label>
+
+            <label class="field">
+              <span>Signature</span>
+              <select data-option="signature">
+                <option value="_" selected>_</option>
+                <option value="unsafe">unsafe</option>
+              </select>
+            </label>
+          </div>
+        </aside>
+      </section>
+
+      <section class="url-tray" aria-label="Generated processing URL">
+        <div>
+          <span>Generated URL</span>
+          <strong>processing path</strong>
+        </div>
+        <code data-generated-url></code>
+        <a class="open-link" data-open-url target="_blank" rel="noreferrer">Open</a>
+      </section>
+    </main>
+  </body>
+</html>
