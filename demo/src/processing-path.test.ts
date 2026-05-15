@@ -123,6 +123,46 @@ describe("processing path generation", () => {
     ]);
   });
 
+  it("includes enabled resize extras after the resize segment", () => {
+    const state = {
+      ...defaultDemoState,
+      resizeEnabled: true,
+      zoomEnabled: true,
+      zoom: 1.5,
+      dprEnabled: true,
+      dpr: 2,
+      minWidthEnabled: true,
+      minWidth: 320,
+      minHeightEnabled: true,
+      minHeight: 180
+    };
+
+    expect(optionSegments(state)).toEqual([
+      "rs:fill:640:360:0",
+      "z:1.5",
+      "dpr:2",
+      "mw:320",
+      "mh:180"
+    ]);
+  });
+
+  it("omits resize extras when resize is disabled", () => {
+    const state = {
+      ...defaultDemoState,
+      zoomEnabled: true,
+      zoom: 1.5,
+      dprEnabled: true,
+      dpr: 2,
+      minWidthEnabled: true,
+      minWidth: 320,
+      minHeightEnabled: true,
+      minHeight: 180
+    };
+
+    expect(optionSegments(state)).toEqual([]);
+    expect(buildProcessingPath(state)).toBe("/_/plain/images/dog.jpg");
+  });
+
   it("omits explicit format when format is disabled", () => {
     const state = {
       ...activeDemoState,

@@ -28,6 +28,14 @@
       ? "ex:1"
       : `exar:${state.extendAspectWidth}:${state.extendAspectHeight}`
     : "Off";
+  $: resizeExtras = [
+    state.zoomEnabled ? `z:${state.zoom}` : null,
+    state.dprEnabled ? `dpr:${state.dpr}` : null,
+    state.minWidthEnabled ? `mw:${state.minWidth}` : null,
+    state.minHeightEnabled ? `mh:${state.minHeight}` : null
+  ]
+    .filter(Boolean)
+    .join("/");
 
   function flipSegment(flip: DemoState["flip"]): string | null {
     if (flip === "horizontal") {
@@ -177,6 +185,53 @@
             </Switch.Root>
             <span>Allow enlargement</span>
           </label>
+
+          <div class="tool-subgroup">
+            <div class="subgroup-heading">
+              <span>Extras</span>
+              <code>{resizeExtras || "none"}</code>
+            </div>
+
+            <label class="switch-field">
+              <Switch.Root class="switch-root" bind:checked={state.zoomEnabled}>
+                <Switch.Thumb class="switch-thumb" />
+              </Switch.Root>
+              <span>Zoom</span>
+            </label>
+            {#if state.zoomEnabled}
+              <RangeNumber label="Zoom" bind:value={state.zoom} min={0.1} max={4} step={0.1} />
+            {/if}
+
+            <label class="switch-field">
+              <Switch.Root class="switch-root" bind:checked={state.dprEnabled}>
+                <Switch.Thumb class="switch-thumb" />
+              </Switch.Root>
+              <span>DPR</span>
+            </label>
+            {#if state.dprEnabled}
+              <RangeNumber label="DPR" bind:value={state.dpr} min={0.1} max={4} step={0.1} />
+            {/if}
+
+            <label class="switch-field">
+              <Switch.Root class="switch-root" bind:checked={state.minWidthEnabled}>
+                <Switch.Thumb class="switch-thumb" />
+              </Switch.Root>
+              <span>Minimum width</span>
+            </label>
+            {#if state.minWidthEnabled}
+              <RangeNumber label="Min width" bind:value={state.minWidth} min={0} max={1600} step={1} />
+            {/if}
+
+            <label class="switch-field">
+              <Switch.Root class="switch-root" bind:checked={state.minHeightEnabled}>
+                <Switch.Thumb class="switch-thumb" />
+              </Switch.Root>
+              <span>Minimum height</span>
+            </label>
+            {#if state.minHeightEnabled}
+              <RangeNumber label="Min height" bind:value={state.minHeight} min={0} max={1000} step={1} />
+            {/if}
+          </div>
         {/if}
       </section>
 
@@ -630,6 +685,32 @@
     color: var(--text-label);
     font-size: 13px;
     line-height: 18px;
+  }
+
+  .tool-subgroup {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    padding-block-start: 2px;
+  }
+
+  .subgroup-heading {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    color: var(--text-label);
+    font-size: 13px;
+    line-height: 18px;
+
+    code {
+      min-width: 0;
+      overflow: hidden;
+      color: var(--text-muted);
+      font-size: 12px;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
   }
 
   .field {

@@ -16,6 +16,14 @@ export type DemoState = {
   resizeMode: ResizeMode;
   width: number;
   height: number;
+  zoomEnabled: boolean;
+  zoom: number;
+  dprEnabled: boolean;
+  dpr: number;
+  minWidthEnabled: boolean;
+  minWidth: number;
+  minHeightEnabled: boolean;
+  minHeight: number;
   canvasEnabled: boolean;
   canvasMode: CanvasMode;
   extendAspectWidth: number;
@@ -48,6 +56,14 @@ export const defaultDemoState: DemoState = {
   resizeMode: "fill",
   width: 640,
   height: 360,
+  zoomEnabled: false,
+  zoom: 1.5,
+  dprEnabled: false,
+  dpr: 2,
+  minWidthEnabled: false,
+  minWidth: 320,
+  minHeightEnabled: false,
+  minHeight: 180,
   canvasEnabled: false,
   canvasMode: "extend",
   extendAspectWidth: 16,
@@ -104,6 +120,22 @@ export function optionSegments(currentState: DemoState): string[] {
         currentState.enlarge ? 1 : 0
       ].join(":")
     );
+
+    if (currentState.zoomEnabled) {
+      segments.push(`z:${currentState.zoom}`);
+    }
+
+    if (currentState.dprEnabled) {
+      segments.push(`dpr:${currentState.dpr}`);
+    }
+
+    if (currentState.minWidthEnabled) {
+      segments.push(`mw:${currentState.minWidth}`);
+    }
+
+    if (currentState.minHeightEnabled) {
+      segments.push(`mh:${currentState.minHeight}`);
+    }
   }
 
   if (currentState.canvasEnabled && currentState.canvasMode === "extend") {
