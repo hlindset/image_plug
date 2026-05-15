@@ -1,0 +1,23 @@
+{
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "demo:build": "vite build",
+    "demo:check": "tsgo --project tsconfig.json --noEmit",
+    "demo:lint": "oxlint demo/src vite.config.ts --ignore-pattern demo/node_modules/**",
+    "demo:test": "vitest run"
+  },
+  "devDependencies": {
+    "@sveltejs/vite-plugin-svelte": "7.1.2",
+    "@types/node": "25.8.0",
+    "@typescript/native-preview": "7.0.0-dev.20260515.1",
+    "oxlint": "1.64.0",
+    "svelte": "5.55.7",
+    "typescript": "6.0.3",
+    "vite": "8.0.13",
+    "vitest": "4.1.6"
+  },
+  "dependencies": {
+    "bits-ui": "2.18.1"
+  }
+}
