@@ -87,7 +87,7 @@ export function optionSegments(currentState: DemoState): string[] {
     segments.push(`f:${currentState.format}`);
   }
 
-  if (currentState.qualityEnabled && currentState.quality > 0) {
+  if (currentState.qualityEnabled) {
     segments.push(`q:${currentState.quality}`);
   }
 

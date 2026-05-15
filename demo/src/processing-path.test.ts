@@ -103,6 +103,17 @@ describe("processing path generation", () => {
     expect(buildProcessingPath(state)).toBe("/_/rs:fill:640:360:0/g:ce/plain/images/dog.jpg");
   });
 
+  it("includes zero quality when quality is enabled", () => {
+    const state = {
+      ...defaultDemoState,
+      qualityEnabled: true,
+      quality: 0
+    };
+
+    expect(optionSegments(state)).toEqual(["rs:fill:640:360:0", "g:ce", "q:0"]);
+    expect(buildProcessingPath(state)).toBe("/_/rs:fill:640:360:0/g:ce/q:0/plain/images/dog.jpg");
+  });
+
   it("omits top-level gravity when gravity is disabled", () => {
     const state = {
       ...defaultDemoState,
