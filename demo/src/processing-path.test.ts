@@ -147,6 +147,33 @@ describe("processing path generation", () => {
     expect(optionSegments(state)).toEqual(["rs:fill:640:360:0", "g:sowe", "q:85"]);
   });
 
+  it("includes focal point global gravity", () => {
+    const state = {
+      ...defaultDemoState,
+      resizeEnabled: true,
+      gravityEnabled: true,
+      gravityMode: "focalPoint" as const,
+      gravityFocalX: 0.25,
+      gravityFocalY: 0.75
+    };
+
+    expect(optionSegments(state)).toEqual(["rs:fill:640:360:0", "g:fp:0.25:0.75"]);
+  });
+
+  it("includes offset global gravity", () => {
+    const state = {
+      ...defaultDemoState,
+      resizeEnabled: true,
+      gravityEnabled: true,
+      gravityMode: "offset" as const,
+      gravity: "soea" as const,
+      gravityOffsetX: 12,
+      gravityOffsetY: -0.25
+    };
+
+    expect(optionSegments(state)).toEqual(["rs:fill:640:360:0", "g:soea:12:-0.25"]);
+  });
+
   it("allows crop to use an explicit gravity", () => {
     const state = {
       ...activeDemoState,

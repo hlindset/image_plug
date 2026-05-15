@@ -1,5 +1,6 @@
 export type ResizeMode = "fit" | "fill" | "fill-down" | "force" | "auto";
 export type Gravity = "ce" | "no" | "so" | "ea" | "we" | "noea" | "nowe" | "soea" | "sowe";
+export type GravityMode = "anchor" | "focalPoint" | "offset";
 export type CropGravity = "inherit" | Gravity;
 export type OutputFormat = "webp" | "avif" | "jpeg" | "png";
 export type Flip = "none" | "horizontal" | "vertical" | "both";
@@ -40,7 +41,12 @@ export type DemoState = {
   backgroundAlphaEnabled: boolean;
   backgroundAlpha: number;
   gravityEnabled: boolean;
+  gravityMode: GravityMode;
   gravity: Gravity;
+  gravityFocalX: number;
+  gravityFocalY: number;
+  gravityOffsetX: number;
+  gravityOffsetY: number;
   enlarge: boolean;
   cropEnabled: boolean;
   cropWidth: number;
@@ -90,7 +96,12 @@ export const defaultDemoState: DemoState = {
   backgroundAlphaEnabled: false,
   backgroundAlpha: 0.5,
   gravityEnabled: false,
+  gravityMode: "anchor",
   gravity: "ce",
+  gravityFocalX: 0.5,
+  gravityFocalY: 0.5,
+  gravityOffsetX: 0,
+  gravityOffsetY: 0,
   enlarge: false,
   cropEnabled: false,
   cropWidth: 640,
@@ -195,7 +206,7 @@ export function optionSegments(currentState: DemoState): string[] {
     currentState.gravityEnabled &&
     (currentState.resizeEnabled || (currentState.cropEnabled && currentState.cropGravity === "inherit"))
   ) {
-    segments.push(`g:${currentState.gravity}`);
+    segments.push(gravitySegment(currentState));
   }
 
   if (currentState.formatEnabled) {
@@ -207,6 +218,18 @@ export function optionSegments(currentState: DemoState): string[] {
   }
 
   return segments;
+}
+
+export function gravitySegment(currentState: DemoState): string {
+  if (currentState.gravityMode === "focalPoint") {
+    return `g:fp:${currentState.gravityFocalX}:${currentState.gravityFocalY}`;
+  }
+
+  if (currentState.gravityMode === "offset") {
+    return `g:${currentState.gravity}:${currentState.gravityOffsetX}:${currentState.gravityOffsetY}`;
+  }
+
+  return `g:${currentState.gravity}`;
 }
 
 export function resolvedOutputLabel(currentState: DemoState): string {

@@ -4,6 +4,7 @@
   import {
     buildProcessingPath,
     defaultDemoState,
+    gravitySegment,
     processedSizeLabel,
     resolvedOutputLabel,
     type DemoState,
@@ -405,7 +406,7 @@
         <div class="tool-heading">
           <div>
             <h2>Gravity</h2>
-            <p>{state.gravityEnabled ? `g:${state.gravity}` : "Off"}</p>
+            <p>{state.gravityEnabled ? gravitySegment(state) : "Off"}</p>
           </div>
           <Switch.Root
             class="switch-root"
@@ -418,19 +419,64 @@
 
         {#if state.gravityEnabled}
           <label class="field">
-            <span>Gravity</span>
-            <select bind:value={state.gravity}>
-              <option value="ce">center</option>
-              <option value="no">north</option>
-              <option value="so">south</option>
-              <option value="ea">east</option>
-              <option value="we">west</option>
-              <option value="noea">north east</option>
-              <option value="nowe">north west</option>
-              <option value="soea">south east</option>
-              <option value="sowe">south west</option>
+            <span>Mode</span>
+            <select bind:value={state.gravityMode}>
+              <option value="anchor">anchor</option>
+              <option value="focalPoint">focal point</option>
+              <option value="offset">anchor + offset</option>
             </select>
           </label>
+
+          {#if state.gravityMode !== "focalPoint"}
+            <label class="field">
+              <span>Anchor</span>
+              <select bind:value={state.gravity}>
+                <option value="ce">center</option>
+                <option value="no">north</option>
+                <option value="so">south</option>
+                <option value="ea">east</option>
+                <option value="we">west</option>
+                <option value="noea">north east</option>
+                <option value="nowe">north west</option>
+                <option value="soea">south east</option>
+                <option value="sowe">south west</option>
+              </select>
+            </label>
+          {/if}
+
+          {#if state.gravityMode === "focalPoint"}
+            <RangeNumber
+              label="Focal X"
+              bind:value={state.gravityFocalX}
+              min={0}
+              max={1}
+              step={0.01}
+            />
+            <RangeNumber
+              label="Focal Y"
+              bind:value={state.gravityFocalY}
+              min={0}
+              max={1}
+              step={0.01}
+            />
+          {/if}
+
+          {#if state.gravityMode === "offset"}
+            <RangeNumber
+              label="Offset X"
+              bind:value={state.gravityOffsetX}
+              min={-200}
+              max={200}
+              step={0.01}
+            />
+            <RangeNumber
+              label="Offset Y"
+              bind:value={state.gravityOffsetY}
+              min={-200}
+              max={200}
+              step={0.01}
+            />
+          {/if}
         {/if}
       </section>
 
