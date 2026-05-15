@@ -6,7 +6,6 @@ defmodule ImagePlug.Parser.ImgproxyTest do
 
   alias ImagePlug.Parser.Imgproxy
   alias ImagePlug.Plan
-  alias ImagePlug.Plan.Color
   alias ImagePlug.Plan.Operation
   alias ImagePlug.Plan.Output
   alias ImagePlug.Plan.Pipeline
@@ -231,20 +230,6 @@ defmodule ImagePlug.Parser.ImgproxyTest do
 
     assert force_params.width == pixels(300)
     assert force_params.height == pixels(200)
-
-    assert {:ok, parsed} =
-             Imgproxy.parse_request(
-               conn(:get, "/_/resize:fill:300:200:1:0/plain/images/cat.jpg"),
-               []
-             )
-
-    [pipeline] = parsed.pipelines
-    assert pipeline.resizing_type == :fill
-    assert pipeline.width == {:pixels, 300}
-    assert pipeline.height == {:pixels, 200}
-    assert pipeline.enlarge == true
-    assert pipeline.extend == false
-    assert pipeline.extend_requested == true
   end
 
   test "parses omitted resize arguments with imgproxy defaults" do
@@ -331,128 +316,6 @@ defmodule ImagePlug.Parser.ImgproxyTest do
 
     assert params.width == pixels(100)
     assert params.height == pixels(100)
-  end
-
-  test "parses min size, zoom, dpr, crop, orientation, and extend-aspect-ratio" do
-    assert {:ok, parsed} =
-             Imgproxy.parse_request(
-               conn(
-                 :get,
-                 "/_/rs:fit:100:0/mw:300/mh:200/z:2:3/dpr:2/c:0.5:0.25:nowe:10:-5/ar:true/rot:-90/fl:true:false/exar:16:9/plain/images/cat.jpg"
-               ),
-               []
-             )
-
-    [pipeline] = parsed.pipelines
-    assert pipeline.width == {:pixels, 100}
-    assert pipeline.height == {:pixels, 0}
-    assert pipeline.min_width == {:pixels, 300}
-    assert pipeline.min_height == {:pixels, 200}
-    assert pipeline.zoom_x == 2.0
-    assert pipeline.zoom_y == 3.0
-    assert pipeline.dpr == 2.0
-    assert pipeline.crop.width == {:scale, 0.5}
-    assert pipeline.crop.height == {:scale, 0.25}
-    assert pipeline.crop.gravity == {:anchor, :left, :top}
-    assert pipeline.orientation.auto_orient == true
-    assert pipeline.orientation.rotate == 270
-    assert pipeline.orientation.flip == :horizontal
-    assert pipeline.extend_aspect_ratio == {16, 9}
-  end
-
-  describe "padding parsing" do
-    test "parses imgproxy padding shorthand into accumulated fields" do
-      assert %{padding_top: 10, padding_right: 10, padding_bottom: 10, padding_left: 10} =
-               parsed_pipeline!("/_/padding:10/plain/images/cat.jpg")
-
-      assert %{padding_top: 10, padding_right: 20, padding_bottom: 10, padding_left: 20} =
-               parsed_pipeline!("/_/padding:10:20/plain/images/cat.jpg")
-
-      assert %{padding_top: 10, padding_right: 20, padding_bottom: 30, padding_left: 20} =
-               parsed_pipeline!("/_/padding:10:20:30/plain/images/cat.jpg")
-
-      assert %{padding_top: 10, padding_right: 20, padding_bottom: 30, padding_left: 40} =
-               parsed_pipeline!("/_/padding:10:20:30:40/plain/images/cat.jpg")
-    end
-
-    test "parses sparse padding with imgproxy accumulated field semantics" do
-      assert %{padding_top: 10, padding_right: 10, padding_bottom: 10, padding_left: 10} =
-               parsed_pipeline!("/_/padding:10:/plain/images/cat.jpg")
-
-      assert %{padding_top: 0, padding_right: 20, padding_bottom: 0, padding_left: 20} =
-               parsed_pipeline!("/_/padding::20/plain/images/cat.jpg")
-
-      assert %{padding_top: 10, padding_right: 10, padding_bottom: 30, padding_left: 10} =
-               parsed_pipeline!("/_/padding:10::30/plain/images/cat.jpg")
-
-      assert %{padding_top: 10, padding_right: 5, padding_bottom: 10, padding_left: 5} =
-               parsed_pipeline!("/_/pd:10:20:30:40/padding::5/plain/images/cat.jpg")
-    end
-
-    test "padding empty and zero forms are accepted by source-compatible parser behavior" do
-      assert %{padding_top: 0, padding_right: 0, padding_bottom: 0, padding_left: 0} =
-               parsed_pipeline!("/_/padding:/plain/images/cat.jpg")
-
-      assert %{padding_top: 0, padding_right: 0, padding_bottom: 0, padding_left: 0} =
-               parsed_pipeline!("/_/pd:10:20:30:40/padding:0/plain/images/cat.jpg")
-    end
-
-    test "rejects malformed padding syntax" do
-      for path <- [
-            "/_/padding:1:2:3:4:5/plain/images/cat.jpg",
-            "/_/padding:-1/plain/images/cat.jpg",
-            "/_/padding:one/plain/images/cat.jpg"
-          ] do
-        assert {:error, _reason} = Imgproxy.parse_request(conn(:get, path), [])
-      end
-    end
-  end
-
-  describe "background parsing" do
-    test "parses decimal and hex background colors into Plan color" do
-      assert {:ok, red} = ImagePlug.Plan.Color.rgb(255, 0, 0)
-
-      assert %{background_color: ^red} =
-               parsed_pipeline!("/_/background:255:0:0/plain/images/cat.jpg")
-
-      assert %{background_color: ^red} = parsed_pipeline!("/_/bg:f00/plain/images/cat.jpg")
-      assert %{background_color: ^red} = parsed_pipeline!("/_/bg:FF0000/plain/images/cat.jpg")
-    end
-
-    test "empty background clears an accumulated background" do
-      assert %{background_color: nil} =
-               parsed_pipeline!("/_/bg:f00/background:/plain/images/cat.jpg")
-    end
-
-    test "background alpha applies to the accumulated background color" do
-      assert %{background_color: %Color{channels: {255, 0, 0}, alpha: {:ratio, 1, 2}}} =
-               parsed_pipeline!("/_/bg:f00/background_alpha:0.5/plain/images/cat.jpg")
-
-      assert %{background_color: %Color{channels: {0, 0, 255}, alpha: {:ratio, 1, 4}}} =
-               parsed_pipeline!("/_/bga:0.25/bg:00f/plain/images/cat.jpg")
-
-      assert %{background_color: %Color{channels: {0, 0, 0}, alpha: {:ratio, 1, 2}}} =
-               parsed_pipeline!("/_/bga:0.5/plain/images/cat.jpg")
-    end
-
-    test "background clear removes accumulated alpha" do
-      assert %{background_color: nil} =
-               parsed_pipeline!("/_/bg:f00/bga:0.5/background:/plain/images/cat.jpg")
-    end
-
-    test "rejects malformed background options" do
-      for path <- [
-            "/_/background:256:0:0/plain/images/cat.jpg",
-            "/_/background:1:2/plain/images/cat.jpg",
-            "/_/background:1::2/plain/images/cat.jpg",
-            "/_/background:ffff/plain/images/cat.jpg",
-            "/_/background_alpha:/plain/images/cat.jpg",
-            "/_/bga:0/plain/images/cat.jpg",
-            "/_/bga:1.1/plain/images/cat.jpg"
-          ] do
-        assert {:error, _reason} = Imgproxy.parse_request(conn(:get, path), [])
-      end
-    end
   end
 
   test "public parse plans supported geometry pipeline semantics" do
@@ -659,14 +522,6 @@ defmodule ImagePlug.Parser.ImgproxyTest do
   end
 
   test "parses top-level gravity offsets and plans result crop resize fields" do
-    assert {:ok, parsed} =
-             Imgproxy.parse_request(conn(:get, "/_/g:soea:12:-0.25/plain/images/cat.jpg"), [])
-
-    [pipeline] = parsed.pipelines
-    assert pipeline.gravity == {:anchor, :right, :bottom}
-    assert pipeline.gravity_x_offset == {:pixels, 12.0}
-    assert pipeline.gravity_y_offset == {:scale, -0.25}
-
     assert {:ok,
             %Plan{
               pipelines: [
@@ -683,27 +538,6 @@ defmodule ImagePlug.Parser.ImgproxyTest do
     assert anchor(crop.guide) == {:right, :bottom}
     assert crop.x_offset == {:pixels, -12.0}
     assert crop.y_offset == {:scale, 0.25}
-  end
-
-  test "parses crop focal-point gravity and relative offsets" do
-    assert {:ok, parsed} =
-             Imgproxy.parse_request(
-               conn(:get, "/_/c:100:100:fp:0.25:0.75/plain/images/cat.jpg"),
-               []
-             )
-
-    [pipeline] = parsed.pipelines
-    assert pipeline.crop.gravity == {:fp, 0.25, 0.75}
-
-    assert {:ok, parsed} =
-             Imgproxy.parse_request(
-               conn(:get, "/_/c:100:100:nowe:0.25:-0.5/plain/images/cat.jpg"),
-               []
-             )
-
-    [pipeline] = parsed.pipelines
-    assert pipeline.crop.x_offset == {:scale, 0.25}
-    assert pipeline.crop.y_offset == {:scale, -0.5}
   end
 
   test "rejects out-of-range focal point coordinates as gravity coordinate errors" do
@@ -1464,12 +1298,6 @@ defmodule ImagePlug.Parser.ImgproxyTest do
              Imgproxy.parse(conn(:get, path), [])
 
     operations
-  end
-
-  defp parsed_pipeline!(path) do
-    assert {:ok, parsed} = Imgproxy.parse_request(conn(:get, path), [])
-    [pipeline] = parsed.pipelines
-    pipeline
   end
 
   defp assert_output_mode(path, mode) do

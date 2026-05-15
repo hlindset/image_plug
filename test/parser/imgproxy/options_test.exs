@@ -1,0 +1,220 @@
+defmodule ImagePlug.Parser.Imgproxy.OptionsTest do
+  use ExUnit.Case, async: true
+
+  alias ImagePlug.Parser.Imgproxy.Options
+  alias ImagePlug.Parser.Imgproxy.Presets
+  alias ImagePlug.Plan.Color
+
+  test "parses dense pipeline state into one pipeline request" do
+    assert {:ok, request} =
+             Options.parse(
+               ~w(rs:fit:100:0 mw:300 mh:200 z:2:3 dpr:2 c:0.5:0.25:nowe:10:-5 ar:true rot:-90 fl:true:false exar:16:9),
+               Presets.empty()
+             )
+
+    [pipeline] = request.pipelines
+    assert pipeline.width == {:pixels, 100}
+    assert pipeline.height == {:pixels, 0}
+    assert pipeline.min_width == {:pixels, 300}
+    assert pipeline.min_height == {:pixels, 200}
+    assert pipeline.zoom_x == 2.0
+    assert pipeline.zoom_y == 3.0
+    assert pipeline.dpr == 2.0
+    assert pipeline.crop.width == {:scale, 0.5}
+    assert pipeline.crop.height == {:scale, 0.25}
+    assert pipeline.crop.gravity == {:anchor, :left, :top}
+    assert pipeline.orientation.auto_orient == true
+    assert pipeline.orientation.rotate == 270
+    assert pipeline.orientation.flip == :horizontal
+    assert pipeline.extend_aspect_ratio == {16, 9}
+  end
+
+  test "applies padding and background accumulation against current pipeline state" do
+    assert {:ok, request} =
+             Options.parse(~w(pd:10:20:30:40 padding:0 bg:f00 bga:0.5), Presets.empty())
+
+    [pipeline] = request.pipelines
+    assert pipeline.padding_top == 0
+    assert pipeline.padding_right == 0
+    assert pipeline.padding_bottom == 0
+    assert pipeline.padding_left == 0
+    assert %Color{channels: {255, 0, 0}, alpha: {:ratio, 1, 2}} = pipeline.background_color
+  end
+
+  describe "padding parsing" do
+    test "parses imgproxy padding shorthand into accumulated fields" do
+      assert %{padding_top: 10, padding_right: 10, padding_bottom: 10, padding_left: 10} =
+               pipeline_for(~w(padding:10))
+
+      assert %{padding_top: 10, padding_right: 20, padding_bottom: 10, padding_left: 20} =
+               pipeline_for(~w(padding:10:20))
+
+      assert %{padding_top: 10, padding_right: 20, padding_bottom: 30, padding_left: 20} =
+               pipeline_for(~w(padding:10:20:30))
+
+      assert %{padding_top: 10, padding_right: 20, padding_bottom: 30, padding_left: 40} =
+               pipeline_for(~w(padding:10:20:30:40))
+    end
+
+    test "parses sparse padding with imgproxy accumulated field semantics" do
+      assert %{padding_top: 10, padding_right: 10, padding_bottom: 10, padding_left: 10} =
+               pipeline_for(~w(padding:10:))
+
+      assert %{padding_top: 0, padding_right: 20, padding_bottom: 0, padding_left: 20} =
+               pipeline_for(~w(padding::20))
+
+      assert %{padding_top: 10, padding_right: 10, padding_bottom: 30, padding_left: 10} =
+               pipeline_for(~w(padding:10::30))
+
+      assert %{padding_top: 10, padding_right: 5, padding_bottom: 10, padding_left: 5} =
+               pipeline_for(~w(pd:10:20:30:40 padding::5))
+    end
+
+    test "padding empty and zero forms are accepted by source-compatible parser behavior" do
+      assert %{padding_top: 0, padding_right: 0, padding_bottom: 0, padding_left: 0} =
+               pipeline_for(~w(padding:))
+
+      assert %{padding_top: 0, padding_right: 0, padding_bottom: 0, padding_left: 0} =
+               pipeline_for(~w(pd:10:20:30:40 padding:0))
+    end
+  end
+
+  describe "background parsing" do
+    test "parses decimal and hex background colors into Plan color" do
+      assert {:ok, red} = Color.rgb(255, 0, 0)
+
+      assert %{background_color: ^red} = pipeline_for(~w(background:255:0:0))
+      assert %{background_color: ^red} = pipeline_for(~w(bg:f00))
+      assert %{background_color: ^red} = pipeline_for(~w(bg:FF0000))
+    end
+
+    test "empty background clears an accumulated background" do
+      assert %{background_color: nil} = pipeline_for(~w(bg:f00 background:))
+    end
+
+    test "background alpha applies to the accumulated background color" do
+      assert %{background_color: %Color{channels: {255, 0, 0}, alpha: {:ratio, 1, 2}}} =
+               pipeline_for(~w(bg:f00 background_alpha:0.5))
+
+      assert %{background_color: %Color{channels: {0, 0, 255}, alpha: {:ratio, 1, 4}}} =
+               pipeline_for(~w(bga:0.25 bg:00f))
+
+      assert %{background_color: %Color{channels: {0, 0, 0}, alpha: {:ratio, 1, 2}}} =
+               pipeline_for(~w(bga:0.5))
+    end
+
+    test "background clear removes accumulated alpha" do
+      assert %{background_color: nil} = pipeline_for(~w(bg:f00 bga:0.5 background:))
+    end
+  end
+
+  test "crop gravity is independent from top-level gravity" do
+    assert pipeline = pipeline_for(~w(g:so c:0.5:0.25:nowe))
+
+    assert pipeline.gravity == {:anchor, :center, :bottom}
+    assert pipeline.crop.gravity == {:anchor, :left, :top}
+  end
+
+  test "rotate normalizes integer multiples of 90" do
+    for {value, expected} <- [
+          {-450, 270},
+          {-90, 270},
+          {0, 0},
+          {90, 90},
+          {360, 0},
+          {450, 90}
+        ] do
+      assert pipeline = pipeline_for(["rot:#{value}"])
+      assert pipeline.orientation.rotate == expected
+    end
+  end
+
+  test "flip booleans normalize to explicit orientation intent" do
+    assert %{orientation: %{flip: :horizontal}} = pipeline_for(~w(flip:true:false))
+    assert %{orientation: %{flip: :vertical}} = pipeline_for(~w(fl:false:true))
+    assert %{orientation: %{flip: :both}} = pipeline_for(~w(fl:true:true))
+    assert %{orientation: %{flip: nil}} = pipeline_for(~w(fl:false:false))
+  end
+
+  test "zoom supports one shared factor or independent axes" do
+    assert %{zoom_x: 2.0, zoom_y: 2.0} = pipeline_for(~w(zoom:2))
+    assert %{zoom_x: 2.0, zoom_y: 3.0} = pipeline_for(~w(z:2:3))
+  end
+
+  test "applies default presets and queued preset groups without changing URL option order semantics" do
+    assert {:ok, presets} = Presets.validate_config(%{"default" => "w:100/-/h:200"})
+    assert {:ok, request} = Options.parse([], presets)
+
+    assert [first, second] = request.pipelines
+    assert first.width == {:pixels, 100}
+    assert second.height == {:pixels, 200}
+  end
+
+  test "empty segments with no presets produce one default pipeline" do
+    assert {:ok, request} = Options.parse([], Presets.empty())
+    assert [pipeline] = request.pipelines
+    assert pipeline.width == nil
+    assert pipeline.height == nil
+    assert pipeline.resizing_type == :fit
+  end
+
+  test "scoped options accumulate outside the current pipeline" do
+    assert {:ok, request} =
+             Options.parse(
+               ~w(f:webp q:80 fq:jpeg:70 cb:abc exp:999 fn:report att:true),
+               Presets.empty()
+             )
+
+    assert request.output.format == :webp
+    assert request.output.quality == {:quality, 80}
+    assert request.output.format_qualities == %{jpeg: {:quality, 70}}
+    assert request.cache.cachebuster == "abc"
+    assert request.policy.expires == 999
+    assert request.response.filename == "report"
+    assert request.response.disposition == :attachment
+  end
+
+  test "pipeline separators finalize the current pipeline and start the next one" do
+    assert {:ok, request} = Options.parse(~w(w:500 - h:200), Presets.empty())
+
+    assert [first, second] = request.pipelines
+    assert first.width == {:pixels, 500}
+    assert first.height == nil
+    assert second.width == nil
+    assert second.height == {:pixels, 200}
+  end
+
+  test "named presets expand and later URL options can overwrite their fields" do
+    assert {:ok, presets} = Presets.validate_config(%{"thumb" => "w:120/h:90"})
+    assert {:ok, request} = Options.parse(~w(preset:thumb w:200), presets)
+
+    assert [pipeline] = request.pipelines
+    assert pipeline.width == {:pixels, 200}
+    assert pipeline.height == {:pixels, 90}
+  end
+
+  test "recursive presets skip active preset re-entry and keep reachable options" do
+    assert {:ok, presets} = Presets.validate_config(%{"loop" => "pr:loop/w:100"})
+    assert {:ok, request} = Options.parse(~w(preset:loop), presets)
+
+    assert [pipeline] = request.pipelines
+    assert pipeline.width == {:pixels, 100}
+  end
+
+  test "option and preset errors halt parsing with parser errors" do
+    assert Options.parse(~w(preset:missing), Presets.empty()) ==
+             {:error, {:unknown_preset, "missing"}}
+
+    assert Options.parse(~w(w), Presets.empty()) ==
+             {:error, {:invalid_option_segment, "w"}}
+
+    assert Options.parse(~w(sharpen:0.5), Presets.empty()) ==
+             {:error, {:unknown_option, "sharpen"}}
+  end
+
+  defp pipeline_for(option_segments) do
+    assert {:ok, request} = Options.parse(option_segments, Presets.empty())
+    [pipeline] = request.pipelines
+    pipeline
+  end
+end
