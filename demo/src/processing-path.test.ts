@@ -72,21 +72,30 @@ describe("processing path generation", () => {
     ]);
   });
 
-  it("omits explicit format and quality when the controls request automatic output", () => {
+  it("omits explicit format when format is disabled", () => {
     const state = {
       ...defaultDemoState,
-      format: "auto" as const,
-      quality: 0
+      formatEnabled: false,
+      format: "png" as const
     };
 
-    expect(buildProcessingPath(state)).toBe("/_/rs:fill:640:360:0/g:ce/plain/images/dog.jpg");
+    expect(optionSegments(state)).toEqual(["rs:fill:640:360:0", "g:ce", "q:85"]);
   });
 
-  it("omits output options when output is disabled", () => {
+  it("includes explicit format when format is enabled", () => {
     const state = {
       ...defaultDemoState,
-      outputEnabled: false,
-      format: "png" as const,
+      formatEnabled: true,
+      format: "png" as const
+    };
+
+    expect(optionSegments(state)).toEqual(["rs:fill:640:360:0", "g:ce", "f:png", "q:85"]);
+  });
+
+  it("omits quality when quality is disabled", () => {
+    const state = {
+      ...defaultDemoState,
+      qualityEnabled: false,
       quality: 42
     };
 

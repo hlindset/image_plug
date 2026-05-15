@@ -203,30 +203,47 @@
       <section class="tool-section">
         <div class="tool-heading">
           <div>
-            <h2>Output</h2>
-            <p>{state.outputEnabled ? `${state.format}, q:${state.quality}` : "Off"}</p>
+            <h2>Format</h2>
+            <p>{state.formatEnabled ? `f:${state.format}` : "Off"}</p>
           </div>
           <Switch.Root
             class="switch-root"
-            aria-label="Enable output"
-            bind:checked={state.outputEnabled}
+            aria-label="Enable format"
+            bind:checked={state.formatEnabled}
           >
             <Switch.Thumb class="switch-thumb" />
           </Switch.Root>
         </div>
 
-        {#if state.outputEnabled}
+        {#if state.formatEnabled}
           <label class="field">
             <span>Format</span>
             <select bind:value={state.format}>
-              <option value="auto">auto</option>
               <option value="webp">webp</option>
               <option value="avif">avif</option>
               <option value="jpeg">jpeg</option>
               <option value="png">png</option>
             </select>
           </label>
+        {/if}
+      </section>
 
+      <section class="tool-section">
+        <div class="tool-heading">
+          <div>
+            <h2>Quality</h2>
+            <p>{state.qualityEnabled ? `q:${state.quality}` : "Off"}</p>
+          </div>
+          <Switch.Root
+            class="switch-root"
+            aria-label="Enable quality"
+            bind:checked={state.qualityEnabled}
+          >
+            <Switch.Thumb class="switch-thumb" />
+          </Switch.Root>
+        </div>
+
+        {#if state.qualityEnabled}
           <RangeNumber label="Quality" bind:value={state.quality} min={0} max={100} step={1} />
         {/if}
       </section>

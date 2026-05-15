@@ -19,8 +19,9 @@ export type DemoState = {
   cropWidth: number;
   cropHeight: number;
   cropGravity: CropGravity;
-  outputEnabled: boolean;
+  formatEnabled: boolean;
   format: OutputFormat;
+  qualityEnabled: boolean;
   quality: number;
 };
 
@@ -44,8 +45,9 @@ export const defaultDemoState: DemoState = {
   cropWidth: 640,
   cropHeight: 420,
   cropGravity: "inherit",
-  outputEnabled: true,
+  formatEnabled: false,
   format: "auto",
+  qualityEnabled: true,
   quality: 85
 };
 
@@ -81,11 +83,11 @@ export function optionSegments(currentState: DemoState): string[] {
     segments.push(`g:${currentState.gravity}`);
   }
 
-  if (currentState.outputEnabled && currentState.format !== "auto") {
+  if (currentState.formatEnabled && currentState.format !== "auto") {
     segments.push(`f:${currentState.format}`);
   }
 
-  if (currentState.outputEnabled && currentState.quality > 0) {
+  if (currentState.qualityEnabled && currentState.quality > 0) {
     segments.push(`q:${currentState.quality}`);
   }
 
