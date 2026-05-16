@@ -52,7 +52,7 @@
     h2 {
       color: var(--text-heading);
       font-size: 16px;
-      font-weight: 650;
+      font-weight: 600;
       line-height: 20px;
     }
 

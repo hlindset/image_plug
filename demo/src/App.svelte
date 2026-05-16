@@ -787,7 +787,7 @@
     h2 {
       font-size: 16px;
       line-height: 20px;
-      font-weight: 650;
+      font-weight: 600;
       color: var(--text-heading);
     }
 
