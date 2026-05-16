@@ -29,6 +29,7 @@
   let requestOpen = true;
   let state: DemoState = { ...defaultDemoState };
   let previewPath = buildProcessingPath(state);
+  let previewLoading = false;
   let processedMetadata: ProcessedImageMetadata | null = null;
   let metadataRequestId = 0;
   let focalPickerSurface: HTMLSpanElement | null = null;
@@ -36,6 +37,7 @@
     if (nextPath !== previewPath) {
       processedMetadata = null;
       metadataRequestId += 1;
+      previewLoading = true;
     }
 
     previewPath = nextPath;
@@ -111,6 +113,7 @@
       height: image.naturalHeight,
     };
 
+    previewLoading = false;
     processedMetadata = { ...dimensions, bytes: null };
 
     try {
@@ -124,6 +127,14 @@
       if (requestId === metadataRequestId) {
         processedMetadata = { ...dimensions, bytes: null };
       }
+    }
+  }
+
+  function markPreviewLoaded(event: Event): void {
+    const image = event.currentTarget;
+
+    if (image instanceof HTMLImageElement && image.getAttribute("src") === previewPath) {
+      previewLoading = false;
     }
   }
 
@@ -714,9 +725,18 @@
       </div>
       <div class="image-frame">
         <figure>
-          <img src={previewPath} alt="Processed sample source" onload={updateProcessedMetadata} />
+          <img
+            class:is-loading={previewLoading}
+            src={previewPath}
+            alt="Processed sample source"
+            onload={updateProcessedMetadata}
+            onerror={markPreviewLoaded}
+          />
         </figure>
       </div>
+      {#if previewLoading}
+        <div class="preview-spinner" role="status" aria-label="Loading preview"></div>
+      {/if}
     </div>
   </section>
 </main>
@@ -989,6 +1009,41 @@
       height: auto;
       max-width: 100%;
       max-height: calc(100dvh - 160px);
+      transition:
+        opacity 120ms ease-out,
+        filter 120ms ease-out;
+    }
+
+    img.is-loading {
+      opacity: 0.54;
+      filter: saturate(0.82);
+    }
+  }
+
+  .preview-spinner {
+    position: absolute;
+    z-index: 2;
+    inset-block-start: 50%;
+    inset-inline-start: 50%;
+    width: 36px;
+    height: 36px;
+    border: 3px solid color-mix(in srgb, var(--image-overlay-text) 32%, transparent);
+    border-block-start-color: var(--accent);
+    border-radius: 999px;
+    pointer-events: none;
+    transform: translate(-50%, -50%);
+    animation: preview-spin 650ms linear infinite;
+  }
+
+  @keyframes preview-spin {
+    to {
+      transform: translate(-50%, -50%) rotate(1turn);
+    }
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .preview-spinner {
+      animation-duration: 1.5s;
     }
   }
 
