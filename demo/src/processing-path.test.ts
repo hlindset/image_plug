@@ -60,6 +60,11 @@ describe("processing path generation", () => {
     expect(cropPixelLimit("images/cat-300.jpg", "height")).toEqual({ min: 1, max: 188, step: 1 });
   });
 
+  it("defaults crop pixel dimensions to the default source dimensions", () => {
+    expect(defaultDemoState.cropWidth).toBe(cropPixelLimit(defaultDemoState.source, "width").max);
+    expect(defaultDemoState.cropHeight).toBe(cropPixelLimit(defaultDemoState.source, "height").max);
+  });
+
   it("builds the default SimpleServer-compatible processing path", () => {
     expect(optionSegments(defaultDemoState)).toEqual([]);
     expect(buildProcessingPath(defaultDemoState)).toBe("/_/plain/images/dog.jpg");
@@ -224,7 +229,7 @@ describe("processing path generation", () => {
     };
 
     expect(optionSegments(state)).toEqual([
-      "c:640:420",
+      "c:5011:7516",
       "rs:fill:640:360:0",
       "g:nowe",
       "q:85"
@@ -309,7 +314,7 @@ describe("processing path generation", () => {
     };
 
     expect(optionSegments(state)).toEqual([
-      "c:640:420:soea",
+      "c:5011:7516:soea",
       "rs:fill:640:360:0",
       "g:ce",
       "q:85"
@@ -319,7 +324,7 @@ describe("processing path generation", () => {
   it("builds the crop tool summary from the emitted crop segment", () => {
     expect(cropOptionSegment(defaultDemoState)).toBeNull();
 
-    expect(cropOptionSegment({ ...defaultDemoState, cropEnabled: true })).toBe("c:640:420");
+    expect(cropOptionSegment({ ...defaultDemoState, cropEnabled: true })).toBe("c:5011:7516");
 
     expect(
       cropOptionSegment({

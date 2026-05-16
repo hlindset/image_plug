@@ -133,6 +133,10 @@ export function cropPixelLimit(source: SourceImage, axis: ImageDimensionAxis): N
   return { min: 1, max: sourceImageDimensions[source]?.[axis] ?? 1, step: 1 };
 }
 
+function sourceDimension(source: SourceImage, axis: ImageDimensionAxis): number {
+  return cropPixelLimit(source, axis).max;
+}
+
 export function debounce<Arguments extends unknown[]>(
   callback: (...args: Arguments) => void,
   delayMs: number
@@ -193,10 +197,10 @@ export const defaultDemoState: DemoState = {
   enlarge: false,
   cropEnabled: false,
   cropWidthUnit: "px",
-  cropWidth: 640,
+  cropWidth: sourceDimension("images/dog.jpg", "width"),
   cropWidthPercent: 50,
   cropHeightUnit: "px",
-  cropHeight: 420,
+  cropHeight: sourceDimension("images/dog.jpg", "height"),
   cropHeightPercent: 50,
   cropGravity: "inherit",
   formatEnabled: false,
