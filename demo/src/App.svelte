@@ -3,6 +3,7 @@
   import CropDimensionControl from "./CropDimensionControl.svelte";
   import RangeNumber from "./RangeNumber.svelte";
   import ResizeDimensionControl from "./ResizeDimensionControl.svelte";
+  import ToolToggleHeader from "./ToolToggleHeader.svelte";
   import {
     buildProcessingPath,
     controlLimits,
@@ -245,19 +246,11 @@
       </section>
 
       <section class="tool-section">
-        <div class="tool-heading">
-          <div>
-            <h2>Background</h2>
-            <p>{backgroundSummary}</p>
-          </div>
-          <Switch.Root
-            class="switch-root"
-            aria-label="Enable background"
-            bind:checked={state.backgroundEnabled}
-          >
-            <Switch.Thumb class="switch-thumb" />
-          </Switch.Root>
-        </div>
+        <ToolToggleHeader
+          title="Background"
+          summary={backgroundSummary}
+          bind:checked={state.backgroundEnabled}
+        />
 
         {#if state.backgroundEnabled}
           <label class="field">
@@ -285,19 +278,7 @@
       </section>
 
       <section class="tool-section">
-        <div class="tool-heading">
-          <div>
-            <h2>Padding</h2>
-            <p>{paddingSummary}</p>
-          </div>
-          <Switch.Root
-            class="switch-root"
-            aria-label="Enable padding"
-            bind:checked={state.paddingEnabled}
-          >
-            <Switch.Thumb class="switch-thumb" />
-          </Switch.Root>
-        </div>
+        <ToolToggleHeader title="Padding" summary={paddingSummary} bind:checked={state.paddingEnabled} />
 
         {#if state.paddingEnabled}
           <RangeNumber
@@ -332,19 +313,7 @@
       </section>
 
       <section class="tool-section">
-        <div class="tool-heading">
-          <div>
-            <h2>Resize</h2>
-            <p>{resizeSummary}</p>
-          </div>
-          <Switch.Root
-            class="switch-root"
-            aria-label="Enable resize"
-            bind:checked={state.resizeEnabled}
-          >
-            <Switch.Thumb class="switch-thumb" />
-          </Switch.Root>
-        </div>
+        <ToolToggleHeader title="Resize" summary={resizeSummary} bind:checked={state.resizeEnabled} />
 
         {#if state.resizeEnabled}
           <ResizeDimensionControl
@@ -469,19 +438,11 @@
       </section>
 
       <section class="tool-section">
-        <div class="tool-heading">
-          <div>
-            <h2>Aspect canvas</h2>
-            <p>{aspectCanvasSummary}</p>
-          </div>
-          <Switch.Root
-            class="switch-root"
-            aria-label="Enable aspect canvas"
-            bind:checked={state.aspectCanvasEnabled}
-          >
-            <Switch.Thumb class="switch-thumb" />
-          </Switch.Root>
-        </div>
+        <ToolToggleHeader
+          title="Aspect canvas"
+          summary={aspectCanvasSummary}
+          bind:checked={state.aspectCanvasEnabled}
+        />
 
         {#if state.aspectCanvasEnabled}
           <RangeNumber
@@ -502,19 +463,7 @@
       </section>
 
       <section class="tool-section">
-        <div class="tool-heading">
-          <div>
-            <h2>Crop</h2>
-            <p>{cropSummary}</p>
-          </div>
-          <Switch.Root
-            class="switch-root"
-            aria-label="Enable crop"
-            bind:checked={state.cropEnabled}
-          >
-            <Switch.Thumb class="switch-thumb" />
-          </Switch.Root>
-        </div>
+        <ToolToggleHeader title="Crop" summary={cropSummary} bind:checked={state.cropEnabled} />
 
         {#if state.cropEnabled}
           <CropDimensionControl
@@ -551,19 +500,11 @@
       </section>
 
       <section class="tool-section">
-        <div class="tool-heading">
-          <div>
-            <h2>Gravity</h2>
-            <p>{state.gravityEnabled ? gravitySegment(state) : "Off"}</p>
-          </div>
-          <Switch.Root
-            class="switch-root"
-            aria-label="Enable gravity"
-            bind:checked={state.gravityEnabled}
-          >
-            <Switch.Thumb class="switch-thumb" />
-          </Switch.Root>
-        </div>
+        <ToolToggleHeader
+          title="Gravity"
+          summary={state.gravityEnabled ? gravitySegment(state) : "Off"}
+          bind:checked={state.gravityEnabled}
+        />
 
         {#if state.gravityEnabled}
           <label class="field">
@@ -613,12 +554,12 @@
               </button>
             </div>
 
-              <RangeNumber
-                label="Focal X"
-                bind:value={state.gravityFocalX}
-                min={controlLimits.focalPoint.min}
-                max={controlLimits.focalPoint.max}
-                step={controlLimits.focalPoint.step}
+            <RangeNumber
+              label="Focal X"
+              bind:value={state.gravityFocalX}
+              min={controlLimits.focalPoint.min}
+              max={controlLimits.focalPoint.max}
+              step={controlLimits.focalPoint.step}
             />
             <RangeNumber
               label="Focal Y"
@@ -649,19 +590,11 @@
       </section>
 
       <section class="tool-section">
-        <div class="tool-heading">
-          <div>
-            <h2>Format</h2>
-            <p>{state.formatEnabled ? `f:${state.format}` : "Off"}</p>
-          </div>
-          <Switch.Root
-            class="switch-root"
-            aria-label="Enable format"
-            bind:checked={state.formatEnabled}
-          >
-            <Switch.Thumb class="switch-thumb" />
-          </Switch.Root>
-        </div>
+        <ToolToggleHeader
+          title="Format"
+          summary={state.formatEnabled ? `f:${state.format}` : "Off"}
+          bind:checked={state.formatEnabled}
+        />
 
         {#if state.formatEnabled}
           <label class="field">
@@ -677,19 +610,11 @@
       </section>
 
       <section class="tool-section">
-        <div class="tool-heading">
-          <div>
-            <h2>Quality</h2>
-            <p>{state.qualityEnabled ? `q:${state.quality}` : "Off"}</p>
-          </div>
-          <Switch.Root
-            class="switch-root"
-            aria-label="Enable quality"
-            bind:checked={state.qualityEnabled}
-          >
-            <Switch.Thumb class="switch-thumb" />
-          </Switch.Root>
-        </div>
+        <ToolToggleHeader
+          title="Quality"
+          summary={state.qualityEnabled ? `q:${state.quality}` : "Off"}
+          bind:checked={state.qualityEnabled}
+        />
 
         {#if state.qualityEnabled}
           <RangeNumber
@@ -825,7 +750,6 @@
     border-bottom: 1px solid var(--border-subtle);
   }
 
-  .tool-heading,
   :global(.accordion-heading) {
     min-height: 20px;
     display: flex;
