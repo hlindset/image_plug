@@ -4,6 +4,7 @@
   import RangeNumber from "./RangeNumber.svelte";
   import {
     buildProcessingPath,
+    debounce,
     defaultDemoState,
     focalPointFromBounds,
     gravitySegment,
@@ -19,11 +20,21 @@
   let scaleOptionsOpen = true;
   let requestOpen = true;
   let state: DemoState = { ...defaultDemoState };
+  let previewPath = buildProcessingPath(state);
   let processedMetadata: ProcessedImageMetadata | null = null;
   let metadataRequestId = 0;
   let focalPickerSurface: HTMLSpanElement | null = null;
+  const updatePreviewPath = debounce((nextPath: string) => {
+    if (nextPath !== previewPath) {
+      processedMetadata = null;
+      metadataRequestId += 1;
+    }
+
+    previewPath = nextPath;
+  }, 150);
 
   $: path = buildProcessingPath(state);
+  $: updatePreviewPath(path);
   $: previewParameters = path.replace(/^\/(?:_|unsafe)\//, "");
   $: outputLabel = resolvedOutputLabel(state);
   $: sizeLabel = processedSizeLabel(processedMetadata);
@@ -710,7 +721,7 @@
     <div class="preview-canvas">
       <div class="image-frame">
         <figure>
-          <img src={path} alt="Processed sample source" onload={updateProcessedMetadata} />
+          <img src={previewPath} alt="Processed sample source" onload={updateProcessedMetadata} />
           <figcaption>
             <span>{sizeLabel}</span>
             <span>{outputLabel}</span>

@@ -75,6 +75,23 @@ type FocalPickerBounds = {
   height: number;
 };
 
+export function debounce<Arguments extends unknown[]>(
+  callback: (...args: Arguments) => void,
+  delayMs: number
+): (...args: Arguments) => void {
+  let timeoutId: ReturnType<typeof setTimeout> | null = null;
+
+  return (...args: Arguments) => {
+    if (timeoutId !== null) {
+      clearTimeout(timeoutId);
+    }
+
+    timeoutId = setTimeout(() => {
+      callback(...args);
+    }, delayMs);
+  };
+}
+
 export const defaultDemoState: DemoState = {
   signature: "_",
   source: "images/dog.jpg",

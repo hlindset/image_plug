@@ -1,8 +1,9 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 import {
   buildProcessingPath,
   defaultDemoState,
+  debounce,
   focalPointFromBounds,
   processedSizeLabel,
   optionSegments,
@@ -15,6 +16,30 @@ const activeDemoState = {
   gravityEnabled: true,
   qualityEnabled: true
 };
+
+afterEach(() => {
+  vi.useRealTimers();
+});
+
+describe("debounce", () => {
+  it("runs only the latest scheduled callback after the delay", () => {
+    vi.useFakeTimers();
+
+    const calls: string[] = [];
+    const schedule = debounce((value: string) => calls.push(value), 150);
+
+    schedule("first");
+    vi.advanceTimersByTime(100);
+    schedule("second");
+    vi.advanceTimersByTime(149);
+
+    expect(calls).toEqual([]);
+
+    vi.advanceTimersByTime(1);
+
+    expect(calls).toEqual(["second"]);
+  });
+});
 
 describe("processing path generation", () => {
   it("builds the default SimpleServer-compatible processing path", () => {
