@@ -188,49 +188,51 @@
     </div>
 
     <div class="tool-stack">
-      <Collapsible.Root class="tool-section" bind:open={orientationOpen}>
-        <div class="tool-heading">
-          <div>
-            <h2>Orientation</h2>
-            <p>{orientationSummary}</p>
+      <section class="tool-section">
+        <Collapsible.Root class="collapsible-root" bind:open={orientationOpen}>
+          <div class="tool-heading">
+            <div>
+              <h2>Orientation</h2>
+              <p>{orientationSummary}</p>
+            </div>
+            <Collapsible.Trigger
+              class="accordion-toggle"
+              aria-label={orientationOpen ? "Collapse orientation" : "Expand orientation"}
+            >
+              <span class="accordion-chevron" aria-hidden="true"></span>
+            </Collapsible.Trigger>
           </div>
-          <Collapsible.Trigger
-            class="accordion-toggle"
-            aria-label={orientationOpen ? "Collapse orientation" : "Expand orientation"}
-          >
-            <span class="accordion-chevron" aria-hidden="true"></span>
-          </Collapsible.Trigger>
-        </div>
 
-        <Collapsible.Content class="collapsible-content">
-          <label class="switch-field">
-            <Switch.Root class="switch-root" bind:checked={state.autoRotateEnabled}>
-              <Switch.Thumb class="switch-thumb" />
-            </Switch.Root>
-            <span>Auto rotate</span>
-          </label>
+          <Collapsible.Content class="collapsible-content">
+            <label class="switch-field">
+              <Switch.Root class="switch-root" bind:checked={state.autoRotateEnabled}>
+                <Switch.Thumb class="switch-thumb" />
+              </Switch.Root>
+              <span>Auto rotate</span>
+            </label>
 
-          <label class="field">
-            <span>Flip</span>
-            <select bind:value={state.flip}>
-              <option value="none">none</option>
-              <option value="horizontal">horizontal</option>
-              <option value="vertical">vertical</option>
-              <option value="both">both</option>
-            </select>
-          </label>
+            <label class="field">
+              <span>Flip</span>
+              <select bind:value={state.flip}>
+                <option value="none">none</option>
+                <option value="horizontal">horizontal</option>
+                <option value="vertical">vertical</option>
+                <option value="both">both</option>
+              </select>
+            </label>
 
-          <label class="field">
-            <span>Rotate</span>
-            <select bind:value={state.rotate}>
-              <option value={0}>none</option>
-              <option value={90}>90°</option>
-              <option value={180}>180°</option>
-              <option value={270}>270°</option>
-            </select>
-          </label>
-        </Collapsible.Content>
-      </Collapsible.Root>
+            <label class="field">
+              <span>Rotate</span>
+              <select bind:value={state.rotate}>
+                <option value={0}>none</option>
+                <option value={90}>90°</option>
+                <option value={180}>180°</option>
+                <option value={270}>270°</option>
+              </select>
+            </label>
+          </Collapsible.Content>
+        </Collapsible.Root>
+      </section>
 
       <section class="tool-section">
         <div class="tool-heading">
@@ -341,62 +343,64 @@
         {/if}
       </section>
 
-      <Collapsible.Root class="tool-section" bind:open={scaleOptionsOpen}>
-        <div class="tool-heading">
-          <div>
-            <h2>Scale options</h2>
-            <p>{resizeExtras || "Off"}</p>
+      <section class="tool-section">
+        <Collapsible.Root class="collapsible-root" bind:open={scaleOptionsOpen}>
+          <div class="tool-heading">
+            <div>
+              <h2>Scale options</h2>
+              <p>{resizeExtras || "Off"}</p>
+            </div>
+            <Collapsible.Trigger
+              class="accordion-toggle"
+              aria-label={scaleOptionsOpen ? "Collapse scale options" : "Expand scale options"}
+            >
+              <span class="accordion-chevron" aria-hidden="true"></span>
+            </Collapsible.Trigger>
           </div>
-          <Collapsible.Trigger
-            class="accordion-toggle"
-            aria-label={scaleOptionsOpen ? "Collapse scale options" : "Expand scale options"}
-          >
-            <span class="accordion-chevron" aria-hidden="true"></span>
-          </Collapsible.Trigger>
-        </div>
 
-        <Collapsible.Content class="collapsible-content">
-          <label class="switch-field">
-            <Switch.Root class="switch-root" bind:checked={state.zoomEnabled}>
-              <Switch.Thumb class="switch-thumb" />
-            </Switch.Root>
-            <span>Zoom</span>
-          </label>
-          {#if state.zoomEnabled}
-            <RangeNumber label="Zoom" bind:value={state.zoom} min={0.1} max={4} step={0.1} />
-          {/if}
+          <Collapsible.Content class="collapsible-content">
+            <label class="switch-field">
+              <Switch.Root class="switch-root" bind:checked={state.zoomEnabled}>
+                <Switch.Thumb class="switch-thumb" />
+              </Switch.Root>
+              <span>Zoom</span>
+            </label>
+            {#if state.zoomEnabled}
+              <RangeNumber label="Zoom" bind:value={state.zoom} min={0.1} max={4} step={0.1} />
+            {/if}
 
-          <label class="switch-field">
-            <Switch.Root class="switch-root" bind:checked={state.dprEnabled}>
-              <Switch.Thumb class="switch-thumb" />
-            </Switch.Root>
-            <span>DPR</span>
-          </label>
-          {#if state.dprEnabled}
-            <RangeNumber label="DPR" bind:value={state.dpr} min={0.1} max={4} step={0.1} />
-          {/if}
+            <label class="switch-field">
+              <Switch.Root class="switch-root" bind:checked={state.dprEnabled}>
+                <Switch.Thumb class="switch-thumb" />
+              </Switch.Root>
+              <span>DPR</span>
+            </label>
+            {#if state.dprEnabled}
+              <RangeNumber label="DPR" bind:value={state.dpr} min={0.1} max={4} step={0.1} />
+            {/if}
 
-          <label class="switch-field">
-            <Switch.Root class="switch-root" bind:checked={state.minWidthEnabled}>
-              <Switch.Thumb class="switch-thumb" />
-            </Switch.Root>
-            <span>Minimum width</span>
-          </label>
-          {#if state.minWidthEnabled}
-            <RangeNumber label="Min width" bind:value={state.minWidth} min={0} max={1600} step={1} />
-          {/if}
+            <label class="switch-field">
+              <Switch.Root class="switch-root" bind:checked={state.minWidthEnabled}>
+                <Switch.Thumb class="switch-thumb" />
+              </Switch.Root>
+              <span>Minimum width</span>
+            </label>
+            {#if state.minWidthEnabled}
+              <RangeNumber label="Min width" bind:value={state.minWidth} min={0} max={1600} step={1} />
+            {/if}
 
-          <label class="switch-field">
-            <Switch.Root class="switch-root" bind:checked={state.minHeightEnabled}>
-              <Switch.Thumb class="switch-thumb" />
-            </Switch.Root>
-            <span>Minimum height</span>
-          </label>
-          {#if state.minHeightEnabled}
-            <RangeNumber label="Min height" bind:value={state.minHeight} min={0} max={1000} step={1} />
-          {/if}
-        </Collapsible.Content>
-      </Collapsible.Root>
+            <label class="switch-field">
+              <Switch.Root class="switch-root" bind:checked={state.minHeightEnabled}>
+                <Switch.Thumb class="switch-thumb" />
+              </Switch.Root>
+              <span>Minimum height</span>
+            </label>
+            {#if state.minHeightEnabled}
+              <RangeNumber label="Min height" bind:value={state.minHeight} min={0} max={1000} step={1} />
+            {/if}
+          </Collapsible.Content>
+        </Collapsible.Root>
+      </section>
 
       <section class="tool-section">
         <div class="tool-heading">
@@ -614,38 +618,40 @@
         {/if}
       </section>
 
-      <Collapsible.Root class="tool-section" bind:open={requestOpen}>
-        <div class="tool-heading">
-          <div>
-            <h2>Request</h2>
-            <p>{requestSummary}</p>
+      <section class="tool-section">
+        <Collapsible.Root class="collapsible-root" bind:open={requestOpen}>
+          <div class="tool-heading">
+            <div>
+              <h2>Request</h2>
+              <p>{requestSummary}</p>
+            </div>
+            <Collapsible.Trigger
+              class="accordion-toggle"
+              aria-label={requestOpen ? "Collapse request" : "Expand request"}
+            >
+              <span class="accordion-chevron" aria-hidden="true"></span>
+            </Collapsible.Trigger>
           </div>
-          <Collapsible.Trigger
-            class="accordion-toggle"
-            aria-label={requestOpen ? "Collapse request" : "Expand request"}
-          >
-            <span class="accordion-chevron" aria-hidden="true"></span>
-          </Collapsible.Trigger>
-        </div>
 
-        <Collapsible.Content class="collapsible-content">
-          <label class="field">
-            <span>Source image</span>
-            <select bind:value={state.source}>
-              <option value="images/dog.jpg">dog.jpg</option>
-              <option value="images/cat-300.jpg">cat-300.jpg</option>
-            </select>
-          </label>
+          <Collapsible.Content class="collapsible-content">
+            <label class="field">
+              <span>Source image</span>
+              <select bind:value={state.source}>
+                <option value="images/dog.jpg">dog.jpg</option>
+                <option value="images/cat-300.jpg">cat-300.jpg</option>
+              </select>
+            </label>
 
-          <label class="field">
-            <span>Signature</span>
-            <select bind:value={state.signature}>
-              <option value="_">unsigned</option>
-              <option value="unsafe">unsafe</option>
-            </select>
-          </label>
-        </Collapsible.Content>
-      </Collapsible.Root>
+            <label class="field">
+              <span>Signature</span>
+              <select bind:value={state.signature}>
+                <option value="_">unsigned</option>
+                <option value="unsafe">unsafe</option>
+              </select>
+            </label>
+          </Collapsible.Content>
+        </Collapsible.Root>
+      </section>
     </div>
 
     <div class="drawer-actions">
@@ -760,6 +766,12 @@
       font-size: 12px;
       line-height: 16px;
     }
+  }
+
+  :global(.collapsible-root) {
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
   }
 
   :global(.collapsible-content) {
