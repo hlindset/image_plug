@@ -56,8 +56,8 @@ describe("processing path generation", () => {
   it("uses the source image dimensions as crop pixel limits", () => {
     expect(cropPixelLimit("images/dog.jpg", "width")).toEqual({ min: 1, max: 5011, step: 1 });
     expect(cropPixelLimit("images/dog.jpg", "height")).toEqual({ min: 1, max: 7516, step: 1 });
-    expect(cropPixelLimit("images/cat-300.jpg", "width")).toEqual({ min: 1, max: 300, step: 1 });
-    expect(cropPixelLimit("images/cat-300.jpg", "height")).toEqual({ min: 1, max: 188, step: 1 });
+    expect(cropPixelLimit("images/beach.jpg", "width")).toEqual({ min: 1, max: 4000, step: 1 });
+    expect(cropPixelLimit("images/beach.jpg", "height")).toEqual({ min: 1, max: 2667, step: 1 });
   });
 
   it("defaults crop pixel dimensions to the default source dimensions", () => {
