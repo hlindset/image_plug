@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 import {
   buildProcessingPath,
+  cropDimensionSegment,
   defaultDemoState,
   debounce,
   focalPointFromBounds,
@@ -303,6 +304,11 @@ describe("processing path generation", () => {
     };
 
     expect(optionSegments(state)).toEqual(["c:0:0.25"]);
+  });
+
+  it("keeps crop zero exclusive to the full unit", () => {
+    expect(cropDimensionSegment("px", 0, 50)).toBe("1");
+    expect(cropDimensionSegment("full", 320, 50)).toBe("0");
   });
 
   it("includes enabled resize extras after the resize segment", () => {

@@ -9,7 +9,7 @@
   export let maxPixels = 1200;
 
   $: activeValue = unit === "percent" ? percent : pixels;
-  $: min = unit === "percent" ? 1 : 0;
+  $: min = 1;
   $: max = unit === "percent" ? 99 : maxPixels;
   $: suffix = unit === "percent" ? "%" : "px";
 

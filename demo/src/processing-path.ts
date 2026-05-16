@@ -282,7 +282,7 @@ export function cropDimensionSegment(
     return String(percent / 100);
   }
 
-  return String(pixels);
+  return String(Math.max(1, pixels));
 }
 
 export function resizeDimensionSegment(unit: ResizeDimensionUnit, pixels: number): string {
