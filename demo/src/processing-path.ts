@@ -228,42 +228,16 @@ export function optionSegments(currentState: DemoState): string[] {
     segments.push(`rot:${currentState.rotate}`);
   }
 
-  if (currentState.cropEnabled) {
-    const cropSegment = [
-      "c",
-      cropDimensionSegment(
-        currentState.cropWidthUnit,
-        currentState.cropWidth,
-        currentState.cropWidthPercent
-      ),
-      cropDimensionSegment(
-        currentState.cropHeightUnit,
-        currentState.cropHeight,
-        currentState.cropHeightPercent
-      )
-    ];
+  const cropSegment = cropOptionSegment(currentState);
 
-    if (currentState.cropGravity !== "inherit") {
-      cropSegment.push(currentState.cropGravity);
-    }
-
-    segments.push(cropSegment.join(":"));
+  if (cropSegment !== null) {
+    segments.push(cropSegment);
   }
 
-  if (currentState.resizeEnabled) {
-    const resizeSegment = [
-      "rs",
-      currentState.resizeMode,
-      resizeDimensionSegment(currentState.resizeWidthUnit, currentState.width),
-      resizeDimensionSegment(currentState.resizeHeightUnit, currentState.height),
-      currentState.enlarge ? 1 : 0
-    ];
+  const resizeSegment = resizeOptionSegment(currentState);
 
-    if (currentState.resizeExtendEnabled) {
-      resizeSegment.push(1);
-    }
-
-    segments.push(resizeSegment.join(":"));
+  if (resizeSegment !== null) {
+    segments.push(resizeSegment);
   }
 
   if (currentState.zoomEnabled) {
@@ -322,6 +296,52 @@ export function optionSegments(currentState: DemoState): string[] {
   }
 
   return segments;
+}
+
+export function cropOptionSegment(currentState: DemoState): string | null {
+  if (!currentState.cropEnabled) {
+    return null;
+  }
+
+  const cropSegment = [
+    "c",
+    cropDimensionSegment(
+      currentState.cropWidthUnit,
+      currentState.cropWidth,
+      currentState.cropWidthPercent
+    ),
+    cropDimensionSegment(
+      currentState.cropHeightUnit,
+      currentState.cropHeight,
+      currentState.cropHeightPercent
+    )
+  ];
+
+  if (currentState.cropGravity !== "inherit") {
+    cropSegment.push(currentState.cropGravity);
+  }
+
+  return cropSegment.join(":");
+}
+
+export function resizeOptionSegment(currentState: DemoState): string | null {
+  if (!currentState.resizeEnabled) {
+    return null;
+  }
+
+  const resizeSegment = [
+    "rs",
+    currentState.resizeMode,
+    resizeDimensionSegment(currentState.resizeWidthUnit, currentState.width),
+    resizeDimensionSegment(currentState.resizeHeightUnit, currentState.height),
+    currentState.enlarge ? 1 : 0
+  ];
+
+  if (currentState.resizeExtendEnabled) {
+    resizeSegment.push(1);
+  }
+
+  return resizeSegment.join(":");
 }
 
 export function cropDimensionSegment(

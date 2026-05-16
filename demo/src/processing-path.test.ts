@@ -4,12 +4,14 @@ import {
   buildProcessingPath,
   controlLimits,
   cropDimensionSegment,
+  cropOptionSegment,
   cropPixelLimit,
   defaultDemoState,
   debounce,
   focalPointFromBounds,
   processedSizeLabel,
   optionSegments,
+  resizeOptionSegment,
   resolvedOutputLabel
 } from "./processing-path";
 
@@ -98,6 +100,24 @@ describe("processing path generation", () => {
 
     expect(optionSegments(state)).toEqual(["rs:fill:640:360:0:1"]);
     expect(buildProcessingPath(state)).toBe("/_/rs:fill:640:360:0:1/plain/images/dog.jpg");
+  });
+
+  it("builds the resize tool summary from the emitted resize segment", () => {
+    expect(resizeOptionSegment(defaultDemoState)).toBeNull();
+
+    expect(resizeOptionSegment({ ...defaultDemoState, resizeEnabled: true })).toBe(
+      "rs:fill:640:360:0"
+    );
+
+    expect(
+      resizeOptionSegment({
+        ...defaultDemoState,
+        resizeEnabled: true,
+        resizeWidthUnit: "auto" as const,
+        resizeHeightUnit: "px" as const,
+        height: 360
+      })
+    ).toBe("rs:fill:0:360:0");
   });
 
   it("emits resize auto dimensions as zero per axis", () => {
@@ -294,6 +314,23 @@ describe("processing path generation", () => {
       "g:ce",
       "q:85"
     ]);
+  });
+
+  it("builds the crop tool summary from the emitted crop segment", () => {
+    expect(cropOptionSegment(defaultDemoState)).toBeNull();
+
+    expect(cropOptionSegment({ ...defaultDemoState, cropEnabled: true })).toBe("c:640:420");
+
+    expect(
+      cropOptionSegment({
+        ...defaultDemoState,
+        cropEnabled: true,
+        cropWidthUnit: "percent" as const,
+        cropWidthPercent: 50,
+        cropHeightUnit: "full" as const,
+        cropGravity: "soea" as const
+      })
+    ).toBe("c:0.5:0:soea");
   });
 
   it("emits mixed relative and pixel crop dimensions", () => {

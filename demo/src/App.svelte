@@ -6,12 +6,14 @@
   import {
     buildProcessingPath,
     controlLimits,
+    cropOptionSegment,
     cropPixelLimit,
     debounce,
     defaultDemoState,
     focalPointFromBounds,
     gravitySegment,
     processedSizeLabel,
+    resizeOptionSegment,
     sampleImages,
     resolvedOutputLabel,
     type DemoState,
@@ -54,16 +56,7 @@
       .filter(Boolean)
       .join("/") || "Off";
   $: resizeSummary = state.resizeEnabled
-    ? [
-        "rs",
-        state.resizeMode,
-        resizeDimensionSummary(state.resizeWidthUnit, state.width),
-        resizeDimensionSummary(state.resizeHeightUnit, state.height),
-        state.enlarge ? 1 : 0,
-        state.resizeExtendEnabled ? 1 : null
-      ]
-        .filter((value) => value !== null)
-        .join(":")
+    ? (resizeOptionSegment(state) ?? "Off")
     : "Off";
   $: aspectCanvasSummary = state.aspectCanvasEnabled
     ? `exar:${state.extendAspectWidth}:${state.extendAspectHeight}`
@@ -76,13 +69,7 @@
         state.backgroundAlphaEnabled ? `/bga:${state.backgroundAlpha}` : ""
       }`
     : "Off";
-  $: cropSummary = state.cropEnabled
-    ? `c:${cropDimensionSummary(state.cropWidthUnit, state.cropWidth, state.cropWidthPercent)}:${cropDimensionSummary(
-        state.cropHeightUnit,
-        state.cropHeight,
-        state.cropHeightPercent
-      )}`
-    : "Off";
+  $: cropSummary = state.cropEnabled ? (cropOptionSegment(state) ?? "Off") : "Off";
   $: resizeExtras = [
     state.zoomEnabled ? `z:${state.zoom}` : null,
     state.dprEnabled ? `dpr:${state.dpr}` : null,
@@ -108,30 +95,6 @@
     }
 
     return null;
-  }
-
-  function cropDimensionSummary(
-    unit: DemoState["cropWidthUnit"],
-    pixels: number,
-    percent: number
-  ): string {
-    if (unit === "full") {
-      return "full";
-    }
-
-    if (unit === "percent") {
-      return `${percent}%`;
-    }
-
-    return `${pixels}px`;
-  }
-
-  function resizeDimensionSummary(unit: DemoState["resizeWidthUnit"], pixels: number): string {
-    if (unit === "auto") {
-      return "auto";
-    }
-
-    return `${pixels}px`;
   }
 
   async function updateProcessedMetadata(event: Event): Promise<void> {
