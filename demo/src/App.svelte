@@ -1135,10 +1135,10 @@
     background: var(--surface-control-track);
     padding: 2px;
     cursor: pointer;
+    transition: background-color 120ms ease-out;
   }
 
   .fiddle-shell :global(.switch-root[data-state="checked"]) {
-    justify-content: flex-end;
     background: var(--accent);
   }
 
@@ -1148,10 +1148,14 @@
     height: 20px;
     border-radius: 999px;
     background: var(--text-muted);
+    transition:
+      transform 140ms cubic-bezier(0.2, 0.9, 0.24, 1),
+      background-color 120ms ease-out;
   }
 
   .fiddle-shell :global(.switch-root[data-state="checked"] .switch-thumb) {
     background: var(--surface-sidebar);
+    transform: translateX(18px);
   }
 
   .fiddle-shell :global(.switch-root:focus-visible),
@@ -1159,6 +1163,13 @@
   :where(.copy-button, .open-link, .icon-button, select, .focal-picker):focus-visible {
     outline: 2px solid var(--focus-ring);
     outline-offset: 2px;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .fiddle-shell :global(.switch-root),
+    .fiddle-shell :global(.switch-thumb) {
+      transition-duration: 1ms;
+    }
   }
 
   .mobile-scrim {

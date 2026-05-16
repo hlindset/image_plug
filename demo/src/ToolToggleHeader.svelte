@@ -81,6 +81,7 @@
     border-radius: 999px;
     background: var(--surface-control-track);
     padding: 2px;
+    transition: background-color 120ms ease-out;
   }
 
   .switch-thumb {
@@ -89,14 +90,24 @@
     height: 20px;
     border-radius: 999px;
     background: var(--text-muted);
+    transition:
+      transform 140ms cubic-bezier(0.2, 0.9, 0.24, 1),
+      background-color 120ms ease-out;
   }
 
   .tool-toggle-heading.is-checked .switch-root {
-    justify-content: flex-end;
     background: var(--accent);
   }
 
   .tool-toggle-heading.is-checked .switch-thumb {
     background: var(--surface-sidebar);
+    transform: translateX(18px);
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .switch-root,
+    .switch-thumb {
+      transition-duration: 1ms;
+    }
   }
 </style>
