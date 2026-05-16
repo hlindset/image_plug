@@ -44,7 +44,7 @@
     onValueCommit={(nextValue) => (value = clamp(nextValue))}
   >
     <Slider.Range class="slider-range" />
-    <Slider.Thumb class="slider-thumb" index={0} />
+    <Slider.Thumb class="slider-thumb" index={0} aria-label={`${label} slider`} />
   </Slider.Root>
 </div>
 

@@ -70,7 +70,7 @@
       onValueCommit={setPixels}
     >
       <Slider.Range class="slider-range" />
-      <Slider.Thumb class="slider-thumb" index={0} />
+      <Slider.Thumb class="slider-thumb" index={0} aria-label={`${label} slider`} />
     </Slider.Root>
   {/if}
 </div>

@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { onMount } from "svelte";
   import { Collapsible, RadioGroup, Switch } from "bits-ui";
   import CropDimensionControl from "./CropDimensionControl.svelte";
   import RangeNumber from "./RangeNumber.svelte";
@@ -34,6 +35,7 @@
 
   let copyLabel = "Copy URL";
   let drawerOpen = false;
+  let mobileTools = false;
   let orientationOpen = true;
   let scaleOptionsOpen = true;
   let requestOpen = true;
@@ -56,6 +58,18 @@
 
     previewPath = nextPath;
   }, 150);
+
+  onMount(() => {
+    const mediaQuery = window.matchMedia("(max-width: 720px)");
+    const syncMobileTools = () => {
+      mobileTools = mediaQuery.matches;
+    };
+
+    syncMobileTools();
+    mediaQuery.addEventListener("change", syncMobileTools);
+
+    return () => mediaQuery.removeEventListener("change", syncMobileTools);
+  });
 
   $: updateProcessingPath(state);
   $: updatePreviewPath(path);
@@ -218,6 +232,10 @@
   }
 
   function updateFocalPoint(event: MouseEvent | PointerEvent): void {
+    if (event instanceof MouseEvent && event.detail === 0) {
+      return;
+    }
+
     if (focalPickerSurface === null) {
       return;
     }
@@ -240,6 +258,32 @@
     }
 
     updateFocalPoint(event);
+  }
+
+  function moveFocalPoint(event: KeyboardEvent): void {
+    const step = event.shiftKey ? 0.1 : 0.01;
+
+    if (event.key === "ArrowLeft") {
+      event.preventDefault();
+      state.gravityFocalX = Math.max(0, roundedFocalPoint(state.gravityFocalX - step));
+    } else if (event.key === "ArrowRight") {
+      event.preventDefault();
+      state.gravityFocalX = Math.min(1, roundedFocalPoint(state.gravityFocalX + step));
+    } else if (event.key === "ArrowUp") {
+      event.preventDefault();
+      state.gravityFocalY = Math.max(0, roundedFocalPoint(state.gravityFocalY - step));
+    } else if (event.key === "ArrowDown") {
+      event.preventDefault();
+      state.gravityFocalY = Math.min(1, roundedFocalPoint(state.gravityFocalY + step));
+    } else if (event.key === "Home") {
+      event.preventDefault();
+      state.gravityFocalX = 0.5;
+      state.gravityFocalY = 0.5;
+    }
+  }
+
+  function roundedFocalPoint(value: number): number {
+    return Math.round(value * 100) / 100;
   }
 
   function dragFocalPoint(event: PointerEvent): void {
@@ -268,11 +312,19 @@
     class="mobile-scrim"
     class:is-open={drawerOpen}
     type="button"
+    tabindex={drawerOpen ? 0 : -1}
+    aria-hidden={drawerOpen ? "false" : "true"}
     aria-label="Close tools"
     onclick={() => (drawerOpen = false)}
   ></button>
 
-  <aside class="tools-sidebar" class:is-open={drawerOpen} aria-label="Processing controls">
+  <aside
+    class="tools-sidebar"
+    class:is-open={drawerOpen}
+    aria-label="Processing controls"
+    aria-hidden={mobileTools && !drawerOpen ? "true" : "false"}
+    inert={mobileTools && !drawerOpen}
+  >
     <div class="drawer-topbar">
       <strong>Tools</strong>
       <button
@@ -639,6 +691,7 @@
                 type="button"
                 aria-label={`Set focal point, currently ${state.gravityFocalX}, ${state.gravityFocalY}`}
                 onclick={updateFocalPoint}
+                onkeydown={moveFocalPoint}
                 onpointerdown={startFocalPointDrag}
                 onpointermove={dragFocalPoint}
               >
