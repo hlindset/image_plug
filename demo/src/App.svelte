@@ -12,6 +12,7 @@
     focalPointFromBounds,
     gravitySegment,
     processedSizeLabel,
+    sampleImages,
     resolvedOutputLabel,
     type DemoState,
     type ProcessedImageMetadata
@@ -755,8 +756,9 @@
             <label class="field">
               <span>Source image</span>
               <select bind:value={state.source}>
-                <option value="images/dog.jpg">dog.jpg</option>
-                <option value="images/cat-300.jpg">cat-300.jpg</option>
+                {#each sampleImages as image}
+                  <option value={image.path}>{image.label}</option>
+                {/each}
               </select>
             </label>
 

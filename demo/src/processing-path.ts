@@ -1,3 +1,5 @@
+import { sampleImages } from "virtual:sample-images";
+
 export type ResizeMode = "fit" | "fill" | "fill-down" | "force" | "auto";
 export type Gravity = "ce" | "no" | "so" | "ea" | "we" | "noea" | "nowe" | "soea" | "sowe";
 export type GravityMode = "anchor" | "focalPoint" | "offset";
@@ -8,7 +10,7 @@ export type OutputFormat = "webp" | "avif" | "jpeg" | "png";
 export type Flip = "none" | "horizontal" | "vertical" | "both";
 export type Rotate = 0 | 90 | 180 | 270;
 export type Signature = "_" | "unsafe";
-export type SourceImage = "images/dog.jpg" | "images/cat-300.jpg";
+export type SourceImage = (typeof sampleImages)[number]["path"];
 
 export type DemoState = {
   signature: Signature;
@@ -121,13 +123,14 @@ export const controlLimits = {
   quality: NumericControlLimit;
 };
 
-const sourceImageDimensions = {
-  "images/dog.jpg": { width: 5011, height: 7516 },
-  "images/cat-300.jpg": { width: 300, height: 188 }
-} satisfies Record<SourceImage, Record<ImageDimensionAxis, number>>;
+export { sampleImages };
+
+const sourceImageDimensions = Object.fromEntries(
+  sampleImages.map((image) => [image.path, { width: image.width, height: image.height }])
+) as Record<SourceImage, Record<ImageDimensionAxis, number>>;
 
 export function cropPixelLimit(source: SourceImage, axis: ImageDimensionAxis): NumericControlLimit {
-  return { min: 1, max: sourceImageDimensions[source][axis], step: 1 };
+  return { min: 1, max: sourceImageDimensions[source]?.[axis] ?? 1, step: 1 };
 }
 
 export function debounce<Arguments extends unknown[]>(

@@ -21,6 +21,9 @@ importers:
       '@typescript/native-preview':
         specifier: 7.0.0-dev.20260515.1
         version: 7.0.0-dev.20260515.1
+      image-size:
+        specifier: ^2.0.2
+        version: 2.0.2
       oxlint:
         specifier: 1.64.0
         version: 1.64.0
@@ -648,6 +651,11 @@ packages:
     resolution: {integrity: sha512-5xoDfX+fL7faATnagmWPpbFtwh/R77WmMMqqHGS65C3vvB0YHrgF+B1YmZ3441tMj5n63k0212XNoJwzlhffQw==}
     engines: {node: ^8.16.0 || ^10.6.0 || >=11.0.0}
     os: [darwin]
+
+  image-size@2.0.2:
+    resolution: {integrity: sha512-IRqXKlaXwgSMAMtpNzZa1ZAe8m+Sa1770Dhk8VkSsP9LS+iHD62Zd8FQKs8fbPiagBE7BzoFX23cxFnwshpV6w==}
+    engines: {node: '>=16.x'}
+    hasBin: true
 
   inline-style-parser@0.2.7:
     resolution: {integrity: sha512-Nb2ctOyNR8DqQoR0OwRG95uNWIC0C1lCgf5Naz5H6Ji72KZ8OcFZLz2P5sNgwlyoJ8Yif11oMuYs5pBQa86csA==}
@@ -1379,6 +1387,8 @@ snapshots:
 
   fsevents@2.3.3:
     optional: true
+
+  image-size@2.0.2: {}
 
   inline-style-parser@0.2.7: {}
 

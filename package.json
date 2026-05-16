@@ -12,6 +12,7 @@
     "@sveltejs/vite-plugin-svelte": "7.1.2",
     "@types/node": "25.8.0",
     "@typescript/native-preview": "7.0.0-dev.20260515.1",
+    "image-size": "^2.0.2",
     "oxlint": "1.64.0",
     "svelte": "5.55.7",
     "typescript": "6.0.3",
