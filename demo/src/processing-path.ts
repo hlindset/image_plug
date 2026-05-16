@@ -5,7 +5,6 @@ export type CropGravity = "inherit" | Gravity;
 export type OutputFormat = "webp" | "avif" | "jpeg" | "png";
 export type Flip = "none" | "horizontal" | "vertical" | "both";
 export type Rotate = 0 | 90 | 180 | 270;
-export type CanvasMode = "extend" | "aspectRatio";
 export type Signature = "_" | "unsafe";
 export type SourceImage = "images/dog.jpg" | "images/cat-300.jpg";
 
@@ -19,6 +18,7 @@ export type DemoState = {
   resizeMode: ResizeMode;
   width: number;
   height: number;
+  resizeExtendEnabled: boolean;
   zoomEnabled: boolean;
   zoom: number;
   dprEnabled: boolean;
@@ -27,8 +27,7 @@ export type DemoState = {
   minWidth: number;
   minHeightEnabled: boolean;
   minHeight: number;
-  canvasEnabled: boolean;
-  canvasMode: CanvasMode;
+  aspectCanvasEnabled: boolean;
   extendAspectWidth: number;
   extendAspectHeight: number;
   paddingEnabled: boolean;
@@ -81,6 +80,7 @@ export const defaultDemoState: DemoState = {
   resizeMode: "fill",
   width: 640,
   height: 360,
+  resizeExtendEnabled: false,
   zoomEnabled: false,
   zoom: 1.5,
   dprEnabled: false,
@@ -89,8 +89,7 @@ export const defaultDemoState: DemoState = {
   minWidth: 320,
   minHeightEnabled: false,
   minHeight: 180,
-  canvasEnabled: false,
-  canvasMode: "extend",
+  aspectCanvasEnabled: false,
   extendAspectWidth: 16,
   extendAspectHeight: 9,
   paddingEnabled: false,
@@ -154,38 +153,38 @@ export function optionSegments(currentState: DemoState): string[] {
   }
 
   if (currentState.resizeEnabled) {
-    segments.push(
-      [
-        "rs",
-        currentState.resizeMode,
-        currentState.width,
-        currentState.height,
-        currentState.enlarge ? 1 : 0
-      ].join(":")
-    );
+    const resizeSegment = [
+      "rs",
+      currentState.resizeMode,
+      currentState.width,
+      currentState.height,
+      currentState.enlarge ? 1 : 0
+    ];
 
-    if (currentState.zoomEnabled) {
-      segments.push(`z:${currentState.zoom}`);
+    if (currentState.resizeExtendEnabled) {
+      resizeSegment.push(1);
     }
 
-    if (currentState.dprEnabled) {
-      segments.push(`dpr:${currentState.dpr}`);
-    }
-
-    if (currentState.minWidthEnabled) {
-      segments.push(`mw:${currentState.minWidth}`);
-    }
-
-    if (currentState.minHeightEnabled) {
-      segments.push(`mh:${currentState.minHeight}`);
-    }
+    segments.push(resizeSegment.join(":"));
   }
 
-  if (currentState.canvasEnabled && currentState.canvasMode === "extend") {
-    segments.push("ex:1");
+  if (currentState.zoomEnabled) {
+    segments.push(`z:${currentState.zoom}`);
   }
 
-  if (currentState.canvasEnabled && currentState.canvasMode === "aspectRatio") {
+  if (currentState.dprEnabled) {
+    segments.push(`dpr:${currentState.dpr}`);
+  }
+
+  if (currentState.minWidthEnabled) {
+    segments.push(`mw:${currentState.minWidth}`);
+  }
+
+  if (currentState.minHeightEnabled) {
+    segments.push(`mh:${currentState.minHeight}`);
+  }
+
+  if (currentState.aspectCanvasEnabled) {
     segments.push(`exar:${currentState.extendAspectWidth}:${currentState.extendAspectHeight}`);
   }
 

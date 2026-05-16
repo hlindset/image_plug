@@ -48,23 +48,31 @@ describe("processing path generation", () => {
     expect(optionSegments({ ...defaultDemoState, rotate: 270 })).toEqual(["rot:270"]);
   });
 
-  it("includes canvas extend after resize when enabled", () => {
+  it("includes resize extend as the resize segment extend argument", () => {
     const state = {
       ...defaultDemoState,
       resizeEnabled: true,
-      canvasEnabled: true,
-      canvasMode: "extend" as const
+      resizeExtendEnabled: true
     };
 
-    expect(optionSegments(state)).toEqual(["rs:fill:640:360:0", "ex:1"]);
-    expect(buildProcessingPath(state)).toBe("/_/rs:fill:640:360:0/ex:1/plain/images/dog.jpg");
+    expect(optionSegments(state)).toEqual(["rs:fill:640:360:0:1"]);
+    expect(buildProcessingPath(state)).toBe("/_/rs:fill:640:360:0:1/plain/images/dog.jpg");
   });
 
-  it("includes extend aspect ratio when canvas aspect ratio mode is enabled", () => {
+  it("does not emit resize extend when resize is disabled", () => {
     const state = {
       ...defaultDemoState,
-      canvasEnabled: true,
-      canvasMode: "aspectRatio" as const,
+      resizeExtendEnabled: true
+    };
+
+    expect(optionSegments(state)).toEqual([]);
+    expect(buildProcessingPath(state)).toBe("/_/plain/images/dog.jpg");
+  });
+
+  it("includes extend aspect ratio when aspect canvas is enabled", () => {
+    const state = {
+      ...defaultDemoState,
+      aspectCanvasEnabled: true,
       extendAspectWidth: 16,
       extendAspectHeight: 9
     };
@@ -73,11 +81,10 @@ describe("processing path generation", () => {
     expect(buildProcessingPath(state)).toBe("/_/exar:16:9/plain/images/dog.jpg");
   });
 
-  it("includes explicit four-sided padding after canvas options", () => {
+  it("includes explicit four-sided padding after aspect canvas options", () => {
     const state = {
       ...defaultDemoState,
-      canvasEnabled: true,
-      canvasMode: "extend" as const,
+      aspectCanvasEnabled: true,
       paddingEnabled: true,
       paddingTop: 8,
       paddingRight: 16,
@@ -85,8 +92,8 @@ describe("processing path generation", () => {
       paddingLeft: 32
     };
 
-    expect(optionSegments(state)).toEqual(["ex:1", "pd:8:16:24:32"]);
-    expect(buildProcessingPath(state)).toBe("/_/ex:1/pd:8:16:24:32/plain/images/dog.jpg");
+    expect(optionSegments(state)).toEqual(["exar:16:9", "pd:8:16:24:32"]);
+    expect(buildProcessingPath(state)).toBe("/_/exar:16:9/pd:8:16:24:32/plain/images/dog.jpg");
   });
 
   it("includes background color and optional alpha after padding", () => {
@@ -247,7 +254,7 @@ describe("processing path generation", () => {
     ]);
   });
 
-  it("omits resize extras when resize is disabled", () => {
+  it("includes enabled resize extras even when resize is disabled", () => {
     const state = {
       ...defaultDemoState,
       zoomEnabled: true,
@@ -260,8 +267,8 @@ describe("processing path generation", () => {
       minHeight: 180
     };
 
-    expect(optionSegments(state)).toEqual([]);
-    expect(buildProcessingPath(state)).toBe("/_/plain/images/dog.jpg");
+    expect(optionSegments(state)).toEqual(["z:1.5", "dpr:2", "mw:320", "mh:180"]);
+    expect(buildProcessingPath(state)).toBe("/_/z:1.5/dpr:2/mw:320/mh:180/plain/images/dog.jpg");
   });
 
   it("omits explicit format when format is disabled", () => {

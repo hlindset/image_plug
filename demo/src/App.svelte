@@ -31,10 +31,20 @@
     ]
       .filter(Boolean)
       .join("/") || "Off";
-  $: canvasSummary = state.canvasEnabled
-    ? state.canvasMode === "extend"
-      ? "ex:1"
-      : `exar:${state.extendAspectWidth}:${state.extendAspectHeight}`
+  $: resizeSummary = state.resizeEnabled
+    ? [
+        "rs",
+        state.resizeMode,
+        state.width,
+        state.height,
+        state.enlarge ? 1 : 0,
+        state.resizeExtendEnabled ? 1 : null
+      ]
+        .filter((value) => value !== null)
+        .join(":")
+    : "Off";
+  $: aspectCanvasSummary = state.aspectCanvasEnabled
+    ? `exar:${state.extendAspectWidth}:${state.extendAspectHeight}`
     : "Off";
   $: paddingSummary = state.paddingEnabled
     ? `pd:${state.paddingTop}:${state.paddingRight}:${state.paddingBottom}:${state.paddingLeft}`
@@ -275,7 +285,7 @@
         <div class="tool-heading">
           <div>
             <h2>Resize</h2>
-            <p>{state.resizeEnabled ? `rs:${state.resizeMode}:${state.width}:${state.height}` : "Off"}</p>
+            <p>{resizeSummary}</p>
           </div>
           <Switch.Root
             class="switch-root"
@@ -308,95 +318,92 @@
             <span>Allow enlargement</span>
           </label>
 
-          <div class="tool-subgroup">
-            <div class="subgroup-heading">
-              <span>Extras</span>
-              <code>{resizeExtras || "none"}</code>
-            </div>
-
-            <label class="switch-field">
-              <Switch.Root class="switch-root" bind:checked={state.zoomEnabled}>
-                <Switch.Thumb class="switch-thumb" />
-              </Switch.Root>
-              <span>Zoom</span>
-            </label>
-            {#if state.zoomEnabled}
-              <RangeNumber label="Zoom" bind:value={state.zoom} min={0.1} max={4} step={0.1} />
-            {/if}
-
-            <label class="switch-field">
-              <Switch.Root class="switch-root" bind:checked={state.dprEnabled}>
-                <Switch.Thumb class="switch-thumb" />
-              </Switch.Root>
-              <span>DPR</span>
-            </label>
-            {#if state.dprEnabled}
-              <RangeNumber label="DPR" bind:value={state.dpr} min={0.1} max={4} step={0.1} />
-            {/if}
-
-            <label class="switch-field">
-              <Switch.Root class="switch-root" bind:checked={state.minWidthEnabled}>
-                <Switch.Thumb class="switch-thumb" />
-              </Switch.Root>
-              <span>Minimum width</span>
-            </label>
-            {#if state.minWidthEnabled}
-              <RangeNumber label="Min width" bind:value={state.minWidth} min={0} max={1600} step={1} />
-            {/if}
-
-            <label class="switch-field">
-              <Switch.Root class="switch-root" bind:checked={state.minHeightEnabled}>
-                <Switch.Thumb class="switch-thumb" />
-              </Switch.Root>
-              <span>Minimum height</span>
-            </label>
-            {#if state.minHeightEnabled}
-              <RangeNumber label="Min height" bind:value={state.minHeight} min={0} max={1000} step={1} />
-            {/if}
-          </div>
+          <label class="switch-field">
+            <Switch.Root class="switch-root" bind:checked={state.resizeExtendEnabled}>
+              <Switch.Thumb class="switch-thumb" />
+            </Switch.Root>
+            <span>Extend result</span>
+          </label>
         {/if}
+
+        <div class="tool-subgroup">
+          <div class="subgroup-heading">
+            <span>Scale options</span>
+            <code>{resizeExtras || "none"}</code>
+          </div>
+
+          <label class="switch-field">
+            <Switch.Root class="switch-root" bind:checked={state.zoomEnabled}>
+              <Switch.Thumb class="switch-thumb" />
+            </Switch.Root>
+            <span>Zoom</span>
+          </label>
+          {#if state.zoomEnabled}
+            <RangeNumber label="Zoom" bind:value={state.zoom} min={0.1} max={4} step={0.1} />
+          {/if}
+
+          <label class="switch-field">
+            <Switch.Root class="switch-root" bind:checked={state.dprEnabled}>
+              <Switch.Thumb class="switch-thumb" />
+            </Switch.Root>
+            <span>DPR</span>
+          </label>
+          {#if state.dprEnabled}
+            <RangeNumber label="DPR" bind:value={state.dpr} min={0.1} max={4} step={0.1} />
+          {/if}
+
+          <label class="switch-field">
+            <Switch.Root class="switch-root" bind:checked={state.minWidthEnabled}>
+              <Switch.Thumb class="switch-thumb" />
+            </Switch.Root>
+            <span>Minimum width</span>
+          </label>
+          {#if state.minWidthEnabled}
+            <RangeNumber label="Min width" bind:value={state.minWidth} min={0} max={1600} step={1} />
+          {/if}
+
+          <label class="switch-field">
+            <Switch.Root class="switch-root" bind:checked={state.minHeightEnabled}>
+              <Switch.Thumb class="switch-thumb" />
+            </Switch.Root>
+            <span>Minimum height</span>
+          </label>
+          {#if state.minHeightEnabled}
+            <RangeNumber label="Min height" bind:value={state.minHeight} min={0} max={1000} step={1} />
+          {/if}
+        </div>
       </section>
 
       <section class="tool-section">
         <div class="tool-heading">
           <div>
-            <h2>Canvas</h2>
-            <p>{canvasSummary}</p>
+            <h2>Aspect canvas</h2>
+            <p>{aspectCanvasSummary}</p>
           </div>
           <Switch.Root
             class="switch-root"
-            aria-label="Enable canvas"
-            bind:checked={state.canvasEnabled}
+            aria-label="Enable aspect canvas"
+            bind:checked={state.aspectCanvasEnabled}
           >
             <Switch.Thumb class="switch-thumb" />
           </Switch.Root>
         </div>
 
-        {#if state.canvasEnabled}
-          <label class="field">
-            <span>Mode</span>
-            <select bind:value={state.canvasMode}>
-              <option value="extend">extend</option>
-              <option value="aspectRatio">aspect ratio</option>
-            </select>
-          </label>
-
-          {#if state.canvasMode === "aspectRatio"}
-            <RangeNumber
-              label="Ratio width"
-              bind:value={state.extendAspectWidth}
-              min={1}
-              max={32}
-              step={1}
-            />
-            <RangeNumber
-              label="Ratio height"
-              bind:value={state.extendAspectHeight}
-              min={1}
-              max={32}
-              step={1}
-            />
-          {/if}
+        {#if state.aspectCanvasEnabled}
+          <RangeNumber
+            label="Ratio width"
+            bind:value={state.extendAspectWidth}
+            min={1}
+            max={32}
+            step={1}
+          />
+          <RangeNumber
+            label="Ratio height"
+            bind:value={state.extendAspectHeight}
+            min={1}
+            max={32}
+            step={1}
+          />
         {/if}
       </section>
 
