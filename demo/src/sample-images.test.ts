@@ -22,5 +22,6 @@ describe("sample image virtual module", () => {
       width: 5011,
       height: 7516,
     });
+    expect(sampleImages.map((image) => image.path)).not.toContain("images/waterfall.jpg");
   });
 });

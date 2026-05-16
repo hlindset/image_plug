@@ -8,7 +8,7 @@ defmodule ImagePlug.SequentialCompatibilityTest do
   alias ImagePlug.Transform.Operation.Resize
   alias ImagePlug.Transform.State
 
-  @cat_path "priv/static/images/cat-300.jpg"
+  @cat_path "priv/static/images/beach.jpg"
   @dog_path "priv/static/images/dog.jpg"
 
   test "auto-orient-only chains match random access after materialization" do

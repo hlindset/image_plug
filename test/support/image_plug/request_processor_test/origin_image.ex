@@ -1,8 +1,8 @@
 defmodule ImagePlug.Request.ProcessorTest.OriginImage do
   @moduledoc false
 
-  def call(%Plug.Conn{request_path: "/images/cat-300.jpg"} = conn, _opts) do
-    body = File.read!("priv/static/images/cat-300.jpg")
+  def call(%Plug.Conn{request_path: "/images/beach.jpg"} = conn, _opts) do
+    body = File.read!("priv/static/images/beach.jpg")
 
     conn
     |> Plug.Conn.put_resp_content_type("image/jpeg")

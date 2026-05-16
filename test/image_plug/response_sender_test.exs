@@ -27,7 +27,7 @@ defmodule ImagePlug.Response.SenderTest do
   end
 
   test "image responses apply content disposition on cache misses" do
-    {:ok, image} = Image.open("priv/static/images/cat-300.jpg")
+    {:ok, image} = Image.open("priv/static/images/beach.jpg")
     state = %ImagePlug.Transform.State{image: image}
 
     resolved = %ImagePlug.Output.Resolved{

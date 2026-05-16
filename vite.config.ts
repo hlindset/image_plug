@@ -1,5 +1,5 @@
 import { svelte } from "@sveltejs/vite-plugin-svelte";
-import { readFileSync, readdirSync } from "node:fs";
+import { readFileSync, readdirSync, statSync } from "node:fs";
 import { dirname, join, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { defineConfig } from "vitest/config";
@@ -10,6 +10,8 @@ const currentDirectory = dirname(fileURLToPath(import.meta.url));
 const sampleImagesModuleId = "virtual:sample-images";
 const resolvedSampleImagesModuleId = `\0${sampleImagesModuleId}.ts`;
 const sampleImageExtensions = new Set([".avif", ".jpeg", ".jpg", ".png", ".webp"]);
+const maxDemoOriginBytes = 10_000_000;
+const maxDemoInputPixels = 40_000_000;
 
 function sampleImagesPlugin(
   imagesDirectory = resolve(currentDirectory, "priv/static/images"),
@@ -46,6 +48,7 @@ function sampleImagesPlugin(
 
         if (sampleImagesModule !== undefined) {
           server.moduleGraph.invalidateModule(sampleImagesModule);
+          server.ws.send({ type: "full-reload" });
         }
       });
     },
@@ -56,7 +59,7 @@ function buildSampleImagesModule(imagesDirectory: string): string {
   const sampleImages = readdirSync(imagesDirectory)
     .filter((fileName) => sampleImageExtensions.has(fileExtension(fileName)))
     .sort((left, right) => left.localeCompare(right))
-    .map((fileName) => {
+    .flatMap((fileName) => {
       const filePath = join(imagesDirectory, fileName);
       const dimensions = imageSize(readFileSync(filePath));
 
@@ -64,12 +67,21 @@ function buildSampleImagesModule(imagesDirectory: string): string {
         throw new Error(`Could not read image dimensions for ${filePath}`);
       }
 
-      return {
-        path: `images/${fileName}`,
-        label: fileName,
-        width: dimensions.width,
-        height: dimensions.height,
-      };
+      if (
+        statSync(filePath).size > maxDemoOriginBytes ||
+        dimensions.width * dimensions.height > maxDemoInputPixels
+      ) {
+        return [];
+      }
+
+      return [
+        {
+          path: `images/${fileName}`,
+          label: fileName,
+          width: dimensions.width,
+          height: dimensions.height,
+        },
+      ];
     });
 
   return `export const sampleImages = ${JSON.stringify(sampleImages, null, 2)} as const;\n`;

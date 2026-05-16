@@ -19,12 +19,12 @@ ImagePlug's Imgproxy API uses path-oriented and declarative URLs:
 For unsigned local development, the signature segment can be `_` or `unsafe`:
 
 ```text
-/_/plain/images/cat-300.jpg
-/_/w:300/plain/images/cat-300.jpg
-/_/rs:fill:300:300/g:ce/plain/images/cat-300.jpg
-/_/rs:fit:800:0/f:webp/plain/images/cat-300.jpg
-/_/rt:force/w:300/h:200/plain/images/cat-300.jpg
-/_/rs:fill:300:300/plain/images/cat-300.jpg@webp
+/_/plain/images/beach.jpg
+/_/w:300/plain/images/beach.jpg
+/_/rs:fill:300:300/g:ce/plain/images/beach.jpg
+/_/rs:fit:800:0/f:webp/plain/images/beach.jpg
+/_/rt:force/w:300/h:200/plain/images/beach.jpg
+/_/rs:fill:300:300/plain/images/beach.jpg@webp
 ```
 
 For production-style imgproxy compatibility, configure hex-encoded key/salt
@@ -59,8 +59,8 @@ The Imgproxy grammar accepts selected imgproxy-compatible option names as ImageP
 Options are declarative. Their order in the URL does not define processing order:
 
 ```text
-/_/rs:fill:300:300/plain/images/cat-300.jpg
-/_/h:300/w:300/rt:fill/plain/images/cat-300.jpg
+/_/rs:fill:300:300/plain/images/beach.jpg
+/_/h:300/w:300/rt:fill/plain/images/beach.jpg
 ```
 
 Both URLs describe the same requested output. ImagePlug owns the fixed processing pipeline so it can optimize origin loading, resize, crop, and output encoding over time.
