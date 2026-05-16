@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { Collapsible, Switch } from "bits-ui";
+  import { Collapsible, RadioGroup, Switch } from "bits-ui";
   import CropDimensionControl from "./CropDimensionControl.svelte";
   import RangeNumber from "./RangeNumber.svelte";
   import ResizeDimensionControl from "./ResizeDimensionControl.svelte";
@@ -24,12 +24,20 @@
     type DemoState,
     type ProcessedImageMetadata,
   } from "./processing-path";
+  import {
+    applyThemeMode,
+    persistThemeMode,
+    readStoredThemeMode,
+    storedThemeMode,
+    type ThemeMode,
+  } from "./theme";
 
   let copyLabel = "Copy URL";
   let drawerOpen = false;
   let orientationOpen = true;
   let scaleOptionsOpen = true;
   let requestOpen = true;
+  let themeMode: ThemeMode = readStoredThemeMode();
   let state: DemoState = { ...defaultDemoState };
   let path = buildProcessingPath(state);
   let previewPath = buildProcessingPath(state);
@@ -51,6 +59,8 @@
 
   $: updateProcessingPath(state);
   $: updatePreviewPath(path);
+  $: applyThemeMode(themeMode);
+  $: persistThemeMode(themeMode);
   $: previewParameters = path.replace(/^\/[^/]+\//, "");
   $: outputLabel = resolvedOutputLabel(state);
   $: sizeLabel = processedSizeLabel(processedMetadata);
@@ -246,6 +256,10 @@
     if (enabled) {
       state = resetCropPixelsToSource(state);
     }
+  }
+
+  function setThemeMode(nextMode: string): void {
+    themeMode = storedThemeMode(nextMode);
   }
 </script>
 
@@ -790,11 +804,46 @@
         ☰
       </button>
       <code class="parameter-preview">{previewParameters}</code>
-      <div class="desktop-actions">
-        <button class="copy-button copy-button-secondary" type="button" onclick={copyUrl}
-          >{copyLabel}</button
+      <div class="preview-actions">
+        <RadioGroup.Root
+          class="theme-toggle"
+          value={themeMode}
+          onValueChange={setThemeMode}
+          orientation="horizontal"
+          aria-label="Theme"
         >
-        <a class="open-link" href={path} target="_blank" rel="noreferrer">Open</a>
+          <RadioGroup.Item class="theme-toggle-item" value="light" aria-label="Light theme">
+            <svg class="theme-toggle-icon" viewBox="0 0 24 24" aria-hidden="true">
+              <circle cx="12" cy="12" r="4"></circle>
+              <path d="M12 2v3"></path>
+              <path d="M12 19v3"></path>
+              <path d="m4.93 4.93 2.12 2.12"></path>
+              <path d="m16.95 16.95 2.12 2.12"></path>
+              <path d="M2 12h3"></path>
+              <path d="M19 12h3"></path>
+              <path d="m4.93 19.07 2.12-2.12"></path>
+              <path d="m16.95 7.05 2.12-2.12"></path>
+            </svg>
+          </RadioGroup.Item>
+          <RadioGroup.Item class="theme-toggle-item" value="dark" aria-label="Dark theme">
+            <svg class="theme-toggle-icon" viewBox="0 0 24 24" aria-hidden="true">
+              <path d="M20 14.2A8.2 8.2 0 0 1 9.8 4 8.5 8.5 0 1 0 20 14.2Z"></path>
+            </svg>
+          </RadioGroup.Item>
+          <RadioGroup.Item class="theme-toggle-item" value="system" aria-label="System theme">
+            <svg class="theme-toggle-icon" viewBox="0 0 24 24" aria-hidden="true">
+              <rect x="4" y="5" width="16" height="11" rx="2"></rect>
+              <path d="M9 20h6"></path>
+              <path d="M12 16v4"></path>
+            </svg>
+          </RadioGroup.Item>
+        </RadioGroup.Root>
+        <div class="desktop-actions">
+          <button class="copy-button copy-button-secondary" type="button" onclick={copyUrl}
+            >{copyLabel}</button
+          >
+          <a class="open-link" href={path} target="_blank" rel="noreferrer">Open</a>
+        </div>
       </div>
     </header>
 
@@ -974,10 +1023,57 @@
   }
 
   .desktop-actions,
-  .drawer-actions {
+  .drawer-actions,
+  .preview-actions {
     display: flex;
     align-items: center;
     gap: 14px;
+  }
+
+  .preview-actions {
+    flex-shrink: 0;
+  }
+
+  .preview-actions :global(.theme-toggle) {
+    height: 36px;
+    display: inline-flex;
+    align-items: center;
+    gap: 2px;
+    padding: 3px;
+    border: 1px solid var(--border-strong);
+    border-radius: 999px;
+    background: var(--surface-button-quiet);
+  }
+
+  .preview-actions :global(.theme-toggle-item) {
+    width: 28px;
+    height: 28px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    border: 0;
+    border-radius: 999px;
+    background: transparent;
+    color: var(--text-muted);
+    cursor: pointer;
+    padding: 0;
+  }
+
+  .preview-actions :global(.theme-toggle-item[data-state="checked"]) {
+    background: var(--surface-control);
+    color: var(--text-heading);
+    box-shadow: 0 0 0 1px var(--border-subtle);
+  }
+
+  .theme-toggle-icon {
+    width: 16px;
+    height: 16px;
+    display: block;
+    fill: none;
+    stroke: currentColor;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+    stroke-width: 2;
   }
 
   .drawer-actions {
@@ -1317,6 +1413,7 @@
 
   .fiddle-shell :global(.switch-root:focus-visible),
   .fiddle-shell :global(.accordion-heading:focus-visible),
+  .fiddle-shell :global(.theme-toggle-item:focus-visible),
   :where(.copy-button, .open-link, .icon-button, select, .text-input, .focal-picker):focus-visible {
     outline: 2px solid var(--focus-ring);
     outline-offset: 2px;
@@ -1426,6 +1523,11 @@
 
     .desktop-actions {
       display: none;
+    }
+
+    .preview-actions {
+      margin-inline-start: auto;
+      gap: 0;
     }
 
     .parameter-preview {
