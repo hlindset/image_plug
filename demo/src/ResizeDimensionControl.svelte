@@ -97,14 +97,18 @@
   }
 
   input[type="number"] {
-    width: 64px;
+    width: auto;
+    min-width: 5ch;
+    max-width: 10ch;
     border: 1px solid transparent;
     border-radius: 6px;
     background: transparent;
     color: var(--text-primary);
+    field-sizing: content;
     font-family: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
     font-size: 13px;
     line-height: 18px;
+    padding-inline: 4px;
     text-align: right;
     appearance: textfield;
     -moz-appearance: textfield;
