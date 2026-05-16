@@ -38,7 +38,14 @@ defmodule ImagePlug.SimpleServer do
   defp image_plug_opts do
     [
       root_url: root_url(),
-      parser: ImagePlug.Parser.Imgproxy
+      parser: ImagePlug.Parser.Imgproxy,
+      imgproxy: [
+        signature: [
+          keys: ["736563726574"],
+          salts: ["68656c6c6f"],
+          trusted_signatures: ["_", "unsafe"]
+        ]
+      ]
     ]
     |> maybe_put_cache(cache_config())
     |> ImagePlug.init()

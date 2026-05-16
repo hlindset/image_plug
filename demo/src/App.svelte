@@ -17,6 +17,8 @@
     resizeOptionSegment,
     resetCropPixelsToSource,
     sampleImages,
+    signProcessingPath,
+    signedPathForState,
     resolvedOutputLabel,
     type DemoState,
     type ProcessedImageMetadata,
@@ -28,10 +30,13 @@
   let scaleOptionsOpen = true;
   let requestOpen = true;
   let state: DemoState = { ...defaultDemoState };
+  let path = buildProcessingPath(state);
   let previewPath = buildProcessingPath(state);
   let previewLoading = false;
   let processedMetadata: ProcessedImageMetadata | null = null;
   let metadataRequestId = 0;
+  let pathRequestId = 0;
+  let signingError: string | null = null;
   let focalPickerSurface: HTMLSpanElement | null = null;
   const updatePreviewPath = debounce((nextPath: string) => {
     if (nextPath !== previewPath) {
@@ -43,14 +48,15 @@
     previewPath = nextPath;
   }, 150);
 
-  $: path = buildProcessingPath(state);
+  $: updateProcessingPath(state);
   $: updatePreviewPath(path);
-  $: previewParameters = path.replace(/^\/(?:_|unsafe)\//, "");
+  $: previewParameters = path.replace(/^\/[^/]+\//, "");
   $: outputLabel = resolvedOutputLabel(state);
   $: sizeLabel = processedSizeLabel(processedMetadata);
-  $: requestSummary = `${state.source.replace(/^images\//, "")} / ${
-    state.signature === "_" ? "unsigned" : state.signature
-  }`;
+  $: requestSummary = `${state.source.replace(/^images\//, "")} / ${requestSignatureLabel(
+    state,
+    signingError,
+  )}`;
   $: orientationSummary =
     [
       state.autoRotateEnabled ? "ar:1" : null,
@@ -97,6 +103,42 @@
     }
 
     return null;
+  }
+
+  function requestSignatureLabel(
+    currentState: DemoState,
+    currentSigningError: string | null,
+  ): string {
+    if (currentState.signatureMode === "signed") {
+      return currentSigningError === null ? "signed" : "signed: invalid key";
+    }
+
+    return currentState.signatureMode;
+  }
+
+  function updateProcessingPath(currentState: DemoState): void {
+    const requestId = ++pathRequestId;
+    const signedPath = signedPathForState(currentState);
+
+    if (currentState.signatureMode !== "signed") {
+      signingError = null;
+      path = buildProcessingPath(currentState);
+      return;
+    }
+
+    signProcessingPath(signedPath, currentState.signatureKey, currentState.signatureSalt)
+      .then((signature) => {
+        if (requestId === pathRequestId) {
+          signingError = null;
+          path = `/${signature}${signedPath}`;
+        }
+      })
+      .catch((error: unknown) => {
+        if (requestId === pathRequestId) {
+          signingError = error instanceof Error ? error.message : "Unable to sign request";
+          path = `/invalid-signature${signedPath}`;
+        }
+      });
   }
 
   async function updateProcessedMetadata(event: Event): Promise<void> {
@@ -683,11 +725,38 @@
 
             <label class="field">
               <span>Signature</span>
-              <select bind:value={state.signature}>
-                <option value="_">unsigned</option>
+              <select bind:value={state.signatureMode}>
+                <option value="unsigned">unsigned</option>
                 <option value="unsafe">unsafe</option>
+                <option value="signed">signed</option>
               </select>
             </label>
+
+            {#if state.signatureMode === "signed"}
+              <label class="field">
+                <span>Key</span>
+                <input
+                  class="text-input text-input-mono"
+                  bind:value={state.signatureKey}
+                  spellcheck="false"
+                  autocomplete="off"
+                />
+              </label>
+
+              <label class="field">
+                <span>Salt</span>
+                <input
+                  class="text-input text-input-mono"
+                  bind:value={state.signatureSalt}
+                  spellcheck="false"
+                  autocomplete="off"
+                />
+              </label>
+
+              {#if signingError !== null}
+                <p class="field-error">{signingError}</p>
+              {/if}
+            {/if}
           </Collapsible.Content>
         </Collapsible.Root>
       </section>
@@ -1162,6 +1231,28 @@
     background-repeat: no-repeat;
   }
 
+  .text-input {
+    min-height: 38px;
+    width: 100%;
+    border: 1px solid var(--border-strong);
+    border-radius: 7px;
+    background: var(--surface-control);
+    color: var(--text-primary);
+    padding: 0 12px;
+  }
+
+  .text-input-mono {
+    font-family: var(--font-mono);
+    font-size: 12px;
+  }
+
+  .field-error {
+    margin: 0;
+    color: var(--accent);
+    font-size: 12px;
+    line-height: 16px;
+  }
+
   .color-input {
     width: 100%;
     height: 38px;
@@ -1215,7 +1306,7 @@
 
   .fiddle-shell :global(.switch-root:focus-visible),
   .fiddle-shell :global(.accordion-heading:focus-visible),
-  :where(.copy-button, .open-link, .icon-button, select, .focal-picker):focus-visible {
+  :where(.copy-button, .open-link, .icon-button, select, .text-input, .focal-picker):focus-visible {
     outline: 2px solid var(--focus-ring);
     outline-offset: 2px;
   }

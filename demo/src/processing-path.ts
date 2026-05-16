@@ -9,11 +9,13 @@ export type ResizeDimensionUnit = "px" | "auto";
 export type OutputFormat = "webp" | "avif" | "jpeg" | "png";
 export type Flip = "none" | "horizontal" | "vertical" | "both";
 export type Rotate = 0 | 90 | 180 | 270;
-export type Signature = "_" | "unsafe";
+export type SignatureMode = "unsigned" | "unsafe" | "signed";
 export type SourceImage = (typeof sampleImages)[number]["path"];
 
 export type DemoState = {
-  signature: Signature;
+  signatureMode: SignatureMode;
+  signatureKey: string;
+  signatureSalt: string;
   source: SourceImage;
   autoRotateEnabled: boolean;
   flip: Flip;
@@ -163,7 +165,9 @@ export function debounce<Arguments extends unknown[]>(
 }
 
 export const defaultDemoState: DemoState = {
-  signature: "_",
+  signatureMode: "unsigned",
+  signatureKey: "736563726574",
+  signatureSalt: "68656c6c6f",
   source: "images/dog.jpg",
   autoRotateEnabled: false,
   flip: "none",
@@ -438,9 +442,90 @@ export function processedSizeLabel(metadata: ProcessedImageMetadata | null): str
   return `${dimensions} (${kilobytes} kB)`;
 }
 
-export function buildProcessingPath(currentState: DemoState): string {
+export function signedPathForState(currentState: DemoState): string {
   const options = optionSegments(currentState).join("/");
   const optionsPath = options === "" ? "" : `/${options}`;
 
-  return `/${currentState.signature}${optionsPath}/plain/${currentState.source}`;
+  return `${optionsPath}/plain/${currentState.source}`;
+}
+
+export function processingPathFromSignedPath(signature: string, signedPath: string): string {
+  return `/${signature}${signedPath}`;
+}
+
+export function buildProcessingPath(currentState: DemoState, signature?: string): string {
+  const signedPath = signedPathForState(currentState);
+
+  if (signature !== undefined) {
+    return processingPathFromSignedPath(signature, signedPath);
+  }
+
+  return processingPathFromSignedPath(signatureSegment(currentState), signedPath);
+}
+
+export async function signProcessingPath(
+  signedPath: string,
+  keyHex: string,
+  saltHex: string,
+  signatureSize = 32,
+): Promise<string> {
+  const key = hexToBytes(keyHex, "key");
+  const salt = hexToBytes(saltHex, "salt");
+  const pathBytes = new TextEncoder().encode(signedPath);
+  const data = new Uint8Array(salt.length + pathBytes.length);
+
+  data.set(salt);
+  data.set(pathBytes, salt.length);
+
+  const cryptoKey = await crypto.subtle.importKey(
+    "raw",
+    toArrayBuffer(key),
+    { name: "HMAC", hash: "SHA-256" },
+    false,
+    ["sign"],
+  );
+  const digest = new Uint8Array(await crypto.subtle.sign("HMAC", cryptoKey, toArrayBuffer(data)));
+  const signature = digest.slice(0, signatureSize);
+
+  return base64UrlEncode(signature);
+}
+
+function signatureSegment(currentState: DemoState): string {
+  if (currentState.signatureMode === "unsafe") {
+    return "unsafe";
+  }
+
+  return "_";
+}
+
+function hexToBytes(hex: string, label: string): Uint8Array {
+  if (hex === "" || hex.length % 2 !== 0 || !/^[\da-f]+$/i.test(hex)) {
+    throw new Error(`Signing ${label} must be a non-empty hex string`);
+  }
+
+  const bytes = new Uint8Array(hex.length / 2);
+
+  for (let index = 0; index < hex.length; index += 2) {
+    bytes[index / 2] = Number.parseInt(hex.slice(index, index + 2), 16);
+  }
+
+  return bytes;
+}
+
+function toArrayBuffer(bytes: Uint8Array): ArrayBuffer {
+  const buffer = new ArrayBuffer(bytes.byteLength);
+
+  new Uint8Array(buffer).set(bytes);
+
+  return buffer;
+}
+
+function base64UrlEncode(bytes: Uint8Array): string {
+  let binary = "";
+
+  for (const byte of bytes) {
+    binary += String.fromCharCode(byte);
+  }
+
+  return btoa(binary).replaceAll("+", "-").replaceAll("/", "_").replaceAll("=", "");
 }

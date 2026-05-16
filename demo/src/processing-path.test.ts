@@ -12,8 +12,11 @@ import {
   resetCropPixelsToSource,
   processedSizeLabel,
   optionSegments,
+  processingPathFromSignedPath,
   resizeOptionSegment,
   resolvedOutputLabel,
+  signProcessingPath,
+  signedPathForState,
 } from "./processing-path";
 
 const activeDemoState = {
@@ -83,6 +86,29 @@ describe("processing path generation", () => {
   it("builds the default SimpleServer-compatible processing path", () => {
     expect(optionSegments(defaultDemoState)).toEqual([]);
     expect(buildProcessingPath(defaultDemoState)).toBe("/_/plain/images/dog.jpg");
+  });
+
+  it("builds a signed request path from a generated signature", () => {
+    const state = {
+      ...defaultDemoState,
+      signatureMode: "signed" as const,
+      resizeEnabled: true,
+    };
+
+    expect(signedPathForState(state)).toBe("/rs:fill:640:360:0/plain/images/dog.jpg");
+    expect(processingPathFromSignedPath("local-signature", signedPathForState(state))).toBe(
+      "/local-signature/rs:fill:640:360:0/plain/images/dog.jpg",
+    );
+  });
+
+  it("generates imgproxy-compatible HMAC signatures", async () => {
+    const signature = await signProcessingPath(
+      "/rs:fill:300:400:0/g:sm/aHR0cDovL2V4YW1w/bGUuY29tL2ltYWdl/cy9jdXJpb3NpdHku/anBn.png",
+      "736563726574",
+      "68656c6c6f",
+    );
+
+    expect(signature).toBe("oKfUtW34Dvo2BGQehJFR4Nr0_rIjOtdtzJ3QFsUcXH8");
   });
 
   it("keeps jpeg selected as the default explicit format", () => {
