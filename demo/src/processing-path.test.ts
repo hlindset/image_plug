@@ -84,6 +84,30 @@ describe("processing path generation", () => {
     expect(buildProcessingPath(state)).toBe("/_/rs:fill:640:360:0:1/plain/images/dog.jpg");
   });
 
+  it("emits resize auto dimensions as zero per axis", () => {
+    const state = {
+      ...defaultDemoState,
+      resizeEnabled: true,
+      resizeWidthUnit: "auto" as const,
+      resizeHeightUnit: "px" as const,
+      height: 360
+    };
+
+    expect(optionSegments(state)).toEqual(["rs:fill:0:360:0"]);
+  });
+
+  it("allows both resize dimensions to be auto", () => {
+    const state = {
+      ...defaultDemoState,
+      resizeEnabled: true,
+      resizeMode: "force" as const,
+      resizeWidthUnit: "auto" as const,
+      resizeHeightUnit: "auto" as const
+    };
+
+    expect(optionSegments(state)).toEqual(["rs:force:0:0:0"]);
+  });
+
   it("does not emit resize extend when resize is disabled", () => {
     const state = {
       ...defaultDemoState,

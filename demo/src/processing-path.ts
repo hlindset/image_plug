@@ -3,6 +3,7 @@ export type Gravity = "ce" | "no" | "so" | "ea" | "we" | "noea" | "nowe" | "soea
 export type GravityMode = "anchor" | "focalPoint" | "offset";
 export type CropGravity = "inherit" | Gravity;
 export type CropDimensionUnit = "px" | "percent" | "full";
+export type ResizeDimensionUnit = "px" | "auto";
 export type OutputFormat = "webp" | "avif" | "jpeg" | "png";
 export type Flip = "none" | "horizontal" | "vertical" | "both";
 export type Rotate = 0 | 90 | 180 | 270;
@@ -17,7 +18,9 @@ export type DemoState = {
   rotate: Rotate;
   resizeEnabled: boolean;
   resizeMode: ResizeMode;
+  resizeWidthUnit: ResizeDimensionUnit;
   width: number;
+  resizeHeightUnit: ResizeDimensionUnit;
   height: number;
   resizeExtendEnabled: boolean;
   zoomEnabled: boolean;
@@ -100,7 +103,9 @@ export const defaultDemoState: DemoState = {
   rotate: 0,
   resizeEnabled: false,
   resizeMode: "fill",
+  resizeWidthUnit: "px",
   width: 640,
+  resizeHeightUnit: "px",
   height: 360,
   resizeExtendEnabled: false,
   zoomEnabled: false,
@@ -194,8 +199,8 @@ export function optionSegments(currentState: DemoState): string[] {
     const resizeSegment = [
       "rs",
       currentState.resizeMode,
-      currentState.width,
-      currentState.height,
+      resizeDimensionSegment(currentState.resizeWidthUnit, currentState.width),
+      resizeDimensionSegment(currentState.resizeHeightUnit, currentState.height),
       currentState.enlarge ? 1 : 0
     ];
 
@@ -275,6 +280,14 @@ export function cropDimensionSegment(
 
   if (unit === "percent") {
     return String(percent / 100);
+  }
+
+  return String(pixels);
+}
+
+export function resizeDimensionSegment(unit: ResizeDimensionUnit, pixels: number): string {
+  if (unit === "auto") {
+    return "0";
   }
 
   return String(pixels);

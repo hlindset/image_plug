@@ -2,6 +2,7 @@
   import { Collapsible, Switch } from "bits-ui";
   import CropDimensionControl from "./CropDimensionControl.svelte";
   import RangeNumber from "./RangeNumber.svelte";
+  import ResizeDimensionControl from "./ResizeDimensionControl.svelte";
   import {
     buildProcessingPath,
     debounce,
@@ -53,8 +54,8 @@
     ? [
         "rs",
         state.resizeMode,
-        state.width,
-        state.height,
+        resizeDimensionSummary(state.resizeWidthUnit, state.width),
+        resizeDimensionSummary(state.resizeHeightUnit, state.height),
         state.enlarge ? 1 : 0,
         state.resizeExtendEnabled ? 1 : null
       ]
@@ -115,6 +116,14 @@
 
     if (unit === "percent") {
       return `${percent}%`;
+    }
+
+    return `${pixels}px`;
+  }
+
+  function resizeDimensionSummary(unit: DemoState["resizeWidthUnit"], pixels: number): string {
+    if (unit === "auto") {
+      return "auto";
     }
 
     return `${pixels}px`;
@@ -346,8 +355,18 @@
         </div>
 
         {#if state.resizeEnabled}
-          <RangeNumber label="Width" bind:value={state.width} min={0} max={1600} step={1} />
-          <RangeNumber label="Height" bind:value={state.height} min={0} max={1000} step={1} />
+          <ResizeDimensionControl
+            label="Width"
+            bind:unit={state.resizeWidthUnit}
+            bind:pixels={state.width}
+            maxPixels={1600}
+          />
+          <ResizeDimensionControl
+            label="Height"
+            bind:unit={state.resizeHeightUnit}
+            bind:pixels={state.height}
+            maxPixels={1000}
+          />
 
           <label class="field">
             <span>Type</span>
