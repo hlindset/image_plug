@@ -1,29 +1,32 @@
 <script lang="ts">
-  import { Switch } from "bits-ui";
-
   export let title: string;
   export let summary: string;
   export let checked: boolean;
+  export let onCheckedChange: ((checked: boolean) => void) | undefined = undefined;
 
   function toggleChecked(): void {
-    checked = !checked;
+    const nextChecked = !checked;
+
+    checked = nextChecked;
+    onCheckedChange?.(nextChecked);
   }
 </script>
 
-<button class="tool-toggle-heading" type="button" aria-pressed={checked} onclick={toggleChecked}>
+<button
+  class="tool-toggle-heading"
+  class:is-checked={checked}
+  type="button"
+  aria-pressed={checked}
+  aria-label={`${checked ? "Disable" : "Enable"} ${title.toLowerCase()}`}
+  onclick={toggleChecked}
+>
   <span>
     <h2>{title}</h2>
     <p>{summary}</p>
   </span>
-  <Switch.Root
-    class="switch-root"
-    aria-label={`${checked ? "Disable" : "Enable"} ${title.toLowerCase()}`}
-    bind:checked
-    onpointerdown={(event) => event.stopPropagation()}
-    onclick={(event) => event.stopPropagation()}
-  >
-    <Switch.Thumb class="switch-thumb" />
-  </Switch.Root>
+  <span class="switch-root" aria-hidden="true">
+    <span class="switch-thumb"></span>
+  </span>
 </button>
 
 <style>
@@ -65,5 +68,34 @@
       outline: 2px solid var(--focus-ring);
       outline-offset: 4px;
     }
+  }
+
+  .switch-root {
+    width: 42px;
+    height: 24px;
+    display: flex;
+    flex-shrink: 0;
+    align-items: center;
+    justify-content: flex-start;
+    border-radius: 999px;
+    background: var(--surface-control-track);
+    padding: 2px;
+  }
+
+  .switch-thumb {
+    display: block;
+    width: 20px;
+    height: 20px;
+    border-radius: 999px;
+    background: var(--text-muted);
+  }
+
+  .tool-toggle-heading.is-checked .switch-root {
+    justify-content: flex-end;
+    background: var(--accent);
+  }
+
+  .tool-toggle-heading.is-checked .switch-thumb {
+    background: var(--surface-sidebar);
   }
 </style>

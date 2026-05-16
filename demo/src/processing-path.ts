@@ -137,6 +137,14 @@ function sourceDimension(source: SourceImage, axis: ImageDimensionAxis): number 
   return cropPixelLimit(source, axis).max;
 }
 
+export function resetCropPixelsToSource(currentState: DemoState): DemoState {
+  return {
+    ...currentState,
+    cropWidth: sourceDimension(currentState.source, "width"),
+    cropHeight: sourceDimension(currentState.source, "height"),
+  };
+}
+
 export function debounce<Arguments extends unknown[]>(
   callback: (...args: Arguments) => void,
   delayMs: number,

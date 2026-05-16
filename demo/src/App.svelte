@@ -15,6 +15,7 @@
     gravitySegment,
     processedSizeLabel,
     resizeOptionSegment,
+    resetCropPixelsToSource,
     sampleImages,
     resolvedOutputLabel,
     type DemoState,
@@ -173,6 +174,14 @@
     }
 
     updateFocalPoint(event);
+  }
+
+  function updateCropEnabled(enabled: boolean): void {
+    state.cropEnabled = enabled;
+
+    if (enabled) {
+      state = resetCropPixelsToSource(state);
+    }
   }
 </script>
 
@@ -469,7 +478,12 @@
       </section>
 
       <section class="tool-section">
-        <ToolToggleHeader title="Crop" summary={cropSummary} bind:checked={state.cropEnabled} />
+        <ToolToggleHeader
+          title="Crop"
+          summary={cropSummary}
+          checked={state.cropEnabled}
+          onCheckedChange={updateCropEnabled}
+        />
 
         {#if state.cropEnabled}
           <CropDimensionControl

@@ -9,6 +9,7 @@ import {
   defaultDemoState,
   debounce,
   focalPointFromBounds,
+  resetCropPixelsToSource,
   processedSizeLabel,
   optionSegments,
   resizeOptionSegment,
@@ -63,6 +64,20 @@ describe("processing path generation", () => {
   it("defaults crop pixel dimensions to the default source dimensions", () => {
     expect(defaultDemoState.cropWidth).toBe(cropPixelLimit(defaultDemoState.source, "width").max);
     expect(defaultDemoState.cropHeight).toBe(cropPixelLimit(defaultDemoState.source, "height").max);
+  });
+
+  it("can reset crop pixel dimensions to the selected source dimensions", () => {
+    expect(
+      resetCropPixelsToSource({
+        ...defaultDemoState,
+        source: "images/beach.jpg",
+        cropWidth: 1,
+        cropHeight: 1,
+      }),
+    ).toMatchObject({
+      cropWidth: 4000,
+      cropHeight: 2667,
+    });
   });
 
   it("builds the default SimpleServer-compatible processing path", () => {
