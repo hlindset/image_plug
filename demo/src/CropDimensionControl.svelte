@@ -1,6 +1,6 @@
 <script lang="ts">
   import { Slider } from "bits-ui";
-  import type { CropDimensionUnit } from "./processing-path";
+  import { controlLimits, type CropDimensionUnit } from "./processing-path";
 
   export let label: string;
   export let unit: CropDimensionUnit = "px";
@@ -9,9 +9,15 @@
   export let maxPixels = 1200;
 
   $: activeValue = unit === "percent" ? percent : pixels;
-  $: min = 1;
-  $: max = unit === "percent" ? 99 : maxPixels;
+  $: min = unit === "percent" ? controlLimits.crop.percent.min : 1;
+  $: max = unit === "percent" ? controlLimits.crop.percent.max : maxPixels;
   $: suffix = unit === "percent" ? "%" : "px";
+  $: if (unit === "px" && pixels !== clamp(pixels)) {
+    pixels = clamp(pixels);
+  }
+  $: if (unit === "percent" && percent !== clamp(percent)) {
+    percent = clamp(percent);
+  }
 
   function clamp(value: number): number {
     return Math.min(Math.max(value, min), max);

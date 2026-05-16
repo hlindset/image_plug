@@ -2,7 +2,9 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 import {
   buildProcessingPath,
+  controlLimits,
   cropDimensionSegment,
+  cropPixelLimit,
   defaultDemoState,
   debounce,
   focalPointFromBounds,
@@ -43,6 +45,19 @@ describe("debounce", () => {
 });
 
 describe("processing path generation", () => {
+  it("defines shared control limits for slider-backed inputs", () => {
+    expect(controlLimits.quality).toEqual({ min: 0, max: 100, step: 1 });
+    expect(controlLimits.crop.percent).toEqual({ min: 1, max: 99, step: 1 });
+    expect(controlLimits.resize.width).toEqual({ min: 1, max: 1600, step: 1 });
+  });
+
+  it("uses the source image dimensions as crop pixel limits", () => {
+    expect(cropPixelLimit("images/dog.jpg", "width")).toEqual({ min: 1, max: 5011, step: 1 });
+    expect(cropPixelLimit("images/dog.jpg", "height")).toEqual({ min: 1, max: 7516, step: 1 });
+    expect(cropPixelLimit("images/cat-300.jpg", "width")).toEqual({ min: 1, max: 300, step: 1 });
+    expect(cropPixelLimit("images/cat-300.jpg", "height")).toEqual({ min: 1, max: 188, step: 1 });
+  });
+
   it("builds the default SimpleServer-compatible processing path", () => {
     expect(optionSegments(defaultDemoState)).toEqual([]);
     expect(buildProcessingPath(defaultDemoState)).toBe("/_/plain/images/dog.jpg");

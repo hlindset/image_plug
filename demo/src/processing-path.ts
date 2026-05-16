@@ -71,12 +71,64 @@ export type ProcessedImageMetadata = {
   bytes: number | null;
 };
 
+export type NumericControlLimit = {
+  min: number;
+  max: number;
+  step: number;
+};
+
+export type ImageDimensionAxis = "width" | "height";
+
 type FocalPickerBounds = {
   left: number;
   top: number;
   width: number;
   height: number;
 };
+
+export const controlLimits = {
+  resize: {
+    width: { min: 1, max: 1600, step: 1 },
+    height: { min: 1, max: 1000, step: 1 }
+  },
+  crop: {
+    percent: { min: 1, max: 99, step: 1 }
+  },
+  scale: {
+    zoom: { min: 0.1, max: 4, step: 0.1 },
+    dpr: { min: 0.1, max: 4, step: 0.1 },
+    minWidth: { min: 0, max: 1600, step: 1 },
+    minHeight: { min: 0, max: 1000, step: 1 }
+  },
+  aspectCanvas: {
+    width: { min: 1, max: 32, step: 1 },
+    height: { min: 1, max: 32, step: 1 }
+  },
+  padding: { min: 0, max: 240, step: 1 },
+  alpha: { min: 0.1, max: 1, step: 0.1 },
+  focalPoint: { min: 0, max: 1, step: 0.01 },
+  gravityOffset: { min: -200, max: 200, step: 0.01 },
+  quality: { min: 0, max: 100, step: 1 }
+} satisfies {
+  resize: Record<ImageDimensionAxis, NumericControlLimit>;
+  crop: { percent: NumericControlLimit };
+  scale: Record<"zoom" | "dpr" | "minWidth" | "minHeight", NumericControlLimit>;
+  aspectCanvas: Record<ImageDimensionAxis, NumericControlLimit>;
+  padding: NumericControlLimit;
+  alpha: NumericControlLimit;
+  focalPoint: NumericControlLimit;
+  gravityOffset: NumericControlLimit;
+  quality: NumericControlLimit;
+};
+
+const sourceImageDimensions = {
+  "images/dog.jpg": { width: 5011, height: 7516 },
+  "images/cat-300.jpg": { width: 300, height: 188 }
+} satisfies Record<SourceImage, Record<ImageDimensionAxis, number>>;
+
+export function cropPixelLimit(source: SourceImage, axis: ImageDimensionAxis): NumericControlLimit {
+  return { min: 1, max: sourceImageDimensions[source][axis], step: 1 };
+}
 
 export function debounce<Arguments extends unknown[]>(
   callback: (...args: Arguments) => void,

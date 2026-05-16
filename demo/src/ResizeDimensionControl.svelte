@@ -1,13 +1,13 @@
 <script lang="ts">
   import { Slider } from "bits-ui";
-  import type { ResizeDimensionUnit } from "./processing-path";
+  import { controlLimits, type ResizeDimensionUnit } from "./processing-path";
 
   export let label: string;
   export let unit: ResizeDimensionUnit = "px";
   export let pixels: number;
   export let maxPixels = 1600;
 
-  const min = 1;
+  const min = controlLimits.resize.width.min;
 
   function clamp(value: number): number {
     return Math.min(Math.max(value, min), maxPixels);

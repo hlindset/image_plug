@@ -5,6 +5,8 @@
   import ResizeDimensionControl from "./ResizeDimensionControl.svelte";
   import {
     buildProcessingPath,
+    controlLimits,
+    cropPixelLimit,
     debounce,
     defaultDemoState,
     focalPointFromBounds,
@@ -88,6 +90,8 @@
   ]
     .filter(Boolean)
     .join("/");
+  $: cropWidthLimit = cropPixelLimit(state.source, "width");
+  $: cropHeightLimit = cropPixelLimit(state.source, "height");
 
   function flipSegment(flip: DemoState["flip"]): string | null {
     if (flip === "horizontal") {
@@ -308,9 +312,9 @@
             <RangeNumber
               label="Alpha"
               bind:value={state.backgroundAlpha}
-              min={0.1}
-              max={1}
-              step={0.1}
+              min={controlLimits.alpha.min}
+              max={controlLimits.alpha.max}
+              step={controlLimits.alpha.step}
             />
           {/if}
         {/if}
@@ -332,10 +336,34 @@
         </div>
 
         {#if state.paddingEnabled}
-          <RangeNumber label="Top" bind:value={state.paddingTop} min={0} max={240} step={1} />
-          <RangeNumber label="Right" bind:value={state.paddingRight} min={0} max={240} step={1} />
-          <RangeNumber label="Bottom" bind:value={state.paddingBottom} min={0} max={240} step={1} />
-          <RangeNumber label="Left" bind:value={state.paddingLeft} min={0} max={240} step={1} />
+          <RangeNumber
+            label="Top"
+            bind:value={state.paddingTop}
+            min={controlLimits.padding.min}
+            max={controlLimits.padding.max}
+            step={controlLimits.padding.step}
+          />
+          <RangeNumber
+            label="Right"
+            bind:value={state.paddingRight}
+            min={controlLimits.padding.min}
+            max={controlLimits.padding.max}
+            step={controlLimits.padding.step}
+          />
+          <RangeNumber
+            label="Bottom"
+            bind:value={state.paddingBottom}
+            min={controlLimits.padding.min}
+            max={controlLimits.padding.max}
+            step={controlLimits.padding.step}
+          />
+          <RangeNumber
+            label="Left"
+            bind:value={state.paddingLeft}
+            min={controlLimits.padding.min}
+            max={controlLimits.padding.max}
+            step={controlLimits.padding.step}
+          />
         {/if}
       </section>
 
@@ -359,13 +387,13 @@
             label="Width"
             bind:unit={state.resizeWidthUnit}
             bind:pixels={state.width}
-            maxPixels={1600}
+            maxPixels={controlLimits.resize.width.max}
           />
           <ResizeDimensionControl
             label="Height"
             bind:unit={state.resizeHeightUnit}
             bind:pixels={state.height}
-            maxPixels={1000}
+            maxPixels={controlLimits.resize.height.max}
           />
 
           <label class="field">
@@ -416,7 +444,13 @@
               <span>Zoom</span>
             </label>
             {#if state.zoomEnabled}
-              <RangeNumber label="Zoom" bind:value={state.zoom} min={0.1} max={4} step={0.1} />
+              <RangeNumber
+                label="Zoom"
+                bind:value={state.zoom}
+                min={controlLimits.scale.zoom.min}
+                max={controlLimits.scale.zoom.max}
+                step={controlLimits.scale.zoom.step}
+              />
             {/if}
 
             <label class="switch-field">
@@ -426,7 +460,13 @@
               <span>DPR</span>
             </label>
             {#if state.dprEnabled}
-              <RangeNumber label="DPR" bind:value={state.dpr} min={0.1} max={4} step={0.1} />
+              <RangeNumber
+                label="DPR"
+                bind:value={state.dpr}
+                min={controlLimits.scale.dpr.min}
+                max={controlLimits.scale.dpr.max}
+                step={controlLimits.scale.dpr.step}
+              />
             {/if}
 
             <label class="switch-field">
@@ -436,7 +476,13 @@
               <span>Minimum width</span>
             </label>
             {#if state.minWidthEnabled}
-              <RangeNumber label="Min width" bind:value={state.minWidth} min={0} max={1600} step={1} />
+              <RangeNumber
+                label="Min width"
+                bind:value={state.minWidth}
+                min={controlLimits.scale.minWidth.min}
+                max={controlLimits.scale.minWidth.max}
+                step={controlLimits.scale.minWidth.step}
+              />
             {/if}
 
             <label class="switch-field">
@@ -446,7 +492,13 @@
               <span>Minimum height</span>
             </label>
             {#if state.minHeightEnabled}
-              <RangeNumber label="Min height" bind:value={state.minHeight} min={0} max={1000} step={1} />
+              <RangeNumber
+                label="Min height"
+                bind:value={state.minHeight}
+                min={controlLimits.scale.minHeight.min}
+                max={controlLimits.scale.minHeight.max}
+                step={controlLimits.scale.minHeight.step}
+              />
             {/if}
           </Collapsible.Content>
         </Collapsible.Root>
@@ -471,16 +523,16 @@
           <RangeNumber
             label="Ratio width"
             bind:value={state.extendAspectWidth}
-            min={1}
-            max={32}
-            step={1}
+            min={controlLimits.aspectCanvas.width.min}
+            max={controlLimits.aspectCanvas.width.max}
+            step={controlLimits.aspectCanvas.width.step}
           />
           <RangeNumber
             label="Ratio height"
             bind:value={state.extendAspectHeight}
-            min={1}
-            max={32}
-            step={1}
+            min={controlLimits.aspectCanvas.height.min}
+            max={controlLimits.aspectCanvas.height.max}
+            step={controlLimits.aspectCanvas.height.step}
           />
         {/if}
       </section>
@@ -506,14 +558,14 @@
             bind:unit={state.cropWidthUnit}
             bind:pixels={state.cropWidth}
             bind:percent={state.cropWidthPercent}
-            maxPixels={1200}
+            maxPixels={cropWidthLimit.max}
           />
           <CropDimensionControl
             label="Height"
             bind:unit={state.cropHeightUnit}
             bind:pixels={state.cropHeight}
             bind:percent={state.cropHeightPercent}
-            maxPixels={900}
+            maxPixels={cropHeightLimit.max}
           />
 
           <label class="field">
@@ -597,19 +649,19 @@
               </button>
             </div>
 
-            <RangeNumber
-              label="Focal X"
-              bind:value={state.gravityFocalX}
-              min={0}
-              max={1}
-              step={0.01}
+              <RangeNumber
+                label="Focal X"
+                bind:value={state.gravityFocalX}
+                min={controlLimits.focalPoint.min}
+                max={controlLimits.focalPoint.max}
+                step={controlLimits.focalPoint.step}
             />
             <RangeNumber
               label="Focal Y"
               bind:value={state.gravityFocalY}
-              min={0}
-              max={1}
-              step={0.01}
+              min={controlLimits.focalPoint.min}
+              max={controlLimits.focalPoint.max}
+              step={controlLimits.focalPoint.step}
             />
           {/if}
 
@@ -617,16 +669,16 @@
             <RangeNumber
               label="Offset X"
               bind:value={state.gravityOffsetX}
-              min={-200}
-              max={200}
-              step={0.01}
+              min={controlLimits.gravityOffset.min}
+              max={controlLimits.gravityOffset.max}
+              step={controlLimits.gravityOffset.step}
             />
             <RangeNumber
               label="Offset Y"
               bind:value={state.gravityOffsetY}
-              min={-200}
-              max={200}
-              step={0.01}
+              min={controlLimits.gravityOffset.min}
+              max={controlLimits.gravityOffset.max}
+              step={controlLimits.gravityOffset.step}
             />
           {/if}
         {/if}
@@ -676,7 +728,13 @@
         </div>
 
         {#if state.qualityEnabled}
-          <RangeNumber label="Quality" bind:value={state.quality} min={0} max={100} step={1} />
+          <RangeNumber
+            label="Quality"
+            bind:value={state.quality}
+            min={controlLimits.quality.min}
+            max={controlLimits.quality.max}
+            step={controlLimits.quality.step}
+          />
         {/if}
       </section>
 
