@@ -231,6 +231,31 @@ describe("processing path generation", () => {
     ]);
   });
 
+  it("emits mixed relative and pixel crop dimensions", () => {
+    const state = {
+      ...defaultDemoState,
+      cropEnabled: true,
+      cropWidthUnit: "percent" as const,
+      cropWidthPercent: 50,
+      cropHeightUnit: "px" as const,
+      cropHeight: 240
+    };
+
+    expect(optionSegments(state)).toEqual(["c:0.5:240"]);
+  });
+
+  it("emits full crop dimensions as zero per axis", () => {
+    const state = {
+      ...defaultDemoState,
+      cropEnabled: true,
+      cropWidthUnit: "full" as const,
+      cropHeightUnit: "percent" as const,
+      cropHeightPercent: 25
+    };
+
+    expect(optionSegments(state)).toEqual(["c:0:0.25"]);
+  });
+
   it("includes enabled resize extras after the resize segment", () => {
     const state = {
       ...defaultDemoState,

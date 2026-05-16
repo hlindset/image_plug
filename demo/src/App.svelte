@@ -1,5 +1,6 @@
 <script lang="ts">
   import { Collapsible, Switch } from "bits-ui";
+  import CropDimensionControl from "./CropDimensionControl.svelte";
   import RangeNumber from "./RangeNumber.svelte";
   import {
     buildProcessingPath,
@@ -60,6 +61,13 @@
         state.backgroundAlphaEnabled ? `/bga:${state.backgroundAlpha}` : ""
       }`
     : "Off";
+  $: cropSummary = state.cropEnabled
+    ? `c:${cropDimensionSummary(state.cropWidthUnit, state.cropWidth, state.cropWidthPercent)}:${cropDimensionSummary(
+        state.cropHeightUnit,
+        state.cropHeight,
+        state.cropHeightPercent
+      )}`
+    : "Off";
   $: resizeExtras = [
     state.zoomEnabled ? `z:${state.zoom}` : null,
     state.dprEnabled ? `dpr:${state.dpr}` : null,
@@ -83,6 +91,22 @@
     }
 
     return null;
+  }
+
+  function cropDimensionSummary(
+    unit: DemoState["cropWidthUnit"],
+    pixels: number,
+    percent: number
+  ): string {
+    if (unit === "full") {
+      return "full";
+    }
+
+    if (unit === "percent") {
+      return `${percent}%`;
+    }
+
+    return `${pixels}px`;
   }
 
   async function updateProcessedMetadata(event: Event): Promise<void> {
@@ -435,7 +459,7 @@
         <div class="tool-heading">
           <div>
             <h2>Crop</h2>
-            <p>{state.cropEnabled ? `c:${state.cropWidth}:${state.cropHeight}` : "Off"}</p>
+            <p>{cropSummary}</p>
           </div>
           <Switch.Root
             class="switch-root"
@@ -447,8 +471,20 @@
         </div>
 
         {#if state.cropEnabled}
-          <RangeNumber label="Crop width" bind:value={state.cropWidth} min={80} max={1200} step={1} />
-          <RangeNumber label="Crop height" bind:value={state.cropHeight} min={80} max={900} step={1} />
+          <CropDimensionControl
+            label="Width"
+            bind:unit={state.cropWidthUnit}
+            bind:pixels={state.cropWidth}
+            bind:percent={state.cropWidthPercent}
+            maxPixels={1200}
+          />
+          <CropDimensionControl
+            label="Height"
+            bind:unit={state.cropHeightUnit}
+            bind:pixels={state.cropHeight}
+            bind:percent={state.cropHeightPercent}
+            maxPixels={900}
+          />
 
           <label class="field">
             <span>Gravity</span>

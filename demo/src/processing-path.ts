@@ -2,6 +2,7 @@ export type ResizeMode = "fit" | "fill" | "fill-down" | "force" | "auto";
 export type Gravity = "ce" | "no" | "so" | "ea" | "we" | "noea" | "nowe" | "soea" | "sowe";
 export type GravityMode = "anchor" | "focalPoint" | "offset";
 export type CropGravity = "inherit" | Gravity;
+export type CropDimensionUnit = "px" | "percent" | "full";
 export type OutputFormat = "webp" | "avif" | "jpeg" | "png";
 export type Flip = "none" | "horizontal" | "vertical" | "both";
 export type Rotate = 0 | 90 | 180 | 270;
@@ -48,8 +49,12 @@ export type DemoState = {
   gravityOffsetY: number;
   enlarge: boolean;
   cropEnabled: boolean;
+  cropWidthUnit: CropDimensionUnit;
   cropWidth: number;
+  cropWidthPercent: number;
+  cropHeightUnit: CropDimensionUnit;
   cropHeight: number;
+  cropHeightPercent: number;
   cropGravity: CropGravity;
   formatEnabled: boolean;
   format: OutputFormat;
@@ -110,8 +115,12 @@ export const defaultDemoState: DemoState = {
   gravityOffsetY: 0,
   enlarge: false,
   cropEnabled: false,
+  cropWidthUnit: "px",
   cropWidth: 640,
+  cropWidthPercent: 50,
+  cropHeightUnit: "px",
   cropHeight: 420,
+  cropHeightPercent: 50,
   cropGravity: "inherit",
   formatEnabled: false,
   format: "jpeg",
@@ -143,7 +152,19 @@ export function optionSegments(currentState: DemoState): string[] {
   }
 
   if (currentState.cropEnabled) {
-    const cropSegment = ["c", currentState.cropWidth, currentState.cropHeight];
+    const cropSegment = [
+      "c",
+      cropDimensionSegment(
+        currentState.cropWidthUnit,
+        currentState.cropWidth,
+        currentState.cropWidthPercent
+      ),
+      cropDimensionSegment(
+        currentState.cropHeightUnit,
+        currentState.cropHeight,
+        currentState.cropHeightPercent
+      )
+    ];
 
     if (currentState.cropGravity !== "inherit") {
       cropSegment.push(currentState.cropGravity);
@@ -224,6 +245,22 @@ export function optionSegments(currentState: DemoState): string[] {
   }
 
   return segments;
+}
+
+export function cropDimensionSegment(
+  unit: CropDimensionUnit,
+  pixels: number,
+  percent: number
+): string {
+  if (unit === "full") {
+    return "0";
+  }
+
+  if (unit === "percent") {
+    return String(percent / 100);
+  }
+
+  return String(pixels);
 }
 
 export function gravitySegment(currentState: DemoState): string {
