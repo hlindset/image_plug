@@ -190,18 +190,16 @@
     <div class="tool-stack">
       <section class="tool-section">
         <Collapsible.Root class="collapsible-root" bind:open={orientationOpen}>
-          <div class="tool-heading">
+          <Collapsible.Trigger
+            class="accordion-heading"
+            aria-label={orientationOpen ? "Collapse orientation" : "Expand orientation"}
+          >
             <div>
               <h2>Orientation</h2>
               <p>{orientationSummary}</p>
             </div>
-            <Collapsible.Trigger
-              class="accordion-toggle"
-              aria-label={orientationOpen ? "Collapse orientation" : "Expand orientation"}
-            >
-              <span class="accordion-chevron" aria-hidden="true"></span>
-            </Collapsible.Trigger>
-          </div>
+            <span class="accordion-chevron" aria-hidden="true"></span>
+          </Collapsible.Trigger>
 
           <Collapsible.Content class="collapsible-content">
             <label class="switch-field">
@@ -345,18 +343,16 @@
 
       <section class="tool-section">
         <Collapsible.Root class="collapsible-root" bind:open={scaleOptionsOpen}>
-          <div class="tool-heading">
+          <Collapsible.Trigger
+            class="accordion-heading"
+            aria-label={scaleOptionsOpen ? "Collapse scale options" : "Expand scale options"}
+          >
             <div>
               <h2>Scale options</h2>
               <p>{resizeExtras || "Off"}</p>
             </div>
-            <Collapsible.Trigger
-              class="accordion-toggle"
-              aria-label={scaleOptionsOpen ? "Collapse scale options" : "Expand scale options"}
-            >
-              <span class="accordion-chevron" aria-hidden="true"></span>
-            </Collapsible.Trigger>
-          </div>
+            <span class="accordion-chevron" aria-hidden="true"></span>
+          </Collapsible.Trigger>
 
           <Collapsible.Content class="collapsible-content">
             <label class="switch-field">
@@ -620,18 +616,16 @@
 
       <section class="tool-section">
         <Collapsible.Root class="collapsible-root" bind:open={requestOpen}>
-          <div class="tool-heading">
+          <Collapsible.Trigger
+            class="accordion-heading"
+            aria-label={requestOpen ? "Collapse request" : "Expand request"}
+          >
             <div>
               <h2>Request</h2>
               <p>{requestSummary}</p>
             </div>
-            <Collapsible.Trigger
-              class="accordion-toggle"
-              aria-label={requestOpen ? "Collapse request" : "Expand request"}
-            >
-              <span class="accordion-chevron" aria-hidden="true"></span>
-            </Collapsible.Trigger>
-          </div>
+            <span class="accordion-chevron" aria-hidden="true"></span>
+          </Collapsible.Trigger>
 
           <Collapsible.Content class="collapsible-content">
             <label class="field">
@@ -742,12 +736,14 @@
     border-bottom: 1px solid var(--border-subtle);
   }
 
-  .tool-heading {
+  .tool-heading,
+  :global(.accordion-heading) {
     min-height: 20px;
     display: flex;
     align-items: center;
     justify-content: space-between;
     gap: 12px;
+    width: 100%;
 
     :where(h2, p) {
       margin: 0;
@@ -768,6 +764,16 @@
     }
   }
 
+  :global(.accordion-heading) {
+    border: 0;
+    background: transparent;
+    color: inherit;
+    cursor: pointer;
+    font: inherit;
+    padding: 0;
+    text-align: start;
+  }
+
   :global(.collapsible-root) {
     display: flex;
     flex-direction: column;
@@ -780,30 +786,22 @@
     gap: 14px;
   }
 
-  :global(.accordion-toggle) {
-    width: 32px;
-    height: 32px;
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    flex-shrink: 0;
-    border: 1px solid var(--border-strong);
-    border-radius: 7px;
-    background: var(--surface-button-quiet);
-    color: var(--text-primary);
-    cursor: pointer;
+  :global(.collapsible-content[hidden]) {
+    display: none;
   }
 
   .accordion-chevron {
     width: 8px;
     height: 8px;
+    margin-inline-end: 6px;
+    flex-shrink: 0;
     border-inline-end: 2px solid currentColor;
     border-block-end: 2px solid currentColor;
     transform: rotate(45deg) translate(-1px, -1px);
     transition: transform 150ms ease;
   }
 
-  :global(.accordion-toggle[data-state="closed"]) .accordion-chevron {
+  :global(.accordion-heading[data-state="closed"]) .accordion-chevron {
     transform: rotate(-45deg);
   }
 
@@ -1116,7 +1114,7 @@
   }
 
   .fiddle-shell :global(.switch-root:focus-visible),
-  .fiddle-shell :global(.accordion-toggle:focus-visible),
+  .fiddle-shell :global(.accordion-heading:focus-visible),
   :where(.copy-button, .open-link, .icon-button, select, .focal-picker):focus-visible {
     outline: 2px solid var(--focus-ring);
     outline-offset: 2px;
