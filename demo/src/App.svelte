@@ -708,13 +708,13 @@
     </header>
 
     <div class="preview-canvas">
+      <div class="preview-metadata" aria-live="polite">
+        <span>{sizeLabel}</span>
+        <span>{outputLabel}</span>
+      </div>
       <div class="image-frame">
         <figure>
           <img src={previewPath} alt="Processed sample source" onload={updateProcessedMetadata} />
-          <figcaption>
-            <span>{sizeLabel}</span>
-            <span>{outputLabel}</span>
-          </figcaption>
         </figure>
       </div>
     </div>
@@ -938,6 +938,7 @@
   }
 
   .preview-canvas {
+    position: relative;
     min-height: 0;
     flex: 1;
     display: flex;
@@ -947,6 +948,24 @@
     padding: 28px;
     background: repeating-conic-gradient(var(--checker-square) 0 25%, var(--surface-canvas) 0 50%)
       50% / 20px 20px;
+  }
+
+  .preview-metadata {
+    position: absolute;
+    z-index: 1;
+    inset-inline: 28px;
+    inset-block-end: 24px;
+    display: flex;
+    justify-content: space-between;
+    gap: 12px;
+    color: var(--image-overlay-text);
+    font-family: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    font-size: 12px;
+    line-height: 16px;
+    pointer-events: none;
+    text-shadow:
+      0 1px 1px rgb(0 0 0 / 0.45),
+      0 0 2px rgb(0 0 0 / 0.35);
   }
 
   .image-frame {
@@ -969,20 +988,6 @@
       height: auto;
       max-width: 100%;
       max-height: calc(100dvh - 160px);
-    }
-
-    figcaption {
-      position: absolute;
-      inset-inline: 14px;
-      inset-block-end: 14px;
-      display: flex;
-      justify-content: space-between;
-      gap: 12px;
-      color: var(--image-overlay-text);
-      font-family: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
-      font-size: 12px;
-      line-height: 16px;
-      pointer-events: none;
     }
   }
 
@@ -1272,9 +1277,9 @@
       max-height: calc(100dvh - 140px);
     }
 
-    .image-frame figcaption {
-      inset-inline: 10px;
-      inset-block-end: 10px;
+    .preview-metadata {
+      inset-inline: 18px;
+      inset-block-end: 16px;
       font-size: 11px;
       line-height: 14px;
     }
