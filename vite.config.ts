@@ -11,7 +11,9 @@ const sampleImagesModuleId = "virtual:sample-images";
 const resolvedSampleImagesModuleId = `\0${sampleImagesModuleId}.ts`;
 const sampleImageExtensions = new Set([".avif", ".jpeg", ".jpg", ".png", ".webp"]);
 
-function sampleImagesPlugin(imagesDirectory = resolve(currentDirectory, "priv/static/images")): Plugin {
+function sampleImagesPlugin(
+  imagesDirectory = resolve(currentDirectory, "priv/static/images"),
+): Plugin {
   return {
     name: "sample-images",
     resolveId(id) {
@@ -25,7 +27,7 @@ function sampleImagesPlugin(imagesDirectory = resolve(currentDirectory, "priv/st
       if (id === resolvedSampleImagesModuleId) {
         const transformed = await transformWithOxc(
           buildSampleImagesModule(imagesDirectory),
-          "sample-images.ts"
+          "sample-images.ts",
         );
 
         return transformed.code;
@@ -46,7 +48,7 @@ function sampleImagesPlugin(imagesDirectory = resolve(currentDirectory, "priv/st
           server.moduleGraph.invalidateModule(sampleImagesModule);
         }
       });
-    }
+    },
   };
 }
 
@@ -66,7 +68,7 @@ function buildSampleImagesModule(imagesDirectory: string): string {
         path: `images/${fileName}`,
         label: fileName,
         width: dimensions.width,
-        height: dimensions.height
+        height: dimensions.height,
       };
     });
 
@@ -90,7 +92,7 @@ export default defineConfig({
   server: {
     host: "localhost",
     port: 5173,
-    strictPort: true
+    strictPort: true,
   },
   build: {
     outDir: "../priv/static/demo",
@@ -99,11 +101,11 @@ export default defineConfig({
     rollupOptions: {
       output: {
         entryFileNames: "assets/main.js",
-        assetFileNames: "assets/main[extname]"
-      }
-    }
+        assetFileNames: "assets/main[extname]",
+      },
+    },
   },
   test: {
-    include: ["src/**/*.test.ts"]
-  }
+    include: ["src/**/*.test.ts"],
+  },
 });

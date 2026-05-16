@@ -9,14 +9,14 @@ describe("sample image virtual module", () => {
         path: "images/cat-300.jpg",
         label: "cat-300.jpg",
         width: 300,
-        height: 188
+        height: 188,
       },
       {
         path: "images/dog.jpg",
         label: "dog.jpg",
         width: 5011,
-        height: 7516
-      }
+        height: 7516,
+      },
     ]);
   });
 });

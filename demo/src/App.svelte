@@ -18,7 +18,7 @@
     sampleImages,
     resolvedOutputLabel,
     type DemoState,
-    type ProcessedImageMetadata
+    type ProcessedImageMetadata,
   } from "./processing-path";
 
   let copyLabel = "Copy URL";
@@ -52,13 +52,11 @@
     [
       state.autoRotateEnabled ? "ar:1" : null,
       flipSegment(state.flip),
-      state.rotate === 0 ? null : `rot:${state.rotate}`
+      state.rotate === 0 ? null : `rot:${state.rotate}`,
     ]
       .filter(Boolean)
       .join("/") || "Off";
-  $: resizeSummary = state.resizeEnabled
-    ? (resizeOptionSegment(state) ?? "Off")
-    : "Off";
+  $: resizeSummary = state.resizeEnabled ? (resizeOptionSegment(state) ?? "Off") : "Off";
   $: aspectCanvasSummary = state.aspectCanvasEnabled
     ? `exar:${state.extendAspectWidth}:${state.extendAspectHeight}`
     : "Off";
@@ -75,7 +73,7 @@
     state.zoomEnabled ? `z:${state.zoom}` : null,
     state.dprEnabled ? `dpr:${state.dpr}` : null,
     state.minWidthEnabled ? `mw:${state.minWidth}` : null,
-    state.minHeightEnabled ? `mh:${state.minHeight}` : null
+    state.minHeightEnabled ? `mh:${state.minHeight}` : null,
   ]
     .filter(Boolean)
     .join("/");
@@ -109,7 +107,7 @@
     const imagePath = image.currentSrc || image.src;
     const dimensions = {
       width: image.naturalWidth,
-      height: image.naturalHeight
+      height: image.naturalHeight,
     };
 
     processedMetadata = { ...dimensions, bytes: null };
@@ -152,7 +150,7 @@
     const focalPoint = focalPointFromBounds(
       event.clientX,
       event.clientY,
-      focalPickerSurface.getBoundingClientRect()
+      focalPickerSurface.getBoundingClientRect(),
     );
 
     state.gravityFocalX = focalPoint.x;
@@ -278,7 +276,11 @@
       </section>
 
       <section class="tool-section">
-        <ToolToggleHeader title="Padding" summary={paddingSummary} bind:checked={state.paddingEnabled} />
+        <ToolToggleHeader
+          title="Padding"
+          summary={paddingSummary}
+          bind:checked={state.paddingEnabled}
+        />
 
         {#if state.paddingEnabled}
           <RangeNumber
@@ -313,7 +315,11 @@
       </section>
 
       <section class="tool-section">
-        <ToolToggleHeader title="Resize" summary={resizeSummary} bind:checked={state.resizeEnabled} />
+        <ToolToggleHeader
+          title="Resize"
+          summary={resizeSummary}
+          bind:checked={state.resizeEnabled}
+        />
 
         {#if state.resizeEnabled}
           <ResizeDimensionControl
@@ -680,7 +686,9 @@
       </button>
       <code class="parameter-preview">{previewParameters}</code>
       <div class="desktop-actions">
-        <button class="copy-button copy-button-secondary" type="button" onclick={copyUrl}>{copyLabel}</button>
+        <button class="copy-button copy-button-secondary" type="button" onclick={copyUrl}
+          >{copyLabel}</button
+        >
         <a class="open-link" href={path} target="_blank" rel="noreferrer">Open</a>
       </div>
     </header>
@@ -923,8 +931,7 @@
     justify-content: center;
     overflow: hidden;
     padding: 28px;
-    background:
-      repeating-conic-gradient(var(--checker-square) 0 25%, var(--surface-canvas) 0 50%)
+    background: repeating-conic-gradient(var(--checker-square) 0 25%, var(--surface-canvas) 0 50%)
       50% / 20px 20px;
   }
 
@@ -994,8 +1001,7 @@
     overflow: hidden;
     border: 1px solid var(--border-strong);
     border-radius: 7px;
-    background:
-      repeating-conic-gradient(var(--checker-square) 0 25%, var(--surface-control) 0 50%)
+    background: repeating-conic-gradient(var(--checker-square) 0 25%, var(--surface-control) 0 50%)
       50% / 16px 16px;
     cursor: crosshair;
     padding: 8px;
@@ -1026,7 +1032,9 @@
     height: 18px;
     border: 2px solid var(--accent);
     border-radius: 999px;
-    box-shadow: 0 0 0 1px var(--surface-sidebar), 0 2px 10px rgb(0 0 0 / 0.38);
+    box-shadow:
+      0 0 0 1px var(--surface-sidebar),
+      0 2px 10px rgb(0 0 0 / 0.38);
     pointer-events: none;
     transform: translate(-50%, -50%);
   }

@@ -91,26 +91,26 @@ type FocalPickerBounds = {
 export const controlLimits = {
   resize: {
     width: { min: 1, max: 1600, step: 1 },
-    height: { min: 1, max: 1000, step: 1 }
+    height: { min: 1, max: 1000, step: 1 },
   },
   crop: {
-    percent: { min: 1, max: 99, step: 1 }
+    percent: { min: 1, max: 99, step: 1 },
   },
   scale: {
     zoom: { min: 0.1, max: 4, step: 0.1 },
     dpr: { min: 0.1, max: 4, step: 0.1 },
     minWidth: { min: 0, max: 1600, step: 1 },
-    minHeight: { min: 0, max: 1000, step: 1 }
+    minHeight: { min: 0, max: 1000, step: 1 },
   },
   aspectCanvas: {
     width: { min: 1, max: 32, step: 1 },
-    height: { min: 1, max: 32, step: 1 }
+    height: { min: 1, max: 32, step: 1 },
   },
   padding: { min: 0, max: 240, step: 1 },
   alpha: { min: 0.1, max: 1, step: 0.1 },
   focalPoint: { min: 0, max: 1, step: 0.01 },
   gravityOffset: { min: -200, max: 200, step: 0.01 },
-  quality: { min: 0, max: 100, step: 1 }
+  quality: { min: 0, max: 100, step: 1 },
 } satisfies {
   resize: Record<ImageDimensionAxis, NumericControlLimit>;
   crop: { percent: NumericControlLimit };
@@ -126,7 +126,7 @@ export const controlLimits = {
 export { sampleImages };
 
 const sourceImageDimensions = Object.fromEntries(
-  sampleImages.map((image) => [image.path, { width: image.width, height: image.height }])
+  sampleImages.map((image) => [image.path, { width: image.width, height: image.height }]),
 ) as Record<SourceImage, Record<ImageDimensionAxis, number>>;
 
 export function cropPixelLimit(source: SourceImage, axis: ImageDimensionAxis): NumericControlLimit {
@@ -139,7 +139,7 @@ function sourceDimension(source: SourceImage, axis: ImageDimensionAxis): number 
 
 export function debounce<Arguments extends unknown[]>(
   callback: (...args: Arguments) => void,
-  delayMs: number
+  delayMs: number,
 ): (...args: Arguments) => void {
   let timeoutId: ReturnType<typeof setTimeout> | null = null;
 
@@ -206,7 +206,7 @@ export const defaultDemoState: DemoState = {
   formatEnabled: false,
   format: "jpeg",
   qualityEnabled: false,
-  quality: 85
+  quality: 85,
 };
 
 export function optionSegments(currentState: DemoState): string[] {
@@ -271,8 +271,8 @@ export function optionSegments(currentState: DemoState): string[] {
         currentState.paddingTop,
         currentState.paddingRight,
         currentState.paddingBottom,
-        currentState.paddingLeft
-      ].join(":")
+        currentState.paddingLeft,
+      ].join(":"),
     );
   }
 
@@ -286,7 +286,8 @@ export function optionSegments(currentState: DemoState): string[] {
 
   if (
     currentState.gravityEnabled &&
-    (currentState.resizeEnabled || (currentState.cropEnabled && currentState.cropGravity === "inherit"))
+    (currentState.resizeEnabled ||
+      (currentState.cropEnabled && currentState.cropGravity === "inherit"))
   ) {
     segments.push(gravitySegment(currentState));
   }
@@ -312,13 +313,13 @@ export function cropOptionSegment(currentState: DemoState): string | null {
     cropDimensionSegment(
       currentState.cropWidthUnit,
       currentState.cropWidth,
-      currentState.cropWidthPercent
+      currentState.cropWidthPercent,
     ),
     cropDimensionSegment(
       currentState.cropHeightUnit,
       currentState.cropHeight,
-      currentState.cropHeightPercent
-    )
+      currentState.cropHeightPercent,
+    ),
   ];
 
   if (currentState.cropGravity !== "inherit") {
@@ -338,7 +339,7 @@ export function resizeOptionSegment(currentState: DemoState): string | null {
     currentState.resizeMode,
     resizeDimensionSegment(currentState.resizeWidthUnit, currentState.width),
     resizeDimensionSegment(currentState.resizeHeightUnit, currentState.height),
-    currentState.enlarge ? 1 : 0
+    currentState.enlarge ? 1 : 0,
   ];
 
   if (currentState.resizeExtendEnabled) {
@@ -351,7 +352,7 @@ export function resizeOptionSegment(currentState: DemoState): string | null {
 export function cropDimensionSegment(
   unit: CropDimensionUnit,
   pixels: number,
-  percent: number
+  percent: number,
 ): string {
   if (unit === "full") {
     return "0";
@@ -387,7 +388,7 @@ export function gravitySegment(currentState: DemoState): string {
 export function focalPointFromBounds(
   clientX: number,
   clientY: number,
-  bounds: FocalPickerBounds
+  bounds: FocalPickerBounds,
 ): { x: number; y: number } {
   if (bounds.width <= 0 || bounds.height <= 0) {
     return { x: 0, y: 0 };
@@ -395,7 +396,7 @@ export function focalPointFromBounds(
 
   return {
     x: roundedUnit((clientX - bounds.left) / bounds.width),
-    y: roundedUnit((clientY - bounds.top) / bounds.height)
+    y: roundedUnit((clientY - bounds.top) / bounds.height),
   };
 }
 

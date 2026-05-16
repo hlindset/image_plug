@@ -26,21 +26,12 @@
       value = clamp(input.valueAsNumber);
     }
   }
-
 </script>
 
 <div class="range-number">
   <label class="value-row">
     <span>{label}</span>
-    <input
-      type="number"
-      {min}
-      {max}
-      {step}
-      value={value}
-      onfocus={selectNumber}
-      oninput={syncNumber}
-    />
+    <input type="number" {min} {max} {step} {value} onfocus={selectNumber} oninput={syncNumber} />
   </label>
   <Slider.Root
     class="slider-root"

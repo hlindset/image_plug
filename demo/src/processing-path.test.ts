@@ -12,14 +12,14 @@ import {
   processedSizeLabel,
   optionSegments,
   resizeOptionSegment,
-  resolvedOutputLabel
+  resolvedOutputLabel,
 } from "./processing-path";
 
 const activeDemoState = {
   ...defaultDemoState,
   resizeEnabled: true,
   gravityEnabled: true,
-  qualityEnabled: true
+  qualityEnabled: true,
 };
 
 afterEach(() => {
@@ -77,7 +77,7 @@ describe("processing path generation", () => {
   it("includes auto rotate as an explicit orientation option", () => {
     const state = {
       ...defaultDemoState,
-      autoRotateEnabled: true
+      autoRotateEnabled: true,
     };
 
     expect(optionSegments(state)).toEqual(["ar:1"]);
@@ -100,7 +100,7 @@ describe("processing path generation", () => {
     const state = {
       ...defaultDemoState,
       resizeEnabled: true,
-      resizeExtendEnabled: true
+      resizeExtendEnabled: true,
     };
 
     expect(optionSegments(state)).toEqual(["rs:fill:640:360:0:1"]);
@@ -111,7 +111,7 @@ describe("processing path generation", () => {
     expect(resizeOptionSegment(defaultDemoState)).toBeNull();
 
     expect(resizeOptionSegment({ ...defaultDemoState, resizeEnabled: true })).toBe(
-      "rs:fill:640:360:0"
+      "rs:fill:640:360:0",
     );
 
     expect(
@@ -120,8 +120,8 @@ describe("processing path generation", () => {
         resizeEnabled: true,
         resizeWidthUnit: "auto" as const,
         resizeHeightUnit: "px" as const,
-        height: 360
-      })
+        height: 360,
+      }),
     ).toBe("rs:fill:0:360:0");
   });
 
@@ -131,7 +131,7 @@ describe("processing path generation", () => {
       resizeEnabled: true,
       resizeWidthUnit: "auto" as const,
       resizeHeightUnit: "px" as const,
-      height: 360
+      height: 360,
     };
 
     expect(optionSegments(state)).toEqual(["rs:fill:0:360:0"]);
@@ -143,7 +143,7 @@ describe("processing path generation", () => {
       resizeEnabled: true,
       resizeMode: "force" as const,
       resizeWidthUnit: "auto" as const,
-      resizeHeightUnit: "auto" as const
+      resizeHeightUnit: "auto" as const,
     };
 
     expect(optionSegments(state)).toEqual(["rs:force:0:0:0"]);
@@ -152,7 +152,7 @@ describe("processing path generation", () => {
   it("does not emit resize extend when resize is disabled", () => {
     const state = {
       ...defaultDemoState,
-      resizeExtendEnabled: true
+      resizeExtendEnabled: true,
     };
 
     expect(optionSegments(state)).toEqual([]);
@@ -164,7 +164,7 @@ describe("processing path generation", () => {
       ...defaultDemoState,
       aspectCanvasEnabled: true,
       extendAspectWidth: 16,
-      extendAspectHeight: 9
+      extendAspectHeight: 9,
     };
 
     expect(optionSegments(state)).toEqual(["exar:16:9"]);
@@ -179,7 +179,7 @@ describe("processing path generation", () => {
       paddingTop: 8,
       paddingRight: 16,
       paddingBottom: 24,
-      paddingLeft: 32
+      paddingLeft: 32,
     };
 
     expect(optionSegments(state)).toEqual(["exar:16:9", "pd:8:16:24:32"]);
@@ -197,7 +197,7 @@ describe("processing path generation", () => {
       backgroundEnabled: true,
       backgroundColor: "#ffcc00",
       backgroundAlphaEnabled: true,
-      backgroundAlpha: 0.5
+      backgroundAlpha: 0.5,
     };
 
     expect(optionSegments(state)).toEqual(["pd:8:8:8:8", "bg:ffcc00", "bga:0.5"]);
@@ -209,15 +209,10 @@ describe("processing path generation", () => {
       ...activeDemoState,
       cropEnabled: true,
       cropWidth: 320,
-      cropHeight: 240
+      cropHeight: 240,
     };
 
-    expect(optionSegments(state)).toEqual([
-      "c:320:240",
-      "rs:fill:640:360:0",
-      "g:ce",
-      "q:85"
-    ]);
+    expect(optionSegments(state)).toEqual(["c:320:240", "rs:fill:640:360:0", "g:ce", "q:85"]);
   });
 
   it("does not write inherited crop gravity into the crop segment", () => {
@@ -225,21 +220,16 @@ describe("processing path generation", () => {
       ...activeDemoState,
       cropEnabled: true,
       cropGravity: "inherit" as const,
-      gravity: "nowe" as const
+      gravity: "nowe" as const,
     };
 
-    expect(optionSegments(state)).toEqual([
-      "c:5011:7516",
-      "rs:fill:640:360:0",
-      "g:nowe",
-      "q:85"
-    ]);
+    expect(optionSegments(state)).toEqual(["c:5011:7516", "rs:fill:640:360:0", "g:nowe", "q:85"]);
   });
 
   it("uses shared gravity as the top-level gravity option", () => {
     const state = {
       ...activeDemoState,
-      gravity: "sowe" as const
+      gravity: "sowe" as const,
     };
 
     expect(optionSegments(state)).toEqual(["rs:fill:640:360:0", "g:sowe", "q:85"]);
@@ -252,7 +242,7 @@ describe("processing path generation", () => {
       gravityEnabled: true,
       gravityMode: "focalPoint" as const,
       gravityFocalX: 0.25,
-      gravityFocalY: 0.75
+      gravityFocalY: 0.75,
     };
 
     expect(optionSegments(state)).toEqual(["rs:fill:640:360:0", "g:fp:0.25:0.75"]);
@@ -266,7 +256,7 @@ describe("processing path generation", () => {
       gravityMode: "offset" as const,
       gravity: "soea" as const,
       gravityOffsetX: 12,
-      gravityOffsetY: -0.25
+      gravityOffsetY: -0.25,
     };
 
     expect(optionSegments(state)).toEqual(["rs:fill:640:360:0", "g:soea:12:-0.25"]);
@@ -278,8 +268,8 @@ describe("processing path generation", () => {
         left: 100,
         top: 50,
         width: 200,
-        height: 100
-      })
+        height: 100,
+      }),
     ).toEqual({ x: 0.25, y: 0.25 });
   });
 
@@ -289,8 +279,8 @@ describe("processing path generation", () => {
         left: 100,
         top: 50,
         width: 200,
-        height: 100
-      })
+        height: 100,
+      }),
     ).toEqual({ x: 1, y: 0 });
   });
 
@@ -300,8 +290,8 @@ describe("processing path generation", () => {
         left: 100,
         top: 50,
         width: 0,
-        height: 0
-      })
+        height: 0,
+      }),
     ).toEqual({ x: 0, y: 0 });
   });
 
@@ -310,14 +300,14 @@ describe("processing path generation", () => {
       ...activeDemoState,
       cropEnabled: true,
       cropGravity: "soea" as const,
-      gravity: "ce" as const
+      gravity: "ce" as const,
     };
 
     expect(optionSegments(state)).toEqual([
       "c:5011:7516:soea",
       "rs:fill:640:360:0",
       "g:ce",
-      "q:85"
+      "q:85",
     ]);
   });
 
@@ -333,8 +323,8 @@ describe("processing path generation", () => {
         cropWidthUnit: "percent" as const,
         cropWidthPercent: 50,
         cropHeightUnit: "full" as const,
-        cropGravity: "soea" as const
-      })
+        cropGravity: "soea" as const,
+      }),
     ).toBe("c:0.5:0:soea");
   });
 
@@ -345,7 +335,7 @@ describe("processing path generation", () => {
       cropWidthUnit: "percent" as const,
       cropWidthPercent: 50,
       cropHeightUnit: "px" as const,
-      cropHeight: 240
+      cropHeight: 240,
     };
 
     expect(optionSegments(state)).toEqual(["c:0.5:240"]);
@@ -357,7 +347,7 @@ describe("processing path generation", () => {
       cropEnabled: true,
       cropWidthUnit: "full" as const,
       cropHeightUnit: "percent" as const,
-      cropHeightPercent: 25
+      cropHeightPercent: 25,
     };
 
     expect(optionSegments(state)).toEqual(["c:0:0.25"]);
@@ -379,7 +369,7 @@ describe("processing path generation", () => {
       minWidthEnabled: true,
       minWidth: 320,
       minHeightEnabled: true,
-      minHeight: 180
+      minHeight: 180,
     };
 
     expect(optionSegments(state)).toEqual([
@@ -387,7 +377,7 @@ describe("processing path generation", () => {
       "z:1.5",
       "dpr:2",
       "mw:320",
-      "mh:180"
+      "mh:180",
     ]);
   });
 
@@ -401,7 +391,7 @@ describe("processing path generation", () => {
       minWidthEnabled: true,
       minWidth: 320,
       minHeightEnabled: true,
-      minHeight: 180
+      minHeight: 180,
     };
 
     expect(optionSegments(state)).toEqual(["z:1.5", "dpr:2", "mw:320", "mh:180"]);
@@ -412,7 +402,7 @@ describe("processing path generation", () => {
     const state = {
       ...activeDemoState,
       formatEnabled: false,
-      format: "png" as const
+      format: "png" as const,
     };
 
     expect(optionSegments(state)).toEqual(["rs:fill:640:360:0", "g:ce", "q:85"]);
@@ -422,7 +412,7 @@ describe("processing path generation", () => {
     const state = {
       ...activeDemoState,
       formatEnabled: true,
-      format: "png" as const
+      format: "png" as const,
     };
 
     expect(optionSegments(state)).toEqual(["rs:fill:640:360:0", "g:ce", "f:png", "q:85"]);
@@ -432,7 +422,7 @@ describe("processing path generation", () => {
     const state = {
       ...activeDemoState,
       qualityEnabled: false,
-      quality: 42
+      quality: 42,
     };
 
     expect(optionSegments(state)).toEqual(["rs:fill:640:360:0", "g:ce"]);
@@ -443,7 +433,7 @@ describe("processing path generation", () => {
     const state = {
       ...activeDemoState,
       qualityEnabled: true,
-      quality: 0
+      quality: 0,
     };
 
     expect(optionSegments(state)).toEqual(["rs:fill:640:360:0", "g:ce", "q:0"]);
@@ -454,7 +444,7 @@ describe("processing path generation", () => {
     const state = {
       ...activeDemoState,
       gravityEnabled: false,
-      gravity: "sowe" as const
+      gravity: "sowe" as const,
     };
 
     expect(optionSegments(state)).toEqual(["rs:fill:640:360:0", "q:85"]);
@@ -464,7 +454,7 @@ describe("processing path generation", () => {
   it("omits resize and gravity options when resize is disabled", () => {
     const state = {
       ...activeDemoState,
-      resizeEnabled: false
+      resizeEnabled: false,
     };
 
     expect(optionSegments(state)).toEqual(["q:85"]);
@@ -478,7 +468,7 @@ describe("processing path generation", () => {
       cropEnabled: false,
       gravityEnabled: false,
       formatEnabled: false,
-      qualityEnabled: false
+      qualityEnabled: false,
     };
 
     expect(optionSegments(state)).toEqual([]);
@@ -487,12 +477,14 @@ describe("processing path generation", () => {
 
   it("shows the negotiated output label for automatic formats", () => {
     expect(resolvedOutputLabel(defaultDemoState)).toBe("auto -> webp");
-    expect(resolvedOutputLabel({ ...defaultDemoState, formatEnabled: true, format: "png" })).toBe("png");
+    expect(resolvedOutputLabel({ ...defaultDemoState, formatEnabled: true, format: "png" })).toBe(
+      "png",
+    );
   });
 
   it("formats the processed image dimensions and encoded byte size", () => {
     expect(processedSizeLabel({ width: 640, height: 480, bytes: 552_960 })).toBe(
-      "640 × 480 (540 kB)"
+      "640 × 480 (540 kB)",
     );
     expect(processedSizeLabel({ width: 300, height: 200, bytes: null })).toBe("300 × 200");
   });

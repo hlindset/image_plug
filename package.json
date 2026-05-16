@@ -5,6 +5,8 @@
     "demo:build": "vite build",
     "demo:check": "tsgo --project tsconfig.json --noEmit",
     "demo:dev": "vite --host localhost --port 5173 --strictPort",
+    "demo:format": "oxfmt --write demo/src vite.config.ts",
+    "demo:format:check": "oxfmt --check demo/src vite.config.ts",
     "demo:lint": "oxlint demo/src vite.config.ts --ignore-pattern demo/node_modules/**",
     "demo:test": "vitest run"
   },
@@ -13,6 +15,7 @@
     "@types/node": "25.8.0",
     "@typescript/native-preview": "7.0.0-dev.20260515.1",
     "image-size": "^2.0.2",
+    "oxfmt": "^0.50.0",
     "oxlint": "1.64.0",
     "svelte": "5.55.7",
     "typescript": "6.0.3",
