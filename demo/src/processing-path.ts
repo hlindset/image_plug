@@ -64,6 +64,13 @@ export type ProcessedImageMetadata = {
   bytes: number | null;
 };
 
+type FocalPickerBounds = {
+  left: number;
+  top: number;
+  width: number;
+  height: number;
+};
+
 export const defaultDemoState: DemoState = {
   signature: "_",
   source: "images/dog.jpg",
@@ -230,6 +237,27 @@ export function gravitySegment(currentState: DemoState): string {
   }
 
   return `g:${currentState.gravity}`;
+}
+
+export function focalPointFromBounds(
+  clientX: number,
+  clientY: number,
+  bounds: FocalPickerBounds
+): { x: number; y: number } {
+  if (bounds.width <= 0 || bounds.height <= 0) {
+    return { x: 0, y: 0 };
+  }
+
+  return {
+    x: roundedUnit((clientX - bounds.left) / bounds.width),
+    y: roundedUnit((clientY - bounds.top) / bounds.height)
+  };
+}
+
+function roundedUnit(value: number): number {
+  const clamped = Math.min(1, Math.max(0, value));
+
+  return Math.round(clamped * 100) / 100;
 }
 
 export function resolvedOutputLabel(currentState: DemoState): string {

@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import {
   buildProcessingPath,
   defaultDemoState,
+  focalPointFromBounds,
   processedSizeLabel,
   optionSegments,
   resolvedOutputLabel
@@ -172,6 +173,39 @@ describe("processing path generation", () => {
     };
 
     expect(optionSegments(state)).toEqual(["rs:fill:640:360:0", "g:soea:12:-0.25"]);
+  });
+
+  it("normalizes focal point coordinates from a picker rectangle", () => {
+    expect(
+      focalPointFromBounds(150, 75, {
+        left: 100,
+        top: 50,
+        width: 200,
+        height: 100
+      })
+    ).toEqual({ x: 0.25, y: 0.25 });
+  });
+
+  it("clamps focal point coordinates to the picker rectangle", () => {
+    expect(
+      focalPointFromBounds(360, 20, {
+        left: 100,
+        top: 50,
+        width: 200,
+        height: 100
+      })
+    ).toEqual({ x: 1, y: 0 });
+  });
+
+  it("keeps focal point coordinates stable for an unloaded picker rectangle", () => {
+    expect(
+      focalPointFromBounds(100, 50, {
+        left: 100,
+        top: 50,
+        width: 0,
+        height: 0
+      })
+    ).toEqual({ x: 0, y: 0 });
   });
 
   it("allows crop to use an explicit gravity", () => {
