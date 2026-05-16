@@ -13,6 +13,7 @@
     defaultDemoState,
     focalPointFromBounds,
     gravitySegment,
+    imageRequestBytesFromPerformance,
     processedSizeLabel,
     resizeOptionSegment,
     resetCropPixelsToSource,
@@ -157,6 +158,16 @@
 
     previewLoading = false;
     processedMetadata = { ...dimensions, bytes: null };
+
+    const timingBytes = imageRequestBytesFromPerformance(
+      imagePath,
+      performance.getEntriesByType("resource") as PerformanceResourceTiming[],
+    );
+
+    if (timingBytes !== null) {
+      processedMetadata = { ...dimensions, bytes: timingBytes };
+      return;
+    }
 
     try {
       const response = await fetch(imagePath, { cache: "force-cache" });

@@ -90,6 +90,9 @@ type FocalPickerBounds = {
   height: number;
 };
 
+type ResourceTimingSize = Pick<PerformanceResourceTiming, "name"> &
+  Partial<Pick<PerformanceResourceTiming, "decodedBodySize" | "encodedBodySize">>;
+
 export const controlLimits = {
   resize: {
     width: { min: 1, max: 1600, step: 1 },
@@ -440,6 +443,23 @@ export function processedSizeLabel(metadata: ProcessedImageMetadata | null): str
   const kilobytes = Math.max(1, Math.round(metadata.bytes / 1024));
 
   return `${dimensions} (${kilobytes} kB)`;
+}
+
+export function imageRequestBytesFromPerformance(
+  imageUrl: string,
+  entries: readonly ResourceTimingSize[],
+): number | null {
+  const matchingEntries = entries.filter((entry) => entry.name === imageUrl);
+
+  for (const entry of matchingEntries.toReversed()) {
+    const bytes = entry.encodedBodySize || entry.decodedBodySize || 0;
+
+    if (bytes > 0) {
+      return bytes;
+    }
+  }
+
+  return null;
 }
 
 export function signedPathForState(currentState: DemoState): string {

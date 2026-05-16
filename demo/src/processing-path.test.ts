@@ -9,6 +9,7 @@ import {
   defaultDemoState,
   debounce,
   focalPointFromBounds,
+  imageRequestBytesFromPerformance,
   resetCropPixelsToSource,
   processedSizeLabel,
   optionSegments,
@@ -113,6 +114,37 @@ describe("processing path generation", () => {
 
   it("keeps jpeg selected as the default explicit format", () => {
     expect(defaultDemoState.format).toBe("jpeg");
+  });
+
+  it("reads processed byte size from the latest matching resource timing entry", () => {
+    const entries = [
+      { name: "http://localhost:4000/_/plain/images/dog.jpg", encodedBodySize: 120 },
+      { name: "http://localhost:4000/_/plain/images/cat.jpg", encodedBodySize: 90 },
+      { name: "http://localhost:4000/_/plain/images/dog.jpg", encodedBodySize: 456 },
+    ];
+
+    expect(
+      imageRequestBytesFromPerformance("http://localhost:4000/_/plain/images/dog.jpg", entries),
+    ).toBe(456);
+  });
+
+  it("falls back to decoded resource timing size and ignores unavailable sizes", () => {
+    const entries = [
+      {
+        name: "http://localhost:4000/_/plain/images/dog.jpg",
+        encodedBodySize: 0,
+        decodedBodySize: 321,
+      },
+      {
+        name: "http://localhost:4000/_/plain/images/dog.jpg",
+        encodedBodySize: 0,
+        decodedBodySize: 0,
+      },
+    ];
+
+    expect(
+      imageRequestBytesFromPerformance("http://localhost:4000/_/plain/images/dog.jpg", entries),
+    ).toBe(321);
   });
 
   it("includes auto rotate as an explicit orientation option", () => {
