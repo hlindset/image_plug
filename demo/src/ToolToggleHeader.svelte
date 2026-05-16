@@ -59,6 +59,7 @@
     p {
       margin-block-start: 2px;
       color: var(--text-muted);
+      font-family: var(--font-mono);
       font-size: 12px;
       line-height: 16px;
     }

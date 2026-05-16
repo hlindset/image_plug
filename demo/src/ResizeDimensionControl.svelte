@@ -105,7 +105,7 @@
     background: transparent;
     color: var(--text-primary);
     field-sizing: content;
-    font-family: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    font-family: var(--font-mono);
     font-size: 13px;
     line-height: 18px;
     padding-inline: 4px;
@@ -131,7 +131,7 @@
   .unit-suffix {
     width: 18px;
     color: var(--text-muted);
-    font-family: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    font-family: var(--font-mono);
     text-align: left;
   }
 

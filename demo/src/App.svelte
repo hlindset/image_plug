@@ -794,6 +794,7 @@
     p {
       margin-block-start: 2px;
       color: var(--text-muted);
+      font-family: var(--font-mono);
       font-size: 12px;
       line-height: 16px;
     }
@@ -959,7 +960,7 @@
     justify-content: space-between;
     gap: 12px;
     color: var(--image-overlay-text);
-    font-family: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    font-family: var(--font-mono);
     font-size: 12px;
     line-height: 16px;
     pointer-events: none;
