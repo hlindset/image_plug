@@ -845,7 +845,7 @@
               <Switch.Root class="switch-root" bind:checked={state.autoRotateEnabled}>
                 <Switch.Thumb class="switch-thumb" />
               </Switch.Root>
-              <span>Auto rotate</span>
+              <span>Auto rotate from EXIF</span>
             </label>
 
             <label class="field">
