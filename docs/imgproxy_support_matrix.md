@@ -59,7 +59,7 @@ before origin fetch or cache lookup; they're not silently ignored.
 | `crop` | `c` | Supported | Absolute, relative, or full-axis dimensions; anchor/focal/smart gravity parsing. Smart gravity is rejected at planning. |
 | `crop_aspect_ratio` | `crop_ar`, `car` | Missing | Documented as unsupported in current ImagePlug docs. |
 | `trim` | `t` | Missing | Requires full-image memory behavior and trim operation. |
-| `padding` | `pd` | Supported | CSS-style sparse shorthand, accumulated field behavior, effective DPR scaling, and `padding:` no-op compatibility. |
+| `padding` | `pd` | Supported | CSS-style shorthand, sparse repeated options, effective DPR scaling, and `padding:` no-op compatibility. |
 | `auto_rotate` | `ar` | Supported | Omitted argument enables auto-orient; boolean form supported. |
 | `rotate` | `rot` | Supported | Right-angle multiples normalize to `0`, `90`, `180`, or `270`. |
 | `flip` | `fl` | Supported | No arguments means both axes; one or two booleans are supported. |

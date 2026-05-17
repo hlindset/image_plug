@@ -267,8 +267,8 @@ the same order as CSS padding shorthand:
 - three values apply top, horizontal, then bottom
 - four values apply top, right, bottom, and left.
 
-Sparse repeated padding follows imgproxy's accumulated field behavior. For
-example, `pd:10:20:30:40/padding::5` keeps top at `10` and bottom at `30`,
+When a request repeats padding, later values update only the sides they name.
+For example, `pd:10:20:30:40/padding::5` keeps top at `10` and bottom at `30`,
 then sets right and left to `5`. `padding:` and all-zero padding are valid
 no-ops.
 
