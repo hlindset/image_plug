@@ -1,16 +1,16 @@
-# Imgproxy Path API
+# imgproxy Path API
 
 ## Mental Model
 
-An Imgproxy URL describes desired output, not a step-by-step image pipeline.
-ImagePlug normalizes aliases, resolves conflicts, builds a product-neutral plan, and executes transforms in Imgproxy canonical order.
+An imgproxy URL describes desired output, not a step-by-step image pipeline.
+ImagePlug normalizes aliases, resolves conflicts, builds a product-neutral plan, and executes transforms in imgproxy canonical order.
 
-The Imgproxy URL API accepts imgproxy-compatible option names where ImagePlug supports the same semantics. ImagePlug processing remains declarative and product-neutral internally: parser syntax maps into canonical `ImagePlug.Plan.Operation.*` intent, and executable transform work is derived later by `ImagePlug.Transform.execute_plan/4`.
+The imgproxy URL API accepts imgproxy-compatible option names where ImagePlug supports the same semantics. ImagePlug processing remains declarative and product-neutral internally: parser syntax maps into canonical `ImagePlug.Plan.Operation.*` intent, and executable transform work is derived later by `ImagePlug.Transform.execute_plan/3`.
 
-URL option order is not execution order. The parser and planner own the fixed Imgproxy transform order.
+URL option order isn't execution order. The parser and planner own the fixed imgproxy transform order.
 
 For a feature-by-feature comparison with imgproxy's processing URL surface, see
-[Imgproxy Support Matrix](imgproxy_support_matrix.md).
+[imgproxy Support Matrix](imgproxy_support_matrix.md).
 
 ## URL Shape
 
@@ -25,7 +25,7 @@ disabled-signing placeholders. With signing configured, the signature must be a
 raw/unpadded Base64URL HMAC-SHA256 digest of the raw path after the signature,
 including the leading slash, or an exact configured trusted signature.
 Trusted-only configuration accepts only exact trusted signatures; unlike
-upstream imgproxy, it does not make every signature segment valid when no
+upstream imgproxy, it doesn't make every signature segment valid when no
 key/salt pair is configured.
 Before verification, ImagePlug applies imgproxy-compatible `fixPath`
 normalization: `%3A` in processing options is treated as `:`, and normalized
@@ -39,9 +39,9 @@ and `ext`.
 
 ## Pipeline Groups
 
-`-` separates Imgproxy pipeline groups. Non-empty groups execute in URL group order. Inside each group, URL option order still does not define transform order. Empty pipeline groups are ignored.
+`-` separates imgproxy pipeline groups. Non-empty groups execute in URL group order. Inside each group, URL option order still doesn't define transform order. Empty pipeline groups are ignored.
 
-Imgproxy canonical semantic operation order inside each pipeline group is:
+imgproxy canonical semantic operation order inside each pipeline group is:
 
 1. orientation (`auto_orient`, `rotate`, `flip`)
 2. explicit crop
@@ -53,7 +53,7 @@ Imgproxy canonical semantic operation order inside each pipeline group is:
 
 Orientation suborder is auto-orient, rotate, then flip.
 
-This fixed order is an Imgproxy API contract. It is not a universal requirement for every future compatibility dialect; dialect-specific ordered quirks belong in parser or adapter code when they cannot translate cleanly into the Imgproxy declarative model.
+This fixed order is an imgproxy API contract. It isn't a universal requirement for every future compatibility dialect; dialect-specific ordered quirks belong in parser or adapter code when they can't translate cleanly into the imgproxy declarative model.
 
 ## Option Ordering And Conflict Resolution
 
@@ -93,7 +93,7 @@ Normal processing URLs support configured imgproxy presets:
     /_/preset:thumb/plain/images/cat.jpg
     /_/pr:thumb:sharp-thumb/plain/images/cat.jpg
 
-Preset expansion happens inside `ImagePlug.Parser.Imgproxy` before plan construction, source identity resolution, cache lookup, or origin fetch. Preset names are not stored in `ImagePlug.Plan`, runtime state, output negotiation, transform state, or cache data. A request using `pr:thumb` and a request spelling out the same expanded options share the same cache key for the same resolved origin identity and vary inputs.
+Preset expansion happens inside `ImagePlug.Parser.Imgproxy` before plan construction, source identity resolution, cache lookup, or origin fetch. Preset names aren't stored in `ImagePlug.Plan`, runtime state, output negotiation, transform state, or cache data. A request using `pr:thumb` and a request spelling out the same expanded options share the same cache key for the same resolved origin identity and vary inputs.
 
 A configured preset named `default` is applied to every normal processing request before URL options. URL assignments in the same merged pipeline group can override fields from `default`.
 
@@ -101,7 +101,7 @@ Presets may reference other presets. Recursive re-entry is skipped, matching img
 
 Preset values may contain `-` pipeline separators. The first preset group is applied to the current URL pipeline group. Later preset groups are queued for following URL groups; URL options in those later groups can override queued preset fields. Remaining queued groups become trailing pipelines.
 
-This slice does not support presets-only mode, info endpoint presets, `IMGPROXY_PRESETS`, `IMGPROXY_PRESETS_SEPARATOR`, `IMGPROXY_PRESETS_PATH`, preset file loading, or custom argument separators.
+This slice doesn't support presets-only mode, info endpoint presets, `IMGPROXY_PRESETS`, `IMGPROXY_PRESETS_SEPARATOR`, `IMGPROXY_PRESETS_PATH`, preset file loading, or custom argument separators.
 
 ## Supported Options And Aliases
 
@@ -129,7 +129,7 @@ This slice does not support presets-only mode, info endpoint presets, `IMGPROXY_
 | Quality | `quality`, `q` | integer quality; `0` means configured default |
 | Format quality | `format_quality`, `fq` | `<format>:<quality>` |
 | Format | `format`, `f`, `ext` | `webp`, `avif`, `jpeg`, `jpg`, `png`, `best`; `jpg` normalizes to JPEG |
-| Cachebuster | `cachebuster`, `cb` | string value |
+| cachebuster | `cachebuster`, `cb` | string value |
 | Expires | `expires`, `exp` | Unix timestamp integer |
 | Filename | `filename`, `fn` | filename stem, optional encoded flag |
 | Attachment disposition | `return_attachment`, `att` | boolean |
@@ -150,7 +150,7 @@ Zero dimensions map to `auto`. For `force`, an auto side preserves the source di
 `rt:force/w:0/h:200` preserves source width and forces height to `200`.
 `rt:force/w:300/h:0` forces width to `300` and preserves source height.
 
-Fit/fill with both sides zero produces no geometry transform unless min dimensions or another meaningful size constraint is present. Zoom and DPR do not force raster enlargement for zero-dimension auto sides when `enlarge` is false.
+Fit/fill with both sides zero produces no geometry transform unless min dimensions or another meaningful size constraint is present. Zoom and DPR don't force raster enlargement for zero-dimension auto sides when `enlarge` is false.
 
 ## Crop And Gravity
 
@@ -160,12 +160,12 @@ Top-level `g`/`gravity` applies to result crops produced by fill, fill-down, and
 
 Gravity supports anchors and focal points. Focal point gravity uses `fp:x:y`, where `x` and `y` are normalized coordinates from `0.0` to `1.0`.
 
-Crop focal-point gravity uses crop gravity fields; it does not require a
+Crop focal-point gravity uses crop gravity fields; it doesn't require a
 separate focus operation.
 
 Offsets use imgproxy-style parsing:
 
-- `abs(offset) >= 1` means pixels.
+- `abs(offset) >= 1` selects pixel offsets.
 - `abs(offset) < 1` means relative scale.
 
 Top-level gravity offsets apply to result crops. Crop-specific offsets apply to explicit crop.
@@ -173,7 +173,7 @@ Absolute top-level gravity offsets are resolved by crop execution using the effe
 
 Crop offset signs and unit interpretation match current imgproxy-compatible parsing and execution behavior.
 
-`g:sm` is intentionally unsupported in this Imgproxy slice and is rejected as `{:unsupported_gravity, :sm}`. `c:<width>:<height>:sm` is rejected the same way.
+`g:sm` is intentionally unsupported in this imgproxy slice and is rejected as `{:unsupported_gravity, :sm}`. `c:<width>:<height>:sm` is rejected the same way.
 
 ## Orientation
 
@@ -225,8 +225,8 @@ channels are `0..255`. Hex accepts 3 digit RGB and 6 digit RRGGBB forms.
 `background:` clears an earlier background value in the same resolved request.
 
 Background flattening is separate from canvas and padding fill. Canvas and
-padding create transparent generated pixels; explicit background then flattens
-both those generated pixels and any source alpha over the requested color.
+padding create transparent areas; explicit background then flattens those areas
+and any source alpha over the requested color.
 
 Composition order is fixed by ImagePlug's imgproxy planner: canvas extension,
 padding, then background flattening. URL option order only determines final
@@ -235,13 +235,13 @@ field assignment.
 ## Output Format And Quality
 
 Omitting an explicit output format enables automatic output negotiation.
-`format:auto` is not accepted.
+`format:auto` isn't accepted.
 
-Explicit output formats can be requested with `format`, `f`, `ext`, or plain-source `@extension`. Explicit formats and `@extension` bypass `Accept` negotiation and do not set `Vary: Accept`.
+Explicit output formats can be requested with `format`, `f`, `ext`, or plain-source `@extension`. Explicit formats and `@extension` bypass `Accept` negotiation and don't set `Vary: Accept`.
 
 When both an option format and source `@extension` are present, source `@extension` overrides any explicit format option.
 
-Supported explicit output extensions are `webp`, `avif`, `jpeg`, `jpg`, `png`, and `best`. `jpg` normalizes to JPEG. `best` parses but is rejected by planning in this Imgproxy slice.
+Supported explicit output extensions are `webp`, `avif`, `jpeg`, `jpg`, `png`, and `best`. `jpg` normalizes to JPEG. `best` parses but is rejected by planning in this imgproxy slice.
 
 `quality`/`q` set generic output quality. `format_quality`/`fq` set quality for one explicit format and should be documented separately from generic quality. `0` resets quality to the configured default.
 
@@ -249,9 +249,9 @@ Supported explicit output extensions are `webp`, `avif`, `jpeg`, `jpg`, `png`, a
 
 `cachebuster`/`cb` changes cache key data without adding transform operations. `expires`/`exp` is a Unix timestamp request validity policy.
 
-Final cache lookup is source-fetch-free: it is built from Plan operation key data, resolved origin identity/freshness data, output/config/vary key data, and the cache key's transform key data version. It does not fetch, decode, or read source metadata. Source-aware execution choices such as `mode: :auto` selecting fit or cover do not enter the normal final cache key.
+Final cache lookup is source-fetch-free: it's built from Plan operation key data, resolved origin identity/freshness data, output/config/vary key data, and the cache key's transform key data version. It doesn't fetch, decode, or read source metadata. Source-aware execution choices such as `mode: :auto` selecting fit or cover don't enter the normal final cache key.
 
-Only successful encoded responses are cached. Rejected Imgproxy requests return before origin fetch and cache lookup.
+Only successful encoded responses are cached. Rejected imgproxy requests return before origin fetch and cache lookup.
 
 ## Response Filename And Disposition
 
@@ -259,12 +259,12 @@ Only successful encoded responses are cached. Rejected Imgproxy requests return 
 
 ## Unsupported And Rejected Options
 
-Unsupported imgproxy options are not silently ignored. Options outside this supported Imgproxy slice are rejected.
+Unsupported imgproxy options aren't silently ignored. Options outside this supported imgproxy slice are rejected.
 
 | Case | Behavior |
 | --- | --- |
 | Unknown option | HTTP 400 before origin fetch/cache lookup |
-| Known imgproxy option outside this Imgproxy slice | HTTP 400 before origin fetch/cache lookup |
+| Known imgproxy option outside this imgproxy slice | HTTP 400 before origin fetch/cache lookup |
 | Supported option with invalid value | HTTP 400 before origin fetch/cache lookup |
 | Valid syntax with unsupported combined semantics | HTTP 400 before origin fetch/cache lookup |
 | Unknown preset | HTTP 400 before origin fetch/cache lookup |
@@ -274,13 +274,13 @@ Unsupported imgproxy options are not silently ignored. Options outside this supp
 
 Unsupported examples include `raw`, `max_bytes`, `max_src_resolution`, `max_src_file_size`, `crop_aspect_ratio`, `format:auto`, `g:sm`, and `c:<width>:<height>:sm`.
 
-Crop combined with auto-orient is supported and planned in Imgproxy canonical order. Top-level gravity offsets are supported for result crops. `force` resize with one zero dimension is supported by preserving the source dimension for the auto side. Explicit crop gravity variants, including focal-point crop gravity, are supported. Explicit crop without its own gravity inherits top-level gravity.
+Crop combined with auto-orient is supported and planned in imgproxy canonical order. Top-level gravity offsets are supported for result crops. `force` resize with one zero dimension is supported by preserving the source dimension for the auto side. Explicit crop gravity variants, including focal-point crop gravity, are supported. Explicit crop without its own gravity inherits top-level gravity.
 
-SVG/vector-specific imgproxy parity is out of scope for this Imgproxy documentation pass.
+SVG/vector-specific imgproxy parity is out of scope for this imgproxy documentation pass.
 
 ## Examples
 
-| Goal | Imgproxy URL |
+| Goal | imgproxy URL |
 | --- | --- |
 | Fit within a width | `/_/w:300/plain/images/cat.jpg` |
 | Fill a box from a focal point | `/_/rt:fill/w:300/h:200/g:fp:0.25:0.75/plain/images/cat.jpg` |

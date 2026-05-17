@@ -1,4 +1,4 @@
-# Imgproxy Support Matrix
+# imgproxy Support Matrix
 
 This matrix compares ImagePlug's current `ImagePlug.Parser.Imgproxy` support
 with imgproxy's processing URL surface.
@@ -6,7 +6,7 @@ with imgproxy's processing URL surface.
 ImagePlug intentionally treats imgproxy URLs as a compatibility parser for a
 product-neutral `ImagePlug.Plan`. Supported options translate cleanly into
 canonical plan/output/cache/response fields. Unsupported options are rejected
-before origin fetch or cache lookup; they are not silently ignored.
+before origin fetch or cache lookup; they're not silently ignored.
 
 ## Status Legend
 
@@ -20,22 +20,22 @@ before origin fetch or cache lookup; they are not silently ignored.
 
 ## URL Shape, Source, And Security
 
-| Imgproxy feature | Status | Notes |
+| imgproxy feature | Status | Notes |
 | --- | --- | --- |
 | Required signature path segment | Supported | `_` and `unsafe` are accepted when signing is disabled; HMAC and exact trusted signatures are accepted when signing is configured. Trusted-only config accepts only exact trusted signatures. This is intentionally narrower than upstream disabled-signing behavior. |
-| HMAC URL signatures | Supported | Imgproxy parser verifies raw/unpadded Base64URL HMAC-SHA256 signatures with hex key/salt pairs, optional truncation, rotation pairs, exact trusted signatures, and imgproxy-compatible `fixPath` before verification. Signature failures return 403. |
-| Plain source URLs via `/plain/` | Partial | ImagePlug treats the value as path segments resolved against configured `root_url`; arbitrary absolute source URLs are not modeled. |
+| HMAC URL signatures | Supported | imgproxy parser verifies raw/unpadded Base64URL HMAC-SHA256 signatures with hex key/salt pairs, optional truncation, rotation pairs, exact trusted signatures, and imgproxy-compatible `fixPath` before verification. Signature failures return 403. |
+| Plain source URLs via `/plain/` | Partial | ImagePlug treats the value as path segments resolved against configured `root_url`; arbitrary absolute source URLs aren't modeled. |
 | Plain source `@extension` | Supported | Overrides option format and bypasses `Accept` negotiation. |
 | Base64 encoded source URL | Missing | No encoded source parsing or absolute URL source model. |
 | Encrypted `/enc/` source URL | Missing | Pro feature; requires source decryption and signed URL safety. |
 | AES-CBC source URL encryption helpers | Missing | Should remain parser/runtime source-layer support, not transform support. |
 | Custom argument separator | Missing | Parser currently uses `:`. |
-| Processing option order independence | Supported | URL option order does not define transform order. |
+| Processing option order independence | Supported | URL option order doesn't define transform order. |
 | Pipeline separator `-` | Supported | Separates non-empty pipeline groups. |
 
 ## Resize, Geometry, And Orientation
 
-| Imgproxy option | Aliases | Status | Notes |
+| imgproxy option | Aliases | Status | Notes |
 | --- | --- | --- | --- |
 | `resize` | `rs` | Supported | Includes optional resize-tail `enlarge`, `extend`, and extend gravity. |
 | `size` | `s` | Supported | Same field mapping as imgproxy size meta-option. |
@@ -47,9 +47,9 @@ before origin fetch or cache lookup; they are not silently ignored.
 | `min-height` | `min_height`, `mh` | Supported | Non-negative integer. |
 | `zoom` | `z` | Supported | Single value or separate x/y factors. |
 | `dpr` | | Supported | Affects resize sizing and cache key data. |
-| `enlarge` | `el` | Supported | Boolean. |
+| `enlarge` | `el` | Supported | boolean. |
 | `extend` | `ex` | Supported | Canvas extension with anchor gravity and offsets. |
-| `extend_aspect_ratio` | `extend_ar`, `exar` | Partial | Supported as ratio canvas extension; imgproxy's boolean argument form is not modeled. |
+| `extend_aspect_ratio` | `extend_ar`, `exar` | Partial | Supported as ratio canvas extension; imgproxy's boolean argument form isn't modeled. |
 | `gravity` anchors | `g` | Supported | `ce`, `no`, `so`, `ea`, `we`, `noea`, `nowe`, `soea`, `sowe`. |
 | `gravity:fp` | `g:fp` | Supported | Focal point coordinates from `0.0` to `1.0`. |
 | `gravity:sm` | `g:sm` | Rejected | Parsed but rejected as unsupported smart gravity. |
@@ -62,11 +62,11 @@ before origin fetch or cache lookup; they are not silently ignored.
 | `padding` | `pd` | Supported | CSS-style sparse shorthand, accumulated field behavior, effective DPR scaling, and `padding:` no-op compatibility. |
 | `auto_rotate` | `ar` | Supported | Omitted argument enables auto-orient; boolean form supported. |
 | `rotate` | `rot` | Supported | Right-angle multiples normalize to `0`, `90`, `180`, or `270`. |
-| `flip` | `fl` | Supported | No args means both axes; one or two booleans are supported. |
+| `flip` | `fl` | Supported | No arguments means both axes; one or two booleans are supported. |
 
 ## Background, Effects, And Overlays
 
-| Imgproxy option | Aliases | Status | Notes |
+| imgproxy option | Aliases | Status | Notes |
 | --- | --- | --- | --- |
 | `background` | `bg` | Supported | RGB decimal and 3/6 digit hex colors; `background:` clears previous background color and alpha. |
 | `background_alpha` | `bga` | Supported | Applies an alpha channel to the accumulated background color; without an explicit background color, uses imgproxy's default black background. |
@@ -86,7 +86,7 @@ before origin fetch or cache lookup; they are not silently ignored.
 | `crop_objects` | `co` | Missing | Pro object-detection crop. |
 | `colorize` | `col` | Missing | Pro overlay effect. |
 | `gradient` | `gr` | Missing | Pro gradient overlay. |
-| `watermark` | `wm` | Missing | Base watermark semantics are not modeled. |
+| `watermark` | `wm` | Missing | Base watermark semantics aren't modeled. |
 | `watermark_url` | `wmu` | Missing | Pro custom watermark source. |
 | `watermark_text` | `wmt` | Missing | Pro generated watermark image. |
 | `watermark_size` | `wms` | Missing | Pro watermark sizing. |
@@ -96,7 +96,7 @@ before origin fetch or cache lookup; they are not silently ignored.
 
 ## Metadata, Color, And Source Decoding
 
-| Imgproxy option | Aliases | Status | Notes |
+| imgproxy option | Aliases | Status | Notes |
 | --- | --- | --- | --- |
 | `strip_metadata` | `sm` | Missing | No request-level metadata stripping override. |
 | `keep_copyright` | `kcr` | Missing | Depends on metadata stripping support. |
@@ -111,10 +111,10 @@ before origin fetch or cache lookup; they are not silently ignored.
 
 ## Output And Encoding
 
-| Imgproxy option | Aliases | Status | Notes |
+| imgproxy option | Aliases | Status | Notes |
 | --- | --- | --- | --- |
 | `quality` | `q` | Supported | `0` means configured default; `1..100` supported. |
-| `format_quality` | `fq` | Partial | One `<format>:<quality>` pair per option segment; repeated segments merge. Variadic pairs in one segment are not supported. |
+| `format_quality` | `fq` | Partial | One `<format>:<quality>` pair per option segment; repeated segments merge. Multiple pairs in one segment aren't supported. |
 | `autoquality` | `aq` | Missing | Pro multi-encode quality search. |
 | `max_bytes` | `mb` | Missing | No iterative encode degradation. |
 | `jpeg_options` | `jpgo` | Missing | Pro advanced JPEG encoder controls. |
@@ -122,13 +122,13 @@ before origin fetch or cache lookup; they are not silently ignored.
 | `webp_options` | `webpo` | Missing | Pro advanced WebP encoder controls. |
 | `avif_options` | `avifo` | Missing | Pro advanced AVIF encoder controls. |
 | `format` | `f`, `ext` | Partial | `webp`, `avif`, `jpeg`, `jpg`, and `png` supported. `best` parses but is rejected. |
-| Extension path suffix | | Partial | Plain `@extension` supported. Encoded-source `.extension` is not supported because encoded source URLs are missing. |
+| Extension path suffix | | Partial | Plain `@extension` supported. Encoded-source `.extension` isn't supported because encoded source URLs are missing. |
 | Automatic output via `Accept` | | Supported | Omitted format negotiates AVIF/WebP and uses `Vary: Accept`. |
 | `best` output | | Rejected | Parsed as an output value, rejected by planning. |
 
 ## Video
 
-| Imgproxy option | Aliases | Status | Notes |
+| imgproxy option | Aliases | Status | Notes |
 | --- | --- | --- | --- |
 | `video_thumbnail_second` | `vts` | Out of scope | Pro video source support. |
 | `video_thumbnail_keyframes` | `vtk` | Out of scope | Pro video source support. |
@@ -137,7 +137,7 @@ before origin fetch or cache lookup; they are not silently ignored.
 
 ## Fallback, Raw, And Request Policy
 
-| Imgproxy option | Aliases | Status | Notes |
+| imgproxy option | Aliases | Status | Notes |
 | --- | --- | --- | --- |
 | `fallback_image_url` | `fiu` | Missing | Pro fallback source behavior. |
 | `skip_processing` | `skp` | Missing | No source-format raw pass-through path. |
@@ -146,22 +146,22 @@ before origin fetch or cache lookup; they are not silently ignored.
 | `expires` | `exp` | Supported | Rejects expired requests before origin/cache side effects. |
 | `filename` | `fn` | Supported | Percent-decoded or URL-safe Base64 filename stem. |
 | `return_attachment` | `att` | Supported | Controls `Content-Disposition` disposition. |
-| `preset` | `pr` | Partial | Normal processing URLs support configured named presets, multiple names in one segment, `default` automatic expansion, nested presets with recursive re-entry skipped, and documented chained-pipeline merge semantics. Presets-only mode, info endpoint presets, env/file loading, and custom separators are not supported. |
+| `preset` | `pr` | Partial | Normal processing URLs support configured named presets, multiple names in one segment, `default` automatic expansion, nested presets with recursive re-entry skipped, and documented chained-pipeline merge semantics. Presets-only mode, info endpoint presets, env/file loading, and custom separators aren't supported. |
 | `hashsum` | `hs` | Missing | Pro source integrity check. |
 
 ## Security Limit Overrides
 
-| Imgproxy option | Aliases | Status | Notes |
+| imgproxy option | Aliases | Status | Notes |
 | --- | --- | --- | --- |
 | `max_src_resolution` | `msr` | Missing | Security override; should require explicit opt-in if added. |
 | `max_src_file_size` | `msfs` | Missing | Security override; should require explicit opt-in if added. |
-| `max_animation_frames` | `maf` | Missing | Animation support is not modeled. |
-| `max_animation_frame_resolution` | `mafr` | Missing | Animation support is not modeled. |
+| `max_animation_frames` | `maf` | Missing | Animation support isn't modeled. |
+| `max_animation_frame_resolution` | `mafr` | Missing | Animation support isn't modeled. |
 | `max_result_dimension` | `mrd` | Missing | Security override; should require explicit opt-in if added. |
 
 ## Presets
 
-| Imgproxy feature | Status | Notes |
+| imgproxy feature | Status | Notes |
 | --- | --- | --- |
 | Named presets | Supported | Configured through `imgproxy: [presets: %{name => options}]`; expanded while parsing normal processing URLs. |
 | Multiple preset arguments | Supported | `pr:thumb:sharp` applies each named preset in order. |
@@ -169,7 +169,7 @@ before origin fetch or cache lookup; they are not silently ignored.
 | Presets referencing presets | Supported | Presets may use `preset`/`pr`; recursive re-entry is skipped to match imgproxy behavior. |
 | Preset chained pipelines | Partial | Supports documented Pro merge semantics for preset values containing `-` when the referenced options are otherwise supported by ImagePlug. |
 | Presets-only mode | Missing | Deliberately excluded from this slice. |
-| Info endpoint presets | Missing | ImagePlug does not currently expose imgproxy info endpoints. |
+| Info endpoint presets | Missing | ImagePlug doesn't currently expose imgproxy info endpoints. |
 | Preset env/file loading | Missing | `IMGPROXY_PRESETS`, `IMGPROXY_PRESETS_SEPARATOR`, and `IMGPROXY_PRESETS_PATH` parity is excluded; pass already-materialized presets through config instead. |
 
 ## Suggested Next Additions

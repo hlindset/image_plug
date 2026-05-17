@@ -2,8 +2,8 @@
 
 ImagePlug emits telemetry spans for the request lifecycle and its major runtime
 stages. The events are intended for host applications to attach their own
-logging, metrics, or tracing integration. ImagePlug does not depend on
-AppSignal, OpenTelemetry, or any other tracing backend.
+logging, metrics, or tracing integration. ImagePlug doesn't depend on
+AppSignal, OpenTelemetry, or any other tracing system.
 
 ## Configuration
 
@@ -94,8 +94,8 @@ All span events also include `:telemetry_span_context`, which is injected by
 `:telemetry.span/3` for correlating the events from the same span. Treat it as
 correlation data, not as a metrics dimension.
 
-ImagePlug does not emit full request paths by default. Imgproxy-style paths can
-contain signatures, filenames, and origin-shaped user data, and they are often
+ImagePlug doesn't emit full request paths by default. imgproxy-style paths can
+contain signatures, filenames, and origin-shaped user data, and they're often
 high-cardinality. Host applications that need path-level observability should
 add that data in their own handlers with the relevant privacy and cardinality
 controls.
@@ -112,7 +112,7 @@ Request and stage spans use narrow result atoms:
 - `:processing_error`
 - `:error`
 
-The `:error` value is reserved for stage-local failures that are not otherwise
+The `:error` value is reserved for stage-local failures that aren't otherwise
 classified at that stage. The request span maps returned failures into the more
 specific request outcome categories above.
 
