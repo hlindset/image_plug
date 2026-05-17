@@ -318,26 +318,19 @@ controls inline versus attachment `Content-Disposition`.
 
 ## Unsupported and rejected options
 
-ImagePlug rejects unsupported imgproxy options. It doesn't ignore options
-outside this supported imgproxy slice.
+Unsupported and invalid imgproxy requests fail before origin fetch or cache
+lookup.
 
 | Case | Behavior |
 | --- | --- |
 | Unknown option | HTTP 400 before origin fetch/cache lookup |
-| Known imgproxy option outside this imgproxy slice | HTTP 400 before origin fetch/cache lookup |
+| Unsupported imgproxy option | HTTP 400 before origin fetch/cache lookup |
 | Supported option with invalid value | HTTP 400 before origin fetch/cache lookup |
 | Valid syntax with unsupported combined semantics | HTTP 400 before origin fetch/cache lookup |
 | Unknown preset | HTTP 400 before origin fetch/cache lookup |
 | Recursive preset reference | ImagePlug skips recursive re-entry and keeps remaining reachable options |
 | Unsupported option inside a used preset | HTTP 400 before origin fetch/cache lookup |
 | Duplicate canonical field | Last value wins |
-
-Unsupported examples include `raw`, `max_bytes`, `max_src_resolution`,
-`max_src_file_size`, `crop_aspect_ratio`, `g:sm`, and
-`c:<width>:<height>:sm`.
-
-SVG/vector-specific imgproxy parity remains out of scope for this imgproxy
-documentation pass.
 
 ## Examples
 
