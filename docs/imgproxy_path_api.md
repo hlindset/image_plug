@@ -284,22 +284,19 @@ after both.
 
 ## Output format and quality
 
-Omitting an explicit output format enables automatic output negotiation.
+When a request omits an explicit output format, ImagePlug negotiates the output
+from `Accept` and sets `Vary: Accept`. To force a format, use `format`, `f`,
+`ext`, or put `@extension` at the end of the plain-source path. Forced formats
+bypass `Accept` negotiation and don't set `Vary: Accept`.
 
-Requests can set explicit output formats with `format`, `f`, `ext`, or with
-`@extension` at the end of the plain-source path. Explicit formats and
-`@extension` bypass `Accept` negotiation and don't set `Vary: Accept`.
+ImagePlug recognizes `webp`, `avif`, `jpeg`, `jpg`, `png`, and `best` as
+explicit output extensions. It normalizes `jpg` to `jpeg`. If a request
+includes both an option format and source `@extension`, source `@extension`
+wins. Planning rejects `best` in this imgproxy slice.
 
-When both an option format and source `@extension` are present, source
-`@extension` overrides any explicit format option.
-
-Supported explicit output extensions are `webp`, `avif`, `jpeg`, `jpg`, `png`,
-and `best`. `jpg` normalizes to `jpeg`. Planning rejects `best` in this imgproxy
-slice.
-
-The `quality`/`q` option sets generic output quality. The
-`format_quality`/`fq` option sets quality for one explicit format and stays
-separate from generic quality. `0` resets quality to the configured default.
+Quality has two separate controls: `quality`/`q` sets generic output quality,
+while `format_quality`/`fq` sets quality for one explicit format. In either
+case, `0` resets quality to the configured default.
 
 ## Cache and expiry
 
