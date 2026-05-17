@@ -101,11 +101,16 @@ defmodule ImagePlug.Parser.Imgproxy.OptionGrammarTest do
     assert OptionGrammar.parse("background_alpha:") ==
              {:error, {:invalid_background_alpha, [""]}}
 
-    assert OptionGrammar.parse("bga:0") ==
-             {:error, {:invalid_background_alpha, "0"}}
-
     assert OptionGrammar.parse("bga:1.1") ==
              {:error, {:invalid_background_alpha, "1.1"}}
+  end
+
+  test "background alpha accepts fully transparent zero" do
+    assert OptionGrammar.parse("bga:0") ==
+             {:ok, {:pipeline, [background_alpha: {:ratio, 0, 1}]}}
+
+    assert OptionGrammar.parse("bga:0.0") ==
+             {:ok, {:pipeline, [background_alpha: {:ratio, 0, 10}]}}
   end
 
   test "invalid arity pipeline options return invalid option segment errors" do

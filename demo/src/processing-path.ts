@@ -112,7 +112,7 @@ export const controlLimits = {
     height: { min: 1, max: 32, step: 1 },
   },
   padding: { min: 0, max: 240, step: 1 },
-  alpha: { min: 0.1, max: 1, step: 0.1 },
+  alpha: { min: 0, max: 1, step: 0.1 },
   focalPoint: { min: 0, max: 1, step: 0.01 },
   gravityOffset: { min: -200, max: 200, step: 0.01 },
   quality: { min: 0, max: 100, step: 1 },

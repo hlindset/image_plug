@@ -288,6 +288,28 @@ describe("processing path generation", () => {
     expect(buildProcessingPath(state)).toBe("/_/bg:ffcc00/plain/images/dog.jpg");
   });
 
+  it("preserves custom background opacity decimals", () => {
+    const state = {
+      ...defaultDemoState,
+      backgroundEnabled: true,
+      backgroundColor: "#ffcc00",
+      backgroundAlpha: 0.42,
+    };
+
+    expect(optionSegments(state)).toEqual(["bg:ffcc00", "bga:0.42"]);
+  });
+
+  it("allows fully transparent background opacity", () => {
+    const state = {
+      ...defaultDemoState,
+      backgroundEnabled: true,
+      backgroundColor: "#ffcc00",
+      backgroundAlpha: 0,
+    };
+
+    expect(optionSegments(state)).toEqual(["bg:ffcc00", "bga:0"]);
+  });
+
   it("includes crop options before resize options when crop is enabled", () => {
     const state = {
       ...activeDemoState,

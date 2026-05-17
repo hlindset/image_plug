@@ -6,10 +6,24 @@
   export let min = 0;
   export let max = 100;
   export let step = 1;
+  export let inputStep: number | "any" = step;
   export let suffix: string | undefined = undefined;
+  let decimalInputValue = String(value);
+  let editingDecimalInput = false;
+
+  $: if (!editingDecimalInput) {
+    decimalInputValue = String(value);
+  }
 
   function clamp(value: number): number {
     return Math.min(Math.max(value, min), max);
+  }
+
+  function sliderPosition(value: number): number {
+    const clamped = clamp(value);
+    const rounded = min + Math.round((clamped - min) / step) * step;
+
+    return clamp(Number(rounded.toFixed(12)));
   }
 
   function selectNumber(event: FocusEvent): void {
@@ -27,13 +41,100 @@
       value = clamp(input.valueAsNumber);
     }
   }
+
+  function syncDecimalInput(event: Event): void {
+    const input = event.currentTarget;
+
+    if (!(input instanceof HTMLInputElement)) {
+      return;
+    }
+
+    decimalInputValue = input.value;
+  }
+
+  function parseDecimalInput(input: string): number | null {
+    const trimmed = input.trim();
+
+    if (trimmed === "") {
+      return null;
+    }
+
+    const normalized = trimmed.replace(",", ".");
+
+    if (!/^\d*(?:\.\d*)?$/.test(normalized) || normalized === ".") {
+      return null;
+    }
+
+    const parsed = Number.parseFloat(normalized);
+
+    return Number.isFinite(parsed) ? parsed : null;
+  }
+
+  function commitDecimalInput(event: FocusEvent): void {
+    editingDecimalInput = false;
+    const input = event.currentTarget;
+
+    if (!(input instanceof HTMLInputElement)) {
+      return;
+    }
+
+    const parsed = parseDecimalInput(input.value);
+
+    if (parsed !== null) {
+      value = clamp(parsed);
+    }
+
+    decimalInputValue = String(value);
+  }
+
+  function commitDecimalInputKey(event: KeyboardEvent): void {
+    if (event.key !== "Enter") {
+      return;
+    }
+
+    const input = event.currentTarget;
+
+    if (input instanceof HTMLInputElement) {
+      input.blur();
+    }
+  }
+
+  function selectDecimalInput(event: FocusEvent): void {
+    editingDecimalInput = true;
+    selectNumber(event);
+  }
+
+  function syncSlider(nextValue: number): void {
+    editingDecimalInput = false;
+    value = clamp(nextValue);
+  }
 </script>
 
 <div class="range-number">
   <label class="value-row">
     <span>{label}</span>
     <span class="value-input">
-      <input type="number" {min} {max} {step} {value} onfocus={selectNumber} oninput={syncNumber} />
+      {#if inputStep === "any"}
+        <input
+          type="text"
+          inputmode="decimal"
+          value={decimalInputValue}
+          onblur={commitDecimalInput}
+          onfocus={selectDecimalInput}
+          oninput={syncDecimalInput}
+          onkeydown={commitDecimalInputKey}
+        />
+      {:else}
+        <input
+          type="number"
+          {min}
+          {max}
+          step={inputStep}
+          {value}
+          onfocus={selectNumber}
+          oninput={syncNumber}
+        />
+      {/if}
       {#if suffix !== undefined}
         <span class="value-suffix">{suffix}</span>
       {/if}
@@ -45,9 +146,9 @@
     {min}
     {max}
     {step}
-    bind:value
-    onValueChange={(nextValue) => (value = clamp(nextValue))}
-    onValueCommit={(nextValue) => (value = clamp(nextValue))}
+    value={sliderPosition(value)}
+    onValueChange={syncSlider}
+    onValueCommit={syncSlider}
   >
     <Slider.Range class="slider-range" />
     <Slider.Thumb class="slider-thumb" index={0} aria-label={`${label} slider`} />
@@ -86,7 +187,8 @@
     color: var(--text-muted);
   }
 
-  input[type="number"] {
+  input[type="number"],
+  input[type="text"] {
     width: auto;
     min-width: 5ch;
     max-width: 10ch;
@@ -102,7 +204,9 @@
     text-align: right;
     appearance: textfield;
     -moz-appearance: textfield;
+  }
 
+  input[type="number"] {
     &::-webkit-inner-spin-button,
     &::-webkit-outer-spin-button {
       margin: 0;
@@ -116,6 +220,13 @@
       background: var(--surface-control);
       outline: none;
     }
+  }
+
+  input[type="text"]:hover,
+  input[type="text"]:focus {
+    border-color: var(--border-strong);
+    background: var(--surface-control);
+    outline: none;
   }
 
   .range-number :global(.slider-root) {

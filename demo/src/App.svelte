@@ -146,7 +146,7 @@
       return "";
     }
 
-    return ` / ${Math.round(alpha * 100)}%`;
+    return `/bga:${alpha}`;
   }
 
   function requestSignatureLabel(
@@ -539,18 +539,23 @@
         />
 
         {#if state.backgroundEnabled}
-          <label class="field">
-            <span>Color</span>
-            <input class="color-input" type="color" bind:value={state.backgroundColor} />
-          </label>
+          <div class="background-controls">
+            <label class="field background-color-field">
+              <span>Color</span>
+              <input class="color-input" type="color" bind:value={state.backgroundColor} />
+            </label>
 
-          <RangeNumber
-            label="Opacity"
-            bind:value={state.backgroundAlpha}
-            min={controlLimits.alpha.min}
-            max={controlLimits.alpha.max}
-            step={controlLimits.alpha.step}
-          />
+            <div class="background-opacity-field">
+              <RangeNumber
+                label="Opacity"
+                bind:value={state.backgroundAlpha}
+                min={controlLimits.alpha.min}
+                max={controlLimits.alpha.max}
+                step={controlLimits.alpha.step}
+                inputStep="any"
+              />
+            </div>
+          </div>
         {/if}
       </section>
 
@@ -1540,6 +1545,21 @@
     display: flex;
     justify-content: space-between;
     gap: 12px;
+  }
+
+  .background-controls {
+    display: flex;
+    align-items: start;
+    gap: 14px;
+  }
+
+  .background-color-field {
+    flex: 0 0 58px;
+  }
+
+  .background-opacity-field {
+    min-width: 0;
+    flex: 1;
   }
 
   select {
