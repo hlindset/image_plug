@@ -183,12 +183,10 @@ false.
 
 ## Crop and gravity
 
-Crop accepts dimensions and optional crop gravity. If an explicit crop omits
-gravity, it inherits top-level `g`/`gravity`.
+Crop accepts dimensions, optional crop gravity, and optional offsets. If an
+explicit crop omits gravity, it inherits top-level `g`/`gravity`.
 
-Top-level `g`/`gravity` applies to result crops produced by `fill`,
-`fill-down`, and `auto` resize planning. Crop-specific gravity overrides
-top-level gravity for that crop.
+### Gravity values
 
 Gravity supports anchors and focal points. Focal point gravity uses `fp:x:y`,
 where `x` and `y` range from `0.0` to `1.0`.
@@ -196,13 +194,21 @@ where `x` and `y` range from `0.0` to `1.0`.
 Anchor gravity values are `ce`, `no`, `so`, `ea`, `we`, `noea`, `nowe`,
 `soea`, and `sowe`.
 
-The optional extend gravity argument on `resize` and `size` accepts:
+This imgproxy slice intentionally rejects `g:sm` as `{:unsupported_gravity,
+:sm}`. It rejects `c:<width>:<height>:sm` the same way.
 
-- anchor gravity alone
-- anchor gravity plus `x_offset` and `y_offset`
+### Gravity scope
 
-Crop focal-point gravity uses crop gravity fields; it doesn't require a
+| Source | Applies to |
+| --- | --- |
+| Top-level `g`/`gravity` | Result crops produced by `fill`, `fill-down`, and `auto` resize planning |
+| Explicit crop without gravity | Inherits top-level `g`/`gravity` |
+| Explicit crop with gravity | Uses its own gravity instead of top-level `g`/`gravity` |
+
+Crop focal-point gravity uses crop gravity fields. It doesn't require a
 separate focus operation.
+
+### Offsets
 
 Offsets use imgproxy-style parsing:
 
@@ -210,16 +216,14 @@ Offsets use imgproxy-style parsing:
 - `abs(offset) < 1` means relative scale.
 
 Top-level gravity offsets apply to result crops. Crop-specific offsets apply to
-explicit crop.
+explicit crops.
+
 Crop execution resolves absolute top-level gravity offsets using the effective
-DPR. The planner should preserve pixel offsets in the result `Crop`. Execution
-applies the DPR scale.
+DPR. The planner preserves pixel offsets in the result `Crop`. Execution applies
+the DPR scale.
 
 Crop offset signs and unit interpretation match current imgproxy-compatible
 parsing and execution behavior.
-
-This imgproxy slice intentionally rejects `g:sm` as `{:unsupported_gravity,
-:sm}`. It rejects `c:<width>:<height>:sm` the same way.
 
 ## Orientation
 
@@ -239,6 +243,9 @@ Canvas options are `extend`/`ex`, resize-tail extend arguments, and
   present.
 - `exar:<width>:<height>` extends canvas to the requested aspect ratio.
 - Extend gravity uses anchor values only, with optional numeric offsets.
+
+The optional extend gravity argument on `resize` and `size` accepts either
+anchor gravity alone, or anchor gravity plus `x_offset` and `y_offset`.
 
 ## Composition
 
