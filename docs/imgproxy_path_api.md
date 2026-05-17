@@ -15,7 +15,7 @@ The general shape is:
 
     /<signature>/option[:arg...]/option[:arg...]/plain/path/to/image[@extension]
 
-ImagePlug verifies the signature segment first. Without `:imgproxy` signature
+ImagePlug verifies the signature segment first. Without signature
 configuration, ImagePlug accepts only `_` and `unsafe` as unsigned development
 placeholders. With signing configured, the signature must be a
 raw/unpadded Base64URL HMAC-SHA256 digest of the raw path after the signature,
