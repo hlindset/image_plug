@@ -1,4 +1,4 @@
-# imgproxy path API
+# Imgproxy path API
 
 ## Mental model
 
