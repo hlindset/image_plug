@@ -160,7 +160,7 @@ preset file loading, or custom argument separators.
 Anchor gravity values are `ce`, `no`, `so`, `ea`, `we`, `noea`, `nowe`,
 `soea`, and `sowe`.
 
-Resize and size tuple extend tails accept:
+The optional extend gravity argument on `resize` and `size` accepts:
 
 - anchor gravity alone
 - anchor gravity plus `x_offset` and `y_offset`
