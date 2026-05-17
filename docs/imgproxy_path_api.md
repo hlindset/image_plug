@@ -4,8 +4,7 @@
 
 An imgproxy URL describes desired output, not a step-by-step image pipeline.
 ImagePlug normalizes aliases and conflicts, converts supported options into
-`ImagePlug.Plan` operations, then runs those operations in ImagePlug's
-imgproxy-compatible order.
+`ImagePlug.Plan` operations, then runs those operations in a fixed order.
 
 ImagePlug accepts imgproxy-style paths for the supported option set. Those
 options translate into `ImagePlug.Plan` operations and request fields. The
@@ -45,8 +44,7 @@ The `@extension` form bypasses `Accept` negotiation like `format`, `f`, and
 `-` separates imgproxy pipeline groups. Non-empty groups execute in path group
 order. ImagePlug ignores empty pipeline groups.
 
-Within each pipeline group, ImagePlug uses this imgproxy-compatible operation
-order:
+Within each pipeline group, ImagePlug uses this fixed operation order:
 
 1. orientation, in `auto_orient`, `rotate`, then `flip` order
 2. explicit crop

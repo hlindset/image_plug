@@ -112,13 +112,13 @@ ignored.
 
 URL option order doesn't define transform execution order. The imgproxy parser
 normalizes aliases and conflict resolution, then the planner emits operations in
-ImagePlug's fixed imgproxy-compatible plan order.
+ImagePlug's fixed plan order.
 
 ## Documentation
 
 - [imgproxy Path API](docs/imgproxy_path_api.md) documents URL shape, option
   parsing, conflict resolution, signing, presets, output selection, and
-  imgproxy-compatible ordering.
+  fixed operation ordering.
 - [Imgproxy Support Matrix](docs/imgproxy_support_matrix.md) lists supported,
   partial, rejected, missing, and out-of-scope imgproxy features.
 - [Cache](docs/cache.md) documents filesystem response caching, cache keys,
