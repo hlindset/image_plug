@@ -201,18 +201,24 @@ Anchor gravity values are `ce`, `no`, `so`, `ea`, `we`, `noea`, `nowe`,
 | Explicit crop without gravity | Inherits top-level `g`/`gravity` |
 | Explicit crop with gravity | Uses its own gravity instead of top-level `g`/`gravity` |
 
-### Offsets
+### Gravity offsets
 
-Offsets use imgproxy-style parsing:
+Gravity offsets are optional `x_offset` and `y_offset` values attached to the
+gravity option that provided them:
 
-- `abs(offset) >= 1` selects pixel offsets.
-- `abs(offset) < 1` means relative scale.
+| Offset source | Applies to |
+| --- | --- |
+| Top-level `g`/`gravity` | Result crops produced by resize planning |
+| Explicit crop gravity | That explicit crop |
 
-Top-level gravity offsets apply to result crops. Crop-specific offsets apply to
-explicit crops.
+ImagePlug parses offset units like imgproxy:
 
-Execution scales pixel offsets by the effective DPR. Offset signs and unit
-interpretation match current imgproxy-compatible parsing and execution behavior.
+| Offset value | Unit |
+| --- | --- |
+| `abs(value) >= 1` | pixels |
+| `abs(value) < 1` | relative scale |
+
+Execution scales pixel offsets by the effective DPR.
 
 ## Orientation
 
