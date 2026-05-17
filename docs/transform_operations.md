@@ -208,7 +208,7 @@ These examples show current imgproxy URL concepts translated into semantic Plan
 operations. They describe imgproxy planner behavior only; future dialect docs
 should describe their own URL syntax separately.
 
-| imgproxy URL concept | Semantic Plan operations |
+| Imgproxy URL concept | Semantic Plan operations |
 | --- | --- |
 | `w:300` | `Resize` with `mode: :fit` |
 | `rt:force/w:0/h:200` | `Resize` with `mode: :stretch` and auto width |

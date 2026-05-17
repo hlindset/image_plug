@@ -346,7 +346,7 @@ documentation pass.
 
 ## Examples
 
-| Goal | imgproxy URL |
+| Goal | Imgproxy URL |
 | --- | --- |
 | Fit within a width | `/_/w:300/plain/images/cat.jpg` |
 | Fill a box from a focal point | `/_/rt:fill/w:300/h:200/g:fp:0.25:0.75/plain/images/cat.jpg` |

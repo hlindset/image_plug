@@ -1,4 +1,4 @@
-# imgproxy Support Matrix
+# Imgproxy Support Matrix
 
 This matrix compares ImagePlug's current `ImagePlug.Parser.Imgproxy` support
 with imgproxy's processing URL surface.
@@ -20,7 +20,7 @@ before origin fetch or cache lookup; they're not silently ignored.
 
 ## URL Shape, Source, And Security
 
-| imgproxy feature | Status | Notes |
+| Imgproxy feature | Status | Notes |
 | --- | --- | --- |
 | Required signature path segment | Supported | `_` and `unsafe` are accepted when signing is disabled; HMAC and exact trusted signatures are accepted when signing is configured. Trusted-only config accepts only exact trusted signatures. This is intentionally narrower than upstream disabled-signing behavior. |
 | HMAC URL signatures | Supported | imgproxy parser verifies raw/unpadded Base64URL HMAC-SHA256 signatures with hex key/salt pairs, optional truncation, rotation pairs, exact trusted signatures, and imgproxy-compatible `fixPath` before verification. Signature failures return 403. |
@@ -35,7 +35,7 @@ before origin fetch or cache lookup; they're not silently ignored.
 
 ## Resize, Geometry, And Orientation
 
-| imgproxy option | Aliases | Status | Notes |
+| Imgproxy option | Aliases | Status | Notes |
 | --- | --- | --- | --- |
 | `resize` | `rs` | Supported | Includes optional resize-tail `enlarge`, `extend`, and extend gravity. |
 | `size` | `s` | Supported | Same field mapping as imgproxy size meta-option. |
@@ -66,7 +66,7 @@ before origin fetch or cache lookup; they're not silently ignored.
 
 ## Background, Effects, And Overlays
 
-| imgproxy option | Aliases | Status | Notes |
+| Imgproxy option | Aliases | Status | Notes |
 | --- | --- | --- | --- |
 | `background` | `bg` | Supported | RGB decimal and 3/6 digit hex colors; `background:` clears previous background color and alpha. |
 | `background_alpha` | `bga` | Supported | Applies an alpha channel to the accumulated background color; without an explicit background color, uses imgproxy's default black background. |
@@ -96,7 +96,7 @@ before origin fetch or cache lookup; they're not silently ignored.
 
 ## Metadata, Color, And Source Decoding
 
-| imgproxy option | Aliases | Status | Notes |
+| Imgproxy option | Aliases | Status | Notes |
 | --- | --- | --- | --- |
 | `strip_metadata` | `sm` | Missing | No request-level metadata stripping override. |
 | `keep_copyright` | `kcr` | Missing | Depends on metadata stripping support. |
@@ -111,7 +111,7 @@ before origin fetch or cache lookup; they're not silently ignored.
 
 ## Output And Encoding
 
-| imgproxy option | Aliases | Status | Notes |
+| Imgproxy option | Aliases | Status | Notes |
 | --- | --- | --- | --- |
 | `quality` | `q` | Supported | `0` means configured default; `1..100` supported. |
 | `format_quality` | `fq` | Partial | One `<format>:<quality>` pair per option segment; repeated segments merge. Multiple pairs in one segment aren't supported. |
@@ -128,7 +128,7 @@ before origin fetch or cache lookup; they're not silently ignored.
 
 ## Video
 
-| imgproxy option | Aliases | Status | Notes |
+| Imgproxy option | Aliases | Status | Notes |
 | --- | --- | --- | --- |
 | `video_thumbnail_second` | `vts` | Out of scope | Pro video source support. |
 | `video_thumbnail_keyframes` | `vtk` | Out of scope | Pro video source support. |
@@ -137,7 +137,7 @@ before origin fetch or cache lookup; they're not silently ignored.
 
 ## Fallback, Raw, And Request Policy
 
-| imgproxy option | Aliases | Status | Notes |
+| Imgproxy option | Aliases | Status | Notes |
 | --- | --- | --- | --- |
 | `fallback_image_url` | `fiu` | Missing | Pro fallback source behavior. |
 | `skip_processing` | `skp` | Missing | No source-format raw pass-through path. |
@@ -151,7 +151,7 @@ before origin fetch or cache lookup; they're not silently ignored.
 
 ## Security Limit Overrides
 
-| imgproxy option | Aliases | Status | Notes |
+| Imgproxy option | Aliases | Status | Notes |
 | --- | --- | --- | --- |
 | `max_src_resolution` | `msr` | Missing | Security override; should require explicit opt-in if added. |
 | `max_src_file_size` | `msfs` | Missing | Security override; should require explicit opt-in if added. |
@@ -161,7 +161,7 @@ before origin fetch or cache lookup; they're not silently ignored.
 
 ## Presets
 
-| imgproxy feature | Status | Notes |
+| Imgproxy feature | Status | Notes |
 | --- | --- | --- |
 | Named presets | Supported | Configured through `imgproxy: [presets: %{name => options}]`; expanded while parsing normal processing URLs. |
 | Multiple preset arguments | Supported | `pr:thumb:sharp` applies each named preset in order. |
