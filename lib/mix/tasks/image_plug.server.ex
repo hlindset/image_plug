@@ -19,6 +19,7 @@ defmodule Mix.Tasks.ImagePlug.Server do
   @default_vite_port 5173
   @default_cache_root "_build/dev/image_plug/cache"
   @port_range 1..65_535
+  @vite_startup_timeout 5_000
 
   @impl Mix.Task
   def run(args) do
@@ -110,17 +111,22 @@ defmodule Mix.Tasks.ImagePlug.Server do
   defp maybe_start_vite(false), do: :ok
 
   defp maybe_start_vite(true) do
+    node = node_path()
+    vite_bin_path = vite_bin_path()
+    parent = self()
+
+    {:ok, _pid} =
+      Task.start_link(fn ->
+        run_vite(node, vite_bin_path, parent)
+      end)
+
+    await_vite_startup()
+  end
+
+  defp node_path do
     case System.find_executable("node") do
-      nil ->
-        Mix.raise("node is required to run the demo Vite dev server")
-
-      node ->
-        {:ok, _pid} =
-          Task.start_link(fn ->
-            run_vite(node, vite_bin_path())
-          end)
-
-        :ok
+      nil -> Mix.raise("node is required to run the demo Vite dev server")
+      node -> node
     end
   end
 
@@ -136,7 +142,7 @@ defmodule Mix.Tasks.ImagePlug.Server do
     end
   end
 
-  defp run_vite(node, vite_bin_path) do
+  defp run_vite(node, vite_bin_path, parent) do
     port =
       Port.open({:spawn_executable, node}, [
         :binary,
@@ -154,20 +160,42 @@ defmodule Mix.Tasks.ImagePlug.Server do
         {:cd, File.cwd!()}
       ])
 
-    stream_vite_output(port)
+    stream_vite_output(port, parent)
   end
 
-  defp stream_vite_output(port) do
+  defp stream_vite_output(port, parent) do
     receive do
       {^port, {:data, data}} ->
         IO.write(data)
-        stream_vite_output(port)
+        maybe_notify_vite_ready(parent, data)
+        stream_vite_output(port, parent)
 
       {^port, {:exit_status, status}} when status in [0, 130, 143] ->
         :ok
 
       {^port, {:exit_status, status}} ->
+        send(parent, {:vite_failed, status})
         raise "Vite dev server exited with status #{status}"
+    end
+  end
+
+  defp maybe_notify_vite_ready(parent, data) do
+    case String.contains?(data, "ready in") do
+      true -> send(parent, :vite_ready)
+      false -> :ok
+    end
+  end
+
+  defp await_vite_startup do
+    receive do
+      :vite_ready ->
+        :ok
+
+      {:vite_failed, status} ->
+        Mix.raise("Vite dev server exited with status #{status}")
+    after
+      @vite_startup_timeout ->
+        Mix.raise("Timed out waiting for Vite dev server to start")
     end
   end
 

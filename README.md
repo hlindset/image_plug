@@ -189,9 +189,16 @@ under `_build/dev/image_plug/cache`, or `--no-cache` to make the disabled state 
 
 The simple server also serves a dev-only demo fiddle at `/demo`. The fiddle is a
 small Svelte/Vite UI for changing common path options and previewing the
-generated SimpleServer request. Starting `mix image_plug.server` also starts the
-Vite dev server on `http://localhost:5173`, while the demo itself remains
-available through the simple server:
+generated SimpleServer request. Install the demo dependencies once before using
+the default server command:
+
+```sh
+mise exec -- pnpm install
+```
+
+Starting `mix image_plug.server` also starts the Vite dev server on
+`http://localhost:5173`, while the demo itself remains available through the
+simple server:
 
 ```sh
 mise exec -- mix image_plug.server
