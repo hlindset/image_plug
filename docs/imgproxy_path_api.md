@@ -3,11 +3,14 @@
 ## Mental Model
 
 An imgproxy URL describes desired output, not a step-by-step image pipeline.
-ImagePlug normalizes aliases, resolves conflicts, builds a product-neutral plan, and executes transforms in imgproxy canonical order.
+ImagePlug normalizes aliases and conflicts, converts supported options into
+`ImagePlug.Plan` operations, then runs those operations in ImagePlug's
+imgproxy-compatible order.
 
-The imgproxy URL API accepts imgproxy-compatible option names where ImagePlug supports the same semantics. ImagePlug processing remains declarative and product-neutral internally: parser syntax maps into canonical `ImagePlug.Plan.Operation.*` intent, and executable transform work is derived later by `ImagePlug.Transform.execute_plan/3`.
-
-URL option order isn't execution order. The parser and planner own the fixed imgproxy transform order.
+The imgproxy URL API accepts imgproxy-compatible option names where ImagePlug
+supports the same semantics. Parser syntax maps into canonical
+`ImagePlug.Plan.Operation.*` intent, and executable transform work is derived
+later by `ImagePlug.Transform.execute_plan/3`.
 
 For a feature-by-feature comparison with imgproxy's processing URL surface, see
 [imgproxy Support Matrix](imgproxy_support_matrix.md).
