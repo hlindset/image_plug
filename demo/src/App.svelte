@@ -111,9 +111,7 @@
     ? `pd:${state.paddingTop}:${state.paddingRight}:${state.paddingBottom}:${state.paddingLeft}`
     : "Off";
   $: backgroundSummary = state.backgroundEnabled
-    ? `bg:${state.backgroundColor.replace(/^#/, "")}${
-        state.backgroundAlphaEnabled ? `/bga:${state.backgroundAlpha}` : ""
-      }`
+    ? `bg:${state.backgroundColor.replace(/^#/, "")}${backgroundOpacitySummary(state.backgroundAlpha)}`
     : "Off";
   $: cropSummary = state.cropEnabled ? (cropOptionSegment(state) ?? "Off") : "Off";
   $: resizeExtras = [
@@ -141,6 +139,14 @@
     }
 
     return null;
+  }
+
+  function backgroundOpacitySummary(alpha: number): string {
+    if (alpha >= 1) {
+      return "";
+    }
+
+    return ` / ${Math.round(alpha * 100)}%`;
   }
 
   function requestSignatureLabel(
@@ -538,22 +544,13 @@
             <input class="color-input" type="color" bind:value={state.backgroundColor} />
           </label>
 
-          <label class="switch-field">
-            <Switch.Root class="switch-root" bind:checked={state.backgroundAlphaEnabled}>
-              <Switch.Thumb class="switch-thumb" />
-            </Switch.Root>
-            <span>Alpha</span>
-          </label>
-
-          {#if state.backgroundAlphaEnabled}
-            <RangeNumber
-              label="Alpha"
-              bind:value={state.backgroundAlpha}
-              min={controlLimits.alpha.min}
-              max={controlLimits.alpha.max}
-              step={controlLimits.alpha.step}
-            />
-          {/if}
+          <RangeNumber
+            label="Opacity"
+            bind:value={state.backgroundAlpha}
+            min={controlLimits.alpha.min}
+            max={controlLimits.alpha.max}
+            step={controlLimits.alpha.step}
+          />
         {/if}
       </section>
 

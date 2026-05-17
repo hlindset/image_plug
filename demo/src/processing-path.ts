@@ -45,7 +45,6 @@ export type DemoState = {
   paddingLeft: number;
   backgroundEnabled: boolean;
   backgroundColor: string;
-  backgroundAlphaEnabled: boolean;
   backgroundAlpha: number;
   gravityEnabled: boolean;
   gravityMode: GravityMode;
@@ -201,8 +200,7 @@ export const defaultDemoState: DemoState = {
   paddingLeft: 24,
   backgroundEnabled: false,
   backgroundColor: "#ffffff",
-  backgroundAlphaEnabled: false,
-  backgroundAlpha: 0.5,
+  backgroundAlpha: 1,
   gravityEnabled: false,
   gravityMode: "anchor",
   gravity: "ce",
@@ -295,7 +293,7 @@ export function optionSegments(currentState: DemoState): string[] {
   if (currentState.backgroundEnabled) {
     segments.push(`bg:${currentState.backgroundColor.replace(/^#/, "")}`);
 
-    if (currentState.backgroundAlphaEnabled) {
+    if (currentState.backgroundAlpha < 1) {
       segments.push(`bga:${currentState.backgroundAlpha}`);
     }
   }

@@ -259,7 +259,7 @@ describe("processing path generation", () => {
     expect(buildProcessingPath(state)).toBe("/_/exar:16:9/pd:8:16:24:32/plain/images/dog.jpg");
   });
 
-  it("includes background color and optional alpha after padding", () => {
+  it("includes background color and opacity after padding", () => {
     const state = {
       ...defaultDemoState,
       paddingEnabled: true,
@@ -269,12 +269,23 @@ describe("processing path generation", () => {
       paddingLeft: 8,
       backgroundEnabled: true,
       backgroundColor: "#ffcc00",
-      backgroundAlphaEnabled: true,
       backgroundAlpha: 0.5,
     };
 
     expect(optionSegments(state)).toEqual(["pd:8:8:8:8", "bg:ffcc00", "bga:0.5"]);
     expect(buildProcessingPath(state)).toBe("/_/pd:8:8:8:8/bg:ffcc00/bga:0.5/plain/images/dog.jpg");
+  });
+
+  it("omits background alpha when opacity is full", () => {
+    const state = {
+      ...defaultDemoState,
+      backgroundEnabled: true,
+      backgroundColor: "#ffcc00",
+      backgroundAlpha: 1,
+    };
+
+    expect(optionSegments(state)).toEqual(["bg:ffcc00"]);
+    expect(buildProcessingPath(state)).toBe("/_/bg:ffcc00/plain/images/dog.jpg");
   });
 
   it("includes crop options before resize options when crop is enabled", () => {
