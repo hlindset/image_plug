@@ -66,9 +66,9 @@ For example, the cache lookup stop event with the default prefix is:
 
 ImagePlug uses the measurements provided by `:telemetry.span/3`:
 
-- `:start` events include `:system_time`.
-- `:stop` events include `:duration`.
-- `:exception` events include `:duration`.
+- `:start` events include `:system_time` and `:monotonic_time`.
+- `:stop` events include `:duration` and `:monotonic_time`.
+- `:exception` events include `:duration` and `:monotonic_time`.
 
 Durations use the native time unit from `System.monotonic_time/0`. Convert them
 with `System.convert_time_unit/3` in handlers when a specific display unit is
@@ -116,7 +116,7 @@ The `:error` value is reserved for stage-local failures that are not otherwise
 classified at that stage. The request span maps returned failures into the more
 specific request outcome categories above.
 
-Cache spans may also include:
+Cache-related metadata may also include:
 
 - `cache: :disabled`
 - `cache: :hit`
@@ -124,6 +124,10 @@ Cache spans may also include:
 - `cache: :read_error`
 - `cache: :write_skipped`
 - `cache: :write_error`
+
+`cache: :write_skipped` is emitted on the `[:encode, :stop]` stage when a
+cacheable response exceeds the configured cache body limit before a cache write
+is attempted.
 
 ## Attaching Handlers
 
