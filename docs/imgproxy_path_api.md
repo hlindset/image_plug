@@ -43,7 +43,6 @@ and `ext`.
 ## Pipeline groups
 
 `-` separates imgproxy pipeline groups. Non-empty groups execute in URL group
-order. Inside each group, URL option order still doesn't define transform
 order. ImagePlug ignores empty pipeline groups.
 
 imgproxy canonical semantic operation order inside each pipeline group is:
@@ -57,10 +56,6 @@ imgproxy canonical semantic operation order inside each pipeline group is:
 7. background flattening
 
 Orientation suborder is auto-orient, rotate, then flip.
-
-This fixed order is an imgproxy API contract. Future compatibility dialects
-don't have to use it. Keep dialect-specific ordered quirks in parser or adapter
-code when they can't translate cleanly into the imgproxy declarative model.
 
 ## Option ordering and conflict resolution
 
