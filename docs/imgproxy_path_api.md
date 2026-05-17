@@ -162,10 +162,10 @@ preset file loading, or custom argument separators.
 
 Supported resizing types are `fit`, `fill`, `fill-down`, `force`, and `auto`.
 
-Zero dimensions map to `auto`. For `force`, an `auto` side preserves the source
-dimension. For `fit` and proportional resize rules, ImagePlug resolves an
-`auto` side from source aspect ratio. Min dimensions, zoom, DPR, and `enlarge`
-apply when ImagePlug computes target dimensions.
+`0` width or height values map to `auto`. For `force`, an `auto` side preserves
+the source dimension. For `fit` and proportional resize rules, ImagePlug
+resolves an `auto` side from source aspect ratio. Min dimensions, zoom, DPR,
+and `enlarge` apply when ImagePlug computes target dimensions.
 
 ImagePlug keeps `auto` as `mode: :auto` in final cache key data. After a cache
 miss, it compares the current image dimensions with the requested target box.
@@ -175,10 +175,10 @@ orientation selects `fit`.
 `rt:force/w:0/h:200` preserves source width and forces height to `200`.
 `rt:force/w:300/h:0` forces width to `300` and preserves source height.
 
-`fit`/`fill` with both sides zero produces no geometry transform unless min
-dimensions or another meaningful size constraint is present. Zoom and DPR don't
-force raster enlargement for zero-dimension `auto` sides when `enlarge` is
-false.
+`fit`/`fill` with both width and height set to `0` produces no geometry
+transform unless min dimensions or another meaningful size constraint is
+present. Zoom and DPR don't force raster enlargement for `0`-derived `auto`
+sides when `enlarge` is false.
 
 ## Crop and gravity
 
