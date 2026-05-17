@@ -26,9 +26,11 @@ defmodule ImagePlug.SimpleServer do
   end
 
   get "/demo" do
-    conn
-    |> put_resp_content_type("text/html")
-    |> send_resp(200, demo_html())
+    send_demo_html(conn)
+  end
+
+  get "/demo/*_path" do
+    send_demo_html(conn)
   end
 
   match _ do
@@ -67,6 +69,12 @@ defmodule ImagePlug.SimpleServer do
     "demo/dev.html"
     |> File.read!()
     |> String.replace("{{VITE_ORIGIN}}", vite_origin())
+  end
+
+  defp send_demo_html(conn) do
+    conn
+    |> put_resp_content_type("text/html")
+    |> send_resp(200, demo_html())
   end
 
   defp vite_origin do

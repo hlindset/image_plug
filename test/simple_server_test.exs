@@ -27,4 +27,16 @@ defmodule ImagePlug.SimpleServerTest do
     assert conn.resp_body =~ ~s(src="http://localhost:5173/demo/src/main.ts")
     refute conn.resp_body =~ "/demo/assets/"
   end
+
+  test "serves the demo fiddle shell for shareable demo paths" do
+    conn =
+      :get
+      |> conn("/demo/rs:fill:640:360:0/g:ce/f:jpeg/q:85/plain/images/dog.jpg")
+      |> ImagePlug.SimpleServer.call([])
+
+    assert conn.status == 200
+    assert get_resp_header(conn, "content-type") == ["text/html; charset=utf-8"]
+    assert conn.resp_body =~ "ImagePlug Fiddle"
+    assert conn.resp_body =~ ~s(src="http://localhost:5173/demo/src/main.ts")
+  end
 end

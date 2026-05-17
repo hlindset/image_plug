@@ -19,6 +19,7 @@ import {
   signProcessingPath,
   signedPathForState,
 } from "./processing-path";
+import { demoPathForState, parseDemoPath, expandedToolboxesForState } from "./demo-url-state";
 
 const activeDemoState = {
   ...defaultDemoState,
@@ -607,6 +608,96 @@ describe("processing path generation", () => {
     ).toBe("640 × 480 (540 kB)");
     expect(processedSizeLabel({ width: 300, height: 200, bytes: null, contentType: null })).toBe(
       "300 × 200",
+    );
+  });
+});
+
+describe("demo URL state", () => {
+  it("builds a shareable demo route from generated request options", () => {
+    const state = {
+      ...defaultDemoState,
+      resizeEnabled: true,
+      gravityEnabled: true,
+      formatEnabled: true,
+      qualityEnabled: true,
+    };
+
+    expect(demoPathForState(state)).toBe(
+      "/demo/rs:fill:640:360:0/g:ce/f:jpeg/q:85/plain/images/dog.jpg",
+    );
+  });
+
+  it("parses a shareable demo route into enabled controls", () => {
+    const parsed = parseDemoPath("/demo/rs:fill:640:360:0/g:ce/f:jpeg/q:85/plain/images/dog.jpg");
+
+    expect(parsed).toMatchObject({
+      source: "images/dog.jpg",
+      resizeEnabled: true,
+      resizeMode: "fill",
+      width: 640,
+      height: 360,
+      gravityEnabled: true,
+      gravityMode: "anchor",
+      gravity: "ce",
+      formatEnabled: true,
+      format: "jpeg",
+      qualityEnabled: true,
+      quality: 85,
+    });
+  });
+
+  it("parses crop, orientation, scale, canvas, padding, and background options", () => {
+    const parsed = parseDemoPath(
+      "/demo/ar:1/fl:0:1/rot:90/c:0.5:0.25:no/z:1.25/dpr:2/mw:320/mh:240/exar:16:9/pd:1:2:3:4/bg:ffcc00/bga:0.42/plain/images/beach.jpg",
+    );
+
+    expect(parsed).toMatchObject({
+      source: "images/beach.jpg",
+      autoRotateEnabled: true,
+      flip: "vertical",
+      rotate: 90,
+      cropEnabled: true,
+      cropWidthUnit: "percent",
+      cropWidthPercent: 50,
+      cropHeightUnit: "percent",
+      cropHeightPercent: 25,
+      cropGravity: "no",
+      zoomEnabled: true,
+      zoom: 1.25,
+      dprEnabled: true,
+      dpr: 2,
+      minWidthEnabled: true,
+      minWidth: 320,
+      minHeightEnabled: true,
+      minHeight: 240,
+      aspectCanvasEnabled: true,
+      extendAspectWidth: 16,
+      extendAspectHeight: 9,
+      paddingEnabled: true,
+      paddingTop: 1,
+      paddingRight: 2,
+      paddingBottom: 3,
+      paddingLeft: 4,
+      backgroundEnabled: true,
+      backgroundColor: "#ffcc00",
+      backgroundAlpha: 0.42,
+    });
+  });
+
+  it("expands accordions that contain active URL state", () => {
+    const state = parseDemoPath("/demo/ar:1/z:1.5/plain/images/dog.jpg");
+
+    expect(expandedToolboxesForState(state)).toEqual({
+      orientationOpen: true,
+      scaleOptionsOpen: true,
+      requestOpen: true,
+    });
+  });
+
+  it("falls back to defaults for invalid demo routes", () => {
+    expect(parseDemoPath("/demo/not-supported/plain/images/dog.jpg")).toEqual(defaultDemoState);
+    expect(parseDemoPath("/not-demo/rs:fill:640:360:0/plain/images/dog.jpg")).toEqual(
+      defaultDemoState,
     );
   });
 });

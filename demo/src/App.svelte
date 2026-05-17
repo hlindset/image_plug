@@ -5,6 +5,7 @@
   import RangeNumber from "./RangeNumber.svelte";
   import ResizeDimensionControl from "./ResizeDimensionControl.svelte";
   import ToolToggleHeader from "./ToolToggleHeader.svelte";
+  import { demoPathForState, expandedToolboxesForState, parseDemoPath } from "./demo-url-state";
   import {
     buildProcessingPath,
     controlLimits,
@@ -40,7 +41,7 @@
   let scaleOptionsOpen = true;
   let requestOpen = true;
   let themeMode: ThemeMode = readStoredThemeMode();
-  let state: DemoState = { ...defaultDemoState };
+  let state: DemoState = initialDemoState();
   let path = buildProcessingPath(state);
   let previewPath = "";
   let previewImageUrl: string | null = null;
@@ -67,6 +68,13 @@
 
     void loadPreview(nextPath);
   }, 150);
+  const updateDemoLocation = debounce((nextPath: string) => {
+    if (typeof window === "undefined" || window.location.pathname === nextPath) {
+      return;
+    }
+
+    window.history.replaceState(null, "", nextPath);
+  }, 150);
   const previewAcceptHeader = "image/avif,image/webp,image/apng,image/svg+xml,image/*,*/*;q=0.8";
 
   onMount(() => {
@@ -77,9 +85,12 @@
 
     syncMobileTools();
     mediaQuery.addEventListener("change", syncMobileTools);
+    window.addEventListener("popstate", restoreStateFromLocation);
+    restoreStateFromLocation();
 
     return () => {
       mediaQuery.removeEventListener("change", syncMobileTools);
+      window.removeEventListener("popstate", restoreStateFromLocation);
       previewAbortController?.abort();
       revokePreviewObjectUrl();
     };
@@ -87,6 +98,8 @@
 
   $: updateProcessingPath(state);
   $: updatePreviewPath(path);
+  $: updateDemoLocation(demoPathForState(state));
+  $: ensureActiveToolboxesOpen(state);
   $: applyThemeMode(themeMode);
   $: persistThemeMode(themeMode);
   $: previewParameters = path.replace(/^\/[^/]+\//, "");
@@ -125,6 +138,31 @@
     .join("/");
   $: cropWidthLimit = cropPixelLimit(state.source, "width");
   $: cropHeightLimit = cropPixelLimit(state.source, "height");
+
+  function initialDemoState(): DemoState {
+    if (typeof window === "undefined") {
+      return { ...defaultDemoState };
+    }
+
+    return parseDemoPath(window.location.pathname);
+  }
+
+  function restoreStateFromLocation(): void {
+    state = parseDemoPath(window.location.pathname);
+    ensureActiveToolboxesOpen(state);
+  }
+
+  function ensureActiveToolboxesOpen(currentState: DemoState): void {
+    const expandedToolboxes = expandedToolboxesForState(currentState);
+
+    if (expandedToolboxes.orientationOpen) {
+      orientationOpen = true;
+    }
+
+    if (expandedToolboxes.scaleOptionsOpen) {
+      scaleOptionsOpen = true;
+    }
+  }
 
   function flipSegment(flip: DemoState["flip"]): string | null {
     if (flip === "horizontal") {
