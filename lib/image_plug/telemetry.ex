@@ -27,20 +27,17 @@ defmodule ImagePlug.Telemetry do
     end)
   end
 
-  @spec event_prefix(keyword(), [atom()]) :: [atom()]
-  def event_prefix(opts, stage) when is_list(opts) and is_list(stage) do
+  defp event_prefix(opts, stage) when is_list(opts) and is_list(stage) do
     Keyword.get(opts, :telemetry_prefix, @default_prefix) ++ stage
   end
 
-  @spec clean_metadata(map() | keyword()) :: map()
-  def clean_metadata(metadata) do
+  defp clean_metadata(metadata) do
     metadata
     |> Map.new()
     |> Map.reject(fn {_key, value} -> is_nil(value) end)
   end
 
-  @spec merge_metadata(map() | keyword(), map() | keyword()) :: map()
-  def merge_metadata(left, right) do
+  defp merge_metadata(left, right) do
     left
     |> clean_metadata()
     |> Map.merge(clean_metadata(right))

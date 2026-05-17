@@ -219,7 +219,7 @@ defmodule ImagePlug.CacheTest do
   test "read errors fail open by default and are logged" do
     log =
       capture_log(fn ->
-        assert {:miss, %Key{}} =
+        assert {:miss, %Key{}, {:cache_read, :read_failed}} =
                  Cache.lookup(
                    conn(:get, "/_/f:webp/plain/images/cat.jpg"),
                    plan(),
@@ -280,7 +280,7 @@ defmodule ImagePlug.CacheTest do
   test "write errors fail open by default and are logged" do
     log =
       capture_log(fn ->
-        assert :ok =
+        assert {:ok, {:cache_write, :write_failed}} =
                  Cache.put(
                    cache_key(),
                    entry(),

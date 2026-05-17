@@ -76,6 +76,9 @@ defmodule ImagePlug.Request.Runner do
       {:miss, %Key{} = key} ->
         process_cache_miss(conn, plan, origin_identity, key, opts)
 
+      {:miss, %Key{} = key, {:cache_read, _error}} ->
+        process_cache_miss(conn, plan, origin_identity, key, opts)
+
       {:error, {:cache_read, error}} ->
         {:error, {:cache, error}}
     end
@@ -171,6 +174,7 @@ defmodule ImagePlug.Request.Runner do
     end)
     |> case do
       :ok -> {:ok, entry}
+      {:ok, {:cache_write, _error}} -> {:ok, entry}
       :skipped -> :skipped
       {:error, _reason} = error -> error
     end
@@ -187,12 +191,18 @@ defmodule ImagePlug.Request.Runner do
        ) do
     policy = Policy.from_output_plan(conn, plan.output, opts)
 
-    case resolve_output(policy, nil, plan.output, opts) do
-      {:ok, %Resolved{} = resolved_output} ->
-        process_origin_with_output(plan, origin_identity, opts, resolved_output)
-
-      {:error, :source_format_required} ->
+    case Policy.resolve_before_origin(policy) do
+      :needs_source_format ->
         process_source_format_automatic(plan, origin_identity, opts, policy)
+
+      _selection ->
+        case resolve_output(policy, nil, plan.output, opts) do
+          {:ok, %Resolved{} = resolved_output} ->
+            process_origin_with_output(plan, origin_identity, opts, resolved_output)
+
+          {:error, error} ->
+            {:error, error, policy.headers}
+        end
     end
   end
 
@@ -275,11 +285,17 @@ defmodule ImagePlug.Request.Runner do
   defp cache_lookup_stop_metadata({:hit, %Key{}, %Entry{}}), do: %{result: :ok, cache: :hit}
   defp cache_lookup_stop_metadata({:miss, %Key{}}), do: %{result: :ok, cache: :miss}
 
+  defp cache_lookup_stop_metadata({:miss, %Key{}, {:cache_read, error}}),
+    do: %{result: :cache_error, cache: :read_error, error: Telemetry.error(error)}
+
   defp cache_lookup_stop_metadata({:error, {:cache_read, error}}),
     do: %{result: :cache_error, cache: :read_error, error: Telemetry.error(error)}
 
   defp cache_write_stop_metadata(:ok), do: %{result: :ok}
   defp cache_write_stop_metadata(:skipped), do: %{result: :ok, cache: :write_skipped}
+
+  defp cache_write_stop_metadata({:ok, {:cache_write, error}}),
+    do: %{result: :cache_error, cache: :write_error, error: Telemetry.error(error)}
 
   defp cache_write_stop_metadata({:error, {:cache_write, error}}),
     do: %{result: :cache_error, cache: :write_error, error: Telemetry.error(error)}

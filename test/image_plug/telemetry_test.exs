@@ -62,6 +62,16 @@ defmodule ImagePlug.TelemetryTest do
     def put(_key, _entry, _opts), do: raise("cache read failure test should not write")
   end
 
+  defmodule FailOpenCacheReadFailure do
+    def get(_key, _opts), do: {:error, :read_failed}
+    def put(_key, _entry, _opts), do: :ok
+  end
+
+  defmodule FailOpenCacheWriteFailure do
+    def get(_key, _opts), do: :miss
+    def put(_key, _entry, _opts), do: {:error, :write_failed}
+  end
+
   defmodule RaisingAfterFirstChunkImage do
     def stream!(_image, suffix: ".jpg") do
       Stream.resource(
@@ -70,6 +80,16 @@ defmodule ImagePlug.TelemetryTest do
           :first -> {["first chunk"], :raise}
           :raise -> raise "boom after first chunk"
         end,
+        fn _state -> :ok end
+      )
+    end
+  end
+
+  defmodule RaisingBeforeFirstChunkImage do
+    def stream!(_image, suffix: ".jpg") do
+      Stream.resource(
+        fn -> :raise end,
+        fn :raise -> raise "boom before first chunk" end,
         fn _state -> :ok end
       )
     end
@@ -179,6 +199,112 @@ defmodule ImagePlug.TelemetryTest do
       assert metadata.result == :processing_error
       assert metadata.status == 200
       assert metadata.output_format == :jpeg
+    end)
+
+    assert_event(events, [:image_plug, :send, :stop], fn _measurements, metadata ->
+      assert metadata.result == :processing_error
+      assert metadata.status == 200
+    end)
+
+    assert_event(events, [:image_plug, :request, :stop], fn _measurements, metadata ->
+      assert metadata.result == :processing_error
+      assert metadata.status == 200
+    end)
+  end
+
+  test "request and send stop metadata report processing error when streaming encode fails before response" do
+    {conn, log} =
+      with_log(fn ->
+        :get
+        |> conn("/_/f:jpeg/plain/images/beach.jpg")
+        |> ImagePlug.call(base_opts(image_module: RaisingBeforeFirstChunkImage))
+      end)
+
+    assert conn.status == 500
+    assert conn.resp_body == "error encoding image"
+    assert log =~ "boom before first chunk"
+
+    events = telemetry_events()
+
+    assert_event(events, [:image_plug, :encode, :stop], fn _measurements, metadata ->
+      assert metadata.result == :processing_error
+      assert metadata.status == 500
+      assert metadata.output_format == :jpeg
+    end)
+
+    assert_event(events, [:image_plug, :send, :stop], fn _measurements, metadata ->
+      assert metadata.result == :processing_error
+      assert metadata.status == 500
+    end)
+
+    assert_event(events, [:image_plug, :request, :stop], fn _measurements, metadata ->
+      assert metadata.result == :processing_error
+      assert metadata.status == 500
+    end)
+  end
+
+  test "automatic source format fallback does not emit failed output negotiation telemetry" do
+    conn =
+      :get
+      |> conn("/_/plain/images/beach.jpg")
+      |> ImagePlug.call(base_opts())
+
+    assert conn.status == 200
+    events = telemetry_events()
+
+    output_stop_events =
+      Enum.filter(events, fn {event, _measurements, _metadata} ->
+        event == [:image_plug, :output, :negotiate, :stop]
+      end)
+
+    assert [_event] = output_stop_events
+
+    assert_event(events, [:image_plug, :output, :negotiate, :stop], fn _measurements, metadata ->
+      assert metadata.result == :ok
+      assert metadata.output_mode == :automatic
+      assert metadata.output_format == :jpeg
+    end)
+  end
+
+  test "fail-open cache read errors are reported on cache lookup telemetry" do
+    conn =
+      :get
+      |> conn("/_/f:jpeg/plain/images/beach.jpg")
+      |> ImagePlug.call(base_opts(cache: {FailOpenCacheReadFailure, []}))
+
+    assert conn.status == 200
+    events = telemetry_events()
+
+    assert_event(events, [:image_plug, :cache, :lookup, :stop], fn _measurements, metadata ->
+      assert metadata.result == :cache_error
+      assert metadata.cache == :read_error
+      assert metadata.error == :read_failed
+    end)
+
+    assert_event(events, [:image_plug, :request, :stop], fn _measurements, metadata ->
+      assert metadata.result == :ok
+      assert metadata.status == 200
+    end)
+  end
+
+  test "fail-open cache write errors are reported on cache write telemetry" do
+    conn =
+      :get
+      |> conn("/_/f:jpeg/plain/images/beach.jpg")
+      |> ImagePlug.call(base_opts(cache: {FailOpenCacheWriteFailure, []}))
+
+    assert conn.status == 200
+    events = telemetry_events()
+
+    assert_event(events, [:image_plug, :cache, :write, :stop], fn _measurements, metadata ->
+      assert metadata.result == :cache_error
+      assert metadata.cache == :write_error
+      assert metadata.error == :write_failed
+    end)
+
+    assert_event(events, [:image_plug, :request, :stop], fn _measurements, metadata ->
+      assert metadata.result == :ok
+      assert metadata.status == 200
     end)
   end
 

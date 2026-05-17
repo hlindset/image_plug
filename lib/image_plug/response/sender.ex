@@ -334,17 +334,26 @@ defmodule ImagePlug.Response.Sender do
   defp handle_encode_exception(exception, stacktrace, %Plug.Conn{} = conn, response_headers) do
     Logger.error("encode_error: #{Exception.format(:error, exception, stacktrace)}")
 
-    if conn.state in [:unset, :set] do
-      send_encode_error(conn, response_headers)
-    else
-      conn
-    end
+    conn =
+      if conn.state in [:unset, :set] do
+        send_encode_error(conn, response_headers)
+      else
+        conn
+      end
+
+    mark_send_processing_error(conn)
   end
 
   defp send_empty_stream_encode_error(%Plug.Conn{} = conn, response_headers) do
     Logger.error("encode_error: image encoder produced an empty stream")
-    send_encode_error(conn, response_headers)
+
+    conn
+    |> send_encode_error(response_headers)
+    |> mark_send_processing_error()
   end
+
+  defp mark_send_processing_error(%Plug.Conn{} = conn),
+    do: Plug.Conn.put_private(conn, :image_plug_send_result, :processing_error)
 
   defp stream_chunk_error(reason) do
     RuntimeError.exception("stream chunk failed: #{inspect(reason)}")

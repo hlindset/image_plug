@@ -24,8 +24,9 @@ atoms.
 
 ## Event Names
 
-Events use `:telemetry.span/3` naming conventions. Every span emits matching
-`:start`, `:stop`, and `:exception` events:
+Events use `:telemetry.span/3` naming conventions. Every span emits a `:start`
+event and then either a `:stop` event for normal completion or an `:exception`
+event for a raised exception:
 
 ```text
 telemetry_prefix ++ stage ++ [:start]
@@ -88,6 +89,10 @@ Metadata is intentionally low-cardinality and product-neutral. Common fields are
 
 Exception events include the metadata added by `:telemetry.span/3`, including
 `:kind`, `:reason`, and `:stacktrace`.
+
+All span events also include `:telemetry_span_context`, which is injected by
+`:telemetry.span/3` for correlating the events from the same span. Treat it as
+correlation data, not as a metrics dimension.
 
 ImagePlug does not emit full request paths by default. Imgproxy-style paths can
 contain signatures, filenames, and origin-shaped user data, and they are often

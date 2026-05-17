@@ -49,15 +49,15 @@ defmodule ImagePlug do
          {:ok, origin_identity} <- resolve_origin_identity(plan, opts) do
       result = Runner.run(conn, plan, origin_identity, opts)
 
-      conn =
+      {conn, send_metadata} =
         send_response(conn, opts, request_result(result), fn ->
           Sender.send_result(conn, result, opts)
         end)
 
-      {conn, request_stop_metadata(conn, result)}
+      {conn, request_stop_metadata(result, send_metadata)}
     else
       {:error, {:parser, error}} ->
-        conn =
+        {conn, _send_metadata} =
           send_response(conn, opts, :parser_error, fn -> parser.handle_error(conn, error) end)
 
         {conn, %{result: :parser_error}}
@@ -65,13 +65,13 @@ defmodule ImagePlug do
       {:error, {:plan_validation, error}} ->
         result = {:error, {:processing, error, []}}
 
-        conn =
+        {conn, _send_metadata} =
           send_response(conn, opts, :plan_error, fn -> Sender.send_result(conn, result, opts) end)
 
         {conn, %{result: :plan_error, error: Telemetry.error(error)}}
 
       {:error, {:origin, error}} ->
-        conn =
+        {conn, _send_metadata} =
           send_response(conn, opts, :origin_error, fn -> Sender.send_origin_error(conn, error) end)
 
         {conn, %{result: :origin_error, error: Telemetry.error(error)}}
@@ -97,8 +97,9 @@ defmodule ImagePlug do
   defp send_response(_conn, opts, result, fun) do
     Telemetry.span(opts, [:send], %{result: result}, fn ->
       sent_conn = fun.()
+      metadata = send_stop_metadata(sent_conn, result)
 
-      {sent_conn, %{result: result, status: sent_conn.status}}
+      {{sent_conn, metadata}, metadata}
     end)
   end
 
@@ -125,10 +126,17 @@ defmodule ImagePlug do
     }
   end
 
-  defp request_stop_metadata(conn, result) do
+  defp send_stop_metadata(%Plug.Conn{} = conn, result) do
+    %{
+      result: Map.get(conn.private, :image_plug_send_result, result),
+      status: conn.status
+    }
+  end
+
+  defp request_stop_metadata(result, send_metadata) do
     result
     |> request_result_metadata()
-    |> Map.put(:status, conn.status)
+    |> Map.merge(send_metadata)
   end
 
   defp request_result({:ok, _delivery}), do: :ok
