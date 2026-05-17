@@ -1,5 +1,10 @@
 defmodule ImagePlug.Plan.Response do
-  @moduledoc false
+  @moduledoc """
+  Delivery metadata attached to an `ImagePlug.Plan`.
+
+  Parsers use this struct for response-specific request options such as
+  `Content-Disposition` and delivery filename selection.
+  """
 
   @delivery_content_types ["image/jpeg", "image/png", "image/webp", "image/avif"]
 
@@ -10,6 +15,9 @@ defmodule ImagePlug.Plan.Response do
           filename: String.t() | nil
         }
 
+  @doc """
+  Returns true when a filename stem is safe for response delivery.
+  """
   @spec valid_filename?(term()) :: boolean()
   def valid_filename?(stem) when is_binary(stem) do
     String.valid?(stem) and stem != "" and not String.contains?(stem, ["/", "\\"]) and
@@ -18,6 +26,7 @@ defmodule ImagePlug.Plan.Response do
 
   def valid_filename?(_stem), do: false
 
+  @doc false
   @spec content_disposition(t(), String.t()) :: {:ok, String.t()} | {:error, term()}
   def content_disposition(%__MODULE__{} = response, content_type) when is_binary(content_type) do
     with {:ok, extension} <- delivery_extension(content_type) do

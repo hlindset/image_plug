@@ -7,7 +7,8 @@ defmodule Mix.Tasks.ImagePlug.Server do
       $ mix image_plug.server --cache
       $ mix image_plug.server --no-vite
 
-  The server uses `ImagePlug.SimpleServer` and is available only in dev and test.
+  The server uses the development-only ImagePlug simple server and is available
+  only in dev and test.
   """
 
   use Mix.Task

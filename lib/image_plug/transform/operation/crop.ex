@@ -91,6 +91,14 @@ defmodule ImagePlug.Transform.Operation.Crop do
 
   @default_gravity {:anchor, :center, :center}
 
+  @type length_unit() ::
+          integer()
+          | float()
+          | {:pixels, integer() | float()}
+          | {:percent, integer() | float()}
+          | {:scale, integer() | float()}
+          | {:scale, integer() | float(), integer() | float()}
+
   @doc """
   The executable operation used by `ImagePlug.Transform.Operation.Crop`.
   """
@@ -105,20 +113,20 @@ defmodule ImagePlug.Transform.Operation.Crop do
   ]
 
   @type t :: %__MODULE__{
-          width: ImagePlug.Transform.Geometry.length_unit() | :auto,
-          height: ImagePlug.Transform.Geometry.length_unit() | :auto,
+          width: length_unit() | :auto,
+          height: length_unit() | :auto,
           crop_from:
             :gravity
             | %{
-                left: ImagePlug.Transform.Geometry.length_unit(),
-                top: ImagePlug.Transform.Geometry.length_unit()
+                left: length_unit(),
+                top: length_unit()
               },
           gravity:
             {:anchor, :left | :center | :right, :top | :center | :bottom}
             | {:fp, float(), float()}
             | nil,
-          x_offset: ImagePlug.Transform.Geometry.length_unit() | number(),
-          y_offset: ImagePlug.Transform.Geometry.length_unit() | number(),
+          x_offset: length_unit() | number(),
+          y_offset: length_unit() | number(),
           offset_scale: pos_integer() | float()
         }
 

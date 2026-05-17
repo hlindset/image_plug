@@ -89,9 +89,13 @@ defmodule ImagePlug.Transform.Operation.ExtendCanvas do
             y_offset: 0.0,
             background: :white
 
+  @type scalar() :: non_neg_integer() | float()
+  @type length() :: scalar() | {:pixels, scalar()}
+  @type ratio() :: {pos_integer() | float(), pos_integer() | float()}
+
   @type canvas_rule() ::
-          {:dimensions, ImagePlug.imgp_length() | :auto, ImagePlug.imgp_length() | :auto}
-          | {:aspect_ratio, ImagePlug.imgp_ratio()}
+          {:dimensions, length() | :auto, length() | :auto}
+          | {:aspect_ratio, ratio()}
 
   @type t :: %__MODULE__{
           rule: canvas_rule(),
