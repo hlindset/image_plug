@@ -49,6 +49,8 @@
   let pathRequestId = 0;
   let signingError: string | null = null;
   let focalPickerSurface: HTMLSpanElement | null = null;
+  let menuButton: HTMLButtonElement | null = null;
+  let copyLabelResetTimeout: number | null = null;
   const updatePreviewPath = debounce((nextPath: string) => {
     if (nextPath !== previewPath) {
       processedMetadata = null;
@@ -188,21 +190,30 @@
       performance.getEntriesByType("resource") as PerformanceResourceTiming[],
     );
 
-    if (timingBytes !== null) {
-      processedMetadata = { ...dimensions, bytes: timingBytes, contentType: null };
-      return;
-    }
-
     try {
       const response = await fetch(imagePath, { cache: "force-cache" });
+      const contentType = response.headers.get("content-type");
+
+      if (timingBytes !== null) {
+        if (requestId === metadataRequestId) {
+          processedMetadata = { ...dimensions, bytes: timingBytes, contentType };
+        }
+
+        return;
+      }
+
       const blob = await response.blob();
 
       if (requestId === metadataRequestId) {
-        processedMetadata = { ...dimensions, bytes: blob.size, contentType: blob.type || null };
+        processedMetadata = {
+          ...dimensions,
+          bytes: blob.size,
+          contentType: contentType ?? blob.type ?? null,
+        };
       }
     } catch {
       if (requestId === metadataRequestId) {
-        processedMetadata = { ...dimensions, bytes: null, contentType: null };
+        processedMetadata = { ...dimensions, bytes: timingBytes, contentType: null };
       }
     }
   }
@@ -219,19 +230,25 @@
     const absoluteUrl = new URL(path, window.location.origin).toString();
 
     await navigator.clipboard.writeText(absoluteUrl);
-    copyLabel = "Copied";
-    window.setTimeout(() => {
-      copyLabel = "Copy URL";
-    }, 1200);
+    showCopyLabel("Copied");
   }
 
   function copyUrl(): void {
     copyGeneratedUrl().catch(() => {
-      copyLabel = "Copy failed";
-      window.setTimeout(() => {
-        copyLabel = "Copy URL";
-      }, 1200);
+      showCopyLabel("Copy failed");
     });
+  }
+
+  function showCopyLabel(label: string): void {
+    if (copyLabelResetTimeout !== null) {
+      window.clearTimeout(copyLabelResetTimeout);
+    }
+
+    copyLabel = label;
+    copyLabelResetTimeout = window.setTimeout(() => {
+      copyLabel = "Copy URL";
+      copyLabelResetTimeout = null;
+    }, 1200);
   }
 
   function updateFocalPoint(event: MouseEvent | PointerEvent): void {
@@ -308,6 +325,14 @@
   function setThemeMode(nextMode: string): void {
     themeMode = storedThemeMode(nextMode);
   }
+
+  function closeTools(): void {
+    drawerOpen = false;
+
+    if (mobileTools) {
+      window.requestAnimationFrame(() => menuButton?.focus());
+    }
+  }
 </script>
 
 <main class="fiddle-shell">
@@ -318,7 +343,7 @@
     tabindex={drawerOpen ? 0 : -1}
     aria-hidden={drawerOpen ? "false" : "true"}
     aria-label="Close tools"
-    onclick={() => (drawerOpen = false)}
+    onclick={closeTools}
   ></button>
 
   <aside
@@ -330,12 +355,7 @@
   >
     <div class="drawer-topbar">
       <strong>Tools</strong>
-      <button
-        class="icon-button"
-        type="button"
-        aria-label="Close tools"
-        onclick={() => (drawerOpen = false)}
-      >
+      <button class="icon-button" type="button" aria-label="Close tools" onclick={closeTools}>
         ×
       </button>
     </div>
@@ -855,6 +875,7 @@
         class="icon-button menu-button"
         type="button"
         aria-label="Open tools"
+        bind:this={menuButton}
         onclick={() => (drawerOpen = true)}
       >
         ☰

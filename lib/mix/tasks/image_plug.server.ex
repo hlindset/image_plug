@@ -116,7 +116,7 @@ defmodule Mix.Tasks.ImagePlug.Server do
     parent = self()
 
     {:ok, _pid} =
-      Task.start_link(fn ->
+      Task.start(fn ->
         run_vite(node, vite_bin_path, parent)
       end)
 
@@ -175,7 +175,7 @@ defmodule Mix.Tasks.ImagePlug.Server do
 
       {^port, {:exit_status, status}} ->
         send(parent, {:vite_failed, status})
-        raise "Vite dev server exited with status #{status}"
+        :ok
     end
   end
 

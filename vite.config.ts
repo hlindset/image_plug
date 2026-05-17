@@ -61,16 +61,19 @@ function buildSampleImagesModule(imagesDirectory: string): string {
     .sort((left, right) => left.localeCompare(right))
     .flatMap((fileName) => {
       const filePath = join(imagesDirectory, fileName);
+      const fileSize = statSync(filePath).size;
+
+      if (fileSize > maxDemoOriginBytes) {
+        return [];
+      }
+
       const dimensions = imageSize(readFileSync(filePath));
 
       if (dimensions.width === undefined || dimensions.height === undefined) {
         throw new Error(`Could not read image dimensions for ${filePath}`);
       }
 
-      if (
-        statSync(filePath).size > maxDemoOriginBytes ||
-        dimensions.width * dimensions.height > maxDemoInputPixels
-      ) {
+      if (dimensions.width * dimensions.height > maxDemoInputPixels) {
         return [];
       }
 
