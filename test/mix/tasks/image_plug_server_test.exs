@@ -50,6 +50,12 @@ defmodule Mix.Tasks.ImagePlug.ServerTest do
 
       assert byte_size(carry) == 256
       assert String.ends_with?(carry, "b")
+
+      data = String.duplicate("x", 300)
+      {_ready?, carry} = Server.vite_ready_buffer("", data)
+
+      assert byte_size(carry) == 256
+      assert carry == String.duplicate("x", 256)
     end
   end
 end

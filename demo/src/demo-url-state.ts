@@ -499,7 +499,7 @@ function parseQuality(currentState: DemoState, args: string[]): DemoState | null
 
   const quality = parseNumber(args[0]);
 
-  if (quality === null) {
+  if (quality === null || !Number.isInteger(quality) || quality < 0 || quality > 100) {
     return null;
   }
 

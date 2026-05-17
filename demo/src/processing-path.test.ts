@@ -733,6 +733,12 @@ describe("demo URL state", () => {
     );
   });
 
+  it("rejects invalid quality values in demo routes", () => {
+    expect(parseDemoPath("/demo/q:-1/plain/images/dog.jpg")).toEqual(defaultDemoState);
+    expect(parseDemoPath("/demo/q:101/plain/images/dog.jpg")).toEqual(defaultDemoState);
+    expect(parseDemoPath("/demo/q:85.5/plain/images/dog.jpg")).toEqual(defaultDemoState);
+  });
+
   it("resets processing options while keeping source and signature settings", () => {
     const reset = resetDemoSettings({
       ...defaultDemoState,
