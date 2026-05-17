@@ -47,6 +47,7 @@ defmodule ImagePlug.MixProject do
   defp deps do
     [
       {:plug, "~> 1.18"},
+      {:telemetry, "~> 1.0"},
       {:nimble_options, "~> 1.1"},
       {:image, "~> 0.67"},
       {:color, "~> 0.13"},

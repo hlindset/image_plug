@@ -17,6 +17,7 @@ defmodule ImagePlug.Response.Sender do
   alias ImagePlug.Output.Format
   alias ImagePlug.Output.Resolved
   alias ImagePlug.Plan.Response
+  alias ImagePlug.Telemetry
   alias ImagePlug.Transform.State
 
   @type delivery() ::
@@ -173,6 +174,14 @@ defmodule ImagePlug.Response.Sender do
   end
 
   defp stream_encoded_image(conn, state, %Resolved{} = resolved_output, response, opts) do
+    Telemetry.span(opts, [:encode], output_metadata(resolved_output), fn ->
+      conn = do_stream_encoded_image(conn, state, resolved_output, response, opts)
+
+      {conn, encode_stop_metadata(conn, resolved_output)}
+    end)
+  end
+
+  defp do_stream_encoded_image(conn, state, %Resolved{} = resolved_output, response, opts) do
     image_module = Keyword.get(opts, :image_module, Image)
 
     try do
@@ -359,4 +368,12 @@ defmodule ImagePlug.Response.Sender do
     |> put_resp_content_type("text/plain")
     |> send_resp(500, "error encoding image")
   end
+
+  defp output_metadata(%Resolved{format: format}), do: %{output_format: format}
+
+  defp encode_stop_metadata(%Plug.Conn{status: 200}, %Resolved{} = resolved_output),
+    do: Map.merge(%{result: :ok, status: 200}, output_metadata(resolved_output))
+
+  defp encode_stop_metadata(%Plug.Conn{status: status}, %Resolved{} = resolved_output),
+    do: Map.merge(%{result: :processing_error, status: status}, output_metadata(resolved_output))
 end

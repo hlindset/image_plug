@@ -9,6 +9,7 @@ defmodule ImagePlug.Request do
       ImagePlug.Origin,
       ImagePlug.Output,
       ImagePlug.Response,
+      ImagePlug.Telemetry,
       ImagePlug.Transform
     ],
     exports: [

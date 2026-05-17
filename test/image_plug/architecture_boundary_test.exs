@@ -34,6 +34,7 @@ defmodule ImagePlug.ArchitectureBoundaryTest do
     ImagePlug.Parser.Imgproxy => "lib/image_plug/parser/imgproxy.ex",
     ImagePlug.Request => "lib/image_plug/request.ex",
     ImagePlug.Response => "lib/image_plug/response.ex",
+    ImagePlug.Telemetry => "lib/image_plug/telemetry.ex",
     ImagePlug.Transform => "lib/image_plug/transform.ex"
   }
   @concrete_plan_names [
@@ -98,6 +99,7 @@ defmodule ImagePlug.ArchitectureBoundaryTest do
       ImagePlug.Origin,
       ImagePlug.Output,
       ImagePlug.Response,
+      ImagePlug.Telemetry,
       ImagePlug.Transform
     ])
 
@@ -129,6 +131,7 @@ defmodule ImagePlug.ArchitectureBoundaryTest do
       ImagePlug.Cache,
       ImagePlug.Output,
       ImagePlug.Plan,
+      ImagePlug.Telemetry,
       ImagePlug.Transform
     ])
 
@@ -142,6 +145,13 @@ defmodule ImagePlug.ArchitectureBoundaryTest do
   test "old Runtime namespace files are gone" do
     refute File.exists?("lib/image_plug/runtime.ex")
     assert Path.wildcard("lib/image_plug/runtime/**/*.ex") == []
+  end
+
+  test "telemetry boundary remains a dependency-free facade" do
+    telemetry = boundary_declaration(ImagePlug.Telemetry)
+
+    assert_boundary_deps(telemetry, [])
+    assert_boundary_exports(telemetry, [])
   end
 
   test "request, origin, and response code does not depend on concrete transform modules" do

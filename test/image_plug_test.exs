@@ -627,6 +627,7 @@ defmodule ImagePlug.ImagePlugTest do
              [:ImagePlug, :Plan],
              [:ImagePlug, :Request],
              [:ImagePlug, :Response],
+             [:ImagePlug, :Telemetry],
              [:ImagePlug, :Transform]
            ]
   end
