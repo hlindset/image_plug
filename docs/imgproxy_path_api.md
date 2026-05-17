@@ -132,8 +132,8 @@ preset file loading, or custom argument separators.
 | Resize tuple | `resize`, `rs` | `:<resizing_type>:<width>:<height>:<enlarge>:<extend>[:<extend_gravity>[:<x_offset>:<y_offset>]]` with trailing arguments optional |
 | Size tuple | `size`, `s` | `:<width>:<height>:<enlarge>:<extend>[:<extend_gravity>[:<x_offset>:<y_offset>]]` with trailing arguments optional |
 | Resizing type | `resizing_type`, `rt` | `fit`, `fill`, `fill-down`, `force`, `auto` |
-| Width | `width`, `w` | non-negative pixel integer; `0` means `auto` |
-| Height | `height`, `h` | non-negative pixel integer; `0` means `auto` |
+| Width | `width`, `w` | non-negative pixel integer. `0` means `auto` |
+| Height | `height`, `h` | non-negative pixel integer. `0` means `auto` |
 | Min width | `min-width`, `min_width`, `mw` | non-negative pixel integer |
 | Min height | `min-height`, `min_height`, `mh` | non-negative pixel integer |
 | Enlarge | `enlarge`, `el` | boolean: `1`, `t`, `true`, `0`, `f`, `false` |
@@ -148,7 +148,7 @@ preset file loading, or custom argument separators.
 | Auto rotate | `auto_rotate`, `ar` | omitted for true, or boolean |
 | Rotate | `rotate`, `rot` | integer degrees |
 | Flip | `flip`, `fl` | omitted for both axes, one boolean for horizontal, or horizontal and vertical booleans |
-| Quality | `quality`, `q` | integer quality; `0` means configured default |
+| Quality | `quality`, `q` | integer quality. `0` means configured default |
 | Format quality | `format_quality`, `fq` | `<format>:<quality>` |
 | Format | `format`, `f`, `ext` | `webp`, `avif`, `jpeg`/`jpg`, `png` |
 | cachebuster | `cachebuster`, `cb` | string value |
@@ -218,7 +218,7 @@ interpretation match current imgproxy-compatible parsing and execution behavior.
 
 Orientation options are `auto_rotate`/`ar`, `rotate`/`rot`, and `flip`/`fl`.
 
-- `ar` with no argument enables auto-orient; `ar:false` disables it.
+- `ar` with no argument enables auto-orient. `ar:false` disables it.
 - `rot` accepts integer degrees and normalizes right-angle rotations.
 - `fl` with no arguments flips both axes.
 - `fl:true:false` flips horizontally.
@@ -247,9 +247,9 @@ gravity plus `x_offset` and `y_offset`.
 transparent edge padding after resize and canvas extension. Missing values
 follow imgproxy shorthand semantics:
 
-- one value applies to all sides;
-- two values apply vertical, then horizontal sides;
-- three values apply top, horizontal, then bottom;
+- one value applies to all sides
+- two values apply vertical, then horizontal sides
+- three values apply top, horizontal, then bottom
 - four values apply top, right, bottom, and left.
 
 Sparse repeated padding follows imgproxy's accumulated field behavior. For
