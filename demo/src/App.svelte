@@ -976,25 +976,27 @@
             </label>
 
             {#if state.signatureMode === "signed"}
-              <label class="field">
-                <span>Key</span>
-                <input
-                  class="text-input text-input-mono"
-                  bind:value={state.signatureKey}
-                  spellcheck="false"
-                  autocomplete="off"
-                />
-              </label>
+              <div class="signature-secret-grid">
+                <label class="field">
+                  <span>Key</span>
+                  <input
+                    class="text-input text-input-mono"
+                    bind:value={state.signatureKey}
+                    spellcheck="false"
+                    autocomplete="off"
+                  />
+                </label>
 
-              <label class="field">
-                <span>Salt</span>
-                <input
-                  class="text-input text-input-mono"
-                  bind:value={state.signatureSalt}
-                  spellcheck="false"
-                  autocomplete="off"
-                />
-              </label>
+                <label class="field">
+                  <span>Salt</span>
+                  <input
+                    class="text-input text-input-mono"
+                    bind:value={state.signatureSalt}
+                    spellcheck="false"
+                    autocomplete="off"
+                  />
+                </label>
+              </div>
 
               {#if signingError !== null}
                 <p class="field-error">{signingError}</p>
@@ -1574,6 +1576,12 @@
   .background-opacity-field {
     min-width: 0;
     flex: 1;
+  }
+
+  .signature-secret-grid {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 12px;
   }
 
   select {
