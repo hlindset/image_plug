@@ -1,0 +1,17 @@
+Imgproxy
+Vite
+allowlist
+auto-orient
+boolean
+booleans
+cacheable
+cachebuster
+config
+downscales
+imgproxy
+letterboxing
+libvips
+passthrough
+unconfigured
+unreferenced
+upscales
