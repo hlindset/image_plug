@@ -6,6 +6,7 @@
   export let min = 0;
   export let max = 100;
   export let step = 1;
+  export let suffix: string | undefined = undefined;
 
   function clamp(value: number): number {
     return Math.min(Math.max(value, min), max);
@@ -31,7 +32,12 @@
 <div class="range-number">
   <label class="value-row">
     <span>{label}</span>
-    <input type="number" {min} {max} {step} {value} onfocus={selectNumber} oninput={syncNumber} />
+    <span class="value-input">
+      <input type="number" {min} {max} {step} {value} onfocus={selectNumber} oninput={syncNumber} />
+      {#if suffix !== undefined}
+        <span class="value-suffix">{suffix}</span>
+      {/if}
+    </span>
   </label>
   <Slider.Root
     class="slider-root"
@@ -60,8 +66,24 @@
 
   .value-row {
     display: flex;
+    align-items: center;
     justify-content: space-between;
     gap: 12px;
+  }
+
+  .value-input {
+    display: inline-flex;
+    align-items: baseline;
+    gap: 2px;
+    color: var(--text-primary);
+    font-family: var(--font-mono);
+    font-size: 13px;
+    line-height: 18px;
+  }
+
+  .value-suffix {
+    min-width: 2ch;
+    color: var(--text-muted);
   }
 
   input[type="number"] {

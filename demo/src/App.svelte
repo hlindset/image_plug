@@ -571,6 +571,7 @@
             min={controlLimits.padding.min}
             max={controlLimits.padding.max}
             step={controlLimits.padding.step}
+            suffix="px"
           />
           <RangeNumber
             label="Right"
@@ -578,6 +579,7 @@
             min={controlLimits.padding.min}
             max={controlLimits.padding.max}
             step={controlLimits.padding.step}
+            suffix="px"
           />
           <RangeNumber
             label="Bottom"
@@ -585,6 +587,7 @@
             min={controlLimits.padding.min}
             max={controlLimits.padding.max}
             step={controlLimits.padding.step}
+            suffix="px"
           />
           <RangeNumber
             label="Left"
@@ -592,6 +595,7 @@
             min={controlLimits.padding.min}
             max={controlLimits.padding.max}
             step={controlLimits.padding.step}
+            suffix="px"
           />
         {/if}
       </section>
@@ -703,6 +707,7 @@
                 min={controlLimits.scale.minWidth.min}
                 max={controlLimits.scale.minWidth.max}
                 step={controlLimits.scale.minWidth.step}
+                suffix="px"
               />
             {/if}
 
@@ -719,6 +724,7 @@
                 min={controlLimits.scale.minHeight.min}
                 max={controlLimits.scale.minHeight.max}
                 step={controlLimits.scale.minHeight.step}
+                suffix="px"
               />
             {/if}
           </Collapsible.Content>
