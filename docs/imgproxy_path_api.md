@@ -336,12 +336,6 @@ Unsupported examples include `raw`, `max_bytes`, `max_src_resolution`,
 `max_src_file_size`, `crop_aspect_ratio`, `g:sm`, and
 `c:<width>:<height>:sm`.
 
-ImagePlug supports crop combined with auto-orient and plans it in imgproxy
-canonical order. It supports top-level gravity offsets for result crops.
-`force` resize with one zero dimension preserves the source dimension for the
-`auto` side. Explicit crop gravity variants, including focal-point crop gravity,
-also work. Explicit crop without its own gravity inherits top-level gravity.
-
 SVG/vector-specific imgproxy parity remains out of scope for this imgproxy
 documentation pass.
 
