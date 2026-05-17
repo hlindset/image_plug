@@ -51,7 +51,7 @@ defmodule ImagePlug.Request.ProcessorTest do
     assert {:ok, %State{} = state} =
              process_origin(
                plan(),
-               "http://origin.test/images/cat-300.jpg",
+               "http://origin.test/images/beach.jpg",
                opts()
              )
 
@@ -62,7 +62,7 @@ defmodule ImagePlug.Request.ProcessorTest do
     assert {:ok, %Decoded{} = decoded} =
              fetch_decode_validate_origin_with_source_format(
                plan(),
-               "http://origin.test/images/cat-300.jpg",
+               "http://origin.test/images/beach.jpg",
                opts()
              )
 
@@ -75,7 +75,7 @@ defmodule ImagePlug.Request.ProcessorTest do
     ref = make_ref()
 
     plan = %Plan{
-      source: {:plain, ["images", "cat-300.jpg"]},
+      source: {:plain, ["images", "beach.jpg"]},
       pipelines: [%Pipeline{operations: []}, %Pipeline{operations: []}],
       output: %Output{mode: {:explicit, :jpeg}}
     }
@@ -89,7 +89,7 @@ defmodule ImagePlug.Request.ProcessorTest do
     assert {:ok, %State{} = state} =
              process_origin(
                plan,
-               "http://origin.test/images/cat-300.jpg",
+               "http://origin.test/images/beach.jpg",
                opts
              )
 
@@ -103,7 +103,7 @@ defmodule ImagePlug.Request.ProcessorTest do
     {:ok, second_operation} = resize_cover(80, 80)
 
     plan = %Plan{
-      source: {:plain, ["images", "cat-300.jpg"]},
+      source: {:plain, ["images", "beach.jpg"]},
       pipelines: [
         %Pipeline{operations: [first_operation]},
         %Pipeline{operations: [second_operation]}
@@ -114,7 +114,7 @@ defmodule ImagePlug.Request.ProcessorTest do
     assert {:ok, %Decoded{} = decoded} =
              fetch_decode_validate_origin_with_source_format(
                plan,
-               "http://origin.test/images/cat-300.jpg",
+               "http://origin.test/images/beach.jpg",
                opts()
              )
 
@@ -125,7 +125,7 @@ defmodule ImagePlug.Request.ProcessorTest do
     assert {:error, {:decode, :forced_decode_error}} =
              fetch_decode_validate_origin_with_source_format(
                plan(),
-               "http://origin.test/images/cat-300.jpg",
+               "http://origin.test/images/beach.jpg",
                Keyword.put(opts(), :image_open_module, DecodeErrorImageOpen)
              )
   end
@@ -142,7 +142,7 @@ defmodule ImagePlug.Request.ProcessorTest do
 
     assert {:ok, origin_response} =
              Origin.fetch(
-               "http://origin.test/images/cat-300.jpg",
+               "http://origin.test/images/beach.jpg",
                Keyword.fetch!(opts(), :origin_req_options)
              )
 

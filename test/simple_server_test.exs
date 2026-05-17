@@ -1,6 +1,7 @@
 defmodule ImagePlug.SimpleServerTest do
   use ExUnit.Case, async: true
 
+  import Plug.Conn, only: [get_resp_header: 2]
   import Plug.Test
 
   test "returns 404 for missing static image origins" do
@@ -11,5 +12,31 @@ defmodule ImagePlug.SimpleServerTest do
 
     assert conn.status == 404
     assert conn.resp_body == "404 Not Found"
+  end
+
+  test "serves the demo fiddle shell" do
+    conn =
+      :get
+      |> conn("/demo")
+      |> ImagePlug.SimpleServer.call([])
+
+    assert conn.status == 200
+    assert get_resp_header(conn, "content-type") == ["text/html; charset=utf-8"]
+    assert conn.resp_body =~ "ImagePlug Fiddle"
+    assert conn.resp_body =~ ~s(src="http://localhost:5173/@vite/client")
+    assert conn.resp_body =~ ~s(src="http://localhost:5173/demo/src/main.ts")
+    refute conn.resp_body =~ "/demo/assets/"
+  end
+
+  test "serves the demo fiddle shell for shareable demo paths" do
+    conn =
+      :get
+      |> conn("/demo/rs:fill:640:360:0/g:ce/f:jpeg/q:85/plain/images/dog.jpg")
+      |> ImagePlug.SimpleServer.call([])
+
+    assert conn.status == 200
+    assert get_resp_header(conn, "content-type") == ["text/html; charset=utf-8"]
+    assert conn.resp_body =~ "ImagePlug Fiddle"
+    assert conn.resp_body =~ ~s(src="http://localhost:5173/demo/src/main.ts")
   end
 end

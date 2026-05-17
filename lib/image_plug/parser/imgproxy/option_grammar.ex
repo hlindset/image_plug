@@ -466,6 +466,7 @@ defmodule ImagePlug.Parser.Imgproxy.OptionGrammar do
     end
   end
 
+  defp parse_alpha_integer("0"), do: {:ok, {:ratio, 0, 1}}
   defp parse_alpha_integer("1"), do: {:ok, {:ratio, 1, 1}}
   defp parse_alpha_integer(_integer), do: {:error, :alpha}
 
@@ -475,7 +476,7 @@ defmodule ImagePlug.Parser.Imgproxy.OptionGrammar do
       denominator = Integer.pow(10, byte_size(fraction))
       numerator = String.to_integer(integer) * denominator + fraction_value
 
-      case numerator > 0 and numerator <= denominator do
+      case numerator >= 0 and numerator <= denominator do
         true -> {:ok, {:ratio, numerator, denominator}}
         false -> {:error, :alpha}
       end

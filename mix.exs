@@ -62,6 +62,14 @@ defmodule ImagePlug.MixProject do
 
   defp aliases do
     [
+      "demo.build": ["cmd pnpm run demo:build"],
+      "demo.check": ["cmd pnpm run demo:check"],
+      "demo.dev": ["cmd pnpm run demo:dev"],
+      "demo.format": ["cmd pnpm run demo:format"],
+      "demo.format.check": ["cmd pnpm run demo:format:check"],
+      "demo.lint": ["cmd pnpm run demo:lint"],
+      "demo.test": ["cmd pnpm run demo:test"],
+      "demo.verify": ["demo.test", "demo.check", "demo.format.check", "demo.lint", "demo.build"],
       setup: ["deps.get"],
       test: ["test"]
     ]

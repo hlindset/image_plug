@@ -5,17 +5,25 @@ defmodule Mix.Tasks.ImagePlug.ServerTest do
 
   describe "parse_args/1" do
     test "defaults to port 4000" do
-      assert Server.parse_args([]) == {:ok, %{cache?: false, port: 4000}}
+      assert Server.parse_args([]) == {:ok, %{cache?: false, port: 4000, vite?: true}}
     end
 
     test "accepts an explicit port" do
-      assert Server.parse_args(["--port", "4001"]) == {:ok, %{cache?: false, port: 4001}}
-      assert Server.parse_args(["-p", "4002"]) == {:ok, %{cache?: false, port: 4002}}
+      assert Server.parse_args(["--port", "4001"]) ==
+               {:ok, %{cache?: false, port: 4001, vite?: true}}
+
+      assert Server.parse_args(["-p", "4002"]) ==
+               {:ok, %{cache?: false, port: 4002, vite?: true}}
     end
 
     test "accepts cache toggles" do
-      assert Server.parse_args(["--cache"]) == {:ok, %{cache?: true, port: 4000}}
-      assert Server.parse_args(["--no-cache"]) == {:ok, %{cache?: false, port: 4000}}
+      assert Server.parse_args(["--cache"]) == {:ok, %{cache?: true, port: 4000, vite?: true}}
+      assert Server.parse_args(["--no-cache"]) == {:ok, %{cache?: false, port: 4000, vite?: true}}
+    end
+
+    test "accepts vite toggles" do
+      assert Server.parse_args(["--no-vite"]) == {:ok, %{cache?: false, port: 4000, vite?: false}}
+      assert Server.parse_args(["--vite"]) == {:ok, %{cache?: false, port: 4000, vite?: true}}
     end
 
     test "rejects invalid arguments" do
@@ -27,6 +35,27 @@ defmodule Mix.Tasks.ImagePlug.ServerTest do
 
       assert {:error, message} = Server.parse_args(["extra"])
       assert message =~ "unexpected argument: extra"
+    end
+  end
+
+  describe "vite_ready_buffer/2" do
+    test "detects a readiness marker split across port data chunks" do
+      {false, carry} = Server.vite_ready_buffer("", "  VITE v8.0.13  read")
+
+      assert {true, _carry} = Server.vite_ready_buffer(carry, "y in 408 ms")
+    end
+
+    test "keeps the carry buffer bounded" do
+      {_ready?, carry} = Server.vite_ready_buffer(String.duplicate("a", 300), "b")
+
+      assert byte_size(carry) == 256
+      assert String.ends_with?(carry, "b")
+
+      data = String.duplicate("x", 300)
+      {_ready?, carry} = Server.vite_ready_buffer("", data)
+
+      assert byte_size(carry) == 256
+      assert carry == String.duplicate("x", 256)
     end
   end
 end
