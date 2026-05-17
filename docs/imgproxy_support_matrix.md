@@ -43,8 +43,8 @@ before origin fetch or cache lookup; they're not silently ignored.
 | `resizing_algorithm` | `ra` | Missing | No algorithm selection in plan or transform execution. |
 | `width` | `w` | Supported | Non-negative integer; `0` means auto. |
 | `height` | `h` | Supported | Non-negative integer; `0` means auto. |
-| `min-width` | `min_width`, `mw` | Supported | Non-negative integer. |
-| `min-height` | `min_height`, `mh` | Supported | Non-negative integer. |
+| `min-width` | `mw` | Supported | Non-negative integer. |
+| `min-height` | `mh` | Supported | Non-negative integer. |
 | `zoom` | `z` | Supported | Single value or separate x/y factors. |
 | `dpr` | | Supported | Affects resize sizing and cache key data. |
 | `enlarge` | `el` | Supported | boolean. |

@@ -114,8 +114,8 @@ Remaining queued groups become trailing pipelines.
 | Resizing type | `resizing_type`, `rt` | `fit`, `fill`, `fill-down`, `force`, `auto` |
 | Width | `width`, `w` | non-negative pixel integer. `0` means `auto` |
 | Height | `height`, `h` | non-negative pixel integer. `0` means `auto` |
-| Min width | `min-width`, `min_width`, `mw` | non-negative pixel integer |
-| Min height | `min-height`, `min_height`, `mh` | non-negative pixel integer |
+| Min width | `min-width`, `mw` | non-negative pixel integer |
+| Min height | `min-height`, `mh` | non-negative pixel integer |
 | Enlarge | `enlarge`, `el` | boolean: `1`, `t`, `true`, `0`, `f`, `false` |
 | Zoom | `zoom`, `z` | positive number, or positive `x:y` numbers |
 | Device pixel ratio (DPR) | `dpr` | positive number |
