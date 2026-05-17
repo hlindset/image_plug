@@ -548,17 +548,32 @@ describe("processing path generation", () => {
     expect(buildProcessingPath(state)).toBe("/_/plain/images/dog.jpg");
   });
 
-  it("shows the negotiated output label for automatic formats", () => {
-    expect(resolvedOutputLabel(defaultDemoState)).toBe("auto -> webp");
+  it("shows automatic output as pending until response metadata is available", () => {
+    expect(resolvedOutputLabel(defaultDemoState, null)).toBe("auto");
+    expect(
+      resolvedOutputLabel(defaultDemoState, {
+        width: 640,
+        height: 480,
+        bytes: 10_000,
+        contentType: "image/avif",
+      }),
+    ).toBe("auto -> avif");
     expect(resolvedOutputLabel({ ...defaultDemoState, formatEnabled: true, format: "png" })).toBe(
       "png",
     );
   });
 
   it("formats the processed image dimensions and encoded byte size", () => {
-    expect(processedSizeLabel({ width: 640, height: 480, bytes: 552_960 })).toBe(
-      "640 × 480 (540 kB)",
+    expect(
+      processedSizeLabel({
+        width: 640,
+        height: 480,
+        bytes: 552_960,
+        contentType: "image/jpeg",
+      }),
+    ).toBe("640 × 480 (540 kB)");
+    expect(processedSizeLabel({ width: 300, height: 200, bytes: null, contentType: null })).toBe(
+      "300 × 200",
     );
-    expect(processedSizeLabel({ width: 300, height: 200, bytes: null })).toBe("300 × 200");
   });
 });

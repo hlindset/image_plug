@@ -76,7 +76,7 @@ function buildSampleImagesModule(imagesDirectory: string): string {
 
       return [
         {
-          path: `images/${fileName}`,
+          path: `images/${encodeURIComponent(fileName)}`,
           label: fileName,
           width: dimensions.width,
           height: dimensions.height,

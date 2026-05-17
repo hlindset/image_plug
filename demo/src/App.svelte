@@ -76,7 +76,7 @@
   $: applyThemeMode(themeMode);
   $: persistThemeMode(themeMode);
   $: previewParameters = path.replace(/^\/[^/]+\//, "");
-  $: outputLabel = resolvedOutputLabel(state);
+  $: outputLabel = resolvedOutputLabel(state, processedMetadata);
   $: sizeLabel = processedSizeLabel(processedMetadata);
   $: requestSummary = `${state.source.replace(/^images\//, "")} / ${requestSignatureLabel(
     state,
@@ -181,7 +181,7 @@
     };
 
     previewLoading = false;
-    processedMetadata = { ...dimensions, bytes: null };
+    processedMetadata = { ...dimensions, bytes: null, contentType: null };
 
     const timingBytes = imageRequestBytesFromPerformance(
       imagePath,
@@ -189,7 +189,7 @@
     );
 
     if (timingBytes !== null) {
-      processedMetadata = { ...dimensions, bytes: timingBytes };
+      processedMetadata = { ...dimensions, bytes: timingBytes, contentType: null };
       return;
     }
 
@@ -198,11 +198,11 @@
       const blob = await response.blob();
 
       if (requestId === metadataRequestId) {
-        processedMetadata = { ...dimensions, bytes: blob.size };
+        processedMetadata = { ...dimensions, bytes: blob.size, contentType: blob.type || null };
       }
     } catch {
       if (requestId === metadataRequestId) {
-        processedMetadata = { ...dimensions, bytes: null };
+        processedMetadata = { ...dimensions, bytes: null, contentType: null };
       }
     }
   }
@@ -228,6 +228,9 @@
   function copyUrl(): void {
     copyGeneratedUrl().catch(() => {
       copyLabel = "Copy failed";
+      window.setTimeout(() => {
+        copyLabel = "Copy URL";
+      }, 1200);
     });
   }
 

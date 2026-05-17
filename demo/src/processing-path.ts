@@ -73,6 +73,7 @@ export type ProcessedImageMetadata = {
   width: number;
   height: number;
   bytes: number | null;
+  contentType: string | null;
 };
 
 export type NumericControlLimit = {
@@ -421,12 +422,35 @@ function roundedUnit(value: number): number {
   return Math.round(clamped * 100) / 100;
 }
 
-export function resolvedOutputLabel(currentState: DemoState): string {
+export function resolvedOutputLabel(
+  currentState: DemoState,
+  metadata: ProcessedImageMetadata | null = null,
+): string {
   if (!currentState.formatEnabled) {
-    return "auto -> webp";
+    const negotiatedFormat = outputFormatFromContentType(metadata?.contentType ?? null);
+
+    if (negotiatedFormat !== null) {
+      return `auto -> ${negotiatedFormat}`;
+    }
+
+    return "auto";
   }
 
   return currentState.format;
+}
+
+function outputFormatFromContentType(contentType: string | null): string | null {
+  if (contentType === null) {
+    return null;
+  }
+
+  const [mimeType] = contentType.toLowerCase().split(";");
+
+  if (mimeType === "image/jpeg") {
+    return "jpeg";
+  }
+
+  return mimeType?.startsWith("image/") === true ? mimeType.slice("image/".length) : null;
 }
 
 export function processedSizeLabel(metadata: ProcessedImageMetadata | null): string {
