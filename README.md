@@ -74,6 +74,9 @@ For a feature-by-feature comparison with imgproxy's processing URL surface, see
 
 For parser and dialect-author guidance on mapping URL concepts to product-neutral transform operations, see [Transform Operations](docs/transform_operations.md).
 
+For request lifecycle event names, metadata, and handler examples, see
+[Telemetry](docs/telemetry.md).
+
 ### Options
 
 ```text
