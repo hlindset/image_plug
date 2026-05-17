@@ -118,6 +118,20 @@ describe("processing path generation", () => {
     expect(signature).toBe("oKfUtW34Dvo2BGQehJFR4Nr0_rIjOtdtzJ3QFsUcXH8");
   });
 
+  it("rejects invalid signature sizes before signing", async () => {
+    await expect(
+      signProcessingPath("/plain/images/dog.jpg", "736563726574", "68656c6c6f", 0),
+    ).rejects.toThrow(RangeError);
+
+    await expect(
+      signProcessingPath("/plain/images/dog.jpg", "736563726574", "68656c6c6f", 33),
+    ).rejects.toThrow("signatureSize must be an integer between 1 and 32");
+
+    await expect(
+      signProcessingPath("/plain/images/dog.jpg", "736563726574", "68656c6c6f", 1.5),
+    ).rejects.toThrow("signatureSize must be an integer between 1 and 32");
+  });
+
   it("keeps jpeg selected as the default explicit format", () => {
     expect(defaultDemoState.format).toBe("jpeg");
   });

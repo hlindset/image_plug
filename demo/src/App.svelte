@@ -364,7 +364,7 @@
   }
 
   function updateFocalPoint(event: MouseEvent | PointerEvent): void {
-    if (event instanceof MouseEvent && event.detail === 0) {
+    if (event instanceof MouseEvent && event.type === "click" && event.detail === 0) {
       return;
     }
 

@@ -507,6 +507,10 @@ export async function signProcessingPath(
   saltHex: string,
   signatureSize = 32,
 ): Promise<string> {
+  if (!Number.isInteger(signatureSize) || signatureSize < 1 || signatureSize > 32) {
+    throw new RangeError("signatureSize must be an integer between 1 and 32");
+  }
+
   const key = hexToBytes(keyHex, "key");
   const salt = hexToBytes(saltHex, "salt");
   const pathBytes = new TextEncoder().encode(signedPath);

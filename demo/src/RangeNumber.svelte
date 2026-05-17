@@ -61,7 +61,7 @@
 
     const normalized = trimmed.replace(",", ".");
 
-    if (!/^\d*(?:\.\d*)?$/.test(normalized) || normalized === ".") {
+    if (!/^-?\d*(?:\.\d*)?$/.test(normalized) || normalized === ".") {
       return null;
     }
 
