@@ -15,24 +15,15 @@ The general shape is:
 
     /<signature>/option[:arg...]/option[:arg...]/plain/path/to/image[@extension]
 
-ImagePlug verifies the signature segment first. Without signature
-configuration, ImagePlug accepts only `_` and `unsafe` as unsigned development
-placeholders. With signing configured, the signature must be a
-raw/unpadded Base64URL HMAC-SHA256 digest of the raw path after the signature,
-including the leading slash, or an exact configured trusted signature.
-Trusted-only configuration accepts only exact trusted signatures. Unlike
-upstream imgproxy, it doesn't make every signature segment valid when no
-key/salt pair exists.
+ImagePlug verifies the signature segment first. Unsigned development URLs must
+use `_` or `unsafe`. Signed URLs must use a valid configured HMAC or trusted
+signature.
 
 Before verification, ImagePlug applies imgproxy-compatible `fixPath`
-normalization: it treats `%3A` in processing options as `:`, and repairs
-normalized plain URL schemes such as `http:/x` and `local:/x` to `http://x`
-and `local:///x`.
+normalization for encoded option separators and plain URL schemes.
 
-`plain` source paths are the path segments after `/plain/`. A plain source may
-end in `@extension` to request an explicit output format from the source path.
-The `@extension` form bypasses `Accept` negotiation like `format`, `f`, and
-`ext`.
+`plain` starts the source path. Add `@extension` to the end of the source path
+to force an output format and bypass `Accept` negotiation.
 
 ## Pipeline groups
 
