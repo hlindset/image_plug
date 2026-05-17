@@ -5,7 +5,12 @@
   import RangeNumber from "./RangeNumber.svelte";
   import ResizeDimensionControl from "./ResizeDimensionControl.svelte";
   import ToolToggleHeader from "./ToolToggleHeader.svelte";
-  import { demoPathForState, expandedToolboxesForState, parseDemoPath } from "./demo-url-state";
+  import {
+    demoPathForState,
+    expandedToolboxesForState,
+    parseDemoPath,
+    resetDemoSettings,
+  } from "./demo-url-state";
   import {
     buildProcessingPath,
     controlLimits,
@@ -444,6 +449,10 @@
 
   function setThemeMode(nextMode: string): void {
     themeMode = storedThemeMode(nextMode);
+  }
+
+  function resetSettings(): void {
+    state = resetDemoSettings(state);
   }
 
   function closeTools(): void {
@@ -1045,6 +1054,7 @@
     </div>
 
     <div class="drawer-actions">
+      <button class="quiet-button" type="button" onclick={resetSettings}>Reset</button>
       <button class="copy-button" type="button" onclick={copyUrl}>{copyLabel}</button>
       <a class="open-link" href={path} target="_blank" rel="noreferrer">Open</a>
     </div>
@@ -1102,6 +1112,7 @@
           </RadioGroup.Item>
         </RadioGroup.Root>
         <div class="desktop-actions">
+          <button class="quiet-button" type="button" onclick={resetSettings}>Reset</button>
           <button class="copy-button copy-button-secondary" type="button" onclick={copyUrl}
             >{copyLabel}</button
           >
@@ -1348,6 +1359,7 @@
 
   .copy-button,
   .open-link,
+  .quiet-button,
   .icon-button {
     border: 0;
     border-radius: 8px;
@@ -1356,7 +1368,8 @@
   }
 
   .copy-button,
-  .open-link {
+  .open-link,
+  .quiet-button {
     height: 40px;
     display: inline-flex;
     align-items: center;
@@ -1371,6 +1384,17 @@
     min-width: 104px;
     background: var(--button-secondary-bg);
     color: var(--button-secondary-text);
+  }
+
+  .quiet-button {
+    min-width: 76px;
+    background: transparent;
+    color: var(--text-muted);
+  }
+
+  .quiet-button:hover {
+    background: var(--surface-button-quiet);
+    color: var(--text-heading);
   }
 
   .copy-button-secondary {
@@ -1717,7 +1741,15 @@
   .fiddle-shell :global(.switch-root:focus-visible),
   .fiddle-shell :global(.accordion-heading:focus-visible),
   .fiddle-shell :global(.theme-toggle-item:focus-visible),
-  :where(.copy-button, .open-link, .icon-button, select, .text-input, .focal-picker):focus-visible {
+  :where(
+    .copy-button,
+    .open-link,
+    .quiet-button,
+    .icon-button,
+    select,
+    .text-input,
+    .focal-picker
+  ):focus-visible {
     outline: 2px solid var(--focus-ring);
     outline-offset: 2px;
   }

@@ -71,6 +71,16 @@ export function parseDemoPath(pathname: string): DemoState {
   return state;
 }
 
+export function resetDemoSettings(currentState: DemoState): DemoState {
+  return resetCropPixelsToSource({
+    ...defaultDemoState,
+    source: currentState.source,
+    signatureMode: currentState.signatureMode,
+    signatureKey: currentState.signatureKey,
+    signatureSalt: currentState.signatureSalt,
+  });
+}
+
 export function expandedToolboxesForState(currentState: DemoState): ExpandedToolboxes {
   return {
     orientationOpen:

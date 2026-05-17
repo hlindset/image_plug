@@ -19,7 +19,12 @@ import {
   signProcessingPath,
   signedPathForState,
 } from "./processing-path";
-import { demoPathForState, parseDemoPath, expandedToolboxesForState } from "./demo-url-state";
+import {
+  demoPathForState,
+  expandedToolboxesForState,
+  parseDemoPath,
+  resetDemoSettings,
+} from "./demo-url-state";
 
 const activeDemoState = {
   ...defaultDemoState,
@@ -712,5 +717,33 @@ describe("demo URL state", () => {
     expect(parseDemoPath("/not-demo/rs:fill:640:360:0/plain/images/dog.jpg")).toEqual(
       defaultDemoState,
     );
+  });
+
+  it("resets processing options while keeping source and signature settings", () => {
+    const reset = resetDemoSettings({
+      ...defaultDemoState,
+      source: "images/beach.jpg",
+      signatureMode: "signed",
+      signatureKey: "abcd",
+      signatureSalt: "1234",
+      resizeEnabled: true,
+      gravityEnabled: true,
+      qualityEnabled: true,
+      cropEnabled: true,
+      cropWidth: 24,
+      cropHeight: 24,
+    });
+
+    expect(reset).toMatchObject({
+      ...defaultDemoState,
+      source: "images/beach.jpg",
+      signatureMode: "signed",
+      signatureKey: "abcd",
+      signatureSalt: "1234",
+      cropWidth: cropPixelLimit("images/beach.jpg", "width").max,
+      cropHeight: cropPixelLimit("images/beach.jpg", "height").max,
+    });
+    expect(optionSegments(reset)).toEqual([]);
+    expect(demoPathForState(reset)).toBe("/demo/plain/images/beach.jpg");
   });
 });
