@@ -1,6 +1,7 @@
 defmodule ImagePlug.TelemetryTest do
   use ExUnit.Case, async: false
 
+  import ExUnit.CaptureLog
   import Plug.Test
 
   alias ImagePlug.Plan
@@ -59,6 +60,19 @@ defmodule ImagePlug.TelemetryTest do
   defmodule CacheReadFailure do
     def get(_key, _opts), do: {:error, :read_failed}
     def put(_key, _entry, _opts), do: raise("cache read failure test should not write")
+  end
+
+  defmodule RaisingAfterFirstChunkImage do
+    def stream!(_image, suffix: ".jpg") do
+      Stream.resource(
+        fn -> :first end,
+        fn
+          :first -> {["first chunk"], :raise}
+          :raise -> raise "boom after first chunk"
+        end,
+        fn _state -> :ok end
+      )
+    end
   end
 
   setup do
@@ -131,8 +145,41 @@ defmodule ImagePlug.TelemetryTest do
       assert metadata.status == 200
     end)
 
+    assert_event(events, [:custom, :image, :parse, :start], fn measurements, _metadata ->
+      assert is_integer(measurements.system_time)
+    end)
+
+    assert_event(events, [:custom, :image, :parse, :stop], fn measurements, metadata ->
+      assert is_integer(measurements.duration)
+      assert metadata.result == :ok
+    end)
+
     refute_event(events, [:image_plug, :request, :start])
     refute_event(events, [:image_plug, :request, :stop])
+    refute_event(events, [:image_plug, :parse, :start])
+    refute_event(events, [:image_plug, :parse, :stop])
+  end
+
+  test "encode stop metadata reports processing error after chunked stream failure" do
+    {conn, log} =
+      with_log(fn ->
+        :get
+        |> conn("/_/f:jpeg/plain/images/beach.jpg")
+        |> ImagePlug.call(base_opts(image_module: RaisingAfterFirstChunkImage))
+      end)
+
+    assert conn.status == 200
+    assert conn.state == :chunked
+    assert conn.resp_body == "first chunk"
+    assert log =~ "boom after first chunk"
+
+    events = telemetry_events()
+
+    assert_event(events, [:image_plug, :encode, :stop], fn _measurements, metadata ->
+      assert metadata.result == :processing_error
+      assert metadata.status == 200
+      assert metadata.output_format == :jpeg
+    end)
   end
 
   test "emits request stop metadata for failures that return responses" do
@@ -285,8 +332,9 @@ defmodule ImagePlug.TelemetryTest do
   end
 
   defp custom_events do
-    for suffix <- [:start, :stop, :exception],
-        do: [:custom, :image, :request, suffix]
+    for stage <- stages(),
+        suffix <- [:start, :stop, :exception],
+        do: [:custom, :image | stage] ++ [suffix]
   end
 
   defp stages do
