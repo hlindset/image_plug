@@ -355,6 +355,19 @@ describe("processing path generation", () => {
     expect(optionSegments(state)).toEqual(["rs:fill:640:360:0", "g:fp:0.25:0.75"]);
   });
 
+  it("includes focal point global gravity without requiring resize or crop", () => {
+    const state = {
+      ...defaultDemoState,
+      gravityEnabled: true,
+      gravityMode: "focalPoint" as const,
+      gravityFocalX: 0.25,
+      gravityFocalY: 0.75,
+    };
+
+    expect(optionSegments(state)).toEqual(["g:fp:0.25:0.75"]);
+    expect(demoPathForState(state)).toBe("/demo/g:fp:0.25:0.75/plain/images/dog.jpg");
+  });
+
   it("includes offset global gravity", () => {
     const state = {
       ...defaultDemoState,
@@ -558,14 +571,14 @@ describe("processing path generation", () => {
     expect(buildProcessingPath(state)).toBe("/_/rs:fill:640:360:0/q:85/plain/images/dog.jpg");
   });
 
-  it("omits resize and gravity options when resize is disabled", () => {
+  it("keeps global gravity when resize is disabled", () => {
     const state = {
       ...activeDemoState,
       resizeEnabled: false,
     };
 
-    expect(optionSegments(state)).toEqual(["q:85"]);
-    expect(buildProcessingPath(state)).toBe("/_/q:85/plain/images/dog.jpg");
+    expect(optionSegments(state)).toEqual(["g:ce", "q:85"]);
+    expect(buildProcessingPath(state)).toBe("/_/g:ce/q:85/plain/images/dog.jpg");
   });
 
   it("does not emit an empty option segment when all tools are disabled", () => {

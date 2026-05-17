@@ -298,11 +298,7 @@ export function optionSegments(currentState: DemoState): string[] {
     }
   }
 
-  if (
-    currentState.gravityEnabled &&
-    (currentState.resizeEnabled ||
-      (currentState.cropEnabled && currentState.cropGravity === "inherit"))
-  ) {
+  if (currentState.gravityEnabled) {
     segments.push(gravitySegment(currentState));
   }
 
