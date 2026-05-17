@@ -183,8 +183,14 @@ If `telemetry_prefix` is customized, attach to that same prefix instead of
 Stage spans are coarse by design. ImagePlug does not emit per-operation
 transform spans in this pass.
 
-Image processing is backed by libvips through the `image` package, and parts of
-the pipeline may be lazy. A transform call can build or update a processing
-graph while later materialization or encoding performs the expensive work.
-Because of that, request and stage spans are the stable observability surface;
-they should not be interpreted as precise per-transform CPU timings.
+Image processing is backed by libvips through the `image` package. libvips is
+demand-driven: operation calls can do real setup and metadata work, but pixel
+evaluation may be pulled later by a sink such as materialization, cache encoding,
+or response encoding. ImagePlug also materializes inside the transform stage for
+sequential input access and between multiple pipelines, so even stage timing is
+boundary timing rather than pure CPU attribution.
+
+Because of that, request and stage spans are the stable observability surface.
+They should not be interpreted as precise per-transform CPU timings. libvips has
+lower-level progress and profiling mechanisms, but Vix does not expose them as
+per-request `:telemetry` events that ImagePlug can safely forward today.
