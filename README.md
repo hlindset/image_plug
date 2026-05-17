@@ -119,7 +119,7 @@ ImagePlug's fixed imgproxy-compatible plan order.
 - [imgproxy Path API](docs/imgproxy_path_api.md) documents URL shape, option
   parsing, conflict resolution, signing, presets, output selection, and
   imgproxy-compatible ordering.
-- [imgproxy Support Matrix](docs/imgproxy_support_matrix.md) lists supported,
+- [Imgproxy Support Matrix](docs/imgproxy_support_matrix.md) lists supported,
   partial, rejected, missing, and out-of-scope imgproxy features.
 - [Cache](docs/cache.md) documents filesystem response caching, cache keys,
   stored headers, failure modes, and cache safety boundaries.

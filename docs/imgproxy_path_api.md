@@ -12,7 +12,7 @@ options translate into `ImagePlug.Plan` operations and request fields. The
 support matrix tracks feature-by-feature coverage.
 
 For a feature-by-feature comparison with imgproxy's processing URL surface, see
-[imgproxy Support Matrix](imgproxy_support_matrix.md).
+[Imgproxy Support Matrix](imgproxy_support_matrix.md).
 
 ## Path shape
 
