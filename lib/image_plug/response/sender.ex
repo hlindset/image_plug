@@ -17,6 +17,7 @@ defmodule ImagePlug.Response.Sender do
   alias ImagePlug.Output.Format
   alias ImagePlug.Output.Resolved
   alias ImagePlug.Plan.Response
+  alias ImagePlug.Telemetry
   alias ImagePlug.Transform.State
 
   @type delivery() ::
@@ -173,6 +174,14 @@ defmodule ImagePlug.Response.Sender do
   end
 
   defp stream_encoded_image(conn, state, %Resolved{} = resolved_output, response, opts) do
+    Telemetry.span(opts, [:encode], output_metadata(resolved_output), fn ->
+      {conn, outcome} = do_stream_encoded_image(conn, state, resolved_output, response, opts)
+
+      {conn, encode_stop_metadata(outcome, conn, resolved_output)}
+    end)
+  end
+
+  defp do_stream_encoded_image(conn, state, %Resolved{} = resolved_output, response, opts) do
     image_module = Keyword.get(opts, :image_module, Image)
 
     try do
@@ -185,39 +194,48 @@ defmodule ImagePlug.Response.Sender do
           send_encoded_stream(stream, conn, mime_type, response_headers)
 
         {:error, reason} ->
-          handle_encode_exception(
-            delivery_error(reason),
-            [],
-            conn,
-            resolved_output.representation_headers
-          )
+          conn =
+            handle_encode_exception(
+              delivery_error(reason),
+              [],
+              conn,
+              resolved_output.representation_headers
+            )
+
+          {conn, :error}
       end
     rescue
       exception ->
-        handle_encode_exception(
-          exception,
-          __STACKTRACE__,
-          conn,
-          resolved_output.representation_headers
-        )
+        conn =
+          handle_encode_exception(
+            exception,
+            __STACKTRACE__,
+            conn,
+            resolved_output.representation_headers
+          )
+
+        {conn, :error}
     end
   end
 
   defp send_encoded_stream(stream, conn, mime_type, response_headers) do
     case stream_image(stream, conn, mime_type, response_headers) do
       {:ok, conn} ->
-        conn
+        {conn, :ok}
 
       {:empty, conn} ->
-        send_empty_stream_encode_error(conn, response_headers)
+        {send_empty_stream_encode_error(conn, response_headers), :error}
 
       {:chunk_error, reason, conn} ->
-        reason
-        |> stream_chunk_error()
-        |> handle_encode_exception([], conn, response_headers)
+        conn =
+          reason
+          |> stream_chunk_error()
+          |> handle_encode_exception([], conn, response_headers)
+
+        {conn, :error}
 
       {:raise, exception, stacktrace, conn} ->
-        handle_encode_exception(exception, stacktrace, conn, response_headers)
+        {handle_encode_exception(exception, stacktrace, conn, response_headers), :error}
     end
   end
 
@@ -316,17 +334,26 @@ defmodule ImagePlug.Response.Sender do
   defp handle_encode_exception(exception, stacktrace, %Plug.Conn{} = conn, response_headers) do
     Logger.error("encode_error: #{Exception.format(:error, exception, stacktrace)}")
 
-    if conn.state in [:unset, :set] do
-      send_encode_error(conn, response_headers)
-    else
-      conn
-    end
+    conn =
+      if conn.state in [:unset, :set] do
+        send_encode_error(conn, response_headers)
+      else
+        conn
+      end
+
+    mark_send_processing_error(conn)
   end
 
   defp send_empty_stream_encode_error(%Plug.Conn{} = conn, response_headers) do
     Logger.error("encode_error: image encoder produced an empty stream")
-    send_encode_error(conn, response_headers)
+
+    conn
+    |> send_encode_error(response_headers)
+    |> mark_send_processing_error()
   end
+
+  defp mark_send_processing_error(%Plug.Conn{} = conn),
+    do: Plug.Conn.put_private(conn, :image_plug_send_result, :processing_error)
 
   defp stream_chunk_error(reason) do
     RuntimeError.exception("stream chunk failed: #{inspect(reason)}")
@@ -359,4 +386,12 @@ defmodule ImagePlug.Response.Sender do
     |> put_resp_content_type("text/plain")
     |> send_resp(500, "error encoding image")
   end
+
+  defp output_metadata(%Resolved{format: format}), do: %{output_format: format}
+
+  defp encode_stop_metadata(:ok, %Plug.Conn{status: status}, %Resolved{} = resolved_output),
+    do: Map.merge(%{result: :ok, status: status}, output_metadata(resolved_output))
+
+  defp encode_stop_metadata(:error, %Plug.Conn{status: status}, %Resolved{} = resolved_output),
+    do: Map.merge(%{result: :processing_error, status: status}, output_metadata(resolved_output))
 end

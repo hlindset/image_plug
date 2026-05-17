@@ -4,6 +4,7 @@ defmodule ImagePlug.Request.Processor do
   alias ImagePlug.Plan
   alias ImagePlug.Origin.Decoded
   alias ImagePlug.Origin
+  alias ImagePlug.Telemetry
   alias ImagePlug.Transform
   alias ImagePlug.Transform.DecodePlanner
   alias ImagePlug.Transform.Materializer
@@ -24,9 +25,14 @@ defmodule ImagePlug.Request.Processor do
   @spec fetch_decode_validate_origin_with_source_format(Plan.t(), String.t(), keyword()) ::
           {:ok, Decoded.t()} | {:error, term()}
   def fetch_decode_validate_origin_with_source_format(%Plan{} = plan, origin_identity, opts) do
-    with {:ok, origin_response} <- fetch_origin(plan, origin_identity, opts) do
-      decode_validate_origin_response(origin_response, plan, opts)
-    end
+    Telemetry.span(opts, [:origin, :fetch_decode], %{}, fn ->
+      result =
+        with {:ok, origin_response} <- fetch_origin(plan, origin_identity, opts) do
+          decode_validate_origin_response(origin_response, plan, opts)
+        end
+
+      {result, fetch_decode_stop_metadata(result)}
+    end)
   end
 
   @spec decode_validate_origin_response(Origin.Response.t(), Plan.t(), keyword()) ::
@@ -52,10 +58,15 @@ defmodule ImagePlug.Request.Processor do
   @spec process_decoded_origin(Decoded.t(), Plan.t(), keyword()) ::
           {:ok, State.t()} | {:error, term()}
   def process_decoded_origin(%Decoded{} = decoded, %Plan{} = plan, opts) do
-    with {:ok, final_state} <-
-           execute_plan_pipelines(%State{image: decoded.image}, plan, opts) do
-      materialize_before_delivery(final_state, decoded.decode_options, opts)
-    end
+    Telemetry.span(opts, [:transform, :execute], %{}, fn ->
+      result =
+        with {:ok, final_state} <-
+               execute_plan_pipelines(%State{image: decoded.image}, plan, opts) do
+          materialize_before_delivery(final_state, decoded.decode_options, opts)
+        end
+
+      {result, transform_stop_metadata(result)}
+    end)
   end
 
   defp execute_plan_pipelines(
@@ -189,4 +200,17 @@ defmodule ImagePlug.Request.Processor do
   defp loader_format("webpload" <> _suffix), do: :webp
   defp loader_format("heifload" <> _suffix), do: :avif
   defp loader_format(_loader), do: nil
+
+  defp fetch_decode_stop_metadata({:ok, %Decoded{}}), do: %{result: :ok}
+
+  defp fetch_decode_stop_metadata({:error, {:origin, error}}),
+    do: %{result: :origin_error, error: Telemetry.error(error)}
+
+  defp fetch_decode_stop_metadata({:error, error}),
+    do: %{result: :processing_error, error: Telemetry.error(error)}
+
+  defp transform_stop_metadata({:ok, %State{}}), do: %{result: :ok}
+
+  defp transform_stop_metadata({:error, error}),
+    do: %{result: :processing_error, error: Telemetry.error(error)}
 end

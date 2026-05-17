@@ -49,6 +49,7 @@ defmodule ImagePlug.Cache do
           :disabled
           | {:hit, Key.t(), Entry.t()}
           | {:miss, Key.t()}
+          | {:miss, Key.t(), {:cache_read, term()}}
           | {:error, {:cache_read, term()}}
 
   @doc false
@@ -101,7 +102,8 @@ defmodule ImagePlug.Cache do
     end
   end
 
-  @spec put(Key.t(), Entry.t(), keyword()) :: :ok | :skipped | {:error, {:cache_write, term()}}
+  @spec put(Key.t(), Entry.t(), keyword()) ::
+          :ok | :skipped | {:ok, {:cache_write, term()}} | {:error, {:cache_write, term()}}
   def put(%Key{} = key, %Entry{} = entry, opts) when is_list(opts) do
     case cache_config(opts) do
       nil ->
@@ -247,7 +249,7 @@ defmodule ImagePlug.Cache do
       {:error, {:cache_read, reason}}
     else
       Logger.warning("cache read error: #{inspect(reason)}")
-      {:miss, key}
+      {:miss, key, {:cache_read, reason}}
     end
   end
 
@@ -256,7 +258,7 @@ defmodule ImagePlug.Cache do
       {:error, {:cache_write, reason}}
     else
       Logger.warning("cache write error: #{inspect(reason)}")
-      :ok
+      {:ok, {:cache_write, reason}}
     end
   end
 

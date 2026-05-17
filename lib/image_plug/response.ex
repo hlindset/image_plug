@@ -7,6 +7,7 @@ defmodule ImagePlug.Response do
       ImagePlug.Cache,
       ImagePlug.Output,
       ImagePlug.Plan,
+      ImagePlug.Telemetry,
       ImagePlug.Transform
     ],
     exports: [

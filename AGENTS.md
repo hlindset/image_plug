@@ -24,6 +24,14 @@
 - Cache behavior is part of the contract. Cache only successful encoded responses; keep keys deterministic and based on resolved origin identity, canonical plan fields, configured vary inputs, and normalized `Accept` for `format:auto`; cache errors fail open by default unless `fail_on_cache_error: true`.
 - Because this library is greenfield and unreleased, do not bump internal cache key data versions for normal feature work or cache-shape changes. Reshape the canonical key data and update tests in place unless there is an explicit compatibility requirement to read or preserve old cache entries.
 
+## Telemetry guidelines
+
+- Treat telemetry as part of the runtime observability contract. Use `:telemetry.span/3`-style `:start`, `:stop`, and `:exception` event naming for request and meaningful stage spans.
+- Keep telemetry metadata low-cardinality, product-neutral, and safe by default. Do not emit full request paths, origin URLs, signatures, filenames, parser-specific structs, transform internals, or cache adapter internals unless an explicit opt-in is designed and documented.
+- Keep backend integrations out of the library. Emit telemetry events only; host applications should attach AppSignal, OpenTelemetry, metrics, or logging handlers themselves.
+- Prefer shared telemetry helpers over ad hoc event emission so naming, measurements, metadata merging, and exception behavior stay consistent.
+- Do not add per-operation transform spans unless the timing semantics are explicitly designed; libvips operations may be lazy, so stage spans are usually more honest than operation-level timings.
+
 ## Namespace boundary guidelines
 
 - Keep the canonical request model under `ImagePlug.Plan.*`.

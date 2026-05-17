@@ -12,6 +12,7 @@ defmodule ImagePlug.Request.Runner do
   alias ImagePlug.Plan.Response
   alias ImagePlug.Origin.Decoded
   alias ImagePlug.Request.Processor
+  alias ImagePlug.Telemetry
   alias ImagePlug.Transform
   alias ImagePlug.Transform.State
 
@@ -54,14 +55,18 @@ defmodule ImagePlug.Request.Runner do
   end
 
   defp run_with_cache_config(conn, plan, origin_identity, opts) do
-    case Keyword.get(opts, :cache) do
-      nil -> process_uncached(conn, plan, origin_identity, opts)
-      _cache -> run_with_cache(conn, plan, origin_identity, opts)
-    end
-  end
+    result =
+      Telemetry.span(opts, [:cache, :lookup], cache_lookup_metadata(opts), fn ->
+        result =
+          case Keyword.get(opts, :cache) do
+            nil -> :disabled
+            _cache -> Cache.lookup(conn, plan, origin_identity, opts)
+          end
 
-  defp run_with_cache(conn, plan, origin_identity, opts) do
-    case Cache.lookup(conn, plan, origin_identity, opts) do
+        {result, cache_lookup_stop_metadata(result)}
+      end)
+
+    case result do
       :disabled ->
         process_uncached(conn, plan, origin_identity, opts)
 
@@ -69,6 +74,9 @@ defmodule ImagePlug.Request.Runner do
         handle_cache_hit(conn, plan, origin_identity, key, entry, opts)
 
       {:miss, %Key{} = key} ->
+        process_cache_miss(conn, plan, origin_identity, key, opts)
+
+      {:miss, %Key{} = key, {:cache_read, _error}} ->
         process_cache_miss(conn, plan, origin_identity, key, opts)
 
       {:error, {:cache_read, error}} ->
@@ -119,11 +127,7 @@ defmodule ImagePlug.Request.Runner do
   end
 
   defp store_cache_entry(%Key{} = key, %State{} = state, %Resolved{} = resolved_output, opts) do
-    case Encoder.memory_output(
-           state.image,
-           resolved_output,
-           Keyword.put(opts, :max_body_bytes, Cache.max_body_bytes(opts))
-         ) do
+    case encode_cache_entry(state, resolved_output, opts) do
       {:ok, output} ->
         output
         |> cache_entry(resolved_output.representation_headers)
@@ -135,6 +139,19 @@ defmodule ImagePlug.Request.Runner do
       {:error, _reason} = error ->
         error
     end
+  end
+
+  defp encode_cache_entry(%State{} = state, %Resolved{} = resolved_output, opts) do
+    Telemetry.span(opts, [:encode], output_metadata(resolved_output), fn ->
+      result =
+        Encoder.memory_output(
+          state.image,
+          resolved_output,
+          Keyword.put(opts, :max_body_bytes, Cache.max_body_bytes(opts))
+        )
+
+      {result, encode_stop_metadata(result, resolved_output)}
+    end)
   end
 
   defp cache_entry(output, response_headers) do
@@ -150,8 +167,14 @@ defmodule ImagePlug.Request.Runner do
   end
 
   defp put_cache_entry({:ok, entry}, key, opts) do
-    case Cache.put(key, entry, opts) do
+    Telemetry.span(opts, [:cache, :write], %{}, fn ->
+      result = Cache.put(key, entry, opts)
+
+      {result, cache_write_stop_metadata(result)}
+    end)
+    |> case do
       :ok -> {:ok, entry}
+      {:ok, {:cache_write, _error}} -> {:ok, entry}
       :skipped -> :skipped
       {:error, _reason} = error -> error
     end
@@ -168,12 +191,18 @@ defmodule ImagePlug.Request.Runner do
        ) do
     policy = Policy.from_output_plan(conn, plan.output, opts)
 
-    case Policy.resolve(policy, nil) do
-      {:ok, %Resolved{} = resolved_output} ->
-        process_origin_with_output(plan, origin_identity, opts, resolved_output)
-
-      {:error, :source_format_required} ->
+    case Policy.resolve_before_origin(policy) do
+      :needs_source_format ->
         process_source_format_automatic(plan, origin_identity, opts, policy)
+
+      _selection ->
+        case resolve_output(policy, nil, plan.output, opts) do
+          {:ok, %Resolved{} = resolved_output} ->
+            process_origin_with_output(plan, origin_identity, opts, resolved_output)
+
+          {:error, error} ->
+            {:error, error, policy.headers}
+        end
     end
   end
 
@@ -185,7 +214,7 @@ defmodule ImagePlug.Request.Runner do
        ) do
     policy = Policy.from_output_plan(conn, plan.output, opts)
 
-    case Policy.resolve(policy, format) do
+    case resolve_output(policy, format, plan.output, opts) do
       {:ok, %Resolved{} = resolved_output} ->
         process_origin_with_output(plan, origin_identity, opts, resolved_output)
 
@@ -225,7 +254,7 @@ defmodule ImagePlug.Request.Runner do
   end
 
   defp resolve_source_format_automatic(%Decoded{} = decoded, plan, opts, policy) do
-    case Policy.resolve(policy, decoded.source_format) do
+    case resolve_output(policy, decoded.source_format, plan.output, opts) do
       {:ok, %Resolved{} = resolved_output} ->
         process_decoded_origin_with_output(decoded, plan, opts, resolved_output)
 
@@ -233,4 +262,67 @@ defmodule ImagePlug.Request.Runner do
         {:error, error, policy.headers}
     end
   end
+
+  defp resolve_output(policy, source_format, %Output{} = output, opts) do
+    Telemetry.span(opts, [:output, :negotiate], output_plan_metadata(output), fn ->
+      result = Policy.resolve(policy, source_format)
+
+      {result, output_stop_metadata(result, output)}
+    end)
+  end
+
+  defp cache_lookup_metadata(opts) do
+    cache =
+      case Keyword.get(opts, :cache) do
+        nil -> :disabled
+        _cache -> nil
+      end
+
+    %{cache: cache}
+  end
+
+  defp cache_lookup_stop_metadata(:disabled), do: %{result: :ok, cache: :disabled}
+  defp cache_lookup_stop_metadata({:hit, %Key{}, %Entry{}}), do: %{result: :ok, cache: :hit}
+  defp cache_lookup_stop_metadata({:miss, %Key{}}), do: %{result: :ok, cache: :miss}
+
+  defp cache_lookup_stop_metadata({:miss, %Key{}, {:cache_read, error}}),
+    do: %{result: :cache_error, cache: :read_error, error: Telemetry.error(error)}
+
+  defp cache_lookup_stop_metadata({:error, {:cache_read, error}}),
+    do: %{result: :cache_error, cache: :read_error, error: Telemetry.error(error)}
+
+  defp cache_write_stop_metadata(:ok), do: %{result: :ok}
+  defp cache_write_stop_metadata(:skipped), do: %{result: :ok, cache: :write_skipped}
+
+  defp cache_write_stop_metadata({:ok, {:cache_write, error}}),
+    do: %{result: :cache_error, cache: :write_error, error: Telemetry.error(error)}
+
+  defp cache_write_stop_metadata({:error, {:cache_write, error}}),
+    do: %{result: :cache_error, cache: :write_error, error: Telemetry.error(error)}
+
+  defp output_plan_metadata(%Output{mode: :automatic}), do: %{output_mode: :automatic}
+
+  defp output_plan_metadata(%Output{mode: {:explicit, format}}),
+    do: %{output_mode: :explicit, output_format: format}
+
+  defp output_stop_metadata({:ok, %Resolved{} = resolved_output}, %Output{}),
+    do: Map.merge(%{result: :ok}, output_metadata(resolved_output))
+
+  defp output_stop_metadata({:error, error}, %Output{}),
+    do: %{result: :processing_error, error: Telemetry.error(error)}
+
+  defp output_metadata(%Resolved{format: format}), do: %{output_format: format}
+
+  defp encode_stop_metadata({:ok, _output}, %Resolved{} = resolved_output),
+    do: Map.merge(%{result: :ok}, output_metadata(resolved_output))
+
+  defp encode_stop_metadata(:too_large, %Resolved{} = resolved_output),
+    do: Map.merge(%{result: :ok, cache: :write_skipped}, output_metadata(resolved_output))
+
+  defp encode_stop_metadata({:error, error}, %Resolved{} = resolved_output),
+    do:
+      Map.merge(
+        %{result: :processing_error, error: Telemetry.error(error)},
+        output_metadata(resolved_output)
+      )
 end
