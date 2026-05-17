@@ -105,10 +105,6 @@ preset group to the current URL pipeline group. It queues later preset groups
 for following URL groups, where URL options can override queued preset fields.
 Remaining queued groups become trailing pipelines.
 
-This slice doesn't support presets-only mode, info endpoint presets,
-`IMGPROXY_PRESETS`, `IMGPROXY_PRESETS_SEPARATOR`, `IMGPROXY_PRESETS_PATH`,
-preset file loading, or custom argument separators.
-
 ## Supported options and aliases
 
 | Concept | Options | Accepted values |
