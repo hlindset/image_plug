@@ -279,13 +279,8 @@ flatten the current image over an opaque sRGB color after padding. Decimal
 channels are `0..255`. Hex accepts 3 digit RGB and 6 digit RRGGBB forms.
 `background:` clears an earlier background value in the same resolved request.
 
-Background flattening is separate from canvas and padding fill. Canvas and
-padding create transparent areas. Explicit background then flattens those areas
-and any source alpha over the requested color.
-
-ImagePlug's imgproxy planner fixes composition order as canvas extension,
-padding, then background flattening. URL option order only determines final
-field assignment.
+ImagePlug applies canvas extension before padding, and applies `background`
+after both.
 
 ## Output format and quality
 
