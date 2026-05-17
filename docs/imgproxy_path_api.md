@@ -330,7 +330,6 @@ lookup.
 | Unknown preset | HTTP 400 before origin fetch/cache lookup |
 | Recursive preset reference | ImagePlug skips recursive re-entry and keeps remaining reachable options |
 | Unsupported option inside a used preset | HTTP 400 before origin fetch/cache lookup |
-| Duplicate canonical field | Last value wins |
 
 ## Examples
 
