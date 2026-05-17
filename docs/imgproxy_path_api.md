@@ -49,7 +49,7 @@ imgproxy canonical semantic operation order inside each pipeline group is:
 1. orientation (`auto_orient`, `rotate`, `flip`)
 2. explicit crop
 3. resize intent, including `mode: :auto`
-4. result crop for fill/fill-down/auto target geometry
+4. result crop for `fill`, `fill-down`, and `auto` target geometry
 5. canvas extension
 6. padding
 7. background flattening
@@ -113,8 +113,8 @@ This slice doesn't support presets-only mode, info endpoint presets, `IMGPROXY_P
 | Resize tuple | `resize`, `rs` | `:<resizing_type>:<width>:<height>:<enlarge>:<extend>[:<extend_gravity>[:<x_offset>:<y_offset>]]` with trailing arguments optional |
 | Size tuple | `size`, `s` | `:<width>:<height>:<enlarge>:<extend>[:<extend_gravity>[:<x_offset>:<y_offset>]]` with trailing arguments optional |
 | Resizing type | `resizing_type`, `rt` | `fit`, `fill`, `fill-down`, `force`, `auto` |
-| Width | `width`, `w` | non-negative pixel integer; `0` means auto |
-| Height | `height`, `h` | non-negative pixel integer; `0` means auto |
+| Width | `width`, `w` | non-negative pixel integer; `0` means `auto` |
+| Height | `height`, `h` | non-negative pixel integer; `0` means `auto` |
 | Minimum width | `min-width`, `min_width`, `mw` | non-negative pixel integer |
 | Minimum height | `min-height`, `min_height`, `mh` | non-negative pixel integer |
 | Enlarge | `enlarge`, `el` | boolean: `1`, `t`, `true`, `0`, `f`, `false` |
@@ -146,20 +146,32 @@ Resize and size tuple extend-gravity tails accept anchor gravity alone or anchor
 
 Supported resizing types are `fit`, `fill`, `fill-down`, `force`, and `auto`.
 
-Zero dimensions map to `auto`. For `force`, an auto side preserves the source dimension. For `fit` and proportional resize rules, an auto side is resolved from source aspect ratio. Min dimensions, zoom, DPR, and `enlarge` are applied when target dimensions are computed during transform execution.
+Zero dimensions map to `auto`. For `force`, an `auto` side preserves the
+source dimension. For `fit` and proportional resize rules, an `auto` side is
+resolved from source aspect ratio. Min dimensions, zoom, DPR, and `enlarge` are
+applied when target dimensions are computed during transform execution.
 
-`auto` is cache-keyed as semantic resize intent with `mode: :auto`. It stays unresolved in final cache key data; after a cache miss, current dimensions at that point in the Plan derive the selected fit or cover branch. Matching current and target orientation derives cover, differing orientation derives fit, and unknown target orientation derives fit.
+`auto` is cache-keyed as semantic resize intent with `mode: :auto`. It stays
+unresolved in final cache key data; after a cache miss, current dimensions at
+that point in the Plan derive the selected `fit` or `cover` branch. Matching
+current and target orientation derives `cover`, differing orientation derives
+`fit`, and unknown target orientation derives `fit`.
 
 `rt:force/w:0/h:200` preserves source width and forces height to `200`.
 `rt:force/w:300/h:0` forces width to `300` and preserves source height.
 
-Fit/fill with both sides zero produces no geometry transform unless min dimensions or another meaningful size constraint is present. Zoom and DPR don't force raster enlargement for zero-dimension auto sides when `enlarge` is false.
+`fit`/`fill` with both sides zero produces no geometry transform unless min
+dimensions or another meaningful size constraint is present. Zoom and DPR don't
+force raster enlargement for zero-dimension `auto` sides when `enlarge` is
+false.
 
 ## Crop And Gravity
 
 Crop accepts dimensions and optional crop gravity. If an explicit crop omits gravity, it inherits top-level `g`/`gravity`.
 
-Top-level `g`/`gravity` applies to result crops produced by fill, fill-down, and auto resize planning. Crop-specific gravity overrides top-level gravity for that crop.
+Top-level `g`/`gravity` applies to result crops produced by `fill`,
+`fill-down`, and `auto` resize planning. Crop-specific gravity overrides
+top-level gravity for that crop.
 
 Gravity supports anchors and focal points. Focal point gravity uses `fp:x:y`, where `x` and `y` are normalized coordinates from `0.0` to `1.0`.
 
@@ -252,7 +264,11 @@ Supported explicit output extensions are `webp`, `avif`, `jpeg`, `jpg`, `png`, a
 
 `cachebuster`/`cb` changes cache key data without adding transform operations. `expires`/`exp` is a Unix timestamp request validity policy.
 
-Final cache lookup is source-fetch-free: it's built from Plan operation key data, resolved origin identity/freshness data, output/config/vary key data, and the cache key's transform key data version. It doesn't fetch, decode, or read source metadata. Source-aware execution choices such as `mode: :auto` selecting fit or cover don't enter the normal final cache key.
+Final cache lookup is source-fetch-free: it's built from Plan operation key
+data, resolved origin identity/freshness data, output/config/vary key data, and
+the cache key's transform key data version. It doesn't fetch, decode, or read
+source metadata. Source-aware execution choices such as `mode: :auto` selecting
+`fit` or `cover` don't enter the normal final cache key.
 
 Only successful encoded responses are cached. Rejected imgproxy requests return before origin fetch and cache lookup.
 
@@ -277,7 +293,11 @@ Unsupported imgproxy options aren't silently ignored. Options outside this suppo
 
 Unsupported examples include `raw`, `max_bytes`, `max_src_resolution`, `max_src_file_size`, `crop_aspect_ratio`, `format:auto`, `g:sm`, and `c:<width>:<height>:sm`.
 
-Crop combined with auto-orient is supported and planned in imgproxy canonical order. Top-level gravity offsets are supported for result crops. `force` resize with one zero dimension is supported by preserving the source dimension for the auto side. Explicit crop gravity variants, including focal-point crop gravity, are supported. Explicit crop without its own gravity inherits top-level gravity.
+Crop combined with auto-orient is supported and planned in imgproxy canonical
+order. Top-level gravity offsets are supported for result crops. `force` resize
+with one zero dimension is supported by preserving the source dimension for the
+`auto` side. Explicit crop gravity variants, including focal-point crop gravity,
+are supported. Explicit crop without its own gravity inherits top-level gravity.
 
 SVG/vector-specific imgproxy parity is out of scope for this imgproxy documentation pass.
 
