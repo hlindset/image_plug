@@ -290,9 +290,9 @@ from `Accept` and sets `Vary: Accept`. To force a format, use `format`, `f`,
 bypass `Accept` negotiation and don't set `Vary: Accept`.
 
 ImagePlug supports `webp`, `avif`, `jpeg`/`jpg`, and `png` as explicit output
-extensions. It normalizes `jpg` to `jpeg`. If a request includes both an option
-format and source `@extension`, source `@extension` wins. The imgproxy `best`
-format parses, but planning rejects it in this slice.
+extensions. If a request includes both an option format and source `@extension`,
+source `@extension` wins. The imgproxy `best` format parses, but planning
+rejects it in this slice.
 
 Quality has two separate controls: `quality`/`q` sets generic output quality,
 while `format_quality`/`fq` sets quality for one explicit format. In either
