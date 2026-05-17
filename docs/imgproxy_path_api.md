@@ -149,13 +149,13 @@ preset file loading, or custom argument separators.
 | Flip | `flip`, `fl` | omitted for both axes, one boolean for horizontal, or horizontal and vertical booleans |
 | Quality | `quality`, `q` | integer quality; `0` means configured default |
 | Format quality | `format_quality`, `fq` | `<format>:<quality>` |
-| Format | `format`, `f`, `ext` | `webp`, `avif`, `jpeg`/`jpg`, `png`; `best` parses but planning rejects it |
+| Format | `format`, `f`, `ext` | `webp`, `avif`, `jpeg`/`jpg`, `png` |
 | cachebuster | `cachebuster`, `cb` | string value |
 | Expires | `expires`, `exp` | Unix timestamp integer |
 | Filename | `filename`, `fn` | filename stem, optional encoded flag |
 | Attachment disposition | `return_attachment`, `att` | boolean |
 | Preset | `preset`, `pr` | one or more configured preset names |
-| Plain source output extension | source path `@extension` | `webp`, `avif`, `jpeg`/`jpg`, `png`; `best` parses but planning rejects it |
+| Plain source output extension | source path `@extension` | `webp`, `avif`, `jpeg`/`jpg`, `png` |
 
 ## Resize and dimensions
 
@@ -291,8 +291,7 @@ bypass `Accept` negotiation and don't set `Vary: Accept`.
 
 ImagePlug supports `webp`, `avif`, `jpeg`/`jpg`, and `png` as explicit output
 extensions. If a request includes both an option format and source `@extension`,
-source `@extension` wins. The imgproxy `best` format parses, but planning
-rejects it in this slice.
+source `@extension` wins.
 
 Quality has two separate controls: `quality`/`q` sets generic output quality,
 while `format_quality`/`fq` sets quality for one explicit format. In either
