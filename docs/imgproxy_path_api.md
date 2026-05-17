@@ -47,15 +47,13 @@ order. ImagePlug ignores empty pipeline groups.
 
 imgproxy canonical semantic operation order inside each pipeline group is:
 
-1. orientation (`auto_orient`, `rotate`, `flip`)
+1. orientation, in `auto_orient`, `rotate`, then `flip` order
 2. explicit crop
 3. resize intent, including `mode: :auto`
 4. result crop for `fill`, `fill-down`, and `auto` target geometry
 5. canvas extension
 6. padding
 7. background flattening
-
-Orientation suborder is auto-orient, rotate, then flip.
 
 ## Option ordering and conflict resolution
 
