@@ -40,6 +40,7 @@
   --text-label: #d6deea;
   --text-muted: #8fa0b3;
   --accent: #ffb84d;
+  --danger: #ff6b6b;
   --button-primary-bg: var(--accent);
   --button-primary-text: #0b0d10;
   --button-secondary-bg: var(--text-primary);
@@ -68,6 +69,7 @@
   --text-label: #2e3744;
   --text-muted: #687586;
   --accent: #d48100;
+  --danger: #c62828;
   --button-primary-bg: var(--accent);
   --button-primary-text: #100b04;
   --button-secondary-bg: #11151b;
@@ -97,6 +99,7 @@
     --text-label: #2e3744;
     --text-muted: #687586;
     --accent: #d48100;
+    --danger: #c62828;
     --button-primary-bg: var(--accent);
     --button-primary-text: #100b04;
     --button-secondary-bg: #11151b;

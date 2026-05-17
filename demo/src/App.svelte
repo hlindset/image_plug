@@ -14,7 +14,6 @@
     defaultDemoState,
     focalPointFromBounds,
     gravitySegment,
-    imageRequestBytesFromPerformance,
     processedSizeLabel,
     resizeOptionSegment,
     resetCropPixelsToSource,
@@ -42,24 +41,32 @@
   let themeMode: ThemeMode = readStoredThemeMode();
   let state: DemoState = { ...defaultDemoState };
   let path = buildProcessingPath(state);
-  let previewPath = buildProcessingPath(state);
-  let previewLoading = false;
+  let previewPath = "";
+  let previewImageUrl: string | null = null;
+  let previewLoading = true;
+  let previewError: string | null = null;
   let processedMetadata: ProcessedImageMetadata | null = null;
   let metadataRequestId = 0;
   let pathRequestId = 0;
   let signingError: string | null = null;
   let focalPickerSurface: HTMLSpanElement | null = null;
+  let toolsSidebar: HTMLElement | null = null;
   let menuButton: HTMLButtonElement | null = null;
+  let drawerCloseButton: HTMLButtonElement | null = null;
   let copyLabelResetTimeout: number | null = null;
+  let activePreviewObjectUrl: string | null = null;
+  let previewAbortController: AbortController | null = null;
   const updatePreviewPath = debounce((nextPath: string) => {
     if (nextPath !== previewPath) {
       processedMetadata = null;
+      previewError = null;
       metadataRequestId += 1;
       previewLoading = true;
     }
 
-    previewPath = nextPath;
+    void loadPreview(nextPath);
   }, 150);
+  const previewAcceptHeader = "image/avif,image/webp,image/apng,image/svg+xml,image/*,*/*;q=0.8";
 
   onMount(() => {
     const mediaQuery = window.matchMedia("(max-width: 720px)");
@@ -70,7 +77,11 @@
     syncMobileTools();
     mediaQuery.addEventListener("change", syncMobileTools);
 
-    return () => mediaQuery.removeEventListener("change", syncMobileTools);
+    return () => {
+      mediaQuery.removeEventListener("change", syncMobileTools);
+      previewAbortController?.abort();
+      revokePreviewObjectUrl();
+    };
   });
 
   $: updateProcessingPath(state);
@@ -79,7 +90,7 @@
   $: persistThemeMode(themeMode);
   $: previewParameters = path.replace(/^\/[^/]+\//, "");
   $: outputLabel = resolvedOutputLabel(state, processedMetadata);
-  $: sizeLabel = processedSizeLabel(processedMetadata);
+  $: sizeLabel = previewError ?? processedSizeLabel(processedMetadata);
   $: requestSummary = `${state.source.replace(/^images\//, "")} / ${requestSignatureLabel(
     state,
     signingError,
@@ -168,61 +179,112 @@
       });
   }
 
-  async function updateProcessedMetadata(event: Event): Promise<void> {
-    const image = event.currentTarget;
-
-    if (!(image instanceof HTMLImageElement)) {
-      return;
-    }
-
+  async function loadPreview(nextPath: string): Promise<void> {
     const requestId = ++metadataRequestId;
-    const imagePath = image.currentSrc || image.src;
-    const dimensions = {
-      width: image.naturalWidth,
-      height: image.naturalHeight,
-    };
+    previewAbortController?.abort();
+    const abortController = new AbortController();
+    let objectUrl: string | null = null;
 
-    previewLoading = false;
-    processedMetadata = { ...dimensions, bytes: null, contentType: null };
-
-    const timingBytes = imageRequestBytesFromPerformance(
-      imagePath,
-      performance.getEntriesByType("resource") as PerformanceResourceTiming[],
-    );
+    previewAbortController = abortController;
+    previewPath = nextPath;
+    previewLoading = true;
+    previewError = null;
+    processedMetadata = null;
 
     try {
-      const response = await fetch(imagePath, { cache: "force-cache" });
+      const response = await fetch(nextPath, {
+        cache: "no-cache",
+        headers: { accept: previewAcceptHeader },
+        signal: abortController.signal,
+      });
       const contentType = response.headers.get("content-type");
 
-      if (timingBytes !== null) {
+      if (!response.ok) {
+        const message = await previewErrorFromResponse(response);
+
         if (requestId === metadataRequestId) {
-          processedMetadata = { ...dimensions, bytes: timingBytes, contentType };
+          previewLoading = false;
+          previewError = message;
+          processedMetadata = null;
         }
 
         return;
       }
 
       const blob = await response.blob();
+      objectUrl = URL.createObjectURL(blob);
+      const dimensions = await imageDimensions(objectUrl);
 
       if (requestId === metadataRequestId) {
+        revokePreviewObjectUrl();
+        activePreviewObjectUrl = objectUrl;
+        previewImageUrl = objectUrl;
+        previewLoading = false;
         processedMetadata = {
           ...dimensions,
           bytes: blob.size,
           contentType: contentType ?? blob.type ?? null,
         };
+        objectUrl = null;
+      } else {
+        URL.revokeObjectURL(objectUrl);
+        objectUrl = null;
       }
-    } catch {
+    } catch (error) {
+      if (objectUrl !== null) {
+        URL.revokeObjectURL(objectUrl);
+      }
+
+      if (error instanceof DOMException && error.name === "AbortError") {
+        return;
+      }
+
       if (requestId === metadataRequestId) {
-        processedMetadata = { ...dimensions, bytes: timingBytes, contentType: null };
+        previewLoading = false;
+        previewError = previewErrorMessage(error);
+        processedMetadata = null;
+      }
+    } finally {
+      if (previewAbortController === abortController) {
+        previewAbortController = null;
       }
     }
   }
 
-  function markPreviewLoaded(event: Event): void {
-    const image = event.currentTarget;
+  async function previewErrorFromResponse(response: Response): Promise<string> {
+    const status = `${response.status} ${response.statusText || "Preview request failed"}`;
 
-    if (image instanceof HTMLImageElement && image.getAttribute("src") === previewPath) {
-      previewLoading = false;
+    try {
+      const body = (await response.text()).trim();
+
+      if (body !== "") {
+        return `${status}: ${body.slice(0, 180)}`;
+      }
+    } catch {
+      return status;
+    }
+
+    return status;
+  }
+
+  function previewErrorMessage(error: unknown): string {
+    return error instanceof Error ? error.message : "Preview request failed";
+  }
+
+  function imageDimensions(objectUrl: string): Promise<{ width: number; height: number }> {
+    return new Promise((resolve, reject) => {
+      const image = new Image();
+
+      image.onload = () => resolve({ width: image.naturalWidth, height: image.naturalHeight });
+      image.onerror = () => reject(new Error("Preview image could not be decoded"));
+      image.src = objectUrl;
+    });
+  }
+
+  function revokePreviewObjectUrl(): void {
+    if (activePreviewObjectUrl !== null) {
+      URL.revokeObjectURL(activePreviewObjectUrl);
+      activePreviewObjectUrl = null;
     }
   }
 
@@ -333,6 +395,56 @@
       window.requestAnimationFrame(() => menuButton?.focus());
     }
   }
+
+  function openTools(): void {
+    drawerOpen = true;
+
+    if (mobileTools) {
+      window.requestAnimationFrame(() => drawerCloseButton?.focus());
+    }
+  }
+
+  function handleToolsKeydown(event: KeyboardEvent): void {
+    if (!mobileTools || !drawerOpen) {
+      return;
+    }
+
+    if (event.key === "Escape") {
+      event.preventDefault();
+      closeTools();
+      return;
+    }
+
+    if (event.key === "Tab") {
+      trapDrawerFocus(event);
+    }
+  }
+
+  function trapDrawerFocus(event: KeyboardEvent): void {
+    if (toolsSidebar === null) {
+      return;
+    }
+
+    const focusableElements = Array.from(
+      toolsSidebar.querySelectorAll<HTMLElement>(
+        'a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])',
+      ),
+    ).filter((element) => element.getClientRects().length > 0 && element.tabIndex >= 0);
+    const firstElement = focusableElements[0];
+    const lastElement = focusableElements.at(-1);
+
+    if (firstElement === undefined || lastElement === undefined) {
+      return;
+    }
+
+    if (event.shiftKey && document.activeElement === firstElement) {
+      event.preventDefault();
+      lastElement.focus();
+    } else if (!event.shiftKey && document.activeElement === lastElement) {
+      event.preventDefault();
+      firstElement.focus();
+    }
+  }
 </script>
 
 <main class="fiddle-shell">
@@ -352,10 +464,18 @@
     aria-label="Processing controls"
     aria-hidden={mobileTools && !drawerOpen ? "true" : "false"}
     inert={mobileTools && !drawerOpen}
+    bind:this={toolsSidebar}
+    onkeydown={handleToolsKeydown}
   >
     <div class="drawer-topbar">
       <strong>Tools</strong>
-      <button class="icon-button" type="button" aria-label="Close tools" onclick={closeTools}>
+      <button
+        class="icon-button"
+        type="button"
+        aria-label="Close tools"
+        bind:this={drawerCloseButton}
+        onclick={closeTools}
+      >
         ×
       </button>
     </div>
@@ -869,14 +989,19 @@
     </div>
   </aside>
 
-  <section class="preview-workspace" aria-label="Processed image preview">
+  <section
+    class="preview-workspace"
+    aria-label="Processed image preview"
+    aria-hidden={mobileTools && drawerOpen ? "true" : "false"}
+    inert={mobileTools && drawerOpen}
+  >
     <header class="preview-command-bar">
       <button
         class="icon-button menu-button"
         type="button"
         aria-label="Open tools"
         bind:this={menuButton}
-        onclick={() => (drawerOpen = true)}
+        onclick={openTools}
       >
         ☰
       </button>
@@ -931,15 +1056,18 @@
       </div>
       <div class="image-frame">
         <figure>
-          <img
-            class:is-loading={previewLoading}
-            src={previewPath}
-            alt="Processed sample source"
-            onload={updateProcessedMetadata}
-            onerror={markPreviewLoaded}
-          />
+          {#if previewImageUrl !== null}
+            <img
+              class:is-loading={previewLoading}
+              src={previewImageUrl}
+              alt="Processed sample source"
+            />
+          {/if}
         </figure>
       </div>
+      {#if previewError !== null}
+        <div class="preview-error" role="status">{previewError}</div>
+      {/if}
       {#if previewLoading}
         <div class="preview-spinner" role="status" aria-label="Loading preview"></div>
       {/if}
@@ -1286,6 +1414,24 @@
     pointer-events: none;
     transform: translate(-50%, -50%);
     animation: preview-spin 650ms linear infinite;
+  }
+
+  .preview-error {
+    position: absolute;
+    z-index: 2;
+    inset-inline: 28px;
+    inset-block-start: 28px;
+    max-width: min(640px, calc(100% - 56px));
+    border: 1px solid color-mix(in srgb, var(--danger) 42%, transparent);
+    border-radius: 8px;
+    background: color-mix(in srgb, var(--surface-bar) 92%, transparent);
+    color: var(--danger);
+    font-family: var(--font-mono);
+    font-size: 12px;
+    line-height: 16px;
+    padding: 10px 12px;
+    text-wrap: pretty;
+    box-shadow: var(--image-shadow);
   }
 
   @keyframes preview-spin {
