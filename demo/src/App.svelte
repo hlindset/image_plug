@@ -23,6 +23,7 @@
     resolvedOutputLabel,
     type DemoState,
     type ProcessedImageMetadata,
+    type SourceImage,
   } from "./processing-path";
   import {
     applyThemeMode,
@@ -388,6 +389,19 @@
     if (enabled) {
       state = resetCropPixelsToSource(state);
     }
+  }
+
+  function updateSource(event: Event): void {
+    const select = event.currentTarget;
+
+    if (!(select instanceof HTMLSelectElement)) {
+      return;
+    }
+
+    state = resetCropPixelsToSource({
+      ...state,
+      source: select.value as SourceImage,
+    });
   }
 
   function setThemeMode(nextMode: string): void {
@@ -945,7 +959,7 @@
           <Collapsible.Content class="collapsible-content">
             <label class="field">
               <span>Source image</span>
-              <select bind:value={state.source}>
+              <select value={state.source} onchange={updateSource}>
                 {#each sampleImages as image}
                   <option value={image.path}>{image.label}</option>
                 {/each}

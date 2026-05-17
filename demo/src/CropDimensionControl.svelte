@@ -8,19 +8,22 @@
   export let percent: number;
   export let maxPixels = 1200;
 
+  let activeValue = unit === "percent" ? percent : pixels;
+  let min = unit === "percent" ? controlLimits.crop.percent.min : 1;
+  let max = unit === "percent" ? controlLimits.crop.percent.max : maxPixels;
+  let suffix = unit === "percent" ? "%" : "px";
+
   $: activeValue = unit === "percent" ? percent : pixels;
   $: min = unit === "percent" ? controlLimits.crop.percent.min : 1;
   $: max = unit === "percent" ? controlLimits.crop.percent.max : maxPixels;
   $: suffix = unit === "percent" ? "%" : "px";
-  $: if (unit === "px" && pixels !== clamp(pixels)) {
-    pixels = clamp(pixels);
-  }
-  $: if (unit === "percent" && percent !== clamp(percent)) {
-    percent = clamp(percent);
-  }
 
   function clamp(value: number): number {
     return Math.min(Math.max(value, min), max);
+  }
+
+  function sliderPosition(value: number): number {
+    return clamp(value);
   }
 
   function selectNumber(event: FocusEvent): void {
@@ -82,7 +85,7 @@
       {min}
       {max}
       step={1}
-      value={activeValue}
+      value={sliderPosition(activeValue)}
       onValueChange={setActiveValue}
       onValueCommit={setActiveValue}
     >
