@@ -149,7 +149,7 @@ preset file loading, or custom argument separators.
 | Flip | `flip`, `fl` | omitted for both axes, one boolean for horizontal, or horizontal and vertical booleans |
 | Quality | `quality`, `q` | integer quality; `0` means configured default |
 | Format quality | `format_quality`, `fq` | `<format>:<quality>` |
-| Format | `format`, `f`, `ext` | `webp`, `avif`, `jpeg`, `jpg`, `png`, `best`; `jpg` normalizes to JPEG |
+| Format | `format`, `f`, `ext` | `webp`, `avif`, `jpeg`, `jpg`, `png`, `best`; `jpg` normalizes to `jpeg` |
 | cachebuster | `cachebuster`, `cb` | string value |
 | Expires | `expires`, `exp` | Unix timestamp integer |
 | Filename | `filename`, `fn` | filename stem, optional encoded flag |
@@ -286,20 +286,20 @@ after both.
 
 Omitting an explicit output format enables automatic output negotiation.
 
-Requests can set explicit output formats with `format`, `f`, `ext`, or
-plain-source `@extension`. Explicit formats and `@extension` bypass `Accept`
-negotiation and don't set `Vary: Accept`.
+Requests can set explicit output formats with `format`, `f`, `ext`, or with
+`@extension` at the end of the plain-source path. Explicit formats and
+`@extension` bypass `Accept` negotiation and don't set `Vary: Accept`.
 
 When both an option format and source `@extension` are present, source
 `@extension` overrides any explicit format option.
 
 Supported explicit output extensions are `webp`, `avif`, `jpeg`, `jpg`, `png`,
-and `best`. `jpg` normalizes to JPEG. Planning rejects `best` in this imgproxy
+and `best`. `jpg` normalizes to `jpeg`. Planning rejects `best` in this imgproxy
 slice.
 
-`quality`/`q` set generic output quality. `format_quality`/`fq` set quality for
-one explicit format and should stay separate from generic quality. `0` resets
-quality to the configured default.
+The `quality`/`q` option sets generic output quality. The
+`format_quality`/`fq` option sets quality for one explicit format and stays
+separate from generic quality. `0` resets quality to the configured default.
 
 ## Cache and expiry
 
