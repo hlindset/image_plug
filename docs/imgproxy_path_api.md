@@ -158,8 +158,12 @@ preset file loading, or custom argument separators.
 | Plain source output extension | source path `@extension` | `webp`, `avif`, `jpeg`, `jpg`, `png`, `best`; planning rejects `best` |
 
 Anchor gravity values are `ce`, `no`, `so`, `ea`, `we`, `noea`, `nowe`,
-`soea`, and `sowe`. Resize and size tuple extend-gravity tails accept anchor
-gravity alone or anchor gravity with `x_offset` and `y_offset`.
+`soea`, and `sowe`.
+
+Resize and size tuple extend tails accept:
+
+- anchor gravity alone
+- anchor gravity plus `x_offset` and `y_offset`
 
 ## Resize and dimensions
 
