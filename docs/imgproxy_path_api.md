@@ -157,14 +157,6 @@ preset file loading, or custom argument separators.
 | Preset | `preset`, `pr` | one or more configured preset names |
 | Plain source output extension | source path `@extension` | `webp`, `avif`, `jpeg`, `jpg`, `png`, `best`; planning rejects `best` |
 
-Anchor gravity values are `ce`, `no`, `so`, `ea`, `we`, `noea`, `nowe`,
-`soea`, and `sowe`.
-
-The optional extend gravity argument on `resize` and `size` accepts:
-
-- anchor gravity alone
-- anchor gravity plus `x_offset` and `y_offset`
-
 ## Resize and dimensions
 
 Supported resizing types are `fit`, `fill`, `fill-down`, `force`, and `auto`.
@@ -200,6 +192,14 @@ top-level gravity for that crop.
 
 Gravity supports anchors and focal points. Focal point gravity uses `fp:x:y`,
 where `x` and `y` range from `0.0` to `1.0`.
+
+Anchor gravity values are `ce`, `no`, `so`, `ea`, `we`, `noea`, `nowe`,
+`soea`, and `sowe`.
+
+The optional extend gravity argument on `resize` and `size` accepts:
+
+- anchor gravity alone
+- anchor gravity plus `x_offset` and `y_offset`
 
 Crop focal-point gravity uses crop gravity fields; it doesn't require a
 separate focus operation.
