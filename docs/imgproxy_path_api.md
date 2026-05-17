@@ -1,6 +1,6 @@
-# imgproxy Path API
+# imgproxy path API
 
-## Mental Model
+## Mental model
 
 An imgproxy URL describes desired output, not a step-by-step image pipeline.
 ImagePlug normalizes aliases and conflicts, converts supported options into
@@ -9,30 +9,30 @@ imgproxy-compatible order.
 
 The imgproxy URL API accepts imgproxy-compatible option names where ImagePlug
 supports the same semantics. Parser syntax maps into canonical
-`ImagePlug.Plan.Operation.*` intent, and executable transform work is derived
-later by `ImagePlug.Transform.execute_plan/3`.
+`ImagePlug.Plan.Operation.*` intent. ImagePlug derives executable transform
+work later through `ImagePlug.Transform.execute_plan/3`.
 
 For a feature-by-feature comparison with imgproxy's processing URL surface, see
 [imgproxy Support Matrix](imgproxy_support_matrix.md).
 
-## URL Shape
+## Path shape
 
 The general shape is:
 
     /<signature>/option[:arg...]/option[:arg...]/plain/path/to/image[@extension]
 
-The signature segment is verified before option parsing, planning, source
-identity resolution, cache lookup, or origin fetch. With no `:imgproxy`
-signature configuration, ImagePlug accepts only `_` and `unsafe` as
-disabled-signing placeholders. With signing configured, the signature must be a
+ImagePlug verifies the signature segment before option parsing, planning,
+source identity resolution, cache lookup, or origin fetch. Without `:imgproxy`
+signature configuration, ImagePlug accepts only `_` and `unsafe` as unsigned
+development placeholders. With signing configured, the signature must be a
 raw/unpadded Base64URL HMAC-SHA256 digest of the raw path after the signature,
 including the leading slash, or an exact configured trusted signature.
-Trusted-only configuration accepts only exact trusted signatures; unlike
+Trusted-only configuration accepts only exact trusted signatures. Unlike
 upstream imgproxy, it doesn't make every signature segment valid when no
-key/salt pair is configured.
+key/salt pair exists.
 Before verification, ImagePlug applies imgproxy-compatible `fixPath`
-normalization: `%3A` in processing options is treated as `:`, and normalized
-plain URL schemes such as `http:/x` and `local:/x` are repaired to `http://x`
+normalization: it treats `%3A` in processing options as `:`, and repairs
+normalized plain URL schemes such as `http:/x` and `local:/x` to `http://x`
 and `local:///x`.
 
 `plain` source paths are path segments after the source marker. A plain source
@@ -40,9 +40,11 @@ may end in `@extension` to request an explicit output format from the source
 path. The `@extension` form bypasses `Accept` negotiation like `format`, `f`,
 and `ext`.
 
-## Pipeline Groups
+## Pipeline groups
 
-`-` separates imgproxy pipeline groups. Non-empty groups execute in URL group order. Inside each group, URL option order still doesn't define transform order. Empty pipeline groups are ignored.
+`-` separates imgproxy pipeline groups. Non-empty groups execute in URL group
+order. Inside each group, URL option order still doesn't define transform
+order. ImagePlug ignores empty pipeline groups.
 
 imgproxy canonical semantic operation order inside each pipeline group is:
 
@@ -56,11 +58,15 @@ imgproxy canonical semantic operation order inside each pipeline group is:
 
 Orientation suborder is auto-orient, rotate, then flip.
 
-This fixed order is an imgproxy API contract. It isn't a universal requirement for every future compatibility dialect; dialect-specific ordered quirks belong in parser or adapter code when they can't translate cleanly into the imgproxy declarative model.
+This fixed order is an imgproxy API contract. Future compatibility dialects
+don't have to use it. Keep dialect-specific ordered quirks in parser or adapter
+code when they can't translate cleanly into the imgproxy declarative model.
 
-## Option Ordering And Conflict Resolution
+## Option ordering and conflict resolution
 
-Aliases are normalized before conflict resolution. If multiple URL options map to the same canonical request field, the last occurrence in the URL wins.
+ImagePlug normalizes aliases before conflict resolution. If more than one URL
+option maps to the same canonical request field, the last occurrence in the URL
+wins.
 
 Examples:
 
@@ -68,9 +74,14 @@ Examples:
 - `width:200/w:100` resolves width to `100`.
 - `rt:fit/resizing_type:force` resolves resizing type to `force`.
 
-Conflict resolution applies to canonical request fields, not raw option names. For example, `w` and `width` conflict when both map to width; `rt` and `resizing_type` conflict when both map to resizing type.
+Conflict resolution applies to canonical request fields, not raw option names.
+For example, `w` and `width` conflict when both map to width. `rt` and
+`resizing_type` conflict when both map to resizing type.
 
-Pipeline separators scope transform fields to each pipeline group. Duplicate transform fields are scoped to their pipeline group. Global fields such as output format, quality, cachebuster, expiration, filename, and response disposition can appear across groups and still resolve by canonical field.
+Pipeline separators scope transform fields to each pipeline group. Duplicate
+transform fields stay in their pipeline group. Global fields such as output
+format, quality, cachebuster, expiry, filename, and response disposition can
+appear across groups and still resolve by canonical field.
 
 Generic quality and format-specific quality are separate canonical fields.
 
@@ -96,17 +107,31 @@ Normal processing URLs support configured imgproxy presets:
     /_/preset:thumb/plain/images/cat.jpg
     /_/pr:thumb:sharp-thumb/plain/images/cat.jpg
 
-Preset expansion happens inside `ImagePlug.Parser.Imgproxy` before plan construction, source identity resolution, cache lookup, or origin fetch. Preset names aren't stored in `ImagePlug.Plan`, runtime state, output negotiation, transform state, or cache data. A request using `pr:thumb` and a request spelling out the same expanded options share the same cache key for the same resolved origin identity and vary inputs.
+`ImagePlug.Parser.Imgproxy` expands presets before plan construction, source
+identity resolution, cache lookup, or origin fetch. Preset names aren't stored
+in `ImagePlug.Plan`, runtime state, output negotiation, transform state, or
+cache data. A request using `pr:thumb` and a request spelling out the same
+expanded options share the same cache key for the same resolved origin identity
+and vary inputs.
 
-A configured preset named `default` is applied to every normal processing request before URL options. URL assignments in the same merged pipeline group can override fields from `default`.
+ImagePlug applies a configured preset named `default` to every normal
+processing request before URL options. URL assignments in the same merged
+pipeline group can override fields from `default`.
 
-Presets may reference other presets. Recursive re-entry is skipped, matching imgproxy behavior: if `a` expands to `pr:a/w:100`, the nested `pr:a` is ignored and `w:100` still applies.
+Presets may reference other presets. ImagePlug skips recursive re-entry,
+matching imgproxy behavior: if `a` expands to `pr:a/w:100`, ImagePlug ignores
+the nested `pr:a` and still applies `w:100`.
 
-Preset values may contain `-` pipeline separators. The first preset group is applied to the current URL pipeline group. Later preset groups are queued for following URL groups; URL options in those later groups can override queued preset fields. Remaining queued groups become trailing pipelines.
+Preset values may contain `-` pipeline separators. ImagePlug applies the first
+preset group to the current URL pipeline group. It queues later preset groups
+for following URL groups, where URL options can override queued preset fields.
+Remaining queued groups become trailing pipelines.
 
-This slice doesn't support presets-only mode, info endpoint presets, `IMGPROXY_PRESETS`, `IMGPROXY_PRESETS_SEPARATOR`, `IMGPROXY_PRESETS_PATH`, preset file loading, or custom argument separators.
+This slice doesn't support presets-only mode, info endpoint presets,
+`IMGPROXY_PRESETS`, `IMGPROXY_PRESETS_SEPARATOR`, `IMGPROXY_PRESETS_PATH`,
+preset file loading, or custom argument separators.
 
-## Supported Options And Aliases
+## Supported options and aliases
 
 | Concept | Options | Accepted values |
 | --- | --- | --- |
@@ -115,11 +140,11 @@ This slice doesn't support presets-only mode, info endpoint presets, `IMGPROXY_P
 | Resizing type | `resizing_type`, `rt` | `fit`, `fill`, `fill-down`, `force`, `auto` |
 | Width | `width`, `w` | non-negative pixel integer; `0` means `auto` |
 | Height | `height`, `h` | non-negative pixel integer; `0` means `auto` |
-| Minimum width | `min-width`, `min_width`, `mw` | non-negative pixel integer |
-| Minimum height | `min-height`, `min_height`, `mh` | non-negative pixel integer |
+| Min width | `min-width`, `min_width`, `mw` | non-negative pixel integer |
+| Min height | `min-height`, `min_height`, `mh` | non-negative pixel integer |
 | Enlarge | `enlarge`, `el` | boolean: `1`, `t`, `true`, `0`, `f`, `false` |
 | Zoom | `zoom`, `z` | positive number, or positive `x:y` numbers |
-| DPR | `dpr` | positive number |
+| Device pixel ratio (DPR) | `dpr` | positive number |
 | Extend canvas | `extend`, `ex` | boolean, optionally followed by extend gravity and offsets |
 | Extend aspect ratio | `extend_aspect_ratio`, `extend_ar`, `exar` | positive `<width>:<height>` ratio numbers |
 | Padding | `padding`, `pd` | optional top/right/bottom/left non-negative pixel integers |
@@ -137,25 +162,27 @@ This slice doesn't support presets-only mode, info endpoint presets, `IMGPROXY_P
 | Filename | `filename`, `fn` | filename stem, optional encoded flag |
 | Attachment disposition | `return_attachment`, `att` | boolean |
 | Preset | `preset`, `pr` | one or more configured preset names |
-| Plain source output extension | source path `@extension` | `webp`, `avif`, `jpeg`, `jpg`, `png`, `best`; `best` is rejected by planning |
+| Plain source output extension | source path `@extension` | `webp`, `avif`, `jpeg`, `jpg`, `png`, `best`; planning rejects `best` |
 
-Anchor gravity values are `ce`, `no`, `so`, `ea`, `we`, `noea`, `nowe`, `soea`, and `sowe`.
-Resize and size tuple extend-gravity tails accept anchor gravity alone or anchor gravity with `x_offset` and `y_offset`.
+Anchor gravity values are `ce`, `no`, `so`, `ea`, `we`, `noea`, `nowe`,
+`soea`, and `sowe`. Resize and size tuple extend-gravity tails accept anchor
+gravity alone or anchor gravity with `x_offset` and `y_offset`.
 
-## Resize And Dimensions
+## Resize and dimensions
 
 Supported resizing types are `fit`, `fill`, `fill-down`, `force`, and `auto`.
 
 Zero dimensions map to `auto`. For `force`, an `auto` side preserves the
-source dimension. For `fit` and proportional resize rules, an `auto` side is
-resolved from source aspect ratio. Min dimensions, zoom, DPR, and `enlarge` are
-applied when target dimensions are computed during transform execution.
+source dimension. For `fit` and proportional resize rules, ImagePlug resolves
+an `auto` side from source aspect ratio. During transform execution, ImagePlug
+applies min dimensions, zoom, DPR, and `enlarge` when it computes target
+dimensions.
 
-`auto` is cache-keyed as semantic resize intent with `mode: :auto`. It stays
-unresolved in final cache key data; after a cache miss, current dimensions at
-that point in the Plan derive the selected `fit` or `cover` branch. Matching
-current and target orientation derives `cover`, differing orientation derives
-`fit`, and unknown target orientation derives `fit`.
+`auto` is cache-keyed as semantic resize intent with `mode: :auto`. ImagePlug
+keeps it unresolved in final cache key data. After a cache miss, current
+dimensions at that point in the Plan derive the selected `fit` or `cover`
+branch. Matching current and target orientation derives `cover`, differing
+orientation derives `fit`, and unknown target orientation derives `fit`.
 
 `rt:force/w:0/h:200` preserves source width and forces height to `200`.
 `rt:force/w:300/h:0` forces width to `300` and preserves source height.
@@ -165,15 +192,17 @@ dimensions or another meaningful size constraint is present. Zoom and DPR don't
 force raster enlargement for zero-dimension `auto` sides when `enlarge` is
 false.
 
-## Crop And Gravity
+## Crop and gravity
 
-Crop accepts dimensions and optional crop gravity. If an explicit crop omits gravity, it inherits top-level `g`/`gravity`.
+Crop accepts dimensions and optional crop gravity. If an explicit crop omits
+gravity, it inherits top-level `g`/`gravity`.
 
 Top-level `g`/`gravity` applies to result crops produced by `fill`,
 `fill-down`, and `auto` resize planning. Crop-specific gravity overrides
 top-level gravity for that crop.
 
-Gravity supports anchors and focal points. Focal point gravity uses `fp:x:y`, where `x` and `y` are normalized coordinates from `0.0` to `1.0`.
+Gravity supports anchors and focal points. Focal point gravity uses `fp:x:y`,
+where `x` and `y` range from `0.0` to `1.0`.
 
 Crop focal-point gravity uses crop gravity fields; it doesn't require a
 separate focus operation.
@@ -183,12 +212,17 @@ Offsets use imgproxy-style parsing:
 - `abs(offset) >= 1` selects pixel offsets.
 - `abs(offset) < 1` means relative scale.
 
-Top-level gravity offsets apply to result crops. Crop-specific offsets apply to explicit crop.
-Absolute top-level gravity offsets are resolved by crop execution using the effective DPR. The planner should preserve pixel offsets in the result `Crop`; execution applies the DPR scale.
+Top-level gravity offsets apply to result crops. Crop-specific offsets apply to
+explicit crop.
+Crop execution resolves absolute top-level gravity offsets using the effective
+DPR. The planner should preserve pixel offsets in the result `Crop`. Execution
+applies the DPR scale.
 
-Crop offset signs and unit interpretation match current imgproxy-compatible parsing and execution behavior.
+Crop offset signs and unit interpretation match current imgproxy-compatible
+parsing and execution behavior.
 
-`g:sm` is intentionally unsupported in this imgproxy slice and is rejected as `{:unsupported_gravity, :sm}`. `c:<width>:<height>:sm` is rejected the same way.
+This imgproxy slice intentionally rejects `g:sm` as `{:unsupported_gravity,
+:sm}`. It rejects `c:<width>:<height>:sm` the same way.
 
 ## Orientation
 
@@ -198,12 +232,14 @@ Orientation options are `auto_rotate`/`ar`, `rotate`/`rot`, and `flip`/`fl`.
 - `rot` accepts integer degrees and normalizes right-angle rotations.
 - `fl` with no arguments flips both axes; `fl:true:false` flips horizontally; `fl:false:true` flips vertically; `fl:false:false` emits no flip operation.
 
-## Canvas Extension
+## Canvas extension
 
-Canvas options are `extend`/`ex`, resize-tail extend arguments, and `extend_aspect_ratio`/`extend_ar`/`exar`.
+Canvas options are `extend`/`ex`, resize-tail extend arguments, and
+`extend_aspect_ratio`/`extend_ar`/`exar`.
 
 - `extend:true` requests canvas extension for the requested resize box.
-- `extend:false` disables canvas extension even when resize-tail values are present.
+- `extend:false` disables canvas extension even when resize-tail values are
+  present.
 - `exar:<width>:<height>` extends canvas to the requested aspect ratio.
 - Extend gravity uses anchor values only, with optional numeric offsets.
 
@@ -227,7 +263,7 @@ no-ops.
 
 Padding uses the effective DPR scale at execution. When a no-enlarge resize
 clamps image scaling, padding follows imgproxy's compensated effective DPR
-rather than blindly using the requested `dpr`. For imgproxy `extend` and
+rather than the requested `dpr`. For imgproxy `extend` and
 `extend_aspect_ratio` composition, padding uses imgproxy's canvas-preserving
 effective DPR branch, which skips the no-enlarge DPR compensation before the
 final no-enlarge clamp.
@@ -240,45 +276,56 @@ channels are `0..255`. Hex accepts 3 digit RGB and 6 digit RRGGBB forms.
 `background:` clears an earlier background value in the same resolved request.
 
 Background flattening is separate from canvas and padding fill. Canvas and
-padding create transparent areas; explicit background then flattens those areas
+padding create transparent areas. Explicit background then flattens those areas
 and any source alpha over the requested color.
 
-Composition order is fixed by ImagePlug's imgproxy planner: canvas extension,
+ImagePlug's imgproxy planner fixes composition order as canvas extension,
 padding, then background flattening. URL option order only determines final
 field assignment.
 
-## Output Format And Quality
+## Output format and quality
 
 Omitting an explicit output format enables automatic output negotiation.
 `format:auto` isn't accepted.
 
-Explicit output formats can be requested with `format`, `f`, `ext`, or plain-source `@extension`. Explicit formats and `@extension` bypass `Accept` negotiation and don't set `Vary: Accept`.
+Requests can set explicit output formats with `format`, `f`, `ext`, or
+plain-source `@extension`. Explicit formats and `@extension` bypass `Accept`
+negotiation and don't set `Vary: Accept`.
 
-When both an option format and source `@extension` are present, source `@extension` overrides any explicit format option.
+When both an option format and source `@extension` are present, source
+`@extension` overrides any explicit format option.
 
-Supported explicit output extensions are `webp`, `avif`, `jpeg`, `jpg`, `png`, and `best`. `jpg` normalizes to JPEG. `best` parses but is rejected by planning in this imgproxy slice.
+Supported explicit output extensions are `webp`, `avif`, `jpeg`, `jpg`, `png`,
+and `best`. `jpg` normalizes to JPEG. Planning rejects `best` in this imgproxy
+slice.
 
-`quality`/`q` set generic output quality. `format_quality`/`fq` set quality for one explicit format and should be documented separately from generic quality. `0` resets quality to the configured default.
+`quality`/`q` set generic output quality. `format_quality`/`fq` set quality for
+one explicit format and should stay separate from generic quality. `0` resets
+quality to the configured default.
 
-## Cache And Expiration
+## Cache and expiry
 
-`cachebuster`/`cb` changes cache key data without adding transform operations. `expires`/`exp` is a Unix timestamp request validity policy.
+`cachebuster`/`cb` changes cache key data without adding transform operations.
+`expires`/`exp` is a Unix timestamp request validity policy.
 
-Final cache lookup is source-fetch-free: it's built from Plan operation key
+Final cache lookup doesn't fetch the source. The key uses Plan operation key
 data, resolved origin identity/freshness data, output/config/vary key data, and
 the cache key's transform key data version. It doesn't fetch, decode, or read
 source metadata. Source-aware execution choices such as `mode: :auto` selecting
 `fit` or `cover` don't enter the normal final cache key.
 
-Only successful encoded responses are cached. Rejected imgproxy requests return before origin fetch and cache lookup.
+ImagePlug caches only successful encoded responses. Rejected imgproxy requests
+return before origin fetch and cache lookup.
 
-## Response Filename And Disposition
+## Response filename and disposition
 
-`filename`/`fn` sets the delivery filename stem; `return_attachment`/`att` controls inline versus attachment `Content-Disposition`.
+`filename`/`fn` sets the delivery filename stem. `return_attachment`/`att`
+controls inline versus attachment `Content-Disposition`.
 
-## Unsupported And Rejected Options
+## Unsupported and rejected options
 
-Unsupported imgproxy options aren't silently ignored. Options outside this supported imgproxy slice are rejected.
+ImagePlug rejects unsupported imgproxy options. It doesn't ignore options
+outside this supported imgproxy slice.
 
 | Case | Behavior |
 | --- | --- |
@@ -287,19 +334,20 @@ Unsupported imgproxy options aren't silently ignored. Options outside this suppo
 | Supported option with invalid value | HTTP 400 before origin fetch/cache lookup |
 | Valid syntax with unsupported combined semantics | HTTP 400 before origin fetch/cache lookup |
 | Unknown preset | HTTP 400 before origin fetch/cache lookup |
-| Recursive preset reference | Recursive re-entry is skipped and remaining reachable options continue |
+| Recursive preset reference | ImagePlug skips recursive re-entry and keeps remaining reachable options |
 | Unsupported option inside a used preset | HTTP 400 before origin fetch/cache lookup |
 | Duplicate canonical field | Last value wins |
 
 Unsupported examples include `raw`, `max_bytes`, `max_src_resolution`, `max_src_file_size`, `crop_aspect_ratio`, `format:auto`, `g:sm`, and `c:<width>:<height>:sm`.
 
-Crop combined with auto-orient is supported and planned in imgproxy canonical
-order. Top-level gravity offsets are supported for result crops. `force` resize
-with one zero dimension is supported by preserving the source dimension for the
+ImagePlug supports crop combined with auto-orient and plans it in imgproxy
+canonical order. It supports top-level gravity offsets for result crops.
+`force` resize with one zero dimension preserves the source dimension for the
 `auto` side. Explicit crop gravity variants, including focal-point crop gravity,
-are supported. Explicit crop without its own gravity inherits top-level gravity.
+also work. Explicit crop without its own gravity inherits top-level gravity.
 
-SVG/vector-specific imgproxy parity is out of scope for this imgproxy documentation pass.
+SVG/vector-specific imgproxy parity remains out of scope for this imgproxy
+documentation pass.
 
 ## Examples
 
