@@ -167,6 +167,12 @@ the source dimension. For `fit` and proportional resize rules, ImagePlug
 resolves an `auto` side from source aspect ratio. Min dimensions, zoom, DPR,
 and `enlarge` apply when ImagePlug computes target dimensions.
 
+The `dpr` option multiplies requested output dimensions. When `enlarge` is
+false, ImagePlug may use a smaller multiplier than requested so raster output
+doesn't grow beyond the source image. Gravity pixel offsets and padding use
+that same resize multiplier, so surrounding geometry stays aligned with the
+resized image.
+
 ImagePlug keeps `auto` as `mode: :auto` in final cache key data. After a cache
 miss, it compares the current image dimensions with the requested target box.
 Matching current and target orientation selects `cover`. Differing or unknown
@@ -218,7 +224,8 @@ ImagePlug parses offset units like imgproxy:
 | `abs(value) >= 1` | pixels |
 | `abs(value) < 1` | relative scale |
 
-Execution scales pixel offsets by the effective DPR.
+Execution scales pixel offsets by the resize multiplier described in
+[Resize and dimensions](#resize-and-dimensions).
 
 ## Orientation
 
@@ -265,9 +272,9 @@ example, `pd:10:20:30:40/padding::5` keeps top at `10` and bottom at `30`,
 then sets right and left to `5`. `padding:` and all-zero padding are valid
 no-ops.
 
-Padding uses the effective DPR scale at execution. For no-enlarge resize and
-canvas extension composition, ImagePlug follows imgproxy's effective scale
-behavior instead of using only the requested `dpr`.
+Padding uses the same resize multiplier as gravity offsets. For requests that
+combine no-enlarge resize with canvas extension, ImagePlug follows imgproxy's
+canvas-preserving DPR behavior instead of using only the requested `dpr`.
 
 ### Background
 
