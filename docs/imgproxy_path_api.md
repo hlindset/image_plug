@@ -285,7 +285,6 @@ after both.
 ## Output format and quality
 
 Omitting an explicit output format enables automatic output negotiation.
-`format:auto` isn't accepted.
 
 Requests can set explicit output formats with `format`, `f`, `ext`, or
 plain-source `@extension`. Explicit formats and `@extension` bypass `Accept`
@@ -337,7 +336,9 @@ outside this supported imgproxy slice.
 | Unsupported option inside a used preset | HTTP 400 before origin fetch/cache lookup |
 | Duplicate canonical field | Last value wins |
 
-Unsupported examples include `raw`, `max_bytes`, `max_src_resolution`, `max_src_file_size`, `crop_aspect_ratio`, `format:auto`, `g:sm`, and `c:<width>:<height>:sm`.
+Unsupported examples include `raw`, `max_bytes`, `max_src_resolution`,
+`max_src_file_size`, `crop_aspect_ratio`, `g:sm`, and
+`c:<width>:<height>:sm`.
 
 ImagePlug supports crop combined with auto-orient and plans it in imgproxy
 canonical order. It supports top-level gravity offsets for result crops.
