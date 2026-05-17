@@ -252,8 +252,8 @@ gravity plus `x_offset` and `y_offset`.
 ### Padding
 
 `padding:%top:%right:%bottom:%left` and `pd:%top:%right:%bottom:%left` add
-transparent edge padding after resize and canvas extension. Missing values
-follow imgproxy shorthand semantics:
+transparent edge padding after resize and canvas extension. Missing values use
+the same order as CSS padding shorthand:
 
 - one value applies to all sides
 - two values apply vertical, then horizontal sides
