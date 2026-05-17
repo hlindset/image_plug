@@ -20,6 +20,8 @@ defmodule Mix.Tasks.ImagePlug.Server do
   @default_cache_root "_build/dev/image_plug/cache"
   @port_range 1..65_535
   @vite_startup_timeout 5_000
+  @vite_ready_marker "ready in"
+  @vite_output_buffer_bytes 256
 
   @impl Mix.Task
   def run(args) do
@@ -160,15 +162,16 @@ defmodule Mix.Tasks.ImagePlug.Server do
         {:cd, File.cwd!()}
       ])
 
-    stream_vite_output(port, parent)
+    stream_vite_output(port, parent, "")
   end
 
-  defp stream_vite_output(port, parent) do
+  defp stream_vite_output(port, parent, carry) do
     receive do
       {^port, {:data, data}} ->
         IO.write(data)
-        maybe_notify_vite_ready(parent, data)
-        stream_vite_output(port, parent)
+        {ready?, next_carry} = vite_ready_buffer(carry, data)
+        maybe_notify_vite_ready(parent, ready?)
+        stream_vite_output(port, parent, next_carry)
 
       {^port, {:exit_status, status}} when status in [0, 130, 143] ->
         :ok
@@ -179,8 +182,21 @@ defmodule Mix.Tasks.ImagePlug.Server do
     end
   end
 
-  defp maybe_notify_vite_ready(parent, data) do
-    case String.contains?(data, "ready in") do
+  @doc false
+  def vite_ready_buffer(carry, data) do
+    buffer = carry <> data
+
+    {String.contains?(buffer, @vite_ready_marker), trim_vite_output_buffer(buffer)}
+  end
+
+  defp trim_vite_output_buffer(buffer) when byte_size(buffer) > @vite_output_buffer_bytes do
+    binary_part(buffer, byte_size(buffer) - @vite_output_buffer_bytes, @vite_output_buffer_bytes)
+  end
+
+  defp trim_vite_output_buffer(buffer), do: buffer
+
+  defp maybe_notify_vite_ready(parent, ready?) do
+    case ready? do
       true -> send(parent, :vite_ready)
       false -> :ok
     end

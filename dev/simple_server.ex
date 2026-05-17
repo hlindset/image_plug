@@ -11,6 +11,10 @@ defmodule ImagePlug.SimpleServer do
   use Plug.Router
   use Plug.Debugger
 
+  @demo_template_path Path.expand("../demo/dev.html", __DIR__)
+  @external_resource @demo_template_path
+  @demo_template File.read!(@demo_template_path)
+
   plug Plug.Static,
     at: "/",
     from: {:image_plug, "priv/static"},
@@ -66,9 +70,7 @@ defmodule ImagePlug.SimpleServer do
   end
 
   defp demo_html do
-    "demo/dev.html"
-    |> File.read!()
-    |> String.replace("{{VITE_ORIGIN}}", vite_origin())
+    String.replace(@demo_template, "{{VITE_ORIGIN}}", vite_origin())
   end
 
   defp send_demo_html(conn) do

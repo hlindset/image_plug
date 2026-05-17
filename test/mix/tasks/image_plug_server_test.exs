@@ -37,4 +37,19 @@ defmodule Mix.Tasks.ImagePlug.ServerTest do
       assert message =~ "unexpected argument: extra"
     end
   end
+
+  describe "vite_ready_buffer/2" do
+    test "detects a readiness marker split across port data chunks" do
+      {false, carry} = Server.vite_ready_buffer("", "  VITE v8.0.13  read")
+
+      assert {true, _carry} = Server.vite_ready_buffer(carry, "y in 408 ms")
+    end
+
+    test "keeps the carry buffer bounded" do
+      {_ready?, carry} = Server.vite_ready_buffer(String.duplicate("a", 300), "b")
+
+      assert byte_size(carry) == 256
+      assert String.ends_with?(carry, "b")
+    end
+  end
 end
