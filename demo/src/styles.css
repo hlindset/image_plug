@@ -48,6 +48,7 @@
   --focus-ring: var(--accent);
   --checker-square: #1b222b;
   --image-overlay-text: rgb(246 241 231 / 82%);
+  --image-overlay-shadow: 0 1px 1px rgb(0 0 0 / 45%), 0 0 2px rgb(0 0 0 / 35%);
   --scrim: rgb(0 0 0 / 42%);
   --image-shadow: 0 22px 80px rgb(0 0 0 / 38%);
   --drawer-shadow: 18px 0 60px rgb(0 0 0 / 45%);
@@ -76,7 +77,8 @@
   --button-secondary-text: #fff;
   --focus-ring: var(--accent);
   --checker-square: #dfe5ee;
-  --image-overlay-text: rgb(246 241 231 / 90%);
+  --image-overlay-text: rgb(5 7 10 / 86%);
+  --image-overlay-shadow: 0 1px 1px rgb(255 255 255 / 72%), 0 0 2px rgb(255 255 255 / 62%);
   --scrim: rgb(10 16 24 / 35%);
   --image-shadow: 0 22px 80px rgb(10 16 24 / 18%);
   --drawer-shadow: 18px 0 60px rgb(10 16 24 / 22%);
@@ -106,7 +108,8 @@
     --button-secondary-text: #fff;
     --focus-ring: var(--accent);
     --checker-square: #dfe5ee;
-    --image-overlay-text: rgb(246 241 231 / 90%);
+    --image-overlay-text: rgb(5 7 10 / 86%);
+    --image-overlay-shadow: 0 1px 1px rgb(255 255 255 / 72%), 0 0 2px rgb(255 255 255 / 62%);
     --scrim: rgb(10 16 24 / 35%);
     --image-shadow: 0 22px 80px rgb(10 16 24 / 18%);
     --drawer-shadow: 18px 0 60px rgb(10 16 24 / 22%);

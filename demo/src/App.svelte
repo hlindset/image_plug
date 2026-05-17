@@ -1389,9 +1389,7 @@
     font-size: 12px;
     line-height: 16px;
     pointer-events: none;
-    text-shadow:
-      0 1px 1px rgb(0 0 0 / 0.45),
-      0 0 2px rgb(0 0 0 / 0.35);
+    text-shadow: var(--image-overlay-shadow);
   }
 
   .image-frame {
