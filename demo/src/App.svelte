@@ -528,7 +528,6 @@
               <span>Signature</span>
               <select bind:value={state.signatureMode}>
                 <option value="unsigned">unsigned</option>
-                <option value="unsafe">unsafe</option>
                 <option value="signed">signed</option>
               </select>
             </label>

@@ -9,7 +9,7 @@ export type ResizeDimensionUnit = "px" | "auto";
 export type OutputFormat = "webp" | "avif" | "jpeg" | "png";
 export type Flip = "none" | "horizontal" | "vertical" | "both";
 export type Rotate = 0 | 90 | 180 | 270;
-export type SignatureMode = "unsigned" | "unsafe" | "signed";
+export type SignatureMode = "unsigned" | "signed";
 export type SourceImage = (typeof sampleImages)[number]["path"];
 
 export type DemoState = {
@@ -502,7 +502,7 @@ export function buildProcessingPath(currentState: DemoState, signature?: string)
     return processingPathFromSignedPath(signature, signedPath);
   }
 
-  return processingPathFromSignedPath(signatureSegment(currentState), signedPath);
+  return processingPathFromSignedPath(signatureSegment(), signedPath);
 }
 
 export async function signProcessingPath(
@@ -532,11 +532,7 @@ export async function signProcessingPath(
   return base64UrlEncode(signature);
 }
 
-function signatureSegment(currentState: DemoState): string {
-  if (currentState.signatureMode === "unsafe") {
-    return "unsafe";
-  }
-
+function signatureSegment(): string {
   return "_";
 }
 
