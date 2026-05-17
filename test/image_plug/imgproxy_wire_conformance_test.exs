@@ -4,47 +4,10 @@ defmodule ImagePlug.ImgproxyWireConformanceTest do
   import Plug.Conn
   import Plug.Test
 
-  defmodule CacheProbe do
-    def get(_key, _opts) do
-      send(self(), :cache_lookup)
-      :miss
-    end
-
-    def put(_key, _entry, _opts) do
-      send(self(), :cache_put)
-      :ok
-    end
-  end
-
-  defmodule CountingOriginImage do
-    def init(opts), do: opts
-
-    def call(conn, opts) do
-      opts
-      |> Keyword.fetch!(:test_pid)
-      |> send(:origin_fetch)
-
-      body = File.read!("priv/static/images/beach.jpg")
-
-      conn
-      |> Plug.Conn.put_resp_content_type("image/jpeg")
-      |> Plug.Conn.send_resp(200, body)
-    end
-  end
-
-  defmodule OriginImage do
-    def call(conn, _opts) do
-      body = File.read!("priv/static/images/beach.jpg")
-
-      conn
-      |> Plug.Conn.put_resp_content_type("image/jpeg")
-      |> Plug.Conn.send_resp(200, body)
-    end
-  end
-
-  defmodule OriginShouldNotFetch do
-    def call(_conn, _opts), do: raise("origin should not fetch")
-  end
+  alias ImgproxyWireConformanceTest.CacheProbe
+  alias ImgproxyWireConformanceTest.CountingOriginImage
+  alias ImgproxyWireConformanceTest.OriginImage
+  alias ImgproxyWireConformanceTest.OriginShouldNotFetch
 
   @default_opts [
     root_url: "http://origin.test",
