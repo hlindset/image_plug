@@ -6,10 +6,6 @@ An imgproxy URL describes desired output, not a step-by-step image pipeline.
 ImagePlug normalizes aliases and conflicts, converts supported options into
 `ImagePlug.Plan` operations, then runs those operations in a fixed order.
 
-ImagePlug accepts imgproxy-style paths for the supported option set. Those
-options translate into `ImagePlug.Plan` operations and request fields. The
-support matrix tracks feature-by-feature coverage.
-
 For a feature-by-feature comparison with imgproxy's processing URL surface, see
 [Imgproxy Support Matrix](imgproxy_support_matrix.md).
 
