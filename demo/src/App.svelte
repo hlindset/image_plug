@@ -502,118 +502,66 @@
 
     <div class="tool-stack">
       <section class="tool-section">
-        <Collapsible.Root class="collapsible-root" bind:open={orientationOpen}>
+        <Collapsible.Root class="collapsible-root" bind:open={requestOpen}>
           <Collapsible.Trigger
             class="accordion-heading"
-            aria-label={orientationOpen ? "Collapse orientation" : "Expand orientation"}
+            aria-label={requestOpen ? "Collapse request" : "Expand request"}
           >
             <div>
-              <h2>Orientation</h2>
-              <p>{orientationSummary}</p>
+              <h2>Request</h2>
+              <p>{requestSummary}</p>
             </div>
             <span class="accordion-chevron" aria-hidden="true"></span>
           </Collapsible.Trigger>
 
           <Collapsible.Content class="collapsible-content">
-            <label class="switch-field">
-              <Switch.Root class="switch-root" bind:checked={state.autoRotateEnabled}>
-                <Switch.Thumb class="switch-thumb" />
-              </Switch.Root>
-              <span>Auto rotate</span>
-            </label>
-
             <label class="field">
-              <span>Flip</span>
-              <select bind:value={state.flip}>
-                <option value="none">none</option>
-                <option value="horizontal">horizontal</option>
-                <option value="vertical">vertical</option>
-                <option value="both">both</option>
+              <span>Source image</span>
+              <select value={state.source} onchange={updateSource}>
+                {#each sampleImages as image}
+                  <option value={image.path}>{image.label}</option>
+                {/each}
               </select>
             </label>
 
             <label class="field">
-              <span>Rotate</span>
-              <select bind:value={state.rotate}>
-                <option value={0}>none</option>
-                <option value={90}>90°</option>
-                <option value={180}>180°</option>
-                <option value={270}>270°</option>
+              <span>Signature</span>
+              <select bind:value={state.signatureMode}>
+                <option value="unsigned">unsigned</option>
+                <option value="unsafe">unsafe</option>
+                <option value="signed">signed</option>
               </select>
             </label>
+
+            {#if state.signatureMode === "signed"}
+              <div class="signature-secret-grid">
+                <label class="field">
+                  <span>Key</span>
+                  <input
+                    class="text-input text-input-mono"
+                    bind:value={state.signatureKey}
+                    spellcheck="false"
+                    autocomplete="off"
+                  />
+                </label>
+
+                <label class="field">
+                  <span>Salt</span>
+                  <input
+                    class="text-input text-input-mono"
+                    bind:value={state.signatureSalt}
+                    spellcheck="false"
+                    autocomplete="off"
+                  />
+                </label>
+              </div>
+
+              {#if signingError !== null}
+                <p class="field-error">{signingError}</p>
+              {/if}
+            {/if}
           </Collapsible.Content>
         </Collapsible.Root>
-      </section>
-
-      <section class="tool-section">
-        <ToolToggleHeader
-          title="Background"
-          summary={backgroundSummary}
-          bind:checked={state.backgroundEnabled}
-        />
-
-        {#if state.backgroundEnabled}
-          <div class="background-controls">
-            <label class="field background-color-field">
-              <span>Color</span>
-              <input class="color-input" type="color" bind:value={state.backgroundColor} />
-            </label>
-
-            <div class="background-opacity-field">
-              <RangeNumber
-                label="Opacity"
-                bind:value={state.backgroundAlpha}
-                min={controlLimits.alpha.min}
-                max={controlLimits.alpha.max}
-                step={controlLimits.alpha.step}
-                inputStep="any"
-              />
-            </div>
-          </div>
-        {/if}
-      </section>
-
-      <section class="tool-section">
-        <ToolToggleHeader
-          title="Padding"
-          summary={paddingSummary}
-          bind:checked={state.paddingEnabled}
-        />
-
-        {#if state.paddingEnabled}
-          <RangeNumber
-            label="Top"
-            bind:value={state.paddingTop}
-            min={controlLimits.padding.min}
-            max={controlLimits.padding.max}
-            step={controlLimits.padding.step}
-            suffix="px"
-          />
-          <RangeNumber
-            label="Right"
-            bind:value={state.paddingRight}
-            min={controlLimits.padding.min}
-            max={controlLimits.padding.max}
-            step={controlLimits.padding.step}
-            suffix="px"
-          />
-          <RangeNumber
-            label="Bottom"
-            bind:value={state.paddingBottom}
-            min={controlLimits.padding.min}
-            max={controlLimits.padding.max}
-            step={controlLimits.padding.step}
-            suffix="px"
-          />
-          <RangeNumber
-            label="Left"
-            bind:value={state.paddingLeft}
-            min={controlLimits.padding.min}
-            max={controlLimits.padding.max}
-            step={controlLimits.padding.step}
-            suffix="px"
-          />
-        {/if}
       </section>
 
       <section class="tool-section">
@@ -661,114 +609,6 @@
             </Switch.Root>
             <span>Extend result</span>
           </label>
-        {/if}
-      </section>
-
-      <section class="tool-section">
-        <Collapsible.Root class="collapsible-root" bind:open={scaleOptionsOpen}>
-          <Collapsible.Trigger
-            class="accordion-heading"
-            aria-label={scaleOptionsOpen ? "Collapse scale options" : "Expand scale options"}
-          >
-            <div>
-              <h2>Scale options</h2>
-              <p>{resizeExtras || "Off"}</p>
-            </div>
-            <span class="accordion-chevron" aria-hidden="true"></span>
-          </Collapsible.Trigger>
-
-          <Collapsible.Content class="collapsible-content">
-            <label class="switch-field">
-              <Switch.Root class="switch-root" bind:checked={state.zoomEnabled}>
-                <Switch.Thumb class="switch-thumb" />
-              </Switch.Root>
-              <span>Zoom</span>
-            </label>
-            {#if state.zoomEnabled}
-              <RangeNumber
-                label="Zoom"
-                bind:value={state.zoom}
-                min={controlLimits.scale.zoom.min}
-                max={controlLimits.scale.zoom.max}
-                step={controlLimits.scale.zoom.step}
-              />
-            {/if}
-
-            <label class="switch-field">
-              <Switch.Root class="switch-root" bind:checked={state.dprEnabled}>
-                <Switch.Thumb class="switch-thumb" />
-              </Switch.Root>
-              <span>DPR</span>
-            </label>
-            {#if state.dprEnabled}
-              <RangeNumber
-                label="DPR"
-                bind:value={state.dpr}
-                min={controlLimits.scale.dpr.min}
-                max={controlLimits.scale.dpr.max}
-                step={controlLimits.scale.dpr.step}
-              />
-            {/if}
-
-            <label class="switch-field">
-              <Switch.Root class="switch-root" bind:checked={state.minWidthEnabled}>
-                <Switch.Thumb class="switch-thumb" />
-              </Switch.Root>
-              <span>Minimum width</span>
-            </label>
-            {#if state.minWidthEnabled}
-              <RangeNumber
-                label="Min width"
-                bind:value={state.minWidth}
-                min={controlLimits.scale.minWidth.min}
-                max={controlLimits.scale.minWidth.max}
-                step={controlLimits.scale.minWidth.step}
-                suffix="px"
-              />
-            {/if}
-
-            <label class="switch-field">
-              <Switch.Root class="switch-root" bind:checked={state.minHeightEnabled}>
-                <Switch.Thumb class="switch-thumb" />
-              </Switch.Root>
-              <span>Minimum height</span>
-            </label>
-            {#if state.minHeightEnabled}
-              <RangeNumber
-                label="Min height"
-                bind:value={state.minHeight}
-                min={controlLimits.scale.minHeight.min}
-                max={controlLimits.scale.minHeight.max}
-                step={controlLimits.scale.minHeight.step}
-                suffix="px"
-              />
-            {/if}
-          </Collapsible.Content>
-        </Collapsible.Root>
-      </section>
-
-      <section class="tool-section">
-        <ToolToggleHeader
-          title="Aspect canvas"
-          summary={aspectCanvasSummary}
-          bind:checked={state.aspectCanvasEnabled}
-        />
-
-        {#if state.aspectCanvasEnabled}
-          <RangeNumber
-            label="Ratio width"
-            bind:value={state.extendAspectWidth}
-            min={controlLimits.aspectCanvas.width.min}
-            max={controlLimits.aspectCanvas.width.max}
-            step={controlLimits.aspectCanvas.width.step}
-          />
-          <RangeNumber
-            label="Ratio height"
-            bind:value={state.extendAspectHeight}
-            min={controlLimits.aspectCanvas.height.min}
-            max={controlLimits.aspectCanvas.height.max}
-            step={controlLimits.aspectCanvas.height.step}
-          />
         {/if}
       </section>
 
@@ -906,6 +746,229 @@
       </section>
 
       <section class="tool-section">
+        <Collapsible.Root class="collapsible-root" bind:open={scaleOptionsOpen}>
+          <Collapsible.Trigger
+            class="accordion-heading"
+            aria-label={scaleOptionsOpen ? "Collapse scale options" : "Expand scale options"}
+          >
+            <div>
+              <h2>Scale options</h2>
+              <p>{resizeExtras || "Off"}</p>
+            </div>
+            <span class="accordion-chevron" aria-hidden="true"></span>
+          </Collapsible.Trigger>
+
+          <Collapsible.Content class="collapsible-content">
+            <label class="switch-field">
+              <Switch.Root class="switch-root" bind:checked={state.zoomEnabled}>
+                <Switch.Thumb class="switch-thumb" />
+              </Switch.Root>
+              <span>Zoom</span>
+            </label>
+            {#if state.zoomEnabled}
+              <RangeNumber
+                label="Zoom"
+                bind:value={state.zoom}
+                min={controlLimits.scale.zoom.min}
+                max={controlLimits.scale.zoom.max}
+                step={controlLimits.scale.zoom.step}
+              />
+            {/if}
+
+            <label class="switch-field">
+              <Switch.Root class="switch-root" bind:checked={state.dprEnabled}>
+                <Switch.Thumb class="switch-thumb" />
+              </Switch.Root>
+              <span>DPR</span>
+            </label>
+            {#if state.dprEnabled}
+              <RangeNumber
+                label="DPR"
+                bind:value={state.dpr}
+                min={controlLimits.scale.dpr.min}
+                max={controlLimits.scale.dpr.max}
+                step={controlLimits.scale.dpr.step}
+              />
+            {/if}
+
+            <label class="switch-field">
+              <Switch.Root class="switch-root" bind:checked={state.minWidthEnabled}>
+                <Switch.Thumb class="switch-thumb" />
+              </Switch.Root>
+              <span>Minimum width</span>
+            </label>
+            {#if state.minWidthEnabled}
+              <RangeNumber
+                label="Min width"
+                bind:value={state.minWidth}
+                min={controlLimits.scale.minWidth.min}
+                max={controlLimits.scale.minWidth.max}
+                step={controlLimits.scale.minWidth.step}
+                suffix="px"
+              />
+            {/if}
+
+            <label class="switch-field">
+              <Switch.Root class="switch-root" bind:checked={state.minHeightEnabled}>
+                <Switch.Thumb class="switch-thumb" />
+              </Switch.Root>
+              <span>Minimum height</span>
+            </label>
+            {#if state.minHeightEnabled}
+              <RangeNumber
+                label="Min height"
+                bind:value={state.minHeight}
+                min={controlLimits.scale.minHeight.min}
+                max={controlLimits.scale.minHeight.max}
+                step={controlLimits.scale.minHeight.step}
+                suffix="px"
+              />
+            {/if}
+          </Collapsible.Content>
+        </Collapsible.Root>
+      </section>
+
+      <section class="tool-section">
+        <Collapsible.Root class="collapsible-root" bind:open={orientationOpen}>
+          <Collapsible.Trigger
+            class="accordion-heading"
+            aria-label={orientationOpen ? "Collapse orientation" : "Expand orientation"}
+          >
+            <div>
+              <h2>Orientation</h2>
+              <p>{orientationSummary}</p>
+            </div>
+            <span class="accordion-chevron" aria-hidden="true"></span>
+          </Collapsible.Trigger>
+
+          <Collapsible.Content class="collapsible-content">
+            <label class="switch-field">
+              <Switch.Root class="switch-root" bind:checked={state.autoRotateEnabled}>
+                <Switch.Thumb class="switch-thumb" />
+              </Switch.Root>
+              <span>Auto rotate</span>
+            </label>
+
+            <label class="field">
+              <span>Flip</span>
+              <select bind:value={state.flip}>
+                <option value="none">none</option>
+                <option value="horizontal">horizontal</option>
+                <option value="vertical">vertical</option>
+                <option value="both">both</option>
+              </select>
+            </label>
+
+            <label class="field">
+              <span>Rotate</span>
+              <select bind:value={state.rotate}>
+                <option value={0}>none</option>
+                <option value={90}>90°</option>
+                <option value={180}>180°</option>
+                <option value={270}>270°</option>
+              </select>
+            </label>
+          </Collapsible.Content>
+        </Collapsible.Root>
+      </section>
+
+      <section class="tool-section">
+        <ToolToggleHeader
+          title="Aspect canvas"
+          summary={aspectCanvasSummary}
+          bind:checked={state.aspectCanvasEnabled}
+        />
+
+        {#if state.aspectCanvasEnabled}
+          <RangeNumber
+            label="Ratio width"
+            bind:value={state.extendAspectWidth}
+            min={controlLimits.aspectCanvas.width.min}
+            max={controlLimits.aspectCanvas.width.max}
+            step={controlLimits.aspectCanvas.width.step}
+          />
+          <RangeNumber
+            label="Ratio height"
+            bind:value={state.extendAspectHeight}
+            min={controlLimits.aspectCanvas.height.min}
+            max={controlLimits.aspectCanvas.height.max}
+            step={controlLimits.aspectCanvas.height.step}
+          />
+        {/if}
+      </section>
+
+      <section class="tool-section">
+        <ToolToggleHeader
+          title="Padding"
+          summary={paddingSummary}
+          bind:checked={state.paddingEnabled}
+        />
+
+        {#if state.paddingEnabled}
+          <RangeNumber
+            label="Top"
+            bind:value={state.paddingTop}
+            min={controlLimits.padding.min}
+            max={controlLimits.padding.max}
+            step={controlLimits.padding.step}
+            suffix="px"
+          />
+          <RangeNumber
+            label="Right"
+            bind:value={state.paddingRight}
+            min={controlLimits.padding.min}
+            max={controlLimits.padding.max}
+            step={controlLimits.padding.step}
+            suffix="px"
+          />
+          <RangeNumber
+            label="Bottom"
+            bind:value={state.paddingBottom}
+            min={controlLimits.padding.min}
+            max={controlLimits.padding.max}
+            step={controlLimits.padding.step}
+            suffix="px"
+          />
+          <RangeNumber
+            label="Left"
+            bind:value={state.paddingLeft}
+            min={controlLimits.padding.min}
+            max={controlLimits.padding.max}
+            step={controlLimits.padding.step}
+            suffix="px"
+          />
+        {/if}
+      </section>
+
+      <section class="tool-section">
+        <ToolToggleHeader
+          title="Background"
+          summary={backgroundSummary}
+          bind:checked={state.backgroundEnabled}
+        />
+
+        {#if state.backgroundEnabled}
+          <div class="background-controls">
+            <label class="field background-color-field">
+              <span>Color</span>
+              <input class="color-input" type="color" bind:value={state.backgroundColor} />
+            </label>
+
+            <div class="background-opacity-field">
+              <RangeNumber
+                label="Opacity"
+                bind:value={state.backgroundAlpha}
+                min={controlLimits.alpha.min}
+                max={controlLimits.alpha.max}
+                step={controlLimits.alpha.step}
+                inputStep="any"
+              />
+            </div>
+          </div>
+        {/if}
+      </section>
+
+      <section class="tool-section">
         <ToolToggleHeader
           title="Format"
           summary={state.formatEnabled ? `f:${state.format}` : "Off"}
@@ -941,69 +1004,6 @@
             step={controlLimits.quality.step}
           />
         {/if}
-      </section>
-
-      <section class="tool-section">
-        <Collapsible.Root class="collapsible-root" bind:open={requestOpen}>
-          <Collapsible.Trigger
-            class="accordion-heading"
-            aria-label={requestOpen ? "Collapse request" : "Expand request"}
-          >
-            <div>
-              <h2>Request</h2>
-              <p>{requestSummary}</p>
-            </div>
-            <span class="accordion-chevron" aria-hidden="true"></span>
-          </Collapsible.Trigger>
-
-          <Collapsible.Content class="collapsible-content">
-            <label class="field">
-              <span>Source image</span>
-              <select value={state.source} onchange={updateSource}>
-                {#each sampleImages as image}
-                  <option value={image.path}>{image.label}</option>
-                {/each}
-              </select>
-            </label>
-
-            <label class="field">
-              <span>Signature</span>
-              <select bind:value={state.signatureMode}>
-                <option value="unsigned">unsigned</option>
-                <option value="unsafe">unsafe</option>
-                <option value="signed">signed</option>
-              </select>
-            </label>
-
-            {#if state.signatureMode === "signed"}
-              <div class="signature-secret-grid">
-                <label class="field">
-                  <span>Key</span>
-                  <input
-                    class="text-input text-input-mono"
-                    bind:value={state.signatureKey}
-                    spellcheck="false"
-                    autocomplete="off"
-                  />
-                </label>
-
-                <label class="field">
-                  <span>Salt</span>
-                  <input
-                    class="text-input text-input-mono"
-                    bind:value={state.signatureSalt}
-                    spellcheck="false"
-                    autocomplete="off"
-                  />
-                </label>
-              </div>
-
-              {#if signingError !== null}
-                <p class="field-error">{signingError}</p>
-              {/if}
-            {/if}
-          </Collapsible.Content>
-        </Collapsible.Root>
       </section>
     </div>
 
