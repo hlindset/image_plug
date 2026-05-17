@@ -224,8 +224,10 @@ Execution scales pixel offsets by the effective DPR.
 
 Orientation options are `auto_rotate`/`ar`, `rotate`/`rot`, and `flip`/`fl`.
 
-- `ar` with no argument enables auto-orient. `ar:false` disables it.
-- `rot` accepts integer degrees and normalizes right-angle rotations.
+- `ar` with no argument applies embedded orientation metadata, such as EXIF
+  orientation. `ar:false` disables it.
+- `rot` accepts integer degrees in multiples of 90 and stores them as `0`,
+  `90`, `180`, or `270`.
 - `fl` with no arguments flips both axes.
 - `fl:true:false` flips horizontally.
 - `fl:false:true` flips vertically.

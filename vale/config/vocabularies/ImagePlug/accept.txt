@@ -1,3 +1,4 @@
+EXIF
 Imgproxy
 Vite
 allowlist
