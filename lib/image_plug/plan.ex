@@ -106,7 +106,7 @@ defmodule ImagePlug.Plan do
   defp invalid_operation?(_operation), do: true
 
   defp validate_source(%Source.Path{segments: segments} = source) do
-    if valid_path_segments?(segments),
+    if segments != [] and valid_path_segments?(segments),
       do: :ok,
       else: {:error, {:unsupported_source, source}}
   end

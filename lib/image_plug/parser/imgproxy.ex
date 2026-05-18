@@ -134,10 +134,17 @@ defmodule ImagePlug.Parser.Imgproxy do
   end
 
   defp valid_source_scheme_entry?({scheme, {translator, translator_opts}}) do
-    is_binary(scheme) and is_atom(translator) and Keyword.keyword?(translator_opts)
+    is_binary(scheme) and valid_source_scheme_translator?(translator) and
+      Keyword.keyword?(translator_opts)
   end
 
   defp valid_source_scheme_entry?(_entry), do: false
+
+  defp valid_source_scheme_translator?(translator) when is_atom(translator) do
+    Code.ensure_loaded?(translator) and function_exported?(translator, :translate, 2)
+  end
+
+  defp valid_source_scheme_translator?(_translator), do: false
 
   defp parsed_request(
          signature,

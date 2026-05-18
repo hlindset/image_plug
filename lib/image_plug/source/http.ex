@@ -80,7 +80,11 @@ defmodule ImagePlug.Source.HTTP do
       opts
       |> Keyword.fetch!(:req_options)
       |> sanitize_req_options(fetch[:cache])
-      |> Keyword.merge(url: fetch[:url], method: :get, max_redirects: 0)
+      |> Keyword.merge(
+        url: fetch[:url],
+        method: :get,
+        max_redirects: Keyword.fetch!(opts, :max_redirects)
+      )
 
     stream_options =
       Keyword.merge(

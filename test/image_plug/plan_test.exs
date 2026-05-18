@@ -85,10 +85,13 @@ defmodule ImagePlug.PlanTest do
   end
 
   test "validate shape rejects improper path source without raising" do
-    source = %Source.Path{segments: ["images" | :bad]}
-
-    assert Plan.validate_shape(plan(source: source)) ==
-             {:error, {:unsupported_source, source}}
+    for source <- [
+          %Source.Path{segments: []},
+          %Source.Path{segments: ["images" | :bad]}
+        ] do
+      assert Plan.validate_shape(plan(source: source)) ==
+               {:error, {:unsupported_source, source}}
+    end
   end
 
   test "validate shape rejects invalid expires values" do

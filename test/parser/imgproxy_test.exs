@@ -30,6 +30,10 @@ defmodule ImagePlug.Parser.ImgproxyTest do
     end
   end
 
+  defmodule InvalidTranslator do
+    @moduledoc false
+  end
+
   @allowed_parsed_transform_operations [
     ImagePlug.Transform.Operation.AutoOrient,
     ImagePlug.Transform.Operation.Rotate,
@@ -74,6 +78,19 @@ defmodule ImagePlug.Parser.ImgproxyTest do
 
     assert output.mode == {:explicit, :webp}
     assert_received {:translate, "foobar://asset/cat.jpg", []}
+  end
+
+  test "rejects malformed custom source scheme translators during option validation" do
+    for source_schemes <- [
+          %{foobar: {FoobarTranslator, []}},
+          %{"foobar" => {nil, []}},
+          %{"foobar" => {InvalidTranslator, []}},
+          %{"foobar" => {FoobarTranslator, %{}}}
+        ] do
+      assert_raise ArgumentError, ~r/invalid imgproxy config/, fn ->
+        Imgproxy.validate_options!(source_schemes: source_schemes)
+      end
+    end
   end
 
   test "parse/2 accepts parser options and keeps no-option parse/1 as a delegating helper" do

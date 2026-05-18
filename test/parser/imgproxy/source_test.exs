@@ -202,6 +202,15 @@ defmodule ImagePlug.Parser.Imgproxy.SourceTest do
               }}
   end
 
+  test "s3 rejects URI userinfo and ports that object sources cannot represent" do
+    for source <- [
+          "s3://user@bucket/images/cat.jpg",
+          "s3://bucket:9000/images/cat.jpg"
+        ] do
+      assert Source.translate(source, []) == {:error, :invalid_source_object}
+    end
+  end
+
   test "s3 preserves empty key components because object keys are opaque" do
     assert Source.translate("s3://bucket/images//cat.jpg/", []) ==
              {:ok, %Object{adapter: :s3, scope: "bucket", key: "images//cat.jpg/", revision: nil}}

@@ -88,6 +88,26 @@ defmodule ImagePlug.Source.S3Test do
   end
 
   test "invalid credential configuration and endpoints fail during option validation" do
+    assert {:error, {:invalid_source_config, :missing_credentials}} =
+             S3.validate_options(
+               default: [
+                 region: "us-east-1",
+                 endpoint: "https://s3.amazonaws.com"
+               ]
+             )
+
+    assert {:error, {:invalid_source_config, :missing_credentials}} =
+             S3.validate_options(
+               default: [
+                 region: "us-east-1",
+                 endpoint: "https://s3.amazonaws.com",
+                 credentials: {:static, access_key_id: "A", secret_access_key: "S"}
+               ],
+               buckets: %{
+                 "tenant-a" => [credentials: nil]
+               }
+             )
+
     assert {:error, {:invalid_source_config, _reason}} =
              S3.validate_options(
                default: [

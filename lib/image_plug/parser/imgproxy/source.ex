@@ -87,6 +87,12 @@ defmodule ImagePlug.Parser.Imgproxy.Source do
   defp s3_source(%URI{host: host}, _source_query) when not is_binary(host) or host == "",
     do: {:error, :invalid_source_object}
 
+  defp s3_source(%URI{userinfo: userinfo}, _source_query) when is_binary(userinfo),
+    do: {:error, :invalid_source_object}
+
+  defp s3_source(%URI{port: port}, _source_query) when is_integer(port),
+    do: {:error, :invalid_source_object}
+
   defp s3_source(%URI{fragment: fragment}, _source_query) when is_binary(fragment),
     do: {:error, :invalid_source_object}
 

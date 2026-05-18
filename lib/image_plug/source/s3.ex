@@ -108,7 +108,11 @@ defmodule ImagePlug.Source.S3 do
   defp validate_default(opts) when is_list(opts), do: validate_config(opts, require_core?: true)
   defp validate_default(_opts), do: {:error, {:invalid_source_config, :invalid_default}}
 
-  defp validate_buckets(nil, _default), do: {:ok, nil}
+  defp validate_buckets(nil, default) do
+    with :ok <- require_credentials(default) do
+      {:ok, nil}
+    end
+  end
 
   defp validate_buckets(buckets, default) when is_map(buckets) do
     buckets
@@ -117,8 +121,14 @@ defmodule ImagePlug.Source.S3 do
         merged = Keyword.merge(default, opts)
 
         case validate_config(merged, require_core?: true) do
-          {:ok, config} -> {:cont, {:ok, Map.put(acc, bucket, config)}}
-          {:error, reason} -> {:halt, {:error, reason}}
+          {:ok, config} ->
+            case require_credentials(config) do
+              :ok -> {:cont, {:ok, Map.put(acc, bucket, config)}}
+              {:error, reason} -> {:halt, {:error, reason}}
+            end
+
+          {:error, reason} ->
+            {:halt, {:error, reason}}
         end
 
       _entry, _acc ->
@@ -217,6 +227,14 @@ defmodule ImagePlug.Source.S3 do
 
   defp validate_optional_credentials(nil), do: {:ok, nil}
   defp validate_optional_credentials(credentials), do: Credentials.validate(credentials)
+
+  defp require_credentials(config) do
+    if Keyword.has_key?(config, :credentials) do
+      :ok
+    else
+      {:error, {:invalid_source_config, :missing_credentials}}
+    end
+  end
 
   defp validate_req_options(req_options) when is_list(req_options), do: {:ok, req_options}
 

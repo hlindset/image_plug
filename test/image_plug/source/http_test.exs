@@ -151,6 +151,42 @@ defmodule ImagePlug.Source.HTTPTest do
            end)
   end
 
+  test "configured max redirects allows bounded redirects" do
+    plug = fn
+      %{request_path: "/redirect.jpg"} = conn ->
+        conn
+        |> Plug.Conn.put_resp_header("location", "/other.jpg")
+        |> Plug.Conn.send_resp(302, "")
+
+      conn ->
+        send(self(), {:http_request, conn.request_path})
+        Plug.Conn.send_resp(conn, 200, "image bytes")
+    end
+
+    source = %URL{
+      scheme: :https,
+      host: "assets.example.com",
+      port: nil,
+      path: ["redirect.jpg"],
+      query: nil
+    }
+
+    assert {:ok, opts} =
+             HTTP.validate_options(
+               allowed_hosts: ["assets.example.com"],
+               max_redirects: 1,
+               req_options: [plug: plug]
+             )
+
+    assert {:ok, resolved} = HTTP.resolve(source, opts, [])
+
+    assert {:ok, %Response{} = response} =
+             Source.fetch(resolved, [sources: %{https: {HTTP, opts}}], [])
+
+    assert Enum.join(response.stream) == "image bytes"
+    assert_receive {:http_request, "/other.jpg"}
+  end
+
   test "req options cannot override redirect policy" do
     plug = fn conn ->
       conn
