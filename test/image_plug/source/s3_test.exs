@@ -43,6 +43,40 @@ defmodule ImagePlug.Source.S3Test do
     refute_received {:fetch_credentials, _, _, _}
   end
 
+  test "timeout configuration is validated and carried into fetch payload" do
+    assert {:ok, opts} =
+             S3.validate_options(
+               default: [
+                 region: "us-east-1",
+                 endpoint: "https://s3.amazonaws.com",
+                 credentials: {:static, access_key_id: "A", secret_access_key: "S"},
+                 receive_timeout: 1_000,
+                 connect_timeout: 2_000,
+                 pool_timeout: 3_000
+               ],
+               buckets: %{
+                 "tenant-a" => [receive_timeout: 500]
+               }
+             )
+
+    source = %Object{adapter: :s3, scope: "tenant-a", key: "images/cat.jpg"}
+    assert {:ok, %Resolved{} = resolved} = S3.resolve(source, opts, [])
+
+    assert Keyword.fetch!(resolved.fetch, :receive_timeout) == 500
+    assert Keyword.fetch!(resolved.fetch, :connect_timeout) == 2_000
+    assert Keyword.fetch!(resolved.fetch, :pool_timeout) == 3_000
+
+    assert {:error, {:invalid_source_config, _reason}} =
+             S3.validate_options(
+               default: [
+                 region: "us-east-1",
+                 endpoint: "https://s3.amazonaws.com",
+                 credentials: {:static, access_key_id: "A", secret_access_key: "S"},
+                 receive_timeout: -1
+               ]
+             )
+  end
+
   test "bucket map fails closed for unlisted buckets" do
     assert {:ok, opts} =
              S3.validate_options(

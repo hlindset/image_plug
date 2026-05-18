@@ -25,13 +25,38 @@ defmodule ImagePlug.Source.S3 do
   ]
   @signed_header_names ["authorization", "host", "x-amz-content-sha256", "x-amz-security-token"]
   @cacheable_byte_header_names ["range", "accept", "accept-encoding"]
-  @config_keys [:region, :endpoint, :credentials, :req_options, :cache]
+  @timeout_keys [:receive_timeout, :connect_timeout, :pool_timeout]
+  @config_schema NimbleOptions.new!(
+                   region: [
+                     type: {:custom, __MODULE__, :validate_region_option, []},
+                     required: true
+                   ],
+                   endpoint: [
+                     type: {:custom, __MODULE__, :validate_endpoint_option, []},
+                     required: true
+                   ],
+                   credentials: [
+                     type: {:custom, __MODULE__, :validate_credentials_option, []}
+                   ],
+                   req_options: [type: :keyword_list, default: []],
+                   cache: [type: {:in, [:normal, :skip]}, default: :normal],
+                   receive_timeout: [type: :non_neg_integer],
+                   connect_timeout: [type: :non_neg_integer],
+                   pool_timeout: [type: :non_neg_integer]
+                 )
+  @options_schema NimbleOptions.new!(
+                    default: [type: :keyword_list, default: []],
+                    buckets: [
+                      type: {:or, [nil, {:map, :string, :keyword_list}]},
+                      default: nil
+                    ]
+                  )
 
   @impl Source
   def validate_options(opts) when is_list(opts) do
-    with {:ok, default} <- validate_default(Keyword.get(opts, :default, [])),
-         {:ok, buckets} <- validate_buckets(Keyword.get(opts, :buckets, nil), default),
-         :ok <- validate_top_level_keys(opts) do
+    with {:ok, validated} <- validate_options_schema(opts),
+         {:ok, default} <- validate_config(Keyword.fetch!(validated, :default)),
+         {:ok, buckets} <- validate_buckets(Keyword.fetch!(validated, :buckets), default) do
       {:ok, [default: default, buckets: buckets]}
     end
   end
@@ -62,16 +87,18 @@ defmodule ImagePlug.Source.S3 do
            revision: revision
          ],
          cache: Keyword.fetch!(config, :cache),
-         fetch: [
-           endpoint: endpoint,
-           bucket: bucket,
-           key: key,
-           revision: revision,
-           region: Keyword.fetch!(config, :region),
-           credentials: Keyword.get(config, :credentials),
-           req_options: Keyword.fetch!(config, :req_options),
-           cache: Keyword.fetch!(config, :cache)
-         ]
+         fetch:
+           [
+             endpoint: endpoint,
+             bucket: bucket,
+             key: key,
+             revision: revision,
+             region: Keyword.fetch!(config, :region),
+             credentials: Keyword.get(config, :credentials),
+             req_options: Keyword.fetch!(config, :req_options),
+             cache: Keyword.fetch!(config, :cache)
+           ]
+           |> Keyword.merge(Keyword.take(config, @timeout_keys))
        }}
     end
   end
@@ -94,19 +121,21 @@ defmodule ImagePlug.Source.S3 do
           aws_sigv4: aws_sigv4_options(fetch[:region], credentials)
         )
 
-      {:ok, %Response{stream: ReqStream.stream(req_options, runtime_opts)}}
+      stream_options =
+        fetch
+        |> Keyword.take(@timeout_keys)
+        |> Keyword.merge(runtime_opts)
+
+      {:ok, %Response{stream: ReqStream.stream(req_options, stream_options)}}
     end
   end
 
-  defp validate_top_level_keys(opts) do
-    case Keyword.keys(opts) -- [:default, :buckets] do
-      [] -> :ok
-      [_key | _rest] -> {:error, {:invalid_source_config, :unknown_option}}
+  defp validate_options_schema(opts) do
+    case NimbleOptions.validate(opts, @options_schema) do
+      {:ok, validated} -> {:ok, validated}
+      {:error, error} -> {:error, {:invalid_source_config, Exception.message(error)}}
     end
   end
-
-  defp validate_default(opts) when is_list(opts), do: validate_config(opts, require_core?: true)
-  defp validate_default(_opts), do: {:error, {:invalid_source_config, :invalid_default}}
 
   defp validate_buckets(nil, default) do
     with :ok <- require_credentials(default) do
@@ -120,7 +149,7 @@ defmodule ImagePlug.Source.S3 do
       {bucket, opts}, {:ok, acc} when is_binary(bucket) and bucket != "" and is_list(opts) ->
         merged = Keyword.merge(default, opts)
 
-        case validate_config(merged, require_core?: true) do
+        case validate_config(merged) do
           {:ok, config} ->
             case require_credentials(config) do
               :ok -> {:cont, {:ok, Map.put(acc, bucket, config)}}
@@ -139,22 +168,18 @@ defmodule ImagePlug.Source.S3 do
   defp validate_buckets(_buckets, _default),
     do: {:error, {:invalid_source_config, :invalid_bucket_config}}
 
-  defp validate_config(opts, require_core?: true) do
-    with :ok <- validate_config_keys(opts),
-         {:ok, endpoint} <- validate_endpoint(Keyword.get(opts, :endpoint)),
-         {:ok, region} <- validate_region(Keyword.get(opts, :region)),
-         {:ok, credentials} <- validate_optional_credentials(Keyword.get(opts, :credentials)),
-         {:ok, req_options} <- validate_req_options(Keyword.get(opts, :req_options, [])),
-         {:ok, cache} <- validate_cache(Keyword.get(opts, :cache, :normal)) do
-      config = [region: region, endpoint: endpoint, req_options: req_options, cache: cache]
-      {:ok, maybe_put_credentials(config, credentials)}
+  defp validate_config(opts) do
+    case NimbleOptions.validate(opts, @config_schema) do
+      {:ok, validated} -> {:ok, remove_nil_credentials(validated)}
+      {:error, error} -> {:error, {:invalid_source_config, Exception.message(error)}}
     end
   end
 
-  defp validate_config_keys(opts) do
-    case Keyword.keys(opts) -- @config_keys do
-      [] -> :ok
-      [_key | _rest] -> {:error, {:invalid_source_config, :unknown_option}}
+  @doc false
+  def validate_endpoint_option(endpoint) do
+    case validate_endpoint(endpoint) do
+      {:ok, endpoint} -> {:ok, endpoint}
+      {:error, _reason} -> {:error, "expected HTTP(S) endpoint without path, query, or fragment"}
     end
   end
 
@@ -222,11 +247,19 @@ defmodule ImagePlug.Source.S3 do
     end
   end
 
-  defp validate_region(region) when is_binary(region) and region != "", do: {:ok, region}
-  defp validate_region(_region), do: {:error, {:invalid_source_config, :invalid_region}}
+  @doc false
+  def validate_region_option(region) when is_binary(region) and region != "", do: {:ok, region}
+  def validate_region_option(_region), do: {:error, "expected non-empty string"}
 
-  defp validate_optional_credentials(nil), do: {:ok, nil}
-  defp validate_optional_credentials(credentials), do: Credentials.validate(credentials)
+  @doc false
+  def validate_credentials_option(nil), do: {:ok, nil}
+
+  def validate_credentials_option(credentials) do
+    case Credentials.validate(credentials) do
+      {:ok, credentials} -> {:ok, credentials}
+      {:error, reason} -> {:error, inspect(reason)}
+    end
+  end
 
   defp require_credentials(config) do
     if Keyword.has_key?(config, :credentials) do
@@ -236,18 +269,7 @@ defmodule ImagePlug.Source.S3 do
     end
   end
 
-  defp validate_req_options(req_options) when is_list(req_options), do: {:ok, req_options}
-
-  defp validate_req_options(_req_options),
-    do: {:error, {:invalid_source_config, :invalid_req_options}}
-
-  defp validate_cache(cache) when cache in [:normal, :skip], do: {:ok, cache}
-  defp validate_cache(_cache), do: {:error, {:invalid_source_config, :invalid_cache}}
-
-  defp maybe_put_credentials(config, nil), do: config
-
-  defp maybe_put_credentials(config, credentials),
-    do: Keyword.put(config, :credentials, credentials)
+  defp remove_nil_credentials(config), do: Keyword.reject(config, &(&1 == {:credentials, nil}))
 
   defp bucket_config(bucket, opts) do
     case Keyword.fetch!(opts, :buckets) do
