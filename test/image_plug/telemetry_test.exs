@@ -8,22 +8,29 @@ defmodule ImagePlug.TelemetryTest do
   alias ImagePlug.Plan.Operation
   alias ImagePlug.Plan.Output
   alias ImagePlug.Plan.Pipeline
+  alias ImagePlug.Plan.Source
 
-  defmodule OriginImage do
-    def call(conn, _opts) do
-      body = File.read!("priv/static/images/beach.jpg")
+  defmodule InvalidSourceAdapter do
+    @behaviour ImagePlug.Source
 
-      conn
-      |> Plug.Conn.put_resp_content_type("image/jpeg")
-      |> Plug.Conn.send_resp(200, body)
+    @impl ImagePlug.Source
+    def validate_options(opts), do: {:ok, opts}
+
+    @impl ImagePlug.Source
+    def resolve(_source, _opts, _runtime_opts) do
+      {:ok,
+       %ImagePlug.Source.Resolved{
+         adapter: :path,
+         source_kind: :path,
+         identity: [kind: :path, root: "invalid", path: ["images", "beach.jpg"]],
+         cache: :normal,
+         fetch: :invalid
+       }}
     end
-  end
 
-  defmodule InvalidOriginImage do
-    def call(conn, _opts) do
-      conn
-      |> Plug.Conn.put_resp_content_type("image/png")
-      |> Plug.Conn.send_resp(200, "not actually a png")
+    @impl ImagePlug.Source
+    def fetch(_resolved, _opts, _runtime_opts) do
+      {:ok, %ImagePlug.Source.Response{stream: ["not actually a png"]}}
     end
   end
 
@@ -124,10 +131,10 @@ defmodule ImagePlug.TelemetryTest do
 
     for stage <- [
           [:parse],
-          [:origin, :identity],
+          [:source, :resolve],
           [:cache, :lookup],
           [:output, :negotiate],
-          [:origin, :fetch_decode],
+          [:source, :fetch],
           [:transform, :execute],
           [:encode],
           [:send]
@@ -145,6 +152,37 @@ defmodule ImagePlug.TelemetryTest do
     refute Enum.any?(events, fn {_event, _measurements, metadata} ->
              Map.has_key?(metadata, :request_path) or Map.has_key?(metadata, :path)
            end)
+  end
+
+  test "source resolve and fetch spans use safe low-cardinality metadata" do
+    conn =
+      :get
+      |> conn("/_/plain/images/beach.jpg")
+      |> ImagePlug.call(base_opts())
+
+    assert conn.status == 200
+    events = telemetry_events()
+
+    for stage <- [[:source, :resolve], [:source, :fetch]] do
+      assert_event(events, [:image_plug | stage] ++ [:start], fn measurements, metadata ->
+        assert is_integer(measurements.system_time)
+        assert metadata.source_kind in [:path, :url, :object, :reference]
+        assert metadata.source_adapter_kind in [:file, :http, :s3, :custom]
+        refute Map.has_key?(metadata, :source_adapter)
+        refute inspect(metadata) =~ "images/beach.jpg"
+        refute inspect(metadata) =~ "origin.test"
+      end)
+
+      assert_event(events, [:image_plug | stage] ++ [:stop], fn measurements, metadata ->
+        assert is_integer(measurements.duration)
+        assert metadata.result == :ok
+        assert metadata.source_kind in [:path, :url, :object, :reference]
+        assert metadata.source_adapter_kind in [:file, :http, :s3, :custom]
+        refute Map.has_key?(metadata, :source_adapter)
+        refute inspect(metadata) =~ "images/beach.jpg"
+        refute inspect(metadata) =~ "origin.test"
+      end)
+    end
   end
 
   test "uses configurable telemetry prefix" do
@@ -318,25 +356,25 @@ defmodule ImagePlug.TelemetryTest do
       },
       plan: {
         conn(:get, "/any"),
-        opts(parser: EmptyPipelineParser),
+        init_opts(parser: EmptyPipelineParser),
         :plan_error,
         422
       },
-      origin: {
+      source: {
         conn(:get, "/_/f:jpeg/plain/images/beach.jpg"),
-        opts(root_url: "not a url"),
-        :origin_error,
-        502
+        init_opts(sources: []),
+        :source_error,
+        422
       },
       cache: {
         conn(:get, "/_/f:jpeg/plain/images/beach.jpg"),
-        opts(cache: {CacheReadFailure, fail_on_cache_error: true}),
+        init_opts(cache: {CacheReadFailure, fail_on_cache_error: true}),
         :cache_error,
         500
       },
       processing: {
         conn(:get, "/_/f:jpeg/plain/images/beach.jpg"),
-        opts(origin_req_options: [plug: InvalidOriginImage]),
+        init_opts(sources: [path: {InvalidSourceAdapter, []}]),
         :processing_error,
         415
       }
@@ -361,7 +399,7 @@ defmodule ImagePlug.TelemetryTest do
 
   test "emits exception events only for real raised exceptions" do
     assert_raise RuntimeError, "forced parser failure", fn ->
-      ImagePlug.call(conn(:get, "/any"), opts(parser: RaisingParser))
+      ImagePlug.call(conn(:get, "/any"), init_opts(parser: RaisingParser))
     end
 
     events = telemetry_events()
@@ -393,14 +431,7 @@ defmodule ImagePlug.TelemetryTest do
   end
 
   defp base_opts(overrides \\ []) do
-    opts(
-      Keyword.merge(
-        [
-          origin_req_options: [plug: OriginImage]
-        ],
-        overrides
-      )
-    )
+    init_opts(overrides)
   end
 
   def handle_telemetry_event(event, measurements, metadata, test_pid) do
@@ -411,18 +442,22 @@ defmodule ImagePlug.TelemetryTest do
     Keyword.merge(
       [
         parser: ImagePlug.Parser.Imgproxy,
-        root_url: "http://origin.test"
+        sources: [
+          path: {ImagePlug.Source.File, root: "priv/static", root_id: "static"}
+        ]
       ],
       overrides
     )
   end
+
+  defp init_opts(overrides), do: overrides |> opts() |> ImagePlug.init()
 
   def plan(overrides \\ []) do
     struct!(
       Plan,
       Keyword.merge(
         [
-          source: {:plain, ["images", "beach.jpg"]},
+          source: %Source.Path{segments: ["images", "beach.jpg"]},
           pipelines: [%Pipeline{operations: [resize_fit_operation()]}],
           output: %Output{mode: {:explicit, :jpeg}}
         ],
@@ -467,10 +502,10 @@ defmodule ImagePlug.TelemetryTest do
     [
       [:request],
       [:parse],
-      [:origin, :identity],
+      [:source, :resolve],
       [:cache, :lookup],
       [:output, :negotiate],
-      [:origin, :fetch_decode],
+      [:source, :fetch],
       [:transform, :execute],
       [:encode],
       [:cache, :write],

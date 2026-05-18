@@ -39,7 +39,7 @@ defmodule ImagePlug.MixProject do
           "Transform API": [ImagePlug.Transform, ~r/ImagePlug\.Transform\..*/],
           "Cache API": [ImagePlug.Cache, ~r/ImagePlug\.Cache\..*/],
           "Runtime Internals": [
-            ~r/ImagePlug\.Origin.*/,
+            ~r/ImagePlug\.Source.*/,
             ~r/ImagePlug\.Output.*/,
             ~r/ImagePlug\.Request.*/,
             ~r/ImagePlug\.Response.*/,
