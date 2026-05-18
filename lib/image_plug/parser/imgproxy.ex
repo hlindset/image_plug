@@ -9,7 +9,9 @@ defmodule ImagePlug.Parser.Imgproxy do
       ImagePlug.Plan,
       ImagePlug.Transform
     ],
-    exports: []
+    exports: [
+      SourceScheme
+    ]
 
   @behaviour ImagePlug.Parser
 

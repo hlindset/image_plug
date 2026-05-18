@@ -85,7 +85,7 @@ defmodule ImagePlug.ArchitectureBoundaryTest do
     assert_boundary_exports(parser, [ImagePlug.Parser.Imgproxy])
 
     assert_boundary_deps(imgproxy, [ImagePlug.Parser, ImagePlug.Plan, ImagePlug.Transform])
-    assert_boundary_exports(imgproxy, [])
+    assert_boundary_exports(imgproxy, [ImagePlug.Parser.Imgproxy.SourceScheme])
 
     assert_allowed_deps(parser, [ImagePlug.Plan, ImagePlug.Transform])
     assert_allowed_deps(imgproxy, [ImagePlug.Parser, ImagePlug.Plan, ImagePlug.Transform])
