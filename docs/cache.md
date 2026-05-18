@@ -79,6 +79,6 @@ still receives encoded response bodies over the cache `:max_body_bytes` limit,
 but the cache skips storage. `:max_body_bytes` must be `nil` or a non-negative
 integer.
 
-Treat the cache root as trusted local configuration. The filesystem adapter
-validates generated paths against the configured root, but it doesn't defend
-against a local actor replacing directories inside the root with symlinks.
+The filesystem adapter validates generated paths against the configured root
+with `Path.safe_relative/2`, so paths that escape through symlinks fail as cache
+path errors.
