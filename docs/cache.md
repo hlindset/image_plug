@@ -64,9 +64,8 @@ cache paths, not request, origin, header, or cookie data.
 
 Filesystem metadata has an independent `metadata_version` and includes the
 cached body filename, byte size, and SHA-256 digest. Body files are
-content-addressed by digest, and the metadata file is the atomic commit record.
-Overwrites or failed metadata commits can leave unreferenced body files behind.
-Those entries are safe misses, not corrupt entries.
+content-addressed by digest. A cache entry is readable only when metadata points
+to a body file with the expected size and digest.
 
 Missing files, invalid metadata, and default filesystem read problems are cache
 misses by default. With `fail_on_cache_error: true`, invalid metadata and
