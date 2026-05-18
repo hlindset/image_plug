@@ -1,7 +1,7 @@
 defmodule ImagePlug.SequentialCompatibilityTest do
   use ExUnit.Case, async: true
 
-  alias ImagePlug.Origin
+  alias ImagePlug.Source.Response
   alias ImagePlug.Transform.Chain
   alias ImagePlug.Transform.Materializer
   alias ImagePlug.Transform.Operation.AutoOrient
@@ -87,16 +87,11 @@ defmodule ImagePlug.SequentialCompatibilityTest do
     assert_sampled_pixels_match(sequential_image, random_image)
   end
 
-  defp run_chain(chain, access, body, content_type) when access in [:random, :sequential] do
-    plug = fn conn ->
-      conn
-      |> Plug.Conn.put_resp_content_type(content_type)
-      |> Plug.Conn.send_resp(200, body)
-    end
+  defp run_chain(chain, access, body, _content_type) when access in [:random, :sequential] do
+    response = %Response{stream: [body]}
 
-    with {:ok, response} <-
-           Origin.fetch("https://img.example/fixture", plug: plug),
-         {:ok, image} <- Image.open(response.stream, access: access, fail_on: :error),
+    with {:ok, image} <-
+           Image.open(response.stream, access: access, fail_on: :error),
          {:ok, state} <- Chain.execute(%State{image: image}, chain),
          {:ok, materialized_image} <- Materializer.materialize(state.image) do
       {:ok, materialized_image, response}

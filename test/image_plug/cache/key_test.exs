@@ -739,7 +739,6 @@ defmodule ImagePlug.Cache.KeyTest do
     signed_opts =
       ImagePlug.init(
         parser: ImagePlug.Parser.Imgproxy,
-        root_url: "http://origin.test",
         imgproxy: [
           signature: [
             keys: ["746573742d6b6579"],
@@ -751,7 +750,6 @@ defmodule ImagePlug.Cache.KeyTest do
     trusted_opts =
       ImagePlug.init(
         parser: ImagePlug.Parser.Imgproxy,
-        root_url: "http://origin.test",
         imgproxy: [
           signature: [
             keys: ["746573742d6b6579"],

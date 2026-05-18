@@ -105,7 +105,7 @@ defmodule ImagePlug.CacheTest do
 
   test "ImagePlug init rejects missing required options early" do
     assert_raise ArgumentError, ~r/required :parser option not found/, fn ->
-      ImagePlug.init(root_url: "https://origin.test")
+      ImagePlug.init([])
     end
   end
 
@@ -134,7 +134,9 @@ defmodule ImagePlug.CacheTest do
     opts =
       ImagePlug.init(
         parser: ImagePlug.Parser.Imgproxy,
-        root_url: "https://origin.test",
+        sources: [
+          path: {ImagePlug.Source.File, root: "priv/static", root_id: "static"}
+        ],
         cache: {ImagePlug.Cache.FileSystem, root: root <> "/../image_plug_cache_init"}
       )
 

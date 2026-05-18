@@ -292,7 +292,9 @@ defmodule ImagePlug.ImgproxyWireConformanceTest do
   end
 
   test "S3 cache miss asks only the selected bucket credential provider before fetch" do
-    plug = fn conn -> Plug.Conn.send_resp(conn, 200, File.read!("priv/static/images/beach.jpg")) end
+    plug = fn conn ->
+      Plug.Conn.send_resp(conn, 200, File.read!("priv/static/images/beach.jpg"))
+    end
 
     opts =
       ImagePlug.init(

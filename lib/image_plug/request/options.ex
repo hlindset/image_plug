@@ -6,7 +6,12 @@ defmodule ImagePlug.Request.Options do
   alias ImagePlug.Telemetry
 
   @parser_visible_option_keys [:parser, :clock, :telemetry_prefix]
-  @stale_origin_option_keys [:root_url, :origin_req_options, :origin_receive_timeout, :origin_max_redirects]
+  @stale_origin_option_keys [
+    :root_url,
+    :origin_req_options,
+    :origin_receive_timeout,
+    :origin_max_redirects
+  ]
   @source_runtime_option_keys [
     :max_body_bytes,
     :receive_timeout,

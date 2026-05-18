@@ -24,7 +24,7 @@ origin fetch or cache lookup. ImagePlug doesn't ignore them.
 | --- | --- | --- |
 | Required signature path segment | Supported | Without signing, ImagePlug accepts `_` and `unsafe`. With signing configured, it accepts HMAC and exact trusted signatures. Trusted-only config accepts only exact trusted signatures. This behavior is narrower than upstream unsigned behavior. |
 | HMAC URL signatures | Supported | Imgproxy parser verifies raw/unpadded Base64URL HMAC-SHA256 signatures with hex key/salt pairs, optional truncation, rotation pairs, exact trusted signatures, and Imgproxy-compatible `fixPath` before verification. Signature failures return 403. |
-| Plain source URLs via `/plain/` | Partial | ImagePlug treats the value as path segments resolved against configured `root_url`. It doesn't model arbitrary absolute source URLs. |
+| Plain source URLs via `/plain/` | Partial | ImagePlug translates the value into configured source adapters for local paths, HTTP(S) URLs, and S3-compatible object URIs. |
 | Plain source `@extension` | Supported | Overrides option format and bypasses `Accept` negotiation. |
 | Base64 encoded source URL | Missing | No encoded source parsing or absolute URL source model. |
 | Encrypted `/enc/` source URL | Missing | Pro feature. Requires source decryption and signed URL safety. |
@@ -143,7 +143,7 @@ origin fetch or cache lookup. ImagePlug doesn't ignore them.
 | `skip_processing` | `skp` | Missing | No source-format raw pass-through path. |
 | `raw` | | Missing | Documented as unsupported. It would alter request safety and streaming model. |
 | `cachebuster` | `cb` | Supported | Participates in cache key data, not transforms. |
-| `expires` | `exp` | Supported | Rejects expired requests before origin/cache side effects. |
+| `expires` | `exp` | Supported | Rejects expired requests before source/cache side effects. |
 | `filename` | `fn` | Supported | Percent-decoded or URL-safe Base64 filename stem. |
 | `return_attachment` | `att` | Supported | Controls `Content-Disposition` disposition. |
 | `preset` | `pr` | Partial | Normal processing URLs support configured named presets, multiple names in one segment, `default` automatic expansion, nested presets with recursive re-entry skipped, and documented chained-pipeline merge semantics. Presets-only mode, info endpoint presets, env/file loading, and custom separators aren't supported. |
