@@ -202,9 +202,13 @@ defmodule ImagePlug.Source.S3 do
   end
 
   defp validate_port(port) do
-    case Integer.parse(port) do
-      {port, ""} when port in 1..65_535 -> :ok
-      _invalid -> {:error, {:invalid_source_config, :invalid_endpoint}}
+    if String.match?(port, ~r/^[0-9]+$/) do
+      case Integer.parse(port) do
+        {port, ""} when port in 1..65_535 -> :ok
+        _invalid -> {:error, {:invalid_source_config, :invalid_endpoint}}
+      end
+    else
+      {:error, {:invalid_source_config, :invalid_endpoint}}
     end
   end
 

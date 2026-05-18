@@ -263,9 +263,13 @@ defmodule ImagePlug.Parser.Imgproxy.Source do
   end
 
   defp parse_port(port) do
-    case Integer.parse(port) do
-      {port, ""} when port in 1..65_535 -> {:ok, port}
-      _invalid -> {:error, :invalid_source_url}
+    if String.match?(port, ~r/^[0-9]+$/) do
+      case Integer.parse(port) do
+        {port, ""} when port in 1..65_535 -> {:ok, port}
+        _invalid -> {:error, :invalid_source_url}
+      end
+    else
+      {:error, :invalid_source_url}
     end
   end
 end

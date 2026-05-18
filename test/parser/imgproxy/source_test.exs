@@ -107,6 +107,7 @@ defmodule ImagePlug.Parser.Imgproxy.SourceTest do
     for source <- [
           "https://assets.example.com:abc/cat.jpg",
           "https://assets.example.com:/cat.jpg",
+          "https://assets.example.com:+443/cat.jpg",
           "https://assets.example.com:99999/cat.jpg",
           "http://[::1]:abc/cat.jpg"
         ] do
