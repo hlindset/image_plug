@@ -39,6 +39,7 @@ Create:
 - `test/parser/imgproxy/source_test.exs` covers imgproxy source translation and custom scheme translators.
 - `test/support/image_plug/source_test/custom_adapter.ex` provides a source adapter test double.
 - `test/support/image_plug/source_test/foobar_translator.ex` provides a reusable imgproxy custom source scheme translator.
+- `test/support/image_plug/source_test/plug_custom_adapter.ex` provides plug-level custom source adapter coverage.
 - `test/support/image_plug/source_test/invalid_adapter.ex` provides malformed callback returns.
 - `test/support/image_plug/source_test/invalid_identity_adapter.ex` provides invalid resolved identity coverage.
 - `test/support/image_plug/source_test/valid_adapter.ex` provides a reusable valid source adapter for request flow tests.
@@ -385,6 +386,7 @@ mise exec -- git commit -m "Add product-neutral plan source structs"
 - Create: `lib/image_plug/source.ex`
 - Create: `lib/image_plug/source/resolved.ex`
 - Create: `lib/image_plug/source/response.ex`
+- Create: `lib/image_plug/source/stream_error.ex`
 - Create: `test/image_plug/source_test.exs`
 - Create: `test/support/image_plug/source_test/custom_adapter.ex`
 - Create: `test/support/image_plug/source_test/invalid_adapter.ex`
@@ -1752,7 +1754,6 @@ mise exec -- git commit -m "Add S3 source adapter"
 - Modify: `lib/image_plug/request/processor.ex`
 - Modify: `lib/image_plug/response/sender.ex`
 - Delete: `lib/image_plug/origin/identity.ex`
-- Delete: `lib/image_plug/origin/decoded.ex`
 - Create: `test/support/image_plug/source_test/valid_adapter.ex`
 - Modify: `test/image_plug/request_safety_test.exs`
 - Modify: `test/image_plug/processor_test.exs`
@@ -2029,7 +2030,7 @@ For tests that need absolute HTTP URL sources, use imgproxy paths such as `/_/pl
 - [ ] **Step 8: Commit**
 
 ```bash
-mise exec -- git add lib/image_plug.ex lib/image_plug/request/options.ex lib/image_plug/request/runner.ex lib/image_plug/request/processor.ex lib/image_plug/response/sender.ex test/image_plug/request_safety_test.exs test/image_plug/request_runner_test.exs test/image_plug/processor_test.exs test/image_plug_test.exs test/image_plug/imgproxy_wire_conformance_test.exs
+mise exec -- git add lib/image_plug.ex lib/image_plug/request/options.ex lib/image_plug/request/runner.ex lib/image_plug/request/processor.ex lib/image_plug/response/sender.ex test/image_plug/request_safety_test.exs test/image_plug/request_runner_test.exs test/image_plug/processor_test.exs test/image_plug_test.exs test/image_plug/imgproxy_wire_conformance_test.exs test/support/image_plug/source_test/valid_adapter.ex
 mise exec -- git rm lib/image_plug/origin/identity.ex
 mise exec -- git commit -m "Resolve sources before cache lookup"
 ```
