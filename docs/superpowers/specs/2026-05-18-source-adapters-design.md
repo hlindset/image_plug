@@ -69,16 +69,24 @@ providers, or perform network-backed storage resolution.
 name/value pairs observed from the source response. Headers aren't cache key
 material and aren't emitted in telemetry by default.
 
+The source boundary wraps adapter streams before the decoder consumes them. That
+wrapper accepts binary chunks only, enforces `:max_body_bytes`, converts deferred
+stream errors into safe source errors, wraps stream exceptions, and runs adapter
+cleanup or cancellation code. Built-in adapters should put transport cleanup in
+the stream's termination path so a decode error or abandoned response closes the
+source request.
+
 Adapter errors use a small tagged shape:
 
 ```elixir
 {:source, reason}
 ```
 
-`reason` must be safe to include in internal control flow and default error
-responses. It must not contain source URLs, paths, object keys, signed request
-data, credentials, client structs, raw response bodies, or arbitrary exceptions.
-The source registry treats malformed callback returns as adapter errors rather
+Built-in adapter reasons must be safe to include in internal control flow and
+default error responses. They must not contain source URLs, paths, object keys,
+signed request data, credentials, client structs, raw response bodies, or
+arbitrary exceptions. Custom adapters own the safety of returned reasons. The
+source registry still treats malformed callback returns as adapter errors rather
 than letting them reach cache, decode, or response code.
 
 Adapters don't return loaded images. The request processor keeps decode
@@ -93,11 +101,10 @@ The request flow becomes:
 parse request
 -> validate Plan shape and transform safety
 -> resolve Plan.source into Source.Resolved
--> build cache key from canonical Plan fields and Source.Resolved.identity
--> cache lookup
--> fetch Source.Resolved on miss
+-> if Source.Resolved.cache == :normal, build cache key and look up cache
+-> if cache misses or Source.Resolved.cache == :skip, fetch Source.Resolved
 -> decode, validate input limits, transform, encode
--> cache successful encoded responses
+-> cache successful encoded responses only when Source.Resolved.cache == :normal
 ```
 
 ## Source variants
@@ -246,6 +253,11 @@ region, addressing mode, hidden object prefixes, tenant routing rules, catalog
 revision data, and custom adapter identity fingerprints. The identity excludes
 credential values.
 
+When `cache` is `:skip`, request processing bypasses cache key construction,
+cache adapter `get`, and cache adapter `put`. The decision still comes from
+`resolve/3`, before source fetch. Mutable references can use this when they can't
+supply an immutable revision without doing a backing lookup.
+
 Example S3 identity:
 
 ```elixir
@@ -312,6 +324,10 @@ use different endpoints, and endpoint participates in identity. If a
 custom adapter adds tenant, account, profile, or hidden-prefix routing, its
 resolved identity must include that non-secret routing choice.
 
+The built-in adapter signs every request with Req SigV4 `service: :s3`. That
+keeps S3-compatible endpoints working even when Req can't infer the AWS service
+from the host.
+
 The S3 adapter must not call credential providers during `resolve/3` or cache
 lookup. The adapter may include a non-secret credential reference in the fetch
 payload. `fetch/3` calls the selected provider only on cache miss, builds a
@@ -328,18 +344,36 @@ The callback returns:
 ```elixir
 {:ok,
  [
-   access_key_id: binary(),
-   secret_access_key: binary(),
-   session_token: binary() | nil
+   access_key_id: "AKIA...",
+   secret_access_key: "..."
  ]}
-| {:error, ImagePlug.Source.error()}
 ```
+
+For temporary credentials:
+
+```elixir
+{:ok,
+ [
+   access_key_id: "ASIA...",
+   secret_access_key: "...",
+   token: "temporary-session-token"
+ ]}
+```
+
+Credential failures use the source error shape:
+
+```elixir
+{:error, {:source, :credentials_unavailable}}
+```
+
+`token` maps directly to Req SigV4's `:token` option for STS or other temporary
+credentials.
 
 Providers can cache, refresh, assume roles, call instance metadata, or talk to a
 private credential service. Those side effects happen only inside `fetch/3`,
 after a cache miss.
 
-Secret fields, access keys, session tokens, signed URLs, authorization headers,
+Secret fields, access keys, tokens, signed URLs, authorization headers,
 and client structs must not enter plan data, cache key data, telemetry, or default
 error messages.
 
@@ -378,7 +412,7 @@ In the actual Plug request path, callers must escape the embedded source query
 delimiter because `Plug.Conn.request_path` excludes the request query string:
 
 ```text
-/plain/s3://bucket/images/cat.jpg%3Fabc
+/_/plain/s3://bucket/images/cat.jpg%3Fabc
 ```
 
 The imgproxy parser decodes that source segment before URI translation, so the
@@ -442,7 +476,9 @@ Adapters shouldn't raise for denied sources, missing objects, transport errors,
 credential failures, non-success statuses, malformed callback results, or body
 limit failures. The source boundary wraps unexpected exceptions before telemetry
 or error responses see them, so raw exception terms can't leak secrets by
-default.
+default. Source spans catch adapter exceptions inside the span body and convert
+them to sanitized returned errors instead of letting `:telemetry.span/3` emit
+exception metadata for adapter code.
 
 ## Telemetry
 
@@ -450,16 +486,16 @@ Source-oriented spans replace origin-oriented names:
 
 ```text
 [:source, :resolve]
-[:source, :fetch_decode]
+[:source, :fetch]
 ```
 
 Metadata remains low-cardinality and safe:
 
 ```elixir
 %{
-  source_kind: :url | :path | :object | :reference,
-  source_adapter_kind: :http | :file | :s3 | :catalog | :custom,
-  result: :ok | :source_error | :processing_error
+  source_kind: :object,
+  source_adapter_kind: :s3,
+  result: :ok
 }
 ```
 
@@ -543,6 +579,8 @@ Source registry and custom adapters:
 - cache hits don't call the custom adapter `fetch/3`.
 - malformed custom adapter callback results fail predictably.
 - init rejects malformed adapter options before request handling.
+- stream wrappers reject non-binary chunks, enforce body-size limits, sanitize
+  deferred stream errors, and run cleanup.
 
 Request safety:
 
@@ -560,8 +598,8 @@ Cache keys:
   not share cache.
 - credentials, tokens, authorization headers, signed URLs, local absolute paths,
   and parser structs are absent from key data.
-- `cache: :skip` bypasses processed-response cache without fetching before the
-  cache decision.
+- `cache: :skip` bypasses cache key construction, cache lookup, and cache write
+  without fetching before the skip decision.
 
 HTTP adapter:
 
@@ -591,8 +629,8 @@ S3 adapter:
 - selected provider and options differ by bucket.
 - region, endpoint, addressing, bucket, key, and revision affect resolved
   identity.
-- same bucket names behind different configured storage scopes don't share cache.
-- the adapter passes Req SigV4 options during fetch.
+- same bucket and key at different endpoints don't share cache.
+- the adapter passes Req SigV4 options with `service: :s3` during fetch.
 - signed fetch redirects don't leak authorization headers across hosts.
 - stream consumption.
 - credential provider success, failure, and refresh paths return safe tagged
@@ -603,9 +641,13 @@ Telemetry and boundaries:
 - ImagePlug emits source spans for successful and failed source resolution/fetch.
 - telemetry metadata excludes URLs, keys, paths, bucket names, dispatch adapter
   keys, credentials, signed headers, raw reasons, stack traces, and parser structs.
+- source code converts adapter exceptions to sanitized source errors before
+  telemetry sees them.
 - request dispatch goes through `ImagePlug.Source`.
 - architecture tests cover the deliberate replacement of `ImagePlug.Origin`
-  internals with `ImagePlug.Source`.
+  internals with `ImagePlug.Source`: request depends on source, source avoids
+  request/cache/output/transform/response/parser dependencies, and plan, parser,
+  cache, output, transform, and response don't depend on source.
 - transforms remain source-unaware.
-- parser-specific structs don't leak into source, cache, request, output, or
-  transform boundaries.
+- parser-specific structs don't leak into source, cache, request, output,
+  transform, or response boundaries.
