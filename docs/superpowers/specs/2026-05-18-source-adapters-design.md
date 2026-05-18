@@ -7,10 +7,10 @@ design that guided the source adapter implementation.
 
 ## Problem
 
-ImagePlug currently treats `Plan.source` as path segments that resolve through a
-single configured HTTP root. That's too narrow for source identifiers that name
-local files, absolute HTTP URLs, S3-compatible objects, planned object-store
-adapters, or catalog-backed asset identifiers.
+Before source adapters, ImagePlug treated `Plan.source` as path segments that
+resolved through a single configured HTTP root. That was too narrow for source
+identifiers that name local files, absolute HTTP URLs, S3-compatible objects,
+planned object-store adapters, or catalog-backed asset identifiers.
 
 The existing request order must stay intact:
 

@@ -116,10 +116,18 @@ defmodule ImagePlug.Source.HTTP do
 
     path = "/" <> path
     port = source.port || Map.fetch!(@default_ports, source.scheme)
-    authority = source.host <> port_suffix(source.scheme, port)
+    authority = authority_host(source.host) <> port_suffix(source.scheme, port)
     query = if is_binary(source.query), do: "?" <> source.query, else: ""
 
     "#{source.scheme}://#{authority}#{path}#{query}"
+  end
+
+  defp authority_host(host) do
+    if String.contains?(host, ":") do
+      "[#{host}]"
+    else
+      host
+    end
   end
 
   defp port_suffix(:http, 80), do: ""

@@ -210,6 +210,37 @@ defmodule ImagePlug.Source.HTTPTest do
     assert_receive {:http_request, "/images/cat%23one%25two%20space%3F.jpg", "v=a%26b%3Dc"}
   end
 
+  test "fetch brackets IPv6 literals when building the request URL" do
+    plug = fn conn ->
+      send(self(), {:http_request, conn.host, conn.request_path, conn.query_string})
+      Plug.Conn.send_resp(conn, 200, "image bytes")
+    end
+
+    source = %URL{
+      scheme: :http,
+      host: "::1",
+      port: 8080,
+      path: ["cat.jpg"],
+      query: "v=1"
+    }
+
+    assert {:ok, opts} =
+             HTTP.validate_options(
+               allowed_hosts: ["::1"],
+               req_options: [plug: plug]
+             )
+
+    assert {:ok, resolved} = HTTP.resolve(source, opts, [])
+
+    assert resolved.fetch[:url] == "http://[::1]:8080/cat.jpg?v=1"
+
+    assert {:ok, %Response{} = response} =
+             Source.fetch(resolved, [sources: %{http: {HTTP, opts}}], max_body_bytes: 20)
+
+    assert Enum.join(response.stream) == "image bytes"
+    assert_receive {:http_request, "::1", "/cat.jpg", "v=1"}
+  end
+
   test "non-success statuses and transport failures are deferred safe stream errors" do
     plug = fn conn -> Plug.Conn.send_resp(conn, 404, "not found") end
 
