@@ -22,7 +22,7 @@ forward "/",
 The default prefix is `[:image_plug]`. Prefixes must be non-empty lists of
 atoms.
 
-## Event Names
+## Event names
 
 Events use `:telemetry.span/3` naming conventions. Every span emits a `:start`
 event and then either a `:stop` event for normal completion or an `:exception`
@@ -99,7 +99,7 @@ cardinality. Host applications that need path-level observability should add
 that data in their own handlers with the relevant privacy and cardinality
 controls.
 
-## Result Values
+## Result values
 
 Request and stage spans use narrow result atoms:
 
@@ -128,7 +128,7 @@ The `[:encode, :stop]` stage emits `cache: :write_skipped` when a cacheable
 response exceeds the configured cache body limit before ImagePlug attempts a
 cache write.
 
-## Attaching Handlers
+## Attaching handlers
 
 A host application can attach to all ImagePlug span events with
 `:telemetry.attach_many/4`:

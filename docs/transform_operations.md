@@ -1,4 +1,4 @@
-# Transform Operations
+# Transform operations
 
 ## Purpose
 
@@ -13,7 +13,7 @@ modules under `ImagePlug.Transform.Operation.*` are local execution targets used
 by Transform Plan execution and `ImagePlug.Transform.Chain`. Parsers shouldn't
 emit them except for the explicit first-slice orientation primitive allowlist.
 
-## Request Flow
+## Request flow
 
 Parser code translates external syntax into parser-owned request structs, then
 into `ImagePlug.Plan`, then into executable transform work only after the final
@@ -39,7 +39,7 @@ Runtime code shouldn't reference concrete operation modules such as
 For Plan execution, runtime calls `ImagePlug.Transform.execute_plan/3`.
 Executable structs stay inside Transform execution.
 
-## Operation Ordering
+## Operation ordering
 
 ImagePlug orders operation chains once they reach `ImagePlug.Plan`.
 
@@ -53,7 +53,7 @@ map cleanly, emit an ordered `ImagePlug.Plan`. Otherwise keep dialect-specific
 quirks isolated in the parser/adapter layer. Don't force ordered command
 semantics into the Imgproxy API or into product-neutral Plan operations.
 
-## Request Fields That Aren't Transform Operations
+## Request fields that aren't transform operations
 
 These request fields affect source selection, response policy, cache identity,
 or output encoding. Translate them into the appropriate `ImagePlug.Plan` facets
@@ -71,7 +71,7 @@ Keeping these fields out of transform chains matters for cache key data and
 runtime boundaries. Output negotiation, for example, may change the encoded
 format without changing the transform operation sequence.
 
-## Semantic Operation Catalog
+## Semantic operation catalog
 
 Parser/planner code should use these semantic operations:
 
@@ -92,7 +92,7 @@ Plan pipelines may also contain the explicit orientation primitive allowlist:
 and `ImagePlug.Transform.Operation.Flip`. Parsers shouldn't use other
 executable Transform operation modules as Plan output.
 
-## Executable Operation Catalog
+## Executable operation catalog
 
 `ImagePlug.Transform.Operation.*` modules are executable operation targets. They
 describe work over `ImagePlug.Transform.State`, not parser request syntax:
@@ -111,7 +111,7 @@ describe work over `ImagePlug.Transform.State`, not parser request syntax:
 `mode: :auto` belongs in `ImagePlug.Plan.Operation.Resize`; parsers must not
 emit an executable adaptive-resize operation.
 
-## Choosing Resize-Like Semantic Operations
+## Choosing resize-like semantic operations
 
 Use `ImagePlug.Plan.Operation.Resize` with `mode: :fit` for aspect-preserving
 fit semantics, `mode: :cover` for cover/fill semantics that require result
@@ -126,7 +126,7 @@ Don't use `mode: :auto` as a generic conditional resize operation. If a future
 adapter has different source-dependent branch rules, add a new semantic
 operation or adapter policy instead of extending `mode: :auto` implicitly.
 
-## Crop And Gravity
+## Crop and gravity
 
 Use `CropGuided` for visible crop operations expressed as size plus guide. Use
 `CropRegion` for explicit source/current-space region crops. Parser-specific
@@ -138,7 +138,7 @@ Current Imgproxy focal-point gravity maps to semantic guide values. The first
 slice doesn't model a separate focus operation. Future dialects can add one if
 they expose focus state independently from visible crop/canvas/cover work.
 
-## Orientation Operations
+## Orientation operations
 
 Use the explicit `AutoOrient`, `Rotate`, and `Flip` orientation primitive
 allowlist for orientation intent.
@@ -147,7 +147,7 @@ Imgproxy orientation suborder is auto-orient, rotate, then flip. Other dialects
 should preserve their own semantics in the adapter layer and emit the ordered
 Plan operation chain that matches those semantics.
 
-## Canvas Operations
+## Canvas operations
 
 Use semantic `Canvas` when a dialect requests target canvas expansion,
 letterboxing, or aspect-ratio extension around the transformed image. Don't use
@@ -179,7 +179,7 @@ RGB channels with alpha and serializes into structured cache key data.
 Third-party color package structs stay behind `ImagePlug.Plan.Color` and must
 not leak into parser request structs, runtime state, or cache key data.
 
-## Decode Planning
+## Decode planning
 
 Before source metadata is available, decode/open planning must treat semantic
 Plan operations conservatively. After a cache miss, Transform Plan execution may
@@ -187,7 +187,7 @@ discover source metadata and convert semantic intent to executable work. The
 exact executable `metadata/1` contract belongs in the
 `ImagePlug.Transform.Operation.*` module docs.
 
-## Cache Key Data
+## Cache key data
 
 Final output cache key data captures canonical semantic intent, not resolved
 execution details. It should be stable for matching plans and independent of
@@ -201,7 +201,7 @@ Source-aware execution choices such as resize `mode: :auto` selecting
 fit/cover, ratio crop resolution, and DPR conversion affect executable work
 after a cache miss, but they don't enter the normal final output cache key.
 
-## Mapping Examples
+## Mapping examples
 
 These examples show current Imgproxy URL concepts translated into semantic Plan
 operations. They describe Imgproxy planner behavior only. Future dialect docs
@@ -220,7 +220,7 @@ should describe their own URL syntax separately.
 | `extend:true/w:300/h:200` | `Resize` with `mode: :fit`, `Canvas` |
 | `pd:10/bg:f00` | `Padding`, `Background` |
 
-## Boundary Rules
+## Boundary rules
 
 Runtime dispatches through `ImagePlug.Transform` and must not depend on concrete
 Plan or Transform operation modules. Runtime shouldn't depend on parser-specific

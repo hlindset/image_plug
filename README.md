@@ -113,19 +113,19 @@ ImagePlug's fixed plan order.
 
 ## Documentation
 
-- [Imgproxy Path API](docs/imgproxy_path_api.md) documents URL shape, option
+- [Imgproxy path API](docs/imgproxy_path_api.md) documents URL shape, option
   parsing, conflict resolution, signing, presets, output selection, and
   fixed operation ordering.
-- [Imgproxy Support Matrix](docs/imgproxy_support_matrix.md) lists supported,
+- [Imgproxy support matrix](docs/imgproxy_support_matrix.md) lists supported,
   partial, rejected, missing, and out-of-scope Imgproxy features.
 - [Cache](docs/cache.md) documents filesystem response caching, cache keys,
   stored headers, failure modes, and cache safety boundaries.
-- [Operational Notes](docs/operational_notes.md) documents request safety,
+- [Operational notes](docs/operational_notes.md) documents request safety,
   origin fetching, decode planning, multi-pipeline behavior, and automatic
   output negotiation.
 - [Telemetry](docs/telemetry.md) documents emitted span events, measurements,
   metadata, and handler examples.
-- [Transform Operations](docs/transform_operations.md) documents the boundary
+- [Transform operations](docs/transform_operations.md) documents the boundary
   between parser request syntax, semantic plan operations, and executable
   transform operations.
 

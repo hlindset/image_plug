@@ -1,4 +1,4 @@
-# Imgproxy Path API
+# Imgproxy path API
 
 ## Mental model
 
@@ -7,7 +7,7 @@ ImagePlug normalizes aliases and conflicts, converts supported options into
 `ImagePlug.Plan` operations, then runs those operations in a fixed order.
 
 For a feature-by-feature comparison with Imgproxy's processing URL surface, see
-[Imgproxy Support Matrix](imgproxy_support_matrix.md).
+[Imgproxy support matrix](imgproxy_support_matrix.md).
 
 ## Path shape
 

@@ -1,4 +1,4 @@
-# Imgproxy Support Matrix
+# Imgproxy support matrix
 
 This matrix compares ImagePlug's current `ImagePlug.Parser.Imgproxy` support
 with Imgproxy's processing URL surface.
@@ -8,7 +8,7 @@ product-neutral `ImagePlug.Plan`. Supported options translate cleanly into
 canonical plan/output/cache/response fields. Unsupported options fail before
 origin fetch or cache lookup. ImagePlug doesn't ignore them.
 
-## Status Legend
+## Status legend
 
 | Status | Meaning |
 | --- | --- |
@@ -18,7 +18,7 @@ origin fetch or cache lookup. ImagePlug doesn't ignore them.
 | Missing | Not implemented in the current parser/plan/runtime surface. |
 | Out of scope | Excluded for now; currently only video-related features use this status. |
 
-## URL Shape, Source, And Security
+## URL shape, source, and security
 
 | Imgproxy feature | Status | Notes |
 | --- | --- | --- |
@@ -33,7 +33,7 @@ origin fetch or cache lookup. ImagePlug doesn't ignore them.
 | Processing option order independence | Supported | URL option order doesn't define transform order. |
 | Pipeline separator `-` | Supported | Separates non-empty pipeline groups. |
 
-## Resize, Geometry, And Orientation
+## Resize, geometry, and orientation
 
 | Imgproxy option | Aliases | Status | Notes |
 | --- | --- | --- | --- |
@@ -64,7 +64,7 @@ origin fetch or cache lookup. ImagePlug doesn't ignore them.
 | `rotate` | `rot` | Supported | Right-angle multiples normalize to `0`, `90`, `180`, or `270`. |
 | `flip` | `fl` | Supported | No arguments means both axes. Supports one or two booleans. |
 
-## Background, Effects, And Overlays
+## Background, effects, and overlays
 
 | Imgproxy option | Aliases | Status | Notes |
 | --- | --- | --- | --- |
@@ -94,7 +94,7 @@ origin fetch or cache lookup. ImagePlug doesn't ignore them.
 | `watermark_shadow` | `wmsh` | Missing | Pro watermark shadow. |
 | `style` | `st` | Missing | Pro SVG-specific style injection. |
 
-## Metadata, Color, And Source Decoding
+## Metadata, color, and source decoding
 
 | Imgproxy option | Aliases | Status | Notes |
 | --- | --- | --- | --- |
@@ -109,7 +109,7 @@ origin fetch or cache lookup. ImagePlug doesn't ignore them.
 | `pages` | `pgs` | Missing | Pro multi-page stacking. |
 | `disable_animation` | `da` | Missing | Pro animation handling. |
 
-## Output And Encoding
+## Output and encoding
 
 | Imgproxy option | Aliases | Status | Notes |
 | --- | --- | --- | --- |
@@ -135,7 +135,7 @@ origin fetch or cache lookup. ImagePlug doesn't ignore them.
 | `video_thumbnail_tile` | `vtt` | Out of scope | Pro video sprite generation. |
 | `video_thumbnail_animation` | `vta` | Out of scope | Pro video animation generation. |
 
-## Fallback, Raw, And Request Policy
+## Fallback, raw, and request policy
 
 | Imgproxy option | Aliases | Status | Notes |
 | --- | --- | --- | --- |
@@ -149,7 +149,7 @@ origin fetch or cache lookup. ImagePlug doesn't ignore them.
 | `preset` | `pr` | Partial | Normal processing URLs support configured named presets, multiple names in one segment, `default` automatic expansion, nested presets with recursive re-entry skipped, and documented chained-pipeline merge semantics. Presets-only mode, info endpoint presets, env/file loading, and custom separators aren't supported. |
 | `hashsum` | `hs` | Missing | Pro source integrity check. |
 
-## Security Limit Overrides
+## Security limit overrides
 
 | Imgproxy option | Aliases | Status | Notes |
 | --- | --- | --- | --- |
@@ -172,7 +172,7 @@ origin fetch or cache lookup. ImagePlug doesn't ignore them.
 | Info endpoint presets | Missing | ImagePlug doesn't currently expose Imgproxy info endpoints. |
 | Preset env/file loading | Missing | This excludes `IMGPROXY_PRESETS`, `IMGPROXY_PRESETS_SEPARATOR`, and `IMGPROXY_PRESETS_PATH` parity. Pass already-materialized presets through config instead. |
 
-## Suggested Next Additions
+## Suggested next additions
 
 The highest-value additions that fit ImagePlug's current architecture are:
 
