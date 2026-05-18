@@ -24,7 +24,7 @@ origin fetch or cache lookup. ImagePlug doesn't ignore them.
 | --- | --- | --- |
 | Required signature path segment | Supported | Without signing, ImagePlug accepts `_` and `unsafe`. With signing configured, it accepts HMAC and exact trusted signatures. Trusted-only config accepts only exact trusted signatures. This behavior is narrower than upstream unsigned behavior. |
 | HMAC URL signatures | Supported | Imgproxy parser verifies raw/unpadded Base64URL HMAC-SHA256 signatures with hex key/salt pairs, optional truncation, rotation pairs, exact trusted signatures, and Imgproxy-compatible `fixPath` before verification. Signature failures return 403. |
-| Plain source URLs via `/plain/` | Partial | ImagePlug translates the value into configured source adapters for local paths, HTTP(S) URLs, and S3-compatible object URIs. |
+| Plain source URLs via `/plain/` | Supported | ImagePlug translates the value into configured source adapters for local paths, HTTP and HTTPS URLs, S3-compatible object sources, and configured custom schemes. |
 | Plain source `@extension` | Supported | Overrides option format and bypasses `Accept` negotiation. |
 | Base64 encoded source URL | Missing | No encoded source parsing or absolute URL source model. |
 | Encrypted `/enc/` source URL | Missing | Pro feature. Requires source decryption and signed URL safety. |
@@ -56,7 +56,7 @@ origin fetch or cache lookup. ImagePlug doesn't ignore them.
 | `gravity:obj` | | Missing | Pro object-detection gravity. |
 | `gravity:objw` | | Missing | Pro object-detection gravity with weights. |
 | `objects_position` | `obj_pos`, `op` | Missing | Pro object-detection positioning. |
-| `crop` | `c` | Supported | Absolute, relative, or full-axis dimensions. Supports anchor, focal-point, and smart-gravity parsing. Smart gravity is rejected at planning. |
+| `crop` | `c` | Supported | Absolute, relative, or full-axis dimensions. Supports anchor, focal-point, and smart-gravity parsing. Planning rejects smart gravity. |
 | `crop_aspect_ratio` | `crop_ar`, `car` | Missing | Documented as unsupported in current ImagePlug docs. |
 | `trim` | `t` | Missing | Requires full-image memory behavior and trim operation. |
 | `padding` | `pd` | Supported | CSS-style shorthand, sparse repeated options, effective DPR scaling, and `padding:` no-op compatibility. |
@@ -146,7 +146,7 @@ origin fetch or cache lookup. ImagePlug doesn't ignore them.
 | `expires` | `exp` | Supported | Rejects expired requests before source/cache side effects. |
 | `filename` | `fn` | Supported | Percent-decoded or URL-safe Base64 filename stem. |
 | `return_attachment` | `att` | Supported | Controls `Content-Disposition` disposition. |
-| `preset` | `pr` | Partial | Normal processing URLs support configured named presets, multiple names in one segment, `default` automatic expansion, nested presets with recursive re-entry skipped, and documented chained-pipeline merge semantics. Presets-only mode, info endpoint presets, env/file loading, and custom separators aren't supported. |
+| `preset` | `pr` | Partial | Normal processing URLs support configured named presets, more than one name in one segment, `default` automatic expansion, nested presets with recursive re-entry skipped, and documented chained-pipeline merge semantics. Presets-only mode, info endpoint presets, env/file loading, and custom separators aren't supported. |
 | `hashsum` | `hs` | Missing | Pro source integrity check. |
 
 ## Security limit overrides
@@ -164,9 +164,9 @@ origin fetch or cache lookup. ImagePlug doesn't ignore them.
 | Imgproxy feature | Status | Notes |
 | --- | --- | --- |
 | Named presets | Supported | Configured through `imgproxy: [presets: %{name => options}]`. Expanded while parsing normal processing URLs. |
-| Multiple preset arguments | Supported | `pr:thumb:sharp` applies each named preset in order. |
+| Repeated preset arguments | Supported | `pr:thumb:sharp` applies each named preset in order. |
 | `default` preset | Supported | Applied before URL options on every normal processing request. URL fields can override fields in the same merged group. |
-| Presets referencing presets | Supported | Presets may use `preset`/`pr`. Recursive re-entry is skipped to match Imgproxy behavior. |
+| Presets referencing presets | Supported | Presets may use `preset`/`pr`. ImagePlug skips recursive re-entry to match Imgproxy behavior. |
 | Preset chained pipelines | Partial | Supports documented Pro merge semantics for preset values containing `-` when the referenced options are otherwise supported by ImagePlug. |
 | Presets-only mode | Missing | Excluded from this slice. |
 | Info endpoint presets | Missing | ImagePlug doesn't currently expose Imgproxy info endpoints. |
