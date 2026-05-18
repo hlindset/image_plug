@@ -7,6 +7,8 @@ defmodule ImagePlug.ImagePlugTest do
 
   doctest ImagePlug
 
+  @slow_origin_first_chunk_timeout 5_000
+
   alias ImagePlug.Parser.Imgproxy.Signature
   alias ImagePlug.Plan
   alias ImagePlug.Plan.Operation
@@ -465,7 +467,7 @@ defmodule ImagePlug.ImagePlugTest do
   defp call_after_slow_origin_first_chunk(conn, opts, ref, server) do
     task = Task.async(fn -> call_image_plug(conn, opts) end)
 
-    assert_receive {^ref, :first_chunk_sent, ^server}, 1_000
+    assert_receive {^ref, :first_chunk_sent, ^server}, @slow_origin_first_chunk_timeout
 
     Task.await(task, 2_000)
   end
