@@ -1237,6 +1237,9 @@ defmodule ImagePlug.Parser.Imgproxy.SourceTest do
     assert Source.translate("s3://bucket/images/cat.jpg%3Fabc", []) ==
              {:ok, %Object{adapter: :s3, scope: "bucket", key: "images/cat.jpg", revision: "abc"}}
 
+    assert Source.translate("s3://bucket/images/cat.jpg%3Fa%26b%3Dc", []) ==
+             {:ok, %Object{adapter: :s3, scope: "bucket", key: "images/cat.jpg", revision: "a&b=c"}}
+
     assert Source.translate("s3://bucket/images/cat.jpg?version=abc", []) ==
              {:ok,
               %Object{
@@ -1330,6 +1333,16 @@ end
 Add an integration assertion in `test/parser/imgproxy_test.exs`:
 
 ```elixir
+defmodule FoobarTranslator do
+  @behaviour ImagePlug.Parser.Imgproxy.SourceScheme
+
+  @impl true
+  def translate(source, opts) do
+    send(self(), {:translate, source, opts})
+    {:ok, %ImagePlug.Plan.Source.Object{adapter: :foobar, scope: "scope", key: source, revision: "r1"}}
+  end
+end
+
 test "parses escaped embedded s3 query before output suffix handling" do
   assert {:ok, %ImagePlug.Plan{source: source, output: output}} =
            Imgproxy.parse(conn(:get, "/_/plain/s3://bucket/images/cat.jpg%3Fabc@webp"), [])
@@ -1418,7 +1431,7 @@ Implement helper clauses:
 - `split_source_query/1` extracts the first raw or singly escaped source query delimiter (`?` or `%3F`, case-insensitive) before URI parsing. It must not split double-escaped delimiters such as `%253F`.
 - `local_source/2` rejects non-empty host, URI query, source query, fragment, or empty path segments, trims the leading slash, and decodes URI escapes in path segments after URI structure is parsed.
 - `url_source/2` maps scheme to atom, explicitly normalizes the host with `String.downcase/1`, stores `nil` for implicit default ports, keeps explicitly spelled ports including `:80` or `:443`, decodes URI escapes in path segments after URI structure is parsed, and uses `source_query || uri.query` as query material.
-- `s3_source/2` maps `host` to `scope`, preserves empty key components because object keys are opaque, decodes URI escapes in key path text after URI structure is parsed, and maps `source_query || uri.query` to `revision`.
+- `s3_source/2` maps `host` to `scope`, removes only the structural slash after the authority, preserves all other empty key components because object keys are opaque, decodes URI escapes in key path text and revision text after URI structure is parsed, and maps `source_query || uri.query` to `revision`.
 - `custom_source/3` reads `opts[:source_schemes]`, requires binary map keys, decodes URI escapes in the full source string before calling translator `translate/2`, and normalizes translator failures to `{:error, {:source_scheme_error, scheme}}` so the default parser error body doesn't inspect host-provided error terms.
 
 `Path.parse_plain_source/1` must split `@format` and validate malformed URI escapes without decoding the whole source identifier first. It passes the raw embedded source string, such as `s3://bucket/images/cat%23one.jpg%3Fabc`, into `ImgproxySource.translate/2`. Built-in translators first split the source query separator in raw or escaped form (`?` or `%3F`) before URI parsing, then parse URI structure, then decode URI escapes in path or key segments. In the first slice, HTTP and HTTPS use that source query as `URL.query`, S3 maps it to object `revision`, and plain path or local sources reject it. Configurable separators are deferred and must stay parser-owned. That keeps escaped `#` and escaped literal escape bytes in filenames from becoming URI fragment or invalid escape syntax before bucket/key extraction.
@@ -1593,6 +1606,7 @@ defmodule ImagePlug.Source.HTTPTest do
                  body: "not image",
                  params: [v: "evil"],
                  headers: [
+                   {"Host", "evil.example"},
                    {"Range", "bytes=0-1"},
                    {"Accept", "application/json"},
                    {"x-extra", "kept"}
@@ -1609,8 +1623,8 @@ defmodule ImagePlug.Source.HTTPTest do
     assert_receive {:http_request, "GET", headers, "/cat.jpg", "", ""}
     assert {_name, "kept"} = Enum.find(headers, fn {name, _value} -> String.downcase(name) == "x-extra" end)
     refute Enum.any?(headers, fn {name, value} ->
-             String.downcase(name) in ["range", "accept", "accept-encoding"] and
-               value in ["bytes=0-1", "application/json"]
+             String.downcase(name) in ["host", "range", "accept", "accept-encoding"] and
+               value in ["evil.example", "bytes=0-1", "application/json"]
            end)
   end
 
@@ -1802,6 +1816,7 @@ Implement `ImagePlug.Source.HTTP` with:
 - redirect handling must either be disabled or each redirect target must pass the same normalized host policy before a redirected request is sent. The first slice should disable redirects until redirect-target validation has tests.
 - Req options are host-owned adapter behavior and aren't cache material. Document that callers must not use built-in `req_options` to make the same resolved URL identity return different source bytes across requests. If they need request options to select different bytes, they must encode that selector in the URI, configure `cache: :skip`, or provide a custom adapter with the right non-secret selector in `Resolved.identity`.
 - Req options must delete caller overrides for internal controls such as `:url`, `:base_url`, `:method`, `:body`, `:params`, `:into`, redirect policy, retry behavior, and unsafe asynchronous response options before merging adapter request fields.
+- Strip caller-supplied `host` headers after converting header names to lowercase for comparison; the adapter owns the outbound host because allowed-host policy and source identity use `source.host`.
 - For cacheable HTTP sources, strip byte-selecting request headers such as `range`, `accept`, and `accept-encoding` after converting header names to lowercase for comparison. Hosts that need byte-selecting HTTP headers should configure `cache: :skip` or use a custom adapter whose identity includes the selector.
 
 - [ ] **Step 5: Implement file adapter**
@@ -2096,6 +2111,31 @@ defmodule ImagePlug.Source.S3Test do
     refute query_string =~ "%2526"
     assert {"authorization", authorization} = List.keyfind(headers, "authorization", 0)
     assert authorization =~ "/us-east-1/s3/aws4_request"
+  end
+
+  test "fetch preserves leading slash object keys in the request URL" do
+    plug = fn conn ->
+      send(self(), {:s3_request, conn.request_path, conn.query_string})
+      Plug.Conn.send_resp(conn, 200, "image bytes")
+    end
+
+    assert {:ok, opts} =
+             S3.validate_options(
+               default: [
+                 region: "us-east-1",
+                 endpoint: "https://minio.test",
+                 credentials: {:static, access_key_id: "A", secret_access_key: "S"},
+                 req_options: [plug: plug]
+               ]
+             )
+
+    source = %Object{adapter: :s3, scope: "tenant-a", key: "/cat.jpg"}
+
+    assert {:ok, resolved} = S3.resolve(source, opts, [])
+    assert {:ok, %Response{} = response} = Source.fetch(resolved, [sources: %{s3: {S3, opts}}], [])
+    assert Enum.join(response.stream) == "image bytes"
+
+    assert_receive {:s3_request, "/tenant-a//cat.jpg", ""}
   end
 
   test "req options cannot override S3 request controls or signing service" do
