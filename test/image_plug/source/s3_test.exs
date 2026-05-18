@@ -110,6 +110,10 @@ defmodule ImagePlug.Source.S3Test do
           "s3.amazonaws.com",
           "ftp://s3.amazonaws.com",
           "https://user@s3.amazonaws.com",
+          "https://s3.amazonaws.com:abc",
+          "https://s3.amazonaws.com:",
+          "https://s3.amazonaws.com:99999",
+          "https://[::1]:abc",
           "https://s3.amazonaws.com/prefix",
           "https://s3.amazonaws.com?region=us-east-1",
           "https://s3.amazonaws.com#fragment"

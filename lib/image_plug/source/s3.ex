@@ -162,7 +162,9 @@ defmodule ImagePlug.Source.S3 do
       }
       when scheme in ["http", "https"] and is_binary(host) and host != "" and
              path in [nil, "", "/"] ->
-        {:ok, String.trim_trailing(endpoint, "/")}
+        with :ok <- validate_endpoint_port(endpoint, scheme) do
+          {:ok, String.trim_trailing(endpoint, "/")}
+        end
 
       _uri ->
         {:error, {:invalid_source_config, :invalid_endpoint}}
@@ -170,6 +172,41 @@ defmodule ImagePlug.Source.S3 do
   end
 
   defp validate_endpoint(_endpoint), do: {:error, {:invalid_source_config, :invalid_endpoint}}
+
+  defp validate_endpoint_port(endpoint, scheme) do
+    endpoint
+    |> String.replace_prefix(scheme <> "://", "")
+    |> endpoint_authority()
+    |> validate_authority_port()
+  end
+
+  defp endpoint_authority(rest) do
+    rest
+    |> String.split(["/", "?", "#"], parts: 2)
+    |> hd()
+  end
+
+  defp validate_authority_port("[" <> rest) do
+    case String.split(rest, "]", parts: 2) do
+      [_host, ""] -> :ok
+      [_host, ":" <> port] -> validate_port(port)
+      _other -> {:error, {:invalid_source_config, :invalid_endpoint}}
+    end
+  end
+
+  defp validate_authority_port(authority) do
+    case String.split(authority, ":", parts: 2) do
+      [_host] -> :ok
+      [_host, port] -> validate_port(port)
+    end
+  end
+
+  defp validate_port(port) do
+    case Integer.parse(port) do
+      {port, ""} when port in 1..65_535 -> :ok
+      _invalid -> {:error, {:invalid_source_config, :invalid_endpoint}}
+    end
+  end
 
   defp validate_region(region) when is_binary(region) and region != "", do: {:ok, region}
   defp validate_region(_region), do: {:error, {:invalid_source_config, :invalid_region}}

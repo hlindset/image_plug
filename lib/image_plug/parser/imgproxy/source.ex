@@ -67,7 +67,8 @@ defmodule ImagePlug.Parser.Imgproxy.Source do
     do: {:error, :invalid_source_url}
 
   defp url_source(%URI{} = uri, source, source_query) do
-    with {:ok, path} <- uri_path_segments(uri.path || "") do
+    with {:ok, path} <- uri_path_segments(uri.path || ""),
+         {:ok, port} <- source_port(uri, source) do
       query = source_query || uri.query
 
       with {:ok, query} <- validate_optional_percent_encoding(query) do
@@ -75,7 +76,7 @@ defmodule ImagePlug.Parser.Imgproxy.Source do
          %URL{
            scheme: String.to_existing_atom(uri.scheme),
            host: String.downcase(uri.host),
-           port: source_port(uri, source),
+           port: port,
            path: path,
            query: query
          }}
@@ -234,19 +235,37 @@ defmodule ImagePlug.Parser.Imgproxy.Source do
   end
 
   defp source_port(%URI{} = uri, source) do
-    if explicit_port?(uri, source), do: uri.port, else: nil
-  end
-
-  defp explicit_port?(%URI{} = uri, source) do
     source
     |> String.replace_prefix(uri.scheme <> "://", "")
     |> authority()
-    |> String.contains?(":")
+    |> authority_port()
   end
 
   defp authority(rest) do
     rest
     |> String.split(["/", "?", "#"], parts: 2)
     |> hd()
+  end
+
+  defp authority_port("[" <> rest) do
+    case String.split(rest, "]", parts: 2) do
+      [_host, ""] -> {:ok, nil}
+      [_host, ":" <> port] -> parse_port(port)
+      _other -> {:error, :invalid_source_url}
+    end
+  end
+
+  defp authority_port(authority) do
+    case String.split(authority, ":", parts: 2) do
+      [_host] -> {:ok, nil}
+      [_host, port] -> parse_port(port)
+    end
+  end
+
+  defp parse_port(port) do
+    case Integer.parse(port) do
+      {port, ""} when port in 1..65_535 -> {:ok, port}
+      _invalid -> {:error, :invalid_source_url}
+    end
   end
 end

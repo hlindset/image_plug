@@ -103,6 +103,39 @@ defmodule ImagePlug.Parser.Imgproxy.SourceTest do
               }}
   end
 
+  test "url sources reject malformed explicit ports" do
+    for source <- [
+          "https://assets.example.com:abc/cat.jpg",
+          "https://assets.example.com:/cat.jpg",
+          "https://assets.example.com:99999/cat.jpg",
+          "http://[::1]:abc/cat.jpg"
+        ] do
+      assert Source.translate(source, []) == {:error, :invalid_source_url}
+    end
+  end
+
+  test "url sources detect IPv6 explicit ports without treating IPv6 colons as a port" do
+    assert Source.translate("http://[::1]/cat.jpg", []) ==
+             {:ok,
+              %URL{
+                scheme: :http,
+                host: "::1",
+                port: nil,
+                path: ["cat.jpg"],
+                query: nil
+              }}
+
+    assert Source.translate("http://[::1]:8080/cat.jpg", []) ==
+             {:ok,
+              %URL{
+                scheme: :http,
+                host: "::1",
+                port: 8080,
+                path: ["cat.jpg"],
+                query: nil
+              }}
+  end
+
   test "http escaped query delimiter becomes query and double-escaped delimiter stays in path" do
     assert Source.translate("https://assets.example.com/images/cat.jpg%3Fv=1", []) ==
              {:ok,
