@@ -440,6 +440,16 @@ options. It returns a `Plan.Source` struct or an error. Translator output still
 goes through normal plan and source validation. Runtime fetching requires a
 matching source adapter configuration for the returned adapter.
 
+Scheme translators expose:
+
+```elixir
+@callback translate(source :: String.t(), opts :: keyword()) ::
+            {:ok, ImagePlug.Plan.Source.t()} | {:error, term()}
+```
+
+The imgproxy parser calls `translate/2` during parsing, before plan validation,
+source resolution, cache lookup, or fetch.
+
 Scheme translators are parser extensions. They must be pure and deterministic:
 no network calls, file reads, credential access, catalog lookup operations,
 storage client calls, or process-local mutable state. Any source-specific side
@@ -464,16 +474,25 @@ These return before cache lookup and before fetch.
 Invalid source adapter options are initialization failures. `ImagePlug.init/1`
 validates adapter modules and their options before requests can use them.
 
-Fetch-time failures include:
+Source fetch and stream failures include:
 
 - HTTP or S3 transport failure
 - non-success response status
 - local file missing or unreadable
 - response body over `:max_body_bytes`
+
+With lazy HTTP and S3 streams, status, transport, timeout, and body-limit
+failures may surface during stream enumeration after `fetch/3` returns a
+`Source.Response`. The source stream wrapper normalizes those deferred failures
+into safe source errors before they cross into decode or request telemetry.
+
+Post-fetch processing failures include:
+
 - decode failure
 - input pixel limit failure
 
-These happen only after cache miss and are never cached.
+These happen only after cache miss or cache skip and are never cached. They're
+not source adapter failures.
 
 Expected adapter failures return tagged `ImagePlug.Source.error()` values.
 Adapters shouldn't raise for denied sources, missing objects, transport errors,
@@ -482,10 +501,10 @@ limit failures. The source boundary wraps unexpected exceptions before telemetry
 or error responses see them, so raw exception terms can't leak secrets by
 default. Source spans catch adapter exceptions inside the span body and convert
 them to sanitized returned errors instead of letting `:telemetry.span/3` emit
-exception metadata for adapter code. The `[:source, :fetch]` span covers
-`fetch/3` and stream wrapper construction, not later image decode. Deferred
-stream errors still pass through the source stream wrapper before they reach
-decode or request telemetry.
+exception metadata for adapter code. The `[:source, :fetch]` span means "stream
+created": it covers `fetch/3` and stream wrapper construction, not later image
+decode. Deferred stream errors still pass through the source stream wrapper and
+become returned source errors before decode or request spans observe them.
 
 ## Telemetry
 
@@ -640,8 +659,7 @@ S3 adapter:
 - source resolution and cache lookup don't call the credential provider.
 - fetch calls the credential provider only on cache miss.
 - selected provider and options differ by bucket.
-- region, endpoint, addressing, bucket, key, and revision affect resolved
-  identity.
+- endpoint, bucket, key, and revision affect resolved identity.
 - same bucket and key at different endpoints don't share cache.
 - the adapter passes Req SigV4 options with `service: :s3` during fetch.
 - signed fetch redirects don't leak authorization headers across hosts.
@@ -657,6 +675,8 @@ Telemetry and boundaries:
 - source code converts adapter exceptions to sanitized source errors before
   telemetry sees them.
 - request dispatch goes through `ImagePlug.Source`.
+- the top-level `ImagePlug` entry point uses `ImagePlug.Source` and doesn't
+  depend on `ImagePlug.Origin` or bypass the source registry.
 - architecture tests cover the deliberate replacement of `ImagePlug.Origin`
   internals with `ImagePlug.Source`: request depends on source, source may depend
   on plan and telemetry, source avoids request/cache/output/transform/response
