@@ -396,6 +396,7 @@ mise exec -- git commit -m "Add product-neutral plan source structs"
 - Create: `test/support/image_plug/source_test/raising_adapter.ex`
 - Create: `test/support/image_plug/source_test/stream_with_cleanup.ex`
 - Modify: `lib/image_plug/request/options.ex`
+- Modify: `test/image_plug/request_options_test.exs`
 
 - [ ] **Step 1: Write failing registry and wrapper tests**
 
@@ -619,6 +620,20 @@ defmodule ImagePlug.SourceTest do
              {:error, {:source, :invalid_adapter_result}}
   end
 
+  test "malformed fetch callback results become source errors" do
+    assert {:ok, opts} = Source.validate_config(sources: [path: {InvalidAdapter, []}])
+
+    resolved = %Resolved{
+      adapter: :path,
+      source_kind: :path,
+      identity: [kind: :path, root: "test", path: ["images", "cat.jpg"]],
+      cache: :normal,
+      fetch: :invalid_fetch
+    }
+
+    assert Source.fetch(resolved, opts, []) == {:error, {:source, :invalid_adapter_result}}
+  end
+
   test "resolved identity must be primitive before cache or fetch can see it" do
     assert {:ok, opts} = Source.validate_config(sources: [path: {InvalidIdentityAdapter, []}])
 
@@ -692,6 +707,12 @@ defmodule ImagePlug.SourceTest do
     }
 
     assert Source.fetch(resolved, opts, []) == {:error, {:source, :adapter_exception}}
+  end
+
+  test "validate_config! raises for invalid source adapter config" do
+    assert_raise ArgumentError, fn ->
+      Source.validate_config!(sources: [path: {CustomAdapter, :not_options}])
+    end
   end
 end
 ```
@@ -783,6 +804,7 @@ use Boundary,
 Implement:
 
 - `validate_config/1` accepts `sources: keyword()`, validates `{module, keyword()}` adapter entries, calls adapter `validate_options/1`, and returns opts with `:sources` as a map keyed by adapter atom.
+- `validate_config!/1` wraps `validate_config/1` for `ImagePlug.init/1` and raises `ArgumentError` on invalid source config.
 - `resolve/3` dispatches `%Source.Path{}` to `:path`, `%Source.URL{scheme: :http}` to `:http`, `%Source.URL{scheme: :https}` to `:https`, `%Source.Object{adapter: adapter}` to that adapter, and `%Source.Reference{adapter: adapter}` to that adapter.
 - `fetch/3` dispatches by `resolved.adapter`.
 - malformed callback returns become `{:error, {:source, :invalid_adapter_result}}`.
@@ -824,6 +846,28 @@ opts
 |> validate_known_opts!()
 ```
 
+Add request option tests:
+
+```elixir
+test "request options accept sources without root_url" do
+  assert opts =
+           Options.validate!(
+             sources: [
+               path: {ImagePlug.SourceTest.CustomAdapter, adapter: :path}
+             ]
+           )
+
+  assert opts[:sources][:path]
+  refute Keyword.has_key?(opts, :root_url)
+end
+
+test "request options reject invalid source adapter config during init" do
+  assert_raise ArgumentError, fn ->
+    Options.validate!(sources: [path: {ImagePlug.SourceTest.CustomAdapter, :not_options}])
+  end
+end
+```
+
 Keep `:root_url` accepted only inside this task so the existing test suite can still run before the request flow is moved. Task 7 removes it from the validated public options and updates tests to configure `sources:` explicitly.
 
 - [ ] **Step 5: Run source tests**
@@ -839,7 +883,7 @@ Expected: pass.
 - [ ] **Step 6: Commit**
 
 ```bash
-mise exec -- git add lib/image_plug/source.ex lib/image_plug/source/resolved.ex lib/image_plug/source/response.ex lib/image_plug/source/stream_error.ex lib/image_plug/request/options.ex test/image_plug/source_test.exs test/support/image_plug/source_test/adapter_mismatch_adapter.ex test/support/image_plug/source_test/custom_adapter.ex test/support/image_plug/source_test/invalid_adapter.ex test/support/image_plug/source_test/invalid_identity_adapter.ex test/support/image_plug/source_test/raising_adapter.ex test/support/image_plug/source_test/stream_with_cleanup.ex
+mise exec -- git add lib/image_plug/source.ex lib/image_plug/source/resolved.ex lib/image_plug/source/response.ex lib/image_plug/source/stream_error.ex lib/image_plug/request/options.ex test/image_plug/source_test.exs test/image_plug/request_options_test.exs test/support/image_plug/source_test/adapter_mismatch_adapter.ex test/support/image_plug/source_test/custom_adapter.ex test/support/image_plug/source_test/invalid_adapter.ex test/support/image_plug/source_test/invalid_identity_adapter.ex test/support/image_plug/source_test/raising_adapter.ex test/support/image_plug/source_test/stream_with_cleanup.ex
 mise exec -- git commit -m "Add source registry and stream wrapper"
 ```
 
@@ -1065,6 +1109,28 @@ defmodule ImagePlug.Parser.Imgproxy.SourceTest do
               }}
   end
 
+  test "http escaped query delimiter becomes query and double-escaped delimiter stays in path" do
+    assert Source.translate("https://assets.example.com/images/cat.jpg%3Fv=1", []) ==
+             {:ok,
+              %URL{
+                scheme: :https,
+                host: "assets.example.com",
+                port: nil,
+                path: ["images", "cat.jpg"],
+                query: "v=1"
+              }}
+
+    assert Source.translate("https://assets.example.com/images/cat%253Fone.jpg", []) ==
+             {:ok,
+              %URL{
+                scheme: :https,
+                host: "assets.example.com",
+                port: nil,
+                path: ["images", "cat%3Fone.jpg"],
+                query: nil
+              }}
+  end
+
   test "url sources normalize mixed-case hosts before identity resolution" do
     assert Source.translate("https://Assets.Example.Com/cat.jpg", []) ==
              {:ok,
@@ -1207,11 +1273,13 @@ defmodule ImagePlug.Parser.Imgproxy.Source do
 
   @spec translate(String.t(), keyword()) :: {:ok, ImagePlug.Plan.Source.t()} | {:error, term()}
   def translate(source, opts) when is_binary(source) do
-    case URI.parse(source) do
-      %URI{scheme: nil} -> path_source(source)
-      %URI{scheme: "local"} = uri -> local_source(uri)
-      %URI{scheme: scheme} = uri when scheme in ["http", "https"] -> url_source(uri)
-      %URI{scheme: "s3"} = uri -> s3_source(uri)
+    {source_without_query, source_query} = split_source_query(source)
+
+    case URI.parse(source_without_query) do
+      %URI{scheme: nil} -> path_source(source_without_query)
+      %URI{scheme: "local"} = uri -> local_source(uri, source_query)
+      %URI{scheme: scheme} = uri when scheme in ["http", "https"] -> url_source(uri, source_query)
+      %URI{scheme: "s3"} = uri -> s3_source(uri, source_query)
       %URI{scheme: scheme} -> custom_source(scheme, source, opts)
     end
   end
@@ -1221,12 +1289,13 @@ end
 Implement helper clauses:
 
 - `path_source/1` splits the raw source string on `/`, decodes URI escapes in each segment, and returns `%Path{segments: segments}`.
-- `local_source/1` rejects non-empty host, query, or fragment, trims the leading slash, and decodes URI escapes in path segments after URI structure is parsed.
-- `url_source/1` maps scheme to atom, explicitly normalizes the host with `String.downcase/1`, keeps port, decodes URI escapes in path segments after URI structure is parsed, and keeps query.
-- `s3_source/1` maps `host` to `scope`, decodes URI escapes in path segments after URI structure is parsed, joins them into `key`, and maps query to `revision`.
+- `split_source_query/1` extracts the first raw or singly escaped source query delimiter (`?` or `%3F`, case-insensitive) before URI parsing. It must not split double-escaped delimiters such as `%253F`.
+- `local_source/2` rejects non-empty host, URI query, source query, or fragment, trims the leading slash, and decodes URI escapes in path segments after URI structure is parsed.
+- `url_source/2` maps scheme to atom, explicitly normalizes the host with `String.downcase/1`, keeps port, decodes URI escapes in path segments after URI structure is parsed, and uses `source_query || uri.query` as query material.
+- `s3_source/2` maps `host` to `scope`, decodes URI escapes in path segments after URI structure is parsed, joins them into `key`, and maps `source_query || uri.query` to `revision`.
 - `custom_source/3` reads `opts[:source_schemes]`, requires binary map keys, decodes URI escapes in the full source string before calling translator `translate/2`, and normalizes translator failures to `{:error, {:source_scheme_error, scheme}}` so the default parser error body doesn't inspect host-provided error terms.
 
-`Path.parse_plain_source/1` must split `@format` and validate malformed URI escapes without decoding the whole source identifier first. It passes the raw embedded source string, such as `s3://bucket/images/cat%23one.jpg%3Fabc`, into `ImgproxySource.translate/2`. Built-in translators first split the source query separator in raw or escaped form (`?` or `%3F`) for non-HTTP sources, then parse URI structure, then decode URI escapes in path or key segments. In the first slice, S3 maps that source query to object `revision`; local sources reject source queries. Configurable separators are deferred and must stay parser-owned. That keeps escaped `#` and escaped literal escape bytes in filenames from becoming URI fragment or invalid escape syntax before bucket/key extraction.
+`Path.parse_plain_source/1` must split `@format` and validate malformed URI escapes without decoding the whole source identifier first. It passes the raw embedded source string, such as `s3://bucket/images/cat%23one.jpg%3Fabc`, into `ImgproxySource.translate/2`. Built-in translators first split the source query separator in raw or escaped form (`?` or `%3F`) before URI parsing, then parse URI structure, then decode URI escapes in path or key segments. In the first slice, HTTP and HTTPS use that source query as `URL.query`, S3 maps it to object `revision`, and local sources reject it. Configurable separators are deferred and must stay parser-owned. That keeps escaped `#` and escaped literal escape bytes in filenames from becoming URI fragment or invalid escape syntax before bucket/key extraction.
 
 Modify the imgproxy options schema:
 
@@ -1366,6 +1435,28 @@ defmodule ImagePlug.Source.HTTPTest do
     assert Enum.join(response.stream) == "image bytes"
   end
 
+  test "fetch percent-encodes decoded path segments when building the request URL" do
+    plug = fn conn ->
+      send(self(), {:http_request, conn.request_path, conn.query_string})
+      Plug.Conn.send_resp(conn, 200, "image bytes")
+    end
+
+    source = %URL{
+      scheme: :https,
+      host: "assets.example.com",
+      port: nil,
+      path: ["images", "cat#one%two space?.jpg"],
+      query: "v=a%26b%3Dc"
+    }
+
+    assert {:ok, opts} = HTTP.validate_options(allowed_hosts: ["assets.example.com"], req_options: [plug: plug])
+    assert {:ok, resolved} = HTTP.resolve(source, opts, [])
+    assert {:ok, %Response{} = response} = Source.fetch(resolved, sources: %{https: {HTTP, opts}}, max_body_bytes: 20)
+
+    assert Enum.join(response.stream) == "image bytes"
+    assert_receive {:http_request, "/images/cat%23one%25two%20space%3F.jpg", "v=a%26b%3Dc"}
+  end
+
   test "non-success statuses and transport failures are deferred safe stream errors" do
     plug = fn conn -> Plug.Conn.send_resp(conn, 404, "not found") end
     source = %URL{scheme: :https, host: "assets.example.com", port: nil, path: ["missing.jpg"], query: nil}
@@ -1502,8 +1593,9 @@ Expected: missing adapter modules.
 Implement `ImagePlug.Source.HTTP` with:
 
 - `validate_options/1` using NimbleOptions for `:allowed_hosts`, `:req_options`, `:receive_timeout`, `:connect_timeout`, `:pool_timeout`, and `:max_redirects`.
-- `resolve/3` requiring `%Source.URL{scheme: :http | :https}`, converting host names to lowercase with `String.downcase/1`, enforcing `allowed_hosts`, normalizing default ports to `80` or `443`, building URL string for `fetch`, and using source adapter key equal to scheme.
+- `resolve/3` requiring `%Source.URL{scheme: :http | :https}`, converting host names to lowercase with `String.downcase/1`, enforcing `allowed_hosts`, normalizing default ports to `80` or `443`, storing decoded path segments and query for fetch, and using source adapter key equal to scheme.
 - `fetch/3` returning `%Source.Response{stream: req_stream(url, opts, runtime_opts)}` and relying on `ImagePlug.Source.wrap_response/2` through registry dispatch.
+- `fetch/3` percent-encoding decoded path segments before building the Req URL and preserving `source.query` as query material.
 - redirect handling must either be disabled or each redirect target must pass the same normalized host policy before a redirected request is sent. The first slice should disable redirects until redirect-target validation has tests.
 - Req options are host-owned adapter behavior and aren't cache material. Document that callers must not use built-in `req_options` to make the same resolved URL identity return different source bytes across requests. If they need request options to select different bytes, they must encode that selector in the URI, use `cache: :skip`, or provide a custom adapter with the right non-secret selector in `Resolved.identity`.
 - Req options must delete caller overrides for internal controls such as `:url`, `:into`, redirect policy, retry behavior, and unsafe asynchronous response options before merging adapter request fields.
@@ -1516,6 +1608,7 @@ Implement `ImagePlug.Source.File` with:
 - `resolve/3` rejecting traversal and absolute-looking segments with `Path.safe_relative/2`, building an absolute path under root, and keeping only `root_id` and path segments in identity.
 - `fetch/3` rechecking `Path.safe_relative/2` and regular-file status immediately before opening the file, using `File.stream!(path, [], 2048)` for streaming, returning `{:error, {:source, :not_found}}` for missing files, `{:error, {:source, :denied_path}}` for paths that now escape root, and `{:error, {:source, :unreadable}}` for non-regular or unreadable files.
 - `Path.safe_relative/2` must run against the configured root in both `resolve/3` and `fetch/3` so symlink traversal above the root fails before cache lookup and again before file open. Don't replace it with a lexical `Path.expand/1` prefix check.
+- File source roots are trusted local trees. They must not be concurrently writable by users outside the host application's trust boundary. Hostile local filesystem trees require a custom adapter with stronger open/no-follow semantics.
 
 - [ ] **Step 6: Run adapter tests**
 
@@ -1803,7 +1896,8 @@ Expected: missing S3 modules.
 Implement `ImagePlug.Source.S3`:
 
 - `validate_options/1` validates `default: keyword()` and optional `buckets: map()`.
-- accepted bucket fields: `:region`, `:endpoint`, `:credentials`, `:req_options`, `:addressing`.
+- accepted bucket fields: `:region`, `:endpoint`, `:credentials`, and `:req_options`.
+- top-level S3 config accepts only `:default` and `:buckets`; put `:req_options` under `default:` or a bucket entry.
 - if `buckets` is present, only exact listed bucket names resolve.
 - without `buckets`, `default` applies to every bucket.
 - bucket config is `Keyword.merge(default, bucket_config)`.
@@ -1867,6 +1961,7 @@ mise exec -- git commit -m "Add S3 source adapter"
 - Delete: `lib/image_plug/origin/identity.ex`
 - Create: `test/support/image_plug/source_test/valid_adapter.ex`
 - Modify: `test/image_plug/request_safety_test.exs`
+- Modify: `test/image_plug/request_options_test.exs`
 - Modify: `test/image_plug/processor_test.exs`
 - Modify: `test/image_plug/request_runner_test.exs`
 - Modify: `test/image_plug_test.exs`
@@ -1909,8 +2004,9 @@ defmodule ImagePlug.SourceTest.ValidAdapter do
   def validate_options(opts), do: {:ok, opts}
 
   @impl true
-  def resolve(source, opts, _runtime_opts) do
+  def resolve(source, opts, runtime_opts) do
     send(self(), {:source_resolve, source})
+    send(self(), {:source_resolve_runtime_opts, runtime_opts})
 
     {:ok,
      %ImagePlug.Source.Resolved{
@@ -1923,8 +2019,9 @@ defmodule ImagePlug.SourceTest.ValidAdapter do
   end
 
   @impl true
-  def fetch(resolved, _opts, _runtime_opts) do
+  def fetch(resolved, _opts, runtime_opts) do
     send(self(), {:source_fetch, resolved.fetch})
+    send(self(), {:source_fetch_runtime_opts, runtime_opts})
     {:ok, %ImagePlug.Source.Response{stream: [File.read!("priv/static/images/beach.jpg")]}}
   end
 end
@@ -1963,6 +2060,34 @@ test "source resolution failures return before cache lookup and fetch" do
   refute_received {:source_fetch, _fetch}
   refute_received :cache_lookup
   refute_received :cache_put
+end
+
+test "source runtime options pass body limits and runtime metadata without parser or cache config" do
+  conn =
+    ImagePlug.call(conn(:get, "/_/plain/images/cat.jpg"),
+      parser: ImagePlug.Parser.Imgproxy,
+      sources: [path: {ImagePlug.SourceTest.ValidAdapter, []}],
+      cache: {CacheProbe, []},
+      max_body_bytes: 123,
+      receive_timeout: 456,
+      connect_timeout: 789,
+      request_id: "req-1"
+    )
+
+  assert conn.status == 200
+  assert_received {:source_resolve_runtime_opts, resolve_runtime_opts}
+  assert_received {:source_fetch_runtime_opts, fetch_runtime_opts}
+  assert resolve_runtime_opts == fetch_runtime_opts
+  assert Keyword.take(fetch_runtime_opts, [:max_body_bytes, :receive_timeout, :connect_timeout, :request_id]) == [
+           max_body_bytes: 123,
+           receive_timeout: 456,
+           connect_timeout: 789,
+           request_id: "req-1"
+         ]
+
+  refute Keyword.has_key?(fetch_runtime_opts, :parser)
+  refute Keyword.has_key?(fetch_runtime_opts, :cache)
+  refute Keyword.has_key?(fetch_runtime_opts, :sources)
 end
 ```
 
@@ -2003,12 +2128,26 @@ test "cache skip bypasses cache lookup and cache write before fetching source" d
 end
 ```
 
+In `test/image_plug/request_options_test.exs`, add:
+
+```elixir
+test "request options reject stale origin configuration after source integration" do
+  assert_raise ArgumentError, fn ->
+    Options.validate!(root_url: "https://origin.example")
+  end
+
+  assert_raise ArgumentError, fn ->
+    Options.validate!(origin_req_options: [plug: OriginImage])
+  end
+end
+```
+
 - [ ] **Step 2: Run failing request tests**
 
 Run:
 
 ```bash
-mise exec -- mix test test/image_plug/request_safety_test.exs test/image_plug/request_runner_test.exs test/image_plug/processor_test.exs
+mise exec -- mix test test/image_plug/request_safety_test.exs test/image_plug/request_options_test.exs test/image_plug/request_runner_test.exs test/image_plug/processor_test.exs
 ```
 
 Expected: failures because `ImagePlug` still resolves origin identity and `Runner.run/4` expects a binary origin identity.
@@ -2022,6 +2161,7 @@ Modify `ImagePlug`:
 - route `{:error, {:source, reason}}` through `Sender.send_source_error/2`.
 - use source telemetry spans inside `ImagePlug.Source.resolve/3`, not in `ImagePlug`.
 - remove `resolve_origin_identity/2`.
+- add `source_runtime_opts/1` as a narrow helper for adapter runtime data.
 
 The success path becomes:
 
@@ -2033,6 +2173,8 @@ with {:ok, %Plan{} = plan} <- parse(conn, parser, opts),
   ...
 end
 ```
+
+`source_runtime_opts/1` should pass body limit, timeout, telemetry/request metadata, and other source execution settings. It must not pass parser config, cache config, response config, transform config, source adapter config, credentials, or arbitrary request options.
 
 - [ ] **Step 4: Change runner cache/fetch ordering**
 
@@ -2148,7 +2290,7 @@ Ensure default source error responses never inspect full source URLs, paths, buc
 Run:
 
 ```bash
-mise exec -- mix test test/image_plug/request_safety_test.exs test/image_plug/request_runner_test.exs test/image_plug/processor_test.exs test/image_plug_test.exs test/image_plug/imgproxy_wire_conformance_test.exs
+mise exec -- mix test test/image_plug/request_safety_test.exs test/image_plug/request_options_test.exs test/image_plug/request_runner_test.exs test/image_plug/processor_test.exs test/image_plug_test.exs test/image_plug/imgproxy_wire_conformance_test.exs
 ```
 
 Expected: pass after updating tests to configure file-backed path sources:
@@ -2164,7 +2306,7 @@ For tests that need absolute HTTP URL sources, use imgproxy paths such as `/_/pl
 - [ ] **Step 8: Commit**
 
 ```bash
-mise exec -- git add lib/image_plug.ex lib/image_plug/request/options.ex lib/image_plug/request/runner.ex lib/image_plug/request/processor.ex lib/image_plug/request/processor/decoded.ex lib/image_plug/response/sender.ex test/image_plug/request_safety_test.exs test/image_plug/request_runner_test.exs test/image_plug/processor_test.exs test/image_plug_test.exs test/image_plug/imgproxy_wire_conformance_test.exs test/support/image_plug/source_test/valid_adapter.ex
+mise exec -- git add lib/image_plug.ex lib/image_plug/request/options.ex lib/image_plug/request/runner.ex lib/image_plug/request/processor.ex lib/image_plug/request/processor/decoded.ex lib/image_plug/response/sender.ex test/image_plug/request_safety_test.exs test/image_plug/request_options_test.exs test/image_plug/request_runner_test.exs test/image_plug/processor_test.exs test/image_plug_test.exs test/image_plug/imgproxy_wire_conformance_test.exs test/support/image_plug/source_test/valid_adapter.ex
 mise exec -- git rm lib/image_plug/origin/identity.ex
 mise exec -- git commit -m "Resolve sources before cache lookup"
 ```
@@ -2427,6 +2569,7 @@ defmodule ImagePlug.SourceTest.PlugCustomAdapter do
 
   @impl true
   def resolve(source, opts, _runtime_opts) do
+    send(self(), {:source_order, :resolve})
     send(self(), {:custom_resolve, source})
 
     {:ok,
@@ -2441,6 +2584,7 @@ defmodule ImagePlug.SourceTest.PlugCustomAdapter do
 
   @impl true
   def fetch(%Resolved{} = resolved, _opts, _runtime_opts) do
+    send(self(), {:source_order, :fetch})
     send(self(), {:custom_fetch, resolved.fetch})
     {:ok, %Response{stream: [File.read!("priv/static/images/beach.jpg")]}}
   end
@@ -2479,6 +2623,7 @@ Update `test/support/image_plug/imgproxy_wire_conformance_test/cache_probe.ex` s
 
 ```elixir
 def get(key, opts) do
+  send(self(), {:source_order, :cache_lookup})
   send(self(), {:cache_lookup, key})
 
   case Keyword.get(opts, :result, :miss) do
@@ -2488,6 +2633,7 @@ def get(key, opts) do
 end
 
 def put(key, entry, _opts) do
+  send(self(), {:source_order, :cache_put})
   send(self(), {:cache_put, key, entry})
   :ok
 end
@@ -2503,6 +2649,18 @@ defp cache_entry do
     headers: [],
     created_at: DateTime.utc_now()
   }
+end
+
+defp source_order do
+  receive_source_order([])
+end
+
+defp receive_source_order(events) do
+  receive do
+    {:source_order, event} -> receive_source_order([event | events])
+  after
+    0 -> Enum.reverse(events)
+  end
 end
 
 test "cache hit resolves custom source but does not fetch" do
@@ -2522,6 +2680,7 @@ test "cache hit resolves custom source but does not fetch" do
   assert_received {:cache_lookup, _key}
   refute_received {:custom_fetch, _fetch}
   refute_received {:cache_put, _key, _entry}
+  assert source_order() == [:resolve, :cache_lookup]
 end
 
 test "cache miss fetches custom source and writes successful encoded response" do
@@ -2541,6 +2700,7 @@ test "cache miss fetches custom source and writes successful encoded response" d
   assert_received {:cache_lookup, _key}
   assert_received {:custom_fetch, :cat}
   assert_received {:cache_put, _key, _entry}
+  assert source_order() == [:resolve, :cache_lookup, :fetch, :cache_put]
 end
 
 test "cache skip fetches custom source without cache lookup or write" do
@@ -2562,6 +2722,7 @@ test "cache skip fetches custom source without cache lookup or write" do
   assert_received {:custom_fetch, :cat}
   refute_received {:cache_lookup, _key}
   refute_received {:cache_put, _key, _entry}
+  assert source_order() == [:resolve, :fetch]
 end
 ```
 
@@ -2612,7 +2773,8 @@ test "S3 cache miss asks only the selected bucket credential provider before fet
            default: [
              endpoint: "https://minio.test",
              region: "eu-west-1",
-             credentials: {:provider, ImagePlug.SourceTest.CredentialProvider, role: "default"}
+             credentials: {:provider, ImagePlug.SourceTest.CredentialProvider, role: "default"},
+             req_options: [plug: plug]
            ],
            buckets: %{
              "tenant-a" => [
@@ -2621,8 +2783,7 @@ test "S3 cache miss asks only the selected bucket credential provider before fet
              "tenant-b" => [
                credentials: {:provider, ImagePlug.SourceTest.CredentialProvider, role: "tenant-b"}
              ]
-           },
-           req_options: [plug: plug]}
+           }}
       ],
       cache: {ImgproxyWireConformanceTest.CacheProbe, result: :miss}
     )
@@ -2683,6 +2844,7 @@ Update docs to state:
 - fetch and decode run only on cache miss or `cache: :skip`.
 - `sources:` config maps adapter keys to modules and options.
 - built-in first slice supports path/file, HTTP, HTTPS, and S3-compatible object sources.
+- built-in HTTP and S3 `req_options` are host-owned behavior and must not vary source bytes for the same resolved identity; byte-selecting request options require URI/object revision material, `cache: :skip`, or a custom adapter identity field.
 - S3 `buckets` is a map; when present it's an allowlist and `default` only supplies shared defaults.
 - source telemetry emits `[:source, :resolve]` and `[:source, :fetch]` spans with safe metadata.
 
