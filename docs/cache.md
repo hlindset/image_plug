@@ -22,7 +22,7 @@ forward "/",
 Cache lookup happens only after request parsing, plan validation, and origin
 identity resolution. A lookup doesn't fetch, decode, or read metadata from the
 origin image. Invalid parser and planner requests return `400` before origin or
-cache access. Invalid imgproxy signatures return `403`. Parser, planner, origin
+cache access. Invalid Imgproxy signatures return `403`. Parser, planner, origin
 fetch, decode, transform, negotiation, and encode errors are never cached.
 
 ## Cache keys

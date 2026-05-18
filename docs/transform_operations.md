@@ -43,15 +43,15 @@ Executable structs stay inside Transform execution.
 
 ImagePlug orders operation chains once they reach `ImagePlug.Plan`.
 
-imgproxy URLs are declarative. imgproxy planner code emits semantic Plan
-operations in imgproxy canonical order. URL option order doesn't define
-imgproxy transform order. `docs/imgproxy_path_api.md` documents that order for
-imgproxy paths, but future dialects may use different ordering rules.
+Imgproxy URLs are declarative. Imgproxy planner code emits semantic Plan
+operations in Imgproxy canonical order. URL option order doesn't define
+Imgproxy transform order. `docs/imgproxy_path_api.md` documents that order for
+Imgproxy paths, but future dialects may use different ordering rules.
 
 Other dialects may have order-sensitive semantics. When the ordered semantics
 map cleanly, emit an ordered `ImagePlug.Plan`. Otherwise keep dialect-specific
 quirks isolated in the parser/adapter layer. Don't force ordered command
-semantics into the imgproxy API or into product-neutral Plan operations.
+semantics into the Imgproxy API or into product-neutral Plan operations.
 
 ## Request Fields That Aren't Transform Operations
 
@@ -117,7 +117,7 @@ Use `ImagePlug.Plan.Operation.Resize` with `mode: :fit` for aspect-preserving
 fit semantics, `mode: :cover` for cover/fill semantics that require result
 cropping, and `mode: :stretch` for force/stretch semantics.
 
-Use `mode: :auto` only for the imgproxy-compatible source-dependent rule:
+Use `mode: :auto` only for the Imgproxy-compatible source-dependent rule:
 orientation match derives cover, orientation mismatch derives fit, and unknown
 target orientation derives fit. The unresolved semantic resize operation
 addresses the cache key. The selected branch resolves after a cache miss.
@@ -134,7 +134,7 @@ gravity spellings, focal-point tokens, and default inheritance rules should
 translate into explicit Plan guide values before ImagePlug builds cache key
 data.
 
-Current imgproxy focal-point gravity maps to semantic guide values. The first
+Current Imgproxy focal-point gravity maps to semantic guide values. The first
 slice doesn't model a separate focus operation. Future dialects can add one if
 they expose focus state independently from visible crop/canvas/cover work.
 
@@ -143,7 +143,7 @@ they expose focus state independently from visible crop/canvas/cover work.
 Use the explicit `AutoOrient`, `Rotate`, and `Flip` orientation primitive
 allowlist for orientation intent.
 
-imgproxy orientation suborder is auto-orient, rotate, then flip. Other dialects
+Imgproxy orientation suborder is auto-orient, rotate, then flip. Other dialects
 should preserve their own semantics in the adapter layer and emit the ordered
 Plan operation chain that matches those semantics.
 
@@ -203,8 +203,8 @@ after a cache miss, but they don't enter the normal final output cache key.
 
 ## Mapping Examples
 
-These examples show current imgproxy URL concepts translated into semantic Plan
-operations. They describe imgproxy planner behavior only. Future dialect docs
+These examples show current Imgproxy URL concepts translated into semantic Plan
+operations. They describe Imgproxy planner behavior only. Future dialect docs
 should describe their own URL syntax separately.
 
 | Imgproxy URL concept | Semantic Plan operations |
@@ -224,7 +224,7 @@ should describe their own URL syntax separately.
 
 Runtime dispatches through `ImagePlug.Transform` and must not depend on concrete
 Plan or Transform operation modules. Runtime shouldn't depend on parser-specific
-imgproxy structs, and parser-specific request structs must not leak into runtime
+Imgproxy structs, and parser-specific request structs must not leak into runtime
 execution.
 
 Parser and planner modules construct exported semantic Plan operation structs

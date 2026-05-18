@@ -1,6 +1,6 @@
 # Operational notes
 
-ImagePlug verifies imgproxy signatures and parses imgproxy path options before
+ImagePlug verifies Imgproxy signatures and parses Imgproxy path options before
 fetching the origin image. Invalid signatures return `403`, and invalid
 processing requests return `400`, both without origin traffic.
 

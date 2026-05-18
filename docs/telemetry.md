@@ -93,7 +93,7 @@ All span events also include `:telemetry_span_context`, which
 `:telemetry.span/3` injects for correlating the events from the same span. Treat
 it as correlation data, not as a metrics dimension.
 
-ImagePlug doesn't emit full request paths by default. imgproxy-style paths can
+ImagePlug doesn't emit full request paths by default. Imgproxy-style paths can
 contain signatures, filenames, and origin-shaped user data, and often have high
 cardinality. Host applications that need path-level observability should add
 that data in their own handlers with the relevant privacy and cardinality

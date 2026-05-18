@@ -1,9 +1,9 @@
 # Imgproxy Support Matrix
 
 This matrix compares ImagePlug's current `ImagePlug.Parser.Imgproxy` support
-with imgproxy's processing URL surface.
+with Imgproxy's processing URL surface.
 
-ImagePlug intentionally treats imgproxy URLs as a compatibility parser for a
+ImagePlug intentionally treats Imgproxy URLs as a compatibility parser for a
 product-neutral `ImagePlug.Plan`. Supported options translate cleanly into
 canonical plan/output/cache/response fields. Unsupported options fail before
 origin fetch or cache lookup. ImagePlug doesn't ignore them.
@@ -13,7 +13,7 @@ origin fetch or cache lookup. ImagePlug doesn't ignore them.
 | Status | Meaning |
 | --- | --- |
 | Supported | The parser translates this into `ImagePlug.Plan` or another request facet. |
-| Partial | The parser supports some imgproxy syntax or semantics, but not the whole option. |
+| Partial | The parser supports some Imgproxy syntax or semantics, but not the whole option. |
 | Rejected | Recognized or intentionally documented as unsupported, returning an error before side effects. |
 | Missing | Not implemented in the current parser/plan/runtime surface. |
 | Out of scope | Excluded for now; currently only video-related features use this status. |
@@ -23,7 +23,7 @@ origin fetch or cache lookup. ImagePlug doesn't ignore them.
 | Imgproxy feature | Status | Notes |
 | --- | --- | --- |
 | Required signature path segment | Supported | Without signing, ImagePlug accepts `_` and `unsafe`. With signing configured, it accepts HMAC and exact trusted signatures. Trusted-only config accepts only exact trusted signatures. This behavior is narrower than upstream unsigned behavior. |
-| HMAC URL signatures | Supported | imgproxy parser verifies raw/unpadded Base64URL HMAC-SHA256 signatures with hex key/salt pairs, optional truncation, rotation pairs, exact trusted signatures, and imgproxy-compatible `fixPath` before verification. Signature failures return 403. |
+| HMAC URL signatures | Supported | Imgproxy parser verifies raw/unpadded Base64URL HMAC-SHA256 signatures with hex key/salt pairs, optional truncation, rotation pairs, exact trusted signatures, and Imgproxy-compatible `fixPath` before verification. Signature failures return 403. |
 | Plain source URLs via `/plain/` | Partial | ImagePlug treats the value as path segments resolved against configured `root_url`. It doesn't model arbitrary absolute source URLs. |
 | Plain source `@extension` | Supported | Overrides option format and bypasses `Accept` negotiation. |
 | Base64 encoded source URL | Missing | No encoded source parsing or absolute URL source model. |
@@ -38,7 +38,7 @@ origin fetch or cache lookup. ImagePlug doesn't ignore them.
 | Imgproxy option | Aliases | Status | Notes |
 | --- | --- | --- | --- |
 | `resize` | `rs` | Supported | Includes optional resize-tail `enlarge`, `extend`, and extend gravity. |
-| `size` | `s` | Supported | Same field mapping as imgproxy size meta-option. |
+| `size` | `s` | Supported | Same field mapping as Imgproxy size meta-option. |
 | `resizing_type` | `rt` | Supported | `fit`, `fill`, `fill-down`, `force`, and `auto`. |
 | `resizing_algorithm` | `ra` | Missing | No algorithm selection in plan or transform execution. |
 | `width` | `w` | Supported | Non-negative integer. `0` means auto. |
@@ -49,7 +49,7 @@ origin fetch or cache lookup. ImagePlug doesn't ignore them.
 | `dpr` | | Supported | Affects resize sizing and cache key data. |
 | `enlarge` | `el` | Supported | boolean. |
 | `extend` | `ex` | Supported | Canvas extension with anchor gravity and offsets. |
-| `extend_aspect_ratio` | `extend_ar`, `exar` | Partial | Supported as ratio canvas extension; imgproxy's boolean argument form isn't modeled. |
+| `extend_aspect_ratio` | `extend_ar`, `exar` | Partial | Supported as ratio canvas extension; Imgproxy's boolean argument form isn't modeled. |
 | `gravity` anchors | `g` | Supported | `ce`, `no`, `so`, `ea`, `we`, `noea`, `nowe`, `soea`, `sowe`. |
 | `gravity:fp` | `g:fp` | Supported | Focal point coordinates from `0.0` to `1.0`. |
 | `gravity:sm` | `g:sm` | Rejected | Planning rejects parsed smart gravity as unsupported. |
@@ -69,7 +69,7 @@ origin fetch or cache lookup. ImagePlug doesn't ignore them.
 | Imgproxy option | Aliases | Status | Notes |
 | --- | --- | --- | --- |
 | `background` | `bg` | Supported | RGB decimal and 3/6 digit hex colors. `background:` clears previous background color and alpha. |
-| `background_alpha` | `bga` | Supported | Applies an alpha channel to the current or next background color. Without an explicit background color, uses imgproxy's default black background. |
+| `background_alpha` | `bga` | Supported | Applies an alpha channel to the current or next background color. Without an explicit background color, uses Imgproxy's default black background. |
 | `adjust` | `a` | Missing | Pro meta-option for brightness, contrast, and saturation. |
 | `brightness` | `br` | Missing | Pro color control. |
 | `contrast` | `co` | Missing | Pro color control. |
@@ -166,10 +166,10 @@ origin fetch or cache lookup. ImagePlug doesn't ignore them.
 | Named presets | Supported | Configured through `imgproxy: [presets: %{name => options}]`. Expanded while parsing normal processing URLs. |
 | Multiple preset arguments | Supported | `pr:thumb:sharp` applies each named preset in order. |
 | `default` preset | Supported | Applied before URL options on every normal processing request. URL fields can override fields in the same merged group. |
-| Presets referencing presets | Supported | Presets may use `preset`/`pr`. Recursive re-entry is skipped to match imgproxy behavior. |
+| Presets referencing presets | Supported | Presets may use `preset`/`pr`. Recursive re-entry is skipped to match Imgproxy behavior. |
 | Preset chained pipelines | Partial | Supports documented Pro merge semantics for preset values containing `-` when the referenced options are otherwise supported by ImagePlug. |
 | Presets-only mode | Missing | Excluded from this slice. |
-| Info endpoint presets | Missing | ImagePlug doesn't currently expose imgproxy info endpoints. |
+| Info endpoint presets | Missing | ImagePlug doesn't currently expose Imgproxy info endpoints. |
 | Preset env/file loading | Missing | This excludes `IMGPROXY_PRESETS`, `IMGPROXY_PRESETS_SEPARATOR`, and `IMGPROXY_PRESETS_PATH` parity. Pass already-materialized presets through config instead. |
 
 ## Suggested Next Additions

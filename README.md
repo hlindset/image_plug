@@ -5,14 +5,14 @@ image requests, fetches an origin image, executes a product-neutral
 `ImagePlug.Plan`, negotiates output format, and sends the encoded image
 response.
 
-The current public compatibility target is an imgproxy-style path API through
-`ImagePlug.Parser.Imgproxy`. Internally, imgproxy syntax is translated into
+The current public compatibility target is an Imgproxy-style path API through
+`ImagePlug.Parser.Imgproxy`. Internally, Imgproxy syntax is translated into
 ImagePlug's own plan, output, transform, cache, and response data structures.
 
 ## Project status
 
 ImagePlug is a greenfield, unreleased library. The codebase includes working
-imgproxy-style request parsing, request safety checks, transform execution,
+Imgproxy-style request parsing, request safety checks, transform execution,
 output negotiation, filesystem response caching, telemetry spans, and a local
 demo server.
 
@@ -91,12 +91,12 @@ URL requests a 300 pixel wide image from `/images/beach.jpg`:
 http://localhost:4000/_/w:300/plain/images/beach.jpg
 ```
 
-`_` and `unsafe` work only without imgproxy signing. Configured signing requires
+`_` and `unsafe` work only without Imgproxy signing. Configured signing requires
 a valid HMAC signature or an exact configured trusted signature.
 
 ## Current support boundaries
 
-ImagePlug currently supports the imgproxy-style path parser, selected resize,
+ImagePlug currently supports the Imgproxy-style path parser, selected resize,
 crop, orientation, canvas, padding, background, output, cachebuster, expiry,
 filename, attachment, and preset options documented in the support matrix.
 Unsupported parser and planner requests fail before cache lookup or origin
@@ -104,20 +104,20 @@ fetch.
 
 ImagePlug currently lacks other provider dialects, arbitrary absolute source URL
 parsing, encoded source URLs, object detection, watermarking, metadata
-stripping, video processing, and raw source passthrough. Missing imgproxy
+stripping, video processing, and raw source passthrough. Missing Imgproxy
 options fail or remain absent as documented. ImagePlug doesn't ignore them.
 
-URL option order doesn't define transform execution order. The imgproxy parser
+URL option order doesn't define transform execution order. The Imgproxy parser
 normalizes aliases and conflict resolution, then the planner emits operations in
 ImagePlug's fixed plan order.
 
 ## Documentation
 
-- [imgproxy Path API](docs/imgproxy_path_api.md) documents URL shape, option
+- [Imgproxy Path API](docs/imgproxy_path_api.md) documents URL shape, option
   parsing, conflict resolution, signing, presets, output selection, and
   fixed operation ordering.
 - [Imgproxy Support Matrix](docs/imgproxy_support_matrix.md) lists supported,
-  partial, rejected, missing, and out-of-scope imgproxy features.
+  partial, rejected, missing, and out-of-scope Imgproxy features.
 - [Cache](docs/cache.md) documents filesystem response caching, cache keys,
   stored headers, failure modes, and cache safety boundaries.
 - [Operational Notes](docs/operational_notes.md) documents request safety,

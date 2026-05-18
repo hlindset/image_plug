@@ -1,12 +1,12 @@
-# Imgproxy path API
+# Imgproxy Path API
 
 ## Mental model
 
-An imgproxy URL describes desired output, not a step-by-step image pipeline.
+An Imgproxy URL describes desired output, not a step-by-step image pipeline.
 ImagePlug normalizes aliases and conflicts, converts supported options into
 `ImagePlug.Plan` operations, then runs those operations in a fixed order.
 
-For a feature-by-feature comparison with imgproxy's processing URL surface, see
+For a feature-by-feature comparison with Imgproxy's processing URL surface, see
 [Imgproxy Support Matrix](imgproxy_support_matrix.md).
 
 ## Path shape
@@ -19,7 +19,7 @@ ImagePlug verifies the signature segment first. Unsigned development URLs must
 use `_` or `unsafe`. Signed URLs must use a valid configured HMAC or trusted
 signature.
 
-Before verification, ImagePlug applies imgproxy-compatible `fixPath`
+Before verification, ImagePlug applies Imgproxy-compatible `fixPath`
 normalization for encoded option separators and plain URL schemes.
 
 `plain` starts the source path. Add `@extension` to the end of the source path
@@ -27,7 +27,7 @@ to force an output format and bypass `Accept` negotiation.
 
 ## Pipeline groups
 
-`-` separates imgproxy pipeline groups. Non-empty groups execute in path group
+`-` separates Imgproxy pipeline groups. Non-empty groups execute in path group
 order. ImagePlug ignores empty pipeline groups.
 
 Within each pipeline group, ImagePlug uses this fixed operation order:
@@ -65,7 +65,7 @@ Generic quality and format-specific quality are separate canonical fields.
 
 ## Presets
 
-Normal processing URLs support configured imgproxy presets:
+Normal processing URLs support configured Imgproxy presets:
 
     ImagePlug.init(
       parser: ImagePlug.Parser.Imgproxy,
@@ -97,7 +97,7 @@ processing request before URL options. URL assignments in the same merged
 pipeline group can override fields from `default`.
 
 Presets may reference other presets. ImagePlug skips recursive re-entry,
-matching imgproxy behavior: if `a` expands to `pr:a/w:100`, ImagePlug ignores
+matching Imgproxy behavior: if `a` expands to `pr:a/w:100`, ImagePlug ignores
 the nested `pr:a` and still applies `w:100`.
 
 Preset values may contain `-` pipeline separators. ImagePlug applies the first
@@ -197,7 +197,7 @@ gravity option that provided them:
 | Top-level `g`/`gravity` | Result crops produced by resize planning |
 | Explicit crop gravity | That explicit crop |
 
-ImagePlug parses offset units like imgproxy:
+ImagePlug parses offset units like Imgproxy:
 
 | Offset value | Unit |
 | --- | --- |
@@ -253,7 +253,7 @@ then sets right and left to `5`. `padding:` and all-zero padding are valid
 no-ops.
 
 Padding uses the same resize multiplier as gravity offsets. For requests that
-combine no-enlarge resize with canvas extension, ImagePlug follows imgproxy's
+combine no-enlarge resize with canvas extension, ImagePlug follows Imgproxy's
 canvas-preserving DPR behavior instead of using only the requested `dpr`.
 
 ### Background
@@ -266,7 +266,7 @@ are `0..255`. Hex accepts 3 digit RGB and 6 digit RRGGBB forms.
 values from `0` to `1`, including decimals such as `0.5`. The alpha value
 applies to the current background color or the next background color in the
 same request. Without an explicit background color, `background_alpha` uses
-imgproxy's default black background.
+Imgproxy's default black background.
 
 `background:` clears an earlier background value and alpha in the same resolved
 request.
@@ -299,7 +299,7 @@ configured vary inputs, output config, and the transform key data version.
 Source-aware execution choices, such as `mode: :auto` selecting `fit` or
 `cover`, don't enter the normal final cache key.
 
-ImagePlug caches only successful encoded responses. Rejected imgproxy requests
+ImagePlug caches only successful encoded responses. Rejected Imgproxy requests
 return before origin fetch and cache lookup.
 
 ## Response filename and disposition
@@ -309,13 +309,13 @@ controls inline versus attachment `Content-Disposition`.
 
 ## Unsupported and rejected options
 
-Unsupported and invalid imgproxy requests fail before origin fetch or cache
+Unsupported and invalid Imgproxy requests fail before origin fetch or cache
 lookup.
 
 These cases return HTTP 400:
 
 - unknown option
-- unsupported imgproxy option
+- unsupported Imgproxy option
 - supported option with invalid value
 - unsupported option combination
 - unknown preset
