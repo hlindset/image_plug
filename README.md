@@ -85,7 +85,7 @@ end
 ```
 
 With that router running at `http://localhost:4000`, this unsigned development
-URL requests a 300 pixel wide image from `/images/beach.jpg`:
+URL requests a 300-pixel-wide image from `/images/beach.jpg`:
 
 ```text
 http://localhost:4000/_/w:300/plain/images/beach.jpg

@@ -260,7 +260,7 @@ canvas-preserving DPR behavior instead of using only the requested `dpr`.
 
 `background:%R:%G:%B`, `bg:%R:%G:%B`, `background:%hex`, and `bg:%hex`
 flatten the current image over an sRGB color after padding. Decimal channels
-are `0..255`. Hex accepts 3 digit RGB and 6 digit RRGGBB forms.
+are `0..255`. Hex accepts 3-digit RGB and 6-digit RRGGBB forms.
 
 `background_alpha:%alpha` and `bga:%alpha` set background alpha. Alpha accepts
 values from `0` to `1`, including decimals such as `0.5`. The alpha value
