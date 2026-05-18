@@ -88,14 +88,14 @@ defmodule ImagePlug.Cache do
     end
   end
 
-  @spec lookup(Plug.Conn.t(), Plan.t(), String.t(), keyword()) :: lookup_result()
-  def lookup(conn, %Plan{} = plan, origin_identity, opts) when is_list(opts) do
+  @spec lookup(Plug.Conn.t(), Plan.t(), term(), keyword()) :: lookup_result()
+  def lookup(conn, %Plan{} = plan, source_identity, opts) when is_list(opts) do
     case cache_config(opts) do
       nil ->
         :disabled
 
       {:ok, adapter, cache_opts} ->
-        lookup_configured(adapter, conn, plan, origin_identity, opts, cache_opts)
+        lookup_configured(adapter, conn, plan, source_identity, opts, cache_opts)
 
       {:error, reason} ->
         {:error, {:cache_read, reason}}
@@ -145,8 +145,8 @@ defmodule ImagePlug.Cache do
     end
   end
 
-  defp lookup_configured(adapter, conn, plan, origin_identity, opts, cache_opts) do
-    case Key.build(conn, plan, origin_identity, key_options(opts, cache_opts)) do
+  defp lookup_configured(adapter, conn, plan, source_identity, opts, cache_opts) do
+    case Key.build(conn, plan, source_identity, key_options(opts, cache_opts)) do
       {:ok, key} -> get_configured(adapter, key, cache_opts)
       {:error, reason} -> {:error, {:cache_read, reason}}
     end

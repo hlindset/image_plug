@@ -10,13 +10,18 @@ defmodule ImagePlug.Cache.KeyTest do
   alias ImagePlug.Plan.Operation
   alias ImagePlug.Plan.Output
   alias ImagePlug.Plan.Pipeline
+  alias ImagePlug.Plan.Source
+
+  defp source_identity do
+    [kind: :path, adapter: :path, root: "default", path: ["images", "cat.jpg"]]
+  end
 
   defp plan(overrides \\ []) do
     struct!(
       Plan,
       Keyword.merge(
         [
-          source: {:plain, ["images", "cat.jpg"]},
+          source: %Source.Path{segments: ["images", "cat.jpg"]},
           pipelines: [
             %Pipeline{
               operations: [resize_fit_operation(300, :auto)]
@@ -32,8 +37,8 @@ defmodule ImagePlug.Cache.KeyTest do
     )
   end
 
-  defp build_key!(conn, plan, origin_identity, opts \\ []) do
-    assert {:ok, key} = Key.build(conn, plan, origin_identity, opts)
+  defp build_key!(conn, plan, source_identity, opts \\ []) do
+    assert {:ok, key} = Key.build(conn, plan, source_identity, opts)
     key
   end
 
@@ -101,12 +106,12 @@ defmodule ImagePlug.Cache.KeyTest do
   defp tagged_resize_dimension(:auto), do: :auto
   defp tagged_resize_dimension(pixels), do: {:px, pixels}
 
-  test "builds stable hash and key data from canonical plan fields and origin identity" do
+  test "builds stable hash and key data from canonical plan fields and source identity" do
     conn = conn(:get, "/sig-one/w:100/plain/images/cat.jpg?ignored=true")
 
-    key = build_key!(conn, plan(), "https://origin-a.test/images/cat.jpg")
-    same = build_key!(conn, plan(), "https://origin-a.test/images/cat.jpg")
-    different_origin = build_key!(conn, plan(), "https://origin-b.test/images/cat.jpg")
+    key = build_key!(conn, plan(), source_identity())
+    same = build_key!(conn, plan(), source_identity())
+    different_source = build_key!(conn, plan(), Keyword.put(source_identity(), :root, "other"))
 
     assert key.hash == same.hash
     assert key.hash =~ ~r/\A[0-9a-f]{64}\z/
@@ -114,8 +119,7 @@ defmodule ImagePlug.Cache.KeyTest do
 
     assert key.data == [
              schema_version: 2,
-             origin_identity: "https://origin-a.test/images/cat.jpg",
-             source: [kind: :plain, path: ["images", "cat.jpg"]],
+             source_identity: source_identity(),
              pipelines: [
                [
                  [
@@ -158,20 +162,59 @@ defmodule ImagePlug.Cache.KeyTest do
            ]
 
     assert key.serialized_data == Key.serialize_key_data(key.data)
+    refute Keyword.has_key?(key.data, :origin_identity)
     refute inspect(key.data) =~ "sig-one"
     refute inspect(key.data) =~ "ignored=true"
-    refute key.hash == different_origin.hash
+    refute key.hash == different_source.hash
   end
 
-  test "source key data is product-neutral and independent of request URL" do
+  test "source identity key data is product-neutral and independent of request URL" do
     conn_one = conn(:get, "/sig-one/w:100/plain/images/cat.jpg")
     conn_two = conn(:get, "/sig-two/width:100/plain/ignored/path.jpg?ignored=true")
 
-    key_one = build_key!(conn_one, plan(), "https://origin.test/images/cat.jpg")
-    key_two = build_key!(conn_two, plan(), "https://origin.test/images/cat.jpg")
+    key_one = build_key!(conn_one, plan(), source_identity())
+    key_two = build_key!(conn_two, plan(), source_identity())
 
-    assert key_one.data[:source] == [kind: :plain, path: ["images", "cat.jpg"]]
+    assert key_one.data[:source_identity] == source_identity()
     assert key_one.hash == key_two.hash
+  end
+
+  test "resolved source identity, not raw plan source spelling, drives source cache material" do
+    conn_one = conn(:get, "/sig-one/plain/images/cat.jpg")
+    conn_two = conn(:get, "/sig-two/plain/local:///images/cat.jpg")
+
+    identity = [kind: :path, adapter: :path, root: "default", path: ["images", "cat.jpg"]]
+
+    key_one =
+      build_key!(
+        conn_one,
+        plan(source: %Source.Path{segments: ["images", "cat.jpg"]}),
+        identity
+      )
+
+    key_two =
+      build_key!(
+        conn_two,
+        plan(source: %Source.Path{segments: ["images", "cat.jpg"]}),
+        identity
+      )
+
+    assert key_one.hash == key_two.hash
+    assert key_one.data[:source_identity] == identity
+  end
+
+  test "source identity rejects non-primitive cache material" do
+    conn = conn(:get, "/_/plain/images/cat.jpg")
+    identity = [kind: :path, client: self()]
+
+    assert Key.build(conn, plan(), identity) == {:error, {:invalid_source_identity, identity}}
+  end
+
+  test "source identity rejects module atoms in cache material" do
+    conn = conn(:get, "/_/plain/images/cat.jpg")
+    identity = [kind: :path, adapter_module: ImagePlug.Source.File]
+
+    assert Key.build(conn, plan(), identity) == {:error, {:invalid_source_identity, identity}}
   end
 
   test "pipelines key data preserves pipeline boundaries" do

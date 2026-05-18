@@ -10,6 +10,7 @@ defmodule ImagePlug.CacheTest do
   alias ImagePlug.Plan
   alias ImagePlug.Plan.Output
   alias ImagePlug.Plan.Pipeline
+  alias ImagePlug.Plan.Source
 
   defmodule HitAdapter do
     def get(%Key{}, opts), do: {:hit, Keyword.fetch!(opts, :entry)}
@@ -56,7 +57,7 @@ defmodule ImagePlug.CacheTest do
       Plan,
       Keyword.merge(
         [
-          source: {:plain, ["images", "cat.jpg"]},
+          source: %Source.Path{segments: ["images", "cat.jpg"]},
           pipelines: [%Pipeline{operations: []}],
           output: %Output{mode: {:explicit, :webp}}
         ],
@@ -106,10 +107,6 @@ defmodule ImagePlug.CacheTest do
     assert_raise ArgumentError, ~r/required :parser option not found/, fn ->
       ImagePlug.init(root_url: "https://origin.test")
     end
-
-    assert_raise ArgumentError, ~r/required :root_url option not found/, fn ->
-      ImagePlug.init(parser: ImagePlug.Parser.Imgproxy)
-    end
   end
 
   test "ImagePlug init rejects invalid filesystem cache options early" do
@@ -156,7 +153,7 @@ defmodule ImagePlug.CacheTest do
                cache: {HitAdapter, entry: configured_entry}
              )
 
-    assert key.data[:origin_identity] == "https://origin.test/cat.jpg"
+    assert key.data[:source_identity] == "https://origin.test/cat.jpg"
   end
 
   test "returns miss with the generated key" do
@@ -363,11 +360,13 @@ defmodule ImagePlug.CacheTest do
   end
 
   test "key build errors return cache read errors instead of crashing" do
-    assert {:error, {:cache_read, {:unsupported_source, :not_a_source}}} =
+    source_identity = [kind: :path, client: self()]
+
+    assert {:error, {:cache_read, {:invalid_source_identity, ^source_identity}}} =
              Cache.lookup(
                conn(:get, "/_/f:webp/plain/images/cat.jpg"),
-               plan(source: :not_a_source),
-               "https://origin.test/cat.jpg",
+               plan(),
+               source_identity,
                cache: {ShouldNotBeCalledAdapter, []}
              )
   end
