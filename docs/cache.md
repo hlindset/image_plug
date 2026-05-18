@@ -22,7 +22,7 @@ forward "/",
 Cache lookup happens only after request parsing, plan validation, and origin
 identity resolution. A lookup doesn't fetch, decode, or read metadata from the
 origin image. Invalid parser and planner requests return `400` before origin or
-cache access; invalid imgproxy signatures return `403`. Parser, planner, origin
+cache access. Invalid imgproxy signatures return `403`. Parser, planner, origin
 fetch, decode, transform, negotiation, and encode errors are never cached.
 
 ## Cache keys
@@ -48,39 +48,37 @@ Cache keys exclude:
 - unconfigured headers and cookies
 
 Key data includes a schema version and deterministic primitive serialization.
-Explicit formats bypass `Accept` negotiation and therefore don't vary by
-`Accept`.
+Explicit formats bypass `Accept` negotiation, so they don't vary by `Accept`.
 
 ## Stored headers
 
-Cached response headers are restricted to `vary` and `cache-control`. Header
-names are normalized to lowercase, and duplicate allowed headers are preserved.
+The cache stores only `vary` and `cache-control` response headers. It normalizes
+header names to lowercase and preserves duplicate allowed headers.
 
 ## Filesystem adapter
 
 `ImagePlug.Cache.FileSystem` requires an absolute `:root`. The optional
 `:path_prefix` must be relative and rejects backslashes, duplicate-slash empty
-segments, `.`, `..`, and `~`-prefixed path segments. Cache paths are derived from
-generated hashes, not from request, origin, header, or cookie data.
+segments, `.`, `..`, and `~`-prefixed path segments. Generated hashes determine
+cache paths, not request, origin, header, or cookie data.
 
 Filesystem metadata has an independent `metadata_version` and includes the
 cached body filename, byte size, and SHA-256 digest. Body files are
 content-addressed by digest, and the metadata file is the atomic commit record.
-Overwrites or failed metadata commits can leave unreferenced body files behind;
-those entries are safe misses, not corrupt entries.
+Overwrites or failed metadata commits can leave unreferenced body files behind.
+Those entries are safe misses, not corrupt entries.
 
 Missing files, invalid metadata, and default filesystem read problems are cache
 misses by default. With `fail_on_cache_error: true`, invalid metadata and
 filesystem read problems become cache read errors.
 
-Adapter errors returned to the cache coordinator fail open by default and are
-logged. Set `fail_on_cache_error: true` to fail closed with a `500` cache error
-instead. Invalid cache configuration is rejected during Plug initialization.
-Encoded response bodies over the cache `:max_body_bytes` limit are returned to
-the client but skipped for cache storage. `:max_body_bytes` must be `nil` or a
-non-negative integer.
+Adapter errors returned to the cache coordinator fail open by default and log a
+warning. Set `fail_on_cache_error: true` to fail closed with a `500` cache error
+instead. Plug initialization rejects invalid cache configuration. The client
+still receives encoded response bodies over the cache `:max_body_bytes` limit,
+but the cache skips storage. `:max_body_bytes` must be `nil` or a non-negative
+integer.
 
-Treat the cache root as trusted local configuration. Generated paths are
-validated to stay under the configured root, but the filesystem adapter doesn't
-defend against a local actor replacing directories inside the root with
-symlinks.
+Treat the cache root as trusted local configuration. The filesystem adapter
+validates generated paths against the configured root, but it doesn't defend
+against a local actor replacing directories inside the root with symlinks.

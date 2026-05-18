@@ -5,29 +5,29 @@ with imgproxy's processing URL surface.
 
 ImagePlug intentionally treats imgproxy URLs as a compatibility parser for a
 product-neutral `ImagePlug.Plan`. Supported options translate cleanly into
-canonical plan/output/cache/response fields. Unsupported options are rejected
-before origin fetch or cache lookup; they're not silently ignored.
+canonical plan/output/cache/response fields. Unsupported options fail before
+origin fetch or cache lookup. ImagePlug doesn't ignore them.
 
 ## Status Legend
 
 | Status | Meaning |
 | --- | --- |
-| Supported | Parsed and translated into `ImagePlug.Plan` or another request facet. |
-| Partial | Some imgproxy syntax or semantics are supported, but not the whole option. |
+| Supported | The parser translates this into `ImagePlug.Plan` or another request facet. |
+| Partial | The parser supports some imgproxy syntax or semantics, but not the whole option. |
 | Rejected | Recognized or intentionally documented as unsupported, returning an error before side effects. |
 | Missing | Not implemented in the current parser/plan/runtime surface. |
-| Out of scope | Deliberately excluded for now; currently only video-related features use this status. |
+| Out of scope | Excluded for now; currently only video-related features use this status. |
 
 ## URL Shape, Source, And Security
 
 | Imgproxy feature | Status | Notes |
 | --- | --- | --- |
-| Required signature path segment | Supported | `_` and `unsafe` are accepted when signing is disabled; HMAC and exact trusted signatures are accepted when signing is configured. Trusted-only config accepts only exact trusted signatures. This is intentionally narrower than upstream disabled-signing behavior. |
+| Required signature path segment | Supported | Without signing, ImagePlug accepts `_` and `unsafe`. With signing configured, it accepts HMAC and exact trusted signatures. Trusted-only config accepts only exact trusted signatures. This behavior is narrower than upstream unsigned behavior. |
 | HMAC URL signatures | Supported | imgproxy parser verifies raw/unpadded Base64URL HMAC-SHA256 signatures with hex key/salt pairs, optional truncation, rotation pairs, exact trusted signatures, and imgproxy-compatible `fixPath` before verification. Signature failures return 403. |
-| Plain source URLs via `/plain/` | Partial | ImagePlug treats the value as path segments resolved against configured `root_url`; arbitrary absolute source URLs aren't modeled. |
+| Plain source URLs via `/plain/` | Partial | ImagePlug treats the value as path segments resolved against configured `root_url`. It doesn't model arbitrary absolute source URLs. |
 | Plain source `@extension` | Supported | Overrides option format and bypasses `Accept` negotiation. |
 | Base64 encoded source URL | Missing | No encoded source parsing or absolute URL source model. |
-| Encrypted `/enc/` source URL | Missing | Pro feature; requires source decryption and signed URL safety. |
+| Encrypted `/enc/` source URL | Missing | Pro feature. Requires source decryption and signed URL safety. |
 | AES-CBC source URL encryption helpers | Missing | Should remain parser/runtime source-layer support, not transform support. |
 | Custom argument separator | Missing | Parser currently uses `:`. |
 | Processing option order independence | Supported | URL option order doesn't define transform order. |
@@ -41,8 +41,8 @@ before origin fetch or cache lookup; they're not silently ignored.
 | `size` | `s` | Supported | Same field mapping as imgproxy size meta-option. |
 | `resizing_type` | `rt` | Supported | `fit`, `fill`, `fill-down`, `force`, and `auto`. |
 | `resizing_algorithm` | `ra` | Missing | No algorithm selection in plan or transform execution. |
-| `width` | `w` | Supported | Non-negative integer; `0` means auto. |
-| `height` | `h` | Supported | Non-negative integer; `0` means auto. |
+| `width` | `w` | Supported | Non-negative integer. `0` means auto. |
+| `height` | `h` | Supported | Non-negative integer. `0` means auto. |
 | `min-width` | `mw` | Supported | Non-negative integer. |
 | `min-height` | `mh` | Supported | Non-negative integer. |
 | `zoom` | `z` | Supported | Single value or separate x/y factors. |
@@ -52,28 +52,28 @@ before origin fetch or cache lookup; they're not silently ignored.
 | `extend_aspect_ratio` | `extend_ar`, `exar` | Partial | Supported as ratio canvas extension; imgproxy's boolean argument form isn't modeled. |
 | `gravity` anchors | `g` | Supported | `ce`, `no`, `so`, `ea`, `we`, `noea`, `nowe`, `soea`, `sowe`. |
 | `gravity:fp` | `g:fp` | Supported | Focal point coordinates from `0.0` to `1.0`. |
-| `gravity:sm` | `g:sm` | Rejected | Parsed but rejected as unsupported smart gravity. |
+| `gravity:sm` | `g:sm` | Rejected | Planning rejects parsed smart gravity as unsupported. |
 | `gravity:obj` | | Missing | Pro object-detection gravity. |
 | `gravity:objw` | | Missing | Pro object-detection gravity with weights. |
 | `objects_position` | `obj_pos`, `op` | Missing | Pro object-detection positioning. |
-| `crop` | `c` | Supported | Absolute, relative, or full-axis dimensions; anchor/focal/smart gravity parsing. Smart gravity is rejected at planning. |
+| `crop` | `c` | Supported | Absolute, relative, or full-axis dimensions. Supports anchor, focal-point, and smart-gravity parsing. Smart gravity is rejected at planning. |
 | `crop_aspect_ratio` | `crop_ar`, `car` | Missing | Documented as unsupported in current ImagePlug docs. |
 | `trim` | `t` | Missing | Requires full-image memory behavior and trim operation. |
 | `padding` | `pd` | Supported | CSS-style shorthand, sparse repeated options, effective DPR scaling, and `padding:` no-op compatibility. |
 | `auto_rotate` | `ar` | Supported | Omitted argument enables auto-orient; boolean form supported. |
 | `rotate` | `rot` | Supported | Right-angle multiples normalize to `0`, `90`, `180`, or `270`. |
-| `flip` | `fl` | Supported | No arguments means both axes; one or two booleans are supported. |
+| `flip` | `fl` | Supported | No arguments means both axes. Supports one or two booleans. |
 
 ## Background, Effects, And Overlays
 
 | Imgproxy option | Aliases | Status | Notes |
 | --- | --- | --- | --- |
-| `background` | `bg` | Supported | RGB decimal and 3/6 digit hex colors; `background:` clears previous background color and alpha. |
+| `background` | `bg` | Supported | RGB decimal and 3/6 digit hex colors. `background:` clears previous background color and alpha. |
 | `background_alpha` | `bga` | Supported | Applies an alpha channel to the current or next background color. Without an explicit background color, uses imgproxy's default black background. |
 | `adjust` | `a` | Missing | Pro meta-option for brightness, contrast, and saturation. |
-| `brightness` | `br` | Missing | Pro color adjustment. |
-| `contrast` | `co` | Missing | Pro color adjustment. |
-| `saturation` | `sa` | Missing | Pro color adjustment. |
+| `brightness` | `br` | Missing | Pro color control. |
+| `contrast` | `co` | Missing | Pro color control. |
+| `saturation` | `sa` | Missing | Pro color control. |
 | `monochrome` | `mc` | Missing | Pro color effect. |
 | `duotone` | `dt` | Missing | Pro color effect. |
 | `blur` | `bl` | Missing | No blur operation yet. |
@@ -113,15 +113,15 @@ before origin fetch or cache lookup; they're not silently ignored.
 
 | Imgproxy option | Aliases | Status | Notes |
 | --- | --- | --- | --- |
-| `quality` | `q` | Supported | `0` means configured default; `1..100` supported. |
-| `format_quality` | `fq` | Partial | One `<format>:<quality>` pair per option segment; repeated segments merge. Multiple pairs in one segment aren't supported. |
+| `quality` | `q` | Supported | `0` means configured default. Supports `1..100`. |
+| `format_quality` | `fq` | Partial | One `<format>:<quality>` pair per option segment. Repeated segments merge. More than one pair in one segment isn't supported. |
 | `autoquality` | `aq` | Missing | Pro multi-encode quality search. |
 | `max_bytes` | `mb` | Missing | No iterative encode degradation. |
 | `jpeg_options` | `jpgo` | Missing | Pro advanced JPEG encoder controls. |
 | `png_options` | `pngo` | Missing | Pro advanced PNG encoder controls. |
 | `webp_options` | `webpo` | Missing | Pro advanced WebP encoder controls. |
 | `avif_options` | `avifo` | Missing | Pro advanced AVIF encoder controls. |
-| `format` | `f`, `ext` | Partial | `webp`, `avif`, `jpeg`, `jpg`, and `png` supported. `best` parses but is rejected. |
+| `format` | `f`, `ext` | Partial | Supports `webp`, `avif`, `jpeg`, `jpg`, and `png`. Planning rejects parsed `best`. |
 | Extension path suffix | | Partial | Plain `@extension` supported. Encoded-source `.extension` isn't supported because encoded source URLs are missing. |
 | Automatic output via `Accept` | | Supported | Omitted format negotiates AVIF/WebP and uses `Vary: Accept`. |
 | `best` output | | Rejected | Parsed as an output value, rejected by planning. |
@@ -141,7 +141,7 @@ before origin fetch or cache lookup; they're not silently ignored.
 | --- | --- | --- | --- |
 | `fallback_image_url` | `fiu` | Missing | Pro fallback source behavior. |
 | `skip_processing` | `skp` | Missing | No source-format raw pass-through path. |
-| `raw` | | Missing | Documented as unsupported; would alter request safety and streaming model. |
+| `raw` | | Missing | Documented as unsupported. It would alter request safety and streaming model. |
 | `cachebuster` | `cb` | Supported | Participates in cache key data, not transforms. |
 | `expires` | `exp` | Supported | Rejects expired requests before origin/cache side effects. |
 | `filename` | `fn` | Supported | Percent-decoded or URL-safe Base64 filename stem. |
@@ -163,14 +163,14 @@ before origin fetch or cache lookup; they're not silently ignored.
 
 | Imgproxy feature | Status | Notes |
 | --- | --- | --- |
-| Named presets | Supported | Configured through `imgproxy: [presets: %{name => options}]`; expanded while parsing normal processing URLs. |
+| Named presets | Supported | Configured through `imgproxy: [presets: %{name => options}]`. Expanded while parsing normal processing URLs. |
 | Multiple preset arguments | Supported | `pr:thumb:sharp` applies each named preset in order. |
 | `default` preset | Supported | Applied before URL options on every normal processing request. URL fields can override fields in the same merged group. |
-| Presets referencing presets | Supported | Presets may use `preset`/`pr`; recursive re-entry is skipped to match imgproxy behavior. |
+| Presets referencing presets | Supported | Presets may use `preset`/`pr`. Recursive re-entry is skipped to match imgproxy behavior. |
 | Preset chained pipelines | Partial | Supports documented Pro merge semantics for preset values containing `-` when the referenced options are otherwise supported by ImagePlug. |
-| Presets-only mode | Missing | Deliberately excluded from this slice. |
+| Presets-only mode | Missing | Excluded from this slice. |
 | Info endpoint presets | Missing | ImagePlug doesn't currently expose imgproxy info endpoints. |
-| Preset env/file loading | Missing | `IMGPROXY_PRESETS`, `IMGPROXY_PRESETS_SEPARATOR`, and `IMGPROXY_PRESETS_PATH` parity is excluded; pass already-materialized presets through config instead. |
+| Preset env/file loading | Missing | This excludes `IMGPROXY_PRESETS`, `IMGPROXY_PRESETS_SEPARATOR`, and `IMGPROXY_PRESETS_PATH` parity. Pass already-materialized presets through config instead. |
 
 ## Suggested Next Additions
 
@@ -184,5 +184,4 @@ The highest-value additions that fit ImagePlug's current architecture are:
 Object detection, SVG style injection, custom watermark sources, and advanced
 encoder knobs are missing today. If implemented, they should stay isolated in
 compatibility/parser or focused runtime layers unless their semantics are
-product-neutral and reusable. Video processing remains deliberately out of scope
-for now.
+product-neutral and reusable. Video processing remains out of scope for now.

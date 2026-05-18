@@ -11,14 +11,13 @@ ImagePlug's own plan, output, transform, cache, and response data structures.
 
 ## Project status
 
-ImagePlug is a greenfield, unreleased library. The codebase has working
+ImagePlug is a greenfield, unreleased library. The codebase includes working
 imgproxy-style request parsing, request safety checks, transform execution,
 output negotiation, filesystem response caching, telemetry spans, and a local
 demo server.
 
-The package metadata is prepared for release evaluation, but the package has
-not been published to Hex. Treat the `0.1.0` API as subject to change until the
-first release is cut.
+The package metadata exists for release evaluation, but no Hex package exists
+yet. Treat the `0.1.0` API as subject to change until the first release.
 
 ## Installation
 
@@ -32,7 +31,7 @@ def deps do
 end
 ```
 
-Once ImagePlug is published, the dependency will use the package version:
+After the Hex package exists, depend on the package version:
 
 ```elixir
 def deps do
@@ -92,23 +91,21 @@ URL requests a 300 pixel wide image from `/images/beach.jpg`:
 http://localhost:4000/_/w:300/plain/images/beach.jpg
 ```
 
-`_` and `unsafe` are accepted only when imgproxy signing is disabled. When
-signing is configured, requests must use a valid HMAC signature or an exact
-configured trusted signature.
+`_` and `unsafe` work only without imgproxy signing. Configured signing requires
+a valid HMAC signature or an exact configured trusted signature.
 
 ## Current support boundaries
 
 ImagePlug currently supports the imgproxy-style path parser, selected resize,
-crop, orientation, canvas, padding, background, output, cachebuster, expiration,
+crop, orientation, canvas, padding, background, output, cachebuster, expiry,
 filename, attachment, and preset options documented in the support matrix.
 Unsupported parser and planner requests fail before cache lookup or origin
 fetch.
 
-ImagePlug doesn't currently implement additional provider dialects, arbitrary
-absolute source URL parsing, encoded source URLs, object detection, watermarking,
-metadata stripping, video processing, or raw source passthrough. Missing
-imgproxy options are rejected or absent as documented; they're not silently
-ignored.
+ImagePlug currently lacks other provider dialects, arbitrary absolute source URL
+parsing, encoded source URLs, object detection, watermarking, metadata
+stripping, video processing, and raw source passthrough. Missing imgproxy
+options fail or remain absent as documented. ImagePlug doesn't ignore them.
 
 URL option order doesn't define transform execution order. The imgproxy parser
 normalizes aliases and conflict resolution, then the planner emits operations in
@@ -144,10 +141,10 @@ mise exec -- mix image_plug.server --cache
 
 The development server runs without cache by default. Pass `--cache` to enable
 the filesystem cache under `_build/dev/image_plug/cache`, or `--no-cache` to
-make the disabled state explicit.
+spell out cache-off mode.
 
-The development server also serves a local demo fiddle at `/demo`. The
-fiddle is a small Svelte/Vite UI for changing common path options and previewing the
+The development server also serves a local demo fiddle at `/demo`. The fiddle is
+a small Svelte/Vite UI for changing common path options and previewing the
 generated SimpleServer request. Install the demo dependencies once before using
 the default server command:
 
