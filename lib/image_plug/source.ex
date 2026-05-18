@@ -9,7 +9,8 @@ defmodule ImagePlug.Source do
       Response,
       StreamError,
       HTTP,
-      File
+      File,
+      S3
     ]
 
   alias ImagePlug.Plan.Source, as: PlanSource
