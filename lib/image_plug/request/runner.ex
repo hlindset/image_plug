@@ -36,7 +36,6 @@ defmodule ImagePlug.Request.Runner do
       run_with_cache_config(conn, plan, resolved_source, opts)
     else
       {:error, {:cache, reason}} -> {:error, {:cache, reason}}
-      {:error, reason} -> {:error, {:processing, reason, []}}
     end
   end
 

@@ -204,7 +204,6 @@ defmodule ImagePlug.Parser.Imgproxy.OptionGrammar do
       {:ok, [filename: decoded]}
     else
       false -> {:error, {:invalid_response_filename, value}}
-      :error -> {:error, {:invalid_response_filename, value}}
       {:error, _reason} = error -> error
     end
   end
