@@ -1154,6 +1154,28 @@ defmodule ImagePlug.Parser.Imgproxy.SourceTest do
               }}
   end
 
+  test "url sources keep explicit default ports but omit implicit default ports" do
+    assert Source.translate("https://assets.example.com/cat.jpg", []) ==
+             {:ok,
+              %URL{
+                scheme: :https,
+                host: "assets.example.com",
+                port: nil,
+                path: ["cat.jpg"],
+                query: nil
+              }}
+
+    assert Source.translate("https://assets.example.com:443/cat.jpg", []) ==
+             {:ok,
+              %URL{
+                scheme: :https,
+                host: "assets.example.com",
+                port: 443,
+                path: ["cat.jpg"],
+                query: nil
+              }}
+  end
+
   test "http escaped query delimiter becomes query and double-escaped delimiter stays in path" do
     assert Source.translate("https://assets.example.com/images/cat.jpg%3Fv=1", []) ==
              {:ok,
@@ -1203,6 +1225,11 @@ defmodule ImagePlug.Parser.Imgproxy.SourceTest do
                 key: "images/cat.jpg",
                 revision: "version=abc"
               }}
+  end
+
+  test "s3 preserves empty key components because object keys are opaque" do
+    assert Source.translate("s3://bucket/images//cat.jpg/", []) ==
+             {:ok, %Object{adapter: :s3, scope: "bucket", key: "images//cat.jpg/", revision: nil}}
   end
 
   test "object and local keys decode escaped reserved characters after URI structure is parsed" do
@@ -1282,7 +1309,7 @@ Add an integration assertion in `test/parser/imgproxy_test.exs`:
 ```elixir
 test "parses escaped embedded s3 query before output suffix handling" do
   assert {:ok, %ImagePlug.Plan{source: source, output: output}} =
-           Imgproxy.parse(conn(:get, "/_/plain/s3://bucket/images/cat.jpg%3Fabc@webp"), opts())
+           Imgproxy.parse(conn(:get, "/_/plain/s3://bucket/images/cat.jpg%3Fabc@webp"), [])
 
   assert source == %ImagePlug.Plan.Source.Object{
            adapter: :s3,
@@ -1350,8 +1377,8 @@ Implement helper clauses:
 - `path_source/2` rejects source query material, rejects empty path segments, decodes URI escapes in each segment, and returns `%Path{segments: segments}`.
 - `split_source_query/1` extracts the first raw or singly escaped source query delimiter (`?` or `%3F`, case-insensitive) before URI parsing. It must not split double-escaped delimiters such as `%253F`.
 - `local_source/2` rejects non-empty host, URI query, source query, fragment, or empty path segments, trims the leading slash, and decodes URI escapes in path segments after URI structure is parsed.
-- `url_source/2` maps scheme to atom, explicitly normalizes the host with `String.downcase/1`, keeps port, decodes URI escapes in path segments after URI structure is parsed, and uses `source_query || uri.query` as query material.
-- `s3_source/2` maps `host` to `scope`, decodes URI escapes in path segments after URI structure is parsed, joins them into `key`, and maps `source_query || uri.query` to `revision`.
+- `url_source/2` maps scheme to atom, explicitly normalizes the host with `String.downcase/1`, stores `nil` for implicit default ports, keeps explicitly spelled ports including `:80` or `:443`, decodes URI escapes in path segments after URI structure is parsed, and uses `source_query || uri.query` as query material.
+- `s3_source/2` maps `host` to `scope`, preserves empty key components because object keys are opaque, decodes URI escapes in key path text after URI structure is parsed, and maps `source_query || uri.query` to `revision`.
 - `custom_source/3` reads `opts[:source_schemes]`, requires binary map keys, decodes URI escapes in the full source string before calling translator `translate/2`, and normalizes translator failures to `{:error, {:source_scheme_error, scheme}}` so the default parser error body doesn't inspect host-provided error terms.
 
 `Path.parse_plain_source/1` must split `@format` and validate malformed URI escapes without decoding the whole source identifier first. It passes the raw embedded source string, such as `s3://bucket/images/cat%23one.jpg%3Fabc`, into `ImgproxySource.translate/2`. Built-in translators first split the source query separator in raw or escaped form (`?` or `%3F`) before URI parsing, then parse URI structure, then decode URI escapes in path or key segments. In the first slice, HTTP and HTTPS use that source query as `URL.query`, S3 maps it to object `revision`, and plain path or local sources reject it. Configurable separators are deferred and must stay parser-owned. That keeps escaped `#` and escaped literal escape bytes in filenames from becoming URI fragment or invalid escape syntax before bucket/key extraction.
@@ -1500,14 +1527,16 @@ defmodule ImagePlug.Source.HTTPTest do
 
     assert {:ok, opts} = HTTP.validate_options(allowed_hosts: ["assets.example.com"], req_options: [plug: plug])
     assert {:ok, resolved} = HTTP.resolve(source, opts, [])
-    assert {:ok, %Response{} = response} = Source.fetch(resolved, sources: %{https: {HTTP, opts}}, max_body_bytes: 20)
+    assert {:ok, %Response{} = response} =
+             Source.fetch(resolved, [sources: %{https: {HTTP, opts}}], max_body_bytes: 20)
 
     assert Enum.join(response.stream) == "image bytes"
   end
 
   test "req options cannot override adapter request controls" do
     plug = fn conn ->
-      send(self(), {:http_request, conn.request_path})
+      {:ok, body, conn} = Plug.Conn.read_body(conn)
+      send(self(), {:http_request, conn.method, conn.request_path, conn.query_string, body})
       Plug.Conn.send_resp(conn, 200, "image bytes")
     end
 
@@ -1519,6 +1548,10 @@ defmodule ImagePlug.Source.HTTPTest do
                req_options: [
                  plug: plug,
                  url: "https://evil.example/other.jpg",
+                 base_url: "https://evil.example",
+                 method: :post,
+                 body: "not image",
+                 params: [v: "evil"],
                  into: :self,
                  retry: true,
                  max_redirects: 10
@@ -1526,9 +1559,9 @@ defmodule ImagePlug.Source.HTTPTest do
              )
 
     assert {:ok, resolved} = HTTP.resolve(source, opts, [])
-    assert {:ok, %Response{} = response} = Source.fetch(resolved, sources: %{https: {HTTP, opts}}, [])
+    assert {:ok, %Response{} = response} = Source.fetch(resolved, [sources: %{https: {HTTP, opts}}], [])
     assert Enum.join(response.stream) == "image bytes"
-    assert_receive {:http_request, "/cat.jpg"}
+    assert_receive {:http_request, "GET", "/cat.jpg", "", ""}
   end
 
   test "req options cannot override redirect policy" do
@@ -1547,7 +1580,7 @@ defmodule ImagePlug.Source.HTTPTest do
              )
 
     assert {:ok, resolved} = HTTP.resolve(source, opts, [])
-    assert {:ok, %Response{} = response} = Source.fetch(resolved, sources: %{https: {HTTP, opts}}, [])
+    assert {:ok, %Response{} = response} = Source.fetch(resolved, [sources: %{https: {HTTP, opts}}], [])
 
     error = assert_raise Source.StreamError, fn -> Enum.to_list(response.stream) end
     assert error.reason == :bad_status
@@ -1569,7 +1602,8 @@ defmodule ImagePlug.Source.HTTPTest do
 
     assert {:ok, opts} = HTTP.validate_options(allowed_hosts: ["assets.example.com"], req_options: [plug: plug])
     assert {:ok, resolved} = HTTP.resolve(source, opts, [])
-    assert {:ok, %Response{} = response} = Source.fetch(resolved, sources: %{https: {HTTP, opts}}, max_body_bytes: 20)
+    assert {:ok, %Response{} = response} =
+             Source.fetch(resolved, [sources: %{https: {HTTP, opts}}], max_body_bytes: 20)
 
     assert Enum.join(response.stream) == "image bytes"
     assert_receive {:http_request, "/images/cat%23one%25two%20space%3F.jpg", "v=a%26b%3Dc"}
@@ -1581,7 +1615,8 @@ defmodule ImagePlug.Source.HTTPTest do
 
     assert {:ok, opts} = HTTP.validate_options(allowed_hosts: ["assets.example.com"], req_options: [plug: plug])
     assert {:ok, resolved} = HTTP.resolve(source, opts, [])
-    assert {:ok, %Response{} = response} = Source.fetch(resolved, sources: %{https: {HTTP, opts}}, max_body_bytes: 20)
+    assert {:ok, %Response{} = response} =
+             Source.fetch(resolved, [sources: %{https: {HTTP, opts}}], max_body_bytes: 20)
 
     error = assert_raise Source.StreamError, fn -> Enum.to_list(response.stream) end
     assert error.reason == :bad_status
@@ -1598,7 +1633,7 @@ defmodule ImagePlug.Source.HTTPTest do
 
     assert {:ok, opts} = HTTP.validate_options(allowed_hosts: ["assets.example.com"], req_options: [plug: plug])
     assert {:ok, resolved} = HTTP.resolve(source, opts, [])
-    assert {:ok, %Response{} = response} = Source.fetch(resolved, sources: %{https: {HTTP, opts}}, [])
+    assert {:ok, %Response{} = response} = Source.fetch(resolved, [sources: %{https: {HTTP, opts}}], [])
 
     error = assert_raise Source.StreamError, fn -> Enum.to_list(response.stream) end
     assert error.reason == :bad_status
@@ -1716,7 +1751,7 @@ Implement `ImagePlug.Source.HTTP` with:
 - `fetch/3` percent-encoding decoded path segments before building the Req URL and preserving `source.query` as query material.
 - redirect handling must either be disabled or each redirect target must pass the same normalized host policy before a redirected request is sent. The first slice should disable redirects until redirect-target validation has tests.
 - Req options are host-owned adapter behavior and aren't cache material. Document that callers must not use built-in `req_options` to make the same resolved URL identity return different source bytes across requests. If they need request options to select different bytes, they must encode that selector in the URI, configure `cache: :skip`, or provide a custom adapter with the right non-secret selector in `Resolved.identity`.
-- Req options must delete caller overrides for internal controls such as `:url`, `:into`, redirect policy, retry behavior, and unsafe asynchronous response options before merging adapter request fields.
+- Req options must delete caller overrides for internal controls such as `:url`, `:base_url`, `:method`, `:body`, `:params`, `:into`, redirect policy, retry behavior, and unsafe asynchronous response options before merging adapter request fields.
 
 - [ ] **Step 5: Implement file adapter**
 
@@ -1879,7 +1914,7 @@ defmodule ImagePlug.Source.S3Test do
     refute_received {:fetch_credentials, _, _, _}
 
     assert {:ok, %Response{} = response} =
-             Source.fetch(resolved, sources: %{s3: {S3, opts}}, max_body_bytes: 20)
+             Source.fetch(resolved, [sources: %{s3: {S3, opts}}], max_body_bytes: 20)
 
     assert Enum.join(response.stream) == "image bytes"
     assert_receive {:fetch_credentials, "tenant-b", [role: "tenant-b"], [max_body_bytes: 20]}
@@ -1965,7 +2000,7 @@ defmodule ImagePlug.Source.S3Test do
     refute_received {:fetch_credentials, _, _, _}
 
     assert {:ok, %Response{} = response} =
-             Source.fetch(resolved, sources: %{s3: {S3, opts}}, max_body_bytes: 20)
+             Source.fetch(resolved, [sources: %{s3: {S3, opts}}], max_body_bytes: 20)
 
     assert Enum.join(response.stream) == "image bytes"
     assert_receive {:fetch_credentials, "tenant-a", [role: "tenant-a"], [max_body_bytes: 20]}
@@ -2000,7 +2035,7 @@ defmodule ImagePlug.Source.S3Test do
     }
 
     assert {:ok, resolved} = S3.resolve(source, opts, [])
-    assert {:ok, %Response{} = response} = Source.fetch(resolved, sources: %{s3: {S3, opts}}, [])
+    assert {:ok, %Response{} = response} = Source.fetch(resolved, [sources: %{s3: {S3, opts}}], [])
     assert Enum.join(response.stream) == "image bytes"
 
     assert_receive {:s3_request, headers, request_path, query_string}
@@ -2036,10 +2071,10 @@ defmodule ImagePlug.Source.S3Test do
                    max_redirects: 10,
                    auth: {:bearer, "evil"},
                    headers: [
-                     {"authorization", "Bearer evil"},
-                     {"x-amz-security-token", "evil-token"},
-                     {"host", "evil.example"},
-                     {"x-amz-content-sha256", "evil-sha"},
+                     {"Authorization", "Bearer evil"},
+                     {"X-Amz-Security-Token", "evil-token"},
+                     {"Host", "evil.example"},
+                     {"X-Amz-Content-Sha256", "evil-sha"},
                      {"x-extra", "kept"}
                    ],
                    aws_sigv4: [service: :execute_api, region: "us-east-1"]
@@ -2049,16 +2084,16 @@ defmodule ImagePlug.Source.S3Test do
 
     source = %Object{adapter: :s3, scope: "tenant-a", key: "images/cat.jpg"}
     assert {:ok, resolved} = S3.resolve(source, opts, [])
-    assert {:ok, %Response{} = response} = Source.fetch(resolved, sources: %{s3: {S3, opts}}, [])
+    assert {:ok, %Response{} = response} = Source.fetch(resolved, [sources: %{s3: {S3, opts}}], [])
     assert Enum.join(response.stream) == "image bytes"
 
     assert_receive {:s3_request, "GET", headers, "/tenant-a/images/cat.jpg", ""}
     assert {"authorization", authorization} = List.keyfind(headers, "authorization", 0)
     assert authorization =~ "/us-east-1/s3/aws4_request"
-    assert {"x-extra", "kept"} = List.keyfind(headers, "x-extra", 0)
+    assert {_name, "kept"} = Enum.find(headers, fn {name, _value} -> String.downcase(name) == "x-extra" end)
     refute authorization =~ "Bearer evil"
     refute Enum.any?(headers, fn {name, value} ->
-             name in ["host", "x-amz-security-token", "x-amz-content-sha256"] and
+             String.downcase(name) in ["host", "x-amz-security-token", "x-amz-content-sha256"] and
                value in ["evil.example", "evil-token", "evil-sha"]
            end)
   end
@@ -2082,7 +2117,7 @@ defmodule ImagePlug.Source.S3Test do
 
     source = %Object{adapter: :s3, scope: "tenant-a", key: "cat.jpg"}
     assert {:ok, resolved} = S3.resolve(source, opts, [])
-    assert {:ok, %Response{} = response} = Source.fetch(resolved, sources: %{s3: {S3, opts}}, [])
+    assert {:ok, %Response{} = response} = Source.fetch(resolved, [sources: %{s3: {S3, opts}}], [])
 
     error = assert_raise Source.StreamError, fn -> Enum.to_list(response.stream) end
     assert error.reason == :bad_status
@@ -2156,7 +2191,7 @@ Implement S3 `fetch/3`:
 - build a Req GET request from the decoded endpoint, bucket, key, and optional `versionId=revision`. Don't pass a pre-encoded `%xx` path into Req SigV4 signing; Req normalizes the path while signing. The outgoing path and `versionId` query must contain exactly one layer of URL encoding for reserved characters, with tests that fail on `%2523` or `%2526` double-encoding.
 - pass SigV4 options with `aws_sigv4: [service: :s3, region: region, access_key_id: ..., secret_access_key: ..., token: ...]` or the exact Req 0.5 option shape verified from local dependency docs.
 - turn redirects off for signed fetches unless tests prove same-host redirect handling is safe.
-- strip S3-owned request controls from configured `req_options`: `:url`, `:base_url`, `:method`, `:body`, `:params`, `:into`, `:retry`, `:max_redirects`, `:auth`, `:aws_sigv4`, and signing-owned header names `authorization`, `host`, `x-amz-content-sha256`, and `x-amz-security-token`. Preserve other host-provided headers.
+- strip S3-owned request controls from configured `req_options`: `:url`, `:base_url`, `:method`, `:body`, `:params`, `:into`, `:retry`, `:max_redirects`, `:auth`, `:aws_sigv4`, and signing-owned header names `authorization`, `host`, `x-amz-content-sha256`, and `x-amz-security-token` after converting header names to lowercase for comparison. Preserve other host-provided headers.
 - Req options are host-owned adapter behavior and aren't cache material. Document that callers must not use built-in `req_options` to make the same resolved object identity return different source bytes across requests. If they need request options to select different bytes, they must encode that selector in the object key or revision, use `cache: :skip`, or provide a custom adapter with the right non-secret selector in `Resolved.identity`.
 - return `%Source.Response{stream: req_stream}` and rely on registry wrapping.
 
