@@ -36,20 +36,22 @@
 
 - Keep the canonical request model under `ImagePlug.Plan.*`.
 - Keep parser behaviours and adapters under `ImagePlug.Parser.*`; parser-specific compatibility quirks should translate into `ImagePlug.Plan` or remain isolated in the parser/adapter layer.
-- Keep runtime side effects under `ImagePlug.Runtime.*`, including origin fetch, request execution, response sending, source identity, and runtime options.
+- Keep request orchestration and runtime options under `ImagePlug.Request.*`.
+- Keep origin/source side effects and source identity under `ImagePlug.Origin.*` until a deliberate source-adapter boundary replaces it.
+- Keep response delivery under `ImagePlug.Response.*`.
 - Keep output negotiation, format, policy, and encoding under `ImagePlug.Output.*`.
 - Keep transform contracts, operation structs, state, decode planning, materialization, and cache material protocols under `ImagePlug.Transform.*`.
-- Runtime code must dispatch through `ImagePlug.Transform` and must not name concrete transform operation modules such as `ImagePlug.Transform.Scale`, `Cover`, `Contain`, `Crop`, or `Focus`.
+- Request, origin, and response code must dispatch through `ImagePlug.Transform` and must not name concrete transform operation modules such as `ImagePlug.Transform.Scale`, `Cover`, `Contain`, `Crop`, or `Focus`.
 - Boundary exports should stay narrow. Export behaviours and stable public/internal entry points, not implementation helpers.
 - `ImagePlug.SimpleServer` is dev/test support only and must remain outside prod compilation.
 
 ## Boundary library guidelines
 
 - Use `Boundary` declarations to enforce the namespace ownership described above. When adding or moving a top-level namespace, define its dependency direction explicitly instead of relying on implicit compile-time reachability.
-- Keep `deps:` aligned with architecture direction: parser code may depend on plan and transform construction APIs; runtime may depend on plan, cache, output, and the generic transform contract; cache may depend on plan/output/transform material; output may depend on plan; transform should remain independent of parser/runtime/cache/output.
+- Keep `deps:` aligned with architecture direction: parser code may depend on plan and transform construction APIs; request code may depend on plan, cache, origin/source, output, response, telemetry, and the generic transform contract; origin/source code may depend on plan and must stay out of cache, response, and parser code; cache may depend on plan/output/transform material; output may depend on plan; transform should remain independent of parser/request/origin/cache/output/response.
 - Export only behaviours and stable public/internal entry points from each boundary. Do not export implementation helpers just to satisfy a compile error; move the helper to the correct boundary or add a narrow facade.
-- Runtime modules may call generic `ImagePlug.Transform` functions such as `transform_name/1`, `metadata/1`, and `execute/2`, but must not alias or reference concrete operation modules. Parser and planner modules may construct exported concrete operation structs when translating syntax into a product-neutral plan.
-- Boundary rule changes should come with focused architecture tests, especially for runtime avoiding concrete transform modules and parser-specific structs.
+- Request, origin, and response modules may call generic `ImagePlug.Transform` functions such as `transform_name/1`, `metadata/1`, and `execute/2`, but must not alias or reference concrete operation modules. Parser and planner modules may construct exported concrete operation structs when translating syntax into a product-neutral plan.
+- Boundary rule changes should come with focused architecture tests, especially for request/origin/response code avoiding concrete transform modules and parser-specific structs.
 
 ## Elixir architecture guidelines
 

@@ -27,7 +27,9 @@ source product supplied the bytes.
 
 ## Design
 
-Use typed plan source structs plus a runtime resolved-source layer.
+Use typed plan source structs plus a runtime resolved-source layer. The new
+source boundary replaces the current `ImagePlug.Origin` internals. It doesn't
+revive the abandoned `ImagePlug.Runtime` module tree.
 
 Parsers emit product-neutral source data:
 
@@ -43,10 +45,10 @@ and an adapter-owned fetch payload:
 
 ```elixir
 @callback resolve(ImagePlug.Plan.Source.t(), adapter_opts :: keyword(), runtime_opts :: keyword()) ::
-            {:ok, ImagePlug.Source.Resolved.t()} | {:error, term()}
+            {:ok, ImagePlug.Source.Resolved.t()} | {:error, ImagePlug.Source.error()}
 
 @callback fetch(ImagePlug.Source.Resolved.t(), adapter_opts :: keyword(), runtime_opts :: keyword()) ::
-            {:ok, ImagePlug.Source.Response.t()} | {:error, term()}
+            {:ok, ImagePlug.Source.Response.t()} | {:error, ImagePlug.Source.error()}
 ```
 
 `resolve/3` runs before cache lookup. It may check source shape, enforce
@@ -59,13 +61,31 @@ providers, or perform network-backed storage resolution.
 ```elixir
 %ImagePlug.Source.Response{
   stream: enumerable,
-  headers: headers
+  headers: [{"content-type", "image/jpeg"}]
 }
 ```
 
-Adapters don't return loaded images. `ImagePlug.Request.Processor` keeps decode
+`stream` is an enumerable of binaries. `headers` is a list of lowercase binary
+name/value pairs observed from the source response. Headers aren't cache key
+material and aren't emitted in telemetry by default.
+
+Adapter errors use a small tagged shape:
+
+```elixir
+{:source, reason}
+```
+
+`reason` must be safe to include in internal control flow and default error
+responses. It must not contain source URLs, paths, object keys, signed request
+data, credentials, client structs, raw response bodies, or arbitrary exceptions.
+The source registry treats malformed callback returns as adapter errors rather
+than letting them reach cache, decode, or response code.
+
+Adapters don't return loaded images. The request processor keeps decode
 ownership so `ImagePlug.Transform.DecodePlanner` can choose sequential or random
-access from the transform chain.
+access from the transform chain. The existing `ImagePlug.Origin.Decoded` concept
+should move to the request or transform side of the boundary rather than into the
+source adapter boundary.
 
 The request flow becomes:
 
@@ -73,7 +93,7 @@ The request flow becomes:
 parse request
 -> validate Plan shape and transform safety
 -> resolve Plan.source into Source.Resolved
--> build cache key from Plan and Source.Resolved.identity
+-> build cache key from canonical Plan fields and Source.Resolved.identity
 -> cache lookup
 -> fetch Source.Resolved on miss
 -> decode, validate input limits, transform, encode
@@ -94,6 +114,10 @@ This is the local-file source shape for the new adapter model. Validation reject
 segments that can escape the configured root, including `.`, `..`, backslash
 traversal, and absolute paths after parser normalization.
 
+The file adapter identity must include a configured non-secret root identifier,
+not the absolute root path. Two roots that both contain `images/cat.jpg` must not
+share cache entries unless the host gives them the same root identifier.
+
 ### URL
 
 `ImagePlug.Plan.Source.URL` represents absolute `http` or `https` sources:
@@ -109,7 +133,10 @@ traversal, and absolute paths after parser normalization.
 
 The HTTP adapter owns host policy, redirect limits, request timeouts, body-size
 limits, and streaming through Req. URL source identity must include normalized
-scheme, host, port, path, and query data that affects the bytes.
+scheme, host, port, path, and query data. The default policy preserves the full
+normalized query string because query parameters often affect the bytes. An
+adapter can ignore or filter query fields only through explicit host
+configuration.
 
 ### Object
 
@@ -128,8 +155,10 @@ scheme, host, port, path, and query data that affects the bytes.
 `revision` is an optional immutable object selector. The S3 adapter maps it to an
 S3 object version ID. A GCS adapter can map the same field to a generation.
 
-The plan struct names the adapter key, not the adapter module. Runtime config
-binds that key to a module:
+The plan struct names an opaque adapter key, not the adapter module. Plan
+validation must not special-case `:s3`. S3-specific behavior belongs in the
+imgproxy source translator and the configured source adapter. Runtime config
+binds the adapter key to a module:
 
 ```elixir
 sources: [
@@ -166,8 +195,8 @@ It represents an immutable external identifier:
 ```
 
 Reference identifiers are cacheable only if they name immutable bytes. If a host
-uses mutable catalog IDs, it must include a revision in the source or avoid normal
-processed-response caching for that adapter.
+uses mutable catalog IDs, it must include a revision in the source or return a
+resolved cache policy that skips processed-response caching for that adapter.
 
 A reference adapter must not rewrite the plan into another plan source and
 restart resolution. It returns `Source.Resolved` directly. The identity can come
@@ -178,6 +207,8 @@ which only runs on cache miss.
 
 `ImagePlug.Source` becomes the runtime source boundary. Because the library is
 greenfield, existing `ImagePlug.Origin` internals can move into the new boundary.
+Architecture tests should assert the new source boundary directly instead of
+preserving the old origin boundary by inertia.
 
 Runtime config maps source adapter keys to modules and options:
 
@@ -191,24 +222,37 @@ sources: [
 ```
 
 The source registry picks the adapter for `Plan.source`, calls `resolve/3`, and
-returns `Source.Resolved`. Missing adapters, malformed adapter config, and source
-policy failures return before cache lookup.
+returns `Source.Resolved`. Adapter option validation happens during
+`ImagePlug.init/1`, before requests enter the pipeline. Missing adapters and
+source policy failures return before cache lookup.
 
 `Source.Resolved` contains:
 
-- `adapter`: the adapter key or module used for fetch dispatch.
+- `adapter_key`: the configured adapter key used for fetch dispatch.
+- `source_kind`: `:path`, `:url`, `:object`, or `:reference`.
 - `identity`: deterministic primitive data used in cache keys.
-- `fetch`: adapter-owned non-secret data needed by `fetch/3`.
+- `cache`: `:normal` or `:skip`.
+- `fetch`: adapter-owned data needed by `fetch/3`.
 
 `identity` must not contain credentials, authorization headers, signed URLs,
-client structs, local absolute paths, parser structs, or raw request paths.
+client structs, local absolute paths, parser structs, raw request paths, or the
+`Source.Resolved` struct itself. Cache code receives only primitive identity
+data, never adapter modules or fetch payloads.
+
+The identity must include every non-secret value that can change the source
+bytes. That includes adapter scope, configured root identity, endpoint, region,
+addressing mode, hidden object prefixes, tenant routing rules, catalog revision
+data, and custom adapter identity fingerprints. The identity excludes credential
+values. It can include the selected non-secret credential profile when that
+profile changes which object storage space ImagePlug reads.
 
 Example S3 identity:
 
 ```elixir
 [
   kind: :object,
-  adapter: :s3,
+  adapter_key: :s3,
+  adapter_scope: {:s3, :default},
   bucket: "tenant-a",
   key: "images/cat.jpg",
   revision: "abc",
@@ -218,9 +262,12 @@ Example S3 identity:
 ]
 ```
 
-Resolved identity, not raw source spelling, feeds the cache key. That lets
-different parser dialects share cache entries when they resolve to the same
-source, and it keeps scheme-specific URI normalization out of `ImagePlug.Cache`.
+Resolved identity, not raw source spelling, feeds the cache key. The cache key
+keeps canonical plan data for transforms, output, configured vary inputs, and
+cachebuster values, but source material comes from `Source.Resolved.identity`.
+That lets different parser dialects share cache entries when they resolve to the
+same source, and it keeps scheme-specific URI normalization out of
+`ImagePlug.Cache`.
 
 ## S3 adapter
 
@@ -242,12 +289,12 @@ sources: [
      buckets: %{
        "tenant-a" => [
          region: "eu-west-1",
-         credentials: {:provider, MyApp.TenantACredentials}
+         credentials: {:provider, MyApp.TenantACredentials, []}
        ],
        "tenant-b" => [
          region: "us-west-2",
          endpoint: "https://s3.us-west-2.amazonaws.com",
-         credentials: {:provider, MyApp.TenantBCredentials}
+         credentials: {:provider, MyApp.TenantBCredentials, []}
        ]
      }}
 ]
@@ -260,10 +307,38 @@ that mode. Without a `buckets` map, `default` applies to every bucket. A host ca
 write a custom adapter for path-prefix, tenant, account, or deployment-specific
 routing.
 
+This built-in routing is exact-bucket routing. If the same bucket name can exist
+behind different accounts, endpoints, tenants, or deployment profiles, the host
+should use separate adapter keys or a custom adapter. That adapter's resolved
+identity must include the non-secret profile that selects the backing storage
+space.
+
 The S3 adapter must not call credential providers during `resolve/3` or cache
 lookup. The adapter may include a non-secret credential reference in the fetch
 payload. `fetch/3` calls the selected provider only on cache miss, builds a
 signed request, and returns a stream.
+
+Credential providers are runtime callbacks, not plan data. The S3 adapter calls:
+
+```elixir
+provider.fetch_credentials(scope, provider_opts, runtime_opts)
+```
+
+The callback returns:
+
+```elixir
+{:ok,
+ [
+   access_key_id: binary(),
+   secret_access_key: binary(),
+   session_token: binary() | nil
+ ]}
+| {:error, ImagePlug.Source.error()}
+```
+
+Providers can cache, refresh, assume roles, call instance metadata, or talk to a
+private credential service. Those side effects happen only inside `fetch/3`,
+after a cache miss.
 
 Secret fields, access keys, session tokens, signed URLs, authorization headers,
 and client structs must not enter plan data, cache key data, telemetry, or default
@@ -300,6 +375,16 @@ query maps to `revision`. For example, `?abc` becomes `revision: "abc"`. A query
 such as `?version=abc` becomes `revision: "version=abc"` unless a custom scheme
 translator chooses different semantics.
 
+In the actual Plug request path, callers must escape the embedded source query
+delimiter because `Plug.Conn.request_path` excludes the request query string:
+
+```text
+/plain/s3://bucket/images/cat.jpg%3Fabc
+```
+
+The imgproxy parser decodes that source segment before URI translation, so the
+source translator sees `s3://bucket/images/cat.jpg?abc`.
+
 The existing `/plain/...@jpg` source-format behavior remains parser-owned.
 Source parsing splits that suffix before translating the source identifier.
 
@@ -307,9 +392,9 @@ Unknown schemes fail unless configured with a scheme translator:
 
 ```elixir
 imgproxy: [
-  source_schemes: [
-    "foobar": {MyApp.FoobarSourceParser, []}
-  ]
+  source_schemes: %{
+    "foobar" => {MyApp.FoobarSourceParser, []}
+  }
 ]
 ```
 
@@ -318,13 +403,18 @@ options. It returns a `Plan.Source` struct or an error. Translator output still
 goes through normal plan and source validation. Runtime fetching requires a
 matching source adapter configuration for the returned adapter key.
 
+Scheme translators are parser extensions. They must be pure and deterministic:
+no network calls, file reads, credential access, catalog lookup operations,
+storage client calls, or process-local mutable state. Any source-specific side
+effects belong in the runtime source adapter and happen after source resolution
+and cache lookup.
+
 ## Error handling
 
 Pre-cache failures include:
 
 - unsupported source shape
 - missing source adapter
-- invalid source adapter options
 - denied HTTP host
 - denied local path
 - denied S3 bucket
@@ -333,6 +423,9 @@ Pre-cache failures include:
 - custom scheme translator errors
 
 These return before cache lookup and before fetch.
+
+Invalid source adapter options are initialization failures. `ImagePlug.init/1`
+validates adapter modules and their options before requests can use them.
 
 Fetch-time failures include:
 
@@ -344,6 +437,13 @@ Fetch-time failures include:
 - input pixel limit failure
 
 These happen only after cache miss and are never cached.
+
+Expected adapter failures return tagged `ImagePlug.Source.error()` values.
+Adapters shouldn't raise for denied sources, missing objects, transport errors,
+credential failures, non-success statuses, malformed callback results, or body
+limit failures. The source boundary wraps unexpected exceptions before telemetry
+or error responses see them, so raw exception terms can't leak secrets by
+default.
 
 ## Telemetry
 
@@ -359,13 +459,16 @@ Metadata remains low-cardinality and safe:
 ```elixir
 %{
   source_kind: :url | :path | :object | :reference,
-  source_adapter: :http | :file | :s3 | :catalog,
+  source_adapter_kind: :http | :file | :s3 | :catalog | :custom,
   result: :ok | :source_error | :processing_error
 }
 ```
 
 Default telemetry must not include full URLs, object keys, bucket names, local
-paths, credentials, signatures, signed headers, or parser-specific structs.
+paths, dispatch adapter keys, credentials, signatures, signed headers, raw error
+reasons, stack traces, or parser-specific structs. Host applications can attach
+their own handlers or opt-in metadata once they have decided which values are
+safe for their environment.
 
 For signed S3 fetches, redirects must not leak authorization headers across
 hosts. The adapter disables redirects for signed object fetches unless tests
@@ -424,6 +527,8 @@ Custom source schemes:
 
 - configured scheme translators receive decoded source strings and translator
   options.
+- scheme translator configuration uses binary scheme keys.
+- translators are deterministic and perform no side effects.
 - translators can return `Path`, `URL`, `Object`, and `Reference` after the
   deferred `Reference` struct ships.
 - translator errors return before source registry, cache lookup, and fetch.
@@ -432,10 +537,13 @@ Custom source schemes:
 Source registry and custom adapters:
 
 - registry dispatches by adapter key to the configured module and options.
-- custom adapter `resolve/3` results feed cache identity.
+- `resolve/3` returns `adapter_key`, `source_kind`, primitive identity, cache
+  policy, and fetch payload.
+- custom adapter `resolve/3` identity data feeds cache identity.
 - cache misses call the custom adapter `fetch/3`.
 - cache hits don't call the custom adapter `fetch/3`.
 - malformed custom adapter callback results fail predictably.
+- init rejects malformed adapter options before request handling.
 
 Request safety:
 
@@ -453,6 +561,8 @@ Cache keys:
   not share cache.
 - credentials, tokens, authorization headers, signed URLs, local absolute paths,
   and parser structs are absent from key data.
+- `cache: :skip` bypasses processed-response cache without fetching before the
+  cache decision.
 
 HTTP adapter:
 
@@ -468,6 +578,7 @@ File adapter:
 - root config validation.
 - traversal and dot-segment rejection.
 - symlink escape rejection if the adapter follows symlinks.
+- root identity participates in resolved source identity.
 - regular-file checks.
 - missing file behavior.
 - stream consumption.
@@ -475,22 +586,27 @@ File adapter:
 S3 adapter:
 
 - exact bucket config overrides default config.
-- missing bucket fails closed when policy requires explicit config.
+- missing bucket fails closed when config includes a `buckets` map.
 - source resolution and cache lookup don't call the credential provider.
 - fetch calls the credential provider only on cache miss.
 - selected provider and options differ by bucket.
 - region, endpoint, addressing, bucket, key, and revision affect resolved
   identity.
+- same bucket names behind different configured storage scopes don't share cache.
 - the adapter passes Req SigV4 options during fetch.
 - signed fetch redirects don't leak authorization headers across hosts.
 - stream consumption.
+- credential provider success, failure, and refresh paths return safe tagged
+  errors.
 
 Telemetry and boundaries:
 
 - ImagePlug emits source spans for successful and failed source resolution/fetch.
-- telemetry metadata excludes URLs, keys, paths, bucket names, credentials, signed
-  headers, and parser structs.
-- runtime dispatch goes through `ImagePlug.Source`.
+- telemetry metadata excludes URLs, keys, paths, bucket names, dispatch adapter
+  keys, credentials, signed headers, raw reasons, stack traces, and parser structs.
+- request dispatch goes through `ImagePlug.Source`.
+- architecture tests cover the deliberate replacement of `ImagePlug.Origin`
+  internals with `ImagePlug.Source`.
 - transforms remain source-unaware.
 - parser-specific structs don't leak into source, cache, request, output, or
   transform boundaries.
