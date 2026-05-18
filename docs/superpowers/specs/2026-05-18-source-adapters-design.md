@@ -418,9 +418,11 @@ delimiter because `Plug.Conn.request_path` excludes the request query string:
 /_/plain/s3://bucket/images/cat.jpg%3Fabc
 ```
 
-The imgproxy parser removes the signature segment and decodes the source segment
-before URI translation, so the source translator sees
-`s3://bucket/images/cat.jpg?abc`.
+The imgproxy parser removes the signature segment, then keeps the raw embedded
+source string for built-in translation. That lets built-ins distinguish escaped
+source delimiters such as `%3F`, `%23`, and `%25` before URI parsing. Built-in
+translators produce decoded `Plan.Source` fields. Custom scheme translators
+receive the decoded source string.
 
 The existing `/plain/...@jpg` source-format behavior remains parser-owned.
 Source parsing splits that suffix before translating the source identifier.
