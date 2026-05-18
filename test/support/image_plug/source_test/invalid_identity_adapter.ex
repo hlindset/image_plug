@@ -12,12 +12,12 @@ defmodule ImagePlug.SourceTest.InvalidIdentityAdapter do
   def validate_options(opts), do: {:ok, opts}
 
   @impl Source
-  def resolve(_source, _opts, _runtime_opts) do
+  def resolve(_source, opts, _runtime_opts) do
     {:ok,
      %Resolved{
        adapter: :path,
        source_kind: :path,
-       identity: [kind: :path, client: self()],
+       identity: Keyword.get(opts, :identity, kind: :path, client: self()),
        cache: :skip,
        fetch: :bad_identity
      }}

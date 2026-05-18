@@ -14,6 +14,7 @@ defmodule ImagePlug.Source do
     ]
 
   alias ImagePlug.Plan.Source, as: PlanSource
+  alias ImagePlug.Plan.Source.Identity
   alias ImagePlug.Source.Resolved
   alias ImagePlug.Source.Response
   alias ImagePlug.Source.WrappedStream
@@ -180,33 +181,8 @@ defmodule ImagePlug.Source do
          cache: cache
        }) do
     is_atom(adapter) and source_kind in @source_kinds and cache in @cache_policies and
-      primitive?(identity)
+      Identity.valid?(identity)
   end
-
-  defp primitive?(value)
-       when is_atom(value) or is_binary(value) or is_boolean(value) or is_integer(value) or
-              is_float(value) or is_nil(value),
-       do: true
-
-  defp primitive?(value) when is_list(value), do: primitive_list?(value)
-
-  defp primitive?(value) when is_tuple(value) do
-    value
-    |> Tuple.to_list()
-    |> primitive_list?()
-  end
-
-  defp primitive?(%_{}), do: false
-
-  defp primitive?(value) when is_map(value) do
-    Enum.all?(value, fn {key, map_value} -> primitive?(key) and primitive?(map_value) end)
-  end
-
-  defp primitive?(_value), do: false
-
-  defp primitive_list?([]), do: true
-  defp primitive_list?([value | rest]), do: primitive?(value) and primitive_list?(rest)
-  defp primitive_list?(_value), do: false
 
   defp source_metadata(source_kind, source_adapter_kind) do
     %{source_kind: source_kind, source_adapter_kind: source_adapter_kind}

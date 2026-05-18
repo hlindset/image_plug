@@ -13,6 +13,7 @@ defmodule ImagePlug.Plan do
       Response,
       Color,
       Source,
+      Source.Identity,
       Source.Path,
       Source.URL,
       Source.Object,

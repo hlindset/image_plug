@@ -74,11 +74,22 @@ defmodule ImagePlug.SourceTest do
     assert Source.fetch(resolved, opts, []) == {:error, {:source, :invalid_adapter_result}}
   end
 
-  test "resolved identity must be primitive before cache or fetch can see it" do
-    assert {:ok, opts} = Source.validate_config(sources: [path: {InvalidIdentityAdapter, []}])
+  test "resolved identity must be cache identity material before cache or fetch can see it" do
+    for identity <- [
+          "https://origin.test/images/cat.jpg",
+          [kind: :path, adapter_module: ImagePlug.Source.File],
+          [kind: :path, lookup: %{root: "test"}],
+          [kind: :path, lookup: {:root, "test"}],
+          [kind: :path, client: self()]
+        ] do
+      assert {:ok, opts} =
+               Source.validate_config(
+                 sources: [path: {InvalidIdentityAdapter, identity: identity}]
+               )
 
-    assert Source.resolve(%Path{segments: ["images", "cat.jpg"]}, opts, []) ==
-             {:error, {:source, :invalid_adapter_result}}
+      assert Source.resolve(%Path{segments: ["images", "cat.jpg"]}, opts, []) ==
+               {:error, {:source, :invalid_adapter_result}}
+    end
   end
 
   test "resolved adapter must match the adapter key selected during resolution" do

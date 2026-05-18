@@ -9,6 +9,7 @@ defmodule ImagePlug.Cache.Key do
   alias ImagePlug.Plan
   alias ImagePlug.Plan.Output
   alias ImagePlug.Plan.Pipeline
+  alias ImagePlug.Plan.Source.Identity
   alias ImagePlug.Transform.KeyData
 
   @schema_version 2
@@ -60,44 +61,9 @@ defmodule ImagePlug.Cache.Key do
   end
 
   defp validate_source_identity(identity) do
-    if primitive_key_data?(identity),
+    if Identity.valid?(identity),
       do: :ok,
       else: {:error, {:invalid_source_identity, identity}}
-  end
-
-  defp primitive_key_data?(value)
-       when is_binary(value) or is_integer(value) or is_float(value) or is_boolean(value) or
-              is_nil(value),
-       do: true
-
-  defp primitive_key_data?(value) when is_atom(value), do: not module_atom?(value)
-
-  defp primitive_key_data?(value) when is_list(value) do
-    if Keyword.keyword?(value) do
-      Enum.all?(value, fn {key, item} -> is_atom(key) and primitive_key_data?(item) end)
-    else
-      Enum.all?(value, &primitive_key_data?/1)
-    end
-  end
-
-  defp primitive_key_data?(value) when is_tuple(value) do
-    value
-    |> Tuple.to_list()
-    |> Enum.all?(&primitive_key_data?/1)
-  end
-
-  defp primitive_key_data?(%_{}), do: false
-
-  defp primitive_key_data?(value) when is_map(value) do
-    Enum.all?(value, fn {key, item} -> primitive_key_data?(key) and primitive_key_data?(item) end)
-  end
-
-  defp primitive_key_data?(_value), do: false
-
-  defp module_atom?(value) do
-    value
-    |> Atom.to_string()
-    |> String.starts_with?("Elixir.")
   end
 
   defp pipelines_data(pipelines) do

@@ -12,8 +12,11 @@ defmodule ImagePlug.Cache.KeyTest do
   alias ImagePlug.Plan.Pipeline
   alias ImagePlug.Plan.Source
 
-  defp source_identity do
-    [kind: :path, adapter: :path, root: "default", path: ["images", "cat.jpg"]]
+  defp source_identity(overrides \\ []) do
+    Keyword.merge(
+      [kind: :path, adapter: :path, root: "default", path: ["images", "cat.jpg"]],
+      overrides
+    )
   end
 
   defp plan(overrides \\ []) do
@@ -217,10 +220,22 @@ defmodule ImagePlug.Cache.KeyTest do
     assert Key.build(conn, plan(), identity) == {:error, {:invalid_source_identity, identity}}
   end
 
+  test "source identity rejects unsupported cache material containers" do
+    conn = conn(:get, "/_/plain/images/cat.jpg")
+
+    for identity <- [
+          "https://origin.test/images/cat.jpg",
+          [kind: :path, lookup: %{root: "default"}],
+          [kind: :path, lookup: {:root, "default"}]
+        ] do
+      assert Key.build(conn, plan(), identity) == {:error, {:invalid_source_identity, identity}}
+    end
+  end
+
   test "pipelines key data preserves pipeline boundaries" do
     key =
       conn(:get, "/_/f:webp/plain/images/cat.jpg")
-      |> build_key!(plan(), "https://origin.test/images/cat.jpg")
+      |> build_key!(plan(), source_identity())
 
     assert key.data[:pipelines] == [
              [
@@ -256,7 +271,7 @@ defmodule ImagePlug.Cache.KeyTest do
   test "pipelines key data uses canonical operations instead of raw transform tuples or structs" do
     key =
       conn(:get, "/_/f:webp/plain/images/cat.jpg")
-      |> build_key!(plan(), "https://origin.test/images/cat.jpg")
+      |> build_key!(plan(), source_identity())
 
     refute inspect(key.data[:pipelines]) =~ "ImagePlug.Transform"
 
@@ -276,7 +291,7 @@ defmodule ImagePlug.Cache.KeyTest do
       conn(:get, "/_/rt:auto/w:300/h:200/f:webp/plain/images/cat.jpg")
       |> build_key!(
         plan(pipelines: [%Pipeline{operations: [operation]}]),
-        "https://origin.test/images/cat.jpg"
+        source_identity()
       )
 
     assert key.data[:pipelines] == [
@@ -315,7 +330,7 @@ defmodule ImagePlug.Cache.KeyTest do
       conn(:get, "/_/plain/images/cat.jpg")
       |> build_key!(
         plan(pipelines: [%Pipeline{operations: [guided, region]}]),
-        "https://origin.test/images/cat.jpg"
+        source_identity()
       )
 
     assert key.data[:pipelines] == [
@@ -346,7 +361,7 @@ defmodule ImagePlug.Cache.KeyTest do
       conn(:get, "/_/plain/images/cat.jpg")
       |> build_key!(
         plan(pipelines: [%Pipeline{operations: [operation]}]),
-        "https://origin.test/images/cat.jpg"
+        source_identity()
       )
 
     assert [[resize_data]] = key.data[:pipelines]
@@ -363,8 +378,8 @@ defmodule ImagePlug.Cache.KeyTest do
     semantic_plan = plan(pipelines: [%Pipeline{operations: [operation]}])
     conn = conn(:get, "/_/rt:auto/w:300/h:200/f:jpeg/plain/images/cat.jpg")
 
-    key_a = build_key!(conn, semantic_plan, "origin-version-a")
-    key_b = build_key!(conn, semantic_plan, "origin-version-b")
+    key_a = build_key!(conn, semantic_plan, source_identity(revision: "a"))
+    key_b = build_key!(conn, semantic_plan, source_identity(revision: "b"))
 
     assert [[key_data]] = key_a.data[:pipelines]
 
@@ -408,14 +423,14 @@ defmodule ImagePlug.Cache.KeyTest do
       build_key!(
         conn,
         plan(pipelines: [%Pipeline{operations: [no_offset]}]),
-        "https://origin.test/images/cat.jpg"
+        source_identity()
       )
 
     with_offset_key =
       build_key!(
         conn,
         plan(pipelines: [%Pipeline{operations: [with_offset]}]),
-        "https://origin.test/images/cat.jpg"
+        source_identity()
       )
 
     assert [[resize_data]] = with_offset_key.data[:pipelines]
@@ -426,9 +441,9 @@ defmodule ImagePlug.Cache.KeyTest do
 
   test "post-fetch resize auto branch is not accepted as final output cache key input" do
     conn = conn(:get, "/_/rt:auto/w:300/h:200/plain/images/cat.jpg")
-    key_before = build_key!(conn, plan_with_resize_auto(), "origin-version-1")
+    key_before = build_key!(conn, plan_with_resize_auto(), source_identity(revision: "v1"))
 
-    key_after_resolve = build_key!(conn, plan_with_resize_auto(), "origin-version-1")
+    key_after_resolve = build_key!(conn, plan_with_resize_auto(), source_identity(revision: "v1"))
     serialized = Key.serialize_key_data(key_before.data)
 
     assert key_before == key_after_resolve
@@ -447,7 +462,7 @@ defmodule ImagePlug.Cache.KeyTest do
              Key.build(
                conn(:get, "/_/rt:auto/w:300/h:200/plain/images/cat.jpg"),
                plan_with_resize_auto(),
-               "origin-version-1"
+               source_identity(revision: "v1")
              )
 
     assert key.data[:pipelines]
@@ -457,9 +472,9 @@ defmodule ImagePlug.Cache.KeyTest do
     conn = conn(:get, "/_/rt:auto/w:300/h:200/plain/images/cat.jpg")
     semantic_plan = plan_with_resize_auto()
 
-    key_a = build_key!(conn, semantic_plan, "asset:cat:v1")
-    key_a_same = build_key!(conn, semantic_plan, "asset:cat:v1")
-    key_b = build_key!(conn, semantic_plan, "asset:cat:v2")
+    key_a = build_key!(conn, semantic_plan, source_identity(revision: "cat-v1"))
+    key_a_same = build_key!(conn, semantic_plan, source_identity(revision: "cat-v1"))
+    key_b = build_key!(conn, semantic_plan, source_identity(revision: "cat-v2"))
 
     assert key_a.hash == key_a_same.hash
     assert key_a.data[:pipelines] == key_b.data[:pipelines]
@@ -480,7 +495,7 @@ defmodule ImagePlug.Cache.KeyTest do
             }
           ]
         ),
-        "https://origin.test/images/cat.jpg"
+        source_identity()
       )
 
     assert key.data[:transform] == [key_data_version: 1]
@@ -517,8 +532,8 @@ defmodule ImagePlug.Cache.KeyTest do
     assert {:ok, plan_a} = Imgproxy.parse(conn_a, [])
     assert {:ok, plan_b} = Imgproxy.parse(conn_b, [])
 
-    key_a = build_key!(conn_a, plan_a, "https://origin.test/images/cat.jpg")
-    key_b = build_key!(conn_b, plan_b, "https://origin.test/images/cat.jpg")
+    key_a = build_key!(conn_a, plan_a, source_identity())
+    key_b = build_key!(conn_b, plan_b, source_identity())
 
     assert key_a.data[:pipelines] == key_b.data[:pipelines]
     assert key_a.hash == key_b.hash
@@ -531,8 +546,8 @@ defmodule ImagePlug.Cache.KeyTest do
     assert {:ok, plan_a} = Imgproxy.parse(conn_a, [])
     assert {:ok, plan_b} = Imgproxy.parse(conn_b, [])
 
-    key_a = build_key!(conn_a, plan_a, "https://origin.test/images/cat.jpg")
-    key_b = build_key!(conn_b, plan_b, "https://origin.test/images/cat.jpg")
+    key_a = build_key!(conn_a, plan_a, source_identity())
+    key_b = build_key!(conn_b, plan_b, source_identity())
 
     assert key_a.data[:pipelines] == key_b.data[:pipelines]
     assert key_a.hash == key_b.hash
@@ -540,7 +555,7 @@ defmodule ImagePlug.Cache.KeyTest do
 
   test "transform key data version participates in the cache key" do
     conn = conn(:get, "/_/plain/images/cat.jpg")
-    key = build_key!(conn, plan(), "https://origin.test/images/cat.jpg")
+    key = build_key!(conn, plan(), source_identity())
     changed_data = Keyword.put(key.data, :transform, key_data_version: 2)
     changed_serialized_data = Key.serialize_key_data(changed_data)
 
@@ -569,8 +584,8 @@ defmodule ImagePlug.Cache.KeyTest do
     busted_plan = plan(cachebuster: "v2")
 
     conn = conn(:get, "/_/plain/images/cat.jpg")
-    base = build_key!(conn, base_plan, "https://origin.test/images/cat.jpg")
-    busted = build_key!(conn, busted_plan, "https://origin.test/images/cat.jpg")
+    base = build_key!(conn, base_plan, source_identity())
+    busted = build_key!(conn, busted_plan, source_identity())
 
     assert base.data[:pipelines] == busted.data[:pipelines]
     assert busted.data[:cache] == [cachebuster: "v2"]
@@ -583,8 +598,8 @@ defmodule ImagePlug.Cache.KeyTest do
 
     conn = conn(:get, "/_/plain/images/cat.jpg")
 
-    assert build_key!(conn, one, "https://origin.test/images/cat.jpg").hash ==
-             build_key!(conn, two, "https://origin.test/images/cat.jpg").hash
+    assert build_key!(conn, one, source_identity()).hash ==
+             build_key!(conn, two, source_identity()).hash
   end
 
   test "requests differing only by filename share cache key data" do
@@ -606,8 +621,8 @@ defmodule ImagePlug.Cache.KeyTest do
 
     conn = conn(:get, "/_/plain/images/cat.jpg")
 
-    assert build_key!(conn, one, "https://origin.test/images/cat.jpg").hash ==
-             build_key!(conn, two, "https://origin.test/images/cat.jpg").hash
+    assert build_key!(conn, one, source_identity()).hash ==
+             build_key!(conn, two, source_identity()).hash
   end
 
   test "output key data includes normalized quality rules" do
@@ -620,7 +635,7 @@ defmodule ImagePlug.Cache.KeyTest do
     key =
       conn(:get, "/_/plain/images/cat.jpg")
       |> put_req_header("accept", "image/webp")
-      |> build_key!(plan(output: output), "https://origin.test/images/cat.jpg")
+      |> build_key!(plan(output: output), source_identity())
 
     assert key.data[:output][:quality] == :default
     assert key.data[:output][:format_qualities] == %{webp: {:quality, 70}}
@@ -639,8 +654,8 @@ defmodule ImagePlug.Cache.KeyTest do
       |> conn("/_/plain/images/cat.jpg")
       |> put_req_header("accept", "image/avif,image/webp")
 
-    key_one = build_key!(conn_one, automatic_plan, "https://origin.test/images/cat.jpg")
-    key_two = build_key!(conn_two, automatic_plan, "https://origin.test/images/cat.jpg")
+    key_one = build_key!(conn_one, automatic_plan, source_identity())
+    key_two = build_key!(conn_two, automatic_plan, source_identity())
 
     assert key_one.data[:output] == [
              mode: :automatic,
@@ -662,13 +677,13 @@ defmodule ImagePlug.Cache.KeyTest do
       :get
       |> conn("/_/plain/images/cat.jpg")
       |> put_req_header("accept", "image/avif")
-      |> build_key!(automatic_plan, "https://origin.test/images/cat.jpg")
+      |> build_key!(automatic_plan, source_identity())
 
     webp_key =
       :get
       |> conn("/_/plain/images/cat.jpg")
       |> put_req_header("accept", "image/webp")
-      |> build_key!(automatic_plan, "https://origin.test/images/cat.jpg")
+      |> build_key!(automatic_plan, source_identity())
 
     refute avif_key.hash == webp_key.hash
   end
@@ -681,10 +696,10 @@ defmodule ImagePlug.Cache.KeyTest do
       |> conn("/_/plain/images/cat.jpg")
       |> put_req_header("accept", "image/avif,image/webp")
 
-    default_key = build_key!(conn, automatic_plan, "https://origin.test/images/cat.jpg")
+    default_key = build_key!(conn, automatic_plan, source_identity())
 
     webp_only_key =
-      build_key!(conn, automatic_plan, "https://origin.test/images/cat.jpg", auto_avif: false)
+      build_key!(conn, automatic_plan, source_identity(), auto_avif: false)
 
     refute default_key.hash == webp_only_key.hash
 
@@ -703,7 +718,7 @@ defmodule ImagePlug.Cache.KeyTest do
       |> conn("/_/f:webp/plain/images/cat.jpg")
       |> put_req_header("accept", "image/jpeg")
 
-    key = build_key!(conn, plan(), "https://origin.test/images/cat.jpg")
+    key = build_key!(conn, plan(), source_identity())
 
     assert key.data[:output] == [
              mode: :explicit,
@@ -724,7 +739,7 @@ defmodule ImagePlug.Cache.KeyTest do
       |> put_req_header("cookie", "tenant=acme; ignored_cookie=ignored")
 
     key =
-      build_key!(conn, plan(), "https://origin.test/images/cat.jpg",
+      build_key!(conn, plan(), source_identity(),
         key_headers: ["Accept-Language"],
         key_cookies: ["tenant"]
       )
@@ -778,14 +793,14 @@ defmodule ImagePlug.Cache.KeyTest do
       build_key!(
         conn(:get, "/NSbxuO5fQqTgDkui_3o6ho1UCFFcmzsugB2Uksho49o/w:300/plain/images/cat.jpg"),
         signed_plan,
-        "https://origin.test/images/cat.jpg"
+        source_identity()
       )
 
     trusted_key =
       build_key!(
         conn(:get, "/local-dev!/w:300/plain/images/cat.jpg"),
         trusted_plan,
-        "https://origin.test/images/cat.jpg"
+        source_identity()
       )
 
     assert signed_plan == trusted_plan
@@ -805,8 +820,8 @@ defmodule ImagePlug.Cache.KeyTest do
     assert {:ok, preset_plan} = Imgproxy.parse(conn, opts)
     assert {:ok, expanded_plan} = Imgproxy.parse(expanded_conn, [])
 
-    assert {:ok, preset_key} = Key.build(conn, preset_plan, "origin-id", [])
-    assert {:ok, expanded_key} = Key.build(expanded_conn, expanded_plan, "origin-id", [])
+    assert {:ok, preset_key} = Key.build(conn, preset_plan, source_identity(), [])
+    assert {:ok, expanded_key} = Key.build(expanded_conn, expanded_plan, source_identity(), [])
 
     assert preset_key.data == expanded_key.data
     assert preset_key.hash == expanded_key.hash
