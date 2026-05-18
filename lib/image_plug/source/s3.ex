@@ -5,10 +5,10 @@ defmodule ImagePlug.Source.S3 do
 
   alias ImagePlug.Plan.Source.Object
   alias ImagePlug.Source
+  alias ImagePlug.Source.ReqStream
   alias ImagePlug.Source.Resolved
   alias ImagePlug.Source.Response
   alias ImagePlug.Source.S3.Credentials
-  alias ImagePlug.Source.StreamError
 
   @internal_option_keys [
     :url,
@@ -18,6 +18,7 @@ defmodule ImagePlug.Source.S3 do
     :params,
     :into,
     :retry,
+    :redirect,
     :max_redirects,
     :auth,
     :aws_sigv4
@@ -93,7 +94,7 @@ defmodule ImagePlug.Source.S3 do
           aws_sigv4: aws_sigv4_options(fetch[:region], credentials)
         )
 
-      {:ok, %Response{stream: request_stream(req_options)}}
+      {:ok, %Response{stream: ReqStream.stream(req_options, runtime_opts)}}
     end
   end
 
@@ -253,27 +254,4 @@ defmodule ImagePlug.Source.S3 do
 
   defp revision_query(revision),
     do: ["?versionId=", URI.encode(revision, &URI.char_unreserved?/1)]
-
-  defp request_stream(req_options) do
-    Stream.resource(
-      fn -> :start end,
-      fn
-        :done ->
-          {:halt, :done}
-
-        :start ->
-          case Req.get(req_options) do
-            {:ok, %{status: status, body: body}} when status in 200..299 ->
-              {[body], :done}
-
-            {:ok, _response} ->
-              raise StreamError, reason: :bad_status
-
-            {:error, _reason} ->
-              raise StreamError, reason: :bad_status
-          end
-      end,
-      fn _state -> :ok end
-    )
-  end
 end

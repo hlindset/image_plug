@@ -6,7 +6,9 @@ defmodule ImagePlug.RequestOptionsTest do
 
   @base_opts [
     parser: ImagePlug.Parser.Imgproxy,
-    root_url: "http://origin.test"
+    sources: [
+      path: {CustomAdapter, adapter: :path}
+    ]
   ]
 
   test "validate! accepts clock as a zero-arity function" do
@@ -43,6 +45,24 @@ defmodule ImagePlug.RequestOptionsTest do
       Options.validate!(
         parser: ImagePlug.Parser.Imgproxy,
         sources: [path: {CustomAdapter, :not_options}]
+      )
+    end
+  end
+
+  test "request options reject stale origin configuration after source integration" do
+    assert_raise ArgumentError, fn ->
+      Options.validate!(
+        parser: ImagePlug.Parser.Imgproxy,
+        sources: [path: {CustomAdapter, adapter: :path}],
+        root_url: "https://origin.example"
+      )
+    end
+
+    assert_raise ArgumentError, fn ->
+      Options.validate!(
+        parser: ImagePlug.Parser.Imgproxy,
+        sources: [path: {CustomAdapter, adapter: :path}],
+        origin_req_options: [plug: OriginImage]
       )
     end
   end

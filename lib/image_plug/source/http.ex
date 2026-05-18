@@ -5,11 +5,21 @@ defmodule ImagePlug.Source.HTTP do
 
   alias ImagePlug.Plan.Source.URL
   alias ImagePlug.Source
+  alias ImagePlug.Source.ReqStream
   alias ImagePlug.Source.Resolved
   alias ImagePlug.Source.Response
-  alias ImagePlug.Source.StreamError
 
-  @internal_option_keys [:url, :base_url, :method, :body, :params, :into, :retry, :max_redirects]
+  @internal_option_keys [
+    :url,
+    :base_url,
+    :method,
+    :body,
+    :params,
+    :into,
+    :retry,
+    :redirect,
+    :max_redirects
+  ]
   @host_header_names ["host"]
   @cacheable_byte_header_names ["range", "accept", "accept-encoding"]
   @default_ports %{http: 80, https: 443}
@@ -65,37 +75,20 @@ defmodule ImagePlug.Source.HTTP do
   end
 
   @impl Source
-  def fetch(%Resolved{fetch: fetch}, opts, _runtime_opts) do
+  def fetch(%Resolved{fetch: fetch}, opts, runtime_opts) do
     req_options =
       opts
       |> Keyword.fetch!(:req_options)
       |> sanitize_req_options(fetch[:cache])
       |> Keyword.merge(url: fetch[:url], method: :get, max_redirects: 0)
 
-    {:ok, %Response{stream: request_stream(req_options)}}
-  end
+    stream_options =
+      Keyword.merge(
+        Keyword.take(opts, [:receive_timeout, :pool_timeout, :connect_timeout]),
+        runtime_opts
+      )
 
-  defp request_stream(req_options) do
-    Stream.resource(
-      fn -> :start end,
-      fn
-        :done ->
-          {:halt, :done}
-
-        :start ->
-          case Req.get(req_options) do
-            {:ok, %{status: status, body: body}} when status in 200..299 ->
-              {[body], :done}
-
-            {:ok, _response} ->
-              raise StreamError, reason: :bad_status
-
-            {:error, _reason} ->
-              raise StreamError, reason: :bad_status
-          end
-      end,
-      fn _state -> :ok end
-    )
+    {:ok, %Response{stream: ReqStream.stream(req_options, stream_options)}}
   end
 
   defp sanitize_req_options(req_options, cache) do

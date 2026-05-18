@@ -13,7 +13,6 @@ defmodule ImagePlug.Origin do
     deps: [ImagePlug.Plan],
     exports: [
       Decoded,
-      Identity,
       Response
     ]
 

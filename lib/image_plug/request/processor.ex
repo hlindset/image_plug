@@ -2,8 +2,9 @@ defmodule ImagePlug.Request.Processor do
   @moduledoc false
 
   alias ImagePlug.Plan
-  alias ImagePlug.Origin.Decoded
-  alias ImagePlug.Origin
+  alias ImagePlug.Request.Options
+  alias ImagePlug.Request.Processor.Decoded
+  alias ImagePlug.Source
   alias ImagePlug.Telemetry
   alias ImagePlug.Transform
   alias ImagePlug.Transform.DecodePlanner
@@ -13,35 +14,40 @@ defmodule ImagePlug.Request.Processor do
 
   @type source_format() :: :avif | :webp | :jpeg | :png | nil
 
-  @spec process_origin(Plan.t(), String.t(), keyword()) ::
+  @spec process_source(Plan.t(), Source.Resolved.t(), keyword()) ::
           {:ok, State.t()} | {:error, term()}
-  def process_origin(%Plan{} = plan, origin_identity, opts) do
+  def process_source(%Plan{} = plan, %Source.Resolved{} = resolved_source, opts) do
     with {:ok, %Decoded{} = decoded} <-
-           fetch_decode_validate_origin_with_source_format(plan, origin_identity, opts) do
-      process_decoded_origin(decoded, plan, opts)
+           fetch_decode_validate_source_with_source_format(plan, resolved_source, opts) do
+      process_decoded_source(decoded, plan, opts)
     end
   end
 
-  @spec fetch_decode_validate_origin_with_source_format(Plan.t(), String.t(), keyword()) ::
+  @spec fetch_decode_validate_source_with_source_format(Plan.t(), Source.Resolved.t(), keyword()) ::
           {:ok, Decoded.t()} | {:error, term()}
-  def fetch_decode_validate_origin_with_source_format(%Plan{} = plan, origin_identity, opts) do
-    Telemetry.span(opts, [:origin, :fetch_decode], %{}, fn ->
+  def fetch_decode_validate_source_with_source_format(
+        %Plan{} = plan,
+        %Source.Resolved{} = resolved_source,
+        opts
+      ) do
+    Telemetry.span(opts, [:source, :fetch_decode], %{}, fn ->
       result =
-        with {:ok, origin_response} <- fetch_origin(plan, origin_identity, opts) do
-          decode_validate_origin_response(origin_response, plan, opts)
+        with {:ok, %Source.Response{} = source_response} <-
+               Source.fetch(resolved_source, opts, Options.source_runtime_opts(opts)) do
+          decode_validate_source_response(source_response, plan, opts)
         end
 
       {result, fetch_decode_stop_metadata(result)}
     end)
   end
 
-  @spec decode_validate_origin_response(Origin.Response.t(), Plan.t(), keyword()) ::
+  @spec decode_validate_source_response(Source.Response.t(), Plan.t(), keyword()) ::
           {:ok, Decoded.t()} | {:error, term()}
-  def decode_validate_origin_response(%Origin.Response{} = origin_response, %Plan{} = plan, opts) do
+  def decode_validate_source_response(%Source.Response{} = source_response, %Plan{} = plan, opts) do
     decode_options = DecodePlanner.open_options(first_pipeline_operations(plan))
 
     with {:ok, image} <-
-           decode_origin_response(origin_response, decode_options, opts)
+           decode_source_response(source_response, decode_options, opts)
            |> wrap_decode_error(),
          :ok <- validate_input_image(image, opts) |> wrap_input_limit_error() do
       source_format = source_format(image)
@@ -55,9 +61,9 @@ defmodule ImagePlug.Request.Processor do
     end
   end
 
-  @spec process_decoded_origin(Decoded.t(), Plan.t(), keyword()) ::
+  @spec process_decoded_source(Decoded.t(), Plan.t(), keyword()) ::
           {:ok, State.t()} | {:error, term()}
-  def process_decoded_origin(%Decoded{} = decoded, %Plan{} = plan, opts) do
+  def process_decoded_source(%Decoded{} = decoded, %Plan{} = plan, opts) do
     Telemetry.span(opts, [:transform, :execute], %{}, fn ->
       result =
         with {:ok, final_state} <-
@@ -118,10 +124,40 @@ defmodule ImagePlug.Request.Processor do
   defp maybe_materialize_between_pipelines(%State{} = state, _index, _last_index, _opts),
     do: {:ok, state}
 
-  defp decode_origin_response(%Origin.Response{} = origin_response, decode_options, opts) do
+  defp decode_source_response(%Source.Response{} = source_response, decode_options, opts) do
     image_open_module = Keyword.get(opts, :image_open_module, Image)
 
-    image_open_module.open(origin_response.stream, decode_options)
+    with_source_stream_exit_trap(fn ->
+      image_open_module.open(source_response.stream, decode_options)
+    end)
+  rescue
+    exception in [Source.StreamError] -> {:error, {:source, exception.reason}}
+  catch
+    :exit, {%Source.StreamError{reason: reason}, _stacktrace} -> {:error, {:source, reason}}
+    :exit, %Source.StreamError{reason: reason} -> {:error, {:source, reason}}
+  end
+
+  defp with_source_stream_exit_trap(fun) do
+    trap_exit? = Process.flag(:trap_exit, true)
+
+    try do
+      result = fun.()
+      receive_source_stream_exit(result)
+    after
+      Process.flag(:trap_exit, trap_exit?)
+    end
+  end
+
+  defp receive_source_stream_exit(result) do
+    receive do
+      {:EXIT, _pid, {%Source.StreamError{reason: reason}, _stacktrace}} ->
+        {:error, {:source, reason}}
+
+      {:EXIT, _pid, %Source.StreamError{reason: reason}} ->
+        {:error, {:source, reason}}
+    after
+      0 -> result
+    end
   end
 
   defp materialize_before_delivery(%State{} = state, decode_options, opts) do
@@ -154,23 +190,7 @@ defmodule ImagePlug.Request.Processor do
 
   defp handle_materialization_result({:ok, %State{} = state}), do: {:ok, state}
 
-  defp fetch_origin(%Plan{source: {:plain, _path}}, origin_identity, opts) do
-    Origin.fetch(origin_identity, origin_req_options(opts))
-  end
-
-  defp origin_req_options(opts) do
-    opts
-    |> Keyword.get(:origin_req_options, [])
-    |> put_origin_req_option(:max_body_bytes, Keyword.fetch(opts, :max_body_bytes))
-    |> put_origin_req_option(:receive_timeout, Keyword.fetch(opts, :origin_receive_timeout))
-    |> put_origin_req_option(:max_redirects, Keyword.fetch(opts, :origin_max_redirects))
-  end
-
-  defp put_origin_req_option(req_options, key, {:ok, value}),
-    do: Keyword.put(req_options, key, value)
-
-  defp put_origin_req_option(req_options, _key, :error), do: req_options
-
+  defp wrap_decode_error({:error, {:source, _reason}} = error), do: error
   defp wrap_decode_error({:error, error}), do: {:error, {:decode, error}}
   defp wrap_decode_error(result), do: result
 
@@ -203,8 +223,8 @@ defmodule ImagePlug.Request.Processor do
 
   defp fetch_decode_stop_metadata({:ok, %Decoded{}}), do: %{result: :ok}
 
-  defp fetch_decode_stop_metadata({:error, {:origin, error}}),
-    do: %{result: :origin_error, error: Telemetry.error(error)}
+  defp fetch_decode_stop_metadata({:error, {:source, error}}),
+    do: %{result: :source_error, error: Telemetry.error(error)}
 
   defp fetch_decode_stop_metadata({:error, error}),
     do: %{result: :processing_error, error: Telemetry.error(error)}

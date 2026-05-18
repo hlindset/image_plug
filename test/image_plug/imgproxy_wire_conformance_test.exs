@@ -8,11 +8,13 @@ defmodule ImagePlug.ImgproxyWireConformanceTest do
   alias ImgproxyWireConformanceTest.CountingOriginImage
   alias ImgproxyWireConformanceTest.OriginImage
   alias ImgproxyWireConformanceTest.OriginShouldNotFetch
+  alias ImagePlug.SourceTest.RootHTTPAdapter
 
   @default_opts [
-    root_url: "http://origin.test",
     parser: ImagePlug.Parser.Imgproxy,
-    origin_req_options: [plug: OriginImage]
+    sources: [
+      path: {RootHTTPAdapter, root_url: "http://origin.test", req_options: [plug: OriginImage]}
+    ]
   ]
 
   test "equivalent imgproxy option order shares filesystem cache through real Plug requests" do
@@ -116,9 +118,12 @@ defmodule ImagePlug.ImgproxyWireConformanceTest do
         call_imgproxy(
           path,
           Keyword.merge(opts,
-            root_url: "not-a-valid-origin-url",
             cache: {CacheProbe, []},
-            origin_req_options: [plug: OriginShouldNotFetch]
+            sources: [
+              path:
+                {RootHTTPAdapter,
+                 root_url: "http://origin.test", req_options: [plug: OriginShouldNotFetch]}
+            ]
           )
         )
 
@@ -168,7 +173,12 @@ defmodule ImagePlug.ImgproxyWireConformanceTest do
 
     opts =
       Keyword.merge(@default_opts,
-        origin_req_options: [plug: {CountingOriginImage, test_pid: self()}],
+        sources: [
+          path:
+            {RootHTTPAdapter,
+             root_url: "http://origin.test",
+             req_options: [plug: {CountingOriginImage, test_pid: self()}]}
+        ],
         cache:
           {ImagePlug.Cache.FileSystem,
            root: cache_root,
