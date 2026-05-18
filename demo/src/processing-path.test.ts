@@ -92,7 +92,7 @@ describe("processing path generation", () => {
 
   it("builds the default SimpleServer-compatible processing path", () => {
     expect(optionSegments(defaultDemoState)).toEqual([]);
-    expect(buildProcessingPath(defaultDemoState)).toBe("/_/plain/images/dog.jpg");
+    expect(buildProcessingPath(defaultDemoState)).toBe("/_/plain/local:///images/dog.jpg");
   });
 
   it("builds a signed request path from a generated signature", () => {
@@ -102,9 +102,9 @@ describe("processing path generation", () => {
       resizeEnabled: true,
     };
 
-    expect(signedPathForState(state)).toBe("/rs:fill:640:360:0/plain/images/dog.jpg");
+    expect(signedPathForState(state)).toBe("/rs:fill:640:360:0/plain/local:///images/dog.jpg");
     expect(processingPathFromSignedPath("local-signature", signedPathForState(state))).toBe(
-      "/local-signature/rs:fill:640:360:0/plain/images/dog.jpg",
+      "/local-signature/rs:fill:640:360:0/plain/local:///images/dog.jpg",
     );
   });
 
@@ -120,15 +120,15 @@ describe("processing path generation", () => {
 
   it("rejects invalid signature sizes before signing", async () => {
     await expect(
-      signProcessingPath("/plain/images/dog.jpg", "736563726574", "68656c6c6f", 0),
+      signProcessingPath("/plain/local:///images/dog.jpg", "736563726574", "68656c6c6f", 0),
     ).rejects.toThrow(RangeError);
 
     await expect(
-      signProcessingPath("/plain/images/dog.jpg", "736563726574", "68656c6c6f", 33),
+      signProcessingPath("/plain/local:///images/dog.jpg", "736563726574", "68656c6c6f", 33),
     ).rejects.toThrow("signatureSize must be an integer between 1 and 32");
 
     await expect(
-      signProcessingPath("/plain/images/dog.jpg", "736563726574", "68656c6c6f", 1.5),
+      signProcessingPath("/plain/local:///images/dog.jpg", "736563726574", "68656c6c6f", 1.5),
     ).rejects.toThrow("signatureSize must be an integer between 1 and 32");
   });
 
@@ -138,32 +138,38 @@ describe("processing path generation", () => {
 
   it("reads processed byte size from the latest matching resource timing entry", () => {
     const entries = [
-      { name: "http://localhost:4000/_/plain/images/dog.jpg", encodedBodySize: 120 },
-      { name: "http://localhost:4000/_/plain/images/cat.jpg", encodedBodySize: 90 },
-      { name: "http://localhost:4000/_/plain/images/dog.jpg", encodedBodySize: 456 },
+      { name: "http://localhost:4000/_/plain/local:///images/dog.jpg", encodedBodySize: 120 },
+      { name: "http://localhost:4000/_/plain/local:///images/cat.jpg", encodedBodySize: 90 },
+      { name: "http://localhost:4000/_/plain/local:///images/dog.jpg", encodedBodySize: 456 },
     ];
 
     expect(
-      imageRequestBytesFromPerformance("http://localhost:4000/_/plain/images/dog.jpg", entries),
+      imageRequestBytesFromPerformance(
+        "http://localhost:4000/_/plain/local:///images/dog.jpg",
+        entries,
+      ),
     ).toBe(456);
   });
 
   it("falls back to decoded resource timing size and ignores unavailable sizes", () => {
     const entries = [
       {
-        name: "http://localhost:4000/_/plain/images/dog.jpg",
+        name: "http://localhost:4000/_/plain/local:///images/dog.jpg",
         encodedBodySize: 0,
         decodedBodySize: 321,
       },
       {
-        name: "http://localhost:4000/_/plain/images/dog.jpg",
+        name: "http://localhost:4000/_/plain/local:///images/dog.jpg",
         encodedBodySize: 0,
         decodedBodySize: 0,
       },
     ];
 
     expect(
-      imageRequestBytesFromPerformance("http://localhost:4000/_/plain/images/dog.jpg", entries),
+      imageRequestBytesFromPerformance(
+        "http://localhost:4000/_/plain/local:///images/dog.jpg",
+        entries,
+      ),
     ).toBe(321);
   });
 
@@ -174,7 +180,7 @@ describe("processing path generation", () => {
     };
 
     expect(optionSegments(state)).toEqual(["ar:1"]);
-    expect(buildProcessingPath(state)).toBe("/_/ar:1/plain/images/dog.jpg");
+    expect(buildProcessingPath(state)).toBe("/_/ar:1/plain/local:///images/dog.jpg");
   });
 
   it("includes flip options for each supported flip axis", () => {
@@ -197,7 +203,7 @@ describe("processing path generation", () => {
     };
 
     expect(optionSegments(state)).toEqual(["rs:fill:640:360:0:1"]);
-    expect(buildProcessingPath(state)).toBe("/_/rs:fill:640:360:0:1/plain/images/dog.jpg");
+    expect(buildProcessingPath(state)).toBe("/_/rs:fill:640:360:0:1/plain/local:///images/dog.jpg");
   });
 
   it("builds the resize tool summary from the emitted resize segment", () => {
@@ -249,7 +255,7 @@ describe("processing path generation", () => {
     };
 
     expect(optionSegments(state)).toEqual([]);
-    expect(buildProcessingPath(state)).toBe("/_/plain/images/dog.jpg");
+    expect(buildProcessingPath(state)).toBe("/_/plain/local:///images/dog.jpg");
   });
 
   it("includes extend aspect ratio when aspect canvas is enabled", () => {
@@ -261,7 +267,7 @@ describe("processing path generation", () => {
     };
 
     expect(optionSegments(state)).toEqual(["exar:16:9"]);
-    expect(buildProcessingPath(state)).toBe("/_/exar:16:9/plain/images/dog.jpg");
+    expect(buildProcessingPath(state)).toBe("/_/exar:16:9/plain/local:///images/dog.jpg");
   });
 
   it("includes explicit four-sided padding after aspect canvas options", () => {
@@ -276,7 +282,9 @@ describe("processing path generation", () => {
     };
 
     expect(optionSegments(state)).toEqual(["exar:16:9", "pd:8:16:24:32"]);
-    expect(buildProcessingPath(state)).toBe("/_/exar:16:9/pd:8:16:24:32/plain/images/dog.jpg");
+    expect(buildProcessingPath(state)).toBe(
+      "/_/exar:16:9/pd:8:16:24:32/plain/local:///images/dog.jpg",
+    );
   });
 
   it("includes background color and opacity after padding", () => {
@@ -293,7 +301,9 @@ describe("processing path generation", () => {
     };
 
     expect(optionSegments(state)).toEqual(["pd:8:8:8:8", "bg:ffcc00", "bga:0.5"]);
-    expect(buildProcessingPath(state)).toBe("/_/pd:8:8:8:8/bg:ffcc00/bga:0.5/plain/images/dog.jpg");
+    expect(buildProcessingPath(state)).toBe(
+      "/_/pd:8:8:8:8/bg:ffcc00/bga:0.5/plain/local:///images/dog.jpg",
+    );
   });
 
   it("omits background alpha when opacity is full", () => {
@@ -305,7 +315,7 @@ describe("processing path generation", () => {
     };
 
     expect(optionSegments(state)).toEqual(["bg:ffcc00"]);
-    expect(buildProcessingPath(state)).toBe("/_/bg:ffcc00/plain/images/dog.jpg");
+    expect(buildProcessingPath(state)).toBe("/_/bg:ffcc00/plain/local:///images/dog.jpg");
   });
 
   it("preserves custom background opacity decimals", () => {
@@ -384,7 +394,7 @@ describe("processing path generation", () => {
     };
 
     expect(optionSegments(state)).toEqual(["g:fp:0.25:0.75"]);
-    expect(demoPathForState(state)).toBe("/demo/g:fp:0.25:0.75/plain/images/dog.jpg");
+    expect(demoPathForState(state)).toBe("/demo/g:fp:0.25:0.75/plain/local:///images/dog.jpg");
   });
 
   it("includes offset global gravity", () => {
@@ -534,7 +544,9 @@ describe("processing path generation", () => {
     };
 
     expect(optionSegments(state)).toEqual(["z:1.5", "dpr:2", "mw:320", "mh:180"]);
-    expect(buildProcessingPath(state)).toBe("/_/z:1.5/dpr:2/mw:320/mh:180/plain/images/dog.jpg");
+    expect(buildProcessingPath(state)).toBe(
+      "/_/z:1.5/dpr:2/mw:320/mh:180/plain/local:///images/dog.jpg",
+    );
   });
 
   it("omits explicit format when format is disabled", () => {
@@ -565,7 +577,9 @@ describe("processing path generation", () => {
     };
 
     expect(optionSegments(state)).toEqual(["rs:fill:640:360:0", "g:ce"]);
-    expect(buildProcessingPath(state)).toBe("/_/rs:fill:640:360:0/g:ce/plain/images/dog.jpg");
+    expect(buildProcessingPath(state)).toBe(
+      "/_/rs:fill:640:360:0/g:ce/plain/local:///images/dog.jpg",
+    );
   });
 
   it("includes zero quality when quality is enabled", () => {
@@ -576,7 +590,9 @@ describe("processing path generation", () => {
     };
 
     expect(optionSegments(state)).toEqual(["rs:fill:640:360:0", "g:ce", "q:0"]);
-    expect(buildProcessingPath(state)).toBe("/_/rs:fill:640:360:0/g:ce/q:0/plain/images/dog.jpg");
+    expect(buildProcessingPath(state)).toBe(
+      "/_/rs:fill:640:360:0/g:ce/q:0/plain/local:///images/dog.jpg",
+    );
   });
 
   it("omits top-level gravity when gravity is disabled", () => {
@@ -587,7 +603,9 @@ describe("processing path generation", () => {
     };
 
     expect(optionSegments(state)).toEqual(["rs:fill:640:360:0", "q:85"]);
-    expect(buildProcessingPath(state)).toBe("/_/rs:fill:640:360:0/q:85/plain/images/dog.jpg");
+    expect(buildProcessingPath(state)).toBe(
+      "/_/rs:fill:640:360:0/q:85/plain/local:///images/dog.jpg",
+    );
   });
 
   it("keeps global gravity when resize is disabled", () => {
@@ -597,7 +615,7 @@ describe("processing path generation", () => {
     };
 
     expect(optionSegments(state)).toEqual(["g:ce", "q:85"]);
-    expect(buildProcessingPath(state)).toBe("/_/g:ce/q:85/plain/images/dog.jpg");
+    expect(buildProcessingPath(state)).toBe("/_/g:ce/q:85/plain/local:///images/dog.jpg");
   });
 
   it("does not emit an empty option segment when all tools are disabled", () => {
@@ -611,7 +629,7 @@ describe("processing path generation", () => {
     };
 
     expect(optionSegments(state)).toEqual([]);
-    expect(buildProcessingPath(state)).toBe("/_/plain/images/dog.jpg");
+    expect(buildProcessingPath(state)).toBe("/_/plain/local:///images/dog.jpg");
   });
 
   it("shows automatic output as pending until response metadata is available", () => {
@@ -655,12 +673,14 @@ describe("demo URL state", () => {
     };
 
     expect(demoPathForState(state)).toBe(
-      "/demo/rs:fill:640:360:0/g:ce/f:jpeg/q:85/plain/images/dog.jpg",
+      "/demo/rs:fill:640:360:0/g:ce/f:jpeg/q:85/plain/local:///images/dog.jpg",
     );
   });
 
   it("parses a shareable demo route into enabled controls", () => {
-    const parsed = parseDemoPath("/demo/rs:fill:640:360:0/g:ce/f:jpeg/q:85/plain/images/dog.jpg");
+    const parsed = parseDemoPath(
+      "/demo/rs:fill:640:360:0/g:ce/f:jpeg/q:85/plain/local:///images/dog.jpg",
+    );
 
     expect(parsed).toMatchObject({
       source: "images/dog.jpg",
@@ -680,7 +700,7 @@ describe("demo URL state", () => {
 
   it("parses crop, orientation, scale, canvas, padding, and background options", () => {
     const parsed = parseDemoPath(
-      "/demo/ar:1/fl:0:1/rot:90/c:0.5:0.25:no/z:1.25/dpr:2/mw:320/mh:240/exar:16:9/pd:1:2:3:4/bg:ffcc00/bga:0.42/plain/images/beach.jpg",
+      "/demo/ar:1/fl:0:1/rot:90/c:0.5:0.25:no/z:1.25/dpr:2/mw:320/mh:240/exar:16:9/pd:1:2:3:4/bg:ffcc00/bga:0.42/plain/local:///images/beach.jpg",
     );
 
     expect(parsed).toMatchObject({
@@ -717,7 +737,7 @@ describe("demo URL state", () => {
   });
 
   it("expands accordions that contain active URL state", () => {
-    const state = parseDemoPath("/demo/ar:1/z:1.5/plain/images/dog.jpg");
+    const state = parseDemoPath("/demo/ar:1/z:1.5/plain/local:///images/dog.jpg");
 
     expect(expandedToolboxesForState(state)).toEqual({
       orientationOpen: true,
@@ -727,16 +747,19 @@ describe("demo URL state", () => {
   });
 
   it("falls back to defaults for invalid demo routes", () => {
-    expect(parseDemoPath("/demo/not-supported/plain/images/dog.jpg")).toEqual(defaultDemoState);
-    expect(parseDemoPath("/not-demo/rs:fill:640:360:0/plain/images/dog.jpg")).toEqual(
+    expect(parseDemoPath("/demo/not-supported/plain/local:///images/dog.jpg")).toEqual(
+      defaultDemoState,
+    );
+    expect(parseDemoPath("/demo/rs:fill:640:360:0/plain/images/dog.jpg")).toEqual(defaultDemoState);
+    expect(parseDemoPath("/not-demo/rs:fill:640:360:0/plain/local:///images/dog.jpg")).toEqual(
       defaultDemoState,
     );
   });
 
   it("rejects invalid quality values in demo routes", () => {
-    expect(parseDemoPath("/demo/q:-1/plain/images/dog.jpg")).toEqual(defaultDemoState);
-    expect(parseDemoPath("/demo/q:101/plain/images/dog.jpg")).toEqual(defaultDemoState);
-    expect(parseDemoPath("/demo/q:85.5/plain/images/dog.jpg")).toEqual(defaultDemoState);
+    expect(parseDemoPath("/demo/q:-1/plain/local:///images/dog.jpg")).toEqual(defaultDemoState);
+    expect(parseDemoPath("/demo/q:101/plain/local:///images/dog.jpg")).toEqual(defaultDemoState);
+    expect(parseDemoPath("/demo/q:85.5/plain/local:///images/dog.jpg")).toEqual(defaultDemoState);
   });
 
   it("resets processing options while keeping source and signature settings", () => {
@@ -764,6 +787,6 @@ describe("demo URL state", () => {
       cropHeight: cropPixelLimit("images/beach.jpg", "height").max,
     });
     expect(optionSegments(reset)).toEqual([]);
-    expect(demoPathForState(reset)).toBe("/demo/plain/images/beach.jpg");
+    expect(demoPathForState(reset)).toBe("/demo/plain/local:///images/beach.jpg");
   });
 });

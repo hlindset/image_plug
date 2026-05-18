@@ -26,6 +26,8 @@ type ParsedDimension<Unit> = {
 };
 
 const demoPathPrefix = "/demo";
+const plainSourceMarker = "/plain/";
+const localSourcePrefix = "local:///";
 const sourceImages = new Set<string>(sampleImages.map((image) => image.path));
 const resizeModes = new Set<string>(["fit", "fill", "fill-down", "force", "auto"]);
 const gravityValues = new Set<string>([
@@ -103,23 +105,32 @@ function parseDemoPathParts(
     return null;
   }
 
-  const segments = path.slice(demoPathPrefix.length).split("/").filter(Boolean);
-  const plainIndex = segments.indexOf("plain");
+  const plainIndex = path.indexOf(plainSourceMarker, demoPathPrefix.length);
 
   if (plainIndex === -1) {
     return null;
   }
 
-  const source = segments.slice(plainIndex + 1).join("/");
+  const optionSegments = path.slice(demoPathPrefix.length, plainIndex).split("/").filter(Boolean);
+  const source = sourceFromIdentifier(path.slice(plainIndex + plainSourceMarker.length));
 
-  if (!sourceImages.has(source)) {
+  if (source === null) {
     return null;
   }
 
   return {
-    optionSegments: segments.slice(0, plainIndex),
-    source: source as SourceImage,
+    optionSegments,
+    source,
   };
+}
+
+function sourceFromIdentifier(identifier: string): SourceImage | null {
+  if (!identifier.startsWith(localSourcePrefix)) {
+    return null;
+  }
+
+  const source = identifier.slice(localSourcePrefix.length);
+  return sourceImages.has(source) ? (source as SourceImage) : null;
 }
 
 function applyOptionSegment(currentState: DemoState, segment: string): DemoState | null {

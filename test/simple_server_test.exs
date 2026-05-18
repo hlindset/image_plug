@@ -14,6 +14,17 @@ defmodule ImagePlug.SimpleServerTest do
     assert conn.resp_body == "404 Not Found"
   end
 
+  test "processes native-style local source URLs through configured file source" do
+    conn =
+      :get
+      |> conn("/_/plain/local:///images/dog.jpg")
+      |> ImagePlug.SimpleServer.call([])
+
+    assert conn.status == 200
+    assert get_resp_header(conn, "content-type") == ["image/jpeg"]
+    assert byte_size(conn.resp_body) > 0
+  end
+
   test "serves the demo fiddle shell" do
     conn =
       :get
@@ -31,7 +42,7 @@ defmodule ImagePlug.SimpleServerTest do
   test "serves the demo fiddle shell for shareable demo paths" do
     conn =
       :get
-      |> conn("/demo/rs:fill:640:360:0/g:ce/f:jpeg/q:85/plain/images/dog.jpg")
+      |> conn("/demo/rs:fill:640:360:0/g:ce/f:jpeg/q:85/plain/local:///images/dog.jpg")
       |> ImagePlug.SimpleServer.call([])
 
     assert conn.status == 200
