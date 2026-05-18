@@ -1,4 +1,4 @@
-# Transform Operations
+# Transform operations
 
 ## Purpose
 
@@ -10,14 +10,14 @@ of runtime/cache boundaries.
 Parser authors should construct canonical semantic operations under
 `ImagePlug.Plan.Operation.*` through `ImagePlug.Plan.Operation`. The executable
 modules under `ImagePlug.Transform.Operation.*` are local execution targets used
-by Transform Plan execution and `ImagePlug.Transform.Chain`; parsers should not
+by Transform Plan execution and `ImagePlug.Transform.Chain`. Parsers shouldn't
 emit them except for the explicit first-slice orientation primitive allowlist.
 
-## Request Flow
+## Request flow
 
-Parser syntax is translated into parser-owned request structs, then into
-`ImagePlug.Plan`, then into executable transform work only after the final cache
-lookup boundary.
+Parser code translates external syntax into parser-owned request structs, then
+into `ImagePlug.Plan`, then into executable transform work only after the final
+cache lookup boundary.
 
 The request flow is:
 
@@ -26,39 +26,38 @@ The request flow is:
    isolated.
 3. Planner code translates compatible semantics into canonical
    `ImagePlug.Plan.Operation.*` structs.
-4. Cache keys are built from source-fetch-free Plan key data plus source
+4. ImagePlug builds cache keys from source-fetch-free Plan key data plus source
    freshness, output, config, and the cache key's transform key data version.
-5. On cache miss, `ImagePlug.Transform.execute_plan/4` executes semantic Plan
+5. On cache miss, `ImagePlug.Transform.execute_plan/3` executes semantic Plan
    operations in order, converting each one to executable
    `ImagePlug.Transform.Operation.*` work as an implementation detail.
 6. Runtime observes only the final transform state returned by
    `ImagePlug.Transform`.
 
-Runtime code should not reference concrete operation modules such as
+Runtime code shouldn't reference concrete operation modules such as
 `ImagePlug.Plan.Operation.Resize` or `ImagePlug.Transform.Operation.Resize`.
-For Plan execution, runtime calls `ImagePlug.Transform.execute_plan/4`;
-executable structs stay inside Transform execution.
+For Plan execution, runtime calls `ImagePlug.Transform.execute_plan/3`.
+Executable structs stay inside Transform execution.
 
-## Operation Ordering
+## Operation ordering
 
-Operation chains are ordered once represented in `ImagePlug.Plan`.
+ImagePlug orders operation chains once they reach `ImagePlug.Plan`.
 
-Imgproxy URLs are declarative; Imgproxy planner code emits semantic Plan
-operations in Imgproxy canonical order. URL option order does not define
-Imgproxy transform order. The Imgproxy canonical order is documented in
-`docs/imgproxy_path_api.md` and is an Imgproxy API contract, not a universal
-requirement for every future dialect.
+Imgproxy URLs are declarative. Imgproxy planner code emits semantic Plan
+operations in Imgproxy canonical order. URL option order doesn't define
+Imgproxy transform order. `docs/imgproxy_path_api.md` documents that order for
+Imgproxy paths, but future dialects may use different ordering rules.
 
 Other dialects may have order-sensitive semantics. When the ordered semantics
-map cleanly, emit an ordered `ImagePlug.Plan`; otherwise keep dialect-specific
-quirks isolated in the parser/adapter layer. Do not force ordered command
+map cleanly, emit an ordered `ImagePlug.Plan`. Otherwise keep dialect-specific
+quirks isolated in the parser/adapter layer. Don't force ordered command
 semantics into the Imgproxy API or into product-neutral Plan operations.
 
-## Request Fields That Are Not Transform Operations
+## Request fields that aren't transform operations
 
 These request fields affect source selection, response policy, cache identity,
-or output encoding. They should be translated into the appropriate
-`ImagePlug.Plan` facets instead of transform operations:
+or output encoding. Translate them into the appropriate `ImagePlug.Plan` facets
+instead of transform operations:
 
 - source path, source URL handling, and source identity
 - output format and automatic output negotiation
@@ -72,13 +71,13 @@ Keeping these fields out of transform chains matters for cache key data and
 runtime boundaries. Output negotiation, for example, may change the encoded
 format without changing the transform operation sequence.
 
-## Semantic Operation Catalog
+## Semantic operation catalog
 
 Parser/planner code should use these semantic operations:
 
 - `ImagePlug.Plan.Operation.Resize`: product-neutral resize intent with
   `mode: :fit`, `:cover`, `:stretch`, or `:auto`. `mode: :auto` is semantic
-  Plan intent; the selected fit/cover branch is post-fetch execution state, not
+  Plan intent. The selected fit/cover branch is post-fetch execution state, not
   cache key data.
 - `ImagePlug.Plan.Operation.CropGuided`: crop by size plus guide.
 - `ImagePlug.Plan.Operation.CropRegion`: explicit region crop.
@@ -90,10 +89,10 @@ Parser/planner code should use these semantic operations:
 
 Plan pipelines may also contain the explicit orientation primitive allowlist:
 `ImagePlug.Transform.Operation.AutoOrient`, `ImagePlug.Transform.Operation.Rotate`,
-and `ImagePlug.Transform.Operation.Flip`. Parsers should not use other
+and `ImagePlug.Transform.Operation.Flip`. Parsers shouldn't use other
 executable Transform operation modules as Plan output.
 
-## Executable Operation Catalog
+## Executable operation catalog
 
 `ImagePlug.Transform.Operation.*` modules are executable operation targets. They
 describe work over `ImagePlug.Transform.State`, not parser request syntax:
@@ -112,33 +111,34 @@ describe work over `ImagePlug.Transform.State`, not parser request syntax:
 `mode: :auto` belongs in `ImagePlug.Plan.Operation.Resize`; parsers must not
 emit an executable adaptive-resize operation.
 
-## Choosing Resize-Like Semantic Operations
+## Choosing resize-like semantic operations
 
 Use `ImagePlug.Plan.Operation.Resize` with `mode: :fit` for aspect-preserving
 fit semantics, `mode: :cover` for cover/fill semantics that require result
 cropping, and `mode: :stretch` for force/stretch semantics.
 
-Use `mode: :auto` only for the imgproxy-compatible source-dependent rule:
+Use `mode: :auto` only for the Imgproxy-compatible source-dependent rule:
 orientation match derives cover, orientation mismatch derives fit, and unknown
-target orientation derives fit. The unresolved semantic resize operation is the
-cache-addressing key data; the selected branch is resolved after a cache miss.
+target orientation derives fit. The unresolved semantic resize operation
+addresses the cache key. The selected branch resolves after a cache miss.
 
-Do not use `mode: :auto` as a generic conditional resize operation. If a future
+Don't use `mode: :auto` as a generic conditional resize operation. If a future
 adapter has different source-dependent branch rules, add a new semantic
 operation or adapter policy instead of extending `mode: :auto` implicitly.
 
-## Crop And Gravity
+## Crop and gravity
 
 Use `CropGuided` for visible crop operations expressed as size plus guide. Use
 `CropRegion` for explicit source/current-space region crops. Parser-specific
-gravity spellings, focal-point tokens, and default inheritance rules should be
-translated into explicit Plan guide values before cache key data is built.
+gravity spellings, focal-point tokens, and default inheritance rules should
+translate into explicit Plan guide values before ImagePlug builds cache key
+data.
 
 Current Imgproxy focal-point gravity maps to semantic guide values. The first
-slice does not model a separate focus operation; future dialects can add one if
+slice doesn't model a separate focus operation. Future dialects can add one if
 they expose focus state independently from visible crop/canvas/cover work.
 
-## Orientation Operations
+## Orientation operations
 
 Use the explicit `AutoOrient`, `Rotate`, and `Flip` orientation primitive
 allowlist for orientation intent.
@@ -147,30 +147,31 @@ Imgproxy orientation suborder is auto-orient, rotate, then flip. Other dialects
 should preserve their own semantics in the adapter layer and emit the ordered
 Plan operation chain that matches those semantics.
 
-## Canvas Operations
+## Canvas operations
 
 Use semantic `Canvas` when a dialect requests target canvas expansion,
-letterboxing, or aspect-ratio extension around the transformed image. Do not use
+letterboxing, or aspect-ratio extension around the transformed image. Don't use
 it as a substitute for resize, contain, or cover semantics unless the dialect
-really requests a larger canvas around image content.
+requests a larger canvas around image content.
 
-`Canvas.fill` describes pixels generated by that canvas operation only. It is
-`:transparent` by default and can also be `{:solid, ImagePlug.Plan.Color.t()}`.
-Do not use canvas fill to model a whole-image background flattening request.
+The `Canvas.fill` value applies only to output from that canvas operation. The
+default is `:transparent`, and callers can also set
+`{:solid, ImagePlug.Plan.Color.t()}`. Don't use canvas fill to model a
+whole-image background flattening request.
 
 Use semantic `Padding` when a dialect requests edge insets around the current
-image. Padding expands relative to current dimensions; it is not a target canvas
-size. Padding has logical top/right/bottom/left sides, a requested pixel ratio,
-and a fill value. The pixel ratio can be explicit, or it can request the
-effective scale produced by a preceding resize for compatibility dialects whose
-padding follows resize DPR semantics. Execution scales sides with
+image. Padding expands relative to current dimensions rather than targeting a
+canvas size. Padding has logical top/right/bottom/left sides, a requested pixel
+ratio, and a fill value. The pixel ratio can be explicit, or it can use the
+resize multiplier produced by a preceding resize for compatibility dialects
+whose padding follows resize DPR semantics. Execution scales sides with
 round-half-to-even semantics.
 
 Use semantic `Background` when a dialect requests a color behind the current
-image. Opaque backgrounds remove alpha as a consequence of composition; alpha
+image. Opaque backgrounds remove alpha as a consequence of composition. Alpha
 backgrounds preserve alpha until output encoding resolves a non-alpha format.
-Background composition applies to source alpha as well as transparent pixels
-generated by earlier canvas or padding operations, and it does not change
+Background composition applies to source alpha and to transparent areas
+generated by earlier canvas or padding operations, and it doesn't change
 dimensions.
 
 `ImagePlug.Plan.Color` is the canonical Plan color model. It represents sRGB
@@ -178,34 +179,32 @@ RGB channels with alpha and serializes into structured cache key data.
 Third-party color package structs stay behind `ImagePlug.Plan.Color` and must
 not leak into parser request structs, runtime state, or cache key data.
 
-## Decode Planning
+## Decode planning
 
-Before source metadata is available, semantic Plan operations must be treated
-conservatively for decode/open planning. After a cache miss, source metadata may
-be discovered and Transform Plan execution may convert semantic intent to
-executable work. The exact executable `metadata/1` contract belongs in the
+Before source metadata is available, decode/open planning must treat semantic
+Plan operations conservatively. After a cache miss, Transform Plan execution may
+discover source metadata and convert semantic intent to executable work. The
+exact executable `metadata/1` contract belongs in the
 `ImagePlug.Transform.Operation.*` module docs.
 
-## Cache Key Data
+## Cache key data
 
-Final output cache key data is canonical semantic intent, not resolved backend
-execution. It should be stable for equivalent plans and independent of
+Final output cache key data captures canonical semantic intent, not resolved
+execution details. It should be stable for matching plans and independent of
 parser-specific spelling, aliases, and compatibility quirks.
 
-Parser-specific quirks must not leak into transform key data. If a dialect has
-behavior that cannot be represented cleanly by product-neutral semantic Plan
-operations, keep that behavior isolated in parser/adapter code rather than
-encoding dialect syntax into operation cache key data.
+Parser-specific quirks must not leak into transform key data. Keep behavior that
+product-neutral semantic Plan operations can't represent cleanly in
+parser/adapter code. Don't encode dialect syntax into operation cache key data.
 
 Source-aware execution choices such as resize `mode: :auto` selecting
-fit/cover, ratio crop resolution, and DPR conversion are reflected in
-executable work after a cache miss, but they do not participate in the normal
-final output cache key.
+fit/cover, ratio crop resolution, and DPR conversion affect executable work
+after a cache miss, but they don't enter the normal final output cache key.
 
-## Mapping Examples
+## Mapping examples
 
 These examples show current Imgproxy URL concepts translated into semantic Plan
-operations. They describe Imgproxy planner behavior only; future dialect docs
+operations. They describe Imgproxy planner behavior only. Future dialect docs
 should describe their own URL syntax separately.
 
 | Imgproxy URL concept | Semantic Plan operations |
@@ -221,10 +220,10 @@ should describe their own URL syntax separately.
 | `extend:true/w:300/h:200` | `Resize` with `mode: :fit`, `Canvas` |
 | `pd:10/bg:f00` | `Padding`, `Background` |
 
-## Boundary Rules
+## Boundary rules
 
 Runtime dispatches through `ImagePlug.Transform` and must not depend on concrete
-Plan or Transform operation modules. Runtime should not depend on parser-specific
+Plan or Transform operation modules. Runtime shouldn't depend on parser-specific
 Imgproxy structs, and parser-specific request structs must not leak into runtime
 execution.
 

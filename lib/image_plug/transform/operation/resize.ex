@@ -19,15 +19,16 @@ defmodule ImagePlug.Transform.Operation.Resize do
 
   alias ImagePlug.Transform.State
 
-  @type dimension() :: :auto | ImagePlug.imgp_pixels()
+  @type pixels() :: {:pixels, non_neg_integer() | float()}
+  @type dimension() :: :auto | pixels()
   @type mode() :: :fit | :fill | :fill_down | :force
 
   @type t :: %__MODULE__{
           mode: mode(),
           width: dimension(),
           height: dimension(),
-          min_width: ImagePlug.imgp_pixels() | nil,
-          min_height: ImagePlug.imgp_pixels() | nil,
+          min_width: pixels() | nil,
+          min_height: pixels() | nil,
           zoom_x: float(),
           zoom_y: float(),
           dpr: float(),

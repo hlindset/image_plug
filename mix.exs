@@ -2,11 +2,14 @@ defmodule ImagePlug.MixProject do
   use Mix.Project
 
   @version "0.1.0"
+  @source_url "https://github.com/hlindset/image_plug"
 
   def project do
     [
       app: :image_plug,
       version: @version,
+      description: description(),
+      package: package(),
       elixir: "~> 1.17",
       elixirc_paths: elixirc_paths(Mix.env()),
       compilers: extra_compilers(Mix.env()) ++ Mix.compilers(),
@@ -14,13 +17,34 @@ defmodule ImagePlug.MixProject do
       aliases: aliases(),
       deps: deps(),
       docs: [
-        main: "ImagePlug",
+        main: "readme",
+        source_ref: "v#{@version}",
+        source_url: @source_url,
+        assets: %{"docs/assets" => "docs/assets"},
         extras: [
           "README.md",
+          "CHANGELOG.md",
+          "LICENSE.md",
+          "docs/cache.md",
+          "docs/operational_notes.md",
           "docs/telemetry.md",
           "docs/imgproxy_path_api.md",
           "docs/imgproxy_support_matrix.md",
           "docs/transform_operations.md"
+        ],
+        groups_for_modules: [
+          "Plug API": [ImagePlug],
+          "Parser API": [ImagePlug.Parser, ~r/ImagePlug\.Parser\..*/],
+          "Plan Model": [ImagePlug.Plan, ~r/ImagePlug\.Plan\..*/],
+          "Transform API": [ImagePlug.Transform, ~r/ImagePlug\.Transform\..*/],
+          "Cache API": [ImagePlug.Cache, ~r/ImagePlug\.Cache\..*/],
+          "Runtime Internals": [
+            ~r/ImagePlug\.Origin.*/,
+            ~r/ImagePlug\.Output.*/,
+            ~r/ImagePlug\.Request.*/,
+            ~r/ImagePlug\.Response.*/,
+            ImagePlug.Telemetry
+          ]
         ]
       ],
       test_coverage: [tool: ExCoveralls]
@@ -45,6 +69,36 @@ defmodule ImagePlug.MixProject do
 
   defp extra_compilers(:prod), do: []
   defp extra_compilers(_env), do: [:boundary]
+
+  defp description do
+    "A Plug-based image optimization server with an imgproxy-compatible path parser."
+  end
+
+  defp package do
+    [
+      files: [
+        "lib",
+        "priv",
+        "docs/cache.md",
+        "docs/assets/demo-fiddle-desktop.png",
+        "docs/imgproxy_path_api.md",
+        "docs/imgproxy_support_matrix.md",
+        "docs/operational_notes.md",
+        "docs/telemetry.md",
+        "docs/transform_operations.md",
+        "mix.exs",
+        "README.md",
+        "LICENSE.md",
+        "CHANGELOG.md"
+      ],
+      licenses: ["Apache-2.0"],
+      links: %{
+        "GitHub" => @source_url,
+        "Changelog" => "#{@source_url}/blob/main/CHANGELOG.md"
+      },
+      maintainers: ["Håvard Lindset"]
+    ]
+  end
 
   defp deps do
     [

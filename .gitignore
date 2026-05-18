@@ -58,3 +58,13 @@ scripts/scrubbed_prod_config.py
 __pycache__
 
 docs/superpowers/
+
+vale/
+!vale/
+vale/*
+!vale/.gitkeep
+!vale/config/
+!vale/config/vocabularies/
+!vale/config/vocabularies/ImagePlug/
+!vale/config/vocabularies/ImagePlug/accept.txt
+!vale/config/vocabularies/ImagePlug/reject.txt

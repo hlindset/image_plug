@@ -1,13 +1,13 @@
 # Telemetry
 
 ImagePlug emits telemetry spans for the request lifecycle and its major runtime
-stages. The events are intended for host applications to attach their own
-logging, metrics, or tracing integration. ImagePlug does not depend on
-AppSignal, OpenTelemetry, or any other tracing backend.
+stages. Host applications can attach their own logging, metrics, or tracing
+integration to those events. ImagePlug doesn't depend on
+AppSignal, OpenTelemetry, or any other tracing system.
 
 ## Configuration
 
-The telemetry prefix is configured as a Plug option:
+Set the telemetry prefix as a Plug option:
 
 ```elixir
 forward "/",
@@ -22,7 +22,7 @@ forward "/",
 The default prefix is `[:image_plug]`. Prefixes must be non-empty lists of
 atoms.
 
-## Event Names
+## Event names
 
 Events use `:telemetry.span/3` naming conventions. Every span emits a `:start`
 event and then either a `:stop` event for normal completion or an `:exception`
@@ -70,9 +70,8 @@ ImagePlug uses the measurements provided by `:telemetry.span/3`:
 - `:stop` events include `:duration` and `:monotonic_time`.
 - `:exception` events include `:duration` and `:monotonic_time`.
 
-Durations use the native time unit from `System.monotonic_time/0`. Convert them
-with `System.convert_time_unit/3` in handlers when a specific display unit is
-needed.
+Durations use the native time unit from `System.monotonic_time/0`. Handlers can
+convert them with `System.convert_time_unit/3` for a specific display unit.
 
 ## Metadata
 
@@ -90,17 +89,17 @@ Metadata is intentionally low-cardinality and product-neutral. Common fields are
 Exception events include the metadata added by `:telemetry.span/3`, including
 `:kind`, `:reason`, and `:stacktrace`.
 
-All span events also include `:telemetry_span_context`, which is injected by
-`:telemetry.span/3` for correlating the events from the same span. Treat it as
-correlation data, not as a metrics dimension.
+All span events also include `:telemetry_span_context`, which
+`:telemetry.span/3` injects for correlating the events from the same span. Treat
+it as correlation data, not as a metrics dimension.
 
-ImagePlug does not emit full request paths by default. Imgproxy-style paths can
-contain signatures, filenames, and origin-shaped user data, and they are often
-high-cardinality. Host applications that need path-level observability should
-add that data in their own handlers with the relevant privacy and cardinality
+ImagePlug doesn't emit full request paths by default. Imgproxy-style paths can
+contain signatures, filenames, and origin-shaped user data, and often have high
+cardinality. Host applications that need path-level observability should add
+that data in their own handlers with the relevant privacy and cardinality
 controls.
 
-## Result Values
+## Result values
 
 Request and stage spans use narrow result atoms:
 
@@ -112,9 +111,9 @@ Request and stage spans use narrow result atoms:
 - `:processing_error`
 - `:error`
 
-The `:error` value is reserved for stage-local failures that are not otherwise
-classified at that stage. The request span maps returned failures into the more
-specific request outcome categories above.
+Use `:error` for stage-local failures that aren't otherwise classified at that
+stage. The request span maps returned failures into the more specific request
+outcome categories above.
 
 Cache-related metadata may also include:
 
@@ -125,11 +124,11 @@ Cache-related metadata may also include:
 - `cache: :write_skipped`
 - `cache: :write_error`
 
-`cache: :write_skipped` is emitted on the `[:encode, :stop]` stage when a
-cacheable response exceeds the configured cache body limit before a cache write
-is attempted.
+The `[:encode, :stop]` stage emits `cache: :write_skipped` when a cacheable
+response exceeds the configured cache body limit before ImagePlug attempts a
+cache write.
 
-## Attaching Handlers
+## Attaching handlers
 
 A host application can attach to all ImagePlug span events with
 `:telemetry.attach_many/4`:
@@ -175,5 +174,5 @@ defmodule MyApp.ImagePlugTelemetry do
 end
 ```
 
-If `telemetry_prefix` is customized, attach to that same prefix instead of
+When customizing `telemetry_prefix`, attach to that same prefix instead of
 `[:image_plug]`.

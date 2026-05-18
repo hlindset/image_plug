@@ -42,7 +42,7 @@ defmodule ImagePlug.Plan do
           output: ImagePlug.Plan.Output.t(),
           expires: non_neg_integer(),
           cachebuster: String.t() | nil,
-          response: ImagePlug.Plan.Response.t()
+          response: Response.t()
         }
 
   @type pipeline_error() ::
