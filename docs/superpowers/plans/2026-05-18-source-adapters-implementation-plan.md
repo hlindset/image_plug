@@ -883,7 +883,7 @@ test "request options reject invalid source adapter config during init" do
 end
 ```
 
-Keep `:root_url` accepted only inside this task so the existing test suite can still run before the request flow is moved. Task 7 removes it from the validated public options and updates tests to configure `sources:` explicitly.
+Keep `:root_url` accepted but optional inside this task so the existing test suite can still run before the request flow is moved. Task 7 removes it from the validated public options and updates tests to configure `sources:` explicitly.
 
 - [ ] **Step 5: Run source tests**
 
@@ -1174,6 +1174,26 @@ defmodule ImagePlug.Parser.Imgproxy.SourceTest do
                 path: ["cat.jpg"],
                 query: nil
               }}
+
+    assert Source.translate("http://assets.example.com/cat.jpg", []) ==
+             {:ok,
+              %URL{
+                scheme: :http,
+                host: "assets.example.com",
+                port: nil,
+                path: ["cat.jpg"],
+                query: nil
+              }}
+
+    assert Source.translate("http://assets.example.com:80/cat.jpg", []) ==
+             {:ok,
+              %URL{
+                scheme: :http,
+                host: "assets.example.com",
+                port: 80,
+                path: ["cat.jpg"],
+                query: nil
+              }}
   end
 
   test "http escaped query delimiter becomes query and double-escaped delimiter stays in path" do
@@ -1230,6 +1250,9 @@ defmodule ImagePlug.Parser.Imgproxy.SourceTest do
   test "s3 preserves empty key components because object keys are opaque" do
     assert Source.translate("s3://bucket/images//cat.jpg/", []) ==
              {:ok, %Object{adapter: :s3, scope: "bucket", key: "images//cat.jpg/", revision: nil}}
+
+    assert Source.translate("s3://bucket//cat.jpg", []) ==
+             {:ok, %Object{adapter: :s3, scope: "bucket", key: "/cat.jpg", revision: nil}}
   end
 
   test "object and local keys decode escaped reserved characters after URI structure is parsed" do
@@ -1319,6 +1342,23 @@ test "parses escaped embedded s3 query before output suffix handling" do
          }
 
   assert output.mode == {:explicit, :webp}
+end
+
+test "splits output suffix after custom source scheme without passing suffix to translator" do
+  assert {:ok, %ImagePlug.Plan{source: source, output: output}} =
+           Imgproxy.parse(conn(:get, "/_/plain/foobar://asset/cat.jpg@webp"),
+             imgproxy: [source_schemes: %{"foobar" => {FoobarTranslator, []}}]
+           )
+
+  assert source == %ImagePlug.Plan.Source.Object{
+           adapter: :foobar,
+           scope: "scope",
+           key: "foobar://asset/cat.jpg",
+           revision: "r1"
+         }
+
+  assert output.mode == {:explicit, :webp}
+  assert_received {:translate, "foobar://asset/cat.jpg", []}
 end
 ```
 
@@ -1536,7 +1576,7 @@ defmodule ImagePlug.Source.HTTPTest do
   test "req options cannot override adapter request controls" do
     plug = fn conn ->
       {:ok, body, conn} = Plug.Conn.read_body(conn)
-      send(self(), {:http_request, conn.method, conn.request_path, conn.query_string, body})
+      send(self(), {:http_request, conn.method, conn.req_headers, conn.request_path, conn.query_string, body})
       Plug.Conn.send_resp(conn, 200, "image bytes")
     end
 
@@ -1552,6 +1592,11 @@ defmodule ImagePlug.Source.HTTPTest do
                  method: :post,
                  body: "not image",
                  params: [v: "evil"],
+                 headers: [
+                   {"Range", "bytes=0-1"},
+                   {"Accept", "application/json"},
+                   {"x-extra", "kept"}
+                 ],
                  into: :self,
                  retry: true,
                  max_redirects: 10
@@ -1561,7 +1606,12 @@ defmodule ImagePlug.Source.HTTPTest do
     assert {:ok, resolved} = HTTP.resolve(source, opts, [])
     assert {:ok, %Response{} = response} = Source.fetch(resolved, [sources: %{https: {HTTP, opts}}], [])
     assert Enum.join(response.stream) == "image bytes"
-    assert_receive {:http_request, "GET", "/cat.jpg", "", ""}
+    assert_receive {:http_request, "GET", headers, "/cat.jpg", "", ""}
+    assert {_name, "kept"} = Enum.find(headers, fn {name, _value} -> String.downcase(name) == "x-extra" end)
+    refute Enum.any?(headers, fn {name, value} ->
+             String.downcase(name) in ["range", "accept", "accept-encoding"] and
+               value in ["bytes=0-1", "application/json"]
+           end)
   end
 
   test "req options cannot override redirect policy" do
@@ -1752,6 +1802,7 @@ Implement `ImagePlug.Source.HTTP` with:
 - redirect handling must either be disabled or each redirect target must pass the same normalized host policy before a redirected request is sent. The first slice should disable redirects until redirect-target validation has tests.
 - Req options are host-owned adapter behavior and aren't cache material. Document that callers must not use built-in `req_options` to make the same resolved URL identity return different source bytes across requests. If they need request options to select different bytes, they must encode that selector in the URI, configure `cache: :skip`, or provide a custom adapter with the right non-secret selector in `Resolved.identity`.
 - Req options must delete caller overrides for internal controls such as `:url`, `:base_url`, `:method`, `:body`, `:params`, `:into`, redirect policy, retry behavior, and unsafe asynchronous response options before merging adapter request fields.
+- For cacheable HTTP sources, strip byte-selecting request headers such as `range`, `accept`, and `accept-encoding` after converting header names to lowercase for comparison. Hosts that need byte-selecting HTTP headers should configure `cache: :skip` or use a custom adapter whose identity includes the selector.
 
 - [ ] **Step 5: Implement file adapter**
 
@@ -2075,6 +2126,8 @@ defmodule ImagePlug.Source.S3Test do
                      {"X-Amz-Security-Token", "evil-token"},
                      {"Host", "evil.example"},
                      {"X-Amz-Content-Sha256", "evil-sha"},
+                     {"Range", "bytes=0-1"},
+                     {"Accept", "application/json"},
                      {"x-extra", "kept"}
                    ],
                    aws_sigv4: [service: :execute_api, region: "us-east-1"]
@@ -2093,8 +2146,13 @@ defmodule ImagePlug.Source.S3Test do
     assert {_name, "kept"} = Enum.find(headers, fn {name, _value} -> String.downcase(name) == "x-extra" end)
     refute authorization =~ "Bearer evil"
     refute Enum.any?(headers, fn {name, value} ->
-             String.downcase(name) in ["host", "x-amz-security-token", "x-amz-content-sha256"] and
-               value in ["evil.example", "evil-token", "evil-sha"]
+             String.downcase(name) in [
+               "host",
+               "x-amz-security-token",
+               "x-amz-content-sha256",
+               "range",
+               "accept"
+             ] and value in ["evil.example", "evil-token", "evil-sha", "bytes=0-1", "application/json"]
            end)
   end
 
@@ -2191,7 +2249,8 @@ Implement S3 `fetch/3`:
 - build a Req GET request from the decoded endpoint, bucket, key, and optional `versionId=revision`. Don't pass a pre-encoded `%xx` path into Req SigV4 signing; Req normalizes the path while signing. The outgoing path and `versionId` query must contain exactly one layer of URL encoding for reserved characters, with tests that fail on `%2523` or `%2526` double-encoding.
 - pass SigV4 options with `aws_sigv4: [service: :s3, region: region, access_key_id: ..., secret_access_key: ..., token: ...]` or the exact Req 0.5 option shape verified from local dependency docs.
 - turn redirects off for signed fetches unless tests prove same-host redirect handling is safe.
-- strip S3-owned request controls from configured `req_options`: `:url`, `:base_url`, `:method`, `:body`, `:params`, `:into`, `:retry`, `:max_redirects`, `:auth`, `:aws_sigv4`, and signing-owned header names `authorization`, `host`, `x-amz-content-sha256`, and `x-amz-security-token` after converting header names to lowercase for comparison. Preserve other host-provided headers.
+- strip S3-owned request controls from configured `req_options`: `:url`, `:base_url`, `:method`, `:body`, `:params`, `:into`, `:retry`, `:max_redirects`, `:auth`, `:aws_sigv4`, and signing-owned header names `authorization`, `host`, `x-amz-content-sha256`, and `x-amz-security-token` after converting header names to lowercase for comparison.
+- for cacheable S3 sources, also strip byte-selecting request headers such as `range`, `accept`, and `accept-encoding`. Preserve other host-provided headers. Hosts that need byte-selecting S3 headers should configure `cache: :skip` or use a custom adapter whose identity includes the selector.
 - Req options are host-owned adapter behavior and aren't cache material. Document that callers must not use built-in `req_options` to make the same resolved object identity return different source bytes across requests. If they need request options to select different bytes, they must encode that selector in the object key or revision, use `cache: :skip`, or provide a custom adapter with the right non-secret selector in `Resolved.identity`.
 - return `%Source.Response{stream: req_stream}` and rely on registry wrapping.
 
@@ -2484,11 +2543,19 @@ In `test/image_plug/request_options_test.exs`, add:
 ```elixir
 test "request options reject stale origin configuration after source integration" do
   assert_raise ArgumentError, fn ->
-    Options.validate!(root_url: "https://origin.example")
+    Options.validate!(
+      parser: ImagePlug.Parser.Imgproxy,
+      sources: [path: {ImagePlug.SourceTest.ValidAdapter, []}],
+      root_url: "https://origin.example"
+    )
   end
 
   assert_raise ArgumentError, fn ->
-    Options.validate!(origin_req_options: [plug: OriginImage])
+    Options.validate!(
+      parser: ImagePlug.Parser.Imgproxy,
+      sources: [path: {ImagePlug.SourceTest.ValidAdapter, []}],
+      origin_req_options: [plug: OriginImage]
+    )
   end
 end
 ```
@@ -2825,11 +2892,11 @@ defp safe_adapter_call(fun) do
 rescue
   _exception -> {:error, {:source, :adapter_exception}}
 catch
-  :exit, _reason -> {:error, {:source, :adapter_exception}}
+  _kind, _reason -> {:error, {:source, :adapter_exception}}
 end
 ```
 
-Add telemetry tests with a raising source adapter and a raising credential provider. The expected result is a returned `{:error, {:source, :adapter_exception}}` and `[:source, :resolve, :stop]` or `[:source, :fetch, :stop]` metadata with `result: :source_error`; there must be no `[:source, ..., :exception]` telemetry event.
+Add telemetry tests with raising and throwing source adapters, plus raising and throwing credential providers. The expected result is a returned `{:error, {:source, :adapter_exception}}` and `[:source, :resolve, :stop]` or `[:source, :fetch, :stop]` metadata with `result: :source_error`; there must be no `[:source, ..., :exception]` telemetry event.
 
 Metadata must include only:
 
