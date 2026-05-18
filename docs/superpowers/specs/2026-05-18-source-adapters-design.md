@@ -155,10 +155,10 @@ configuration.
 `revision` is an optional immutable object selector. The S3 adapter maps it to an
 S3 object version ID. A GCS adapter can map the same field to a generation.
 
-The plan struct names an opaque adapter key, not the adapter module. Plan
+The plan struct names an opaque adapter, not the adapter module. Plan
 validation must not special-case `:s3`. S3-specific behavior belongs in the
 imgproxy source translator and the configured source adapter. Runtime config
-binds the adapter key to a module:
+binds the adapter to a module:
 
 ```elixir
 sources: [
@@ -210,7 +210,7 @@ greenfield, existing `ImagePlug.Origin` internals can move into the new boundary
 Architecture tests should assert the new source boundary directly instead of
 preserving the old origin boundary by inertia.
 
-Runtime config maps source adapter keys to modules and options:
+Runtime config maps source adapters to modules and options:
 
 ```elixir
 sources: [
@@ -228,7 +228,8 @@ source policy failures return before cache lookup.
 
 `Source.Resolved` contains:
 
-- `adapter_key`: the configured adapter key used for fetch dispatch.
+- `adapter`: the configured adapter used for fetch dispatch. This is the config
+  key, not the module.
 - `source_kind`: `:path`, `:url`, `:object`, or `:reference`.
 - `identity`: deterministic primitive data used in cache keys.
 - `cache`: `:normal` or `:skip`.
@@ -240,19 +241,17 @@ client structs, local absolute paths, parser structs, raw request paths, or the
 data, never adapter modules or fetch payloads.
 
 The identity must include every non-secret value that can change the source
-bytes. That includes adapter scope, configured root identity, endpoint, region,
-addressing mode, hidden object prefixes, tenant routing rules, catalog revision
-data, and custom adapter identity fingerprints. The identity excludes credential
-values. It can include the selected non-secret credential profile when that
-profile changes which object storage space ImagePlug reads.
+bytes. That includes the configured adapter, configured root identity, endpoint,
+region, addressing mode, hidden object prefixes, tenant routing rules, catalog
+revision data, and custom adapter identity fingerprints. The identity excludes
+credential values.
 
 Example S3 identity:
 
 ```elixir
 [
   kind: :object,
-  adapter_key: :s3,
-  adapter_scope: {:s3, :default},
+  adapter: :s3,
   bucket: "tenant-a",
   key: "images/cat.jpg",
   revision: "abc",
@@ -307,11 +306,11 @@ that mode. Without a `buckets` map, `default` applies to every bucket. A host ca
 write a custom adapter for path-prefix, tenant, account, or deployment-specific
 routing.
 
-This built-in routing is exact-bucket routing. If the same bucket name can exist
-behind different accounts, endpoints, tenants, or deployment profiles, the host
-should use separate adapter keys or a custom adapter. That adapter's resolved
-identity must include the non-secret profile that selects the backing storage
-space.
+This built-in routing is exact-bucket routing. S3 bucket names identify the
+object space for native S3. S3-compatible stores with independent bucket spaces
+use different endpoints, and endpoint participates in identity. If a
+custom adapter adds tenant, account, profile, or hidden-prefix routing, its
+resolved identity must include that non-secret routing choice.
 
 The S3 adapter must not call credential providers during `resolve/3` or cache
 lookup. The adapter may include a non-secret credential reference in the fetch
@@ -401,7 +400,7 @@ imgproxy: [
 A scheme translator receives the decoded source string and its configured
 options. It returns a `Plan.Source` struct or an error. Translator output still
 goes through normal plan and source validation. Runtime fetching requires a
-matching source adapter configuration for the returned adapter key.
+matching source adapter configuration for the returned adapter.
 
 Scheme translators are parser extensions. They must be pure and deterministic:
 no network calls, file reads, credential access, catalog lookup operations,
@@ -536,8 +535,8 @@ Custom source schemes:
 
 Source registry and custom adapters:
 
-- registry dispatches by adapter key to the configured module and options.
-- `resolve/3` returns `adapter_key`, `source_kind`, primitive identity, cache
+- registry dispatches by adapter to the configured module and options.
+- `resolve/3` returns `adapter`, `source_kind`, primitive identity, cache
   policy, and fetch payload.
 - custom adapter `resolve/3` identity data feeds cache identity.
 - cache misses call the custom adapter `fetch/3`.
