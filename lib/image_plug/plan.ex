@@ -12,6 +12,11 @@ defmodule ImagePlug.Plan do
       Output,
       Response,
       Color,
+      Source,
+      Source.Path,
+      Source.URL,
+      Source.Object,
+      Source.Reference,
       Operation,
       Operation.Background,
       Operation.CropGuided,
@@ -25,6 +30,7 @@ defmodule ImagePlug.Plan do
   alias ImagePlug.Plan.Output
   alias ImagePlug.Plan.Pipeline
   alias ImagePlug.Plan.Response
+  alias ImagePlug.Plan.Source
 
   @supported_formats [:avif, :webp, :jpeg, :png]
 
@@ -37,7 +43,7 @@ defmodule ImagePlug.Plan do
               ]
 
   @type t :: %__MODULE__{
-          source: {:plain, [String.t()]},
+          source: ImagePlug.Plan.Source.t(),
           pipelines: [ImagePlug.Plan.Pipeline.t()],
           output: ImagePlug.Plan.Output.t(),
           expires: non_neg_integer(),
@@ -98,17 +104,84 @@ defmodule ImagePlug.Plan do
   defp invalid_operation?(%_{} = operation), do: not Operation.semantic?(operation)
   defp invalid_operation?(_operation), do: true
 
-  defp validate_source({:plain, path} = source) do
-    if valid_source_path?(path),
+  defp validate_source(%Source.Path{segments: segments} = source) do
+    if valid_path_segments?(segments),
+      do: :ok,
+      else: {:error, {:unsupported_source, source}}
+  end
+
+  defp validate_source(%Source.URL{} = source) do
+    if valid_url_source?(source),
+      do: :ok,
+      else: {:error, {:unsupported_source, source}}
+  end
+
+  defp validate_source(%Source.Object{} = source) do
+    if valid_object_source?(source),
+      do: :ok,
+      else: {:error, {:unsupported_source, source}}
+  end
+
+  defp validate_source(%Source.Reference{} = source) do
+    if valid_reference_source?(source),
       do: :ok,
       else: {:error, {:unsupported_source, source}}
   end
 
   defp validate_source(source), do: {:error, {:unsupported_source, source}}
 
-  defp valid_source_path?([]), do: true
-  defp valid_source_path?([segment | rest]) when is_binary(segment), do: valid_source_path?(rest)
-  defp valid_source_path?(_path), do: false
+  defp valid_path_segments?([]), do: true
+
+  defp valid_path_segments?([segment | rest]),
+    do: valid_path_segment?(segment) and valid_path_segments?(rest)
+
+  defp valid_path_segments?(_segments), do: false
+
+  defp valid_path_segment?(segment) when is_binary(segment) do
+    segment != "" and segment != "." and segment != ".." and
+      not String.contains?(segment, ["/", "\\"])
+  end
+
+  defp valid_path_segment?(_segment), do: false
+
+  defp valid_url_source?(%Source.URL{
+         scheme: scheme,
+         host: host,
+         port: port,
+         path: path,
+         query: query
+       }) do
+    scheme in [:http, :https] and valid_non_empty_string?(host) and valid_port?(port) and
+      valid_path_segments?(path) and valid_optional_string?(query)
+  end
+
+  defp valid_object_source?(%Source.Object{
+         adapter: adapter,
+         scope: scope,
+         key: key,
+         revision: revision
+       }) do
+    is_atom(adapter) and valid_non_empty_string?(scope) and valid_non_empty_string?(key) and
+      valid_optional_string?(revision)
+  end
+
+  defp valid_reference_source?(%Source.Reference{
+         adapter: adapter,
+         id: id,
+         revision: revision,
+         metadata: metadata
+       }) do
+    is_atom(adapter) and valid_non_empty_string?(id) and valid_optional_string?(revision) and
+      Keyword.keyword?(metadata)
+  end
+
+  defp valid_non_empty_string?(value), do: is_binary(value) and value != ""
+
+  defp valid_optional_string?(nil), do: true
+  defp valid_optional_string?(value), do: is_binary(value)
+
+  defp valid_port?(nil), do: true
+  defp valid_port?(port), do: is_integer(port) and port in 1..65_535
 
   defp validate_output(%Output{mode: :automatic} = output) do
     validate_output_quality_shape(output)
