@@ -7,7 +7,9 @@ defmodule ImagePlug.Source do
     exports: [
       Resolved,
       Response,
-      StreamError
+      StreamError,
+      HTTP,
+      File
     ]
 
   alias ImagePlug.Plan.Source, as: PlanSource
