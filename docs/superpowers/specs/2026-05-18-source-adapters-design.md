@@ -44,6 +44,8 @@ Runtime source adapters resolve those plan sources into a deterministic identity
 and an adapter-owned fetch payload:
 
 ```elixir
+@callback validate_options(keyword()) :: {:ok, keyword()} | {:error, term()}
+
 @callback resolve(ImagePlug.Plan.Source.t(), adapter_opts :: keyword(), runtime_opts :: keyword()) ::
             {:ok, ImagePlug.Source.Resolved.t()} | {:error, ImagePlug.Source.error()}
 
@@ -60,21 +62,22 @@ providers, or perform network-backed storage resolution.
 
 ```elixir
 %ImagePlug.Source.Response{
-  stream: enumerable,
-  headers: [{"content-type", "image/jpeg"}]
+  stream: enumerable
 }
 ```
 
-`stream` is an enumerable of binaries. `headers` is a list of lowercase binary
-name/value pairs observed from the source response. Headers aren't cache key
-material and aren't emitted in telemetry by default.
+`stream` is an enumerable of binaries. The first slice doesn't expose source
+response headers through `Source.Response`, because HTTP and S3 headers aren't
+available until the lazy stream opens the upstream response. Source headers
+aren't cache key material and aren't emitted in telemetry by default.
 
 The source boundary wraps adapter streams before the decoder consumes them. That
 wrapper accepts binary chunks only, enforces `:max_body_bytes`, converts deferred
-stream errors into safe source errors, wraps stream exceptions, and runs adapter
-cleanup or cancellation code. Built-in adapters should put transport cleanup in
-the stream's termination path so a decode error or abandoned response closes the
-source request.
+stream errors into safe source errors, and wraps stream exceptions. Request
+option normalization passes `:max_body_bytes` into source runtime options. Source
+code must not read request or cache config directly. Resource-owning adapters put
+cleanup or cancellation in the enumerable termination path, so a decode error or
+abandoned response closes the source request without a separate cleanup callback.
 
 Adapter errors use a small tagged shape:
 
@@ -152,7 +155,7 @@ configuration.
 ```elixir
 %ImagePlug.Plan.Source.Object{
   adapter: :s3,
-  scope: "tenant-a",
+  scope: "assets-bucket",
   key: "images/cat.jpg",
   revision: "abc"
 }
@@ -230,8 +233,10 @@ sources: [
 
 The source registry picks the adapter for `Plan.source`, calls `resolve/3`, and
 returns `Source.Resolved`. Adapter option validation happens during
-`ImagePlug.init/1`, before requests enter the pipeline. Missing adapters and
-source policy failures return before cache lookup.
+`ImagePlug.init/1`, before requests enter the pipeline. The registry calls
+`validate_options/1` and stores the validated options for later `resolve/3` and
+`fetch/3` calls. Missing adapters and source policy failures return before cache
+lookup.
 
 `Source.Resolved` contains:
 
@@ -248,10 +253,10 @@ client structs, local absolute paths, parser structs, raw request paths, or the
 data, never adapter modules or fetch payloads.
 
 The identity must include every non-secret value that can change the source
-bytes. That includes the configured adapter, configured root identity, endpoint,
-region, addressing mode, hidden object prefixes, tenant routing rules, catalog
-revision data, and custom adapter identity fingerprints. The identity excludes
-credential values.
+bytes. That includes the configured adapter, configured root identity, effective
+endpoint, hidden object prefixes, tenant routing rules, catalog revision data,
+and custom adapter identity fingerprints. The identity excludes credential
+values.
 
 When `cache` is `:skip`, request processing bypasses cache key construction,
 cache adapter `get`, and cache adapter `put`. The decision still comes from
@@ -267,9 +272,7 @@ Example S3 identity:
   bucket: "tenant-a",
   key: "images/cat.jpg",
   revision: "abc",
-  endpoint: "https://s3.amazonaws.com",
-  region: "eu-west-1",
-  addressing: :virtual_host
+  endpoint: "https://s3.amazonaws.com"
 ]
 ```
 
@@ -386,15 +389,15 @@ structs.
 Built-in translations for the first slice:
 
 ```text
-/plain/images/cat.jpg
-plain/local:///images/cat.jpg
+/_/plain/images/cat.jpg
+/_/plain/local:///images/cat.jpg
   -> Plan.Source.Path{segments: ["images", "cat.jpg"]}
 
-plain/http://assets.example.com/images/cat.jpg
-plain/https://assets.example.com/images/cat.jpg
+/_/plain/http://assets.example.com/images/cat.jpg
+/_/plain/https://assets.example.com/images/cat.jpg
   -> Plan.Source.URL{scheme: :http | :https, ...}
 
-plain/s3://bucket/images/cat.jpg?abc
+/_/plain/s3://bucket/images/cat.jpg%3Fabc
   -> Plan.Source.Object{
        adapter: :s3,
        scope: "bucket",
@@ -415,8 +418,9 @@ delimiter because `Plug.Conn.request_path` excludes the request query string:
 /_/plain/s3://bucket/images/cat.jpg%3Fabc
 ```
 
-The imgproxy parser decodes that source segment before URI translation, so the
-source translator sees `s3://bucket/images/cat.jpg?abc`.
+The imgproxy parser removes the signature segment and decodes the source segment
+before URI translation, so the source translator sees
+`s3://bucket/images/cat.jpg?abc`.
 
 The existing `/plain/...@jpg` source-format behavior remains parser-owned.
 Source parsing splits that suffix before translating the source identifier.
@@ -478,7 +482,10 @@ limit failures. The source boundary wraps unexpected exceptions before telemetry
 or error responses see them, so raw exception terms can't leak secrets by
 default. Source spans catch adapter exceptions inside the span body and convert
 them to sanitized returned errors instead of letting `:telemetry.span/3` emit
-exception metadata for adapter code.
+exception metadata for adapter code. The `[:source, :fetch]` span covers
+`fetch/3` and stream wrapper construction, not later image decode. Deferred
+stream errors still pass through the source stream wrapper before they reach
+decode or request telemetry.
 
 ## Telemetry
 
@@ -504,6 +511,11 @@ paths, dispatch adapter keys, credentials, signatures, signed headers, raw error
 reasons, stack traces, or parser-specific structs. Host applications can attach
 their own handlers or opt-in metadata once they have decided which values are
 safe for their environment.
+
+`source_adapter_kind` is a low-cardinality adapter family for telemetry, not the
+configured `Source.Resolved.adapter` dispatch key. Built-in adapters emit
+families such as `:http`, `:file`, and `:s3`. Custom adapters default to
+`:custom` unless they define a safe family value during option validation.
 
 For signed S3 fetches, redirects must not leak authorization headers across
 hosts. The adapter disables redirects for signed object fetches unless tests
@@ -572,6 +584,7 @@ Custom source schemes:
 Source registry and custom adapters:
 
 - registry dispatches by adapter to the configured module and options.
+- registry calls adapter `validate_options/1` during `ImagePlug.init/1`.
 - `resolve/3` returns `adapter`, `source_kind`, primitive identity, cache
   policy, and fetch payload.
 - custom adapter `resolve/3` identity data feeds cache identity.
@@ -587,15 +600,15 @@ Request safety:
 - parser, plan, and source-resolution failures return before cache lookup and
   fetch.
 - cache lookup happens before any adapter `fetch/3` call.
-- fetch and decode happen only on cache miss or when automatic output negotiation
-  needs source format.
+- fetch and decode happen only after cache miss or when source resolution skips
+  cache. When automatic output negotiation needs source format, it reads that
+  format only after the cache decision.
 
 Cache keys:
 
 - keys use resolved source identity, not raw request path or raw source spelling.
 - different raw spellings with the same resolved identity can share cache.
-- same bucket and key with different endpoint, region, addressing, or revision do
-  not share cache.
+- same bucket and key with different endpoint or revision don't share cache.
 - credentials, tokens, authorization headers, signed URLs, local absolute paths,
   and parser structs are absent from key data.
 - `cache: :skip` bypasses cache key construction, cache lookup, and cache write
@@ -645,9 +658,12 @@ Telemetry and boundaries:
   telemetry sees them.
 - request dispatch goes through `ImagePlug.Source`.
 - architecture tests cover the deliberate replacement of `ImagePlug.Origin`
-  internals with `ImagePlug.Source`: request depends on source, source avoids
-  request/cache/output/transform/response/parser dependencies, and plan, parser,
-  cache, output, transform, and response don't depend on source.
+  internals with `ImagePlug.Source`: request depends on source, source may depend
+  on plan and telemetry, source avoids request/cache/output/transform/response
+  and parser dependencies, and plan, parser, cache, output, transform, and
+  response don't depend on source.
+- architecture tests keep the old `ImagePlug.Runtime` module-tree absence
+  assertion.
 - transforms remain source-unaware.
 - parser-specific structs don't leak into source, cache, request, output,
   transform, or response boundaries.
