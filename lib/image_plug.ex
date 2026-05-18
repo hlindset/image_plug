@@ -5,11 +5,11 @@ defmodule ImagePlug do
 
   use Boundary,
     deps: [
-      ImagePlug.Origin,
       ImagePlug.Parser,
       ImagePlug.Plan,
       ImagePlug.Request,
       ImagePlug.Response,
+      ImagePlug.Source,
       ImagePlug.Telemetry,
       ImagePlug.Transform
     ],
@@ -17,12 +17,12 @@ defmodule ImagePlug do
 
   @behaviour Plug
 
-  alias ImagePlug.Origin.Identity
   alias ImagePlug.Parser.Imgproxy
   alias ImagePlug.Plan
   alias ImagePlug.Request.Options
   alias ImagePlug.Request.Runner
   alias ImagePlug.Response.Sender
+  alias ImagePlug.Source
   alias ImagePlug.Telemetry
   alias ImagePlug.Transform
 
@@ -46,8 +46,9 @@ defmodule ImagePlug do
 
     with {:ok, %Plan{} = plan} <- parse(conn, parser, opts),
          {:ok, %Plan{} = plan} <- validate_client_plan(plan),
-         {:ok, origin_identity} <- resolve_origin_identity(plan, opts) do
-      result = Runner.run(conn, plan, origin_identity, opts)
+         {:ok, %Source.Resolved{} = resolved_source} <-
+           Source.resolve(plan.source, opts, Options.source_runtime_opts(opts)) do
+      result = Runner.run(conn, plan, resolved_source, opts)
 
       {conn, send_metadata} =
         send_response(conn, opts, request_result(result), fn ->
@@ -70,11 +71,11 @@ defmodule ImagePlug do
 
         {conn, %{result: :plan_error, error: Telemetry.error(error)}}
 
-      {:error, {:origin, error}} ->
+      {:error, {:source, error}} ->
         {conn, _send_metadata} =
-          send_response(conn, opts, :origin_error, fn -> Sender.send_origin_error(conn, error) end)
+          send_response(conn, opts, :source_error, fn -> Sender.send_source_error(conn, error) end)
 
-        {conn, %{result: :origin_error, error: Telemetry.error(error)}}
+        {conn, %{result: :source_error, error: Telemetry.error(error)}}
     end
   end
 
@@ -83,14 +84,6 @@ defmodule ImagePlug do
       result = parser.parse(conn, opts) |> wrap_parser_error()
 
       {result, result_metadata(result)}
-    end)
-  end
-
-  defp resolve_origin_identity(%Plan{} = plan, opts) do
-    Telemetry.span(opts, [:origin, :identity], %{}, fn ->
-      result = Identity.resolve(plan, opts) |> wrap_origin_error()
-
-      {result, result_metadata(result, :origin_error)}
     end)
   end
 
@@ -115,9 +108,6 @@ defmodule ImagePlug do
 
   defp wrap_plan_validation_error({:error, error}), do: {:error, {:plan_validation, error}}
   defp wrap_plan_validation_error(result), do: result
-
-  defp wrap_origin_error({:error, error}), do: {:error, {:origin, error}}
-  defp wrap_origin_error(result), do: result
 
   defp request_metadata(conn, opts) do
     %{
@@ -151,7 +141,7 @@ defmodule ImagePlug do
   defp request_result_metadata({:error, {:processing, reason, _headers}}),
     do: %{result: processing_result(reason), error: Telemetry.error(reason)}
 
-  defp processing_result({:origin, _error}), do: :origin_error
+  defp processing_result({:source, _error}), do: :source_error
   defp processing_result({:cache_write, _error}), do: :cache_error
 
   defp processing_result({tag, _error})
@@ -165,11 +155,6 @@ defmodule ImagePlug do
 
   defp result_metadata({:error, {_scope, error}}),
     do: %{result: :error, error: Telemetry.error(error)}
-
-  defp result_metadata({:ok, _value}, _error_result), do: %{result: :ok}
-
-  defp result_metadata({:error, {_scope, error}}, error_result),
-    do: %{result: error_result, error: Telemetry.error(error)}
 
   defp validate_parser_options(opts) do
     opts

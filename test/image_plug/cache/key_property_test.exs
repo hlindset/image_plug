@@ -10,9 +10,10 @@ defmodule ImagePlug.Cache.KeyPropertyTest do
   alias ImagePlug.Plan.Operation
   alias ImagePlug.Plan.Output
   alias ImagePlug.Plan.Pipeline
+  alias ImagePlug.Plan.Source
 
-  defp build_key!(conn, plan, origin_identity, opts \\ []) do
-    assert {:ok, key} = Key.build(conn, plan, origin_identity, opts)
+  defp build_key!(conn, plan, source_identity, opts \\ []) do
+    assert {:ok, key} = Key.build(conn, plan, source_identity, opts)
     key
   end
 
@@ -24,15 +25,15 @@ defmodule ImagePlug.Cache.KeyPropertyTest do
   end
 
   property "nested map and keyword ordering does not affect serialized key data" do
-    check all origin <- origin_identity(),
+    check all source_identity <- source_identity(),
               source_path <- source_path(),
               width <- maybe_dimension(),
               height <- maybe_dimension(),
               max_runs: 100 do
       data_one = [
         schema_version: 2,
-        origin_identity: origin,
-        source: [
+        source_identity: [
+          identity: source_identity,
           kind: :plain,
           path: source_path,
           nested: [
@@ -83,15 +84,15 @@ defmodule ImagePlug.Cache.KeyPropertyTest do
             ]
           ]
         ],
-        source: [
+        source_identity: [
           nested: [
             keyword: [a: 1, b: 2],
             map: %{a: 1, b: 2}
           ],
           path: source_path,
-          kind: :plain
+          kind: :plain,
+          identity: source_identity
         ],
-        origin_identity: origin,
         schema_version: 2
       ]
 
@@ -106,7 +107,7 @@ defmodule ImagePlug.Cache.KeyPropertyTest do
               ignored_header_value <- string(:alphanumeric, max_length: 24),
               ignored_cookie_value <- string(:alphanumeric, max_length: 24),
               max_runs: 100 do
-      origin = "https://origin.test/images/cat.jpg"
+      source_identity = [kind: :path, root: "default", path: ["images", "cat.jpg"]]
 
       conn_one = conn(:get, "/_/plain/images/cat.jpg")
 
@@ -116,25 +117,27 @@ defmodule ImagePlug.Cache.KeyPropertyTest do
         |> put_req_header("x-ignored", ignored_header_value)
         |> put_req_header("cookie", "ignored=#{ignored_cookie_value}")
 
-      assert build_key!(conn_one, plan, origin).hash ==
-               build_key!(conn_two, plan, origin).hash
+      assert build_key!(conn_one, plan, source_identity).hash ==
+               build_key!(conn_two, plan, source_identity).hash
     end
   end
 
-  property "included origin identity and output format change the cache key" do
+  property "included source identity and output format change the cache key" do
     check all plan <- cacheable_plan(output: %Output{mode: {:explicit, :webp}}),
-              origin_a <- origin_identity(),
-              origin_b <- origin_identity(),
-              origin_a != origin_b,
+              source_identity_a <- source_identity(),
+              source_identity_b <- source_identity(),
+              source_identity_a != source_identity_b,
               max_runs: 100 do
       conn = conn(:get, "/_/f:webp/plain/images/cat.jpg")
 
-      origin_key_a = build_key!(conn, plan, origin_a)
-      origin_key_b = build_key!(conn, plan, origin_b)
-      png_key = build_key!(conn, %{plan | output: %Output{mode: {:explicit, :png}}}, origin_a)
+      source_key_a = build_key!(conn, plan, source_identity_a)
+      source_key_b = build_key!(conn, plan, source_identity_b)
 
-      refute origin_key_a.hash == origin_key_b.hash
-      refute origin_key_a.hash == png_key.hash
+      png_key =
+        build_key!(conn, %{plan | output: %Output{mode: {:explicit, :png}}}, source_identity_a)
+
+      refute source_key_a.hash == source_key_b.hash
+      refute source_key_a.hash == png_key.hash
     end
   end
 
@@ -151,10 +154,10 @@ defmodule ImagePlug.Cache.KeyPropertyTest do
         )
 
       conn = conn(:get, "/_/f:webp/plain/images/cat.jpg")
-      origin = "https://origin.test/images/cat.jpg"
+      source_identity = [kind: :path, root: "default", path: ["images", "cat.jpg"]]
 
-      refute build_key!(conn, one_pipeline, origin).hash ==
-               build_key!(conn, two_pipelines, origin).hash
+      refute build_key!(conn, one_pipeline, source_identity).hash ==
+               build_key!(conn, two_pipelines, source_identity).hash
     end
   end
 
@@ -164,20 +167,20 @@ defmodule ImagePlug.Cache.KeyPropertyTest do
               cachebuster_a != cachebuster_b,
               max_runs: 100 do
       conn = conn(:get, "/_/plain/images/cat.jpg")
-      origin = "https://origin.test/images/cat.jpg"
+      source_identity = [kind: :path, root: "default", path: ["images", "cat.jpg"]]
 
       key_a =
         build_key!(
           conn,
           plan(cachebuster: cachebuster_a),
-          origin
+          source_identity
         )
 
       key_b =
         build_key!(
           conn,
           plan(cachebuster: cachebuster_b),
-          origin
+          source_identity
         )
 
       assert key_a.data[:pipelines] == key_b.data[:pipelines]
@@ -192,7 +195,7 @@ defmodule ImagePlug.Cache.KeyPropertyTest do
               cookie_value <- string(:alphanumeric, min_length: 1, max_length: 24),
               max_runs: 100 do
       plan = plan()
-      origin = "https://origin.test/images/cat.jpg"
+      source_identity = [kind: :path, root: "default", path: ["images", "cat.jpg"]]
 
       conn_a =
         :get
@@ -208,8 +211,8 @@ defmodule ImagePlug.Cache.KeyPropertyTest do
 
       opts = [key_headers: ["accept-language"], key_cookies: ["tenant"]]
 
-      refute build_key!(conn_a, plan, origin, opts).hash ==
-               build_key!(conn_b, plan, origin, opts).hash
+      refute build_key!(conn_a, plan, source_identity, opts).hash ==
+               build_key!(conn_b, plan, source_identity, opts).hash
     end
   end
 
@@ -220,7 +223,7 @@ defmodule ImagePlug.Cache.KeyPropertyTest do
               header_value <- string(:alphanumeric, min_length: 1, max_length: 24),
               max_runs: 100 do
       plan = plan()
-      origin = "https://origin.test/images/cat.jpg"
+      source_identity = [kind: :path, root: "default", path: ["images", "cat.jpg"]]
 
       conn_a =
         :get
@@ -236,8 +239,8 @@ defmodule ImagePlug.Cache.KeyPropertyTest do
 
       opts = [key_headers: ["accept-language"], key_cookies: ["tenant"]]
 
-      refute build_key!(conn_a, plan, origin, opts).hash ==
-               build_key!(conn_b, plan, origin, opts).hash
+      refute build_key!(conn_a, plan, source_identity, opts).hash ==
+               build_key!(conn_b, plan, source_identity, opts).hash
     end
   end
 
@@ -251,19 +254,19 @@ defmodule ImagePlug.Cache.KeyPropertyTest do
                 ]),
               max_runs: 100 do
       plan = plan(output: %Output{mode: :automatic})
-      origin = "https://origin.test/images/cat.jpg"
+      source_identity = [kind: :path, root: "default", path: ["images", "cat.jpg"]]
 
       key_a =
         :get
         |> conn("/_/plain/images/cat.jpg")
         |> put_req_header("accept", accept_a)
-        |> build_key!(plan, origin)
+        |> build_key!(plan, source_identity)
 
       key_b =
         :get
         |> conn("/_/plain/images/cat.jpg")
         |> put_req_header("accept", accept_b)
-        |> build_key!(plan, origin)
+        |> build_key!(plan, source_identity)
 
       assert key_a.hash == key_b.hash
     end
@@ -279,19 +282,19 @@ defmodule ImagePlug.Cache.KeyPropertyTest do
                 ]),
               max_runs: 100 do
       plan = plan(output: %Output{mode: :automatic})
-      origin = "https://origin.test/images/cat.jpg"
+      source_identity = [kind: :path, root: "default", path: ["images", "cat.jpg"]]
 
       key_a =
         :get
         |> conn("/_/plain/images/cat.jpg")
         |> put_req_header("accept", accept_a)
-        |> build_key!(plan, origin)
+        |> build_key!(plan, source_identity)
 
       key_b =
         :get
         |> conn("/_/plain/images/cat.jpg")
         |> put_req_header("accept", accept_b)
-        |> build_key!(plan, origin)
+        |> build_key!(plan, source_identity)
 
       refute key_a.hash == key_b.hash
     end
@@ -301,19 +304,19 @@ defmodule ImagePlug.Cache.KeyPropertyTest do
     check all accept <- accept_header(),
               max_runs: 100 do
       plan = plan(output: %Output{mode: :automatic})
-      origin = "https://origin.test/images/cat.jpg"
+      source_identity = [kind: :path, root: "default", path: ["images", "cat.jpg"]]
 
       key_a =
         :get
         |> conn("/_/plain/images/cat.jpg")
         |> put_req_header("accept", accept)
-        |> build_key!(plan, origin)
+        |> build_key!(plan, source_identity)
 
       key_b =
         :get
         |> conn("/_/plain/images/cat.jpg")
         |> put_req_header("accept", accept)
-        |> build_key!(plan, origin)
+        |> build_key!(plan, source_identity)
 
       assert key_a.hash == key_b.hash
     end
@@ -321,13 +324,12 @@ defmodule ImagePlug.Cache.KeyPropertyTest do
 
   defp key_data do
     map(
-      {origin_identity(), source_path(), pipelines(),
+      {source_identity(), source_path(), pipelines(),
        member_of([:automatic, :webp, :avif, :jpeg, :png])},
-      fn {origin, source_path, pipelines, output} ->
+      fn {source_identity, _source_path, pipelines, output} ->
         [
           schema_version: 2,
-          origin_identity: origin,
-          source: [kind: :plain, path: source_path],
+          source_identity: source_identity,
           pipelines: pipelines,
           output:
             if(output == :automatic,
@@ -358,7 +360,7 @@ defmodule ImagePlug.Cache.KeyPropertyTest do
       plan(
         Keyword.merge(
           [
-            source: {:plain, source_path},
+            source: %Source.Path{segments: source_path},
             pipelines: pipelines
           ],
           overrides
@@ -372,7 +374,7 @@ defmodule ImagePlug.Cache.KeyPropertyTest do
       Plan,
       Keyword.merge(
         [
-          source: {:plain, ["images", "cat.jpg"]},
+          source: %Source.Path{segments: ["images", "cat.jpg"]},
           pipelines: [
             %Pipeline{
               operations: [resize_operation(300, :auto)]
@@ -460,8 +462,8 @@ defmodule ImagePlug.Cache.KeyPropertyTest do
   defp tagged_resize_dimension(:auto), do: :auto
   defp tagged_resize_dimension(pixels), do: {:px, pixels}
 
-  defp origin_identity do
-    map(source_path(), fn path -> "https://origin.test/#{Enum.join(path, "/")}" end)
+  defp source_identity do
+    map(source_path(), fn path -> [kind: :path, root: "default", path: path] end)
   end
 
   defp source_path, do: list_of(path_segment(), min_length: 1, max_length: 4)

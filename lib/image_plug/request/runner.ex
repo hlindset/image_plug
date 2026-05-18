@@ -10,10 +10,10 @@ defmodule ImagePlug.Request.Runner do
   alias ImagePlug.Plan
   alias ImagePlug.Plan.Output
   alias ImagePlug.Plan.Response
-  alias ImagePlug.Origin.Decoded
   alias ImagePlug.Request.Processor
+  alias ImagePlug.Request.Processor.Decoded
+  alias ImagePlug.Source
   alias ImagePlug.Telemetry
-  alias ImagePlug.Transform
   alias ImagePlug.Transform.State
 
   @type delivery() ::
@@ -27,17 +27,15 @@ defmodule ImagePlug.Request.Runner do
   @spec run(
           Plug.Conn.t(),
           Plan.t(),
-          String.t(),
+          Source.Resolved.t(),
           keyword()
         ) ::
           {:ok, delivery()} | {:error, error()}
-  def run(conn, %Plan{} = plan, origin_identity, opts) do
-    with {:ok, _pipelines} <- Transform.validate_prefetch_safe_plan(plan),
-         :ok <- validate_cache_config(opts) do
-      run_with_cache_config(conn, plan, origin_identity, opts)
+  def run(conn, %Plan{} = plan, %Source.Resolved{} = resolved_source, opts) do
+    with :ok <- validate_cache_config(opts) do
+      run_with_cache_config(conn, plan, resolved_source, opts)
     else
       {:error, {:cache, reason}} -> {:error, {:cache, reason}}
-      {:error, reason} -> {:error, {:processing, reason, []}}
     end
   end
 
@@ -54,13 +52,16 @@ defmodule ImagePlug.Request.Runner do
     end
   end
 
-  defp run_with_cache_config(conn, plan, origin_identity, opts) do
+  defp run_with_cache_config(conn, plan, %Source.Resolved{cache: :skip} = resolved_source, opts),
+    do: process_uncached(conn, plan, resolved_source, opts)
+
+  defp run_with_cache_config(conn, plan, %Source.Resolved{cache: :normal} = resolved_source, opts) do
     result =
       Telemetry.span(opts, [:cache, :lookup], cache_lookup_metadata(opts), fn ->
         result =
           case Keyword.get(opts, :cache) do
             nil -> :disabled
-            _cache -> Cache.lookup(conn, plan, origin_identity, opts)
+            _cache -> Cache.lookup(conn, plan, resolved_source.identity, opts)
           end
 
         {result, cache_lookup_stop_metadata(result)}
@@ -68,42 +69,42 @@ defmodule ImagePlug.Request.Runner do
 
     case result do
       :disabled ->
-        process_uncached(conn, plan, origin_identity, opts)
+        process_uncached(conn, plan, resolved_source, opts)
 
       {:hit, %Key{} = key, %Entry{} = entry} ->
-        handle_cache_hit(conn, plan, origin_identity, key, entry, opts)
+        handle_cache_hit(conn, plan, resolved_source, key, entry, opts)
 
       {:miss, %Key{} = key} ->
-        process_cache_miss(conn, plan, origin_identity, key, opts)
+        process_cache_miss(conn, plan, resolved_source, key, opts)
 
       {:miss, %Key{} = key, {:cache_read, _error}} ->
-        process_cache_miss(conn, plan, origin_identity, key, opts)
+        process_cache_miss(conn, plan, resolved_source, key, opts)
 
       {:error, {:cache_read, error}} ->
         {:error, {:cache, error}}
     end
   end
 
-  defp handle_cache_hit(conn, plan, origin_identity, key, entry, opts) do
+  defp handle_cache_hit(conn, plan, resolved_source, key, entry, opts) do
     case Response.content_disposition(plan.response, entry.content_type) do
       {:ok, _content_disposition} ->
         {:ok, {:cache_entry, entry, plan.response}}
 
       {:error, error} ->
-        handle_cache_delivery_error(conn, plan, origin_identity, key, opts, error)
+        handle_cache_delivery_error(conn, plan, resolved_source, key, opts, error)
     end
   end
 
-  defp handle_cache_delivery_error(conn, plan, origin_identity, key, opts, error) do
+  defp handle_cache_delivery_error(conn, plan, resolved_source, key, opts, error) do
     if Cache.fail_on_cache_error?(opts) do
       {:error, {:cache, error}}
     else
-      process_cache_miss(conn, plan, origin_identity, key, opts)
+      process_cache_miss(conn, plan, resolved_source, key, opts)
     end
   end
 
-  defp process_uncached(conn, plan, origin_identity, opts) do
-    case process_request(conn, plan, origin_identity, opts) do
+  defp process_uncached(conn, plan, resolved_source, opts) do
+    case process_request(conn, plan, resolved_source, opts) do
       {:ok, final_state, resolved_output, _response_headers} ->
         {:ok, {:image, final_state, resolved_output, plan.response}}
 
@@ -112,8 +113,8 @@ defmodule ImagePlug.Request.Runner do
     end
   end
 
-  defp process_cache_miss(conn, plan, origin_identity, key, opts) do
-    case process_request(conn, plan, origin_identity, opts) do
+  defp process_cache_miss(conn, plan, resolved_source, key, opts) do
+    case process_request(conn, plan, resolved_source, opts) do
       {:ok, final_state, resolved_output, response_headers} ->
         case store_cache_entry(key, final_state, resolved_output, opts) do
           {:ok, entry} -> {:ok, {:cache_entry, entry, plan.response}}
@@ -186,19 +187,19 @@ defmodule ImagePlug.Request.Runner do
   defp process_request(
          conn,
          %Plan{output: %Output{mode: :automatic}} = plan,
-         origin_identity,
+         resolved_source,
          opts
        ) do
     policy = Policy.from_output_plan(conn, plan.output, opts)
 
-    case Policy.resolve_before_origin(policy) do
+    case Policy.resolve_before_source_fetch(policy) do
       :needs_source_format ->
-        process_source_format_automatic(plan, origin_identity, opts, policy)
+        process_source_format_automatic(plan, resolved_source, opts, policy)
 
       _selection ->
         case resolve_output(policy, nil, plan.output, opts) do
           {:ok, %Resolved{} = resolved_output} ->
-            process_origin_with_output(plan, origin_identity, opts, resolved_output)
+            process_source_with_output(plan, resolved_source, opts, resolved_output)
 
           {:error, error} ->
             {:error, error, policy.headers}
@@ -209,22 +210,22 @@ defmodule ImagePlug.Request.Runner do
   defp process_request(
          conn,
          %Plan{output: %Output{mode: {:explicit, format}}} = plan,
-         origin_identity,
+         resolved_source,
          opts
        ) do
     policy = Policy.from_output_plan(conn, plan.output, opts)
 
     case resolve_output(policy, format, plan.output, opts) do
       {:ok, %Resolved{} = resolved_output} ->
-        process_origin_with_output(plan, origin_identity, opts, resolved_output)
+        process_source_with_output(plan, resolved_source, opts, resolved_output)
 
       {:error, error} ->
         {:error, error, policy.headers}
     end
   end
 
-  defp process_origin_with_output(plan, origin_identity, opts, %Resolved{} = resolved_output) do
-    case Processor.process_origin(plan, origin_identity, opts) do
+  defp process_source_with_output(plan, resolved_source, opts, %Resolved{} = resolved_output) do
+    case Processor.process_source(plan, resolved_source, opts) do
       {:ok, final_state} ->
         {:ok, final_state, resolved_output, resolved_output.representation_headers}
 
@@ -233,8 +234,8 @@ defmodule ImagePlug.Request.Runner do
     end
   end
 
-  defp process_decoded_origin_with_output(decoded, plan, opts, %Resolved{} = resolved_output) do
-    case Processor.process_decoded_origin(decoded, plan, opts) do
+  defp process_decoded_source_with_output(decoded, plan, opts, %Resolved{} = resolved_output) do
+    case Processor.process_decoded_source(decoded, plan, opts) do
       {:ok, final_state} ->
         {:ok, final_state, resolved_output, resolved_output.representation_headers}
 
@@ -243,8 +244,8 @@ defmodule ImagePlug.Request.Runner do
     end
   end
 
-  defp process_source_format_automatic(plan, origin_identity, opts, policy) do
-    case Processor.fetch_decode_validate_origin_with_source_format(plan, origin_identity, opts) do
+  defp process_source_format_automatic(plan, resolved_source, opts, policy) do
+    case Processor.fetch_decode_validate_source_with_source_format(plan, resolved_source, opts) do
       {:ok, %Decoded{} = decoded} ->
         resolve_source_format_automatic(decoded, plan, opts, policy)
 
@@ -256,7 +257,7 @@ defmodule ImagePlug.Request.Runner do
   defp resolve_source_format_automatic(%Decoded{} = decoded, plan, opts, policy) do
     case resolve_output(policy, decoded.source_format, plan.output, opts) do
       {:ok, %Resolved{} = resolved_output} ->
-        process_decoded_origin_with_output(decoded, plan, opts, resolved_output)
+        process_decoded_source_with_output(decoded, plan, opts, resolved_output)
 
       {:error, error} ->
         {:error, error, policy.headers}

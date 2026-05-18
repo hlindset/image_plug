@@ -8,11 +8,17 @@ defmodule ImagePlug.ImgproxyWireConformanceTest do
   alias ImgproxyWireConformanceTest.CountingOriginImage
   alias ImgproxyWireConformanceTest.OriginImage
   alias ImgproxyWireConformanceTest.OriginShouldNotFetch
+  alias ImagePlug.Cache.Entry
+  alias ImagePlug.SourceTest.CredentialProvider
+  alias ImagePlug.SourceTest.FoobarTranslator
+  alias ImagePlug.SourceTest.PlugCustomAdapter
+  alias ImagePlug.SourceTest.RootHTTPAdapter
 
   @default_opts [
-    root_url: "http://origin.test",
     parser: ImagePlug.Parser.Imgproxy,
-    origin_req_options: [plug: OriginImage]
+    sources: [
+      path: {RootHTTPAdapter, root_url: "http://origin.test", req_options: [plug: OriginImage]}
+    ]
   ]
 
   test "equivalent imgproxy option order shares filesystem cache through real Plug requests" do
@@ -116,9 +122,12 @@ defmodule ImagePlug.ImgproxyWireConformanceTest do
         call_imgproxy(
           path,
           Keyword.merge(opts,
-            root_url: "not-a-valid-origin-url",
             cache: {CacheProbe, []},
-            origin_req_options: [plug: OriginShouldNotFetch]
+            sources: [
+              path:
+                {RootHTTPAdapter,
+                 root_url: "http://origin.test", req_options: [plug: OriginShouldNotFetch]}
+            ]
           )
         )
 
@@ -156,6 +165,171 @@ defmodule ImagePlug.ImgproxyWireConformanceTest do
     end
   end
 
+  test "custom imgproxy scheme translator and custom source adapter fetch only on cache miss" do
+    opts =
+      ImagePlug.init(
+        parser: ImagePlug.Parser.Imgproxy,
+        imgproxy: [
+          source_schemes: %{
+            "foobar" => {FoobarTranslator, []}
+          }
+        ],
+        sources: [
+          foobar: {PlugCustomAdapter, adapter: :foobar}
+        ],
+        cache: {CacheProbe, []}
+      )
+
+    conn =
+      conn(:get, "/_/plain/foobar://asset/cat.jpg")
+      |> ImagePlug.call(opts)
+
+    assert conn.status == 200
+    assert_received {:foobar_translate, "foobar://asset/cat.jpg"}
+    assert_received {:custom_resolve, _source}
+    assert_received {:custom_fetch, :cat}
+  end
+
+  test "cache hit resolves custom source but does not fetch" do
+    opts =
+      ImagePlug.init(
+        parser: ImagePlug.Parser.Imgproxy,
+        imgproxy: [
+          source_schemes: %{"foobar" => {FoobarTranslator, []}}
+        ],
+        sources: [foobar: {PlugCustomAdapter, adapter: :foobar}],
+        cache: {CacheProbe, result: {:hit, cache_entry()}}
+      )
+
+    conn =
+      conn(:get, "/_/plain/foobar://asset/cat.jpg")
+      |> ImagePlug.call(opts)
+
+    assert conn.status == 200
+    assert_received {:custom_resolve, _source}
+    assert_received {:cache_lookup, _key}
+    refute_received {:custom_fetch, _fetch}
+    refute_received {:cache_put, _key, _entry}
+    assert source_order() == [:resolve, :cache_lookup]
+  end
+
+  test "cache miss fetches custom source and writes successful encoded response" do
+    opts =
+      ImagePlug.init(
+        parser: ImagePlug.Parser.Imgproxy,
+        imgproxy: [
+          source_schemes: %{"foobar" => {FoobarTranslator, []}}
+        ],
+        sources: [foobar: {PlugCustomAdapter, adapter: :foobar}],
+        cache: {CacheProbe, result: :miss}
+      )
+
+    conn =
+      conn(:get, "/_/plain/foobar://asset/cat.jpg")
+      |> ImagePlug.call(opts)
+
+    assert conn.status == 200
+    assert_received {:custom_resolve, _source}
+    assert_received {:cache_lookup, _key}
+    assert_received {:custom_fetch, :cat}
+    assert_received {:cache_put, _key, _entry}
+    assert source_order() == [:resolve, :cache_lookup, :fetch, :cache_put]
+  end
+
+  test "cache skip fetches custom source without cache lookup or write" do
+    opts =
+      ImagePlug.init(
+        parser: ImagePlug.Parser.Imgproxy,
+        imgproxy: [
+          source_schemes: %{"foobar" => {FoobarTranslator, []}}
+        ],
+        sources: [
+          foobar: {PlugCustomAdapter, adapter: :foobar, cache: :skip}
+        ],
+        cache: {CacheProbe, result: :miss}
+      )
+
+    conn =
+      conn(:get, "/_/plain/foobar://asset/cat.jpg")
+      |> ImagePlug.call(opts)
+
+    assert conn.status == 200
+    assert_received {:custom_resolve, _source}
+    assert_received {:custom_fetch, :cat}
+    refute_received {:cache_lookup, _key}
+    refute_received {:cache_put, _key, _entry}
+    assert source_order() == [:resolve, :fetch]
+  end
+
+  test "S3 cache hit resolves identity without asking credential providers" do
+    opts =
+      ImagePlug.init(
+        parser: ImagePlug.Parser.Imgproxy,
+        sources: [
+          s3:
+            {ImagePlug.Source.S3,
+             default: [
+               endpoint: "https://minio.test",
+               region: "eu-west-1",
+               credentials: {:provider, CredentialProvider, []}
+             ],
+             buckets: %{
+               "tenant-a" => [
+                 credentials: {:provider, CredentialProvider, []}
+               ]
+             }}
+        ],
+        cache: {CacheProbe, result: {:hit, cache_entry()}}
+      )
+
+    conn =
+      conn(:get, "/_/plain/s3://tenant-a/images/cat.jpg%3Fabc")
+      |> ImagePlug.call(opts)
+
+    assert conn.status == 200
+    assert_received {:cache_lookup, _key}
+    refute_received {:fetch_credentials, _, _, _}
+  end
+
+  test "S3 cache miss asks only the selected bucket credential provider before fetch" do
+    plug = fn conn ->
+      Plug.Conn.send_resp(conn, 200, File.read!("priv/static/images/beach.jpg"))
+    end
+
+    opts =
+      ImagePlug.init(
+        parser: ImagePlug.Parser.Imgproxy,
+        sources: [
+          s3:
+            {ImagePlug.Source.S3,
+             default: [
+               endpoint: "https://minio.test",
+               region: "eu-west-1",
+               credentials: {:provider, CredentialProvider, role: "default"},
+               req_options: [plug: plug]
+             ],
+             buckets: %{
+               "tenant-a" => [
+                 credentials: {:provider, CredentialProvider, role: "tenant-a"}
+               ],
+               "tenant-b" => [
+                 credentials: {:provider, CredentialProvider, role: "tenant-b"}
+               ]
+             }}
+        ],
+        cache: {CacheProbe, result: :miss}
+      )
+
+    conn =
+      conn(:get, "/_/plain/s3://tenant-a/images/cat.jpg%3Fabc")
+      |> ImagePlug.call(opts)
+
+    assert conn.status == 200
+    assert_received {:fetch_credentials, "tenant-a", [role: "tenant-a"], _runtime_opts}
+    refute_received {:fetch_credentials, "tenant-a", [role: "default"], _runtime_opts}
+    refute_received {:fetch_credentials, "tenant-b", [role: "tenant-b"], _runtime_opts}
+  end
+
   defp cached_opts do
     cache_root =
       Path.join(
@@ -168,7 +342,12 @@ defmodule ImagePlug.ImgproxyWireConformanceTest do
 
     opts =
       Keyword.merge(@default_opts,
-        origin_req_options: [plug: {CountingOriginImage, test_pid: self()}],
+        sources: [
+          path:
+            {RootHTTPAdapter,
+             root_url: "http://origin.test",
+             req_options: [plug: {CountingOriginImage, test_pid: self()}]}
+        ],
         cache:
           {ImagePlug.Cache.FileSystem,
            root: cache_root,
@@ -199,5 +378,24 @@ defmodule ImagePlug.ImgproxyWireConformanceTest do
   defp dimensions(conn) do
     image = Image.open!(conn.resp_body, access: :random, fail_on: :error)
     {Image.width(image), Image.height(image)}
+  end
+
+  defp cache_entry do
+    %Entry{
+      body: File.read!("priv/static/images/beach.jpg"),
+      content_type: "image/jpeg",
+      headers: [],
+      created_at: DateTime.utc_now()
+    }
+  end
+
+  defp source_order, do: receive_source_order([])
+
+  defp receive_source_order(events) do
+    receive do
+      {:source_order, event} -> receive_source_order([event | events])
+    after
+      0 -> Enum.reverse(events)
+    end
   end
 end

@@ -1,0 +1,137 @@
+defmodule ImagePlug.SourceTest.RootHTTPAdapter do
+  @moduledoc false
+
+  @behaviour ImagePlug.Source
+
+  alias ImagePlug.Plan.Source.Path, as: SourcePath
+  alias ImagePlug.Source
+  alias ImagePlug.Source.Resolved
+  alias ImagePlug.Source.Response
+  alias ImagePlug.Source.StreamError
+
+  @impl Source
+  def validate_options(opts) when is_list(opts) do
+    root_url = Keyword.fetch!(opts, :root_url)
+    req_options = Keyword.get(opts, :req_options, [])
+    cache = Keyword.get(opts, :cache, :normal)
+
+    {:ok, [root_url: root_url, req_options: req_options, cache: cache]}
+  end
+
+  @impl Source
+  def resolve(%SourcePath{segments: segments}, opts, _runtime_opts) do
+    root_url = Keyword.fetch!(opts, :root_url)
+
+    {:ok,
+     %Resolved{
+       adapter: :path,
+       source_kind: :path,
+       identity: [
+         kind: :path,
+         adapter: :test_http_root,
+         root: root_url,
+         path: segments
+       ],
+       cache: Keyword.fetch!(opts, :cache),
+       fetch: [
+         url: build_url(root_url, segments),
+         req_options: Keyword.fetch!(opts, :req_options)
+       ]
+     }}
+  end
+
+  @impl Source
+  def fetch(%Resolved{fetch: fetch}, _opts, runtime_opts) do
+    req_options =
+      fetch
+      |> Keyword.fetch!(:req_options)
+      |> Keyword.merge(url: Keyword.fetch!(fetch, :url), method: :get, max_redirects: 0)
+
+    {:ok, %Response{stream: request_stream(req_options, runtime_opts)}}
+  end
+
+  defp build_url(root_url, segments) do
+    path =
+      segments
+      |> Enum.map(fn segment -> URI.encode(segment, &URI.char_unreserved?/1) end)
+      |> Enum.join("/")
+
+    root_url = String.trim_trailing(root_url, "/")
+    root_url <> "/" <> path
+  end
+
+  defp request_stream(req_options, runtime_opts) do
+    receive_timeout = Keyword.get(runtime_opts, :receive_timeout, 5_000)
+
+    Stream.resource(
+      fn -> open_response(req_options, receive_timeout) end,
+      fn
+        %{response: %Req.Response{}} = state -> stream_response(state)
+        {:done, %{response: %Req.Response{} = response}} -> {:halt, response}
+        {:error, reason} -> raise StreamError, reason: reason
+      end,
+      fn
+        %{response: %Req.Response{} = response} -> cancel_response(response)
+        {:done, %{response: %Req.Response{} = response}} -> cancel_response(response)
+        _other -> :ok
+      end
+    )
+  end
+
+  defp open_response(req_options, receive_timeout) do
+    case Req.get(Keyword.merge(req_options, into: :self, retry: false),
+           receive_timeout: receive_timeout
+         ) do
+      {:ok, %Req.Response{status: status} = response} when status in 200..299 ->
+        %{response: response, receive_timeout: receive_timeout}
+
+      {:ok, %Req.Response{} = response} ->
+        cancel_response(response)
+        {:error, :bad_status}
+
+      {:error, _exception} ->
+        {:error, :bad_status}
+    end
+  end
+
+  defp stream_response(
+         %{response: %Req.Response{body: %Req.Response.Async{ref: ref}} = response} = state
+       ) do
+    with {:ok, message} <- next_message(ref, state.receive_timeout),
+         {:ok, chunks} <- parse_message(response, message) do
+      data_chunks = for {:data, data} <- chunks, do: data
+
+      if Enum.any?(chunks, &(&1 == :done)) do
+        {data_chunks, {:done, state}}
+      else
+        {data_chunks, state}
+      end
+    else
+      {:error, reason} -> raise StreamError, reason: reason
+      :unknown -> stream_response(state)
+    end
+  end
+
+  defp next_message(ref, receive_timeout) do
+    receive do
+      {^ref, _message} = message -> {:ok, message}
+    after
+      receive_timeout -> {:error, :bad_status}
+    end
+  end
+
+  defp parse_message(response, message) do
+    case Req.parse_message(response, message) do
+      {:ok, chunks} -> {:ok, chunks}
+      {:error, _exception} -> {:error, :bad_status}
+      :unknown -> :unknown
+    end
+  end
+
+  defp cancel_response(%Req.Response{} = response) do
+    Req.cancel_async_response(response)
+    :ok
+  rescue
+    ArgumentError -> :ok
+  end
+end

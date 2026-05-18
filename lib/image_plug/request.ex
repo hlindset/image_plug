@@ -6,7 +6,7 @@ defmodule ImagePlug.Request do
     deps: [
       ImagePlug.Plan,
       ImagePlug.Cache,
-      ImagePlug.Origin,
+      ImagePlug.Source,
       ImagePlug.Output,
       ImagePlug.Response,
       ImagePlug.Telemetry,

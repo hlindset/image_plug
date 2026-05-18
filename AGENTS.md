@@ -17,17 +17,17 @@
 
 ## Request safety guidelines
 
-- Preserve request safety boundaries: parser and planner validation failures should return before origin fetch or cache access, origin fetching should use non-bang Req flows with bounded redirects/timeouts/content-type/body limits, and decoded input pixel limits should remain explicit.
+- Preserve request safety boundaries: parser and planner validation failures should return before source fetch or cache access, source fetching should use non-bang Req flows with bounded redirects/timeouts/content-type/body limits, and decoded input pixel limits should remain explicit.
 
 ## Cache guidelines
 
-- Cache behavior is part of the contract. Cache only successful encoded responses; keep keys deterministic and based on resolved origin identity, canonical plan fields, configured vary inputs, and normalized `Accept` for `format:auto`; cache errors fail open by default unless `fail_on_cache_error: true`.
+- Cache behavior is part of the contract. Cache only successful encoded responses; keep keys deterministic and based on resolved source identity, canonical plan fields, configured vary inputs, and normalized `Accept` for `format:auto`; cache errors fail open by default unless `fail_on_cache_error: true`.
 - Because this library is greenfield and unreleased, do not bump internal cache key data versions for normal feature work or cache-shape changes. Reshape the canonical key data and update tests in place unless there is an explicit compatibility requirement to read or preserve old cache entries.
 
 ## Telemetry guidelines
 
 - Treat telemetry as part of the runtime observability contract. Use `:telemetry.span/3`-style `:start`, `:stop`, and `:exception` event naming for request and meaningful stage spans.
-- Keep telemetry metadata low-cardinality, product-neutral, and safe by default. Do not emit full request paths, origin URLs, signatures, filenames, parser-specific structs, transform internals, or cache adapter internals unless an explicit opt-in is designed and documented.
+- Keep telemetry metadata low-cardinality, product-neutral, and safe by default. Do not emit full request paths, source URLs, signatures, filenames, parser-specific structs, transform internals, or cache adapter internals unless an explicit opt-in is designed and documented.
 - Keep backend integrations out of the library. Emit telemetry events only; host applications should attach AppSignal, OpenTelemetry, metrics, or logging handlers themselves.
 - Prefer shared telemetry helpers over ad hoc event emission so naming, measurements, metadata merging, and exception behavior stay consistent.
 - Do not add per-operation transform spans unless the timing semantics are explicitly designed; libvips operations may be lazy, so stage spans are usually more honest than operation-level timings.
@@ -36,20 +36,22 @@
 
 - Keep the canonical request model under `ImagePlug.Plan.*`.
 - Keep parser behaviours and adapters under `ImagePlug.Parser.*`; parser-specific compatibility quirks should translate into `ImagePlug.Plan` or remain isolated in the parser/adapter layer.
-- Keep runtime side effects under `ImagePlug.Runtime.*`, including origin fetch, request execution, response sending, source identity, and runtime options.
+- Keep request orchestration and runtime options under `ImagePlug.Request.*`.
+- Keep source side effects and source identity under `ImagePlug.Source.*`.
+- Keep response delivery under `ImagePlug.Response.*`.
 - Keep output negotiation, format, policy, and encoding under `ImagePlug.Output.*`.
 - Keep transform contracts, operation structs, state, decode planning, materialization, and cache material protocols under `ImagePlug.Transform.*`.
-- Runtime code must dispatch through `ImagePlug.Transform` and must not name concrete transform operation modules such as `ImagePlug.Transform.Scale`, `Cover`, `Contain`, `Crop`, or `Focus`.
+- Request, source, and response code must dispatch through `ImagePlug.Transform` and must not name concrete transform operation modules such as `ImagePlug.Transform.Scale`, `Cover`, `Contain`, `Crop`, or `Focus`.
 - Boundary exports should stay narrow. Export behaviours and stable public/internal entry points, not implementation helpers.
 - `ImagePlug.SimpleServer` is dev/test support only and must remain outside prod compilation.
 
 ## Boundary library guidelines
 
 - Use `Boundary` declarations to enforce the namespace ownership described above. When adding or moving a top-level namespace, define its dependency direction explicitly instead of relying on implicit compile-time reachability.
-- Keep `deps:` aligned with architecture direction: parser code may depend on plan and transform construction APIs; runtime may depend on plan, cache, output, and the generic transform contract; cache may depend on plan/output/transform material; output may depend on plan; transform should remain independent of parser/runtime/cache/output.
+- Keep `deps:` aligned with architecture direction: parser code may depend on plan and transform construction APIs; request code may depend on plan, cache, source, output, response, telemetry, and the generic transform contract; source code may depend on plan and must stay out of cache, response, and parser code; cache may depend on plan/output/transform material; output may depend on plan; transform should remain independent of parser/request/source/cache/output/response.
 - Export only behaviours and stable public/internal entry points from each boundary. Do not export implementation helpers just to satisfy a compile error; move the helper to the correct boundary or add a narrow facade.
-- Runtime modules may call generic `ImagePlug.Transform` functions such as `transform_name/1`, `metadata/1`, and `execute/2`, but must not alias or reference concrete operation modules. Parser and planner modules may construct exported concrete operation structs when translating syntax into a product-neutral plan.
-- Boundary rule changes should come with focused architecture tests, especially for runtime avoiding concrete transform modules and parser-specific structs.
+- Request, source, and response modules may call generic `ImagePlug.Transform` functions such as `transform_name/1`, `metadata/1`, and `execute/2`, but must not alias or reference concrete operation modules. Parser and planner modules may construct exported concrete operation structs when translating syntax into a product-neutral plan.
+- Boundary rule changes should come with focused architecture tests, especially for request/source/response code avoiding concrete transform modules and parser-specific structs.
 
 ## Elixir architecture guidelines
 
@@ -108,9 +110,9 @@
 
 ## Test guidelines
 
-- For behavior changes, add focused ExUnit coverage at the relevant boundary: parser grammar/order-insensitivity, planner mapping, plug-level no-origin-fetch failures, output negotiation including `Vary: Accept`, cache key/corruption behavior, and origin/decode limit handling.
-- For compatibility parsers such as imgproxy, add a compact set of wire-level Plug tests when changing request parsing, planning, output negotiation, caching, or safety behavior. These tests should make real `ImagePlug.call/2` requests and assert user-visible contracts such as status, headers, content type, decoded output dimensions, cache/origin access, and response-body equivalence where relevant.
-- Keep wire-level compatibility tests representative, not exhaustive. Use them for public contracts such as option-order equivalence, `Accept` negotiation and `Vary`, explicit output formats bypassing negotiation, representative geometry results, request-safety failures before origin/cache access, and cache reuse for semantically equivalent requests. Leave grammar edge cases and combinatorial coverage in parser, planner, cache-key, and property tests.
+- For behavior changes, add focused ExUnit coverage at the relevant boundary: parser grammar/order-insensitivity, planner mapping, plug-level no-source-fetch failures, output negotiation including `Vary: Accept`, cache key/corruption behavior, and source/decode limit handling.
+- For compatibility parsers such as imgproxy, add a compact set of wire-level Plug tests when changing request parsing, planning, output negotiation, caching, or safety behavior. These tests should make real `ImagePlug.call/2` requests and assert user-visible contracts such as status, headers, content type, decoded output dimensions, cache/source access, and response-body equivalence where relevant.
+- Keep wire-level compatibility tests representative, not exhaustive. Use them for public contracts such as option-order equivalence, `Accept` negotiation and `Vary`, explicit output formats bypassing negotiation, representative geometry results, request-safety failures before source/cache access, and cache reuse for semantically equivalent requests. Leave grammar edge cases and combinatorial coverage in parser, planner, cache-key, and property tests.
 - Do not test impossible internal misuse. Prefer deleting tests that only assert behavior for bad internal callers, hand-built impossible parser structs, negative guard branches, or exact private validation error strings. Add tests for public behavior and safety boundaries, not for every defensive clause.
 - Do not add tests that only police names or modules from abandoned designs, such as asserting stale modules remain deleted. Boundary tests should enforce current architecture ownership and forbidden dependency directions, not memorialize old implementation paths.
 - Do not add tests that inspect raw source text just to enforce private helper choices, bang/non-bang spellings, or other implementation details. Use behavior tests for runtime contracts and reserve source-scanning tests for real architecture boundaries such as forbidden namespace dependencies.

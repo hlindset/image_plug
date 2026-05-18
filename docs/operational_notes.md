@@ -1,19 +1,32 @@
 # Operational notes
 
 ImagePlug verifies Imgproxy signatures and parses Imgproxy path options before
-fetching the origin image. Invalid signatures return `403`, and invalid
-processing requests return `400`, both without origin traffic.
+fetching source bytes. Invalid signatures return `403`, and invalid processing
+requests return `400`, both without source traffic.
 
-Origin fetches use non-bang Req calls with bounded redirects, receive timeout,
-and a max response body size. ImagePlug reads the source format from the decoded
-image rather than trusted HTTP headers. Configure these limits with
-`:origin_max_redirects`, `:origin_receive_timeout`, `:max_body_bytes`, and
-`:max_input_pixels`.
+Parser and plan validation finish before source resolution, cache lookup, or
+fetch. Source resolution finishes before cache lookup. Requests eligible for
+caching look up the cache before source fetch and decode, so fetch and decode run
+only on a cache miss or when the resolved source has `cache: :skip`.
+
+HTTP and S3 source fetches use non-bang Req calls with bounded redirects and
+receive timeouts. ImagePlug reads the source format from the decoded image
+rather than trusted HTTP headers. Configure byte and decode limits with
+`:max_body_bytes` and `:max_input_pixels`.
+
+Built-in HTTP and S3 `req_options` are host-owned behavior. They must not vary
+source bytes for the same resolved identity. Byte-selecting request options need
+URI/object revision material, `cache: :skip`, or a custom adapter identity
+field.
+
+S3 `buckets` is a map. When present, it's an allowlist. `default` supplies
+shared defaults. Each bucket entry can override region, endpoint, credentials,
+request options, and cache policy.
 
 ## Decode planning
 
 For transform chains proven safe for one-pass reads, ImagePlug may open the
-origin image with libvips sequential access before resizing. The first supported
+source image with libvips sequential access before resizing. The first supported
 shapes cover fit and force resize requests with concrete target dimensions. These
 shapes may use sequential access whether the result downscales or upscales.
 
@@ -21,17 +34,17 @@ Chains involving crop, cover, or fill result crops, canvas extension, unknown
 transforms, output-only requests, or no geometry transform continue to use
 random access.
 
-When a parsed plan contains multiple image pipelines, ImagePlug materializes the
+When a parsed plan contains more than one image pipeline, ImagePlug materializes the
 image between pipelines. This preserves the explicit pipeline boundary and lets
-origin decode planning consider the first pipeline only. Later pipelines may
-contain operations classified as requiring random access. Those operations run
-against a memory-backed intermediate image instead of changing how ImagePlug
-opens the origin image.
+source decode planning consider the first pipeline only. Later pipelines may
+contain operations classified as requiring random access. Those operations use
+a memory-backed intermediate image instead of changing how ImagePlug
+opens the source image.
 
 Sequential decode doesn't use JPEG shrink-on-load or WebP scale hints in this
-pass. Origin byte limits, receive timeouts, decoded pixel limits, and decode
+pass. Source byte limits, receive timeouts, decoded pixel limits, and decode
 error responses still apply. Cache hits serve stored response bodies directly
-and skip origin decode optimization.
+and skip source decode optimization.
 
 ## Automatic output
 

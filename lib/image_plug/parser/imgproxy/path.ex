@@ -118,12 +118,12 @@ defmodule ImagePlug.Parser.Imgproxy.Path do
   end
 
   defp decode_source_path(source, source_format) do
-    with {:ok, decoded} <- decode_source_segments(source) do
-      {:ok, decoded, source_format}
+    with :ok <- validate_percent_encoded_segments(source) do
+      {:ok, source, source_format}
     end
   end
 
-  defp decode_source_segments(source) do
+  defp validate_percent_encoded_segments(source) do
     source
     |> String.split("/", trim: false)
     |> Enum.reduce_while({:ok, []}, fn segment, {:ok, decoded_segments} ->
@@ -133,7 +133,7 @@ defmodule ImagePlug.Parser.Imgproxy.Path do
       end
     end)
     |> case do
-      {:ok, decoded_segments} -> {:ok, Enum.reverse(decoded_segments)}
+      {:ok, _decoded_segments} -> :ok
       {:error, _reason} = error -> error
     end
   end

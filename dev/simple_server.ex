@@ -23,7 +23,7 @@ defmodule ImagePlug.SimpleServer do
   plug :match
   plug :dispatch
 
-  # Missing origin image paths should 404 here instead of being forwarded back
+  # Missing static image paths should 404 here instead of being forwarded back
   # through ImagePlug and parsed as processing URLs.
   match "/images/*path" do
     send_resp(conn, 404, "404 Not Found")
@@ -43,8 +43,10 @@ defmodule ImagePlug.SimpleServer do
 
   defp image_plug_opts do
     [
-      root_url: root_url(),
       parser: ImagePlug.Parser.Imgproxy,
+      sources: [
+        path: {ImagePlug.Source.File, root: "priv/static", root_id: "static"}
+      ],
       imgproxy: [
         signature: [
           keys: ["736563726574"],
@@ -55,12 +57,6 @@ defmodule ImagePlug.SimpleServer do
     ]
     |> maybe_put_cache(cache_config())
     |> ImagePlug.init()
-  end
-
-  defp root_url do
-    :image_plug
-    |> Application.get_env(__MODULE__, [])
-    |> Keyword.get(:root_url, "http://localhost:4000")
   end
 
   defp cache_config do

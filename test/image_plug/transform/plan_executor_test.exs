@@ -4,6 +4,7 @@ defmodule ImagePlug.Transform.PlanExecutorTest do
   alias ImagePlug.Plan
   alias ImagePlug.Plan.Operation
   alias ImagePlug.Plan.Pipeline
+  alias ImagePlug.Plan.Source
   alias ImagePlug.Transform
   alias ImagePlug.Transform.Operation.AutoOrient
   alias ImagePlug.Transform.Operation.Flip
@@ -382,7 +383,7 @@ defmodule ImagePlug.Transform.PlanExecutorTest do
 
   defp plan(operations) do
     %Plan{
-      source: {:plain, ["images", "cat.jpg"]},
+      source: %Source.Path{segments: ["images", "cat.jpg"]},
       pipelines: [%Pipeline{operations: operations}],
       output: %ImagePlug.Plan.Output{mode: {:explicit, :jpeg}}
     }

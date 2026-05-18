@@ -2,10 +2,13 @@ defmodule ImagePlug.RequestOptionsTest do
   use ExUnit.Case, async: true
 
   alias ImagePlug.Request.Options
+  alias ImagePlug.SourceTest.CustomAdapter
 
   @base_opts [
     parser: ImagePlug.Parser.Imgproxy,
-    root_url: "http://origin.test"
+    sources: [
+      path: {CustomAdapter, adapter: :path}
+    ]
   ]
 
   test "validate! accepts clock as a zero-arity function" do
@@ -21,6 +24,46 @@ defmodule ImagePlug.RequestOptionsTest do
                    fn ->
                      Options.validate!(Keyword.put(@base_opts, :clock, clock))
                    end
+    end
+  end
+
+  test "request options accept sources without root_url" do
+    assert opts =
+             Options.validate!(
+               parser: ImagePlug.Parser.Imgproxy,
+               sources: [
+                 path: {CustomAdapter, adapter: :path}
+               ]
+             )
+
+    assert opts[:sources][:path]
+    refute Keyword.has_key?(opts, :root_url)
+  end
+
+  test "request options reject invalid source adapter config during init" do
+    assert_raise ArgumentError, fn ->
+      Options.validate!(
+        parser: ImagePlug.Parser.Imgproxy,
+        sources: [path: {CustomAdapter, :not_options}]
+      )
+    end
+  end
+
+  test "request options reject stale origin configuration after source integration" do
+    assert_raise ArgumentError, fn ->
+      Options.validate!(
+        parser: ImagePlug.Parser.Imgproxy,
+        sources: [path: {CustomAdapter, adapter: :path}],
+        root_url: "https://origin.example"
+      )
+    end
+
+    assert_raise ArgumentError, fn ->
+      Options.validate!(
+        parser: ImagePlug.Parser.Imgproxy,
+        sources: [path: {CustomAdapter, adapter: :path}],
+        origin_req_options: [plug: OriginImage]
+      )
     end
   end
 end

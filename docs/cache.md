@@ -6,8 +6,10 @@ ImagePlug can cache complete encoded responses after successful processing:
 forward "/",
   to: ImagePlug,
   init_opts: [
-    root_url: "http://localhost:4000",
     parser: ImagePlug.Parser.Imgproxy,
+    sources: [
+      path: {ImagePlug.Source.File, root: "/srv/images", root_id: "primary"}
+    ],
     cache:
       {ImagePlug.Cache.FileSystem,
        root: "/var/cache/image_plug",
@@ -19,17 +21,17 @@ forward "/",
   ]
 ```
 
-Cache lookup happens only after request parsing, plan validation, and origin
-identity resolution. A lookup doesn't fetch, decode, or read metadata from the
-origin image. Invalid parser and planner requests return `400` before origin or
-cache access. Invalid Imgproxy signatures return `403`. Parser, planner, origin
+Cache lookup happens only after request parsing, plan validation, and source
+resolution. A lookup doesn't fetch, decode, or read metadata from the source
+image. Invalid parser and planner requests return before source fetch or cache
+access. Invalid Imgproxy signatures return `403`. Parser, planner, source
 fetch, decode, transform, negotiation, and encode errors are never cached.
 
 ## Cache keys
 
 Cache keys include:
 
-- resolved origin identity and freshness data
+- resolved source identity
 - canonical Plan operation key data
 - the cache key's transform key data version
 - configured `:key_headers` and `:key_cookies`
@@ -60,7 +62,7 @@ header names to lowercase and preserves duplicate allowed headers.
 `ImagePlug.Cache.FileSystem` requires an absolute `:root`. The optional
 `:path_prefix` must be relative and rejects backslashes, duplicate-slash empty
 segments, `.`, `..`, and `~`-prefixed path segments. Generated hashes determine
-cache paths, not request, origin, header, or cookie data.
+cache paths, not request, source, header, or cookie data.
 
 Filesystem metadata has an independent `metadata_version` and includes the
 cached body filename, byte size, and SHA-256 digest. Body files are
@@ -77,6 +79,6 @@ still receives encoded response bodies over the cache `:max_body_bytes` limit,
 but the cache skips storage. `:max_body_bytes` must be `nil` or a non-negative
 integer.
 
-The filesystem adapter validates generated paths against the configured root
+The filesystem adapter validates generated paths under the configured root
 with `Path.safe_relative/2`, so paths that escape through symlinks fail as cache
 path errors.

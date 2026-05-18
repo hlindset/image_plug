@@ -6,6 +6,7 @@ defmodule ImagePlug.PlanTest do
   alias ImagePlug.Plan.Output
   alias ImagePlug.Plan.Pipeline
   alias ImagePlug.Plan.Response
+  alias ImagePlug.Plan.Source
   alias ImagePlug.Transform.Operation.AutoOrient
   alias ImagePlug.Transform.Operation.Flip
   alias ImagePlug.Transform.Operation.Rotate
@@ -14,12 +15,12 @@ defmodule ImagePlug.PlanTest do
     operations = [resize_operation()]
 
     plan = %Plan{
-      source: {:plain, ["images", "cat.jpg"]},
+      source: %Source.Path{segments: ["images", "cat.jpg"]},
       pipelines: [%Pipeline{operations: operations}],
       output: %Output{mode: {:explicit, :webp}}
     }
 
-    assert plan.source == {:plain, ["images", "cat.jpg"]}
+    assert plan.source == %Source.Path{segments: ["images", "cat.jpg"]}
     assert [%Pipeline{operations: ^operations}] = plan.pipelines
     assert plan.output.mode == {:explicit, :webp}
   end
@@ -28,7 +29,7 @@ defmodule ImagePlug.PlanTest do
     operation = resize_operation()
 
     plan = %Plan{
-      source: {:plain, ["images", "cat.jpg"]},
+      source: %Source.Path{segments: ["images", "cat.jpg"]},
       pipelines: [%Pipeline{operations: [operation]}],
       output: %Output{mode: {:explicit, :webp}}
     }
@@ -83,11 +84,14 @@ defmodule ImagePlug.PlanTest do
     assert {:ok, ^plan} = Plan.validate_shape(plan)
   end
 
-  test "validate shape rejects improper plain source path without raising" do
-    source = {:plain, ["images" | :bad]}
-
-    assert Plan.validate_shape(plan(source: source)) ==
-             {:error, {:unsupported_source, source}}
+  test "validate shape rejects improper path source without raising" do
+    for source <- [
+          %Source.Path{segments: []},
+          %Source.Path{segments: ["images" | :bad]}
+        ] do
+      assert Plan.validate_shape(plan(source: source)) ==
+               {:error, {:unsupported_source, source}}
+    end
   end
 
   test "validate shape rejects invalid expires values" do
@@ -143,7 +147,7 @@ defmodule ImagePlug.PlanTest do
       Plan,
       Keyword.merge(
         [
-          source: {:plain, ["images", "cat.jpg"]},
+          source: %Source.Path{segments: ["images", "cat.jpg"]},
           pipelines: [%Pipeline{operations: []}],
           output: %Output{mode: :automatic}
         ],

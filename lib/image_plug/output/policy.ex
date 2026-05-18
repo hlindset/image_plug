@@ -45,23 +45,26 @@ defmodule ImagePlug.Output.Policy do
     }
   end
 
-  @spec resolve_before_origin(t()) ::
+  @spec resolve_before_source_fetch(t()) ::
           {:selected, format(), reason()} | :needs_source_format | {:needs_encoded_evaluation}
-  def resolve_before_origin(%__MODULE__{mode: {:explicit, format}}),
+  def resolve_before_source_fetch(%__MODULE__{mode: {:explicit, format}}),
     do: {:selected, format, :explicit}
 
-  def resolve_before_origin(%__MODULE__{mode: :source, modern_candidates: [format | _rest]}),
-    do: {:selected, format, :auto}
+  def resolve_before_source_fetch(%__MODULE__{
+        mode: :source,
+        modern_candidates: [format | _rest]
+      }),
+      do: {:selected, format, :auto}
 
-  def resolve_before_origin(%__MODULE__{mode: :source, modern_candidates: []}),
+  def resolve_before_source_fetch(%__MODULE__{mode: :source, modern_candidates: []}),
     do: :needs_source_format
 
-  def resolve_before_origin(%__MODULE__{mode: :best}), do: {:needs_encoded_evaluation}
+  def resolve_before_source_fetch(%__MODULE__{mode: :best}), do: {:needs_encoded_evaluation}
 
   @spec resolve(t(), format() | nil) ::
           {:ok, Resolved.t()} | {:error, :source_format_required} | {:needs_encoded_evaluation}
   def resolve(%__MODULE__{} = policy, source_format) do
-    case resolve_before_origin(policy) do
+    case resolve_before_source_fetch(policy) do
       {:selected, format, _reason} ->
         {:ok, resolved(policy, format)}
 

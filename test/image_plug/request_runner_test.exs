@@ -11,7 +11,10 @@ defmodule ImagePlug.Request.RunnerTest do
   alias ImagePlug.Plan.Output
   alias ImagePlug.Plan.Pipeline
   alias ImagePlug.Plan.Response
+  alias ImagePlug.Plan.Source.Path, as: SourcePath
   alias ImagePlug.Request.Runner
+  alias ImagePlug.Source.Resolved, as: SourceResolved
+  alias ImagePlug.Source.Response, as: SourceResponse
   alias ImagePlug.Transform.State
 
   defmodule CacheHit do
@@ -61,29 +64,41 @@ defmodule ImagePlug.Request.RunnerTest do
     end
   end
 
-  defmodule OriginImage do
-    def init(opts), do: opts
+  defmodule SourceImage do
+    @behaviour ImagePlug.Source
 
-    def call(%Plug.Conn{request_path: "/images/beach.jpg"} = conn, opts) do
+    @impl ImagePlug.Source
+    def validate_options(opts), do: {:ok, opts}
+
+    @impl ImagePlug.Source
+    def resolve(_source, _opts, _runtime_opts), do: raise("runner tests pass resolved sources")
+
+    @impl ImagePlug.Source
+    def fetch(_resolved, opts, _runtime_opts) do
       emit(opts)
-
       body = File.read!("priv/static/images/beach.jpg")
-
-      conn
-      |> Plug.Conn.put_resp_content_type("image/jpeg")
-      |> Plug.Conn.send_resp(200, body)
+      {:ok, %SourceResponse{stream: [body]}}
     end
 
     defp emit(opts) do
       case Keyword.fetch(opts, :test_pid) do
-        {:ok, pid} -> send(pid, {:runner_event, Keyword.fetch!(opts, :test_ref), :origin_fetch})
+        {:ok, pid} -> send(pid, {:runner_event, Keyword.fetch!(opts, :test_ref), :source_fetch})
         :error -> :ok
       end
     end
   end
 
-  defmodule OriginShouldNotFetch do
-    def call(_conn, _opts), do: raise("origin should not fetch on cache hit")
+  defmodule SourceShouldNotFetch do
+    @behaviour ImagePlug.Source
+
+    @impl ImagePlug.Source
+    def validate_options(opts), do: {:ok, opts}
+
+    @impl ImagePlug.Source
+    def resolve(_source, _opts, _runtime_opts), do: raise("runner tests pass resolved sources")
+
+    @impl ImagePlug.Source
+    def fetch(_resolved, _opts, _runtime_opts), do: raise("source should not fetch on cache hit")
   end
 
   defmodule Materializer do
@@ -104,7 +119,7 @@ defmodule ImagePlug.Request.RunnerTest do
       Plan,
       Keyword.merge(
         [
-          source: {:plain, ["images", "beach.jpg"]},
+          source: %SourcePath{segments: ["images", "beach.jpg"]},
           pipelines: [%Pipeline{operations: []}],
           output: %Output{mode: {:explicit, :jpeg}}
         ],
@@ -141,6 +156,22 @@ defmodule ImagePlug.Request.RunnerTest do
   defp tagged_resize_dimension(:auto), do: :auto
   defp tagged_resize_dimension(pixels), do: {:px, pixels}
 
+  defp resolved_source(overrides \\ []) do
+    struct!(
+      SourceResolved,
+      Keyword.merge(
+        [
+          adapter: :path,
+          source_kind: :path,
+          identity: [kind: :path, root: "test", path: ["images", "beach.jpg"]],
+          cache: :normal,
+          fetch: :fixture
+        ],
+        overrides
+      )
+    )
+  end
+
   test "explicit cache hit returns a cache-entry delivery without processing origin" do
     entry = %Entry{
       body: "cached jpeg",
@@ -153,7 +184,7 @@ defmodule ImagePlug.Request.RunnerTest do
              Runner.run(
                conn(:get, "/_/f:jpeg/plain/images/beach.jpg"),
                plan(),
-               "http://origin.test/images/beach.jpg",
+               resolved_source(),
                cache: {CacheHit, entry: entry}
              )
   end
@@ -175,7 +206,7 @@ defmodule ImagePlug.Request.RunnerTest do
              Runner.run(
                conn,
                plan(output: %Output{mode: :automatic}),
-               "http://origin.test/images/beach.jpg",
+               resolved_source(),
                cache: {CacheHit, entry: entry}
              )
   end
@@ -198,13 +229,27 @@ defmodule ImagePlug.Request.RunnerTest do
              Runner.run(
                conn(:get, "/_/rt:auto/w:100/h:100/f:jpeg/plain/images/beach.jpg"),
                plan(pipelines: [%Pipeline{operations: [operation]}]),
-               "origin-version-1",
+               resolved_source(
+                 identity: [
+                   kind: :path,
+                   root: "test",
+                   path: ["images", "beach.jpg"],
+                   revision: "1"
+                 ]
+               ),
                cache: {CacheReadProbe, entry: entry},
-               origin_req_options: [plug: OriginShouldNotFetch]
+               sources: %{path: {SourceShouldNotFetch, []}}
              )
 
     assert_received {:cache_lookup, key}
-    assert key.data[:origin_identity] == "origin-version-1"
+
+    assert key.data[:source_identity] == [
+             kind: :path,
+             root: "test",
+             path: ["images", "beach.jpg"],
+             revision: "1"
+           ]
+
     assert [[operation_data]] = key.data[:pipelines]
     assert operation_data[:op] == :resize
     assert operation_data[:mode] == :auto
@@ -227,15 +272,15 @@ defmodule ImagePlug.Request.RunnerTest do
              Runner.run(
                conn(:get, "/_/rt:auto/w:100/h:100/f:jpeg/plain/images/beach.jpg"),
                plan(pipelines: [%Pipeline{operations: [operation]}]),
-               "http://origin.test/images/beach.jpg",
+               resolved_source(),
                cache: {CacheMissWriteProbe, test_pid: self(), test_ref: ref},
-               origin_req_options: [plug: {OriginImage, test_pid: self(), test_ref: ref}]
+               sources: %{path: {SourceImage, test_pid: self(), test_ref: ref}}
              )
 
     assert_receive {:runner_event, ^ref, first_event}
     assert {:cache_lookup, key} = first_event
     assert_receive {:runner_event, ^ref, second_event}
-    assert second_event == :origin_fetch
+    assert second_event == :source_fetch
     assert_receive {:runner_event, ^ref, third_event}
     assert {:cache_put, ^key} = third_event
 
@@ -244,69 +289,12 @@ defmodule ImagePlug.Request.RunnerTest do
     refute_received {:cache_lookup, _second_key}
   end
 
-  test "empty pipeline plans return processing errors before cache lookup" do
-    entry = %Entry{
-      body: "cached jpeg",
-      content_type: "image/jpeg",
-      headers: [],
-      created_at: DateTime.utc_now()
-    }
-
-    assert {:error, {:processing, :empty_pipeline_plan, []}} =
-             Runner.run(
-               conn(:get, "/_/f:jpeg/plain/images/beach.jpg"),
-               plan(pipelines: []),
-               "http://origin.test/images/beach.jpg",
-               cache: {CacheReadProbe, entry: entry}
-             )
-
-    refute_received {:cache_lookup, _key}
-  end
-
-  test "invalid pipeline plans return processing errors before cache lookup" do
-    entry = %Entry{
-      body: "cached jpeg",
-      content_type: "image/jpeg",
-      headers: [],
-      created_at: DateTime.utc_now()
-    }
-
-    assert {:error, {:processing, {:invalid_pipeline_plan, [:not_a_pipeline]}, []}} =
-             Runner.run(
-               conn(:get, "/_/f:jpeg/plain/images/beach.jpg"),
-               plan(pipelines: [:not_a_pipeline]),
-               "http://origin.test/images/beach.jpg",
-               cache: {CacheReadProbe, entry: entry}
-             )
-
-    refute_received {:cache_lookup, _key}
-  end
-
-  test "invalid pipeline operations return processing errors before cache lookup" do
-    entry = %Entry{
-      body: "cached jpeg",
-      content_type: "image/jpeg",
-      headers: [],
-      created_at: DateTime.utc_now()
-    }
-
-    assert {:error, {:processing, {:invalid_pipeline_operation, :not_operation}, []}} =
-             Runner.run(
-               conn(:get, "/_/f:jpeg/plain/images/beach.jpg"),
-               plan(pipelines: [%Pipeline{operations: [:not_operation]}]),
-               "http://origin.test/images/beach.jpg",
-               cache: {CacheReadProbe, entry: entry}
-             )
-
-    refute_received {:cache_lookup, _key}
-  end
-
   test "invalid cache config returns cache errors before cache lookup" do
     assert {:error, {:cache, {:invalid_cache_config, {:fail_on_cache_error, "false"}}}} =
              Runner.run(
                conn(:get, "/_/f:jpeg/plain/images/beach.jpg"),
                plan(),
-               "http://origin.test/images/beach.jpg",
+               resolved_source(),
                cache: {CacheReadProbe, entry: nil, fail_on_cache_error: "false"}
              )
 
@@ -327,7 +315,7 @@ defmodule ImagePlug.Request.RunnerTest do
 
     opts = [
       image_materializer: Materializer,
-      origin_req_options: [plug: OriginImage],
+      sources: %{path: {SourceImage, test_pid: self(), test_ref: ref}},
       test_pid: test_pid,
       test_ref: ref
     ]
@@ -339,13 +327,12 @@ defmodule ImagePlug.Request.RunnerTest do
              Runner.run(
                conn(:get, "/_/f:jpeg/plain/images/beach.jpg"),
                plan,
-               "http://origin.test/images/beach.jpg",
+               resolved_source(),
                opts
              )
 
     assert state.image
-    assert_receive first_message
-    assert first_message == {:pipeline_event, ref, :materialized_between_pipelines}
+    assert_receive {:pipeline_event, ^ref, :materialized_between_pipelines}
   end
 
   test "resolved output carries effective explicit quality" do
@@ -365,8 +352,8 @@ defmodule ImagePlug.Request.RunnerTest do
              Runner.run(
                conn(:get, "/_/f:webp/fq:webp:70/plain/images/beach.jpg"),
                plan,
-               "http://origin.test/images/beach.jpg",
-               origin_req_options: [plug: OriginImage]
+               resolved_source(),
+               sources: %{path: {SourceImage, []}}
              )
   end
 
@@ -386,7 +373,7 @@ defmodule ImagePlug.Request.RunnerTest do
              Runner.run(
                conn(:get, "/_/f:jpeg/plain/images/beach.jpg"),
                plan,
-               "http://origin.test/images/beach.jpg",
+               resolved_source(),
                cache: {CacheReadProbe, entry: entry}
              )
 
@@ -423,8 +410,8 @@ defmodule ImagePlug.Request.RunnerTest do
              Runner.run(
                conn(:get, "/_/f:jpeg/plain/images/beach.jpg"),
                plan(response: response),
-               "http://origin.test/images/beach.jpg",
-               origin_req_options: [plug: OriginImage]
+               resolved_source(),
+               sources: %{path: {SourceImage, []}}
              )
 
     entry = %Entry{
@@ -438,7 +425,7 @@ defmodule ImagePlug.Request.RunnerTest do
              Runner.run(
                conn(:get, "/_/f:jpeg/plain/images/beach.jpg"),
                plan(response: response),
-               "http://origin.test/images/beach.jpg",
+               resolved_source(),
                cache: {CacheHit, entry: entry}
              )
   end
@@ -460,9 +447,9 @@ defmodule ImagePlug.Request.RunnerTest do
              Runner.run(
                conn(:get, "/_/f:jpeg/plain/images/beach.jpg"),
                plan(response: response),
-               "http://origin.test/images/beach.jpg",
+               resolved_source(),
                cache: {CacheHitWriteProbe, entry: invalid_entry},
-               origin_req_options: [plug: OriginImage]
+               sources: %{path: {SourceImage, []}}
              )
 
     assert_received {:cache_lookup, key}
@@ -473,7 +460,7 @@ defmodule ImagePlug.Request.RunnerTest do
              Runner.run(
                conn(:get, "/_/f:jpeg/plain/images/beach.jpg"),
                plan(response: response),
-               "http://origin.test/images/beach.jpg",
+               resolved_source(),
                cache: {CacheHit, entry: invalid_entry, fail_on_cache_error: true}
              )
   end

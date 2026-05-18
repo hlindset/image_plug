@@ -480,11 +480,15 @@ export function imageRequestBytesFromPerformance(
   return null;
 }
 
+export function sourceIdentifierForRequest(source: SourceImage): string {
+  return `local:///${source}`;
+}
+
 export function signedPathForState(currentState: DemoState): string {
   const options = optionSegments(currentState).join("/");
   const optionsPath = options === "" ? "" : `/${options}`;
 
-  return `${optionsPath}/plain/${currentState.source}`;
+  return `${optionsPath}/plain/${sourceIdentifierForRequest(currentState.source)}`;
 }
 
 export function processingPathFromSignedPath(signature: string, signedPath: string): string {

@@ -8,12 +8,17 @@ defmodule ImagePlug.Parser.Imgproxy.PlanBuilder do
   alias ImagePlug.Parser.Imgproxy.PipelineRequest
   alias ImagePlug.Parser.Imgproxy.RequestPolicy
   alias ImagePlug.Parser.Imgproxy.ResponseRequest
+  alias ImagePlug.Parser.Imgproxy.Source, as: ImgproxySource
   alias ImagePlug.Plan
   alias ImagePlug.Plan.Operation
   alias ImagePlug.Plan.Orientation
   alias ImagePlug.Plan.Output
   alias ImagePlug.Plan.Pipeline
   alias ImagePlug.Plan.Response
+  alias ImagePlug.Plan.Source.Object
+  alias ImagePlug.Plan.Source.Path
+  alias ImagePlug.Plan.Source.Reference
+  alias ImagePlug.Plan.Source.URL
   alias ImagePlug.Transform.Operation.AutoOrient
   alias ImagePlug.Transform.Operation.Flip
   alias ImagePlug.Transform.Operation.Rotate
@@ -23,7 +28,7 @@ defmodule ImagePlug.Parser.Imgproxy.PlanBuilder do
 
   @spec to_plan(ParsedRequest.t(), keyword()) :: {:ok, Plan.t()} | {:error, term()}
   def to_plan(%ParsedRequest{} = request, opts \\ []) do
-    with {:ok, source} <- source_plan(request.source_kind, request.source_path),
+    with {:ok, source} <- source_plan(request.source_kind, request.source_path, opts),
          {:ok, output} <- output_plan(request.output),
          {:ok, expires} <- expires_plan(request.policy, opts),
          {:ok, cachebuster} <- cachebuster_plan(request.cache),
@@ -41,8 +46,11 @@ defmodule ImagePlug.Parser.Imgproxy.PlanBuilder do
     end
   end
 
-  defp source_plan(:plain, path), do: {:ok, {:plain, path}}
-  defp source_plan(kind, _path), do: {:error, {:unsupported_source_kind, kind}}
+  defp source_plan(:plain, source_identifier, opts) when is_binary(source_identifier),
+    do: ImgproxySource.translate(source_identifier, Keyword.get(opts, :imgproxy, []))
+
+  defp source_plan(kind, _source_identifier, _opts),
+    do: {:error, {:unsupported_source_kind, kind}}
 
   defp build_pipelines([]), do: {:error, :empty_pipeline_plan}
 
@@ -131,14 +139,14 @@ defmodule ImagePlug.Parser.Imgproxy.PlanBuilder do
 
   defp response_plan(
          %ResponseRequest{filename: nil, disposition: disposition},
-         {:plain, source_path}
+         source
        ) do
-    {:ok, %Response{filename: source_filename(source_path), disposition: disposition}}
+    {:ok, %Response{filename: source_filename(source), disposition: disposition}}
   end
 
   defp response_plan(
          %ResponseRequest{filename: filename, disposition: disposition},
-         {:plain, _path}
+         _source
        )
        when is_binary(filename) do
     if Response.valid_filename?(filename) do
@@ -148,8 +156,20 @@ defmodule ImagePlug.Parser.Imgproxy.PlanBuilder do
     end
   end
 
-  defp source_filename(source_path) do
-    source_path
+  defp source_filename(%Path{segments: segments}), do: filename_from_segments(segments)
+  defp source_filename(%URL{path: path}), do: filename_from_segments(path)
+
+  defp source_filename(%Object{key: key}) do
+    key
+    |> String.split("/", trim: true)
+    |> filename_from_segments()
+  end
+
+  defp source_filename(%Reference{id: id}), do: valid_source_filename(id)
+  defp source_filename(_source), do: "image"
+
+  defp filename_from_segments(segments) do
+    segments
     |> List.last()
     |> source_filename_stem()
     |> valid_source_filename()
@@ -158,7 +178,7 @@ defmodule ImagePlug.Parser.Imgproxy.PlanBuilder do
   defp source_filename_stem(basename) when basename in [nil, ""], do: "image"
 
   defp source_filename_stem(basename) when is_binary(basename) do
-    case Path.rootname(basename) do
+    case Elixir.Path.rootname(basename) do
       "" -> "image"
       stem -> stem
     end

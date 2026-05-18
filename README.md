@@ -1,20 +1,20 @@
 # ImagePlug
 
 ImagePlug is a Plug-based image optimization server. It parses path-oriented
-image requests, fetches an origin image, executes a product-neutral
+image requests, resolves a configured image source, executes a product-neutral
 `ImagePlug.Plan`, negotiates output format, and sends the encoded image
 response.
 
 The current public compatibility target is an Imgproxy-style path API through
-`ImagePlug.Parser.Imgproxy`. Internally, Imgproxy syntax is translated into
-ImagePlug's own plan, output, transform, cache, and response data structures.
+`ImagePlug.Parser.Imgproxy`. Internally, ImagePlug translates Imgproxy syntax
+into its own plan, output, transform, cache, and response data structures.
 
 ## Project status
 
 ImagePlug is a greenfield, unreleased library. The codebase includes working
 Imgproxy-style request parsing, request safety checks, transform execution,
-output negotiation, filesystem response caching, telemetry spans, and a local
-demo server.
+source adapters, output negotiation, filesystem response caching, telemetry
+spans, and a local demo server.
 
 The package metadata exists for release evaluation, but no Hex package exists
 yet. Treat the `0.1.0` API as subject to change until the first release.
@@ -43,43 +43,37 @@ end
 
 ## Minimal mount
 
-Mount ImagePlug from a Plug router or Phoenix endpoint with a configured origin
-root and parser:
+Mount ImagePlug from a Plug router or Phoenix endpoint with a configured source
+adapter and parser:
 
 ```elixir
 forward "/images",
   to: ImagePlug,
   init_opts: [
-    root_url: "https://origin.example",
-    parser: ImagePlug.Parser.Imgproxy
+    parser: ImagePlug.Parser.Imgproxy,
+    sources: [
+      path: {ImagePlug.Source.File, root: "/srv/images", root_id: "primary"}
+    ]
   ]
 ```
 
-For a local Plug server that serves files from `priv/static/images`, mount
-`Plug.Static` before ImagePlug so origin requests resolve against the same
-server:
+For a local Plug server that reads files from `priv/static/images`, point the
+path source adapter at `priv/static`:
 
 ```elixir
 defmodule MyApp.ImageRouter do
   use Plug.Router
 
-  plug Plug.Static,
-    at: "/",
-    from: {:my_app, "priv/static"},
-    only: ~w(images)
-
   plug :match
   plug :dispatch
-
-  match "/images/*path" do
-    send_resp(conn, 404, "404 Not Found")
-  end
 
   forward "/",
     to: ImagePlug,
     init_opts: [
-      root_url: "http://localhost:4000",
-      parser: ImagePlug.Parser.Imgproxy
+      parser: ImagePlug.Parser.Imgproxy,
+      sources: [
+        path: {ImagePlug.Source.File, root: "priv/static", root_id: "static"}
+      ]
     ]
 end
 ```
@@ -91,6 +85,18 @@ URL requests a 300-pixel-wide image from `/images/beach.jpg`:
 http://localhost:4000/_/w:300/plain/images/beach.jpg
 ```
 
+To accept both HTTP and HTTPS source URLs, configure the shared `:url` source
+adapter:
+
+```elixir
+sources: [
+  url: {ImagePlug.Source.HTTP, allowed_hosts: ["assets.example.com"]}
+]
+```
+
+Use `:http` or `:https` instead to enable only one scheme, or when the schemes
+need different adapter options.
+
 `_` and `unsafe` work only without Imgproxy signing. Configured signing requires
 a valid HMAC signature or an exact configured trusted signature.
 
@@ -99,13 +105,14 @@ a valid HMAC signature or an exact configured trusted signature.
 ImagePlug currently supports the Imgproxy-style path parser, selected resize,
 crop, orientation, canvas, padding, background, output, cachebuster, expiry,
 filename, attachment, and preset options documented in the support matrix.
-Unsupported parser and planner requests fail before cache lookup or origin
+Unsupported parser and planner requests fail before cache lookup or source
 fetch.
 
-ImagePlug currently lacks other provider dialects, arbitrary absolute source URL
-parsing, encoded source URLs, object detection, watermarking, metadata
-stripping, video processing, and raw source passthrough. Missing Imgproxy
-options fail or remain absent as documented. ImagePlug doesn't ignore them.
+The first slice supports local path sources, HTTP and HTTPS URL sources, and
+S3-compatible object sources. ImagePlug currently lacks other provider dialects,
+object detection, watermarking, metadata stripping, video processing, and raw
+source passthrough. Missing Imgproxy options fail or remain absent as
+documented. ImagePlug doesn't ignore them.
 
 URL option order doesn't define transform execution order. The Imgproxy parser
 normalizes aliases and conflict resolution, then the planner emits operations in
@@ -121,7 +128,7 @@ ImagePlug's fixed plan order.
 - [Cache](docs/cache.md) documents filesystem response caching, cache keys,
   stored headers, failure modes, and cache safety boundaries.
 - [Operational notes](docs/operational_notes.md) documents request safety,
-  origin fetching, decode planning, multi-pipeline behavior, and automatic
+  source fetching, decode planning, multi-pipeline behavior, and automatic
   output negotiation.
 - [Telemetry](docs/telemetry.md) documents emitted span events, measurements,
   metadata, and handler examples.

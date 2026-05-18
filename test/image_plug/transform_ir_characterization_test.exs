@@ -9,7 +9,9 @@ defmodule ImagePlug.TransformIRCharacterizationTest do
   alias ImagePlug.Plan.Operation
   alias ImagePlug.Plan.Output
   alias ImagePlug.Plan.Pipeline
+  alias ImagePlug.Plan.Source
   alias ImagePlug.Request.Runner
+  alias ImagePlug.Source.Resolved
   alias ImagePlug.Transform
   alias ImagePlug.Transform.Chain
   alias ImagePlug.Transform.Operation.Crop
@@ -26,28 +28,36 @@ defmodule ImagePlug.TransformIRCharacterizationTest do
     def put(_key, _entry, _opts), do: raise("cache hit must not write")
   end
 
-  defmodule GeneratedOrigin do
-    def call(%Plug.Conn{request_path: "/" <> path} = conn, _opts) do
-      {width, height} = dimensions_from_path(path)
+  defmodule GeneratedSourceAdapter do
+    @behaviour ImagePlug.Source
+
+    @impl ImagePlug.Source
+    def validate_options(opts), do: {:ok, opts}
+
+    @impl ImagePlug.Source
+    def resolve(_source, _opts, _runtime_opts), do: raise("test builds resolved sources directly")
+
+    @impl ImagePlug.Source
+    def fetch(%ImagePlug.Source.Resolved{fetch: source}, _opts, _runtime_opts) do
+      {width, height} = source
       {:ok, image} = Image.new(width, height, color: :white)
       body = Image.write!(image, :memory, suffix: ".png")
 
-      conn
-      |> Plug.Conn.put_resp_content_type("image/png")
-      |> Plug.Conn.send_resp(200, body)
-    end
-
-    defp dimensions_from_path(path) do
-      path
-      |> Path.basename()
-      |> Path.rootname()
-      |> String.split("x", parts: 2)
-      |> then(fn [width, height] -> {String.to_integer(width), String.to_integer(height)} end)
+      {:ok, %ImagePlug.Source.Response{stream: [body]}}
     end
   end
 
-  defmodule OriginShouldNotFetch do
-    def call(_conn, _opts), do: raise("origin should not fetch on cache hit")
+  defmodule SourceShouldNotFetch do
+    @behaviour ImagePlug.Source
+
+    @impl ImagePlug.Source
+    def validate_options(opts), do: {:ok, opts}
+
+    @impl ImagePlug.Source
+    def resolve(_source, _opts, _runtime_opts), do: raise("test builds resolved sources directly")
+
+    @impl ImagePlug.Source
+    def fetch(_resolved, _opts, _runtime_opts), do: raise("source should not fetch on cache hit")
   end
 
   defp parse_plan!(path) do
@@ -59,14 +69,14 @@ defmodule ImagePlug.TransformIRCharacterizationTest do
   defp assert_auto_resize_dimensions(source, target, expected) do
     path = auto_resize_path(source, target)
     {conn, plan} = parse_plan!(path)
-    origin_identity = origin_identity(source)
+    resolved_source = resolved_source(source)
 
     assert {:ok, {:image, %State{image: image}, _resolved_output, _response}} =
              Runner.run(
                conn,
                plan,
-               origin_identity,
-               origin_req_options: [plug: GeneratedOrigin]
+               resolved_source,
+               sources: %{path: {GeneratedSourceAdapter, []}}
              )
 
     assert {Image.width(image), Image.height(image)} == expected
@@ -76,13 +86,29 @@ defmodule ImagePlug.TransformIRCharacterizationTest do
     "/_/rt:auto/w:#{target_width}/h:#{target_height}/f:jpeg/plain/generated/#{source_basename(source)}"
   end
 
-  defp origin_identity(source), do: "http://origin.test/generated/#{source_basename(source)}"
-
   defp source_basename({width, height}), do: "#{width}x#{height}.png"
+
+  defp source_identity(source),
+    do: [
+      kind: :path,
+      adapter: :path,
+      root: "generated",
+      path: ["generated", source_basename(source)]
+    ]
+
+  defp resolved_source(source) do
+    %Resolved{
+      adapter: :path,
+      source_kind: :path,
+      identity: source_identity(source),
+      cache: :normal,
+      fetch: source
+    }
+  end
 
   defp semantic_plan(operations) do
     %Plan{
-      source: {:plain, ["generated", "source.png"]},
+      source: %Source.Path{segments: ["generated", "source.png"]},
       pipelines: [%Pipeline{operations: operations}],
       output: %Output{mode: {:explicit, :jpeg}}
     }
@@ -185,7 +211,7 @@ defmodule ImagePlug.TransformIRCharacterizationTest do
   defp executable_resize_dimension(:auto), do: :auto
   defp executable_resize_dimension(pixels), do: {:pixels, pixels}
 
-  test "cache hit returns before origin fetch for resize:auto requests" do
+  test "cache hit returns before source fetch for resize:auto requests" do
     entry = %Entry{
       body: "cached jpeg",
       content_type: "image/jpeg",
@@ -196,19 +222,19 @@ defmodule ImagePlug.TransformIRCharacterizationTest do
     source = {300, 200}
     path = auto_resize_path(source, {100, 100})
     {conn, plan} = parse_plan!(path)
-    origin_identity = origin_identity(source)
+    resolved_source = resolved_source(source)
 
     assert {:ok, {:cache_entry, ^entry, %ImagePlug.Plan.Response{}}} =
              Runner.run(
                conn,
                plan,
-               origin_identity,
+               resolved_source,
                cache: {CacheHitProbe, entry: entry, test_pid: self()},
-               origin_req_options: [plug: OriginShouldNotFetch]
+               sources: %{path: {SourceShouldNotFetch, []}}
              )
 
     assert_received {:cache_get, key}
-    assert key.data[:origin_identity] == origin_identity
+    assert key.data[:source_identity] == source_identity(source)
   end
 
   test "1. request-level resize:auto from 300x200 to 100x50 returns 100x50" do

@@ -69,7 +69,9 @@ Normal processing URLs support configured Imgproxy presets:
 
     ImagePlug.init(
       parser: ImagePlug.Parser.Imgproxy,
-      root_url: "https://origin.example",
+      sources: [
+        path: {ImagePlug.Source.File, root: "/srv/images", root_id: "primary"}
+      ],
       imgproxy: [
         presets: %{
           "default" => "rt:fill/el:1",
@@ -86,10 +88,10 @@ Normal processing URLs support configured Imgproxy presets:
     /_/pr:thumb:sharp-thumb/plain/images/cat.jpg
 
 `ImagePlug.Parser.Imgproxy` expands presets before plan construction, source
-identity resolution, cache lookup, or origin fetch. Preset names aren't stored
+identity resolution, cache lookup, or source fetch. Preset names aren't stored
 in `ImagePlug.Plan`, runtime state, output negotiation, transform state, or
 cache data. A request using `pr:thumb` and a request spelling out the same
-expanded options share the same cache key for the same resolved origin identity
+expanded options share the same cache key for the same resolved source identity
 and vary inputs.
 
 ImagePlug applies a configured preset named `default` to every normal
@@ -294,13 +296,13 @@ case, `0` resets quality to the configured default.
 `expires`/`exp` is a Unix timestamp request validity policy.
 
 Final cache lookup doesn't fetch, decode, or read source metadata. The key uses
-canonical plan/output fields, resolved origin identity and freshness data,
+canonical plan/output fields, resolved source identity,
 configured vary inputs, output config, and the transform key data version.
 Source-aware execution choices, such as `mode: :auto` selecting `fit` or
 `cover`, don't enter the normal final cache key.
 
 ImagePlug caches only successful encoded responses. Rejected Imgproxy requests
-return before origin fetch and cache lookup.
+return before source fetch and cache lookup.
 
 ## Response filename and disposition
 
@@ -309,7 +311,7 @@ controls inline versus attachment `Content-Disposition`.
 
 ## Unsupported and rejected options
 
-Unsupported and invalid Imgproxy requests fail before origin fetch or cache
+Unsupported and invalid Imgproxy requests fail before source fetch or cache
 lookup.
 
 These cases return HTTP 400:

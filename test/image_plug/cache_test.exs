@@ -10,6 +10,7 @@ defmodule ImagePlug.CacheTest do
   alias ImagePlug.Plan
   alias ImagePlug.Plan.Output
   alias ImagePlug.Plan.Pipeline
+  alias ImagePlug.Plan.Source
 
   defmodule HitAdapter do
     def get(%Key{}, opts), do: {:hit, Keyword.fetch!(opts, :entry)}
@@ -56,7 +57,7 @@ defmodule ImagePlug.CacheTest do
       Plan,
       Keyword.merge(
         [
-          source: {:plain, ["images", "cat.jpg"]},
+          source: %Source.Path{segments: ["images", "cat.jpg"]},
           pipelines: [%Pipeline{operations: []}],
           output: %Output{mode: {:explicit, :webp}}
         ],
@@ -67,6 +68,10 @@ defmodule ImagePlug.CacheTest do
 
   defp automatic_plan do
     plan(output: %Output{mode: :automatic})
+  end
+
+  defp source_identity do
+    [kind: :path, adapter: :path, root: "default", path: ["images", "cat.jpg"]]
   end
 
   defp cache_key do
@@ -90,7 +95,7 @@ defmodule ImagePlug.CacheTest do
     assert Cache.lookup(
              conn(:get, "/_/plain/images/cat.jpg"),
              plan(),
-             "https://origin.test/cat.jpg",
+             source_identity(),
              []
            ) ==
              :disabled
@@ -104,11 +109,7 @@ defmodule ImagePlug.CacheTest do
 
   test "ImagePlug init rejects missing required options early" do
     assert_raise ArgumentError, ~r/required :parser option not found/, fn ->
-      ImagePlug.init(root_url: "https://origin.test")
-    end
-
-    assert_raise ArgumentError, ~r/required :root_url option not found/, fn ->
-      ImagePlug.init(parser: ImagePlug.Parser.Imgproxy)
+      ImagePlug.init([])
     end
   end
 
@@ -137,7 +138,9 @@ defmodule ImagePlug.CacheTest do
     opts =
       ImagePlug.init(
         parser: ImagePlug.Parser.Imgproxy,
-        root_url: "https://origin.test",
+        sources: [
+          path: {ImagePlug.Source.File, root: "priv/static", root_id: "static"}
+        ],
         cache: {ImagePlug.Cache.FileSystem, root: root <> "/../image_plug_cache_init"}
       )
 
@@ -152,11 +155,11 @@ defmodule ImagePlug.CacheTest do
              Cache.lookup(
                conn(:get, "/_/f:webp/plain/images/cat.jpg"),
                plan(),
-               "https://origin.test/cat.jpg",
+               source_identity(),
                cache: {HitAdapter, entry: configured_entry}
              )
 
-    assert key.data[:origin_identity] == "https://origin.test/cat.jpg"
+    assert key.data[:source_identity] == source_identity()
   end
 
   test "returns miss with the generated key" do
@@ -164,7 +167,7 @@ defmodule ImagePlug.CacheTest do
              Cache.lookup(
                conn(:get, "/_/f:webp/plain/images/cat.jpg"),
                plan(),
-               "https://origin.test/cat.jpg",
+               source_identity(),
                cache: {MissAdapter, []}
              )
 
@@ -178,7 +181,7 @@ defmodule ImagePlug.CacheTest do
                |> conn("/_/plain/images/cat.jpg")
                |> Plug.Conn.put_req_header("accept", "image/avif,image/webp"),
                automatic_plan(),
-               "https://origin.test/cat.jpg",
+               source_identity(),
                auto_avif: false,
                cache: {CaptureAdapter, key_headers: ["accept-language"]}
              )
@@ -205,7 +208,7 @@ defmodule ImagePlug.CacheTest do
                |> conn("/_/plain/images/cat.jpg")
                |> Plug.Conn.put_req_header("accept", "image/avif,image/webp"),
                automatic_plan(),
-               "https://origin.test/cat.jpg",
+               source_identity(),
                cache: {CaptureAdapter, auto_avif: false, auto_webp: false}
              )
 
@@ -223,7 +226,7 @@ defmodule ImagePlug.CacheTest do
                  Cache.lookup(
                    conn(:get, "/_/f:webp/plain/images/cat.jpg"),
                    plan(),
-                   "https://origin.test/cat.jpg",
+                   source_identity(),
                    cache: {ErrorAdapter, []}
                  )
       end)
@@ -237,7 +240,7 @@ defmodule ImagePlug.CacheTest do
              Cache.lookup(
                conn(:get, "/_/f:webp/plain/images/cat.jpg"),
                plan(),
-               "https://origin.test/cat.jpg",
+               source_identity(),
                cache: {ErrorAdapter, fail_on_cache_error: true}
              )
   end
@@ -247,7 +250,7 @@ defmodule ImagePlug.CacheTest do
              Cache.lookup(
                conn(:get, "/_/f:webp/plain/images/cat.jpg"),
                plan(),
-               "https://origin.test/cat.jpg",
+               source_identity(),
                cache: {UnexpectedResultAdapter, fail_on_cache_error: true}
              )
   end
@@ -315,7 +318,7 @@ defmodule ImagePlug.CacheTest do
              Cache.lookup(
                conn(:get, "/_/f:webp/plain/images/cat.jpg"),
                plan(),
-               "https://origin.test/cat.jpg",
+               source_identity(),
                cache: ImagePlug.Cache.FileSystem
              )
 
@@ -325,7 +328,7 @@ defmodule ImagePlug.CacheTest do
              Cache.lookup(
                conn(:get, "/_/f:webp/plain/images/cat.jpg"),
                plan(),
-               "https://origin.test/cat.jpg",
+               source_identity(),
                cache: {ImagePlug.Cache.FileSystem, %{root: "/tmp/cache"}}
              )
   end
@@ -349,7 +352,7 @@ defmodule ImagePlug.CacheTest do
              Cache.lookup(
                conn(:get, "/_/f:webp/plain/images/cat.jpg"),
                plan(),
-               "https://origin.test/cat.jpg",
+               source_identity(),
                cache: {ShouldNotBeCalledAdapter, key_headers: [:accept_language]}
              )
 
@@ -357,17 +360,19 @@ defmodule ImagePlug.CacheTest do
              Cache.lookup(
                conn(:get, "/_/f:webp/plain/images/cat.jpg"),
                plan(),
-               "https://origin.test/cat.jpg",
+               source_identity(),
                cache: {ShouldNotBeCalledAdapter, key_cookies: [:tenant]}
              )
   end
 
   test "key build errors return cache read errors instead of crashing" do
-    assert {:error, {:cache_read, {:unsupported_source, :not_a_source}}} =
+    source_identity = [kind: :path, client: self()]
+
+    assert {:error, {:cache_read, {:invalid_source_identity, ^source_identity}}} =
              Cache.lookup(
                conn(:get, "/_/f:webp/plain/images/cat.jpg"),
-               plan(source: :not_a_source),
-               "https://origin.test/cat.jpg",
+               plan(),
+               source_identity,
                cache: {ShouldNotBeCalledAdapter, []}
              )
   end
@@ -377,7 +382,7 @@ defmodule ImagePlug.CacheTest do
              Cache.lookup(
                conn(:get, "/_/f:webp/plain/images/cat.jpg"),
                plan(),
-               "https://origin.test/cat.jpg",
+               source_identity(),
                cache: {ShouldNotBeCalledAdapter, [:root]}
              )
 
@@ -390,7 +395,7 @@ defmodule ImagePlug.CacheTest do
              Cache.lookup(
                conn(:get, "/_/f:webp/plain/images/cat.jpg"),
                plan(),
-               "https://origin.test/cat.jpg",
+               source_identity(),
                cache: {ShouldNotBeCalledAdapter, fail_on_cache_error: "false"}
              )
 
@@ -405,7 +410,7 @@ defmodule ImagePlug.CacheTest do
              Cache.lookup(
                conn(:get, "/_/f:webp/plain/images/cat.jpg"),
                plan(),
-               "https://origin.test/cat.jpg",
+               source_identity(),
                cache: {ShouldNotBeCalledAdapter, max_body_bytes: "10MB"}
              )
 
@@ -420,7 +425,7 @@ defmodule ImagePlug.CacheTest do
              Cache.lookup(
                conn(:get, "/_/f:webp/plain/images/cat.jpg"),
                plan(),
-               "https://origin.test/cat.jpg",
+               source_identity(),
                cache: {String, []}
              )
 

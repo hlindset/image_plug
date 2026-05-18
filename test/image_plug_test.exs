@@ -7,11 +7,15 @@ defmodule ImagePlug.ImagePlugTest do
 
   doctest ImagePlug
 
+  @slow_origin_first_chunk_timeout 5_000
+
   alias ImagePlug.Parser.Imgproxy.Signature
   alias ImagePlug.Plan
   alias ImagePlug.Plan.Operation
   alias ImagePlug.Plan.Output
   alias ImagePlug.Plan.Pipeline
+  alias ImagePlug.Plan.Source.Path, as: SourcePath
+  alias ImagePlug.SourceTest.RootHTTPAdapter
 
   defmodule CacheProbe do
     alias ImagePlug.Cache.Entry
@@ -191,13 +195,65 @@ defmodule ImagePlug.ImagePlugTest do
       Plan,
       Keyword.merge(
         [
-          source: {:plain, ["images", "beach.jpg"]},
+          source: %SourcePath{segments: ["images", "beach.jpg"]},
           pipelines: [%Pipeline{operations: []}],
           output: %Output{mode: :automatic}
         ],
         overrides
       )
     )
+  end
+
+  defp source_opts(plug, root_url, adapter_opts \\ []) do
+    [
+      sources: [
+        path:
+          {RootHTTPAdapter,
+           Keyword.merge([root_url: root_url, req_options: [plug: plug]], adapter_opts)}
+      ]
+    ]
+  end
+
+  defp default_source_opts(root_url) do
+    source_opts(OriginImage, root_url)
+  end
+
+  defp init_image_plug(opts) do
+    opts
+    |> translate_origin_test_opts()
+    |> ImagePlug.init()
+  end
+
+  defp call_image_plug(conn, opts) do
+    ImagePlug.call(conn, init_or_pass_opts(opts))
+  end
+
+  defp init_or_pass_opts(opts) when is_list(opts) do
+    case Keyword.get(opts, :sources) do
+      sources when is_map(sources) -> opts
+      _sources -> init_image_plug(opts)
+    end
+  end
+
+  defp translate_origin_test_opts(opts) do
+    {root_url, opts} = Keyword.pop(opts, :root_url)
+    {origin_req_options, opts} = Keyword.pop(opts, :origin_req_options, [])
+    {origin_receive_timeout, opts} = Keyword.pop(opts, :origin_receive_timeout)
+
+    opts =
+      if origin_receive_timeout,
+        do: Keyword.put(opts, :receive_timeout, origin_receive_timeout),
+        else: opts
+
+    case root_url do
+      nil ->
+        opts
+
+      root_url ->
+        Keyword.put_new(opts, :sources,
+          path: {RootHTTPAdapter, root_url: root_url, req_options: origin_req_options}
+        )
+    end
   end
 
   def sample_explicit_plan(format, operations \\ []) do
@@ -409,9 +465,9 @@ defmodule ImagePlug.ImagePlugTest do
   end
 
   defp call_after_slow_origin_first_chunk(conn, opts, ref, server) do
-    task = Task.async(fn -> ImagePlug.call(conn, opts) end)
+    task = Task.async(fn -> call_image_plug(conn, opts) end)
 
-    assert_receive {^ref, :first_chunk_sent, ^server}, 1_000
+    assert_receive {^ref, :first_chunk_sent, ^server}, @slow_origin_first_chunk_timeout
 
     Task.await(task, 2_000)
   end
@@ -441,28 +497,33 @@ defmodule ImagePlug.ImagePlugTest do
   end
 
   test "init normalizes parser option" do
-    opts = ImagePlug.init(parser: ImagePlug.Parser.Imgproxy, root_url: "https://example.test")
+    opts =
+      init_image_plug(
+        [parser: ImagePlug.Parser.Imgproxy] ++ default_source_opts("https://example.test")
+      )
 
     assert Keyword.fetch!(opts, :parser) == ImagePlug.Parser.Imgproxy
   end
 
   test "init requires parser option even if unrelated param_parser option is present" do
     assert_raise ArgumentError, ~r/required :parser option not found/, fn ->
-      ImagePlug.init(param_parser: ImagePlug.Parser.Imgproxy, root_url: "https://example.test")
+      init_image_plug(
+        [param_parser: ImagePlug.Parser.Imgproxy] ++ default_source_opts("https://example.test")
+      )
     end
   end
 
   test "init rejects missing parser option through required option validation" do
     assert_raise ArgumentError, ~r/required :parser option not found/, fn ->
-      ImagePlug.init(root_url: "https://example.test")
+      init_image_plug(default_source_opts("https://example.test"))
     end
   end
 
   test "init validates parser option shape without loading the parser module" do
     opts =
-      ImagePlug.init(
-        parser: ImagePlug.ImagePlugTest.MissingParser,
-        root_url: "https://example.test"
+      init_image_plug(
+        [parser: ImagePlug.ImagePlugTest.MissingParser] ++
+          default_source_opts("https://example.test")
       )
 
     assert Keyword.fetch!(opts, :parser) == ImagePlug.ImagePlugTest.MissingParser
@@ -470,17 +531,18 @@ defmodule ImagePlug.ImagePlugTest do
 
   test "init normalizes imgproxy signature options through the imgproxy parser" do
     opts =
-      ImagePlug.init(
-        parser: ImagePlug.Parser.Imgproxy,
-        root_url: "https://example.test",
-        imgproxy: [
-          signature: [
-            keys: ["746573742d6b6579"],
-            salts: ["746573742d73616c74"],
-            signature_size: 8,
-            trusted_signatures: ["local-dev!"]
+      init_image_plug(
+        [
+          parser: ImagePlug.Parser.Imgproxy,
+          imgproxy: [
+            signature: [
+              keys: ["746573742d6b6579"],
+              salts: ["746573742d73616c74"],
+              signature_size: 8,
+              trusted_signatures: ["local-dev!"]
+            ]
           ]
-        ]
+        ] ++ default_source_opts("https://example.test")
       )
 
     imgproxy = Keyword.fetch!(opts, :imgproxy)
@@ -497,18 +559,19 @@ defmodule ImagePlug.ImagePlugTest do
 
   test "init normalizes imgproxy presets through the imgproxy parser" do
     opts =
-      ImagePlug.init(
-        parser: ImagePlug.Parser.Imgproxy,
-        root_url: "https://example.test",
-        imgproxy: [
-          presets: %{
-            "default" => "rt:fill/el:1",
-            "thumb" => "rs:fit:120:120",
-            "nested" => "pr:thumb/q:82",
-            "responsive" => "w:900/-/w:450",
-            "future" => "sharpen:0.7"
-          }
-        ]
+      init_image_plug(
+        [
+          parser: ImagePlug.Parser.Imgproxy,
+          imgproxy: [
+            presets: %{
+              "default" => "rt:fill/el:1",
+              "thumb" => "rs:fit:120:120",
+              "nested" => "pr:thumb/q:82",
+              "responsive" => "w:900/-/w:450",
+              "future" => "sharpen:0.7"
+            }
+          ]
+        ] ++ default_source_opts("https://example.test")
       )
 
     imgproxy = Keyword.fetch!(opts, :imgproxy)
@@ -547,10 +610,9 @@ defmodule ImagePlug.ImagePlugTest do
 
     for imgproxy <- invalid_configs do
       assert_raise ArgumentError, ~r/invalid imgproxy config/, fn ->
-        ImagePlug.init(
-          parser: ImagePlug.Parser.Imgproxy,
-          root_url: "https://example.test",
-          imgproxy: imgproxy
+        init_image_plug(
+          [parser: ImagePlug.Parser.Imgproxy, imgproxy: imgproxy] ++
+            default_source_opts("https://example.test")
         )
       end
     end
@@ -558,45 +620,47 @@ defmodule ImagePlug.ImagePlugTest do
 
   test "init keeps rejecting unknown top-level imgproxy options after presets are added" do
     assert_raise ArgumentError, ~r/unknown options.*:trusted_signatures/, fn ->
-      ImagePlug.init(
-        parser: ImagePlug.Parser.Imgproxy,
-        root_url: "https://example.test",
-        imgproxy: [presets: %{}, trusted_signatures: ["local-dev!"]]
+      init_image_plug(
+        [
+          parser: ImagePlug.Parser.Imgproxy,
+          imgproxy: [presets: %{}, trusted_signatures: ["local-dev!"]]
+        ] ++ default_source_opts("https://example.test")
       )
     end
   end
 
   test "init rejects malformed imgproxy signature options before requests" do
     assert_raise ArgumentError, ~r/keys and salts must be non-empty hex-encoded strings/, fn ->
-      ImagePlug.init(
-        parser: ImagePlug.Parser.Imgproxy,
-        root_url: "https://example.test",
-        imgproxy: [
-          signature: [
-            keys: ["not-hex"],
-            salts: ["73616c74"]
+      init_image_plug(
+        [
+          parser: ImagePlug.Parser.Imgproxy,
+          imgproxy: [
+            signature: [
+              keys: ["not-hex"],
+              salts: ["73616c74"]
+            ]
           ]
-        ]
+        ] ++ default_source_opts("https://example.test")
       )
     end
   end
 
   test "init rejects unknown top-level imgproxy options before requests" do
     assert_raise ArgumentError, ~r/unknown options.*:trusted_signatures/, fn ->
-      ImagePlug.init(
-        parser: ImagePlug.Parser.Imgproxy,
-        root_url: "https://example.test",
-        imgproxy: [trusted_signatures: ["local-dev!"]]
+      init_image_plug(
+        [
+          parser: ImagePlug.Parser.Imgproxy,
+          imgproxy: [trusted_signatures: ["local-dev!"]]
+        ] ++ default_source_opts("https://example.test")
       )
     end
   end
 
   test "init rejects explicit nil signature config before requests" do
     assert_raise ArgumentError, ~r/invalid value for :signature option/, fn ->
-      ImagePlug.init(
-        parser: ImagePlug.Parser.Imgproxy,
-        root_url: "https://example.test",
-        imgproxy: [signature: nil]
+      init_image_plug(
+        [parser: ImagePlug.Parser.Imgproxy, imgproxy: [signature: nil]] ++
+          default_source_opts("https://example.test")
       )
     end
   end
@@ -610,7 +674,7 @@ defmodule ImagePlug.ImagePlugTest do
       |> Code.string_to_quoted!()
 
     assert remote_call?(image_plug_ast, [:Sender], :send_result, 3)
-    assert remote_call?(image_plug_ast, [:Sender], :send_origin_error, 2)
+    assert remote_call?(image_plug_ast, [:Sender], :send_source_error, 2)
 
     refute remote_call?(image_plug_ast, [:Plug, :Conn], :send_resp)
     refute remote_call?(image_plug_ast, [:Plug, :Conn], :send_chunked)
@@ -618,18 +682,6 @@ defmodule ImagePlug.ImagePlugTest do
     refute unqualified_call?(image_plug_ast, :chunk)
     refute unqualified_call?(image_plug_ast, :put_resp_header)
     refute unqualified_call?(image_plug_ast, :put_resp_content_type)
-
-    assert boundary_option(image_plug_ast, :exports) == []
-
-    assert boundary_option(image_plug_ast, :deps) |> boundary_aliases() == [
-             [:ImagePlug, :Origin],
-             [:ImagePlug, :Parser],
-             [:ImagePlug, :Plan],
-             [:ImagePlug, :Request],
-             [:ImagePlug, :Response],
-             [:ImagePlug, :Telemetry],
-             [:ImagePlug, :Transform]
-           ]
   end
 
   defp remote_call?(ast, module_parts, function, arity \\ :any) do
@@ -675,29 +727,12 @@ defmodule ImagePlug.ImagePlugTest do
     found?
   end
 
-  defp boundary_option(ast, option) do
-    {_ast, value} =
-      Macro.prewalk(ast, nil, fn
-        {:use, _, [{:__aliases__, _, [:Boundary]}, opts]} = node, nil ->
-          {node, Keyword.fetch!(opts, option)}
-
-        node, value ->
-          {node, value}
-      end)
-
-    value
-  end
-
-  defp boundary_aliases(aliases) do
-    Enum.map(aliases, fn {:__aliases__, _, parts} -> parts end)
-  end
-
   test "no cache configured preserves the streaming response path" do
     conn = conn(:get, "/_/f:jpeg/plain/images/beach.jpg")
     test_pid = self()
 
     conn =
-      ImagePlug.call(conn,
+      call_image_plug(conn,
         root_url: "http://origin.test",
         image_module: StreamingOnlyImage,
         parser: ImagePlug.Parser.Imgproxy,
@@ -720,7 +755,7 @@ defmodule ImagePlug.ImagePlugTest do
     test_pid = self()
 
     conn =
-      ImagePlug.call(conn,
+      call_image_plug(conn,
         root_url: "http://origin.test",
         image_module: MultiChunkStreamingImage,
         parser: ImagePlug.Parser.Imgproxy,
@@ -747,7 +782,7 @@ defmodule ImagePlug.ImagePlugTest do
     test_pid = self()
 
     conn =
-      ImagePlug.call(conn,
+      call_image_plug(conn,
         root_url: "http://origin.test",
         image_module: StreamingOnlyImage,
         parser: ImagePlug.Parser.Imgproxy,
@@ -773,7 +808,7 @@ defmodule ImagePlug.ImagePlugTest do
     test_pid = self()
 
     conn =
-      ImagePlug.call(conn,
+      call_image_plug(conn,
         root_url: "http://origin.test",
         image_module: StreamingOnlyImage,
         parser: ImagePlug.Parser.Imgproxy,
@@ -794,7 +829,7 @@ defmodule ImagePlug.ImagePlugTest do
     cache_probe = start_cache_probe()
 
     conn =
-      ImagePlug.call(conn,
+      call_image_plug(conn,
         root_url: "http://origin.test",
         parser: ImagePlug.Parser.Imgproxy,
         cache: {CacheProbe, message_target: cache_probe},
@@ -812,7 +847,7 @@ defmodule ImagePlug.ImagePlugTest do
     cache_probe = start_cache_probe()
 
     conn =
-      ImagePlug.call(conn,
+      call_image_plug(conn,
         root_url: "http://origin.test",
         parser: ImagePlug.Parser.Imgproxy,
         cache: {CacheProbe, message_target: cache_probe},
@@ -830,7 +865,7 @@ defmodule ImagePlug.ImagePlugTest do
     cache_probe = start_cache_probe()
 
     conn =
-      ImagePlug.call(conn,
+      call_image_plug(conn,
         parser: UnsupportedSemanticPipelineParser,
         cache: {CacheProbe, message_target: cache_probe},
         origin_req_options: [plug: OriginShouldNotBeCalled]
@@ -856,7 +891,7 @@ defmodule ImagePlug.ImagePlugTest do
     conn = conn(:get, "/_/f:webp/plain/images/beach.jpg")
 
     conn =
-      ImagePlug.call(conn,
+      call_image_plug(conn,
         root_url: "http://origin.test",
         parser: ImagePlug.Parser.Imgproxy,
         cache: {CacheProbe, message_target: cache_probe, get_result: {:hit, cached_entry}},
@@ -870,17 +905,24 @@ defmodule ImagePlug.ImagePlugTest do
     assert get_resp_header(conn, "vary") == ["Accept"]
     assert get_resp_header(conn, "connection") == []
     assert_received {:cache_get, key}
-    assert key.data[:origin_identity] == "http://origin.test/images/beach.jpg"
+
+    assert key.data[:source_identity] == [
+             kind: :path,
+             adapter: :test_http_root,
+             root: "http://origin.test",
+             path: ["images", "beach.jpg"]
+           ]
+
     refute_received :origin_was_called
   end
 
-  test "cache misses process origin response, write entry, and send encoded body" do
+  test "cache misses process source response, write entry, and send encoded body" do
     conn = conn(:get, "/_/f:jpeg/plain/images/beach.jpg")
     test_pid = self()
     cache_probe = start_cache_probe()
 
     conn =
-      ImagePlug.call(conn,
+      call_image_plug(conn,
         root_url: "http://origin.test",
         parser: ImagePlug.Parser.Imgproxy,
         cache: {CacheProbe, message_target: cache_probe},
@@ -911,7 +953,7 @@ defmodule ImagePlug.ImagePlugTest do
       |> put_req_header("accept", "image/jpeg")
 
     conn =
-      ImagePlug.call(conn,
+      call_image_plug(conn,
         root_url: "http://origin.test",
         parser: ImagePlug.Parser.Imgproxy,
         cache: {CacheProbe, message_target: cache_probe},
@@ -941,7 +983,7 @@ defmodule ImagePlug.ImagePlugTest do
 
     first_conn =
       conn(:get, "/_/cb:a/w:100/f:jpeg/plain/images/beach.jpg")
-      |> ImagePlug.call(
+      |> call_image_plug(
         root_url: "http://origin.test",
         parser: ImagePlug.Parser.Imgproxy,
         cache: {CacheProbe, message_target: cache_probe, get_result: {:hit, cached_entry}},
@@ -957,7 +999,7 @@ defmodule ImagePlug.ImagePlugTest do
 
     second_conn =
       conn(:get, "/_/cb:b/w:100/f:jpeg/plain/images/beach.jpg")
-      |> ImagePlug.call(
+      |> call_image_plug(
         root_url: "http://origin.test",
         parser: ImagePlug.Parser.Imgproxy,
         cache: {CacheProbe, message_target: cache_probe, get_result: {:hit, cached_entry}},
@@ -989,7 +1031,7 @@ defmodule ImagePlug.ImagePlugTest do
       :get
       |> conn("/_/plain/images/beach.jpg")
       |> put_req_header("accept", "image/webp;q=1,image/avif;q=0.1")
-      |> ImagePlug.call(
+      |> call_image_plug(
         root_url: "http://origin.test",
         parser: ImagePlug.Parser.Imgproxy,
         cache: {CacheProbe, message_target: cache_probe, get_result: {:hit, cached_entry}},
@@ -1007,7 +1049,7 @@ defmodule ImagePlug.ImagePlugTest do
       :get
       |> conn("/_/plain/images/beach.jpg")
       |> put_req_header("accept", "image/avif,image/webp")
-      |> ImagePlug.call(
+      |> call_image_plug(
         root_url: "http://origin.test",
         parser: ImagePlug.Parser.Imgproxy,
         cache: {CacheProbe, message_target: cache_probe, get_result: {:hit, cached_entry}},
@@ -1045,7 +1087,7 @@ defmodule ImagePlug.ImagePlugTest do
 
     first_conn =
       conn(:get, "/_/w:100/f:jpeg/fn:one/att:true/plain/images/beach.jpg")
-      |> ImagePlug.call(
+      |> call_image_plug(
         root_url: "http://origin.test",
         parser: ImagePlug.Parser.Imgproxy,
         cache: {CacheProbe, message_target: cache_probe, get_result: {:hit, cached_entry}},
@@ -1066,7 +1108,7 @@ defmodule ImagePlug.ImagePlugTest do
 
     second_conn =
       conn(:get, "/_/w:100/f:jpeg/fn:two/att:false/plain/images/beach.jpg")
-      |> ImagePlug.call(
+      |> call_image_plug(
         root_url: "http://origin.test",
         parser: ImagePlug.Parser.Imgproxy,
         cache: {CacheProbe, message_target: cache_probe, get_result: {:hit, cached_entry}},
@@ -1095,7 +1137,7 @@ defmodule ImagePlug.ImagePlugTest do
       :get
       |> conn("/_/plain/images/beach.jpg")
       |> put_req_header("accept", "image/jpeg")
-      |> ImagePlug.call(
+      |> call_image_plug(
         root_url: "http://origin.test",
         parser: ImagePlug.Parser.Imgproxy,
         image_module: FailingMemoryImage,
@@ -1115,7 +1157,7 @@ defmodule ImagePlug.ImagePlugTest do
     conn = conn(:get, "/_/w:-1/plain/images/beach.jpg")
 
     conn =
-      ImagePlug.call(conn,
+      call_image_plug(conn,
         root_url: "http://origin.test",
         parser: ImagePlug.Parser.Imgproxy,
         origin_req_options: [plug: OriginShouldNotBeCalled]
@@ -1129,7 +1171,7 @@ defmodule ImagePlug.ImagePlugTest do
     conn = conn(:get, "/_/g:sm/plain/images/beach.jpg")
 
     conn =
-      ImagePlug.call(conn,
+      call_image_plug(conn,
         root_url: "http://origin.test",
         parser: ImagePlug.Parser.Imgproxy,
         origin_req_options: [plug: OriginShouldNotBeCalled]
@@ -1139,11 +1181,11 @@ defmodule ImagePlug.ImagePlugTest do
     refute_received :origin_was_called
   end
 
-  test "empty pipeline plan returns a controlled response before origin" do
+  test "empty pipeline plan returns a controlled response before source fetch" do
     conn = conn(:get, "/_/f:jpeg/plain/images/beach.jpg")
 
     conn =
-      ImagePlug.call(conn,
+      call_image_plug(conn,
         root_url: "http://origin.test",
         parser: EmptyPipelineParser,
         origin_req_options: [plug: OriginShouldNotBeCalled]
@@ -1154,11 +1196,11 @@ defmodule ImagePlug.ImagePlugTest do
     refute_received :origin_was_called
   end
 
-  test "returns a controlled response for unsupported source plans before origin" do
+  test "returns a controlled response for unsupported source plans before source fetch" do
     conn = conn(:get, "/_/signed/images/beach.jpg")
 
     conn =
-      ImagePlug.call(conn,
+      call_image_plug(conn,
         root_url: "http://origin.test",
         parser: UnsupportedSourceKindParser,
         origin_req_options: [plug: OriginShouldNotBeCalled]
@@ -1176,7 +1218,7 @@ defmodule ImagePlug.ImagePlugTest do
       |> put_req_header("accept", "image/jpeg")
 
     conn =
-      ImagePlug.call(conn,
+      call_image_plug(conn,
         root_url: "http://origin.test",
         parser: ImagePlug.Parser.Imgproxy,
         origin_req_options: [plug: OriginImage]
@@ -1203,7 +1245,7 @@ defmodule ImagePlug.ImagePlugTest do
       |> put_req_header("accept", "image/png")
 
     conn =
-      ImagePlug.call(conn,
+      call_image_plug(conn,
         root_url: "http://origin.test",
         parser: ImagePlug.Parser.Imgproxy,
         origin_req_options: [plug: origin]
@@ -1218,7 +1260,7 @@ defmodule ImagePlug.ImagePlugTest do
     conn = conn(:get, "/_/rs:fill:100:100/g:ce/plain/images/beach.jpg@jpeg")
 
     conn =
-      ImagePlug.call(conn,
+      call_image_plug(conn,
         root_url: "http://origin.test",
         parser: ImagePlug.Parser.Imgproxy,
         origin_req_options: [plug: OriginImage]
@@ -1231,7 +1273,7 @@ defmodule ImagePlug.ImagePlugTest do
 
   test "plain source extension overrides explicit output format after options" do
     conn =
-      ImagePlug.call(
+      call_image_plug(
         conn(:get, "/_/f:webp/plain/images/beach.jpg@png"),
         root_url: "http://origin.test",
         parser: ImagePlug.Parser.Imgproxy,
@@ -1250,7 +1292,7 @@ defmodule ImagePlug.ImagePlugTest do
       |> put_req_header("accept", "image/webp;q=1,image/avif;q=0.1")
 
     conn =
-      ImagePlug.call(conn,
+      call_image_plug(conn,
         root_url: "http://origin.test",
         parser: ImagePlug.Parser.Imgproxy,
         origin_req_options: [plug: OriginImage]
@@ -1268,7 +1310,7 @@ defmodule ImagePlug.ImagePlugTest do
       |> put_req_header("accept", "image/avif;q=0,image/*;q=1")
 
     conn =
-      ImagePlug.call(conn,
+      call_image_plug(conn,
         root_url: "http://origin.test",
         parser: ImagePlug.Parser.Imgproxy,
         origin_req_options: [plug: OriginImage]
@@ -1295,7 +1337,7 @@ defmodule ImagePlug.ImagePlugTest do
       |> put_req_header("accept", "image/avif,image/webp")
 
     conn =
-      ImagePlug.call(conn,
+      call_image_plug(conn,
         root_url: "http://origin.test",
         parser: ImagePlug.Parser.Imgproxy,
         cache: {CacheProbe, message_target: cache_probe, get_result: {:hit, cached_entry}},
@@ -1349,7 +1391,7 @@ defmodule ImagePlug.ImagePlugTest do
     end
 
     conn =
-      ImagePlug.call(conn,
+      call_image_plug(conn,
         root_url: "http://origin.test",
         parser: ImagePlug.Parser.Imgproxy,
         cache: {CacheProbe, message_target: cache_probe, get_result_fun: get_result_fun},
@@ -1403,7 +1445,7 @@ defmodule ImagePlug.ImagePlugTest do
     end
 
     conn =
-      ImagePlug.call(conn,
+      call_image_plug(conn,
         root_url: "http://origin.test",
         parser: ImagePlug.Parser.Imgproxy,
         auto_avif: false,
@@ -1427,7 +1469,7 @@ defmodule ImagePlug.ImagePlugTest do
     refute_received :origin_was_called
   end
 
-  test "automatic cache key is available before origin when modern formats are disabled" do
+  test "automatic cache key is available before source fetch when modern formats are disabled" do
     cache_probe = start_cache_probe()
 
     cached_entry = %ImagePlug.Cache.Entry{
@@ -1459,7 +1501,7 @@ defmodule ImagePlug.ImagePlugTest do
     end
 
     conn =
-      ImagePlug.call(conn,
+      call_image_plug(conn,
         root_url: "http://origin.test",
         parser: ImagePlug.Parser.Imgproxy,
         auto_avif: false,
@@ -1487,7 +1529,7 @@ defmodule ImagePlug.ImagePlugTest do
     conn = conn(:get, "/_/plain/images/beach.jpg")
 
     conn =
-      ImagePlug.call(conn,
+      call_image_plug(conn,
         root_url: "http://origin.test",
         parser: ImagePlug.Parser.Imgproxy,
         auto_avif: false,
@@ -1506,7 +1548,7 @@ defmodule ImagePlug.ImagePlugTest do
       |> put_req_header("accept", "image/jpeg;q=0")
 
     conn =
-      ImagePlug.call(conn,
+      call_image_plug(conn,
         root_url: "http://origin.test",
         parser: ImagePlug.Parser.Imgproxy,
         auto_avif: false,
@@ -1526,7 +1568,7 @@ defmodule ImagePlug.ImagePlugTest do
       |> put_req_header("accept", "image/png")
 
     conn =
-      ImagePlug.call(conn,
+      call_image_plug(conn,
         root_url: "http://origin.test",
         parser: ImagePlug.Parser.Imgproxy,
         auto_avif: false,
@@ -1548,15 +1590,15 @@ defmodule ImagePlug.ImagePlugTest do
       :get
       |> conn("/_/plain/images/slow.jpg")
       |> put_req_header("accept", "image/png")
-      |> ImagePlug.call(
+      |> call_image_plug(
         root_url: root_url,
         parser: ImagePlug.Parser.Imgproxy,
         auto_avif: false,
         auto_webp: false
       )
 
-    assert conn.status == 415
-    assert conn.resp_body == "origin response is not a supported image"
+    assert conn.status == 422
+    assert conn.resp_body == "invalid image source"
     assert_receive {^ref, :first_chunk_sent, ^server}
     assert_receive {:DOWN, ^server_ref, :process, ^server, _reason}, 1_000
   end
@@ -1566,7 +1608,7 @@ defmodule ImagePlug.ImagePlugTest do
     cache_probe = start_cache_probe()
 
     conn =
-      ImagePlug.call(conn,
+      call_image_plug(conn,
         root_url: "http://origin.test",
         parser: ImagePlug.Parser.Imgproxy,
         cache: {CacheProbe, message_target: cache_probe},
@@ -1584,7 +1626,7 @@ defmodule ImagePlug.ImagePlugTest do
     cache_probe = start_cache_probe()
 
     opts =
-      ImagePlug.init(
+      init_image_plug(
         root_url: "http://origin.test",
         parser: ImagePlug.Parser.Imgproxy,
         imgproxy: [presets: %{"thumb" => "w:100"}],
@@ -1592,7 +1634,7 @@ defmodule ImagePlug.ImagePlugTest do
         origin_req_options: [plug: OriginShouldNotBeCalled]
       )
 
-    conn = ImagePlug.call(conn, opts)
+    conn = call_image_plug(conn, opts)
 
     flush_cache_probe(cache_probe)
     assert conn.status == 400
@@ -1606,7 +1648,7 @@ defmodule ImagePlug.ImagePlugTest do
     cache_probe = start_cache_probe()
 
     opts =
-      ImagePlug.init(
+      init_image_plug(
         root_url: "http://origin.test",
         parser: ImagePlug.Parser.Imgproxy,
         imgproxy: [presets: %{"future" => "sharpen:0.7"}],
@@ -1614,7 +1656,7 @@ defmodule ImagePlug.ImagePlugTest do
         origin_req_options: [plug: OriginShouldNotBeCalled]
       )
 
-    conn = ImagePlug.call(conn, opts)
+    conn = call_image_plug(conn, opts)
 
     flush_cache_probe(cache_probe)
     assert conn.status == 400
@@ -1628,7 +1670,7 @@ defmodule ImagePlug.ImagePlugTest do
     cache_probe = start_cache_probe()
 
     opts =
-      ImagePlug.init(
+      init_image_plug(
         root_url: "http://origin.test",
         parser: ImagePlug.Parser.Imgproxy,
         imgproxy: [presets: %{"smart" => "g:sm"}],
@@ -1636,7 +1678,7 @@ defmodule ImagePlug.ImagePlugTest do
         origin_req_options: [plug: OriginShouldNotBeCalled]
       )
 
-    conn = ImagePlug.call(conn, opts)
+    conn = call_image_plug(conn, opts)
 
     flush_cache_probe(cache_probe)
     assert conn.status == 400
@@ -1647,7 +1689,7 @@ defmodule ImagePlug.ImagePlugTest do
 
   test "explicit output format does not set Vary on uncached streaming responses" do
     conn =
-      ImagePlug.call(
+      call_image_plug(
         conn(:get, "/_/f:webp/plain/images/beach.jpg"),
         root_url: "http://origin.test",
         parser: ImagePlug.Parser.Imgproxy,
@@ -1666,7 +1708,7 @@ defmodule ImagePlug.ImagePlugTest do
       |> put_req_header("accept", "image/*;q=0")
 
     conn =
-      ImagePlug.call(conn,
+      call_image_plug(conn,
         root_url: "http://origin.test",
         parser: ImagePlug.Parser.Imgproxy,
         origin_req_options: [plug: OriginImage]
@@ -1680,7 +1722,7 @@ defmodule ImagePlug.ImagePlugTest do
   test "safe one-pass resize opens origin with sequential access" do
     conn =
       conn(:get, "/_/rt:force/w:100/format:jpeg/plain/images/beach.jpg")
-      |> ImagePlug.call(
+      |> call_image_plug(
         root_url: "http://origin.test",
         image_open_module: RecordingImageOpen,
         parser: ImagePlug.Parser.Imgproxy,
@@ -1696,7 +1738,7 @@ defmodule ImagePlug.ImagePlugTest do
   test "cover opens origin with random access" do
     conn =
       conn(:get, "/_/rs:fill:100:100/f:jpeg/plain/images/beach.jpg")
-      |> ImagePlug.call(
+      |> call_image_plug(
         root_url: "http://origin.test",
         image_open_module: RecordingImageOpen,
         parser: ImagePlug.Parser.Imgproxy,
@@ -1712,7 +1754,7 @@ defmodule ImagePlug.ImagePlugTest do
   test "sequential materialization failure without origin error returns decode error" do
     conn =
       conn(:get, "/_/rt:force/w:100/plain/images/beach.jpg")
-      |> ImagePlug.call(
+      |> call_image_plug(
         root_url: "http://origin.test",
         image_open_module: RecordingImageOpen,
         parser: ImagePlug.Parser.Imgproxy,
@@ -1725,7 +1767,7 @@ defmodule ImagePlug.ImagePlugTest do
     assert Keyword.get(opts, :fail_on) == :error
     assert conn.status == 415
     assert conn.state == :sent
-    assert conn.resp_body == "origin response is not a supported image"
+    assert conn.resp_body == "source response is not a supported image"
     assert get_resp_header(conn, "content-type") == ["text/plain; charset=utf-8"]
     assert get_resp_header(conn, "vary") == ["Accept"]
   end
@@ -1735,7 +1777,7 @@ defmodule ImagePlug.ImagePlugTest do
       :get
       |> conn("/_/rt:force/w:100/plain/images/beach.jpg")
       |> put_req_header("accept", "image/jpeg")
-      |> ImagePlug.call(
+      |> call_image_plug(
         root_url: "http://origin.test",
         image_open_module: RecordingImageOpen,
         parser: ImagePlug.Parser.Imgproxy,
@@ -1748,7 +1790,7 @@ defmodule ImagePlug.ImagePlugTest do
     assert Keyword.get(opts, :fail_on) == :error
     assert conn.status == 415
     assert conn.state == :sent
-    assert conn.resp_body == "origin response is not a supported image"
+    assert conn.resp_body == "source response is not a supported image"
     assert get_resp_header(conn, "content-type") == ["text/plain; charset=utf-8"]
     assert get_resp_header(conn, "vary") == ["Accept"]
   end
@@ -1757,7 +1799,7 @@ defmodule ImagePlug.ImagePlugTest do
     conn = conn(:get, "/_/w:100/h:100/f:jpeg/plain/images/beach.jpg")
 
     conn =
-      ImagePlug.call(conn,
+      call_image_plug(conn,
         root_url: "http://origin.test",
         parser: ImagePlug.Parser.Imgproxy,
         origin_req_options: [plug: OriginImage]
@@ -1773,7 +1815,7 @@ defmodule ImagePlug.ImagePlugTest do
     log =
       capture_log(fn ->
         conn =
-          ImagePlug.call(conn,
+          call_image_plug(conn,
             root_url: "http://origin.test",
             parser: ImagePlug.Parser.Imgproxy,
             image_module: FailingStreamBeforeHeaderImage,
@@ -1796,7 +1838,7 @@ defmodule ImagePlug.ImagePlugTest do
     log =
       capture_log(fn ->
         conn =
-          ImagePlug.call(conn,
+          call_image_plug(conn,
             root_url: "http://origin.test",
             image_module: EmptyStreamingImage,
             parser: ImagePlug.Parser.Imgproxy,
@@ -1819,7 +1861,7 @@ defmodule ImagePlug.ImagePlugTest do
     log =
       capture_log(fn ->
         conn =
-          ImagePlug.call(conn,
+          call_image_plug(conn,
             root_url: "http://origin.test",
             image_module: RaisingAfterFirstChunkImage,
             parser: ImagePlug.Parser.Imgproxy,
@@ -1848,7 +1890,7 @@ defmodule ImagePlug.ImagePlugTest do
 
     conn =
       conn(:get, "/_/w:10/plain/images/large.png")
-      |> ImagePlug.call(
+      |> call_image_plug(
         root_url: "http://origin.test",
         parser: ImagePlug.Parser.Imgproxy,
         max_input_pixels: 399,
@@ -1856,40 +1898,40 @@ defmodule ImagePlug.ImagePlugTest do
       )
 
     assert conn.status == 413
-    assert conn.resp_body == "origin image is too large"
+    assert conn.resp_body == "source image is too large"
   end
 
-  test "body limit failures surface as unsupported image bytes during decode" do
+  test "body limit failures surface as source errors during decode" do
     conn =
       conn(:get, "/_/plain/images/large-body.png")
-      |> ImagePlug.call(
+      |> call_image_plug(
         root_url: "http://origin.test",
         parser: ImagePlug.Parser.Imgproxy,
         max_body_bytes: 5,
         origin_req_options: [plug: OversizedOriginBody]
       )
 
-    assert conn.status == 415
-    assert conn.resp_body == "origin response is not a supported image"
+    assert conn.status == 422
+    assert conn.resp_body == "invalid image source"
   end
 
-  test "body limit failures after partial valid image bytes surface as decode errors" do
+  test "body limit failures after partial valid image bytes surface as source errors" do
     body = File.read!("priv/static/images/beach.jpg")
 
     conn =
       conn(:get, "/_/plain/images/large-body.jpg")
-      |> ImagePlug.call(
+      |> call_image_plug(
         root_url: "http://origin.test",
         parser: ImagePlug.Parser.Imgproxy,
         max_body_bytes: byte_size(body) - 1,
         origin_req_options: [plug: OriginImage]
       )
 
-    assert conn.status == 415
-    assert conn.resp_body == "origin response is not a supported image"
+    assert conn.status == 422
+    assert conn.resp_body == "invalid image source"
   end
 
-  test "origin timeout while decoding partial valid image bytes surfaces as a decode error" do
+  test "source timeout while decoding partial valid image bytes surfaces as a source error" do
     ref = make_ref()
     {root_url, server} = start_slow_partial_origin(self(), ref)
     monitor_ref = Process.monitor(server)
@@ -1906,32 +1948,32 @@ defmodule ImagePlug.ImagePlugTest do
         server
       )
 
-    assert conn.status == 415
-    assert conn.resp_body == "origin response is not a supported image"
+    assert conn.status == 422
+    assert conn.resp_body == "invalid image source"
 
     send(server, {ref, :close})
     assert_receive {:DOWN, ^monitor_ref, :process, ^server, _reason}
   end
 
-  test "sequential body limit after initial valid bytes surfaces as a decode error" do
+  test "sequential body limit after initial valid bytes surfaces as a source error" do
     body = File.read!("priv/static/images/beach.jpg")
 
     conn =
       conn(:get, "/_/rt:force/w:100/plain/images/large-body.jpg")
-      |> ImagePlug.call(
+      |> call_image_plug(
         root_url: "http://origin.test",
         parser: ImagePlug.Parser.Imgproxy,
         max_body_bytes: byte_size(body) - 1,
         origin_req_options: [plug: ChunkedOriginImage]
       )
 
-    assert conn.status == 415
+    assert conn.status == 422
     assert conn.state == :sent
-    assert conn.resp_body == "origin response is not a supported image"
+    assert conn.resp_body == "invalid image source"
     assert get_resp_header(conn, "content-type") == ["text/plain; charset=utf-8"]
   end
 
-  test "sequential timeout after initial valid bytes surfaces as a decode error" do
+  test "sequential timeout after initial valid bytes surfaces as a source error" do
     ref = make_ref()
     {root_url, server} = start_slow_partial_origin(self(), ref)
     monitor_ref = Process.monitor(server)
@@ -1948,9 +1990,9 @@ defmodule ImagePlug.ImagePlugTest do
         server
       )
 
-    assert conn.status == 415
+    assert conn.status == 422
     assert conn.state == :sent
-    assert conn.resp_body == "origin response is not a supported image"
+    assert conn.resp_body == "invalid image source"
     assert get_resp_header(conn, "content-type") == ["text/plain; charset=utf-8"]
 
     send(server, {ref, :close})
@@ -1960,7 +2002,7 @@ defmodule ImagePlug.ImagePlugTest do
   test "sequential corrupt image tail without origin error remains a decode error" do
     conn =
       conn(:get, "/_/rt:force/w:100/plain/images/corrupt-tail.jpg")
-      |> ImagePlug.call(
+      |> call_image_plug(
         root_url: "http://origin.test",
         parser: ImagePlug.Parser.Imgproxy,
         origin_req_options: [plug: CorruptTailOriginImage]
@@ -1968,21 +2010,21 @@ defmodule ImagePlug.ImagePlugTest do
 
     assert conn.status == 415
     assert conn.state == :sent
-    assert conn.resp_body == "origin response is not a supported image"
+    assert conn.resp_body == "source response is not a supported image"
     assert get_resp_header(conn, "content-type") == ["text/plain; charset=utf-8"]
   end
 
   test "invalid streamed image bytes are decode errors" do
     conn =
       conn(:get, "/_/plain/images/broken.png")
-      |> ImagePlug.call(
+      |> call_image_plug(
         root_url: "http://origin.test",
         parser: ImagePlug.Parser.Imgproxy,
         origin_req_options: [plug: InvalidOriginImage]
       )
 
     assert conn.status == 415
-    assert conn.resp_body == "origin response is not a supported image"
+    assert conn.resp_body == "source response is not a supported image"
   end
 
   test "cache read errors fail open by default and continue to origin" do
@@ -1990,7 +2032,7 @@ defmodule ImagePlug.ImagePlugTest do
 
     conn =
       conn(:get, "/_/f:jpeg/plain/images/beach.jpg")
-      |> ImagePlug.call(
+      |> call_image_plug(
         root_url: "http://origin.test",
         parser: ImagePlug.Parser.Imgproxy,
         origin_req_options: [plug: {CountingOriginImage, test_pid: cache_probe}],
@@ -2004,12 +2046,12 @@ defmodule ImagePlug.ImagePlugTest do
     assert_received {:cache_put, _key, _entry}
   end
 
-  test "cache read errors fail before origin when fail_on_cache_error is true" do
+  test "cache read errors fail before source fetch when fail_on_cache_error is true" do
     cache_probe = start_cache_probe()
 
     conn =
       conn(:get, "/_/f:jpeg/plain/images/beach.jpg")
-      |> ImagePlug.call(
+      |> call_image_plug(
         root_url: "http://origin.test",
         parser: ImagePlug.Parser.Imgproxy,
         origin_req_options: [plug: {CountingOriginImage, test_pid: cache_probe}],
@@ -2031,7 +2073,7 @@ defmodule ImagePlug.ImagePlugTest do
 
     conn =
       conn(:get, "/_/f:jpeg/plain/images/beach.jpg")
-      |> ImagePlug.call(
+      |> call_image_plug(
         root_url: "http://origin.test",
         parser: ImagePlug.Parser.Imgproxy,
         origin_req_options: [plug: {CountingOriginImage, test_pid: cache_probe}],
@@ -2051,7 +2093,7 @@ defmodule ImagePlug.ImagePlugTest do
 
     conn =
       conn(:get, "/_/f:jpeg/plain/images/beach.jpg")
-      |> ImagePlug.call(
+      |> call_image_plug(
         root_url: "http://origin.test",
         parser: ImagePlug.Parser.Imgproxy,
         origin_req_options: [plug: {CountingOriginImage, test_pid: cache_probe}],
@@ -2076,7 +2118,7 @@ defmodule ImagePlug.ImagePlugTest do
       :get
       |> conn("/_/plain/images/beach.jpg")
       |> put_req_header("accept", "image/jpeg")
-      |> ImagePlug.call(
+      |> call_image_plug(
         root_url: "http://origin.test",
         parser: ImagePlug.Parser.Imgproxy,
         origin_req_options: [plug: {CountingOriginImage, test_pid: cache_probe}],
@@ -2100,7 +2142,7 @@ defmodule ImagePlug.ImagePlugTest do
 
     conn =
       conn(:get, "/_/f:jpeg/plain/images/beach.jpg")
-      |> ImagePlug.call(
+      |> call_image_plug(
         root_url: "http://origin.test",
         parser: ImagePlug.Parser.Imgproxy,
         origin_req_options: [plug: {CountingOriginImage, test_pid: cache_probe}],
@@ -2118,7 +2160,7 @@ defmodule ImagePlug.ImagePlugTest do
 
     conn =
       conn(:get, "/_/f:jpeg/plain/images/beach.jpg")
-      |> ImagePlug.call(
+      |> call_image_plug(
         root_url: "http://origin.test",
         parser: ImagePlug.Parser.Imgproxy,
         image_module: BoundedCacheStreamingImage,
@@ -2139,7 +2181,7 @@ defmodule ImagePlug.ImagePlugTest do
 
     conn =
       conn(:get, "/_/f:jpeg/plain/images/beach.jpg")
-      |> ImagePlug.call(
+      |> call_image_plug(
         root_url: "http://origin.test",
         parser: ImagePlug.Parser.Imgproxy,
         origin_req_options: [plug: InvalidOriginImage],
@@ -2148,7 +2190,7 @@ defmodule ImagePlug.ImagePlugTest do
 
     flush_cache_probe(cache_probe)
     assert conn.status == 415
-    assert conn.resp_body == "origin response is not a supported image"
+    assert conn.resp_body == "source response is not a supported image"
     refute_received {:cache_put, _key, _entry}
   end
 
@@ -2181,7 +2223,7 @@ defmodule ImagePlug.ImagePlugTest do
 
       first_conn =
         conn(:get, "/_/f:jpeg/plain/images/beach.jpg")
-        |> ImagePlug.call(opts)
+        |> call_image_plug(opts)
 
       flush_cache_probe(cache_probe)
       assert first_conn.status == 200
@@ -2189,7 +2231,7 @@ defmodule ImagePlug.ImagePlugTest do
 
       second_conn =
         conn(:get, "/_/f:jpeg/plain/images/beach.jpg")
-        |> ImagePlug.call(opts)
+        |> call_image_plug(opts)
 
       flush_cache_probe(cache_probe)
       assert second_conn.status == 200

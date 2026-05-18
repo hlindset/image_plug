@@ -13,8 +13,10 @@ Set the telemetry prefix as a Plug option:
 forward "/",
   to: ImagePlug,
   init_opts: [
-    root_url: "http://localhost:4000",
     parser: ImagePlug.Parser.Imgproxy,
+    sources: [
+      path: {ImagePlug.Source.File, root: "/srv/images", root_id: "primary"}
+    ],
     telemetry_prefix: [:my_app, :image_plug]
   ]
 ```
@@ -46,10 +48,10 @@ ImagePlug also emits stage spans for meaningful request phases:
 
 ```text
 [:image_plug, :parse, ...]
-[:image_plug, :origin, :identity, ...]
+[:image_plug, :source, :resolve, ...]
 [:image_plug, :cache, :lookup, ...]
 [:image_plug, :output, :negotiate, ...]
-[:image_plug, :origin, :fetch_decode, ...]
+[:image_plug, :source, :fetch, ...]
 [:image_plug, :transform, :execute, ...]
 [:image_plug, :encode, ...]
 [:image_plug, :cache, :write, ...]
@@ -84,6 +86,8 @@ Metadata is intentionally low-cardinality and product-neutral. Common fields are
 - `:cache` - cache status when relevant.
 - `:output_mode` - `:automatic` or `:explicit` when known.
 - `:output_format` - the resolved output format when known.
+- `:source_kind` - `:path`, `:url`, `:object`, or `:reference` on source spans.
+- `:source_adapter_kind` - `:file`, `:http`, `:s3`, or `:custom` on source spans.
 - `:error` - a stable error category when known.
 
 Exception events include the metadata added by `:telemetry.span/3`, including
@@ -94,7 +98,7 @@ All span events also include `:telemetry_span_context`, which
 it as correlation data, not as a metrics dimension.
 
 ImagePlug doesn't emit full request paths by default. Imgproxy-style paths can
-contain signatures, filenames, and origin-shaped user data, and often have high
+contain signatures, filenames, and source-shaped user data, and often have high
 cardinality. Host applications that need path-level observability should add
 that data in their own handlers with the relevant privacy and cardinality
 controls.
@@ -106,14 +110,14 @@ Request and stage spans use narrow result atoms:
 - `:ok`
 - `:parser_error`
 - `:plan_error`
-- `:origin_error`
+- `:source_error`
 - `:cache_error`
 - `:processing_error`
 - `:error`
 
 Use `:error` for stage-local failures that aren't otherwise classified at that
 stage. The request span maps returned failures into the more specific request
-outcome categories above.
+outcome categories in this list.
 
 Cache-related metadata may also include:
 
@@ -140,10 +144,10 @@ defmodule MyApp.ImagePlugTelemetry do
   @stages [
     [:request],
     [:parse],
-    [:origin, :identity],
+    [:source, :resolve],
     [:cache, :lookup],
     [:output, :negotiate],
-    [:origin, :fetch_decode],
+    [:source, :fetch],
     [:transform, :execute],
     [:encode],
     [:cache, :write],

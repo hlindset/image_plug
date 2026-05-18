@@ -70,12 +70,11 @@ defmodule Mix.Tasks.ImagePlug.Server do
     do: {:error, "expected --port to be between #{@port_range.first} and #{@port_range.last}"}
 
   defp start_server(%{cache?: cache?, port: port, vite?: vite?}) do
-    root_url = "http://localhost:#{port}"
+    server_url = "http://localhost:#{port}"
     vite_origin = "http://localhost:#{@default_vite_port}"
 
     Application.put_env(:image_plug, ImagePlug.SimpleServer,
       cache: cache_config(cache?),
-      root_url: root_url,
       vite_origin: vite_origin
     )
 
@@ -84,7 +83,7 @@ defmodule Mix.Tasks.ImagePlug.Server do
     maybe_start_vite(vite?)
     {:ok, _pid} = start_bandit(port)
 
-    Mix.shell().info("ImagePlug simple server running at #{root_url}")
+    Mix.shell().info("ImagePlug simple server running at #{server_url}")
     maybe_print_vite_info(vite_origin, vite?)
     maybe_print_cache_info(cache?)
     Process.sleep(:infinity)

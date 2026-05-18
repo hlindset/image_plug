@@ -1,19 +1,19 @@
 defmodule ImagePlug.ArchitectureBoundaryTest do
   use ExUnit.Case, async: true
 
-  @request_origin_response_globs [
+  @request_source_response_globs [
     "lib/image_plug/request.ex",
     "lib/image_plug/request/**/*.ex",
-    "lib/image_plug/origin.ex",
-    "lib/image_plug/origin/**/*.ex",
+    "lib/image_plug/source.ex",
+    "lib/image_plug/source/**/*.ex",
     "lib/image_plug/response.ex",
     "lib/image_plug/response/**/*.ex"
   ]
   @parser_forbidden_globs [
     "lib/image_plug/request.ex",
     "lib/image_plug/request/**/*.ex",
-    "lib/image_plug/origin.ex",
-    "lib/image_plug/origin/**/*.ex",
+    "lib/image_plug/source.ex",
+    "lib/image_plug/source/**/*.ex",
     "lib/image_plug/response.ex",
     "lib/image_plug/response/**/*.ex",
     "lib/image_plug/cache.ex",
@@ -28,12 +28,13 @@ defmodule ImagePlug.ArchitectureBoundaryTest do
   @cache_key_files ["lib/image_plug/cache/key.ex"]
   @boundary_files %{
     ImagePlug.Cache => "lib/image_plug/cache.ex",
-    ImagePlug.Origin => "lib/image_plug/origin.ex",
+    ImagePlug.Output => "lib/image_plug/output.ex",
     ImagePlug.Plan => "lib/image_plug/plan.ex",
     ImagePlug.Parser => "lib/image_plug/parser.ex",
     ImagePlug.Parser.Imgproxy => "lib/image_plug/parser/imgproxy.ex",
     ImagePlug.Request => "lib/image_plug/request.ex",
     ImagePlug.Response => "lib/image_plug/response.ex",
+    ImagePlug.Source => "lib/image_plug/source.ex",
     ImagePlug.Telemetry => "lib/image_plug/telemetry.ex",
     ImagePlug.Transform => "lib/image_plug/transform.ex"
   }
@@ -84,7 +85,7 @@ defmodule ImagePlug.ArchitectureBoundaryTest do
     assert_boundary_exports(parser, [ImagePlug.Parser.Imgproxy])
 
     assert_boundary_deps(imgproxy, [ImagePlug.Parser, ImagePlug.Plan, ImagePlug.Transform])
-    assert_boundary_exports(imgproxy, [])
+    assert_boundary_exports(imgproxy, [ImagePlug.Parser.Imgproxy.SourceScheme])
 
     assert_allowed_deps(parser, [ImagePlug.Plan, ImagePlug.Transform])
     assert_allowed_deps(imgproxy, [ImagePlug.Parser, ImagePlug.Plan, ImagePlug.Transform])
@@ -96,7 +97,7 @@ defmodule ImagePlug.ArchitectureBoundaryTest do
     assert_boundary_deps(request, [
       ImagePlug.Plan,
       ImagePlug.Cache,
-      ImagePlug.Origin,
+      ImagePlug.Source,
       ImagePlug.Output,
       ImagePlug.Response,
       ImagePlug.Telemetry,
@@ -111,16 +112,27 @@ defmodule ImagePlug.ArchitectureBoundaryTest do
     ])
   end
 
-  test "origin boundary owns origin identity and fetch context" do
-    origin = boundary_declaration(ImagePlug.Origin)
+  test "source boundary owns source identity and fetch context" do
+    source = boundary_declaration(ImagePlug.Source)
 
-    assert_boundary_deps(origin, [ImagePlug.Plan])
-    refute_boundary_deps(origin, [ImagePlug.Request, ImagePlug.Response, ImagePlug.Cache])
+    assert_boundary_deps(source, [ImagePlug.Plan, ImagePlug.Telemetry])
 
-    assert_boundary_exports(origin, [
-      ImagePlug.Origin.Decoded,
-      ImagePlug.Origin.Identity,
-      ImagePlug.Origin.Response
+    refute_boundary_deps(source, [
+      ImagePlug.Request,
+      ImagePlug.Response,
+      ImagePlug.Cache,
+      ImagePlug.Output,
+      ImagePlug.Transform,
+      ImagePlug.Parser
+    ])
+
+    assert_boundary_exports(source, [
+      ImagePlug.Source.Resolved,
+      ImagePlug.Source.Response,
+      ImagePlug.Source.StreamError,
+      ImagePlug.Source.HTTP,
+      ImagePlug.Source.File,
+      ImagePlug.Source.S3
     ])
   end
 
@@ -135,7 +147,7 @@ defmodule ImagePlug.ArchitectureBoundaryTest do
       ImagePlug.Transform
     ])
 
-    refute_boundary_deps(response, [ImagePlug.Request, ImagePlug.Origin])
+    refute_boundary_deps(response, [ImagePlug.Request, ImagePlug.Source])
 
     assert_boundary_exports(response, [
       ImagePlug.Response.Sender
@@ -154,9 +166,24 @@ defmodule ImagePlug.ArchitectureBoundaryTest do
     assert_boundary_exports(telemetry, [])
   end
 
-  test "request, origin, and response code does not depend on concrete transform modules" do
+  test "output boundary depends only on plan data" do
+    output = boundary_declaration(ImagePlug.Output)
+
+    assert_boundary_deps(output, [ImagePlug.Plan])
+
+    refute_boundary_deps(output, [
+      ImagePlug.Source,
+      ImagePlug.Parser,
+      ImagePlug.Request,
+      ImagePlug.Response,
+      ImagePlug.Cache,
+      ImagePlug.Transform
+    ])
+  end
+
+  test "request, source, and response code does not depend on concrete transform modules" do
     violations =
-      for file <- request_origin_response_files(),
+      for file <- request_source_response_files(),
           violation <- concrete_transform_references(file) do
         "#{file}:#{violation.line} must not name #{violation.module}; use ImagePlug.Transform dispatch instead"
       end
@@ -164,9 +191,9 @@ defmodule ImagePlug.ArchitectureBoundaryTest do
     assert violations == []
   end
 
-  test "request, origin, and response code does not depend on concrete plan operation modules" do
+  test "request, source, and response code does not depend on concrete plan operation modules" do
     violations =
-      for file <- request_origin_response_files(),
+      for file <- request_source_response_files(),
           violation <- concrete_plan_references(file) do
         "#{file}:#{violation.line} must not name #{violation.module}; use generic Plan/Transform facades instead"
       end
@@ -174,9 +201,9 @@ defmodule ImagePlug.ArchitectureBoundaryTest do
     assert violations == []
   end
 
-  test "request, origin, and response code does not inspect plan operation semantic staging" do
+  test "request, source, and response code does not inspect plan operation semantic staging" do
     violations =
-      for file <- request_origin_response_files(),
+      for file <- request_source_response_files(),
           violation <- plan_operation_semantic_references(file) do
         "#{file}:#{violation.line} must not call #{violation.module}.semantic?/1; use ImagePlug.Transform executable planning instead"
       end
@@ -184,9 +211,9 @@ defmodule ImagePlug.ArchitectureBoundaryTest do
     assert violations == []
   end
 
-  test "request, origin, and response code does not call removed or internal transform execution APIs" do
+  test "request, source, and response code does not call removed or internal transform execution APIs" do
     violations =
-      for file <- request_origin_response_files(),
+      for file <- request_source_response_files(),
           violation <- runtime_forbidden_transform_execution_references(file) do
         "#{file}:#{violation.line} must not use #{violation.module}; execute canonical plans through ImagePlug.Transform.execute_plan/3"
       end
@@ -194,11 +221,11 @@ defmodule ImagePlug.ArchitectureBoundaryTest do
     assert violations == []
   end
 
-  test "request, origin, response, cache, and output code does not depend on imgproxy parser structs" do
+  test "request, source, response, cache, and output code does not depend on imgproxy parser structs" do
     violations =
       for file <- parser_forbidden_files(),
           violation <- imgproxy_parser_references(file) do
-        "#{file}:#{violation.line} must not name #{violation.module}; keep Imgproxy parser dependencies out of request, origin, response, cache, and output code"
+        "#{file}:#{violation.line} must not name #{violation.module}; keep Imgproxy parser dependencies out of request, source, response, cache, and output code"
       end
 
     assert violations == []
@@ -231,7 +258,7 @@ defmodule ImagePlug.ArchitectureBoundaryTest do
       ImagePlug.Parser,
       ImagePlug.Request.Runner,
       ImagePlug.Request,
-      ImagePlug.Origin,
+      ImagePlug.Source,
       ImagePlug.Response,
       ImagePlug.Cache,
       ImagePlug.Output
@@ -302,8 +329,8 @@ defmodule ImagePlug.ArchitectureBoundaryTest do
     assert violations == []
   end
 
-  defp request_origin_response_files do
-    @request_origin_response_globs
+  defp request_source_response_files do
+    @request_source_response_globs
     |> Enum.flat_map(&Path.wildcard/1)
     |> Enum.sort()
   end

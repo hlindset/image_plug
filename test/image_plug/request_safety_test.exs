@@ -5,12 +5,78 @@ defmodule ImagePlug.RequestSafetyTest do
   alias ImagePlug.RequestSafetyTest.CacheProbe
   alias ImagePlug.RequestSafetyTest.InvalidPipelinePlanParser
   alias ImagePlug.RequestSafetyTest.InvalidPlanParser
+  alias ImagePlug.SourceTest.ValidAdapter
+
+  defmodule DenyingSourceAdapter do
+    @behaviour ImagePlug.Source
+
+    @impl ImagePlug.Source
+    def validate_options(opts), do: {:ok, opts}
+
+    @impl ImagePlug.Source
+    def resolve(_source, _opts, _runtime_opts) do
+      send(self(), :source_resolve)
+      {:error, {:source, :denied_path}}
+    end
+
+    @impl ImagePlug.Source
+    def fetch(_resolved, _opts, _runtime_opts) do
+      raise "source should not fetch"
+    end
+  end
+
+  defmodule FetchErrorSourceAdapter do
+    @behaviour ImagePlug.Source
+
+    @impl ImagePlug.Source
+    def validate_options(opts), do: {:ok, opts}
+
+    @impl ImagePlug.Source
+    def resolve(_source, _opts, _runtime_opts) do
+      {:ok,
+       %ImagePlug.Source.Resolved{
+         adapter: :path,
+         source_kind: :path,
+         identity: [kind: :path, root: "test", path: ["missing.jpg"]],
+         cache: :normal,
+         fetch: :missing
+       }}
+    end
+
+    @impl ImagePlug.Source
+    def fetch(_resolved, _opts, _runtime_opts), do: {:error, {:source, :not_found}}
+  end
+
+  defmodule StreamErrorSourceAdapter do
+    @behaviour ImagePlug.Source
+
+    @impl ImagePlug.Source
+    def validate_options(opts), do: {:ok, opts}
+
+    @impl ImagePlug.Source
+    def resolve(_source, _opts, _runtime_opts) do
+      {:ok,
+       %ImagePlug.Source.Resolved{
+         adapter: :path,
+         source_kind: :path,
+         identity: [kind: :path, root: "test", path: ["stream-fails.jpg"]],
+         cache: :skip,
+         fetch: :stream_fails
+       }}
+    end
+
+    @impl ImagePlug.Source
+    def fetch(_resolved, _opts, _runtime_opts) do
+      stream = Stream.map([:raise], fn _ -> raise "stream failed" end)
+      {:ok, %ImagePlug.Source.Response{stream: stream}}
+    end
+  end
 
   test "plug validates product-neutral plan shape before source identity resolution" do
     conn =
       ImagePlug.call(conn(:get, "/_/plain/images/cat.jpg"),
         parser: InvalidPlanParser,
-        root_url: "http://origin.test"
+        sources: [path: {ValidAdapter, []}]
       )
 
     assert conn.status == 422
@@ -21,9 +87,8 @@ defmodule ImagePlug.RequestSafetyTest do
     conn =
       ImagePlug.call(conn(:get, "/_/plain/images/cat.jpg"),
         parser: InvalidPlanParser,
-        root_url: "not-a-valid-origin-url",
-        cache: {CacheProbe, []},
-        origin_req_options: [plug: ImagePlug.Request.ProcessorTest.OriginShouldNotFetch]
+        sources: [path: {ValidAdapter, []}],
+        cache: {CacheProbe, []}
       )
 
     assert conn.status == 422
@@ -36,9 +101,8 @@ defmodule ImagePlug.RequestSafetyTest do
     conn =
       ImagePlug.call(conn(:get, "/_/plain/images/cat.jpg"),
         parser: InvalidPipelinePlanParser,
-        root_url: "not-a-valid-origin-url",
-        cache: {CacheProbe, []},
-        origin_req_options: [plug: ImagePlug.Request.ProcessorTest.OriginShouldNotFetch]
+        sources: [path: {ValidAdapter, []}],
+        cache: {CacheProbe, []}
       )
 
     assert conn.status == 422
@@ -47,12 +111,11 @@ defmodule ImagePlug.RequestSafetyTest do
     refute_received :cache_put
   end
 
-  test "parser validation failures return before origin fetch" do
+  test "parser validation failures return before source fetch" do
     conn =
       ImagePlug.call(conn(:get, "/_/raw/plain/images/cat.jpg"),
         parser: ImagePlug.Parser.Imgproxy,
-        root_url: "http://origin.test",
-        origin_req_options: [plug: ImagePlug.Request.ProcessorTest.OriginShouldNotFetch]
+        sources: [path: {ValidAdapter, []}]
       )
 
     assert conn.status == 400
@@ -67,9 +130,8 @@ defmodule ImagePlug.RequestSafetyTest do
       conn =
         ImagePlug.call(conn(:get, path),
           parser: ImagePlug.Parser.Imgproxy,
-          root_url: "not-a-valid-origin-url",
-          cache: {CacheProbe, []},
-          origin_req_options: [plug: ImagePlug.Request.ProcessorTest.OriginShouldNotFetch]
+          sources: [path: {ValidAdapter, []}],
+          cache: {CacheProbe, []}
         )
 
       assert conn.status == 400
@@ -82,10 +144,9 @@ defmodule ImagePlug.RequestSafetyTest do
     conn =
       ImagePlug.call(conn(:get, "/_/exp:100/plain/images/cat.jpg"),
         parser: ImagePlug.Parser.Imgproxy,
-        root_url: "not-a-valid-origin-url",
+        sources: [path: {ValidAdapter, []}],
         clock: fn -> DateTime.from_unix!(101) end,
-        cache: {CacheProbe, []},
-        origin_req_options: [plug: ImagePlug.Request.ProcessorTest.OriginShouldNotFetch]
+        cache: {CacheProbe, []}
       )
 
     assert conn.status == 400
@@ -100,15 +161,14 @@ defmodule ImagePlug.RequestSafetyTest do
         conn(:get, "/invalid/w:300/plain/images/cat.jpg"),
         ImagePlug.init(
           parser: ImagePlug.Parser.Imgproxy,
-          root_url: "not-a-valid-origin-url",
+          sources: [path: {ValidAdapter, []}],
           imgproxy: [
             signature: [
               keys: ["746573742d6b6579"],
               salts: ["746573742d73616c74"]
             ]
           ],
-          cache: {CacheProbe, []},
-          origin_req_options: [plug: ImagePlug.Request.ProcessorTest.OriginShouldNotFetch]
+          cache: {CacheProbe, []}
         )
       )
 
@@ -118,20 +178,19 @@ defmodule ImagePlug.RequestSafetyTest do
     refute_received :cache_put
   end
 
-  test "invalid imgproxy signatures return before origin fetch with a valid root URL" do
+  test "invalid imgproxy signatures return before source fetch with a valid root URL" do
     conn =
       ImagePlug.call(
         conn(:get, "/invalid/w:300/plain/images/cat.jpg"),
         ImagePlug.init(
           parser: ImagePlug.Parser.Imgproxy,
-          root_url: "http://origin.test",
+          sources: [path: {ValidAdapter, []}],
           imgproxy: [
             signature: [
               keys: ["746573742d6b6579"],
               salts: ["746573742d73616c74"]
             ]
-          ],
-          origin_req_options: [plug: ImagePlug.Request.ProcessorTest.OriginShouldNotFetch]
+          ]
         )
       )
 
@@ -145,19 +204,120 @@ defmodule ImagePlug.RequestSafetyTest do
         conn(:get, "/invalid/raw/plain/images/cat.jpg"),
         ImagePlug.init(
           parser: ImagePlug.Parser.Imgproxy,
-          root_url: "http://origin.test",
+          sources: [path: {ValidAdapter, []}],
           imgproxy: [
             signature: [
               keys: ["746573742d6b6579"],
               salts: ["746573742d73616c74"]
             ]
-          ],
-          origin_req_options: [plug: ImagePlug.Request.ProcessorTest.OriginShouldNotFetch]
+          ]
         )
       )
 
     assert conn.status == 403
     assert conn.resp_body =~ "invalid_signature"
     refute conn.resp_body =~ "unsupported_option"
+  end
+
+  test "invalid pipeline plans return before source resolution" do
+    opts =
+      ImagePlug.init(
+        parser: InvalidPipelinePlanParser,
+        sources: [path: {ValidAdapter, []}],
+        cache: {CacheProbe, []}
+      )
+
+    conn = ImagePlug.call(conn(:get, "/_/plain/images/cat.jpg"), opts)
+
+    assert conn.status == 422
+    assert conn.resp_body == "invalid image transform"
+    refute_received {:source_resolve, _source}
+    refute_received {:source_fetch, _fetch}
+    refute_received :cache_lookup
+    refute_received :cache_put
+  end
+
+  test "source resolution failures return before cache lookup and fetch" do
+    opts =
+      ImagePlug.init(
+        parser: ImagePlug.Parser.Imgproxy,
+        sources: [path: {DenyingSourceAdapter, []}],
+        cache: {CacheProbe, []}
+      )
+
+    conn = ImagePlug.call(conn(:get, "/_/plain/images/cat.jpg"), opts)
+
+    assert conn.status == 422
+    assert conn.resp_body == "invalid image source"
+    assert_received :source_resolve
+    refute_received {:source_fetch, _fetch}
+    refute_received :cache_lookup
+    refute_received :cache_put
+  end
+
+  test "source runtime options pass body limits and runtime metadata without parser or cache config" do
+    opts =
+      ImagePlug.init(
+        parser: ImagePlug.Parser.Imgproxy,
+        sources: [path: {ValidAdapter, []}],
+        cache: {CacheProbe, []},
+        max_body_bytes: 1_000_000,
+        receive_timeout: 456,
+        connect_timeout: 789,
+        request_id: "req-1"
+      )
+
+    conn = ImagePlug.call(conn(:get, "/_/plain/images/cat.jpg"), opts)
+
+    assert conn.status == 200
+    assert_received {:source_resolve_runtime_opts, resolve_runtime_opts}
+    assert_received {:source_fetch_runtime_opts, fetch_runtime_opts}
+    assert resolve_runtime_opts == fetch_runtime_opts
+
+    assert Keyword.take(fetch_runtime_opts, [
+             :max_body_bytes,
+             :receive_timeout,
+             :connect_timeout,
+             :request_id
+           ]) == [
+             max_body_bytes: 1_000_000,
+             receive_timeout: 456,
+             connect_timeout: 789,
+             request_id: "req-1"
+           ]
+
+    refute Keyword.has_key?(fetch_runtime_opts, :parser)
+    refute Keyword.has_key?(fetch_runtime_opts, :cache)
+    refute Keyword.has_key?(fetch_runtime_opts, :sources)
+  end
+
+  test "source fetch errors return source response errors" do
+    opts =
+      ImagePlug.init(
+        parser: ImagePlug.Parser.Imgproxy,
+        sources: [path: {FetchErrorSourceAdapter, []}],
+        cache: {CacheProbe, []}
+      )
+
+    conn = ImagePlug.call(conn(:get, "/_/plain/images/missing.jpg"), opts)
+
+    assert conn.status == 422
+    assert conn.resp_body == "invalid image source"
+    refute_received :cache_put
+  end
+
+  test "deferred source stream errors return source response errors" do
+    opts =
+      ImagePlug.init(
+        parser: ImagePlug.Parser.Imgproxy,
+        sources: [path: {StreamErrorSourceAdapter, []}],
+        cache: {CacheProbe, []}
+      )
+
+    conn = ImagePlug.call(conn(:get, "/_/plain/images/stream-fails.jpg"), opts)
+
+    assert conn.status == 422
+    assert conn.resp_body == "invalid image source"
+    refute_received :cache_put
   end
 end

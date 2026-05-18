@@ -9,6 +9,7 @@ defmodule ImagePlug.Cache.Key do
   alias ImagePlug.Plan
   alias ImagePlug.Plan.Output
   alias ImagePlug.Plan.Pipeline
+  alias ImagePlug.Plan.Source.Identity
   alias ImagePlug.Transform.KeyData
 
   @schema_version 2
@@ -23,18 +24,16 @@ defmodule ImagePlug.Cache.Key do
           serialized_data: binary()
         }
 
-  @spec build(Plug.Conn.t(), Plan.t(), String.t(), keyword()) ::
+  @spec build(Plug.Conn.t(), Plan.t(), term(), keyword()) ::
           {:ok, t()} | {:error, term()}
-  def build(conn, %Plan{} = plan, origin_identity, opts \\ [])
-      when is_binary(origin_identity) and is_list(opts) do
-    with {:ok, source} <- source_data(plan.source),
+  def build(conn, %Plan{} = plan, source_identity, opts \\ []) when is_list(opts) do
+    with :ok <- validate_source_identity(source_identity),
          {:ok, pipelines} <- pipelines_data(plan.pipelines),
          {:ok, output} <- output_data(conn, plan.output, opts),
          {:ok, cache} <- cache_data(plan.cachebuster) do
       data = [
         schema_version: @schema_version,
-        origin_identity: origin_identity,
-        source: source,
+        source_identity: source_identity,
         pipelines: pipelines,
         transform: transform_data(),
         output: output,
@@ -61,8 +60,11 @@ defmodule ImagePlug.Cache.Key do
     |> :erlang.term_to_binary([:deterministic])
   end
 
-  defp source_data({:plain, path}), do: {:ok, [kind: :plain, path: path]}
-  defp source_data(source), do: {:error, {:unsupported_source, source}}
+  defp validate_source_identity(identity) do
+    if Identity.valid?(identity),
+      do: :ok,
+      else: {:error, {:invalid_source_identity, identity}}
+  end
 
   defp pipelines_data(pipelines) do
     {:ok,
