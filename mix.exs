@@ -20,6 +20,7 @@ defmodule ImagePlug.MixProject do
         main: "readme",
         source_ref: "v#{@version}",
         source_url: @source_url,
+        assets: %{"docs/assets" => "docs/assets"},
         extras: [
           "README.md",
           "CHANGELOG.md",
@@ -79,7 +80,7 @@ defmodule ImagePlug.MixProject do
         "lib",
         "priv",
         "docs/cache.md",
-        "docs/demo-fiddle-desktop.png",
+        "docs/assets/demo-fiddle-desktop.png",
         "docs/imgproxy_path_api.md",
         "docs/imgproxy_support_matrix.md",
         "docs/operational_notes.md",

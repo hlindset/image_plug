@@ -161,7 +161,7 @@ mise exec -- mix image_plug.server
 open http://localhost:4000/demo
 ```
 
-![Demo fiddle desktop screenshot](docs/demo-fiddle-desktop.png)
+![Demo fiddle desktop screenshot](docs/assets/demo-fiddle-desktop.png)
 
 Pass `--no-vite` to run only the image server without the demo asset server:
 
