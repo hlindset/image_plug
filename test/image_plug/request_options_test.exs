@@ -2,6 +2,7 @@ defmodule ImagePlug.RequestOptionsTest do
   use ExUnit.Case, async: true
 
   alias ImagePlug.Request.Options
+  alias ImagePlug.SourceTest.CustomAdapter
 
   @base_opts [
     parser: ImagePlug.Parser.Imgproxy,
@@ -21,6 +22,28 @@ defmodule ImagePlug.RequestOptionsTest do
                    fn ->
                      Options.validate!(Keyword.put(@base_opts, :clock, clock))
                    end
+    end
+  end
+
+  test "request options accept sources without root_url" do
+    assert opts =
+             Options.validate!(
+               parser: ImagePlug.Parser.Imgproxy,
+               sources: [
+                 path: {CustomAdapter, adapter: :path}
+               ]
+             )
+
+    assert opts[:sources][:path]
+    refute Keyword.has_key?(opts, :root_url)
+  end
+
+  test "request options reject invalid source adapter config during init" do
+    assert_raise ArgumentError, fn ->
+      Options.validate!(
+        parser: ImagePlug.Parser.Imgproxy,
+        sources: [path: {CustomAdapter, :not_options}]
+      )
     end
   end
 end

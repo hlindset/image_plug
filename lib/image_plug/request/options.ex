@@ -2,12 +2,13 @@ defmodule ImagePlug.Request.Options do
   @moduledoc false
 
   alias ImagePlug.Cache
+  alias ImagePlug.Source
   alias ImagePlug.Telemetry
 
   @parser_visible_option_keys [:parser, :root_url, :clock, :telemetry_prefix]
   @options_schema NimbleOptions.new!(
                     parser: [type: :atom, required: true],
-                    root_url: [type: :string, required: true],
+                    root_url: [type: :string],
                     clock: [type: {:custom, __MODULE__, :validate_clock, []}],
                     telemetry_prefix: [
                       type: {:custom, __MODULE__, :validate_telemetry_prefix, []},
@@ -18,6 +19,7 @@ defmodule ImagePlug.Request.Options do
   def validate!(opts) do
     opts
     |> Cache.validate_config!()
+    |> Source.validate_config!()
     |> validate_known_opts!()
   end
 
