@@ -5,9 +5,9 @@ fetching source bytes. Invalid signatures return `403`, and invalid processing
 requests return `400`, both without source traffic.
 
 Parser and plan validation finish before source resolution, cache lookup, or
-fetch. Source resolution finishes before cache lookup. Cacheable requests look
-up the cache before source fetch and decode, so fetch and decode run only on a
-cache miss or when the resolved source has `cache: :skip`.
+fetch. Source resolution finishes before cache lookup. Requests eligible for
+caching look up the cache before source fetch and decode, so fetch and decode run
+only on a cache miss or when the resolved source has `cache: :skip`.
 
 HTTP and S3 source fetches use non-bang Req calls with bounded redirects and
 receive timeouts. ImagePlug reads the source format from the decoded image
@@ -19,9 +19,9 @@ source bytes for the same resolved identity. Byte-selecting request options need
 URI/object revision material, `cache: :skip`, or a custom adapter identity
 field.
 
-S3 `buckets` is a map. When present, it is an allowlist; `default` supplies
-shared defaults, and each bucket entry can override region, endpoint,
-credentials, request options, and cache policy.
+S3 `buckets` is a map. When present, it's an allowlist. `default` supplies
+shared defaults. Each bucket entry can override region, endpoint, credentials,
+request options, and cache policy.
 
 ## Decode planning
 
@@ -34,11 +34,11 @@ Chains involving crop, cover, or fill result crops, canvas extension, unknown
 transforms, output-only requests, or no geometry transform continue to use
 random access.
 
-When a parsed plan contains multiple image pipelines, ImagePlug materializes the
+When a parsed plan contains more than one image pipeline, ImagePlug materializes the
 image between pipelines. This preserves the explicit pipeline boundary and lets
 source decode planning consider the first pipeline only. Later pipelines may
-contain operations classified as requiring random access. Those operations run
-against a memory-backed intermediate image instead of changing how ImagePlug
+contain operations classified as requiring random access. Those operations use
+a memory-backed intermediate image instead of changing how ImagePlug
 opens the source image.
 
 Sequential decode doesn't use JPEG shrink-on-load or WebP scale hints in this

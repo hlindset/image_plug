@@ -211,7 +211,7 @@ defmodule ImagePlug.TransformIRCharacterizationTest do
   defp executable_resize_dimension(:auto), do: :auto
   defp executable_resize_dimension(pixels), do: {:pixels, pixels}
 
-  test "cache hit returns before origin fetch for resize:auto requests" do
+  test "cache hit returns before source fetch for resize:auto requests" do
     entry = %Entry{
       body: "cached jpeg",
       content_type: "image/jpeg",

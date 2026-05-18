@@ -116,7 +116,7 @@ ImagePlug's fixed plan order.
 - [Cache](docs/cache.md) documents filesystem response caching, cache keys,
   stored headers, failure modes, and cache safety boundaries.
 - [Operational notes](docs/operational_notes.md) documents request safety,
-  origin fetching, decode planning, multi-pipeline behavior, and automatic
+  source fetching, decode planning, multi-pipeline behavior, and automatic
   output negotiation.
 - [Telemetry](docs/telemetry.md) documents emitted span events, measurements,
   metadata, and handler examples.

@@ -193,7 +193,7 @@ defmodule ImagePlug.Request.Runner do
        ) do
     policy = Policy.from_output_plan(conn, plan.output, opts)
 
-    case Policy.resolve_before_origin(policy) do
+    case Policy.resolve_before_source_fetch(policy) do
       :needs_source_format ->
         process_source_format_automatic(plan, resolved_source, opts, policy)
 

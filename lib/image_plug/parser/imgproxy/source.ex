@@ -70,7 +70,7 @@ defmodule ImagePlug.Parser.Imgproxy.Source do
     with {:ok, path} <- uri_path_segments(uri.path || "") do
       query = source_query || uri.query
 
-      with {:ok, query} <- decode_optional(query) do
+      with {:ok, query} <- validate_optional_percent_encoding(query) do
         {:ok,
          %URL{
            scheme: String.to_existing_atom(uri.scheme),
@@ -208,6 +208,16 @@ defmodule ImagePlug.Parser.Imgproxy.Source do
 
   defp decode_optional(nil), do: {:ok, nil}
   defp decode_optional(value), do: decode_percent_encoded(value)
+
+  defp validate_optional_percent_encoding(nil), do: {:ok, nil}
+
+  defp validate_optional_percent_encoding(value) do
+    if malformed_percent_encoding?(value) do
+      {:error, {:invalid_percent_encoding, value}}
+    else
+      {:ok, value}
+    end
+  end
 
   defp decode_percent_encoded(value) do
     if malformed_percent_encoding?(value) do

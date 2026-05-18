@@ -914,7 +914,7 @@ defmodule ImagePlug.ImagePlugTest do
     refute_received :origin_was_called
   end
 
-  test "cache misses process origin response, write entry, and send encoded body" do
+  test "cache misses process source response, write entry, and send encoded body" do
     conn = conn(:get, "/_/f:jpeg/plain/images/beach.jpg")
     test_pid = self()
     cache_probe = start_cache_probe()
@@ -1179,7 +1179,7 @@ defmodule ImagePlug.ImagePlugTest do
     refute_received :origin_was_called
   end
 
-  test "empty pipeline plan returns a controlled response before origin" do
+  test "empty pipeline plan returns a controlled response before source fetch" do
     conn = conn(:get, "/_/f:jpeg/plain/images/beach.jpg")
 
     conn =
@@ -1194,7 +1194,7 @@ defmodule ImagePlug.ImagePlugTest do
     refute_received :origin_was_called
   end
 
-  test "returns a controlled response for unsupported source plans before origin" do
+  test "returns a controlled response for unsupported source plans before source fetch" do
     conn = conn(:get, "/_/signed/images/beach.jpg")
 
     conn =
@@ -1467,7 +1467,7 @@ defmodule ImagePlug.ImagePlugTest do
     refute_received :origin_was_called
   end
 
-  test "automatic cache key is available before origin when modern formats are disabled" do
+  test "automatic cache key is available before source fetch when modern formats are disabled" do
     cache_probe = start_cache_probe()
 
     cached_entry = %ImagePlug.Cache.Entry{
@@ -1765,7 +1765,7 @@ defmodule ImagePlug.ImagePlugTest do
     assert Keyword.get(opts, :fail_on) == :error
     assert conn.status == 415
     assert conn.state == :sent
-    assert conn.resp_body == "origin response is not a supported image"
+    assert conn.resp_body == "source response is not a supported image"
     assert get_resp_header(conn, "content-type") == ["text/plain; charset=utf-8"]
     assert get_resp_header(conn, "vary") == ["Accept"]
   end
@@ -1788,7 +1788,7 @@ defmodule ImagePlug.ImagePlugTest do
     assert Keyword.get(opts, :fail_on) == :error
     assert conn.status == 415
     assert conn.state == :sent
-    assert conn.resp_body == "origin response is not a supported image"
+    assert conn.resp_body == "source response is not a supported image"
     assert get_resp_header(conn, "content-type") == ["text/plain; charset=utf-8"]
     assert get_resp_header(conn, "vary") == ["Accept"]
   end
@@ -1896,7 +1896,7 @@ defmodule ImagePlug.ImagePlugTest do
       )
 
     assert conn.status == 413
-    assert conn.resp_body == "origin image is too large"
+    assert conn.resp_body == "source image is too large"
   end
 
   test "body limit failures surface as source errors during decode" do
@@ -2008,7 +2008,7 @@ defmodule ImagePlug.ImagePlugTest do
 
     assert conn.status == 415
     assert conn.state == :sent
-    assert conn.resp_body == "origin response is not a supported image"
+    assert conn.resp_body == "source response is not a supported image"
     assert get_resp_header(conn, "content-type") == ["text/plain; charset=utf-8"]
   end
 
@@ -2022,7 +2022,7 @@ defmodule ImagePlug.ImagePlugTest do
       )
 
     assert conn.status == 415
-    assert conn.resp_body == "origin response is not a supported image"
+    assert conn.resp_body == "source response is not a supported image"
   end
 
   test "cache read errors fail open by default and continue to origin" do
@@ -2044,7 +2044,7 @@ defmodule ImagePlug.ImagePlugTest do
     assert_received {:cache_put, _key, _entry}
   end
 
-  test "cache read errors fail before origin when fail_on_cache_error is true" do
+  test "cache read errors fail before source fetch when fail_on_cache_error is true" do
     cache_probe = start_cache_probe()
 
     conn =
@@ -2188,7 +2188,7 @@ defmodule ImagePlug.ImagePlugTest do
 
     flush_cache_probe(cache_probe)
     assert conn.status == 415
-    assert conn.resp_body == "origin response is not a supported image"
+    assert conn.resp_body == "source response is not a supported image"
     refute_received {:cache_put, _key, _entry}
   end
 

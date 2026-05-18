@@ -6,7 +6,7 @@ with Imgproxy's processing URL surface.
 ImagePlug intentionally treats Imgproxy URLs as a compatibility parser for a
 product-neutral `ImagePlug.Plan`. Supported options translate cleanly into
 canonical plan/output/cache/response fields. Unsupported options fail before
-origin fetch or cache lookup. ImagePlug doesn't ignore them.
+source fetch or cache lookup. ImagePlug doesn't ignore them.
 
 ## Status legend
 
@@ -26,7 +26,7 @@ origin fetch or cache lookup. ImagePlug doesn't ignore them.
 | HMAC URL signatures | Supported | Imgproxy parser verifies raw/unpadded Base64URL HMAC-SHA256 signatures with hex key/salt pairs, optional truncation, rotation pairs, exact trusted signatures, and Imgproxy-compatible `fixPath` before verification. Signature failures return 403. |
 | Plain source URLs via `/plain/` | Supported | ImagePlug translates the value into configured source adapters for local paths, HTTP and HTTPS URLs, S3-compatible object sources, and configured custom schemes. |
 | Plain source `@extension` | Supported | Overrides option format and bypasses `Accept` negotiation. |
-| Base64 encoded source URL | Missing | No encoded source parsing or absolute URL source model. |
+| Base64 encoded source URL | Missing | No encoded source parsing. ImagePlug supports plain HTTP and HTTPS source URLs through `/plain/`. |
 | Encrypted `/enc/` source URL | Missing | Pro feature. Requires source decryption and signed URL safety. |
 | AES-CBC source URL encryption helpers | Missing | Should remain parser/runtime source-layer support, not transform support. |
 | Custom argument separator | Missing | Parser currently uses `:`. |

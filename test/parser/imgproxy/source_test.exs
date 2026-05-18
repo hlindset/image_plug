@@ -114,6 +114,16 @@ defmodule ImagePlug.Parser.Imgproxy.SourceTest do
                 query: "v=1"
               }}
 
+    assert Source.translate("https://assets.example.com/images/cat.jpg%3Fv=a%26b%3Dc", []) ==
+             {:ok,
+              %URL{
+                scheme: :https,
+                host: "assets.example.com",
+                port: nil,
+                path: ["images", "cat.jpg"],
+                query: "v=a%26b%3Dc"
+              }}
+
     assert Source.translate("https://assets.example.com/images/cat%253Fone.jpg", []) ==
              {:ok,
               %URL{

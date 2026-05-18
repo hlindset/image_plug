@@ -4,7 +4,7 @@ defmodule ImagePlug.SimpleServerTest do
   import Plug.Conn, only: [get_resp_header: 2]
   import Plug.Test
 
-  test "returns 404 for missing static image origins" do
+  test "returns 404 for missing static images" do
     conn =
       :get
       |> conn("/images/does-not-exist.jpg")

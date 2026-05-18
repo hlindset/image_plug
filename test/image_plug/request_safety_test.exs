@@ -111,7 +111,7 @@ defmodule ImagePlug.RequestSafetyTest do
     refute_received :cache_put
   end
 
-  test "parser validation failures return before origin fetch" do
+  test "parser validation failures return before source fetch" do
     conn =
       ImagePlug.call(conn(:get, "/_/raw/plain/images/cat.jpg"),
         parser: ImagePlug.Parser.Imgproxy,
@@ -178,7 +178,7 @@ defmodule ImagePlug.RequestSafetyTest do
     refute_received :cache_put
   end
 
-  test "invalid imgproxy signatures return before origin fetch with a valid root URL" do
+  test "invalid imgproxy signatures return before source fetch with a valid root URL" do
     conn =
       ImagePlug.call(
         conn(:get, "/invalid/w:300/plain/images/cat.jpg"),

@@ -2,8 +2,8 @@
 
 ## Status
 
-Approved design direction from brainstorming. This document is for review before
-implementation planning.
+Approved design direction from brainstorming. This document records the reviewed
+design that guided the source adapter implementation.
 
 ## Problem
 
@@ -27,9 +27,9 @@ source product supplied the bytes.
 
 ## Design
 
-Use typed plan source structs plus a runtime resolved-source layer. The new
-source boundary replaces the current `ImagePlug.Origin` internals. It doesn't
-revive the abandoned `ImagePlug.Runtime` module tree.
+Use typed plan source structs plus a runtime resolved-source layer. The source
+boundary replaces the former `ImagePlug.Origin` internals. It doesn't revive the
+abandoned `ImagePlug.Runtime` module tree.
 
 Parsers emit product-neutral source data:
 
@@ -40,8 +40,8 @@ Parsers emit product-neutral source data:
 %ImagePlug.Plan.Source.Reference{}
 ```
 
-Runtime source adapters resolve those plan sources into a deterministic identity
-and an adapter-owned fetch payload:
+Source adapters resolve those plan sources into a deterministic identity and an
+adapter-owned fetch payload:
 
 ```elixir
 @callback validate_options(keyword()) :: {:ok, keyword()} | {:error, term()}
@@ -94,9 +94,8 @@ than letting them reach cache, decode, or response code.
 
 Adapters don't return loaded images. The request processor keeps decode
 ownership so `ImagePlug.Transform.DecodePlanner` can choose sequential or random
-access from the transform chain. The existing `ImagePlug.Origin.Decoded` concept
-should move to the request or transform side of the boundary rather than into the
-source adapter boundary.
+access from the transform chain. Decoded source state belongs on the request or
+transform side of the boundary rather than inside source adapters.
 
 The request flow becomes:
 
@@ -167,8 +166,8 @@ S3 object version ID. A GCS adapter can map the same field to a generation.
 
 The plan struct names an opaque adapter, not the adapter module. Plan
 validation must not special-case `:s3`. S3-specific behavior belongs in the
-imgproxy source translator and the configured source adapter. Runtime config
-binds the adapter to a module:
+imgproxy source translator and the configured source adapter. Source adapter
+config binds the adapter to a module:
 
 ```elixir
 sources: [
@@ -213,18 +212,18 @@ restart resolution. It returns `Source.Resolved` directly. The identity can come
 from the immutable reference fields. The backing lookup can wait until `fetch/3`,
 which only runs on cache miss.
 
-## Runtime source registry
+## Source registry
 
-`ImagePlug.Source` becomes the runtime source boundary. Because the library is
-greenfield, existing `ImagePlug.Origin` internals can move into the new boundary.
-Architecture tests should assert the new source boundary directly instead of
-preserving the old origin boundary by inertia.
+`ImagePlug.Source` is the runtime source boundary. Because the library is
+greenfield, source internals replace the former origin boundary. Architecture
+tests should assert the source boundary directly instead of preserving the old
+origin boundary by inertia.
 
-Runtime config maps source adapters to modules and options:
+Request config maps source adapters to modules and options:
 
 ```elixir
 sources: [
-  path: {ImagePlug.Source.File, root: "/srv/images"},
+  path: {ImagePlug.Source.File, root: "/srv/images", root_id: "primary"},
   http: {ImagePlug.Source.HTTP, allowed_hosts: ["assets.example.com"]},
   https: {ImagePlug.Source.HTTP, allowed_hosts: ["assets.example.com"]},
   s3: {ImagePlug.Source.S3, s3_opts}
@@ -439,7 +438,7 @@ imgproxy: [
 
 A scheme translator receives the decoded source string and its configured
 options. It returns a `Plan.Source` struct or an error. Translator output still
-goes through normal plan and source validation. Runtime fetching requires a
+goes through normal plan and source validation. Fetching requires a
 matching source adapter configuration for the returned adapter.
 
 Scheme translators expose:

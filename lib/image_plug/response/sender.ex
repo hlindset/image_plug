@@ -73,25 +73,6 @@ defmodule ImagePlug.Response.Sender do
     handle_processing_error(conn, reason, response_headers)
   end
 
-  @spec send_origin_error(Plug.Conn.t(), term()) :: Plug.Conn.t()
-  def send_origin_error(%Plug.Conn{} = conn, error),
-    do: send_origin_error(conn, error, [])
-
-  @spec send_origin_error(Plug.Conn.t(), term(), [{String.t(), String.t()}]) :: Plug.Conn.t()
-  def send_origin_error(%Plug.Conn{} = conn, {:bad_status, 404}, response_headers) do
-    conn
-    |> put_resp_headers(response_headers)
-    |> put_resp_content_type("text/plain")
-    |> send_resp(404, "origin image not found")
-  end
-
-  def send_origin_error(%Plug.Conn{} = conn, _error, response_headers) do
-    conn
-    |> put_resp_headers(response_headers)
-    |> put_resp_content_type("text/plain")
-    |> send_resp(502, "error fetching origin image")
-  end
-
   @spec send_source_error(Plug.Conn.t(), term()) :: Plug.Conn.t()
   def send_source_error(%Plug.Conn{} = conn, error),
     do: send_source_error(conn, error, [])
@@ -112,9 +93,6 @@ defmodule ImagePlug.Response.Sender do
     Logger.info("transform_error: #{inspect(reason)}")
     send_transform_error(conn, response_headers)
   end
-
-  defp handle_processing_error(conn, {:origin, error}, response_headers),
-    do: send_origin_error(conn, error, response_headers)
 
   defp handle_processing_error(conn, {:source, error}, response_headers),
     do: send_source_error(conn, error, response_headers)
@@ -159,7 +137,7 @@ defmodule ImagePlug.Response.Sender do
     conn
     |> put_resp_headers(response_headers)
     |> put_resp_content_type("text/plain")
-    |> send_resp(415, "origin response is not a supported image")
+    |> send_resp(415, "source response is not a supported image")
   end
 
   defp send_input_limit_error(%Plug.Conn{} = conn, error, response_headers) do
@@ -168,7 +146,7 @@ defmodule ImagePlug.Response.Sender do
     conn
     |> put_resp_headers(response_headers)
     |> put_resp_content_type("text/plain")
-    |> send_resp(413, "origin image is too large")
+    |> send_resp(413, "source image is too large")
   end
 
   defp send_transform_error(%Plug.Conn{} = conn, response_headers) do

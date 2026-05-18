@@ -42,9 +42,9 @@ defmodule ImagePlug.Output.PolicyTest do
     end
   end
 
-  describe "resolve_before_origin/1" do
-    test "selects explicit and modern automatic formats before origin" do
-      assert Policy.resolve_before_origin(%Policy{
+  describe "resolve_before_source_fetch/1" do
+    test "selects explicit and modern automatic formats before source fetch" do
+      assert Policy.resolve_before_source_fetch(%Policy{
                mode: {:explicit, :png},
                modern_candidates: [],
                headers: [],
@@ -52,7 +52,7 @@ defmodule ImagePlug.Output.PolicyTest do
                format_qualities: %{}
              }) == {:selected, :png, :explicit}
 
-      assert Policy.resolve_before_origin(%Policy{
+      assert Policy.resolve_before_source_fetch(%Policy{
                mode: :source,
                modern_candidates: [:avif, :webp],
                headers: [{"vary", "Accept"}],
@@ -62,7 +62,7 @@ defmodule ImagePlug.Output.PolicyTest do
     end
 
     test "requires source format when automatic output has no modern candidate" do
-      assert Policy.resolve_before_origin(%Policy{
+      assert Policy.resolve_before_source_fetch(%Policy{
                mode: :source,
                modern_candidates: [],
                headers: [{"vary", "Accept"}],
