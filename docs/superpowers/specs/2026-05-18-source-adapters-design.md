@@ -8,14 +8,14 @@ implementation planning.
 ## Problem
 
 ImagePlug currently treats `Plan.source` as path segments that resolve through a
-single configured HTTP root. That is too narrow for source identifiers that name
+single configured HTTP root. That's too narrow for source identifiers that name
 local files, absolute HTTP URLs, S3-compatible objects, planned object-store
 adapters, or catalog-backed asset identifiers.
 
 The existing request order must stay intact:
 
 1. Parse the request into `ImagePlug.Plan`.
-2. Validate plan shape and transform safety.
+2. Check plan shape and transform safety.
 3. Resolve deterministic source identity.
 4. Look up the processed-response cache.
 5. Fetch and decode only on a cache miss.
@@ -49,10 +49,10 @@ and an adapter-owned fetch payload:
             {:ok, ImagePlug.Source.Response.t()} | {:error, term()}
 ```
 
-`resolve/3` runs before cache lookup. It may validate source shape, enforce
+`resolve/3` runs before cache lookup. It may check source shape, enforce
 source policy, select configured adapter data, normalize identity, and build a
 fetch payload. It must not fetch source bytes, decode images, call credential
-providers, or perform network-backed storage lookups.
+providers, or perform network-backed storage resolution.
 
 `fetch/3` runs only after a cache miss. It returns a byte stream:
 
@@ -63,7 +63,7 @@ providers, or perform network-backed storage lookups.
 }
 ```
 
-Adapters do not return loaded images. `ImagePlug.Request.Processor` keeps decode
+Adapters don't return loaded images. `ImagePlug.Request.Processor` keeps decode
 ownership so `ImagePlug.Transform.DecodePlanner` can choose sequential or random
 access from the transform chain.
 
@@ -151,8 +151,8 @@ the same parser and plan model.
 
 ### Reference
 
-`ImagePlug.Plan.Source.Reference` is included in the architecture but deferred
-from the first implementation slice.
+The architecture includes `ImagePlug.Plan.Source.Reference`, but the first
+implementation slice defers it.
 
 It represents an immutable external identifier:
 
@@ -170,15 +170,14 @@ uses mutable catalog IDs, it must include a revision in the source or avoid norm
 processed-response caching for that adapter.
 
 A reference adapter must not rewrite the plan into another plan source and
-restart resolution. It returns `Source.Resolved` directly. The identity can
-come from the immutable reference fields; the backing lookup can wait until
-`fetch/3`, which only runs on cache miss.
+restart resolution. It returns `Source.Resolved` directly. The identity can come
+from the immutable reference fields. The backing lookup can wait until `fetch/3`,
+which only runs on cache miss.
 
 ## Runtime source registry
 
-`ImagePlug.Source` becomes the runtime source boundary. Existing
-`ImagePlug.Origin` internals can be renamed or replaced because the library is
-greenfield.
+`ImagePlug.Source` becomes the runtime source boundary. Because the library is
+greenfield, existing `ImagePlug.Origin` internals can move into the new boundary.
 
 Runtime config maps source adapter keys to modules and options:
 
@@ -225,11 +224,11 @@ source, and it keeps scheme-specific URI normalization out of `ImagePlug.Cache`.
 
 ## S3 adapter
 
-The first S3 adapter uses Req's AWS SigV4 support for signed GET requests. It
+The first S3 adapter uses the AWS SigV4 support in Req for signed GET requests. It
 supports S3-compatible endpoints by configuration rather than treating each
 provider as a product in `Plan`.
 
-Configuration allows default and per-bucket settings:
+Configuration supports default and per-bucket settings:
 
 ```elixir
 sources: [
@@ -255,14 +254,14 @@ sources: [
 ]
 ```
 
-Bucket-specific config overrides default config. When `buckets:` is configured,
+Bucket-specific config overrides default config. When config includes `buckets:`,
 the default policy fails closed for missing buckets. A host can write a custom
 adapter for path-prefix, tenant, account, or deployment-specific routing.
 
-Credential providers must not be called during `resolve/3` or cache lookup. The
-S3 adapter may include a non-secret credential reference in the fetch payload.
-`fetch/3` calls the selected provider only on cache miss, builds a signed request,
-and returns a stream.
+The S3 adapter must not call credential providers during `resolve/3` or cache
+lookup. The adapter may include a non-secret credential reference in the fetch
+payload. `fetch/3` calls the selected provider only on cache miss, builds a
+signed request, and returns a stream.
 
 Secret fields, access keys, session tokens, signed URLs, authorization headers,
 and client structs must not enter plan data, cache key data, telemetry, or default
@@ -372,7 +371,7 @@ prove the chosen Req configuration preserves that boundary.
 
 ## Initial implementation scope
 
-Implement:
+Build:
 
 - `Plan.Source.Path`
 - `Plan.Source.URL`
@@ -395,18 +394,18 @@ Document but defer:
 - built-in GCS, Azure Blob Storage, and Swift adapters
 - configurable object-source query separators for object keys that contain `?`
 
-Do not implement:
+Out of scope:
 
 - adapters that return loaded images
 - recursive source resolution from `Reference` into another plan source
 - cloud credential refresh or STS logic inside ImagePlug core
-- full compatibility parsers for IIIF, imgix, Cloudinary, or TwicPics
+- full compatibility parsers for other image URL dialects
 
 ## Testing scope
 
 Plan and source validation:
 
-- `Path`, `URL`, and `Object` validate accepted shapes.
+- `Path`, `URL`, and `Object` accept valid shapes.
 - malformed source structs fail before source registry, cache lookup, and fetch.
 - object-source revision participates in source identity.
 
@@ -416,8 +415,7 @@ Imgproxy source parsing:
 - `local:///`, `http://`, `https://`, and `s3://` parse into the expected source
   structs.
 - optional `@format` remains parser-owned output-format handling.
-- malformed percent encoding fails before source registry, cache lookup, and
-  fetch.
+- malformed URL encoding fails before source registry, cache lookup, and fetch.
 - unknown schemes fail without config.
 
 Custom source schemes:
@@ -433,8 +431,8 @@ Source registry and custom adapters:
 
 - registry dispatches by adapter key to the configured module and options.
 - custom adapter `resolve/3` results feed cache identity.
-- custom adapter `fetch/3` is called only on cache miss.
-- custom adapter `fetch/3` is not called on cache hit.
+- cache misses call the custom adapter `fetch/3`.
+- cache hits don't call the custom adapter `fetch/3`.
 - malformed custom adapter callback results fail predictably.
 
 Request safety:
@@ -476,21 +474,21 @@ S3 adapter:
 
 - exact bucket config overrides default config.
 - missing bucket fails closed when policy requires explicit config.
-- credential provider is not called during source resolution or cache lookup.
-- credential provider is called only during fetch on cache miss.
+- source resolution and cache lookup don't call the credential provider.
+- fetch calls the credential provider only on cache miss.
 - selected provider and options differ by bucket.
 - region, endpoint, addressing, bucket, key, and revision affect resolved
   identity.
-- Req SigV4 options are passed during fetch.
-- signed fetch redirects do not leak authorization headers across hosts.
+- the adapter passes Req SigV4 options during fetch.
+- signed fetch redirects don't leak authorization headers across hosts.
 - stream consumption.
 
 Telemetry and boundaries:
 
-- source spans are emitted for successful and failed source resolution/fetch.
+- ImagePlug emits source spans for successful and failed source resolution/fetch.
 - telemetry metadata excludes URLs, keys, paths, bucket names, credentials, signed
   headers, and parser structs.
 - runtime dispatch goes through `ImagePlug.Source`.
 - transforms remain source-unaware.
-- parser-specific structs do not leak into source, cache, request, output, or
+- parser-specific structs don't leak into source, cache, request, output, or
   transform boundaries.
