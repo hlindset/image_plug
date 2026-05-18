@@ -120,9 +120,22 @@ defmodule ImagePlug.Source do
       _entry, _acc ->
         {:halt, {:error, {:source, :invalid_adapter_config}}}
     end)
+    |> case do
+      {:ok, source_configs} -> {:ok, expand_url_source_config(source_configs)}
+      {:error, _reason} = error -> error
+    end
   end
 
   defp validate_sources(_sources), do: {:error, {:source, :invalid_adapter_config}}
+
+  defp expand_url_source_config(%{url: url_config} = source_configs) do
+    source_configs
+    |> Map.delete(:url)
+    |> Map.put_new(:http, url_config)
+    |> Map.put_new(:https, url_config)
+  end
+
+  defp expand_url_source_config(source_configs), do: source_configs
 
   defp order_validated_options(input_opts, validated_opts) do
     input_keys = Keyword.keys(input_opts)

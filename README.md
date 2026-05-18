@@ -85,6 +85,18 @@ URL requests a 300-pixel-wide image from `/images/beach.jpg`:
 http://localhost:4000/_/w:300/plain/images/beach.jpg
 ```
 
+To accept both HTTP and HTTPS source URLs, configure the shared `:url` source
+adapter:
+
+```elixir
+sources: [
+  url: {ImagePlug.Source.HTTP, allowed_hosts: ["assets.example.com"]}
+]
+```
+
+Use `:http` or `:https` instead to enable only one scheme, or when the schemes
+need different adapter options.
+
 `_` and `unsafe` work only without Imgproxy signing. Configured signing requires
 a valid HMAC signature or an exact configured trusted signature.
 

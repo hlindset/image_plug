@@ -2,7 +2,9 @@ defmodule ImagePlug.SourceTest do
   use ExUnit.Case, async: true
 
   alias ImagePlug.Plan.Source.Path
+  alias ImagePlug.Plan.Source.URL
   alias ImagePlug.Source
+  alias ImagePlug.Source.HTTP
   alias ImagePlug.Source.Resolved
   alias ImagePlug.Source.Response
   alias ImagePlug.SourceTest.AdapterMismatchAdapter
@@ -51,6 +53,57 @@ defmodule ImagePlug.SourceTest do
 
     assert Source.resolve(%Path{segments: ["images", "cat.jpg"]}, opts, []) ==
              {:error, {:source, :missing_adapter}}
+  end
+
+  test "url source config enables both HTTP and HTTPS adapters" do
+    plug = fn conn -> Plug.Conn.send_resp(conn, 200, "image bytes") end
+
+    assert {:ok, opts} =
+             Source.validate_config(
+               sources: [
+                 url: {HTTP, allowed_hosts: ["assets.example.com"], req_options: [plug: plug]}
+               ]
+             )
+
+    source = %URL{
+      scheme: :https,
+      host: "assets.example.com",
+      port: nil,
+      path: ["images", "cat.jpg"],
+      query: nil
+    }
+
+    assert {:ok, %Resolved{} = resolved} = Source.resolve(source, opts, [])
+    assert resolved.adapter == :https
+    assert resolved.identity[:adapter] == :https
+
+    assert {:ok, %Response{} = response} = Source.fetch(resolved, opts, max_body_bytes: 20)
+    assert Enum.join(response.stream) == "image bytes"
+
+    assert Map.has_key?(opts[:sources], :http)
+    assert Map.has_key?(opts[:sources], :https)
+    refute Map.has_key?(opts[:sources], :url)
+  end
+
+  test "scheme-specific source config overrides url source config" do
+    assert {:ok, opts} =
+             Source.validate_config(
+               sources: [
+                 url: {HTTP, allowed_hosts: ["assets.example.com"]},
+                 https: {HTTP, allowed_hosts: ["assets.example.com"], cache: :skip}
+               ]
+             )
+
+    source = %URL{
+      scheme: :https,
+      host: "assets.example.com",
+      port: nil,
+      path: ["images", "cat.jpg"],
+      query: nil
+    }
+
+    assert {:ok, %Resolved{} = resolved} = Source.resolve(source, opts, [])
+    assert resolved.cache == :skip
   end
 
   test "malformed adapter callback results become source errors" do
