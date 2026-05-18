@@ -29,7 +29,7 @@ defmodule ImagePlug.Parser.Imgproxy.PathTest do
 
   test "keeps raw encoded at-signs in source before parsing extension suffix" do
     assert Path.parse_plain_source(["images", "cat%40v1.jpg@webp"]) ==
-             {:ok, ["images", "cat@v1.jpg"], :webp}
+             {:ok, "images/cat%40v1.jpg", :webp}
   end
 
   test "rejects malformed percent encoding without raising" do
@@ -111,15 +111,15 @@ defmodule ImagePlug.Parser.Imgproxy.PathTest do
   describe "parse_plain_source" do
     test "parses known source format suffixes" do
       assert Path.parse_plain_source(["images", "cat.jpg@avif"]) ==
-               {:ok, ["images", "cat.jpg"], :avif}
+               {:ok, "images/cat.jpg", :avif}
 
       assert Path.parse_plain_source(["images", "cat.jpg@jpg"]) ==
-               {:ok, ["images", "cat.jpg"], :jpeg}
+               {:ok, "images/cat.jpg", :jpeg}
     end
 
     test "allows a trailing source format separator without an extension" do
       assert Path.parse_plain_source(["images", "cat.jpg@"]) ==
-               {:ok, ["images", "cat.jpg"], nil}
+               {:ok, "images/cat.jpg", nil}
     end
 
     test "rejects unknown source format suffixes" do
@@ -140,9 +140,9 @@ defmodule ImagePlug.Parser.Imgproxy.PathTest do
                {:error, {:multiple_source_format_separators, "cat.jpg@webp@png"}}
     end
 
-    test "decodes percent-encoded source path segments" do
+    test "leaves percent-encoded source path segments raw for source translation" do
       assert Path.parse_plain_source(["images", "cat%20dog.jpg"]) ==
-               {:ok, ["images", "cat dog.jpg"], nil}
+               {:ok, "images/cat%20dog.jpg", nil}
     end
   end
 end

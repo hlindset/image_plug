@@ -22,6 +22,10 @@ defmodule ImagePlug.Parser.Imgproxy do
 
   @imgproxy_schema NimbleOptions.new!(
                      signature: [type: :keyword_list, required: false],
+                     source_schemes: [
+                       type: {:custom, __MODULE__, :validate_source_schemes, []},
+                       default: %{}
+                     ],
                      presets: [
                        type: {:custom, Presets, :validate_config, []},
                        default: %{}
@@ -48,6 +52,18 @@ defmodule ImagePlug.Parser.Imgproxy do
 
   def validate_options!(_imgproxy_opts),
     do: raise(ArgumentError, "invalid imgproxy options: expected a keyword list")
+
+  @doc false
+  def validate_source_schemes(%{} = schemes) do
+    if Enum.all?(schemes, &valid_source_scheme_entry?/1) do
+      {:ok, schemes}
+    else
+      {:error, "expected a map from binary scheme names to {module, keyword_options}"}
+    end
+  end
+
+  def validate_source_schemes(_schemes),
+    do: {:error, "expected a map from binary scheme names to {module, keyword_options}"}
 
   @impl ImagePlug.Parser
   def parse(%Plug.Conn{} = conn, opts) do
@@ -114,6 +130,12 @@ defmodule ImagePlug.Parser.Imgproxy do
     |> Keyword.get(:imgproxy, [])
     |> Keyword.get(:presets, Presets.empty())
   end
+
+  defp valid_source_scheme_entry?({scheme, {translator, translator_opts}}) do
+    is_binary(scheme) and is_atom(translator) and Keyword.keyword?(translator_opts)
+  end
+
+  defp valid_source_scheme_entry?(_entry), do: false
 
   defp parsed_request(
          signature,

@@ -21,7 +21,7 @@ defmodule ImagePlug.Parser.Imgproxy.ParsedRequest do
   @type t() :: %__MODULE__{
           signature: String.t(),
           source_kind: :plain,
-          source_path: [String.t()],
+          source_path: String.t(),
           pipelines: [PipelineRequest.t()],
           output: OutputRequest.t(),
           policy: RequestPolicy.t(),

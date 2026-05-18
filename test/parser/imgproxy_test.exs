@@ -10,7 +10,25 @@ defmodule ImagePlug.Parser.ImgproxyTest do
   alias ImagePlug.Plan.Output
   alias ImagePlug.Plan.Pipeline
   alias ImagePlug.Plan.Response
+  alias ImagePlug.Plan.Source
   alias ImagePlug.Transform.Operation.AutoOrient
+
+  defmodule FoobarTranslator do
+    @behaviour ImagePlug.Parser.Imgproxy.SourceScheme
+
+    @impl true
+    def translate(source, opts) do
+      send(self(), {:translate, source, opts})
+
+      {:ok,
+       %ImagePlug.Plan.Source.Object{
+         adapter: :foobar,
+         scope: "scope",
+         key: source,
+         revision: "r1"
+       }}
+    end
+  end
 
   @allowed_parsed_transform_operations [
     ImagePlug.Transform.Operation.AutoOrient,
@@ -21,10 +39,41 @@ defmodule ImagePlug.Parser.ImgproxyTest do
   test "parses a plain source with no processing options" do
     assert {:ok,
             %Plan{
-              source: {:plain, ["images", "cat.jpg"]},
+              source: %Source.Path{segments: ["images", "cat.jpg"]},
               pipelines: [%Pipeline{operations: []}],
               output: %Output{mode: :automatic}
             }} = Imgproxy.parse(conn(:get, "/_/plain/images/cat.jpg"), [])
+  end
+
+  test "parses escaped embedded s3 query before output suffix handling" do
+    assert {:ok, %Plan{source: source, output: output}} =
+             Imgproxy.parse(conn(:get, "/_/plain/s3://bucket/images/cat.jpg%3Fabc@webp"), [])
+
+    assert source == %Source.Object{
+             adapter: :s3,
+             scope: "bucket",
+             key: "images/cat.jpg",
+             revision: "abc"
+           }
+
+    assert output.mode == {:explicit, :webp}
+  end
+
+  test "splits output suffix after custom source scheme without passing suffix to translator" do
+    assert {:ok, %Plan{source: source, output: output}} =
+             Imgproxy.parse(conn(:get, "/_/plain/foobar://asset/cat.jpg@webp"),
+               imgproxy: [source_schemes: %{"foobar" => {FoobarTranslator, []}}]
+             )
+
+    assert source == %Source.Object{
+             adapter: :foobar,
+             scope: "scope",
+             key: "foobar://asset/cat.jpg",
+             revision: "r1"
+           }
+
+    assert output.mode == {:explicit, :webp}
+    assert_received {:translate, "foobar://asset/cat.jpg", []}
   end
 
   test "parse/2 accepts parser options and keeps no-option parse/1 as a delegating helper" do
@@ -34,7 +83,7 @@ defmodule ImagePlug.Parser.ImgproxyTest do
   end
 
   test "supports unsafe as the disabled-signing signature segment" do
-    assert {:ok, %Plan{source: {:plain, ["images", "cat.jpg"]}}} =
+    assert {:ok, %Plan{source: %Source.Path{segments: ["images", "cat.jpg"]}}} =
              Imgproxy.parse(conn(:get, "/unsafe/plain/images/cat.jpg"), [])
   end
 
@@ -44,7 +93,7 @@ defmodule ImagePlug.Parser.ImgproxyTest do
   end
 
   test "accepts valid signed imgproxy URLs when signing is enabled" do
-    assert {:ok, %Plan{source: {:plain, ["images", "cat.jpg"]}}} =
+    assert {:ok, %Plan{source: %Source.Path{segments: ["images", "cat.jpg"]}}} =
              Imgproxy.parse(
                conn(
                  :get,
@@ -55,7 +104,7 @@ defmodule ImagePlug.Parser.ImgproxyTest do
   end
 
   test "signature verification excludes query strings" do
-    assert {:ok, %Plan{source: {:plain, ["images", "cat.jpg"]}}} =
+    assert {:ok, %Plan{source: %Source.Path{segments: ["images", "cat.jpg"]}}} =
              Imgproxy.parse(
                conn(
                  :get,
@@ -103,7 +152,8 @@ defmodule ImagePlug.Parser.ImgproxyTest do
   end
 
   test "fixPath repairs normalized plain URL schemes before verification and parsing" do
-    assert {:ok, %Plan{source: {:plain, ["http:", "", "example.com", "image.jpg"]}}} =
+    assert {:ok,
+            %Plan{source: %Source.URL{scheme: :http, host: "example.com", path: ["image.jpg"]}}} =
              Imgproxy.parse(
                conn(
                  :get,
@@ -112,7 +162,7 @@ defmodule ImagePlug.Parser.ImgproxyTest do
                signed_parser_opts()
              )
 
-    assert {:ok, %Plan{source: {:plain, ["local:", "", "", "test1.png"]}}} =
+    assert {:ok, %Plan{source: %Source.Path{segments: ["test1.png"]}}} =
              Imgproxy.parse(
                conn(
                  :get,
@@ -133,7 +183,7 @@ defmodule ImagePlug.Parser.ImgproxyTest do
   test "accepts exact trusted signatures before HMAC decoding" do
     opts = signed_parser_opts(signature: [trusted_signatures: ["local-dev!"]])
 
-    assert {:ok, %Plan{source: {:plain, ["images", "cat.jpg"]}}} =
+    assert {:ok, %Plan{source: %Source.Path{segments: ["images", "cat.jpg"]}}} =
              Imgproxy.parse(conn(:get, "/local-dev!/w:300/plain/images/cat.jpg"), opts)
   end
 
@@ -146,25 +196,23 @@ defmodule ImagePlug.Parser.ImgproxyTest do
   end
 
   test "raw signed path accepts signatures computed over duplicate slashes" do
-    assert {:ok, %Plan{source: {:plain, ["", "images", "cat.jpg"]}}} =
-             Imgproxy.parse(
-               conn(
-                 :get,
-                 "/LybQypsQbz5rUNXKD0FkRZHzpY7OnbJ8DQcWndArBCw/w:300/plain//images/cat.jpg"
-               ),
-               signed_parser_opts()
-             )
+    assert Imgproxy.parse(
+             conn(
+               :get,
+               "/LybQypsQbz5rUNXKD0FkRZHzpY7OnbJ8DQcWndArBCw/w:300/plain//images/cat.jpg"
+             ),
+             signed_parser_opts()
+           ) == {:error, :invalid_source_path}
   end
 
   test "raw signed path accepts signatures computed over trailing slashes" do
-    assert {:ok, %Plan{source: {:plain, ["images", "cat.jpg", ""]}}} =
-             Imgproxy.parse(
-               conn(
-                 :get,
-                 "/gIg1_oHgCof_KbsU6mYJKyL-SN6TJjbHGQAd9uvh8GU/w:300/plain/images/cat.jpg/"
-               ),
-               signed_parser_opts()
-             )
+    assert Imgproxy.parse(
+             conn(
+               :get,
+               "/gIg1_oHgCof_KbsU6mYJKyL-SN6TJjbHGQAd9uvh8GU/w:300/plain/images/cat.jpg/"
+             ),
+             signed_parser_opts()
+           ) == {:error, :invalid_source_path}
   end
 
   test "raw signed path strips only mounted script_name before verification" do
@@ -179,7 +227,7 @@ defmodule ImagePlug.Parser.ImgproxyTest do
         "cat.jpg"
       ])
 
-    assert {:ok, %Plan{source: {:plain, ["images", "cat.jpg"]}}} =
+    assert {:ok, %Plan{source: %Source.Path{segments: ["images", "cat.jpg"]}}} =
              Imgproxy.parse(conn, signed_parser_opts())
   end
 
@@ -213,7 +261,7 @@ defmodule ImagePlug.Parser.ImgproxyTest do
   end
 
   test "treats option-like segments after plain as source path" do
-    assert {:ok, %Plan{source: {:plain, ["images", "w:300", "cat.jpg"]}}} =
+    assert {:ok, %Plan{source: %Source.Path{segments: ["images", "w:300", "cat.jpg"]}}} =
              Imgproxy.parse(conn(:get, "/_/plain/images/w:300/cat.jpg"), [])
   end
 
@@ -873,7 +921,7 @@ defmodule ImagePlug.Parser.ImgproxyTest do
   test "dangling raw @ does not overwrite an explicit format" do
     assert {:ok,
             %Plan{
-              source: {:plain, ["images", "cat.jpg"]},
+              source: %Source.Path{segments: ["images", "cat.jpg"]},
               output: %Output{mode: {:explicit, :webp}}
             }} = Imgproxy.parse(conn(:get, "/_/f:webp/plain/images/cat.jpg@"), [])
   end
@@ -1240,7 +1288,7 @@ defmodule ImagePlug.Parser.ImgproxyTest do
   test "detects raw source extension before percent decoding" do
     assert {:ok,
             %Plan{
-              source: {:plain, ["images", "cat@v1.jpg"]},
+              source: %Source.Path{segments: ["images", "cat@v1.jpg"]},
               output: %Output{mode: {:explicit, :webp}}
             }} = Imgproxy.parse(conn(:get, "/_/plain/images/cat%40v1.jpg@webp"), [])
   end
@@ -1267,7 +1315,7 @@ defmodule ImagePlug.Parser.ImgproxyTest do
   test "dangling raw @ leaves output automatic when no explicit format exists" do
     assert {:ok,
             %Plan{
-              source: {:plain, ["images", "cat.jpg"]},
+              source: %Source.Path{segments: ["images", "cat.jpg"]},
               output: %Output{mode: :automatic}
             }} = Imgproxy.parse(conn(:get, "/_/plain/images/cat.jpg@"), [])
   end

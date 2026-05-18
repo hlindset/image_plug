@@ -10,6 +10,7 @@ defmodule ImagePlug.Parser.Imgproxy.PlanBuilderTest do
   alias ImagePlug.Plan.Output
   alias ImagePlug.Plan.Pipeline
   alias ImagePlug.Plan.Response
+  alias ImagePlug.Plan.Source
   alias ImagePlug.Transform.Operation.AutoOrient
   alias ImagePlug.Transform.Operation.Flip
   alias ImagePlug.Transform.Operation.Rotate
@@ -18,14 +19,14 @@ defmodule ImagePlug.Parser.Imgproxy.PlanBuilderTest do
     request = %ParsedRequest{
       signature: "_",
       source_kind: :plain,
-      source_path: ["images", "cat.jpg"],
+      source_path: "images/cat.jpg",
       pipelines: [%PipelineRequest{width: {:pixels, 300}}],
       output: %ImagePlug.Parser.Imgproxy.OutputRequest{}
     }
 
     assert {:ok,
             %Plan{
-              source: {:plain, ["images", "cat.jpg"]},
+              source: %Source.Path{segments: ["images", "cat.jpg"]},
               pipelines: [
                 %Pipeline{operations: operations}
               ],
@@ -555,7 +556,7 @@ defmodule ImagePlug.Parser.Imgproxy.PlanBuilderTest do
     request = %ParsedRequest{
       signature: "_",
       source_kind: :plain,
-      source_path: ["images", "cat.jpg"],
+      source_path: "images/cat.jpg",
       pipelines: [
         %PipelineRequest{width: {:pixels, 500}},
         %PipelineRequest{height: {:pixels, 200}}
@@ -584,7 +585,7 @@ defmodule ImagePlug.Parser.Imgproxy.PlanBuilderTest do
     request = %ParsedRequest{
       signature: "_",
       source_kind: :plain,
-      source_path: ["images", "cat.jpg"],
+      source_path: "images/cat.jpg",
       pipelines: [%PipelineRequest{gravity: :sm}],
       output: %ImagePlug.Parser.Imgproxy.OutputRequest{}
     }
@@ -596,7 +597,7 @@ defmodule ImagePlug.Parser.Imgproxy.PlanBuilderTest do
     request = %ParsedRequest{
       signature: "_",
       source_kind: :plain,
-      source_path: ["images", "cat.jpg"],
+      source_path: "images/cat.jpg",
       pipelines: [
         %PipelineRequest{
           resizing_type: :force,
@@ -702,7 +703,7 @@ defmodule ImagePlug.Parser.Imgproxy.PlanBuilderTest do
     request = %ParsedRequest{
       signature: "_",
       source_kind: :plain,
-      source_path: ["images", "cat.jpg"],
+      source_path: "images/cat.jpg",
       pipelines: [%PipelineRequest{width: {:pixels, 300}}],
       output: %ImagePlug.Parser.Imgproxy.OutputRequest{format: :webp},
       policy: %ImagePlug.Parser.Imgproxy.RequestPolicy{},
@@ -735,31 +736,25 @@ defmodule ImagePlug.Parser.Imgproxy.PlanBuilderTest do
              PlanBuilder.to_plan(%ParsedRequest{
                signature: "_",
                source_kind: :plain,
-               source_path: ["images", "cat.jpg"],
+               source_path: "images/cat.jpg",
                pipelines: [%PipelineRequest{}],
                output: %ImagePlug.Parser.Imgproxy.OutputRequest{}
              })
 
-    assert {:ok,
-            %Plan{
-              response: %Response{
-                filename: "image"
-              }
-            }} =
-             PlanBuilder.to_plan(%ParsedRequest{
-               signature: "_",
-               source_kind: :plain,
-               source_path: ["images", ""],
-               pipelines: [%PipelineRequest{}],
-               output: %ImagePlug.Parser.Imgproxy.OutputRequest{}
-             })
+    assert PlanBuilder.to_plan(%ParsedRequest{
+             signature: "_",
+             source_kind: :plain,
+             source_path: "images/",
+             pipelines: [%PipelineRequest{}],
+             output: %ImagePlug.Parser.Imgproxy.OutputRequest{}
+           }) == {:error, :invalid_source_path}
   end
 
   test "rejects invalid explicit response filenames" do
     request = %ParsedRequest{
       signature: "_",
       source_kind: :plain,
-      source_path: ["images", "cat.jpg"],
+      source_path: "images/cat.jpg",
       pipelines: [%PipelineRequest{}],
       output: %ImagePlug.Parser.Imgproxy.OutputRequest{},
       response: %ImagePlug.Parser.Imgproxy.ResponseRequest{
@@ -800,7 +795,7 @@ defmodule ImagePlug.Parser.Imgproxy.PlanBuilderTest do
       %ParsedRequest{
         signature: "_",
         source_kind: :plain,
-        source_path: ["images", "cat.jpg"],
+        source_path: "images/cat.jpg",
         pipelines: [pipeline_request],
         output: %ImagePlug.Parser.Imgproxy.OutputRequest{format: output_format}
       }
@@ -849,7 +844,7 @@ defmodule ImagePlug.Parser.Imgproxy.PlanBuilderTest do
       %ParsedRequest{
         signature: "_",
         source_kind: :plain,
-        source_path: ["images", "cat.jpg"],
+        source_path: "images/cat.jpg",
         pipelines: [struct!(PipelineRequest, attrs)],
         output: %ImagePlug.Parser.Imgproxy.OutputRequest{}
       },
