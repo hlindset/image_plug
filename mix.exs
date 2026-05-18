@@ -91,7 +91,7 @@ defmodule ImagePlug.MixProject do
         "LICENSE.md",
         "CHANGELOG.md"
       ],
-      licenses: ["MIT"],
+      licenses: ["Apache-2.0"],
       links: %{
         "GitHub" => @source_url,
         "Changelog" => "#{@source_url}/blob/main/CHANGELOG.md"
