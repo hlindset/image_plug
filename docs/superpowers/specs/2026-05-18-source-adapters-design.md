@@ -239,24 +239,26 @@ sources: [
        endpoint: "https://s3.amazonaws.com",
        credentials: {:static, access_key_id: "...", secret_access_key: "..."}
      ],
-     buckets: [
-       "tenant-a": [
+     buckets: %{
+       "tenant-a" => [
          region: "eu-west-1",
          credentials: {:provider, MyApp.TenantACredentials}
        ],
-       "tenant-b": [
+       "tenant-b" => [
          region: "us-west-2",
          endpoint: "https://s3.us-west-2.amazonaws.com",
          credentials: {:provider, MyApp.TenantBCredentials}
        ]
-     ],
-     bucket_policy: :explicit}
+     }}
 ]
 ```
 
-Bucket-specific config overrides default config. When config includes `buckets:`,
-the default policy fails closed for missing buckets. A host can write a custom
-adapter for path-prefix, tenant, account, or deployment-specific routing.
+Bucket-specific config overrides default config. When config includes a `buckets`
+map, the adapter only accepts buckets listed in that map. `default` supplies
+shared defaults for listed buckets. That default doesn't catch unlisted buckets in
+that mode. Without a `buckets` map, `default` applies to every bucket. A host can
+write a custom adapter for path-prefix, tenant, account, or deployment-specific
+routing.
 
 The S3 adapter must not call credential providers during `resolve/3` or cache
 lookup. The adapter may include a non-secret credential reference in the fetch
