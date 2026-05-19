@@ -29,10 +29,11 @@ defaults into ImagePlug-owned policy when ImagePlug supports those surfaces.
 
 Define a small product-neutral policy for this implementation slice:
 
-- ImagePlug rejects SVG input before normal image decode.
+- ImagePlug rejects SVG input after decode identifies an SVG loader and before
+  transforms or output encoding.
 - Raster input support is explicit and limited to formats ImagePlug names.
 - libvips remains responsible for raster decoding and validation.
-- Omitted output doesn't require source-format round trip.
+- Omitted output has a narrow decoded fallback for accepted source-only formats.
 - A later SVG design can add support without changing the request
   boundary again.
 
@@ -50,6 +51,12 @@ before decode.
 This slice doesn't add runtime output write-capability probing. Output fallback
 uses ImagePlug's static output format set for this PR.
 
+This slice doesn't add a pre-decode SVG detector. That would require bounded
+stream peeking, prefix replay, body-limit accounting changes, and cache policy
+work. The first implementation only needs to stop accidental SVG processing in
+ImagePlug's transform and output path. If a later need says libvips must never
+parse SVG bytes, that should be a separate design and implementation slice.
+
 ## Origin metadata
 
 This slice doesn't change `ImagePlug.Source.Response` to carry content type,
@@ -62,34 +69,12 @@ stable for this PR.
 
 ## SVG policy
 
-ImagePlug rejects SVG before `Image.open/2`.
+ImagePlug rejects SVG when decoded loader metadata maps to an SVG source
+family.
 
-That rejection must also protect cacheable requests from stale entries produced
-under an older input policy. Cache key data should include a normalized input
-policy marker, such as rejected vector inputs and accepted source families.
-Don't bump the cache schema version only to express this policy. Reshape the
-canonical key data in place.
-
-The pre-decode check should be narrow and bounded. It should identify obvious
-SVG documents from an initial prefix and return an unsupported source format
-error before libvips sees the stream. It shouldn't attempt full XML validation
-or sanitizing.
-
-Use a fixed `32 KiB` prefix bound for this slice. If the prefix is XML-looking
-but inconclusive inside that bound, reject it rather than passing it to libvips.
-
-The detector should reject these cases inside the bounded prefix:
-
-- optional UTF-8 byte-order mark and leading ASCII whitespace before `<svg`
-- XML declarations before an SVG root
-- XML comments or document type declarations before an SVG root
-- case-insensitive `<svg` and namespace-prefixed SVG root tags
-
-The point is to keep implicit SVG rendering out of this slice.
-
-The detector must not buffer the whole source. If it consumes a prefix from the
-stream, it must pass that prefix to decode first. Accepted raster inputs still
-decode from the original byte sequence.
+The rejection happens after `Image.open/2` and before transform execution,
+output selection, or output encoding. This keeps SVG out of ImagePlug's image
+delivery behavior without adding a stream sniffer to the source boundary.
 
 This policy is stricter than imgproxy's default SVG behavior. ImagePlug doesn't
 yet have an SVG sanitizer, passthrough response path, SVG
@@ -148,33 +133,32 @@ format support.
 
 The current automatic output path can fall back to the decoded source format
 when negotiation selects no AVIF/WebP `Accept` candidate. That couples omitted
-output to source-format round trip.
+output to source-format round trip. That works for JPEG, PNG, WebP, and AVIF
+because those source names are also ImagePlug output formats. It doesn't work
+for accepted source-only families such as HEIF, TIFF, JPEG 2000, and JPEG XL.
 
-This slice should shift omitted output to a preferred-output policy:
+This slice should add only the fallback needed for those source-only inputs:
 
 1. If `Accept` negotiation selects an enabled modern format, use it.
-2. Otherwise choose from configured preferred output formats.
-3. Only choose formats in ImagePlug's static output set for this PR:
-   `:avif`, `:webp`, `:jpeg`, and `:png`.
+2. If the decoded source format is one of ImagePlug's output formats, keep the
+   current source-format fallback.
+3. If ImagePlug accepts the decoded source format as input but doesn't expose it
+   as an output format, choose from ImagePlug's static output set:
+   - `:png` when the decoded image or planned output needs alpha preservation.
+   - `:jpeg` for ordinary opaque still images.
 
-The default preferred output list should stay inside the current output set. A
-reasonable first default is `[:png]`. That avoids alpha loss while #50 and an
-alpha-aware JPEG/PNG fallback remain separate work. AVIF and WebP still win when
-the request `Accept` header and `auto_avif` or `auto_webp` options permit them.
+The alpha check can use decoded image properties and existing plan behavior that
+can introduce transparency, such as padding or extension. It shouldn't flatten
+or inspect encoded bytes just to choose the fallback.
 
 Don't add GIF to the default preferred list until ImagePlug implements GIF output.
 Don't copy imgproxy's `IMGPROXY_PREFERRED_FORMATS` name into core.
 
-This slice shouldn't add a preferred-output configuration option. If a later
-slice makes preferred output configurable, the normalized preferred list must
-enter automatic-output cache key data. Otherwise different configurations can
-share a cache key while producing different fallback output formats.
-
-Issue #50 is adjacent but remains a separate slice. This design creates the
-preferred-output fallback that #50 can use, but it doesn't define wildcard-only
-`Accept` behavior or alpha-aware JPEG/PNG fallback. It also doesn't define a
-configuration switch for deployments that want AVIF/WebP from non-informative
-`Accept` headers.
+This slice shouldn't add a preferred-output configuration option. Issue #50 is
+adjacent but remains a separate slice. This design doesn't define wildcard-only
+`Accept` behavior, a configurable preferred-format list, JPEG XL output
+negotiation, or a switch for deployments that want AVIF/WebP from
+non-informative `Accept` headers.
 
 ## Runtime flow
 
@@ -183,16 +167,18 @@ Cache lookup stays before source fetch for cacheable requests:
 1. Parse request into `ImagePlug.Plan`.
 2. Check the plan.
 3. Resolve the source identity.
-4. Build cache key data with the normalized input policy marker.
+4. Build cache key data from resolved source identity, canonical plan fields,
+   configured vary inputs, and normalized `Accept` data for automatic output.
 5. Look up the cache when the resolved source is cacheable.
 6. Resolve explicit output and modern automatic candidates before source fetch
    when the current architecture can do so.
 7. On cache miss, fetch source bytes.
-8. Reject SVG from a bounded source prefix before normal decode.
-9. Decode accepted raster input with `Image.open/2`.
-10. Map the decoded loader to an accepted source format family.
+8. Decode input with `Image.open/2`.
+9. Map the decoded loader to a source format family.
+10. Reject SVG and unsupported decoded source families.
 11. Check decoded pixel limits with `max_input_pixels`.
-12. Resolve any remaining automatic output fallback from preferred output policy.
+12. Resolve any remaining automatic output fallback from source format and
+    decoded output properties.
 13. Execute transforms, encode, send, and cache only successful encoded
     responses.
 
@@ -203,14 +189,15 @@ lookup. Cache hits don't fetch source bytes and don't run input detection.
 
 Product-neutral policy belongs in core modules:
 
-- SVG pre-decode rejection can live under `ImagePlug.Source` as source-stream
-  policy because it operates before decode.
 - Source-format mapping and accepted source-format policy should stay outside
   `ImagePlug.Parser.Imgproxy`. The decoded loader mapping can live under
   `ImagePlug.Request` or behind a narrow core helper used by request processing.
-- Omitted-output fallback belongs under `ImagePlug.Output.Policy`.
-- Cache key data must include the normalized input policy marker. A later
-  configurable preferred-output fallback must also enter cache key data.
+- Omitted-output fallback belongs under `ImagePlug.Output.Policy` or a narrow
+  helper owned by `ImagePlug.Output`.
+- Source identity and cache lookup stay under the existing request/cache
+  boundaries. This slice doesn't add an input policy marker to cache key data
+  because detection still happens after cache miss and successful encoded
+  responses remain keyed by source identity and output-varying fields.
 
 Imgproxy-specific URL grammar, aliases, `@extension`, compatibility docs, and
 future compatibility defaults remain under `ImagePlug.Parser.Imgproxy` or a
@@ -239,22 +226,19 @@ not emit source URLs, filenames, or raw content types by default.
 
 Focused tests should cover:
 
-- ImagePlug rejects SVG-looking input before calling the image open module.
+- ImagePlug rejects decoded SVG loader metadata before transform execution and
+  output encoding.
 - Accepted raster fixtures still decode and process normally.
 - Source formats that libvips can decode but ImagePlug doesn't accept fail for
   both explicit output and omitted output requests.
 - Accepted source families that aren't output format atoms, such as HEIF, TIFF,
-  JPEG 2000, and JPEG XL, normalize to supported output formats.
-- Omitted output without a modern `Accept` candidate uses preferred output
-  fallback.
-- Cache keys include the normalized input policy marker.
-- SVG prefix handling covers split chunks, prefix replay for accepted raster
-  input, body-limit accounting after peeking, stream errors after the prefix,
-  and early cancellation when ImagePlug rejects SVG. Original source bytes count
-  exactly once toward `max_body_bytes`, including inputs exactly at the byte
-  limit.
-- Imgproxy wire-level behavior rejects SVG before transform execution and still
-  preserves cache-before-fetch behavior for cacheable requests.
+  JPEG 2000, and JPEG XL, resolve omitted output through the JPEG/PNG fallback.
+- Omitted output without a modern `Accept` candidate keeps source-format
+  fallback for JPEG, PNG, WebP, and AVIF sources.
+- Omitted output without a modern `Accept` candidate uses JPEG for opaque
+  source-only families and PNG when alpha matters.
+- Cache lookup still happens before source fetch for cacheable requests.
+- Imgproxy wire-level behavior rejects SVG before transform execution.
 
 Documentation updates should cover:
 
