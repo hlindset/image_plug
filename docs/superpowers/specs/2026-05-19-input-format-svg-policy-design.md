@@ -74,8 +74,9 @@ ImagePlug rejects SVG when decoded loader metadata maps to an SVG source
 family.
 
 The rejection happens after `Image.open/2` and before transform execution,
-output selection, or output encoding. This keeps SVG out of ImagePlug's image
-delivery behavior without adding a stream sniffer to the source boundary.
+source-dependent fallback selection, or output encoding. This keeps SVG out of
+ImagePlug's image delivery behavior without adding a stream sniffer to the
+source boundary.
 
 This policy is stricter than imgproxy's default SVG behavior. ImagePlug doesn't
 yet have an SVG sanitizer, passthrough response path, SVG
@@ -121,8 +122,9 @@ Map decoded `vips-loader` prefixes explicitly:
 - `tiffload*` -> `:tiff`
 - `jp2kload*` -> `:jpeg2000`
 - `jxlload*` -> `:jpeg_xl`
-- `svgload*` -> unsupported SVG
-- anything else -> unsupported source format
+- `svgload*` -> unsupported source format with family `:svg`
+- anything else, including missing `vips-loader` metadata -> unsupported source
+  format with family `:unknown`
 
 If decode succeeds but the loader maps to a source format outside that set,
 ImagePlug returns unsupported source format behavior. If ImagePlug can't map the
@@ -240,7 +242,9 @@ Product-neutral policy belongs in core modules:
 - Source-only omitted-output fallback can use a pending output decision under
   `ImagePlug.Output.Policy` or a narrow helper owned by `ImagePlug.Output`.
   Request orchestration resolves that pending decision after generic transform
-  execution by passing plain final-image alpha metadata.
+  execution by passing plain final-image alpha metadata such as
+  `has_alpha?: true | false`. Output policy shouldn't receive an image value,
+  transform state, or concrete transform operation.
 - Source identity and cache lookup stay under the existing request/cache
   boundaries. This slice doesn't add an input policy marker to cache key data
   because this greenfield project has no compatibility target for processed
@@ -279,7 +283,8 @@ Focused tests should cover:
 - Accepted raster fixtures still decode and process normally.
 - Loader-prefix mapping tests should cover `jpegload*`, `pngload*`,
   `webpload*`, `heifload*`, `tiffload*`, `jp2kload*`, `jxlload*`,
-  `svgload*`, and unknown loaders without depending on local format support.
+  `svgload*`, unknown loaders, and missing `vips-loader` metadata without
+  depending on local format support.
 - Tests should classify AVIF and non-AVIF HEIF-family inputs as different
   source formats. Cover `heif-compression: "av1"` mapping to `:avif` and other
   `heifload*` metadata mapping to source-only `:heif`.
@@ -299,6 +304,9 @@ Focused tests should cover:
 - Rejected SVG and unsupported source failures don't write successful cache
   entries.
 - Cache lookup still happens before source fetch for cacheable requests.
+- Source-only automatic fallback cache entries keep `Vary: Accept`, while the
+  internal automatic cache key remains based on normalized modern candidates
+  rather than raw `Accept`.
 - Imgproxy wire-level behavior rejects SVG before transform execution.
 
 Documentation updates should cover:
