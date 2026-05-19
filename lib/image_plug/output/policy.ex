@@ -12,6 +12,7 @@ defmodule ImagePlug.Output.Policy do
   defstruct @enforce_keys
 
   @type format() :: :avif | :webp | :jpeg | :png
+  @type source_format() :: format() | :heif | :tiff | :jpeg2000 | :jpeg_xl
   @type quality() :: :default | {:quality, 1..100}
   @type mode() :: :source | :best | {:explicit, format()}
   @type reason() :: :explicit | :auto | :source
@@ -61,8 +62,11 @@ defmodule ImagePlug.Output.Policy do
 
   def resolve_before_source_fetch(%__MODULE__{mode: :best}), do: {:needs_encoded_evaluation}
 
-  @spec resolve(t(), format() | nil) ::
-          {:ok, Resolved.t()} | {:error, :source_format_required} | {:needs_encoded_evaluation}
+  @spec resolve(t(), source_format() | nil) ::
+          {:ok, Resolved.t()}
+          | {:error, :source_format_required}
+          | {:needs_encoded_evaluation}
+          | {:needs_final_image_alpha, :source}
   def resolve(%__MODULE__{} = policy, source_format) do
     case resolve_before_source_fetch(policy) do
       {:selected, format, _reason} ->
@@ -71,6 +75,7 @@ defmodule ImagePlug.Output.Policy do
       :needs_source_format ->
         case resolve_source_format(policy, source_format) do
           {:selected, format, _reason} -> {:ok, resolved(policy, format)}
+          {:needs_final_image_alpha, _reason} = pending -> pending
           {:error, _reason} = error -> error
         end
 
@@ -79,14 +84,24 @@ defmodule ImagePlug.Output.Policy do
     end
   end
 
-  @spec resolve_source_format(t(), format() | nil) ::
-          {:selected, format(), :source} | {:error, :source_format_required}
+  @spec resolve_source_format(t(), source_format() | nil) ::
+          {:selected, format(), :source}
+          | {:needs_final_image_alpha, :source}
+          | {:error, :source_format_required}
   def resolve_source_format(%__MODULE__{mode: :source}, source_format) do
-    case Format.mime_type(source_format) do
-      {:ok, _mime_type} -> {:selected, source_format, :source}
-      :error -> {:error, :source_format_required}
+    cond do
+      output_format?(source_format) -> {:selected, source_format, :source}
+      source_only_format?(source_format) -> {:needs_final_image_alpha, :source}
+      true -> {:error, :source_format_required}
     end
   end
+
+  @spec resolve_final_image_alpha(t(), boolean()) :: {:ok, Resolved.t()}
+  def resolve_final_image_alpha(%__MODULE__{} = policy, true),
+    do: {:ok, resolved(policy, :png)}
+
+  def resolve_final_image_alpha(%__MODULE__{} = policy, false),
+    do: {:ok, resolved(policy, :jpeg)}
 
   @spec automatic_headers() :: [{String.t(), String.t()}]
   def automatic_headers, do: [{"vary", "Accept"}]
@@ -107,6 +122,15 @@ defmodule ImagePlug.Output.Policy do
          format
        ),
        do: Map.get(format_qualities, format, :default)
+
+  defp output_format?(format) do
+    case Format.mime_type(format) do
+      {:ok, _mime_type} -> true
+      :error -> false
+    end
+  end
+
+  defp source_only_format?(format), do: format in [:heif, :tiff, :jpeg2000, :jpeg_xl]
 
   defp accept_header(conn), do: conn |> get_req_header("accept") |> Enum.join(",")
 end

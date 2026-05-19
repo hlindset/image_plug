@@ -86,6 +86,37 @@ defmodule ImagePlug.Output.PolicyTest do
       assert Policy.resolve_source_format(policy, :jpeg) == {:selected, :jpeg, :source}
     end
 
+    test "keeps source format fallback for output-capable source families" do
+      policy = %Policy{
+        mode: :source,
+        modern_candidates: [],
+        headers: [{"vary", "Accept"}],
+        quality: :default,
+        format_qualities: %{}
+      }
+
+      assert Policy.resolve_source_format(policy, :webp) == {:selected, :webp, :source}
+      assert Policy.resolve_source_format(policy, :avif) == {:selected, :avif, :source}
+    end
+
+    test "defers source-only fallback until final image alpha is known" do
+      policy = %Policy{
+        mode: :source,
+        modern_candidates: [],
+        headers: [{"vary", "Accept"}],
+        quality: :default,
+        format_qualities: %{}
+      }
+
+      assert Policy.resolve_source_format(policy, :heif) == {:needs_final_image_alpha, :source}
+      assert Policy.resolve_source_format(policy, :tiff) == {:needs_final_image_alpha, :source}
+
+      assert Policy.resolve_source_format(policy, :jpeg2000) ==
+               {:needs_final_image_alpha, :source}
+
+      assert Policy.resolve_source_format(policy, :jpeg_xl) == {:needs_final_image_alpha, :source}
+    end
+
     test "requires known source format" do
       policy = %Policy{
         mode: :source,
@@ -96,6 +127,70 @@ defmodule ImagePlug.Output.PolicyTest do
       }
 
       assert Policy.resolve_source_format(policy, nil) == {:error, :source_format_required}
+    end
+  end
+
+  describe "resolve_final_image_alpha/2" do
+    test "selects png when final image has alpha" do
+      policy = %Policy{
+        mode: :source,
+        modern_candidates: [],
+        headers: [{"vary", "Accept"}],
+        quality: :default,
+        format_qualities: %{}
+      }
+
+      assert Policy.resolve_final_image_alpha(policy, true) ==
+               {:ok,
+                %Resolved{
+                  format: :png,
+                  quality: :default,
+                  representation_headers: [{"vary", "Accept"}]
+                }}
+    end
+
+    test "selects jpeg when final image has no alpha" do
+      policy = %Policy{
+        mode: :source,
+        modern_candidates: [],
+        headers: [{"vary", "Accept"}],
+        quality: :default,
+        format_qualities: %{}
+      }
+
+      assert Policy.resolve_final_image_alpha(policy, false) ==
+               {:ok,
+                %Resolved{
+                  format: :jpeg,
+                  quality: :default,
+                  representation_headers: [{"vary", "Accept"}]
+                }}
+    end
+
+    test "applies quality for selected alpha fallback format" do
+      policy = %Policy{
+        mode: :source,
+        modern_candidates: [],
+        headers: [{"vary", "Accept"}],
+        quality: :default,
+        format_qualities: %{jpeg: {:quality, 82}, png: {:quality, 70}}
+      }
+
+      assert Policy.resolve_final_image_alpha(policy, false) ==
+               {:ok,
+                %Resolved{
+                  format: :jpeg,
+                  quality: {:quality, 82},
+                  representation_headers: [{"vary", "Accept"}]
+                }}
+
+      assert Policy.resolve_final_image_alpha(policy, true) ==
+               {:ok,
+                %Resolved{
+                  format: :png,
+                  quality: {:quality, 70},
+                  representation_headers: [{"vary", "Accept"}]
+                }}
     end
   end
 
