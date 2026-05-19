@@ -7,6 +7,11 @@ then reads the decoded image's `vips-loader` metadata to infer a narrow source
 format. The current mapping in `ImagePlug.Request.Processor` recognizes JPEG,
 PNG, WebP, and AVIF-style HEIF loader output.
 
+That mapping currently reuses output format names for source detection. The new
+policy should separate source format families from output formats. For example,
+HEIC and AVIF can both arrive through libvips HEIF loading, but ImagePlug only
+supports AVIF as an output format today.
+
 That means the real pre-decode input policy is partly delegated to the local
 `image` and libvips runtime. The project already depends on `image` 0.67.0, and
 that dependency can route SVG-looking binaries through libvips SVG loading.
@@ -35,38 +40,42 @@ Define a small product-neutral policy for this implementation slice:
 
 This slice doesn't add SVG passthrough, SVG sanitizing, SVG rendering,
 `skip_processing`, raw response delivery, PDF, PSD, RAW, video,
-or imgproxy Pro compatibility.
+origin metadata propagation, or imgproxy Pro compatibility.
 
 This slice also doesn't build a complete ImagePlug raster file sniffer. For
 raster formats, libvips already performs import detection. ImagePlug shouldn't
 duplicate that logic unless a later feature needs format-specific behavior
 before decode.
 
-## Source response metadata
+## Origin metadata
 
-`ImagePlug.Source.Response` should carry optional origin metadata along
-to the stream. The immediate useful fields are:
+This slice doesn't change `ImagePlug.Source.Response` to carry content type,
+filename, or extension hints.
 
-- `content_type`: the source adapter's response content type when available.
-- `filename` or `extension`: a source name hint when available.
-
-These fields are hints, not authority. HTTP and S3 adapters can populate
-`content_type` from origin response headers. File/path sources can populate an
-extension or filename hint. Custom adapters can omit both.
-
-The first implementation doesn't need to use these hints to accept raster
-input. ImagePlug includes them because the source boundary is the right place to carry
-origin metadata, and later compatibility work can use them without reshaping the
-adapter contract again.
+Those hints may be useful later, especially for imgproxy compatibility work.
+They aren't needed for this SVG rejection and raster-source policy. Keeping them
+out avoids eager HTTP/S3 fetch changes and keeps the source adapter contract
+stable for this PR.
 
 ## SVG policy
 
 ImagePlug rejects SVG before `Image.open/2`.
 
 The pre-decode check should be narrow and bounded. It should identify obvious
-SVG/XML SVG documents from an initial prefix and return an unsupported source
-format error before libvips sees the stream. It shouldn't attempt full XML
-validation or sanitizing.
+SVG documents from an initial prefix and return an unsupported source format
+error before libvips sees the stream. It shouldn't attempt full XML validation
+or sanitizing.
+
+The detector should reject these cases inside the bounded prefix:
+
+- optional UTF-8 byte-order mark and leading ASCII whitespace before `<svg`
+- XML declarations before an SVG root
+- XML comments or document type declarations before an SVG root
+- case-insensitive `<svg` and namespace-prefixed SVG root tags
+
+If the prefix is XML-looking but inconclusive inside the bound, reject it rather
+than passing it to libvips. The point is to keep implicit SVG rendering out of
+this slice.
 
 The detector must not buffer the whole source. If it consumes a prefix from the
 stream, it must pass that prefix to decode first. Accepted raster inputs still
@@ -81,14 +90,17 @@ smallest behavior that removes the current accidental SVG rendering surface.
 
 For raster inputs, ImagePlug should let `Image.open/2` and libvips decode the
 image. After decode, ImagePlug reads the loader metadata and maps it to a named
-source format.
+source format family.
 
-Accepted source formats for this slice:
+Accepted source format families for this slice:
 
 - `:jpeg`
 - `:png`
 - `:webp`
-- `:avif`
+- `:heif` for AVIF, HEIC, and HEIF-family inputs
+- `:tiff`
+- `:jpeg2000`
+- `:jpeg_xl`
 
 If decode succeeds but the loader maps to a source format outside that set,
 ImagePlug returns unsupported source format behavior. If ImagePlug can't map the
@@ -100,14 +112,16 @@ Documentation should list these inputs as unsupported in this slice:
 - SVG
 - GIF
 - ICO
-- HEIC
 - BMP
-- TIFF
-- JPEG XL
 - PDF, PSD, RAW, and video inputs
 
 The local runtime may decode some of those formats. That doesn't make
 them part of ImagePlug's public input contract.
+
+Runtime support can still vary by libvips build. If a deployed runtime can't
+decode an accepted source family, ImagePlug returns the existing decode failure.
+The public contract is that ImagePlug permits the source family when libvips can
+decode it.
 
 ## Omitted output
 
@@ -122,12 +136,16 @@ This slice should shift omitted output to a preferred-output policy:
 3. Only choose formats ImagePlug can encode.
 
 The default preferred output list should stay inside the current output set. A
-reasonable first default is `[:jpeg, :png]`, with AVIF and WebP still selected
-first when the request `Accept` header and `auto_avif` or `auto_webp` options
-permit them.
+reasonable first default is `[:png]`. That avoids alpha loss while #50 and an
+alpha-aware JPEG/PNG fallback remain separate work. AVIF and WebP still win when
+the request `Accept` header and `auto_avif` or `auto_webp` options permit them.
 
 Don't add GIF to the default preferred list until ImagePlug implements GIF output.
 Don't copy imgproxy's `IMGPROXY_PREFERRED_FORMATS` name into core.
+
+If this slice makes preferred output configurable, the normalized preferred list
+must enter automatic-output cache key data. Otherwise different configurations
+can share a cache key while producing different fallback output formats.
 
 Issue #50 is adjacent but remains a separate slice. This design creates the
 preferred-output fallback that #50 can use, but it doesn't define wildcard-only
@@ -137,19 +155,21 @@ configuration switch for deployments that want AVIF/WebP from non-informative
 
 ## Runtime flow
 
-The cache boundary stays unchanged for cacheable requests:
+Cache lookup stays before source fetch for cacheable requests:
 
 1. Parse request into `ImagePlug.Plan`.
 2. Check the plan.
 3. Resolve the source identity.
 4. Look up the cache when the resolved source is cacheable.
-5. On cache miss, fetch source bytes and metadata.
-6. Reject SVG from a bounded source prefix before normal decode.
-7. Decode accepted raster input with `Image.open/2`.
-8. Check decoded pixel limits with `max_input_pixels`.
-9. Map the decoded loader to an accepted source format.
-10. Resolve output from modern `Accept` candidates or preferred output fallback.
-11. Execute transforms, encode, send, and cache only successful encoded
+5. Resolve explicit output and modern automatic candidates before source fetch
+   when the current architecture can do so.
+6. On cache miss, fetch source bytes.
+7. Reject SVG from a bounded source prefix before normal decode.
+8. Decode accepted raster input with `Image.open/2`.
+9. Check decoded pixel limits with `max_input_pixels`.
+10. Map the decoded loader to an accepted source format family.
+11. Resolve any remaining automatic output fallback from preferred output policy.
+12. Execute transforms, encode, send, and cache only successful encoded
     responses.
 
 Invalid parser and planner requests still return before source fetch or cache
@@ -159,12 +179,13 @@ lookup. Cache hits don't fetch source bytes and don't run input detection.
 
 Product-neutral policy belongs in core modules:
 
-- Source metadata belongs under `ImagePlug.Source`.
 - SVG pre-decode rejection can live under a source/input helper owned by core,
   not under the imgproxy parser.
 - Source-format mapping and accepted source-format policy should stay outside
   `ImagePlug.Parser.Imgproxy`.
 - Omitted-output fallback belongs under `ImagePlug.Output.Policy`.
+- Automatic-output cache key data must include any preferred-output fallback
+  configuration that can change the selected output format.
 
 Imgproxy-specific URL grammar, aliases, `@extension`, compatibility docs, and
 future compatibility defaults remain under `ImagePlug.Parser.Imgproxy` or a
@@ -189,15 +210,19 @@ not emit source URLs, filenames, or raw content types by default.
 
 Focused tests should cover:
 
-- `ImagePlug.Source.Response` accepts stream-only responses and responses with
-  optional metadata.
-- HTTP/S3/file adapters populate metadata where the source provides it.
 - ImagePlug rejects SVG-looking input before calling the image open module.
 - Accepted raster fixtures still decode and process normally.
-- A decoded loader outside the accepted source-format set fails instead of
-  becoming an implicit output format.
+- Source formats that libvips can decode but ImagePlug doesn't accept fail for
+  both explicit output and omitted output requests.
+- Accepted non-output source families such as HEIF, TIFF, JPEG 2000, and JPEG XL
+  normalize to supported output formats.
 - Omitted output without a modern `Accept` candidate uses preferred output
   fallback.
+- Automatic-output cache keys include the normalized preferred-output fallback
+  policy when that policy is configurable.
+- SVG prefix handling covers split chunks, prefix replay for accepted raster
+  input, body-limit accounting after peeking, stream errors after the prefix,
+  and early cancellation when ImagePlug rejects SVG.
 - Imgproxy wire-level behavior rejects SVG before transform execution and still
   preserves cache-before-fetch behavior for cacheable requests.
 
@@ -206,6 +231,7 @@ Documentation updates should cover:
 - Current accepted input formats.
 - Explicit SVG rejection.
 - Known unsupported imgproxy source formats.
+- Source formats versus output formats.
 - The distinction between imgproxy `@extension` as requested output and
   ImagePlug's source-format detection after decode.
 
