@@ -1271,7 +1271,7 @@ defmodule ImagePlug.ImagePlugTest do
     assert get_resp_header(conn, "vary") == []
   end
 
-  test "plain source extension overrides explicit output format after options" do
+  test "plain source @extension selects explicit output format after options" do
     conn =
       call_image_plug(
         conn(:get, "/_/f:webp/plain/images/beach.jpg@png"),

@@ -54,6 +54,8 @@ including exact media-type exclusions over wildcard allowances.
 
 Among detected modern candidates, ImagePlug uses server preference order rather
 than relative q-value ordering. If ImagePlug detects no enabled modern
-candidate, it uses the source image format. Automatic output responses use
-`Vary: Accept`. Explicit formats bypass content negotiation and don't set
-`Vary: Accept`.
+candidate, output-capable source families use the decoded source format.
+Source-only input families fall back after transforms: PNG when the final image
+has an alpha channel, JPEG otherwise. Automatic output responses use `Vary:
+Accept`. Explicit formats bypass content negotiation and don't set `Vary:
+Accept`.
