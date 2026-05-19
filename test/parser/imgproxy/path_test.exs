@@ -109,7 +109,7 @@ defmodule ImagePlug.Parser.Imgproxy.PathTest do
   end
 
   describe "parse_plain_source" do
-    test "parses known source format suffixes" do
+    test "parses known output extension suffixes" do
       assert Path.parse_plain_source(["images", "cat.jpg@avif"]) ==
                {:ok, "images/cat.jpg", :avif}
 
@@ -117,12 +117,12 @@ defmodule ImagePlug.Parser.Imgproxy.PathTest do
                {:ok, "images/cat.jpg", :jpeg}
     end
 
-    test "allows a trailing source format separator without an extension" do
+    test "allows a trailing output extension separator without an extension" do
       assert Path.parse_plain_source(["images", "cat.jpg@"]) ==
                {:ok, "images/cat.jpg", nil}
     end
 
-    test "rejects unknown source format suffixes" do
+    test "rejects unknown output extension suffixes" do
       assert Path.parse_plain_source(["images", "cat.jpg@gif"]) ==
                {:error, {:invalid_format, "gif", ["webp", "avif", "jpeg", "jpg", "png", "best"]}}
     end
@@ -135,7 +135,7 @@ defmodule ImagePlug.Parser.Imgproxy.PathTest do
                {:error, {:missing_source_identifier, "plain"}}
     end
 
-    test "rejects multiple source format separators" do
+    test "rejects repeated output extension separators" do
       assert Path.parse_plain_source(["cat.jpg@webp@png"]) ==
                {:error, {:multiple_source_format_separators, "cat.jpg@webp@png"}}
     end

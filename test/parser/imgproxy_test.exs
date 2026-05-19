@@ -627,7 +627,7 @@ defmodule ImagePlug.Parser.ImgproxyTest do
     assert_output_mode("/_/ext:jpg/plain/images/cat.jpg", {:explicit, :jpeg})
   end
 
-  test "plain source extension overrides explicit format after options" do
+  test "plain source @extension selects explicit output format after options" do
     assert_output_mode("/_/f:webp/plain/images/cat.jpg@png", {:explicit, :png})
   end
 
@@ -948,7 +948,7 @@ defmodule ImagePlug.Parser.ImgproxyTest do
              {:error, {:invalid_format, "auto", ["webp", "avif", "jpeg", "jpg", "png", "best"]}}
   end
 
-  test "parses processing options before validating source extension" do
+  test "parses processing options before validating output extension" do
     assert Imgproxy.parse(conn(:get, "/_/unknown/plain/images/cat.jpg@unknown"), []) ==
              {:error, {:unknown_option, "unknown"}}
   end
@@ -1302,7 +1302,7 @@ defmodule ImagePlug.Parser.ImgproxyTest do
     assert second_params.height == pixels(300)
   end
 
-  test "detects raw source extension before percent decoding" do
+  test "detects raw output extension before percent decoding" do
     assert {:ok,
             %Plan{
               source: %Source.Path{segments: ["images", "cat@v1.jpg"]},
@@ -1315,7 +1315,7 @@ defmodule ImagePlug.Parser.ImgproxyTest do
              {:error, {:invalid_percent_encoding, "cat%ZZ.jpg"}}
   end
 
-  test "parses supported source extensions" do
+  test "parses supported output extensions" do
     cases = [
       {"webp", :webp},
       {"avif", :avif},
@@ -1329,7 +1329,7 @@ defmodule ImagePlug.Parser.ImgproxyTest do
     end
   end
 
-  test "dangling raw @ leaves output automatic when no explicit format exists" do
+  test "dangling raw @ leaves output automatic when no explicit output extension exists" do
     assert {:ok,
             %Plan{
               source: %Source.Path{segments: ["images", "cat.jpg"]},
@@ -1342,18 +1342,18 @@ defmodule ImagePlug.Parser.ImgproxyTest do
              {:error, {:missing_source_identifier, "plain"}}
   end
 
-  test "rejects multiple raw @ source extension separators" do
+  test "rejects multiple raw @ output extension separators" do
     assert Imgproxy.parse(conn(:get, "/_/plain/images/cat.jpg@webp@png"), []) ==
              {:error, {:multiple_source_format_separators, "images/cat.jpg@webp@png"}}
   end
 
-  test "rejects unknown source extensions as parser errors" do
+  test "rejects unknown output extensions as parser errors" do
     assert Imgproxy.parse(conn(:get, "/_/plain/images/cat.jpg@unknown"), []) ==
              {:error,
               {:invalid_format, "unknown", ["webp", "avif", "jpeg", "jpg", "png", "best"]}}
   end
 
-  test "rejects best source extension as an unsupported output semantic" do
+  test "rejects best output extension as an unsupported output semantic" do
     assert Imgproxy.parse(conn(:get, "/_/plain/images/cat.jpg@best"), []) ==
              {:error, {:unsupported_output_format, :best}}
   end

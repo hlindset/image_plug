@@ -23,7 +23,9 @@ Before verification, ImagePlug applies Imgproxy-compatible `fixPath`
 normalization for encoded option separators and plain URL schemes.
 
 `plain` starts the source path. Add `@extension` to the end of the source path
-to force an output format and bypass `Accept` negotiation.
+to request an explicit output format and bypass `Accept` negotiation. The suffix
+doesn't declare the source image format. ImagePlug still detects the source
+family from decoded image metadata.
 
 ## Pipeline groups
 
@@ -283,8 +285,9 @@ from `Accept` and sets `Vary: Accept`. To force a format, use `format`, `f`,
 bypass `Accept` negotiation and don't set `Vary: Accept`.
 
 ImagePlug supports `webp`, `avif`, `jpeg`/`jpg`, and `png` as explicit output
-extensions. If a request includes both an option format and source `@extension`,
-source `@extension` wins.
+extensions. If a request includes both an option format and source-path
+`@extension`, `@extension` wins because the imgproxy parser treats it as the
+final requested output format.
 
 Quality has two separate controls: `quality`/`q` sets generic output quality,
 while `format_quality`/`fq` sets quality for one explicit format. In either

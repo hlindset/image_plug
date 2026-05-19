@@ -419,13 +419,23 @@ entrypoint, license checks, or deprecation handling.
 | Required signature path segment | Supported | Without signing, ImagePlug accepts `_` and `unsafe`. With signing configured, it accepts HMAC and exact trusted signatures. Trusted-only config accepts only exact trusted signatures. This behavior is narrower than upstream unsigned behavior. |
 | HMAC URL signatures | Supported | Imgproxy parser verifies raw/unpadded Base64URL HMAC-SHA256 signatures with hex key/salt pairs, optional truncation, rotation pairs, exact trusted signatures, and Imgproxy-compatible `fixPath` before verification. Signature failures return 403. |
 | Plain source URLs via `/plain/` | Supported | ImagePlug translates the value into configured source adapters for local paths, HTTP and HTTPS URLs, S3-compatible object sources, and configured custom schemes. |
-| Plain source `@extension` | Supported | Overrides option format and bypasses `Accept` negotiation. |
+| Plain source `@extension` | Supported | Requests explicit output format and bypasses `Accept` negotiation. It doesn't declare source format. |
 | Base64 encoded source URL | Missing | No encoded source parsing. ImagePlug supports plain HTTP and HTTPS source URLs through `/plain/`. |
 | Encrypted `/enc/` source URL | Missing | Pro feature. Requires source decryption and signed URL safety. |
 | AES-CBC source URL encryption helpers | Missing | Should remain parser/runtime source-layer support, not transform support. |
 | Custom argument separator | Missing | Parser currently uses `:`. |
 | Processing option order independence | Supported | URL option order doesn't define transform order. |
 | Pipeline separator `-` | Supported | Separates non-empty pipeline groups. |
+
+### Source input formats
+
+ImagePlug detects source family after libvips decodes the input. Accepted source
+families in this slice are JPEG, PNG, WebP, AVIF, non-AVIF HEIF/HEIC, TIFF,
+JPEG 2000, and JPEG XL when the deployed libvips build can read them.
+
+This slice doesn't support SVG, GIF, ICO, BMP, PDF, PSD, RAW, or video inputs.
+ImagePlug rejects SVG after decode identifies an SVG loader and before
+transforms or output encoding.
 
 ## Resize, geometry, and orientation
 
