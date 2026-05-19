@@ -102,19 +102,6 @@ defmodule ImagePlug.Request.SourceFormatTest do
     end
   end
 
-  describe "output_format?/1" do
-    test "returns true only for ImagePlug output-capable source families" do
-      assert SourceFormat.output_format?(:jpeg)
-      assert SourceFormat.output_format?(:png)
-      assert SourceFormat.output_format?(:webp)
-      assert SourceFormat.output_format?(:avif)
-
-      refute SourceFormat.output_format?(:heif)
-      refute SourceFormat.output_format?(:tiff)
-      refute SourceFormat.output_format?(:jpeg2000)
-      refute SourceFormat.output_format?(:jpeg_xl)
-    end
-  end
 end
 ```
 
@@ -138,9 +125,11 @@ defmodule ImagePlug.Request.SourceFormat do
 
   alias Vix.Vips.Image, as: VipsImage
 
-  @type output_format() :: :avif | :webp | :jpeg | :png
   @type source_format() ::
-          output_format()
+          :avif
+          | :webp
+          | :jpeg
+          | :png
           | :heif
           | :tiff
           | :jpeg2000
@@ -148,8 +137,6 @@ defmodule ImagePlug.Request.SourceFormat do
 
   @type unsupported_family() :: :svg | :unknown
   @type error() :: {:unsupported_source_format, unsupported_family()}
-
-  @output_formats [:avif, :webp, :jpeg, :png]
 
   @spec from_image(VipsImage.t()) :: {:ok, source_format()} | {:error, error()}
   def from_image(%VipsImage{} = image) do
@@ -179,9 +166,6 @@ defmodule ImagePlug.Request.SourceFormat do
     do: heif_source_format(metadata)
 
   def classify_loader(_loader, _metadata), do: {:error, {:unsupported_source_format, :unknown}}
-
-  @spec output_format?(source_format() | atom()) :: boolean()
-  def output_format?(format), do: format in @output_formats
 
   defp heif_source_format(metadata) do
     case metadata.("heif-compression") do
@@ -239,7 +223,10 @@ Add these helpers near the existing private helpers:
 
 ```elixir
   defp svg_supported? do
-    ".svg" in VipsImage.supported_loader_suffixes()
+    case VipsImage.supported_loader_suffixes() do
+      {:ok, suffixes} -> ".svg" in suffixes
+      {:error, _reason} -> false
+    end
   end
 
   defp svg_body(width, height) do
@@ -255,7 +242,7 @@ Add these tests:
 
 ```elixir
   test "decode_validate_source_response rejects SVG after decode" do
-    unless svg_supported?(), do: flunk("local libvips build must support SVG for this test")
+    unless svg_supported?(), do: flunk("SVG loader unavailable")
 
     source_response = %Response{stream: [svg_body(20, 20)]}
 
@@ -264,7 +251,7 @@ Add these tests:
   end
 
   test "unsupported decoded source format is reported before input pixel limits" do
-    unless svg_supported?(), do: flunk("local libvips build must support SVG for this test")
+    unless svg_supported?(), do: flunk("SVG loader unavailable")
 
     source_response = %Response{stream: [svg_body(2000, 2000)]}
 
@@ -277,13 +264,7 @@ Add these tests:
   end
 ```
 
-If CI lacks SVG loader support, change `flunk/1` to `ExUnit.configure(exclude: [:svg_loader])` is wrong for this file. Use this test-local skip instead:
-
-```elixir
-    unless svg_supported?(), do: raise ExUnit.AssertionError, message: "SVG loader unavailable"
-```
-
-Don't pass a test that didn't exercise the policy.
+Keep these as explicit failures if the SVG loader is missing. These tests verify the chosen SVG policy. If CI doesn't provide SVG loader support, fix the CI libvips feature set instead of turning the tests into silent passes.
 
 - [ ] **Step 2: Add wire-level SVG rejection test**
 
@@ -291,8 +272,8 @@ In `test/image_plug/imgproxy_wire_conformance_test.exs`, add this source adapter
 
 ```elixir
   defmodule SvgOriginImage do
-    def call(conn, _opts) do
-      send(self(), :origin_fetch)
+    def call(conn, opts) do
+      send(Keyword.fetch!(opts, :test_pid), :origin_fetch)
 
       body = """
       <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20">
@@ -307,12 +288,22 @@ In `test/image_plug/imgproxy_wire_conformance_test.exs`, add this source adapter
   end
 ```
 
+Add this helper near the private helpers at the bottom of the file:
+
+```elixir
+  defp svg_supported? do
+    case Vix.Vips.Image.supported_loader_suffixes() do
+      {:ok, suffixes} -> ".svg" in suffixes
+      {:error, _reason} -> false
+    end
+  end
+```
+
 Add this test:
 
 ```elixir
   test "decoded SVG input returns unsupported image response and does not write cache" do
-    unless ".svg" in Vix.Vips.Image.supported_loader_suffixes(),
-      do: raise ExUnit.AssertionError, message: "SVG loader unavailable"
+    unless svg_supported?(), do: flunk("SVG loader unavailable")
 
     conn =
       call_imgproxy(
@@ -322,7 +313,8 @@ Add this test:
           sources: [
             path:
               {RootHTTPAdapter,
-               root_url: "http://origin.test", req_options: [plug: SvgOriginImage]}
+               root_url: "http://origin.test",
+               req_options: [plug: {SvgOriginImage, test_pid: self()}]}
           ]
         )
       )
@@ -332,6 +324,33 @@ Add this test:
     assert_received :cache_lookup
     assert_received :origin_fetch
     refute_received {:cache_put, _key, _entry}
+  end
+
+  test "explicit output requests still reject decoded SVG input" do
+    unless svg_supported?(), do: flunk("SVG loader unavailable")
+
+    for path <- ["/_/f:png/plain/images/vector.svg", "/_/plain/images/vector.svg@png"] do
+      conn =
+        call_imgproxy(
+          path,
+          Keyword.merge(@default_opts,
+            cache: {CacheProbe, result: :miss},
+            sources: [
+              path:
+                {RootHTTPAdapter,
+                 root_url: "http://origin.test",
+                 req_options: [plug: {SvgOriginImage, test_pid: self()}]}
+            ]
+          )
+        )
+
+      assert conn.status == 415
+      assert conn.resp_body == "source response is not a supported image"
+      assert get_resp_header(conn, "vary") == []
+      assert_received :cache_lookup
+      assert_received :origin_fetch
+      refute_received {:cache_put, _key, _entry}
+    end
   end
 ```
 
@@ -377,6 +396,32 @@ Update `decode_validate_source_response/3` so source-family validation runs befo
          source_format: source_format
        }}
     end
+  end
+```
+
+Update the existing `"decode_validate_source_response returns input limit errors"` test in `test/image_plug/processor_test.exs` so it decodes a real fixture with loader metadata instead of using `DecodeValidImageOpen`:
+
+```elixir
+  test "decode_validate_source_response returns input limit errors" do
+    {:ok, operation} = resize_fit(120, :auto)
+
+    plan = %Plan{
+      plan()
+      | pipelines: [
+          %Pipeline{operations: [operation]}
+        ]
+    }
+
+    source_response = %Response{stream: [File.read!("priv/static/images/beach.jpg")]}
+
+    assert {:error, {:input_limit, {:too_many_input_pixels, pixel_count, 1}}} =
+             Processor.decode_validate_source_response(
+               source_response,
+               plan,
+               Keyword.put(opts(), :max_input_pixels, 1)
+             )
+
+    assert pixel_count > 1
   end
 ```
 
@@ -687,9 +732,12 @@ Add these helpers:
 
 ```elixir
   defp require_tiff_support! do
-    unless ".tiff" in VipsImage.supported_loader_suffixes() and
-             ".tiff" in VipsImage.supported_saver_suffixes() do
-      raise ExUnit.AssertionError, message: "TIFF load/save support unavailable"
+    with {:ok, loaders} <- VipsImage.supported_loader_suffixes(),
+         {:ok, savers} <- VipsImage.supported_saver_suffixes(),
+         true <- ".tiff" in loaders and ".tiff" in savers do
+      :ok
+    else
+      _reason -> raise ExUnit.AssertionError, message: "TIFF load/save support unavailable"
     end
   end
 
@@ -753,11 +801,11 @@ In `test/image_plug/request_runner_test.exs`, add:
              %Resolved{format: :jpeg, representation_headers: [{"vary", "Accept"}]},
              %ImagePlug.Plan.Response{}}} =
              Runner.run(
-               conn(:get, "/_/bg:fff/plain/images/source.tiff"),
-               plan(
-                 output: %Output{mode: :automatic},
-                 pipelines: [%Pipeline{operations: [background_operation(255)]}]
-               ),
+                 conn(:get, "/_/bg:fff/plain/images/source.tiff"),
+                 plan(
+                   output: %Output{mode: :automatic},
+                   pipelines: [%Pipeline{operations: [background_operation({:ratio, 1, 1})]}]
+                 ),
                resolved_source(),
                sources: %{path: {SourceBytes, body: body}}
              )
@@ -805,6 +853,46 @@ In `test/image_plug/request_runner_test.exs`, add:
     assert_receive {:runner_event, ^ref, :source_fetch}
     assert_receive {:runner_event, ^ref, {:cache_put, ^key}}
     assert_received {:cache_put, ^key, %Entry{content_type: "image/jpeg"}, _opts}
+  end
+
+  test "source-only alpha fallback cache miss writes PNG entry with Vary" do
+    body = tiff_body([255, 0, 0, 128], bands: 4)
+    ref = make_ref()
+
+    assert {:ok, {:cache_entry, %Entry{content_type: "image/png", headers: [{"vary", "Accept"}]},
+                  %ImagePlug.Plan.Response{}}} =
+             Runner.run(
+               conn(:get, "/_/plain/images/source.tiff"),
+               plan(output: %Output{mode: :automatic}),
+               resolved_source(),
+               cache: {CacheMissWriteProbe, test_pid: self(), test_ref: ref},
+               sources: %{path: {SourceBytes, body: body, test_pid: self(), test_ref: ref}},
+               test_pid: self(),
+               test_ref: ref
+             )
+
+    assert_receive {:runner_event, ^ref, {:cache_lookup, key}}
+    assert_receive {:runner_event, ^ref, :source_fetch}
+    assert_receive {:runner_event, ^ref, {:cache_put, ^key}}
+    assert_received {:cache_put, ^key, %Entry{content_type: "image/png"}, _opts}
+  end
+
+  test "source-only automatic cache hit returns without fetching source" do
+    entry = %Entry{
+      body: "cached png",
+      content_type: "image/png",
+      headers: [{"vary", "Accept"}],
+      created_at: DateTime.utc_now()
+    }
+
+    assert {:ok, {:cache_entry, ^entry, %ImagePlug.Plan.Response{}}} =
+             Runner.run(
+               conn(:get, "/_/plain/images/source.tiff"),
+               plan(output: %Output{mode: :automatic}),
+               resolved_source(),
+               cache: {CacheHit, entry: entry},
+               sources: %{path: {SourceShouldNotFetch, []}}
+             )
   end
 ```
 
@@ -909,13 +997,17 @@ mise exec -- git commit -m "Resolve source-only automatic output after transform
 ## Task 5: Imgproxy Extension Terminology and Wire Contracts
 
 **Files:**
+- Update: `lib/image_plug/parser/imgproxy.ex`
+- Update: `lib/image_plug/parser/imgproxy/path.ex`
+- Update: `lib/image_plug/parser/imgproxy/format.ex`
+- Update: `test/parser/imgproxy/path_test.exs`
 - Update: `test/parser/imgproxy_test.exs`
 - Update: `docs/imgproxy_path_api.md`
 - Update: `docs/imgproxy_support_matrix.md`
 
 - [ ] **Step 1: Rename parser test terminology from source extension to output extension**
 
-In `test/parser/imgproxy_test.exs`, rename these test names only:
+In `test/parser/imgproxy_test.exs`, rename these test names:
 
 ```elixir
   test "plain source @extension selects explicit output format" do
@@ -937,9 +1029,84 @@ In `test/parser/imgproxy_test.exs`, rename these test names only:
   test "rejects best output extension as an unsupported output semantic" do
 ```
 
-Don't change parser behavior in this task.
+Change the repeated-`@` assertion in `test/parser/imgproxy_test.exs`:
 
-- [ ] **Step 2: Update imgproxy path API docs**
+```elixir
+    assert Imgproxy.parse(conn(:get, "/_/plain/images/cat.jpg@webp@png"), []) ==
+             {:error, {:multiple_output_extension_separators, "images/cat.jpg@webp@png"}}
+```
+
+Change the matching assertion in `test/parser/imgproxy/path_test.exs`:
+
+```elixir
+    assert Path.parse_plain_source(["cat.jpg@webp@png"]) ==
+             {:error, {:multiple_output_extension_separators, "cat.jpg@webp@png"}}
+```
+
+- [ ] **Step 2: Rename parser implementation terminology**
+
+In `lib/image_plug/parser/imgproxy/path.ex`, change the repeated separator error:
+
+```elixir
+      _parts ->
+        {:error, {:multiple_output_extension_separators, encoded}}
+```
+
+Also rename private variable names in this file from `source_format` to `output_extension_format` where they refer to `@extension` output selection:
+
+```elixir
+  defp decode_source_path(source, output_extension_format) do
+    with :ok <- validate_percent_encoded_segments(source) do
+      {:ok, source, output_extension_format}
+    end
+  end
+```
+
+In `lib/image_plug/parser/imgproxy.ex`, rename local variables from `source_format` to `output_extension_format` in the `parse/2` and `parsed_request/4` path:
+
+```elixir
+         {:ok, source_path, output_extension_format} <- Path.parse_plain_source(raw_source_path) do
+      parsed_request(
+        signature,
+        source_path,
+        output_extension_format,
+        request_options
+      )
+```
+
+```elixir
+  defp parsed_request(
+         signature,
+         source_path,
+         output_extension_format,
+         request_options
+       ) do
+    output_format = output_extension_format || request_options.output.format
+```
+
+In `lib/image_plug/parser/imgproxy/format.ex`, rename module attributes to output terminology:
+
+```elixir
+  @output_extension_names ~w(webp avif jpeg jpg png best)
+
+  @output_extension_formats %{
+    "webp" => :webp,
+    "avif" => :avif,
+    "jpeg" => :jpeg,
+    "jpg" => :jpeg,
+    "png" => :png,
+    "best" => :best
+  }
+
+  def parse(value) do
+    case Map.fetch(@output_extension_formats, value) do
+      {:ok, parsed_value} -> {:ok, parsed_value}
+      :error -> {:error, {:invalid_format, value, @output_extension_names}}
+    end
+  end
+```
+
+- [ ] **Step 3: Update imgproxy path API docs**
 
 In `docs/imgproxy_path_api.md`, keep the existing behavior but replace source-format wording with output-format wording:
 
@@ -964,7 +1131,7 @@ If a request includes both an option format and source-path `@extension`,
 output format.
 ```
 
-- [ ] **Step 3: Update support matrix docs**
+- [ ] **Step 4: Update support matrix docs**
 
 In `docs/imgproxy_support_matrix.md`, replace the `@extension` row with:
 
@@ -986,23 +1153,23 @@ slice. SVG is rejected after decode identifies an SVG loader and before
 transforms or output encoding.
 ```
 
-- [ ] **Step 4: Run parser and docs checks**
+- [ ] **Step 5: Run parser and docs checks**
 
 Run:
 
 ```bash
-mise exec -- mix test test/parser/imgproxy_test.exs
+mise exec -- mix test test/parser/imgproxy_test.exs test/parser/imgproxy/path_test.exs
 mise exec -- vale docs/imgproxy_path_api.md docs/imgproxy_support_matrix.md
 ```
 
 Expected: PASS.
 
-- [ ] **Step 5: Commit**
+- [ ] **Step 6: Commit**
 
 Run:
 
 ```bash
-mise exec -- git add test/parser/imgproxy_test.exs docs/imgproxy_path_api.md docs/imgproxy_support_matrix.md
+mise exec -- git add lib/image_plug/parser/imgproxy.ex lib/image_plug/parser/imgproxy/path.ex lib/image_plug/parser/imgproxy/format.ex test/parser/imgproxy_test.exs test/parser/imgproxy/path_test.exs docs/imgproxy_path_api.md docs/imgproxy_support_matrix.md
 mise exec -- git commit -m "Clarify imgproxy output extension terminology"
 ```
 
@@ -1026,7 +1193,7 @@ Expected: command exits 0. If it changes files, inspect the diff before committi
 Run:
 
 ```bash
-mise exec -- mix test test/image_plug/request/source_format_test.exs test/image_plug/processor_test.exs test/image_plug/output_policy_test.exs test/image_plug/request_runner_test.exs test/image_plug/imgproxy_wire_conformance_test.exs test/parser/imgproxy_test.exs
+mise exec -- mix test test/image_plug/request/source_format_test.exs test/image_plug/processor_test.exs test/image_plug/output_policy_test.exs test/image_plug/request_runner_test.exs test/image_plug/imgproxy_wire_conformance_test.exs test/parser/imgproxy_test.exs test/parser/imgproxy/path_test.exs
 ```
 
 Expected: PASS.
