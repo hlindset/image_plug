@@ -9,8 +9,9 @@ PNG, WebP, and AVIF-style HEIF loader output.
 
 That mapping currently reuses output format names for source detection. The new
 policy should separate source format families from output formats. For example,
-HEIC and AVIF can both arrive through libvips HEIF loading, but ImagePlug only
-supports AVIF as an output format today.
+HEIC and AVIF can both arrive through libvips HEIF loading. ImagePlug should
+keep AVIF as an explicit input and output format, while treating non-AVIF HEIF
+inputs as source-only.
 
 That means the real pre-decode input policy is partly delegated to the local
 `image` and libvips runtime. The project already depends on `image` 0.67.0, and
@@ -34,8 +35,8 @@ Define a small product-neutral policy for this implementation slice:
 - Raster input support is explicit and limited to formats ImagePlug names.
 - libvips remains responsible for raster decoding and validation.
 - Omitted output has a narrow decoded fallback for accepted source-only formats.
-- A later SVG design can add support without changing the request
-  boundary again.
+- A later SVG design can add passthrough or raster output support as separate
+  behavior.
 
 ## Non-goals
 
@@ -97,10 +98,18 @@ Accepted source format families for this slice:
 - `:jpeg`
 - `:png`
 - `:webp`
-- `:heif` for AVIF, HEIC, and HEIF-family inputs
+- `:avif`
+- `:heif` for non-AVIF HEIC and HEIF-family inputs
 - `:tiff`
 - `:jpeg2000`
 - `:jpeg_xl`
+
+HEIF-family loader mapping must not treat every `heifload*` image as AVIF.
+When libvips exposes `heif-compression` as `"av1"`, ImagePlug maps the source
+format to `:avif`. Other `heifload*` inputs map to `:heif`. If a runtime
+doesn't expose enough metadata to make that distinction, the implementation
+should choose the conservative `:heif` mapping instead of labeling the source
+as AVIF.
 
 If decode succeeds but the loader maps to a source format outside that set,
 ImagePlug returns unsupported source format behavior. If ImagePlug can't map the
@@ -124,10 +133,10 @@ The public contract is that ImagePlug permits the source family when libvips can
 decode it.
 
 The implementation should keep loader mapping explicit. Tests should cover the
-current loader prefixes for JPEG, PNG, WebP, HEIF-family, TIFF, JPEG 2000, and
-JPEG XL inputs. Fixture tests for optional formats may skip when the local
-libvips build lacks read support, but mapping tests shouldn't depend on optional
-format support.
+current loader prefixes for JPEG, PNG, WebP, AVIF, non-AVIF HEIF-family, TIFF,
+JPEG 2000, and JPEG XL inputs. Fixture tests for optional formats may skip when
+the local libvips build lacks read support, but mapping tests shouldn't depend
+on optional format support.
 
 ## Omitted output
 
@@ -147,18 +156,35 @@ This slice should add only the fallback needed for those source-only inputs:
    - `:png` when the decoded image or planned output needs alpha preservation.
    - `:jpeg` for ordinary opaque still images.
 
-The alpha check can use decoded image properties and existing plan behavior that
-can introduce transparency, such as padding or extension. It shouldn't flatten
-or inspect encoded bytes just to choose the fallback.
+This fallback inherits today's baseline `Accept` behavior. It doesn't try to
+honor non-modern headers such as `Accept: image/png`,
+`Accept: image/jpeg;q=0`, `Accept: image/*`, `Accept: */*`, or
+`Accept: application/json`. If AVIF/WebP negotiation doesn't select a modern
+format, the fallback follows ImagePlug policy rather than full HTTP content
+negotiation. Issue #50 remains the place to redesign those semantics.
+
+The alpha decision should be metadata-driven and conservative. The
+implementation shouldn't scan pixel opacity or inspect encoded bytes just to
+choose the fallback. It should combine decoded image metadata with
+product-neutral transform metadata:
+
+- no alpha channel and no transform metadata that introduces alpha -> `:jpeg`
+- alpha channel with no later proof of opaque flattening -> `:png`
+- transparent padding or canvas expansion -> `:png`
+- opaque background flattening after any alpha-producing step -> `:jpeg`
+- unknown alpha effect -> `:png`
+
+This detects possible alpha, not actual transparency. An RGBA image whose
+alpha band is fully opaque can still choose PNG unless transform metadata proves
+the output is opaque.
 
 Don't add GIF to the default preferred list until ImagePlug implements GIF output.
 Don't copy imgproxy's `IMGPROXY_PREFERRED_FORMATS` name into core.
 
-This slice shouldn't add a preferred-output configuration option. Issue #50 is
-adjacent but remains a separate slice. This design doesn't define wildcard-only
-`Accept` behavior, a configurable preferred-format list, JPEG XL output
-negotiation, or a switch for deployments that want AVIF/WebP from
-non-informative `Accept` headers.
+This slice shouldn't add a preferred-output configuration option. This design
+doesn't define a configurable preferred-format list, JPEG XL output negotiation,
+or a switch for deployments that want AVIF/WebP from non-informative `Accept`
+headers.
 
 ## Runtime flow
 
@@ -177,8 +203,8 @@ Cache lookup stays before source fetch for cacheable requests:
 9. Map the decoded loader to a source format family.
 10. Reject SVG and unsupported decoded source families.
 11. Check decoded pixel limits with `max_input_pixels`.
-12. Resolve any remaining automatic output fallback from source format and
-    decoded output properties.
+12. Resolve any remaining automatic output fallback from source format, decoded
+    alpha metadata, and folded transform alpha metadata.
 13. Execute transforms, encode, send, and cache only successful encoded
     responses.
 
@@ -194,10 +220,15 @@ Product-neutral policy belongs in core modules:
   `ImagePlug.Request` or behind a narrow core helper used by request processing.
 - Omitted-output fallback belongs under `ImagePlug.Output.Policy` or a narrow
   helper owned by `ImagePlug.Output`.
+- Transform modules should expose alpha behavior through product-neutral
+  metadata. `ImagePlug.Transform` or another existing transform façade should
+  fold that metadata. Request code may pass the folded alpha state to output
+  policy, but it shouldn't inspect concrete transform operation modules.
 - Source identity and cache lookup stay under the existing request/cache
   boundaries. This slice doesn't add an input policy marker to cache key data
-  because detection still happens after cache miss and successful encoded
-  responses remain keyed by source identity and output-varying fields.
+  because this greenfield project has no compatibility target for processed
+  cache entries. Deployments should clear existing processed caches when they
+  adopt this policy change.
 
 Imgproxy-specific URL grammar, aliases, `@extension`, compatibility docs, and
 future compatibility defaults remain under `ImagePlug.Parser.Imgproxy` or a
@@ -229,6 +260,9 @@ Focused tests should cover:
 - ImagePlug rejects decoded SVG loader metadata before transform execution and
   output encoding.
 - Accepted raster fixtures still decode and process normally.
+- Tests should classify AVIF and non-AVIF HEIF-family inputs as different
+  source formats. Cover `heif-compression: "av1"` mapping to `:avif` and other
+  `heifload*` metadata mapping to source-only `:heif`.
 - Source formats that libvips can decode but ImagePlug doesn't accept fail for
   both explicit output and omitted output requests.
 - Accepted source families that aren't output format atoms, such as HEIF, TIFF,
@@ -237,6 +271,12 @@ Focused tests should cover:
   fallback for JPEG, PNG, WebP, and AVIF sources.
 - Omitted output without a modern `Accept` candidate uses JPEG for opaque
   source-only families and PNG when alpha matters.
+- Alpha fallback tests should cover source alpha without opaque flattening,
+  transparent padding or canvas expansion, opaque background flattening, and an
+  unknown alpha effect.
+- Unsupported decoded sources fail before decoded pixel-limit failures.
+- Rejected SVG and unsupported source failures don't write successful cache
+  entries.
 - Cache lookup still happens before source fetch for cacheable requests.
 - Imgproxy wire-level behavior rejects SVG before transform execution.
 
