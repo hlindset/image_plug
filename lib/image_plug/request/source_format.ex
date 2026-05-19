@@ -29,8 +29,7 @@ defmodule ImagePlug.Request.SourceFormat do
   def classify_loader(loader, _metadata) when is_binary(loader), do: unsupported(:unknown)
   def classify_loader(_loader, _metadata), do: unsupported(:unknown)
 
-  @spec header_value(VipsImage.t(), String.t()) :: {:ok, term()} | :error
-  def header_value(image, name) do
+  defp header_value(image, name) do
     case VipsImage.header_value(image, name) do
       {:ok, value} -> {:ok, value}
       {:error, _reason} -> :error
