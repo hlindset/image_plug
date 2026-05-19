@@ -1,7 +1,7 @@
 # Imgproxy support matrix
 
 This matrix compares ImagePlug's current `ImagePlug.Parser.Imgproxy` support
-with Imgproxy's processing URL surface.
+with Imgproxy's processing URL and configuration surfaces.
 
 ImagePlug intentionally treats Imgproxy URLs as a compatibility parser for a
 product-neutral `ImagePlug.Plan`. Supported options translate cleanly into
@@ -12,11 +12,405 @@ source fetch or cache lookup. ImagePlug doesn't ignore them.
 
 | Status | Meaning |
 | --- | --- |
-| Supported | The parser translates this into `ImagePlug.Plan` or another request facet. |
-| Partial | The parser supports some Imgproxy syntax or semantics, but not the whole option. |
-| Rejected | Recognized or intentionally documented as unsupported, returning an error before side effects. |
-| Missing | Not implemented in the current parser/plan/runtime surface. |
-| Out of scope | Excluded for now; currently only video-related features use this status. |
+| ✅ Supported | The parser translates this into `ImagePlug.Plan` or another request facet. |
+| ⚠️ Partial | The parser supports some Imgproxy syntax or semantics, but not the whole option. |
+| 🔗 URL-only | ImagePlug supports the request option, but not Imgproxy's global configuration default. |
+| 🧩 Host-owned | Plug, router, or web-server configuration can provide this behavior outside ImagePlug. |
+| 🚫 Rejected | Recognized or intentionally documented as unsupported, returning an error before side effects. |
+| ⭕ Missing | Not implemented in the current parser/plan/runtime surface. |
+| 🛑 Out of scope | Excluded for now; currently only video-related features use this status. |
+
+## Configuration options
+
+ImagePlug doesn't read `IMGPROXY_*` environment variables. Variable markers show
+whether ImagePlug has a matching or related `ImagePlug.init/1` option, source
+adapter option, cache adapter option, or runtime option.
+
+This section compares ImagePlug with
+`local/imgproxy-docs/configuration/options.mdx` and the imgproxy config loaders
+under `local/imgproxy-master/*/config.go`.
+
+### URL signature keys and trusted signatures
+
+`imgproxy: [signature: [keys: [...], salts: [...], signature_size: n, trusted_signatures: [...]]]`.
+ImagePlug expects already-split lists, not comma-separated environment strings.
+
+- ✅ `IMGPROXY_KEY`
+- ✅ `IMGPROXY_SALT`
+- ✅ `IMGPROXY_SIGNATURE_SIZE`
+- ✅ `IMGPROXY_TRUSTED_SIGNATURES`
+
+### Server listener and connection limits
+
+ImagePlug is a Plug. Bandit, Cowboy, Phoenix Endpoint, or another host server
+owns socket binding, network family, and connection limits.
+
+- 🧩 `IMGPROXY_BIND`
+- 🧩 `IMGPROXY_NETWORK`
+- 🧩 `IMGPROXY_MAX_CLIENTS`
+
+### Request and response server timeouts
+
+The host web server owns incoming request reads, response writes, and keep-alive
+behavior. ImagePlug source adapters have separate fetch timeout options.
+
+- 🧩 `IMGPROXY_READ_REQUEST_TIMEOUT`
+- 🧩 `IMGPROXY_WRITE_RESPONSE_TIMEOUT`
+- 🧩 `IMGPROXY_KEEP_ALIVE_TIMEOUT`
+
+### Whole-request processing timeout
+
+ImagePlug has source fetch and body-size limits, but no Imgproxy-style timeout
+around the whole image request. A host can wrap the Plug, but ImagePlug doesn't
+expose this as config.
+
+- ⭕ `IMGPROXY_TIMEOUT`
+
+### Authorization header secret
+
+A host Plug or Phoenix pipeline can enforce `Authorization: Bearer ...` before
+ImagePlug runs. ImagePlug itself doesn't check this header.
+
+- 🧩 `IMGPROXY_SECRET`
+
+### CORS response headers
+
+A host Plug can add CORS headers around ImagePlug responses. ImagePlug doesn't
+expose a CORS option.
+
+- 🧩 `IMGPROXY_ALLOW_ORIGIN`
+
+### Routing prefix
+
+The router decides where ImagePlug mounts. ImagePlug parses the path segments it
+receives after routing.
+
+- 🧩 `IMGPROXY_PATH_PREFIX`
+
+### Health check endpoint
+
+The host app should expose health endpoints outside image processing routes.
+ImagePlug doesn't include a health-check Plug.
+
+- 🧩 `IMGPROXY_HEALTH_CHECK_PATH`
+- 🧩 `IMGPROXY_HEALTH_CHECK_MESSAGE`
+
+### Processing worker pool and request queue
+
+ImagePlug doesn't expose an ImagePlug-owned worker pool or bounded request
+queue. Host-level concurrency controls can protect the application, but they
+aren't imgproxy-compatible configuration options.
+
+- ⭕ `IMGPROXY_WORKERS`
+- ⭕ `IMGPROXY_REQUESTS_QUEUE_SIZE`
+
+### Source download request settings
+
+`ImagePlug.Source.HTTP` supports `max_redirects`, `req_options`, and Req
+timeout options. It doesn't provide Imgproxy's cookie forwarding,
+request-header passthrough list, or SSL-verification environment switch.
+
+- ✅ `IMGPROXY_DOWNLOAD_TIMEOUT`
+- ✅ `IMGPROXY_MAX_REDIRECTS`
+- ✅ `IMGPROXY_USER_AGENT`
+- ⭕ `IMGPROXY_IGNORE_SSL_VERIFICATION`
+- ✅ `IMGPROXY_CUSTOM_REQUEST_HEADERS`
+- ⭕ `IMGPROXY_REQUEST_HEADERS_PASSTHROUGH`
+- ⭕ `IMGPROXY_COOKIE_PASSTHROUGH`
+- ⭕ `IMGPROXY_COOKIE_BASE_URL`
+- ⭕ `IMGPROXY_COOKIE_PASSTHROUGH_ALL`
+
+### Source URL rules and private-address policy
+
+HTTP sources use `allowed_hosts`. This is stricter and simpler than Imgproxy's
+source-prefix glob rules and doesn't expose IP-class switches.
+
+- ⚠️ `IMGPROXY_ALLOWED_SOURCES`
+- ⭕ `IMGPROXY_ALLOW_LOOPBACK_SOURCE_ADDRESSES`
+- ⭕ `IMGPROXY_ALLOW_LINK_LOCAL_SOURCE_ADDRESSES`
+- ⭕ `IMGPROXY_ALLOW_PRIVATE_SOURCE_ADDRESSES`
+
+### Local filesystem sources
+
+Configure `sources: [path: {ImagePlug.Source.File, root: ..., root_id: ...}]`.
+`root` is the local filesystem root. `root_id` gives cache keys a deterministic
+source identity without storing the absolute path.
+
+- ✅ `IMGPROXY_LOCAL_FILESYSTEM_ROOT`
+
+### Non-HTTP source query separator
+
+ImagePlug parses `?` for HTTP, HTTPS, and S3 plain sources. ImagePlug rejects
+local/path source queries.
+
+- ⭕ `IMGPROXY_SOURCE_URL_QUERY_SEPARATOR`
+
+### S3 image sources
+
+`ImagePlug.Source.S3` supports `s3://bucket/key` sources with configured
+`region`, `endpoint`, credentials, per-bucket overrides, and a path-style
+request URL. It doesn't provide Imgproxy's enable flag, denied-bucket list,
+assume-role environment variables, or decryption client.
+
+- ⚠️ `IMGPROXY_USE_S3`
+- ✅ `IMGPROXY_S3_REGION`
+- ✅ `IMGPROXY_S3_ENDPOINT`
+- ✅ `IMGPROXY_S3_ENDPOINT_USE_PATH_STYLE`
+- ⭕ `IMGPROXY_S3_USE_DECRYPTION_CLIENT`
+- ⭕ `IMGPROXY_S3_ASSUME_ROLE_ARN`
+- ⭕ `IMGPROXY_S3_ASSUME_ROLE_EXTERNAL_ID`
+- ✅ `IMGPROXY_S3_ALLOWED_BUCKETS`
+- ⭕ `IMGPROXY_S3_DENIED_BUCKETS`
+
+### GCS, Azure Blob Storage, and Swift image sources
+
+ImagePlug has no built-in GCS, Azure Blob Storage, or Swift source adapters.
+Custom `imgproxy: [source_schemes: ...]` translators can map more schemes to
+application-owned source adapters.
+
+- ⭕ `IMGPROXY_USE_GCS`
+- ⭕ `IMGPROXY_GCS_*`
+- ⭕ `IMGPROXY_USE_ABS`
+- ⭕ `IMGPROXY_ABS_*`
+- ⭕ `IMGPROXY_USE_SWIFT`
+- ⭕ `IMGPROXY_SWIFT_*`
+
+### URL rewriting and encoded-source filename behavior
+
+Plain source parsing doesn't apply global source URL rewrites. ImagePlug
+doesn't parse Base64 or encrypted source URLs.
+
+- ⭕ `IMGPROXY_BASE_URL`
+- ⭕ `IMGPROXY_URL_REPLACEMENTS`
+- ⭕ `IMGPROXY_BASE64_URL_INCLUDES_FILENAME`
+
+### Processing argument separator and allowed option list
+
+The compatibility parser uses `:` as the argument separator, accepts its
+implemented option set, rejects unsupported security override URL options, and
+has no configured pipeline-count limit.
+
+- ⭕ `IMGPROXY_ARGUMENTS_SEPARATOR`
+- ⭕ `IMGPROXY_ALLOWED_PROCESSING_OPTIONS`
+- 🚫 `IMGPROXY_ALLOW_SECURITY_OPTIONS`
+- ⭕ `IMGPROXY_MAX_CHAINED_PIPELINES`
+
+### Preset definitions
+
+Configure preset definitions with `imgproxy: [presets: %{"name" => "w:100"}]`.
+ImagePlug validates a map of preset names to option strings during
+`ImagePlug.init/1`.
+
+- ✅ `IMGPROXY_PRESETS`
+
+### Preset loading and preset-only modes
+
+ImagePlug has no environment/file loader, presets-only mode, or info endpoint.
+
+- ⭕ `IMGPROXY_PRESETS_SEPARATOR`
+- ⭕ `IMGPROXY_PRESETS_PATH`
+- ⭕ `IMGPROXY_ONLY_PRESETS`
+- ⭕ `IMGPROXY_INFO_PRESETS`
+- ⭕ `IMGPROXY_INFO_PRESETS_PATH`
+- ⭕ `IMGPROXY_INFO_ONLY_PRESETS`
+
+### Output format detection
+
+Automatic output negotiation supports AVIF and WebP with `auto_avif` and
+`auto_webp` options and emits `Vary: Accept`. It doesn't support JPEG XL,
+enforced replacement of explicit formats, or Imgproxy's preferred-format
+fallback list.
+
+- ✅ `IMGPROXY_AUTO_WEBP`
+- ✅ `IMGPROXY_ENABLE_WEBP_DETECTION`
+- ✅ `IMGPROXY_AUTO_AVIF`
+- ✅ `IMGPROXY_ENABLE_AVIF_DETECTION`
+- ⭕ `IMGPROXY_AUTO_JXL`
+- ⭕ `IMGPROXY_ENFORCE_WEBP`
+- ⭕ `IMGPROXY_ENFORCE_AVIF`
+- ⭕ `IMGPROXY_ENFORCE_JXL`
+- ⭕ `IMGPROXY_PREFERRED_FORMATS`
+
+### Client Hints defaults
+
+ImagePlug doesn't derive default width or DPR from `Width` or `DPR` request
+headers.
+
+- ⭕ `IMGPROXY_ENABLE_CLIENT_HINTS`
+
+### Default output quality
+
+ImagePlug supports URL `quality`/`q` and `format_quality`/`fq`. It has no
+Imgproxy-style global quality default or format-quality config.
+
+- 🔗 `IMGPROXY_QUALITY`
+- 🔗 `IMGPROXY_FORMAT_QUALITY`
+
+### Advanced encoder options
+
+ImagePlug passes only an explicit quality value to the encoder today. It
+doesn't expose codec-specific knobs, byte-target search, `autoquality`, or JPEG
+XL output.
+
+- ⭕ `IMGPROXY_JPEG_PROGRESSIVE`
+- ⭕ `IMGPROXY_JPEG_*`
+- ⭕ `IMGPROXY_PNG_*`
+- ⭕ `IMGPROXY_WEBP_*`
+- ⭕ `IMGPROXY_AVIF_*`
+- ⭕ `IMGPROXY_JXL_*`
+- ⭕ `IMGPROXY_AUTOQUALITY_*`
+
+### Metadata, color profile, HDR, and default autorotation policy
+
+ImagePlug supports URL `auto_rotate`. Global metadata stripping, profile
+handling, HDR preservation, and thumbnail-source selection aren't configurable.
+
+- ⭕ `IMGPROXY_STRIP_METADATA`
+- ⭕ `IMGPROXY_KEEP_COPYRIGHT`
+- ⭕ `IMGPROXY_STRIP_METADATA_DPI`
+- ⭕ `IMGPROXY_STRIP_COLOR_PROFILE`
+- ⭕ `IMGPROXY_COLOR_PROFILES_DIR`
+- ⭕ `IMGPROXY_PRESERVE_HDR`
+- 🔗 `IMGPROXY_AUTO_ROTATE`
+- ⭕ `IMGPROXY_ENFORCE_THUMBNAIL`
+
+### Input and output safety limits
+
+ImagePlug has `max_body_bytes` for source and output byte limits and
+`max_input_pixels` for decoded image size. It doesn't expose Imgproxy's
+animation, SVG, PNG, or max-result-dimension policy.
+
+- ✅ `IMGPROXY_MAX_SRC_RESOLUTION`
+- ✅ `IMGPROXY_MAX_SRC_FILE_SIZE`
+- ⭕ `IMGPROXY_MAX_ANIMATION_FRAMES`
+- ⭕ `IMGPROXY_MAX_ANIMATION_FRAME_RESOLUTION`
+- ⭕ `IMGPROXY_MAX_RESULT_DIMENSION`
+- ⭕ `IMGPROXY_MAX_SVG_CHECK_BYTES`
+- ⭕ `IMGPROXY_PNG_UNLIMITED`
+- ⭕ `IMGPROXY_SVG_UNLIMITED`
+- ⭕ `IMGPROXY_SANITIZE_SVG`
+
+### Cache storage
+
+ImagePlug supports cache adapters through `cache: {Module, opts}`.
+`ImagePlug.Cache.FileSystem` supports `root` and `path_prefix`. Shared cache
+options support `key_headers`, `key_cookies`, `max_body_bytes`, and
+`fail_on_cache_error`. ImagePlug has no built-in cloud cache adapters.
+
+- ✅ `IMGPROXY_CACHE_USE`
+- ✅ `IMGPROXY_CACHE_FS_ROOT`
+- ✅ `IMGPROXY_CACHE_PATH_PREFIX`
+- ⭕ `IMGPROXY_CACHE_BUCKET`
+- ✅ `IMGPROXY_CACHE_KEY_HEADERS`
+- ✅ `IMGPROXY_CACHE_KEY_COOKIES`
+- ⚠️ `IMGPROXY_CACHE_REPORT_ERRORS`
+- ⭕ `IMGPROXY_CACHE_S3_*`
+- ⭕ `IMGPROXY_CACHE_GCS_*`
+- ⭕ `IMGPROXY_CACHE_ABS_*`
+- ⭕ `IMGPROXY_CACHE_SWIFT_*`
+
+### Response headers, cache headers, and default attachment disposition
+
+ImagePlug supports URL `return_attachment`/`att` per request. It doesn't expose
+Imgproxy's global response-header, ETag/Last-Modified, TTL, canonical-link,
+debug-header, or default attachment settings. Host Plugs can add fixed response
+headers outside ImagePlug.
+
+- ⭕ `IMGPROXY_TTL`
+- ⭕ `IMGPROXY_CACHE_CONTROL_PASSTHROUGH`
+- ⭕ `IMGPROXY_SET_CANONICAL_HEADER`
+- ⭕ `IMGPROXY_USE_ETAG`
+- ⭕ `IMGPROXY_ETAG_BUSTER`
+- ⭕ `IMGPROXY_USE_LAST_MODIFIED`
+- ⭕ `IMGPROXY_LAST_MODIFIED_BUSTER`
+- 🧩 `IMGPROXY_CUSTOM_RESPONSE_HEADERS`
+- ⭕ `IMGPROXY_RESPONSE_HEADERS_PASSTHROUGH`
+- 🔗 `IMGPROXY_RETURN_ATTACHMENT`
+- ⭕ `IMGPROXY_ENABLE_DEBUG_HEADERS`
+- ⭕ `IMGPROXY_SERVER_NAME`
+
+### Fallback image
+
+ImagePlug returns source and processing errors through its response sender. It
+doesn't substitute a fallback image.
+
+- ⭕ `IMGPROXY_FALLBACK_IMAGE_DATA`
+- ⭕ `IMGPROXY_FALLBACK_IMAGE_PATH`
+- ⭕ `IMGPROXY_FALLBACK_IMAGE_URL`
+- ⭕ `IMGPROXY_FALLBACK_IMAGE_HTTP_CODE`
+- ⭕ `IMGPROXY_FALLBACK_IMAGE_TTL`
+- ⭕ `IMGPROXY_FALLBACK_IMAGE_PREPROCESS_URL`
+- ⭕ `IMGPROXY_FALLBACK_IMAGES_CACHE_SIZE`
+
+### Watermark defaults and custom watermark cache
+
+ImagePlug doesn't model watermark processing.
+
+- ⭕ `IMGPROXY_WATERMARK_DATA`
+- ⭕ `IMGPROXY_WATERMARK_PATH`
+- ⭕ `IMGPROXY_WATERMARK_URL`
+- ⭕ `IMGPROXY_WATERMARK_OPACITY`
+- ⭕ `IMGPROXY_WATERMARK_PREPROCESS_URL`
+- ⭕ `IMGPROXY_WATERMARKS_CACHE_SIZE`
+
+### SVG rendering and PDF/RAW handling
+
+ImagePlug has no Imgproxy-compatible SVG render policy, PDF page policy, or RAW
+source support.
+
+- ⭕ `IMGPROXY_ALWAYS_RASTERIZE_SVG`
+- ⭕ `IMGPROXY_SVG_FIX_UNSUPPORTED`
+- ⭕ `IMGPROXY_PDF_NO_BACKGROUND`
+- ⭕ `IMGPROXY_ENABLE_RAW_FORMATS`
+
+### Smart crop, object detection, classification, and best-format models
+
+ImagePlug has no transforms or runtime integrations for these Imgproxy Pro
+features.
+
+- ⭕ `IMGPROXY_SMART_CROP_*`
+- ⭕ `IMGPROXY_OBJECT_DETECTION_*`
+- ⭕ `IMGPROXY_CLASSIFICATION_*`
+- ⭕ `IMGPROXY_BEST_FORMAT_*`
+
+### Video thumbnails
+
+ImagePlug currently treats video processing as out of scope.
+
+- 🛑 `IMGPROXY_ENABLE_VIDEO_THUMBNAILS`
+- 🛑 `IMGPROXY_VIDEO_THUMBNAIL_*`
+
+### Monitoring, error reporting, and logs
+
+ImagePlug emits telemetry events. Host applications attach metrics, tracing,
+logging, and external error reporting integrations.
+
+- 🧩 `IMGPROXY_PROMETHEUS_*`
+- 🧩 `IMGPROXY_DATADOG_*`
+- 🧩 `IMGPROXY_OPEN_TELEMETRY_*`
+- 🧩 `IMGPROXY_CLOUD_WATCH_*`
+- 🧩 `IMGPROXY_NEW_RELIC_*`
+- 🧩 `IMGPROXY_BUGSNAG_*`
+- 🧩 `IMGPROXY_HONEYBADGER_*`
+- 🧩 `IMGPROXY_SENTRY_*`
+- 🧩 `IMGPROXY_AIRBRAKE_*`
+- 🧩 `IMGPROXY_LOG_*`
+- 🧩 `IMGPROXY_SYSLOG_*`
+
+### Memory, libvips, Docker, and licensing knobs
+
+ImagePlug doesn't own the OS allocator, libvips process-wide tuning, container
+entrypoint, license checks, or deprecation handling.
+
+- 🛑 `IMGPROXY_DOWNLOAD_BUFFER_SIZE`
+- 🛑 `IMGPROXY_FREE_MEMORY_INTERVAL`
+- 🛑 `IMGPROXY_BUFFER_POOL_CALIBRATION_THRESHOLD`
+- 🛑 `IMGPROXY_MALLOC`
+- 🛑 `IMGPROXY_VIPS_CACHE_TRACE`
+- 🛑 `IMGPROXY_VIPS_LEAK_CHECK`
+- 🛑 `IMGPROXY_LICENSE_KEY`
+- 🛑 `IMGPROXY_LICENSE_DEVELOPMENT_MODE`
+- 🛑 `IMGPROXY_FAIL_ON_DEPRECATION`
 
 ## URL shape, source, and security
 
@@ -146,7 +540,7 @@ source fetch or cache lookup. ImagePlug doesn't ignore them.
 | `expires` | `exp` | Supported | Rejects expired requests before source/cache side effects. |
 | `filename` | `fn` | Supported | Percent-decoded or URL-safe Base64 filename stem. |
 | `return_attachment` | `att` | Supported | Controls `Content-Disposition` disposition. |
-| `preset` | `pr` | Partial | Normal processing URLs support configured named presets, more than one name in one segment, `default` automatic expansion, nested presets with recursive re-entry skipped, and documented chained-pipeline merge semantics. Presets-only mode, info endpoint presets, env/file loading, and custom separators aren't supported. |
+| `preset` | `pr` | Supported | Normal processing URLs support configured named presets, more than one name in one segment, `default` automatic expansion, nested presets with recursive re-entry skipped, and documented chained-pipeline merge semantics. |
 | `hashsum` | `hs` | Missing | Pro source integrity check. |
 
 ## Security limit overrides
@@ -170,18 +564,4 @@ source fetch or cache lookup. ImagePlug doesn't ignore them.
 | Preset chained pipelines | Partial | Supports documented Pro merge semantics for preset values containing `-` when the referenced options are otherwise supported by ImagePlug. |
 | Presets-only mode | Missing | Excluded from this slice. |
 | Info endpoint presets | Missing | ImagePlug doesn't currently expose Imgproxy info endpoints. |
-| Preset env/file loading | Missing | This excludes `IMGPROXY_PRESETS`, `IMGPROXY_PRESETS_SEPARATOR`, and `IMGPROXY_PRESETS_PATH` parity. Pass already-materialized presets through config instead. |
-
-## Suggested next additions
-
-The highest-value additions that fit ImagePlug's current architecture are:
-
-1. Base64-encoded source URLs, if ImagePlug should support absolute upstream URLs.
-2. Blur and sharpen as product-neutral transform operations.
-3. Metadata stripping and color profile policy under output/encoding.
-4. `max_bytes`, if iterative encoding is acceptable for the runtime cost.
-
-Object detection, SVG style injection, custom watermark sources, and advanced
-encoder knobs are missing today. If implemented, they should stay isolated in
-compatibility/parser or focused runtime layers unless their semantics are
-product-neutral and reusable. Video processing remains out of scope for now.
+| Preset env/file loading | Missing | ImagePlug doesn't parse `IMGPROXY_PRESETS` strings or `IMGPROXY_PRESETS_PATH` files. Pass already-materialized presets through config instead. |
