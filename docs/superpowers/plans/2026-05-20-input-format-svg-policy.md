@@ -60,13 +60,19 @@
 Run:
 
 ```bash
-BASE=$(git rev-parse HEAD)
-printf '%s\n' "$BASE"
+mise exec -- git rev-parse HEAD > .git/imageplug-input-format-svg-policy-base
+cat .git/imageplug-input-format-svg-policy-base
 ```
 
-Keep this value for Task 6's final diff inspection. If executing this plan across separate shell sessions, rerun `git merge-base HEAD main` or use the commit printed here as the explicit base.
+Task 6 reads this file for final diff inspection. Keeping the base under `.git/` avoids adding plan-only state to the working tree.
 
 - [ ] **Step 1: Write the failing source-format mapping tests**
+
+Before creating the test file, create its parent directory:
+
+```bash
+mise exec -- mkdir -p test/image_plug/request
+```
 
 Create `test/image_plug/request/source_format_test.exs`:
 
@@ -498,7 +504,7 @@ Expected: PASS.
 Run:
 
 ```bash
-mise exec -- git add lib/image_plug/request/source_format.ex lib/image_plug/request/processor.ex lib/image_plug/request/processor/decoded.ex lib/image_plug/response/sender.ex test/image_plug/processor_test.exs test/image_plug/imgproxy_wire_conformance_test.exs
+mise exec -- git add lib/image_plug/request/source_format.ex lib/image_plug/request/processor.ex lib/image_plug/request/processor/decoded.ex lib/image_plug/response/sender.ex test/image_plug/processor_test.exs test/image_plug/imgproxy_wire_conformance_test.exs test/support/image_plug/request_processor_test/decode_valid_image_open.ex
 mise exec -- git commit -m "Reject unsupported decoded source formats"
 ```
 
@@ -922,10 +928,10 @@ In `test/image_plug/request_runner_test.exs`, add:
       |> conn("/_/plain/images/source.tiff")
       |> Plug.Conn.put_req_header("accept", "image/png")
 
-    wildcard_accept_conn =
+    jpeg_zero_accept_conn =
       :get
       |> conn("/_/plain/images/source.tiff")
-      |> Plug.Conn.put_req_header("accept", "image/*;q=0.5")
+      |> Plug.Conn.put_req_header("accept", "image/jpeg;q=0")
 
     assert {:ok, {:cache_entry, ^entry, %ImagePlug.Plan.Response{}}} =
              Runner.run(
@@ -940,15 +946,15 @@ In `test/image_plug/request_runner_test.exs`, add:
 
     assert {:ok, {:cache_entry, ^entry, %ImagePlug.Plan.Response{}}} =
              Runner.run(
-               wildcard_accept_conn,
+               jpeg_zero_accept_conn,
                plan(output: %Output{mode: :automatic}),
                resolved_source(),
                cache: {CacheReadProbe, entry: entry},
                sources: %{path: {SourceShouldNotFetch, []}}
              )
 
-    assert_received {:cache_lookup, wildcard_accept_key}
-    assert png_accept_key == wildcard_accept_key
+    assert_received {:cache_lookup, jpeg_zero_accept_key}
+    assert png_accept_key == jpeg_zero_accept_key
   end
 ```
 
@@ -1062,25 +1068,20 @@ mise exec -- git commit -m "Resolve source-only automatic output after transform
 
 In `test/parser/imgproxy_test.exs`, rename these test names:
 
-```elixir
-  test "plain source @extension selects explicit output format" do
-```
-
-```elixir
-  test "dangling raw @ leaves output automatic when no explicit output extension exists" do
-```
-
-```elixir
-  test "rejects multiple raw @ output extension separators" do
-```
-
-```elixir
-  test "rejects unknown output extensions as parser errors" do
-```
-
-```elixir
-  test "rejects best output extension as an unsupported output semantic" do
-```
+- `plain source extension overrides explicit format after options`
+  -> `plain source @extension selects explicit output format after options`
+- `detects raw source extension before percent decoding`
+  -> `detects raw output extension before percent decoding`
+- `parses supported source extensions`
+  -> `parses supported output extensions`
+- `dangling raw @ leaves output automatic when no explicit format exists`
+  -> `dangling raw @ leaves output automatic when no explicit output extension exists`
+- `rejects multiple raw @ source extension separators`
+  -> `rejects multiple raw @ output extension separators`
+- `rejects unknown source extensions as parser errors`
+  -> `rejects unknown output extensions as parser errors`
+- `rejects best source extension as an unsupported output semantic`
+  -> `rejects best output extension as an unsupported output semantic`
 
 Keep existing parser error atoms unchanged in this PR, including
 `:multiple_source_format_separators`. They're internal imgproxy parser error
@@ -1192,7 +1193,7 @@ Expected: command exits 0. If it changes files, inspect the diff before committi
 Run:
 
 ```bash
-mise exec -- mix test test/image_plug/request/source_format_test.exs test/image_plug/processor_test.exs test/image_plug/output_policy_test.exs test/image_plug/request_runner_test.exs test/image_plug/imgproxy_wire_conformance_test.exs test/parser/imgproxy_test.exs test/parser/imgproxy/path_test.exs
+mise exec -- mix test test/image_plug/request/source_format_test.exs test/image_plug/processor_test.exs test/image_plug/output_policy_test.exs test/image_plug/request_runner_test.exs test/image_plug/imgproxy_wire_conformance_test.exs test/image_plug_test.exs test/image_plug/telemetry_test.exs test/image_plug/architecture_boundary_test.exs test/parser/imgproxy_test.exs test/parser/imgproxy/path_test.exs
 ```
 
 Expected: PASS.
@@ -1232,8 +1233,9 @@ Expected: PASS.
 Run:
 
 ```bash
-mise exec -- git diff --stat "$BASE"..HEAD
-mise exec -- git diff "$BASE"..HEAD -- lib/image_plug/request lib/image_plug/output lib/image_plug/response test docs
+BASE=$(cat .git/imageplug-input-format-svg-policy-base)
+mise exec -- git diff --stat "$BASE"
+mise exec -- git diff "$BASE" -- lib/image_plug/request lib/image_plug/output lib/image_plug/response test docs
 ```
 
 Confirm:
@@ -1250,11 +1252,12 @@ Confirm:
 If formatting or documentation verification changed files, run:
 
 ```bash
-mise exec -- git add lib test docs
+mise exec -- git status --short
+mise exec -- git add lib/image_plug/request/source_format.ex lib/image_plug/request/processor.ex lib/image_plug/request/processor/decoded.ex lib/image_plug/request/runner.ex lib/image_plug/output/policy.ex lib/image_plug/response/sender.ex test/image_plug/request/source_format_test.exs test/image_plug/processor_test.exs test/image_plug/output_policy_test.exs test/image_plug/request_runner_test.exs test/image_plug/imgproxy_wire_conformance_test.exs test/parser/imgproxy_test.exs test/parser/imgproxy/path_test.exs test/support/image_plug/request_processor_test/decode_valid_image_open.ex docs/imgproxy_path_api.md docs/imgproxy_support_matrix.md
 mise exec -- git commit -m "Polish input format policy implementation"
 ```
 
-If no files changed, don't create an empty commit.
+Inspect `git status --short` before staging. Don't use a broad `git add lib test docs` in a dirty work tree. If no files changed, don't create an empty commit.
 
 ## Self-Review
 
