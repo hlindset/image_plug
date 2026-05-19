@@ -259,14 +259,40 @@ defmodule ImagePlug.Request.Runner do
       {:ok, %Resolved{} = resolved_output} ->
         process_decoded_source_with_output(decoded, plan, opts, resolved_output)
 
+      {:needs_final_image_alpha, _reason} ->
+        process_decoded_source_with_final_alpha_output(decoded, plan, opts, policy)
+
       {:error, error} ->
         {:error, error, policy.headers}
+    end
+  end
+
+  defp process_decoded_source_with_final_alpha_output(decoded, plan, opts, policy) do
+    case Processor.process_decoded_source(decoded, plan, opts) do
+      {:ok, final_state} ->
+        has_alpha? = Image.has_alpha?(final_state.image)
+
+        case resolve_final_image_alpha_output(policy, has_alpha?, plan.output, opts) do
+          {:ok, %Resolved{} = resolved_output} ->
+            {:ok, final_state, resolved_output, resolved_output.representation_headers}
+        end
+
+      {:error, reason} ->
+        {:error, reason, policy.headers}
     end
   end
 
   defp resolve_output(policy, source_format, %Output{} = output, opts) do
     Telemetry.span(opts, [:output, :negotiate], output_plan_metadata(output), fn ->
       result = Policy.resolve(policy, source_format)
+
+      {result, output_stop_metadata(result, output)}
+    end)
+  end
+
+  defp resolve_final_image_alpha_output(policy, has_alpha?, %Output{} = output, opts) do
+    Telemetry.span(opts, [:output, :negotiate], output_plan_metadata(output), fn ->
+      result = Policy.resolve_final_image_alpha(policy, has_alpha?)
 
       {result, output_stop_metadata(result, output)}
     end)
@@ -308,6 +334,9 @@ defmodule ImagePlug.Request.Runner do
 
   defp output_stop_metadata({:ok, %Resolved{} = resolved_output}, %Output{}),
     do: Map.merge(%{result: :ok}, output_metadata(resolved_output))
+
+  defp output_stop_metadata({:needs_final_image_alpha, _reason}, %Output{}),
+    do: %{result: :ok, output_format: :pending_final_image_alpha}
 
   defp output_stop_metadata({:error, error}, %Output{}),
     do: %{result: :processing_error, error: Telemetry.error(error)}
