@@ -111,6 +111,19 @@ doesn't expose enough metadata to make that distinction, the implementation
 should choose the conservative `:heif` mapping instead of labeling the source
 as AVIF.
 
+Map decoded `vips-loader` prefixes explicitly:
+
+- `jpegload*` -> `:jpeg`
+- `pngload*` -> `:png`
+- `webpload*` -> `:webp`
+- `heifload*` with `heif-compression == "av1"` -> `:avif`
+- `heifload*` with missing or non-`"av1"` compression -> `:heif`
+- `tiffload*` -> `:tiff`
+- `jp2kload*` -> `:jpeg2000`
+- `jxlload*` -> `:jpeg_xl`
+- `svgload*` -> unsupported SVG
+- anything else -> unsupported source format
+
 If decode succeeds but the loader maps to a source format outside that set,
 ImagePlug returns unsupported source format behavior. If ImagePlug can't map the
 loader, the request fails instead of falling back to an implicit source-format
@@ -132,11 +145,13 @@ decode an accepted source family, ImagePlug returns the existing decode failure.
 The public contract is that ImagePlug permits the source family when libvips can
 decode it.
 
-The implementation should keep loader mapping explicit. Tests should cover the
-current loader prefixes for JPEG, PNG, WebP, AVIF, non-AVIF HEIF-family, TIFF,
-JPEG 2000, and JPEG XL inputs. Fixture tests for optional formats may skip when
-the local libvips build lacks read support, but mapping tests shouldn't depend
-on optional format support.
+The implementation should keep loader mapping explicit. Fixture tests for
+optional formats may skip when the local libvips build lacks read support.
+
+The local runtime used for this design exposes TIFF and HEIF loaders. It
+doesn't expose JPEG 2000 or JPEG XL loaders, so JP2/JXL fixture coverage should
+be runtime-gated. Loader-prefix mapping tests shouldn't depend on optional
+format support.
 
 ## Omitted output
 
@@ -262,6 +277,9 @@ Focused tests should cover:
 - ImagePlug rejects decoded SVG loader metadata before transform execution and
   output encoding.
 - Accepted raster fixtures still decode and process normally.
+- Loader-prefix mapping tests should cover `jpegload*`, `pngload*`,
+  `webpload*`, `heifload*`, `tiffload*`, `jp2kload*`, `jxlload*`,
+  `svgload*`, and unknown loaders without depending on local format support.
 - Tests should classify AVIF and non-AVIF HEIF-family inputs as different
   source formats. Cover `heif-compression: "av1"` mapping to `:avif` and other
   `heifload*` metadata mapping to source-only `:heif`.
