@@ -55,6 +55,17 @@
 - Create: `lib/image_plug/request/source_format.ex`
 - Create: `test/image_plug/request/source_format_test.exs`
 
+- [ ] **Step 0: Record the implementation base commit**
+
+Run:
+
+```bash
+BASE=$(git rev-parse HEAD)
+printf '%s\n' "$BASE"
+```
+
+Keep this value for Task 6's final diff inspection. If executing this plan across separate shell sessions, rerun `git merge-base HEAD main` or use the commit printed here as the explicit base.
+
 - [ ] **Step 1: Write the failing source-format mapping tests**
 
 Create `test/image_plug/request/source_format_test.exs`:
@@ -210,6 +221,7 @@ mise exec -- git commit -m "Add decoded source format classifier"
 - Update: `lib/image_plug/response/sender.ex`
 - Update: `test/image_plug/processor_test.exs`
 - Update: `test/image_plug/imgproxy_wire_conformance_test.exs`
+- Delete: `test/support/image_plug/request_processor_test/decode_valid_image_open.ex` if no test uses it after replacing the input-limit test fixture.
 
 - [ ] **Step 1: Add processor tests for source-family validation**
 
@@ -321,7 +333,7 @@ Add this test:
 
     assert conn.status == 415
     assert conn.resp_body == "source response is not a supported image"
-    assert_received :cache_lookup
+    assert_received {:cache_lookup, _key}
     assert_received :origin_fetch
     refute_received {:cache_put, _key, _entry}
   end
@@ -347,7 +359,7 @@ Add this test:
       assert conn.status == 415
       assert conn.resp_body == "source response is not a supported image"
       assert get_resp_header(conn, "vary") == []
-      assert_received :cache_lookup
+      assert_received {:cache_lookup, _key}
       assert_received :origin_fetch
       refute_received {:cache_put, _key, _entry}
     end
@@ -424,6 +436,8 @@ Update the existing `"decode_validate_source_response returns input limit errors
     assert pixel_count > 1
   end
 ```
+
+Remove the `DecodeValidImageOpen` module reference from `test/image_plug/processor_test.exs`. If no test uses it after this change, delete `test/support/image_plug/request_processor_test/decode_valid_image_open.ex`.
 
 Delete these private functions from `lib/image_plug/request/processor.ex`:
 
@@ -894,6 +908,48 @@ In `test/image_plug/request_runner_test.exs`, add:
                sources: %{path: {SourceShouldNotFetch, []}}
              )
   end
+
+  test "source-only automatic cache lookup normalizes non-modern Accept headers" do
+    entry = %Entry{
+      body: "cached jpeg",
+      content_type: "image/jpeg",
+      headers: [{"vary", "Accept"}],
+      created_at: DateTime.utc_now()
+    }
+
+    png_accept_conn =
+      :get
+      |> conn("/_/plain/images/source.tiff")
+      |> Plug.Conn.put_req_header("accept", "image/png")
+
+    wildcard_accept_conn =
+      :get
+      |> conn("/_/plain/images/source.tiff")
+      |> Plug.Conn.put_req_header("accept", "image/*;q=0.5")
+
+    assert {:ok, {:cache_entry, ^entry, %ImagePlug.Plan.Response{}}} =
+             Runner.run(
+               png_accept_conn,
+               plan(output: %Output{mode: :automatic}),
+               resolved_source(),
+               cache: {CacheReadProbe, entry: entry},
+               sources: %{path: {SourceShouldNotFetch, []}}
+             )
+
+    assert_received {:cache_lookup, png_accept_key}
+
+    assert {:ok, {:cache_entry, ^entry, %ImagePlug.Plan.Response{}}} =
+             Runner.run(
+               wildcard_accept_conn,
+               plan(output: %Output{mode: :automatic}),
+               resolved_source(),
+               cache: {CacheReadProbe, entry: entry},
+               sources: %{path: {SourceShouldNotFetch, []}}
+             )
+
+    assert_received {:cache_lookup, wildcard_accept_key}
+    assert png_accept_key == wildcard_accept_key
+  end
 ```
 
 - [ ] **Step 3: Run runner tests and verify failure**
@@ -904,7 +960,7 @@ Run:
 mise exec -- mix test test/image_plug/request_runner_test.exs
 ```
 
-Expected: FAIL because runner treats source-only automatic output as `:source_format_required`.
+Expected: FAIL because runner/telemetry doesn't yet handle `{:needs_final_image_alpha, :source}`.
 
 - [ ] **Step 4: Update runner output resolution types and metadata**
 
@@ -997,9 +1053,6 @@ mise exec -- git commit -m "Resolve source-only automatic output after transform
 ## Task 5: Imgproxy Extension Terminology and Wire Contracts
 
 **Files:**
-- Update: `lib/image_plug/parser/imgproxy.ex`
-- Update: `lib/image_plug/parser/imgproxy/path.ex`
-- Update: `lib/image_plug/parser/imgproxy/format.ex`
 - Update: `test/parser/imgproxy/path_test.exs`
 - Update: `test/parser/imgproxy_test.exs`
 - Update: `docs/imgproxy_path_api.md`
@@ -1029,84 +1082,30 @@ In `test/parser/imgproxy_test.exs`, rename these test names:
   test "rejects best output extension as an unsupported output semantic" do
 ```
 
-Change the repeated-`@` assertion in `test/parser/imgproxy_test.exs`:
+Keep existing parser error atoms unchanged in this PR, including
+`:multiple_source_format_separators`. They're internal imgproxy parser error
+details. This task only changes visible test/doc terminology around
+`@extension`.
+
+In `test/parser/imgproxy/path_test.exs`, rename these test names:
 
 ```elixir
-    assert Imgproxy.parse(conn(:get, "/_/plain/images/cat.jpg@webp@png"), []) ==
-             {:error, {:multiple_output_extension_separators, "images/cat.jpg@webp@png"}}
-```
-
-Change the matching assertion in `test/parser/imgproxy/path_test.exs`:
-
-```elixir
-    assert Path.parse_plain_source(["cat.jpg@webp@png"]) ==
-             {:error, {:multiple_output_extension_separators, "cat.jpg@webp@png"}}
-```
-
-- [ ] **Step 2: Rename parser implementation terminology**
-
-In `lib/image_plug/parser/imgproxy/path.ex`, change the repeated separator error:
-
-```elixir
-      _parts ->
-        {:error, {:multiple_output_extension_separators, encoded}}
-```
-
-Also rename private variable names in this file from `source_format` to `output_extension_format` where they refer to `@extension` output selection:
-
-```elixir
-  defp decode_source_path(source, output_extension_format) do
-    with :ok <- validate_percent_encoded_segments(source) do
-      {:ok, source, output_extension_format}
-    end
-  end
-```
-
-In `lib/image_plug/parser/imgproxy.ex`, rename local variables from `source_format` to `output_extension_format` in the `parse/2` and `parsed_request/4` path:
-
-```elixir
-         {:ok, source_path, output_extension_format} <- Path.parse_plain_source(raw_source_path) do
-      parsed_request(
-        signature,
-        source_path,
-        output_extension_format,
-        request_options
-      )
+    test "parses known output extension suffixes" do
 ```
 
 ```elixir
-  defp parsed_request(
-         signature,
-         source_path,
-         output_extension_format,
-         request_options
-       ) do
-    output_format = output_extension_format || request_options.output.format
+    test "allows a trailing output extension separator without an extension" do
 ```
-
-In `lib/image_plug/parser/imgproxy/format.ex`, rename module attributes to output terminology:
 
 ```elixir
-  @output_extension_names ~w(webp avif jpeg jpg png best)
-
-  @output_extension_formats %{
-    "webp" => :webp,
-    "avif" => :avif,
-    "jpeg" => :jpeg,
-    "jpg" => :jpeg,
-    "png" => :png,
-    "best" => :best
-  }
-
-  def parse(value) do
-    case Map.fetch(@output_extension_formats, value) do
-      {:ok, parsed_value} -> {:ok, parsed_value}
-      :error -> {:error, {:invalid_format, value, @output_extension_names}}
-    end
-  end
+    test "rejects unknown output extension suffixes" do
 ```
 
-- [ ] **Step 3: Update imgproxy path API docs**
+```elixir
+    test "rejects repeated output extension separators" do
+```
+
+- [ ] **Step 2: Update imgproxy path API docs**
 
 In `docs/imgproxy_path_api.md`, keep the existing behavior but replace source-format wording with output-format wording:
 
@@ -1131,7 +1130,7 @@ If a request includes both an option format and source-path `@extension`,
 output format.
 ```
 
-- [ ] **Step 4: Update support matrix docs**
+- [ ] **Step 3: Update support matrix docs**
 
 In `docs/imgproxy_support_matrix.md`, replace the `@extension` row with:
 
@@ -1153,7 +1152,7 @@ slice. SVG is rejected after decode identifies an SVG loader and before
 transforms or output encoding.
 ```
 
-- [ ] **Step 5: Run parser and docs checks**
+- [ ] **Step 4: Run parser and docs checks**
 
 Run:
 
@@ -1164,12 +1163,12 @@ mise exec -- vale docs/imgproxy_path_api.md docs/imgproxy_support_matrix.md
 
 Expected: PASS.
 
-- [ ] **Step 6: Commit**
+- [ ] **Step 5: Commit**
 
 Run:
 
 ```bash
-mise exec -- git add lib/image_plug/parser/imgproxy.ex lib/image_plug/parser/imgproxy/path.ex lib/image_plug/parser/imgproxy/format.ex test/parser/imgproxy_test.exs test/parser/imgproxy/path_test.exs docs/imgproxy_path_api.md docs/imgproxy_support_matrix.md
+mise exec -- git add test/parser/imgproxy_test.exs test/parser/imgproxy/path_test.exs docs/imgproxy_path_api.md docs/imgproxy_support_matrix.md
 mise exec -- git commit -m "Clarify imgproxy output extension terminology"
 ```
 
@@ -1233,8 +1232,8 @@ Expected: PASS.
 Run:
 
 ```bash
-mise exec -- git diff --stat HEAD
-mise exec -- git diff HEAD -- lib/image_plug/request lib/image_plug/output lib/image_plug/response test docs
+mise exec -- git diff --stat "$BASE"..HEAD
+mise exec -- git diff "$BASE"..HEAD -- lib/image_plug/request lib/image_plug/output lib/image_plug/response test docs
 ```
 
 Confirm:
