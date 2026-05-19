@@ -152,9 +152,10 @@ This slice should add only the fallback needed for those source-only inputs:
 2. If the decoded source format is one of ImagePlug's output formats, keep the
    current source-format fallback.
 3. If ImagePlug accepts the decoded source format as input but doesn't expose it
-   as an output format, choose from ImagePlug's static output set:
-   - `:png` when the decoded image or planned output needs alpha preservation.
-   - `:jpeg` for ordinary opaque still images.
+   as an output format, delay this fallback until after transform execution and
+   choose from ImagePlug's static output set:
+   - `:png` when the final transformed image has an alpha channel.
+   - `:jpeg` when the final transformed image has no alpha channel.
 
 This fallback inherits today's baseline `Accept` behavior. It doesn't try to
 honor non-modern headers such as `Accept: image/png`,
@@ -163,20 +164,21 @@ honor non-modern headers such as `Accept: image/png`,
 format, the fallback follows ImagePlug policy rather than full HTTP content
 negotiation. Issue #50 remains the place to redesign those semantics.
 
-The alpha decision should be metadata-driven and conservative. The
-implementation shouldn't scan pixel opacity or inspect encoded bytes just to
-choose the fallback. It should combine decoded image metadata with
-product-neutral transform metadata:
+Wildcard headers can still select AVIF/WebP through the existing modern-candidate
+path before this fallback runs. The JPEG/PNG fallback applies only when that
+path returns no candidate and source-format round trip is unavailable.
 
-- no alpha channel and no transform metadata that introduces alpha -> `:jpeg`
-- alpha channel with no later proof of opaque flattening -> `:png`
-- transparent padding or canvas expansion -> `:png`
-- opaque background flattening after any alpha-producing step -> `:jpeg`
-- unknown alpha effect -> `:png`
+The alpha decision should inspect final image metadata, not pixel opacity or
+encoded bytes. `Image.has_alpha?/1` is enough for this slice:
 
-This detects possible alpha, not actual transparency. An RGBA image whose
-alpha band is fully opaque can still choose PNG unless transform metadata proves
-the output is opaque.
+- source alpha preserved by the plan -> `:png`
+- transparent padding or canvas expansion that adds an alpha channel -> `:png`
+- opaque background flattening that removes the alpha channel -> `:jpeg`
+- ordinary opaque source-only input with no alpha channel after transforms ->
+  `:jpeg`
+
+This detects the final alpha channel, not actual transparency. An image whose
+alpha band is fully opaque still chooses PNG if the alpha channel remains.
 
 Don't add GIF to the default preferred list until ImagePlug implements GIF output.
 Don't copy imgproxy's `IMGPROXY_PREFERRED_FORMATS` name into core.
@@ -203,9 +205,11 @@ Cache lookup stays before source fetch for cacheable requests:
 9. Map the decoded loader to a source format family.
 10. Reject SVG and unsupported decoded source families.
 11. Check decoded pixel limits with `max_input_pixels`.
-12. Resolve any remaining automatic output fallback from source format, decoded
-    alpha metadata, and folded transform alpha metadata.
-13. Execute transforms, encode, send, and cache only successful encoded
+12. Resolve any remaining automatic output that the source format determines.
+13. Execute transforms.
+14. For accepted source-only automatic output still pending after transform
+    execution, inspect the final image alpha channel and choose JPEG or PNG.
+15. Encode, send, and cache only successful encoded
     responses.
 
 Invalid parser and planner requests still return before source fetch or cache
@@ -218,12 +222,10 @@ Product-neutral policy belongs in core modules:
 - Source-format mapping and accepted source-format policy should stay outside
   `ImagePlug.Parser.Imgproxy`. The decoded loader mapping can live under
   `ImagePlug.Request` or behind a narrow core helper used by request processing.
-- Omitted-output fallback belongs under `ImagePlug.Output.Policy` or a narrow
-  helper owned by `ImagePlug.Output`.
-- Transform modules should expose alpha behavior through product-neutral
-  metadata. `ImagePlug.Transform` or another existing transform façade should
-  fold that metadata. Request code may pass the folded alpha state to output
-  policy, but it shouldn't inspect concrete transform operation modules.
+- Source-only omitted-output fallback can use a pending output decision under
+  `ImagePlug.Output.Policy` or a narrow helper owned by `ImagePlug.Output`.
+  Request orchestration resolves that pending decision after generic transform
+  execution by passing plain final-image alpha metadata.
 - Source identity and cache lookup stay under the existing request/cache
   boundaries. This slice doesn't add an input policy marker to cache key data
   because this greenfield project has no compatibility target for processed
@@ -270,10 +272,11 @@ Focused tests should cover:
 - Omitted output without a modern `Accept` candidate keeps source-format
   fallback for JPEG, PNG, WebP, and AVIF sources.
 - Omitted output without a modern `Accept` candidate uses JPEG for opaque
-  source-only families and PNG when alpha matters.
-- Alpha fallback tests should cover source alpha without opaque flattening,
-  transparent padding or canvas expansion, opaque background flattening, and an
-  unknown alpha effect.
+  source-only families and PNG when the final transformed image has an alpha
+  channel.
+- Source-only fallback tests should cover source alpha preserved by the plan,
+  transparent padding or canvas expansion, opaque background flattening, and
+  ordinary opaque output.
 - Unsupported decoded sources fail before decoded pixel-limit failures.
 - Rejected SVG and unsupported source failures don't write successful cache
   entries.
