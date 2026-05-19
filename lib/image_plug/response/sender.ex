@@ -100,6 +100,9 @@ defmodule ImagePlug.Response.Sender do
   defp handle_processing_error(conn, {:decode, error}, response_headers),
     do: send_decode_error(conn, error, response_headers)
 
+  defp handle_processing_error(conn, {:unsupported_source_format, _family}, response_headers),
+    do: send_decode_error(conn, :unsupported_source_format, response_headers)
+
   defp handle_processing_error(conn, :source_format_required, response_headers),
     do: send_decode_error(conn, :source_format_required, response_headers)
 

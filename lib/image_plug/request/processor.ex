@@ -4,15 +4,15 @@ defmodule ImagePlug.Request.Processor do
   alias ImagePlug.Plan
   alias ImagePlug.Request.Options
   alias ImagePlug.Request.Processor.Decoded
+  alias ImagePlug.Request.SourceFormat
   alias ImagePlug.Source
   alias ImagePlug.Telemetry
   alias ImagePlug.Transform
   alias ImagePlug.Transform.DecodePlanner
   alias ImagePlug.Transform.Materializer
   alias ImagePlug.Transform.State
-  alias Vix.Vips.Image, as: VipsImage
 
-  @type source_format() :: :avif | :webp | :jpeg | :png | nil
+  @type source_format() :: SourceFormat.source_format()
 
   @spec process_source(Plan.t(), Source.Resolved.t(), keyword()) ::
           {:ok, State.t()} | {:error, term()}
@@ -49,9 +49,8 @@ defmodule ImagePlug.Request.Processor do
     with {:ok, image} <-
            decode_source_response(source_response, decode_options, opts)
            |> wrap_decode_error(),
+         {:ok, source_format} <- SourceFormat.from_image(image),
          :ok <- validate_input_image(image, opts) |> wrap_input_limit_error() do
-      source_format = source_format(image)
-
       {:ok,
        %Decoded{
          decode_options: decode_options,
@@ -207,19 +206,6 @@ defmodule ImagePlug.Request.Processor do
 
   defp wrap_input_limit_error(:ok), do: :ok
   defp wrap_input_limit_error({:error, error}), do: {:error, {:input_limit, error}}
-
-  defp source_format(image) do
-    case VipsImage.header_value(image, "vips-loader") do
-      {:ok, loader} when is_binary(loader) -> loader_format(loader)
-      {:error, _reason} -> nil
-    end
-  end
-
-  defp loader_format("jpegload" <> _suffix), do: :jpeg
-  defp loader_format("pngload" <> _suffix), do: :png
-  defp loader_format("webpload" <> _suffix), do: :webp
-  defp loader_format("heifload" <> _suffix), do: :avif
-  defp loader_format(_loader), do: nil
 
   defp fetch_decode_stop_metadata({:ok, %Decoded{}}), do: %{result: :ok}
 

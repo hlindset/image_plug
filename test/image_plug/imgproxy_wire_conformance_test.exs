@@ -13,6 +13,29 @@ defmodule ImagePlug.ImgproxyWireConformanceTest do
   alias ImagePlug.SourceTest.FoobarTranslator
   alias ImagePlug.SourceTest.PlugCustomAdapter
   alias ImagePlug.SourceTest.RootHTTPAdapter
+  alias Vix.Vips.Image, as: VipsImage
+
+  defmodule SvgOriginImage do
+    @moduledoc false
+
+    def init(opts), do: opts
+
+    def call(conn, opts) do
+      opts
+      |> Keyword.fetch!(:test_pid)
+      |> send(:origin_fetch)
+
+      body = """
+      <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 20 20">
+        <rect width="20" height="20" fill="red"/>
+      </svg>
+      """
+
+      conn
+      |> Plug.Conn.put_resp_content_type("image/svg+xml")
+      |> Plug.Conn.send_resp(200, body)
+    end
+  end
 
   @default_opts [
     parser: ImagePlug.Parser.Imgproxy,
@@ -77,6 +100,35 @@ defmodule ImagePlug.ImgproxyWireConformanceTest do
       assert content_type(conn) == [expected_content_type]
       assert get_resp_header(conn, "vary") == []
       assert byte_size(conn.resp_body) > 0
+    end
+  end
+
+  test "automatic output rejects decoded SVG source responses as unsupported images" do
+    unless svg_supported?(), do: flunk("SVG loader unavailable")
+
+    conn =
+      "/_/plain/images/vector.svg"
+      |> call_imgproxy(svg_origin_opts(), "image/avif,image/webp")
+
+    assert conn.status == 415
+    assert conn.resp_body == "source response is not a supported image"
+    assert_received {:cache_lookup, _key}
+    assert_received :origin_fetch
+    refute_received {:cache_put, _key, _entry}
+  end
+
+  test "explicit output rejects decoded SVG source responses without Vary" do
+    unless svg_supported?(), do: flunk("SVG loader unavailable")
+
+    for path <- ["/_/f:png/plain/images/vector.svg", "/_/plain/images/vector.svg@png"] do
+      conn = call_imgproxy(path, svg_origin_opts(), "image/avif,image/webp")
+
+      assert conn.status == 415
+      assert conn.resp_body == "source response is not a supported image"
+      assert get_resp_header(conn, "vary") == []
+      assert_received {:cache_lookup, _key}
+      assert_received :origin_fetch
+      refute_received {:cache_put, _key, _entry}
     end
   end
 
@@ -361,6 +413,17 @@ defmodule ImagePlug.ImgproxyWireConformanceTest do
     {opts, cache_root}
   end
 
+  defp svg_origin_opts do
+    Keyword.merge(@default_opts,
+      cache: {CacheProbe, result: :miss},
+      sources: [
+        path:
+          {RootHTTPAdapter,
+           root_url: "http://origin.test", req_options: [plug: {SvgOriginImage, test_pid: self()}]}
+      ]
+    )
+  end
+
   defp call_imgproxy(path, opts, accept \\ nil) do
     conn =
       :get
@@ -374,6 +437,13 @@ defmodule ImagePlug.ImgproxyWireConformanceTest do
   defp put_accept(conn, accept), do: put_req_header(conn, "accept", accept)
 
   defp content_type(conn), do: get_resp_header(conn, "content-type")
+
+  defp svg_supported? do
+    case VipsImage.supported_loader_suffixes() do
+      {:ok, suffixes} -> ".svg" in suffixes
+      {:error, _reason} -> false
+    end
+  end
 
   defp dimensions(conn) do
     image = Image.open!(conn.resp_body, access: :random, fail_on: :error)
