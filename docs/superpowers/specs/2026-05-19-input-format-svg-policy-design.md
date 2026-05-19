@@ -317,6 +317,9 @@ Documentation updates should cover:
 - Source formats versus output formats.
 - The distinction between imgproxy `@extension` as requested output and
   ImagePlug's source-format detection after decode.
+- Existing imgproxy parser docs and tests should stop describing plain source
+  `@extension` as a source format. It selects requested output and bypasses
+  `Accept` negotiation.
 
 ## Open follow-up
 
