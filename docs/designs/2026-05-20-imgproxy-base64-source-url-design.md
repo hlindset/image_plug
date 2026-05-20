@@ -122,35 +122,47 @@ This keeps option splitting and source decoding in separate test surfaces.
 
 Detection rules:
 
-- Walk path segments from left to right with a parser-owned classifier that
-  returns `:option`, `:source_start`, or `{:error, reason}`.
-- Treat `-` as `:option` because it's the pipeline separator.
-- Treat supported no-argument options such as `ar` and `fl` as `:option`.
-- Treat any pre-source segment containing `:` as `:option`. `Options.parse/2`
-  should accept or reject it later, preserving current invalid-option behavior
-  for requests such as `/raw/plain/...`, `/unknown/plain/...`, and
-  `/w:nope/plain/...`.
+- If a `plain` marker appears anywhere in the path, split at the first `plain`
+  marker and pass every preceding segment to `Options.parse/2`. This preserves
+  existing invalid-option behavior for `/raw/plain/...`, `/unknown/plain/...`,
+  and `/w:nope/plain/...`.
+- Encoded-source detection only applies to paths without a `plain` marker.
+- For encoded-source detection, walk path segments from left to right with a
+  parser-owned classifier that returns `:option`, `:source_start`, or
+  `{:error, reason}`.
+- Treat exactly `-`, `ar`, `auto_rotate`, `fl`, and `flip` as `:option` without
+  requiring `:`.
+- Treat `preset` and `pr` without `:` as `:option` so `Options.parse/2`
+  preserves the existing `{:invalid_option_segment, segment}` error.
+- Treat any pre-source segment containing `:` as `:option`; `Options.parse/2`
+  should accept or reject it later.
 - Return `{:error, reason}` only for splitting failures the splitter can detect
   before option parsing. Don't Base64-decode option-shaped segments as a
   fallback.
 - Stop at the first `:source_start` segment. That segment begins the raw source
-  segment list.
-- If the first raw source segment is `plain`, parse the remaining segments as a
-  plain source. Later `plain` segments in an encoded source remain encoded
+  segment list. Later `plain` segments in an encoded source remain encoded
   chunks.
 - If the first raw source segment is exactly `enc`, return an explicit
   unsupported encrypted-source error before any source side effects.
 - Otherwise parse all raw source segments as encoded source chunks.
-- If no raw source segment exists, return `{:error, :missing_source_kind}` or
-  the closest existing error for the path shape.
+- If no source segment exists after recognized option segments, return
+  `{:error, :missing_source_kind}`.
+- If `plain` is present with no following source segment, return
+  `{:error, {:missing_source_identifier, "plain"}}`.
+- If the parser selects encoded parsing and the joined encoded value is empty,
+  return
+  `{:error, {:missing_source_identifier, "encoded"}}`.
 
 This preserves ImagePlug's existing support for `ar`, `fl`, and `-` before
 encoded sources. Upstream imgproxy's encoded URL option splitter is narrower:
 it treats the first segment without the argument separator as the source.
 
-If a Base64 source begins with a chunk that matches a supported option name
-without `:`, clients can choose a different chunk boundary. They can also leave
-the encoded value as one segment at that point.
+Standalone leading encoded chunks equal to reserved pre-source segments are
+ambiguous: `plain`, `enc`, `-`, and no-argument option names accepted by
+`OptionGrammar.parse/1`, including `ar`, `auto_rotate`, `fl`, and `flip`.
+Clients must avoid chunk boundaries that leave one of those values as a
+standalone leading encoded chunk. They can combine it with a neighboring chunk,
+or keep Base64 padding when that prevents an exact reserved-segment match.
 
 The parser should keep `source_kind: :plain` in
 `%ImagePlug.Parser.Imgproxy.ParsedRequest{}` after decoding. Encoded syntax is a
@@ -177,7 +189,7 @@ Intended errors:
 | Case | Error |
 | --- | --- |
 | empty encoded source | `{:error, {:missing_source_identifier, "encoded"}}` |
-| invalid Base64URL alphabet, length, or padding | `{:error, {:invalid_encoded_source, :base64}}` |
+| invalid Base64URL alphabet or length after trimming trailing `=` | `{:error, {:invalid_encoded_source, :base64}}` |
 | decoded bytes aren't UTF-8 | `{:error, {:invalid_encoded_source, :utf8}}` |
 | repeated `.` output separators | `{:error, {:multiple_output_extension_separators, encoded}}` |
 | first raw source segment is `enc` | `{:error, {:unsupported_source_kind, "enc"}}` |
@@ -255,10 +267,15 @@ Update `docs/imgproxy_path_api.md`:
 
 - add encoded source URL shape to the path shape section
 - document `@extension` for plain sources and `.extension` for encoded sources
-- state that the Imgproxy parser decodes encoded source URLs
+- state that the Imgproxy parser decodes Base64URL source URLs before source
+  translation
+- state that Base64URL encoding is reversible path encoding, not encryption or
+  confidentiality
+- state that encrypted `/enc/<encrypted-source>[.<extension>]` remains
+  unsupported and fails before source/cache side effects
 - state that signing uses the received fixed path before decoding
-- state that this feature doesn't include `/enc/`, SEO filename suffixes, base
-  URL prefixing, or URL replacements
+- state that this feature doesn't include SEO filename suffixes, base URL
+  prefixing, or URL replacements
 
 Update `docs/imgproxy_support_matrix.md`:
 
@@ -303,7 +320,8 @@ Full parser tests in `test/parser/imgproxy_test.exs`:
 - decoded HTTPS URL becomes `ImagePlug.Plan.Source.URL`
 - decoded S3 URL with query revision becomes `ImagePlug.Plan.Source.Object`
 - decoded custom scheme reaches the configured source scheme translator
-- unsupported decoded schemes fail before cache or source side effects
+- unsupported decoded schemes return
+  `{:error, {:unsupported_source_scheme, scheme}}`
 - encoded `.webp` overrides `f:jpeg`, matching plain suffix precedence
 - encoded trailing `.` produces no explicit output format
 - encoded `.best` reaches the same planner behavior as plain `@best`
@@ -320,6 +338,19 @@ Wire tests in `test/image_plug/imgproxy_wire_conformance_test.exs`:
 - malformed encoded source emits no origin fetch
 - encoded unsupported schemes, such as `ftp://example.com/cat.jpg`, return
   `400` without cache lookup or origin fetch
+
+## Verification
+
+Run these commands before finishing the implementation:
+
+```bash
+mise exec -- mix format --check-formatted
+mise exec -- mix test test/parser/imgproxy/path_test.exs test/parser/imgproxy_test.exs test/image_plug/imgproxy_wire_conformance_test.exs
+mise exec -- mix test
+mise exec -- mix compile --warnings-as-errors
+mise exec -- mix credo --strict
+mise exec -- vale docs/designs/2026-05-20-imgproxy-base64-source-url-design.md docs/imgproxy_path_api.md docs/imgproxy_support_matrix.md
+```
 
 ## Rejected Alternatives
 
