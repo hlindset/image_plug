@@ -17,8 +17,8 @@ defmodule ImagePlug.Parser.Imgproxy do
   @behaviour ImagePlug.Parser
 
   alias ImagePlug.Parser.Imgproxy.Options
-  alias ImagePlug.Parser.Imgproxy.Path
   alias ImagePlug.Parser.Imgproxy.ParsedRequest
+  alias ImagePlug.Parser.Imgproxy.Path
   alias ImagePlug.Parser.Imgproxy.PlanBuilder
   alias ImagePlug.Parser.Imgproxy.Presets
   alias ImagePlug.Parser.Imgproxy.Signature

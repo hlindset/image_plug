@@ -95,12 +95,9 @@ defmodule ImagePlug.Parser.Imgproxy.Path do
     do: :option
 
   defp classify_pre_source_segment(segment) do
-    cond do
-      String.contains?(segment, ":") ->
-        :option
-
-      true ->
-        :source_start
+    case String.contains?(segment, ":") do
+      true -> :option
+      false -> :source_start
     end
   end
 

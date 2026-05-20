@@ -4,15 +4,15 @@ defmodule ImagePlug.ImgproxyWireConformanceTest do
   import Plug.Conn
   import Plug.Test
 
-  alias ImgproxyWireConformanceTest.CacheProbe
-  alias ImgproxyWireConformanceTest.CountingOriginImage
-  alias ImgproxyWireConformanceTest.OriginImage
-  alias ImgproxyWireConformanceTest.OriginShouldNotFetch
   alias ImagePlug.Cache.Entry
   alias ImagePlug.SourceTest.CredentialProvider
   alias ImagePlug.SourceTest.FoobarTranslator
   alias ImagePlug.SourceTest.PlugCustomAdapter
   alias ImagePlug.SourceTest.RootHTTPAdapter
+  alias ImgproxyWireConformanceTest.CacheProbe
+  alias ImgproxyWireConformanceTest.CountingOriginImage
+  alias ImgproxyWireConformanceTest.OriginImage
+  alias ImgproxyWireConformanceTest.OriginShouldNotFetch
   alias Vix.Vips.Image, as: VipsImage
 
   defmodule SvgOriginImage do
