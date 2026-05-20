@@ -112,6 +112,7 @@ defmodule ImagePlug.ImgproxyWireConformanceTest do
 
     assert conn.status == 415
     assert conn.resp_body == "source response is not a supported image"
+    assert get_resp_header(conn, "vary") == ["Accept"]
     assert_received {:cache_lookup, _key}
     assert_received :origin_fetch
     refute_received {:cache_put, _key, _entry}
