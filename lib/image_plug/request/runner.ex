@@ -277,7 +277,13 @@ defmodule ImagePlug.Request.Runner do
     case Processor.process_decoded_source(decoded, plan, opts) do
       {:ok, final_state} ->
         has_alpha? = Image.has_alpha?(final_state.image)
-        resolved_output = resolve_final_image_alpha_output(policy, has_alpha?, plan.output, opts)
+
+        resolved_output =
+          Telemetry.span(opts, [:output, :negotiate], output_plan_metadata(plan.output), fn ->
+            resolved_output = Policy.resolve_final_image_alpha(policy, has_alpha?)
+
+            {resolved_output, output_stop_metadata(resolved_output, plan.output)}
+          end)
 
         {:ok, final_state, resolved_output, resolved_output.representation_headers}
 
@@ -291,14 +297,6 @@ defmodule ImagePlug.Request.Runner do
       result = Policy.resolve(policy, source_format)
 
       {result, output_stop_metadata(result, output)}
-    end)
-  end
-
-  defp resolve_final_image_alpha_output(policy, has_alpha?, %Output{} = output, opts) do
-    Telemetry.span(opts, [:output, :negotiate], output_plan_metadata(output), fn ->
-      resolved_output = Policy.resolve_final_image_alpha(policy, has_alpha?)
-
-      {resolved_output, output_stop_metadata(resolved_output, output)}
     end)
   end
 
