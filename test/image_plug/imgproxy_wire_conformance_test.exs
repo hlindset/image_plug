@@ -214,10 +214,13 @@ defmodule ImagePlug.ImgproxyWireConformanceTest do
   end
 
   test "malformed encoded source stops before cache lookup and origin fetch" do
-    attach_source_resolve_telemetry()
+    telemetry_prefix = [:image_plug_wire_safety]
+
+    attach_source_resolve_telemetry(telemetry_prefix)
 
     opts =
       Keyword.merge(@default_opts,
+        telemetry_prefix: telemetry_prefix,
         cache: {CacheProbe, []},
         sources: [
           path:
@@ -238,12 +241,15 @@ defmodule ImagePlug.ImgproxyWireConformanceTest do
   end
 
   test "unsupported decoded source scheme stops before cache lookup and origin fetch" do
-    attach_source_resolve_telemetry()
+    telemetry_prefix = [:image_plug_wire_safety]
+
+    attach_source_resolve_telemetry(telemetry_prefix)
 
     encoded = encoded_source("ftp://example.com/cat.jpg")
 
     opts =
       Keyword.merge(@default_opts,
+        telemetry_prefix: telemetry_prefix,
         cache: {CacheProbe, []},
         sources: [
           path:
@@ -262,10 +268,13 @@ defmodule ImagePlug.ImgproxyWireConformanceTest do
   end
 
   test "encrypted source marker stops before cache lookup and origin fetch" do
-    attach_source_resolve_telemetry()
+    telemetry_prefix = [:image_plug_wire_safety]
+
+    attach_source_resolve_telemetry(telemetry_prefix)
 
     opts =
       Keyword.merge(@default_opts,
+        telemetry_prefix: telemetry_prefix,
         cache: {CacheProbe, []},
         sources: [
           path:
@@ -572,15 +581,15 @@ defmodule ImagePlug.ImgproxyWireConformanceTest do
     send(test_pid, {:telemetry_event, event, measurements, metadata})
   end
 
-  defp attach_source_resolve_telemetry do
+  defp attach_source_resolve_telemetry(telemetry_prefix) do
     handler_id = {__MODULE__, self(), :source_resolve}
 
     :telemetry.attach_many(
       handler_id,
       [
-        [:image_plug, :source, :resolve, :start],
-        [:image_plug, :source, :resolve, :stop],
-        [:image_plug, :source, :resolve, :exception]
+        telemetry_prefix ++ [:source, :resolve, :start],
+        telemetry_prefix ++ [:source, :resolve, :stop],
+        telemetry_prefix ++ [:source, :resolve, :exception]
       ],
       &__MODULE__.handle_telemetry_event/4,
       self()
