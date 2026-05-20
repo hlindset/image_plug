@@ -122,12 +122,19 @@ This keeps option splitting and source decoding in separate test surfaces.
 
 Detection rules:
 
-- Walk path segments from left to right and classify each segment with
-  Imgproxy parser-owned option rules.
-- Treat `-` as a pipeline separator option segment.
-- Treat supported no-argument options such as `ar` and `fl` as option segments.
-- Stop at the first segment that isn't a supported option segment. That segment
-  begins the raw source segment list.
+- Walk path segments from left to right with a parser-owned classifier that
+  returns `:option`, `:source_start`, or `{:error, reason}`.
+- Treat `-` as `:option` because it's the pipeline separator.
+- Treat supported no-argument options such as `ar` and `fl` as `:option`.
+- Treat any pre-source segment containing `:` as `:option`. `Options.parse/2`
+  should accept or reject it later, preserving current invalid-option behavior
+  for requests such as `/raw/plain/...`, `/unknown/plain/...`, and
+  `/w:nope/plain/...`.
+- Return `{:error, reason}` only for splitting failures the splitter can detect
+  before option parsing. Don't Base64-decode option-shaped segments as a
+  fallback.
+- Stop at the first `:source_start` segment. That segment begins the raw source
+  segment list.
 - If the first raw source segment is `plain`, parse the remaining segments as a
   plain source. Later `plain` segments in an encoded source remain encoded
   chunks.
@@ -165,19 +172,20 @@ Encoded source parsing should:
 - treat `/` only as a chunk separator, not as Base64 data
 - reject decoded bytes that aren't valid UTF-8
 
-Error examples:
+Intended errors:
 
-```elixir
-{:error, {:missing_source_identifier, "encoded"}}
-{:error, {:invalid_encoded_source, :base64}}
-{:error, {:invalid_encoded_source, :utf8}}
-{:error, {:multiple_output_extension_separators, encoded}}
-{:error, {:unsupported_source_kind, "enc"}}
-```
+| Case | Error |
+| --- | --- |
+| empty encoded source | `{:error, {:missing_source_identifier, "encoded"}}` |
+| invalid Base64URL alphabet, length, or padding | `{:error, {:invalid_encoded_source, :base64}}` |
+| decoded bytes aren't UTF-8 | `{:error, {:invalid_encoded_source, :utf8}}` |
+| repeated `.` output separators | `{:error, {:multiple_output_extension_separators, encoded}}` |
+| first raw source segment is `enc` | `{:error, {:unsupported_source_kind, "enc"}}` |
+| invalid output extension such as `.gif` | `{:error, {:invalid_format, value, allowed_values}}` |
+| `.best` output suffix | `{:error, {:unsupported_output_format, :best}}` after plan construction |
 
-Adjust the exact atoms to match local error naming, but errors shouldn't include
-decoded source URLs. The raw encoded value is acceptable when it's already
-present in the request path.
+Errors must not include decoded source URLs. The raw encoded value may appear in
+parser errors when it's already present in the request path.
 
 ## Source Translation
 
@@ -200,6 +208,11 @@ the original request used encoded source syntax.
 
 Unsupported decoded source schemes should fail before source identity
 resolution, cache lookup, or source fetch, matching issue #82.
+
+Rejecting non-UTF-8 decoded bytes is an ImagePlug safety boundary, not an
+upstream imgproxy compatibility rule. Upstream converts decoded bytes to a Go
+string. ImagePlug should reject non-UTF-8 bytes because its parser and source
+translation use Elixir string and URI functions.
 
 ## Signing
 
@@ -249,9 +262,9 @@ Update `docs/imgproxy_path_api.md`:
 
 Update `docs/imgproxy_support_matrix.md`:
 
-- mark Base64 encoded source URL as partial or supported with an explicit note
-  that ImagePlug supports encoded source syntax but not filename suffix mode,
-  base URL prefixing, or URL replacements
+- mark Base64 encoded source URL as partial, with an explicit note that
+  ImagePlug supports encoded source syntax but not filename suffix mode, base
+  URL prefixing, or URL replacements
 - keep encrypted `/enc/` source URL missing
 - keep `IMGPROXY_BASE64_URL_INCLUDES_FILENAME`,
   `IMGPROXY_BASE_URL`, and `IMGPROXY_URL_REPLACEMENTS` missing
@@ -277,6 +290,8 @@ Parser path tests in `test/parser/imgproxy/path_test.exs`:
 - rejects `+` and invalid characters, but doesn't treat `/` as a Base64
   alphabet character because it's the chunk separator
 - rejects decoded non-UTF-8 bytes
+- preserves current option errors for `/raw/plain/...`, `/unknown/plain/...`,
+  and `/w:nope/plain/...`
 - rejects repeated `.` extension separators
 - rejects unknown encoded-source output formats
 - rejects `/enc/` as unsupported
@@ -303,6 +318,8 @@ Wire tests in `test/image_plug/imgproxy_wire_conformance_test.exs`:
 - malformed encoded source returns `400`
 - malformed encoded source emits no cache lookup
 - malformed encoded source emits no origin fetch
+- encoded unsupported schemes, such as `ftp://example.com/cat.jpg`, return
+  `400` without cache lookup or origin fetch
 
 ## Rejected Alternatives
 
