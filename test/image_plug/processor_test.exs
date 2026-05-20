@@ -9,13 +9,13 @@ defmodule ImagePlug.Request.ProcessorTest do
   alias ImagePlug.Request.Processor
   alias ImagePlug.Request.Processor.Decoded
   alias ImagePlug.Request.ProcessorTest.DecodeErrorImageOpen
-  alias ImagePlug.Request.ProcessorTest.DecodeValidImageOpen
   alias ImagePlug.Request.ProcessorTest.Materializer
   alias ImagePlug.Source
   alias ImagePlug.Source.Resolved
   alias ImagePlug.Source.Response
   alias ImagePlug.SourceTest.ValidAdapter
   alias ImagePlug.Transform.State
+  alias Vix.Vips.Image, as: VipsImage
 
   defmodule DecodeRaisesSourceStreamError do
     def open(stream, _decode_options) do
@@ -58,6 +58,21 @@ defmodule ImagePlug.Request.ProcessorTest do
 
   defp resize_dimension(:auto), do: :auto
   defp resize_dimension(pixels), do: {:px, pixels}
+
+  defp svg_supported? do
+    case VipsImage.supported_loader_suffixes() do
+      {:ok, suffixes} -> ".svg" in suffixes
+      {:error, _reason} -> false
+    end
+  end
+
+  defp svg_body(width, height) do
+    """
+    <svg xmlns="http://www.w3.org/2000/svg" width="#{width}" height="#{height}" viewBox="0 0 #{width} #{height}">
+      <rect width="#{width}" height="#{height}" fill="red"/>
+    </svg>
+    """
+  end
 
   test "process_source fetches from the resolved source" do
     assert {:ok, %State{} = state} =
@@ -154,14 +169,40 @@ defmodule ImagePlug.Request.ProcessorTest do
 
     source_response = %Response{stream: [File.read!("priv/static/images/beach.jpg")]}
 
-    assert {:error, {:input_limit, {:too_many_input_pixels, 400, 399}}} =
+    assert {:error, {:input_limit, {:too_many_input_pixels, pixel_count, 1}}} =
              Processor.decode_validate_source_response(
                source_response,
                plan,
-               opts()
-               |> Keyword.put(:image_open_module, DecodeValidImageOpen)
-               |> Keyword.put(:max_input_pixels, 399)
+               Keyword.put(opts(), :max_input_pixels, 1)
              )
+
+    assert pixel_count > 1
+  end
+
+  test "decode_validate_source_response rejects SVG after decode" do
+    if svg_supported?() do
+      source_response = %Response{stream: [svg_body(20, 20)]}
+
+      assert {:error, {:unsupported_source_format, :svg}} =
+               Processor.decode_validate_source_response(
+                 source_response,
+                 plan(),
+                 opts()
+               )
+    end
+  end
+
+  test "unsupported decoded source format is reported before input pixel limits" do
+    if svg_supported?() do
+      source_response = %Response{stream: [svg_body(10_000, 10_000)]}
+
+      assert {:error, {:unsupported_source_format, :svg}} =
+               Processor.decode_validate_source_response(
+                 source_response,
+                 plan(),
+                 Keyword.put(opts(), :max_input_pixels, 1)
+               )
+    end
   end
 
   test "deferred source stream errors remain source errors during decode" do

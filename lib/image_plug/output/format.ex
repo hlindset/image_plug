@@ -1,7 +1,14 @@
 defmodule ImagePlug.Output.Format do
   @moduledoc false
 
-  @formats [avif: "image/avif", webp: "image/webp", jpeg: "image/jpeg", png: "image/png"]
+  @mime_types %{
+    avif: "image/avif",
+    webp: "image/webp",
+    jpeg: "image/jpeg",
+    png: "image/png"
+  }
+
+  @formats Enum.map(ImagePlug.Format.output_formats(), &{&1, Map.fetch!(@mime_types, &1)})
 
   @spec all() :: keyword(String.t())
   def all, do: @formats
@@ -28,7 +35,7 @@ defmodule ImagePlug.Output.Format do
     end
   end
 
-  @spec format(term()) :: {:ok, :avif | :webp | :jpeg | :png} | {:error, term()}
+  @spec format(term()) :: {:ok, ImagePlug.Format.output_format()} | {:error, term()}
   def format(mime_type) do
     case normalize_mime_type(mime_type) do
       "image/jpg" -> {:ok, :jpeg}

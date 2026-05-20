@@ -55,7 +55,9 @@ defmodule ImagePlug.Source do
       source_metadata =
         source_metadata(source_kind, source_adapter_kind(module, adapter_opts))
 
-      Telemetry.span(runtime_opts, [:source, :resolve], source_metadata, fn ->
+      telemetry_opts = Telemetry.telemetry_opts(runtime_opts)
+
+      Telemetry.span(telemetry_opts, [:source, :resolve], source_metadata, fn ->
         result =
           safe_adapter_call(fn ->
             case module.resolve(source, adapter_opts, runtime_opts) do
@@ -78,7 +80,9 @@ defmodule ImagePlug.Source do
       source_metadata =
         source_metadata(resolved.source_kind, source_adapter_kind(module, adapter_opts))
 
-      Telemetry.span(runtime_opts, [:source, :fetch], source_metadata, fn ->
+      telemetry_opts = Telemetry.telemetry_opts(runtime_opts)
+
+      Telemetry.span(telemetry_opts, [:source, :fetch], source_metadata, fn ->
         result =
           safe_adapter_call(fn ->
             case module.fetch(resolved, adapter_opts, runtime_opts) do

@@ -16,6 +16,7 @@ defmodule ImagePlug.Request.RunnerTest do
   alias ImagePlug.Source.Resolved, as: SourceResolved
   alias ImagePlug.Source.Response, as: SourceResponse
   alias ImagePlug.Transform.State
+  alias Vix.Vips.Image, as: VipsImage
 
   defmodule CacheHit do
     def get(_key, opts), do: Keyword.fetch!(opts, :entry) |> then(&{:hit, &1})
@@ -78,6 +79,29 @@ defmodule ImagePlug.Request.RunnerTest do
       emit(opts)
       body = File.read!("priv/static/images/beach.jpg")
       {:ok, %SourceResponse{stream: [body]}}
+    end
+
+    defp emit(opts) do
+      case Keyword.fetch(opts, :test_pid) do
+        {:ok, pid} -> send(pid, {:runner_event, Keyword.fetch!(opts, :test_ref), :source_fetch})
+        :error -> :ok
+      end
+    end
+  end
+
+  defmodule SourceBytes do
+    @behaviour ImagePlug.Source
+
+    @impl ImagePlug.Source
+    def validate_options(opts), do: {:ok, opts}
+
+    @impl ImagePlug.Source
+    def resolve(_source, _opts, _runtime_opts), do: raise("runner tests pass resolved sources")
+
+    @impl ImagePlug.Source
+    def fetch(_resolved, opts, _runtime_opts) do
+      emit(opts)
+      {:ok, %SourceResponse{stream: [Keyword.fetch!(opts, :body)]}}
     end
 
     defp emit(opts) do
@@ -156,6 +180,28 @@ defmodule ImagePlug.Request.RunnerTest do
   defp tagged_resize_dimension(:auto), do: :auto
   defp tagged_resize_dimension(pixels), do: {:px, pixels}
 
+  defp require_tiff_support! do
+    with {:ok, loader_suffixes} <- VipsImage.supported_loader_suffixes(),
+         true <- ".tiff" in loader_suffixes,
+         {:ok, saver_suffixes} <- VipsImage.supported_saver_suffixes(),
+         true <- ".tiff" in saver_suffixes do
+      :ok
+    else
+      _error -> raise ExUnit.AssertionError, message: "TIFF load/save support unavailable"
+    end
+  end
+
+  defp tiff_body(color, opts \\ []) do
+    Image.new!(20, 20, Keyword.merge([color: color], opts))
+    |> Image.write!(:memory, suffix: ".tiff")
+  end
+
+  defp background_operation(alpha) do
+    assert {:ok, color} = Operation.color(255, 255, 255, alpha)
+    assert {:ok, operation} = Operation.background(color)
+    operation
+  end
+
   defp resolved_source(overrides \\ []) do
     struct!(
       SourceResolved,
@@ -170,6 +216,205 @@ defmodule ImagePlug.Request.RunnerTest do
         overrides
       )
     )
+  end
+
+  test "source-only opaque TIFF automatic output falls back to JPEG after transforms" do
+    require_tiff_support!()
+
+    assert {:ok,
+            {:image, %State{}, %Resolved{format: :jpeg, response_headers: [{"vary", "Accept"}]},
+             %ImagePlug.Plan.Response{}}} =
+             Runner.run(
+               conn(:get, "/_/plain/images/source.tiff"),
+               plan(output: %Output{mode: :automatic}),
+               resolved_source(),
+               sources: %{path: {SourceBytes, body: tiff_body(:white)}}
+             )
+  end
+
+  test "source-only alpha TIFF automatic output falls back to PNG after transforms" do
+    require_tiff_support!()
+
+    assert {:ok,
+            {:image, %State{}, %Resolved{format: :png, response_headers: [{"vary", "Accept"}]},
+             %ImagePlug.Plan.Response{}}} =
+             Runner.run(
+               conn(:get, "/_/plain/images/source.tiff"),
+               plan(output: %Output{mode: :automatic}),
+               resolved_source(),
+               sources: %{path: {SourceBytes, body: tiff_body([255, 255, 255, 128])}}
+             )
+  end
+
+  test "opaque background transform removes alpha before source-only fallback" do
+    require_tiff_support!()
+
+    plan =
+      plan(
+        pipelines: [%Pipeline{operations: [background_operation({:ratio, 1, 1})]}],
+        output: %Output{mode: :automatic}
+      )
+
+    assert {:ok,
+            {:image, %State{} = state,
+             %Resolved{format: :jpeg, response_headers: [{"vary", "Accept"}]},
+             %ImagePlug.Plan.Response{}}} =
+             Runner.run(
+               conn(:get, "/_/bg:fff/plain/images/source.tiff"),
+               plan,
+               resolved_source(),
+               sources: %{path: {SourceBytes, body: tiff_body([255, 255, 255, 128])}}
+             )
+
+    refute Image.has_alpha?(state.image)
+  end
+
+  test "modern Accept candidate still wins for source-only input before final alpha fallback" do
+    require_tiff_support!()
+
+    conn =
+      :get
+      |> conn("/_/plain/images/source.tiff")
+      |> Plug.Conn.put_req_header("accept", "image/webp")
+
+    assert {:ok,
+            {:image, %State{}, %Resolved{format: :webp, response_headers: [{"vary", "Accept"}]},
+             %ImagePlug.Plan.Response{}}} =
+             Runner.run(
+               conn,
+               plan(output: %Output{mode: :automatic}),
+               resolved_source(),
+               sources: %{path: {SourceBytes, body: tiff_body([255, 255, 255, 128])}}
+             )
+  end
+
+  test "source-only automatic fallback cache miss writes JPEG entry with Vary" do
+    require_tiff_support!()
+
+    ref = make_ref()
+
+    assert {:ok,
+            {:cache_entry, %Entry{content_type: "image/jpeg", headers: [{"vary", "Accept"}]},
+             %ImagePlug.Plan.Response{}}} =
+             Runner.run(
+               conn(:get, "/_/plain/images/source.tiff"),
+               plan(output: %Output{mode: :automatic}),
+               resolved_source(),
+               cache: {CacheMissWriteProbe, test_pid: self(), test_ref: ref},
+               sources: %{
+                 path: {SourceBytes, body: tiff_body(:white), test_pid: self(), test_ref: ref}
+               }
+             )
+
+    assert_receive {:runner_event, ^ref, first_event}
+    assert {:cache_lookup, key} = first_event
+    assert_receive {:runner_event, ^ref, second_event}
+    assert second_event == :source_fetch
+    assert_receive {:runner_event, ^ref, third_event}
+    assert {:cache_put, ^key} = third_event
+
+    assert_received {:cache_lookup, ^key}
+
+    assert_received {:cache_put, ^key,
+                     %Entry{content_type: "image/jpeg", headers: [{"vary", "Accept"}]}, _opts}
+
+    refute_received {:cache_lookup, _second_key}
+  end
+
+  test "source-only alpha fallback cache miss writes PNG entry with Vary" do
+    require_tiff_support!()
+
+    ref = make_ref()
+
+    assert {:ok,
+            {:cache_entry, %Entry{content_type: "image/png", headers: [{"vary", "Accept"}]},
+             %ImagePlug.Plan.Response{}}} =
+             Runner.run(
+               conn(:get, "/_/plain/images/source.tiff"),
+               plan(output: %Output{mode: :automatic}),
+               resolved_source(),
+               cache: {CacheMissWriteProbe, test_pid: self(), test_ref: ref},
+               sources: %{
+                 path:
+                   {SourceBytes,
+                    body: tiff_body([255, 255, 255, 128]), test_pid: self(), test_ref: ref}
+               }
+             )
+
+    assert_receive {:runner_event, ^ref, first_event}
+    assert {:cache_lookup, key} = first_event
+    assert_receive {:runner_event, ^ref, second_event}
+    assert second_event == :source_fetch
+    assert_receive {:runner_event, ^ref, third_event}
+    assert {:cache_put, ^key} = third_event
+
+    assert_received {:cache_lookup, ^key}
+
+    assert_received {:cache_put, ^key,
+                     %Entry{content_type: "image/png", headers: [{"vary", "Accept"}]}, _opts}
+
+    refute_received {:cache_lookup, _second_key}
+  end
+
+  test "source-only automatic cache hit returns cached entry without fetching source" do
+    entry = %Entry{
+      body: "cached jpeg",
+      content_type: "image/jpeg",
+      headers: [{"vary", "Accept"}],
+      created_at: DateTime.utc_now()
+    }
+
+    assert {:ok, {:cache_entry, ^entry, %ImagePlug.Plan.Response{}}} =
+             Runner.run(
+               conn(:get, "/_/plain/images/source.tiff"),
+               plan(output: %Output{mode: :automatic}),
+               resolved_source(),
+               cache: {CacheHit, entry: entry},
+               sources: %{path: {SourceShouldNotFetch, []}}
+             )
+  end
+
+  test "source-only automatic cache lookup normalizes non-modern Accept headers" do
+    entry = %Entry{
+      body: "cached jpeg",
+      content_type: "image/jpeg",
+      headers: [{"vary", "Accept"}],
+      created_at: DateTime.utc_now()
+    }
+
+    png_conn =
+      :get
+      |> conn("/_/plain/images/source.tiff")
+      |> Plug.Conn.put_req_header("accept", "image/png")
+
+    jpeg_q0_conn =
+      :get
+      |> conn("/_/plain/images/source.tiff")
+      |> Plug.Conn.put_req_header("accept", "image/jpeg;q=0")
+
+    assert {:ok, {:cache_entry, ^entry, %ImagePlug.Plan.Response{}}} =
+             Runner.run(
+               png_conn,
+               plan(output: %Output{mode: :automatic}),
+               resolved_source(),
+               cache: {CacheReadProbe, entry: entry},
+               sources: %{path: {SourceShouldNotFetch, []}}
+             )
+
+    assert_received {:cache_lookup, png_key}
+
+    assert {:ok, {:cache_entry, ^entry, %ImagePlug.Plan.Response{}}} =
+             Runner.run(
+               jpeg_q0_conn,
+               plan(output: %Output{mode: :automatic}),
+               resolved_source(),
+               cache: {CacheReadProbe, entry: entry},
+               sources: %{path: {SourceShouldNotFetch, []}}
+             )
+
+    assert_received {:cache_lookup, jpeg_q0_key}
+    assert png_key == jpeg_q0_key
+    assert png_key.data[:output][:modern_candidates] == []
   end
 
   test "explicit cache hit returns a cache-entry delivery without processing origin" do
@@ -322,7 +567,7 @@ defmodule ImagePlug.Request.RunnerTest do
 
     assert {:ok,
             {:image, %State{} = state,
-             %Resolved{format: :jpeg, quality: :default, representation_headers: []},
+             %Resolved{format: :jpeg, quality: :default, response_headers: []},
              %ImagePlug.Plan.Response{}}} =
              Runner.run(
                conn(:get, "/_/f:jpeg/plain/images/beach.jpg"),
@@ -347,7 +592,7 @@ defmodule ImagePlug.Request.RunnerTest do
 
     assert {:ok,
             {:image, %State{},
-             %Resolved{format: :webp, quality: {:quality, 70}, representation_headers: []},
+             %Resolved{format: :webp, quality: {:quality, 70}, response_headers: []},
              %ImagePlug.Plan.Response{}}} =
              Runner.run(
                conn(:get, "/_/f:webp/fq:webp:70/plain/images/beach.jpg"),

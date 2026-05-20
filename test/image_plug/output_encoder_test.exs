@@ -25,7 +25,7 @@ defmodule ImagePlug.Output.EncoderTest do
                %Resolved{
                  format: :png,
                  quality: :default,
-                 representation_headers: []
+                 response_headers: []
                },
                []
              )
@@ -42,7 +42,7 @@ defmodule ImagePlug.Output.EncoderTest do
     resolved_output = %Resolved{
       format: :webp,
       quality: {:quality, 80},
-      representation_headers: []
+      response_headers: []
     }
 
     assert {:ok, %Encoder.EncodedOutput{body: "encoded", content_type: "image/webp"}} =
@@ -58,7 +58,7 @@ defmodule ImagePlug.Output.EncoderTest do
     resolved_output = %Resolved{
       format: :webp,
       quality: :default,
-      representation_headers: []
+      response_headers: []
     }
 
     assert {:ok, %Encoder.EncodedOutput{body: "encoded", content_type: "image/webp"}} =
@@ -74,7 +74,7 @@ defmodule ImagePlug.Output.EncoderTest do
     resolved_output = %Resolved{
       format: :webp,
       quality: {:quality, 80},
-      representation_headers: []
+      response_headers: []
     }
 
     assert {:ok, %Encoder.EncodedOutput{body: "encoded", content_type: "image/webp"}} =

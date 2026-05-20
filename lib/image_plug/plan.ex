@@ -5,7 +5,7 @@ defmodule ImagePlug.Plan do
 
   use Boundary,
     top_level?: true,
-    deps: [],
+    deps: [ImagePlug.Format],
     exports: [
       Pipeline,
       Orientation,
@@ -32,8 +32,6 @@ defmodule ImagePlug.Plan do
   alias ImagePlug.Plan.Pipeline
   alias ImagePlug.Plan.Response
   alias ImagePlug.Plan.Source
-
-  @supported_formats [:avif, :webp, :jpeg, :png]
 
   @enforce_keys [:source, :pipelines, :output]
   defstruct @enforce_keys ++
@@ -188,9 +186,11 @@ defmodule ImagePlug.Plan do
     validate_output_quality_shape(output)
   end
 
-  defp validate_output(%Output{mode: {:explicit, format}} = output)
-       when format in @supported_formats do
-    validate_output_quality_shape(output)
+  defp validate_output(%Output{mode: {:explicit, format}} = output) do
+    case ImagePlug.Format.output_format?(format) do
+      true -> validate_output_quality_shape(output)
+      false -> {:error, {:invalid_output_plan, output}}
+    end
   end
 
   defp validate_output(output), do: {:error, {:invalid_output_plan, output}}
@@ -212,7 +212,7 @@ defmodule ImagePlug.Plan do
 
   defp validate_format_qualities(format_qualities) do
     if Enum.all?(format_qualities, fn {format, quality} ->
-         format in @supported_formats and valid_quality?(quality)
+         ImagePlug.Format.output_format?(format) and valid_quality?(quality)
        end) do
       :ok
     else

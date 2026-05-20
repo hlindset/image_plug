@@ -5,6 +5,7 @@ defmodule ImagePlug.Parser.Imgproxy do
 
   use Boundary,
     deps: [
+      ImagePlug.Format,
       ImagePlug.Parser,
       ImagePlug.Plan,
       ImagePlug.Transform

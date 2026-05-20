@@ -35,7 +35,9 @@ defmodule ImagePlug do
 
   @impl Plug
   def call(%Plug.Conn{} = conn, opts) do
-    Telemetry.span(opts, [:request], request_metadata(conn, opts), fn ->
+    telemetry_opts = Telemetry.telemetry_opts(opts)
+
+    Telemetry.span(telemetry_opts, [:request], request_metadata(conn, opts), fn ->
       {conn, metadata} = do_call(conn, opts)
       {conn, Map.put(metadata, :status, conn.status)}
     end)
@@ -80,7 +82,7 @@ defmodule ImagePlug do
   end
 
   defp parse(conn, parser, opts) do
-    Telemetry.span(opts, [:parse], request_metadata(conn, opts), fn ->
+    Telemetry.span(Telemetry.telemetry_opts(opts), [:parse], request_metadata(conn, opts), fn ->
       result = parser.parse(conn, opts) |> wrap_parser_error()
 
       {result, result_metadata(result)}
@@ -88,7 +90,7 @@ defmodule ImagePlug do
   end
 
   defp send_response(_conn, opts, result, fun) do
-    Telemetry.span(opts, [:send], %{result: result}, fn ->
+    Telemetry.span(Telemetry.telemetry_opts(opts), [:send], %{result: result}, fn ->
       sent_conn = fun.()
       metadata = send_stop_metadata(sent_conn, result)
 

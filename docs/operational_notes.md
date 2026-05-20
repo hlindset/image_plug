@@ -46,6 +46,14 @@ pass. Source byte limits, receive timeouts, decoded pixel limits, and decode
 error responses still apply. Cache hits serve stored response bodies directly
 and skip source decode optimization.
 
+## libvips format support
+
+ImagePlug accepts source families only when the deployed libvips build can read
+them. The test suite exercises SVG rejection and source-only TIFF fallback with
+real libvips loaders. Development and CI builds should include SVG load support
+and TIFF load/save support so missing loader support can't hide format support
+drift.
+
 ## Automatic output
 
 Automatic output format selection uses the request `Accept` header only to
@@ -54,6 +62,8 @@ including exact media-type exclusions over wildcard allowances.
 
 Among detected modern candidates, ImagePlug uses server preference order rather
 than relative q-value ordering. If ImagePlug detects no enabled modern
-candidate, it uses the source image format. Automatic output responses use
+candidate, output-capable source families use the decoded source format. Source
+families without encoder support fall back after transforms: PNG when the final
+image has an alpha channel, JPEG otherwise. Automatic output responses use
 `Vary: Accept`. Explicit formats bypass content negotiation and don't set
 `Vary: Accept`.

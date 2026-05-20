@@ -56,8 +56,10 @@ defmodule ImagePlug.Request.Runner do
     do: process_uncached(conn, plan, resolved_source, opts)
 
   defp run_with_cache_config(conn, plan, %Source.Resolved{cache: :normal} = resolved_source, opts) do
+    telemetry_opts = Telemetry.telemetry_opts(opts)
+
     result =
-      Telemetry.span(opts, [:cache, :lookup], cache_lookup_metadata(opts), fn ->
+      Telemetry.span(telemetry_opts, [:cache, :lookup], cache_lookup_metadata(opts), fn ->
         result =
           case Keyword.get(opts, :cache) do
             nil -> :disabled
@@ -131,7 +133,7 @@ defmodule ImagePlug.Request.Runner do
     case encode_cache_entry(state, resolved_output, opts) do
       {:ok, output} ->
         output
-        |> cache_entry(resolved_output.representation_headers)
+        |> cache_entry(resolved_output.response_headers)
         |> put_cache_entry(key, opts)
 
       :too_large ->
@@ -143,16 +145,21 @@ defmodule ImagePlug.Request.Runner do
   end
 
   defp encode_cache_entry(%State{} = state, %Resolved{} = resolved_output, opts) do
-    Telemetry.span(opts, [:encode], output_metadata(resolved_output), fn ->
-      result =
-        Encoder.memory_output(
-          state.image,
-          resolved_output,
-          Keyword.put(opts, :max_body_bytes, Cache.max_body_bytes(opts))
-        )
+    Telemetry.span(
+      Telemetry.telemetry_opts(opts),
+      [:encode],
+      output_metadata(resolved_output),
+      fn ->
+        result =
+          Encoder.memory_output(
+            state.image,
+            resolved_output,
+            Keyword.put(opts, :max_body_bytes, Cache.max_body_bytes(opts))
+          )
 
-      {result, encode_stop_metadata(result, resolved_output)}
-    end)
+        {result, encode_stop_metadata(result, resolved_output)}
+      end
+    )
   end
 
   defp cache_entry(output, response_headers) do
@@ -168,7 +175,7 @@ defmodule ImagePlug.Request.Runner do
   end
 
   defp put_cache_entry({:ok, entry}, key, opts) do
-    Telemetry.span(opts, [:cache, :write], %{}, fn ->
+    Telemetry.span(Telemetry.telemetry_opts(opts), [:cache, :write], %{}, fn ->
       result = Cache.put(key, entry, opts)
 
       {result, cache_write_stop_metadata(result)}
@@ -227,20 +234,20 @@ defmodule ImagePlug.Request.Runner do
   defp process_source_with_output(plan, resolved_source, opts, %Resolved{} = resolved_output) do
     case Processor.process_source(plan, resolved_source, opts) do
       {:ok, final_state} ->
-        {:ok, final_state, resolved_output, resolved_output.representation_headers}
+        {:ok, final_state, resolved_output, resolved_output.response_headers}
 
       {:error, reason} ->
-        {:error, reason, resolved_output.representation_headers}
+        {:error, reason, resolved_output.response_headers}
     end
   end
 
   defp process_decoded_source_with_output(decoded, plan, opts, %Resolved{} = resolved_output) do
     case Processor.process_decoded_source(decoded, plan, opts) do
       {:ok, final_state} ->
-        {:ok, final_state, resolved_output, resolved_output.representation_headers}
+        {:ok, final_state, resolved_output, resolved_output.response_headers}
 
       {:error, reason} ->
-        {:error, reason, resolved_output.representation_headers}
+        {:error, reason, resolved_output.response_headers}
     end
   end
 
@@ -255,21 +262,59 @@ defmodule ImagePlug.Request.Runner do
   end
 
   defp resolve_source_format_automatic(%Decoded{} = decoded, plan, opts, policy) do
-    case resolve_output(policy, decoded.source_format, plan.output, opts) do
-      {:ok, %Resolved{} = resolved_output} ->
-        process_decoded_source_with_output(decoded, plan, opts, resolved_output)
+    case Policy.resolve_source_format(policy, decoded.source_format) do
+      {:selected, _format, _reason} ->
+        case resolve_output(policy, decoded.source_format, plan.output, opts) do
+          {:ok, %Resolved{} = resolved_output} ->
+            process_decoded_source_with_output(decoded, plan, opts, resolved_output)
+
+          {:error, error} ->
+            {:error, error, policy.headers}
+        end
+
+      {:needs_final_image_alpha, _reason} ->
+        process_decoded_source_with_final_alpha_output(decoded, plan, opts, policy)
 
       {:error, error} ->
         {:error, error, policy.headers}
     end
   end
 
-  defp resolve_output(policy, source_format, %Output{} = output, opts) do
-    Telemetry.span(opts, [:output, :negotiate], output_plan_metadata(output), fn ->
-      result = Policy.resolve(policy, source_format)
+  defp process_decoded_source_with_final_alpha_output(decoded, plan, opts, policy) do
+    case Processor.process_decoded_source(decoded, plan, opts) do
+      {:ok, final_state} ->
+        has_alpha? = Image.has_alpha?(final_state.image)
 
-      {result, output_stop_metadata(result, output)}
-    end)
+        resolved_output =
+          Telemetry.span(
+            Telemetry.telemetry_opts(opts),
+            [:output, :negotiate],
+            output_plan_metadata(plan.output),
+            fn ->
+              resolved_output = Policy.resolve_final_image_alpha(policy, has_alpha?)
+
+              {resolved_output, output_stop_metadata(resolved_output, plan.output)}
+            end
+          )
+
+        {:ok, final_state, resolved_output, resolved_output.response_headers}
+
+      {:error, reason} ->
+        {:error, reason, policy.headers}
+    end
+  end
+
+  defp resolve_output(policy, source_format, %Output{} = output, opts) do
+    Telemetry.span(
+      Telemetry.telemetry_opts(opts),
+      [:output, :negotiate],
+      output_plan_metadata(output),
+      fn ->
+        result = Policy.resolve(policy, source_format)
+
+        {result, output_stop_metadata(result, output)}
+      end
+    )
   end
 
   defp cache_lookup_metadata(opts) do
@@ -308,6 +353,12 @@ defmodule ImagePlug.Request.Runner do
 
   defp output_stop_metadata({:ok, %Resolved{} = resolved_output}, %Output{}),
     do: Map.merge(%{result: :ok}, output_metadata(resolved_output))
+
+  defp output_stop_metadata(%Resolved{} = resolved_output, %Output{}),
+    do: Map.merge(%{result: :ok}, output_metadata(resolved_output))
+
+  defp output_stop_metadata({:needs_final_image_alpha, _reason}, %Output{}),
+    do: %{result: :ok, output_format: :pending_final_image_alpha}
 
   defp output_stop_metadata({:error, error}, %Output{}),
     do: %{result: :processing_error, error: Telemetry.error(error)}

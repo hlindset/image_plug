@@ -12,23 +12,28 @@ defmodule ImagePlug.Telemetry do
   def default_prefix, do: @default_prefix
 
   @spec span(keyword(), [atom()], map() | keyword(), (-> term())) :: term()
-  def span(opts, stage, start_metadata, fun) when is_function(fun, 0) do
-    do_span(opts, stage, start_metadata, fn start_metadata ->
+  def span(telemetry_opts, stage, start_metadata, fun) when is_function(fun, 0) do
+    do_span(telemetry_opts, stage, start_metadata, fn start_metadata ->
       {result, stop_metadata} = fun.()
       {result, merge_metadata(start_metadata, stop_metadata)}
     end)
   end
 
-  defp do_span(opts, stage, start_metadata, span_fun) when is_list(stage) do
+  @spec telemetry_opts(keyword()) :: keyword()
+  def telemetry_opts(opts) when is_list(opts) do
+    Keyword.take(opts, [:telemetry_prefix])
+  end
+
+  defp do_span(telemetry_opts, stage, start_metadata, span_fun) when is_list(stage) do
     start_metadata = clean_metadata(start_metadata)
 
-    :telemetry.span(event_prefix(opts, stage), start_metadata, fn ->
+    :telemetry.span(event_prefix(telemetry_opts, stage), start_metadata, fn ->
       span_fun.(start_metadata)
     end)
   end
 
-  defp event_prefix(opts, stage) when is_list(opts) and is_list(stage) do
-    Keyword.get(opts, :telemetry_prefix, @default_prefix) ++ stage
+  defp event_prefix(telemetry_opts, stage) when is_list(telemetry_opts) and is_list(stage) do
+    Keyword.get(telemetry_opts, :telemetry_prefix, @default_prefix) ++ stage
   end
 
   defp clean_metadata(metadata) do

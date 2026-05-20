@@ -100,6 +100,9 @@ defmodule ImagePlug.Response.Sender do
   defp handle_processing_error(conn, {:decode, error}, response_headers),
     do: send_decode_error(conn, error, response_headers)
 
+  defp handle_processing_error(conn, {:unsupported_source_format, _family}, response_headers),
+    do: send_decode_error(conn, :unsupported_source_format, response_headers)
+
   defp handle_processing_error(conn, :source_format_required, response_headers),
     do: send_decode_error(conn, :source_format_required, response_headers)
 
@@ -167,7 +170,9 @@ defmodule ImagePlug.Response.Sender do
   end
 
   defp stream_encoded_image(conn, state, %Resolved{} = resolved_output, response, opts) do
-    Telemetry.span(opts, [:encode], output_metadata(resolved_output), fn ->
+    telemetry_opts = Telemetry.telemetry_opts(opts)
+
+    Telemetry.span(telemetry_opts, [:encode], output_metadata(resolved_output), fn ->
       {conn, outcome} = do_stream_encoded_image(conn, state, resolved_output, response, opts)
 
       {conn, encode_stop_metadata(outcome, conn, resolved_output)}
@@ -182,7 +187,7 @@ defmodule ImagePlug.Response.Sender do
       suffix = Format.suffix!(mime_type)
       stream = image_module.stream!(state.image, output_options(suffix, resolved_output))
 
-      case delivery_headers(resolved_output.representation_headers, response, mime_type) do
+      case delivery_headers(resolved_output.response_headers, response, mime_type) do
         {:ok, response_headers} ->
           send_encoded_stream(stream, conn, mime_type, response_headers)
 
@@ -192,7 +197,7 @@ defmodule ImagePlug.Response.Sender do
               delivery_error(reason),
               [],
               conn,
-              resolved_output.representation_headers
+              resolved_output.response_headers
             )
 
           {conn, :error}
@@ -204,7 +209,7 @@ defmodule ImagePlug.Response.Sender do
             exception,
             __STACKTRACE__,
             conn,
-            resolved_output.representation_headers
+            resolved_output.response_headers
           )
 
         {conn, :error}
