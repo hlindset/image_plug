@@ -1083,10 +1083,9 @@ In `test/parser/imgproxy_test.exs`, rename these test names:
 - `rejects best source extension as an unsupported output semantic`
   -> `rejects best output extension as an unsupported output semantic`
 
-Keep existing parser error atoms unchanged in this PR, including
-`:multiple_source_format_separators`. They're internal imgproxy parser error
-details. This task only changes visible test/doc terminology around
-`@extension`.
+Parser error atoms that render in HTTP 400 bodies should use output-extension
+terminology. Rename the repeated `@extension` error to
+`:multiple_output_extension_separators`.
 
 In `test/parser/imgproxy/path_test.exs`, rename these test names:
 
