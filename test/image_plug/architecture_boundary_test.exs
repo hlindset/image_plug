@@ -28,6 +28,7 @@ defmodule ImagePlug.ArchitectureBoundaryTest do
   @cache_key_files ["lib/image_plug/cache/key.ex"]
   @boundary_files %{
     ImagePlug.Cache => "lib/image_plug/cache.ex",
+    ImagePlug.Format => "lib/image_plug/format.ex",
     ImagePlug.Output => "lib/image_plug/output.ex",
     ImagePlug.Plan => "lib/image_plug/plan.ex",
     ImagePlug.Parser => "lib/image_plug/parser.ex",
@@ -77,24 +78,37 @@ defmodule ImagePlug.ArchitectureBoundaryTest do
     :execute_plan
   ]
 
-  test "parser boundary declarations stay limited to parser, plan, and transform construction APIs" do
+  test "parser boundary declarations stay limited to format, parser, plan, and transform construction APIs" do
     parser = boundary_declaration(ImagePlug.Parser)
     imgproxy = boundary_declaration(ImagePlug.Parser.Imgproxy)
 
-    assert_boundary_deps(parser, [ImagePlug.Plan, ImagePlug.Transform])
+    assert_boundary_deps(parser, [ImagePlug.Format, ImagePlug.Plan, ImagePlug.Transform])
     assert_boundary_exports(parser, [ImagePlug.Parser.Imgproxy])
 
-    assert_boundary_deps(imgproxy, [ImagePlug.Parser, ImagePlug.Plan, ImagePlug.Transform])
+    assert_boundary_deps(imgproxy, [
+      ImagePlug.Format,
+      ImagePlug.Parser,
+      ImagePlug.Plan,
+      ImagePlug.Transform
+    ])
+
     assert_boundary_exports(imgproxy, [ImagePlug.Parser.Imgproxy.SourceScheme])
 
-    assert_allowed_deps(parser, [ImagePlug.Plan, ImagePlug.Transform])
-    assert_allowed_deps(imgproxy, [ImagePlug.Parser, ImagePlug.Plan, ImagePlug.Transform])
+    assert_allowed_deps(parser, [ImagePlug.Format, ImagePlug.Plan, ImagePlug.Transform])
+
+    assert_allowed_deps(imgproxy, [
+      ImagePlug.Format,
+      ImagePlug.Parser,
+      ImagePlug.Plan,
+      ImagePlug.Transform
+    ])
   end
 
   test "request boundary declaration depends on generic facades only" do
     request = boundary_declaration(ImagePlug.Request)
 
     assert_boundary_deps(request, [
+      ImagePlug.Format,
       ImagePlug.Plan,
       ImagePlug.Cache,
       ImagePlug.Source,
@@ -166,10 +180,17 @@ defmodule ImagePlug.ArchitectureBoundaryTest do
     assert_boundary_exports(telemetry, [])
   end
 
-  test "output boundary depends only on plan data" do
+  test "format boundary remains dependency-free" do
+    format = boundary_declaration(ImagePlug.Format)
+
+    assert_boundary_deps(format, [])
+    assert_boundary_exports(format, [])
+  end
+
+  test "output boundary depends only on format and plan data" do
     output = boundary_declaration(ImagePlug.Output)
 
-    assert_boundary_deps(output, [ImagePlug.Plan])
+    assert_boundary_deps(output, [ImagePlug.Format, ImagePlug.Plan])
 
     refute_boundary_deps(output, [
       ImagePlug.Source,
@@ -281,10 +302,10 @@ defmodule ImagePlug.ArchitectureBoundaryTest do
     ])
   end
 
-  test "plan boundary exports canonical composition modules and remains dependency-free" do
+  test "plan boundary exports canonical composition modules and depends only on formats" do
     plan = boundary_declaration(ImagePlug.Plan)
 
-    assert_boundary_deps(plan, [])
+    assert_boundary_deps(plan, [ImagePlug.Format])
 
     assert_boundary_exports_include(plan, [
       ImagePlug.Plan.Color,

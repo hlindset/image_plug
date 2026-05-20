@@ -19,12 +19,12 @@ defmodule ImagePlug.Parser.Imgproxy.PlanBuilder do
   alias ImagePlug.Plan.Source.Path
   alias ImagePlug.Plan.Source.Reference
   alias ImagePlug.Plan.Source.URL
+  alias ImagePlug.Format
   alias ImagePlug.Transform.Operation.AutoOrient
   alias ImagePlug.Transform.Operation.Flip
   alias ImagePlug.Transform.Operation.Rotate
 
   @default_gravity {:anchor, :center, :center}
-  @supported_output_formats [:webp, :avif, :jpeg, :png]
 
   @spec to_plan(ParsedRequest.t(), keyword()) :: {:ok, Plan.t()} | {:error, term()}
   def to_plan(%ParsedRequest{} = request, opts \\ []) do
@@ -101,14 +101,19 @@ defmodule ImagePlug.Parser.Imgproxy.PlanBuilder do
   defp output_plan(%OutputRequest{format: :best}),
     do: {:error, {:unsupported_output_format, :best}}
 
-  defp output_plan(%OutputRequest{format: format} = request)
-       when format in @supported_output_formats do
-    {:ok,
-     %Output{
-       mode: {:explicit, format},
-       quality: request.quality,
-       format_qualities: request.format_qualities
-     }}
+  defp output_plan(%OutputRequest{format: format} = request) do
+    case Format.output_format?(format) do
+      true ->
+        {:ok,
+         %Output{
+           mode: {:explicit, format},
+           quality: request.quality,
+           format_qualities: request.format_qualities
+         }}
+
+      false ->
+        {:error, {:unsupported_output_format, format}}
+    end
   end
 
   defp expires_plan(%RequestPolicy{expires: 0}, _opts), do: {:ok, 0}

@@ -3,7 +3,7 @@ defmodule ImagePlug.Output do
 
   use Boundary,
     top_level?: true,
-    deps: [ImagePlug.Plan],
+    deps: [ImagePlug.Format, ImagePlug.Plan],
     exports: [
       Format,
       Policy,

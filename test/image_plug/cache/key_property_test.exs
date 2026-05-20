@@ -6,6 +6,7 @@ defmodule ImagePlug.Cache.KeyPropertyTest do
   import Plug.Test
 
   alias ImagePlug.Cache.Key
+  alias ImagePlug.Format
   alias ImagePlug.Plan
   alias ImagePlug.Plan.Operation
   alias ImagePlug.Plan.Output
@@ -325,7 +326,7 @@ defmodule ImagePlug.Cache.KeyPropertyTest do
   defp key_data do
     map(
       {source_identity(), source_path(), pipelines(),
-       member_of([:automatic, :webp, :avif, :jpeg, :png])},
+       member_of([:automatic | Format.output_formats()])},
       fn {source_identity, _source_path, pipelines, output} ->
         [
           schema_version: 2,

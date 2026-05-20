@@ -6,6 +6,7 @@ defmodule ImagePlug.Parser do
   use Boundary,
     top_level?: true,
     deps: [
+      ImagePlug.Format,
       ImagePlug.Plan,
       ImagePlug.Transform
     ],

@@ -16,7 +16,7 @@ defmodule ImagePlug.Parser.Imgproxy.ParsedRequest do
                 response: %ResponseRequest{}
               ]
 
-  @type output_format() :: :webp | :avif | :jpeg | :png | :best
+  @type output_format() :: ImagePlug.Format.output_format() | :best
 
   @type t() :: %__MODULE__{
           signature: String.t(),

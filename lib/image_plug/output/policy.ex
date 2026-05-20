@@ -3,7 +3,7 @@ defmodule ImagePlug.Output.Policy do
 
   import Plug.Conn, only: [get_req_header: 2]
 
-  alias ImagePlug.Output.Format
+  alias ImagePlug.Format
   alias ImagePlug.Output.Negotiation
   alias ImagePlug.Output.Resolved
   alias ImagePlug.Plan.Output
@@ -11,8 +11,8 @@ defmodule ImagePlug.Output.Policy do
   @enforce_keys [:mode, :modern_candidates, :headers, :quality, :format_qualities]
   defstruct @enforce_keys
 
-  @type format() :: :avif | :webp | :jpeg | :png
-  @type source_format() :: format() | :heif | :tiff | :jpeg2000 | :jpeg_xl
+  @type format() :: Format.output_format()
+  @type source_format() :: Format.source_format()
   @type quality() :: :default | {:quality, 1..100}
   @type mode() :: :source | :best | {:explicit, format()}
   @type reason() :: :explicit | :auto | :source
@@ -90,8 +90,8 @@ defmodule ImagePlug.Output.Policy do
           | {:error, :source_format_required}
   def resolve_source_format(%__MODULE__{mode: :source}, source_format) do
     cond do
-      output_format?(source_format) -> {:selected, source_format, :source}
-      source_only_format?(source_format) -> {:needs_final_image_alpha, :source}
+      Format.output_format?(source_format) -> {:selected, source_format, :source}
+      Format.source_only_format?(source_format) -> {:needs_final_image_alpha, :source}
       true -> {:error, :source_format_required}
     end
   end
@@ -122,15 +122,6 @@ defmodule ImagePlug.Output.Policy do
          format
        ),
        do: Map.get(format_qualities, format, :default)
-
-  defp output_format?(format) do
-    case Format.mime_type(format) do
-      {:ok, _mime_type} -> true
-      :error -> false
-    end
-  end
-
-  defp source_only_format?(format), do: format in [:heif, :tiff, :jpeg2000, :jpeg_xl]
 
   defp accept_header(conn), do: conn |> get_req_header("accept") |> Enum.join(",")
 end

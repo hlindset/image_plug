@@ -3,7 +3,7 @@ defmodule ImagePlug.Request.SourceFormat do
 
   alias Vix.Vips.Image, as: VipsImage
 
-  @type source_format() :: :avif | :webp | :jpeg | :png | :heif | :tiff | :jpeg2000 | :jpeg_xl
+  @type source_format() :: ImagePlug.Format.source_format()
   @type unsupported_family() :: :svg | :unknown
   @type error() :: {:unsupported_source_format, unsupported_family()}
 

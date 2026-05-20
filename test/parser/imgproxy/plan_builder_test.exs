@@ -2,6 +2,7 @@ defmodule ImagePlug.Parser.Imgproxy.PlanBuilderTest do
   use ExUnit.Case, async: true
   use ExUnitProperties
 
+  alias ImagePlug.Format
   alias ImagePlug.Parser.Imgproxy.ParsedRequest
   alias ImagePlug.Parser.Imgproxy.PipelineRequest
   alias ImagePlug.Parser.Imgproxy.PlanBuilder
@@ -649,7 +650,7 @@ defmodule ImagePlug.Parser.Imgproxy.PlanBuilderTest do
       assert automatic_plan.output == %ImagePlug.Plan.Output{mode: :automatic}
       assert [%ImagePlug.Plan.Pipeline{} | _] = automatic_plan.pipelines
 
-      for format <- [:webp, :avif, :jpeg, :png] do
+      for format <- Format.output_formats() do
         assert {:ok, %ImagePlug.Plan{} = explicit_plan} =
                  PlanBuilder.to_plan(
                    %ParsedRequest{
@@ -834,7 +835,7 @@ defmodule ImagePlug.Parser.Imgproxy.PlanBuilderTest do
   end
 
   defp output_format do
-    one_of([constant(nil), member_of([:webp, :avif, :jpeg, :png])])
+    one_of([constant(nil), member_of(Format.output_formats())])
   end
 
   defp plan_pipeline(attrs) do

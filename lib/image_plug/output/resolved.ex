@@ -4,7 +4,7 @@ defmodule ImagePlug.Output.Resolved do
   @enforce_keys [:format, :quality, :representation_headers]
   defstruct @enforce_keys
 
-  @type format :: :avif | :webp | :jpeg | :png
+  @type format :: ImagePlug.Format.output_format()
   @type quality :: :default | {:quality, 1..100}
   @type t :: %__MODULE__{
           format: format(),
