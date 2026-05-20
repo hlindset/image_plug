@@ -177,6 +177,11 @@ describe "split_source with encoded sources" do
              {:ok, ["w:100", "-", "h:200"], :encoded, [encoded]}
   end
 
+  test "does not classify bare option aliases as options before encoded sources" do
+    assert Path.split_source(["w", "abc"]) ==
+             {:ok, [], :encoded, ["w", "abc"]}
+  end
+
   test "keeps bare preset names as options so Options.parse returns the existing error" do
     assert Path.split_source(["preset", encoded_source("images/cat.jpg")]) ==
              {:ok, ["preset"], :encoded, [encoded_source("images/cat.jpg")]}
@@ -326,14 +331,13 @@ Don't change implementation before you observe this failure.
 
 - [ ] **Step 1: Update `ImagePlug.Parser.Imgproxy.Path` module imports and source classifiers**
 
-At the top of `lib/image_plug/parser/imgproxy/path.ex`, keep the `Format` module import and add `OptionGrammar`:
+At the top of `lib/image_plug/parser/imgproxy/path.ex`, keep the `Format` module import:
 
 ```elixir
 alias ImagePlug.Parser.Imgproxy.Format
-alias ImagePlug.Parser.Imgproxy.OptionGrammar
 ```
 
-Below the module import lines, add:
+Below the module import line, add:
 
 ```elixir
 @no_arg_option_segments ~w(- ar auto_rotate fl flip preset pr)
@@ -434,24 +438,13 @@ defp classify_pre_source_segment(segment) do
     String.contains?(segment, ":") ->
       :option
 
-    option_name?(segment) ->
-      :option
-
     true ->
       :source_start
   end
 end
-
-defp option_name?(segment) do
-  case OptionGrammar.parse(segment) do
-    {:ok, _parsed} -> true
-    {:error, {:invalid_option_segment, ^segment}} -> true
-    {:error, _reason} -> false
-  end
-end
 ```
 
-This uses `OptionGrammar.parse/1` only for classification. The real option result still comes from `Options.parse/2` after splitting, so existing option errors remain owned by `Options`.
+The classifier only treats the exact no-argument option set and segments with `:` as options. The real option result still comes from `Options.parse/2` after splitting, so existing option errors remain owned by `Options`.
 
 - [ ] **Step 4: Add encoded parse helpers inside `ImagePlug.Parser.Imgproxy.Path`**
 
@@ -523,14 +516,11 @@ mise exec -- mix test test/parser/imgproxy_test.exs
 
 Expected: FAIL because `ImagePlug.Parser.Imgproxy.parse_request/2` still expects the old three-element `Path.split_source/1` success tuple. This confirms the next task owns full parser integration.
 
-- [ ] **Step 7: Commit parser path implementation**
+- [ ] **Step 7: Leave these changes uncommitted until full parser integration passes**
 
-Run:
-
-```bash
-mise exec -- git add lib/image_plug/parser/imgproxy/path.ex test/parser/imgproxy/path_test.exs
-mise exec -- git commit -m "feat: parse imgproxy base64 source paths"
-```
+Don't commit a red tree. Task 3 commits the path parser, full parser
+integration, and parser tests together after `test/parser/imgproxy_test.exs`
+passes.
 
 ---
 
@@ -640,6 +630,11 @@ describe "Base64 encoded source URLs" do
 
     assert Imgproxy.parse(conn(:get, "/_/#{encoded}"), []) ==
              {:error, {:unsupported_source_scheme, "ftp"}}
+  end
+
+  test "encrypted source marker remains unsupported" do
+    assert Imgproxy.parse(conn(:get, "/_/enc/payload"), []) ==
+             {:error, {:unsupported_source_kind, "enc"}}
   end
 end
 ```
@@ -752,7 +747,7 @@ Expected: PASS.
 Run:
 
 ```bash
-mise exec -- git add lib/image_plug/parser/imgproxy.ex test/parser/imgproxy_test.exs
+mise exec -- git add lib/image_plug/parser/imgproxy/path.ex lib/image_plug/parser/imgproxy.ex test/parser/imgproxy/path_test.exs test/parser/imgproxy_test.exs
 mise exec -- git commit -m "feat: translate imgproxy encoded sources"
 ```
 
@@ -782,8 +777,8 @@ Add this test near the existing request URL and source identity cache-key tests:
 test "imgproxy encoded source spelling does not enter cache key data" do
   encoded = encoded_source("images/cat.jpg")
 
-  plain_conn = conn(:get, "/sig-one/plain/images/cat.jpg")
-  encoded_conn = conn(:get, "/sig-two/#{encoded}")
+  plain_conn = conn(:get, "/_/plain/images/cat.jpg")
+  encoded_conn = conn(:get, "/_/#{encoded}")
 
   assert {:ok, plain_plan} = Imgproxy.parse(plain_conn, [])
   assert {:ok, encoded_plan} = Imgproxy.parse(encoded_conn, [])
@@ -1016,7 +1011,35 @@ test "unsupported decoded source scheme stops before cache lookup and origin fet
 end
 ```
 
-- [ ] **Step 7: Run wire conformance tests**
+- [ ] **Step 7: Add encrypted source marker safety test**
+
+Add this test near the malformed encoded source safety test:
+
+```elixir
+test "encrypted source marker stops before cache lookup and origin fetch" do
+  attach_source_resolve_telemetry()
+
+  opts =
+    Keyword.merge(@default_opts,
+      cache: {CacheProbe, []},
+      sources: [
+        path:
+          {RootHTTPAdapter,
+           root_url: "http://origin.test", req_options: [plug: OriginShouldNotFetch]}
+      ]
+    )
+
+  conn = call_imgproxy("/_/enc/payload", opts)
+
+  assert conn.status == 400
+  refute_received {:telemetry_event, [:image_plug, :source, :resolve, :start], _, _}
+  refute_received {:cache_lookup, _key}
+  refute_received {:cache_put, _key, _entry}
+  refute_received :origin_fetch
+end
+```
+
+- [ ] **Step 8: Run wire conformance tests**
 
 Run:
 
@@ -1026,7 +1049,7 @@ mise exec -- mix test test/image_plug/imgproxy_wire_conformance_test.exs
 
 Expected: PASS.
 
-- [ ] **Step 8: Commit wire conformance coverage**
+- [ ] **Step 9: Commit wire conformance coverage**
 
 Run:
 
@@ -1079,6 +1102,11 @@ selection:
 Base64URL is only path encoding. It is reversible; treat it as routing syntax,
 not a secrecy boundary. The received request path can still appear in request
 logs wherever the host application logs paths.
+
+ImagePlug preserves existing no-argument option parsing before encoded sources
+and existing `plain` marker precedence. Avoid splitting encoded sources so the
+first source chunk is exactly `plain`, `enc`, `-`, `ar`, `auto_rotate`, `fl`,
+`flip`, `preset`, or `pr`.
 ```
 
 - [ ] **Step 3: Add signing and unsupported preprocessing notes**
@@ -1124,9 +1152,12 @@ Keep these rows as Missing if present:
 If the current table wording differs, preserve the existing row style but keep the same support statuses and exclusions.
 
 In the `URL rewriting and encoded-source filename behavior` section, update the
-status bullets so the section says:
+opening paragraph and status bullets so the section says:
 
 ```markdown
+Encoded source parsing doesn't apply global source URL rewrites. ImagePlug
+doesn't parse encrypted source URLs.
+
 - ⚠️ Base64 encoded source URLs
 - ⭕ `IMGPROXY_BASE64_URL_INCLUDES_FILENAME`
 - ⭕ `IMGPROXY_BASE_URL`
