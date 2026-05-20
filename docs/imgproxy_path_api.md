@@ -168,7 +168,7 @@ Remaining queued groups become trailing pipelines.
 | Device pixel ratio (DPR) | `dpr` | positive number |
 | Extend canvas | `extend`, `ex` | boolean, optionally followed by extend gravity and offsets |
 | Extend aspect ratio | `extend_aspect_ratio`, `extend_ar`, `exar` | positive `<width>:<height>` ratio numbers |
-| Padding | `padding`, `pd` | `:` plus optional top/right/bottom/left non-negative pixel integers |
+| Padding | `padding`, `pd` | CSS-style top/right/bottom/left non-negative pixel integers |
 | Background | `background`, `bg` | `R:G:B`, 3 digit hex, 6 digit hex, or empty to clear |
 | Crop | `crop`, `c` | `<width>:<height>`, optional gravity, optional offsets |
 | Gravity | `gravity`, `g` | anchor, anchor with offsets `<anchor>:<x_offset>:<y_offset>`, or focal point `fp:<x>:<y>` |
