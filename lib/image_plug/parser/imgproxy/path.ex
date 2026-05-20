@@ -3,7 +3,7 @@ defmodule ImagePlug.Parser.Imgproxy.Path do
 
   alias ImagePlug.Parser.Imgproxy.Format
 
-  @no_arg_option_segments ~w(- ar auto_rotate fl flip preset pr)
+  @no_arg_option_segments ~w(- ar auto_rotate fl flip padding pd preset pr)
 
   def extract(%Plug.Conn{} = conn) do
     case parser_request_path(conn) do

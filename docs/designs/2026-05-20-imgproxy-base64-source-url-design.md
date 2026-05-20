@@ -14,9 +14,9 @@ source adapter contracts.
 This design covers Imgproxy's encoded source syntax, not every upstream source
 preprocessing option that can run after decoding.
 
-## Current Behavior
+## Previous Behavior
 
-ImagePlug currently supports only the explicit plain source marker:
+Before issue #82, ImagePlug supported only the explicit plain source marker:
 
 ```text
 /<signature>/<options>/plain/<source>[@extension]
@@ -79,7 +79,8 @@ This change should support two source forms:
 Plain source parsing stays unchanged. Encoded source parsing starts after the
 parser consumes all leading Imgproxy option segments. Source detection must use
 the Imgproxy option grammar, not a simple `:` check, because ImagePlug already
-supports option segments without `:` such as `ar`, `fl`, and `-`.
+supports option segments without `:` such as `ar`, `fl`, `padding`, `pd`, and
+`-`.
 
 Examples:
 
@@ -130,8 +131,8 @@ Detection rules:
 - For encoded-source detection, walk path segments from left to right with a
   parser-owned classifier that returns `:option`, `:source_start`, or
   `{:error, reason}`.
-- Treat exactly `-`, `ar`, `auto_rotate`, `fl`, and `flip` as `:option` without
-  requiring `:`.
+- Treat exactly `-`, `ar`, `auto_rotate`, `fl`, `flip`, `padding`, and `pd` as
+  `:option` without requiring `:`.
 - Treat `preset` and `pr` without `:` as `:option` so `Options.parse/2`
   preserves the existing `{:invalid_option_segment, segment}` error.
 - Treat any pre-source segment containing `:` as `:option`; `Options.parse/2`
@@ -139,9 +140,11 @@ Detection rules:
 - Return `{:error, reason}` only for splitting failures the splitter can detect
   before option parsing. Don't Base64-decode option-shaped segments as a
   fallback.
+- Because `plain` marker detection runs before encoded-source detection, any
+  raw path segment named `plain` starts a plain source. Encoded clients must
+  avoid chunk boundaries that produce a standalone `plain` segment.
 - Stop at the first `:source_start` segment. That segment begins the raw source
-  segment list. Later `plain` segments in an encoded source remain encoded
-  chunks.
+  segment list.
 - If the first raw source segment is exactly `enc`, return an explicit
   unsupported encrypted-source error before any source side effects.
 - Otherwise parse all raw source segments as encoded source chunks.
@@ -153,16 +156,18 @@ Detection rules:
   return
   `{:error, {:missing_source_identifier, "encoded"}}`.
 
-This preserves ImagePlug's existing support for `ar`, `fl`, and `-` before
-encoded sources. Upstream imgproxy's encoded URL option splitter is narrower:
-it treats the first segment without the argument separator as the source.
+This preserves ImagePlug's existing support for `ar`, `fl`, `padding`, `pd`,
+and `-` before encoded sources. Upstream imgproxy's encoded URL option splitter
+is narrower: it treats the first segment without the argument separator as the
+source.
 
 Standalone leading encoded chunks equal to reserved pre-source segments are
 ambiguous: `plain`, `enc`, `-`, and no-argument option names accepted by
-`OptionGrammar.parse/1`, including `ar`, `auto_rotate`, `fl`, and `flip`.
-Clients must avoid chunk boundaries that leave one of those values as a
-standalone leading encoded chunk. They can combine it with a neighboring chunk,
-or keep Base64 padding when that prevents an exact reserved-segment match.
+`OptionGrammar.parse/1`, including `ar`, `auto_rotate`, `fl`, `flip`,
+`padding`, and `pd`. Clients must avoid chunk boundaries that leave one of
+those values as a standalone leading encoded chunk. They can combine it with a
+neighboring chunk, or keep Base64 padding when that prevents an exact
+reserved-segment match.
 
 The parser should keep `source_kind: :plain` in
 `%ImagePlug.Parser.Imgproxy.ParsedRequest{}` after decoding. Encoded syntax is a
@@ -292,11 +297,13 @@ Update `docs/imgproxy_support_matrix.md`:
 Parser path tests in `test/parser/imgproxy/path_test.exs`:
 
 - splits option segments from encoded source segments
-- keeps later encoded chunks named `plain` as chunks, not as a source marker
+- asserts that a standalone `plain` segment takes precedence over encoded-source
+  detection
 - treats `/enc/...` as unsupported only when the first raw source segment is
   exactly `enc`
 - decodes a source whose first encoded chunk merely starts with `enc`
-- handles encoded sources after options without `:` such as `ar` and `fl`
+- handles encoded sources after options without `:` such as `ar`, `fl`,
+  `padding`, and `pd`
 - handles encoded sources after `-` pipeline separators
 - joins encoded chunks without `/`
 - parses `.webp`, `.avif`, `.jpg`, `.jpeg`, `.png`, and `.best`

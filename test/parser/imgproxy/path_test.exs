@@ -88,7 +88,7 @@ defmodule ImagePlug.Parser.Imgproxy.PathTest do
   end
 
   describe "split_source" do
-    test "rejects paths without a plain source marker" do
+    test "rejects paths with only option-shaped segments and no source" do
       assert Path.split_source(["w:100", "h:200"]) == {:error, :missing_source_kind}
     end
 
@@ -142,8 +142,8 @@ defmodule ImagePlug.Parser.Imgproxy.PathTest do
     test "keeps no-argument options before encoded sources" do
       encoded = encoded_source("images/cat.jpg")
 
-      assert Path.split_source(["ar", "fl", encoded]) ==
-               {:ok, ["ar", "fl"], :encoded, [encoded]}
+      assert Path.split_source(["ar", "fl", "padding", "pd", encoded]) ==
+               {:ok, ["ar", "fl", "padding", "pd"], :encoded, [encoded]}
     end
 
     test "keeps pipeline separators before encoded sources" do

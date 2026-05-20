@@ -49,8 +49,8 @@ ImagePlug preserves existing no-argument option parsing before encoded sources
 and existing `plain` marker precedence. Any raw path segment named `plain`
 starts a plain source before encoded-source detection. Avoid splitting encoded
 sources so any chunk is exactly `plain`. Also avoid making the first source
-chunk exactly `enc`, `-`, `ar`, `auto_rotate`, `fl`, `flip`, `preset`, or
-`pr`.
+chunk exactly `enc`, `-`, `ar`, `auto_rotate`, `fl`, `flip`, `padding`, `pd`,
+`preset`, or `pr`.
 
 Signature verification uses the received fixed path before Base64 decoding. For
 signed URLs, sign the encoded path and suffix exactly as sent after Imgproxy
