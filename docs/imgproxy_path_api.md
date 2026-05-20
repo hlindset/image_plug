@@ -54,6 +54,11 @@ fails as an unsupported encrypted source. Later source chunks named `plain`,
 Explicit `/plain/` requests can still use ImagePlug's `-` pipeline separator
 before the plain marker.
 
+In URL paths, option segments before the source need the `:` separator. Use
+`ar:true`, `fl:true:true`, and `pd:10`, not bare `ar`, `fl`, or `pd`, before a
+source marker. ImagePlug parses a bare option name as the start of an encoded
+source.
+
 Signature verification uses the received fixed path before Base64 decoding. For
 signed URLs, sign the encoded path and suffix exactly as sent after Imgproxy
 `fixPath` normalization.
@@ -163,13 +168,13 @@ Remaining queued groups become trailing pipelines.
 | Device pixel ratio (DPR) | `dpr` | positive number |
 | Extend canvas | `extend`, `ex` | boolean, optionally followed by extend gravity and offsets |
 | Extend aspect ratio | `extend_aspect_ratio`, `extend_ar`, `exar` | positive `<width>:<height>` ratio numbers |
-| Padding | `padding`, `pd` | optional top/right/bottom/left non-negative pixel integers |
+| Padding | `padding`, `pd` | `:` plus optional top/right/bottom/left non-negative pixel integers |
 | Background | `background`, `bg` | `R:G:B`, 3 digit hex, 6 digit hex, or empty to clear |
 | Crop | `crop`, `c` | `<width>:<height>`, optional gravity, optional offsets |
 | Gravity | `gravity`, `g` | anchor, anchor with offsets `<anchor>:<x_offset>:<y_offset>`, or focal point `fp:<x>:<y>` |
-| Auto rotate | `auto_rotate`, `ar` | omitted for true, or boolean |
+| Auto rotate | `auto_rotate`, `ar` | boolean |
 | Rotate | `rotate`, `rot` | integer degrees |
-| Flip | `flip`, `fl` | omitted for both axes, one boolean for horizontal, or horizontal and vertical booleans |
+| Flip | `flip`, `fl` | one boolean for horizontal, or horizontal and vertical booleans |
 | Quality | `quality`, `q` | integer quality. `0` means configured default |
 | Format quality | `format_quality`, `fq` | `<format>:<quality>` |
 | Format | `format`, `f`, `ext` | `webp`, `avif`, `jpeg`/`jpg`, `png` |
@@ -254,11 +259,11 @@ Execution scales pixel offsets by the resize multiplier described in
 
 Orientation options are `auto_rotate`/`ar`, `rotate`/`rot`, and `flip`/`fl`.
 
-- `ar` with no argument applies embedded orientation metadata, such as EXIF
-  orientation. `ar:false` disables it.
+- `ar:true` applies embedded orientation metadata, such as EXIF orientation.
+  `ar:false` disables it.
 - `rot` accepts integer degrees in multiples of 90 and stores them as `0`,
   `90`, `180`, or `270`.
-- `fl` with no arguments flips both axes.
+- `fl:true:true` flips both axes.
 - `fl:true:false` flips horizontally.
 - `fl:false:true` flips vertically.
 - `fl:false:false` emits no flip operation.

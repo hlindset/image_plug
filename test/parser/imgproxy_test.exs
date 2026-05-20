@@ -379,6 +379,13 @@ defmodule ImagePlug.Parser.ImgproxyTest do
       assert Imgproxy.parse(conn(:get, "/_/raw/plain/images/cat.jpg"), []) ==
                {:error, {:invalid_encoded_source, :base64}}
 
+      for segment <- ~w(ar fl padding pd preset pr q) do
+        assert {:error, {:invalid_encoded_source, reason}} =
+                 Imgproxy.parse(conn(:get, "/_/#{segment}/plain/images/cat.jpg"), [])
+
+        assert reason in [:base64, :utf8]
+      end
+
       assert Imgproxy.parse(conn(:get, "/_/w:nope/plain/images/cat.jpg"), []) ==
                {:error, {:invalid_non_negative_integer, "nope"}}
     end
