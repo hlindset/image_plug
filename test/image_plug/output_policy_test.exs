@@ -141,12 +141,11 @@ defmodule ImagePlug.Output.PolicyTest do
       }
 
       assert Policy.resolve_final_image_alpha(policy, true) ==
-               {:ok,
-                %Resolved{
-                  format: :png,
-                  quality: :default,
-                  representation_headers: [{"vary", "Accept"}]
-                }}
+               %Resolved{
+                 format: :png,
+                 quality: :default,
+                 representation_headers: [{"vary", "Accept"}]
+               }
     end
 
     test "selects jpeg when final image has no alpha" do
@@ -159,12 +158,11 @@ defmodule ImagePlug.Output.PolicyTest do
       }
 
       assert Policy.resolve_final_image_alpha(policy, false) ==
-               {:ok,
-                %Resolved{
-                  format: :jpeg,
-                  quality: :default,
-                  representation_headers: [{"vary", "Accept"}]
-                }}
+               %Resolved{
+                 format: :jpeg,
+                 quality: :default,
+                 representation_headers: [{"vary", "Accept"}]
+               }
     end
 
     test "applies quality for selected alpha fallback format" do
@@ -177,20 +175,18 @@ defmodule ImagePlug.Output.PolicyTest do
       }
 
       assert Policy.resolve_final_image_alpha(policy, false) ==
-               {:ok,
-                %Resolved{
-                  format: :jpeg,
-                  quality: {:quality, 82},
-                  representation_headers: [{"vary", "Accept"}]
-                }}
+               %Resolved{
+                 format: :jpeg,
+                 quality: {:quality, 82},
+                 representation_headers: [{"vary", "Accept"}]
+               }
 
       assert Policy.resolve_final_image_alpha(policy, true) ==
-               {:ok,
-                %Resolved{
-                  format: :png,
-                  quality: {:quality, 70},
-                  representation_headers: [{"vary", "Accept"}]
-                }}
+               %Resolved{
+                 format: :png,
+                 quality: {:quality, 70},
+                 representation_headers: [{"vary", "Accept"}]
+               }
     end
   end
 

@@ -96,12 +96,12 @@ defmodule ImagePlug.Output.Policy do
     end
   end
 
-  @spec resolve_final_image_alpha(t(), boolean()) :: {:ok, Resolved.t()}
+  @spec resolve_final_image_alpha(t(), boolean()) :: Resolved.t()
   def resolve_final_image_alpha(%__MODULE__{} = policy, true),
-    do: {:ok, resolved(policy, :png)}
+    do: resolved(policy, :png)
 
   def resolve_final_image_alpha(%__MODULE__{} = policy, false),
-    do: {:ok, resolved(policy, :jpeg)}
+    do: resolved(policy, :jpeg)
 
   @spec automatic_headers() :: [{String.t(), String.t()}]
   def automatic_headers, do: [{"vary", "Accept"}]

@@ -277,11 +277,9 @@ defmodule ImagePlug.Request.Runner do
     case Processor.process_decoded_source(decoded, plan, opts) do
       {:ok, final_state} ->
         has_alpha? = Image.has_alpha?(final_state.image)
+        resolved_output = resolve_final_image_alpha_output(policy, has_alpha?, plan.output, opts)
 
-        case resolve_final_image_alpha_output(policy, has_alpha?, plan.output, opts) do
-          {:ok, %Resolved{} = resolved_output} ->
-            {:ok, final_state, resolved_output, resolved_output.representation_headers}
-        end
+        {:ok, final_state, resolved_output, resolved_output.representation_headers}
 
       {:error, reason} ->
         {:error, reason, policy.headers}
@@ -298,9 +296,9 @@ defmodule ImagePlug.Request.Runner do
 
   defp resolve_final_image_alpha_output(policy, has_alpha?, %Output{} = output, opts) do
     Telemetry.span(opts, [:output, :negotiate], output_plan_metadata(output), fn ->
-      result = Policy.resolve_final_image_alpha(policy, has_alpha?)
+      resolved_output = Policy.resolve_final_image_alpha(policy, has_alpha?)
 
-      {result, output_stop_metadata(result, output)}
+      {resolved_output, output_stop_metadata(resolved_output, output)}
     end)
   end
 
@@ -339,6 +337,9 @@ defmodule ImagePlug.Request.Runner do
     do: %{output_mode: :explicit, output_format: format}
 
   defp output_stop_metadata({:ok, %Resolved{} = resolved_output}, %Output{}),
+    do: Map.merge(%{result: :ok}, output_metadata(resolved_output))
+
+  defp output_stop_metadata(%Resolved{} = resolved_output, %Output{}),
     do: Map.merge(%{result: :ok}, output_metadata(resolved_output))
 
   defp output_stop_metadata({:needs_final_image_alpha, _reason}, %Output{}),
