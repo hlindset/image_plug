@@ -336,4 +336,4 @@ These cases return HTTP 400:
 | Explicit crop with focal gravity | `/_/c:100:100:fp:0.25:0.75/plain/images/cat.jpg` |
 | Auto-orient then crop | `/_/ar/c:100:100/plain/images/cat.jpg` |
 | Explicit output format | `/_/f:webp/plain/images/cat.jpg` |
-| Source extension output format | `/_/plain/images/cat.jpg@png` |
+| Plain-source output format suffix | `/_/plain/images/cat.jpg@png` |

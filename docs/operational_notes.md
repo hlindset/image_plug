@@ -46,6 +46,14 @@ pass. Source byte limits, receive timeouts, decoded pixel limits, and decode
 error responses still apply. Cache hits serve stored response bodies directly
 and skip source decode optimization.
 
+## libvips format support
+
+ImagePlug accepts source families only when the deployed libvips build can read
+them. The test suite exercises SVG rejection and source-only TIFF fallback with
+real libvips loaders. Development and CI builds should include SVG load support
+and TIFF load/save support so those behavior tests run instead of masking format
+support drift.
+
 ## Automatic output
 
 Automatic output format selection uses the request `Accept` header only to
