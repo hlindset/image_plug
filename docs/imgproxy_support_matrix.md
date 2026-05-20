@@ -18,7 +18,7 @@ source fetch or cache lookup. ImagePlug doesn't ignore them.
 | 🧩 Host-owned | Plug, router, or web-server configuration can provide this behavior outside ImagePlug. |
 | 🚫 Rejected | Recognized or intentionally documented as unsupported, returning an error before side effects. |
 | ⭕ Missing | Not implemented in the current parser/plan/runtime surface. |
-| 🛑 Out of scope | Excluded for now; currently only video-related features use this status. |
+| 🛑 Out of scope | Excluded from ImagePlug's library surface or delegated to host/runtime ownership. |
 
 ## Configuration options
 
@@ -177,12 +177,17 @@ application-owned source adapters.
 
 ### URL rewriting and encoded-source filename behavior
 
-Plain source parsing doesn't apply global source URL rewrites. ImagePlug
-doesn't parse Base64 or encrypted source URLs.
+Encoded source parsing doesn't apply global source URL rewrites. ImagePlug
+doesn't parse encrypted source URLs.
 
+- ⚠️ Base64 encoded source URLs
+- ⭕ `IMGPROXY_BASE64_URL_INCLUDES_FILENAME`
 - ⭕ `IMGPROXY_BASE_URL`
 - ⭕ `IMGPROXY_URL_REPLACEMENTS`
-- ⭕ `IMGPROXY_BASE64_URL_INCLUDES_FILENAME`
+
+ImagePlug supports encoded source syntax and encoded `.extension` output
+suffixes. It doesn't support filename suffix mode, base URL prefixing, or URL
+replacements.
 
 ### Processing argument separator and allowed option list
 
@@ -276,7 +281,8 @@ handling, HDR preservation, and thumbnail-source selection aren't configurable.
 
 ### Input and output safety limits
 
-ImagePlug has `max_body_bytes` for source and output byte limits and
+ImagePlug uses `max_body_bytes` to cap fetched source bodies and to decide
+whether successful responses are small enough to cache. It uses
 `max_input_pixels` for decoded image size. It doesn't expose Imgproxy's
 animation, SVG, PNG, or max-result-dimension policy.
 
@@ -420,8 +426,8 @@ entrypoint, license checks, or deprecation handling.
 | HMAC URL signatures | Supported | Imgproxy parser verifies raw/unpadded Base64URL HMAC-SHA256 signatures with hex key/salt pairs, optional truncation, rotation pairs, exact trusted signatures, and Imgproxy-compatible `fixPath` before verification. Signature failures return 403. |
 | Plain source URLs via `/plain/` | Supported | ImagePlug translates the value into configured source adapters for local paths, HTTP and HTTPS URLs, S3-compatible object sources, and configured custom schemes. |
 | Plain source `@extension` | Supported | Requests explicit output format and bypasses `Accept` negotiation. It doesn't declare source format. |
-| Base64 encoded source URL | Missing | No encoded source parsing. ImagePlug supports plain HTTP and HTTPS source URLs through `/plain/`. |
-| Encrypted `/enc/` source URL | Missing | Pro feature. Requires source decryption and signed URL safety. |
+| Base64 encoded source URL | Partial | ImagePlug supports Imgproxy encoded source syntax and `.extension` output suffixes. It doesn't support filename suffix mode, base URL prefixing, or URL replacements. |
+| Encrypted `/enc/` source URL | Missing | Not implemented. The parser rejects the marker before source identity resolution, cache lookup, or source fetch instead of treating it as an encoded source. |
 | AES-CBC source URL encryption helpers | Missing | Should remain parser/runtime source-layer support, not transform support. |
 | Custom argument separator | Missing | Parser currently uses `:`. |
 | Processing option order independence | Supported | URL option order doesn't define transform order. |
@@ -526,7 +532,7 @@ transforms or output encoding.
 | `webp_options` | `webpo` | Missing | Pro advanced WebP encoder controls. |
 | `avif_options` | `avifo` | Missing | Pro advanced AVIF encoder controls. |
 | `format` | `f`, `ext` | Partial | Supports `webp`, `avif`, `jpeg`, `jpg`, and `png`. Planning rejects parsed `best`. |
-| Extension path suffix | | Partial | Plain `@extension` supported. Encoded-source `.extension` isn't supported because encoded source URLs are missing. |
+| Extension path suffix | | Partial | Plain sources use `@extension`; encoded sources use `.extension`. Both request explicit output format and bypass `Accept` negotiation. |
 | Automatic output via `Accept` | | Supported | Omitted format negotiates AVIF/WebP and uses `Vary: Accept`. |
 | `best` output | | Rejected | Parsed as an output value, rejected by planning. |
 

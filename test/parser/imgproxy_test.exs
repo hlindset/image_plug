@@ -282,6 +282,149 @@ defmodule ImagePlug.Parser.ImgproxyTest do
              Imgproxy.parse(conn(:get, "/_/plain/images/w:300/cat.jpg"), [])
   end
 
+  describe "Base64 encoded source URLs" do
+    test "decoded path source becomes a path plan source" do
+      encoded = encoded_source("images/cat.jpg")
+
+      assert {:ok, %Plan{source: %Source.Path{segments: ["images", "cat.jpg"]}}} =
+               Imgproxy.parse(conn(:get, "/_/#{encoded}"), [])
+    end
+
+    test "decoded local URL becomes a path plan source" do
+      encoded = encoded_source("local:///images/cat.jpg")
+
+      assert {:ok, %Plan{source: %Source.Path{segments: ["images", "cat.jpg"]}}} =
+               Imgproxy.parse(conn(:get, "/_/#{encoded}"), [])
+    end
+
+    test "decoded source after colon-bearing padding option parses" do
+      encoded = encoded_source("images/cat.jpg")
+
+      assert {:ok, %Plan{source: %Source.Path{segments: ["images", "cat.jpg"]}}} =
+               Imgproxy.parse(conn(:get, "/_/pd:10/#{encoded}"), [])
+    end
+
+    test "decoded HTTP URL with query becomes a URL plan source" do
+      encoded = encoded_source("http://example.com/images/cat.jpg?size=large")
+
+      assert {:ok, %Plan{source: source}} = Imgproxy.parse(conn(:get, "/_/#{encoded}"), [])
+
+      assert source == %Source.URL{
+               scheme: :http,
+               host: "example.com",
+               port: nil,
+               path: ["images", "cat.jpg"],
+               query: "size=large"
+             }
+    end
+
+    test "decoded HTTPS URL becomes a URL plan source" do
+      encoded = encoded_source("https://example.com/images/cat.jpg")
+
+      assert {:ok, %Plan{source: source}} = Imgproxy.parse(conn(:get, "/_/#{encoded}"), [])
+
+      assert source == %Source.URL{
+               scheme: :https,
+               host: "example.com",
+               port: nil,
+               path: ["images", "cat.jpg"],
+               query: nil
+             }
+    end
+
+    test "decoded S3 URL with query revision becomes an object plan source" do
+      encoded = encoded_source("s3://bucket/images/cat.jpg?rev1")
+
+      assert {:ok, %Plan{source: source}} = Imgproxy.parse(conn(:get, "/_/#{encoded}"), [])
+
+      assert source == %Source.Object{
+               adapter: :s3,
+               scope: "bucket",
+               key: "images/cat.jpg",
+               revision: "rev1"
+             }
+    end
+
+    test "decoded custom scheme reaches the configured source scheme translator" do
+      encoded = encoded_source("foobar://asset/cat.jpg")
+
+      assert {:ok, %Plan{source: source}} =
+               Imgproxy.parse(conn(:get, "/_/#{encoded}"),
+                 imgproxy: [source_schemes: %{"foobar" => {FoobarTranslator, []}}]
+               )
+
+      assert source == %Source.Object{
+               adapter: :foobar,
+               scope: "scope",
+               key: "foobar://asset/cat.jpg",
+               revision: "r1"
+             }
+
+      assert_received {:translate, "foobar://asset/cat.jpg", []}
+    end
+
+    test "unsupported decoded source schemes return source scheme error before runtime" do
+      encoded = encoded_source("ftp://example.com/cat.jpg")
+
+      assert Imgproxy.parse(conn(:get, "/_/#{encoded}"), []) ==
+               {:error, {:unsupported_source_scheme, "ftp"}}
+    end
+
+    test "encrypted source marker remains unsupported" do
+      assert Imgproxy.parse(conn(:get, "/_/enc/payload"), []) ==
+               {:error, {:unsupported_source_kind, "enc"}}
+    end
+
+    test "bare segments before plain follow encoded source parsing" do
+      assert Imgproxy.parse(conn(:get, "/_/raw/plain/images/cat.jpg"), []) ==
+               {:error, {:invalid_encoded_source, :base64}}
+
+      for segment <- ~w(ar fl padding pd preset pr q) do
+        assert {:error, {:invalid_encoded_source, reason}} =
+                 Imgproxy.parse(conn(:get, "/_/#{segment}/plain/images/cat.jpg"), [])
+
+        assert reason in [:base64, :utf8]
+      end
+
+      assert Imgproxy.parse(conn(:get, "/_/w:nope/plain/images/cat.jpg"), []) ==
+               {:error, {:invalid_non_negative_integer, "nope"}}
+    end
+
+    test "encoded output suffix overrides format option" do
+      encoded = encoded_source("images/cat.jpg")
+
+      assert_output_mode("/_/f:jpeg/#{encoded}.webp", {:explicit, :webp})
+    end
+
+    test "encoded trailing output separator leaves output format automatic" do
+      encoded = encoded_source("images/cat.jpg")
+
+      assert_output_mode("/_/#{encoded}.", :automatic)
+    end
+
+    test "encoded best suffix reaches the same planner behavior as plain best suffix" do
+      encoded = encoded_source("images/cat.jpg")
+
+      assert Imgproxy.parse(conn(:get, "/_/#{encoded}.best"), []) ==
+               {:error, {:unsupported_output_format, :best}}
+    end
+
+    test "signed encoded-source request verifies before decoding and parses correctly" do
+      encoded = encoded_source("images/cat.jpg")
+      signed_path = "/w:300/#{encoded}.webp"
+
+      assert {:ok, %Plan{source: %Source.Path{segments: ["images", "cat.jpg"]}, output: output}} =
+               Imgproxy.parse(conn(:get, signed_request_path(signed_path)), signed_parser_opts())
+
+      assert output.mode == {:explicit, :webp}
+    end
+
+    test "invalid signature fails before malformed encoded source is decoded" do
+      assert Imgproxy.parse(conn(:get, "/unsafe/not+base64"), signed_parser_opts()) ==
+               {:error, :invalid_signature}
+    end
+  end
+
   test "parses resize and rs full grammar" do
     assert [%Operation.Resize{mode: :cover} = fill_params] =
              operations_for("/_/resize:fill:300:200:1/plain/images/cat.jpg")
@@ -312,7 +455,7 @@ defmodule ImagePlug.Parser.ImgproxyTest do
   end
 
   test "rejects empty resize and size option segments" do
-    for segment <- ["rs", "rs:", "rs::", "resize", "resize:", "s", "s:", "s::", "size"] do
+    for segment <- ["rs:", "rs::", "resize:", "s:", "s::"] do
       assert Imgproxy.parse(conn(:get, "/_/#{segment}/plain/images/cat.jpg"), []) ==
                {:error, {:invalid_option_segment, segment}}
     end
@@ -399,7 +542,7 @@ defmodule ImagePlug.Parser.ImgproxyTest do
     assert crop.guide == :center
 
     assert {:ok, %Plan{pipelines: [%Pipeline{operations: [%AutoOrient{}]}]}} =
-             Imgproxy.parse(conn(:get, "/_/ar/plain/images/cat.jpg"), [])
+             Imgproxy.parse(conn(:get, "/_/ar:true/plain/images/cat.jpg"), [])
 
     for segment <- ~w(ar:false rot:0 rot:360 fl:false:false) do
       assert {:ok, %Plan{pipelines: [%Pipeline{operations: []}]}} =
@@ -407,7 +550,7 @@ defmodule ImagePlug.Parser.ImgproxyTest do
     end
 
     assert {:ok, %Plan{pipelines: [%Pipeline{operations: operations}]}} =
-             Imgproxy.parse(conn(:get, "/_/crop:10:20/ar/plain/images/cat.jpg"), [])
+             Imgproxy.parse(conn(:get, "/_/crop:10:20/ar:true/plain/images/cat.jpg"), [])
 
     assert operation_names(operations) == [:auto_orient, :crop_guided]
 
@@ -490,7 +633,7 @@ defmodule ImagePlug.Parser.ImgproxyTest do
           "/_/rt:force/w:0/h:200/plain/images/cat.jpg",
           "/_/g:fp:0.25:0.75/rs:fill:300:200/plain/images/cat.jpg",
           "/_/c:100:100:fp:0.25:0.75/plain/images/cat.jpg",
-          "/_/ar/c:100:100/plain/images/cat.jpg",
+          "/_/ar:true/c:100:100/plain/images/cat.jpg",
           "/_/g:soea:12:-0.25/rs:fill:300:200/plain/images/cat.jpg"
         ] do
       assert {:ok, _plan} = Imgproxy.parse(conn(:get, path), [])
@@ -503,7 +646,7 @@ defmodule ImagePlug.Parser.ImgproxyTest do
           "/_/g:fp:0.25:0.75/rs:fill:300:200/plain/images/cat.jpg",
           "/_/c:100:100:fp:0.25:0.75/plain/images/cat.jpg",
           "/_/rs:fit:300:200:0:1:ce:0:0/plain/images/cat.jpg",
-          "/_/ar/rot:-90/fl:true:false/plain/images/cat.jpg"
+          "/_/ar:true/rot:-90/fl:true:false/plain/images/cat.jpg"
         ] do
       assert {:ok, %Plan{} = plan} = Imgproxy.parse(conn(:get, path), [])
 
@@ -759,7 +902,7 @@ defmodule ImagePlug.Parser.ImgproxyTest do
   end
 
   test "rejects invalid expires arity" do
-    for segment <- ["exp", "exp:", "exp:100:200", "expires", "expires:", "expires:100:200"] do
+    for segment <- ["exp:", "exp:100:200", "expires:", "expires:100:200"] do
       assert Imgproxy.parse(conn(:get, "/_/#{segment}/plain/images/cat.jpg"),
                clock: clock_at(100)
              ) ==
@@ -769,10 +912,8 @@ defmodule ImagePlug.Parser.ImgproxyTest do
 
   test "rejects invalid cachebuster arity" do
     for segment <- [
-          "cb",
           "cb:",
           "cb:a:b",
-          "cachebuster",
           "cachebuster:",
           "cachebuster:a:b"
         ] do
@@ -859,14 +1000,10 @@ defmodule ImagePlug.Parser.ImgproxyTest do
 
   test "rejects invalid filename and attachment arity" do
     for segment <- [
-          "fn",
           "fn:a:true:extra",
-          "filename",
           "filename:a:false:extra",
-          "att",
           "att:",
           "att:true:false",
-          "return_attachment",
           "return_attachment:",
           "return_attachment:true:false"
         ] do
@@ -901,7 +1038,7 @@ defmodule ImagePlug.Parser.ImgproxyTest do
   end
 
   test "rejects invalid quality arity" do
-    for segment <- ["q", "q:", "q:80:70", "quality", "quality:", "quality:80:70"] do
+    for segment <- ["q:", "q:80:70", "quality:", "quality:80:70"] do
       assert Imgproxy.parse(conn(:get, "/_/#{segment}/plain/images/cat.jpg"), []) ==
                {:error, {:invalid_option_segment, segment}}
     end
@@ -909,11 +1046,9 @@ defmodule ImagePlug.Parser.ImgproxyTest do
 
   test "rejects invalid format quality arity" do
     for segment <- [
-          "fq",
           "fq:webp",
           "fq:webp:",
           "fq:webp:70:60",
-          "format_quality",
           "format_quality:webp",
           "format_quality:webp:",
           "format_quality:webp:70:60"
@@ -949,7 +1084,7 @@ defmodule ImagePlug.Parser.ImgproxyTest do
   end
 
   test "parses processing options before validating output extension" do
-    assert Imgproxy.parse(conn(:get, "/_/unknown/plain/images/cat.jpg@unknown"), []) ==
+    assert Imgproxy.parse(conn(:get, "/_/unknown:/plain/images/cat.jpg@unknown"), []) ==
              {:error, {:unknown_option, "unknown"}}
   end
 
@@ -1070,12 +1205,6 @@ defmodule ImagePlug.Parser.ImgproxyTest do
 
   test "returns parser errors for missing empty and unknown preset references" do
     opts = preset_opts(%{"thumb" => "w:100"})
-
-    assert Imgproxy.parse(conn(:get, "/_/preset/plain/images/cat.jpg"), opts) ==
-             {:error, {:invalid_option_segment, "preset"}}
-
-    assert Imgproxy.parse(conn(:get, "/_/pr/plain/images/cat.jpg"), opts) ==
-             {:error, {:invalid_option_segment, "pr"}}
 
     assert Imgproxy.parse(conn(:get, "/_/preset:/plain/images/cat.jpg"), opts) ==
              {:error, {:invalid_option_segment, "preset:"}}
@@ -1368,6 +1497,22 @@ defmodule ImagePlug.Parser.ImgproxyTest do
   defp assert_output_mode(path, mode) do
     assert {:ok, %Plan{output: %Output{mode: ^mode}}} =
              Imgproxy.parse(conn(:get, path), [])
+  end
+
+  defp encoded_source(source, opts \\ []) do
+    padding = Keyword.get(opts, :padding, false)
+    Base.url_encode64(source, padding: padding)
+  end
+
+  defp signed_request_path(signed_path) do
+    key = Base.decode16!("746573742d6b6579", case: :lower)
+    salt = Base.decode16!("746573742d73616c74", case: :lower)
+
+    signature =
+      :crypto.mac(:hmac, :sha256, key, salt <> signed_path)
+      |> Base.url_encode64(padding: false)
+
+    "/" <> signature <> signed_path
   end
 
   defp signed_parser_opts(overrides \\ []) do

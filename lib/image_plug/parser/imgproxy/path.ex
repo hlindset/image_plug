@@ -19,17 +19,11 @@ defmodule ImagePlug.Parser.Imgproxy.Path do
   end
 
   def split_source(path_info) do
-    case Enum.split_while(path_info, &(&1 != "plain")) do
-      {_options, []} ->
-        {:error, :missing_source_kind}
-
-      {_options, ["plain"]} ->
-        {:error, {:missing_source_identifier, "plain"}}
-
-      {options, ["plain" | source_path]} ->
-        {:ok, options, source_path}
-    end
+    split_source(path_info, [])
   end
+
+  def parse_source(:plain, source_path), do: parse_plain_source(source_path)
+  def parse_source(:encoded, source_path), do: parse_encoded_source(source_path)
 
   def parse_plain_source(source_path) do
     encoded = Enum.join(source_path, "/")
@@ -55,6 +49,84 @@ defmodule ImagePlug.Parser.Imgproxy.Path do
 
       _parts ->
         {:error, {:multiple_output_extension_separators, encoded}}
+    end
+  end
+
+  defp split_source([], _options), do: {:error, :missing_source_kind}
+
+  defp split_source(["plain"], _options), do: {:error, {:missing_source_identifier, "plain"}}
+
+  defp split_source(["plain" | source_path], options),
+    do: {:ok, Enum.reverse(options), :plain, source_path}
+
+  defp split_source(["enc" | _source_path], _options),
+    do: {:error, {:unsupported_source_kind, "enc"}}
+
+  defp split_source(["-" | segments], options) do
+    case Enum.member?(segments, "plain") do
+      true -> split_source(segments, ["-" | options])
+      false -> {:ok, Enum.reverse(options), :encoded, ["-" | segments]}
+    end
+  end
+
+  defp split_source([segment | segments], options) do
+    case classify_pre_source_segment(segment) do
+      :option ->
+        split_source(segments, [segment | options])
+
+      :source_start ->
+        {:ok, Enum.reverse(options), :encoded, [segment | segments]}
+    end
+  end
+
+  defp classify_pre_source_segment(segment) do
+    case String.contains?(segment, ":") do
+      true -> :option
+      false -> :source_start
+    end
+  end
+
+  defp parse_encoded_source(source_path) do
+    encoded = Enum.join(source_path, "")
+
+    case String.split(encoded, ".") do
+      [""] ->
+        {:error, {:missing_source_identifier, "encoded"}}
+
+      [source] ->
+        decode_encoded_source(source, nil)
+
+      ["", _extension] ->
+        {:error, {:missing_source_identifier, "encoded"}}
+
+      [source, ""] ->
+        decode_encoded_source(source, nil)
+
+      [source, extension] ->
+        case Format.parse(extension) do
+          {:ok, format} -> decode_encoded_source(source, format)
+          {:error, _reason} = error -> error
+        end
+
+      _parts ->
+        {:error, {:multiple_output_extension_separators, encoded}}
+    end
+  end
+
+  defp decode_encoded_source(source, source_format) do
+    source
+    |> String.trim_trailing("=")
+    |> Base.url_decode64(padding: false)
+    |> case do
+      {:ok, decoded} -> validate_decoded_source(decoded, source_format)
+      :error -> {:error, {:invalid_encoded_source, :base64}}
+    end
+  end
+
+  defp validate_decoded_source(decoded, source_format) do
+    case String.valid?(decoded) do
+      true -> {:ok, decoded, source_format}
+      false -> {:error, {:invalid_encoded_source, :utf8}}
     end
   end
 

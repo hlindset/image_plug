@@ -17,8 +17,8 @@ defmodule ImagePlug.Parser.Imgproxy do
   @behaviour ImagePlug.Parser
 
   alias ImagePlug.Parser.Imgproxy.Options
-  alias ImagePlug.Parser.Imgproxy.Path
   alias ImagePlug.Parser.Imgproxy.ParsedRequest
+  alias ImagePlug.Parser.Imgproxy.Path
   alias ImagePlug.Parser.Imgproxy.PlanBuilder
   alias ImagePlug.Parser.Imgproxy.Presets
   alias ImagePlug.Parser.Imgproxy.Signature
@@ -78,9 +78,9 @@ defmodule ImagePlug.Parser.Imgproxy do
   defp parse_request(%Plug.Conn{} = conn, opts) do
     with {:ok, signature, signed_path, path_info} <- Path.extract(conn),
          :ok <- verify_signature(signature, signed_path, opts),
-         {:ok, option_segments, raw_source_path} <- Path.split_source(path_info),
+         {:ok, option_segments, source_kind, raw_source_path} <- Path.split_source(path_info),
          {:ok, request_options} <- Options.parse(option_segments, preset_config(opts)),
-         {:ok, source_path, source_format} <- Path.parse_plain_source(raw_source_path) do
+         {:ok, source_path, source_format} <- Path.parse_source(source_kind, raw_source_path) do
       parsed_request(
         signature,
         source_path,

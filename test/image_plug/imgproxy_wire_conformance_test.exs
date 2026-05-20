@@ -4,15 +4,15 @@ defmodule ImagePlug.ImgproxyWireConformanceTest do
   import Plug.Conn
   import Plug.Test
 
-  alias ImgproxyWireConformanceTest.CacheProbe
-  alias ImgproxyWireConformanceTest.CountingOriginImage
-  alias ImgproxyWireConformanceTest.OriginImage
-  alias ImgproxyWireConformanceTest.OriginShouldNotFetch
   alias ImagePlug.Cache.Entry
   alias ImagePlug.SourceTest.CredentialProvider
   alias ImagePlug.SourceTest.FoobarTranslator
   alias ImagePlug.SourceTest.PlugCustomAdapter
   alias ImagePlug.SourceTest.RootHTTPAdapter
+  alias ImgproxyWireConformanceTest.CacheProbe
+  alias ImgproxyWireConformanceTest.CountingOriginImage
+  alias ImgproxyWireConformanceTest.OriginImage
+  alias ImgproxyWireConformanceTest.OriginShouldNotFetch
   alias Vix.Vips.Image, as: VipsImage
 
   defmodule SvgOriginImage do
@@ -67,6 +67,17 @@ defmodule ImagePlug.ImgproxyWireConformanceTest do
     end
   end
 
+  test "encoded path source succeeds through a real Plug request" do
+    encoded = encoded_source("images/beach.jpg")
+
+    conn = call_imgproxy("/_/rt:force/w:120/h:90/f:jpeg/#{encoded}", @default_opts)
+
+    assert conn.status == 200
+    assert content_type(conn) == ["image/jpeg"]
+    assert dimensions(conn) == {120, 90}
+    assert byte_size(conn.resp_body) > 0
+  end
+
   test "automatic output negotiates modern formats from Accept and sets Vary" do
     cases = [
       {"image/avif,image/webp", "image/avif"},
@@ -101,6 +112,17 @@ defmodule ImagePlug.ImgproxyWireConformanceTest do
       assert get_resp_header(conn, "vary") == []
       assert byte_size(conn.resp_body) > 0
     end
+  end
+
+  test "encoded output suffix bypasses Accept negotiation and does not set Vary" do
+    encoded = encoded_source("images/beach.jpg")
+
+    conn = call_imgproxy("/_/f:jpeg/#{encoded}.webp", @default_opts, "image/avif,image/webp")
+
+    assert conn.status == 200
+    assert content_type(conn) == ["image/webp"]
+    assert get_resp_header(conn, "vary") == []
+    assert byte_size(conn.resp_body) > 0
   end
 
   test "automatic output rejects decoded SVG source responses as unsupported images" do
@@ -191,6 +213,88 @@ defmodule ImagePlug.ImgproxyWireConformanceTest do
     end
   end
 
+  test "malformed encoded source stops before cache lookup and origin fetch" do
+    telemetry_prefix = [:image_plug_wire_safety]
+    source_resolve_start = telemetry_prefix ++ [:source, :resolve, :start]
+
+    attach_source_resolve_telemetry(telemetry_prefix)
+
+    opts =
+      Keyword.merge(@default_opts,
+        telemetry_prefix: telemetry_prefix,
+        cache: {CacheProbe, []},
+        sources: [
+          path:
+            {RootHTTPAdapter,
+             root_url: "http://origin.test", req_options: [plug: OriginShouldNotFetch]}
+        ]
+      )
+
+    for path <- ["/_/not+base64", "/_/#{Base.url_encode64(<<255>>, padding: false)}"] do
+      conn = call_imgproxy(path, opts)
+
+      assert conn.status == 400
+      refute_received {:telemetry_event, ^source_resolve_start, _, _}
+      refute_received {:cache_lookup, _key}
+      refute_received {:cache_put, _key, _entry}
+      refute_received :origin_fetch
+    end
+  end
+
+  test "unsupported decoded source scheme stops before cache lookup and origin fetch" do
+    telemetry_prefix = [:image_plug_wire_safety]
+    source_resolve_start = telemetry_prefix ++ [:source, :resolve, :start]
+
+    attach_source_resolve_telemetry(telemetry_prefix)
+
+    encoded = encoded_source("ftp://example.com/cat.jpg")
+
+    opts =
+      Keyword.merge(@default_opts,
+        telemetry_prefix: telemetry_prefix,
+        cache: {CacheProbe, []},
+        sources: [
+          path:
+            {RootHTTPAdapter,
+             root_url: "http://origin.test", req_options: [plug: OriginShouldNotFetch]}
+        ]
+      )
+
+    conn = call_imgproxy("/_/#{encoded}", opts)
+
+    assert conn.status == 400
+    refute_received {:telemetry_event, ^source_resolve_start, _, _}
+    refute_received {:cache_lookup, _key}
+    refute_received {:cache_put, _key, _entry}
+    refute_received :origin_fetch
+  end
+
+  test "encrypted source marker stops before cache lookup and origin fetch" do
+    telemetry_prefix = [:image_plug_wire_safety]
+    source_resolve_start = telemetry_prefix ++ [:source, :resolve, :start]
+
+    attach_source_resolve_telemetry(telemetry_prefix)
+
+    opts =
+      Keyword.merge(@default_opts,
+        telemetry_prefix: telemetry_prefix,
+        cache: {CacheProbe, []},
+        sources: [
+          path:
+            {RootHTTPAdapter,
+             root_url: "http://origin.test", req_options: [plug: OriginShouldNotFetch]}
+        ]
+      )
+
+    conn = call_imgproxy("/_/enc/payload", opts)
+
+    assert conn.status == 400
+    refute_received {:telemetry_event, ^source_resolve_start, _, _}
+    refute_received {:cache_lookup, _key}
+    refute_received {:cache_put, _key, _entry}
+    refute_received :origin_fetch
+  end
+
   test "filesystem cache reuses normalized automatic Accept candidates" do
     {opts, cache_root} = cached_opts()
 
@@ -212,6 +316,55 @@ defmodule ImagePlug.ImgproxyWireConformanceTest do
       assert content_type(second_conn) == ["image/avif"]
       assert get_resp_header(second_conn, "vary") == ["Accept"]
       assert second_conn.resp_body == first_conn.resp_body
+      refute_received :origin_fetch
+    after
+      File.rm_rf!(cache_root)
+    end
+  end
+
+  test "plain and matching encoded source requests share the same filesystem cache entry" do
+    {opts, cache_root} = cached_opts()
+
+    try do
+      plain_conn = call_imgproxy("/_/rt:force/w:120/h:90/f:jpeg/plain/images/beach.jpg", opts)
+
+      assert plain_conn.status == 200
+      assert_received :origin_fetch
+
+      encoded = encoded_source("images/beach.jpg")
+      encoded_conn = call_imgproxy("/_/rt:force/w:120/h:90/f:jpeg/#{encoded}", opts)
+
+      assert encoded_conn.status == 200
+      assert encoded_conn.resp_body == plain_conn.resp_body
+      refute_received :origin_fetch
+    after
+      File.rm_rf!(cache_root)
+    end
+  end
+
+  test "whole chunked and padded encoded source spellings share the same filesystem cache entry" do
+    {opts, cache_root} = cached_opts()
+
+    try do
+      whole = encoded_source("images/beach.jpg")
+      chunked = chunked_encoded_source("images/beach.jpg")
+      padded = encoded_source("images/beach.jpg", padding: true)
+
+      first_conn = call_imgproxy("/_/rt:force/w:120/h:90/f:jpeg/#{whole}", opts)
+
+      assert first_conn.status == 200
+      assert_received :origin_fetch
+
+      chunked_conn = call_imgproxy("/_/rt:force/w:120/h:90/f:jpeg/#{chunked}", opts)
+
+      assert chunked_conn.status == 200
+      assert chunked_conn.resp_body == first_conn.resp_body
+      refute_received :origin_fetch
+
+      padded_conn = call_imgproxy("/_/rt:force/w:120/h:90/f:jpeg/#{padded}", opts)
+
+      assert padded_conn.status == 200
+      assert padded_conn.resp_body == first_conn.resp_body
       refute_received :origin_fetch
     after
       File.rm_rf!(cache_root)
@@ -412,6 +565,40 @@ defmodule ImagePlug.ImgproxyWireConformanceTest do
       )
 
     {opts, cache_root}
+  end
+
+  defp encoded_source(source, opts \\ []) do
+    padding = Keyword.get(opts, :padding, false)
+    Base.url_encode64(source, padding: padding)
+  end
+
+  defp chunked_encoded_source(source) do
+    encoded = encoded_source(source)
+    first_size = div(byte_size(encoded), 2)
+    first = binary_part(encoded, 0, first_size)
+    second = binary_part(encoded, first_size, byte_size(encoded) - first_size)
+    first <> "/" <> second
+  end
+
+  def handle_telemetry_event(event, measurements, metadata, test_pid) do
+    send(test_pid, {:telemetry_event, event, measurements, metadata})
+  end
+
+  defp attach_source_resolve_telemetry(telemetry_prefix) do
+    handler_id = {__MODULE__, self(), :source_resolve}
+
+    :telemetry.attach_many(
+      handler_id,
+      [
+        telemetry_prefix ++ [:source, :resolve, :start],
+        telemetry_prefix ++ [:source, :resolve, :stop],
+        telemetry_prefix ++ [:source, :resolve, :exception]
+      ],
+      &__MODULE__.handle_telemetry_event/4,
+      self()
+    )
+
+    on_exit(fn -> :telemetry.detach(handler_id) end)
   end
 
   defp svg_origin_opts do

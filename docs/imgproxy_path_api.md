@@ -14,6 +14,7 @@ For a feature-by-feature comparison with Imgproxy's processing URL surface, see
 The general shape is:
 
     /<signature>/option[:arg...]/option[:arg...]/plain/path/to/image[@extension]
+    /<signature>/option[:arg...]/option[:arg...]/<base64-url>[.<extension>]
 
 ImagePlug verifies the signature segment first. Unsigned development URLs must
 use `_` or `unsafe`. Signed URLs must use a valid configured HMAC or trusted
@@ -26,6 +27,48 @@ normalization for encoded option separators and plain URL schemes.
 to request an explicit output format and bypass `Accept` negotiation. The suffix
 doesn't declare the source image format. ImagePlug still detects the source
 family from decoded image metadata.
+
+Without `plain`, ImagePlug treats the remaining path segments as an Imgproxy
+Base64URL source value. It joins those segments without `/`, trims trailing
+`=`, decodes URL-safe Base64, and passes the decoded string through the same
+source translation used by plain sources. A decoded `images/cat.jpg`,
+`local:///images/cat.jpg`, `https://example.com/cat.jpg`, `s3://bucket/key`, or
+configured custom scheme produces the same `ImagePlug.Plan` source as the
+matching plain request.
+
+Encoded sources use `.extension`, not `@extension`, for explicit output format
+selection:
+
+    /_/aW1hZ2VzL2NhdC5qcGc.webp
+
+Base64URL is reversible path encoding. Treat it as routing syntax, not a
+secrecy boundary. The received request path can still appear in request logs
+wherever the host application logs paths.
+
+For encoded sources, ImagePlug follows Imgproxy's split rule: path segments
+remain options only while they contain the argument separator, currently `:`.
+The first bare segment starts the source. If that first bare segment is
+`plain`, the request uses plain source parsing. If it's `enc`, the request
+fails as an unsupported encrypted source. Later source chunks named `plain`,
+`ar`, `fl`, `padding`, or another option name remain encoded source chunks.
+Explicit `/plain/` requests can still use ImagePlug's `-` pipeline separator
+before the plain marker.
+
+In URL paths, option segments before the source need the `:` separator. Use
+`ar:true`, `fl:true:true`, and `pd:10`, not bare `ar`, `fl`, or `pd`, before a
+source marker. ImagePlug parses a bare option name as the start of an encoded
+source.
+
+Signature verification uses the received fixed path before Base64 decoding. For
+signed URLs, sign the encoded path and suffix exactly as sent after Imgproxy
+`fixPath` normalization.
+
+ImagePlug doesn't support encrypted `/enc/<encrypted-source>[.<extension>]`
+source URLs. It also doesn't build Imgproxy source preprocessing controlled by
+`IMGPROXY_BASE64_URL_INCLUDES_FILENAME`, `IMGPROXY_BASE_URL`, or
+`IMGPROXY_URL_REPLACEMENTS`. Requests for encrypted sources, malformed
+Base64URL values, and unsupported decoded source schemes fail before source
+identity resolution, cache lookup, or source fetch.
 
 ## Pipeline groups
 
@@ -125,13 +168,13 @@ Remaining queued groups become trailing pipelines.
 | Device pixel ratio (DPR) | `dpr` | positive number |
 | Extend canvas | `extend`, `ex` | boolean, optionally followed by extend gravity and offsets |
 | Extend aspect ratio | `extend_aspect_ratio`, `extend_ar`, `exar` | positive `<width>:<height>` ratio numbers |
-| Padding | `padding`, `pd` | optional top/right/bottom/left non-negative pixel integers |
+| Padding | `padding`, `pd` | CSS-style top/right/bottom/left non-negative pixel integers |
 | Background | `background`, `bg` | `R:G:B`, 3 digit hex, 6 digit hex, or empty to clear |
 | Crop | `crop`, `c` | `<width>:<height>`, optional gravity, optional offsets |
 | Gravity | `gravity`, `g` | anchor, anchor with offsets `<anchor>:<x_offset>:<y_offset>`, or focal point `fp:<x>:<y>` |
-| Auto rotate | `auto_rotate`, `ar` | omitted for true, or boolean |
+| Auto rotate | `auto_rotate`, `ar` | boolean |
 | Rotate | `rotate`, `rot` | integer degrees |
-| Flip | `flip`, `fl` | omitted for both axes, one boolean for horizontal, or horizontal and vertical booleans |
+| Flip | `flip`, `fl` | one boolean for horizontal, or horizontal and vertical booleans |
 | Quality | `quality`, `q` | integer quality. `0` means configured default |
 | Format quality | `format_quality`, `fq` | `<format>:<quality>` |
 | Format | `format`, `f`, `ext` | `webp`, `avif`, `jpeg`/`jpg`, `png` |
@@ -141,6 +184,7 @@ Remaining queued groups become trailing pipelines.
 | Attachment disposition | `return_attachment`, `att` | boolean |
 | Preset | `preset`, `pr` | one or more configured preset names |
 | Plain source output extension | source path `@extension` | `webp`, `avif`, `jpeg`/`jpg`, `png` |
+| Encoded source output extension | source path `.extension` | `webp`, `avif`, `jpeg`/`jpg`, `png` |
 
 ## Resize and dimensions
 
@@ -215,11 +259,11 @@ Execution scales pixel offsets by the resize multiplier described in
 
 Orientation options are `auto_rotate`/`ar`, `rotate`/`rot`, and `flip`/`fl`.
 
-- `ar` with no argument applies embedded orientation metadata, such as EXIF
-  orientation. `ar:false` disables it.
+- `ar:true` applies embedded orientation metadata, such as EXIF orientation.
+  `ar:false` disables it.
 - `rot` accepts integer degrees in multiples of 90 and stores them as `0`,
   `90`, `180`, or `270`.
-- `fl` with no arguments flips both axes.
+- `fl:true:true` flips both axes.
 - `fl:true:false` flips horizontally.
 - `fl:false:true` flips vertically.
 - `fl:false:false` emits no flip operation.
@@ -281,13 +325,15 @@ Composition order is canvas extension, padding, then `background`.
 
 When a request omits an explicit output format, ImagePlug negotiates the output
 from `Accept` and sets `Vary: Accept`. To force a format, use `format`, `f`,
-`ext`, or put `@extension` at the end of the plain-source path. Forced formats
-bypass `Accept` negotiation and don't set `Vary: Accept`.
+`ext`, put `@extension` at the end of a plain-source path, or put `.extension`
+at the end of an encoded-source path. Forced formats bypass `Accept`
+negotiation and don't set `Vary: Accept`.
 
 ImagePlug supports `webp`, `avif`, `jpeg`/`jpg`, and `png` as explicit output
-extensions. If a request includes both an option format and source-path
-`@extension`, `@extension` wins because the imgproxy parser treats it as the
-final requested output format.
+extensions. If a request includes both an option format and a source-path
+suffix, the source-path suffix wins because the imgproxy parser treats it as
+the final requested output format. Plain sources use `@extension`. Encoded
+sources use `.extension`.
 
 Quality has two separate controls: `quality`/`q` sets generic output quality,
 while `format_quality`/`fq` sets quality for one explicit format. In either
@@ -334,6 +380,6 @@ These cases return HTTP 400:
 | Fill a box from a focal point | `/_/rt:fill/w:300/h:200/g:fp:0.25:0.75/plain/images/cat.jpg` |
 | Force one side and preserve the other | `/_/rt:force/w:0/h:200/plain/images/cat.jpg` |
 | Explicit crop with focal gravity | `/_/c:100:100:fp:0.25:0.75/plain/images/cat.jpg` |
-| Auto-orient then crop | `/_/ar/c:100:100/plain/images/cat.jpg` |
+| Auto-orient then crop | `/_/ar:true/c:100:100/plain/images/cat.jpg` |
 | Explicit output format | `/_/f:webp/plain/images/cat.jpg` |
 | Plain-source output format suffix | `/_/plain/images/cat.jpg@png` |
