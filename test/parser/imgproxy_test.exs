@@ -1344,7 +1344,7 @@ defmodule ImagePlug.Parser.ImgproxyTest do
 
   test "rejects multiple raw @ output extension separators" do
     assert Imgproxy.parse(conn(:get, "/_/plain/images/cat.jpg@webp@png"), []) ==
-             {:error, {:multiple_source_format_separators, "images/cat.jpg@webp@png"}}
+             {:error, {:multiple_output_extension_separators, "images/cat.jpg@webp@png"}}
   end
 
   test "rejects unknown output extensions as parser errors" do

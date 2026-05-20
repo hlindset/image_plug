@@ -137,7 +137,7 @@ defmodule ImagePlug.Parser.Imgproxy.PathTest do
 
     test "rejects repeated output extension separators" do
       assert Path.parse_plain_source(["cat.jpg@webp@png"]) ==
-               {:error, {:multiple_source_format_separators, "cat.jpg@webp@png"}}
+               {:error, {:multiple_output_extension_separators, "cat.jpg@webp@png"}}
     end
 
     test "leaves percent-encoded source path segments raw for source translation" do

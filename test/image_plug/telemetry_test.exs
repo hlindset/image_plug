@@ -9,6 +9,8 @@ defmodule ImagePlug.TelemetryTest do
   alias ImagePlug.Plan.Output
   alias ImagePlug.Plan.Pipeline
   alias ImagePlug.Plan.Source
+  alias ImagePlug.Source.Response, as: SourceResponse
+  alias Vix.Vips.Image, as: VipsImage
 
   defmodule InvalidSourceAdapter do
     @behaviour ImagePlug.Source
@@ -77,6 +79,30 @@ defmodule ImagePlug.TelemetryTest do
   defmodule FailOpenCacheWriteFailure do
     def get(_key, _opts), do: :miss
     def put(_key, _entry, _opts), do: {:error, :write_failed}
+  end
+
+  defmodule SourceBytes do
+    @behaviour ImagePlug.Source
+
+    @impl ImagePlug.Source
+    def validate_options(opts), do: {:ok, opts}
+
+    @impl ImagePlug.Source
+    def resolve(_source, opts, _runtime_opts) do
+      {:ok,
+       %ImagePlug.Source.Resolved{
+         adapter: :path,
+         source_kind: :path,
+         identity: [kind: :path, root: "test", path: ["images", "source.tiff"]],
+         cache: :normal,
+         fetch: Keyword.fetch!(opts, :body)
+       }}
+    end
+
+    @impl ImagePlug.Source
+    def fetch(resolved, _opts, _runtime_opts) do
+      {:ok, %SourceResponse{stream: [resolved.fetch]}}
+    end
   end
 
   defmodule RaisingAfterFirstChunkImage do
@@ -304,6 +330,28 @@ defmodule ImagePlug.TelemetryTest do
     end)
   end
 
+  test "source-only automatic fallback emits one final output negotiation event" do
+    require_tiff_support!()
+
+    conn =
+      :get
+      |> conn("/_/plain/images/source.tiff")
+      |> ImagePlug.call(base_opts(sources: [path: {SourceBytes, body: tiff_body(:white)}]))
+
+    assert conn.status == 200
+    events = telemetry_events()
+
+    output_stop_events =
+      Enum.filter(events, fn {event, _measurements, _metadata} ->
+        event == [:image_plug, :output, :negotiate, :stop]
+      end)
+
+    assert [{_event, _measurements, metadata}] = output_stop_events
+    assert metadata.result == :ok
+    assert metadata.output_mode == :automatic
+    assert metadata.output_format == :jpeg
+  end
+
   test "fail-open cache read errors are reported on cache lookup telemetry" do
     conn =
       :get
@@ -469,6 +517,22 @@ defmodule ImagePlug.TelemetryTest do
   defp resize_fit_operation do
     assert {:ok, operation} = Operation.resize(:fit, {:px, 100}, {:px, 100}, enlargement: :deny)
     operation
+  end
+
+  defp require_tiff_support! do
+    with {:ok, loader_suffixes} <- VipsImage.supported_loader_suffixes(),
+         true <- ".tiff" in loader_suffixes,
+         {:ok, saver_suffixes} <- VipsImage.supported_saver_suffixes(),
+         true <- ".tiff" in saver_suffixes do
+      :ok
+    else
+      _error -> raise ExUnit.AssertionError, message: "TIFF load/save support unavailable"
+    end
+  end
+
+  defp tiff_body(color) do
+    Image.new!(20, 20, color: color)
+    |> Image.write!(:memory, suffix: ".tiff")
   end
 
   defp attach_telemetry(events) do

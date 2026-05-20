@@ -255,9 +255,15 @@ defmodule ImagePlug.Request.Runner do
   end
 
   defp resolve_source_format_automatic(%Decoded{} = decoded, plan, opts, policy) do
-    case resolve_output(policy, decoded.source_format, plan.output, opts) do
-      {:ok, %Resolved{} = resolved_output} ->
-        process_decoded_source_with_output(decoded, plan, opts, resolved_output)
+    case Policy.resolve_source_format(policy, decoded.source_format) do
+      {:selected, _format, _reason} ->
+        case resolve_output(policy, decoded.source_format, plan.output, opts) do
+          {:ok, %Resolved{} = resolved_output} ->
+            process_decoded_source_with_output(decoded, plan, opts, resolved_output)
+
+          {:error, error} ->
+            {:error, error, policy.headers}
+        end
 
       {:needs_final_image_alpha, _reason} ->
         process_decoded_source_with_final_alpha_output(decoded, plan, opts, policy)

@@ -54,7 +54,7 @@ defmodule ImagePlug.Parser.Imgproxy.Path do
         end
 
       _parts ->
-        {:error, {:multiple_source_format_separators, encoded}}
+        {:error, {:multiple_output_extension_separators, encoded}}
     end
   end
 
