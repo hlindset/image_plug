@@ -42,6 +42,18 @@ Don't build:
 - cache key schema bumps or encoded source fields
 - transform, request runtime, response, or source adapter changes
 
+Deliberate ImagePlug deviations from upstream imgproxy:
+
+- ImagePlug keeps existing no-argument option support for leading `-`, `ar`,
+  `auto_rotate`, `fl`, `flip`, bare `preset`, and bare `pr` before encoded
+  sources. Upstream imgproxy treats the first segment without the argument
+  separator as the source.
+- ImagePlug preserves current `plain` marker precedence so option errors before
+  `plain` still come from `Options.parse/2`.
+- ImagePlug rejects decoded bytes that aren't valid UTF-8. Upstream converts the
+  decoded bytes to a Go string; ImagePlug's source parser uses Elixir string and
+  URI functions, so invalid UTF-8 is a parser safety failure.
+
 ## File Map
 
 - Change `lib/image_plug/parser/imgproxy/path.ex`
@@ -51,7 +63,8 @@ Don't build:
   - Keep encoded source errors free of decoded source URLs.
 
 - Change `lib/image_plug/parser/imgproxy.ex`
-  - Thread the source kind from source splitting into source parsing.
+  - Thread the source kind from source splitting into source parsing after the
+    full parser tests fail.
   - Continue building `%ImagePlug.Parser.Imgproxy.ParsedRequest{source_kind: :plain}`.
   - Keep signature verification before options and source parsing.
 
@@ -309,7 +322,6 @@ Don't change implementation before you observe this failure.
 
 **Files:**
 - Change: `lib/image_plug/parser/imgproxy/path.ex`
-- Change: `lib/image_plug/parser/imgproxy.ex`
 - Test: `test/parser/imgproxy/path_test.exs`
 
 - [ ] **Step 1: Update `ImagePlug.Parser.Imgproxy.Path` module imports and source classifiers**
@@ -324,7 +336,7 @@ alias ImagePlug.Parser.Imgproxy.OptionGrammar
 Below the module import lines, add:
 
 ```elixir
-@no_arg_option_segments MapSet.new(~w(- ar auto_rotate fl flip preset pr))
+@no_arg_option_segments ~w(- ar auto_rotate fl flip preset pr)
 ```
 
 - [ ] **Step 2: Replace `split_source/1` and `parse_plain_source/1` with source-aware functions**
@@ -388,7 +400,7 @@ defp split_encoded_source(path_info) do
     {:ok, _options, []} ->
       {:error, :missing_source_kind}
 
-    {:ok, options, ["enc" | _source_segments]} ->
+    {:ok, _options, ["enc" | _source_segments]} ->
       {:error, {:unsupported_source_kind, "enc"}}
 
     {:ok, options, source_segments} ->
@@ -491,27 +503,7 @@ defp validate_decoded_source(decoded, source_format) do
 end
 ```
 
-- [ ] **Step 5: Update `ImagePlug.Parser.Imgproxy.parse_request/2`**
-
-In `lib/image_plug/parser/imgproxy.ex`, change the parser flow from:
-
-```elixir
-{:ok, option_segments, raw_source_path} <- Path.split_source(path_info),
-{:ok, request_options} <- Options.parse(option_segments, preset_config(opts)),
-{:ok, source_path, source_format} <- Path.parse_plain_source(raw_source_path) do
-```
-
-to:
-
-```elixir
-{:ok, option_segments, source_kind, raw_source_path} <- Path.split_source(path_info),
-{:ok, request_options} <- Options.parse(option_segments, preset_config(opts)),
-{:ok, source_path, source_format} <- Path.parse_source(source_kind, raw_source_path) do
-```
-
-Keep `parsed_request/4` unchanged so it sets `source_kind: :plain`.
-
-- [ ] **Step 6: Run path parser tests and confirm they pass**
+- [ ] **Step 5: Run path parser tests and confirm they pass**
 
 Run:
 
@@ -521,7 +513,7 @@ mise exec -- mix test test/parser/imgproxy/path_test.exs
 
 Expected: PASS.
 
-- [ ] **Step 7: Run the existing full Imgproxy parser tests for regressions**
+- [ ] **Step 6: Run the existing full Imgproxy parser tests and confirm the integration failure**
 
 Run:
 
@@ -529,14 +521,14 @@ Run:
 mise exec -- mix test test/parser/imgproxy_test.exs
 ```
 
-Expected: PASS or only fail for tests that later tasks add. Existing plain-source behavior must stay green.
+Expected: FAIL because `ImagePlug.Parser.Imgproxy.parse_request/2` still expects the old three-element `Path.split_source/1` success tuple. This confirms the next task owns full parser integration.
 
-- [ ] **Step 8: Commit parser path implementation**
+- [ ] **Step 7: Commit parser path implementation**
 
 Run:
 
 ```bash
-mise exec -- git add lib/image_plug/parser/imgproxy/path.ex lib/image_plug/parser/imgproxy.ex test/parser/imgproxy/path_test.exs
+mise exec -- git add lib/image_plug/parser/imgproxy/path.ex test/parser/imgproxy/path_test.exs
 mise exec -- git commit -m "feat: parse imgproxy base64 source paths"
 ```
 
@@ -545,6 +537,7 @@ mise exec -- git commit -m "feat: parse imgproxy base64 source paths"
 ## Task 3: Full Imgproxy Parser Tests for Decoded Source Translation
 
 **Files:**
+- Change: `lib/image_plug/parser/imgproxy.ex`
 - Change: `test/parser/imgproxy_test.exs`
 - Test: `test/parser/imgproxy_test.exs`
 
@@ -707,9 +700,44 @@ test "signed encoded-source request verifies before decoding and parses correctl
 
   assert output.mode == {:explicit, :webp}
 end
+
+test "invalid signature fails before malformed encoded source is decoded" do
+  assert Imgproxy.parse(conn(:get, "/unsafe/not+base64"), signed_parser_opts()) ==
+           {:error, :invalid_signature}
+end
 ```
 
-- [ ] **Step 6: Run full parser tests and confirm they pass**
+- [ ] **Step 6: Run full parser tests and confirm they fail before integration**
+
+Run:
+
+```bash
+mise exec -- mix test test/parser/imgproxy_test.exs
+```
+
+Expected: FAIL because `ImagePlug.Parser.Imgproxy.parse_request/2` still expects the old `Path.split_source/1` return shape and still calls `Path.parse_plain_source/1` directly.
+
+- [ ] **Step 7: Update `ImagePlug.Parser.Imgproxy.parse_request/2`**
+
+In `lib/image_plug/parser/imgproxy.ex`, change the parser flow from:
+
+```elixir
+{:ok, option_segments, raw_source_path} <- Path.split_source(path_info),
+{:ok, request_options} <- Options.parse(option_segments, preset_config(opts)),
+{:ok, source_path, source_format} <- Path.parse_plain_source(raw_source_path) do
+```
+
+to:
+
+```elixir
+{:ok, option_segments, source_kind, raw_source_path} <- Path.split_source(path_info),
+{:ok, request_options} <- Options.parse(option_segments, preset_config(opts)),
+{:ok, source_path, source_format} <- Path.parse_source(source_kind, raw_source_path) do
+```
+
+Keep `parsed_request/4` unchanged so it sets `source_kind: :plain`.
+
+- [ ] **Step 8: Run full parser tests and confirm they pass**
 
 Run:
 
@@ -719,13 +747,13 @@ mise exec -- mix test test/parser/imgproxy_test.exs
 
 Expected: PASS.
 
-- [ ] **Step 7: Commit full parser tests**
+- [ ] **Step 9: Commit full parser integration tests and implementation**
 
 Run:
 
 ```bash
-mise exec -- git add test/parser/imgproxy_test.exs
-mise exec -- git commit -m "test: cover imgproxy encoded source parsing"
+mise exec -- git add lib/image_plug/parser/imgproxy.ex test/parser/imgproxy_test.exs
+mise exec -- git commit -m "feat: translate imgproxy encoded sources"
 ```
 
 ---
@@ -815,6 +843,27 @@ defp chunked_encoded_source(source) do
   first = binary_part(encoded, 0, first_size)
   second = binary_part(encoded, first_size, byte_size(encoded) - first_size)
   first <> "/" <> second
+end
+
+def handle_telemetry_event(event, measurements, metadata, test_pid) do
+  send(test_pid, {:telemetry_event, event, measurements, metadata})
+end
+
+defp attach_source_resolve_telemetry do
+  handler_id = {__MODULE__, self(), :source_resolve}
+
+  :telemetry.attach_many(
+    handler_id,
+    [
+      [:image_plug, :source, :resolve, :start],
+      [:image_plug, :source, :resolve, :stop],
+      [:image_plug, :source, :resolve, :exception]
+    ],
+    &__MODULE__.handle_telemetry_event/4,
+    self()
+  )
+
+  on_exit(fn -> :telemetry.detach(handler_id) end)
 end
 ```
 
@@ -913,6 +962,8 @@ Add this test near the existing "invalid signatures, paths, options, and expiry 
 
 ```elixir
 test "malformed encoded source stops before cache lookup and origin fetch" do
+  attach_source_resolve_telemetry()
+
   opts =
     Keyword.merge(@default_opts,
       cache: {CacheProbe, []},
@@ -927,6 +978,7 @@ test "malformed encoded source stops before cache lookup and origin fetch" do
     conn = call_imgproxy(path, opts)
 
     assert conn.status == 400
+    refute_received {:telemetry_event, [:image_plug, :source, :resolve, :start], _, _}
     refute_received {:cache_lookup, _key}
     refute_received {:cache_put, _key, _entry}
     refute_received :origin_fetch
@@ -940,6 +992,8 @@ Add this test near the malformed encoded source safety test:
 
 ```elixir
 test "unsupported decoded source scheme stops before cache lookup and origin fetch" do
+  attach_source_resolve_telemetry()
+
   encoded = encoded_source("ftp://example.com/cat.jpg")
 
   opts =
@@ -955,6 +1009,7 @@ test "unsupported decoded source scheme stops before cache lookup and origin fet
   conn = call_imgproxy("/_/#{encoded}", opts)
 
   assert conn.status == 400
+  refute_received {:telemetry_event, [:image_plug, :source, :resolve, :start], _, _}
   refute_received {:cache_lookup, _key}
   refute_received {:cache_put, _key, _entry}
   refute_received :origin_fetch
@@ -1021,8 +1076,9 @@ selection:
 
     /_/aW1hZ2VzL2NhdC5qcGc.webp
 
-Base64URL is only path encoding. It is reversible and doesn't hide the source
-URL from logs, signatures, caches, or upstream services.
+Base64URL is only path encoding. It is reversible; treat it as routing syntax,
+not a secrecy boundary. The received request path can still appear in request
+logs wherever the host application logs paths.
 ```
 
 - [ ] **Step 3: Add signing and unsupported preprocessing notes**
@@ -1042,7 +1098,7 @@ Base64URL values, and unsupported decoded source schemes fail before source
 identity resolution, cache lookup, or source fetch.
 ```
 
-- [ ] **Step 4: Update `docs/imgproxy_support_matrix.md` source rows**
+- [ ] **Step 4: Update `docs/imgproxy_support_matrix.md` support entries**
 
 In the source URL support table, replace the row:
 
@@ -1066,6 +1122,27 @@ Keep these rows as Missing if present:
 ```
 
 If the current table wording differs, preserve the existing row style but keep the same support statuses and exclusions.
+
+In the `URL rewriting and encoded-source filename behavior` section, update the
+status bullets so the section says:
+
+```markdown
+- ⚠️ Base64 encoded source URLs
+- ⭕ `IMGPROXY_BASE64_URL_INCLUDES_FILENAME`
+- ⭕ `IMGPROXY_BASE_URL`
+- ⭕ `IMGPROXY_URL_REPLACEMENTS`
+```
+
+Add a short note under that list:
+
+```markdown
+ImagePlug supports encoded source syntax and encoded `.extension` output
+suffixes. It doesn't support filename suffix mode, base URL prefixing, or URL
+replacements.
+```
+
+Keep encrypted `/enc/` source URL documented as missing wherever the support
+matrix represents encrypted sources.
 
 - [ ] **Step 5: Update output suffix notes**
 
@@ -1158,7 +1235,17 @@ mise exec -- vale docs/designs/2026-05-20-imgproxy-base64-source-url-design.md d
 
 Expected: PASS.
 
-- [ ] **Step 7: Inspect boundaries manually before final commit**
+- [ ] **Step 7: Run focused architecture boundary tests**
+
+Run:
+
+```bash
+mise exec -- mix test test/image_plug/architecture_boundary_test.exs
+```
+
+Expected: PASS.
+
+- [ ] **Step 8: Inspect boundaries manually before final commit**
 
 Run:
 
@@ -1172,7 +1259,7 @@ Expected:
 - Tests and docs contain the expected coverage.
 - No encoded source fields appear in `ImagePlug.Plan`, cache key implementation, transform modules, request runtime, response modules, or source adapters.
 
-- [ ] **Step 8: Commit any verification fixes**
+- [ ] **Step 9: Commit any verification fixes**
 
 If verification required fixes, commit only the changed implementation, test, or docs files:
 
@@ -1204,6 +1291,7 @@ Run these before marking issue #82 implemented:
 ```bash
 mise exec -- mix format --check-formatted
 mise exec -- mix test test/parser/imgproxy/path_test.exs test/parser/imgproxy_test.exs test/image_plug/cache/key_test.exs test/image_plug/imgproxy_wire_conformance_test.exs
+mise exec -- mix test test/image_plug/architecture_boundary_test.exs
 mise exec -- mix test
 mise exec -- mix compile --warnings-as-errors
 mise exec -- mix credo --strict
