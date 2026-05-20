@@ -1,7 +1,7 @@
 defmodule ImagePlug.Output.Resolved do
   @moduledoc false
 
-  @enforce_keys [:format, :quality, :representation_headers]
+  @enforce_keys [:format, :quality, :response_headers]
   defstruct @enforce_keys
 
   @type format :: ImagePlug.Format.output_format()
@@ -9,6 +9,6 @@ defmodule ImagePlug.Output.Resolved do
   @type t :: %__MODULE__{
           format: format(),
           quality: quality(),
-          representation_headers: [{String.t(), String.t()}]
+          response_headers: [{String.t(), String.t()}]
         }
 end

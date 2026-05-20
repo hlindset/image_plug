@@ -144,7 +144,7 @@ defmodule ImagePlug.Output.PolicyTest do
                %Resolved{
                  format: :png,
                  quality: :default,
-                 representation_headers: [{"vary", "Accept"}]
+                 response_headers: [{"vary", "Accept"}]
                }
     end
 
@@ -161,7 +161,7 @@ defmodule ImagePlug.Output.PolicyTest do
                %Resolved{
                  format: :jpeg,
                  quality: :default,
-                 representation_headers: [{"vary", "Accept"}]
+                 response_headers: [{"vary", "Accept"}]
                }
     end
 
@@ -178,14 +178,14 @@ defmodule ImagePlug.Output.PolicyTest do
                %Resolved{
                  format: :jpeg,
                  quality: {:quality, 82},
-                 representation_headers: [{"vary", "Accept"}]
+                 response_headers: [{"vary", "Accept"}]
                }
 
       assert Policy.resolve_final_image_alpha(policy, true) ==
                %Resolved{
                  format: :png,
                  quality: {:quality, 70},
-                 representation_headers: [{"vary", "Accept"}]
+                 response_headers: [{"vary", "Accept"}]
                }
     end
   end
@@ -205,7 +205,7 @@ defmodule ImagePlug.Output.PolicyTest do
                 %Resolved{
                   format: :webp,
                   quality: {:quality, 80},
-                  representation_headers: []
+                  response_headers: []
                 }}
     end
 
@@ -223,7 +223,7 @@ defmodule ImagePlug.Output.PolicyTest do
                 %Resolved{
                   format: :webp,
                   quality: {:quality, 70},
-                  representation_headers: []
+                  response_headers: []
                 }}
     end
   end

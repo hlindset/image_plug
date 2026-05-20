@@ -110,7 +110,7 @@ defmodule ImagePlug.Output.Policy do
     %Resolved{
       format: format,
       quality: effective_quality(policy, format),
-      representation_headers: policy.headers
+      response_headers: policy.headers
     }
   end
 

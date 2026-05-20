@@ -185,7 +185,7 @@ defmodule ImagePlug.Response.Sender do
       suffix = Format.suffix!(mime_type)
       stream = image_module.stream!(state.image, output_options(suffix, resolved_output))
 
-      case delivery_headers(resolved_output.representation_headers, response, mime_type) do
+      case delivery_headers(resolved_output.response_headers, response, mime_type) do
         {:ok, response_headers} ->
           send_encoded_stream(stream, conn, mime_type, response_headers)
 
@@ -195,7 +195,7 @@ defmodule ImagePlug.Response.Sender do
               delivery_error(reason),
               [],
               conn,
-              resolved_output.representation_headers
+              resolved_output.response_headers
             )
 
           {conn, :error}
@@ -207,7 +207,7 @@ defmodule ImagePlug.Response.Sender do
             exception,
             __STACKTRACE__,
             conn,
-            resolved_output.representation_headers
+            resolved_output.response_headers
           )
 
         {conn, :error}

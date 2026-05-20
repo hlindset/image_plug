@@ -131,7 +131,7 @@ defmodule ImagePlug.Request.Runner do
     case encode_cache_entry(state, resolved_output, opts) do
       {:ok, output} ->
         output
-        |> cache_entry(resolved_output.representation_headers)
+        |> cache_entry(resolved_output.response_headers)
         |> put_cache_entry(key, opts)
 
       :too_large ->
@@ -227,20 +227,20 @@ defmodule ImagePlug.Request.Runner do
   defp process_source_with_output(plan, resolved_source, opts, %Resolved{} = resolved_output) do
     case Processor.process_source(plan, resolved_source, opts) do
       {:ok, final_state} ->
-        {:ok, final_state, resolved_output, resolved_output.representation_headers}
+        {:ok, final_state, resolved_output, resolved_output.response_headers}
 
       {:error, reason} ->
-        {:error, reason, resolved_output.representation_headers}
+        {:error, reason, resolved_output.response_headers}
     end
   end
 
   defp process_decoded_source_with_output(decoded, plan, opts, %Resolved{} = resolved_output) do
     case Processor.process_decoded_source(decoded, plan, opts) do
       {:ok, final_state} ->
-        {:ok, final_state, resolved_output, resolved_output.representation_headers}
+        {:ok, final_state, resolved_output, resolved_output.response_headers}
 
       {:error, reason} ->
-        {:error, reason, resolved_output.representation_headers}
+        {:error, reason, resolved_output.response_headers}
     end
   end
 
@@ -285,7 +285,7 @@ defmodule ImagePlug.Request.Runner do
             {resolved_output, output_stop_metadata(resolved_output, plan.output)}
           end)
 
-        {:ok, final_state, resolved_output, resolved_output.representation_headers}
+        {:ok, final_state, resolved_output, resolved_output.response_headers}
 
       {:error, reason} ->
         {:error, reason, policy.headers}

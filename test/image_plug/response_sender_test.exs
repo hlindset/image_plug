@@ -33,7 +33,7 @@ defmodule ImagePlug.Response.SenderTest do
     resolved = %ImagePlug.Output.Resolved{
       format: :webp,
       quality: :default,
-      representation_headers: []
+      response_headers: []
     }
 
     response = %Response{disposition: :inline, filename: "miss"}

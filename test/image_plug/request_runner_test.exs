@@ -222,8 +222,7 @@ defmodule ImagePlug.Request.RunnerTest do
     require_tiff_support!()
 
     assert {:ok,
-            {:image, %State{},
-             %Resolved{format: :jpeg, representation_headers: [{"vary", "Accept"}]},
+            {:image, %State{}, %Resolved{format: :jpeg, response_headers: [{"vary", "Accept"}]},
              %ImagePlug.Plan.Response{}}} =
              Runner.run(
                conn(:get, "/_/plain/images/source.tiff"),
@@ -237,8 +236,7 @@ defmodule ImagePlug.Request.RunnerTest do
     require_tiff_support!()
 
     assert {:ok,
-            {:image, %State{},
-             %Resolved{format: :png, representation_headers: [{"vary", "Accept"}]},
+            {:image, %State{}, %Resolved{format: :png, response_headers: [{"vary", "Accept"}]},
              %ImagePlug.Plan.Response{}}} =
              Runner.run(
                conn(:get, "/_/plain/images/source.tiff"),
@@ -259,7 +257,7 @@ defmodule ImagePlug.Request.RunnerTest do
 
     assert {:ok,
             {:image, %State{} = state,
-             %Resolved{format: :jpeg, representation_headers: [{"vary", "Accept"}]},
+             %Resolved{format: :jpeg, response_headers: [{"vary", "Accept"}]},
              %ImagePlug.Plan.Response{}}} =
              Runner.run(
                conn(:get, "/_/bg:fff/plain/images/source.tiff"),
@@ -280,8 +278,7 @@ defmodule ImagePlug.Request.RunnerTest do
       |> Plug.Conn.put_req_header("accept", "image/webp")
 
     assert {:ok,
-            {:image, %State{},
-             %Resolved{format: :webp, representation_headers: [{"vary", "Accept"}]},
+            {:image, %State{}, %Resolved{format: :webp, response_headers: [{"vary", "Accept"}]},
              %ImagePlug.Plan.Response{}}} =
              Runner.run(
                conn,
@@ -570,7 +567,7 @@ defmodule ImagePlug.Request.RunnerTest do
 
     assert {:ok,
             {:image, %State{} = state,
-             %Resolved{format: :jpeg, quality: :default, representation_headers: []},
+             %Resolved{format: :jpeg, quality: :default, response_headers: []},
              %ImagePlug.Plan.Response{}}} =
              Runner.run(
                conn(:get, "/_/f:jpeg/plain/images/beach.jpg"),
@@ -595,7 +592,7 @@ defmodule ImagePlug.Request.RunnerTest do
 
     assert {:ok,
             {:image, %State{},
-             %Resolved{format: :webp, quality: {:quality, 70}, representation_headers: []},
+             %Resolved{format: :webp, quality: {:quality, 70}, response_headers: []},
              %ImagePlug.Plan.Response{}}} =
              Runner.run(
                conn(:get, "/_/f:webp/fq:webp:70/plain/images/beach.jpg"),
