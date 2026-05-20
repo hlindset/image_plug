@@ -170,7 +170,9 @@ defmodule ImagePlug.Response.Sender do
   end
 
   defp stream_encoded_image(conn, state, %Resolved{} = resolved_output, response, opts) do
-    Telemetry.span(opts, [:encode], output_metadata(resolved_output), fn ->
+    telemetry_opts = Telemetry.telemetry_opts(opts)
+
+    Telemetry.span(telemetry_opts, [:encode], output_metadata(resolved_output), fn ->
       {conn, outcome} = do_stream_encoded_image(conn, state, resolved_output, response, opts)
 
       {conn, encode_stop_metadata(outcome, conn, resolved_output)}

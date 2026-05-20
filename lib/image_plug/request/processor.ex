@@ -30,7 +30,9 @@ defmodule ImagePlug.Request.Processor do
         %Source.Resolved{} = resolved_source,
         opts
       ) do
-    Telemetry.span(opts, [:source, :fetch_decode], %{}, fn ->
+    telemetry_opts = Telemetry.telemetry_opts(opts)
+
+    Telemetry.span(telemetry_opts, [:source, :fetch_decode], %{}, fn ->
       result =
         with {:ok, %Source.Response{} = source_response} <-
                Source.fetch(resolved_source, opts, Options.source_runtime_opts(opts)) do
@@ -63,7 +65,7 @@ defmodule ImagePlug.Request.Processor do
   @spec process_decoded_source(Decoded.t(), Plan.t(), keyword()) ::
           {:ok, State.t()} | {:error, term()}
   def process_decoded_source(%Decoded{} = decoded, %Plan{} = plan, opts) do
-    Telemetry.span(opts, [:transform, :execute], %{}, fn ->
+    Telemetry.span(Telemetry.telemetry_opts(opts), [:transform, :execute], %{}, fn ->
       result =
         with {:ok, final_state} <-
                execute_plan_pipelines(%State{image: decoded.image}, plan, opts) do

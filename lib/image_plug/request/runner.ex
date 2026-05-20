@@ -56,8 +56,10 @@ defmodule ImagePlug.Request.Runner do
     do: process_uncached(conn, plan, resolved_source, opts)
 
   defp run_with_cache_config(conn, plan, %Source.Resolved{cache: :normal} = resolved_source, opts) do
+    telemetry_opts = Telemetry.telemetry_opts(opts)
+
     result =
-      Telemetry.span(opts, [:cache, :lookup], cache_lookup_metadata(opts), fn ->
+      Telemetry.span(telemetry_opts, [:cache, :lookup], cache_lookup_metadata(opts), fn ->
         result =
           case Keyword.get(opts, :cache) do
             nil -> :disabled
@@ -143,16 +145,21 @@ defmodule ImagePlug.Request.Runner do
   end
 
   defp encode_cache_entry(%State{} = state, %Resolved{} = resolved_output, opts) do
-    Telemetry.span(opts, [:encode], output_metadata(resolved_output), fn ->
-      result =
-        Encoder.memory_output(
-          state.image,
-          resolved_output,
-          Keyword.put(opts, :max_body_bytes, Cache.max_body_bytes(opts))
-        )
+    Telemetry.span(
+      Telemetry.telemetry_opts(opts),
+      [:encode],
+      output_metadata(resolved_output),
+      fn ->
+        result =
+          Encoder.memory_output(
+            state.image,
+            resolved_output,
+            Keyword.put(opts, :max_body_bytes, Cache.max_body_bytes(opts))
+          )
 
-      {result, encode_stop_metadata(result, resolved_output)}
-    end)
+        {result, encode_stop_metadata(result, resolved_output)}
+      end
+    )
   end
 
   defp cache_entry(output, response_headers) do
@@ -168,7 +175,7 @@ defmodule ImagePlug.Request.Runner do
   end
 
   defp put_cache_entry({:ok, entry}, key, opts) do
-    Telemetry.span(opts, [:cache, :write], %{}, fn ->
+    Telemetry.span(Telemetry.telemetry_opts(opts), [:cache, :write], %{}, fn ->
       result = Cache.put(key, entry, opts)
 
       {result, cache_write_stop_metadata(result)}
@@ -279,11 +286,16 @@ defmodule ImagePlug.Request.Runner do
         has_alpha? = Image.has_alpha?(final_state.image)
 
         resolved_output =
-          Telemetry.span(opts, [:output, :negotiate], output_plan_metadata(plan.output), fn ->
-            resolved_output = Policy.resolve_final_image_alpha(policy, has_alpha?)
+          Telemetry.span(
+            Telemetry.telemetry_opts(opts),
+            [:output, :negotiate],
+            output_plan_metadata(plan.output),
+            fn ->
+              resolved_output = Policy.resolve_final_image_alpha(policy, has_alpha?)
 
-            {resolved_output, output_stop_metadata(resolved_output, plan.output)}
-          end)
+              {resolved_output, output_stop_metadata(resolved_output, plan.output)}
+            end
+          )
 
         {:ok, final_state, resolved_output, resolved_output.response_headers}
 
@@ -293,11 +305,16 @@ defmodule ImagePlug.Request.Runner do
   end
 
   defp resolve_output(policy, source_format, %Output{} = output, opts) do
-    Telemetry.span(opts, [:output, :negotiate], output_plan_metadata(output), fn ->
-      result = Policy.resolve(policy, source_format)
+    Telemetry.span(
+      Telemetry.telemetry_opts(opts),
+      [:output, :negotiate],
+      output_plan_metadata(output),
+      fn ->
+        result = Policy.resolve(policy, source_format)
 
-      {result, output_stop_metadata(result, output)}
-    end)
+        {result, output_stop_metadata(result, output)}
+      end
+    )
   end
 
   defp cache_lookup_metadata(opts) do
