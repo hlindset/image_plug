@@ -46,9 +46,11 @@ secrecy boundary. The received request path can still appear in request logs
 wherever the host application logs paths.
 
 ImagePlug preserves existing no-argument option parsing before encoded sources
-and existing `plain` marker precedence. Avoid splitting encoded sources so the
-first source chunk is exactly `plain`, `enc`, `-`, `ar`, `auto_rotate`, `fl`,
-`flip`, `preset`, or `pr`.
+and existing `plain` marker precedence. Any raw path segment named `plain`
+starts a plain source before encoded-source detection. Avoid splitting encoded
+sources so any chunk is exactly `plain`. Also avoid making the first source
+chunk exactly `enc`, `-`, `ar`, `auto_rotate`, `fl`, `flip`, `preset`, or
+`pr`.
 
 Signature verification uses the received fixed path before Base64 decoding. For
 signed URLs, sign the encoded path and suffix exactly as sent after Imgproxy

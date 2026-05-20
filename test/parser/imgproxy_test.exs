@@ -290,6 +290,13 @@ defmodule ImagePlug.Parser.ImgproxyTest do
                Imgproxy.parse(conn(:get, "/_/#{encoded}"), [])
     end
 
+    test "decoded local URL becomes a path plan source" do
+      encoded = encoded_source("local:///images/cat.jpg")
+
+      assert {:ok, %Plan{source: %Source.Path{segments: ["images", "cat.jpg"]}}} =
+               Imgproxy.parse(conn(:get, "/_/#{encoded}"), [])
+    end
+
     test "decoded HTTP URL with query becomes a URL plan source" do
       encoded = encoded_source("http://example.com/images/cat.jpg?size=large")
 

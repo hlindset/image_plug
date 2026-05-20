@@ -18,7 +18,7 @@ source fetch or cache lookup. ImagePlug doesn't ignore them.
 | 🧩 Host-owned | Plug, router, or web-server configuration can provide this behavior outside ImagePlug. |
 | 🚫 Rejected | Recognized or intentionally documented as unsupported, returning an error before side effects. |
 | ⭕ Missing | Not implemented in the current parser/plan/runtime surface. |
-| 🛑 Out of scope | Excluded for now; currently only video-related features use this status. |
+| 🛑 Out of scope | Excluded from ImagePlug's library surface or delegated to host/runtime ownership. |
 
 ## Configuration options
 
@@ -281,7 +281,8 @@ handling, HDR preservation, and thumbnail-source selection aren't configurable.
 
 ### Input and output safety limits
 
-ImagePlug has `max_body_bytes` for source and output byte limits and
+ImagePlug uses `max_body_bytes` to cap fetched source bodies and to decide
+whether successful responses are small enough to cache. It uses
 `max_input_pixels` for decoded image size. It doesn't expose Imgproxy's
 animation, SVG, PNG, or max-result-dimension policy.
 
@@ -426,7 +427,7 @@ entrypoint, license checks, or deprecation handling.
 | Plain source URLs via `/plain/` | Supported | ImagePlug translates the value into configured source adapters for local paths, HTTP and HTTPS URLs, S3-compatible object sources, and configured custom schemes. |
 | Plain source `@extension` | Supported | Requests explicit output format and bypasses `Accept` negotiation. It doesn't declare source format. |
 | Base64 encoded source URL | Partial | ImagePlug supports Imgproxy encoded source syntax and `.extension` output suffixes. It doesn't support filename suffix mode, base URL prefixing, or URL replacements. |
-| Encrypted `/enc/` source URL | Missing | Pro feature. Requires source decryption and signed URL safety. |
+| Encrypted `/enc/` source URL | Missing | Not implemented. The parser rejects the marker before source identity resolution, cache lookup, or source fetch instead of treating it as an encoded source. |
 | AES-CBC source URL encryption helpers | Missing | Should remain parser/runtime source-layer support, not transform support. |
 | Custom argument separator | Missing | Parser currently uses `:`. |
 | Processing option order independence | Supported | URL option order doesn't define transform order. |

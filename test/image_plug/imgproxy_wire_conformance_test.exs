@@ -215,6 +215,7 @@ defmodule ImagePlug.ImgproxyWireConformanceTest do
 
   test "malformed encoded source stops before cache lookup and origin fetch" do
     telemetry_prefix = [:image_plug_wire_safety]
+    source_resolve_start = telemetry_prefix ++ [:source, :resolve, :start]
 
     attach_source_resolve_telemetry(telemetry_prefix)
 
@@ -233,7 +234,7 @@ defmodule ImagePlug.ImgproxyWireConformanceTest do
       conn = call_imgproxy(path, opts)
 
       assert conn.status == 400
-      refute_received {:telemetry_event, [:image_plug, :source, :resolve, :start], _, _}
+      refute_received {:telemetry_event, ^source_resolve_start, _, _}
       refute_received {:cache_lookup, _key}
       refute_received {:cache_put, _key, _entry}
       refute_received :origin_fetch
@@ -242,6 +243,7 @@ defmodule ImagePlug.ImgproxyWireConformanceTest do
 
   test "unsupported decoded source scheme stops before cache lookup and origin fetch" do
     telemetry_prefix = [:image_plug_wire_safety]
+    source_resolve_start = telemetry_prefix ++ [:source, :resolve, :start]
 
     attach_source_resolve_telemetry(telemetry_prefix)
 
@@ -261,7 +263,7 @@ defmodule ImagePlug.ImgproxyWireConformanceTest do
     conn = call_imgproxy("/_/#{encoded}", opts)
 
     assert conn.status == 400
-    refute_received {:telemetry_event, [:image_plug, :source, :resolve, :start], _, _}
+    refute_received {:telemetry_event, ^source_resolve_start, _, _}
     refute_received {:cache_lookup, _key}
     refute_received {:cache_put, _key, _entry}
     refute_received :origin_fetch
@@ -269,6 +271,7 @@ defmodule ImagePlug.ImgproxyWireConformanceTest do
 
   test "encrypted source marker stops before cache lookup and origin fetch" do
     telemetry_prefix = [:image_plug_wire_safety]
+    source_resolve_start = telemetry_prefix ++ [:source, :resolve, :start]
 
     attach_source_resolve_telemetry(telemetry_prefix)
 
@@ -286,7 +289,7 @@ defmodule ImagePlug.ImgproxyWireConformanceTest do
     conn = call_imgproxy("/_/enc/payload", opts)
 
     assert conn.status == 400
-    refute_received {:telemetry_event, [:image_plug, :source, :resolve, :start], _, _}
+    refute_received {:telemetry_event, ^source_resolve_start, _, _}
     refute_received {:cache_lookup, _key}
     refute_received {:cache_put, _key, _entry}
     refute_received :origin_fetch
