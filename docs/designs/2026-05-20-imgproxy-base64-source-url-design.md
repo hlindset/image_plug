@@ -2,13 +2,17 @@
 
 ## Goal
 
-Add Imgproxy-compatible Base64 source URL parsing to `ImagePlug.Parser.Imgproxy`.
+Add Base64 source URL parsing to `ImagePlug.Parser.Imgproxy` for
+[issue #82](https://github.com/hlindset/image_plug/issues/82).
 
 The parser should accept encoded source URLs in Imgproxy processing paths, decode
 them inside the Imgproxy compatibility boundary, and pass the decoded source
 string through the existing source translator. The decoded source must not change
 `ImagePlug.Plan`, cache key material, transform modules, request runtime, or
 source adapter contracts.
+
+This design covers Imgproxy's encoded source syntax, not every upstream source
+preprocessing option that can run after decoding.
 
 ## Current Behavior
 
@@ -72,10 +76,10 @@ This change should support two source forms:
 /<signature>/<options>/<encoded-source>[.<extension>]
 ```
 
-Plain source parsing stays unchanged. Encoded source parsing starts at the first
-path segment that's not an option segment. In the existing parser, option
-segments contain `:` after preset expansion and option name parsing rules.
-Encoded source segments normally don't.
+Plain source parsing stays unchanged. Encoded source parsing starts after the
+parser consumes all leading Imgproxy option segments. Source detection must use
+the Imgproxy option grammar, not a simple `:` check, because ImagePlug already
+supports option segments without `:` such as `ar`, `fl`, and `-`.
 
 Examples:
 
@@ -118,13 +122,28 @@ This keeps option splitting and source decoding in separate test surfaces.
 
 Detection rules:
 
-- If a `plain` segment exists, treat it as the source marker exactly as today.
-- If no `plain` segment exists, split at the first segment that doesn't contain
-  `:`.
-- If no source segment exists, return `{:error, :missing_source_kind}` or the
-  closest existing error for the path shape.
-- If the encoded source starts with `enc`, return an explicit unsupported
-  encrypted-source error before any source side effects.
+- Walk path segments from left to right and classify each segment with
+  Imgproxy parser-owned option rules.
+- Treat `-` as a pipeline separator option segment.
+- Treat supported no-argument options such as `ar` and `fl` as option segments.
+- Stop at the first segment that isn't a supported option segment. That segment
+  begins the raw source segment list.
+- If the first raw source segment is `plain`, parse the remaining segments as a
+  plain source. Later `plain` segments in an encoded source remain encoded
+  chunks.
+- If the first raw source segment is exactly `enc`, return an explicit
+  unsupported encrypted-source error before any source side effects.
+- Otherwise parse all raw source segments as encoded source chunks.
+- If no raw source segment exists, return `{:error, :missing_source_kind}` or
+  the closest existing error for the path shape.
+
+This preserves ImagePlug's existing support for `ar`, `fl`, and `-` before
+encoded sources. Upstream imgproxy's encoded URL option splitter is narrower:
+it treats the first segment without the argument separator as the source.
+
+If a Base64 source begins with a chunk that matches a supported option name
+without `:`, clients can choose a different chunk boundary. They can also leave
+the encoded value as one segment at that point.
 
 The parser should keep `source_kind: :plain` in
 `%ImagePlug.Parser.Imgproxy.ParsedRequest{}` after decoding. Encoded syntax is a
@@ -142,7 +161,8 @@ Encoded source parsing should:
 - accept a trailing `.` with no extension and no explicit output format
 - trim trailing `=` before decoding
 - decode with `Base.url_decode64(value, padding: false)`
-- reject standard Base64 alphabet characters that `Base.url_decode64/2` rejects
+- reject `+` and other invalid Base64URL characters
+- treat `/` only as a chunk separator, not as Base64 data
 - reject decoded bytes that aren't valid UTF-8
 
 Error examples:
@@ -178,6 +198,9 @@ That reuses existing behavior:
 No transform, cache, request, response, or source adapter code should know that
 the original request used encoded source syntax.
 
+Unsupported decoded source schemes should fail before source identity
+resolution, cache lookup, or source fetch, matching issue #82.
+
 ## Signing
 
 Signature verification must continue to run before Base64 decoding.
@@ -189,8 +212,11 @@ for signature verification.
 
 The existing public docs vector in `test/parser/imgproxy/signature_test.exs`
 already proves that the signature primitive accepts an encoded-source signed
-path. Add one full parser test that uses that vector through
-`ImagePlug.Parser.Imgproxy.parse/2` after encoded source parsing is available.
+path. Don't reuse that vector as a parser success test because it contains
+`g:sm`, and ImagePlug currently rejects smart gravity during plan construction.
+Add a new signed parser success vector with supported options, or add a parser
+test that uses the public vector and expects `{:error, {:unsupported_gravity,
+:sm}}` after signature verification.
 
 ## Request Safety
 
@@ -206,8 +232,9 @@ This follows the current parser safety boundary for invalid signatures, missing
 source markers, invalid options, expired requests, and malformed plain source
 URI escapes.
 
-Wire-level tests should use the existing `CacheProbe` and
-`OriginShouldNotFetch` helpers to prove this boundary.
+Wire-level tests should use the existing `CacheProbe`,
+`OriginShouldNotFetch`, and custom-source helpers to prove this boundary for
+malformed Base64URL input and unsupported decoded schemes.
 
 ## Documentation Updates
 
@@ -222,7 +249,9 @@ Update `docs/imgproxy_path_api.md`:
 
 Update `docs/imgproxy_support_matrix.md`:
 
-- mark Base64 encoded source URL as supported
+- mark Base64 encoded source URL as partial or supported with an explicit note
+  that ImagePlug supports encoded source syntax but not filename suffix mode,
+  base URL prefixing, or URL replacements
 - keep encrypted `/enc/` source URL missing
 - keep `IMGPROXY_BASE64_URL_INCLUDES_FILENAME`,
   `IMGPROXY_BASE_URL`, and `IMGPROXY_URL_REPLACEMENTS` missing
@@ -233,12 +262,20 @@ Update `docs/imgproxy_support_matrix.md`:
 Parser path tests in `test/parser/imgproxy/path_test.exs`:
 
 - splits option segments from encoded source segments
+- keeps later encoded chunks named `plain` as chunks, not as a source marker
+- treats `/enc/...` as unsupported only when the first raw source segment is
+  exactly `enc`
+- decodes a source whose first encoded chunk merely starts with `enc`
+- handles encoded sources after options without `:` such as `ar` and `fl`
+- handles encoded sources after `-` pipeline separators
 - joins encoded chunks without `/`
 - parses `.webp`, `.avif`, `.jpg`, `.jpeg`, `.png`, and `.best`
 - accepts Base64URL without padding
 - accepts padded Base64URL by trimming trailing `=`
 - rejects empty encoded source
 - rejects invalid Base64URL input
+- rejects `+` and invalid characters, but doesn't treat `/` as a Base64
+  alphabet character because it's the chunk separator
 - rejects decoded non-UTF-8 bytes
 - rejects repeated `.` extension separators
 - rejects unknown encoded-source output formats
@@ -248,13 +285,21 @@ Full parser tests in `test/parser/imgproxy_test.exs`:
 
 - decoded path source becomes `ImagePlug.Plan.Source.Path`
 - decoded HTTP URL with query becomes `ImagePlug.Plan.Source.URL`
+- decoded HTTPS URL becomes `ImagePlug.Plan.Source.URL`
 - decoded S3 URL with query revision becomes `ImagePlug.Plan.Source.Object`
 - decoded custom scheme reaches the configured source scheme translator
+- unsupported decoded schemes fail before cache or source side effects
+- encoded `.webp` overrides `f:jpeg`, matching plain suffix precedence
+- encoded trailing `.` produces no explicit output format
+- encoded `.best` reaches the same planner behavior as plain `@best`
 - signed encoded-source request verifies before decoding and parses correctly
 
 Wire tests in `test/image_plug/imgproxy_wire_conformance_test.exs`:
 
 - encoded path source succeeds through a real `ImagePlug.call/2` request
+- plain and matching encoded requests share the same cache entry
+- whole, chunked, and padded encoded spellings share the same cache entry
+- encoded `.webp` bypasses `Accept` negotiation and doesn't set `Vary`
 - malformed encoded source returns `400`
 - malformed encoded source emits no cache lookup
 - malformed encoded source emits no origin fetch
