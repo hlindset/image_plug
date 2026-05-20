@@ -14,6 +14,7 @@ For a feature-by-feature comparison with Imgproxy's processing URL surface, see
 The general shape is:
 
     /<signature>/option[:arg...]/option[:arg...]/plain/path/to/image[@extension]
+    /<signature>/option[:arg...]/option[:arg...]/<base64-url>[.<extension>]
 
 ImagePlug verifies the signature segment first. Unsigned development URLs must
 use `_` or `unsafe`. Signed URLs must use a valid configured HMAC or trusted
@@ -26,6 +27,39 @@ normalization for encoded option separators and plain URL schemes.
 to request an explicit output format and bypass `Accept` negotiation. The suffix
 doesn't declare the source image format. ImagePlug still detects the source
 family from decoded image metadata.
+
+Without `plain`, ImagePlug treats the remaining path segments as an Imgproxy
+Base64URL source value. It joins those segments without `/`, trims trailing
+`=`, decodes URL-safe Base64, and passes the decoded string through the same
+source translation used by plain sources. A decoded `images/cat.jpg`,
+`local:///images/cat.jpg`, `https://example.com/cat.jpg`, `s3://bucket/key`, or
+configured custom scheme produces the same `ImagePlug.Plan` source as the
+matching plain request.
+
+Encoded sources use `.extension`, not `@extension`, for explicit output format
+selection:
+
+    /_/aW1hZ2VzL2NhdC5qcGc.webp
+
+Base64URL is reversible path encoding. Treat it as routing syntax, not a
+secrecy boundary. The received request path can still appear in request logs
+wherever the host application logs paths.
+
+ImagePlug preserves existing no-argument option parsing before encoded sources
+and existing `plain` marker precedence. Avoid splitting encoded sources so the
+first source chunk is exactly `plain`, `enc`, `-`, `ar`, `auto_rotate`, `fl`,
+`flip`, `preset`, or `pr`.
+
+Signature verification uses the received fixed path before Base64 decoding. For
+signed URLs, sign the encoded path and suffix exactly as sent after Imgproxy
+`fixPath` normalization.
+
+ImagePlug doesn't support encrypted `/enc/<encrypted-source>[.<extension>]`
+source URLs. It also doesn't build Imgproxy source preprocessing controlled by
+`IMGPROXY_BASE64_URL_INCLUDES_FILENAME`, `IMGPROXY_BASE_URL`, or
+`IMGPROXY_URL_REPLACEMENTS`. Requests for encrypted sources, malformed
+Base64URL values, and unsupported decoded source schemes fail before source
+identity resolution, cache lookup, or source fetch.
 
 ## Pipeline groups
 
@@ -141,6 +175,7 @@ Remaining queued groups become trailing pipelines.
 | Attachment disposition | `return_attachment`, `att` | boolean |
 | Preset | `preset`, `pr` | one or more configured preset names |
 | Plain source output extension | source path `@extension` | `webp`, `avif`, `jpeg`/`jpg`, `png` |
+| Encoded source output extension | source path `.extension` | `webp`, `avif`, `jpeg`/`jpg`, `png` |
 
 ## Resize and dimensions
 
@@ -281,13 +316,15 @@ Composition order is canvas extension, padding, then `background`.
 
 When a request omits an explicit output format, ImagePlug negotiates the output
 from `Accept` and sets `Vary: Accept`. To force a format, use `format`, `f`,
-`ext`, or put `@extension` at the end of the plain-source path. Forced formats
-bypass `Accept` negotiation and don't set `Vary: Accept`.
+`ext`, put `@extension` at the end of a plain-source path, or put `.extension`
+at the end of an encoded-source path. Forced formats bypass `Accept`
+negotiation and don't set `Vary: Accept`.
 
 ImagePlug supports `webp`, `avif`, `jpeg`/`jpg`, and `png` as explicit output
-extensions. If a request includes both an option format and source-path
-`@extension`, `@extension` wins because the imgproxy parser treats it as the
-final requested output format.
+extensions. If a request includes both an option format and a source-path
+suffix, the source-path suffix wins because the imgproxy parser treats it as
+the final requested output format. Plain sources use `@extension`. Encoded
+sources use `.extension`.
 
 Quality has two separate controls: `quality`/`q` sets generic output quality,
 while `format_quality`/`fq` sets quality for one explicit format. In either
