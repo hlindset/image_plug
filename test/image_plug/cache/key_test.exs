@@ -45,6 +45,10 @@ defmodule ImagePlug.Cache.KeyTest do
     key
   end
 
+  defp encoded_source(source) do
+    Base.url_encode64(source, padding: false)
+  end
+
   defp plan_with_resize_auto do
     plan(pipelines: [%Pipeline{operations: [resize_auto_operation(300, 200)]}])
   end
@@ -180,6 +184,26 @@ defmodule ImagePlug.Cache.KeyTest do
 
     assert key_one.data[:source_identity] == source_identity()
     assert key_one.hash == key_two.hash
+  end
+
+  test "imgproxy encoded source spelling does not enter cache key data" do
+    encoded = encoded_source("images/cat.jpg")
+
+    plain_conn = conn(:get, "/_/plain/images/cat.jpg")
+    encoded_conn = conn(:get, "/_/#{encoded}")
+
+    assert {:ok, plain_plan} = Imgproxy.parse(plain_conn, [])
+    assert {:ok, encoded_plan} = Imgproxy.parse(encoded_conn, [])
+
+    identity = [kind: :path, adapter: :path, root: "default", path: ["images", "cat.jpg"]]
+
+    plain_key = build_key!(plain_conn, plain_plan, identity)
+    encoded_key = build_key!(encoded_conn, encoded_plan, identity)
+
+    assert plain_plan == encoded_plan
+    assert plain_key.hash == encoded_key.hash
+    assert plain_key.data == encoded_key.data
+    refute inspect(encoded_key.data) =~ encoded
   end
 
   test "resolved source identity, not raw plan source spelling, drives source cache material" do
