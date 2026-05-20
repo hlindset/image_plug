@@ -24,7 +24,7 @@ defmodule ImagePlug.Parser.Imgproxy.PathTest do
 
   test "splits option segments from plain source marker" do
     assert Path.split_source(["w:100", "plain", "images", "cat.jpg"]) ==
-             {:ok, ["w:100"], ["images", "cat.jpg"]}
+             {:ok, ["w:100"], :plain, ["images", "cat.jpg"]}
   end
 
   test "keeps raw encoded at-signs in source before parsing extension suffix" do
@@ -99,12 +99,84 @@ defmodule ImagePlug.Parser.Imgproxy.PathTest do
 
     test "splits empty options when plain is first" do
       assert Path.split_source(["plain", "images", "cat.jpg"]) ==
-               {:ok, [], ["images", "cat.jpg"]}
+               {:ok, [], :plain, ["images", "cat.jpg"]}
     end
 
     test "stops at the first plain marker" do
       assert Path.split_source(["plain", "plain", "cat.jpg"]) ==
-               {:ok, [], ["plain", "cat.jpg"]}
+               {:ok, [], :plain, ["plain", "cat.jpg"]}
+    end
+  end
+
+  describe "split_source with encoded sources" do
+    test "splits option segments from encoded source segments" do
+      encoded = encoded_source("images/cat.jpg")
+
+      assert Path.split_source(["w:100", "h:200", encoded]) ==
+               {:ok, ["w:100", "h:200"], :encoded, [encoded]}
+    end
+
+    test "splits chunked encoded source segments" do
+      encoded = encoded_source("http://example.com/images/cat.jpg")
+      [first, second] = chunked(encoded, 12)
+
+      assert Path.split_source(["rs:fit:300:400", first, second]) ==
+               {:ok, ["rs:fit:300:400"], :encoded, [first, second]}
+    end
+
+    test "uses the first plain marker before encoded-source detection" do
+      encoded = encoded_source("images/cat.jpg")
+
+      assert Path.split_source(["w:100", "plain", encoded]) ==
+               {:ok, ["w:100"], :plain, [encoded]}
+    end
+
+    test "plain marker takes precedence over encoded-source detection" do
+      encoded = encoded_source("images/cat.jpg")
+      [first, second] = chunked(encoded, 8)
+
+      assert Path.split_source(["w:100", first, "plain", second]) ==
+               {:ok, ["w:100", first], :plain, [second]}
+    end
+
+    test "keeps no-argument options before encoded sources" do
+      encoded = encoded_source("images/cat.jpg")
+
+      assert Path.split_source(["ar", "fl", encoded]) ==
+               {:ok, ["ar", "fl"], :encoded, [encoded]}
+    end
+
+    test "keeps pipeline separators before encoded sources" do
+      encoded = encoded_source("images/cat.jpg")
+
+      assert Path.split_source(["w:100", "-", "h:200", encoded]) ==
+               {:ok, ["w:100", "-", "h:200"], :encoded, [encoded]}
+    end
+
+    test "does not classify bare option aliases as options before encoded sources" do
+      assert Path.split_source(["w", "abc"]) ==
+               {:ok, [], :encoded, ["w", "abc"]}
+    end
+
+    test "keeps bare preset names as options so Options.parse returns the existing error" do
+      assert Path.split_source(["preset", encoded_source("images/cat.jpg")]) ==
+               {:ok, ["preset"], :encoded, [encoded_source("images/cat.jpg")]}
+
+      assert Path.split_source(["pr", encoded_source("images/cat.jpg")]) ==
+               {:ok, ["pr"], :encoded, [encoded_source("images/cat.jpg")]}
+    end
+
+    test "rejects encrypted source marker only when first raw source segment is exactly enc" do
+      assert Path.split_source(["enc", "payload"]) == {:error, {:unsupported_source_kind, "enc"}}
+
+      assert Path.split_source(["encA"]) == {:ok, [], :encoded, ["encA"]}
+    end
+
+    test "preserves existing missing source errors" do
+      assert Path.split_source(["w:100", "h:200"]) == {:error, :missing_source_kind}
+
+      assert Path.split_source(["w:100", "plain"]) ==
+               {:error, {:missing_source_identifier, "plain"}}
     end
   end
 
@@ -144,5 +216,111 @@ defmodule ImagePlug.Parser.Imgproxy.PathTest do
       assert Path.parse_plain_source(["images", "cat%20dog.jpg"]) ==
                {:ok, "images/cat%20dog.jpg", nil}
     end
+  end
+
+  describe "parse_source with encoded sources" do
+    test "decodes unpadded URL-safe Base64 source" do
+      encoded = encoded_source("images/cat.jpg")
+
+      assert Path.parse_source(:encoded, [encoded]) ==
+               {:ok, "images/cat.jpg", nil}
+    end
+
+    test "decodes padded URL-safe Base64 source by trimming trailing padding" do
+      encoded = encoded_source("images/cat.jpg", padding: true)
+
+      assert Path.parse_source(:encoded, [encoded]) ==
+               {:ok, "images/cat.jpg", nil}
+    end
+
+    test "joins encoded chunks without slashes" do
+      encoded = encoded_source("http://example.com/images/cat.jpg")
+      [first, second] = chunked(encoded, 12)
+
+      assert Path.parse_source(:encoded, [first, second]) ==
+               {:ok, "http://example.com/images/cat.jpg", nil}
+    end
+
+    test "parses encoded output extension suffixes" do
+      encoded = encoded_source("images/cat.jpg")
+
+      assert Path.parse_source(:encoded, [encoded <> ".webp"]) ==
+               {:ok, "images/cat.jpg", :webp}
+
+      assert Path.parse_source(:encoded, [encoded <> ".avif"]) ==
+               {:ok, "images/cat.jpg", :avif}
+
+      assert Path.parse_source(:encoded, [encoded <> ".jpg"]) ==
+               {:ok, "images/cat.jpg", :jpeg}
+
+      assert Path.parse_source(:encoded, [encoded <> ".jpeg"]) ==
+               {:ok, "images/cat.jpg", :jpeg}
+
+      assert Path.parse_source(:encoded, [encoded <> ".png"]) ==
+               {:ok, "images/cat.jpg", :png}
+
+      assert Path.parse_source(:encoded, [encoded <> ".best"]) ==
+               {:ok, "images/cat.jpg", :best}
+    end
+
+    test "allows a trailing encoded output separator without an extension" do
+      encoded = encoded_source("images/cat.jpg")
+
+      assert Path.parse_source(:encoded, [encoded <> "."]) ==
+               {:ok, "images/cat.jpg", nil}
+    end
+
+    test "rejects empty encoded source identifiers" do
+      assert Path.parse_source(:encoded, [""]) ==
+               {:error, {:missing_source_identifier, "encoded"}}
+
+      assert Path.parse_source(:encoded, [".webp"]) ==
+               {:error, {:missing_source_identifier, "encoded"}}
+    end
+
+    test "rejects invalid encoded source alphabet and length" do
+      assert Path.parse_source(:encoded, ["not+base64"]) ==
+               {:error, {:invalid_encoded_source, :base64}}
+
+      assert Path.parse_source(:encoded, ["abcde"]) ==
+               {:error, {:invalid_encoded_source, :base64}}
+    end
+
+    test "treats slash only as an encoded chunk separator" do
+      assert Path.parse_source(:encoded, ["a", "+", "b"]) ==
+               {:error, {:invalid_encoded_source, :base64}}
+    end
+
+    test "rejects decoded bytes that are not UTF-8" do
+      encoded = Base.url_encode64(<<255>>, padding: false)
+
+      assert Path.parse_source(:encoded, [encoded]) ==
+               {:error, {:invalid_encoded_source, :utf8}}
+    end
+
+    test "rejects repeated encoded output extension separators" do
+      encoded = encoded_source("images/cat.jpg")
+
+      assert Path.parse_source(:encoded, [encoded <> ".webp.png"]) ==
+               {:error, {:multiple_output_extension_separators, encoded <> ".webp.png"}}
+    end
+
+    test "rejects unknown encoded output format suffixes" do
+      encoded = encoded_source("images/cat.jpg")
+
+      assert Path.parse_source(:encoded, [encoded <> ".gif"]) ==
+               {:error, {:invalid_format, "gif", ["webp", "avif", "jpeg", "jpg", "png", "best"]}}
+    end
+  end
+
+  defp encoded_source(source, opts \\ []) do
+    padding = Keyword.get(opts, :padding, false)
+    Base.url_encode64(source, padding: padding)
+  end
+
+  defp chunked(value, first_size) do
+    first = binary_part(value, 0, first_size)
+    second = binary_part(value, first_size, byte_size(value) - first_size)
+    [first, second]
   end
 end

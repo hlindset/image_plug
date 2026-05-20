@@ -282,6 +282,131 @@ defmodule ImagePlug.Parser.ImgproxyTest do
              Imgproxy.parse(conn(:get, "/_/plain/images/w:300/cat.jpg"), [])
   end
 
+  describe "Base64 encoded source URLs" do
+    test "decoded path source becomes a path plan source" do
+      encoded = encoded_source("images/cat.jpg")
+
+      assert {:ok, %Plan{source: %Source.Path{segments: ["images", "cat.jpg"]}}} =
+               Imgproxy.parse(conn(:get, "/_/#{encoded}"), [])
+    end
+
+    test "decoded HTTP URL with query becomes a URL plan source" do
+      encoded = encoded_source("http://example.com/images/cat.jpg?size=large")
+
+      assert {:ok, %Plan{source: source}} = Imgproxy.parse(conn(:get, "/_/#{encoded}"), [])
+
+      assert source == %Source.URL{
+               scheme: :http,
+               host: "example.com",
+               port: nil,
+               path: ["images", "cat.jpg"],
+               query: "size=large"
+             }
+    end
+
+    test "decoded HTTPS URL becomes a URL plan source" do
+      encoded = encoded_source("https://example.com/images/cat.jpg")
+
+      assert {:ok, %Plan{source: source}} = Imgproxy.parse(conn(:get, "/_/#{encoded}"), [])
+
+      assert source == %Source.URL{
+               scheme: :https,
+               host: "example.com",
+               port: nil,
+               path: ["images", "cat.jpg"],
+               query: nil
+             }
+    end
+
+    test "decoded S3 URL with query revision becomes an object plan source" do
+      encoded = encoded_source("s3://bucket/images/cat.jpg?rev1")
+
+      assert {:ok, %Plan{source: source}} = Imgproxy.parse(conn(:get, "/_/#{encoded}"), [])
+
+      assert source == %Source.Object{
+               adapter: :s3,
+               scope: "bucket",
+               key: "images/cat.jpg",
+               revision: "rev1"
+             }
+    end
+
+    test "decoded custom scheme reaches the configured source scheme translator" do
+      encoded = encoded_source("foobar://asset/cat.jpg")
+
+      assert {:ok, %Plan{source: source}} =
+               Imgproxy.parse(conn(:get, "/_/#{encoded}"),
+                 imgproxy: [source_schemes: %{"foobar" => {FoobarTranslator, []}}]
+               )
+
+      assert source == %Source.Object{
+               adapter: :foobar,
+               scope: "scope",
+               key: "foobar://asset/cat.jpg",
+               revision: "r1"
+             }
+
+      assert_received {:translate, "foobar://asset/cat.jpg", []}
+    end
+
+    test "unsupported decoded source schemes return source scheme error before runtime" do
+      encoded = encoded_source("ftp://example.com/cat.jpg")
+
+      assert Imgproxy.parse(conn(:get, "/_/#{encoded}"), []) ==
+               {:error, {:unsupported_source_scheme, "ftp"}}
+    end
+
+    test "encrypted source marker remains unsupported" do
+      assert Imgproxy.parse(conn(:get, "/_/enc/payload"), []) ==
+               {:error, {:unsupported_source_kind, "enc"}}
+    end
+
+    test "plain marker keeps option parser errors before source parsing" do
+      assert Imgproxy.parse(conn(:get, "/_/raw/plain/images/cat.jpg"), []) ==
+               {:error, {:unknown_option, "raw"}}
+
+      assert Imgproxy.parse(conn(:get, "/_/unknown/plain/images/cat.jpg"), []) ==
+               {:error, {:unknown_option, "unknown"}}
+
+      assert Imgproxy.parse(conn(:get, "/_/w:nope/plain/images/cat.jpg"), []) ==
+               {:error, {:invalid_non_negative_integer, "nope"}}
+    end
+
+    test "encoded output suffix overrides format option" do
+      encoded = encoded_source("images/cat.jpg")
+
+      assert_output_mode("/_/f:jpeg/#{encoded}.webp", {:explicit, :webp})
+    end
+
+    test "encoded trailing output separator leaves output format automatic" do
+      encoded = encoded_source("images/cat.jpg")
+
+      assert_output_mode("/_/#{encoded}.", :automatic)
+    end
+
+    test "encoded best suffix reaches the same planner behavior as plain best suffix" do
+      encoded = encoded_source("images/cat.jpg")
+
+      assert Imgproxy.parse(conn(:get, "/_/#{encoded}.best"), []) ==
+               {:error, {:unsupported_output_format, :best}}
+    end
+
+    test "signed encoded-source request verifies before decoding and parses correctly" do
+      encoded = encoded_source("images/cat.jpg")
+      signed_path = "/w:300/#{encoded}.webp"
+
+      assert {:ok, %Plan{source: %Source.Path{segments: ["images", "cat.jpg"]}, output: output}} =
+               Imgproxy.parse(conn(:get, signed_request_path(signed_path)), signed_parser_opts())
+
+      assert output.mode == {:explicit, :webp}
+    end
+
+    test "invalid signature fails before malformed encoded source is decoded" do
+      assert Imgproxy.parse(conn(:get, "/unsafe/not+base64"), signed_parser_opts()) ==
+               {:error, :invalid_signature}
+    end
+  end
+
   test "parses resize and rs full grammar" do
     assert [%Operation.Resize{mode: :cover} = fill_params] =
              operations_for("/_/resize:fill:300:200:1/plain/images/cat.jpg")
@@ -1368,6 +1493,22 @@ defmodule ImagePlug.Parser.ImgproxyTest do
   defp assert_output_mode(path, mode) do
     assert {:ok, %Plan{output: %Output{mode: ^mode}}} =
              Imgproxy.parse(conn(:get, path), [])
+  end
+
+  defp encoded_source(source, opts \\ []) do
+    padding = Keyword.get(opts, :padding, false)
+    Base.url_encode64(source, padding: padding)
+  end
+
+  defp signed_request_path(signed_path) do
+    key = Base.decode16!("746573742d6b6579", case: :lower)
+    salt = Base.decode16!("746573742d73616c74", case: :lower)
+
+    signature =
+      :crypto.mac(:hmac, :sha256, key, salt <> signed_path)
+      |> Base.url_encode64(padding: false)
+
+    "/" <> signature <> signed_path
   end
 
   defp signed_parser_opts(overrides \\ []) do
