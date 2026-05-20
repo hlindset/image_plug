@@ -45,12 +45,14 @@ Base64URL is reversible path encoding. Treat it as routing syntax, not a
 secrecy boundary. The received request path can still appear in request logs
 wherever the host application logs paths.
 
-ImagePlug preserves existing no-argument option parsing before encoded sources
-and existing `plain` marker precedence. Any raw path segment named `plain`
-starts a plain source before encoded-source detection. Avoid splitting encoded
-sources so any chunk is exactly `plain`. Also avoid making the first source
-chunk exactly `enc`, `-`, `ar`, `auto_rotate`, `fl`, `flip`, `padding`, `pd`,
-`preset`, or `pr`.
+For encoded sources, ImagePlug follows Imgproxy's split rule: path segments
+remain options only while they contain the argument separator, currently `:`.
+The first bare segment starts the source. If that first bare segment is
+`plain`, the request uses plain source parsing. If it's `enc`, the request
+fails as an unsupported encrypted source. Later source chunks named `plain`,
+`ar`, `fl`, `padding`, or another option name remain encoded source chunks.
+Explicit `/plain/` requests can still use ImagePlug's `-` pipeline separator
+before the plain marker.
 
 Signature verification uses the received fixed path before Base64 decoding. For
 signed URLs, sign the encoded path and suffix exactly as sent after Imgproxy
@@ -373,6 +375,6 @@ These cases return HTTP 400:
 | Fill a box from a focal point | `/_/rt:fill/w:300/h:200/g:fp:0.25:0.75/plain/images/cat.jpg` |
 | Force one side and preserve the other | `/_/rt:force/w:0/h:200/plain/images/cat.jpg` |
 | Explicit crop with focal gravity | `/_/c:100:100:fp:0.25:0.75/plain/images/cat.jpg` |
-| Auto-orient then crop | `/_/ar/c:100:100/plain/images/cat.jpg` |
+| Auto-orient then crop | `/_/ar:true/c:100:100/plain/images/cat.jpg` |
 | Explicit output format | `/_/f:webp/plain/images/cat.jpg` |
 | Plain-source output format suffix | `/_/plain/images/cat.jpg@png` |

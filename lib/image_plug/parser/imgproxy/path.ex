@@ -3,8 +3,6 @@ defmodule ImagePlug.Parser.Imgproxy.Path do
 
   alias ImagePlug.Parser.Imgproxy.Format
 
-  @no_arg_option_segments ~w(- ar auto_rotate fl flip padding pd preset pr)
-
   def extract(%Plug.Conn{} = conn) do
     case parser_request_path(conn) do
       "/" ->
@@ -21,16 +19,7 @@ defmodule ImagePlug.Parser.Imgproxy.Path do
   end
 
   def split_source(path_info) do
-    case Enum.split_while(path_info, &(&1 != "plain")) do
-      {_options, ["plain"]} ->
-        {:error, {:missing_source_identifier, "plain"}}
-
-      {options, ["plain" | source_path]} ->
-        {:ok, options, :plain, source_path}
-
-      {_options, []} ->
-        split_encoded_source(path_info)
-    end
+    split_source(path_info, [])
   end
 
   def parse_source(:plain, source_path), do: parse_plain_source(source_path)
@@ -63,36 +52,32 @@ defmodule ImagePlug.Parser.Imgproxy.Path do
     end
   end
 
-  defp split_encoded_source(path_info) do
-    case split_encoded_source(path_info, []) do
-      {:ok, _options, []} ->
-        {:error, :missing_source_kind}
+  defp split_source([], _options), do: {:error, :missing_source_kind}
 
-      {:ok, _options, ["enc" | _source_segments]} ->
-        {:error, {:unsupported_source_kind, "enc"}}
+  defp split_source(["plain"], _options), do: {:error, {:missing_source_identifier, "plain"}}
 
-      {:ok, options, source_segments} ->
-        {:ok, options, :encoded, source_segments}
+  defp split_source(["plain" | source_path], options),
+    do: {:ok, Enum.reverse(options), :plain, source_path}
 
-      {:error, _reason} = error ->
-        error
+  defp split_source(["enc" | _source_path], _options),
+    do: {:error, {:unsupported_source_kind, "enc"}}
+
+  defp split_source(["-" | segments], options) do
+    case Enum.member?(segments, "plain") do
+      true -> split_source(segments, ["-" | options])
+      false -> {:ok, Enum.reverse(options), :encoded, ["-" | segments]}
     end
   end
 
-  defp split_encoded_source([], options), do: {:ok, Enum.reverse(options), []}
-
-  defp split_encoded_source([segment | segments], options) do
+  defp split_source([segment | segments], options) do
     case classify_pre_source_segment(segment) do
       :option ->
-        split_encoded_source(segments, [segment | options])
+        split_source(segments, [segment | options])
 
       :source_start ->
-        {:ok, Enum.reverse(options), [segment | segments]}
+        {:ok, Enum.reverse(options), :encoded, [segment | segments]}
     end
   end
-
-  defp classify_pre_source_segment(segment) when segment in @no_arg_option_segments,
-    do: :option
 
   defp classify_pre_source_segment(segment) do
     case String.contains?(segment, ":") do

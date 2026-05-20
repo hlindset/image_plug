@@ -297,11 +297,11 @@ defmodule ImagePlug.Parser.ImgproxyTest do
                Imgproxy.parse(conn(:get, "/_/#{encoded}"), [])
     end
 
-    test "decoded source after bare padding options parses" do
+    test "decoded source after colon-bearing padding option parses" do
       encoded = encoded_source("images/cat.jpg")
 
       assert {:ok, %Plan{source: %Source.Path{segments: ["images", "cat.jpg"]}}} =
-               Imgproxy.parse(conn(:get, "/_/padding/pd/#{encoded}"), [])
+               Imgproxy.parse(conn(:get, "/_/pd:10/#{encoded}"), [])
     end
 
     test "decoded HTTP URL with query becomes a URL plan source" do
@@ -375,12 +375,9 @@ defmodule ImagePlug.Parser.ImgproxyTest do
                {:error, {:unsupported_source_kind, "enc"}}
     end
 
-    test "plain marker keeps option parser errors before source parsing" do
+    test "bare segments before plain follow encoded source parsing" do
       assert Imgproxy.parse(conn(:get, "/_/raw/plain/images/cat.jpg"), []) ==
-               {:error, {:unknown_option, "raw"}}
-
-      assert Imgproxy.parse(conn(:get, "/_/unknown/plain/images/cat.jpg"), []) ==
-               {:error, {:unknown_option, "unknown"}}
+               {:error, {:invalid_encoded_source, :base64}}
 
       assert Imgproxy.parse(conn(:get, "/_/w:nope/plain/images/cat.jpg"), []) ==
                {:error, {:invalid_non_negative_integer, "nope"}}
@@ -451,7 +448,7 @@ defmodule ImagePlug.Parser.ImgproxyTest do
   end
 
   test "rejects empty resize and size option segments" do
-    for segment <- ["rs", "rs:", "rs::", "resize", "resize:", "s", "s:", "s::", "size"] do
+    for segment <- ["rs:", "rs::", "resize:", "s:", "s::"] do
       assert Imgproxy.parse(conn(:get, "/_/#{segment}/plain/images/cat.jpg"), []) ==
                {:error, {:invalid_option_segment, segment}}
     end
@@ -538,7 +535,7 @@ defmodule ImagePlug.Parser.ImgproxyTest do
     assert crop.guide == :center
 
     assert {:ok, %Plan{pipelines: [%Pipeline{operations: [%AutoOrient{}]}]}} =
-             Imgproxy.parse(conn(:get, "/_/ar/plain/images/cat.jpg"), [])
+             Imgproxy.parse(conn(:get, "/_/ar:true/plain/images/cat.jpg"), [])
 
     for segment <- ~w(ar:false rot:0 rot:360 fl:false:false) do
       assert {:ok, %Plan{pipelines: [%Pipeline{operations: []}]}} =
@@ -546,7 +543,7 @@ defmodule ImagePlug.Parser.ImgproxyTest do
     end
 
     assert {:ok, %Plan{pipelines: [%Pipeline{operations: operations}]}} =
-             Imgproxy.parse(conn(:get, "/_/crop:10:20/ar/plain/images/cat.jpg"), [])
+             Imgproxy.parse(conn(:get, "/_/crop:10:20/ar:true/plain/images/cat.jpg"), [])
 
     assert operation_names(operations) == [:auto_orient, :crop_guided]
 
@@ -629,7 +626,7 @@ defmodule ImagePlug.Parser.ImgproxyTest do
           "/_/rt:force/w:0/h:200/plain/images/cat.jpg",
           "/_/g:fp:0.25:0.75/rs:fill:300:200/plain/images/cat.jpg",
           "/_/c:100:100:fp:0.25:0.75/plain/images/cat.jpg",
-          "/_/ar/c:100:100/plain/images/cat.jpg",
+          "/_/ar:true/c:100:100/plain/images/cat.jpg",
           "/_/g:soea:12:-0.25/rs:fill:300:200/plain/images/cat.jpg"
         ] do
       assert {:ok, _plan} = Imgproxy.parse(conn(:get, path), [])
@@ -642,7 +639,7 @@ defmodule ImagePlug.Parser.ImgproxyTest do
           "/_/g:fp:0.25:0.75/rs:fill:300:200/plain/images/cat.jpg",
           "/_/c:100:100:fp:0.25:0.75/plain/images/cat.jpg",
           "/_/rs:fit:300:200:0:1:ce:0:0/plain/images/cat.jpg",
-          "/_/ar/rot:-90/fl:true:false/plain/images/cat.jpg"
+          "/_/ar:true/rot:-90/fl:true:false/plain/images/cat.jpg"
         ] do
       assert {:ok, %Plan{} = plan} = Imgproxy.parse(conn(:get, path), [])
 
@@ -898,7 +895,7 @@ defmodule ImagePlug.Parser.ImgproxyTest do
   end
 
   test "rejects invalid expires arity" do
-    for segment <- ["exp", "exp:", "exp:100:200", "expires", "expires:", "expires:100:200"] do
+    for segment <- ["exp:", "exp:100:200", "expires:", "expires:100:200"] do
       assert Imgproxy.parse(conn(:get, "/_/#{segment}/plain/images/cat.jpg"),
                clock: clock_at(100)
              ) ==
@@ -908,10 +905,8 @@ defmodule ImagePlug.Parser.ImgproxyTest do
 
   test "rejects invalid cachebuster arity" do
     for segment <- [
-          "cb",
           "cb:",
           "cb:a:b",
-          "cachebuster",
           "cachebuster:",
           "cachebuster:a:b"
         ] do
@@ -998,14 +993,10 @@ defmodule ImagePlug.Parser.ImgproxyTest do
 
   test "rejects invalid filename and attachment arity" do
     for segment <- [
-          "fn",
           "fn:a:true:extra",
-          "filename",
           "filename:a:false:extra",
-          "att",
           "att:",
           "att:true:false",
-          "return_attachment",
           "return_attachment:",
           "return_attachment:true:false"
         ] do
@@ -1040,7 +1031,7 @@ defmodule ImagePlug.Parser.ImgproxyTest do
   end
 
   test "rejects invalid quality arity" do
-    for segment <- ["q", "q:", "q:80:70", "quality", "quality:", "quality:80:70"] do
+    for segment <- ["q:", "q:80:70", "quality:", "quality:80:70"] do
       assert Imgproxy.parse(conn(:get, "/_/#{segment}/plain/images/cat.jpg"), []) ==
                {:error, {:invalid_option_segment, segment}}
     end
@@ -1048,11 +1039,9 @@ defmodule ImagePlug.Parser.ImgproxyTest do
 
   test "rejects invalid format quality arity" do
     for segment <- [
-          "fq",
           "fq:webp",
           "fq:webp:",
           "fq:webp:70:60",
-          "format_quality",
           "format_quality:webp",
           "format_quality:webp:",
           "format_quality:webp:70:60"
@@ -1088,7 +1077,7 @@ defmodule ImagePlug.Parser.ImgproxyTest do
   end
 
   test "parses processing options before validating output extension" do
-    assert Imgproxy.parse(conn(:get, "/_/unknown/plain/images/cat.jpg@unknown"), []) ==
+    assert Imgproxy.parse(conn(:get, "/_/unknown:/plain/images/cat.jpg@unknown"), []) ==
              {:error, {:unknown_option, "unknown"}}
   end
 
@@ -1209,12 +1198,6 @@ defmodule ImagePlug.Parser.ImgproxyTest do
 
   test "returns parser errors for missing empty and unknown preset references" do
     opts = preset_opts(%{"thumb" => "w:100"})
-
-    assert Imgproxy.parse(conn(:get, "/_/preset/plain/images/cat.jpg"), opts) ==
-             {:error, {:invalid_option_segment, "preset"}}
-
-    assert Imgproxy.parse(conn(:get, "/_/pr/plain/images/cat.jpg"), opts) ==
-             {:error, {:invalid_option_segment, "pr"}}
 
     assert Imgproxy.parse(conn(:get, "/_/preset:/plain/images/cat.jpg"), opts) ==
              {:error, {:invalid_option_segment, "preset:"}}

@@ -131,39 +131,46 @@ defmodule ImagePlug.Parser.Imgproxy.PathTest do
                {:ok, ["w:100"], :plain, [encoded]}
     end
 
-    test "plain marker takes precedence over encoded-source detection" do
+    test "later plain segments remain encoded source chunks" do
       encoded = encoded_source("images/cat.jpg")
       [first, second] = chunked(encoded, 8)
 
       assert Path.split_source(["w:100", first, "plain", second]) ==
-               {:ok, ["w:100", first], :plain, [second]}
+               {:ok, ["w:100"], :encoded, [first, "plain", second]}
     end
 
-    test "keeps no-argument options before encoded sources" do
+    test "treats bare option aliases as encoded source chunks" do
       encoded = encoded_source("images/cat.jpg")
 
       assert Path.split_source(["ar", "fl", "padding", "pd", encoded]) ==
-               {:ok, ["ar", "fl", "padding", "pd"], :encoded, [encoded]}
+               {:ok, [], :encoded, ["ar", "fl", "padding", "pd", encoded]}
     end
 
-    test "keeps pipeline separators before encoded sources" do
+    test "treats pipeline separators as encoded source chunks" do
       encoded = encoded_source("images/cat.jpg")
 
       assert Path.split_source(["w:100", "-", "h:200", encoded]) ==
-               {:ok, ["w:100", "-", "h:200"], :encoded, [encoded]}
+               {:ok, ["w:100"], :encoded, ["-", "h:200", encoded]}
     end
 
-    test "does not classify bare option aliases as options before encoded sources" do
+    test "treats other bare option aliases as encoded source chunks" do
       assert Path.split_source(["w", "abc"]) ==
                {:ok, [], :encoded, ["w", "abc"]}
     end
 
-    test "keeps bare preset names as options so Options.parse returns the existing error" do
+    test "treats bare preset names as encoded source chunks" do
       assert Path.split_source(["preset", encoded_source("images/cat.jpg")]) ==
-               {:ok, ["preset"], :encoded, [encoded_source("images/cat.jpg")]}
+               {:ok, [], :encoded, ["preset", encoded_source("images/cat.jpg")]}
 
       assert Path.split_source(["pr", encoded_source("images/cat.jpg")]) ==
-               {:ok, ["pr"], :encoded, [encoded_source("images/cat.jpg")]}
+               {:ok, [], :encoded, ["pr", encoded_source("images/cat.jpg")]}
+    end
+
+    test "keeps colon-bearing options before encoded sources" do
+      encoded = encoded_source("images/cat.jpg")
+
+      assert Path.split_source(["ar:true", "fl:true:false", "pd:10", encoded]) ==
+               {:ok, ["ar:true", "fl:true:false", "pd:10"], :encoded, [encoded]}
     end
 
     test "rejects encrypted source marker only when first raw source segment is exactly enc" do

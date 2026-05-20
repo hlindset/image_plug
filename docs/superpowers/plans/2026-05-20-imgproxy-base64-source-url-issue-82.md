@@ -44,12 +44,6 @@ Don't build:
 
 Deliberate ImagePlug deviations from upstream imgproxy:
 
-- ImagePlug keeps existing no-argument option support for leading `-`, `ar`,
-  `auto_rotate`, `fl`, `flip`, bare `preset`, and bare `pr` before encoded
-  sources. Upstream imgproxy treats the first segment without the argument
-  separator as the source.
-- ImagePlug preserves current `plain` marker precedence so option errors before
-  `plain` still come from `Options.parse/2`.
 - ImagePlug rejects decoded bytes that aren't valid UTF-8. Upstream converts the
   decoded bytes to a Go string; ImagePlug's source parser uses Elixir string and
   URI functions, so invalid UTF-8 is a parser safety failure.
@@ -70,7 +64,7 @@ Deliberate ImagePlug deviations from upstream imgproxy:
 
 - Change `test/parser/imgproxy/path_test.exs`
   - Update existing source-splitting expectations to include `source_kind`.
-  - Add focused path parser tests for encoded splitting, decoding, errors, suffixes, `/enc/`, chunking, padding, no-argument options, pipeline separators, and option-error preservation.
+  - Add focused path parser tests for encoded splitting, decoding, errors, suffixes, `/enc/`, chunking, padding, native first-bare-segment behavior, and option-error preservation.
 
 - Change `test/parser/imgproxy_test.exs`
   - Add full parser tests for decoded path, HTTP, HTTPS, S3, custom schemes, unsupported schemes, encoded `.extension` precedence, `.best`, trailing `.`, and signed encoded-source parsing.
@@ -155,39 +149,46 @@ describe "split_source with encoded sources" do
              {:ok, ["w:100"], :plain, [encoded]}
   end
 
-  test "plain marker takes precedence over encoded-source detection" do
+  test "later plain segments remain encoded source chunks" do
     encoded = encoded_source("images/cat.jpg")
     [first, second] = chunked(encoded, 8)
 
     assert Path.split_source(["w:100", first, "plain", second]) ==
-             {:ok, ["w:100", first], :plain, [second]}
+             {:ok, ["w:100"], :encoded, [first, "plain", second]}
   end
 
-  test "keeps no-argument options before encoded sources" do
+  test "treats bare option aliases as encoded source chunks" do
     encoded = encoded_source("images/cat.jpg")
 
-    assert Path.split_source(["ar", "fl", encoded]) ==
-             {:ok, ["ar", "fl"], :encoded, [encoded]}
+    assert Path.split_source(["ar", "fl", "padding", "pd", encoded]) ==
+             {:ok, [], :encoded, ["ar", "fl", "padding", "pd", encoded]}
   end
 
-  test "keeps pipeline separators before encoded sources" do
+  test "treats pipeline separators as encoded source chunks" do
     encoded = encoded_source("images/cat.jpg")
 
     assert Path.split_source(["w:100", "-", "h:200", encoded]) ==
-             {:ok, ["w:100", "-", "h:200"], :encoded, [encoded]}
+             {:ok, ["w:100"], :encoded, ["-", "h:200", encoded]}
   end
 
-  test "does not classify bare option aliases as options before encoded sources" do
+  test "treats other bare option aliases as encoded source chunks" do
     assert Path.split_source(["w", "abc"]) ==
              {:ok, [], :encoded, ["w", "abc"]}
   end
 
-  test "keeps bare preset names as options so Options.parse returns the existing error" do
+  test "treats bare preset names as encoded source chunks" do
     assert Path.split_source(["preset", encoded_source("images/cat.jpg")]) ==
-             {:ok, ["preset"], :encoded, [encoded_source("images/cat.jpg")]}
+             {:ok, [], :encoded, ["preset", encoded_source("images/cat.jpg")]}
 
     assert Path.split_source(["pr", encoded_source("images/cat.jpg")]) ==
-             {:ok, ["pr"], :encoded, [encoded_source("images/cat.jpg")]}
+             {:ok, [], :encoded, ["pr", encoded_source("images/cat.jpg")]}
+  end
+
+  test "keeps colon-bearing options before encoded sources" do
+    encoded = encoded_source("images/cat.jpg")
+
+    assert Path.split_source(["ar:true", "fl:true:false", "pd:10", encoded]) ==
+             {:ok, ["ar:true", "fl:true:false", "pd:10"], :encoded, [encoded]}
   end
 
   test "rejects encrypted source marker only when first raw source segment is exactly enc" do
@@ -337,28 +338,13 @@ At the top of `lib/image_plug/parser/imgproxy/path.ex`, keep the `Format` module
 alias ImagePlug.Parser.Imgproxy.Format
 ```
 
-Below the module import line, add:
-
-```elixir
-@no_arg_option_segments ~w(- ar auto_rotate fl flip preset pr)
-```
-
 - [ ] **Step 2: Replace `split_source/1` and `parse_plain_source/1` with source-aware functions**
 
 Replace the current `split_source/1` and `parse_plain_source/1` definitions with:
 
 ```elixir
 def split_source(path_info) do
-  case Enum.split_while(path_info, &(&1 != "plain")) do
-    {_options, ["plain"]} ->
-      {:error, {:missing_source_identifier, "plain"}}
-
-    {options, ["plain" | source_path]} ->
-      {:ok, options, :plain, source_path}
-
-    {_options, []} ->
-      split_encoded_source(path_info)
-  end
+  split_source(path_info, [])
 end
 
 def parse_source(:plain, source_path), do: parse_plain_source(source_path)
@@ -399,56 +385,47 @@ Keep the existing plain-source parser public for the direct tests. New call site
 Add these private functions below `parse_plain_source/1`:
 
 ```elixir
-defp split_encoded_source(path_info) do
-  case split_encoded_source(path_info, []) do
-    {:ok, _options, []} ->
-      {:error, :missing_source_kind}
+defp split_source([], _options), do: {:error, :missing_source_kind}
 
-    {:ok, _options, ["enc" | _source_segments]} ->
-      {:error, {:unsupported_source_kind, "enc"}}
+defp split_source(["plain"], _options),
+  do: {:error, {:missing_source_identifier, "plain"}}
 
-    {:ok, options, source_segments} ->
-      {:ok, options, :encoded, source_segments}
+defp split_source(["plain" | source_path], options),
+  do: {:ok, Enum.reverse(options), :plain, source_path}
 
-    {:error, _reason} = error ->
-      error
+defp split_source(["enc" | _source_path], _options),
+  do: {:error, {:unsupported_source_kind, "enc"}}
+
+defp split_source(["-" | segments], options) do
+  case Enum.member?(segments, "plain") do
+    true -> split_source(segments, ["-" | options])
+    false -> {:ok, Enum.reverse(options), :encoded, ["-" | segments]}
   end
 end
 
-defp split_encoded_source([], options), do: {:ok, Enum.reverse(options), []}
-
-defp split_encoded_source([segment | segments], options) do
+defp split_source([segment | segments], options) do
   case classify_pre_source_segment(segment) do
     :option ->
-      split_encoded_source(segments, [segment | options])
+      split_source(segments, [segment | options])
 
     :source_start ->
-      {:ok, Enum.reverse(options), [segment | segments]}
-
-    {:error, _reason} = error ->
-      error
+      {:ok, Enum.reverse(options), :encoded, [segment | segments]}
   end
 end
 
-defp classify_pre_source_segment(segment) when segment in @no_arg_option_segments,
-  do: :option
-
 defp classify_pre_source_segment(segment) do
-  cond do
-    String.contains?(segment, ":") ->
-      :option
-
-    true ->
-      :source_start
+  case String.contains?(segment, ":") do
+    true -> :option
+    false -> :source_start
   end
 end
 ```
 
-The classifier only treats the exact no-argument option set and segments with `:` as options. The real option result still comes from `Options.parse/2` after splitting, so existing option errors remain owned by `Options`.
+The classifier treats only segments with `:` as options. The `-` clause preserves ImagePlug pipeline separators before explicit `/plain/` sources while keeping `-` as an encoded source chunk when no later `plain` marker exists. The real option result still comes from `Options.parse/2` after splitting, so existing option errors remain owned by `Options`.
 
 - [ ] **Step 4: Add encoded parse helpers inside `ImagePlug.Parser.Imgproxy.Path`**
 
-Add these private functions below the split helpers:
+Add these private helpers below the split helpers:
 
 ```elixir
 defp parse_encoded_source(source_path) do
@@ -639,17 +616,14 @@ describe "Base64 encoded source URLs" do
 end
 ```
 
-- [ ] **Step 3: Add full parser test for option-error preservation**
+- [ ] **Step 3: Add full parser test for native bare-segment parsing**
 
 Add this test inside the same `describe "Base64 encoded source URLs"` block:
 
 ```elixir
-test "plain marker keeps option parser errors before source parsing" do
+test "bare segments before plain follow encoded source parsing" do
   assert Imgproxy.parse(conn(:get, "/_/raw/plain/images/cat.jpg"), []) ==
-           {:error, {:unknown_option, "raw"}}
-
-  assert Imgproxy.parse(conn(:get, "/_/unknown/plain/images/cat.jpg"), []) ==
-           {:error, {:unknown_option, "unknown"}}
+           {:error, {:invalid_encoded_source, :base64}}
 
   assert Imgproxy.parse(conn(:get, "/_/w:nope/plain/images/cat.jpg"), []) ==
            {:error, {:invalid_non_negative_integer, "nope"}}
@@ -1103,10 +1077,14 @@ Base64URL is only path encoding. It is reversible; treat it as routing syntax,
 not a secrecy boundary. The received request path can still appear in request
 logs wherever the host application logs paths.
 
-ImagePlug preserves existing no-argument option parsing before encoded sources
-and existing `plain` marker precedence. Avoid splitting encoded sources so the
-first source chunk is exactly `plain`, `enc`, `-`, `ar`, `auto_rotate`, `fl`,
-`flip`, `preset`, or `pr`.
+For encoded sources, ImagePlug follows Imgproxy's split rule: path segments
+remain options only while they contain the argument separator, currently `:`.
+The first bare segment starts the source. If that first bare segment is
+`plain`, the request uses plain source parsing. If it is `enc`, the request
+fails as an unsupported encrypted source. Later source chunks named `plain`,
+`ar`, `fl`, `padding`, or another option name remain encoded source chunks.
+Explicit `/plain/` requests can still use ImagePlug's `-` pipeline separator
+before the plain marker.
 ```
 
 - [ ] **Step 3: Add signing and unsupported preprocessing notes**
@@ -1311,7 +1289,8 @@ If no files changed after verification, don't create an empty commit.
 - Malformed Base64URL and unsupported decoded schemes return `400` before source identity resolution, cache lookup, or source fetch.
 - Signature verification runs on the fixed signed path before Base64 decoding.
 - Encoded `.extension` explicit output behavior matches plain `@extension` precedence.
-- `Options.parse/2` still returns existing option errors for `/raw/plain/...`, `/unknown/plain/...`, `/w:nope/plain/...`, bare `preset`, and bare `pr`.
+- Bare segments before `plain`, including `raw`, `preset`, and `pr`, follow encoded-source parsing.
+- `Options.parse/2` still returns option errors for colon-bearing options before `plain`, such as `/w:nope/plain/...`.
 - `/enc/`, filename suffix mode, base URL prefixing, and URL replacements remain unsupported and documented out of scope.
 - Focused tests, full tests, compile, Credo, format check, and Vale pass.
 
