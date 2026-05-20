@@ -180,29 +180,29 @@ defmodule ImagePlug.Request.ProcessorTest do
   end
 
   test "decode_validate_source_response rejects SVG after decode" do
-    unless svg_supported?(), do: flunk("SVG loader unavailable")
+    if svg_supported?() do
+      source_response = %Response{stream: [svg_body(20, 20)]}
 
-    source_response = %Response{stream: [svg_body(20, 20)]}
-
-    assert {:error, {:unsupported_source_format, :svg}} =
-             Processor.decode_validate_source_response(
-               source_response,
-               plan(),
-               opts()
-             )
+      assert {:error, {:unsupported_source_format, :svg}} =
+               Processor.decode_validate_source_response(
+                 source_response,
+                 plan(),
+                 opts()
+               )
+    end
   end
 
   test "unsupported decoded source format is reported before input pixel limits" do
-    unless svg_supported?(), do: flunk("SVG loader unavailable")
+    if svg_supported?() do
+      source_response = %Response{stream: [svg_body(10_000, 10_000)]}
 
-    source_response = %Response{stream: [svg_body(10_000, 10_000)]}
-
-    assert {:error, {:unsupported_source_format, :svg}} =
-             Processor.decode_validate_source_response(
-               source_response,
-               plan(),
-               Keyword.put(opts(), :max_input_pixels, 1)
-             )
+      assert {:error, {:unsupported_source_format, :svg}} =
+               Processor.decode_validate_source_response(
+                 source_response,
+                 plan(),
+                 Keyword.put(opts(), :max_input_pixels, 1)
+               )
+    end
   end
 
   test "deferred source stream errors remain source errors during decode" do

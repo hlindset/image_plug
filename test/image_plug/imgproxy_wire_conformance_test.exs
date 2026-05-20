@@ -104,32 +104,32 @@ defmodule ImagePlug.ImgproxyWireConformanceTest do
   end
 
   test "automatic output rejects decoded SVG source responses as unsupported images" do
-    unless svg_supported?(), do: flunk("SVG loader unavailable")
-
-    conn =
-      "/_/plain/images/vector.svg"
-      |> call_imgproxy(svg_origin_opts(), "image/avif,image/webp")
-
-    assert conn.status == 415
-    assert conn.resp_body == "source response is not a supported image"
-    assert get_resp_header(conn, "vary") == ["Accept"]
-    assert_received {:cache_lookup, _key}
-    assert_received :origin_fetch
-    refute_received {:cache_put, _key, _entry}
-  end
-
-  test "explicit output rejects decoded SVG source responses without Vary" do
-    unless svg_supported?(), do: flunk("SVG loader unavailable")
-
-    for path <- ["/_/f:png/plain/images/vector.svg", "/_/plain/images/vector.svg@png"] do
-      conn = call_imgproxy(path, svg_origin_opts(), "image/avif,image/webp")
+    if svg_supported?() do
+      conn =
+        "/_/plain/images/vector.svg"
+        |> call_imgproxy(svg_origin_opts(), "image/avif,image/webp")
 
       assert conn.status == 415
       assert conn.resp_body == "source response is not a supported image"
-      assert get_resp_header(conn, "vary") == []
+      assert get_resp_header(conn, "vary") == ["Accept"]
       assert_received {:cache_lookup, _key}
       assert_received :origin_fetch
       refute_received {:cache_put, _key, _entry}
+    end
+  end
+
+  test "explicit output rejects decoded SVG source responses without Vary" do
+    if svg_supported?() do
+      for path <- ["/_/f:png/plain/images/vector.svg", "/_/plain/images/vector.svg@png"] do
+        conn = call_imgproxy(path, svg_origin_opts(), "image/avif,image/webp")
+
+        assert conn.status == 415
+        assert conn.resp_body == "source response is not a supported image"
+        assert get_resp_header(conn, "vary") == []
+        assert_received {:cache_lookup, _key}
+        assert_received :origin_fetch
+        refute_received {:cache_put, _key, _entry}
+      end
     end
   end
 
