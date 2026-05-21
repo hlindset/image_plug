@@ -49,6 +49,22 @@ defmodule ImagePlug.Cache.KeyTest do
     Base.url_encode64(source, padding: false)
   end
 
+  defp encrypted_source(source, opts \\ []) do
+    iv =
+      Keyword.get(
+        opts,
+        :iv,
+        <<16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31>>
+      )
+
+    {:ok, segment} =
+      Imgproxy.encrypt_source_url(source, source_url_encryption_key(), iv: iv)
+
+    segment
+  end
+
+  defp source_url_encryption_key, do: "000102030405060708090a0b0c0d0e0f"
+
   defp plan_with_resize_auto do
     plan(pipelines: [%Pipeline{operations: [resize_auto_operation(300, 200)]}])
   end
@@ -204,6 +220,55 @@ defmodule ImagePlug.Cache.KeyTest do
     assert plain_key.hash == encoded_key.hash
     assert plain_key.data == encoded_key.data
     refute inspect(encoded_key.data) =~ encoded
+  end
+
+  test "imgproxy encrypted source spelling and SEO filename do not enter cache key data" do
+    encoded = encoded_source("images/cat.jpg")
+    encrypted = encrypted_source("images/cat.jpg")
+    alternate_encrypted = encrypted_source("images/cat.jpg", iv: :binary.copy(<<1>>, 16))
+
+    plain_conn = conn(:get, "/_/plain/images/cat.jpg")
+    encoded_conn = conn(:get, "/_/#{encoded}/puppy.jpg")
+    encrypted_conn = conn(:get, "/_/enc/#{encrypted}/puppy.jpg")
+    alternate_encrypted_conn = conn(:get, "/_/enc/#{alternate_encrypted}/kitten.jpg")
+
+    opts = [
+      imgproxy:
+        Imgproxy.validate_options!(
+          source_url_encryption_key: source_url_encryption_key(),
+          base64_url_includes_filename: true
+        )
+    ]
+
+    assert {:ok, plain_plan} = Imgproxy.parse(plain_conn, opts)
+    assert {:ok, encoded_plan} = Imgproxy.parse(encoded_conn, opts)
+    assert {:ok, encrypted_plan} = Imgproxy.parse(encrypted_conn, opts)
+    assert {:ok, alternate_encrypted_plan} = Imgproxy.parse(alternate_encrypted_conn, opts)
+
+    identity = [kind: :path, adapter: :path, root: "default", path: ["images", "cat.jpg"]]
+
+    plain_key = build_key!(plain_conn, plain_plan, identity)
+    encoded_key = build_key!(encoded_conn, encoded_plan, identity)
+    encrypted_key = build_key!(encrypted_conn, encrypted_plan, identity)
+
+    alternate_encrypted_key =
+      build_key!(alternate_encrypted_conn, alternate_encrypted_plan, identity)
+
+    assert plain_plan == encoded_plan
+    assert plain_plan == encrypted_plan
+    assert plain_plan == alternate_encrypted_plan
+    assert plain_key.data == encoded_key.data
+    assert plain_key.data == encrypted_key.data
+    assert plain_key.data == alternate_encrypted_key.data
+    assert plain_key.hash == encoded_key.hash
+    assert plain_key.hash == encrypted_key.hash
+    assert plain_key.hash == alternate_encrypted_key.hash
+
+    key_data = inspect(encrypted_key.data)
+    refute key_data =~ encrypted
+    refute key_data =~ alternate_encrypted
+    refute key_data =~ "puppy.jpg"
+    refute key_data =~ "kitten.jpg"
   end
 
   test "resolved source identity, not raw plan source spelling, drives source cache material" do

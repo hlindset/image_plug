@@ -7,12 +7,14 @@ boolean
 booleans
 cacheable
 cachebuster
+ciphertext
 config
 downscales
 imgproxy
 letterboxing
 libvips
 passthrough
+plaintext
 unconfigured
 unreferenced
 upscales

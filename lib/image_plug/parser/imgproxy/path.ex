@@ -2,6 +2,7 @@ defmodule ImagePlug.Parser.Imgproxy.Path do
   @moduledoc false
 
   alias ImagePlug.Parser.Imgproxy.Format
+  alias ImagePlug.Parser.Imgproxy.SourceEncryption
 
   def extract(%Plug.Conn{} = conn) do
     case parser_request_path(conn) do
@@ -22,8 +23,10 @@ defmodule ImagePlug.Parser.Imgproxy.Path do
     split_source(path_info, [])
   end
 
-  def parse_source(:plain, source_path), do: parse_plain_source(source_path)
-  def parse_source(:encoded, source_path), do: parse_encoded_source(source_path)
+  def parse_source(source_kind, source_path), do: parse_source(source_kind, source_path, [])
+  def parse_source(:plain, source_path, _opts), do: parse_plain_source(source_path)
+  def parse_source(:encoded, source_path, opts), do: parse_encoded_source(source_path, opts)
+  def parse_source(:encrypted, source_path, opts), do: parse_encrypted_source(source_path, opts)
 
   def parse_plain_source(source_path) do
     encoded = Enum.join(source_path, "/")
@@ -59,8 +62,10 @@ defmodule ImagePlug.Parser.Imgproxy.Path do
   defp split_source(["plain" | source_path], options),
     do: {:ok, Enum.reverse(options), :plain, source_path}
 
-  defp split_source(["enc" | _source_path], _options),
-    do: {:error, {:unsupported_source_kind, "enc"}}
+  defp split_source(["enc"], options), do: {:ok, Enum.reverse(options), :encrypted, []}
+
+  defp split_source(["enc" | source_path], options),
+    do: {:ok, Enum.reverse(options), :encrypted, source_path}
 
   defp split_source(["-" | segments], options) do
     case Enum.member?(segments, "plain") do
@@ -86,25 +91,39 @@ defmodule ImagePlug.Parser.Imgproxy.Path do
     end
   end
 
-  defp parse_encoded_source(source_path) do
-    encoded = Enum.join(source_path, "")
+  defp parse_encoded_source(source_path, opts) do
+    source_path
+    |> encoded_source_value(opts)
+    |> parse_encoded_source_value("encoded", &decode_encoded_source/2)
+  end
 
+  defp parse_encrypted_source(source_path, opts) do
+    source_encryption = Keyword.get(opts, :source_url_encryption)
+
+    source_path
+    |> encoded_source_value(opts)
+    |> parse_encoded_source_value("encrypted", fn source, source_format ->
+      decode_encrypted_source(source, source_format, source_encryption)
+    end)
+  end
+
+  defp parse_encoded_source_value(encoded, source_kind, decode_fun) do
     case String.split(encoded, ".") do
       [""] ->
-        {:error, {:missing_source_identifier, "encoded"}}
+        missing_encoded_source(source_kind)
 
       [source] ->
-        decode_encoded_source(source, nil)
+        decode_fun.(source, nil)
 
       ["", _extension] ->
-        {:error, {:missing_source_identifier, "encoded"}}
+        missing_encoded_source(source_kind)
 
       [source, ""] ->
-        decode_encoded_source(source, nil)
+        decode_fun.(source, nil)
 
       [source, extension] ->
         case Format.parse(extension) do
-          {:ok, format} -> decode_encoded_source(source, format)
+          {:ok, format} -> decode_fun.(source, format)
           {:error, _reason} = error -> error
         end
 
@@ -112,6 +131,25 @@ defmodule ImagePlug.Parser.Imgproxy.Path do
         {:error, {:multiple_output_extension_separators, encoded}}
     end
   end
+
+  defp encoded_source_value(source_path, opts) do
+    source_path
+    |> maybe_drop_seo_filename(opts)
+    |> Enum.join("")
+  end
+
+  defp maybe_drop_seo_filename(source_path, opts) do
+    case Keyword.get(opts, :base64_url_includes_filename, false) and
+           match?([_, _ | _], source_path) do
+      true -> Enum.drop(source_path, -1)
+      false -> source_path
+    end
+  end
+
+  defp missing_encoded_source("encrypted"), do: {:error, :invalid_encrypted_source}
+
+  defp missing_encoded_source(source_kind),
+    do: {:error, {:missing_source_identifier, source_kind}}
 
   defp decode_encoded_source(source, source_format) do
     source
@@ -127,6 +165,14 @@ defmodule ImagePlug.Parser.Imgproxy.Path do
     case String.valid?(decoded) do
       true -> {:ok, decoded, source_format}
       false -> {:error, {:invalid_encoded_source, :utf8}}
+    end
+  end
+
+  defp decode_encrypted_source(source, source_format, source_encryption) do
+    case SourceEncryption.decrypt_source(source, source_encryption) do
+      {:ok, decrypted_source} -> {:ok, decrypted_source, source_format}
+      {:error, :missing_source_url_encryption_key} -> {:error, :missing_source_url_encryption_key}
+      {:error, _reason} -> {:error, :invalid_encrypted_source}
     end
   end
 

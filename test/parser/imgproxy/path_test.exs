@@ -173,8 +173,8 @@ defmodule ImagePlug.Parser.Imgproxy.PathTest do
                {:ok, ["ar:true", "fl:true:false", "pd:10"], :encoded, [encoded]}
     end
 
-    test "rejects encrypted source marker only when first raw source segment is exactly enc" do
-      assert Path.split_source(["enc", "payload"]) == {:error, {:unsupported_source_kind, "enc"}}
+    test "recognizes encrypted source marker only when first raw source segment is exactly enc" do
+      assert Path.split_source(["enc", "payload"]) == {:ok, [], :encrypted, ["payload"]}
 
       assert Path.split_source(["encA"]) == {:ok, [], :encoded, ["encA"]}
     end
@@ -317,6 +317,24 @@ defmodule ImagePlug.Parser.Imgproxy.PathTest do
 
       assert Path.parse_source(:encoded, [encoded <> ".gif"]) ==
                {:error, {:invalid_format, "gif", ["webp", "avif", "jpeg", "jpg", "png", "best"]}}
+    end
+
+    test "discards SEO filename before joining chunks and parsing output suffix" do
+      encoded = encoded_source("images/cat.jpg")
+
+      assert Path.parse_source(:encoded, [encoded <> ".webp", "puppy.jpg"],
+               base64_url_includes_filename: true
+             ) ==
+               {:ok, "images/cat.jpg", :webp}
+    end
+
+    test "keeps current encoded source behavior when SEO filename mode is disabled" do
+      encoded = encoded_source("images/cat.jpg")
+
+      assert Path.parse_source(:encoded, [encoded, "puppy.jpg"],
+               base64_url_includes_filename: false
+             ) ==
+               {:error, {:invalid_encoded_source, :utf8}}
     end
   end
 

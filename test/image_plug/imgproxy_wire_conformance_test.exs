@@ -5,6 +5,7 @@ defmodule ImagePlug.ImgproxyWireConformanceTest do
   import Plug.Test
 
   alias ImagePlug.Cache.Entry
+  alias ImagePlug.Parser.Imgproxy
   alias ImagePlug.SourceTest.CredentialProvider
   alias ImagePlug.SourceTest.FoobarTranslator
   alias ImagePlug.SourceTest.PlugCustomAdapter
@@ -14,6 +15,11 @@ defmodule ImagePlug.ImgproxyWireConformanceTest do
   alias ImgproxyWireConformanceTest.OriginImage
   alias ImgproxyWireConformanceTest.OriginShouldNotFetch
   alias Vix.Vips.Image, as: VipsImage
+
+  @source_url_encryption_key "000102030405060708090a0b0c0d0e0f"
+  @source_url_encryption_iv <<16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31>>
+  @alternate_source_url_encryption_iv <<31, 30, 29, 28, 27, 26, 25, 24, 23, 22, 21, 20, 19, 18,
+                                        17, 16>>
 
   defmodule SvgOriginImage do
     @moduledoc false
@@ -118,6 +124,33 @@ defmodule ImagePlug.ImgproxyWireConformanceTest do
     encoded = encoded_source("images/beach.jpg")
 
     conn = call_imgproxy("/_/f:jpeg/#{encoded}.webp", @default_opts, "image/avif,image/webp")
+
+    assert conn.status == 200
+    assert content_type(conn) == ["image/webp"]
+    assert get_resp_header(conn, "vary") == []
+    assert byte_size(conn.resp_body) > 0
+  end
+
+  test "encrypted path source succeeds through a real Plug request" do
+    encrypted = encrypted_source("images/beach.jpg")
+
+    conn = call_imgproxy("/_/rt:force/w:120/h:90/f:jpeg/enc/#{encrypted}", encrypted_opts())
+
+    assert conn.status == 200
+    assert content_type(conn) == ["image/jpeg"]
+    assert dimensions(conn) == {120, 90}
+    assert byte_size(conn.resp_body) > 0
+  end
+
+  test "encrypted output suffix bypasses Accept negotiation and does not set Vary" do
+    encrypted = encrypted_source("images/beach.jpg")
+
+    conn =
+      call_imgproxy(
+        "/_/f:jpeg/enc/#{encrypted}.webp",
+        encrypted_opts(),
+        "image/avif,image/webp"
+      )
 
     assert conn.status == 200
     assert content_type(conn) == ["image/webp"]
@@ -269,7 +302,35 @@ defmodule ImagePlug.ImgproxyWireConformanceTest do
     refute_received :origin_fetch
   end
 
-  test "encrypted source marker stops before cache lookup and origin fetch" do
+  test "encrypted unsupported decoded source scheme stops before cache lookup and origin fetch" do
+    telemetry_prefix = [:image_plug_wire_safety]
+    source_resolve_start = telemetry_prefix ++ [:source, :resolve, :start]
+
+    attach_source_resolve_telemetry(telemetry_prefix)
+
+    encrypted = encrypted_source("ftp://example.com/cat.jpg")
+
+    opts =
+      encrypted_opts(
+        telemetry_prefix: telemetry_prefix,
+        cache: {CacheProbe, []},
+        sources: [
+          path:
+            {RootHTTPAdapter,
+             root_url: "http://origin.test", req_options: [plug: OriginShouldNotFetch]}
+        ]
+      )
+
+    conn = call_imgproxy("/_/enc/#{encrypted}", opts)
+
+    assert conn.status == 400
+    refute_received {:telemetry_event, ^source_resolve_start, _, _}
+    refute_received {:cache_lookup, _key}
+    refute_received {:cache_put, _key, _entry}
+    refute_received :origin_fetch
+  end
+
+  test "encrypted source marker without configured key stops before cache lookup and origin fetch" do
     telemetry_prefix = [:image_plug_wire_safety]
     source_resolve_start = telemetry_prefix ++ [:source, :resolve, :start]
 
@@ -289,6 +350,52 @@ defmodule ImagePlug.ImgproxyWireConformanceTest do
     conn = call_imgproxy("/_/enc/payload", opts)
 
     assert conn.status == 400
+    refute_received {:telemetry_event, ^source_resolve_start, _, _}
+    refute_received {:cache_lookup, _key}
+    refute_received {:cache_put, _key, _entry}
+    refute_received :origin_fetch
+  end
+
+  test "malformed encrypted source collapses parser errors and stops before cache lookup and origin fetch" do
+    telemetry_prefix = [:image_plug_wire_encrypted_safety]
+    parse_stop = telemetry_prefix ++ [:parse, :stop]
+    parse_exception = telemetry_prefix ++ [:parse, :exception]
+    source_resolve_start = telemetry_prefix ++ [:source, :resolve, :start]
+
+    attach_safety_telemetry(telemetry_prefix)
+
+    opts =
+      encrypted_opts(
+        telemetry_prefix: telemetry_prefix,
+        cache: {CacheProbe, []},
+        sources: [
+          path:
+            {RootHTTPAdapter,
+             root_url: "http://origin.test", req_options: [plug: OriginShouldNotFetch]}
+        ]
+      )
+
+    malformed_paths = [
+      "/_/enc/not+base64",
+      "/_/enc/#{Base.url_encode64(String.duplicate("x", 31), padding: false)}",
+      "/_/enc/#{Base.url_encode64(@source_url_encryption_iv <> String.duplicate("x", 17), padding: false)}",
+      "/_/enc/#{Base.url_encode64(@source_url_encryption_iv <> String.duplicate("x", 16), padding: false)}"
+    ]
+
+    bodies =
+      for path <- malformed_paths do
+        conn = call_imgproxy(path, opts)
+
+        assert conn.status == 400
+
+        assert_received {:telemetry_event, ^parse_stop, _measurements,
+                         %{result: :error, error: :error}}
+
+        conn.resp_body
+      end
+
+    assert Enum.uniq(bodies) == ["invalid image request: :invalid_encrypted_source"]
+    refute_received {:telemetry_event, ^parse_exception, _, _}
     refute_received {:telemetry_event, ^source_resolve_start, _, _}
     refute_received {:cache_lookup, _key}
     refute_received {:cache_put, _key, _entry}
@@ -340,6 +447,146 @@ defmodule ImagePlug.ImgproxyWireConformanceTest do
     after
       File.rm_rf!(cache_root)
     end
+  end
+
+  test "plain encoded encrypted and SEO filename spellings share the same filesystem cache entry" do
+    {opts, cache_root} =
+      cached_opts(
+        imgproxy: [
+          source_url_encryption_key: @source_url_encryption_key,
+          base64_url_includes_filename: true
+        ]
+      )
+
+    try do
+      first_conn = call_imgproxy("/_/rt:force/w:120/h:90/f:jpeg/plain/images/beach.jpg", opts)
+
+      assert first_conn.status == 200
+      assert_received :origin_fetch
+
+      encoded = encoded_source("images/beach.jpg")
+      encoded_conn = call_imgproxy("/_/rt:force/w:120/h:90/f:jpeg/#{encoded}/puppy.jpg", opts)
+
+      assert encoded_conn.status == 200
+      assert encoded_conn.resp_body == first_conn.resp_body
+      refute_received :origin_fetch
+
+      encrypted = encrypted_source("images/beach.jpg")
+
+      encrypted_conn =
+        call_imgproxy("/_/rt:force/w:120/h:90/f:jpeg/enc/#{encrypted}/kitten.jpg", opts)
+
+      assert encrypted_conn.status == 200
+      assert encrypted_conn.resp_body == first_conn.resp_body
+      refute_received :origin_fetch
+
+      alternate_encrypted =
+        encrypted_source("images/beach.jpg", iv: @alternate_source_url_encryption_iv)
+
+      alternate_conn =
+        call_imgproxy(
+          "/_/rt:force/w:120/h:90/f:jpeg/enc/#{alternate_encrypted}/puppy.jpg",
+          opts
+        )
+
+      assert alternate_conn.status == 200
+      assert alternate_conn.resp_body == first_conn.resp_body
+      refute_received :origin_fetch
+    after
+      File.rm_rf!(cache_root)
+    end
+  end
+
+  test "signed encrypted URLs verify the SEO filename before decrypting the source" do
+    telemetry_prefix = [:image_plug_signed_encrypted_safety]
+    source_resolve_start = telemetry_prefix ++ [:source, :resolve, :start]
+
+    attach_source_resolve_telemetry(telemetry_prefix)
+
+    encrypted = encrypted_source("images/beach.jpg")
+    signed_path = "/rt:force/w:120/h:90/f:jpeg/enc/#{encrypted}.webp/puppy.jpg"
+
+    imgproxy =
+      [
+        signature: [
+          keys: ["746573742d6b6579"],
+          salts: ["746573742d73616c74"]
+        ],
+        source_url_encryption_key: @source_url_encryption_key,
+        base64_url_includes_filename: true
+      ]
+
+    assert call_imgproxy(
+             signed_request_path(signed_path),
+             Keyword.put(@default_opts, :imgproxy, imgproxy)
+           ).status ==
+             200
+
+    opts =
+      encrypted_opts(
+        telemetry_prefix: telemetry_prefix,
+        cache: {CacheProbe, []},
+        sources: [
+          path:
+            {RootHTTPAdapter,
+             root_url: "http://origin.test", req_options: [plug: OriginShouldNotFetch]}
+        ],
+        imgproxy: imgproxy
+      )
+
+    tampered_path =
+      signed_path
+      |> signed_request_path()
+      |> String.replace_suffix("puppy.jpg", "kitten.jpg")
+
+    conn = call_imgproxy(tampered_path, opts)
+
+    assert conn.status == 403
+    refute_received {:telemetry_event, ^source_resolve_start, _, _}
+    refute_received {:cache_lookup, _key}
+    refute_received {:cache_put, _key, _entry}
+    refute_received :origin_fetch
+  end
+
+  test "signed encrypted URLs reject invalid signatures before malformed source decryption" do
+    telemetry_prefix = [:image_plug_signed_malformed_encrypted_safety]
+    source_resolve_start = telemetry_prefix ++ [:source, :resolve, :start]
+
+    attach_source_resolve_telemetry(telemetry_prefix)
+
+    imgproxy =
+      [
+        signature: [
+          keys: ["746573742d6b6579"],
+          salts: ["746573742d73616c74"]
+        ],
+        source_url_encryption_key: @source_url_encryption_key,
+        base64_url_includes_filename: true
+      ]
+
+    opts =
+      encrypted_opts(
+        telemetry_prefix: telemetry_prefix,
+        cache: {CacheProbe, []},
+        sources: [
+          path:
+            {RootHTTPAdapter,
+             root_url: "http://origin.test", req_options: [plug: OriginShouldNotFetch]}
+        ],
+        imgproxy: imgproxy
+      )
+
+    conn =
+      call_imgproxy(
+        "/AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA/rt:force/w:120/h:90/f:jpeg/enc/not+base64.webp/puppy.jpg",
+        opts
+      )
+
+    assert conn.status == 403
+    refute_received {:telemetry_event, ^source_resolve_start, _, _}
+    refute_received {:cache_lookup, _key}
+    refute_received {:cache_put, _key, _entry}
+    refute_received :origin_fetch
   end
 
   test "whole chunked and padded encoded source spellings share the same filesystem cache entry" do
@@ -536,7 +783,7 @@ defmodule ImagePlug.ImgproxyWireConformanceTest do
     refute_received {:fetch_credentials, "tenant-b", [role: "tenant-b"], _runtime_opts}
   end
 
-  defp cached_opts do
+  defp cached_opts(overrides \\ []) do
     cache_root =
       Path.join(
         System.tmp_dir!(),
@@ -547,7 +794,8 @@ defmodule ImagePlug.ImgproxyWireConformanceTest do
     File.mkdir_p!(cache_root)
 
     opts =
-      Keyword.merge(@default_opts,
+      @default_opts
+      |> Keyword.merge(
         sources: [
           path:
             {RootHTTPAdapter,
@@ -563,8 +811,15 @@ defmodule ImagePlug.ImgproxyWireConformanceTest do
            key_cookies: [],
            fail_on_cache_error: false}
       )
+      |> Keyword.merge(overrides)
 
     {opts, cache_root}
+  end
+
+  defp encrypted_opts(overrides \\ []) do
+    @default_opts
+    |> Keyword.merge(imgproxy: [source_url_encryption_key: @source_url_encryption_key])
+    |> Keyword.merge(overrides)
   end
 
   defp encoded_source(source, opts \\ []) do
@@ -578,6 +833,15 @@ defmodule ImagePlug.ImgproxyWireConformanceTest do
     first = binary_part(encoded, 0, first_size)
     second = binary_part(encoded, first_size, byte_size(encoded) - first_size)
     first <> "/" <> second
+  end
+
+  defp encrypted_source(source, opts \\ []) do
+    iv = Keyword.get(opts, :iv, @source_url_encryption_iv)
+
+    {:ok, segment} =
+      Imgproxy.encrypt_source_url(source, @source_url_encryption_key, iv: iv)
+
+    segment
   end
 
   def handle_telemetry_event(event, measurements, metadata, test_pid) do
@@ -599,6 +863,36 @@ defmodule ImagePlug.ImgproxyWireConformanceTest do
     )
 
     on_exit(fn -> :telemetry.detach(handler_id) end)
+  end
+
+  defp attach_safety_telemetry(telemetry_prefix) do
+    handler_id = {__MODULE__, self(), :safety}
+
+    :telemetry.attach_many(
+      handler_id,
+      [
+        telemetry_prefix ++ [:parse, :stop],
+        telemetry_prefix ++ [:parse, :exception],
+        telemetry_prefix ++ [:source, :resolve, :start],
+        telemetry_prefix ++ [:source, :resolve, :stop],
+        telemetry_prefix ++ [:source, :resolve, :exception]
+      ],
+      &__MODULE__.handle_telemetry_event/4,
+      self()
+    )
+
+    on_exit(fn -> :telemetry.detach(handler_id) end)
+  end
+
+  defp signed_request_path(signed_path) do
+    key = Base.decode16!("746573742d6b6579", case: :lower)
+    salt = Base.decode16!("746573742d73616c74", case: :lower)
+
+    signature =
+      :crypto.mac(:hmac, :sha256, key, salt <> signed_path)
+      |> Base.url_encode64(padding: false)
+
+    "/" <> signature <> signed_path
   end
 
   defp svg_origin_opts do

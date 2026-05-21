@@ -175,19 +175,24 @@ application-owned source adapters.
 - ⭕ `IMGPROXY_USE_SWIFT`
 - ⭕ `IMGPROXY_SWIFT_*`
 
-### URL rewriting and encoded-source filename behavior
+### Encoded sources, encrypted sources, and URL rewriting
 
-Encoded source parsing doesn't apply global source URL rewrites. ImagePlug
-doesn't parse encrypted source URLs.
+ImagePlug supports Base64 encoded source URLs. It also supports encrypted source
+URLs when callers configure `source_url_encryption_key` through
+`ImagePlug.init/1`. Direct `ImagePlug.Parser.Imgproxy.parse/2` callers should
+pass `imgproxy: ImagePlug.Parser.Imgproxy.validate_options!(...)`.
 
-- ⚠️ Base64 encoded source URLs
-- ⭕ `IMGPROXY_BASE64_URL_INCLUDES_FILENAME`
+- ✅ Base64 encoded source URLs
+- ✅ Encrypted source URLs
+- ✅ `IMGPROXY_BASE64_URL_INCLUDES_FILENAME`
 - ⭕ `IMGPROXY_BASE_URL`
 - ⭕ `IMGPROXY_URL_REPLACEMENTS`
 
 ImagePlug supports encoded source syntax and encoded `.extension` output
-suffixes. It doesn't support filename suffix mode, base URL prefixing, or URL
-replacements.
+suffixes. With `base64_url_includes_filename: true`, it discards the final
+encoded-source segment before decoding Base64 or decrypting `/enc/` sources.
+This matches imgproxy's SEO filename mode. Base URL prefixing and URL
+replacements are separate source rewriting features and aren't implemented.
 
 ### Processing argument separator and allowed option list
 
@@ -426,9 +431,11 @@ entrypoint, license checks, or deprecation handling.
 | HMAC URL signatures | Supported | Imgproxy parser verifies raw/unpadded Base64URL HMAC-SHA256 signatures with hex key/salt pairs, optional truncation, rotation pairs, exact trusted signatures, and Imgproxy-compatible `fixPath` before verification. Signature failures return 403. |
 | Plain source URLs via `/plain/` | Supported | ImagePlug translates the value into configured source adapters for local paths, HTTP and HTTPS URLs, S3-compatible object sources, and configured custom schemes. |
 | Plain source `@extension` | Supported | Requests explicit output format and bypasses `Accept` negotiation. It doesn't declare source format. |
-| Base64 encoded source URL | Partial | ImagePlug supports Imgproxy encoded source syntax and `.extension` output suffixes. It doesn't support filename suffix mode, base URL prefixing, or URL replacements. |
-| Encrypted `/enc/` source URL | Missing | Not implemented. The parser rejects the marker before source identity resolution, cache lookup, or source fetch instead of treating it as an encoded source. |
-| AES-CBC source URL encryption helpers | Missing | Should remain parser/runtime source-layer support, not transform support. |
+| Base64 encoded source URL | Supported | ImagePlug supports Imgproxy encoded source syntax, `.extension` output suffixes, and opt-in SEO filename suffix mode. |
+| Encrypted `/enc/` source URL | Supported | Requires `source_url_encryption_key`. ImagePlug accepts `base64url(iv <> aes-cbc-pkcs7(source_url))`, optional `.extension`, chunked encrypted segments, and opt-in SEO filename suffix mode. |
+| AES-CBC source URL encryption helpers | Supported | `ImagePlug.Parser.Imgproxy.encrypt_source_url/3` returns the segment used after `/enc/`. The helper doesn't build full paths, output suffixes, or signatures. |
+| `IMGPROXY_BASE_URL` | Missing | ImagePlug doesn't prepend a configured base URL to decoded, decrypted, or plain source strings. Use ImagePlug source configuration instead. |
+| `IMGPROXY_URL_REPLACEMENTS` | Missing | ImagePlug doesn't rewrite decoded, decrypted, or plain source strings before source translation. |
 | Custom argument separator | Missing | Parser currently uses `:`. |
 | Processing option order independence | Supported | URL option order doesn't define transform order. |
 | Pipeline separator `-` | Supported | Separates non-empty pipeline groups. |
@@ -532,7 +539,7 @@ transforms or output encoding.
 | `webp_options` | `webpo` | Missing | Pro advanced WebP encoder controls. |
 | `avif_options` | `avifo` | Missing | Pro advanced AVIF encoder controls. |
 | `format` | `f`, `ext` | Partial | Supports `webp`, `avif`, `jpeg`, `jpg`, and `png`. Planning rejects parsed `best`. |
-| Extension path suffix | | Partial | Plain sources use `@extension`; encoded sources use `.extension`. Both request explicit output format and bypass `Accept` negotiation. |
+| Extension path suffix | | Partial | Plain sources use `@extension`; Base64 and encrypted sources use `.extension`. Both request explicit output format and bypass `Accept` negotiation. |
 | Automatic output via `Accept` | | Supported | Omitted format negotiates AVIF/WebP and uses `Vary: Accept`. |
 | `best` output | | Rejected | Parsed as an output value, rejected by planning. |
 
