@@ -10,7 +10,7 @@ Shrink the current stream infrastructure instead:
 - Request owns the `Vix`/Image linked-process lifecycle hazard.
 - Transform stays source-agnostic.
 
-The implementation should remove request-mailbox coupling from `ImagePlug.Source.WrappedStream`, stop trapping exits in the Plug request process, and add a private monitored worker under `ImagePlug.Request`.
+The implementation should remove request-mailbox coupling from `ImagePlug.Source.WrappedStream`, stop trapping exits in the Plug request process, and add a private monitored worker under `ImagePlug.Request`. That worker must own the whole cache-miss or no-cache source path, not just `Image.open/2`.
 
 ## Problem
 
@@ -95,13 +95,24 @@ Don't export it from `ImagePlug.Request`.
 
 `SourceStreamBoundary.run/1` starts a monitored worker. The worker sets `trap_exit` while it runs the whole source-dependent function. The caller only monitors the worker and never changes its own process flags.
 
+Use an unlinked worker:
+
+- start it with `spawn_monitor`
+- tag the result message with a unique reference
+- call `Process.demonitor(ref, [:flush])` after receiving a result
+- don't use `Task.async`, because it links the worker to the caller
+
 The boundary converts these failures into `{:error, {:source, reason}}`:
 
 - a direct `%ImagePlug.Source.StreamError{}` raise
 - a linked process exit with `%ImagePlug.Source.StreamError{}`
 - a worker crash caused by `%ImagePlug.Source.StreamError{}`
 
-Other exits should stay crashes or processing errors according to the existing request error policy. The boundary isn't a general exception blanket.
+Other exits must not disappear. With `trap_exit: true`, every linked exit becomes a mailbox message. For linked exits that aren't `%ImagePlug.Source.StreamError{}`, the boundary must re-exit, raise, or return through the existing non-source error path.
+
+Source stream exits should dominate generic image errors. The worker should check for trapped `%ImagePlug.Source.StreamError{}` exits after source-consuming stages and immediately before it sends any success or non-source error result to the caller. If a checkpoint finds a source stream exit, return `{:error, {:source, reason}}`.
+
+The boundary isn't a general exception blanket.
 
 ### Transform
 
@@ -128,7 +139,7 @@ Keep parser, planner, source resolution, cache config validation, and cache look
 
 For cache hits, return the cache entry without entering the stream boundary.
 
-For cache misses and requests that skip the cache, enter the stream boundary before source fetch.
+For cache misses and requests that skip the cache, enter the stream boundary before source fetch. The boundary must wrap `Runner.process_request/4` or the whole source-dependent path. Don't put the boundary only around `Processor.process_source/3`. Automatic output can split decode from transform and final-alpha inspection.
 
 Inside the boundary:
 
@@ -139,6 +150,8 @@ Inside the boundary:
 - execute transforms
 - inspect final alpha when automatic output requires it
 - materialize final state before returning
+
+Final materialization for streamed-source states is unconditional in this design. Don't reuse the current access-based `:sequential` gate. Random-access decode paths can still hold source-backed libvips state, so they must also materialize before the state crosses the worker boundary.
 
 After the boundary returns a materialized final state, cache encoding and normal response delivery can stay in the caller process.
 
@@ -162,12 +175,14 @@ Decode errors that aren't source stream failures should remain decode errors:
 
 Materialization errors should continue to follow existing materialization error mapping. Don't introduce source-specific errors into transform materialization tests.
 
+If final materialization returns a generic image error and the worker also observes a trapped `%ImagePlug.Source.StreamError{}`, return the source error. That preserves the request-safety contract when libvips reports a generic load failure for an upstream stream failure.
+
 ## Performance Implications
 
 The conservative boundary forces materialization before the final state leaves the worker. That has costs:
 
 - more native memory pressure for large decoded images
-- later time to first byte for non-cached responses
+- later time to first byte for non-cached, cache-skip, and explicit-format streaming responses
 - less use of libvips laziness on some one-pass pipelines
 
 The benefit is a clear failure contract: ImagePlug sees source read failures before it returns a successful processed image from the boundary.
@@ -182,6 +197,10 @@ Don't materialize earlier than needed:
 - not on cache hits
 
 Materialize when a source-backed image would otherwise cross the request worker boundary.
+
+For the first implementation, assume every successful state produced from a fetched source stream is source-backed and materialize it. Tracking whether a state is still source-backed can come later if measurements show the unconditional copy costs too much.
+
+Cache misses can still encode twice. Today the cache path may encode up to the cache body limit, skip cache on `:too_large`, and then encode again for normal response delivery. Final materialization adds another full-pixel copy before those encodes. Keep that as known performance debt for option 1.
 
 ## Req Steps
 
@@ -199,6 +218,8 @@ Req steps aren't the system boundary. They can't own source identity, cache beha
 
 Keep Req usage inside source adapters or a private source transport helper.
 
+Sanitize `req_options` by allowlist where possible. Reject or drop Req pipeline, adapter, request-step, response-step, and error-step options that can bypass ImagePlug's URL, redirect, retry, status, signing, or source error policy.
+
 ## Req Transport Follow-Up
 
 Extract shared Req setup after the lifecycle boundary fix lands.
@@ -210,6 +231,8 @@ ImagePlug.Source.ReqTransport
 ```
 
 `ImagePlug.Source.HTTP` and `ImagePlug.Source.S3` can call it, but it should still return `%ImagePlug.Source.Response{stream: enumerable}` through the existing source contract. Request and Transform shouldn't see `%Req.Request{}`, `%Req.Response{}`, `%Req.Response.Async{}`, or Req stream messages.
+
+The actual `Req.get(..., into: :self)` call must still happen inside the process that enumerates the body. Don't pre-open a streamed Req response in `Source.fetch/3` and pass it to another process. Req expects the creating process to read streamed response messages, while `Vix` reads enumerable input from a linked reader process.
 
 Move duplicated Req transport behavior into the shared helper:
 
@@ -235,6 +258,14 @@ Don't move `max_body_bytes` into Req transport. The limit applies while libvips 
 
 This follow-up shouldn't change behavior. Treat it as extraction first, then consider Req request, response, or error steps where they replace local code without weakening ImagePlug's source error contract.
 
+## Test Hooks
+
+Shrink test-only runtime hooks while touching this area.
+
+Prefer source adapters, controlled streams, boundary fixtures, and transform/materializer modules wired through existing internal boundaries over generic runtime hooks. Remove `:image_materializer` and update tests to use the narrower `:image_materializer_module` only if the hook remains useful as an internal extension point.
+
+Check `:image_open_module`. If tests can prove the boundary through source adapters and controlled streams, remove the hook. If it remains, document it as test/internal-only and keep it out of the public option surface.
+
 ## Tests
 
 Add tests that prove behavior, not private mechanics.
@@ -245,6 +276,12 @@ Add:
 - boundary tests for linked reader exits
 - a Plug-level regression where a linked reader fails after decode has started and the response is still a source error
 - Runner coverage for automatic output negotiation when the failure happens after source-format decode but before final delivery
+- tests where the source failure happens during final-alpha negotiation
+- tests where the source failure happens during final materialization
+- tests that non-source linked exits don't get swallowed
+- tests that the caller's `trap_exit` flag stays unchanged
+- tests that successful worker results flush stale `DOWN` messages from the caller mailbox
+- no-cache and cache-over-limit tests that document the option 1 performance shape
 
 Keep existing Source tests for:
 
@@ -258,6 +295,10 @@ Delete or rewrite tests that assert:
 - `{:source_stream_error, ...}` mailbox messages
 - direct public use of `Source.wrap_response/2`
 - the old `:image_materializer` test hook
+
+Source body wrapper tests should exercise wrapping through `Source.fetch/3` with a small test adapter that returns controlled streams. Don't call `Source.wrap_response/2` directly after it becomes private.
+
+Race tests need explicit gates. Don't use sleeps. Use `Process.monitor/1`, `send`/`receive` handshakes, and controlled stream or reader processes that fail only after a named stage starts. At least one regression should force the old zero-time mailbox check to return success before releasing the linked source failure.
 
 ## Non-Goals
 
@@ -293,3 +334,12 @@ Measure:
 - upstream abort, timeout, body too large, invalid chunk, and client disconnect
 
 If materialization is too expensive, move encoded response production into the monitored worker instead of weakening the lifecycle invariant.
+
+Before building boundary-owned encoded streaming, write its protocol down. It needs to define:
+
+- how the worker sends encoded chunks to the Plug process
+- pressure control between `Plug.Conn.chunk/2` and the worker
+- worker cancellation when the client disconnects
+- source errors before headers versus after the first chunk
+- encode errors before headers versus after the first chunk
+- cache teeing or buffering when cache write and response delivery both need the encoded bytes
