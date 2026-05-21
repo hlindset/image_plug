@@ -153,10 +153,10 @@ spell out cache-off mode.
 The development server also serves a local demo fiddle at `/demo`. The fiddle is
 a small Svelte/Vite UI for changing common path options and previewing the
 generated SimpleServer request. Install the demo dependencies once before using
-the default server command:
+the server or `demo.verify` aliases:
 
 ```sh
-mise exec -- pnpm install
+mise exec -- mix demo.setup
 ```
 
 Starting `mix image_plug.server` also starts the Vite development server on
