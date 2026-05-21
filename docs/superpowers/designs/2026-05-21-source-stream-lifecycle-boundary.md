@@ -1,16 +1,23 @@
-# Source Stream Lifecycle Boundary Design
+# Source Stream Hybrid Lifecycle Boundary Design
 
 ## Decision
 
 Keep ImagePlug's source abstraction. Don't replace it wholesale with `Image.from_req_stream/2`.
 
-Shrink the current stream infrastructure instead:
+Use a hybrid response contract:
+
+- Before response delivery starts, ImagePlug returns clean HTTP errors for source, decode, output, and cache failures.
+- After response delivery starts, late source, decode, or encode failures are stream failures. ImagePlug records telemetry, aborts delivery, and never writes a cache entry for partial output.
+
+This sacrifices HTTP-level error determinism for late lazy failures. In return, ImagePlug avoids forcing a full-pixel materialization before every streamed response.
+
+Shrink the current stream infrastructure:
 
 - Source owns source identity, adapter fetch policy, body limits, chunk validation, and HTTP/S3 Req details.
 - Request owns the `Vix`/Image linked-process lifecycle hazard.
 - Transform stays source-agnostic.
 
-The implementation should remove request-mailbox coupling from `ImagePlug.Source.WrappedStream`, stop trapping exits in the Plug request process, and add a private monitored worker under `ImagePlug.Request`. That worker must own the whole cache-miss or no-cache source path, not just `Image.open/2`.
+The implementation should remove request-mailbox coupling from `ImagePlug.Source.WrappedStream`, stop trapping exits in the Plug request process, and add a private boundary under `ImagePlug.Request` for source-backed decode and encode work.
 
 ## Problem
 
@@ -28,6 +35,40 @@ That still has two bad properties:
 - The zero-time mailbox check only sees messages already delivered. A linked source reader can fail just after the check.
 
 The deeper issue is lifecycle ownership. A source-backed libvips image can still read from the source after `Image.open/2`, during transform execution, source-format fallback, alpha inspection, cache encoding, or response encoding.
+
+The strict model tried to force that work before response delivery by materializing the final image. The hybrid model accepts that some failures happen during delivery and treats them as stream failures.
+
+## Hybrid Contract
+
+ImagePlug has two phases for a cache miss or no-cache request.
+
+### Before Delivery Starts
+
+ImagePlug can still choose the HTTP status and response body. Failures in this phase return the existing clean errors.
+
+Examples:
+
+- parser or planner validation failure
+- source resolution failure
+- denied source host
+- bad source status before body streaming
+- output negotiation failure
+- cache lookup or cache write failure when `fail_on_cache_error: true`
+- source-format or final-alpha inspection failure when output negotiation needs it before headers
+- memory cache encoding failure before a response starts
+
+### After Delivery Starts
+
+Once ImagePlug sends headers or the first chunk, it can't replace the response with a `422` or `500`.
+
+Failures in this phase should:
+
+- abort response delivery
+- emit telemetry with the source/decode/output reason where available
+- avoid writing a cache entry
+- let the client observe a failed or incomplete image response
+
+This applies to source body limit errors, source timeouts, truncated bodies, late decode failures, and encode failures that happen after the first response chunk.
 
 ## Why Not `Image.from_req_stream/2`
 
@@ -85,7 +126,7 @@ Narrow `WrappedStream`, and rename it to `ImagePlug.Source.BodyStream` in the im
 
 Request owns `Vix` lifecycle isolation.
 
-Add a private module:
+Add a private module under `ImagePlug.Request`, for example:
 
 ```elixir
 ImagePlug.Request.SourceStreamBoundary
@@ -93,7 +134,19 @@ ImagePlug.Request.SourceStreamBoundary
 
 Don't export it from `ImagePlug.Request`.
 
-`SourceStreamBoundary.run/1` starts a monitored worker. The worker sets `trap_exit` while it runs the whole source-dependent function. The caller only monitors the worker and never changes its own process flags.
+The boundary should support two modes.
+
+### Pre-Response Mode
+
+Use this when ImagePlug must finish source-backed work before it can decide the response.
+
+Examples:
+
+- source-format inspection for `format:auto`
+- final-alpha inspection for automatic output selection
+- cache memory encoding before writing a cache entry
+
+This mode runs in an unlinked monitored worker. The worker can set `trap_exit` while it owns source-backed work. The caller only monitors the worker and never changes its own process flags.
 
 Use an unlinked worker:
 
@@ -102,36 +155,49 @@ Use an unlinked worker:
 - call `Process.demonitor(ref, [:flush])` after receiving a result
 - don't use `Task.async`, because it links the worker to the caller
 
-The boundary converts these failures into `{:error, {:source, reason}}`:
-
-- a direct `%ImagePlug.Source.StreamError{}` raise
-- a linked process exit with `%ImagePlug.Source.StreamError{}`
-- a worker crash caused by `%ImagePlug.Source.StreamError{}`
+Before response delivery starts, the boundary converts `%ImagePlug.Source.StreamError{}` raises or linked exits into `{:error, {:source, reason}}`.
 
 Other exits must not disappear. With `trap_exit: true`, every linked exit becomes a mailbox message. For linked exits that aren't `%ImagePlug.Source.StreamError{}`, the boundary must re-exit, raise, or return through the existing non-source error path.
 
-Source stream exits should dominate generic image errors. The worker should check for trapped `%ImagePlug.Source.StreamError{}` exits after source-consuming stages and immediately before it sends any success or non-source error result to the caller. If a checkpoint finds a source stream exit, return `{:error, {:source, reason}}`.
+### Streaming Mode
 
-The boundary isn't a general exception blanket.
+Use this for response delivery that should stay lazy.
+
+The source-backed decode, transform, and encode work runs inside the boundary worker. The worker sends encoded chunks to the Plug request process. The Plug request process still owns `Plug.Conn` and calls `Plug.Conn.chunk/2`.
+
+Before the first chunk, worker failures can still become clean HTTP errors.
+
+After the first chunk, worker failures are stream failures:
+
+- source failures emit source telemetry and abort delivery
+- decode failures emit decode telemetry and abort delivery
+- output failures emit output telemetry and abort delivery
+- skip cache writes
+
+The worker shouldn't send source-backed `VipsImage` state back to the caller in streaming mode. It sends encoded bytes or a terminal result.
 
 ### Transform
 
 Transform shouldn't learn about source streams, Req, or `%ImagePlug.Source.StreamError{}`.
 
-Materialization remains a transform concern, but the request boundary decides when it must materialize before returning from the worker.
+Materialization remains a transform concern for explicit transform boundaries, not a global request-delivery rule.
 
 ## Boundary Invariant
 
-A source-backed `VipsImage` must stay in the process that owns the source stream until that process materializes it.
+A source-backed `VipsImage` must not escape into normal response delivery as a caller-owned state.
 
-Two designs preserve this invariant:
+Handle it in either of these ways:
 
-1. Run fetch, decode, transform, final output negotiation, and final materialization inside the boundary worker. Return a materialized final state.
-2. Run response encoding inside the boundary worker and stream encoded bytes back to the Plug request process.
+1. A pre-response worker consumes it and returns a memory/cache result or a clean error.
+2. A streaming worker owns it until encode completes or fails, and only sends encoded chunks to the Plug process.
 
-Use option 1 now. It's simpler and fixes the race without redesigning response delivery.
+Don't force final `copy_memory/1` merely to make late failures look like pre-response errors. That was the strict model. The hybrid model treats late delivery failures as stream failures.
 
-Option 2 is the later performance design if final materialization costs too much for large non-cached responses.
+Keep materialization where it has its own semantic job:
+
+- between explicit plan pipelines
+- when output negotiation must inspect image data
+- before writing a cache entry, if the cache path uses memory output
 
 ## Runner Flow
 
@@ -139,68 +205,55 @@ Keep parser, planner, source resolution, cache config validation, and cache look
 
 For cache hits, return the cache entry without entering the stream boundary.
 
-For cache misses and requests that skip the cache, enter the stream boundary before source fetch. The boundary must wrap `Runner.process_request/4` or the whole source-dependent path. Don't put the boundary only around `Processor.process_source/3`. Automatic output can split decode from transform and final-alpha inspection.
+For cache misses and requests that skip the cache, enter the boundary before source fetch. The boundary must wrap the source-dependent path, not only `Processor.process_source/3`. Automatic output can split decode from transform and final-alpha inspection.
 
-Inside the boundary:
+Recommended flow:
 
-- fetch source
-- decode source
-- inspect source format
-- resolve automatic output that depends on source format
-- execute transforms
-- inspect final alpha when automatic output requires it
-- materialize final state before returning
+- Resolve any output policy that doesn't need source bytes.
+- If output negotiation needs source format or final alpha, run that source-backed inspection in pre-response mode.
+- If ImagePlug should write a cache entry, run cache encoding in pre-response mode and write only complete successful output.
+- If the response should stream, run response encoding in streaming mode.
 
-Final materialization for streamed-source states is unconditional in this design. Don't reuse the current access-based `:sequential` gate. Random-access decode paths can still hold source-backed libvips state, so they must also materialize before the state crosses the worker boundary.
-
-After the boundary returns a materialized final state, cache encoding and normal response delivery can stay in the caller process.
-
-This keeps the initial implementation conservative. The design intentionally trades some memory and latency for a hard safety boundary.
+When cache encoding returns `:too_large`, don't return a source-backed state to the caller. Fall back to streaming mode and let the worker own encode delivery.
 
 ## Error Behavior
 
-Source stream errors should return source errors:
+Before response delivery starts, source stream errors return source errors:
 
 ```elixir
 {:error, {:source, reason}}
 ```
 
-The Plug layer should keep returning the existing user-visible source failure response, for example status `422` and `"invalid image source"` in the current request safety tests.
-
-Decode errors that aren't source stream failures should remain decode errors:
+Decode errors that aren't source stream failures remain decode errors:
 
 ```elixir
 {:error, {:decode, reason}}
 ```
 
-Materialization errors should continue to follow existing materialization error mapping. Don't introduce source-specific errors into transform materialization tests.
+After response delivery starts, these same failures become stream failures. The user-visible status and headers stay whatever was already sent.
 
-If final materialization returns a generic image error and the worker also observes a trapped `%ImagePlug.Source.StreamError{}`, return the source error. That preserves the request-safety contract when libvips reports a generic load failure for an upstream stream failure.
+Telemetry should distinguish:
+
+- source stream failure before delivery
+- source stream failure after delivery starts
+- decode failure before delivery
+- decode failure after delivery starts
+- output failure before delivery
+- output failure after delivery starts
+
+Cache behavior stays strict: cache only successful complete encoded responses.
 
 ## Performance Implications
 
-The conservative boundary forces materialization before the final state leaves the worker. That has costs:
+The hybrid boundary avoids unconditional final materialization. That preserves the main benefits of streaming for no-cache, cache-skip, and large output paths:
 
-- more native memory pressure for large decoded images
-- later time to first byte for non-cached, cache-skip, and explicit-format streaming responses
-- less use of libvips laziness on some one-pass pipelines
+- lower peak native memory than full-pixel materialization
+- earlier first response chunk
+- more use of libvips lazy execution
 
-The benefit is a clear failure contract: ImagePlug sees source read failures before it returns a successful processed image from the boundary.
+The cost is an honest HTTP contract. Late failures after response start no longer become clean `422` or `500` responses.
 
-Don't materialize earlier than needed:
-
-- not before parser or planner validation
-- not before cache lookup
-- not in `Source.fetch/3`
-- not inside the body stream wrapper
-- not between every transform operation
-- not on cache hits
-
-Materialize when a source-backed image would otherwise cross the request worker boundary.
-
-For the first implementation, assume every successful state produced from a fetched source stream is source-backed and materialize it. Tracking whether a state is still source-backed can come later if measurements show the unconditional copy costs too much.
-
-Cache misses can still encode twice. Today the cache path may encode up to the cache body limit, skip cache on `:too_large`, and then encode again for normal response delivery. Final materialization adds another full-pixel copy before those encodes. Keep that as known performance debt for option 1.
+Cache misses can still encode twice. Today the cache path may encode up to the cache body limit, skip cache on `:too_large`, and then encode again for normal response delivery. The hybrid design should treat this as performance debt, but it shouldn't add a full-pixel copy before the fallback stream.
 
 ## Req Steps
 
@@ -272,16 +325,17 @@ Add tests that prove behavior, not private mechanics.
 
 Add:
 
-- `ImagePlug.Request.SourceStreamBoundary` unit tests for direct `%Source.StreamError{}` raises
-- boundary tests for linked reader exits
-- a Plug-level regression where a linked reader fails after decode has started and the response is still a source error
-- Runner coverage for automatic output negotiation when the failure happens after source-format decode but before final delivery
-- tests where the source failure happens during final-alpha negotiation
-- tests where the source failure happens during final materialization
+- boundary tests for direct `%Source.StreamError{}` raises before response starts
+- boundary tests for linked reader exits before response starts
 - tests that non-source linked exits don't get swallowed
 - tests that the caller's `trap_exit` flag stays unchanged
 - tests that successful worker results flush stale `DOWN` messages from the caller mailbox
-- no-cache and cache-over-limit tests that document the option 1 performance shape
+- tests where `format:auto` source-format failures return clean errors before delivery
+- tests where final-alpha negotiation failures return clean errors before delivery
+- streaming tests where source failure after first chunk aborts delivery instead of returning `422`
+- streaming tests where decode or output failure after first chunk aborts delivery instead of returning a replacement body
+- cache tests that partial or failed streamed output is never written
+- cache-over-limit tests that fall back to streaming mode without final image materialization
 
 Keep existing Source tests for:
 
@@ -302,8 +356,6 @@ Race tests need explicit gates. Don't use sleeps. Use `Process.monitor/1`, `send
 
 ## Non-Goals
 
-Don't redesign response delivery in this change.
-
 Don't replace `Source.ReqStream` with `Image.from_req_stream/2` in this change.
 
 Don't make source streaming public API.
@@ -312,14 +364,15 @@ Don't change imgproxy encrypted URL behavior as part of this work.
 
 Don't preserve tidy errors for impossible internal misuse introduced only by old helper functions.
 
+Don't guarantee clean HTTP error bodies after response delivery starts.
+
 ## Later Work
 
 Benchmark these variants before optimizing the boundary:
 
 - current PR #86 fix
-- monitored worker with final materialization
-- monitored worker with selective materialization
-- boundary-owned encoded streaming
+- hybrid worker-owned response streaming
+- pre-response memory cache encoding plus streaming fallback
 - `Image.from_req_stream/2` as a baseline
 
 Measure:
@@ -333,13 +386,4 @@ Measure:
 - non-cached response delivery
 - upstream abort, timeout, body too large, invalid chunk, and client disconnect
 
-If materialization is too expensive, move encoded response production into the monitored worker instead of weakening the lifecycle invariant.
-
-Before building boundary-owned encoded streaming, write its protocol down. It needs to define:
-
-- how the worker sends encoded chunks to the Plug process
-- pressure control between `Plug.Conn.chunk/2` and the worker
-- worker cancellation when the client disconnects
-- source errors before headers versus after the first chunk
-- encode errors before headers versus after the first chunk
-- cache teeing or buffering when cache write and response delivery both need the encoded bytes
+If worker-owned response streaming is too complex, reconsider strict pre-response materialization as an opt-in mode, not the default.
