@@ -59,7 +59,7 @@ Examples:
 
 ### After Delivery Starts
 
-Once ImagePlug sends headers or the first chunk, it can't replace the response with a `422` or `500`.
+Once ImagePlug commits response headers, it can't replace the response with a `422` or `500`. For chunked delivery, `Plug.Conn.send_chunked/2` is the commit point, not the first successful body chunk.
 
 Failures in this phase should:
 
@@ -68,7 +68,7 @@ Failures in this phase should:
 - avoid writing a cache entry
 - let the client observe a failed or incomplete image response
 
-This applies to source body limit errors, source timeouts, truncated bodies, late decode failures, and encode failures that happen after the first response chunk.
+This applies to source body limit errors, source timeouts, truncated bodies, late decode failures, and encode failures that happen after ImagePlug commits response headers.
 
 ## Why Not `Image.from_req_stream/2`
 
@@ -159,15 +159,34 @@ Before response delivery starts, the boundary converts `%ImagePlug.Source.Stream
 
 Other exits must not disappear. With `trap_exit: true`, every linked exit becomes a mailbox message. For linked exits that aren't `%ImagePlug.Source.StreamError{}`, the boundary must re-exit, raise, or return through the existing non-source error path.
 
+Exit handling must distinguish normal helper exits from failures:
+
+- ignore or drain `{:EXIT, pid, :normal}` from boundary-owned linked helpers
+- map `%ImagePlug.Source.StreamError{}` exits to source errors before header commit
+- map `%ImagePlug.Source.StreamError{}` exits to stream-failure telemetry after header commit
+- re-emit abnormal non-source exits instead of ignoring them
+
 ### Streaming Mode
 
 Use this for response delivery that should stay lazy.
 
-The source-backed decode, transform, and encode work runs inside the boundary worker. The worker sends encoded chunks to the Plug request process. The Plug request process still owns `Plug.Conn` and calls `Plug.Conn.chunk/2`.
+The source-backed fetch, decode, transform, output negotiation, and encode work runs inside one long-lived boundary worker. The Plug request process still owns `Plug.Conn` and calls `Plug.Conn.send_chunked/2` and `Plug.Conn.chunk/2`.
 
-Before the first chunk, worker failures can still become clean HTTP errors.
+The worker must be demand-driven. It shouldn't eagerly read `Image.stream!/2` and push chunks into the request process mailbox.
 
-After the first chunk, worker failures are stream failures:
+Use this protocol shape:
+
+1. The caller starts an unlinked monitored worker with a unique request reference.
+2. The worker performs source-backed pre-delivery work needed to decide headers, content type, output policy, and status.
+3. The worker returns `{:ready, ref, response_metadata}` or `{:pre_error, ref, phase, reason}`.
+4. The caller sends headers. If `send_chunked/2` fails, the caller sends `{:cancel, ref}` to the worker.
+5. After headers commit, the caller sends `{:next, ref}`.
+6. The worker produces at most one encoded chunk and replies with `{:chunk, ref, binary}`, `{:done, ref, cache_result}`, or `{:stream_failed, ref, phase, reason}`.
+7. The caller calls `Plug.Conn.chunk/2` for each chunk. On `{:ok, conn}`, it requests the next chunk. On `{:error, reason}`, it cancels the worker and treats delivery as closed.
+
+Before headers commit, worker failures can still become clean HTTP errors.
+
+After headers commit, worker failures are stream failures:
 
 - source failures emit source telemetry and abort delivery
 - decode failures emit decode telemetry and abort delivery
@@ -193,6 +212,8 @@ Handle it in either of these ways:
 
 Don't force final `copy_memory/1` merely to make late failures look like pre-response errors. That was the strict model. The hybrid model treats late delivery failures as stream failures.
 
+Pre-response inspection must not return `%ImagePlug.Request.Processor.Decoded{}` or any other struct that contains a source-backed `VipsImage`. It can return scalar metadata such as source format, alpha need, resolved output, headers, or a complete memory/cache result. If the response will stream, the same long-lived worker should continue into streaming mode instead of handing the decoded image back to the caller.
+
 Keep materialization where it has its own semantic job:
 
 - between explicit plan pipelines
@@ -210,11 +231,14 @@ For cache misses and requests that skip the cache, enter the boundary before sou
 Recommended flow:
 
 - Resolve any output policy that doesn't need source bytes.
-- If output negotiation needs source format or final alpha, run that source-backed inspection in pre-response mode.
-- If ImagePlug should write a cache entry, run cache encoding in pre-response mode and write only complete successful output.
-- If the response should stream, run response encoding in streaming mode.
+- Start one source worker for the cache-miss or no-cache source path.
+- Let the worker perform any source-format or final-alpha work needed before headers.
+- If the response should stream, keep the same worker alive for demand-driven response encoding.
+- If ImagePlug should populate cache while streaming, tee encoded chunks inside the worker and commit cache only after complete encode success.
 
-When cache encoding returns `:too_large`, don't return a source-backed state to the caller. Fall back to streaming mode and let the worker own encode delivery.
+When the cache tee exceeds the cache body limit, disable cache buffering and continue response streaming from the same encode stream. Don't restart from a consumed source-backed image.
+
+When `fail_on_cache_error: true`, keep the old pre-response cache behavior for cacheable misses: encode and write the cache entry before committing response headers. Hybrid streaming can't report a cache write failure as an HTTP error after headers commit.
 
 ## Error Behavior
 
@@ -230,7 +254,24 @@ Decode errors that aren't source stream failures remain decode errors:
 {:error, {:decode, reason}}
 ```
 
-After response delivery starts, these same failures become stream failures. The user-visible status and headers stay whatever was already sent.
+After response headers commit, these same failures become stream failures. The user-visible status and headers stay whatever was already sent.
+
+Represent stream failures internally with phase and reason, not only an HTTP error tuple. Useful phases include:
+
+- `:source`
+- `:decode`
+- `:output`
+- `:cache`
+- `:client_closed`
+
+Useful source reasons include:
+
+- `:bad_status`
+- `:receive_timeout`
+- `:transport`
+- `:body_too_large`
+- `:invalid_stream_chunk`
+- `:stream_exception`
 
 Telemetry should distinguish:
 
@@ -253,7 +294,12 @@ The hybrid boundary avoids unconditional final materialization. That preserves t
 
 The cost is an honest HTTP contract. Late failures after response start no longer become clean `422` or `500` responses.
 
-Cache misses can still encode twice. Today the cache path may encode up to the cache body limit, skip cache on `:too_large`, and then encode again for normal response delivery. The hybrid design should treat this as performance debt, but it shouldn't add a full-pixel copy before the fallback stream.
+For cacheable misses, use two modes:
+
+- Default cache fail-open mode can tee the response stream into a cache buffer and commit only after EOF.
+- `fail_on_cache_error: true` uses pre-response cache encoding and write before headers commit.
+
+The streaming tee avoids the current encode-twice path when cache output is too large. If the cache buffer crosses the limit, discard the buffer and keep streaming the response.
 
 ## Req Steps
 
@@ -272,6 +318,8 @@ Req steps aren't the system boundary. They can't own source identity, cache beha
 Keep Req usage inside source adapters or a private source transport helper.
 
 Sanitize `req_options` by allowlist where possible. Reject or drop Req pipeline, adapter, request-step, response-step, and error-step options that can bypass ImagePlug's URL, redirect, retry, status, signing, or source error policy.
+
+Do this before extracting shared Req transport. Don't move HTTP/S3 transport into `ReqTransport` until the option allowlist blocks Req adapter and step overrides.
 
 ## Req Transport Follow-Up
 
@@ -311,13 +359,15 @@ Don't move `max_body_bytes` into Req transport. The limit applies while libvips 
 
 This follow-up shouldn't change behavior. Treat it as extraction first, then consider Req request, response, or error steps where they replace local code without weakening ImagePlug's source error contract.
 
+Source fetch telemetry shouldn't claim that lazy HTTP body fetch has completed. Either rename the existing source fetch span to stream construction semantics or add worker-owned telemetry for source open and source body consumption.
+
 ## Test Hooks
 
 Shrink test-only runtime hooks while touching this area.
 
 Prefer source adapters, controlled streams, boundary fixtures, and transform/materializer modules wired through existing internal boundaries over generic runtime hooks. Remove `:image_materializer` and update tests to use the narrower `:image_materializer_module` only if the hook remains useful as an internal extension point.
 
-Check `:image_open_module`. If tests can prove the boundary through source adapters and controlled streams, remove the hook. If it remains, document it as test/internal-only and keep it out of the public option surface.
+Check `:image_open_module` and `:image_module`. If tests can prove the boundary through source adapters, controlled streams, and boundary fixtures, remove the hooks. If they remain, document them as test/internal-only and keep them out of the public option surface.
 
 ## Tests
 
@@ -332,10 +382,13 @@ Add:
 - tests that successful worker results flush stale `DOWN` messages from the caller mailbox
 - tests where `format:auto` source-format failures return clean errors before delivery
 - tests where final-alpha negotiation failures return clean errors before delivery
-- streaming tests where source failure after first chunk aborts delivery instead of returning `422`
-- streaming tests where decode or output failure after first chunk aborts delivery instead of returning a replacement body
+- streaming tests where source failure after headers commit aborts delivery instead of returning `422`
+- streaming tests where decode or output failure after headers commit aborts delivery instead of returning a replacement body
 - cache tests that partial or failed streamed output is never written
 - cache-over-limit tests that fall back to streaming mode without final image materialization
+- cache tee tests that commit only after complete encode success
+- client disconnect tests that cancel the source worker and discard cache buffers
+- tests for `fail_on_cache_error: true` preserving pre-response cache error behavior
 
 Keep existing Source tests for:
 
@@ -353,6 +406,8 @@ Delete or rewrite tests that assert:
 Source body wrapper tests should exercise wrapping through `Source.fetch/3` with a small test adapter that returns controlled streams. Don't call `Source.wrap_response/2` directly after it becomes private.
 
 Race tests need explicit gates. Don't use sleeps. Use `Process.monitor/1`, `send`/`receive` handshakes, and controlled stream or reader processes that fail only after a named stage starts. At least one regression should force the old zero-time mailbox check to return success before releasing the linked source failure.
+
+Plug tests can verify response shape, status, and that ImagePlug sends no replacement body after headers commit. They can't prove a real socket abort because `Plug.Adapters.Test.Conn` concatenates chunks. Add a boundary protocol test for demand and cancellation, plus at least one real HTTP client or raw socket test for incomplete or closed streamed responses.
 
 ## Non-Goals
 
