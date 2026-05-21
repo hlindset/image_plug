@@ -2,39 +2,54 @@ defmodule ImagePlug.Source.WrappedStream do
   @moduledoc false
 
   @enforce_keys [:stream, :max_body_bytes]
-  defstruct @enforce_keys
+  defstruct @enforce_keys ++ [error_receiver: nil]
 end
 
 defimpl Enumerable, for: ImagePlug.Source.WrappedStream do
   alias ImagePlug.Source.StreamError
 
-  def reduce(%{stream: stream, max_body_bytes: max_body_bytes}, acc, fun) do
-    reduce_stream(stream, max_body_bytes, acc, fun)
+  def reduce(
+        %{stream: stream, max_body_bytes: max_body_bytes, error_receiver: error_receiver},
+        acc,
+        fun
+      ) do
+    reduce_stream(stream, max_body_bytes, error_receiver, acc, fun)
   end
 
   def count(_wrapped), do: {:error, __MODULE__}
   def member?(_wrapped, _value), do: {:error, __MODULE__}
   def slice(_wrapped), do: {:error, __MODULE__}
 
-  defp reduce_stream(stream, max_body_bytes, {:cont, acc}, fun) do
+  defp reduce_stream(stream, max_body_bytes, error_receiver, {:cont, acc}, fun) do
     stream
     |> Enumerable.reduce({:cont, {0, acc}}, reducer(max_body_bytes, fun))
-    |> unwrap_result(fun)
+    |> unwrap_result(error_receiver, fun)
   rescue
     error in StreamError ->
-      reraise error, __STACKTRACE__
+      handle_stream_error(error_receiver, error, acc, __STACKTRACE__)
 
     _error ->
-      raise StreamError, reason: :stream_exception
+      handle_stream_error(
+        error_receiver,
+        StreamError.exception(reason: :stream_exception),
+        acc,
+        __STACKTRACE__
+      )
   catch
     _kind, _reason ->
-      raise StreamError, reason: :stream_exception
+      handle_stream_error(
+        error_receiver,
+        StreamError.exception(reason: :stream_exception),
+        acc,
+        __STACKTRACE__
+      )
   end
 
-  defp reduce_stream(_stream, _max_body_bytes, {:halt, acc}, _fun), do: {:halted, acc}
+  defp reduce_stream(_stream, _max_body_bytes, _error_receiver, {:halt, acc}, _fun),
+    do: {:halted, acc}
 
-  defp reduce_stream(stream, max_body_bytes, {:suspend, acc}, fun),
-    do: {:suspended, acc, &reduce_stream(stream, max_body_bytes, &1, fun)}
+  defp reduce_stream(stream, max_body_bytes, error_receiver, {:suspend, acc}, fun),
+    do: {:suspended, acc, &reduce_stream(stream, max_body_bytes, error_receiver, &1, fun)}
 
   defp reducer(max_body_bytes, fun) do
     fn chunk, {size, acc} ->
@@ -67,36 +82,56 @@ defimpl Enumerable, for: ImagePlug.Source.WrappedStream do
     end
   end
 
-  defp unwrap_result({:done, {_size, acc}}, _fun), do: {:done, acc}
-  defp unwrap_result({:halted, {_size, acc}}, _fun), do: {:halted, acc}
+  defp unwrap_result({:done, {_size, acc}}, _error_receiver, _fun), do: {:done, acc}
+  defp unwrap_result({:halted, {_size, acc}}, _error_receiver, _fun), do: {:halted, acc}
 
-  defp unwrap_result({:suspended, {size, acc}, continuation}, fun) do
-    {:suspended, acc, &continue(continuation, size, &1, fun)}
+  defp unwrap_result({:suspended, {size, acc}, continuation}, error_receiver, fun) do
+    {:suspended, acc, &continue(continuation, size, error_receiver, &1, fun)}
   end
 
-  defp continue(continuation, size, {:cont, acc}, fun) do
-    continue_safely(continuation, {:cont, {size, acc}}, fun)
+  defp continue(continuation, size, error_receiver, {:cont, acc}, fun) do
+    continue_safely(continuation, {:cont, {size, acc}}, error_receiver, acc, fun)
   end
 
-  defp continue(continuation, size, {:halt, acc}, fun) do
-    continue_safely(continuation, {:halt, {size, acc}}, fun)
+  defp continue(continuation, size, error_receiver, {:halt, acc}, fun) do
+    continue_safely(continuation, {:halt, {size, acc}}, error_receiver, acc, fun)
   end
 
-  defp continue(continuation, size, {:suspend, acc}, fun) do
-    continue_safely(continuation, {:suspend, {size, acc}}, fun)
+  defp continue(continuation, size, error_receiver, {:suspend, acc}, fun) do
+    continue_safely(continuation, {:suspend, {size, acc}}, error_receiver, acc, fun)
   end
 
-  defp continue_safely(continuation, command, fun) do
+  defp continue_safely(continuation, command, error_receiver, acc, fun) do
     continuation.(command)
-    |> unwrap_result(fun)
+    |> unwrap_result(error_receiver, fun)
   rescue
     error in StreamError ->
-      reraise error, __STACKTRACE__
+      handle_stream_error(error_receiver, error, acc, __STACKTRACE__)
 
     _error ->
-      raise StreamError, reason: :stream_exception
+      handle_stream_error(
+        error_receiver,
+        StreamError.exception(reason: :stream_exception),
+        acc,
+        __STACKTRACE__
+      )
   catch
     _kind, _reason ->
-      raise StreamError, reason: :stream_exception
+      handle_stream_error(
+        error_receiver,
+        StreamError.exception(reason: :stream_exception),
+        acc,
+        __STACKTRACE__
+      )
+  end
+
+  defp handle_stream_error(nil, error, _acc, stacktrace), do: reraise(error, stacktrace)
+
+  defp handle_stream_error(receiver, error, _acc, stacktrace) when receiver == self(),
+    do: reraise(error, stacktrace)
+
+  defp handle_stream_error(receiver, %StreamError{} = error, acc, _stacktrace) do
+    send(receiver, {:source_stream_error, self(), error})
+    {:halted, acc}
   end
 end

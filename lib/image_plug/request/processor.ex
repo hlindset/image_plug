@@ -127,6 +127,7 @@ defmodule ImagePlug.Request.Processor do
 
   defp decode_source_response(%Source.Response{} = source_response, decode_options, opts) do
     image_open_module = Keyword.get(opts, :image_open_module, Image)
+    source_response = Source.forward_stream_errors(source_response, self())
 
     with_source_stream_exit_trap(fn ->
       image_open_module.open(source_response.stream, decode_options)
@@ -151,6 +152,9 @@ defmodule ImagePlug.Request.Processor do
 
   defp receive_source_stream_exit(result) do
     receive do
+      {:source_stream_error, _pid, %Source.StreamError{reason: reason}} ->
+        {:error, {:source, reason}}
+
       {:EXIT, _pid, {%Source.StreamError{reason: reason}, _stacktrace}} ->
         {:error, {:source, reason}}
 
