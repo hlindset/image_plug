@@ -55,34 +55,17 @@ defmodule ImagePlug.Request.SourceStreamBoundaryTest do
     alias ImagePlug.Source
 
     def open(stream) do
-      parent = self()
-
-      pid =
-        spawn_link(fn ->
-          send(parent, :linked_reader_started)
-          Enum.to_list(stream)
-        end)
-
-      ref = Process.monitor(pid)
+      pid = spawn_link(fn -> Enum.to_list(stream) end)
 
       receive do
-        :linked_reader_started -> :ok
-      after
-        1_000 -> raise "linked reader did not start"
-      end
+        {:EXIT, ^pid, {%Source.StreamError{reason: :stream_exception}, _stacktrace} = reason} ->
+          exit(reason)
 
-      receive do
-        {:DOWN, ^ref, :process, ^pid,
-         {%Source.StreamError{reason: :stream_exception}, _stacktrace}} ->
-          :ok
-
-        {:DOWN, ^ref, :process, ^pid, %Source.StreamError{reason: :stream_exception}} ->
-          :ok
+        {:EXIT, ^pid, %Source.StreamError{reason: :stream_exception} = reason} ->
+          exit(reason)
       after
         1_000 -> raise "linked reader did not exit from source stream error"
       end
-
-      {:error, :decode_returned_after_linked_stream_exit}
     end
   end
 
@@ -122,20 +105,19 @@ defmodule ImagePlug.Request.SourceStreamBoundaryTest do
     assert catch_exit(
              SourceStreamBoundary.run(fn ->
                pid = spawn_link(fn -> exit(:non_source_failure) end)
-               ref = Process.monitor(pid)
 
                receive do
-                 {:DOWN, ^ref, :process, ^pid, :non_source_failure} -> :ok
+                 {:EXIT, ^pid, :non_source_failure} -> exit(:non_source_failure)
                after
                  1_000 -> raise "linked process did not exit"
                end
-
-               {:ok, :should_not_return}
              end)
            ) == :non_source_failure
   end
 end
 ```
+
+The linked-reader helpers receive the `{:EXIT, pid, reason}` signal and re-exit with the same reason. Don't wait for `:DOWN`. That makes the test depend on message ordering outside the linked-exit path the boundary owns.
 
 - [ ] **Step 2: Add a Plug-level linked-exit regression**
 
@@ -147,20 +129,16 @@ In `test/image_plug/request_safety_test.exs`, add this helper module near `Strea
 
     def open(stream, _decode_options) do
       pid = spawn_link(fn -> Enum.to_list(stream) end)
-      ref = Process.monitor(pid)
 
       receive do
-        {:DOWN, ^ref, :process, ^pid,
-         {%Source.StreamError{reason: :stream_exception}, _stacktrace}} ->
-          :ok
+        {:EXIT, ^pid, {%Source.StreamError{reason: :stream_exception}, _stacktrace} = reason} ->
+          exit(reason)
 
-        {:DOWN, ^ref, :process, ^pid, %Source.StreamError{reason: :stream_exception}} ->
-          :ok
+        {:EXIT, ^pid, %Source.StreamError{reason: :stream_exception} = reason} ->
+          exit(reason)
       after
         1_000 -> raise "linked reader did not exit from source stream error"
       end
-
-      {:error, :decode_returned_after_linked_stream_exit}
     end
   end
 ```
