@@ -654,8 +654,19 @@ Expected: `origin/fix-source-stream-exit-race` updates.
 - The worker boundary only covers pre-response source processing in this slice. It doesn't provide deterministic HTTP errors for late failures after response headers commit.
 - Random-access paths keep their current materialization behavior. Don't add unconditional `copy_memory/1` in this slice.
 - The boundary uses one worker process per cache miss or uncached source path. That process cost is acceptable for this safety fix and gives a later hook for concurrency and timeout controls.
-- If a new test proves a source-backed image can still fail after leaving the first-slice boundary, stop and decide whether that failure belongs in this PR or in the later worker-owned streaming slice.
+- If a new test proves a source-backed image can still fail after leaving the first-slice boundary, treat it as evidence for the later worker-owned streaming slice unless it happens while the wrapped source-dependent operation is still running.
+- Don't try to close the late-exit gap by waiting for every linked process to exit. A local attempt at that shape hung a valid `Vix` success path because a linked reader process can remain alive after `Image.open/2` returns.
+- `SourceStreamBoundary` now includes caller cancellation and non-source failure replay. That's still slice-one scope because it protects the new worker boundary; worker-owned response streaming remains out of scope.
+- `WrappedStream` now protects downstream consumer failures with a per-reduction reference. That's still source stream error handling scope because it keeps decoder crashes distinct from source failures.
 - The Req transport follow-up must add a code comment near `Req.get(..., into: :self)` in `ImagePlug.Source.ReqStream`, because that call must happen in the process that enumerates the body.
+
+## Future Slice Notes From Review
+
+- Worker-owned response streaming must own the source-backed `VipsImage` until encode completes or fails. It should send encoded chunks or terminal failures to the Plug process, not source-backed image state.
+- Streaming tests should cover failures during decode, immediately after the final source chunk, after consumer halt, after suspension and continuation, and during post-header response encoding.
+- Post-header failures need a small internal error taxonomy for telemetry and diagnostics. Decide then whether materialization failures stay under `:decode` or get a `:materialize` phase.
+- Cache write failures currently reach response handling as processing errors carrying `{:cache_write, reason}` and response headers. Revisit that taxonomy only when streaming cache teeing adds more cache-write paths.
+- Add a `Request.CacheFlow`-style helper only after worker-owned streaming and cache teeing add enough branches to make `Runner` hard to audit.
 
 ## Self-Review
 

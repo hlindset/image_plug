@@ -137,7 +137,7 @@ Source must not know about request processes. In particular:
 Narrow `WrappedStream`, and rename it to `ImagePlug.Source.BodyStream` in the implementation if the churn is acceptable. Its job should be exactly:
 
 - accept only binary chunks
-- count bytes against `max_body_bytes`
+- enforce `max_body_bytes`
 - preserve explicit `%ImagePlug.Source.StreamError{}`
 - turn unexpected enumerable errors into `%ImagePlug.Source.StreamError{reason: :stream_exception}`
 - clean up correctly when enumeration halts
@@ -178,6 +178,10 @@ Use an unlinked worker:
 Before response delivery starts, the boundary converts `%ImagePlug.Source.StreamError{}` raises or linked exits into `{:error, {:source, reason}}`.
 
 A final zero-time linked-exit drain inside the worker is only a cleanup check. It can convert source exits already delivered to the worker mailbox, but it isn't the correctness boundary. Correctness comes from the worker either returning a source error from the source-dependent operation or continuing to own the source-backed lifecycle in streaming mode.
+
+Don't replace that cleanup check with "wait until every linked process exits." `Vix` may keep linked reader processes alive after `Image.open/2` returns on successful paths.
+
+A quiescence wait can hang valid requests. If a late source-backed failure matters after `Image.open/2`, keep the source-backed lifecycle inside the worker through encode or delivery. Don't guess that all linked processes should exit before returning.
 
 Other exits must not disappear. With `trap_exit: true`, every linked exit becomes a mailbox message. For linked exits that aren't `%ImagePlug.Source.StreamError{}`, the boundary must re-exit, raise, or return through the existing non-source error path.
 
@@ -273,6 +277,7 @@ Build only the pre-response source stream boundary:
 - add private `ImagePlug.Request.SourceStreamBoundary`
 - run existing cache-miss and cache-skip source processing inside an unlinked monitored worker
 - preserve the caller's `trap_exit` flag
+- stop the worker when the caller exits
 - convert `%ImagePlug.Source.StreamError{}` linked exits to `{:error, {:source, reason}}`
 - re-emit or return non-source failures through existing error paths
 - remove request-process `trap_exit`
@@ -281,6 +286,11 @@ Build only the pre-response source stream boundary:
 - keep existing cache timing and response delivery behavior
 
 This slice fixes the PR #86 source-stream exit race without taking on worker-owned response streaming. It may still use existing pre-response materialization where the current code already does so. It also may still return a final `%ImagePlug.Transform.State{}` that contains a source-backed `VipsImage` on current random-access paths. That's a known first-slice limitation, not the target invariant. Later slices should move response encode into streaming mode so the worker sends encoded bytes instead of caller-owned source-backed image state.
+
+The first slice also tightened two supporting edges:
+
+- `WrappedStream` preserves downstream consumer raises, throws, and invalid reducer returns instead of turning them into source stream errors. It uses a per-reduction reference so an upstream enumerable can't forge the internal consumer-failure transport.
+- `SourceStreamBoundary` replays non-source raises and throws in the caller with `:erlang.raise/3`. The stack trace still points at worker execution, because the failure happened there.
 
 ## Follow-Up Slices
 
@@ -296,8 +306,20 @@ This slice should:
 - keep the worker demand-driven with one encoded chunk per `:next`
 - treat pre-header source, decode, and output failures as clean errors
 - treat post-header source, decode, and output failures as stream aborts with telemetry
+- keep source-backed `VipsImage` state inside the worker until encode finishes or fails
+- avoid "wait for all linked processes" as a completion rule; successful `Vix` paths may keep links alive
 - add protocol tests plus a real socket or raw client test for incomplete streamed responses
 - avoid cache teeing; keep cacheable misses on the existing pre-response cache path if needed
+
+Cover these source-backed failure timings:
+
+- during decode
+- immediately after the final source chunk
+- after consumer halt
+- after suspend and continuation
+- during response streaming or encode after headers commit
+
+The expected post-header behavior is telemetry plus aborted delivery, not a replacement HTTP error body.
 
 ### Streaming Cache Tee
 
@@ -314,7 +336,7 @@ This slice should:
 
 ### Req Transport Extraction
 
-Extract shared HTTP/S3 Req setup after source lifecycle behavior is stable.
+Move shared HTTP/S3 Req setup after source lifecycle behavior is stable.
 
 This slice should:
 
@@ -337,6 +359,29 @@ This slice should:
 - document that cache entries commit only after complete successful encode
 - include a compact status table for parser, source, decode, limit, output, cache, and post-commit failures
 - update the related GitHub issues after merge without using `Closes #...` unless the issue is fully solved
+
+### Error Taxonomy Cleanup
+
+Do this when worker-owned streaming introduces explicit post-commit failures. That's the point where source, decode, materialize, output, cache, and client-close reasons need one audit path.
+
+This slice should:
+
+- keep pre-response HTTP error mapping compatible with `ImagePlug.Response.Sender`
+- represent post-commit failures as `{phase, reason}` data for telemetry and diagnostics
+- decide whether intermediate materialization failures remain `{:decode, reason}` or become `{:materialize, reason}` / `{:transform, {:materialize, reason}}`
+- decide whether cache write failures stay as processing errors with response headers or become a separate runner-level cache error
+- avoid adding a taxonomy module until two or more call sites would actually use it
+
+### Runner And Cache Flow Extraction
+
+Do this after worker-owned streaming and cache teeing have real code. `ImagePlug.Request.Runner` is still coherent while it only coordinates cache lookup, output policy, processor invocation, cache write, and delivery shape.
+
+This slice should:
+
+- move cache lookup, fail-open miss handling, cache write, and cache-entry validation only if the streaming tee adds more cache branches
+- keep source resolution and parser/planner validation outside cache orchestration
+- keep response headers attached to processing errors that still need `ImagePlug.Response.Sender` handling
+- avoid moving output negotiation or source lifecycle code into a cache helper
 
 ## Error Behavior
 
@@ -423,7 +468,7 @@ Do this before extracting shared Req transport. Don't move HTTP/S3 transport int
 
 ## Req Transport Follow-Up
 
-Extract shared Req setup after the lifecycle boundary fix lands.
+Move shared Req setup after the lifecycle boundary fix lands.
 
 Create a private source module such as:
 
@@ -480,7 +525,10 @@ Add:
 - boundary tests for direct `%Source.StreamError{}` raises before response starts
 - boundary tests for linked reader exits before response starts
 - tests that non-source linked exits don't get swallowed
+- tests that downstream consumer raises, throws, and invalid reducer returns aren't reported as source stream errors
+- tests that upstream throws shaped like internal consumer-failure transport are still source stream failures
 - tests that the caller's `trap_exit` flag stays unchanged
+- tests that the worker exits when the caller exits
 - tests that successful worker results flush stale `DOWN` messages from the caller mailbox
 - tests where `format:auto` source-format failures return clean errors before delivery
 - tests where final-alpha negotiation failures return clean errors before delivery
@@ -510,13 +558,18 @@ Source body wrapper tests should exercise wrapping through `Source.fetch/3` with
 
 Race tests need explicit gates. Don't use sleeps. Use `Process.monitor/1`, `send`/`receive` handshakes, and controlled stream or reader processes that fail only after a named stage starts. At least one regression should force the old zero-time mailbox check to return success before releasing the linked source failure.
 
+Don't make a race test pass by waiting for every linked process to exit. That's a behavior ImagePlug can't require from `Vix` on successful decode paths.
+
 Plug tests can verify response shape, status, and that ImagePlug sends no replacement body after headers commit. They can't prove a real socket abort because `Plug.Adapters.Test.Conn` concatenates chunks. Add a boundary protocol test for demand and cancellation, plus at least one real HTTP client or raw socket test for incomplete or closed streamed responses.
 
 For the first slice, focus on pre-response boundary tests over real socket tests:
 
 - controlled late source failure that proves the old zero-time receive can miss the error
+- pending linked source and non-source exit messages already in the worker mailbox
 - caller `trap_exit` remains unchanged
+- caller exit cancels the worker
 - non-source linked exits aren't swallowed
+- non-source raises and throws replay in the caller instead of becoming source errors
 - source error during existing sequential materialization returns a clean error before delivery
 - automatic source-format and final-alpha paths return clean pre-response errors
 - failed source-backed processing doesn't write cache
