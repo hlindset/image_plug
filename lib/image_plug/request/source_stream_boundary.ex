@@ -16,9 +16,13 @@ defmodule ImagePlug.Request.SourceStreamBoundary do
       end)
 
     receive do
-      {^ref, ^pid, result} ->
+      {^ref, ^pid, {:ok, result}} ->
         Process.demonitor(monitor_ref, [:flush])
         result
+
+      {^ref, ^pid, {:raise, kind, reason, stacktrace}} ->
+        Process.demonitor(monitor_ref, [:flush])
+        :erlang.raise(kind, reason, stacktrace)
 
       {:DOWN, ^monitor_ref, :process, ^pid, reason} ->
         exit(reason)
@@ -30,14 +34,23 @@ defmodule ImagePlug.Request.SourceStreamBoundary do
     trap_exit? = Process.flag(:trap_exit, true)
 
     try do
-      fun.()
-      |> receive_linked_exit()
+      result =
+        fun.()
+        |> receive_linked_exit()
+
+      {:ok, result}
     rescue
       exception in [Source.StreamError] ->
-        {:error, {:source, exception.reason}}
+        {:ok, {:error, {:source, exception.reason}}}
+
+      exception ->
+        {:raise, :error, exception, __STACKTRACE__}
     catch
       :exit, reason ->
-        handle_exit(reason)
+        handle_exit(reason, __STACKTRACE__)
+
+      kind, reason ->
+        {:raise, kind, reason, __STACKTRACE__}
     after
       Process.flag(:trap_exit, trap_exit?)
       stop_caller_watch(caller_watch)
@@ -62,27 +75,35 @@ defmodule ImagePlug.Request.SourceStreamBoundary do
     end
   end
 
-  defp handle_exit({%Source.StreamError{reason: reason}, _stacktrace}),
-    do: {:error, {:source, reason}}
+  defp handle_exit({%Source.StreamError{reason: reason}, _stacktrace}, _exit_stacktrace),
+    do: {:ok, {:error, {:source, reason}}}
 
-  defp handle_exit(%Source.StreamError{reason: reason}), do: {:error, {:source, reason}}
+  defp handle_exit(%Source.StreamError{reason: reason}, _exit_stacktrace),
+    do: {:ok, {:error, {:source, reason}}}
 
-  defp handle_exit(reason), do: exit(reason)
+  defp handle_exit(reason, exit_stacktrace), do: {:raise, :exit, reason, exit_stacktrace}
 
   defp start_caller_watch(caller) do
     worker = self()
+    ready_ref = make_ref()
 
-    spawn(fn ->
-      ref = Process.monitor(caller)
+    watcher =
+      spawn(fn ->
+        ref = Process.monitor(caller)
+        send(worker, {ready_ref, :caller_watch_ready})
 
-      receive do
-        :stop ->
-          Process.demonitor(ref, [:flush])
+        receive do
+          :stop ->
+            Process.demonitor(ref, [:flush])
 
-        {:DOWN, ^ref, :process, ^caller, _reason} ->
-          Process.exit(worker, :kill)
-      end
-    end)
+          {:DOWN, ^ref, :process, ^caller, _reason} ->
+            Process.exit(worker, :kill)
+        end
+      end)
+
+    receive do
+      {^ready_ref, :caller_watch_ready} -> watcher
+    end
   end
 
   defp stop_caller_watch(caller_watch) do

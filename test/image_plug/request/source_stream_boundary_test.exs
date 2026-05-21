@@ -45,6 +45,21 @@ defmodule ImagePlug.Request.SourceStreamBoundaryTest do
     end
   end
 
+  defp wait_for_exit_message(pid, match?, attempts \\ 100_000)
+
+  defp wait_for_exit_message(_pid, _match?, 0),
+    do: raise("linked exit message was not left in the worker mailbox")
+
+  defp wait_for_exit_message(pid, match?, attempts) do
+    {:messages, messages} = Process.info(self(), :messages)
+
+    if Enum.any?(messages, &match?.(&1, pid)) do
+      :ok
+    else
+      wait_for_exit_message(pid, match?, attempts - 1)
+    end
+  end
+
   test "direct source stream errors return source errors" do
     response = %Response{stream: Stream.map([:raise], fn _ -> raise "raw stream failure" end)}
     assert {:ok, response} = Source.wrap_response(response, max_body_bytes: 20)
@@ -63,6 +78,35 @@ defmodule ImagePlug.Request.SourceStreamBoundaryTest do
     assert {:error, {:source, :stream_exception}} =
              SourceStreamBoundary.run(fn ->
                LinkedReaderImageOpen.open(response.stream)
+             end)
+  end
+
+  test "pending linked source stream exits return source errors after source work returns" do
+    assert {:error, {:source, :stream_exception}} =
+             SourceStreamBoundary.run(fn ->
+               reason = Source.StreamError.exception(reason: :stream_exception)
+               pid = spawn_link(fn -> exit(reason) end)
+               ref = Process.monitor(pid)
+
+               receive do
+                 {:DOWN, ^ref, :process, ^pid, _reason} -> :ok
+               after
+                 1_000 -> raise "linked process did not exit"
+               end
+
+               wait_for_exit_message(pid, fn
+                 {:EXIT, ^pid, %Source.StreamError{reason: :stream_exception}}, ^pid ->
+                   true
+
+                 {:EXIT, ^pid, {%Source.StreamError{reason: :stream_exception}, _stacktrace}},
+                 ^pid ->
+                   true
+
+                 _message, ^pid ->
+                   false
+               end)
+
+               {:ok, :should_not_escape}
              end)
   end
 
@@ -120,5 +164,38 @@ defmodule ImagePlug.Request.SourceStreamBoundaryTest do
                end
              end)
            ) == :non_source_failure
+  end
+
+  test "pending non-source linked exits are not converted to source errors" do
+    assert catch_exit(
+             SourceStreamBoundary.run(fn ->
+               pid = spawn_link(fn -> exit(:non_source_failure) end)
+               ref = Process.monitor(pid)
+
+               receive do
+                 {:DOWN, ^ref, :process, ^pid, _reason} -> :ok
+               after
+                 1_000 -> raise "linked process did not exit"
+               end
+
+               wait_for_exit_message(pid, fn
+                 {:EXIT, ^pid, :non_source_failure}, ^pid -> true
+                 _message, ^pid -> false
+               end)
+
+               {:ok, :should_not_escape}
+             end)
+           ) == :non_source_failure
+  end
+
+  test "non-source exceptions keep raise semantics in the caller" do
+    assert_raise RuntimeError, "processor failure", fn ->
+      SourceStreamBoundary.run(fn -> raise "processor failure" end)
+    end
+  end
+
+  test "non-source throws keep throw semantics in the caller" do
+    assert catch_throw(SourceStreamBoundary.run(fn -> throw(:processor_failure) end)) ==
+             :processor_failure
   end
 end

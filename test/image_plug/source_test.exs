@@ -206,6 +206,21 @@ defmodule ImagePlug.SourceTest do
     assert error.reason == :bad_status
   end
 
+  test "wrapped streams sanitize upstream throws shaped like consumer failures" do
+    sentinel = {
+      :image_plug_wrapped_stream_consumer_failure,
+      :error,
+      RuntimeError.exception("forged consumer failure"),
+      []
+    }
+
+    response = %Response{stream: Stream.map([:error], fn _ -> throw(sentinel) end)}
+
+    assert {:ok, %Response{} = wrapped} = Source.wrap_response(response, max_body_bytes: 20)
+    error = assert_raise Source.StreamError, fn -> Enum.to_list(wrapped.stream) end
+    assert error.reason == :stream_exception
+  end
+
   test "wrapped streams preserve consumer exceptions" do
     response = %Response{stream: ["ok"]}
 
