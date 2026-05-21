@@ -177,6 +177,8 @@ Use an unlinked worker:
 
 Before response delivery starts, the boundary converts `%ImagePlug.Source.StreamError{}` raises or linked exits into `{:error, {:source, reason}}`.
 
+A final zero-time linked-exit drain inside the worker is only a cleanup check. It can convert source exits already delivered to the worker mailbox, but it isn't the correctness boundary. Correctness comes from the worker either returning a source error from the source-dependent operation or continuing to own the source-backed lifecycle in streaming mode.
+
 Other exits must not disappear. With `trap_exit: true`, every linked exit becomes a mailbox message. For linked exits that aren't `%ImagePlug.Source.StreamError{}`, the boundary must re-exit, raise, or return through the existing non-source error path.
 
 Exit handling must distinguish normal helper exits from failures:
@@ -278,7 +280,7 @@ Build only the pre-response source stream boundary:
 - remove `WrappedStream.error_receiver`
 - keep existing cache timing and response delivery behavior
 
-This slice fixes the PR #86 source-stream exit race without taking on worker-owned response streaming. It may still use existing pre-response materialization where the current code already does so. Later slices can move response encode into streaming mode and remove more pre-response materialization.
+This slice fixes the PR #86 source-stream exit race without taking on worker-owned response streaming. It may still use existing pre-response materialization where the current code already does so. It also may still return a final `%ImagePlug.Transform.State{}` that contains a source-backed `VipsImage` on current random-access paths. That's a known first-slice limitation, not the target invariant. Later slices should move response encode into streaming mode so the worker sends encoded bytes instead of caller-owned source-backed image state.
 
 ## Error Behavior
 
@@ -376,6 +378,8 @@ ImagePlug.Source.ReqTransport
 `ImagePlug.Source.HTTP` and `ImagePlug.Source.S3` can call it, but it should still return `%ImagePlug.Source.Response{stream: enumerable}` through the existing source contract. Request and Transform shouldn't see `%Req.Request{}`, `%Req.Response{}`, `%Req.Response.Async{}`, or Req stream messages.
 
 The actual `Req.get(..., into: :self)` call must still happen inside the process that enumerates the body. Don't pre-open a streamed Req response in `Source.fetch/3` and pass it to another process. Req expects the creating process to read streamed response messages, while `Vix` reads enumerable input from a linked reader process.
+
+When this extraction happens, add a short code comment near the `Req.get(..., into: :self)` call in `ImagePlug.Source.ReqStream`. The process-ownership rule is easy to break during a later refactor and belongs next to the transport code, not only in this design document.
 
 Move duplicated Req transport behavior into the shared helper:
 

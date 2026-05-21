@@ -277,7 +277,9 @@ defmodule ImagePlug.Request.SourceStreamBoundary do
 end
 ```
 
-This module still drains the worker mailbox with `after 0`, but correctness comes from the worker boundary, not from a request-process mailbox check. The Plug request process doesn't trap exits.
+This module still drains the worker mailbox with `after 0`, but correctness comes from the worker boundary, not from a request-process mailbox check. A linked source exit can still arrive in the worker after that drain. The first slice accepts that because the boundary only claims source-error conversion for failures that surface while the wrapped source-dependent operation runs. The later streaming worker must own encode through completion instead of depending on a final mailbox drain.
+
+The Plug request process doesn't trap exits.
 
 - [ ] **Step 2: Run boundary tests**
 
@@ -376,7 +378,7 @@ Replace `process_source_format_automatic/4` with:
   end
 ```
 
-This prevents `%ImagePlug.Request.Processor.Decoded{}` from leaving the worker in the automatic source-format paths.
+This prevents `%ImagePlug.Request.Processor.Decoded{}` from leaving the worker in the automatic source-format paths. It doesn't prove that returned `%ImagePlug.Transform.State{}` is memory-backed. In this first slice, that's intentional: current final materialization behavior stays unchanged, and the later worker-owned streaming slice must remove caller-owned source-backed final image state.
 
 - [ ] **Step 4: Keep current final materialization behavior**
 
@@ -655,6 +657,7 @@ Expected:
 - `ImagePlug.Request.SourceStreamBoundary` contains source stream linked exits.
 - Automatic source-format paths don't return `%ImagePlug.Request.Processor.Decoded{}` across the worker boundary.
 - Final materialization behavior matches the behavior before this first slice.
+- The implementation doesn't add assertions that returned `%ImagePlug.Transform.State{}` is memory-backed.
 - No tests use `Process.sleep/1`.
 - No imgproxy encrypted URL behavior changed.
 
@@ -674,6 +677,7 @@ Expected: `origin/fix-source-stream-exit-race` updates.
 - Random-access paths keep their current materialization behavior. Don't add unconditional `copy_memory/1` in this slice.
 - The boundary uses one worker process per cache miss or uncached source path. That process cost is acceptable for this safety fix and gives a later hook for concurrency and timeout controls.
 - If a new test proves a source-backed image can still fail after leaving the first-slice boundary, stop and decide whether that failure belongs in this PR or in the later worker-owned streaming slice.
+- The Req transport follow-up must add a code comment near `Req.get(..., into: :self)` in `ImagePlug.Source.ReqStream`, because that call must happen in the process that enumerates the body.
 
 ## Self-Review
 
