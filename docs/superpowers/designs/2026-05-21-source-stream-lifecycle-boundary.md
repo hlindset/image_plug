@@ -463,6 +463,19 @@ For the first slice, focus on pre-response boundary tests over real socket tests
 
 Real socket tests belong with worker-owned streaming mode.
 
+## Post-Merge Issue Triage
+
+After this design lands on `main`, update related GitHub issues instead of closing them from this work.
+
+- #40 needs narrower scope. The design decides that ImagePlug never caches partial streamed output, streamed cache writes commit only after complete encode success, `fail_on_cache_error: true` keeps cache write errors pre-response, and default fail-open cache mode may stream while buffering for cache. The remaining issue scope is the cache body abstraction, streamed filesystem reads and writes, byte counting, digest validation, and adapter migration.
+- #49 should mention the source worker boundary as the future hook for processing concurrency, queueing, timeout, and cancellation. The first implementation slice won't add those controls.
+- #10 and #47 should mention that post-commit source, decode, and encode failures become telemetry and diagnostic events. They don't become replacement HTTP responses after ImagePlug commits headers.
+- #57 should stay open. The first slice still keeps response delivery outside the new boundary; worker-owned streaming may later make conn ownership easier to define.
+- #9 should stay open. The design reinforces that the source wrapper counts body bytes while libvips consumes the source enumerable, not only when Req constructs the stream.
+- #61 should stay open. The design changes final response materialization goals, not intermediate multi-pipeline materialization barriers.
+
+Use issue comments unless the issue body has stale acceptance criteria. Avoid `Closes #...` wording in the PR body for these issues.
+
 ## Non-Goals
 
 Don't replace `Source.ReqStream` with `Image.from_req_stream/2` in this change.
