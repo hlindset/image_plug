@@ -282,6 +282,62 @@ Build only the pre-response source stream boundary:
 
 This slice fixes the PR #86 source-stream exit race without taking on worker-owned response streaming. It may still use existing pre-response materialization where the current code already does so. It also may still return a final `%ImagePlug.Transform.State{}` that contains a source-backed `VipsImage` on current random-access paths. That's a known first-slice limitation, not the target invariant. Later slices should move response encode into streaming mode so the worker sends encoded bytes instead of caller-owned source-backed image state.
 
+## Follow-Up Slices
+
+Build the rest as separate pull requests. Each slice should have its own implementation plan and tests.
+
+### Worker-Owned Response Streaming
+
+Move response encoding into the long-lived source worker. The worker owns source-backed image state through encode completion or failure and sends only encoded chunks or terminal results to the Plug request process.
+
+This slice should:
+
+- produce the first encoded chunk before `Plug.Conn.send_chunked/2`
+- keep the worker demand-driven with one encoded chunk per `:next`
+- treat pre-header source, decode, and output failures as clean errors
+- treat post-header source, decode, and output failures as stream aborts with telemetry
+- add protocol tests plus a real socket or raw client test for incomplete streamed responses
+- avoid cache teeing; keep cacheable misses on the existing pre-response cache path if needed
+
+### Streaming Cache Tee
+
+Add cache population to the streaming path after worker-owned response streaming is stable.
+
+This slice should:
+
+- tee encoded chunks into a cache buffer or streamed cache writer
+- commit cache only after complete successful encode
+- discard partial cache data on source, decode, output, cache, or client failure
+- drop cache buffering and keep streaming when output crosses the cache body limit
+- keep `fail_on_cache_error: true` on the pre-response cache path
+- define any cache body abstraction and adapter migration outside source lifecycle work
+
+### Req Transport Extraction
+
+Extract shared HTTP/S3 Req setup after source lifecycle behavior is stable.
+
+This slice should:
+
+- keep `%ImagePlug.Source.Response{stream: enumerable}` as the source contract
+- keep Request and Transform away from Req structs and stream messages
+- sanitize `req_options` so callers can't override adapters or Req steps that bypass ImagePlug policy
+- keep `Req.get(..., into: :self)` in the process that enumerates the body
+- add the process-ownership comment near that call in `ImagePlug.Source.ReqStream`
+- avoid moving `max_body_bytes` into Req transport
+
+### Public Contract Docs And Issue Triage
+
+Document hybrid delivery after worker-owned response streaming changes public behavior.
+
+This slice should:
+
+- explain pre-response clean errors versus post-commit stream failures
+- state that `200` means ImagePlug accepted the request and started delivery, not that lazy source reads and encoding completed
+- tell clients to treat socket close, incomplete transfer, or client-side decode failure as request failure
+- document that cache entries commit only after complete successful encode
+- include a compact status table for parser, source, decode, limit, output, cache, and post-commit failures
+- update the related GitHub issues after merge without using `Closes #...` unless the issue is fully solved
+
 ## Error Behavior
 
 Before response delivery starts, source stream errors return source errors:
