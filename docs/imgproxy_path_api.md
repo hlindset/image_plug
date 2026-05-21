@@ -61,10 +61,13 @@ secrecy boundary. The received request path can still appear in request logs
 wherever the host application logs paths.
 
 Encrypted URLs hide the source string from the path, but unsigned encrypted
-URLs don't prove source authorization and don't give ciphertext integrity. Sign
-production encrypted URLs. Signature verification happens before decryption, so
-a tampered encrypted segment or SEO filename fails before padding checks when
-callers enable signing.
+URLs don't prove source authorization and don't give ciphertext integrity.
+Because the IV is part of the path token, a caller who can see an unsigned
+encrypted URL can change first-block plaintext bytes without the key. If the
+changed plaintext is still a valid configured source, ImagePlug will plan it.
+Sign production encrypted URLs. Signature verification happens before
+decryption, so a tampered encrypted segment or SEO filename fails before padding
+checks when callers enable signing.
 
 Use `ImagePlug.Parser.Imgproxy.encrypt_source_url/3` to generate only the
 encrypted source segment:

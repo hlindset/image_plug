@@ -178,8 +178,9 @@ application-owned source adapters.
 ### URL rewriting, encrypted sources, and encoded-source filename behavior
 
 Encoded source parsing doesn't apply global source URL rewrites. ImagePlug
-parses encrypted source URLs when callers set `source_url_encryption_key` in
-imgproxy parser config.
+parses encrypted source URLs when callers configure `source_url_encryption_key`
+through `ImagePlug.init/1`. Direct `ImagePlug.Parser.Imgproxy.parse/2` callers
+should pass `imgproxy: ImagePlug.Parser.Imgproxy.validate_options!(...)`.
 
 - ⚠️ Base64 encoded source URLs
 - ⚠️ Encrypted source URLs

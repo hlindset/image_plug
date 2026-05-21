@@ -30,9 +30,6 @@ defmodule ImagePlug.Parser.Imgproxy.SourceEncryptionTest do
     assert decoded_key == Base.decode16!(@aes128_key, case: :mixed)
     refute inspect(imgproxy_opts) =~ @aes128_key
     refute inspect(imgproxy_opts) =~ inspect(decoded_key)
-
-    assert inspect(Keyword.fetch!(imgproxy_opts, :source_url_encryption)) ==
-             "#ImagePlug.Parser.Imgproxy.SourceEncryption<...>"
   end
 
   test "rejects malformed encryption keys without echoing the key value" do

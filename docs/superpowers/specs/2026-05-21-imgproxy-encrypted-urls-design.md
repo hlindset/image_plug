@@ -299,3 +299,7 @@ mise exec -- mix credo --strict
 mise exec -- mix test
 mise exec -- vale --no-global docs/superpowers/specs/2026-05-21-imgproxy-encrypted-urls-design.md docs/imgproxy_support_matrix.md docs/imgproxy_path_api.md
 ```
+
+`mise exec -- mix credo --strict` currently has repository baseline findings
+outside this work. This slice shouldn't add new Credo findings in changed
+files.

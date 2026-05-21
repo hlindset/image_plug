@@ -548,6 +548,47 @@ defmodule ImagePlug.ImgproxyWireConformanceTest do
     refute_received :origin_fetch
   end
 
+  test "signed encrypted URLs reject invalid signatures before malformed source decryption" do
+    telemetry_prefix = [:image_plug_signed_malformed_encrypted_safety]
+    source_resolve_start = telemetry_prefix ++ [:source, :resolve, :start]
+
+    attach_source_resolve_telemetry(telemetry_prefix)
+
+    imgproxy =
+      [
+        signature: [
+          keys: ["746573742d6b6579"],
+          salts: ["746573742d73616c74"]
+        ],
+        source_url_encryption_key: @source_url_encryption_key,
+        base64_url_includes_filename: true
+      ]
+
+    opts =
+      encrypted_opts(
+        telemetry_prefix: telemetry_prefix,
+        cache: {CacheProbe, []},
+        sources: [
+          path:
+            {RootHTTPAdapter,
+             root_url: "http://origin.test", req_options: [plug: OriginShouldNotFetch]}
+        ],
+        imgproxy: imgproxy
+      )
+
+    conn =
+      call_imgproxy(
+        "/AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA/rt:force/w:120/h:90/f:jpeg/enc/not+base64.webp/puppy.jpg",
+        opts
+      )
+
+    assert conn.status == 403
+    refute_received {:telemetry_event, ^source_resolve_start, _, _}
+    refute_received {:cache_lookup, _key}
+    refute_received {:cache_put, _key, _entry}
+    refute_received :origin_fetch
+  end
+
   test "whole chunked and padded encoded source spellings share the same filesystem cache entry" do
     {opts, cache_root} = cached_opts()
 
