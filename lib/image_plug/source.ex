@@ -105,17 +105,6 @@ defmodule ImagePlug.Source do
 
   def wrap_response(_response, _runtime_opts), do: {:error, {:source, :invalid_adapter_result}}
 
-  @spec forward_stream_errors(Response.t(), pid()) :: Response.t()
-  def forward_stream_errors(
-        %Response{stream: %WrappedStream{} = stream} = response,
-        receiver
-      )
-      when is_pid(receiver) do
-    %Response{response | stream: %WrappedStream{stream | error_receiver: receiver}}
-  end
-
-  def forward_stream_errors(%Response{} = response, _receiver), do: response
-
   defp validate_sources(sources) when is_list(sources) do
     Enum.reduce_while(sources, {:ok, %{}}, fn
       {adapter, {module, adapter_opts}}, {:ok, source_configs}

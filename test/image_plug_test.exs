@@ -179,10 +179,16 @@ defmodule ImagePlug.ImagePlugTest do
   end
 
   defmodule RecordingImageOpen do
-    # ImagePlug decodes in the caller process, so self() is the test process here.
     def open(stream, opts) do
-      send(self(), {:image_open_options, opts})
+      send(message_target(), {:image_open_options, opts})
       Image.open(stream, opts)
+    end
+
+    defp message_target do
+      case Process.get(:"$callers") do
+        [pid | _rest] when is_pid(pid) -> pid
+        _callers -> self()
+      end
     end
   end
 

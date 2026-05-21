@@ -34,8 +34,17 @@ defmodule ImagePlug.SourceTest.PlugCustomAdapter do
 
   @impl true
   def fetch(%Resolved{} = resolved, _opts, _runtime_opts) do
-    send(self(), {:source_order, :fetch})
-    send(self(), {:custom_fetch, resolved.fetch})
+    target = message_target()
+
+    send(target, {:source_order, :fetch})
+    send(target, {:custom_fetch, resolved.fetch})
     {:ok, %Response{stream: [File.read!("priv/static/images/beach.jpg")]}}
+  end
+
+  defp message_target do
+    case Process.get(:"$callers") do
+      [pid | _rest] when is_pid(pid) -> pid
+      _callers -> self()
+    end
   end
 end
