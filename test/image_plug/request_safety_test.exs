@@ -72,6 +72,31 @@ defmodule ImagePlug.RequestSafetyTest do
     end
   end
 
+  defmodule CacheableStreamErrorSourceAdapter do
+    @behaviour ImagePlug.Source
+
+    @impl ImagePlug.Source
+    def validate_options(opts), do: {:ok, opts}
+
+    @impl ImagePlug.Source
+    def resolve(_source, _opts, _runtime_opts) do
+      {:ok,
+       %ImagePlug.Source.Resolved{
+         adapter: :path,
+         source_kind: :path,
+         identity: [kind: :path, root: "test", path: ["cacheable-stream-fails.jpg"]],
+         cache: :normal,
+         fetch: :stream_fails
+       }}
+    end
+
+    @impl ImagePlug.Source
+    def fetch(_resolved, _opts, _runtime_opts) do
+      stream = Stream.map([:raise], fn _ -> raise "stream failed" end)
+      {:ok, %ImagePlug.Source.Response{stream: stream}}
+    end
+  end
+
   defmodule LinkedReaderImageOpen do
     alias ImagePlug.Source
 
@@ -336,6 +361,22 @@ defmodule ImagePlug.RequestSafetyTest do
 
     assert conn.status == 422
     assert conn.resp_body == "invalid image source"
+    refute_received :cache_put
+  end
+
+  test "cache miss does not write after deferred source stream errors" do
+    opts =
+      ImagePlug.init(
+        parser: ImagePlug.Parser.Imgproxy,
+        sources: [path: {CacheableStreamErrorSourceAdapter, []}],
+        cache: {CacheProbe, []}
+      )
+
+    conn = ImagePlug.call(conn(:get, "/_/plain/images/cacheable-stream-fails.jpg"), opts)
+
+    assert conn.status == 422
+    assert conn.resp_body == "invalid image source"
+    assert_received :cache_lookup
     refute_received :cache_put
   end
 

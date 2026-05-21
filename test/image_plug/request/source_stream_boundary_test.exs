@@ -23,6 +23,28 @@ defmodule ImagePlug.Request.SourceStreamBoundaryTest do
     end
   end
 
+  defmodule BlockingWorker do
+    use GenServer
+
+    def start_link(test_pid), do: GenServer.start_link(__MODULE__, test_pid)
+
+    @impl GenServer
+    def init(test_pid), do: {:ok, test_pid}
+
+    @impl GenServer
+    def handle_call(:run_boundary, _from, test_pid) do
+      SourceStreamBoundary.run(fn ->
+        send(test_pid, {:boundary_worker, self()})
+
+        receive do
+          :continue -> {:ok, :done}
+        end
+      end)
+
+      {:reply, :done, test_pid}
+    end
+  end
+
   test "direct source stream errors return source errors" do
     response = %Response{stream: Stream.map([:raise], fn _ -> raise "raw stream failure" end)}
     assert {:ok, response} = Source.wrap_response(response, max_body_bytes: 20)
@@ -52,6 +74,37 @@ defmodule ImagePlug.Request.SourceStreamBoundaryTest do
       assert Process.flag(:trap_exit, true)
     after
       Process.flag(:trap_exit, previous)
+    end
+  end
+
+  test "caller trap_exit false flag is preserved" do
+    previous = Process.flag(:trap_exit, false)
+
+    try do
+      assert {:ok, :done} = SourceStreamBoundary.run(fn -> {:ok, :done} end)
+      refute Process.flag(:trap_exit, false)
+    after
+      Process.flag(:trap_exit, previous)
+    end
+  end
+
+  test "worker exits when caller exits" do
+    pid = start_supervised!({BlockingWorker, self()})
+
+    caller =
+      spawn(fn ->
+        GenServer.call(pid, :run_boundary, :infinity)
+      end)
+
+    assert_receive {:boundary_worker, worker}
+    worker_ref = Process.monitor(worker)
+
+    try do
+      Process.exit(pid, :kill)
+      assert_receive {:DOWN, ^worker_ref, :process, ^worker, _reason}
+    after
+      Process.exit(worker, :kill)
+      Process.exit(caller, :kill)
     end
   end
 

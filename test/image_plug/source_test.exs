@@ -206,6 +206,46 @@ defmodule ImagePlug.SourceTest do
     assert error.reason == :bad_status
   end
 
+  test "wrapped streams preserve consumer exceptions" do
+    response = %Response{stream: ["ok"]}
+
+    assert {:ok, %Response{} = wrapped} = Source.wrap_response(response, max_body_bytes: 20)
+
+    assert_raise RuntimeError, "consumer failure", fn ->
+      Enumerable.reduce(wrapped.stream, {:cont, []}, fn _chunk, _acc ->
+        raise "consumer failure"
+      end)
+    end
+  end
+
+  test "wrapped streams preserve invalid consumer return failures" do
+    response = %Response{stream: ["ok"]}
+
+    assert {:ok, %Response{} = wrapped} = Source.wrap_response(response, max_body_bytes: 20)
+
+    assert_raise CaseClauseError, fn ->
+      Enumerable.reduce(wrapped.stream, {:cont, []}, fn _chunk, _acc ->
+        :invalid_consumer_return
+      end)
+    end
+  end
+
+  test "wrapped stream continuations preserve consumer exceptions" do
+    response = %Response{stream: ["first", "second"]}
+
+    assert {:ok, %Response{} = wrapped} = Source.wrap_response(response, max_body_bytes: 20)
+
+    assert {:suspended, ["first"], continuation} =
+             Enumerable.reduce(wrapped.stream, {:cont, []}, fn
+               "first", acc -> {:suspend, ["first" | acc]}
+               "second", _acc -> raise "consumer failure"
+             end)
+
+    assert_raise RuntimeError, "consumer failure", fn ->
+      continuation.({:cont, ["first"]})
+    end
+  end
+
   test "resolve and fetch catch adapter exceptions as sanitized source errors" do
     assert {:ok, opts} = Source.validate_config(sources: [path: {RaisingAdapter, []}])
 

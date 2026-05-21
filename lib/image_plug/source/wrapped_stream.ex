@@ -27,6 +27,9 @@ defimpl Enumerable, for: ImagePlug.Source.WrappedStream do
     _error ->
       raise StreamError, reason: :stream_exception
   catch
+    {:image_plug_wrapped_stream_consumer_failure, kind, reason, stacktrace} ->
+      :erlang.raise(kind, reason, stacktrace)
+
     _kind, _reason ->
       raise StreamError, reason: :stream_exception
   end
@@ -41,7 +44,7 @@ defimpl Enumerable, for: ImagePlug.Source.WrappedStream do
     fn chunk, {size, acc} ->
       with {:ok, binary} <- validate_chunk(chunk),
            {:ok, new_size} <- add_size(size, binary, max_body_bytes) do
-        case fun.(binary, acc) do
+        case call_consumer(fun, binary, acc) do
           {:cont, acc} -> {:cont, {new_size, acc}}
           {:halt, acc} -> {:halt, {new_size, acc}}
           {:suspend, acc} -> {:suspend, {new_size, acc}}
@@ -50,6 +53,21 @@ defimpl Enumerable, for: ImagePlug.Source.WrappedStream do
         {:error, reason} -> raise StreamError, reason: reason
       end
     end
+  end
+
+  defp call_consumer(fun, binary, acc) do
+    case fun.(binary, acc) do
+      {:cont, _acc} = result -> result
+      {:halt, _acc} = result -> result
+      {:suspend, _acc} = result -> result
+      invalid -> raise CaseClauseError, term: invalid
+    end
+  rescue
+    exception ->
+      throw({:image_plug_wrapped_stream_consumer_failure, :error, exception, __STACKTRACE__})
+  catch
+    kind, reason ->
+      throw({:image_plug_wrapped_stream_consumer_failure, kind, reason, __STACKTRACE__})
   end
 
   defp validate_chunk(chunk) when is_binary(chunk), do: {:ok, chunk}
@@ -97,6 +115,9 @@ defimpl Enumerable, for: ImagePlug.Source.WrappedStream do
     _error ->
       raise StreamError, reason: :stream_exception
   catch
+    {:image_plug_wrapped_stream_consumer_failure, kind, reason, stacktrace} ->
+      :erlang.raise(kind, reason, stacktrace)
+
     _kind, _reason ->
       raise StreamError, reason: :stream_exception
   end

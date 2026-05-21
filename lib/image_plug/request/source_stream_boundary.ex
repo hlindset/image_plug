@@ -12,7 +12,7 @@ defmodule ImagePlug.Request.SourceStreamBoundary do
     {pid, monitor_ref} =
       spawn_monitor(fn ->
         Process.put(:"$callers", callers)
-        send(caller, {ref, self(), run_worker(fun)})
+        send(caller, {ref, self(), run_worker(caller, fun)})
       end)
 
     receive do
@@ -25,21 +25,23 @@ defmodule ImagePlug.Request.SourceStreamBoundary do
     end
   end
 
-  defp run_worker(fun) do
+  defp run_worker(caller, fun) do
+    caller_watch = start_caller_watch(caller)
     trap_exit? = Process.flag(:trap_exit, true)
 
     try do
       fun.()
       |> receive_linked_exit()
+    rescue
+      exception in [Source.StreamError] ->
+        {:error, {:source, exception.reason}}
+    catch
+      :exit, reason ->
+        handle_exit(reason)
     after
       Process.flag(:trap_exit, trap_exit?)
+      stop_caller_watch(caller_watch)
     end
-  rescue
-    exception in [Source.StreamError] ->
-      {:error, {:source, exception.reason}}
-  catch
-    :exit, reason ->
-      handle_exit(reason)
   end
 
   defp receive_linked_exit(result) do
@@ -66,4 +68,25 @@ defmodule ImagePlug.Request.SourceStreamBoundary do
   defp handle_exit(%Source.StreamError{reason: reason}), do: {:error, {:source, reason}}
 
   defp handle_exit(reason), do: exit(reason)
+
+  defp start_caller_watch(caller) do
+    worker = self()
+
+    spawn(fn ->
+      ref = Process.monitor(caller)
+
+      receive do
+        :stop ->
+          Process.demonitor(ref, [:flush])
+
+        {:DOWN, ^ref, :process, ^caller, _reason} ->
+          Process.exit(worker, :kill)
+      end
+    end)
+  end
+
+  defp stop_caller_watch(caller_watch) do
+    send(caller_watch, :stop)
+    :ok
+  end
 end
