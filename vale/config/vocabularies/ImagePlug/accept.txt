@@ -13,10 +13,8 @@ downscales
 imgproxy
 letterboxing
 libvips
-namespace
 passthrough
 plaintext
 unconfigured
-unpadded
 unreferenced
 upscales
