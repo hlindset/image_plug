@@ -12,6 +12,7 @@ defmodule ImagePlug.Request.Runner do
   alias ImagePlug.Plan.Response
   alias ImagePlug.Request.Processor
   alias ImagePlug.Request.Processor.Decoded
+  alias ImagePlug.Request.SourceStreamBoundary
   alias ImagePlug.Source
   alias ImagePlug.Telemetry
   alias ImagePlug.Transform.State
@@ -232,7 +233,7 @@ defmodule ImagePlug.Request.Runner do
   end
 
   defp process_source_with_output(plan, resolved_source, opts, %Resolved{} = resolved_output) do
-    case Processor.process_source(plan, resolved_source, opts) do
+    case SourceStreamBoundary.run(fn -> Processor.process_source(plan, resolved_source, opts) end) do
       {:ok, final_state} ->
         {:ok, final_state, resolved_output, resolved_output.response_headers}
 
@@ -252,9 +253,22 @@ defmodule ImagePlug.Request.Runner do
   end
 
   defp process_source_format_automatic(plan, resolved_source, opts, policy) do
-    case Processor.fetch_decode_validate_source_with_source_format(plan, resolved_source, opts) do
-      {:ok, %Decoded{} = decoded} ->
+    SourceStreamBoundary.run(fn ->
+      with {:ok, %Decoded{} = decoded} <-
+             Processor.fetch_decode_validate_source_with_source_format(
+               plan,
+               resolved_source,
+               opts
+             ) do
         resolve_source_format_automatic(decoded, plan, opts, policy)
+      end
+    end)
+    |> case do
+      {:ok, final_state, resolved_output, response_headers} ->
+        {:ok, final_state, resolved_output, response_headers}
+
+      {:error, error, response_headers} ->
+        {:error, error, response_headers}
 
       {:error, error} ->
         {:error, error, policy.headers}

@@ -17,30 +17,38 @@ defimpl Enumerable, for: ImagePlug.Source.WrappedStream do
   def slice(_wrapped), do: {:error, __MODULE__}
 
   defp reduce_stream(stream, max_body_bytes, {:cont, acc}, fun) do
-    stream
-    |> Enumerable.reduce({:cont, {0, acc}}, reducer(max_body_bytes, fun))
-    |> unwrap_result(fun)
-  rescue
-    error in StreamError ->
-      reraise error, __STACKTRACE__
+    consumer_failure_ref = make_ref()
 
-    _error ->
-      raise StreamError, reason: :stream_exception
-  catch
-    _kind, _reason ->
-      raise StreamError, reason: :stream_exception
+    try do
+      stream
+      |> Enumerable.reduce({:cont, {0, acc}}, reducer(max_body_bytes, fun, consumer_failure_ref))
+      |> unwrap_result(fun, consumer_failure_ref)
+    rescue
+      error in StreamError ->
+        reraise error, __STACKTRACE__
+
+      _error ->
+        raise StreamError, reason: :stream_exception
+    catch
+      {^consumer_failure_ref, kind, reason, stacktrace} ->
+        :erlang.raise(kind, reason, stacktrace)
+
+      _kind, _reason ->
+        raise StreamError, reason: :stream_exception
+    end
   end
 
-  defp reduce_stream(_stream, _max_body_bytes, {:halt, acc}, _fun), do: {:halted, acc}
+  defp reduce_stream(_stream, _max_body_bytes, {:halt, acc}, _fun),
+    do: {:halted, acc}
 
   defp reduce_stream(stream, max_body_bytes, {:suspend, acc}, fun),
     do: {:suspended, acc, &reduce_stream(stream, max_body_bytes, &1, fun)}
 
-  defp reducer(max_body_bytes, fun) do
+  defp reducer(max_body_bytes, fun, consumer_failure_ref) do
     fn chunk, {size, acc} ->
       with {:ok, binary} <- validate_chunk(chunk),
            {:ok, new_size} <- add_size(size, binary, max_body_bytes) do
-        case fun.(binary, acc) do
+        case call_consumer(fun, binary, acc, consumer_failure_ref) do
           {:cont, acc} -> {:cont, {new_size, acc}}
           {:halt, acc} -> {:halt, {new_size, acc}}
           {:suspend, acc} -> {:suspend, {new_size, acc}}
@@ -49,6 +57,21 @@ defimpl Enumerable, for: ImagePlug.Source.WrappedStream do
         {:error, reason} -> raise StreamError, reason: reason
       end
     end
+  end
+
+  defp call_consumer(fun, binary, acc, consumer_failure_ref) do
+    case fun.(binary, acc) do
+      {:cont, _acc} = result -> result
+      {:halt, _acc} = result -> result
+      {:suspend, _acc} = result -> result
+      invalid -> raise CaseClauseError, term: invalid
+    end
+  rescue
+    exception ->
+      throw({consumer_failure_ref, :error, exception, __STACKTRACE__})
+  catch
+    kind, reason ->
+      throw({consumer_failure_ref, kind, reason, __STACKTRACE__})
   end
 
   defp validate_chunk(chunk) when is_binary(chunk), do: {:ok, chunk}
@@ -67,36 +90,41 @@ defimpl Enumerable, for: ImagePlug.Source.WrappedStream do
     end
   end
 
-  defp unwrap_result({:done, {_size, acc}}, _fun), do: {:done, acc}
-  defp unwrap_result({:halted, {_size, acc}}, _fun), do: {:halted, acc}
+  defp unwrap_result({:done, {_size, acc}}, _fun, _consumer_failure_ref), do: {:done, acc}
+  defp unwrap_result({:halted, {_size, acc}}, _fun, _consumer_failure_ref), do: {:halted, acc}
 
-  defp unwrap_result({:suspended, {size, acc}, continuation}, fun) do
-    {:suspended, acc, &continue(continuation, size, &1, fun)}
+  defp unwrap_result({:suspended, {size, acc}, continuation}, fun, consumer_failure_ref) do
+    {:suspended, acc, &continue(continuation, size, &1, fun, consumer_failure_ref)}
   end
 
-  defp continue(continuation, size, {:cont, acc}, fun) do
-    continue_safely(continuation, {:cont, {size, acc}}, fun)
+  defp continue(continuation, size, {:cont, acc}, fun, consumer_failure_ref) do
+    continue_safely(continuation, {:cont, {size, acc}}, fun, consumer_failure_ref)
   end
 
-  defp continue(continuation, size, {:halt, acc}, fun) do
-    continue_safely(continuation, {:halt, {size, acc}}, fun)
+  defp continue(continuation, size, {:halt, acc}, fun, consumer_failure_ref) do
+    continue_safely(continuation, {:halt, {size, acc}}, fun, consumer_failure_ref)
   end
 
-  defp continue(continuation, size, {:suspend, acc}, fun) do
-    continue_safely(continuation, {:suspend, {size, acc}}, fun)
+  defp continue(continuation, size, {:suspend, acc}, fun, consumer_failure_ref) do
+    continue_safely(continuation, {:suspend, {size, acc}}, fun, consumer_failure_ref)
   end
 
-  defp continue_safely(continuation, command, fun) do
-    continuation.(command)
-    |> unwrap_result(fun)
-  rescue
-    error in StreamError ->
-      reraise error, __STACKTRACE__
+  defp continue_safely(continuation, command, fun, consumer_failure_ref) do
+    try do
+      continuation.(command)
+      |> unwrap_result(fun, consumer_failure_ref)
+    rescue
+      error in StreamError ->
+        reraise error, __STACKTRACE__
 
-    _error ->
-      raise StreamError, reason: :stream_exception
-  catch
-    _kind, _reason ->
-      raise StreamError, reason: :stream_exception
+      _error ->
+        raise StreamError, reason: :stream_exception
+    catch
+      {^consumer_failure_ref, kind, reason, stacktrace} ->
+        :erlang.raise(kind, reason, stacktrace)
+
+      _kind, _reason ->
+        raise StreamError, reason: :stream_exception
+    end
   end
 end

@@ -127,38 +127,12 @@ defmodule ImagePlug.Request.Processor do
 
   defp decode_source_response(%Source.Response{} = source_response, decode_options, opts) do
     image_open_module = Keyword.get(opts, :image_open_module, Image)
-
-    with_source_stream_exit_trap(fn ->
-      image_open_module.open(source_response.stream, decode_options)
-    end)
+    image_open_module.open(source_response.stream, decode_options)
   rescue
     exception in [Source.StreamError] -> {:error, {:source, exception.reason}}
   catch
     :exit, {%Source.StreamError{reason: reason}, _stacktrace} -> {:error, {:source, reason}}
     :exit, %Source.StreamError{reason: reason} -> {:error, {:source, reason}}
-  end
-
-  defp with_source_stream_exit_trap(fun) do
-    trap_exit? = Process.flag(:trap_exit, true)
-
-    try do
-      result = fun.()
-      receive_source_stream_exit(result)
-    after
-      Process.flag(:trap_exit, trap_exit?)
-    end
-  end
-
-  defp receive_source_stream_exit(result) do
-    receive do
-      {:EXIT, _pid, {%Source.StreamError{reason: reason}, _stacktrace}} ->
-        {:error, {:source, reason}}
-
-      {:EXIT, _pid, %Source.StreamError{reason: reason}} ->
-        {:error, {:source, reason}}
-    after
-      0 -> result
-    end
   end
 
   defp materialize_before_delivery(%State{} = state, decode_options, opts) do

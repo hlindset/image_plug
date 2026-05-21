@@ -2,7 +2,7 @@ defmodule ImagePlug.SourceTest.CredentialProvider do
   @moduledoc false
 
   def fetch_credentials(scope, provider_opts, runtime_opts) do
-    send(self(), {:fetch_credentials, scope, provider_opts, runtime_opts})
+    send(message_target(), {:fetch_credentials, scope, provider_opts, runtime_opts})
 
     {:ok,
      [
@@ -10,5 +10,12 @@ defmodule ImagePlug.SourceTest.CredentialProvider do
        secret_access_key: "SECRET_TEST",
        token: "TOKEN_TEST"
      ]}
+  end
+
+  defp message_target do
+    case Process.get(:"$callers") do
+      [pid | _rest] when is_pid(pid) -> pid
+      _callers -> self()
+    end
   end
 end
