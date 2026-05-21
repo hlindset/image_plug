@@ -193,19 +193,19 @@ Final output cache key data captures canonical semantic intent, not resolved
 execution details. It should be stable for matching plans and independent of
 parser-specific spelling, aliases, and compatibility quirks.
 
-Parser-specific quirks must not leak into transform key data. Keep behavior that
-product-neutral semantic Plan operations can't represent cleanly in
-parser/adapter code. Don't encode dialect syntax into operation cache key data.
+Parser-specific quirks must not leak into transform key data. Keep behavior in
+parser/adapter code when product-neutral Plan operations can't represent it.
+Don't encode dialect syntax into operation cache key data.
 
-Source-aware execution choices such as resize `mode: :auto` selecting
-fit/cover, ratio crop resolution, and DPR conversion affect executable work
-after a cache miss, but they don't enter the normal final output cache key.
+Some source-aware choices affect executable work after a cache miss. Examples
+include resize `mode: :auto` selecting fit/cover, ratio crop resolution, and DPR
+conversion. They don't enter the normal final output cache key.
 
 ## Mapping examples
 
 These examples show current Imgproxy URL concepts translated into semantic Plan
 operations. They describe Imgproxy planner behavior only. Future dialect docs
-should describe their own URL syntax separately.
+should describe their own URL syntax.
 
 | Imgproxy URL concept | Semantic Plan operations |
 | --- | --- |

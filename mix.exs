@@ -125,6 +125,7 @@ defmodule ImagePlug.MixProject do
       "demo.format": ["cmd pnpm run demo:format"],
       "demo.format.check": ["cmd pnpm run demo:format:check"],
       "demo.lint": ["cmd pnpm run demo:lint"],
+      "demo.setup": ["cmd pnpm install --frozen-lockfile"],
       "demo.test": ["cmd pnpm run demo:test"],
       "demo.verify": ["demo.test", "demo.check", "demo.format.check", "demo.lint", "demo.build"],
       setup: ["deps.get"],
