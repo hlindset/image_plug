@@ -15,6 +15,7 @@ The general shape is:
 
     /<signature>/option[:arg...]/option[:arg...]/plain/path/to/image[@extension]
     /<signature>/option[:arg...]/option[:arg...]/<base64-url>[.<extension>]
+    /<signature>/option[:arg...]/option[:arg...]/enc/<encrypted-url>[.<extension>]
 
 ImagePlug verifies the signature segment first. Unsigned development URLs must
 use `_` or `unsafe`. Signed URLs must use a valid configured HMAC or trusted
@@ -28,47 +29,95 @@ to request an explicit output format and bypass `Accept` negotiation. The suffix
 doesn't declare the source image format. ImagePlug still detects the source
 family from decoded image metadata.
 
-Without `plain`, ImagePlug treats the remaining path segments as an Imgproxy
-Base64URL source value. It joins those segments without `/`, trims trailing
-`=`, decodes URL-safe Base64, and passes the decoded string through the same
-source translation used by plain sources. A decoded `images/cat.jpg`,
+Without `plain` or `enc`, ImagePlug treats the remaining path segments as an
+Imgproxy Base64URL source value. It joins those segments without `/`, trims
+trailing `=`, decodes URL-safe Base64, and passes the decoded string through the
+same source translation used by plain sources. A decoded `images/cat.jpg`,
 `local:///images/cat.jpg`, `https://example.com/cat.jpg`, `s3://bucket/key`, or
 configured custom scheme produces the same `ImagePlug.Plan` source as the
 matching plain request.
 
-Encoded sources use `.extension`, not `@extension`, for explicit output format
-selection:
+`enc` starts an encrypted source URL. Configure it through `ImagePlug.init/1`:
+
+```elixir
+imgproxy: [
+  source_url_encryption_key: "000102030405060708090a0b0c0d0e0f"
+]
+```
+
+The encrypted value is `base64url(iv <> aes-cbc-pkcs7(source_url))`. The key
+must be a hex string that decodes to 16, 24, or 32 bytes. The IV is the first 16
+decoded bytes. Decryption failures return the same parser error and happen
+before source identity resolution, cache lookup, or source fetch.
+
+Base64 and encrypted sources use `.extension`, not `@extension`, for explicit
+output format selection:
 
     /_/aW1hZ2VzL2NhdC5qcGc.webp
+    /_/enc/EBESExQVFhcYGRobHB0eH8rMlFATFrQRB9W8yCuS192Vp3lXrVGFOgzMq2IzxKSZ.webp
 
 Base64URL is reversible path encoding. Treat it as routing syntax, not a
 secrecy boundary. The received request path can still appear in request logs
 wherever the host application logs paths.
 
+Encrypted URLs hide the source string from the path, but unsigned encrypted
+URLs don't prove source authorization and don't give ciphertext integrity. Sign
+production encrypted URLs. Signature verification happens before decryption, so
+a tampered encrypted segment or SEO filename fails before padding checks when
+callers enable signing.
+
+Use `ImagePlug.Parser.Imgproxy.encrypt_source_url/3` to generate only the
+encrypted source segment:
+
+```elixir
+{:ok, segment} =
+  ImagePlug.Parser.Imgproxy.encrypt_source_url(
+    "images/cat.jpg",
+    "000102030405060708090a0b0c0d0e0f"
+  )
+```
+
+The helper doesn't add `/enc/`, processing options, output suffixes, or
+signatures. By default it uses a random IV, so the same source URL can produce
+different path strings. Pass `iv: <<...::binary-size(16)>>` only when the
+calling application owns IV derivation and storage. Don't derive IVs from the
+URL signing key.
+
 For encoded sources, ImagePlug follows Imgproxy's split rule: path segments
 remain options only while they contain the argument separator, currently `:`.
 The first bare segment starts the source. If that first bare segment is
-`plain`, the request uses plain source parsing. If it's `enc`, the request
-fails as an unsupported encrypted source. Later source chunks named `plain`,
-`ar`, `fl`, `padding`, or another option name remain encoded source chunks.
-Explicit `/plain/` requests can still use ImagePlug's `-` pipeline separator
-before the plain marker.
+`plain`, the request uses plain source parsing. If it's `enc`, the next
+segments are the encrypted source value. Later source chunks named `plain`,
+`enc`, `ar`, `fl`, `padding`, or another option name remain encoded source
+chunks. Explicit `/plain/` requests can still use ImagePlug's `-` pipeline
+separator before the plain marker.
+
+With `base64_url_includes_filename: true`, Base64 and encrypted sources discard
+the final source segment before joining chunks and before parsing `.extension`.
+This matches imgproxy's `IMGPROXY_BASE64_URL_INCLUDES_FILENAME` behavior:
+
+    /_/aW1hZ2VzL2NhdC5qcGc.webp/puppy.jpg
+    /_/enc/EBESExQVFhcYGRobHB0eH8rMlFATFrQRB9W8yCuS192Vp3lXrVGFOgzMq2IzxKSZ.webp/puppy.jpg
+
+Both examples parse the `.webp` suffix from the encoded or encrypted segment.
+The final `puppy.jpg` segment doesn't enter the source, plan, or cache key. For
+signed URLs, it remains part of the signed path. Changing it invalidates the
+signature.
 
 In URL paths, option segments before the source need the `:` separator. Use
 `ar:true`, `fl:true:true`, and `pd:10`, not bare `ar`, `fl`, or `pd`, before a
 source marker. ImagePlug parses a bare option name as the start of an encoded
 source.
 
-Signature verification uses the received fixed path before Base64 decoding. For
-signed URLs, sign the encoded path and suffix exactly as sent after Imgproxy
-`fixPath` normalization.
+Signature verification uses the received fixed path before Base64 decoding or
+encrypted-source decryption. For signed URLs, sign the encoded or encrypted path
+and suffix exactly as sent after Imgproxy `fixPath` normalization.
 
-ImagePlug doesn't support encrypted `/enc/<encrypted-source>[.<extension>]`
-source URLs. It also doesn't build Imgproxy source preprocessing controlled by
-`IMGPROXY_BASE64_URL_INCLUDES_FILENAME`, `IMGPROXY_BASE_URL`, or
-`IMGPROXY_URL_REPLACEMENTS`. Requests for encrypted sources, malformed
-Base64URL values, and unsupported decoded source schemes fail before source
-identity resolution, cache lookup, or source fetch.
+ImagePlug doesn't build Imgproxy source preprocessing controlled by
+`IMGPROXY_BASE_URL` or `IMGPROXY_URL_REPLACEMENTS`. Requests with malformed
+Base64URL values, malformed encrypted source values, and unsupported decoded
+source schemes fail before source identity resolution, cache lookup, or source
+fetch.
 
 ## Pipeline groups
 
@@ -326,14 +375,14 @@ Composition order is canvas extension, padding, then `background`.
 When a request omits an explicit output format, ImagePlug negotiates the output
 from `Accept` and sets `Vary: Accept`. To force a format, use `format`, `f`,
 `ext`, put `@extension` at the end of a plain-source path, or put `.extension`
-at the end of an encoded-source path. Forced formats bypass `Accept`
+at the end of a Base64 or encrypted source path. Forced formats bypass `Accept`
 negotiation and don't set `Vary: Accept`.
 
 ImagePlug supports `webp`, `avif`, `jpeg`/`jpg`, and `png` as explicit output
 extensions. If a request includes both an option format and a source-path
 suffix, the source-path suffix wins because the imgproxy parser treats it as
-the final requested output format. Plain sources use `@extension`. Encoded
-sources use `.extension`.
+the final requested output format. Plain sources use `@extension`. Encoded and
+encrypted sources use `.extension`.
 
 Quality has two separate controls: `quality`/`q` sets generic output quality,
 while `format_quality`/`fq` sets quality for one explicit format. In either
@@ -383,3 +432,5 @@ These cases return HTTP 400:
 | Auto-orient then crop | `/_/ar:true/c:100:100/plain/images/cat.jpg` |
 | Explicit output format | `/_/f:webp/plain/images/cat.jpg` |
 | Plain-source output format suffix | `/_/plain/images/cat.jpg@png` |
+| Encoded-source output format suffix | `/_/aW1hZ2VzL2NhdC5qcGc.webp` |
+| Encrypted-source output format suffix | `/_/enc/EBESExQVFhcYGRobHB0eH8rMlFATFrQRB9W8yCuS192Vp3lXrVGFOgzMq2IzxKSZ.webp` |

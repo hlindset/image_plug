@@ -370,9 +370,9 @@ defmodule ImagePlug.Parser.ImgproxyTest do
                {:error, {:unsupported_source_scheme, "ftp"}}
     end
 
-    test "encrypted source marker remains unsupported" do
+    test "encrypted source marker requires configured key" do
       assert Imgproxy.parse(conn(:get, "/_/enc/payload"), []) ==
-               {:error, {:unsupported_source_kind, "enc"}}
+               {:error, :missing_source_url_encryption_key}
     end
 
     test "bare segments before plain follow encoded source parsing" do

@@ -22,9 +22,18 @@ defmodule ImagePlug.Parser.Imgproxy do
   alias ImagePlug.Parser.Imgproxy.PlanBuilder
   alias ImagePlug.Parser.Imgproxy.Presets
   alias ImagePlug.Parser.Imgproxy.Signature
+  alias ImagePlug.Parser.Imgproxy.SourceEncryption
 
   @imgproxy_schema NimbleOptions.new!(
                      signature: [type: :keyword_list, required: false],
+                     source_url_encryption_key: [
+                       type: {:custom, SourceEncryption, :validate_key, []},
+                       required: false
+                     ],
+                     base64_url_includes_filename: [
+                       type: :boolean,
+                       default: false
+                     ],
                      source_schemes: [
                        type: {:custom, __MODULE__, :validate_source_schemes, []},
                        default: %{}
@@ -37,16 +46,26 @@ defmodule ImagePlug.Parser.Imgproxy do
 
   def parse(%Plug.Conn{} = conn), do: parse(conn, [])
 
+  @doc """
+  Encrypts a source URL into the segment used after imgproxy's `/enc/` marker.
+
+  The helper returns only the encrypted source segment. It doesn't add the
+  `/enc/` marker, processing options, output suffixes, or signatures.
+  """
+  @spec encrypt_source_url(binary(), binary(), keyword()) ::
+          {:ok, binary()}
+          | {:error, :invalid_source_url | :invalid_key | :invalid_iv | :invalid_options}
+  def encrypt_source_url(source_url, hex_key, opts \\ []) do
+    SourceEncryption.encrypt_source_url(source_url, hex_key, opts)
+  end
+
   @doc false
   def validate_options!(imgproxy_opts) when is_list(imgproxy_opts) do
     case NimbleOptions.validate(imgproxy_opts, @imgproxy_schema) do
       {:ok, validated} ->
-        Keyword.update(
-          validated,
-          :signature,
-          Signature.disabled(),
-          &Signature.normalize_config!/1
-        )
+        validated
+        |> Keyword.update(:signature, Signature.disabled(), &Signature.normalize_config!/1)
+        |> normalize_source_encryption()
 
       {:error, %NimbleOptions.ValidationError{} = error} ->
         raise ArgumentError, "invalid imgproxy config: #{Exception.message(error)}"
@@ -80,7 +99,8 @@ defmodule ImagePlug.Parser.Imgproxy do
          :ok <- verify_signature(signature, signed_path, opts),
          {:ok, option_segments, source_kind, raw_source_path} <- Path.split_source(path_info),
          {:ok, request_options} <- Options.parse(option_segments, preset_config(opts)),
-         {:ok, source_path, source_format} <- Path.parse_source(source_kind, raw_source_path) do
+         {:ok, source_path, source_format} <-
+           Path.parse_source(source_kind, raw_source_path, source_parsing_config(opts)) do
       parsed_request(
         signature,
         source_path,
@@ -132,6 +152,22 @@ defmodule ImagePlug.Parser.Imgproxy do
     opts
     |> Keyword.get(:imgproxy, [])
     |> Keyword.get(:presets, Presets.empty())
+  end
+
+  defp source_parsing_config(opts) do
+    imgproxy_opts = Keyword.get(opts, :imgproxy, [])
+
+    [
+      source_url_encryption: Keyword.get(imgproxy_opts, :source_url_encryption),
+      base64_url_includes_filename:
+        Keyword.get(imgproxy_opts, :base64_url_includes_filename, false)
+    ]
+  end
+
+  defp normalize_source_encryption(validated) do
+    {source_url_encryption, validated} = Keyword.pop(validated, :source_url_encryption_key)
+
+    Keyword.put(validated, :source_url_encryption, source_url_encryption)
   end
 
   defp valid_source_scheme_entry?({scheme, {translator, translator_opts}}) do
