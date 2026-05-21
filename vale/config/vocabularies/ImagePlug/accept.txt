@@ -1,6 +1,8 @@
 EXIF
 Imgproxy
 Vite
+Vix
+agentic
 allowlist
 auto-orient
 boolean
@@ -13,8 +15,11 @@ downscales
 imgproxy
 letterboxing
 libvips
+materializer
+middleware
 passthrough
 plaintext
+uncached
 unconfigured
 unreferenced
 upscales
