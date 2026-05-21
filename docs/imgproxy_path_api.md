@@ -39,11 +39,9 @@ matching plain request.
 
 `enc` starts an encrypted source URL. Configure it through `ImagePlug.init/1`:
 
-```elixir
-imgproxy: [
-  source_url_encryption_key: "000102030405060708090a0b0c0d0e0f"
-]
-```
+    imgproxy: [
+      source_url_encryption_key: "000102030405060708090a0b0c0d0e0f"
+    ]
 
 The encrypted value is `base64url(iv <> aes-cbc-pkcs7(source_url))`. The key
 must be a hex string that decodes to 16, 24, or 32 bytes. The IV is the first 16
@@ -72,13 +70,11 @@ checks when callers enable signing.
 Use `ImagePlug.Parser.Imgproxy.encrypt_source_url/3` to generate only the
 encrypted source segment:
 
-```elixir
-{:ok, segment} =
-  ImagePlug.Parser.Imgproxy.encrypt_source_url(
-    "images/cat.jpg",
-    "000102030405060708090a0b0c0d0e0f"
-  )
-```
+    {:ok, segment} =
+      ImagePlug.Parser.Imgproxy.encrypt_source_url(
+        "images/cat.jpg",
+        "000102030405060708090a0b0c0d0e0f"
+      )
 
 The helper doesn't add `/enc/`, processing options, output suffixes, or
 signatures. By default it uses a random IV, so the same source URL can produce
