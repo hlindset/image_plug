@@ -3,6 +3,7 @@
 - Use `mise exec -- ...` to run things in this repo with the correct versions of things
 - This project is a greenfield, unreleased library; backwards compatibility should not be a concern at this point in time
 - Prefer shrinking unsupported API surface over preserving tidy errors for bad internal callers. If a code path exists only to define behavior for impossible internal misuse, delete that behavior and its test instead of adding guards, fallbacks, or replacement tests.
+- Before executing a new Superpowers design or implementation plan, run a parallel subagent review cycle on the plan. Use reviewers with disjoint focus areas, apply accepted feedback, rerun relevant doc checks, and commit the reviewed plan before implementation starts.
 
 ## Native API guidelines
 
