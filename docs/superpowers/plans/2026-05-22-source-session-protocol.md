@@ -35,7 +35,6 @@ Don't start Slice 3 from this plan. Slice 2 ends after the protocol build, verif
 - Create: `lib/image_plug/request/source_session/prepared.ex`
 - Create: `lib/image_plug/request/source_session.ex`
 - Create: `test/image_plug/request/source_session_test.exs`
-- Edit: `lib/image_plug/request.ex`
 - Edit: `test/image_plug/architecture_boundary_test.exs`
 - Read as needed: `lib/image_plug/request/processor.ex`
 - Read as needed: `lib/image_plug/request/runner.ex`
@@ -78,7 +77,7 @@ test "stream_output returns an enumerable and content type" do
     response_headers: []
   }
 
-  assert {:ok, %Encoder.StreamOutput{stream: stream, content_type: "image/webp"}} =
+  assert {:ok, stream, "image/webp"} =
            Encoder.stream_output(image, resolved_output, image_module: CaptureImage)
 
   assert Enum.to_list(stream) == ["encoded"]
@@ -117,28 +116,15 @@ Run:
 mise exec -- mix test test/image_plug/output_encoder_test.exs
 ```
 
-Expected: the two new tests fail because `Encoder.stream_output/3` and `Encoder.StreamOutput` don't exist.
+Expected: the two new tests fail because `Encoder.stream_output/3` doesn't exist.
 
-- [ ] **Step 3: Add `Encoder.StreamOutput` and `stream_output/3`**
-
-In `lib/image_plug/output/encoder.ex`, add this struct after `EncodedOutput`:
-
-```elixir
-defmodule StreamOutput do
-  @moduledoc false
-
-  @enforce_keys [:stream, :content_type]
-  defstruct @enforce_keys
-
-  @type t() :: %__MODULE__{stream: Enumerable.t(), content_type: String.t()}
-end
-```
+- [ ] **Step 3: Add `stream_output/3`**
 
 Add this public function after `memory_output/3`:
 
 ```elixir
 @spec stream_output(Vix.Vips.Image.t(), Resolved.t(), keyword()) ::
-        {:ok, StreamOutput.t()} | {:error, {:encode, Exception.t(), list()}}
+        {:ok, Enumerable.t(), String.t()} | {:error, {:encode, Exception.t(), list()}}
 def stream_output(%Vix.Vips.Image{} = image, %Resolved{} = resolved_output, opts) do
   with {:ok, mime_type, suffix} <- output_format(resolved_output) do
     stream =
@@ -146,7 +132,7 @@ def stream_output(%Vix.Vips.Image{} = image, %Resolved{} = resolved_output, opts
       |> Keyword.get(:image_module, Image)
       |> stream_image!(image, output_options(suffix, resolved_output))
 
-    {:ok, %StreamOutput{stream: stream, content_type: mime_type}}
+    {:ok, stream, mime_type}
   end
 rescue
   exception -> {:error, {:encode, exception, __STACKTRACE__}}
@@ -200,6 +186,26 @@ defmodule ImagePlug.Request.SourceSessionTest do
 
   defmodule MultiChunkImage do
     def stream!(_image, suffix: ".jpg"), do: ["first chunk", "second chunk"]
+  end
+
+  defmodule CleanupStreamImage do
+    @event_target ImagePlug.Request.SourceSessionTest.StreamEvents
+
+    def stream!(_image, suffix: ".jpg") do
+      Stream.resource(
+        fn -> :first end,
+        fn
+          :first -> {["first chunk"], :second}
+          :second -> {["second chunk"], :done}
+          :done -> {:halt, :done}
+        end,
+        fn state ->
+          if target = Process.whereis(@event_target) do
+            send(target, {:stream_finalized, state})
+          end
+        end
+      )
+    end
   end
 
   test "request struct carries source session inputs without Plug.Conn" do
@@ -269,6 +275,14 @@ defmodule ImagePlug.Request.SourceSessionTest do
 
   defp opts(extra_opts \\ []) do
     Keyword.merge([sources: %{path: {ValidAdapter, []}}, image_module: MultiChunkImage], extra_opts)
+  end
+
+  defp real_image_opts do
+    opts() |> Keyword.delete(:image_module)
+  end
+
+  defp register_stream_events! do
+    Process.register(self(), __MODULE__.StreamEvents)
   end
 end
 ```
@@ -373,12 +387,34 @@ test "next returns one encoded chunk per call and then done" do
   assert :done = SourceSession.next(session)
 end
 
+test "prepare and next exercise the real Image stream path" do
+  {:ok, session} = SourceSession.start(request(opts: real_image_opts()))
+
+  assert {:ok, %Prepared{first_chunk: first_chunk, content_type: "image/jpeg"}} =
+           SourceSession.prepare(session)
+
+  assert is_binary(first_chunk)
+  assert byte_size(first_chunk) > 0
+
+  case SourceSession.next(session) do
+    {:chunk, chunk} ->
+      assert is_binary(chunk)
+      assert byte_size(chunk) > 0
+      assert :ok = SourceSession.cancel(session)
+
+    :done ->
+      :ok
+  end
+end
+
 test "cancel halts the suspended continuation and stops the session normally" do
-  {:ok, session} = SourceSession.start(request())
+  register_stream_events!()
+  {:ok, session} = SourceSession.start(request(opts: opts(image_module: CleanupStreamImage)))
   ref = Process.monitor(session)
 
   assert {:ok, %Prepared{}} = SourceSession.prepare(session)
   assert :ok = SourceSession.cancel(session)
+  assert_receive {:stream_finalized, :second}
   assert_receive {:DOWN, ^ref, :process, ^session, :normal}
 end
 ```
@@ -410,6 +446,7 @@ defmodule ImagePlug.Request.SourceSession do
   alias ImagePlug.Request.Processor.Decoded
   alias ImagePlug.Request.SourceSession.Prepared
   alias ImagePlug.Request.SourceSession.Request
+  alias ImagePlug.Source.StreamError
   alias ImagePlug.Transform.State
 
   @call_timeout 15_000
@@ -488,18 +525,19 @@ defmodule ImagePlug.Request.SourceSession do
   end
 
   def handle_call(:cancel, _from, state) do
-    state = halt_stream(%{state | phase: :cancelled})
-    {:stop, :normal, :ok, state}
+    case halt_stream(%{state | phase: :cancelled}) do
+      {:ok, state} ->
+        {:stop, :normal, :ok, state}
+
+      {:error, reason, state} ->
+        {:stop, {:shutdown, {:cancel_failed, reason}}, {:error, {:cancel, reason}}, state}
+    end
   end
 
   @impl GenServer
   def handle_info({:DOWN, ref, :process, owner, reason}, %{owner: owner, owner_monitor: ref} = state) do
-    state = halt_stream(%{state | phase: :cancelled})
+    state = shutdown_halt_stream(%{state | phase: :cancelled})
     {:stop, {:shutdown, {:owner_down, reason}}, state}
-  end
-
-  def handle_info({:EXIT, parent, :shutdown}, %{parent: parent} = state) when is_pid(parent) do
-    {:stop, :shutdown, halt_stream(state)}
   end
 
   def handle_info({:EXIT, pid, :normal}, state) do
@@ -531,23 +569,23 @@ defmodule ImagePlug.Request.SourceSession do
            Processor.process_decoded_source(decoded, request.plan, request.opts),
          {:ok, %Resolved{} = resolved_output} <-
            resolve_output(request.output_policy, decoded.source_format, final_state.image),
-         {:ok, %Encoder.StreamOutput{} = stream_output} <-
+         {:ok, stream, content_type} <-
            Encoder.stream_output(final_state.image, resolved_output, request.opts),
-         {:ok, first_chunk, suspended} <- first_chunk(stream_output.stream) do
+         {:ok, first_chunk, suspended} <- first_chunk(stream) do
       prepared = %Prepared{
         first_chunk: first_chunk,
-        content_type: stream_output.content_type,
+        content_type: content_type,
         headers: resolved_output.response_headers,
         resolved_output: resolved_output
       }
 
       {:ok, prepared, %{state | suspended: suspended, resolved_output: resolved_output}}
     else
-      {:error, reason} -> {:error, reason, halt_stream(state)}
+      {:error, reason} -> {:error, reason, shutdown_halt_stream(state)}
       :empty -> {:error, {:encode, RuntimeError.exception("image encoder produced an empty stream"), []}, state}
     end
   catch
-    kind, reason -> {:error, {kind, reason}, halt_stream(state)}
+    kind, reason -> {:error, {kind, reason}, shutdown_halt_stream(state)}
   end
 
   defp resolve_output(%Policy{} = policy, source_format, image) do
@@ -562,8 +600,11 @@ defmodule ImagePlug.Request.SourceSession do
   defp first_chunk(stream) do
     reduce_stream(stream)
   rescue
+    exception in [StreamError] -> {:error, {:source, exception.reason}}
     exception -> {:error, {:encode, exception, __STACKTRACE__}}
   catch
+    :exit, {%StreamError{reason: reason}, _stacktrace} -> {:error, {:source, reason}}
+    :exit, %StreamError{reason: reason} -> {:error, {:source, reason}}
     kind, reason -> {:error, {:encode, {kind, reason}, []}}
   end
 
@@ -571,9 +612,17 @@ defmodule ImagePlug.Request.SourceSession do
     continuation.({:cont, acc})
     |> reduce_result(%{state | suspended: nil})
   rescue
-    exception -> {{:error, {:encode, exception, __STACKTRACE__}}, halt_stream(state)}
+    exception in [StreamError] -> {{:error, {:source, exception.reason}}, %{state | suspended: nil}}
+    exception -> {{:error, {:encode, exception, __STACKTRACE__}}, %{state | suspended: nil}}
   catch
-    kind, reason -> {{:error, {:encode, {kind, reason}, []}}, halt_stream(state)}
+    :exit, {%StreamError{reason: reason}, _stacktrace} ->
+      {{:error, {:source, reason}}, %{state | suspended: nil}}
+
+    :exit, %StreamError{reason: reason} ->
+      {{:error, {:source, reason}}, %{state | suspended: nil}}
+
+    kind, reason ->
+      {{:error, {:encode, {kind, reason}, []}}, %{state | suspended: nil}}
   end
 
   defp next_chunk(%{suspended: nil} = state), do: {:done, state}
@@ -599,13 +648,20 @@ defmodule ImagePlug.Request.SourceSession do
   defp reduce_result({:done, _acc}, state), do: {:done, %{state | suspended: nil}}
   defp reduce_result({:halted, _acc}, state), do: {:done, %{state | suspended: nil}}
 
-  defp halt_stream(%{suspended: nil} = state), do: state
+  defp halt_stream(%{suspended: nil} = state), do: {:ok, state}
 
   defp halt_stream(%{suspended: {acc, continuation}} = state) do
     _result = continuation.({:halt, acc})
-    %{state | suspended: nil}
+    {:ok, %{state | suspended: nil}}
   catch
-    _kind, _reason -> %{state | suspended: nil}
+    kind, reason -> {:error, {kind, reason}, %{state | suspended: nil}}
+  end
+
+  defp shutdown_halt_stream(state) do
+    case halt_stream(state) do
+      {:ok, state} -> state
+      {:error, reason, state} -> mark_failed(state, {:cancel, reason})
+    end
   end
 
   defp mark_failed(state, reason), do: %{state | phase: :failed, first_error: reason}
@@ -613,6 +669,8 @@ end
 ```
 
 During implementation, keep the reducer accumulator opaque. If the implementation needs a different accumulator shape to avoid stale chunk state when a continuation finishes, change the helper and tests together. Preserve the external contract: one non-empty chunk per `prepare/1` or `next/1` reply.
+
+Slice 2 stores `parent` only to keep the owner-vs-parent state shape explicit. Direct `GenServer.start/3` doesn't create a supervisor parent link, so real parent shutdown behavior belongs to Slice 3 supervision tests.
 
 - [ ] **Step 4: Run the happy-path tests**
 
@@ -655,11 +713,24 @@ end
 test "call wrappers return tagged timeout errors" do
   {:ok, session} = SourceSession.start(blocking_request(), owner: self())
   ref = Process.monitor(session)
+  parent = self()
 
-  assert {:error, {:session, :timeout}} = SourceSession.prepare(session, 1)
-  assert_receive {:fetch_started, ^session}
-  send(session, :release_fetch)
+  caller =
+    spawn(fn ->
+      send(parent, {:prepare_result, SourceSession.prepare(session, 100)})
+    end)
+
+  try do
+    assert_receive {:fetch_started, ^session}, 1_000
+    assert_receive {:prepare_result, {:error, {:session, :timeout}}}, 1_000
+  after
+    send(session, :release_fetch)
+  end
+
   assert_receive {:DOWN, ^ref, :process, ^session, :normal}
+
+  caller_ref = Process.monitor(caller)
+  assert_receive {:DOWN, ^caller_ref, :process, ^caller, :normal}
 end
 ```
 
@@ -707,30 +778,36 @@ Append this test:
 
 ```elixir
 test "owner death cancels the session once the active callback yields" do
-  parent = self()
+  register_stream_events!()
 
   owner =
     spawn(fn ->
-      {:ok, session} = SourceSession.start(blocking_request(), owner: self(), parent: parent)
-      send(parent, {:session, session})
-
       receive do
         :stop_owner -> :ok
       end
     end)
 
-  assert_receive {:session, session}
+  {:ok, session} =
+    SourceSession.start(
+      request(opts: opts(image_module: CleanupStreamImage)),
+      owner: owner,
+      parent: self()
+    )
+
   session_ref = Process.monitor(session)
   owner_ref = Process.monitor(owner)
+
+  assert {:ok, %Prepared{first_chunk: "first chunk"}} = SourceSession.prepare(session)
 
   send(owner, :stop_owner)
 
   assert_receive {:DOWN, ^owner_ref, :process, ^owner, :normal}
+  assert_receive {:stream_finalized, :second}
   assert_receive {:DOWN, ^session_ref, :process, ^session, {:shutdown, {:owner_down, :normal}}}
 end
 ```
 
-If `prepare/1` blocks the session, use the blocking adapter only for the timeout test. Use a prepared multi-chunk session for this owner death test. The exact claim: the session observes owner death once the GenServer callback yields.
+Use the blocking adapter only for the timeout test. This owner-death test must establish a suspended continuation before the owner exits. The exact claim: the session observes owner death once the GenServer callback yields and then halts session-owned lazy work.
 
 - [ ] **Step 3: Make wrapper errors deterministic**
 
@@ -749,6 +826,8 @@ end
 ```
 
 Keep all wrapper returns tagged. Don't let `GenServer.call/3` exits leak to callers.
+
+A `prepare/1` or `next/1` timeout means the caller stopped waiting. In Slice 2, the direct-start session can still be running until the active callback yields. Tests that force timeouts must release the blocked callback and confirm session shutdown with `Process.monitor/1`. Slice 3 supervision will own forced process termination for timed-out production sessions.
 
 - [ ] **Step 4: Run SourceSession tests**
 
@@ -788,6 +867,8 @@ defmodule RaisingBeforeFirstChunkImage do
 end
 
 defmodule RaisingAfterFirstChunkImage do
+  @event_target ImagePlug.Request.SourceSessionTest.StreamEvents
+
   def stream!(_image, suffix: ".jpg") do
     Stream.resource(
       fn -> :first end,
@@ -795,7 +876,33 @@ defmodule RaisingAfterFirstChunkImage do
         :first -> {["first chunk"], :raise}
         :raise -> raise "boom after first chunk"
       end,
-      fn _state -> :ok end
+      fn state ->
+        if target = Process.whereis(@event_target) do
+          send(target, {:raising_stream_finalized, state})
+        end
+      end
+    )
+  end
+end
+
+defmodule SourceErrorAfterFirstChunkImage do
+  @event_target ImagePlug.Request.SourceSessionTest.StreamEvents
+
+  def stream!(_image, suffix: ".jpg") do
+    Stream.resource(
+      fn -> :first end,
+      fn
+        :first ->
+          {["first chunk"], :raise}
+
+        :raise ->
+          raise ImagePlug.Source.StreamError, reason: :stream_exception
+      end,
+      fn state ->
+        if target = Process.whereis(@event_target) do
+          send(target, {:source_error_stream_finalized, state})
+        end
+      end
     )
   end
 end
@@ -833,25 +940,33 @@ test "source stream failures before the first chunk return source errors" do
     )
 
   {:ok, session} = SourceSession.start(request)
+  ref = Process.monitor(session)
 
   assert {:error, {:source, :stream_exception}} = SourceSession.prepare(session)
+  assert_receive {:DOWN, ^ref, :process, ^session, :normal}
 end
 
 test "empty encoder streams stay pre-response encode errors" do
   {:ok, session} = SourceSession.start(request(opts: opts(image_module: EmptyStreamImage)))
+  ref = Process.monitor(session)
 
   assert {:error, {:encode, %RuntimeError{message: "image encoder produced an empty stream"}, []}} =
            SourceSession.prepare(session)
+
+  assert_receive {:DOWN, ^ref, :process, ^session, :normal}
 end
 
 test "encoder failures before the first chunk stay pre-response encode errors" do
   {:ok, session} =
     SourceSession.start(request(opts: opts(image_module: RaisingBeforeFirstChunkImage)))
 
+  ref = Process.monitor(session)
+
   assert {:error, {:encode, %RuntimeError{message: "boom before first chunk"}, stacktrace}} =
            SourceSession.prepare(session)
 
   assert is_list(stacktrace)
+  assert_receive {:DOWN, ^ref, :process, ^session, :normal}
 end
 ```
 
@@ -863,8 +978,12 @@ Append this test:
 
 ```elixir
 test "encoder failures after the first chunk become next errors" do
+  register_stream_events!()
+
   {:ok, session} =
     SourceSession.start(request(opts: opts(image_module: RaisingAfterFirstChunkImage)))
+
+  ref = Process.monitor(session)
 
   assert {:ok, %Prepared{first_chunk: "first chunk"}} = SourceSession.prepare(session)
 
@@ -872,6 +991,23 @@ test "encoder failures after the first chunk become next errors" do
            SourceSession.next(session)
 
   assert is_list(stacktrace)
+  assert_receive {:raising_stream_finalized, :raise}
+  refute_receive {:raising_stream_finalized, _state}, 100
+  assert_receive {:DOWN, ^ref, :process, ^session, :normal}
+end
+
+test "source stream errors during encoder reduction keep source phase" do
+  register_stream_events!()
+
+  {:ok, session} =
+    SourceSession.start(request(opts: opts(image_module: SourceErrorAfterFirstChunkImage)))
+
+  ref = Process.monitor(session)
+
+  assert {:ok, %Prepared{first_chunk: "first chunk"}} = SourceSession.prepare(session)
+  assert {:error, {:source, :stream_exception}} = SourceSession.next(session)
+  assert_receive {:source_error_stream_finalized, :raise}
+  assert_receive {:DOWN, ^ref, :process, ^session, :normal}
 end
 ```
 
@@ -887,53 +1023,27 @@ VIX_COMPILATION_MODE=PRECOMPILED_LIBVIPS mise exec -- mix test test/image_plug/r
 
 Expected: all SourceSession tests pass.
 
-## Task 6: Update Boundary Exports And Architecture Tests
+## Task 6: Verify Boundary Exports Stay Narrow
 
-Expose only the narrow internal request entry points needed for this slice.
+Keep `SourceSession`, `SourceSession.Request`, and `SourceSession.Prepared` inside the `ImagePlug.Request` boundary. Slice 2 protocol tests may use these modules directly, but other boundaries don't need them yet. `Runner` will use them later from inside the same request boundary.
 
 **Files:**
-- Edit: `lib/image_plug/request.ex`
 - Edit: `test/image_plug/architecture_boundary_test.exs`
 
-- [ ] **Step 1: Add boundary expectations first**
+- [ ] **Step 1: Add boundary expectations first if needed**
 
-In `test/image_plug/architecture_boundary_test.exs`, update the request boundary export assertion to include:
-
-```elixir
-ImagePlug.Request.SourceSession,
-ImagePlug.Request.SourceSession.Prepared,
-ImagePlug.Request.SourceSession.Request
-```
-
-The request boundary dependency list shouldn't change.
-
-- [ ] **Step 2: Run the failing architecture test**
-
-Run:
-
-```bash
-mise exec -- mix test test/image_plug/architecture_boundary_test.exs
-```
-
-Expected: the request boundary export test fails until the implementation updates `lib/image_plug/request.ex`.
-
-- [ ] **Step 3: Update `ImagePlug.Request` exports**
-
-Change `lib/image_plug/request.ex` exports to:
+If the new modules force a Boundary test change, update `test/image_plug/architecture_boundary_test.exs` to assert that request exports remain:
 
 ```elixir
-exports: [
-  Options,
-  Runner,
-  SourceSession,
-  SourceSession.Prepared,
-  SourceSession.Request
+[
+  ImagePlug.Request.Options,
+  ImagePlug.Request.Runner
 ]
 ```
 
-Don't add response, source, or cache dependencies.
+The request boundary dependency list shouldn't change. Don't export `SourceSession`, `SourceSession.Request`, or `SourceSession.Prepared` in Slice 2.
 
-- [ ] **Step 4: Run architecture tests**
+- [ ] **Step 2: Run the architecture test**
 
 Run:
 
@@ -941,7 +1051,7 @@ Run:
 mise exec -- mix test test/image_plug/architecture_boundary_test.exs
 ```
 
-Expected: all architecture boundary tests pass.
+Expected: all architecture boundary tests pass without widening request or output exports.
 
 ## Task 7: Verification And Review Checkpoint
 
@@ -956,7 +1066,7 @@ This is the Slice 2 stop point. Run verification, dispatch the required parallel
 Run:
 
 ```bash
-mise exec -- mix format lib/image_plug/output/encoder.ex lib/image_plug/request.ex lib/image_plug/request/source_session.ex lib/image_plug/request/source_session/request.ex lib/image_plug/request/source_session/prepared.ex test/image_plug/output_encoder_test.exs test/image_plug/request/source_session_test.exs test/image_plug/architecture_boundary_test.exs
+mise exec -- mix format lib/image_plug/output/encoder.ex lib/image_plug/request/source_session.ex lib/image_plug/request/source_session/request.ex lib/image_plug/request/source_session/prepared.ex test/image_plug/output_encoder_test.exs test/image_plug/request/source_session_test.exs test/image_plug/architecture_boundary_test.exs
 ```
 
 Expected: exit 0.
@@ -1007,7 +1117,7 @@ Apply technically correct feedback that stays inside Slice 2. Reject or record f
 After changes, rerun:
 
 ```bash
-mise exec -- mix format lib/image_plug/output/encoder.ex lib/image_plug/request.ex lib/image_plug/request/source_session.ex lib/image_plug/request/source_session/request.ex lib/image_plug/request/source_session/prepared.ex test/image_plug/output_encoder_test.exs test/image_plug/request/source_session_test.exs test/image_plug/architecture_boundary_test.exs
+mise exec -- mix format lib/image_plug/output/encoder.ex lib/image_plug/request/source_session.ex lib/image_plug/request/source_session/request.ex lib/image_plug/request/source_session/prepared.ex test/image_plug/output_encoder_test.exs test/image_plug/request/source_session_test.exs test/image_plug/architecture_boundary_test.exs
 ```
 
 Then rerun:
@@ -1033,7 +1143,7 @@ Expected: `0 errors, 0 warnings and 0 suggestions`.
 Stage only Slice 2 files:
 
 ```bash
-git add lib/image_plug/output/encoder.ex lib/image_plug/request.ex lib/image_plug/request/source_session.ex lib/image_plug/request/source_session/request.ex lib/image_plug/request/source_session/prepared.ex test/image_plug/output_encoder_test.exs test/image_plug/request/source_session_test.exs test/image_plug/architecture_boundary_test.exs
+git add lib/image_plug/output/encoder.ex lib/image_plug/request/source_session.ex lib/image_plug/request/source_session/request.ex lib/image_plug/request/source_session/prepared.ex test/image_plug/output_encoder_test.exs test/image_plug/request/source_session_test.exs test/image_plug/architecture_boundary_test.exs
 git add -f docs/superpowers/plans/2026-05-22-source-session-protocol.md
 ```
 
@@ -1052,4 +1162,4 @@ Expected: one commit containing only Slice 2 protocol work and related tests/doc
 - Spec coverage: This plan covers `SourceSession`, direct unlinked protocol startup, `prepare/1`, `next/1`, `cancel/1`, owner monitoring, parent semantics, tagged call wrappers, bounded timeouts, suspended `{acc, continuation}` state, first-chunk preparation, invalid protocol calls, pre-first-chunk source/decode/encode errors, and deterministic post-first-chunk session errors without Vix internals.
 - Scope check: The plan doesn't add supervision, `Response.PreparedStream`, Runner wiring, `Response.Sender` changes, cache teeing, or public docs.
 - Placeholder scan: No task relies on unspecified follow-up work. The only branches are explicit implementation choices inside the slice.
-- Type consistency: Earlier tasks define `SourceSession.Request`, `SourceSession.Prepared`, `Encoder.StreamOutput`, and the public `SourceSession` wrapper return shapes before later tests use them.
+- Type consistency: Earlier tasks define `SourceSession.Request`, `SourceSession.Prepared`, `Encoder.stream_output/3`, and the public `SourceSession` wrapper return shapes before later tests use them.
