@@ -133,14 +133,14 @@ defmodule ImagePlug.Request.VixStreamContinuationTest do
     end
 
     defp reduce_for_one_chunk(stream) do
-      Enumerable.reduce(stream, {:cont, []}, fn chunk, acc ->
-        {:suspend, [chunk | acc]}
+      Enumerable.reduce(stream, {:cont, nil}, fn chunk, _acc ->
+        {:suspend, chunk}
       end)
     end
 
-    defp handle_reduce_result({:suspended, [chunk | _rest] = acc, continuation}, state)
+    defp handle_reduce_result({:suspended, chunk, continuation}, state)
          when is_binary(chunk) do
-      {{:chunk, chunk}, %{state | suspended: {acc, continuation}}}
+      {{:chunk, chunk}, %{state | suspended: {chunk, continuation}}}
     end
 
     defp handle_reduce_result({:done, _acc}, state), do: {:done, %{state | suspended: nil}}
@@ -264,7 +264,7 @@ defmodule ImagePlug.Request.VixStreamContinuationTest do
 
     # The accumulator shape is test-owned. The proof is that the real continuation
     # returned by Enumerable.reduce/3 can be stored and resumed later.
-    assert {[^first_chunk | _rest], continuation} = state_after_first_chunk.suspended
+    assert {^first_chunk, continuation} = state_after_first_chunk.suspended
     assert is_function(continuation, 1)
 
     case ProofServer.next(pid) do

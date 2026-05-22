@@ -29,6 +29,21 @@ defmodule ImagePlug.Output.Encoder do
     )
   end
 
+  @spec stream_output(Vix.Vips.Image.t(), Resolved.t(), keyword()) ::
+          {:ok, Enumerable.t(), String.t()} | {:error, {:encode, Exception.t(), list()}}
+  def stream_output(%Vix.Vips.Image{} = image, %Resolved{} = resolved_output, opts) do
+    with {:ok, mime_type, suffix} <- output_format(resolved_output) do
+      stream =
+        opts
+        |> Keyword.get(:image_module, Image)
+        |> stream_image!(image, output_options(suffix, resolved_output))
+
+      {:ok, stream, mime_type}
+    end
+  rescue
+    exception -> {:error, {:encode, exception, __STACKTRACE__}}
+  end
+
   defp memory_output_with_limit(
          %Vix.Vips.Image{} = image,
          %Resolved{} = resolved_output,
@@ -99,6 +114,10 @@ defmodule ImagePlug.Output.Encoder do
     end
   rescue
     exception -> {:error, {:encode, exception, __STACKTRACE__}}
+  end
+
+  defp stream_image!(image_module, image, output_options) do
+    image_module.stream!(image, output_options)
   end
 
   defp unsupported_output_format_error(format) do
