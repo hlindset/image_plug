@@ -6,10 +6,10 @@ Replace `ImagePlug.Request.SourceSession.CacheBuffer` with a transactional cache
 sink owned by `ImagePlug.Request.SourceSession`.
 
 The sink should stage cache bytes as the response streams. It should make a
-cache entry visible only after the encoder finishes and the sender has delivered
-every chunk returned by the session. On cancellation, owner death, client close,
-source failure, decode failure, encode failure, or cache size overflow, the sink
-should abort or stop caching without changing the HTTP response outcome.
+cache entry visible only after the encoder finishes and `Plug.Conn.chunk/2` has
+accepted every chunk returned by the session. On cancellation, owner death,
+client close, source failure, decode failure, encode failure, or cache size
+overflow, the sink should abort without changing the HTTP response outcome.
 
 Runtime cache failures fail open. Invalid cache configuration still fails during
 `ImagePlug.init/1`, but lookup, read, write, commit, invalid-entry, and cleanup
@@ -68,15 +68,19 @@ responses and for future S3 cache writes.
 The cache boundary should expose a staged writer API:
 
 ```elixir
-{:ok, sink} = Cache.open_sink(key, metadata, opts)
+sink = Cache.open_sink(key, resolved_output, opts)
 
-{:ok, sink} = Cache.write_chunk(sink, chunk)
+sink = Cache.write_chunk(sink, chunk, opts)
 
-:ok = Cache.commit_sink(sink)
-:ok = Cache.abort_sink(sink)
+:ok = Cache.commit_sink(sink, opts)
+:ok = Cache.abort_sink(sink, reason, opts)
 ```
 
-`Cache.Sink` should be a small struct:
+`sink` should be opaque outside the cache boundary. `SourceSession` stores it
+and passes it back to `ImagePlug.Cache`, but it must not inspect adapter, key,
+status, or adapter state fields.
+
+The internal sink state can still be a small struct:
 
 ```elixir
 %ImagePlug.Cache.Sink{
@@ -87,6 +91,9 @@ The cache boundary should expose a staged writer API:
 }
 ```
 
+Keep `ImagePlug.Cache.Sink` inside the cache boundary. Export the cache API and
+an opaque `Cache.sink()` type.
+
 It shouldn't be a GenServer. `SourceSession` already serializes encoder
 progress, sender demand, cancellation, owner monitoring, and stream completion.
 Adding a process per cache write would duplicate lifecycle ownership and add
@@ -96,12 +103,19 @@ Adapters can hide internal concurrency behind their sink state later. For
 example, a future S3 adapter may start tasks for part uploads while keeping the
 public sink API synchronous from `SourceSession`'s point of view.
 
+The API consumed by `SourceSession` should fail open. Runtime open or write
+failures should return `nil` after telemetry and cleanup, or return a sink in a
+terminal dropped state if that's easier internally. They shouldn't return a
+tagged error that `SourceSession.prepare/1` or `SourceSession.next/1` can
+mistake for an image-processing failure. Invalid configuration remains an
+initialization error before request handling starts.
+
 ## Adapter Callbacks
 
 Extend the cache behaviour with callbacks shaped like:
 
 ```elixir
-@callback open_sink(Key.t(), metadata(), keyword()) ::
+@callback open_sink(Key.t(), Entry.Metadata.t(), keyword()) ::
             {:ok, state()} | {:error, term()}
 
 @callback write_chunk(state(), binary(), keyword()) ::
@@ -121,6 +135,9 @@ The cache coordinator should own shared behavior:
 - fail-open logging and telemetry
 - turning unsupported adapter results into cache errors
 - representing "no cache" as `nil`, not a no-op adapter
+- building cache entry metadata from `ImagePlug.Output.Resolved`
+- normalizing cacheable headers
+- setting `created_at`
 
 Adapters should own storage-specific staging:
 
@@ -128,24 +145,44 @@ Adapters should own storage-specific staging:
 - S3 multipart upload IDs and uploaded part lists
 - memory-backed sink state for test or in-memory adapters
 
+The metadata passed to adapters should be cache-owned and body-free:
+
+```elixir
+%ImagePlug.Cache.Entry.Metadata{
+  content_type: String.t(),
+  headers: [ImagePlug.Cache.Entry.header()],
+  created_at: DateTime.t(),
+  output_format: atom()
+}
+```
+
+`SourceSession` should pass the resolved output to the cache API. It shouldn't
+build adapter metadata or call `ImagePlug.Cache.Entry.cacheable_headers/1`
+itself.
+
 ## SourceSession Flow
 
 `SourceSession` should replace `cache_buffer` with:
 
 ```elixir
-cache_sink: nil | ImagePlug.Cache.Sink.t()
+cache_sink: nil | ImagePlug.Cache.sink()
 ```
 
 `nil` means this response doesn't cache. Use no no-op sink.
 
 Prepare flow:
 
-1. Resolve output.
-2. Open a cache sink if the request has a cache key.
+1. Fetch, decode, transform, and resolve output as `SourceSession` does today.
+2. Open a cache sink if the request has a cache key and output metadata.
 3. Create the encoder stream.
 4. Pull the first encoded chunk.
 5. Write the first chunk to the sink.
 6. Return prepared response metadata and the first chunk.
+
+If source or decode fails before output resolution, no sink should exist.
+If opening or writing the first chunk to the sink fails, `SourceSession` should
+turn caching off for that response. `prepare/1` should still return the prepared
+stream unless the image work itself failed.
 
 Next flow:
 
@@ -156,15 +193,21 @@ Next flow:
 
 Failure flow:
 
-- explicit cancel aborts the sink
-- owner death aborts the sink
+- explicit cancel halts the encoder continuation, then aborts the sink
+- owner death halts the encoder continuation, then aborts the sink
 - client close causes `Response.Sender` to call cancel, which aborts the sink
 - source, decode, output, or encode failure aborts the sink
-- cache sink write failure drops or aborts the sink and continues delivery
-- cache sink commit failure emits cache write telemetry and still returns `:done`
+- cache sink write failure attempts adapter abort once and continues delivery
+- cache sink commit failure performs commit-owned cleanup, emits cache write
+  telemetry, and still returns `:done`
 
 This preserves the existing delivery rule: cache state must not decide whether an
 already-successful image delivery becomes an HTTP failure.
+
+Sink cleanup should be idempotent at the cache API. Repeated aborts are
+harmless. Abort after commit must not remove a visible cache entry. Write or
+commit after a dropped or aborted sink should fail open and shouldn't call the
+adapter again.
 
 ## Delivery Ordering
 
@@ -172,12 +215,18 @@ already-successful image delivery becomes an HTTP failure.
 sender. That keeps cache staging from lagging behind bytes that ImagePlug has
 already handed to the response layer.
 
-The sender calls `next/0` only after it successfully delivers the previous
-chunk. When `SourceSession.next/1` observes stream completion, the sender has
-delivered every returned chunk. That's the commit point.
+The sender calls `next/0` only after `Plug.Conn.chunk/2` returns `{:ok, conn}`
+for the previous chunk. When `SourceSession.next/1` observes stream completion,
+the response adapter has accepted every returned chunk. That's the commit point.
+This doesn't prove that a remote client has received every byte.
 
 If writing a chunk to the sink fails, cache staging should stop for that
 response. Return the chunk to the sender unless the image stream itself failed.
+
+Before committing, `SourceSession` should keep the current control-message check
+for owner death. The prepared-stream callback driver should remain the request
+owner. Moving callbacks into another process would need a new commit-safety
+review.
 
 ## Filesystem Sink
 
@@ -194,6 +243,7 @@ Suggested state:
   body_io: io_device(),
   size: non_neg_integer(),
   body_hash_context: term(),
+  metadata: ImagePlug.Cache.Entry.Metadata.t(),
   content_type: String.t(),
   headers: [ImagePlug.Cache.Entry.header()]
 }
@@ -217,6 +267,9 @@ Commit:
 - write metadata to a temporary metadata path
 - rename the temporary body file to the final body filename
 - rename the temporary metadata file to the final metadata path
+- if any commit step fails, close the body file and remove remaining temporary
+  files; if the body was already renamed, remove or overwrite it before
+  returning the commit error
 
 Abort:
 
@@ -225,6 +278,10 @@ Abort:
 
 Readers should continue to use committed metadata paths only. They should never
 look for temporary files, so staged writes remain invisible.
+
+Filesystem writes run inside `SourceSession` callbacks, so they must remain
+bounded local file operations. The sink shouldn't add fsync-heavy durability
+work to the response path unless that behavior is explicitly designed.
 
 ## Future S3 Sink
 
@@ -240,8 +297,16 @@ An S3 sink can use the same cache sink contract with multipart upload:
 The S3 sink still buffers bytes, but only for the current part. It shouldn't
 hold the whole image body in memory.
 
-Adapters can add asynchronous part uploads inside the S3 adapter later. That
-shouldn't change the `SourceSession` contract.
+An S3 implementation still needs its own adapter-level design. It must split
+large encoder chunks across parts, cap the pending part buffer, and respect S3
+part size and part count rules. It must also track part numbers and entity tags,
+wait for in-flight part uploads before completing the multipart upload, and
+abort in-flight uploads on cancellation. Network-backed sinks must not perform
+unbounded network IO in the `SourceSession` GenServer callback.
+
+Adapters can add asynchronous part uploads inside the S3 adapter later, but
+`commit_sink/2` must be the synchronization and failure point and
+`abort_sink/2` must stop or await adapter-owned upload work.
 
 ## Size Limit Behavior
 
@@ -251,7 +316,8 @@ The cache coordinator should track written byte count. If a write would cross
 the limit:
 
 - stop cache staging for this response
-- abort or drop the sink
+- attempt adapter abort once
+- mark the sink dropped after cleanup
 - emit `cache: :write_skipped` with `reason: :too_large`
 - continue HTTP response delivery
 
@@ -266,7 +332,8 @@ Keep the existing cache event shape where possible:
 [:image_plug, :cache, :write, :stop]
 ```
 
-Use `[:cache, :write]` for sink commit attempts.
+Use `[:cache, :write]` for sink commit attempts. Commit metadata should report
+whether the entry became visible or whether commit failed open.
 
 Use `[:cache, :tee]` for staging outcomes that don't call the adapter commit:
 
@@ -276,6 +343,8 @@ Use `[:cache, :tee]` for staging outcomes that don't call the adapter commit:
 - `cache: :abandoned`, `reason: :stream_error`
 - `cache: :write_error` when staging failed before commit and delivery
   continued
+- `cache: :cleanup_error` when abort cleanup fails after the response path has
+  already failed open
 
 Don't emit cache keys, source URLs, request paths, filenames, adapter module
 names, transform internals, or raw exception structs.
@@ -330,8 +399,23 @@ The implementation should be one slice:
 5. Delete `SourceSession.CacheBuffer`.
 6. Update telemetry and docs.
 
-The existing `Cache.put/3` API can stay for whole-body writes if tests or helper
-code still need it. The prepared-stream cache miss path should use the sink.
+Either remove the existing `Cache.put/3` API from live request paths or rewrite
+it through the sink as a whole-body helper. It shouldn't remain as a
+second adapter write contract for streaming cache misses.
+
+Stop criteria for this slice:
+
+- `SourceSession.CacheBuffer` has no references.
+- `Response.Sender` remains cache-unaware.
+- Prepared-stream cache misses don't accumulate the full encoded body in
+  ImagePlug memory.
+- Filesystem cleanup removes temp body and metadata files on cancel, owner death,
+  stream error, write error, size overflow, and commit failure.
+- Oversize cache bodies continue HTTP delivery and don't create visible cache
+  entries.
+- Runtime sink open, write, commit, and abort errors fail open and emit the
+  documented telemetry.
+- Boundary exports expose the cache API, not adapter sink internals.
 
 ## Open Questions For Implementation
 
@@ -343,5 +427,6 @@ code still need it. The prepared-stream cache miss path should use the sink.
   keeps rename atomic on a single filesystem.
 - Whether abort failures need telemetry and logs. They shouldn't
   affect HTTP delivery.
-- Whether `Cache.put/3` should be rewritten internally through a sink after
-  the sink path lands. That can wait unless duplication becomes awkward.
+- Whether to remove `Cache.put/3` or rewrite it internally through a sink after
+  the prepared-stream path lands. Don't leave it as a parallel adapter contract
+  without a caller that needs it.
