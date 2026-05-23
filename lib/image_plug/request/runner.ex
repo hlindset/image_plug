@@ -60,7 +60,7 @@ defmodule ImagePlug.Request.Runner do
   end
 
   defp run_with_cache_config(conn, plan, %Source.Resolved{cache: :skip} = resolved_source, opts),
-    do: process_prepared_stream(conn, plan, resolved_source, opts)
+    do: process_prepared_stream(conn, plan, resolved_source, nil, opts)
 
   defp run_with_cache_config(conn, plan, %Source.Resolved{cache: :normal} = resolved_source, opts) do
     telemetry_opts = Telemetry.telemetry_opts(opts)
@@ -78,16 +78,16 @@ defmodule ImagePlug.Request.Runner do
 
     case result do
       :disabled ->
-        process_prepared_stream(conn, plan, resolved_source, opts)
+        process_prepared_stream(conn, plan, resolved_source, nil, opts)
 
       {:hit, %Key{} = key, %Entry{} = entry} ->
         handle_cache_hit(conn, plan, resolved_source, key, entry, opts)
 
       {:miss, %Key{} = key} ->
-        process_cache_miss(conn, plan, resolved_source, key, opts)
+        process_cacheable_miss(conn, plan, resolved_source, key, opts)
 
       {:miss, %Key{} = key, {:cache_read, _error}} ->
-        process_cache_miss(conn, plan, resolved_source, key, opts)
+        process_cacheable_miss(conn, plan, resolved_source, key, opts)
 
       {:error, {:cache_read, error}} ->
         {:error, {:cache, error}}
@@ -108,18 +108,27 @@ defmodule ImagePlug.Request.Runner do
     if Cache.fail_on_cache_error?(opts) do
       {:error, {:cache, error}}
     else
-      process_cache_miss(conn, plan, resolved_source, key, opts)
+      process_prepared_stream(conn, plan, resolved_source, key, opts)
     end
   end
 
-  defp process_prepared_stream(conn, plan, resolved_source, opts) do
+  defp process_cacheable_miss(conn, plan, resolved_source, %Key{} = key, opts) do
+    if Cache.fail_on_cache_error?(opts) do
+      process_cache_miss(conn, plan, resolved_source, key, opts)
+    else
+      process_prepared_stream(conn, plan, resolved_source, key, opts)
+    end
+  end
+
+  defp process_prepared_stream(conn, plan, resolved_source, cache_key, opts) do
     policy = Policy.from_output_plan(conn, plan.output, opts)
 
     request = %SessionRequest{
       plan: plan,
       resolved_source: resolved_source,
       output_policy: policy,
-      opts: opts
+      opts: opts,
+      cache_key: cache_key
     }
 
     supervisor = Keyword.get(opts, :source_session_supervisor, SourceSessionSupervisor)

@@ -8,6 +8,7 @@ defmodule ImagePlug.Request.SourceSession do
   alias ImagePlug.Output.Resolved
   alias ImagePlug.Request.Processor
   alias ImagePlug.Request.Processor.Decoded
+  alias ImagePlug.Request.SourceSession.CacheBuffer
   alias ImagePlug.Request.SourceSession.Prepared
   alias ImagePlug.Request.SourceSession.Request
   alias ImagePlug.Source.StreamError
@@ -24,6 +25,7 @@ defmodule ImagePlug.Request.SourceSession do
     :parent,
     :suspended,
     :resolved_output,
+    :cache_buffer,
     phase: :new,
     first_error: nil,
     exits: []
@@ -89,7 +91,7 @@ defmodule ImagePlug.Request.SourceSession do
         {:reply, {:ok, prepared}, %{state | phase: :prepared}}
 
       {:shutdown, reason, state} ->
-        {:stop, reason, state}
+        {:stop, shutdown_stop_reason(reason), state}
 
       {:error, reason, state} ->
         {:stop, :normal, {:error, reason}, mark_failed(state, reason)}
@@ -109,7 +111,12 @@ defmodule ImagePlug.Request.SourceSession do
         {:stop, :normal, :done, %{state | phase: :done}}
 
       {{:error, reason}, state} ->
-        {:stop, :normal, {:error, reason}, mark_failed(state, reason)}
+        state =
+          state
+          |> abandon_cache_buffer(:stream_error)
+          |> mark_failed(reason)
+
+        {:stop, :normal, {:error, reason}, state}
     end
   end
 
@@ -118,7 +125,7 @@ defmodule ImagePlug.Request.SourceSession do
   end
 
   def handle_call(:cancel, _from, state) do
-    case halt_stream(%{state | phase: :cancelled}) do
+    case halt_stream(abandon_cache_buffer(%{state | phase: :cancelled}, :cancelled)) do
       {:ok, state} ->
         {:stop, :normal, :ok, state}
 
@@ -132,7 +139,7 @@ defmodule ImagePlug.Request.SourceSession do
         {:DOWN, ref, :process, owner, reason},
         %{owner: owner, owner_monitor: ref} = state
       ) do
-    state = shutdown_halt_stream(%{state | phase: :cancelled})
+    state = shutdown_halt_stream(%{state | phase: :cancelled}, :owner_down)
     {:stop, {:shutdown, {:owner_down, reason}}, state}
   end
 
@@ -141,12 +148,12 @@ defmodule ImagePlug.Request.SourceSession do
   end
 
   def handle_info({:EXIT, parent, :shutdown}, %{parent: parent} = state) do
-    state = shutdown_halt_stream(%{state | phase: :cancelled})
+    state = shutdown_halt_stream(%{state | phase: :cancelled}, :cancelled)
     {:stop, :shutdown, state}
   end
 
   def handle_info({:EXIT, parent, {:shutdown, _reason} = shutdown}, %{parent: parent} = state) do
-    state = shutdown_halt_stream(%{state | phase: :cancelled})
+    state = shutdown_halt_stream(%{state | phase: :cancelled}, :cancelled)
     {:stop, shutdown, state}
   end
 
@@ -156,7 +163,7 @@ defmodule ImagePlug.Request.SourceSession do
     state =
       state
       |> Map.update!(:exits, &[{pid, reason} | &1])
-      |> shutdown_halt_stream()
+      |> shutdown_halt_stream(:stream_error)
       |> mark_failed(reason)
 
     {:stop, reason, state}
@@ -168,16 +175,21 @@ defmodule ImagePlug.Request.SourceSession do
 
   @impl GenServer
   def terminate(:shutdown, state) do
-    _state = shutdown_halt_stream(%{state | phase: :cancelled})
+    _state = shutdown_halt_stream(%{state | phase: :cancelled}, :cancelled)
     :ok
   end
 
   def terminate({:shutdown, _reason}, state) do
-    _state = shutdown_halt_stream(%{state | phase: :cancelled})
+    _state = shutdown_halt_stream(%{state | phase: :cancelled}, :cancelled)
     :ok
   end
 
-  def terminate(_reason, _state), do: :ok
+  def terminate(:normal, _state), do: :ok
+
+  def terminate(_reason, state) do
+    _state = shutdown_halt_stream(%{state | phase: :cancelled}, :stream_error)
+    :ok
+  end
 
   defp call(server, message, timeout) do
     GenServer.call(server, message, timeout)
@@ -201,12 +213,20 @@ defmodule ImagePlug.Request.SourceSession do
            Processor.process_decoded_source(decoded, request.plan, request.opts),
          {:ok, %Resolved{} = resolved_output} <-
            resolve_output(request.output_policy, decoded.source_format, final_state.image),
+         {:ok, cache_buffer} <- CacheBuffer.new(request.cache_key, resolved_output, request.opts),
          {:ok, stream, content_type} <-
            Encoder.stream_output(final_state.image, resolved_output, request.opts),
          {:ok, first_chunk, suspended} <- first_chunk(stream) do
-      state = %{state | suspended: suspended, resolved_output: resolved_output}
+      cache_buffer = CacheBuffer.append(cache_buffer, first_chunk, request.opts)
 
-      case receive_linked_exit(:ok, state.parent) do
+      state = %{
+        state
+        | suspended: suspended,
+          resolved_output: resolved_output,
+          cache_buffer: cache_buffer
+      }
+
+      case receive_session_control_message(:ok, state) do
         :ok ->
           prepared = %Prepared{
             first_chunk: first_chunk,
@@ -218,17 +238,17 @@ defmodule ImagePlug.Request.SourceSession do
           {:ok, prepared, state}
 
         {:error, reason} ->
-          {:error, reason, shutdown_halt_stream(state)}
+          {:error, reason, shutdown_halt_stream(state, :stream_error)}
 
         {:shutdown, reason} ->
-          {:shutdown, reason, shutdown_halt_stream(state)}
+          {:shutdown, reason, shutdown_halt_stream(state, shutdown_cache_reason(reason))}
       end
     else
       {:shutdown, reason} ->
-        {:shutdown, reason, shutdown_halt_stream(state)}
+        {:shutdown, reason, shutdown_halt_stream(state, shutdown_cache_reason(reason))}
 
       {:error, reason} ->
-        {:error, reason, shutdown_halt_stream(state)}
+        {:error, reason, shutdown_halt_stream(state, :stream_error)}
 
       :empty ->
         {:error, {:encode, RuntimeError.exception("image encoder produced an empty stream"), []},
@@ -260,6 +280,36 @@ defmodule ImagePlug.Request.SourceSession do
 
       {:EXIT, _pid, :normal} ->
         receive_linked_exit(result, parent)
+
+      {:EXIT, pid, reason} when pid != parent ->
+        {:error, {:linked_exit, pid, reason}}
+    after
+      0 -> result
+    end
+  end
+
+  defp receive_session_control_message(
+         result,
+         %{owner: owner, owner_monitor: ref, parent: parent} = state
+       ) do
+    receive do
+      {:DOWN, ^ref, :process, ^owner, reason} ->
+        {:shutdown, {:owner_down, reason}}
+
+      {:EXIT, pid, :shutdown} when is_pid(parent) and pid == parent ->
+        {:shutdown, :shutdown}
+
+      {:EXIT, pid, {:shutdown, _reason} = shutdown} when is_pid(parent) and pid == parent ->
+        {:shutdown, shutdown}
+
+      {:EXIT, _pid, {%StreamError{reason: reason}, _stacktrace}} ->
+        {:error, {:source, reason}}
+
+      {:EXIT, _pid, %StreamError{reason: reason}} ->
+        {:error, {:source, reason}}
+
+      {:EXIT, _pid, :normal} ->
+        receive_session_control_message(result, state)
 
       {:EXIT, pid, reason} when pid != parent ->
         {:error, {:linked_exit, pid, reason}}
@@ -336,11 +386,33 @@ defmodule ImagePlug.Request.SourceSession do
   end
 
   defp reduce_result({:suspended, chunk, continuation}, state) when is_binary(chunk) do
-    {{:chunk, chunk}, %{state | suspended: {chunk, continuation}}}
+    cache_buffer = CacheBuffer.append(state.cache_buffer, chunk, state.request.opts)
+
+    {{:chunk, chunk}, %{state | suspended: {chunk, continuation}, cache_buffer: cache_buffer}}
   end
 
-  defp reduce_result({:done, _acc}, state), do: {:done, %{state | suspended: nil}}
-  defp reduce_result({:halted, _acc}, state), do: {:done, %{state | suspended: nil}}
+  defp reduce_result({:done, _acc}, state), do: finish_stream(state)
+
+  # Vix write_to_stream/3 returns {:halt, pipe} from Stream.resource/3 on EOF,
+  # so normal completion reaches Enumerable.reduce/3 as {:halted, acc}.
+  defp reduce_result({:halted, _acc}, state), do: finish_stream(state)
+
+  defp finish_stream(state) do
+    case receive_session_control_message(:ok, state) do
+      :ok ->
+        _result = CacheBuffer.commit(state.cache_buffer, state.request.opts)
+        {:done, %{state | suspended: nil, cache_buffer: nil}}
+
+      {:error, reason} ->
+        {{:error, reason}, abandon_cache_buffer(%{state | suspended: nil}, :stream_error)}
+
+      {:shutdown, shutdown_reason} ->
+        reason = {:session, {:shutdown, shutdown_reason}}
+
+        {{:error, reason},
+         abandon_cache_buffer(%{state | suspended: nil}, shutdown_cache_reason(shutdown_reason))}
+    end
+  end
 
   defp halt_stream(%{suspended: nil} = state), do: {:ok, state}
 
@@ -351,12 +423,25 @@ defmodule ImagePlug.Request.SourceSession do
     kind, reason -> {:error, {kind, reason}, %{state | suspended: nil}}
   end
 
-  defp shutdown_halt_stream(state) do
+  defp shutdown_halt_stream(state, reason \\ :cancelled) do
+    state = abandon_cache_buffer(state, reason)
+
     case halt_stream(state) do
       {:ok, state} -> state
       {:error, reason, state} -> mark_failed(state, {:cancel, reason})
     end
   end
+
+  defp abandon_cache_buffer(%{cache_buffer: cache_buffer, request: request} = state, reason) do
+    _result = CacheBuffer.abandon(cache_buffer, reason, request.opts)
+    %{state | cache_buffer: nil}
+  end
+
+  defp shutdown_stop_reason({:owner_down, _reason} = reason), do: {:shutdown, reason}
+  defp shutdown_stop_reason(reason), do: reason
+
+  defp shutdown_cache_reason({:owner_down, _reason}), do: :owner_down
+  defp shutdown_cache_reason(_reason), do: :cancelled
 
   defp mark_failed(state, reason), do: %{state | phase: :failed, first_error: reason}
 end

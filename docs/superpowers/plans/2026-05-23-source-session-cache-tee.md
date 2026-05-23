@@ -795,7 +795,9 @@ Keep the existing source/decode/output/encode behavior. The new pre-response fai
 
 - [ ] **Step 4: Append later chunks and commit on done**
 
-Update `reduce_result/2` so cache state changes stay inside `SourceSession`. Only `{:done, _acc}` commits cache. `{:halted, _acc}` isn't a successful encoder completion and must abandon the buffer.
+Update `reduce_result/2` so cache state changes stay inside `SourceSession`.
+
+Slice 5 implementation found that the checked-in Vix `write_to_stream/3` reports normal EOF as `{:halted, acc}` because its `Stream.resource/3` next callback returns `{:halt, pipe}` on `:eof`. Treat both `{:done, _acc}` and `{:halted, _acc}` as terminal completion after checking pending owner and linked-exit messages. Explicit cancellation still runs through `halt_stream/1`, not through the `next/1` completion path, so it doesn't commit cache.
 
 ```elixir
 defp reduce_result({:suspended, chunk, continuation}, state) when is_binary(chunk) do
@@ -805,11 +807,7 @@ defp reduce_result({:suspended, chunk, continuation}, state) when is_binary(chun
 end
 
 defp reduce_result({:done, _acc}, state), do: finish_stream(state)
-
-defp reduce_result({:halted, _acc}, state) do
-  reason = {:encode, RuntimeError.exception("image encoder halted before completion"), []}
-  {{:error, reason}, abandon_cache_buffer(state, :stream_error)}
-end
+defp reduce_result({:halted, _acc}, state), do: finish_stream(state)
 
 defp finish_stream(state) do
   case receive_session_control_message(:ok, state) do

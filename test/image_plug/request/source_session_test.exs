@@ -3,6 +3,8 @@ defmodule ImagePlug.Request.SourceSessionTest do
 
   import ExUnit.CaptureLog
 
+  alias ImagePlug.Cache.Entry
+  alias ImagePlug.Cache.Key
   alias ImagePlug.Output.Policy
   alias ImagePlug.Output.Resolved
   alias ImagePlug.Plan
@@ -17,6 +19,28 @@ defmodule ImagePlug.Request.SourceSessionTest do
 
   defmodule MultiChunkImage do
     def stream!(_image, suffix: ".jpg"), do: ["first chunk", "second chunk"]
+  end
+
+  defmodule SmallChunkImage do
+    def stream!(_image, suffix: ".jpg"), do: ["abc", "def"]
+  end
+
+  defmodule CacheWriteProbe do
+    def get(_key, _opts), do: :miss
+
+    def put(key, %Entry{} = entry, opts) do
+      send(Keyword.fetch!(opts, :test_pid), {:cache_put, key, entry, opts})
+      :ok
+    end
+  end
+
+  defmodule CacheWriteErrorProbe do
+    def get(_key, _opts), do: :miss
+
+    def put(_key, %Entry{}, opts) do
+      send(Keyword.fetch!(opts, :test_pid), :cache_put_attempted)
+      {:error, :write_failed}
+    end
   end
 
   defmodule CleanupStreamImage do
@@ -115,6 +139,37 @@ defmodule ImagePlug.Request.SourceSessionTest do
     end
   end
 
+  defmodule OwnerDownBeforeDoneImage do
+    @event_target ImagePlug.Request.SourceSessionTest.StreamEvents
+
+    def stream!(_image, suffix: ".jpg") do
+      Stream.resource(
+        fn -> :first end,
+        fn
+          :first ->
+            {["first chunk"], :finish}
+
+          :finish ->
+            if target = Process.whereis(@event_target) do
+              send(target, {:before_stream_done, self()})
+            end
+
+            receive do
+              :continue_stream_done -> {[], :done}
+            end
+
+          :done ->
+            {:halt, :done}
+        end,
+        fn state ->
+          if target = Process.whereis(@event_target) do
+            send(target, {:owner_down_stream_finalized, state})
+          end
+        end
+      )
+    end
+  end
+
   defmodule LinkedExitAfterFirstChunkImage do
     @event_target ImagePlug.Request.SourceSessionTest.StreamEvents
 
@@ -207,6 +262,210 @@ defmodule ImagePlug.Request.SourceSessionTest do
     assert {:ok, %Prepared{first_chunk: "first chunk"}} = SourceSession.prepare(session)
     assert {:chunk, "second chunk"} = SourceSession.next(session)
     assert :done = SourceSession.next(session)
+  end
+
+  test "cache tee writes buffered chunks only after next reaches done" do
+    attach_telemetry([[:image_plug, :cache, :write, :stop]])
+
+    key = cache_key()
+    {:ok, session} = SourceSession.start(cached_request(cache_key: key))
+
+    assert {:ok, %Prepared{first_chunk: "first chunk"}} = SourceSession.prepare(session)
+    refute_received {:cache_put, _key, _entry, _opts}
+
+    assert {:chunk, "second chunk"} = SourceSession.next(session)
+    refute_received {:cache_put, _key, _entry, _opts}
+
+    assert :done = SourceSession.next(session)
+
+    assert_received {:cache_put, ^key,
+                     %Entry{
+                       body: "first chunksecond chunk",
+                       content_type: "image/jpeg",
+                       headers: [],
+                       created_at: %DateTime{}
+                     }, _opts}
+
+    assert_receive {:telemetry_event, [:image_plug, :cache, :write, :stop], _measurements,
+                    %{result: :ok, cache: :write, output_format: :jpeg}}
+  end
+
+  test "cache tee drops buffering when the cache body limit is crossed" do
+    attach_telemetry([[:image_plug, :cache, :tee, :stop]])
+
+    {:ok, session} =
+      SourceSession.start(
+        cached_request(
+          opts: opts(image_module: SmallChunkImage),
+          cache_opts: [max_body_bytes: 5]
+        )
+      )
+
+    assert {:ok, %Prepared{first_chunk: "abc"}} = SourceSession.prepare(session)
+    assert {:chunk, "def"} = SourceSession.next(session)
+    assert :done = SourceSession.next(session)
+
+    refute_received {:cache_put, _key, _entry, _opts}
+
+    assert_receive {:telemetry_event, [:image_plug, :cache, :tee, :stop], _measurements,
+                    %{
+                      result: :ok,
+                      cache: :write_skipped,
+                      reason: :too_large,
+                      output_format: :jpeg
+                    }}
+  end
+
+  test "cache tee abandons buffered chunks on explicit cancellation" do
+    register_stream_events!()
+    attach_telemetry([[:image_plug, :cache, :tee, :stop]])
+
+    {:ok, session} =
+      SourceSession.start(cached_request(opts: opts(image_module: CleanupStreamImage)))
+
+    assert {:ok, %Prepared{first_chunk: "first chunk"}} = SourceSession.prepare(session)
+    assert :ok = SourceSession.cancel(session)
+
+    refute_received {:cache_put, _key, _entry, _opts}
+    assert_receive {:stream_finalized, :second}
+
+    assert_receive {:telemetry_event, [:image_plug, :cache, :tee, :stop], _measurements,
+                    %{result: :ok, cache: :abandoned, reason: :cancelled, output_format: :jpeg}}
+
+    refute_received {:telemetry_event, [:image_plug, :cache, :tee, :stop], _measurements,
+                     %{cache: :abandoned}}
+  end
+
+  test "cache tee abandons buffered chunks on post-first-chunk stream errors" do
+    register_stream_events!()
+    attach_telemetry([[:image_plug, :cache, :tee, :stop]])
+
+    {:ok, session} =
+      SourceSession.start(cached_request(opts: opts(image_module: RaisingAfterFirstChunkImage)))
+
+    assert {:ok, %Prepared{first_chunk: "first chunk"}} = SourceSession.prepare(session)
+
+    assert {:error, {:encode, %RuntimeError{message: "boom after first chunk"}, stacktrace}} =
+             SourceSession.next(session)
+
+    assert is_list(stacktrace)
+    refute_received {:cache_put, _key, _entry, _opts}
+    assert_receive {:raising_stream_finalized, :raise}
+
+    assert_receive {:telemetry_event, [:image_plug, :cache, :tee, :stop], _measurements,
+                    %{
+                      result: :ok,
+                      cache: :abandoned,
+                      reason: :stream_error,
+                      output_format: :jpeg
+                    }}
+
+    refute_received {:telemetry_event, [:image_plug, :cache, :tee, :stop], _measurements,
+                     %{cache: :abandoned}}
+  end
+
+  test "cache tee abandons buffered chunks on owner death" do
+    register_stream_events!()
+    attach_telemetry([[:image_plug, :cache, :tee, :stop]])
+
+    owner =
+      spawn(fn ->
+        receive do
+          :stop_owner -> :ok
+        end
+      end)
+
+    {:ok, session} =
+      SourceSession.start(
+        cached_request(opts: opts(image_module: CleanupStreamImage)),
+        owner: owner,
+        parent: self()
+      )
+
+    session_ref = Process.monitor(session)
+    owner_ref = Process.monitor(owner)
+
+    assert {:ok, %Prepared{first_chunk: "first chunk"}} = SourceSession.prepare(session)
+    send(owner, :stop_owner)
+
+    assert_receive {:DOWN, ^owner_ref, :process, ^owner, :normal}
+    assert_receive {:stream_finalized, :second}
+    assert_receive {:DOWN, ^session_ref, :process, ^session, {:shutdown, {:owner_down, :normal}}}
+    refute_received {:cache_put, _key, _entry, _opts}
+
+    assert_receive {:telemetry_event, [:image_plug, :cache, :tee, :stop], _measurements,
+                    %{result: :ok, cache: :abandoned, reason: :owner_down, output_format: :jpeg}}
+
+    refute_received {:telemetry_event, [:image_plug, :cache, :tee, :stop], _measurements,
+                     %{cache: :abandoned}}
+  end
+
+  test "cache tee checks pending owner death before committing at done" do
+    register_stream_events!()
+    attach_telemetry([[:image_plug, :cache, :tee, :stop]])
+
+    owner =
+      spawn(fn ->
+        receive do
+          :stop_owner -> :ok
+        end
+      end)
+
+    {:ok, session} =
+      SourceSession.start(
+        cached_request(opts: opts(image_module: OwnerDownBeforeDoneImage)),
+        owner: owner,
+        parent: self()
+      )
+
+    session_ref = Process.monitor(session)
+    owner_ref = Process.monitor(owner)
+
+    assert {:ok, %Prepared{first_chunk: "first chunk"}} = SourceSession.prepare(session)
+
+    parent = self()
+
+    caller =
+      spawn(fn ->
+        send(parent, {:next_result, SourceSession.next(session)})
+      end)
+
+    caller_ref = Process.monitor(caller)
+
+    assert_receive {:before_stream_done, ^session}
+    send(owner, :stop_owner)
+    assert_receive {:DOWN, ^owner_ref, :process, ^owner, :normal}
+    send(session, :continue_stream_done)
+
+    assert_receive {:next_result, {:error, {:session, {:shutdown, {:owner_down, :normal}}}}}
+    assert_receive {:owner_down_stream_finalized, :done}
+    assert_receive {:DOWN, ^caller_ref, :process, ^caller, :normal}
+    assert_receive {:DOWN, ^session_ref, :process, ^session, :normal}
+    refute_received {:cache_put, _key, _entry, _opts}
+
+    assert_receive {:telemetry_event, [:image_plug, :cache, :tee, :stop], _measurements,
+                    %{result: :ok, cache: :abandoned, reason: :owner_down, output_format: :jpeg}}
+  end
+
+  test "cache tee write errors fail open after stream completion" do
+    attach_telemetry([[:image_plug, :cache, :write, :stop]])
+
+    {:ok, session} =
+      SourceSession.start(cached_request(adapter: CacheWriteErrorProbe))
+
+    assert {:ok, %Prepared{first_chunk: "first chunk"}} = SourceSession.prepare(session)
+    assert {:chunk, "second chunk"} = SourceSession.next(session)
+    assert :done = SourceSession.next(session)
+
+    assert_received :cache_put_attempted
+
+    assert_receive {:telemetry_event, [:image_plug, :cache, :write, :stop], _measurements,
+                    %{
+                      result: :cache_error,
+                      cache: :write_error,
+                      error: :write_failed,
+                      output_format: :jpeg
+                    }}
   end
 
   test "prepare and next exercise the real Image stream path" do
@@ -413,8 +672,43 @@ defmodule ImagePlug.Request.SourceSessionTest do
       plan: Keyword.get(overrides, :plan, plan()),
       resolved_source: Keyword.get(overrides, :resolved_source, resolved_source()),
       output_policy: Keyword.get(overrides, :output_policy, output_policy()),
-      opts: Keyword.get(overrides, :opts, opts())
+      opts: Keyword.get(overrides, :opts, opts()),
+      cache_key: Keyword.get(overrides, :cache_key)
     }
+  end
+
+  defp cache_key do
+    serialized_data =
+      Key.serialize_key_data(
+        source_identity: [kind: :path, root: "test", path: ["images", "beach.jpg"]]
+      )
+
+    %Key{
+      hash: "test-cache-key",
+      data: [source_identity: [kind: :path, root: "test", path: ["images", "beach.jpg"]]],
+      serialized_data: serialized_data
+    }
+  end
+
+  defp cache_opts(adapter, extra_opts) do
+    [
+      cache: {adapter, Keyword.merge([test_pid: self()], extra_opts)}
+    ]
+  end
+
+  defp cached_request(extra_opts) do
+    request(
+      cache_key: Keyword.get(extra_opts, :cache_key, cache_key()),
+      opts:
+        opts()
+        |> Keyword.merge(
+          cache_opts(
+            Keyword.get(extra_opts, :adapter, CacheWriteProbe),
+            Keyword.get(extra_opts, :cache_opts, [])
+          )
+        )
+        |> Keyword.merge(Keyword.get(extra_opts, :opts, []))
+    )
   end
 
   defp plan do
@@ -469,5 +763,23 @@ defmodule ImagePlug.Request.SourceSessionTest do
 
   defp register_stream_events! do
     Process.register(self(), __MODULE__.StreamEvents)
+  end
+
+  def handle_telemetry_event(event, measurements, metadata, test_pid) do
+    send(test_pid, {:telemetry_event, event, measurements, metadata})
+  end
+
+  defp attach_telemetry(events) do
+    handler_id = {__MODULE__, self(), make_ref()}
+
+    :ok =
+      :telemetry.attach_many(
+        handler_id,
+        events,
+        &__MODULE__.handle_telemetry_event/4,
+        self()
+      )
+
+    on_exit(fn -> :telemetry.detach(handler_id) end)
   end
 end

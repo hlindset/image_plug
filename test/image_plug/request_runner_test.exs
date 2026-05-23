@@ -41,7 +41,7 @@ defmodule ImagePlug.Request.RunnerTest do
     end
 
     def put(key, entry, opts) do
-      send(self(), {:cache_put, key, entry, opts})
+      send(Keyword.get(opts, :test_pid, self()), {:cache_put, key, entry, opts})
       :ok
     end
   end
@@ -54,8 +54,8 @@ defmodule ImagePlug.Request.RunnerTest do
     end
 
     def put(key, entry, opts) do
-      emit(opts, {:cache_put, key})
-      send(self(), {:cache_put, key, entry, opts})
+      emit(opts, {:cache_put, key, entry})
+      send(Keyword.get(opts, :test_pid, self()), {:cache_put, key, entry, opts})
       :ok
     end
 
@@ -75,6 +75,7 @@ defmodule ImagePlug.Request.RunnerTest do
 
     def put(key, entry, opts) do
       emit(opts, {:cache_put, key, entry})
+      send(Keyword.get(opts, :test_pid, self()), {:cache_put, key, entry, opts})
       :ok
     end
 
@@ -84,6 +85,130 @@ defmodule ImagePlug.Request.RunnerTest do
         :error -> :ok
       end
     end
+  end
+
+  defmodule CacheWriteErrorProbe do
+    def get(key, opts) do
+      emit(opts, {:cache_lookup, key})
+      :miss
+    end
+
+    def put(_key, entry, opts) do
+      emit(opts, {:cache_put_attempted, entry})
+      {:error, :write_failed}
+    end
+
+    defp emit(opts, event) do
+      case Keyword.fetch(opts, :test_pid) do
+        {:ok, pid} -> send(pid, {:runner_event, Keyword.fetch!(opts, :test_ref), event})
+        :error -> :ok
+      end
+    end
+  end
+
+  defmodule ClosingAfterFirstChunkAdapter do
+    @behaviour Plug.Conn.Adapter
+
+    @impl Plug.Conn.Adapter
+    def send_resp(payload, _status, _headers, body), do: {:ok, IO.iodata_to_binary(body), payload}
+
+    @impl Plug.Conn.Adapter
+    def send_file(payload, _status, _headers, _path, _offset, _length), do: {:ok, "", payload}
+
+    @impl Plug.Conn.Adapter
+    def send_chunked(payload, _status, _headers), do: {:ok, "", %{payload | chunks: 0}}
+
+    @impl Plug.Conn.Adapter
+    def chunk(%{chunks: 0} = payload, body),
+      do: {:ok, IO.iodata_to_binary(body), %{payload | chunks: 1}}
+
+    def chunk(_payload, _body), do: {:error, :closed}
+
+    @impl Plug.Conn.Adapter
+    def read_req_body(payload, _opts), do: {:ok, "", payload}
+
+    @impl Plug.Conn.Adapter
+    def inform(payload, _status, _headers), do: {:ok, payload}
+
+    @impl Plug.Conn.Adapter
+    def push(payload, _path, _headers), do: {:ok, payload}
+
+    @impl Plug.Conn.Adapter
+    def get_peer_data(_payload), do: %Plug.Conn.Unfetched{aspect: :peer_data}
+
+    @impl Plug.Conn.Adapter
+    def get_http_protocol(_payload), do: :"HTTP/1.1"
+
+    @impl Plug.Conn.Adapter
+    def upgrade(payload, _protocol, _opts), do: {:ok, payload}
+  end
+
+  defmodule FailingChunkedAdapter do
+    @behaviour Plug.Conn.Adapter
+
+    @impl Plug.Conn.Adapter
+    def send_resp(payload, _status, _headers, body), do: {:ok, IO.iodata_to_binary(body), payload}
+
+    @impl Plug.Conn.Adapter
+    def send_file(payload, _status, _headers, _path, _offset, _length), do: {:ok, "", payload}
+
+    @impl Plug.Conn.Adapter
+    def send_chunked(_payload, _status, _headers), do: raise("chunked open failed")
+
+    @impl Plug.Conn.Adapter
+    def chunk(payload, body), do: {:ok, IO.iodata_to_binary(body), payload}
+
+    @impl Plug.Conn.Adapter
+    def read_req_body(payload, _opts), do: {:ok, "", payload}
+
+    @impl Plug.Conn.Adapter
+    def inform(payload, _status, _headers), do: {:ok, payload}
+
+    @impl Plug.Conn.Adapter
+    def push(payload, _path, _headers), do: {:ok, payload}
+
+    @impl Plug.Conn.Adapter
+    def get_peer_data(_payload), do: %Plug.Conn.Unfetched{aspect: :peer_data}
+
+    @impl Plug.Conn.Adapter
+    def get_http_protocol(_payload), do: :"HTTP/1.1"
+
+    @impl Plug.Conn.Adapter
+    def upgrade(payload, _protocol, _opts), do: {:ok, payload}
+  end
+
+  defmodule FirstChunkClosedAdapter do
+    @behaviour Plug.Conn.Adapter
+
+    @impl Plug.Conn.Adapter
+    def send_resp(payload, _status, _headers, body), do: {:ok, IO.iodata_to_binary(body), payload}
+
+    @impl Plug.Conn.Adapter
+    def send_file(payload, _status, _headers, _path, _offset, _length), do: {:ok, "", payload}
+
+    @impl Plug.Conn.Adapter
+    def send_chunked(payload, _status, _headers), do: {:ok, "", payload}
+
+    @impl Plug.Conn.Adapter
+    def chunk(_payload, _body), do: {:error, :closed}
+
+    @impl Plug.Conn.Adapter
+    def read_req_body(payload, _opts), do: {:ok, "", payload}
+
+    @impl Plug.Conn.Adapter
+    def inform(payload, _status, _headers), do: {:ok, payload}
+
+    @impl Plug.Conn.Adapter
+    def push(payload, _path, _headers), do: {:ok, payload}
+
+    @impl Plug.Conn.Adapter
+    def get_peer_data(_payload), do: %Plug.Conn.Unfetched{aspect: :peer_data}
+
+    @impl Plug.Conn.Adapter
+    def get_http_protocol(_payload), do: :"HTTP/1.1"
+
+    @impl Plug.Conn.Adapter
+    def upgrade(payload, _protocol, _opts), do: {:ok, payload}
   end
 
   defmodule SourceImage do
@@ -248,6 +373,14 @@ defmodule ImagePlug.Request.RunnerTest do
     assert_supervisor_empty(supervisor)
   end
 
+  defp drain_prepared_stream(%PreparedStream{} = prepared) do
+    case prepared.next.() do
+      {:chunk, chunk} when is_binary(chunk) -> drain_prepared_stream(prepared)
+      :done -> :ok
+      {:error, reason} -> flunk("expected prepared stream to complete, got #{inspect(reason)}")
+    end
+  end
+
   defp assert_supervisor_active(supervisor) do
     _state = :sys.get_state(supervisor)
     assert %{active: 1, workers: 1} = DynamicSupervisor.count_children(supervisor)
@@ -256,6 +389,24 @@ defmodule ImagePlug.Request.RunnerTest do
   defp assert_supervisor_empty(supervisor) do
     _state = :sys.get_state(supervisor)
     assert %{active: 0, workers: 0} = DynamicSupervisor.count_children(supervisor)
+  end
+
+  def handle_telemetry_event(event, measurements, metadata, test_pid) do
+    send(test_pid, {:telemetry_event, event, measurements, metadata})
+  end
+
+  defp attach_telemetry(events) do
+    handler_id = {__MODULE__, self(), make_ref()}
+
+    :ok =
+      :telemetry.attach_many(
+        handler_id,
+        events,
+        &__MODULE__.handle_telemetry_event/4,
+        self()
+      )
+
+    on_exit(fn -> :telemetry.detach(handler_id) end)
   end
 
   test "source-only opaque TIFF automatic output falls back to JPEG after transforms" do
@@ -352,16 +503,20 @@ defmodule ImagePlug.Request.RunnerTest do
   test "source-only automatic fallback cache miss writes JPEG entry with Vary" do
     require_tiff_support!()
 
+    supervisor = start_source_session_supervisor()
     ref = make_ref()
 
     assert {:ok,
-            {:cache_entry, %Entry{content_type: "image/jpeg", headers: [{"vary", "Accept"}]},
-             %ImagePlug.Plan.Response{}}} =
+            {:prepared_stream,
+             %PreparedStream{
+               resolved_output: %Resolved{format: :jpeg, response_headers: [{"vary", "Accept"}]}
+             } = prepared, %ImagePlug.Plan.Response{}}} =
              Runner.run(
                conn(:get, "/_/plain/images/source.tiff"),
                plan(output: %Output{mode: :automatic}),
                resolved_source(),
                cache: {CacheMissWriteProbe, test_pid: self(), test_ref: ref},
+               source_session_supervisor: supervisor,
                sources: %{
                  path: {SourceBytes, body: tiff_body(:white), test_pid: self(), test_ref: ref}
                }
@@ -371,30 +526,35 @@ defmodule ImagePlug.Request.RunnerTest do
     assert {:cache_lookup, key} = first_event
     assert_receive {:runner_event, ^ref, second_event}
     assert second_event == :source_fetch
-    assert_receive {:runner_event, ^ref, third_event}
-    assert {:cache_put, ^key} = third_event
+    refute_received {:runner_event, ^ref, {:cache_put, ^key, %Entry{}}}
 
     assert_received {:cache_lookup, ^key}
+    assert :ok = drain_prepared_stream(prepared)
 
     assert_received {:cache_put, ^key,
                      %Entry{content_type: "image/jpeg", headers: [{"vary", "Accept"}]}, _opts}
 
     refute_received {:cache_lookup, _second_key}
+    assert_supervisor_empty(supervisor)
   end
 
   test "source-only alpha fallback cache miss writes PNG entry with Vary" do
     require_tiff_support!()
 
+    supervisor = start_source_session_supervisor()
     ref = make_ref()
 
     assert {:ok,
-            {:cache_entry, %Entry{content_type: "image/png", headers: [{"vary", "Accept"}]},
-             %ImagePlug.Plan.Response{}}} =
+            {:prepared_stream,
+             %PreparedStream{
+               resolved_output: %Resolved{format: :png, response_headers: [{"vary", "Accept"}]}
+             } = prepared, %ImagePlug.Plan.Response{}}} =
              Runner.run(
                conn(:get, "/_/plain/images/source.tiff"),
                plan(output: %Output{mode: :automatic}),
                resolved_source(),
                cache: {CacheMissWriteProbe, test_pid: self(), test_ref: ref},
+               source_session_supervisor: supervisor,
                sources: %{
                  path:
                    {SourceBytes,
@@ -406,15 +566,16 @@ defmodule ImagePlug.Request.RunnerTest do
     assert {:cache_lookup, key} = first_event
     assert_receive {:runner_event, ^ref, second_event}
     assert second_event == :source_fetch
-    assert_receive {:runner_event, ^ref, third_event}
-    assert {:cache_put, ^key} = third_event
+    refute_received {:runner_event, ^ref, {:cache_put, ^key, %Entry{}}}
 
     assert_received {:cache_lookup, ^key}
+    assert :ok = drain_prepared_stream(prepared)
 
     assert_received {:cache_put, ^key,
                      %Entry{content_type: "image/png", headers: [{"vary", "Accept"}]}, _opts}
 
     refute_received {:cache_lookup, _second_key}
+    assert_supervisor_empty(supervisor)
   end
 
   test "source-only automatic cache hit returns cached entry without fetching source" do
@@ -566,6 +727,7 @@ defmodule ImagePlug.Request.RunnerTest do
   end
 
   test "cache miss executes semantic plan after fetch and stores under original key" do
+    supervisor = start_source_session_supervisor()
     ref = make_ref()
 
     assert {:ok, operation} =
@@ -574,12 +736,13 @@ defmodule ImagePlug.Request.RunnerTest do
                enlargement: :deny
              )
 
-    assert {:ok, {:cache_entry, %Entry{content_type: "image/jpeg"}, %ImagePlug.Plan.Response{}}} =
+    assert {:ok, {:prepared_stream, %PreparedStream{} = prepared, %ImagePlug.Plan.Response{}}} =
              Runner.run(
                conn(:get, "/_/rt:auto/w:100/h:100/f:jpeg/plain/images/beach.jpg"),
                plan(pipelines: [%Pipeline{operations: [operation]}]),
                resolved_source(),
                cache: {CacheMissWriteProbe, test_pid: self(), test_ref: ref},
+               source_session_supervisor: supervisor,
                sources: %{path: {SourceImage, test_pid: self(), test_ref: ref}}
              )
 
@@ -587,12 +750,13 @@ defmodule ImagePlug.Request.RunnerTest do
     assert {:cache_lookup, key} = first_event
     assert_receive {:runner_event, ^ref, second_event}
     assert second_event == :source_fetch
-    assert_receive {:runner_event, ^ref, third_event}
-    assert {:cache_put, ^key} = third_event
+    refute_received {:runner_event, ^ref, {:cache_put, ^key, %Entry{}}}
 
     assert_received {:cache_lookup, key}
+    assert :ok = drain_prepared_stream(prepared)
     assert_received {:cache_put, ^key, %Entry{}, _opts}
     refute_received {:cache_lookup, _second_key}
+    assert_supervisor_empty(supervisor)
   end
 
   test "no-cache explicit output returns a prepared stream delivery" do
@@ -637,11 +801,11 @@ defmodule ImagePlug.Request.RunnerTest do
     assert_cancelled(prepared, supervisor)
   end
 
-  test "configured cache miss stays on pre-response cache path before cache teeing" do
+  test "configured cache miss writes cache after successful prepared stream delivery" do
     supervisor = start_source_session_supervisor()
     ref = make_ref()
 
-    assert {:ok, {:cache_entry, %Entry{content_type: "image/jpeg"}, %Response{}}} =
+    assert {:ok, {:prepared_stream, %PreparedStream{} = prepared, response}} =
              Runner.run(
                conn(:get, "/_/plain/images/beach.jpg"),
                plan(),
@@ -651,16 +815,34 @@ defmodule ImagePlug.Request.RunnerTest do
                sources: %{path: {SourceImage, []}}
              )
 
-    assert_received {:cache_lookup, _key}
-    assert_received {:cache_put, _key, %Entry{}, _opts}
+    assert_received {:cache_lookup, key}
+    refute_received {:cache_put, _key, _entry, _opts}
+    assert_supervisor_active(supervisor)
+
+    conn =
+      ImagePlug.Response.Sender.send_result(
+        conn(:get, "/image"),
+        {:ok, {:prepared_stream, prepared, response}},
+        []
+      )
+
+    assert conn.status == 200
+    assert is_binary(conn.resp_body)
+    assert byte_size(conn.resp_body) > 0
+
+    assert_received {:runner_event, ^ref,
+                     {:cache_put, ^key, %Entry{content_type: "image/jpeg", body: body}}}
+
+    assert is_binary(body)
+    assert byte_size(body) > 0
     assert_supervisor_empty(supervisor)
   end
 
-  test "cache read fail-open miss stays on pre-response cache path before cache teeing" do
+  test "cache read fail-open miss returns a prepared stream and writes cache after successful drain" do
     supervisor = start_source_session_supervisor()
     ref = make_ref()
 
-    assert {:ok, {:cache_entry, %Entry{content_type: "image/jpeg"}, %Response{}}} =
+    assert {:ok, {:prepared_stream, %PreparedStream{} = prepared, %Response{}}} =
              Runner.run(
                conn(:get, "/_/plain/images/beach.jpg"),
                plan(),
@@ -670,8 +852,174 @@ defmodule ImagePlug.Request.RunnerTest do
                sources: %{path: {SourceImage, []}}
              )
 
-    assert_received {:runner_event, ^ref, {:cache_lookup, _key}}
-    assert_received {:runner_event, ^ref, {:cache_put, _key, %Entry{}}}
+    assert_received {:runner_event, ^ref, {:cache_lookup, key}}
+    refute_received {:runner_event, ^ref, {:cache_put, _key, %Entry{}}}
+    assert_supervisor_active(supervisor)
+
+    assert :ok = drain_prepared_stream(prepared)
+
+    assert_received {:runner_event, ^ref, {:cache_put, ^key, %Entry{content_type: "image/jpeg"}}}
+    assert_supervisor_empty(supervisor)
+  end
+
+  test "configured cache miss with fail_on_cache_error true keeps the pre-response cache path" do
+    supervisor = start_source_session_supervisor()
+    ref = make_ref()
+
+    assert {:ok, {:cache_entry, %Entry{content_type: "image/jpeg"}, %Response{}}} =
+             Runner.run(
+               conn(:get, "/_/plain/images/beach.jpg"),
+               plan(),
+               resolved_source(cache: :normal),
+               cache:
+                 {CacheMissWriteProbe, test_pid: self(), test_ref: ref, fail_on_cache_error: true},
+               source_session_supervisor: supervisor,
+               sources: %{path: {SourceImage, []}}
+             )
+
+    assert_received {:cache_lookup, _key}
+    assert_received {:cache_put, _key, %Entry{}, _opts}
+    assert_supervisor_empty(supervisor)
+  end
+
+  test "streamed cache miss does not write cache when the client closes before done" do
+    supervisor = start_source_session_supervisor()
+    ref = make_ref()
+
+    assert {:ok, {:prepared_stream, %PreparedStream{} = prepared, response}} =
+             Runner.run(
+               conn(:get, "/_/plain/images/beach.jpg"),
+               plan(),
+               resolved_source(cache: :normal),
+               cache: {CacheMissWriteProbe, test_pid: self(), test_ref: ref},
+               source_session_supervisor: supervisor,
+               sources: %{path: {SourceImage, []}}
+             )
+
+    conn =
+      :get
+      |> conn("/image")
+      |> Map.put(:adapter, {ClosingAfterFirstChunkAdapter, %{chunks: nil}})
+      |> ImagePlug.Response.Sender.send_result({:ok, {:prepared_stream, prepared, response}}, [])
+
+    assert conn.private.image_plug_send_result == :processing_error
+    assert_received {:cache_lookup, _key}
+    refute_received {:cache_put, _key, _entry, _opts}
+    assert_supervisor_empty(supervisor)
+  end
+
+  test "streamed cache miss does not write cache when send_chunked fails" do
+    supervisor = start_source_session_supervisor()
+    ref = make_ref()
+
+    assert {:ok, {:prepared_stream, %PreparedStream{} = prepared, response}} =
+             Runner.run(
+               conn(:get, "/_/plain/images/beach.jpg"),
+               plan(),
+               resolved_source(cache: :normal),
+               cache: {CacheMissWriteProbe, test_pid: self(), test_ref: ref},
+               source_session_supervisor: supervisor,
+               sources: %{path: {SourceImage, []}}
+             )
+
+    conn =
+      :get
+      |> conn("/image")
+      |> Map.put(:adapter, {FailingChunkedAdapter, %{}})
+      |> ImagePlug.Response.Sender.send_result({:ok, {:prepared_stream, prepared, response}}, [])
+
+    assert conn.private.image_plug_send_result == :processing_error
+    assert_received {:cache_lookup, _key}
+    refute_received {:cache_put, _key, _entry, _opts}
+    assert_supervisor_empty(supervisor)
+  end
+
+  test "streamed cache miss does not write cache when the first chunk fails" do
+    supervisor = start_source_session_supervisor()
+    ref = make_ref()
+
+    assert {:ok, {:prepared_stream, %PreparedStream{} = prepared, response}} =
+             Runner.run(
+               conn(:get, "/_/plain/images/beach.jpg"),
+               plan(),
+               resolved_source(cache: :normal),
+               cache: {CacheMissWriteProbe, test_pid: self(), test_ref: ref},
+               source_session_supervisor: supervisor,
+               sources: %{path: {SourceImage, []}}
+             )
+
+    conn =
+      :get
+      |> conn("/image")
+      |> Map.put(:adapter, {FirstChunkClosedAdapter, %{}})
+      |> ImagePlug.Response.Sender.send_result({:ok, {:prepared_stream, prepared, response}}, [])
+
+    assert conn.private.image_plug_send_result == :processing_error
+    assert_received {:cache_lookup, _key}
+    refute_received {:cache_put, _key, _entry, _opts}
+    assert_supervisor_empty(supervisor)
+  end
+
+  test "streamed cache miss cache write errors fail open after successful delivery" do
+    attach_telemetry([[:image_plug, :cache, :write, :stop]])
+
+    supervisor = start_source_session_supervisor()
+    ref = make_ref()
+
+    assert {:ok, {:prepared_stream, %PreparedStream{} = prepared, response}} =
+             Runner.run(
+               conn(:get, "/_/plain/images/beach.jpg"),
+               plan(),
+               resolved_source(cache: :normal),
+               cache: {CacheWriteErrorProbe, test_pid: self(), test_ref: ref},
+               source_session_supervisor: supervisor,
+               sources: %{path: {SourceImage, []}}
+             )
+
+    conn =
+      ImagePlug.Response.Sender.send_result(
+        conn(:get, "/image"),
+        {:ok, {:prepared_stream, prepared, response}},
+        []
+      )
+
+    assert conn.status == 200
+    refute Map.get(conn.private, :image_plug_send_result) == :processing_error
+    assert_received {:runner_event, ^ref, {:cache_put_attempted, %Entry{}}}
+    assert_supervisor_empty(supervisor)
+
+    assert_receive {:telemetry_event, [:image_plug, :cache, :write, :stop], _measurements,
+                    %{result: :cache_error, cache: :write_error, error: :write_failed}}
+  end
+
+  test "streamed automatic cache miss writes negotiated entry with Vary" do
+    supervisor = start_source_session_supervisor()
+    ref = make_ref()
+
+    assert {:ok, {:prepared_stream, %PreparedStream{} = prepared, %ImagePlug.Plan.Response{}}} =
+             Runner.run(
+               conn(:get, "/_/f:auto/plain/images/beach.jpg", "")
+               |> Plug.Conn.put_req_header("accept", "image/webp,image/jpeg;q=0.8"),
+               plan(output: %Output{mode: :automatic}),
+               resolved_source(cache: :normal),
+               cache: {CacheMissWriteProbe, test_pid: self(), test_ref: ref},
+               source_session_supervisor: supervisor,
+               sources: %{path: {SourceImage, []}}
+             )
+
+    assert_received {:cache_lookup, key}
+    assert :ok = drain_prepared_stream(prepared)
+
+    assert_received {:runner_event, ^ref,
+                     {:cache_put, ^key,
+                      %Entry{
+                        body: body,
+                        content_type: content_type,
+                        headers: [{"vary", "Accept"}]
+                      }}}
+
+    assert is_binary(body)
+    assert content_type in ["image/webp", "image/jpeg"]
     assert_supervisor_empty(supervisor)
   end
 
@@ -862,18 +1210,25 @@ defmodule ImagePlug.Request.RunnerTest do
       filename: "report"
     }
 
-    assert {:ok, {:cache_entry, %Entry{content_type: "image/jpeg"}, ^response}} =
+    supervisor = start_source_session_supervisor()
+
+    assert {:ok, {:prepared_stream, %PreparedStream{} = prepared, ^response}} =
              Runner.run(
                conn(:get, "/_/f:jpeg/plain/images/beach.jpg"),
                plan(response: response),
                resolved_source(),
-               cache: {CacheHitWriteProbe, entry: invalid_entry},
+               cache: {CacheHitWriteProbe, entry: invalid_entry, test_pid: self()},
+               source_session_supervisor: supervisor,
                sources: %{path: {SourceImage, []}}
              )
 
     assert_received {:cache_lookup, key}
+    refute_received {:cache_put, _key, _entry, _opts}
+
+    assert :ok = drain_prepared_stream(prepared)
     assert_received {:cache_put, ^key, %Entry{content_type: "image/jpeg"}, _opts}
     refute_received {:cache_lookup, _another_key}
+    assert_supervisor_empty(supervisor)
 
     assert {:error, {:cache, {:unsupported_delivery_content_type, "image/gif"}}} =
              Runner.run(

@@ -178,10 +178,13 @@ defmodule ImagePlug.ArchitectureBoundaryTest do
     ])
   end
 
-  test "prepared stream keeps request lifecycle modules out of response delivery" do
+  test "response delivery stays unaware of source sessions and cache teeing" do
     forbidden_terms = [
       "ImagePlug.Request.SourceSession",
-      "ImagePlug.Request.SourceSessionSupervisor"
+      "ImagePlug.Request.SourceSessionSupervisor",
+      "Cache.put",
+      "Cache.Key",
+      "SourceSession.CacheBuffer"
     ]
 
     violations =
@@ -193,7 +196,7 @@ defmodule ImagePlug.ArchitectureBoundaryTest do
           {line, number} <- file |> File.read!() |> String.split("\n") |> Enum.with_index(1),
           term <- forbidden_terms,
           String.contains?(line, term) do
-        "#{file}:#{number} must not depend on #{term}; use PreparedStream callbacks"
+        "#{file}:#{number} must not depend on #{term}; SourceSession owns cache teeing"
       end
 
     assert violations == []
