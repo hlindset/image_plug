@@ -71,6 +71,7 @@ defmodule ImagePlug.Request.SourceSession do
   @impl GenServer
   def init({%Request{} = request, owner, parent}) when is_pid(owner) do
     Process.flag(:trap_exit, true)
+    Process.put(:"$callers", [owner | Process.get(:"$callers", [])])
 
     {:ok,
      %__MODULE__{

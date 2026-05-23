@@ -75,46 +75,81 @@ defmodule ImagePlug.ImagePlugTest do
 
   defmodule StreamingOnlyImage do
     def stream!(_image, suffix: ".jpg") do
-      send(self(), :stream_encoder_called)
+      send(message_target(), :stream_encoder_called)
       ["streamed jpeg"]
     end
 
     def write!(_image, :memory, suffix: ".jpg") do
-      send(self(), :memory_encoder_called)
+      send(message_target(), :memory_encoder_called)
       raise "cache-enabled memory encoder should not be called"
+    end
+
+    defp message_target do
+      case Process.get(:"$callers") do
+        [pid | _rest] when is_pid(pid) -> pid
+        _callers -> self()
+      end
     end
   end
 
   defmodule BoundedCacheStreamingImage do
     def stream!(_image, suffix: ".jpg") do
-      send(self(), :stream_encoder_called)
+      send(message_target(), :stream_encoder_called)
       ["streamed jpeg over cache limit"]
     end
 
     def write(_image, :memory, suffix: ".jpg") do
-      send(self(), :memory_encoder_called)
+      send(message_target(), :memory_encoder_called)
       raise "cache skip path should not encode the full body in memory"
+    end
+
+    defp message_target do
+      case Process.get(:"$callers") do
+        [pid | _rest] when is_pid(pid) -> pid
+        _callers -> self()
+      end
     end
   end
 
   defmodule MultiChunkStreamingImage do
     def stream!(_image, suffix: ".jpg") do
-      send(self(), :stream_encoder_called)
+      send(message_target(), :stream_encoder_called)
       ["first chunk", "second chunk"]
+    end
+
+    defp message_target do
+      case Process.get(:"$callers") do
+        [pid | _rest] when is_pid(pid) -> pid
+        _callers -> self()
+      end
     end
   end
 
   defmodule EmptyStreamingImage do
     def stream!(_image, suffix: ".jpg") do
-      send(self(), :stream_encoder_called)
+      send(message_target(), :stream_encoder_called)
       []
+    end
+
+    defp message_target do
+      case Process.get(:"$callers") do
+        [pid | _rest] when is_pid(pid) -> pid
+        _callers -> self()
+      end
     end
   end
 
   defmodule FailingStreamBeforeHeaderImage do
     def stream!(_image, suffix: ".jpg") do
-      send(self(), :stream_encoder_called)
+      send(message_target(), :stream_encoder_called)
       raise "forced stream encode failure"
+    end
+
+    defp message_target do
+      case Process.get(:"$callers") do
+        [pid | _rest] when is_pid(pid) -> pid
+        _callers -> self()
+      end
     end
   end
 
@@ -754,6 +789,21 @@ defmodule ImagePlug.ImagePlugTest do
     assert_received {:plug_conn, :sent}
     assert_received :stream_encoder_called
     refute_received :memory_encoder_called
+  end
+
+  test "no-cache image request still sends an image" do
+    conn =
+      :get
+      |> conn("/_/plain/images/beach.jpg")
+      |> call_image_plug(
+        parser: ImagePlug.Parser.Imgproxy,
+        sources: [path: {ImagePlug.Source.File, root: "priv/static", root_id: "static"}]
+      )
+
+    assert conn.status == 200
+    assert [content_type] = get_resp_header(conn, "content-type")
+    assert String.starts_with?(content_type, "image/jpeg")
+    assert byte_size(conn.resp_body) > 0
   end
 
   test "streaming sends headers once and resumes for subsequent chunks" do
@@ -1857,7 +1907,7 @@ defmodule ImagePlug.ImagePlugTest do
         assert get_resp_header(conn, "content-type") == ["text/plain; charset=utf-8"]
       end)
 
-    assert log =~ "encode_error: image encoder produced an empty stream"
+    assert log =~ "image encoder produced an empty stream"
     assert_received :stream_encoder_called
   end
 
@@ -1880,7 +1930,7 @@ defmodule ImagePlug.ImagePlugTest do
         assert get_resp_header(conn, "content-type") == ["image/jpeg"]
       end)
 
-    assert log =~ "encode_error:"
+    assert log =~ "prepared_stream_error:"
     assert log =~ "boom after first chunk"
   end
 

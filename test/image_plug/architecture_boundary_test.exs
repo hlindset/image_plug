@@ -173,32 +173,56 @@ defmodule ImagePlug.ArchitectureBoundaryTest do
     refute_boundary_deps(response, [ImagePlug.Request, ImagePlug.Source])
 
     assert_boundary_exports(response, [
+      ImagePlug.Response.PreparedStream,
       ImagePlug.Response.Sender
     ])
   end
 
-  test "slice 3 keeps source sessions out of runner and response sender" do
+  test "prepared stream keeps request lifecycle modules out of response delivery" do
     forbidden_terms = [
-      "PreparedStream",
-      "prepared_stream",
-      "SourceSessionSupervisor",
-      "SourceSession"
+      "ImagePlug.Request.SourceSession",
+      "ImagePlug.Request.SourceSessionSupervisor"
     ]
 
     violations =
-      for file <- ["lib/image_plug/request/runner.ex", "lib/image_plug/response/sender.ex"],
+      for file <- [
+            "lib/image_plug/response/prepared_stream.ex",
+            "lib/image_plug/response/sender.ex"
+          ],
+          File.exists?(file),
           {line, number} <- file |> File.read!() |> String.split("\n") |> Enum.with_index(1),
           term <- forbidden_terms,
           String.contains?(line, term) do
-        "#{file}:#{number} must not wire #{term} before Slice 4"
+        "#{file}:#{number} must not depend on #{term}; use PreparedStream callbacks"
       end
 
     assert violations == []
   end
 
-  test "old Runtime namespace files are gone" do
-    refute File.exists?("lib/image_plug/runtime.ex")
-    assert Path.wildcard("lib/image_plug/runtime/**/*.ex") == []
+  test "prepared stream wiring keeps lifecycle ownership in request and byte delivery in response" do
+    response_sources =
+      "lib/image_plug/response/**/*.ex"
+      |> Path.wildcard()
+      |> Map.new(fn file -> {file, File.read!(file)} end)
+
+    violations =
+      for {file, source} <- response_sources,
+          term <- ["SourceSession", "SourceSessionSupervisor"],
+          String.contains?(source, term) do
+        "#{file} must not reference #{term}; response delivery uses PreparedStream callbacks"
+      end
+
+    assert violations == []
+
+    request = boundary_declaration(ImagePlug.Request)
+
+    forbidden_exports = [
+      ImagePlug.Request.SourceSession,
+      ImagePlug.Request.SourceSession.Prepared,
+      ImagePlug.Request.SourceSession.Request
+    ]
+
+    assert Enum.filter(request.exports, &(&1 in forbidden_exports)) == []
   end
 
   test "telemetry boundary remains a dependency-free facade" do

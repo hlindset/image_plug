@@ -12,7 +12,12 @@ defmodule ImagePlug.Request.Runner do
   alias ImagePlug.Plan.Response
   alias ImagePlug.Request.Processor
   alias ImagePlug.Request.Processor.Decoded
+  alias ImagePlug.Request.SourceSession
+  alias ImagePlug.Request.SourceSession.Prepared, as: SessionPrepared
+  alias ImagePlug.Request.SourceSession.Request, as: SessionRequest
+  alias ImagePlug.Request.SourceSessionSupervisor
   alias ImagePlug.Request.SourceStreamBoundary
+  alias ImagePlug.Response.PreparedStream
   alias ImagePlug.Source
   alias ImagePlug.Telemetry
   alias ImagePlug.Transform.State
@@ -20,6 +25,7 @@ defmodule ImagePlug.Request.Runner do
   @type delivery() ::
           {:cache_entry, Entry.t(), Response.t()}
           | {:image, State.t(), Resolved.t(), Response.t()}
+          | {:prepared_stream, PreparedStream.t(), Response.t()}
 
   @type error() ::
           {:cache, term()}
@@ -54,7 +60,7 @@ defmodule ImagePlug.Request.Runner do
   end
 
   defp run_with_cache_config(conn, plan, %Source.Resolved{cache: :skip} = resolved_source, opts),
-    do: process_uncached(conn, plan, resolved_source, opts)
+    do: process_prepared_stream(conn, plan, resolved_source, opts)
 
   defp run_with_cache_config(conn, plan, %Source.Resolved{cache: :normal} = resolved_source, opts) do
     telemetry_opts = Telemetry.telemetry_opts(opts)
@@ -72,7 +78,7 @@ defmodule ImagePlug.Request.Runner do
 
     case result do
       :disabled ->
-        process_uncached(conn, plan, resolved_source, opts)
+        process_prepared_stream(conn, plan, resolved_source, opts)
 
       {:hit, %Key{} = key, %Entry{} = entry} ->
         handle_cache_hit(conn, plan, resolved_source, key, entry, opts)
@@ -106,15 +112,87 @@ defmodule ImagePlug.Request.Runner do
     end
   end
 
-  defp process_uncached(conn, plan, resolved_source, opts) do
-    case process_request(conn, plan, resolved_source, opts) do
-      {:ok, final_state, resolved_output, _response_headers} ->
-        {:ok, {:image, final_state, resolved_output, plan.response}}
+  defp process_prepared_stream(conn, plan, resolved_source, opts) do
+    policy = Policy.from_output_plan(conn, plan.output, opts)
 
-      {:error, error, response_headers} ->
-        {:error, {:processing, error, response_headers}}
+    request = %SessionRequest{
+      plan: plan,
+      resolved_source: resolved_source,
+      output_policy: policy,
+      opts: opts
+    }
+
+    supervisor = Keyword.get(opts, :source_session_supervisor, SourceSessionSupervisor)
+
+    case SourceSessionSupervisor.start_session(supervisor, request) do
+      {:ok, session} ->
+        prepare_supervised_session(session, supervisor, plan.response, policy)
+
+      {:error, reason} ->
+        {:error, {:processing, normalize_session_prepare_error(reason), policy.headers}}
     end
   end
+
+  defp prepare_supervised_session(session, supervisor, %Response{} = response, %Policy{} = policy) do
+    case SourceSession.prepare(session) do
+      {:ok, %SessionPrepared{} = prepared} ->
+        case prepared_stream(session, supervisor, prepared, response) do
+          {:ok, %PreparedStream{} = prepared_stream} ->
+            {:ok, {:prepared_stream, prepared_stream, response}}
+
+          {:error, reason} ->
+            _stop_result = SourceSessionSupervisor.stop_session(supervisor, session)
+            {:error, {:processing, normalize_session_prepare_error(reason), policy.headers}}
+        end
+
+      {:error, reason} ->
+        _stop_result = SourceSessionSupervisor.stop_session(supervisor, session)
+        {:error, {:processing, normalize_session_prepare_error(reason), policy.headers}}
+    end
+  end
+
+  defp prepared_stream(session, supervisor, %SessionPrepared{} = prepared, %Response{} = response) do
+    with :ok <- check_first_chunk(prepared.first_chunk),
+         {:ok, content_disposition} <-
+           Response.content_disposition(response, prepared.content_type) do
+      {:ok,
+       %PreparedStream{
+         first_chunk: prepared.first_chunk,
+         content_type: prepared.content_type,
+         headers: prepared.headers ++ [{"content-disposition", content_disposition}],
+         next: fn -> SourceSession.next(session) end,
+         cancel: fn -> cancel_supervised_session(supervisor, session) end,
+         resolved_output: prepared.resolved_output
+       }}
+    else
+      {:error, reason} ->
+        _cancel_result = SourceSession.cancel(session)
+        {:error, reason}
+    end
+  end
+
+  defp cancel_supervised_session(supervisor, session) do
+    case SourceSession.cancel(session) do
+      :ok ->
+        :ok
+
+      {:error, _reason} = error ->
+        _stop_result = SourceSessionSupervisor.stop_session(supervisor, session)
+        error
+    end
+  end
+
+  defp check_first_chunk(chunk) when is_binary(chunk) and byte_size(chunk) > 0, do: :ok
+
+  defp check_first_chunk(_chunk) do
+    {:error, {:encode, RuntimeError.exception("image encoder produced an empty stream"), []}}
+  end
+
+  defp normalize_session_prepare_error({:session, reason}) do
+    {:encode, RuntimeError.exception("source session failed: #{inspect(reason)}"), []}
+  end
+
+  defp normalize_session_prepare_error(reason), do: reason
 
   defp process_cache_miss(conn, plan, resolved_source, key, opts) do
     case process_request(conn, plan, resolved_source, opts) do
