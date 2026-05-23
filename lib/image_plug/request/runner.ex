@@ -80,8 +80,8 @@ defmodule ImagePlug.Request.Runner do
       :disabled ->
         process_prepared_stream(conn, plan, resolved_source, nil, opts)
 
-      {:hit, %Key{} = key, %Entry{} = entry} ->
-        handle_cache_hit(conn, plan, resolved_source, key, entry, opts)
+      {:hit, %Key{}, %Entry{} = entry} ->
+        {:ok, {:cache_entry, entry, plan.response}}
 
       {:miss, %Key{} = key} ->
         process_cacheable_miss(conn, plan, resolved_source, key, opts)
@@ -91,24 +91,6 @@ defmodule ImagePlug.Request.Runner do
 
       {:error, {:cache_read, error}} ->
         {:error, {:cache, error}}
-    end
-  end
-
-  defp handle_cache_hit(conn, plan, resolved_source, key, entry, opts) do
-    case Response.content_disposition(plan.response, entry.content_type) do
-      {:ok, _content_disposition} ->
-        {:ok, {:cache_entry, entry, plan.response}}
-
-      {:error, error} ->
-        handle_cache_delivery_error(conn, plan, resolved_source, key, opts, error)
-    end
-  end
-
-  defp handle_cache_delivery_error(conn, plan, resolved_source, key, opts, error) do
-    if Cache.fail_on_cache_error?(opts) do
-      {:error, {:cache, error}}
-    else
-      process_prepared_stream(conn, plan, resolved_source, key, opts)
     end
   end
 

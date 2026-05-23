@@ -155,7 +155,7 @@ defmodule ImagePlug.Cache do
   defp get_configured(adapter, key, cache_opts) do
     case adapter.get(key, cache_opts) do
       {:hit, %Entry{} = entry} ->
-        {:hit, key, entry}
+        handle_hit(entry, key, cache_opts)
 
       :miss ->
         {:miss, key}
@@ -165,6 +165,13 @@ defmodule ImagePlug.Cache do
 
       unexpected ->
         handle_read_error({:invalid_adapter_result, unexpected}, key, cache_opts)
+    end
+  end
+
+  defp handle_hit(%Entry{} = entry, key, cache_opts) do
+    case Entry.validate(entry) do
+      :ok -> {:hit, key, entry}
+      {:error, reason} -> handle_read_error({:invalid_entry, reason}, key, cache_opts)
     end
   end
 

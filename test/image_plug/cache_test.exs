@@ -162,6 +162,38 @@ defmodule ImagePlug.CacheTest do
     assert key.data[:source_identity] == source_identity()
   end
 
+  test "invalid hit content types are cache read errors" do
+    invalid_entry = %Entry{
+      body: "body",
+      content_type: "image/gif",
+      headers: [],
+      created_at: ~U[2026-04-29 10:15:00Z]
+    }
+
+    log =
+      capture_log(fn ->
+        assert {:miss, %Key{},
+                {:cache_read, {:invalid_entry, {:unsupported_output_format, "image/gif"}}}} =
+                 Cache.lookup(
+                   conn(:get, "/_/f:webp/plain/images/cat.jpg"),
+                   plan(),
+                   source_identity(),
+                   cache: {HitAdapter, entry: invalid_entry}
+                 )
+      end)
+
+    assert log =~ "cache read error"
+    assert log =~ "unsupported_output_format"
+
+    assert {:error, {:cache_read, {:invalid_entry, {:unsupported_output_format, "image/gif"}}}} =
+             Cache.lookup(
+               conn(:get, "/_/f:webp/plain/images/cat.jpg"),
+               plan(),
+               source_identity(),
+               cache: {HitAdapter, entry: invalid_entry, fail_on_cache_error: true}
+             )
+  end
+
   test "returns miss with the generated key" do
     assert {:miss, %Key{} = key} =
              Cache.lookup(

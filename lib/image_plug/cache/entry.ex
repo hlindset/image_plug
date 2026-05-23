@@ -3,6 +3,8 @@ defmodule ImagePlug.Cache.Entry do
   Adapter-independent cached response entry.
   """
 
+  alias ImagePlug.Output.Format
+
   @allowed_headers ~w(vary cache-control)
   @enforce_keys [:body, :content_type, :headers, :created_at]
   @header_name_pattern ~r/^[!#$%&'*+\-.^_`|~0-9A-Za-z]+$/
@@ -18,6 +20,15 @@ defmodule ImagePlug.Cache.Entry do
           created_at: DateTime.t()
         }
 
+  @spec validate(t()) :: :ok | {:error, term()}
+  def validate(%__MODULE__{body: body, content_type: content_type, headers: headers}) do
+    with :ok <- validate_body(body),
+         :ok <- validate_content_type(content_type),
+         {:ok, _headers} <- cacheable_headers(headers) do
+      :ok
+    end
+  end
+
   @spec cacheable_headers(term()) :: {:ok, [header()]} | {:error, term()}
   def cacheable_headers(headers) when is_list(headers) do
     case Enum.reduce_while(headers, {:ok, []}, &normalize_header(&1, &2, headers)) do
@@ -27,6 +38,16 @@ defmodule ImagePlug.Cache.Entry do
   end
 
   def cacheable_headers(headers), do: {:error, {:invalid_headers, headers}}
+
+  defp validate_body(body) when is_binary(body), do: :ok
+  defp validate_body(body), do: {:error, {:invalid_body, body}}
+
+  defp validate_content_type(content_type) do
+    case Format.format(content_type) do
+      {:ok, _format} -> :ok
+      {:error, reason} -> {:error, reason}
+    end
+  end
 
   defp normalize_header({name, value}, {:ok, normalized_headers}, headers)
        when is_binary(name) and is_binary(value) do

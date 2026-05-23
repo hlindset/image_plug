@@ -1197,7 +1197,7 @@ defmodule ImagePlug.Request.RunnerTest do
              )
   end
 
-  test "unsupported cached delivery content type fails open by default and fails closed when configured" do
+  test "invalid cache hit content type fails open by default and fails closed when configured" do
     invalid_entry = %Entry{
       body: "cached gif",
       content_type: "image/gif",
@@ -1230,7 +1230,7 @@ defmodule ImagePlug.Request.RunnerTest do
     refute_received {:cache_lookup, _another_key}
     assert_supervisor_empty(supervisor)
 
-    assert {:error, {:cache, {:unsupported_delivery_content_type, "image/gif"}}} =
+    assert {:error, {:cache, {:invalid_entry, {:unsupported_output_format, "image/gif"}}}} =
              Runner.run(
                conn(:get, "/_/f:jpeg/plain/images/beach.jpg"),
                plan(response: response),

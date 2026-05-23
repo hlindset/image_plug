@@ -29,14 +29,16 @@ fetch, decode, transform, negotiation, and encode errors are never cached.
 
 ## Cache misses and streaming
 
-On a cache hit, ImagePlug checks whether it can build the response headers for
-the cached content type. If that check passes, ImagePlug sends the stored body
-without fetching, decoding, transforming, or encoding the source image.
+On cache read, ImagePlug validates the returned entry before treating it as a
+hit. The entry must have a binary body, cacheable headers, and one of the
+supported output content types: JPEG, PNG, WebP, or AVIF. If that check passes,
+ImagePlug sends the stored body without fetching, decoding, transforming, or
+encoding the source image.
 
-If that header check fails, the default fail-open behavior treats the hit like a
-miss. ImagePlug reprocesses through a supervised source session using the same
-cache key. With `fail_on_cache_error: true`, the same invalid hit becomes a
-cache error.
+If cache entry validation fails, the default fail-open behavior treats the hit
+like a miss. ImagePlug reprocesses through a supervised source session using the
+same cache key. With `fail_on_cache_error: true`, the same invalid hit becomes a
+cache read error.
 
 With the default `fail_on_cache_error: false`, configured cache misses and
 fail-open cache read errors stream through a supervised source session. The
