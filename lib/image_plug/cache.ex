@@ -28,18 +28,18 @@ defmodule ImagePlug.Cache do
   alias ImagePlug.Telemetry
 
   @shared_cache_option_keys [:key_headers, :key_cookies, :max_body_bytes]
-  @key_option_keys [:auto_avif, :auto_webp]
-  @shared_cache_options_schema NimbleOptions.new!(
-                                 key_headers: [
-                                   type: {:list, :string}
-                                 ],
-                                 key_cookies: [
-                                   type: {:list, :string}
-                                 ],
-                                 max_body_bytes: [
-                                   type: {:or, [nil, :non_neg_integer]}
-                                 ]
-                               )
+  @plan_key_option_keys [:auto_avif, :auto_webp]
+  @shared_cache_option_schema NimbleOptions.new!(
+                                key_headers: [
+                                  type: {:list, :string}
+                                ],
+                                key_cookies: [
+                                  type: {:list, :string}
+                                ],
+                                max_body_bytes: [
+                                  type: {:or, [nil, :non_neg_integer]}
+                                ]
+                              )
 
   @callback get(Key.t(), keyword()) :: {:hit, Entry.t()} | :miss | {:error, term()}
   @callback open_sink(Key.t(), Entry.Metadata.t(), keyword()) ::
@@ -111,10 +111,10 @@ defmodule ImagePlug.Cache do
   def open_sink(%Key{} = key, %Resolved{} = resolved_output, opts) when is_list(opts) do
     with {:ok, adapter, cache_opts} <- cache_config(opts),
          {:ok, metadata} <- metadata(resolved_output) do
-      do_open_sink(adapter, key, metadata, cache_opts, opts)
+      open_sink_result(adapter, key, metadata, cache_opts, opts, :stream)
     else
       nil -> nil
-      {:error, reason} -> handle_sink_open_error(reason, resolved_output.format, opts)
+      {:error, reason} -> handle_sink_open_error(reason, resolved_output.format, opts, :stream)
     end
   end
 
@@ -135,7 +135,11 @@ defmodule ImagePlug.Cache do
   @spec commit_sink(sink() | nil, keyword()) :: :ok
   def commit_sink(nil, _opts), do: :ok
   def commit_sink(%Sink{status: status}, _opts) when status != :open, do: :ok
-  def commit_sink(%Sink{} = sink, opts), do: do_commit_sink(sink, opts)
+
+  def commit_sink(%Sink{} = sink, opts) do
+    _result = commit_sink_result(sink, opts)
+    :ok
+  end
 
   @doc false
   @spec abort_sink(sink() | nil, atom(), keyword()) :: :ok
@@ -161,7 +165,6 @@ defmodule ImagePlug.Cache do
   def put(%Key{} = key, %Entry{} = entry, opts) when is_list(opts) do
     case open_sink_for_entry(key, entry, opts) do
       nil -> :skipped
-      :too_large -> :skipped
       %Sink{} = sink -> write_put_body(sink, entry.body, opts)
       {:runtime_error, reason} -> {:ok, {:cache_write, reason}}
       {:error, reason} -> {:error, {:cache_write, reason}}
@@ -174,7 +177,7 @@ defmodule ImagePlug.Cache do
         nil
 
       {adapter, cache_opts} when is_list(cache_opts) ->
-        configured_cache(adapter, cache_opts)
+        validate_configured_cache(adapter, cache_opts)
 
       invalid ->
         {:error, {:invalid_cache_config, invalid}}
@@ -187,7 +190,7 @@ defmodule ImagePlug.Cache do
         {:ok, opts}
 
       {:ok, {adapter, cache_opts}} when is_list(cache_opts) ->
-        with {:ok, adapter, cache_opts} <- configured_cache(adapter, cache_opts) do
+        with {:ok, adapter, cache_opts} <- validate_configured_cache(adapter, cache_opts) do
           {:ok, Keyword.put(opts, :cache, {adapter, cache_opts})}
         end
 
@@ -226,20 +229,19 @@ defmodule ImagePlug.Cache do
     end
   end
 
-  defp configured_cache(adapter, cache_opts) do
-    if Keyword.keyword?(cache_opts) do
-      validate_configured_cache(adapter, cache_opts)
-    else
-      {:error, {:invalid_cache_config, {adapter, cache_opts}}}
-    end
-  end
-
   defp validate_configured_cache(adapter, cache_opts) do
-    with :ok <- validate_adapter(adapter),
+    with :ok <- validate_cache_opts(adapter, cache_opts),
+         :ok <- validate_adapter(adapter),
          {:ok, cache_opts} <- normalize_shared_options(cache_opts),
          {:ok, adapter_opts} <- normalize_adapter_options(adapter, adapter_options(cache_opts)) do
       {:ok, adapter, Keyword.merge(cache_opts, adapter_opts)}
     end
+  end
+
+  defp validate_cache_opts(adapter, cache_opts) do
+    if Keyword.keyword?(cache_opts),
+      do: :ok,
+      else: {:error, {:invalid_cache_config, {adapter, cache_opts}}}
   end
 
   defp validate_adapter(adapter) when is_atom(adapter) do
@@ -254,7 +256,7 @@ defmodule ImagePlug.Cache do
   defp normalize_shared_options(cache_opts) do
     shared_opts = Keyword.take(cache_opts, @shared_cache_option_keys)
 
-    case NimbleOptions.validate(shared_opts, @shared_cache_options_schema) do
+    case NimbleOptions.validate(shared_opts, @shared_cache_option_schema) do
       {:ok, validated_shared_opts} ->
         {:ok, Keyword.merge(cache_opts, validated_shared_opts)}
 
@@ -294,54 +296,65 @@ defmodule ImagePlug.Cache do
     end
   end
 
-  defp do_open_sink(adapter, %Key{} = key, %Entry.Metadata{} = metadata, cache_opts, opts) do
+  defp open_sink_result(
+         adapter,
+         %Key{} = key,
+         %Entry.Metadata{} = metadata,
+         cache_opts,
+         opts,
+         mode
+       ) do
     case adapter.open_sink(key, metadata, cache_opts) do
       {:ok, adapter_state} ->
-        %Sink{
-          adapter: adapter,
-          key: key,
-          adapter_opts: cache_opts,
-          metadata: metadata,
-          state: adapter_state,
-          size: 0,
-          max_body_bytes: Keyword.get(cache_opts, :max_body_bytes),
-          output_format: metadata.output_format,
-          status: :open
-        }
+        build_sink(adapter, key, metadata, cache_opts, adapter_state)
 
       {:error, reason} ->
-        handle_sink_open_error(reason, metadata.output_format, opts)
+        handle_sink_open_error(reason, metadata.output_format, opts, mode)
 
       unexpected ->
         handle_sink_open_error(
           {:invalid_adapter_result, unexpected},
           metadata.output_format,
-          opts
+          opts,
+          mode
         )
     end
   end
 
-  defp handle_sink_open_error(reason, output_format, opts) do
-    Logger.warning("cache sink open error: #{inspect(reason)}")
-    emit_stage_event(:stage_error, :open, reason, output_format, opts)
-    nil
+  defp build_sink(adapter, %Key{} = key, %Entry.Metadata{} = metadata, cache_opts, adapter_state) do
+    %Sink{
+      adapter: adapter,
+      key: key,
+      adapter_opts: cache_opts,
+      metadata: metadata,
+      state: adapter_state,
+      size: 0,
+      max_body_bytes: Keyword.get(cache_opts, :max_body_bytes),
+      output_format: metadata.output_format,
+      status: :open
+    }
   end
 
-  defp handle_put_sink_open_error(reason, output_format, opts) do
+  defp handle_sink_open_error(reason, output_format, opts, mode) do
     Logger.warning("cache sink open error: #{inspect(reason)}")
     emit_stage_event(:stage_error, :open, reason, output_format, opts)
-    {:runtime_error, reason}
+    sink_open_error_result(reason, mode)
   end
+
+  defp sink_open_error_result(_reason, :stream), do: nil
+  defp sink_open_error_result(reason, :put), do: {:runtime_error, reason}
 
   defp write_chunk_result(%Sink{} = sink, chunk, opts) do
     size = sink.size + byte_size(chunk)
 
-    if too_large?(size, sink.max_body_bytes) do
-      emit_abort_cleanup(abort_adapter(sink, opts), :too_large, sink, opts)
-      emit_stage_event(:stage_skipped, :too_large, nil, sink, opts)
-      :skipped
-    else
-      do_write_chunk(%{sink | size: size}, chunk, opts)
+    case check_size(size, sink.max_body_bytes) do
+      :ok ->
+        do_write_chunk(%{sink | size: size}, chunk, opts)
+
+      {:error, :too_large} ->
+        emit_abort_cleanup(abort_adapter(sink, opts), :too_large, sink, opts)
+        emit_stage_event(:stage_skipped, :too_large, nil, sink, opts)
+        :skipped
     end
   end
 
@@ -366,31 +379,16 @@ defmodule ImagePlug.Cache do
     end
   end
 
-  defp do_commit_sink(%Sink{} = sink, opts) do
+  defp commit_sink_result(%Sink{} = sink, opts) do
     Telemetry.span(Telemetry.telemetry_opts(opts), [:cache, :write], %{}, fn ->
       result = sink.adapter.commit_sink(sink.state, sink.adapter_opts)
-      {:ok, commit_stop_metadata(result, sink)}
-    end)
-
-    :ok
-  end
-
-  defp commit_put_sink(%Sink{} = sink, opts) do
-    result = sink.adapter.commit_sink(sink.state, sink.adapter_opts)
-    _result = emit_write_stop(result, sink, opts)
-
-    case result do
-      :ok -> :ok
-      {:error, reason} -> {:ok, {:cache_write, reason}}
-      unexpected -> {:ok, {:cache_write, {:invalid_adapter_result, unexpected}}}
-    end
-  end
-
-  defp emit_write_stop(result, %Sink{} = sink, opts) do
-    Telemetry.span(Telemetry.telemetry_opts(opts), [:cache, :write], %{}, fn ->
-      {:ok, commit_stop_metadata(result, sink)}
+      {commit_result(result), commit_stop_metadata(result, sink)}
     end)
   end
+
+  defp commit_result(:ok), do: :ok
+  defp commit_result({:error, reason}), do: {:ok, {:cache_write, reason}}
+  defp commit_result(unexpected), do: {:ok, {:cache_write, {:invalid_adapter_result, unexpected}}}
 
   defp commit_stop_metadata(:ok, %Sink{} = sink),
     do: %{result: :ok, cache: :write, output_format: sink.output_format}
@@ -468,7 +466,7 @@ defmodule ImagePlug.Cache do
 
   defp open_sink_for_entry(%Key{} = key, %Entry{} = entry, opts) do
     with {:ok, adapter, cache_opts} <- cache_config(opts),
-         false <- too_large?(byte_size(entry.body), Keyword.get(cache_opts, :max_body_bytes)),
+         :ok <- check_size(byte_size(entry.body), Keyword.get(cache_opts, :max_body_bytes)),
          {:ok, output_format} <- Format.format(entry.content_type),
          {:ok, headers} <- Entry.cacheable_headers(entry.headers) do
       metadata = %Entry.Metadata{
@@ -478,51 +476,25 @@ defmodule ImagePlug.Cache do
         output_format: output_format
       }
 
-      do_open_put_sink(adapter, key, metadata, cache_opts, opts)
+      open_sink_result(adapter, key, metadata, cache_opts, opts, :put)
     else
       nil -> nil
-      true -> :too_large
+      {:error, :too_large} -> nil
       {:error, reason} -> {:error, reason}
-    end
-  end
-
-  defp do_open_put_sink(adapter, %Key{} = key, %Entry.Metadata{} = metadata, cache_opts, opts) do
-    case adapter.open_sink(key, metadata, cache_opts) do
-      {:ok, adapter_state} ->
-        %Sink{
-          adapter: adapter,
-          key: key,
-          adapter_opts: cache_opts,
-          metadata: metadata,
-          state: adapter_state,
-          size: 0,
-          max_body_bytes: Keyword.get(cache_opts, :max_body_bytes),
-          output_format: metadata.output_format,
-          status: :open
-        }
-
-      {:error, reason} ->
-        handle_put_sink_open_error(reason, metadata.output_format, opts)
-
-      unexpected ->
-        handle_put_sink_open_error(
-          {:invalid_adapter_result, unexpected},
-          metadata.output_format,
-          opts
-        )
     end
   end
 
   defp write_put_body(%Sink{} = sink, body, opts) do
     case write_chunk_result(sink, body, opts) do
-      {:ok, sink} -> commit_put_sink(sink, opts)
+      {:ok, sink} -> commit_sink_result(sink, opts)
       :skipped -> :skipped
       {:error, reason} -> {:ok, {:cache_write, reason}}
     end
   end
 
-  defp too_large?(_size, nil), do: false
-  defp too_large?(size, max_body_bytes), do: size > max_body_bytes
+  defp check_size(_size, nil), do: :ok
+  defp check_size(size, max_body_bytes) when size <= max_body_bytes, do: :ok
+  defp check_size(_size, _max_body_bytes), do: {:error, :too_large}
 
   defp handle_read_error(reason, key, _cache_opts) do
     Logger.warning("cache read error: #{inspect(reason)}")
@@ -532,6 +504,6 @@ defmodule ImagePlug.Cache do
   defp key_options(opts, cache_opts) do
     cache_opts
     |> Keyword.take([:key_headers, :key_cookies])
-    |> Keyword.merge(Keyword.take(opts, @key_option_keys))
+    |> Keyword.merge(Keyword.take(opts, @plan_key_option_keys))
   end
 end
