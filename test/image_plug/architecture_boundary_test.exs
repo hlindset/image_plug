@@ -178,7 +178,7 @@ defmodule ImagePlug.ArchitectureBoundaryTest do
     ])
   end
 
-  test "response delivery stays unaware of source sessions and cache teeing" do
+  test "response delivery stays unaware of source sessions and cache staging" do
     forbidden_terms = [
       "ImagePlug.Request.SourceSession",
       "ImagePlug.Request.SourceSessionSupervisor",
@@ -199,7 +199,7 @@ defmodule ImagePlug.ArchitectureBoundaryTest do
           {line, number} <- file |> File.read!() |> String.split("\n") |> Enum.with_index(1),
           term <- forbidden_terms,
           String.contains?(line, term) do
-        "#{file}:#{number} must not depend on #{term}; SourceSession owns cache teeing"
+        "#{file}:#{number} must not depend on #{term}; SourceSession owns cache staging"
       end
 
     assert violations == []

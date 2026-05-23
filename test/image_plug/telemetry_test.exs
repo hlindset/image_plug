@@ -426,7 +426,7 @@ defmodule ImagePlug.TelemetryTest do
     end)
   end
 
-  test "fail-open cache write errors are reported on cache write telemetry" do
+  test "fail-open cache staging write errors are reported on cache stage telemetry" do
     conn =
       :get
       |> conn("/_/f:jpeg/plain/images/beach.jpg")
@@ -435,9 +435,9 @@ defmodule ImagePlug.TelemetryTest do
     assert conn.status == 200
     events = telemetry_events()
 
-    assert_event(events, [:image_plug, :cache, :tee, :stop], fn _measurements, metadata ->
+    assert_event(events, [:image_plug, :cache, :stage, :stop], fn _measurements, metadata ->
       assert metadata.result == :cache_error
-      assert metadata.cache == :write_error
+      assert metadata.cache == :stage_error
       assert metadata.error == :write_failed
     end)
 
@@ -619,7 +619,7 @@ defmodule ImagePlug.TelemetryTest do
       [:source, :fetch],
       [:transform, :execute],
       [:encode],
-      [:cache, :tee],
+      [:cache, :stage],
       [:cache, :write],
       [:send]
     ]

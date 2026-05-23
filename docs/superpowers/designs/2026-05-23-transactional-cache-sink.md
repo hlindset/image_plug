@@ -326,7 +326,7 @@ the limit:
 - stop cache staging for this response
 - attempt adapter abort once
 - mark the sink dropped after cleanup
-- emit `cache: :write_skipped` with `reason: :too_large`
+- emit `cache: :stage_skipped` with `reason: :too_large`
 - continue HTTP response delivery
 
 The sink shouldn't rely on every adapter duplicating this limit correctly.
@@ -343,15 +343,15 @@ Keep the existing cache event shape where possible:
 Use `[:cache, :write]` for sink commit attempts. Commit metadata should report
 whether the entry became visible or whether commit failed open.
 
-Use `[:cache, :tee]` for staging outcomes that don't call the adapter commit:
+Use `[:cache, :stage]` for staging outcomes that don't call the adapter commit:
 
-- `cache: :write_skipped`, `reason: :too_large`
-- `cache: :abandoned`, `reason: :cancelled`
-- `cache: :abandoned`, `reason: :owner_down`
-- `cache: :abandoned`, `reason: :stream_error`
-- `cache: :write_error` when staging failed before commit and delivery
+- `cache: :stage_skipped`, `reason: :too_large`
+- `cache: :stage_abandoned`, `reason: :cancelled`
+- `cache: :stage_abandoned`, `reason: :owner_down`
+- `cache: :stage_abandoned`, `reason: :stream_error`
+- `cache: :stage_error` when staging failed before commit and delivery
   continued
-- `cache: :cleanup_error` when abort cleanup fails after the response path has
+- `cache: :stage_cleanup_error` when abort cleanup fails after the response path has
   already failed open
 
 Don't emit cache keys, source URLs, request paths, filenames, adapter module

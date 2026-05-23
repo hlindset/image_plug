@@ -1024,8 +1024,8 @@ defmodule ImagePlug.Request.RunnerTest do
     assert_supervisor_empty(supervisor)
   end
 
-  test "streamed cache miss cache write errors fail open after successful delivery" do
-    attach_telemetry([[:image_plug, :cache, :tee, :stop]])
+  test "streamed cache miss staging write errors fail open" do
+    attach_telemetry([[:image_plug, :cache, :stage, :stop]])
 
     supervisor = start_source_session_supervisor()
     ref = make_ref()
@@ -1053,8 +1053,8 @@ defmodule ImagePlug.Request.RunnerTest do
     assert is_binary(chunk)
     assert_supervisor_empty(supervisor)
 
-    assert_receive {:telemetry_event, [:image_plug, :cache, :tee, :stop], _measurements,
-                    %{result: :cache_error, cache: :write_error, error: :write_failed}}
+    assert_receive {:telemetry_event, [:image_plug, :cache, :stage, :stop], _measurements,
+                    %{result: :cache_error, cache: :stage_error, error: :write_failed}}
   end
 
   test "streamed automatic cache miss writes negotiated entry with Vary" do

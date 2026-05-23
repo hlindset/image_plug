@@ -424,7 +424,7 @@ defmodule ImagePlug.CacheTest do
   end
 
   test "open_sink fails open and logs adapter errors" do
-    attach_telemetry([[:image_plug, :cache, :tee, :stop]])
+    attach_telemetry([[:image_plug, :cache, :stage, :stop]])
 
     log =
       capture_log(fn ->
@@ -434,12 +434,12 @@ defmodule ImagePlug.CacheTest do
     assert log =~ "cache sink open error"
     assert log =~ ":open_failed"
 
-    assert_receive {:telemetry_event, [:image_plug, :cache, :tee, :stop], _measurements,
-                    %{cache: :write_error, error: :open_failed, output_format: :webp}}
+    assert_receive {:telemetry_event, [:image_plug, :cache, :stage, :stop], _measurements,
+                    %{cache: :stage_error, error: :open_failed, output_format: :webp}}
   end
 
   test "write_chunk drops the sink when max_body_bytes would be crossed" do
-    attach_telemetry([[:image_plug, :cache, :tee, :stop]])
+    attach_telemetry([[:image_plug, :cache, :stage, :stop]])
 
     sink =
       Cache.open_sink(cache_key(), resolved_output(),
@@ -452,19 +452,19 @@ defmodule ImagePlug.CacheTest do
 
     assert_received {:abort_sink, []}
 
-    assert_receive {:telemetry_event, [:image_plug, :cache, :tee, :stop], _measurements,
-                    %{cache: :write_skipped, reason: :too_large, output_format: :webp}}
+    assert_receive {:telemetry_event, [:image_plug, :cache, :stage, :stop], _measurements,
+                    %{cache: :stage_skipped, reason: :too_large, output_format: :webp}}
   end
 
   test "write_chunk adapter errors abort and fail open" do
-    attach_telemetry([[:image_plug, :cache, :tee, :stop]])
+    attach_telemetry([[:image_plug, :cache, :stage, :stop]])
 
     sink = Cache.open_sink(cache_key(), resolved_output(), cache: {SinkWriteErrorAdapter, []})
 
     assert Cache.write_chunk(sink, "abc", cache: {SinkWriteErrorAdapter, []}) == nil
 
-    assert_receive {:telemetry_event, [:image_plug, :cache, :tee, :stop], _measurements,
-                    %{cache: :write_error, error: :write_failed, output_format: :webp}}
+    assert_receive {:telemetry_event, [:image_plug, :cache, :stage, :stop], _measurements,
+                    %{cache: :stage_error, error: :write_failed, output_format: :webp}}
   end
 
   test "commit_sink adapter errors fail open through cache write telemetry" do
@@ -482,7 +482,7 @@ defmodule ImagePlug.CacheTest do
   end
 
   test "abort_sink adapter errors fail open through cleanup telemetry" do
-    attach_telemetry([[:image_plug, :cache, :tee, :stop]])
+    attach_telemetry([[:image_plug, :cache, :stage, :stop]])
 
     sink =
       cache_key()
@@ -491,8 +491,8 @@ defmodule ImagePlug.CacheTest do
 
     assert :ok = Cache.abort_sink(sink, :cancelled, cache: {SinkAbortErrorAdapter, []})
 
-    assert_receive {:telemetry_event, [:image_plug, :cache, :tee, :stop], _measurements,
-                    %{cache: :cleanup_error, error: :abort_failed, output_format: :webp}}
+    assert_receive {:telemetry_event, [:image_plug, :cache, :stage, :stop], _measurements,
+                    %{cache: :stage_cleanup_error, error: :abort_failed, output_format: :webp}}
   end
 
   test "put skips bodies over max_body_bytes" do

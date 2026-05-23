@@ -146,8 +146,11 @@ defmodule ImagePlug.Cache do
     result = abort_adapter(sink, opts)
 
     case result do
-      :ok -> emit_tee(:abandoned, reason, nil, sink, opts)
-      {:error, abort_reason} -> emit_tee(:cleanup_error, reason, abort_reason, sink, opts)
+      :ok ->
+        emit_stage_event(:stage_abandoned, reason, nil, sink, opts)
+
+      {:error, abort_reason} ->
+        emit_stage_event(:stage_cleanup_error, reason, abort_reason, sink, opts)
     end
 
     :ok
@@ -320,13 +323,13 @@ defmodule ImagePlug.Cache do
 
   defp handle_sink_open_error(reason, output_format, opts) do
     Logger.warning("cache sink open error: #{inspect(reason)}")
-    emit_tee(:write_error, :open, reason, output_format, opts)
+    emit_stage_event(:stage_error, :open, reason, output_format, opts)
     nil
   end
 
   defp handle_put_sink_open_error(reason, output_format, opts) do
     Logger.warning("cache sink open error: #{inspect(reason)}")
-    emit_tee(:write_error, :open, reason, output_format, opts)
+    emit_stage_event(:stage_error, :open, reason, output_format, opts)
     {:runtime_error, reason}
   end
 
@@ -335,7 +338,7 @@ defmodule ImagePlug.Cache do
 
     if too_large?(size, sink.max_body_bytes) do
       emit_abort_cleanup(abort_adapter(sink, opts), :too_large, sink, opts)
-      emit_tee(:write_skipped, :too_large, nil, sink, opts)
+      emit_stage_event(:stage_skipped, :too_large, nil, sink, opts)
       :skipped
     else
       do_write_chunk(%{sink | size: size}, chunk, opts)
@@ -351,14 +354,14 @@ defmodule ImagePlug.Cache do
         sink = %{sink | state: adapter_state}
         emit_abort_cleanup(abort_adapter(sink, opts), :write_error, sink, opts)
         Logger.warning("cache sink write error: #{inspect(reason)}")
-        emit_tee(:write_error, :write, reason, sink, opts)
+        emit_stage_event(:stage_error, :write, reason, sink, opts)
         {:error, reason}
 
       unexpected ->
         reason = {:invalid_adapter_result, unexpected}
         emit_abort_cleanup(abort_adapter(sink, opts), :write_error, sink, opts)
         Logger.warning("cache sink write error: #{inspect(reason)}")
-        emit_tee(:write_error, :write, reason, sink, opts)
+        emit_stage_event(:stage_error, :write, reason, sink, opts)
         {:error, reason}
     end
   end
@@ -426,36 +429,36 @@ defmodule ImagePlug.Cache do
   defp emit_abort_cleanup(:ok, _reason, _sink, _opts), do: :ok
 
   defp emit_abort_cleanup({:error, cleanup_reason}, reason, %Sink{} = sink, opts) do
-    emit_tee(:cleanup_error, reason, cleanup_reason, sink, opts)
+    emit_stage_event(:stage_cleanup_error, reason, cleanup_reason, sink, opts)
   end
 
-  defp emit_tee(cache_status, reason, error, %Sink{} = sink, opts) do
-    emit_tee(cache_status, reason, error, sink.output_format, opts)
+  defp emit_stage_event(cache_status, reason, error, %Sink{} = sink, opts) do
+    emit_stage_event(cache_status, reason, error, sink.output_format, opts)
   end
 
-  defp emit_tee(cache_status, reason, error, output_format, opts) do
-    Telemetry.span(Telemetry.telemetry_opts(opts), [:cache, :tee], %{}, fn ->
-      {:ok, tee_stop_metadata(cache_status, reason, error, output_format)}
+  defp emit_stage_event(cache_status, reason, error, output_format, opts) do
+    Telemetry.span(Telemetry.telemetry_opts(opts), [:cache, :stage], %{}, fn ->
+      {:ok, stage_stop_metadata(cache_status, reason, error, output_format)}
     end)
   end
 
-  defp tee_stop_metadata(:write_error, _reason, error, output_format),
+  defp stage_stop_metadata(:stage_error, _reason, error, output_format),
     do: %{
       result: :cache_error,
-      cache: :write_error,
+      cache: :stage_error,
       error: Telemetry.error(error),
       output_format: output_format
     }
 
-  defp tee_stop_metadata(:cleanup_error, _reason, error, output_format),
+  defp stage_stop_metadata(:stage_cleanup_error, _reason, error, output_format),
     do: %{
       result: :cache_error,
-      cache: :cleanup_error,
+      cache: :stage_cleanup_error,
       error: Telemetry.error(error),
       output_format: output_format
     }
 
-  defp tee_stop_metadata(cache_status, reason, _error, output_format),
+  defp stage_stop_metadata(cache_status, reason, _error, output_format),
     do: %{
       result: :ok,
       cache: cache_status,

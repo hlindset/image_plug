@@ -291,7 +291,7 @@ defmodule ImagePlug.Request.SourceSessionTest do
     assert :done = SourceSession.next(session)
   end
 
-  test "cache tee writes buffered chunks only after next reaches done" do
+  test "cache staging commits staged chunks only after next reaches done" do
     attach_telemetry([[:image_plug, :cache, :write, :stop]])
 
     key = cache_key()
@@ -318,8 +318,8 @@ defmodule ImagePlug.Request.SourceSessionTest do
                     %{result: :ok, cache: :write, output_format: :jpeg}}
   end
 
-  test "cache tee drops buffering when the cache body limit is crossed" do
-    attach_telemetry([[:image_plug, :cache, :tee, :stop]])
+  test "cache staging stops when the cache body limit is crossed" do
+    attach_telemetry([[:image_plug, :cache, :stage, :stop]])
 
     {:ok, session} =
       SourceSession.start(
@@ -335,18 +335,18 @@ defmodule ImagePlug.Request.SourceSessionTest do
 
     refute_received {:cache_commit_sink, _chunks}
 
-    assert_receive {:telemetry_event, [:image_plug, :cache, :tee, :stop], _measurements,
+    assert_receive {:telemetry_event, [:image_plug, :cache, :stage, :stop], _measurements,
                     %{
                       result: :ok,
-                      cache: :write_skipped,
+                      cache: :stage_skipped,
                       reason: :too_large,
                       output_format: :jpeg
                     }}
   end
 
-  test "cache tee abandons buffered chunks on explicit cancellation" do
+  test "cache staging aborts staged chunks on explicit cancellation" do
     register_stream_events!()
-    attach_telemetry([[:image_plug, :cache, :tee, :stop]])
+    attach_telemetry([[:image_plug, :cache, :stage, :stop]])
 
     {:ok, session} =
       SourceSession.start(cached_request(opts: opts(image_module: CleanupStreamImage)))
@@ -358,16 +358,21 @@ defmodule ImagePlug.Request.SourceSessionTest do
     assert_received {:cache_abort_sink, ["first chunk"]}
     assert_receive {:stream_finalized, :second}
 
-    assert_receive {:telemetry_event, [:image_plug, :cache, :tee, :stop], _measurements,
-                    %{result: :ok, cache: :abandoned, reason: :cancelled, output_format: :jpeg}}
+    assert_receive {:telemetry_event, [:image_plug, :cache, :stage, :stop], _measurements,
+                    %{
+                      result: :ok,
+                      cache: :stage_abandoned,
+                      reason: :cancelled,
+                      output_format: :jpeg
+                    }}
 
-    refute_received {:telemetry_event, [:image_plug, :cache, :tee, :stop], _measurements,
-                     %{cache: :abandoned}}
+    refute_received {:telemetry_event, [:image_plug, :cache, :stage, :stop], _measurements,
+                     %{cache: :stage_abandoned}}
   end
 
-  test "cache tee abandons buffered chunks on post-first-chunk stream errors" do
+  test "cache staging aborts staged chunks on post-first-chunk stream errors" do
     register_stream_events!()
-    attach_telemetry([[:image_plug, :cache, :tee, :stop]])
+    attach_telemetry([[:image_plug, :cache, :stage, :stop]])
 
     {:ok, session} =
       SourceSession.start(cached_request(opts: opts(image_module: RaisingAfterFirstChunkImage)))
@@ -382,21 +387,21 @@ defmodule ImagePlug.Request.SourceSessionTest do
     assert_received {:cache_abort_sink, ["first chunk"]}
     assert_receive {:raising_stream_finalized, :raise}
 
-    assert_receive {:telemetry_event, [:image_plug, :cache, :tee, :stop], _measurements,
+    assert_receive {:telemetry_event, [:image_plug, :cache, :stage, :stop], _measurements,
                     %{
                       result: :ok,
-                      cache: :abandoned,
+                      cache: :stage_abandoned,
                       reason: :stream_error,
                       output_format: :jpeg
                     }}
 
-    refute_received {:telemetry_event, [:image_plug, :cache, :tee, :stop], _measurements,
-                     %{cache: :abandoned}}
+    refute_received {:telemetry_event, [:image_plug, :cache, :stage, :stop], _measurements,
+                     %{cache: :stage_abandoned}}
   end
 
-  test "cache tee abandons buffered chunks on owner death" do
+  test "cache staging aborts staged chunks on owner death" do
     register_stream_events!()
-    attach_telemetry([[:image_plug, :cache, :tee, :stop]])
+    attach_telemetry([[:image_plug, :cache, :stage, :stop]])
 
     owner =
       spawn(fn ->
@@ -424,16 +429,21 @@ defmodule ImagePlug.Request.SourceSessionTest do
     refute_received {:cache_commit_sink, _chunks}
     assert_received {:cache_abort_sink, ["first chunk"]}
 
-    assert_receive {:telemetry_event, [:image_plug, :cache, :tee, :stop], _measurements,
-                    %{result: :ok, cache: :abandoned, reason: :owner_down, output_format: :jpeg}}
+    assert_receive {:telemetry_event, [:image_plug, :cache, :stage, :stop], _measurements,
+                    %{
+                      result: :ok,
+                      cache: :stage_abandoned,
+                      reason: :owner_down,
+                      output_format: :jpeg
+                    }}
 
-    refute_received {:telemetry_event, [:image_plug, :cache, :tee, :stop], _measurements,
-                     %{cache: :abandoned}}
+    refute_received {:telemetry_event, [:image_plug, :cache, :stage, :stop], _measurements,
+                     %{cache: :stage_abandoned}}
   end
 
-  test "cache tee checks pending owner death before committing at done" do
+  test "cache staging checks pending owner death before committing at done" do
     register_stream_events!()
-    attach_telemetry([[:image_plug, :cache, :tee, :stop]])
+    attach_telemetry([[:image_plug, :cache, :stage, :stop]])
 
     owner =
       spawn(fn ->
@@ -475,12 +485,17 @@ defmodule ImagePlug.Request.SourceSessionTest do
     refute_received {:cache_commit_sink, _chunks}
     assert_received {:cache_abort_sink, ["first chunk"]}
 
-    assert_receive {:telemetry_event, [:image_plug, :cache, :tee, :stop], _measurements,
-                    %{result: :ok, cache: :abandoned, reason: :owner_down, output_format: :jpeg}}
+    assert_receive {:telemetry_event, [:image_plug, :cache, :stage, :stop], _measurements,
+                    %{
+                      result: :ok,
+                      cache: :stage_abandoned,
+                      reason: :owner_down,
+                      output_format: :jpeg
+                    }}
   end
 
-  test "cache tee write errors fail open after stream completion" do
-    attach_telemetry([[:image_plug, :cache, :tee, :stop]])
+  test "cache staging write errors fail open after stream completion" do
+    attach_telemetry([[:image_plug, :cache, :stage, :stop]])
 
     {:ok, session} =
       SourceSession.start(cached_request(adapter: CacheSinkWriteErrorProbe))
@@ -491,10 +506,10 @@ defmodule ImagePlug.Request.SourceSessionTest do
 
     assert_received :cache_write_attempted
 
-    assert_receive {:telemetry_event, [:image_plug, :cache, :tee, :stop], _measurements,
+    assert_receive {:telemetry_event, [:image_plug, :cache, :stage, :stop], _measurements,
                     %{
                       result: :cache_error,
-                      cache: :write_error,
+                      cache: :stage_error,
                       error: :write_failed,
                       output_format: :jpeg
                     }}

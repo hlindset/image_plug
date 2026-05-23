@@ -40,25 +40,27 @@ emits cache read telemetry for the invalid entry.
 
 Configured cache misses and cache read errors stream through a supervised source
 session. The session owns source fetch, decode, transform execution, output
-encoding, and the cache tee. It returns the first encoded chunk before ImagePlug
+encoding, and cache staging. It returns the first encoded chunk before ImagePlug
 commits response headers, then `ImagePlug.Response.Sender` pulls later chunks on
 demand.
 
-For those streamed cache misses, the cache tee buffers encoded chunks inside the
-source session. ImagePlug writes the cache entry only after:
+For those streamed cache misses, the source session writes encoded chunks into a
+cache sink as it returns them to the sender. ImagePlug makes the staged cache
+entry visible only after:
 
 - the encoder stream finishes,
 - the sender has successfully delivered every chunk returned by the session,
-- and the buffered body stayed within `:max_body_bytes`.
+- and the staged body stayed within `:max_body_bytes`.
 
 Client disconnects, owner process exits, explicit cancellation, source or encode
-failures after the first chunk, and incomplete streams abandon the buffer and do
-not write cache. If the buffered body crosses `:max_body_bytes`, ImagePlug drops
-the buffer, continues delivering the response, and skips the cache write.
+failures after the first chunk, and incomplete streams abort the staged entry and
+don't write cache. If the staged body crosses `:max_body_bytes`, ImagePlug drops
+cache staging, continues delivering the response, and skips the cache write.
 
-Cache write errors after successful streamed delivery fail open. The client
+Cache commit errors after successful streamed delivery fail open. The client
 keeps the response body that was already delivered. ImagePlug emits cache write
-telemetry and doesn't replace that response with a cache error.
+telemetry and doesn't replace that response with a cache error. Cache staging
+open or write errors also fail open and skip the cache write.
 
 ## Cache keys
 
