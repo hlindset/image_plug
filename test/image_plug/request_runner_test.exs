@@ -21,6 +21,8 @@ defmodule ImagePlug.Request.RunnerTest do
   alias Vix.Vips.Image, as: VipsImage
 
   defmodule CacheHit do
+    @behaviour ImagePlug.Cache
+
     def get(_key, opts), do: Keyword.fetch!(opts, :entry) |> then(&{:hit, &1})
     def open_sink(_key, _metadata, _opts), do: raise("cache hit test should not write")
     def write_chunk(_state, _chunk, _opts), do: raise("cache hit test should not write")
@@ -30,6 +32,8 @@ defmodule ImagePlug.Request.RunnerTest do
   end
 
   defmodule CacheReadProbe do
+    @behaviour ImagePlug.Cache
+
     def get(key, opts) do
       send(self(), {:cache_lookup, key})
       Keyword.fetch!(opts, :entry) |> then(&{:hit, &1})
@@ -42,6 +46,8 @@ defmodule ImagePlug.Request.RunnerTest do
   end
 
   defmodule CacheHitWriteProbe do
+    @behaviour ImagePlug.Cache
+
     def get(key, opts) do
       send(self(), {:cache_lookup, key})
       Keyword.fetch!(opts, :entry) |> then(&{:hit, &1})
@@ -71,6 +77,8 @@ defmodule ImagePlug.Request.RunnerTest do
   end
 
   defmodule CacheMissWriteProbe do
+    @behaviour ImagePlug.Cache
+
     def get(key, opts) do
       emit(opts, {:cache_lookup, key})
       send(self(), {:cache_lookup, key})
@@ -112,6 +120,8 @@ defmodule ImagePlug.Request.RunnerTest do
   end
 
   defmodule CacheReadErrorWriteProbe do
+    @behaviour ImagePlug.Cache
+
     def get(key, opts) do
       emit(opts, {:cache_lookup, key})
       {:error, :read_failed}
@@ -149,6 +159,8 @@ defmodule ImagePlug.Request.RunnerTest do
   end
 
   defmodule CacheWriteErrorProbe do
+    @behaviour ImagePlug.Cache
+
     def get(key, opts) do
       emit(opts, {:cache_lookup, key})
       :miss

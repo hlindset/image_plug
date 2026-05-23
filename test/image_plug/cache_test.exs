@@ -14,6 +14,8 @@ defmodule ImagePlug.CacheTest do
   alias ImagePlug.Plan.Source
 
   defmodule HitAdapter do
+    @behaviour ImagePlug.Cache
+
     def get(%Key{}, opts), do: {:hit, Keyword.fetch!(opts, :entry)}
     def open_sink(%Key{}, %Entry.Metadata{}, _opts), do: {:ok, %{}}
     def write_chunk(state, _chunk, _opts), do: {:ok, state}
@@ -22,6 +24,8 @@ defmodule ImagePlug.CacheTest do
   end
 
   defmodule MissAdapter do
+    @behaviour ImagePlug.Cache
+
     def get(%Key{}, _opts), do: :miss
     def open_sink(%Key{}, %Entry.Metadata{}, _opts), do: {:ok, %{}}
     def write_chunk(state, _chunk, _opts), do: {:ok, state}
@@ -30,6 +34,8 @@ defmodule ImagePlug.CacheTest do
   end
 
   defmodule CaptureAdapter do
+    @behaviour ImagePlug.Cache
+
     def get(%Key{} = key, opts) do
       send(self(), {:cache_get, key, opts})
       :miss
@@ -42,6 +48,8 @@ defmodule ImagePlug.CacheTest do
   end
 
   defmodule ErrorAdapter do
+    @behaviour ImagePlug.Cache
+
     def get(%Key{}, _opts), do: {:error, :read_failed}
     def open_sink(%Key{}, %Entry.Metadata{}, _opts), do: {:error, :open_failed}
     def write_chunk(state, _chunk, _opts), do: {:error, :write_failed, state}
@@ -50,6 +58,8 @@ defmodule ImagePlug.CacheTest do
   end
 
   defmodule UnexpectedResultAdapter do
+    @behaviour ImagePlug.Cache
+
     def get(%Key{}, _opts), do: :surprise
     def open_sink(%Key{}, %Entry.Metadata{}, _opts), do: {:ok, %{}}
     def write_chunk(state, _chunk, _opts), do: {:ok, state}
@@ -62,6 +72,8 @@ defmodule ImagePlug.CacheTest do
   end
 
   defmodule ShouldNotBeCalledAdapter do
+    @behaviour ImagePlug.Cache
+
     def get(%Key{}, _opts), do: flunk("adapter should not be called for invalid cache config")
 
     def open_sink(%Key{}, %Entry.Metadata{}, _opts),
@@ -78,6 +90,8 @@ defmodule ImagePlug.CacheTest do
   end
 
   defmodule SinkMissAdapter do
+    @behaviour ImagePlug.Cache
+
     def get(%Key{}, _opts), do: :miss
 
     def open_sink(%Key{} = key, %Entry.Metadata{} = metadata, opts) do
@@ -102,6 +116,8 @@ defmodule ImagePlug.CacheTest do
   end
 
   defmodule SinkWriteErrorAdapter do
+    @behaviour ImagePlug.Cache
+
     def get(%Key{}, _opts), do: :miss
     def open_sink(%Key{}, %Entry.Metadata{}, _opts), do: {:ok, %{aborted?: false}}
     def write_chunk(state, _chunk, _opts), do: {:error, :write_failed, state}
@@ -110,6 +126,8 @@ defmodule ImagePlug.CacheTest do
   end
 
   defmodule SinkCommitErrorAdapter do
+    @behaviour ImagePlug.Cache
+
     def get(%Key{}, _opts), do: :miss
     def open_sink(%Key{}, %Entry.Metadata{}, _opts), do: {:ok, %{}}
     def write_chunk(state, _chunk, _opts), do: {:ok, state}
@@ -118,6 +136,8 @@ defmodule ImagePlug.CacheTest do
   end
 
   defmodule SinkAbortErrorAdapter do
+    @behaviour ImagePlug.Cache
+
     def get(%Key{}, _opts), do: :miss
     def open_sink(%Key{}, %Entry.Metadata{}, _opts), do: {:ok, %{}}
     def write_chunk(state, _chunk, _opts), do: {:ok, state}
@@ -185,7 +205,13 @@ defmodule ImagePlug.CacheTest do
 
   test "ImagePlug init rejects invalid cache config early" do
     assert_raise ArgumentError, ~r/invalid cache config/, fn ->
-      ImagePlug.init(cache: {String, []})
+      ImagePlug.init(
+        parser: ImagePlug.Parser.Imgproxy,
+        sources: [
+          path: {ImagePlug.Source.File, root: "priv/static", root_id: "static"}
+        ],
+        cache: {__MODULE__.DoesNotExist, []}
+      )
     end
   end
 
@@ -624,27 +650,19 @@ defmodule ImagePlug.CacheTest do
              )
   end
 
-  test "invalid adapter config returns cache errors instead of crashing" do
-    assert {:error, {:cache_read, {:invalid_cache_config, {:adapter, String}}}} =
+  test "unloaded adapter config returns cache errors instead of crashing" do
+    adapter = Module.concat(__MODULE__, DefinitelyNotLoadedCacheAdapter)
+
+    assert {:error, {:cache_read, {:invalid_cache_config, {:adapter, ^adapter}}}} =
              Cache.lookup(
                conn(:get, "/_/f:webp/plain/images/cat.jpg"),
                plan(),
                source_identity(),
-               cache: {String, []}
+               cache: {adapter, []}
              )
 
-    assert {:error, {:cache_write, {:invalid_cache_config, {:adapter, LookupOnlyAdapter}}}} =
-             Cache.put(cache_key(), entry(), cache: {LookupOnlyAdapter, []})
-  end
-
-  test "legacy put-only adapters are invalid cache configuration" do
-    assert {:error, {:cache_read, {:invalid_cache_config, {:adapter, LegacyPutOnlyAdapter}}}} =
-             Cache.lookup(
-               conn(:get, "/_/f:webp/plain/images/cat.jpg"),
-               plan(),
-               source_identity(),
-               cache: {LegacyPutOnlyAdapter, []}
-             )
+    assert {:error, {:cache_write, {:invalid_cache_config, {:adapter, ^adapter}}}} =
+             Cache.put(cache_key(), entry(), cache: {adapter, []})
   end
 
   def handle_telemetry_event(event, measurements, metadata, test_pid) do

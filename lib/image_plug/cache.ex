@@ -240,24 +240,9 @@ defmodule ImagePlug.Cache do
   end
 
   defp validate_adapter(adapter) when is_atom(adapter) do
-    required_callbacks = [
-      get: 2,
-      open_sink: 3,
-      write_chunk: 3,
-      commit_sink: 2,
-      abort_sink: 2
-    ]
-
-    callbacks? =
-      Code.ensure_loaded?(adapter) and
-        Enum.all?(required_callbacks, fn {function, arity} ->
-          function_exported?(adapter, function, arity)
-        end)
-
-    if callbacks? do
-      :ok
-    else
-      {:error, {:invalid_cache_config, {:adapter, adapter}}}
+    case Code.ensure_loaded(adapter) do
+      {:module, _module} -> :ok
+      {:error, _reason} -> {:error, {:invalid_cache_config, {:adapter, adapter}}}
     end
   end
 

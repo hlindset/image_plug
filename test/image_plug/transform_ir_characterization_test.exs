@@ -21,6 +21,8 @@ defmodule ImagePlug.TransformIRCharacterizationTest do
   alias ImagePlug.Transform.State
 
   defmodule CacheHitProbe do
+    @behaviour ImagePlug.Cache
+
     def get(key, opts) do
       send(Keyword.fetch!(opts, :test_pid), {:cache_get, key})
       {:hit, Keyword.fetch!(opts, :entry)}

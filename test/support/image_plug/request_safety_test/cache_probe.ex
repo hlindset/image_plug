@@ -1,6 +1,12 @@
 defmodule ImagePlug.RequestSafetyTest.CacheProbe do
   @moduledoc false
 
+  use Boundary,
+    top_level?: true,
+    deps: [ImagePlug.Cache]
+
+  @behaviour ImagePlug.Cache
+
   def get(_key, _opts) do
     send(self(), :cache_lookup)
     :miss

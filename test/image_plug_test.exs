@@ -18,6 +18,8 @@ defmodule ImagePlug.ImagePlugTest do
   alias ImagePlug.SourceTest.RootHTTPAdapter
 
   defmodule CacheProbe do
+    @behaviour ImagePlug.Cache
+
     alias ImagePlug.Cache.Entry
     alias ImagePlug.Cache.Key
 

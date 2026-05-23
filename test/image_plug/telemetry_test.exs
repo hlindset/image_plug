@@ -67,6 +67,8 @@ defmodule ImagePlug.TelemetryTest do
   end
 
   defmodule CacheReadFailure do
+    @behaviour ImagePlug.Cache
+
     def get(_key, _opts), do: {:error, :read_failed}
     def open_sink(_key, _metadata, _opts), do: raise("cache read failure test should not write")
     def write_chunk(_state, _chunk, _opts), do: raise("cache read failure test should not write")
@@ -75,6 +77,8 @@ defmodule ImagePlug.TelemetryTest do
   end
 
   defmodule FailOpenCacheReadFailure do
+    @behaviour ImagePlug.Cache
+
     def get(_key, _opts), do: {:error, :read_failed}
     def open_sink(_key, _metadata, _opts), do: {:ok, []}
     def write_chunk(chunks, chunk, _opts), do: {:ok, [chunk | chunks]}
@@ -83,6 +87,8 @@ defmodule ImagePlug.TelemetryTest do
   end
 
   defmodule InvalidCacheHit do
+    @behaviour ImagePlug.Cache
+
     def get(_key, _opts) do
       {:hit,
        %ImagePlug.Cache.Entry{
@@ -100,6 +106,8 @@ defmodule ImagePlug.TelemetryTest do
   end
 
   defmodule FailOpenCacheWriteFailure do
+    @behaviour ImagePlug.Cache
+
     def get(_key, _opts), do: :miss
     def open_sink(_key, _metadata, _opts), do: {:ok, []}
     def write_chunk(state, _chunk, _opts), do: {:error, :write_failed, state}

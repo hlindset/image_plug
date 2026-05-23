@@ -25,6 +25,8 @@ defmodule ImagePlug.Request.SourceSessionTest do
   end
 
   defmodule CacheSinkProbe do
+    @behaviour ImagePlug.Cache
+
     def get(_key, _opts), do: :miss
 
     def open_sink(key, metadata, opts) do
@@ -53,6 +55,8 @@ defmodule ImagePlug.Request.SourceSessionTest do
   end
 
   defmodule CacheSinkWriteErrorProbe do
+    @behaviour ImagePlug.Cache
+
     def get(_key, _opts), do: :miss
 
     def open_sink(_key, _metadata, opts), do: {:ok, %{opts: opts}}
