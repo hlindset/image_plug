@@ -27,6 +27,7 @@ defmodule ImagePlug.ArchitectureBoundaryTest do
   ]
   @cache_key_files ["lib/image_plug/cache/key.ex"]
   @boundary_files %{
+    ImagePlug.Application => "lib/application.ex",
     ImagePlug.Cache => "lib/image_plug/cache.ex",
     ImagePlug.Format => "lib/image_plug/format.ex",
     ImagePlug.Output => "lib/image_plug/output.ex",
@@ -122,8 +123,16 @@ defmodule ImagePlug.ArchitectureBoundaryTest do
 
     assert_boundary_exports(request, [
       ImagePlug.Request.Options,
-      ImagePlug.Request.Runner
+      ImagePlug.Request.Runner,
+      ImagePlug.Request.SourceSessionSupervisor
     ])
+  end
+
+  test "application boundary owns OTP startup and depends on request lifecycle infrastructure" do
+    application = boundary_declaration(ImagePlug.Application)
+
+    assert_boundary_deps(application, [ImagePlug.Request])
+    assert_boundary_exports(application, [])
   end
 
   test "source boundary owns source identity and fetch context" do
@@ -166,6 +175,25 @@ defmodule ImagePlug.ArchitectureBoundaryTest do
     assert_boundary_exports(response, [
       ImagePlug.Response.Sender
     ])
+  end
+
+  test "slice 3 keeps source sessions out of runner and response sender" do
+    forbidden_terms = [
+      "PreparedStream",
+      "prepared_stream",
+      "SourceSessionSupervisor",
+      "SourceSession"
+    ]
+
+    violations =
+      for file <- ["lib/image_plug/request/runner.ex", "lib/image_plug/response/sender.ex"],
+          {line, number} <- file |> File.read!() |> String.split("\n") |> Enum.with_index(1),
+          term <- forbidden_terms,
+          String.contains?(line, term) do
+        "#{file}:#{number} must not wire #{term} before Slice 4"
+      end
+
+    assert violations == []
   end
 
   test "old Runtime namespace files are gone" do

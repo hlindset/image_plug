@@ -15,6 +15,7 @@ defmodule ImagePlug.Request.SourceSession do
 
   @call_timeout 15_000
   @cancel_timeout 2_000
+  @shutdown_timeout 2_000
 
   defstruct [
     :request,
@@ -36,6 +37,26 @@ defmodule ImagePlug.Request.SourceSession do
     parent = Keyword.get(opts, :parent)
 
     GenServer.start(__MODULE__, {request, owner, parent})
+  end
+
+  @spec start_link(Request.t(), keyword()) :: GenServer.on_start()
+  def start_link(%Request{} = request, opts \\ []) do
+    owner = Keyword.get(opts, :owner, self())
+    parent = Keyword.get(opts, :parent, self())
+
+    GenServer.start_link(__MODULE__, {request, owner, parent})
+  end
+
+  @spec child_spec({Request.t(), keyword()}) :: Supervisor.child_spec()
+  def child_spec({%Request{} = request, opts}) do
+    %{
+      id: {__MODULE__, make_ref()},
+      start: {__MODULE__, :start_link, [request, opts]},
+      restart: :temporary,
+      shutdown: @shutdown_timeout,
+      type: :worker,
+      modules: [__MODULE__]
+    }
   end
 
   @spec prepare(server(), timeout()) :: {:ok, Prepared.t()} | {:error, term()}
@@ -65,6 +86,9 @@ defmodule ImagePlug.Request.SourceSession do
     case prepare_stream(%{state | phase: :preparing}) do
       {:ok, %Prepared{} = prepared, state} ->
         {:reply, {:ok, prepared}, %{state | phase: :prepared}}
+
+      {:shutdown, reason, state} ->
+        {:stop, reason, state}
 
       {:error, reason, state} ->
         {:stop, :normal, {:error, reason}, mark_failed(state, reason)}
@@ -115,6 +139,16 @@ defmodule ImagePlug.Request.SourceSession do
     {:noreply, %{state | exits: [{pid, :normal} | state.exits]}}
   end
 
+  def handle_info({:EXIT, parent, :shutdown}, %{parent: parent} = state) do
+    state = shutdown_halt_stream(%{state | phase: :cancelled})
+    {:stop, :shutdown, state}
+  end
+
+  def handle_info({:EXIT, parent, {:shutdown, _reason} = shutdown}, %{parent: parent} = state) do
+    state = shutdown_halt_stream(%{state | phase: :cancelled})
+    {:stop, shutdown, state}
+  end
+
   def handle_info({:EXIT, pid, reason}, state) do
     reason = {:linked_exit, pid, reason}
 
@@ -131,6 +165,19 @@ defmodule ImagePlug.Request.SourceSession do
     {:noreply, state}
   end
 
+  @impl GenServer
+  def terminate(:shutdown, state) do
+    _state = shutdown_halt_stream(%{state | phase: :cancelled})
+    :ok
+  end
+
+  def terminate({:shutdown, _reason}, state) do
+    _state = shutdown_halt_stream(%{state | phase: :cancelled})
+    :ok
+  end
+
+  def terminate(_reason, _state), do: :ok
+
   defp call(server, message, timeout) do
     GenServer.call(server, message, timeout)
   catch
@@ -146,7 +193,8 @@ defmodule ImagePlug.Request.SourceSession do
            fetch_decode_validate_source(
              request.plan,
              request.resolved_source,
-             request.opts
+             request.opts,
+             state.parent
            ),
          {:ok, %State{} = final_state} <-
            Processor.process_decoded_source(decoded, request.plan, request.opts),
@@ -157,7 +205,7 @@ defmodule ImagePlug.Request.SourceSession do
          {:ok, first_chunk, suspended} <- first_chunk(stream) do
       state = %{state | suspended: suspended, resolved_output: resolved_output}
 
-      case receive_linked_exit(:ok) do
+      case receive_linked_exit(:ok, state.parent) do
         :ok ->
           prepared = %Prepared{
             first_chunk: first_chunk,
@@ -170,8 +218,14 @@ defmodule ImagePlug.Request.SourceSession do
 
         {:error, reason} ->
           {:error, reason, shutdown_halt_stream(state)}
+
+        {:shutdown, reason} ->
+          {:shutdown, reason, shutdown_halt_stream(state)}
       end
     else
+      {:shutdown, reason} ->
+        {:shutdown, reason, shutdown_halt_stream(state)}
+
       {:error, reason} ->
         {:error, reason, shutdown_halt_stream(state)}
 
@@ -183,14 +237,20 @@ defmodule ImagePlug.Request.SourceSession do
     kind, reason -> {:error, {kind, reason}, shutdown_halt_stream(state)}
   end
 
-  defp fetch_decode_validate_source(plan, resolved_source, opts) do
+  defp fetch_decode_validate_source(plan, resolved_source, opts, parent) do
     plan
     |> Processor.fetch_decode_validate_source_with_source_format(resolved_source, opts)
-    |> receive_linked_exit()
+    |> receive_linked_exit(parent)
   end
 
-  defp receive_linked_exit(result) do
+  defp receive_linked_exit(result, parent) do
     receive do
+      {:EXIT, pid, :shutdown} when is_pid(parent) and pid == parent ->
+        {:shutdown, :shutdown}
+
+      {:EXIT, pid, {:shutdown, _reason} = shutdown} when is_pid(parent) and pid == parent ->
+        {:shutdown, shutdown}
+
       {:EXIT, _pid, {%StreamError{reason: reason}, _stacktrace}} ->
         {:error, {:source, reason}}
 
@@ -198,9 +258,9 @@ defmodule ImagePlug.Request.SourceSession do
         {:error, {:source, reason}}
 
       {:EXIT, _pid, :normal} ->
-        receive_linked_exit(result)
+        receive_linked_exit(result, parent)
 
-      {:EXIT, pid, reason} ->
+      {:EXIT, pid, reason} when pid != parent ->
         {:error, {:linked_exit, pid, reason}}
     after
       0 -> result
