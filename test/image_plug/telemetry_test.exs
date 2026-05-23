@@ -76,6 +76,20 @@ defmodule ImagePlug.TelemetryTest do
     def put(_key, _entry, _opts), do: :ok
   end
 
+  defmodule InvalidCacheHit do
+    def get(_key, _opts) do
+      {:hit,
+       %ImagePlug.Cache.Entry{
+         body: "cached gif",
+         content_type: "image/gif",
+         headers: [],
+         created_at: DateTime.utc_now()
+       }}
+    end
+
+    def put(_key, _entry, _opts), do: :ok
+  end
+
   defmodule FailOpenCacheWriteFailure do
     def get(_key, _opts), do: :miss
     def put(_key, _entry, _opts), do: {:error, :write_failed}
@@ -363,6 +377,27 @@ defmodule ImagePlug.TelemetryTest do
       assert metadata.result == :cache_error
       assert metadata.cache == :read_error
       assert metadata.error == :read_failed
+    end)
+
+    assert_event(events, [:image_plug, :request, :stop], fn _measurements, metadata ->
+      assert metadata.result == :ok
+      assert metadata.status == 200
+    end)
+  end
+
+  test "invalid cache entries are reported on cache lookup telemetry" do
+    conn =
+      :get
+      |> conn("/_/f:jpeg/plain/images/beach.jpg")
+      |> ImagePlug.call(base_opts(cache: {InvalidCacheHit, []}))
+
+    assert conn.status == 200
+    events = telemetry_events()
+
+    assert_event(events, [:image_plug, :cache, :lookup, :stop], fn _measurements, metadata ->
+      assert metadata.result == :cache_error
+      assert metadata.cache == :read_error
+      assert metadata.error == :invalid_entry
     end)
 
     assert_event(events, [:image_plug, :request, :stop], fn _measurements, metadata ->

@@ -5,7 +5,6 @@ defmodule ImagePlug.Request.Runner do
   alias ImagePlug.Cache.Entry
   alias ImagePlug.Cache.Key
   alias ImagePlug.Output.Policy
-  alias ImagePlug.Output.Resolved
   alias ImagePlug.Plan
   alias ImagePlug.Plan.Response
   alias ImagePlug.Request.SourceSession
@@ -15,11 +14,9 @@ defmodule ImagePlug.Request.Runner do
   alias ImagePlug.Response.PreparedStream
   alias ImagePlug.Source
   alias ImagePlug.Telemetry
-  alias ImagePlug.Transform.State
 
   @type delivery() ::
           {:cache_entry, Entry.t(), Response.t()}
-          | {:image, State.t(), Resolved.t(), Response.t()}
           | {:prepared_stream, PreparedStream.t(), Response.t()}
 
   @type error() ::

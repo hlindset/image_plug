@@ -134,31 +134,6 @@ defmodule ImagePlug.Response.SenderTest do
              [~s(attachment; filename="report.webp")]
   end
 
-  test "image responses apply content disposition on cache misses" do
-    {:ok, image} = Image.open("priv/static/images/beach.jpg")
-    state = %ImagePlug.Transform.State{image: image}
-
-    resolved = %ImagePlug.Output.Resolved{
-      format: :webp,
-      quality: :default,
-      response_headers: []
-    }
-
-    response = %Response{disposition: :inline, filename: "miss"}
-
-    conn =
-      Sender.send_result(
-        conn(:get, "/image"),
-        {:ok, {:image, state, resolved, response}},
-        image_module: Image
-      )
-
-    assert conn.status == 200
-
-    assert Plug.Conn.get_resp_header(conn, "content-disposition") ==
-             [~s(inline; filename="miss.webp")]
-  end
-
   test "prepared streams send first chunk and pull later chunks" do
     parent = self()
     response = %Response{disposition: :inline, filename: "prepared"}

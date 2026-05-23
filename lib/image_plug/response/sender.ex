@@ -14,16 +14,13 @@ defmodule ImagePlug.Response.Sender do
   require Logger
 
   alias ImagePlug.Cache.Entry
-  alias ImagePlug.Output.Format
   alias ImagePlug.Output.Resolved
   alias ImagePlug.Plan.Response
   alias ImagePlug.Response.PreparedStream
   alias ImagePlug.Telemetry
-  alias ImagePlug.Transform.State
 
   @type delivery() ::
           {:cache_entry, Entry.t(), Response.t()}
-          | {:image, State.t(), Resolved.t(), Response.t()}
           | {:prepared_stream, PreparedStream.t(), Response.t()}
 
   @type error() ::
@@ -53,14 +50,6 @@ defmodule ImagePlug.Response.Sender do
         _opts
       ) do
     send_cache_entry(conn, entry, response)
-  end
-
-  def send_result(
-        conn,
-        {:ok, {:image, %State{} = state, %Resolved{} = resolved_output, %Response{} = response}},
-        opts
-      ) do
-    send_image(conn, state, resolved_output, response, opts)
   end
 
   def send_result(
@@ -167,84 +156,6 @@ defmodule ImagePlug.Response.Sender do
     |> put_resp_headers(response_headers)
     |> put_resp_content_type("text/plain")
     |> send_resp(422, "invalid image transform")
-  end
-
-  defp send_image(
-         %Plug.Conn{} = conn,
-         %State{} = state,
-         %Resolved{} = resolved_output,
-         %Response{} = response,
-         opts
-       ) do
-    stream_encoded_image(conn, state, resolved_output, response, opts)
-  end
-
-  defp stream_encoded_image(conn, state, %Resolved{} = resolved_output, response, opts) do
-    telemetry_opts = Telemetry.telemetry_opts(opts)
-
-    Telemetry.span(telemetry_opts, [:encode], output_metadata(resolved_output), fn ->
-      {conn, outcome} = do_stream_encoded_image(conn, state, resolved_output, response, opts)
-
-      {conn, encode_stop_metadata(outcome, conn, resolved_output)}
-    end)
-  end
-
-  defp do_stream_encoded_image(conn, state, %Resolved{} = resolved_output, response, opts) do
-    image_module = Keyword.get(opts, :image_module, Image)
-
-    try do
-      mime_type = Format.mime_type!(resolved_output.format)
-      suffix = Format.suffix!(mime_type)
-      stream = image_module.stream!(state.image, output_options(suffix, resolved_output))
-
-      case delivery_headers(resolved_output.response_headers, response, mime_type) do
-        {:ok, response_headers} ->
-          send_encoded_stream(stream, conn, mime_type, response_headers)
-
-        {:error, reason} ->
-          conn =
-            handle_encode_exception(
-              delivery_error(reason),
-              [],
-              conn,
-              resolved_output.response_headers
-            )
-
-          {conn, :error}
-      end
-    rescue
-      exception ->
-        conn =
-          handle_encode_exception(
-            exception,
-            __STACKTRACE__,
-            conn,
-            resolved_output.response_headers
-          )
-
-        {conn, :error}
-    end
-  end
-
-  defp send_encoded_stream(stream, conn, mime_type, response_headers) do
-    case stream_image(stream, conn, mime_type, response_headers) do
-      {:ok, conn} ->
-        {conn, :ok}
-
-      {:empty, conn} ->
-        {send_empty_stream_encode_error(conn, response_headers), :error}
-
-      {:chunk_error, reason, conn} ->
-        conn =
-          reason
-          |> stream_chunk_error()
-          |> handle_encode_exception([], conn, response_headers)
-
-        {conn, :error}
-
-      {:raise, exception, stacktrace, conn} ->
-        {handle_encode_exception(exception, stacktrace, conn, response_headers), :error}
-    end
   end
 
   defp send_cache_entry(%Plug.Conn{} = conn, %Entry{} = entry, %Response{} = response) do
@@ -391,57 +302,6 @@ defmodule ImagePlug.Response.Sender do
     |> send_resp(500, "configuration error")
   end
 
-  defp stream_image(stream, %Plug.Conn{} = conn, mime_type, response_headers) do
-    # Suspend after each chunk so producer exceptions and client disconnects can
-    # be handled without forcing the whole encoded image into memory.
-    reducer = fn data, acc ->
-      case send_stream_chunk(data, acc, mime_type, response_headers) do
-        {:ok, acc} -> {:suspend, acc}
-        {:halt, acc} -> {:halt, acc}
-      end
-    end
-
-    continue_stream(
-      fn command -> Enumerable.reduce(stream, command, reducer) end,
-      {:pending, conn}
-    )
-  end
-
-  defp send_stream_chunk(data, {status, conn}, mime_type, response_headers) do
-    conn =
-      case status do
-        :pending ->
-          conn
-          |> put_resp_headers(response_headers)
-          |> put_resp_content_type(mime_type, nil)
-          |> send_chunked(200)
-
-        :sent ->
-          conn
-      end
-
-    case chunk(conn, data) do
-      {:ok, conn} -> {:ok, {:sent, conn}}
-      {:error, :closed} -> {:halt, {:sent, conn}}
-      {:error, reason} -> {:halt, {:chunk_error, reason, conn}}
-    end
-  rescue
-    exception -> {:halt, {:raise, exception, __STACKTRACE__, conn}}
-  end
-
-  defp continue_stream(continuation, {_status, conn} = acc) do
-    case continuation.({:cont, acc}) do
-      {:suspended, acc, continuation} -> continue_stream(continuation, acc)
-      {:done, {:pending, conn}} -> {:empty, conn}
-      {:done, {:sent, conn}} -> {:ok, conn}
-      {:halted, {:chunk_error, reason, conn}} -> {:chunk_error, reason, conn}
-      {:halted, {:raise, exception, stacktrace, conn}} -> {:raise, exception, stacktrace, conn}
-      {:halted, {_status, conn}} -> {:ok, conn}
-    end
-  rescue
-    exception -> {:raise, exception, __STACKTRACE__, conn}
-  end
-
   defp handle_encode_exception(exception, stacktrace, %Plug.Conn{} = conn, response_headers) do
     Logger.error("encode_error: #{Exception.format(:error, exception, stacktrace)}")
 
@@ -455,14 +315,6 @@ defmodule ImagePlug.Response.Sender do
     mark_send_processing_error(conn)
   end
 
-  defp send_empty_stream_encode_error(%Plug.Conn{} = conn, response_headers) do
-    Logger.error("encode_error: image encoder produced an empty stream")
-
-    conn
-    |> send_encode_error(response_headers)
-    |> mark_send_processing_error()
-  end
-
   defp mark_send_processing_error(%Plug.Conn{} = conn),
     do: Plug.Conn.put_private(conn, :image_plug_send_result, :processing_error)
 
@@ -471,23 +323,10 @@ defmodule ImagePlug.Response.Sender do
     mark_send_processing_error(conn)
   end
 
-  defp stream_chunk_error(reason) do
-    RuntimeError.exception("stream chunk failed: #{inspect(reason)}")
-  end
-
-  defp output_options(suffix, %Resolved{quality: {:quality, value}}),
-    do: [suffix: suffix, quality: value]
-
-  defp output_options(suffix, %Resolved{quality: :default}), do: [suffix: suffix]
-
   defp delivery_headers(response_headers, %Response{} = response, content_type) do
     with {:ok, content_disposition} <- Response.content_disposition(response, content_type) do
       {:ok, response_headers ++ [{"content-disposition", content_disposition}]}
     end
-  end
-
-  defp delivery_error(reason) do
-    ArgumentError.exception("invalid response delivery: #{inspect(reason)}")
   end
 
   defp put_resp_headers(%Plug.Conn{} = conn, response_headers) do
@@ -507,9 +346,6 @@ defmodule ImagePlug.Response.Sender do
 
   defp encode_stop_metadata(:ok, %Plug.Conn{status: status}, %Resolved{} = resolved_output),
     do: Map.merge(%{result: :ok, status: status}, output_metadata(resolved_output))
-
-  defp encode_stop_metadata(:error, %Plug.Conn{status: status}, %Resolved{} = resolved_output),
-    do: Map.merge(%{result: :processing_error, status: status}, output_metadata(resolved_output))
 
   defp prepared_encode_stop_metadata(:ok, %Plug.Conn{} = conn, %Resolved{} = resolved_output) do
     encode_stop_metadata(:ok, conn, resolved_output)

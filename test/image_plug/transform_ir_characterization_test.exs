@@ -11,6 +11,7 @@ defmodule ImagePlug.TransformIRCharacterizationTest do
   alias ImagePlug.Plan.Pipeline
   alias ImagePlug.Plan.Source
   alias ImagePlug.Request.Runner
+  alias ImagePlug.Response.PreparedStream
   alias ImagePlug.Source.Resolved
   alias ImagePlug.Transform
   alias ImagePlug.Transform.Chain
@@ -71,7 +72,7 @@ defmodule ImagePlug.TransformIRCharacterizationTest do
     {conn, plan} = parse_plan!(path)
     resolved_source = resolved_source(source)
 
-    assert {:ok, {:image, %State{image: image}, _resolved_output, _response}} =
+    assert {:ok, {:prepared_stream, %PreparedStream{} = prepared, _response}} =
              Runner.run(
                conn,
                plan,
@@ -79,7 +80,22 @@ defmodule ImagePlug.TransformIRCharacterizationTest do
                sources: %{path: {GeneratedSourceAdapter, []}}
              )
 
+    body = collect_prepared_stream(prepared)
+    assert {:ok, image} = Image.open(body, access: :random, fail_on: :error)
     assert {Image.width(image), Image.height(image)} == expected
+  end
+
+  defp collect_prepared_stream(%PreparedStream{} = prepared) do
+    [prepared.first_chunk]
+    |> collect_prepared_stream(prepared)
+    |> IO.iodata_to_binary()
+  end
+
+  defp collect_prepared_stream(chunks, %PreparedStream{} = prepared) do
+    case prepared.next.() do
+      {:chunk, chunk} -> collect_prepared_stream([chunks, chunk], prepared)
+      :done -> chunks
+    end
   end
 
   defp auto_resize_path(source, {target_width, target_height}) do
