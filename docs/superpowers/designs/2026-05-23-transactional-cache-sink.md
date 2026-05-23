@@ -27,6 +27,12 @@ optimization:
 - write errors fail open
 - configured cache misses stream through supervised `SourceSession`
 
+After `a03a3ca Remove stale direct image response path`, processed responses no
+longer have a sender-side `{:image, state, resolved_output, response}` delivery
+path. Runtime delivery is now either a cache hit body or a prepared stream. That
+means cache sink work only needs to replace `SourceSession.CacheBuffer`. It
+doesn't need to support an old response-sender encoder path.
+
 Slice 5 added `SourceSession.CacheBuffer` as a bridge over the existing cache
 adapter contract:
 
@@ -46,6 +52,7 @@ responses and for future S3 cache writes.
 
 - Keep `Response.Sender` cache-unaware.
 - Keep `SourceSession` as the owner of lazy Vix encoding and cache staging.
+- Keep prepared streams as the only processed-response delivery path.
 - Avoid holding the full encoded response body in ImagePlug memory.
 - Keep cache writes invisible to readers until commit.
 - Abort staged cache data on every incomplete response path.
@@ -62,6 +69,7 @@ responses and for future S3 cache writes.
 - Don't make `Response.Sender` know about cache keys, sinks, entries, or cache
   errors.
 - Don't reintroduce fail-closed runtime cache behavior.
+- Don't restore the removed sender-side image encoding path.
 
 ## Cache Sink Contract
 
@@ -399,14 +407,16 @@ The implementation should be one slice:
 5. Delete `SourceSession.CacheBuffer`.
 6. Update telemetry and docs.
 
-Either remove the existing `Cache.put/3` API from live request paths or rewrite
-it through the sink as a whole-body helper. It shouldn't remain as a
-second adapter write contract for streaming cache misses.
+The prepared-stream cache miss path shouldn't call `Cache.put/3` directly after
+this slice. If tests or helper code still need `Cache.put/3`, rewrite it through
+the sink as a whole-body helper. Adapter modules should have one write contract:
+the sink callbacks.
 
 Stop criteria for this slice:
 
 - `SourceSession.CacheBuffer` has no references.
 - `Response.Sender` remains cache-unaware.
+- `Response.Sender` still has no sender-side image encoding path.
 - Prepared-stream cache misses don't accumulate the full encoded body in
   ImagePlug memory.
 - Filesystem cleanup removes temp body and metadata files on cancel, owner death,
@@ -427,6 +437,5 @@ Stop criteria for this slice:
   keeps rename atomic on a single filesystem.
 - Whether abort failures need telemetry and logs. They shouldn't
   affect HTTP delivery.
-- Whether to remove `Cache.put/3` or rewrite it internally through a sink after
-  the prepared-stream path lands. Don't leave it as a parallel adapter contract
-  without a caller that needs it.
+- Whether to keep `Cache.put/3` as a helper after rewriting it through the sink,
+  or remove it if no non-test caller needs whole-body cache writes.
