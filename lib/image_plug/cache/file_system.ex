@@ -51,18 +51,16 @@ defmodule ImagePlug.Cache.FileSystem do
 
   @impl true
   def write_chunk(state, chunk, _opts) when is_binary(chunk) do
-    case safe_binwrite(state.body_io, chunk) do
-      :ok ->
-        {:ok,
-         %{
-           state
-           | size: state.size + byte_size(chunk),
-             hash_context: :crypto.hash_update(state.hash_context, chunk)
-         }}
+    :ok = IO.binwrite(state.body_io, chunk)
 
-      {:error, reason} ->
-        {:error, reason, state}
-    end
+    {:ok,
+     %{
+       state
+       | size: state.size + byte_size(chunk),
+         hash_context: :crypto.hash_update(state.hash_context, chunk)
+     }}
+  catch
+    :exit, reason -> {:error, reason, state}
   end
 
   @impl true
@@ -94,9 +92,8 @@ defmodule ImagePlug.Cache.FileSystem do
          path_prefix = Keyword.get(validated_opts, :path_prefix, ""),
          {:ok, {first_partition, second_partition}} <- partitions(String.duplicate("0", 64)) do
       dir = Path.join([root, path_prefix, first_partition, second_partition])
-      meta_path = Path.join(dir, String.duplicate("0", 64) <> ".meta")
 
-      with :ok <- validate_cache_paths(root, dir, meta_path) do
+      with :ok <- validate_under_root(root, dir) do
         {:ok, validated_opts}
       end
     end
@@ -289,54 +286,62 @@ defmodule ImagePlug.Cache.FileSystem do
   defp commit_sink_files(state, body_filename) do
     body_path = Path.join(state.paths.dir, body_filename)
 
-    case commit_body_file(state.temp_body_path, body_path, body_filename) do
-      {:ok, body_status} ->
-        case commit_metadata_file(state.paths, state.temp_body_path, state.temp_meta_path) do
-          :ok ->
-            :ok
-
-          {:error, reason} ->
-            rollback_committed_body(body_path, body_status)
-            {:error, reason}
-        end
-
-      {:error, reason} ->
-        cleanup_temp_files([state.temp_body_path, state.temp_meta_path])
-        {:error, reason}
+    with {:ok, body_status} <-
+           commit_body_file(state.temp_body_path, state.temp_meta_path, body_path, body_filename),
+         :ok <-
+           commit_metadata_file(
+             state.paths,
+             state.temp_body_path,
+             state.temp_meta_path,
+             body_path,
+             body_status
+           ) do
+      :ok
     end
   end
 
-  defp commit_metadata_file(paths, body_tmp_path, meta_tmp_path) do
+  defp commit_metadata_file(paths, body_tmp_path, meta_tmp_path, body_path, body_status) do
     case File.rename(meta_tmp_path, paths.meta_path) do
       :ok ->
         :ok
 
       {:error, reason} ->
+        rollback_committed_body(body_path, body_status)
         cleanup_temp_files([body_tmp_path, meta_tmp_path])
         {:error, reason}
     end
   end
 
-  defp commit_body_file(body_tmp_path, body_path, body_filename) do
+  defp commit_body_file(body_tmp_path, meta_tmp_path, body_path, body_filename) do
     if matching_body_file?(body_path, body_filename) do
       cleanup_temp_files([body_tmp_path])
       {:ok, :existing}
     else
       case File.rename(body_tmp_path, body_path) do
-        :ok -> {:ok, :moved}
-        {:error, :eexist} -> use_existing_body_file(body_tmp_path, body_path, body_filename)
-        {:error, reason} -> {:error, reason}
+        :ok ->
+          {:ok, :moved}
+
+        {:error, :eexist} ->
+          use_existing_body_file(body_tmp_path, meta_tmp_path, body_path, body_filename)
+
+        {:error, reason} ->
+          cleanup_body_commit_failure(body_tmp_path, meta_tmp_path, reason)
       end
     end
   end
 
-  defp use_existing_body_file(body_tmp_path, body_path, body_filename) do
+  defp use_existing_body_file(body_tmp_path, meta_tmp_path, body_path, body_filename) do
     if matching_body_file?(body_path, body_filename) do
       cleanup_temp_files([body_tmp_path])
       {:ok, :existing}
     else
-      {:error, :body_file_exists}
+      cleanup_body_commit_failure(body_tmp_path, meta_tmp_path, :body_file_exists)
     end
+  end
+
+  defp cleanup_body_commit_failure(body_tmp_path, meta_tmp_path, reason) do
+    cleanup_temp_files([body_tmp_path, meta_tmp_path])
+    {:error, reason}
   end
 
   defp rollback_committed_body(body_path, :moved), do: File.rm(body_path)
@@ -349,12 +354,6 @@ defmodule ImagePlug.Cache.FileSystem do
     else
       _reason -> false
     end
-  end
-
-  defp safe_binwrite(body_io, chunk) do
-    IO.binwrite(body_io, chunk)
-  catch
-    :exit, reason -> {:error, reason}
   end
 
   defp close_body_io(%{body_io: body_io}) do
@@ -399,8 +398,7 @@ defmodule ImagePlug.Cache.FileSystem do
       dir = Path.join([root, path_prefix, first_partition, second_partition])
       meta_path = Path.join(dir, hash <> ".meta")
 
-      with :ok <- validate_under_root(root, dir),
-           :ok <- validate_under_root(root, meta_path) do
+      with :ok <- validate_under_root(root, dir) do
         {:ok, %{root: root, dir: dir, meta_path: meta_path, hash: hash}}
       end
     end
@@ -437,13 +435,6 @@ defmodule ImagePlug.Cache.FileSystem do
     case Path.safe_relative(relative, root) do
       {:ok, _relative} -> :ok
       :error -> {:error, {:path_outside_root, path}}
-    end
-  end
-
-  defp validate_cache_paths(root, dir, meta_path) do
-    case validate_under_root(root, dir) do
-      :ok -> validate_under_root(root, meta_path)
-      {:error, _reason} = error -> error
     end
   end
 
