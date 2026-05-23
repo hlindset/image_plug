@@ -62,7 +62,6 @@ defmodule ImagePlug.Cache.FileSystemPropertyTest do
   property "arbitrary metadata bytes do not crash get" do
     check all metadata_bytes <- binary(max_length: 2_048),
               body <- binary(max_length: 128),
-              fail_on_cache_error? <- boolean(),
               max_runs: 100 do
       root = unique_root()
       File.rm_rf!(root)
@@ -75,7 +74,7 @@ defmodule ImagePlug.Cache.FileSystemPropertyTest do
         File.write!(paths.meta_path, metadata_bytes)
 
         assert {:error, _reason} =
-                 FileSystem.get(cache_key, root: root, fail_on_cache_error: fail_on_cache_error?)
+                 FileSystem.get(cache_key, root: root)
       after
         File.rm_rf!(root)
       end

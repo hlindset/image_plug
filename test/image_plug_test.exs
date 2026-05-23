@@ -153,13 +153,6 @@ defmodule ImagePlug.ImagePlugTest do
     end
   end
 
-  defmodule FailingMemoryImage do
-    def write(_image, :memory, suffix: ".jpg") do
-      send(self(), :memory_encoder_called)
-      {:error, RuntimeError.exception("forced memory encode failure")}
-    end
-  end
-
   defmodule ClosedChunkAdapter do
     def send_chunked(%{owner: owner} = payload, _status, _headers) do
       send(owner, :closed_adapter_send_chunked)
@@ -1186,7 +1179,7 @@ defmodule ImagePlug.ImagePlugTest do
     assert key_a.hash == key_b.hash
   end
 
-  test "cache-miss memory encode failures are not cached and preserve automatic Vary" do
+  test "cache-miss stream encode failures are not cached and preserve automatic Vary" do
     cache_probe = start_cache_probe()
 
     conn =
@@ -1196,16 +1189,16 @@ defmodule ImagePlug.ImagePlugTest do
       |> call_image_plug(
         root_url: "http://origin.test",
         parser: ImagePlug.Parser.Imgproxy,
-        image_module: FailingMemoryImage,
+        image_module: FailingStreamBeforeHeaderImage,
         origin_req_options: [plug: {CountingOriginImage, test_pid: cache_probe}],
-        cache: {CacheProbe, message_target: cache_probe, fail_on_cache_error: true}
+        cache: {CacheProbe, message_target: cache_probe}
       )
 
     flush_cache_probe(cache_probe)
     assert conn.status == 500
     assert conn.resp_body == "error encoding image"
     assert get_resp_header(conn, "vary") == ["Accept"]
-    assert_received :memory_encoder_called
+    assert_received :stream_encoder_called
     refute_received {:cache_put, _key, _entry}
   end
 
@@ -2102,7 +2095,7 @@ defmodule ImagePlug.ImagePlugTest do
     assert_received {:cache_put, _key, _entry}
   end
 
-  test "cache read errors fail before source fetch when fail_on_cache_error is true" do
+  test "cache read errors fail open and continue to origin when fail_on_cache_error is supplied" do
     cache_probe = start_cache_probe()
 
     conn =
@@ -2119,9 +2112,10 @@ defmodule ImagePlug.ImagePlugTest do
       )
 
     flush_cache_probe(cache_probe)
-    assert conn.status == 500
-    assert conn.resp_body == "cache error"
-    refute_received :origin_was_called
+    assert conn.status == 200
+    assert get_resp_header(conn, "content-type") == ["image/jpeg"]
+    assert_received :origin_was_called
+    assert_received {:cache_put, _key, _entry}
   end
 
   test "cache write errors fail open by default and still return response" do
@@ -2144,7 +2138,7 @@ defmodule ImagePlug.ImagePlugTest do
     assert_received {:cache_put, _key, _entry}
   end
 
-  test "cache write errors fail before response when fail_on_cache_error is true" do
+  test "cache write errors fail open when fail_on_cache_error is supplied" do
     cache_probe = start_cache_probe()
 
     conn =
@@ -2161,13 +2155,14 @@ defmodule ImagePlug.ImagePlugTest do
       )
 
     flush_cache_probe(cache_probe)
-    assert conn.status == 500
-    assert conn.resp_body == "cache error"
+    assert conn.status == 200
+    assert get_resp_header(conn, "content-type") == ["image/jpeg"]
+    assert byte_size(conn.resp_body) > 0
     assert_received :origin_was_called
     assert_received {:cache_put, _key, _entry}
   end
 
-  test "automatic cache write errors preserve negotiated Vary when fail_on_cache_error is true" do
+  test "automatic cache write errors fail open and preserve negotiated Vary" do
     cache_probe = start_cache_probe()
 
     conn =
@@ -2186,8 +2181,9 @@ defmodule ImagePlug.ImagePlugTest do
       )
 
     flush_cache_probe(cache_probe)
-    assert conn.status == 500
-    assert conn.resp_body == "cache error"
+    assert conn.status == 200
+    assert get_resp_header(conn, "content-type") == ["image/jpeg"]
+    assert byte_size(conn.resp_body) > 0
     assert get_resp_header(conn, "vary") == ["Accept"]
     assert_received :origin_was_called
     assert_received {:cache_put, _key, _entry}
@@ -2273,8 +2269,7 @@ defmodule ImagePlug.ImagePlugTest do
            path_prefix: "processed",
            max_body_bytes: 10_000_000,
            key_headers: [],
-           key_cookies: [],
-           fail_on_cache_error: false}
+           key_cookies: []}
       ]
 
       first_conn =

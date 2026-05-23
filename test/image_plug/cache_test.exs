@@ -185,13 +185,20 @@ defmodule ImagePlug.CacheTest do
     assert log =~ "cache read error"
     assert log =~ "unsupported_output_format"
 
-    assert {:error, {:cache_read, {:invalid_entry, {:unsupported_output_format, "image/gif"}}}} =
-             Cache.lookup(
-               conn(:get, "/_/f:webp/plain/images/cat.jpg"),
-               plan(),
-               source_identity(),
-               cache: {HitAdapter, entry: invalid_entry, fail_on_cache_error: true}
-             )
+    log =
+      capture_log(fn ->
+        assert {:miss, %Key{},
+                {:cache_read, {:invalid_entry, {:unsupported_output_format, "image/gif"}}}} =
+                 Cache.lookup(
+                   conn(:get, "/_/f:webp/plain/images/cat.jpg"),
+                   plan(),
+                   source_identity(),
+                   cache: {HitAdapter, entry: invalid_entry, fail_on_cache_error: true}
+                 )
+      end)
+
+    assert log =~ "cache read error"
+    assert log =~ "unsupported_output_format"
   end
 
   test "returns miss with the generated key" do
@@ -267,24 +274,36 @@ defmodule ImagePlug.CacheTest do
     assert log =~ ":read_failed"
   end
 
-  test "read errors are returned when fail_on_cache_error is true" do
-    assert {:error, {:cache_read, :read_failed}} =
-             Cache.lookup(
-               conn(:get, "/_/f:webp/plain/images/cat.jpg"),
-               plan(),
-               source_identity(),
-               cache: {ErrorAdapter, fail_on_cache_error: true}
-             )
+  test "read errors fail open when fail_on_cache_error is supplied" do
+    log =
+      capture_log(fn ->
+        assert {:miss, %Key{}, {:cache_read, :read_failed}} =
+                 Cache.lookup(
+                   conn(:get, "/_/f:webp/plain/images/cat.jpg"),
+                   plan(),
+                   source_identity(),
+                   cache: {ErrorAdapter, fail_on_cache_error: true}
+                 )
+      end)
+
+    assert log =~ "cache read error"
+    assert log =~ ":read_failed"
   end
 
   test "unexpected adapter get result is handled as a cache read error" do
-    assert {:error, {:cache_read, {:invalid_adapter_result, :surprise}}} =
-             Cache.lookup(
-               conn(:get, "/_/f:webp/plain/images/cat.jpg"),
-               plan(),
-               source_identity(),
-               cache: {UnexpectedResultAdapter, fail_on_cache_error: true}
-             )
+    log =
+      capture_log(fn ->
+        assert {:miss, %Key{}, {:cache_read, {:invalid_adapter_result, :surprise}}} =
+                 Cache.lookup(
+                   conn(:get, "/_/f:webp/plain/images/cat.jpg"),
+                   plan(),
+                   source_identity(),
+                   cache: {UnexpectedResultAdapter, fail_on_cache_error: true}
+                 )
+      end)
+
+    assert log =~ "cache read error"
+    assert log =~ ":surprise"
   end
 
   test "put skips bodies over max_body_bytes" do
@@ -327,22 +346,34 @@ defmodule ImagePlug.CacheTest do
     assert log =~ ":write_failed"
   end
 
-  test "write errors are returned when fail_on_cache_error is true" do
-    assert {:error, {:cache_write, :write_failed}} =
-             Cache.put(
-               cache_key(),
-               entry(),
-               cache: {ErrorAdapter, fail_on_cache_error: true}
-             )
+  test "write errors fail open when fail_on_cache_error is supplied" do
+    log =
+      capture_log(fn ->
+        assert {:ok, {:cache_write, :write_failed}} =
+                 Cache.put(
+                   cache_key(),
+                   entry(),
+                   cache: {ErrorAdapter, fail_on_cache_error: true}
+                 )
+      end)
+
+    assert log =~ "cache write error"
+    assert log =~ ":write_failed"
   end
 
   test "unexpected adapter put result is handled as a cache write error" do
-    assert {:error, {:cache_write, {:invalid_adapter_result, :surprise}}} =
-             Cache.put(
-               cache_key(),
-               entry(),
-               cache: {UnexpectedResultAdapter, fail_on_cache_error: true}
-             )
+    log =
+      capture_log(fn ->
+        assert {:ok, {:cache_write, {:invalid_adapter_result, :surprise}}} =
+                 Cache.put(
+                   cache_key(),
+                   entry(),
+                   cache: {UnexpectedResultAdapter, fail_on_cache_error: true}
+                 )
+      end)
+
+    assert log =~ "cache write error"
+    assert log =~ ":surprise"
   end
 
   test "invalid cache lookup config returns a cache read error instead of crashing" do
@@ -420,21 +451,6 @@ defmodule ImagePlug.CacheTest do
 
     assert {:error, {:cache_write, {:invalid_cache_config, {ShouldNotBeCalledAdapter, [:root]}}}} =
              Cache.put(cache_key(), entry(), cache: {ShouldNotBeCalledAdapter, [:root]})
-  end
-
-  test "invalid fail_on_cache_error config returns cache errors before adapter calls" do
-    assert {:error, {:cache_read, {:invalid_cache_config, {:fail_on_cache_error, "false"}}}} =
-             Cache.lookup(
-               conn(:get, "/_/f:webp/plain/images/cat.jpg"),
-               plan(),
-               source_identity(),
-               cache: {ShouldNotBeCalledAdapter, fail_on_cache_error: "false"}
-             )
-
-    assert {:error, {:cache_write, {:invalid_cache_config, {:fail_on_cache_error, 1}}}} =
-             Cache.put(cache_key(), entry(),
-               cache: {ShouldNotBeCalledAdapter, fail_on_cache_error: 1}
-             )
   end
 
   test "invalid max_body_bytes config returns cache errors instead of changing cache policy" do

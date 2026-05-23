@@ -95,7 +95,8 @@ defmodule ImagePlug.Cache.FileSystemTest do
     assert FileSystem.validate_options(root: root, path_prefx: "processed") ==
              {:error, {:unknown_options, [:path_prefx]}}
 
-    assert FileSystem.validate_options(root: root, fail_on_cache_error: true) == {:ok, root: root}
+    assert FileSystem.validate_options(root: root, fail_on_cache_error: true) ==
+             {:error, {:unknown_options, [:fail_on_cache_error]}}
   end
 
   test "accepts filesystem root as cache root" do
@@ -184,21 +185,6 @@ defmodule ImagePlug.Cache.FileSystemTest do
              {:error, {:invalid_metadata, :version_mismatch}}
   end
 
-  test "invalid metadata is an error when fail_on_cache_error is true", %{root: root} do
-    cache_key = key("754321" <> String.duplicate("b", 58))
-    dir = Path.join([root, "75", "43"])
-    File.mkdir_p!(dir)
-    File.write!(Path.join(dir, body_filename(cache_key, "body")), "body")
-
-    File.write!(
-      Path.join(dir, cache_key.hash <> ".meta"),
-      :erlang.term_to_binary(%{metadata_version: 999})
-    )
-
-    assert FileSystem.get(cache_key, root: root, fail_on_cache_error: true) ==
-             {:error, {:invalid_metadata, :version_mismatch}}
-  end
-
   test "body byte-size mismatch is returned as invalid metadata", %{root: root} do
     cache_key = key("bbbbbb" <> String.duplicate("c", 58))
     assert FileSystem.put(cache_key, entry("12345"), root: root) == :ok
@@ -218,9 +204,6 @@ defmodule ImagePlug.Cache.FileSystemTest do
     File.write!(Path.join(dir, body_filename(cache_key, "body-one")), "body-two")
 
     assert FileSystem.get(cache_key, root: root) ==
-             {:error, {:invalid_metadata, :body_digest_mismatch}}
-
-    assert FileSystem.get(cache_key, root: root, fail_on_cache_error: true) ==
              {:error, {:invalid_metadata, :body_digest_mismatch}}
   end
 

@@ -862,11 +862,11 @@ defmodule ImagePlug.Request.RunnerTest do
     assert_supervisor_empty(supervisor)
   end
 
-  test "configured cache miss with fail_on_cache_error true keeps the pre-response cache path" do
+  test "configured cache miss with fail_on_cache_error supplied streams through source session" do
     supervisor = start_source_session_supervisor()
     ref = make_ref()
 
-    assert {:ok, {:cache_entry, %Entry{content_type: "image/jpeg"}, %Response{}}} =
+    assert {:ok, {:prepared_stream, %PreparedStream{} = prepared, %Response{}}} =
              Runner.run(
                conn(:get, "/_/plain/images/beach.jpg"),
                plan(),
@@ -877,8 +877,13 @@ defmodule ImagePlug.Request.RunnerTest do
                sources: %{path: {SourceImage, []}}
              )
 
-    assert_received {:cache_lookup, _key}
-    assert_received {:cache_put, _key, %Entry{}, _opts}
+    assert_received {:cache_lookup, key}
+    refute_received {:cache_put, _key, %Entry{}, _opts}
+    assert_supervisor_active(supervisor)
+
+    assert :ok = drain_prepared_stream(prepared)
+
+    assert_received {:cache_put, ^key, %Entry{content_type: "image/jpeg"}, _opts}
     assert_supervisor_empty(supervisor)
   end
 
@@ -1040,12 +1045,12 @@ defmodule ImagePlug.Request.RunnerTest do
   end
 
   test "invalid cache config returns cache errors before cache lookup" do
-    assert {:error, {:cache, {:invalid_cache_config, {:fail_on_cache_error, "false"}}}} =
+    assert {:error, {:cache, {:invalid_cache_config, {:max_body_bytes, "10MB"}}}} =
              Runner.run(
                conn(:get, "/_/f:jpeg/plain/images/beach.jpg"),
                plan(),
                resolved_source(),
-               cache: {CacheReadProbe, entry: nil, fail_on_cache_error: "false"}
+               cache: {CacheReadProbe, entry: nil, max_body_bytes: "10MB"}
              )
 
     refute_received {:cache_lookup, _key}
@@ -1197,7 +1202,7 @@ defmodule ImagePlug.Request.RunnerTest do
              )
   end
 
-  test "invalid cache hit content type fails open by default and fails closed when configured" do
+  test "invalid cache hit content type fails open when fail_on_cache_error is supplied" do
     invalid_entry = %Entry{
       body: "cached gif",
       content_type: "image/gif",
@@ -1230,12 +1235,20 @@ defmodule ImagePlug.Request.RunnerTest do
     refute_received {:cache_lookup, _another_key}
     assert_supervisor_empty(supervisor)
 
-    assert {:error, {:cache, {:invalid_entry, {:unsupported_output_format, "image/gif"}}}} =
+    assert {:ok, {:prepared_stream, %PreparedStream{} = prepared_with_ignored_option, ^response}} =
              Runner.run(
                conn(:get, "/_/f:jpeg/plain/images/beach.jpg"),
                plan(response: response),
                resolved_source(),
-               cache: {CacheHit, entry: invalid_entry, fail_on_cache_error: true}
+               cache:
+                 {CacheHitWriteProbe,
+                  entry: invalid_entry, test_pid: self(), fail_on_cache_error: true},
+               source_session_supervisor: supervisor,
+               sources: %{path: {SourceImage, []}}
              )
+
+    assert :ok = drain_prepared_stream(prepared_with_ignored_option)
+    assert_received {:cache_put, _key, %Entry{content_type: "image/jpeg"}, _opts}
+    assert_supervisor_empty(supervisor)
   end
 end

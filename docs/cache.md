@@ -16,8 +16,7 @@ forward "/",
        path_prefix: "processed",
        max_body_bytes: 10_000_000,
        key_headers: [],
-       key_cookies: [],
-       fail_on_cache_error: false}
+       key_cookies: []}
   ]
 ```
 
@@ -35,16 +34,15 @@ supported output content types: JPEG, PNG, WebP, or AVIF. If that check passes,
 ImagePlug sends the stored body without fetching, decoding, transforming, or
 encoding the source image.
 
-If cache entry validation fails, the default fail-open behavior treats the hit
-like a miss. ImagePlug reprocesses through a supervised source session using the
-same cache key. With `fail_on_cache_error: true`, the same invalid hit becomes a
-cache read error.
+If cache entry validation fails, ImagePlug treats the hit like a miss. It
+reprocesses through a supervised source session using the same cache key and
+emits cache read telemetry for the invalid entry.
 
-With the default `fail_on_cache_error: false`, configured cache misses and
-fail-open cache read errors stream through a supervised source session. The
-session owns source fetch, decode, transform execution, output encoding, and the
-cache tee. It returns the first encoded chunk before ImagePlug commits response
-headers, then `ImagePlug.Response.Sender` pulls later chunks on demand.
+Configured cache misses and cache read errors stream through a supervised source
+session. The session owns source fetch, decode, transform execution, output
+encoding, and the cache tee. It returns the first encoded chunk before ImagePlug
+commits response headers, then `ImagePlug.Response.Sender` pulls later chunks on
+demand.
 
 For those streamed cache misses, the cache tee buffers encoded chunks inside the
 source session. ImagePlug writes the cache entry only after:
@@ -61,12 +59,6 @@ the buffer, continues delivering the response, and skips the cache write.
 Cache write errors after successful streamed delivery fail open. The client
 keeps the response body that was already delivered. ImagePlug emits cache write
 telemetry and doesn't replace that response with a cache error.
-
-With `fail_on_cache_error: true`, cacheable misses stay on the pre-response
-cache path. ImagePlug finishes encoding before delivery, and writes a cache
-entry when the encoded body stays within `:max_body_bytes`. If the body is too
-large, ImagePlug skips the cache write and sends the encoded response. Cache
-read and write errors on that path can become `500` cache errors.
 
 ## Cache keys
 
@@ -109,16 +101,14 @@ Filesystem metadata has an independent `metadata_version` and includes the
 cached body filename, byte size, and SHA-256 digest. Body files are
 content-addressed by digest.
 
-Missing files, invalid metadata, and default filesystem read problems are cache
-misses by default. With `fail_on_cache_error: true`, invalid metadata and
-filesystem read problems become cache read errors.
+Missing files are cache misses. Invalid metadata and filesystem read problems
+are cache read errors from the adapter. The cache coordinator logs them, emits
+cache read telemetry, and treats the lookup as a miss.
 
-Adapter errors returned to the cache coordinator fail open by default and log a
-warning. Set `fail_on_cache_error: true` to fail closed with a `500` cache error
-instead. Plug initialization rejects invalid cache configuration. The client
-still receives encoded response bodies over the cache `:max_body_bytes` limit,
-but the cache skips storage. `:max_body_bytes` must be `nil` or a non-negative
-integer.
+Adapter errors returned to the cache coordinator fail open and log a warning.
+Plug initialization rejects invalid cache configuration. The client still
+receives encoded response bodies over the cache `:max_body_bytes` limit, but the
+cache skips storage. `:max_body_bytes` must be `nil` or a non-negative integer.
 
 The filesystem adapter validates generated paths under the configured root
 with `Path.safe_relative/2`, so paths that escape through symlinks fail as cache

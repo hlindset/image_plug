@@ -22,7 +22,7 @@ defmodule ImagePlug.Cache do
   alias ImagePlug.Cache.Key
   alias ImagePlug.Plan
 
-  @shared_cache_option_keys [:key_headers, :key_cookies, :max_body_bytes, :fail_on_cache_error]
+  @shared_cache_option_keys [:key_headers, :key_cookies, :max_body_bytes]
   @key_option_keys [:auto_avif, :auto_webp]
   @shared_cache_options_schema NimbleOptions.new!(
                                  key_headers: [
@@ -33,9 +33,6 @@ defmodule ImagePlug.Cache do
                                  ],
                                  max_body_bytes: [
                                    type: {:or, [nil, :non_neg_integer]}
-                                 ],
-                                 fail_on_cache_error: [
-                                   type: :boolean
                                  ]
                                )
 
@@ -80,14 +77,6 @@ defmodule ImagePlug.Cache do
   end
 
   @doc false
-  @spec fail_on_cache_error?(keyword()) :: boolean()
-  def fail_on_cache_error?(opts) when is_list(opts) do
-    case cache_config(opts) do
-      {:ok, _adapter, cache_opts} -> Keyword.get(cache_opts, :fail_on_cache_error, false)
-      _other -> false
-    end
-  end
-
   @spec lookup(Plug.Conn.t(), Plan.t(), term(), keyword()) :: lookup_result()
   def lookup(conn, %Plan{} = plan, source_identity, opts) when is_list(opts) do
     case cache_config(opts) do
@@ -251,22 +240,14 @@ defmodule ImagePlug.Cache do
     end
   end
 
-  defp handle_read_error(reason, key, cache_opts) do
-    if Keyword.get(cache_opts, :fail_on_cache_error, false) do
-      {:error, {:cache_read, reason}}
-    else
-      Logger.warning("cache read error: #{inspect(reason)}")
-      {:miss, key, {:cache_read, reason}}
-    end
+  defp handle_read_error(reason, key, _cache_opts) do
+    Logger.warning("cache read error: #{inspect(reason)}")
+    {:miss, key, {:cache_read, reason}}
   end
 
-  defp handle_write_error(reason, cache_opts) do
-    if Keyword.get(cache_opts, :fail_on_cache_error, false) do
-      {:error, {:cache_write, reason}}
-    else
-      Logger.warning("cache write error: #{inspect(reason)}")
-      {:ok, {:cache_write, reason}}
-    end
+  defp handle_write_error(reason, _cache_opts) do
+    Logger.warning("cache write error: #{inspect(reason)}")
+    {:ok, {:cache_write, reason}}
   end
 
   defp key_options(opts, cache_opts) do

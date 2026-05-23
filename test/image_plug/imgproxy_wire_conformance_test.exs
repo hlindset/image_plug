@@ -808,8 +808,7 @@ defmodule ImagePlug.ImgproxyWireConformanceTest do
            path_prefix: "processed",
            max_body_bytes: 10_000_000,
            key_headers: [],
-           key_cookies: [],
-           fail_on_cache_error: false}
+           key_cookies: []}
       )
       |> Keyword.merge(overrides)
 

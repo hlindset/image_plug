@@ -412,12 +412,6 @@ defmodule ImagePlug.TelemetryTest do
         :source_error,
         422
       },
-      cache: {
-        conn(:get, "/_/f:jpeg/plain/images/beach.jpg"),
-        init_opts(cache: {CacheReadFailure, fail_on_cache_error: true}),
-        :cache_error,
-        500
-      },
       processing: {
         conn(:get, "/_/f:jpeg/plain/images/beach.jpg"),
         init_opts(sources: [path: {InvalidSourceAdapter, []}]),

@@ -4,19 +4,14 @@ defmodule ImagePlug.Request.Runner do
   alias ImagePlug.Cache
   alias ImagePlug.Cache.Entry
   alias ImagePlug.Cache.Key
-  alias ImagePlug.Output.Encoder
   alias ImagePlug.Output.Policy
   alias ImagePlug.Output.Resolved
   alias ImagePlug.Plan
-  alias ImagePlug.Plan.Output
   alias ImagePlug.Plan.Response
-  alias ImagePlug.Request.Processor
-  alias ImagePlug.Request.Processor.Decoded
   alias ImagePlug.Request.SourceSession
   alias ImagePlug.Request.SourceSession.Prepared, as: SessionPrepared
   alias ImagePlug.Request.SourceSession.Request, as: SessionRequest
   alias ImagePlug.Request.SourceSessionSupervisor
-  alias ImagePlug.Request.SourceStreamBoundary
   alias ImagePlug.Response.PreparedStream
   alias ImagePlug.Source
   alias ImagePlug.Telemetry
@@ -95,11 +90,7 @@ defmodule ImagePlug.Request.Runner do
   end
 
   defp process_cacheable_miss(conn, plan, resolved_source, %Key{} = key, opts) do
-    if Cache.fail_on_cache_error?(opts) do
-      process_cache_miss(conn, plan, resolved_source, key, opts)
-    else
-      process_prepared_stream(conn, plan, resolved_source, key, opts)
-    end
+    process_prepared_stream(conn, plan, resolved_source, key, opts)
   end
 
   defp process_prepared_stream(conn, plan, resolved_source, cache_key, opts) do
@@ -185,221 +176,6 @@ defmodule ImagePlug.Request.Runner do
 
   defp normalize_session_prepare_error(reason), do: reason
 
-  defp process_cache_miss(conn, plan, resolved_source, key, opts) do
-    case process_request(conn, plan, resolved_source, opts) do
-      {:ok, final_state, resolved_output, response_headers} ->
-        case store_cache_entry(key, final_state, resolved_output, opts) do
-          {:ok, entry} -> {:ok, {:cache_entry, entry, plan.response}}
-          :skipped -> {:ok, {:image, final_state, resolved_output, plan.response}}
-          {:error, error} -> {:error, {:processing, error, response_headers}}
-        end
-
-      {:error, error, response_headers} ->
-        {:error, {:processing, error, response_headers}}
-    end
-  end
-
-  defp store_cache_entry(%Key{} = key, %State{} = state, %Resolved{} = resolved_output, opts) do
-    case encode_cache_entry(state, resolved_output, opts) do
-      {:ok, output} ->
-        output
-        |> cache_entry(resolved_output.response_headers)
-        |> put_cache_entry(key, opts)
-
-      :too_large ->
-        :skipped
-
-      {:error, _reason} = error ->
-        error
-    end
-  end
-
-  defp encode_cache_entry(%State{} = state, %Resolved{} = resolved_output, opts) do
-    Telemetry.span(
-      Telemetry.telemetry_opts(opts),
-      [:encode],
-      output_metadata(resolved_output),
-      fn ->
-        result =
-          Encoder.memory_output(
-            state.image,
-            resolved_output,
-            Keyword.put(opts, :max_body_bytes, Cache.max_body_bytes(opts))
-          )
-
-        {result, encode_stop_metadata(result, resolved_output)}
-      end
-    )
-  end
-
-  defp cache_entry(output, response_headers) do
-    with {:ok, headers} <- Entry.cacheable_headers(response_headers) do
-      {:ok,
-       %Entry{
-         body: output.body,
-         content_type: output.content_type,
-         headers: headers,
-         created_at: DateTime.utc_now()
-       }}
-    end
-  end
-
-  defp put_cache_entry({:ok, entry}, key, opts) do
-    Telemetry.span(Telemetry.telemetry_opts(opts), [:cache, :write], %{}, fn ->
-      result = Cache.put(key, entry, opts)
-
-      {result, cache_write_stop_metadata(result)}
-    end)
-    |> case do
-      :ok -> {:ok, entry}
-      {:ok, {:cache_write, _error}} -> {:ok, entry}
-      :skipped -> :skipped
-      {:error, _reason} = error -> error
-    end
-  end
-
-  defp put_cache_entry({:error, reason}, _key, _opts),
-    do: {:error, {:invalid_cache_headers, reason}}
-
-  defp process_request(
-         conn,
-         %Plan{output: %Output{mode: :automatic}} = plan,
-         resolved_source,
-         opts
-       ) do
-    policy = Policy.from_output_plan(conn, plan.output, opts)
-
-    case Policy.resolve_before_source_fetch(policy) do
-      :needs_source_format ->
-        process_source_format_automatic(plan, resolved_source, opts, policy)
-
-      _selection ->
-        case resolve_output(policy, nil, plan.output, opts) do
-          {:ok, %Resolved{} = resolved_output} ->
-            process_source_with_output(plan, resolved_source, opts, resolved_output)
-
-          {:error, error} ->
-            {:error, error, policy.headers}
-        end
-    end
-  end
-
-  defp process_request(
-         conn,
-         %Plan{output: %Output{mode: {:explicit, format}}} = plan,
-         resolved_source,
-         opts
-       ) do
-    policy = Policy.from_output_plan(conn, plan.output, opts)
-
-    case resolve_output(policy, format, plan.output, opts) do
-      {:ok, %Resolved{} = resolved_output} ->
-        process_source_with_output(plan, resolved_source, opts, resolved_output)
-
-      {:error, error} ->
-        {:error, error, policy.headers}
-    end
-  end
-
-  defp process_source_with_output(plan, resolved_source, opts, %Resolved{} = resolved_output) do
-    case SourceStreamBoundary.run(fn -> Processor.process_source(plan, resolved_source, opts) end) do
-      {:ok, final_state} ->
-        {:ok, final_state, resolved_output, resolved_output.response_headers}
-
-      {:error, reason} ->
-        {:error, reason, resolved_output.response_headers}
-    end
-  end
-
-  defp process_decoded_source_with_output(decoded, plan, opts, %Resolved{} = resolved_output) do
-    case Processor.process_decoded_source(decoded, plan, opts) do
-      {:ok, final_state} ->
-        {:ok, final_state, resolved_output, resolved_output.response_headers}
-
-      {:error, reason} ->
-        {:error, reason, resolved_output.response_headers}
-    end
-  end
-
-  defp process_source_format_automatic(plan, resolved_source, opts, policy) do
-    SourceStreamBoundary.run(fn ->
-      with {:ok, %Decoded{} = decoded} <-
-             Processor.fetch_decode_validate_source_with_source_format(
-               plan,
-               resolved_source,
-               opts
-             ) do
-        resolve_source_format_automatic(decoded, plan, opts, policy)
-      end
-    end)
-    |> case do
-      {:ok, final_state, resolved_output, response_headers} ->
-        {:ok, final_state, resolved_output, response_headers}
-
-      {:error, error, response_headers} ->
-        {:error, error, response_headers}
-
-      {:error, error} ->
-        {:error, error, policy.headers}
-    end
-  end
-
-  defp resolve_source_format_automatic(%Decoded{} = decoded, plan, opts, policy) do
-    case Policy.resolve_source_format(policy, decoded.source_format) do
-      {:selected, _format, _reason} ->
-        case resolve_output(policy, decoded.source_format, plan.output, opts) do
-          {:ok, %Resolved{} = resolved_output} ->
-            process_decoded_source_with_output(decoded, plan, opts, resolved_output)
-
-          {:error, error} ->
-            {:error, error, policy.headers}
-        end
-
-      {:needs_final_image_alpha, _reason} ->
-        process_decoded_source_with_final_alpha_output(decoded, plan, opts, policy)
-
-      {:error, error} ->
-        {:error, error, policy.headers}
-    end
-  end
-
-  defp process_decoded_source_with_final_alpha_output(decoded, plan, opts, policy) do
-    case Processor.process_decoded_source(decoded, plan, opts) do
-      {:ok, final_state} ->
-        has_alpha? = Image.has_alpha?(final_state.image)
-
-        resolved_output =
-          Telemetry.span(
-            Telemetry.telemetry_opts(opts),
-            [:output, :negotiate],
-            output_plan_metadata(plan.output),
-            fn ->
-              resolved_output = Policy.resolve_final_image_alpha(policy, has_alpha?)
-
-              {resolved_output, output_stop_metadata(resolved_output, plan.output)}
-            end
-          )
-
-        {:ok, final_state, resolved_output, resolved_output.response_headers}
-
-      {:error, reason} ->
-        {:error, reason, policy.headers}
-    end
-  end
-
-  defp resolve_output(policy, source_format, %Output{} = output, opts) do
-    Telemetry.span(
-      Telemetry.telemetry_opts(opts),
-      [:output, :negotiate],
-      output_plan_metadata(output),
-      fn ->
-        result = Policy.resolve(policy, source_format)
-
-        {result, output_stop_metadata(result, output)}
-      end
-    )
-  end
-
   defp cache_lookup_metadata(opts) do
     cache =
       case Keyword.get(opts, :cache) do
@@ -419,45 +195,4 @@ defmodule ImagePlug.Request.Runner do
 
   defp cache_lookup_stop_metadata({:error, {:cache_read, error}}),
     do: %{result: :cache_error, cache: :read_error, error: Telemetry.error(error)}
-
-  defp cache_write_stop_metadata(:ok), do: %{result: :ok}
-  defp cache_write_stop_metadata(:skipped), do: %{result: :ok, cache: :write_skipped}
-
-  defp cache_write_stop_metadata({:ok, {:cache_write, error}}),
-    do: %{result: :cache_error, cache: :write_error, error: Telemetry.error(error)}
-
-  defp cache_write_stop_metadata({:error, {:cache_write, error}}),
-    do: %{result: :cache_error, cache: :write_error, error: Telemetry.error(error)}
-
-  defp output_plan_metadata(%Output{mode: :automatic}), do: %{output_mode: :automatic}
-
-  defp output_plan_metadata(%Output{mode: {:explicit, format}}),
-    do: %{output_mode: :explicit, output_format: format}
-
-  defp output_stop_metadata({:ok, %Resolved{} = resolved_output}, %Output{}),
-    do: Map.merge(%{result: :ok}, output_metadata(resolved_output))
-
-  defp output_stop_metadata(%Resolved{} = resolved_output, %Output{}),
-    do: Map.merge(%{result: :ok}, output_metadata(resolved_output))
-
-  defp output_stop_metadata({:needs_final_image_alpha, _reason}, %Output{}),
-    do: %{result: :ok, output_format: :pending_final_image_alpha}
-
-  defp output_stop_metadata({:error, error}, %Output{}),
-    do: %{result: :processing_error, error: Telemetry.error(error)}
-
-  defp output_metadata(%Resolved{format: format}), do: %{output_format: format}
-
-  defp encode_stop_metadata({:ok, _output}, %Resolved{} = resolved_output),
-    do: Map.merge(%{result: :ok}, output_metadata(resolved_output))
-
-  defp encode_stop_metadata(:too_large, %Resolved{} = resolved_output),
-    do: Map.merge(%{result: :ok, cache: :write_skipped}, output_metadata(resolved_output))
-
-  defp encode_stop_metadata({:error, error}, %Resolved{} = resolved_output),
-    do:
-      Map.merge(
-        %{result: :processing_error, error: Telemetry.error(error)},
-        output_metadata(resolved_output)
-      )
 end
