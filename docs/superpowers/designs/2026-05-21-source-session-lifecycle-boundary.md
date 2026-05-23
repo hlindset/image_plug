@@ -30,6 +30,18 @@ This remains a workaround. It wraps source-backed work in a safer mailbox, then 
 
 The target design should make that impossible instead of trying to catch every late exit after the fact.
 
+After Slice 5, no-cache requests, `cache: :skip` requests, and fail-open
+cacheable misses use supervised `SourceSession` prepared streams. The remaining
+`SourceStreamBoundary` use is the fail-closed cache miss path selected by
+`fail_on_cache_error: true`. That path still encodes and writes cache before
+ImagePlug commits response headers so cache write failures can become cache
+errors.
+
+Keep `SourceStreamBoundary` until that fail-closed path either moves to a
+matching supervised pre-response owner or tests prove no live routing path
+depends on it. Removing it in Slice 6 would drop the only current isolation
+around source-backed work on fail-closed cache misses.
+
 ## Runtime Facts
 
 These facts come from the checked-in dependency source.
@@ -325,7 +337,7 @@ Keep parser validation, planner validation, source resolution, cache configurati
 
 Those steps don't consume source bytes and should fail before any source fetch.
 
-Use this routing before cache teeing exists:
+Slice 4 used this routing before cache teeing existed:
 
 | Case | Route |
 | --- | --- |
@@ -334,6 +346,12 @@ Use this routing before cache teeing exists:
 | resolved source has `cache: :skip` | start a supervised `SourceSession` and return `Response.PreparedStream` |
 | configured cache miss | keep the existing pre-response full encode/cache path |
 | configured cache read error with fail-open miss | keep the existing pre-response full encode/cache path |
+
+After Slice 5, configured cache misses, fail-open cache read errors, and
+fail-open invalid cache hits use supervised `SourceSession` prepared streams
+with cache teeing. Misses with `fail_on_cache_error: true` still use the
+pre-response full encode/cache path so cache errors can fail closed before
+headers commit.
 
 For prepared streams:
 
@@ -506,9 +524,13 @@ When code adds cache teeing:
 
 ## Relationship To SourceStreamBoundary
 
-Remove `SourceStreamBoundary` once `SourceSession` owns encoding.
+Remove `SourceStreamBoundary` only after `SourceSession` or another supervised
+owner covers every source-backed route, including fail-closed cache misses.
 
-The boundary is useful only while source-backed images can escape into normal response delivery. After `PreparedStream` replaces that handoff, keeping the boundary adds another failure path without owning the real lifecycle.
+The boundary is useful only while source-backed images can escape into normal
+response delivery. After `PreparedStream` replaces that handoff for a route,
+keeping the boundary on that route adds another failure path without owning the
+real lifecycle. The fail-closed cache miss path still uses it in Slice 6.
 
 Don't revert `bc652817691a89b0a6993d8864e9b75ca1b970a5` just to remove the boundary. Keep the `WrappedStream` fixes that preserve downstream consumer failures and normalize upstream stream failures. Replace the boundary with session ownership in a forward change.
 

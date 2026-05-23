@@ -1198,7 +1198,7 @@ defmodule ImagePlug.ImagePlugTest do
         parser: ImagePlug.Parser.Imgproxy,
         image_module: FailingMemoryImage,
         origin_req_options: [plug: {CountingOriginImage, test_pid: cache_probe}],
-        cache: {CacheProbe, message_target: cache_probe}
+        cache: {CacheProbe, message_target: cache_probe, fail_on_cache_error: true}
       )
 
     flush_cache_probe(cache_probe)

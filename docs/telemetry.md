@@ -44,7 +44,10 @@ The top-level request span is:
 [:image_plug, :request, :exception]
 ```
 
-ImagePlug also emits stage spans for meaningful request phases:
+ImagePlug also emits stage spans for meaningful request phases. The exact set
+depends on the routing path. For example, prepared streams emit `[:encode, ...]`
+around response delivery, while output selection inside `SourceSession` doesn't
+currently emit `[:output, :negotiate, ...]`.
 
 ```text
 [:image_plug, :parse, ...]
@@ -54,6 +57,7 @@ ImagePlug also emits stage spans for meaningful request phases:
 [:image_plug, :source, :fetch, ...]
 [:image_plug, :transform, :execute, ...]
 [:image_plug, :encode, ...]
+[:image_plug, :cache, :tee, ...]
 [:image_plug, :cache, :write, ...]
 [:image_plug, :send, ...]
 ```
@@ -125,12 +129,27 @@ Cache-related metadata may also include:
 - `cache: :hit`
 - `cache: :miss`
 - `cache: :read_error`
+- `cache: :write`
 - `cache: :write_skipped`
 - `cache: :write_error`
+- `cache: :abandoned`
 
 The `[:encode, :stop]` stage emits `cache: :write_skipped` when a cacheable
 response exceeds the configured cache body limit before ImagePlug attempts a
 cache write.
+
+Streamed cache misses may also emit `[:cache, :tee, :stop]` with:
+
+- `cache: :write_skipped` and `reason: :too_large` when the tee buffer crosses
+  `:max_body_bytes`.
+- `cache: :abandoned` when ImagePlug abandons a partial buffer because delivery
+  stopped early, the owner process exited, or the stream failed.
+
+Streamed cache writes use the existing `[:cache, :write, ...]` span. A
+successful write stop event includes `cache: :write`. A cache write error after
+successful streamed delivery includes `cache: :write_error` and
+`result: :cache_error`, but the response still fails open because the body was
+already delivered.
 
 ## Attaching handlers
 
@@ -150,6 +169,7 @@ defmodule MyApp.ImagePlugTelemetry do
     [:source, :fetch],
     [:transform, :execute],
     [:encode],
+    [:cache, :tee],
     [:cache, :write],
     [:send]
   ]

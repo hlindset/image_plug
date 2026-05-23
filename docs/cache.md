@@ -27,6 +27,45 @@ image. Invalid parser and planner requests return before source fetch or cache
 access. Invalid Imgproxy signatures return `403`. Parser, planner, source
 fetch, decode, transform, negotiation, and encode errors are never cached.
 
+## Cache misses and streaming
+
+Cache hits return the stored body directly when the cached entry has deliverable
+response metadata. That path doesn't fetch, decode, transform, or encode the
+source image.
+
+If a cache hit has response metadata ImagePlug can't deliver, the default
+fail-open behavior treats it like a miss. ImagePlug reprocesses through a
+supervised source session using the same cache key. With
+`fail_on_cache_error: true`, the same invalid hit becomes a cache error.
+
+With the default `fail_on_cache_error: false`, configured cache misses and
+fail-open cache read errors stream through a supervised source session. The
+session owns source fetch, decode, transform execution, output encoding, and the
+cache tee. It returns the first encoded chunk before ImagePlug commits response
+headers, then `ImagePlug.Response.Sender` pulls later chunks on demand.
+
+For those streamed cache misses, the cache tee buffers encoded chunks inside the
+source session. ImagePlug writes the cache entry only after:
+
+- the encoder stream finishes,
+- the sender has successfully delivered every chunk returned by the session,
+- and the buffered body stayed within `:max_body_bytes`.
+
+Client disconnects, owner process exits, explicit cancellation, source or encode
+failures after the first chunk, and incomplete streams abandon the buffer and do
+not write cache. If the buffered body crosses `:max_body_bytes`, ImagePlug drops
+the buffer, continues delivering the response, and skips the cache write.
+
+Cache write errors after successful streamed delivery fail open. The client
+keeps the response body that was already delivered. ImagePlug emits cache write
+telemetry and doesn't replace that response with a cache error.
+
+With `fail_on_cache_error: true`, cacheable misses stay on the pre-response
+cache path. ImagePlug finishes encoding before delivery, and writes a cache
+entry when the encoded body stays within `:max_body_bytes`. If the body is too
+large, ImagePlug skips the cache write and sends the encoded response. Cache
+read and write errors on that path can become `500` cache errors.
+
 ## Cache keys
 
 Cache keys include:

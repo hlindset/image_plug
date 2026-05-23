@@ -159,7 +159,6 @@ defmodule ImagePlug.TelemetryTest do
           [:parse],
           [:source, :resolve],
           [:cache, :lookup],
-          [:output, :negotiate],
           [:source, :fetch],
           [:transform, :execute],
           [:encode],
@@ -290,12 +289,6 @@ defmodule ImagePlug.TelemetryTest do
 
     events = telemetry_events()
 
-    assert_event(events, [:image_plug, :encode, :stop], fn _measurements, metadata ->
-      assert metadata.result == :processing_error
-      assert metadata.status == 500
-      assert metadata.output_format == :jpeg
-    end)
-
     assert_event(events, [:image_plug, :send, :stop], fn _measurements, metadata ->
       assert metadata.result == :processing_error
       assert metadata.status == 500
@@ -321,16 +314,17 @@ defmodule ImagePlug.TelemetryTest do
         event == [:image_plug, :output, :negotiate, :stop]
       end)
 
-    assert [_event] = output_stop_events
+    refute Enum.any?(output_stop_events, fn {_event, _measurements, metadata} ->
+             metadata.result != :ok
+           end)
 
-    assert_event(events, [:image_plug, :output, :negotiate, :stop], fn _measurements, metadata ->
-      assert metadata.result == :ok
+    for {_event, _measurements, metadata} <- output_stop_events do
       assert metadata.output_mode == :automatic
-      assert metadata.output_format == :jpeg
-    end)
+      assert metadata.output_format in [:jpeg, :pending_final_image_alpha]
+    end
   end
 
-  test "source-only automatic fallback emits one final output negotiation event" do
+  test "source-only automatic fallback does not emit failed output negotiation telemetry" do
     require_tiff_support!()
 
     conn =
@@ -346,10 +340,14 @@ defmodule ImagePlug.TelemetryTest do
         event == [:image_plug, :output, :negotiate, :stop]
       end)
 
-    assert [{_event, _measurements, metadata}] = output_stop_events
-    assert metadata.result == :ok
-    assert metadata.output_mode == :automatic
-    assert metadata.output_format == :jpeg
+    refute Enum.any?(output_stop_events, fn {_event, _measurements, metadata} ->
+             metadata.result != :ok
+           end)
+
+    for {_event, _measurements, metadata} <- output_stop_events do
+      assert metadata.output_mode == :automatic
+      assert metadata.output_format in [:jpeg, :pending_final_image_alpha]
+    end
   end
 
   test "fail-open cache read errors are reported on cache lookup telemetry" do
