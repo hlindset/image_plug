@@ -252,8 +252,9 @@ defmodule ImagePlug.CacheTest do
         cache: {ImagePlug.Cache.FileSystem, root: root <> "/../image_plug_cache_init"}
       )
 
-    assert Keyword.fetch!(opts, :cache) ==
-             {ImagePlug.Cache.FileSystem, root: Path.expand(root)}
+    assert {ImagePlug.Cache.FileSystem, cache_opts} = Keyword.fetch!(opts, :cache)
+    assert cache_opts[:root] == Path.expand(root)
+    assert cache_opts[:path_prefix] == ""
   end
 
   test "returns hits with the generated key" do

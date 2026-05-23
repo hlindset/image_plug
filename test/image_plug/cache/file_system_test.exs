@@ -124,6 +124,9 @@ defmodule ImagePlug.Cache.FileSystemTest do
     assert FileSystem.validate_options(root: root, path_prefx: "processed") ==
              {:error, {:unknown_options, [:path_prefx]}}
 
+    assert FileSystem.get(key(), root: root, path_prefx: "processed") ==
+             {:error, {:unknown_options, [:path_prefx]}}
+
     assert FileSystem.validate_options(root: root, fail_on_cache_error: true) ==
              {:error, {:unknown_options, [:fail_on_cache_error]}}
   end
@@ -325,6 +328,25 @@ defmodule ImagePlug.Cache.FileSystemTest do
 
     assert FileSystem.get(cache_key, root: root) ==
              {:error, {:invalid_metadata, :body_byte_size_mismatch}}
+  end
+
+  test "invalid body digest metadata is returned as invalid metadata", %{root: root} do
+    cache_key = key("bcbcbc" <> String.duplicate("c", 58))
+    dir = Path.join([root, "bc", "bc"])
+    File.mkdir_p!(dir)
+
+    File.write!(
+      Path.join(dir, cache_key.hash <> ".meta"),
+      :erlang.term_to_binary(
+        metadata(cache_key, "body",
+          body_sha256: "not-a-sha256",
+          body_filename: "#{cache_key.hash}.not-a-sha256.body"
+        )
+      )
+    )
+
+    assert FileSystem.get(cache_key, root: root) ==
+             {:error, {:invalid_metadata, :invalid_body_filename}}
   end
 
   test "same-size mixed body and metadata is invalid metadata", %{root: root} do
