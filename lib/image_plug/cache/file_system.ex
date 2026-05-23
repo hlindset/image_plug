@@ -169,7 +169,7 @@ defmodule ImagePlug.Cache.FileSystem do
          {:ok, metadata} <- decode_metadata(meta_binary),
          {:ok, body_path} <- body_path_from_metadata(paths, metadata),
          {:ok, body} <- read_cache_file(body_path, :body),
-         :ok <- validate_body(body, metadata),
+         :ok <- validate_body_size(body, metadata),
          {:ok, created_at} <- parse_created_at(metadata.created_at) do
       {:hit,
        %Entry{
@@ -192,13 +192,11 @@ defmodule ImagePlug.Cache.FileSystem do
   defp read_error(:metadata, reason), do: {:metadata_read, reason}
   defp read_error(:body, reason), do: {:body_read, reason}
 
-  defp validate_body(body, %{body_byte_size: body_byte_size, body_sha256: body_sha256}) do
-    cond do
-      byte_size(body) != body_byte_size -> handle_invalid_metadata(:body_byte_size_mismatch)
-      body_sha256(body) != body_sha256 -> handle_invalid_metadata(:body_digest_mismatch)
-      true -> :ok
-    end
-  end
+  defp validate_body_size(body, %{body_byte_size: body_byte_size})
+       when byte_size(body) == body_byte_size,
+       do: :ok
+
+  defp validate_body_size(_body, _metadata), do: handle_invalid_metadata(:body_byte_size_mismatch)
 
   defp sink_metadata(state, body_sha256, body_filename) do
     metadata = %{
@@ -212,10 +210,6 @@ defmodule ImagePlug.Cache.FileSystem do
     }
 
     :erlang.term_to_binary(metadata, [:deterministic])
-  end
-
-  defp body_sha256(body) do
-    Base.encode16(:crypto.hash(:sha256, body), case: :lower)
   end
 
   defp decode_metadata(binary) do
