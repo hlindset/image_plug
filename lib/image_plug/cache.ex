@@ -8,7 +8,8 @@ defmodule ImagePlug.Cache do
     deps: [
       ImagePlug.Plan,
       ImagePlug.Output,
-      ImagePlug.Transform
+      ImagePlug.Transform,
+      ImagePlug.Telemetry
     ],
     exports: [
       Entry,
@@ -20,7 +21,11 @@ defmodule ImagePlug.Cache do
 
   alias ImagePlug.Cache.Entry
   alias ImagePlug.Cache.Key
+  alias ImagePlug.Cache.Sink
+  alias ImagePlug.Output.Format
+  alias ImagePlug.Output.Resolved
   alias ImagePlug.Plan
+  alias ImagePlug.Telemetry
 
   @shared_cache_option_keys [:key_headers, :key_cookies, :max_body_bytes]
   @key_option_keys [:auto_avif, :auto_webp]
@@ -37,10 +42,18 @@ defmodule ImagePlug.Cache do
                                )
 
   @callback get(Key.t(), keyword()) :: {:hit, Entry.t()} | :miss | {:error, term()}
-  @callback put(Key.t(), Entry.t(), keyword()) :: :ok | {:error, term()}
+  @callback open_sink(Key.t(), Entry.Metadata.t(), keyword()) ::
+              {:ok, state()} | {:error, term()}
+  @callback write_chunk(state(), binary(), keyword()) ::
+              {:ok, state()} | {:error, term(), state()}
+  @callback commit_sink(state(), keyword()) :: :ok | {:error, term()}
+  @callback abort_sink(state(), keyword()) :: :ok | {:error, term()}
   @callback validate_options(keyword()) :: {:ok, keyword()} | {:error, term()}
 
   @optional_callbacks validate_options: 1
+
+  @type state :: term()
+  @opaque sink :: Sink.t()
 
   @type lookup_result ::
           :disabled
@@ -91,18 +104,64 @@ defmodule ImagePlug.Cache do
     end
   end
 
+  @doc false
+  @spec open_sink(Key.t() | nil, Resolved.t(), keyword()) :: sink() | nil
+  def open_sink(nil, %Resolved{}, _opts), do: nil
+
+  def open_sink(%Key{} = key, %Resolved{} = resolved_output, opts) when is_list(opts) do
+    with {:ok, adapter, cache_opts} <- cache_config(opts),
+         {:ok, metadata} <- metadata(resolved_output) do
+      do_open_sink(adapter, key, metadata, cache_opts, opts)
+    else
+      nil -> nil
+      {:error, reason} -> handle_sink_open_error(reason, resolved_output.format, opts)
+    end
+  end
+
+  @doc false
+  @spec write_chunk(sink() | nil, binary(), keyword()) :: sink() | nil
+  def write_chunk(nil, _chunk, _opts), do: nil
+  def write_chunk(%Sink{status: status} = sink, _chunk, _opts) when status != :open, do: sink
+
+  def write_chunk(%Sink{} = sink, chunk, opts) when is_binary(chunk) do
+    case write_chunk_result(sink, chunk, opts) do
+      {:ok, sink} -> sink
+      :skipped -> nil
+      {:error, _reason} -> nil
+    end
+  end
+
+  @doc false
+  @spec commit_sink(sink() | nil, keyword()) :: :ok
+  def commit_sink(nil, _opts), do: :ok
+  def commit_sink(%Sink{status: status}, _opts) when status != :open, do: :ok
+  def commit_sink(%Sink{} = sink, opts), do: do_commit_sink(sink, opts)
+
+  @doc false
+  @spec abort_sink(sink() | nil, atom(), keyword()) :: :ok
+  def abort_sink(nil, _reason, _opts), do: :ok
+  def abort_sink(%Sink{status: status}, _reason, _opts) when status != :open, do: :ok
+
+  def abort_sink(%Sink{} = sink, reason, opts) do
+    result = abort_adapter(sink, opts)
+
+    case result do
+      :ok -> emit_tee(:abandoned, reason, nil, sink, opts)
+      {:error, abort_reason} -> emit_tee(:cleanup_error, reason, abort_reason, sink, opts)
+    end
+
+    :ok
+  end
+
   @spec put(Key.t(), Entry.t(), keyword()) ::
           :ok | :skipped | {:ok, {:cache_write, term()}} | {:error, {:cache_write, term()}}
   def put(%Key{} = key, %Entry{} = entry, opts) when is_list(opts) do
-    case cache_config(opts) do
-      nil ->
-        :skipped
-
-      {:ok, adapter, cache_opts} ->
-        put_configured(adapter, key, entry, cache_opts)
-
-      {:error, reason} ->
-        {:error, {:cache_write, reason}}
+    case open_sink_for_entry(key, entry, opts) do
+      nil -> :skipped
+      :too_large -> :skipped
+      %Sink{} = sink -> write_put_body(sink, entry.body, opts)
+      {:runtime_error, reason} -> {:ok, {:cache_write, reason}}
+      {:error, reason} -> {:error, {:cache_write, reason}}
     end
   end
 
@@ -181,8 +240,21 @@ defmodule ImagePlug.Cache do
   end
 
   defp validate_adapter(adapter) when is_atom(adapter) do
-    if Code.ensure_loaded?(adapter) and function_exported?(adapter, :get, 2) and
-         function_exported?(adapter, :put, 3) do
+    required_callbacks = [
+      get: 2,
+      open_sink: 3,
+      write_chunk: 3,
+      commit_sink: 2,
+      abort_sink: 2
+    ]
+
+    callbacks? =
+      Code.ensure_loaded?(adapter) and
+        Enum.all?(required_callbacks, fn {function, arity} ->
+          function_exported?(adapter, function, arity)
+        end)
+
+    if callbacks? do
       :ok
     else
       {:error, {:invalid_cache_config, {:adapter, adapter}}}
@@ -222,32 +294,251 @@ defmodule ImagePlug.Cache do
     end
   end
 
-  defp put_configured(adapter, key, %Entry{body: body} = entry, cache_opts) do
-    max_body_bytes = Keyword.get(cache_opts, :max_body_bytes)
+  defp metadata(%Resolved{} = resolved_output) do
+    with {:ok, headers} <- Entry.cacheable_headers(resolved_output.response_headers) do
+      {:ok,
+       %Entry.Metadata{
+         content_type: Format.mime_type!(resolved_output.format),
+         headers: headers,
+         created_at: DateTime.utc_now(),
+         output_format: resolved_output.format
+       }}
+    end
+  end
 
-    if is_integer(max_body_bytes) and byte_size(body) > max_body_bytes do
+  defp do_open_sink(adapter, %Key{} = key, %Entry.Metadata{} = metadata, cache_opts, opts) do
+    case adapter.open_sink(key, metadata, cache_opts) do
+      {:ok, adapter_state} ->
+        %Sink{
+          adapter: adapter,
+          key: key,
+          adapter_opts: cache_opts,
+          metadata: metadata,
+          state: adapter_state,
+          size: 0,
+          max_body_bytes: Keyword.get(cache_opts, :max_body_bytes),
+          output_format: metadata.output_format,
+          status: :open
+        }
+
+      {:error, reason} ->
+        handle_sink_open_error(reason, metadata.output_format, opts)
+
+      unexpected ->
+        handle_sink_open_error(
+          {:invalid_adapter_result, unexpected},
+          metadata.output_format,
+          opts
+        )
+    end
+  end
+
+  defp handle_sink_open_error(reason, output_format, opts) do
+    Logger.warning("cache sink open error: #{inspect(reason)}")
+    emit_tee(:write_error, :open, reason, output_format, opts)
+    nil
+  end
+
+  defp handle_put_sink_open_error(reason, output_format, opts) do
+    Logger.warning("cache sink open error: #{inspect(reason)}")
+    emit_tee(:write_error, :open, reason, output_format, opts)
+    {:runtime_error, reason}
+  end
+
+  defp write_chunk_result(%Sink{} = sink, chunk, opts) do
+    size = sink.size + byte_size(chunk)
+
+    if too_large?(size, sink.max_body_bytes) do
+      emit_abort_cleanup(abort_adapter(sink, opts), :too_large, sink, opts)
+      emit_tee(:write_skipped, :too_large, nil, sink, opts)
       :skipped
     else
-      do_put_configured(adapter, key, entry, cache_opts)
+      do_write_chunk(%{sink | size: size}, chunk, opts)
     end
   end
 
-  defp do_put_configured(adapter, key, entry, cache_opts) do
-    case adapter.put(key, entry, cache_opts) do
-      :ok -> :ok
-      {:error, reason} -> handle_write_error(reason, cache_opts)
-      unexpected -> handle_write_error({:invalid_adapter_result, unexpected}, cache_opts)
+  defp do_write_chunk(%Sink{} = sink, chunk, opts) do
+    case sink.adapter.write_chunk(sink.state, chunk, sink.adapter_opts) do
+      {:ok, adapter_state} ->
+        {:ok, %{sink | state: adapter_state}}
+
+      {:error, reason, adapter_state} ->
+        sink = %{sink | state: adapter_state}
+        emit_abort_cleanup(abort_adapter(sink, opts), :write_error, sink, opts)
+        Logger.warning("cache sink write error: #{inspect(reason)}")
+        emit_tee(:write_error, :write, reason, sink, opts)
+        {:error, reason}
+
+      unexpected ->
+        reason = {:invalid_adapter_result, unexpected}
+        emit_abort_cleanup(abort_adapter(sink, opts), :write_error, sink, opts)
+        Logger.warning("cache sink write error: #{inspect(reason)}")
+        emit_tee(:write_error, :write, reason, sink, opts)
+        {:error, reason}
     end
   end
+
+  defp do_commit_sink(%Sink{} = sink, opts) do
+    Telemetry.span(Telemetry.telemetry_opts(opts), [:cache, :write], %{}, fn ->
+      result = sink.adapter.commit_sink(sink.state, sink.adapter_opts)
+      {:ok, commit_stop_metadata(result, sink)}
+    end)
+
+    :ok
+  end
+
+  defp commit_put_sink(%Sink{} = sink, opts) do
+    result = sink.adapter.commit_sink(sink.state, sink.adapter_opts)
+    _result = emit_write_stop(result, sink, opts)
+
+    case result do
+      :ok -> :ok
+      {:error, reason} -> {:ok, {:cache_write, reason}}
+      unexpected -> {:ok, {:cache_write, {:invalid_adapter_result, unexpected}}}
+    end
+  end
+
+  defp emit_write_stop(result, %Sink{} = sink, opts) do
+    Telemetry.span(Telemetry.telemetry_opts(opts), [:cache, :write], %{}, fn ->
+      {:ok, commit_stop_metadata(result, sink)}
+    end)
+  end
+
+  defp commit_stop_metadata(:ok, %Sink{} = sink),
+    do: %{result: :ok, cache: :write, output_format: sink.output_format}
+
+  defp commit_stop_metadata({:error, reason}, %Sink{} = sink) do
+    Logger.warning("cache sink commit error: #{inspect(reason)}")
+
+    %{
+      result: :cache_error,
+      cache: :write_error,
+      error: Telemetry.error(reason),
+      output_format: sink.output_format
+    }
+  end
+
+  defp commit_stop_metadata(unexpected, %Sink{} = sink) do
+    reason = {:invalid_adapter_result, unexpected}
+    Logger.warning("cache sink commit error: #{inspect(reason)}")
+
+    %{
+      result: :cache_error,
+      cache: :write_error,
+      error: Telemetry.error(reason),
+      output_format: sink.output_format
+    }
+  end
+
+  defp abort_adapter(%Sink{} = sink, _opts) do
+    case sink.adapter.abort_sink(sink.state, sink.adapter_opts) do
+      :ok -> :ok
+      {:error, reason} -> {:error, reason}
+      unexpected -> {:error, {:invalid_adapter_result, unexpected}}
+    end
+  end
+
+  defp emit_abort_cleanup(:ok, _reason, _sink, _opts), do: :ok
+
+  defp emit_abort_cleanup({:error, cleanup_reason}, reason, %Sink{} = sink, opts) do
+    emit_tee(:cleanup_error, reason, cleanup_reason, sink, opts)
+  end
+
+  defp emit_tee(cache_status, reason, error, %Sink{} = sink, opts) do
+    emit_tee(cache_status, reason, error, sink.output_format, opts)
+  end
+
+  defp emit_tee(cache_status, reason, error, output_format, opts) do
+    Telemetry.span(Telemetry.telemetry_opts(opts), [:cache, :tee], %{}, fn ->
+      {:ok, tee_stop_metadata(cache_status, reason, error, output_format)}
+    end)
+  end
+
+  defp tee_stop_metadata(:write_error, _reason, error, output_format),
+    do: %{
+      result: :cache_error,
+      cache: :write_error,
+      error: Telemetry.error(error),
+      output_format: output_format
+    }
+
+  defp tee_stop_metadata(:cleanup_error, _reason, error, output_format),
+    do: %{
+      result: :cache_error,
+      cache: :cleanup_error,
+      error: Telemetry.error(error),
+      output_format: output_format
+    }
+
+  defp tee_stop_metadata(cache_status, reason, _error, output_format),
+    do: %{
+      result: :ok,
+      cache: cache_status,
+      reason: reason,
+      output_format: output_format
+    }
+
+  defp open_sink_for_entry(%Key{} = key, %Entry{} = entry, opts) do
+    with {:ok, adapter, cache_opts} <- cache_config(opts),
+         false <- too_large?(byte_size(entry.body), Keyword.get(cache_opts, :max_body_bytes)),
+         {:ok, output_format} <- Format.format(entry.content_type),
+         {:ok, headers} <- Entry.cacheable_headers(entry.headers) do
+      metadata = %Entry.Metadata{
+        content_type: entry.content_type,
+        headers: headers,
+        created_at: entry.created_at,
+        output_format: output_format
+      }
+
+      do_open_put_sink(adapter, key, metadata, cache_opts, opts)
+    else
+      nil -> nil
+      true -> :too_large
+      {:error, reason} -> {:error, reason}
+    end
+  end
+
+  defp do_open_put_sink(adapter, %Key{} = key, %Entry.Metadata{} = metadata, cache_opts, opts) do
+    case adapter.open_sink(key, metadata, cache_opts) do
+      {:ok, adapter_state} ->
+        %Sink{
+          adapter: adapter,
+          key: key,
+          adapter_opts: cache_opts,
+          metadata: metadata,
+          state: adapter_state,
+          size: 0,
+          max_body_bytes: Keyword.get(cache_opts, :max_body_bytes),
+          output_format: metadata.output_format,
+          status: :open
+        }
+
+      {:error, reason} ->
+        handle_put_sink_open_error(reason, metadata.output_format, opts)
+
+      unexpected ->
+        handle_put_sink_open_error(
+          {:invalid_adapter_result, unexpected},
+          metadata.output_format,
+          opts
+        )
+    end
+  end
+
+  defp write_put_body(%Sink{} = sink, body, opts) do
+    case write_chunk_result(sink, body, opts) do
+      {:ok, sink} -> commit_put_sink(sink, opts)
+      :skipped -> :skipped
+      {:error, reason} -> {:ok, {:cache_write, reason}}
+    end
+  end
+
+  defp too_large?(_size, nil), do: false
+  defp too_large?(size, max_body_bytes), do: size > max_body_bytes
 
   defp handle_read_error(reason, key, _cache_opts) do
     Logger.warning("cache read error: #{inspect(reason)}")
     {:miss, key, {:cache_read, reason}}
-  end
-
-  defp handle_write_error(reason, _cache_opts) do
-    Logger.warning("cache write error: #{inspect(reason)}")
-    {:ok, {:cache_write, reason}}
   end
 
   defp key_options(opts, cache_opts) do

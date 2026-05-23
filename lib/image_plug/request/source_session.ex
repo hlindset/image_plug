@@ -3,12 +3,12 @@ defmodule ImagePlug.Request.SourceSession do
 
   use GenServer
 
+  alias ImagePlug.Cache
   alias ImagePlug.Output.Encoder
   alias ImagePlug.Output.Policy
   alias ImagePlug.Output.Resolved
   alias ImagePlug.Request.Processor
   alias ImagePlug.Request.Processor.Decoded
-  alias ImagePlug.Request.SourceSession.CacheBuffer
   alias ImagePlug.Request.SourceSession.Prepared
   alias ImagePlug.Request.SourceSession.Request
   alias ImagePlug.Source.StreamError
@@ -25,7 +25,7 @@ defmodule ImagePlug.Request.SourceSession do
     :parent,
     :suspended,
     :resolved_output,
-    :cache_buffer,
+    :cache_sink,
     phase: :new,
     first_error: nil,
     exits: []
@@ -113,7 +113,7 @@ defmodule ImagePlug.Request.SourceSession do
       {{:error, reason}, state} ->
         state =
           state
-          |> abandon_cache_buffer(:stream_error)
+          |> abort_cache_sink(:stream_error)
           |> mark_failed(reason)
 
         {:stop, :normal, {:error, reason}, state}
@@ -125,11 +125,13 @@ defmodule ImagePlug.Request.SourceSession do
   end
 
   def handle_call(:cancel, _from, state) do
-    case halt_stream(abandon_cache_buffer(%{state | phase: :cancelled}, :cancelled)) do
+    case halt_stream(%{state | phase: :cancelled}) do
       {:ok, state} ->
+        state = abort_cache_sink(state, :cancelled)
         {:stop, :normal, :ok, state}
 
       {:error, reason, state} ->
+        state = abort_cache_sink(state, :cancelled)
         {:stop, {:shutdown, {:cancel_failed, reason}}, {:error, {:cancel, reason}}, state}
     end
   end
@@ -212,37 +214,8 @@ defmodule ImagePlug.Request.SourceSession do
          {:ok, %State{} = final_state} <-
            Processor.process_decoded_source(decoded, request.plan, request.opts),
          {:ok, %Resolved{} = resolved_output} <-
-           resolve_output(request.output_policy, decoded.source_format, final_state.image),
-         {:ok, cache_buffer} <- CacheBuffer.new(request.cache_key, resolved_output, request.opts),
-         {:ok, stream, content_type} <-
-           Encoder.stream_output(final_state.image, resolved_output, request.opts),
-         {:ok, first_chunk, suspended} <- first_chunk(stream) do
-      cache_buffer = CacheBuffer.append(cache_buffer, first_chunk, request.opts)
-
-      state = %{
-        state
-        | suspended: suspended,
-          resolved_output: resolved_output,
-          cache_buffer: cache_buffer
-      }
-
-      case receive_session_control_message(:ok, state) do
-        :ok ->
-          prepared = %Prepared{
-            first_chunk: first_chunk,
-            content_type: content_type,
-            headers: resolved_output.response_headers,
-            resolved_output: resolved_output
-          }
-
-          {:ok, prepared, state}
-
-        {:error, reason} ->
-          {:error, reason, shutdown_halt_stream(state, :stream_error)}
-
-        {:shutdown, reason} ->
-          {:shutdown, reason, shutdown_halt_stream(state, shutdown_cache_reason(reason))}
-      end
+           resolve_output(request.output_policy, decoded.source_format, final_state.image) do
+      prepare_encoded_stream(state, final_state.image, resolved_output)
     else
       {:shutdown, reason} ->
         {:shutdown, reason, shutdown_halt_stream(state, shutdown_cache_reason(reason))}
@@ -256,6 +229,65 @@ defmodule ImagePlug.Request.SourceSession do
     end
   catch
     kind, reason -> {:error, {kind, reason}, shutdown_halt_stream(state)}
+  end
+
+  defp prepare_encoded_stream(%{request: %Request{} = request} = state, image, resolved_output) do
+    cache_sink = Cache.open_sink(request.cache_key, resolved_output, request.opts)
+    state = %{state | cache_sink: cache_sink, resolved_output: resolved_output}
+
+    prepare_encoded_stream_with_sink(state, image, resolved_output)
+  end
+
+  defp prepare_encoded_stream_with_sink(
+         %{request: %Request{} = request} = state,
+         image,
+         resolved_output
+       ) do
+    with {:ok, stream, content_type} <-
+           Encoder.stream_output(image, resolved_output, request.opts),
+         {:ok, first_chunk, suspended} <- first_chunk(stream) do
+      state = %{state | suspended: suspended}
+      prepare_first_chunk(state, first_chunk, content_type, resolved_output)
+    else
+      {:error, reason} ->
+        {:error, reason, shutdown_halt_stream(state, :stream_error)}
+
+      :empty ->
+        {:error, {:encode, RuntimeError.exception("image encoder produced an empty stream"), []},
+         abort_cache_sink(state, :stream_error)}
+    end
+  catch
+    kind, reason -> {:error, {kind, reason}, shutdown_halt_stream(state, :stream_error)}
+  end
+
+  defp prepare_first_chunk(
+         %{request: %Request{} = request} = state,
+         first_chunk,
+         content_type,
+         resolved_output
+       ) do
+    cache_sink = Cache.write_chunk(state.cache_sink, first_chunk, request.opts)
+    state = %{state | cache_sink: cache_sink}
+
+    case receive_session_control_message(:ok, state) do
+      :ok ->
+        prepared = %Prepared{
+          first_chunk: first_chunk,
+          content_type: content_type,
+          headers: resolved_output.response_headers,
+          resolved_output: resolved_output
+        }
+
+        {:ok, prepared, state}
+
+      {:error, reason} ->
+        {:error, reason, shutdown_halt_stream(state, :stream_error)}
+
+      {:shutdown, reason} ->
+        {:shutdown, reason, shutdown_halt_stream(state, shutdown_cache_reason(reason))}
+    end
+  catch
+    kind, reason -> {:error, {kind, reason}, shutdown_halt_stream(state, :stream_error)}
   end
 
   defp fetch_decode_validate_source(plan, resolved_source, opts, parent) do
@@ -386,9 +418,9 @@ defmodule ImagePlug.Request.SourceSession do
   end
 
   defp reduce_result({:suspended, chunk, continuation}, state) when is_binary(chunk) do
-    cache_buffer = CacheBuffer.append(state.cache_buffer, chunk, state.request.opts)
+    cache_sink = Cache.write_chunk(state.cache_sink, chunk, state.request.opts)
 
-    {{:chunk, chunk}, %{state | suspended: {chunk, continuation}, cache_buffer: cache_buffer}}
+    {{:chunk, chunk}, %{state | suspended: {chunk, continuation}, cache_sink: cache_sink}}
   end
 
   defp reduce_result({:done, _acc}, state), do: finish_stream(state)
@@ -400,17 +432,17 @@ defmodule ImagePlug.Request.SourceSession do
   defp finish_stream(state) do
     case receive_session_control_message(:ok, state) do
       :ok ->
-        _result = CacheBuffer.commit(state.cache_buffer, state.request.opts)
-        {:done, %{state | suspended: nil, cache_buffer: nil}}
+        _result = Cache.commit_sink(state.cache_sink, state.request.opts)
+        {:done, %{state | suspended: nil, cache_sink: nil}}
 
       {:error, reason} ->
-        {{:error, reason}, abandon_cache_buffer(%{state | suspended: nil}, :stream_error)}
+        {{:error, reason}, abort_cache_sink(%{state | suspended: nil}, :stream_error)}
 
       {:shutdown, shutdown_reason} ->
         reason = {:session, {:shutdown, shutdown_reason}}
 
         {{:error, reason},
-         abandon_cache_buffer(%{state | suspended: nil}, shutdown_cache_reason(shutdown_reason))}
+         abort_cache_sink(%{state | suspended: nil}, shutdown_cache_reason(shutdown_reason))}
     end
   end
 
@@ -424,17 +456,20 @@ defmodule ImagePlug.Request.SourceSession do
   end
 
   defp shutdown_halt_stream(state, reason \\ :cancelled) do
-    state = abandon_cache_buffer(state, reason)
-
     case halt_stream(state) do
-      {:ok, state} -> state
-      {:error, reason, state} -> mark_failed(state, {:cancel, reason})
+      {:ok, state} ->
+        abort_cache_sink(state, reason)
+
+      {:error, cancel_reason, state} ->
+        state
+        |> abort_cache_sink(reason)
+        |> mark_failed({:cancel, cancel_reason})
     end
   end
 
-  defp abandon_cache_buffer(%{cache_buffer: cache_buffer, request: request} = state, reason) do
-    _result = CacheBuffer.abandon(cache_buffer, reason, request.opts)
-    %{state | cache_buffer: nil}
+  defp abort_cache_sink(%{cache_sink: cache_sink, request: request} = state, reason) do
+    _result = Cache.abort_sink(cache_sink, reason, request.opts)
+    %{state | cache_sink: nil}
   end
 
   defp shutdown_stop_reason({:owner_down, _reason} = reason), do: {:shutdown, reason}

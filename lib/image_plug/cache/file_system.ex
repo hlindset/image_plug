@@ -31,19 +31,59 @@ defmodule ImagePlug.Cache.FileSystem do
   end
 
   @impl true
-  def put(%Key{} = key, %Entry{} = entry, opts) when is_list(opts) do
+  def open_sink(%Key{} = key, %Entry.Metadata{} = metadata, opts) when is_list(opts) do
     with {:ok, paths} <- paths(key, opts),
          :ok <- File.mkdir_p(paths.dir),
-         body_sha256 = body_sha256(entry.body),
-         body_filename = body_filename(paths.hash, body_sha256),
-         {:ok, metadata} <- metadata(entry, body_sha256, body_filename) do
-      write_and_commit(
-        paths,
-        body_filename,
-        entry.body,
-        :erlang.term_to_binary(metadata, [:deterministic])
-      )
+         temp_body_path = temp_path(paths),
+         {:ok, body_io} <- File.open(temp_body_path, [:write, :binary, :exclusive]) do
+      {:ok,
+       %{
+         paths: paths,
+         temp_body_path: temp_body_path,
+         temp_meta_path: nil,
+         body_io: body_io,
+         size: 0,
+         hash_context: :crypto.hash_init(:sha256),
+         metadata: metadata
+       }}
     end
+  end
+
+  @impl true
+  def write_chunk(state, chunk, _opts) when is_binary(chunk) do
+    case safe_binwrite(state.body_io, chunk) do
+      :ok ->
+        {:ok,
+         %{
+           state
+           | size: state.size + byte_size(chunk),
+             hash_context: :crypto.hash_update(state.hash_context, chunk)
+         }}
+
+      {:error, reason} ->
+        {:error, reason, state}
+    end
+  end
+
+  @impl true
+  def commit_sink(state, _opts) when is_map(state) do
+    with :ok <- close_body_io(state),
+         body_sha256 = finalize_body_sha256(state.hash_context),
+         body_filename = body_filename(state.paths.hash, body_sha256),
+         {:ok, encoded_metadata} <- sink_metadata(state, body_sha256, body_filename),
+         {:ok, temp_meta_path} <- write_sink_metadata(state, encoded_metadata),
+         :ok <- commit_sink_files(%{state | temp_meta_path: temp_meta_path}, body_filename) do
+      :ok
+    else
+      {:error, reason} ->
+        cleanup_sink_state(state)
+        {:error, reason}
+    end
+  end
+
+  @impl true
+  def abort_sink(state, _opts) when is_map(state) do
+    cleanup_sink_state(state)
   end
 
   @impl true
@@ -159,23 +199,18 @@ defmodule ImagePlug.Cache.FileSystem do
     end
   end
 
-  defp metadata(%Entry{} = entry, body_sha256, body_filename) do
-    case Entry.cacheable_headers(entry.headers) do
-      {:ok, headers} ->
-        {:ok,
-         %{
-           metadata_version: @metadata_version,
-           content_type: entry.content_type,
-           headers: headers,
-           created_at: DateTime.to_iso8601(entry.created_at),
-           body_byte_size: byte_size(entry.body),
-           body_sha256: body_sha256,
-           body_filename: body_filename
-         }}
+  defp sink_metadata(state, body_sha256, body_filename) do
+    metadata = %{
+      metadata_version: @metadata_version,
+      content_type: state.metadata.content_type,
+      headers: state.metadata.headers,
+      created_at: DateTime.to_iso8601(state.metadata.created_at),
+      body_byte_size: state.size,
+      body_sha256: body_sha256,
+      body_filename: body_filename
+    }
 
-      {:error, _reason} = error ->
-        error
-    end
+    {:ok, :erlang.term_to_binary(metadata, [:deterministic])}
   end
 
   defp body_sha256(body) do
@@ -242,42 +277,21 @@ defmodule ImagePlug.Cache.FileSystem do
     end
   end
 
-  defp write_and_commit(paths, body_filename, body, encoded_metadata) do
-    case write_temp(paths, body) do
-      {:ok, body_tmp_path} ->
-        write_metadata_and_commit(paths, body_filename, body_tmp_path, encoded_metadata)
+  defp write_sink_metadata(state, encoded_metadata) do
+    temp_path = state.temp_meta_path || temp_path(state.paths)
 
-      {:error, _reason} = error ->
-        error
-    end
-  end
-
-  defp write_metadata_and_commit(paths, body_filename, body_tmp_path, encoded_metadata) do
-    case write_temp(paths, encoded_metadata) do
-      {:ok, meta_tmp_path} ->
-        commit(paths, body_filename, body_tmp_path, meta_tmp_path)
-
-      {:error, reason} ->
-        cleanup_temp_files([body_tmp_path])
-        {:error, reason}
-    end
-  end
-
-  defp write_temp(paths, binary) do
-    temp_path = temp_path(paths)
-
-    case File.write(temp_path, binary, [:binary, :exclusive]) do
+    case File.write(temp_path, encoded_metadata, [:binary, :exclusive]) do
       :ok -> {:ok, temp_path}
       {:error, reason} -> {:error, reason}
     end
   end
 
-  defp commit(paths, body_filename, body_tmp_path, meta_tmp_path) do
-    body_path = Path.join(paths.dir, body_filename)
+  defp commit_sink_files(state, body_filename) do
+    body_path = Path.join(state.paths.dir, body_filename)
 
-    case commit_body_file(body_tmp_path, body_path, body_filename) do
+    case commit_body_file(state.temp_body_path, body_path, body_filename) do
       {:ok, body_status} ->
-        case commit_metadata_file(paths, body_tmp_path, meta_tmp_path) do
+        case commit_metadata_file(state.paths, state.temp_body_path, state.temp_meta_path) do
           :ok ->
             :ok
 
@@ -287,7 +301,7 @@ defmodule ImagePlug.Cache.FileSystem do
         end
 
       {:error, reason} ->
-        cleanup_temp_files([body_tmp_path, meta_tmp_path])
+        cleanup_temp_files([state.temp_body_path, state.temp_meta_path])
         {:error, reason}
     end
   end
@@ -337,8 +351,43 @@ defmodule ImagePlug.Cache.FileSystem do
     end
   end
 
+  defp safe_binwrite(body_io, chunk) do
+    IO.binwrite(body_io, chunk)
+  catch
+    :exit, reason -> {:error, reason}
+  end
+
+  defp close_body_io(%{body_io: body_io}) do
+    case File.close(body_io) do
+      :ok -> :ok
+      {:error, :terminated} -> :ok
+      {:error, reason} -> {:error, reason}
+    end
+  catch
+    :exit, _reason -> :ok
+  end
+
+  defp finalize_body_sha256(hash_context) do
+    hash_context
+    |> :crypto.hash_final()
+    |> Base.encode16(case: :lower)
+  end
+
+  defp cleanup_sink_state(state) do
+    _result = close_body_io(state)
+    cleanup_temp_files([state.temp_body_path, state.temp_meta_path])
+  end
+
   defp cleanup_temp_files(temp_paths) do
-    Enum.each(temp_paths, &File.rm/1)
+    temp_paths
+    |> Enum.reject(&is_nil/1)
+    |> Enum.reduce(:ok, fn path, acc ->
+      case File.rm(path) do
+        :ok -> acc
+        {:error, :enoent} -> acc
+        {:error, reason} -> {:error, {:temp_cleanup, path, reason}}
+      end
+    end)
   end
 
   @doc false

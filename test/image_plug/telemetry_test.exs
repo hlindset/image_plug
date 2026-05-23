@@ -68,12 +68,18 @@ defmodule ImagePlug.TelemetryTest do
 
   defmodule CacheReadFailure do
     def get(_key, _opts), do: {:error, :read_failed}
-    def put(_key, _entry, _opts), do: raise("cache read failure test should not write")
+    def open_sink(_key, _metadata, _opts), do: raise("cache read failure test should not write")
+    def write_chunk(_state, _chunk, _opts), do: raise("cache read failure test should not write")
+    def commit_sink(_state, _opts), do: raise("cache read failure test should not write")
+    def abort_sink(_state, _opts), do: :ok
   end
 
   defmodule FailOpenCacheReadFailure do
     def get(_key, _opts), do: {:error, :read_failed}
-    def put(_key, _entry, _opts), do: :ok
+    def open_sink(_key, _metadata, _opts), do: {:ok, []}
+    def write_chunk(chunks, chunk, _opts), do: {:ok, [chunk | chunks]}
+    def commit_sink(_state, _opts), do: :ok
+    def abort_sink(_state, _opts), do: :ok
   end
 
   defmodule InvalidCacheHit do
@@ -87,12 +93,18 @@ defmodule ImagePlug.TelemetryTest do
        }}
     end
 
-    def put(_key, _entry, _opts), do: :ok
+    def open_sink(_key, _metadata, _opts), do: {:ok, []}
+    def write_chunk(chunks, chunk, _opts), do: {:ok, [chunk | chunks]}
+    def commit_sink(_state, _opts), do: :ok
+    def abort_sink(_state, _opts), do: :ok
   end
 
   defmodule FailOpenCacheWriteFailure do
     def get(_key, _opts), do: :miss
-    def put(_key, _entry, _opts), do: {:error, :write_failed}
+    def open_sink(_key, _metadata, _opts), do: {:ok, []}
+    def write_chunk(state, _chunk, _opts), do: {:error, :write_failed, state}
+    def commit_sink(_state, _opts), do: :ok
+    def abort_sink(_state, _opts), do: :ok
   end
 
   defmodule SourceBytes do
@@ -415,7 +427,7 @@ defmodule ImagePlug.TelemetryTest do
     assert conn.status == 200
     events = telemetry_events()
 
-    assert_event(events, [:image_plug, :cache, :write, :stop], fn _measurements, metadata ->
+    assert_event(events, [:image_plug, :cache, :tee, :stop], fn _measurements, metadata ->
       assert metadata.result == :cache_error
       assert metadata.cache == :write_error
       assert metadata.error == :write_failed
@@ -599,6 +611,7 @@ defmodule ImagePlug.TelemetryTest do
       [:source, :fetch],
       [:transform, :execute],
       [:encode],
+      [:cache, :tee],
       [:cache, :write],
       [:send]
     ]

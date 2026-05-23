@@ -32,13 +32,32 @@ defmodule ImagePlug.ImagePlugTest do
       end
     end
 
-    def put(%Key{} = key, %Entry{} = entry, opts) do
+    def open_sink(%Key{} = key, metadata, opts) do
+      {:ok, %{key: key, metadata: metadata, chunks: [], opts: opts}}
+    end
+
+    def write_chunk(state, chunk, _opts) do
+      {:ok, %{state | chunks: [chunk | state.chunks]}}
+    end
+
+    def commit_sink(state, _opts) do
+      entry = %Entry{
+        body: state.chunks |> Enum.reverse() |> IO.iodata_to_binary(),
+        content_type: state.metadata.content_type,
+        headers: state.metadata.headers,
+        created_at: state.metadata.created_at
+      }
+
+      opts = state.opts
+
       opts
       |> Keyword.get(:message_target, self())
-      |> send({:cache_put, key, entry})
+      |> send({:cache_put, state.key, entry})
 
       Keyword.get(opts, :put_result, :ok)
     end
+
+    def abort_sink(_state, _opts), do: :ok
   end
 
   defmodule OriginShouldNotBeCalled do
@@ -2095,29 +2114,6 @@ defmodule ImagePlug.ImagePlugTest do
     assert_received {:cache_put, _key, _entry}
   end
 
-  test "cache read errors fail open and continue to origin when fail_on_cache_error is supplied" do
-    cache_probe = start_cache_probe()
-
-    conn =
-      conn(:get, "/_/f:jpeg/plain/images/beach.jpg")
-      |> call_image_plug(
-        root_url: "http://origin.test",
-        parser: ImagePlug.Parser.Imgproxy,
-        origin_req_options: [plug: {CountingOriginImage, test_pid: cache_probe}],
-        cache:
-          {CacheProbe,
-           message_target: cache_probe,
-           get_result: {:error, :read_failed},
-           fail_on_cache_error: true}
-      )
-
-    flush_cache_probe(cache_probe)
-    assert conn.status == 200
-    assert get_resp_header(conn, "content-type") == ["image/jpeg"]
-    assert_received :origin_was_called
-    assert_received {:cache_put, _key, _entry}
-  end
-
   test "cache write errors fail open by default and still return response" do
     cache_probe = start_cache_probe()
 
@@ -2128,30 +2124,6 @@ defmodule ImagePlug.ImagePlugTest do
         parser: ImagePlug.Parser.Imgproxy,
         origin_req_options: [plug: {CountingOriginImage, test_pid: cache_probe}],
         cache: {CacheProbe, message_target: cache_probe, put_result: {:error, :write_failed}}
-      )
-
-    flush_cache_probe(cache_probe)
-    assert conn.status == 200
-    assert get_resp_header(conn, "content-type") == ["image/jpeg"]
-    assert byte_size(conn.resp_body) > 0
-    assert_received :origin_was_called
-    assert_received {:cache_put, _key, _entry}
-  end
-
-  test "cache write errors fail open when fail_on_cache_error is supplied" do
-    cache_probe = start_cache_probe()
-
-    conn =
-      conn(:get, "/_/f:jpeg/plain/images/beach.jpg")
-      |> call_image_plug(
-        root_url: "http://origin.test",
-        parser: ImagePlug.Parser.Imgproxy,
-        origin_req_options: [plug: {CountingOriginImage, test_pid: cache_probe}],
-        cache:
-          {CacheProbe,
-           message_target: cache_probe,
-           put_result: {:error, :write_failed},
-           fail_on_cache_error: true}
       )
 
     flush_cache_probe(cache_probe)
@@ -2173,11 +2145,7 @@ defmodule ImagePlug.ImagePlugTest do
         root_url: "http://origin.test",
         parser: ImagePlug.Parser.Imgproxy,
         origin_req_options: [plug: {CountingOriginImage, test_pid: cache_probe}],
-        cache:
-          {CacheProbe,
-           message_target: cache_probe,
-           put_result: {:error, :write_failed},
-           fail_on_cache_error: true}
+        cache: {CacheProbe, message_target: cache_probe, put_result: {:error, :write_failed}}
       )
 
     flush_cache_probe(cache_probe)

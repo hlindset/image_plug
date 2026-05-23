@@ -22,7 +22,11 @@ defmodule ImagePlug.Request.RunnerTest do
 
   defmodule CacheHit do
     def get(_key, opts), do: Keyword.fetch!(opts, :entry) |> then(&{:hit, &1})
-    def put(_key, _entry, _opts), do: raise("cache hit test should not write")
+    def open_sink(_key, _metadata, _opts), do: raise("cache hit test should not write")
+    def write_chunk(_state, _chunk, _opts), do: raise("cache hit test should not write")
+    def commit_sink(_state, _opts), do: raise("cache hit test should not write")
+
+    def abort_sink(_state, _opts), do: :ok
   end
 
   defmodule CacheReadProbe do
@@ -31,7 +35,10 @@ defmodule ImagePlug.Request.RunnerTest do
       Keyword.fetch!(opts, :entry) |> then(&{:hit, &1})
     end
 
-    def put(_key, _entry, _opts), do: raise("cache lookup test should not write")
+    def open_sink(_key, _metadata, _opts), do: raise("cache lookup test should not write")
+    def write_chunk(_state, _chunk, _opts), do: raise("cache lookup test should not write")
+    def commit_sink(_state, _opts), do: raise("cache lookup test should not write")
+    def abort_sink(_state, _opts), do: :ok
   end
 
   defmodule CacheHitWriteProbe do
@@ -40,9 +47,26 @@ defmodule ImagePlug.Request.RunnerTest do
       Keyword.fetch!(opts, :entry) |> then(&{:hit, &1})
     end
 
-    def put(key, entry, opts) do
-      send(Keyword.get(opts, :test_pid, self()), {:cache_put, key, entry, opts})
+    def open_sink(key, metadata, opts),
+      do: {:ok, %{key: key, metadata: metadata, chunks: [], opts: opts}}
+
+    def write_chunk(state, chunk, _opts), do: {:ok, %{state | chunks: [chunk | state.chunks]}}
+
+    def commit_sink(state, _opts) do
+      entry = entry_from_state(state)
+      send(Keyword.get(state.opts, :test_pid, self()), {:cache_put, state.key, entry, state.opts})
       :ok
+    end
+
+    def abort_sink(_state, _opts), do: :ok
+
+    defp entry_from_state(state) do
+      %ImagePlug.Cache.Entry{
+        body: state.chunks |> Enum.reverse() |> IO.iodata_to_binary(),
+        content_type: state.metadata.content_type,
+        headers: state.metadata.headers,
+        created_at: state.metadata.created_at
+      }
     end
   end
 
@@ -53,9 +77,20 @@ defmodule ImagePlug.Request.RunnerTest do
       :miss
     end
 
-    def put(key, entry, opts) do
-      emit(opts, {:cache_put, key, entry})
-      send(Keyword.get(opts, :test_pid, self()), {:cache_put, key, entry, opts})
+    def open_sink(key, metadata, opts),
+      do: {:ok, %{key: key, metadata: metadata, chunks: [], opts: opts}}
+
+    def write_chunk(state, chunk, _opts), do: {:ok, %{state | chunks: [chunk | state.chunks]}}
+
+    def commit_sink(state, _opts) do
+      entry = entry_from_state(state)
+      emit(state.opts, {:cache_put, state.key, entry})
+      send(Keyword.get(state.opts, :test_pid, self()), {:cache_put, state.key, entry, state.opts})
+      :ok
+    end
+
+    def abort_sink(state, _opts) do
+      emit(state.opts, {:cache_abort, state.key, Enum.reverse(state.chunks)})
       :ok
     end
 
@@ -64,6 +99,15 @@ defmodule ImagePlug.Request.RunnerTest do
         {:ok, pid} -> send(pid, {:runner_event, Keyword.fetch!(opts, :test_ref), event})
         :error -> :ok
       end
+    end
+
+    defp entry_from_state(state) do
+      %ImagePlug.Cache.Entry{
+        body: state.chunks |> Enum.reverse() |> IO.iodata_to_binary(),
+        content_type: state.metadata.content_type,
+        headers: state.metadata.headers,
+        created_at: state.metadata.created_at
+      }
     end
   end
 
@@ -73,17 +117,34 @@ defmodule ImagePlug.Request.RunnerTest do
       {:error, :read_failed}
     end
 
-    def put(key, entry, opts) do
-      emit(opts, {:cache_put, key, entry})
-      send(Keyword.get(opts, :test_pid, self()), {:cache_put, key, entry, opts})
+    def open_sink(key, metadata, opts),
+      do: {:ok, %{key: key, metadata: metadata, chunks: [], opts: opts}}
+
+    def write_chunk(state, chunk, _opts), do: {:ok, %{state | chunks: [chunk | state.chunks]}}
+
+    def commit_sink(state, _opts) do
+      entry = entry_from_state(state)
+      emit(state.opts, {:cache_put, state.key, entry})
+      send(Keyword.get(state.opts, :test_pid, self()), {:cache_put, state.key, entry, state.opts})
       :ok
     end
+
+    def abort_sink(_state, _opts), do: :ok
 
     defp emit(opts, event) do
       case Keyword.fetch(opts, :test_pid) do
         {:ok, pid} -> send(pid, {:runner_event, Keyword.fetch!(opts, :test_ref), event})
         :error -> :ok
       end
+    end
+
+    defp entry_from_state(state) do
+      %ImagePlug.Cache.Entry{
+        body: state.chunks |> Enum.reverse() |> IO.iodata_to_binary(),
+        content_type: state.metadata.content_type,
+        headers: state.metadata.headers,
+        created_at: state.metadata.created_at
+      }
     end
   end
 
@@ -93,10 +154,15 @@ defmodule ImagePlug.Request.RunnerTest do
       :miss
     end
 
-    def put(_key, entry, opts) do
-      emit(opts, {:cache_put_attempted, entry})
-      {:error, :write_failed}
+    def open_sink(_key, _metadata, opts), do: {:ok, %{opts: opts}}
+
+    def write_chunk(state, chunk, _opts) do
+      emit(state.opts, {:cache_put_attempted, chunk})
+      {:error, :write_failed, state}
     end
+
+    def commit_sink(_state, _opts), do: :ok
+    def abort_sink(_state, _opts), do: :ok
 
     defp emit(opts, event) do
       case Keyword.fetch(opts, :test_pid) do
@@ -862,31 +928,6 @@ defmodule ImagePlug.Request.RunnerTest do
     assert_supervisor_empty(supervisor)
   end
 
-  test "configured cache miss with fail_on_cache_error supplied streams through source session" do
-    supervisor = start_source_session_supervisor()
-    ref = make_ref()
-
-    assert {:ok, {:prepared_stream, %PreparedStream{} = prepared, %Response{}}} =
-             Runner.run(
-               conn(:get, "/_/plain/images/beach.jpg"),
-               plan(),
-               resolved_source(cache: :normal),
-               cache:
-                 {CacheMissWriteProbe, test_pid: self(), test_ref: ref, fail_on_cache_error: true},
-               source_session_supervisor: supervisor,
-               sources: %{path: {SourceImage, []}}
-             )
-
-    assert_received {:cache_lookup, key}
-    refute_received {:cache_put, _key, %Entry{}, _opts}
-    assert_supervisor_active(supervisor)
-
-    assert :ok = drain_prepared_stream(prepared)
-
-    assert_received {:cache_put, ^key, %Entry{content_type: "image/jpeg"}, _opts}
-    assert_supervisor_empty(supervisor)
-  end
-
   test "streamed cache miss does not write cache when the client closes before done" do
     supervisor = start_source_session_supervisor()
     ref = make_ref()
@@ -909,6 +950,8 @@ defmodule ImagePlug.Request.RunnerTest do
 
     assert conn.private.image_plug_send_result == :processing_error
     assert_received {:cache_lookup, _key}
+    assert_received {:runner_event, ^ref, {:cache_abort, _key, chunks}}
+    assert chunks != []
     refute_received {:cache_put, _key, _entry, _opts}
     assert_supervisor_empty(supervisor)
   end
@@ -935,6 +978,8 @@ defmodule ImagePlug.Request.RunnerTest do
 
     assert conn.private.image_plug_send_result == :processing_error
     assert_received {:cache_lookup, _key}
+    assert_received {:runner_event, ^ref, {:cache_abort, _key, chunks}}
+    assert chunks != []
     refute_received {:cache_put, _key, _entry, _opts}
     assert_supervisor_empty(supervisor)
   end
@@ -961,12 +1006,14 @@ defmodule ImagePlug.Request.RunnerTest do
 
     assert conn.private.image_plug_send_result == :processing_error
     assert_received {:cache_lookup, _key}
+    assert_received {:runner_event, ^ref, {:cache_abort, _key, chunks}}
+    assert chunks != []
     refute_received {:cache_put, _key, _entry, _opts}
     assert_supervisor_empty(supervisor)
   end
 
   test "streamed cache miss cache write errors fail open after successful delivery" do
-    attach_telemetry([[:image_plug, :cache, :write, :stop]])
+    attach_telemetry([[:image_plug, :cache, :tee, :stop]])
 
     supervisor = start_source_session_supervisor()
     ref = make_ref()
@@ -990,10 +1037,11 @@ defmodule ImagePlug.Request.RunnerTest do
 
     assert conn.status == 200
     refute Map.get(conn.private, :image_plug_send_result) == :processing_error
-    assert_received {:runner_event, ^ref, {:cache_put_attempted, %Entry{}}}
+    assert_received {:runner_event, ^ref, {:cache_put_attempted, chunk}}
+    assert is_binary(chunk)
     assert_supervisor_empty(supervisor)
 
-    assert_receive {:telemetry_event, [:image_plug, :cache, :write, :stop], _measurements,
+    assert_receive {:telemetry_event, [:image_plug, :cache, :tee, :stop], _measurements,
                     %{result: :cache_error, cache: :write_error, error: :write_failed}}
   end
 
@@ -1202,7 +1250,7 @@ defmodule ImagePlug.Request.RunnerTest do
              )
   end
 
-  test "invalid cache hit content type fails open when fail_on_cache_error is supplied" do
+  test "invalid cache hit content type fails open and refreshes through prepared stream" do
     invalid_entry = %Entry{
       body: "cached gif",
       content_type: "image/gif",
@@ -1233,22 +1281,6 @@ defmodule ImagePlug.Request.RunnerTest do
     assert :ok = drain_prepared_stream(prepared)
     assert_received {:cache_put, ^key, %Entry{content_type: "image/jpeg"}, _opts}
     refute_received {:cache_lookup, _another_key}
-    assert_supervisor_empty(supervisor)
-
-    assert {:ok, {:prepared_stream, %PreparedStream{} = prepared_with_ignored_option, ^response}} =
-             Runner.run(
-               conn(:get, "/_/f:jpeg/plain/images/beach.jpg"),
-               plan(response: response),
-               resolved_source(),
-               cache:
-                 {CacheHitWriteProbe,
-                  entry: invalid_entry, test_pid: self(), fail_on_cache_error: true},
-               source_session_supervisor: supervisor,
-               sources: %{path: {SourceImage, []}}
-             )
-
-    assert :ok = drain_prepared_stream(prepared_with_ignored_option)
-    assert_received {:cache_put, _key, %Entry{content_type: "image/jpeg"}, _opts}
     assert_supervisor_empty(supervisor)
   end
 end

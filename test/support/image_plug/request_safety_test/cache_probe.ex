@@ -1,6 +1,13 @@
 defmodule ImagePlug.RequestSafetyTest.CacheProbe do
   @moduledoc false
 
-  def get(_key, _opts), do: send(self(), :cache_lookup)
-  def put(_key, _entry, _opts), do: send(self(), :cache_put)
+  def get(_key, _opts) do
+    send(self(), :cache_lookup)
+    :miss
+  end
+
+  def open_sink(_key, _metadata, _opts), do: {:ok, []}
+  def write_chunk(chunks, chunk, _opts), do: {:ok, [chunk | chunks]}
+  def commit_sink(_chunks, _opts), do: send(self(), :cache_put)
+  def abort_sink(_chunks, _opts), do: :ok
 end

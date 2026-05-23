@@ -3,7 +3,6 @@ defmodule ImagePlug.Request.SourceSessionTest do
 
   import ExUnit.CaptureLog
 
-  alias ImagePlug.Cache.Entry
   alias ImagePlug.Cache.Key
   alias ImagePlug.Output.Policy
   alias ImagePlug.Output.Resolved
@@ -25,22 +24,46 @@ defmodule ImagePlug.Request.SourceSessionTest do
     def stream!(_image, suffix: ".jpg"), do: ["abc", "def"]
   end
 
-  defmodule CacheWriteProbe do
+  defmodule CacheSinkProbe do
     def get(_key, _opts), do: :miss
 
-    def put(key, %Entry{} = entry, opts) do
-      send(Keyword.fetch!(opts, :test_pid), {:cache_put, key, entry, opts})
+    def open_sink(key, metadata, opts) do
+      send(Keyword.fetch!(opts, :test_pid), {:cache_open_sink, key, metadata})
+      {:ok, %{chunks: [], opts: opts}}
+    end
+
+    def write_chunk(state, chunk, _opts) do
+      send(Keyword.fetch!(state.opts, :test_pid), {:cache_write_chunk, chunk})
+      {:ok, %{state | chunks: [chunk | state.chunks]}}
+    end
+
+    def commit_sink(state, _opts) do
+      send(
+        Keyword.fetch!(state.opts, :test_pid),
+        {:cache_commit_sink, Enum.reverse(state.chunks)}
+      )
+
+      :ok
+    end
+
+    def abort_sink(state, _opts) do
+      send(Keyword.fetch!(state.opts, :test_pid), {:cache_abort_sink, Enum.reverse(state.chunks)})
       :ok
     end
   end
 
-  defmodule CacheWriteErrorProbe do
+  defmodule CacheSinkWriteErrorProbe do
     def get(_key, _opts), do: :miss
 
-    def put(_key, %Entry{}, opts) do
-      send(Keyword.fetch!(opts, :test_pid), :cache_put_attempted)
-      {:error, :write_failed}
+    def open_sink(_key, _metadata, opts), do: {:ok, %{opts: opts}}
+
+    def write_chunk(state, _chunk, _opts) do
+      send(Keyword.fetch!(state.opts, :test_pid), :cache_write_attempted)
+      {:error, :write_failed, state}
     end
+
+    def commit_sink(_state, _opts), do: :ok
+    def abort_sink(_state, _opts), do: :ok
   end
 
   defmodule CleanupStreamImage do
@@ -271,20 +294,21 @@ defmodule ImagePlug.Request.SourceSessionTest do
     {:ok, session} = SourceSession.start(cached_request(cache_key: key))
 
     assert {:ok, %Prepared{first_chunk: "first chunk"}} = SourceSession.prepare(session)
-    refute_received {:cache_put, _key, _entry, _opts}
+    assert_received {:cache_write_chunk, "first chunk"}
+    refute_received {:cache_commit_sink, _chunks}
 
     assert {:chunk, "second chunk"} = SourceSession.next(session)
-    refute_received {:cache_put, _key, _entry, _opts}
+    assert_received {:cache_write_chunk, "second chunk"}
+    refute_received {:cache_commit_sink, _chunks}
 
     assert :done = SourceSession.next(session)
 
-    assert_received {:cache_put, ^key,
-                     %Entry{
-                       body: "first chunksecond chunk",
-                       content_type: "image/jpeg",
-                       headers: [],
-                       created_at: %DateTime{}
-                     }, _opts}
+    assert_received {:cache_open_sink, ^key, metadata}
+    assert metadata.content_type == "image/jpeg"
+    assert metadata.headers == []
+    assert %DateTime{} = metadata.created_at
+    assert metadata.output_format == :jpeg
+    assert_received {:cache_commit_sink, ["first chunk", "second chunk"]}
 
     assert_receive {:telemetry_event, [:image_plug, :cache, :write, :stop], _measurements,
                     %{result: :ok, cache: :write, output_format: :jpeg}}
@@ -305,7 +329,7 @@ defmodule ImagePlug.Request.SourceSessionTest do
     assert {:chunk, "def"} = SourceSession.next(session)
     assert :done = SourceSession.next(session)
 
-    refute_received {:cache_put, _key, _entry, _opts}
+    refute_received {:cache_commit_sink, _chunks}
 
     assert_receive {:telemetry_event, [:image_plug, :cache, :tee, :stop], _measurements,
                     %{
@@ -326,7 +350,8 @@ defmodule ImagePlug.Request.SourceSessionTest do
     assert {:ok, %Prepared{first_chunk: "first chunk"}} = SourceSession.prepare(session)
     assert :ok = SourceSession.cancel(session)
 
-    refute_received {:cache_put, _key, _entry, _opts}
+    refute_received {:cache_commit_sink, _chunks}
+    assert_received {:cache_abort_sink, ["first chunk"]}
     assert_receive {:stream_finalized, :second}
 
     assert_receive {:telemetry_event, [:image_plug, :cache, :tee, :stop], _measurements,
@@ -349,7 +374,8 @@ defmodule ImagePlug.Request.SourceSessionTest do
              SourceSession.next(session)
 
     assert is_list(stacktrace)
-    refute_received {:cache_put, _key, _entry, _opts}
+    refute_received {:cache_commit_sink, _chunks}
+    assert_received {:cache_abort_sink, ["first chunk"]}
     assert_receive {:raising_stream_finalized, :raise}
 
     assert_receive {:telemetry_event, [:image_plug, :cache, :tee, :stop], _measurements,
@@ -391,7 +417,8 @@ defmodule ImagePlug.Request.SourceSessionTest do
     assert_receive {:DOWN, ^owner_ref, :process, ^owner, :normal}
     assert_receive {:stream_finalized, :second}
     assert_receive {:DOWN, ^session_ref, :process, ^session, {:shutdown, {:owner_down, :normal}}}
-    refute_received {:cache_put, _key, _entry, _opts}
+    refute_received {:cache_commit_sink, _chunks}
+    assert_received {:cache_abort_sink, ["first chunk"]}
 
     assert_receive {:telemetry_event, [:image_plug, :cache, :tee, :stop], _measurements,
                     %{result: :ok, cache: :abandoned, reason: :owner_down, output_format: :jpeg}}
@@ -441,25 +468,26 @@ defmodule ImagePlug.Request.SourceSessionTest do
     assert_receive {:owner_down_stream_finalized, :done}
     assert_receive {:DOWN, ^caller_ref, :process, ^caller, :normal}
     assert_receive {:DOWN, ^session_ref, :process, ^session, :normal}
-    refute_received {:cache_put, _key, _entry, _opts}
+    refute_received {:cache_commit_sink, _chunks}
+    assert_received {:cache_abort_sink, ["first chunk"]}
 
     assert_receive {:telemetry_event, [:image_plug, :cache, :tee, :stop], _measurements,
                     %{result: :ok, cache: :abandoned, reason: :owner_down, output_format: :jpeg}}
   end
 
   test "cache tee write errors fail open after stream completion" do
-    attach_telemetry([[:image_plug, :cache, :write, :stop]])
+    attach_telemetry([[:image_plug, :cache, :tee, :stop]])
 
     {:ok, session} =
-      SourceSession.start(cached_request(adapter: CacheWriteErrorProbe))
+      SourceSession.start(cached_request(adapter: CacheSinkWriteErrorProbe))
 
     assert {:ok, %Prepared{first_chunk: "first chunk"}} = SourceSession.prepare(session)
     assert {:chunk, "second chunk"} = SourceSession.next(session)
     assert :done = SourceSession.next(session)
 
-    assert_received :cache_put_attempted
+    assert_received :cache_write_attempted
 
-    assert_receive {:telemetry_event, [:image_plug, :cache, :write, :stop], _measurements,
+    assert_receive {:telemetry_event, [:image_plug, :cache, :tee, :stop], _measurements,
                     %{
                       result: :cache_error,
                       cache: :write_error,
@@ -703,7 +731,7 @@ defmodule ImagePlug.Request.SourceSessionTest do
         opts()
         |> Keyword.merge(
           cache_opts(
-            Keyword.get(extra_opts, :adapter, CacheWriteProbe),
+            Keyword.get(extra_opts, :adapter, CacheSinkProbe),
             Keyword.get(extra_opts, :cache_opts, [])
           )
         )

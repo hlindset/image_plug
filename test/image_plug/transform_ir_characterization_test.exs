@@ -26,7 +26,10 @@ defmodule ImagePlug.TransformIRCharacterizationTest do
       {:hit, Keyword.fetch!(opts, :entry)}
     end
 
-    def put(_key, _entry, _opts), do: raise("cache hit must not write")
+    def open_sink(_key, _metadata, _opts), do: raise("cache hit must not write")
+    def write_chunk(_state, _chunk, _opts), do: raise("cache hit must not write")
+    def commit_sink(_state, _opts), do: raise("cache hit must not write")
+    def abort_sink(_state, _opts), do: :ok
   end
 
   defmodule GeneratedSourceAdapter do

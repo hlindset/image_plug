@@ -182,9 +182,12 @@ defmodule ImagePlug.ArchitectureBoundaryTest do
     forbidden_terms = [
       "ImagePlug.Request.SourceSession",
       "ImagePlug.Request.SourceSessionSupervisor",
-      "Cache.put",
-      "Cache.Key",
-      "SourceSession.CacheBuffer"
+      "ImagePlug.Cache.Sink",
+      "Cache.open_sink",
+      "Cache.write_chunk",
+      "Cache.commit_sink",
+      "Cache.abort_sink",
+      "Cache.put"
     ]
 
     violations =
@@ -197,6 +200,30 @@ defmodule ImagePlug.ArchitectureBoundaryTest do
           term <- forbidden_terms,
           String.contains?(line, term) do
         "#{file}:#{number} must not depend on #{term}; SourceSession owns cache teeing"
+      end
+
+    assert violations == []
+  end
+
+  test "request code treats cache sinks as opaque cache values" do
+    request_sources =
+      "lib/image_plug/request/**/*.ex"
+      |> Path.wildcard()
+      |> Map.new(fn file -> {file, File.read!(file)} end)
+
+    forbidden_terms = [
+      "ImagePlug.Cache.Sink",
+      "Cache.Sink",
+      ".Sink",
+      "%Sink{",
+      "%ImagePlug.Cache.Sink{"
+    ]
+
+    violations =
+      for {file, source} <- request_sources,
+          term <- forbidden_terms,
+          String.contains?(source, term) do
+        "#{file} must not inspect cache sink internals through #{term}"
       end
 
     assert violations == []
@@ -313,7 +340,8 @@ defmodule ImagePlug.ArchitectureBoundaryTest do
     assert_boundary_deps(cache, [
       ImagePlug.Plan,
       ImagePlug.Output,
-      ImagePlug.Transform
+      ImagePlug.Transform,
+      ImagePlug.Telemetry
     ])
 
     refute_boundary_deps(cache, @post_fetch_transform_state_modules)

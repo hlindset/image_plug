@@ -2,6 +2,7 @@ defmodule ImagePlug.Cache.FileSystemPropertyTest do
   use ExUnit.Case, async: true
   use ExUnitProperties
 
+  alias ImagePlug.Cache
   alias ImagePlug.Cache.Entry
   alias ImagePlug.Cache.FileSystem
   alias ImagePlug.Cache.Key
@@ -50,7 +51,7 @@ defmodule ImagePlug.Cache.FileSystemPropertyTest do
           created_at: ~U[2026-04-29 10:15:00Z]
         }
 
-        assert :ok = FileSystem.put(cache_key, entry, root: root)
+        assert :ok = Cache.put(cache_key, entry, cache: {FileSystem, root: root})
         assert {:hit, cached_entry} = FileSystem.get(cache_key, root: root)
         assert cached_entry == entry
       after
