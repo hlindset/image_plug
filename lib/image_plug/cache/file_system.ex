@@ -66,14 +66,33 @@ defmodule ImagePlug.Cache.FileSystem do
 
   @impl true
   def commit_sink(state, _opts) when is_map(state) do
+    case prepare_sink_commit(state) do
+      {:ok, state, body_filename} ->
+        commit_prepared_sink(state, body_filename)
+
+      {:error, reason, state} ->
+        cleanup_sink_state(state)
+        {:error, reason}
+    end
+  end
+
+  defp prepare_sink_commit(state) do
     with :ok <- close_body_io(state),
          body_sha256 = finalize_body_sha256(state.hash_context),
          body_filename = body_filename(state.paths.hash, body_sha256),
          encoded_metadata = sink_metadata(state, body_sha256, body_filename),
-         {:ok, temp_meta_path} <- write_sink_metadata(state, encoded_metadata),
-         :ok <- commit_sink_files(%{state | temp_meta_path: temp_meta_path}, body_filename) do
-      :ok
+         {:ok, temp_meta_path} <- write_sink_metadata(state, encoded_metadata) do
+      {:ok, %{state | temp_meta_path: temp_meta_path}, body_filename}
     else
+      {:error, reason} -> {:error, reason, state}
+    end
+  end
+
+  defp commit_prepared_sink(state, body_filename) do
+    case commit_sink_files(state, body_filename) do
+      :ok ->
+        :ok
+
       {:error, reason} ->
         cleanup_sink_state(state)
         {:error, reason}
@@ -169,6 +188,8 @@ defmodule ImagePlug.Cache.FileSystem do
          {:ok, metadata} <- decode_metadata(meta_binary),
          {:ok, body_path} <- body_path_from_metadata(paths, metadata),
          {:ok, body} <- read_cache_file(body_path, :body),
+         # Cache hits trust metadata plus byte size without recomputing the body
+         # digest. That keeps reads compatible with the future streaming hit path.
          :ok <- validate_body_size(body, metadata),
          {:ok, created_at} <- parse_created_at(metadata.created_at) do
       {:hit,
@@ -255,12 +276,7 @@ defmodule ImagePlug.Cache.FileSystem do
   defp handle_invalid_metadata(reason), do: {:error, {:invalid_metadata, reason}}
 
   defp validate_metadata_content_type(content_type) do
-    case Entry.validate(%Entry{
-           body: "",
-           content_type: content_type,
-           headers: [],
-           created_at: DateTime.utc_now()
-         }) do
+    case Entry.validate_content_type(content_type) do
       :ok -> :ok
       {:error, reason} -> {:error, {:invalid_content_type, reason}}
     end
@@ -298,7 +314,7 @@ defmodule ImagePlug.Cache.FileSystem do
     do: is_binary(body_sha256) and Regex.match?(@body_sha256_pattern, body_sha256)
 
   defp write_sink_metadata(state, encoded_metadata) do
-    temp_path = state.temp_meta_path || temp_path(state.paths)
+    temp_path = temp_path(state.paths)
 
     case File.write(temp_path, encoded_metadata, [:binary, :exclusive]) do
       :ok -> {:ok, temp_path}
@@ -309,14 +325,8 @@ defmodule ImagePlug.Cache.FileSystem do
   defp commit_sink_files(state, body_filename) do
     body_path = Path.join(state.paths.dir, body_filename)
 
-    with :ok <- commit_body_file(state.temp_body_path, body_path, body_filename),
-         :ok <- commit_metadata_file(state.paths.meta_path, state.temp_meta_path) do
-      cleanup_temp_files([state.temp_body_path, state.temp_meta_path])
-      :ok
-    else
-      {:error, reason} ->
-        cleanup_temp_files([state.temp_body_path, state.temp_meta_path])
-        {:error, reason}
+    with :ok <- commit_body_file(state.temp_body_path, body_path, body_filename) do
+      commit_metadata_file(state.paths.meta_path, state.temp_meta_path)
     end
   end
 
@@ -326,20 +336,24 @@ defmodule ImagePlug.Cache.FileSystem do
 
   defp commit_body_file(body_tmp_path, body_path, body_filename) do
     if matching_body_file?(body_path, body_filename) do
+      cleanup_temp_files([body_tmp_path])
       :ok
     else
       case File.rename(body_tmp_path, body_path) do
         :ok -> :ok
-        {:error, :eexist} -> use_existing_body_file(body_path, body_filename)
+        {:error, :eexist} -> use_existing_body_file(body_tmp_path, body_path, body_filename)
         {:error, reason} -> {:error, reason}
       end
     end
   end
 
-  defp use_existing_body_file(body_path, body_filename) do
-    if matching_body_file?(body_path, body_filename),
-      do: :ok,
-      else: {:error, :body_file_exists}
+  defp use_existing_body_file(body_tmp_path, body_path, body_filename) do
+    if matching_body_file?(body_path, body_filename) do
+      cleanup_temp_files([body_tmp_path])
+      :ok
+    else
+      {:error, :body_file_exists}
+    end
   end
 
   defp matching_body_file?(body_path, body_filename) do
@@ -374,7 +388,7 @@ defmodule ImagePlug.Cache.FileSystem do
       {:error, reason} -> {:error, reason}
     end
   catch
-    :exit, _reason -> :ok
+    :exit, reason -> {:error, {:close_failed, reason}}
   end
 
   defp finalize_body_sha256(hash_context) do
@@ -384,8 +398,13 @@ defmodule ImagePlug.Cache.FileSystem do
   end
 
   defp cleanup_sink_state(state) do
-    _result = close_body_io(state)
+    _result = close_body_io_for_cleanup(state)
     cleanup_temp_files([state.temp_body_path, state.temp_meta_path])
+  end
+
+  defp close_body_io_for_cleanup(state) do
+    _result = close_body_io(state)
+    :ok
   end
 
   defp cleanup_temp_files(temp_paths) do
@@ -447,8 +466,8 @@ defmodule ImagePlug.Cache.FileSystem do
 
   defp body_sha256_from_filename(body_filename) do
     case String.split(body_filename, ".", parts: 3) do
-      [_hash, body_sha256, "body"] ->
-        if valid_body_sha256?(body_sha256) do
+      [hash, body_sha256, "body"] ->
+        if Regex.match?(@cache_key_hash_pattern, hash) and valid_body_sha256?(body_sha256) do
           {:ok, body_sha256}
         else
           {:error, :invalid_body_filename}

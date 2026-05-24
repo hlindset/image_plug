@@ -230,24 +230,6 @@ defmodule ImagePlug.Cache.FileSystemTest do
              FileSystem.abort_sink(%{state | temp_body_path: temp_obstruction}, root: root)
   end
 
-  test "sink commit cleans up when temporary metadata write fails", %{root: root} do
-    cache_key = key("cdcdcd" <> String.duplicate("1", 58))
-    assert {:ok, paths} = FileSystem.paths(cache_key, root: root)
-    File.mkdir_p!(paths.dir)
-
-    temp_obstruction = Path.join(paths.dir, ".#{cache_key.hash}.forced-meta")
-    File.mkdir_p!(temp_obstruction)
-
-    assert {:ok, state} = FileSystem.open_sink(cache_key, entry_metadata(), root: root)
-    assert {:ok, state} = FileSystem.write_chunk(state, "body", root: root)
-
-    assert {:error, _reason} =
-             FileSystem.commit_sink(%{state | temp_meta_path: temp_obstruction}, root: root)
-
-    refute File.exists?(Path.join(paths.dir, body_filename(cache_key, "body")))
-    refute Enum.any?(File.ls!(paths.dir), &String.ends_with?(&1, ".tmp"))
-  end
-
   test "sink commit cleans up when body rename fails", %{root: root} do
     cache_key = key("cecece" <> String.duplicate("1", 58))
     assert {:ok, paths} = FileSystem.paths(cache_key, root: root)

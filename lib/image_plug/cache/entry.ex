@@ -29,6 +29,15 @@ defmodule ImagePlug.Cache.Entry do
     end
   end
 
+  @doc false
+  @spec validate_content_type(String.t()) :: :ok | {:error, term()}
+  def validate_content_type(content_type) do
+    case Format.format(content_type) do
+      {:ok, _format} -> :ok
+      {:error, reason} -> {:error, reason}
+    end
+  end
+
   @spec cacheable_headers(term()) :: {:ok, [header()]} | {:error, term()}
   def cacheable_headers(headers) when is_list(headers) do
     case Enum.reduce_while(headers, {:ok, []}, &normalize_header(&1, &2, headers)) do
@@ -41,13 +50,6 @@ defmodule ImagePlug.Cache.Entry do
 
   defp validate_body(body) when is_binary(body), do: :ok
   defp validate_body(body), do: {:error, {:invalid_body, body}}
-
-  defp validate_content_type(content_type) do
-    case Format.format(content_type) do
-      {:ok, _format} -> :ok
-      {:error, reason} -> {:error, reason}
-    end
-  end
 
   defp normalize_header({name, value}, {:ok, normalized_headers}, headers)
        when is_binary(name) and is_binary(value) do
