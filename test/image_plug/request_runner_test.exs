@@ -1025,7 +1025,7 @@ defmodule ImagePlug.Request.RunnerTest do
   end
 
   test "streamed cache miss staging write errors fail open" do
-    attach_telemetry([[:image_plug, :cache, :stage, :stop]])
+    attach_telemetry([[:image_plug, :cache, :stage]])
 
     supervisor = start_source_session_supervisor()
     ref = make_ref()
@@ -1053,7 +1053,7 @@ defmodule ImagePlug.Request.RunnerTest do
     assert is_binary(chunk)
     assert_supervisor_empty(supervisor)
 
-    assert_receive {:telemetry_event, [:image_plug, :cache, :stage, :stop], _measurements,
+    assert_receive {:telemetry_event, [:image_plug, :cache, :stage], _measurements,
                     %{result: :cache_error, cache: :stage_error, error: :write_failed}}
   end
 

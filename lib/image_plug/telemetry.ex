@@ -19,6 +19,13 @@ defmodule ImagePlug.Telemetry do
     end)
   end
 
+  @spec execute(keyword(), [atom()], map() | keyword(), map() | keyword()) :: :ok
+  def execute(telemetry_opts, stage, measurements, metadata) when is_list(stage) do
+    telemetry_opts
+    |> event_prefix(stage)
+    |> :telemetry.execute(Map.new(measurements), clean_metadata(metadata))
+  end
+
   @spec telemetry_opts(keyword()) :: keyword()
   def telemetry_opts(opts) when is_list(opts) do
     Keyword.take(opts, [:telemetry_prefix])

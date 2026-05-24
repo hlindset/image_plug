@@ -435,7 +435,7 @@ defmodule ImagePlug.TelemetryTest do
     assert conn.status == 200
     events = telemetry_events()
 
-    assert_event(events, [:image_plug, :cache, :stage, :stop], fn _measurements, metadata ->
+    assert_event(events, [:image_plug, :cache, :stage], fn _measurements, metadata ->
       assert metadata.result == :cache_error
       assert metadata.cache == :stage_error
       assert metadata.error == :write_failed
@@ -598,15 +598,19 @@ defmodule ImagePlug.TelemetryTest do
   end
 
   defp default_events do
-    for stage <- stages(),
-        suffix <- [:start, :stop, :exception],
-        do: [:image_plug | stage] ++ [suffix]
+    span_events(:image_plug) ++ [[:image_plug, :cache, :stage]]
   end
 
   defp custom_events do
+    span_events([:custom, :image]) ++ [[:custom, :image, :cache, :stage]]
+  end
+
+  defp span_events(prefix) when is_atom(prefix), do: span_events([prefix])
+
+  defp span_events(prefix) when is_list(prefix) do
     for stage <- stages(),
         suffix <- [:start, :stop, :exception],
-        do: [:custom, :image | stage] ++ [suffix]
+        do: prefix ++ stage ++ [suffix]
   end
 
   defp stages do
@@ -619,7 +623,6 @@ defmodule ImagePlug.TelemetryTest do
       [:source, :fetch],
       [:transform, :execute],
       [:encode],
-      [:cache, :stage],
       [:cache, :write],
       [:send]
     ]
