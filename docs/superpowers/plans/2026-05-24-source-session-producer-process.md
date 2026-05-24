@@ -202,6 +202,7 @@ defmodule ImagePlug.Request.SourceSession.ProducerTest do
 
   setup do
     Process.flag(:trap_exit, true)
+    if Process.whereis(@event_target), do: Process.unregister(@event_target)
     Process.register(self(), @event_target)
     on_exit(fn -> if Process.whereis(@event_target), do: Process.unregister(@event_target) end)
     :ok
@@ -423,6 +424,12 @@ defmodule ImagePlug.Request.SourceSession.Producer do
     after
       timeout ->
         Process.demonitor(monitor_ref, [:flush])
+        receive do
+          {^ref, _reply} -> :ok
+        after
+          0 -> :ok
+        end
+
         {:error, {:producer, :timeout}}
     end
   end
@@ -436,6 +443,9 @@ defmodule ImagePlug.Request.SourceSession.Producer do
             loop(state)
 
           {:stop, reply} ->
+            # Domain failures are terminal protocol replies. After sending one,
+            # the producer exits normally; unexpected process death is reported
+            # by SourceSession's producer monitor.
             send(caller, {ref, reply})
             exit(:normal)
         end
@@ -877,7 +887,7 @@ def handle_call(:prepare, from, %{phase: :new} = state) do
       {:noreply,
        %{state | phase: :preparing, pending: {:prepare, from}, producer_request_ref: ref}}
 
-    {:error, reason, state} ->
+    {:error, reason} ->
       {:stop, :normal, {:error, reason}, mark_failed(state)}
   end
 end
@@ -888,15 +898,9 @@ Add:
 ```elixir
 defp start_producer(%{request: %Request{} = request} = state) do
   caller_chain = Process.get(:"$callers", [])
-
-  case Producer.start_link(request, caller_chain: caller_chain) do
-    {:ok, producer} ->
-      ref = Process.monitor(producer)
-      {:ok, %{state | producer: producer, producer_monitor: ref}}
-
-    {:error, reason} ->
-      {:error, {:session, {:producer_start, reason}}, state}
-  end
+  {:ok, producer} = Producer.start_link(request, caller_chain: caller_chain)
+  ref = Process.monitor(producer)
+  {:ok, %{state | producer: producer, producer_monitor: ref}}
 end
 
 ```
@@ -985,14 +989,23 @@ defp handle_producer_result({:ok, :done}, %{pending: {:next, from}} = state) do
   with_owner_check(state, fn state ->
     Cache.commit_sink(state.cache_sink, state.request.opts)
     GenServer.reply(from, :done)
-    {:stop, :normal, %{state | phase: :done, pending: nil, cache_sink: nil}}
+    {:stop, :normal,
+     %{
+       state
+       | phase: :done,
+         pending: nil,
+         producer: nil,
+         producer_monitor: nil,
+         producer_request_ref: nil,
+         cache_sink: nil
+     }}
   end)
 end
 
 defp handle_producer_result({:error, reason}, %{pending: {_kind, from}} = state) do
   state = abort_cache_sink(state, :stream_error)
   GenServer.reply(from, {:error, reason})
-  {:stop, :normal, mark_failed(%{state | pending: nil})}
+  {:stop, :normal, mark_failed(%{state | pending: nil, producer_request_ref: nil})}
 end
 ```
 
@@ -1010,7 +1023,7 @@ defp with_owner_check(state, fun) when is_function(fun, 1) do
         |> stop_producer(:shutdown)
         |> abort_cache_sink(:owner_down)
 
-      {:stop, {:shutdown, {:owner_down, reason}}, %{state | phase: :cancelled}}
+      {:stop, {:shutdown, {:owner_down, reason}}, %{state | phase: :cancelled, pending: nil}}
 
     :none ->
       fun.(state)
@@ -1138,7 +1151,7 @@ def handle_call(:cancel, _from, %{pending: nil} = state) do
   {:stop, :normal, :ok, %{state | phase: :cancelled, pending: nil}}
 end
 
-def handle_call(:cancel, _from, %{pending: {_kind, _from}} = state) do
+def handle_call(:cancel, _from, %{pending: {_kind, _pending_from}} = state) do
   state =
     state
     |> reply_pending({:error, {:session, :cancelled}})
@@ -1148,6 +1161,8 @@ def handle_call(:cancel, _from, %{pending: {_kind, _from}} = state) do
   {:stop, :normal, :ok, %{state | phase: :cancelled, pending: nil}}
 end
 ```
+
+If a stale `{producer_request_ref, result}` message is already in the session mailbox when `cancel/1` stops the session, it's safe to discard. The session is stopping and no caller is pending.
 
 Add:
 
@@ -1197,6 +1212,8 @@ mark_failed/1
 call_session/3
 ```
 
+Rename any remaining private `call/3` wrapper to `call_session/3`; the public `prepare/2`, `next/2`, and `cancel/2` functions should call that wrapper.
+
 Keep `terminate/2`, but rewrite it so abnormal session termination stops the linked producer and aborts cache staging:
 
 ```elixir
@@ -1218,6 +1235,8 @@ def terminate(reason, state) do
   :ok
 end
 ```
+
+`terminate/2` may run after a callback already stopped the producer and aborted the cache sink. That's safe because `stop_producer/2` and `abort_cache_sink/2` are nil-guarded; keep them idempotent.
 
 The resulting `SourceSession` should coordinate producer messages. It shouldn't call `Enumerable.reduce/3`, `Encoder.stream_output/3`, or `Processor.fetch_decode_validate_source_with_source_format/3`.
 
