@@ -217,7 +217,7 @@ defmodule ImagePlug.Cache.FileSystemTest do
     refute Enum.any?(File.ls!(paths.dir), &String.ends_with?(&1, ".tmp"))
   end
 
-  test "sink abort reports cleanup errors", %{root: root} do
+  test "sink abort treats temp cleanup errors as best effort", %{root: root} do
     cache_key = key("bcbcbc" <> String.duplicate("1", 58))
     assert {:ok, paths} = FileSystem.paths(cache_key, root: root)
     File.mkdir_p!(paths.dir)
@@ -226,8 +226,8 @@ defmodule ImagePlug.Cache.FileSystemTest do
 
     assert {:ok, state} = FileSystem.open_sink(cache_key, entry_metadata(), root: root)
 
-    assert {:error, {:temp_cleanup, ^temp_obstruction, _reason}} =
-             FileSystem.abort_sink(%{state | temp_body_path: temp_obstruction}, root: root)
+    assert :ok = FileSystem.abort_sink(%{state | temp_body_path: temp_obstruction}, root: root)
+    assert FileSystem.get(cache_key, root: root) == :miss
   end
 
   test "sink commit cleans up when body rename fails", %{root: root} do

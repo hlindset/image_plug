@@ -81,7 +81,7 @@ defmodule ImagePlug.Cache.FileSystem do
          body_sha256 = finalize_body_sha256(state.hash_context),
          body_filename = body_filename(state.paths.hash, body_sha256),
          encoded_metadata = sink_metadata(state, body_sha256, body_filename),
-         {:ok, temp_meta_path} <- write_sink_metadata(state, encoded_metadata) do
+         {:ok, temp_meta_path} <- write_sink_metadata(state.paths, encoded_metadata) do
       {:ok, %{state | temp_meta_path: temp_meta_path}, body_filename}
     else
       {:error, reason} -> {:error, reason, state}
@@ -109,9 +109,7 @@ defmodule ImagePlug.Cache.FileSystem do
     with {:ok, validated_opts} <- validate_filesystem_options(opts),
          root = Keyword.fetch!(validated_opts, :root),
          path_prefix = Keyword.fetch!(validated_opts, :path_prefix),
-         {:ok, {first_partition, second_partition}} <- partitions(String.duplicate("0", 64)) do
-      dir = Path.join([root, path_prefix, first_partition, second_partition])
-
+         dir = Path.join([root, path_prefix, "00", "00"]) do
       with :ok <- validate_under_root(root, dir) do
         {:ok, validated_opts}
       end
@@ -313,8 +311,8 @@ defmodule ImagePlug.Cache.FileSystem do
   defp valid_body_sha256?(body_sha256),
     do: is_binary(body_sha256) and Regex.match?(@body_sha256_pattern, body_sha256)
 
-  defp write_sink_metadata(state, encoded_metadata) do
-    temp_path = temp_path(state.paths)
+  defp write_sink_metadata(paths, encoded_metadata) do
+    temp_path = temp_path(paths)
 
     case File.write(temp_path, encoded_metadata, [:binary, :exclusive]) do
       :ok -> {:ok, temp_path}
@@ -336,6 +334,8 @@ defmodule ImagePlug.Cache.FileSystem do
 
   defp commit_body_file(body_tmp_path, body_path, body_filename) do
     if matching_body_file?(body_path, body_filename) do
+      # Existing matching body content wins. The new temp body is no longer
+      # needed, and cleanup is best-effort cache housekeeping.
       cleanup_temp_files([body_tmp_path])
       :ok
     else
@@ -398,25 +398,19 @@ defmodule ImagePlug.Cache.FileSystem do
   end
 
   defp cleanup_sink_state(state) do
-    _result = close_body_io_for_cleanup(state)
-    cleanup_temp_files([state.temp_body_path, state.temp_meta_path])
-  end
-
-  defp close_body_io_for_cleanup(state) do
     _result = close_body_io(state)
-    :ok
+    cleanup_temp_files([state.temp_body_path, state.temp_meta_path])
   end
 
   defp cleanup_temp_files(temp_paths) do
     temp_paths
     |> Enum.reject(&is_nil/1)
-    |> Enum.reduce_while(:ok, fn path, :ok ->
-      case File.rm(path) do
-        :ok -> {:cont, :ok}
-        {:error, :enoent} -> {:cont, :ok}
-        {:error, reason} -> {:halt, {:error, {:temp_cleanup, path, reason}}}
-      end
+    |> Enum.each(fn path ->
+      _result = File.rm(path)
+      :ok
     end)
+
+    :ok
   end
 
   @doc false
