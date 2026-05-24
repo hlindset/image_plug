@@ -107,13 +107,17 @@ defmodule ImagePlug.Cache.FileSystem do
   @impl true
   def validate_options(opts) when is_list(opts) do
     with {:ok, validated_opts} <- validate_filesystem_options(opts),
-         root = Keyword.fetch!(validated_opts, :root),
-         path_prefix = Keyword.fetch!(validated_opts, :path_prefix),
-         dir = Path.join([root, path_prefix, "00", "00"]) do
-      with :ok <- validate_under_root(root, dir) do
-        {:ok, validated_opts}
-      end
+         :ok <- validate_representative_cache_dir(validated_opts) do
+      {:ok, validated_opts}
     end
+  end
+
+  defp validate_representative_cache_dir(validated_opts) do
+    root = Keyword.fetch!(validated_opts, :root)
+    path_prefix = Keyword.fetch!(validated_opts, :path_prefix)
+    dir = Path.join([root, path_prefix, "00", "00"])
+
+    validate_under_root(root, dir)
   end
 
   defp validate_filesystem_options(opts) do
@@ -407,7 +411,6 @@ defmodule ImagePlug.Cache.FileSystem do
     |> Enum.reject(&is_nil/1)
     |> Enum.each(fn path ->
       _result = File.rm(path)
-      :ok
     end)
 
     :ok
