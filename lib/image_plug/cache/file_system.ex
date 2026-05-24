@@ -463,8 +463,8 @@ defmodule ImagePlug.Cache.FileSystem do
 
   defp body_sha256_from_filename(body_filename) do
     case String.split(body_filename, ".", parts: 3) do
-      [hash, body_sha256, "body"] ->
-        if Regex.match?(@cache_key_hash_pattern, hash) and valid_body_sha256?(body_sha256) do
+      [_hash, body_sha256, "body"] ->
+        if valid_body_sha256?(body_sha256) do
           {:ok, body_sha256}
         else
           {:error, :invalid_body_filename}
