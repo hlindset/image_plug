@@ -151,14 +151,10 @@ defmodule ImagePlug.Request.Runner do
   end
 
   defp cancel_supervised_session(supervisor, session) do
-    case SourceSession.cancel(session) do
-      :ok ->
-        :ok
+    result = SourceSession.cancel(session)
+    _stop_result = SourceSessionSupervisor.stop_session(supervisor, session)
 
-      {:error, _reason} = error ->
-        _stop_result = SourceSessionSupervisor.stop_session(supervisor, session)
-        error
-    end
+    result
   end
 
   defp check_first_chunk(chunk) when is_binary(chunk) and byte_size(chunk) > 0, do: :ok
