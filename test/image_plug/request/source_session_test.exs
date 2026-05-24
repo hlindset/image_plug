@@ -727,9 +727,7 @@ defmodule ImagePlug.Request.SourceSessionTest do
     {:ok, session} = SourceSession.start(request(opts: opts(image_module: EmptyStreamImage)))
     ref = Process.monitor(session)
 
-    assert {:error,
-            {:encode, %RuntimeError{message: "image encoder produced an empty stream"}, []}} =
-             SourceSession.prepare(session)
+    assert {:error, {:encode, :empty_stream}} = SourceSession.prepare(session)
 
     assert_receive {:DOWN, ^ref, :process, ^session, :normal}
   end

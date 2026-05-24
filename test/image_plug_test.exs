@@ -1921,7 +1921,7 @@ defmodule ImagePlug.ImagePlugTest do
         assert get_resp_header(conn, "content-type") == ["text/plain; charset=utf-8"]
       end)
 
-    assert log =~ "image encoder produced an empty stream"
+    assert log =~ "encode_error: empty_stream"
     assert_received :stream_encoder_called
   end
 

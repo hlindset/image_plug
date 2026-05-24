@@ -327,7 +327,7 @@ defmodule ImagePlug.Request.SourceSessionSupervisorTest do
     send(session, {:EXIT, supervisor, :shutdown})
     send(session, :release_fetch)
 
-    assert_receive {:prepare_result, {:error, {:session, {:exit, :shutdown}}}}, 1_000
+    assert_receive {:prepare_result, {:error, {:session, {:shutdown, :shutdown}}}}, 1_000
     assert_receive {:DOWN, ^session_ref, :process, ^session, :shutdown}
     assert_child_counts(supervisor, active: 0)
   end

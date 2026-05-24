@@ -111,6 +111,11 @@ defmodule ImagePlug.Response.Sender do
   defp handle_processing_error(conn, {:encode, exception, stacktrace}, response_headers),
     do: handle_encode_exception(exception, stacktrace, conn, response_headers)
 
+  defp handle_processing_error(conn, {:encode, :empty_stream}, response_headers) do
+    Logger.error("encode_error: empty_stream")
+    send_encode_error(conn, response_headers)
+  end
+
   defp handle_processing_error(conn, {:invalid_cache_headers, reason}, response_headers) do
     Logger.error("encode_error: invalid cache headers: #{inspect(reason)}")
     send_encode_error(conn, response_headers)

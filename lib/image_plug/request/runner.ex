@@ -160,7 +160,7 @@ defmodule ImagePlug.Request.Runner do
   defp check_first_chunk(chunk) when is_binary(chunk) and byte_size(chunk) > 0, do: :ok
 
   defp check_first_chunk(_chunk) do
-    {:error, {:encode, RuntimeError.exception("image encoder produced an empty stream"), []}}
+    {:error, {:encode, :empty_stream}}
   end
 
   defp normalize_session_prepare_error({:session, reason}) do
