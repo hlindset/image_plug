@@ -112,21 +112,21 @@ defmodule ImagePlug.Cache do
         nil
 
       {:ok, adapter, cache_opts} ->
-        Sink.open_response_tee(adapter, key, resolved_output, cache_opts, opts)
+        Sink.open(adapter, key, resolved_output, cache_opts, opts)
 
       {:error, reason} ->
-        Sink.report_response_tee_open_error(reason, resolved_output.format, opts)
+        Sink.report_open_error(reason, resolved_output.format, opts)
     end
   end
 
   @doc false
   @spec write_chunk(sink() | nil, binary(), keyword()) :: sink() | nil
   def write_chunk(sink, chunk, opts) when is_binary(chunk),
-    do: Sink.write_response_tee_chunk(sink, chunk, opts)
+    do: Sink.write_chunk(sink, chunk, opts)
 
   @doc false
   @spec commit_sink(sink() | nil, keyword()) :: :ok
-  def commit_sink(sink, opts), do: Sink.commit_response_tee(sink, opts)
+  def commit_sink(sink, opts), do: Sink.commit(sink, opts)
 
   @doc false
   @spec abort_sink(sink() | nil, atom(), keyword()) :: :ok

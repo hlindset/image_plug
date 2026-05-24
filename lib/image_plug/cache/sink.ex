@@ -32,8 +32,8 @@ defmodule ImagePlug.Cache.Sink do
           output_format: atom()
         }
 
-  @spec open_response_tee(module(), Key.t(), Resolved.t(), keyword(), keyword()) :: t() | nil
-  def open_response_tee(adapter, %Key{} = key, %Resolved{} = resolved_output, cache_opts, opts) do
+  @spec open(module(), Key.t(), Resolved.t(), keyword(), keyword()) :: t() | nil
+  def open(adapter, %Key{} = key, %Resolved{} = resolved_output, cache_opts, opts) do
     with {:ok, metadata} <- response_metadata(resolved_output),
          {:ok, adapter_state} <- open_adapter_sink(adapter, key, metadata, cache_opts) do
       build(adapter, key, metadata, cache_opts, adapter_state)
@@ -44,16 +44,16 @@ defmodule ImagePlug.Cache.Sink do
     end
   end
 
-  @spec report_response_tee_open_error(term(), atom(), keyword()) :: nil
-  def report_response_tee_open_error(reason, output_format, opts) do
+  @spec report_open_error(term(), atom(), keyword()) :: nil
+  def report_open_error(reason, output_format, opts) do
     handle_open_error(reason, output_format, opts)
     nil
   end
 
-  @spec write_response_tee_chunk(t() | nil, binary(), keyword()) :: t() | nil
-  def write_response_tee_chunk(nil, _chunk, _opts), do: nil
+  @spec write_chunk(t() | nil, binary(), keyword()) :: t() | nil
+  def write_chunk(nil, _chunk, _opts), do: nil
 
-  def write_response_tee_chunk(%__MODULE__{} = sink, chunk, opts) when is_binary(chunk) do
+  def write_chunk(%__MODULE__{} = sink, chunk, opts) when is_binary(chunk) do
     case write_chunk_result(sink, chunk, opts) do
       {:ok, sink} -> sink
       {:skip, :too_large} -> nil
@@ -61,10 +61,10 @@ defmodule ImagePlug.Cache.Sink do
     end
   end
 
-  @spec commit_response_tee(t() | nil, keyword()) :: :ok
-  def commit_response_tee(nil, _opts), do: :ok
+  @spec commit(t() | nil, keyword()) :: :ok
+  def commit(nil, _opts), do: :ok
 
-  def commit_response_tee(%__MODULE__{} = sink, opts) do
+  def commit(%__MODULE__{} = sink, opts) do
     _ignored = commit_sink_result(sink, opts)
     :ok
   end
