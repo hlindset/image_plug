@@ -397,19 +397,7 @@ defmodule ImagePlug.Request.SourceSession.Producer do
   def next(pid, timeout \\ @call_timeout) when is_pid(pid) do
     monitor_ref = Process.monitor(pid)
     ref = request_next(pid, self())
-
-    receive do
-      {^ref, reply} ->
-        Process.demonitor(monitor_ref, [:flush])
-        reply
-
-      {:DOWN, ^monitor_ref, :process, ^pid, reason} ->
-        {:error, {:producer, {:exit, reason}}}
-    after
-      timeout ->
-        Process.demonitor(monitor_ref, [:flush])
-        {:error, {:producer, :timeout}}
-    end
+    receive_reply_or_down(ref, monitor_ref, pid, timeout)
   end
 
   @spec halt(pid(), timeout()) :: :ok | {:error, term()}
@@ -417,14 +405,21 @@ defmodule ImagePlug.Request.SourceSession.Producer do
     monitor_ref = Process.monitor(pid)
     ref = make_ref()
     send(pid, {:halt, self(), ref})
+    receive_reply_or_down(ref, monitor_ref, pid, timeout)
+  end
 
+  defp receive_reply_or_down(ref, monitor_ref, pid, timeout) do
     receive do
       {^ref, reply} ->
         Process.demonitor(monitor_ref, [:flush])
         reply
 
       {:DOWN, ^monitor_ref, :process, ^pid, reason} ->
-        {:error, {:producer, {:exit, reason}}}
+        receive do
+          {^ref, reply} -> reply
+        after
+          0 -> {:error, {:producer, {:exit, reason}}}
+        end
     after
       timeout ->
         Process.demonitor(monitor_ref, [:flush])
@@ -513,7 +508,8 @@ defmodule ImagePlug.Request.SourceSession.Producer do
   catch
     :exit, {%StreamError{reason: reason}, _stacktrace} -> {:error, {:source, reason}}
     :exit, %StreamError{reason: reason} -> {:error, {:source, reason}}
-    kind, reason -> {:error, {:encode, {kind, reason}, []}}
+    :exit, reason -> {:error, {:producer, {:exit, reason}}}
+    kind, reason -> {:error, {:producer, {kind, reason}}}
   end
 
   defp resolve_output(%Policy{} = policy, source_format, image) do
@@ -742,6 +738,56 @@ test "owner death during in-flight prepare replies and stops producer" do
 end
 ```
 
+Add explicit single-flight tests for the new protocol guard:
+
+```elixir
+test "concurrent next while producer demand is pending returns busy" do
+  register_stream_events!()
+
+  {:ok, session} =
+    SourceSession.start(
+      cached_request(opts: opts(image_module: ProducerBlockedBeforeSecondChunkImage)),
+      parent: self()
+    )
+
+  assert {:ok, %Prepared{first_chunk: "first chunk"}} = SourceSession.prepare(session)
+  parent = self()
+
+  caller =
+    spawn(fn ->
+      send(parent, {:first_next, SourceSession.next(session, 5_000)})
+    end)
+
+  caller_ref = Process.monitor(caller)
+  assert_receive {:producer_blocked_before_second_chunk, producer_pid}
+
+  assert {:error, {:protocol, :busy}} = SourceSession.next(session)
+
+  send(producer_pid, :continue_second_chunk)
+  assert_receive {:first_next, {:chunk, "second chunk"}}
+  assert_receive {:DOWN, ^caller_ref, :process, ^caller, :normal}
+end
+
+test "concurrent prepare while producer demand is pending returns busy" do
+  {:ok, session} = SourceSession.start(blocking_request(), parent: self())
+  parent = self()
+
+  caller =
+    spawn(fn ->
+      send(parent, {:first_prepare, SourceSession.prepare(session, 5_000)})
+    end)
+
+  caller_ref = Process.monitor(caller)
+  assert_receive {:fetch_started, producer_pid}
+
+  assert {:error, {:protocol, :busy}} = SourceSession.prepare(session)
+
+  send(producer_pid, :release_fetch)
+  assert_receive {:first_prepare, {:error, {:source, :released}}}
+  assert_receive {:DOWN, ^caller_ref, :process, ^caller, :normal}
+end
+```
+
 Short-lived helper processes are acceptable in these two tests because they model independent protocol callers. Each helper is monitored and asserted down; don't use `Process.sleep/1` or `Process.alive?/1`.
 
 Delete or rewrite the old test named `"abnormal linked exits halt the suspended stream before stopping the session"`. After this refactor, source/encoder helper exits belong to `SourceSession.Producer`, not `SourceSession`. Replace that coverage with producer-level error tests and keep SourceSession tests focused on producer `:DOWN`, owner death, parent shutdown, cancel, and cache cleanup.
@@ -903,74 +949,44 @@ defp handle_producer_result(
        {:ok, {:first_chunk, first_chunk, content_type, headers, resolved_output}},
        %{pending: {:prepare, from}, request: request} = state
      ) do
-  case receive_owner_down_message(state) do
-    {:owner_down, reason} ->
-      state =
-        state
-        |> reply_pending({:error, {:session, {:shutdown, {:owner_down, reason}}}})
-        |> stop_producer(:shutdown)
-        |> abort_cache_sink(:owner_down)
+  with_owner_check(state, fn state ->
+    cache_sink = Cache.open_sink(request.cache_key, resolved_output, request.opts)
+    cache_sink = Cache.write_chunk(cache_sink, first_chunk, request.opts)
 
-      {:stop, {:shutdown, {:owner_down, reason}}, %{state | phase: :cancelled}}
+    prepared = %Prepared{
+      first_chunk: first_chunk,
+      content_type: content_type,
+      headers: headers,
+      resolved_output: resolved_output
+    }
 
-    :none ->
-      cache_sink = Cache.open_sink(request.cache_key, resolved_output, request.opts)
-      cache_sink = Cache.write_chunk(cache_sink, first_chunk, request.opts)
+    GenServer.reply(from, {:ok, prepared})
 
-      prepared = %Prepared{
-        first_chunk: first_chunk,
-        content_type: content_type,
-        headers: headers,
-        resolved_output: resolved_output
-      }
-
-      GenServer.reply(from, {:ok, prepared})
-
-      {:noreply,
-       %{
-         state
-         | pending: nil,
-           phase: :prepared,
-           cache_sink: cache_sink,
-           resolved_output: resolved_output
-       }}
-  end
+    {:noreply,
+     %{
+       state
+       | pending: nil,
+         phase: :prepared,
+         cache_sink: cache_sink,
+         resolved_output: resolved_output
+     }}
+  end)
 end
 
 defp handle_producer_result({:ok, {:chunk, chunk}}, %{pending: {:next, from}} = state) do
-  case receive_owner_down_message(state) do
-    {:owner_down, reason} ->
-      state =
-        state
-        |> reply_pending({:error, {:session, {:shutdown, {:owner_down, reason}}}})
-        |> stop_producer(:shutdown)
-        |> abort_cache_sink(:owner_down)
-
-      {:stop, {:shutdown, {:owner_down, reason}}, %{state | phase: :cancelled}}
-
-    :none ->
-      cache_sink = Cache.write_chunk(state.cache_sink, chunk, state.request.opts)
-      GenServer.reply(from, {:chunk, chunk})
-      {:noreply, %{state | pending: nil, cache_sink: cache_sink}}
-  end
+  with_owner_check(state, fn state ->
+    cache_sink = Cache.write_chunk(state.cache_sink, chunk, state.request.opts)
+    GenServer.reply(from, {:chunk, chunk})
+    {:noreply, %{state | pending: nil, cache_sink: cache_sink}}
+  end)
 end
 
 defp handle_producer_result({:ok, :done}, %{pending: {:next, from}} = state) do
-  case receive_owner_down_message(state) do
-    {:owner_down, reason} ->
-      state =
-        state
-        |> reply_pending({:error, {:session, {:shutdown, {:owner_down, reason}}}})
-        |> stop_producer(:shutdown)
-        |> abort_cache_sink(:owner_down)
-
-      {:stop, {:shutdown, {:owner_down, reason}}, %{state | phase: :cancelled}}
-
-    :none ->
-      Cache.commit_sink(state.cache_sink, state.request.opts)
-      GenServer.reply(from, :done)
-      {:stop, :normal, %{state | phase: :done, pending: nil, cache_sink: nil}}
-  end
+  with_owner_check(state, fn state ->
+    Cache.commit_sink(state.cache_sink, state.request.opts)
+    GenServer.reply(from, :done)
+    {:stop, :normal, %{state | phase: :done, pending: nil, cache_sink: nil}}
+  end)
 end
 
 defp handle_producer_result({:error, reason}, %{pending: {_kind, from}} = state) do
@@ -985,6 +1001,22 @@ end
 Add the owner monitor check used above. This is the only selective receive that remains in `SourceSession`; it checks the session owner's monitor just before delivering or committing producer output:
 
 ```elixir
+defp with_owner_check(state, fun) when is_function(fun, 1) do
+  case receive_owner_down_message(state) do
+    {:owner_down, reason} ->
+      state =
+        state
+        |> reply_pending({:error, {:session, {:shutdown, {:owner_down, reason}}}})
+        |> stop_producer(:shutdown)
+        |> abort_cache_sink(:owner_down)
+
+      {:stop, {:shutdown, {:owner_down, reason}}, %{state | phase: :cancelled}}
+
+    :none ->
+      fun.(state)
+  end
+end
+
 defp receive_owner_down_message(%{owner: owner, owner_monitor: ref}) do
   receive do
     {:DOWN, ^ref, :process, ^owner, reason} -> {:owner_down, reason}
@@ -1046,26 +1078,13 @@ def handle_info({:EXIT, parent, reason}, %{parent: parent} = state) when is_pid(
 end
 ```
 
+Parent exit is normalized to `{:error, {:session, {:shutdown, reason}}}` for pending callers, while the session itself exits with the original parent reason. Keep that distinction explicit in tests.
+
 - [ ] **Step 8: Handle producer DOWN**
 
-Add:
+Add monitor-based producer failure handling. The producer link prevents orphan processes; the producer monitor is the authoritative failure signal. Ignore linked producer exits after parent handling so an abnormal producer death doesn't run cleanup twice.
 
 ```elixir
-def handle_info({:EXIT, producer, reason}, %{producer: producer} = state)
-    when reason != :normal do
-  state =
-    state
-    |> reply_pending({:error, producer_down_reason(reason)})
-    |> abort_cache_sink(:stream_error)
-
-  if is_reference(state.producer_monitor), do: Process.demonitor(state.producer_monitor, [:flush])
-
-  {:stop, :normal,
-   mark_failed(%{state | producer: nil, producer_monitor: nil, producer_request_ref: nil})}
-end
-
-def handle_info({:EXIT, _pid, :normal}, state), do: {:noreply, state}
-
 def handle_info(
       {:DOWN, ref, :process, producer, reason},
       %{producer: producer, producer_monitor: ref} = state
@@ -1094,14 +1113,16 @@ def handle_info(
   end
 end
 
-defp producer_down_reason({%StreamError{reason: reason}, _stacktrace}), do: {:source, reason}
-defp producer_down_reason(%StreamError{reason: reason}), do: {:source, reason}
 defp producer_down_reason(reason), do: {:session, {:producer_down, reason}}
+
+def handle_info({:EXIT, _pid, _reason}, state) do
+  {:noreply, state}
+end
 ```
 
-If `SourceSession` no longer aliases `StreamError`, keep this mapping in `Producer` instead and make producer exits use a producer-owned normalized reason. The final code should avoid making SourceSession know about Vix internals.
+`SourceSession` must not alias or pattern-match `ImagePlug.Source.StreamError`. The producer should return normalized `{:error, {:source, reason}}` replies for source stream errors. Unexpected producer death should stay a session-level producer failure.
 
-Remove the old catch-all `handle_info({:EXIT, pid, reason}, ...)`. After this refactor, only parent exits and producer exits are meaningful to `SourceSession`. Helper exits from source or encoder work must be normalized by `Producer` and returned through the producer protocol or producer death.
+Remove the old catch-all `handle_info({:EXIT, pid, reason}, ...)` that treats arbitrary linked exits as stream errors. After this refactor, only parent exits are meaningful linked-exit control messages in `SourceSession`. A delayed `{:EXIT, old_producer, :shutdown}` after `stop_producer/2` clears `state.producer` is intentionally ignored by the catch-all above.
 
 - [ ] **Step 9: Rewrite cancel/1 around producer halt**
 
@@ -1362,8 +1383,13 @@ After accepted review feedback and verification:
 
 ```bash
 mise exec -- git status --short
+```
+
+If review feedback left changes after the task-level commits, commit those changes:
+
+```bash
 mise exec -- git add .
-mise exec -- git commit -m "Move source session streaming into producer process"
+mise exec -- git commit -m "Tighten source session producer lifecycle"
 mise exec -- git push
 ```
 
