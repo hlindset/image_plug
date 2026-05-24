@@ -798,6 +798,40 @@ test "concurrent prepare while producer demand is pending returns busy" do
 end
 ```
 
+Add a cancel-specific pending-call test:
+
+```elixir
+test "cancel during pending next replies to pending caller before stopping" do
+  register_stream_events!()
+
+  {:ok, session} =
+    SourceSession.start(
+      cached_request(opts: opts(image_module: ProducerBlockedBeforeSecondChunkImage)),
+      parent: self()
+    )
+
+  assert {:ok, %Prepared{first_chunk: "first chunk"}} = SourceSession.prepare(session)
+  parent = self()
+
+  caller =
+    spawn(fn ->
+      send(parent, {:next_result, SourceSession.next(session, 5_000)})
+    end)
+
+  caller_ref = Process.monitor(caller)
+  session_ref = Process.monitor(session)
+
+  assert_receive {:producer_blocked_before_second_chunk, producer_pid}
+  producer_ref = Process.monitor(producer_pid)
+
+  assert :ok = SourceSession.cancel(session)
+  assert_receive {:next_result, {:error, {:session, :cancelled}}}
+  assert_receive {:DOWN, ^caller_ref, :process, ^caller, :normal}
+  assert_receive {:DOWN, ^producer_ref, :process, ^producer_pid, :shutdown}
+  assert_receive {:DOWN, ^session_ref, :process, ^session, :normal}
+end
+```
+
 Short-lived helper processes are acceptable in these two tests because they model independent protocol callers. Each helper is monitored and asserted down; don't use `Process.sleep/1` or `Process.alive?/1`.
 
 Delete or rewrite the old test named `"abnormal linked exits halt the suspended stream before stopping the session"`. After this refactor, source/encoder helper exits belong to `SourceSession.Producer`, not `SourceSession`. Replace that coverage with producer-level error tests and keep SourceSession tests focused on producer `:DOWN`, owner death, parent shutdown, cancel, and cache cleanup.
@@ -898,9 +932,15 @@ Add:
 ```elixir
 defp start_producer(%{request: %Request{} = request} = state) do
   caller_chain = Process.get(:"$callers", [])
-  {:ok, producer} = Producer.start_link(request, caller_chain: caller_chain)
-  ref = Process.monitor(producer)
-  {:ok, %{state | producer: producer, producer_monitor: ref}}
+
+  case Producer.start_link(request, caller_chain: caller_chain) do
+    {:ok, producer} ->
+      ref = Process.monitor(producer)
+      {:ok, %{state | producer: producer, producer_monitor: ref}}
+
+    {:error, reason} ->
+      {:error, {:session, {:producer_start, reason}}, state}
+  end
 end
 
 ```
@@ -989,23 +1029,33 @@ defp handle_producer_result({:ok, :done}, %{pending: {:next, from}} = state) do
   with_owner_check(state, fn state ->
     Cache.commit_sink(state.cache_sink, state.request.opts)
     GenServer.reply(from, :done)
-    {:stop, :normal,
-     %{
-       state
-       | phase: :done,
-         pending: nil,
-         producer: nil,
-         producer_monitor: nil,
-         producer_request_ref: nil,
-         cache_sink: nil
-     }}
+
+    state =
+      state
+      |> clear_producer()
+      |> Map.merge(%{phase: :done, pending: nil, cache_sink: nil})
+
+    {:stop, :normal, state}
   end)
 end
 
 defp handle_producer_result({:error, reason}, %{pending: {_kind, from}} = state) do
-  state = abort_cache_sink(state, :stream_error)
+  state =
+    state
+    |> abort_cache_sink(:stream_error)
+    |> clear_producer()
+
   GenServer.reply(from, {:error, reason})
-  {:stop, :normal, mark_failed(%{state | pending: nil, producer_request_ref: nil})}
+  {:stop, :normal, mark_failed(%{state | pending: nil})}
+end
+
+defp clear_producer(%{producer_monitor: ref} = state) when is_reference(ref) do
+  Process.demonitor(ref, [:flush])
+  %{state | producer: nil, producer_monitor: nil, producer_request_ref: nil}
+end
+
+defp clear_producer(state) do
+  %{state | producer: nil, producer_monitor: nil, producer_request_ref: nil}
 end
 ```
 
@@ -1091,7 +1141,7 @@ def handle_info({:EXIT, parent, reason}, %{parent: parent} = state) when is_pid(
 end
 ```
 
-Parent exit is normalized to `{:error, {:session, {:shutdown, reason}}}` for pending callers, while the session itself exits with the original parent reason. Keep that distinction explicit in tests.
+Parent exit is normalized to `{:error, {:session, {:shutdown, reason}}}` for pending callers, while the session itself exits with the original parent reason. Keep that distinction explicit in tests. This clause must appear before the generic `handle_info({:EXIT, _pid, _reason}, state)` ignore clause.
 
 - [ ] **Step 8: Handle producer DOWN**
 
@@ -1213,6 +1263,17 @@ call_session/3
 ```
 
 Rename any remaining private `call/3` wrapper to `call_session/3`; the public `prepare/2`, `next/2`, and `cancel/2` functions should call that wrapper.
+
+Keep `abort_cache_sink/2` nil-safe:
+
+```elixir
+defp abort_cache_sink(%{cache_sink: nil} = state, _reason), do: state
+
+defp abort_cache_sink(%{cache_sink: cache_sink, request: request} = state, reason) do
+  Cache.abort_sink(cache_sink, reason, request.opts)
+  %{state | cache_sink: nil}
+end
+```
 
 Keep `terminate/2`, but rewrite it so abnormal session termination stops the linked producer and aborts cache staging:
 
