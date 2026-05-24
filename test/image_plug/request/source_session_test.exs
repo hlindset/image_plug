@@ -197,6 +197,37 @@ defmodule ImagePlug.Request.SourceSessionTest do
     end
   end
 
+  defmodule OwnerDownBeforeSecondChunkImage do
+    @event_target ImagePlug.Request.SourceSessionTest.StreamEvents
+
+    def stream!(_image, suffix: ".jpg") do
+      Stream.resource(
+        fn -> :first end,
+        fn
+          :first ->
+            {["first chunk"], :second}
+
+          :second ->
+            if target = Process.whereis(@event_target) do
+              send(target, {:before_second_chunk, self()})
+            end
+
+            receive do
+              :continue_second_chunk -> {["second chunk"], :done}
+            end
+
+          :done ->
+            {:halt, :done}
+        end,
+        fn state ->
+          if target = Process.whereis(@event_target) do
+            send(target, {:owner_down_second_chunk_finalized, state})
+          end
+        end
+      )
+    end
+  end
+
   defmodule LinkedExitAfterFirstChunkImage do
     @event_target ImagePlug.Request.SourceSessionTest.StreamEvents
 
@@ -484,6 +515,59 @@ defmodule ImagePlug.Request.SourceSessionTest do
     assert_receive {:DOWN, ^session_ref, :process, ^session, :normal}
     refute_received {:cache_commit_sink, _chunks}
     assert_received {:cache_abort_sink, ["first chunk"]}
+
+    assert_receive {:telemetry_event, [:image_plug, :cache, :stage], _measurements,
+                    %{
+                      result: :ok,
+                      cache: :stage_abandoned,
+                      reason: :owner_down,
+                      output_format: :jpeg
+                    }}
+  end
+
+  test "next checks pending owner death before returning later chunks" do
+    register_stream_events!()
+    attach_telemetry([[:image_plug, :cache, :stage]])
+
+    owner =
+      spawn(fn ->
+        receive do
+          :stop_owner -> :ok
+        end
+      end)
+
+    {:ok, session} =
+      SourceSession.start(
+        cached_request(opts: opts(image_module: OwnerDownBeforeSecondChunkImage)),
+        owner: owner,
+        parent: self()
+      )
+
+    session_ref = Process.monitor(session)
+    owner_ref = Process.monitor(owner)
+
+    assert {:ok, %Prepared{first_chunk: "first chunk"}} = SourceSession.prepare(session)
+
+    parent = self()
+
+    caller =
+      spawn(fn ->
+        send(parent, {:next_result, SourceSession.next(session)})
+      end)
+
+    caller_ref = Process.monitor(caller)
+
+    assert_receive {:before_second_chunk, ^session}
+    send(owner, :stop_owner)
+    assert_receive {:DOWN, ^owner_ref, :process, ^owner, :normal}
+    send(session, :continue_second_chunk)
+
+    assert_receive {:next_result, {:error, {:session, {:shutdown, {:owner_down, :normal}}}}}
+    assert_receive {:owner_down_second_chunk_finalized, :done}
+    assert_receive {:DOWN, ^caller_ref, :process, ^caller, :normal}
+    assert_receive {:DOWN, ^session_ref, :process, ^session, :normal}
+    refute_received {:cache_commit_sink, _chunks}
+    assert_received {:cache_abort_sink, ["first chunk", "second chunk"]}
 
     assert_receive {:telemetry_event, [:image_plug, :cache, :stage], _measurements,
                     %{

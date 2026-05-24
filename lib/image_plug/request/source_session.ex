@@ -26,9 +26,7 @@ defmodule ImagePlug.Request.SourceSession do
     :suspended,
     :resolved_output,
     :cache_sink,
-    phase: :new,
-    first_error: nil,
-    exits: []
+    phase: :new
   ]
 
   @type server() :: GenServer.server()
@@ -73,6 +71,7 @@ defmodule ImagePlug.Request.SourceSession do
   @impl GenServer
   def init({%Request{} = request, owner, parent}) when is_pid(owner) do
     Process.flag(:trap_exit, true)
+    # Preserve request ownership for Tasks spawned by downstream image/source code.
     Process.put(:"$callers", [owner | Process.get(:"$callers", [])])
 
     {:ok,
@@ -145,8 +144,8 @@ defmodule ImagePlug.Request.SourceSession do
     {:stop, {:shutdown, {:owner_down, reason}}, state}
   end
 
-  def handle_info({:EXIT, pid, :normal}, state) do
-    {:noreply, %{state | exits: [{pid, :normal} | state.exits]}}
+  def handle_info({:EXIT, _pid, :normal}, state) do
+    {:noreply, state}
   end
 
   def handle_info({:EXIT, parent, :shutdown}, %{parent: parent} = state) do
@@ -164,7 +163,6 @@ defmodule ImagePlug.Request.SourceSession do
 
     state =
       state
-      |> Map.update!(:exits, &[{pid, reason} | &1])
       |> shutdown_halt_stream(:stream_error)
       |> mark_failed(reason)
 
@@ -177,19 +175,19 @@ defmodule ImagePlug.Request.SourceSession do
 
   @impl GenServer
   def terminate(:shutdown, state) do
-    _state = shutdown_halt_stream(%{state | phase: :cancelled}, :cancelled)
+    shutdown_halt_stream(%{state | phase: :cancelled}, :cancelled)
     :ok
   end
 
   def terminate({:shutdown, _reason}, state) do
-    _state = shutdown_halt_stream(%{state | phase: :cancelled}, :cancelled)
+    shutdown_halt_stream(%{state | phase: :cancelled}, :cancelled)
     :ok
   end
 
   def terminate(:normal, _state), do: :ok
 
   def terminate(_reason, state) do
-    _state = shutdown_halt_stream(%{state | phase: :cancelled}, :stream_error)
+    shutdown_halt_stream(%{state | phase: :cancelled}, :stream_error)
     :ok
   end
 
@@ -209,7 +207,7 @@ defmodule ImagePlug.Request.SourceSession do
              request.plan,
              request.resolved_source,
              request.opts,
-             state.parent
+             state
            ),
          {:ok, %State{} = final_state} <-
            Processor.process_decoded_source(decoded, request.plan, request.opts),
@@ -290,34 +288,10 @@ defmodule ImagePlug.Request.SourceSession do
     kind, reason -> {:error, {kind, reason}, shutdown_halt_stream(state, :stream_error)}
   end
 
-  defp fetch_decode_validate_source(plan, resolved_source, opts, parent) do
+  defp fetch_decode_validate_source(plan, resolved_source, opts, state) do
     plan
     |> Processor.fetch_decode_validate_source_with_source_format(resolved_source, opts)
-    |> receive_linked_exit(parent)
-  end
-
-  defp receive_linked_exit(result, parent) do
-    receive do
-      {:EXIT, pid, :shutdown} when is_pid(parent) and pid == parent ->
-        {:shutdown, :shutdown}
-
-      {:EXIT, pid, {:shutdown, _reason} = shutdown} when is_pid(parent) and pid == parent ->
-        {:shutdown, shutdown}
-
-      {:EXIT, _pid, {%StreamError{reason: reason}, _stacktrace}} ->
-        {:error, {:source, reason}}
-
-      {:EXIT, _pid, %StreamError{reason: reason}} ->
-        {:error, {:source, reason}}
-
-      {:EXIT, _pid, :normal} ->
-        receive_linked_exit(result, parent)
-
-      {:EXIT, pid, reason} when pid != parent ->
-        {:error, {:linked_exit, pid, reason}}
-    after
-      0 -> result
-    end
+    |> receive_session_control_message(state)
   end
 
   defp receive_session_control_message(
@@ -378,8 +352,19 @@ defmodule ImagePlug.Request.SourceSession do
   end
 
   defp next_chunk(%{suspended: {acc, continuation}} = state) do
-    continuation.({:cont, acc})
-    |> reduce_result(%{state | suspended: nil})
+    with :ok <- receive_session_control_message(:ok, state) do
+      continuation.({:cont, acc})
+      |> reduce_result(%{state | suspended: nil})
+      |> receive_session_control_after_chunk()
+    else
+      {:error, reason} ->
+        {{:error, reason}, shutdown_halt_stream(state, :stream_error)}
+
+      {:shutdown, shutdown_reason} ->
+        reason = {:session, {:shutdown, shutdown_reason}}
+
+        {{:error, reason}, shutdown_halt_stream(state, shutdown_cache_reason(shutdown_reason))}
+    end
   rescue
     exception in [StreamError] ->
       {{:error, {:source, exception.reason}}, %{state | suspended: nil}}
@@ -399,7 +384,26 @@ defmodule ImagePlug.Request.SourceSession do
 
   defp next_chunk(%{suspended: nil} = state), do: {:done, state}
 
+  defp receive_session_control_after_chunk({{:chunk, _chunk}, state} = result) do
+    case receive_session_control_message(:ok, state) do
+      :ok ->
+        result
+
+      {:error, reason} ->
+        {{:error, reason}, shutdown_halt_stream(state, :stream_error)}
+
+      {:shutdown, shutdown_reason} ->
+        reason = {:session, {:shutdown, shutdown_reason}}
+
+        {{:error, reason}, shutdown_halt_stream(state, shutdown_cache_reason(shutdown_reason))}
+    end
+  end
+
+  defp receive_session_control_after_chunk(result), do: result
+
   defp reduce_stream(stream) do
+    # Store the real Enumerable continuation so each next/1 call pulls exactly
+    # one encoded chunk while SourceSession still owns the lazy stream state.
     stream
     |> Enumerable.reduce({:cont, nil}, fn
       chunk, _acc when is_binary(chunk) and byte_size(chunk) > 0 -> {:suspend, chunk}
@@ -432,7 +436,7 @@ defmodule ImagePlug.Request.SourceSession do
   defp finish_stream(state) do
     case receive_session_control_message(:ok, state) do
       :ok ->
-        _result = Cache.commit_sink(state.cache_sink, state.request.opts)
+        Cache.commit_sink(state.cache_sink, state.request.opts)
         {:done, %{state | suspended: nil, cache_sink: nil}}
 
       {:error, reason} ->
@@ -449,7 +453,7 @@ defmodule ImagePlug.Request.SourceSession do
   defp halt_stream(%{suspended: nil} = state), do: {:ok, state}
 
   defp halt_stream(%{suspended: {acc, continuation}} = state) do
-    _result = continuation.({:halt, acc})
+    continuation.({:halt, acc})
     {:ok, %{state | suspended: nil}}
   catch
     kind, reason -> {:error, {kind, reason}, %{state | suspended: nil}}
@@ -468,7 +472,7 @@ defmodule ImagePlug.Request.SourceSession do
   end
 
   defp abort_cache_sink(%{cache_sink: cache_sink, request: request} = state, reason) do
-    _result = Cache.abort_sink(cache_sink, reason, request.opts)
+    Cache.abort_sink(cache_sink, reason, request.opts)
     %{state | cache_sink: nil}
   end
 
@@ -478,5 +482,5 @@ defmodule ImagePlug.Request.SourceSession do
   defp shutdown_cache_reason({:owner_down, _reason}), do: :owner_down
   defp shutdown_cache_reason(_reason), do: :cancelled
 
-  defp mark_failed(state, reason), do: %{state | phase: :failed, first_error: reason}
+  defp mark_failed(state, _reason), do: %{state | phase: :failed}
 end
