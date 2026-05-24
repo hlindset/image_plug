@@ -455,7 +455,6 @@ defmodule ImagePlug.Request.SourceSessionTest do
     send(owner, :stop_owner)
 
     assert_receive {:DOWN, ^owner_ref, :process, ^owner, :normal}
-    assert_receive {:stream_finalized, :second}
     assert_receive {:DOWN, ^session_ref, :process, ^session, {:shutdown, {:owner_down, :normal}}}
     refute_received {:cache_commit_sink, _chunks}
     assert_received {:cache_abort_sink, ["first chunk"]}
@@ -504,15 +503,15 @@ defmodule ImagePlug.Request.SourceSessionTest do
 
     caller_ref = Process.monitor(caller)
 
-    assert_receive {:before_stream_done, ^session}
+    assert_receive {:before_stream_done, producer_pid}
+    producer_ref = Process.monitor(producer_pid)
     send(owner, :stop_owner)
     assert_receive {:DOWN, ^owner_ref, :process, ^owner, :normal}
-    send(session, :continue_stream_done)
 
     assert_receive {:next_result, {:error, {:session, {:shutdown, {:owner_down, :normal}}}}}
-    assert_receive {:owner_down_stream_finalized, :done}
     assert_receive {:DOWN, ^caller_ref, :process, ^caller, :normal}
-    assert_receive {:DOWN, ^session_ref, :process, ^session, :normal}
+    assert_receive {:DOWN, ^producer_ref, :process, ^producer_pid, :shutdown}
+    assert_receive {:DOWN, ^session_ref, :process, ^session, {:shutdown, {:owner_down, :normal}}}
     refute_received {:cache_commit_sink, _chunks}
     assert_received {:cache_abort_sink, ["first chunk"]}
 
@@ -557,17 +556,17 @@ defmodule ImagePlug.Request.SourceSessionTest do
 
     caller_ref = Process.monitor(caller)
 
-    assert_receive {:before_second_chunk, ^session}
+    assert_receive {:before_second_chunk, producer_pid}
+    producer_ref = Process.monitor(producer_pid)
     send(owner, :stop_owner)
     assert_receive {:DOWN, ^owner_ref, :process, ^owner, :normal}
-    send(session, :continue_second_chunk)
 
     assert_receive {:next_result, {:error, {:session, {:shutdown, {:owner_down, :normal}}}}}
-    assert_receive {:owner_down_second_chunk_finalized, :done}
     assert_receive {:DOWN, ^caller_ref, :process, ^caller, :normal}
-    assert_receive {:DOWN, ^session_ref, :process, ^session, :normal}
+    assert_receive {:DOWN, ^producer_ref, :process, ^producer_pid, :shutdown}
+    assert_receive {:DOWN, ^session_ref, :process, ^session, {:shutdown, {:owner_down, :normal}}}
     refute_received {:cache_commit_sink, _chunks}
-    assert_received {:cache_abort_sink, ["first chunk", "second chunk"]}
+    assert_received {:cache_abort_sink, ["first chunk"]}
 
     assert_receive {:telemetry_event, [:image_plug, :cache, :stage], _measurements,
                     %{
@@ -664,15 +663,119 @@ defmodule ImagePlug.Request.SourceSessionTest do
 
     caller_ref = Process.monitor(caller)
 
-    try do
-      assert_receive {:fetch_started, ^session}, 1_000
-      assert_receive {:prepare_result, {:error, {:session, :timeout}}}, 1_000
-    after
-      send(session, :release_fetch)
-    end
+    assert_receive {:fetch_started, producer_pid}, 1_000
+    assert_receive {:prepare_result, {:error, {:session, :timeout}}}, 1_000
+    send(producer_pid, :release_fetch)
 
     assert_receive {:DOWN, ^ref, :process, ^session, :normal}
     assert_receive {:DOWN, ^caller_ref, :process, ^caller, :normal}
+  end
+
+  test "owner death during in-flight prepare replies and stops producer" do
+    owner =
+      spawn(fn ->
+        receive do
+          :stop_owner -> :ok
+        end
+      end)
+
+    {:ok, session} = SourceSession.start(blocking_request(), owner: owner, parent: self())
+    session_ref = Process.monitor(session)
+    owner_ref = Process.monitor(owner)
+    parent = self()
+
+    caller =
+      spawn(fn ->
+        send(parent, {:prepare_result, SourceSession.prepare(session, 5_000)})
+      end)
+
+    caller_ref = Process.monitor(caller)
+
+    assert_receive {:fetch_started, producer_pid}
+    producer_ref = Process.monitor(producer_pid)
+    send(owner, :stop_owner)
+    assert_receive {:DOWN, ^owner_ref, :process, ^owner, :normal}
+
+    assert_receive {:prepare_result, {:error, {:session, {:shutdown, {:owner_down, :normal}}}}}
+    assert_receive {:DOWN, ^caller_ref, :process, ^caller, :normal}
+    assert_receive {:DOWN, ^producer_ref, :process, ^producer_pid, :shutdown}
+    assert_receive {:DOWN, ^session_ref, :process, ^session, {:shutdown, {:owner_down, :normal}}}
+  end
+
+  test "concurrent prepare while producer demand is pending returns busy" do
+    {:ok, session} = SourceSession.start(blocking_request(), parent: self())
+    parent = self()
+
+    caller =
+      spawn(fn ->
+        send(parent, {:first_prepare, SourceSession.prepare(session, 5_000)})
+      end)
+
+    caller_ref = Process.monitor(caller)
+    assert_receive {:fetch_started, producer_pid}
+
+    assert {:error, {:protocol, :busy}} = SourceSession.prepare(session)
+
+    send(producer_pid, :release_fetch)
+    assert_receive {:first_prepare, {:error, _reason}}
+    assert_receive {:DOWN, ^caller_ref, :process, ^caller, :normal}
+  end
+
+  test "concurrent next while producer demand is pending returns busy" do
+    register_stream_events!()
+
+    {:ok, session} =
+      SourceSession.start(
+        cached_request(opts: opts(image_module: OwnerDownBeforeSecondChunkImage)),
+        parent: self()
+      )
+
+    assert {:ok, %Prepared{first_chunk: "first chunk"}} = SourceSession.prepare(session)
+    parent = self()
+
+    caller =
+      spawn(fn ->
+        send(parent, {:first_next, SourceSession.next(session, 5_000)})
+      end)
+
+    caller_ref = Process.monitor(caller)
+    assert_receive {:before_second_chunk, producer_pid}
+
+    assert {:error, {:protocol, :busy}} = SourceSession.next(session)
+
+    send(producer_pid, :continue_second_chunk)
+    assert_receive {:first_next, {:chunk, "second chunk"}}
+    assert_receive {:DOWN, ^caller_ref, :process, ^caller, :normal}
+  end
+
+  test "cancel during pending next replies to pending caller before stopping" do
+    register_stream_events!()
+
+    {:ok, session} =
+      SourceSession.start(
+        cached_request(opts: opts(image_module: OwnerDownBeforeSecondChunkImage)),
+        parent: self()
+      )
+
+    assert {:ok, %Prepared{first_chunk: "first chunk"}} = SourceSession.prepare(session)
+    parent = self()
+
+    caller =
+      spawn(fn ->
+        send(parent, {:next_result, SourceSession.next(session, 5_000)})
+      end)
+
+    caller_ref = Process.monitor(caller)
+    session_ref = Process.monitor(session)
+
+    assert_receive {:before_second_chunk, producer_pid}
+    producer_ref = Process.monitor(producer_pid)
+
+    assert :ok = SourceSession.cancel(session)
+    assert_receive {:next_result, {:error, {:session, :cancelled}}}
+    assert_receive {:DOWN, ^caller_ref, :process, ^caller, :normal}
+    assert_receive {:DOWN, ^producer_ref, :process, ^producer_pid, :shutdown}
+    assert_receive {:DOWN, ^session_ref, :process, ^session, :normal}
   end
 
   test "owner death cancels the session once the active callback yields" do
@@ -700,7 +803,6 @@ defmodule ImagePlug.Request.SourceSessionTest do
     send(owner, :stop_owner)
 
     assert_receive {:DOWN, ^owner_ref, :process, ^owner, :normal}
-    assert_receive {:stream_finalized, :second}
     assert_receive {:DOWN, ^session_ref, :process, ^session, {:shutdown, {:owner_down, :normal}}}
   end
 
@@ -775,25 +877,6 @@ defmodule ImagePlug.Request.SourceSessionTest do
     assert {:error, {:source, :stream_exception}} = SourceSession.next(session)
     assert_receive {:source_error_stream_finalized, :raise}
     assert_receive {:DOWN, ^ref, :process, ^session, :normal}
-  end
-
-  test "abnormal linked exits halt the suspended stream before stopping the session" do
-    register_stream_events!()
-
-    {:ok, session} =
-      SourceSession.start(request(opts: opts(image_module: LinkedExitAfterFirstChunkImage)))
-
-    ref = Process.monitor(session)
-
-    assert {:ok, %Prepared{first_chunk: "first chunk"}} = SourceSession.prepare(session)
-    assert_receive {:linked_exit_helper, helper}
-
-    capture_log(fn ->
-      send(helper, :boom)
-
-      assert_receive {:linked_exit_stream_finalized, :second}
-      assert_receive {:DOWN, ^ref, :process, ^session, {:linked_exit, ^helper, :boom}}
-    end)
   end
 
   defp request(overrides \\ []) do

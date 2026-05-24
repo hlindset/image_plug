@@ -1,6 +1,16 @@
 defmodule ImagePlug.Request.VixStreamContinuationTest do
   use ExUnit.Case, async: false
 
+  alias ImagePlug.Output.Policy
+  alias ImagePlug.Plan
+  alias ImagePlug.Plan.Output
+  alias ImagePlug.Plan.Pipeline
+  alias ImagePlug.Plan.Source.Path
+  alias ImagePlug.Request.SourceSession.Producer
+  alias ImagePlug.Request.SourceSession.Request
+  alias ImagePlug.Source.Resolved, as: ResolvedSource
+  alias ImagePlug.SourceTest.ValidAdapter
+
   @cleanup_observation_timeout 1_000
 
   defmodule ProofServer do
@@ -317,6 +327,47 @@ defmodule ImagePlug.Request.VixStreamContinuationTest do
            "expected observed writer task to exit after cancel, got #{inspect(writer_cleanup_result)}:\n#{linked_process_diagnostics(snapshot)}"
   end
 
+  @tag :producer_cleanup
+  @tag :writer_cleanup
+  test "killing a source session producer stops the observed target pipe" do
+    Process.flag(:trap_exit, true)
+
+    {:ok, producer} = Producer.start_link(producer_request())
+    ref = Process.monitor(producer)
+
+    assert {:ok, {:first_chunk, first_chunk, "image/jpeg", [], _resolved_output}} =
+             Producer.next(producer)
+
+    assert is_binary(first_chunk)
+
+    snapshot = producer_helper_snapshot(producer)
+
+    assert is_pid(snapshot.target_pipe),
+           "target pipe was not observed:\n#{linked_process_diagnostics(snapshot)}"
+
+    Process.exit(producer, :shutdown)
+    assert_receive {:EXIT, ^producer, :shutdown}
+    assert_receive {:DOWN, ^ref, :process, ^producer, :shutdown}
+
+    assert {:down, _reason} = assert_process_down(snapshot.target_pipe)
+
+    writer_cleanup_result =
+      case assert_process_down(snapshot.target_task) do
+        {:alive, writer_pid} ->
+          cleanup_process(writer_pid)
+          {:failed, :writer_alive}
+
+        :not_observed ->
+          {:inconclusive, :writer_not_observed}
+
+        {:down, _reason} ->
+          :passed
+      end
+
+    assert writer_cleanup_result == :passed,
+           "expected observed writer task to exit after producer shutdown, got #{inspect(writer_cleanup_result)}:\n#{linked_process_diagnostics(snapshot)}"
+  end
+
   defp cleanup_process(pid) when is_pid(pid) do
     ref = Process.monitor(pid)
     Process.exit(pid, :kill)
@@ -334,11 +385,106 @@ defmodule ImagePlug.Request.VixStreamContinuationTest do
     inspect(snapshot.linked_process_diagnostics, pretty: true, limit: 20, printable_limit: 1_000)
   end
 
+  defp producer_helper_snapshot(producer) do
+    linked_processes = producer_linked_processes(producer)
+    target_pipe = Enum.find(linked_processes, fn pid -> process_module(pid) == Vix.TargetPipe end)
+
+    %{
+      target_pipe: target_pipe,
+      target_task: target_task(target_pipe),
+      linked_process_diagnostics: inspect_linked_processes(linked_processes)
+    }
+  end
+
+  defp producer_linked_processes(producer) do
+    case Process.info(producer, :links) do
+      {:links, links} -> links
+      nil -> []
+    end
+  end
+
+  defp target_task(nil), do: nil
+
+  defp target_task(pid) when is_pid(pid) do
+    case :sys.get_state(pid) do
+      %{task_pid: task_pid} when is_pid(task_pid) -> task_pid
+      _state -> nil
+    end
+  catch
+    :exit, _reason -> nil
+  end
+
+  defp process_module(pid) when is_pid(pid) do
+    case :sys.get_state(pid) do
+      %{__struct__: module} -> module
+      _state -> nil
+    end
+  catch
+    :exit, _reason -> nil
+  end
+
+  defp inspect_linked_processes(linked_processes) do
+    Enum.map(linked_processes, fn pid ->
+      %{
+        pid: pid,
+        current_function: Process.info(pid, :current_function),
+        initial_call: Process.info(pid, :initial_call),
+        registered_name: Process.info(pid, :registered_name),
+        state: safe_sys_state(pid)
+      }
+    end)
+  end
+
+  defp safe_sys_state(pid) do
+    :sys.get_state(pid)
+  catch
+    :exit, reason -> {:exit, reason}
+  end
+
   defp collect_chunks_with_count(pid, chunks, count) do
     case ProofServer.next(pid) do
       {:chunk, chunk} -> collect_chunks_with_count(pid, [chunk | chunks], count + 1)
       :done -> {Enum.reverse(chunks), count}
     end
+  end
+
+  defp producer_request do
+    runtime_opts = [
+      sources: %{path: {ValidAdapter, []}},
+      output_formats: [jpeg: []],
+      output_negotiation: []
+    ]
+
+    %Request{
+      plan: plan(),
+      resolved_source: resolved_source(),
+      output_policy:
+        Policy.from_output_plan(
+          Plug.Test.conn(:get, "/"),
+          %Output{mode: {:explicit, :jpeg}},
+          runtime_opts
+        ),
+      opts: runtime_opts,
+      cache_key: nil
+    }
+  end
+
+  defp plan do
+    %Plan{
+      source: %Path{segments: ["images", "beach.jpg"]},
+      pipelines: [%Pipeline{operations: []}],
+      output: %Output{mode: {:explicit, :jpeg}}
+    }
+  end
+
+  defp resolved_source do
+    %ResolvedSource{
+      adapter: :path,
+      source_kind: :path,
+      identity: [kind: :path, root: "test", path: ["images", "beach.jpg"]],
+      fetch: :fixture,
+      cache: :normal
+    }
   end
 
   defp assert_process_down(nil), do: :not_observed

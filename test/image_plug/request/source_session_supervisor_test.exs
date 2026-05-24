@@ -103,7 +103,6 @@ defmodule ImagePlug.Request.SourceSessionSupervisorTest do
     send(owner, :stop_owner)
 
     assert_receive {:DOWN, ^owner_ref, :process, ^owner, :normal}
-    assert_receive {:stream_finalized, :second}
     assert_receive {:DOWN, ^session_ref, :process, ^session, {:shutdown, {:owner_down, :normal}}}
     assert_child_counts(supervisor, active: 0, workers: 0)
   end
@@ -128,7 +127,6 @@ defmodule ImagePlug.Request.SourceSessionSupervisorTest do
     send(owner, :stop_owner)
 
     assert_receive {:DOWN, ^owner_ref, :process, ^owner, :normal}
-    assert_receive {:stream_finalized, :second}
     assert_receive {:DOWN, ^session_ref, :process, ^session, {:shutdown, {:owner_down, :normal}}}
     assert_child_counts(supervisor, active: 0, workers: 0)
   end
@@ -153,7 +151,6 @@ defmodule ImagePlug.Request.SourceSessionSupervisorTest do
       Supervisor.stop(supervisor, :shutdown)
     end)
 
-    assert_receive {:stream_finalized, :second}
     assert_receive {:DOWN, ^session_ref, :process, ^session, :shutdown}
     assert_receive {:DOWN, ^supervisor_ref, :process, ^supervisor, :shutdown}
   end
@@ -178,7 +175,7 @@ defmodule ImagePlug.Request.SourceSessionSupervisorTest do
     assert_child_counts(supervisor, active: 0, workers: 0)
   end
 
-  test "stop_session gracefully finalizes a prepared stream" do
+  test "stop_session shuts down a prepared stream child" do
     register_stream_events!()
     supervisor = start_supervised!({SourceSessionSupervisor, name: nil})
 
@@ -193,7 +190,6 @@ defmodule ImagePlug.Request.SourceSessionSupervisorTest do
     assert {:ok, %Prepared{first_chunk: "first chunk"}} = SourceSession.prepare(session)
     assert :ok = SourceSessionSupervisor.stop_session(supervisor, session)
 
-    assert_receive {:stream_finalized, :second}
     assert_receive {:DOWN, ^ref, :process, ^session, :shutdown}
     assert_child_counts(supervisor, active: 0, workers: 0)
   end
@@ -252,7 +248,7 @@ defmodule ImagePlug.Request.SourceSessionSupervisorTest do
     assert {:error, {:session, :noproc}} = SourceSession.next(session)
   end
 
-  test "request owner timeout while prepare is blocked leaves cleanup to the supervisor facade" do
+  test "request owner timeout while prepare is blocked stops the session" do
     supervisor = start_supervised!({SourceSessionSupervisor, name: nil})
     parent = self()
 
@@ -269,15 +265,11 @@ defmodule ImagePlug.Request.SourceSessionSupervisorTest do
 
     assert_receive {:session_started, ^owner, session}, 1_000
     session_ref = Process.monitor(session)
-    assert_receive {:fetch_started, ^session}, 1_000
+    assert_receive {:fetch_started, _producer_pid}, 1_000
     assert_receive {:prepare_result, {:error, {:session, :timeout}}}, 1_000
     assert_receive {:DOWN, ^owner_ref, :process, ^owner, :normal}
-    assert_child_counts(supervisor, active: 1)
-
-    assert :ok = SourceSessionSupervisor.stop_session(supervisor, session)
-    assert_receive {:DOWN, ^session_ref, :process, ^session, reason}
-    assert reason in [:shutdown, :killed]
     assert_child_counts(supervisor, active: 0)
+    assert_receive {:DOWN, ^session_ref, :process, ^session, {:shutdown, {:owner_down, :normal}}}
   end
 
   test "caller parent option cannot override the supervisor parent" do
@@ -300,7 +292,6 @@ defmodule ImagePlug.Request.SourceSessionSupervisorTest do
       Supervisor.stop(supervisor, :shutdown)
     end)
 
-    assert_receive {:stream_finalized, :second}
     assert_receive {:DOWN, ^session_ref, :process, ^session, :shutdown}
   end
 
@@ -322,12 +313,13 @@ defmodule ImagePlug.Request.SourceSessionSupervisorTest do
         send(parent, {:prepare_result, SourceSession.prepare(session, 5_000)})
       end)
 
-    assert_receive {:fetch_started, ^session}, 1_000
+    assert_receive {:fetch_started, producer_pid}, 1_000
+    producer_ref = Process.monitor(producer_pid)
 
     send(session, {:EXIT, supervisor, :shutdown})
-    send(session, :release_fetch)
 
     assert_receive {:prepare_result, {:error, {:session, {:shutdown, :shutdown}}}}, 1_000
+    assert_receive {:DOWN, ^producer_ref, :process, ^producer_pid, :shutdown}
     assert_receive {:DOWN, ^session_ref, :process, ^session, :shutdown}
     assert_child_counts(supervisor, active: 0)
   end
