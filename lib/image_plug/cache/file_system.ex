@@ -115,6 +115,7 @@ defmodule ImagePlug.Cache.FileSystem do
   defp validate_representative_cache_dir(validated_opts) do
     root = Keyword.fetch!(validated_opts, :root)
     path_prefix = Keyword.fetch!(validated_opts, :path_prefix)
+    # Probe the directory shape every cache key will use after hash partitioning.
     dir = Path.join([root, path_prefix, "00", "00"])
 
     validate_under_root(root, dir)
@@ -285,12 +286,15 @@ defmodule ImagePlug.Cache.FileSystem do
   end
 
   defp validate_metadata_headers(headers) do
-    case Entry.cacheable_headers(headers) do
-      {:ok, ^headers} -> :ok
-      {:ok, _normalized_headers} -> {:error, :invalid_headers}
-      {:error, reason} -> {:error, reason}
+    if Enum.all?(headers, &valid_metadata_header?/1) do
+      :ok
+    else
+      {:error, :invalid_headers}
     end
   end
+
+  defp valid_metadata_header?({name, value}), do: is_binary(name) and is_binary(value)
+  defp valid_metadata_header?(_header), do: false
 
   defp parse_created_at(created_at) do
     case DateTime.from_iso8601(created_at) do
@@ -409,11 +413,7 @@ defmodule ImagePlug.Cache.FileSystem do
   defp cleanup_temp_files(temp_paths) do
     temp_paths
     |> Enum.reject(&is_nil/1)
-    |> Enum.each(fn path ->
-      _result = File.rm(path)
-    end)
-
-    :ok
+    |> Enum.each(&File.rm/1)
   end
 
   @doc false

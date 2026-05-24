@@ -350,7 +350,7 @@ defmodule ImagePlug.Cache.FileSystemTest do
              FileSystem.get(cache_key, root: root)
   end
 
-  test "invalid metadata headers are returned as invalid metadata", %{root: root} do
+  test "malformed metadata headers are returned as invalid metadata", %{root: root} do
     cache_key = key("bfbfbf" <> String.duplicate("c", 58))
     dir = Path.join([root, "bf", "bf"])
     File.mkdir_p!(dir)
@@ -358,7 +358,7 @@ defmodule ImagePlug.Cache.FileSystemTest do
 
     File.write!(
       Path.join(dir, cache_key.hash <> ".meta"),
-      :erlang.term_to_binary(metadata(cache_key, "body", headers: [{"X-Other", "value"}]))
+      :erlang.term_to_binary(metadata(cache_key, "body", headers: [{"vary", :not_binary}]))
     )
 
     assert FileSystem.get(cache_key, root: root) ==
