@@ -114,8 +114,7 @@ defmodule ImagePlug.Cache.FileSystemPropertyTest do
       constant("processed/../outside"),
       constant("processed/./images"),
       constant("processed//images"),
-      constant("/absolute"),
-      constant("~/cache")
+      constant("/absolute")
     ])
   end
 

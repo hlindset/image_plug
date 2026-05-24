@@ -110,14 +110,16 @@ defmodule ImagePlug.Cache.FileSystemTest do
     assert FileSystem.get(key(), root: root, path_prefix: "processed//images") ==
              {:error, {:invalid_path_prefix, "processed//images"}}
 
-    assert FileSystem.get(key(), root: root, path_prefix: "~/cache") ==
-             {:error, {:invalid_path_prefix, "~/cache"}}
-
     assert FileSystem.get(key(), root: root, path_prefix: "processed\\..\\outside") ==
              {:error, {:invalid_path_prefix, "processed\\..\\outside"}}
 
     assert FileSystem.validate_options(root: root, path_prefix: "../outside") ==
              {:error, {:invalid_path_prefix, "../outside"}}
+  end
+
+  test "accepts tilde as a normal relative path segment", %{root: root} do
+    assert FileSystem.validate_options(root: root, path_prefix: "~cache") ==
+             {:ok, [root: root, path_prefix: "~cache"]}
   end
 
   test "rejects unknown filesystem adapter options", %{root: root} do
@@ -349,6 +351,38 @@ defmodule ImagePlug.Cache.FileSystemTest do
              {:error, {:invalid_metadata, :invalid_body_filename}}
   end
 
+  test "invalid metadata content type is returned as invalid metadata", %{root: root} do
+    cache_key = key("bebebe" <> String.duplicate("c", 58))
+    dir = Path.join([root, "be", "be"])
+    File.mkdir_p!(dir)
+    File.write!(Path.join(dir, body_filename(cache_key, "body")), "body")
+
+    File.write!(
+      Path.join(dir, cache_key.hash <> ".meta"),
+      :erlang.term_to_binary(
+        metadata(cache_key, "body", content_type: "application/octet-stream")
+      )
+    )
+
+    assert {:error, {:invalid_metadata, {:invalid_content_type, _reason}}} =
+             FileSystem.get(cache_key, root: root)
+  end
+
+  test "invalid metadata headers are returned as invalid metadata", %{root: root} do
+    cache_key = key("bfbfbf" <> String.duplicate("c", 58))
+    dir = Path.join([root, "bf", "bf"])
+    File.mkdir_p!(dir)
+    File.write!(Path.join(dir, body_filename(cache_key, "body")), "body")
+
+    File.write!(
+      Path.join(dir, cache_key.hash <> ".meta"),
+      :erlang.term_to_binary(metadata(cache_key, "body", headers: [{"X-Other", "value"}]))
+    )
+
+    assert FileSystem.get(cache_key, root: root) ==
+             {:error, {:invalid_metadata, :invalid_headers}}
+  end
+
   test "cache hits trust same-size body files without digest recomputation", %{root: root} do
     cache_key = key("eeeeee" <> String.duplicate("1", 58))
     assert put_entry(cache_key, entry("body-one"), root: root) == :ok
@@ -420,7 +454,7 @@ defmodule ImagePlug.Cache.FileSystemTest do
     assert File.read!(body_path) == "old body"
   end
 
-  test "removes a newly committed body when metadata commit fails", %{root: root} do
+  test "keeps a content-addressed body orphan when metadata commit fails", %{root: root} do
     cache_key = key("cecece" <> String.duplicate("d", 58))
     assert {:ok, paths} = FileSystem.paths(cache_key, root: root)
     File.mkdir_p!(paths.dir)
@@ -429,7 +463,7 @@ defmodule ImagePlug.Cache.FileSystemTest do
     new_body_path = Path.join(paths.dir, body_filename(cache_key, "new body"))
 
     assert {:error, _reason} = put_entry(cache_key, entry("new body"), root: root)
-    refute File.exists?(new_body_path)
+    assert File.exists?(new_body_path)
     refute File.ls!(paths.dir) |> Enum.any?(&String.ends_with?(&1, ".tmp"))
   end
 
