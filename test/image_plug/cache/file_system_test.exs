@@ -204,6 +204,36 @@ defmodule ImagePlug.Cache.FileSystemTest do
     refute Enum.any?(File.ls!(paths.dir), &String.ends_with?(&1, ".tmp"))
   end
 
+  test "sink write errors return the unchanged state", %{root: root} do
+    cache_key = key("abcdef" <> String.duplicate("2", 58))
+    assert {:ok, paths} = FileSystem.paths(cache_key, root: root)
+    File.mkdir_p!(paths.dir)
+
+    read_only_path = Path.join(paths.dir, "read-only.tmp")
+    File.write!(read_only_path, "")
+    {:ok, body_io} = File.open(read_only_path, [:read, :binary])
+
+    state = %{
+      paths: paths,
+      temp_body_path: read_only_path,
+      temp_meta_path: nil,
+      body_io: body_io,
+      size: 0,
+      hash_context: :crypto.hash_init(:sha256),
+      metadata: entry_metadata()
+    }
+
+    try do
+      assert {:error, :ebadf, returned_state} =
+               FileSystem.write_chunk(state, "not written", root: root)
+
+      assert returned_state.size == state.size
+      assert returned_state.hash_context == state.hash_context
+    after
+      File.close(body_io)
+    end
+  end
+
   test "sink abort removes temp files and leaves no visible entry", %{root: root} do
     cache_key = key("b" <> String.duplicate("1", 63))
 

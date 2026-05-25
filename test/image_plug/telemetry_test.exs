@@ -189,6 +189,13 @@ defmodule ImagePlug.TelemetryTest do
       assert metadata.request_method == "GET"
     end)
 
+    assert_event(events, [:image_plug, :output, :negotiate, :stop], fn measurements, metadata ->
+      assert is_integer(measurements.duration)
+      assert metadata.result == :ok
+      assert metadata.output_mode == :explicit
+      assert metadata.output_format == :jpeg
+    end)
+
     for stage <- [
           [:parse],
           [:source, :resolve],

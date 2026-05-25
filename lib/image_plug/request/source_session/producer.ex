@@ -8,6 +8,7 @@ defmodule ImagePlug.Request.SourceSession.Producer do
   alias ImagePlug.Request.Processor.Decoded
   alias ImagePlug.Request.SourceSession.Request
   alias ImagePlug.Source.StreamError
+  alias ImagePlug.Telemetry
   alias ImagePlug.Transform.State
 
   @call_timeout 15_000
@@ -159,7 +160,12 @@ defmodule ImagePlug.Request.SourceSession.Producer do
          {:ok, %State{} = final_state} <-
            Processor.process_decoded_source(decoded, request.plan, request.opts),
          {:ok, %Resolved{} = resolved_output} <-
-           resolve_output(request.output_policy, decoded.source_format, final_state.image),
+           resolve_output(
+             request.output_policy,
+             decoded.source_format,
+             final_state.image,
+             request.opts
+           ),
          {:ok, stream, content_type} <-
            Encoder.stream_output(final_state.image, resolved_output, request.opts),
          {:ok, chunk, stream_state} <- first_chunk(stream) do
@@ -195,7 +201,19 @@ defmodule ImagePlug.Request.SourceSession.Producer do
     kind, reason -> {:error, {:encode, {kind, reason}, []}}
   end
 
-  defp resolve_output(%Policy{} = policy, source_format, image) do
+  defp resolve_output(%Policy{} = policy, source_format, image, opts) do
+    Telemetry.span(
+      Telemetry.telemetry_opts(opts),
+      [:output, :negotiate],
+      output_negotiate_metadata(policy),
+      fn ->
+        result = do_resolve_output(policy, source_format, image)
+        {result, output_negotiate_stop_metadata(result)}
+      end
+    )
+  end
+
+  defp do_resolve_output(%Policy{} = policy, source_format, image) do
     case Policy.resolve(policy, source_format) do
       {:ok, %Resolved{} = resolved_output} ->
         {:ok, resolved_output}
@@ -209,6 +227,22 @@ defmodule ImagePlug.Request.SourceSession.Producer do
       {:error, reason} ->
         {:error, {:output, reason}}
     end
+  end
+
+  defp output_negotiate_metadata(%Policy{} = policy) do
+    %{output_mode: output_mode(policy)}
+  end
+
+  defp output_mode(%Policy{mode: {:explicit, _format}}), do: :explicit
+  defp output_mode(%Policy{mode: :source}), do: :automatic
+  defp output_mode(%Policy{mode: :best}), do: :best
+
+  defp output_negotiate_stop_metadata({:ok, %Resolved{format: format}}) do
+    %{result: :ok, output_format: format}
+  end
+
+  defp output_negotiate_stop_metadata({:error, reason}) do
+    %{result: :output_error, error: Telemetry.error(reason)}
   end
 
   defp continue_stream(acc, continuation, state) do

@@ -65,7 +65,9 @@ defmodule ImagePlug.Cache.Sink do
   def commit(nil, _opts), do: :ok
 
   def commit(%__MODULE__{} = sink, opts) do
-    _ignored = commit_sink_result(sink, opts)
+    # Cache commit errors are logged and emitted as telemetry; streamed
+    # responses stay fail-open once bytes have already been sent.
+    emit_commit_result(sink, opts)
     :ok
   end
 
@@ -193,7 +195,7 @@ defmodule ImagePlug.Cache.Sink do
     end
   end
 
-  defp commit_sink_result(%__MODULE__{} = sink, opts) do
+  defp emit_commit_result(%__MODULE__{} = sink, opts) do
     Telemetry.span(Telemetry.telemetry_opts(opts), [:cache, :write], %{}, fn ->
       result = sink.adapter.commit_sink(sink.state, sink.adapter_opts)
       {:ok, commit_stop_metadata(result, sink)}
@@ -279,7 +281,7 @@ defmodule ImagePlug.Cache.Sink do
 
   defp write_entry_body(%__MODULE__{} = sink, body, opts) do
     case write_chunk_result(sink, body, opts) do
-      {:ok, sink} -> commit_sink_result(sink, opts)
+      {:ok, sink} -> emit_commit_result(sink, opts)
       {:skip, :too_large} -> :skipped
       {:error, _reason} -> :ok
     end

@@ -60,6 +60,8 @@ defmodule ImagePlug.Cache.FileSystem do
        | size: state.size + byte_size(chunk),
          hash_context: :crypto.hash_update(state.hash_context, chunk)
      }}
+  rescue
+    exception in [ErlangError] -> {:error, exception.original, state}
   catch
     :exit, reason -> {:error, reason, state}
   end
