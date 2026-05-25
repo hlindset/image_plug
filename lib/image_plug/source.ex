@@ -52,8 +52,7 @@ defmodule ImagePlug.Source do
   def resolve(source, opts, runtime_opts) do
     with {:ok, adapter, source_kind} <- source_adapter(source),
          {:ok, module, adapter_opts} <- fetch_adapter_config(adapter, opts) do
-      source_metadata =
-        source_metadata(source_kind, source_adapter_kind(module, adapter_opts))
+      source_metadata = source_metadata(source_kind, adapter_opts)
 
       telemetry_opts = Telemetry.telemetry_opts(runtime_opts)
 
@@ -74,8 +73,7 @@ defmodule ImagePlug.Source do
   def fetch(%Resolved{} = resolved, opts, runtime_opts) do
     with :ok <- validate_resolved_for_fetch(resolved),
          {:ok, module, adapter_opts} <- fetch_adapter_config(resolved.adapter, opts) do
-      source_metadata =
-        source_metadata(resolved.source_kind, source_adapter_kind(module, adapter_opts))
+      source_metadata = source_metadata(resolved.source_kind, adapter_opts)
 
       telemetry_opts = Telemetry.telemetry_opts(runtime_opts)
 
@@ -196,14 +194,12 @@ defmodule ImagePlug.Source do
       Identity.valid?(identity)
   end
 
-  defp source_metadata(source_kind, source_adapter_kind) do
-    %{source_kind: source_kind, source_adapter_kind: source_adapter_kind}
+  defp source_metadata(source_kind, adapter_opts) do
+    %{
+      source_kind: source_kind,
+      source_adapter_kind: Keyword.get(adapter_opts, :telemetry_kind, :custom)
+    }
   end
-
-  defp source_adapter_kind(ImagePlug.Source.HTTP, _opts), do: :http
-  defp source_adapter_kind(ImagePlug.Source.File, _opts), do: :file
-  defp source_adapter_kind(ImagePlug.Source.S3, _opts), do: :s3
-  defp source_adapter_kind(_module, opts), do: Keyword.get(opts, :telemetry_kind, :custom)
 
   defp result_metadata({:ok, _value}), do: %{result: :ok}
   defp result_metadata({:error, reason}), do: %{result: Telemetry.error(reason)}
