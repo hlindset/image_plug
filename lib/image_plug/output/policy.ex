@@ -15,7 +15,6 @@ defmodule ImagePlug.Output.Policy do
   @type source_format() :: Format.source_format()
   @type quality() :: :default | {:quality, 1..100}
   @type mode() :: :source | {:explicit, format()}
-  @type reason() :: :explicit | :auto | :source
 
   @type t() :: %__MODULE__{
           mode: mode(),
@@ -46,18 +45,16 @@ defmodule ImagePlug.Output.Policy do
     }
   end
 
-  @spec resolve_before_source_fetch(t()) ::
-          {:selected, format(), reason()} | :needs_source_format
-  def resolve_before_source_fetch(%__MODULE__{mode: {:explicit, format}}),
+  defp resolve_before_source_fetch(%__MODULE__{mode: {:explicit, format}}),
     do: {:selected, format, :explicit}
 
-  def resolve_before_source_fetch(%__MODULE__{
-        mode: :source,
-        modern_candidates: [format | _rest]
-      }),
-      do: {:selected, format, :auto}
+  defp resolve_before_source_fetch(%__MODULE__{
+         mode: :source,
+         modern_candidates: [format | _rest]
+       }),
+       do: {:selected, format, :auto}
 
-  def resolve_before_source_fetch(%__MODULE__{mode: :source, modern_candidates: []}),
+  defp resolve_before_source_fetch(%__MODULE__{mode: :source, modern_candidates: []}),
     do: :needs_source_format
 
   @spec resolve(t(), source_format() | nil) ::
@@ -78,11 +75,7 @@ defmodule ImagePlug.Output.Policy do
     end
   end
 
-  @spec resolve_source_format(t(), source_format() | nil) ::
-          {:selected, format(), :source}
-          | {:needs_final_image_alpha, :source}
-          | {:error, :source_format_required}
-  def resolve_source_format(%__MODULE__{mode: :source}, source_format) do
+  defp resolve_source_format(%__MODULE__{mode: :source}, source_format) do
     cond do
       Format.output_format?(source_format) -> {:selected, source_format, :source}
       Format.source_only_format?(source_format) -> {:needs_final_image_alpha, :source}
