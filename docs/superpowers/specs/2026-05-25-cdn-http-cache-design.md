@@ -196,6 +196,49 @@ not provide an opt-back-in path for `cache: :skip`. A future opt-in must require
 a strong source validator and an explicit complete `Vary` declaration for every
 representation-changing request input.
 
+## Internal Source Cache Policy
+
+The current internal cache assumes a cache key names stable output bytes. It has
+no freshness check on read. It can serve a cached file-path or URL response
+forever if the key still matches and the cache entry remains on disk.
+
+Keep that contract explicit: `Source.Resolved.cache: :normal` means the
+resolved source identity is safe for internal byte reuse. For a mutable source,
+the identity is safe only when it includes byte-version material. Examples are
+an S3 revision, content-addressed path, upstream validator, or host-provided
+cachebuster that changes when bytes change.
+
+Adapt source adapters to choose internal cache policy from source semantics:
+
+- `cache: :auto` should be the default. It resolves to `:normal` only when the
+  source identity is byte-stable or includes byte-version material. Otherwise it
+  resolves to `:skip`.
+- `cache: :skip` always bypasses the internal encoded-response cache.
+- `cache: :normal` is an explicit host assertion that the resolved identity is
+  safe for byte reuse. If the source is mutable and the identity has no
+  byte-version material, configuration should fail instead of caching stale
+  bytes.
+
+This keeps the internal cache conservative without adding a source metadata
+fetch just to make mutable paths cacheable. A later implementation can add
+bounded internal freshness, using `Entry.created_at` and a configured TTL to
+treat old entries as misses. That would limit staleness but still wouldn't prove
+freshness, so it should be an explicit host policy, not the default.
+
+Adapter implications:
+
+- S3 with `revision` can use `:normal` because `versionId` is part of the fetch
+  and source identity.
+- S3 without `revision` should resolve `cache: :auto` to `:skip` unless the host
+  marks keys as content-addressed or supplies a byte-version identity.
+- File sources should resolve `cache: :auto` to `:skip` unless the host marks
+  the path space as content-addressed. The first implementation shouldn't use
+  `mtime` and size as byte identity unless fetch opens the same file handle used
+  for the stat.
+- HTTP URL sources should resolve `cache: :auto` to `:skip` unless the URL is
+  content-addressed, versioned, or the adapter resolves an upstream validator
+  before cache lookup.
+
 ## Response Cache Headers
 
 Add a pure module under the request boundary, tentatively
@@ -556,6 +599,7 @@ Source adapter options:
 
 ```elixir
 source_bytes_immutable?: false,
+cache: :auto,
 cache_control: nil
 ```
 
@@ -576,6 +620,11 @@ Add focused tests at the request boundary:
   validation;
 - mutable sources without validators omit `ETag` and never return `304` from
   generated validators;
+- `cache: :auto` resolves to `:normal` for source-byte-immutable identities;
+- `cache: :auto` resolves to `:skip` for mutable identities without byte-version
+  material;
+- `cache: :normal` fails configuration when the source is mutable and the
+  identity has no byte-version material;
 - `cache: :skip` omits generated HTTP cache headers;
 - automatic output emits `Vary: Accept`;
 - explicit output doesn't emit `Vary: Accept`;
@@ -614,7 +663,8 @@ Add focused tests at the request boundary:
 Add source adapter tests:
 
 - S3 with revision marks source bytes immutable and keeps `versionId` fetch;
-- S3 without revision is mutable unless configured source-byte-immutable;
+- S3 without revision is mutable and skips internal cache under `cache: :auto`
+  unless configured source-byte-immutable;
 - File source defaults mutable without a validator and host config can mark
   source bytes immutable;
 - HTTP source defaults mutable without a validator and host config can mark
