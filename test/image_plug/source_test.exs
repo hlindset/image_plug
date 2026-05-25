@@ -10,6 +10,7 @@ defmodule ImagePlug.SourceTest do
   alias ImagePlug.SourceTest.AdapterMismatchAdapter
   alias ImagePlug.SourceTest.CustomAdapter
   alias ImagePlug.SourceTest.InvalidAdapter
+  alias ImagePlug.SourceTest.InvalidConfigAdapter
   alias ImagePlug.SourceTest.InvalidIdentityAdapter
   alias ImagePlug.SourceTest.RaisingAdapter
   alias ImagePlug.SourceTest.StreamWithCleanup
@@ -26,6 +27,11 @@ defmodule ImagePlug.SourceTest do
 
     assert opts[:sources][:path] ==
              {CustomAdapter, [adapter: :path, label: "root", validated: true]}
+  end
+
+  test "validate_config preserves adapter validation error context" do
+    assert Source.validate_config(sources: [path: {InvalidConfigAdapter, []}]) ==
+             {:error, {:source, {:invalid_source_config, :bad_option}}}
   end
 
   test "resolve dispatches by source shape and configured adapter key" do

@@ -125,6 +125,9 @@ defmodule ImagePlug.Source do
       {:error, {:source, _reason}} = error ->
         error
 
+      {:error, reason} ->
+        {:error, {:source, reason}}
+
       _other ->
         {:error, {:source, :invalid_adapter_config}}
     end
