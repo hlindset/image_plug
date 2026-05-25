@@ -183,7 +183,7 @@ defmodule ImagePipe.TelemetryTest do
     conn =
       :get
       |> conn("/_/f:jpeg/plain/images/beach.jpg")
-      |> ImagePipe.call(base_opts())
+      |> ImagePipe.Plug.call(base_opts())
 
     assert conn.status == 200
     events = telemetry_events()
@@ -237,7 +237,7 @@ defmodule ImagePipe.TelemetryTest do
     conn =
       :get
       |> conn("/_/plain/images/beach.jpg")
-      |> ImagePipe.call(base_opts())
+      |> ImagePipe.Plug.call(base_opts())
 
     assert conn.status == 200
     events = telemetry_events()
@@ -285,7 +285,7 @@ defmodule ImagePipe.TelemetryTest do
     conn =
       :get
       |> conn("/_/f:jpeg/plain/images/beach.jpg")
-      |> ImagePipe.call(Keyword.put(base_opts(), :telemetry_prefix, [:custom, :image]))
+      |> ImagePipe.Plug.call(Keyword.put(base_opts(), :telemetry_prefix, [:custom, :image]))
 
     assert conn.status == 200
     events = telemetry_events()
@@ -319,7 +319,7 @@ defmodule ImagePipe.TelemetryTest do
       with_log(fn ->
         :get
         |> conn("/_/f:jpeg/plain/images/beach.jpg")
-        |> ImagePipe.call(base_opts(image_module: RaisingAfterFirstChunkImage))
+        |> ImagePipe.Plug.call(base_opts(image_module: RaisingAfterFirstChunkImage))
       end)
 
     assert conn.status == 200
@@ -351,7 +351,7 @@ defmodule ImagePipe.TelemetryTest do
       with_log(fn ->
         :get
         |> conn("/_/f:jpeg/plain/images/beach.jpg")
-        |> ImagePipe.call(base_opts(image_module: RaisingBeforeFirstChunkImage))
+        |> ImagePipe.Plug.call(base_opts(image_module: RaisingBeforeFirstChunkImage))
       end)
 
     assert conn.status == 500
@@ -375,7 +375,7 @@ defmodule ImagePipe.TelemetryTest do
     conn =
       :get
       |> conn("/_/plain/images/beach.jpg")
-      |> ImagePipe.call(base_opts())
+      |> ImagePipe.Plug.call(base_opts())
 
     assert conn.status == 200
     events = telemetry_events()
@@ -403,7 +403,7 @@ defmodule ImagePipe.TelemetryTest do
     conn =
       :get
       |> conn("/_/plain/images/source.tiff")
-      |> ImagePipe.call(base_opts(sources: [path: {SourceBytes, body: tiff_body(:white)}]))
+      |> ImagePipe.Plug.call(base_opts(sources: [path: {SourceBytes, body: tiff_body(:white)}]))
 
     assert conn.status == 200
     events = telemetry_events()
@@ -429,7 +429,7 @@ defmodule ImagePipe.TelemetryTest do
     conn =
       :get
       |> conn("/_/f:jpeg/plain/images/beach.jpg")
-      |> ImagePipe.call(base_opts(cache: {FailOpenCacheReadFailure, []}))
+      |> ImagePipe.Plug.call(base_opts(cache: {FailOpenCacheReadFailure, []}))
 
     assert conn.status == 200
     events = telemetry_events()
@@ -450,7 +450,7 @@ defmodule ImagePipe.TelemetryTest do
     conn =
       :get
       |> conn("/_/f:jpeg/plain/images/beach.jpg")
-      |> ImagePipe.call(base_opts(cache: {InvalidCacheHit, []}))
+      |> ImagePipe.Plug.call(base_opts(cache: {InvalidCacheHit, []}))
 
     assert conn.status == 200
     events = telemetry_events()
@@ -471,7 +471,7 @@ defmodule ImagePipe.TelemetryTest do
     conn =
       :get
       |> conn("/_/f:jpeg/plain/images/beach.jpg")
-      |> ImagePipe.call(base_opts(cache: {FailOpenCacheWriteFailure, []}))
+      |> ImagePipe.Plug.call(base_opts(cache: {FailOpenCacheWriteFailure, []}))
 
     assert conn.status == 200
     events = telemetry_events()
@@ -517,7 +517,7 @@ defmodule ImagePipe.TelemetryTest do
     ]
 
     for {name, {conn, opts, result, status}} <- cases do
-      sent = ImagePipe.call(conn, opts)
+      sent = ImagePipe.Plug.call(conn, opts)
       assert sent.status == status
 
       events = telemetry_events()
@@ -535,7 +535,7 @@ defmodule ImagePipe.TelemetryTest do
 
   test "emits exception events only for real raised exceptions" do
     assert_raise RuntimeError, "forced parser failure", fn ->
-      ImagePipe.call(conn(:get, "/any"), init_opts(parser: RaisingParser))
+      ImagePipe.Plug.call(conn(:get, "/any"), init_opts(parser: RaisingParser))
     end
 
     events = telemetry_events()
@@ -556,13 +556,13 @@ defmodule ImagePipe.TelemetryTest do
   end
 
   test "validates telemetry prefix option at init" do
-    assert ImagePipe.init(opts(telemetry_prefix: [:custom, :image]))[:telemetry_prefix] ==
+    assert ImagePipe.Plug.init(opts(telemetry_prefix: [:custom, :image]))[:telemetry_prefix] ==
              [:custom, :image]
 
     for prefix <- ["image_pipe", [:image_pipe, "request"], [], [:image_pipe, 1]] do
       assert_raise ArgumentError,
                    ~r/invalid ImagePipe options: invalid value for :telemetry_prefix option/,
-                   fn -> ImagePipe.init(opts(telemetry_prefix: prefix)) end
+                   fn -> ImagePipe.Plug.init(opts(telemetry_prefix: prefix)) end
     end
   end
 
@@ -586,7 +586,7 @@ defmodule ImagePipe.TelemetryTest do
     )
   end
 
-  defp init_opts(overrides), do: overrides |> opts() |> ImagePipe.init()
+  defp init_opts(overrides), do: overrides |> opts() |> ImagePipe.Plug.init()
 
   def plan(overrides \\ []) do
     struct!(

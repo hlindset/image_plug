@@ -37,7 +37,7 @@ same source translation used by plain sources. A decoded `images/cat.jpg`,
 configured custom scheme produces the same `ImagePipe.Plan` source as the
 matching plain request.
 
-`enc` starts an encrypted source URL. Configure it through `ImagePipe.init/1`:
+`enc` starts an encrypted source URL. Configure it through `ImagePipe.Plug.init/1`:
 
 ```elixir
 imgproxy: [
@@ -164,7 +164,7 @@ Generic quality and format-specific quality are separate canonical fields.
 
 Normal processing URLs support configured Imgproxy presets:
 
-    ImagePipe.init(
+    ImagePipe.Plug.init(
       parser: ImagePipe.Parser.Imgproxy,
       sources: [
         path: {ImagePipe.Source.File, root: "/srv/images", root_id: "primary"}

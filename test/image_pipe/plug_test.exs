@@ -1,17 +1,20 @@
-defmodule ImagePipe.ImagePipeTest do
+defmodule ImagePipe.PlugTest do
   use ExUnit.Case, async: true
 
   import ExUnit.CaptureLog
   import Plug.Conn
   import Plug.Test
 
-  doctest ImagePipe
+  doctest ImagePipe.Plug
 
   @slow_origin_first_chunk_timeout 5_000
 
-  test "exports the Plug entry point callbacks" do
-    assert function_exported?(ImagePipe, :init, 1)
-    assert function_exported?(ImagePipe, :call, 2)
+  test "exports the Plug entry point callbacks from ImagePipe.Plug only" do
+    assert function_exported?(ImagePipe.Plug, :init, 1)
+    assert function_exported?(ImagePipe.Plug, :call, 2)
+
+    refute function_exported?(ImagePipe, :init, 1)
+    refute function_exported?(ImagePipe, :call, 2)
   end
 
   alias ImagePipe.Parser.Imgproxy.Signature
@@ -273,11 +276,11 @@ defmodule ImagePipe.ImagePipeTest do
   defp init_image_pipe(opts) do
     opts
     |> translate_origin_test_opts()
-    |> ImagePipe.init()
+    |> ImagePipe.Plug.init()
   end
 
   defp call_image_pipe(conn, opts) do
-    ImagePipe.call(conn, init_or_pass_opts(opts))
+    ImagePipe.Plug.call(conn, init_or_pass_opts(opts))
   end
 
   defp init_or_pass_opts(opts) when is_list(opts) do
@@ -320,7 +323,7 @@ defmodule ImagePipe.ImagePipeTest do
 
     @impl ImagePipe.Parser
     def parse(_conn, _opts) do
-      {:ok, ImagePipe.ImagePipeTest.sample_plan(source: :signed)}
+      {:ok, ImagePipe.PlugTest.sample_plan(source: :signed)}
     end
 
     @impl ImagePipe.Parser
@@ -335,8 +338,8 @@ defmodule ImagePipe.ImagePipeTest do
     @impl ImagePipe.Parser
     def parse(_conn, _opts) do
       {:ok,
-       ImagePipe.ImagePipeTest.sample_explicit_plan(:jpeg, [
-         struct(ImagePipe.ImagePipeTest.UnprojectableOperationTransform)
+       ImagePipe.PlugTest.sample_explicit_plan(:jpeg, [
+         struct(ImagePipe.PlugTest.UnprojectableOperationTransform)
        ])}
     end
 
@@ -360,7 +363,7 @@ defmodule ImagePipe.ImagePipeTest do
     @impl ImagePipe.Parser
     def parse(_conn, _opts) do
       {:ok,
-       ImagePipe.ImagePipeTest.sample_plan(
+       ImagePipe.PlugTest.sample_plan(
          pipelines: [],
          output: %ImagePipe.Plan.Output{mode: {:explicit, :jpeg}}
        )}
@@ -376,7 +379,7 @@ defmodule ImagePipe.ImagePipeTest do
     @impl ImagePipe.Parser
     def parse(_conn, _opts) do
       {:ok,
-       ImagePipe.ImagePipeTest.sample_explicit_plan(:jpeg, [
+       ImagePipe.PlugTest.sample_explicit_plan(:jpeg, [
          resize_fit_operation(),
          :not_a_plan_operation
        ])}
@@ -574,11 +577,11 @@ defmodule ImagePipe.ImagePipeTest do
   test "init validates parser option shape without loading the parser module" do
     opts =
       init_image_pipe(
-        [parser: ImagePipe.ImagePipeTest.MissingParser] ++
+        [parser: ImagePipe.PlugTest.MissingParser] ++
           default_source_opts("https://example.test")
       )
 
-    assert Keyword.fetch!(opts, :parser) == ImagePipe.ImagePipeTest.MissingParser
+    assert Keyword.fetch!(opts, :parser) == ImagePipe.PlugTest.MissingParser
   end
 
   test "init normalizes imgproxy signature options through the imgproxy parser" do
@@ -717,23 +720,23 @@ defmodule ImagePipe.ImagePipeTest do
     end
   end
 
-  test "plug facade delegates response delivery to response sender" do
-    image_pipe_ast =
+  test "plug delegates response delivery to response sender" do
+    plug_ast =
       __DIR__
-      |> Path.join("../lib/image_pipe.ex")
+      |> Path.join("../../lib/image_pipe/plug.ex")
       |> Path.expand()
       |> File.read!()
       |> Code.string_to_quoted!()
 
-    assert remote_call?(image_pipe_ast, [:Sender], :send_result, 3)
-    assert remote_call?(image_pipe_ast, [:Sender], :send_source_error, 2)
+    assert remote_call?(plug_ast, [:Sender], :send_result, 3)
+    assert remote_call?(plug_ast, [:Sender], :send_source_error, 2)
 
-    refute remote_call?(image_pipe_ast, [:Plug, :Conn], :send_resp)
-    refute remote_call?(image_pipe_ast, [:Plug, :Conn], :send_chunked)
-    refute import_module?(image_pipe_ast, [:Plug, :Conn])
-    refute unqualified_call?(image_pipe_ast, :chunk)
-    refute unqualified_call?(image_pipe_ast, :put_resp_header)
-    refute unqualified_call?(image_pipe_ast, :put_resp_content_type)
+    refute remote_call?(plug_ast, [:Plug, :Conn], :send_resp)
+    refute remote_call?(plug_ast, [:Plug, :Conn], :send_chunked)
+    refute import_module?(plug_ast, [:Plug, :Conn])
+    refute unqualified_call?(plug_ast, :chunk)
+    refute unqualified_call?(plug_ast, :put_resp_header)
+    refute unqualified_call?(plug_ast, :put_resp_content_type)
   end
 
   defp remote_call?(ast, module_parts, function, arity \\ :any) do

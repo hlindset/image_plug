@@ -620,7 +620,7 @@ defmodule ImagePipe.ImgproxyWireConformanceTest do
 
   test "custom imgproxy scheme translator and custom source adapter fetch only on cache miss" do
     opts =
-      ImagePipe.init(
+      ImagePipe.Plug.init(
         parser: ImagePipe.Parser.Imgproxy,
         imgproxy: [
           source_schemes: %{
@@ -635,7 +635,7 @@ defmodule ImagePipe.ImgproxyWireConformanceTest do
 
     conn =
       conn(:get, "/_/plain/foobar://asset/cat.jpg")
-      |> ImagePipe.call(opts)
+      |> ImagePipe.Plug.call(opts)
 
     assert conn.status == 200
     assert_received {:foobar_translate, "foobar://asset/cat.jpg"}
@@ -645,7 +645,7 @@ defmodule ImagePipe.ImgproxyWireConformanceTest do
 
   test "cache hit resolves custom source but does not fetch" do
     opts =
-      ImagePipe.init(
+      ImagePipe.Plug.init(
         parser: ImagePipe.Parser.Imgproxy,
         imgproxy: [
           source_schemes: %{"foobar" => {FoobarTranslator, []}}
@@ -656,7 +656,7 @@ defmodule ImagePipe.ImgproxyWireConformanceTest do
 
     conn =
       conn(:get, "/_/plain/foobar://asset/cat.jpg")
-      |> ImagePipe.call(opts)
+      |> ImagePipe.Plug.call(opts)
 
     assert conn.status == 200
     assert_received {:custom_resolve, _source}
@@ -668,7 +668,7 @@ defmodule ImagePipe.ImgproxyWireConformanceTest do
 
   test "cache miss fetches custom source and writes successful encoded response" do
     opts =
-      ImagePipe.init(
+      ImagePipe.Plug.init(
         parser: ImagePipe.Parser.Imgproxy,
         imgproxy: [
           source_schemes: %{"foobar" => {FoobarTranslator, []}}
@@ -679,7 +679,7 @@ defmodule ImagePipe.ImgproxyWireConformanceTest do
 
     conn =
       conn(:get, "/_/plain/foobar://asset/cat.jpg")
-      |> ImagePipe.call(opts)
+      |> ImagePipe.Plug.call(opts)
 
     assert conn.status == 200
     assert_received {:custom_resolve, _source}
@@ -691,7 +691,7 @@ defmodule ImagePipe.ImgproxyWireConformanceTest do
 
   test "cache skip fetches custom source without cache lookup or write" do
     opts =
-      ImagePipe.init(
+      ImagePipe.Plug.init(
         parser: ImagePipe.Parser.Imgproxy,
         imgproxy: [
           source_schemes: %{"foobar" => {FoobarTranslator, []}}
@@ -704,7 +704,7 @@ defmodule ImagePipe.ImgproxyWireConformanceTest do
 
     conn =
       conn(:get, "/_/plain/foobar://asset/cat.jpg")
-      |> ImagePipe.call(opts)
+      |> ImagePipe.Plug.call(opts)
 
     assert conn.status == 200
     assert_received {:custom_resolve, _source}
@@ -716,7 +716,7 @@ defmodule ImagePipe.ImgproxyWireConformanceTest do
 
   test "S3 cache hit resolves identity without asking credential providers" do
     opts =
-      ImagePipe.init(
+      ImagePipe.Plug.init(
         parser: ImagePipe.Parser.Imgproxy,
         sources: [
           s3:
@@ -737,7 +737,7 @@ defmodule ImagePipe.ImgproxyWireConformanceTest do
 
     conn =
       conn(:get, "/_/plain/s3://tenant-a/images/cat.jpg%3Fabc")
-      |> ImagePipe.call(opts)
+      |> ImagePipe.Plug.call(opts)
 
     assert conn.status == 200
     assert_received {:cache_lookup, _key}
@@ -750,7 +750,7 @@ defmodule ImagePipe.ImgproxyWireConformanceTest do
     end
 
     opts =
-      ImagePipe.init(
+      ImagePipe.Plug.init(
         parser: ImagePipe.Parser.Imgproxy,
         sources: [
           s3:
@@ -775,7 +775,7 @@ defmodule ImagePipe.ImgproxyWireConformanceTest do
 
     conn =
       conn(:get, "/_/plain/s3://tenant-a/images/cat.jpg%3Fabc")
-      |> ImagePipe.call(opts)
+      |> ImagePipe.Plug.call(opts)
 
     assert conn.status == 200
     assert_received {:fetch_credentials, "tenant-a", [role: "tenant-a"], _runtime_opts}
@@ -911,7 +911,7 @@ defmodule ImagePipe.ImgproxyWireConformanceTest do
       |> conn(path)
       |> put_accept(accept)
 
-    ImagePipe.call(conn, ImagePipe.init(opts))
+    ImagePipe.Plug.call(conn, ImagePipe.Plug.init(opts))
   end
 
   defp put_accept(conn, nil), do: conn

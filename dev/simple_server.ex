@@ -38,7 +38,7 @@ defmodule ImagePipe.SimpleServer do
   end
 
   match _ do
-    ImagePipe.call(conn, image_pipe_opts())
+    ImagePipe.Plug.call(conn, image_pipe_opts())
   end
 
   defp image_pipe_opts do
@@ -56,7 +56,7 @@ defmodule ImagePipe.SimpleServer do
       ]
     ]
     |> maybe_put_cache(cache_config())
-    |> ImagePipe.init()
+    |> ImagePipe.Plug.init()
   end
 
   defp cache_config do

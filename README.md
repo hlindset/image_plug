@@ -48,7 +48,7 @@ adapter and parser:
 
 ```elixir
 forward "/images",
-  to: ImagePipe,
+  to: ImagePipe.Plug,
   init_opts: [
     parser: ImagePipe.Parser.Imgproxy,
     sources: [
@@ -68,7 +68,7 @@ defmodule MyApp.ImageRouter do
   plug :dispatch
 
   forward "/",
-    to: ImagePipe,
+    to: ImagePipe.Plug,
     init_opts: [
       parser: ImagePipe.Parser.Imgproxy,
       sources: [

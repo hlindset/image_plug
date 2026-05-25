@@ -231,7 +231,7 @@ defmodule ImagePipe.CacheTest do
 
   test "ImagePipe init rejects invalid cache config early" do
     assert_raise ArgumentError, ~r/invalid cache config/, fn ->
-      ImagePipe.init(
+      ImagePipe.Plug.init(
         parser: ImagePipe.Parser.Imgproxy,
         sources: [
           path: {ImagePipe.Source.File, root: "priv/static", root_id: "static"}
@@ -241,37 +241,37 @@ defmodule ImagePipe.CacheTest do
     end
 
     assert_raise ArgumentError, ~r/invalid cache config/, fn ->
-      ImagePipe.init(cache: {MissingSinkCallbacksAdapter, []})
+      ImagePipe.Plug.init(cache: {MissingSinkCallbacksAdapter, []})
     end
 
     assert_raise ArgumentError, ~r/invalid cache config/, fn ->
-      ImagePipe.init(cache: {MissAdapter, key_headers: [:accept_language]})
+      ImagePipe.Plug.init(cache: {MissAdapter, key_headers: [:accept_language]})
     end
 
     assert_raise ArgumentError, ~r/invalid cache config/, fn ->
-      ImagePipe.init(cache: {MissAdapter, max_body_bytes: "10MB"})
+      ImagePipe.Plug.init(cache: {MissAdapter, max_body_bytes: "10MB"})
     end
   end
 
   test "ImagePipe init rejects missing required options early" do
     assert_raise ArgumentError, ~r/required :parser option not found/, fn ->
-      ImagePipe.init([])
+      ImagePipe.Plug.init([])
     end
   end
 
   test "ImagePipe init rejects invalid filesystem cache options early" do
     assert_raise ArgumentError, ~r/invalid cache config/, fn ->
-      ImagePipe.init(cache: {ImagePipe.Cache.FileSystem, root: "relative/cache"})
+      ImagePipe.Plug.init(cache: {ImagePipe.Cache.FileSystem, root: "relative/cache"})
     end
 
     assert_raise ArgumentError, ~r/invalid cache config/, fn ->
-      ImagePipe.init(
+      ImagePipe.Plug.init(
         cache: {ImagePipe.Cache.FileSystem, root: System.tmp_dir!(), path_prefix: "../outside"}
       )
     end
 
     assert_raise ArgumentError, ~r/invalid cache config/, fn ->
-      ImagePipe.init(
+      ImagePipe.Plug.init(
         cache:
           {ImagePipe.Cache.FileSystem, root: System.tmp_dir!(), path_prefix: "processed//images"}
       )
@@ -282,7 +282,7 @@ defmodule ImagePipe.CacheTest do
     root = Path.join(System.tmp_dir!(), "image_pipe_cache_init")
 
     opts =
-      ImagePipe.init(
+      ImagePipe.Plug.init(
         parser: ImagePipe.Parser.Imgproxy,
         sources: [
           path: {ImagePipe.Source.File, root: "priv/static", root_id: "static"}

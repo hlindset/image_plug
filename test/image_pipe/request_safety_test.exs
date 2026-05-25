@@ -117,7 +117,7 @@ defmodule ImagePipe.RequestSafetyTest do
 
   test "plug validates product-neutral plan shape before source identity resolution" do
     conn =
-      ImagePipe.call(conn(:get, "/_/plain/images/cat.jpg"),
+      ImagePipe.Plug.call(conn(:get, "/_/plain/images/cat.jpg"),
         parser: InvalidPlanParser,
         sources: [path: {ValidAdapter, []}]
       )
@@ -128,7 +128,7 @@ defmodule ImagePipe.RequestSafetyTest do
 
   test "invalid product-neutral plan fails before source identity, cache lookup, and origin" do
     conn =
-      ImagePipe.call(conn(:get, "/_/plain/images/cat.jpg"),
+      ImagePipe.Plug.call(conn(:get, "/_/plain/images/cat.jpg"),
         parser: InvalidPlanParser,
         sources: [path: {ValidAdapter, []}],
         cache: {CacheProbe, []}
@@ -142,7 +142,7 @@ defmodule ImagePipe.RequestSafetyTest do
 
   test "invalid pipeline plan fails before source identity, cache lookup, and origin" do
     conn =
-      ImagePipe.call(conn(:get, "/_/plain/images/cat.jpg"),
+      ImagePipe.Plug.call(conn(:get, "/_/plain/images/cat.jpg"),
         parser: InvalidPipelinePlanParser,
         sources: [path: {ValidAdapter, []}],
         cache: {CacheProbe, []}
@@ -156,7 +156,7 @@ defmodule ImagePipe.RequestSafetyTest do
 
   test "parser validation failures return before source fetch" do
     conn =
-      ImagePipe.call(conn(:get, "/_/raw/plain/images/cat.jpg"),
+      ImagePipe.Plug.call(conn(:get, "/_/raw/plain/images/cat.jpg"),
         parser: ImagePipe.Parser.Imgproxy,
         sources: [path: {ValidAdapter, []}]
       )
@@ -171,7 +171,7 @@ defmodule ImagePipe.RequestSafetyTest do
           "/_/bga:1.1/plain/images/cat.jpg"
         ] do
       conn =
-        ImagePipe.call(conn(:get, path),
+        ImagePipe.Plug.call(conn(:get, path),
           parser: ImagePipe.Parser.Imgproxy,
           sources: [path: {ValidAdapter, []}],
           cache: {CacheProbe, []}
@@ -185,7 +185,7 @@ defmodule ImagePipe.RequestSafetyTest do
 
   test "expired imgproxy requests return before source identity and cache work" do
     conn =
-      ImagePipe.call(conn(:get, "/_/exp:100/plain/images/cat.jpg"),
+      ImagePipe.Plug.call(conn(:get, "/_/exp:100/plain/images/cat.jpg"),
         parser: ImagePipe.Parser.Imgproxy,
         sources: [path: {ValidAdapter, []}],
         clock: fn -> DateTime.from_unix!(101) end,
@@ -200,9 +200,9 @@ defmodule ImagePipe.RequestSafetyTest do
 
   test "invalid imgproxy signatures return before source identity, cache lookup, and origin" do
     conn =
-      ImagePipe.call(
+      ImagePipe.Plug.call(
         conn(:get, "/invalid/w:300/plain/images/cat.jpg"),
-        ImagePipe.init(
+        ImagePipe.Plug.init(
           parser: ImagePipe.Parser.Imgproxy,
           sources: [path: {ValidAdapter, []}],
           imgproxy: [
@@ -223,9 +223,9 @@ defmodule ImagePipe.RequestSafetyTest do
 
   test "invalid imgproxy signatures return before source fetch with a valid root URL" do
     conn =
-      ImagePipe.call(
+      ImagePipe.Plug.call(
         conn(:get, "/invalid/w:300/plain/images/cat.jpg"),
-        ImagePipe.init(
+        ImagePipe.Plug.init(
           parser: ImagePipe.Parser.Imgproxy,
           sources: [path: {ValidAdapter, []}],
           imgproxy: [
@@ -243,9 +243,9 @@ defmodule ImagePipe.RequestSafetyTest do
 
   test "invalid imgproxy signatures return before option parsing at the plug boundary" do
     conn =
-      ImagePipe.call(
+      ImagePipe.Plug.call(
         conn(:get, "/invalid/raw/plain/images/cat.jpg"),
-        ImagePipe.init(
+        ImagePipe.Plug.init(
           parser: ImagePipe.Parser.Imgproxy,
           sources: [path: {ValidAdapter, []}],
           imgproxy: [
@@ -264,13 +264,13 @@ defmodule ImagePipe.RequestSafetyTest do
 
   test "invalid pipeline plans return before source resolution" do
     opts =
-      ImagePipe.init(
+      ImagePipe.Plug.init(
         parser: InvalidPipelinePlanParser,
         sources: [path: {ValidAdapter, []}],
         cache: {CacheProbe, []}
       )
 
-    conn = ImagePipe.call(conn(:get, "/_/plain/images/cat.jpg"), opts)
+    conn = ImagePipe.Plug.call(conn(:get, "/_/plain/images/cat.jpg"), opts)
 
     assert conn.status == 422
     assert conn.resp_body == "invalid image transform"
@@ -282,13 +282,13 @@ defmodule ImagePipe.RequestSafetyTest do
 
   test "source resolution failures return before cache lookup and fetch" do
     opts =
-      ImagePipe.init(
+      ImagePipe.Plug.init(
         parser: ImagePipe.Parser.Imgproxy,
         sources: [path: {DenyingSourceAdapter, []}],
         cache: {CacheProbe, []}
       )
 
-    conn = ImagePipe.call(conn(:get, "/_/plain/images/cat.jpg"), opts)
+    conn = ImagePipe.Plug.call(conn(:get, "/_/plain/images/cat.jpg"), opts)
 
     assert conn.status == 422
     assert conn.resp_body == "invalid image source"
@@ -300,7 +300,7 @@ defmodule ImagePipe.RequestSafetyTest do
 
   test "source runtime options pass body limits and runtime metadata without parser or cache config" do
     opts =
-      ImagePipe.init(
+      ImagePipe.Plug.init(
         parser: ImagePipe.Parser.Imgproxy,
         sources: [path: {ValidAdapter, []}],
         cache: {CacheProbe, []},
@@ -310,7 +310,7 @@ defmodule ImagePipe.RequestSafetyTest do
         request_id: "req-1"
       )
 
-    conn = ImagePipe.call(conn(:get, "/_/plain/images/cat.jpg"), opts)
+    conn = ImagePipe.Plug.call(conn(:get, "/_/plain/images/cat.jpg"), opts)
 
     assert conn.status == 200
     assert_received {:source_resolve_runtime_opts, resolve_runtime_opts}
@@ -336,13 +336,13 @@ defmodule ImagePipe.RequestSafetyTest do
 
   test "source fetch errors return source response errors" do
     opts =
-      ImagePipe.init(
+      ImagePipe.Plug.init(
         parser: ImagePipe.Parser.Imgproxy,
         sources: [path: {FetchErrorSourceAdapter, []}],
         cache: {CacheProbe, []}
       )
 
-    conn = ImagePipe.call(conn(:get, "/_/plain/images/missing.jpg"), opts)
+    conn = ImagePipe.Plug.call(conn(:get, "/_/plain/images/missing.jpg"), opts)
 
     assert conn.status == 422
     assert conn.resp_body == "invalid image source"
@@ -351,13 +351,13 @@ defmodule ImagePipe.RequestSafetyTest do
 
   test "deferred source stream errors return source response errors" do
     opts =
-      ImagePipe.init(
+      ImagePipe.Plug.init(
         parser: ImagePipe.Parser.Imgproxy,
         sources: [path: {StreamErrorSourceAdapter, []}],
         cache: {CacheProbe, []}
       )
 
-    conn = ImagePipe.call(conn(:get, "/_/plain/images/stream-fails.jpg"), opts)
+    conn = ImagePipe.Plug.call(conn(:get, "/_/plain/images/stream-fails.jpg"), opts)
 
     assert conn.status == 422
     assert conn.resp_body == "invalid image source"
@@ -366,13 +366,13 @@ defmodule ImagePipe.RequestSafetyTest do
 
   test "cache miss does not write after deferred source stream errors" do
     opts =
-      ImagePipe.init(
+      ImagePipe.Plug.init(
         parser: ImagePipe.Parser.Imgproxy,
         sources: [path: {CacheableStreamErrorSourceAdapter, []}],
         cache: {CacheProbe, []}
       )
 
-    conn = ImagePipe.call(conn(:get, "/_/plain/images/cacheable-stream-fails.jpg"), opts)
+    conn = ImagePipe.Plug.call(conn(:get, "/_/plain/images/cacheable-stream-fails.jpg"), opts)
 
     assert conn.status == 422
     assert conn.resp_body == "invalid image source"
@@ -382,14 +382,14 @@ defmodule ImagePipe.RequestSafetyTest do
 
   test "linked source stream exits return source response errors" do
     opts =
-      ImagePipe.init(
+      ImagePipe.Plug.init(
         parser: ImagePipe.Parser.Imgproxy,
         sources: [path: {StreamErrorSourceAdapter, []}],
         cache: {CacheProbe, []},
         image_open_module: LinkedReaderImageOpen
       )
 
-    conn = ImagePipe.call(conn(:get, "/_/plain/images/stream-fails.jpg"), opts)
+    conn = ImagePipe.Plug.call(conn(:get, "/_/plain/images/stream-fails.jpg"), opts)
 
     assert conn.status == 422
     assert conn.resp_body == "invalid image source"

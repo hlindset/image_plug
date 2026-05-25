@@ -23,7 +23,7 @@ source fetch or cache lookup. ImagePipe doesn't ignore them.
 ## Configuration options
 
 ImagePipe doesn't read `IMGPROXY_*` environment variables. Variable markers show
-whether ImagePipe has a matching or related `ImagePipe.init/1` option, source
+whether ImagePipe has a matching or related `ImagePipe.Plug.init/1` option, source
 adapter option, cache adapter option, or runtime option.
 
 This section compares ImagePipe with
@@ -179,7 +179,7 @@ application-owned source adapters.
 
 ImagePipe supports Base64 encoded source URLs. It also supports encrypted source
 URLs when callers configure `source_url_encryption_key` through
-`ImagePipe.init/1`. Direct `ImagePipe.Parser.Imgproxy.parse/2` callers should
+`ImagePipe.Plug.init/1`. Direct `ImagePipe.Parser.Imgproxy.parse/2` callers should
 pass `imgproxy: ImagePipe.Parser.Imgproxy.validate_options!(...)`.
 
 - ✅ Base64 encoded source URLs
@@ -209,7 +209,7 @@ has no configured pipeline-count limit.
 
 Configure preset definitions with `imgproxy: [presets: %{"name" => "w:100"}]`.
 ImagePipe validates a map of preset names to option strings during
-`ImagePipe.init/1`.
+`ImagePipe.Plug.init/1`.
 
 - ✅ `IMGPROXY_PRESETS`
 

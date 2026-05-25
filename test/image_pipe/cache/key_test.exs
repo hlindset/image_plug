@@ -841,7 +841,7 @@ defmodule ImagePipe.Cache.KeyTest do
 
   test "cache key excludes imgproxy signature authorization proof" do
     signed_opts =
-      ImagePipe.init(
+      ImagePipe.Plug.init(
         parser: ImagePipe.Parser.Imgproxy,
         imgproxy: [
           signature: [
@@ -852,7 +852,7 @@ defmodule ImagePipe.Cache.KeyTest do
       )
 
     trusted_opts =
-      ImagePipe.init(
+      ImagePipe.Plug.init(
         parser: ImagePipe.Parser.Imgproxy,
         imgproxy: [
           signature: [

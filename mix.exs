@@ -33,7 +33,8 @@ defmodule ImagePipe.MixProject do
           "docs/transform_operations.md"
         ],
         groups_for_modules: [
-          "Plug API": [ImagePipe],
+          "Package API": [ImagePipe],
+          "Plug API": [ImagePipe.Plug],
           "Parser API": [ImagePipe.Parser, ~r/ImagePipe\.Parser\..*/],
           "Plan Model": [ImagePipe.Plan, ~r/ImagePipe\.Plan\..*/],
           "Transform API": [ImagePipe.Transform, ~r/ImagePipe\.Transform\..*/],

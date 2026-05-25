@@ -11,7 +11,7 @@ Set the telemetry prefix as a Plug option:
 
 ```elixir
 forward "/",
-  to: ImagePipe,
+  to: ImagePipe.Plug,
   init_opts: [
     parser: ImagePipe.Parser.Imgproxy,
     sources: [
