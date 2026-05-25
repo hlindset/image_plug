@@ -37,8 +37,8 @@ The missing CDN-facing behavior is:
 - source adapters don't expose HTTP cache semantics;
 - `Last-Modified` isn't represented;
 - `If-None-Match` can't return `304 Not Modified`;
-- internal cache hits can't preserve or check validators because cached
-  entries don't store `etag` or `last-modified`.
+- internal cache hits can't prepare generated validators or return
+  `304 Not Modified`.
 
 ## Design Goals
 
@@ -477,24 +477,42 @@ the ETag material. Otherwise omit the generated ETag for that response.
 
 ## Internal Cache Interaction
 
-The internal cache should store the CDN-facing headers with successful encoded
-entries.
+The internal cache stores encoded response bodies. It shouldn't become the
+source of truth for generated HTTP cache headers.
+
+`ImagePipe.Request.Runner` already receives `Source.Resolved` before internal
+cache lookup, so cache-hit delivery has the same source cache semantics, plan,
+request headers, and runtime options as cache-miss delivery. Use those inputs to
+prepare generated HTTP cache headers on every request, including internal cache
+hits.
+
+That keeps old internal entries usable after header-policy changes. It also
+avoids replaying stale `ETag` or `Cache-Control` values from metadata written by
+an older version.
 
 Extend `ImagePipe.Cache.Entry.cacheable_headers/1` to accept these names:
 
 - `vary`
 - `cache-control`
-- `etag`
-- `last-modified`
+
+These are output-owned headers that already exist today or that host policy may
+set before cache storage. Generated `etag`, generated `last-modified`, and
+generated `cache-control` should come from `ImagePipe.Request.HTTPCache` at
+delivery time, not from the cached entry.
 
 On internal cache hit:
 
-1. Check the cached entry and headers.
-2. If the request has `If-None-Match` matching the cached `etag`, return
+1. Check and normalize the cached entry headers.
+2. Prepare generated HTTP cache headers from current source semantics, plan,
+   request headers, and options.
+3. Merge cached output headers with generated HTTP cache headers. Generated
+   headers must not overwrite explicit host policy without the conflict rules
+   described in "Plug Chain Boundaries."
+4. If the request has `If-None-Match` matching the prepared `etag`, return
    `304 Not Modified` with the cache metadata header allowlist and no body.
    `If-None-Match: *` can match here because the cache entry proves the current
    representation exists.
-3. Otherwise return `200` with the cached body and cached response headers.
+5. Otherwise return `200` with the cached body and merged response headers.
 
 This preserves header behavior between cache misses and cache hits.
 
@@ -502,12 +520,11 @@ This preserves header behavior between cache misses and cache hits.
 shouldn't own conditional request behavior. The request runner or response
 sender should branch to a delivery shape that represents `304`.
 
-Cached HTTP headers must not survive an incompatible representation change. The
-internal cache key should include the same representation version and ETag
-schema version used for generated validators. As another option, cached entry
-metadata can carry those versions and ImagePipe can reject entries that don't
-match current options. The first implementation should use one of those checks
-before replaying stored `etag` or `cache-control`.
+The internal cache key doesn't need to include `etag_schema` or
+`representation_version` just to protect generated headers, because those
+headers come from current request inputs on hit. It only needs those versions if
+they also affect encoded bytes. In that case they belong in the existing
+canonical key data for output or transform material.
 
 ## Error Responses
 
@@ -583,15 +600,16 @@ Add focused tests at the request boundary:
   headers as `GET` without a body;
 - when ImagePipe supports `HEAD`, matching conditionals return `304` without a
   body;
-- internal cache hits preserve `etag`, `cache-control`, `vary`, and
-  `last-modified`;
-- internal cache hits can return `304` from stored `etag`;
+- internal cache hits preserve cached output headers such as `vary`;
+- internal cache hits prepare generated `etag`, `cache-control`, and
+  `last-modified` from current request inputs;
+- internal cache hits can return `304` from the prepared `etag`;
 - transform option order variants produce the same ETag;
 - changing source revision changes ETag;
 - changing `etag_schema` changes ETag;
 - changing representation version changes ETag;
-- old internal cache entries don't replay stale ETags after representation
-  version changes.
+- old internal cache entries don't replay stale generated ETags after
+  representation version changes.
 
 Add source adapter tests:
 
@@ -625,9 +643,9 @@ Build this in small steps:
 2. Add request-owned HTTP cache header computation and unit tests.
 3. Add pre-run conditional handling after source resolution and before
    `Runner.run/4`.
-4. Attach headers to cache misses and store the same headers in internal cache
-   entries in the same change.
-5. Replay headers and support cached `304` on internal cache hits.
+4. Attach generated headers to cache misses while continuing to store only
+   cacheable output headers in internal cache entries.
+5. Recompute generated headers and support cached `304` on internal cache hits.
 6. Document CDN behavior and source immutability configuration.
 
 The first implementation shouldn't add post-transform conditional validation.
