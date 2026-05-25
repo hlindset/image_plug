@@ -27,6 +27,7 @@ defmodule ImagePlug.ArchitectureBoundaryTest do
   ]
   @cache_key_files ["lib/image_plug/cache/key.ex"]
   @boundary_files %{
+    ImagePlug.Application => "lib/application.ex",
     ImagePlug.Cache => "lib/image_plug/cache.ex",
     ImagePlug.Format => "lib/image_plug/format.ex",
     ImagePlug.Output => "lib/image_plug/output.ex",
@@ -122,8 +123,16 @@ defmodule ImagePlug.ArchitectureBoundaryTest do
 
     assert_boundary_exports(request, [
       ImagePlug.Request.Options,
-      ImagePlug.Request.Runner
+      ImagePlug.Request.Runner,
+      ImagePlug.Request.SourceSessionSupervisor
     ])
+  end
+
+  test "application boundary owns OTP startup and depends on request lifecycle infrastructure" do
+    application = boundary_declaration(ImagePlug.Application)
+
+    assert_boundary_deps(application, [ImagePlug.Request])
+    assert_boundary_exports(application, [])
   end
 
   test "source boundary owns source identity and fetch context" do
@@ -164,13 +173,86 @@ defmodule ImagePlug.ArchitectureBoundaryTest do
     refute_boundary_deps(response, [ImagePlug.Request, ImagePlug.Source])
 
     assert_boundary_exports(response, [
+      ImagePlug.Response.PreparedStream,
       ImagePlug.Response.Sender
     ])
   end
 
-  test "old Runtime namespace files are gone" do
-    refute File.exists?("lib/image_plug/runtime.ex")
-    assert Path.wildcard("lib/image_plug/runtime/**/*.ex") == []
+  test "response delivery stays unaware of source sessions and cache staging" do
+    forbidden_terms = [
+      "ImagePlug.Request.SourceSession",
+      "ImagePlug.Request.SourceSessionSupervisor",
+      "ImagePlug.Cache.Sink",
+      "Cache.open_sink",
+      "Cache.write_chunk",
+      "Cache.commit_sink",
+      "Cache.abort_sink",
+      "Cache.put"
+    ]
+
+    violations =
+      for file <- [
+            "lib/image_plug/response/prepared_stream.ex",
+            "lib/image_plug/response/sender.ex"
+          ],
+          File.exists?(file),
+          {line, number} <- file |> File.read!() |> String.split("\n") |> Enum.with_index(1),
+          term <- forbidden_terms,
+          String.contains?(line, term) do
+        "#{file}:#{number} must not depend on #{term}; SourceSession owns cache staging"
+      end
+
+    assert violations == []
+  end
+
+  test "request code treats cache sinks as opaque cache values" do
+    request_sources =
+      "lib/image_plug/request/**/*.ex"
+      |> Path.wildcard()
+      |> Map.new(fn file -> {file, File.read!(file)} end)
+
+    forbidden_terms = [
+      "ImagePlug.Cache.Sink",
+      "Cache.Sink",
+      ".Sink",
+      "%Sink{",
+      "%ImagePlug.Cache.Sink{"
+    ]
+
+    violations =
+      for {file, source} <- request_sources,
+          term <- forbidden_terms,
+          String.contains?(source, term) do
+        "#{file} must not inspect cache sink internals through #{term}"
+      end
+
+    assert violations == []
+  end
+
+  test "prepared stream wiring keeps lifecycle ownership in request and byte delivery in response" do
+    response_sources =
+      "lib/image_plug/response/**/*.ex"
+      |> Path.wildcard()
+      |> Map.new(fn file -> {file, File.read!(file)} end)
+
+    violations =
+      for {file, source} <- response_sources,
+          term <- ["SourceSession", "SourceSessionSupervisor"],
+          String.contains?(source, term) do
+        "#{file} must not reference #{term}; response delivery uses PreparedStream callbacks"
+      end
+
+    assert violations == []
+
+    request = boundary_declaration(ImagePlug.Request)
+
+    forbidden_exports = [
+      ImagePlug.Request.SourceSession,
+      ImagePlug.Request.SourceSession.Prepared,
+      ImagePlug.Request.SourceSession.Request
+    ]
+
+    assert Enum.filter(request.exports, &(&1 in forbidden_exports)) == []
   end
 
   test "telemetry boundary remains a dependency-free facade" do
@@ -258,7 +340,8 @@ defmodule ImagePlug.ArchitectureBoundaryTest do
     assert_boundary_deps(cache, [
       ImagePlug.Plan,
       ImagePlug.Output,
-      ImagePlug.Transform
+      ImagePlug.Transform,
+      ImagePlug.Telemetry
     ])
 
     refute_boundary_deps(cache, @post_fetch_transform_state_modules)

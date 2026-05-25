@@ -11,6 +11,7 @@ defmodule ImagePlug.Response do
       ImagePlug.Transform
     ],
     exports: [
+      PreparedStream,
       Sender
     ]
 end

@@ -15,6 +15,7 @@ defmodule ImagePlug.Request do
     ],
     exports: [
       Options,
-      Runner
+      Runner,
+      SourceSessionSupervisor
     ]
 end

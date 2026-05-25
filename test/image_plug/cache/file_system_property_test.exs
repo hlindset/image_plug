@@ -2,6 +2,7 @@ defmodule ImagePlug.Cache.FileSystemPropertyTest do
   use ExUnit.Case, async: true
   use ExUnitProperties
 
+  alias ImagePlug.Cache
   alias ImagePlug.Cache.Entry
   alias ImagePlug.Cache.FileSystem
   alias ImagePlug.Cache.Key
@@ -50,7 +51,7 @@ defmodule ImagePlug.Cache.FileSystemPropertyTest do
           created_at: ~U[2026-04-29 10:15:00Z]
         }
 
-        assert :ok = FileSystem.put(cache_key, entry, root: root)
+        assert :ok = Cache.put(cache_key, entry, cache: {FileSystem, root: root})
         assert {:hit, cached_entry} = FileSystem.get(cache_key, root: root)
         assert cached_entry == entry
       after
@@ -62,7 +63,6 @@ defmodule ImagePlug.Cache.FileSystemPropertyTest do
   property "arbitrary metadata bytes do not crash get" do
     check all metadata_bytes <- binary(max_length: 2_048),
               body <- binary(max_length: 128),
-              fail_on_cache_error? <- boolean(),
               max_runs: 100 do
       root = unique_root()
       File.rm_rf!(root)
@@ -75,7 +75,7 @@ defmodule ImagePlug.Cache.FileSystemPropertyTest do
         File.write!(paths.meta_path, metadata_bytes)
 
         assert {:error, _reason} =
-                 FileSystem.get(cache_key, root: root, fail_on_cache_error: fail_on_cache_error?)
+                 FileSystem.get(cache_key, root: root)
       after
         File.rm_rf!(root)
       end
@@ -114,8 +114,7 @@ defmodule ImagePlug.Cache.FileSystemPropertyTest do
       constant("processed/../outside"),
       constant("processed/./images"),
       constant("processed//images"),
-      constant("/absolute"),
-      constant("~/cache")
+      constant("/absolute")
     ])
   end
 

@@ -9,6 +9,24 @@ fetch. Source resolution finishes before cache lookup. Requests eligible for
 caching look up the cache before source fetch and decode, so fetch and decode run
 only on a cache miss or when the resolved source has `cache: :skip`.
 
+No-cache requests, `cache: :skip` requests, cache misses, cache read errors, and
+invalid cache hits use a supervised source session for lazy response streaming.
+The session owns the source-backed image and encoder continuation. The Plug
+request process receives only prepared response metadata, the first encoded
+chunk, and callbacks for pulling later chunks.
+
+ImagePlug pulls the first encoded chunk before committing response headers. A
+failure before that point can still become a normal ImagePlug error response.
+After `send_chunked/2`, late source, decode, encode, cache staging, and client-close
+failures have different response effects. Source, decode, encode, and
+client-close failures stop delivery and skip partial cache writes. Cache staging
+over-limit, staging errors, and cache commit errors fail open, emit telemetry,
+and keep the response delivery result. In all cases, ImagePlug can't replace an
+already-started response with a new HTTP error body.
+
+Runtime cache read, metadata, and write errors fail open. Invalid cache
+configuration still fails during Plug initialization.
+
 HTTP and S3 source fetches use non-bang Req calls with bounded redirects and
 receive timeouts. ImagePlug reads the source format from the decoded image
 rather than trusted HTTP headers. Configure byte and decode limits with

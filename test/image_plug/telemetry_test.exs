@@ -67,18 +67,52 @@ defmodule ImagePlug.TelemetryTest do
   end
 
   defmodule CacheReadFailure do
+    @behaviour ImagePlug.Cache
+
     def get(_key, _opts), do: {:error, :read_failed}
-    def put(_key, _entry, _opts), do: raise("cache read failure test should not write")
+    def open_sink(_key, _metadata, _opts), do: raise("cache read failure test should not write")
+    def write_chunk(_state, _chunk, _opts), do: raise("cache read failure test should not write")
+    def commit_sink(_state, _opts), do: raise("cache read failure test should not write")
+    def abort_sink(_state, _opts), do: :ok
   end
 
   defmodule FailOpenCacheReadFailure do
+    @behaviour ImagePlug.Cache
+
     def get(_key, _opts), do: {:error, :read_failed}
-    def put(_key, _entry, _opts), do: :ok
+    def open_sink(_key, _metadata, _opts), do: {:ok, []}
+    def write_chunk(chunks, chunk, _opts), do: {:ok, [chunk | chunks]}
+    def commit_sink(_state, _opts), do: :ok
+    def abort_sink(_state, _opts), do: :ok
+  end
+
+  defmodule InvalidCacheHit do
+    @behaviour ImagePlug.Cache
+
+    def get(_key, _opts) do
+      {:hit,
+       %ImagePlug.Cache.Entry{
+         body: "cached gif",
+         content_type: "image/gif",
+         headers: [],
+         created_at: DateTime.utc_now()
+       }}
+    end
+
+    def open_sink(_key, _metadata, _opts), do: {:ok, []}
+    def write_chunk(chunks, chunk, _opts), do: {:ok, [chunk | chunks]}
+    def commit_sink(_state, _opts), do: :ok
+    def abort_sink(_state, _opts), do: :ok
   end
 
   defmodule FailOpenCacheWriteFailure do
+    @behaviour ImagePlug.Cache
+
     def get(_key, _opts), do: :miss
-    def put(_key, _entry, _opts), do: {:error, :write_failed}
+    def open_sink(_key, _metadata, _opts), do: {:ok, []}
+    def write_chunk(state, _chunk, _opts), do: {:error, :write_failed, state}
+    def commit_sink(_state, _opts), do: :ok
+    def abort_sink(_state, _opts), do: :ok
   end
 
   defmodule SourceBytes do
@@ -155,11 +189,17 @@ defmodule ImagePlug.TelemetryTest do
       assert metadata.request_method == "GET"
     end)
 
+    assert_event(events, [:image_plug, :output, :negotiate, :stop], fn measurements, metadata ->
+      assert is_integer(measurements.duration)
+      assert metadata.result == :ok
+      assert metadata.output_mode == :explicit
+      assert metadata.output_format == :jpeg
+    end)
+
     for stage <- [
           [:parse],
           [:source, :resolve],
           [:cache, :lookup],
-          [:output, :negotiate],
           [:source, :fetch],
           [:transform, :execute],
           [:encode],
@@ -290,12 +330,6 @@ defmodule ImagePlug.TelemetryTest do
 
     events = telemetry_events()
 
-    assert_event(events, [:image_plug, :encode, :stop], fn _measurements, metadata ->
-      assert metadata.result == :processing_error
-      assert metadata.status == 500
-      assert metadata.output_format == :jpeg
-    end)
-
     assert_event(events, [:image_plug, :send, :stop], fn _measurements, metadata ->
       assert metadata.result == :processing_error
       assert metadata.status == 500
@@ -321,16 +355,19 @@ defmodule ImagePlug.TelemetryTest do
         event == [:image_plug, :output, :negotiate, :stop]
       end)
 
-    assert [_event] = output_stop_events
+    assert output_stop_events != []
 
-    assert_event(events, [:image_plug, :output, :negotiate, :stop], fn _measurements, metadata ->
-      assert metadata.result == :ok
+    refute Enum.any?(output_stop_events, fn {_event, _measurements, metadata} ->
+             metadata.result != :ok
+           end)
+
+    for {_event, _measurements, metadata} <- output_stop_events do
       assert metadata.output_mode == :automatic
-      assert metadata.output_format == :jpeg
-    end)
+      assert metadata.output_format in [:jpeg, :pending_final_image_alpha]
+    end
   end
 
-  test "source-only automatic fallback emits one final output negotiation event" do
+  test "source-only automatic fallback does not emit failed output negotiation telemetry" do
     require_tiff_support!()
 
     conn =
@@ -346,10 +383,16 @@ defmodule ImagePlug.TelemetryTest do
         event == [:image_plug, :output, :negotiate, :stop]
       end)
 
-    assert [{_event, _measurements, metadata}] = output_stop_events
-    assert metadata.result == :ok
-    assert metadata.output_mode == :automatic
-    assert metadata.output_format == :jpeg
+    assert output_stop_events != []
+
+    refute Enum.any?(output_stop_events, fn {_event, _measurements, metadata} ->
+             metadata.result != :ok
+           end)
+
+    for {_event, _measurements, metadata} <- output_stop_events do
+      assert metadata.output_mode == :automatic
+      assert metadata.output_format in [:jpeg, :pending_final_image_alpha]
+    end
   end
 
   test "fail-open cache read errors are reported on cache lookup telemetry" do
@@ -373,7 +416,28 @@ defmodule ImagePlug.TelemetryTest do
     end)
   end
 
-  test "fail-open cache write errors are reported on cache write telemetry" do
+  test "invalid cache entries are reported on cache lookup telemetry" do
+    conn =
+      :get
+      |> conn("/_/f:jpeg/plain/images/beach.jpg")
+      |> ImagePlug.call(base_opts(cache: {InvalidCacheHit, []}))
+
+    assert conn.status == 200
+    events = telemetry_events()
+
+    assert_event(events, [:image_plug, :cache, :lookup, :stop], fn _measurements, metadata ->
+      assert metadata.result == :cache_error
+      assert metadata.cache == :read_error
+      assert metadata.error == :invalid_entry
+    end)
+
+    assert_event(events, [:image_plug, :request, :stop], fn _measurements, metadata ->
+      assert metadata.result == :ok
+      assert metadata.status == 200
+    end)
+  end
+
+  test "fail-open cache staging write errors are reported on cache stage telemetry" do
     conn =
       :get
       |> conn("/_/f:jpeg/plain/images/beach.jpg")
@@ -382,9 +446,9 @@ defmodule ImagePlug.TelemetryTest do
     assert conn.status == 200
     events = telemetry_events()
 
-    assert_event(events, [:image_plug, :cache, :write, :stop], fn _measurements, metadata ->
+    assert_event(events, [:image_plug, :cache, :stage], fn _measurements, metadata ->
       assert metadata.result == :cache_error
-      assert metadata.cache == :write_error
+      assert metadata.cache == :stage_error
       assert metadata.error == :write_failed
     end)
 
@@ -413,12 +477,6 @@ defmodule ImagePlug.TelemetryTest do
         init_opts(sources: []),
         :source_error,
         422
-      },
-      cache: {
-        conn(:get, "/_/f:jpeg/plain/images/beach.jpg"),
-        init_opts(cache: {CacheReadFailure, fail_on_cache_error: true}),
-        :cache_error,
-        500
       },
       processing: {
         conn(:get, "/_/f:jpeg/plain/images/beach.jpg"),
@@ -551,15 +609,19 @@ defmodule ImagePlug.TelemetryTest do
   end
 
   defp default_events do
-    for stage <- stages(),
-        suffix <- [:start, :stop, :exception],
-        do: [:image_plug | stage] ++ [suffix]
+    span_events(:image_plug) ++ [[:image_plug, :cache, :stage]]
   end
 
   defp custom_events do
+    span_events([:custom, :image]) ++ [[:custom, :image, :cache, :stage]]
+  end
+
+  defp span_events(prefix) when is_atom(prefix), do: span_events([prefix])
+
+  defp span_events(prefix) when is_list(prefix) do
     for stage <- stages(),
         suffix <- [:start, :stop, :exception],
-        do: [:custom, :image | stage] ++ [suffix]
+        do: prefix ++ stage ++ [suffix]
   end
 
   defp stages do

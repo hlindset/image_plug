@@ -3,14 +3,18 @@ defmodule ImagePlug.Application do
 
   use Boundary,
     top_level?: true,
-    deps: []
+    deps: [
+      ImagePlug.Request
+    ]
 
   use Application
 
   require Logger
 
   def start(_type, _args) do
-    children = []
+    children = [
+      ImagePlug.Request.SourceSessionSupervisor
+    ]
 
     opts = [strategy: :one_for_one, name: ImagePlug.Supervisor]
 

@@ -9,8 +9,8 @@ defmodule ImagePlug.Cache.FileSystem do
   alias ImagePlug.Cache.Key
 
   @metadata_version 1
-  @hash_pattern ~r/\A[0-9A-Fa-f]{64}\z/
-  @body_filename_pattern ~r/\A[0-9A-Fa-f]{64}\.[0-9a-f]{64}\.body\z/
+  @cache_key_hash_pattern ~r/\A[0-9A-Fa-f]{64}\z/
+  @body_sha256_pattern ~r/\A[0-9a-f]{64}\z/
   @option_keys [:root, :path_prefix]
   @options_schema NimbleOptions.new!(
                     root: [
@@ -18,6 +18,7 @@ defmodule ImagePlug.Cache.FileSystem do
                       type: {:custom, __MODULE__, :validate_root, []}
                     ],
                     path_prefix: [
+                      default: "",
                       type: {:custom, __MODULE__, :validate_path_prefix, []}
                     ]
                   )
@@ -31,34 +32,101 @@ defmodule ImagePlug.Cache.FileSystem do
   end
 
   @impl true
-  def put(%Key{} = key, %Entry{} = entry, opts) when is_list(opts) do
+  def open_sink(%Key{} = key, %Entry.Metadata{} = metadata, opts) when is_list(opts) do
     with {:ok, paths} <- paths(key, opts),
          :ok <- File.mkdir_p(paths.dir),
-         body_sha256 = body_sha256(entry.body),
-         body_filename = body_filename(paths.hash, body_sha256),
-         {:ok, metadata} <- metadata(entry, body_sha256, body_filename) do
-      write_and_commit(
-        paths,
-        body_filename,
-        entry.body,
-        :erlang.term_to_binary(metadata, [:deterministic])
-      )
+         temp_body_path = temp_path(paths),
+         {:ok, body_io} <- File.open(temp_body_path, [:write, :binary, :exclusive]) do
+      {:ok,
+       %{
+         paths: paths,
+         temp_body_path: temp_body_path,
+         temp_meta_path: nil,
+         body_io: body_io,
+         size: 0,
+         hash_context: :crypto.hash_init(:sha256),
+         metadata: metadata
+       }}
     end
   end
 
   @impl true
-  def validate_options(opts) when is_list(opts) do
-    with :ok <- validate_unknown_options(opts),
-         {:ok, validated_opts} <- validate_known_options(opts),
-         root = Keyword.fetch!(validated_opts, :root),
-         path_prefix = Keyword.get(validated_opts, :path_prefix, ""),
-         {:ok, {first_partition, second_partition}} <- partitions(String.duplicate("0", 64)) do
-      dir = Path.join([root, path_prefix, first_partition, second_partition])
-      meta_path = Path.join(dir, String.duplicate("0", 64) <> ".meta")
+  def write_chunk(state, chunk, _opts) when is_binary(chunk) do
+    IO.binwrite(state.body_io, chunk)
 
-      with :ok <- validate_cache_paths(root, dir, meta_path) do
-        {:ok, validated_opts}
-      end
+    {:ok,
+     %{
+       state
+       | size: state.size + byte_size(chunk),
+         hash_context: :crypto.hash_update(state.hash_context, chunk)
+     }}
+  rescue
+    exception in [ErlangError] -> {:error, exception.original, state}
+  catch
+    :exit, reason -> {:error, reason, state}
+  end
+
+  @impl true
+  def commit_sink(state, _opts) when is_map(state) do
+    case prepare_sink_commit(state) do
+      {:ok, state, body_filename} ->
+        commit_prepared_sink(state, body_filename)
+
+      {:error, reason, state} ->
+        cleanup_sink_state(state)
+        {:error, reason}
+    end
+  end
+
+  defp prepare_sink_commit(state) do
+    with :ok <- close_body_io(state),
+         body_sha256 = finalize_body_sha256(state.hash_context),
+         body_filename = body_filename(state.paths.hash, body_sha256),
+         encoded_metadata = sink_metadata(state, body_sha256, body_filename),
+         {:ok, temp_meta_path} <- write_sink_metadata(state.paths, encoded_metadata) do
+      {:ok, %{state | temp_meta_path: temp_meta_path}, body_filename}
+    else
+      {:error, reason} -> {:error, reason, state}
+    end
+  end
+
+  defp commit_prepared_sink(state, body_filename) do
+    case commit_sink_files(state, body_filename) do
+      :ok ->
+        :ok
+
+      {:error, reason} ->
+        cleanup_sink_state(state)
+        {:error, reason}
+    end
+  end
+
+  @impl true
+  def abort_sink(state, _opts) when is_map(state) do
+    cleanup_sink_state(state)
+  end
+
+  @impl true
+  def validate_options(opts) when is_list(opts) do
+    with {:ok, validated_opts} <- validate_filesystem_options(opts),
+         :ok <- validate_representative_cache_dir(validated_opts) do
+      {:ok, validated_opts}
+    end
+  end
+
+  defp validate_representative_cache_dir(validated_opts) do
+    root = Keyword.fetch!(validated_opts, :root)
+    path_prefix = Keyword.fetch!(validated_opts, :path_prefix)
+    # Probe the directory shape every cache key will use after hash partitioning.
+    dir = Path.join([root, path_prefix, "00", "00"])
+
+    validate_under_root(root, dir)
+  end
+
+  defp validate_filesystem_options(opts) do
+    with :ok <- validate_unknown_options(opts),
+         {:ok, validated_opts} <- validate_known_options(opts) do
+      {:ok, validated_opts}
     end
   end
 
@@ -90,19 +158,21 @@ defmodule ImagePlug.Cache.FileSystem do
   def validate_root(root), do: {:error, "expected absolute path string, got: #{inspect(root)}"}
 
   @doc false
+  def validate_path_prefix(""), do: {:ok, ""}
+
   def validate_path_prefix(prefix) when is_binary(prefix) do
-    cond do
-      prefix == "" ->
-        {:ok, ""}
+    invalid_segment? =
+      prefix
+      |> String.split("/", trim: false)
+      |> Enum.any?(fn segment ->
+        segment in ["", ".", ".."]
+      end)
 
-      Path.type(prefix) == :absolute ->
-        {:error, "expected relative path without traversal, got: #{inspect(prefix)}"}
-
-      String.contains?(prefix, "\\") or invalid_path_prefix?(prefix) ->
-        {:error, "expected relative path without traversal, got: #{inspect(prefix)}"}
-
-      true ->
-        {:ok, prefix}
+    if Path.type(prefix) == :relative and not String.contains?(prefix, "\\") and
+         not invalid_segment? do
+      {:ok, prefix}
+    else
+      {:error, "expected relative path without traversal, got: #{inspect(prefix)}"}
     end
   end
 
@@ -123,7 +193,9 @@ defmodule ImagePlug.Cache.FileSystem do
          {:ok, metadata} <- decode_metadata(meta_binary),
          {:ok, body_path} <- body_path_from_metadata(paths, metadata),
          {:ok, body} <- read_cache_file(body_path, :body),
-         :ok <- validate_body(body, metadata),
+         # Cache hits trust metadata plus byte size without recomputing the body
+         # digest. That keeps reads compatible with the future streaming hit path.
+         :ok <- validate_body_size(body, metadata),
          {:ok, created_at} <- parse_created_at(metadata.created_at) do
       {:hit,
        %Entry{
@@ -146,51 +218,35 @@ defmodule ImagePlug.Cache.FileSystem do
   defp read_error(:metadata, reason), do: {:metadata_read, reason}
   defp read_error(:body, reason), do: {:body_read, reason}
 
-  defp validate_body(body, %{body_byte_size: body_byte_size})
-       when byte_size(body) != body_byte_size do
-    handle_invalid_metadata(:body_byte_size_mismatch)
-  end
+  defp validate_body_size(body, %{body_byte_size: body_byte_size})
+       when byte_size(body) == body_byte_size,
+       do: :ok
 
-  defp validate_body(body, %{body_sha256: body_sha256}) do
-    if body_sha256(body) == body_sha256 do
-      :ok
-    else
-      handle_invalid_metadata(:body_digest_mismatch)
-    end
-  end
+  defp validate_body_size(_body, _metadata), do: handle_invalid_metadata(:body_byte_size_mismatch)
 
-  defp metadata(%Entry{} = entry, body_sha256, body_filename) do
-    case Entry.cacheable_headers(entry.headers) do
-      {:ok, headers} ->
-        {:ok,
-         %{
-           metadata_version: @metadata_version,
-           content_type: entry.content_type,
-           headers: headers,
-           created_at: DateTime.to_iso8601(entry.created_at),
-           body_byte_size: byte_size(entry.body),
-           body_sha256: body_sha256,
-           body_filename: body_filename
-         }}
+  defp sink_metadata(state, body_sha256, body_filename) do
+    metadata = %{
+      metadata_version: @metadata_version,
+      content_type: state.metadata.content_type,
+      headers: state.metadata.headers,
+      created_at: DateTime.to_iso8601(state.metadata.created_at),
+      body_byte_size: state.size,
+      body_sha256: body_sha256,
+      body_filename: body_filename
+    }
 
-      {:error, _reason} = error ->
-        error
-    end
-  end
-
-  defp body_sha256(body) do
-    Base.encode16(:crypto.hash(:sha256, body), case: :lower)
+    :erlang.term_to_binary(metadata, [:deterministic])
   end
 
   defp decode_metadata(binary) do
-    binary
-    |> :erlang.binary_to_term([:safe])
-    |> validate_metadata()
+    metadata = :erlang.binary_to_term(binary, [:safe])
+
+    case validate_metadata(metadata) do
+      {:ok, metadata} -> {:ok, metadata}
+      {:error, reason} -> handle_invalid_metadata(reason)
+    end
   rescue
     ArgumentError -> handle_invalid_metadata(:decode_failed)
-  else
-    {:ok, metadata} -> {:ok, metadata}
-    {:error, reason} -> handle_invalid_metadata(reason)
   end
 
   defp validate_metadata(%{
@@ -205,21 +261,42 @@ defmodule ImagePlug.Cache.FileSystem do
        when is_binary(content_type) and is_list(headers) and is_binary(created_at) and
               is_integer(body_byte_size) and body_byte_size >= 0 and is_binary(body_sha256) and
               is_binary(body_filename) do
-    {:ok,
-     %{
-       content_type: content_type,
-       headers: headers,
-       created_at: created_at,
-       body_byte_size: body_byte_size,
-       body_sha256: body_sha256,
-       body_filename: body_filename
-     }}
+    with :ok <- validate_metadata_content_type(content_type),
+         :ok <- validate_metadata_headers(headers) do
+      {:ok,
+       %{
+         content_type: content_type,
+         headers: headers,
+         created_at: created_at,
+         body_byte_size: body_byte_size,
+         body_sha256: body_sha256,
+         body_filename: body_filename
+       }}
+    end
   end
 
   defp validate_metadata(%{metadata_version: _version}), do: {:error, :version_mismatch}
   defp validate_metadata(_metadata), do: {:error, :invalid_shape}
 
   defp handle_invalid_metadata(reason), do: {:error, {:invalid_metadata, reason}}
+
+  defp validate_metadata_content_type(content_type) do
+    case Entry.validate_content_type(content_type) do
+      :ok -> :ok
+      {:error, reason} -> {:error, {:invalid_content_type, reason}}
+    end
+  end
+
+  defp validate_metadata_headers(headers) do
+    if Enum.all?(headers, &valid_metadata_header?/1) do
+      :ok
+    else
+      {:error, :invalid_headers}
+    end
+  end
+
+  defp valid_metadata_header?({name, value}), do: is_binary(name) and is_binary(value)
+  defp valid_metadata_header?(_header), do: false
 
   defp parse_created_at(created_at) do
     case DateTime.from_iso8601(created_at) do
@@ -234,82 +311,46 @@ defmodule ImagePlug.Cache.FileSystem do
        ) do
     expected_body_filename = body_filename(paths.hash, body_sha256)
 
-    if body_filename == expected_body_filename and
-         Regex.match?(@body_filename_pattern, body_filename) do
+    if valid_body_sha256?(body_sha256) and body_filename == expected_body_filename do
       {:ok, Path.join(paths.dir, body_filename)}
     else
       handle_invalid_metadata(:invalid_body_filename)
     end
   end
 
-  defp write_and_commit(paths, body_filename, body, encoded_metadata) do
-    case write_temp(paths, body) do
-      {:ok, body_tmp_path} ->
-        write_metadata_and_commit(paths, body_filename, body_tmp_path, encoded_metadata)
+  defp valid_body_sha256?(body_sha256),
+    do: is_binary(body_sha256) and Regex.match?(@body_sha256_pattern, body_sha256)
 
-      {:error, _reason} = error ->
-        error
-    end
-  end
-
-  defp write_metadata_and_commit(paths, body_filename, body_tmp_path, encoded_metadata) do
-    case write_temp(paths, encoded_metadata) do
-      {:ok, meta_tmp_path} ->
-        commit(paths, body_filename, body_tmp_path, meta_tmp_path)
-
-      {:error, reason} ->
-        cleanup_temp_files([body_tmp_path])
-        {:error, reason}
-    end
-  end
-
-  defp write_temp(paths, binary) do
+  defp write_sink_metadata(paths, encoded_metadata) do
     temp_path = temp_path(paths)
 
-    case File.write(temp_path, binary, [:binary, :exclusive]) do
+    case File.write(temp_path, encoded_metadata, [:binary, :exclusive]) do
       :ok -> {:ok, temp_path}
       {:error, reason} -> {:error, reason}
     end
   end
 
-  defp commit(paths, body_filename, body_tmp_path, meta_tmp_path) do
-    body_path = Path.join(paths.dir, body_filename)
+  defp commit_sink_files(state, body_filename) do
+    body_path = Path.join(state.paths.dir, body_filename)
 
-    case commit_body_file(body_tmp_path, body_path, body_filename) do
-      {:ok, body_status} ->
-        case commit_metadata_file(paths, body_tmp_path, meta_tmp_path) do
-          :ok ->
-            :ok
-
-          {:error, reason} ->
-            rollback_committed_body(body_path, body_status)
-            {:error, reason}
-        end
-
-      {:error, reason} ->
-        cleanup_temp_files([body_tmp_path, meta_tmp_path])
-        {:error, reason}
+    with :ok <- commit_body_file(state.temp_body_path, body_path, body_filename) do
+      commit_metadata_file(state.paths.meta_path, state.temp_meta_path)
     end
   end
 
-  defp commit_metadata_file(paths, body_tmp_path, meta_tmp_path) do
-    case File.rename(meta_tmp_path, paths.meta_path) do
-      :ok ->
-        :ok
-
-      {:error, reason} ->
-        cleanup_temp_files([body_tmp_path, meta_tmp_path])
-        {:error, reason}
-    end
+  defp commit_metadata_file(meta_path, meta_tmp_path) do
+    File.rename(meta_tmp_path, meta_path)
   end
 
   defp commit_body_file(body_tmp_path, body_path, body_filename) do
     if matching_body_file?(body_path, body_filename) do
+      # Existing matching body content wins. The new temp body is no longer
+      # needed, and cleanup is best-effort cache housekeeping.
       cleanup_temp_files([body_tmp_path])
-      {:ok, :existing}
+      :ok
     else
       case File.rename(body_tmp_path, body_path) do
-        :ok -> {:ok, :moved}
+        :ok -> :ok
         {:error, :eexist} -> use_existing_body_file(body_tmp_path, body_path, body_filename)
         {:error, reason} -> {:error, reason}
       end
@@ -319,54 +360,81 @@ defmodule ImagePlug.Cache.FileSystem do
   defp use_existing_body_file(body_tmp_path, body_path, body_filename) do
     if matching_body_file?(body_path, body_filename) do
       cleanup_temp_files([body_tmp_path])
-      {:ok, :existing}
+      :ok
     else
       {:error, :body_file_exists}
     end
   end
 
-  defp rollback_committed_body(body_path, :moved), do: File.rm(body_path)
-  defp rollback_committed_body(_body_path, :existing), do: :ok
-
   defp matching_body_file?(body_path, body_filename) do
     with {:ok, expected_sha256} <- body_sha256_from_filename(body_filename),
-         {:ok, body} <- File.read(body_path) do
-      body_sha256(body) == expected_sha256
+         {:ok, actual_sha256} <- file_sha256(body_path) do
+      actual_sha256 == expected_sha256
     else
       _reason -> false
     end
   end
 
+  defp file_sha256(path) do
+    with {:ok, io} <- File.open(path, [:read, :binary]) do
+      try do
+        sha256 =
+          io
+          |> IO.binstream(64 * 1024)
+          |> Enum.reduce(:crypto.hash_init(:sha256), &:crypto.hash_update(&2, &1))
+          |> finalize_body_sha256()
+
+        {:ok, sha256}
+      after
+        File.close(io)
+      end
+    end
+  end
+
+  defp close_body_io(%{body_io: body_io}) do
+    case File.close(body_io) do
+      :ok -> :ok
+      {:error, :terminated} -> :ok
+      {:error, reason} -> {:error, reason}
+    end
+  catch
+    :exit, reason -> {:error, {:close_failed, reason}}
+  end
+
+  defp finalize_body_sha256(hash_context) do
+    hash_context
+    |> :crypto.hash_final()
+    |> Base.encode16(case: :lower)
+  end
+
+  defp cleanup_sink_state(state) do
+    _result = close_body_io(state)
+    cleanup_temp_files([state.temp_body_path, state.temp_meta_path])
+  end
+
   defp cleanup_temp_files(temp_paths) do
-    Enum.each(temp_paths, &File.rm/1)
+    temp_paths
+    |> Enum.reject(&is_nil/1)
+    |> Enum.each(&File.rm/1)
   end
 
   @doc false
   def paths(%Key{hash: hash}, opts) do
-    with {:ok, opts} <- validate_known_options(opts),
+    with {:ok, opts} <- validate_filesystem_options(opts),
          root = Keyword.fetch!(opts, :root),
-         path_prefix = Keyword.get(opts, :path_prefix, ""),
+         path_prefix = Keyword.fetch!(opts, :path_prefix),
          {:ok, {first_partition, second_partition}} <- partitions(hash) do
       dir = Path.join([root, path_prefix, first_partition, second_partition])
       meta_path = Path.join(dir, hash <> ".meta")
 
-      with :ok <- validate_under_root(root, dir),
-           :ok <- validate_under_root(root, meta_path) do
+      with :ok <- validate_under_root(root, dir) do
         {:ok, %{root: root, dir: dir, meta_path: meta_path, hash: hash}}
       end
     end
   end
 
-  defp invalid_path_prefix?(prefix) do
-    prefix
-    |> String.split("/", trim: false)
-    |> Enum.any?(fn segment ->
-      segment in ["", ".", ".."] or String.starts_with?(segment, "~")
-    end)
-  end
-
   defp partitions(hash) when is_binary(hash) do
-    if Regex.match?(@hash_pattern, hash) do
+    if Regex.match?(@cache_key_hash_pattern, hash) do
       do_partitions(hash)
     else
       {:error, {:invalid_hash, hash}}
@@ -385,16 +453,11 @@ defmodule ImagePlug.Cache.FileSystem do
     path = Path.expand(path)
     relative = Path.relative_to(path, root, force: true)
 
+    # The two-argument form resolves symlinks against root. A plain prefix check
+    # would allow a partition directory symlink to point outside the cache root.
     case Path.safe_relative(relative, root) do
       {:ok, _relative} -> :ok
       :error -> {:error, {:path_outside_root, path}}
-    end
-  end
-
-  defp validate_cache_paths(root, dir, meta_path) do
-    case validate_under_root(root, dir) do
-      :ok -> validate_under_root(root, meta_path)
-      {:error, _reason} = error -> error
     end
   end
 
@@ -402,13 +465,20 @@ defmodule ImagePlug.Cache.FileSystem do
 
   defp body_sha256_from_filename(body_filename) do
     case String.split(body_filename, ".", parts: 3) do
-      [_hash, body_sha256, "body"] -> {:ok, body_sha256}
-      _parts -> {:error, :invalid_body_filename}
+      [_hash, body_sha256, "body"] ->
+        if valid_body_sha256?(body_sha256) do
+          {:ok, body_sha256}
+        else
+          {:error, :invalid_body_filename}
+        end
+
+      _parts ->
+        {:error, :invalid_body_filename}
     end
   end
 
   defp temp_path(paths) do
     random = Base.url_encode64(:crypto.strong_rand_bytes(16), padding: false)
-    Path.join(paths.dir, ".#{paths.hash}.#{System.os_time()}.#{random}.tmp")
+    Path.join(paths.dir, ".#{paths.hash}.#{random}.tmp")
   end
 end

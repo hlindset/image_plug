@@ -1,2 +1,2 @@
-ExUnit.start()
+ExUnit.start(capture_log: true)
 {:ok, _} = Application.ensure_all_started(:req)

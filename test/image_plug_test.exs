@@ -18,6 +18,8 @@ defmodule ImagePlug.ImagePlugTest do
   alias ImagePlug.SourceTest.RootHTTPAdapter
 
   defmodule CacheProbe do
+    @behaviour ImagePlug.Cache
+
     alias ImagePlug.Cache.Entry
     alias ImagePlug.Cache.Key
 
@@ -32,13 +34,32 @@ defmodule ImagePlug.ImagePlugTest do
       end
     end
 
-    def put(%Key{} = key, %Entry{} = entry, opts) do
+    def open_sink(%Key{} = key, metadata, opts) do
+      {:ok, %{key: key, metadata: metadata, chunks: [], opts: opts}}
+    end
+
+    def write_chunk(state, chunk, _opts) do
+      {:ok, %{state | chunks: [chunk | state.chunks]}}
+    end
+
+    def commit_sink(state, _opts) do
+      entry = %Entry{
+        body: state.chunks |> Enum.reverse() |> IO.iodata_to_binary(),
+        content_type: state.metadata.content_type,
+        headers: state.metadata.headers,
+        created_at: state.metadata.created_at
+      }
+
+      opts = state.opts
+
       opts
       |> Keyword.get(:message_target, self())
-      |> send({:cache_put, key, entry})
+      |> send({:cache_put, state.key, entry})
 
       Keyword.get(opts, :put_result, :ok)
     end
+
+    def abort_sink(_state, _opts), do: :ok
   end
 
   defmodule OriginShouldNotBeCalled do
@@ -75,53 +96,81 @@ defmodule ImagePlug.ImagePlugTest do
 
   defmodule StreamingOnlyImage do
     def stream!(_image, suffix: ".jpg") do
-      send(self(), :stream_encoder_called)
+      send(message_target(), :stream_encoder_called)
       ["streamed jpeg"]
     end
 
     def write!(_image, :memory, suffix: ".jpg") do
-      send(self(), :memory_encoder_called)
+      send(message_target(), :memory_encoder_called)
       raise "cache-enabled memory encoder should not be called"
+    end
+
+    defp message_target do
+      case Process.get(:"$callers") do
+        [pid | _rest] when is_pid(pid) -> pid
+        _callers -> self()
+      end
     end
   end
 
   defmodule BoundedCacheStreamingImage do
     def stream!(_image, suffix: ".jpg") do
-      send(self(), :stream_encoder_called)
+      send(message_target(), :stream_encoder_called)
       ["streamed jpeg over cache limit"]
     end
 
     def write(_image, :memory, suffix: ".jpg") do
-      send(self(), :memory_encoder_called)
+      send(message_target(), :memory_encoder_called)
       raise "cache skip path should not encode the full body in memory"
+    end
+
+    defp message_target do
+      case Process.get(:"$callers") do
+        [pid | _rest] when is_pid(pid) -> pid
+        _callers -> self()
+      end
     end
   end
 
   defmodule MultiChunkStreamingImage do
     def stream!(_image, suffix: ".jpg") do
-      send(self(), :stream_encoder_called)
+      send(message_target(), :stream_encoder_called)
       ["first chunk", "second chunk"]
+    end
+
+    defp message_target do
+      case Process.get(:"$callers") do
+        [pid | _rest] when is_pid(pid) -> pid
+        _callers -> self()
+      end
     end
   end
 
   defmodule EmptyStreamingImage do
     def stream!(_image, suffix: ".jpg") do
-      send(self(), :stream_encoder_called)
+      send(message_target(), :stream_encoder_called)
       []
+    end
+
+    defp message_target do
+      case Process.get(:"$callers") do
+        [pid | _rest] when is_pid(pid) -> pid
+        _callers -> self()
+      end
     end
   end
 
   defmodule FailingStreamBeforeHeaderImage do
     def stream!(_image, suffix: ".jpg") do
-      send(self(), :stream_encoder_called)
+      send(message_target(), :stream_encoder_called)
       raise "forced stream encode failure"
     end
-  end
 
-  defmodule FailingMemoryImage do
-    def write(_image, :memory, suffix: ".jpg") do
-      send(self(), :memory_encoder_called)
-      {:error, RuntimeError.exception("forced memory encode failure")}
+    defp message_target do
+      case Process.get(:"$callers") do
+        [pid | _rest] when is_pid(pid) -> pid
+        _callers -> self()
+      end
     end
   end
 
@@ -132,14 +181,6 @@ defmodule ImagePlug.ImagePlugTest do
     end
 
     def chunk(_payload, _body), do: {:error, :closed}
-  end
-
-  defmodule OversizedOriginBody do
-    def call(conn, _) do
-      conn
-      |> Plug.Conn.put_resp_content_type("image/png")
-      |> Plug.Conn.send_resp(200, "123456")
-    end
   end
 
   defmodule InvalidOriginImage do
@@ -756,6 +797,21 @@ defmodule ImagePlug.ImagePlugTest do
     refute_received :memory_encoder_called
   end
 
+  test "no-cache image request still sends an image" do
+    conn =
+      :get
+      |> conn("/_/plain/images/beach.jpg")
+      |> call_image_plug(
+        parser: ImagePlug.Parser.Imgproxy,
+        sources: [path: {ImagePlug.Source.File, root: "priv/static", root_id: "static"}]
+      )
+
+    assert conn.status == 200
+    assert [content_type] = get_resp_header(conn, "content-type")
+    assert String.starts_with?(content_type, "image/jpeg")
+    assert byte_size(conn.resp_body) > 0
+  end
+
   test "streaming sends headers once and resumes for subsequent chunks" do
     conn = conn(:get, "/_/f:jpeg/plain/images/beach.jpg")
     test_pid = self()
@@ -1136,7 +1192,7 @@ defmodule ImagePlug.ImagePlugTest do
     assert key_a.hash == key_b.hash
   end
 
-  test "cache-miss memory encode failures are not cached and preserve automatic Vary" do
+  test "cache-miss stream encode failures are not cached and preserve automatic Vary" do
     cache_probe = start_cache_probe()
 
     conn =
@@ -1146,7 +1202,7 @@ defmodule ImagePlug.ImagePlugTest do
       |> call_image_plug(
         root_url: "http://origin.test",
         parser: ImagePlug.Parser.Imgproxy,
-        image_module: FailingMemoryImage,
+        image_module: FailingStreamBeforeHeaderImage,
         origin_req_options: [plug: {CountingOriginImage, test_pid: cache_probe}],
         cache: {CacheProbe, message_target: cache_probe}
       )
@@ -1155,7 +1211,7 @@ defmodule ImagePlug.ImagePlugTest do
     assert conn.status == 500
     assert conn.resp_body == "error encoding image"
     assert get_resp_header(conn, "vary") == ["Accept"]
-    assert_received :memory_encoder_called
+    assert_received :stream_encoder_called
     refute_received {:cache_put, _key, _entry}
   end
 
@@ -1857,7 +1913,7 @@ defmodule ImagePlug.ImagePlugTest do
         assert get_resp_header(conn, "content-type") == ["text/plain; charset=utf-8"]
       end)
 
-    assert log =~ "encode_error: image encoder produced an empty stream"
+    assert log =~ "encode_error: empty_stream"
     assert_received :stream_encoder_called
   end
 
@@ -1880,7 +1936,7 @@ defmodule ImagePlug.ImagePlugTest do
         assert get_resp_header(conn, "content-type") == ["image/jpeg"]
       end)
 
-    assert log =~ "encode_error:"
+    assert log =~ "prepared_stream_error:"
     assert log =~ "boom after first chunk"
   end
 
@@ -1909,12 +1965,12 @@ defmodule ImagePlug.ImagePlugTest do
 
   test "body limit failures surface as source errors during decode" do
     conn =
-      conn(:get, "/_/plain/images/large-body.png")
+      conn(:get, "/_/plain/images/large-body.jpg")
       |> call_image_plug(
         root_url: "http://origin.test",
         parser: ImagePlug.Parser.Imgproxy,
         max_body_bytes: 5,
-        origin_req_options: [plug: OversizedOriginBody]
+        origin_req_options: [plug: OriginImage]
       )
 
     assert conn.status == 422
@@ -2052,28 +2108,6 @@ defmodule ImagePlug.ImagePlugTest do
     assert_received {:cache_put, _key, _entry}
   end
 
-  test "cache read errors fail before source fetch when fail_on_cache_error is true" do
-    cache_probe = start_cache_probe()
-
-    conn =
-      conn(:get, "/_/f:jpeg/plain/images/beach.jpg")
-      |> call_image_plug(
-        root_url: "http://origin.test",
-        parser: ImagePlug.Parser.Imgproxy,
-        origin_req_options: [plug: {CountingOriginImage, test_pid: cache_probe}],
-        cache:
-          {CacheProbe,
-           message_target: cache_probe,
-           get_result: {:error, :read_failed},
-           fail_on_cache_error: true}
-      )
-
-    flush_cache_probe(cache_probe)
-    assert conn.status == 500
-    assert conn.resp_body == "cache error"
-    refute_received :origin_was_called
-  end
-
   test "cache write errors fail open by default and still return response" do
     cache_probe = start_cache_probe()
 
@@ -2094,30 +2128,7 @@ defmodule ImagePlug.ImagePlugTest do
     assert_received {:cache_put, _key, _entry}
   end
 
-  test "cache write errors fail before response when fail_on_cache_error is true" do
-    cache_probe = start_cache_probe()
-
-    conn =
-      conn(:get, "/_/f:jpeg/plain/images/beach.jpg")
-      |> call_image_plug(
-        root_url: "http://origin.test",
-        parser: ImagePlug.Parser.Imgproxy,
-        origin_req_options: [plug: {CountingOriginImage, test_pid: cache_probe}],
-        cache:
-          {CacheProbe,
-           message_target: cache_probe,
-           put_result: {:error, :write_failed},
-           fail_on_cache_error: true}
-      )
-
-    flush_cache_probe(cache_probe)
-    assert conn.status == 500
-    assert conn.resp_body == "cache error"
-    assert_received :origin_was_called
-    assert_received {:cache_put, _key, _entry}
-  end
-
-  test "automatic cache write errors preserve negotiated Vary when fail_on_cache_error is true" do
+  test "automatic cache write errors fail open and preserve negotiated Vary" do
     cache_probe = start_cache_probe()
 
     conn =
@@ -2128,16 +2139,13 @@ defmodule ImagePlug.ImagePlugTest do
         root_url: "http://origin.test",
         parser: ImagePlug.Parser.Imgproxy,
         origin_req_options: [plug: {CountingOriginImage, test_pid: cache_probe}],
-        cache:
-          {CacheProbe,
-           message_target: cache_probe,
-           put_result: {:error, :write_failed},
-           fail_on_cache_error: true}
+        cache: {CacheProbe, message_target: cache_probe, put_result: {:error, :write_failed}}
       )
 
     flush_cache_probe(cache_probe)
-    assert conn.status == 500
-    assert conn.resp_body == "cache error"
+    assert conn.status == 200
+    assert get_resp_header(conn, "content-type") == ["image/jpeg"]
+    assert byte_size(conn.resp_body) > 0
     assert get_resp_header(conn, "vary") == ["Accept"]
     assert_received :origin_was_called
     assert_received {:cache_put, _key, _entry}
@@ -2223,8 +2231,7 @@ defmodule ImagePlug.ImagePlugTest do
            path_prefix: "processed",
            max_body_bytes: 10_000_000,
            key_headers: [],
-           key_cookies: [],
-           fail_on_cache_error: false}
+           key_cookies: []}
       ]
 
       first_conn =

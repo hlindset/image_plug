@@ -8,7 +8,8 @@ defmodule ImagePlug.Cache do
     deps: [
       ImagePlug.Plan,
       ImagePlug.Output,
-      ImagePlug.Transform
+      ImagePlug.Transform,
+      ImagePlug.Telemetry
     ],
     exports: [
       Entry,
@@ -20,30 +21,44 @@ defmodule ImagePlug.Cache do
 
   alias ImagePlug.Cache.Entry
   alias ImagePlug.Cache.Key
+  alias ImagePlug.Cache.Sink
+  alias ImagePlug.Output.Resolved
   alias ImagePlug.Plan
 
-  @shared_cache_option_keys [:key_headers, :key_cookies, :max_body_bytes, :fail_on_cache_error]
-  @key_option_keys [:auto_avif, :auto_webp]
-  @shared_cache_options_schema NimbleOptions.new!(
-                                 key_headers: [
-                                   type: {:list, :string}
-                                 ],
-                                 key_cookies: [
-                                   type: {:list, :string}
-                                 ],
-                                 max_body_bytes: [
-                                   type: {:or, [nil, :non_neg_integer]}
-                                 ],
-                                 fail_on_cache_error: [
-                                   type: :boolean
-                                 ]
-                               )
+  @shared_cache_option_keys [:key_headers, :key_cookies, :max_body_bytes]
+  @plan_key_option_keys [:auto_avif, :auto_webp]
+  @required_adapter_callbacks [
+    get: 2,
+    open_sink: 3,
+    write_chunk: 3,
+    commit_sink: 2,
+    abort_sink: 2
+  ]
+  @shared_cache_option_schema NimbleOptions.new!(
+                                key_headers: [
+                                  type: {:list, :string}
+                                ],
+                                key_cookies: [
+                                  type: {:list, :string}
+                                ],
+                                max_body_bytes: [
+                                  type: {:or, [nil, :non_neg_integer]}
+                                ]
+                              )
 
   @callback get(Key.t(), keyword()) :: {:hit, Entry.t()} | :miss | {:error, term()}
-  @callback put(Key.t(), Entry.t(), keyword()) :: :ok | {:error, term()}
+  @callback open_sink(Key.t(), Entry.Metadata.t(), keyword()) ::
+              {:ok, state()} | {:error, term()}
+  @callback write_chunk(state(), binary(), keyword()) ::
+              {:ok, state()} | {:error, term(), state()}
+  @callback commit_sink(state(), keyword()) :: :ok | {:error, term()}
+  @callback abort_sink(state(), keyword()) :: :ok | {:error, term()}
   @callback validate_options(keyword()) :: {:ok, keyword()} | {:error, term()}
 
   @optional_callbacks validate_options: 1
+
+  @type state :: term()
+  @opaque sink :: Sink.t()
 
   @type lookup_result ::
           :disabled
@@ -80,18 +95,10 @@ defmodule ImagePlug.Cache do
   end
 
   @doc false
-  @spec fail_on_cache_error?(keyword()) :: boolean()
-  def fail_on_cache_error?(opts) when is_list(opts) do
-    case cache_config(opts) do
-      {:ok, _adapter, cache_opts} -> Keyword.get(cache_opts, :fail_on_cache_error, false)
-      _other -> false
-    end
-  end
-
   @spec lookup(Plug.Conn.t(), Plan.t(), term(), keyword()) :: lookup_result()
   def lookup(conn, %Plan{} = plan, source_identity, opts) when is_list(opts) do
     case cache_config(opts) do
-      nil ->
+      :disabled ->
         :disabled
 
       {:ok, adapter, cache_opts} ->
@@ -102,28 +109,53 @@ defmodule ImagePlug.Cache do
     end
   end
 
-  @spec put(Key.t(), Entry.t(), keyword()) ::
-          :ok | :skipped | {:ok, {:cache_write, term()}} | {:error, {:cache_write, term()}}
-  def put(%Key{} = key, %Entry{} = entry, opts) when is_list(opts) do
+  @doc false
+  @spec open_sink(Key.t() | nil, Resolved.t(), keyword()) :: sink() | nil
+  def open_sink(nil, %Resolved{}, _opts), do: nil
+
+  def open_sink(%Key{} = key, %Resolved{} = resolved_output, opts) when is_list(opts) do
     case cache_config(opts) do
-      nil ->
-        :skipped
+      :disabled ->
+        nil
 
       {:ok, adapter, cache_opts} ->
-        put_configured(adapter, key, entry, cache_opts)
+        Sink.open(adapter, key, resolved_output, cache_opts, opts)
 
       {:error, reason} ->
-        {:error, {:cache_write, reason}}
+        Sink.report_open_error(reason, resolved_output.format, opts)
+    end
+  end
+
+  @doc false
+  @spec write_chunk(sink() | nil, binary(), keyword()) :: sink() | nil
+  def write_chunk(sink, chunk, opts) when is_binary(chunk),
+    do: Sink.write_chunk(sink, chunk, opts)
+
+  @doc false
+  @spec commit_sink(sink() | nil, keyword()) :: :ok
+  def commit_sink(sink, opts), do: Sink.commit(sink, opts)
+
+  @doc false
+  @spec abort_sink(sink() | nil, atom(), keyword()) :: :ok
+  def abort_sink(sink, reason, opts), do: Sink.abort(sink, reason, opts)
+
+  @spec put(Key.t(), Entry.t(), keyword()) ::
+          :ok | :skipped | {:error, {:cache_write, term()}}
+  def put(%Key{} = key, %Entry{} = entry, opts) when is_list(opts) do
+    case cache_config(opts) do
+      :disabled -> :skipped
+      {:ok, adapter, cache_opts} -> Sink.put_entry(adapter, key, entry, cache_opts, opts)
+      {:error, reason} -> {:error, {:cache_write, reason}}
     end
   end
 
   defp cache_config(opts) do
     case Keyword.get(opts, :cache) do
       nil ->
-        nil
+        :disabled
 
       {adapter, cache_opts} when is_list(cache_opts) ->
-        configured_cache(adapter, cache_opts)
+        validate_configured_cache(adapter, cache_opts)
 
       invalid ->
         {:error, {:invalid_cache_config, invalid}}
@@ -136,7 +168,7 @@ defmodule ImagePlug.Cache do
         {:ok, opts}
 
       {:ok, {adapter, cache_opts}} when is_list(cache_opts) ->
-        with {:ok, adapter, cache_opts} <- configured_cache(adapter, cache_opts) do
+        with {:ok, adapter, cache_opts} <- validate_configured_cache(adapter, cache_opts) do
           {:ok, Keyword.put(opts, :cache, {adapter, cache_opts})}
         end
 
@@ -155,7 +187,7 @@ defmodule ImagePlug.Cache do
   defp get_configured(adapter, key, cache_opts) do
     case adapter.get(key, cache_opts) do
       {:hit, %Entry{} = entry} ->
-        {:hit, key, entry}
+        handle_hit(entry, key, cache_opts)
 
       :miss ->
         {:miss, key}
@@ -168,39 +200,52 @@ defmodule ImagePlug.Cache do
     end
   end
 
-  defp configured_cache(adapter, cache_opts) do
-    if Keyword.keyword?(cache_opts) do
-      validate_configured_cache(adapter, cache_opts)
-    else
-      {:error, {:invalid_cache_config, {adapter, cache_opts}}}
+  defp handle_hit(%Entry{} = entry, key, cache_opts) do
+    case Entry.validate(entry) do
+      :ok -> {:hit, key, entry}
+      {:error, reason} -> handle_read_error({:invalid_entry, reason}, key, cache_opts)
     end
   end
 
   defp validate_configured_cache(adapter, cache_opts) do
-    with :ok <- validate_adapter(adapter),
-         {:ok, cache_opts} <- normalize_shared_options(cache_opts),
+    with :ok <- validate_cache_opts(adapter, cache_opts),
+         :ok <- validate_adapter(adapter),
+         {:ok, shared_opts} <- normalize_shared_options(cache_opts),
          {:ok, adapter_opts} <- normalize_adapter_options(adapter, adapter_options(cache_opts)) do
-      {:ok, adapter, Keyword.merge(cache_opts, adapter_opts)}
+      {:ok, adapter, Keyword.merge(shared_opts, adapter_opts)}
     end
   end
 
+  defp validate_cache_opts(adapter, cache_opts) do
+    if Keyword.keyword?(cache_opts),
+      do: :ok,
+      else: {:error, {:invalid_cache_config, {adapter, cache_opts}}}
+  end
+
   defp validate_adapter(adapter) when is_atom(adapter) do
-    if Code.ensure_loaded?(adapter) and function_exported?(adapter, :get, 2) and
-         function_exported?(adapter, :put, 3) do
+    with {:module, _module} <- Code.ensure_loaded(adapter),
+         [] <- missing_adapter_callbacks(adapter) do
       :ok
     else
-      {:error, {:invalid_cache_config, {:adapter, adapter}}}
+      {:error, _reason} -> {:error, {:invalid_cache_config, {:adapter, adapter}}}
+      missing -> {:error, {:invalid_cache_config, {:adapter_missing_callbacks, adapter, missing}}}
     end
   end
 
   defp validate_adapter(adapter), do: {:error, {:invalid_cache_config, {:adapter, adapter}}}
 
+  defp missing_adapter_callbacks(adapter) do
+    Enum.reject(@required_adapter_callbacks, fn {function, arity} ->
+      function_exported?(adapter, function, arity)
+    end)
+  end
+
   defp normalize_shared_options(cache_opts) do
     shared_opts = Keyword.take(cache_opts, @shared_cache_option_keys)
 
-    case NimbleOptions.validate(shared_opts, @shared_cache_options_schema) do
+    case NimbleOptions.validate(shared_opts, @shared_cache_option_schema) do
       {:ok, validated_shared_opts} ->
-        {:ok, Keyword.merge(cache_opts, validated_shared_opts)}
+        {:ok, validated_shared_opts}
 
       {:error, error} ->
         {:error, {:invalid_cache_config, shared_validation_error(error)}}
@@ -226,45 +271,14 @@ defmodule ImagePlug.Cache do
     end
   end
 
-  defp put_configured(adapter, key, %Entry{body: body} = entry, cache_opts) do
-    max_body_bytes = Keyword.get(cache_opts, :max_body_bytes)
-
-    if is_integer(max_body_bytes) and byte_size(body) > max_body_bytes do
-      :skipped
-    else
-      do_put_configured(adapter, key, entry, cache_opts)
-    end
-  end
-
-  defp do_put_configured(adapter, key, entry, cache_opts) do
-    case adapter.put(key, entry, cache_opts) do
-      :ok -> :ok
-      {:error, reason} -> handle_write_error(reason, cache_opts)
-      unexpected -> handle_write_error({:invalid_adapter_result, unexpected}, cache_opts)
-    end
-  end
-
-  defp handle_read_error(reason, key, cache_opts) do
-    if Keyword.get(cache_opts, :fail_on_cache_error, false) do
-      {:error, {:cache_read, reason}}
-    else
-      Logger.warning("cache read error: #{inspect(reason)}")
-      {:miss, key, {:cache_read, reason}}
-    end
-  end
-
-  defp handle_write_error(reason, cache_opts) do
-    if Keyword.get(cache_opts, :fail_on_cache_error, false) do
-      {:error, {:cache_write, reason}}
-    else
-      Logger.warning("cache write error: #{inspect(reason)}")
-      {:ok, {:cache_write, reason}}
-    end
+  defp handle_read_error(reason, key, _cache_opts) do
+    Logger.warning("cache read error: #{inspect(reason)}")
+    {:miss, key, {:cache_read, reason}}
   end
 
   defp key_options(opts, cache_opts) do
     cache_opts
     |> Keyword.take([:key_headers, :key_cookies])
-    |> Keyword.merge(Keyword.take(opts, @key_option_keys))
+    |> Keyword.merge(Keyword.take(opts, @plan_key_option_keys))
   end
 end

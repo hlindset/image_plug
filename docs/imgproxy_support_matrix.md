@@ -305,8 +305,8 @@ animation, SVG, PNG, or max-result-dimension policy.
 
 ImagePlug supports cache adapters through `cache: {Module, opts}`.
 `ImagePlug.Cache.FileSystem` supports `root` and `path_prefix`. Shared cache
-options support `key_headers`, `key_cookies`, `max_body_bytes`, and
-`fail_on_cache_error`. ImagePlug has no built-in cloud cache adapters.
+options support `key_headers`, `key_cookies`, and `max_body_bytes`. ImagePlug
+has no built-in cloud cache adapters.
 
 - ✅ `IMGPROXY_CACHE_USE`
 - ✅ `IMGPROXY_CACHE_FS_ROOT`
@@ -314,7 +314,7 @@ options support `key_headers`, `key_cookies`, `max_body_bytes`, and
 - ⭕ `IMGPROXY_CACHE_BUCKET`
 - ✅ `IMGPROXY_CACHE_KEY_HEADERS`
 - ✅ `IMGPROXY_CACHE_KEY_COOKIES`
-- ⚠️ `IMGPROXY_CACHE_REPORT_ERRORS`
+- ⭕ `IMGPROXY_CACHE_REPORT_ERRORS`
 - ⭕ `IMGPROXY_CACHE_S3_*`
 - ⭕ `IMGPROXY_CACHE_GCS_*`
 - ⭕ `IMGPROXY_CACHE_ABS_*`
