@@ -1,17 +1,17 @@
-# ImagePlug
+# ImagePipe
 
-ImagePlug is a Plug-based image optimization server. It parses path-oriented
+ImagePipe is a Plug-based image optimization server. It parses path-oriented
 image requests, resolves a configured image source, executes a product-neutral
-`ImagePlug.Plan`, negotiates output format, and sends the encoded image
+`ImagePipe.Plan`, negotiates output format, and sends the encoded image
 response.
 
 The current public compatibility target is an Imgproxy-style path API through
-`ImagePlug.Parser.Imgproxy`. Internally, ImagePlug translates Imgproxy syntax
+`ImagePipe.Parser.Imgproxy`. Internally, ImagePipe translates Imgproxy syntax
 into its own plan, output, transform, cache, and response data structures.
 
 ## Project status
 
-ImagePlug is a greenfield, unreleased library. The codebase includes working
+ImagePipe is a greenfield, unreleased library. The codebase includes working
 Imgproxy-style request parsing, request safety checks, transform execution,
 source adapters, output negotiation, filesystem response caching, telemetry
 spans, and a local demo server.
@@ -26,7 +26,7 @@ For local evaluation, depend on a checkout:
 ```elixir
 def deps do
   [
-    {:image_plug, path: "../image_plug"}
+    {:image_pipe, path: "../image_pipe"}
   ]
 end
 ```
@@ -36,23 +36,23 @@ After the Hex package exists, depend on the package version:
 ```elixir
 def deps do
   [
-    {:image_plug, "~> 0.1.0"}
+    {:image_pipe, "~> 0.1.0"}
   ]
 end
 ```
 
 ## Minimal mount
 
-Mount ImagePlug from a Plug router or Phoenix endpoint with a configured source
+Mount ImagePipe from a Plug router or Phoenix endpoint with a configured source
 adapter and parser:
 
 ```elixir
 forward "/images",
-  to: ImagePlug,
+  to: ImagePipe.Plug,
   init_opts: [
-    parser: ImagePlug.Parser.Imgproxy,
+    parser: ImagePipe.Parser.Imgproxy,
     sources: [
-      path: {ImagePlug.Source.File, root: "/srv/images", root_id: "primary"}
+      path: {ImagePipe.Source.File, root: "/srv/images", root_id: "primary"}
     ]
   ]
 ```
@@ -68,11 +68,11 @@ defmodule MyApp.ImageRouter do
   plug :dispatch
 
   forward "/",
-    to: ImagePlug,
+    to: ImagePipe.Plug,
     init_opts: [
-      parser: ImagePlug.Parser.Imgproxy,
+      parser: ImagePipe.Parser.Imgproxy,
       sources: [
-        path: {ImagePlug.Source.File, root: "priv/static", root_id: "static"}
+        path: {ImagePipe.Source.File, root: "priv/static", root_id: "static"}
       ]
     ]
 end
@@ -90,7 +90,7 @@ adapter:
 
 ```elixir
 sources: [
-  url: {ImagePlug.Source.HTTP, allowed_hosts: ["assets.example.com"]}
+  url: {ImagePipe.Source.HTTP, allowed_hosts: ["assets.example.com"]}
 ]
 ```
 
@@ -102,21 +102,21 @@ a valid HMAC signature or an exact configured trusted signature.
 
 ## Current support boundaries
 
-ImagePlug currently supports the Imgproxy-style path parser, selected resize,
+ImagePipe currently supports the Imgproxy-style path parser, selected resize,
 crop, orientation, canvas, padding, background, output, cachebuster, expiry,
 filename, attachment, and preset options documented in the support matrix.
 Unsupported parser and planner requests fail before cache lookup or source
 fetch.
 
 The first slice supports local path sources, HTTP and HTTPS URL sources, and
-S3-compatible object sources. ImagePlug currently lacks other provider dialects,
+S3-compatible object sources. ImagePipe currently lacks other provider dialects,
 object detection, watermarking, metadata stripping, video processing, and raw
 source passthrough. Missing Imgproxy options fail or remain absent as
-documented. ImagePlug doesn't ignore them.
+documented. ImagePipe doesn't ignore them.
 
 URL option order doesn't define transform execution order. The Imgproxy parser
 normalizes aliases and conflict resolution, then the planner emits operations in
-ImagePlug's fixed plan order.
+ImagePipe's fixed plan order.
 
 ## Documentation
 
@@ -141,13 +141,13 @@ ImagePlug's fixed plan order.
 The repository includes a development server for local testing:
 
 ```sh
-mise exec -- mix image_plug.server
-mise exec -- mix image_plug.server --port 4001
-mise exec -- mix image_plug.server --cache
+mise exec -- mix image_pipe.server
+mise exec -- mix image_pipe.server --port 4001
+mise exec -- mix image_pipe.server --cache
 ```
 
 The development server runs without cache by default. Pass `--cache` to enable
-the filesystem cache under `_build/dev/image_plug/cache`, or `--no-cache` to
+the filesystem cache under `_build/dev/image_pipe/cache`, or `--no-cache` to
 spell out cache-off mode.
 
 The development server also serves a local demo fiddle at `/demo`. The fiddle is
@@ -159,12 +159,12 @@ the server or `demo.verify` aliases:
 mise exec -- mix demo.setup
 ```
 
-Starting `mix image_plug.server` also starts the Vite development server on
+Starting `mix image_pipe.server` also starts the Vite development server on
 `http://localhost:5173`, while the demo itself remains available through the
 development server:
 
 ```sh
-mise exec -- mix image_plug.server
+mise exec -- mix image_pipe.server
 open http://localhost:4000/demo
 ```
 
@@ -173,5 +173,5 @@ open http://localhost:4000/demo
 Pass `--no-vite` to run only the image server without the demo asset server:
 
 ```sh
-mise exec -- mix image_plug.server --no-vite
+mise exec -- mix image_pipe.server --no-vite
 ```

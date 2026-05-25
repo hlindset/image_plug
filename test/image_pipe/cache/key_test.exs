@@ -1,0 +1,919 @@
+defmodule ImagePipe.Cache.KeyTest do
+  use ExUnit.Case, async: true
+
+  import Plug.Conn
+  import Plug.Test
+
+  alias ImagePipe.Cache.Key
+  alias ImagePipe.Parser.Imgproxy
+  alias ImagePipe.Plan
+  alias ImagePipe.Plan.Operation
+  alias ImagePipe.Plan.Output
+  alias ImagePipe.Plan.Pipeline
+  alias ImagePipe.Plan.Source
+
+  defp source_identity(overrides \\ []) do
+    Keyword.merge(
+      [kind: :path, adapter: :path, root: "default", path: ["images", "cat.jpg"]],
+      overrides
+    )
+  end
+
+  defp plan(overrides \\ []) do
+    struct!(
+      Plan,
+      Keyword.merge(
+        [
+          source: %Source.Path{segments: ["images", "cat.jpg"]},
+          pipelines: [
+            %Pipeline{
+              operations: [resize_fit_operation(300, :auto)]
+            },
+            %Pipeline{
+              operations: [crop_guided_operation(200, 100)]
+            }
+          ],
+          output: %Output{mode: {:explicit, :webp}}
+        ],
+        overrides
+      )
+    )
+  end
+
+  defp build_key!(conn, plan, source_identity, opts \\ []) do
+    assert {:ok, key} = Key.build(conn, plan, source_identity, opts)
+    key
+  end
+
+  defp encoded_source(source) do
+    Base.url_encode64(source, padding: false)
+  end
+
+  defp encrypted_source(source, opts \\ []) do
+    iv =
+      Keyword.get(
+        opts,
+        :iv,
+        <<16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31>>
+      )
+
+    {:ok, segment} =
+      Imgproxy.encrypt_source_url(source, source_url_encryption_key(), iv: iv)
+
+    segment
+  end
+
+  defp source_url_encryption_key, do: "000102030405060708090a0b0c0d0e0f"
+
+  defp plan_with_resize_auto do
+    plan(pipelines: [%Pipeline{operations: [resize_auto_operation(300, 200)]}])
+  end
+
+  defp resize_fit_operation(width, height, attrs \\ []) do
+    operation_attrs =
+      attrs
+      |> Keyword.put_new(:enlargement, :deny)
+
+    assert {:ok, operation} =
+             Operation.resize(
+               :fit,
+               tagged_resize_dimension(width),
+               tagged_resize_dimension(height),
+               operation_attrs
+             )
+
+    operation
+  end
+
+  defp crop_guided_operation(width, height) do
+    assert {:ok, operation} =
+             Operation.crop_guided(tagged_dimension(width), tagged_dimension(height), :center)
+
+    operation
+  end
+
+  defp resize_auto_operation(width, height) do
+    assert {:ok, operation} =
+             Operation.resize(
+               :auto,
+               tagged_resize_dimension(width),
+               tagged_resize_dimension(height),
+               dpr: 1.0,
+               enlargement: :deny
+             )
+
+    operation
+  end
+
+  defp padding_operation(top, right, bottom, left, attrs) do
+    assert {:ok, operation} =
+             Operation.padding(
+               {:px, top},
+               {:px, right},
+               {:px, bottom},
+               {:px, left},
+               attrs
+             )
+
+    operation
+  end
+
+  defp background_operation(red, green, blue, alpha) do
+    assert {:ok, color} = Operation.color(red, green, blue, alpha)
+    assert {:ok, operation} = Operation.background(color)
+    operation
+  end
+
+  defp tagged_dimension(:auto), do: :full_axis
+  defp tagged_dimension(pixels), do: {:px, pixels}
+  defp tagged_resize_dimension(:auto), do: :auto
+  defp tagged_resize_dimension(pixels), do: {:px, pixels}
+
+  test "builds stable hash and key data from canonical plan fields and source identity" do
+    conn = conn(:get, "/sig-one/w:100/plain/images/cat.jpg?ignored=true")
+
+    key = build_key!(conn, plan(), source_identity())
+    same = build_key!(conn, plan(), source_identity())
+    different_source = build_key!(conn, plan(), Keyword.put(source_identity(), :root, "other"))
+
+    assert key.hash == same.hash
+    assert key.hash =~ ~r/\A[0-9a-f]{64}\z/
+    assert is_binary(key.serialized_data)
+
+    assert key.data == [
+             schema_version: 2,
+             source_identity: source_identity(),
+             pipelines: [
+               [
+                 [
+                   op: :resize,
+                   mode: :fit,
+                   width: [unit: :logical_px, value: 300],
+                   height: [unit: :auto],
+                   dpr: [unit: :ratio, numerator: 1, denominator: 1],
+                   enlargement: :deny,
+                   guide: :center,
+                   x_offset: {:pixels, 0.0},
+                   y_offset: {:pixels, 0.0},
+                   min_width: nil,
+                   min_height: nil,
+                   zoom_x: 1.0,
+                   zoom_y: 1.0
+                 ]
+               ],
+               [
+                 [
+                   op: :crop_guided,
+                   width: [unit: :logical_px, value: 200],
+                   height: [unit: :logical_px, value: 100],
+                   guide: :center,
+                   x_offset: {:pixels, 0.0},
+                   y_offset: {:pixels, 0.0}
+                 ]
+               ]
+             ],
+             transform: [key_data_version: 1],
+             output: [
+               mode: :explicit,
+               format: :webp,
+               quality: :default,
+               format_qualities: %{}
+             ],
+             cache: [cachebuster: nil],
+             selected_headers: [],
+             selected_cookies: []
+           ]
+
+    assert key.serialized_data == Key.serialize_key_data(key.data)
+    refute Keyword.has_key?(key.data, :origin_identity)
+    refute inspect(key.data) =~ "sig-one"
+    refute inspect(key.data) =~ "ignored=true"
+    refute key.hash == different_source.hash
+  end
+
+  test "source identity key data is product-neutral and independent of request URL" do
+    conn_one = conn(:get, "/sig-one/w:100/plain/images/cat.jpg")
+    conn_two = conn(:get, "/sig-two/width:100/plain/ignored/path.jpg?ignored=true")
+
+    key_one = build_key!(conn_one, plan(), source_identity())
+    key_two = build_key!(conn_two, plan(), source_identity())
+
+    assert key_one.data[:source_identity] == source_identity()
+    assert key_one.hash == key_two.hash
+  end
+
+  test "imgproxy encoded source spelling does not enter cache key data" do
+    encoded = encoded_source("images/cat.jpg")
+
+    plain_conn = conn(:get, "/_/plain/images/cat.jpg")
+    encoded_conn = conn(:get, "/_/#{encoded}")
+
+    assert {:ok, plain_plan} = Imgproxy.parse(plain_conn, [])
+    assert {:ok, encoded_plan} = Imgproxy.parse(encoded_conn, [])
+
+    identity = [kind: :path, adapter: :path, root: "default", path: ["images", "cat.jpg"]]
+
+    plain_key = build_key!(plain_conn, plain_plan, identity)
+    encoded_key = build_key!(encoded_conn, encoded_plan, identity)
+
+    assert plain_plan == encoded_plan
+    assert plain_key.hash == encoded_key.hash
+    assert plain_key.data == encoded_key.data
+    refute inspect(encoded_key.data) =~ encoded
+  end
+
+  test "imgproxy encrypted source spelling and SEO filename do not enter cache key data" do
+    encoded = encoded_source("images/cat.jpg")
+    encrypted = encrypted_source("images/cat.jpg")
+    alternate_encrypted = encrypted_source("images/cat.jpg", iv: :binary.copy(<<1>>, 16))
+
+    plain_conn = conn(:get, "/_/plain/images/cat.jpg")
+    encoded_conn = conn(:get, "/_/#{encoded}/puppy.jpg")
+    encrypted_conn = conn(:get, "/_/enc/#{encrypted}/puppy.jpg")
+    alternate_encrypted_conn = conn(:get, "/_/enc/#{alternate_encrypted}/kitten.jpg")
+
+    opts = [
+      imgproxy:
+        Imgproxy.validate_options!(
+          source_url_encryption_key: source_url_encryption_key(),
+          base64_url_includes_filename: true
+        )
+    ]
+
+    assert {:ok, plain_plan} = Imgproxy.parse(plain_conn, opts)
+    assert {:ok, encoded_plan} = Imgproxy.parse(encoded_conn, opts)
+    assert {:ok, encrypted_plan} = Imgproxy.parse(encrypted_conn, opts)
+    assert {:ok, alternate_encrypted_plan} = Imgproxy.parse(alternate_encrypted_conn, opts)
+
+    identity = [kind: :path, adapter: :path, root: "default", path: ["images", "cat.jpg"]]
+
+    plain_key = build_key!(plain_conn, plain_plan, identity)
+    encoded_key = build_key!(encoded_conn, encoded_plan, identity)
+    encrypted_key = build_key!(encrypted_conn, encrypted_plan, identity)
+
+    alternate_encrypted_key =
+      build_key!(alternate_encrypted_conn, alternate_encrypted_plan, identity)
+
+    assert plain_plan == encoded_plan
+    assert plain_plan == encrypted_plan
+    assert plain_plan == alternate_encrypted_plan
+    assert plain_key.data == encoded_key.data
+    assert plain_key.data == encrypted_key.data
+    assert plain_key.data == alternate_encrypted_key.data
+    assert plain_key.hash == encoded_key.hash
+    assert plain_key.hash == encrypted_key.hash
+    assert plain_key.hash == alternate_encrypted_key.hash
+
+    key_data = inspect(encrypted_key.data)
+    refute key_data =~ encrypted
+    refute key_data =~ alternate_encrypted
+    refute key_data =~ "puppy.jpg"
+    refute key_data =~ "kitten.jpg"
+  end
+
+  test "resolved source identity, not raw plan source spelling, drives source cache material" do
+    conn_one = conn(:get, "/sig-one/plain/images/cat.jpg")
+    conn_two = conn(:get, "/sig-two/plain/local:///images/cat.jpg")
+
+    identity = [kind: :path, adapter: :path, root: "default", path: ["images", "cat.jpg"]]
+
+    key_one =
+      build_key!(
+        conn_one,
+        plan(source: %Source.Path{segments: ["images", "cat.jpg"]}),
+        identity
+      )
+
+    key_two =
+      build_key!(
+        conn_two,
+        plan(source: %Source.Path{segments: ["images", "cat.jpg"]}),
+        identity
+      )
+
+    assert key_one.hash == key_two.hash
+    assert key_one.data[:source_identity] == identity
+  end
+
+  test "source identity rejects non-primitive cache material" do
+    conn = conn(:get, "/_/plain/images/cat.jpg")
+    identity = [kind: :path, client: self()]
+
+    assert Key.build(conn, plan(), identity) == {:error, {:invalid_source_identity, identity}}
+  end
+
+  test "source identity rejects module atoms in cache material" do
+    conn = conn(:get, "/_/plain/images/cat.jpg")
+    identity = [kind: :path, adapter_module: ImagePipe.Source.File]
+
+    assert Key.build(conn, plan(), identity) == {:error, {:invalid_source_identity, identity}}
+  end
+
+  test "source identity rejects unsupported cache material containers" do
+    conn = conn(:get, "/_/plain/images/cat.jpg")
+
+    for identity <- [
+          "https://origin.test/images/cat.jpg",
+          [kind: :path, lookup: %{root: "default"}],
+          [kind: :path, lookup: {:root, "default"}]
+        ] do
+      assert Key.build(conn, plan(), identity) == {:error, {:invalid_source_identity, identity}}
+    end
+  end
+
+  test "pipelines key data preserves pipeline boundaries" do
+    key =
+      conn(:get, "/_/f:webp/plain/images/cat.jpg")
+      |> build_key!(plan(), source_identity())
+
+    assert key.data[:pipelines] == [
+             [
+               [
+                 op: :resize,
+                 mode: :fit,
+                 width: [unit: :logical_px, value: 300],
+                 height: [unit: :auto],
+                 dpr: [unit: :ratio, numerator: 1, denominator: 1],
+                 enlargement: :deny,
+                 guide: :center,
+                 x_offset: {:pixels, 0.0},
+                 y_offset: {:pixels, 0.0},
+                 min_width: nil,
+                 min_height: nil,
+                 zoom_x: 1.0,
+                 zoom_y: 1.0
+               ]
+             ],
+             [
+               [
+                 op: :crop_guided,
+                 width: [unit: :logical_px, value: 200],
+                 height: [unit: :logical_px, value: 100],
+                 guide: :center,
+                 x_offset: {:pixels, 0.0},
+                 y_offset: {:pixels, 0.0}
+               ]
+             ]
+           ]
+  end
+
+  test "pipelines key data uses canonical operations instead of raw transform tuples or structs" do
+    key =
+      conn(:get, "/_/f:webp/plain/images/cat.jpg")
+      |> build_key!(plan(), source_identity())
+
+    refute inspect(key.data[:pipelines]) =~ "ImagePipe.Transform"
+
+    assert key.data[:pipelines]
+           |> Enum.flat_map(& &1)
+           |> Enum.all?(&Keyword.keyword?/1)
+  end
+
+  test "unified resize operation contributes prefetch-safe cache key data" do
+    assert {:ok, operation} =
+             Operation.resize(:auto, {:px, 300}, {:px, 200},
+               dpr: "1.00",
+               enlargement: :deny
+             )
+
+    key =
+      conn(:get, "/_/rt:auto/w:300/h:200/f:webp/plain/images/cat.jpg")
+      |> build_key!(
+        plan(pipelines: [%Pipeline{operations: [operation]}]),
+        source_identity()
+      )
+
+    assert key.data[:pipelines] == [
+             [
+               [
+                 op: :resize,
+                 mode: :auto,
+                 width: [unit: :logical_px, value: 300],
+                 height: [unit: :logical_px, value: 200],
+                 dpr: [unit: :ratio, numerator: 1, denominator: 1],
+                 enlargement: :deny,
+                 guide: :center,
+                 x_offset: {:pixels, 0.0},
+                 y_offset: {:pixels, 0.0},
+                 min_width: nil,
+                 min_height: nil,
+                 zoom_x: 1.0,
+                 zoom_y: 1.0,
+                 rule: :imgproxy_orientation_match_v1
+               ]
+             ]
+           ]
+
+    refute inspect(key.data[:pipelines]) =~ "selected_branch"
+    refute inspect(key.data[:pipelines]) =~ "resize_auto"
+  end
+
+  test "crop operations contribute prefetch-safe cache key data" do
+    assert {:ok, guided} =
+             Operation.crop_guided({:px, 120}, :full_axis, :bottom_right, x_offset: {:pixels, 3})
+
+    assert {:ok, region} =
+             Operation.crop_region({:px, 0}, {:ratio, 0, 1}, {:ratio, 1, 2}, {:px, 80})
+
+    key =
+      conn(:get, "/_/plain/images/cat.jpg")
+      |> build_key!(
+        plan(pipelines: [%Pipeline{operations: [guided, region]}]),
+        source_identity()
+      )
+
+    assert key.data[:pipelines] == [
+             [
+               [
+                 op: :crop_guided,
+                 width: [unit: :logical_px, value: 120],
+                 height: [unit: :full_axis],
+                 guide: :bottom_right,
+                 x_offset: {:pixels, 3},
+                 y_offset: {:pixels, 0.0}
+               ],
+               [
+                 op: :crop_region,
+                 x: [unit: :logical_px, value: 0],
+                 y: [unit: :ratio, numerator: 0, denominator: 1],
+                 width: [unit: :ratio, numerator: 1, denominator: 2],
+                 height: [unit: :logical_px, value: 80]
+               ]
+             ]
+           ]
+  end
+
+  test "resize key data includes requested zoom and dpr rule inputs" do
+    operation = resize_fit_operation(100, :auto, dpr: 2.0, zoom_x: 2.0, zoom_y: 1.5)
+
+    key =
+      conn(:get, "/_/plain/images/cat.jpg")
+      |> build_key!(
+        plan(pipelines: [%Pipeline{operations: [operation]}]),
+        source_identity()
+      )
+
+    assert [[resize_data]] = key.data[:pipelines]
+    assert resize_data[:op] == :resize
+    assert resize_data[:mode] == :fit
+    assert resize_data[:dpr] == [unit: :ratio, numerator: 2, denominator: 1]
+    assert resize_data[:zoom_x] == 2.0
+    assert resize_data[:zoom_y] == 1.5
+  end
+
+  test "resize auto cache key data stays unresolved and source-metadata-free" do
+    operation = resize_auto_operation(300, 200)
+
+    semantic_plan = plan(pipelines: [%Pipeline{operations: [operation]}])
+    conn = conn(:get, "/_/rt:auto/w:300/h:200/f:jpeg/plain/images/cat.jpg")
+
+    key_a = build_key!(conn, semantic_plan, source_identity(revision: "a"))
+    key_b = build_key!(conn, semantic_plan, source_identity(revision: "b"))
+
+    assert [[key_data]] = key_a.data[:pipelines]
+
+    assert key_data == [
+             op: :resize,
+             mode: :auto,
+             width: [unit: :logical_px, value: 300],
+             height: [unit: :logical_px, value: 200],
+             dpr: [unit: :ratio, numerator: 1, denominator: 1],
+             enlargement: :deny,
+             guide: :center,
+             x_offset: {:pixels, 0.0},
+             y_offset: {:pixels, 0.0},
+             min_width: nil,
+             min_height: nil,
+             zoom_x: 1.0,
+             zoom_y: 1.0,
+             rule: :imgproxy_orientation_match_v1
+           ]
+
+    serialized = Key.serialize_key_data(key_a.data)
+    refute Keyword.has_key?(key_data, :selected_branch)
+    refute serialized =~ "source_width"
+    refute serialized =~ "source_height"
+    refute serialized =~ "selected_branch"
+    refute key_a.hash == key_b.hash
+  end
+
+  test "unified resize offsets participate in cache key data" do
+    assert {:ok, no_offset} = Operation.resize(:cover, {:px, 300}, {:px, 200})
+
+    assert {:ok, with_offset} =
+             Operation.resize(:cover, {:px, 300}, {:px, 200},
+               x_offset: {:pixels, 12.0},
+               y_offset: {:scale, -0.25}
+             )
+
+    conn = conn(:get, "/_/rs:fill:300:200/f:jpeg/plain/images/cat.jpg")
+
+    no_offset_key =
+      build_key!(
+        conn,
+        plan(pipelines: [%Pipeline{operations: [no_offset]}]),
+        source_identity()
+      )
+
+    with_offset_key =
+      build_key!(
+        conn,
+        plan(pipelines: [%Pipeline{operations: [with_offset]}]),
+        source_identity()
+      )
+
+    assert [[resize_data]] = with_offset_key.data[:pipelines]
+    assert resize_data[:x_offset] == {:pixels, 12.0}
+    assert resize_data[:y_offset] == {:scale, -0.25}
+    refute no_offset_key.data[:pipelines] == with_offset_key.data[:pipelines]
+  end
+
+  test "post-fetch resize auto branch is not accepted as final output cache key input" do
+    conn = conn(:get, "/_/rt:auto/w:300/h:200/plain/images/cat.jpg")
+    key_before = build_key!(conn, plan_with_resize_auto(), source_identity(revision: "v1"))
+
+    key_after_resolve = build_key!(conn, plan_with_resize_auto(), source_identity(revision: "v1"))
+    serialized = Key.serialize_key_data(key_before.data)
+
+    assert key_before == key_after_resolve
+    assert [[key_data]] = key_before.data[:pipelines]
+    assert key_data[:op] == :resize
+    assert key_data[:mode] == :auto
+    refute Keyword.has_key?(key_data, :selected_branch)
+    refute Keyword.has_key?(key_data, :branch)
+    refute serialized =~ "resize_auto_branch"
+    refute serialized =~ "selected_branch"
+    refute Keyword.has_key?(key_before.data, :derivations)
+  end
+
+  test "cache key builder accepts semantic plans" do
+    assert {:ok, key} =
+             Key.build(
+               conn(:get, "/_/rt:auto/w:300/h:200/plain/images/cat.jpg"),
+               plan_with_resize_auto(),
+               source_identity(revision: "v1")
+             )
+
+    assert key.data[:pipelines]
+  end
+
+  test "source freshness identity changes cache key without changing semantic key data" do
+    conn = conn(:get, "/_/rt:auto/w:300/h:200/plain/images/cat.jpg")
+    semantic_plan = plan_with_resize_auto()
+
+    key_a = build_key!(conn, semantic_plan, source_identity(revision: "cat-v1"))
+    key_a_same = build_key!(conn, semantic_plan, source_identity(revision: "cat-v1"))
+    key_b = build_key!(conn, semantic_plan, source_identity(revision: "cat-v2"))
+
+    assert key_a.hash == key_a_same.hash
+    assert key_a.data[:pipelines] == key_b.data[:pipelines]
+    refute key_a.hash == key_b.hash
+  end
+
+  test "composition operations contribute canonical cache key data" do
+    key =
+      conn(:get, "/_/plain/images/cat.jpg")
+      |> build_key!(
+        plan(
+          pipelines: [
+            %Pipeline{
+              operations: [
+                padding_operation(1, 2, 3, 4, pixel_ratio: {:ratio, 3, 2}),
+                background_operation(255, 0, 0, {:ratio, 1, 2})
+              ]
+            }
+          ]
+        ),
+        source_identity()
+      )
+
+    assert key.data[:transform] == [key_data_version: 1]
+
+    assert key.data[:pipelines] == [
+             [
+               [
+                 op: :padding,
+                 top: [unit: :logical_px, value: 1],
+                 right: [unit: :logical_px, value: 2],
+                 bottom: [unit: :logical_px, value: 3],
+                 left: [unit: :logical_px, value: 4],
+                 pixel_ratio: [unit: :ratio, numerator: 3, denominator: 2],
+                 fill: :transparent
+               ],
+               [
+                 op: :background,
+                 color: [
+                   space: :srgb,
+                   red: 255,
+                   green: 0,
+                   blue: 0,
+                   alpha: [unit: :ratio, numerator: 1, denominator: 2]
+                 ]
+               ]
+             ]
+           ]
+  end
+
+  test "equivalent imgproxy aliases and color spellings produce identical cache keys" do
+    conn_a = conn(:get, "/_/bg:f00/pd:10/plain/images/cat.jpg")
+    conn_b = conn(:get, "/_/background:255:0:0/padding:10/plain/images/cat.jpg")
+
+    assert {:ok, plan_a} = Imgproxy.parse(conn_a, [])
+    assert {:ok, plan_b} = Imgproxy.parse(conn_b, [])
+
+    key_a = build_key!(conn_a, plan_a, source_identity())
+    key_b = build_key!(conn_b, plan_b, source_identity())
+
+    assert key_a.data[:pipelines] == key_b.data[:pipelines]
+    assert key_a.hash == key_b.hash
+  end
+
+  test "equivalent imgproxy composition options in different URL order produce identical cache keys" do
+    conn_a = conn(:get, "/_/bg:f00/pd:10/w:100/plain/images/cat.jpg")
+    conn_b = conn(:get, "/_/pd:10/w:100/bg:f00/plain/images/cat.jpg")
+
+    assert {:ok, plan_a} = Imgproxy.parse(conn_a, [])
+    assert {:ok, plan_b} = Imgproxy.parse(conn_b, [])
+
+    key_a = build_key!(conn_a, plan_a, source_identity())
+    key_b = build_key!(conn_b, plan_b, source_identity())
+
+    assert key_a.data[:pipelines] == key_b.data[:pipelines]
+    assert key_a.hash == key_b.hash
+  end
+
+  test "transform key data version participates in the cache key" do
+    conn = conn(:get, "/_/plain/images/cat.jpg")
+    key = build_key!(conn, plan(), source_identity())
+    changed_data = Keyword.put(key.data, :transform, key_data_version: 2)
+    changed_serialized_data = Key.serialize_key_data(changed_data)
+
+    assert key.data[:transform] == [key_data_version: 1]
+    refute key.serialized_data == changed_serialized_data
+
+    refute key.hash ==
+             Base.encode16(:crypto.hash(:sha256, changed_serialized_data), case: :lower)
+  end
+
+  test "cache key construction does not reference source-aware resolution" do
+    source =
+      __DIR__
+      |> Path.join("../../../lib/image_pipe/cache/key.ex")
+      |> Path.expand()
+      |> File.read!()
+
+    refute source =~ "Transform.resolve"
+    refute source =~ "SourceMetadata"
+    refute source =~ "source_width"
+    refute source =~ "source_height"
+  end
+
+  test "cachebuster changes cache keys without changing pipeline key data" do
+    base_plan = plan()
+    busted_plan = plan(cachebuster: "v2")
+
+    conn = conn(:get, "/_/plain/images/cat.jpg")
+    base = build_key!(conn, base_plan, source_identity())
+    busted = build_key!(conn, busted_plan, source_identity())
+
+    assert base.data[:pipelines] == busted.data[:pipelines]
+    assert busted.data[:cache] == [cachebuster: "v2"]
+    refute base.hash == busted.hash
+  end
+
+  test "response delivery metadata is excluded from cache key data" do
+    one = plan(response: %ImagePipe.Plan.Response{disposition: :attachment})
+    two = plan(response: %ImagePipe.Plan.Response{disposition: :inline})
+
+    conn = conn(:get, "/_/plain/images/cat.jpg")
+
+    assert build_key!(conn, one, source_identity()).hash ==
+             build_key!(conn, two, source_identity()).hash
+  end
+
+  test "requests differing only by filename share cache key data" do
+    one =
+      plan(
+        response: %ImagePipe.Plan.Response{
+          disposition: :attachment,
+          filename: "one"
+        }
+      )
+
+    two =
+      plan(
+        response: %ImagePipe.Plan.Response{
+          disposition: :inline,
+          filename: "two"
+        }
+      )
+
+    conn = conn(:get, "/_/plain/images/cat.jpg")
+
+    assert build_key!(conn, one, source_identity()).hash ==
+             build_key!(conn, two, source_identity()).hash
+  end
+
+  test "output key data includes normalized quality rules" do
+    output = %Output{
+      mode: :automatic,
+      quality: :default,
+      format_qualities: %{webp: {:quality, 70}}
+    }
+
+    key =
+      conn(:get, "/_/plain/images/cat.jpg")
+      |> put_req_header("accept", "image/webp")
+      |> build_key!(plan(output: output), source_identity())
+
+    assert key.data[:output][:quality] == :default
+    assert key.data[:output][:format_qualities] == %{webp: {:quality, 70}}
+  end
+
+  test "automatic output includes modern candidates instead of selected output or raw Accept" do
+    automatic_plan = plan(output: %Output{mode: :automatic})
+
+    conn_one =
+      :get
+      |> conn("/_/plain/images/cat.jpg")
+      |> put_req_header("accept", "image/webp;q=1,image/avif;q=0.1")
+
+    conn_two =
+      :get
+      |> conn("/_/plain/images/cat.jpg")
+      |> put_req_header("accept", "image/avif,image/webp")
+
+    key_one = build_key!(conn_one, automatic_plan, source_identity())
+    key_two = build_key!(conn_two, automatic_plan, source_identity())
+
+    assert key_one.data[:output] == [
+             mode: :automatic,
+             modern_candidates: [:avif, :webp],
+             auto: [avif: true, webp: true],
+             quality: :default,
+             format_qualities: %{}
+           ]
+
+    refute inspect(key_one.data) =~ "image/webp"
+    refute inspect(key_one.data) =~ "image/avif"
+    assert key_one.hash == key_two.hash
+  end
+
+  test "different automatic Accept capabilities change cache key" do
+    automatic_plan = plan(output: %Output{mode: :automatic})
+
+    avif_key =
+      :get
+      |> conn("/_/plain/images/cat.jpg")
+      |> put_req_header("accept", "image/avif")
+      |> build_key!(automatic_plan, source_identity())
+
+    webp_key =
+      :get
+      |> conn("/_/plain/images/cat.jpg")
+      |> put_req_header("accept", "image/webp")
+      |> build_key!(automatic_plan, source_identity())
+
+    refute avif_key.hash == webp_key.hash
+  end
+
+  test "different automatic output feature flags change cache key" do
+    automatic_plan = plan(output: %Output{mode: :automatic})
+
+    conn =
+      :get
+      |> conn("/_/plain/images/cat.jpg")
+      |> put_req_header("accept", "image/avif,image/webp")
+
+    default_key = build_key!(conn, automatic_plan, source_identity())
+
+    webp_only_key =
+      build_key!(conn, automatic_plan, source_identity(), auto_avif: false)
+
+    refute default_key.hash == webp_only_key.hash
+
+    assert webp_only_key.data[:output] == [
+             mode: :automatic,
+             modern_candidates: [:webp],
+             auto: [avif: false, webp: true],
+             quality: :default,
+             format_qualities: %{}
+           ]
+  end
+
+  test "explicit formats do not include Accept key data or automatic marker" do
+    conn =
+      :get
+      |> conn("/_/f:webp/plain/images/cat.jpg")
+      |> put_req_header("accept", "image/jpeg")
+
+    key = build_key!(conn, plan(), source_identity())
+
+    assert key.data[:output] == [
+             mode: :explicit,
+             format: :webp,
+             quality: :default,
+             format_qualities: %{}
+           ]
+
+    refute inspect(key.data) =~ "image/jpeg"
+  end
+
+  test "only configured headers and cookies are included" do
+    conn =
+      :get
+      |> conn("/_/plain/images/cat.jpg")
+      |> put_req_header("accept-language", "en-US")
+      |> put_req_header("x-ignored", "ignored")
+      |> put_req_header("cookie", "tenant=acme; ignored_cookie=ignored")
+
+    key =
+      build_key!(conn, plan(), source_identity(),
+        key_headers: ["Accept-Language"],
+        key_cookies: ["tenant"]
+      )
+
+    assert key.data[:selected_headers] == [{"accept-language", ["en-US"]}]
+    assert key.data[:selected_cookies] == [{"tenant", "acme"}]
+    refute inspect(key.data) =~ "x-ignored"
+    refute inspect(key.data) =~ "ignored_cookie"
+  end
+
+  test "cache key excludes imgproxy signature authorization proof" do
+    signed_opts =
+      ImagePipe.Plug.init(
+        parser: ImagePipe.Parser.Imgproxy,
+        imgproxy: [
+          signature: [
+            keys: ["746573742d6b6579"],
+            salts: ["746573742d73616c74"]
+          ]
+        ]
+      )
+
+    trusted_opts =
+      ImagePipe.Plug.init(
+        parser: ImagePipe.Parser.Imgproxy,
+        imgproxy: [
+          signature: [
+            keys: ["746573742d6b6579"],
+            salts: ["746573742d73616c74"],
+            trusted_signatures: ["local-dev!"]
+          ]
+        ]
+      )
+
+    assert {:ok, signed_plan} =
+             Imgproxy.parse(
+               conn(
+                 :get,
+                 "/NSbxuO5fQqTgDkui_3o6ho1UCFFcmzsugB2Uksho49o/w:300/plain/images/cat.jpg"
+               ),
+               signed_opts
+             )
+
+    assert {:ok, trusted_plan} =
+             Imgproxy.parse(
+               conn(:get, "/local-dev!/w:300/plain/images/cat.jpg"),
+               trusted_opts
+             )
+
+    signed_key =
+      build_key!(
+        conn(:get, "/NSbxuO5fQqTgDkui_3o6ho1UCFFcmzsugB2Uksho49o/w:300/plain/images/cat.jpg"),
+        signed_plan,
+        source_identity()
+      )
+
+    trusted_key =
+      build_key!(
+        conn(:get, "/local-dev!/w:300/plain/images/cat.jpg"),
+        trusted_plan,
+        source_identity()
+      )
+
+    assert signed_plan == trusted_plan
+    assert signed_key.hash == trusted_key.hash
+    refute inspect(signed_key.data) =~ "NSbxuO5fQqTgDkui"
+    refute inspect(trusted_key.data) =~ "local-dev"
+  end
+
+  test "imgproxy preset and equivalent expanded options produce identical cache keys" do
+    conn = conn(:get, "/_/pr:thumb/plain/images/cat.jpg")
+    expanded_conn = conn(:get, "/_/rt:fill/w:120/h:90/q:82/plain/images/cat.jpg")
+
+    opts = [
+      imgproxy: Imgproxy.validate_options!(presets: %{"thumb" => "rt:fill/w:120/h:90/q:82"})
+    ]
+
+    assert {:ok, preset_plan} = Imgproxy.parse(conn, opts)
+    assert {:ok, expanded_plan} = Imgproxy.parse(expanded_conn, [])
+
+    assert {:ok, preset_key} = Key.build(conn, preset_plan, source_identity(), [])
+    assert {:ok, expanded_key} = Key.build(expanded_conn, expanded_plan, source_identity(), [])
+
+    assert preset_key.data == expanded_key.data
+    assert preset_key.hash == expanded_key.hash
+    refute inspect(preset_key.data) =~ "thumb"
+  end
+end

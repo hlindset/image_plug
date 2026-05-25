@@ -1,11 +1,11 @@
-defmodule ImagePlug.SimpleServer do
+defmodule ImagePipe.SimpleServer do
   @moduledoc false
 
   use Boundary,
     top_level?: true,
     deps: [
-      ImagePlug,
-      ImagePlug.Parser
+      ImagePipe,
+      ImagePipe.Parser
     ]
 
   use Plug.Router
@@ -17,14 +17,14 @@ defmodule ImagePlug.SimpleServer do
 
   plug Plug.Static,
     at: "/",
-    from: {:image_plug, "priv/static"},
+    from: {:image_pipe, "priv/static"},
     only: ~w(images)
 
   plug :match
   plug :dispatch
 
   # Missing static image paths should 404 here instead of being forwarded back
-  # through ImagePlug and parsed as processing URLs.
+  # through ImagePipe and parsed as processing URLs.
   match "/images/*path" do
     send_resp(conn, 404, "404 Not Found")
   end
@@ -38,14 +38,14 @@ defmodule ImagePlug.SimpleServer do
   end
 
   match _ do
-    ImagePlug.call(conn, image_plug_opts())
+    ImagePipe.Plug.call(conn, image_pipe_opts())
   end
 
-  defp image_plug_opts do
+  defp image_pipe_opts do
     [
-      parser: ImagePlug.Parser.Imgproxy,
+      parser: ImagePipe.Parser.Imgproxy,
       sources: [
-        path: {ImagePlug.Source.File, root: "priv/static", root_id: "static"}
+        path: {ImagePipe.Source.File, root: "priv/static", root_id: "static"}
       ],
       imgproxy: [
         signature: [
@@ -56,11 +56,11 @@ defmodule ImagePlug.SimpleServer do
       ]
     ]
     |> maybe_put_cache(cache_config())
-    |> ImagePlug.init()
+    |> ImagePipe.Plug.init()
   end
 
   defp cache_config do
-    :image_plug
+    :image_pipe
     |> Application.get_env(__MODULE__, [])
     |> Keyword.get(:cache)
   end
@@ -76,7 +76,7 @@ defmodule ImagePlug.SimpleServer do
   end
 
   defp vite_origin do
-    :image_plug
+    :image_pipe
     |> Application.get_env(__MODULE__, [])
     |> Keyword.get(:vite_origin, "http://localhost:5173")
   end

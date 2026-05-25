@@ -1,9 +1,9 @@
-defmodule ImagePlug.Parser.Imgproxy.OptionsTest do
+defmodule ImagePipe.Parser.Imgproxy.OptionsTest do
   use ExUnit.Case, async: true
 
-  alias ImagePlug.Parser.Imgproxy.Options
-  alias ImagePlug.Parser.Imgproxy.Presets
-  alias ImagePlug.Plan.Color
+  alias ImagePipe.Parser.Imgproxy.Options
+  alias ImagePipe.Parser.Imgproxy.Presets
+  alias ImagePipe.Plan.Color
 
   test "parses dense pipeline state into one pipeline request" do
     assert {:ok, request} =

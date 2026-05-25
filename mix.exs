@@ -1,12 +1,12 @@
-defmodule ImagePlug.MixProject do
+defmodule ImagePipe.MixProject do
   use Mix.Project
 
   @version "0.1.0"
-  @source_url "https://github.com/hlindset/image_plug"
+  @source_url "https://github.com/hlindset/image_pipe"
 
   def project do
     [
-      app: :image_plug,
+      app: :image_pipe,
       version: @version,
       description: description(),
       package: package(),
@@ -33,17 +33,18 @@ defmodule ImagePlug.MixProject do
           "docs/transform_operations.md"
         ],
         groups_for_modules: [
-          "Plug API": [ImagePlug],
-          "Parser API": [ImagePlug.Parser, ~r/ImagePlug\.Parser\..*/],
-          "Plan Model": [ImagePlug.Plan, ~r/ImagePlug\.Plan\..*/],
-          "Transform API": [ImagePlug.Transform, ~r/ImagePlug\.Transform\..*/],
-          "Cache API": [ImagePlug.Cache, ~r/ImagePlug\.Cache\..*/],
+          "Package API": [ImagePipe],
+          "Plug API": [ImagePipe.Plug],
+          "Parser API": [ImagePipe.Parser, ~r/ImagePipe\.Parser\..*/],
+          "Plan Model": [ImagePipe.Plan, ~r/ImagePipe\.Plan\..*/],
+          "Transform API": [ImagePipe.Transform, ~r/ImagePipe\.Transform\..*/],
+          "Cache API": [ImagePipe.Cache, ~r/ImagePipe\.Cache\..*/],
           "Runtime Internals": [
-            ~r/ImagePlug\.Source.*/,
-            ~r/ImagePlug\.Output.*/,
-            ~r/ImagePlug\.Request.*/,
-            ~r/ImagePlug\.Response.*/,
-            ImagePlug.Telemetry
+            ~r/ImagePipe\.Source.*/,
+            ~r/ImagePipe\.Output.*/,
+            ~r/ImagePipe\.Request.*/,
+            ~r/ImagePipe\.Response.*/,
+            ImagePipe.Telemetry
           ]
         ]
       ],
@@ -53,7 +54,7 @@ defmodule ImagePlug.MixProject do
 
   def application do
     [
-      mod: {ImagePlug.Application, []},
+      mod: {ImagePipe.Application, []},
       extra_applications: [:logger]
     ]
   end

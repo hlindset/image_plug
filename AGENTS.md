@@ -7,12 +7,12 @@
 
 ## Native API guidelines
 
-- Treat ImagePlug's native API as path-oriented and declarative. URL option order must not define processing order; parsing should produce an `ImagePlug.Plan`, and current parser/plan modules own the fixed transform order.
-- Keep ImagePlug's core model product-neutral, while allowing deliberate compatibility targets when explicitly chosen. Compatibility parsers should translate into `ImagePlug.Plan` when semantics match cleanly; dialect-specific quirks should stay isolated in the parser/adapter layer and should not force ordered command semantics into the native API contract.
+- Treat ImagePipe's native API as path-oriented and declarative. URL option order must not define processing order; parsing should produce an `ImagePipe.Plan`, and current parser/plan modules own the fixed transform order.
+- Keep ImagePipe's core model product-neutral, while allowing deliberate compatibility targets when explicitly chosen. Compatibility parsers should translate into `ImagePipe.Plan` when semantics match cleanly; dialect-specific quirks should stay isolated in the parser/adapter layer and should not force ordered command semantics into the native API contract.
 
 ## Transform guidelines
 
-- Keep transforms product-neutral and composable. Transform modules should express reusable image operations over `ImagePlug.Transform.State` with explicit parameter structs, not parser-specific or vendor-specific concepts; parsers for dialects such as imgproxy, Thumbor, TwicPics, imgix, Cloudinary, or any other product should translate their syntax into `ImagePlug.Plan` when semantics match cleanly, or remain isolated compatibility adapters when they need dialect-specific ordered behavior.
+- Keep transforms product-neutral and composable. Transform modules should express reusable image operations over `ImagePipe.Transform.State` with explicit parameter structs, not parser-specific or vendor-specific concepts; parsers for dialects such as imgproxy, Thumbor, TwicPics, imgix, Cloudinary, or any other product should translate their syntax into `ImagePipe.Plan` when semantics match cleanly, or remain isolated compatibility adapters when they need dialect-specific ordered behavior.
 - Trust operation structs inside the transform boundary. A transform struct missing required callbacks is a programmer error; validation should validate operation fields, not prove that the module implements the transform behaviour.
 - Be conservative with optimized decoding. Only use sequential access for transform chains proven safe for one-pass reads; crop, focus, cover, letterboxing, output-only requests, and no-geometry requests should continue to use random access.
 
@@ -35,28 +35,28 @@
 
 ## Namespace boundary guidelines
 
-- Keep the canonical request model under `ImagePlug.Plan.*`.
-- Keep parser behaviours and adapters under `ImagePlug.Parser.*`; parser-specific compatibility quirks should translate into `ImagePlug.Plan` or remain isolated in the parser/adapter layer.
-- Keep request orchestration and runtime options under `ImagePlug.Request.*`.
-- Keep source side effects and source identity under `ImagePlug.Source.*`.
-- Keep response delivery under `ImagePlug.Response.*`.
-- Keep output negotiation, format, policy, and encoding under `ImagePlug.Output.*`.
-- Keep transform contracts, operation structs, state, decode planning, materialization, and cache material protocols under `ImagePlug.Transform.*`.
-- Request, source, and response code must dispatch through `ImagePlug.Transform` and must not name concrete transform operation modules such as `ImagePlug.Transform.Scale`, `Cover`, `Contain`, `Crop`, or `Focus`.
+- Keep the canonical request model under `ImagePipe.Plan.*`.
+- Keep parser behaviours and adapters under `ImagePipe.Parser.*`; parser-specific compatibility quirks should translate into `ImagePipe.Plan` or remain isolated in the parser/adapter layer.
+- Keep request orchestration and runtime options under `ImagePipe.Request.*`.
+- Keep source side effects and source identity under `ImagePipe.Source.*`.
+- Keep response delivery under `ImagePipe.Response.*`.
+- Keep output negotiation, format, policy, and encoding under `ImagePipe.Output.*`.
+- Keep transform contracts, operation structs, state, decode planning, materialization, and cache material protocols under `ImagePipe.Transform.*`.
+- Request, source, and response code must dispatch through `ImagePipe.Transform` and must not name concrete transform operation modules such as `ImagePipe.Transform.Scale`, `Cover`, `Contain`, `Crop`, or `Focus`.
 - Boundary exports should stay narrow. Export behaviours and stable public/internal entry points, not implementation helpers.
-- `ImagePlug.SimpleServer` is dev/test support only and must remain outside prod compilation.
+- `ImagePipe.SimpleServer` is dev/test support only and must remain outside prod compilation.
 
 ## Boundary library guidelines
 
 - Use `Boundary` declarations to enforce the namespace ownership described above. When adding or moving a top-level namespace, define its dependency direction explicitly instead of relying on implicit compile-time reachability.
 - Keep `deps:` aligned with architecture direction: parser code may depend on plan and transform construction APIs; request code may depend on plan, cache, source, output, response, telemetry, and the generic transform contract; source code may depend on plan and must stay out of cache, response, and parser code; cache may depend on plan/output/transform material; output may depend on plan; transform should remain independent of parser/request/source/cache/output/response.
 - Export only behaviours and stable public/internal entry points from each boundary. Do not export implementation helpers just to satisfy a compile error; move the helper to the correct boundary or add a narrow facade.
-- Request, source, and response modules may call generic `ImagePlug.Transform` functions such as `transform_name/1`, `metadata/1`, and `execute/2`, but must not alias or reference concrete operation modules. Parser and planner modules may construct exported concrete operation structs when translating syntax into a product-neutral plan.
+- Request, source, and response modules may call generic `ImagePipe.Transform` functions such as `transform_name/1`, `metadata/1`, and `execute/2`, but must not alias or reference concrete operation modules. Parser and planner modules may construct exported concrete operation structs when translating syntax into a product-neutral plan.
 - Boundary rule changes should come with focused architecture tests, especially for request/source/response code avoiding concrete transform modules and parser-specific structs.
 
 ## Elixir architecture guidelines
 
-- Prefer Elixir extension points with explicit behaviours (`ImagePlug.Parser`, `ImagePlug.Transform`, `ImagePlug.Cache`), `@impl` annotations, typed parameter structs, and tagged `{:ok, value}` / `{:error, reason}` returns at runtime boundaries. Reserve raises for invalid initialization/configuration.
+- Prefer Elixir extension points with explicit behaviours (`ImagePipe.Parser`, `ImagePipe.Transform`, `ImagePipe.Cache`), `@impl` annotations, typed parameter structs, and tagged `{:ok, value}` / `{:error, reason}` returns at runtime boundaries. Reserve raises for invalid initialization/configuration.
 - Validate public options explicitly, preferably with `NimbleOptions` or adapter-owned `validate_options/1`, and reject unknown or malformed options before side effects.
 - Keep validation at real boundaries: external input parsing, explicit construction APIs, runtime side-effect boundaries, cache key material, and output negotiation. Avoid duplicating validation across trusted internal structs just to make malformed hand-built data fail earlier or prettier.
 - For trusted internal behaviour dispatch, call the callback directly and let missing callbacks raise. Do not add runtime duck-typing probes, callback-presence checks, or wrapper functions whose only purpose is to make impossible internal misuse return tidy errors.
@@ -112,7 +112,7 @@
 ## Test guidelines
 
 - For behavior changes, add focused ExUnit coverage at the relevant boundary: parser grammar/order-insensitivity, planner mapping, plug-level no-source-fetch failures, output negotiation including `Vary: Accept`, cache key/corruption behavior, and source/decode limit handling.
-- For compatibility parsers such as imgproxy, add a compact set of wire-level Plug tests when changing request parsing, planning, output negotiation, caching, or safety behavior. These tests should make real `ImagePlug.call/2` requests and assert user-visible contracts such as status, headers, content type, decoded output dimensions, cache/source access, and response-body equivalence where relevant.
+- For compatibility parsers such as imgproxy, add a compact set of wire-level Plug tests when changing request parsing, planning, output negotiation, caching, or safety behavior. These tests should make real `ImagePipe.call/2` requests and assert user-visible contracts such as status, headers, content type, decoded output dimensions, cache/source access, and response-body equivalence where relevant.
 - Keep wire-level compatibility tests representative, not exhaustive. Use them for public contracts such as option-order equivalence, `Accept` negotiation and `Vary`, explicit output formats bypassing negotiation, representative geometry results, request-safety failures before source/cache access, and cache reuse for semantically equivalent requests. Leave grammar edge cases and combinatorial coverage in parser, planner, cache-key, and property tests.
 - Do not test impossible internal misuse. Prefer deleting tests that only assert behavior for bad internal callers, hand-built impossible parser structs, negative guard branches, or exact private validation error strings. Add tests for public behavior and safety boundaries, not for every defensive clause.
 - Do not add tests that only police names or modules from abandoned designs, such as asserting stale modules remain deleted. Boundary tests should enforce current architecture ownership and forbidden dependency directions, not memorialize old implementation paths.

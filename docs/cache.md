@@ -1,18 +1,18 @@
 # Cache
 
-ImagePlug can cache complete encoded responses after successful processing:
+ImagePipe can cache complete encoded responses after successful processing:
 
 ```elixir
 forward "/",
-  to: ImagePlug,
+  to: ImagePipe.Plug,
   init_opts: [
-    parser: ImagePlug.Parser.Imgproxy,
+    parser: ImagePipe.Parser.Imgproxy,
     sources: [
-      path: {ImagePlug.Source.File, root: "/srv/images", root_id: "primary"}
+      path: {ImagePipe.Source.File, root: "/srv/images", root_id: "primary"}
     ],
     cache:
-      {ImagePlug.Cache.FileSystem,
-       root: "/var/cache/image_plug",
+      {ImagePipe.Cache.FileSystem,
+       root: "/var/cache/image_pipe",
        path_prefix: "processed",
        max_body_bytes: 10_000_000,
        key_headers: [],
@@ -28,24 +28,24 @@ fetch, decode, transform, negotiation, and encode errors are never cached.
 
 ## Cache misses and streaming
 
-On cache read, ImagePlug validates the returned entry before treating it as a
+On cache read, ImagePipe validates the returned entry before treating it as a
 hit. The entry must have a binary body, cacheable headers, and one of the
 supported output content types: JPEG, PNG, WebP, or AVIF. If that check passes,
-ImagePlug sends the stored body without fetching, decoding, transforming, or
+ImagePipe sends the stored body without fetching, decoding, transforming, or
 encoding the source image.
 
-If cache entry validation fails, ImagePlug treats the hit like a miss. It
+If cache entry validation fails, ImagePipe treats the hit like a miss. It
 reprocesses through a supervised source session using the same cache key and
 emits cache read telemetry for the invalid entry.
 
 Configured cache misses and cache read errors stream through a supervised source
 session. The session owns source fetch, decode, transform execution, output
-encoding, and cache staging. It returns the first encoded chunk before ImagePlug
-commits response headers, then `ImagePlug.Response.Sender` pulls later chunks on
+encoding, and cache staging. It returns the first encoded chunk before ImagePipe
+commits response headers, then `ImagePipe.Response.Sender` pulls later chunks on
 demand.
 
 For those streamed cache misses, the source session writes encoded chunks into a
-cache sink as it returns them to the sender. ImagePlug makes the staged cache
+cache sink as it returns them to the sender. ImagePipe makes the staged cache
 entry visible only after:
 
 - the encoder stream finishes,
@@ -54,11 +54,11 @@ entry visible only after:
 
 Client disconnects, owner process exits, explicit cancellation, source or encode
 failures after the first chunk, and incomplete streams abort the staged entry and
-don't write cache. If the staged body crosses `:max_body_bytes`, ImagePlug drops
+don't write cache. If the staged body crosses `:max_body_bytes`, ImagePipe drops
 cache staging, continues delivering the response, and skips the cache write.
 
 Cache commit errors after successful streamed delivery fail open. The client
-keeps the response body that was already delivered. ImagePlug emits cache write
+keeps the response body that was already delivered. ImagePipe emits cache write
 telemetry and doesn't replace that response with a cache error. Cache staging
 open or write errors also fail open and skip the cache write.
 
@@ -94,7 +94,7 @@ header names to lowercase and preserves duplicate allowed headers.
 
 ## Filesystem adapter
 
-`ImagePlug.Cache.FileSystem` requires an absolute `:root`. The optional
+`ImagePipe.Cache.FileSystem` requires an absolute `:root`. The optional
 `:path_prefix` must be relative and rejects backslashes, duplicate-slash empty
 segments, `.`, `..`, and `~`-prefixed path segments. Generated hashes determine
 cache paths, not request, source, header, or cookie data.

@@ -1,20 +1,20 @@
-defmodule ImagePlug.Parser.Imgproxy.PlanBuilderTest do
+defmodule ImagePipe.Parser.Imgproxy.PlanBuilderTest do
   use ExUnit.Case, async: true
   use ExUnitProperties
 
-  alias ImagePlug.Format
-  alias ImagePlug.Parser.Imgproxy.ParsedRequest
-  alias ImagePlug.Parser.Imgproxy.PipelineRequest
-  alias ImagePlug.Parser.Imgproxy.PlanBuilder
-  alias ImagePlug.Plan
-  alias ImagePlug.Plan.Operation
-  alias ImagePlug.Plan.Output
-  alias ImagePlug.Plan.Pipeline
-  alias ImagePlug.Plan.Response
-  alias ImagePlug.Plan.Source
-  alias ImagePlug.Transform.Operation.AutoOrient
-  alias ImagePlug.Transform.Operation.Flip
-  alias ImagePlug.Transform.Operation.Rotate
+  alias ImagePipe.Format
+  alias ImagePipe.Parser.Imgproxy.ParsedRequest
+  alias ImagePipe.Parser.Imgproxy.PipelineRequest
+  alias ImagePipe.Parser.Imgproxy.PlanBuilder
+  alias ImagePipe.Plan
+  alias ImagePipe.Plan.Operation
+  alias ImagePipe.Plan.Output
+  alias ImagePipe.Plan.Pipeline
+  alias ImagePipe.Plan.Response
+  alias ImagePipe.Plan.Source
+  alias ImagePipe.Transform.Operation.AutoOrient
+  alias ImagePipe.Transform.Operation.Flip
+  alias ImagePipe.Transform.Operation.Rotate
 
   test "converts one imgproxy pipeline request into a product-neutral plan" do
     request = %ParsedRequest{
@@ -232,7 +232,7 @@ defmodule ImagePlug.Parser.Imgproxy.PlanBuilderTest do
              plan_pipeline(extend_aspect_ratio: {16, 9})
 
     assert Enum.any?(operations, &match?(%Operation.Canvas{}, &1))
-    assert {:ok, _pipelines} = ImagePlug.Transform.validate_prefetch_safe_plan(plan)
+    assert {:ok, _pipelines} = ImagePipe.Transform.validate_prefetch_safe_plan(plan)
   end
 
   test "plans extend gravity and offsets as neutral canvas operation fields" do
@@ -345,7 +345,7 @@ defmodule ImagePlug.Parser.Imgproxy.PlanBuilderTest do
     assert {:ok, %Plan{pipelines: [%Pipeline{operations: [%Operation.CropGuided{} = crop]}]}} =
              plan_pipeline(
                gravity: {:anchor, :left, :top},
-               crop: %ImagePlug.Parser.Imgproxy.CropRequest{
+               crop: %ImagePipe.Parser.Imgproxy.CropRequest{
                  width: {:pixels, 100},
                  height: {:pixels, 100},
                  gravity: nil
@@ -358,7 +358,7 @@ defmodule ImagePlug.Parser.Imgproxy.PlanBuilderTest do
   test "plans crop focal-point gravity and relative offsets" do
     assert {:ok, %Plan{pipelines: [%Pipeline{operations: [%Operation.CropGuided{} = crop]}]}} =
              plan_pipeline(
-               crop: %ImagePlug.Parser.Imgproxy.CropRequest{
+               crop: %ImagePipe.Parser.Imgproxy.CropRequest{
                  width: {:pixels, 100},
                  height: {:pixels, 100},
                  gravity: {:fp, 0.25, 0.75},
@@ -375,7 +375,7 @@ defmodule ImagePlug.Parser.Imgproxy.PlanBuilderTest do
   test "planner emits fixed orientation crop resize order independent of URL order" do
     one =
       plan_pipeline(
-        crop: %ImagePlug.Parser.Imgproxy.CropRequest{
+        crop: %ImagePipe.Parser.Imgproxy.CropRequest{
           width: {:pixels, 100},
           height: {:pixels, 100}
         },
@@ -387,7 +387,7 @@ defmodule ImagePlug.Parser.Imgproxy.PlanBuilderTest do
       plan_pipeline(
         width: {:pixels, 200},
         rotate: 90,
-        crop: %ImagePlug.Parser.Imgproxy.CropRequest{
+        crop: %ImagePipe.Parser.Imgproxy.CropRequest{
           width: {:pixels, 100},
           height: {:pixels, 100}
         }
@@ -405,7 +405,7 @@ defmodule ImagePlug.Parser.Imgproxy.PlanBuilderTest do
                auto_orient: true,
                rotate: 90,
                flip: :horizontal,
-               crop: %ImagePlug.Parser.Imgproxy.CropRequest{
+               crop: %ImagePipe.Parser.Imgproxy.CropRequest{
                  width: {:pixels, 100},
                  height: {:pixels, 100}
                },
@@ -536,18 +536,18 @@ defmodule ImagePlug.Parser.Imgproxy.PlanBuilderTest do
 
   test "plans parsed crop and orientation semantics before no-op operations" do
     assert {:ok, %Plan{pipelines: [%Pipeline{operations: [%Operation.CropGuided{}]}]}} =
-             plan_pipeline(crop: struct(ImagePlug.Parser.Imgproxy.CropRequest))
+             plan_pipeline(crop: struct(ImagePipe.Parser.Imgproxy.CropRequest))
 
     assert {:ok, %Plan{pipelines: [%Pipeline{operations: [%AutoOrient{}]}]}} =
-             plan_pipeline(orientation: struct(ImagePlug.Plan.Orientation, auto_orient: true))
+             plan_pipeline(orientation: struct(ImagePipe.Plan.Orientation, auto_orient: true))
 
     assert {:ok, %Plan{pipelines: [%Pipeline{operations: []}]}} =
              plan_pipeline(orientation_requested: true)
 
     assert {:ok, %Plan{pipelines: [%Pipeline{operations: operations}]}} =
              plan_pipeline(
-               crop: struct(ImagePlug.Parser.Imgproxy.CropRequest),
-               orientation: struct(ImagePlug.Plan.Orientation, auto_orient: true)
+               crop: struct(ImagePipe.Parser.Imgproxy.CropRequest),
+               orientation: struct(ImagePipe.Plan.Orientation, auto_orient: true)
              )
 
     assert operation_names(operations) == [:auto_orient, :crop_guided]
@@ -610,9 +610,9 @@ defmodule ImagePlug.Parser.Imgproxy.PlanBuilderTest do
     }
 
     assert {:ok,
-            %ImagePlug.Plan{
-              pipelines: [%ImagePlug.Plan.Pipeline{operations: operations}],
-              output: %ImagePlug.Plan.Output{mode: :automatic}
+            %ImagePipe.Plan{
+              pipelines: [%ImagePipe.Plan.Pipeline{operations: operations}],
+              output: %ImagePipe.Plan.Output{mode: :automatic}
             }} =
              PlanBuilder.to_plan(
                %ParsedRequest{request | output: output_request()},
@@ -624,9 +624,9 @@ defmodule ImagePlug.Parser.Imgproxy.PlanBuilderTest do
     assert automatic_params.height == pixels(200)
 
     assert {:ok,
-            %ImagePlug.Plan{
-              pipelines: [%ImagePlug.Plan.Pipeline{operations: operations}],
-              output: %ImagePlug.Plan.Output{mode: {:explicit, :webp}}
+            %ImagePipe.Plan{
+              pipelines: [%ImagePipe.Plan.Pipeline{operations: operations}],
+              output: %ImagePipe.Plan.Output{mode: {:explicit, :webp}}
             }} =
              PlanBuilder.to_plan(request, [])
 
@@ -638,7 +638,7 @@ defmodule ImagePlug.Parser.Imgproxy.PlanBuilderTest do
   property "output format does not change planned pipeline operations" do
     check all %ParsedRequest{} = parsed_request <- parsed_request(),
               max_runs: 100 do
-      assert {:ok, %ImagePlug.Plan{} = automatic_plan} =
+      assert {:ok, %ImagePipe.Plan{} = automatic_plan} =
                PlanBuilder.to_plan(
                  %ParsedRequest{
                    parsed_request
@@ -647,11 +647,11 @@ defmodule ImagePlug.Parser.Imgproxy.PlanBuilderTest do
                  []
                )
 
-      assert automatic_plan.output == %ImagePlug.Plan.Output{mode: :automatic}
-      assert [%ImagePlug.Plan.Pipeline{} | _] = automatic_plan.pipelines
+      assert automatic_plan.output == %ImagePipe.Plan.Output{mode: :automatic}
+      assert [%ImagePipe.Plan.Pipeline{} | _] = automatic_plan.pipelines
 
       for format <- Format.output_formats() do
-        assert {:ok, %ImagePlug.Plan{} = explicit_plan} =
+        assert {:ok, %ImagePipe.Plan{} = explicit_plan} =
                  PlanBuilder.to_plan(
                    %ParsedRequest{
                      parsed_request
@@ -660,7 +660,7 @@ defmodule ImagePlug.Parser.Imgproxy.PlanBuilderTest do
                    []
                  )
 
-        assert explicit_plan.output == %ImagePlug.Plan.Output{mode: {:explicit, format}}
+        assert explicit_plan.output == %ImagePipe.Plan.Output{mode: {:explicit, format}}
         assert explicit_plan.pipelines == automatic_plan.pipelines
       end
     end
@@ -669,7 +669,7 @@ defmodule ImagePlug.Parser.Imgproxy.PlanBuilderTest do
   property "output quality does not change planned pipeline operations" do
     check all %ParsedRequest{} = parsed_request <- parsed_request(),
               max_runs: 100 do
-      assert {:ok, %ImagePlug.Plan{} = default_plan} =
+      assert {:ok, %ImagePipe.Plan{} = default_plan} =
                PlanBuilder.to_plan(
                  %ParsedRequest{
                    parsed_request
@@ -685,8 +685,8 @@ defmodule ImagePlug.Parser.Imgproxy.PlanBuilderTest do
         )
 
       assert {:ok,
-              %ImagePlug.Plan{
-                output: %ImagePlug.Plan.Output{
+              %ImagePipe.Plan{
+                output: %ImagePipe.Plan.Output{
                   mode: :automatic,
                   quality: {:quality, 80},
                   format_qualities: %{webp: {:quality, 70}}
@@ -715,7 +715,7 @@ defmodule ImagePlug.Parser.Imgproxy.PlanBuilderTest do
 
     assert {:ok,
             %Plan{
-              output: %ImagePlug.Plan.Output{mode: {:explicit, :webp}},
+              output: %ImagePipe.Plan.Output{mode: {:explicit, :webp}},
               expires: 0,
               cachebuster: "v1",
               response: %Response{
@@ -862,7 +862,7 @@ defmodule ImagePlug.Parser.Imgproxy.PlanBuilderTest do
     if orientation_attrs == [] do
       attrs
     else
-      {orientation, attrs} = Keyword.pop(attrs, :orientation, %ImagePlug.Plan.Orientation{})
+      {orientation, attrs} = Keyword.pop(attrs, :orientation, %ImagePipe.Plan.Orientation{})
       Keyword.put(attrs, :orientation, struct!(orientation, orientation_attrs))
     end
   end

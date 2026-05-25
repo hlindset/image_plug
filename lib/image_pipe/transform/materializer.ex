@@ -1,0 +1,35 @@
+defmodule ImagePipe.Transform.Materializer do
+  @moduledoc """
+  Decode and materialization boundary for transform execution.
+
+  Sequential input decode can defer source reads until transform execution.
+  Runtime code uses this module before cache writes or response headers so
+  request handling can materialize pixels, then check whether the source stream
+  finished or failed.
+
+  Multi-pipeline plans also materialize between pipelines. That boundary preserves
+  the plan's explicit intermediate image semantics and allows decode planning to use
+  only the first pipeline when choosing source access: later operations classified
+  as random-access run against a memory-backed intermediate image instead of
+  changing how the source is opened.
+  """
+
+  alias ImagePipe.Transform.State
+  alias Vix.Vips.Image, as: VipsImage
+
+  @callback materialize(State.t(), keyword()) ::
+              {:ok, State.t()} | {:error, term()}
+
+  @spec materialize(State.t(), keyword()) :: {:ok, State.t()} | {:error, term()}
+  def materialize(%State{} = state, _opts) do
+    case materialize(state.image) do
+      {:ok, image} -> {:ok, State.set_image(state, image)}
+      {:error, _reason} = error -> error
+    end
+  end
+
+  @spec materialize(VipsImage.t()) :: {:ok, VipsImage.t()} | {:error, term()}
+  def materialize(%VipsImage{} = image) do
+    VipsImage.copy_memory(image)
+  end
+end

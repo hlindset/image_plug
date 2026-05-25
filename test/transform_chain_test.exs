@@ -1,16 +1,16 @@
-defmodule ImagePlug.Transform.ChainTest do
+defmodule ImagePipe.Transform.ChainTest do
   use ExUnit.Case, async: true
 
-  alias ImagePlug.Transform
-  alias ImagePlug.Transform.Chain
-  alias ImagePlug.Transform.ChainTest.FailingTransform
-  alias ImagePlug.Transform.ChainTest.UnexpectedTransform
-  alias ImagePlug.Transform.Operation.Crop
-  alias ImagePlug.Transform.Operation.ExtendCanvas
-  alias ImagePlug.Transform.Operation.Resize
-  alias ImagePlug.Transform.State
+  alias ImagePipe.Transform
+  alias ImagePipe.Transform.Chain
+  alias ImagePipe.Transform.ChainTest.FailingTransform
+  alias ImagePipe.Transform.ChainTest.UnexpectedTransform
+  alias ImagePipe.Transform.Operation.Crop
+  alias ImagePipe.Transform.Operation.ExtendCanvas
+  alias ImagePipe.Transform.Operation.Resize
+  alias ImagePipe.Transform.State
 
-  doctest ImagePlug.Transform.Chain
+  doctest ImagePipe.Transform.Chain
 
   test "transform name is delegated to operation module" do
     operation = %Resize{mode: :fit, width: {:pixels, 10}, height: :auto}

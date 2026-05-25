@@ -1,15 +1,15 @@
-defmodule ImagePlug.Parser.Imgproxy.SourceEncryptionTest do
+defmodule ImagePipe.Parser.Imgproxy.SourceEncryptionTest do
   use ExUnit.Case, async: true
   use ExUnitProperties
 
   import Plug.Test
   import StreamData
 
-  alias ImagePlug.Parser.Imgproxy
-  alias ImagePlug.Parser.Imgproxy.SourceEncryption
-  alias ImagePlug.Plan
-  alias ImagePlug.Plan.Output
-  alias ImagePlug.Plan.Source
+  alias ImagePipe.Parser.Imgproxy
+  alias ImagePipe.Parser.Imgproxy.SourceEncryption
+  alias ImagePipe.Plan
+  alias ImagePipe.Plan.Output
+  alias ImagePipe.Plan.Source
 
   @aes128_key "000102030405060708090a0b0c0d0e0f"
   @aes192_key "000102030405060708090a0b0c0d0e0f1011121314151617"

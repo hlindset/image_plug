@@ -3,8 +3,8 @@
 ## Mental model
 
 An Imgproxy URL describes desired output, not a step-by-step image pipeline.
-ImagePlug normalizes aliases and conflicts, converts supported options into
-`ImagePlug.Plan` operations, then runs those operations in a fixed order.
+ImagePipe normalizes aliases and conflicts, converts supported options into
+`ImagePipe.Plan` operations, then runs those operations in a fixed order.
 
 For a feature-by-feature comparison with Imgproxy's processing URL surface, see
 [Imgproxy support matrix](imgproxy_support_matrix.md).
@@ -17,27 +17,27 @@ The general shape is:
     /<signature>/option[:arg...]/option[:arg...]/<base64-url>[.<extension>]
     /<signature>/option[:arg...]/option[:arg...]/enc/<encrypted-url>[.<extension>]
 
-ImagePlug verifies the signature segment first. Unsigned development URLs must
+ImagePipe verifies the signature segment first. Unsigned development URLs must
 use `_` or `unsafe`. Signed URLs must use a valid configured HMAC or trusted
 signature.
 
-Before verification, ImagePlug applies Imgproxy-compatible `fixPath`
+Before verification, ImagePipe applies Imgproxy-compatible `fixPath`
 normalization for encoded option separators and plain URL schemes.
 
 `plain` starts the source path. Add `@extension` to the end of the source path
 to request an explicit output format and bypass `Accept` negotiation. The suffix
-doesn't declare the source image format. ImagePlug still detects the source
+doesn't declare the source image format. ImagePipe still detects the source
 family from decoded image metadata.
 
-Without `plain` or `enc`, ImagePlug treats the remaining path segments as an
+Without `plain` or `enc`, ImagePipe treats the remaining path segments as an
 Imgproxy Base64URL source value. It joins those segments without `/`, trims
 trailing `=`, decodes URL-safe Base64, and passes the decoded string through the
 same source translation used by plain sources. A decoded `images/cat.jpg`,
 `local:///images/cat.jpg`, `https://example.com/cat.jpg`, `s3://bucket/key`, or
-configured custom scheme produces the same `ImagePlug.Plan` source as the
+configured custom scheme produces the same `ImagePipe.Plan` source as the
 matching plain request.
 
-`enc` starts an encrypted source URL. Configure it through `ImagePlug.init/1`:
+`enc` starts an encrypted source URL. Configure it through `ImagePipe.Plug.init/1`:
 
 ```elixir
 imgproxy: [
@@ -64,17 +64,17 @@ Encrypted URLs hide the source string from the path, but unsigned encrypted
 URLs don't prove source authorization and don't give ciphertext integrity.
 Because the IV is part of the path token, a caller who can see an unsigned
 encrypted URL can change first-block plaintext bytes without the key. If the
-changed plaintext is still a valid configured source, ImagePlug will plan it.
+changed plaintext is still a valid configured source, ImagePipe will plan it.
 Sign production encrypted URLs. Signature verification happens before
 decryption, so a tampered encrypted segment or SEO filename fails before padding
 checks when callers enable signing.
 
-Use `ImagePlug.Parser.Imgproxy.encrypt_source_url/3` to generate only the
+Use `ImagePipe.Parser.Imgproxy.encrypt_source_url/3` to generate only the
 encrypted source segment:
 
 ```elixir
 {:ok, segment} =
-  ImagePlug.Parser.Imgproxy.encrypt_source_url(
+  ImagePipe.Parser.Imgproxy.encrypt_source_url(
     "images/cat.jpg",
     "000102030405060708090a0b0c0d0e0f"
   )
@@ -86,13 +86,13 @@ different path strings. Pass `iv: <<...::binary-size(16)>>` only when the
 calling application owns IV derivation and storage. Don't derive IVs from the
 URL signing key.
 
-For encoded sources, ImagePlug follows Imgproxy's split rule: path segments
+For encoded sources, ImagePipe follows Imgproxy's split rule: path segments
 remain options only while they contain the argument separator, currently `:`.
 The first bare segment starts the source. If that first bare segment is
 `plain`, the request uses plain source parsing. If it's `enc`, the next
 segments are the encrypted source value. Later source chunks named `plain`,
 `enc`, `ar`, `fl`, `padding`, or another option name remain encoded source
-chunks. Explicit `/plain/` requests can still use ImagePlug's `-` pipeline
+chunks. Explicit `/plain/` requests can still use ImagePipe's `-` pipeline
 separator before the plain marker.
 
 With `base64_url_includes_filename: true`, Base64 and encrypted sources discard
@@ -109,14 +109,14 @@ signature.
 
 In URL paths, option segments before the source need the `:` separator. Use
 `ar:true`, `fl:true:true`, and `pd:10`, not bare `ar`, `fl`, or `pd`, before a
-source marker. ImagePlug parses a bare option name as the start of an encoded
+source marker. ImagePipe parses a bare option name as the start of an encoded
 source.
 
 Signature verification uses the received fixed path before Base64 decoding or
 encrypted-source decryption. For signed URLs, sign the encoded or encrypted path
 and suffix exactly as sent after Imgproxy `fixPath` normalization.
 
-ImagePlug doesn't build Imgproxy source preprocessing controlled by
+ImagePipe doesn't build Imgproxy source preprocessing controlled by
 `IMGPROXY_BASE_URL` or `IMGPROXY_URL_REPLACEMENTS`. Requests with malformed
 Base64URL values, malformed encrypted source values, and unsupported decoded
 source schemes fail before source identity resolution, cache lookup, or source
@@ -125,9 +125,9 @@ fetch.
 ## Pipeline groups
 
 `-` separates Imgproxy pipeline groups. Non-empty groups execute in path group
-order. ImagePlug ignores empty pipeline groups.
+order. ImagePipe ignores empty pipeline groups.
 
-Within each pipeline group, ImagePlug uses this fixed operation order:
+Within each pipeline group, ImagePipe uses this fixed operation order:
 
 1. orientation, in `auto_orient`, `rotate`, then `flip` order
 2. explicit crop
@@ -139,7 +139,7 @@ Within each pipeline group, ImagePlug uses this fixed operation order:
 
 ## Option ordering and conflict resolution
 
-ImagePlug normalizes aliases before conflict resolution. If more than one URL
+ImagePipe normalizes aliases before conflict resolution. If more than one URL
 option maps to the same canonical request field, the last occurrence in the URL
 wins.
 
@@ -164,10 +164,10 @@ Generic quality and format-specific quality are separate canonical fields.
 
 Normal processing URLs support configured Imgproxy presets:
 
-    ImagePlug.init(
-      parser: ImagePlug.Parser.Imgproxy,
+    ImagePipe.Plug.init(
+      parser: ImagePipe.Parser.Imgproxy,
       sources: [
-        path: {ImagePlug.Source.File, root: "/srv/images", root_id: "primary"}
+        path: {ImagePipe.Source.File, root: "/srv/images", root_id: "primary"}
       ],
       imgproxy: [
         presets: %{
@@ -184,22 +184,22 @@ Normal processing URLs support configured Imgproxy presets:
     /_/preset:thumb/plain/images/cat.jpg
     /_/pr:thumb:sharp-thumb/plain/images/cat.jpg
 
-`ImagePlug.Parser.Imgproxy` expands presets before plan construction, source
+`ImagePipe.Parser.Imgproxy` expands presets before plan construction, source
 identity resolution, cache lookup, or source fetch. Preset names aren't stored
-in `ImagePlug.Plan`, runtime state, output negotiation, transform state, or
+in `ImagePipe.Plan`, runtime state, output negotiation, transform state, or
 cache data. A request using `pr:thumb` and a request spelling out the same
 expanded options share the same cache key for the same resolved source identity
 and vary inputs.
 
-ImagePlug applies a configured preset named `default` to every normal
+ImagePipe applies a configured preset named `default` to every normal
 processing request before URL options. URL assignments in the same merged
 pipeline group can override fields from `default`.
 
-Presets may reference other presets. ImagePlug skips recursive re-entry,
-matching Imgproxy behavior: if `a` expands to `pr:a/w:100`, ImagePlug ignores
+Presets may reference other presets. ImagePipe skips recursive re-entry,
+matching Imgproxy behavior: if `a` expands to `pr:a/w:100`, ImagePipe ignores
 the nested `pr:a` and still applies `w:100`.
 
-Preset values may contain `-` pipeline separators. ImagePlug applies the first
+Preset values may contain `-` pipeline separators. ImagePipe applies the first
 preset group to the current URL pipeline group. It queues later preset groups
 for following URL groups, where URL options can override queued preset fields.
 Remaining queued groups become trailing pipelines.
@@ -243,17 +243,17 @@ Remaining queued groups become trailing pipelines.
 Supported resizing types are `fit`, `fill`, `fill-down`, `force`, and `auto`.
 
 `0` width or height values map to `auto`. For `force`, an `auto` side preserves
-the source dimension. For `fit` and proportional resize rules, ImagePlug
+the source dimension. For `fit` and proportional resize rules, ImagePipe
 resolves an `auto` side from source aspect ratio. Min dimensions, zoom, DPR,
-and `enlarge` apply when ImagePlug computes target dimensions.
+and `enlarge` apply when ImagePipe computes target dimensions.
 
 The `dpr` option multiplies requested output dimensions. When `enlarge` is
-false, ImagePlug may use a smaller multiplier than requested so raster output
+false, ImagePipe may use a smaller multiplier than requested so raster output
 doesn't grow beyond the source image. Gravity pixel offsets and padding use
 that same resize multiplier, so surrounding geometry stays aligned with the
 resized image.
 
-ImagePlug keeps `auto` as `mode: :auto` in final cache key data. After a cache
+ImagePipe keeps `auto` as `mode: :auto` in final cache key data. After a cache
 miss, it compares the current image dimensions with the requested target box.
 Matching current and target orientation selects `cover`. Differing or unknown
 orientation selects `fit`.
@@ -297,7 +297,7 @@ gravity option that provided them:
 | Top-level `g`/`gravity` | Result crops produced by resize planning |
 | Explicit crop gravity | That explicit crop |
 
-ImagePlug parses offset units like Imgproxy:
+ImagePipe parses offset units like Imgproxy:
 
 | Offset value | Unit |
 | --- | --- |
@@ -353,7 +353,7 @@ then sets right and left to `5`. `padding:` and all-zero padding are valid
 no-ops.
 
 Padding uses the same resize multiplier as gravity offsets. For requests that
-combine no-enlarge resize with canvas extension, ImagePlug follows Imgproxy's
+combine no-enlarge resize with canvas extension, ImagePipe follows Imgproxy's
 canvas-preserving DPR behavior instead of using only the requested `dpr`.
 
 ### Background
@@ -375,13 +375,13 @@ Composition order is canvas extension, padding, then `background`.
 
 ## Output format and quality
 
-When a request omits an explicit output format, ImagePlug negotiates the output
+When a request omits an explicit output format, ImagePipe negotiates the output
 from `Accept` and sets `Vary: Accept`. To force a format, use `format`, `f`,
 `ext`, put `@extension` at the end of a plain-source path, or put `.extension`
 at the end of a Base64 or encrypted source path. Forced formats bypass `Accept`
 negotiation and don't set `Vary: Accept`.
 
-ImagePlug supports `webp`, `avif`, `jpeg`/`jpg`, and `png` as explicit output
+ImagePipe supports `webp`, `avif`, `jpeg`/`jpg`, and `png` as explicit output
 extensions. If a request includes both an option format and a source-path
 suffix, the source-path suffix wins because the imgproxy parser treats it as
 the final requested output format. Plain sources use `@extension`. Encoded and
@@ -402,7 +402,7 @@ configured vary inputs, output config, and the transform key data version.
 Source-aware execution choices, such as `mode: :auto` selecting `fit` or
 `cover`, don't enter the normal final cache key.
 
-ImagePlug caches only successful encoded responses. Rejected Imgproxy requests
+ImagePipe caches only successful encoded responses. Rejected Imgproxy requests
 return before source fetch and cache lookup.
 
 ## Response filename and disposition
