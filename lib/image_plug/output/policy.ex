@@ -14,7 +14,7 @@ defmodule ImagePlug.Output.Policy do
   @type format() :: Format.output_format()
   @type source_format() :: Format.source_format()
   @type quality() :: :default | {:quality, 1..100}
-  @type mode() :: :source | :best | {:explicit, format()}
+  @type mode() :: :source | {:explicit, format()}
   @type reason() :: :explicit | :auto | :source
 
   @type t() :: %__MODULE__{
@@ -47,7 +47,7 @@ defmodule ImagePlug.Output.Policy do
   end
 
   @spec resolve_before_source_fetch(t()) ::
-          {:selected, format(), reason()} | :needs_source_format | {:needs_encoded_evaluation}
+          {:selected, format(), reason()} | :needs_source_format
   def resolve_before_source_fetch(%__MODULE__{mode: {:explicit, format}}),
     do: {:selected, format, :explicit}
 
@@ -60,12 +60,9 @@ defmodule ImagePlug.Output.Policy do
   def resolve_before_source_fetch(%__MODULE__{mode: :source, modern_candidates: []}),
     do: :needs_source_format
 
-  def resolve_before_source_fetch(%__MODULE__{mode: :best}), do: {:needs_encoded_evaluation}
-
   @spec resolve(t(), source_format() | nil) ::
           {:ok, Resolved.t()}
           | {:error, :source_format_required}
-          | {:needs_encoded_evaluation}
           | {:needs_final_image_alpha, :source}
   def resolve(%__MODULE__{} = policy, source_format) do
     case resolve_before_source_fetch(policy) do
@@ -78,9 +75,6 @@ defmodule ImagePlug.Output.Policy do
           {:needs_final_image_alpha, _reason} = pending -> pending
           {:error, _reason} = error -> error
         end
-
-      {:needs_encoded_evaluation} ->
-        {:needs_encoded_evaluation}
     end
   end
 

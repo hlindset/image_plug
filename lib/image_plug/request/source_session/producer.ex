@@ -221,9 +221,6 @@ defmodule ImagePlug.Request.SourceSession.Producer do
       {:needs_final_image_alpha, :source} ->
         {:ok, Policy.resolve_final_image_alpha(policy, Image.has_alpha?(image))}
 
-      {:needs_encoded_evaluation} ->
-        {:error, {:output, :encoded_evaluation_not_supported}}
-
       {:error, reason} ->
         {:error, {:output, reason}}
     end
@@ -235,7 +232,6 @@ defmodule ImagePlug.Request.SourceSession.Producer do
 
   defp output_mode(%Policy{mode: {:explicit, _format}}), do: :explicit
   defp output_mode(%Policy{mode: :source}), do: :automatic
-  defp output_mode(%Policy{mode: :best}), do: :best
 
   defp output_negotiate_stop_metadata({:ok, %Resolved{format: format}}) do
     %{result: :ok, output_format: format}
