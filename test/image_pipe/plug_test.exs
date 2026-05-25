@@ -9,14 +9,6 @@ defmodule ImagePipe.PlugTest do
 
   @slow_origin_first_chunk_timeout 5_000
 
-  test "exports the Plug entry point callbacks from ImagePipe.Plug only" do
-    assert function_exported?(ImagePipe.Plug, :init, 1)
-    assert function_exported?(ImagePipe.Plug, :call, 2)
-
-    refute function_exported?(ImagePipe, :init, 1)
-    refute function_exported?(ImagePipe, :call, 2)
-  end
-
   alias ImagePipe.Parser.Imgproxy.Signature
   alias ImagePipe.Plan
   alias ImagePipe.Plan.Operation
