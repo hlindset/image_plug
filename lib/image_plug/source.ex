@@ -49,7 +49,7 @@ defmodule ImagePlug.Source do
   end
 
   @spec resolve(PlanSource.t(), keyword(), keyword()) :: {:ok, Resolved.t()} | {:error, error()}
-  def resolve(source, opts, runtime_opts) when is_list(opts) and is_list(runtime_opts) do
+  def resolve(source, opts, runtime_opts) do
     with {:ok, adapter, source_kind} <- source_adapter(source),
          {:ok, module, adapter_opts} <- fetch_adapter_config(adapter, opts) do
       source_metadata =
@@ -73,8 +73,7 @@ defmodule ImagePlug.Source do
   end
 
   @spec fetch(Resolved.t(), keyword(), keyword()) :: {:ok, Response.t()} | {:error, error()}
-  def fetch(%Resolved{} = resolved, opts, runtime_opts)
-      when is_list(opts) and is_list(runtime_opts) do
+  def fetch(%Resolved{} = resolved, opts, runtime_opts) do
     with :ok <- validate_resolved_for_fetch(resolved),
          {:ok, module, adapter_opts} <- fetch_adapter_config(resolved.adapter, opts) do
       source_metadata =
@@ -98,7 +97,7 @@ defmodule ImagePlug.Source do
   end
 
   @spec wrap_response(Response.t(), keyword()) :: {:ok, Response.t()} | {:error, error()}
-  def wrap_response(%Response{stream: stream}, runtime_opts) when is_list(runtime_opts) do
+  def wrap_response(%Response{stream: stream}, runtime_opts) do
     max_body_bytes = Keyword.get(runtime_opts, :max_body_bytes, :infinity)
     {:ok, %Response{stream: %WrappedStream{stream: stream, max_body_bytes: max_body_bytes}}}
   end
