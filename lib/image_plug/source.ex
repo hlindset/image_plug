@@ -59,13 +59,11 @@ defmodule ImagePlug.Source do
 
       Telemetry.span(telemetry_opts, [:source, :resolve], source_metadata, fn ->
         result =
-          safe_adapter_call(fn ->
-            case module.resolve(source, adapter_opts, runtime_opts) do
-              {:ok, %Resolved{} = resolved} -> validate_resolved(resolved, adapter)
-              {:error, {:source, _reason}} = error -> error
-              _other -> {:error, {:source, :invalid_adapter_result}}
-            end
-          end)
+          case module.resolve(source, adapter_opts, runtime_opts) do
+            {:ok, %Resolved{} = resolved} -> validate_resolved(resolved, adapter)
+            {:error, {:source, _reason}} = error -> error
+            _other -> {:error, {:source, :invalid_adapter_result}}
+          end
 
         {result, result_metadata(result)}
       end)
@@ -83,13 +81,11 @@ defmodule ImagePlug.Source do
 
       Telemetry.span(telemetry_opts, [:source, :fetch], source_metadata, fn ->
         result =
-          safe_adapter_call(fn ->
-            case module.fetch(resolved, adapter_opts, runtime_opts) do
-              {:ok, %Response{} = response} -> wrap_response(response, runtime_opts)
-              {:error, {:source, _reason}} = error -> error
-              _other -> {:error, {:source, :invalid_adapter_result}}
-            end
-          end)
+          case module.fetch(resolved, adapter_opts, runtime_opts) do
+            {:ok, %Response{} = response} -> wrap_response(response, runtime_opts)
+            {:error, {:source, _reason}} = error -> error
+            _other -> {:error, {:source, :invalid_adapter_result}}
+          end
 
         {result, result_metadata(result)}
       end)
@@ -108,7 +104,7 @@ defmodule ImagePlug.Source do
     Enum.reduce_while(sources, {:ok, %{}}, fn
       {adapter, {module, adapter_opts}}, {:ok, source_configs}
       when is_atom(adapter) and is_atom(module) and is_list(adapter_opts) ->
-        case safe_adapter_call(fn -> module.validate_options(adapter_opts) end) do
+        case module.validate_options(adapter_opts) do
           {:ok, validated_opts} when is_list(validated_opts) ->
             ordered_opts = order_validated_options(adapter_opts, validated_opts)
             {:cont, {:ok, Map.put(source_configs, adapter, {module, ordered_opts})}}
@@ -211,12 +207,4 @@ defmodule ImagePlug.Source do
 
   defp result_metadata({:ok, _value}), do: %{result: :ok}
   defp result_metadata({:error, reason}), do: %{result: Telemetry.error(reason)}
-
-  defp safe_adapter_call(fun) when is_function(fun, 0) do
-    fun.()
-  rescue
-    _error -> {:error, {:source, :adapter_exception}}
-  catch
-    _kind, _reason -> {:error, {:source, :adapter_exception}}
-  end
 end
