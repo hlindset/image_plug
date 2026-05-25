@@ -183,14 +183,6 @@ defmodule ImagePlug.ImagePlugTest do
     def chunk(_payload, _body), do: {:error, :closed}
   end
 
-  defmodule OversizedOriginBody do
-    def call(conn, _) do
-      conn
-      |> Plug.Conn.put_resp_content_type("image/png")
-      |> Plug.Conn.send_resp(200, "123456")
-    end
-  end
-
   defmodule InvalidOriginImage do
     def call(conn, _) do
       conn
@@ -1973,12 +1965,12 @@ defmodule ImagePlug.ImagePlugTest do
 
   test "body limit failures surface as source errors during decode" do
     conn =
-      conn(:get, "/_/plain/images/large-body.png")
+      conn(:get, "/_/plain/images/large-body.jpg")
       |> call_image_plug(
         root_url: "http://origin.test",
         parser: ImagePlug.Parser.Imgproxy,
         max_body_bytes: 5,
-        origin_req_options: [plug: OversizedOriginBody]
+        origin_req_options: [plug: OriginImage]
       )
 
     assert conn.status == 422
