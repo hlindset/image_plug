@@ -1119,7 +1119,7 @@ defmodule ImagePlug.Request.RunnerTest do
     assert_supervisor_empty(supervisor)
   end
 
-  test "invalid cache config returns cache errors before cache lookup" do
+  test "invalid cache config returns cache errors without calling the adapter" do
     assert {:error, {:cache, {:invalid_cache_config, {:max_body_bytes, "10MB"}}}} =
              Runner.run(
                conn(:get, "/_/f:jpeg/plain/images/beach.jpg"),

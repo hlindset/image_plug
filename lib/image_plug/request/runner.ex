@@ -31,24 +31,7 @@ defmodule ImagePlug.Request.Runner do
         ) ::
           {:ok, delivery()} | {:error, error()}
   def run(conn, %Plan{} = plan, %Source.Resolved{} = resolved_source, opts) do
-    with :ok <- validate_cache_config(opts) do
-      run_with_cache_config(conn, plan, resolved_source, opts)
-    else
-      {:error, {:cache, reason}} -> {:error, {:cache, reason}}
-    end
-  end
-
-  defp validate_cache_config(opts) do
-    case Keyword.get(opts, :cache) do
-      nil ->
-        :ok
-
-      _cache ->
-        case Cache.validate_config(opts) do
-          {:ok, _opts} -> :ok
-          {:error, reason} -> {:error, {:cache, reason}}
-        end
-    end
+    run_with_cache_config(conn, plan, resolved_source, opts)
   end
 
   defp run_with_cache_config(conn, plan, %Source.Resolved{cache: :skip} = resolved_source, opts),
