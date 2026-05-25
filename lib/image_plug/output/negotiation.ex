@@ -1,7 +1,7 @@
 defmodule ImagePlug.Output.Negotiation do
   @moduledoc false
 
-  alias ImagePlug.Output.Format
+  alias ImagePlug.Format
 
   @modern_formats [avif: "image/avif", webp: "image/webp"]
 
@@ -18,11 +18,7 @@ defmodule ImagePlug.Output.Negotiation do
     end
   end
 
-  defdelegate suffix(mime_type), to: Format
-
-  defdelegate suffix!(mime_type), to: Format
-
-  defdelegate format(mime_type), to: Format
+  defdelegate format(mime_type), to: Format, as: :format_from_mime_type
 
   defdelegate mime_type(format), to: Format
 

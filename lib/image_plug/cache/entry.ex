@@ -3,7 +3,7 @@ defmodule ImagePlug.Cache.Entry do
   Adapter-independent cached response entry.
   """
 
-  alias ImagePlug.Output.Format
+  alias ImagePlug.Format
 
   @allowed_headers ~w(vary cache-control)
   @enforce_keys [:body, :content_type, :headers, :created_at]
@@ -32,7 +32,7 @@ defmodule ImagePlug.Cache.Entry do
   @doc false
   @spec validate_content_type(String.t()) :: :ok | {:error, term()}
   def validate_content_type(content_type) do
-    case Format.format(content_type) do
+    case Format.format_from_mime_type(content_type) do
       {:ok, _format} -> :ok
       {:error, reason} -> {:error, reason}
     end

@@ -5,7 +5,7 @@ defmodule ImagePlug.Cache.Sink do
 
   alias ImagePlug.Cache.Entry
   alias ImagePlug.Cache.Key
-  alias ImagePlug.Output.Format
+  alias ImagePlug.Format
   alias ImagePlug.Output.Resolved
   alias ImagePlug.Telemetry
 
@@ -111,7 +111,7 @@ defmodule ImagePlug.Cache.Sink do
 
   defp open_entry_put(adapter, %Key{} = key, %Entry{} = entry, cache_opts, opts) do
     with :ok <- check_size(byte_size(entry.body), Keyword.get(cache_opts, :max_body_bytes)),
-         {:ok, output_format} <- Format.format(entry.content_type),
+         {:ok, output_format} <- Format.format_from_mime_type(entry.content_type),
          {:ok, headers} <- Entry.cacheable_headers(entry.headers) do
       metadata = %Entry.Metadata{
         content_type: entry.content_type,

@@ -1,7 +1,7 @@
 defmodule ImagePlug.Output.Encoder do
   @moduledoc false
 
-  alias ImagePlug.Output.Format
+  alias ImagePlug.Format
   alias ImagePlug.Output.Resolved
 
   defmodule EncodedOutput do

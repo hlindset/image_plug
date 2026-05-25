@@ -1,6 +1,7 @@
 defmodule ImagePlug.Output.NegotiationTest do
   use ExUnit.Case, async: true
 
+  alias ImagePlug.Format
   alias ImagePlug.Output.Negotiation
 
   describe "modern_candidates/2" do
@@ -53,16 +54,16 @@ defmodule ImagePlug.Output.NegotiationTest do
 
   describe "suffix!/1" do
     test "maps output MIME types to encoder suffixes" do
-      assert Negotiation.suffix!("image/avif") == ".avif"
-      assert Negotiation.suffix!("image/webp") == ".webp"
-      assert Negotiation.suffix!("image/jpeg") == ".jpg"
-      assert Negotiation.suffix!("image/png") == ".png"
+      assert Format.suffix!("image/avif") == ".avif"
+      assert Format.suffix!("image/webp") == ".webp"
+      assert Format.suffix!("image/jpeg") == ".jpg"
+      assert Format.suffix!("image/png") == ".png"
     end
 
     test "returns tagged suffix results without raising" do
-      assert Negotiation.suffix("image/jpeg") == {:ok, ".jpg"}
+      assert Format.suffix("image/jpeg") == {:ok, ".jpg"}
 
-      assert Negotiation.suffix("image/gif") ==
+      assert Format.suffix("image/gif") ==
                {:error, {:unsupported_output_format, "image/gif"}}
     end
   end

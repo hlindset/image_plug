@@ -338,6 +338,7 @@ defmodule ImagePlug.ArchitectureBoundaryTest do
     cache = boundary_declaration(ImagePlug.Cache)
 
     assert_boundary_deps(cache, [
+      ImagePlug.Format,
       ImagePlug.Plan,
       ImagePlug.Output,
       ImagePlug.Transform,
