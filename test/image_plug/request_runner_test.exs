@@ -465,6 +465,17 @@ defmodule ImagePlug.Request.RunnerTest do
   end
 
   defp assert_supervisor_empty(supervisor) do
+    supervisor
+    |> DynamicSupervisor.which_children()
+    |> Enum.each(fn
+      {_id, pid, :worker, _modules} when is_pid(pid) ->
+        ref = Process.monitor(pid)
+        assert_receive {:DOWN, ^ref, :process, ^pid, _reason}
+
+      _child ->
+        :ok
+    end)
+
     _state = :sys.get_state(supervisor)
     assert %{active: 0, workers: 0} = DynamicSupervisor.count_children(supervisor)
   end
@@ -491,11 +502,7 @@ defmodule ImagePlug.Request.RunnerTest do
     require_tiff_support!()
     supervisor = start_source_session_supervisor()
 
-    assert {:ok,
-            {:prepared_stream,
-             %PreparedStream{
-               resolved_output: %Resolved{format: :jpeg, response_headers: [{"vary", "Accept"}]}
-             } = prepared, %ImagePlug.Plan.Response{}}} =
+    assert {:ok, {:prepared_stream, prepared, %Response{}}} =
              Runner.run(
                conn(:get, "/_/plain/images/source.tiff"),
                plan(output: %Output{mode: :automatic}),
@@ -504,6 +511,10 @@ defmodule ImagePlug.Request.RunnerTest do
                sources: %{path: {SourceBytes, body: tiff_body(:white)}}
              )
 
+    assert %PreparedStream{
+             resolved_output: %Resolved{format: :jpeg, response_headers: [{"vary", "Accept"}]}
+           } = prepared
+
     assert_cancelled(prepared, supervisor)
   end
 
@@ -511,11 +522,7 @@ defmodule ImagePlug.Request.RunnerTest do
     require_tiff_support!()
     supervisor = start_source_session_supervisor()
 
-    assert {:ok,
-            {:prepared_stream,
-             %PreparedStream{
-               resolved_output: %Resolved{format: :png, response_headers: [{"vary", "Accept"}]}
-             } = prepared, %ImagePlug.Plan.Response{}}} =
+    assert {:ok, {:prepared_stream, prepared, %Response{}}} =
              Runner.run(
                conn(:get, "/_/plain/images/source.tiff"),
                plan(output: %Output{mode: :automatic}),
@@ -523,6 +530,10 @@ defmodule ImagePlug.Request.RunnerTest do
                source_session_supervisor: supervisor,
                sources: %{path: {SourceBytes, body: tiff_body([255, 255, 255, 128])}}
              )
+
+    assert %PreparedStream{
+             resolved_output: %Resolved{format: :png, response_headers: [{"vary", "Accept"}]}
+           } = prepared
 
     assert_cancelled(prepared, supervisor)
   end
@@ -537,11 +548,7 @@ defmodule ImagePlug.Request.RunnerTest do
         output: %Output{mode: :automatic}
       )
 
-    assert {:ok,
-            {:prepared_stream,
-             %PreparedStream{
-               resolved_output: %Resolved{format: :jpeg, response_headers: [{"vary", "Accept"}]}
-             } = prepared, %ImagePlug.Plan.Response{}}} =
+    assert {:ok, {:prepared_stream, prepared, %Response{}}} =
              Runner.run(
                conn(:get, "/_/bg:fff/plain/images/source.tiff"),
                plan,
@@ -549,6 +556,10 @@ defmodule ImagePlug.Request.RunnerTest do
                source_session_supervisor: supervisor,
                sources: %{path: {SourceBytes, body: tiff_body([255, 255, 255, 128])}}
              )
+
+    assert %PreparedStream{
+             resolved_output: %Resolved{format: :jpeg, response_headers: [{"vary", "Accept"}]}
+           } = prepared
 
     assert_cancelled(prepared, supervisor)
   end
@@ -562,11 +573,7 @@ defmodule ImagePlug.Request.RunnerTest do
       |> conn("/_/plain/images/source.tiff")
       |> Plug.Conn.put_req_header("accept", "image/webp")
 
-    assert {:ok,
-            {:prepared_stream,
-             %PreparedStream{
-               resolved_output: %Resolved{format: :webp, response_headers: [{"vary", "Accept"}]}
-             } = prepared, %ImagePlug.Plan.Response{}}} =
+    assert {:ok, {:prepared_stream, prepared, %Response{}}} =
              Runner.run(
                conn,
                plan(output: %Output{mode: :automatic}),
@@ -574,6 +581,10 @@ defmodule ImagePlug.Request.RunnerTest do
                source_session_supervisor: supervisor,
                sources: %{path: {SourceBytes, body: tiff_body([255, 255, 255, 128])}}
              )
+
+    assert %PreparedStream{
+             resolved_output: %Resolved{format: :webp, response_headers: [{"vary", "Accept"}]}
+           } = prepared
 
     assert_cancelled(prepared, supervisor)
   end
@@ -584,11 +595,7 @@ defmodule ImagePlug.Request.RunnerTest do
     supervisor = start_source_session_supervisor()
     ref = make_ref()
 
-    assert {:ok,
-            {:prepared_stream,
-             %PreparedStream{
-               resolved_output: %Resolved{format: :jpeg, response_headers: [{"vary", "Accept"}]}
-             } = prepared, %ImagePlug.Plan.Response{}}} =
+    assert {:ok, {:prepared_stream, prepared, %Response{}}} =
              Runner.run(
                conn(:get, "/_/plain/images/source.tiff"),
                plan(output: %Output{mode: :automatic}),
@@ -599,6 +606,10 @@ defmodule ImagePlug.Request.RunnerTest do
                  path: {SourceBytes, body: tiff_body(:white), test_pid: self(), test_ref: ref}
                }
              )
+
+    assert %PreparedStream{
+             resolved_output: %Resolved{format: :jpeg, response_headers: [{"vary", "Accept"}]}
+           } = prepared
 
     assert_receive {:runner_event, ^ref, first_event}
     assert {:cache_lookup, key} = first_event
@@ -622,11 +633,7 @@ defmodule ImagePlug.Request.RunnerTest do
     supervisor = start_source_session_supervisor()
     ref = make_ref()
 
-    assert {:ok,
-            {:prepared_stream,
-             %PreparedStream{
-               resolved_output: %Resolved{format: :png, response_headers: [{"vary", "Accept"}]}
-             } = prepared, %ImagePlug.Plan.Response{}}} =
+    assert {:ok, {:prepared_stream, prepared, %Response{}}} =
              Runner.run(
                conn(:get, "/_/plain/images/source.tiff"),
                plan(output: %Output{mode: :automatic}),
@@ -639,6 +646,10 @@ defmodule ImagePlug.Request.RunnerTest do
                     body: tiff_body([255, 255, 255, 128]), test_pid: self(), test_ref: ref}
                }
              )
+
+    assert %PreparedStream{
+             resolved_output: %Resolved{format: :png, response_headers: [{"vary", "Accept"}]}
+           } = prepared
 
     assert_receive {:runner_event, ^ref, first_event}
     assert {:cache_lookup, key} = first_event
@@ -814,7 +825,7 @@ defmodule ImagePlug.Request.RunnerTest do
                enlargement: :deny
              )
 
-    assert {:ok, {:prepared_stream, %PreparedStream{} = prepared, %ImagePlug.Plan.Response{}}} =
+    assert {:ok, {:prepared_stream, prepared, %Response{}}} =
              Runner.run(
                conn(:get, "/_/rt:auto/w:100/h:100/f:jpeg/plain/images/beach.jpg"),
                plan(pipelines: [%Pipeline{operations: [operation]}]),
@@ -823,6 +834,8 @@ defmodule ImagePlug.Request.RunnerTest do
                source_session_supervisor: supervisor,
                sources: %{path: {SourceImage, test_pid: self(), test_ref: ref}}
              )
+
+    assert %PreparedStream{} = prepared
 
     assert_receive {:runner_event, ^ref, first_event}
     assert {:cache_lookup, key} = first_event
@@ -1061,7 +1074,7 @@ defmodule ImagePlug.Request.RunnerTest do
     supervisor = start_source_session_supervisor()
     ref = make_ref()
 
-    assert {:ok, {:prepared_stream, %PreparedStream{} = prepared, %ImagePlug.Plan.Response{}}} =
+    assert {:ok, {:prepared_stream, prepared, %Response{}}} =
              Runner.run(
                conn(:get, "/_/f:auto/plain/images/beach.jpg", "")
                |> Plug.Conn.put_req_header("accept", "image/webp,image/jpeg;q=0.8"),
@@ -1071,6 +1084,8 @@ defmodule ImagePlug.Request.RunnerTest do
                source_session_supervisor: supervisor,
                sources: %{path: {SourceImage, []}}
              )
+
+    assert %PreparedStream{} = prepared
 
     assert_received {:cache_lookup, key}
     assert :ok = drain_prepared_stream(prepared)
@@ -1136,17 +1151,17 @@ defmodule ImagePlug.Request.RunnerTest do
       test_ref: ref
     ]
 
-    assert {:ok,
-            {:prepared_stream,
-             %PreparedStream{
-               resolved_output: %Resolved{format: :jpeg, quality: :default, response_headers: []}
-             } = prepared, %ImagePlug.Plan.Response{}}} =
+    assert {:ok, {:prepared_stream, prepared, %Response{}}} =
              Runner.run(
                conn(:get, "/_/f:jpeg/plain/images/beach.jpg"),
                plan,
                resolved_source(),
                Keyword.put(opts, :source_session_supervisor, supervisor)
              )
+
+    assert %PreparedStream{
+             resolved_output: %Resolved{format: :jpeg, quality: :default, response_headers: []}
+           } = prepared
 
     assert_receive {:pipeline_event, ^ref, :materialized_between_pipelines}
     assert_cancelled(prepared, supervisor)
@@ -1164,15 +1179,7 @@ defmodule ImagePlug.Request.RunnerTest do
         }
       )
 
-    assert {:ok,
-            {:prepared_stream,
-             %PreparedStream{
-               resolved_output: %Resolved{
-                 format: :webp,
-                 quality: {:quality, 70},
-                 response_headers: []
-               }
-             } = prepared, %ImagePlug.Plan.Response{}}} =
+    assert {:ok, {:prepared_stream, prepared, %Response{}}} =
              Runner.run(
                conn(:get, "/_/f:webp/fq:webp:70/plain/images/beach.jpg"),
                plan,
@@ -1180,6 +1187,14 @@ defmodule ImagePlug.Request.RunnerTest do
                source_session_supervisor: supervisor,
                sources: %{path: {SourceImage, []}}
              )
+
+    assert %PreparedStream{
+             resolved_output: %Resolved{
+               format: :webp,
+               quality: {:quality, 70},
+               response_headers: []
+             }
+           } = prepared
 
     assert_cancelled(prepared, supervisor)
   end
