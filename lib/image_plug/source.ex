@@ -100,31 +100,38 @@ defmodule ImagePlug.Source do
   def wrap_response(_response, _runtime_opts), do: {:error, {:source, :invalid_adapter_result}}
 
   defp validate_sources(sources) when is_list(sources) do
-    Enum.reduce_while(sources, {:ok, %{}}, fn
-      {adapter, {module, adapter_opts}}, {:ok, source_configs}
-      when is_atom(adapter) and is_atom(module) and is_list(adapter_opts) ->
-        case module.validate_options(adapter_opts) do
-          {:ok, validated_opts} when is_list(validated_opts) ->
-            ordered_opts = order_validated_options(adapter_opts, validated_opts)
-            {:cont, {:ok, Map.put(source_configs, adapter, {module, ordered_opts})}}
-
-          {:error, {:source, _reason}} = error ->
-            {:halt, error}
-
-          _other ->
-            {:halt, {:error, {:source, :invalid_adapter_config}}}
-        end
-
-      _entry, _acc ->
-        {:halt, {:error, {:source, :invalid_adapter_config}}}
-    end)
-    |> case do
-      {:ok, source_configs} -> {:ok, expand_url_source_config(source_configs)}
-      {:error, _reason} = error -> error
+    with {:ok, source_configs} <- source_configs(sources) do
+      {:ok, expand_url_source_config(source_configs)}
     end
   end
 
   defp validate_sources(_sources), do: {:error, {:source, :invalid_adapter_config}}
+
+  defp source_configs(sources) do
+    Enum.reduce_while(sources, {:ok, %{}}, fn entry, {:ok, source_configs} ->
+      case source_config(entry) do
+        {:ok, adapter, config} -> {:cont, {:ok, Map.put(source_configs, adapter, config)}}
+        {:error, _reason} = error -> {:halt, error}
+      end
+    end)
+  end
+
+  defp source_config({adapter, {module, adapter_opts}})
+       when is_atom(adapter) and is_atom(module) and is_list(adapter_opts) do
+    case module.validate_options(adapter_opts) do
+      {:ok, validated_opts} when is_list(validated_opts) ->
+        config = {module, order_validated_options(adapter_opts, validated_opts)}
+        {:ok, adapter, config}
+
+      {:error, {:source, _reason}} = error ->
+        error
+
+      _other ->
+        {:error, {:source, :invalid_adapter_config}}
+    end
+  end
+
+  defp source_config(_entry), do: {:error, {:source, :invalid_adapter_config}}
 
   defp expand_url_source_config(%{url: url_config} = source_configs) do
     source_configs
