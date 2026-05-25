@@ -244,7 +244,15 @@ defmodule ImagePlug.Parser.Imgproxy.Options do
     %{options | response: merge_request_map(response, assignments)}
   end
 
-  defp merge_request_map(request, assignments), do: Map.merge(request, Map.new(assignments))
+  defp merge_request_map(request, assignments) do
+    attrs = Map.new(assignments)
+    unknown_keys = Map.keys(attrs) -- Map.keys(request)
+
+    case unknown_keys do
+      [] -> Map.merge(request, attrs)
+      keys -> raise ArgumentError, "unknown request keys: #{inspect(keys)}"
+    end
+  end
 
   defp pipeline_empty?(%PipelineRequest{
          width: nil,
