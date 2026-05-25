@@ -1,6 +1,7 @@
 defmodule ImagePlug.Request.Processor do
   @moduledoc false
 
+  alias ImagePlug.Error
   alias ImagePlug.Plan
   alias ImagePlug.Request.Options
   alias ImagePlug.Request.SourceFormat
@@ -195,13 +196,13 @@ defmodule ImagePlug.Request.Processor do
     do: %{result: :ok}
 
   defp fetch_decode_stop_metadata({:error, {:source, error}}),
-    do: %{result: :source_error, error: Telemetry.error(error)}
+    do: %{result: :source_error, error: Error.tag(error)}
 
   defp fetch_decode_stop_metadata({:error, error}),
-    do: %{result: :processing_error, error: Telemetry.error(error)}
+    do: %{result: :processing_error, error: Error.tag(error)}
 
   defp transform_stop_metadata({:ok, %State{}}), do: %{result: :ok}
 
   defp transform_stop_metadata({:error, error}),
-    do: %{result: :processing_error, error: Telemetry.error(error)}
+    do: %{result: :processing_error, error: Error.tag(error)}
 end

@@ -139,6 +139,19 @@ defmodule ImagePlug.TelemetryTest do
     end
   end
 
+  defmodule DeniedSourceAdapter do
+    @behaviour ImagePlug.Source
+
+    @impl ImagePlug.Source
+    def validate_options(opts), do: {:ok, opts}
+
+    @impl ImagePlug.Source
+    def resolve(_source, _opts, _runtime_opts), do: {:error, {:source, :denied_path}}
+
+    @impl ImagePlug.Source
+    def fetch(_resolved, _opts, _runtime_opts), do: raise("resolve should fail before fetch")
+  end
+
   defmodule RaisingAfterFirstChunkImage do
     def stream!(_image, suffix: ".jpg") do
       Stream.resource(
@@ -249,6 +262,23 @@ defmodule ImagePlug.TelemetryTest do
         refute inspect(metadata) =~ "origin.test"
       end)
     end
+  end
+
+  test "source resolve stop metadata reports source error reason" do
+    opts = init_opts(sources: [path: {DeniedSourceAdapter, []}])
+
+    assert ImagePlug.Source.resolve(%Source.Path{segments: ["blocked.jpg"]}, opts, []) ==
+             {:error, {:source, :denied_path}}
+
+    events = telemetry_events()
+
+    assert_event(events, [:image_plug, :source, :resolve, :stop], fn measurements, metadata ->
+      assert is_integer(measurements.duration)
+      assert metadata.result == :source_error
+      assert metadata.error == :denied_path
+      assert metadata.source_kind == :path
+      assert metadata.source_adapter_kind == :custom
+    end)
   end
 
   test "uses configurable telemetry prefix" do

@@ -1,6 +1,7 @@
 defmodule ImagePlug.Request.SourceSession.Producer do
   @moduledoc false
 
+  alias ImagePlug.Error
   alias ImagePlug.Output.Encoder
   alias ImagePlug.Output.Policy
   alias ImagePlug.Output.Resolved
@@ -241,7 +242,7 @@ defmodule ImagePlug.Request.SourceSession.Producer do
   end
 
   defp output_negotiate_stop_metadata({:error, reason}) do
-    %{result: :output_error, error: Telemetry.error(reason)}
+    %{result: :output_error, error: Error.tag(reason)}
   end
 
   defp continue_stream(acc, continuation, state) do

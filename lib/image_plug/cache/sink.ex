@@ -5,6 +5,7 @@ defmodule ImagePlug.Cache.Sink do
 
   alias ImagePlug.Cache.Entry
   alias ImagePlug.Cache.Key
+  alias ImagePlug.Error
   alias ImagePlug.Format
   alias ImagePlug.Output.Resolved
   alias ImagePlug.Telemetry
@@ -211,7 +212,7 @@ defmodule ImagePlug.Cache.Sink do
     %{
       result: :cache_error,
       cache: :write_error,
-      error: Telemetry.error(reason),
+      error: Error.tag(reason),
       output_format: sink.output_format
     }
   end
@@ -223,7 +224,7 @@ defmodule ImagePlug.Cache.Sink do
     %{
       result: :cache_error,
       cache: :write_error,
-      error: Telemetry.error(reason),
+      error: Error.tag(reason),
       output_format: sink.output_format
     }
   end
@@ -259,7 +260,7 @@ defmodule ImagePlug.Cache.Sink do
     do: %{
       result: :cache_error,
       cache: :stage_error,
-      error: Telemetry.error(error),
+      error: Error.tag(error),
       output_format: output_format
     }
 
@@ -267,7 +268,7 @@ defmodule ImagePlug.Cache.Sink do
     do: %{
       result: :cache_error,
       cache: :stage_cleanup_error,
-      error: Telemetry.error(error),
+      error: Error.tag(error),
       output_format: output_format
     }
 

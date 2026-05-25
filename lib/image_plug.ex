@@ -5,6 +5,7 @@ defmodule ImagePlug do
 
   use Boundary,
     deps: [
+      ImagePlug.Error,
       ImagePlug.Parser,
       ImagePlug.Plan,
       ImagePlug.Request,
@@ -17,6 +18,7 @@ defmodule ImagePlug do
 
   @behaviour Plug
 
+  alias ImagePlug.Error
   alias ImagePlug.Parser.Imgproxy
   alias ImagePlug.Plan
   alias ImagePlug.Request.Options
@@ -71,13 +73,13 @@ defmodule ImagePlug do
         {conn, _send_metadata} =
           send_response(conn, opts, :plan_error, fn -> Sender.send_result(conn, result, opts) end)
 
-        {conn, %{result: :plan_error, error: Telemetry.error(error)}}
+        {conn, %{result: :plan_error, error: Error.tag(error)}}
 
       {:error, {:source, error}} ->
         {conn, _send_metadata} =
           send_response(conn, opts, :source_error, fn -> Sender.send_source_error(conn, error) end)
 
-        {conn, %{result: :source_error, error: Telemetry.error(error)}}
+        {conn, %{result: :source_error, error: Error.tag(error)}}
     end
   end
 
@@ -138,10 +140,10 @@ defmodule ImagePlug do
   defp request_result_metadata({:ok, _delivery}), do: %{result: :ok}
 
   defp request_result_metadata({:error, {:cache, error}}),
-    do: %{result: :cache_error, error: Telemetry.error(error)}
+    do: %{result: :cache_error, error: Error.tag(error)}
 
   defp request_result_metadata({:error, {:processing, reason, _headers}}),
-    do: %{result: processing_result(reason), error: Telemetry.error(reason)}
+    do: %{result: processing_result(reason), error: processing_error_tag(reason)}
 
   defp processing_result({:source, _error}), do: :source_error
   defp processing_result({:cache_write, _error}), do: :cache_error
@@ -153,10 +155,19 @@ defmodule ImagePlug do
   defp processing_result(:empty_pipeline_plan), do: :plan_error
   defp processing_result(_reason), do: :processing_error
 
+  defp processing_error_tag({:source, error}), do: Error.tag(error)
+  defp processing_error_tag({:cache_write, error}), do: Error.tag(error)
+
+  defp processing_error_tag({tag, _error})
+       when tag in [:invalid_output_plan, :invalid_pipeline_plan],
+       do: tag
+
+  defp processing_error_tag(reason), do: Error.tag(reason)
+
   defp result_metadata({:ok, _value}), do: %{result: :ok}
 
   defp result_metadata({:error, {_scope, error}}),
-    do: %{result: :error, error: Telemetry.error(error)}
+    do: %{result: :error, error: Error.tag(error)}
 
   defp validate_parser_options(opts) do
     opts

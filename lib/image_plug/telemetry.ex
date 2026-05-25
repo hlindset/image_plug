@@ -54,10 +54,4 @@ defmodule ImagePlug.Telemetry do
     |> clean_metadata()
     |> Map.merge(clean_metadata(right))
   end
-
-  @spec error(term()) :: atom()
-  def error({tag, _value}) when is_atom(tag), do: tag
-  def error({tag, _value, _extra}) when is_atom(tag), do: tag
-  def error(tag) when is_atom(tag), do: tag
-  def error(_reason), do: :error
 end

@@ -3,7 +3,7 @@ defmodule ImagePlug.Source do
 
   use Boundary,
     top_level?: true,
-    deps: [ImagePlug.Plan, ImagePlug.Telemetry],
+    deps: [ImagePlug.Error, ImagePlug.Plan, ImagePlug.Telemetry],
     exports: [
       Resolved,
       Response,
@@ -15,6 +15,7 @@ defmodule ImagePlug.Source do
 
   alias ImagePlug.Plan.Source, as: PlanSource
   alias ImagePlug.Plan.Source.Identity
+  alias ImagePlug.Error
   alias ImagePlug.Source.Resolved
   alias ImagePlug.Source.Response
   alias ImagePlug.Source.WrappedStream
@@ -202,5 +203,7 @@ defmodule ImagePlug.Source do
   end
 
   defp result_metadata({:ok, _value}), do: %{result: :ok}
-  defp result_metadata({:error, reason}), do: %{result: Telemetry.error(reason)}
+
+  defp result_metadata({:error, {:source, error}}),
+    do: %{result: :source_error, error: Error.tag(error)}
 end

@@ -6,6 +6,7 @@ defmodule ImagePlug.Cache do
   use Boundary,
     top_level?: true,
     deps: [
+      ImagePlug.Error,
       ImagePlug.Format,
       ImagePlug.Plan,
       ImagePlug.Output,

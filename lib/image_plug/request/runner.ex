@@ -4,6 +4,7 @@ defmodule ImagePlug.Request.Runner do
   alias ImagePlug.Cache
   alias ImagePlug.Cache.Entry
   alias ImagePlug.Cache.Key
+  alias ImagePlug.Error
   alias ImagePlug.Output.Policy
   alias ImagePlug.Plan
   alias ImagePlug.Plan.Response
@@ -167,8 +168,8 @@ defmodule ImagePlug.Request.Runner do
   defp cache_lookup_stop_metadata({:miss, %Key{}}), do: %{result: :ok, cache: :miss}
 
   defp cache_lookup_stop_metadata({:miss, %Key{}, {:cache_read, error}}),
-    do: %{result: :cache_error, cache: :read_error, error: Telemetry.error(error)}
+    do: %{result: :cache_error, cache: :read_error, error: Error.tag(error)}
 
   defp cache_lookup_stop_metadata({:error, {:cache_read, error}}),
-    do: %{result: :cache_error, cache: :read_error, error: Telemetry.error(error)}
+    do: %{result: :cache_error, cache: :read_error, error: Error.tag(error)}
 end
