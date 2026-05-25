@@ -18,12 +18,6 @@ defmodule ImagePlug.Output.Negotiation do
     end
   end
 
-  defdelegate format(mime_type), to: Format, as: :format_from_mime_type
-
-  defdelegate mime_type(format), to: Format
-
-  defdelegate mime_type!(format), to: Format
-
   defp enabled_modern_formats(opts) do
     enabled? = %{
       avif: Keyword.get(opts, :auto_avif, true),
