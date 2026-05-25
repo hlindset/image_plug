@@ -64,6 +64,42 @@ freshness metadata during source resolution. A mutable source without freshness
 material must not emit a generated `ETag` and must not match
 `If-None-Match`.
 
+## Plug Chain Boundaries
+
+ImagePipe is a Plug, so the cache decision sees the `Plug.Conn` after earlier
+plugs have run. Earlier plugs may authenticate the request, rewrite path
+information, add request headers, load tenant state into assigns, or reject the
+request before ImagePipe runs.
+
+ImagePipe should only generate public cache headers from inputs it models
+explicitly:
+
+- the request path and query that parser code consumes;
+- normalized request headers and cookies configured as cache inputs;
+- source identity and source cache semantics returned by the source adapter;
+- output policy and representation versions;
+- existing response headers that ImagePipe owns or validates.
+
+Plug assigns and `conn.private` are server-side state. A CDN can't vary on them
+directly. When they affect source identity or output bytes, the host has three
+choices. It can encode the decision into the URL, include it in resolved source
+identity, or map it back to explicit `Vary` material. Otherwise it must disable
+generated public caching for that route.
+
+Existing response cache headers on the conn are host policy. ImagePipe shouldn't
+overwrite an existing `Cache-Control`, `ETag`, `Vary`, or `Last-Modified`
+without a decision. It should either check and preserve the host value, merge
+where HTTP permits merging, or fail configuration before sending a cacheable
+response.
+
+Downstream plugs are outside ImagePipe's validator model. If a later plug can
+change the response body, content encoding, `Content-Disposition`,
+`Cache-Control`, `ETag`, `Vary`, cookies, or representation metadata, ImagePipe's
+generated validators may no longer describe the bytes that reach the client.
+For cacheable image responses, route the request so ImagePipe sends the terminal
+response. If the host keeps downstream response mutation, host documentation must
+state that this turns off generated HTTP cache headers.
+
 ## Source Cache Semantics
 
 Add a small source-owned struct:
