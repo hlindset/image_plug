@@ -45,9 +45,8 @@ The top-level request span is:
 ```
 
 ImagePlug also emits stage spans for meaningful request phases. The exact set
-depends on the routing path. For example, prepared streams emit `[:encode, ...]`
-around response delivery, while output selection inside `SourceSession` doesn't
-currently emit `[:output, :negotiate, ...]`.
+depends on the routing path. For example, cache hits skip source fetch,
+transform execution, output negotiation, encoding, and send streaming spans.
 
 ```text
 [:image_plug, :parse, ...]
