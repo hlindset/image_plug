@@ -166,11 +166,10 @@ defmodule ImagePlug.ArchitectureBoundaryTest do
       ImagePlug.Cache,
       ImagePlug.Output,
       ImagePlug.Plan,
-      ImagePlug.Telemetry,
-      ImagePlug.Transform
+      ImagePlug.Telemetry
     ])
 
-    refute_boundary_deps(response, [ImagePlug.Request, ImagePlug.Source])
+    refute_boundary_deps(response, [ImagePlug.Request, ImagePlug.Source, ImagePlug.Transform])
 
     assert_boundary_exports(response, [
       ImagePlug.Response.PreparedStream,
