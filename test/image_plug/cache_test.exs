@@ -92,10 +92,6 @@ defmodule ImagePlug.CacheTest do
     def abort_sink(_state, _opts), do: :surprise
   end
 
-  defmodule LookupOnlyAdapter do
-    def get(%Key{}, _opts), do: :miss
-  end
-
   defmodule MissingSinkCallbacksAdapter do
     def get(%Key{}, _opts), do: :miss
     def open_sink(%Key{}, %Entry.Metadata{}, _opts), do: {:ok, %{}}
@@ -242,6 +238,18 @@ defmodule ImagePlug.CacheTest do
         ],
         cache: {__MODULE__.DoesNotExist, []}
       )
+    end
+
+    assert_raise ArgumentError, ~r/invalid cache config/, fn ->
+      ImagePlug.init(cache: {MissingSinkCallbacksAdapter, []})
+    end
+
+    assert_raise ArgumentError, ~r/invalid cache config/, fn ->
+      ImagePlug.init(cache: {MissAdapter, key_headers: [:accept_language]})
+    end
+
+    assert_raise ArgumentError, ~r/invalid cache config/, fn ->
+      ImagePlug.init(cache: {MissAdapter, max_body_bytes: "10MB"})
     end
   end
 
@@ -566,12 +574,14 @@ defmodule ImagePlug.CacheTest do
       drop_me: true
     ]
 
+    opts = Cache.validate_config!(cache: {NormalizingAdapter, cache_opts})
+
     assert {:miss, %Key{}} =
              Cache.lookup(
                conn(:get, "/_/f:webp/plain/images/cat.jpg"),
                plan(),
                source_identity(),
-               cache: {NormalizingAdapter, cache_opts}
+               opts
              )
 
     assert_received {:normalized_cache_get, runtime_opts}
@@ -580,9 +590,7 @@ defmodule ImagePlug.CacheTest do
     assert Keyword.fetch!(runtime_opts, :normalized?)
     refute Keyword.has_key?(runtime_opts, :drop_me)
 
-    assert Cache.open_sink(cache_key(), resolved_output(),
-             cache: {NormalizingAdapter, cache_opts}
-           )
+    assert Cache.open_sink(cache_key(), resolved_output(), opts)
 
     assert_received {:normalized_open_sink, sink_opts}
     assert Keyword.fetch!(sink_opts, :key_headers) == ["accept"]
@@ -613,58 +621,6 @@ defmodule ImagePlug.CacheTest do
     assert log =~ ":surprise"
   end
 
-  test "invalid cache lookup config returns a cache read error instead of crashing" do
-    assert {:error, {:cache_read, {:invalid_cache_config, ImagePlug.Cache.FileSystem}}} =
-             Cache.lookup(
-               conn(:get, "/_/f:webp/plain/images/cat.jpg"),
-               plan(),
-               source_identity(),
-               cache: ImagePlug.Cache.FileSystem
-             )
-
-    assert {:error,
-            {:cache_read,
-             {:invalid_cache_config, {ImagePlug.Cache.FileSystem, %{root: "/tmp/cache"}}}}} =
-             Cache.lookup(
-               conn(:get, "/_/f:webp/plain/images/cat.jpg"),
-               plan(),
-               source_identity(),
-               cache: {ImagePlug.Cache.FileSystem, %{root: "/tmp/cache"}}
-             )
-  end
-
-  test "invalid cache write config returns a cache write error instead of crashing" do
-    assert {:error, {:cache_write, {:invalid_cache_config, ImagePlug.Cache.FileSystem}}} =
-             Cache.put(cache_key(), entry(), cache: ImagePlug.Cache.FileSystem)
-
-    assert {:error,
-            {:cache_write,
-             {:invalid_cache_config, {ImagePlug.Cache.FileSystem, %{root: "/tmp/cache"}}}}} =
-             Cache.put(
-               cache_key(),
-               entry(),
-               cache: {ImagePlug.Cache.FileSystem, %{root: "/tmp/cache"}}
-             )
-  end
-
-  test "invalid key header and cookie config returns a cache read error before key building" do
-    assert {:error, {:cache_read, {:invalid_cache_config, {:key_headers, [:accept_language]}}}} =
-             Cache.lookup(
-               conn(:get, "/_/f:webp/plain/images/cat.jpg"),
-               plan(),
-               source_identity(),
-               cache: {ShouldNotBeCalledAdapter, key_headers: [:accept_language]}
-             )
-
-    assert {:error, {:cache_read, {:invalid_cache_config, {:key_cookies, [:tenant]}}}} =
-             Cache.lookup(
-               conn(:get, "/_/f:webp/plain/images/cat.jpg"),
-               plan(),
-               source_identity(),
-               cache: {ShouldNotBeCalledAdapter, key_cookies: [:tenant]}
-             )
-  end
-
   test "key build errors return cache read errors instead of crashing" do
     source_identity = [kind: :path, client: self()]
 
@@ -675,72 +631,6 @@ defmodule ImagePlug.CacheTest do
                source_identity,
                cache: {ShouldNotBeCalledAdapter, []}
              )
-  end
-
-  test "invalid cache option lists return cache errors before adapter calls" do
-    assert {:error, {:cache_read, {:invalid_cache_config, {ShouldNotBeCalledAdapter, [:root]}}}} =
-             Cache.lookup(
-               conn(:get, "/_/f:webp/plain/images/cat.jpg"),
-               plan(),
-               source_identity(),
-               cache: {ShouldNotBeCalledAdapter, [:root]}
-             )
-
-    assert {:error, {:cache_write, {:invalid_cache_config, {ShouldNotBeCalledAdapter, [:root]}}}} =
-             Cache.put(cache_key(), entry(), cache: {ShouldNotBeCalledAdapter, [:root]})
-  end
-
-  test "invalid max_body_bytes config returns cache errors instead of changing cache policy" do
-    assert {:error, {:cache_read, {:invalid_cache_config, {:max_body_bytes, "10MB"}}}} =
-             Cache.lookup(
-               conn(:get, "/_/f:webp/plain/images/cat.jpg"),
-               plan(),
-               source_identity(),
-               cache: {ShouldNotBeCalledAdapter, max_body_bytes: "10MB"}
-             )
-
-    assert {:error, {:cache_write, {:invalid_cache_config, {:max_body_bytes, -1}}}} =
-             Cache.put(cache_key(), entry(),
-               cache: {ShouldNotBeCalledAdapter, max_body_bytes: -1}
-             )
-  end
-
-  test "unloaded adapter config returns cache errors instead of crashing" do
-    adapter = Module.concat(__MODULE__, DefinitelyNotLoadedCacheAdapter)
-
-    assert {:error, {:cache_read, {:invalid_cache_config, {:adapter, ^adapter}}}} =
-             Cache.lookup(
-               conn(:get, "/_/f:webp/plain/images/cat.jpg"),
-               plan(),
-               source_identity(),
-               cache: {adapter, []}
-             )
-
-    assert {:error, {:cache_write, {:invalid_cache_config, {:adapter, ^adapter}}}} =
-             Cache.put(cache_key(), entry(), cache: {adapter, []})
-  end
-
-  test "adapter missing required callbacks returns config errors before runtime calls" do
-    adapter = MissingSinkCallbacksAdapter
-
-    assert {:error,
-            {:cache_read,
-             {:invalid_cache_config,
-              {:adapter_missing_callbacks, ^adapter,
-               [write_chunk: 3, commit_sink: 2, abort_sink: 2]}}}} =
-             Cache.lookup(
-               conn(:get, "/_/f:webp/plain/images/cat.jpg"),
-               plan(),
-               source_identity(),
-               cache: {adapter, []}
-             )
-
-    assert {:error,
-            {:cache_write,
-             {:invalid_cache_config,
-              {:adapter_missing_callbacks, ^adapter,
-               [write_chunk: 3, commit_sink: 2, abort_sink: 2]}}}} =
-             Cache.put(cache_key(), entry(), cache: {adapter, []})
   end
 
   def handle_telemetry_event(event, measurements, metadata, test_pid) do
