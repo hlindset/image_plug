@@ -9,7 +9,6 @@ defmodule ImagePlug.Cache do
       ImagePlug.Format,
       ImagePlug.Plan,
       ImagePlug.Output,
-      ImagePlug.Transform,
       ImagePlug.Telemetry
     ],
     exports: [

@@ -9,8 +9,8 @@ defmodule ImagePlug.Cache.Key do
   alias ImagePlug.Plan
   alias ImagePlug.Plan.Output
   alias ImagePlug.Plan.Pipeline
+  alias ImagePlug.Plan.KeyData
   alias ImagePlug.Plan.Source.Identity
-  alias ImagePlug.Transform.KeyData
 
   @schema_version 2
   @transform_key_data_version 1

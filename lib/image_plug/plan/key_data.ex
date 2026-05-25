@@ -1,6 +1,6 @@
-defmodule ImagePlug.Transform.KeyData do
+defmodule ImagePlug.Plan.KeyData do
   @moduledoc """
-  Canonical keyword data helpers for transform cache keys.
+  Canonical keyword data helpers for semantic Plan cache keys.
 
   Tagged geometry values are already-normalized semantic values. Plan
   constructors normalize DPR before operations reach cache key construction, so
@@ -14,9 +14,10 @@ defmodule ImagePlug.Transform.KeyData do
   alias ImagePlug.Plan.Operation.CropRegion
   alias ImagePlug.Plan.Operation.Padding
   alias ImagePlug.Plan.Operation.Resize
-  alias ImagePlug.Transform.Operation.AutoOrient
-  alias ImagePlug.Transform.Operation.Flip
-  alias ImagePlug.Transform.Operation.Rotate
+
+  @auto_orient_module :"Elixir.ImagePlug.Transform.Operation.AutoOrient"
+  @rotate_module :"Elixir.ImagePlug.Transform.Operation.Rotate"
+  @flip_module :"Elixir.ImagePlug.Transform.Operation.Flip"
 
   @crop_anchor_guides [
     :center,
@@ -42,18 +43,7 @@ defmodule ImagePlug.Transform.KeyData do
           | {:denominator, pos_integer()}
         ]
 
-  @spec data(
-          geometry_value()
-          | Canvas.t()
-          | Background.t()
-          | CropGuided.t()
-          | CropRegion.t()
-          | Padding.t()
-          | Resize.t()
-          | AutoOrient.t()
-          | Rotate.t()
-          | Flip.t()
-        ) :: keyword()
+  @spec data(geometry_value() | struct()) :: keyword()
   def data(%Canvas{} = operation) do
     [
       op: :canvas,
@@ -123,9 +113,9 @@ defmodule ImagePlug.Transform.KeyData do
     [op: :background, color: Color.key_data(operation.color)]
   end
 
-  def data(%AutoOrient{}), do: [op: :auto_orient]
-  def data(%Rotate{} = operation), do: [op: :rotate, angle: operation.angle]
-  def data(%Flip{} = operation), do: [op: :flip, axis: operation.axis]
+  def data(%{__struct__: @auto_orient_module}), do: [op: :auto_orient]
+  def data(%{__struct__: @rotate_module, angle: angle}), do: [op: :rotate, angle: angle]
+  def data(%{__struct__: @flip_module, axis: axis}), do: [op: :flip, axis: axis]
 
   def data(:auto), do: [unit: :auto]
   def data(:full_axis), do: [unit: :full_axis]

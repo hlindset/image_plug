@@ -12,6 +12,7 @@ defmodule ImagePlug.Plan do
       Output,
       Response,
       Color,
+      KeyData,
       Source,
       Source.Identity,
       Source.Path,

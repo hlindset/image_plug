@@ -340,7 +340,6 @@ defmodule ImagePlug.ArchitectureBoundaryTest do
       ImagePlug.Format,
       ImagePlug.Plan,
       ImagePlug.Output,
-      ImagePlug.Transform,
       ImagePlug.Telemetry
     ])
 
@@ -373,7 +372,6 @@ defmodule ImagePlug.ArchitectureBoundaryTest do
       ImagePlug.Transform.Chain,
       ImagePlug.Transform.DecodePlanner,
       ImagePlug.Transform.Materializer,
-      ImagePlug.Transform.KeyData,
       ImagePlug.Transform.Operation.Resize,
       ImagePlug.Transform.Operation.ExtendCanvas,
       ImagePlug.Transform.Operation.Padding,
@@ -392,6 +390,7 @@ defmodule ImagePlug.ArchitectureBoundaryTest do
 
     assert_boundary_exports_include(plan, [
       ImagePlug.Plan.Color,
+      ImagePlug.Plan.KeyData,
       ImagePlug.Plan.Operation.Padding,
       ImagePlug.Plan.Operation.Background
     ])

@@ -16,7 +16,6 @@ defmodule ImagePlug.Transform do
       Chain,
       DecodePlanner,
       Materializer,
-      KeyData,
       Operation.Resize,
       Operation.ExtendCanvas,
       Operation.Padding,
