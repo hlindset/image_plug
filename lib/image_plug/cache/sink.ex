@@ -45,12 +45,6 @@ defmodule ImagePlug.Cache.Sink do
     end
   end
 
-  @spec report_open_error(term(), atom(), keyword()) :: nil
-  def report_open_error(reason, output_format, opts) do
-    handle_open_error(reason, output_format, opts)
-    nil
-  end
-
   @spec write_chunk(t() | nil, binary(), keyword()) :: t() | nil
   def write_chunk(nil, _chunk, _opts), do: nil
 
