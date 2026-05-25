@@ -1,10 +1,10 @@
-defmodule ImagePlug.Application do
+defmodule ImagePipe.Application do
   @moduledoc false
 
   use Boundary,
     top_level?: true,
     deps: [
-      ImagePlug.Request
+      ImagePipe.Request
     ]
 
   use Application
@@ -13,10 +13,10 @@ defmodule ImagePlug.Application do
 
   def start(_type, _args) do
     children = [
-      ImagePlug.Request.SourceSessionSupervisor
+      ImagePipe.Request.SourceSessionSupervisor
     ]
 
-    opts = [strategy: :one_for_one, name: ImagePlug.Supervisor]
+    opts = [strategy: :one_for_one, name: ImagePipe.Supervisor]
 
     Logger.info("Starting application...")
     Supervisor.start_link(children, opts)

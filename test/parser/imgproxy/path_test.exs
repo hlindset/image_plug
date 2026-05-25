@@ -1,8 +1,8 @@
-defmodule ImagePlug.Parser.Imgproxy.PathTest do
+defmodule ImagePipe.Parser.Imgproxy.PathTest do
   use ExUnit.Case, async: true
   import Plug.Test
 
-  alias ImagePlug.Parser.Imgproxy.Path
+  alias ImagePipe.Parser.Imgproxy.Path
 
   test "extracts signature, signed path, and repaired path info" do
     conn = conn(:get, "/_/rs%3Afit%3A300/plain/local:/images/cat.jpg")

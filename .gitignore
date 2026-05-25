@@ -65,6 +65,6 @@ vale/*
 !vale/.gitkeep
 !vale/config/
 !vale/config/vocabularies/
-!vale/config/vocabularies/ImagePlug/
-!vale/config/vocabularies/ImagePlug/accept.txt
-!vale/config/vocabularies/ImagePlug/reject.txt
+!vale/config/vocabularies/ImagePipe/
+!vale/config/vocabularies/ImagePipe/accept.txt
+!vale/config/vocabularies/ImagePipe/reject.txt

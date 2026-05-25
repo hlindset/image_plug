@@ -1,39 +1,39 @@
 # Imgproxy support matrix
 
-This matrix compares ImagePlug's current `ImagePlug.Parser.Imgproxy` support
+This matrix compares ImagePipe's current `ImagePipe.Parser.Imgproxy` support
 with Imgproxy's processing URL and configuration surfaces.
 
-ImagePlug intentionally treats Imgproxy URLs as a compatibility parser for a
-product-neutral `ImagePlug.Plan`. Supported options translate cleanly into
+ImagePipe intentionally treats Imgproxy URLs as a compatibility parser for a
+product-neutral `ImagePipe.Plan`. Supported options translate cleanly into
 canonical plan/output/cache/response fields. Unsupported options fail before
-source fetch or cache lookup. ImagePlug doesn't ignore them.
+source fetch or cache lookup. ImagePipe doesn't ignore them.
 
 ## Status legend
 
 | Status | Meaning |
 | --- | --- |
-| ✅ Supported | The parser translates this into `ImagePlug.Plan` or another request facet. |
+| ✅ Supported | The parser translates this into `ImagePipe.Plan` or another request facet. |
 | ⚠️ Partial | The parser supports some Imgproxy syntax or semantics, but not the whole option. |
-| 🔗 URL-only | ImagePlug supports the request option, but not Imgproxy's global configuration default. |
-| 🧩 Host-owned | Plug, router, or web-server configuration can provide this behavior outside ImagePlug. |
+| 🔗 URL-only | ImagePipe supports the request option, but not Imgproxy's global configuration default. |
+| 🧩 Host-owned | Plug, router, or web-server configuration can provide this behavior outside ImagePipe. |
 | 🚫 Rejected | Recognized or intentionally documented as unsupported, returning an error before side effects. |
 | ⭕ Missing | Not implemented in the current parser/plan/runtime surface. |
-| 🛑 Out of scope | Excluded from ImagePlug's library surface or delegated to host/runtime ownership. |
+| 🛑 Out of scope | Excluded from ImagePipe's library surface or delegated to host/runtime ownership. |
 
 ## Configuration options
 
-ImagePlug doesn't read `IMGPROXY_*` environment variables. Variable markers show
-whether ImagePlug has a matching or related `ImagePlug.init/1` option, source
+ImagePipe doesn't read `IMGPROXY_*` environment variables. Variable markers show
+whether ImagePipe has a matching or related `ImagePipe.init/1` option, source
 adapter option, cache adapter option, or runtime option.
 
-This section compares ImagePlug with
+This section compares ImagePipe with
 `local/imgproxy-docs/configuration/options.mdx` and the imgproxy config loaders
 under `local/imgproxy-master/*/config.go`.
 
 ### URL signature keys and trusted signatures
 
 `imgproxy: [signature: [keys: [...], salts: [...], signature_size: n, trusted_signatures: [...]]]`.
-ImagePlug expects already-split lists, not comma-separated environment strings.
+ImagePipe expects already-split lists, not comma-separated environment strings.
 
 - ✅ `IMGPROXY_KEY`
 - ✅ `IMGPROXY_SALT`
@@ -42,7 +42,7 @@ ImagePlug expects already-split lists, not comma-separated environment strings.
 
 ### Server listener and connection limits
 
-ImagePlug is a Plug. Bandit, Cowboy, Phoenix Endpoint, or another host server
+ImagePipe is a Plug. Bandit, Cowboy, Phoenix Endpoint, or another host server
 owns socket binding, network family, and connection limits.
 
 - 🧩 `IMGPROXY_BIND`
@@ -52,7 +52,7 @@ owns socket binding, network family, and connection limits.
 ### Request and response server timeouts
 
 The host web server owns incoming request reads, response writes, and keep-alive
-behavior. ImagePlug source adapters have separate fetch timeout options.
+behavior. ImagePipe source adapters have separate fetch timeout options.
 
 - 🧩 `IMGPROXY_READ_REQUEST_TIMEOUT`
 - 🧩 `IMGPROXY_WRITE_RESPONSE_TIMEOUT`
@@ -60,8 +60,8 @@ behavior. ImagePlug source adapters have separate fetch timeout options.
 
 ### Whole-request processing timeout
 
-ImagePlug has source fetch and body-size limits, but no Imgproxy-style timeout
-around the whole image request. A host can wrap the Plug, but ImagePlug doesn't
+ImagePipe has source fetch and body-size limits, but no Imgproxy-style timeout
+around the whole image request. A host can wrap the Plug, but ImagePipe doesn't
 expose this as config.
 
 - ⭕ `IMGPROXY_TIMEOUT`
@@ -69,20 +69,20 @@ expose this as config.
 ### Authorization header secret
 
 A host Plug or Phoenix pipeline can enforce `Authorization: Bearer ...` before
-ImagePlug runs. ImagePlug itself doesn't check this header.
+ImagePipe runs. ImagePipe itself doesn't check this header.
 
 - 🧩 `IMGPROXY_SECRET`
 
 ### CORS response headers
 
-A host Plug can add CORS headers around ImagePlug responses. ImagePlug doesn't
+A host Plug can add CORS headers around ImagePipe responses. ImagePipe doesn't
 expose a CORS option.
 
 - 🧩 `IMGPROXY_ALLOW_ORIGIN`
 
 ### Routing prefix
 
-The router decides where ImagePlug mounts. ImagePlug parses the path segments it
+The router decides where ImagePipe mounts. ImagePipe parses the path segments it
 receives after routing.
 
 - 🧩 `IMGPROXY_PATH_PREFIX`
@@ -90,14 +90,14 @@ receives after routing.
 ### Health check endpoint
 
 The host app should expose health endpoints outside image processing routes.
-ImagePlug doesn't include a health-check Plug.
+ImagePipe doesn't include a health-check Plug.
 
 - 🧩 `IMGPROXY_HEALTH_CHECK_PATH`
 - 🧩 `IMGPROXY_HEALTH_CHECK_MESSAGE`
 
 ### Processing worker pool and request queue
 
-ImagePlug doesn't expose an ImagePlug-owned worker pool or bounded request
+ImagePipe doesn't expose an ImagePipe-owned worker pool or bounded request
 queue. Host-level concurrency controls can protect the application, but they
 aren't imgproxy-compatible configuration options.
 
@@ -106,7 +106,7 @@ aren't imgproxy-compatible configuration options.
 
 ### Source download request settings
 
-`ImagePlug.Source.HTTP` supports `max_redirects`, `req_options`, and Req
+`ImagePipe.Source.HTTP` supports `max_redirects`, `req_options`, and Req
 timeout options. It doesn't provide Imgproxy's cookie forwarding,
 request-header passthrough list, or SSL-verification environment switch.
 
@@ -132,7 +132,7 @@ source-prefix glob rules and doesn't expose IP-class switches.
 
 ### Local filesystem sources
 
-Configure `sources: [path: {ImagePlug.Source.File, root: ..., root_id: ...}]`.
+Configure `sources: [path: {ImagePipe.Source.File, root: ..., root_id: ...}]`.
 `root` is the local filesystem root. `root_id` gives cache keys a deterministic
 source identity without storing the absolute path.
 
@@ -140,14 +140,14 @@ source identity without storing the absolute path.
 
 ### Non-HTTP source query separator
 
-ImagePlug parses `?` for HTTP, HTTPS, and S3 plain sources. ImagePlug rejects
+ImagePipe parses `?` for HTTP, HTTPS, and S3 plain sources. ImagePipe rejects
 local/path source queries.
 
 - ⭕ `IMGPROXY_SOURCE_URL_QUERY_SEPARATOR`
 
 ### S3 image sources
 
-`ImagePlug.Source.S3` supports `s3://bucket/key` sources with configured
+`ImagePipe.Source.S3` supports `s3://bucket/key` sources with configured
 `region`, `endpoint`, credentials, per-bucket overrides, and a path-style
 request URL. It doesn't provide Imgproxy's enable flag, denied-bucket list,
 assume-role environment variables, or decryption client.
@@ -164,7 +164,7 @@ assume-role environment variables, or decryption client.
 
 ### GCS, Azure Blob Storage, and Swift image sources
 
-ImagePlug has no built-in GCS, Azure Blob Storage, or Swift source adapters.
+ImagePipe has no built-in GCS, Azure Blob Storage, or Swift source adapters.
 Custom `imgproxy: [source_schemes: ...]` translators can map more schemes to
 application-owned source adapters.
 
@@ -177,10 +177,10 @@ application-owned source adapters.
 
 ### Encoded sources, encrypted sources, and URL rewriting
 
-ImagePlug supports Base64 encoded source URLs. It also supports encrypted source
+ImagePipe supports Base64 encoded source URLs. It also supports encrypted source
 URLs when callers configure `source_url_encryption_key` through
-`ImagePlug.init/1`. Direct `ImagePlug.Parser.Imgproxy.parse/2` callers should
-pass `imgproxy: ImagePlug.Parser.Imgproxy.validate_options!(...)`.
+`ImagePipe.init/1`. Direct `ImagePipe.Parser.Imgproxy.parse/2` callers should
+pass `imgproxy: ImagePipe.Parser.Imgproxy.validate_options!(...)`.
 
 - ✅ Base64 encoded source URLs
 - ✅ Encrypted source URLs
@@ -188,7 +188,7 @@ pass `imgproxy: ImagePlug.Parser.Imgproxy.validate_options!(...)`.
 - ⭕ `IMGPROXY_BASE_URL`
 - ⭕ `IMGPROXY_URL_REPLACEMENTS`
 
-ImagePlug supports encoded source syntax and encoded `.extension` output
+ImagePipe supports encoded source syntax and encoded `.extension` output
 suffixes. With `base64_url_includes_filename: true`, it discards the final
 encoded-source segment before decoding Base64 or decrypting `/enc/` sources.
 This matches imgproxy's SEO filename mode. Base URL prefixing and URL
@@ -208,14 +208,14 @@ has no configured pipeline-count limit.
 ### Preset definitions
 
 Configure preset definitions with `imgproxy: [presets: %{"name" => "w:100"}]`.
-ImagePlug validates a map of preset names to option strings during
-`ImagePlug.init/1`.
+ImagePipe validates a map of preset names to option strings during
+`ImagePipe.init/1`.
 
 - ✅ `IMGPROXY_PRESETS`
 
 ### Preset loading and preset-only modes
 
-ImagePlug has no environment/file loader, presets-only mode, or info endpoint.
+ImagePipe has no environment/file loader, presets-only mode, or info endpoint.
 
 - ⭕ `IMGPROXY_PRESETS_SEPARATOR`
 - ⭕ `IMGPROXY_PRESETS_PATH`
@@ -243,14 +243,14 @@ fallback list.
 
 ### Client Hints defaults
 
-ImagePlug doesn't derive default width or DPR from `Width` or `DPR` request
+ImagePipe doesn't derive default width or DPR from `Width` or `DPR` request
 headers.
 
 - ⭕ `IMGPROXY_ENABLE_CLIENT_HINTS`
 
 ### Default output quality
 
-ImagePlug supports URL `quality`/`q` and `format_quality`/`fq`. It has no
+ImagePipe supports URL `quality`/`q` and `format_quality`/`fq`. It has no
 Imgproxy-style global quality default or format-quality config.
 
 - 🔗 `IMGPROXY_QUALITY`
@@ -258,7 +258,7 @@ Imgproxy-style global quality default or format-quality config.
 
 ### Advanced encoder options
 
-ImagePlug passes only an explicit quality value to the encoder today. It
+ImagePipe passes only an explicit quality value to the encoder today. It
 doesn't expose codec-specific knobs, byte-target search, `autoquality`, or JPEG
 XL output.
 
@@ -272,7 +272,7 @@ XL output.
 
 ### Metadata, color profile, HDR, and default autorotation policy
 
-ImagePlug supports URL `auto_rotate`. Global metadata stripping, profile
+ImagePipe supports URL `auto_rotate`. Global metadata stripping, profile
 handling, HDR preservation, and thumbnail-source selection aren't configurable.
 
 - ⭕ `IMGPROXY_STRIP_METADATA`
@@ -286,7 +286,7 @@ handling, HDR preservation, and thumbnail-source selection aren't configurable.
 
 ### Input and output safety limits
 
-ImagePlug uses `max_body_bytes` to cap fetched source bodies and to decide
+ImagePipe uses `max_body_bytes` to cap fetched source bodies and to decide
 whether successful responses are small enough to cache. It uses
 `max_input_pixels` for decoded image size. It doesn't expose Imgproxy's
 animation, SVG, PNG, or max-result-dimension policy.
@@ -303,9 +303,9 @@ animation, SVG, PNG, or max-result-dimension policy.
 
 ### Cache storage
 
-ImagePlug supports cache adapters through `cache: {Module, opts}`.
-`ImagePlug.Cache.FileSystem` supports `root` and `path_prefix`. Shared cache
-options support `key_headers`, `key_cookies`, and `max_body_bytes`. ImagePlug
+ImagePipe supports cache adapters through `cache: {Module, opts}`.
+`ImagePipe.Cache.FileSystem` supports `root` and `path_prefix`. Shared cache
+options support `key_headers`, `key_cookies`, and `max_body_bytes`. ImagePipe
 has no built-in cloud cache adapters.
 
 - ✅ `IMGPROXY_CACHE_USE`
@@ -322,10 +322,10 @@ has no built-in cloud cache adapters.
 
 ### Response headers, cache headers, and default attachment disposition
 
-ImagePlug supports URL `return_attachment`/`att` per request. It doesn't expose
+ImagePipe supports URL `return_attachment`/`att` per request. It doesn't expose
 Imgproxy's global response-header, ETag/Last-Modified, TTL, canonical-link,
 debug-header, or default attachment settings. Host Plugs can add fixed response
-headers outside ImagePlug.
+headers outside ImagePipe.
 
 - ⭕ `IMGPROXY_TTL`
 - ⭕ `IMGPROXY_CACHE_CONTROL_PASSTHROUGH`
@@ -342,7 +342,7 @@ headers outside ImagePlug.
 
 ### Fallback image
 
-ImagePlug returns source and processing errors through its response sender. It
+ImagePipe returns source and processing errors through its response sender. It
 doesn't substitute a fallback image.
 
 - ⭕ `IMGPROXY_FALLBACK_IMAGE_DATA`
@@ -355,7 +355,7 @@ doesn't substitute a fallback image.
 
 ### Watermark defaults and custom watermark cache
 
-ImagePlug doesn't model watermark processing.
+ImagePipe doesn't model watermark processing.
 
 - ⭕ `IMGPROXY_WATERMARK_DATA`
 - ⭕ `IMGPROXY_WATERMARK_PATH`
@@ -366,7 +366,7 @@ ImagePlug doesn't model watermark processing.
 
 ### SVG rendering and PDF/RAW handling
 
-ImagePlug has no Imgproxy-compatible SVG render policy, PDF page policy, or RAW
+ImagePipe has no Imgproxy-compatible SVG render policy, PDF page policy, or RAW
 source support.
 
 - ⭕ `IMGPROXY_ALWAYS_RASTERIZE_SVG`
@@ -376,7 +376,7 @@ source support.
 
 ### Smart crop, object detection, classification, and best-format models
 
-ImagePlug has no transforms or runtime integrations for these Imgproxy Pro
+ImagePipe has no transforms or runtime integrations for these Imgproxy Pro
 features.
 
 - ⭕ `IMGPROXY_SMART_CROP_*`
@@ -386,14 +386,14 @@ features.
 
 ### Video thumbnails
 
-ImagePlug currently treats video processing as out of scope.
+ImagePipe currently treats video processing as out of scope.
 
 - 🛑 `IMGPROXY_ENABLE_VIDEO_THUMBNAILS`
 - 🛑 `IMGPROXY_VIDEO_THUMBNAIL_*`
 
 ### Monitoring, error reporting, and logs
 
-ImagePlug emits telemetry events. Host applications attach metrics, tracing,
+ImagePipe emits telemetry events. Host applications attach metrics, tracing,
 logging, and external error reporting integrations.
 
 - 🧩 `IMGPROXY_PROMETHEUS_*`
@@ -410,7 +410,7 @@ logging, and external error reporting integrations.
 
 ### Memory, libvips, Docker, and licensing knobs
 
-ImagePlug doesn't own the OS allocator, libvips process-wide tuning, container
+ImagePipe doesn't own the OS allocator, libvips process-wide tuning, container
 entrypoint, license checks, or deprecation handling.
 
 - 🛑 `IMGPROXY_DOWNLOAD_BUFFER_SIZE`
@@ -427,27 +427,27 @@ entrypoint, license checks, or deprecation handling.
 
 | Imgproxy feature | Status | Notes |
 | --- | --- | --- |
-| Required signature path segment | Supported | Without signing, ImagePlug accepts `_` and `unsafe`. With signing configured, it accepts HMAC and exact trusted signatures. Trusted-only config accepts only exact trusted signatures. This behavior is narrower than upstream unsigned behavior. |
+| Required signature path segment | Supported | Without signing, ImagePipe accepts `_` and `unsafe`. With signing configured, it accepts HMAC and exact trusted signatures. Trusted-only config accepts only exact trusted signatures. This behavior is narrower than upstream unsigned behavior. |
 | HMAC URL signatures | Supported | Imgproxy parser verifies raw/unpadded Base64URL HMAC-SHA256 signatures with hex key/salt pairs, optional truncation, rotation pairs, exact trusted signatures, and Imgproxy-compatible `fixPath` before verification. Signature failures return 403. |
-| Plain source URLs via `/plain/` | Supported | ImagePlug translates the value into configured source adapters for local paths, HTTP and HTTPS URLs, S3-compatible object sources, and configured custom schemes. |
+| Plain source URLs via `/plain/` | Supported | ImagePipe translates the value into configured source adapters for local paths, HTTP and HTTPS URLs, S3-compatible object sources, and configured custom schemes. |
 | Plain source `@extension` | Supported | Requests explicit output format and bypasses `Accept` negotiation. It doesn't declare source format. |
-| Base64 encoded source URL | Supported | ImagePlug supports Imgproxy encoded source syntax, `.extension` output suffixes, and opt-in SEO filename suffix mode. |
-| Encrypted `/enc/` source URL | Supported | Requires `source_url_encryption_key`. ImagePlug accepts `base64url(iv <> aes-cbc-pkcs7(source_url))`, optional `.extension`, chunked encrypted segments, and opt-in SEO filename suffix mode. |
-| AES-CBC source URL encryption helpers | Supported | `ImagePlug.Parser.Imgproxy.encrypt_source_url/3` returns the segment used after `/enc/`. The helper doesn't build full paths, output suffixes, or signatures. |
-| `IMGPROXY_BASE_URL` | Missing | ImagePlug doesn't prepend a configured base URL to decoded, decrypted, or plain source strings. Use ImagePlug source configuration instead. |
-| `IMGPROXY_URL_REPLACEMENTS` | Missing | ImagePlug doesn't rewrite decoded, decrypted, or plain source strings before source translation. |
+| Base64 encoded source URL | Supported | ImagePipe supports Imgproxy encoded source syntax, `.extension` output suffixes, and opt-in SEO filename suffix mode. |
+| Encrypted `/enc/` source URL | Supported | Requires `source_url_encryption_key`. ImagePipe accepts `base64url(iv <> aes-cbc-pkcs7(source_url))`, optional `.extension`, chunked encrypted segments, and opt-in SEO filename suffix mode. |
+| AES-CBC source URL encryption helpers | Supported | `ImagePipe.Parser.Imgproxy.encrypt_source_url/3` returns the segment used after `/enc/`. The helper doesn't build full paths, output suffixes, or signatures. |
+| `IMGPROXY_BASE_URL` | Missing | ImagePipe doesn't prepend a configured base URL to decoded, decrypted, or plain source strings. Use ImagePipe source configuration instead. |
+| `IMGPROXY_URL_REPLACEMENTS` | Missing | ImagePipe doesn't rewrite decoded, decrypted, or plain source strings before source translation. |
 | Custom argument separator | Missing | Parser currently uses `:`. |
 | Processing option order independence | Supported | URL option order doesn't define transform order. |
 | Pipeline separator `-` | Supported | Separates non-empty pipeline groups. |
 
 ### Source input formats
 
-ImagePlug detects source family after libvips decodes the input. Accepted source
+ImagePipe detects source family after libvips decodes the input. Accepted source
 families in this slice are JPEG, PNG, WebP, AVIF, non-AVIF HEIF/HEIC, TIFF,
 JPEG 2000, and JPEG XL when the deployed libvips build can read them.
 
 This slice doesn't support SVG, GIF, ICO, BMP, PDF, PSD, RAW, or video inputs.
-ImagePlug rejects SVG after decode identifies an SVG loader and before
+ImagePipe rejects SVG after decode identifies an SVG loader and before
 transforms or output encoding.
 
 ## Resize, geometry, and orientation
@@ -474,7 +474,7 @@ transforms or output encoding.
 | `gravity:objw` | | Missing | Pro object-detection gravity with weights. |
 | `objects_position` | `obj_pos`, `op` | Missing | Pro object-detection positioning. |
 | `crop` | `c` | Supported | Absolute, relative, or full-axis dimensions. Supports anchor, focal-point, and smart-gravity parsing. Planning rejects smart gravity. |
-| `crop_aspect_ratio` | `crop_ar`, `car` | Missing | Documented as unsupported in current ImagePlug docs. |
+| `crop_aspect_ratio` | `crop_ar`, `car` | Missing | Documented as unsupported in current ImagePipe docs. |
 | `trim` | `t` | Missing | Requires full-image memory behavior and trim operation. |
 | `padding` | `pd` | Supported | CSS-style shorthand, sparse repeated options, effective DPR scaling, and `padding:` no-op compatibility. |
 | `auto_rotate` | `ar` | Supported | Omitted argument enables auto-orient; boolean form supported. |
@@ -583,8 +583,8 @@ transforms or output encoding.
 | Named presets | Supported | Configured through `imgproxy: [presets: %{name => options}]`. Expanded while parsing normal processing URLs. |
 | Repeated preset arguments | Supported | `pr:thumb:sharp` applies each named preset in order. |
 | `default` preset | Supported | Applied before URL options on every normal processing request. URL fields can override fields in the same merged group. |
-| Presets referencing presets | Supported | Presets may use `preset`/`pr`. ImagePlug skips recursive re-entry to match Imgproxy behavior. |
-| Preset chained pipelines | Partial | Supports documented Pro merge semantics for preset values containing `-` when the referenced options are otherwise supported by ImagePlug. |
+| Presets referencing presets | Supported | Presets may use `preset`/`pr`. ImagePipe skips recursive re-entry to match Imgproxy behavior. |
+| Preset chained pipelines | Partial | Supports documented Pro merge semantics for preset values containing `-` when the referenced options are otherwise supported by ImagePipe. |
 | Presets-only mode | Missing | Excluded from this slice. |
-| Info endpoint presets | Missing | ImagePlug doesn't currently expose Imgproxy info endpoints. |
-| Preset env/file loading | Missing | ImagePlug doesn't parse `IMGPROXY_PRESETS` strings or `IMGPROXY_PRESETS_PATH` files. Pass already-materialized presets through config instead. |
+| Info endpoint presets | Missing | ImagePipe doesn't currently expose Imgproxy info endpoints. |
+| Preset env/file loading | Missing | ImagePipe doesn't parse `IMGPROXY_PRESETS` strings or `IMGPROXY_PRESETS_PATH` files. Pass already-materialized presets through config instead. |

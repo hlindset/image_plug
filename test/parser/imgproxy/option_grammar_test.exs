@@ -1,9 +1,9 @@
-defmodule ImagePlug.Parser.Imgproxy.OptionGrammarTest do
+defmodule ImagePipe.Parser.Imgproxy.OptionGrammarTest do
   use ExUnit.Case, async: true
   use ExUnitProperties
 
-  alias ImagePlug.Parser.Imgproxy.CropRequest
-  alias ImagePlug.Parser.Imgproxy.OptionGrammar
+  alias ImagePipe.Parser.Imgproxy.CropRequest
+  alias ImagePipe.Parser.Imgproxy.OptionGrammar
 
   property "zoom aliases parse equivalent zoom_x and zoom_y assignments" do
     check all x_int <- integer(1..2000),

@@ -1,8 +1,8 @@
 # Telemetry
 
-ImagePlug emits telemetry spans for the request lifecycle and its major runtime
+ImagePipe emits telemetry spans for the request lifecycle and its major runtime
 stages. Host applications can attach their own logging, metrics, or tracing
-integration to those events. ImagePlug doesn't depend on
+integration to those events. ImagePipe doesn't depend on
 AppSignal, OpenTelemetry, or any other tracing system.
 
 ## Configuration
@@ -11,17 +11,17 @@ Set the telemetry prefix as a Plug option:
 
 ```elixir
 forward "/",
-  to: ImagePlug,
+  to: ImagePipe,
   init_opts: [
-    parser: ImagePlug.Parser.Imgproxy,
+    parser: ImagePipe.Parser.Imgproxy,
     sources: [
-      path: {ImagePlug.Source.File, root: "/srv/images", root_id: "primary"}
+      path: {ImagePipe.Source.File, root: "/srv/images", root_id: "primary"}
     ],
-    telemetry_prefix: [:my_app, :image_plug]
+    telemetry_prefix: [:my_app, :image_pipe]
   ]
 ```
 
-The default prefix is `[:image_plug]`. Prefixes must be non-empty lists of
+The default prefix is `[:image_pipe]`. Prefixes must be non-empty lists of
 atoms.
 
 ## Event names
@@ -39,37 +39,37 @@ telemetry_prefix ++ stage ++ [:exception]
 The top-level request span is:
 
 ```text
-[:image_plug, :request, :start]
-[:image_plug, :request, :stop]
-[:image_plug, :request, :exception]
+[:image_pipe, :request, :start]
+[:image_pipe, :request, :stop]
+[:image_pipe, :request, :exception]
 ```
 
-ImagePlug also emits stage spans for meaningful request phases. The exact set
+ImagePipe also emits stage spans for meaningful request phases. The exact set
 depends on the routing path. For example, cache hits skip source fetch,
 transform execution, output negotiation, encoding, and send streaming spans.
 
 ```text
-[:image_plug, :parse, ...]
-[:image_plug, :source, :resolve, ...]
-[:image_plug, :cache, :lookup, ...]
-[:image_plug, :output, :negotiate, ...]
-[:image_plug, :source, :fetch, ...]
-[:image_plug, :transform, :execute, ...]
-[:image_plug, :encode, ...]
-[:image_plug, :cache, :stage, ...]
-[:image_plug, :cache, :write, ...]
-[:image_plug, :send, ...]
+[:image_pipe, :parse, ...]
+[:image_pipe, :source, :resolve, ...]
+[:image_pipe, :cache, :lookup, ...]
+[:image_pipe, :output, :negotiate, ...]
+[:image_pipe, :source, :fetch, ...]
+[:image_pipe, :transform, :execute, ...]
+[:image_pipe, :encode, ...]
+[:image_pipe, :cache, :stage, ...]
+[:image_pipe, :cache, :write, ...]
+[:image_pipe, :send, ...]
 ```
 
 For example, the cache lookup stop event with the default prefix is:
 
 ```text
-[:image_plug, :cache, :lookup, :stop]
+[:image_pipe, :cache, :lookup, :stop]
 ```
 
 ## Measurements
 
-ImagePlug uses the measurements provided by `:telemetry.span/3`:
+ImagePipe uses the measurements provided by `:telemetry.span/3`:
 
 - `:start` events include `:system_time` and `:monotonic_time`.
 - `:stop` events include `:duration` and `:monotonic_time`.
@@ -100,7 +100,7 @@ All span events also include `:telemetry_span_context`, which
 `:telemetry.span/3` injects for correlating the events from the same span. Treat
 it as correlation data, not as a metrics dimension.
 
-ImagePlug doesn't emit full request paths by default. Imgproxy-style paths can
+ImagePipe doesn't emit full request paths by default. Imgproxy-style paths can
 contain signatures, filenames, and source-shaped user data, and often have high
 cardinality. Host applications that need path-level observability should add
 that data in their own handlers with the relevant privacy and cardinality
@@ -139,7 +139,7 @@ Streamed cache misses may also emit `[:cache, :stage, :stop]` with:
 
 - `cache: :stage_skipped` and `reason: :too_large` when the staging sink crosses
   `:max_body_bytes`.
-- `cache: :stage_abandoned` when ImagePlug aborts a staged entry
+- `cache: :stage_abandoned` when ImagePipe aborts a staged entry
   because delivery stopped early, the owner process exited, or the stream failed.
 - `cache: :stage_error` when opening or writing the staging sink fails before
   commit.
@@ -154,11 +154,11 @@ already delivered.
 
 ## Attaching handlers
 
-A host application can attach to all ImagePlug span events with
+A host application can attach to all ImagePipe span events with
 `:telemetry.attach_many/4`:
 
 ```elixir
-defmodule MyApp.ImagePlugTelemetry do
+defmodule MyApp.ImagePipeTelemetry do
   require Logger
 
   @stages [
@@ -179,11 +179,11 @@ defmodule MyApp.ImagePlugTelemetry do
     events =
       for stage <- @stages,
           suffix <- [:start, :stop, :exception] do
-        [:image_plug | stage] ++ [suffix]
+        [:image_pipe | stage] ++ [suffix]
       end
 
     :telemetry.attach_many(
-      "my-app-image-plug",
+      "my-app-image-pipe",
       events,
       &__MODULE__.handle_event/4,
       nil
@@ -192,7 +192,7 @@ defmodule MyApp.ImagePlugTelemetry do
 
   def handle_event(event, measurements, metadata, _config) do
     Logger.debug(
-      "image_plug event=#{inspect(event)} " <>
+      "image_pipe event=#{inspect(event)} " <>
         "measurements=#{inspect(measurements)} metadata=#{inspect(metadata)}"
     )
   end
@@ -200,4 +200,4 @@ end
 ```
 
 When customizing `telemetry_prefix`, attach to that same prefix instead of
-`[:image_plug]`.
+`[:image_pipe]`.

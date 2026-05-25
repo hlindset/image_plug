@@ -2,7 +2,7 @@ export const themeModes = ["light", "dark", "system"] as const;
 
 export type ThemeMode = (typeof themeModes)[number];
 
-export const themeStorageKey = "image-plug-demo-theme";
+export const themeStorageKey = "image-pipe-demo-theme";
 
 export function storedThemeMode(value: string | null): ThemeMode {
   return themeModes.includes(value as ThemeMode) ? (value as ThemeMode) : "system";

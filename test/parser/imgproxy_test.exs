@@ -1,27 +1,27 @@
-defmodule ImagePlug.Parser.ImgproxyTest do
+defmodule ImagePipe.Parser.ImgproxyTest do
   use ExUnit.Case, async: true
   use ExUnitProperties
 
   import Plug.Test
 
-  alias ImagePlug.Parser.Imgproxy
-  alias ImagePlug.Plan
-  alias ImagePlug.Plan.Operation
-  alias ImagePlug.Plan.Output
-  alias ImagePlug.Plan.Pipeline
-  alias ImagePlug.Plan.Response
-  alias ImagePlug.Plan.Source
-  alias ImagePlug.Transform.Operation.AutoOrient
+  alias ImagePipe.Parser.Imgproxy
+  alias ImagePipe.Plan
+  alias ImagePipe.Plan.Operation
+  alias ImagePipe.Plan.Output
+  alias ImagePipe.Plan.Pipeline
+  alias ImagePipe.Plan.Response
+  alias ImagePipe.Plan.Source
+  alias ImagePipe.Transform.Operation.AutoOrient
 
   defmodule FoobarTranslator do
-    @behaviour ImagePlug.Parser.Imgproxy.SourceScheme
+    @behaviour ImagePipe.Parser.Imgproxy.SourceScheme
 
     @impl true
     def translate(source, opts) do
       send(self(), {:translate, source, opts})
 
       {:ok,
-       %ImagePlug.Plan.Source.Object{
+       %ImagePipe.Plan.Source.Object{
          adapter: :foobar,
          scope: "scope",
          key: source,
@@ -35,9 +35,9 @@ defmodule ImagePlug.Parser.ImgproxyTest do
   end
 
   @allowed_parsed_transform_operations [
-    ImagePlug.Transform.Operation.AutoOrient,
-    ImagePlug.Transform.Operation.Rotate,
-    ImagePlug.Transform.Operation.Flip
+    ImagePipe.Transform.Operation.AutoOrient,
+    ImagePipe.Transform.Operation.Rotate,
+    ImagePipe.Transform.Operation.Flip
   ]
 
   test "parses a plain source with no processing options" do
@@ -693,7 +693,7 @@ defmodule ImagePlug.Parser.ImgproxyTest do
              Imgproxy.parse(conn(:get, "/_/g:fp:1:0/rs:fill:300:200/plain/images/cat.jpg"), [])
 
     assert focal_point(crop.guide) == {1, 1, 0, 1}
-    assert {:ok, _pipelines} = ImagePlug.Transform.validate_prefetch_safe_plan(plan)
+    assert {:ok, _pipelines} = ImagePipe.Transform.validate_prefetch_safe_plan(plan)
 
     assert {:ok,
             %Plan{
@@ -812,7 +812,7 @@ defmodule ImagePlug.Parser.ImgproxyTest do
   test "parses output quality and format quality as output request fields" do
     assert {:ok,
             %Plan{
-              output: %ImagePlug.Plan.Output{
+              output: %ImagePipe.Plan.Output{
                 quality: {:quality, 80},
                 format_qualities: %{webp: {:quality, 70}}
               }
@@ -822,7 +822,7 @@ defmodule ImagePlug.Parser.ImgproxyTest do
   test "quality zero and format-quality zero normalize to default" do
     assert {:ok,
             %Plan{
-              output: %ImagePlug.Plan.Output{
+              output: %ImagePipe.Plan.Output{
                 quality: :default,
                 format_qualities: %{webp: :default}
               }
@@ -832,7 +832,7 @@ defmodule ImagePlug.Parser.ImgproxyTest do
   test "repeated format quality assignments replace by normalized format" do
     assert {:ok,
             %Plan{
-              output: %ImagePlug.Plan.Output{
+              output: %ImagePipe.Plan.Output{
                 format_qualities: %{webp: {:quality, 60}}
               }
             }} =
@@ -840,7 +840,7 @@ defmodule ImagePlug.Parser.ImgproxyTest do
   end
 
   test "quality later assignment wins across groups" do
-    assert {:ok, %Plan{output: %ImagePlug.Plan.Output{quality: {:quality, 70}}}} =
+    assert {:ok, %Plan{output: %ImagePipe.Plan.Output{quality: {:quality, 70}}}} =
              Imgproxy.parse(conn(:get, "/_/q:80/-/q:70/plain/images/cat.jpg"), [])
   end
 
@@ -1015,7 +1015,7 @@ defmodule ImagePlug.Parser.ImgproxyTest do
   test "format quality normalizes jpg to jpeg" do
     assert {:ok,
             %Plan{
-              output: %ImagePlug.Plan.Output{
+              output: %ImagePipe.Plan.Output{
                 format_qualities: %{jpeg: {:quality, 70}}
               }
             }} = Imgproxy.parse(conn(:get, "/_/fq:jpg:70/plain/images/cat.jpg"), [])
@@ -1570,7 +1570,7 @@ defmodule ImagePlug.Parser.ImgproxyTest do
     module
     |> Module.split()
     |> Enum.take(3)
-    |> Kernel.==(["ImagePlug", "Transform", "Operation"])
+    |> Kernel.==(["ImagePipe", "Transform", "Operation"])
   end
 
   defp permutations([]), do: [[]]

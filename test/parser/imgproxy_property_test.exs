@@ -1,14 +1,14 @@
-defmodule ImagePlug.Parser.ImgproxyPropertyTest do
+defmodule ImagePipe.Parser.ImgproxyPropertyTest do
   use ExUnit.Case, async: true
   use ExUnitProperties
 
   import Plug.Test
 
-  alias ImagePlug.Parser.Imgproxy
-  alias ImagePlug.Plan
-  alias ImagePlug.Plan.Operation
-  alias ImagePlug.Plan.Pipeline
-  alias ImagePlug.Plan.Source
+  alias ImagePipe.Parser.Imgproxy
+  alias ImagePipe.Plan
+  alias ImagePipe.Plan.Operation
+  alias ImagePipe.Plan.Pipeline
+  alias ImagePipe.Plan.Source
 
   property "parser returns tagged results for arbitrary processing segments" do
     check all segments <- list_of(processing_segment(), max_length: 5),
@@ -81,7 +81,7 @@ defmodule ImagePlug.Parser.ImgproxyPropertyTest do
     assert {:ok, plan_a} =
              Imgproxy.parse(conn(:get, "/_/bg:f00/pd:10/w:100/plain/images/cat.jpg"), [])
 
-    [%ImagePlug.Plan.Pipeline{operations: operations_a}] = plan_a.pipelines
+    [%ImagePipe.Plan.Pipeline{operations: operations_a}] = plan_a.pipelines
 
     check all option_segments <- member_of(permutations(["bg:f00", "pd:10", "w:100"])) do
       assert {:ok, plan_b} =
@@ -89,7 +89,7 @@ defmodule ImagePlug.Parser.ImgproxyPropertyTest do
                |> imgproxy_path(["images", "cat.jpg"])
                |> parse_path()
 
-      [%ImagePlug.Plan.Pipeline{operations: operations_b}] = plan_b.pipelines
+      [%ImagePipe.Plan.Pipeline{operations: operations_b}] = plan_b.pipelines
 
       assert operations_a == operations_b
       assert plan_a.pipelines == plan_b.pipelines

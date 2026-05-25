@@ -1,14 +1,14 @@
-defmodule ImagePlug.Parser.Imgproxy.SignatureTest do
+defmodule ImagePipe.Parser.Imgproxy.SignatureTest do
   use ExUnit.Case, async: true
 
-  alias ImagePlug.Parser.Imgproxy
-  alias ImagePlug.Parser.Imgproxy.Signature
+  alias ImagePipe.Parser.Imgproxy
+  alias ImagePipe.Parser.Imgproxy.Signature
 
   test "imgproxy parser exposes parser-owned option validation" do
     options = Imgproxy.validate_options!([])
 
     assert %Signature{mode: :disabled} = Keyword.fetch!(options, :signature)
-    assert %ImagePlug.Parser.Imgproxy.Presets{} = Keyword.fetch!(options, :presets)
+    assert %ImagePipe.Parser.Imgproxy.Presets{} = Keyword.fetch!(options, :presets)
   end
 
   describe "normalize_config!/1" do

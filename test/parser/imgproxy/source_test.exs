@@ -1,13 +1,13 @@
-defmodule ImagePlug.Parser.Imgproxy.SourceTest do
+defmodule ImagePipe.Parser.Imgproxy.SourceTest do
   use ExUnit.Case, async: true
 
-  alias ImagePlug.Parser.Imgproxy.Source
-  alias ImagePlug.Plan.Source.Object
-  alias ImagePlug.Plan.Source.Path
-  alias ImagePlug.Plan.Source.URL
+  alias ImagePipe.Parser.Imgproxy.Source
+  alias ImagePipe.Plan.Source.Object
+  alias ImagePipe.Plan.Source.Path
+  alias ImagePipe.Plan.Source.URL
 
   defmodule FoobarTranslator do
-    @behaviour ImagePlug.Parser.Imgproxy.SourceScheme
+    @behaviour ImagePipe.Parser.Imgproxy.SourceScheme
 
     @impl true
     def translate(source, opts) do
@@ -290,7 +290,7 @@ defmodule ImagePlug.Parser.Imgproxy.SourceTest do
 
   test "custom translator errors are normalized before parser error responses inspect them" do
     defmodule FailingTranslator do
-      @behaviour ImagePlug.Parser.Imgproxy.SourceScheme
+      @behaviour ImagePipe.Parser.Imgproxy.SourceScheme
 
       @impl true
       def translate(_source, _opts), do: {:error, {:secret_path, "/private/cat.jpg"}}
