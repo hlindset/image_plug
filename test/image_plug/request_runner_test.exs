@@ -973,7 +973,7 @@ defmodule ImagePlug.Request.RunnerTest do
       |> Map.put(:adapter, {ClosingAfterFirstChunkAdapter, %{chunks: nil}})
       |> ImagePlug.Response.Sender.send_result({:ok, {:prepared_stream, prepared, response}}, [])
 
-    assert conn.private.image_plug_send_result == :processing_error
+    refute Map.has_key?(conn.private, :image_plug_send_result)
     assert_received {:cache_lookup, _key}
     assert_received {:runner_event, ^ref, {:cache_abort, _key, chunks}}
     assert chunks != []
@@ -1029,7 +1029,7 @@ defmodule ImagePlug.Request.RunnerTest do
       |> Map.put(:adapter, {FirstChunkClosedAdapter, %{}})
       |> ImagePlug.Response.Sender.send_result({:ok, {:prepared_stream, prepared, response}}, [])
 
-    assert conn.private.image_plug_send_result == :processing_error
+    refute Map.has_key?(conn.private, :image_plug_send_result)
     assert_received {:cache_lookup, _key}
     assert_received {:runner_event, ^ref, {:cache_abort, _key, chunks}}
     assert chunks != []

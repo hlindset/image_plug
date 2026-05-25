@@ -304,7 +304,7 @@ defmodule ImagePlug.Request.SourceSessionTest do
   end
 
   test "prepare returns the first encoded chunk before next is called" do
-    {:ok, session} = SourceSession.start(request())
+    {:ok, session} = start_session(request())
 
     assert {:ok, %Prepared{} = prepared} = SourceSession.prepare(session)
     assert prepared.first_chunk == "first chunk"
@@ -315,7 +315,7 @@ defmodule ImagePlug.Request.SourceSessionTest do
   end
 
   test "next returns one encoded chunk per call and then done" do
-    {:ok, session} = SourceSession.start(request())
+    {:ok, session} = start_session(request())
 
     assert {:ok, %Prepared{first_chunk: "first chunk"}} = SourceSession.prepare(session)
     assert {:chunk, "second chunk"} = SourceSession.next(session)
@@ -326,7 +326,7 @@ defmodule ImagePlug.Request.SourceSessionTest do
     attach_telemetry([[:image_plug, :cache, :write, :stop]])
 
     key = cache_key()
-    {:ok, session} = SourceSession.start(cached_request(cache_key: key))
+    {:ok, session} = start_session(cached_request(cache_key: key))
 
     assert {:ok, %Prepared{first_chunk: "first chunk"}} = SourceSession.prepare(session)
     assert_received {:cache_write_chunk, "first chunk"}
@@ -353,7 +353,7 @@ defmodule ImagePlug.Request.SourceSessionTest do
     attach_telemetry([[:image_plug, :cache, :stage]])
 
     {:ok, session} =
-      SourceSession.start(
+      start_session(
         cached_request(
           opts: opts(image_module: SmallChunkImage),
           cache_opts: [max_body_bytes: 5]
@@ -380,7 +380,7 @@ defmodule ImagePlug.Request.SourceSessionTest do
     attach_telemetry([[:image_plug, :cache, :stage]])
 
     {:ok, session} =
-      SourceSession.start(cached_request(opts: opts(image_module: CleanupStreamImage)))
+      start_session(cached_request(opts: opts(image_module: CleanupStreamImage)))
 
     assert {:ok, %Prepared{first_chunk: "first chunk"}} = SourceSession.prepare(session)
     assert :ok = SourceSession.cancel(session)
@@ -406,7 +406,7 @@ defmodule ImagePlug.Request.SourceSessionTest do
     attach_telemetry([[:image_plug, :cache, :stage]])
 
     {:ok, session} =
-      SourceSession.start(cached_request(opts: opts(image_module: RaisingAfterFirstChunkImage)))
+      start_session(cached_request(opts: opts(image_module: RaisingAfterFirstChunkImage)))
 
     assert {:ok, %Prepared{first_chunk: "first chunk"}} = SourceSession.prepare(session)
 
@@ -435,14 +435,14 @@ defmodule ImagePlug.Request.SourceSessionTest do
     attach_telemetry([[:image_plug, :cache, :stage]])
 
     owner =
-      spawn(fn ->
+      start_test_process(fn ->
         receive do
           :stop_owner -> :ok
         end
       end)
 
     {:ok, session} =
-      SourceSession.start(
+      start_session(
         cached_request(opts: opts(image_module: CleanupStreamImage)),
         owner: owner,
         parent: self()
@@ -476,14 +476,14 @@ defmodule ImagePlug.Request.SourceSessionTest do
     attach_telemetry([[:image_plug, :cache, :stage]])
 
     owner =
-      spawn(fn ->
+      start_test_process(fn ->
         receive do
           :stop_owner -> :ok
         end
       end)
 
     {:ok, session} =
-      SourceSession.start(
+      start_session(
         cached_request(opts: opts(image_module: OwnerDownBeforeDoneImage)),
         owner: owner,
         parent: self()
@@ -497,7 +497,7 @@ defmodule ImagePlug.Request.SourceSessionTest do
     parent = self()
 
     caller =
-      spawn(fn ->
+      start_test_process(fn ->
         send(parent, {:next_result, SourceSession.next(session)})
       end)
 
@@ -529,14 +529,14 @@ defmodule ImagePlug.Request.SourceSessionTest do
     attach_telemetry([[:image_plug, :cache, :stage]])
 
     owner =
-      spawn(fn ->
+      start_test_process(fn ->
         receive do
           :stop_owner -> :ok
         end
       end)
 
     {:ok, session} =
-      SourceSession.start(
+      start_session(
         cached_request(opts: opts(image_module: OwnerDownBeforeSecondChunkImage)),
         owner: owner,
         parent: self()
@@ -550,7 +550,7 @@ defmodule ImagePlug.Request.SourceSessionTest do
     parent = self()
 
     caller =
-      spawn(fn ->
+      start_test_process(fn ->
         send(parent, {:next_result, SourceSession.next(session)})
       end)
 
@@ -581,7 +581,7 @@ defmodule ImagePlug.Request.SourceSessionTest do
     attach_telemetry([[:image_plug, :cache, :stage]])
 
     {:ok, session} =
-      SourceSession.start(cached_request(adapter: CacheSinkWriteErrorProbe))
+      start_session(cached_request(adapter: CacheSinkWriteErrorProbe))
 
     assert {:ok, %Prepared{first_chunk: "first chunk"}} = SourceSession.prepare(session)
     assert {:chunk, "second chunk"} = SourceSession.next(session)
@@ -599,7 +599,7 @@ defmodule ImagePlug.Request.SourceSessionTest do
   end
 
   test "prepare and next exercise the real Image stream path" do
-    {:ok, session} = SourceSession.start(request(opts: real_image_opts()))
+    {:ok, session} = start_session(request(opts: real_image_opts()))
 
     assert {:ok, %Prepared{first_chunk: first_chunk, content_type: "image/jpeg"}} =
              SourceSession.prepare(session)
@@ -620,7 +620,7 @@ defmodule ImagePlug.Request.SourceSessionTest do
 
   test "cancel halts the suspended continuation and stops the session normally" do
     register_stream_events!()
-    {:ok, session} = SourceSession.start(request(opts: opts(image_module: CleanupStreamImage)))
+    {:ok, session} = start_session(request(opts: opts(image_module: CleanupStreamImage)))
     ref = Process.monitor(session)
 
     assert {:ok, %Prepared{}} = SourceSession.prepare(session)
@@ -630,7 +630,7 @@ defmodule ImagePlug.Request.SourceSessionTest do
   end
 
   test "next before prepare returns a tagged protocol error" do
-    {:ok, session} = SourceSession.start(request())
+    {:ok, session} = start_session(request())
 
     assert {:error, {:protocol, :not_prepared}} = SourceSession.next(session)
     assert :ok = SourceSession.cancel(session)
@@ -638,7 +638,7 @@ defmodule ImagePlug.Request.SourceSessionTest do
 
   test "call wrappers return tagged errors for missing sessions" do
     dead_pid =
-      spawn(fn ->
+      start_test_process(fn ->
         receive do
           :stop -> :ok
         end
@@ -652,12 +652,12 @@ defmodule ImagePlug.Request.SourceSessionTest do
   end
 
   test "call wrappers return tagged timeout errors" do
-    {:ok, session} = SourceSession.start(blocking_request(), owner: self())
+    {:ok, session} = start_session(blocking_request(), owner: self())
     ref = Process.monitor(session)
     parent = self()
 
     caller =
-      spawn(fn ->
+      start_test_process(fn ->
         send(parent, {:prepare_result, SourceSession.prepare(session, 100)})
       end)
 
@@ -673,19 +673,19 @@ defmodule ImagePlug.Request.SourceSessionTest do
 
   test "owner death during in-flight prepare replies and stops producer" do
     owner =
-      spawn(fn ->
+      start_test_process(fn ->
         receive do
           :stop_owner -> :ok
         end
       end)
 
-    {:ok, session} = SourceSession.start(blocking_request(), owner: owner, parent: self())
+    {:ok, session} = start_session(blocking_request(), owner: owner, parent: self())
     session_ref = Process.monitor(session)
     owner_ref = Process.monitor(owner)
     parent = self()
 
     caller =
-      spawn(fn ->
+      start_test_process(fn ->
         send(parent, {:prepare_result, SourceSession.prepare(session, 5_000)})
       end)
 
@@ -703,11 +703,11 @@ defmodule ImagePlug.Request.SourceSessionTest do
   end
 
   test "concurrent prepare while producer demand is pending returns busy" do
-    {:ok, session} = SourceSession.start(blocking_request(), parent: self())
+    {:ok, session} = start_session(blocking_request(), parent: self())
     parent = self()
 
     caller =
-      spawn(fn ->
+      start_test_process(fn ->
         send(parent, {:first_prepare, SourceSession.prepare(session, 5_000)})
       end)
 
@@ -725,7 +725,7 @@ defmodule ImagePlug.Request.SourceSessionTest do
     register_stream_events!()
 
     {:ok, session} =
-      SourceSession.start(
+      start_session(
         cached_request(opts: opts(image_module: OwnerDownBeforeSecondChunkImage)),
         parent: self()
       )
@@ -734,7 +734,7 @@ defmodule ImagePlug.Request.SourceSessionTest do
     parent = self()
 
     caller =
-      spawn(fn ->
+      start_test_process(fn ->
         send(parent, {:first_next, SourceSession.next(session, 5_000)})
       end)
 
@@ -752,7 +752,7 @@ defmodule ImagePlug.Request.SourceSessionTest do
     register_stream_events!()
 
     {:ok, session} =
-      SourceSession.start(
+      start_session(
         cached_request(opts: opts(image_module: OwnerDownBeforeSecondChunkImage)),
         parent: self()
       )
@@ -761,7 +761,7 @@ defmodule ImagePlug.Request.SourceSessionTest do
     parent = self()
 
     caller =
-      spawn(fn ->
+      start_test_process(fn ->
         send(parent, {:next_result, SourceSession.next(session, 5_000)})
       end)
 
@@ -782,14 +782,14 @@ defmodule ImagePlug.Request.SourceSessionTest do
     register_stream_events!()
 
     owner =
-      spawn(fn ->
+      start_test_process(fn ->
         receive do
           :stop_owner -> :ok
         end
       end)
 
     {:ok, session} =
-      SourceSession.start(
+      start_session(
         request(opts: opts(image_module: CleanupStreamImage)),
         owner: owner,
         parent: self()
@@ -815,7 +815,7 @@ defmodule ImagePlug.Request.SourceSessionTest do
         opts: [sources: %{path: {StreamFetchAdapter, []}}, image_module: MultiChunkImage]
       )
 
-    {:ok, session} = SourceSession.start(request)
+    {:ok, session} = start_session(request)
     ref = Process.monitor(session)
 
     capture_log(fn ->
@@ -826,7 +826,7 @@ defmodule ImagePlug.Request.SourceSessionTest do
   end
 
   test "empty encoder streams stay pre-response encode errors" do
-    {:ok, session} = SourceSession.start(request(opts: opts(image_module: EmptyStreamImage)))
+    {:ok, session} = start_session(request(opts: opts(image_module: EmptyStreamImage)))
     ref = Process.monitor(session)
 
     assert {:error, {:encode, :empty_stream}} = SourceSession.prepare(session)
@@ -836,7 +836,7 @@ defmodule ImagePlug.Request.SourceSessionTest do
 
   test "encoder failures before the first chunk stay pre-response encode errors" do
     {:ok, session} =
-      SourceSession.start(request(opts: opts(image_module: RaisingBeforeFirstChunkImage)))
+      start_session(request(opts: opts(image_module: RaisingBeforeFirstChunkImage)))
 
     ref = Process.monitor(session)
 
@@ -851,7 +851,7 @@ defmodule ImagePlug.Request.SourceSessionTest do
     register_stream_events!()
 
     {:ok, session} =
-      SourceSession.start(request(opts: opts(image_module: RaisingAfterFirstChunkImage)))
+      start_session(request(opts: opts(image_module: RaisingAfterFirstChunkImage)))
 
     ref = Process.monitor(session)
 
@@ -869,7 +869,7 @@ defmodule ImagePlug.Request.SourceSessionTest do
     register_stream_events!()
 
     {:ok, session} =
-      SourceSession.start(request(opts: opts(image_module: SourceErrorAfterFirstChunkImage)))
+      start_session(request(opts: opts(image_module: SourceErrorAfterFirstChunkImage)))
 
     ref = Process.monitor(session)
 
@@ -877,6 +877,36 @@ defmodule ImagePlug.Request.SourceSessionTest do
     assert {:error, {:source, :stream_exception}} = SourceSession.next(session)
     assert_receive {:source_error_stream_finalized, :raise}
     assert_receive {:DOWN, ^ref, :process, ^session, :normal}
+  end
+
+  defp start_session(%Request{} = request, opts \\ []) do
+    opts =
+      opts
+      |> Keyword.put_new(:owner, self())
+      |> Keyword.put_new(:parent, self())
+
+    child_spec = %{
+      id: {SourceSession, make_ref()},
+      start: {SourceSession, :start_link, [request, opts]},
+      restart: :temporary,
+      shutdown: 2_000,
+      type: :worker
+    }
+
+    {:ok, start_supervised!(child_spec)}
+  end
+
+  defp start_test_process(fun) when is_function(fun, 0) do
+    supervisor =
+      start_supervised!(%{
+        id: {Task.Supervisor, make_ref()},
+        start: {Task.Supervisor, :start_link, [[name: nil]]},
+        restart: :temporary,
+        type: :supervisor
+      })
+
+    {:ok, pid} = Task.Supervisor.start_child(supervisor, fun)
+    pid
   end
 
   defp request(overrides \\ []) do
@@ -974,7 +1004,17 @@ defmodule ImagePlug.Request.SourceSessionTest do
   end
 
   defp register_stream_events! do
+    if Process.whereis(__MODULE__.StreamEvents) do
+      Process.unregister(__MODULE__.StreamEvents)
+    end
+
     Process.register(self(), __MODULE__.StreamEvents)
+
+    on_exit(fn ->
+      if Process.whereis(__MODULE__.StreamEvents) do
+        Process.unregister(__MODULE__.StreamEvents)
+      end
+    end)
   end
 
   def handle_telemetry_event(event, measurements, metadata, test_pid) do

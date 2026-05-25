@@ -355,6 +355,8 @@ defmodule ImagePlug.TelemetryTest do
         event == [:image_plug, :output, :negotiate, :stop]
       end)
 
+    assert output_stop_events != []
+
     refute Enum.any?(output_stop_events, fn {_event, _measurements, metadata} ->
              metadata.result != :ok
            end)
@@ -380,6 +382,8 @@ defmodule ImagePlug.TelemetryTest do
       Enum.filter(events, fn {event, _measurements, _metadata} ->
         event == [:image_plug, :output, :negotiate, :stop]
       end)
+
+    assert output_stop_events != []
 
     refute Enum.any?(output_stop_events, fn {_event, _measurements, metadata} ->
              metadata.result != :ok

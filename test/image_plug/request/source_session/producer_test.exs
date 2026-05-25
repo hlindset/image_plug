@@ -100,7 +100,7 @@ defmodule ImagePlug.Request.SourceSession.ProducerTest do
   end
 
   test "producer returns first chunk, later chunks, and done on demand" do
-    {:ok, producer} = Producer.start_link(request(opts: opts(image_module: MultiChunkImage)))
+    producer = start_producer(request(opts: opts(image_module: MultiChunkImage)))
     ref = Process.monitor(producer)
 
     assert {:ok, {:first_chunk, "first chunk", "image/jpeg", [], resolved_output}} =
@@ -113,7 +113,7 @@ defmodule ImagePlug.Request.SourceSession.ProducerTest do
   end
 
   test "producer halt runs the suspended stream cleanup callback when idle" do
-    {:ok, producer} = Producer.start_link(request(opts: opts(image_module: CleanupStreamImage)))
+    producer = start_producer(request(opts: opts(image_module: CleanupStreamImage)))
     ref = Process.monitor(producer)
 
     assert {:ok, {:first_chunk, "first chunk", "image/jpeg", [], _resolved_output}} =
@@ -125,8 +125,7 @@ defmodule ImagePlug.Request.SourceSession.ProducerTest do
   end
 
   test "producer returns post-first-chunk encoder errors" do
-    {:ok, producer} =
-      Producer.start_link(request(opts: opts(image_module: RaisingAfterFirstChunkImage)))
+    producer = start_producer(request(opts: opts(image_module: RaisingAfterFirstChunkImage)))
 
     ref = Process.monitor(producer)
 
@@ -141,7 +140,7 @@ defmodule ImagePlug.Request.SourceSession.ProducerTest do
   end
 
   test "producer can be stopped while a demand is blocked" do
-    {:ok, producer} = Producer.start_link(request(opts: opts(image_module: BlockingImage)))
+    producer = start_producer(request(opts: opts(image_module: BlockingImage)))
     ref = Process.monitor(producer)
 
     assert {:ok, {:first_chunk, "first chunk", "image/jpeg", [], _resolved_output}} =
@@ -150,7 +149,7 @@ defmodule ImagePlug.Request.SourceSession.ProducerTest do
     parent = self()
 
     caller =
-      spawn(fn ->
+      start_test_process(fn ->
         send(parent, {:next_result, Producer.next(producer, 5_000)})
       end)
 
@@ -162,6 +161,31 @@ defmodule ImagePlug.Request.SourceSession.ProducerTest do
     assert_receive {:DOWN, ^ref, :process, ^producer, :shutdown}
     assert_receive {:next_result, {:error, {:producer, {:exit, :shutdown}}}}
     assert_receive {:DOWN, ^caller_ref, :process, ^caller, :normal}
+  end
+
+  defp start_producer(%Request{} = request) do
+    caller_chain = [self()]
+
+    start_supervised!(%{
+      id: {Producer, make_ref()},
+      start: {Producer, :start_link, [request, [caller_chain: caller_chain]]},
+      restart: :temporary,
+      shutdown: 2_000,
+      type: :worker
+    })
+  end
+
+  defp start_test_process(fun) when is_function(fun, 0) do
+    supervisor =
+      start_supervised!(%{
+        id: {Task.Supervisor, make_ref()},
+        start: {Task.Supervisor, :start_link, [[name: nil]]},
+        restart: :temporary,
+        type: :supervisor
+      })
+
+    {:ok, pid} = Task.Supervisor.start_child(supervisor, fun)
+    pid
   end
 
   defp request(opts: runtime_opts) do

@@ -323,6 +323,11 @@ defmodule ImagePlug.Response.Sender do
   defp mark_send_processing_error(%Plug.Conn{} = conn),
     do: Plug.Conn.put_private(conn, :image_plug_send_result, :processing_error)
 
+  defp mark_prepared_stream_error(%Plug.Conn{} = conn, {:client_closed, reason}) do
+    Logger.info("prepared_stream_client_closed: #{inspect(reason)}")
+    conn
+  end
+
   defp mark_prepared_stream_error(%Plug.Conn{} = conn, reason) do
     Logger.error("prepared_stream_error: #{inspect(reason)}")
     mark_send_processing_error(conn)
@@ -357,6 +362,22 @@ defmodule ImagePlug.Response.Sender do
   end
 
   defp prepared_encode_stop_metadata(
+         {:error, {:client_closed, reason}},
+         %Plug.Conn{status: status},
+         %Resolved{} = resolved_output
+       ) do
+    Map.merge(
+      %{
+        result: :client_closed,
+        stream_phase: :client,
+        error: Telemetry.error({:client_closed, reason}),
+        status: status
+      },
+      output_metadata(resolved_output)
+    )
+  end
+
+  defp prepared_encode_stop_metadata(
          {:error, reason},
          %Plug.Conn{status: status},
          %Resolved{} = resolved_output
@@ -371,8 +392,6 @@ defmodule ImagePlug.Response.Sender do
       output_metadata(resolved_output)
     )
   end
-
-  defp stream_error_phase({:client_closed, _reason}), do: :client
 
   defp stream_error_phase({phase, _reason}) when phase in [:source, :decode, :output, :encode],
     do: phase

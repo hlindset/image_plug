@@ -282,14 +282,16 @@ defmodule ImagePlug.Cache.FileSystemTest do
 
     results =
       ["body-one", "body-two"]
-      |> Enum.map(fn body ->
-        Task.async(fn ->
+      |> Task.async_stream(
+        fn body ->
           {:ok, state} = FileSystem.open_sink(cache_key, entry_metadata(), root: root)
           {:ok, state} = FileSystem.write_chunk(state, body, root: root)
           FileSystem.commit_sink(state, root: root)
-        end)
-      end)
-      |> Enum.map(&Task.await(&1, 5_000))
+        end,
+        max_concurrency: 2,
+        timeout: :infinity
+      )
+      |> Enum.map(fn {:ok, result} -> result end)
 
     assert results == [:ok, :ok]
     assert {:hit, cached_entry} = FileSystem.get(cache_key, root: root)
@@ -484,10 +486,12 @@ defmodule ImagePlug.Cache.FileSystemTest do
 
     results =
       ["body-one", "body-two"]
-      |> Enum.map(fn body ->
-        Task.async(fn -> put_entry(cache_key, entry(body), root: root) end)
-      end)
-      |> Enum.map(&Task.await(&1, 5_000))
+      |> Task.async_stream(
+        fn body -> put_entry(cache_key, entry(body), root: root) end,
+        max_concurrency: 2,
+        timeout: :infinity
+      )
+      |> Enum.map(fn {:ok, result} -> result end)
 
     assert results == [:ok, :ok]
     assert {:hit, cached_entry} = FileSystem.get(cache_key, root: root)

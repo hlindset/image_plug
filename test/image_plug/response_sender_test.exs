@@ -243,13 +243,13 @@ defmodule ImagePlug.Response.SenderTest do
       |> Map.put(:adapter, {ClosingChunkAdapter, %{chunks: nil}})
       |> Sender.send_result({:ok, {:prepared_stream, prepared, %Response{}}}, [])
 
-    assert conn.private.image_plug_send_result == :processing_error
+    refute Map.has_key?(conn.private, :image_plug_send_result)
     assert conn.resp_body == "first"
     assert_receive ^cancel_ref
 
     assert_receive {:telemetry_event, [:image_plug, :encode, :stop], _measurements,
                     %{
-                      result: :processing_error,
+                      result: :client_closed,
                       stream_phase: :client,
                       error: :client_closed,
                       status: 200,
@@ -308,7 +308,7 @@ defmodule ImagePlug.Response.SenderTest do
       |> Map.put(:adapter, {FirstChunkClosedAdapter, %{}})
       |> Sender.send_result({:ok, {:prepared_stream, prepared, %Response{}}}, [])
 
-    assert conn.private.image_plug_send_result == :processing_error
+    refute Map.has_key?(conn.private, :image_plug_send_result)
     assert_receive ^cancel_ref
   end
 

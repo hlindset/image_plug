@@ -332,7 +332,7 @@ defmodule ImagePlug.Request.VixStreamContinuationTest do
   test "killing a source session producer stops the observed target pipe" do
     Process.flag(:trap_exit, true)
 
-    {:ok, producer} = Producer.start_link(producer_request())
+    producer = start_producer(producer_request())
     ref = Process.monitor(producer)
 
     assert {:ok, {:first_chunk, first_chunk, "image/jpeg", [], _resolved_output}} =
@@ -346,7 +346,6 @@ defmodule ImagePlug.Request.VixStreamContinuationTest do
            "target pipe was not observed:\n#{linked_process_diagnostics(snapshot)}"
 
     Process.exit(producer, :shutdown)
-    assert_receive {:EXIT, ^producer, :shutdown}
     assert_receive {:DOWN, ^ref, :process, ^producer, :shutdown}
 
     assert {:down, _reason} = assert_process_down(snapshot.target_pipe)
@@ -401,6 +400,18 @@ defmodule ImagePlug.Request.VixStreamContinuationTest do
       {:links, links} -> links
       nil -> []
     end
+  end
+
+  defp start_producer(%Request{} = request) do
+    caller_chain = [self()]
+
+    start_supervised!(%{
+      id: {Producer, make_ref()},
+      start: {Producer, :start_link, [request, [caller_chain: caller_chain]]},
+      restart: :temporary,
+      shutdown: 2_000,
+      type: :worker
+    })
   end
 
   defp target_task(nil), do: nil

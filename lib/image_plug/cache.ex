@@ -27,6 +27,13 @@ defmodule ImagePlug.Cache do
 
   @shared_cache_option_keys [:key_headers, :key_cookies, :max_body_bytes]
   @plan_key_option_keys [:auto_avif, :auto_webp]
+  @required_adapter_callbacks [
+    get: 2,
+    open_sink: 3,
+    write_chunk: 3,
+    commit_sink: 2,
+    abort_sink: 2
+  ]
   @shared_cache_option_schema NimbleOptions.new!(
                                 key_headers: [
                                   type: {:list, :string}
@@ -216,13 +223,22 @@ defmodule ImagePlug.Cache do
   end
 
   defp validate_adapter(adapter) when is_atom(adapter) do
-    case Code.ensure_loaded(adapter) do
-      {:module, _module} -> :ok
+    with {:module, _module} <- Code.ensure_loaded(adapter),
+         [] <- missing_adapter_callbacks(adapter) do
+      :ok
+    else
       {:error, _reason} -> {:error, {:invalid_cache_config, {:adapter, adapter}}}
+      missing -> {:error, {:invalid_cache_config, {:adapter_missing_callbacks, adapter, missing}}}
     end
   end
 
   defp validate_adapter(adapter), do: {:error, {:invalid_cache_config, {:adapter, adapter}}}
+
+  defp missing_adapter_callbacks(adapter) do
+    Enum.reject(@required_adapter_callbacks, fn {function, arity} ->
+      function_exported?(adapter, function, arity)
+    end)
+  end
 
   defp normalize_shared_options(cache_opts) do
     shared_opts = Keyword.take(cache_opts, @shared_cache_option_keys)

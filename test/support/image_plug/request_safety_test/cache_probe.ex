@@ -14,6 +14,11 @@ defmodule ImagePlug.RequestSafetyTest.CacheProbe do
 
   def open_sink(_key, _metadata, _opts), do: {:ok, []}
   def write_chunk(chunks, chunk, _opts), do: {:ok, [chunk | chunks]}
-  def commit_sink(_chunks, _opts), do: send(self(), :cache_put)
+
+  def commit_sink(_chunks, _opts) do
+    send(self(), :cache_put)
+    :ok
+  end
+
   def abort_sink(_chunks, _opts), do: :ok
 end

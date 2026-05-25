@@ -96,6 +96,11 @@ defmodule ImagePlug.CacheTest do
     def get(%Key{}, _opts), do: :miss
   end
 
+  defmodule MissingSinkCallbacksAdapter do
+    def get(%Key{}, _opts), do: :miss
+    def open_sink(%Key{}, %Entry.Metadata{}, _opts), do: {:ok, %{}}
+  end
+
   defmodule ShouldNotBeCalledAdapter do
     @behaviour ImagePlug.Cache
 
@@ -712,6 +717,29 @@ defmodule ImagePlug.CacheTest do
              )
 
     assert {:error, {:cache_write, {:invalid_cache_config, {:adapter, ^adapter}}}} =
+             Cache.put(cache_key(), entry(), cache: {adapter, []})
+  end
+
+  test "adapter missing required callbacks returns config errors before runtime calls" do
+    adapter = MissingSinkCallbacksAdapter
+
+    assert {:error,
+            {:cache_read,
+             {:invalid_cache_config,
+              {:adapter_missing_callbacks, ^adapter,
+               [write_chunk: 3, commit_sink: 2, abort_sink: 2]}}}} =
+             Cache.lookup(
+               conn(:get, "/_/f:webp/plain/images/cat.jpg"),
+               plan(),
+               source_identity(),
+               cache: {adapter, []}
+             )
+
+    assert {:error,
+            {:cache_write,
+             {:invalid_cache_config,
+              {:adapter_missing_callbacks, ^adapter,
+               [write_chunk: 3, commit_sink: 2, abort_sink: 2]}}}} =
              Cache.put(cache_key(), entry(), cache: {adapter, []})
   end
 
