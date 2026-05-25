@@ -72,8 +72,7 @@ defmodule ImagePlug.Source do
 
   @spec fetch(Resolved.t(), keyword(), keyword()) :: {:ok, Response.t()} | {:error, error()}
   def fetch(%Resolved{} = resolved, opts, runtime_opts) do
-    with :ok <- validate_resolved_for_fetch(resolved),
-         {:ok, module, adapter_opts} <- fetch_adapter_config(resolved.adapter, opts) do
+    with {:ok, module, adapter_opts} <- fetch_adapter_config(resolved.adapter, opts) do
       source_metadata = source_metadata(resolved.source_kind, adapter_opts)
 
       telemetry_opts = Telemetry.telemetry_opts(runtime_opts)
@@ -188,18 +187,12 @@ defmodule ImagePlug.Source do
 
   defp validate_resolved(%Resolved{}, _adapter), do: {:error, {:source, :invalid_adapter_result}}
 
-  defp validate_resolved_for_fetch(%Resolved{} = resolved) do
-    if valid_resolved?(resolved), do: :ok, else: {:error, {:source, :invalid_adapter_result}}
-  end
-
   defp valid_resolved?(%Resolved{
-         adapter: adapter,
          source_kind: source_kind,
          identity: identity,
          cache: cache
        }) do
-    is_atom(adapter) and source_kind in @source_kinds and cache in @cache_policies and
-      Identity.valid?(identity)
+    source_kind in @source_kinds and cache in @cache_policies and Identity.valid?(identity)
   end
 
   defp source_metadata(source_kind, adapter_opts) do
