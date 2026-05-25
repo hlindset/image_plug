@@ -157,12 +157,7 @@ defmodule ImagePlug.Request.Processor do
   end
 
   defp materialize_state(%State{} = state, opts) do
-    materializer =
-      Keyword.get(
-        opts,
-        :image_materializer,
-        Keyword.get(opts, :image_materializer_module, Materializer)
-      )
+    materializer = Keyword.get(opts, :image_materializer, Materializer)
 
     materializer.materialize(state, opts)
   end
