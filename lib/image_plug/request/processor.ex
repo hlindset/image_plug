@@ -3,7 +3,6 @@ defmodule ImagePlug.Request.Processor do
 
   alias ImagePlug.Plan
   alias ImagePlug.Request.Options
-  alias ImagePlug.Request.Processor.Decoded
   alias ImagePlug.Request.SourceFormat
   alias ImagePlug.Source
   alias ImagePlug.Telemetry
@@ -13,18 +12,23 @@ defmodule ImagePlug.Request.Processor do
   alias ImagePlug.Transform.State
 
   @type source_format() :: SourceFormat.source_format()
+  @type decoded() :: %{
+          required(:decode_options) => keyword(),
+          required(:image) => Vix.Vips.Image.t(),
+          required(:source_format) => source_format()
+        }
 
   @spec process_source(Plan.t(), Source.Resolved.t(), keyword()) ::
           {:ok, State.t()} | {:error, term()}
   def process_source(%Plan{} = plan, %Source.Resolved{} = resolved_source, opts) do
-    with {:ok, %Decoded{} = decoded} <-
+    with {:ok, decoded} <-
            fetch_decode_validate_source_with_source_format(plan, resolved_source, opts) do
       process_decoded_source(decoded, plan, opts)
     end
   end
 
   @spec fetch_decode_validate_source_with_source_format(Plan.t(), Source.Resolved.t(), keyword()) ::
-          {:ok, Decoded.t()} | {:error, term()}
+          {:ok, decoded()} | {:error, term()}
   def fetch_decode_validate_source_with_source_format(
         %Plan{} = plan,
         %Source.Resolved{} = resolved_source,
@@ -44,7 +48,7 @@ defmodule ImagePlug.Request.Processor do
   end
 
   @spec decode_validate_source_response(Source.Response.t(), Plan.t(), keyword()) ::
-          {:ok, Decoded.t()} | {:error, term()}
+          {:ok, decoded()} | {:error, term()}
   def decode_validate_source_response(%Source.Response{} = source_response, %Plan{} = plan, opts) do
     decode_options = DecodePlanner.open_options(first_pipeline_operations(plan))
 
@@ -54,7 +58,7 @@ defmodule ImagePlug.Request.Processor do
          {:ok, source_format} <- SourceFormat.from_image(image),
          :ok <- validate_input_image(image, opts) |> wrap_input_limit_error() do
       {:ok,
-       %Decoded{
+       %{
          decode_options: decode_options,
          image: image,
          source_format: source_format
@@ -62,14 +66,18 @@ defmodule ImagePlug.Request.Processor do
     end
   end
 
-  @spec process_decoded_source(Decoded.t(), Plan.t(), keyword()) ::
+  @spec process_decoded_source(decoded(), Plan.t(), keyword()) ::
           {:ok, State.t()} | {:error, term()}
-  def process_decoded_source(%Decoded{} = decoded, %Plan{} = plan, opts) do
+  def process_decoded_source(
+        %{decode_options: decode_options, image: image},
+        %Plan{} = plan,
+        opts
+      ) do
     Telemetry.span(Telemetry.telemetry_opts(opts), [:transform, :execute], %{}, fn ->
       result =
         with {:ok, final_state} <-
-               execute_plan_pipelines(%State{image: decoded.image}, plan, opts) do
-          materialize_before_delivery(final_state, decoded.decode_options, opts)
+               execute_plan_pipelines(%State{image: image}, plan, opts) do
+          materialize_before_delivery(final_state, decode_options, opts)
         end
 
       {result, transform_stop_metadata(result)}
@@ -183,7 +191,8 @@ defmodule ImagePlug.Request.Processor do
   defp wrap_input_limit_error(:ok), do: :ok
   defp wrap_input_limit_error({:error, error}), do: {:error, {:input_limit, error}}
 
-  defp fetch_decode_stop_metadata({:ok, %Decoded{}}), do: %{result: :ok}
+  defp fetch_decode_stop_metadata({:ok, %{decode_options: _options, image: _image}}),
+    do: %{result: :ok}
 
   defp fetch_decode_stop_metadata({:error, {:source, error}}),
     do: %{result: :source_error, error: Telemetry.error(error)}

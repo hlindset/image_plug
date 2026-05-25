@@ -5,7 +5,6 @@ defmodule ImagePlug.Request.SourceSession.Producer do
   alias ImagePlug.Output.Policy
   alias ImagePlug.Output.Resolved
   alias ImagePlug.Request.Processor
-  alias ImagePlug.Request.Processor.Decoded
   alias ImagePlug.Request.SourceSession.Request
   alias ImagePlug.Source.StreamError
   alias ImagePlug.Telemetry
@@ -151,7 +150,7 @@ defmodule ImagePlug.Request.SourceSession.Producer do
   end
 
   defp prepare_first_chunk(%__MODULE__{request: %Request{} = request} = state) do
-    with {:ok, %Decoded{} = decoded} <-
+    with {:ok, decoded} <-
            Processor.fetch_decode_validate_source_with_source_format(
              request.plan,
              request.resolved_source,

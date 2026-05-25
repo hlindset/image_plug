@@ -7,7 +7,6 @@ defmodule ImagePlug.Request.ProcessorTest do
   alias ImagePlug.Plan.Pipeline
   alias ImagePlug.Plan.Source.Path
   alias ImagePlug.Request.Processor
-  alias ImagePlug.Request.Processor.Decoded
   alias ImagePlug.Request.ProcessorTest.DecodeErrorImageOpen
   alias ImagePlug.Request.ProcessorTest.Materializer
   alias ImagePlug.Source
@@ -87,7 +86,7 @@ defmodule ImagePlug.Request.ProcessorTest do
   end
 
   test "fetch_decode_validate_source_with_source_format accepts resolved sources" do
-    assert {:ok, %Decoded{} = decoded} =
+    assert {:ok, %{image: %VipsImage{} = _image} = decoded} =
              Processor.fetch_decode_validate_source_with_source_format(
                plan(),
                resolved_source(),
@@ -138,7 +137,7 @@ defmodule ImagePlug.Request.ProcessorTest do
       output: %Output{mode: {:explicit, :jpeg}}
     }
 
-    assert {:ok, %Decoded{} = decoded} =
+    assert {:ok, %{image: %VipsImage{} = _image} = decoded} =
              Processor.fetch_decode_validate_source_with_source_format(
                plan,
                resolved_source(),
