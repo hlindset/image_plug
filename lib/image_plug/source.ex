@@ -51,7 +51,7 @@ defmodule ImagePlug.Source do
 
   @spec resolve(PlanSource.t(), keyword(), keyword()) :: {:ok, Resolved.t()} | {:error, error()}
   def resolve(source, opts, runtime_opts) do
-    with {:ok, adapter, source_kind} <- source_adapter(source),
+    with {:ok, adapter, source_kind} <- source_route(source),
          {:ok, module, adapter_opts} <- fetch_adapter_config(adapter, opts) do
       source_metadata = source_metadata(source_kind, adapter_opts)
 
@@ -161,17 +161,17 @@ defmodule ImagePlug.Source do
     ordered_input_values ++ extra_values
   end
 
-  defp source_adapter(%PlanSource.Path{}), do: {:ok, :path, :path}
-  defp source_adapter(%PlanSource.URL{scheme: :http}), do: {:ok, :http, :url}
-  defp source_adapter(%PlanSource.URL{scheme: :https}), do: {:ok, :https, :url}
+  defp source_route(%PlanSource.Path{}), do: {:ok, :path, :path}
+  defp source_route(%PlanSource.URL{scheme: :http}), do: {:ok, :http, :url}
+  defp source_route(%PlanSource.URL{scheme: :https}), do: {:ok, :https, :url}
 
-  defp source_adapter(%PlanSource.Object{adapter: adapter}) when is_atom(adapter),
+  defp source_route(%PlanSource.Object{adapter: adapter}) when is_atom(adapter),
     do: {:ok, adapter, :object}
 
-  defp source_adapter(%PlanSource.Reference{adapter: adapter}) when is_atom(adapter),
+  defp source_route(%PlanSource.Reference{adapter: adapter}) when is_atom(adapter),
     do: {:ok, adapter, :reference}
 
-  defp source_adapter(_source), do: {:error, {:source, :missing_adapter}}
+  defp source_route(_source), do: {:error, {:source, :missing_adapter}}
 
   defp fetch_adapter_config(adapter, opts) do
     case opts[:sources] do
