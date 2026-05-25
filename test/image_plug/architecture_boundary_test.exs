@@ -29,6 +29,7 @@ defmodule ImagePlug.ArchitectureBoundaryTest do
   @boundary_files %{
     ImagePlug.Application => "lib/application.ex",
     ImagePlug.Cache => "lib/image_plug/cache.ex",
+    ImagePlug.Error => "lib/image_plug/error.ex",
     ImagePlug.Format => "lib/image_plug/format.ex",
     ImagePlug.Output => "lib/image_plug/output.ex",
     ImagePlug.Plan => "lib/image_plug/plan.ex",
@@ -109,6 +110,7 @@ defmodule ImagePlug.ArchitectureBoundaryTest do
     request = boundary_declaration(ImagePlug.Request)
 
     assert_boundary_deps(request, [
+      ImagePlug.Error,
       ImagePlug.Format,
       ImagePlug.Plan,
       ImagePlug.Cache,
@@ -138,7 +140,7 @@ defmodule ImagePlug.ArchitectureBoundaryTest do
   test "source boundary owns source identity and fetch context" do
     source = boundary_declaration(ImagePlug.Source)
 
-    assert_boundary_deps(source, [ImagePlug.Plan, ImagePlug.Telemetry])
+    assert_boundary_deps(source, [ImagePlug.Error, ImagePlug.Plan, ImagePlug.Telemetry])
 
     refute_boundary_deps(source, [
       ImagePlug.Request,
@@ -164,13 +166,13 @@ defmodule ImagePlug.ArchitectureBoundaryTest do
 
     assert_boundary_deps(response, [
       ImagePlug.Cache,
+      ImagePlug.Error,
       ImagePlug.Output,
       ImagePlug.Plan,
-      ImagePlug.Telemetry,
-      ImagePlug.Transform
+      ImagePlug.Telemetry
     ])
 
-    refute_boundary_deps(response, [ImagePlug.Request, ImagePlug.Source])
+    refute_boundary_deps(response, [ImagePlug.Request, ImagePlug.Source, ImagePlug.Transform])
 
     assert_boundary_exports(response, [
       ImagePlug.Response.PreparedStream,
@@ -262,6 +264,13 @@ defmodule ImagePlug.ArchitectureBoundaryTest do
     assert_boundary_exports(telemetry, [])
   end
 
+  test "error boundary remains a dependency-free helper" do
+    error = boundary_declaration(ImagePlug.Error)
+
+    assert_boundary_deps(error, [])
+    assert_boundary_exports(error, [])
+  end
+
   test "format boundary remains dependency-free" do
     format = boundary_declaration(ImagePlug.Format)
 
@@ -338,9 +347,10 @@ defmodule ImagePlug.ArchitectureBoundaryTest do
     cache = boundary_declaration(ImagePlug.Cache)
 
     assert_boundary_deps(cache, [
+      ImagePlug.Error,
+      ImagePlug.Format,
       ImagePlug.Plan,
       ImagePlug.Output,
-      ImagePlug.Transform,
       ImagePlug.Telemetry
     ])
 
@@ -373,7 +383,6 @@ defmodule ImagePlug.ArchitectureBoundaryTest do
       ImagePlug.Transform.Chain,
       ImagePlug.Transform.DecodePlanner,
       ImagePlug.Transform.Materializer,
-      ImagePlug.Transform.KeyData,
       ImagePlug.Transform.Operation.Resize,
       ImagePlug.Transform.Operation.ExtendCanvas,
       ImagePlug.Transform.Operation.Padding,
@@ -392,6 +401,7 @@ defmodule ImagePlug.ArchitectureBoundaryTest do
 
     assert_boundary_exports_include(plan, [
       ImagePlug.Plan.Color,
+      ImagePlug.Plan.KeyData,
       ImagePlug.Plan.Operation.Padding,
       ImagePlug.Plan.Operation.Background
     ])

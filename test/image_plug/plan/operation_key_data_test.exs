@@ -2,7 +2,7 @@ defmodule ImagePlug.Plan.OperationKeyDataTest do
   use ExUnit.Case, async: true
 
   alias ImagePlug.Plan.Operation
-  alias ImagePlug.Transform.KeyData
+  alias ImagePlug.Plan.KeyData
   alias ImagePlug.Transform.Operation.AutoOrient
   alias ImagePlug.Transform.Operation.Flip
   alias ImagePlug.Transform.Operation.Rotate

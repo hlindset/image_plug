@@ -216,7 +216,7 @@ defmodule ImagePlug.Response.SenderTest do
                     %{
                       result: :processing_error,
                       stream_phase: :encode,
-                      error: :encode,
+                      error: :failed_after_first_chunk,
                       status: 200,
                       output_format: :jpeg
                     }}
@@ -284,7 +284,7 @@ defmodule ImagePlug.Response.SenderTest do
                     %{
                       result: :processing_error,
                       stream_phase: :encode,
-                      error: :encode,
+                      error: :error,
                       status: 200,
                       output_format: :jpeg
                     }}

@@ -37,7 +37,7 @@ defmodule ImagePlug.Source.HTTP do
   @impl Source
   def validate_options(opts) do
     case NimbleOptions.validate(opts, @options_schema) do
-      {:ok, validated} -> {:ok, validated}
+      {:ok, validated} -> {:ok, Keyword.put(validated, :telemetry_kind, :http)}
       {:error, error} -> {:error, {:invalid_source_config, Exception.message(error)}}
     end
   end

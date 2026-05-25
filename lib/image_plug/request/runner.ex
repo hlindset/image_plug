@@ -4,6 +4,7 @@ defmodule ImagePlug.Request.Runner do
   alias ImagePlug.Cache
   alias ImagePlug.Cache.Entry
   alias ImagePlug.Cache.Key
+  alias ImagePlug.Error
   alias ImagePlug.Output.Policy
   alias ImagePlug.Plan
   alias ImagePlug.Plan.Response
@@ -31,24 +32,7 @@ defmodule ImagePlug.Request.Runner do
         ) ::
           {:ok, delivery()} | {:error, error()}
   def run(conn, %Plan{} = plan, %Source.Resolved{} = resolved_source, opts) do
-    with :ok <- validate_cache_config(opts) do
-      run_with_cache_config(conn, plan, resolved_source, opts)
-    else
-      {:error, {:cache, reason}} -> {:error, {:cache, reason}}
-    end
-  end
-
-  defp validate_cache_config(opts) do
-    case Keyword.get(opts, :cache) do
-      nil ->
-        :ok
-
-      _cache ->
-        case Cache.validate_config(opts) do
-          {:ok, _opts} -> :ok
-          {:error, reason} -> {:error, {:cache, reason}}
-        end
-    end
+    run_with_cache_config(conn, plan, resolved_source, opts)
   end
 
   defp run_with_cache_config(conn, plan, %Source.Resolved{cache: :skip} = resolved_source, opts),
@@ -184,8 +168,8 @@ defmodule ImagePlug.Request.Runner do
   defp cache_lookup_stop_metadata({:miss, %Key{}}), do: %{result: :ok, cache: :miss}
 
   defp cache_lookup_stop_metadata({:miss, %Key{}, {:cache_read, error}}),
-    do: %{result: :cache_error, cache: :read_error, error: Telemetry.error(error)}
+    do: %{result: :cache_error, cache: :read_error, error: Error.tag(error)}
 
   defp cache_lookup_stop_metadata({:error, {:cache_read, error}}),
-    do: %{result: :cache_error, cache: :read_error, error: Telemetry.error(error)}
+    do: %{result: :cache_error, cache: :read_error, error: Error.tag(error)}
 end

@@ -6,9 +6,10 @@ defmodule ImagePlug.Cache do
   use Boundary,
     top_level?: true,
     deps: [
+      ImagePlug.Error,
+      ImagePlug.Format,
       ImagePlug.Plan,
       ImagePlug.Output,
-      ImagePlug.Transform,
       ImagePlug.Telemetry
     ],
     exports: [
@@ -86,26 +87,14 @@ defmodule ImagePlug.Cache do
   def shared_option_keys, do: @shared_cache_option_keys
 
   @doc false
-  @spec max_body_bytes(keyword()) :: non_neg_integer() | nil
-  def max_body_bytes(opts) when is_list(opts) do
-    case cache_config(opts) do
-      {:ok, _adapter, cache_opts} -> Keyword.get(cache_opts, :max_body_bytes)
-      _other -> nil
-    end
-  end
-
-  @doc false
   @spec lookup(Plug.Conn.t(), Plan.t(), term(), keyword()) :: lookup_result()
   def lookup(conn, %Plan{} = plan, source_identity, opts) when is_list(opts) do
-    case cache_config(opts) do
-      :disabled ->
+    case Keyword.get(opts, :cache) do
+      nil ->
         :disabled
 
-      {:ok, adapter, cache_opts} ->
+      {adapter, cache_opts} ->
         lookup_configured(adapter, conn, plan, source_identity, opts, cache_opts)
-
-      {:error, reason} ->
-        {:error, {:cache_read, reason}}
     end
   end
 
@@ -114,15 +103,12 @@ defmodule ImagePlug.Cache do
   def open_sink(nil, %Resolved{}, _opts), do: nil
 
   def open_sink(%Key{} = key, %Resolved{} = resolved_output, opts) when is_list(opts) do
-    case cache_config(opts) do
-      :disabled ->
+    case Keyword.get(opts, :cache) do
+      nil ->
         nil
 
-      {:ok, adapter, cache_opts} ->
+      {adapter, cache_opts} ->
         Sink.open(adapter, key, resolved_output, cache_opts, opts)
-
-      {:error, reason} ->
-        Sink.report_open_error(reason, resolved_output.format, opts)
     end
   end
 
@@ -142,23 +128,9 @@ defmodule ImagePlug.Cache do
   @spec put(Key.t(), Entry.t(), keyword()) ::
           :ok | :skipped | {:error, {:cache_write, term()}}
   def put(%Key{} = key, %Entry{} = entry, opts) when is_list(opts) do
-    case cache_config(opts) do
-      :disabled -> :skipped
-      {:ok, adapter, cache_opts} -> Sink.put_entry(adapter, key, entry, cache_opts, opts)
-      {:error, reason} -> {:error, {:cache_write, reason}}
-    end
-  end
-
-  defp cache_config(opts) do
     case Keyword.get(opts, :cache) do
-      nil ->
-        :disabled
-
-      {adapter, cache_opts} when is_list(cache_opts) ->
-        validate_configured_cache(adapter, cache_opts)
-
-      invalid ->
-        {:error, {:invalid_cache_config, invalid}}
+      nil -> :skipped
+      {adapter, cache_opts} -> Sink.put_entry(adapter, key, entry, cache_opts, opts)
     end
   end
 

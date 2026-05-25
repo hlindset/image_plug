@@ -1820,7 +1820,7 @@ defmodule ImagePlug.ImagePlugTest do
         root_url: "http://origin.test",
         image_open_module: RecordingImageOpen,
         parser: ImagePlug.Parser.Imgproxy,
-        image_materializer_module: FailingMaterializer,
+        image_materializer: FailingMaterializer,
         origin_req_options: [plug: OriginImage]
       )
 
@@ -1843,7 +1843,7 @@ defmodule ImagePlug.ImagePlugTest do
         root_url: "http://origin.test",
         image_open_module: RecordingImageOpen,
         parser: ImagePlug.Parser.Imgproxy,
-        image_materializer_module: FailingMaterializer,
+        image_materializer: FailingMaterializer,
         origin_req_options: [plug: OriginImage]
       )
 

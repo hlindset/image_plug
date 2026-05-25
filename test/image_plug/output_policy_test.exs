@@ -42,37 +42,55 @@ defmodule ImagePlug.Output.PolicyTest do
     end
   end
 
-  describe "resolve_before_source_fetch/1" do
-    test "selects explicit and modern automatic formats before source fetch" do
-      assert Policy.resolve_before_source_fetch(%Policy{
-               mode: {:explicit, :png},
-               modern_candidates: [],
-               headers: [],
-               quality: :default,
-               format_qualities: %{}
-             }) == {:selected, :png, :explicit}
+  describe "resolve/2" do
+    test "selects explicit format before source fetch" do
+      policy = %Policy{
+        mode: {:explicit, :png},
+        modern_candidates: [],
+        headers: [],
+        quality: :default,
+        format_qualities: %{}
+      }
 
-      assert Policy.resolve_before_source_fetch(%Policy{
-               mode: :source,
-               modern_candidates: [:avif, :webp],
-               headers: [{"vary", "Accept"}],
-               quality: :default,
-               format_qualities: %{}
-             }) == {:selected, :avif, :auto}
+      assert Policy.resolve(policy, nil) ==
+               {:ok,
+                %Resolved{
+                  format: :png,
+                  quality: :default,
+                  response_headers: []
+                }}
+    end
+
+    test "selects modern automatic format before source fetch" do
+      policy = %Policy{
+        mode: :source,
+        modern_candidates: [:avif, :webp],
+        headers: [{"vary", "Accept"}],
+        quality: :default,
+        format_qualities: %{}
+      }
+
+      assert Policy.resolve(policy, nil) ==
+               {:ok,
+                %Resolved{
+                  format: :avif,
+                  quality: :default,
+                  response_headers: [{"vary", "Accept"}]
+                }}
     end
 
     test "requires source format when automatic output has no modern candidate" do
-      assert Policy.resolve_before_source_fetch(%Policy{
-               mode: :source,
-               modern_candidates: [],
-               headers: [{"vary", "Accept"}],
-               quality: :default,
-               format_qualities: %{}
-             }) == :needs_source_format
-    end
-  end
+      policy = %Policy{
+        mode: :source,
+        modern_candidates: [],
+        headers: [{"vary", "Accept"}],
+        quality: :default,
+        format_qualities: %{}
+      }
 
-  describe "resolve_source_format/2" do
+      assert Policy.resolve(policy, nil) == {:error, :source_format_required}
+    end
+
     test "uses source format without strict Accept rejection" do
       policy = %Policy{
         mode: :source,
@@ -82,8 +100,21 @@ defmodule ImagePlug.Output.PolicyTest do
         format_qualities: %{}
       }
 
-      assert Policy.resolve_source_format(policy, :png) == {:selected, :png, :source}
-      assert Policy.resolve_source_format(policy, :jpeg) == {:selected, :jpeg, :source}
+      assert Policy.resolve(policy, :png) ==
+               {:ok,
+                %Resolved{
+                  format: :png,
+                  quality: :default,
+                  response_headers: [{"vary", "Accept"}]
+                }}
+
+      assert Policy.resolve(policy, :jpeg) ==
+               {:ok,
+                %Resolved{
+                  format: :jpeg,
+                  quality: :default,
+                  response_headers: [{"vary", "Accept"}]
+                }}
     end
 
     test "keeps source format fallback for output-capable source families" do
@@ -95,8 +126,21 @@ defmodule ImagePlug.Output.PolicyTest do
         format_qualities: %{}
       }
 
-      assert Policy.resolve_source_format(policy, :webp) == {:selected, :webp, :source}
-      assert Policy.resolve_source_format(policy, :avif) == {:selected, :avif, :source}
+      assert Policy.resolve(policy, :webp) ==
+               {:ok,
+                %Resolved{
+                  format: :webp,
+                  quality: :default,
+                  response_headers: [{"vary", "Accept"}]
+                }}
+
+      assert Policy.resolve(policy, :avif) ==
+               {:ok,
+                %Resolved{
+                  format: :avif,
+                  quality: :default,
+                  response_headers: [{"vary", "Accept"}]
+                }}
     end
 
     test "defers source-only fallback until final image alpha is known" do
@@ -108,25 +152,13 @@ defmodule ImagePlug.Output.PolicyTest do
         format_qualities: %{}
       }
 
-      assert Policy.resolve_source_format(policy, :heif) == {:needs_final_image_alpha, :source}
-      assert Policy.resolve_source_format(policy, :tiff) == {:needs_final_image_alpha, :source}
+      assert Policy.resolve(policy, :heif) == {:needs_final_image_alpha, :source}
+      assert Policy.resolve(policy, :tiff) == {:needs_final_image_alpha, :source}
 
-      assert Policy.resolve_source_format(policy, :jpeg2000) ==
+      assert Policy.resolve(policy, :jpeg2000) ==
                {:needs_final_image_alpha, :source}
 
-      assert Policy.resolve_source_format(policy, :jpeg_xl) == {:needs_final_image_alpha, :source}
-    end
-
-    test "requires known source format" do
-      policy = %Policy{
-        mode: :source,
-        modern_candidates: [],
-        headers: [{"vary", "Accept"}],
-        quality: :default,
-        format_qualities: %{}
-      }
-
-      assert Policy.resolve_source_format(policy, nil) == {:error, :source_format_required}
+      assert Policy.resolve(policy, :jpeg_xl) == {:needs_final_image_alpha, :source}
     end
   end
 
@@ -190,7 +222,7 @@ defmodule ImagePlug.Output.PolicyTest do
     end
   end
 
-  describe "resolve/2" do
+  describe "quality resolution" do
     test "explicit global quality wins over matching format quality regardless of URL order" do
       plan = %Output{
         mode: {:explicit, :webp},

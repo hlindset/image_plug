@@ -1,13 +1,9 @@
 defmodule ImagePlug.Parser.Imgproxy.PlanBuilder do
   @moduledoc false
 
-  alias ImagePlug.Parser.Imgproxy.CacheRequest
   alias ImagePlug.Parser.Imgproxy.CropRequest
-  alias ImagePlug.Parser.Imgproxy.OutputRequest
   alias ImagePlug.Parser.Imgproxy.ParsedRequest
   alias ImagePlug.Parser.Imgproxy.PipelineRequest
-  alias ImagePlug.Parser.Imgproxy.RequestPolicy
-  alias ImagePlug.Parser.Imgproxy.ResponseRequest
   alias ImagePlug.Parser.Imgproxy.Source, as: ImgproxySource
   alias ImagePlug.Plan
   alias ImagePlug.Plan.Operation
@@ -89,7 +85,7 @@ defmodule ImagePlug.Parser.Imgproxy.PlanBuilder do
     end
   end
 
-  defp output_plan(%OutputRequest{format: nil} = request) do
+  defp output_plan(%{format: nil} = request) do
     {:ok,
      %Output{
        mode: :automatic,
@@ -98,10 +94,10 @@ defmodule ImagePlug.Parser.Imgproxy.PlanBuilder do
      }}
   end
 
-  defp output_plan(%OutputRequest{format: :best}),
+  defp output_plan(%{format: :best}),
     do: {:error, {:unsupported_output_format, :best}}
 
-  defp output_plan(%OutputRequest{format: format} = request) do
+  defp output_plan(%{format: format} = request) do
     case Format.output_format?(format) do
       true ->
         {:ok,
@@ -116,9 +112,9 @@ defmodule ImagePlug.Parser.Imgproxy.PlanBuilder do
     end
   end
 
-  defp expires_plan(%RequestPolicy{expires: 0}, _opts), do: {:ok, 0}
+  defp expires_plan(%{expires: 0}, _opts), do: {:ok, 0}
 
-  defp expires_plan(%RequestPolicy{expires: expires}, opts)
+  defp expires_plan(%{expires: expires}, opts)
        when is_integer(expires) and expires > 0 do
     with :ok <- reject_expired_request(expires, now_unix_seconds(opts)) do
       {:ok, expires}
@@ -139,18 +135,18 @@ defmodule ImagePlug.Parser.Imgproxy.PlanBuilder do
     |> then(&DateTime.to_unix(&1.()))
   end
 
-  defp cachebuster_plan(%CacheRequest{cachebuster: cachebuster}),
+  defp cachebuster_plan(%{cachebuster: cachebuster}),
     do: {:ok, cachebuster}
 
   defp response_plan(
-         %ResponseRequest{filename: nil, disposition: disposition},
+         %{filename: nil, disposition: disposition},
          source
        ) do
     {:ok, %Response{filename: source_filename(source), disposition: disposition}}
   end
 
   defp response_plan(
-         %ResponseRequest{filename: filename, disposition: disposition},
+         %{filename: filename, disposition: disposition},
          _source
        )
        when is_binary(filename) do

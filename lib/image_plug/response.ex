@@ -5,10 +5,10 @@ defmodule ImagePlug.Response do
     top_level?: true,
     deps: [
       ImagePlug.Cache,
+      ImagePlug.Error,
       ImagePlug.Output,
       ImagePlug.Plan,
-      ImagePlug.Telemetry,
-      ImagePlug.Transform
+      ImagePlug.Telemetry
     ],
     exports: [
       PreparedStream,

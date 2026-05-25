@@ -18,7 +18,12 @@ defmodule ImagePlug.Source.File do
   def validate_options(opts) do
     case NimbleOptions.validate(opts, @options_schema) do
       {:ok, validated} ->
-        {:ok, Keyword.update!(validated, :root, &Path.expand/1)}
+        validated =
+          validated
+          |> Keyword.update!(:root, &Path.expand/1)
+          |> Keyword.put(:telemetry_kind, :file)
+
+        {:ok, validated}
 
       {:error, error} ->
         {:error, {:invalid_source_config, Exception.message(error)}}

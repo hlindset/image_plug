@@ -1,6 +1,7 @@
 defmodule ImagePlug.Output.NegotiationTest do
   use ExUnit.Case, async: true
 
+  alias ImagePlug.Format
   alias ImagePlug.Output.Negotiation
 
   describe "modern_candidates/2" do
@@ -53,39 +54,39 @@ defmodule ImagePlug.Output.NegotiationTest do
 
   describe "suffix!/1" do
     test "maps output MIME types to encoder suffixes" do
-      assert Negotiation.suffix!("image/avif") == ".avif"
-      assert Negotiation.suffix!("image/webp") == ".webp"
-      assert Negotiation.suffix!("image/jpeg") == ".jpg"
-      assert Negotiation.suffix!("image/png") == ".png"
+      assert Format.suffix!("image/avif") == ".avif"
+      assert Format.suffix!("image/webp") == ".webp"
+      assert Format.suffix!("image/jpeg") == ".jpg"
+      assert Format.suffix!("image/png") == ".png"
     end
 
     test "returns tagged suffix results without raising" do
-      assert Negotiation.suffix("image/jpeg") == {:ok, ".jpg"}
+      assert Format.suffix("image/jpeg") == {:ok, ".jpg"}
 
-      assert Negotiation.suffix("image/gif") ==
+      assert Format.suffix("image/gif") ==
                {:error, {:unsupported_output_format, "image/gif"}}
     end
   end
 
   describe "format conversion" do
     test "maps negotiated MIME types to format atoms" do
-      assert Negotiation.format("image/avif") == {:ok, :avif}
-      assert Negotiation.format("image/webp") == {:ok, :webp}
-      assert Negotiation.format("image/jpeg") == {:ok, :jpeg}
-      assert Negotiation.format("image/jpg") == {:ok, :jpeg}
-      assert Negotiation.format("image/png") == {:ok, :png}
-      assert Negotiation.format("IMAGE/PNG; charset=binary") == {:ok, :png}
+      assert Format.format_from_mime_type("image/avif") == {:ok, :avif}
+      assert Format.format_from_mime_type("image/webp") == {:ok, :webp}
+      assert Format.format_from_mime_type("image/jpeg") == {:ok, :jpeg}
+      assert Format.format_from_mime_type("image/jpg") == {:ok, :jpeg}
+      assert Format.format_from_mime_type("image/png") == {:ok, :png}
+      assert Format.format_from_mime_type("IMAGE/PNG; charset=binary") == {:ok, :png}
 
-      assert Negotiation.format("image/gif") ==
+      assert Format.format_from_mime_type("image/gif") ==
                {:error, {:unsupported_output_format, "image/gif"}}
     end
 
     test "maps format atoms to output MIME types" do
-      assert Negotiation.mime_type(:avif) == {:ok, "image/avif"}
-      assert Negotiation.mime_type(:webp) == {:ok, "image/webp"}
-      assert Negotiation.mime_type(:jpeg) == {:ok, "image/jpeg"}
-      assert Negotiation.mime_type(:png) == {:ok, "image/png"}
-      assert Negotiation.mime_type(:gif) == :error
+      assert Format.mime_type(:avif) == {:ok, "image/avif"}
+      assert Format.mime_type(:webp) == {:ok, "image/webp"}
+      assert Format.mime_type(:jpeg) == {:ok, "image/jpeg"}
+      assert Format.mime_type(:png) == {:ok, "image/png"}
+      assert Format.mime_type(:gif) == :error
     end
   end
 end

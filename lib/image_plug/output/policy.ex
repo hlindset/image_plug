@@ -14,8 +14,7 @@ defmodule ImagePlug.Output.Policy do
   @type format() :: Format.output_format()
   @type source_format() :: Format.source_format()
   @type quality() :: :default | {:quality, 1..100}
-  @type mode() :: :source | :best | {:explicit, format()}
-  @type reason() :: :explicit | :auto | :source
+  @type mode() :: :source | {:explicit, format()}
 
   @type t() :: %__MODULE__{
           mode: mode(),
@@ -46,26 +45,21 @@ defmodule ImagePlug.Output.Policy do
     }
   end
 
-  @spec resolve_before_source_fetch(t()) ::
-          {:selected, format(), reason()} | :needs_source_format | {:needs_encoded_evaluation}
-  def resolve_before_source_fetch(%__MODULE__{mode: {:explicit, format}}),
+  defp resolve_before_source_fetch(%__MODULE__{mode: {:explicit, format}}),
     do: {:selected, format, :explicit}
 
-  def resolve_before_source_fetch(%__MODULE__{
-        mode: :source,
-        modern_candidates: [format | _rest]
-      }),
-      do: {:selected, format, :auto}
+  defp resolve_before_source_fetch(%__MODULE__{
+         mode: :source,
+         modern_candidates: [format | _rest]
+       }),
+       do: {:selected, format, :auto}
 
-  def resolve_before_source_fetch(%__MODULE__{mode: :source, modern_candidates: []}),
+  defp resolve_before_source_fetch(%__MODULE__{mode: :source, modern_candidates: []}),
     do: :needs_source_format
-
-  def resolve_before_source_fetch(%__MODULE__{mode: :best}), do: {:needs_encoded_evaluation}
 
   @spec resolve(t(), source_format() | nil) ::
           {:ok, Resolved.t()}
           | {:error, :source_format_required}
-          | {:needs_encoded_evaluation}
           | {:needs_final_image_alpha, :source}
   def resolve(%__MODULE__{} = policy, source_format) do
     case resolve_before_source_fetch(policy) do
@@ -78,17 +72,10 @@ defmodule ImagePlug.Output.Policy do
           {:needs_final_image_alpha, _reason} = pending -> pending
           {:error, _reason} = error -> error
         end
-
-      {:needs_encoded_evaluation} ->
-        {:needs_encoded_evaluation}
     end
   end
 
-  @spec resolve_source_format(t(), source_format() | nil) ::
-          {:selected, format(), :source}
-          | {:needs_final_image_alpha, :source}
-          | {:error, :source_format_required}
-  def resolve_source_format(%__MODULE__{mode: :source}, source_format) do
+  defp resolve_source_format(%__MODULE__{mode: :source}, source_format) do
     cond do
       Format.output_format?(source_format) -> {:selected, source_format, :source}
       Format.source_only_format?(source_format) -> {:needs_final_image_alpha, :source}

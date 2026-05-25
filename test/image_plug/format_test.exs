@@ -33,6 +33,25 @@ defmodule ImagePlug.FormatTest do
   end
 
   test "output MIME mapping covers the canonical output formats" do
-    assert ImagePlug.Output.Format.all() |> Keyword.keys() == Format.output_formats()
+    assert Format.output_mime_types() |> Keyword.keys() == Format.output_formats()
+
+    assert Format.output_mime_type_values() == [
+             "image/avif",
+             "image/webp",
+             "image/jpeg",
+             "image/png"
+           ]
+  end
+
+  test "maps output MIME types and suffixes" do
+    assert Format.format_from_mime_type("image/jpeg") == {:ok, :jpeg}
+    assert Format.format_from_mime_type("image/jpg") == {:ok, :jpeg}
+    assert Format.format_from_mime_type(" image/WEBP; charset=utf-8") == {:ok, :webp}
+
+    assert Format.format_from_mime_type("image/gif") ==
+             {:error, {:unsupported_output_format, "image/gif"}}
+
+    assert Format.mime_type(:png) == {:ok, "image/png"}
+    assert Format.suffix!("image/png") == ".png"
   end
 end

@@ -1,7 +1,7 @@
 defmodule ImagePlug.Output.Negotiation do
   @moduledoc false
 
-  alias ImagePlug.Output.Format
+  alias ImagePlug.Format
 
   @modern_formats [avif: "image/avif", webp: "image/webp"]
 
@@ -17,16 +17,6 @@ defmodule ImagePlug.Output.Negotiation do
         |> Enum.flat_map(&modern_candidate(&1, entries))
     end
   end
-
-  defdelegate suffix(mime_type), to: Format
-
-  defdelegate suffix!(mime_type), to: Format
-
-  defdelegate format(mime_type), to: Format
-
-  defdelegate mime_type(format), to: Format
-
-  defdelegate mime_type!(format), to: Format
 
   defp enabled_modern_formats(opts) do
     enabled? = %{

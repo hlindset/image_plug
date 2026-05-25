@@ -22,7 +22,7 @@ defmodule ImagePlug.Parser.Imgproxy.PlanBuilderTest do
       source_kind: :plain,
       source_path: "images/cat.jpg",
       pipelines: [%PipelineRequest{width: {:pixels, 300}}],
-      output: %ImagePlug.Parser.Imgproxy.OutputRequest{}
+      output: output_request()
     }
 
     assert {:ok,
@@ -562,7 +562,7 @@ defmodule ImagePlug.Parser.Imgproxy.PlanBuilderTest do
         %PipelineRequest{width: {:pixels, 500}},
         %PipelineRequest{height: {:pixels, 200}}
       ],
-      output: %ImagePlug.Parser.Imgproxy.OutputRequest{}
+      output: output_request()
     }
 
     assert {:ok,
@@ -588,7 +588,7 @@ defmodule ImagePlug.Parser.Imgproxy.PlanBuilderTest do
       source_kind: :plain,
       source_path: "images/cat.jpg",
       pipelines: [%PipelineRequest{gravity: :sm}],
-      output: %ImagePlug.Parser.Imgproxy.OutputRequest{}
+      output: output_request()
     }
 
     assert PlanBuilder.to_plan(request, []) == {:error, {:unsupported_gravity, :sm}}
@@ -606,7 +606,7 @@ defmodule ImagePlug.Parser.Imgproxy.PlanBuilderTest do
           height: {:pixels, 200}
         }
       ],
-      output: %ImagePlug.Parser.Imgproxy.OutputRequest{format: :webp}
+      output: output_request(format: :webp)
     }
 
     assert {:ok,
@@ -615,7 +615,7 @@ defmodule ImagePlug.Parser.Imgproxy.PlanBuilderTest do
               output: %ImagePlug.Plan.Output{mode: :automatic}
             }} =
              PlanBuilder.to_plan(
-               %ParsedRequest{request | output: %ImagePlug.Parser.Imgproxy.OutputRequest{}},
+               %ParsedRequest{request | output: output_request()},
                []
              )
 
@@ -642,7 +642,7 @@ defmodule ImagePlug.Parser.Imgproxy.PlanBuilderTest do
                PlanBuilder.to_plan(
                  %ParsedRequest{
                    parsed_request
-                   | output: %ImagePlug.Parser.Imgproxy.OutputRequest{}
+                   | output: output_request()
                  },
                  []
                )
@@ -655,7 +655,7 @@ defmodule ImagePlug.Parser.Imgproxy.PlanBuilderTest do
                  PlanBuilder.to_plan(
                    %ParsedRequest{
                      parsed_request
-                     | output: %ImagePlug.Parser.Imgproxy.OutputRequest{format: format}
+                     | output: output_request(format: format)
                    },
                    []
                  )
@@ -673,15 +673,16 @@ defmodule ImagePlug.Parser.Imgproxy.PlanBuilderTest do
                PlanBuilder.to_plan(
                  %ParsedRequest{
                    parsed_request
-                   | output: %ImagePlug.Parser.Imgproxy.OutputRequest{}
+                   | output: output_request()
                  },
                  []
                )
 
-      quality_request = %ImagePlug.Parser.Imgproxy.OutputRequest{
-        quality: {:quality, 80},
-        format_qualities: %{webp: {:quality, 70}}
-      }
+      quality_request =
+        output_request(
+          quality: {:quality, 80},
+          format_qualities: %{webp: {:quality, 70}}
+        )
 
       assert {:ok,
               %ImagePlug.Plan{
@@ -706,13 +707,10 @@ defmodule ImagePlug.Parser.Imgproxy.PlanBuilderTest do
       source_kind: :plain,
       source_path: "images/cat.jpg",
       pipelines: [%PipelineRequest{width: {:pixels, 300}}],
-      output: %ImagePlug.Parser.Imgproxy.OutputRequest{format: :webp},
-      policy: %ImagePlug.Parser.Imgproxy.RequestPolicy{},
-      cache: %ImagePlug.Parser.Imgproxy.CacheRequest{cachebuster: "v1"},
-      response: %ImagePlug.Parser.Imgproxy.ResponseRequest{
-        filename: "cat",
-        disposition: :attachment
-      }
+      output: output_request(format: :webp),
+      policy: policy_request(),
+      cache: cache_request(cachebuster: "v1"),
+      response: response_request(filename: "cat", disposition: :attachment)
     }
 
     assert {:ok,
@@ -739,7 +737,7 @@ defmodule ImagePlug.Parser.Imgproxy.PlanBuilderTest do
                source_kind: :plain,
                source_path: "images/cat.jpg",
                pipelines: [%PipelineRequest{}],
-               output: %ImagePlug.Parser.Imgproxy.OutputRequest{}
+               output: output_request()
              })
 
     assert PlanBuilder.to_plan(%ParsedRequest{
@@ -747,7 +745,7 @@ defmodule ImagePlug.Parser.Imgproxy.PlanBuilderTest do
              source_kind: :plain,
              source_path: "images/",
              pipelines: [%PipelineRequest{}],
-             output: %ImagePlug.Parser.Imgproxy.OutputRequest{}
+             output: output_request()
            }) == {:error, :invalid_source_path}
   end
 
@@ -757,11 +755,8 @@ defmodule ImagePlug.Parser.Imgproxy.PlanBuilderTest do
       source_kind: :plain,
       source_path: "images/cat.jpg",
       pipelines: [%PipelineRequest{}],
-      output: %ImagePlug.Parser.Imgproxy.OutputRequest{},
-      response: %ImagePlug.Parser.Imgproxy.ResponseRequest{
-        filename: "../cat",
-        disposition: :attachment
-      }
+      output: output_request(),
+      response: response_request(filename: "../cat", disposition: :attachment)
     }
 
     assert PlanBuilder.to_plan(request, []) == {:error, {:invalid_filename, "../cat"}}
@@ -798,7 +793,7 @@ defmodule ImagePlug.Parser.Imgproxy.PlanBuilderTest do
         source_kind: :plain,
         source_path: "images/cat.jpg",
         pipelines: [pipeline_request],
-        output: %ImagePlug.Parser.Imgproxy.OutputRequest{format: output_format}
+        output: output_request(format: output_format)
       }
     end)
   end
@@ -847,7 +842,7 @@ defmodule ImagePlug.Parser.Imgproxy.PlanBuilderTest do
         source_kind: :plain,
         source_path: "images/cat.jpg",
         pipelines: [struct!(PipelineRequest, attrs)],
-        output: %ImagePlug.Parser.Imgproxy.OutputRequest{}
+        output: output_request()
       },
       []
     )
@@ -874,4 +869,9 @@ defmodule ImagePlug.Parser.Imgproxy.PlanBuilderTest do
 
   defp maybe_put(attrs, _key, nil), do: attrs
   defp maybe_put(attrs, key, value), do: Keyword.put(attrs, key, value)
+
+  defp output_request(attrs \\ []), do: ParsedRequest.output_request(attrs)
+  defp policy_request(attrs \\ []), do: ParsedRequest.policy_request(attrs)
+  defp cache_request(attrs), do: ParsedRequest.cache_request(attrs)
+  defp response_request(attrs), do: ParsedRequest.response_request(attrs)
 end

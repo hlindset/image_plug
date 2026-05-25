@@ -10,6 +10,7 @@ defmodule ImagePlug.SourceTest do
   alias ImagePlug.SourceTest.AdapterMismatchAdapter
   alias ImagePlug.SourceTest.CustomAdapter
   alias ImagePlug.SourceTest.InvalidAdapter
+  alias ImagePlug.SourceTest.InvalidConfigAdapter
   alias ImagePlug.SourceTest.InvalidIdentityAdapter
   alias ImagePlug.SourceTest.RaisingAdapter
   alias ImagePlug.SourceTest.StreamWithCleanup
@@ -26,6 +27,11 @@ defmodule ImagePlug.SourceTest do
 
     assert opts[:sources][:path] ==
              {CustomAdapter, [adapter: :path, label: "root", validated: true]}
+  end
+
+  test "validate_config preserves adapter validation error context" do
+    assert Source.validate_config(sources: [path: {InvalidConfigAdapter, []}]) ==
+             {:error, {:source, {:invalid_source_config, :bad_option}}}
   end
 
   test "resolve dispatches by source shape and configured adapter key" do
@@ -261,11 +267,16 @@ defmodule ImagePlug.SourceTest do
     end
   end
 
-  test "resolve and fetch catch adapter exceptions as sanitized source errors" do
+  test "resolve surfaces unexpected adapter exceptions" do
     assert {:ok, opts} = Source.validate_config(sources: [path: {RaisingAdapter, []}])
 
-    assert Source.resolve(%Path{segments: ["images", "cat.jpg"]}, opts, []) ==
-             {:error, {:source, :adapter_exception}}
+    assert_raise RuntimeError, "raw resolve failure", fn ->
+      Source.resolve(%Path{segments: ["images", "cat.jpg"]}, opts, [])
+    end
+  end
+
+  test "fetch surfaces unexpected adapter exceptions" do
+    assert {:ok, opts} = Source.validate_config(sources: [path: {RaisingAdapter, []}])
 
     resolved = %Resolved{
       adapter: :path,
@@ -275,7 +286,9 @@ defmodule ImagePlug.SourceTest do
       fetch: :raise
     }
 
-    assert Source.fetch(resolved, opts, []) == {:error, {:source, :adapter_exception}}
+    assert_raise RuntimeError, "raw fetch failure", fn ->
+      Source.fetch(resolved, opts, [])
+    end
   end
 
   test "validate_config! raises for invalid source adapter config" do

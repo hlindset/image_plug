@@ -1119,18 +1119,6 @@ defmodule ImagePlug.Request.RunnerTest do
     assert_supervisor_empty(supervisor)
   end
 
-  test "invalid cache config returns cache errors before cache lookup" do
-    assert {:error, {:cache, {:invalid_cache_config, {:max_body_bytes, "10MB"}}}} =
-             Runner.run(
-               conn(:get, "/_/f:jpeg/plain/images/beach.jpg"),
-               plan(),
-               resolved_source(),
-               cache: {CacheReadProbe, entry: nil, max_body_bytes: "10MB"}
-             )
-
-    refute_received {:cache_lookup, _key}
-  end
-
   test "multiple pipelines reach processing and materialize between pipelines" do
     test_pid = self()
     ref = make_ref()

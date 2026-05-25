@@ -1,22 +1,19 @@
 defmodule ImagePlug.Parser.Imgproxy.Options do
   @moduledoc false
 
-  alias ImagePlug.Parser.Imgproxy.CacheRequest
   alias ImagePlug.Parser.Imgproxy.OptionGrammar
-  alias ImagePlug.Parser.Imgproxy.OutputRequest
+  alias ImagePlug.Parser.Imgproxy.ParsedRequest
   alias ImagePlug.Parser.Imgproxy.PipelineRequest
   alias ImagePlug.Parser.Imgproxy.Presets
-  alias ImagePlug.Parser.Imgproxy.RequestPolicy
-  alias ImagePlug.Parser.Imgproxy.ResponseRequest
   alias ImagePlug.Plan.Color
   alias ImagePlug.Plan.Orientation
 
   @type request_options :: %{
           pipelines: [PipelineRequest.t()],
-          output: OutputRequest.t(),
-          policy: RequestPolicy.t(),
-          cache: CacheRequest.t(),
-          response: ResponseRequest.t()
+          output: ParsedRequest.output_request(),
+          policy: ParsedRequest.policy_request(),
+          cache: ParsedRequest.cache_request(),
+          response: ParsedRequest.response_request()
         }
 
   @spec parse([String.t()], Presets.t()) :: {:ok, request_options()} | {:error, term()}
@@ -38,10 +35,10 @@ defmodule ImagePlug.Parser.Imgproxy.Options do
       current_pipeline: %PipelineRequest{},
       queued_preset_groups: [],
       pipelines: [],
-      output: %OutputRequest{},
-      policy: %RequestPolicy{},
-      cache: %CacheRequest{},
-      response: %ResponseRequest{}
+      output: ParsedRequest.output_request(),
+      policy: ParsedRequest.policy_request(),
+      cache: ParsedRequest.cache_request(),
+      response: ParsedRequest.response_request()
     }
   end
 
@@ -229,22 +226,32 @@ defmodule ImagePlug.Parser.Imgproxy.Options do
           }
 
         assignment, output ->
-          struct!(output, [assignment])
+          merge_request_map(output, [assignment])
       end)
 
     %{options | output: output}
   end
 
   defp update_cache(%{cache: cache} = options, assignments) do
-    %{options | cache: struct!(cache, assignments)}
+    %{options | cache: merge_request_map(cache, assignments)}
   end
 
   defp update_policy(%{policy: policy} = options, assignments) do
-    %{options | policy: struct!(policy, assignments)}
+    %{options | policy: merge_request_map(policy, assignments)}
   end
 
   defp update_response(%{response: response} = options, assignments) do
-    %{options | response: struct!(response, assignments)}
+    %{options | response: merge_request_map(response, assignments)}
+  end
+
+  defp merge_request_map(request, assignments) do
+    attrs = Map.new(assignments)
+    unknown_keys = Map.keys(attrs) -- Map.keys(request)
+
+    case unknown_keys do
+      [] -> Map.merge(request, attrs)
+      keys -> raise ArgumentError, "unknown request keys: #{inspect(keys)}"
+    end
   end
 
   defp pipeline_empty?(%PipelineRequest{

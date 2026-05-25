@@ -57,7 +57,7 @@ defmodule ImagePlug.Source.S3 do
     with {:ok, validated} <- validate_options_schema(opts),
          {:ok, default} <- validate_config(Keyword.fetch!(validated, :default)),
          {:ok, buckets} <- validate_buckets(Keyword.fetch!(validated, :buckets), default) do
-      {:ok, [default: default, buckets: buckets]}
+      {:ok, [default: default, buckets: buckets, telemetry_kind: :s3]}
     end
   end
 

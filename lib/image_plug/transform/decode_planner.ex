@@ -25,10 +25,9 @@ defmodule ImagePlug.Transform.DecodePlanner do
     [access: access(chain), fail_on: :error]
   end
 
-  @spec access([ImagePlug.Plan.Pipeline.operation()]) :: :sequential | :random
-  def access([]), do: :random
+  defp access([]), do: :random
 
-  def access(chain) when is_list(chain) do
+  defp access(chain) when is_list(chain) do
     chain
     |> Enum.map(&access_requirement/1)
     |> resolve_access()

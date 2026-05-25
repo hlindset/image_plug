@@ -14,6 +14,7 @@ defmodule ImagePlug.Response.Sender do
   require Logger
 
   alias ImagePlug.Cache.Entry
+  alias ImagePlug.Error
   alias ImagePlug.Output.Resolved
   alias ImagePlug.Plan.Response
   alias ImagePlug.Response.PreparedStream
@@ -362,7 +363,7 @@ defmodule ImagePlug.Response.Sender do
   end
 
   defp prepared_encode_stop_metadata(
-         {:error, {:client_closed, reason}},
+         {:error, {:client_closed, _reason}},
          %Plug.Conn{status: status},
          %Resolved{} = resolved_output
        ) do
@@ -370,7 +371,7 @@ defmodule ImagePlug.Response.Sender do
       %{
         result: :client_closed,
         stream_phase: :client,
-        error: Telemetry.error({:client_closed, reason}),
+        error: :client_closed,
         status: status
       },
       output_metadata(resolved_output)
@@ -386,7 +387,7 @@ defmodule ImagePlug.Response.Sender do
       %{
         result: :processing_error,
         stream_phase: stream_error_phase(reason),
-        error: Telemetry.error(reason),
+        error: stream_error_tag(reason),
         status: status
       },
       output_metadata(resolved_output)
@@ -397,4 +398,9 @@ defmodule ImagePlug.Response.Sender do
     do: phase
 
   defp stream_error_phase(_reason), do: :encode
+
+  defp stream_error_tag({phase, reason}) when phase in [:source, :decode, :output, :encode],
+    do: Error.tag(reason)
+
+  defp stream_error_tag(reason), do: Error.tag(reason)
 end

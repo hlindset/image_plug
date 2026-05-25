@@ -5,7 +5,8 @@ defmodule ImagePlug.Cache.Sink do
 
   alias ImagePlug.Cache.Entry
   alias ImagePlug.Cache.Key
-  alias ImagePlug.Output.Format
+  alias ImagePlug.Error
+  alias ImagePlug.Format
   alias ImagePlug.Output.Resolved
   alias ImagePlug.Telemetry
 
@@ -42,12 +43,6 @@ defmodule ImagePlug.Cache.Sink do
         handle_open_error(reason, resolved_output.format, opts)
         nil
     end
-  end
-
-  @spec report_open_error(term(), atom(), keyword()) :: nil
-  def report_open_error(reason, output_format, opts) do
-    handle_open_error(reason, output_format, opts)
-    nil
   end
 
   @spec write_chunk(t() | nil, binary(), keyword()) :: t() | nil
@@ -111,7 +106,7 @@ defmodule ImagePlug.Cache.Sink do
 
   defp open_entry_put(adapter, %Key{} = key, %Entry{} = entry, cache_opts, opts) do
     with :ok <- check_size(byte_size(entry.body), Keyword.get(cache_opts, :max_body_bytes)),
-         {:ok, output_format} <- Format.format(entry.content_type),
+         {:ok, output_format} <- Format.format_from_mime_type(entry.content_type),
          {:ok, headers} <- Entry.cacheable_headers(entry.headers) do
       metadata = %Entry.Metadata{
         content_type: entry.content_type,
@@ -211,7 +206,7 @@ defmodule ImagePlug.Cache.Sink do
     %{
       result: :cache_error,
       cache: :write_error,
-      error: Telemetry.error(reason),
+      error: Error.tag(reason),
       output_format: sink.output_format
     }
   end
@@ -223,7 +218,7 @@ defmodule ImagePlug.Cache.Sink do
     %{
       result: :cache_error,
       cache: :write_error,
-      error: Telemetry.error(reason),
+      error: Error.tag(reason),
       output_format: sink.output_format
     }
   end
@@ -259,7 +254,7 @@ defmodule ImagePlug.Cache.Sink do
     do: %{
       result: :cache_error,
       cache: :stage_error,
-      error: Telemetry.error(error),
+      error: Error.tag(error),
       output_format: output_format
     }
 
@@ -267,7 +262,7 @@ defmodule ImagePlug.Cache.Sink do
     do: %{
       result: :cache_error,
       cache: :stage_cleanup_error,
-      error: Telemetry.error(error),
+      error: Error.tag(error),
       output_format: output_format
     }
 
