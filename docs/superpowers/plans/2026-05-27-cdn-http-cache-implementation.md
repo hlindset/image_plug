@@ -1270,6 +1270,7 @@ defmodule ImagePipe.Request.HTTPCacheTest do
     assert prepared.headers == []
     assert prepared.etag == nil
   end
+
 end
 ```
 
@@ -1344,7 +1345,7 @@ defmodule ImagePipe.Request.HTTPCache do
     effective_mode = effective_mode(resolved, opts)
     representation_headers = representation_headers(conn, plan)
 
-    {headers, etag, fallback} =
+    {headers, etag, fallback_reason} =
       generated_cache_headers(conn, plan, resolved, opts, effective_mode, representation_headers)
 
     Telemetry.execute(
@@ -1358,7 +1359,7 @@ defmodule ImagePipe.Request.HTTPCache do
       }
     )
 
-    if fallback == :no_store do
+    if fallback_reason do
       Telemetry.execute(
         Telemetry.telemetry_opts(opts),
         [:http_cache, :fallback, :no_store],
@@ -1366,7 +1367,7 @@ defmodule ImagePipe.Request.HTTPCache do
         %{
           adapter: resolved.adapter,
           source_kind: resolved.source_kind,
-          reason: :missing_byte_identity
+          reason: fallback_reason
         }
       )
     end
@@ -1385,6 +1386,21 @@ defmodule ImagePipe.Request.HTTPCache do
   @doc false
   @spec generated_cache_control() :: String.t()
   def generated_cache_control, do: @generated_cache_control
+
+  @doc false
+  @spec etag_material(Plug.Conn.t(), Plan.t(), term(), keyword()) :: {:ok, keyword()} | :omit_etag
+  def etag_material(conn, %Plan{} = plan, source_seed, opts) do
+    with {:ok, _representation_material} <- Plan.canonical_representation_material(plan) do
+      {:ok,
+       [
+         etag_schema: @etag_schema,
+         source: source_seed,
+         plan: canonical_plan_data(plan, opts),
+         accept: accept_material(conn, plan.output, opts),
+         representation_version: Key.representation_version()
+       ]}
+    end
+  end
 
   defp effective_mode(%Resolved{http_cache: :inherit}, opts),
     do: opts |> Keyword.fetch!(:http_cache) |> Keyword.fetch!(:mode)
@@ -1416,9 +1432,17 @@ defmodule ImagePipe.Request.HTTPCache do
 
   defp generated_cache_control_and_etag(conn, plan, resolved, opts) do
     case generated_etag(conn, plan, resolved, opts) do
-      nil ->
+      {:etag, etag} ->
+        {[{"cache-control", @generated_cache_control}, {"etag", etag}], etag, nil}
+
+      :omit_etag ->
+        {[{"cache-control", @no_store}], nil, :missing_representation_material}
+
+      :not_generated ->
         case resolved.cache_semantics do
-          %CacheSemantics{byte_identity: :none} -> {[{"cache-control", @no_store}], nil, :no_store}
+          %CacheSemantics{byte_identity: :none} ->
+            {[{"cache-control", @no_store}], nil, :missing_byte_identity}
+
           %CacheSemantics{byte_identity: {:strong, _seed}} ->
             if has_resp_header?(conn, "etag"),
               do: {[{"cache-control", @generated_cache_control}], nil, nil},
@@ -1427,25 +1451,24 @@ defmodule ImagePipe.Request.HTTPCache do
           _cache_semantics -> {[], nil, nil}
         end
 
-      etag ->
-        {[{"cache-control", @generated_cache_control}, {"etag", etag}], etag, nil}
     end
   end
 
   defp generated_etag_only(conn, plan, resolved, opts) do
     case generated_etag(conn, plan, resolved, opts) do
-      nil -> {[], nil, nil}
-      etag -> {[{"etag", etag}], etag, nil}
+      {:etag, etag} -> {[{"etag", etag}], etag, nil}
+      :omit_etag -> {[], nil, nil}
+      :not_generated -> {[], nil, nil}
     end
   end
 
   defp generated_etag(conn, plan, %Resolved{cache_semantics: cache_semantics}, opts) do
     cond do
       has_resp_header?(conn, "etag") ->
-        nil
+        :not_generated
 
       selected_cache_control(conn) == @no_store ->
-        nil
+        :not_generated
 
       true ->
         do_generated_etag(conn, plan, cache_semantics, opts)
@@ -1453,27 +1476,19 @@ defmodule ImagePipe.Request.HTTPCache do
   end
 
   defp do_generated_etag(conn, plan, %CacheSemantics{byte_identity: {:strong, seed}}, opts) do
-    with {:ok, output_material} <- Plan.canonical_representation_material(plan) do
-      material = [
-        etag_schema: @etag_schema,
-        source: seed,
-        plan: canonical_plan_data(plan, opts),
-        output: output_material,
-        accept: accept_material(conn, plan.output, opts),
-        representation_version: Key.representation_version()
-      ]
-
+    with {:ok, material} <- etag_material(conn, plan, seed, opts) do
       material
       |> serialize_material()
       |> :crypto.hash(:sha256)
       |> Base.url_encode64(padding: false)
-      |> then(&~s("ip#{@etag_schema}-#{&1}"))
+      |> then(&{:etag, ~s("ip#{@etag_schema}-#{&1}")})
     else
-      :omit_etag -> nil
+      :omit_etag -> :omit_etag
     end
   end
 
-  defp do_generated_etag(_conn, _plan, %CacheSemantics{byte_identity: :none}, _opts), do: nil
+  defp do_generated_etag(_conn, _plan, %CacheSemantics{byte_identity: :none}, _opts),
+    do: :not_generated
 
   defp canonical_plan_data(%Plan{} = plan, opts) do
     {:ok, material} = Key.plan_material(plan, opts)
@@ -1615,6 +1630,56 @@ selection, not encoded bytes. Add a focused test that changing
 `plan.cachebuster` changes `ImagePipe.Cache.Key.build/4` data but doesn't
 change the generated ETag.
 
+The helper needs a conn-free output material path. Split the current
+`output_data/3` shape so `build/4` still records `modern_candidates` from
+`Accept`, while `plan_material/2` records only plan/output policy fields:
+
+```elixir
+defp output_plan_data(%Output{mode: :automatic} = output, opts) do
+  {:ok,
+   [
+     mode: :automatic,
+     auto: [
+       avif: Keyword.get(opts, :auto_avif, true),
+       webp: Keyword.get(opts, :auto_webp, true)
+     ],
+     quality: output.quality,
+     format_qualities: output.format_qualities
+   ]}
+end
+
+defp output_plan_data(%Output{mode: {:explicit, format}} = output, _opts) do
+  {:ok,
+   [
+     mode: :explicit,
+     format: format,
+     quality: output.quality,
+     format_qualities: output.format_qualities
+   ]}
+end
+
+defp output_plan_data(output, _opts), do: {:error, {:invalid_output_plan, output}}
+
+defp output_data(conn, %Output{mode: :automatic} = output, opts) do
+  accept_header = conn |> get_req_header("accept") |> Enum.join(",")
+
+  with {:ok, data} <- output_plan_data(output, opts) do
+    {:ok, Keyword.put(data, :modern_candidates, Negotiation.modern_candidates(accept_header, opts))}
+  end
+end
+
+defp output_data(_conn, %Output{} = output, opts), do: output_plan_data(output, opts)
+```
+
+Use `output_plan_data/2` from `plan_material/2`. Use
+`Plan.canonical_representation_material/1` from `HTTPCache`; don't duplicate an
+extra `output:` field in generated ETag material.
+
+No current valid output mode returns `:omit_etag`. Keep the `:omit_etag`
+fallback in `HTTPCache` as `Cache-Control: no-store` with reason
+`:missing_representation_material`; add a focused test when the first output
+mode can hit that branch.
+
 - [ ] **Step 6: Add conditional parsing tests**
 
 Extend `test/image_pipe/request/http_cache_test.exs`:
@@ -1663,6 +1728,51 @@ describe "evaluate_conditional/3" do
       :get
       |> conn("/image")
       |> put_req_header("if-none-match", ~s("host"))
+
+    assert :proceed = HTTPCache.evaluate_conditional(conn, prepared, [])
+  end
+
+  test "non-matching if-none-match proceeds" do
+    prepared = %ImagePipe.Response.CacheHeaders{
+      representation_headers: [],
+      headers: [{"etag", ~s("ip1-abc")}],
+      etag: ~s("ip1-abc")
+    }
+
+    conn =
+      :get
+      |> conn("/image")
+      |> put_req_header("if-none-match", ~s("ip1-other"))
+
+    assert :proceed = HTTPCache.evaluate_conditional(conn, prepared, [])
+  end
+
+  test "malformed if-none-match proceeds" do
+    prepared = %ImagePipe.Response.CacheHeaders{
+      representation_headers: [],
+      headers: [{"etag", ~s("ip1-abc")}],
+      etag: ~s("ip1-abc")
+    }
+
+    conn =
+      :get
+      |> conn("/image")
+      |> put_req_header("if-none-match", "not-a-quoted-tag")
+
+    assert :proceed = HTTPCache.evaluate_conditional(conn, prepared, [])
+  end
+
+  test "non-cacheable methods do not use conditional response handling" do
+    prepared = %ImagePipe.Response.CacheHeaders{
+      representation_headers: [],
+      headers: [{"etag", ~s("ip1-abc")}],
+      etag: ~s("ip1-abc")
+    }
+
+    conn =
+      :post
+      |> conn("/image")
+      |> put_req_header("if-none-match", ~s("ip1-abc"))
 
     assert :proceed = HTTPCache.evaluate_conditional(conn, prepared, [])
   end
@@ -1861,6 +1971,20 @@ defmodule ImagePipe.CDNHTTPCacheWireTest do
     def abort_sink(_state, _opts), do: :ok
   end
 
+  defmodule CacheHitProbe do
+    @behaviour ImagePipe.Cache
+
+    def get(%Key{} = key, opts) do
+      send(Keyword.fetch!(opts, :test_pid), {:cache_get, key})
+      {:hit, Keyword.fetch!(opts, :entry)}
+    end
+
+    def open_sink(_key, _metadata, _opts), do: raise("cache hit should not write")
+    def write_chunk(_state, _chunk, _opts), do: raise("cache hit should not write")
+    def commit_sink(_state, _opts), do: raise("cache hit should not write")
+    def abort_sink(_state, _opts), do: :ok
+  end
+
   setup do
     opts =
       ImagePipe.Plug.init(
@@ -1905,6 +2029,79 @@ defmodule ImagePipe.CDNHTTPCacheWireTest do
     assert Plug.Conn.get_resp_header(conn, "content-type") == []
     refute_received {:cache_get, %Key{}}
     refute_received :source_fetch_called
+  end
+
+  test "existing vary is merged in the final response", %{opts: opts} do
+    conn =
+      :get
+      |> conn(signed_path("/plain/beach.jpg"))
+      |> put_req_header("accept", "image/avif,image/webp")
+      |> put_resp_header("vary", "Accept-Encoding")
+      |> ImagePipe.Plug.call(opts)
+
+    assert conn.status == 200
+    assert Plug.Conn.get_resp_header(conn, "vary") == ["Accept-Encoding, Accept"]
+  end
+
+  test "request cookie does not change generated headers or source fetch", %{opts: opts} do
+    without_cookie = ImagePipe.Plug.call(conn(:get, signed_path("/plain/beach.jpg")), opts)
+    [etag] = Plug.Conn.get_resp_header(without_cookie, "etag")
+
+    flush_messages()
+
+    with_cookie =
+      :get
+      |> conn(signed_path("/plain/beach.jpg"))
+      |> put_req_header("cookie", "session=private")
+      |> ImagePipe.Plug.call(opts)
+
+    assert Plug.Conn.get_resp_header(with_cookie, "etag") == [etag]
+    assert Plug.Conn.get_resp_header(with_cookie, "vary") != ["Cookie"]
+    assert_received :source_fetch_called
+  end
+
+  test "internal cache hit returns 200 with current prepared etag" do
+    entry = %Entry{
+      body: "cached body",
+      content_type: "image/jpeg",
+      headers: [{"cache-control", "public, max-age=60"}],
+      created_at: DateTime.utc_now()
+    }
+
+    opts =
+      ImagePipe.Plug.init(
+        parser: ImagePipe.Parser.Imgproxy,
+        sources: [path: {StableSource, test_pid: self()}],
+        cache: {CacheHitProbe, test_pid: self(), entry: entry},
+        http_cache: [mode: :enabled]
+      )
+
+    conn = ImagePipe.Plug.call(conn(:get, signed_path("/plain/beach.jpg")), opts)
+
+    assert conn.status == 200
+    assert conn.resp_body == "cached body"
+    assert [etag] = Plug.Conn.get_resp_header(conn, "etag")
+    assert String.starts_with?(etag, "\"ip1-")
+    assert Plug.Conn.get_resp_header(conn, "cache-control") == [
+             "public, max-age=31536000, immutable"
+           ]
+    refute_received :source_fetch_called
+  end
+
+  test "transform option order variants produce the same etag", %{opts: opts} do
+    left =
+      ImagePipe.Plug.call(
+        conn(:get, signed_path("/rs:fill:0:400:0/c:0.5:0.5/plain/beach.jpg")),
+        opts
+      )
+
+    right =
+      ImagePipe.Plug.call(
+        conn(:get, signed_path("/c:0.5:0.5/rs:fill:0:400:0/plain/beach.jpg")),
+        opts
+      )
+
+    assert Plug.Conn.get_resp_header(left, "etag") == Plug.Conn.get_resp_header(right, "etag")
   end
 
   defp signed_path(path) do
@@ -1956,8 +2153,12 @@ prepared_http_cache = HTTPCache.prepare(conn, plan, resolved_source, opts)
 
 case HTTPCache.evaluate_conditional(conn, prepared_http_cache, opts) do
   {:not_modified, headers} ->
-    conn = HTTPCache.send_not_modified(conn, headers)
-    {conn, %{result: :not_modified, status: conn.status}}
+    {conn, send_metadata} =
+      send_response(conn, opts, :not_modified, fn ->
+        HTTPCache.send_not_modified(conn, headers)
+      end)
+
+    {conn, Map.merge(%{result: :not_modified}, send_metadata)}
 
   :proceed ->
     result = Runner.run(conn, plan, resolved_source, prepared_http_cache, opts)
@@ -2100,6 +2301,7 @@ test "cache hits merge generated headers before cached entry headers" do
 
   assert Plug.Conn.get_resp_header(conn, "etag") == [~s("ip1-test")]
   assert Plug.Conn.get_resp_header(conn, "vary") == ["Accept"]
+  assert conn.status == 200
 end
 
 test "current host cache-control wins over generated and cached headers" do
@@ -2192,9 +2394,9 @@ Add merge helpers:
 defp merge_delivery_headers(conn, cached_or_stream_headers, %CacheHeaders{} = prepared) do
   []
   |> merge_header_list(prepared.headers)
-  |> merge_header_list(prepared.representation_headers)
+  |> merge_authoritative_header_list(prepared.representation_headers)
   |> merge_header_list(cached_or_stream_headers)
-  |> reject_existing_conn_headers(conn)
+  |> reject_existing_conn_headers(conn, authoritative_header_names(prepared.representation_headers))
 end
 
 defp merge_header_list(base, additions) do
@@ -2215,12 +2417,35 @@ defp put_header_unless_present(headers, name, value) do
   end
 end
 
-defp reject_existing_conn_headers(headers, conn) do
+defp merge_authoritative_header_list(base, additions) do
+  Enum.reduce(additions, base, fn {name, value}, headers ->
+    put_header_replacing_existing(headers, name, value)
+  end)
+end
+
+defp put_header_replacing_existing(headers, name, value) do
+  downcased = String.downcase(name)
+
+  headers
+  |> Enum.reject(fn {existing_name, _existing_value} -> String.downcase(existing_name) == downcased end)
+  |> Kernel.++([{downcased, value}])
+end
+
+defp authoritative_header_names(headers),
+  do: Enum.map(headers, fn {name, _value} -> String.downcase(name) end)
+
+defp reject_existing_conn_headers(headers, conn, authoritative_names) do
   Enum.reject(headers, fn {name, _value} ->
-    Plug.Conn.get_resp_header(conn, name) != []
+    name = String.downcase(name)
+    name not in authoritative_names and Plug.Conn.get_resp_header(conn, name) != []
   end)
 end
 ```
+
+`representation_headers` are authoritative because `HTTPCache.prepare/4`
+already merged the current conn value. This is required for `Vary`; otherwise a
+preexisting `Vary: Accept-Encoding` on the conn would cause Sender to discard
+the prepared `Vary: Accept-Encoding, Accept`.
 
 Use this in cache-hit path:
 
@@ -2329,6 +2554,99 @@ test "client hints don't enter generated vary" do
   refute Enum.any?(prepared.representation_headers, fn {_name, value} ->
            String.contains?(String.downcase(value), "width")
          end)
+end
+
+test "plan expires does not change generated cache-control" do
+  base = HTTPCache.prepare(conn(:get, "/image"), plan(), resolved(), opts())
+
+  expiring =
+    HTTPCache.prepare(
+      conn(:get, "/image"),
+      %{plan() | expires: 1_899_345_600},
+      resolved(),
+      opts()
+    )
+
+  assert header(base.headers, "cache-control") == header(expiring.headers, "cache-control")
+end
+
+test "cachebuster changes internal key data but not generated etag" do
+  base_plan = plan()
+  busted_plan = %{plan() | cachebuster: "v2"}
+  plug_conn = conn(:get, "/image")
+
+  assert {:ok, base_key} = ImagePipe.Cache.Key.build(plug_conn, base_plan, resolved().identity)
+  assert {:ok, busted_key} = ImagePipe.Cache.Key.build(plug_conn, busted_plan, resolved().identity)
+  assert base_key.data[:cache] != busted_key.data[:cache]
+
+  base = HTTPCache.prepare(conn(:get, "/image"), base_plan, resolved(), opts())
+  busted = HTTPCache.prepare(conn(:get, "/image"), busted_plan, resolved(), opts())
+
+  assert base.etag == busted.etag
+end
+
+test "source revision changes generated etag" do
+  left =
+    HTTPCache.prepare(
+      conn(:get, "/image"),
+      plan(),
+      resolved(
+        cache_semantics: %CacheSemantics{
+          byte_identity: {:strong, [kind: :object, adapter: :s3, bucket: "b", key: "cat.jpg", revision: "v1"]},
+          stable?: true
+        }
+      ),
+      opts()
+    )
+
+  right =
+    HTTPCache.prepare(
+      conn(:get, "/image"),
+      plan(),
+      resolved(
+        cache_semantics: %CacheSemantics{
+          byte_identity: {:strong, [kind: :object, adapter: :s3, bucket: "b", key: "cat.jpg", revision: "v2"]},
+          stable?: true
+        }
+      ),
+      opts()
+    )
+
+  assert left.etag != right.etag
+end
+
+test "visible etag prefix comes from etag schema" do
+  prepared = HTTPCache.prepare(conn(:get, "/image"), plan(), resolved(), opts())
+
+  assert String.starts_with?(prepared.etag, ~s("ip#{HTTPCache.etag_schema()}-))
+end
+
+test "etag material uses the internal cache representation version" do
+  assert {:strong, seed} = resolved().cache_semantics.byte_identity
+
+  assert {:ok, material} = HTTPCache.etag_material(conn(:get, "/image"), plan(), seed, opts())
+  assert material[:representation_version] == ImagePipe.Cache.Key.representation_version()
+end
+
+test "cookie request header does not enter generated vary or etag" do
+  without_cookie = HTTPCache.prepare(conn(:get, "/image"), plan(), resolved(), opts())
+
+  with_cookie =
+    :get
+    |> conn("/image")
+    |> put_req_header("cookie", "session=private")
+    |> HTTPCache.prepare(plan(), resolved(), opts())
+
+  assert with_cookie.etag == without_cookie.etag
+  refute Enum.any?(with_cookie.representation_headers, fn {_name, value} ->
+           String.downcase(value) == "cookie"
+         end)
+end
+
+defp header(headers, name) do
+  headers
+  |> Enum.find(fn {header_name, _value} -> header_name == name end)
+  |> elem(1)
 end
 ```
 
