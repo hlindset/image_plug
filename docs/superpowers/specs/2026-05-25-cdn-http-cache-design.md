@@ -54,6 +54,10 @@ Don't make mutable sources long-lived by default. A source adapter should mark a
 source's bytes immutable only when its resolved identity names stable bytes or
 when host configuration explicitly promises immutability.
 
+Generated public caching is for public image routes whose source identity and
+output bytes come from the image request model. Authenticated and
+cookie-selected representations are out of scope for generated public headers.
+
 Keep HTTP validators separate from internal cache keys. The internal cache key
 identifies an ImagePipe storage entry. The `ETag` identifies a client-visible
 representation.
@@ -68,23 +72,26 @@ material must not emit a generated `ETag` and must not match
 
 ImagePipe is a Plug, so the cache decision sees the `Plug.Conn` after earlier
 plugs have run. Earlier plugs may authenticate the request, rewrite path
-information, add request headers, load tenant state into assigns, or reject the
+information, add request headers, load host state into assigns, or reject the
 request before ImagePipe runs.
 
-ImagePipe should only generate public cache headers from inputs it models
-explicitly:
+ImagePipe should only generate shared-cache headers when `http_cache` is
+`:enabled`. That mode is a host promise about the route. The request should
+already be suitable for a CDN cache key.
+
+The generated validator model can include:
 
 - the request path and query that parser code consumes;
-- normalized request headers and cookies configured as cache inputs;
+- normalized request headers configured as cache inputs;
 - source identity and source cache semantics returned by the source adapter;
 - output policy and representation versions;
 - existing response headers that ImagePipe owns or validates.
 
 Plug assigns and `conn.private` are server-side state. A CDN can't vary on them
-directly. When they affect source identity or output bytes, the host has three
-choices. It can encode the decision into the URL, include it in resolved source
-identity, or map it back to explicit `Vary` material. Otherwise it must disable
-generated public caching for that route.
+directly. If they affect source identity or output bytes, generated public
+caching is out of scope for that route. Use `http_cache: :disabled`. ImagePipe
+shouldn't try to inspect assigns or infer whether arbitrary host state can use
+shared caches.
 
 Existing response cache headers on the conn are host policy. ImagePipe shouldn't
 overwrite an existing `Cache-Control`, `ETag`, `Vary`, or `Last-Modified`
@@ -121,17 +128,20 @@ Add `cache_semantics` to `ImagePipe.Source.Resolved`:
   adapter: :path,
   source_kind: :path,
   identity: [...],
+  http_cache: :inherit,
   internal_cache: :enabled,
   fetch: [...],
   cache_semantics: %ImagePipe.Source.CacheSemantics{...}
 }
 ```
 
-`source_bytes_immutable?` only describes the source bytes. It doesn't mean the
-generated response is safe for a shared cache. A private avatar source can be
-byte-immutable and still require `private`. It may also need no generated HTTP
-cache policy when the response depends on authorization, cookies, tenant
-routing, or other non-URL request state.
+`http_cache` on `Source.Resolved` is the source adapter's response-cache
+override. `:inherit` uses the request option. `:disabled` and `:enabled`
+override the request option for that resolved source.
+
+`source_bytes_immutable?` only describes the source bytes. It doesn't select an
+HTTP caching policy. A private avatar source can be byte-immutable and still
+use `http_cache: :disabled`.
 
 `validator` is either `{:strong, seed}` or `:none`. The seed must be
 deterministic, canonical, and non-secret. Immutable sources can use a canonical
@@ -170,6 +180,8 @@ Each source adapter should accept:
 
 ```elixir
 source_bytes_immutable?: boolean()
+http_cache: :inherit | :disabled | :enabled
+internal_cache: :auto | :enabled | :disabled
 response_cache_control: String.t() | nil
 ```
 
@@ -187,12 +199,13 @@ server adapter can't represent. Policy validation parses directives that
 ImagePipe reasons about, including `public`, `private`, `no-store`, `max-age`,
 `s-maxage`, `stale-while-revalidate`, `immutable`, `must-revalidate`,
 `proxy-revalidate`, and `no-transform`. Unknown extension directives pass
-through after syntax validation, but they can't prove public-cache safety. A
-`public` override requires a public cache-safety proof or explicit configuration.
-`s-maxage` also requires public-cache safety because it targets shared caches.
+through after syntax validation. A `private` override isn't part of generated
+HTTP caching. Hosts that need browser-private caching should set explicit
+headers outside this feature. A `public` or `s-maxage` override is only valid
+when `http_cache` is `:enabled`.
 
-If a source uses `internal_cache: :disabled`, ImagePipe shouldn't emit public
-cache validators or generated `Cache-Control` by default. `internal_cache: :disabled`
+If a source uses `internal_cache: :disabled`, ImagePipe shouldn't emit generated
+validators or generated `Cache-Control` in v1. `internal_cache: :disabled`
 currently passes request headers that normal cacheable sources strip before
 fetch. Those headers can affect source bytes. The first implementation should
 not provide an opt-back-in path for `internal_cache: :disabled`. A future opt-in
@@ -301,63 +314,46 @@ implementation doesn't use it as a validator. If a CDN or client sends
 `If-Modified-Since` support lands. After that, `If-None-Match` takes precedence
 when a request sends both validators.
 
-Generated public cache headers require an explicit safety decision:
+An explicit mode controls generated HTTP cache headers:
 
-```elixir
-representation_publicly_cacheable? =
-  allow_public_cache? and
-    public_route_or_source? and
-    complete_vary_material? and
-    no_disqualifying_request_state?
-```
+- `:disabled`: emit no generated `Cache-Control`, `ETag`, or `Last-Modified`.
+  Preserve explicit host headers that already exist on the conn.
+- `:enabled`: emit public shared-cache headers and validators when validator
+  material is complete.
 
-`allow_public_cache?` is the global option. It permits generated public defaults
-but never forces them. `public_route_or_source?` is host configuration on the
-mount, route, or source adapter. The source adapter option is
-`public_cache_safe?: true`. It means the host permits shared caches to store
-responses for this request class.
+The effective mode comes from request options, with source adapters allowed to
+override it with `http_cache: :disabled | :enabled`. The adapter default is
+`:inherit`.
 
-`no_disqualifying_request_state?` is true only when these are true:
+Default generated `Cache-Control`:
 
-- the request doesn't contain `Authorization`;
-- the response doesn't set `Set-Cookie`;
-- no configured cookie changes the representation unless the host explicitly
-  opts into `Vary: Cookie`;
-- no upstream or downstream Plug state outside URL, source identity, headers,
-  cookies, and output policy can change response bytes;
-- the selected `Cache-Control` policy doesn't contain `no-store`;
-- the selected `Cache-Control` policy doesn't contain shared-cache directives,
-  such as `public` or `s-maxage`, without public-cache safety.
+- `:enabled` with immutable source bytes: `public, max-age=31536000, immutable`
+- `:enabled` with mutable source bytes: `public, max-age=300, stale-while-revalidate=3600`
 
-Default generated `Cache-Control` when the representation is public-safe:
-
-- source bytes immutable: `public, max-age=31536000, immutable`
-- source bytes mutable: `public, max-age=300, stale-while-revalidate=3600`
-
-The mutable default is intentionally conservative. Hosts that want a different
-policy can set `response_cache_control` on the source adapter.
-
-Short public caching for mutable sources is a freshness policy, not a validator
-guarantee. These responses must omit generated ETags unless the source resolver
-provides byte-version material. A CDN may serve stale bytes within the configured
+The mutable default is a freshness policy, not a validator guarantee.
+These responses must omit generated ETags unless the source resolver provides
+byte-version material. A CDN may serve stale bytes within the configured
 freshness window.
 
-If public safety isn't proven, ImagePipe should omit generated public
-`Cache-Control` by default. A host may explicitly configure a private policy,
-such as `private, max-age=300`, for browser-side reuse. Cookie-varying responses
-should stay private or opt out of generated HTTP caching unless the host
-explicitly accepts `Vary: Cookie` behavior at the CDN.
+ImagePipe doesn't forward incoming `Cookie` to source requests and doesn't place
+raw cookies in generated HTTP cache material. A cookie on the browser request
+doesn't change public cache behavior by itself.
 
-V1 only generates ETags for responses eligible for generated HTTP cache headers.
-Non-public-safe responses omit generated ETags unless a host-supplied private
-cache policy explicitly enables them. If the selected `Cache-Control` policy
-contains `no-store`, ImagePipe must suppress generated ETags and
-`Last-Modified`.
+If a host or earlier plug uses a cookie to choose source identity, grant access,
+or change output bytes, generated public caching is out of scope for that route.
+Use `http_cache: :disabled`.
 
-If the request contains `Authorization`, ImagePipe must not emit generated
-public cache headers by default. Configuration must explicitly mark the route or
-source as public-cache-safe. It must also include every authorization-derived
-representation-changing input in the cache and validator model.
+V1 enabled mode has hard stops:
+
+- response `Set-Cookie` disables generated public headers;
+- existing or generated `Vary: *` disables generated public headers;
+- selected `Cache-Control: no-store` suppresses generated validators and
+  `Last-Modified`;
+- `public` or `s-maxage` in `response_cache_control` is only valid in
+  `http_cache: :enabled`.
+
+Per-user and per-tenant image behavior is out of scope for generated public
+headers.
 
 Header conflict behavior:
 
@@ -373,7 +369,7 @@ Header conflict behavior:
 Don't merge `Cache-Control` values. Directives can conflict, such as `private`
 with `public`, or two different `max-age` values. Pick one policy source.
 If an existing host `Vary` contains `*`, v1 must turn off generated public
-caching for that response instead of merging generated `Vary` values into it.
+headers for that response instead of merging generated `Vary` values into it.
 
 ## ETag Material
 
@@ -403,8 +399,7 @@ and canonical values. Examples:
 ```elixir
 [
   accept: [selected_format: :avif, capability: [:avif, :webp]],
-  headers: [{"x-tenant", ["tenant-a"]}],
-  cookies: []
+  headers: [{"x-image-profile", ["catalog"]}]
 ]
 ```
 
@@ -413,8 +408,10 @@ material must match the generated `Vary` header. Every non-URL input represented
 in ETag material must appear in `Vary`. Every generated `Vary` input that can
 change bytes must appear in ETag material.
 
-Only generate an ETag when source cache semantics contain `{:strong, seed}`.
-For `:none`, omit `ETag` and skip conditional `If-None-Match` handling.
+Only generate an ETag when the effective `http_cache` mode is `:enabled`, source
+cache semantics contain `{:strong, seed}`, and the selected cache policy doesn't
+contain `no-store`. For `:none`, omit `ETag` and skip conditional
+`If-None-Match` handling.
 
 V1 only expects strong validators from source identities that name immutable
 bytes. Future adapters may provide strong validators for mutable sources when
@@ -538,20 +535,21 @@ depends on `Accept`. CDN cache keys are URL-oriented unless configured
 otherwise.
 
 Any non-URL request input that can affect source identity, output bytes, format
-selection, or quality selection must appear in `Vary` and ETag material. If it
-doesn't, ImagePipe must turn off generated public HTTP caching. This includes
-tenant headers, authorization-derived routing, locale, device class, DPR, width
-hints, custom source-routing headers, and configured cookies.
+selection, or quality selection must appear in `Vary` and ETag material when
+`http_cache` is `:enabled`. ImagePipe doesn't infer those inputs from Plug state.
+If the host can't declare them, use `http_cache: :disabled` for that route. This
+includes image profile headers, locale, device class, DPR, width hints, and
+custom source-routing headers.
 
 `Vary: *` means a cache can't reuse the response for later requests. ImagePipe
-should reject it for generated public cache responses or turn off generated
-public caching for that representation.
+should reject it for generated public-header responses or turn off generated
+public headers for that representation.
 
 ## Pre-Fetch Conditional GET
 
-For cacheable responses with a strong source validator, ImagePipe should compute
-the ETag before source fetch whenever these inputs define output selection
-material:
+For requests whose effective `http_cache` mode is `:enabled` and whose source
+semantics contain a strong validator, ImagePipe should compute the ETag before
+source fetch whenever these inputs define output selection material:
 
 - the parsed plan;
 - source cache semantics from `Source.resolve/3`;
@@ -664,8 +662,9 @@ Keep v1 small. These omissions are intentional:
   internal cache hit, where a cached successful representation proves existence.
 - HEAD response support: out of scope unless the current Plug path already
   serves HEAD. The conditional matcher still needs explicit method gates.
-- Public `Vary: Cookie`: off by default. Hosts must opt into this with
-  explicit cache policy.
+- Cookie-varying public output: out of scope. ImagePipe ignores incoming request
+  cookies for generated HTTP caching and source fetches. Hosts that use cookies
+  to choose image bytes should use `http_cache: :disabled`.
 - Surrogate keys and CDN tag purge headers: out of scope for v1. Hosts can set
   those headers outside ImagePipe if they need them.
 
@@ -730,17 +729,17 @@ headers, if a host or later layer sets them, are outside this design.
 
 The first implementation shouldn't add error caching behavior.
 
-## Public Options
+## Options
 
 Add request options:
 
 ```elixir
 http_cache: [
+  mode: :disabled,
   immutable_cache_control: "public, max-age=31536000, immutable",
   mutable_cache_control: "public, max-age=300, stale-while-revalidate=3600",
   etag_version: 1,
-  representation_version: 1,
-  allow_public_cache?: false
+  representation_version: 1
 ]
 ```
 
@@ -750,8 +749,8 @@ Source adapter options:
 
 ```elixir
 source_bytes_immutable?: false,
-public_cache_safe?: false,
 internal_cache: :auto,
+http_cache: :inherit,
 response_cache_control: nil
 ```
 
@@ -762,22 +761,22 @@ even when `source_bytes_immutable?` isn't set.
 
 Add focused tests at the request boundary:
 
-- source-byte-immutable public-safe response emits `ETag` and long
-  `Cache-Control`;
-- public-safe mutable source emits short `Cache-Control`;
-- non-public-safe source omits generated public `Cache-Control`;
-- request with `Authorization` doesn't get generated public cache headers by
-  default;
-- response with `Set-Cookie` doesn't get generated public cache headers in v1;
+- `http_cache: :disabled` emits no generated `Cache-Control`, `ETag`, or
+  `Last-Modified`;
+- source-byte-immutable `http_cache: :enabled` response emits `ETag` and long
+  public `Cache-Control`;
+- mutable `http_cache: :enabled` response emits short public `Cache-Control`;
+- request `Cookie` doesn't enter generated `Vary`, ETag material, or source
+  fetches;
+- response with `Set-Cookie` disables generated public cache headers in v1;
 - source `response_cache_control` overrides defaults only after header and policy
   validation;
 - `response_cache_control` containing `no-store` suppresses generated validators;
-- `response_cache_control` containing `s-maxage` requires public-cache safety;
+- `response_cache_control` containing `public` or `s-maxage` is only valid in
+  `http_cache: :enabled`;
 - mutable sources without validators omit `ETag` and never return `304` from
   generated validators;
-- non-public-safe responses omit generated ETags unless a private cache policy
-  explicitly enables them;
-- mutable public-safe sources with `Last-Modified` and no ETag return `200` for
+- mutable cache-enabled sources with `Last-Modified` and no ETag return `200` for
   `If-Modified-Since` in v1;
 - `internal_cache: :auto` resolves to `:enabled` for source-byte-immutable
   identities;
@@ -791,9 +790,9 @@ Add focused tests at the request boundary:
 - automatic output emits `Vary: Accept`;
 - explicit output doesn't emit `Vary: Accept`;
 - configured header-varying output includes that header in `Vary`;
-- representation-changing headers missing from `Vary` turn off generated public
-  caching or fail configuration;
-- cookie-varying output doesn't get public defaults;
+- `http_cache: :enabled` requires configured header-varying output to include
+  that header in `Vary`;
+- cookie-varying output uses `http_cache: :disabled`;
 - matching `If-None-Match` returns `304` before source fetch for output with a
   strong source validator;
 - matching `If-None-Match` returns before internal cache lookup for
@@ -818,7 +817,7 @@ Add focused tests at the request boundary:
 - ImagePipe preserves existing host `Last-Modified` or conflicts
   deterministically;
 - existing `Vary` merges with generated `Accept` and configured vary headers;
-- existing `Vary: *` turns off generated public caching in v1;
+- existing `Vary: *` turns off generated public headers in v1;
 - transform option order variants produce the same ETag;
 - changing source revision changes ETag;
 - changing `etag_schema` changes ETag;
@@ -848,9 +847,9 @@ Add property tests for ETag material:
 - ImagePipe rejects unsupported or non-cacheable header values before response
   send;
 - ImagePipe rejects `Cache-Control` overrides containing CR or LF;
-- ImagePipe rejects invalid `Vary` values or turns off generated public caching;
+- ImagePipe rejects invalid `Vary` values or turns off generated public headers;
 - duplicate `Vary` values merge deterministically;
-- `Vary: *` turns off generated public caching;
+- `Vary: *` turns off generated public headers;
 - ETag material serialization is deterministic.
 
 ## Rollout
