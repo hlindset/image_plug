@@ -27,6 +27,11 @@ plan operation data, output negotiation inputs, configured key headers,
 configured key cookies, cachebuster data, schema version, and transform key data
 version.
 
+`Plan.expires` isn't HTTP cache freshness. It's a parser-level request
+validity timestamp. The imgproxy parser should keep rejecting expired URLs before
+source resolution, but generated `Cache-Control` shouldn't derive max-age from
+`Plan.expires`.
+
 ImagePipe also preserves `Vary: Accept` for automatic output and stores
 `vary`/`cache-control` headers in internal cache entries.
 
@@ -538,8 +543,14 @@ Any non-URL request input that can affect source identity, output bytes, format
 selection, or quality selection must appear in `Vary` and ETag material when
 `http_cache` is `:enabled`. ImagePipe doesn't infer those inputs from Plug state.
 If the host can't declare them, use `http_cache: :disabled` for that route. This
-includes image profile headers, locale, device class, DPR, width hints, and
-custom source-routing headers.
+includes image profile headers, locale, device class, and custom source-routing
+headers.
+
+Client Hints such as `DPR`, `Width`, `Viewport-Width`, `Sec-CH-DPR`, and
+`Sec-CH-Width` are out of scope for v1 generated public caching. They're
+client-controlled headers. Supporting them later requires a bounded model:
+explicit opt-in, accepted header names, normalization or clamping, `Vary` emission,
+CDN cache-key documentation, and ETag material that uses the normalized value.
 
 `Vary: *` means a cache can't reuse the response for later requests. ImagePipe
 should reject it for generated public-header responses or turn off generated
@@ -665,6 +676,10 @@ Keep v1 small. These omissions are intentional:
 - Cookie-varying public output: out of scope. ImagePipe ignores incoming request
   cookies for generated HTTP caching and source fetches. Hosts that use cookies
   to choose image bytes should use `http_cache: :disabled`.
+- Client Hints for generated public caching: out of scope. Unsigned headers such
+  as `DPR`, `Width`, and `Sec-CH-Width` can fragment a CDN cache if clients vary
+  them. Add a normalization design before using them in public cache
+  keys.
 - Surrogate keys and CDN tag purge headers: out of scope for v1. Hosts can set
   those headers outside ImagePipe if they need them.
 
@@ -792,6 +807,10 @@ Add focused tests at the request boundary:
 - configured header-varying output includes that header in `Vary`;
 - `http_cache: :enabled` requires configured header-varying output to include
   that header in `Vary`;
+- Client Hints don't enter generated public cache headers, `Vary`, ETag
+  material, or CDN documentation in v1;
+- `Plan.expires` doesn't change generated `Cache-Control`;
+- `cachebuster` remains URL/cache-key material, not response cache policy;
 - cookie-varying output uses `http_cache: :disabled`;
 - matching `If-None-Match` returns `304` before source fetch for output with a
   strong source byte identity;
