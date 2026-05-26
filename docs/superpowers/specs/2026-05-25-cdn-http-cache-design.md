@@ -181,6 +181,24 @@ internal_cache: :auto | :enabled | :disabled
 override. `:inherit` uses the request option. `:disabled` and `:enabled`
 override the request option for that resolved source.
 
+Resolve the effective mode with source precedence:
+
+```elixir
+case resolved.http_cache do
+  :inherit -> request_options.http_cache.mode
+  override -> override
+end
+```
+
+Source-level `http_cache: :enabled` is the force switch for generated HTTP cache
+headers on that source. It still requires byte identity. When the host promises
+that source bytes are stable by policy, configure `stable?: true`. The adapter
+then derives `byte_identity: {:strong, seed}` from the resolved source identity.
+With both `stable?: true` and `http_cache: :enabled`, ImagePipe can generate the
+long `Cache-Control` and ETag. `http_cache: :enabled` alone doesn't force
+cacheable headers when `byte_identity` is `:none`, when the response has
+`Set-Cookie`, or when another v1 suppression rule applies.
+
 ## Internal Source Cache Policy
 
 The current internal cache assumes a cache key names stable output bytes. It has
@@ -230,7 +248,8 @@ An explicit mode controls generated HTTP cache headers:
 - `:enabled`: emit generated public shared-cache headers when byte identity
   material is complete.
 
-For v1, `:enabled` with `byte_identity: {:strong, seed}` emits:
+For v1, `:enabled` with `byte_identity: {:strong, seed}` emits generated public
+cache headers:
 
 ```elixir
 [
@@ -249,13 +268,16 @@ The request or mount options should configure the default `Cache-Control`.
 V1 has one generated cache-control value. Mutable short public caching stays
 deferred.
 
-If `http_cache: :enabled` but `byte_identity` is `:none`, v1 emits no generated
-`Cache-Control` and no generated `ETag`. This avoids a half-cacheable mutable
-path where the CDN can store bytes but ImagePipe can't produce a validator.
+If `http_cache: :enabled` but `byte_identity` is `:none`, v1 emits
+`Cache-Control: no-store` and no generated `ETag`, unless a host already set
+`Cache-Control`. This avoids a half-cacheable mutable path where the CDN can
+store bytes but ImagePipe can't produce a validator.
 
 Don't merge `Cache-Control` values. Directives can conflict, such as `private`
 with `public`, or two different `max-age` values. If a host already set
 `Cache-Control`, preserve it and suppress generated `Cache-Control`.
+If the selected or existing `Cache-Control` contains `no-store`, suppress the
+generated ETag.
 
 ## ETag Material
 
@@ -287,6 +309,9 @@ Only generate an ETag when:
 - automatic quality, if used later, has complete deterministic version material;
 - the response doesn't already have an `ETag`;
 - the selected cache policy isn't `no-store`.
+
+V1 conditional handling only uses ImagePipe-generated ETags. ImagePipe keeps
+existing host ETags but doesn't interpret them for `If-None-Match`.
 
 V1 only expects strong byte identity from source identities that name stable
 bytes. Future adapters may provide strong byte identity for mutable sources when
@@ -379,6 +404,8 @@ ETag: "ip1-..."
 Cache-Control: public, max-age=31536000, immutable
 Vary: Accept
 ```
+
+`Vary: Accept` appears only when automatic output depends on `Accept`.
 
 No source fetch, decode, transform, encode, internal cache lookup, or internal
 cache write should occur after the match.
@@ -487,12 +514,12 @@ Add request options:
 http_cache: [
   mode: :disabled,
   cache_control: "public, max-age=31536000, immutable",
-  etag_schema: 1,
   representation_version: 1
 ]
 ```
 
 Keep defaults small and explicit inside `ImagePipe.Request.Options`.
+Keep `etag_schema` as an implementation constant, not a request option.
 
 Source adapter options:
 
@@ -543,8 +570,8 @@ Add focused tests at the request boundary:
 - `http_cache: :disabled` emits no generated `Cache-Control` or `ETag`;
 - stable `http_cache: :enabled` response emits `ETag` and configured
   `Cache-Control`;
-- `http_cache: :enabled` with `byte_identity: :none` emits no generated
-  `Cache-Control` or `ETag`;
+- `http_cache: :enabled` with `byte_identity: :none` emits
+  `Cache-Control: no-store` and no generated `ETag`;
 - request `Cookie` doesn't enter generated `Vary`, ETag material, or source
   fetches;
 - response with `Set-Cookie` disables generated public cache headers in v1;
@@ -572,12 +599,15 @@ Add focused tests at the request boundary:
 - internal cache hits can return `304` from the prepared `etag`;
 - internal cache hits recompute ETags with the current representation version;
 - existing host `ETag` suppresses generated ETag;
+- ImagePipe preserves existing host `ETag`, but it doesn't trigger generated
+  `304` handling in v1;
 - existing host `Cache-Control` suppresses generated `Cache-Control`;
+- existing host `Cache-Control: no-store` suppresses generated ETags;
 - existing `Vary` merges with generated `Accept`;
 - existing `Vary: *` turns off generated public headers in v1;
 - transform option order variants produce the same ETag;
 - changing source revision changes ETag;
-- changing `etag_schema` changes ETag;
+- changing the implementation `etag_schema` constant changes ETag;
 - changing representation version changes ETag;
 - old internal cache entries don't replay stale generated ETags after
   representation version changes.
@@ -615,7 +645,8 @@ Build this in small steps:
    Splitting this across rolling deploys can produce nodes with different header
    behavior.
 5. Add cached `304` handling after generated headers are available on hits.
-6. Document CDN behavior and source stability configuration.
+6. Document how to enable `http_cache: :enabled`, how to mark sources stable,
+   expected CDN cache-key settings, and stable-versus-mutable source behavior.
 
 The first implementation shouldn't add post-transform conditional validation.
 If deterministic instruction material can't describe a future output mode, that
