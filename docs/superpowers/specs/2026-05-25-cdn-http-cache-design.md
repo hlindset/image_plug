@@ -142,10 +142,9 @@ policy by itself.
 `byte_identity` is either `{:strong, seed}` or `:none`.
 
 The source resolver sets `byte_identity`. Hosts can force ETag creation by
-configuring the source as `stable?: true`. The adapter should then derive a
-strong byte identity from the resolved source identity. Don't add a separate
-`force_etag?: true` option. The host promise is about source stability, and the
-ETag follows from that.
+configuring the source as `stable: :trusted`. The adapter should then derive a
+strong byte identity from the resolved source identity. The host promise is
+about source stability, and the ETag follows from that.
 
 The seed must be deterministic, canonical, and non-secret. A resolved source
 identity may contain credentials, signed query parameters, temporary tokens, or
@@ -160,22 +159,26 @@ Adapter defaults:
   seed should include adapter name and version, endpoint or bucket identity, key,
   and revision. Don't rely on `versionId` being globally unique.
 - S3 object without `revision`: not stable by default. Hosts can set
-  `stable?: true` for content-addressed keys or write-once buckets.
-- File path: not stable by default. Hosts can set `stable?: true` when the path
+  `stable: :trusted` for content-addressed keys or write-once buckets.
+- File path: not stable by default. Hosts can set `stable: :trusted` when the path
   space is content-addressed or write-once. V1 shouldn't use `mtime` and size as
   byte identity; that adds a stat/fetch race unless fetch uses the same opened
   file.
-- HTTP URL: not stable by default. Hosts can set `stable?: true` for
+- HTTP URL: not stable by default. Hosts can set `stable: :trusted` for
   content-addressed or versioned URLs. Mutable upstream HTTP validators are
   deferred.
 
 Each source adapter should accept:
 
 ```elixir
-stable?: boolean()
+stable: :auto | :trusted
 http_cache: :inherit | :disabled | :enabled
 internal_cache: :auto | :enabled | :disabled
 ```
+
+`stable: :auto` lets the adapter mark sources stable only when it can prove byte
+stability from the resolved identity. `stable: :trusted` is the host promise
+that source bytes are stable by policy.
 
 `http_cache` on `Source.Resolved` is the source adapter's response-cache
 override. `:inherit` uses the request option. `:disabled` and `:enabled`
@@ -192,9 +195,9 @@ end
 
 Source-level `http_cache: :enabled` is the force switch for generated HTTP cache
 headers on that source. It still requires byte identity. When the host promises
-that source bytes are stable by policy, configure `stable?: true`. The adapter
+that source bytes are stable by policy, configure `stable: :trusted`. The adapter
 then derives `byte_identity: {:strong, seed}` from the resolved source identity.
-With both `stable?: true` and `http_cache: :enabled`, ImagePipe can generate the
+With both `stable: :trusted` and `http_cache: :enabled`, ImagePipe can generate the
 long `Cache-Control` and ETag. `http_cache: :enabled` alone doesn't force
 cacheable headers when `byte_identity` is `:none`, when the response has
 `Set-Cookie`, or when another v1 suppression rule applies.
@@ -524,13 +527,13 @@ Keep `etag_schema` as an implementation constant, not a request option.
 Source adapter options:
 
 ```elixir
-stable?: false,
+stable: :auto,
 internal_cache: :auto,
 http_cache: :inherit
 ```
 
 For S3, if `revision` is present, the source can treat the object as stable even
-when `stable?` isn't set.
+when `stable` is `:auto`.
 
 ## Deferred Behaviors
 
@@ -616,9 +619,11 @@ Add source adapter tests:
 
 - S3 with revision marks the source stable and keeps `versionId` fetch;
 - S3 without revision isn't stable and skips internal cache under
-  `internal_cache: :auto` unless configured stable;
-- File source defaults to not stable and host config can mark it stable;
-- HTTP source defaults to not stable and host config can mark it stable;
+  `internal_cache: :auto` unless configured with `stable: :trusted`;
+- File source defaults to not stable and host config can mark it with
+  `stable: :trusted`;
+- HTTP source defaults to not stable and host config can mark it with
+  `stable: :trusted`;
 - byte identity seeds redact or digest secret identity material.
 
 Add property tests for ETag material:
