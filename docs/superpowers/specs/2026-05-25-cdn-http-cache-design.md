@@ -30,10 +30,10 @@ plan operation data, output negotiation inputs, configured key headers,
 configured key cookies, cachebuster data, schema version, and transform key data
 version.
 
-`Plan.expires` isn't HTTP cache freshness. It's a parser-level request
-validity timestamp. The imgproxy parser should keep rejecting expired URLs
-before source resolution, but generated `Cache-Control` must not derive
-`max-age` from `Plan.expires`.
+`Plan.expires` doesn't exist yet. If ImagePipe adds it for signed URL
+compatibility, it should be a parser-level request validity timestamp, not HTTP
+cache freshness. A parser should reject expired URLs before source resolution,
+but generated `Cache-Control` must not derive `max-age` from `Plan.expires`.
 
 ImagePipe already emits `Vary: Accept` for automatic output and stores selected
 response headers in internal cache entries.
@@ -104,9 +104,9 @@ If the response has `Set-Cookie`, v1 suppresses generated public cache headers.
 That shouldn't occur on a normal public image route, but the rule keeps the
 failure mode conservative.
 
-Provider and parser modules don't set HTTP cache policy. Parser-level fields
-such as `Plan.expires` and URL cachebuster values affect request validity and cache
-keys, not response `Cache-Control`.
+Provider and parser modules don't set HTTP cache policy. Future parser-level
+fields such as `Plan.expires`, plus URL cachebuster values, affect request
+validity and cache keys, not response `Cache-Control`.
 
 ## Source Cache Semantics
 
