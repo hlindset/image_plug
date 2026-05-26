@@ -544,6 +544,10 @@ Keep v1 small. These omissions are intentional:
 - Alpha-specific validator material: omitted because source bytes already cover
   alpha. When the chosen output format supports transparency, alpha shouldn't
   add a separate ETag input.
+- Static final-alpha inference: omitted for scope. Some transform chains can
+  prove final opacity before source fetch, such as an opaque background after
+  canvas-changing operations. v1 keeps source-format fallback on the existing
+  runtime final-alpha path instead of adding a transform effect system.
 - Stored generated ETags in the internal cache: omitted for correctness.
   ImagePipe prepares generated HTTP cache headers from current source, request,
   and policy inputs on each request.
