@@ -30,10 +30,11 @@ plan operation data, output negotiation inputs, configured key headers,
 configured key cookies, cachebuster data, schema version, and transform key data
 version.
 
-`Plan.expires` doesn't exist yet. If ImagePipe adds it for signed URL
-compatibility, it should be a parser-level request validity timestamp, not HTTP
-cache freshness. A parser should reject expired URLs before source resolution,
-but generated `Cache-Control` must not derive `max-age` from `Plan.expires`.
+`Plan.expires` already exists on `ImagePipe.Plan`, but it has no runtime cache
+effect. Keep it that way for HTTP cache policy. It's a parser-level request
+validity timestamp, not HTTP cache freshness. A parser may reject expired URLs
+before source resolution, but generated `Cache-Control` must not derive
+`max-age` from `Plan.expires`.
 
 ImagePipe already emits `Vary: Accept` for automatic output and stores selected
 response headers in internal cache entries.
@@ -104,9 +105,9 @@ If the response has `Set-Cookie`, v1 suppresses generated public cache headers.
 That shouldn't occur on a normal public image route, but the rule keeps the
 failure mode conservative.
 
-Provider and parser modules don't set HTTP cache policy. Future parser-level
-fields such as `Plan.expires`, plus URL cachebuster values, affect request
-validity and cache keys, not response `Cache-Control`.
+Provider and parser modules don't set HTTP cache policy. Parser-level fields
+such as `Plan.expires`, plus URL cachebuster values, affect request validity
+and cache keys, not response `Cache-Control`.
 
 ## Source Cache Semantics
 
@@ -115,10 +116,12 @@ Add a small source-owned struct:
 ```elixir
 defmodule ImagePipe.Source.CacheSemantics do
   @enforce_keys [:byte_identity, :stable?]
-  defstruct byte_identity: :none,
-            stable?: false
+  defstruct @enforce_keys
 end
 ```
+
+Enforce the fields because each adapter must make the byte-identity
+decision explicit.
 
 Add `cache_semantics` to `ImagePipe.Source.Resolved`:
 
@@ -166,7 +169,9 @@ Adapter defaults:
   file.
 - HTTP URL: not stable by default. Hosts can set `stable: :trusted` for
   content-addressed or versioned URLs. Mutable upstream HTTP validators are
-  deferred.
+  deferred. HTTP byte identity must not reuse raw signed query parameters or
+  temporary credentials. If the stable identity needs query material, use a
+  canonical redacted value or a digest over stable components.
 
 Each source adapter should accept:
 
@@ -207,6 +212,20 @@ With both `stable: :trusted` and `http_cache: :enabled`, ImagePipe can generate 
 long `Cache-Control` and ETag. `http_cache: :enabled` alone doesn't force
 cacheable headers when `byte_identity` is `:none`, when the response has
 `Set-Cookie`, or when another v1 suppression rule applies.
+
+### Source Resolved Migration
+
+The current `ImagePipe.Source.Resolved` struct has `cache: :normal | :skip`.
+V1 should migrate that field to `internal_cache: :enabled | :disabled`.
+
+Mapping:
+
+- `cache: :normal` becomes `internal_cache: :enabled`.
+- `cache: :skip` becomes `internal_cache: :disabled`.
+
+This breaking rename touches source adapters, `ImagePipe.Request.Runner`, tests,
+and any pattern match on `%Source.Resolved{cache: ...}`. The project hasn't
+shipped, so prefer the clearer field name over a compatibility shim.
 
 ## Internal Source Cache Policy
 
@@ -250,6 +269,21 @@ material, request headers, and request options. Keeping it under
 `ImagePipe.Request` preserves the existing boundary direction.
 `ImagePipe.Response` should send already-prepared status codes and headers.
 
+The main API should return a prepared value, not only a header list:
+
+```elixir
+%ImagePipe.Request.HTTPCache.Prepared{
+  effective_mode: :enabled | :disabled,
+  representation_headers: [{"vary", "Accept"}],
+  generated_cache_headers: [{"cache-control", "..."}, {"etag", "..."}],
+  generated_etag?: boolean()
+}
+```
+
+Build this value in `ImagePipe.Plug` after `Source.resolve/3` and before
+`Runner.run/4`, then pass it through delivery. That matches the current code
+shape: cache-hit delivery doesn't carry `Source.Resolved`.
+
 An explicit mode controls generated HTTP cache headers:
 
 - `:disabled`: emit no generated `Cache-Control` or `ETag`. Preserve explicit
@@ -282,7 +316,8 @@ If `http_cache: :enabled` but `byte_identity` is `:none`, v1 emits
 `Cache-Control`. This avoids a half-cacheable mutable path where the CDN can
 store bytes but ImagePipe can't produce a validator. Treat `no-store` here as a
 safety signal: the route opted into generated HTTP caching, but the source did
-not produce byte identity.
+not produce byte identity. Emit telemetry or a low-cardinality log event for
+this fallback so operators can spot a bad route configuration.
 
 Don't merge `Cache-Control` values. Directives can conflict, such as `private`
 with `public`, or two different `max-age` values. If a host already set
@@ -295,6 +330,10 @@ ETag. That's a host-owned caching decision.
 Suppressing generated public cache headers doesn't suppress representation
 headers. Automatic output must still emit `Vary: Accept` even when ImagePipe
 suppresses generated `Cache-Control` and `ETag`.
+
+Merge `Vary` by parsing it as a comma-separated field-value list. Normalize
+field names case-insensitively and remove duplicate tokens. Don't use a raw
+string contains check. `Vary: Accept-Encoding` doesn't already contain `Accept`.
 
 ## ETag Material
 
@@ -409,8 +448,21 @@ source fetch whenever these inputs define output selection material:
 - deterministic policy versions.
 
 This pre-run conditional decision belongs after `Source.resolve/3` and before
-`Runner.run/4`. A matching ETag must skip internal cache lookup and source
-fetch.
+`Runner.run/4`. The Plug has the resolved source at that point, but the current
+cache-hit delivery shape doesn't. Compute a prepared HTTP cache value there and
+pass it into later delivery instead of asking `ImagePipe.Response.Sender` to
+recover source semantics from a cache entry.
+
+The output policy must expose whether output selection is available before
+source fetch. A shape such as `{:ok, selected_material}` or
+`{:needs_source, reason}` is enough. Accept-based automatic output and explicit
+formats can qualify. Source-format preservation can also qualify when the ETag
+material represents it as an instruction, for example `format: :source`. Stable
+source bytes imply stable source format. Choices that depend on decoded content
+properties, such as final-alpha inference, must return `:needs_source` and omit
+generated pre-fetch ETags in v1.
+
+A matching ETag must skip internal cache lookup and source fetch.
 
 On matching `If-None-Match`, ImagePipe returns:
 
@@ -435,7 +487,8 @@ path already serves HEAD.
 V1 ignores `If-None-Match: *`. Before source fetch, ImagePipe hasn't proven
 that the requested source exists, that the transform can run, or that output
 negotiation can succeed. A later version can add the wildcard path if a real
-caller needs it.
+caller needs it. If `*` appears anywhere in an `If-None-Match` field value, v1
+should treat the field as the wildcard form and ignore it.
 
 A `304 Not Modified` response must have no body and must include the cache
 metadata that ImagePipe would send on the corresponding `200`. Use a small cache
@@ -454,7 +507,8 @@ metadata allowlist:
 The server adapter normally generates `Date`. Don't replay encoded-body
 headers such as `Content-Length`, `Content-Type`, or `Content-Disposition` on
 `304`. Avoid representing `304` as a normal encoded response with an empty
-binary body. Use a delivery shape such as `{:not_modified, headers}`.
+binary body. Introduce a delivery shape such as `{:not_modified, headers}` when
+adding the pre-fetch conditional path.
 
 HTTP rules used here come from RFC 9110:
 
@@ -470,17 +524,19 @@ HTTP rules used here come from RFC 9110:
 The internal cache stores encoded response bodies. It shouldn't become the
 source of truth for generated HTTP cache headers.
 
-`ImagePipe.Request.Runner` already receives `Source.Resolved` before internal
-cache lookup, so cache-hit delivery has the same source cache semantics, plan,
-request headers, and runtime options as cache-miss delivery. Use those inputs to
-prepare generated HTTP cache headers on every request, including internal cache
-hits.
+Prepare generated HTTP cache headers before calling `ImagePipe.Request.Runner`.
+The existing runner receives `Source.Resolved`, but cache-hit delivery currently
+drops it and returns only `{:cache_entry, entry, plan.response}`. Passing a
+prepared HTTP cache value through delivery keeps cache misses and cache hits on
+the same header path without teaching the sender how to rediscover source
+semantics.
 
 That keeps old internal entries usable after header-policy changes. It also
 avoids replaying stale `ETag` or `Cache-Control` values from metadata written by
 an older version.
 
-Extend `ImagePipe.Cache.Entry.cacheable_headers/1` to accept these names:
+`ImagePipe.Cache.Entry.cacheable_headers/1` already accepts these stored header
+names:
 
 - `vary`
 - `cache-control`
@@ -488,27 +544,28 @@ Extend `ImagePipe.Cache.Entry.cacheable_headers/1` to accept these names:
 These are output-owned or host-owned headers that may already exist before
 cache storage. Generated `etag` and generated `cache-control` should come from
 `ImagePipe.Request.HTTPCache` at delivery time, not from the cached entry.
+V1 doesn't need a cache-entry allowlist change.
 
 On internal cache hit:
 
 1. Check and normalize the cached entry headers.
-2. Prepare generated HTTP cache headers from current source semantics, plan,
-   request headers, and options.
+2. Use the prepared HTTP cache value built before runner execution.
 3. Merge cached output headers with current host response headers and generated
    HTTP cache headers. Current host headers win. Generated headers come next.
    Cached entry headers fill gaps and contribute representation headers such as
    `Vary`, but they shouldn't override current host policy or freshly generated
    cache headers.
-4. If the request has `If-None-Match` matching the prepared `etag`, return
-   `304 Not Modified` with cache metadata headers and no body. V1 ignores
-   `If-None-Match: *` on cache hits too.
-5. Otherwise return `200` with the cached body and merged response headers.
+4. Return `200` with the cached body and merged response headers.
 
 This preserves header behavior between cache misses and cache hits.
 
 `ImagePipe.Cache.Entry` should only check and store cacheable headers. It should
-not own conditional request behavior. The request runner or response sender
-should branch to a delivery shape that represents `304`.
+not own conditional request behavior.
+
+V1 has no separate cached-`304` path. A generated ETag match is
+deterministic from resolved source semantics, plan, normalized `Accept`, and
+options, so the pre-fetch check catches it before runner execution. If the
+pre-fetch check can't produce an ETag, a cache hit can't produce one either.
 
 The internal cache key doesn't need to include `etag_schema` just to protect
 generated headers, because those headers come from current request inputs on
@@ -594,6 +651,8 @@ Add focused tests at the request boundary:
   `Cache-Control`;
 - `http_cache: :enabled` with `byte_identity: :none` emits
   `Cache-Control: no-store` and no generated `ETag`;
+- `http_cache: :enabled` with `byte_identity: :none` emits telemetry or a
+  low-cardinality log event for the safety fallback;
 - request `Cookie` doesn't enter generated `Vary`, ETag material, or source
   fetches;
 - response with `Set-Cookie` disables generated public cache headers in v1;
@@ -601,7 +660,7 @@ Add focused tests at the request boundary:
 - explicit output doesn't emit `Vary: Accept`;
 - Client Hints don't enter generated public cache headers, `Vary`, or ETag
   material in v1;
-- when `Plan.expires` exists, it doesn't change generated `Cache-Control`;
+- existing `Plan.expires` doesn't change generated `Cache-Control`;
 - `cachebuster` remains URL/cache-key material, not response cache policy;
 - matching `If-None-Match` returns `304` before source fetch for output with a
   strong byte identity;
@@ -612,15 +671,18 @@ Add focused tests at the request boundary:
 - weak request tags match generated strong ETags for `GET`;
 - non-cacheable methods don't use conditional response handling;
 - `If-None-Match: *` doesn't trigger `304` in v1;
-- `If-None-Match: *` doesn't trigger cached `304` on internal cache hit in v1;
+- ImagePipe treats `If-None-Match` containing `*` anywhere as the ignored wildcard
+  form in v1;
 - `304` responses include only cache metadata and no body;
 - `304` responses don't include `Content-Type`, `Content-Length`, or
   `Content-Disposition`;
 - internal cache hits preserve cached output headers such as `vary`;
-- internal cache hits prepare generated `etag` and `cache-control` from current
-  request inputs;
-- internal cache hits can return `304` from the prepared `etag`;
-- internal cache hits recompute ETags with the current representation version;
+- internal cache-hit delivery uses the prepared HTTP cache value built before
+  runner execution;
+- internal cache hits return `200` in v1 because matching generated ETags
+  already short-circuit before runner execution;
+- internal cache-hit responses use the current representation version in the
+  generated ETag;
 - internal cache hit header merging uses current host headers before generated
   headers, and generated headers before cached entry headers;
 - existing host `ETag` suppresses generated ETag;
@@ -640,6 +702,10 @@ Add focused tests at the request boundary:
 
 Add source adapter tests:
 
+- `ImagePipe.Source.CacheSemantics` requires explicit `byte_identity` and
+  `stable?`;
+- `Source.Resolved.cache: :normal | :skip` callers migrate to
+  `internal_cache: :enabled | :disabled`;
 - S3 with revision marks the source stable and keeps `versionId` fetch;
 - S3 without revision isn't stable and skips internal cache under
   `internal_cache: :auto` unless configured with `stable: :trusted`;
@@ -663,18 +729,21 @@ Add property tests for ETag material:
 
 Build this in small steps:
 
-1. Add source cache semantics struct and source adapter options.
-2. Add request-owned HTTP cache header computation and unit tests.
-3. Add pre-run conditional handling after source resolution and before
-   `Runner.run/4`.
-4. Add generated-header delivery for cache misses and cache hits in one deploy.
-   Cache hits should recompute generated headers from current request inputs;
-   internal cache entries should continue to store only cacheable output headers.
-   Splitting this across rolling deploys can produce nodes with different header
-   behavior.
-5. Add cached `304` handling after generated headers are available on hits.
+1. Add source cache semantics struct and source adapter options. Migrate
+   `Source.Resolved.cache` to `Source.Resolved.internal_cache`.
+2. Expose pre-fetch output-selection material from output policy.
+3. Add request-owned HTTP cache header preparation and unit tests. Build the
+   prepared value after source resolution and before `Runner.run/4`.
+4. Add pre-run conditional handling and introduce the `{:not_modified, headers}`
+   delivery shape.
+5. Add generated-header delivery for cache misses and cache hits in one deploy.
+   Cache hits should use the prepared value from current request inputs; internal
+   cache entries should continue to store only cacheable output headers.
+   Splitting this across rolling deploys is a user-facing consistency issue:
+   some nodes may emit generated headers while others don't.
 6. Document how to enable `http_cache: :enabled`, how to mark sources stable,
-   expected CDN cache-key settings, and stable-versus-mutable source behavior.
+   expected CDN cache-key settings, stable-versus-mutable source behavior, and
+   the operational effect of bumping the `ip1-`/`@etag_schema` pair.
 
 The first implementation shouldn't add post-transform conditional validation.
 If deterministic instruction material can't describe a future output mode, that
