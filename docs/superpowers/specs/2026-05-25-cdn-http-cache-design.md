@@ -248,6 +248,13 @@ host promises that policy prevents mutation under the same identity or accepts
 the stale-cache risk. ImagePipe shouldn't reject this mode just because it
 can't prove stability.
 
+Keep `stable` and `internal_cache` separate. `stable` is about public validator
+truth: can ImagePipe generate an ETag that names response bytes for shared
+caches? `internal_cache` is about local byte reuse: is the host willing to serve
+an existing encoded body for the same internal key, including any accepted
+staleness risk? A route can use the internal cache without exposing a generated
+ETag.
+
 Adapter implications:
 
 - S3 with `revision` can use `:enabled` because `versionId` is part of the fetch
@@ -280,6 +287,11 @@ The main API should return a prepared value, not only a header list:
 }
 ```
 
+`representation_headers` are correctness headers. Always apply them. For
+example, automatic output still needs `Vary: Accept` when ImagePipe suppresses
+generated `Cache-Control` and `ETag`. `generated_cache_headers` are the optional
+CDN-facing policy and validator headers.
+
 Build this value in `ImagePipe.Plug` after `Source.resolve/3` and before
 `Runner.run/4`, then pass it through delivery. That matches the current code
 shape: cache-hit delivery doesn't carry `Source.Resolved`.
@@ -307,9 +319,9 @@ When automatic output uses `Accept`, the response also carries:
 {"vary", "Accept"}
 ```
 
-The request or mount options should configure the default `Cache-Control`.
-V1 has one generated cache-control value. Mutable short public caching stays
-deferred.
+V1 has one generated cache-control value:
+`public, max-age=31536000, immutable`. Keep it as an implementation constant.
+Mutable short public caching stays deferred.
 
 If `http_cache: :enabled` but `byte_identity` is `:none`, v1 emits
 `Cache-Control: no-store` and no generated `ETag`, unless a host already set
@@ -367,6 +379,8 @@ Only generate an ETag when:
 
 V1 conditional handling only uses ImagePipe-generated ETags. ImagePipe keeps
 existing host ETags but doesn't interpret them for `If-None-Match`.
+Don't add a custom ETag override to generated HTTP caching. Routes that need
+custom validators should use `http_cache: :disabled` and set their own headers.
 
 V1 only expects strong byte identity from source identities that name stable
 bytes. Future adapters may provide strong byte identity for mutable sources when
@@ -401,6 +415,12 @@ same ETag to survive a change that may change bytes.
 Increment `etag_schema` only when the shape or interpretation of ETag material
 changes. Increment `representation_version` when the encoded bytes may change
 while the material shape stays the same.
+
+Keep `representation_version` as an implementation constant, not a request
+option. Any byte-changing field in ETag material must also affect the internal
+cache key. `representation_version` is the catch-all for encoder and output
+policy behavior, so it must live in both places. Otherwise ImagePipe could serve
+an old cached body with a new ETag after a version bump.
 
 ## Accept Normalization
 
@@ -457,6 +477,9 @@ The output policy must expose whether it can describe the representation before
 source fetch. It doesn't need to know the final concrete output format when a
 versioned deterministic rule can stand in for the later branch. A function that
 returns `{:ok, representation_material}` or `:omit_etag` is enough.
+Name the boundary explicitly, for example
+`ImagePipe.Plan.canonical_representation_material/1`, and test it outside ETag
+hashing so it doesn't drift.
 
 Examples that can qualify:
 
@@ -579,9 +602,8 @@ pre-fetch check can't produce an ETag, a cache hit can't produce one either.
 
 The internal cache key doesn't need to include `etag_schema` just to protect
 generated headers, because those headers come from current request inputs on
-hit. It only needs `representation_version` if that version also affects encoded
-bytes. In that case the version belongs in the existing canonical key data for
-output or transform material.
+hit. It must include `representation_version`, because that version represents
+byte-changing encoder and output policy behavior.
 
 ## Error Responses
 
@@ -599,14 +621,13 @@ Add request options:
 
 ```elixir
 http_cache: [
-  mode: :disabled,
-  cache_control: "public, max-age=31536000, immutable",
-  representation_version: 1
+  mode: :disabled
 ]
 ```
 
 Keep defaults small and explicit inside `ImagePipe.Request.Options`.
-Keep `etag_schema` as an implementation constant, not a request option.
+Keep `etag_schema`, `representation_version`, and the generated
+`Cache-Control` value as implementation constants, not request options.
 
 Source adapter options:
 
@@ -709,6 +730,10 @@ Add focused tests at the request boundary:
   ImagePipe adds generated `Vary: Accept`;
 - existing `Vary: *` turns off generated public headers in v1;
 - transform option order variants produce the same ETag;
+- source-compatible output ETag material contains the rule symbolically, not a
+  post-decode branch result;
+- changing the source-compatible output rule changes ETag material through the
+  rule material or representation version;
 - changing source revision changes ETag;
 - changing the implementation `etag_schema` constant changes ETag;
 - changing representation version changes ETag;
@@ -745,7 +770,9 @@ Build this in small steps:
 
 1. Add source cache semantics struct and source adapter options. Migrate
    `Source.Resolved.cache` to `Source.Resolved.internal_cache`.
-2. Expose pre-fetch output-selection material from output policy.
+2. Expose pre-fetch representation material from the canonical plan layer. This
+   step can ship with focused unit tests; integration with HTTP cache preparation
+   comes in the next step.
 3. Add request-owned HTTP cache header preparation and unit tests. Build the
    prepared value after source resolution and before `Runner.run/4`.
 4. Add pre-run conditional handling and introduce the `{:not_modified, headers}`
