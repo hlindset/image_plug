@@ -180,6 +180,12 @@ internal_cache: :auto | :enabled | :disabled
 stability from the resolved identity. `stable: :trusted` is the host promise
 that source bytes are stable by policy.
 
+Adapters map the config values to resolved semantics like this:
+
+- `stable: :auto` plus adapter-proven stability resolves to `stable?: true`.
+- `stable: :auto` without adapter-proven stability resolves to `stable?: false`.
+- `stable: :trusted` resolves to `stable?: true`.
+
 `http_cache` on `Source.Resolved` is the source adapter's response-cache
 override. `:inherit` uses the request option. `:disabled` and `:enabled`
 override the request option for that resolved source.
@@ -274,13 +280,21 @@ deferred.
 If `http_cache: :enabled` but `byte_identity` is `:none`, v1 emits
 `Cache-Control: no-store` and no generated `ETag`, unless a host already set
 `Cache-Control`. This avoids a half-cacheable mutable path where the CDN can
-store bytes but ImagePipe can't produce a validator.
+store bytes but ImagePipe can't produce a validator. Treat `no-store` here as a
+safety signal: the route opted into generated HTTP caching, but the source did
+not produce byte identity.
 
 Don't merge `Cache-Control` values. Directives can conflict, such as `private`
 with `public`, or two different `max-age` values. If a host already set
 `Cache-Control`, preserve it and suppress generated `Cache-Control`.
 If the selected or existing `Cache-Control` contains `no-store`, suppress the
-generated ETag.
+generated ETag. If a host sets public `Cache-Control` while ImagePipe has no
+byte identity, ImagePipe preserves the host policy and doesn't generate an
+ETag. That's a host-owned caching decision.
+
+Suppressing generated public cache headers doesn't suppress representation
+headers. Automatic output must still emit `Vary: Accept` even when ImagePipe
+suppresses generated `Cache-Control` and `ETag`.
 
 ## ETag Material
 
@@ -293,12 +307,12 @@ Use separate ETag material:
 
 ```elixir
 [
-  etag_schema: 1,
+  etag_schema: @etag_schema,
   source: source_byte_identity_seed,
   plan: canonical_plan_key_data,
   output: output_selection_material,
   accept: normalized_accept_material,
-  representation: representation_version
+  representation_version: representation_version
 ]
 ```
 
@@ -309,7 +323,6 @@ Only generate an ETag when:
 - the effective `http_cache` mode is `:enabled`;
 - `byte_identity` is `{:strong, seed}`;
 - ImagePipe can select output before source fetch;
-- automatic quality, if used later, has complete deterministic version material;
 - the response doesn't already have an `ETag`;
 - the selected cache policy isn't `no-store`.
 
@@ -481,10 +494,14 @@ On internal cache hit:
 1. Check and normalize the cached entry headers.
 2. Prepare generated HTTP cache headers from current source semantics, plan,
    request headers, and options.
-3. Merge cached output headers with generated HTTP cache headers. Generated
-   headers must not overwrite explicit host policy.
+3. Merge cached output headers with current host response headers and generated
+   HTTP cache headers. Current host headers win. Generated headers come next.
+   Cached entry headers fill gaps and contribute representation headers such as
+   `Vary`, but they shouldn't override current host policy or freshly generated
+   cache headers.
 4. If the request has `If-None-Match` matching the prepared `etag`, return
-   `304 Not Modified` with cache metadata headers and no body.
+   `304 Not Modified` with cache metadata headers and no body. V1 ignores
+   `If-None-Match: *` on cache hits too.
 5. Otherwise return `200` with the cached body and merged response headers.
 
 This preserves header behavior between cache misses and cache hits.
@@ -551,6 +568,8 @@ review without a new design note:
   automatic output.
 - Late ETags: if ETag material or selected output format is only known after
   source fetch, decode, or transform, v1 omits the generated ETag.
+- Automatic quality ETags: deferred until the quality strategy and any model
+  artifact versions are explicit ETag material.
 - Alpha-specific ETag material: source bytes already cover alpha when the chosen
   output format supports transparency.
 - Static final-alpha inference: v1 keeps source-format fallback on the existing
@@ -582,7 +601,7 @@ Add focused tests at the request boundary:
 - explicit output doesn't emit `Vary: Accept`;
 - Client Hints don't enter generated public cache headers, `Vary`, or ETag
   material in v1;
-- `Plan.expires` doesn't change generated `Cache-Control`;
+- when `Plan.expires` exists, it doesn't change generated `Cache-Control`;
 - `cachebuster` remains URL/cache-key material, not response cache policy;
 - matching `If-None-Match` returns `304` before source fetch for output with a
   strong byte identity;
@@ -593,6 +612,7 @@ Add focused tests at the request boundary:
 - weak request tags match generated strong ETags for `GET`;
 - non-cacheable methods don't use conditional response handling;
 - `If-None-Match: *` doesn't trigger `304` in v1;
+- `If-None-Match: *` doesn't trigger cached `304` on internal cache hit in v1;
 - `304` responses include only cache metadata and no body;
 - `304` responses don't include `Content-Type`, `Content-Length`, or
   `Content-Disposition`;
@@ -601,19 +621,22 @@ Add focused tests at the request boundary:
   request inputs;
 - internal cache hits can return `304` from the prepared `etag`;
 - internal cache hits recompute ETags with the current representation version;
+- internal cache hit header merging uses current host headers before generated
+  headers, and generated headers before cached entry headers;
 - existing host `ETag` suppresses generated ETag;
 - ImagePipe preserves existing host `ETag`, but it doesn't trigger generated
   `304` handling in v1;
 - existing host `Cache-Control` suppresses generated `Cache-Control`;
 - existing host `Cache-Control: no-store` suppresses generated ETags;
 - existing `Vary` merges with generated `Accept`;
+- existing `Vary: Accept` doesn't produce duplicate `Accept` values when
+  ImagePipe adds generated `Vary: Accept`;
 - existing `Vary: *` turns off generated public headers in v1;
 - transform option order variants produce the same ETag;
 - changing source revision changes ETag;
 - changing the implementation `etag_schema` constant changes ETag;
 - changing representation version changes ETag;
-- old internal cache entries don't replay stale generated ETags after
-  representation version changes.
+- internal cache hit ETags use the current representation version.
 
 Add source adapter tests:
 
