@@ -356,8 +356,15 @@ instructions:
 ]
 ```
 
-For automatic or best-format output when the policy can select the format before
-source fetch:
+For automatic or best-format output, the policy should select the output format
+from normalized `Accept` and configured format preference when possible. Browser
+headers such as this are enough to choose AVIF or WebP before source fetch:
+
+```http
+Accept: image/avif,image/webp,image/apng,image/svg+xml,image/*,*/*;q=0.8
+```
+
+That path is pre-fetch ETag eligible:
 
 ```elixir
 [
@@ -368,6 +375,10 @@ source fetch:
   quality: :default
 ]
 ```
+
+Source alpha doesn't need separate ETag material when the selected target
+format supports transparency. AVIF and WebP do. Alpha affects the encoded bytes,
+but the source validator already represents the source bytes.
 
 For future automatic quality:
 
@@ -511,14 +522,37 @@ HTTP rules used here come from RFC 9110:
   carries cache metadata for the matching `200` response and no response
   content.
 
-Source-dependent output decisions opt out of pre-fetch conditional handling in
-the first implementation. This includes automatic fallback paths that need the
-source format or final alpha state before choosing JPEG or PNG. Those requests
-may still use internal cache hits and normal CDN freshness, but ImagePipe
-shouldn't claim a pre-fetch `304` path for them. A later implementation may emit
-ETags for these paths after source resolution or processing. If it does, it must
-include the selected output format and any source-dependent fallback decision in
-the ETag material. Otherwise omit the generated ETag for that response.
+Source-dependent output-format decisions opt out of pre-fetch conditional
+handling in the first implementation. This applies to modes where the selected
+output format depends on source metadata, such as source-format preservation or
+source-compatible fallback. Those requests may still use internal cache hits and
+normal CDN freshness, but ImagePipe shouldn't claim a pre-fetch `304` path for
+them.
+
+## Deferred Behaviors
+
+Keep v1 small. These omissions are intentional:
+
+- `If-Modified-Since`: omitted for scope. ImagePipe may emit `Last-Modified` as
+  metadata, but `If-None-Match` is the only conditional validator v1 acts on.
+- Late ETags: omitted for scope. If ETag material or selected output format is
+  only known after source fetch, decode, or transform, v1 omits the generated
+  ETag for that response.
+- Source metadata probing for mutable freshness: omitted for scope. Mutable
+  sources without revisions use short cache headers, no generated validators, or an
+  explicit host promise through `internal_cache: :enabled`.
+- Alpha-specific validator material: omitted because source bytes already cover
+  alpha. When the chosen output format supports transparency, alpha shouldn't
+  add a separate ETag input.
+- Stored generated ETags in the internal cache: omitted for correctness.
+  ImagePipe prepares generated HTTP cache headers from current source, request,
+  and policy inputs on each request.
+- Pre-fetch `If-None-Match: *`: omitted for correctness. `*` can match on an
+  internal cache hit, where a cached successful representation proves existence.
+- Public `Vary: Cookie`: off by default. Hosts must opt into this with
+  explicit cache policy.
+- Surrogate keys and CDN tag purge headers: out of scope for v1. Hosts can set
+  those headers outside ImagePipe if they need them.
 
 ## Internal Cache Interaction
 
