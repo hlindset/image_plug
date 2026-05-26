@@ -361,7 +361,7 @@ Only generate an ETag when:
 
 - the effective `http_cache` mode is `:enabled`;
 - `byte_identity` is `{:strong, seed}`;
-- ImagePipe can select output before source fetch;
+- ImagePipe can describe output deterministically before source fetch;
 - the response doesn't already have an `ETag`;
 - the selected cache policy isn't `no-store`.
 
@@ -439,7 +439,7 @@ normalized value.
 
 For requests whose effective `http_cache` mode is `:enabled` and whose source
 semantics contain strong byte identity, ImagePipe should compute the ETag before
-source fetch whenever these inputs define output selection material:
+source fetch whenever these inputs define output representation material:
 
 - parsed plan;
 - source cache semantics from `Source.resolve/3`;
@@ -453,14 +453,24 @@ cache-hit delivery shape doesn't. Compute a prepared HTTP cache value there and
 pass it into later delivery instead of asking `ImagePipe.Response.Sender` to
 recover source semantics from a cache entry.
 
-The output policy must expose whether output selection is available before
-source fetch. A shape such as `{:ok, selected_material}` or
-`{:needs_source, reason}` is enough. Accept-based automatic output and explicit
-formats can qualify. Source-format preservation can also qualify when the ETag
-material represents it as an instruction, for example `format: :source`. Stable
-source bytes imply stable source format. Choices that depend on decoded content
-properties, such as final-alpha inference, must return `:needs_source` and omit
-generated pre-fetch ETags in v1.
+The output policy must expose whether it can describe the representation before
+source fetch. It doesn't need to know the final concrete output format when a
+versioned deterministic rule can stand in for the later branch. A function that
+returns `{:ok, representation_material}` or `:omit_etag` is enough.
+
+Examples that can qualify:
+
+- explicit formats;
+- Accept-based automatic output;
+- source-format preservation represented as an instruction such as
+  `format: :source`;
+- source-compatible fallback represented as a deterministic rule, such as
+  `format: {:source_compatible, alpha: :preserve}`.
+
+Stable source bytes imply stable source format and stable decoded-content
+properties. Final alpha can affect the eventual branch, but the ETag can include
+the branch rule instead of the branch result. If the pre-fetch material can't
+describe a byte-changing input, omit the generated ETag.
 
 A matching ETag must skip internal cache lookup and source fetch.
 
@@ -623,14 +633,18 @@ review without a new design note:
   request or mount options, not parser/provider/source output.
 - Arbitrary request-header `Vary`: v1 only generates `Vary: Accept` for
   automatic output.
-- Late ETags: if ETag material or selected output format is only known after
-  source fetch, decode, or transform, v1 omits the generated ETag.
+- Non-pre-fetch generated ETags: v1 doesn't have this path. If pre-fetch
+  material can't describe a byte-changing input, v1 omits the generated ETag.
+  Needing to resolve a deterministic branch later isn't enough to opt out when
+  the ETag material includes the branch rule.
 - Automatic quality ETags: deferred until the quality strategy and any model
   artifact versions are explicit ETag material.
-- Alpha-specific ETag material: source bytes already cover alpha when the chosen
-  output format supports transparency.
-- Static final-alpha inference: v1 keeps source-format fallback on the existing
-  runtime final-alpha path instead of adding a transform effect system.
+- Alpha-specific ETag material: source bytes already cover alpha. If output
+  selection depends on final alpha, include the deterministic selection rule in
+  ETag material.
+- Static final-alpha inference: v1 doesn't need a transform effect system just
+  to generate ETags. The runtime final-alpha path can still choose the concrete
+  output branch after decode.
 - `If-None-Match: *`: v1 ignores the wildcard form.
 - HEAD response support: out of scope unless the current Plug path already
   serves HEAD.
