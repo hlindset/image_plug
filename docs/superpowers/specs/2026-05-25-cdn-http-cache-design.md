@@ -170,11 +170,11 @@ Each source adapter should accept:
 
 ```elixir
 source_bytes_immutable?: boolean()
-cache_control: String.t() | nil
+response_cache_control: String.t() | nil
 ```
 
-`cache_control` is host response policy copied through the resolved source. It's
-not a source identity fact. The implementation should store it as
+`response_cache_control` is host response policy copied through the resolved
+source. It's not a source identity fact. The implementation should store it as
 `response_cache_control_override` to keep that distinction visible.
 
 When set, ImagePipe emits it only after two checks:
@@ -185,8 +185,10 @@ When set, ImagePipe emits it only after two checks:
 Header validation rejects CR, LF, invalid binaries, and values the configured
 server adapter can't represent. Policy validation parses directives that
 ImagePipe reasons about, including `public`, `private`, `no-store`, `max-age`,
-`stale-while-revalidate`, and `immutable`. A `public` override requires a public
-cache-safety proof or explicit configuration.
+`s-maxage`, `stale-while-revalidate`, `immutable`, `must-revalidate`,
+`proxy-revalidate`, and `no-transform`. Unknown extension directives pass
+through after syntax validation, but they can't prove public-cache safety. A
+`public` override requires a public cache-safety proof or explicit configuration.
 
 If a source uses `internal_cache: :disabled`, ImagePipe shouldn't emit public
 cache validators or generated `Cache-Control` by default. `internal_cache: :disabled`
@@ -195,6 +197,12 @@ fetch. Those headers can affect source bytes. The first implementation should
 not provide an opt-back-in path for `internal_cache: :disabled`. A future opt-in
 must require a strong source validator and an explicit complete `Vary`
 declaration for every representation-changing request input.
+
+This is a v1 implementation boundary, not a permanent coupling between the
+internal cache and HTTP caching. A source can be safe for CDN caching while
+opting out of ImagePipe's internal cache. Supporting that path requires the
+source resolver to return a strong validator and complete `Vary`/ETag material
+for every request input that can change bytes.
 
 ## Internal Source Cache Policy
 
@@ -208,11 +216,19 @@ the identity is safe only when it includes byte-version material. Examples are
 an S3 revision, content-addressed path, upstream validator, or host-provided
 cachebuster that changes when bytes change.
 
+Byte-stable means one of three things:
+
+- the source identity names immutable bytes;
+- the source identity includes explicit byte-version material;
+- the host explicitly asserts stability with `internal_cache: :enabled`.
+
 Adapt source adapters to choose internal cache policy from source semantics:
 
 - `internal_cache: :auto` should be the source adapter configuration default. It
-  resolves to `:enabled` only when the source identity is byte-stable or includes
-  byte-version material. Otherwise it resolves to `:disabled`.
+  resolves to `:enabled` when the source identity is byte-stable or includes
+  byte-version material. That includes future mutable sources whose resolver
+  obtains a strong upstream byte validator during source resolution. Otherwise it
+  resolves to `:disabled`.
 - `internal_cache: :disabled` always bypasses the internal encoded-response
   cache.
 - `internal_cache: :enabled` is an explicit host assertion that the resolved
@@ -277,17 +293,27 @@ When `last_modified` is present:
 ```
 
 ImagePipe emits `Last-Modified` as response metadata and for downstream cache
-visibility. The first implementation doesn't use it as a validator. If a CDN or
-client sends `If-Modified-Since`, ImagePipe returns the normal `200` path until
-explicit `If-Modified-Since` support lands. After that, `If-None-Match` takes
-precedence when a request sends both validators.
+visibility. It describes the source byte version used to generate the
+representation, not the time ImagePipe encoded the response. The first
+implementation doesn't use it as a validator. If a CDN or client sends
+`If-Modified-Since`, ImagePipe returns the normal `200` path until explicit
+`If-Modified-Since` support lands. After that, `If-None-Match` takes precedence
+when a request sends both validators.
 
 Generated public cache headers require an explicit safety decision:
 
 ```elixir
 representation_publicly_cacheable? =
-  public_route_or_source? and complete_vary_material?
+  allow_public_cache? and
+    public_route_or_source? and
+    complete_vary_material? and
+    no_disqualifying_request_state?
 ```
+
+`allow_public_cache?` is the global option. It permits generated public defaults
+but never forces them. `public_route_or_source?` is host configuration on the
+mount, route, or source adapter. It means the host permits shared caches to store
+responses for this request class.
 
 Default generated `Cache-Control` when the representation is public-safe:
 
@@ -295,7 +321,12 @@ Default generated `Cache-Control` when the representation is public-safe:
 - source bytes mutable: `public, max-age=300, stale-while-revalidate=3600`
 
 The mutable default is intentionally conservative. Hosts that want a different
-policy can set `cache_control` on the source adapter.
+policy can set `response_cache_control` on the source adapter.
+
+Short public caching for mutable sources is a freshness policy, not a validator
+guarantee. These responses must omit generated ETags unless the source resolver
+provides byte-version material. A CDN may serve stale bytes within the configured
+freshness window.
 
 If public safety isn't proven, ImagePipe should omit generated public
 `Cache-Control` by default. A host may explicitly configure a private policy,
@@ -307,6 +338,20 @@ If the request contains `Authorization`, ImagePipe must not emit generated
 public cache headers by default. Configuration must explicitly mark the route or
 source as public-cache-safe. It must also include every authorization-derived
 representation-changing input in the cache and validator model.
+
+Header conflict behavior:
+
+| Existing or source header | Generated header | Behavior |
+| --- | --- | --- |
+| no existing `Cache-Control` | generated default | emit generated value |
+| existing host `Cache-Control` | generated default | preserve host value after validation |
+| source `response_cache_control` | generated default | source value wins after header and policy validation |
+| existing host `ETag` | generated ETag | preserve host value and suppress generated ETag, or fail configuration |
+| existing host `Last-Modified` | generated `Last-Modified` | preserve host value and suppress generated value, or fail configuration |
+| existing `Vary` | generated `Vary` | merge deterministically after validating values |
+
+Don't merge `Cache-Control` values. Directives can conflict, such as `private`
+with `public`, or two different `max-age` values. Pick one policy source.
 
 ## ETag Material
 
@@ -329,13 +374,45 @@ Use separate ETag material:
 ]
 ```
 
+`representation_request_material` contains normalized request inputs that affect
+the response but aren't encoded in the URL. It should use lower-case field names
+and canonical values. Examples:
+
+```elixir
+[
+  accept: [selected_format: :avif, capability: [:avif, :webp]],
+  headers: [{"x-tenant", ["tenant-a"]}],
+  cookies: []
+]
+```
+
+For explicit output with no request-varying inputs, use an empty list. The
+material must match the generated `Vary` header. Every non-URL input represented
+in ETag material must appear in `Vary`. Every generated `Vary` input that can
+change bytes must appear in ETag material.
+
 Only generate an ETag when source cache semantics contain `{:strong, seed}`.
 For `:none`, omit `ETag` and skip conditional `If-None-Match` handling.
+
+V1 only expects strong validators from source identities that name immutable
+bytes. Future adapters may provide strong validators for mutable sources when
+source resolution obtains byte-version freshness material before fetch. A weak
+upstream validator, such as an HTTP `W/"..."` ETag, must not become
+`{:strong, seed}` unless the adapter has other material that proves byte
+identity. Future upstream validator support should preserve validator strength.
 
 Generated ETags are instruction-derived strong validators, not body-hash ETags.
 They're correct only if the material includes every byte-changing input. That
 means source byte identity, transform instructions, output decisions, encoder
 settings, normalized request inputs, and versioned dependencies.
+
+Serialize ETag material with a deterministic encoder, such as canonical Erlang
+terms, then hash it with SHA-256. Don't expose raw material in the
+header. The visible tag shape should include a schema prefix:
+
+```http
+ETag: "ip1-<base64url-sha256>"
+```
 
 Use a strong ETag, not a weak ETag, for generated validators. A weak ETag would
 say the response has the same meaning but not necessarily the same bytes.
@@ -448,15 +525,20 @@ public caching for that representation.
 
 ## Pre-Fetch Conditional GET
 
-For cacheable source-byte-immutable responses with a strong source validator,
-ImagePipe should compute the ETag before source fetch whenever these inputs
-define output selection material:
+For cacheable responses with a strong source validator, ImagePipe should compute
+the ETag before source fetch whenever these inputs define output selection
+material:
 
 - the parsed plan;
 - source cache semantics from `Source.resolve/3`;
 - normalized `Accept`;
 - runtime output options;
 - deterministic policy versions.
+
+The eligibility rule is: strong validator, plus deterministic representation
+selection before fetch. Source byte immutability is one way to get a strong
+validator. Future mutable sources can also qualify if source resolution obtains
+byte-version material before fetch.
 
 This pre-run conditional decision belongs after `Source.resolve/3` and before
 `Runner.run/4`. A matching validator must skip internal cache lookup and
@@ -507,11 +589,14 @@ The first implementation only emits the subset ImagePipe can produce. The server
 adapter normally generates `Date`. Don't replay encoded-body headers such as
 `Content-Length`, `Content-Type`, or `Content-Disposition` on `304`. Avoid
 representing `304` as a normal encoded response with an empty binary body. Use a
-delivery shape such as `{:not_modified, headers}`.
+delivery shape such as `{:not_modified, headers}`. `Surrogate-Control` is
+CDN-specific. Include it only when a host or earlier layer set it.
 
-If ImagePipe supports `HEAD`, a non-matching `HEAD` response should send the
-headers that the corresponding `GET` would send, without a body. A matching
-conditional `HEAD` should return `304` without a body.
+HEAD response support isn't a v1 deliverable unless the current Plug path
+already serves HEAD. If ImagePipe adds or already supports HEAD, a non-matching
+`HEAD` response should send the headers that the corresponding `GET` would send,
+without a body. A matching conditional `HEAD` should return `304` without a
+body.
 
 HTTP rules used here come from RFC 9110:
 
@@ -553,6 +638,8 @@ Keep v1 small. These omissions are intentional:
   and policy inputs on each request.
 - Pre-fetch `If-None-Match: *`: omitted for correctness. `*` can match on an
   internal cache hit, where a cached successful representation proves existence.
+- HEAD response support: out of scope unless the current Plug path already
+  serves HEAD. The conditional matcher still needs explicit method gates.
 - Public `Vary: Cookie`: off by default. Hosts must opt into this with
   explicit cache policy.
 - Surrogate keys and CDN tag purge headers: out of scope for v1. Hosts can set
@@ -629,7 +716,7 @@ http_cache: [
   mutable_cache_control: "public, max-age=300, stale-while-revalidate=3600",
   etag_version: 1,
   representation_version: 1,
-  public_cache?: false
+  allow_public_cache?: false
 ]
 ```
 
@@ -640,7 +727,7 @@ Source adapter options:
 ```elixir
 source_bytes_immutable?: false,
 internal_cache: :auto,
-cache_control: nil
+response_cache_control: nil
 ```
 
 For S3, if `revision` is present, the source can treat the object as immutable
@@ -656,44 +743,51 @@ Add focused tests at the request boundary:
 - non-public-safe source omits generated public `Cache-Control`;
 - request with `Authorization` doesn't get generated public cache headers by
   default;
-- source `cache_control` overrides defaults only after header and policy
+- source `response_cache_control` overrides defaults only after header and policy
   validation;
 - mutable sources without validators omit `ETag` and never return `304` from
   generated validators;
+- mutable public-safe sources with `Last-Modified` and no ETag return `200` for
+  `If-Modified-Since` in v1;
 - `internal_cache: :auto` resolves to `:enabled` for source-byte-immutable
   identities;
+- `internal_cache: :auto` resolves to `:enabled` for mutable identities that
+  include byte-version material;
 - `internal_cache: :auto` resolves to `:disabled` for mutable identities without
   byte-version material;
 - `internal_cache: :enabled` accepts mutable identities without byte-version
   material as an explicit host policy promise;
-- `internal_cache: :disabled` omits generated HTTP cache headers;
+- `internal_cache: :disabled` omits generated HTTP cache headers in v1;
 - automatic output emits `Vary: Accept`;
 - explicit output doesn't emit `Vary: Accept`;
 - configured header-varying output includes that header in `Vary`;
 - representation-changing headers missing from `Vary` turn off generated public
   caching or fail configuration;
 - cookie-varying output doesn't get public defaults;
-- matching `If-None-Match` returns `304` before source fetch for
-  source-byte-immutable pre-fetch output;
+- matching `If-None-Match` returns `304` before source fetch for output with a
+  strong source validator;
 - matching `If-None-Match` returns before internal cache lookup for
-  source-byte-immutable pre-fetch output;
+  output with a strong source validator;
 - non-matching `If-None-Match` proceeds normally;
 - malformed `If-None-Match` doesn't match;
-- weak request tags match generated strong ETags for `GET` and `HEAD`;
+- weak request tags match generated strong ETags for `GET`;
 - non-`GET` and non-`HEAD` requests don't use conditional response handling;
 - `If-None-Match: *` doesn't trigger pre-fetch `304`;
 - `If-None-Match: *` can trigger cached `304` on internal cache hit;
 - `304` responses include only the cache metadata allowlist and no body;
 - `304` responses don't include `Content-Type`, `Content-Length`, or
   `Content-Disposition`;
-- when ImagePipe supports `HEAD`, `HEAD` cache misses emit the same cache
-  headers as `GET` without a body;
-- when ImagePipe supports `HEAD`, matching conditionals return `304` without a
-  body;
 - internal cache hits preserve cached output headers such as `vary`;
 - internal cache hits prepare generated `etag`, `cache-control`, and
   `last-modified` from current request inputs;
 - internal cache hits can return `304` from the prepared `etag`;
+- internal cache hits recompute ETags with the current representation version;
+- existing host `ETag` suppresses generated ETag or fails configuration;
+- ImagePipe preserves existing host `Cache-Control` instead of merging it with
+  generated defaults;
+- ImagePipe preserves existing host `Last-Modified` or conflicts
+  deterministically;
+- existing `Vary` merges with generated `Accept` and configured vary headers;
 - transform option order variants produce the same ETag;
 - changing source revision changes ETag;
 - changing `etag_schema` changes ETag;
@@ -716,6 +810,8 @@ Add property tests for ETag material:
 
 - raw `Accept` spelling differences that normalize to the same capability
   produce the same ETag material;
+- raw `Accept` spelling differences that normalize to the same selected output
+  produce the same internal cache output material;
 - `If-None-Match` matching handles weak tags, comma-separated tags, and
   whitespace;
 - ImagePipe rejects unsupported or non-cacheable header values before response
