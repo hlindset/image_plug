@@ -332,15 +332,24 @@ If `http_cache: :enabled` but `byte_identity` is `:none`, v1 emits
 `Cache-Control`. This avoids a half-cacheable mutable path where the CDN can
 store bytes but ImagePipe can't produce a validator. Treat `no-store` here as a
 safety signal: the route opted into generated HTTP caching, but the source did
-not produce byte identity. Emit telemetry or a low-cardinality log event for
-this fallback so operators can spot a bad route configuration.
+not produce byte identity. Emit telemetry for this fallback so operators can
+spot a bad route configuration. A low-cardinality log event can supplement
+telemetry, but it isn't a substitute.
 
 Emit low-cardinality HTTP cache telemetry for:
 
-- effective mode, byte identity kind, and whether ImagePipe emitted an ETag;
-- conditional request matches;
-- the `no-store` fallback;
-- cache-hit delivery using freshly prepared HTTP cache headers.
+- `[:image_pipe, :http_cache, :prepare]`: effective mode, byte identity kind,
+  and whether ImagePipe emitted an ETag;
+- `[:image_pipe, :http_cache, :conditional, :match]`: conditional request
+  matches;
+- `[:image_pipe, :http_cache, :fallback, :no_store]`: the `no-store` fallback,
+  with `%{adapter: resolved.adapter, source_kind: resolved.source_kind,
+  reason: :missing_byte_identity}`;
+- `[:image_pipe, :http_cache, :cache_hit, :headers]`: cache-hit delivery using
+  freshly prepared HTTP cache headers.
+
+Keep metadata low-cardinality. Don't include source identity, paths, URLs, ETag
+values, or request header values.
 
 Don't merge `Cache-Control` values. Directives can conflict, such as `private`
 with `public`, or two different `max-age` values. If a host already set
@@ -416,11 +425,19 @@ ETag: "ip1-<base64url-sha256>"
 Build the visible prefix from `@etag_schema`, for example
 `"ip#{@etag_schema}-..."`, so the prefix and hashed material can't disagree.
 
+Keep ETag material canonical before encoding. Don't use
+`:erlang.term_to_binary/1` over maps unless ImagePipe first turns those maps into
+sorted lists. The material should stay as ordered lists with primitive values so
+the same logical material encodes the same way across nodes and supported OTP
+versions.
+
 Use a strong ETag, not a weak ETag, for generated ETags. A weak ETag would say
 the response has the same meaning but not necessarily the same bytes. The
 representation version must change whenever an encoder, codec, libvips behavior,
 metadata policy, default quality, orientation handling, color-profile behavior,
 animation handling, or output timestamp behavior can change bytes.
+Changing symbolic output rule behavior is an output policy change, so it uses
+`representation_version`. Don't add per-rule version fields to plan material.
 
 It's acceptable for two byte-identical responses to have different ETags when
 their deterministic instruction material differs. It isn't acceptable for the
