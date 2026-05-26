@@ -717,8 +717,17 @@ Add focused tests at the request boundary:
   `Cache-Control`;
 - `http_cache: :enabled` with `byte_identity: :none` emits
   `Cache-Control: no-store` and no generated `ETag`;
-- `http_cache: :enabled` with `byte_identity: :none` emits telemetry or a
-  low-cardinality log event for the safety fallback;
+- `http_cache: :enabled` with `byte_identity: :none` emits
+  `[:image_pipe, :http_cache, :fallback, :no_store]` telemetry with
+  low-cardinality metadata: `adapter`, `source_kind`, and `reason`;
+- `[:image_pipe, :http_cache, :prepare]` telemetry includes effective mode,
+  byte-identity kind, and whether ImagePipe emitted an ETag, with no
+  high-cardinality fields;
+- `[:image_pipe, :http_cache, :conditional, :match]` telemetry emits on `304`
+  responses without ETag values, paths, or other high-cardinality fields;
+- `[:image_pipe, :http_cache, :cache_hit, :headers]` telemetry emits on
+  cache-hit delivery using freshly prepared headers, with no high-cardinality
+  fields;
 - request `Cookie` doesn't enter generated `Vary`, ETag material, or source
   fetches;
 - response with `Set-Cookie` disables generated public cache headers in v1;
