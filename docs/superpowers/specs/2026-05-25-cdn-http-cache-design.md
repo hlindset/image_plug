@@ -189,6 +189,7 @@ ImagePipe reasons about, including `public`, `private`, `no-store`, `max-age`,
 `proxy-revalidate`, and `no-transform`. Unknown extension directives pass
 through after syntax validation, but they can't prove public-cache safety. A
 `public` override requires a public cache-safety proof or explicit configuration.
+`s-maxage` also requires public-cache safety because it targets shared caches.
 
 If a source uses `internal_cache: :disabled`, ImagePipe shouldn't emit public
 cache validators or generated `Cache-Control` by default. `internal_cache: :disabled`
@@ -312,8 +313,21 @@ representation_publicly_cacheable? =
 
 `allow_public_cache?` is the global option. It permits generated public defaults
 but never forces them. `public_route_or_source?` is host configuration on the
-mount, route, or source adapter. It means the host permits shared caches to store
+mount, route, or source adapter. The source adapter option is
+`public_cache_safe?: true`. It means the host permits shared caches to store
 responses for this request class.
+
+`no_disqualifying_request_state?` is true only when these are true:
+
+- the request doesn't contain `Authorization`;
+- the response doesn't set `Set-Cookie`;
+- no configured cookie changes the representation unless the host explicitly
+  opts into `Vary: Cookie`;
+- no upstream or downstream Plug state outside URL, source identity, headers,
+  cookies, and output policy can change response bytes;
+- the selected `Cache-Control` policy doesn't contain `no-store`;
+- the selected `Cache-Control` policy doesn't contain shared-cache directives,
+  such as `public` or `s-maxage`, without public-cache safety.
 
 Default generated `Cache-Control` when the representation is public-safe:
 
@@ -334,6 +348,12 @@ such as `private, max-age=300`, for browser-side reuse. Cookie-varying responses
 should stay private or opt out of generated HTTP caching unless the host
 explicitly accepts `Vary: Cookie` behavior at the CDN.
 
+V1 only generates ETags for responses eligible for generated HTTP cache headers.
+Non-public-safe responses omit generated ETags unless a host-supplied private
+cache policy explicitly enables them. If the selected `Cache-Control` policy
+contains `no-store`, ImagePipe must suppress generated ETags and
+`Last-Modified`.
+
 If the request contains `Authorization`, ImagePipe must not emit generated
 public cache headers by default. Configuration must explicitly mark the route or
 source as public-cache-safe. It must also include every authorization-derived
@@ -352,6 +372,8 @@ Header conflict behavior:
 
 Don't merge `Cache-Control` values. Directives can conflict, such as `private`
 with `public`, or two different `max-age` values. Pick one policy source.
+If an existing host `Vary` contains `*`, v1 must turn off generated public
+caching for that response instead of merging generated `Vary` values into it.
 
 ## ETag Material
 
@@ -406,8 +428,10 @@ They're correct only if the material includes every byte-changing input. That
 means source byte identity, transform instructions, output decisions, encoder
 settings, normalized request inputs, and versioned dependencies.
 
-Serialize ETag material with a deterministic encoder, such as canonical Erlang
-terms, then hash it with SHA-256. Don't expose raw material in the
+Serialize ETag material with a deterministic encoder supported by ImagePipe's
+supported Erlang/OTP versions, then hash it with SHA-256. Deterministic Erlang term
+encoding is acceptable when the runtime supports it. Otherwise use another
+canonical encoder over the same material. Don't expose raw material in the
 header. The visible tag shape should include a schema prefix:
 
 ```http
@@ -726,6 +750,7 @@ Source adapter options:
 
 ```elixir
 source_bytes_immutable?: false,
+public_cache_safe?: false,
 internal_cache: :auto,
 response_cache_control: nil
 ```
@@ -743,10 +768,15 @@ Add focused tests at the request boundary:
 - non-public-safe source omits generated public `Cache-Control`;
 - request with `Authorization` doesn't get generated public cache headers by
   default;
+- response with `Set-Cookie` doesn't get generated public cache headers in v1;
 - source `response_cache_control` overrides defaults only after header and policy
   validation;
+- `response_cache_control` containing `no-store` suppresses generated validators;
+- `response_cache_control` containing `s-maxage` requires public-cache safety;
 - mutable sources without validators omit `ETag` and never return `304` from
   generated validators;
+- non-public-safe responses omit generated ETags unless a private cache policy
+  explicitly enables them;
 - mutable public-safe sources with `Last-Modified` and no ETag return `200` for
   `If-Modified-Since` in v1;
 - `internal_cache: :auto` resolves to `:enabled` for source-byte-immutable
@@ -788,6 +818,7 @@ Add focused tests at the request boundary:
 - ImagePipe preserves existing host `Last-Modified` or conflicts
   deterministically;
 - existing `Vary` merges with generated `Accept` and configured vary headers;
+- existing `Vary: *` turns off generated public caching in v1;
 - transform option order variants produce the same ETag;
 - changing source revision changes ETag;
 - changing `etag_schema` changes ETag;
@@ -830,9 +861,12 @@ Build this in small steps:
 2. Add request-owned HTTP cache header computation and unit tests.
 3. Add pre-run conditional handling after source resolution and before
    `Runner.run/4`.
-4. Attach generated headers to cache misses while continuing to store only
-   cacheable output headers in internal cache entries.
-5. Recompute generated headers and support cached `304` on internal cache hits.
+4. Add generated-header delivery for cache misses and cache hits in one deploy.
+   Cache hits should recompute generated headers from current request inputs;
+   internal cache entries should continue to store only cacheable output headers.
+   Splitting this across rolling deploys can produce nodes with different header
+   behavior.
+5. Add cached `304` handling after generated headers are available on hits.
 6. Document CDN behavior and source immutability configuration.
 
 The first implementation shouldn't add post-transform conditional validation.
