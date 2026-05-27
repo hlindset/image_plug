@@ -78,7 +78,11 @@ defmodule ImagePipe.Request.HTTPCache do
 
   @spec evaluate_conditional(Plug.Conn.t(), CacheHeaders.t(), keyword()) ::
           :proceed | {:not_modified, [{String.t(), String.t()}]}
-  def evaluate_conditional(%Plug.Conn{method: "GET"} = conn, %CacheHeaders{etag: etag} = prepared, opts)
+  def evaluate_conditional(
+        %Plug.Conn{method: "GET"} = conn,
+        %CacheHeaders{etag: etag} = prepared,
+        opts
+      )
       when is_binary(etag) do
     if if_none_match?(conn, etag) do
       headers = not_modified_headers(prepared)
@@ -114,8 +118,15 @@ defmodule ImagePipe.Request.HTTPCache do
   defp effective_mode(%Resolved{http_cache: mode}, _opts) when mode in [:enabled, :disabled],
     do: mode
 
-  defp generated_cache_headers(_conn, _plan, _resolved, _opts, :disabled, _representation_headers),
-    do: {[], nil, nil}
+  defp generated_cache_headers(
+         _conn,
+         _plan,
+         _resolved,
+         _opts,
+         :disabled,
+         _representation_headers
+       ),
+       do: {[], nil, nil}
 
   defp generated_cache_headers(conn, plan, resolved, opts, :enabled, representation_headers) do
     cond do
@@ -324,7 +335,9 @@ defmodule ImagePipe.Request.HTTPCache do
   defp not_modified_headers(%CacheHeaders{} = prepared) do
     prepared.headers
     |> Kernel.++(prepared.representation_headers)
-    |> Enum.filter(fn {name, _value} -> String.downcase(name) in @not_modified_header_allowlist end)
+    |> Enum.filter(fn {name, _value} ->
+      String.downcase(name) in @not_modified_header_allowlist
+    end)
   end
 
   defp serialize_material(material) do

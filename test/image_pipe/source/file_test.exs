@@ -98,7 +98,9 @@ defmodule ImagePipe.Source.FileTest do
     assert SourceFile.fetch(resolved, opts, []) == {:error, {:source, :not_found}}
   end
 
-  test "file source defaults to not stable and disables internal cache in auto mode", %{root: root} do
+  test "file source defaults to not stable and disables internal cache in auto mode", %{
+    root: root
+  } do
     assert {:ok, opts} = SourceFile.validate_options(root: root, root_id: "fixture-root")
     source = %SourcePath{segments: ["images", "cat.jpg"]}
 

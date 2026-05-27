@@ -52,6 +52,7 @@ defmodule ImagePipe.Source.HTTP do
 
     if host in Keyword.fetch!(opts, :allowed_hosts) do
       port = source.port || Map.fetch!(@default_ports, scheme)
+
       identity = [
         kind: :url,
         adapter: scheme,

@@ -76,6 +76,7 @@ defmodule ImagePipe.Source.S3 do
              (is_binary(revision) or is_nil(revision)) do
     with {:ok, config} <- bucket_config(bucket, opts) do
       endpoint = Keyword.fetch!(config, :endpoint)
+
       identity = [
         kind: :object,
         adapter: :s3,
