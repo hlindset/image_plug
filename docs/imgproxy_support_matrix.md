@@ -548,7 +548,7 @@ transforms or output encoding.
 | `avif_options` | `avifo` | Missing | Pro advanced AVIF encoder controls. |
 | `format` | `f`, `ext` | Partial | Supports `webp`, `avif`, `jpeg`, `jpg`, and `png`. Planning rejects parsed `best`. |
 | Extension path suffix | | Partial | Plain sources use `@extension`; Base64 and encrypted sources use `.extension`. Both request explicit output format and bypass `Accept` negotiation. |
-| Automatic output via `Accept` | | Supported | Omitted format negotiates AVIF/WebP and uses `Vary: Accept`. |
+| Automatic output via `Accept` | | Supported | Omitted format negotiates explicit AVIF/WebP support and `image/*`; missing, empty, and global wildcard-only `Accept` values fall back to source output. Responses use `Vary: Accept`. |
 | `best` output | | Rejected | Parsed as an output value, rejected by planning. |
 
 ## Video

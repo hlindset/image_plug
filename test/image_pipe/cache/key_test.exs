@@ -769,6 +769,36 @@ defmodule ImagePipe.Cache.KeyTest do
     assert key_one.hash == key_two.hash
   end
 
+  test "automatic output normalizes missing empty and wildcard-only Accept to no modern candidates" do
+    automatic_plan = plan(output: %Output{mode: :automatic})
+
+    keys =
+      [
+        conn(:get, "/_/plain/images/cat.jpg"),
+        conn(:get, "/_/plain/images/cat.jpg") |> put_req_header("accept", ""),
+        conn(:get, "/_/plain/images/cat.jpg") |> put_req_header("accept", "*/*"),
+        conn(:get, "/_/plain/images/cat.jpg") |> put_req_header("accept", "*/*;q=1"),
+        conn(:get, "/_/plain/images/cat.jpg")
+        |> put_req_header("accept", "application/json,*/*;q=1")
+      ]
+      |> Enum.map(&build_key!(&1, automatic_plan, source_identity()))
+
+    assert Enum.map(keys, & &1.hash) |> Enum.uniq() |> length() == 1
+
+    for key <- keys do
+      assert key.data[:output] == [
+               mode: :automatic,
+               modern_candidates: [],
+               auto: [avif: true, webp: true],
+               quality: :default,
+               format_qualities: %{}
+             ]
+
+      refute inspect(key.data) =~ "*/*"
+      refute inspect(key.data) =~ "application/json"
+    end
+  end
+
   test "different automatic Accept capabilities change cache key" do
     automatic_plan = plan(output: %Output{mode: :automatic})
 

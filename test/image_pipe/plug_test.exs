@@ -1291,6 +1291,30 @@ defmodule ImagePipe.PlugTest do
     assert get_resp_header(conn, "vary") == ["Accept"]
   end
 
+  test "auto output uses source format for missing empty and wildcard-only Accept" do
+    cases = [
+      conn(:get, "/_/plain/images/beach.jpg"),
+      conn(:get, "/_/plain/images/beach.jpg") |> put_req_header("accept", ""),
+      conn(:get, "/_/plain/images/beach.jpg") |> put_req_header("accept", "*/*"),
+      conn(:get, "/_/plain/images/beach.jpg") |> put_req_header("accept", "*/*;q=1"),
+      conn(:get, "/_/plain/images/beach.jpg")
+      |> put_req_header("accept", "application/json,*/*;q=1")
+    ]
+
+    for conn <- cases do
+      conn =
+        call_image_pipe(conn,
+          root_url: "http://origin.test",
+          parser: ImagePipe.Parser.Imgproxy,
+          origin_req_options: [plug: OriginImage]
+        )
+
+      assert conn.status == 200
+      assert get_resp_header(conn, "content-type") == ["image/jpeg"]
+      assert get_resp_header(conn, "vary") == ["Accept"]
+    end
+  end
+
   test "automatic fallback selects accepted source format" do
     {:ok, image} = Image.new(20, 20, color: :white)
     body = Image.write!(image, :memory, suffix: ".png")

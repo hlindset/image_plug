@@ -52,6 +52,27 @@ defmodule ImagePipe.Output.PolicyTest do
                  format_qualities: %{}
                }
     end
+
+    test "keeps automatic Vary when Accept has no modern format signal" do
+      cases = [
+        conn(:get, "/_/plain/images/cat.jpg"),
+        conn(:get, "/_/plain/images/cat.jpg") |> put_req_header("accept", ""),
+        conn(:get, "/_/plain/images/cat.jpg") |> put_req_header("accept", "*/*"),
+        conn(:get, "/_/plain/images/cat.jpg") |> put_req_header("accept", "*/*;q=1"),
+        conn(:get, "/_/plain/images/cat.jpg")
+        |> put_req_header("accept", "application/json,*/*;q=1")
+      ]
+
+      for conn <- cases do
+        assert %Policy{
+                 mode: :source,
+                 modern_candidates: [],
+                 headers: [{"vary", "Accept"}],
+                 quality: :default,
+                 format_qualities: %{}
+               } = Policy.from_output_plan(conn, %Output{mode: :automatic}, [])
+      end
+    end
   end
 
   describe "resolve/2" do

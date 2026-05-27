@@ -15,6 +15,16 @@ defmodule ImagePipe.Output.NegotiationTest do
       assert Negotiation.modern_candidates(nil, []) == []
     end
 
+    test "treats missing, empty, and global wildcard-only Accept as no modern format signal" do
+      assert Negotiation.modern_candidates(nil, []) == []
+      assert Negotiation.modern_candidates("", []) == []
+      assert Negotiation.modern_candidates("   ", []) == []
+      assert Negotiation.modern_candidates("*/*", []) == []
+      assert Negotiation.modern_candidates("*/*;q=1", []) == []
+      assert Negotiation.modern_candidates("*/*; q=0.8", []) == []
+      assert Negotiation.modern_candidates("application/json,*/*;q=1", []) == []
+    end
+
     test "respects automatic format feature flags" do
       assert Negotiation.modern_candidates("image/avif,image/webp", auto_avif: false) == [
                :webp
@@ -33,20 +43,18 @@ defmodule ImagePipe.Output.NegotiationTest do
              ]
     end
 
-    test "matches image and global wildcards" do
+    test "matches image wildcard and explicit modern formats when global wildcard is also present" do
       assert Negotiation.modern_candidates("image/*", []) == [:avif, :webp]
-      assert Negotiation.modern_candidates("*/*", []) == [:avif, :webp]
+      assert Negotiation.modern_candidates("image/webp,*/*", []) == [:webp]
     end
 
     test "exact q zero excludes a modern format even when wildcard matches" do
       assert Negotiation.modern_candidates("image/avif;q=0,image/*;q=1", []) == [:webp]
 
-      assert Negotiation.modern_candidates("image/avif;q=0,image/avif;q=1,*/*;q=1", []) == [
-               :webp
-             ]
+      assert Negotiation.modern_candidates("image/avif;q=0,image/avif;q=1,*/*;q=1", []) == []
     end
 
-    test "image wildcard exclusion wins over global wildcard allowance" do
+    test "image wildcard exclusion leaves global wildcard ignored" do
       assert Negotiation.modern_candidates("image/*;q=0,*/*;q=1", []) == []
     end
   end

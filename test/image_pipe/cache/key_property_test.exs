@@ -250,7 +250,6 @@ defmodule ImagePipe.Cache.KeyPropertyTest do
                 member_of([
                   {"image/avif,image/webp", "image/webp;q=1,image/avif;q=0.1"},
                   {"image/jpeg", "image/jpg"},
-                  {"image/*", "*/*"},
                   {"image/avif;q=0,image/*", "image/*,image/avif;q=0"}
                 ]),
               max_runs: 100 do
@@ -279,6 +278,7 @@ defmodule ImagePipe.Cache.KeyPropertyTest do
                   {"image/avif", "image/webp"},
                   {"image/avif", "image/jpeg"},
                   {"image/webp", "image/jpeg"},
+                  {"image/*", "*/*"},
                   {"image/avif;q=0,image/*", "image/*"}
                 ]),
               max_runs: 100 do

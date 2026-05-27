@@ -120,6 +120,27 @@ defmodule ImagePipe.ImgproxyWireConformanceTest do
     end
   end
 
+  test "automatic output treats missing empty and wildcard-only Accept as source fallback" do
+    cases = [
+      nil,
+      "",
+      "*/*",
+      "*/*;q=1",
+      "application/json,*/*;q=1"
+    ]
+
+    for accept <- cases do
+      conn =
+        "/_/plain/images/beach.jpg"
+        |> call_imgproxy(@default_opts, accept)
+
+      assert conn.status == 200
+      assert content_type(conn) == ["image/jpeg"]
+      assert get_resp_header(conn, "vary") == ["Accept"]
+      assert byte_size(conn.resp_body) > 0
+    end
+  end
+
   test "explicit output formats bypass Accept and do not set Vary" do
     cases = [
       {"/_/f:webp/plain/images/beach.jpg", "image/webp"},

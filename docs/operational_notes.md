@@ -77,6 +77,9 @@ drift.
 Automatic output format selection uses the request `Accept` header only to
 detect optional modern format support. `q=0` excludes AVIF and WebP candidates,
 including exact media-type exclusions over wildcard allowances.
+Missing, empty, and global wildcard-only values such as `*/*` don't advertise
+modern format support. Explicit `image/avif`, `image/webp`, and `image/*`
+media ranges do.
 
 Among detected modern candidates, ImagePipe uses server preference order rather
 than relative q-value ordering. If ImagePipe detects no enabled modern
