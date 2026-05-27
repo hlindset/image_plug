@@ -17,6 +17,24 @@ defmodule ImagePipe.RequestOptionsTest do
     assert Options.validate!(Keyword.put(@base_opts, :clock, clock))[:clock] == clock
   end
 
+  test "http_cache defaults to disabled" do
+    opts = Options.validate!(@base_opts)
+
+    assert Keyword.fetch!(opts, :http_cache) == [mode: :disabled]
+  end
+
+  test "http_cache accepts enabled mode" do
+    opts = Options.validate!(Keyword.put(@base_opts, :http_cache, mode: :enabled))
+
+    assert Keyword.fetch!(opts, :http_cache) == [mode: :enabled]
+  end
+
+  test "http_cache rejects unknown mode" do
+    assert_raise ArgumentError, ~r/invalid ImagePipe options/, fn ->
+      Options.validate!(Keyword.put(@base_opts, :http_cache, mode: :public))
+    end
+  end
+
   test "validate! rejects malformed clock values before call opts are used" do
     for clock <- [:bad, ~U[2026-05-05 12:00:00Z], 100, fn value -> value end] do
       assert_raise ArgumentError,

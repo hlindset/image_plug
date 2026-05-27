@@ -5,6 +5,7 @@ defmodule ImagePipe.ImgproxyResizeAutoTest do
 
   alias ImagePipe.Parser.Imgproxy
   alias ImagePipe.Request.Runner
+  alias ImagePipe.Response.CacheHeaders
   alias ImagePipe.Response.PreparedStream
   alias ImagePipe.Source.Resolved
 
@@ -38,8 +39,8 @@ defmodule ImagePipe.ImgproxyResizeAutoTest do
     {conn, plan} = parse_plan!(path)
     resolved_source = resolved_source(source)
 
-    assert {:ok, {:prepared_stream, %PreparedStream{} = prepared, _response}} =
-             Runner.run(
+    assert {:ok, {:prepared_stream, %PreparedStream{} = prepared, _response, %CacheHeaders{}}} =
+             run(
                conn,
                plan,
                resolved_source,
@@ -83,9 +84,19 @@ defmodule ImagePipe.ImgproxyResizeAutoTest do
       adapter: :path,
       source_kind: :path,
       identity: source_identity(source),
-      cache: :normal,
+      internal_cache: :enabled,
+      http_cache: :inherit,
+      cache_semantics: %ImagePipe.Source.CacheSemantics{byte_identity: :none, stable?: false},
       fetch: source
     }
+  end
+
+  defp run(conn, plan, resolved_source, opts) do
+    Runner.run(conn, plan, resolved_source, empty_cache_headers(), opts)
+  end
+
+  defp empty_cache_headers do
+    %CacheHeaders{representation_headers: [], headers: [], etag: nil}
   end
 
   test "1. request-level resize:auto from 300x200 to 100x50 returns 100x50" do

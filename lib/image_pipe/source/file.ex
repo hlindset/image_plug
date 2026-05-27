@@ -5,13 +5,16 @@ defmodule ImagePipe.Source.File do
 
   alias ImagePipe.Plan.Source.Path, as: SourcePath
   alias ImagePipe.Source
+  alias ImagePipe.Source.CacheSemantics
   alias ImagePipe.Source.Resolved
   alias ImagePipe.Source.Response
 
   @options_schema NimbleOptions.new!(
                     root: [type: :string, required: true],
                     root_id: [type: :string, required: true],
-                    cache: [type: {:in, [:normal, :skip]}, default: :normal]
+                    stable: [type: {:in, [:auto, :trusted]}, default: :auto],
+                    internal_cache: [type: {:in, [:auto, :enabled, :disabled]}, default: :auto],
+                    http_cache: [type: {:in, [:inherit, :disabled, :enabled]}, default: :inherit]
                   )
 
   @impl Source
@@ -34,17 +37,23 @@ defmodule ImagePipe.Source.File do
   def resolve(%SourcePath{segments: segments}, opts, _runtime_opts) do
     with :ok <- validate_segments(segments),
          {:ok, path} <- safe_path(opts, segments) do
+      identity = [
+        kind: :path,
+        adapter: :path,
+        root: Keyword.fetch!(opts, :root_id),
+        path: segments
+      ]
+
+      stable? = Keyword.fetch!(opts, :stable) == :trusted
+
       {:ok,
        %Resolved{
          adapter: :path,
          source_kind: :path,
-         identity: [
-           kind: :path,
-           adapter: :path,
-           root: Keyword.fetch!(opts, :root_id),
-           path: segments
-         ],
-         cache: Keyword.fetch!(opts, :cache),
+         identity: identity,
+         internal_cache: internal_cache_mode(opts, stable?),
+         http_cache: Keyword.fetch!(opts, :http_cache),
+         cache_semantics: cache_semantics(opts, stable?, identity),
          fetch: [path: path, root: Keyword.fetch!(opts, :root), segments: segments]
        }}
     end
@@ -96,5 +105,24 @@ defmodule ImagePipe.Source.File do
       {:error, :eacces} -> {:error, {:source, :unreadable}}
       {:error, _reason} -> {:error, {:source, :unreadable}}
     end
+  end
+
+  defp internal_cache_mode(opts, stable?) do
+    case Keyword.fetch!(opts, :internal_cache) do
+      :enabled -> :enabled
+      :disabled -> :disabled
+      :auto -> if stable?, do: :enabled, else: :disabled
+    end
+  end
+
+  defp cache_semantics(_opts, stable?, identity) do
+    byte_identity =
+      if stable? do
+        {:strong, identity}
+      else
+        :none
+      end
+
+    %CacheSemantics{byte_identity: byte_identity, stable?: stable?}
   end
 end

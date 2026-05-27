@@ -4,6 +4,7 @@ defmodule ImagePipe.SourceTest.PlugCustomAdapter do
   use Boundary, top_level?: true, deps: [ImagePipe.Source]
 
   alias ImagePipe.Source
+  alias ImagePipe.Source.CacheSemantics
   alias ImagePipe.Source.Resolved
   alias ImagePipe.Source.Response
 
@@ -27,7 +28,9 @@ defmodule ImagePipe.SourceTest.PlugCustomAdapter do
          scope: "custom",
          key: "cat.jpg"
        ],
-       cache: Keyword.get(opts, :cache, :normal),
+       internal_cache: Keyword.get(opts, :internal_cache, :enabled),
+       http_cache: Keyword.get(opts, :http_cache, :inherit),
+       cache_semantics: %CacheSemantics{byte_identity: :none, stable?: false},
        fetch: :cat
      }}
   end

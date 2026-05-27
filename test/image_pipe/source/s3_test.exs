@@ -8,6 +8,65 @@ defmodule ImagePipe.Source.S3Test do
   alias ImagePipe.Source.S3
   alias ImagePipe.SourceTest.CredentialProvider
 
+  test "s3 revision is stable under auto mode" do
+    assert {:ok, opts} =
+             S3.validate_options(
+               default: [
+                 region: "us-east-1",
+                 endpoint: "https://s3.amazonaws.com",
+                 credentials: {:static, access_key_id: "A", secret_access_key: "S"}
+               ]
+             )
+
+    source = %Object{adapter: :s3, scope: "bucket", key: "cat.jpg", revision: "v1"}
+
+    assert {:ok, resolved} = S3.resolve(source, opts, [])
+
+    assert resolved.internal_cache == :enabled
+    assert resolved.cache_semantics.stable? == true
+    assert {:strong, seed} = resolved.cache_semantics.byte_identity
+    assert seed[:bucket] == "bucket"
+    assert seed[:key] == "cat.jpg"
+    assert seed[:revision] == "v1"
+  end
+
+  test "s3 without revision isn't stable unless trusted" do
+    assert {:ok, opts} =
+             S3.validate_options(
+               default: [
+                 region: "us-east-1",
+                 endpoint: "https://s3.amazonaws.com",
+                 credentials: {:static, access_key_id: "A", secret_access_key: "S"}
+               ]
+             )
+
+    source = %Object{adapter: :s3, scope: "bucket", key: "cat.jpg", revision: nil}
+
+    assert {:ok, resolved} = S3.resolve(source, opts, [])
+
+    assert resolved.internal_cache == :disabled
+    assert resolved.cache_semantics.byte_identity == :none
+  end
+
+  test "empty s3 revision isn't stable under auto mode" do
+    assert {:ok, opts} =
+             S3.validate_options(
+               default: [
+                 region: "us-east-1",
+                 endpoint: "https://s3.amazonaws.com",
+                 credentials: {:static, access_key_id: "A", secret_access_key: "S"}
+               ]
+             )
+
+    source = %Object{adapter: :s3, scope: "bucket", key: "cat.jpg", revision: ""}
+
+    assert {:ok, resolved} = S3.resolve(source, opts, [])
+
+    assert resolved.internal_cache == :disabled
+    assert resolved.cache_semantics.byte_identity == :none
+    assert resolved.cache_semantics.stable? == false
+  end
+
   test "per-bucket config overrides defaults and identity includes endpoint bucket key revision" do
     assert {:ok, opts} =
              S3.validate_options(
@@ -317,6 +376,49 @@ defmodule ImagePipe.Source.S3Test do
              Enum.find(headers, fn {name, _value} -> String.downcase(name) == "x-extra" end)
 
     refute authorization =~ "Bearer evil"
+  end
+
+  test "stable S3 byte identity strips byte-changing headers even when internal cache is disabled" do
+    plug = fn conn ->
+      send(self(), {:s3_request, conn.req_headers})
+      Plug.Conn.send_resp(conn, 200, "image bytes")
+    end
+
+    assert {:ok, opts} =
+             S3.validate_options(
+               default: [
+                 region: "us-east-1",
+                 endpoint: "https://minio.test",
+                 stable: :trusted,
+                 internal_cache: :disabled,
+                 credentials: {:static, access_key_id: "A", secret_access_key: "S"},
+                 req_options: [
+                   plug: plug,
+                   headers: [
+                     {"Range", "bytes=0-1"},
+                     {"Accept", "application/json"},
+                     {"Accept-Encoding", "gzip"},
+                     {"x-extra", "kept"}
+                   ]
+                 ]
+               ]
+             )
+
+    source = %Object{adapter: :s3, scope: "tenant-a", key: "images/cat.jpg"}
+    assert {:ok, resolved} = S3.resolve(source, opts, [])
+
+    assert {:ok, %Response{} = response} =
+             Source.fetch(resolved, [sources: %{s3: {S3, opts}}], [])
+
+    assert Enum.join(response.stream) == "image bytes"
+    assert_receive {:s3_request, headers}
+
+    assert {_name, "kept"} =
+             Enum.find(headers, fn {name, _value} -> String.downcase(name) == "x-extra" end)
+
+    refute Enum.any?(headers, fn {name, _value} ->
+             String.downcase(name) in ["range", "accept", "accept-encoding"]
+           end)
   end
 
   test "credential failures are safe source errors" do

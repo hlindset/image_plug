@@ -14,7 +14,9 @@ defmodule ImagePipe.Request.RunnerTest do
   alias ImagePipe.Plan.Source.Path, as: SourcePath
   alias ImagePipe.Request.Runner
   alias ImagePipe.Request.SourceSessionSupervisor
+  alias ImagePipe.Response.CacheHeaders
   alias ImagePipe.Response.PreparedStream
+  alias ImagePipe.Source.CacheSemantics
   alias ImagePipe.Source.Resolved, as: SourceResolved
   alias ImagePipe.Source.Response, as: SourceResponse
   alias ImagePipe.Transform.State
@@ -434,7 +436,9 @@ defmodule ImagePipe.Request.RunnerTest do
           adapter: :path,
           source_kind: :path,
           identity: [kind: :path, root: "test", path: ["images", "beach.jpg"]],
-          cache: :normal,
+          internal_cache: :enabled,
+          http_cache: :inherit,
+          cache_semantics: %CacheSemantics{byte_identity: :none, stable?: false},
           fetch: :fixture
         ],
         overrides
@@ -484,6 +488,24 @@ defmodule ImagePipe.Request.RunnerTest do
     send(test_pid, {:telemetry_event, event, measurements, metadata})
   end
 
+  defp run(conn, %Plan{} = plan, %SourceResolved{} = resolved_source, opts) do
+    Runner.run(conn, plan, resolved_source, empty_cache_headers(), opts)
+  end
+
+  defp run(
+         conn,
+         %Plan{} = plan,
+         %SourceResolved{} = resolved_source,
+         %CacheHeaders{} = prepared_http_cache,
+         opts
+       ) do
+    Runner.run(conn, plan, resolved_source, prepared_http_cache, opts)
+  end
+
+  defp empty_cache_headers do
+    %CacheHeaders{representation_headers: [], headers: [], etag: nil}
+  end
+
   defp attach_telemetry(events) do
     handler_id = {__MODULE__, self(), make_ref()}
 
@@ -502,8 +524,8 @@ defmodule ImagePipe.Request.RunnerTest do
     require_tiff_support!()
     supervisor = start_source_session_supervisor()
 
-    assert {:ok, {:prepared_stream, prepared, %Response{}}} =
-             Runner.run(
+    assert {:ok, {:prepared_stream, prepared, %Response{}, %CacheHeaders{}}} =
+             run(
                conn(:get, "/_/plain/images/source.tiff"),
                plan(output: %Output{mode: :automatic}),
                resolved_source(),
@@ -522,8 +544,8 @@ defmodule ImagePipe.Request.RunnerTest do
     require_tiff_support!()
     supervisor = start_source_session_supervisor()
 
-    assert {:ok, {:prepared_stream, prepared, %Response{}}} =
-             Runner.run(
+    assert {:ok, {:prepared_stream, prepared, %Response{}, %CacheHeaders{}}} =
+             run(
                conn(:get, "/_/plain/images/source.tiff"),
                plan(output: %Output{mode: :automatic}),
                resolved_source(),
@@ -548,8 +570,8 @@ defmodule ImagePipe.Request.RunnerTest do
         output: %Output{mode: :automatic}
       )
 
-    assert {:ok, {:prepared_stream, prepared, %Response{}}} =
-             Runner.run(
+    assert {:ok, {:prepared_stream, prepared, %Response{}, %CacheHeaders{}}} =
+             run(
                conn(:get, "/_/bg:fff/plain/images/source.tiff"),
                plan,
                resolved_source(),
@@ -573,8 +595,8 @@ defmodule ImagePipe.Request.RunnerTest do
       |> conn("/_/plain/images/source.tiff")
       |> Plug.Conn.put_req_header("accept", "image/webp")
 
-    assert {:ok, {:prepared_stream, prepared, %Response{}}} =
-             Runner.run(
+    assert {:ok, {:prepared_stream, prepared, %Response{}, %CacheHeaders{}}} =
+             run(
                conn,
                plan(output: %Output{mode: :automatic}),
                resolved_source(),
@@ -595,8 +617,8 @@ defmodule ImagePipe.Request.RunnerTest do
     supervisor = start_source_session_supervisor()
     ref = make_ref()
 
-    assert {:ok, {:prepared_stream, prepared, %Response{}}} =
-             Runner.run(
+    assert {:ok, {:prepared_stream, prepared, %Response{}, %CacheHeaders{}}} =
+             run(
                conn(:get, "/_/plain/images/source.tiff"),
                plan(output: %Output{mode: :automatic}),
                resolved_source(),
@@ -633,8 +655,8 @@ defmodule ImagePipe.Request.RunnerTest do
     supervisor = start_source_session_supervisor()
     ref = make_ref()
 
-    assert {:ok, {:prepared_stream, prepared, %Response{}}} =
-             Runner.run(
+    assert {:ok, {:prepared_stream, prepared, %Response{}, %CacheHeaders{}}} =
+             run(
                conn(:get, "/_/plain/images/source.tiff"),
                plan(output: %Output{mode: :automatic}),
                resolved_source(),
@@ -675,8 +697,8 @@ defmodule ImagePipe.Request.RunnerTest do
       created_at: DateTime.utc_now()
     }
 
-    assert {:ok, {:cache_entry, ^entry, %ImagePipe.Plan.Response{}}} =
-             Runner.run(
+    assert {:ok, {:cache_entry, ^entry, %ImagePipe.Plan.Response{}, %CacheHeaders{}}} =
+             run(
                conn(:get, "/_/plain/images/source.tiff"),
                plan(output: %Output{mode: :automatic}),
                resolved_source(),
@@ -703,8 +725,8 @@ defmodule ImagePipe.Request.RunnerTest do
       |> conn("/_/plain/images/source.tiff")
       |> Plug.Conn.put_req_header("accept", "image/jpeg;q=0")
 
-    assert {:ok, {:cache_entry, ^entry, %ImagePipe.Plan.Response{}}} =
-             Runner.run(
+    assert {:ok, {:cache_entry, ^entry, %ImagePipe.Plan.Response{}, %CacheHeaders{}}} =
+             run(
                png_conn,
                plan(output: %Output{mode: :automatic}),
                resolved_source(),
@@ -714,8 +736,8 @@ defmodule ImagePipe.Request.RunnerTest do
 
     assert_received {:cache_lookup, png_key}
 
-    assert {:ok, {:cache_entry, ^entry, %ImagePipe.Plan.Response{}}} =
-             Runner.run(
+    assert {:ok, {:cache_entry, ^entry, %ImagePipe.Plan.Response{}, %CacheHeaders{}}} =
+             run(
                jpeg_q0_conn,
                plan(output: %Output{mode: :automatic}),
                resolved_source(),
@@ -736,11 +758,35 @@ defmodule ImagePipe.Request.RunnerTest do
       created_at: DateTime.utc_now()
     }
 
-    assert {:ok, {:cache_entry, ^entry, %Response{}}} =
-             Runner.run(
+    assert {:ok, {:cache_entry, ^entry, %Response{}, %CacheHeaders{}}} =
+             run(
                conn(:get, "/_/f:jpeg/plain/images/beach.jpg"),
                plan(),
                resolved_source(),
+               cache: {CacheHit, entry: entry}
+             )
+  end
+
+  test "cache hit delivery carries prepared HTTP cache value" do
+    prepared_http_cache = %CacheHeaders{
+      representation_headers: [],
+      headers: [{"cache-control", "public, max-age=31536000, immutable"}],
+      etag: nil
+    }
+
+    entry = %Entry{
+      body: "cached",
+      content_type: "image/jpeg",
+      headers: [],
+      created_at: DateTime.utc_now()
+    }
+
+    assert {:ok, {:cache_entry, ^entry, %Response{}, ^prepared_http_cache}} =
+             run(
+               conn(:get, "/image"),
+               plan(),
+               resolved_source(),
+               prepared_http_cache,
                cache: {CacheHit, entry: entry}
              )
   end
@@ -758,8 +804,8 @@ defmodule ImagePipe.Request.RunnerTest do
       |> conn("/_/plain/images/beach.jpg")
       |> Plug.Conn.put_req_header("accept", "image/jpeg")
 
-    assert {:ok, {:cache_entry, ^entry, %ImagePipe.Plan.Response{}}} =
-             Runner.run(
+    assert {:ok, {:cache_entry, ^entry, %ImagePipe.Plan.Response{}, %CacheHeaders{}}} =
+             run(
                conn,
                plan(output: %Output{mode: :automatic}),
                resolved_source(),
@@ -781,8 +827,8 @@ defmodule ImagePipe.Request.RunnerTest do
                enlargement: :deny
              )
 
-    assert {:ok, {:cache_entry, ^entry, %ImagePipe.Plan.Response{}}} =
-             Runner.run(
+    assert {:ok, {:cache_entry, ^entry, %ImagePipe.Plan.Response{}, %CacheHeaders{}}} =
+             run(
                conn(:get, "/_/rt:auto/w:100/h:100/f:jpeg/plain/images/beach.jpg"),
                plan(pipelines: [%Pipeline{operations: [operation]}]),
                resolved_source(
@@ -825,8 +871,8 @@ defmodule ImagePipe.Request.RunnerTest do
                enlargement: :deny
              )
 
-    assert {:ok, {:prepared_stream, prepared, %Response{}}} =
-             Runner.run(
+    assert {:ok, {:prepared_stream, prepared, %Response{}, %CacheHeaders{}}} =
+             run(
                conn(:get, "/_/rt:auto/w:100/h:100/f:jpeg/plain/images/beach.jpg"),
                plan(pipelines: [%Pipeline{operations: [operation]}]),
                resolved_source(),
@@ -853,11 +899,11 @@ defmodule ImagePipe.Request.RunnerTest do
   test "no-cache explicit output returns a prepared stream delivery" do
     supervisor = start_source_session_supervisor()
 
-    assert {:ok, {:prepared_stream, %PreparedStream{} = prepared, %Response{}}} =
-             Runner.run(
+    assert {:ok, {:prepared_stream, %PreparedStream{} = prepared, %Response{}, %CacheHeaders{}}} =
+             run(
                conn(:get, "/_/plain/images/beach.jpg"),
                plan(),
-               resolved_source(cache: :normal),
+               resolved_source(internal_cache: :enabled),
                source_session_supervisor: supervisor,
                sources: %{path: {SourceImage, []}}
              )
@@ -875,11 +921,11 @@ defmodule ImagePipe.Request.RunnerTest do
   test "cache-skip explicit output returns a prepared stream delivery even when cache is configured" do
     supervisor = start_source_session_supervisor()
 
-    assert {:ok, {:prepared_stream, %PreparedStream{} = prepared, %Response{}}} =
-             Runner.run(
+    assert {:ok, {:prepared_stream, %PreparedStream{} = prepared, %Response{}, %CacheHeaders{}}} =
+             run(
                conn(:get, "/_/plain/images/beach.jpg"),
                plan(),
-               resolved_source(cache: :skip),
+               resolved_source(internal_cache: :disabled),
                cache: {CacheMissWriteProbe, test_pid: self(), test_ref: make_ref()},
                source_session_supervisor: supervisor,
                sources: %{path: {SourceImage, []}}
@@ -896,11 +942,11 @@ defmodule ImagePipe.Request.RunnerTest do
     supervisor = start_source_session_supervisor()
     ref = make_ref()
 
-    assert {:ok, {:prepared_stream, %PreparedStream{} = prepared, response}} =
-             Runner.run(
+    assert {:ok, {:prepared_stream, %PreparedStream{} = prepared, response, %CacheHeaders{}}} =
+             run(
                conn(:get, "/_/plain/images/beach.jpg"),
                plan(),
-               resolved_source(cache: :normal),
+               resolved_source(internal_cache: :enabled),
                cache: {CacheMissWriteProbe, test_pid: self(), test_ref: ref},
                source_session_supervisor: supervisor,
                sources: %{path: {SourceImage, []}}
@@ -913,7 +959,7 @@ defmodule ImagePipe.Request.RunnerTest do
     conn =
       ImagePipe.Response.Sender.send_result(
         conn(:get, "/image"),
-        {:ok, {:prepared_stream, prepared, response}},
+        {:ok, {:prepared_stream, prepared, response, empty_cache_headers()}},
         []
       )
 
@@ -933,11 +979,11 @@ defmodule ImagePipe.Request.RunnerTest do
     supervisor = start_source_session_supervisor()
     ref = make_ref()
 
-    assert {:ok, {:prepared_stream, %PreparedStream{} = prepared, %Response{}}} =
-             Runner.run(
+    assert {:ok, {:prepared_stream, %PreparedStream{} = prepared, %Response{}, %CacheHeaders{}}} =
+             run(
                conn(:get, "/_/plain/images/beach.jpg"),
                plan(),
-               resolved_source(cache: :normal),
+               resolved_source(internal_cache: :enabled),
                cache: {CacheReadErrorWriteProbe, test_pid: self(), test_ref: ref},
                source_session_supervisor: supervisor,
                sources: %{path: {SourceImage, []}}
@@ -957,11 +1003,11 @@ defmodule ImagePipe.Request.RunnerTest do
     supervisor = start_source_session_supervisor()
     ref = make_ref()
 
-    assert {:ok, {:prepared_stream, %PreparedStream{} = prepared, response}} =
-             Runner.run(
+    assert {:ok, {:prepared_stream, %PreparedStream{} = prepared, response, %CacheHeaders{}}} =
+             run(
                conn(:get, "/_/plain/images/beach.jpg"),
                plan(),
-               resolved_source(cache: :normal),
+               resolved_source(internal_cache: :enabled),
                cache: {CacheMissWriteProbe, test_pid: self(), test_ref: ref},
                source_session_supervisor: supervisor,
                sources: %{path: {SourceImage, []}}
@@ -971,7 +1017,10 @@ defmodule ImagePipe.Request.RunnerTest do
       :get
       |> conn("/image")
       |> Map.put(:adapter, {ClosingAfterFirstChunkAdapter, %{chunks: nil}})
-      |> ImagePipe.Response.Sender.send_result({:ok, {:prepared_stream, prepared, response}}, [])
+      |> ImagePipe.Response.Sender.send_result(
+        {:ok, {:prepared_stream, prepared, response, empty_cache_headers()}},
+        []
+      )
 
     refute Map.has_key?(conn.private, :image_pipe_send_result)
     assert_received {:cache_lookup, _key}
@@ -985,11 +1034,11 @@ defmodule ImagePipe.Request.RunnerTest do
     supervisor = start_source_session_supervisor()
     ref = make_ref()
 
-    assert {:ok, {:prepared_stream, %PreparedStream{} = prepared, response}} =
-             Runner.run(
+    assert {:ok, {:prepared_stream, %PreparedStream{} = prepared, response, %CacheHeaders{}}} =
+             run(
                conn(:get, "/_/plain/images/beach.jpg"),
                plan(),
-               resolved_source(cache: :normal),
+               resolved_source(internal_cache: :enabled),
                cache: {CacheMissWriteProbe, test_pid: self(), test_ref: ref},
                source_session_supervisor: supervisor,
                sources: %{path: {SourceImage, []}}
@@ -999,7 +1048,10 @@ defmodule ImagePipe.Request.RunnerTest do
       :get
       |> conn("/image")
       |> Map.put(:adapter, {FailingChunkedAdapter, %{}})
-      |> ImagePipe.Response.Sender.send_result({:ok, {:prepared_stream, prepared, response}}, [])
+      |> ImagePipe.Response.Sender.send_result(
+        {:ok, {:prepared_stream, prepared, response, empty_cache_headers()}},
+        []
+      )
 
     assert conn.private.image_pipe_send_result == :processing_error
     assert_received {:cache_lookup, _key}
@@ -1013,11 +1065,11 @@ defmodule ImagePipe.Request.RunnerTest do
     supervisor = start_source_session_supervisor()
     ref = make_ref()
 
-    assert {:ok, {:prepared_stream, %PreparedStream{} = prepared, response}} =
-             Runner.run(
+    assert {:ok, {:prepared_stream, %PreparedStream{} = prepared, response, %CacheHeaders{}}} =
+             run(
                conn(:get, "/_/plain/images/beach.jpg"),
                plan(),
-               resolved_source(cache: :normal),
+               resolved_source(internal_cache: :enabled),
                cache: {CacheMissWriteProbe, test_pid: self(), test_ref: ref},
                source_session_supervisor: supervisor,
                sources: %{path: {SourceImage, []}}
@@ -1027,7 +1079,10 @@ defmodule ImagePipe.Request.RunnerTest do
       :get
       |> conn("/image")
       |> Map.put(:adapter, {FirstChunkClosedAdapter, %{}})
-      |> ImagePipe.Response.Sender.send_result({:ok, {:prepared_stream, prepared, response}}, [])
+      |> ImagePipe.Response.Sender.send_result(
+        {:ok, {:prepared_stream, prepared, response, empty_cache_headers()}},
+        []
+      )
 
     refute Map.has_key?(conn.private, :image_pipe_send_result)
     assert_received {:cache_lookup, _key}
@@ -1043,11 +1098,11 @@ defmodule ImagePipe.Request.RunnerTest do
     supervisor = start_source_session_supervisor()
     ref = make_ref()
 
-    assert {:ok, {:prepared_stream, %PreparedStream{} = prepared, response}} =
-             Runner.run(
+    assert {:ok, {:prepared_stream, %PreparedStream{} = prepared, response, %CacheHeaders{}}} =
+             run(
                conn(:get, "/_/plain/images/beach.jpg"),
                plan(),
-               resolved_source(cache: :normal),
+               resolved_source(internal_cache: :enabled),
                cache: {CacheWriteErrorProbe, test_pid: self(), test_ref: ref},
                source_session_supervisor: supervisor,
                sources: %{path: {SourceImage, []}}
@@ -1056,7 +1111,7 @@ defmodule ImagePipe.Request.RunnerTest do
     conn =
       ImagePipe.Response.Sender.send_result(
         conn(:get, "/image"),
-        {:ok, {:prepared_stream, prepared, response}},
+        {:ok, {:prepared_stream, prepared, response, empty_cache_headers()}},
         []
       )
 
@@ -1074,12 +1129,12 @@ defmodule ImagePipe.Request.RunnerTest do
     supervisor = start_source_session_supervisor()
     ref = make_ref()
 
-    assert {:ok, {:prepared_stream, prepared, %Response{}}} =
-             Runner.run(
+    assert {:ok, {:prepared_stream, prepared, %Response{}, %CacheHeaders{}}} =
+             run(
                conn(:get, "/_/f:auto/plain/images/beach.jpg", "")
                |> Plug.Conn.put_req_header("accept", "image/webp,image/jpeg;q=0.8"),
                plan(output: %Output{mode: :automatic}),
-               resolved_source(cache: :normal),
+               resolved_source(internal_cache: :enabled),
                cache: {CacheMissWriteProbe, test_pid: self(), test_ref: ref},
                source_session_supervisor: supervisor,
                sources: %{path: {SourceImage, []}}
@@ -1107,10 +1162,10 @@ defmodule ImagePipe.Request.RunnerTest do
     supervisor = start_source_session_supervisor()
 
     assert {:error, {:processing, {:decode, _reason}, _headers}} =
-             Runner.run(
+             run(
                conn(:get, "/_/plain/images/not-image.jpg"),
                plan(),
-               resolved_source(cache: :normal),
+               resolved_source(internal_cache: :enabled),
                body: "not an image",
                source_session_supervisor: supervisor,
                sources: %{path: {SourceBytes, body: "not an image"}}
@@ -1139,8 +1194,8 @@ defmodule ImagePipe.Request.RunnerTest do
       test_ref: ref
     ]
 
-    assert {:ok, {:prepared_stream, prepared, %Response{}}} =
-             Runner.run(
+    assert {:ok, {:prepared_stream, prepared, %Response{}, %CacheHeaders{}}} =
+             run(
                conn(:get, "/_/f:jpeg/plain/images/beach.jpg"),
                plan,
                resolved_source(),
@@ -1167,8 +1222,8 @@ defmodule ImagePipe.Request.RunnerTest do
         }
       )
 
-    assert {:ok, {:prepared_stream, prepared, %Response{}}} =
-             Runner.run(
+    assert {:ok, {:prepared_stream, prepared, %Response{}, %CacheHeaders{}}} =
+             run(
                conn(:get, "/_/f:webp/fq:webp:70/plain/images/beach.jpg"),
                plan,
                resolved_source(),
@@ -1199,8 +1254,8 @@ defmodule ImagePipe.Request.RunnerTest do
 
     plan = plan(pipelines: [%Pipeline{operations: operations}])
 
-    assert {:ok, {:cache_entry, ^entry, %ImagePipe.Plan.Response{}}} =
-             Runner.run(
+    assert {:ok, {:cache_entry, ^entry, %ImagePipe.Plan.Response{}, %CacheHeaders{}}} =
+             run(
                conn(:get, "/_/f:jpeg/plain/images/beach.jpg"),
                plan,
                resolved_source(),
@@ -1238,8 +1293,8 @@ defmodule ImagePipe.Request.RunnerTest do
       filename: "carried"
     }
 
-    assert {:ok, {:prepared_stream, %PreparedStream{} = prepared, ^response}} =
-             Runner.run(
+    assert {:ok, {:prepared_stream, %PreparedStream{} = prepared, ^response, %CacheHeaders{}}} =
+             run(
                conn(:get, "/_/f:jpeg/plain/images/beach.jpg"),
                plan(response: response),
                resolved_source(),
@@ -1256,8 +1311,8 @@ defmodule ImagePipe.Request.RunnerTest do
       created_at: DateTime.utc_now()
     }
 
-    assert {:ok, {:cache_entry, ^entry, ^response}} =
-             Runner.run(
+    assert {:ok, {:cache_entry, ^entry, ^response, %CacheHeaders{}}} =
+             run(
                conn(:get, "/_/f:jpeg/plain/images/beach.jpg"),
                plan(response: response),
                resolved_source(),
@@ -1280,8 +1335,8 @@ defmodule ImagePipe.Request.RunnerTest do
 
     supervisor = start_source_session_supervisor()
 
-    assert {:ok, {:prepared_stream, %PreparedStream{} = prepared, ^response}} =
-             Runner.run(
+    assert {:ok, {:prepared_stream, %PreparedStream{} = prepared, ^response, %CacheHeaders{}}} =
+             run(
                conn(:get, "/_/f:jpeg/plain/images/beach.jpg"),
                plan(response: response),
                resolved_source(),

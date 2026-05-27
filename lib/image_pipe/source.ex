@@ -5,6 +5,7 @@ defmodule ImagePipe.Source do
     top_level?: true,
     deps: [ImagePipe.Error, ImagePipe.Plan, ImagePipe.Telemetry],
     exports: [
+      CacheSemantics,
       Resolved,
       Response,
       StreamError,
@@ -16,6 +17,7 @@ defmodule ImagePipe.Source do
   alias ImagePipe.Plan.Source, as: PlanSource
   alias ImagePipe.Plan.Source.Identity
   alias ImagePipe.Error
+  alias ImagePipe.Source.CacheSemantics
   alias ImagePipe.Source.Resolved
   alias ImagePipe.Source.Response
   alias ImagePipe.Source.WrappedStream
@@ -29,7 +31,8 @@ defmodule ImagePipe.Source do
   @callback fetch(Resolved.t(), keyword(), keyword()) :: {:ok, Response.t()} | {:error, error()}
 
   @source_kinds [:path, :url, :object, :reference]
-  @cache_policies [:normal, :skip]
+  @internal_cache_policies [:enabled, :disabled]
+  @http_cache_policies [:inherit, :enabled, :disabled]
 
   @spec validate_config(keyword()) :: {:ok, keyword()} | {:error, error()}
   def validate_config(opts) when is_list(opts) do
@@ -190,13 +193,23 @@ defmodule ImagePipe.Source do
 
   defp validate_resolved(%Resolved{}, _adapter), do: {:error, {:source, :invalid_adapter_result}}
 
-  defp valid_resolved?(%Resolved{
-         source_kind: source_kind,
-         identity: identity,
-         cache: cache
-       }) do
-    source_kind in @source_kinds and cache in @cache_policies and Identity.valid?(identity)
+  defp valid_resolved?(%Resolved{} = resolved) do
+    resolved.source_kind in @source_kinds and
+      resolved.internal_cache in @internal_cache_policies and
+      resolved.http_cache in @http_cache_policies and
+      valid_cache_semantics?(resolved.cache_semantics) and
+      Identity.valid?(resolved.identity)
   end
+
+  defp valid_cache_semantics?(%CacheSemantics{byte_identity: :none, stable?: false}), do: true
+
+  defp valid_cache_semantics?(%CacheSemantics{
+         byte_identity: {:strong, _seed},
+         stable?: true
+       }),
+       do: true
+
+  defp valid_cache_semantics?(_cache_semantics), do: false
 
   defp source_metadata(source_kind, adapter_opts) do
     %{

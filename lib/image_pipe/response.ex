@@ -11,6 +11,7 @@ defmodule ImagePipe.Response do
       ImagePipe.Telemetry
     ],
     exports: [
+      CacheHeaders,
       PreparedStream,
       Sender
     ]

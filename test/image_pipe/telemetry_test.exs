@@ -25,7 +25,9 @@ defmodule ImagePipe.TelemetryTest do
          adapter: :path,
          source_kind: :path,
          identity: [kind: :path, root: "invalid", path: ["images", "beach.jpg"]],
-         cache: :normal,
+         internal_cache: :enabled,
+         http_cache: :inherit,
+         cache_semantics: %ImagePipe.Source.CacheSemantics{byte_identity: :none, stable?: false},
          fetch: :invalid
        }}
     end
@@ -128,7 +130,9 @@ defmodule ImagePipe.TelemetryTest do
          adapter: :path,
          source_kind: :path,
          identity: [kind: :path, root: "test", path: ["images", "source.tiff"]],
-         cache: :normal,
+         internal_cache: :enabled,
+         http_cache: :inherit,
+         cache_semantics: %ImagePipe.Source.CacheSemantics{byte_identity: :none, stable?: false},
          fetch: Keyword.fetch!(opts, :body)
        }}
     end
@@ -579,7 +583,7 @@ defmodule ImagePipe.TelemetryTest do
       [
         parser: ImagePipe.Parser.Imgproxy,
         sources: [
-          path: {ImagePipe.Source.File, root: "priv/static", root_id: "static"}
+          path: {ImagePipe.Source.File, root: "priv/static", root_id: "static", stable: :trusted}
         ]
       ],
       overrides

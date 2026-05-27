@@ -4,6 +4,7 @@ defmodule ImagePipe.SourceTest.AdapterMismatchAdapter do
   use Boundary, top_level?: true, deps: [ImagePipe.Source]
 
   alias ImagePipe.Source
+  alias ImagePipe.Source.CacheSemantics
   alias ImagePipe.Source.Resolved
 
   @behaviour Source
@@ -18,7 +19,9 @@ defmodule ImagePipe.SourceTest.AdapterMismatchAdapter do
        adapter: :path,
        source_kind: :object,
        identity: [kind: :object, adapter: :foobar, scope: "custom", key: "cat.jpg"],
-       cache: :normal,
+       internal_cache: :enabled,
+       http_cache: :inherit,
+       cache_semantics: %CacheSemantics{byte_identity: :none, stable?: false},
        fetch: :wrong_adapter
      }}
   end

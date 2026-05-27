@@ -4,6 +4,7 @@ defmodule ImagePipe.SourceTest.InvalidIdentityAdapter do
   use Boundary, top_level?: true, deps: [ImagePipe.Source]
 
   alias ImagePipe.Source
+  alias ImagePipe.Source.CacheSemantics
   alias ImagePipe.Source.Resolved
 
   @behaviour Source
@@ -18,7 +19,9 @@ defmodule ImagePipe.SourceTest.InvalidIdentityAdapter do
        adapter: :path,
        source_kind: :path,
        identity: Keyword.get(opts, :identity, kind: :path, client: self()),
-       cache: :skip,
+       internal_cache: :disabled,
+       http_cache: :inherit,
+       cache_semantics: %CacheSemantics{byte_identity: :none, stable?: false},
        fetch: :bad_identity
      }}
   end

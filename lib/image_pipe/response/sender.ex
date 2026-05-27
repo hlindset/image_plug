@@ -17,12 +17,15 @@ defmodule ImagePipe.Response.Sender do
   alias ImagePipe.Error
   alias ImagePipe.Output.Resolved
   alias ImagePipe.Plan.Response
+  alias ImagePipe.Response.CacheHeaders
   alias ImagePipe.Response.PreparedStream
   alias ImagePipe.Telemetry
 
+  @not_modified_header_allowlist ~w(cache-control date etag expires vary)
+
   @type delivery() ::
-          {:cache_entry, Entry.t(), Response.t()}
-          | {:prepared_stream, PreparedStream.t(), Response.t()}
+          {:cache_entry, Entry.t(), Response.t(), CacheHeaders.t()}
+          | {:prepared_stream, PreparedStream.t(), Response.t(), CacheHeaders.t()}
 
   @type error() ::
           {:cache, term()}
@@ -47,18 +50,21 @@ defmodule ImagePipe.Response.Sender do
         ) :: Plug.Conn.t()
   def send_result(
         %Plug.Conn{} = conn,
-        {:ok, {:cache_entry, %Entry{} = entry, %Response{} = response}},
-        _opts
+        {:ok,
+         {:cache_entry, %Entry{} = entry, %Response{} = response, %CacheHeaders{} = prepared}},
+        opts
       ) do
-    send_cache_entry(conn, entry, response)
+    send_cache_entry(conn, entry, response, prepared, opts)
   end
 
   def send_result(
         %Plug.Conn{} = conn,
-        {:ok, {:prepared_stream, %PreparedStream{} = prepared_stream, %Response{} = response}},
+        {:ok,
+         {:prepared_stream, %PreparedStream{} = prepared_stream, %Response{} = response,
+          %CacheHeaders{} = prepared}},
         opts
       ) do
-    send_prepared_stream(conn, prepared_stream, response, opts)
+    send_prepared_stream(conn, prepared_stream, response, prepared, opts)
   end
 
   def send_result(conn, {:error, {:cache, error}}, _opts) do
@@ -83,6 +89,16 @@ defmodule ImagePipe.Response.Sender do
     |> put_resp_headers(response_headers)
     |> put_resp_content_type("text/plain")
     |> send_resp(422, "invalid image source")
+  end
+
+  @spec send_not_modified(Plug.Conn.t(), CacheHeaders.t()) :: Plug.Conn.t()
+  def send_not_modified(%Plug.Conn{} = conn, %CacheHeaders{} = prepared) do
+    prepared
+    |> not_modified_headers()
+    |> Enum.reduce(conn, fn {name, value}, conn ->
+      put_resp_header(conn, name, value)
+    end)
+    |> send_resp(304, "")
   end
 
   defp handle_processing_error(
@@ -164,9 +180,27 @@ defmodule ImagePipe.Response.Sender do
     |> send_resp(422, "invalid image transform")
   end
 
-  defp send_cache_entry(%Plug.Conn{} = conn, %Entry{} = entry, %Response{} = response) do
+  defp send_cache_entry(
+         %Plug.Conn{} = conn,
+         %Entry{} = entry,
+         %Response{} = response,
+         %CacheHeaders{} = prepared,
+         opts
+       ) do
     with {:ok, headers} <- Entry.cacheable_headers(entry.headers),
-         {:ok, headers} <- delivery_headers(headers, response, entry.content_type) do
+         merged_headers <- merge_delivery_headers(conn, headers, prepared),
+         {:ok, headers} <- delivery_headers(merged_headers, response, entry.content_type) do
+      Telemetry.execute(
+        Telemetry.telemetry_opts(opts),
+        [:http_cache, :cache_hit, :headers],
+        %{},
+        %{
+          etag: prepared.etag != nil,
+          generated_cache_headers: prepared.headers != [],
+          representation_headers: prepared.representation_headers != []
+        }
+      )
+
       send_normalized_cache_entry(conn, entry, headers)
     else
       {:error, error} -> send_cache_error(conn, error)
@@ -188,6 +222,7 @@ defmodule ImagePipe.Response.Sender do
          %Plug.Conn{} = conn,
          %PreparedStream{} = prepared_stream,
          %Response{},
+         %CacheHeaders{} = prepared,
          opts
        ) do
     telemetry_opts = Telemetry.telemetry_opts(opts)
@@ -197,6 +232,7 @@ defmodule ImagePipe.Response.Sender do
       [:encode],
       output_metadata(prepared_stream.resolved_output),
       fn ->
+        prepared_stream = merge_prepared_stream_headers(conn, prepared_stream, prepared)
         {conn, outcome} = do_send_prepared_stream(conn, prepared_stream)
 
         {conn, prepared_encode_stop_metadata(outcome, conn, prepared_stream.resolved_output)}
@@ -340,6 +376,70 @@ defmodule ImagePipe.Response.Sender do
     end
   end
 
+  defp merge_prepared_stream_headers(
+         %Plug.Conn{} = conn,
+         %PreparedStream{} = prepared_stream,
+         %CacheHeaders{} = prepared
+       ) do
+    headers = merge_delivery_headers(conn, prepared_stream.headers, prepared)
+    %{prepared_stream | headers: headers}
+  end
+
+  defp merge_delivery_headers(%Plug.Conn{} = conn, delivery_headers, %CacheHeaders{} = prepared) do
+    authoritative_names = authoritative_header_names(prepared.representation_headers)
+
+    []
+    |> merge_header_list(prepared.headers)
+    |> merge_authoritative_header_list(prepared.representation_headers)
+    |> merge_header_list(delivery_headers)
+    |> reject_existing_conn_headers(conn, authoritative_names)
+  end
+
+  defp merge_header_list(headers, new_headers) do
+    Enum.reduce(new_headers, headers, fn {name, value}, headers ->
+      name = String.downcase(name)
+
+      if Enum.any?(headers, fn {existing_name, _value} ->
+           String.downcase(existing_name) == name
+         end) do
+        headers
+      else
+        headers ++ [{name, value}]
+      end
+    end)
+  end
+
+  defp merge_authoritative_header_list(headers, new_headers) do
+    Enum.reduce(new_headers, headers, fn {name, value}, headers ->
+      name = String.downcase(name)
+
+      headers
+      |> Enum.reject(fn {existing_name, _value} -> String.downcase(existing_name) == name end)
+      |> Kernel.++([{name, value}])
+    end)
+  end
+
+  defp reject_existing_conn_headers(headers, %Plug.Conn{} = conn, authoritative_names) do
+    Enum.reject(headers, fn {name, _value} ->
+      name = String.downcase(name)
+      name not in authoritative_names and host_resp_header?(conn, name)
+    end)
+  end
+
+  defp authoritative_header_names(headers) do
+    headers
+    |> Enum.map(fn {name, _value} -> String.downcase(name) end)
+    |> Enum.uniq()
+  end
+
+  defp host_resp_header?(conn, "cache-control") do
+    conn
+    |> Plug.Conn.get_resp_header("cache-control")
+    |> CacheHeaders.host_cache_control?()
+  end
+
+  defp host_resp_header?(conn, name), do: Plug.Conn.get_resp_header(conn, name) != []
+
   defp put_resp_headers(%Plug.Conn{} = conn, response_headers) do
     Enum.reduce(response_headers, conn, fn {name, value}, conn ->
       put_resp_header(conn, name, value)
@@ -351,6 +451,14 @@ defmodule ImagePipe.Response.Sender do
     |> put_resp_headers(response_headers)
     |> put_resp_content_type("text/plain")
     |> send_resp(500, "error encoding image")
+  end
+
+  defp not_modified_headers(%CacheHeaders{} = prepared) do
+    prepared.headers
+    |> Kernel.++(prepared.representation_headers)
+    |> Enum.filter(fn {name, _value} ->
+      String.downcase(name) in @not_modified_header_allowlist
+    end)
   end
 
   defp output_metadata(%Resolved{format: format}), do: %{output_format: format}

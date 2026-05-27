@@ -14,6 +14,7 @@ defmodule ImagePipe.Cache.Key do
 
   @schema_version 2
   @transform_key_data_version 1
+  @representation_version 1
   @enforce_keys [:hash, :data, :serialized_data]
 
   defstruct @enforce_keys
@@ -28,19 +29,18 @@ defmodule ImagePipe.Cache.Key do
           {:ok, t()} | {:error, term()}
   def build(conn, %Plan{} = plan, source_identity, opts \\ []) when is_list(opts) do
     with :ok <- validate_source_identity(source_identity),
-         {:ok, pipelines} <- pipelines_data(plan.pipelines),
-         {:ok, output} <- output_data(conn, plan.output, opts),
-         {:ok, cache} <- cache_data(plan.cachebuster) do
-      data = [
-        schema_version: @schema_version,
-        source_identity: source_identity,
-        pipelines: pipelines,
-        transform: transform_data(),
-        output: output,
-        cache: cache,
-        selected_headers: selected_headers(conn, opts),
-        selected_cookies: selected_cookies(conn, opts)
-      ]
+         {:ok, plan_material} <- plan_material(plan, opts),
+         {:ok, output} <- output_data(conn, plan.output, opts) do
+      data =
+        [
+          schema_version: @schema_version,
+          source_identity: source_identity
+        ] ++
+          replace_keyword_value(plan_material, :output, output) ++
+          [
+            selected_headers: selected_headers(conn, opts),
+            selected_cookies: selected_cookies(conn, opts)
+          ]
 
       serialized_data = serialize_key_data(data)
 
@@ -60,6 +60,27 @@ defmodule ImagePipe.Cache.Key do
     |> :erlang.term_to_binary([:deterministic])
   end
 
+  @doc false
+  @spec plan_material(Plan.t(), keyword()) :: {:ok, keyword()} | {:error, term()}
+  def plan_material(%Plan{} = plan, opts) do
+    with {:ok, pipelines} <- pipelines_data(plan.pipelines),
+         {:ok, output} <- output_plan_data(plan.output, opts),
+         {:ok, cache} <- cache_data(plan.cachebuster) do
+      {:ok,
+       [
+         pipelines: pipelines,
+         transform: transform_data(),
+         output: output,
+         representation: representation_data(),
+         cache: cache
+       ]}
+    end
+  end
+
+  @doc false
+  @spec representation_version() :: pos_integer()
+  def representation_version, do: @representation_version
+
   defp validate_source_identity(identity) do
     if Identity.valid?(identity),
       do: :ok,
@@ -74,6 +95,33 @@ defmodule ImagePipe.Cache.Key do
   end
 
   defp transform_data, do: [key_data_version: @transform_key_data_version]
+
+  defp representation_data, do: [version: @representation_version]
+
+  defp output_plan_data(%Output{mode: :automatic} = output, opts) do
+    {:ok,
+     [
+       mode: :automatic,
+       auto: [
+         avif: Keyword.get(opts, :auto_avif, true),
+         webp: Keyword.get(opts, :auto_webp, true)
+       ],
+       quality: output.quality,
+       format_qualities: output.format_qualities
+     ]}
+  end
+
+  defp output_plan_data(%Output{mode: {:explicit, format}} = output, _opts) do
+    {:ok,
+     [
+       mode: :explicit,
+       format: format,
+       quality: output.quality,
+       format_qualities: output.format_qualities
+     ]}
+  end
+
+  defp output_plan_data(output, _opts), do: {:error, {:invalid_output_plan, output}}
 
   defp output_data(conn, %Output{mode: :automatic} = output, opts) do
     accept_header = conn |> get_req_header("accept") |> Enum.join(",")
@@ -91,18 +139,13 @@ defmodule ImagePipe.Cache.Key do
      ]}
   end
 
-  defp output_data(_conn, %Output{mode: {:explicit, format}} = output, _opts) do
-    {:ok,
-     [
-       mode: :explicit,
-       format: format,
-       quality: output.quality,
-       format_qualities: output.format_qualities
-     ]}
-  end
+  defp output_data(_conn, %Output{} = output, opts), do: output_plan_data(output, opts)
 
-  defp output_data(_conn, output, _opts) do
-    {:error, {:invalid_output_plan, output}}
+  defp replace_keyword_value(keyword, key, value) do
+    Enum.map(keyword, fn
+      {^key, _old_value} -> {key, value}
+      entry -> entry
+    end)
   end
 
   defp cache_data(cachebuster) when is_binary(cachebuster) or is_nil(cachebuster) do

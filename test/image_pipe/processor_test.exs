@@ -10,6 +10,7 @@ defmodule ImagePipe.Request.ProcessorTest do
   alias ImagePipe.Request.ProcessorTest.DecodeErrorImageOpen
   alias ImagePipe.Request.ProcessorTest.Materializer
   alias ImagePipe.Source
+  alias ImagePipe.Source.CacheSemantics
   alias ImagePipe.Source.Resolved
   alias ImagePipe.Source.Response
   alias ImagePipe.SourceTest.ValidAdapter
@@ -32,7 +33,9 @@ defmodule ImagePipe.Request.ProcessorTest do
       adapter: :path,
       source_kind: :path,
       identity: [kind: :path, root: "test", path: ["images", "beach.jpg"]],
-      cache: :normal,
+      internal_cache: :enabled,
+      http_cache: :inherit,
+      cache_semantics: %CacheSemantics{byte_identity: :none, stable?: false},
       fetch: :fixture
     }
   end

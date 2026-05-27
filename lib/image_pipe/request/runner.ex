@@ -12,13 +12,14 @@ defmodule ImagePipe.Request.Runner do
   alias ImagePipe.Request.SourceSession.Prepared, as: SessionPrepared
   alias ImagePipe.Request.SourceSession.Request, as: SessionRequest
   alias ImagePipe.Request.SourceSessionSupervisor
+  alias ImagePipe.Response.CacheHeaders
   alias ImagePipe.Response.PreparedStream
   alias ImagePipe.Source
   alias ImagePipe.Telemetry
 
   @type delivery() ::
-          {:cache_entry, Entry.t(), Response.t()}
-          | {:prepared_stream, PreparedStream.t(), Response.t()}
+          {:cache_entry, Entry.t(), Response.t(), CacheHeaders.t()}
+          | {:prepared_stream, PreparedStream.t(), Response.t(), CacheHeaders.t()}
 
   @type error() ::
           {:cache, term()}
@@ -28,17 +29,36 @@ defmodule ImagePipe.Request.Runner do
           Plug.Conn.t(),
           Plan.t(),
           Source.Resolved.t(),
+          CacheHeaders.t(),
           keyword()
         ) ::
           {:ok, delivery()} | {:error, error()}
-  def run(conn, %Plan{} = plan, %Source.Resolved{} = resolved_source, opts) do
-    run_with_cache_config(conn, plan, resolved_source, opts)
+  def run(
+        conn,
+        %Plan{} = plan,
+        %Source.Resolved{} = resolved_source,
+        %CacheHeaders{} = prepared_http_cache,
+        opts
+      ) do
+    run_with_cache_config(conn, plan, resolved_source, prepared_http_cache, opts)
   end
 
-  defp run_with_cache_config(conn, plan, %Source.Resolved{cache: :skip} = resolved_source, opts),
-    do: process_prepared_stream(conn, plan, resolved_source, nil, opts)
+  defp run_with_cache_config(
+         conn,
+         plan,
+         %Source.Resolved{internal_cache: :disabled} = resolved_source,
+         prepared_http_cache,
+         opts
+       ),
+       do: process_prepared_stream(conn, plan, resolved_source, nil, prepared_http_cache, opts)
 
-  defp run_with_cache_config(conn, plan, %Source.Resolved{cache: :normal} = resolved_source, opts) do
+  defp run_with_cache_config(
+         conn,
+         plan,
+         %Source.Resolved{internal_cache: :enabled} = resolved_source,
+         prepared_http_cache,
+         opts
+       ) do
     telemetry_opts = Telemetry.telemetry_opts(opts)
 
     result =
@@ -54,27 +74,34 @@ defmodule ImagePipe.Request.Runner do
 
     case result do
       :disabled ->
-        process_prepared_stream(conn, plan, resolved_source, nil, opts)
+        process_prepared_stream(conn, plan, resolved_source, nil, prepared_http_cache, opts)
 
       {:hit, %Key{}, %Entry{} = entry} ->
-        {:ok, {:cache_entry, entry, plan.response}}
+        {:ok, {:cache_entry, entry, plan.response, prepared_http_cache}}
 
       {:miss, %Key{} = key} ->
-        process_cacheable_miss(conn, plan, resolved_source, key, opts)
+        process_cacheable_miss(conn, plan, resolved_source, key, prepared_http_cache, opts)
 
       {:miss, %Key{} = key, {:cache_read, _error}} ->
-        process_cacheable_miss(conn, plan, resolved_source, key, opts)
+        process_cacheable_miss(conn, plan, resolved_source, key, prepared_http_cache, opts)
 
       {:error, {:cache_read, error}} ->
         {:error, {:cache, error}}
     end
   end
 
-  defp process_cacheable_miss(conn, plan, resolved_source, %Key{} = key, opts) do
-    process_prepared_stream(conn, plan, resolved_source, key, opts)
+  defp process_cacheable_miss(
+         conn,
+         plan,
+         resolved_source,
+         %Key{} = key,
+         prepared_http_cache,
+         opts
+       ) do
+    process_prepared_stream(conn, plan, resolved_source, key, prepared_http_cache, opts)
   end
 
-  defp process_prepared_stream(conn, plan, resolved_source, cache_key, opts) do
+  defp process_prepared_stream(conn, plan, resolved_source, cache_key, prepared_http_cache, opts) do
     policy = Policy.from_output_plan(conn, plan.output, opts)
 
     request = %SessionRequest{
@@ -89,19 +116,31 @@ defmodule ImagePipe.Request.Runner do
 
     case SourceSessionSupervisor.start_session(supervisor, request) do
       {:ok, session} ->
-        prepare_supervised_session(session, supervisor, plan.response, policy)
+        prepare_supervised_session(
+          session,
+          supervisor,
+          plan.response,
+          policy,
+          prepared_http_cache
+        )
 
       {:error, reason} ->
         {:error, {:processing, normalize_session_prepare_error(reason), policy.headers}}
     end
   end
 
-  defp prepare_supervised_session(session, supervisor, %Response{} = response, %Policy{} = policy) do
+  defp prepare_supervised_session(
+         session,
+         supervisor,
+         %Response{} = response,
+         %Policy{} = policy,
+         %CacheHeaders{} = prepared_http_cache
+       ) do
     case SourceSession.prepare(session) do
       {:ok, %SessionPrepared{} = prepared} ->
         case prepared_stream(session, supervisor, prepared, response) do
           {:ok, %PreparedStream{} = prepared_stream} ->
-            {:ok, {:prepared_stream, prepared_stream, response}}
+            {:ok, {:prepared_stream, prepared_stream, response, prepared_http_cache}}
 
           {:error, reason} ->
             _stop_result = SourceSessionSupervisor.stop_session(supervisor, session)

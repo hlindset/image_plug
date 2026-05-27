@@ -5,6 +5,7 @@ defmodule ImagePipe.SourceTest.RootHTTPAdapter do
 
   alias ImagePipe.Plan.Source.Path, as: SourcePath
   alias ImagePipe.Source
+  alias ImagePipe.Source.CacheSemantics
   alias ImagePipe.Source.Resolved
   alias ImagePipe.Source.Response
   alias ImagePipe.Source.StreamError
@@ -13,9 +14,9 @@ defmodule ImagePipe.SourceTest.RootHTTPAdapter do
   def validate_options(opts) when is_list(opts) do
     root_url = Keyword.fetch!(opts, :root_url)
     req_options = Keyword.get(opts, :req_options, [])
-    cache = Keyword.get(opts, :cache, :normal)
+    internal_cache = Keyword.get(opts, :internal_cache, :enabled)
 
-    {:ok, [root_url: root_url, req_options: req_options, cache: cache]}
+    {:ok, [root_url: root_url, req_options: req_options, internal_cache: internal_cache]}
   end
 
   @impl Source
@@ -32,7 +33,9 @@ defmodule ImagePipe.SourceTest.RootHTTPAdapter do
          root: root_url,
          path: segments
        ],
-       cache: Keyword.fetch!(opts, :cache),
+       internal_cache: Keyword.fetch!(opts, :internal_cache),
+       http_cache: :inherit,
+       cache_semantics: %CacheSemantics{byte_identity: :none, stable?: false},
        fetch: [
          url: build_url(root_url, segments),
          req_options: Keyword.fetch!(opts, :req_options)

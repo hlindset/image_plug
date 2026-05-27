@@ -1,5 +1,9 @@
+CDNs
+ETag
+ETags
 EXIF
 Imgproxy
+Rollout
 Vite
 Vix
 agentic
@@ -10,6 +14,7 @@ booleans
 cacheable
 cachebuster
 ciphertext
+codec
 config
 downscales
 imgproxy
@@ -23,3 +28,5 @@ uncached
 unconfigured
 unreferenced
 upscales
+validator
+validators

@@ -6,6 +6,7 @@ defmodule ImagePipe.Response.SenderTest do
   alias ImagePipe.Cache.Entry
   alias ImagePipe.Output.Resolved
   alias ImagePipe.Plan.Response
+  alias ImagePipe.Response.CacheHeaders
   alias ImagePipe.Response.PreparedStream
   alias ImagePipe.Response.Sender
 
@@ -126,12 +127,127 @@ defmodule ImagePipe.Response.SenderTest do
     response = %Response{disposition: :attachment, filename: "report"}
 
     conn =
-      Sender.send_result(conn(:get, "/image"), {:ok, {:cache_entry, entry, response}}, [])
+      Sender.send_result(
+        conn(:get, "/image"),
+        {:ok, {:cache_entry, entry, response, empty_cache_headers()}},
+        []
+      )
 
     assert conn.status == 200
 
     assert Plug.Conn.get_resp_header(conn, "content-disposition") ==
              [~s(attachment; filename="report.webp")]
+  end
+
+  test "cache hits merge generated headers before cached entry headers" do
+    entry = %Entry{
+      body: "body",
+      content_type: "image/webp",
+      headers: [{"cache-control", "public, max-age=60"}, {"vary", "Accept"}],
+      created_at: DateTime.utc_now()
+    }
+
+    prepared = %CacheHeaders{
+      representation_headers: [{"vary", "Accept"}],
+      headers: [
+        {"cache-control", "public, max-age=31536000, immutable"},
+        {"etag", ~s("ip1-test")}
+      ],
+      etag: ~s("ip1-test")
+    }
+
+    conn =
+      Sender.send_result(
+        conn(:get, "/image"),
+        {:ok, {:cache_entry, entry, %Response{}, prepared}},
+        []
+      )
+
+    assert Plug.Conn.get_resp_header(conn, "cache-control") == [
+             "public, max-age=31536000, immutable"
+           ]
+
+    assert Plug.Conn.get_resp_header(conn, "etag") == [~s("ip1-test")]
+    assert Plug.Conn.get_resp_header(conn, "vary") == ["Accept"]
+    assert conn.status == 200
+  end
+
+  test "current host cache-control wins over generated and cached headers" do
+    entry = %Entry{
+      body: "body",
+      content_type: "image/webp",
+      headers: [{"cache-control", "public, max-age=60"}],
+      created_at: DateTime.utc_now()
+    }
+
+    prepared = %CacheHeaders{
+      representation_headers: [],
+      headers: [{"cache-control", "public, max-age=31536000, immutable"}],
+      etag: nil
+    }
+
+    conn =
+      :get
+      |> conn("/image")
+      |> Plug.Conn.put_resp_header("cache-control", "private, max-age=30")
+      |> Sender.send_result({:ok, {:cache_entry, entry, %Response{}, prepared}}, [])
+
+    assert Plug.Conn.get_resp_header(conn, "cache-control") == ["private, max-age=30"]
+  end
+
+  test "prepared streams merge generated headers before stream headers" do
+    prepared_stream =
+      prepared_stream(headers: [{"cache-control", "public, max-age=60"}])
+
+    prepared = %CacheHeaders{
+      representation_headers: [],
+      headers: [{"cache-control", "public, max-age=31536000, immutable"}],
+      etag: nil
+    }
+
+    conn =
+      Sender.send_result(
+        conn(:get, "/image"),
+        {:ok, {:prepared_stream, prepared_stream, %Response{}, prepared}},
+        []
+      )
+
+    assert Plug.Conn.get_resp_header(conn, "cache-control") == [
+             "public, max-age=31536000, immutable"
+           ]
+  end
+
+  test "cache hit header telemetry is low-cardinality" do
+    attach_telemetry([[:image_pipe, :http_cache, :cache_hit, :headers]])
+
+    entry = %Entry{
+      body: "body",
+      content_type: "image/webp",
+      headers: [],
+      created_at: DateTime.utc_now()
+    }
+
+    prepared = %CacheHeaders{
+      representation_headers: [],
+      headers: [{"etag", ~s("ip1-token")}],
+      etag: ~s("ip1-token")
+    }
+
+    _conn =
+      Sender.send_result(
+        conn(:get, "/image"),
+        {:ok, {:cache_entry, entry, %Response{}, prepared}},
+        []
+      )
+
+    assert_receive {:telemetry_event, [:image_pipe, :http_cache, :cache_hit, :headers], %{},
+                    metadata}
+
+    assert metadata == %{
+             etag: true,
+             generated_cache_headers: true,
+             representation_headers: false
+           }
   end
 
   test "prepared streams send first chunk and pull later chunks" do
@@ -154,7 +270,11 @@ defmodule ImagePipe.Response.SenderTest do
       )
 
     conn =
-      Sender.send_result(conn(:get, "/image"), {:ok, {:prepared_stream, prepared, response}}, [])
+      Sender.send_result(
+        conn(:get, "/image"),
+        {:ok, {:prepared_stream, prepared, response, empty_cache_headers()}},
+        []
+      )
 
     assert conn.status == 200
     assert conn.resp_body == "firstsecond"
@@ -183,7 +303,11 @@ defmodule ImagePipe.Response.SenderTest do
       )
 
     conn =
-      Sender.send_result(conn(:get, "/image"), {:ok, {:prepared_stream, prepared, response}}, [])
+      Sender.send_result(
+        conn(:get, "/image"),
+        {:ok, {:prepared_stream, prepared, response, empty_cache_headers()}},
+        []
+      )
 
     assert conn.status == 200
     refute_received ^cancel_ref
@@ -206,7 +330,11 @@ defmodule ImagePipe.Response.SenderTest do
       )
 
     conn =
-      Sender.send_result(conn(:get, "/image"), {:ok, {:prepared_stream, prepared, response}}, [])
+      Sender.send_result(
+        conn(:get, "/image"),
+        {:ok, {:prepared_stream, prepared, response, empty_cache_headers()}},
+        []
+      )
 
     assert conn.status == 200
     assert conn.private.image_pipe_send_result == :processing_error
@@ -241,7 +369,10 @@ defmodule ImagePipe.Response.SenderTest do
       :get
       |> conn("/image")
       |> Map.put(:adapter, {ClosingChunkAdapter, %{chunks: nil}})
-      |> Sender.send_result({:ok, {:prepared_stream, prepared, %Response{}}}, [])
+      |> Sender.send_result(
+        {:ok, {:prepared_stream, prepared, %Response{}, empty_cache_headers()}},
+        []
+      )
 
     refute Map.has_key?(conn.private, :image_pipe_send_result)
     assert conn.resp_body == "first"
@@ -275,7 +406,10 @@ defmodule ImagePipe.Response.SenderTest do
       :get
       |> conn("/image")
       |> Map.put(:adapter, {FailingChunkedAdapter, %{}})
-      |> Sender.send_result({:ok, {:prepared_stream, prepared, %Response{}}}, [])
+      |> Sender.send_result(
+        {:ok, {:prepared_stream, prepared, %Response{}, empty_cache_headers()}},
+        []
+      )
 
     assert conn.private.image_pipe_send_result == :processing_error
     assert_receive ^cancel_ref
@@ -306,7 +440,10 @@ defmodule ImagePipe.Response.SenderTest do
       :get
       |> conn("/image")
       |> Map.put(:adapter, {FirstChunkClosedAdapter, %{}})
-      |> Sender.send_result({:ok, {:prepared_stream, prepared, %Response{}}}, [])
+      |> Sender.send_result(
+        {:ok, {:prepared_stream, prepared, %Response{}, empty_cache_headers()}},
+        []
+      )
 
     refute Map.has_key?(conn.private, :image_pipe_send_result)
     assert_receive ^cancel_ref
@@ -328,7 +465,7 @@ defmodule ImagePipe.Response.SenderTest do
     conn =
       Sender.send_result(
         conn(:get, "/image"),
-        {:ok, {:prepared_stream, prepared, %Response{}}},
+        {:ok, {:prepared_stream, prepared, %Response{}, empty_cache_headers()}},
         []
       )
 
@@ -355,6 +492,10 @@ defmodule ImagePipe.Response.SenderTest do
         overrides
       )
     )
+  end
+
+  defp empty_cache_headers do
+    %CacheHeaders{representation_headers: [], headers: [], etag: nil}
   end
 
   defp attach_telemetry(events) do

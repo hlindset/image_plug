@@ -7,6 +7,32 @@ defmodule ImagePipe.Source.HTTPTest do
   alias ImagePipe.Source.Resolved
   alias ImagePipe.Source.Response
 
+  test "http source defaults to not stable and disables internal cache in auto mode" do
+    assert {:ok, opts} = HTTP.validate_options(allowed_hosts: ["example.com"])
+    source = %URL{scheme: :https, host: "example.com", path: ["cat.jpg"]}
+
+    assert {:ok, resolved} = HTTP.resolve(source, opts, [])
+
+    assert resolved.internal_cache == :disabled
+    assert resolved.cache_semantics.byte_identity == :none
+  end
+
+  test "http trusted byte identity doesn't expose raw query" do
+    assert {:ok, opts} = HTTP.validate_options(allowed_hosts: ["example.com"], stable: :trusted)
+
+    source = %URL{
+      scheme: :https,
+      host: "example.com",
+      path: ["cat.jpg"],
+      query: "X-Amz-Signature=secret"
+    }
+
+    assert {:ok, resolved} = HTTP.resolve(source, opts, [])
+    assert {:strong, seed} = resolved.cache_semantics.byte_identity
+    refute inspect(seed) =~ "X-Amz-Signature=secret"
+    assert is_binary(seed[:query_sha256])
+  end
+
   test "resolve normalizes URL identity and enforces allowed hosts" do
     assert {:ok, opts} = HTTP.validate_options(allowed_hosts: ["assets.example.com"])
 
@@ -51,9 +77,12 @@ defmodule ImagePipe.Source.HTTPTest do
     assert resolved.identity[:host] == "assets.example.com"
   end
 
-  test "resolve honors HTTP cache skip option" do
+  test "resolve honors HTTP internal cache disabled option" do
     assert {:ok, opts} =
-             HTTP.validate_options(allowed_hosts: ["assets.example.com"], cache: :skip)
+             HTTP.validate_options(
+               allowed_hosts: ["assets.example.com"],
+               internal_cache: :disabled
+             )
 
     source = %URL{
       scheme: :https,
@@ -64,7 +93,7 @@ defmodule ImagePipe.Source.HTTPTest do
     }
 
     assert {:ok, %Resolved{} = resolved} = HTTP.resolve(source, opts, [])
-    assert resolved.cache == :skip
+    assert resolved.internal_cache == :disabled
   end
 
   test "fetch creates a Req-backed lazy stream and preserves safe request options" do
@@ -115,6 +144,7 @@ defmodule ImagePipe.Source.HTTPTest do
     assert {:ok, opts} =
              HTTP.validate_options(
                allowed_hosts: ["assets.example.com"],
+               internal_cache: :enabled,
                req_options: [
                  plug: plug,
                  url: "https://evil.example/other.jpg",
@@ -148,6 +178,52 @@ defmodule ImagePipe.Source.HTTPTest do
     refute Enum.any?(headers, fn {name, value} ->
              String.downcase(name) in ["host", "range", "accept", "accept-encoding"] and
                value in ["evil.example", "bytes=0-1", "application/json"]
+           end)
+  end
+
+  test "trusted byte identity strips byte-changing headers even when internal cache is disabled" do
+    plug = fn conn ->
+      send(self(), {:http_request, conn.req_headers})
+      Plug.Conn.send_resp(conn, 200, "image bytes")
+    end
+
+    source = %URL{
+      scheme: :https,
+      host: "assets.example.com",
+      port: nil,
+      path: ["cat.jpg"],
+      query: nil
+    }
+
+    assert {:ok, opts} =
+             HTTP.validate_options(
+               allowed_hosts: ["assets.example.com"],
+               stable: :trusted,
+               internal_cache: :disabled,
+               req_options: [
+                 plug: plug,
+                 headers: [
+                   {"Range", "bytes=0-1"},
+                   {"Accept", "application/json"},
+                   {"Accept-Encoding", "gzip"},
+                   {"x-extra", "kept"}
+                 ]
+               ]
+             )
+
+    assert {:ok, resolved} = HTTP.resolve(source, opts, [])
+
+    assert {:ok, %Response{} = response} =
+             Source.fetch(resolved, [sources: %{https: {HTTP, opts}}], [])
+
+    assert Enum.join(response.stream) == "image bytes"
+    assert_receive {:http_request, headers}
+
+    assert {_name, "kept"} =
+             Enum.find(headers, fn {name, _value} -> String.downcase(name) == "x-extra" end)
+
+    refute Enum.any?(headers, fn {name, _value} ->
+             String.downcase(name) in ["range", "accept", "accept-encoding"]
            end)
   end
 
