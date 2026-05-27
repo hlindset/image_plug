@@ -217,10 +217,20 @@ defmodule ImagePipe.Cache do
 
     case NimbleOptions.validate(shared_opts, @shared_cache_option_schema) do
       {:ok, validated_shared_opts} ->
-        {:ok, validated_shared_opts}
+        reject_reserved_key_headers(validated_shared_opts)
 
       {:error, error} ->
         {:error, {:invalid_cache_config, shared_validation_error(error)}}
+    end
+  end
+
+  defp reject_reserved_key_headers(shared_opts) do
+    key_headers = Keyword.get(shared_opts, :key_headers, [])
+
+    if Enum.any?(key_headers, &(String.downcase(&1) == "accept")) do
+      {:error, {:invalid_cache_config, {:key_headers, ~s(cannot include "accept")}}}
+    else
+      {:ok, shared_opts}
     end
   end
 

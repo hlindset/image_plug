@@ -158,7 +158,6 @@ defmodule ImagePipe.Cache.Key do
     opts
     |> Keyword.get(:key_headers, [])
     |> Enum.map(&String.downcase/1)
-    |> Enum.reject(&(&1 == "accept"))
     |> Enum.uniq()
     |> Enum.sort()
     |> Enum.map(fn name -> {name, get_req_header(conn, name)} end)

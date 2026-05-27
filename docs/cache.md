@@ -73,7 +73,7 @@ Cache keys include:
 - normalized automatic-output inputs when output is automatic: detected modern
   output candidates plus `:auto_avif` and `:auto_webp` flags
 
-ImagePipe reserves `Accept` for automatic output normalization and ignores it in
+ImagePipe reserves `Accept` for automatic output normalization and rejects it in
 `:key_headers` so raw `Accept` values don't enter cache key material.
 
 Cache keys exclude:

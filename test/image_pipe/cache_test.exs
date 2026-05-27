@@ -248,6 +248,13 @@ defmodule ImagePipe.CacheTest do
       ImagePipe.Plug.init(cache: {MissAdapter, key_headers: [:accept_language]})
     end
 
+    assert_raise ArgumentError, ~r/key_headers.*cannot include.*accept/, fn ->
+      ImagePipe.Plug.init(
+        parser: ImagePipe.Parser.Imgproxy,
+        cache: {MissAdapter, key_headers: ["Accept"]}
+      )
+    end
+
     assert_raise ArgumentError, ~r/invalid cache config/, fn ->
       ImagePipe.Plug.init(cache: {MissAdapter, max_body_bytes: "10MB"})
     end
@@ -569,7 +576,7 @@ defmodule ImagePipe.CacheTest do
 
   test "adapter runtime opts use validated adapter options without raw adapter config leftovers" do
     cache_opts = [
-      key_headers: ["accept"],
+      key_headers: ["accept-language"],
       test_pid: self(),
       drop_me: true
     ]
@@ -585,7 +592,7 @@ defmodule ImagePipe.CacheTest do
              )
 
     assert_received {:normalized_cache_get, runtime_opts}
-    assert Keyword.fetch!(runtime_opts, :key_headers) == ["accept"]
+    assert Keyword.fetch!(runtime_opts, :key_headers) == ["accept-language"]
     assert Keyword.fetch!(runtime_opts, :test_pid) == self()
     assert Keyword.fetch!(runtime_opts, :normalized?)
     refute Keyword.has_key?(runtime_opts, :drop_me)
@@ -593,7 +600,7 @@ defmodule ImagePipe.CacheTest do
     assert Cache.open_sink(cache_key(), resolved_output(), opts)
 
     assert_received {:normalized_open_sink, sink_opts}
-    assert Keyword.fetch!(sink_opts, :key_headers) == ["accept"]
+    assert Keyword.fetch!(sink_opts, :key_headers) == ["accept-language"]
     assert Keyword.fetch!(sink_opts, :test_pid) == self()
     assert Keyword.fetch!(sink_opts, :normalized?)
     refute Keyword.has_key?(sink_opts, :drop_me)

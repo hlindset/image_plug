@@ -879,33 +879,6 @@ defmodule ImagePipe.Cache.KeyTest do
     refute inspect(key.data) =~ "ignored_cookie"
   end
 
-  test "configured Accept key header is excluded from raw selected headers" do
-    automatic_plan = plan(output: %Output{mode: :automatic})
-
-    wildcard_key =
-      :get
-      |> conn("/_/plain/images/cat.jpg")
-      |> put_req_header("accept", "*/*")
-      |> build_key!(automatic_plan, source_identity(), key_headers: ["accept"])
-
-    missing_key =
-      conn(:get, "/_/plain/images/cat.jpg")
-      |> build_key!(automatic_plan, source_identity(), key_headers: ["accept"])
-
-    assert wildcard_key.data[:selected_headers] == []
-    assert wildcard_key.hash == missing_key.hash
-    refute inspect(wildcard_key.data) =~ "*/*"
-
-    explicit_key =
-      :get
-      |> conn("/_/f:webp/plain/images/cat.jpg")
-      |> put_req_header("accept", "image/jpeg")
-      |> build_key!(plan(), source_identity(), key_headers: ["accept"])
-
-    assert explicit_key.data[:selected_headers] == []
-    refute inspect(explicit_key.data) =~ "image/jpeg"
-  end
-
   test "cache key excludes imgproxy signature authorization proof" do
     signed_opts =
       ImagePipe.Plug.init(
