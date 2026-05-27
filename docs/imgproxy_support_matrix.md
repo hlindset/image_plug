@@ -272,8 +272,16 @@ XL output.
 
 ### Metadata, color profile, HDR, and default autorotation policy
 
-ImagePipe supports URL `auto_rotate`. Global metadata stripping, profile
-handling, HDR preservation, and thumbnail-source selection aren't configurable.
+ImagePipe supports URL `auto_rotate` and the matching parser config default:
+`imgproxy: [auto_rotate: true]`, which is also the default. Global metadata
+stripping, profile handling, HDR preservation, and thumbnail-source selection
+aren't configurable.
+
+URL `auto_rotate`/`ar` resolves as request-scoped EXIF decode policy. If the URL
+contains more than one `ar`, the last value in path order wins. When the
+resolved policy is `true`, ImagePipe represents it as one `AutoOrient` operation
+at the start of the first produced pipeline. Cache keys, ETags, and transform
+execution then use the normal canonical plan machinery.
 
 - ⭕ `IMGPROXY_STRIP_METADATA`
 - ⭕ `IMGPROXY_KEEP_COPYRIGHT`
@@ -281,7 +289,7 @@ handling, HDR preservation, and thumbnail-source selection aren't configurable.
 - ⭕ `IMGPROXY_STRIP_COLOR_PROFILE`
 - ⭕ `IMGPROXY_COLOR_PROFILES_DIR`
 - ⭕ `IMGPROXY_PRESERVE_HDR`
-- 🔗 `IMGPROXY_AUTO_ROTATE`
+- ✅ `IMGPROXY_AUTO_ROTATE`
 - ⭕ `IMGPROXY_ENFORCE_THUMBNAIL`
 
 ### Input and output safety limits
@@ -477,7 +485,7 @@ transforms or output encoding.
 | `crop_aspect_ratio` | `crop_ar`, `car` | Missing | Documented as unsupported in current ImagePipe docs. |
 | `trim` | `t` | Missing | Requires full-image memory behavior and trim operation. |
 | `padding` | `pd` | Supported | CSS-style shorthand, sparse repeated options, effective DPR scaling, and `padding:` no-op compatibility. |
-| `auto_rotate` | `ar` | Supported | Omitted argument enables auto-orient; boolean form supported. |
+| `auto_rotate` | `ar` | Supported | Omitted argument enables auto-orient; boolean form supported. URL `ar` overrides `imgproxy: [auto_rotate: ...]` request-wide, with last value in path order winning. |
 | `rotate` | `rot` | Supported | Right-angle multiples normalize to `0`, `90`, `180`, or `270`. |
 | `flip` | `fl` | Supported | No arguments means both axes. Supports one or two booleans. |
 

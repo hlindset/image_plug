@@ -41,6 +41,10 @@ defmodule ImagePipe.Parser.Imgproxy do
                      presets: [
                        type: {:custom, Presets, :validate_config, []},
                        default: %{}
+                     ],
+                     auto_rotate: [
+                       type: :boolean,
+                       default: true
                      ]
                    )
 
@@ -104,10 +108,17 @@ defmodule ImagePipe.Parser.Imgproxy do
   end
 
   defp parse_request(%Plug.Conn{} = conn, opts) do
+    imgproxy_opts = Keyword.get(opts, :imgproxy, [])
+
     with {:ok, signature, signed_path, path_info} <- Path.extract(conn),
          :ok <- verify_signature(signature, signed_path, opts),
          {:ok, option_segments, source_kind, raw_source_path} <- Path.split_source(path_info),
-         {:ok, request_options} <- Options.parse(option_segments, preset_config(opts)),
+         {:ok, request_options} <-
+           Options.parse(
+             option_segments,
+             preset_config(imgproxy_opts),
+             request_defaults(imgproxy_opts)
+           ),
          {:ok, source_path, source_format} <-
            Path.parse_source(source_kind, raw_source_path, source_parsing_config(opts)) do
       parsed_request(
@@ -157,10 +168,12 @@ defmodule ImagePipe.Parser.Imgproxy do
     |> Keyword.get(:signature, Signature.disabled())
   end
 
-  defp preset_config(opts) do
-    opts
-    |> Keyword.get(:imgproxy, [])
-    |> Keyword.get(:presets, Presets.empty())
+  defp preset_config(imgproxy_opts) do
+    Keyword.get(imgproxy_opts, :presets, Presets.empty())
+  end
+
+  defp request_defaults(imgproxy_opts) do
+    [auto_rotate: Keyword.get(imgproxy_opts, :auto_rotate, true)]
   end
 
   defp source_parsing_config(opts) do

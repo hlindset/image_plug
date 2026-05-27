@@ -313,6 +313,18 @@ Orientation options are `auto_rotate`/`ar`, `rotate`/`rot`, and `flip`/`fl`.
 
 - `ar:true` applies embedded orientation metadata, such as EXIF orientation.
   `ar:false` disables it.
+- `imgproxy: [auto_rotate: true]` applies EXIF autorotation when the URL doesn't
+  specify `auto_rotate`/`ar`. The default config value is `true`, matching
+  Imgproxy's `IMGPROXY_AUTO_ROTATE` default.
+- URL `ar:true` and `ar:false` resolve as request-scoped EXIF decode policy,
+  not as pipeline-local pixel operations. If more than one URL group contains
+  `ar`, the last `ar` in path order wins.
+- When the resolved request policy is `true`, ImagePipe represents it as one
+  `AutoOrient` operation at the start of the first produced pipeline. That keeps
+  cache keys, ETags, and transform execution on the same canonical plan
+  machinery while making later geometry use dimensions after EXIF normalization.
+- `rotate` and `flip` stay pipeline-scoped. They don't suppress the configured
+  `auto_rotate` default and don't move across pipeline separators.
 - `rot` accepts integer degrees in multiples of 90 and stores them as `0`,
   `90`, `180`, or `270`.
 - `fl:true:true` flips both axes.
