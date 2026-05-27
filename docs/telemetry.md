@@ -59,6 +59,10 @@ transform execution, output negotiation, encoding, and send streaming spans.
 [:image_pipe, :cache, :stage, ...]
 [:image_pipe, :cache, :write, ...]
 [:image_pipe, :send, ...]
+[:image_pipe, :http_cache, :prepare]
+[:image_pipe, :http_cache, :conditional, :match]
+[:image_pipe, :http_cache, :fallback, :no_store]
+[:image_pipe, :http_cache, :cache_hit, :headers]
 ```
 
 For example, the cache lookup stop event with the default prefix is:
@@ -151,6 +155,19 @@ successful commit stop event includes `cache: :write`. A commit error after
 successful streamed delivery includes `cache: :write_error` and
 `result: :cache_error`, but the response still fails open because the body was
 already delivered.
+
+Generated CDN HTTP cache handling emits non-span events:
+
+- `[:image_pipe, :http_cache, :prepare]` with `:effective_mode`,
+  `:byte_identity`, and `:etag`.
+- `[:image_pipe, :http_cache, :conditional, :match]` with `method: :get`.
+- `[:image_pipe, :http_cache, :fallback, :no_store]` with `:adapter`,
+  `:source_kind`, and `:reason`.
+- `[:image_pipe, :http_cache, :cache_hit, :headers]` with booleans for `:etag`,
+  `:generated_cache_headers`, and `:representation_headers`.
+
+These events don't include request paths, source identities, cache keys, or ETag
+values.
 
 ## Attaching handlers
 

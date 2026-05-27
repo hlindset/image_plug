@@ -127,6 +127,8 @@ ImagePipe's fixed plan order.
   partial, rejected, missing, and out-of-scope Imgproxy features.
 - [Cache](docs/cache.md) documents filesystem response caching, cache keys,
   stored headers, failure modes, and cache safety boundaries.
+- [CDN HTTP caching](docs/cdn-http-cache.md) documents generated
+  `Cache-Control`, ETags, `Vary: Accept`, source stability, and CDN behavior.
 - [Operational notes](docs/operational_notes.md) documents request safety,
   source fetching, decode planning, multi-pipeline behavior, and automatic
   output negotiation.
