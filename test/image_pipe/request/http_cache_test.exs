@@ -463,9 +463,84 @@ defmodule ImagePipe.Request.HTTPCacheTest do
     assert first.etag == second.etag
   end
 
+  test "prepare telemetry is low-cardinality" do
+    attach_telemetry([[:image_pipe, :http_cache, :prepare]])
+
+    _prepared = HTTPCache.prepare(conn(:get, "/image"), plan(), resolved(), opts())
+
+    assert_receive {:telemetry_event, [:image_pipe, :http_cache, :prepare], %{},
+                    %{effective_mode: :enabled, byte_identity: :strong, etag: true} = metadata}
+
+    refute Map.has_key?(metadata, :path)
+    refute Map.has_key?(metadata, :etag_value)
+    refute Map.has_key?(metadata, :source_identity)
+  end
+
+  test "no-store fallback telemetry is required and low-cardinality" do
+    attach_telemetry([[:image_pipe, :http_cache, :fallback, :no_store]])
+
+    _prepared =
+      HTTPCache.prepare(
+        conn(:get, "/image"),
+        plan(),
+        resolved(cache_semantics: %CacheSemantics{byte_identity: :none, stable?: false}),
+        opts()
+      )
+
+    assert_receive {:telemetry_event, [:image_pipe, :http_cache, :fallback, :no_store], %{},
+                    %{adapter: :path, source_kind: :path, reason: :missing_byte_identity} =
+                      metadata}
+
+    refute Map.has_key?(metadata, :path)
+    refute Map.has_key?(metadata, :url)
+    refute Map.has_key?(metadata, :etag)
+  end
+
+  test "conditional match telemetry omits etag and path" do
+    attach_telemetry([[:image_pipe, :http_cache, :conditional, :match]])
+
+    prepared = %ImagePipe.Response.CacheHeaders{
+      representation_headers: [],
+      headers: [{"etag", ~s("ip1-token")}],
+      etag: ~s("ip1-token")
+    }
+
+    conn =
+      :get
+      |> conn("/image")
+      |> put_req_header("if-none-match", ~s("ip1-token"))
+
+    assert {:not_modified, _headers} = HTTPCache.evaluate_conditional(conn, prepared, opts())
+
+    assert_receive {:telemetry_event, [:image_pipe, :http_cache, :conditional, :match], %{},
+                    %{method: :get} = metadata}
+
+    refute Map.has_key?(metadata, :etag)
+    refute Map.has_key?(metadata, :path)
+  end
+
   defp header(headers, name) do
     headers
     |> Enum.find(fn {header_name, _value} -> header_name == name end)
     |> elem(1)
+  end
+
+  def handle_telemetry_event(event, measurements, metadata, test_pid) do
+    send(test_pid, {:telemetry_event, event, measurements, metadata})
+  end
+
+  defp attach_telemetry(events) do
+    test_pid = self()
+    handler_id = {__MODULE__, make_ref()}
+
+    :ok =
+      :telemetry.attach_many(
+        handler_id,
+        events,
+        &__MODULE__.handle_telemetry_event/4,
+        test_pid
+      )
+
+    on_exit(fn -> :telemetry.detach(handler_id) end)
   end
 end

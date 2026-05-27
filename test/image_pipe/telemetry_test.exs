@@ -583,7 +583,7 @@ defmodule ImagePipe.TelemetryTest do
       [
         parser: ImagePipe.Parser.Imgproxy,
         sources: [
-          path: {ImagePipe.Source.File, root: "priv/static", root_id: "static"}
+          path: {ImagePipe.Source.File, root: "priv/static", root_id: "static", stable: :trusted}
         ]
       ],
       overrides

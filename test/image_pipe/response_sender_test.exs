@@ -213,6 +213,36 @@ defmodule ImagePipe.Response.SenderTest do
            ]
   end
 
+  test "cache hit header telemetry is low-cardinality" do
+    attach_telemetry([[:image_pipe, :http_cache, :cache_hit, :headers]])
+
+    entry = %Entry{
+      body: "body",
+      content_type: "image/webp",
+      headers: [],
+      created_at: DateTime.utc_now()
+    }
+
+    prepared = %CacheHeaders{
+      representation_headers: [],
+      headers: [{"etag", ~s("ip1-token")}],
+      etag: ~s("ip1-token")
+    }
+
+    _conn =
+      Sender.send_result(
+        conn(:get, "/image"),
+        {:ok, {:cache_entry, entry, %Response{}, prepared}},
+        []
+      )
+
+    assert_receive {:telemetry_event, [:image_pipe, :http_cache, :cache_hit, :headers], %{},
+                    %{etag: true} = metadata}
+
+    refute Map.has_key?(metadata, :path)
+    refute Map.has_key?(metadata, :etag_value)
+  end
+
   test "prepared streams send first chunk and pull later chunks" do
     parent = self()
     response = %Response{disposition: :inline, filename: "prepared"}
