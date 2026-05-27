@@ -1,34 +1,61 @@
 defmodule ImagePipe.Source.WrappedStream do
   @moduledoc false
 
-  @enforce_keys [:stream, :max_body_bytes]
+  @enforce_keys [:stream, :max_body_bytes, :body_limit_ref]
   defstruct @enforce_keys
+
+  @type t :: %__MODULE__{
+          stream: Enumerable.t(),
+          max_body_bytes: non_neg_integer() | :infinity,
+          body_limit_ref: :atomics.atomics_ref()
+        }
+
+  @spec new(Enumerable.t(), non_neg_integer() | :infinity) :: t()
+  def new(stream, max_body_bytes) do
+    %__MODULE__{
+      stream: stream,
+      max_body_bytes: max_body_bytes,
+      body_limit_ref: :atomics.new(1, [])
+    }
+  end
+
+  @spec body_limit_exceeded?(t()) :: boolean()
+  def body_limit_exceeded?(%__MODULE__{body_limit_ref: body_limit_ref}) do
+    :atomics.get(body_limit_ref, 1) == 1
+  end
+
+  @spec mark_body_limit_exceeded(t()) :: :ok
+  def mark_body_limit_exceeded(%__MODULE__{body_limit_ref: body_limit_ref}) do
+    :atomics.put(body_limit_ref, 1, 1)
+    :ok
+  end
 end
 
 defimpl Enumerable, for: ImagePipe.Source.WrappedStream do
   alias ImagePipe.Source.StreamError
+  alias ImagePipe.Source.WrappedStream
 
-  def reduce(%{stream: stream, max_body_bytes: max_body_bytes}, acc, fun) do
-    reduce_stream(stream, max_body_bytes, acc, fun)
+  def reduce(%WrappedStream{} = wrapped, acc, fun) do
+    reduce_stream(wrapped, acc, fun)
   end
 
   def count(_wrapped), do: {:error, __MODULE__}
   def member?(_wrapped, _value), do: {:error, __MODULE__}
   def slice(_wrapped), do: {:error, __MODULE__}
 
-  defp reduce_stream(stream, max_body_bytes, {:cont, acc}, fun) do
+  defp reduce_stream(%WrappedStream{stream: stream} = wrapped, {:cont, acc}, fun) do
     consumer_failure_ref = make_ref()
 
     try do
       stream
-      |> Enumerable.reduce({:cont, {0, acc}}, reducer(max_body_bytes, fun, consumer_failure_ref))
+      |> Enumerable.reduce({:cont, {0, acc}}, reducer(wrapped, fun, consumer_failure_ref))
       |> unwrap_result(fun, consumer_failure_ref)
     rescue
       error in StreamError ->
         reraise error, __STACKTRACE__
 
       _error ->
-        raise StreamError, reason: :stream_exception
+        reraise StreamError.exception(reason: :stream_exception), __STACKTRACE__
     catch
       {^consumer_failure_ref, kind, reason, stacktrace} ->
         :erlang.raise(kind, reason, stacktrace)
@@ -38,13 +65,17 @@ defimpl Enumerable, for: ImagePipe.Source.WrappedStream do
     end
   end
 
-  defp reduce_stream(_stream, _max_body_bytes, {:halt, acc}, _fun),
+  defp reduce_stream(%WrappedStream{}, {:halt, acc}, _fun),
     do: {:halted, acc}
 
-  defp reduce_stream(stream, max_body_bytes, {:suspend, acc}, fun),
-    do: {:suspended, acc, &reduce_stream(stream, max_body_bytes, &1, fun)}
+  defp reduce_stream(%WrappedStream{} = wrapped, {:suspend, acc}, fun),
+    do: {:suspended, acc, &reduce_stream(wrapped, &1, fun)}
 
-  defp reducer(max_body_bytes, fun, consumer_failure_ref) do
+  defp reducer(
+         %WrappedStream{max_body_bytes: max_body_bytes} = wrapped,
+         fun,
+         consumer_failure_ref
+       ) do
     fn chunk, {size, acc} ->
       with {:ok, binary} <- validate_chunk(chunk),
            {:ok, new_size} <- add_size(size, binary, max_body_bytes) do
@@ -54,7 +85,12 @@ defimpl Enumerable, for: ImagePipe.Source.WrappedStream do
           {:suspend, acc} -> {:suspend, {new_size, acc}}
         end
       else
-        {:error, reason} -> raise StreamError, reason: reason
+        {:error, :body_too_large} ->
+          WrappedStream.mark_body_limit_exceeded(wrapped)
+          raise StreamError, reason: :body_too_large
+
+        {:error, reason} ->
+          raise StreamError, reason: reason
       end
     end
   end
@@ -110,21 +146,19 @@ defimpl Enumerable, for: ImagePipe.Source.WrappedStream do
   end
 
   defp continue_safely(continuation, command, fun, consumer_failure_ref) do
-    try do
-      continuation.(command)
-      |> unwrap_result(fun, consumer_failure_ref)
-    rescue
-      error in StreamError ->
-        reraise error, __STACKTRACE__
+    continuation.(command)
+    |> unwrap_result(fun, consumer_failure_ref)
+  rescue
+    error in StreamError ->
+      reraise error, __STACKTRACE__
 
-      _error ->
-        raise StreamError, reason: :stream_exception
-    catch
-      {^consumer_failure_ref, kind, reason, stacktrace} ->
-        :erlang.raise(kind, reason, stacktrace)
+    _error ->
+      reraise StreamError.exception(reason: :stream_exception), __STACKTRACE__
+  catch
+    {^consumer_failure_ref, kind, reason, stacktrace} ->
+      :erlang.raise(kind, reason, stacktrace)
 
-      _kind, _reason ->
-        raise StreamError, reason: :stream_exception
-    end
+    _kind, _reason ->
+      raise StreamError, reason: :stream_exception
   end
 end

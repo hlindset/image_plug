@@ -93,10 +93,17 @@ defmodule ImagePipe.Source do
   @spec wrap_response(Response.t(), keyword()) :: {:ok, Response.t()} | {:error, error()}
   def wrap_response(%Response{stream: stream}, runtime_opts) do
     max_body_bytes = Keyword.get(runtime_opts, :max_body_bytes, :infinity)
-    {:ok, %Response{stream: %WrappedStream{stream: stream, max_body_bytes: max_body_bytes}}}
+    {:ok, %Response{stream: WrappedStream.new(stream, max_body_bytes)}}
   end
 
   def wrap_response(_response, _runtime_opts), do: {:error, {:source, :invalid_adapter_result}}
+
+  @spec body_limit_exceeded?(Response.t()) :: boolean()
+  def body_limit_exceeded?(%Response{stream: %WrappedStream{} = stream}) do
+    WrappedStream.body_limit_exceeded?(stream)
+  end
+
+  def body_limit_exceeded?(%Response{}), do: false
 
   defp validate_sources(sources) when is_list(sources) do
     with {:ok, source_configs} <- source_configs(sources) do
