@@ -95,7 +95,7 @@ defmodule ImagePipe.Source do
 
   @spec wrap_response(Response.t(), keyword()) :: {:ok, Response.t()} | {:error, error()}
   def wrap_response(%Response{stream: stream}, runtime_opts) do
-    max_body_bytes = Keyword.get(runtime_opts, :max_body_bytes, :infinity)
+    max_body_bytes = Keyword.fetch!(runtime_opts, :max_body_bytes)
     {:ok, %Response{stream: WrappedStream.new(stream, max_body_bytes)}}
   end
 

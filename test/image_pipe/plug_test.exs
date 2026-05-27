@@ -10,6 +10,9 @@ defmodule ImagePipe.PlugTest do
   @slow_origin_first_chunk_timeout 5_000
 
   alias ImagePipe.Parser.Imgproxy.Signature
+  alias ImagePipe.PlugTest.ConsumeLargeSourceImage
+  alias ImagePipe.PlugTest.ConsumeSourceThenDecodeErrorImage
+  alias ImagePipe.PlugTest.LargeBodyOrigin
   alias ImagePipe.Plan
   alias ImagePipe.Plan.Operation
   alias ImagePipe.Plan.Output
@@ -1985,6 +1988,115 @@ defmodule ImagePipe.PlugTest do
 
     assert conn.status == 413
     assert conn.resp_body == "source image is too large"
+  end
+
+  test "rejects static result dimensions above configured limits before encoding" do
+    conn =
+      conn(:get, "/_/el:1/w:64/f:jpeg/plain/images/beach.jpg")
+      |> call_image_pipe(
+        root_url: "http://origin.test",
+        parser: ImagePipe.Parser.Imgproxy,
+        max_result_width: 32,
+        max_result_height: 8_192,
+        max_result_pixels: 40_000_000,
+        image_module: StreamingOnlyImage,
+        cache: {CacheProbe, message_target: self()},
+        origin_req_options: [plug: {CountingOriginImage, test_pid: self()}]
+      )
+
+    assert conn.status == 413
+    assert conn.resp_body == "result image is too large"
+    assert_received {:cache_get, _key}
+    assert_received :origin_was_called
+    refute_received :stream_encoder_called
+    refute_received {:cache_put, _key, _entry}
+  end
+
+  test "allows static result dimensions within configured limits" do
+    conn =
+      conn(:get, "/_/el:1/w:64/f:jpeg/plain/images/beach.jpg")
+      |> call_image_pipe(
+        root_url: "http://origin.test",
+        parser: ImagePipe.Parser.Imgproxy,
+        max_result_width: 64,
+        max_result_height: 8_192,
+        max_result_pixels: 40_000_000,
+        image_module: StreamingOnlyImage,
+        origin_req_options: [plug: OriginImage]
+      )
+
+    assert conn.status == 200
+    assert conn.resp_body == "streamed jpeg"
+    assert_received :stream_encoder_called
+  end
+
+  test "default source body limit applies through the request flow" do
+    conn =
+      conn(:get, "/_/plain/images/large-body.jpg")
+      |> call_image_pipe(
+        root_url: "http://origin.test",
+        parser: ImagePipe.Parser.Imgproxy,
+        image_open_module: ConsumeSourceThenDecodeErrorImage,
+        origin_req_options: [plug: LargeBodyOrigin]
+      )
+
+    assert conn.status == 422
+    assert conn.resp_body == "invalid image source"
+  end
+
+  test "explicit source body limit overrides the default through the request flow" do
+    conn =
+      conn(:get, "/_/plain/images/large-body.jpg")
+      |> call_image_pipe(
+        root_url: "http://origin.test",
+        parser: ImagePipe.Parser.Imgproxy,
+        max_body_bytes: 10_000_001,
+        image_open_module: ConsumeSourceThenDecodeErrorImage,
+        origin_req_options: [plug: LargeBodyOrigin]
+      )
+
+    assert conn.status == 415
+    assert conn.resp_body == "source response is not a supported image"
+  end
+
+  test "cache hit reuses successful response across source body limits" do
+    permissive =
+      conn(:get, "/_/plain/images/large-body.jpg")
+      |> call_image_pipe(
+        root_url: "http://origin.test",
+        parser: ImagePipe.Parser.Imgproxy,
+        max_body_bytes: 10_000_001,
+        image_open_module: ConsumeLargeSourceImage,
+        cache: {CacheProbe, message_target: self()},
+        origin_req_options: [plug: LargeBodyOrigin]
+      )
+
+    assert permissive.status == 200
+    assert_received {:cache_put, permissive_key, permissive_entry}
+    assert_received {:cache_get, ^permissive_key}
+
+    get_result_fun = fn key ->
+      if key.hash == permissive_key.hash do
+        {:hit, permissive_entry}
+      else
+        :miss
+      end
+    end
+
+    cached =
+      conn(:get, "/_/plain/images/large-body.jpg")
+      |> call_image_pipe(
+        root_url: "http://origin.test",
+        parser: ImagePipe.Parser.Imgproxy,
+        image_open_module: ConsumeLargeSourceImage,
+        cache: {CacheProbe, message_target: self(), get_result_fun: get_result_fun},
+        origin_req_options: [plug: LargeBodyOrigin]
+      )
+
+    assert cached.status == 200
+    assert cached.resp_body == permissive.resp_body
+    assert_received {:cache_get, cached_key}
+    assert cached_key.hash == permissive_key.hash
   end
 
   test "body limit failures surface as source errors during decode" do

@@ -489,7 +489,7 @@ defmodule ImagePipe.Request.RunnerTest do
   end
 
   defp run(conn, %Plan{} = plan, %SourceResolved{} = resolved_source, opts) do
-    Runner.run(conn, plan, resolved_source, empty_cache_headers(), opts)
+    Runner.run(conn, plan, resolved_source, empty_cache_headers(), request_opts(opts))
   end
 
   defp run(
@@ -499,7 +499,20 @@ defmodule ImagePipe.Request.RunnerTest do
          %CacheHeaders{} = prepared_http_cache,
          opts
        ) do
-    Runner.run(conn, plan, resolved_source, prepared_http_cache, opts)
+    Runner.run(conn, plan, resolved_source, prepared_http_cache, request_opts(opts))
+  end
+
+  defp request_opts(opts) do
+    Keyword.merge(
+      [
+        max_body_bytes: 10_000_000,
+        max_input_pixels: 40_000_000,
+        max_result_width: 8_192,
+        max_result_height: 8_192,
+        max_result_pixels: 40_000_000
+      ],
+      opts
+    )
   end
 
   defp empty_cache_headers do

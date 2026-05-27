@@ -259,6 +259,17 @@ defmodule ImagePipe.SourceTest do
     assert error.reason == :body_too_large
   end
 
+  test "wrap_response accepts explicit source body limit override" do
+    body = :binary.copy("a", 10_000_001)
+    response = %Response{stream: [body]}
+
+    assert {:ok, %Response{} = wrapped} =
+             Source.wrap_response(response, max_body_bytes: byte_size(body))
+
+    assert Enum.to_list(wrapped.stream) == [body]
+    refute Source.body_limit_exceeded?(wrapped)
+  end
+
   test "wrapped streams keep adapter cleanup in enumerable termination path" do
     response = %Response{stream: StreamWithCleanup.stream(self(), ["123", "456"])}
 

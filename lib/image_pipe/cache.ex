@@ -27,7 +27,10 @@ defmodule ImagePipe.Cache do
   alias ImagePipe.Plan
 
   @shared_cache_option_keys [:key_headers, :key_cookies, :max_body_bytes]
-  @plan_key_option_keys [:auto_avif, :auto_webp]
+  @plan_key_option_keys [
+    :auto_avif,
+    :auto_webp
+  ]
   @required_adapter_callbacks [
     get: 2,
     open_sink: 3,

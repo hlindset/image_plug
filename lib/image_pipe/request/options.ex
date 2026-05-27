@@ -5,7 +5,23 @@ defmodule ImagePipe.Request.Options do
   alias ImagePipe.Source
   alias ImagePipe.Telemetry
 
-  @validated_option_keys [:parser, :clock, :telemetry_prefix, :http_cache]
+  @default_max_body_bytes 10_000_000
+  @default_max_input_pixels 40_000_000
+  @default_max_result_width 8_192
+  @default_max_result_height 8_192
+  @default_max_result_pixels 40_000_000
+
+  @validated_option_keys [
+    :parser,
+    :clock,
+    :telemetry_prefix,
+    :http_cache,
+    :max_body_bytes,
+    :max_input_pixels,
+    :max_result_width,
+    :max_result_height,
+    :max_result_pixels
+  ]
   @stale_origin_option_keys [
     :root_url,
     :origin_req_options,
@@ -23,6 +39,26 @@ defmodule ImagePipe.Request.Options do
   @options_schema NimbleOptions.new!(
                     parser: [type: :atom, required: true],
                     clock: [type: {:custom, __MODULE__, :validate_clock, []}],
+                    max_body_bytes: [
+                      type: :pos_integer,
+                      default: @default_max_body_bytes
+                    ],
+                    max_input_pixels: [
+                      type: :pos_integer,
+                      default: @default_max_input_pixels
+                    ],
+                    max_result_width: [
+                      type: :pos_integer,
+                      default: @default_max_result_width
+                    ],
+                    max_result_height: [
+                      type: :pos_integer,
+                      default: @default_max_result_height
+                    ],
+                    max_result_pixels: [
+                      type: :pos_integer,
+                      default: @default_max_result_pixels
+                    ],
                     telemetry_prefix: [
                       type: {:custom, __MODULE__, :validate_telemetry_prefix, []},
                       default: Telemetry.default_prefix()

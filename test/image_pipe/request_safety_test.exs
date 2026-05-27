@@ -323,17 +323,10 @@ defmodule ImagePipe.RequestSafetyTest do
     assert_received {:source_fetch_runtime_opts, fetch_runtime_opts}
     assert resolve_runtime_opts == fetch_runtime_opts
 
-    assert Keyword.take(fetch_runtime_opts, [
-             :max_body_bytes,
-             :receive_timeout,
-             :connect_timeout,
-             :request_id
-           ]) == [
-             max_body_bytes: 1_000_000,
-             receive_timeout: 456,
-             connect_timeout: 789,
-             request_id: "req-1"
-           ]
+    assert Keyword.fetch!(fetch_runtime_opts, :max_body_bytes) == 1_000_000
+    assert Keyword.fetch!(fetch_runtime_opts, :receive_timeout) == 456
+    assert Keyword.fetch!(fetch_runtime_opts, :connect_timeout) == 789
+    assert Keyword.fetch!(fetch_runtime_opts, :request_id) == "req-1"
 
     refute Keyword.has_key?(fetch_runtime_opts, :parser)
     refute Keyword.has_key?(fetch_runtime_opts, :cache)
