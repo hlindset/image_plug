@@ -129,7 +129,7 @@ defmodule ImagePipe.CDNHTTPCacheWireTest do
     conn =
       :get
       |> conn("/_/plain/beach.jpg")
-      |> put_req_header("accept", "image/avif,image/webp")
+      |> put_req_header("accept", "image/webp")
       |> put_resp_header("vary", "Accept-Encoding")
       |> ImagePipe.Plug.call(opts)
 
