@@ -83,7 +83,9 @@ defmodule ImagePipe.ImgproxyResizeAutoTest do
       adapter: :path,
       source_kind: :path,
       identity: source_identity(source),
-      cache: :normal,
+      internal_cache: :enabled,
+      http_cache: :inherit,
+      cache_semantics: %ImagePipe.Source.CacheSemantics{byte_identity: :none, stable?: false},
       fetch: source
     }
   end

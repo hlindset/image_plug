@@ -7,6 +7,32 @@ defmodule ImagePipe.Source.HTTPTest do
   alias ImagePipe.Source.Resolved
   alias ImagePipe.Source.Response
 
+  test "http source defaults to not stable and disables internal cache in auto mode" do
+    assert {:ok, opts} = HTTP.validate_options(allowed_hosts: ["example.com"])
+    source = %URL{scheme: :https, host: "example.com", path: ["cat.jpg"]}
+
+    assert {:ok, resolved} = HTTP.resolve(source, opts, [])
+
+    assert resolved.internal_cache == :disabled
+    assert resolved.cache_semantics.byte_identity == :none
+  end
+
+  test "http trusted byte identity doesn't expose raw query" do
+    assert {:ok, opts} = HTTP.validate_options(allowed_hosts: ["example.com"], stable: :trusted)
+
+    source = %URL{
+      scheme: :https,
+      host: "example.com",
+      path: ["cat.jpg"],
+      query: "X-Amz-Signature=secret"
+    }
+
+    assert {:ok, resolved} = HTTP.resolve(source, opts, [])
+    assert {:strong, seed} = resolved.cache_semantics.byte_identity
+    refute inspect(seed) =~ "X-Amz-Signature=secret"
+    assert is_binary(seed[:query_sha256])
+  end
+
   test "resolve normalizes URL identity and enforces allowed hosts" do
     assert {:ok, opts} = HTTP.validate_options(allowed_hosts: ["assets.example.com"])
 
@@ -51,9 +77,12 @@ defmodule ImagePipe.Source.HTTPTest do
     assert resolved.identity[:host] == "assets.example.com"
   end
 
-  test "resolve honors HTTP cache skip option" do
+  test "resolve honors HTTP internal cache disabled option" do
     assert {:ok, opts} =
-             HTTP.validate_options(allowed_hosts: ["assets.example.com"], cache: :skip)
+             HTTP.validate_options(
+               allowed_hosts: ["assets.example.com"],
+               internal_cache: :disabled
+             )
 
     source = %URL{
       scheme: :https,
@@ -64,7 +93,7 @@ defmodule ImagePipe.Source.HTTPTest do
     }
 
     assert {:ok, %Resolved{} = resolved} = HTTP.resolve(source, opts, [])
-    assert resolved.cache == :skip
+    assert resolved.internal_cache == :disabled
   end
 
   test "fetch creates a Req-backed lazy stream and preserves safe request options" do
@@ -115,6 +144,7 @@ defmodule ImagePipe.Source.HTTPTest do
     assert {:ok, opts} =
              HTTP.validate_options(
                allowed_hosts: ["assets.example.com"],
+               internal_cache: :enabled,
                req_options: [
                  plug: plug,
                  url: "https://evil.example/other.jpg",

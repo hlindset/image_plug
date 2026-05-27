@@ -97,4 +97,31 @@ defmodule ImagePipe.Source.FileTest do
 
     assert SourceFile.fetch(resolved, opts, []) == {:error, {:source, :not_found}}
   end
+
+  test "file source defaults to not stable and disables internal cache in auto mode", %{root: root} do
+    assert {:ok, opts} = SourceFile.validate_options(root: root, root_id: "fixture-root")
+    source = %SourcePath{segments: ["images", "cat.jpg"]}
+
+    assert {:ok, resolved} = SourceFile.resolve(source, opts, [])
+
+    assert resolved.internal_cache == :disabled
+    assert resolved.http_cache == :inherit
+    assert resolved.cache_semantics.stable? == false
+    assert resolved.cache_semantics.byte_identity == :none
+  end
+
+  test "file source trusted stability derives strong byte identity", %{root: root} do
+    assert {:ok, opts} =
+             SourceFile.validate_options(root: root, root_id: "fixture-root", stable: :trusted)
+
+    source = %SourcePath{segments: ["images", "cat.jpg"]}
+
+    assert {:ok, resolved} = SourceFile.resolve(source, opts, [])
+
+    assert resolved.internal_cache == :enabled
+    assert resolved.cache_semantics.stable? == true
+    assert {:strong, seed} = resolved.cache_semantics.byte_identity
+    assert seed[:root] == "fixture-root"
+    assert seed[:path] == ["images", "cat.jpg"]
+  end
 end

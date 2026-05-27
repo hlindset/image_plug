@@ -35,10 +35,20 @@ defmodule ImagePipe.Request.Runner do
     run_with_cache_config(conn, plan, resolved_source, opts)
   end
 
-  defp run_with_cache_config(conn, plan, %Source.Resolved{cache: :skip} = resolved_source, opts),
+  defp run_with_cache_config(
+         conn,
+         plan,
+         %Source.Resolved{internal_cache: :disabled} = resolved_source,
+         opts
+       ),
     do: process_prepared_stream(conn, plan, resolved_source, nil, opts)
 
-  defp run_with_cache_config(conn, plan, %Source.Resolved{cache: :normal} = resolved_source, opts) do
+  defp run_with_cache_config(
+         conn,
+         plan,
+         %Source.Resolved{internal_cache: :enabled} = resolved_source,
+         opts
+       ) do
     telemetry_opts = Telemetry.telemetry_opts(opts)
 
     result =

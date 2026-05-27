@@ -966,7 +966,9 @@ defmodule ImagePipe.Request.SourceSessionTest do
       adapter: :path,
       source_kind: :path,
       identity: [kind: :path, root: "test", path: ["images", "beach.jpg"]],
-      cache: :normal,
+      internal_cache: :enabled,
+      http_cache: :inherit,
+      cache_semantics: %ImagePipe.Source.CacheSemantics{byte_identity: :none, stable?: false},
       fetch: fetch
     }
   end

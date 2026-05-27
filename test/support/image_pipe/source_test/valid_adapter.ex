@@ -16,7 +16,9 @@ defmodule ImagePipe.SourceTest.ValidAdapter do
        adapter: Keyword.get(opts, :adapter, :path),
        source_kind: :path,
        identity: [kind: :path, root: "test", path: ["images", "cat.jpg"]],
-       cache: Keyword.get(opts, :cache, :normal),
+       internal_cache: Keyword.get(opts, :internal_cache, :enabled),
+       http_cache: Keyword.get(opts, :http_cache, :inherit),
+       cache_semantics: %ImagePipe.Source.CacheSemantics{byte_identity: :none, stable?: false},
        fetch: {:fixture, self()}
      }}
   end

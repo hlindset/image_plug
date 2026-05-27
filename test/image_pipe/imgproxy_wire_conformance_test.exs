@@ -697,7 +697,7 @@ defmodule ImagePipe.ImgproxyWireConformanceTest do
           source_schemes: %{"foobar" => {FoobarTranslator, []}}
         ],
         sources: [
-          foobar: {PlugCustomAdapter, adapter: :foobar, cache: :skip}
+          foobar: {PlugCustomAdapter, adapter: :foobar, internal_cache: :disabled}
         ],
         cache: {CacheProbe, result: :miss}
       )

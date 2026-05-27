@@ -2,8 +2,10 @@ defmodule ImagePipe.SourceTest do
   use ExUnit.Case, async: true
 
   alias ImagePipe.Plan.Source.Path
+  alias ImagePipe.Plan.Source.Path, as: SourcePath
   alias ImagePipe.Plan.Source.URL
   alias ImagePipe.Source
+  alias ImagePipe.Source.CacheSemantics
   alias ImagePipe.Source.HTTP
   alias ImagePipe.Source.Resolved
   alias ImagePipe.Source.Response
@@ -14,6 +16,75 @@ defmodule ImagePipe.SourceTest do
   alias ImagePipe.SourceTest.InvalidIdentityAdapter
   alias ImagePipe.SourceTest.RaisingAdapter
   alias ImagePipe.SourceTest.StreamWithCleanup
+
+  test "cache semantics requires explicit byte identity and stability" do
+    assert_raise ArgumentError, fn ->
+      struct!(CacheSemantics, byte_identity: :none)
+    end
+
+    assert %CacheSemantics{byte_identity: :none, stable?: false} =
+             struct!(CacheSemantics, byte_identity: :none, stable?: false)
+  end
+
+  test "resolved source requires internal cache mode, http cache mode, and cache semantics" do
+    assert_raise ArgumentError, fn ->
+      struct!(Resolved,
+        adapter: :path,
+        source_kind: :path,
+        identity: [kind: :path, adapter: :path, root: "test", path: ["cat.jpg"]],
+        internal_cache: :disabled,
+        fetch: [path: "/tmp/cat.jpg"]
+      )
+    end
+
+    assert %Resolved{
+             internal_cache: :disabled,
+             http_cache: :inherit,
+             cache_semantics: %CacheSemantics{byte_identity: :none, stable?: false}
+           } =
+             struct!(Resolved,
+               adapter: :path,
+               source_kind: :path,
+               identity: [kind: :path, adapter: :path, root: "test", path: ["cat.jpg"]],
+               internal_cache: :disabled,
+               http_cache: :inherit,
+               cache_semantics: %CacheSemantics{byte_identity: :none, stable?: false},
+               fetch: [path: "/tmp/cat.jpg"]
+             )
+  end
+
+  test "source validation rejects resolved values without cache semantics" do
+    defmodule MissingSemanticsSource do
+      @behaviour ImagePipe.Source
+
+      def validate_options(opts), do: {:ok, opts}
+
+      def resolve(%SourcePath{}, _opts, _runtime_opts) do
+        {:ok,
+         %Resolved{
+           adapter: :path,
+           source_kind: :path,
+           identity: [kind: :path, adapter: :path, root: "test", path: ["cat.jpg"]],
+           internal_cache: :disabled,
+           http_cache: :inherit,
+           cache_semantics: nil,
+           fetch: [path: "/tmp/cat.jpg"]
+         }}
+      end
+
+      def fetch(_resolved, _opts, _runtime_opts), do: raise("not used")
+    end
+
+    assert {:ok, opts} =
+             Source.validate_config(
+               parser: ImagePipe.Parser.Imgproxy,
+               sources: [path: {MissingSemanticsSource, []}]
+             )
+
+    source = %SourcePath{segments: ["cat.jpg"]}
+
+    assert {:error, {:source, :invalid_adapter_result}} = Source.resolve(source, opts, [])
+  end
 
   test "validate_config calls adapter validation during init-time option normalization" do
     assert {:ok, opts} =
@@ -48,7 +119,7 @@ defmodule ImagePipe.SourceTest do
     assert resolved.adapter == :path
     assert resolved.source_kind == :path
     assert resolved.identity == [kind: :path, root: "test", path: ["images", "cat.jpg"]]
-    assert resolved.cache == :normal
+    assert resolved.internal_cache == :enabled
 
     assert_receive {:resolve, ^source, adapter_opts, [request_id: "r1"]}
     assert adapter_opts[:validated]
@@ -96,7 +167,7 @@ defmodule ImagePipe.SourceTest do
              Source.validate_config(
                sources: [
                  url: {HTTP, allowed_hosts: ["assets.example.com"]},
-                 https: {HTTP, allowed_hosts: ["assets.example.com"], cache: :skip}
+                 https: {HTTP, allowed_hosts: ["assets.example.com"], internal_cache: :disabled}
                ]
              )
 
@@ -109,7 +180,7 @@ defmodule ImagePipe.SourceTest do
     }
 
     assert {:ok, %Resolved{} = resolved} = Source.resolve(source, opts, [])
-    assert resolved.cache == :skip
+    assert resolved.internal_cache == :disabled
   end
 
   test "malformed adapter callback results become source errors" do
@@ -126,7 +197,9 @@ defmodule ImagePipe.SourceTest do
       adapter: :path,
       source_kind: :path,
       identity: [kind: :path, root: "test", path: ["images", "cat.jpg"]],
-      cache: :normal,
+      internal_cache: :enabled,
+      http_cache: :inherit,
+      cache_semantics: %CacheSemantics{byte_identity: :none, stable?: false},
       fetch: :invalid_fetch
     }
 
@@ -282,7 +355,9 @@ defmodule ImagePipe.SourceTest do
       adapter: :path,
       source_kind: :path,
       identity: [kind: :path, root: "test", path: ["images", "cat.jpg"]],
-      cache: :normal,
+      internal_cache: :enabled,
+      http_cache: :inherit,
+      cache_semantics: %CacheSemantics{byte_identity: :none, stable?: false},
       fetch: :raise
     }
 

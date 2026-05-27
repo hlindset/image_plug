@@ -5,6 +5,7 @@ defmodule ImagePipe.Source.S3 do
 
   alias ImagePipe.Plan.Source.Object
   alias ImagePipe.Source
+  alias ImagePipe.Source.CacheSemantics
   alias ImagePipe.Source.ReqStream
   alias ImagePipe.Source.Resolved
   alias ImagePipe.Source.Response
@@ -39,7 +40,9 @@ defmodule ImagePipe.Source.S3 do
                      type: {:custom, __MODULE__, :validate_credentials_option, []}
                    ],
                    req_options: [type: :keyword_list, default: []],
-                   cache: [type: {:in, [:normal, :skip]}, default: :normal],
+                   stable: [type: {:in, [:auto, :trusted]}, default: :auto],
+                   internal_cache: [type: {:in, [:auto, :enabled, :disabled]}, default: :auto],
+                   http_cache: [type: {:in, [:inherit, :disabled, :enabled]}, default: :inherit],
                    receive_timeout: [type: :non_neg_integer],
                    connect_timeout: [type: :non_neg_integer],
                    pool_timeout: [type: :non_neg_integer]
@@ -73,20 +76,26 @@ defmodule ImagePipe.Source.S3 do
              (is_binary(revision) or is_nil(revision)) do
     with {:ok, config} <- bucket_config(bucket, opts) do
       endpoint = Keyword.fetch!(config, :endpoint)
+      identity = [
+        kind: :object,
+        adapter: :s3,
+        endpoint: endpoint,
+        bucket: bucket,
+        key: key,
+        revision: revision
+      ]
+
+      stable? = s3_stable?(config, revision)
+      internal_cache = internal_cache_mode(config, stable?)
 
       {:ok,
        %Resolved{
          adapter: :s3,
          source_kind: :object,
-         identity: [
-           kind: :object,
-           adapter: :s3,
-           endpoint: endpoint,
-           bucket: bucket,
-           key: key,
-           revision: revision
-         ],
-         cache: Keyword.fetch!(config, :cache),
+         identity: identity,
+         internal_cache: internal_cache,
+         http_cache: Keyword.fetch!(config, :http_cache),
+         cache_semantics: cache_semantics(stable?, identity),
          fetch:
            [
              endpoint: endpoint,
@@ -96,7 +105,7 @@ defmodule ImagePipe.Source.S3 do
              region: Keyword.fetch!(config, :region),
              credentials: Keyword.get(config, :credentials),
              req_options: Keyword.fetch!(config, :req_options),
-             cache: Keyword.fetch!(config, :cache)
+             internal_cache: internal_cache
            ]
            |> Keyword.merge(Keyword.take(config, @timeout_keys))
        }}
@@ -113,7 +122,7 @@ defmodule ImagePipe.Source.S3 do
       req_options =
         fetch
         |> Keyword.fetch!(:req_options)
-        |> sanitize_req_options(fetch[:cache])
+        |> sanitize_req_options(fetch[:internal_cache])
         |> Keyword.merge(
           url: build_url(fetch),
           method: :get,
@@ -298,8 +307,26 @@ defmodule ImagePipe.Source.S3 do
     end)
   end
 
-  defp denied_header_names(:normal), do: @signed_header_names ++ @cacheable_byte_header_names
-  defp denied_header_names(:skip), do: @signed_header_names
+  defp denied_header_names(:enabled), do: @signed_header_names ++ @cacheable_byte_header_names
+  defp denied_header_names(:disabled), do: @signed_header_names
+
+  defp s3_stable?(config, revision) do
+    Keyword.fetch!(config, :stable) == :trusted or is_binary(revision)
+  end
+
+  defp internal_cache_mode(config, stable?) do
+    case Keyword.fetch!(config, :internal_cache) do
+      :enabled -> :enabled
+      :disabled -> :disabled
+      :auto -> if stable?, do: :enabled, else: :disabled
+    end
+  end
+
+  defp cache_semantics(true, identity),
+    do: %CacheSemantics{byte_identity: {:strong, identity}, stable?: true}
+
+  defp cache_semantics(false, _identity),
+    do: %CacheSemantics{byte_identity: :none, stable?: false}
 
   defp aws_sigv4_options(region, credentials) do
     credentials

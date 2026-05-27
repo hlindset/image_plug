@@ -15,6 +15,7 @@ defmodule ImagePipe.Request.RunnerTest do
   alias ImagePipe.Request.Runner
   alias ImagePipe.Request.SourceSessionSupervisor
   alias ImagePipe.Response.PreparedStream
+  alias ImagePipe.Source.CacheSemantics
   alias ImagePipe.Source.Resolved, as: SourceResolved
   alias ImagePipe.Source.Response, as: SourceResponse
   alias ImagePipe.Transform.State
@@ -434,7 +435,9 @@ defmodule ImagePipe.Request.RunnerTest do
           adapter: :path,
           source_kind: :path,
           identity: [kind: :path, root: "test", path: ["images", "beach.jpg"]],
-          cache: :normal,
+          internal_cache: :enabled,
+          http_cache: :inherit,
+          cache_semantics: %CacheSemantics{byte_identity: :none, stable?: false},
           fetch: :fixture
         ],
         overrides
@@ -857,7 +860,7 @@ defmodule ImagePipe.Request.RunnerTest do
              Runner.run(
                conn(:get, "/_/plain/images/beach.jpg"),
                plan(),
-               resolved_source(cache: :normal),
+               resolved_source(internal_cache: :enabled),
                source_session_supervisor: supervisor,
                sources: %{path: {SourceImage, []}}
              )
@@ -879,7 +882,7 @@ defmodule ImagePipe.Request.RunnerTest do
              Runner.run(
                conn(:get, "/_/plain/images/beach.jpg"),
                plan(),
-               resolved_source(cache: :skip),
+               resolved_source(internal_cache: :disabled),
                cache: {CacheMissWriteProbe, test_pid: self(), test_ref: make_ref()},
                source_session_supervisor: supervisor,
                sources: %{path: {SourceImage, []}}
@@ -900,7 +903,7 @@ defmodule ImagePipe.Request.RunnerTest do
              Runner.run(
                conn(:get, "/_/plain/images/beach.jpg"),
                plan(),
-               resolved_source(cache: :normal),
+               resolved_source(internal_cache: :enabled),
                cache: {CacheMissWriteProbe, test_pid: self(), test_ref: ref},
                source_session_supervisor: supervisor,
                sources: %{path: {SourceImage, []}}
@@ -937,7 +940,7 @@ defmodule ImagePipe.Request.RunnerTest do
              Runner.run(
                conn(:get, "/_/plain/images/beach.jpg"),
                plan(),
-               resolved_source(cache: :normal),
+               resolved_source(internal_cache: :enabled),
                cache: {CacheReadErrorWriteProbe, test_pid: self(), test_ref: ref},
                source_session_supervisor: supervisor,
                sources: %{path: {SourceImage, []}}
@@ -961,7 +964,7 @@ defmodule ImagePipe.Request.RunnerTest do
              Runner.run(
                conn(:get, "/_/plain/images/beach.jpg"),
                plan(),
-               resolved_source(cache: :normal),
+               resolved_source(internal_cache: :enabled),
                cache: {CacheMissWriteProbe, test_pid: self(), test_ref: ref},
                source_session_supervisor: supervisor,
                sources: %{path: {SourceImage, []}}
@@ -989,7 +992,7 @@ defmodule ImagePipe.Request.RunnerTest do
              Runner.run(
                conn(:get, "/_/plain/images/beach.jpg"),
                plan(),
-               resolved_source(cache: :normal),
+               resolved_source(internal_cache: :enabled),
                cache: {CacheMissWriteProbe, test_pid: self(), test_ref: ref},
                source_session_supervisor: supervisor,
                sources: %{path: {SourceImage, []}}
@@ -1017,7 +1020,7 @@ defmodule ImagePipe.Request.RunnerTest do
              Runner.run(
                conn(:get, "/_/plain/images/beach.jpg"),
                plan(),
-               resolved_source(cache: :normal),
+               resolved_source(internal_cache: :enabled),
                cache: {CacheMissWriteProbe, test_pid: self(), test_ref: ref},
                source_session_supervisor: supervisor,
                sources: %{path: {SourceImage, []}}
@@ -1047,7 +1050,7 @@ defmodule ImagePipe.Request.RunnerTest do
              Runner.run(
                conn(:get, "/_/plain/images/beach.jpg"),
                plan(),
-               resolved_source(cache: :normal),
+               resolved_source(internal_cache: :enabled),
                cache: {CacheWriteErrorProbe, test_pid: self(), test_ref: ref},
                source_session_supervisor: supervisor,
                sources: %{path: {SourceImage, []}}
@@ -1079,7 +1082,7 @@ defmodule ImagePipe.Request.RunnerTest do
                conn(:get, "/_/f:auto/plain/images/beach.jpg", "")
                |> Plug.Conn.put_req_header("accept", "image/webp,image/jpeg;q=0.8"),
                plan(output: %Output{mode: :automatic}),
-               resolved_source(cache: :normal),
+               resolved_source(internal_cache: :enabled),
                cache: {CacheMissWriteProbe, test_pid: self(), test_ref: ref},
                source_session_supervisor: supervisor,
                sources: %{path: {SourceImage, []}}
@@ -1110,7 +1113,7 @@ defmodule ImagePipe.Request.RunnerTest do
              Runner.run(
                conn(:get, "/_/plain/images/not-image.jpg"),
                plan(),
-               resolved_source(cache: :normal),
+               resolved_source(internal_cache: :enabled),
                body: "not an image",
                source_session_supervisor: supervisor,
                sources: %{path: {SourceBytes, body: "not an image"}}

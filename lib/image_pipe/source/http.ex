@@ -5,6 +5,7 @@ defmodule ImagePipe.Source.HTTP do
 
   alias ImagePipe.Plan.Source.URL
   alias ImagePipe.Source
+  alias ImagePipe.Source.CacheSemantics
   alias ImagePipe.Source.ReqStream
   alias ImagePipe.Source.Resolved
   alias ImagePipe.Source.Response
@@ -31,7 +32,9 @@ defmodule ImagePipe.Source.HTTP do
                     connect_timeout: [type: :non_neg_integer],
                     pool_timeout: [type: :non_neg_integer],
                     max_redirects: [type: :non_neg_integer, default: 0],
-                    cache: [type: {:in, [:normal, :skip]}, default: :normal]
+                    stable: [type: {:in, [:auto, :trusted]}, default: :auto],
+                    internal_cache: [type: {:in, [:auto, :enabled, :disabled]}, default: :auto],
+                    http_cache: [type: {:in, [:inherit, :disabled, :enabled]}, default: :inherit]
                   )
 
   @impl Source
@@ -49,24 +52,30 @@ defmodule ImagePipe.Source.HTTP do
 
     if host in Keyword.fetch!(opts, :allowed_hosts) do
       port = source.port || Map.fetch!(@default_ports, scheme)
+      identity = [
+        kind: :url,
+        adapter: scheme,
+        scheme: scheme,
+        host: host,
+        port: port,
+        path: source.path,
+        query: source.query
+      ]
+
+      stable? = Keyword.fetch!(opts, :stable) == :trusted
+      internal_cache = internal_cache_mode(opts, stable?)
 
       {:ok,
        %Resolved{
          adapter: scheme,
          source_kind: :url,
-         identity: [
-           kind: :url,
-           adapter: scheme,
-           scheme: scheme,
-           host: host,
-           port: port,
-           path: source.path,
-           query: source.query
-         ],
-         cache: Keyword.fetch!(opts, :cache),
+         identity: identity,
+         internal_cache: internal_cache,
+         http_cache: Keyword.fetch!(opts, :http_cache),
+         cache_semantics: cache_semantics(opts, stable?, identity),
          fetch: [
            url: build_url(%{source | host: host, port: port}),
-           cache: Keyword.fetch!(opts, :cache)
+           internal_cache: internal_cache
          ]
        }}
     else
@@ -79,7 +88,7 @@ defmodule ImagePipe.Source.HTTP do
     req_options =
       opts
       |> Keyword.fetch!(:req_options)
-      |> sanitize_req_options(fetch[:cache])
+      |> sanitize_req_options(fetch[:internal_cache])
       |> Keyword.merge(
         url: fetch[:url],
         method: :get,
@@ -109,8 +118,39 @@ defmodule ImagePipe.Source.HTTP do
     end)
   end
 
-  defp denied_header_names(:normal), do: @host_header_names ++ @cacheable_byte_header_names
-  defp denied_header_names(:skip), do: @host_header_names
+  defp denied_header_names(:enabled), do: @host_header_names ++ @cacheable_byte_header_names
+  defp denied_header_names(:disabled), do: @host_header_names
+
+  defp internal_cache_mode(opts, stable?) do
+    case Keyword.fetch!(opts, :internal_cache) do
+      :enabled -> :enabled
+      :disabled -> :disabled
+      :auto -> if stable?, do: :enabled, else: :disabled
+    end
+  end
+
+  defp cache_semantics(opts, stable?, identity) do
+    byte_identity =
+      if Keyword.fetch!(opts, :stable) == :trusted do
+        {:strong, redacted_http_identity(identity)}
+      else
+        :none
+      end
+
+    %CacheSemantics{byte_identity: byte_identity, stable?: stable?}
+  end
+
+  defp redacted_http_identity(identity) do
+    case Keyword.fetch!(identity, :query) do
+      nil ->
+        Keyword.delete(identity, :query)
+
+      query ->
+        identity
+        |> Keyword.delete(:query)
+        |> Keyword.put(:query_sha256, :crypto.hash(:sha256, query) |> Base.encode16(case: :lower))
+    end
+  end
 
   defp build_url(%URL{} = source) do
     path =

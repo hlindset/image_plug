@@ -8,6 +8,46 @@ defmodule ImagePipe.Source.S3Test do
   alias ImagePipe.Source.S3
   alias ImagePipe.SourceTest.CredentialProvider
 
+  test "s3 revision is stable under auto mode" do
+    assert {:ok, opts} =
+             S3.validate_options(
+               default: [
+                 region: "us-east-1",
+                 endpoint: "https://s3.amazonaws.com",
+                 credentials: {:static, access_key_id: "A", secret_access_key: "S"}
+               ]
+             )
+
+    source = %Object{adapter: :s3, scope: "bucket", key: "cat.jpg", revision: "v1"}
+
+    assert {:ok, resolved} = S3.resolve(source, opts, [])
+
+    assert resolved.internal_cache == :enabled
+    assert resolved.cache_semantics.stable? == true
+    assert {:strong, seed} = resolved.cache_semantics.byte_identity
+    assert seed[:bucket] == "bucket"
+    assert seed[:key] == "cat.jpg"
+    assert seed[:revision] == "v1"
+  end
+
+  test "s3 without revision isn't stable unless trusted" do
+    assert {:ok, opts} =
+             S3.validate_options(
+               default: [
+                 region: "us-east-1",
+                 endpoint: "https://s3.amazonaws.com",
+                 credentials: {:static, access_key_id: "A", secret_access_key: "S"}
+               ]
+             )
+
+    source = %Object{adapter: :s3, scope: "bucket", key: "cat.jpg", revision: nil}
+
+    assert {:ok, resolved} = S3.resolve(source, opts, [])
+
+    assert resolved.internal_cache == :disabled
+    assert resolved.cache_semantics.byte_identity == :none
+  end
+
   test "per-bucket config overrides defaults and identity includes endpoint bucket key revision" do
     assert {:ok, opts} =
              S3.validate_options(
