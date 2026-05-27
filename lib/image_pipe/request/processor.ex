@@ -16,7 +16,8 @@ defmodule ImagePipe.Request.Processor do
   @type decoded() :: %{
           required(:decode_options) => keyword(),
           required(:image) => Vix.Vips.Image.t(),
-          required(:source_format) => source_format()
+          required(:source_format) => source_format(),
+          optional(:source_response) => Source.Response.t()
         }
 
   @spec process_source(Plan.t(), Source.Resolved.t(), keyword()) ::
@@ -55,6 +56,7 @@ defmodule ImagePipe.Request.Processor do
 
     with {:ok, image} <-
            decode_source_response(source_response, decode_options, opts)
+           |> prefer_source_body_limit(source_response)
            |> wrap_decode_error(),
          {:ok, source_format} <- SourceFormat.from_image(image),
          :ok <- validate_input_image(image, opts) |> wrap_input_limit_error() do
@@ -62,7 +64,8 @@ defmodule ImagePipe.Request.Processor do
        %{
          decode_options: decode_options,
          image: image,
-         source_format: source_format
+         source_format: source_format,
+         source_response: source_response
        }}
     end
   end
@@ -70,15 +73,17 @@ defmodule ImagePipe.Request.Processor do
   @spec process_decoded_source(decoded(), Plan.t(), keyword()) ::
           {:ok, State.t()} | {:error, term()}
   def process_decoded_source(
-        %{decode_options: decode_options, image: image},
+        %{decode_options: decode_options, image: image} = decoded,
         %Plan{} = plan,
         opts
       ) do
+    source_response = Map.get(decoded, :source_response)
+
     Telemetry.span(Telemetry.telemetry_opts(opts), [:transform, :execute], %{}, fn ->
       result =
         with {:ok, final_state} <-
-               execute_plan_pipelines(%State{image: image}, plan, opts) do
-          materialize_before_delivery(final_state, decode_options, opts)
+               execute_plan_pipelines(%State{image: image}, plan, opts, source_response) do
+          materialize_before_delivery(final_state, decode_options, opts, source_response)
         end
 
       {result, transform_stop_metadata(result)}
@@ -88,7 +93,8 @@ defmodule ImagePipe.Request.Processor do
   defp execute_plan_pipelines(
          %State{} = state,
          %Plan{pipelines: pipelines} = plan,
-         opts
+         opts,
+         source_response
        ) do
     last_index = length(pipelines) - 1
 
@@ -96,7 +102,7 @@ defmodule ImagePipe.Request.Processor do
     |> Enum.with_index()
     |> Enum.reduce_while(
       {:ok, state},
-      &execute_plan_pipeline_step(&1, &2, last_index, plan, opts)
+      &execute_plan_pipeline_step(&1, &2, last_index, plan, opts, source_response)
     )
   end
 
@@ -105,7 +111,8 @@ defmodule ImagePipe.Request.Processor do
          {:ok, %State{} = state},
          last_index,
          %Plan{} = plan,
-         opts
+         opts,
+         source_response
        ) do
     with {:ok, %State{} = state} <-
            Transform.execute_plan(
@@ -114,7 +121,7 @@ defmodule ImagePipe.Request.Processor do
              opts
            ),
          {:ok, %State{} = state} <-
-           maybe_materialize_between_pipelines(state, index, last_index, opts) do
+           maybe_materialize_between_pipelines(state, index, last_index, opts, source_response) do
       {:cont, {:ok, state}}
     else
       {:error, _reason} = error -> {:halt, error}
@@ -126,13 +133,25 @@ defmodule ImagePipe.Request.Processor do
        }),
        do: operations
 
-  defp maybe_materialize_between_pipelines(%State{} = state, index, last_index, opts)
+  defp maybe_materialize_between_pipelines(
+         %State{} = state,
+         index,
+         last_index,
+         opts,
+         source_response
+       )
        when index < last_index do
-    materialize_between_pipelines(state, opts)
+    materialize_between_pipelines(state, opts, source_response)
   end
 
-  defp maybe_materialize_between_pipelines(%State{} = state, _index, _last_index, _opts),
-    do: {:ok, state}
+  defp maybe_materialize_between_pipelines(
+         %State{} = state,
+         _index,
+         _last_index,
+         _opts,
+         _source_response
+       ),
+       do: {:ok, state}
 
   defp decode_source_response(%Source.Response{} = source_response, decode_options, opts) do
     image_open_module = Keyword.get(opts, :image_open_module, Image)
@@ -144,16 +163,19 @@ defmodule ImagePipe.Request.Processor do
     :exit, %Source.StreamError{reason: reason} -> {:error, {:source, reason}}
   end
 
-  defp materialize_before_delivery(%State{} = state, decode_options, opts) do
+  defp materialize_before_delivery(%State{} = state, decode_options, opts, source_response) do
     case Keyword.fetch!(decode_options, :access) do
-      :sequential -> materialize_state(state, opts) |> handle_materialization_result()
-      :random -> {:ok, state}
+      :sequential ->
+        materialize_state(state, opts) |> handle_materialization_result(source_response)
+
+      :random ->
+        {:ok, state}
     end
   end
 
-  defp materialize_between_pipelines(%State{} = state, opts) do
+  defp materialize_between_pipelines(%State{} = state, opts, source_response) do
     materialize_state(state, opts)
-    |> handle_materialization_result()
+    |> handle_materialization_result(source_response)
   end
 
   defp materialize_state(%State{} = state, opts) do
@@ -162,16 +184,33 @@ defmodule ImagePipe.Request.Processor do
     materializer.materialize(state, opts)
   end
 
-  defp handle_materialization_result({:error, {:config, _reason} = error}), do: {:error, error}
+  defp handle_materialization_result(result, source_response) do
+    result
+    |> prefer_source_body_limit(source_response)
+    |> do_handle_materialization_result()
+  end
 
-  defp handle_materialization_result({:error, materialize_error}),
+  defp do_handle_materialization_result({:error, {:source, _reason} = error}), do: {:error, error}
+
+  defp do_handle_materialization_result({:error, {:config, _reason} = error}), do: {:error, error}
+
+  defp do_handle_materialization_result({:error, materialize_error}),
     do: {:error, {:decode, materialize_error}}
 
-  defp handle_materialization_result({:ok, %State{} = state}), do: {:ok, state}
+  defp do_handle_materialization_result({:ok, %State{} = state}), do: {:ok, state}
 
   defp wrap_decode_error({:error, {:source, _reason}} = error), do: error
   defp wrap_decode_error({:error, error}), do: {:error, {:decode, error}}
   defp wrap_decode_error(result), do: result
+
+  defp prefer_source_body_limit(result, %Source.Response{} = source_response) do
+    case Source.body_limit_exceeded?(source_response) do
+      true -> {:error, {:source, :body_too_large}}
+      false -> result
+    end
+  end
+
+  defp prefer_source_body_limit(result, _source_response), do: result
 
   defp validate_input_image(image, opts) do
     max_input_pixels = Keyword.get(opts, :max_input_pixels, 40_000_000)

@@ -19,8 +19,33 @@ defmodule ImagePipe.Request.ProcessorTest do
 
   defmodule DecodeRaisesSourceStreamError do
     def open(stream, _decode_options) do
-      Enum.to_list(stream)
+      _ = Enum.to_list(stream)
       {:error, :should_not_reach_decode}
+    end
+  end
+
+  defmodule DecodeConsumesBodyLimitThenReturnsDecodeError do
+    def open(stream, _decode_options) do
+      parent = self()
+      ref = make_ref()
+
+      spawn(fn ->
+        result =
+          try do
+            _ = Enum.to_list(stream)
+            :completed
+          rescue
+            exception in [Source.StreamError] -> {:source_error, exception.reason}
+          end
+
+        send(parent, {ref, result})
+      end)
+
+      receive do
+        {^ref, {:source_error, :body_too_large}} -> {:error, :forced_decode_error}
+      after
+        1_000 -> {:error, :stream_did_not_hit_body_limit}
+      end
     end
   end
 
@@ -216,6 +241,22 @@ defmodule ImagePipe.Request.ProcessorTest do
                response,
                plan(),
                Keyword.put(opts(), :image_open_module, DecodeRaisesSourceStreamError)
+             )
+  end
+
+  test "body limit errors beat later decode errors from another stream consumer process" do
+    body = File.read!("priv/static/images/beach.jpg")
+
+    assert {:error, {:source, :body_too_large}} =
+             Processor.fetch_decode_validate_source_with_source_format(
+               plan(),
+               resolved_source(),
+               opts()
+               |> Keyword.put(:max_body_bytes, byte_size(body) - 1)
+               |> Keyword.put(
+                 :image_open_module,
+                 DecodeConsumesBodyLimitThenReturnsDecodeError
+               )
              )
   end
 end
