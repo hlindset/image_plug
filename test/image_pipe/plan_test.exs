@@ -135,6 +135,18 @@ defmodule ImagePipe.PlanTest do
                 ]
               ]} = Plan.canonical_representation_material(plan)
     end
+
+    test "automatic output material contains the symbolic rule instead of a resolved branch" do
+      plan = %Plan{
+        source: %Source.Path{segments: ["alpha.png"]},
+        pipelines: [%Pipeline{operations: []}],
+        output: %Output{mode: :automatic}
+      }
+
+      assert {:ok, [output: output]} = Plan.canonical_representation_material(plan)
+      assert output[:mode] == :automatic
+      refute Keyword.has_key?(output, :resolved_format)
+    end
   end
 
   defp plan(overrides \\ []) do
