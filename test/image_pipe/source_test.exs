@@ -259,16 +259,6 @@ defmodule ImagePipe.SourceTest do
     assert error.reason == :body_too_large
   end
 
-  test "wrap_response applies the default source body limit" do
-    body = :binary.copy("a", 10_000_001)
-    response = %Response{stream: [body]}
-
-    assert {:ok, %Response{} = wrapped} = Source.wrap_response(response, [])
-
-    assert_raise Source.StreamError, fn -> Enum.to_list(wrapped.stream) end
-    assert Source.body_limit_exceeded?(wrapped)
-  end
-
   test "wrap_response accepts explicit source body limit override" do
     body = :binary.copy("a", 10_000_001)
     response = %Response{stream: [body]}

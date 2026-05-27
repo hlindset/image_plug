@@ -51,18 +51,6 @@ defmodule ImagePipe.Cache.KeyTest do
   end
 
   defp build_key!(conn, plan, source_identity, opts \\ []) do
-    opts =
-      Keyword.merge(
-        [
-          max_body_bytes: 10_000_000,
-          max_input_pixels: 40_000_000,
-          max_result_width: 8_192,
-          max_result_height: 8_192,
-          max_result_pixels: 40_000_000
-        ],
-        opts
-      )
-
     assert {:ok, key} = Key.build(conn, plan, source_identity, opts)
     key
   end
@@ -202,13 +190,6 @@ defmodule ImagePipe.Cache.KeyTest do
                format_qualities: %{}
              ],
              representation: [version: 1],
-             request_limits: [
-               max_body_bytes: 10_000_000,
-               max_input_pixels: 40_000_000,
-               max_result_width: 8_192,
-               max_result_height: 8_192,
-               max_result_pixels: 40_000_000
-             ],
              cache: [cachebuster: nil],
              selected_headers: [],
              selected_cookies: []
@@ -230,7 +211,7 @@ defmodule ImagePipe.Cache.KeyTest do
     assert key.data[:representation] == [version: Key.representation_version()]
   end
 
-  test "cache key material includes request safety limits" do
+  test "cache key material excludes request safety limits" do
     conn = conn(:get, "/_/w:100/plain/images/cat.jpg")
 
     default_key =
@@ -245,7 +226,7 @@ defmodule ImagePipe.Cache.KeyTest do
         max_result_pixels: 40_000_000
       )
 
-    stricter_key =
+    strict_key =
       build_key!(
         conn,
         plan(),
@@ -257,26 +238,11 @@ defmodule ImagePipe.Cache.KeyTest do
         max_result_pixels: 65_536
       )
 
-    assert default_key.data[:request_limits] == [
-             max_body_bytes: 10_000_000,
-             max_input_pixels: 40_000_000,
-             max_result_width: 8_192,
-             max_result_height: 8_192,
-             max_result_pixels: 40_000_000
-           ]
-
-    assert stricter_key.data[:request_limits] == [
-             max_body_bytes: 1_000_000,
-             max_input_pixels: 1_000_000,
-             max_result_width: 256,
-             max_result_height: 256,
-             max_result_pixels: 65_536
-           ]
-
-    refute default_key.hash == stricter_key.hash
+    refute Keyword.has_key?(default_key.data, :request_limits)
+    assert default_key.hash == strict_key.hash
   end
 
-  test "cache lookup forwards request limits into key construction" do
+  test "cache lookup key is independent of request safety limits" do
     conn = conn(:get, "/_/w:100/plain/images/cat.jpg")
     plan = plan()
     identity = source_identity()
@@ -304,11 +270,8 @@ defmodule ImagePipe.Cache.KeyTest do
       )
 
     assert {:miss, %Key{} = strict_key} = strict
-    refute loose_key.hash == strict_key.hash
-    assert loose_key.data[:request_limits][:max_body_bytes] == 10_000_000
-    assert strict_key.data[:request_limits][:max_body_bytes] == 1_000_000
-    assert loose_key.data[:request_limits][:max_result_width] == 8_192
-    assert strict_key.data[:request_limits][:max_result_width] == 256
+    assert loose_key.hash == strict_key.hash
+    refute Keyword.has_key?(loose_key.data, :request_limits)
   end
 
   test "source identity key data is product-neutral and independent of request URL" do

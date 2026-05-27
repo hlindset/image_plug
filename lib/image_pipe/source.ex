@@ -33,7 +33,6 @@ defmodule ImagePipe.Source do
   @source_kinds [:path, :url, :object, :reference]
   @internal_cache_policies [:enabled, :disabled]
   @http_cache_policies [:inherit, :enabled, :disabled]
-  @default_max_body_bytes 10_000_000
 
   @spec validate_config(keyword()) :: {:ok, keyword()} | {:error, error()}
   def validate_config(opts) when is_list(opts) do
@@ -96,7 +95,7 @@ defmodule ImagePipe.Source do
 
   @spec wrap_response(Response.t(), keyword()) :: {:ok, Response.t()} | {:error, error()}
   def wrap_response(%Response{stream: stream}, runtime_opts) do
-    max_body_bytes = Keyword.get(runtime_opts, :max_body_bytes, @default_max_body_bytes)
+    max_body_bytes = Keyword.fetch!(runtime_opts, :max_body_bytes)
     {:ok, %Response{stream: WrappedStream.new(stream, max_body_bytes)}}
   end
 

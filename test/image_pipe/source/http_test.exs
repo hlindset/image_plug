@@ -167,7 +167,7 @@ defmodule ImagePipe.Source.HTTPTest do
     assert {:ok, resolved} = HTTP.resolve(source, opts, [])
 
     assert {:ok, %Response{} = response} =
-             Source.fetch(resolved, [sources: %{https: {HTTP, opts}}], [])
+             Source.fetch(resolved, [sources: %{https: {HTTP, opts}}], max_body_bytes: 20)
 
     assert Enum.join(response.stream) == "image bytes"
     assert_receive {:http_request, "GET", headers, "/cat.jpg", "", ""}
@@ -214,7 +214,7 @@ defmodule ImagePipe.Source.HTTPTest do
     assert {:ok, resolved} = HTTP.resolve(source, opts, [])
 
     assert {:ok, %Response{} = response} =
-             Source.fetch(resolved, [sources: %{https: {HTTP, opts}}], [])
+             Source.fetch(resolved, [sources: %{https: {HTTP, opts}}], max_body_bytes: 20)
 
     assert Enum.join(response.stream) == "image bytes"
     assert_receive {:http_request, headers}
@@ -257,7 +257,7 @@ defmodule ImagePipe.Source.HTTPTest do
     assert {:ok, resolved} = HTTP.resolve(source, opts, [])
 
     assert {:ok, %Response{} = response} =
-             Source.fetch(resolved, [sources: %{https: {HTTP, opts}}], [])
+             Source.fetch(resolved, [sources: %{https: {HTTP, opts}}], max_body_bytes: 20)
 
     assert Enum.join(response.stream) == "image bytes"
     assert_receive {:http_request, "/other.jpg"}
@@ -287,7 +287,7 @@ defmodule ImagePipe.Source.HTTPTest do
     assert {:ok, resolved} = HTTP.resolve(source, opts, [])
 
     assert {:ok, %Response{} = response} =
-             Source.fetch(resolved, [sources: %{https: {HTTP, opts}}], [])
+             Source.fetch(resolved, [sources: %{https: {HTTP, opts}}], max_body_bytes: 20)
 
     error = assert_raise Source.StreamError, fn -> Enum.to_list(response.stream) end
     assert error.reason == :bad_status
@@ -403,7 +403,7 @@ defmodule ImagePipe.Source.HTTPTest do
     assert {:ok, resolved} = HTTP.resolve(source, opts, [])
 
     assert {:ok, %Response{} = response} =
-             Source.fetch(resolved, [sources: %{https: {HTTP, opts}}], [])
+             Source.fetch(resolved, [sources: %{https: {HTTP, opts}}], max_body_bytes: 20)
 
     error = assert_raise Source.StreamError, fn -> Enum.to_list(response.stream) end
     assert error.reason == :bad_status

@@ -29,12 +29,7 @@ defmodule ImagePipe.Cache do
   @shared_cache_option_keys [:key_headers, :key_cookies, :max_body_bytes]
   @plan_key_option_keys [
     :auto_avif,
-    :auto_webp,
-    :max_body_bytes,
-    :max_input_pixels,
-    :max_result_width,
-    :max_result_height,
-    :max_result_pixels
+    :auto_webp
   ]
   @required_adapter_callbacks [
     get: 2,

@@ -12,11 +12,6 @@ defmodule ImagePipe.Request.Processor do
   alias ImagePipe.Transform.Materializer
   alias ImagePipe.Transform.State
 
-  @default_max_input_pixels 40_000_000
-  @default_max_result_width 8_192
-  @default_max_result_height 8_192
-  @default_max_result_pixels 40_000_000
-
   @type source_format() :: SourceFormat.source_format()
   @type decoded() :: %{
           required(:decode_options) => keyword(),
@@ -221,7 +216,7 @@ defmodule ImagePipe.Request.Processor do
   defp prefer_source_body_limit(result, _source_response), do: result
 
   defp validate_input_image(image, opts) do
-    max_input_pixels = Keyword.get(opts, :max_input_pixels, @default_max_input_pixels)
+    max_input_pixels = Keyword.fetch!(opts, :max_input_pixels)
     pixel_count = Image.width(image) * Image.height(image)
 
     if pixel_count <= max_input_pixels do
@@ -239,21 +234,9 @@ defmodule ImagePipe.Request.Processor do
     height = Image.height(image)
     pixels = width * height
 
-    with :ok <-
-           check_result_width(
-             width,
-             Keyword.get(opts, :max_result_width, @default_max_result_width)
-           ),
-         :ok <-
-           check_result_height(
-             height,
-             Keyword.get(opts, :max_result_height, @default_max_result_height)
-           ),
-         :ok <-
-           check_result_pixels(
-             pixels,
-             Keyword.get(opts, :max_result_pixels, @default_max_result_pixels)
-           ) do
+    with :ok <- check_result_width(width, Keyword.fetch!(opts, :max_result_width)),
+         :ok <- check_result_height(height, Keyword.fetch!(opts, :max_result_height)),
+         :ok <- check_result_pixels(pixels, Keyword.fetch!(opts, :max_result_pixels)) do
       :ok
     end
   end

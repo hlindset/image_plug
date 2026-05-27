@@ -812,7 +812,7 @@ defmodule ImagePipe.Request.SourceSessionTest do
     request =
       request(
         resolved_source: %{resolved_source({:stream, bad_stream}) | fetch: {:stream, bad_stream}},
-        opts: [sources: %{path: {StreamFetchAdapter, []}}, image_module: MultiChunkImage]
+        opts: opts(sources: %{path: {StreamFetchAdapter, []}}, image_module: MultiChunkImage)
       )
 
     {:ok, session} = start_session(request)
@@ -989,7 +989,15 @@ defmodule ImagePipe.Request.SourceSessionTest do
 
   defp opts(extra_opts \\ []) do
     Keyword.merge(
-      [sources: %{path: {ValidAdapter, []}}, image_module: MultiChunkImage],
+      [
+        sources: %{path: {ValidAdapter, []}},
+        image_module: MultiChunkImage,
+        max_body_bytes: 10_000_000,
+        max_input_pixels: 40_000_000,
+        max_result_width: 8_192,
+        max_result_height: 8_192,
+        max_result_pixels: 40_000_000
+      ],
       extra_opts
     )
   end
@@ -1001,7 +1009,7 @@ defmodule ImagePipe.Request.SourceSessionTest do
   defp blocking_request do
     request(
       resolved_source: %{resolved_source({:block, self()}) | fetch: {:block, self()}},
-      opts: [sources: %{path: {BlockingFetchAdapter, []}}, image_module: MultiChunkImage]
+      opts: opts(sources: %{path: {BlockingFetchAdapter, []}}, image_module: MultiChunkImage)
     )
   end
 

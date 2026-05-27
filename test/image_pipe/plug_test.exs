@@ -2059,7 +2059,7 @@ defmodule ImagePipe.PlugTest do
     assert conn.resp_body == "source response is not a supported image"
   end
 
-  test "default source body limit changes cache key and prevents permissive cache reuse" do
+  test "cache hit reuses successful response across source body limits" do
     permissive =
       conn(:get, "/_/plain/images/large-body.jpg")
       |> call_image_pipe(
@@ -2083,7 +2083,7 @@ defmodule ImagePipe.PlugTest do
       end
     end
 
-    default =
+    cached =
       conn(:get, "/_/plain/images/large-body.jpg")
       |> call_image_pipe(
         root_url: "http://origin.test",
@@ -2093,10 +2093,10 @@ defmodule ImagePipe.PlugTest do
         origin_req_options: [plug: LargeBodyOrigin]
       )
 
-    assert default.status == 422
-    assert default.resp_body == "invalid image source"
-    assert_received {:cache_get, default_key}
-    refute default_key.hash == permissive_key.hash
+    assert cached.status == 200
+    assert cached.resp_body == permissive.resp_body
+    assert_received {:cache_get, cached_key}
+    assert cached_key.hash == permissive_key.hash
   end
 
   test "body limit failures surface as source errors during decode" do

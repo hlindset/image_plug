@@ -4,7 +4,7 @@
 
 **Goal:** Add default source byte and static result dimension limits without changing unrelated parser, negotiation, metadata, or cache-header behavior.
 
-**Architecture:** Request options own public limit validation and defaults. Source streams keep enforcing body bytes through `ImagePipe.Source.WrappedStream`. Request processing validates the decoded input first, executes product-neutral transforms, then rejects oversize final static image dimensions before final output resolution and encoding. Internal cache keys and generated HTTP ETag material include the result-limit configuration so cache and `304` paths can't bypass a stricter result limit.
+**Architecture:** Request options own public limit validation and defaults. Source streams keep enforcing body bytes through `ImagePipe.Source.WrappedStream`. Request processing validates the decoded input first, executes product-neutral transforms, then rejects oversize final static image dimensions before final output resolution and encoding. Safety limits gate generation; they don't change representation identity or cache key material.
 
 **Tech Stack:** Elixir, Plug, ExUnit, NimbleOptions, Boundary, ImagePipe request/source/output/cache/transform modules.
 
@@ -23,22 +23,22 @@
 Modify:
 
 - `lib/image_pipe/request/options.ex`: validate/default `:max_body_bytes`, `:max_input_pixels`, `:max_result_width`, `:max_result_height`, and `:max_result_pixels`; pass only source runtime options to source adapters.
-- `lib/image_pipe/source.ex`: remove the `:infinity` fallback in favor of the validated request default when runtime opts omit `:max_body_bytes`.
+- `lib/image_pipe/source.ex`: require validated runtime opts to include `:max_body_bytes`.
 - `lib/image_pipe/request/processor.ex`: consume validated `:max_input_pixels`; add final static result dimension validation after transform/materialization and before output resolution.
 - `lib/image_pipe/request/source_session/producer.ex`: no behavior change beyond calling the processor path that now returns result-limit errors before `Encoder.stream_output/3`.
 - `lib/image_pipe/response/sender.ex`: route `{:result_limit, reason}` to a result-specific HTTP 413 response with a distinct log tag.
-- `lib/image_pipe/cache.ex`: pass result limit options into cache key construction.
-- `lib/image_pipe/cache/key.ex`: include result limit options in deterministic cache key material without bumping key schema versions.
+- `lib/image_pipe/cache.ex`: keep request safety limits out of cache key construction.
+- `lib/image_pipe/cache/key.ex`: keep cache identity based on source identity, plan, output negotiation, configured vary inputs, and cachebuster.
 - `docs/operational_notes.md`: document defaults and the final-result validation boundary.
 - `docs/imgproxy_support_matrix.md`: change only the safety-limit rows affected by this static-result slice.
 
 Test:
 
 - `test/image_pipe/request_options_test.exs`: option defaults, explicit overrides, and invalid values.
-- `test/image_pipe/source_test.exs`: default source body limit and explicit override at the source wrapping boundary.
+- `test/image_pipe/source_test.exs`: explicit source body limit at the source wrapping boundary.
 - `test/image_pipe/processor_test.exs`: final result dimension limit unit coverage.
 - `test/image_pipe/plug_test.exs`: wire-level body-limit defaults, explicit override, oversized result response, in-limit success, and pre-encode side-effect ordering.
-- `test/image_pipe/cache/key_test.exs`: deterministic key material includes source, input, and result limits.
+- `test/image_pipe/cache/key_test.exs`: deterministic key material excludes request safety limits.
 
 Don't change:
 
@@ -91,7 +91,7 @@ end
 
 test "request safety limits reject malformed values" do
   for {key, value} <- [
-        max_body_bytes: -1,
+        max_body_bytes: 0,
         max_input_pixels: 0,
         max_result_width: 0,
         max_result_height: -1,
@@ -114,21 +114,11 @@ mise exec -- mix test test/image_pipe/request_options_test.exs
 
 Expected: the default and malformed-value tests fail. The explicit valid override test may pass before implementation because unknown top-level options currently pass through; after implementation, it proves these values are validated by the request option schema.
 
-- [ ] **Step 3: Add failing source wrapping tests**
+- [ ] **Step 3: Add failing source wrapping test**
 
 Add to `test/image_pipe/source_test.exs`:
 
 ```elixir
-test "wrap_response applies the default source body limit" do
-  body = :binary.copy("a", 10_000_001)
-  response = %Response{stream: [body]}
-
-  assert {:ok, %Response{} = wrapped} = Source.wrap_response(response, [])
-
-  assert_raise Source.StreamError, fn -> Enum.to_list(wrapped.stream) end
-  assert Source.body_limit_exceeded?(wrapped)
-end
-
 test "wrap_response accepts explicit source body limit override" do
   body = :binary.copy("a", 10_000_001)
   response = %Response{stream: [body]}
@@ -178,7 +168,7 @@ Add these keys to `@validated_option_keys`:
 Add schema entries:
 
 ```elixir
-max_body_bytes: [type: :non_neg_integer, default: @default_max_body_bytes],
+max_body_bytes: [type: :pos_integer, default: @default_max_body_bytes],
 max_input_pixels: [type: :pos_integer, default: @default_max_input_pixels],
 max_result_width: [type: :pos_integer, default: @default_max_result_width],
 max_result_height: [type: :pos_integer, default: @default_max_result_height],
@@ -201,7 +191,7 @@ Keep `@source_runtime_option_keys` limited to source runtime behavior:
 In `lib/image_pipe/source.ex`, replace the fallback:
 
 ```elixir
-max_body_bytes = Keyword.get(runtime_opts, :max_body_bytes, 10_000_000)
+max_body_bytes = Keyword.fetch!(runtime_opts, :max_body_bytes)
 ```
 
 - [ ] **Step 6: Verify Task 1**
@@ -422,7 +412,7 @@ mise exec -- mix test test/image_pipe/processor_test.exs test/image_pipe/plug_te
 
 Expected: pass.
 
-## Task 3: Cache Key Determinism for Result Limits
+## Task 3: Cache Key Determinism for Safety Limits
 
 **Files:**
 
@@ -433,29 +423,10 @@ Expected: pass.
 
 - [ ] **Step 1: Add failing cache-key unit test**
 
-First update the `build_key!/4` helper in `test/image_pipe/cache/key_test.exs` so exact key-data assertions include the request defaults:
-
-```elixir
-defp build_key!(conn, plan, source_identity, opts \\ []) do
-  opts =
-    Keyword.merge(
-      [
-        max_result_width: 8_192,
-        max_result_height: 8_192,
-        max_result_pixels: 40_000_000
-      ],
-      opts
-    )
-
-  assert {:ok, key} = Key.build(conn, plan, source_identity, opts)
-  key
-end
-```
-
 Add to `test/image_pipe/cache/key_test.exs`:
 
 ```elixir
-test "cache key material includes request safety limits" do
+test "cache key material excludes request safety limits" do
   conn = conn(:get, "/_/w:100/plain/images/cat.jpg")
 
   default_key =
@@ -470,7 +441,7 @@ test "cache key material includes request safety limits" do
       max_result_pixels: 40_000_000
     )
 
-  stricter_key =
+  strict_key =
     build_key!(
       conn,
       plan(),
@@ -482,23 +453,8 @@ test "cache key material includes request safety limits" do
       max_result_pixels: 65_536
     )
 
-  assert default_key.data[:request_limits] == [
-           max_body_bytes: 10_000_000,
-           max_input_pixels: 40_000_000,
-           max_result_width: 8_192,
-           max_result_height: 8_192,
-           max_result_pixels: 40_000_000
-         ]
-
-  assert stricter_key.data[:request_limits] == [
-           max_body_bytes: 1_000_000,
-           max_input_pixels: 1_000_000,
-           max_result_width: 256,
-           max_result_height: 256,
-           max_result_pixels: 65_536
-         ]
-
-  refute default_key.hash == stricter_key.hash
+  refute Keyword.has_key?(default_key.data, :request_limits)
+  assert default_key.hash == strict_key.hash
 end
 ```
 
@@ -507,7 +463,7 @@ end
 Add to `test/image_pipe/cache/key_test.exs`:
 
 ```elixir
-test "cache lookup forwards request limits into key construction" do
+test "cache lookup key is independent of request safety limits" do
   conn = conn(:get, "/_/w:100/plain/images/cat.jpg")
   plan = plan()
   identity = source_identity()
@@ -535,11 +491,8 @@ test "cache lookup forwards request limits into key construction" do
     )
 
   assert {:miss, %Key{} = strict_key} = strict
-  refute loose_key.hash == strict_key.hash
-  assert loose_key.data[:request_limits][:max_body_bytes] == 10_000_000
-  assert strict_key.data[:request_limits][:max_body_bytes] == 1_000_000
-  assert loose_key.data[:request_limits][:max_result_width] == 8_192
-  assert strict_key.data[:request_limits][:max_result_width] == 256
+  assert loose_key.hash == strict_key.hash
+  refute Keyword.has_key?(loose_key.data, :request_limits)
 end
 ```
 
@@ -560,9 +513,7 @@ end
 Add to `test/image_pipe/cdn_http_cache_wire_test.exs`:
 
 ```elixir
-test "stricter result limit changes generated etag and does not return conditional 304", %{
-  opts: opts
-} do
+test "stricter result limit does not change generated etag", %{opts: opts} do
   loose =
     ImagePipe.Plug.call(
       conn(:get, "/_/el:1/w:64/f:jpeg/plain/beach.jpg"),
@@ -590,14 +541,17 @@ test "stricter result limit changes generated etag and does not return condition
     |> put_req_header("if-none-match", etag)
     |> ImagePipe.Plug.call(strict_opts)
 
-  assert strict.status == 413
-  assert strict.resp_body == "result image is too large"
-  assert_received {:cache_get, %Key{}}
-  assert_received :source_fetch_called
+  assert strict.status == 304
+  assert strict.resp_body == ""
+  assert get_resp_header(strict, "etag") == [etag]
+  refute_received {:cache_get, %Key{}}
+  refute_received :source_fetch_called
 end
 ```
 
-This test keeps the existing HTTP cache policy intact but requires generated ETag material to include result limits. A stale ETag from a looser result limit must not short-circuit a stricter request to `304`.
+Limits gate response generation. If a successful representation already exists
+and the conditional request matches its ETag, ImagePipe can return `304` without
+regenerating under stricter limits.
 
 - [ ] **Step 3: Verify cache-key and ETag tests fail**
 
@@ -607,51 +561,21 @@ Run:
 mise exec -- mix test test/image_pipe/cache/key_test.exs test/image_pipe/cdn_http_cache_wire_test.exs
 ```
 
-Expected: `request_limits` key is absent, cache forwarding produces identical keys, and the conditional request can return `304` before the stricter result limit runs.
+Expected before the correction: `request_limits` is present, limit changes produce different keys, and stricter result limits can force regeneration instead of `304`.
 
-- [ ] **Step 4: Implement deterministic request-limit key data**
+- [ ] **Step 4: Keep safety limits out of key data**
 
-In `lib/image_pipe/cache.ex`, add result options to `@plan_key_option_keys`:
+In `lib/image_pipe/cache.ex`, keep `@plan_key_option_keys` limited to representation-affecting output options:
 
 ```elixir
 @plan_key_option_keys [
   :auto_avif,
-  :auto_webp,
-  :max_result_width,
-  :max_result_height,
-  :max_result_pixels
+  :auto_webp
 ]
 ```
 
-In `lib/image_pipe/cache/key.ex`, append request limit data to plan material after `representation` and before `cache`:
-
-```elixir
-request_limits: request_limits_data(opts),
-```
-
-Add default attributes and helper logic:
-
-```elixir
-@default_max_body_bytes 10_000_000
-@default_max_input_pixels 40_000_000
-@default_max_result_width 8_192
-@default_max_result_height 8_192
-@default_max_result_pixels 40_000_000
-
-defp request_limits_data(opts) do
-  [
-    max_body_bytes: Keyword.get(opts, :max_body_bytes, @default_max_body_bytes),
-    max_input_pixels: Keyword.get(opts, :max_input_pixels, @default_max_input_pixels),
-    max_result_width: Keyword.get(opts, :max_result_width, @default_max_result_width),
-    max_result_height: Keyword.get(opts, :max_result_height, @default_max_result_height),
-    max_result_pixels: Keyword.get(opts, :max_result_pixels, @default_max_result_pixels)
-  ]
-end
-```
-
-Include `:max_body_bytes` and `:max_input_pixels` because cache hits return before source fetch and decode. A representation created under looser source/input limits must not be reusable under stricter limits.
-
-Update existing exact key-data assertions in `test/image_pipe/cache/key_test.exs` so they include the new `request_limits` keyword. Keep `schema_version`, `transform` version, and `representation` version unchanged; this greenfield cache-shape change reshapes canonical key data in place. Low-level key construction should encode the same default request limits when direct callers omit them, so direct cache and HTTP-cache tests don't raise before adapter behavior runs.
+In `lib/image_pipe/cache/key.ex`, don't append `request_limits` to key material.
+Keep `schema_version`, `transform` version, and `representation` version unchanged.
 
 - [ ] **Step 5: Verify Task 3**
 
@@ -862,6 +786,6 @@ Expected: pass.
 ## Plan Self-Review
 
 - Spec coverage: Tasks 1 and 4 cover issue #9 default source body limit. Tasks 2, 3, and 5 cover the static result-dimension slice of issue #45. Animation frame limits stay out of scope.
-- Side-effect ordering: parser and planner validation remain before source and cache work. Result limit validation happens after transforms because the exact final static dimensions are known there, and before final output resolution or encoding. Internal cache keys and generated ETags include source, input, and result limits so a stricter limit can't reuse a cached representation or conditional response produced under a looser limit.
+- Side-effect ordering: parser and planner validation remain before source and cache work. Result limit validation happens after transforms because the exact final static dimensions are known there, and before final output resolution or encoding. Cache keys and generated ETags stay tied to representation identity; safety limits decide whether a miss may generate a new response.
 - Placeholder scan: no task contains TBD, generic placeholder work, or undefined helper names.
-- Type consistency: option names are `:max_body_bytes`, `:max_input_pixels`, `:max_result_width`, `:max_result_height`, and `:max_result_pixels` across tests, implementation, cache keys, and docs.
+- Type consistency: option names are `:max_body_bytes`, `:max_input_pixels`, `:max_result_width`, `:max_result_height`, and `:max_result_pixels` across tests, implementation, and docs.

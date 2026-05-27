@@ -306,7 +306,7 @@ defmodule ImagePipe.Source.S3Test do
     assert {:ok, resolved} = S3.resolve(source, opts, [])
 
     assert {:ok, %Response{} = response} =
-             Source.fetch(resolved, [sources: %{s3: {S3, opts}}], [])
+             Source.fetch(resolved, [sources: %{s3: {S3, opts}}], max_body_bytes: 20)
 
     assert Enum.join(response.stream) == "image bytes"
 
@@ -364,7 +364,7 @@ defmodule ImagePipe.Source.S3Test do
     assert {:ok, resolved} = S3.resolve(source, opts, [])
 
     assert {:ok, %Response{} = response} =
-             Source.fetch(resolved, [sources: %{s3: {S3, opts}}], [])
+             Source.fetch(resolved, [sources: %{s3: {S3, opts}}], max_body_bytes: 20)
 
     assert Enum.join(response.stream) == "image bytes"
 
@@ -408,7 +408,7 @@ defmodule ImagePipe.Source.S3Test do
     assert {:ok, resolved} = S3.resolve(source, opts, [])
 
     assert {:ok, %Response{} = response} =
-             Source.fetch(resolved, [sources: %{s3: {S3, opts}}], [])
+             Source.fetch(resolved, [sources: %{s3: {S3, opts}}], max_body_bytes: 20)
 
     assert Enum.join(response.stream) == "image bytes"
     assert_receive {:s3_request, headers}

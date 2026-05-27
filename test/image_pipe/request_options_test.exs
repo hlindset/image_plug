@@ -66,7 +66,7 @@ defmodule ImagePipe.RequestOptionsTest do
 
   test "request safety limits reject malformed values" do
     for {key, value} <- [
-          max_body_bytes: -1,
+          max_body_bytes: 0,
           max_input_pixels: 0,
           max_result_width: 0,
           max_result_height: -1,

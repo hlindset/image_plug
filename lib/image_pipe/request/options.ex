@@ -40,7 +40,7 @@ defmodule ImagePipe.Request.Options do
                     parser: [type: :atom, required: true],
                     clock: [type: {:custom, __MODULE__, :validate_clock, []}],
                     max_body_bytes: [
-                      type: :non_neg_integer,
+                      type: :pos_integer,
                       default: @default_max_body_bytes
                     ],
                     max_input_pixels: [

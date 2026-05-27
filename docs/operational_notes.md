@@ -41,6 +41,11 @@ mean the final static image width, height, and pixel count. Oversize static
 results return `413` with `result image is too large`. Animation frame limits
 remain out of scope and aren't implemented.
 
+These limits gate response generation. They don't change cache identity.
+ImagePipe can serve a successful cached response even when the current request
+has stricter generation limits. The source fetch, decode, transform, and encode
+work already completed before the response entered the cache.
+
 Built-in HTTP and S3 `req_options` are host-owned behavior. They must not vary
 source bytes for the same resolved identity. Byte-selecting request options need
 URI/object revision material, `internal_cache: :disabled`, or a custom adapter
