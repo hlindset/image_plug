@@ -9,6 +9,18 @@ defmodule ImagePipe.Output.PolicyTest do
   alias ImagePipe.Plan.Output
 
   describe "from_output_plan/3" do
+    test "automatic output policy exposes Vary Accept and selected candidates from Accept" do
+      conn =
+        :get
+        |> conn("/image")
+        |> put_req_header("accept", "image/webp,image/avif;q=0.1")
+
+      policy = Policy.from_output_plan(conn, %Output{mode: :automatic}, [])
+
+      assert policy.headers == [{"vary", "Accept"}]
+      assert policy.modern_candidates != []
+    end
+
     test "represents explicit output independently of Accept" do
       conn =
         :get
