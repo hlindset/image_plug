@@ -179,6 +179,7 @@ defmodule ImagePipe.Cache.KeyTest do
                quality: :default,
                format_qualities: %{}
              ],
+             representation: [version: 1],
              cache: [cachebuster: nil],
              selected_headers: [],
              selected_cookies: []
@@ -189,6 +190,15 @@ defmodule ImagePipe.Cache.KeyTest do
     refute inspect(key.data) =~ "sig-one"
     refute inspect(key.data) =~ "ignored=true"
     refute key.hash == different_source.hash
+  end
+
+  test "cache key contains representation version" do
+    plan = plan(output: %Output{mode: {:explicit, :webp}})
+    conn = conn(:get, "/image")
+
+    assert {:ok, key} = Key.build(conn, plan, source_identity())
+
+    assert key.data[:representation] == [version: Key.representation_version()]
   end
 
   test "source identity key data is product-neutral and independent of request URL" do

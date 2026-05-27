@@ -5,7 +5,7 @@ defmodule ImagePipe.Request.Options do
   alias ImagePipe.Source
   alias ImagePipe.Telemetry
 
-  @parser_visible_option_keys [:parser, :clock, :telemetry_prefix]
+  @validated_option_keys [:parser, :clock, :telemetry_prefix, :http_cache]
   @stale_origin_option_keys [
     :root_url,
     :origin_req_options,
@@ -26,6 +26,13 @@ defmodule ImagePipe.Request.Options do
                     telemetry_prefix: [
                       type: {:custom, __MODULE__, :validate_telemetry_prefix, []},
                       default: Telemetry.default_prefix()
+                    ],
+                    http_cache: [
+                      type: :keyword_list,
+                      default: [mode: :disabled],
+                      keys: [
+                        mode: [type: {:in, [:disabled, :enabled]}, default: :disabled]
+                      ]
                     ]
                   )
 
@@ -60,7 +67,7 @@ defmodule ImagePipe.Request.Options do
     do: {:error, "expected a non-empty list of atoms"}
 
   defp validate_known_opts!(opts) do
-    known_opts = Keyword.take(opts, @parser_visible_option_keys)
+    known_opts = Keyword.take(opts, @validated_option_keys)
 
     case NimbleOptions.validate(known_opts, @options_schema) do
       {:ok, validated_opts} ->

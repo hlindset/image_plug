@@ -14,6 +14,7 @@ defmodule ImagePipe.Cache.Key do
 
   @schema_version 2
   @transform_key_data_version 1
+  @representation_version 1
   @enforce_keys [:hash, :data, :serialized_data]
 
   defstruct @enforce_keys
@@ -37,6 +38,7 @@ defmodule ImagePipe.Cache.Key do
         pipelines: pipelines,
         transform: transform_data(),
         output: output,
+        representation: representation_data(),
         cache: cache,
         selected_headers: selected_headers(conn, opts),
         selected_cookies: selected_cookies(conn, opts)
@@ -60,6 +62,10 @@ defmodule ImagePipe.Cache.Key do
     |> :erlang.term_to_binary([:deterministic])
   end
 
+  @doc false
+  @spec representation_version() :: pos_integer()
+  def representation_version, do: @representation_version
+
   defp validate_source_identity(identity) do
     if Identity.valid?(identity),
       do: :ok,
@@ -74,6 +80,8 @@ defmodule ImagePipe.Cache.Key do
   end
 
   defp transform_data, do: [key_data_version: @transform_key_data_version]
+
+  defp representation_data, do: [version: @representation_version]
 
   defp output_data(conn, %Output{mode: :automatic} = output, opts) do
     accept_header = conn |> get_req_header("accept") |> Enum.join(",")
