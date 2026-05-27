@@ -273,8 +273,9 @@ XL output.
 ### Metadata, color profile, HDR, and default autorotation policy
 
 ImagePipe supports URL `auto_rotate` and the matching parser config default:
-`imgproxy: [auto_rotate: true]`. Global metadata stripping, profile handling,
-HDR preservation, and thumbnail-source selection aren't configurable.
+`imgproxy: [auto_rotate: true]`, which is also the default. Global metadata
+stripping, profile handling, HDR preservation, and thumbnail-source selection
+aren't configurable.
 
 - ⭕ `IMGPROXY_STRIP_METADATA`
 - ⭕ `IMGPROXY_KEEP_COPYRIGHT`

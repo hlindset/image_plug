@@ -314,9 +314,12 @@ Orientation options are `auto_rotate`/`ar`, `rotate`/`rot`, and `flip`/`fl`.
 - `ar:true` applies embedded orientation metadata, such as EXIF orientation.
   `ar:false` disables it.
 - `imgproxy: [auto_rotate: true]` applies EXIF autorotation when the URL doesn't
-  specify `auto_rotate`/`ar`. The default config value is `false`.
+  specify `auto_rotate`/`ar`. The default config value is `true`, matching
+  Imgproxy's `IMGPROXY_AUTO_ROTATE` default.
 - URL `ar:true` and `ar:false` override the configured default for the request.
-  `rotate` and `flip` don't suppress the default.
+  In chained paths, the parser puts the effective request value before pipeline
+  processing starts so later geometry uses dimensions after EXIF
+  normalization. `rotate` and `flip` don't suppress the default.
 - `rot` accepts integer degrees in multiples of 90 and stores them as `0`,
   `90`, `180`, or `270`.
 - `fl:true:true` flips both axes.

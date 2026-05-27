@@ -224,17 +224,24 @@ defmodule ImagePipe.ImgproxyWireConformanceTest do
   end
 
   test "imgproxy auto_rotate config and URL options control EXIF autorotation" do
-    configured_conn =
+    default_conn =
       "/_/f:jpeg/plain/images/oriented.jpg"
-      |> call_imgproxy(exif_orientation_origin_opts(imgproxy: [auto_rotate: true]))
+      |> call_imgproxy(exif_orientation_origin_opts())
 
-    assert configured_conn.status == 200
-    assert content_type(configured_conn) == ["image/jpeg"]
-    assert dimensions(configured_conn) == {80, 40}
+    assert default_conn.status == 200
+    assert content_type(default_conn) == ["image/jpeg"]
+    assert dimensions(default_conn) == {80, 40}
+
+    configured_disabled_conn =
+      "/_/f:jpeg/plain/images/oriented.jpg"
+      |> call_imgproxy(exif_orientation_origin_opts(imgproxy: [auto_rotate: false]))
+
+    assert configured_disabled_conn.status == 200
+    assert dimensions(configured_disabled_conn) == {40, 80}
 
     url_enabled_conn =
       "/_/ar:true/f:jpeg/plain/images/oriented.jpg"
-      |> call_imgproxy(exif_orientation_origin_opts())
+      |> call_imgproxy(exif_orientation_origin_opts(imgproxy: [auto_rotate: false]))
 
     assert url_enabled_conn.status == 200
     assert dimensions(url_enabled_conn) == {80, 40}

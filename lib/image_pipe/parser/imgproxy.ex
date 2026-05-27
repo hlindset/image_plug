@@ -44,7 +44,7 @@ defmodule ImagePipe.Parser.Imgproxy do
                      ],
                      auto_rotate: [
                        type: :boolean,
-                       default: false
+                       default: true
                      ]
                    )
 
@@ -173,7 +173,7 @@ defmodule ImagePipe.Parser.Imgproxy do
   end
 
   defp request_defaults(imgproxy_opts) do
-    [auto_rotate: Keyword.get(imgproxy_opts, :auto_rotate, false)]
+    [auto_rotate: Keyword.get(imgproxy_opts, :auto_rotate, true)]
   end
 
   defp source_parsing_config(opts) do

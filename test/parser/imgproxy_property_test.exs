@@ -10,6 +10,8 @@ defmodule ImagePipe.Parser.ImgproxyPropertyTest do
   alias ImagePipe.Plan.Pipeline
   alias ImagePipe.Plan.Source
 
+  @no_auto_rotate_opts [imgproxy: [auto_rotate: false]]
+
   property "parser returns tagged results for arbitrary processing segments" do
     check all segments <- list_of(processing_segment(), max_length: 5),
               max_runs: 300 do
@@ -79,7 +81,7 @@ defmodule ImagePipe.Parser.ImgproxyPropertyTest do
 
   property "imgproxy composition URL option order does not define operation order" do
     assert {:ok, plan_a} =
-             Imgproxy.parse(conn(:get, "/_/bg:f00/pd:10/w:100/plain/images/cat.jpg"), [])
+             parse_path("/_/bg:f00/pd:10/w:100/plain/images/cat.jpg")
 
     [%ImagePipe.Plan.Pipeline{operations: operations_a}] = plan_a.pipelines
 
@@ -96,7 +98,7 @@ defmodule ImagePipe.Parser.ImgproxyPropertyTest do
     end
   end
 
-  defp parse_path(path), do: Imgproxy.parse(conn(:get, path), [])
+  defp parse_path(path), do: Imgproxy.parse(conn(:get, path), @no_auto_rotate_opts)
 
   defp pixels(value), do: {:px, value}
 
