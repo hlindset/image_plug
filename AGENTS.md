@@ -23,7 +23,8 @@
 ## Cache guidelines
 
 - Cache behavior is part of the contract. Cache only successful encoded responses; keep keys deterministic and based on resolved source identity, canonical plan fields, configured vary inputs, and normalized `Accept` for `format:auto`; cache errors fail open by default unless `fail_on_cache_error: true`.
-- Because this library is greenfield and unreleased, do not bump internal cache key data versions for normal feature work or cache-shape changes. Reshape the canonical key data and update tests in place unless there is an explicit compatibility requirement to read or preserve old cache entries.
+- Cache key and generated ETag material represent response identity, not admission policy. Include inputs that can change successful encoded bytes or the selected response variant: resolved source identity, canonical plan fields, output negotiation, configured vary headers/cookies, cachebuster, representation/key-data versions, and normalized `Accept` for `format:auto`. Don't include safety limits such as `max_body_bytes`, `max_input_pixels`, or static result dimension limits. Those limits decide whether a cache miss may generate a response. They don't decide whether ImagePipe may serve an existing successful cached response.
+- Because this library is greenfield and unreleased, don't bump internal cache key data versions for normal feature work or cache-shape changes. Reshape the canonical key data and update tests in place unless the code must still read or preserve old cache entries.
 
 ## Telemetry guidelines
 
