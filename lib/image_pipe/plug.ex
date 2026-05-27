@@ -21,6 +21,7 @@ defmodule ImagePipe.Plug do
   alias ImagePipe.Error
   alias ImagePipe.Parser.Imgproxy
   alias ImagePipe.Plan
+  alias ImagePipe.Request.HTTPCache
   alias ImagePipe.Request.Options
   alias ImagePipe.Request.Runner
   alias ImagePipe.Response.Sender
@@ -52,14 +53,29 @@ defmodule ImagePipe.Plug do
          {:ok, %Plan{} = plan} <- validate_client_plan(plan),
          {:ok, %Source.Resolved{} = resolved_source} <-
            Source.resolve(plan.source, opts, Options.source_runtime_opts(opts)) do
-      result = Runner.run(conn, plan, resolved_source, opts)
+      prepared_http_cache = HTTPCache.prepare(conn, plan, resolved_source, opts)
 
-      {conn, send_metadata} =
-        send_response(conn, opts, request_result(result), fn ->
-          Sender.send_result(conn, result, opts)
-        end)
+      case HTTPCache.evaluate_conditional(conn, prepared_http_cache, opts) do
+        {:not_modified, headers} ->
+          result = :not_modified
 
-      {conn, request_stop_metadata(result, send_metadata)}
+          {conn, send_metadata} =
+            send_response(conn, opts, result, fn ->
+              HTTPCache.send_not_modified(conn, headers)
+            end)
+
+          {conn, request_stop_metadata(result, send_metadata)}
+
+        :proceed ->
+          result = Runner.run(conn, plan, resolved_source, prepared_http_cache, opts)
+
+          {conn, send_metadata} =
+            send_response(conn, opts, request_result(result), fn ->
+              Sender.send_result(conn, result, opts)
+            end)
+
+          {conn, request_stop_metadata(result, send_metadata)}
+      end
     else
       {:error, {:parser, error}} ->
         {conn, _send_metadata} =
@@ -137,6 +153,7 @@ defmodule ImagePipe.Plug do
   defp request_result({:error, {:cache, _error}}), do: :cache_error
   defp request_result({:error, {:processing, reason, _headers}}), do: processing_result(reason)
 
+  defp request_result_metadata(:not_modified), do: %{result: :not_modified}
   defp request_result_metadata({:ok, _delivery}), do: %{result: :ok}
 
   defp request_result_metadata({:error, {:cache, error}}),

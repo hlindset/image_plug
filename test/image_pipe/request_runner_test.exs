@@ -14,6 +14,7 @@ defmodule ImagePipe.Request.RunnerTest do
   alias ImagePipe.Plan.Source.Path, as: SourcePath
   alias ImagePipe.Request.Runner
   alias ImagePipe.Request.SourceSessionSupervisor
+  alias ImagePipe.Response.CacheHeaders
   alias ImagePipe.Response.PreparedStream
   alias ImagePipe.Source.CacheSemantics
   alias ImagePipe.Source.Resolved, as: SourceResolved
@@ -744,6 +745,30 @@ defmodule ImagePipe.Request.RunnerTest do
                conn(:get, "/_/f:jpeg/plain/images/beach.jpg"),
                plan(),
                resolved_source(),
+               cache: {CacheHit, entry: entry}
+             )
+  end
+
+  test "cache hit delivery carries prepared HTTP cache value" do
+    prepared_http_cache = %CacheHeaders{
+      representation_headers: [],
+      headers: [{"cache-control", "public, max-age=31536000, immutable"}],
+      etag: nil
+    }
+
+    entry = %Entry{
+      body: "cached",
+      content_type: "image/jpeg",
+      headers: [],
+      created_at: DateTime.utc_now()
+    }
+
+    assert {:ok, {:cache_entry, ^entry, %Response{}, ^prepared_http_cache}} =
+             Runner.run(
+               conn(:get, "/image"),
+               plan(),
+               resolved_source(),
+               prepared_http_cache,
                cache: {CacheHit, entry: entry}
              )
   end

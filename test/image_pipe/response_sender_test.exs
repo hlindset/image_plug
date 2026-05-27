@@ -6,6 +6,7 @@ defmodule ImagePipe.Response.SenderTest do
   alias ImagePipe.Cache.Entry
   alias ImagePipe.Output.Resolved
   alias ImagePipe.Plan.Response
+  alias ImagePipe.Response.CacheHeaders
   alias ImagePipe.Response.PreparedStream
   alias ImagePipe.Response.Sender
 
@@ -132,6 +133,84 @@ defmodule ImagePipe.Response.SenderTest do
 
     assert Plug.Conn.get_resp_header(conn, "content-disposition") ==
              [~s(attachment; filename="report.webp")]
+  end
+
+  test "cache hits merge generated headers before cached entry headers" do
+    entry = %Entry{
+      body: "body",
+      content_type: "image/webp",
+      headers: [{"cache-control", "public, max-age=60"}, {"vary", "Accept"}],
+      created_at: DateTime.utc_now()
+    }
+
+    prepared = %CacheHeaders{
+      representation_headers: [{"vary", "Accept"}],
+      headers: [
+        {"cache-control", "public, max-age=31536000, immutable"},
+        {"etag", ~s("ip1-test")}
+      ],
+      etag: ~s("ip1-test")
+    }
+
+    conn =
+      Sender.send_result(
+        conn(:get, "/image"),
+        {:ok, {:cache_entry, entry, %Response{}, prepared}},
+        []
+      )
+
+    assert Plug.Conn.get_resp_header(conn, "cache-control") == [
+             "public, max-age=31536000, immutable"
+           ]
+
+    assert Plug.Conn.get_resp_header(conn, "etag") == [~s("ip1-test")]
+    assert Plug.Conn.get_resp_header(conn, "vary") == ["Accept"]
+    assert conn.status == 200
+  end
+
+  test "current host cache-control wins over generated and cached headers" do
+    entry = %Entry{
+      body: "body",
+      content_type: "image/webp",
+      headers: [{"cache-control", "public, max-age=60"}],
+      created_at: DateTime.utc_now()
+    }
+
+    prepared = %CacheHeaders{
+      representation_headers: [],
+      headers: [{"cache-control", "public, max-age=31536000, immutable"}],
+      etag: nil
+    }
+
+    conn =
+      :get
+      |> conn("/image")
+      |> Plug.Conn.put_resp_header("cache-control", "private, max-age=30")
+      |> Sender.send_result({:ok, {:cache_entry, entry, %Response{}, prepared}}, [])
+
+    assert Plug.Conn.get_resp_header(conn, "cache-control") == ["private, max-age=30"]
+  end
+
+  test "prepared streams merge generated headers before stream headers" do
+    prepared_stream =
+      prepared_stream(headers: [{"cache-control", "public, max-age=60"}])
+
+    prepared = %CacheHeaders{
+      representation_headers: [],
+      headers: [{"cache-control", "public, max-age=31536000, immutable"}],
+      etag: nil
+    }
+
+    conn =
+      Sender.send_result(
+        conn(:get, "/image"),
+        {:ok, {:prepared_stream, prepared_stream, %Response{}, prepared}},
+        []
+      )
+
+    assert Plug.Conn.get_resp_header(conn, "cache-control") == [
+             "public, max-age=31536000, immutable"
+           ]
   end
 
   test "prepared streams send first chunk and pull later chunks" do
