@@ -124,6 +124,7 @@ defmodule ImagePipe.ArchitectureBoundaryTest do
     refute_boundary_deps(request, [ImagePipe.Parser | concrete_transform_modules()])
 
     assert_boundary_exports(request, [
+      ImagePipe.Request.HTTPCache,
       ImagePipe.Request.Options,
       ImagePipe.Request.Runner,
       ImagePipe.Request.SourceSessionSupervisor
@@ -152,6 +153,7 @@ defmodule ImagePipe.ArchitectureBoundaryTest do
     ])
 
     assert_boundary_exports(source, [
+      ImagePipe.Source.CacheSemantics,
       ImagePipe.Source.Resolved,
       ImagePipe.Source.Response,
       ImagePipe.Source.StreamError,
@@ -175,6 +177,7 @@ defmodule ImagePipe.ArchitectureBoundaryTest do
     refute_boundary_deps(response, [ImagePipe.Request, ImagePipe.Source, ImagePipe.Transform])
 
     assert_boundary_exports(response, [
+      ImagePipe.Response.CacheHeaders,
       ImagePipe.Response.PreparedStream,
       ImagePipe.Response.Sender
     ])

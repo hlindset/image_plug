@@ -88,9 +88,17 @@ defmodule ImagePipe.Plan do
     do: {:error, {:invalid_pipeline_plan, pipelines}}
 
   @spec canonical_representation_material(t()) :: {:ok, keyword()} | :omit_etag
-  def canonical_representation_material(%__MODULE__{output: %Output{} = output}) do
+  def canonical_representation_material(%__MODULE__{
+        output: %Output{mode: {:explicit, _format}} = output
+      }) do
     {:ok, [output: output_material(output)]}
   end
+
+  def canonical_representation_material(%__MODULE__{output: %Output{mode: :automatic} = output}) do
+    {:ok, [output: output_material(output)]}
+  end
+
+  def canonical_representation_material(%__MODULE__{}), do: :omit_etag
 
   defp do_validate_pipelines(pipelines) do
     Enum.reduce_while(pipelines, {:ok, []}, fn

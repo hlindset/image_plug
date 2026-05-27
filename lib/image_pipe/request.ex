@@ -15,6 +15,7 @@ defmodule ImagePipe.Request do
       ImagePipe.Transform
     ],
     exports: [
+      HTTPCache,
       Options,
       Runner,
       SourceSessionSupervisor
