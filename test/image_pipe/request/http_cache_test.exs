@@ -465,6 +465,30 @@ defmodule ImagePipe.Request.HTTPCacheTest do
     assert left.etag == right.etag
   end
 
+  test "missing empty and wildcard-only Accept material produces the same generated etag" do
+    assert {:strong, seed} = resolved().cache_semantics.byte_identity
+    automatic_plan = plan(%Output{mode: :automatic})
+
+    conns = [
+      conn(:get, "/image"),
+      conn(:get, "/image") |> put_req_header("accept", ""),
+      conn(:get, "/image") |> put_req_header("accept", "*/*"),
+      conn(:get, "/image") |> put_req_header("accept", "*/*;q=1"),
+      conn(:get, "/image") |> put_req_header("accept", "application/json,*/*;q=1")
+    ]
+
+    prepared = Enum.map(conns, &HTTPCache.prepare(&1, automatic_plan, resolved(), opts()))
+
+    assert prepared |> Enum.map(& &1.etag) |> Enum.uniq() |> length() == 1
+
+    for conn <- conns do
+      assert {:ok, material} = HTTPCache.etag_material(conn, automatic_plan, seed, opts())
+      assert material[:accept] == []
+      refute inspect(material) =~ "*/*"
+      refute inspect(material) =~ "application/json"
+    end
+  end
+
   test "different source byte identities produce different generated etags" do
     left = HTTPCache.prepare(conn(:get, "/image"), plan(), resolved(), opts())
 

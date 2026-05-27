@@ -53,7 +53,7 @@ defmodule ImagePipe.Output.Negotiation do
   end
 
   defp qualities_for_best_specificity(qualities_by_specificity) do
-    Enum.find_value([:exact, :image, :global], [], fn specificity ->
+    Enum.find_value([:exact, :image], [], fn specificity ->
       quality_values(qualities_by_specificity, specificity)
     end)
   end
@@ -71,7 +71,6 @@ defmodule ImagePipe.Output.Negotiation do
     cond do
       accepted == mime_type -> :exact
       image_wildcard?(accepted, mime_type) -> :image
-      accepted == "*/*" -> :global
       true -> :none
     end
   end

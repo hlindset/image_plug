@@ -78,7 +78,6 @@ defmodule ImagePipe.Output.NegotiationPropertyTest do
     cond do
       canonical_mime_type(accepted) == mime_type -> :exact
       accepted == "image/*" -> :image
-      accepted == "*/*" -> :global
       true -> :none
     end
   end

@@ -380,6 +380,9 @@ from `Accept` and sets `Vary: Accept`. To force a format, use `format`, `f`,
 `ext`, put `@extension` at the end of a plain-source path, or put `.extension`
 at the end of a Base64 or encrypted source path. Forced formats bypass `Accept`
 negotiation and don't set `Vary: Accept`.
+Missing, empty, and global wildcard-only `Accept` values fall back to the
+decoded source format when ImagePipe can encode it. Explicit `image/avif`,
+`image/webp`, and `image/*` media ranges still advertise modern output support.
 
 ImagePipe supports `webp`, `avif`, `jpeg`/`jpg`, and `png` as explicit output
 extensions. If a request includes both an option format and a source-path
