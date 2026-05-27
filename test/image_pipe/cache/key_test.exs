@@ -6,21 +6,12 @@ defmodule ImagePipe.Cache.KeyTest do
 
   alias ImagePipe.Cache.Key
   alias ImagePipe.Parser.Imgproxy
+  alias ImagePipe.Cache.KeyTest.ForwardingProbe
   alias ImagePipe.Plan
   alias ImagePipe.Plan.Operation
   alias ImagePipe.Plan.Output
   alias ImagePipe.Plan.Pipeline
   alias ImagePipe.Plan.Source
-
-  defmodule ForwardingProbe do
-    @behaviour ImagePipe.Cache
-
-    def get(_key, _opts), do: :miss
-    def open_sink(_key, _metadata, _opts), do: raise("not used")
-    def write_chunk(_state, _chunk, _opts), do: raise("not used")
-    def commit_sink(_state, _opts), do: raise("not used")
-    def abort_sink(_state, _opts), do: :ok
-  end
 
   defp source_identity(overrides \\ []) do
     Keyword.merge(

@@ -10,6 +10,9 @@ defmodule ImagePipe.PlugTest do
   @slow_origin_first_chunk_timeout 5_000
 
   alias ImagePipe.Parser.Imgproxy.Signature
+  alias ImagePipe.PlugTest.ConsumeLargeSourceImage
+  alias ImagePipe.PlugTest.ConsumeSourceThenDecodeErrorImage
+  alias ImagePipe.PlugTest.LargeBodyOrigin
   alias ImagePipe.Plan
   alias ImagePipe.Plan.Operation
   alias ImagePipe.Plan.Output
@@ -72,16 +75,6 @@ defmodule ImagePipe.PlugTest do
   defmodule OriginImage do
     def call(conn, _) do
       body = File.read!("priv/static/images/beach.jpg")
-
-      conn
-      |> Plug.Conn.put_resp_content_type("image/jpeg")
-      |> Plug.Conn.send_resp(200, body)
-    end
-  end
-
-  defmodule LargeBodyOrigin do
-    def call(conn, _opts) do
-      body = :binary.copy("a", 10_000_001)
 
       conn
       |> Plug.Conn.put_resp_content_type("image/jpeg")
@@ -240,23 +233,6 @@ defmodule ImagePipe.PlugTest do
         [pid | _rest] when is_pid(pid) -> pid
         _callers -> self()
       end
-    end
-  end
-
-  defmodule ConsumeSourceThenDecodeErrorImage do
-    def open(stream, _decode_options) do
-      _chunks = Enum.to_list(stream)
-      {:error, :forced_decode_error}
-    end
-  end
-
-  defmodule ConsumeLargeSourceImage do
-    def open(stream, decode_options) do
-      _chunks = Enum.to_list(stream)
-
-      "priv/static/images/beach.jpg"
-      |> File.read!()
-      |> Image.open(decode_options)
     end
   end
 

@@ -719,10 +719,12 @@ decoded input size and `max_result_width`, `max_result_height`, and
 animation, SVG, or PNG-specific policy.
 ```
 
-Change the `IMGPROXY_MAX_RESULT_DIMENSION` row from missing to partial:
+Leave the `IMGPROXY_MAX_RESULT_DIMENSION` row marked missing. This PR adds
+host request options for final static result limits. It doesn't add imgproxy
+URL/config compatibility for `max result dimension`.
 
 ```markdown
-- 🔗 `IMGPROXY_MAX_RESULT_DIMENSION`
+- ⭕ `IMGPROXY_MAX_RESULT_DIMENSION`
 ```
 
 Don't mark animation rows as supported.
