@@ -35,6 +35,49 @@ defmodule ImagePipe.RequestOptionsTest do
     end
   end
 
+  test "request safety limits have defaults" do
+    opts = Options.validate!(@base_opts)
+
+    assert Keyword.fetch!(opts, :max_body_bytes) == 10_000_000
+    assert Keyword.fetch!(opts, :max_input_pixels) == 40_000_000
+    assert Keyword.fetch!(opts, :max_result_width) == 8_192
+    assert Keyword.fetch!(opts, :max_result_height) == 8_192
+    assert Keyword.fetch!(opts, :max_result_pixels) == 40_000_000
+  end
+
+  test "request safety limits accept explicit valid overrides" do
+    opts =
+      Options.validate!(
+        Keyword.merge(@base_opts,
+          max_body_bytes: 123,
+          max_input_pixels: 456,
+          max_result_width: 78,
+          max_result_height: 90,
+          max_result_pixels: 1_234
+        )
+      )
+
+    assert Keyword.fetch!(opts, :max_body_bytes) == 123
+    assert Keyword.fetch!(opts, :max_input_pixels) == 456
+    assert Keyword.fetch!(opts, :max_result_width) == 78
+    assert Keyword.fetch!(opts, :max_result_height) == 90
+    assert Keyword.fetch!(opts, :max_result_pixels) == 1_234
+  end
+
+  test "request safety limits reject malformed values" do
+    for {key, value} <- [
+          max_body_bytes: -1,
+          max_input_pixels: 0,
+          max_result_width: 0,
+          max_result_height: -1,
+          max_result_pixels: "40MP"
+        ] do
+      assert_raise ArgumentError, ~r/invalid ImagePipe options/, fn ->
+        Options.validate!(Keyword.put(@base_opts, key, value))
+      end
+    end
+  end
+
   test "validate! rejects malformed clock values before call opts are used" do
     for clock <- [:bad, ~U[2026-05-05 12:00:00Z], 100, fn value -> value end] do
       assert_raise ArgumentError,

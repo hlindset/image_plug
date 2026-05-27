@@ -286,16 +286,18 @@ handling, HDR preservation, and thumbnail-source selection aren't configurable.
 
 ### Input and output safety limits
 
-ImagePipe uses `max_body_bytes` to cap fetched source bodies and to decide
-whether successful responses are small enough to cache. It uses
-`max_input_pixels` for decoded image size. It doesn't expose Imgproxy's
-animation, SVG, PNG, or max-result-dimension policy.
+Top-level `max_body_bytes` caps fetched source bodies and defaults to
+`10_000_000` bytes. Cache adapter `max_body_bytes` still caps encoded response
+staging for adapters that configure it. ImagePipe uses `max_input_pixels` for
+decoded input size and `max_result_width`, `max_result_height`, and
+`max_result_pixels` for final static result size. It doesn't expose Imgproxy's
+animation frame limits or SVG and PNG-specific policy.
 
 - ✅ `IMGPROXY_MAX_SRC_RESOLUTION`
 - ✅ `IMGPROXY_MAX_SRC_FILE_SIZE`
 - ⭕ `IMGPROXY_MAX_ANIMATION_FRAMES`
 - ⭕ `IMGPROXY_MAX_ANIMATION_FRAME_RESOLUTION`
-- ⭕ `IMGPROXY_MAX_RESULT_DIMENSION`
+- 🔗 `IMGPROXY_MAX_RESULT_DIMENSION`
 - ⭕ `IMGPROXY_MAX_SVG_CHECK_BYTES`
 - ⭕ `IMGPROXY_PNG_UNLIMITED`
 - ⭕ `IMGPROXY_SVG_UNLIMITED`

@@ -44,7 +44,10 @@ defmodule ImagePipe.Request.HTTPCacheTest do
     Keyword.merge(
       [
         http_cache: [mode: :enabled],
-        telemetry_prefix: [:image_pipe]
+        telemetry_prefix: [:image_pipe],
+        max_result_width: 8_192,
+        max_result_height: 8_192,
+        max_result_pixels: 40_000_000
       ],
       overrides
     )
@@ -66,7 +69,12 @@ defmodule ImagePipe.Request.HTTPCacheTest do
 
   test "disabled mode emits no generated cache headers" do
     prepared =
-      HTTPCache.prepare(conn(:get, "/image"), plan(), resolved(), http_cache: [mode: :disabled])
+      HTTPCache.prepare(
+        conn(:get, "/image"),
+        plan(),
+        resolved(),
+        opts(http_cache: [mode: :disabled])
+      )
 
     assert prepared.headers == []
     assert prepared.etag == nil
@@ -247,10 +255,11 @@ defmodule ImagePipe.Request.HTTPCacheTest do
     busted_plan = %{plan() | cachebuster: "v2"}
     plug_conn = conn(:get, "/image")
 
-    assert {:ok, base_key} = ImagePipe.Cache.Key.build(plug_conn, base_plan, resolved().identity)
+    assert {:ok, base_key} =
+             ImagePipe.Cache.Key.build(plug_conn, base_plan, resolved().identity, opts())
 
     assert {:ok, busted_key} =
-             ImagePipe.Cache.Key.build(plug_conn, busted_plan, resolved().identity)
+             ImagePipe.Cache.Key.build(plug_conn, busted_plan, resolved().identity, opts())
 
     assert base_key.data[:cache] != busted_key.data[:cache]
 

@@ -5,15 +5,16 @@ fetching source bytes. Invalid signatures return `403`, and invalid processing
 requests return `400`, both without source traffic.
 
 Parser and plan validation finish before source resolution, cache lookup, or
-fetch. Source resolution finishes before cache lookup. Requests eligible for
-caching look up the cache before source fetch and decode, so fetch and decode run
-only on a cache miss or when the resolved source has `cache: :skip`.
+fetch. Source resolution finishes before cache lookup. Requests whose resolved
+source has `internal_cache: :enabled` look up the cache before source fetch and
+decode. Fetch and decode run only on a cache miss. They also run when a source
+uses `internal_cache: :disabled`.
 
-No-cache requests, `cache: :skip` requests, cache misses, cache read errors, and
-invalid cache hits use a supervised source session for lazy response streaming.
-The session owns the source-backed image and encoder continuation. The Plug
-request process receives only prepared response metadata, the first encoded
-chunk, and callbacks for pulling later chunks.
+No-cache requests, `internal_cache: :disabled` requests, cache misses, cache
+read errors, and invalid cache hits use a supervised source session for lazy
+response streaming. The session owns the source-backed image and encoder
+continuation. The Plug request process receives only prepared response metadata,
+the first encoded chunk, and callbacks for pulling later chunks.
 
 ImagePipe pulls the first encoded chunk before committing response headers. A
 failure before that point can still become a normal ImagePipe error response.
@@ -29,13 +30,21 @@ configuration still fails during Plug initialization.
 
 HTTP and S3 source fetches use non-bang Req calls with bounded redirects and
 receive timeouts. ImagePipe reads the source format from the decoded image
-rather than trusted HTTP headers. Configure byte and decode limits with
-`:max_body_bytes` and `:max_input_pixels`.
+rather than trusted HTTP headers. `:max_body_bytes` defaults to `10_000_000`
+bytes. `:max_input_pixels` defaults to `40_000_000` pixels after decode. Override
+both in `ImagePipe.Plug` init options.
+
+Static result limits run after transform execution and before final output
+resolution or encoding. `:max_result_width` and `:max_result_height` default
+to `8_192`. `:max_result_pixels` defaults to `40_000_000`. Result dimensions
+mean the final static image width, height, and pixel count. Oversize static
+results return `413` with `result image is too large`. Animation frame limits
+remain out of scope and aren't implemented.
 
 Built-in HTTP and S3 `req_options` are host-owned behavior. They must not vary
 source bytes for the same resolved identity. Byte-selecting request options need
-URI/object revision material, `cache: :skip`, or a custom adapter identity
-field.
+URI/object revision material, `internal_cache: :disabled`, or a custom adapter
+identity field.
 
 S3 `buckets` is a map. When present, it's an allowlist. `default` supplies
 shared defaults. Each bucket entry can override region, endpoint, credentials,

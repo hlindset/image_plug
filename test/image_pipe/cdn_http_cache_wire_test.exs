@@ -209,6 +209,42 @@ defmodule ImagePipe.CDNHTTPCacheWireTest do
     assert get_resp_header(left, "etag") == get_resp_header(right, "etag")
   end
 
+  test "stricter result limit changes generated etag and does not return conditional 304", %{
+    opts: opts
+  } do
+    loose =
+      ImagePipe.Plug.call(
+        conn(:get, "/_/el:1/w:64/f:jpeg/plain/beach.jpg"),
+        Keyword.merge(opts,
+          max_result_width: 64,
+          max_result_height: 8_192,
+          max_result_pixels: 40_000_000
+        )
+      )
+
+    assert loose.status == 200
+    assert [etag] = get_resp_header(loose, "etag")
+    flush_messages()
+
+    strict_opts =
+      Keyword.merge(opts,
+        max_result_width: 32,
+        max_result_height: 8_192,
+        max_result_pixels: 40_000_000
+      )
+
+    strict =
+      :get
+      |> conn("/_/el:1/w:64/f:jpeg/plain/beach.jpg")
+      |> put_req_header("if-none-match", etag)
+      |> ImagePipe.Plug.call(strict_opts)
+
+    assert strict.status == 413
+    assert strict.resp_body == "result image is too large"
+    assert_received {:cache_get, %Key{}}
+    assert_received :source_fetch_called
+  end
+
   defp flush_messages do
     receive do
       _message -> flush_messages()

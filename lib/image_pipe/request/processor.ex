@@ -12,6 +12,11 @@ defmodule ImagePipe.Request.Processor do
   alias ImagePipe.Transform.Materializer
   alias ImagePipe.Transform.State
 
+  @default_max_input_pixels 40_000_000
+  @default_max_result_width 8_192
+  @default_max_result_height 8_192
+  @default_max_result_pixels 40_000_000
+
   @type source_format() :: SourceFormat.source_format()
   @type decoded() :: %{
           required(:decode_options) => keyword(),
@@ -82,8 +87,11 @@ defmodule ImagePipe.Request.Processor do
     Telemetry.span(Telemetry.telemetry_opts(opts), [:transform, :execute], %{}, fn ->
       result =
         with {:ok, final_state} <-
-               execute_plan_pipelines(%State{image: image}, plan, opts, source_response) do
-          materialize_before_delivery(final_state, decode_options, opts, source_response)
+               execute_plan_pipelines(%State{image: image}, plan, opts, source_response),
+             {:ok, final_state} <-
+               materialize_before_delivery(final_state, decode_options, opts, source_response),
+             :ok <- validate_result_image(final_state.image, opts) do
+          {:ok, final_state}
         end
 
       {result, transform_stop_metadata(result)}
@@ -213,7 +221,7 @@ defmodule ImagePipe.Request.Processor do
   defp prefer_source_body_limit(result, _source_response), do: result
 
   defp validate_input_image(image, opts) do
-    max_input_pixels = Keyword.get(opts, :max_input_pixels, 40_000_000)
+    max_input_pixels = Keyword.get(opts, :max_input_pixels, @default_max_input_pixels)
     pixel_count = Image.width(image) * Image.height(image)
 
     if pixel_count <= max_input_pixels do
@@ -225,6 +233,45 @@ defmodule ImagePipe.Request.Processor do
 
   defp wrap_input_limit_error(:ok), do: :ok
   defp wrap_input_limit_error({:error, error}), do: {:error, {:input_limit, error}}
+
+  defp validate_result_image(image, opts) do
+    width = Image.width(image)
+    height = Image.height(image)
+    pixels = width * height
+
+    with :ok <-
+           check_result_width(
+             width,
+             Keyword.get(opts, :max_result_width, @default_max_result_width)
+           ),
+         :ok <-
+           check_result_height(
+             height,
+             Keyword.get(opts, :max_result_height, @default_max_result_height)
+           ),
+         :ok <-
+           check_result_pixels(
+             pixels,
+             Keyword.get(opts, :max_result_pixels, @default_max_result_pixels)
+           ) do
+      :ok
+    end
+  end
+
+  defp check_result_width(width, max_width) when width <= max_width, do: :ok
+
+  defp check_result_width(width, max_width),
+    do: {:error, {:result_limit, {:result_width_too_large, width, max_width}}}
+
+  defp check_result_height(height, max_height) when height <= max_height, do: :ok
+
+  defp check_result_height(height, max_height),
+    do: {:error, {:result_limit, {:result_height_too_large, height, max_height}}}
+
+  defp check_result_pixels(pixels, max_pixels) when pixels <= max_pixels, do: :ok
+
+  defp check_result_pixels(pixels, max_pixels),
+    do: {:error, {:result_limit, {:too_many_result_pixels, pixels, max_pixels}}}
 
   defp fetch_decode_stop_metadata({:ok, %{decode_options: _options, image: _image}}),
     do: %{result: :ok}

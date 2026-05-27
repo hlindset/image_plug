@@ -79,6 +79,16 @@ defmodule ImagePipe.PlugTest do
     end
   end
 
+  defmodule LargeBodyOrigin do
+    def call(conn, _opts) do
+      body = :binary.copy("a", 10_000_001)
+
+      conn
+      |> Plug.Conn.put_resp_content_type("image/jpeg")
+      |> Plug.Conn.send_resp(200, body)
+    end
+  end
+
   defmodule CountingOriginImage do
     def init(opts), do: opts
 
@@ -230,6 +240,13 @@ defmodule ImagePipe.PlugTest do
         [pid | _rest] when is_pid(pid) -> pid
         _callers -> self()
       end
+    end
+  end
+
+  defmodule ConsumeSourceThenDecodeErrorImage do
+    def open(stream, _decode_options) do
+      _chunks = Enum.to_list(stream)
+      {:error, :forced_decode_error}
     end
   end
 
@@ -1961,6 +1978,75 @@ defmodule ImagePipe.PlugTest do
 
     assert conn.status == 413
     assert conn.resp_body == "source image is too large"
+  end
+
+  test "rejects static result dimensions above configured limits before encoding" do
+    conn =
+      conn(:get, "/_/el:1/w:64/f:jpeg/plain/images/beach.jpg")
+      |> call_image_pipe(
+        root_url: "http://origin.test",
+        parser: ImagePipe.Parser.Imgproxy,
+        max_result_width: 32,
+        max_result_height: 8_192,
+        max_result_pixels: 40_000_000,
+        image_module: StreamingOnlyImage,
+        cache: {CacheProbe, message_target: self()},
+        origin_req_options: [plug: {CountingOriginImage, test_pid: self()}]
+      )
+
+    assert conn.status == 413
+    assert conn.resp_body == "result image is too large"
+    assert_received {:cache_get, _key}
+    assert_received :origin_was_called
+    refute_received :stream_encoder_called
+    refute_received {:cache_put, _key, _entry}
+  end
+
+  test "allows static result dimensions within configured limits" do
+    conn =
+      conn(:get, "/_/el:1/w:64/f:jpeg/plain/images/beach.jpg")
+      |> call_image_pipe(
+        root_url: "http://origin.test",
+        parser: ImagePipe.Parser.Imgproxy,
+        max_result_width: 64,
+        max_result_height: 8_192,
+        max_result_pixels: 40_000_000,
+        image_module: StreamingOnlyImage,
+        origin_req_options: [plug: OriginImage]
+      )
+
+    assert conn.status == 200
+    assert conn.resp_body == "streamed jpeg"
+    assert_received :stream_encoder_called
+  end
+
+  test "default source body limit applies through the request flow" do
+    conn =
+      conn(:get, "/_/plain/images/large-body.jpg")
+      |> call_image_pipe(
+        root_url: "http://origin.test",
+        parser: ImagePipe.Parser.Imgproxy,
+        image_open_module: ConsumeSourceThenDecodeErrorImage,
+        origin_req_options: [plug: LargeBodyOrigin]
+      )
+
+    assert conn.status == 422
+    assert conn.resp_body == "invalid image source"
+  end
+
+  test "explicit source body limit overrides the default through the request flow" do
+    conn =
+      conn(:get, "/_/plain/images/large-body.jpg")
+      |> call_image_pipe(
+        root_url: "http://origin.test",
+        parser: ImagePipe.Parser.Imgproxy,
+        max_body_bytes: 10_000_001,
+        image_open_module: ConsumeSourceThenDecodeErrorImage,
+        origin_req_options: [plug: LargeBodyOrigin]
+      )
+
+    assert conn.status == 415
+    assert conn.resp_body == "source response is not a supported image"
   end
 
   test "body limit failures surface as source errors during decode" do

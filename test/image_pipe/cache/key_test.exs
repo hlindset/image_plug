@@ -12,6 +12,16 @@ defmodule ImagePipe.Cache.KeyTest do
   alias ImagePipe.Plan.Pipeline
   alias ImagePipe.Plan.Source
 
+  defmodule ForwardingProbe do
+    @behaviour ImagePipe.Cache
+
+    def get(_key, _opts), do: :miss
+    def open_sink(_key, _metadata, _opts), do: raise("not used")
+    def write_chunk(_state, _chunk, _opts), do: raise("not used")
+    def commit_sink(_state, _opts), do: raise("not used")
+    def abort_sink(_state, _opts), do: :ok
+  end
+
   defp source_identity(overrides \\ []) do
     Keyword.merge(
       [kind: :path, adapter: :path, root: "default", path: ["images", "cat.jpg"]],
@@ -41,6 +51,16 @@ defmodule ImagePipe.Cache.KeyTest do
   end
 
   defp build_key!(conn, plan, source_identity, opts \\ []) do
+    opts =
+      Keyword.merge(
+        [
+          max_result_width: 8_192,
+          max_result_height: 8_192,
+          max_result_pixels: 40_000_000
+        ],
+        opts
+      )
+
     assert {:ok, key} = Key.build(conn, plan, source_identity, opts)
     key
   end
@@ -180,6 +200,11 @@ defmodule ImagePipe.Cache.KeyTest do
                format_qualities: %{}
              ],
              representation: [version: 1],
+             request_limits: [
+               max_result_width: 8_192,
+               max_result_height: 8_192,
+               max_result_pixels: 40_000_000
+             ],
              cache: [cachebuster: nil],
              selected_headers: [],
              selected_cookies: []
@@ -196,9 +221,76 @@ defmodule ImagePipe.Cache.KeyTest do
     plan = plan(output: %Output{mode: {:explicit, :webp}})
     conn = conn(:get, "/image")
 
-    assert {:ok, key} = Key.build(conn, plan, source_identity())
+    key = build_key!(conn, plan, source_identity())
 
     assert key.data[:representation] == [version: Key.representation_version()]
+  end
+
+  test "cache key material includes result safety limits" do
+    conn = conn(:get, "/_/w:100/plain/images/cat.jpg")
+
+    default_key =
+      build_key!(
+        conn,
+        plan(),
+        source_identity(),
+        max_result_width: 8_192,
+        max_result_height: 8_192,
+        max_result_pixels: 40_000_000
+      )
+
+    stricter_key =
+      build_key!(
+        conn,
+        plan(),
+        source_identity(),
+        max_result_width: 256,
+        max_result_height: 256,
+        max_result_pixels: 65_536
+      )
+
+    assert default_key.data[:request_limits] == [
+             max_result_width: 8_192,
+             max_result_height: 8_192,
+             max_result_pixels: 40_000_000
+           ]
+
+    assert stricter_key.data[:request_limits] == [
+             max_result_width: 256,
+             max_result_height: 256,
+             max_result_pixels: 65_536
+           ]
+
+    refute default_key.hash == stricter_key.hash
+  end
+
+  test "cache lookup forwards result limits into key construction" do
+    conn = conn(:get, "/_/w:100/plain/images/cat.jpg")
+    plan = plan()
+    identity = source_identity()
+
+    loose =
+      ImagePipe.Cache.lookup(conn, plan, identity,
+        cache: {ForwardingProbe, test_pid: self()},
+        max_result_width: 8_192,
+        max_result_height: 8_192,
+        max_result_pixels: 40_000_000
+      )
+
+    assert {:miss, %Key{} = loose_key} = loose
+
+    strict =
+      ImagePipe.Cache.lookup(conn, plan, identity,
+        cache: {ForwardingProbe, test_pid: self()},
+        max_result_width: 256,
+        max_result_height: 256,
+        max_result_pixels: 65_536
+      )
+
+    assert {:miss, %Key{} = strict_key} = strict
+    refute loose_key.hash == strict_key.hash
+    assert loose_key.data[:request_limits][:max_result_width] == 8_192
+    assert strict_key.data[:request_limits][:max_result_width] == 256
   end
 
   test "source identity key data is product-neutral and independent of request URL" do
@@ -557,12 +649,12 @@ defmodule ImagePipe.Cache.KeyTest do
   end
 
   test "cache key builder accepts semantic plans" do
-    assert {:ok, key} =
-             Key.build(
-               conn(:get, "/_/rt:auto/w:300/h:200/plain/images/cat.jpg"),
-               plan_with_resize_auto(),
-               source_identity(revision: "v1")
-             )
+    key =
+      build_key!(
+        conn(:get, "/_/rt:auto/w:300/h:200/plain/images/cat.jpg"),
+        plan_with_resize_auto(),
+        source_identity(revision: "v1")
+      )
 
     assert key.data[:pipelines]
   end
@@ -919,8 +1011,8 @@ defmodule ImagePipe.Cache.KeyTest do
     assert {:ok, preset_plan} = Imgproxy.parse(conn, opts)
     assert {:ok, expanded_plan} = Imgproxy.parse(expanded_conn, [])
 
-    assert {:ok, preset_key} = Key.build(conn, preset_plan, source_identity(), [])
-    assert {:ok, expanded_key} = Key.build(expanded_conn, expanded_plan, source_identity(), [])
+    preset_key = build_key!(conn, preset_plan, source_identity())
+    expanded_key = build_key!(expanded_conn, expanded_plan, source_identity())
 
     assert preset_key.data == expanded_key.data
     assert preset_key.hash == expanded_key.hash

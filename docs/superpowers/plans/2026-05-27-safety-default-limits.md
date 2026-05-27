@@ -15,7 +15,7 @@
 - Default `:max_body_bytes`: `10_000_000` bytes. This matches the development server example already in `lib/mix/tasks/image_pipe.server.ex`.
 - Default result limits: `max_result_width: 8_192`, `max_result_height: 8_192`, and `max_result_pixels: 40_000_000`.
 - Result dimension means the final static `Vix.Vips.Image` width, height, and `width * height` after transform execution and materialization, before final output resolution and encoding.
-- Oversize results return the existing limit response path: HTTP `413` with `source image is too large`. The error reason should distinguish result limits as `{:result_limit, ...}` internally, but sender behavior can share the existing 413 text.
+- Oversize results return HTTP `413` with `result image is too large`. The error reason should distinguish result limits as `{:result_limit, ...}` internally.
 - Animation frame limits from issue #45 are intentionally out of scope.
 
 ## File Structure
@@ -26,7 +26,7 @@ Modify:
 - `lib/image_pipe/source.ex`: remove the `:infinity` fallback in favor of the validated request default when runtime opts omit `:max_body_bytes`.
 - `lib/image_pipe/request/processor.ex`: consume validated `:max_input_pixels`; add final static result dimension validation after transform/materialization and before output resolution.
 - `lib/image_pipe/request/source_session/producer.ex`: no behavior change beyond calling the processor path that now returns result-limit errors before `Encoder.stream_output/3`.
-- `lib/image_pipe/response/sender.ex`: route `{:result_limit, reason}` to the same HTTP 413 response as input pixel limits, with a distinct log tag.
+- `lib/image_pipe/response/sender.ex`: route `{:result_limit, reason}` to a result-specific HTTP 413 response with a distinct log tag.
 - `lib/image_pipe/cache.ex`: pass result limit options into cache key construction.
 - `lib/image_pipe/cache/key.ex`: include result limit options in deterministic cache key material without bumping key schema versions.
 - `docs/operational_notes.md`: document defaults and the final-result validation boundary.
@@ -311,7 +311,7 @@ test "rejects static result dimensions above configured limits before encoding" 
     )
 
   assert conn.status == 413
-  assert conn.resp_body == "source image is too large"
+  assert conn.resp_body == "result image is too large"
   assert_received {:cache_get, _key}
   assert_received :origin_was_called
   refute_received :stream_encoder_called
@@ -408,7 +408,7 @@ defp send_result_limit_error(%Plug.Conn{} = conn, error, response_headers) do
   conn
   |> put_resp_headers(response_headers)
   |> put_resp_content_type("text/plain")
-  |> send_resp(413, "source image is too large")
+  |> send_resp(413, "result image is too large")
 end
 ```
 
@@ -433,7 +433,7 @@ Expected: pass.
 
 - [ ] **Step 1: Add failing cache-key unit test**
 
-First update the `build_key!/4` helper in `test/image_pipe/cache/key_test.exs` so existing tests keep passing after key material starts requiring validated request defaults:
+First update the `build_key!/4` helper in `test/image_pipe/cache/key_test.exs` so exact key-data assertions include the request defaults:
 
 ```elixir
 defp build_key!(conn, plan, source_identity, opts \\ []) do
@@ -577,7 +577,7 @@ test "stricter result limit changes generated etag and does not return condition
     |> ImagePipe.Plug.call(strict_opts)
 
   assert strict.status == 413
-  assert strict.resp_body == "source image is too large"
+  assert strict.resp_body == "result image is too large"
   assert_received {:cache_get, %Key{}}
   assert_received :source_fetch_called
 end
@@ -615,21 +615,25 @@ In `lib/image_pipe/cache/key.ex`, append request limit data to plan material aft
 request_limits: request_limits_data(opts),
 ```
 
-Add:
+Add default attributes and helper logic:
 
 ```elixir
+@default_max_result_width 8_192
+@default_max_result_height 8_192
+@default_max_result_pixels 40_000_000
+
 defp request_limits_data(opts) do
   [
-    max_result_width: Keyword.fetch!(opts, :max_result_width),
-    max_result_height: Keyword.fetch!(opts, :max_result_height),
-    max_result_pixels: Keyword.fetch!(opts, :max_result_pixels)
+    max_result_width: Keyword.get(opts, :max_result_width, @default_max_result_width),
+    max_result_height: Keyword.get(opts, :max_result_height, @default_max_result_height),
+    max_result_pixels: Keyword.get(opts, :max_result_pixels, @default_max_result_pixels)
   ]
 end
 ```
 
 Don't include `:max_body_bytes` because successful output bytes don't change when only the source fetch ceiling changes. The source byte limit is still enforced on cache misses and uncached requests.
 
-Update existing exact key-data assertions in `test/image_pipe/cache/key_test.exs` so they include the new `request_limits` keyword. Keep `schema_version`, `transform` version, and `representation` version unchanged; this greenfield cache-shape change reshapes canonical key data in place.
+Update existing exact key-data assertions in `test/image_pipe/cache/key_test.exs` so they include the new `request_limits` keyword. Keep `schema_version`, `transform` version, and `representation` version unchanged; this greenfield cache-shape change reshapes canonical key data in place. Low-level key construction should encode the same default result limits when direct callers omit them, so direct cache and HTTP-cache tests don't raise before adapter behavior runs.
 
 - [ ] **Step 5: Verify Task 3**
 

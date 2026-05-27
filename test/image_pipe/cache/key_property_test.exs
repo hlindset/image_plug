@@ -14,6 +14,16 @@ defmodule ImagePipe.Cache.KeyPropertyTest do
   alias ImagePipe.Plan.Source
 
   defp build_key!(conn, plan, source_identity, opts \\ []) do
+    opts =
+      Keyword.merge(
+        [
+          max_result_width: 8_192,
+          max_result_height: 8_192,
+          max_result_pixels: 40_000_000
+        ],
+        opts
+      )
+
     assert {:ok, key} = Key.build(conn, plan, source_identity, opts)
     key
   end

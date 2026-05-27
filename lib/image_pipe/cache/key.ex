@@ -15,6 +15,9 @@ defmodule ImagePipe.Cache.Key do
   @schema_version 2
   @transform_key_data_version 1
   @representation_version 1
+  @default_max_result_width 8_192
+  @default_max_result_height 8_192
+  @default_max_result_pixels 40_000_000
   @enforce_keys [:hash, :data, :serialized_data]
 
   defstruct @enforce_keys
@@ -72,6 +75,7 @@ defmodule ImagePipe.Cache.Key do
          transform: transform_data(),
          output: output,
          representation: representation_data(),
+         request_limits: request_limits_data(opts),
          cache: cache
        ]}
     end
@@ -97,6 +101,14 @@ defmodule ImagePipe.Cache.Key do
   defp transform_data, do: [key_data_version: @transform_key_data_version]
 
   defp representation_data, do: [version: @representation_version]
+
+  defp request_limits_data(opts) do
+    [
+      max_result_width: Keyword.get(opts, :max_result_width, @default_max_result_width),
+      max_result_height: Keyword.get(opts, :max_result_height, @default_max_result_height),
+      max_result_pixels: Keyword.get(opts, :max_result_pixels, @default_max_result_pixels)
+    ]
+  end
 
   defp output_plan_data(%Output{mode: :automatic} = output, opts) do
     {:ok,

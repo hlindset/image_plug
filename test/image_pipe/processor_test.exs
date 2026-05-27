@@ -50,7 +50,14 @@ defmodule ImagePipe.Request.ProcessorTest do
   end
 
   defp opts do
-    [sources: %{path: {ValidAdapter, []}}]
+    [
+      sources: %{path: {ValidAdapter, []}},
+      max_body_bytes: 10_000_000,
+      max_input_pixels: 40_000_000,
+      max_result_width: 8_192,
+      max_result_height: 8_192,
+      max_result_pixels: 40_000_000
+    ]
   end
 
   defp resolved_source do
@@ -204,6 +211,41 @@ defmodule ImagePipe.Request.ProcessorTest do
              )
 
     assert pixel_count > 1
+  end
+
+  test "process_source rejects final images wider than configured result limit" do
+    {:ok, operation} = Operation.resize(:fit, {:px, 21}, :auto, enlargement: :allow)
+
+    plan = %Plan{plan() | pipelines: [%Pipeline{operations: [operation]}]}
+
+    assert {:error, {:result_limit, {:result_width_too_large, 21, 20}}} =
+             Processor.process_source(
+               plan,
+               resolved_source(),
+               opts()
+               |> Keyword.put(:max_result_width, 20)
+               |> Keyword.put(:max_result_height, 10_000)
+               |> Keyword.put(:max_result_pixels, 10_000)
+             )
+  end
+
+  test "process_source accepts final images within configured result limits" do
+    {:ok, operation} = Operation.resize(:fit, {:px, 20}, :auto, enlargement: :allow)
+
+    plan = %Plan{plan() | pipelines: [%Pipeline{operations: [operation]}]}
+
+    assert {:ok, %State{} = state} =
+             Processor.process_source(
+               plan,
+               resolved_source(),
+               opts()
+               |> Keyword.put(:max_result_width, 20)
+               |> Keyword.put(:max_result_height, 20)
+               |> Keyword.put(:max_result_pixels, 400)
+             )
+
+    assert Image.width(state.image) <= 20
+    assert Image.height(state.image) <= 20
   end
 
   test "decode_validate_source_response rejects SVG after decode" do
