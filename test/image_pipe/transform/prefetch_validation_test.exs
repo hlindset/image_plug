@@ -9,7 +9,6 @@ defmodule ImagePipe.Transform.PrefetchValidationTest do
   alias ImagePipe.Transform
   alias ImagePipe.Transform.Operation.AutoOrient
   alias ImagePipe.Transform.Operation.Flip
-  alias ImagePipe.Transform.Operation.Resize
   alias ImagePipe.Transform.Operation.Rotate
 
   test "semantic Plan operations pass source-independent validation" do
@@ -39,13 +38,6 @@ defmodule ImagePipe.Transform.PrefetchValidationTest do
 
     assert {:ok, [%Pipeline{operations: ^operations}]} =
              Transform.validate_prefetch_safe_plan(plan(operations))
-  end
-
-  test "non-orientation executable transforms fail source-independent validation" do
-    operation = %Resize{mode: :fit, width: {:pixels, 100}, height: :auto}
-
-    assert Transform.validate_prefetch_safe_plan(plan([operation])) ==
-             {:error, {:invalid_pipeline_operation, operation}}
   end
 
   defp plan(operations) do

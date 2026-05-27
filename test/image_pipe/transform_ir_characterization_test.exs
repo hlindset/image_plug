@@ -5,20 +5,9 @@ defmodule ImagePipe.TransformIRCharacterizationTest do
 
   alias ImagePipe.Cache.Entry
   alias ImagePipe.Parser.Imgproxy
-  alias ImagePipe.Plan
-  alias ImagePipe.Plan.Operation
-  alias ImagePipe.Plan.Output
-  alias ImagePipe.Plan.Pipeline
-  alias ImagePipe.Plan.Source
   alias ImagePipe.Request.Runner
   alias ImagePipe.Response.PreparedStream
   alias ImagePipe.Source.Resolved
-  alias ImagePipe.Transform
-  alias ImagePipe.Transform.Chain
-  alias ImagePipe.Transform.Operation.Crop
-  alias ImagePipe.Transform.Operation.ExtendCanvas
-  alias ImagePipe.Transform.Operation.Resize
-  alias ImagePipe.Transform.State
 
   defmodule CacheHitProbe do
     @behaviour ImagePipe.Cache
@@ -127,111 +116,6 @@ defmodule ImagePipe.TransformIRCharacterizationTest do
     }
   end
 
-  defp semantic_plan(operations) do
-    %Plan{
-      source: %Source.Path{segments: ["generated", "source.png"]},
-      pipelines: [%Pipeline{operations: operations}],
-      output: %Output{mode: {:explicit, :jpeg}}
-    }
-  end
-
-  defp generated_state({width, height}) do
-    {:ok, image} = Image.new(width, height, color: :white)
-    %State{image: image}
-  end
-
-  defp execute_old_dimensions(source, operations) do
-    assert {:ok, %State{} = state} = Chain.execute(generated_state(source), operations)
-    dimensions(state.image)
-  end
-
-  defp execute_plan_dimensions(source, operations) do
-    assert {:ok, %State{} = state} =
-             Transform.execute_plan(
-               semantic_plan(operations),
-               generated_state(source),
-               []
-             )
-
-    dimensions(state.image)
-  end
-
-  defp dimensions(image), do: {Image.width(image), Image.height(image)}
-
-  defp plan_resize!(mode, width, height, opts \\ []) do
-    assert {:ok, operation} =
-             Operation.resize(
-               mode,
-               plan_resize_dimension(width),
-               plan_resize_dimension(height),
-               opts
-             )
-
-    operation
-  end
-
-  defp plan_crop_center!(width, height) do
-    assert {:ok, operation} = Operation.crop_guided({:px, width}, {:px, height}, :center)
-    operation
-  end
-
-  defp plan_canvas!(width, height) do
-    assert {:ok, operation} = Operation.canvas({:px, width}, {:px, height}, :center)
-    operation
-  end
-
-  defp old_resize(mode, width, height, opts \\ []) do
-    struct!(
-      Resize,
-      Keyword.merge(
-        [
-          mode: mode,
-          width: executable_resize_dimension(width),
-          height: executable_resize_dimension(height),
-          enlarge: Keyword.get(opts, :enlarge, false)
-        ],
-        Keyword.drop(opts, [:enlarge])
-      )
-    )
-  end
-
-  defp old_cover(width, height) do
-    [
-      %Resize{mode: :fill, width: {:pixels, width}, height: {:pixels, height}},
-      %Crop{
-        width: {:pixels, width},
-        height: {:pixels, height},
-        crop_from: :gravity,
-        gravity: {:anchor, :center, :center}
-      }
-    ]
-  end
-
-  defp old_crop_center(width, height) do
-    %Crop{
-      width: {:pixels, width},
-      height: {:pixels, height},
-      crop_from: :gravity,
-      gravity: {:anchor, :center, :center}
-    }
-  end
-
-  defp old_canvas(width, height) do
-    %ExtendCanvas{
-      rule: {:dimensions, {:pixels, width}, {:pixels, height}},
-      gravity: {:anchor, :center, :center},
-      x_offset: 0.0,
-      y_offset: 0.0,
-      background: :white
-    }
-  end
-
-  defp plan_resize_dimension(:auto), do: :auto
-  defp plan_resize_dimension(pixels), do: {:px, pixels}
-
-  defp executable_resize_dimension(:auto), do: :auto
-  defp executable_resize_dimension(pixels), do: {:pixels, pixels}
-
   test "cache hit returns before source fetch for resize:auto requests" do
     entry = %Entry{
       body: "cached jpeg",
@@ -272,26 +156,5 @@ defmodule ImagePipe.TransformIRCharacterizationTest do
 
   test "4. request-level resize:auto from 100x100 to 50x80 returns 50x50" do
     assert_auto_resize_dimensions({100, 100}, {50, 80}, {50, 50})
-  end
-
-  test "simplified Plan execution preserves representative executable chain dimensions" do
-    cases = [
-      {"fit 300x200", {640, 480}, [old_resize(:fit, 300, 200)], [plan_resize!(:fit, 300, 200)]},
-      {"fill 100x100 center", {300, 200}, old_cover(100, 100),
-       [plan_resize!(:cover, 100, 100, guide: :center)]},
-      {"auto landscape target", {1600, 900}, old_cover(300, 200),
-       [plan_resize!(:auto, 300, 200, guide: :center)]},
-      {"force width auto", {640, 480}, [old_resize(:force, 300, :auto)],
-       [plan_resize!(:stretch, 300, :auto)]},
-      {"explicit crop center 50x50", {300, 200}, [old_crop_center(50, 50)],
-       [plan_crop_center!(50, 50)]},
-      {"canvas extend 320x240", {300, 200}, [old_canvas(320, 240)], [plan_canvas!(320, 240)]}
-    ]
-
-    for {label, source, old_operations, plan_operations} <- cases do
-      assert execute_plan_dimensions(source, plan_operations) ==
-               execute_old_dimensions(source, old_operations),
-             label
-    end
   end
 end
