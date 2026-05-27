@@ -28,7 +28,13 @@
 ## Telemetry guidelines
 
 - Treat telemetry as part of the runtime observability contract. Use `:telemetry.span/3`-style `:start`, `:stop`, and `:exception` event naming for request and meaningful stage spans.
-- Keep telemetry metadata low-cardinality, product-neutral, and safe by default. Do not emit full request paths, source URLs, signatures, filenames, parser-specific structs, transform internals, or cache adapter internals unless an explicit opt-in is designed and documented.
+- Keep telemetry metadata low-cardinality, product-neutral, and safe by default. Don't emit (unless explicit opt-in is designed and documented):
+  - Full request paths or source URLs
+  - Signatures, tokens, credentials
+  - Filenames or other path-derived identifiers
+  - Parser-specific structs (dialect paths, parser-internal shapes)
+  - Transform internals (operation params, libvips state)
+  - Cache adapter internals (cache keys, storage paths)
 - Keep backend integrations out of the library. Emit telemetry events only; host applications should attach AppSignal, OpenTelemetry, metrics, or logging handlers themselves.
 - Prefer shared telemetry helpers over ad hoc event emission so naming, measurements, metadata merging, and exception behavior stay consistent.
 - Do not add per-operation transform spans unless the timing semantics are explicitly designed; libvips operations may be lazy, so stage spans are usually more honest than operation-level timings.
@@ -49,7 +55,13 @@
 ## Boundary library guidelines
 
 - Use `Boundary` declarations to enforce the namespace ownership described above. When adding or moving a top-level namespace, define its dependency direction explicitly instead of relying on implicit compile-time reachability.
-- Keep `deps:` aligned with architecture direction: parser code may depend on plan and transform construction APIs; request code may depend on plan, cache, source, output, response, telemetry, and the generic transform contract; source code may depend on plan and must stay out of cache, response, and parser code; cache may depend on plan/output/transform material; output may depend on plan; transform should remain independent of parser/request/source/cache/output/response.
+- Keep `deps:` aligned with architecture direction. One line per namespace:
+  - `parser` → `plan`, transform construction APIs
+  - `request` → `plan`, `cache`, `source`, `output`, `response`, `telemetry`, generic transform contract
+  - `source` → `plan` only (must not depend on `cache`, `response`, `parser`)
+  - `cache` → `plan`, `output`, transform material
+  - `output` → `plan`
+  - `transform` → nothing in `parser`, `request`, `source`, `cache`, `output`, `response`
 - Export only behaviours and stable public/internal entry points from each boundary. Do not export implementation helpers just to satisfy a compile error; move the helper to the correct boundary or add a narrow facade.
 - Request, source, and response modules may call generic `ImagePipe.Transform` functions such as `transform_name/1`, `metadata/1`, and `execute/2`, but must not alias or reference concrete operation modules. Parser and planner modules may construct exported concrete operation structs when translating syntax into a product-neutral plan.
 - Boundary rule changes should come with focused architecture tests, especially for request/source/response code avoiding concrete transform modules and parser-specific structs.
@@ -58,10 +70,32 @@
 
 - Prefer Elixir extension points with explicit behaviours (`ImagePipe.Parser`, `ImagePipe.Transform`, `ImagePipe.Cache`), `@impl` annotations, typed parameter structs, and tagged `{:ok, value}` / `{:error, reason}` returns at runtime boundaries. Reserve raises for invalid initialization/configuration.
 - Validate public options explicitly, preferably with `NimbleOptions` or adapter-owned `validate_options/1`, and reject unknown or malformed options before side effects.
-- Keep validation at real boundaries: external input parsing, explicit construction APIs, runtime side-effect boundaries, cache key material, and output negotiation. Avoid duplicating validation across trusted internal structs just to make malformed hand-built data fail earlier or prettier.
 - For trusted internal behaviour dispatch, call the callback directly and let missing callbacks raise. Do not add runtime duck-typing probes, callback-presence checks, or wrapper functions whose only purpose is to make impossible internal misuse return tidy errors.
 - Constructor APIs should accept the narrowest shape that real callers use. Do not accept both keyword lists and maps, existing structs, or negative guard carve-outs such as `is_map(value) and not is_struct(value)` unless there is a real public caller or contract requiring it.
 - Use pattern matching, small private functions, and `with`/`case` pipelines to keep success paths linear while preserving precise error tags. Avoid catch-all rescues unless a concrete runtime boundary intentionally degrades to a documented safe default; do not rescue trusted transform callback failures such as `metadata/1`.
+
+## Validation guidelines
+
+Validation belongs at boundaries the caller doesn't control. Inside the codebase, trust what another module just produced.
+
+**Validate:**
+
+- Host configuration and option parsing (mount options, request options, parser config, adapter config).
+- HTTP request input (headers, query strings, bodies, conditional-request fields).
+- Cache reads from external storage and other data crossing a serialization boundary.
+- Third-party API responses.
+- Return values from host-implementable behaviours such as `ImagePipe.Source`, `ImagePipe.Parser`, and `ImagePipe.Cache` adapters.
+
+**Don't validate:**
+
+- Struct fields already guaranteed by `@enforce_keys` (the struct can't exist without them).
+- Values another module in this codebase just constructed and handed you.
+- Properties a structural check can't actually prove (determinism, semantic stability, secret-freeness). Document the contract in `@moduledoc`/`@doc` and assert it in producer tests instead.
+- Hypothetical future callers that don't exist yet — add the validation when the future caller appears, with a test that exercises it.
+
+**Rule of thumb:** if tempted to add a guard, ask whether the value's producer is in this repo. If yes, write a test against the producer instead. If no, validate at the boundary where the value enters.
+
+**Removing a guard at a real boundary counts as a behavior change.** Justify with a producer test or an unreachable-from-callers analysis, not "it looks unused".
 
 ## Elixir guidelines
 
