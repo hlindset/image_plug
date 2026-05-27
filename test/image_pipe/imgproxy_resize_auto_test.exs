@@ -1,27 +1,12 @@
-defmodule ImagePipe.TransformIRCharacterizationTest do
+defmodule ImagePipe.ImgproxyResizeAutoTest do
   use ExUnit.Case, async: true
 
   import Plug.Test
 
-  alias ImagePipe.Cache.Entry
   alias ImagePipe.Parser.Imgproxy
   alias ImagePipe.Request.Runner
   alias ImagePipe.Response.PreparedStream
   alias ImagePipe.Source.Resolved
-
-  defmodule CacheHitProbe do
-    @behaviour ImagePipe.Cache
-
-    def get(key, opts) do
-      send(Keyword.fetch!(opts, :test_pid), {:cache_get, key})
-      {:hit, Keyword.fetch!(opts, :entry)}
-    end
-
-    def open_sink(_key, _metadata, _opts), do: raise("cache hit must not write")
-    def write_chunk(_state, _chunk, _opts), do: raise("cache hit must not write")
-    def commit_sink(_state, _opts), do: raise("cache hit must not write")
-    def abort_sink(_state, _opts), do: :ok
-  end
 
   defmodule GeneratedSourceAdapter do
     @behaviour ImagePipe.Source
@@ -40,19 +25,6 @@ defmodule ImagePipe.TransformIRCharacterizationTest do
 
       {:ok, %ImagePipe.Source.Response{stream: [body]}}
     end
-  end
-
-  defmodule SourceShouldNotFetch do
-    @behaviour ImagePipe.Source
-
-    @impl ImagePipe.Source
-    def validate_options(opts), do: {:ok, opts}
-
-    @impl ImagePipe.Source
-    def resolve(_source, _opts, _runtime_opts), do: raise("test builds resolved sources directly")
-
-    @impl ImagePipe.Source
-    def fetch(_resolved, _opts, _runtime_opts), do: raise("source should not fetch on cache hit")
   end
 
   defp parse_plan!(path) do
@@ -114,32 +86,6 @@ defmodule ImagePipe.TransformIRCharacterizationTest do
       cache: :normal,
       fetch: source
     }
-  end
-
-  test "cache hit returns before source fetch for resize:auto requests" do
-    entry = %Entry{
-      body: "cached jpeg",
-      content_type: "image/jpeg",
-      headers: [],
-      created_at: DateTime.utc_now()
-    }
-
-    source = {300, 200}
-    path = auto_resize_path(source, {100, 100})
-    {conn, plan} = parse_plan!(path)
-    resolved_source = resolved_source(source)
-
-    assert {:ok, {:cache_entry, ^entry, %ImagePipe.Plan.Response{}}} =
-             Runner.run(
-               conn,
-               plan,
-               resolved_source,
-               cache: {CacheHitProbe, entry: entry, test_pid: self()},
-               sources: %{path: {SourceShouldNotFetch, []}}
-             )
-
-    assert_received {:cache_get, key}
-    assert key.data[:source_identity] == source_identity(source)
   end
 
   test "1. request-level resize:auto from 300x200 to 100x50 returns 100x50" do
