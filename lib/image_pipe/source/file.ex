@@ -115,9 +115,9 @@ defmodule ImagePipe.Source.File do
     end
   end
 
-  defp cache_semantics(opts, stable?, identity) do
+  defp cache_semantics(_opts, stable?, identity) do
     byte_identity =
-      if Keyword.fetch!(opts, :stable) == :trusted do
+      if stable? do
         {:strong, identity}
       else
         :none

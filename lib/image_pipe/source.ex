@@ -201,11 +201,13 @@ defmodule ImagePipe.Source do
       Identity.valid?(resolved.identity)
   end
 
-  defp valid_cache_semantics?(%CacheSemantics{byte_identity: :none, stable?: stable?}),
-    do: is_boolean(stable?)
+  defp valid_cache_semantics?(%CacheSemantics{byte_identity: :none, stable?: false}), do: true
 
-  defp valid_cache_semantics?(%CacheSemantics{byte_identity: {:strong, _seed}, stable?: stable?}),
-    do: is_boolean(stable?)
+  defp valid_cache_semantics?(%CacheSemantics{
+         byte_identity: {:strong, _seed},
+         stable?: true
+       }),
+       do: true
 
   defp valid_cache_semantics?(_cache_semantics), do: false
 

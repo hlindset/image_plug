@@ -87,19 +87,6 @@ defmodule ImagePipe.Plan do
   def validated_pipelines(%__MODULE__{pipelines: pipelines}),
     do: {:error, {:invalid_pipeline_plan, pipelines}}
 
-  @spec canonical_representation_material(t()) :: {:ok, keyword()} | :omit_etag
-  def canonical_representation_material(%__MODULE__{
-        output: %Output{mode: {:explicit, _format}} = output
-      }) do
-    {:ok, [output: output_material(output)]}
-  end
-
-  def canonical_representation_material(%__MODULE__{output: %Output{mode: :automatic} = output}) do
-    {:ok, [output: output_material(output)]}
-  end
-
-  def canonical_representation_material(%__MODULE__{}), do: :omit_etag
-
   defp do_validate_pipelines(pipelines) do
     Enum.reduce_while(pipelines, {:ok, []}, fn
       %Pipeline{operations: operations} = pipeline, {:ok, valid_pipelines}
@@ -112,37 +99,6 @@ defmodule ImagePipe.Plan do
       _pipeline, _acc ->
         {:halt, {:error, {:invalid_pipeline_plan, pipelines}}}
     end)
-  end
-
-  defp output_material(%Output{
-         mode: {:explicit, format},
-         quality: quality,
-         format_qualities: format_qualities
-       }) do
-    [
-      mode: :explicit,
-      format: format,
-      quality: quality,
-      format_qualities: sorted_format_qualities(format_qualities)
-    ]
-  end
-
-  defp output_material(%Output{
-         mode: :automatic,
-         quality: quality,
-         format_qualities: format_qualities
-       }) do
-    [
-      mode: :automatic,
-      quality: quality,
-      format_qualities: sorted_format_qualities(format_qualities)
-    ]
-  end
-
-  defp sorted_format_qualities(format_qualities) when is_map(format_qualities) do
-    format_qualities
-    |> Map.to_list()
-    |> Enum.sort_by(fn {format, _quality} -> format end)
   end
 
   defp invalid_operation?(%_{} = operation), do: not Operation.semantic?(operation)

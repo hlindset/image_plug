@@ -72,6 +72,13 @@ defmodule ImagePipe.Request.HTTPCacheTest do
     assert prepared.etag == nil
   end
 
+  test "non-GET requests emit no generated cache headers" do
+    prepared = HTTPCache.prepare(conn(:post, "/image"), plan(), resolved(), opts())
+
+    assert prepared.headers == []
+    assert prepared.etag == nil
+  end
+
   test "missing byte identity emits no-store fallback without generated etag" do
     prepared =
       HTTPCache.prepare(
@@ -156,8 +163,29 @@ defmodule ImagePipe.Request.HTTPCacheTest do
     assert prepared.etag == nil
   end
 
+  test "existing vary star suppresses generated public cache headers for explicit output" do
+    conn =
+      conn(:get, "/image")
+      |> put_resp_header("vary", "*")
+
+    prepared = HTTPCache.prepare(conn, plan(), resolved(), opts())
+
+    assert prepared.representation_headers == []
+    assert prepared.headers == []
+    assert prepared.etag == nil
+  end
+
   test "set-cookie suppresses generated public cache headers" do
     conn = put_resp_header(conn(:get, "/image"), "set-cookie", "a=b")
+
+    prepared = HTTPCache.prepare(conn, plan(), resolved(), opts())
+
+    assert prepared.headers == []
+    assert prepared.etag == nil
+  end
+
+  test "response cookies suppress generated public cache headers" do
+    conn = put_resp_cookie(conn(:get, "/image"), "session", "abc")
 
     prepared = HTTPCache.prepare(conn, plan(), resolved(), opts())
 
@@ -276,7 +304,10 @@ defmodule ImagePipe.Request.HTTPCacheTest do
     assert {:strong, seed} = resolved().cache_semantics.byte_identity
 
     assert {:ok, material} = HTTPCache.etag_material(conn(:get, "/image"), plan(), seed, opts())
-    assert material[:representation_version] == ImagePipe.Cache.Key.representation_version()
+
+    assert material[:plan][:representation] == [
+             version: ImagePipe.Cache.Key.representation_version()
+           ]
   end
 
   test "cookie request header does not enter generated vary or etag" do
@@ -290,9 +321,7 @@ defmodule ImagePipe.Request.HTTPCacheTest do
 
     assert with_cookie.etag == without_cookie.etag
 
-    refute Enum.any?(with_cookie.representation_headers, fn {_name, value} ->
-             String.downcase(value) == "cookie"
-           end)
+    refute "cookie" in vary_tokens(with_cookie.representation_headers)
   end
 
   describe "evaluate_conditional/3" do
@@ -308,8 +337,7 @@ defmodule ImagePipe.Request.HTTPCacheTest do
         |> conn("/image")
         |> put_req_header("if-none-match", ~s(W/"ip1-abc"))
 
-      assert {:not_modified, headers} = HTTPCache.evaluate_conditional(conn, prepared, [])
-      assert {"etag", ~s("ip1-abc")} in headers
+      assert {:not_modified, ^prepared} = HTTPCache.evaluate_conditional(conn, prepared, [])
     end
 
     property "whitespace around if-none-match tags doesn't change matching" do
@@ -326,7 +354,7 @@ defmodule ImagePipe.Request.HTTPCacheTest do
           |> conn("/image")
           |> put_req_header("if-none-match", left <> ~s(W/"ip1-token") <> right)
 
-        assert {:not_modified, _headers} = HTTPCache.evaluate_conditional(conn, prepared, [])
+        assert {:not_modified, ^prepared} = HTTPCache.evaluate_conditional(conn, prepared, [])
       end
     end
 
@@ -342,7 +370,7 @@ defmodule ImagePipe.Request.HTTPCacheTest do
         |> conn("/image")
         |> put_req_header("if-none-match", ~s("other", W/"ip1-token"))
 
-      assert {:not_modified, _headers} = HTTPCache.evaluate_conditional(conn, prepared, [])
+      assert {:not_modified, ^prepared} = HTTPCache.evaluate_conditional(conn, prepared, [])
     end
 
     test "wildcard form is ignored in v1" do
@@ -468,12 +496,8 @@ defmodule ImagePipe.Request.HTTPCacheTest do
 
     _prepared = HTTPCache.prepare(conn(:get, "/image"), plan(), resolved(), opts())
 
-    assert_receive {:telemetry_event, [:image_pipe, :http_cache, :prepare], %{},
-                    %{effective_mode: :enabled, byte_identity: :strong, etag: true} = metadata}
-
-    refute Map.has_key?(metadata, :path)
-    refute Map.has_key?(metadata, :etag_value)
-    refute Map.has_key?(metadata, :source_identity)
+    assert_receive {:telemetry_event, [:image_pipe, :http_cache, :prepare], %{}, metadata}
+    assert metadata == %{effective_mode: :enabled, byte_identity: :strong, etag: true}
   end
 
   test "no-store fallback telemetry is required and low-cardinality" do
@@ -488,12 +512,9 @@ defmodule ImagePipe.Request.HTTPCacheTest do
       )
 
     assert_receive {:telemetry_event, [:image_pipe, :http_cache, :fallback, :no_store], %{},
-                    %{adapter: :path, source_kind: :path, reason: :missing_byte_identity} =
-                      metadata}
+                    metadata}
 
-    refute Map.has_key?(metadata, :path)
-    refute Map.has_key?(metadata, :url)
-    refute Map.has_key?(metadata, :etag)
+    assert metadata == %{adapter: :path, source_kind: :path, reason: :missing_byte_identity}
   end
 
   test "conditional match telemetry omits etag and path" do
@@ -510,19 +531,26 @@ defmodule ImagePipe.Request.HTTPCacheTest do
       |> conn("/image")
       |> put_req_header("if-none-match", ~s("ip1-token"))
 
-    assert {:not_modified, _headers} = HTTPCache.evaluate_conditional(conn, prepared, opts())
+    assert {:not_modified, ^prepared} = HTTPCache.evaluate_conditional(conn, prepared, opts())
 
     assert_receive {:telemetry_event, [:image_pipe, :http_cache, :conditional, :match], %{},
-                    %{method: :get} = metadata}
+                    metadata}
 
-    refute Map.has_key?(metadata, :etag)
-    refute Map.has_key?(metadata, :path)
+    assert metadata == %{method: :get}
   end
 
   defp header(headers, name) do
     headers
     |> Enum.find(fn {header_name, _value} -> header_name == name end)
     |> elem(1)
+  end
+
+  defp vary_tokens(headers) do
+    headers
+    |> Enum.filter(fn {name, _value} -> name == "vary" end)
+    |> Enum.flat_map(fn {_name, value} -> String.split(value, ",") end)
+    |> Enum.map(&String.trim/1)
+    |> Enum.map(&String.downcase/1)
   end
 
   def handle_telemetry_event(event, measurements, metadata, test_pid) do

@@ -59,10 +59,6 @@ transform execution, output negotiation, encoding, and send streaming spans.
 [:image_pipe, :cache, :stage, ...]
 [:image_pipe, :cache, :write, ...]
 [:image_pipe, :send, ...]
-[:image_pipe, :http_cache, :prepare]
-[:image_pipe, :http_cache, :conditional, :match]
-[:image_pipe, :http_cache, :fallback, :no_store]
-[:image_pipe, :http_cache, :cache_hit, :headers]
 ```
 
 For example, the cache lookup stop event with the default prefix is:
@@ -81,6 +77,16 @@ ImagePipe uses the measurements provided by `:telemetry.span/3`:
 
 Durations use the native time unit from `System.monotonic_time/0`. Handlers can
 convert them with `System.convert_time_unit/3` for a specific display unit.
+
+HTTP cache decision events aren't spans. ImagePipe emits them with
+`Telemetry.execute/4`, and they're sent with empty measurements:
+
+```text
+[:image_pipe, :http_cache, :prepare]
+[:image_pipe, :http_cache, :conditional, :match]
+[:image_pipe, :http_cache, :fallback, :no_store]
+[:image_pipe, :http_cache, :cache_hit, :headers]
+```
 
 ## Metadata
 

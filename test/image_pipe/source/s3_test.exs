@@ -359,6 +359,49 @@ defmodule ImagePipe.Source.S3Test do
     refute authorization =~ "Bearer evil"
   end
 
+  test "stable S3 byte identity strips byte-changing headers even when internal cache is disabled" do
+    plug = fn conn ->
+      send(self(), {:s3_request, conn.req_headers})
+      Plug.Conn.send_resp(conn, 200, "image bytes")
+    end
+
+    assert {:ok, opts} =
+             S3.validate_options(
+               default: [
+                 region: "us-east-1",
+                 endpoint: "https://minio.test",
+                 stable: :trusted,
+                 internal_cache: :disabled,
+                 credentials: {:static, access_key_id: "A", secret_access_key: "S"},
+                 req_options: [
+                   plug: plug,
+                   headers: [
+                     {"Range", "bytes=0-1"},
+                     {"Accept", "application/json"},
+                     {"Accept-Encoding", "gzip"},
+                     {"x-extra", "kept"}
+                   ]
+                 ]
+               ]
+             )
+
+    source = %Object{adapter: :s3, scope: "tenant-a", key: "images/cat.jpg"}
+    assert {:ok, resolved} = S3.resolve(source, opts, [])
+
+    assert {:ok, %Response{} = response} =
+             Source.fetch(resolved, [sources: %{s3: {S3, opts}}], [])
+
+    assert Enum.join(response.stream) == "image bytes"
+    assert_receive {:s3_request, headers}
+
+    assert {_name, "kept"} =
+             Enum.find(headers, fn {name, _value} -> String.downcase(name) == "x-extra" end)
+
+    refute Enum.any?(headers, fn {name, _value} ->
+             String.downcase(name) in ["range", "accept", "accept-encoding"]
+           end)
+  end
+
   test "credential failures are safe source errors" do
     defmodule FailingProvider do
       def fetch_credentials(_scope, _provider_opts, _runtime_opts),

@@ -150,8 +150,21 @@ defmodule ImagePipe.CDNHTTPCacheWireTest do
       |> ImagePipe.Plug.call(opts)
 
     assert get_resp_header(with_cookie, "etag") == [etag]
-    assert get_resp_header(with_cookie, "vary") != ["Cookie"]
+    refute "cookie" in vary_tokens(with_cookie)
     assert_received :source_fetch_called
+  end
+
+  test "response cookies suppress generated public cache headers", %{opts: opts} do
+    conn =
+      :get
+      |> conn("/_/plain/beach.jpg")
+      |> put_resp_cookie("session", "abc")
+      |> ImagePipe.Plug.call(opts)
+
+    assert conn.status == 200
+    refute get_resp_header(conn, "cache-control") == ["public, max-age=31536000, immutable"]
+    assert get_resp_header(conn, "etag") == []
+    assert get_resp_header(conn, "set-cookie") != []
   end
 
   test "internal cache hit returns 200 with current prepared etag" do
@@ -202,5 +215,13 @@ defmodule ImagePipe.CDNHTTPCacheWireTest do
     after
       0 -> :ok
     end
+  end
+
+  defp vary_tokens(conn) do
+    conn
+    |> get_resp_header("vary")
+    |> Enum.flat_map(&String.split(&1, ","))
+    |> Enum.map(&String.trim/1)
+    |> Enum.map(&String.downcase/1)
   end
 end

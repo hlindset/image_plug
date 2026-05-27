@@ -11,7 +11,7 @@ defmodule ImagePipe.Request.SourceSession.Producer do
   alias ImagePipe.Telemetry
   alias ImagePipe.Transform.State
 
-  @call_timeout 30_000
+  @call_timeout 15_000
   @halt_timeout 2_000
 
   defstruct [

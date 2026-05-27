@@ -96,59 +96,6 @@ defmodule ImagePipe.PlanTest do
     end
   end
 
-  describe "canonical_representation_material/1" do
-    test "explicit output contains output rule and quality material" do
-      plan = %Plan{
-        source: %Source.Path{segments: ["cat.jpg"]},
-        pipelines: [%Pipeline{operations: []}],
-        output: %Output{
-          mode: {:explicit, :webp},
-          quality: {:quality, 82},
-          format_qualities: %{webp: {:quality, 80}}
-        }
-      }
-
-      assert {:ok,
-              [
-                output: [
-                  mode: :explicit,
-                  format: :webp,
-                  quality: {:quality, 82},
-                  format_qualities: [webp: {:quality, 80}]
-                ]
-              ]} = Plan.canonical_representation_material(plan)
-    end
-
-    test "automatic output contains symbolic automatic rule" do
-      plan = %Plan{
-        source: %Source.Path{segments: ["cat.jpg"]},
-        pipelines: [%Pipeline{operations: []}],
-        output: %Output{mode: :automatic}
-      }
-
-      assert {:ok,
-              [
-                output: [
-                  mode: :automatic,
-                  quality: :default,
-                  format_qualities: []
-                ]
-              ]} = Plan.canonical_representation_material(plan)
-    end
-
-    test "automatic output material contains the symbolic rule instead of a resolved branch" do
-      plan = %Plan{
-        source: %Source.Path{segments: ["alpha.png"]},
-        pipelines: [%Pipeline{operations: []}],
-        output: %Output{mode: :automatic}
-      }
-
-      assert {:ok, [output: output]} = Plan.canonical_representation_material(plan)
-      assert output[:mode] == :automatic
-      refute Keyword.has_key?(output, :resolved_format)
-    end
-  end
-
   defp plan(overrides \\ []) do
     struct!(
       Plan,

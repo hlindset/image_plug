@@ -76,7 +76,7 @@ defmodule ImagePipe.Source.HTTP do
          cache_semantics: cache_semantics(opts, stable?, identity),
          fetch: [
            url: build_url(%{source | host: host, port: port}),
-           internal_cache: internal_cache
+           strip_byte_headers: stable? or internal_cache == :enabled
          ]
        }}
     else
@@ -89,7 +89,7 @@ defmodule ImagePipe.Source.HTTP do
     req_options =
       opts
       |> Keyword.fetch!(:req_options)
-      |> sanitize_req_options(fetch[:internal_cache])
+      |> sanitize_req_options(fetch[:strip_byte_headers])
       |> Keyword.merge(
         url: fetch[:url],
         method: :get,
@@ -105,22 +105,22 @@ defmodule ImagePipe.Source.HTTP do
     {:ok, %Response{stream: ReqStream.stream(req_options, stream_options)}}
   end
 
-  defp sanitize_req_options(req_options, cache) do
+  defp sanitize_req_options(req_options, strip_byte_headers?) do
     req_options
     |> Keyword.drop(@internal_option_keys)
-    |> Keyword.update(:headers, [], &sanitize_headers(&1, cache))
+    |> Keyword.update(:headers, [], &sanitize_headers(&1, strip_byte_headers?))
   end
 
-  defp sanitize_headers(headers, cache) do
-    denied = denied_header_names(cache)
+  defp sanitize_headers(headers, strip_byte_headers?) do
+    denied = denied_header_names(strip_byte_headers?)
 
     Enum.reject(headers, fn {name, _value} ->
       String.downcase(to_string(name)) in denied
     end)
   end
 
-  defp denied_header_names(:enabled), do: @host_header_names ++ @cacheable_byte_header_names
-  defp denied_header_names(:disabled), do: @host_header_names
+  defp denied_header_names(true), do: @host_header_names ++ @cacheable_byte_header_names
+  defp denied_header_names(false), do: @host_header_names
 
   defp internal_cache_mode(opts, stable?) do
     case Keyword.fetch!(opts, :internal_cache) do
@@ -130,9 +130,9 @@ defmodule ImagePipe.Source.HTTP do
     end
   end
 
-  defp cache_semantics(opts, stable?, identity) do
+  defp cache_semantics(_opts, stable?, identity) do
     byte_identity =
-      if Keyword.fetch!(opts, :stable) == :trusted do
+      if stable? do
         {:strong, redacted_http_identity(identity)}
       else
         :none

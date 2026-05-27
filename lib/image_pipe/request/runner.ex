@@ -43,22 +43,6 @@ defmodule ImagePipe.Request.Runner do
     run_with_cache_config(conn, plan, resolved_source, prepared_http_cache, opts)
   end
 
-  def run(conn, %Plan{} = plan, %Source.Resolved{} = resolved_source, opts) do
-    conn
-    |> run(plan, resolved_source, empty_cache_headers(), opts)
-    |> drop_prepared_http_cache()
-  end
-
-  defp drop_prepared_http_cache({:ok, {:cache_entry, entry, response, %CacheHeaders{}}}),
-    do: {:ok, {:cache_entry, entry, response}}
-
-  defp drop_prepared_http_cache(
-         {:ok, {:prepared_stream, prepared_stream, response, %CacheHeaders{}}}
-       ),
-       do: {:ok, {:prepared_stream, prepared_stream, response}}
-
-  defp drop_prepared_http_cache(result), do: result
-
   defp run_with_cache_config(
          conn,
          plan,
@@ -227,8 +211,4 @@ defmodule ImagePipe.Request.Runner do
 
   defp cache_lookup_stop_metadata({:error, {:cache_read, error}}),
     do: %{result: :cache_error, cache: :read_error, error: Error.tag(error)}
-
-  defp empty_cache_headers do
-    %CacheHeaders{representation_headers: [], headers: [], etag: nil}
-  end
 end

@@ -127,7 +127,11 @@ defmodule ImagePipe.Response.SenderTest do
     response = %Response{disposition: :attachment, filename: "report"}
 
     conn =
-      Sender.send_result(conn(:get, "/image"), {:ok, {:cache_entry, entry, response}}, [])
+      Sender.send_result(
+        conn(:get, "/image"),
+        {:ok, {:cache_entry, entry, response, empty_cache_headers()}},
+        []
+      )
 
     assert conn.status == 200
 
@@ -237,10 +241,13 @@ defmodule ImagePipe.Response.SenderTest do
       )
 
     assert_receive {:telemetry_event, [:image_pipe, :http_cache, :cache_hit, :headers], %{},
-                    %{etag: true} = metadata}
+                    metadata}
 
-    refute Map.has_key?(metadata, :path)
-    refute Map.has_key?(metadata, :etag_value)
+    assert metadata == %{
+             etag: true,
+             generated_cache_headers: true,
+             representation_headers: false
+           }
   end
 
   test "prepared streams send first chunk and pull later chunks" do
@@ -263,7 +270,11 @@ defmodule ImagePipe.Response.SenderTest do
       )
 
     conn =
-      Sender.send_result(conn(:get, "/image"), {:ok, {:prepared_stream, prepared, response}}, [])
+      Sender.send_result(
+        conn(:get, "/image"),
+        {:ok, {:prepared_stream, prepared, response, empty_cache_headers()}},
+        []
+      )
 
     assert conn.status == 200
     assert conn.resp_body == "firstsecond"
@@ -292,7 +303,11 @@ defmodule ImagePipe.Response.SenderTest do
       )
 
     conn =
-      Sender.send_result(conn(:get, "/image"), {:ok, {:prepared_stream, prepared, response}}, [])
+      Sender.send_result(
+        conn(:get, "/image"),
+        {:ok, {:prepared_stream, prepared, response, empty_cache_headers()}},
+        []
+      )
 
     assert conn.status == 200
     refute_received ^cancel_ref
@@ -315,7 +330,11 @@ defmodule ImagePipe.Response.SenderTest do
       )
 
     conn =
-      Sender.send_result(conn(:get, "/image"), {:ok, {:prepared_stream, prepared, response}}, [])
+      Sender.send_result(
+        conn(:get, "/image"),
+        {:ok, {:prepared_stream, prepared, response, empty_cache_headers()}},
+        []
+      )
 
     assert conn.status == 200
     assert conn.private.image_pipe_send_result == :processing_error
@@ -350,7 +369,10 @@ defmodule ImagePipe.Response.SenderTest do
       :get
       |> conn("/image")
       |> Map.put(:adapter, {ClosingChunkAdapter, %{chunks: nil}})
-      |> Sender.send_result({:ok, {:prepared_stream, prepared, %Response{}}}, [])
+      |> Sender.send_result(
+        {:ok, {:prepared_stream, prepared, %Response{}, empty_cache_headers()}},
+        []
+      )
 
     refute Map.has_key?(conn.private, :image_pipe_send_result)
     assert conn.resp_body == "first"
@@ -384,7 +406,10 @@ defmodule ImagePipe.Response.SenderTest do
       :get
       |> conn("/image")
       |> Map.put(:adapter, {FailingChunkedAdapter, %{}})
-      |> Sender.send_result({:ok, {:prepared_stream, prepared, %Response{}}}, [])
+      |> Sender.send_result(
+        {:ok, {:prepared_stream, prepared, %Response{}, empty_cache_headers()}},
+        []
+      )
 
     assert conn.private.image_pipe_send_result == :processing_error
     assert_receive ^cancel_ref
@@ -415,7 +440,10 @@ defmodule ImagePipe.Response.SenderTest do
       :get
       |> conn("/image")
       |> Map.put(:adapter, {FirstChunkClosedAdapter, %{}})
-      |> Sender.send_result({:ok, {:prepared_stream, prepared, %Response{}}}, [])
+      |> Sender.send_result(
+        {:ok, {:prepared_stream, prepared, %Response{}, empty_cache_headers()}},
+        []
+      )
 
     refute Map.has_key?(conn.private, :image_pipe_send_result)
     assert_receive ^cancel_ref
@@ -437,7 +465,7 @@ defmodule ImagePipe.Response.SenderTest do
     conn =
       Sender.send_result(
         conn(:get, "/image"),
-        {:ok, {:prepared_stream, prepared, %Response{}}},
+        {:ok, {:prepared_stream, prepared, %Response{}, empty_cache_headers()}},
         []
       )
 
@@ -464,6 +492,10 @@ defmodule ImagePipe.Response.SenderTest do
         overrides
       )
     )
+  end
+
+  defp empty_cache_headers do
+    %CacheHeaders{representation_headers: [], headers: [], etag: nil}
   end
 
   defp attach_telemetry(events) do

@@ -86,6 +86,42 @@ defmodule ImagePipe.SourceTest do
     assert {:error, {:source, :invalid_adapter_result}} = Source.resolve(source, opts, [])
   end
 
+  test "source validation rejects contradictory cache semantics" do
+    defmodule ContradictorySemanticsSource do
+      @behaviour ImagePipe.Source
+
+      def validate_options(opts), do: {:ok, opts}
+
+      def resolve(%SourcePath{}, _opts, _runtime_opts) do
+        {:ok,
+         %Resolved{
+           adapter: :path,
+           source_kind: :path,
+           identity: [kind: :path, adapter: :path, root: "test", path: ["cat.jpg"]],
+           internal_cache: :disabled,
+           http_cache: :inherit,
+           cache_semantics: %CacheSemantics{
+             byte_identity: {:strong, [kind: :path, root: "test", path: ["cat.jpg"]]},
+             stable?: false
+           },
+           fetch: [path: "/tmp/cat.jpg"]
+         }}
+      end
+
+      def fetch(_resolved, _opts, _runtime_opts), do: raise("not used")
+    end
+
+    assert {:ok, opts} =
+             Source.validate_config(
+               parser: ImagePipe.Parser.Imgproxy,
+               sources: [path: {ContradictorySemanticsSource, []}]
+             )
+
+    source = %SourcePath{segments: ["cat.jpg"]}
+
+    assert {:error, {:source, :invalid_adapter_result}} = Source.resolve(source, opts, [])
+  end
+
   test "validate_config calls adapter validation during init-time option normalization" do
     assert {:ok, opts} =
              Source.validate_config(

@@ -45,7 +45,10 @@ identity. Files can be overwritten under the same path, so file sources need
 For `ImagePipe.Source.HTTP`, `stable: :trusted` derives byte identity from the
 URL components. ImagePipe doesn't put raw query strings into the identity. It
 stores a query SHA-256 so signed query URLs and rotating query credentials don't appear in
-ETags or telemetry.
+ETags or telemetry. ImagePipe redacts query material instead of ignoring it:
+different query strings still produce different generated ETags. If credentials
+rotate while the source bytes stay the same, use a source identity without
+credentials or a custom adapter.
 
 For `ImagePipe.Source.S3`, objects with a revision are stable under
 `stable: :auto` because the fetch includes the object version. S3 objects
@@ -76,6 +79,14 @@ Vary: Accept
 
 Configure the CDN cache key to include `Accept` for routes that use automatic
 output. Explicit output formats don't emit `Vary: Accept`.
+
+For CDN configuration:
+
+- honor origin `Cache-Control`, including `no-store`
+- forward `If-None-Match` to ImagePipe for revalidation
+- include `Accept` in the cache key when using automatic output
+- don't add Client Hints such as `Width` or `DPR` to the cache key for v1
+- expect raw URL cache keys unless the CDN rewrites or redirects before lookup
 
 ImagePipe merges an existing `Vary` header with `Accept`. If an earlier Plug set
 `Vary: Accept-Encoding`, the final header for automatic output is:
@@ -116,6 +127,16 @@ If an earlier Plug sets `Cache-Control`, ImagePipe doesn't overwrite it. If the
 source has strong byte identity and no host ETag, ImagePipe may still add a
 generated ETag.
 
+ImagePipe treats the default `Cache-Control` value set by `Plug.Conn` as unset
+before response delivery:
+
+```http
+Cache-Control: max-age=0, private, must-revalidate
+```
+
+A Plug that needs to force that exact policy should set another explicit policy
+or disable generated HTTP caching for the route.
+
 If the selected `Cache-Control` contains `no-store`, ImagePipe doesn't generate
 an ETag.
 
@@ -153,10 +174,6 @@ Metadata is low-cardinality:
   reason: :missing_byte_identity
 }
 ```
-
-The same event uses `reason: :missing_representation_material` if a future
-output mode can't fit in pre-fetch ETag material. No current output
-mode uses that branch.
 
 If a host already set `Cache-Control`, ImagePipe preserves the host policy
 instead of replacing it with `no-store`.
@@ -220,11 +237,11 @@ constant:
 Changing `@etag_schema` changes both the visible prefix and the hashed material.
 That invalidates validators already stored by browsers and CDNs.
 
-ImagePipe includes `@representation_version` in generated ETag material and in
-the internal cache key. Bump it when encoder behavior, output policy behavior,
-default quality, metadata handling, color handling, orientation behavior, or
-symbolic output-rule semantics can change encoded bytes without changing public
-request syntax.
+ImagePipe includes `@representation_version` in the shared plan material used by
+generated ETags and the internal cache key. Bump it when encoder behavior,
+output policy behavior, default quality, metadata handling, color handling,
+orientation behavior, or symbolic output-rule semantics can change encoded
+bytes without changing public request syntax.
 
 The same version must be in both places. If it changed only the ETag, ImagePipe
 could serve an old internal-cache body with a new validator.

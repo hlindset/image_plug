@@ -5,6 +5,10 @@ defmodule ImagePipe.Source.CacheSemantics do
   `byte_identity` seeds must be deterministic, non-secret, and stable across
   nodes for the same source bytes. The core validates the tagged shape but does
   not validate seed contents structurally.
+
+  A strong byte identity is only valid when `stable?` is `true`. Sources that
+  cannot provide a stable byte identity must use `byte_identity: :none` and
+  `stable?: false`.
   """
 
   @enforce_keys [:byte_identity, :stable?]

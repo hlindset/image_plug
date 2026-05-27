@@ -2,7 +2,7 @@ defmodule ImagePipe.Request.HTTPCache do
   @moduledoc false
 
   import Plug.Conn,
-    only: [get_req_header: 2, get_resp_header: 2, put_resp_header: 3, send_resp: 3]
+    only: [get_req_header: 2, get_resp_header: 2]
 
   alias ImagePipe.Cache.Key
   alias ImagePipe.Output.Negotiation
@@ -16,8 +16,6 @@ defmodule ImagePipe.Request.HTTPCache do
   @etag_schema 1
   @generated_cache_control "public, max-age=31536000, immutable"
   @no_store "no-store"
-  @plug_default_cache_control "max-age=0, private, must-revalidate"
-  @not_modified_header_allowlist ~w(cache-control date etag expires vary)
 
   @spec prepare(Plug.Conn.t(), Plan.t(), Resolved.t(), keyword()) :: CacheHeaders.t()
   def prepare(%Plug.Conn{} = conn, %Plan{} = plan, %Resolved{} = resolved, opts) do
@@ -56,28 +54,21 @@ defmodule ImagePipe.Request.HTTPCache do
   def generated_cache_control, do: @generated_cache_control
 
   @doc false
-  @spec etag_material(Plug.Conn.t(), Plan.t(), term(), keyword()) :: {:ok, keyword()} | :omit_etag
+  @spec etag_material(Plug.Conn.t(), Plan.t(), term(), keyword()) :: {:ok, keyword()}
   def etag_material(conn, %Plan{} = plan, source_seed, opts) do
-    case Plan.canonical_representation_material(plan) do
-      {:ok, _representation_material} ->
-        with {:ok, plan_material} <- Key.plan_material(plan, opts) do
-          {:ok,
-           [
-             etag_schema: @etag_schema,
-             source: source_seed,
-             plan: Keyword.drop(plan_material, [:cache]),
-             accept: accept_material(conn, plan.output, opts),
-             representation_version: Key.representation_version()
-           ]}
-        end
-
-      :omit_etag ->
-        :omit_etag
+    with {:ok, plan_material} <- Key.plan_material(plan, opts) do
+      {:ok,
+       [
+         etag_schema: @etag_schema,
+         source: source_seed,
+         plan: Keyword.drop(plan_material, [:cache]),
+         accept: accept_material(conn, plan.output, opts)
+       ]}
     end
   end
 
   @spec evaluate_conditional(Plug.Conn.t(), CacheHeaders.t(), keyword()) ::
-          :proceed | {:not_modified, [{String.t(), String.t()}]}
+          :proceed | {:not_modified, CacheHeaders.t()}
   def evaluate_conditional(
         %Plug.Conn{method: "GET"} = conn,
         %CacheHeaders{etag: etag} = prepared,
@@ -85,8 +76,6 @@ defmodule ImagePipe.Request.HTTPCache do
       )
       when is_binary(etag) do
     if if_none_match?(conn, etag) do
-      headers = not_modified_headers(prepared)
-
       Telemetry.execute(
         Telemetry.telemetry_opts(opts),
         [:http_cache, :conditional, :match],
@@ -94,23 +83,13 @@ defmodule ImagePipe.Request.HTTPCache do
         %{method: :get}
       )
 
-      {:not_modified, headers}
+      {:not_modified, prepared}
     else
       :proceed
     end
   end
 
   def evaluate_conditional(%Plug.Conn{}, %CacheHeaders{}, _opts), do: :proceed
-
-  @spec send_not_modified(Plug.Conn.t(), [{String.t(), String.t()}]) :: Plug.Conn.t()
-  def send_not_modified(conn, headers) do
-    conn =
-      Enum.reduce(headers, conn, fn {name, value}, conn ->
-        put_resp_header(conn, name, value)
-      end)
-
-    send_resp(conn, 304, "")
-  end
 
   defp effective_mode(%Resolved{http_cache: :inherit}, opts),
     do: opts |> Keyword.fetch!(:http_cache) |> Keyword.fetch!(:mode)
@@ -128,15 +107,26 @@ defmodule ImagePipe.Request.HTTPCache do
        ),
        do: {[], nil, nil}
 
+  defp generated_cache_headers(
+         %Plug.Conn{method: method},
+         _plan,
+         _resolved,
+         _opts,
+         :enabled,
+         _representation_headers
+       )
+       when method != "GET",
+       do: {[], nil, nil}
+
   defp generated_cache_headers(conn, plan, resolved, opts, :enabled, representation_headers) do
     cond do
-      has_resp_header?(conn, "set-cookie") ->
+      has_set_cookie?(conn) ->
         {[], nil, nil}
 
-      vary_star?(representation_headers) ->
+      vary_star?(conn) or vary_star?(representation_headers) ->
         {[], nil, nil}
 
-      selected_cache_control(conn) == @no_store ->
+      host_has_no_store?(conn) ->
         {[], nil, nil}
 
       has_host_cache_control?(conn) ->
@@ -152,15 +142,12 @@ defmodule ImagePipe.Request.HTTPCache do
       {:etag, etag} ->
         {[{"cache-control", @generated_cache_control}, {"etag", etag}], etag, nil}
 
-      :omit_etag ->
-        {[{"cache-control", @no_store}], nil, :missing_representation_material}
-
       :not_generated ->
         case resolved.cache_semantics do
           %CacheSemantics{byte_identity: :none} ->
             {[{"cache-control", @no_store}], nil, :missing_byte_identity}
 
-          %CacheSemantics{byte_identity: {:strong, _seed}} ->
+          %CacheSemantics{byte_identity: {:strong, _seed}, stable?: true} ->
             if has_resp_header?(conn, "etag"),
               do: {[{"cache-control", @generated_cache_control}], nil, nil},
               else: {[], nil, nil}
@@ -171,7 +158,6 @@ defmodule ImagePipe.Request.HTTPCache do
   defp generated_etag_only(conn, plan, resolved, opts) do
     case generated_etag(conn, plan, resolved, opts) do
       {:etag, etag} -> {[{"etag", etag}], etag, nil}
-      :omit_etag -> {[], nil, nil}
       :not_generated -> {[], nil, nil}
     end
   end
@@ -181,7 +167,7 @@ defmodule ImagePipe.Request.HTTPCache do
       has_resp_header?(conn, "etag") ->
         :not_generated
 
-      selected_cache_control(conn) == @no_store ->
+      host_has_no_store?(conn) ->
         :not_generated
 
       true ->
@@ -190,17 +176,13 @@ defmodule ImagePipe.Request.HTTPCache do
   end
 
   defp do_generated_etag(conn, plan, %CacheSemantics{byte_identity: {:strong, seed}}, opts) do
-    case etag_material(conn, plan, seed, opts) do
-      {:ok, material} ->
-        material
-        |> serialize_material()
-        |> then(&:crypto.hash(:sha256, &1))
-        |> Base.url_encode64(padding: false)
-        |> then(&{:etag, ~s("ip#{@etag_schema}-#{&1}")})
+    {:ok, material} = etag_material(conn, plan, seed, opts)
 
-      :omit_etag ->
-        :omit_etag
-    end
+    material
+    |> serialize_material()
+    |> then(&:crypto.hash(:sha256, &1))
+    |> Base.url_encode64(padding: false)
+    |> then(&{:etag, ~s("ip#{@etag_schema}-#{&1}")})
   end
 
   defp do_generated_etag(_conn, _plan, %CacheSemantics{byte_identity: :none}, _opts),
@@ -251,6 +233,12 @@ defmodule ImagePipe.Request.HTTPCache do
     end)
   end
 
+  defp vary_star?(%Plug.Conn{} = conn) do
+    conn
+    |> get_resp_header("vary")
+    |> Enum.any?(fn value -> "*" in split_vary(value) end)
+  end
+
   defp vary_star?(headers) do
     Enum.any?(headers, fn
       {"vary", value} -> "*" in split_vary(value)
@@ -258,24 +246,24 @@ defmodule ImagePipe.Request.HTTPCache do
     end)
   end
 
-  defp selected_cache_control(conn) do
+  defp host_has_no_store?(conn) do
     conn
     |> get_resp_header("cache-control")
     |> Enum.join(",")
     |> String.downcase()
     |> String.split(",")
     |> Enum.map(&String.trim/1)
-    |> Enum.find(&(&1 == "no-store"))
+    |> Enum.any?(&(&1 == @no_store))
   end
 
   defp has_resp_header?(conn, name), do: get_resp_header(conn, name) != []
 
+  defp has_set_cookie?(%Plug.Conn{} = conn) do
+    has_resp_header?(conn, "set-cookie") or conn.resp_cookies != %{}
+  end
+
   defp has_host_cache_control?(conn) do
-    case get_resp_header(conn, "cache-control") do
-      [] -> false
-      [@plug_default_cache_control] -> false
-      _headers -> true
-    end
+    CacheHeaders.host_cache_control?(get_resp_header(conn, "cache-control"))
   end
 
   defp byte_identity_kind(%CacheSemantics{byte_identity: {:strong, _seed}}), do: :strong
@@ -331,14 +319,6 @@ defmodule ImagePipe.Request.HTTPCache do
 
   defp strip_weak("W/" <> rest), do: rest
   defp strip_weak(value), do: value
-
-  defp not_modified_headers(%CacheHeaders{} = prepared) do
-    prepared.headers
-    |> Kernel.++(prepared.representation_headers)
-    |> Enum.filter(fn {name, _value} ->
-      String.downcase(name) in @not_modified_header_allowlist
-    end)
-  end
 
   defp serialize_material(material) do
     material

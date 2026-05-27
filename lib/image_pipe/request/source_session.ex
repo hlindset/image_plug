@@ -8,7 +8,7 @@ defmodule ImagePipe.Request.SourceSession do
   alias ImagePipe.Request.SourceSession.Producer
   alias ImagePipe.Request.SourceSession.Request
 
-  @call_timeout 30_000
+  @call_timeout 15_000
   @cancel_timeout 2_000
   @shutdown_timeout 2_000
 

@@ -181,6 +181,52 @@ defmodule ImagePipe.Source.HTTPTest do
            end)
   end
 
+  test "trusted byte identity strips byte-changing headers even when internal cache is disabled" do
+    plug = fn conn ->
+      send(self(), {:http_request, conn.req_headers})
+      Plug.Conn.send_resp(conn, 200, "image bytes")
+    end
+
+    source = %URL{
+      scheme: :https,
+      host: "assets.example.com",
+      port: nil,
+      path: ["cat.jpg"],
+      query: nil
+    }
+
+    assert {:ok, opts} =
+             HTTP.validate_options(
+               allowed_hosts: ["assets.example.com"],
+               stable: :trusted,
+               internal_cache: :disabled,
+               req_options: [
+                 plug: plug,
+                 headers: [
+                   {"Range", "bytes=0-1"},
+                   {"Accept", "application/json"},
+                   {"Accept-Encoding", "gzip"},
+                   {"x-extra", "kept"}
+                 ]
+               ]
+             )
+
+    assert {:ok, resolved} = HTTP.resolve(source, opts, [])
+
+    assert {:ok, %Response{} = response} =
+             Source.fetch(resolved, [sources: %{https: {HTTP, opts}}], [])
+
+    assert Enum.join(response.stream) == "image bytes"
+    assert_receive {:http_request, headers}
+
+    assert {_name, "kept"} =
+             Enum.find(headers, fn {name, _value} -> String.downcase(name) == "x-extra" end)
+
+    refute Enum.any?(headers, fn {name, _value} ->
+             String.downcase(name) in ["range", "accept", "accept-encoding"]
+           end)
+  end
+
   test "configured max redirects allows bounded redirects" do
     plug = fn
       %{request_path: "/redirect.jpg"} = conn ->

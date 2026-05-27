@@ -56,12 +56,12 @@ defmodule ImagePipe.Plug do
       prepared_http_cache = HTTPCache.prepare(conn, plan, resolved_source, opts)
 
       case HTTPCache.evaluate_conditional(conn, prepared_http_cache, opts) do
-        {:not_modified, headers} ->
+        {:not_modified, prepared} ->
           result = :not_modified
 
           {conn, send_metadata} =
             send_response(conn, opts, result, fn ->
-              HTTPCache.send_not_modified(conn, headers)
+              Sender.send_not_modified(conn, prepared)
             end)
 
           {conn, request_stop_metadata(result, send_metadata)}
