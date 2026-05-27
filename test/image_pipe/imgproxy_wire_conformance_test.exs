@@ -43,6 +43,23 @@ defmodule ImagePipe.ImgproxyWireConformanceTest do
     end
   end
 
+  defmodule ExifOrientationOriginImage do
+    @moduledoc false
+
+    def call(conn, _opts) do
+      body =
+        40
+        |> Image.new!(80, color: :white)
+        |> Image.Draw.rect!(0, 0, 40, 40, color: :red)
+        |> Image.set_orientation!(6)
+        |> Image.write!(:memory, suffix: ".jpg")
+
+      conn
+      |> Plug.Conn.put_resp_content_type("image/jpeg")
+      |> Plug.Conn.send_resp(200, body)
+    end
+  end
+
   @default_opts [
     parser: ImagePipe.Parser.Imgproxy,
     sources: [
@@ -204,6 +221,30 @@ defmodule ImagePipe.ImgproxyWireConformanceTest do
       assert content_type(conn) == ["image/jpeg"]
       assert dimensions(conn) == expected_dimensions
     end
+  end
+
+  test "imgproxy auto_rotate config and URL options control EXIF autorotation" do
+    configured_conn =
+      "/_/f:jpeg/plain/images/oriented.jpg"
+      |> call_imgproxy(exif_orientation_origin_opts(imgproxy: [auto_rotate: true]))
+
+    assert configured_conn.status == 200
+    assert content_type(configured_conn) == ["image/jpeg"]
+    assert dimensions(configured_conn) == {80, 40}
+
+    url_enabled_conn =
+      "/_/ar:true/f:jpeg/plain/images/oriented.jpg"
+      |> call_imgproxy(exif_orientation_origin_opts())
+
+    assert url_enabled_conn.status == 200
+    assert dimensions(url_enabled_conn) == {80, 40}
+
+    url_disabled_conn =
+      "/_/ar:false/f:jpeg/plain/images/oriented.jpg"
+      |> call_imgproxy(exif_orientation_origin_opts(imgproxy: [auto_rotate: true]))
+
+    assert url_disabled_conn.status == 200
+    assert dimensions(url_disabled_conn) == {40, 80}
   end
 
   test "invalid signatures, paths, options, and expiry stop before cache and origin access" do
@@ -902,6 +943,20 @@ defmodule ImagePipe.ImgproxyWireConformanceTest do
           {RootHTTPAdapter,
            root_url: "http://origin.test", req_options: [plug: {SvgOriginImage, test_pid: self()}]}
       ]
+    )
+  end
+
+  defp exif_orientation_origin_opts(overrides \\ []) do
+    Keyword.merge(
+      [
+        parser: ImagePipe.Parser.Imgproxy,
+        sources: [
+          path:
+            {RootHTTPAdapter,
+             root_url: "http://origin.test", req_options: [plug: ExifOrientationOriginImage]}
+        ]
+      ],
+      overrides
     )
   end
 

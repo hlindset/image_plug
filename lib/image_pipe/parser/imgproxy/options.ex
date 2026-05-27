@@ -16,14 +16,15 @@ defmodule ImagePipe.Parser.Imgproxy.Options do
           response: ParsedRequest.response_request()
         }
 
-  @spec parse([String.t()], Presets.t()) :: {:ok, request_options()} | {:error, term()}
-  def parse(option_segments, %Presets{} = presets) do
+  @spec parse([String.t()], Presets.t(), keyword()) :: {:ok, request_options()} | {:error, term()}
+  def parse(option_segments, %Presets{} = presets, defaults \\ []) when is_list(defaults) do
     with {:ok, options} <- initial_request_options() |> apply_default_preset(presets),
          {:ok, options} <- apply_segments(option_segments, options, presets, []),
          {:ok, options} <- drain_queued_preset_groups(options, presets) do
       request =
         options
         |> finalize_request_options()
+        |> apply_request_defaults(defaults)
         |> Map.take([:pipelines, :output, :policy, :cache, :response])
 
       {:ok, request}
@@ -197,7 +198,10 @@ defmodule ImagePipe.Parser.Imgproxy.Options do
           %{
             pipeline
             | orientation: struct!(pipeline.orientation, orientation_assignments),
-              orientation_requested: true
+              orientation_requested: true,
+              auto_rotate_requested:
+                pipeline.auto_rotate_requested or
+                  Keyword.has_key?(orientation_assignments, :auto_orient)
           }
 
         {:padding, padding_args}, pipeline ->
@@ -281,6 +285,7 @@ defmodule ImagePipe.Parser.Imgproxy.Options do
          gravity_y_offset: gravity_y_offset,
          crop: nil,
          orientation_requested: false,
+         auto_rotate_requested: false,
          orientation: %Orientation{} = orientation
        })
        when gravity_x_offset in [{:pixels, 0.0}, 0.0] and
@@ -289,6 +294,33 @@ defmodule ImagePipe.Parser.Imgproxy.Options do
   end
 
   defp pipeline_empty?(%PipelineRequest{}), do: false
+
+  defp apply_request_defaults(options, defaults) do
+    case Keyword.get(defaults, :auto_rotate, false) do
+      true -> apply_auto_rotate_default(options)
+      false -> options
+    end
+  end
+
+  defp apply_auto_rotate_default(%{pipelines: pipelines} = options) do
+    if Enum.any?(pipelines, & &1.auto_rotate_requested) do
+      options
+    else
+      %{options | pipelines: apply_auto_rotate_to_first_pipeline(pipelines)}
+    end
+  end
+
+  defp apply_auto_rotate_to_first_pipeline([
+         %PipelineRequest{orientation: %Orientation{} = orientation} = pipeline | pipelines
+       ]) do
+    pipeline = %{
+      pipeline
+      | orientation: %Orientation{orientation | auto_orient: true},
+        orientation_requested: true
+    }
+
+    [pipeline | pipelines]
+  end
 
   defp apply_padding(%PipelineRequest{} = pipeline, values) do
     top = padding_value(Enum.at(values, 0), pipeline.padding_top)

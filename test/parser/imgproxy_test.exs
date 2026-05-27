@@ -93,6 +93,15 @@ defmodule ImagePipe.Parser.ImgproxyTest do
     end
   end
 
+  test "validates imgproxy auto_rotate config" do
+    assert Imgproxy.validate_options!(auto_rotate: true)[:auto_rotate] == true
+    assert Imgproxy.validate_options!(auto_rotate: false)[:auto_rotate] == false
+
+    assert_raise ArgumentError, ~r/invalid imgproxy config/, fn ->
+      Imgproxy.validate_options!(auto_rotate: "true")
+    end
+  end
+
   test "parse/2 accepts parser options and keeps no-option parse/1 as a delegating helper" do
     conn = conn(:get, "/_/plain/images/cat.jpg")
 
@@ -553,6 +562,25 @@ defmodule ImagePipe.Parser.ImgproxyTest do
              Imgproxy.parse(conn(:get, "/_/crop:10:20/ar:true/plain/images/cat.jpg"), [])
 
     assert operation_names(operations) == [:auto_orient, :crop_guided]
+
+    opts = [imgproxy: [auto_rotate: true]]
+
+    assert {:ok, %Plan{pipelines: [%Pipeline{operations: [%AutoOrient{}]}]}} =
+             Imgproxy.parse(conn(:get, "/_/plain/images/cat.jpg"), opts)
+
+    assert {:ok, %Plan{pipelines: [%Pipeline{operations: []}]}} =
+             Imgproxy.parse(conn(:get, "/_/ar:false/plain/images/cat.jpg"), opts)
+
+    assert {:ok, %Plan{pipelines: [%Pipeline{operations: operations}]}} =
+             Imgproxy.parse(conn(:get, "/_/rot:90/plain/images/cat.jpg"), opts)
+
+    assert operation_names(operations) == [:auto_orient, :rotate]
+
+    assert {:ok, %Plan{pipelines: pipelines}} =
+             Imgproxy.parse(conn(:get, "/_/w:100/-/ar:false/plain/images/cat.jpg"), opts)
+
+    operations = Enum.flat_map(pipelines, & &1.operations)
+    assert operation_names(operations) == [:resize]
 
     for segment <- ~w(extend:false ex:false) do
       assert {:ok, %Plan{pipelines: [%Pipeline{operations: []}]}} =
@@ -1552,7 +1580,9 @@ defmodule ImagePipe.Parser.ImgproxyTest do
   defp operation_names(operations), do: Enum.map(operations, &operation_name/1)
 
   defp operation_name(%AutoOrient{}), do: :auto_orient
+  defp operation_name(%ImagePipe.Transform.Operation.Rotate{}), do: :rotate
   defp operation_name(%Operation.CropGuided{}), do: :crop_guided
+  defp operation_name(%Operation.Resize{}), do: :resize
 
   defp forbidden_parsed_transform_operations(%Plan{} = plan) do
     plan.pipelines
