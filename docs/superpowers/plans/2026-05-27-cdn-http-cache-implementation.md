@@ -1447,8 +1447,6 @@ defmodule ImagePipe.Request.HTTPCache do
             if has_resp_header?(conn, "etag"),
               do: {[{"cache-control", @generated_cache_control}], nil, nil},
               else: {[], nil, nil}
-
-          _cache_semantics -> {[], nil, nil}
         end
 
     end
@@ -1595,6 +1593,11 @@ defmodule ImagePipe.Request.HTTPCache do
   defp canonicalize(value), do: value
 end
 ```
+
+Don't add a catch-all cache semantics fallback here. `Source.Resolved` enforces
+`%CacheSemantics{byte_identity: :none | {:strong, term()}}`, so any other shape
+is an internal construction bug and should fail during implementation rather
+than suppress generated headers.
 
 The goal is to reuse canonical internal key material without including source
 identity, selected headers, selected cookies, or cachebuster as ETag-only
@@ -2153,12 +2156,14 @@ prepared_http_cache = HTTPCache.prepare(conn, plan, resolved_source, opts)
 
 case HTTPCache.evaluate_conditional(conn, prepared_http_cache, opts) do
   {:not_modified, headers} ->
+    result = :not_modified
+
     {conn, send_metadata} =
-      send_response(conn, opts, :not_modified, fn ->
+      send_response(conn, opts, result, fn ->
         HTTPCache.send_not_modified(conn, headers)
       end)
 
-    {conn, Map.merge(%{result: :not_modified}, send_metadata)}
+    {conn, request_stop_metadata(result, send_metadata)}
 
   :proceed ->
     result = Runner.run(conn, plan, resolved_source, prepared_http_cache, opts)
@@ -2172,9 +2177,13 @@ case HTTPCache.evaluate_conditional(conn, prepared_http_cache, opts) do
 end
 ```
 
-Keep the parser/plan/source error branches unchanged.
+Add `request_result_metadata(:not_modified)`, returning
+`%{result: :not_modified}`, next to the existing request metadata clauses. The
+304 branch should use the same `request_stop_metadata/2` path as success and
+error deliveries so future request telemetry changes apply to conditional
+responses too.
 
-Update `request_result/1` and `request_result_metadata/1` only if the direct `304` branch needs a new result atom in request telemetry. The direct branch above returns stop metadata without calling those helpers.
+Keep the parser/plan/source error branches unchanged.
 
 - [ ] **Step 4: Write failing Runner delivery tests**
 
