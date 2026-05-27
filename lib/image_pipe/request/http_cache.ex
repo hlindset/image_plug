@@ -54,7 +54,8 @@ defmodule ImagePipe.Request.HTTPCache do
   def generated_cache_control, do: @generated_cache_control
 
   @doc false
-  @spec etag_material(Plug.Conn.t(), Plan.t(), term(), keyword()) :: {:ok, keyword()}
+  @spec etag_material(Plug.Conn.t(), Plan.t(), term(), keyword()) ::
+          {:ok, keyword()} | {:error, term()}
   def etag_material(conn, %Plan{} = plan, source_seed, opts) do
     with {:ok, plan_material} <- Key.plan_material(plan, opts) do
       {:ok,
@@ -176,13 +177,17 @@ defmodule ImagePipe.Request.HTTPCache do
   end
 
   defp do_generated_etag(conn, plan, %CacheSemantics{byte_identity: {:strong, seed}}, opts) do
-    {:ok, material} = etag_material(conn, plan, seed, opts)
+    case etag_material(conn, plan, seed, opts) do
+      {:ok, material} ->
+        material
+        |> serialize_material()
+        |> then(&:crypto.hash(:sha256, &1))
+        |> Base.url_encode64(padding: false)
+        |> then(&{:etag, ~s("ip#{@etag_schema}-#{&1}")})
 
-    material
-    |> serialize_material()
-    |> then(&:crypto.hash(:sha256, &1))
-    |> Base.url_encode64(padding: false)
-    |> then(&{:etag, ~s("ip#{@etag_schema}-#{&1}")})
+      {:error, _reason} ->
+        :not_generated
+    end
   end
 
   defp do_generated_etag(_conn, _plan, %CacheSemantics{byte_identity: :none}, _opts),

@@ -18,7 +18,7 @@ defmodule ImagePipe.Output.PolicyTest do
       policy = Policy.from_output_plan(conn, %Output{mode: :automatic}, [])
 
       assert policy.headers == [{"vary", "Accept"}]
-      assert policy.modern_candidates != []
+      assert policy.modern_candidates == [:avif, :webp]
     end
 
     test "represents explicit output independently of Accept" do

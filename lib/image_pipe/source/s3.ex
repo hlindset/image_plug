@@ -312,7 +312,8 @@ defmodule ImagePipe.Source.S3 do
   defp denied_header_names(false), do: @signed_header_names
 
   defp s3_stable?(config, revision) do
-    Keyword.fetch!(config, :stable) == :trusted or is_binary(revision)
+    Keyword.fetch!(config, :stable) == :trusted or
+      (is_binary(revision) and revision != "")
   end
 
   defp internal_cache_mode(config, stable?) do

@@ -162,7 +162,7 @@ defmodule ImagePipe.CDNHTTPCacheWireTest do
       |> ImagePipe.Plug.call(opts)
 
     assert conn.status == 200
-    refute get_resp_header(conn, "cache-control") == ["public, max-age=31536000, immutable"]
+    assert get_resp_header(conn, "cache-control") == ["max-age=0, private, must-revalidate"]
     assert get_resp_header(conn, "etag") == []
     assert get_resp_header(conn, "set-cookie") != []
   end

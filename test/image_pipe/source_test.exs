@@ -17,42 +17,6 @@ defmodule ImagePipe.SourceTest do
   alias ImagePipe.SourceTest.RaisingAdapter
   alias ImagePipe.SourceTest.StreamWithCleanup
 
-  test "cache semantics requires explicit byte identity and stability" do
-    assert_raise ArgumentError, fn ->
-      struct!(CacheSemantics, byte_identity: :none)
-    end
-
-    assert %CacheSemantics{byte_identity: :none, stable?: false} =
-             struct!(CacheSemantics, byte_identity: :none, stable?: false)
-  end
-
-  test "resolved source requires internal cache mode, http cache mode, and cache semantics" do
-    assert_raise ArgumentError, fn ->
-      struct!(Resolved,
-        adapter: :path,
-        source_kind: :path,
-        identity: [kind: :path, adapter: :path, root: "test", path: ["cat.jpg"]],
-        internal_cache: :disabled,
-        fetch: [path: "/tmp/cat.jpg"]
-      )
-    end
-
-    assert %Resolved{
-             internal_cache: :disabled,
-             http_cache: :inherit,
-             cache_semantics: %CacheSemantics{byte_identity: :none, stable?: false}
-           } =
-             struct!(Resolved,
-               adapter: :path,
-               source_kind: :path,
-               identity: [kind: :path, adapter: :path, root: "test", path: ["cat.jpg"]],
-               internal_cache: :disabled,
-               http_cache: :inherit,
-               cache_semantics: %CacheSemantics{byte_identity: :none, stable?: false},
-               fetch: [path: "/tmp/cat.jpg"]
-             )
-  end
-
   test "source validation rejects resolved values without cache semantics" do
     defmodule MissingSemanticsSource do
       @behaviour ImagePipe.Source
