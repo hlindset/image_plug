@@ -5,6 +5,7 @@ defmodule ImagePipe.Transform.ChainTest do
   alias ImagePipe.Transform.Chain
   alias ImagePipe.Transform.ChainTest.FailingTransform
   alias ImagePipe.Transform.ChainTest.UnexpectedTransform
+  alias ImagePipe.Transform.Operation.Background
   alias ImagePipe.Transform.Operation.Crop
   alias ImagePipe.Transform.Operation.ExtendCanvas
   alias ImagePipe.Transform.Operation.Resize
@@ -210,5 +211,14 @@ defmodule ImagePipe.Transform.ChainTest do
     assert {:ok, %State{image: image}} = Chain.execute(%State{image: image}, chain)
     assert Image.width(image) == 100
     assert Image.height(image) == 100
+  end
+
+  test "background composites alpha onto a transparent source" do
+    {:ok, image} = Image.new(2, 2, color: [0, 0, 0, 0])
+
+    assert {:ok, %State{image: image}} =
+             Chain.execute(%State{image: image}, [%Background{color: [255, 0, 0, 128]}])
+
+    assert Image.get_pixel!(image, 0, 0) == [255, 0, 0, 128]
   end
 end

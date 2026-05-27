@@ -145,13 +145,25 @@ Validation belongs at boundaries the caller doesn't control. Inside the codebase
 
 ## Test guidelines
 
+### When to add tests
+
 - For behavior changes, add focused ExUnit coverage at the relevant boundary: parser grammar/order-insensitivity, planner mapping, plug-level no-source-fetch failures, output negotiation including `Vary: Accept`, cache key/corruption behavior, and source/decode limit handling.
 - For compatibility parsers such as imgproxy, add a compact set of wire-level Plug tests when changing request parsing, planning, output negotiation, caching, or safety behavior. These tests should make real `ImagePipe.call/2` requests and assert user-visible contracts such as status, headers, content type, decoded output dimensions, cache/source access, and response-body equivalence where relevant.
 - Keep wire-level compatibility tests representative, not exhaustive. Use them for public contracts such as option-order equivalence, `Accept` negotiation and `Vary`, explicit output formats bypassing negotiation, representative geometry results, request-safety failures before source/cache access, and cache reuse for semantically equivalent requests. Leave grammar edge cases and combinatorial coverage in parser, planner, cache-key, and property tests.
-- Do not test impossible internal misuse. Prefer deleting tests that only assert behavior for bad internal callers, hand-built impossible parser structs, negative guard branches, or exact private validation error strings. Add tests for public behavior and safety boundaries, not for every defensive clause.
-- Do not add tests that only police names or modules from abandoned designs, such as asserting stale modules remain deleted. Boundary tests should enforce current architecture ownership and forbidden dependency directions, not memorialize old implementation paths.
-- Do not add tests that inspect raw source text just to enforce private helper choices, bang/non-bang spellings, or other implementation details. Use behavior tests for runtime contracts and reserve source-scanning tests for real architecture boundaries such as forbidden namespace dependencies.
 - Add StreamData property tests when correctness depends on invariants across many input shapes or orderings, such as canonicalization, filesystem safety, parser order-insensitivity, cache keys, normalization, and round-trip behavior. Keep focused example tests for specific edge cases and error messages.
+
+### Tests not to write
+
+**Rule of thumb:** before writing a test, ask whether a real producer in this repo can construct the input you are about to assert on. If no in-repo producer creates that shape, you are testing impossible misuse — delete the production code path instead of pinning it with a test. Tests follow the same boundary discipline as validation (see *Elixir architecture guidelines*): assert at boundaries the caller doesn't control, trust what another module in this codebase just produced.
+
+- **No impossible-internal-misuse tests.** Do not hand-build internal structs (parser ops, transform operations, plan pipelines, cache entries) that no real producer in this codebase constructs, just to assert that a validator rejects them or that a negative guard branch fires. Hand-built `%ImagePipe.Transform.Operation.Resize{}`, `%ImagePipe.Plan.Pipeline{}`, or parser-internal struct literals outside parser/planner test files are a strong signal.
+- **No name- or existence-policing tests.** Do not assert that a module exists, that a function is exported (`function_exported?/3`, `Code.ensure_loaded?/1`), or that a stale module remains deleted. If a real caller needs the function, that caller's test already exercises it; if no real caller exists, the test is policing a name.
+- **No post-migration parity pins.** After a rename or refactor lands, delete the parity, characterization, and "old vs new" tests added to pin it during the transition. Keep them only if they cover behavior no other test asserts. Files named `*_characterization_test.exs` in this greenfield codebase are a smell — they usually mean the refactor is done and the pin has lost its purpose.
+- **No private-implementation tests.** Do not assert on exact private validation error strings, bang vs non-bang spellings, or other private helper choices. Test the runtime contract, not the implementation path that satisfies it.
+- **No source-text scanning outside architecture tests.** Reading `.ex` files to grep for forbidden references is allowed only in `test/image_pipe/architecture_boundary_test.exs`, and only to enforce namespace boundaries (e.g. request code must not name concrete transform modules). Anywhere else, source scanning is a smell.
+
+### Process discipline
+
 - **Always use `start_supervised!/1`** to start processes in tests as it guarantees cleanup between tests
 - **Avoid** `Process.sleep/1` and `Process.alive?/1` in tests
   - Instead of sleeping to wait for a process to finish, **always** use `Process.monitor/1` and assert on the DOWN message:

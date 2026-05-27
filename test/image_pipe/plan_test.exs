@@ -11,20 +11,6 @@ defmodule ImagePipe.PlanTest do
   alias ImagePipe.Transform.Operation.Flip
   alias ImagePipe.Transform.Operation.Rotate
 
-  test "represents source, image pipelines, and output separately" do
-    operations = [resize_operation()]
-
-    plan = %Plan{
-      source: %Source.Path{segments: ["images", "cat.jpg"]},
-      pipelines: [%Pipeline{operations: operations}],
-      output: %Output{mode: {:explicit, :webp}}
-    }
-
-    assert plan.source == %Source.Path{segments: ["images", "cat.jpg"]}
-    assert [%Pipeline{operations: ^operations}] = plan.pipelines
-    assert plan.output.mode == {:explicit, :webp}
-  end
-
   test "validated pipelines accept semantic operation structs" do
     operation = resize_operation()
 
@@ -44,38 +30,6 @@ defmodule ImagePipe.PlanTest do
       plan(pipelines: [%Pipeline{operations: operations}])
 
     assert {:ok, [%Pipeline{operations: ^operations}]} = Plan.validated_pipelines(plan)
-  end
-
-  test "validated pipelines reject parser-local command structs" do
-    operation = %ImagePipe.Parser.Imgproxy.PipelineRequest{}
-
-    assert Plan.validated_pipelines(plan(pipelines: [%Pipeline{operations: [operation]}])) ==
-             {:error, {:invalid_pipeline_operation, operation}}
-  end
-
-  test "validated pipelines reject non-orientation executable transform structs" do
-    operation = %ImagePipe.Transform.Operation.Resize{
-      mode: :fit,
-      width: {:pixels, 100},
-      height: :auto
-    }
-
-    assert Plan.validated_pipelines(plan(pipelines: [%Pipeline{operations: [operation]}])) ==
-             {:error, {:invalid_pipeline_operation, operation}}
-  end
-
-  test "validated pipelines reject malformed semantic operation structs" do
-    operation = %Operation.Resize{
-      mode: :bogus,
-      width: nil,
-      height: nil,
-      dpr: {:ratio, 1, 1},
-      enlargement: :deny,
-      guide: :center
-    }
-
-    assert Plan.validated_pipelines(plan(pipelines: [%Pipeline{operations: [operation]}])) ==
-             {:error, {:invalid_pipeline_operation, operation}}
   end
 
   test "validate shape accepts default product-neutral facets" do

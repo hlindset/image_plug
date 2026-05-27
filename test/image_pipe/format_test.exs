@@ -43,15 +43,36 @@ defmodule ImagePipe.FormatTest do
            ]
   end
 
-  test "maps output MIME types and suffixes" do
+  test "maps MIME types to format atoms" do
+    assert Format.format_from_mime_type("image/avif") == {:ok, :avif}
+    assert Format.format_from_mime_type("image/webp") == {:ok, :webp}
     assert Format.format_from_mime_type("image/jpeg") == {:ok, :jpeg}
     assert Format.format_from_mime_type("image/jpg") == {:ok, :jpeg}
+    assert Format.format_from_mime_type("image/png") == {:ok, :png}
     assert Format.format_from_mime_type(" image/WEBP; charset=utf-8") == {:ok, :webp}
+    assert Format.format_from_mime_type("IMAGE/PNG; charset=binary") == {:ok, :png}
 
     assert Format.format_from_mime_type("image/gif") ==
              {:error, {:unsupported_output_format, "image/gif"}}
+  end
 
+  test "maps format atoms to MIME types" do
+    assert Format.mime_type(:avif) == {:ok, "image/avif"}
+    assert Format.mime_type(:webp) == {:ok, "image/webp"}
+    assert Format.mime_type(:jpeg) == {:ok, "image/jpeg"}
     assert Format.mime_type(:png) == {:ok, "image/png"}
+    assert Format.mime_type(:gif) == :error
+  end
+
+  test "maps MIME types to encoder suffixes" do
+    assert Format.suffix!("image/avif") == ".avif"
+    assert Format.suffix!("image/webp") == ".webp"
+    assert Format.suffix!("image/jpeg") == ".jpg"
     assert Format.suffix!("image/png") == ".png"
+
+    assert Format.suffix("image/jpeg") == {:ok, ".jpg"}
+
+    assert Format.suffix("image/gif") ==
+             {:error, {:unsupported_output_format, "image/gif"}}
   end
 end
