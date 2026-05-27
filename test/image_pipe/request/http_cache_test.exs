@@ -45,6 +45,8 @@ defmodule ImagePipe.Request.HTTPCacheTest do
       [
         http_cache: [mode: :enabled],
         telemetry_prefix: [:image_pipe],
+        max_body_bytes: 10_000_000,
+        max_input_pixels: 40_000_000,
         max_result_width: 8_192,
         max_result_height: 8_192,
         max_result_pixels: 40_000_000

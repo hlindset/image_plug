@@ -17,6 +17,8 @@ defmodule ImagePipe.Cache.KeyPropertyTest do
     opts =
       Keyword.merge(
         [
+          max_body_bytes: 10_000_000,
+          max_input_pixels: 40_000_000,
           max_result_width: 8_192,
           max_result_height: 8_192,
           max_result_pixels: 40_000_000

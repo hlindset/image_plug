@@ -250,6 +250,16 @@ defmodule ImagePipe.PlugTest do
     end
   end
 
+  defmodule ConsumeLargeSourceImage do
+    def open(stream, decode_options) do
+      _chunks = Enum.to_list(stream)
+
+      "priv/static/images/beach.jpg"
+      |> File.read!()
+      |> Image.open(decode_options)
+    end
+  end
+
   defmodule FailingMaterializer do
     def materialize(_state, _opts), do: {:error, :forced_materialization_failure}
   end
@@ -2047,6 +2057,46 @@ defmodule ImagePipe.PlugTest do
 
     assert conn.status == 415
     assert conn.resp_body == "source response is not a supported image"
+  end
+
+  test "default source body limit changes cache key and prevents permissive cache reuse" do
+    permissive =
+      conn(:get, "/_/plain/images/large-body.jpg")
+      |> call_image_pipe(
+        root_url: "http://origin.test",
+        parser: ImagePipe.Parser.Imgproxy,
+        max_body_bytes: 10_000_001,
+        image_open_module: ConsumeLargeSourceImage,
+        cache: {CacheProbe, message_target: self()},
+        origin_req_options: [plug: LargeBodyOrigin]
+      )
+
+    assert permissive.status == 200
+    assert_received {:cache_put, permissive_key, permissive_entry}
+    assert_received {:cache_get, ^permissive_key}
+
+    get_result_fun = fn key ->
+      if key.hash == permissive_key.hash do
+        {:hit, permissive_entry}
+      else
+        :miss
+      end
+    end
+
+    default =
+      conn(:get, "/_/plain/images/large-body.jpg")
+      |> call_image_pipe(
+        root_url: "http://origin.test",
+        parser: ImagePipe.Parser.Imgproxy,
+        image_open_module: ConsumeLargeSourceImage,
+        cache: {CacheProbe, message_target: self(), get_result_fun: get_result_fun},
+        origin_req_options: [plug: LargeBodyOrigin]
+      )
+
+    assert default.status == 422
+    assert default.resp_body == "invalid image source"
+    assert_received {:cache_get, default_key}
+    refute default_key.hash == permissive_key.hash
   end
 
   test "body limit failures surface as source errors during decode" do

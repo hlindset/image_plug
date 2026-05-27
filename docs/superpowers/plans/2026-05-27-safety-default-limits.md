@@ -38,7 +38,7 @@ Test:
 - `test/image_pipe/source_test.exs`: default source body limit and explicit override at the source wrapping boundary.
 - `test/image_pipe/processor_test.exs`: final result dimension limit unit coverage.
 - `test/image_pipe/plug_test.exs`: wire-level body-limit defaults, explicit override, oversized result response, in-limit success, and pre-encode side-effect ordering.
-- `test/image_pipe/cache/key_test.exs`: deterministic key material includes result limits.
+- `test/image_pipe/cache/key_test.exs`: deterministic key material includes source, input, and result limits.
 
 Don't change:
 
@@ -455,7 +455,7 @@ end
 Add to `test/image_pipe/cache/key_test.exs`:
 
 ```elixir
-test "cache key material includes result safety limits" do
+test "cache key material includes request safety limits" do
   conn = conn(:get, "/_/w:100/plain/images/cat.jpg")
 
   default_key =
@@ -463,6 +463,8 @@ test "cache key material includes result safety limits" do
       conn,
       plan(),
       source_identity(),
+      max_body_bytes: 10_000_000,
+      max_input_pixels: 40_000_000,
       max_result_width: 8_192,
       max_result_height: 8_192,
       max_result_pixels: 40_000_000
@@ -473,18 +475,24 @@ test "cache key material includes result safety limits" do
       conn,
       plan(),
       source_identity(),
+      max_body_bytes: 1_000_000,
+      max_input_pixels: 1_000_000,
       max_result_width: 256,
       max_result_height: 256,
       max_result_pixels: 65_536
     )
 
   assert default_key.data[:request_limits] == [
+           max_body_bytes: 10_000_000,
+           max_input_pixels: 40_000_000,
            max_result_width: 8_192,
            max_result_height: 8_192,
            max_result_pixels: 40_000_000
          ]
 
   assert stricter_key.data[:request_limits] == [
+           max_body_bytes: 1_000_000,
+           max_input_pixels: 1_000_000,
            max_result_width: 256,
            max_result_height: 256,
            max_result_pixels: 65_536
@@ -499,7 +507,7 @@ end
 Add to `test/image_pipe/cache/key_test.exs`:
 
 ```elixir
-test "cache lookup forwards result limits into key construction" do
+test "cache lookup forwards request limits into key construction" do
   conn = conn(:get, "/_/w:100/plain/images/cat.jpg")
   plan = plan()
   identity = source_identity()
@@ -507,6 +515,8 @@ test "cache lookup forwards result limits into key construction" do
   loose =
     ImagePipe.Cache.lookup(conn, plan, identity,
       cache: {ForwardingProbe, test_pid: self()},
+      max_body_bytes: 10_000_000,
+      max_input_pixels: 40_000_000,
       max_result_width: 8_192,
       max_result_height: 8_192,
       max_result_pixels: 40_000_000
@@ -517,6 +527,8 @@ test "cache lookup forwards result limits into key construction" do
   strict =
     ImagePipe.Cache.lookup(conn, plan, identity,
       cache: {ForwardingProbe, test_pid: self()},
+      max_body_bytes: 1_000_000,
+      max_input_pixels: 1_000_000,
       max_result_width: 256,
       max_result_height: 256,
       max_result_pixels: 65_536
@@ -524,6 +536,8 @@ test "cache lookup forwards result limits into key construction" do
 
   assert {:miss, %Key{} = strict_key} = strict
   refute loose_key.hash == strict_key.hash
+  assert loose_key.data[:request_limits][:max_body_bytes] == 10_000_000
+  assert strict_key.data[:request_limits][:max_body_bytes] == 1_000_000
   assert loose_key.data[:request_limits][:max_result_width] == 8_192
   assert strict_key.data[:request_limits][:max_result_width] == 256
 end
@@ -618,12 +632,16 @@ request_limits: request_limits_data(opts),
 Add default attributes and helper logic:
 
 ```elixir
+@default_max_body_bytes 10_000_000
+@default_max_input_pixels 40_000_000
 @default_max_result_width 8_192
 @default_max_result_height 8_192
 @default_max_result_pixels 40_000_000
 
 defp request_limits_data(opts) do
   [
+    max_body_bytes: Keyword.get(opts, :max_body_bytes, @default_max_body_bytes),
+    max_input_pixels: Keyword.get(opts, :max_input_pixels, @default_max_input_pixels),
     max_result_width: Keyword.get(opts, :max_result_width, @default_max_result_width),
     max_result_height: Keyword.get(opts, :max_result_height, @default_max_result_height),
     max_result_pixels: Keyword.get(opts, :max_result_pixels, @default_max_result_pixels)
@@ -631,9 +649,9 @@ defp request_limits_data(opts) do
 end
 ```
 
-Don't include `:max_body_bytes` because successful output bytes don't change when only the source fetch ceiling changes. The source byte limit is still enforced on cache misses and uncached requests.
+Include `:max_body_bytes` and `:max_input_pixels` because cache hits return before source fetch and decode. A representation created under looser source/input limits must not be reusable under stricter limits.
 
-Update existing exact key-data assertions in `test/image_pipe/cache/key_test.exs` so they include the new `request_limits` keyword. Keep `schema_version`, `transform` version, and `representation` version unchanged; this greenfield cache-shape change reshapes canonical key data in place. Low-level key construction should encode the same default result limits when direct callers omit them, so direct cache and HTTP-cache tests don't raise before adapter behavior runs.
+Update existing exact key-data assertions in `test/image_pipe/cache/key_test.exs` so they include the new `request_limits` keyword. Keep `schema_version`, `transform` version, and `representation` version unchanged; this greenfield cache-shape change reshapes canonical key data in place. Low-level key construction should encode the same default request limits when direct callers omit them, so direct cache and HTTP-cache tests don't raise before adapter behavior runs.
 
 - [ ] **Step 5: Verify Task 3**
 
@@ -844,6 +862,6 @@ Expected: pass.
 ## Plan Self-Review
 
 - Spec coverage: Tasks 1 and 4 cover issue #9 default source body limit. Tasks 2, 3, and 5 cover the static result-dimension slice of issue #45. Animation frame limits stay out of scope.
-- Side-effect ordering: parser and planner validation remain before source and cache work. Result limit validation happens after transforms because the exact final static dimensions are known there, and before final output resolution or encoding. Internal cache keys and generated ETags include result limits so a stricter limit can't reuse a cached representation or conditional response produced under a looser limit.
+- Side-effect ordering: parser and planner validation remain before source and cache work. Result limit validation happens after transforms because the exact final static dimensions are known there, and before final output resolution or encoding. Internal cache keys and generated ETags include source, input, and result limits so a stricter limit can't reuse a cached representation or conditional response produced under a looser limit.
 - Placeholder scan: no task contains TBD, generic placeholder work, or undefined helper names.
 - Type consistency: option names are `:max_body_bytes`, `:max_input_pixels`, `:max_result_width`, `:max_result_height`, and `:max_result_pixels` across tests, implementation, cache keys, and docs.

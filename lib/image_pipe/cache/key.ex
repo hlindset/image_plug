@@ -15,6 +15,8 @@ defmodule ImagePipe.Cache.Key do
   @schema_version 2
   @transform_key_data_version 1
   @representation_version 1
+  @default_max_body_bytes 10_000_000
+  @default_max_input_pixels 40_000_000
   @default_max_result_width 8_192
   @default_max_result_height 8_192
   @default_max_result_pixels 40_000_000
@@ -104,6 +106,8 @@ defmodule ImagePipe.Cache.Key do
 
   defp request_limits_data(opts) do
     [
+      max_body_bytes: Keyword.get(opts, :max_body_bytes, @default_max_body_bytes),
+      max_input_pixels: Keyword.get(opts, :max_input_pixels, @default_max_input_pixels),
       max_result_width: Keyword.get(opts, :max_result_width, @default_max_result_width),
       max_result_height: Keyword.get(opts, :max_result_height, @default_max_result_height),
       max_result_pixels: Keyword.get(opts, :max_result_pixels, @default_max_result_pixels)

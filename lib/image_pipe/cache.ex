@@ -30,6 +30,8 @@ defmodule ImagePipe.Cache do
   @plan_key_option_keys [
     :auto_avif,
     :auto_webp,
+    :max_body_bytes,
+    :max_input_pixels,
     :max_result_width,
     :max_result_height,
     :max_result_pixels
