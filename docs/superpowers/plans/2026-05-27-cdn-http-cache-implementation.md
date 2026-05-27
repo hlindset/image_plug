@@ -164,40 +164,6 @@ defmodule ImagePipe.SourceTest do
     assert {:error, {:source, :invalid_adapter_result}} = Source.resolve(source, opts, [])
   end
 
-  test "source validation rejects non-canonical strong byte identity material" do
-    defmodule BadByteIdentitySource do
-      @behaviour ImagePipe.Source
-
-      def validate_options(opts), do: {:ok, opts}
-
-      def resolve(%SourcePath{}, _opts, _runtime_opts) do
-        {:ok,
-         %Resolved{
-           adapter: :path,
-           source_kind: :path,
-           identity: [kind: :path, adapter: :path, root: "test", path: ["cat.jpg"]],
-           internal_cache: :enabled,
-           http_cache: :enabled,
-           cache_semantics: %CacheSemantics{
-             byte_identity: {:strong, fn -> :not_canonical end},
-             stable?: true
-           },
-           fetch: [path: "/tmp/cat.jpg"]
-         }}
-      end
-
-      def fetch(_resolved, _opts, _runtime_opts), do: raise("not used")
-    end
-
-    opts = [
-      parser: ImagePipe.Parser.Imgproxy,
-      sources: [path: {BadByteIdentitySource, []}]
-    ]
-
-    source = %SourcePath{segments: ["cat.jpg"]}
-
-    assert {:error, {:source, :invalid_adapter_result}} = Source.resolve(source, opts, [])
-  end
 end
 ```
 
@@ -336,7 +302,13 @@ Create `lib/image_pipe/source/cache_semantics.ex`:
 
 ```elixir
 defmodule ImagePipe.Source.CacheSemantics do
-  @moduledoc false
+  @moduledoc """
+  Source-owned cache facts used by internal and HTTP cache decisions.
+
+  `byte_identity` seeds must be deterministic, non-secret, and stable across
+  nodes for the same source bytes. The core validates the tagged shape but does
+  not validate seed contents structurally.
+  """
 
   @enforce_keys [:byte_identity, :stable?]
   defstruct @enforce_keys
@@ -416,54 +388,26 @@ Remove `@cache_policies`.
 Replace `valid_resolved?/1` with:
 
 ```elixir
-defp valid_resolved?(%Resolved{
-       source_kind: source_kind,
-       identity: identity,
-       internal_cache: internal_cache,
-       http_cache: http_cache,
-       cache_semantics: %CacheSemantics{} = cache_semantics
-     }) do
-  source_kind in @source_kinds and
-    internal_cache in @internal_cache_policies and
-    http_cache in @http_cache_policies and
-    valid_cache_semantics?(cache_semantics) and
-    Identity.valid?(identity)
+defp valid_resolved?(%Resolved{} = resolved) do
+  resolved.source_kind in @source_kinds and
+    resolved.internal_cache in @internal_cache_policies and
+    resolved.http_cache in @http_cache_policies and
+    valid_cache_semantics?(resolved.cache_semantics) and
+    Identity.valid?(resolved.identity)
 end
 
-defp valid_resolved?(%Resolved{}), do: false
+defp valid_cache_semantics?(%CacheSemantics{byte_identity: :none, stable?: stable?}),
+  do: is_boolean(stable?)
 
-defp valid_cache_semantics?(%CacheSemantics{
-       byte_identity: byte_identity,
-       stable?: stable?
-     }) do
-  valid_byte_identity?(byte_identity) and is_boolean(stable?)
-end
+defp valid_cache_semantics?(%CacheSemantics{byte_identity: {:strong, _seed}, stable?: stable?}),
+  do: is_boolean(stable?)
 
-defp valid_byte_identity?(:none), do: true
-defp valid_byte_identity?({:strong, seed}), do: canonical_material?(seed)
-defp valid_byte_identity?(_byte_identity), do: false
-
-defp canonical_material?(value) when is_atom(value) or is_binary(value) or is_integer(value),
-  do: true
-
-defp canonical_material?(value) when is_boolean(value) or is_nil(value), do: true
-
-defp canonical_material?(value) when is_list(value) do
-  Enum.all?(value, fn
-    {key, item} when is_atom(key) or is_binary(key) -> canonical_material?(item)
-    item -> canonical_material?(item)
-  end)
-end
-
-defp canonical_material?(value) when is_tuple(value),
-  do: value |> Tuple.to_list() |> Enum.all?(&canonical_material?/1)
-
-defp canonical_material?(_value), do: false
+defp valid_cache_semantics?(_cache_semantics), do: false
 ```
 
-This validator checks whether the seed can be turned into canonical ETag
-material. Adapters still own the non-secret rule for what they put into the
-seed.
+This validates the cache semantics shape at the adapter boundary. It doesn't
+try to prove that strong seed material is stable. Adapters own that contract,
+and adapter tests should assert the exact seed shape for trusted paths.
 
 - [ ] **Step 8: Update file source defaults**
 
