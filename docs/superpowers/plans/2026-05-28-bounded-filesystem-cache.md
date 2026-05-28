@@ -3078,17 +3078,26 @@ git commit -m "Restore protected segment in order + reconcile over-cap state on 
 - [ ] **Step 3: Implement `child_spec/1`**
 
 ```elixir
+  @doc false
   def child_spec(opts) do
     if Keyword.has_key?(opts, :max_size_bytes) do
       registry_name = registry_name()
-      Supervisor.child_spec(
-        {Supervisor,
-         [
-           {Registry, keys: :unique, name: registry_name},
-           {ImagePipe.Cache.FileSystem.Admission, Keyword.put(opts, :registry, registry_name)}
-         ]},
-        id: {__MODULE__, Keyword.fetch!(opts, :root)}
-      )
+
+      children = [
+        {Registry, keys: :unique, name: registry_name},
+        {ImagePipe.Cache.FileSystem.Admission, Keyword.put(opts, :registry, registry_name)}
+      ]
+
+      # NOTE: `Supervisor.child_spec({Supervisor, children}, id: ...)` is NOT
+      # valid — `{Supervisor, arg}` resolves to `Supervisor.start_link/1`, which
+      # does not exist, so it raises at start time. Return an explicit child-spec
+      # map whose `start` MFA calls `Supervisor.start_link/2` with the children
+      # and a strategy.
+      %{
+        id: {__MODULE__, Keyword.fetch!(opts, :root)},
+        start: {Supervisor, :start_link, [children, [strategy: :one_for_one]]},
+        type: :supervisor
+      }
     else
       :ignore
     end
@@ -3543,6 +3552,18 @@ git commit -m "Cast hit to Admission on FileSystem.get/2 success in bounded mode
 - [ ] **Step 2: Run, confirm failure**
 
 - [ ] **Step 3: Extend `validate_options/1` with NimbleOptions schema**
+
+**Already in place from Phase 4 (Task 23) — integrate, do not duplicate.** A
+`@bounded_option_keys` module attribute already lists the bounded keys, and
+`validate_unknown_options/1` already appends it to the known-keys set so a
+bounded opts list passes the unknown-option check. Phase 4 left those keys
+*tolerated but unvalidated/underived* (a deliberate interim so the integration
+tests could pass a literal bounded opts list before this task lands). This task
+replaces that interim posture with the real per-key NimbleOptions schema +
+cross-key derivation/post-check — reconcile with the existing
+`@bounded_option_keys`/`@option_keys` split rather than re-adding keys. Also
+note `lookup_admission/1` already rescues `ArgumentError` (Registry not started)
+into `:unavailable`; leave that fail-closed behavior intact.
 
 Add new bounded option keys to `@option_keys` and a new schema entry.
 `:max_size_bytes` is the opt-in switch: when absent, the adapter stays
