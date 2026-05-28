@@ -2,8 +2,8 @@ defmodule ImagePipe.Parser.Imgproxy.PipelineRequest do
   @moduledoc false
 
   alias ImagePipe.Parser.Imgproxy.CropRequest
+  alias ImagePipe.Parser.Imgproxy.Orientation
   alias ImagePipe.Plan.Color
-  alias ImagePipe.Plan.Orientation
 
   @type resizing_type() :: :fit | :fill | :fill_down | :force | :auto
   @type gravity_anchor() :: {:anchor, :left | :center | :right, :top | :center | :bottom}

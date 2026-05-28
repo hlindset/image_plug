@@ -55,12 +55,6 @@ defmodule ImagePipe.Transform.Operation.ExtendCanvas do
   rounded and added to that placement after gravity resolution, then passed to
   image embedding.
 
-  ## Decode Planning Metadata
-
-  `metadata/1` returns `%{access: :random}`. Canvas extension needs the whole
-  current image available for embedding into a new canvas and is not treated as
-  safe for optimized sequential source decoding.
-
   ## Examples
 
       canvas = %ImagePipe.Transform.Operation.ExtendCanvas{
@@ -107,9 +101,6 @@ defmodule ImagePipe.Transform.Operation.ExtendCanvas do
 
   @impl ImagePipe.Transform
   def name(%__MODULE__{}), do: :extend_canvas
-
-  @impl ImagePipe.Transform
-  def metadata(%__MODULE__{}), do: %{access: :random}
 
   @impl ImagePipe.Transform
   def execute(%__MODULE__{} = operation, %State{} = state) do

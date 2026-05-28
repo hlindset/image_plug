@@ -58,13 +58,14 @@ request options, and cache policy.
 ## Decode planning
 
 For transform chains proven safe for one-pass reads, ImagePipe may open the
-source image with libvips sequential access before resizing. The first supported
-shapes cover fit and force resize requests with concrete target dimensions. These
-shapes may use sequential access whether the result downscales or upscales.
+source image with libvips sequential access before executing the first pipeline.
+The supported shapes are auto-orient-only pipelines and fit or stretch resize
+requests with concrete target dimensions. These shapes may use sequential access
+whether the result downscales or upscales.
 
-Chains involving crop, cover, or fill result crops, canvas extension, unknown
-transforms, output-only requests, or no geometry transform continue to use
-random access.
+Chains involving crop, cover result crops, canvas extension, unknown transform
+intent, output-only requests, or no geometry transform continue to use random
+access.
 
 When a parsed plan contains more than one image pipeline, ImagePipe materializes the
 image between pipelines. This preserves the explicit pipeline boundary and lets

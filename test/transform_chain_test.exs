@@ -19,22 +19,6 @@ defmodule ImagePipe.Transform.ChainTest do
     assert Transform.transform_name(operation) == :resize
   end
 
-  test "metadata is delegated to operation module" do
-    operation = %Resize{mode: :fit, width: {:pixels, 10}, height: :auto}
-
-    assert Transform.metadata(operation) == %{access: :sequential}
-  end
-
-  test "zero-dimension resize rules stay random access" do
-    operation = %Resize{
-      mode: :fit,
-      width: {:pixels, 0},
-      height: :auto
-    }
-
-    assert Transform.metadata(operation) == %{access: :random}
-  end
-
   test "stops executing after the first transform error" do
     {:ok, image} = Image.new(20, 20, color: :white)
 

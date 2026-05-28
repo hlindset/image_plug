@@ -3,16 +3,19 @@ defmodule ImagePipe.Plan.Operation do
   Constructor facade for canonical semantic Plan operations.
   """
 
+  alias ImagePipe.Plan.Color
+  alias ImagePipe.Plan.Operation.AutoOrient
   alias ImagePipe.Plan.Operation.Background
   alias ImagePipe.Plan.Operation.Canvas
   alias ImagePipe.Plan.Operation.CropGuided
   alias ImagePipe.Plan.Operation.CropRegion
+  alias ImagePipe.Plan.Operation.Flip
   alias ImagePipe.Plan.Operation.Padding
+  alias ImagePipe.Plan.Operation.Rotate
   alias ImagePipe.Plan.Operation.Resize
-  alias ImagePipe.Plan.Color
 
   @enlargements [:allow, :deny]
-  @right_angles [0, 90, 180, 270]
+  @right_angles [90, 180, 270]
   @flip_axes [:horizontal, :vertical, :both]
   @x_anchors [:left, :center, :right]
   @y_anchors [:top, :center, :bottom]
@@ -43,12 +46,6 @@ defmodule ImagePipe.Plan.Operation do
   @canvas_keys [:fill, :overflow, :x_offset, :y_offset]
   @padding_keys [:pixel_ratio, :fill]
   @effective_padding_modes [:resize, :canvas_preserving]
-  # Keep the orientation primitive allowlist centralized without importing
-  # executable operation modules into the Plan operation facade.
-  @auto_orient_module :"Elixir.ImagePipe.Transform.Operation.AutoOrient"
-  @rotate_module :"Elixir.ImagePipe.Transform.Operation.Rotate"
-  @flip_module :"Elixir.ImagePipe.Transform.Operation.Flip"
-
   @type resize_operation :: Resize.t()
 
   @type crop_operation ::
@@ -62,9 +59,9 @@ defmodule ImagePipe.Plan.Operation do
   @type background_operation :: Background.t()
 
   @type orientation_operation ::
-          ImagePipe.Transform.Operation.AutoOrient.t()
-          | ImagePipe.Transform.Operation.Rotate.t()
-          | ImagePipe.Transform.Operation.Flip.t()
+          AutoOrient.t()
+          | Rotate.t()
+          | Flip.t()
 
   @type semantic_operation ::
           resize_operation()
@@ -76,6 +73,17 @@ defmodule ImagePipe.Plan.Operation do
 
   @type error ::
           {:invalid_operation, atom(), term()} | {:unknown_operation_options, atom(), [atom()]}
+
+  @spec auto_orient() :: {:ok, AutoOrient.t()}
+  def auto_orient, do: {:ok, %AutoOrient{}}
+
+  @spec rotate(term()) :: {:ok, Rotate.t()} | {:error, error()}
+  def rotate(angle) when angle in @right_angles, do: {:ok, %Rotate{angle: angle}}
+  def rotate(angle), do: invalid(:rotate, [angle])
+
+  @spec flip(term()) :: {:ok, Flip.t()} | {:error, error()}
+  def flip(axis) when axis in @flip_axes, do: {:ok, %Flip{axis: axis}}
+  def flip(axis), do: invalid(:flip, [axis])
 
   @spec color(term(), term(), term()) :: {:ok, Color.t()} | {:error, term()}
   def color(red, green, blue), do: Color.rgb(red, green, blue)
@@ -250,9 +258,9 @@ defmodule ImagePipe.Plan.Operation do
   def semantic?(%Canvas{} = operation), do: valid_canvas?(operation)
   def semantic?(%Padding{} = operation), do: valid_padding?(operation)
   def semantic?(%Background{} = operation), do: valid_background?(operation)
-  def semantic?(%{__struct__: @auto_orient_module}), do: true
-  def semantic?(%{__struct__: @rotate_module, angle: angle}) when angle in @right_angles, do: true
-  def semantic?(%{__struct__: @flip_module, axis: axis}) when axis in @flip_axes, do: true
+  def semantic?(%AutoOrient{}), do: true
+  def semantic?(%Rotate{angle: angle}) when angle in @right_angles, do: true
+  def semantic?(%Flip{axis: axis}) when axis in @flip_axes, do: true
   def semantic?(_operation), do: false
 
   defp invalid(operation, attrs), do: {:error, {:invalid_operation, operation, attrs}}

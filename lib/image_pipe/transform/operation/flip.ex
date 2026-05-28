@@ -5,9 +5,9 @@ defmodule ImagePipe.Transform.Operation.Flip do
 
   ## Construct When
 
-  Transform Plan execution may pass this narrow executable primitive through
-  unchanged. Parser modules should construct semantic `ImagePipe.Plan.Operation.*`
-  through Plan constructors for non-orientation transform intent.
+  Transform Plan execution creates this executable primitive from semantic
+  `ImagePipe.Plan.Operation.Flip` intent. Parser modules should construct
+  semantic `ImagePipe.Plan.Operation.*` structs through Plan constructors.
 
   ## Fields
 
@@ -29,12 +29,6 @@ defmodule ImagePipe.Transform.Operation.Flip do
   vertical flip, then stores the resulting image in state. If any flip fails,
   execution returns `{:error, {__MODULE__, error}}`.
 
-  ## Decode Planning Metadata
-
-  `metadata/1` returns `%{access: :random}`. Flipping is not treated as safe for
-  optimized sequential source decoding because the transform may need the full
-  decoded image to remap pixels.
-
   ## Examples
 
       flip = %ImagePipe.Transform.Operation.Flip{axis: :horizontal}
@@ -52,9 +46,6 @@ defmodule ImagePipe.Transform.Operation.Flip do
 
   @impl ImagePipe.Transform
   def name(%__MODULE__{}), do: :flip
-
-  @impl ImagePipe.Transform
-  def metadata(%__MODULE__{}), do: %{access: :random}
 
   @impl ImagePipe.Transform
   def execute(%__MODULE__{axis: :both}, %State{} = state) do

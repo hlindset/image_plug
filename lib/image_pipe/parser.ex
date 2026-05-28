@@ -7,8 +7,7 @@ defmodule ImagePipe.Parser do
     top_level?: true,
     deps: [
       ImagePipe.Format,
-      ImagePipe.Plan,
-      ImagePipe.Transform
+      ImagePipe.Plan
     ],
     exports: [Imgproxy]
 

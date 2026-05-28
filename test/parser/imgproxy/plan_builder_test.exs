@@ -12,9 +12,9 @@ defmodule ImagePipe.Parser.Imgproxy.PlanBuilderTest do
   alias ImagePipe.Plan.Pipeline
   alias ImagePipe.Plan.Response
   alias ImagePipe.Plan.Source
-  alias ImagePipe.Transform.Operation.AutoOrient
-  alias ImagePipe.Transform.Operation.Flip
-  alias ImagePipe.Transform.Operation.Rotate
+  alias ImagePipe.Plan.Operation.AutoOrient
+  alias ImagePipe.Plan.Operation.Flip
+  alias ImagePipe.Plan.Operation.Rotate
 
   test "converts one imgproxy pipeline request into a product-neutral plan" do
     request = %ParsedRequest{
@@ -539,7 +539,9 @@ defmodule ImagePipe.Parser.Imgproxy.PlanBuilderTest do
              plan_pipeline(crop: struct(ImagePipe.Parser.Imgproxy.CropRequest))
 
     assert {:ok, %Plan{pipelines: [%Pipeline{operations: [%AutoOrient{}]}]}} =
-             plan_pipeline(orientation: struct(ImagePipe.Plan.Orientation, auto_orient: true))
+             plan_pipeline(
+               orientation: struct(ImagePipe.Parser.Imgproxy.Orientation, auto_orient: true)
+             )
 
     assert {:ok, %Plan{pipelines: [%Pipeline{operations: []}]}} =
              plan_pipeline(orientation_requested: true)
@@ -547,7 +549,7 @@ defmodule ImagePipe.Parser.Imgproxy.PlanBuilderTest do
     assert {:ok, %Plan{pipelines: [%Pipeline{operations: operations}]}} =
              plan_pipeline(
                crop: struct(ImagePipe.Parser.Imgproxy.CropRequest),
-               orientation: struct(ImagePipe.Plan.Orientation, auto_orient: true)
+               orientation: struct(ImagePipe.Parser.Imgproxy.Orientation, auto_orient: true)
              )
 
     assert operation_names(operations) == [:auto_orient, :crop_guided]
@@ -862,7 +864,9 @@ defmodule ImagePipe.Parser.Imgproxy.PlanBuilderTest do
     if orientation_attrs == [] do
       attrs
     else
-      {orientation, attrs} = Keyword.pop(attrs, :orientation, %ImagePipe.Plan.Orientation{})
+      {orientation, attrs} =
+        Keyword.pop(attrs, :orientation, %ImagePipe.Parser.Imgproxy.Orientation{})
+
       Keyword.put(attrs, :orientation, struct!(orientation, orientation_attrs))
     end
   end

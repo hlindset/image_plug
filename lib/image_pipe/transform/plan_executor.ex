@@ -3,11 +3,14 @@ defmodule ImagePipe.Transform.PlanExecutor do
 
   alias ImagePipe.Plan
   alias ImagePipe.Plan.Color
+  alias ImagePipe.Plan.Operation.AutoOrient, as: PlanAutoOrient
   alias ImagePipe.Plan.Operation.Background, as: PlanBackground
   alias ImagePipe.Plan.Operation.Canvas
   alias ImagePipe.Plan.Operation.CropGuided
   alias ImagePipe.Plan.Operation.CropRegion
+  alias ImagePipe.Plan.Operation.Flip, as: PlanFlip
   alias ImagePipe.Plan.Operation.Padding, as: PlanPadding
+  alias ImagePipe.Plan.Operation.Rotate, as: PlanRotate
   alias ImagePipe.Plan.Operation.Resize, as: PlanResize
   alias ImagePipe.Plan.Pipeline
   alias ImagePipe.Transform.Chain
@@ -164,11 +167,13 @@ defmodule ImagePipe.Transform.PlanExecutor do
     [%Background{color: Color.to_rgba_list(operation.color)}]
   end
 
-  defp executable_operations(%AutoOrient{} = operation, %State{}, _context),
-    do: [operation]
+  defp executable_operations(%PlanAutoOrient{}, %State{}, _context), do: [%AutoOrient{}]
 
-  defp executable_operations(%Rotate{} = operation, %State{}, _context), do: [operation]
-  defp executable_operations(%Flip{} = operation, %State{}, _context), do: [operation]
+  defp executable_operations(%PlanRotate{angle: angle}, %State{}, _context),
+    do: [%Rotate{angle: angle}]
+
+  defp executable_operations(%PlanFlip{axis: axis}, %State{}, _context),
+    do: [%Flip{axis: axis}]
 
   defp tagged_executable_resize_operations(
          :cover,

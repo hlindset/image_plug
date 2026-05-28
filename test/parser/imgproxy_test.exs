@@ -11,7 +11,7 @@ defmodule ImagePipe.Parser.ImgproxyTest do
   alias ImagePipe.Plan.Pipeline
   alias ImagePipe.Plan.Response
   alias ImagePipe.Plan.Source
-  alias ImagePipe.Transform.Operation.AutoOrient
+  alias ImagePipe.Plan.Operation.AutoOrient
 
   defmodule FoobarTranslator do
     @behaviour ImagePipe.Parser.Imgproxy.SourceScheme
@@ -33,12 +33,6 @@ defmodule ImagePipe.Parser.ImgproxyTest do
   defmodule InvalidTranslator do
     @moduledoc false
   end
-
-  @allowed_parsed_transform_operations [
-    ImagePipe.Transform.Operation.AutoOrient,
-    ImagePipe.Transform.Operation.Rotate,
-    ImagePipe.Transform.Operation.Flip
-  ]
 
   @no_auto_rotate_opts [imgproxy: [auto_rotate: false]]
 
@@ -721,7 +715,7 @@ defmodule ImagePipe.Parser.ImgproxyTest do
     end
   end
 
-  test "parsed plans contain no executable transform operations except orientation primitives" do
+  test "parsed plans contain no executable transform operations" do
     for path <- [
           "/_/rt:force/w:0/h:200/plain/images/cat.jpg",
           "/_/g:fp:0.25:0.75/rs:fill:300:200/plain/images/cat.jpg",
@@ -1656,7 +1650,7 @@ defmodule ImagePipe.Parser.ImgproxyTest do
   defp operation_names(operations), do: Enum.map(operations, &operation_name/1)
 
   defp operation_name(%AutoOrient{}), do: :auto_orient
-  defp operation_name(%ImagePipe.Transform.Operation.Rotate{}), do: :rotate
+  defp operation_name(%Operation.Rotate{}), do: :rotate
   defp operation_name(%Operation.CropGuided{}), do: :crop_guided
   defp operation_name(%Operation.Resize{}), do: :resize
 
@@ -1667,7 +1661,7 @@ defmodule ImagePipe.Parser.ImgproxyTest do
   end
 
   defp forbidden_parsed_transform_operation?(%{__struct__: module}) do
-    transform_operation_module?(module) and module not in @allowed_parsed_transform_operations
+    transform_operation_module?(module)
   end
 
   defp forbidden_parsed_transform_operation?(_operation), do: false

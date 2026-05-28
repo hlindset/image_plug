@@ -21,9 +21,9 @@ defmodule ImagePipe.ArchitectureBoundaryTest do
     "lib/image_pipe/output.ex",
     "lib/image_pipe/output/**/*.ex"
   ]
-  @imgproxy_parser_globs [
-    "lib/image_pipe/parser/imgproxy.ex",
-    "lib/image_pipe/parser/imgproxy/**/*.ex"
+  @parser_globs [
+    "lib/image_pipe/parser.ex",
+    "lib/image_pipe/parser/**/*.ex"
   ]
   @cache_key_files ["lib/image_pipe/cache/key.ex"]
   @boundary_files %{
@@ -42,11 +42,14 @@ defmodule ImagePipe.ArchitectureBoundaryTest do
     ImagePipe.Transform => "lib/image_pipe/transform.ex"
   }
   @concrete_plan_names [
+    :AutoOrient,
     :Background,
     :Canvas,
     :CropGuided,
     :CropRegion,
+    :Flip,
     :Padding,
+    :Rotate,
     :Resize
   ]
   @concrete_transform_names [
@@ -64,11 +67,6 @@ defmodule ImagePipe.ArchitectureBoundaryTest do
     :Padding,
     :AdaptiveResize
   ]
-  @orientation_transform_modules [
-    "ImagePipe.Transform.Operation.AutoOrient",
-    "ImagePipe.Transform.Operation.Rotate",
-    "ImagePipe.Transform.Operation.Flip"
-  ]
   @post_fetch_transform_state_modules [
     ImagePipe.Transform.PlanExecutor
   ]
@@ -80,29 +78,27 @@ defmodule ImagePipe.ArchitectureBoundaryTest do
     :execute_plan
   ]
 
-  test "parser boundary declarations stay limited to format, parser, plan, and transform construction APIs" do
+  test "parser boundary declarations stay limited to format, parser, and plan APIs" do
     parser = boundary_declaration(ImagePipe.Parser)
     imgproxy = boundary_declaration(ImagePipe.Parser.Imgproxy)
 
-    assert_boundary_deps(parser, [ImagePipe.Format, ImagePipe.Plan, ImagePipe.Transform])
+    assert_boundary_deps(parser, [ImagePipe.Format, ImagePipe.Plan])
     assert_boundary_exports(parser, [ImagePipe.Parser.Imgproxy])
 
     assert_boundary_deps(imgproxy, [
       ImagePipe.Format,
       ImagePipe.Parser,
-      ImagePipe.Plan,
-      ImagePipe.Transform
+      ImagePipe.Plan
     ])
 
     assert_boundary_exports(imgproxy, [ImagePipe.Parser.Imgproxy.SourceScheme])
 
-    assert_allowed_deps(parser, [ImagePipe.Format, ImagePipe.Plan, ImagePipe.Transform])
+    assert_allowed_deps(parser, [ImagePipe.Format, ImagePipe.Plan])
 
     assert_allowed_deps(imgproxy, [
       ImagePipe.Format,
       ImagePipe.Parser,
-      ImagePipe.Plan,
-      ImagePipe.Transform
+      ImagePipe.Plan
     ])
   end
 
@@ -397,16 +393,33 @@ defmodule ImagePipe.ArchitectureBoundaryTest do
     ])
   end
 
-  test "plan boundary exports canonical composition modules and depends only on formats" do
+  test "plan boundary exports canonical modules and depends only on formats" do
     plan = boundary_declaration(ImagePipe.Plan)
 
     assert_boundary_deps(plan, [ImagePipe.Format])
 
-    assert_boundary_exports_include(plan, [
+    assert_boundary_exports(plan, [
+      ImagePipe.Plan.Pipeline,
+      ImagePipe.Plan.Output,
+      ImagePipe.Plan.Response,
       ImagePipe.Plan.Color,
       ImagePipe.Plan.KeyData,
+      ImagePipe.Plan.Source,
+      ImagePipe.Plan.Source.Identity,
+      ImagePipe.Plan.Source.Path,
+      ImagePipe.Plan.Source.URL,
+      ImagePipe.Plan.Source.Object,
+      ImagePipe.Plan.Source.Reference,
+      ImagePipe.Plan.Operation,
+      ImagePipe.Plan.Operation.AutoOrient,
+      ImagePipe.Plan.Operation.Background,
+      ImagePipe.Plan.Operation.Canvas,
+      ImagePipe.Plan.Operation.CropGuided,
+      ImagePipe.Plan.Operation.CropRegion,
+      ImagePipe.Plan.Operation.Flip,
       ImagePipe.Plan.Operation.Padding,
-      ImagePipe.Plan.Operation.Background
+      ImagePipe.Plan.Operation.Rotate,
+      ImagePipe.Plan.Operation.Resize
     ])
   end
 
@@ -435,11 +448,10 @@ defmodule ImagePipe.ArchitectureBoundaryTest do
     assert violations == []
   end
 
-  test "imgproxy parser does not depend on executable transform operation modules" do
+  test "parser code does not depend on executable transform operation modules" do
     violations =
-      for file <- imgproxy_parser_files(),
-          violation <- concrete_transform_references(file),
-          violation.module not in @orientation_transform_modules do
+      for file <- parser_files(),
+          violation <- concrete_transform_references(file) do
         "#{file}:#{violation.line} must not name #{violation.module}; parser output is semantic Plan operations"
       end
 
@@ -454,6 +466,13 @@ defmodule ImagePipe.ArchitectureBoundaryTest do
 
   defp parser_forbidden_files do
     @parser_forbidden_globs
+    |> Enum.flat_map(&Path.wildcard/1)
+    |> Enum.uniq()
+    |> Enum.sort()
+  end
+
+  defp parser_files do
+    @parser_globs
     |> Enum.flat_map(&Path.wildcard/1)
     |> Enum.uniq()
     |> Enum.sort()
@@ -611,12 +630,6 @@ defmodule ImagePipe.ArchitectureBoundaryTest do
   end
 
   defp module_alias({:__aliases__, _meta, parts}), do: Module.concat(parts)
-
-  defp imgproxy_parser_files do
-    @imgproxy_parser_globs
-    |> Enum.flat_map(&Path.wildcard/1)
-    |> Enum.sort()
-  end
 
   defp concrete_plan_references(file) do
     {:ok, ast} = file |> File.read!() |> Code.string_to_quoted()

@@ -2,10 +2,10 @@ defmodule ImagePipe.Transform do
   @moduledoc """
   Behaviour and dispatch facade for transform operations.
 
-  Operation modules implement this behaviour with constructors, metadata, a
-  stable transform name, and execution over `ImagePipe.Transform.State`.
-  Runtime callers dispatch through this module's generic functions so the
-  runtime boundary does not need to know concrete operation modules.
+  Operation modules implement this behaviour with a stable transform name and
+  execution over `ImagePipe.Transform.State`. Runtime callers dispatch through
+  this module's generic functions so the runtime boundary does not need to know
+  concrete operation modules.
   """
 
   use Boundary,
@@ -35,7 +35,6 @@ defmodule ImagePipe.Transform do
   @type operation() :: struct()
 
   @callback name(operation()) :: atom()
-  @callback metadata(operation()) :: map()
   @callback execute(operation(), State.t()) :: {:ok, State.t()} | {:error, term()}
 
   @spec transform_name(operation()) :: atom()
@@ -50,11 +49,6 @@ defmodule ImagePipe.Transform do
       {:ok, %Plan{}} -> Plan.validated_pipelines(plan)
       {:error, _reason} = error -> error
     end
-  end
-
-  @spec metadata(operation()) :: map()
-  def metadata(%module{} = operation) do
-    module.metadata(operation)
   end
 
   @spec execute(operation(), State.t()) :: {:ok, State.t()} | {:error, term()}

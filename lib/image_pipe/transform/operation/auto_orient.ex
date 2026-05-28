@@ -5,9 +5,9 @@ defmodule ImagePipe.Transform.Operation.AutoOrient do
 
   ## Construct When
 
-  Transform Plan execution may pass this narrow executable primitive through
-  unchanged. Parser modules should construct semantic `ImagePipe.Plan.Operation.*`
-  through Plan constructors for non-orientation transform intent.
+  Transform Plan execution creates this executable primitive from semantic
+  `ImagePipe.Plan.Operation.AutoOrient` intent. Parser modules should construct
+  semantic `ImagePipe.Plan.Operation.*` structs through Plan constructors.
 
   ## Fields
 
@@ -23,13 +23,6 @@ defmodule ImagePipe.Transform.Operation.AutoOrient do
   resulting image, not parser-specific orientation metadata.
 
   If autorotation fails, execution returns `{:error, {__MODULE__, error}}`.
-
-  ## Decode Planning Metadata
-
-  `metadata/1` returns `%{access: :sequential}`. Auto-orientation can be used
-  with optimized sequential source access because it does not require choosing
-  an arbitrary crop rectangle, result crop, canvas expansion, or other
-  random-access geometry during decode planning.
 
   ## Examples
 
@@ -48,9 +41,6 @@ defmodule ImagePipe.Transform.Operation.AutoOrient do
 
   @impl ImagePipe.Transform
   def name(%__MODULE__{}), do: :auto_orient
-
-  @impl ImagePipe.Transform
-  def metadata(%__MODULE__{}), do: %{access: :sequential}
 
   @impl ImagePipe.Transform
   def execute(%__MODULE__{}, %State{} = state) do
