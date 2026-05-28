@@ -6,7 +6,9 @@ defmodule ImagePipe.Plan.OperationTest do
   alias ImagePipe.Plan.Operation.Blur
   alias ImagePipe.Plan.Operation.Brightness
   alias ImagePipe.Plan.Operation.Contrast
+  alias ImagePipe.Plan.Operation.Duotone
   alias ImagePipe.Plan.Operation.Flip
+  alias ImagePipe.Plan.Operation.Monochrome
   alias ImagePipe.Plan.Operation.Pixelate
   alias ImagePipe.Plan.Operation.Rotate
   alias ImagePipe.Plan.Operation.Saturation
@@ -373,6 +375,22 @@ defmodule ImagePipe.Plan.OperationTest do
       assert Operation.blur(2.5) == {:ok, %Blur{sigma: 2.5}}
       assert Operation.sharpen(0.7) == {:ok, %Sharpen{sigma: 0.7}}
       assert Operation.pixelate(8) == {:ok, %Pixelate{size: 8}}
+      assert {:ok, color} = Operation.color(255, 204, 0)
+
+      assert Operation.monochrome({:ratio, 1, 2}, color) ==
+               {:ok, %Monochrome{intensity: {:ratio, 1, 2}, color: color}}
+
+      assert {:ok, shadow} = Operation.color(17, 34, 51)
+      assert {:ok, highlight} = Operation.color(255, 238, 204)
+
+      assert Operation.duotone({:ratio, 1, 4}, shadow, highlight) ==
+               {:ok,
+                %Duotone{
+                  intensity: {:ratio, 1, 4},
+                  shadow: shadow,
+                  highlight: highlight
+                }}
+
       assert Operation.brightness(20) == {:ok, %Brightness{value: 20}}
       assert Operation.contrast(-15) == {:ok, %Contrast{value: -15}}
       assert Operation.saturation(35) == {:ok, %Saturation{value: 35}}
@@ -380,6 +398,14 @@ defmodule ImagePipe.Plan.OperationTest do
       assert Operation.semantic?(%Blur{sigma: 2.5})
       assert Operation.semantic?(%Sharpen{sigma: 0.7})
       assert Operation.semantic?(%Pixelate{size: 8})
+      assert Operation.semantic?(%Monochrome{intensity: {:ratio, 1, 2}, color: color})
+
+      assert Operation.semantic?(%Duotone{
+               intensity: {:ratio, 1, 4},
+               shadow: shadow,
+               highlight: highlight
+             })
+
       assert Operation.semantic?(%Brightness{value: 20})
       assert Operation.semantic?(%Contrast{value: -15})
       assert Operation.semantic?(%Saturation{value: 35})
@@ -395,10 +421,15 @@ defmodule ImagePipe.Plan.OperationTest do
       assert Operation.blur(0) == {:error, {:invalid_operation, :blur, [0]}}
       assert Operation.sharpen(-1.0) == {:error, {:invalid_operation, :sharpen, [-1.0]}}
       assert Operation.pixelate(0) == {:error, {:invalid_operation, :pixelate, [0]}}
+      assert {:ok, color} = Operation.color(255, 204, 0)
+
+      assert Operation.monochrome({:ratio, 0, 1}, color) ==
+               {:error, {:invalid_operation, :monochrome, [{:ratio, 0, 1}, color]}}
 
       refute Operation.semantic?(%Blur{sigma: 0})
       refute Operation.semantic?(%Sharpen{sigma: -1.0})
       refute Operation.semantic?(%Pixelate{size: 0})
+      refute Operation.semantic?(%Monochrome{intensity: {:ratio, 0, 1}, color: color})
     end
 
     test "rejects out-of-range adjustment values" do

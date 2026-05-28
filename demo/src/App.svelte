@@ -204,6 +204,15 @@
       currentState.blurEnabled ? `bl:${currentState.blur}` : null,
       currentState.sharpenEnabled ? `sh:${currentState.sharpen}` : null,
       currentState.pixelateEnabled ? `pix:${currentState.pixelate}` : null,
+      currentState.monochromeEnabled
+        ? `mc:${currentState.monochromeIntensity}:${currentState.monochromeColor.replace(/^#/, "")}`
+        : null,
+      currentState.duotoneEnabled
+        ? `dt:${currentState.duotoneIntensity}:${currentState.duotoneShadow.replace(
+            /^#/,
+            "",
+          )}:${currentState.duotoneHighlight.replace(/^#/, "")}`
+        : null,
       currentState.brightnessEnabled ? `br:${currentState.brightness}` : null,
       currentState.contrastEnabled ? `co:${currentState.contrast}` : null,
       currentState.saturationEnabled ? `sa:${currentState.saturation}` : null,
@@ -1097,6 +1106,58 @@
             {/if}
 
             <label class="switch-field">
+              <Switch.Root class="switch-root" bind:checked={state.monochromeEnabled}>
+                <Switch.Thumb class="switch-thumb" />
+              </Switch.Root>
+              <span>Monochrome</span>
+            </label>
+            {#if state.monochromeEnabled}
+              <div class="monochrome-control-row">
+                <RangeNumber
+                  label="Intensity"
+                  bind:value={state.monochromeIntensity}
+                  min={controlLimits.effects.intensity.min}
+                  max={controlLimits.effects.intensity.max}
+                  step={controlLimits.effects.intensity.step}
+                  inputStep="any"
+                />
+                <label class="field monochrome-color-field">
+                  <span>Color</span>
+                  <input class="color-input" type="color" bind:value={state.monochromeColor} />
+                </label>
+              </div>
+            {/if}
+
+            <label class="switch-field">
+              <Switch.Root class="switch-root" bind:checked={state.duotoneEnabled}>
+                <Switch.Thumb class="switch-thumb" />
+              </Switch.Root>
+              <span>Duotone</span>
+            </label>
+            {#if state.duotoneEnabled}
+              <div class="duotone-control-row">
+                <RangeNumber
+                  label="Intensity"
+                  bind:value={state.duotoneIntensity}
+                  min={controlLimits.effects.intensity.min}
+                  max={controlLimits.effects.intensity.max}
+                  step={controlLimits.effects.intensity.step}
+                  inputStep="any"
+                />
+                <div class="duotone-color-controls">
+                  <label class="field">
+                    <span>Shadow</span>
+                    <input class="color-input" type="color" bind:value={state.duotoneShadow} />
+                  </label>
+                  <label class="field">
+                    <span>Highlight</span>
+                    <input class="color-input" type="color" bind:value={state.duotoneHighlight} />
+                  </label>
+                </div>
+              </div>
+            {/if}
+
+            <label class="switch-field">
               <Switch.Root class="switch-root" bind:checked={state.brightnessEnabled}>
                 <Switch.Thumb class="switch-thumb" />
               </Switch.Root>
@@ -1771,6 +1832,30 @@
   .background-opacity-field {
     min-width: 0;
     flex: 1;
+  }
+
+  .monochrome-control-row {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+    align-items: start;
+    gap: 14px;
+  }
+
+  .monochrome-color-field {
+    width: 58px;
+  }
+
+  .duotone-control-row {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+    align-items: start;
+    gap: 14px;
+  }
+
+  .duotone-color-controls {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 10px;
   }
 
   .signature-secret-grid {

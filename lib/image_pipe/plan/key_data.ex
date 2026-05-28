@@ -16,7 +16,9 @@ defmodule ImagePipe.Plan.KeyData do
   alias ImagePipe.Plan.Operation.Contrast
   alias ImagePipe.Plan.Operation.CropGuided
   alias ImagePipe.Plan.Operation.CropRegion
+  alias ImagePipe.Plan.Operation.Duotone
   alias ImagePipe.Plan.Operation.Flip
+  alias ImagePipe.Plan.Operation.Monochrome
   alias ImagePipe.Plan.Operation.Padding
   alias ImagePipe.Plan.Operation.Pixelate
   alias ImagePipe.Plan.Operation.Resize
@@ -124,6 +126,24 @@ defmodule ImagePipe.Plan.KeyData do
   def data(%Blur{sigma: sigma}), do: [op: :blur, sigma: sigma]
   def data(%Sharpen{sigma: sigma}), do: [op: :sharpen, sigma: sigma]
   def data(%Pixelate{size: size}), do: [op: :pixelate, size: size]
+
+  def data(%Monochrome{} = operation) do
+    [
+      op: :monochrome,
+      intensity: data(operation.intensity),
+      color: Color.key_data(operation.color)
+    ]
+  end
+
+  def data(%Duotone{} = operation) do
+    [
+      op: :duotone,
+      intensity: data(operation.intensity),
+      shadow: Color.key_data(operation.shadow),
+      highlight: Color.key_data(operation.highlight)
+    ]
+  end
+
   def data(%Brightness{value: value}), do: [op: :brightness, value: value]
   def data(%Contrast{value: value}), do: [op: :contrast, value: value]
   def data(%Saturation{value: value}), do: [op: :saturation, value: value]

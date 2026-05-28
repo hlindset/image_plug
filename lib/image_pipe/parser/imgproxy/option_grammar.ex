@@ -410,6 +410,14 @@ defmodule ImagePipe.Parser.Imgproxy.OptionGrammar do
     parse_pixelate(args, segment)
   end
 
+  defp parse_special_option(name, args, segment) when name in ["monochrome", "mc"] do
+    parse_monochrome(args, segment)
+  end
+
+  defp parse_special_option(name, args, segment) when name in ["duotone", "dt"] do
+    parse_duotone(args, segment)
+  end
+
   defp parse_special_option(name, args, segment) when name in ["brightness", "br"] do
     parse_adjustment(:brightness, args, segment)
   end
@@ -441,6 +449,73 @@ defmodule ImagePipe.Parser.Imgproxy.OptionGrammar do
 
   defp parse_pixelate(_args, segment), do: {:error, {:invalid_option_segment, segment}}
 
+  defp parse_monochrome([intensity], _segment) when intensity != "" do
+    with {:ok, intensity} <- parse_intensity(intensity) do
+      {:ok, [monochrome: [intensity: intensity]]}
+    end
+  end
+
+  defp parse_monochrome([intensity, ""], _segment) when intensity != "" do
+    with {:ok, intensity} <- parse_intensity(intensity) do
+      {:ok, [monochrome: [intensity: intensity]]}
+    end
+  end
+
+  defp parse_monochrome([intensity, color], _segment) when intensity != "" and color != "" do
+    with {:ok, intensity} <- parse_intensity(intensity),
+         {:ok, color} <- Color.rgb_hex(color) do
+      {:ok, [monochrome: [intensity: intensity, color: color]]}
+    else
+      {:error, {:invalid_color, _value}} -> {:error, {:invalid_monochrome, color}}
+      {:error, _reason} = error -> error
+    end
+  end
+
+  defp parse_monochrome(_args, segment), do: {:error, {:invalid_option_segment, segment}}
+
+  defp parse_duotone([intensity], _segment) when intensity != "" do
+    with {:ok, intensity} <- parse_intensity(intensity) do
+      {:ok, [duotone: [intensity: intensity]]}
+    end
+  end
+
+  defp parse_duotone([intensity, shadow], _segment) when intensity != "" do
+    with {:ok, intensity} <- parse_intensity(intensity),
+         {:ok, shadow_assignments} <- parse_optional_duotone_color(:shadow, shadow) do
+      {:ok, [duotone: Keyword.merge([intensity: intensity], shadow_assignments)]}
+    else
+      {:error, {:invalid_color, _value}} -> {:error, {:invalid_duotone, shadow}}
+      {:error, _reason} = error -> error
+    end
+  end
+
+  defp parse_duotone([intensity, shadow, highlight], _segment)
+       when intensity != "" do
+    with {:ok, intensity} <- parse_intensity(intensity),
+         {:ok, shadow_assignments} <- parse_optional_duotone_color(:shadow, shadow),
+         {:ok, highlight_assignments} <- parse_optional_duotone_color(:highlight, highlight) do
+      duotone =
+        [intensity: intensity]
+        |> Keyword.merge(shadow_assignments)
+        |> Keyword.merge(highlight_assignments)
+
+      {:ok, [duotone: duotone]}
+    else
+      {:error, {:invalid_color, _value}} -> {:error, {:invalid_duotone, [shadow, highlight]}}
+      {:error, _reason} = error -> error
+    end
+  end
+
+  defp parse_duotone(_args, segment), do: {:error, {:invalid_option_segment, segment}}
+
+  defp parse_optional_duotone_color(_field, ""), do: {:ok, []}
+
+  defp parse_optional_duotone_color(field, value) do
+    with {:ok, color} <- Color.rgb_hex(value) do
+      {:ok, [{field, color}]}
+    end
+  end
+
   defp parse_adjustment(key, [value], _segment) when value != "" do
     with {:ok, value} <- parse_adjustment_value(value) do
       {:ok, [{key, value}]}
@@ -454,6 +529,13 @@ defmodule ImagePipe.Parser.Imgproxy.OptionGrammar do
       {:ok, number} when number >= -100 and number <= 100 -> {:ok, number}
       {:ok, _number} -> {:error, {:invalid_adjustment, value}}
       {:error, _reason} -> {:error, {:invalid_adjustment, value}}
+    end
+  end
+
+  defp parse_intensity(value) do
+    case parse_alpha_ratio(value) do
+      {:ok, ratio} -> {:ok, ratio}
+      {:error, _reason} -> {:error, {:invalid_intensity, value}}
     end
   end
 

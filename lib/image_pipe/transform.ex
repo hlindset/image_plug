@@ -27,6 +27,8 @@ defmodule ImagePipe.Transform do
       Operation.Blur,
       Operation.Sharpen,
       Operation.Pixelate,
+      Operation.Monochrome,
+      Operation.Duotone,
       Operation.Brightness,
       Operation.Contrast,
       Operation.Saturation

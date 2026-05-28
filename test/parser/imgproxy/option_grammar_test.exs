@@ -4,6 +4,7 @@ defmodule ImagePipe.Parser.Imgproxy.OptionGrammarTest do
 
   alias ImagePipe.Parser.Imgproxy.CropRequest
   alias ImagePipe.Parser.Imgproxy.OptionGrammar
+  alias ImagePipe.Plan.Color
 
   property "zoom aliases parse equivalent zoom_x and zoom_y assignments" do
     check all x_int <- integer(1..2000),
@@ -127,6 +128,72 @@ defmodule ImagePipe.Parser.Imgproxy.OptionGrammarTest do
     assert OptionGrammar.parse("pix:0") == {:ok, {:pipeline, [pixelate: 0]}}
   end
 
+  test "tone effect options parse with imgproxy aliases" do
+    assert OptionGrammar.parse("monochrome:0.5") ==
+             {:ok, {:pipeline, [monochrome: [intensity: {:ratio, 5, 10}]]}}
+
+    assert OptionGrammar.parse("mc:1:ffcc00") ==
+             {:ok,
+              {:pipeline,
+               [
+                 monochrome: [
+                   intensity: {:ratio, 1, 1},
+                   color: color!(255, 204, 0)
+                 ]
+               ]}}
+
+    assert OptionGrammar.parse("mc:1:") ==
+             {:ok, {:pipeline, [monochrome: [intensity: {:ratio, 1, 1}]]}}
+
+    assert OptionGrammar.parse("duotone:0.25") ==
+             {:ok, {:pipeline, [duotone: [intensity: {:ratio, 25, 100}]]}}
+
+    assert OptionGrammar.parse("dt:0.5:112233") ==
+             {:ok,
+              {:pipeline,
+               [
+                 duotone: [
+                   intensity: {:ratio, 5, 10},
+                   shadow: color!(17, 34, 51)
+                 ]
+               ]}}
+
+    assert OptionGrammar.parse("dt:0.5::ffeecc") ==
+             {:ok,
+              {:pipeline,
+               [
+                 duotone: [
+                   intensity: {:ratio, 5, 10},
+                   highlight: color!(255, 238, 204)
+                 ]
+               ]}}
+
+    assert OptionGrammar.parse("dt:1:112233:ffeecc") ==
+             {:ok,
+              {:pipeline,
+               [
+                 duotone: [
+                   intensity: {:ratio, 1, 1},
+                   shadow: color!(17, 34, 51),
+                   highlight: color!(255, 238, 204)
+                 ]
+               ]}}
+  end
+
+  test "invalid tone effect options return parser errors" do
+    assert OptionGrammar.parse("mc:") == {:error, {:invalid_option_segment, "mc:"}}
+    assert OptionGrammar.parse("mc:1.1") == {:error, {:invalid_intensity, "1.1"}}
+    assert OptionGrammar.parse("mc:0.5:zzzzzz") == {:error, {:invalid_monochrome, "zzzzzz"}}
+
+    assert OptionGrammar.parse("mc:0.5:ffffff:000000") ==
+             {:error, {:invalid_option_segment, "mc:0.5:ffffff:000000"}}
+
+    assert OptionGrammar.parse("dt:0.5:fffxxx") == {:error, {:invalid_duotone, "fffxxx"}}
+
+    assert OptionGrammar.parse("dt:0.5:ffffff:zzzzzz") ==
+             {:error, {:invalid_duotone, ["ffffff", "zzzzzz"]}}
+  end
+
   test "invalid arity pipeline options return invalid option segment errors" do
     for segment <- invalid_pipeline_arity_segments() do
       assert OptionGrammar.parse(segment) == {:error, {:invalid_option_segment, segment}}
@@ -160,12 +227,19 @@ defmodule ImagePipe.Parser.Imgproxy.OptionGrammarTest do
       blur blur: bl bl: blur:1:2 bl:1:2
       sharpen sharpen: sh sh: sharpen:1:2 sh:1:2
       pixelate pixelate: pix pix: pixelate:1:2 pix:1:2
+      monochrome monochrome: mc mc: monochrome:1:2:3 mc:1:2:3
+      duotone duotone: dt dt: dt:1:2:3:4
       extend_aspect_ratio extend_aspect_ratio:16 extend_aspect_ratio:16:9:1
       extend_ar extend_ar:16 extend_ar:16:9:1
       exar exar:16 exar:16:9:1
       crop crop:100 crop:100:200:ce:0 crop:100:200:ce:0:0:extra
       c c:100 c:100:200:ce:0 c:100:200:ce:0:0:extra
     )
+  end
+
+  defp color!(red, green, blue) do
+    assert {:ok, color} = Color.rgb(red, green, blue)
+    color
   end
 
   defp decimal_string(value), do: :erlang.float_to_binary(value / 10, decimals: 1)

@@ -273,6 +273,8 @@ defmodule ImagePipe.ImgproxyWireConformanceTest do
       "/_/bl:4/f:png/plain/images/effects.png",
       "/_/sh:10/f:png/plain/images/effects.png",
       "/_/pix:8/f:png/plain/images/effects.png",
+      "/_/mc:1:ffcc00/f:png/plain/images/effects.png",
+      "/_/dt:1:112233:ffeecc/f:png/plain/images/effects.png",
       "/_/br:25/f:png/plain/images/effects.png",
       "/_/co:10/f:png/plain/images/effects.png",
       "/_/sa:-30/f:png/plain/images/effects.png"

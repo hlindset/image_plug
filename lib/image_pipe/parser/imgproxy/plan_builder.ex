@@ -440,6 +440,8 @@ defmodule ImagePipe.Parser.Imgproxy.PlanBuilder do
       blur_operation(effects),
       sharpen_operation(effects),
       pixelate_operation(effects),
+      monochrome_operation(effects),
+      duotone_operation(effects),
       brightness_operation(effects),
       contrast_operation(effects),
       saturation_operation(effects)
@@ -460,6 +462,31 @@ defmodule ImagePipe.Parser.Imgproxy.PlanBuilder do
   defp pixelate_operation(%Effects{pixelate: 0}), do: nil
   defp pixelate_operation(%Effects{pixelate: 1}), do: nil
   defp pixelate_operation(%Effects{pixelate: size}), do: Operation.pixelate(size)
+
+  defp monochrome_operation(%Effects{monochrome: nil}), do: nil
+
+  defp monochrome_operation(%Effects{monochrome: [intensity: {:ratio, 0, _denominator}]}),
+    do: nil
+
+  defp monochrome_operation(%Effects{monochrome: monochrome}) do
+    Operation.monochrome(
+      Keyword.fetch!(monochrome, :intensity),
+      Keyword.get_lazy(monochrome, :color, &default_monochrome_color/0)
+    )
+  end
+
+  defp duotone_operation(%Effects{duotone: nil}), do: nil
+
+  defp duotone_operation(%Effects{duotone: [intensity: {:ratio, 0, _denominator}]}),
+    do: nil
+
+  defp duotone_operation(%Effects{duotone: duotone}) do
+    Operation.duotone(
+      Keyword.fetch!(duotone, :intensity),
+      Keyword.get_lazy(duotone, :shadow, &default_duotone_shadow/0),
+      Keyword.get_lazy(duotone, :highlight, &default_duotone_highlight/0)
+    )
+  end
 
   defp brightness_operation(%Effects{brightness: nil}), do: nil
   defp brightness_operation(%Effects{brightness: 0}), do: nil
@@ -609,6 +636,15 @@ defmodule ImagePipe.Parser.Imgproxy.PlanBuilder do
   defp crop_anchor_guide(:left, :bottom), do: :bottom_left
   defp crop_anchor_guide(:center, :bottom), do: :bottom
   defp crop_anchor_guide(:right, :bottom), do: :bottom_right
+
+  defp default_monochrome_color, do: color!(179, 179, 179)
+  defp default_duotone_shadow, do: color!(0, 0, 0)
+  defp default_duotone_highlight, do: color!(255, 255, 255)
+
+  defp color!(red, green, blue) do
+    {:ok, color} = Operation.color(red, green, blue)
+    color
+  end
 
   defp enlargement(%PipelineRequest{resizing_type: :fill_down}), do: :deny
   defp enlargement(%PipelineRequest{enlarge: true}), do: :allow

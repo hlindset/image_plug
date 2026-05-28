@@ -5,6 +5,8 @@ defmodule ImagePipe.Parser.Imgproxy.Effects do
           blur: float() | nil,
           sharpen: float() | nil,
           pixelate: non_neg_integer() | nil,
+          monochrome: keyword() | nil,
+          duotone: keyword() | nil,
           brightness: number() | nil,
           contrast: number() | nil,
           saturation: number() | nil
@@ -13,6 +15,8 @@ defmodule ImagePipe.Parser.Imgproxy.Effects do
   defstruct blur: nil,
             sharpen: nil,
             pixelate: nil,
+            monochrome: nil,
+            duotone: nil,
             brightness: nil,
             contrast: nil,
             saturation: nil
