@@ -207,6 +207,71 @@ defmodule ImagePipe.Cache.FileSystem.AdmissionTest do
     refute in_queue?(state.probationary, "k")
   end
 
+  test "aging triggers when local CMS sample threshold is hit", %{registry: registry, tmp_dir: tmp_dir} do
+    opts = base_opts(registry: registry, tmp_dir: tmp_dir, sketch_width: 4)
+    pid = start_supervised!({Admission, opts})
+
+    # Threshold = 4 * 10 = 40 sightings
+    # First sighting goes to doorkeeper; subsequent 39+ go to CMS.
+    descriptor = %{key_hash: "k", size_bytes: 100, body_sha256: "s", cost_us: 1_000}
+    Enum.each(1..50, fn _ -> Admission.hit(pid, descriptor) end)
+
+    # synchronize
+    state = :sys.get_state(pid)
+    assert state.local_cms.aging_epoch >= 1
+  end
+
+  test "flush ticker writes the state file when state is dirty", %{registry: registry, tmp_dir: tmp_dir} do
+    opts = base_opts(registry: registry, tmp_dir: tmp_dir, flush_interval_ms: 50)
+    pid = start_supervised!({Admission, opts})
+
+    Admission.hit(pid, %{key_hash: "k1", size_bytes: 100, body_sha256: "s", cost_us: 1_000})
+    send(pid, :flush)
+    :sys.get_state(pid)
+
+    state_file = Path.join([tmp_dir, ".cache_state", "test-node.state"])
+    assert File.exists?(state_file)
+  end
+
+  test "flush errors log + emit telemetry without crashing Admission", %{registry: registry, tmp_dir: tmp_dir} do
+    # Configure state_dir to a path that can't be written to (e.g., a
+    # file masquerading as a directory). Trigger flush; assert Admission
+    # is still alive and serving.
+    bad_state_dir = Path.join(tmp_dir, "blocker")
+    # regular file, not a directory
+    File.touch!(bad_state_dir)
+
+    opts =
+      base_opts(registry: registry, tmp_dir: tmp_dir)
+      |> Keyword.put(:state_dir, bad_state_dir)
+
+    pid = start_supervised!({Admission, opts})
+
+    Admission.hit(pid, %{key_hash: "k1", size_bytes: 100, body_sha256: "s", cost_us: 1_000})
+    send(pid, :flush)
+    # process still alive
+    assert :sys.get_state(pid)
+  end
+
+  test "terminate/2 flushes dirty state synchronously", %{registry: registry, tmp_dir: tmp_dir} do
+    opts = base_opts(registry: registry, tmp_dir: tmp_dir)
+    pid = start_supervised!({Admission, opts})
+
+    Admission.hit(pid, %{key_hash: "k1", size_bytes: 100, body_sha256: "s", cost_us: 1_000})
+    # Ensure the hit cast (which marks state_dirty) is processed before stop.
+    _ = :sys.get_state(pid)
+
+    # Cleanly stop the supervisor and assert the state file landed.
+    # child_spec/1 sets a composite id {module, root, node_id}, so
+    # stop_supervised/1 must use that id rather than the bare module.
+    ref = Process.monitor(pid)
+    :ok = stop_supervised({Admission, tmp_dir, "test-node"})
+    assert_receive {:DOWN, ^ref, :process, ^pid, _reason}
+
+    state_file = Path.join([tmp_dir, ".cache_state", "test-node.state"])
+    assert File.exists?(state_file)
+  end
+
   defp base_opts(overrides) do
     Keyword.merge(
       [

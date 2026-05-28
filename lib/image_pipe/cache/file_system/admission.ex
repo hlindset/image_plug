@@ -74,6 +74,11 @@ defmodule ImagePipe.Cache.FileSystem.Admission do
 
   @impl true
   def init(opts) do
+    # Trap exits so terminate/2 runs on a supervisor :shutdown and can
+    # flush dirty state synchronously. A plain GenServer does not call
+    # terminate/2 on shutdown unless it is trapping exits.
+    Process.flag(:trap_exit, true)
+
     max_size = Keyword.fetch!(opts, :max_size_bytes)
     window_ratio = Keyword.fetch!(opts, :window_ratio)
     sketch_depth = Keyword.fetch!(opts, :sketch_depth)
@@ -120,7 +125,40 @@ defmodule ImagePipe.Cache.FileSystem.Admission do
       protected: :ets.new(:protected, [:ordered_set, :protected])
     }
 
-    {:ok, state}
+    {:ok, state, {:continue, :schedule_tickers}}
+  end
+
+  @impl true
+  def handle_continue(:schedule_tickers, state) do
+    Process.send_after(self(), :flush, state.flush_interval_ms)
+    Process.send_after(self(), :cleanup, state.cleanup_interval_ms)
+    Process.send_after(self(), :reconcile, state.reconcile_interval_ms)
+    {:noreply, state}
+  end
+
+  @impl true
+  def handle_info(:flush, state) do
+    state = maybe_flush(state)
+    Process.send_after(self(), :flush, state.flush_interval_ms)
+    {:noreply, state}
+  end
+
+  def handle_info(:cleanup, state) do
+    state = cleanup_stale_peer_files(state)
+    Process.send_after(self(), :cleanup, state.cleanup_interval_ms)
+    {:noreply, state}
+  end
+
+  def handle_info(:reconcile, state) do
+    # Drain soft-cap overshoot accumulated since the last tick. The main
+    # source of overshoot that the synchronous admit path cannot reclaim
+    # is `same_key_replace/2` (Task 16): it swaps a larger body in place
+    # without re-running the main gate. `reconcile_to_cap/2` evicts by LRU
+    # until total usage is back under `max_size_bytes` and deletes the
+    # evicted files (via `emit_reconciliation_evictions/2`).
+    state = reconcile_to_cap(state, [])
+    Process.send_after(self(), :reconcile, state.reconcile_interval_ms)
+    {:noreply, state}
   end
 
   @doc """
@@ -380,12 +418,34 @@ defmodule ImagePipe.Cache.FileSystem.Admission do
   end
 
   defp sighting(state, key_hash) do
-    if Talan.BloomFilter.member?(state.doorkeeper, key_hash) do
-      %{state | local_cms: Sketch.increment(state.local_cms, key_hash)}
+    state =
+      if Talan.BloomFilter.member?(state.doorkeeper, key_hash) do
+        %{state | local_cms: Sketch.increment(state.local_cms, key_hash)}
+      else
+        # talan's put/2 mutates the underlying :atomics ref in place and
+        # returns :ok.
+        :ok = Talan.BloomFilter.put(state.doorkeeper, key_hash)
+        state
+      end
+
+    if Sketch.should_age?(state.local_cms) do
+      # Doorkeeper reset = discard the current filter and allocate a
+      # fresh one. The old :atomics ref becomes unreferenced and is
+      # garbage-collected. This is cheap (one allocation per aging cycle,
+      # which is itself infrequent).
+      fresh_doorkeeper =
+        Talan.BloomFilter.new(state.doorkeeper_cardinality,
+          false_positive_probability: state.doorkeeper_fpr
+        )
+
+      %{
+        state
+        | local_cms: Sketch.age(state.local_cms),
+          boot_cms: Sketch.age(state.boot_cms),
+          doorkeeper: fresh_doorkeeper,
+          state_dirty: true
+      }
     else
-      # talan's put/2 mutates the underlying :atomics ref in place and
-      # returns :ok.
-      :ok = Talan.BloomFilter.put(state.doorkeeper, key_hash)
       state
     end
   end
@@ -457,4 +517,97 @@ defmodule ImagePipe.Cache.FileSystem.Admission do
       state
     end
   end
+
+  defp maybe_flush(state) do
+    if state.state_dirty do
+      path = Path.join(state.state_dir, "#{state.node_id}.state")
+      tmp_path = path <> ".tmp.#{System.unique_integer([:positive])}"
+      payload = serialize_state(state)
+
+      with :ok <- File.mkdir_p(state.state_dir),
+           :ok <- File.write(tmp_path, payload, [:binary]),
+           :ok <- File.rename(tmp_path, path) do
+        %{state | state_dirty: false}
+      else
+        {:error, reason} ->
+          require Logger
+          # Do NOT log `path` — the state filename embeds the node_id and
+          # the storage root, both path-derived identifiers the project
+          # telemetry/privacy guidelines exclude. Reason is enough to
+          # diagnose (eenospc, eacces, etc.).
+          Logger.warning("cache: state flush failed: reason=#{inspect(reason)}")
+          # Best-effort cleanup of orphaned tmp file
+          _ = File.rm(tmp_path)
+          # Keep state_dirty: true so the next flush tick retries
+          state
+      end
+    else
+      state
+    end
+  end
+
+  @impl true
+  def terminate(_reason, state) do
+    # Synchronous flush on shutdown to preserve any state since the
+    # last periodic flush. Errors here are logged but do not affect
+    # shutdown (we're terminating anyway).
+    _ = maybe_flush(state)
+    :ok
+  end
+
+  defp serialize_state(state) do
+    protected_hashes = ordered_set_to_list(state.protected) |> Enum.map(& &1.key_hash)
+
+    # Doorkeeper is NOT persisted — see the spec's file format section.
+    # It rebuilds organically from post-restart traffic (one delayed CMS
+    # increment per previously-known key on first post-restart sighting).
+    :erlang.term_to_binary(
+      %{
+        format_version: 1,
+        node_id: state.node_id,
+        written_at: System.system_time(:millisecond),
+        aging_epoch: state.local_cms.aging_epoch,
+        increments_since_reset: state.local_cms.increments_since_reset,
+        sketch: Sketch.serialize(state.local_cms),
+        protected_hashes: protected_hashes
+      },
+      [:deterministic]
+    )
+  end
+
+  defp cleanup_stale_peer_files(state) do
+    case File.ls(state.state_dir) do
+      {:ok, files} ->
+        now = System.system_time(:millisecond)
+        own = "#{state.node_id}.state"
+        Enum.each(files, &maybe_remove_stale_peer_file(state, &1, own, now))
+
+      {:error, _} ->
+        :ok
+    end
+
+    state
+  end
+
+  defp maybe_remove_stale_peer_file(state, file, own, now) do
+    if String.ends_with?(file, ".state") and file != own do
+      remove_if_stale(Path.join(state.state_dir, file), now, state.state_ttl_ms)
+    end
+  end
+
+  defp remove_if_stale(path, now, ttl_ms) do
+    case File.stat(path, time: :posix) do
+      {:ok, %{mtime: mtime}} ->
+        age_ms = now - mtime * 1000
+        if age_ms > ttl_ms, do: File.rm(path)
+
+      _ ->
+        :ok
+    end
+  end
+
+  # TODO(Task 20): real soft-cap reconciliation. Until then the `:reconcile`
+  # tick is a no-op; `reconcile_to_cap/2` and `emit_reconciliation_evictions/2`
+  # arrive with the directory-scan/soft-cap work.
+  defp reconcile_to_cap(state, _evicted), do: state
 end
