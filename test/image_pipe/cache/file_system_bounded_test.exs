@@ -90,6 +90,40 @@ defmodule ImagePipe.Cache.FileSystemBoundedTest do
     Path.join([root, "aa", "aa", "#{cache_key.hash}.meta"])
   end
 
+  # A distinct 64-char lowercase-hex key hash per index, partitioned across
+  # different AB/CD directories (unlike the fixed "aa/aa" helpers above).
+  defp distinct_key(index) do
+    hash = :crypto.hash(:sha256, "entry-#{index}") |> Base.encode16(case: :lower)
+    key(hash)
+  end
+
+  # Recursively sum the byte sizes of every *.body file under root. This is
+  # the on-disk realization of Admission's tracked body bytes; the soft-cap
+  # invariant says it must stay at or under max_size_bytes.
+  defp total_body_bytes(root) do
+    walk_files(root)
+    |> Enum.filter(&String.ends_with?(&1, ".body"))
+    |> Enum.reduce(0, fn path, acc -> acc + File.stat!(path).size end)
+  end
+
+  defp body_file_count(root) do
+    walk_files(root)
+    |> Enum.count(&String.ends_with?(&1, ".body"))
+  end
+
+  defp walk_files(path) do
+    case File.ls(path) do
+      {:ok, entries} ->
+        Enum.flat_map(entries, fn entry ->
+          child = Path.join(path, entry)
+          if File.dir?(child), do: walk_files(child), else: [child]
+        end)
+
+      {:error, _} ->
+        []
+    end
+  end
+
   setup context do
     root = Path.join(System.tmp_dir!(), "image_pipe_fs_bounded_#{System.unique_integer([:positive])}")
     File.rm_rf!(root)
@@ -173,5 +207,40 @@ defmodule ImagePipe.Cache.FileSystemBoundedTest do
     refute File.exists?(meta_path(root, cache_key))
     refute File.exists?(body_path(root, cache_key, "encoded image"))
     assert FileSystem.get(cache_key, opts) == :miss
+  end
+
+  test "cycling ~1.5x cap worth of entries keeps on-disk bytes within the cap",
+       %{root: root} do
+    # 100 KB cap, 10 KB bodies: 15 distinct entries = 1.5x cap. With a tiny
+    # window the main gate must reject or evict enough that on-disk body bytes
+    # never exceed the cap.
+    cap = 100_000
+    body_size = 10_000
+    count = 15
+
+    opts = bounded_opts(root, max_size_bytes: cap, window_ratio: 0.01)
+    start_supervised!(FileSystem.child_spec(opts))
+
+    body = String.duplicate("x", body_size)
+
+    for i <- 1..count do
+      cache_key = distinct_key(i)
+      # Each commit is either admitted (:ok) or declined ({:ok, :rejected})
+      # once the cache fills; both clean up to a consistent on-disk state.
+      assert put_entry(cache_key, entry(body), opts) in [:ok, {:ok, :rejected}]
+      # commit_bounded admits synchronously, so disk is consistent here.
+      assert total_body_bytes(root) <= cap
+    end
+
+    # Final state: the cache filled and shed load — fewer than all 15 bodies
+    # remain, and total usage is within the cap.
+    assert body_file_count(root) < count
+    assert total_body_bytes(root) <= cap
+
+    # Admission's accounting agrees with the on-disk realization.
+    state = :sys.get_state(admission_pid(root))
+    tracked = state.window_bytes + state.probationary_bytes + state.protected_bytes
+    assert tracked <= cap
+    assert tracked == total_body_bytes(root)
   end
 end
