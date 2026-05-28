@@ -754,6 +754,8 @@ defmodule ImagePipe.ImgproxyWireConformanceTest do
     assert_received {:custom_resolve, _source}
     assert_received {:cache_lookup, _key}
     assert_received {:custom_fetch, :cat}
+    assert_received {:cache_open_sink, _key, %{cost_us: cost_us}}
+    assert cost_us > 0
     assert_received {:cache_put, _key, _entry}
     assert source_order() == [:resolve, :cache_lookup, :fetch, :cache_put]
   end

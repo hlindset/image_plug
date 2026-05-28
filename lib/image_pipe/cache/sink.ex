@@ -35,7 +35,9 @@ defmodule ImagePipe.Cache.Sink do
 
   @spec open(module(), Key.t(), Resolved.t(), keyword(), keyword()) :: t() | nil
   def open(adapter, %Key{} = key, %Resolved{} = resolved_output, cache_opts, opts) do
-    with {:ok, metadata} <- response_metadata(resolved_output),
+    cost_us = Keyword.get(opts, :cost_us, 0)
+
+    with {:ok, metadata} <- response_metadata(resolved_output, cost_us),
          {:ok, adapter_state} <- open_adapter_sink(adapter, key, metadata, cache_opts) do
       build(adapter, key, metadata, cache_opts, adapter_state)
     else
@@ -92,14 +94,15 @@ defmodule ImagePipe.Cache.Sink do
     end
   end
 
-  defp response_metadata(%Resolved{} = resolved_output) do
+  defp response_metadata(%Resolved{} = resolved_output, cost_us) do
     with {:ok, headers} <- Entry.cacheable_headers(resolved_output.response_headers) do
       {:ok,
        %Entry.Metadata{
          content_type: Format.mime_type!(resolved_output.format),
          headers: headers,
          created_at: DateTime.utc_now(),
-         output_format: resolved_output.format
+         output_format: resolved_output.format,
+         cost_us: cost_us
        }}
     end
   end

@@ -429,6 +429,17 @@ defmodule ImagePipe.CacheTest do
     assert log =~ ":surprise"
   end
 
+  test "open_sink threads cost_us from opts into adapter metadata" do
+    Cache.open_sink(
+      cache_key(),
+      resolved_output(),
+      cache: {SinkMissAdapter, test_pid: self()},
+      cost_us: 42_000
+    )
+
+    assert_received {:open_sink, %Key{}, %Entry.Metadata{cost_us: 42_000}, _adapter_opts}
+  end
+
   test "open_sink builds body-free metadata from resolved output" do
     resolved_output = %Resolved{
       format: :webp,
