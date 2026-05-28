@@ -12,6 +12,23 @@ defmodule ImagePipe.Cache.FileSystem do
   @cache_key_hash_pattern ~r/\A[0-9A-Fa-f]{64}\z/
   @body_sha256_pattern ~r/\A[0-9a-f]{64}\z/
   @option_keys [:root, :path_prefix]
+  # Bounded-mode options accepted (but not yet schema-validated/derived; that
+  # is Task 25). Listed here so open_sink/commit_sink/get tolerate a bounded
+  # opts list passed through to paths_from_hash/2 without tripping the unknown
+  # option check.
+  @bounded_option_keys [
+    :max_size_bytes,
+    :node_id,
+    :state_dir,
+    :window_ratio,
+    :sketch_depth,
+    :sketch_width,
+    :doorkeeper_cardinality,
+    :doorkeeper_fpr,
+    :eviction_victim_limit,
+    :aging_sample_size,
+    :reconcile_interval
+  ]
   @options_schema NimbleOptions.new!(
                     root: [
                       required: true,
@@ -89,7 +106,28 @@ defmodule ImagePipe.Cache.FileSystem do
   end
 
   @impl true
-  def commit_sink(state, _opts) when is_map(state) do
+  def commit_sink(state, opts) when is_map(state) do
+    case lookup_admission(opts) do
+      :unbounded ->
+        legacy_commit(state)
+
+      {:ok, pid} ->
+        commit_bounded(state, pid, opts)
+
+      :unavailable ->
+        # Bounded mode but the Admission process is missing. We cannot account
+        # for a write, so we MUST NOT leave an untracked entry on disk (it
+        # would silently grow the cache past cap). Nothing has been renamed
+        # yet, so clean the temp files and fail open.
+        require Logger
+        Logger.warning("Admission process unavailable in bounded mode; skipping write")
+        cleanup_sink_state(state)
+        :ok
+    end
+  end
+
+  # The existing unbounded commit body, unchanged, extracted under a name.
+  defp legacy_commit(state) do
     case prepare_sink_commit(state) do
       {:ok, state, body_filename} ->
         commit_prepared_sink(state, body_filename)
@@ -97,6 +135,87 @@ defmodule ImagePipe.Cache.FileSystem do
       {:error, reason, state} ->
         cleanup_sink_state(state)
         {:error, reason}
+    end
+  end
+
+  defp commit_bounded(state, pid, opts) do
+    # Write to the final location FIRST, then account. admit/2 mutates
+    # Admission's in-memory queues the moment it returns, so calling it before a
+    # successful rename would track a phantom entry and orphan evicted victims.
+    case prepare_sink_commit(state) do
+      {:ok, prepared, body_filename} ->
+        case commit_sink_files(prepared, body_filename) do
+          :ok ->
+            finish_admission(pid, build_descriptor(prepared, body_filename), opts)
+
+          {:error, reason} ->
+            cleanup_sink_state(prepared)
+            {:error, reason}
+        end
+
+      {:error, reason, prepared} ->
+        cleanup_sink_state(prepared)
+        {:error, reason}
+    end
+  end
+
+  defp finish_admission(pid, descriptor, opts) do
+    case ImagePipe.Cache.FileSystem.Admission.admit(pid, descriptor) do
+      {:admit, victims} ->
+        delete_victims(victims, opts)
+        :ok
+
+      {:reject, _reason} ->
+        # Admission declined to keep the entry. It was never inserted into the
+        # queues (reject mutates nothing), so the only cleanup is the bytes we
+        # just wrote. Delete both body and meta so on-disk state stays
+        # consistent with Admission's accounting.
+        delete_victims([reject_victim(descriptor)], opts)
+        :ok
+    end
+  end
+
+  # Build the full-eviction victim shape delete_victims/2 consumes for a
+  # descriptor whose write must be undone.
+  defp reject_victim(descriptor) do
+    %{
+      key_hash: descriptor.key_hash,
+      body_sha256: descriptor.body_sha256,
+      size_bytes: descriptor.size_bytes,
+      delete_body?: true,
+      delete_meta?: true
+    }
+  end
+
+  # prepare_sink_commit/1 encodes body_sha256 into body_filename
+  # ("<hash>.<sha>.body"); recover it rather than recomputing the digest.
+  defp build_descriptor(prepared, body_filename) do
+    {:ok, body_sha256} = body_sha256_from_filename(body_filename)
+
+    %{
+      key_hash: prepared.paths.hash,
+      size_bytes: prepared.size,
+      body_sha256: body_sha256,
+      cost_us: prepared.metadata.cost_us
+    }
+  end
+
+  defp lookup_admission(opts) do
+    if Keyword.has_key?(opts, :max_size_bytes) do
+      registry_key = {Keyword.fetch!(opts, :root), Keyword.fetch!(opts, :node_id)}
+
+      try do
+        case Registry.lookup(registry_name(), registry_key) do
+          [{pid, _}] -> {:ok, pid}
+          [] -> :unavailable
+        end
+      rescue
+        # The Registry itself is not started (bounded mode configured but the
+        # supervision tree never came up). Fail closed, same as a missing entry.
+        ArgumentError -> :unavailable
+      end
+    else
+      :unbounded
     end
   end
 
@@ -160,7 +279,8 @@ defmodule ImagePipe.Cache.FileSystem do
   end
 
   defp validate_unknown_options(opts) do
-    known_option_keys = @option_keys ++ ImagePipe.Cache.shared_option_keys()
+    known_option_keys =
+      @option_keys ++ @bounded_option_keys ++ ImagePipe.Cache.shared_option_keys()
 
     case Keyword.keys(opts) -- known_option_keys do
       [] -> :ok
