@@ -53,4 +53,65 @@ defmodule ImagePipe.Cache.FileSystem.PolicyTest do
       assert_in_delta Policy.weighted_avg_score([v1, v2], freq_fn), 10.0, 0.0001
     end
   end
+
+  describe "victim_walk/4" do
+    test "walks probationary LRU outward until enough bytes" do
+      probationary = [
+        descriptor(key_hash: "lru", size_bytes: 100),
+        descriptor(key_hash: "mid", size_bytes: 100),
+        descriptor(key_hash: "mru", size_bytes: 100)
+      ]
+      protected = []
+
+      assert {:ok, [v1]} = Policy.victim_walk(probationary, protected, 100, 64)
+      assert v1.key_hash == "lru"
+
+      assert {:ok, [v1, v2]} = Policy.victim_walk(probationary, protected, 150, 64)
+      assert [v1.key_hash, v2.key_hash] == ["lru", "mid"]
+    end
+
+    test "extends into protected LRU when probationary exhausted" do
+      probationary = [descriptor(key_hash: "p_lru", size_bytes: 100)]
+      protected = [descriptor(key_hash: "prot_lru", size_bytes: 200)]
+
+      assert {:ok, victims} = Policy.victim_walk(probationary, protected, 250, 64)
+      assert Enum.map(victims, & &1.key_hash) == ["p_lru", "prot_lru"]
+    end
+
+    test "returns :no_evictable_victims when both queues together cannot free enough" do
+      probationary = [descriptor(size_bytes: 50)]
+      protected = [descriptor(size_bytes: 50)]
+      assert {:error, :no_evictable_victims} = Policy.victim_walk(probationary, protected, 200, 64)
+    end
+
+    test "returns :victim_limit_exceeded when freeing enough bytes requires more victims than the limit" do
+      # 10 victims × 100 bytes = 1000 bytes available, but limit is 3.
+      probationary = for i <- 1..10, do: descriptor(key_hash: "k#{i}", size_bytes: 100)
+      assert {:error, :victim_limit_exceeded} =
+               Policy.victim_walk(probationary, [], 500, 3)
+    end
+  end
+
+  describe "admit?/3" do
+    test "admits when candidate score exceeds weighted-average victim score" do
+      candidate = descriptor(key_hash: "c", size_bytes: 100, cost_us: 50_000)
+      victims = [descriptor(key_hash: "v", size_bytes: 100, cost_us: 1_000)]
+      freq_fn = fn _ -> 1 end
+
+      assert Policy.admit?(candidate, victims, freq_fn) == true
+    end
+
+    test "rejects when candidate score is below weighted-average victim score" do
+      candidate = descriptor(key_hash: "c", size_bytes: 100, cost_us: 1_000)
+      victims = [descriptor(key_hash: "v", size_bytes: 100, cost_us: 50_000)]
+      freq_fn = fn _ -> 1 end
+
+      assert Policy.admit?(candidate, victims, freq_fn) == false
+    end
+
+    test "admits unconditionally when victim list is empty (no comparison needed)" do
+      candidate = descriptor(size_bytes: 100, cost_us: 1)
+      assert Policy.admit?(candidate, [], fn _ -> 0 end) == true
+    end
+  end
 end

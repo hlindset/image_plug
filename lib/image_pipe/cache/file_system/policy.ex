@@ -41,4 +41,83 @@ defmodule ImagePipe.Cache.FileSystem.Policy do
 
     if denominator == 0, do: 0.0, else: numerator / denominator
   end
+
+  @doc """
+  Walk probationary LRU outward, then protected LRU outward, collecting
+  victims until cumulative size_bytes >= needed_bytes.
+
+  Probationary and protected lists must be ordered LRU-first. The
+  `limit` parameter caps the number of victims collected — if more
+  would be needed to free enough bytes, returns
+  `{:error, :victim_limit_exceeded}`.
+
+  Returns:
+  - `{:ok, victims}` — enough bytes can be freed within the limit
+  - `{:error, :no_evictable_victims}` — both queues combined cannot
+    free enough bytes
+  - `{:error, :victim_limit_exceeded}` — freeing enough bytes would
+    require more than `limit` victims
+  """
+  @spec victim_walk([descriptor()], [descriptor()], non_neg_integer(), pos_integer()) ::
+          {:ok, [descriptor()]}
+          | {:error, :no_evictable_victims}
+          | {:error, :victim_limit_exceeded}
+  def victim_walk(probationary, protected, needed_bytes, limit)
+      when is_list(probationary) and is_list(protected) and
+             is_integer(needed_bytes) and needed_bytes >= 0 and
+             is_integer(limit) and limit > 0 do
+    case take_until_bytes(probationary, needed_bytes, [], 0, limit) do
+      {:done, victims} ->
+        {:ok, Enum.reverse(victims)}
+
+      {:short, victims, still_needed} ->
+        protected_limit = limit - length(victims)
+
+        if protected_limit <= 0 do
+          {:error, :victim_limit_exceeded}
+        else
+          case take_until_bytes(protected, still_needed, victims, 0, protected_limit) do
+            {:done, all_victims} -> {:ok, Enum.reverse(all_victims)}
+            {:short, _all_victims, _remaining} -> {:error, :no_evictable_victims}
+            :limit_exceeded -> {:error, :victim_limit_exceeded}
+          end
+        end
+
+      :limit_exceeded ->
+        {:error, :victim_limit_exceeded}
+    end
+  end
+
+  # Returns one of: {:done, victims}, {:short, victims, still_needed_bytes},
+  # or :limit_exceeded.
+  # NOTE: the acc >= remaining check must precede the empty-list check so
+  # that processing the final item and meeting the threshold in one step
+  # returns {:done} rather than {:short}.
+  defp take_until_bytes(_list, remaining, victims, acc, _limit) when acc >= remaining,
+    do: {:done, victims}
+
+  defp take_until_bytes([], remaining, victims, acc, _limit),
+    do: {:short, victims, remaining - acc}
+
+  defp take_until_bytes(_list, _remaining, victims, _acc, limit)
+       when length(victims) >= limit,
+       do: :limit_exceeded
+
+  defp take_until_bytes([v | rest], remaining, victims, acc, limit) do
+    take_until_bytes(rest, remaining, [v | victims], acc + v.size_bytes, limit)
+  end
+
+  @doc """
+  Decide whether a candidate should be admitted given the victims it would
+  displace. Empty victim list (free space available) always admits.
+
+  freq_fn maps a key_hash to its current frequency estimate.
+  """
+  @spec admit?(descriptor(), [descriptor()], (binary() -> non_neg_integer())) :: boolean()
+  def admit?(_candidate, [], _freq_fn), do: true
+
+  def admit?(candidate, victims, freq_fn) do
+    candidate_freq = freq_fn.(candidate.key_hash)
+    score(candidate, candidate_freq) > weighted_avg_score(victims, freq_fn)
+  end
 end
