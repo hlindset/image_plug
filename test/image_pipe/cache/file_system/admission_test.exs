@@ -2,6 +2,7 @@ defmodule ImagePipe.Cache.FileSystem.AdmissionTest do
   use ExUnit.Case, async: true
 
   alias ImagePipe.Cache.FileSystem.Admission
+  alias ImagePipe.Cache.FileSystem.Sketch
 
   setup do
     # Start the per-test Registry and a private tmp cache root. A single setup
@@ -39,4 +40,56 @@ defmodule ImagePipe.Cache.FileSystem.AdmissionTest do
 
     assert [{^pid, _}] = Registry.lookup(registry, {tmp_dir, "test-node"})
   end
+
+  test "hit/2 marks the key in doorkeeper on first sighting, increments CMS on second",
+       %{registry: registry, tmp_dir: tmp_dir} do
+    opts = base_opts(registry: registry, tmp_dir: tmp_dir, sketch_width: 64)
+    pid = start_supervised!({Admission, opts})
+
+    descriptor = %{key_hash: "key-1", size_bytes: 100, body_sha256: "s", cost_us: 1_000}
+
+    Admission.hit(pid, descriptor)
+    state = :sys.get_state(pid)
+    assert Talan.BloomFilter.member?(state.doorkeeper, "key-1")
+    assert Sketch.estimate(state.local_cms, "key-1") == 0
+
+    Admission.hit(pid, descriptor)
+    state = :sys.get_state(pid)
+    assert Sketch.estimate(state.local_cms, "key-1") >= 1
+  end
+
+  test "hit/2 on untracked key synthesizes a probationary entry from the descriptor",
+       %{registry: registry, tmp_dir: tmp_dir} do
+    opts = base_opts(registry: registry, tmp_dir: tmp_dir)
+    pid = start_supervised!({Admission, opts})
+
+    descriptor = %{key_hash: "cold", size_bytes: 5_000, body_sha256: "s", cost_us: 1_000}
+    Admission.hit(pid, descriptor)
+    state = :sys.get_state(pid)
+
+    assert in_queue?(state.probationary, "cold")
+    assert state.probationary_bytes == 5_000
+  end
+
+  defp base_opts(overrides) do
+    Keyword.merge(
+      [
+        registry: overrides[:registry],
+        root: overrides[:tmp_dir],
+        node_id: "test-node",
+        state_dir: Path.join(overrides[:tmp_dir], ".cache_state"),
+        max_size_bytes: overrides[:max_size_bytes] || 1_000_000,
+        window_ratio: overrides[:window_ratio] || 0.01,
+        sketch_depth: 4,
+        sketch_width: overrides[:sketch_width] || 256,
+        doorkeeper_cardinality: overrides[:doorkeeper_cardinality] || 1024,
+        doorkeeper_fpr: overrides[:doorkeeper_fpr] || 0.01
+      ],
+      []
+    )
+  end
+
+  # Test-local introspection helper: reads the GenServer's :protected ETS
+  # queue tables by key_hash. Admission's own in_queue?/2 is private.
+  defp in_queue?(table, key_hash), do: :ets.match_object(table, {{:_, key_hash}, :_}) != []
 end

@@ -121,4 +121,70 @@ defmodule ImagePipe.Cache.FileSystem.Admission do
 
     {:ok, state}
   end
+
+  @doc """
+  Notify Admission of a cache hit. `descriptor` carries the same shape
+  as an admit-time descriptor (key_hash, size_bytes, body_sha256,
+  cost_us) so Admission can synthesize a probationary entry for hits
+  that arrive before the boot scan reaches the corresponding key.
+  """
+  @spec hit(pid() | GenServer.name(), map()) :: :ok
+  def hit(server, descriptor) when is_map(descriptor) do
+    GenServer.cast(server, {:hit, descriptor})
+  end
+
+  @impl true
+  def handle_cast({:hit, descriptor}, state) do
+    state = sighting(state, descriptor.key_hash)
+    state = on_hit_promote_or_synthesize(state, descriptor)
+    {:noreply, %{state | state_dirty: true}}
+  end
+
+  defp on_hit_promote_or_synthesize(state, descriptor) do
+    case locate(state, descriptor.key_hash) do
+      nil ->
+        # Cold-boot hit synthesis: scan hasn't reached this entry yet,
+        # but the adapter has just read its meta and passed a full
+        # descriptor. Insert at probationary MRU.
+        {pos, state} = next_position(state)
+        :ets.insert(state.probationary, {{pos, descriptor.key_hash}, descriptor})
+        Map.update!(state, :probationary_bytes, &(&1 + descriptor.size_bytes))
+
+      _located ->
+        promote_on_hit(state, descriptor.key_hash)
+    end
+  end
+
+  defp sighting(state, key_hash) do
+    if Talan.BloomFilter.member?(state.doorkeeper, key_hash) do
+      %{state | local_cms: Sketch.increment(state.local_cms, key_hash)}
+    else
+      # talan's put/2 mutates the underlying :atomics ref in place and
+      # returns :ok.
+      :ok = Talan.BloomFilter.put(state.doorkeeper, key_hash)
+      state
+    end
+  end
+
+  # Scan the three queues for a key_hash and return the located ETS object
+  # `{{position, key_hash}, descriptor}`, or nil when the key is untracked.
+  defp locate(state, key_hash) do
+    find_in_queue(state.window, key_hash) ||
+      find_in_queue(state.probationary, key_hash) ||
+      find_in_queue(state.protected, key_hash)
+  end
+
+  defp find_in_queue(table, key_hash) do
+    case :ets.match_object(table, {{:_, key_hash}, :_}) do
+      [object | _] -> object
+      [] -> nil
+    end
+  end
+
+  defp next_position(state),
+    do: {state.next_position, %{state | next_position: state.next_position + 1}}
+
+  # TODO(Task 17): real promotion. For now a hit on an already-tracked key
+  # leaves the queues unchanged; the sighting/2 CMS increment still applies.
+  defp promote_on_hit(state, _key_hash), do: state
 end
