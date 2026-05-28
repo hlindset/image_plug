@@ -399,26 +399,23 @@ defmodule ImagePipe.Parser.Imgproxy.PlanBuilder do
   end
 
   defp extend_aspect_ratio_operation(%PipelineRequest{} = request) do
-    if extend_aspect_ratio_requested?(request) do
-      case resize_target_ratio(request) do
-        {:ok, {ratio_w, ratio_h}} ->
-          placement_gravity = request.extend_aspect_ratio_gravity || @default_gravity
-
-          with {:ok, placement} <- canvas_placement(placement_gravity) do
-            Operation.canvas(
-              {:ratio, ratio_w, 1},
-              {:ratio, ratio_h, 1},
-              placement,
-              fill: :transparent,
-              overflow: :reject,
-              x_offset: request.extend_aspect_ratio_x_offset || 0.0,
-              y_offset: request.extend_aspect_ratio_y_offset || 0.0
-            )
-          end
-
-        :no_ratio ->
-          nil
-      end
+    with true <- extend_aspect_ratio_requested?(request),
+         {:ok, {ratio_w, ratio_h}} <- resize_target_ratio(request),
+         placement_gravity = request.extend_aspect_ratio_gravity || @default_gravity,
+         {:ok, placement} <- canvas_placement(placement_gravity) do
+      Operation.canvas(
+        {:ratio, ratio_w, 1},
+        {:ratio, ratio_h, 1},
+        placement,
+        fill: :transparent,
+        overflow: :reject,
+        x_offset: request.extend_aspect_ratio_x_offset || 0.0,
+        y_offset: request.extend_aspect_ratio_y_offset || 0.0
+      )
+    else
+      false -> nil
+      :no_ratio -> nil
+      {:error, _reason} = error -> error
     end
   end
 

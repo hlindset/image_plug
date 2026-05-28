@@ -302,7 +302,7 @@ export function optionSegments(currentState: DemoState): string[] {
     segments.push(cropSegment);
   }
 
-  if (currentState.cropAspectRatioEnabled) {
+  if (currentState.cropEnabled && currentState.cropAspectRatioEnabled) {
     segments.push(
       currentState.cropAspectRatioEnlarge
         ? `car:${currentState.cropAspectRatio}:1`
