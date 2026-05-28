@@ -342,6 +342,44 @@ defmodule ImagePipe.Cache.FileSystem.AdmissionTest do
     assert Sketch.estimate(state.boot_cms, "global-hot") >= 1
   end
 
+  test "boot tolerates a corrupt own state file and cold-boots", %{
+    registry: registry,
+    tmp_dir: tmp_dir
+  } do
+    opts = base_opts(registry: registry, tmp_dir: tmp_dir)
+    state_dir = Keyword.fetch!(opts, :state_dir)
+    File.mkdir_p!(state_dir)
+
+    # Garbage that is not a valid term_to_binary payload. decode_state_payload/2
+    # uses binary_to_term(_, [:safe]) and must not crash the GenServer; the
+    # process boots with an empty CMS instead.
+    File.write!(Path.join(state_dir, "test-node.state"), "not a valid erlang term <<>>")
+
+    pid = start_supervised!({Admission, opts})
+    state = :sys.get_state(pid)
+
+    assert Sketch.estimate(state.local_cms, "anything") == 0
+    assert state.probationary_bytes == 0
+  end
+
+  test "window_ratio 0.0 disables the window; admits land in the main gate", %{
+    registry: registry,
+    tmp_dir: tmp_dir
+  } do
+    opts = base_opts(registry: registry, tmp_dir: tmp_dir, window_ratio: 0.0)
+    pid = start_supervised!({Admission, opts})
+
+    descriptor = %{key_hash: "no-window", size_bytes: 5_000, body_sha256: "s", cost_us: 1_000}
+    assert {:admit, []} = Admission.admit(pid, descriptor)
+
+    state = :sys.get_state(pid)
+    # window_budget == 0, so the candidate skips the window entirely and is
+    # admitted straight into probationary by the main gate.
+    assert state.window_bytes == 0
+    assert in_queue?(state.probationary, "no-window")
+    assert state.probationary_bytes == 5_000
+  end
+
   test "background scan inserts on-disk entries into probationary", %{registry: registry, tmp_dir: tmp_dir} do
     # Pre-place a real entry on disk via the FileSystem adapter so the
     # meta payload is valid for read_descriptor/1.

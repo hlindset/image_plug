@@ -243,4 +243,29 @@ defmodule ImagePipe.Cache.FileSystemBoundedTest do
     assert tracked <= cap
     assert tracked == total_body_bytes(root)
   end
+
+  test "re-committing the same key with a new body deletes the old body", %{root: root} do
+    opts = bounded_opts(root, max_size_bytes: 1_000_000)
+    start_supervised!(FileSystem.child_spec(opts))
+
+    cache_key = key()
+    assert :ok = put_entry(cache_key, entry("first body"), opts)
+    assert File.exists?(body_path(root, cache_key, "first body"))
+
+    # Same key, new content → new body_sha256. same_key_replace emits a
+    # body-only victim for the superseded body; the meta is rewritten in place.
+    assert :ok = put_entry(cache_key, entry("second body"), opts)
+
+    refute File.exists?(body_path(root, cache_key, "first body"))
+    assert File.exists?(body_path(root, cache_key, "second body"))
+    assert File.exists?(meta_path(root, cache_key))
+
+    assert {:hit, hit} = FileSystem.get(cache_key, opts)
+    assert hit.body == "second body"
+
+    # Accounting tracks only the current body, not both.
+    state = :sys.get_state(admission_pid(root))
+    tracked = state.window_bytes + state.probationary_bytes + state.protected_bytes
+    assert tracked == byte_size("second body")
+  end
 end
