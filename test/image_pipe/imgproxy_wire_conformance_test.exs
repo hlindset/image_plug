@@ -883,6 +883,35 @@ defmodule ImagePipe.ImgproxyWireConformanceTest do
     refute_received {:fetch_credentials, _, _, _}
   end
 
+  test "car corrects the crop area aspect ratio (enlarge)" do
+    # beach.jpg is 4000x2667. c:100:200:ce crops a 100x200 region (centered).
+    # car:1:1 (ratio=1, enlarge) grows the short axis: 100 -> 200, giving 200x200.
+    conn = call_imgproxy("/_/c:100:200:ce/car:1:1/f:jpeg/plain/images/beach.jpg", @default_opts)
+
+    assert conn.status == 200
+    assert dimensions(conn) == {200, 200}
+  end
+
+  test "car works without a resize (no-geometry-resize case)" do
+    # beach.jpg is 4000x2667. c:100:200:ce crops a 100x200 region.
+    # car:1 (ratio=1, default reduce) shrinks the long axis: 200 -> 100, giving 100x100.
+    conn = call_imgproxy("/_/c:100:200:ce/car:1/f:jpeg/plain/images/beach.jpg", @default_opts)
+
+    assert conn.status == 200
+    assert dimensions(conn) == {100, 100}
+  end
+
+  test "car leaves gravity placement unchanged" do
+    # c:200:400:no + car:1:1 (enlarge) grows short axis: 200 -> 400, giving 400x400 anchored north.
+    # c:400:400:no directly crops 400x400 anchored north — same dimensions, same gravity.
+    via_car = call_imgproxy("/_/c:200:400:no/car:1:1/f:jpeg/plain/images/beach.jpg", @default_opts)
+    direct = call_imgproxy("/_/c:400:400:no/f:jpeg/plain/images/beach.jpg", @default_opts)
+
+    assert via_car.status == 200
+    assert direct.status == 200
+    assert dimensions(via_car) == dimensions(direct)
+  end
+
   test "S3 cache miss asks only the selected bucket credential provider before fetch" do
     plug = fn conn ->
       Plug.Conn.send_resp(conn, 200, File.read!("priv/static/images/beach.jpg"))
