@@ -475,6 +475,7 @@ defmodule ImagePipe.Request.RunnerTest do
       {_id, pid, :worker, _modules} when is_pid(pid) ->
         ref = Process.monitor(pid)
         assert_receive {:DOWN, ^ref, :process, ^pid, _reason}
+        SourceSessionSupervisor.stop_session(supervisor, pid)
 
       _child ->
         :ok
