@@ -11,7 +11,7 @@ Parser authors should construct canonical semantic operations under
 `ImagePipe.Plan.Operation.*` through `ImagePipe.Plan.Operation`. The executable
 modules under `ImagePipe.Transform.Operation.*` are local execution targets used
 by Transform Plan execution and `ImagePipe.Transform.Chain`. Parsers shouldn't
-emit them except for the explicit first-slice orientation primitive allowlist.
+emit executable transform operations.
 
 ## Request flow
 
@@ -85,12 +85,15 @@ Parser/planner code should use these semantic operations:
 - `ImagePipe.Plan.Operation.Padding`: add edge padding around the current image.
 - `ImagePipe.Plan.Operation.Background`: place an alpha-capable color behind
   the current image.
+- `ImagePipe.Plan.Operation.AutoOrient`: apply embedded orientation metadata.
+- `ImagePipe.Plan.Operation.Rotate`: right-angle rotation intent.
+- `ImagePipe.Plan.Operation.Flip`: horizontal, vertical, or both-axis flip
+  intent.
 - `ImagePipe.Plan.Color`: canonical product-neutral sRGB color data with alpha.
 
-Plan pipelines may also contain the explicit orientation primitive allowlist:
-`ImagePipe.Transform.Operation.AutoOrient`, `ImagePipe.Transform.Operation.Rotate`,
-and `ImagePipe.Transform.Operation.Flip`. Parsers shouldn't use other
-executable Transform operation modules as Plan output.
+Plan pipelines should contain semantic Plan operation structs only. Transform
+execution lowers those structs into executable `ImagePipe.Transform.Operation.*`
+work after cache lookup.
 
 ## Executable operation catalog
 
@@ -107,9 +110,10 @@ describe work over `ImagePipe.Transform.State`, not parser request syntax:
 - `ImagePipe.Transform.Operation.AutoOrient`: executable EXIF autorotation.
 - `ImagePipe.Transform.Operation.Rotate`: executable right-angle rotation.
 - `ImagePipe.Transform.Operation.Flip`: executable flip.
+
 `ImagePipe.Transform.Operation.AdaptiveResize` is obsolete. Resize
-`mode: :auto` belongs in `ImagePipe.Plan.Operation.Resize`; parsers must not
-emit an executable adaptive-resize operation.
+`mode: :auto` belongs in `ImagePipe.Plan.Operation.Resize`. Parsers must not emit
+an executable adaptive-resize operation.
 
 ## Choosing resize-like semantic operations
 
@@ -140,8 +144,8 @@ they expose focus state independently from visible crop/canvas/cover work.
 
 ## Orientation operations
 
-Use the explicit `AutoOrient`, `Rotate`, and `Flip` orientation primitive
-allowlist for orientation intent.
+Use `ImagePipe.Plan.Operation.AutoOrient`, `Rotate`, and `Flip` for orientation
+intent.
 
 Imgproxy orientation suborder is auto-orient, rotate, then flip. Other dialects
 should preserve their own semantics in the adapter layer and emit the ordered
@@ -183,9 +187,10 @@ not leak into parser request structs, runtime state, or cache key data.
 
 Before source metadata is available, decode/open planning must treat semantic
 Plan operations conservatively. After a cache miss, Transform Plan execution may
-discover source metadata and convert semantic intent to executable work. The
-exact executable `metadata/1` contract belongs in the
-`ImagePipe.Transform.Operation.*` module docs.
+discover source metadata and convert semantic intent to executable work.
+`ImagePipe.Transform.DecodePlanner` owns source-open access decisions over
+semantic Plan operations. Executable transform operation modules shouldn't
+define separate decode-access metadata.
 
 ## Cache key data
 

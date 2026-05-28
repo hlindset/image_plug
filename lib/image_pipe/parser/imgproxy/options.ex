@@ -2,11 +2,11 @@ defmodule ImagePipe.Parser.Imgproxy.Options do
   @moduledoc false
 
   alias ImagePipe.Parser.Imgproxy.OptionGrammar
+  alias ImagePipe.Parser.Imgproxy.Orientation
   alias ImagePipe.Parser.Imgproxy.ParsedRequest
   alias ImagePipe.Parser.Imgproxy.PipelineRequest
   alias ImagePipe.Parser.Imgproxy.Presets
   alias ImagePipe.Plan.Color
-  alias ImagePipe.Plan.Orientation
 
   @type request_options :: %{
           pipelines: [PipelineRequest.t()],

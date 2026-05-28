@@ -3,12 +3,12 @@ defmodule ImagePipe.Transform.PlanExecutorTest do
 
   alias ImagePipe.Plan
   alias ImagePipe.Plan.Operation
+  alias ImagePipe.Plan.Operation.AutoOrient
+  alias ImagePipe.Plan.Operation.Flip
+  alias ImagePipe.Plan.Operation.Rotate
   alias ImagePipe.Plan.Pipeline
   alias ImagePipe.Plan.Source
   alias ImagePipe.Transform
-  alias ImagePipe.Transform.Operation.AutoOrient
-  alias ImagePipe.Transform.Operation.Flip
-  alias ImagePipe.Transform.Operation.Rotate
   alias ImagePipe.Transform.State
 
   describe "resize execution" do

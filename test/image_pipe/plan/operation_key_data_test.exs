@@ -3,9 +3,9 @@ defmodule ImagePipe.Plan.OperationKeyDataTest do
 
   alias ImagePipe.Plan.Operation
   alias ImagePipe.Plan.KeyData
-  alias ImagePipe.Transform.Operation.AutoOrient
-  alias ImagePipe.Transform.Operation.Flip
-  alias ImagePipe.Transform.Operation.Rotate
+  alias ImagePipe.Plan.Operation.AutoOrient
+  alias ImagePipe.Plan.Operation.Flip
+  alias ImagePipe.Plan.Operation.Rotate
 
   describe "tagged geometry data" do
     test "returns key data for symbolic dimensions" do
@@ -180,8 +180,8 @@ defmodule ImagePipe.Plan.OperationKeyDataTest do
     end
   end
 
-  describe "orientation primitive data" do
-    test "returns key data for allowed orientation primitives" do
+  describe "orientation operation data" do
+    test "returns key data for semantic orientation operations" do
       assert KeyData.data(%AutoOrient{}) == [op: :auto_orient]
       assert KeyData.data(%Rotate{angle: 270}) == [op: :rotate, angle: 270]
       assert KeyData.data(%Flip{axis: :both}) == [op: :flip, axis: :both]

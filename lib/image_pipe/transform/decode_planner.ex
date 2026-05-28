@@ -1,22 +1,22 @@
 defmodule ImagePipe.Transform.DecodePlanner do
   @moduledoc """
-  Chooses image decode access from transform operation metadata.
+  Chooses image decode access for semantic Plan operations.
 
-  Decode planning interprets each operation's product-neutral metadata and
-  reduces the chain to either sequential or random image access. It is
-  intentionally conservative for valid metadata: empty chains and neutral
-  access both fall back to random access.
+  Decode planning reduces a source-fetch-free Plan operation chain to either
+  sequential or random image access. It is intentionally conservative for valid
+  semantic operations: empty chains and neutral access both fall back to random
+  access.
   """
 
+  alias ImagePipe.Plan.Operation.AutoOrient
   alias ImagePipe.Plan.Operation.Background
   alias ImagePipe.Plan.Operation.Canvas
   alias ImagePipe.Plan.Operation.CropGuided
   alias ImagePipe.Plan.Operation.CropRegion
+  alias ImagePipe.Plan.Operation.Flip
   alias ImagePipe.Plan.Operation.Padding
+  alias ImagePipe.Plan.Operation.Rotate
   alias ImagePipe.Plan.Operation.Resize, as: PlanResize
-  alias ImagePipe.Transform.Operation.AutoOrient
-  alias ImagePipe.Transform.Operation.Flip
-  alias ImagePipe.Transform.Operation.Rotate
 
   @type access_requirement() :: :sequential | :random | :neutral
 

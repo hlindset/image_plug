@@ -7,9 +7,9 @@ defmodule ImagePipe.PlanTest do
   alias ImagePipe.Plan.Pipeline
   alias ImagePipe.Plan.Response
   alias ImagePipe.Plan.Source
-  alias ImagePipe.Transform.Operation.AutoOrient
-  alias ImagePipe.Transform.Operation.Flip
-  alias ImagePipe.Transform.Operation.Rotate
+  alias ImagePipe.Plan.Operation.AutoOrient
+  alias ImagePipe.Plan.Operation.Flip
+  alias ImagePipe.Plan.Operation.Rotate
 
   test "validated pipelines accept semantic operation structs" do
     operation = resize_operation()
@@ -23,7 +23,7 @@ defmodule ImagePipe.PlanTest do
     assert {:ok, [%Pipeline{operations: [^operation]}]} = Plan.validated_pipelines(plan)
   end
 
-  test "validated pipelines accept explicit orientation primitive allowlist" do
+  test "validated pipelines accept semantic orientation operations" do
     operations = [%AutoOrient{}, %Rotate{angle: 90}, %Flip{axis: :horizontal}]
 
     plan =

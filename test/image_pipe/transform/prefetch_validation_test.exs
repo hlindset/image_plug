@@ -3,13 +3,13 @@ defmodule ImagePipe.Transform.PrefetchValidationTest do
 
   alias ImagePipe.Plan
   alias ImagePipe.Plan.Operation
+  alias ImagePipe.Plan.Operation.AutoOrient
+  alias ImagePipe.Plan.Operation.Flip
+  alias ImagePipe.Plan.Operation.Rotate
   alias ImagePipe.Plan.Output
   alias ImagePipe.Plan.Pipeline
   alias ImagePipe.Plan.Source
   alias ImagePipe.Transform
-  alias ImagePipe.Transform.Operation.AutoOrient
-  alias ImagePipe.Transform.Operation.Flip
-  alias ImagePipe.Transform.Operation.Rotate
 
   test "semantic Plan operations pass source-independent validation" do
     assert {:ok, operation} = Operation.resize(:auto, {:px, 100}, {:px, 100}, enlargement: :deny)
@@ -33,7 +33,7 @@ defmodule ImagePipe.Transform.PrefetchValidationTest do
              Transform.validate_prefetch_safe_plan(plan([resize, crop]))
   end
 
-  test "executable orientation primitives pass source-independent validation" do
+  test "semantic orientation operations pass source-independent validation" do
     operations = [%AutoOrient{}, %Rotate{angle: 90}, %Flip{axis: :horizontal}]
 
     assert {:ok, [%Pipeline{operations: ^operations}]} =

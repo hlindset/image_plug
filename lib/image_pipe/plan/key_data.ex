@@ -8,16 +8,15 @@ defmodule ImagePipe.Plan.KeyData do
   """
 
   alias ImagePipe.Plan.Color
+  alias ImagePipe.Plan.Operation.AutoOrient
   alias ImagePipe.Plan.Operation.Background
   alias ImagePipe.Plan.Operation.Canvas
   alias ImagePipe.Plan.Operation.CropGuided
   alias ImagePipe.Plan.Operation.CropRegion
+  alias ImagePipe.Plan.Operation.Flip
   alias ImagePipe.Plan.Operation.Padding
+  alias ImagePipe.Plan.Operation.Rotate
   alias ImagePipe.Plan.Operation.Resize
-
-  @auto_orient_module :"Elixir.ImagePipe.Transform.Operation.AutoOrient"
-  @rotate_module :"Elixir.ImagePipe.Transform.Operation.Rotate"
-  @flip_module :"Elixir.ImagePipe.Transform.Operation.Flip"
 
   @crop_anchor_guides [
     :center,
@@ -113,9 +112,9 @@ defmodule ImagePipe.Plan.KeyData do
     [op: :background, color: Color.key_data(operation.color)]
   end
 
-  def data(%{__struct__: @auto_orient_module}), do: [op: :auto_orient]
-  def data(%{__struct__: @rotate_module, angle: angle}), do: [op: :rotate, angle: angle]
-  def data(%{__struct__: @flip_module, axis: axis}), do: [op: :flip, axis: axis]
+  def data(%AutoOrient{}), do: [op: :auto_orient]
+  def data(%Rotate{angle: angle}), do: [op: :rotate, angle: angle]
+  def data(%Flip{axis: axis}), do: [op: :flip, axis: axis]
 
   def data(:auto), do: [unit: :auto]
   def data(:full_axis), do: [unit: :full_axis]

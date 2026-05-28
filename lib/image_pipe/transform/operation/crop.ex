@@ -59,12 +59,6 @@ defmodule ImagePipe.Transform.Operation.Crop do
   For coordinate crops, `crop_from` is the requested top-left crop position
   before the rectangle is clamped to image bounds.
 
-  ## Decode Planning Metadata
-
-  `metadata/1` returns `%{access: :random}`. Crops need random source access
-  because execution may read from any bounded rectangle rather than consuming
-  pixels safely in a single sequential pass.
-
   ## Examples
 
       crop = %ImagePipe.Transform.Operation.Crop{
@@ -132,9 +126,6 @@ defmodule ImagePipe.Transform.Operation.Crop do
 
   @impl ImagePipe.Transform
   def name(%__MODULE__{}), do: :crop
-
-  @impl ImagePipe.Transform
-  def metadata(%__MODULE__{}), do: %{access: :random}
 
   @impl ImagePipe.Transform
   def execute(%__MODULE__{} = params, %State{} = state) do

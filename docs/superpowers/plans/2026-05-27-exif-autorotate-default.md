@@ -4,7 +4,7 @@
 
 **Goal:** Add imgproxy-compatible default autorotation config while preserving URL-level `auto_rotate` behavior.
 
-**Architecture:** Keep autorotation as `ImagePipe.Plan.Orientation.auto_orient`, which `ImagePipe.Parser.Imgproxy.PlanBuilder` already translates into `ImagePipe.Transform.Operation.AutoOrient` before crop and resize. Add the default in imgproxy parser/options config so request/source/response code continues to see only `ImagePipe.Plan`.
+**Architecture:** Keep autorotation in imgproxy parser request state, then translate it to `ImagePipe.Plan.Operation.AutoOrient` before crop and resize. Transform execution lowers that semantic Plan operation to `ImagePipe.Transform.Operation.AutoOrient` after cache lookup. Add the default in imgproxy parser/options config so request/source/response code continues to see only `ImagePipe.Plan`.
 
 **Tech Stack:** Elixir, ExUnit, Plug test requests, NimbleOptions, Vale.
 
@@ -48,7 +48,7 @@ Expected: tests fail because `:auto_rotate` isn't accepted or applied.
 
 - [ ] **Step 3: Add config/default handling**
 
-Add `auto_rotate: [type: :boolean, default: false]` to the imgproxy NimbleOptions schema and add validation coverage for accepted booleans and a rejected non-boolean value.
+Add `auto_rotate: [type: :boolean, default: true]` to the imgproxy NimbleOptions schema and add validation coverage for accepted booleans and a rejected non-boolean value.
 
 Change `Options.parse/2` to `Options.parse/3`, with a default keyword list for callers that only pass presets. Add `auto_rotate_requested: false` to `PipelineRequest` and set it only when parsed URL assignments contain `auto_orient`.
 
@@ -109,7 +109,7 @@ Expected decoded dimensions:
 
 Run: `mise exec -- mix test test/image_pipe/imgproxy_wire_conformance_test.exs`
 
-Expected: configured-default case fails before implementation; URL-level case should already pass.
+Expected: configured-default case fails before implementation. URL-level case should already pass.
 
 - [ ] **Step 3: Make implementation adjustments if the parser-level change was incomplete**
 
@@ -129,7 +129,7 @@ Expected: pass.
 
 - [ ] **Step 1: Update public docs**
 
-Document `imgproxy: [auto_rotate: true | false]`, state the default is `false`, and state URL `ar:true`/`ar:false` overrides the configured default.
+Document `imgproxy: [auto_rotate: true | false]`, state the default is `true`, and state URL `ar:true`/`ar:false` overrides the configured default.
 
 - [ ] **Step 2: Run focused tests**
 

@@ -2,12 +2,12 @@ defmodule ImagePipe.Parser.Imgproxy.PlanBuilder do
   @moduledoc false
 
   alias ImagePipe.Parser.Imgproxy.CropRequest
+  alias ImagePipe.Parser.Imgproxy.Orientation
   alias ImagePipe.Parser.Imgproxy.ParsedRequest
   alias ImagePipe.Parser.Imgproxy.PipelineRequest
   alias ImagePipe.Parser.Imgproxy.Source, as: ImgproxySource
   alias ImagePipe.Plan
   alias ImagePipe.Plan.Operation
-  alias ImagePipe.Plan.Orientation
   alias ImagePipe.Plan.Output
   alias ImagePipe.Plan.Pipeline
   alias ImagePipe.Plan.Response
@@ -16,9 +16,6 @@ defmodule ImagePipe.Parser.Imgproxy.PlanBuilder do
   alias ImagePipe.Plan.Source.Reference
   alias ImagePipe.Plan.Source.URL
   alias ImagePipe.Format
-  alias ImagePipe.Transform.Operation.AutoOrient
-  alias ImagePipe.Transform.Operation.Flip
-  alias ImagePipe.Transform.Operation.Rotate
 
   @default_gravity {:anchor, :center, :center}
 
@@ -262,19 +259,19 @@ defmodule ImagePipe.Parser.Imgproxy.PlanBuilder do
   end
 
   defp auto_orient_operation(%Orientation{auto_orient: true}),
-    do: {:ok, %AutoOrient{}}
+    do: Operation.auto_orient()
 
   defp auto_orient_operation(%Orientation{}), do: nil
 
   defp rotate_operation(%Orientation{rotate: 0}), do: nil
 
   defp rotate_operation(%Orientation{rotate: angle}) when angle in [90, 180, 270],
-    do: {:ok, %Rotate{angle: angle}}
+    do: Operation.rotate(angle)
 
   defp flip_operation(%Orientation{flip: nil}), do: nil
 
   defp flip_operation(%Orientation{flip: axis}) when axis in [:horizontal, :vertical, :both],
-    do: {:ok, %Flip{axis: axis}}
+    do: Operation.flip(axis)
 
   defp result_crop_x_offset(%PipelineRequest{} = request) do
     offset = request.gravity_x_offset

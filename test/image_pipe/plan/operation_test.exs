@@ -2,9 +2,9 @@ defmodule ImagePipe.Plan.OperationTest do
   use ExUnit.Case, async: true
 
   alias ImagePipe.Plan.Operation
-  alias ImagePipe.Transform.Operation.AutoOrient
-  alias ImagePipe.Transform.Operation.Flip
-  alias ImagePipe.Transform.Operation.Rotate
+  alias ImagePipe.Plan.Operation.AutoOrient
+  alias ImagePipe.Plan.Operation.Flip
+  alias ImagePipe.Plan.Operation.Rotate
 
   describe "resize constructors" do
     test "build unified resize operations through exported constructor" do
@@ -332,16 +332,33 @@ defmodule ImagePipe.Plan.OperationTest do
     end
   end
 
-  describe "orientation primitive allowlist" do
-    test "allows executable orientation primitives as semantic plan operations" do
+  describe "orientation operations" do
+    test "allows semantic orientation operations" do
       assert Operation.semantic?(%AutoOrient{})
       assert Operation.semantic?(%Rotate{angle: 90})
       assert Operation.semantic?(%Flip{axis: :horizontal})
     end
 
-    test "rejects orientation primitive values outside the explicit allowlist" do
+    test "constructs semantic orientation operations" do
+      assert Operation.auto_orient() == {:ok, %AutoOrient{}}
+      assert Operation.rotate(90) == {:ok, %Rotate{angle: 90}}
+      assert Operation.flip(:both) == {:ok, %Flip{axis: :both}}
+    end
+
+    test "rejects orientation values outside the explicit allowlist" do
+      assert Operation.rotate(0) == {:error, {:invalid_operation, :rotate, [0]}}
+      assert Operation.rotate(45) == {:error, {:invalid_operation, :rotate, [45]}}
+      assert Operation.flip(:diagonal) == {:error, {:invalid_operation, :flip, [:diagonal]}}
+
+      refute Operation.semantic?(%Rotate{angle: 0})
       refute Operation.semantic?(%Rotate{angle: 45})
       refute Operation.semantic?(%Flip{axis: :diagonal})
+    end
+
+    test "rejects executable transform orientation structs as semantic operations" do
+      refute Operation.semantic?(%ImagePipe.Transform.Operation.AutoOrient{})
+      refute Operation.semantic?(%ImagePipe.Transform.Operation.Rotate{angle: 90})
+      refute Operation.semantic?(%ImagePipe.Transform.Operation.Flip{axis: :horizontal})
     end
   end
 end

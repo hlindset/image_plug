@@ -59,24 +59,6 @@ defmodule ImagePipe.Transform.Operation.Resize do
   def name(%__MODULE__{}), do: :resize
 
   @impl ImagePipe.Transform
-  def metadata(%__MODULE__{
-        mode: mode,
-        width: width,
-        height: height,
-        min_width: nil,
-        min_height: nil
-      })
-      when mode in [:fit, :force] do
-    if requested_dimension?(width) or requested_dimension?(height) do
-      %{access: :sequential}
-    else
-      %{access: :random}
-    end
-  end
-
-  def metadata(%__MODULE__{}), do: %{access: :random}
-
-  @impl ImagePipe.Transform
   def execute(%__MODULE__{} = operation, %State{} = state) do
     dimensions =
       resolve_dimensions(operation,
@@ -370,8 +352,4 @@ defmodule ImagePipe.Transform.Operation.Resize do
     |> round()
     |> max(1)
   end
-
-  defp requested_dimension?(:auto), do: false
-  defp requested_dimension?({:pixels, value}) when is_number(value) and value <= 0, do: false
-  defp requested_dimension?(_dimension), do: true
 end

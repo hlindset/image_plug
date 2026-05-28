@@ -2,8 +2,8 @@ defmodule ImagePipe.Transform.Chain do
   @moduledoc """
   Executes ordered transform operation chains.
 
-  A chain is the ordered list of product-neutral operation structs already
-  selected by parser or planner code. Execution proceeds left to right through
+  A chain is the ordered list of executable transform operation structs selected
+  by transform execution. Execution proceeds left to right through
   `ImagePipe.Transform` and stops at the first operation error.
   """
 

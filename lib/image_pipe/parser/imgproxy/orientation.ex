@@ -1,4 +1,4 @@
-defmodule ImagePipe.Plan.Orientation do
+defmodule ImagePipe.Parser.Imgproxy.Orientation do
   @moduledoc false
 
   defstruct auto_orient: false, rotate: 0, flip: nil

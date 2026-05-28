@@ -8,7 +8,6 @@ defmodule ImagePipe.Plan do
     deps: [ImagePipe.Format],
     exports: [
       Pipeline,
-      Orientation,
       Output,
       Response,
       Color,
@@ -20,11 +19,14 @@ defmodule ImagePipe.Plan do
       Source.Object,
       Source.Reference,
       Operation,
+      Operation.AutoOrient,
       Operation.Background,
+      Operation.Canvas,
       Operation.CropGuided,
       Operation.CropRegion,
-      Operation.Canvas,
+      Operation.Flip,
       Operation.Padding,
+      Operation.Rotate,
       Operation.Resize
     ]
 

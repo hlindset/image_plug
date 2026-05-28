@@ -23,9 +23,6 @@ defmodule ImagePipe.Transform.Operation.Padding do
   def name(%__MODULE__{}), do: :padding
 
   @impl ImagePipe.Transform
-  def metadata(%__MODULE__{}), do: %{access: :random}
-
-  @impl ImagePipe.Transform
   def execute(%__MODULE__{top: 0, right: 0, bottom: 0, left: 0}, %State{} = state),
     do: {:ok, state}
 

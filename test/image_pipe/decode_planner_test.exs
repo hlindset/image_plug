@@ -2,8 +2,8 @@ defmodule ImagePipe.Transform.DecodePlannerTest do
   use ExUnit.Case, async: true
 
   alias ImagePipe.Plan.Operation
+  alias ImagePipe.Plan.Operation.AutoOrient
   alias ImagePipe.Transform.DecodePlanner
-  alias ImagePipe.Transform.Operation.AutoOrient
 
   test "empty chains open randomly with fail_on error" do
     assert DecodePlanner.open_options([]) == [access: :random, fail_on: :error]

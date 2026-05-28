@@ -5,9 +5,9 @@ defmodule ImagePipe.Transform.Operation.Rotate do
 
   ## Construct When
 
-  Transform Plan execution may pass this narrow executable primitive through
-  unchanged. Parser modules should construct semantic `ImagePipe.Plan.Operation.*`
-  through Plan constructors for non-orientation transform intent.
+  Transform Plan execution creates this executable primitive from semantic
+  `ImagePipe.Plan.Operation.Rotate` intent. Parser modules should construct
+  semantic `ImagePipe.Plan.Operation.*` structs through Plan constructors.
 
   ## Fields
 
@@ -28,12 +28,6 @@ defmodule ImagePipe.Transform.Operation.Rotate do
   `ImagePipe.Transform.State.image` and stores the rotated image back into
   state. If rotation fails, execution returns `{:error, {__MODULE__, error}}`.
 
-  ## Decode Planning Metadata
-
-  `metadata/1` returns `%{access: :random}`. Rotation is not treated as safe for
-  optimized sequential source decoding because the transform may need the full
-  decoded image to remap pixels and dimensions.
-
   ## Examples
 
       rotate = %ImagePipe.Transform.Operation.Rotate{angle: 90}
@@ -51,9 +45,6 @@ defmodule ImagePipe.Transform.Operation.Rotate do
 
   @impl ImagePipe.Transform
   def name(%__MODULE__{}), do: :rotate
-
-  @impl ImagePipe.Transform
-  def metadata(%__MODULE__{}), do: %{access: :random}
 
   @impl ImagePipe.Transform
   def execute(%__MODULE__{angle: 0}, %State{} = state), do: {:ok, state}

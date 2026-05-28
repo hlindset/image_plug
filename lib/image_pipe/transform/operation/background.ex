@@ -19,9 +19,6 @@ defmodule ImagePipe.Transform.Operation.Background do
   def name(%__MODULE__{}), do: :background
 
   @impl ImagePipe.Transform
-  def metadata(%__MODULE__{}), do: %{access: :random}
-
-  @impl ImagePipe.Transform
   def execute(%__MODULE__{color: [red, green, blue, 255]}, %State{} = state) do
     case Image.flatten(state.image, background_color: [red, green, blue]) do
       {:ok, image} -> {:ok, set_image(state, image)}
