@@ -190,6 +190,14 @@ Three queues, each tracking bytes:
   entry is eventually pushed out by newer admissions it competes for
   main with real evidence. **Empty at boot, never persisted** — window
   is pure recency, not warmth memory.
+
+  When `:window_ratio` is `0`, the window is effectively disabled: every
+  candidate's `size_bytes > 0` triggers the "oversized" branch of the
+  admission flow and goes directly to the main gate. Rejections become
+  more frequent under this configuration since new entries must beat
+  incumbents on first commit. Use only when you have measured a steady
+  long-tail workload where the bursty recompute-storm scenario doesn't
+  apply.
 - **Probationary** (main).
 - **Protected** (main). Promotion from probationary on second hit.
 
@@ -207,9 +215,11 @@ Each queue is an `:ets.new(:ordered_set, ...)` table keyed by an
 in-memory integer position + entry hash. `Admission` owns the tables
 exclusively (no concurrent access). ETS is used for ordered iteration
 during victim selection, not for shared access. Positions are
-in-memory-only — never persisted, never cross restart boundaries; on
-boot, main queues are rebuilt via the directory scan, and window starts
-empty.
+monotonically increasing arbitrary-size integers — BEAM bignums grow
+indefinitely without overflow, so no compaction is required during
+runtime. Positions are in-memory-only: never persisted, never cross
+restart boundaries; on boot, main queues are rebuilt via the directory
+scan with fresh positions starting from 1, and window starts empty.
 
 ### Queue entry shape
 
@@ -278,11 +288,23 @@ gate** (run for any entry that flows from window into main).
 3. **Same-key re-commit:** if `candidate.key_hash` is already in some
    queue (window, probationary, or protected), replace the existing
    entry in place with the new descriptor (new `size_bytes`,
-   `body_sha256`, `cost_us`). Return the *old* descriptor as a victim so
-   the adapter deletes the stale `<hash>.<old_body_sha256>.body`. Do not
-   run the main gate; the entry is already a cache resident. If the new
-   size grew enough to overflow its current queue, handle the overflow
-   per that queue's normal rules.
+   `body_sha256`, `cost_us`). Do not run the main gate; the entry is
+   already a cache resident.
+   - **Hard reject on growth past hard cap:** if `candidate.size_bytes
+     > :max_size_bytes`, reject the replacement and keep the old entry
+     intact. The old entry remains valid; the adapter cleans the
+     candidate's tmp files. Return `{:reject, :over_cap}`.
+   - **Body victim only when content differs:** return the *old*
+     descriptor as a victim **only if** `old.body_sha256 !=
+     new.body_sha256`. For content-identical rewrites (same
+     `body_sha256`), the new body file is the same path as the old —
+     deleting the "old" body would delete the just-rewritten body.
+     Skip body deletion; the meta file replacement is sufficient.
+   - **Soft-cap exceedance allowed:** if the new descriptor's size
+     pushes its queue over budget, do not evict the just-replaced
+     entry to compensate (K is never its own victim). Allow the soft
+     cap to overshoot; the next admission call will rebalance through
+     normal eviction.
 4. **Normal admission:** insert `candidate` at window MRU. While the
    window is over `window_budget`, pop the window LRU as `E` and run the
    main gate with `E`. Any victims the main gate produces, plus any
@@ -581,8 +603,9 @@ when a write happened concurrently with the directory walk.
 
 `Admission` keeps two CMS sources:
 
-- `local_cms` — incremented on local hits, the canonical thing this node
-  persists. Ages on schedule.
+- `local_cms` — incremented on local sightings via the doorkeeper gate
+  (both hits via `get/2` and misses-through-commit via `commit_sink`).
+  The canonical thing this node persists. Ages on schedule.
 - `boot_cms` — loaded once at startup from peer files. Read-only, never
   republished. Ages on the same schedule as `local_cms` (gradually fades
   as new traffic dominates). The separation avoids the "new node claims
@@ -597,9 +620,13 @@ a merged matrix in sync and would behave differently under collisions.
 
 ### Periodic background work
 
-- Persist local state to `<state_dir>/<node_id>.state` every `:flush_interval`
-  seconds (default 30). Debounced — only writes when CMS is dirty.
-  Atomic rename pattern.
+- Persist local state to `<state_dir>/<node_id>.state` every
+  `:flush_interval` seconds (default 30). Debounced — only writes when
+  **state is dirty**, where "dirty" means any of: CMS counters changed,
+  doorkeeper bits added, protected-segment membership or LRU order
+  changed, or aging epoch incremented. Hit promotions and demotions
+  set the dirty flag even when CMS doesn't increment (first-sighting
+  case where doorkeeper absorbs the increment). Atomic rename pattern.
 - Run TTL cleanup every `:cleanup_interval` seconds (default 3600 = 1h).
   List `<state_dir>/*.state`, `File.rm/1` files with mtime older than
   `:state_ttl` (default 604_800 = 7 days). Skip own file. ENOENT-tolerant.
@@ -613,11 +640,13 @@ behavior.
 
 **New required options when `:max_size_bytes` is set:**
 
-- `:max_size_bytes` — positive integer, must be ≥ `10_000_000` (10 MB).
-  The soft cap. `0` and small values below 10 MB are rejected at
-  validation — a tiny "bounded" cache can't fit meaningful entries and
-  is almost certainly an operator mistake; if a host wants no caching
-  they should omit the `:cache` adapter entirely.
+- `:max_size_bytes` — positive integer (must be `> 0`). The soft cap.
+  `0` and negative values are rejected at validation. There's no
+  hard-coded minimum above zero — small caps work and are useful for
+  tests, but the math becomes unrealistic below a few hundred KB
+  (window budget rounds to bytes, protected target rounds to tiny
+  fractions of entries). For production, several MB is the practical
+  floor for the cache to be useful.
 - `:node_id` — binary string. Identifies this node's state files. No
   default; operator-controlled. **Must be stable across restarts of the
   same logical node** — a fresh `node_id` on every boot causes cold-start
@@ -811,11 +840,14 @@ whose timing is uninteresting to operators.
 - **Restart after failed victim delete**: simulate a victim delete that
   fails with `:eacces`; restart Admission; verify boot scan picks up the
   orphan body (or skips it) without crashing or double-counting bytes.
-- **Caps below the 10 MB minimum**: `:max_size_bytes: 1024`,
-  `:max_size_bytes: 9_999_999`, `:max_size_bytes: 0`. All should be
-  rejected at validation. Assert the rejection happens (specific error
-  tuple or exception type) — not the exact error string, per "Tests
-  deliberately not written" below.
+- **Invalid `:max_size_bytes`**: `:max_size_bytes: 0` and negative
+  values should be rejected at validation. Assert the rejection happens
+  (specific error tuple or exception type) — not the exact error
+  string, per "Tests deliberately not written" below.
+- **Tiny but legal caps**: `:max_size_bytes: 1024` should be accepted
+  (legal positive integer); verify the math doesn't crash, budgets are
+  computed without negatives or division-by-zero, and at least the hard
+  reject path works as expected.
 
 ### Architecture tests
 
@@ -891,8 +923,9 @@ tests.
 7. Config schema extension with NimbleOptions:
    - New options with derived defaults (`:sketch_width`,
      `:doorkeeper_bits` from `:max_size_bytes`).
-   - Cross-validation: bounded options without `:max_size_bytes` rejected;
-     `:max_size_bytes: 0` rejected.
+   - Cross-validation: bounded options without `:max_size_bytes`
+     rejected; `:max_size_bytes` must be a positive integer (0 and
+     negatives rejected).
 8. New telemetry events through `ImagePipe.Telemetry` helpers.
 9. Tests:
    - All pure-module + property tests.
