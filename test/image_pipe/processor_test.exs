@@ -49,6 +49,31 @@ defmodule ImagePipe.Request.ProcessorTest do
     end
   end
 
+  defmodule DecodeConsumesStreamErrorThenReturnsDecodeError do
+    def open(stream, _decode_options) do
+      parent = self()
+      ref = make_ref()
+
+      spawn(fn ->
+        result =
+          try do
+            _ = Enum.to_list(stream)
+            :completed
+          rescue
+            exception in [Source.StreamError] -> {:source_error, exception.reason}
+          end
+
+        send(parent, {ref, result})
+      end)
+
+      receive do
+        {^ref, {:source_error, :stream_exception}} -> {:error, :forced_decode_error}
+      after
+        1_000 -> {:error, :stream_did_not_fail}
+      end
+    end
+  end
+
   defp opts do
     [
       sources: %{path: {ValidAdapter, []}},
@@ -298,6 +323,22 @@ defmodule ImagePipe.Request.ProcessorTest do
                |> Keyword.put(
                  :image_open_module,
                  DecodeConsumesBodyLimitThenReturnsDecodeError
+               )
+             )
+  end
+
+  test "source stream errors beat later decode errors from another stream consumer process" do
+    response = %Response{stream: Stream.map([:raise], fn _ -> raise "raw stream failure" end)}
+    assert {:ok, response} = Source.wrap_response(response, max_body_bytes: 20)
+
+    assert {:error, {:source, :stream_exception}} =
+             Processor.decode_validate_source_response(
+               response,
+               plan(),
+               Keyword.put(
+                 opts(),
+                 :image_open_module,
+                 DecodeConsumesStreamErrorThenReturnsDecodeError
                )
              )
   end

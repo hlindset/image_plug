@@ -108,6 +108,13 @@ defmodule ImagePipe.Source do
 
   def body_limit_exceeded?(%Response{}), do: false
 
+  @spec stream_error_reason(Response.t()) :: {:ok, term()} | :error
+  def stream_error_reason(%Response{stream: %WrappedStream{} = stream}) do
+    WrappedStream.stream_error_reason(stream)
+  end
+
+  def stream_error_reason(%Response{}), do: :error
+
   defp validate_sources(sources) when is_list(sources) do
     with {:ok, source_configs} <- source_configs(sources) do
       {:ok, expand_url_source_config(source_configs)}
