@@ -65,8 +65,33 @@ defmodule ImagePipe.Cache.FileSystem do
   @impl true
   def get(%Key{} = key, opts) when is_list(opts) do
     case paths(key, opts) do
-      {:ok, paths} -> read_entry(paths)
-      {:error, _reason} = error -> error
+      {:ok, paths} ->
+        case read_entry(paths) do
+          {:hit, entry, meta} ->
+            # read_entry already parsed/validated the meta payload; reuse its
+            # fields rather than re-reading the file.
+            maybe_cast_hit(opts, %{
+              key_hash: key.hash,
+              size_bytes: meta.body_byte_size,
+              body_sha256: meta.body_sha256,
+              cost_us: Map.get(meta, :cost_us, 0)
+            })
+
+            {:hit, entry}
+
+          other ->
+            other
+        end
+
+      {:error, _reason} = error ->
+        error
+    end
+  end
+
+  defp maybe_cast_hit(opts, descriptor) do
+    case lookup_admission(opts) do
+      {:ok, pid} -> ImagePipe.Cache.FileSystem.Admission.hit(pid, descriptor)
+      _ -> :ok
     end
   end
 
@@ -345,7 +370,7 @@ defmodule ImagePipe.Cache.FileSystem do
          content_type: metadata.content_type,
          headers: metadata.headers,
          created_at: created_at
-       }}
+       }, metadata}
     end
   end
 

@@ -136,6 +136,30 @@ defmodule ImagePipe.Cache.FileSystemBoundedTest do
     assert FileSystem.get(cache_key, opts) == :miss
   end
 
+  test "get/2 casts a hit descriptor to Admission, synthesizing tracking", %{root: root} do
+    bounded = bounded_opts(root, max_size_bytes: 1_000_000)
+    start_supervised!(FileSystem.child_spec(bounded))
+
+    cache_key = key()
+
+    # Place the entry on disk WITHOUT going through bounded admit, so Admission
+    # is not yet tracking it (mirrors a cold-boot hit before the scan reaches
+    # the key). Unbounded opts skip the admit path entirely.
+    unbounded = [root: root]
+    assert :ok = put_entry(cache_key, entry("encoded image"), unbounded)
+
+    pid = admission_pid(root)
+    assert :sys.get_state(pid).probationary_bytes == 0
+
+    # A bounded get hits and casts the descriptor to Admission.
+    assert {:hit, hit} = FileSystem.get(cache_key, bounded)
+    assert hit.body == "encoded image"
+
+    # Flush the async hit cast, then assert the synthesized probationary entry.
+    _ = :sys.get_state(pid)
+    assert :sys.get_state(pid).probationary_bytes == byte_size("encoded image")
+  end
+
   test "bounded mode with no Admission process fails closed (skips write)", %{root: root} do
     # Bounded opts but no supervision tree started: lookup_admission/1 returns
     # :unavailable, so commit_sink must NOT leave an untracked entry on disk.
