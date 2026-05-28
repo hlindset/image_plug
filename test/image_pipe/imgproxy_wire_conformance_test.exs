@@ -60,6 +60,25 @@ defmodule ImagePipe.ImgproxyWireConformanceTest do
     end
   end
 
+  defmodule EffectOriginImage do
+    @moduledoc false
+
+    def call(conn, _opts) do
+      body =
+        64
+        |> Image.new!(64, color: :black)
+        |> Image.Draw.rect!(0, 0, 32, 64, color: :white)
+        |> Image.Draw.rect!(16, 0, 16, 64, color: :red)
+        |> Image.Draw.rect!(32, 0, 16, 64, color: :green)
+        |> Image.Draw.rect!(48, 0, 16, 64, color: :blue)
+        |> Image.write!(:memory, suffix: ".png")
+
+      conn
+      |> Plug.Conn.put_resp_content_type("image/png")
+      |> Plug.Conn.send_resp(200, body)
+    end
+  end
+
   @default_opts [
     parser: ImagePipe.Parser.Imgproxy,
     sources: [
@@ -241,6 +260,29 @@ defmodule ImagePipe.ImgproxyWireConformanceTest do
       assert conn.status == 200
       assert content_type(conn) == ["image/jpeg"]
       assert dimensions(conn) == expected_dimensions
+    end
+  end
+
+  test "effect options change decoded response pixels without geometry options" do
+    baseline =
+      "/_/f:png/plain/images/effects.png"
+      |> call_imgproxy(effect_origin_opts())
+      |> decoded_image()
+
+    cases = [
+      "/_/bl:4/f:png/plain/images/effects.png",
+      "/_/sh:10/f:png/plain/images/effects.png",
+      "/_/pix:8/f:png/plain/images/effects.png"
+    ]
+
+    for path <- cases do
+      image =
+        path
+        |> call_imgproxy(effect_origin_opts())
+        |> decoded_image()
+
+      assert dimensions(image) == dimensions(baseline)
+      assert sampled_pixels(image) != sampled_pixels(baseline)
     end
   end
 
@@ -988,6 +1030,17 @@ defmodule ImagePipe.ImgproxyWireConformanceTest do
     )
   end
 
+  defp effect_origin_opts do
+    [
+      parser: ImagePipe.Parser.Imgproxy,
+      sources: [
+        path:
+          {RootHTTPAdapter,
+           root_url: "http://origin.test", req_options: [plug: EffectOriginImage]}
+      ]
+    ]
+  end
+
   defp call_imgproxy(path, opts, accept \\ nil) do
     conn =
       :get
@@ -1009,9 +1062,25 @@ defmodule ImagePipe.ImgproxyWireConformanceTest do
     end
   end
 
-  defp dimensions(conn) do
-    image = Image.open!(conn.resp_body, access: :random, fail_on: :error)
+  defp dimensions(%Plug.Conn{} = conn) do
+    conn
+    |> decoded_image()
+    |> dimensions()
+  end
+
+  defp dimensions(%VipsImage{} = image) do
     {Image.width(image), Image.height(image)}
+  end
+
+  defp decoded_image(%Plug.Conn{} = conn) do
+    Image.open!(conn.resp_body, access: :random, fail_on: :error)
+  end
+
+  defp sampled_pixels(image) do
+    for x <- [8, 16, 24, 32, 40, 48, 56],
+        y <- [8, 24, 40, 56] do
+      Image.get_pixel!(image, x, y)
+    end
   end
 
   defp cache_entry do
