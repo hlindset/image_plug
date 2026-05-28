@@ -6,5 +6,4 @@ name = "image_plug"
 script = '''
 mise trust
 mise exec -- mix deps.get
-mise exec -- vale sync
 '''
