@@ -125,7 +125,135 @@ defmodule ImagePipe.Cache.FileSystem.Admission do
       protected: :ets.new(:protected, [:ordered_set, :protected])
     }
 
+    state = warm_start(state)
     {:ok, state, {:continue, :schedule_tickers}}
+  end
+
+  defp warm_start(state) do
+    state
+    |> load_own_state()
+    |> load_peer_state()
+  end
+
+  defp load_own_state(state) do
+    path = Path.join(state.state_dir, "#{state.node_id}.state")
+
+    case File.read(path) do
+      {:ok, binary} ->
+        case decode_state_payload(binary, state) do
+          {:ok, payload} ->
+            apply_own_state(state, payload)
+
+          {:error, reason} ->
+            require Logger
+            # Reason only: the state filename embeds node_id + storage root.
+            Logger.warning("cache: own state file decode failed: reason=#{inspect(reason)}; cold boot")
+            state
+        end
+
+      {:error, :enoent} ->
+        state
+
+      {:error, reason} ->
+        require Logger
+        Logger.warning("cache: own state file read failed: reason=#{inspect(reason)}; cold boot")
+        state
+    end
+  end
+
+  defp load_peer_state(state) do
+    case File.ls(state.state_dir) do
+      {:ok, files} ->
+        own = "#{state.node_id}.state"
+        now = System.system_time(:millisecond)
+
+        Enum.reduce(files, state, fn f, acc ->
+          if String.ends_with?(f, ".state") and f != own and within_ttl?(acc, f, now) do
+            merge_peer_file(acc, f)
+          else
+            acc
+          end
+        end)
+
+      {:error, _} ->
+        state
+    end
+  end
+
+  defp within_ttl?(state, filename, now_ms) do
+    case File.stat(Path.join(state.state_dir, filename), time: :posix) do
+      {:ok, %{mtime: mtime}} -> now_ms - mtime * 1000 < state.state_ttl_ms
+      _ -> false
+    end
+  end
+
+  defp merge_peer_file(state, filename) do
+    path = Path.join(state.state_dir, filename)
+
+    with {:ok, binary} <- File.read(path),
+         {:ok, payload} <- decode_state_payload(binary, state),
+         {:ok, peer_sketch} <-
+           Sketch.deserialize(payload.sketch,
+             depth: state.sketch_depth,
+             width: state.sketch_width,
+             sample_size: state.aging_sample_size
+           ) do
+      %{state | boot_cms: Sketch.sum(state.boot_cms, peer_sketch)}
+    else
+      {:error, reason} ->
+        require Logger
+        # Path omitted (embeds peer node_id + storage root). Reason only.
+        Logger.warning("cache: peer state merge failed: reason=#{inspect(reason)}")
+        state
+    end
+  end
+
+  defp decode_state_payload(binary, _state) do
+    try do
+      payload = :erlang.binary_to_term(binary, [:safe])
+      validate_state_payload(payload)
+    rescue
+      ArgumentError -> {:error, :decode_failed}
+    end
+  end
+
+  defp validate_state_payload(%{
+         format_version: 1,
+         node_id: node_id,
+         written_at: written_at,
+         aging_epoch: aging_epoch,
+         increments_since_reset: increments_since_reset,
+         sketch: sketch,
+         protected_hashes: protected_hashes
+       } = payload)
+       when is_binary(node_id) and is_integer(written_at) and
+              is_integer(aging_epoch) and aging_epoch >= 0 and
+              is_integer(increments_since_reset) and increments_since_reset >= 0 and
+              is_binary(sketch) and is_list(protected_hashes) do
+    if Enum.all?(protected_hashes, &is_binary/1) do
+      {:ok, payload}
+    else
+      {:error, :invalid_protected_hashes}
+    end
+  end
+
+  defp validate_state_payload(%{format_version: v}), do: {:error, {:unsupported_format_version, v}}
+  defp validate_state_payload(_other), do: {:error, :invalid_shape}
+
+  defp apply_own_state(state, payload) do
+    {:ok, sketch} =
+      Sketch.deserialize(payload.sketch,
+        depth: state.sketch_depth,
+        width: state.sketch_width,
+        sample_size: state.aging_sample_size
+      )
+
+    persisted_protected = Map.get(payload, :protected_hashes, [])
+
+    # Doorkeeper is intentionally not restored — keep the empty one created
+    # at init. protected_hashes restoration into the protected ETS table is
+    # handled by the two-pass directory scan in Task 21.
+    %{state | local_cms: sketch, persisted_protected_hashes: persisted_protected}
   end
 
   @impl true

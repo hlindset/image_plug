@@ -272,6 +272,73 @@ defmodule ImagePipe.Cache.FileSystem.AdmissionTest do
     assert File.exists?(state_file)
   end
 
+  test "boot warm-starts from own state file (CMS restored; doorkeeper starts empty)", %{registry: registry, tmp_dir: tmp_dir} do
+    opts = base_opts(registry: registry, tmp_dir: tmp_dir)
+    state_dir = Keyword.fetch!(opts, :state_dir)
+    File.mkdir_p!(state_dir)
+
+    sketch =
+      Sketch.new(depth: 4, width: 256)
+      |> Sketch.increment("hot-key")
+      |> Sketch.increment("hot-key")
+
+    payload =
+      :erlang.term_to_binary(
+        %{
+          format_version: 1,
+          node_id: "test-node",
+          written_at: System.system_time(:millisecond),
+          aging_epoch: 0,
+          increments_since_reset: 2,
+          sketch: Sketch.serialize(sketch),
+          protected_hashes: []
+        },
+        [:deterministic]
+      )
+
+    File.write!(Path.join(state_dir, "test-node.state"), payload)
+
+    pid = start_supervised!({Admission, opts})
+    state = :sys.get_state(pid)
+
+    assert Sketch.estimate(state.local_cms, "hot-key") >= 1
+    # Doorkeeper is intentionally not persisted; it boots empty.
+    refute Talan.BloomFilter.member?(state.doorkeeper, "hot-key")
+  end
+
+  test "boot merges peer state files into boot_cms", %{registry: registry, tmp_dir: tmp_dir} do
+    opts = base_opts(registry: registry, tmp_dir: tmp_dir)
+    state_dir = Keyword.fetch!(opts, :state_dir)
+    File.mkdir_p!(state_dir)
+
+    peer_sketch =
+      Sketch.new(depth: 4, width: 256)
+      |> Sketch.increment("global-hot")
+      |> Sketch.increment("global-hot")
+      |> Sketch.increment("global-hot")
+
+    peer_payload =
+      :erlang.term_to_binary(
+        %{
+          format_version: 1,
+          node_id: "peer-1",
+          written_at: System.system_time(:millisecond),
+          aging_epoch: 0,
+          increments_since_reset: 3,
+          sketch: Sketch.serialize(peer_sketch),
+          protected_hashes: []
+        },
+        [:deterministic]
+      )
+
+    File.write!(Path.join(state_dir, "peer-1.state"), peer_payload)
+
+    pid = start_supervised!({Admission, opts})
+    state = :sys.get_state(pid)
+
+    assert Sketch.estimate(state.boot_cms, "global-hot") >= 1
+  end
+
   defp base_opts(overrides) do
     Keyword.merge(
       [
