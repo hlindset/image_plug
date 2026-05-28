@@ -125,6 +125,61 @@ defmodule ImagePipe.Cache.FileSystem.AdmissionTest do
     assert state.probationary_bytes == 5_000
   end
 
+  test "same-key re-commit returns body-only victim when body_sha256 differs", %{registry: registry, tmp_dir: tmp_dir} do
+    opts = base_opts(registry: registry, tmp_dir: tmp_dir)
+    pid = start_supervised!({Admission, opts})
+
+    {:admit, []} =
+      Admission.admit(pid, %{key_hash: "k", size_bytes: 1_000, body_sha256: "sha_old", cost_us: 1_000})
+
+    {:admit, victims} =
+      Admission.admit(pid, %{key_hash: "k", size_bytes: 1_500, body_sha256: "sha_new", cost_us: 2_000})
+
+    # The victim must point at the OLD body (for deletion) but NOT
+    # delete the meta — the meta path is identical for old and new
+    # entries, and the adapter has just renamed the new meta into
+    # place. Deleting the meta would destroy the new entry.
+    assert [
+             %{
+               key_hash: "k",
+               body_sha256: "sha_old",
+               delete_body?: true,
+               delete_meta?: false
+             }
+           ] = victims
+  end
+
+  test "same-key re-commit emits NO victim when body_sha256 matches", %{registry: registry, tmp_dir: tmp_dir} do
+    opts = base_opts(registry: registry, tmp_dir: tmp_dir)
+    pid = start_supervised!({Admission, opts})
+
+    {:admit, []} =
+      Admission.admit(pid, %{key_hash: "k", size_bytes: 1_000, body_sha256: "same_sha", cost_us: 1_000})
+
+    {:admit, victims} =
+      Admission.admit(pid, %{key_hash: "k", size_bytes: 1_000, body_sha256: "same_sha", cost_us: 1_500})
+
+    # Content-identical rewrite: nothing to delete (the body file path
+    # is the same as the just-renamed candidate body).
+    assert victims == []
+  end
+
+  test "same-key replacement rejected when new size exceeds max_size_bytes", %{registry: registry, tmp_dir: tmp_dir} do
+    opts = base_opts(registry: registry, tmp_dir: tmp_dir, max_size_bytes: 10_000)
+    pid = start_supervised!({Admission, opts})
+
+    {:admit, []} =
+      Admission.admit(pid, %{key_hash: "k", size_bytes: 1_000, body_sha256: "sa", cost_us: 1_000})
+
+    assert {:reject, :over_cap} =
+             Admission.admit(pid, %{key_hash: "k", size_bytes: 20_000, body_sha256: "sb", cost_us: 1_000})
+
+    state = :sys.get_state(pid)
+    # Old entry still tracked
+    assert in_queue?(state.window, "k") or in_queue?(state.probationary, "k") or
+             in_queue?(state.protected, "k")
+  end
+
   defp base_opts(overrides) do
     Keyword.merge(
       [

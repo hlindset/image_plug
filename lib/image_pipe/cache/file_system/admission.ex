@@ -346,8 +346,38 @@ defmodule ImagePipe.Cache.FileSystem.Admission do
     end)
   end
 
-  # stub for next task
-  defp same_key_replace(state, _descriptor), do: {{:admit, []}, state}
+  defp same_key_replace(state, descriptor) do
+    {queue, old_position, old_descriptor} = locate(state, descriptor.key_hash)
+    table = Map.fetch!(state, queue)
+
+    # Remove the old entry's bytes from accounting.
+    bytes_field = :"#{queue}_bytes"
+    state = Map.update!(state, bytes_field, &(&1 - old_descriptor.size_bytes))
+    :ets.delete(table, {old_position, descriptor.key_hash})
+
+    # Insert the new descriptor at MRU in the same queue.
+    {position, state} = next_position(state)
+    :ets.insert(table, {{position, descriptor.key_hash}, descriptor})
+    state = Map.update!(state, bytes_field, &(&1 + descriptor.size_bytes))
+
+    # Body-only victim when content changed; otherwise no victim.
+    victims =
+      if descriptor.body_sha256 == old_descriptor.body_sha256 do
+        []
+      else
+        [
+          %{
+            key_hash: old_descriptor.key_hash,
+            body_sha256: old_descriptor.body_sha256,
+            size_bytes: old_descriptor.size_bytes,
+            delete_body?: true,
+            delete_meta?: false
+          }
+        ]
+      end
+
+    {{:admit, victims}, state}
+  end
 
   defp sighting(state, key_hash) do
     if Talan.BloomFilter.member?(state.doorkeeper, key_hash) do
@@ -360,19 +390,18 @@ defmodule ImagePipe.Cache.FileSystem.Admission do
     end
   end
 
-  # Scan the three queues for a key_hash and return the located ETS object
-  # `{{position, key_hash}, descriptor}`, or nil when the key is untracked.
+  # Scan the three queues for a key_hash and return `{queue, position,
+  # descriptor}`, or nil when the key is untracked. The queue atom lets
+  # callers (e.g. promote_on_hit/2) act on the located entry's home queue.
   defp locate(state, key_hash) do
-    find_in_queue(state.window, key_hash) ||
-      find_in_queue(state.probationary, key_hash) ||
-      find_in_queue(state.protected, key_hash)
-  end
+    Enum.find_value([:window, :probationary, :protected], fn queue ->
+      table = Map.fetch!(state, queue)
 
-  defp find_in_queue(table, key_hash) do
-    case :ets.match_object(table, {{:_, key_hash}, :_}) do
-      [object | _] -> object
-      [] -> nil
-    end
+      case :ets.match_object(table, {{:_, key_hash}, :_}) do
+        [] -> nil
+        [{{pos, _hash}, descriptor}] -> {queue, pos, descriptor}
+      end
+    end)
   end
 
   defp next_position(state),
