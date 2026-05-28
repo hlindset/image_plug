@@ -74,7 +74,20 @@ imgproxy's option is `crop_aspect_ratio:%aspect_ratio:%enlarge`:
   size, imgproxy reduces the crop area to fit while maintaining the ratio.
 - It corrects the **size** of the crop area only, not the crop gravity. Per
   imgproxy's own note, `crop:100:200:nowe:300:400/crop_ar:1:1` crops a
-  `200x200` area anchored by the unchanged `nowe` gravity.
+  `200x200` area anchored by the unchanged `nowe` gravity (offsets `300:400`).
+  Note that `car:1:1` here is `aspect_ratio=1` **plus `enlarge=1`** — so the
+  `100x200` area is *enlarged* to `200x200` (the deficient short axis grows to
+  match). The default (reduce) form `car:1` would instead shrink it to
+  `100x100`.
+
+**Source caveat.** `crop_aspect_ratio` is imgproxy Pro and has no implementation
+in the non-Pro Go source, so the exact reduce/enlarge axis selection, the
+enlarge clamp-to-bounds fallback, and tie rounding cannot be verified against
+source — only against the docs. Implement per the documented behavior. Tie
+rounding follows ImagePipe's existing crop convention (`round_ties_to_even/1` in
+`crop.ex`) for internal consistency; this is a minor, pixel-tie-only divergence
+from imgproxy's `math.Round` (half away from zero) and is not asserted at the
+pixel level.
 
 The crop area is produced by `crop:%width:%height:%gravity`, parsed into
 `ImagePipe.Parser.Imgproxy.CropRequest` and lowered to
@@ -91,9 +104,7 @@ plan-build time.
 
 **Parser (`option_grammar.ex`).** Replace `parse_extend_aspect_ratio/2` with the
 same parsing shape as the sibling `parse_extend/2`: parse the first argument as
-an extend boolean and the optional remainder as gravity using the existing
-`parse_optional_extend_gravity/2`. Reject `sm`, `obj`, and `objw` gravity exactly
-as `extend` does. Emit parser fields:
+an extend boolean and the optional remainder as gravity. Emit parser fields:
 
 ```
 [extend_aspect_ratio: extend?, extend_aspect_ratio_requested: true,
@@ -104,6 +115,22 @@ as `extend` does. Emit parser fields:
 
 mirroring the existing `extend`/`extend_requested`/`extend_gravity`/offsets
 fields. The exact field names follow the existing `extend_*` precedent.
+
+**Reuse note:** the existing `parse_optional_extend_gravity/2` hardcodes the
+`extend_gravity`/`extend_x_offset`/`extend_y_offset` key names
+(`option_grammar.ex:299-332`). To emit `extend_aspect_ratio_*` keys it must be
+parameterized with a key prefix (preferred) or duplicated. Do not silently
+reuse it as-is.
+
+**Gravity scope.** Mirror the existing `extend` gravity exactly: the 9
+directional anchors in `@gravity_anchors` (`ce`, `no`, `so`, `ea`, `we`, and the
+four corners) plus optional `x`/`y` offsets. imgproxy additionally allows `fp`
+(focus point) gravity for `extend`/`exar`, but ImagePipe's `extend` does **not**
+support `fp` today (the `ExtendCanvas` transform only places by `{:anchor, ...}`,
+not focal point), so exar inherits the same directional-only support. Adding
+`fp` extend-gravity is a pre-existing gap in `extend` and is deferred (see
+Deferred Behaviors). `sm`, `re`, `obj`, and `objw` are rejected, as they already
+are by `@gravity_anchors`.
 
 **PipelineRequest (`pipeline_request.ex`).** Replace the
 `extend_aspect_ratio: imgp_ratio() | nil` field with a boolean
@@ -117,24 +144,34 @@ fields.
 - No-op (return `nil`) when extend is not enabled, mirroring
   `extend_operation_requested?/1`'s `extend: false, extend_requested: true`
   case.
-- No-op when either resolved resize dimension is `:auto`/`0` — the requested
-  aspect ratio is undefined.
+- No-op unless **both** resize dimensions are explicit positive pixels. The
+  requested aspect ratio is undefined otherwise. `request.width`/`request.height`
+  are tagged values (`:auto`, `{:pixels, 0}`, `{:pixels, N}`, `{:scale, N}`);
+  treat `:auto`, `{:pixels, 0}`, and `{:scale, _}` (percentage/scale resize, no
+  fixed target ratio) as no-op. Only `{:pixels, N}` with `N > 0` on both axes
+  yields a ratio.
 - Otherwise emit a `Canvas` operation whose per-axis dimensions encode the
   resize target ratio: width `{:ratio, resize_w, 1}` and height
-  `{:ratio, resize_h, 1}`, where `resize_w`/`resize_h` are the resolved resize
-  dimensions from `request.width`/`request.height` (the same values
-  `resize_operation/1` consumes). `PlanExecutor.canvas_rule/2` then lowers these
-  two ratio axes into `{:aspect_ratio, {resize_w, resize_h}}` for `ExtendCanvas`,
-  i.e. target ratio `resize_w / resize_h`. Use the parsed gravity (default
-  center) and offsets, with `fill: :transparent, overflow: :reject`.
+  `{:ratio, resize_h, 1}`, where `resize_w`/`resize_h` are the integer pixel
+  values extracted from the `{:pixels, N}` resize dimensions. `Operation.canvas`
+  canonicalizes these (gcd), `PlanExecutor.canvas_dimension/1` maps each
+  `{:ratio, n, d}` to `{:ratio, n/d}`, and `canvas_rule/2` pairs them into
+  `{:aspect_ratio, {resize_w, resize_h}}` for `ExtendCanvas`, i.e. target ratio
+  `resize_w / resize_h`. Use the parsed gravity (default center) and offsets,
+  with `fill: :transparent, overflow: :reject`.
 - Update `effective_padding_pixel_ratio/1`'s `:canvas_preserving` branch, which
-  currently checks `not is_nil(request.extend_aspect_ratio)`, to use the new
-  boolean enabled-state predicate.
+  currently checks `not is_nil(request.extend_aspect_ratio)`
+  (`plan_builder.ex:554`), to use the new boolean enabled-state predicate.
 
-**Semantics.** Because the canvas runs after resize, this only changes pixels
-under `fit` resizing where the image is smaller than `w×h`. Under `fill`/`force`
-the image already matches the ratio and `ExtendCanvas` is a no-op. This matches
-imgproxy.
+**Semantics.** The canvas size is computed by `ExtendCanvas` from the **current
+(post-resize) image**, not from absolute target pixels: it expands only the
+deficient axis so the result reaches the target ratio while preserving the full
+current image (`extend_canvas.ex:122-136`). This matches imgproxy, which anchors
+the extended canvas to the actual scaled output and scales the deficient axis to
+the `TargetWidth:TargetHeight` ratio. Because the canvas runs after resize, this
+only changes pixels under `fit` resizing where the image is smaller than `w×h`;
+under `fill`/`force` the image already matches the ratio and `ExtendCanvas` is a
+no-op.
 
 ### Feature 2: Add `crop_aspect_ratio`
 
@@ -156,11 +193,13 @@ ratio number) and `crop_aspect_ratio_enlarge` (boolean, default `false`).
 **CropGuided plan operation (`plan/operation/crop_guided.ex`).** Add two optional
 fields: `aspect_ratio` (nil or `{:ratio, numerator, denominator}`) and `enlarge`
 (boolean, default `false`). `nil` aspect_ratio means no correction, preserving
-current behavior. Add a constructor path / validation in
-`ImagePipe.Plan.Operation` consistent with the existing `crop_guided`
-constructor.
+current behavior. Wire the new fields through `ImagePipe.Plan.Operation`: add
+them to the `@crop_guided_keys` allow-list (`plan/operation.ex:53`, otherwise
+`validate_known_options` rejects them), and extend the `crop_guided` constructor
++ `valid_crop_guided?` validation consistent with the existing pattern.
 
-**PlanBuilder (`plan_builder.ex`).** In `crop_operations/1`, populate the new
+**PlanBuilder (`plan_builder.ex`).** In `crop_operations/1` (which currently
+passes only `x_offset`/`y_offset` to `Operation.crop_guided`), populate the new
 `CropGuided` fields from the pipeline request. A `crop_aspect_ratio` of `0` or
 absent resolves to `aspect_ratio: nil` (no correction). Only `CropGuided`
 (gravity/anchor/focal crops) carries the correction; `CropRegion` (coordinate
@@ -172,9 +211,12 @@ lowering, pass `aspect_ratio` and `enlarge` through to the executable `Crop`
 struct.
 
 **Crop transform (`transform/operation/crop.ex`).** Add `aspect_ratio` (nil or
-`{:ratio, n, d}`) and `enlarge` (boolean) fields. In the `crop_from: :gravity`
-path, after resolving `crop_width` and `crop_height` to pixels and before
-`gravity_crop_coordinates/7`, apply the correction when `aspect_ratio` is set:
+`{:ratio, n, d}`) and `enlarge` (boolean) fields. The insertion point is inside
+`crop_coordinates/4` for the `crop_from: :gravity` clause
+(`crop.ex:147-173`): after `crop_dimension/2` resolves `crop_width`/`crop_height`
+to pixels (lines 154-155) and before `gravity_crop_coordinates/7`. `image_width`
+and `image_height` are in scope there for the enlarge clamp. Apply the correction
+when `aspect_ratio` is set:
 
 - Let `target = numerator / denominator` and `current = crop_width / crop_height`.
 - Reduce (default): shrink the axis that makes the area exceed the target ratio
@@ -248,17 +290,33 @@ to `:random` access. Neither feature introduces a one-pass-safe path.
 Following the test guidelines (boundary-focused, wire-level for compatibility,
 property tests for invariants):
 
-**Parser (`test/parser/imgproxy_test.exs`, property test).**
+**Parser (`test/parser/imgproxy/` subdirectory + property test).**
 
 - `exar` parses `extend` boolean + gravity (including default center, corner
-  gravities, and offsets); rejects `sm`/`obj`/`objw`; `exar:0` / disabled is a
-  no-op.
+  gravities, and offsets); rejects `sm`/`obj`/`objw`/`re`; `exar:0` / disabled is
+  a no-op.
 - `car` parses `aspect_ratio` and optional `enlarge`; `car:0` is a no-op;
   negatives and malformed input rejected.
 - Order-insensitivity property coverage extends to both options.
 
-**Delete:** existing parser tests asserting the literal `exar:W:H` ratio shape —
-they pin a non-imgproxy form. Replace with the corrected shape.
+**Existing tests to rewrite/remove (exact locations):**
+
+- `test/parser/imgproxy/options_test.exs:11,29` — asserts `exar:16:9` →
+  `pipeline.extend_aspect_ratio == {16, 9}`. Rewrite to the boolean+gravity
+  shape.
+- `test/parser/imgproxy/plan_builder_test.exs:233` — uses
+  `plan_pipeline(extend_aspect_ratio: {16, 9})`. Rewrite.
+- `test/parser/imgproxy/option_grammar_test.exs:232-234` — arity-rejection list
+  contains `extend_aspect_ratio:16:9:1` / `exar:16:9:1`; the new valid arity
+  changes, so update these.
+- `test/parser/imgproxy/option_grammar_test.exs:203-211` — the "dropped options
+  return unknown option errors" test currently asserts `crop_aspect_ratio`,
+  `crop_ar`, `car`, and `crop_ar:1:1` return `{:error, {:unknown_option, _}}`.
+  Implementing `car` **breaks this test**: remove those entries from the
+  unknown-option list.
+
+These are post-migration shape pins, not behavior coverage worth keeping; the
+rewritten parser tests above cover the corrected shape.
 
 **Plan builder / plan operations.**
 
@@ -287,8 +345,17 @@ dimensions:
 - Cache reuse for semantically equivalent requests; failures (bad gravity)
   return before source/cache access.
 
-**Demo state tests** (if the demo has a test runner, per the color-controls
-precedent): round-trip `exar` and `car` URL segments through demo state.
+**Demo state tests** (`demo/src/processing-path.test.ts`, run via `demo:test`
+vitest — this runner exists and must be exercised per the color-controls
+precedent):
+
+- Round-trip the new `exar` boolean+gravity shape and new `car` segments through
+  demo state.
+- **Update existing exar tests that pin the old shape:**
+  `processing-path.test.ts:263-286` (emit `exar:16:9`) and the combined
+  round-trip at `:744-770` (asserts `extendAspectWidth: 16,
+  extendAspectHeight: 9`). These break under the new shape and must be rewritten,
+  not just supplemented.
 
 ## Documentation
 
@@ -306,3 +373,8 @@ precedent): round-trip `exar` and `car` URL segments through demo state.
   separate slices.
 - `crop_aspect_ratio` correction is wired only through gravity crops
   (`CropGuided`), not coordinate crops (`CropRegion`), matching imgproxy.
+- `fp` (focus point) gravity for `extend`/`extend_aspect_ratio` is not supported.
+  This is a pre-existing gap in ImagePipe's `extend` (the `ExtendCanvas` transform
+  places by anchor only, not focal point); exar matches `extend`. Adding focal
+  extend-gravity is a separate enhancement touching both options and the
+  transform.
