@@ -1,0 +1,3030 @@
+# Bounded Filesystem Cache Implementation Plan
+
+> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+
+**Goal:** Add an optional bounded mode to `ImagePipe.Cache.FileSystem` with cost-aware W-TinyLFU admission, a Bloom doorkeeper, a soft `:max_size_bytes` cap, and persisted CMS state for warm-start across restarts (including multi-node warm-start by reading peer state files at boot).
+
+**Architecture:** A single `Admission` GenServer per cache root owns in-memory CMS + doorkeeper + W-TinyLFU queues (window + probationary + protected). The existing pure-callback `FileSystem` adapter gains a `child_spec/1` that starts the GenServer when `:max_size_bytes` is configured, lazily looks up the process via `Registry` at request time, calls `admit/1` synchronously before rename in `commit_sink`, and `cast`s hit-increments on `get/2`. Unbounded behavior (no `:max_size_bytes`) is unchanged.
+
+**Tech Stack:** Elixir, ExUnit, StreamData (property tests), NimbleOptions (config), `:ets`, `:erlang.term_to_binary/2`, `:erlang.phash2/2`, existing `ImagePipe.Telemetry` helpers, `Registry`.
+
+**Spec:** [docs/superpowers/specs/2026-05-28-bounded-filesystem-cache-design.md](../specs/2026-05-28-bounded-filesystem-cache-design.md)
+
+---
+
+## File Structure
+
+**New `lib/` files (all under `ImagePipe.Cache.FileSystem.*` namespace):**
+
+| Path | Responsibility |
+|---|---|
+| `lib/image_pipe/cache/file_system/sketch.ex` | Pure-data Count-Min Sketch: increment (conservative update), estimate (min over rows), aging (halving + epoch), serialization round-trip, element-wise sum (for `boot_cms` merge). |
+| `lib/image_pipe/cache/file_system/doorkeeper.ex` | Pure-data Bloom filter: `add/2`, `member?/2`, `reset/1`, serialization. |
+| `lib/image_pipe/cache/file_system/policy.ex` | Pure functions: `score/1`, `weighted_avg_score/1`, `victim_walk/3`, `admit?/2`. No state. |
+| `lib/image_pipe/cache/file_system/admission.ex` | `GenServer` owning `local_cms`, `doorkeeper`, `boot_cms`, three ETS queue tables, byte accounting. Synchronous `admit/1`, async `hit/1`. Runs aging, flush ticker, cleanup ticker, boot warm-start, and background directory scan. |
+
+**Modified `lib/` files:**
+
+| Path | Change |
+|---|---|
+| `lib/image_pipe/cache/entry/metadata.ex` | Add `cost_us` field. |
+| `lib/image_pipe/cache/file_system.ex` | Add bounded-mode `child_spec/1`; persist `cost_us` and `body_byte_size` to meta payload; read them back on `get/2`; thread admission decision into `commit_sink`; delete victim files on `{:admit, victims}`; cast hit on successful `get/2`; lazy `Registry.lookup/2` at request time. |
+| `lib/image_pipe/cache/sink.ex` | Thread `cost_us` (sum of stage durations) into `Entry.Metadata` at commit time. |
+| `lib/image_pipe/cache.ex` | Export `FileSystem` boundary extensions if needed (likely none — `FileSystem.*` modules are non-exported internals). |
+
+**New `test/` files:**
+
+| Path | Coverage |
+|---|---|
+| `test/image_pipe/cache/file_system/sketch_test.exs` | Sketch construction, increment, conservative update, estimate, aging, serialization. |
+| `test/image_pipe/cache/file_system/sketch_property_test.exs` | `estimate(k) >= true_count(k)`; aging preserves relative ordering. |
+| `test/image_pipe/cache/file_system/doorkeeper_test.exs` | Add/member?/reset, serialization, false-positive bound. |
+| `test/image_pipe/cache/file_system/policy_test.exs` | Score arithmetic (float, cost_us=0 fallback); main-gate decisions; victim walks across probationary and into protected; weighted-average rule. |
+| `test/image_pipe/cache/file_system/admission_test.exs` | GenServer: boot from various state files, admit window+main flow, hits, aging trigger, flush dirty flag, cleanup ticker, scan race resolution, same-key replace, restart-via-supervisor warm-starts state. |
+| `test/image_pipe/cache/file_system_bounded_test.exs` | Adapter end-to-end with bounded config: 1.5× cap cycle, eviction file deletion, admission-rejection telemetry, cross-node warm-start. |
+| `test/image_pipe/cache/file_system_bounded_property_test.exs` | Soft-cap invariant property: after any random admission sequence, `Admission`-tracked bytes never exceed cap by more than the sum of in-flight admitted descriptors. |
+
+**Modified `test/` files:**
+
+| Path | Change |
+|---|---|
+| `test/image_pipe/architecture_boundary_test.exs` | Add namespace assertions for `ImagePipe.Cache.FileSystem.*`. |
+| `test/image_pipe/cache/file_system_test.exs` | No changes — existing tests continue to verify unbounded mode unchanged. |
+
+**Doc files:**
+
+| Path | Change |
+|---|---|
+| `docs/cache.md` | Add bounded-mode configuration section, `:node_id` stability requirement, supervision-tree ordering note, telemetry additions. |
+
+---
+
+## Phase 1: Pure modules (Sketch, Doorkeeper, Policy)
+
+These have no GenServer dependencies, are independently testable, and constitute the algorithmic core.
+
+### Task 1: Sketch — construction and basic increment
+
+**Files:**
+- Create: `lib/image_pipe/cache/file_system/sketch.ex`
+- Create: `test/image_pipe/cache/file_system/sketch_test.exs`
+
+- [ ] **Step 1: Write failing tests for construction and basic increment**
+
+```elixir
+# test/image_pipe/cache/file_system/sketch_test.exs
+defmodule ImagePipe.Cache.FileSystem.SketchTest do
+  use ExUnit.Case, async: true
+
+  alias ImagePipe.Cache.FileSystem.Sketch
+
+  describe "new/1" do
+    test "creates a sketch with the configured depth and width" do
+      sketch = Sketch.new(depth: 4, width: 4096)
+      assert Sketch.depth(sketch) == 4
+      assert Sketch.width(sketch) == 4096
+    end
+
+    test "starts with all counters at zero" do
+      sketch = Sketch.new(depth: 4, width: 64)
+      assert Sketch.estimate(sketch, "any-key") == 0
+    end
+  end
+
+  describe "increment/2 and estimate/2" do
+    test "estimate is at least the true count after increments" do
+      sketch =
+        Sketch.new(depth: 4, width: 256)
+        |> Sketch.increment("k1")
+        |> Sketch.increment("k1")
+        |> Sketch.increment("k1")
+
+      assert Sketch.estimate(sketch, "k1") >= 3
+    end
+
+    test "different keys do not perfectly share counters" do
+      sketch = Sketch.new(depth: 4, width: 256) |> Sketch.increment("k1")
+      # Cannot assert estimate(k2) == 0 due to possible collisions,
+      # but with width 256 collision on a brand-new key is unlikely.
+      assert is_integer(Sketch.estimate(sketch, "k2"))
+    end
+  end
+end
+```
+
+- [ ] **Step 2: Run the test, confirm failure**
+
+```bash
+mise exec -- mix test test/image_pipe/cache/file_system/sketch_test.exs
+```
+Expected: failure — `ImagePipe.Cache.FileSystem.Sketch` undefined.
+
+- [ ] **Step 3: Implement minimal Sketch with non-conservative increment**
+
+```elixir
+# lib/image_pipe/cache/file_system/sketch.ex
+defmodule ImagePipe.Cache.FileSystem.Sketch do
+  @moduledoc false
+
+  @enforce_keys [:depth, :width, :counters, :aging_epoch, :increments_since_reset]
+  defstruct @enforce_keys
+
+  @type t :: %__MODULE__{
+          depth: pos_integer(),
+          width: pos_integer(),
+          counters: :array.array(non_neg_integer()),
+          aging_epoch: non_neg_integer(),
+          increments_since_reset: non_neg_integer()
+        }
+
+  @spec new(keyword()) :: t()
+  def new(opts) do
+    depth = Keyword.fetch!(opts, :depth)
+    width = Keyword.fetch!(opts, :width)
+
+    %__MODULE__{
+      depth: depth,
+      width: width,
+      counters: :array.new(depth * width, default: 0, fixed: true),
+      aging_epoch: 0,
+      increments_since_reset: 0
+    }
+  end
+
+  @spec depth(t()) :: pos_integer()
+  def depth(%__MODULE__{depth: d}), do: d
+
+  @spec width(t()) :: pos_integer()
+  def width(%__MODULE__{width: w}), do: w
+
+  @spec increment(t(), binary()) :: t()
+  def increment(%__MODULE__{} = sketch, key) when is_binary(key) do
+    positions = positions_for(sketch, key)
+
+    new_counters =
+      Enum.reduce(positions, sketch.counters, fn pos, counters ->
+        :array.set(pos, min(255, :array.get(pos, counters) + 1), counters)
+      end)
+
+    %{sketch | counters: new_counters, increments_since_reset: sketch.increments_since_reset + 1}
+  end
+
+  @spec estimate(t(), binary()) :: non_neg_integer()
+  def estimate(%__MODULE__{} = sketch, key) when is_binary(key) do
+    sketch
+    |> positions_for(key)
+    |> Enum.map(&:array.get(&1, sketch.counters))
+    |> Enum.min()
+  end
+
+  defp positions_for(%__MODULE__{depth: depth, width: width}, key) do
+    for row <- 0..(depth - 1) do
+      hash = :erlang.phash2({row, key}, width)
+      row * width + hash
+    end
+  end
+end
+```
+
+- [ ] **Step 4: Run tests, confirm pass**
+
+```bash
+mise exec -- mix test test/image_pipe/cache/file_system/sketch_test.exs
+```
+Expected: 4 passed.
+
+- [ ] **Step 5: Commit**
+
+```bash
+git add lib/image_pipe/cache/file_system/sketch.ex test/image_pipe/cache/file_system/sketch_test.exs
+git commit -m "Add Sketch module with basic Count-Min Sketch operations"
+```
+
+---
+
+### Task 2: Sketch — conservative update
+
+**Files:**
+- Modify: `lib/image_pipe/cache/file_system/sketch.ex`
+- Modify: `test/image_pipe/cache/file_system/sketch_test.exs`
+
+- [ ] **Step 1: Add failing test for conservative update behavior**
+
+Append to `test/image_pipe/cache/file_system/sketch_test.exs`:
+
+```elixir
+  describe "increment/2 conservative update" do
+    test "only minimum-valued positions are incremented" do
+      # Use depth 2 width 8 so we can reason about positions directly.
+      sketch = Sketch.new(depth: 2, width: 8)
+
+      # Pre-load specific counters by repeated increment of two keys that
+      # happen to share one position. Conservative update should not inflate
+      # the higher-valued position when the lower one already represents the
+      # true frequency.
+      sketch =
+        sketch
+        |> Sketch.increment("alpha")
+        |> Sketch.increment("alpha")
+
+      counters_before = Sketch.dump_counters(sketch)
+      sketch = Sketch.increment(sketch, "alpha")
+      counters_after = Sketch.dump_counters(sketch)
+
+      # Every changed counter must have been at the previous min value.
+      previous_min = Enum.min(counters_before)
+      changed_positions =
+        counters_before
+        |> Enum.zip(counters_after)
+        |> Enum.with_index()
+        |> Enum.filter(fn {{before, aft}, _idx} -> aft != before end)
+
+      assert Enum.all?(changed_positions, fn {{before, _aft}, _idx} -> before == previous_min end)
+    end
+  end
+```
+
+- [ ] **Step 2: Run test, confirm failure**
+
+```bash
+mise exec -- mix test test/image_pipe/cache/file_system/sketch_test.exs
+```
+Expected: failure — `dump_counters/1` undefined, or behavior incorrect.
+
+- [ ] **Step 3: Implement conservative update + dump helper**
+
+Replace the body of `increment/2` and add `dump_counters/1`:
+
+```elixir
+  @spec increment(t(), binary()) :: t()
+  def increment(%__MODULE__{} = sketch, key) when is_binary(key) do
+    positions = positions_for(sketch, key)
+    current_values = Enum.map(positions, &:array.get(&1, sketch.counters))
+    min_value = Enum.min(current_values)
+
+    new_counters =
+      positions
+      |> Enum.zip(current_values)
+      |> Enum.reduce(sketch.counters, fn {pos, value}, counters ->
+        if value == min_value and value < 255 do
+          :array.set(pos, value + 1, counters)
+        else
+          counters
+        end
+      end)
+
+    %{sketch | counters: new_counters, increments_since_reset: sketch.increments_since_reset + 1}
+  end
+
+  @doc false
+  @spec dump_counters(t()) :: [non_neg_integer()]
+  def dump_counters(%__MODULE__{counters: counters}), do: :array.to_list(counters)
+```
+
+- [ ] **Step 4: Run tests, confirm pass**
+
+```bash
+mise exec -- mix test test/image_pipe/cache/file_system/sketch_test.exs
+```
+Expected: 5 passed.
+
+- [ ] **Step 5: Commit**
+
+```bash
+git add lib/image_pipe/cache/file_system/sketch.ex test/image_pipe/cache/file_system/sketch_test.exs
+git commit -m "Use conservative-update increment in Sketch"
+```
+
+---
+
+### Task 3: Sketch — aging
+
+**Files:**
+- Modify: `lib/image_pipe/cache/file_system/sketch.ex`
+- Modify: `test/image_pipe/cache/file_system/sketch_test.exs`
+
+- [ ] **Step 1: Add failing tests for aging behavior**
+
+Append to test file:
+
+```elixir
+  describe "age/1" do
+    test "halves all counters with (c + 1) >>> 1" do
+      sketch = Sketch.new(depth: 2, width: 4)
+      sketch = Enum.reduce(1..10, sketch, fn _, s -> Sketch.increment(s, "k") end)
+
+      before = Sketch.dump_counters(sketch)
+      sketch = Sketch.age(sketch)
+      after_ = Sketch.dump_counters(sketch)
+
+      assert Enum.zip(before, after_) |> Enum.all?(fn {b, a} -> a == Bitwise.bsr(b + 1, 1) end)
+    end
+
+    test "increments aging epoch and resets increments_since_reset" do
+      sketch = Sketch.new(depth: 2, width: 4)
+      sketch = Sketch.increment(sketch, "k") |> Sketch.age()
+      assert sketch.aging_epoch == 1
+      assert sketch.increments_since_reset == 0
+    end
+  end
+
+  describe "should_age?/1" do
+    test "returns true when increments_since_reset >= width * 10" do
+      sketch = Sketch.new(depth: 2, width: 4)
+      threshold = 4 * 10
+
+      sketch =
+        Enum.reduce(1..(threshold - 1), sketch, fn _, s -> Sketch.increment(s, "k") end)
+
+      refute Sketch.should_age?(sketch)
+
+      sketch = Sketch.increment(sketch, "k")
+      assert Sketch.should_age?(sketch)
+    end
+  end
+```
+
+- [ ] **Step 2: Run tests, confirm failure**
+
+- [ ] **Step 3: Implement aging**
+
+Add `Bitwise` import and the two functions:
+
+```elixir
+  import Bitwise
+
+  @spec age(t()) :: t()
+  def age(%__MODULE__{} = sketch) do
+    new_counters =
+      sketch.counters
+      |> :array.foldl(
+        fn _idx, value, acc -> :array.set(:array.size(acc), bsr(value + 1, 1), acc) end,
+        :array.new(:array.size(sketch.counters), default: 0, fixed: true)
+      )
+
+    %{
+      sketch
+      | counters: new_counters,
+        aging_epoch: sketch.aging_epoch + 1,
+        increments_since_reset: 0
+    }
+  end
+
+  @spec should_age?(t()) :: boolean()
+  def should_age?(%__MODULE__{width: w, increments_since_reset: n}), do: n >= w * 10
+```
+
+Note: the `age/1` implementation above has an array-index bug (using `:array.size(acc)` always returns the same value). Replace with a cleaner version using `:array.map/2`:
+
+```elixir
+  @spec age(t()) :: t()
+  def age(%__MODULE__{} = sketch) do
+    new_counters = :array.map(fn _idx, value -> bsr(value + 1, 1) end, sketch.counters)
+
+    %{
+      sketch
+      | counters: new_counters,
+        aging_epoch: sketch.aging_epoch + 1,
+        increments_since_reset: 0
+    }
+  end
+```
+
+- [ ] **Step 4: Run tests, confirm pass**
+
+- [ ] **Step 5: Commit**
+
+```bash
+git add lib/image_pipe/cache/file_system/sketch.ex test/image_pipe/cache/file_system/sketch_test.exs
+git commit -m "Add Sketch aging with halving and epoch tracking"
+```
+
+---
+
+### Task 4: Sketch — serialization and element-wise sum
+
+**Files:**
+- Modify: `lib/image_pipe/cache/file_system/sketch.ex`
+- Modify: `test/image_pipe/cache/file_system/sketch_test.exs`
+
+- [ ] **Step 1: Add failing tests for serialize/deserialize and sum**
+
+```elixir
+  describe "serialize/1 and deserialize/1" do
+    test "round-trips a sketch preserving counters, epoch, and state" do
+      sketch = Sketch.new(depth: 2, width: 4)
+      sketch = Enum.reduce(["a", "b", "a", "c"], sketch, &Sketch.increment(&2, &1))
+
+      binary = Sketch.serialize(sketch)
+      {:ok, restored} = Sketch.deserialize(binary, depth: 2, width: 4)
+
+      assert Sketch.dump_counters(restored) == Sketch.dump_counters(sketch)
+      assert restored.aging_epoch == sketch.aging_epoch
+      assert restored.increments_since_reset == sketch.increments_since_reset
+    end
+
+    test "returns error on garbage input" do
+      assert {:error, _} = Sketch.deserialize(<<0, 1, 2>>, depth: 2, width: 4)
+    end
+
+    test "returns error on shape mismatch" do
+      sketch = Sketch.new(depth: 2, width: 4)
+      binary = Sketch.serialize(sketch)
+      assert {:error, _} = Sketch.deserialize(binary, depth: 4, width: 4)
+    end
+  end
+
+  describe "sum/2" do
+    test "element-wise adds counters from two sketches of equal shape" do
+      a = Sketch.new(depth: 2, width: 4) |> Sketch.increment("k1") |> Sketch.increment("k1")
+      b = Sketch.new(depth: 2, width: 4) |> Sketch.increment("k1") |> Sketch.increment("k2")
+
+      summed = Sketch.sum(a, b)
+
+      # estimate(k1) on summed must be >= estimate(k1) on a + estimate(k1) on b
+      assert Sketch.estimate(summed, "k1") >= Sketch.estimate(a, "k1") + Sketch.estimate(b, "k1") - 4
+    end
+  end
+```
+
+- [ ] **Step 2: Run tests, confirm failure**
+
+- [ ] **Step 3: Implement serialize/deserialize/sum**
+
+```elixir
+  @serialization_version 1
+
+  @spec serialize(t()) :: binary()
+  def serialize(%__MODULE__{} = sketch) do
+    :erlang.term_to_binary(
+      %{
+        version: @serialization_version,
+        depth: sketch.depth,
+        width: sketch.width,
+        counters: :array.to_list(sketch.counters),
+        aging_epoch: sketch.aging_epoch,
+        increments_since_reset: sketch.increments_since_reset
+      },
+      [:deterministic]
+    )
+  end
+
+  @spec deserialize(binary(), keyword()) :: {:ok, t()} | {:error, term()}
+  def deserialize(binary, opts) when is_binary(binary) do
+    expected_depth = Keyword.fetch!(opts, :depth)
+    expected_width = Keyword.fetch!(opts, :width)
+
+    try do
+      case :erlang.binary_to_term(binary, [:safe]) do
+        %{
+          version: @serialization_version,
+          depth: ^expected_depth,
+          width: ^expected_width,
+          counters: counters,
+          aging_epoch: epoch,
+          increments_since_reset: increments
+        }
+        when is_list(counters) and length(counters) == expected_depth * expected_width and
+               is_integer(epoch) and is_integer(increments) ->
+          counters_array = :array.from_list(counters, 0)
+
+          {:ok,
+           %__MODULE__{
+             depth: expected_depth,
+             width: expected_width,
+             counters: counters_array,
+             aging_epoch: epoch,
+             increments_since_reset: increments
+           }}
+
+        _other ->
+          {:error, :invalid_shape}
+      end
+    rescue
+      ArgumentError -> {:error, :decode_failed}
+    end
+  end
+
+  @spec sum(t(), t()) :: t()
+  def sum(%__MODULE__{depth: d, width: w} = a, %__MODULE__{depth: d, width: w} = b) do
+    new_counters =
+      :array.map(
+        fn idx, value -> min(255, value + :array.get(idx, b.counters)) end,
+        a.counters
+      )
+
+    %__MODULE__{
+      depth: d,
+      width: w,
+      counters: new_counters,
+      aging_epoch: max(a.aging_epoch, b.aging_epoch),
+      increments_since_reset: 0
+    }
+  end
+```
+
+- [ ] **Step 4: Run tests, confirm pass**
+
+- [ ] **Step 5: Commit**
+
+```bash
+git add lib/image_pipe/cache/file_system/sketch.ex test/image_pipe/cache/file_system/sketch_test.exs
+git commit -m "Add Sketch serialization and element-wise sum"
+```
+
+---
+
+### Task 5: Sketch property tests
+
+**Files:**
+- Create: `test/image_pipe/cache/file_system/sketch_property_test.exs`
+
+- [ ] **Step 1: Write property tests**
+
+```elixir
+defmodule ImagePipe.Cache.FileSystem.SketchPropertyTest do
+  use ExUnit.Case, async: true
+  use ExUnitProperties
+
+  alias ImagePipe.Cache.FileSystem.Sketch
+
+  property "estimate(k) is always >= true count of k" do
+    check all keys <- list_of(string(:alphanumeric, min_length: 1, max_length: 16), min_length: 0, max_length: 200) do
+      sketch = Sketch.new(depth: 4, width: 256)
+      sketch = Enum.reduce(keys, sketch, &Sketch.increment(&2, &1))
+      counts = Enum.frequencies(keys)
+
+      Enum.each(counts, fn {key, true_count} ->
+        assert Sketch.estimate(sketch, key) >= true_count
+      end)
+    end
+  end
+
+  property "aging preserves relative ordering for keys with well-separated counts" do
+    check all hot_key <- string(:alphanumeric, min_length: 1, max_length: 16),
+              cold_key <- string(:alphanumeric, min_length: 1, max_length: 16),
+              hot_key != cold_key do
+      sketch = Sketch.new(depth: 4, width: 256)
+      sketch = Enum.reduce(1..50, sketch, fn _, s -> Sketch.increment(s, hot_key) end)
+      sketch = Sketch.increment(sketch, cold_key)
+
+      hot_before = Sketch.estimate(sketch, hot_key)
+      cold_before = Sketch.estimate(sketch, cold_key)
+      assert hot_before > cold_before
+
+      sketch = Sketch.age(sketch)
+      hot_after = Sketch.estimate(sketch, hot_key)
+      cold_after = Sketch.estimate(sketch, cold_key)
+      assert hot_after >= cold_after
+    end
+  end
+end
+```
+
+- [ ] **Step 2: Run, confirm pass**
+
+```bash
+mise exec -- mix test test/image_pipe/cache/file_system/sketch_property_test.exs
+```
+Expected: 2 properties passed.
+
+- [ ] **Step 3: Commit**
+
+```bash
+git add test/image_pipe/cache/file_system/sketch_property_test.exs
+git commit -m "Add Sketch property tests"
+```
+
+---
+
+### Task 6: Doorkeeper module
+
+**Files:**
+- Create: `lib/image_pipe/cache/file_system/doorkeeper.ex`
+- Create: `test/image_pipe/cache/file_system/doorkeeper_test.exs`
+
+- [ ] **Step 1: Write failing tests**
+
+```elixir
+defmodule ImagePipe.Cache.FileSystem.DoorkeeperTest do
+  use ExUnit.Case, async: true
+
+  alias ImagePipe.Cache.FileSystem.Doorkeeper
+
+  test "new/1 creates a doorkeeper of the given bit size" do
+    dk = Doorkeeper.new(bits: 1024)
+    assert Doorkeeper.bits(dk) == 1024
+  end
+
+  test "newly created doorkeeper contains no keys" do
+    dk = Doorkeeper.new(bits: 1024)
+    refute Doorkeeper.member?(dk, "k1")
+  end
+
+  test "add/2 marks a key as present" do
+    dk = Doorkeeper.new(bits: 1024) |> Doorkeeper.add("k1")
+    assert Doorkeeper.member?(dk, "k1")
+  end
+
+  test "reset/1 clears all bits" do
+    dk = Doorkeeper.new(bits: 1024) |> Doorkeeper.add("k1") |> Doorkeeper.reset()
+    refute Doorkeeper.member?(dk, "k1")
+  end
+
+  test "serialize and deserialize round-trip preserves membership" do
+    dk = Doorkeeper.new(bits: 1024) |> Doorkeeper.add("k1") |> Doorkeeper.add("k2")
+    binary = Doorkeeper.serialize(dk)
+    {:ok, restored} = Doorkeeper.deserialize(binary, bits: 1024)
+    assert Doorkeeper.member?(restored, "k1")
+    assert Doorkeeper.member?(restored, "k2")
+    refute Doorkeeper.member?(restored, "k3")
+  end
+
+  test "deserialize rejects size mismatch" do
+    dk = Doorkeeper.new(bits: 1024) |> Doorkeeper.add("k1")
+    binary = Doorkeeper.serialize(dk)
+    assert {:error, _} = Doorkeeper.deserialize(binary, bits: 2048)
+  end
+end
+```
+
+- [ ] **Step 2: Run, confirm failure**
+
+- [ ] **Step 3: Implement Doorkeeper**
+
+```elixir
+defmodule ImagePipe.Cache.FileSystem.Doorkeeper do
+  @moduledoc false
+
+  import Bitwise
+
+  @serialization_version 1
+  @hash_count 3
+
+  @enforce_keys [:bits, :data]
+  defstruct @enforce_keys
+
+  @type t :: %__MODULE__{
+          bits: pos_integer(),
+          data: binary()
+        }
+
+  @spec new(keyword()) :: t()
+  def new(opts) do
+    bits = Keyword.fetch!(opts, :bits)
+    byte_size = div(bits + 7, 8)
+    %__MODULE__{bits: bits, data: :binary.copy(<<0>>, byte_size)}
+  end
+
+  @spec bits(t()) :: pos_integer()
+  def bits(%__MODULE__{bits: b}), do: b
+
+  @spec add(t(), binary()) :: t()
+  def add(%__MODULE__{} = dk, key) when is_binary(key) do
+    Enum.reduce(positions_for(dk, key), dk, &set_bit(&2, &1))
+  end
+
+  @spec member?(t(), binary()) :: boolean()
+  def member?(%__MODULE__{} = dk, key) when is_binary(key) do
+    Enum.all?(positions_for(dk, key), &get_bit(dk, &1))
+  end
+
+  @spec reset(t()) :: t()
+  def reset(%__MODULE__{bits: bits}) do
+    new(bits: bits)
+  end
+
+  @spec serialize(t()) :: binary()
+  def serialize(%__MODULE__{} = dk) do
+    :erlang.term_to_binary(
+      %{version: @serialization_version, bits: dk.bits, data: dk.data},
+      [:deterministic]
+    )
+  end
+
+  @spec deserialize(binary(), keyword()) :: {:ok, t()} | {:error, term()}
+  def deserialize(binary, opts) when is_binary(binary) do
+    expected_bits = Keyword.fetch!(opts, :bits)
+    expected_byte_size = div(expected_bits + 7, 8)
+
+    try do
+      case :erlang.binary_to_term(binary, [:safe]) do
+        %{version: @serialization_version, bits: ^expected_bits, data: data}
+        when is_binary(data) and byte_size(data) == expected_byte_size ->
+          {:ok, %__MODULE__{bits: expected_bits, data: data}}
+
+        _ ->
+          {:error, :invalid_shape}
+      end
+    rescue
+      ArgumentError -> {:error, :decode_failed}
+    end
+  end
+
+  defp positions_for(%__MODULE__{bits: bits}, key) do
+    for i <- 0..(@hash_count - 1), do: :erlang.phash2({:dk, i, key}, bits)
+  end
+
+  defp set_bit(%__MODULE__{data: data} = dk, position) do
+    byte_index = div(position, 8)
+    bit_index = rem(position, 8)
+    <<head::binary-size(byte_index), byte, tail::binary>> = data
+    new_byte = byte ||| bsl(1, bit_index)
+    %{dk | data: <<head::binary, new_byte, tail::binary>>}
+  end
+
+  defp get_bit(%__MODULE__{data: data}, position) do
+    byte_index = div(position, 8)
+    bit_index = rem(position, 8)
+    <<_::binary-size(byte_index), byte, _::binary>> = data
+    (byte &&& bsl(1, bit_index)) != 0
+  end
+end
+```
+
+- [ ] **Step 4: Run, confirm pass**
+
+- [ ] **Step 5: Commit**
+
+```bash
+git add lib/image_pipe/cache/file_system/doorkeeper.ex test/image_pipe/cache/file_system/doorkeeper_test.exs
+git commit -m "Add Doorkeeper Bloom filter module"
+```
+
+---
+
+### Task 7: Policy — scoring
+
+**Files:**
+- Create: `lib/image_pipe/cache/file_system/policy.ex`
+- Create: `test/image_pipe/cache/file_system/policy_test.exs`
+
+- [ ] **Step 1: Write failing tests for `score/1` and `weighted_avg_score/1`**
+
+```elixir
+defmodule ImagePipe.Cache.FileSystem.PolicyTest do
+  use ExUnit.Case, async: true
+
+  alias ImagePipe.Cache.FileSystem.Policy
+
+  defp descriptor(opts) do
+    %{
+      key_hash: Keyword.get(opts, :key_hash, "h"),
+      size_bytes: Keyword.fetch!(opts, :size_bytes),
+      body_sha256: Keyword.get(opts, :body_sha256, "s"),
+      cost_us: Keyword.get(opts, :cost_us, 1000)
+    }
+  end
+
+  describe "score/2" do
+    test "is a float for normal inputs" do
+      d = descriptor(size_bytes: 1_000, cost_us: 10_000)
+      assert is_float(Policy.score(d, _freq = 3))
+    end
+
+    test "captures value-per-byte" do
+      small_expensive = descriptor(size_bytes: 1_000, cost_us: 50_000)
+      large_cheap = descriptor(size_bytes: 1_000_000, cost_us: 50_000)
+
+      assert Policy.score(small_expensive, 1) > Policy.score(large_cheap, 1)
+    end
+
+    test "cost_us=0 falls back to size_bytes (frequency-only scoring)" do
+      d = descriptor(size_bytes: 1_000_000, cost_us: 0)
+      # Expected: score = freq * size / size = freq (as float)
+      assert_in_delta Policy.score(d, 5), 5.0, 0.0001
+    end
+
+    test "handles size_bytes=0 safely (uses max(size, 1))" do
+      d = descriptor(size_bytes: 0, cost_us: 1000)
+      assert is_float(Policy.score(d, 1))
+    end
+  end
+
+  describe "weighted_avg_score/2" do
+    test "returns 0.0 for empty victim list" do
+      assert Policy.weighted_avg_score([], fn _ -> 0 end) == 0.0
+    end
+
+    test "computes value-per-byte across a victim set" do
+      v1 = descriptor(size_bytes: 100, cost_us: 1_000)
+      v2 = descriptor(size_bytes: 200, cost_us: 2_000)
+      freq_fn = fn _ -> 1 end
+
+      # sum(freq * cost) = 1*1000 + 1*2000 = 3000
+      # sum(size) = 300
+      # weighted_avg = 3000/300 = 10.0
+      assert_in_delta Policy.weighted_avg_score([v1, v2], freq_fn), 10.0, 0.0001
+    end
+  end
+end
+```
+
+- [ ] **Step 2: Run, confirm failure**
+
+- [ ] **Step 3: Implement Policy scoring**
+
+```elixir
+defmodule ImagePipe.Cache.FileSystem.Policy do
+  @moduledoc false
+
+  @type descriptor :: %{
+          key_hash: binary(),
+          size_bytes: non_neg_integer(),
+          body_sha256: binary(),
+          cost_us: non_neg_integer()
+        }
+
+  @doc """
+  Compute the cost-aware score for an entry given its frequency.
+
+  score = freq × effective_cost / max(size_bytes, 1)
+
+  effective_cost = cost_us when cost_us > 0, else size_bytes (size-neutral
+  fallback that collapses scoring to freq alone).
+  """
+  @spec score(descriptor(), non_neg_integer()) :: float()
+  def score(%{cost_us: cost_us, size_bytes: size_bytes}, freq) do
+    effective_cost = if cost_us > 0, do: cost_us, else: size_bytes
+    freq * effective_cost / max(size_bytes, 1)
+  end
+
+  @doc """
+  Compute the weighted-average value-per-byte across a list of victim
+  descriptors. Weighting is by size_bytes. Returns 0.0 for empty input.
+
+  freq_fn maps a descriptor's key_hash to its current frequency.
+  """
+  @spec weighted_avg_score([descriptor()], (binary() -> non_neg_integer())) :: float()
+  def weighted_avg_score([], _freq_fn), do: 0.0
+
+  def weighted_avg_score(victims, freq_fn) when is_list(victims) do
+    {numerator, denominator} =
+      Enum.reduce(victims, {0, 0}, fn v, {num, den} ->
+        freq = freq_fn.(v.key_hash)
+        effective_cost = if v.cost_us > 0, do: v.cost_us, else: v.size_bytes
+        {num + freq * effective_cost, den + v.size_bytes}
+      end)
+
+    if denominator == 0, do: 0.0, else: numerator / denominator
+  end
+end
+```
+
+- [ ] **Step 4: Run, confirm pass**
+
+- [ ] **Step 5: Commit**
+
+```bash
+git add lib/image_pipe/cache/file_system/policy.ex test/image_pipe/cache/file_system/policy_test.exs
+git commit -m "Add Policy scoring with cost-aware float arithmetic"
+```
+
+---
+
+### Task 8: Policy — main gate (victim walk + admit decision)
+
+**Files:**
+- Modify: `lib/image_pipe/cache/file_system/policy.ex`
+- Modify: `test/image_pipe/cache/file_system/policy_test.exs`
+
+- [ ] **Step 1: Write failing tests for `victim_walk/3` and `admit?/3`**
+
+Append to test file:
+
+```elixir
+  describe "victim_walk/3" do
+    test "walks probationary LRU outward until enough bytes" do
+      probationary = [
+        descriptor(key_hash: "lru", size_bytes: 100),
+        descriptor(key_hash: "mid", size_bytes: 100),
+        descriptor(key_hash: "mru", size_bytes: 100)
+      ]
+      protected = []
+
+      assert {:ok, [v1]} = Policy.victim_walk(probationary, protected, 100)
+      assert v1.key_hash == "lru"
+
+      assert {:ok, [v1, v2]} = Policy.victim_walk(probationary, protected, 150)
+      assert [v1.key_hash, v2.key_hash] == ["lru", "mid"]
+    end
+
+    test "extends into protected LRU when probationary exhausted" do
+      probationary = [descriptor(key_hash: "p_lru", size_bytes: 100)]
+      protected = [descriptor(key_hash: "prot_lru", size_bytes: 200)]
+
+      assert {:ok, victims} = Policy.victim_walk(probationary, protected, 250)
+      assert Enum.map(victims, & &1.key_hash) == ["p_lru", "prot_lru"]
+    end
+
+    test "returns :no_evictable_victims when both queues together cannot free enough" do
+      probationary = [descriptor(size_bytes: 50)]
+      protected = [descriptor(size_bytes: 50)]
+      assert {:error, :no_evictable_victims} = Policy.victim_walk(probationary, protected, 200)
+    end
+  end
+
+  describe "admit?/3" do
+    test "admits when candidate score exceeds weighted-average victim score" do
+      candidate = descriptor(key_hash: "c", size_bytes: 100, cost_us: 50_000)
+      victims = [descriptor(key_hash: "v", size_bytes: 100, cost_us: 1_000)]
+      freq_fn = fn _ -> 1 end
+
+      assert Policy.admit?(candidate, victims, freq_fn) == true
+    end
+
+    test "rejects when candidate score is below weighted-average victim score" do
+      candidate = descriptor(key_hash: "c", size_bytes: 100, cost_us: 1_000)
+      victims = [descriptor(key_hash: "v", size_bytes: 100, cost_us: 50_000)]
+      freq_fn = fn _ -> 1 end
+
+      assert Policy.admit?(candidate, victims, freq_fn) == false
+    end
+
+    test "admits unconditionally when victim list is empty (no comparison needed)" do
+      candidate = descriptor(size_bytes: 100, cost_us: 1)
+      assert Policy.admit?(candidate, [], fn _ -> 0 end) == true
+    end
+  end
+```
+
+- [ ] **Step 2: Run, confirm failure**
+
+- [ ] **Step 3: Implement `victim_walk/3` and `admit?/3`**
+
+```elixir
+  @doc """
+  Walk probationary LRU outward, then protected LRU outward, collecting
+  victims until cumulative size_bytes >= needed_bytes.
+
+  Probationary and protected lists must be ordered LRU-first.
+  Returns {:ok, victims} or {:error, :no_evictable_victims}.
+  """
+  @spec victim_walk([descriptor()], [descriptor()], non_neg_integer()) ::
+          {:ok, [descriptor()]} | {:error, :no_evictable_victims}
+  def victim_walk(probationary, protected, needed_bytes) do
+    case take_until_bytes(probationary, needed_bytes, [], 0) do
+      {:done, victims} -> {:ok, Enum.reverse(victims)}
+      {:short, victims, remaining} ->
+        case take_until_bytes(protected, remaining, victims, 0) do
+          {:done, all_victims} -> {:ok, Enum.reverse(all_victims)}
+          {:short, _victims, _remaining} -> {:error, :no_evictable_victims}
+        end
+    end
+  end
+
+  defp take_until_bytes([], _remaining, victims, _acc), do: {:short, victims, _remaining}
+  defp take_until_bytes(_list, remaining, victims, acc) when acc >= remaining,
+    do: {:done, victims}
+  defp take_until_bytes([v | rest], remaining, victims, acc) do
+    take_until_bytes(rest, remaining, [v | victims], acc + v.size_bytes)
+  end
+
+  @doc """
+  Decide whether a candidate should be admitted given the victims it would
+  displace. Empty victim list (free space available) always admits.
+
+  freq_fn maps a key_hash to its current frequency estimate.
+  """
+  @spec admit?(descriptor(), [descriptor()], (binary() -> non_neg_integer())) :: boolean()
+  def admit?(_candidate, [], _freq_fn), do: true
+
+  def admit?(candidate, victims, freq_fn) do
+    candidate_freq = freq_fn.(candidate.key_hash)
+    score(candidate, candidate_freq) > weighted_avg_score(victims, freq_fn)
+  end
+```
+
+Note: the `take_until_bytes/4` clause `{:short, victims, _remaining}` uses an underscored variable in the return tuple which won't compile. Fix:
+
+```elixir
+  defp take_until_bytes([], remaining, victims, acc),
+    do: {:short, victims, remaining - acc}
+
+  defp take_until_bytes(_list, remaining, victims, acc) when acc >= remaining,
+    do: {:done, victims}
+
+  defp take_until_bytes([v | rest], remaining, victims, acc) do
+    take_until_bytes(rest, remaining, [v | victims], acc + v.size_bytes)
+  end
+```
+
+And `victim_walk/3` chains correctly:
+
+```elixir
+  def victim_walk(probationary, protected, needed_bytes) do
+    case take_until_bytes(probationary, needed_bytes, [], 0) do
+      {:done, victims} ->
+        {:ok, Enum.reverse(victims)}
+
+      {:short, victims, still_needed} ->
+        case take_until_bytes(protected, still_needed, victims, 0) do
+          {:done, all_victims} -> {:ok, Enum.reverse(all_victims)}
+          {:short, _all_victims, _remaining} -> {:error, :no_evictable_victims}
+        end
+    end
+  end
+```
+
+- [ ] **Step 4: Run, confirm pass**
+
+- [ ] **Step 5: Commit**
+
+```bash
+git add lib/image_pipe/cache/file_system/policy.ex test/image_pipe/cache/file_system/policy_test.exs
+git commit -m "Add Policy victim walk and weighted-average admit decision"
+```
+
+---
+
+## Phase 2: Metadata threading
+
+### Task 9: Add `cost_us` to `Entry.Metadata`
+
+**Files:**
+- Modify: `lib/image_pipe/cache/entry/metadata.ex`
+- Modify: `lib/image_pipe/cache/sink.ex` (build/4 includes cost_us)
+
+- [ ] **Step 1: Write failing test asserting `cost_us` field exists**
+
+Create a new test (since `Entry.Metadata` has no dedicated test file):
+`test/image_pipe/cache/entry/metadata_test.exs`:
+
+```elixir
+defmodule ImagePipe.Cache.Entry.MetadataTest do
+  use ExUnit.Case, async: true
+
+  alias ImagePipe.Cache.Entry.Metadata
+
+  test "metadata struct exposes a cost_us field" do
+    meta = %Metadata{
+      content_type: "image/webp",
+      headers: [],
+      created_at: ~U[2026-05-28 12:00:00Z],
+      output_format: :webp,
+      cost_us: 12_345
+    }
+
+    assert meta.cost_us == 12_345
+  end
+
+  test "cost_us defaults to 0 when not provided" do
+    meta = %Metadata{
+      content_type: "image/webp",
+      headers: [],
+      created_at: ~U[2026-05-28 12:00:00Z],
+      output_format: :webp
+    }
+
+    assert meta.cost_us == 0
+  end
+end
+```
+
+- [ ] **Step 2: Run, confirm failure**
+
+- [ ] **Step 3: Add `cost_us` to `Entry.Metadata`**
+
+```elixir
+defmodule ImagePipe.Cache.Entry.Metadata do
+  @moduledoc false
+
+  alias ImagePipe.Cache.Entry
+
+  @enforce_keys [:content_type, :headers, :created_at, :output_format]
+  defstruct [:content_type, :headers, :created_at, :output_format, cost_us: 0]
+
+  @type t :: %__MODULE__{
+          content_type: String.t(),
+          headers: [Entry.header()],
+          created_at: DateTime.t(),
+          output_format: atom(),
+          cost_us: non_neg_integer()
+        }
+end
+```
+
+- [ ] **Step 4: Run, confirm pass**
+
+- [ ] **Step 5: Commit**
+
+```bash
+git add lib/image_pipe/cache/entry/metadata.ex test/image_pipe/cache/entry/metadata_test.exs
+git commit -m "Add cost_us field to Entry.Metadata"
+```
+
+---
+
+### Task 10: Thread `cost_us` through Sink and persist to meta file
+
+**Files:**
+- Modify: `lib/image_pipe/cache/sink.ex`
+- Modify: `lib/image_pipe/cache/file_system.ex`
+- Modify: `test/image_pipe/cache/file_system_test.exs` (add a test that `cost_us` round-trips)
+
+- [ ] **Step 1: Write failing test verifying cost_us survives commit and is read back**
+
+Append to `test/image_pipe/cache/file_system_test.exs`:
+
+```elixir
+  describe "cost_us metadata" do
+    test "is persisted in the meta file and returned on hit", %{tmp_dir: tmp_dir} do
+      key = key()
+      opts = [root: tmp_dir]
+      entry = entry()
+      metadata =
+        struct!(ImagePipe.Cache.Entry.Metadata,
+          content_type: entry.content_type,
+          headers: entry.headers,
+          created_at: entry.created_at,
+          output_format: :webp,
+          cost_us: 42_000
+        )
+
+      {:ok, state} = FileSystem.open_sink(key, metadata, opts)
+      {:ok, state} = FileSystem.write_chunk(state, entry.body, opts)
+      :ok = FileSystem.commit_sink(state, opts)
+
+      assert {:hit, hit_entry} = FileSystem.get(key, opts)
+      # The entry struct doesn't carry cost_us today; we verify it lands in
+      # the on-disk meta payload by re-reading the file directly.
+      meta_path = Path.join([tmp_dir, "aa", "aa", String.duplicate("a", 64) <> ".meta"])
+      meta = meta_path |> File.read!() |> :erlang.binary_to_term([:safe])
+      assert meta.cost_us == 42_000
+      assert hit_entry.body == entry.body
+    end
+  end
+```
+
+(Note: existing tests use `@tmp_dir` setup; verify the `setup` pattern in `file_system_test.exs` and adapt this test to match.)
+
+- [ ] **Step 2: Run, confirm failure**
+
+- [ ] **Step 3: Add `cost_us` to the meta file payload in `file_system.ex`**
+
+In `sink_metadata/3`, add `cost_us`:
+
+```elixir
+  defp sink_metadata(state, body_sha256, body_filename) do
+    metadata = %{
+      metadata_version: @metadata_version,
+      content_type: state.metadata.content_type,
+      headers: state.metadata.headers,
+      created_at: DateTime.to_iso8601(state.metadata.created_at),
+      body_byte_size: state.size,
+      body_sha256: body_sha256,
+      body_filename: body_filename,
+      cost_us: state.metadata.cost_us
+    }
+
+    :erlang.term_to_binary(metadata, [:deterministic])
+  end
+```
+
+In `validate_metadata/1`, extend the pattern to require `cost_us`:
+
+```elixir
+  defp validate_metadata(%{
+         metadata_version: @metadata_version,
+         content_type: content_type,
+         headers: headers,
+         created_at: created_at,
+         body_byte_size: body_byte_size,
+         body_sha256: body_sha256,
+         body_filename: body_filename,
+         cost_us: cost_us
+       })
+       when is_binary(content_type) and is_list(headers) and is_binary(created_at) and
+              is_integer(body_byte_size) and body_byte_size >= 0 and is_binary(body_sha256) and
+              is_binary(body_filename) and is_integer(cost_us) and cost_us >= 0 do
+    # ... rest unchanged, but include cost_us in the returned map
+  end
+```
+
+And include `cost_us` in the returned metadata map so callers can read it.
+
+- [ ] **Step 4: Run, confirm pass**
+
+- [ ] **Step 5: Commit**
+
+```bash
+git add lib/image_pipe/cache/file_system.ex test/image_pipe/cache/file_system_test.exs
+git commit -m "Persist cost_us in cache meta file and validate on read"
+```
+
+---
+
+### Task 11: Capture stage durations in Sink
+
+**Files:**
+- Modify: `lib/image_pipe/cache/sink.ex`
+
+This is where `cost_us` gets *populated*. The request pipeline emits
+`:source, :fetch`, `:transform, :execute`, and `:encode` stage spans;
+their stop events carry `:duration` measurements. The sink accumulates
+these from the request's telemetry context.
+
+The simplest place to thread the values: extend `response_metadata/1`
+in `sink.ex` to accept a `cost_us` argument computed by the request
+pipeline, OR have the request pipeline pass a context map into
+`Sink.open/5`.
+
+- [ ] **Step 1: Inspect the request pipeline to confirm where cost_us can be computed**
+
+Read `lib/image_pipe/request.ex` and identify where source-session stage
+events fire. The sum of those stage durations (source.fetch, transform.execute, encode) is what we want.
+
+- [ ] **Step 2: Write a test that verifies cost_us flows through from opts into Sink**
+
+Create `test/image_pipe/cache/sink_test.exs` if one doesn't exist; otherwise extend:
+
+```elixir
+defmodule ImagePipe.Cache.SinkTest do
+  use ExUnit.Case, async: true
+
+  test "Sink.open writes cost_us from opts into metadata" do
+    # Provide a stub adapter, call Sink.open with cost_us in opts, assert
+    # the descriptor passed to open_sink has metadata.cost_us == that value.
+  end
+end
+```
+
+- [ ] **Step 3: Modify `Sink.open/5` to read `:cost_us` from opts**
+
+In `lib/image_pipe/cache/sink.ex`, in `response_metadata/1`, accept the cost from opts:
+
+```elixir
+  defp response_metadata(%Resolved{} = resolved_output, cost_us) do
+    with {:ok, headers} <- Entry.cacheable_headers(resolved_output.response_headers) do
+      {:ok,
+       %Entry.Metadata{
+         content_type: Format.mime_type!(resolved_output.format),
+         headers: headers,
+         created_at: DateTime.utc_now(),
+         output_format: resolved_output.format,
+         cost_us: cost_us
+       }}
+    end
+  end
+```
+
+And in `Sink.open/5`, extract `cost_us` from `opts`:
+
+```elixir
+  def open(adapter, %Key{} = key, %Resolved{} = resolved_output, cache_opts, opts) do
+    cost_us = Keyword.get(opts, :cost_us, 0)
+
+    with {:ok, metadata} <- response_metadata(resolved_output, cost_us),
+         {:ok, adapter_state} <- open_adapter_sink(adapter, key, metadata, cache_opts) do
+      build(adapter, key, metadata, cache_opts, adapter_state)
+    else
+      {:error, reason} ->
+        handle_open_error(reason, resolved_output.format, opts)
+        nil
+    end
+  end
+```
+
+- [ ] **Step 4: Have the request pipeline pass `cost_us: ` to `Sink.open/5`**
+
+In the source-session orchestration code (likely `lib/image_pipe/request/source_session.ex` or similar), accumulate stage durations from the telemetry context and pass them through to `Cache.open_sink/3`.
+
+This step is the most codebase-specific. Locate where the source session calls into the cache write path and thread a running sum.
+
+- [ ] **Step 5: Run all tests, confirm pass**
+
+```bash
+mise exec -- mix test
+```
+
+- [ ] **Step 6: Commit**
+
+```bash
+git add lib/image_pipe/cache/sink.ex lib/image_pipe/request/...
+git commit -m "Thread source/transform/encode stage durations into cache cost_us"
+```
+
+---
+
+## Phase 3: Admission GenServer
+
+This is the largest phase. The GenServer is decomposed into discrete TDD-able units.
+
+### Task 12: Admission skeleton (state struct, `start_link`, `init`, Registry naming)
+
+**Files:**
+- Create: `lib/image_pipe/cache/file_system/admission.ex`
+- Create: `test/image_pipe/cache/file_system/admission_test.exs`
+
+- [ ] **Step 1: Write failing test for `start_link` and registration**
+
+```elixir
+defmodule ImagePipe.Cache.FileSystem.AdmissionTest do
+  use ExUnit.Case, async: true
+
+  alias ImagePipe.Cache.FileSystem.Admission
+
+  setup do
+    # Start the per-app Registry once per test
+    registry_name = :"#{__MODULE__}.Registry"
+    start_supervised!({Registry, keys: :unique, name: registry_name})
+    %{registry: registry_name}
+  end
+
+  test "start_link registers the process under {root, node_id}", %{registry: registry, tmp_dir: tmp_dir} do
+    opts = [
+      registry: registry,
+      root: tmp_dir,
+      node_id: "test-node",
+      max_size_bytes: 1_000_000,
+      window_ratio: 0.01,
+      sketch_depth: 4,
+      sketch_width: 256,
+      doorkeeper_bits: 1024,
+      state_dir: Path.join(tmp_dir, ".cache_state")
+    ]
+    pid = start_supervised!({Admission, opts})
+    assert is_pid(pid)
+
+    assert [{^pid, _}] = Registry.lookup(registry, {tmp_dir, "test-node"})
+  end
+
+  @tag :tmp_dir
+  setup tags do
+    if tags[:tmp_dir] do
+      tmp = Path.join(System.tmp_dir!(), "admission_test_#{System.unique_integer([:positive])}")
+      File.mkdir_p!(tmp)
+      on_exit(fn -> File.rm_rf!(tmp) end)
+      {:ok, tmp_dir: tmp}
+    else
+      :ok
+    end
+  end
+end
+```
+
+- [ ] **Step 2: Run, confirm failure**
+
+- [ ] **Step 3: Implement Admission skeleton**
+
+```elixir
+defmodule ImagePipe.Cache.FileSystem.Admission do
+  @moduledoc false
+
+  use GenServer
+
+  alias ImagePipe.Cache.FileSystem.{Doorkeeper, Sketch}
+
+  defmodule State do
+    @moduledoc false
+    defstruct [
+      :registry,
+      :root,
+      :node_id,
+      :state_dir,
+      :max_size_bytes,
+      :window_budget,
+      :sketch_depth,
+      :sketch_width,
+      :doorkeeper_bits,
+      :local_cms,
+      :boot_cms,
+      :doorkeeper,
+      :flush_interval_ms,
+      :cleanup_interval_ms,
+      :state_ttl_ms,
+      window: nil,
+      probationary: nil,
+      protected: nil,
+      window_bytes: 0,
+      probationary_bytes: 0,
+      protected_bytes: 0,
+      next_position: 1,
+      state_dirty: false,
+      # populated by warm-start (Task 19), consumed by directory scan (Task 21):
+      persisted_protected_hashes: [],
+      # set by handle_continue (Task 20):
+      scan_task: nil
+    ]
+  end
+
+  def start_link(opts) do
+    GenServer.start_link(__MODULE__, opts, name: via_tuple(opts))
+  end
+
+  def child_spec(opts) do
+    %{
+      id: {__MODULE__, Keyword.fetch!(opts, :root), Keyword.fetch!(opts, :node_id)},
+      start: {__MODULE__, :start_link, [opts]},
+      restart: :permanent,
+      type: :worker
+    }
+  end
+
+  defp via_tuple(opts) do
+    registry = Keyword.fetch!(opts, :registry)
+    root = Keyword.fetch!(opts, :root)
+    node_id = Keyword.fetch!(opts, :node_id)
+    {:via, Registry, {registry, {root, node_id}}}
+  end
+
+  @impl true
+  def init(opts) do
+    max_size = Keyword.fetch!(opts, :max_size_bytes)
+    window_ratio = Keyword.fetch!(opts, :window_ratio)
+    sketch_depth = Keyword.fetch!(opts, :sketch_depth)
+    sketch_width = Keyword.fetch!(opts, :sketch_width)
+    doorkeeper_bits = Keyword.fetch!(opts, :doorkeeper_bits)
+
+    state = %State{
+      registry: Keyword.fetch!(opts, :registry),
+      root: Keyword.fetch!(opts, :root),
+      node_id: Keyword.fetch!(opts, :node_id),
+      state_dir: Keyword.fetch!(opts, :state_dir),
+      max_size_bytes: max_size,
+      window_budget: trunc(max_size * window_ratio),
+      sketch_depth: sketch_depth,
+      sketch_width: sketch_width,
+      doorkeeper_bits: doorkeeper_bits,
+      local_cms: Sketch.new(depth: sketch_depth, width: sketch_width),
+      boot_cms: Sketch.new(depth: sketch_depth, width: sketch_width),
+      doorkeeper: Doorkeeper.new(bits: doorkeeper_bits),
+      flush_interval_ms: Keyword.get(opts, :flush_interval_ms, 30_000),
+      cleanup_interval_ms: Keyword.get(opts, :cleanup_interval_ms, 3_600_000),
+      state_ttl_ms: Keyword.get(opts, :state_ttl_ms, 604_800_000),
+      window: :ets.new(:window, [:ordered_set, :private]),
+      probationary: :ets.new(:probationary, [:ordered_set, :private]),
+      protected: :ets.new(:protected, [:ordered_set, :private])
+    }
+
+    {:ok, state}
+  end
+end
+```
+
+- [ ] **Step 4: Run, confirm pass**
+
+- [ ] **Step 5: Commit**
+
+```bash
+git add lib/image_pipe/cache/file_system/admission.ex test/image_pipe/cache/file_system/admission_test.exs
+git commit -m "Add Admission GenServer skeleton with Registry naming"
+```
+
+---
+
+### Task 13: Admission `hit/2` cast with doorkeeper-gated CMS
+
+**Files:**
+- Modify: `lib/image_pipe/cache/file_system/admission.ex`
+- Modify: `test/image_pipe/cache/file_system/admission_test.exs`
+
+- [ ] **Step 1: Write failing test**
+
+```elixir
+  test "hit/2 marks the key in doorkeeper on first sighting, increments CMS on second", %{registry: registry, tmp_dir: tmp_dir} do
+    opts = base_opts(registry: registry, tmp_dir: tmp_dir, sketch_width: 64, doorkeeper_bits: 256)
+    pid = start_supervised!({Admission, opts})
+
+    Admission.hit(pid, "key-1")
+    state = :sys.get_state(pid)
+    assert Doorkeeper.member?(state.doorkeeper, "key-1")
+    assert Sketch.estimate(state.local_cms, "key-1") == 0
+
+    Admission.hit(pid, "key-1")
+    state = :sys.get_state(pid)
+    assert Sketch.estimate(state.local_cms, "key-1") >= 1
+  end
+
+  defp base_opts(overrides) do
+    Keyword.merge(
+      [
+        registry: overrides[:registry],
+        root: overrides[:tmp_dir],
+        node_id: "test-node",
+        state_dir: Path.join(overrides[:tmp_dir], ".cache_state"),
+        max_size_bytes: 1_000_000,
+        window_ratio: 0.01,
+        sketch_depth: 4,
+        sketch_width: overrides[:sketch_width] || 256,
+        doorkeeper_bits: overrides[:doorkeeper_bits] || 1024
+      ],
+      []
+    )
+  end
+```
+
+- [ ] **Step 2: Run, confirm failure**
+
+- [ ] **Step 3: Implement `hit/2`**
+
+```elixir
+  @spec hit(pid() | GenServer.name(), binary()) :: :ok
+  def hit(server, key_hash) when is_binary(key_hash) do
+    GenServer.cast(server, {:hit, key_hash})
+  end
+
+  @impl true
+  def handle_cast({:hit, key_hash}, state) do
+    state = sighting(state, key_hash)
+    # Queue MRU promotion will be added in the next task once queues are populated.
+    {:noreply, %{state | state_dirty: true}}
+  end
+
+  defp sighting(state, key_hash) do
+    if Doorkeeper.member?(state.doorkeeper, key_hash) do
+      %{state | local_cms: Sketch.increment(state.local_cms, key_hash)}
+    else
+      %{state | doorkeeper: Doorkeeper.add(state.doorkeeper, key_hash)}
+    end
+  end
+```
+
+- [ ] **Step 4: Run, confirm pass**
+
+- [ ] **Step 5: Commit**
+
+```bash
+git add lib/image_pipe/cache/file_system/admission.ex test/image_pipe/cache/file_system/admission_test.exs
+git commit -m "Add Admission.hit/2 with doorkeeper-gated CMS increment"
+```
+
+---
+
+### Task 14: Admission `admit/2` — main gate happy path
+
+**Files:**
+- Modify: `lib/image_pipe/cache/file_system/admission.ex`
+- Modify: `test/image_pipe/cache/file_system/admission_test.exs`
+
+- [ ] **Step 1: Write failing test for the simplest admission flow**
+
+```elixir
+  test "admit/2 inserts a candidate at window MRU when window has room", %{registry: registry, tmp_dir: tmp_dir} do
+    opts = base_opts(registry: registry, tmp_dir: tmp_dir)
+    pid = start_supervised!({Admission, opts})
+
+    descriptor = %{
+      key_hash: "h1",
+      size_bytes: 5_000,
+      body_sha256: "sha1",
+      cost_us: 1_000
+    }
+
+    assert {:admit, []} = Admission.admit(pid, descriptor)
+
+    state = :sys.get_state(pid)
+    assert state.window_bytes == 5_000
+  end
+
+  test "admit/2 hard-rejects candidates larger than max_size_bytes", %{registry: registry, tmp_dir: tmp_dir} do
+    opts = base_opts(registry: registry, tmp_dir: tmp_dir)
+    pid = start_supervised!({Admission, opts})
+
+    descriptor = %{
+      key_hash: "huge",
+      size_bytes: 10_000_000,  # > 1_000_000 cap
+      body_sha256: "sha",
+      cost_us: 1_000
+    }
+
+    assert {:reject, :over_cap} = Admission.admit(pid, descriptor)
+  end
+```
+
+- [ ] **Step 2: Run, confirm failure**
+
+- [ ] **Step 3: Implement `admit/2` with window-insert and hard-reject**
+
+```elixir
+  @spec admit(pid() | GenServer.name(), map()) ::
+          {:admit, [map()]} | {:reject, :over_cap | :score_too_low | :no_evictable_victims}
+  def admit(server, descriptor) do
+    GenServer.call(server, {:admit, descriptor})
+  end
+
+  @impl true
+  def handle_call({:admit, descriptor}, _from, state) do
+    # Increment sighting first (commit is itself a sighting of the key)
+    state = sighting(state, descriptor.key_hash)
+
+    cond do
+      descriptor.size_bytes > state.max_size_bytes ->
+        {:reply, {:reject, :over_cap}, state}
+
+      true ->
+        {result, state} = do_admit(state, descriptor)
+        {:reply, result, %{state | state_dirty: true}}
+    end
+  end
+
+  defp do_admit(state, descriptor) do
+    cond do
+      descriptor.size_bytes > state.window_budget ->
+        run_main_gate(state, descriptor)
+
+      already_tracked?(state, descriptor.key_hash) ->
+        same_key_replace(state, descriptor)
+
+      true ->
+        insert_into_window(state, descriptor)
+    end
+  end
+
+  defp insert_into_window(state, descriptor) do
+    {position, state} = next_position(state)
+    :ets.insert(state.window, {{position, descriptor.key_hash}, descriptor})
+
+    state = %{
+      state
+      | window_bytes: state.window_bytes + descriptor.size_bytes
+    }
+
+    # Stub: handle window overflow in a later task.
+    {{:admit, []}, state}
+  end
+
+  defp next_position(state), do: {state.next_position, %{state | next_position: state.next_position + 1}}
+
+  defp already_tracked?(state, key_hash) do
+    # Search across all queues. Inefficient but correct; optimized later.
+    in_queue?(state.window, key_hash) or in_queue?(state.probationary, key_hash) or
+      in_queue?(state.protected, key_hash)
+  end
+
+  defp in_queue?(table, key_hash) do
+    :ets.match_object(table, {{:_, key_hash}, :_}) != []
+  end
+
+  defp run_main_gate(state, descriptor), do: {{:admit, []}, state}  # stub for next task
+  defp same_key_replace(state, descriptor), do: {{:admit, []}, state}  # stub for next task
+```
+
+- [ ] **Step 4: Run, confirm pass**
+
+- [ ] **Step 5: Commit**
+
+```bash
+git add lib/image_pipe/cache/file_system/admission.ex test/image_pipe/cache/file_system/admission_test.exs
+git commit -m "Add Admission.admit/2 with window insertion and hard-reject path"
+```
+
+---
+
+### Task 15: Admission — window overflow + main gate
+
+**Files:**
+- Modify: `lib/image_pipe/cache/file_system/admission.ex`
+- Modify: `test/image_pipe/cache/file_system/admission_test.exs`
+
+- [ ] **Step 1: Write failing tests covering window overflow → main admission**
+
+```elixir
+  test "window overflow pushes LRU into main; with free main, evictee goes to probationary", %{registry: registry, tmp_dir: tmp_dir} do
+    # Tiny window so we can force overflow quickly.
+    opts = base_opts(registry: registry, tmp_dir: tmp_dir, max_size_bytes: 100_000, window_ratio: 0.1)
+    pid = start_supervised!({Admission, opts})
+
+    # window_budget = 10_000. Insert 3 × 5_000-byte entries; the third pushes the first out.
+    Admission.admit(pid, %{key_hash: "a", size_bytes: 5_000, body_sha256: "sa", cost_us: 1_000})
+    Admission.admit(pid, %{key_hash: "b", size_bytes: 5_000, body_sha256: "sb", cost_us: 1_000})
+    {:admit, victims} = Admission.admit(pid, %{key_hash: "c", size_bytes: 5_000, body_sha256: "sc", cost_us: 1_000})
+
+    # No victims: main had room for "a".
+    assert victims == []
+
+    state = :sys.get_state(pid)
+    assert state.window_bytes == 10_000  # "b" and "c"
+    assert state.probationary_bytes == 5_000  # "a" moved into main
+  end
+```
+
+- [ ] **Step 2: Run, confirm failure**
+
+- [ ] **Step 3: Implement window overflow + main gate**
+
+```elixir
+  defp insert_into_window(state, descriptor) do
+    {position, state} = next_position(state)
+    :ets.insert(state.window, {{position, descriptor.key_hash}, descriptor})
+    state = %{state | window_bytes: state.window_bytes + descriptor.size_bytes}
+    drain_window_overflow(state, [])
+  end
+
+  defp drain_window_overflow(state, victims) do
+    if state.window_bytes <= state.window_budget do
+      {{:admit, victims}, state}
+    else
+      # Pop window LRU
+      [{{pos, hash}, descriptor}] = :ets.lookup(state.window, :ets.first(state.window))
+      :ets.delete(state.window, {pos, hash})
+      state = %{state | window_bytes: state.window_bytes - descriptor.size_bytes}
+
+      {gate_result, state} = run_main_gate(state, descriptor)
+
+      case gate_result do
+        {:admit, more_victims} ->
+          drain_window_overflow(state, victims ++ more_victims)
+
+        {:reject, _} ->
+          # Window evictee lost main gate; its files must be deleted.
+          drain_window_overflow(state, victims ++ [descriptor])
+      end
+    end
+  end
+
+  defp run_main_gate(state, descriptor) do
+    available = state.max_size_bytes - state.window_budget - state.probationary_bytes - state.protected_bytes
+
+    if available >= descriptor.size_bytes do
+      insert_into_probationary(state, descriptor)
+    else
+      identify_and_score(state, descriptor)
+    end
+  end
+
+  defp insert_into_probationary(state, descriptor) do
+    {position, state} = next_position(state)
+    :ets.insert(state.probationary, {{position, descriptor.key_hash}, descriptor})
+    state = %{state | probationary_bytes: state.probationary_bytes + descriptor.size_bytes}
+    {{:admit, []}, state}
+  end
+
+  defp identify_and_score(state, descriptor) do
+    probationary_list = ordered_set_to_list(state.probationary)
+    protected_list = ordered_set_to_list(state.protected)
+
+    case ImagePipe.Cache.FileSystem.Policy.victim_walk(probationary_list, protected_list, descriptor.size_bytes) do
+      {:error, :no_evictable_victims} ->
+        {{:reject, :no_evictable_victims}, state}
+
+      {:ok, victims} ->
+        freq_fn = fn key_hash ->
+          Sketch.estimate(state.local_cms, key_hash) + Sketch.estimate(state.boot_cms, key_hash)
+        end
+
+        if ImagePipe.Cache.FileSystem.Policy.admit?(descriptor, victims, freq_fn) do
+          state = remove_victims(state, victims)
+          {_result, state} = insert_into_probationary(state, descriptor)
+          {{:admit, victims}, state}
+        else
+          {{:reject, :score_too_low}, state}
+        end
+    end
+  end
+
+  defp ordered_set_to_list(table) do
+    :ets.foldr(fn {_pos_and_hash, descriptor}, acc -> [descriptor | acc] end, [], table)
+    |> Enum.reverse()
+  end
+
+  defp remove_victims(state, victims) do
+    Enum.reduce(victims, state, fn descriptor, acc ->
+      remove_descriptor(acc, descriptor)
+    end)
+  end
+
+  defp remove_descriptor(state, descriptor) do
+    # Search all queues for the descriptor and remove it. Update byte counters.
+    Enum.reduce_while([:window, :probationary, :protected], state, fn queue, acc ->
+      table = Map.fetch!(acc, queue)
+      case :ets.match_object(table, {{:_, descriptor.key_hash}, :_}) do
+        [] ->
+          {:cont, acc}
+
+        [{key, _value}] ->
+          :ets.delete(table, key)
+          bytes_field = :"#{queue}_bytes"
+          acc = Map.update!(acc, bytes_field, &(&1 - descriptor.size_bytes))
+          {:halt, acc}
+      end
+    end)
+  end
+```
+
+- [ ] **Step 4: Run, confirm pass**
+
+- [ ] **Step 5: Commit**
+
+```bash
+git add lib/image_pipe/cache/file_system/admission.ex test/image_pipe/cache/file_system/admission_test.exs
+git commit -m "Add Admission window overflow and main gate logic"
+```
+
+---
+
+### Task 16: Admission — same-key re-commit replacement
+
+**Files:**
+- Modify: `lib/image_pipe/cache/file_system/admission.ex`
+- Modify: `test/image_pipe/cache/file_system/admission_test.exs`
+
+- [ ] **Step 1: Write failing tests for same-key re-commit behavior**
+
+```elixir
+  test "same-key re-commit returns old body as victim when body_sha256 differs", %{registry: registry, tmp_dir: tmp_dir} do
+    opts = base_opts(registry: registry, tmp_dir: tmp_dir)
+    pid = start_supervised!({Admission, opts})
+
+    {:admit, []} = Admission.admit(pid, %{key_hash: "k", size_bytes: 1_000, body_sha256: "sha_old", cost_us: 1_000})
+    {:admit, victims} = Admission.admit(pid, %{key_hash: "k", size_bytes: 1_500, body_sha256: "sha_new", cost_us: 2_000})
+
+    assert [%{key_hash: "k", body_sha256: "sha_old"}] = victims
+  end
+
+  test "same-key re-commit does NOT return body as victim when body_sha256 matches", %{registry: registry, tmp_dir: tmp_dir} do
+    opts = base_opts(registry: registry, tmp_dir: tmp_dir)
+    pid = start_supervised!({Admission, opts})
+
+    {:admit, []} = Admission.admit(pid, %{key_hash: "k", size_bytes: 1_000, body_sha256: "same_sha", cost_us: 1_000})
+    {:admit, victims} = Admission.admit(pid, %{key_hash: "k", size_bytes: 1_000, body_sha256: "same_sha", cost_us: 1_500})
+
+    assert victims == []
+  end
+
+  test "same-key replacement rejected when new size exceeds max_size_bytes", %{registry: registry, tmp_dir: tmp_dir} do
+    opts = base_opts(registry: registry, tmp_dir: tmp_dir, max_size_bytes: 10_000)
+    pid = start_supervised!({Admission, opts})
+
+    {:admit, []} = Admission.admit(pid, %{key_hash: "k", size_bytes: 1_000, body_sha256: "sa", cost_us: 1_000})
+    assert {:reject, :over_cap} = Admission.admit(pid, %{key_hash: "k", size_bytes: 20_000, body_sha256: "sb", cost_us: 1_000})
+
+    state = :sys.get_state(pid)
+    # Old entry still tracked
+    assert in_queue?(state.window, "k") or in_queue?(state.probationary, "k") or in_queue?(state.protected, "k")
+  end
+
+  defp in_queue?(table, key_hash) do
+    :ets.match_object(table, {{:_, key_hash}, :_}) != []
+  end
+```
+
+- [ ] **Step 2: Run, confirm failure**
+
+- [ ] **Step 3: Implement `same_key_replace/2`**
+
+```elixir
+  defp same_key_replace(state, descriptor) do
+    {queue, old_position, old_descriptor} = locate(state, descriptor.key_hash)
+    table = Map.fetch!(state, queue)
+
+    # Remove the old entry's bytes from accounting.
+    bytes_field = :"#{queue}_bytes"
+    state = Map.update!(state, bytes_field, &(&1 - old_descriptor.size_bytes))
+    :ets.delete(table, {old_position, descriptor.key_hash})
+
+    # Insert the new descriptor at MRU in the same queue.
+    {position, state} = next_position(state)
+    :ets.insert(table, {{position, descriptor.key_hash}, descriptor})
+    state = Map.update!(state, bytes_field, &(&1 + descriptor.size_bytes))
+
+    # Body victim only if content actually changed.
+    victims =
+      if descriptor.body_sha256 == old_descriptor.body_sha256 do
+        []
+      else
+        [old_descriptor]
+      end
+
+    {{:admit, victims}, state}
+  end
+
+  defp locate(state, key_hash) do
+    Enum.find_value([:window, :probationary, :protected], fn queue ->
+      table = Map.fetch!(state, queue)
+      case :ets.match_object(table, {{:_, key_hash}, :_}) do
+        [] -> nil
+        [{{pos, _hash}, descriptor}] -> {queue, pos, descriptor}
+      end
+    end)
+  end
+```
+
+And update the hard-reject case in `handle_call({:admit, ...})` to check same-key replace BEFORE size:
+
+```elixir
+  def handle_call({:admit, descriptor}, _from, state) do
+    state = sighting(state, descriptor.key_hash)
+
+    cond do
+      descriptor.size_bytes > state.max_size_bytes ->
+        {:reply, {:reject, :over_cap}, state}
+
+      true ->
+        {result, state} = do_admit(state, descriptor)
+        {:reply, result, %{state | state_dirty: true}}
+    end
+  end
+```
+
+(The same-key path is reached via `do_admit/2` already — see `already_tracked?/2` check there.)
+
+- [ ] **Step 4: Run, confirm pass**
+
+- [ ] **Step 5: Commit**
+
+```bash
+git add lib/image_pipe/cache/file_system/admission.ex test/image_pipe/cache/file_system/admission_test.exs
+git commit -m "Add Admission same-key re-commit with body_sha256 differs check"
+```
+
+---
+
+### Task 17: Admission — hit promotion + protected demotion
+
+**Files:**
+- Modify: `lib/image_pipe/cache/file_system/admission.ex`
+- Modify: `test/image_pipe/cache/file_system/admission_test.exs`
+
+Implement: hit on probationary → protected MRU; hit on protected → protected MRU; hit on window → window MRU. Protected overflow demotes LRU to probationary.
+
+- [ ] **Step 1: Write failing tests**
+
+```elixir
+  test "hit on probationary promotes to protected", %{registry: registry, tmp_dir: tmp_dir} do
+    # Use small main budget so we can observe queue movement
+    opts = base_opts(registry: registry, tmp_dir: tmp_dir, max_size_bytes: 100_000)
+    pid = start_supervised!({Admission, opts})
+
+    descriptor = %{key_hash: "k", size_bytes: 5_000, body_sha256: "s", cost_us: 1_000}
+    {:admit, []} = Admission.admit(pid, descriptor)
+
+    # Force window→main by overflowing window
+    Admission.admit(pid, %{key_hash: "filler", size_bytes: 1_000, body_sha256: "f", cost_us: 1_000})
+
+    # Establish doorkeeper presence
+    Admission.hit(pid, "k")
+    :sys.get_state(pid)
+
+    # Second hit should promote
+    Admission.hit(pid, "k")
+    state = :sys.get_state(pid)
+
+    assert in_queue?(state.protected, "k")
+    refute in_queue?(state.probationary, "k")
+  end
+```
+
+- [ ] **Step 2: Run, confirm failure**
+
+- [ ] **Step 3: Implement hit promotion in `handle_cast({:hit, key_hash}, state)`**
+
+```elixir
+  def handle_cast({:hit, key_hash}, state) do
+    state = sighting(state, key_hash)
+    state = promote_on_hit(state, key_hash)
+    {:noreply, %{state | state_dirty: true}}
+  end
+
+  defp promote_on_hit(state, key_hash) do
+    case locate(state, key_hash) do
+      nil -> state
+      {:window, pos, descriptor} -> move_to_mru(state, :window, pos, descriptor)
+      {:probationary, pos, descriptor} ->
+        :ets.delete(state.probationary, {pos, key_hash})
+        state = Map.update!(state, :probationary_bytes, &(&1 - descriptor.size_bytes))
+        insert_into_protected(state, descriptor)
+
+      {:protected, pos, descriptor} -> move_to_mru(state, :protected, pos, descriptor)
+    end
+  end
+
+  defp move_to_mru(state, queue, old_pos, descriptor) do
+    table = Map.fetch!(state, queue)
+    :ets.delete(table, {old_pos, descriptor.key_hash})
+    {pos, state} = next_position(state)
+    :ets.insert(table, {{pos, descriptor.key_hash}, descriptor})
+    state
+  end
+
+  defp insert_into_protected(state, descriptor) do
+    {pos, state} = next_position(state)
+    :ets.insert(state.protected, {{pos, descriptor.key_hash}, descriptor})
+    state = Map.update!(state, :protected_bytes, &(&1 + descriptor.size_bytes))
+    enforce_protected_target(state)
+  end
+
+  defp enforce_protected_target(state) do
+    main_budget = state.max_size_bytes - state.window_budget
+    target = trunc(main_budget * 0.20)
+
+    if state.protected_bytes > target and :ets.info(state.protected, :size) > 0 do
+      first_key = :ets.first(state.protected)
+      [{key, descriptor}] = :ets.lookup(state.protected, first_key)
+      :ets.delete(state.protected, key)
+      state = Map.update!(state, :protected_bytes, &(&1 - descriptor.size_bytes))
+
+      {pos, state} = next_position(state)
+      :ets.insert(state.probationary, {{pos, descriptor.key_hash}, descriptor})
+      Map.update!(state, :probationary_bytes, &(&1 + descriptor.size_bytes))
+    else
+      state
+    end
+  end
+```
+
+- [ ] **Step 4: Run, confirm pass**
+
+- [ ] **Step 5: Commit**
+
+```bash
+git add lib/image_pipe/cache/file_system/admission.ex test/image_pipe/cache/file_system/admission_test.exs
+git commit -m "Add hit promotion and protected demotion to Admission"
+```
+
+---
+
+### Task 18: Admission — aging + persistence ticker
+
+**Files:**
+- Modify: `lib/image_pipe/cache/file_system/admission.ex`
+- Modify: `test/image_pipe/cache/file_system/admission_test.exs`
+
+This task adds:
+1. Aging trigger after each sighting (check `Sketch.should_age?/1`, fire `Sketch.age/1` on both `local_cms` and `boot_cms`).
+2. Periodic `:flush` message handler that writes `<state_dir>/<node_id>.state` if `state_dirty` is true.
+3. Periodic `:cleanup` message handler that removes peer state files older than `:state_ttl_ms`.
+
+- [ ] **Step 1: Write failing tests**
+
+```elixir
+  test "aging triggers when local CMS sample threshold is hit", %{registry: registry, tmp_dir: tmp_dir} do
+    opts = base_opts(registry: registry, tmp_dir: tmp_dir, sketch_width: 4)
+    pid = start_supervised!({Admission, opts})
+
+    # Threshold = 4 * 10 = 40 sightings
+    # First sighting goes to doorkeeper; subsequent 39 go to CMS.
+    Enum.each(1..50, fn _ -> Admission.hit(pid, "k") end)
+    :sys.get_state(pid)  # synchronize
+
+    state = :sys.get_state(pid)
+    assert state.local_cms.aging_epoch >= 1
+  end
+
+  test "flush ticker writes the state file when state is dirty", %{registry: registry, tmp_dir: tmp_dir} do
+    opts = base_opts(registry: registry, tmp_dir: tmp_dir, flush_interval_ms: 50)
+    pid = start_supervised!({Admission, opts})
+
+    Admission.hit(pid, "k1")
+
+    # Wait for the flush ticker; alternative: send :flush manually.
+    send(pid, :flush)
+    :sys.get_state(pid)
+
+    state_file = Path.join([tmp_dir, ".cache_state", "test-node.state"])
+    assert File.exists?(state_file)
+  end
+```
+
+- [ ] **Step 2: Run, confirm failure**
+
+- [ ] **Step 3: Implement aging trigger and flush ticker**
+
+```elixir
+  def init(opts) do
+    # ... existing state construction ...
+    {:ok, state, {:continue, :schedule_tickers}}
+  end
+
+  @impl true
+  def handle_continue(:schedule_tickers, state) do
+    Process.send_after(self(), :flush, state.flush_interval_ms)
+    Process.send_after(self(), :cleanup, state.cleanup_interval_ms)
+    {:noreply, state}
+  end
+
+  @impl true
+  def handle_info(:flush, state) do
+    state = maybe_flush(state)
+    Process.send_after(self(), :flush, state.flush_interval_ms)
+    {:noreply, state}
+  end
+
+  def handle_info(:cleanup, state) do
+    state = cleanup_stale_peer_files(state)
+    Process.send_after(self(), :cleanup, state.cleanup_interval_ms)
+    {:noreply, state}
+  end
+
+  defp sighting(state, key_hash) do
+    state =
+      if Doorkeeper.member?(state.doorkeeper, key_hash) do
+        %{state | local_cms: Sketch.increment(state.local_cms, key_hash)}
+      else
+        %{state | doorkeeper: Doorkeeper.add(state.doorkeeper, key_hash)}
+      end
+
+    if Sketch.should_age?(state.local_cms) do
+      %{
+        state
+        | local_cms: Sketch.age(state.local_cms),
+          boot_cms: Sketch.age(state.boot_cms),
+          doorkeeper: Doorkeeper.reset(state.doorkeeper),
+          state_dirty: true
+      }
+    else
+      state
+    end
+  end
+
+  defp maybe_flush(state) do
+    if state.state_dirty do
+      File.mkdir_p!(state.state_dir)
+      path = Path.join(state.state_dir, "#{state.node_id}.state")
+      tmp_path = path <> ".tmp.#{System.unique_integer([:positive])}"
+      payload = serialize_state(state)
+      File.write!(tmp_path, payload, [:binary])
+      File.rename!(tmp_path, path)
+      %{state | state_dirty: false}
+    else
+      state
+    end
+  end
+
+  defp serialize_state(state) do
+    protected_hashes = ordered_set_to_list(state.protected) |> Enum.map(& &1.key_hash)
+
+    :erlang.term_to_binary(
+      %{
+        format_version: 1,
+        node_id: state.node_id,
+        written_at: System.system_time(:millisecond),
+        aging_epoch: state.local_cms.aging_epoch,
+        increments_since_reset: state.local_cms.increments_since_reset,
+        sketch: Sketch.serialize(state.local_cms),
+        doorkeeper: Doorkeeper.serialize(state.doorkeeper),
+        protected_hashes: protected_hashes
+      },
+      [:deterministic]
+    )
+  end
+
+  defp cleanup_stale_peer_files(state) do
+    case File.ls(state.state_dir) do
+      {:ok, files} ->
+        now = System.system_time(:millisecond)
+        own = "#{state.node_id}.state"
+
+        Enum.each(files, fn f ->
+          if String.ends_with?(f, ".state") and f != own do
+            path = Path.join(state.state_dir, f)
+            case File.stat(path, time: :posix) do
+              {:ok, %{mtime: mtime}} ->
+                age_ms = now - mtime * 1000
+                if age_ms > state.state_ttl_ms, do: File.rm(path)
+
+              _ ->
+                :ok
+            end
+          end
+        end)
+
+      {:error, _} ->
+        :ok
+    end
+
+    state
+  end
+```
+
+- [ ] **Step 4: Run, confirm pass**
+
+- [ ] **Step 5: Commit**
+
+```bash
+git add lib/image_pipe/cache/file_system/admission.ex test/image_pipe/cache/file_system/admission_test.exs
+git commit -m "Add Admission aging trigger, flush ticker, and cleanup ticker"
+```
+
+---
+
+### Task 19: Admission — warm-start from own + peer files
+
+**Files:**
+- Modify: `lib/image_pipe/cache/file_system/admission.ex`
+- Modify: `test/image_pipe/cache/file_system/admission_test.exs`
+
+- [ ] **Step 1: Write failing tests**
+
+```elixir
+  test "boot warm-starts from own state file", %{registry: registry, tmp_dir: tmp_dir} do
+    # Pre-write a state file for "test-node"
+    opts = base_opts(registry: registry, tmp_dir: tmp_dir)
+    state_dir = Keyword.fetch!(opts, :state_dir)
+    File.mkdir_p!(state_dir)
+
+    sketch = Sketch.new(depth: 4, width: 256) |> Sketch.increment("hot-key") |> Sketch.increment("hot-key")
+    doorkeeper = Doorkeeper.new(bits: 1024) |> Doorkeeper.add("hot-key")
+
+    payload = :erlang.term_to_binary(
+      %{
+        format_version: 1,
+        node_id: "test-node",
+        written_at: System.system_time(:millisecond),
+        aging_epoch: 0,
+        increments_since_reset: 2,
+        sketch: Sketch.serialize(sketch),
+        doorkeeper: Doorkeeper.serialize(doorkeeper),
+        protected_hashes: []
+      },
+      [:deterministic]
+    )
+
+    File.write!(Path.join(state_dir, "test-node.state"), payload)
+
+    pid = start_supervised!({Admission, opts})
+    state = :sys.get_state(pid)
+
+    assert Sketch.estimate(state.local_cms, "hot-key") >= 1
+    assert Doorkeeper.member?(state.doorkeeper, "hot-key")
+  end
+
+  test "boot merges peer state files into boot_cms", %{registry: registry, tmp_dir: tmp_dir} do
+    opts = base_opts(registry: registry, tmp_dir: tmp_dir)
+    state_dir = Keyword.fetch!(opts, :state_dir)
+    File.mkdir_p!(state_dir)
+
+    peer_sketch =
+      Sketch.new(depth: 4, width: 256)
+      |> Sketch.increment("global-hot")
+      |> Sketch.increment("global-hot")
+      |> Sketch.increment("global-hot")
+
+    peer_payload = :erlang.term_to_binary(
+      %{
+        format_version: 1,
+        node_id: "peer-1",
+        written_at: System.system_time(:millisecond),
+        aging_epoch: 0,
+        increments_since_reset: 3,
+        sketch: Sketch.serialize(peer_sketch),
+        doorkeeper: Doorkeeper.serialize(Doorkeeper.new(bits: 1024)),
+        protected_hashes: []
+      },
+      [:deterministic]
+    )
+
+    File.write!(Path.join(state_dir, "peer-1.state"), peer_payload)
+
+    pid = start_supervised!({Admission, opts})
+    state = :sys.get_state(pid)
+
+    assert Sketch.estimate(state.boot_cms, "global-hot") >= 1
+  end
+```
+
+- [ ] **Step 2: Run, confirm failure**
+
+- [ ] **Step 3: Implement warm-start in `init/1`**
+
+```elixir
+  def init(opts) do
+    # ... build initial State struct as before ...
+    state = warm_start(state)
+    {:ok, state, {:continue, :schedule_tickers}}
+  end
+
+  defp warm_start(state) do
+    state
+    |> load_own_state()
+    |> load_peer_state()
+  end
+
+  defp load_own_state(state) do
+    path = Path.join(state.state_dir, "#{state.node_id}.state")
+
+    case File.read(path) do
+      {:ok, binary} ->
+        case decode_state_payload(binary, state) do
+          {:ok, payload} -> apply_own_state(state, payload)
+          {:error, reason} ->
+            require Logger
+            Logger.warning("Admission: own state file decode failed: #{inspect(reason)}; cold boot")
+            state
+        end
+
+      {:error, :enoent} ->
+        state
+
+      {:error, reason} ->
+        require Logger
+        Logger.warning("Admission: own state file read failed: #{inspect(reason)}; cold boot")
+        state
+    end
+  end
+
+  defp load_peer_state(state) do
+    case File.ls(state.state_dir) do
+      {:ok, files} ->
+        own = "#{state.node_id}.state"
+        now = System.system_time(:millisecond)
+
+        Enum.reduce(files, state, fn f, acc ->
+          if String.ends_with?(f, ".state") and f != own and within_ttl?(acc, f, now) do
+            merge_peer_file(acc, f)
+          else
+            acc
+          end
+        end)
+
+      {:error, _} ->
+        state
+    end
+  end
+
+  defp within_ttl?(state, filename, now_ms) do
+    case File.stat(Path.join(state.state_dir, filename), time: :posix) do
+      {:ok, %{mtime: mtime}} -> now_ms - mtime * 1000 < state.state_ttl_ms
+      _ -> false
+    end
+  end
+
+  defp merge_peer_file(state, filename) do
+    path = Path.join(state.state_dir, filename)
+    case File.read(path) do
+      {:ok, binary} ->
+        case decode_state_payload(binary, state) do
+          {:ok, payload} ->
+            {:ok, peer_sketch} = Sketch.deserialize(payload.sketch, depth: state.sketch_depth, width: state.sketch_width)
+            %{state | boot_cms: Sketch.sum(state.boot_cms, peer_sketch)}
+
+          {:error, _} ->
+            state
+        end
+
+      {:error, _} ->
+        state
+    end
+  end
+
+  defp decode_state_payload(binary, state) do
+    try do
+      payload = :erlang.binary_to_term(binary, [:safe])
+      case payload do
+        %{format_version: 1} -> {:ok, payload}
+        _ -> {:error, :invalid_format}
+      end
+    rescue
+      ArgumentError -> {:error, :decode_failed}
+    end
+  end
+
+  defp apply_own_state(state, payload) do
+    {:ok, sketch} = Sketch.deserialize(payload.sketch, depth: state.sketch_depth, width: state.sketch_width)
+    {:ok, doorkeeper} = Doorkeeper.deserialize(payload.doorkeeper, bits: state.doorkeeper_bits)
+    %{state | local_cms: sketch, doorkeeper: doorkeeper}
+    # Note: protected_hashes restoration is handled by the directory scan in a later task.
+  end
+```
+
+- [ ] **Step 4: Run, confirm pass**
+
+- [ ] **Step 5: Commit**
+
+```bash
+git add lib/image_pipe/cache/file_system/admission.ex test/image_pipe/cache/file_system/admission_test.exs
+git commit -m "Add Admission warm-start from own state and peer state files"
+```
+
+---
+
+### Task 20: Admission — background directory scan with conflict resolution
+
+**Files:**
+- Modify: `lib/image_pipe/cache/file_system/admission.ex`
+- Modify: `test/image_pipe/cache/file_system/admission_test.exs`
+
+- [ ] **Step 1: Write failing tests**
+
+```elixir
+  test "background scan inserts on-disk entries into probationary", %{registry: registry, tmp_dir: tmp_dir} do
+    # Pre-place a .meta file via the existing FileSystem adapter helpers...
+    # (omitted for brevity; build a Key, open_sink, write_chunk, commit_sink,
+    # all against the unbounded path so the directory exists pre-Admission boot)
+
+    opts = base_opts(registry: registry, tmp_dir: tmp_dir)
+    pid = start_supervised!({Admission, opts})
+
+    # Wait for the scan task to complete; use a sync helper if available
+    Admission.await_scan(pid, 5_000)
+
+    state = :sys.get_state(pid)
+    assert state.probationary_bytes > 0
+  end
+
+  test "scan does not overwrite a key already inserted by runtime traffic", %{registry: registry, tmp_dir: tmp_dir} do
+    # Pre-place an entry on disk with descriptor D_disk.
+    # Boot Admission and immediately admit a different descriptor D_new for the same key
+    # before the scan reaches it. After scan completes, verify the queue holds D_new.
+
+    # (concrete setup omitted; uses fixtures + Process.send to control timing)
+  end
+```
+
+- [ ] **Step 2: Run, confirm failure**
+
+- [ ] **Step 3: Implement scan task with batch apply**
+
+```elixir
+  @impl true
+  def handle_continue(:schedule_tickers, state) do
+    {:ok, scan_task} = Task.start(fn -> scan_directory(state) end)
+    state = %{state | scan_task: scan_task}
+
+    Process.send_after(self(), :flush, state.flush_interval_ms)
+    Process.send_after(self(), :cleanup, state.cleanup_interval_ms)
+    {:noreply, state}
+  end
+
+  defp scan_directory(state) do
+    parent = self()
+
+    descriptors =
+      walk_meta_files(state.root)
+      |> Enum.map(fn meta_path ->
+        case read_descriptor(meta_path) do
+          {:ok, descriptor, mtime} -> {descriptor, mtime}
+          {:error, _} -> nil
+        end
+      end)
+      |> Enum.reject(&is_nil/1)
+
+    # ... batch by chunk and call into Admission to apply
+    Enum.chunk_every(descriptors, 100)
+    |> Enum.each(fn chunk ->
+      GenServer.call(parent, {:apply_scan_batch, chunk})
+    end)
+
+    GenServer.call(parent, :scan_complete)
+  end
+
+  def handle_call({:apply_scan_batch, batch}, _from, state) do
+    state =
+      Enum.reduce(batch, state, fn {descriptor, mtime}, acc ->
+        if already_tracked?(acc, descriptor.key_hash) do
+          acc  # runtime traffic wins; skip
+        else
+          insert_scan_descriptor(acc, descriptor, mtime)
+        end
+      end)
+
+    {:reply, :ok, state}
+  end
+
+  defp insert_scan_descriptor(state, descriptor, _mtime) do
+    {pos, state} = next_position(state)
+    :ets.insert(state.probationary, {{pos, descriptor.key_hash}, descriptor})
+    Map.update!(state, :probationary_bytes, &(&1 + descriptor.size_bytes))
+  end
+```
+
+(Two-pass protected restoration is deferred to a follow-up step in this task since it depends on the directory walk producing the full map first.)
+
+- [ ] **Step 4: Run, confirm pass**
+
+- [ ] **Step 5: Commit**
+
+```bash
+git add lib/image_pipe/cache/file_system/admission.ex test/image_pipe/cache/file_system/admission_test.exs
+git commit -m "Add background scan with conflict-resolution insert pass"
+```
+
+---
+
+### Task 21: Admission — two-pass scan for protected order restoration
+
+**Files:**
+- Modify: `lib/image_pipe/cache/file_system/admission.ex`
+- Modify: `test/image_pipe/cache/file_system/admission_test.exs`
+
+- [ ] **Step 1: Write failing test**
+
+```elixir
+  test "protected entries are restored in LRU-to-MRU order from persisted state", %{registry: registry, tmp_dir: tmp_dir} do
+    # Pre-place state file with protected_hashes: ["older_hash", "newer_hash"]
+    # Pre-place .meta files for both hashes
+    # Boot Admission
+    # Verify protected queue order matches LRU→MRU
+  end
+```
+
+- [ ] **Step 2: Run, confirm failure**
+
+- [ ] **Step 3: Restructure scan to two-pass**
+
+```elixir
+  defp scan_directory(state) do
+    parent = self()
+    map = build_descriptor_map(state.root)
+
+    # Phase A: insert protected entries in persisted LRU→MRU order
+    protected_hashes = state.persisted_protected_hashes
+    GenServer.call(parent, {:apply_protected_batch, protected_hashes, map})
+
+    # Phase B: insert remaining entries in mtime order
+    remaining = Map.drop(map, protected_hashes)
+    sorted = Enum.sort_by(Map.values(remaining), & &1.mtime)
+
+    Enum.chunk_every(sorted, 100)
+    |> Enum.each(&GenServer.call(parent, {:apply_scan_batch, &1}))
+
+    GenServer.call(parent, :scan_complete)
+  end
+```
+
+Keep the persisted protected hashes in state during init (from `load_own_state`).
+
+- [ ] **Step 4: Run, confirm pass**
+
+- [ ] **Step 5: Commit**
+
+```bash
+git add lib/image_pipe/cache/file_system/admission.ex test/image_pipe/cache/file_system/admission_test.exs
+git commit -m "Restore protected segment LRU-to-MRU order on warm-start"
+```
+
+---
+
+## Phase 4: FileSystem adapter integration
+
+### Task 22: FileSystem adapter — `child_spec/1` for bounded mode
+
+**Files:**
+- Modify: `lib/image_pipe/cache/file_system.ex`
+- Modify: `test/image_pipe/cache/file_system_test.exs`
+
+- [ ] **Step 1: Write failing test**
+
+```elixir
+  test "child_spec/1 returns a supervisor spec when max_size_bytes is set", %{tmp_dir: tmp_dir} do
+    opts = [root: tmp_dir, max_size_bytes: 10_000_000, node_id: "n1"]
+    assert %{id: _, start: _} = FileSystem.child_spec(opts)
+  end
+
+  test "no child_spec for unbounded mode" do
+    # We expect an explicit indication that unbounded mode doesn't require supervision
+    assert FileSystem.child_spec([root: "/tmp"]) == :ignore
+  end
+```
+
+- [ ] **Step 2: Run, confirm failure**
+
+- [ ] **Step 3: Implement `child_spec/1`**
+
+```elixir
+  def child_spec(opts) do
+    if Keyword.has_key?(opts, :max_size_bytes) do
+      registry_name = registry_name()
+      Supervisor.child_spec(
+        {Supervisor,
+         [
+           {Registry, keys: :unique, name: registry_name},
+           {ImagePipe.Cache.FileSystem.Admission, Keyword.put(opts, :registry, registry_name)}
+         ]},
+        id: {__MODULE__, Keyword.fetch!(opts, :root)}
+      )
+    else
+      :ignore
+    end
+  end
+
+  defp registry_name, do: ImagePipe.Cache.FileSystem.Registry
+```
+
+- [ ] **Step 4: Run, confirm pass**
+
+- [ ] **Step 5: Commit**
+
+```bash
+git add lib/image_pipe/cache/file_system.ex test/image_pipe/cache/file_system_test.exs
+git commit -m "Add FileSystem.child_spec/1 returning Admission supervisor in bounded mode"
+```
+
+---
+
+### Task 23: FileSystem `commit_sink` — admit/1 integration
+
+**Files:**
+- Modify: `lib/image_pipe/cache/file_system.ex`
+- Modify: `test/image_pipe/cache/file_system_test.exs`
+
+- [ ] **Step 1: Write failing integration test**
+
+A full end-to-end test: configure adapter with `:max_size_bytes`, start supervisor explicitly via `start_supervised!`, write entries, verify admission decisions.
+
+- [ ] **Step 2: Run, confirm failure**
+
+- [ ] **Step 3: Implement bounded-mode commit_sink**
+
+In `commit_sink/2` add the admission call before rename. Pseudocode:
+
+```elixir
+  def commit_sink(state, opts) do
+    case admit_if_bounded(state, opts) do
+      :unbounded ->
+        # Existing logic
+        legacy_commit(state)
+
+      {:admit, victims} ->
+        with :ok <- legacy_commit(state) do
+          delete_victims(state, victims, opts)
+          :ok
+        end
+
+      {:reject, _reason} ->
+        cleanup_sink_state(state)
+        :ok
+    end
+  end
+
+  defp admit_if_bounded(state, opts) do
+    case lookup_admission(opts) do
+      {:ok, pid} ->
+        descriptor = build_descriptor(state)
+        ImagePipe.Cache.FileSystem.Admission.admit(pid, descriptor)
+
+      :unbounded ->
+        :unbounded
+
+      :unavailable ->
+        require Logger
+        Logger.warning("Admission process unavailable; treating as cache-disabled")
+        # Treat as unbounded for this commit — write and don't track
+        :unbounded
+    end
+  end
+
+  defp lookup_admission(opts) do
+    if Keyword.has_key?(opts, :max_size_bytes) do
+      key = {Keyword.fetch!(opts, :root), Keyword.fetch!(opts, :node_id)}
+      case Registry.lookup(ImagePipe.Cache.FileSystem.Registry, key) do
+        [{pid, _}] -> {:ok, pid}
+        [] -> :unavailable
+      end
+    else
+      :unbounded
+    end
+  end
+
+  defp delete_victims(_state, [], _opts), do: :ok
+
+  defp delete_victims(state, victims, opts) do
+    Enum.each(victims, fn victim ->
+      with {:ok, paths} <- paths(%Key{hash: victim.key_hash, data: [], serialized_data: <<>>}, opts) do
+        body_filename = "#{victim.key_hash}.#{victim.body_sha256}.body"
+        body_path = Path.join(paths.dir, body_filename)
+        File.rm(body_path)
+        File.rm(paths.meta_path)
+      end
+    end)
+  end
+```
+
+(`build_descriptor/1` extracts `key_hash`, `size_bytes`, `body_sha256`, `cost_us` from the sink state.)
+
+- [ ] **Step 4: Run, confirm pass**
+
+- [ ] **Step 5: Commit**
+
+```bash
+git add lib/image_pipe/cache/file_system.ex test/image_pipe/cache/file_system_test.exs
+git commit -m "Integrate Admission into FileSystem.commit_sink for bounded mode"
+```
+
+---
+
+### Task 24: FileSystem `get/2` — hit cast
+
+**Files:**
+- Modify: `lib/image_pipe/cache/file_system.ex`
+- Modify: `test/image_pipe/cache/file_system_test.exs`
+
+- [ ] **Step 1: Write failing test**
+
+```elixir
+  test "get/2 casts hit to Admission on successful hit (bounded mode)", %{tmp_dir: tmp_dir} do
+    # Setup bounded mode, place an entry, perform a get/2, verify Admission's state shows hit
+  end
+```
+
+- [ ] **Step 2: Run, confirm failure**
+
+- [ ] **Step 3: Implement hit cast**
+
+In `get/2`, after a successful hit:
+
+```elixir
+  def get(key, opts) do
+    case do_get(key, opts) do
+      {:hit, entry} = result ->
+        maybe_cast_hit(opts, key.hash)
+        result
+
+      other ->
+        other
+    end
+  end
+
+  defp maybe_cast_hit(opts, key_hash) do
+    case lookup_admission(opts) do
+      {:ok, pid} -> ImagePipe.Cache.FileSystem.Admission.hit(pid, key_hash)
+      _ -> :ok
+    end
+  end
+```
+
+- [ ] **Step 4: Run, confirm pass**
+
+- [ ] **Step 5: Commit**
+
+```bash
+git add lib/image_pipe/cache/file_system.ex test/image_pipe/cache/file_system_test.exs
+git commit -m "Cast hit to Admission on FileSystem.get/2 success in bounded mode"
+```
+
+---
+
+## Phase 5: Config + telemetry
+
+### Task 25: Config schema extension
+
+**Files:**
+- Modify: `lib/image_pipe/cache.ex` (or the FileSystem adapter's `validate_options/1`)
+- Modify: `test/image_pipe/cache/file_system_test.exs`
+
+- [ ] **Step 1: Write failing tests**
+
+```elixir
+  test "rejects max_size_bytes: 0" do
+    assert {:error, _} = FileSystem.validate_options([root: "/tmp", max_size_bytes: 0])
+  end
+
+  test "rejects negative max_size_bytes" do
+    assert {:error, _} = FileSystem.validate_options([root: "/tmp", max_size_bytes: -1])
+  end
+
+  test "rejects bounded options without max_size_bytes" do
+    assert {:error, _} = FileSystem.validate_options([root: "/tmp", window_ratio: 0.5])
+  end
+
+  test "accepts a complete bounded config" do
+    assert {:ok, _opts} =
+             FileSystem.validate_options([
+               root: "/tmp",
+               max_size_bytes: 100_000_000,
+               node_id: "n1"
+             ])
+  end
+
+  test "derives sketch_width and doorkeeper_bits from max_size_bytes" do
+    {:ok, opts} = FileSystem.validate_options([root: "/tmp", max_size_bytes: 10_000_000_000, node_id: "n1"])
+    assert opts[:sketch_width] == 400_000
+    assert opts[:doorkeeper_bits] == 800_000
+  end
+```
+
+- [ ] **Step 2: Run, confirm failure**
+
+- [ ] **Step 3: Extend `validate_options/1` with NimbleOptions schema**
+
+Add new bounded option keys to `@option_keys` and a new schema entry. Implement derived defaults and cross-validation as a post-check function (NimbleOptions doesn't natively support cross-key validation, so do it after the per-key validation).
+
+- [ ] **Step 4: Run, confirm pass**
+
+- [ ] **Step 5: Commit**
+
+```bash
+git add lib/image_pipe/cache/file_system.ex test/image_pipe/cache/file_system_test.exs
+git commit -m "Extend FileSystem config schema with bounded-mode options"
+```
+
+---
+
+### Task 26: Telemetry events
+
+**Files:**
+- Modify: `lib/image_pipe/cache/file_system/admission.ex` (emit events)
+- Create: `test/image_pipe/cache/file_system/admission_telemetry_test.exs`
+
+Add `:telemetry.span/3`-style events using existing `ImagePipe.Telemetry` helpers:
+
+- `[..., :cache, :admission, :start/:stop]` (per the spec)
+- `[..., :cache, :eviction, :stop]`
+- `[..., :cache, :warm_start, :start/:stop]`
+- `[..., :cache, :flush, :stop]`
+- `[..., :cache, :cleanup, :stop]`
+- New `cache: :admission_rejected` value for the existing `[..., :cache, :stage, ...]` event
+
+- [ ] **Step 1: Write test attaching to events**
+- [ ] **Step 2: Run, confirm failure**
+- [ ] **Step 3: Emit events from Admission**
+- [ ] **Step 4: Run, confirm pass**
+- [ ] **Step 5: Commit**
+
+---
+
+## Phase 6: Integration and edge-case tests
+
+### Task 27: End-to-end bounded mode happy path
+
+**Files:**
+- Create: `test/image_pipe/cache/file_system_bounded_test.exs`
+
+Full integration: configure bounded adapter, start supervisor, run 1.5× cap worth of entries through the full `Cache.lookup` + `Sink` + `commit_sink` flow, assert evicted bodies are gone, total disk usage within soft-cap bounds.
+
+- [ ] **Step 1: Write test cycling entries through the adapter**
+- [ ] **Step 2: Run, confirm pass** (this test exercises code from previous tasks; should pass once code is complete)
+- [ ] **Step 3: Commit**
+
+---
+
+### Task 28: Failure and edge-case tests
+
+**Files:**
+- Modify: `test/image_pipe/cache/file_system_bounded_test.exs`
+
+Add tests for:
+- Rename failure post-admission (stub `File.rename/2` via `Mox` or test helper)
+- Meta present, body missing
+- Body present, meta missing
+- Corrupt own state file
+- Scan racing with commits for the same key
+- Duplicate commit for same key with new body_sha256 → old body deleted
+- Restart after failed victim delete (orphan body lingers, accounting reconciles via boot scan)
+- Tiny legal caps (1024)
+- `:max_size_bytes: 0` rejected at validation
+- `:window_ratio: 0` disables the window
+
+- [ ] **Step 1: Write each test**
+- [ ] **Step 2: Run, confirm pass**
+- [ ] **Step 3: Commit**
+
+---
+
+### Task 29: Cross-node warm-start test
+
+**Files:**
+- Modify: `test/image_pipe/cache/file_system_bounded_test.exs`
+
+- [ ] **Step 1: Write test**
+
+Pre-place two `<node_id>.state` files in `<state_dir>`, boot Admission, assert merged frequency reflects both via `:sys.get_state/1`.
+
+- [ ] **Step 2: Run, confirm pass**
+- [ ] **Step 3: Commit**
+
+---
+
+### Task 30: Soft-cap invariant property test
+
+**Files:**
+- Create: `test/image_pipe/cache/file_system_bounded_property_test.exs`
+
+- [ ] **Step 1: Write the property test**
+
+```elixir
+defmodule ImagePipe.Cache.FileSystem.BoundedPropertyTest do
+  use ExUnit.Case, async: false
+  use ExUnitProperties
+
+  alias ImagePipe.Cache.FileSystem.Admission
+
+  @tag :tmp_dir
+  property "Admission-tracked bytes stay within cap + sum of in-flight after any admission sequence" do
+    check all descriptors <- list_of(descriptor_generator(), min_length: 0, max_length: 50),
+              max_runs: 50 do
+      tmp = create_tmp_dir()
+      registry = :"#{__MODULE__}.#{System.unique_integer([:positive])}.Registry"
+      start_supervised!({Registry, keys: :unique, name: registry})
+
+      opts = [
+        registry: registry,
+        root: tmp,
+        node_id: "prop-node",
+        state_dir: Path.join(tmp, ".cache_state"),
+        max_size_bytes: 100_000,
+        window_ratio: 0.01,
+        sketch_depth: 4,
+        sketch_width: 64,
+        doorkeeper_bits: 1024,
+        flush_interval_ms: 60_000,  # don't tick during the test
+        cleanup_interval_ms: 60_000
+      ]
+
+      pid = start_supervised!({Admission, opts})
+
+      Enum.each(descriptors, fn descriptor ->
+        # Synchronous admit means no in-flight; tracked bytes stay <= cap.
+        Admission.admit(pid, descriptor)
+      end)
+
+      state = :sys.get_state(pid)
+      tracked = state.window_bytes + state.probationary_bytes + state.protected_bytes
+      assert tracked <= 100_000, "Tracked bytes #{tracked} exceeded cap 100_000"
+    end
+  end
+
+  defp descriptor_generator do
+    gen all key <- string(:alphanumeric, min_length: 4, max_length: 16),
+            size <- integer(100..50_000),
+            cost <- integer(0..100_000) do
+      %{
+        key_hash: key,
+        size_bytes: size,
+        body_sha256: "sha-#{key}",
+        cost_us: cost
+      }
+    end
+  end
+
+  defp create_tmp_dir do
+    tmp = Path.join(System.tmp_dir!(), "bounded_prop_#{System.unique_integer([:positive])}")
+    File.mkdir_p!(tmp)
+    on_exit_cleanup(tmp)
+    tmp
+  end
+
+  defp on_exit_cleanup(path) do
+    ExUnit.Callbacks.on_exit(fn -> File.rm_rf!(path) end)
+  end
+end
+```
+
+- [ ] **Step 2: Run, confirm pass**
+
+```bash
+mise exec -- mix test test/image_pipe/cache/file_system_bounded_property_test.exs
+```
+
+- [ ] **Step 3: Commit**
+
+```bash
+git add test/image_pipe/cache/file_system_bounded_property_test.exs
+git commit -m "Add soft-cap invariant property test"
+```
+
+---
+
+### Task 31: Architecture boundary tests
+
+**Files:**
+- Modify: `test/image_pipe/architecture_boundary_test.exs`
+
+- [ ] **Step 1: Add assertions**
+
+```elixir
+  test "all new bounded-mode modules live under ImagePipe.Cache.FileSystem.*" do
+    expected_modules = [
+      ImagePipe.Cache.FileSystem.Sketch,
+      ImagePipe.Cache.FileSystem.Doorkeeper,
+      ImagePipe.Cache.FileSystem.Policy,
+      ImagePipe.Cache.FileSystem.Admission
+    ]
+
+    Enum.each(expected_modules, fn module ->
+      {:ok, _} = Code.ensure_loaded(module)
+      assert Atom.to_string(module) =~ ~r/^Elixir\.ImagePipe\.Cache\.FileSystem\./
+    end)
+  end
+```
+
+- [ ] **Step 2: Run, confirm pass**
+- [ ] **Step 3: Commit**
+
+---
+
+## Phase 7: Documentation
+
+### Task 32: Update `docs/cache.md`
+
+**Files:**
+- Modify: `docs/cache.md`
+
+Add a "Bounded mode" section explaining:
+- When to use it (`:max_size_bytes` set)
+- Required `:node_id` (and the StatefulSet-ordinal recommendation)
+- Configuration options table
+- Supervision-tree placement (cache before endpoint)
+- Soft-cap semantics + boot reconciliation
+- Multi-node warm-start behavior (read peer state files)
+- New telemetry events
+- Known V1 limitations (orphan body files, same-key race, single-process serialization)
+
+- [ ] **Step 1: Write the section**
+- [ ] **Step 2: Run docs check if any (e.g., `mise exec -- mix docs`)**
+- [ ] **Step 3: Commit**
+
+```bash
+git add docs/cache.md
+git commit -m "Document bounded-mode FileSystem cache in docs/cache.md"
+```
+
+---
+
+## Verification before merge
+
+- [ ] Run full test suite: `mise exec -- mix test`
+- [ ] Run with warnings-as-errors: `mise exec -- mix compile --warnings-as-errors`
+- [ ] Run Credo strict: `mise exec -- mix credo --strict`
+- [ ] Confirm unbounded-mode existing tests still pass unchanged
+- [ ] Confirm architecture boundary tests pass
