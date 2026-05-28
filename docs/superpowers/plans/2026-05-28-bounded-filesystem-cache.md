@@ -353,12 +353,7 @@ Add `Bitwise` import and the two functions:
 
   @spec age(t()) :: t()
   def age(%__MODULE__{} = sketch) do
-    new_counters =
-      sketch.counters
-      |> :array.foldl(
-        fn _idx, value, acc -> :array.set(:array.size(acc), bsr(value + 1, 1), acc) end,
-        :array.new(:array.size(sketch.counters), default: 0, fixed: true)
-      )
+    new_counters = :array.map(fn _idx, value -> bsr(value + 1, 1) end, sketch.counters)
 
     %{
       sketch
@@ -370,22 +365,6 @@ Add `Bitwise` import and the two functions:
 
   @spec should_age?(t()) :: boolean()
   def should_age?(%__MODULE__{width: w, increments_since_reset: n}), do: n >= w * 10
-```
-
-Note: the `age/1` implementation above has an array-index bug (using `:array.size(acc)` always returns the same value). Replace with a cleaner version using `:array.map/2`:
-
-```elixir
-  @spec age(t()) :: t()
-  def age(%__MODULE__{} = sketch) do
-    new_counters = :array.map(fn _idx, value -> bsr(value + 1, 1) end, sketch.counters)
-
-    %{
-      sketch
-      | counters: new_counters,
-        aging_epoch: sketch.aging_epoch + 1,
-        increments_since_reset: 0
-    }
-  end
 ```
 
 - [ ] **Step 4: Run tests, confirm pass**
@@ -812,12 +791,12 @@ git commit -m "Add Policy scoring with cost-aware float arithmetic"
 - Modify: `lib/image_pipe/cache/file_system/policy.ex`
 - Modify: `test/image_pipe/cache/file_system/policy_test.exs`
 
-- [ ] **Step 1: Write failing tests for `victim_walk/3` and `admit?/3`**
+- [ ] **Step 1: Write failing tests for `victim_walk/4` and `admit?/3`**
 
 Append to test file:
 
 ```elixir
-  describe "victim_walk/3" do
+  describe "victim_walk/4" do
     test "walks probationary LRU outward until enough bytes" do
       probationary = [
         descriptor(key_hash: "lru", size_bytes: 100),
@@ -826,10 +805,10 @@ Append to test file:
       ]
       protected = []
 
-      assert {:ok, [v1]} = Policy.victim_walk(probationary, protected, 100)
+      assert {:ok, [v1]} = Policy.victim_walk(probationary, protected, 100, 64)
       assert v1.key_hash == "lru"
 
-      assert {:ok, [v1, v2]} = Policy.victim_walk(probationary, protected, 150)
+      assert {:ok, [v1, v2]} = Policy.victim_walk(probationary, protected, 150, 64)
       assert [v1.key_hash, v2.key_hash] == ["lru", "mid"]
     end
 
@@ -837,14 +816,21 @@ Append to test file:
       probationary = [descriptor(key_hash: "p_lru", size_bytes: 100)]
       protected = [descriptor(key_hash: "prot_lru", size_bytes: 200)]
 
-      assert {:ok, victims} = Policy.victim_walk(probationary, protected, 250)
+      assert {:ok, victims} = Policy.victim_walk(probationary, protected, 250, 64)
       assert Enum.map(victims, & &1.key_hash) == ["p_lru", "prot_lru"]
     end
 
     test "returns :no_evictable_victims when both queues together cannot free enough" do
       probationary = [descriptor(size_bytes: 50)]
       protected = [descriptor(size_bytes: 50)]
-      assert {:error, :no_evictable_victims} = Policy.victim_walk(probationary, protected, 200)
+      assert {:error, :no_evictable_victims} = Policy.victim_walk(probationary, protected, 200, 64)
+    end
+
+    test "returns :victim_limit_exceeded when freeing enough bytes requires more victims than the limit" do
+      # 10 victims × 100 bytes = 1000 bytes available, but limit is 3.
+      probationary = for i <- 1..10, do: descriptor(key_hash: "k#{i}", size_bytes: 100)
+      assert {:error, :victim_limit_exceeded} =
+               Policy.victim_walk(probationary, [], 500, 3)
     end
   end
 
@@ -874,34 +860,69 @@ Append to test file:
 
 - [ ] **Step 2: Run, confirm failure**
 
-- [ ] **Step 3: Implement `victim_walk/3` and `admit?/3`**
+- [ ] **Step 3: Implement `victim_walk/4` and `admit?/3`**
 
 ```elixir
   @doc """
   Walk probationary LRU outward, then protected LRU outward, collecting
   victims until cumulative size_bytes >= needed_bytes.
 
-  Probationary and protected lists must be ordered LRU-first.
-  Returns {:ok, victims} or {:error, :no_evictable_victims}.
+  Probationary and protected lists must be ordered LRU-first. The
+  `limit` parameter caps the number of victims collected — if more
+  would be needed to free enough bytes, returns
+  `{:error, :victim_limit_exceeded}`.
+
+  Returns:
+  - `{:ok, victims}` — enough bytes can be freed within the limit
+  - `{:error, :no_evictable_victims}` — both queues combined cannot
+    free enough bytes
+  - `{:error, :victim_limit_exceeded}` — freeing enough bytes would
+    require more than `limit` victims
   """
-  @spec victim_walk([descriptor()], [descriptor()], non_neg_integer()) ::
-          {:ok, [descriptor()]} | {:error, :no_evictable_victims}
-  def victim_walk(probationary, protected, needed_bytes) do
-    case take_until_bytes(probationary, needed_bytes, [], 0) do
-      {:done, victims} -> {:ok, Enum.reverse(victims)}
-      {:short, victims, remaining} ->
-        case take_until_bytes(protected, remaining, victims, 0) do
-          {:done, all_victims} -> {:ok, Enum.reverse(all_victims)}
-          {:short, _victims, _remaining} -> {:error, :no_evictable_victims}
+  @spec victim_walk([descriptor()], [descriptor()], non_neg_integer(), pos_integer()) ::
+          {:ok, [descriptor()]}
+          | {:error, :no_evictable_victims}
+          | {:error, :victim_limit_exceeded}
+  def victim_walk(probationary, protected, needed_bytes, limit)
+      when is_list(probationary) and is_list(protected) and
+             is_integer(needed_bytes) and needed_bytes >= 0 and
+             is_integer(limit) and limit > 0 do
+    case take_until_bytes(probationary, needed_bytes, [], 0, limit) do
+      {:done, victims} ->
+        {:ok, Enum.reverse(victims)}
+
+      {:short, victims, still_needed} ->
+        protected_limit = limit - length(victims)
+
+        if protected_limit <= 0 do
+          {:error, :victim_limit_exceeded}
+        else
+          case take_until_bytes(protected, still_needed, victims, 0, protected_limit) do
+            {:done, all_victims} -> {:ok, Enum.reverse(all_victims)}
+            {:short, _all_victims, _remaining} -> {:error, :no_evictable_victims}
+            :limit_exceeded -> {:error, :victim_limit_exceeded}
+          end
         end
+
+      :limit_exceeded ->
+        {:error, :victim_limit_exceeded}
     end
   end
 
-  defp take_until_bytes([], _remaining, victims, _acc), do: {:short, victims, _remaining}
-  defp take_until_bytes(_list, remaining, victims, acc) when acc >= remaining,
+  # Returns one of: {:done, victims}, {:short, victims, still_needed_bytes},
+  # or :limit_exceeded.
+  defp take_until_bytes([], remaining, victims, acc, _limit),
+    do: {:short, victims, remaining - acc}
+
+  defp take_until_bytes(_list, remaining, victims, acc, _limit) when acc >= remaining,
     do: {:done, victims}
-  defp take_until_bytes([v | rest], remaining, victims, acc) do
-    take_until_bytes(rest, remaining, [v | victims], acc + v.size_bytes)
+
+  defp take_until_bytes(_list, _remaining, victims, _acc, limit)
+       when length(victims) >= limit,
+       do: :limit_exceeded
+
+  defp take_until_bytes([v | rest], remaining, victims, acc, limit) do
+    take_until_bytes(rest, remaining, [v | victims], acc + v.size_bytes, limit)
   end
 
   @doc """
@@ -916,37 +937,6 @@ Append to test file:
   def admit?(candidate, victims, freq_fn) do
     candidate_freq = freq_fn.(candidate.key_hash)
     score(candidate, candidate_freq) > weighted_avg_score(victims, freq_fn)
-  end
-```
-
-Note: the `take_until_bytes/4` clause `{:short, victims, _remaining}` uses an underscored variable in the return tuple which won't compile. Fix:
-
-```elixir
-  defp take_until_bytes([], remaining, victims, acc),
-    do: {:short, victims, remaining - acc}
-
-  defp take_until_bytes(_list, remaining, victims, acc) when acc >= remaining,
-    do: {:done, victims}
-
-  defp take_until_bytes([v | rest], remaining, victims, acc) do
-    take_until_bytes(rest, remaining, [v | victims], acc + v.size_bytes)
-  end
-```
-
-And `victim_walk/3` chains correctly:
-
-```elixir
-  def victim_walk(probationary, protected, needed_bytes) do
-    case take_until_bytes(probationary, needed_bytes, [], 0) do
-      {:done, victims} ->
-        {:ok, Enum.reverse(victims)}
-
-      {:short, victims, still_needed} ->
-        case take_until_bytes(protected, still_needed, victims, 0) do
-          {:done, all_victims} -> {:ok, Enum.reverse(all_victims)}
-          {:short, _all_victims, _remaining} -> {:error, :no_evictable_victims}
-        end
-    end
   end
 ```
 
@@ -1138,61 +1128,67 @@ git commit -m "Persist cost_us in cache meta file and validate on read"
 
 ---
 
-### Task 11: Capture stage durations in Sink
+### Task 11: Capture `cost_us` via SourceSession-tracked monotonic time
 
 **Files:**
 - Modify: `lib/image_pipe/cache/sink.ex`
+- Modify: `lib/image_pipe/request/source_session.ex`
 
-This is where `cost_us` gets *populated*. The request pipeline emits
-`:source, :fetch`, `:transform, :execute`, and `:encode` stage spans;
-their stop events carry `:duration` measurements. The sink accumulates
-these from the request's telemetry context.
+`cost_us` is the wall-clock time from source-fetch start to the moment
+the cache sink commits. The existing telemetry stage spans
+(`[:source, :fetch, ...]`, `[:transform, :execute, ...]`, `[:encode,
+...]`) are NOT a viable data source: their `:stop` events don't all
+fire before `commit_sink` runs, and there's no existing context
+plumbing into `Sink.open/5`. Instead, measure manually in
+`SourceSession` via `System.monotonic_time/1` checkpoints.
 
-The simplest place to thread the values: extend `response_metadata/1`
-in `sink.ex` to accept a `cost_us` argument computed by the request
-pipeline, OR have the request pipeline pass a context map into
-`Sink.open/5`.
+- [ ] **Step 1: Write a test that verifies cost_us flows through from opts into Sink**
 
-- [ ] **Step 1: Inspect the request pipeline to confirm where cost_us can be computed**
-
-Read `lib/image_pipe/request.ex` and identify where source-session stage
-events fire. The sum of those stage durations (source.fetch, transform.execute, encode) is what we want.
-
-- [ ] **Step 2: Write a test that verifies cost_us flows through from opts into Sink**
-
-Create `test/image_pipe/cache/sink_test.exs` if one doesn't exist; otherwise extend:
+Create `test/image_pipe/cache/sink_test.exs`:
 
 ```elixir
 defmodule ImagePipe.Cache.SinkTest do
   use ExUnit.Case, async: true
 
-  test "Sink.open writes cost_us from opts into metadata" do
-    # Provide a stub adapter, call Sink.open with cost_us in opts, assert
-    # the descriptor passed to open_sink has metadata.cost_us == that value.
+  alias ImagePipe.Cache.Sink
+
+  test "Sink.open accepts :cost_us in opts and threads it into metadata" do
+    # Verify the descriptor passed to a stub adapter's open_sink callback
+    # has metadata.cost_us matching the value in opts.
+    defmodule StubAdapter do
+      def open_sink(_key, metadata, _opts) do
+        send(self(), {:opened_with, metadata})
+        {:ok, %{}}
+      end
+    end
+
+    resolved = build_resolved_output()
+    key = build_key()
+    Sink.open(StubAdapter, key, resolved, [], cost_us: 42_000)
+
+    assert_received {:opened_with, %{cost_us: 42_000}}
+  end
+
+  defp build_resolved_output do
+    # Construct a minimal %ImagePipe.Output.Resolved{} suitable for the test.
+    # Exact construction depends on Resolved struct shape — adapt to current code.
+  end
+
+  defp build_key do
+    %ImagePipe.Cache.Key{
+      hash: String.duplicate("a", 64),
+      data: [],
+      serialized_data: <<>>
+    }
   end
 end
 ```
 
-- [ ] **Step 3: Modify `Sink.open/5` to read `:cost_us` from opts**
+- [ ] **Step 2: Run, confirm failure** (cost_us isn't extracted from opts yet)
 
-In `lib/image_pipe/cache/sink.ex`, in `response_metadata/1`, accept the cost from opts:
+- [ ] **Step 3: Modify `Sink.open/5` to read `:cost_us` from `opts`**
 
-```elixir
-  defp response_metadata(%Resolved{} = resolved_output, cost_us) do
-    with {:ok, headers} <- Entry.cacheable_headers(resolved_output.response_headers) do
-      {:ok,
-       %Entry.Metadata{
-         content_type: Format.mime_type!(resolved_output.format),
-         headers: headers,
-         created_at: DateTime.utc_now(),
-         output_format: resolved_output.format,
-         cost_us: cost_us
-       }}
-    end
-  end
-```
-
-And in `Sink.open/5`, extract `cost_us` from `opts`:
+In `lib/image_pipe/cache/sink.ex`:
 
 ```elixir
   def open(adapter, %Key{} = key, %Resolved{} = resolved_output, cache_opts, opts) do
@@ -1207,13 +1203,47 @@ And in `Sink.open/5`, extract `cost_us` from `opts`:
         nil
     end
   end
+
+  defp response_metadata(%Resolved{} = resolved_output, cost_us) do
+    with {:ok, headers} <- Entry.cacheable_headers(resolved_output.response_headers) do
+      {:ok,
+       %Entry.Metadata{
+         content_type: Format.mime_type!(resolved_output.format),
+         headers: headers,
+         created_at: DateTime.utc_now(),
+         output_format: resolved_output.format,
+         cost_us: cost_us
+       }}
+    end
+  end
 ```
 
-- [ ] **Step 4: Have the request pipeline pass `cost_us: ` to `Sink.open/5`**
+- [ ] **Step 4: Add a monotonic-time checkpoint to `SourceSession`**
 
-In the source-session orchestration code (likely `lib/image_pipe/request/source_session.ex` or similar), accumulate stage durations from the telemetry context and pass them through to `Cache.open_sink/3`.
+In `lib/image_pipe/request/source_session.ex`, add a `:fetch_started_at`
+field to the session state (or wherever the session state lives), set
+at the start of source fetch:
 
-This step is the most codebase-specific. Locate where the source session calls into the cache write path and thread a running sum.
+```elixir
+  # Where the session is initialized:
+  fetch_started_at: System.monotonic_time(:microsecond)
+```
+
+When the session opens the cache sink, compute elapsed time and pass it
+in opts:
+
+```elixir
+  # Locate the existing Cache.open_sink call (around line 253) and add
+  # cost_us to the opts:
+  cost_us = System.monotonic_time(:microsecond) - session.fetch_started_at
+  Cache.open_sink(key, resolved_output, Keyword.put(opts, :cost_us, cost_us))
+```
+
+This captures fetch + transform + encode (up to first chunk), which for
+image encode is essentially the full encode cost since image encoders
+produce the encoded binary in memory then stream it out.
+
+- [ ] **Step 5: Run all tests, confirm pass**
 
 - [ ] **Step 5: Run all tests, confirm pass**
 
@@ -1414,14 +1444,28 @@ git commit -m "Add Admission GenServer skeleton with Registry naming"
     opts = base_opts(registry: registry, tmp_dir: tmp_dir, sketch_width: 64)
     pid = start_supervised!({Admission, opts})
 
-    Admission.hit(pid, "key-1")
+    descriptor = %{key_hash: "key-1", size_bytes: 100, body_sha256: "s", cost_us: 1_000}
+
+    Admission.hit(pid, descriptor)
     state = :sys.get_state(pid)
     assert Talan.BloomFilter.member?(state.doorkeeper, "key-1")
     assert Sketch.estimate(state.local_cms, "key-1") == 0
 
-    Admission.hit(pid, "key-1")
+    Admission.hit(pid, descriptor)
     state = :sys.get_state(pid)
     assert Sketch.estimate(state.local_cms, "key-1") >= 1
+  end
+
+  test "hit/2 on untracked key synthesizes a probationary entry from the descriptor", %{registry: registry, tmp_dir: tmp_dir} do
+    opts = base_opts(registry: registry, tmp_dir: tmp_dir)
+    pid = start_supervised!({Admission, opts})
+
+    descriptor = %{key_hash: "cold", size_bytes: 5_000, body_sha256: "s", cost_us: 1_000}
+    Admission.hit(pid, descriptor)
+    state = :sys.get_state(pid)
+
+    assert in_queue?(state.probationary, "cold")
+    assert state.probationary_bytes == 5_000
   end
 
   defp base_opts(overrides) do
@@ -1448,16 +1492,37 @@ git commit -m "Add Admission GenServer skeleton with Registry naming"
 - [ ] **Step 3: Implement `hit/2`**
 
 ```elixir
-  @spec hit(pid() | GenServer.name(), binary()) :: :ok
-  def hit(server, key_hash) when is_binary(key_hash) do
-    GenServer.cast(server, {:hit, key_hash})
+  @doc """
+  Notify Admission of a cache hit. `descriptor` carries the same shape
+  as an admit-time descriptor (key_hash, size_bytes, body_sha256,
+  cost_us) so Admission can synthesize a probationary entry for hits
+  that arrive before the boot scan reaches the corresponding key.
+  """
+  @spec hit(pid() | GenServer.name(), map()) :: :ok
+  def hit(server, descriptor) when is_map(descriptor) do
+    GenServer.cast(server, {:hit, descriptor})
   end
 
   @impl true
-  def handle_cast({:hit, key_hash}, state) do
-    state = sighting(state, key_hash)
-    # Queue MRU promotion will be added in the next task once queues are populated.
+  def handle_cast({:hit, descriptor}, state) do
+    state = sighting(state, descriptor.key_hash)
+    state = on_hit_promote_or_synthesize(state, descriptor)
     {:noreply, %{state | state_dirty: true}}
+  end
+
+  defp on_hit_promote_or_synthesize(state, descriptor) do
+    case locate(state, descriptor.key_hash) do
+      nil ->
+        # Cold-boot hit synthesis: scan hasn't reached this entry yet,
+        # but the adapter has just read its meta and passed a full
+        # descriptor. Insert at probationary MRU.
+        {pos, state} = next_position(state)
+        :ets.insert(state.probationary, {{pos, descriptor.key_hash}, descriptor})
+        Map.update!(state, :probationary_bytes, &(&1 + descriptor.size_bytes))
+
+      _located ->
+        promote_on_hit(state, descriptor.key_hash)
+    end
   end
 
   defp sighting(state, key_hash) do
@@ -1465,13 +1530,15 @@ git commit -m "Add Admission GenServer skeleton with Registry naming"
       %{state | local_cms: Sketch.increment(state.local_cms, key_hash)}
     else
       # talan's put/2 mutates the underlying :atomics ref in place and
-      # returns :ok. The doorkeeper struct itself doesn't need to be
-      # re-bound in state, but we keep the same binding for clarity.
+      # returns :ok.
       :ok = Talan.BloomFilter.put(state.doorkeeper, key_hash)
       state
     end
   end
 ```
+
+Note: `promote_on_hit/2` is added in Task 17; for this task's tests,
+the descriptor-with-locate-or-synthesize path is exercised.
 
 - [ ] **Step 4: Run, confirm pass**
 
@@ -1660,10 +1727,22 @@ git commit -m "Add Admission.admit/2 with window insertion and hard-reject path"
           drain_window_overflow(state, victims ++ more_victims)
 
         {:reject, _} ->
-          # Window evictee lost main gate; its files must be deleted.
-          drain_window_overflow(state, victims ++ [descriptor])
+          # Window evictee lost main gate; its files must be deleted
+          # (body and meta).
+          evictee_victim = full_eviction_victim(descriptor)
+          drain_window_overflow(state, victims ++ [evictee_victim])
       end
     end
+  end
+
+  defp full_eviction_victim(descriptor) do
+    %{
+      key_hash: descriptor.key_hash,
+      body_sha256: descriptor.body_sha256,
+      size_bytes: descriptor.size_bytes,
+      delete_body?: true,
+      delete_meta?: true
+    }
   end
 
   defp run_main_gate(state, descriptor) do
@@ -1686,20 +1765,26 @@ git commit -m "Add Admission.admit/2 with window insertion and hard-reject path"
   defp identify_and_score(state, descriptor) do
     probationary_list = ordered_set_to_list(state.probationary)
     protected_list = ordered_set_to_list(state.protected)
+    limit = state.eviction_victim_limit
 
-    case ImagePipe.Cache.FileSystem.Policy.victim_walk(probationary_list, protected_list, descriptor.size_bytes) do
+    case ImagePipe.Cache.FileSystem.Policy.victim_walk(probationary_list, protected_list, descriptor.size_bytes, limit) do
       {:error, :no_evictable_victims} ->
         {{:reject, :no_evictable_victims}, state}
 
-      {:ok, victims} ->
+      {:error, :victim_limit_exceeded} ->
+        {{:reject, :victim_limit_exceeded}, state}
+
+      {:ok, victim_descriptors} ->
         freq_fn = fn key_hash ->
           Sketch.estimate(state.local_cms, key_hash) + Sketch.estimate(state.boot_cms, key_hash)
         end
 
-        if ImagePipe.Cache.FileSystem.Policy.admit?(descriptor, victims, freq_fn) do
-          state = remove_victims(state, victims)
+        if ImagePipe.Cache.FileSystem.Policy.admit?(descriptor, victim_descriptors, freq_fn) do
+          state = remove_victims(state, victim_descriptors)
           {_result, state} = insert_into_probationary(state, descriptor)
-          {{:admit, victims}, state}
+          # Tag victims with full-eviction flags for the adapter.
+          tagged = Enum.map(victim_descriptors, &full_eviction_victim/1)
+          {{:admit, tagged}, state}
         else
           {{:reject, :score_too_low}, state}
         end
@@ -1755,23 +1840,34 @@ git commit -m "Add Admission window overflow and main gate logic"
 - [ ] **Step 1: Write failing tests for same-key re-commit behavior**
 
 ```elixir
-  test "same-key re-commit returns old body as victim when body_sha256 differs", %{registry: registry, tmp_dir: tmp_dir} do
+  test "same-key re-commit returns body-only victim when body_sha256 differs", %{registry: registry, tmp_dir: tmp_dir} do
     opts = base_opts(registry: registry, tmp_dir: tmp_dir)
     pid = start_supervised!({Admission, opts})
 
     {:admit, []} = Admission.admit(pid, %{key_hash: "k", size_bytes: 1_000, body_sha256: "sha_old", cost_us: 1_000})
     {:admit, victims} = Admission.admit(pid, %{key_hash: "k", size_bytes: 1_500, body_sha256: "sha_new", cost_us: 2_000})
 
-    assert [%{key_hash: "k", body_sha256: "sha_old"}] = victims
+    # The victim must point at the OLD body (for deletion) but NOT
+    # delete the meta — the meta path is identical for old and new
+    # entries, and the adapter has just renamed the new meta into
+    # place. Deleting the meta would destroy the new entry.
+    assert [%{
+      key_hash: "k",
+      body_sha256: "sha_old",
+      delete_body?: true,
+      delete_meta?: false
+    }] = victims
   end
 
-  test "same-key re-commit does NOT return body as victim when body_sha256 matches", %{registry: registry, tmp_dir: tmp_dir} do
+  test "same-key re-commit emits NO victim when body_sha256 matches", %{registry: registry, tmp_dir: tmp_dir} do
     opts = base_opts(registry: registry, tmp_dir: tmp_dir)
     pid = start_supervised!({Admission, opts})
 
     {:admit, []} = Admission.admit(pid, %{key_hash: "k", size_bytes: 1_000, body_sha256: "same_sha", cost_us: 1_000})
     {:admit, victims} = Admission.admit(pid, %{key_hash: "k", size_bytes: 1_000, body_sha256: "same_sha", cost_us: 1_500})
 
+    # Content-identical rewrite: nothing to delete (the body file path
+    # is the same as the just-renamed candidate body).
     assert victims == []
   end
 
@@ -1811,12 +1907,18 @@ git commit -m "Add Admission window overflow and main gate logic"
     :ets.insert(table, {{position, descriptor.key_hash}, descriptor})
     state = Map.update!(state, bytes_field, &(&1 + descriptor.size_bytes))
 
-    # Body victim only if content actually changed.
+    # Body-only victim when content changed; otherwise no victim.
     victims =
       if descriptor.body_sha256 == old_descriptor.body_sha256 do
         []
       else
-        [old_descriptor]
+        [%{
+          key_hash: old_descriptor.key_hash,
+          body_sha256: old_descriptor.body_sha256,
+          size_bytes: old_descriptor.size_bytes,
+          delete_body?: true,
+          delete_meta?: false
+        }]
       end
 
     {{:admit, victims}, state}
@@ -1986,11 +2088,11 @@ This task adds:
     pid = start_supervised!({Admission, opts})
 
     # Threshold = 4 * 10 = 40 sightings
-    # First sighting goes to doorkeeper; subsequent 39 go to CMS.
-    Enum.each(1..50, fn _ -> Admission.hit(pid, "k") end)
-    :sys.get_state(pid)  # synchronize
+    # First sighting goes to doorkeeper; subsequent 39+ go to CMS.
+    descriptor = %{key_hash: "k", size_bytes: 100, body_sha256: "s", cost_us: 1_000}
+    Enum.each(1..50, fn _ -> Admission.hit(pid, descriptor) end)
 
-    state = :sys.get_state(pid)
+    state = :sys.get_state(pid)  # synchronize
     assert state.local_cms.aging_epoch >= 1
   end
 
@@ -1998,11 +2100,41 @@ This task adds:
     opts = base_opts(registry: registry, tmp_dir: tmp_dir, flush_interval_ms: 50)
     pid = start_supervised!({Admission, opts})
 
-    Admission.hit(pid, "k1")
-
-    # Wait for the flush ticker; alternative: send :flush manually.
+    Admission.hit(pid, %{key_hash: "k1", size_bytes: 100, body_sha256: "s", cost_us: 1_000})
     send(pid, :flush)
     :sys.get_state(pid)
+
+    state_file = Path.join([tmp_dir, ".cache_state", "test-node.state"])
+    assert File.exists?(state_file)
+  end
+
+  test "flush errors log + emit telemetry without crashing Admission", %{registry: registry, tmp_dir: tmp_dir} do
+    # Configure state_dir to a path that can't be written to (e.g., a
+    # file masquerading as a directory). Trigger flush; assert Admission
+    # is still alive and serving.
+    bad_state_dir = Path.join(tmp_dir, "blocker")
+    File.touch!(bad_state_dir)  # regular file, not a directory
+
+    opts = base_opts(registry: registry, tmp_dir: tmp_dir)
+            |> Keyword.put(:state_dir, bad_state_dir)
+
+    pid = start_supervised!({Admission, opts})
+
+    Admission.hit(pid, %{key_hash: "k1", size_bytes: 100, body_sha256: "s", cost_us: 1_000})
+    send(pid, :flush)
+    assert :sys.get_state(pid)  # process still alive
+  end
+
+  test "terminate/2 flushes dirty state synchronously", %{registry: registry, tmp_dir: tmp_dir} do
+    opts = base_opts(registry: registry, tmp_dir: tmp_dir)
+    pid = start_supervised!({Admission, opts})
+
+    Admission.hit(pid, %{key_hash: "k1", size_bytes: 100, body_sha256: "s", cost_us: 1_000})
+
+    # Cleanly stop the supervisor and assert the state file landed.
+    ref = Process.monitor(pid)
+    :ok = stop_supervised(Admission)
+    assert_receive {:DOWN, ^ref, :process, ^pid, _reason}
 
     state_file = Path.join([tmp_dir, ".cache_state", "test-node.state"])
     assert File.exists?(state_file)
@@ -2072,16 +2204,35 @@ This task adds:
 
   defp maybe_flush(state) do
     if state.state_dirty do
-      File.mkdir_p!(state.state_dir)
       path = Path.join(state.state_dir, "#{state.node_id}.state")
       tmp_path = path <> ".tmp.#{System.unique_integer([:positive])}"
       payload = serialize_state(state)
-      File.write!(tmp_path, payload, [:binary])
-      File.rename!(tmp_path, path)
-      %{state | state_dirty: false}
+
+      with :ok <- File.mkdir_p(state.state_dir),
+           :ok <- File.write(tmp_path, payload, [:binary]),
+           :ok <- File.rename(tmp_path, path) do
+        %{state | state_dirty: false}
+      else
+        {:error, reason} ->
+          require Logger
+          Logger.warning("cache: flush failed: path=#{inspect(path)} reason=#{inspect(reason)}")
+          # Best-effort cleanup of orphaned tmp file
+          _ = File.rm(tmp_path)
+          # Keep state_dirty: true so the next flush tick retries
+          state
+      end
     else
       state
     end
+  end
+
+  @impl true
+  def terminate(_reason, state) do
+    # Synchronous flush on shutdown to preserve any state since the
+    # last periodic flush. Errors here are logged but do not affect
+    # shutdown (we're terminating anyway).
+    _ = maybe_flush(state)
+    :ok
   end
 
   defp serialize_state(state) do
@@ -2283,33 +2434,54 @@ git commit -m "Add Admission aging trigger, flush ticker, and cleanup ticker"
 
   defp merge_peer_file(state, filename) do
     path = Path.join(state.state_dir, filename)
-    case File.read(path) do
-      {:ok, binary} ->
-        case decode_state_payload(binary, state) do
-          {:ok, payload} ->
-            {:ok, peer_sketch} = Sketch.deserialize(payload.sketch, depth: state.sketch_depth, width: state.sketch_width)
-            %{state | boot_cms: Sketch.sum(state.boot_cms, peer_sketch)}
 
-          {:error, _} ->
-            state
-        end
-
-      {:error, _} ->
+    with {:ok, binary} <- File.read(path),
+         {:ok, payload} <- decode_state_payload(binary, state),
+         {:ok, peer_sketch} <-
+           Sketch.deserialize(payload.sketch,
+             depth: state.sketch_depth,
+             width: state.sketch_width
+           ) do
+      %{state | boot_cms: Sketch.sum(state.boot_cms, peer_sketch)}
+    else
+      {:error, reason} ->
+        require Logger
+        Logger.warning("cache: peer state merge failed: path=#{inspect(path)} reason=#{inspect(reason)}")
         state
     end
   end
 
-  defp decode_state_payload(binary, state) do
+  defp decode_state_payload(binary, _state) do
     try do
       payload = :erlang.binary_to_term(binary, [:safe])
-      case payload do
-        %{format_version: 1} -> {:ok, payload}
-        _ -> {:error, :invalid_format}
-      end
+      validate_state_payload(payload)
     rescue
       ArgumentError -> {:error, :decode_failed}
     end
   end
+
+  defp validate_state_payload(%{
+         format_version: 1,
+         node_id: node_id,
+         written_at: written_at,
+         aging_epoch: aging_epoch,
+         increments_since_reset: increments_since_reset,
+         sketch: sketch,
+         protected_hashes: protected_hashes
+       } = payload)
+       when is_binary(node_id) and is_integer(written_at) and
+              is_integer(aging_epoch) and aging_epoch >= 0 and
+              is_integer(increments_since_reset) and increments_since_reset >= 0 and
+              is_binary(sketch) and is_list(protected_hashes) do
+    if Enum.all?(protected_hashes, &is_binary/1) do
+      {:ok, payload}
+    else
+      {:error, :invalid_protected_hashes}
+    end
+  end
+
+  defp validate_state_payload(%{format_version: v}), do: {:error, {:unsupported_format_version, v}}
+  defp validate_state_payload(_other), do: {:error, :invalid_shape}
 
   defp apply_own_state(state, payload) do
     {:ok, sketch} = Sketch.deserialize(payload.sketch, depth: state.sketch_depth, width: state.sketch_width)
@@ -2379,7 +2551,11 @@ git commit -m "Add Admission warm-start from own state and peer state files"
 ```elixir
   @impl true
   def handle_continue(:schedule_tickers, state) do
-    {:ok, scan_task} = Task.start(fn -> scan_directory(state) end)
+    # Capture the Admission pid BEFORE spawning the Task. Inside the
+    # task, `self()` is the task's pid — calls would go to the wrong
+    # process.
+    admission_pid = self()
+    {:ok, scan_task} = Task.start(fn -> scan_directory(state, admission_pid) end)
     state = %{state | scan_task: scan_task}
 
     Process.send_after(self(), :flush, state.flush_interval_ms)
@@ -2387,11 +2563,13 @@ git commit -m "Add Admission warm-start from own state and peer state files"
     {:noreply, state}
   end
 
-  defp scan_directory(state) do
-    parent = self()
+  defp scan_directory(state, admission_pid) do
+    # Scan the entry directory: <root>/<path_prefix>. Exclude
+    # `.cache_state` (where state files live) and any non-meta files.
+    entry_root = Path.join(state.root, state.path_prefix)
 
     descriptors =
-      walk_meta_files(state.root)
+      walk_meta_files(entry_root)
       |> Enum.map(fn meta_path ->
         case read_descriptor(meta_path) do
           {:ok, descriptor, mtime} -> {descriptor, mtime}
@@ -2400,20 +2578,45 @@ git commit -m "Add Admission warm-start from own state and peer state files"
       end)
       |> Enum.reject(&is_nil/1)
 
-    # ... batch by chunk and call into Admission to apply
     Enum.chunk_every(descriptors, 100)
     |> Enum.each(fn chunk ->
-      GenServer.call(parent, {:apply_scan_batch, chunk})
+      GenServer.call(admission_pid, {:apply_scan_batch, chunk})
     end)
 
-    GenServer.call(parent, :scan_complete)
+    GenServer.call(admission_pid, :scan_complete)
+  end
+
+  defp walk_meta_files(entry_root) do
+    # Recursively walk <entry_root>/AB/CD/ for *.meta files. Skip the
+    # `.cache_state` subdirectory at the root (a sibling, not a child,
+    # but defensively skipped in case path_prefix is empty).
+    case File.ls(entry_root) do
+      {:ok, entries} ->
+        entries
+        |> Enum.reject(&(&1 == ".cache_state"))
+        |> Enum.flat_map(fn entry ->
+          path = Path.join(entry_root, entry)
+
+          cond do
+            File.dir?(path) -> walk_meta_files(path)
+            String.ends_with?(entry, ".meta") -> [path]
+            true -> []
+          end
+        end)
+
+      {:error, _} ->
+        []
+    end
   end
 
   def handle_call({:apply_scan_batch, batch}, _from, state) do
     state =
       Enum.reduce(batch, state, fn {descriptor, mtime}, acc ->
         if already_tracked?(acc, descriptor.key_hash) do
-          acc  # runtime traffic wins; skip
+          # Runtime traffic (hit synthesis, admit) has populated this
+          # key already. Its descriptor is fresher than what scan read
+          # from disk; skip.
+          acc
         else
           insert_scan_descriptor(acc, descriptor, mtime)
         end
@@ -2429,7 +2632,9 @@ git commit -m "Add Admission warm-start from own state and peer state files"
   end
 ```
 
-(Two-pass protected restoration is deferred to a follow-up step in this task since it depends on the directory walk producing the full map first.)
+Note: `state.path_prefix` must be added to the `State` defstruct (default
+empty string) and populated from adapter opts in `init/1`. Two-pass
+protected restoration is added in the next task.
 
 - [ ] **Step 4: Run, confirm pass**
 
@@ -2461,29 +2666,145 @@ git commit -m "Add background scan with conflict-resolution insert pass"
 
 - [ ] **Step 2: Run, confirm failure**
 
-- [ ] **Step 3: Restructure scan to two-pass**
+- [ ] **Step 3: Restructure scan to two-pass + add reconciliation**
 
 ```elixir
-  defp scan_directory(state) do
-    parent = self()
-    map = build_descriptor_map(state.root)
+  defp scan_directory(state, admission_pid) do
+    entry_root = Path.join(state.root, state.path_prefix)
+    descriptor_map = build_descriptor_map(entry_root)
 
-    # Phase A: insert protected entries in persisted LRU→MRU order
+    # Phase A: insert protected entries in persisted LRU→MRU order.
     protected_hashes = state.persisted_protected_hashes
-    GenServer.call(parent, {:apply_protected_batch, protected_hashes, map})
+    GenServer.call(admission_pid, {:apply_protected_batch, protected_hashes, descriptor_map})
 
-    # Phase B: insert remaining entries in mtime order
-    remaining = Map.drop(map, protected_hashes)
-    sorted = Enum.sort_by(Map.values(remaining), & &1.mtime)
+    # Phase B: insert remaining entries (those not in protected_hashes)
+    # in mtime order. Batches of 100 to bound per-call latency.
+    protected_set = MapSet.new(protected_hashes)
 
-    Enum.chunk_every(sorted, 100)
-    |> Enum.each(&GenServer.call(parent, {:apply_scan_batch, &1}))
+    remaining =
+      descriptor_map
+      |> Enum.reject(fn {hash, _entry} -> MapSet.member?(protected_set, hash) end)
+      |> Enum.map(fn {_hash, entry} -> entry end)
+      |> Enum.sort_by(fn %{mtime: mtime} -> mtime end)
 
-    GenServer.call(parent, :scan_complete)
+    Enum.chunk_every(remaining, 100)
+    |> Enum.each(&GenServer.call(admission_pid, {:apply_scan_batch, &1}))
+
+    # Phase C: post-scan reconciliation. If total bytes ended up over
+    # cap (operator lowered cap, previous run wrote past soft cap),
+    # evict by LRU until under budget. No score gate — these are
+    # already-cached entries with no candidate to compare against.
+    GenServer.call(admission_pid, :reconcile_to_cap)
+
+    GenServer.call(admission_pid, :scan_complete)
+  end
+
+  defp build_descriptor_map(entry_root) do
+    walk_meta_files(entry_root)
+    |> Enum.flat_map(fn meta_path ->
+      case read_descriptor(meta_path) do
+        {:ok, descriptor, mtime} ->
+          [{descriptor.key_hash, Map.put(descriptor, :mtime, mtime)}]
+
+        {:error, _} ->
+          []
+      end
+    end)
+    |> Map.new()
+  end
+
+  def handle_call({:apply_protected_batch, hashes, descriptor_map}, _from, state) do
+    state =
+      Enum.reduce(hashes, state, fn hash, acc ->
+        case Map.fetch(descriptor_map, hash) do
+          {:ok, descriptor} ->
+            if already_tracked?(acc, hash) do
+              acc
+            else
+              {pos, acc} = next_position(acc)
+              :ets.insert(acc.protected, {{pos, hash}, descriptor})
+              Map.update!(acc, :protected_bytes, &(&1 + descriptor.size_bytes))
+            end
+
+          :error ->
+            # Persisted protected hash whose meta no longer exists on
+            # disk. Skip silently — same-key delete or external sweep.
+            acc
+        end
+      end)
+
+    {:reply, :ok, state}
+  end
+
+  def handle_call(:reconcile_to_cap, _from, state) do
+    {:reply, :ok, reconcile_to_cap(state, [])}
+  end
+
+  defp reconcile_to_cap(state, evicted_descriptors) do
+    total = state.window_bytes + state.probationary_bytes + state.protected_bytes
+
+    cond do
+      total <= state.max_size_bytes ->
+        # Notify adapter to delete files for any evicted descriptors.
+        # Emitted via a one-shot telemetry event or a callback the
+        # adapter registered at startup — to be wired up alongside
+        # adapter integration (Task 22+).
+        emit_reconciliation_evictions(state, evicted_descriptors)
+        state
+
+      true ->
+        # Evict LRU from probationary first, then protected.
+        {evicted, state} = evict_one_lru(state)
+
+        case evicted do
+          nil ->
+            # No more entries to evict but still over cap. Bug or empty
+            # cache with impossibly low max_size_bytes; log and stop.
+            require Logger
+            Logger.warning("cache: reconciliation cannot bring usage under cap")
+            emit_reconciliation_evictions(state, evicted_descriptors)
+            state
+
+          descriptor ->
+            reconcile_to_cap(state, [descriptor | evicted_descriptors])
+        end
+    end
+  end
+
+  defp evict_one_lru(state) do
+    cond do
+      :ets.info(state.probationary, :size) > 0 ->
+        evict_lru_from(state, :probationary)
+
+      :ets.info(state.protected, :size) > 0 ->
+        evict_lru_from(state, :protected)
+
+      true ->
+        {nil, state}
+    end
+  end
+
+  defp evict_lru_from(state, queue) do
+    table = Map.fetch!(state, queue)
+    bytes_field = :"#{queue}_bytes"
+    {pos, hash} = :ets.first(table)
+    [{_key, descriptor}] = :ets.lookup(table, {pos, hash})
+    :ets.delete(table, {pos, hash})
+    state = Map.update!(state, bytes_field, &(&1 - descriptor.size_bytes))
+    {descriptor, state}
+  end
+
+  defp emit_reconciliation_evictions(_state, []), do: :ok
+  defp emit_reconciliation_evictions(_state, descriptors) do
+    # The adapter receives these via a `{:reconcile_evict, descriptors}`
+    # message after scan completes; it then runs the standard victim
+    # delete loop. See Task 22 child_spec for wiring.
+    :ok
   end
 ```
 
-Keep the persisted protected hashes in state during init (from `load_own_state`).
+Persisted protected hashes are loaded in `init/1` (Task 19's
+`apply_own_state` already populates `state.persisted_protected_hashes`).
 
 - [ ] **Step 4: Run, confirm pass**
 
@@ -2491,7 +2812,7 @@ Keep the persisted protected hashes in state during init (from `load_own_state`)
 
 ```bash
 git add lib/image_pipe/cache/file_system/admission.ex test/image_pipe/cache/file_system/admission_test.exs
-git commit -m "Restore protected segment LRU-to-MRU order on warm-start"
+git commit -m "Restore protected segment in order + reconcile over-cap state on boot"
 ```
 
 ---
@@ -2553,6 +2874,84 @@ git commit -m "Add FileSystem.child_spec/1 returning Admission supervisor in bou
 
 ---
 
+### Task 22b: Add `paths_from_hash/2` helper
+
+The existing `paths/2` takes a full `%ImagePipe.Cache.Key{}`, but the
+bounded-mode victim deletion only knows the key hash. Constructing a
+fake `%Key{}` to call `paths/2` is awkward and conflates two things;
+extract a small helper.
+
+**Files:**
+- Modify: `lib/image_pipe/cache/file_system.ex`
+- Modify: `test/image_pipe/cache/file_system_test.exs`
+
+- [ ] **Step 1: Write failing test**
+
+```elixir
+  test "paths_from_hash/2 returns the same shape as paths/2 for a given hash", %{tmp_dir: tmp_dir} do
+    hash = String.duplicate("a", 64)
+    opts = [root: tmp_dir, path_prefix: ""]
+
+    {:ok, from_key} = FileSystem.paths(%ImagePipe.Cache.Key{hash: hash, data: [], serialized_data: <<>>}, opts)
+    {:ok, from_hash} = FileSystem.paths_from_hash(hash, opts)
+
+    assert from_hash.dir == from_key.dir
+    assert from_hash.meta_path == from_key.meta_path
+    assert from_hash.hash == from_key.hash
+  end
+
+  test "paths_from_hash/2 validates hash format" do
+    assert {:error, {:invalid_hash, _}} = FileSystem.paths_from_hash("not-a-hash", [root: "/tmp"])
+  end
+
+  test "paths_from_hash/2 derives partition dir from the GIVEN hash, not any candidate" do
+    # Two different hashes should land in different partitions.
+    hash_a = String.duplicate("a", 64)
+    hash_b = String.duplicate("b", 64)
+    opts = [root: "/tmp", path_prefix: ""]
+
+    {:ok, paths_a} = FileSystem.paths_from_hash(hash_a, opts)
+    {:ok, paths_b} = FileSystem.paths_from_hash(hash_b, opts)
+
+    refute paths_a.dir == paths_b.dir
+  end
+```
+
+- [ ] **Step 2: Run, confirm failure**
+
+- [ ] **Step 3: Refactor `paths/2` to delegate to `paths_from_hash/2`**
+
+```elixir
+  @doc false
+  def paths(%Key{hash: hash}, opts), do: paths_from_hash(hash, opts)
+
+  @doc false
+  def paths_from_hash(hash, opts) when is_binary(hash) and is_list(opts) do
+    with {:ok, opts} <- validate_filesystem_options(opts),
+         root = Keyword.fetch!(opts, :root),
+         path_prefix = Keyword.fetch!(opts, :path_prefix),
+         {:ok, {first_partition, second_partition}} <- partitions(hash) do
+      dir = Path.join([root, path_prefix, first_partition, second_partition])
+      meta_path = Path.join(dir, hash <> ".meta")
+
+      with :ok <- validate_under_root(root, dir) do
+        {:ok, %{root: root, dir: dir, meta_path: meta_path, hash: hash}}
+      end
+    end
+  end
+```
+
+- [ ] **Step 4: Run, confirm pass**
+
+- [ ] **Step 5: Commit**
+
+```bash
+git add lib/image_pipe/cache/file_system.ex test/image_pipe/cache/file_system_test.exs
+git commit -m "Extract paths_from_hash/2 helper for victim path computation"
+```
+
+---
+
 ### Task 23: FileSystem `commit_sink` — admit/1 integration
 
 **Files:**
@@ -2567,22 +2966,29 @@ A full end-to-end test: configure adapter with `:max_size_bytes`, start supervis
 
 - [ ] **Step 3: Implement bounded-mode commit_sink**
 
-In `commit_sink/2` add the admission call before rename. Pseudocode:
+In `commit_sink/2` add the admission call before rename:
 
 ```elixir
   def commit_sink(state, opts) do
     case admit_if_bounded(state, opts) do
       :unbounded ->
-        # Existing logic
         legacy_commit(state)
 
       {:admit, victims} ->
         with :ok <- legacy_commit(state) do
-          delete_victims(state, victims, opts)
+          delete_victims(victims, opts)
           :ok
         end
 
       {:reject, _reason} ->
+        cleanup_sink_state(state)
+        :ok
+
+      :admission_unavailable ->
+        # Bounded mode but Admission process is missing. We cannot
+        # enforce the bounded contract, so we MUST NOT write an
+        # untracked entry. Clean tmp files and return :ok (cache-
+        # disabled for this request).
         cleanup_sink_state(state)
         :ok
     end
@@ -2599,9 +3005,8 @@ In `commit_sink/2` add the admission call before rename. Pseudocode:
 
       :unavailable ->
         require Logger
-        Logger.warning("Admission process unavailable; treating as cache-disabled")
-        # Treat as unbounded for this commit — write and don't track
-        :unbounded
+        Logger.warning("Admission process unavailable in bounded mode; skipping write")
+        :admission_unavailable
     end
   end
 
@@ -2617,21 +3022,46 @@ In `commit_sink/2` add the admission call before rename. Pseudocode:
     end
   end
 
-  defp delete_victims(_state, [], _opts), do: :ok
+  defp delete_victims([], _opts), do: :ok
 
-  defp delete_victims(state, victims, opts) do
+  defp delete_victims(victims, opts) do
     Enum.each(victims, fn victim ->
-      with {:ok, paths} <- paths(%Key{hash: victim.key_hash, data: [], serialized_data: <<>>}, opts) do
-        body_filename = "#{victim.key_hash}.#{victim.body_sha256}.body"
-        body_path = Path.join(paths.dir, body_filename)
-        File.rm(body_path)
-        File.rm(paths.meta_path)
+      with {:ok, victim_paths} <- paths_from_hash(victim.key_hash, opts) do
+        if victim.delete_body? do
+          body_path =
+            Path.join(victim_paths.dir, "#{victim.key_hash}.#{victim.body_sha256}.body")
+          rm_tolerant(body_path)
+        end
+
+        if victim.delete_meta? do
+          rm_tolerant(victim_paths.meta_path)
+        end
       end
     end)
   end
+
+  defp rm_tolerant(path) do
+    case File.rm(path) do
+      :ok -> :ok
+      {:error, :enoent} -> :ok
+      {:error, reason} ->
+        require Logger
+        Logger.warning("cache: victim delete failed: path=#{inspect(path)} reason=#{inspect(reason)}")
+        :ok
+    end
+  end
 ```
 
-(`build_descriptor/1` extracts `key_hash`, `size_bytes`, `body_sha256`, `cost_us` from the sink state.)
+This task also depends on the new `paths_from_hash/2` helper (added in
+Task 22b). `build_descriptor/1` extracts `key_hash`, `size_bytes`,
+`body_sha256`, `cost_us` from the sink state.
+
+**Note on `:admission_unavailable`:** This is the fail-CLOSED case per
+spec — we never write entries the Admission process can't account for,
+because doing so silently grows the bounded cache past cap. The lazy
+lookup itself remains fail-open (no boot crash on missing process); the
+*commit* fails closed when bounded mode is configured but Admission
+isn't running.
 
 - [ ] **Step 4: Run, confirm pass**
 
@@ -2653,36 +3083,52 @@ git commit -m "Integrate Admission into FileSystem.commit_sink for bounded mode"
 - [ ] **Step 1: Write failing test**
 
 ```elixir
-  test "get/2 casts hit to Admission on successful hit (bounded mode)", %{tmp_dir: tmp_dir} do
-    # Setup bounded mode, place an entry, perform a get/2, verify Admission's state shows hit
+  test "get/2 casts a hit descriptor to Admission on successful hit (bounded mode)", %{tmp_dir: tmp_dir} do
+    # Setup bounded mode with a small cache, place an entry via commit_sink,
+    # perform a get/2, then verify Admission's state shows the entry tracked
+    # (synthesized into probationary via the hit-with-descriptor cast).
+    # The descriptor must include size_bytes, body_sha256, and cost_us so
+    # cold-boot hit synthesis works.
   end
 ```
 
 - [ ] **Step 2: Run, confirm failure**
 
-- [ ] **Step 3: Implement hit cast**
+- [ ] **Step 3: Implement hit cast with descriptor**
 
-In `get/2`, after a successful hit:
+In `get/2`, after a successful hit, build a descriptor from the meta
+data already read and cast it to Admission:
 
 ```elixir
   def get(key, opts) do
     case do_get(key, opts) do
-      {:hit, entry} = result ->
-        maybe_cast_hit(opts, key.hash)
-        result
+      {:hit, entry, meta} ->
+        # do_get must surface the meta payload (it already reads the
+        # file); extract the fields needed for the hit descriptor.
+        maybe_cast_hit(opts, %{
+          key_hash: key.hash,
+          size_bytes: meta.body_byte_size,
+          body_sha256: meta.body_sha256,
+          cost_us: Map.get(meta, :cost_us, 0)
+        })
+        {:hit, entry}
 
       other ->
         other
     end
   end
 
-  defp maybe_cast_hit(opts, key_hash) do
+  defp maybe_cast_hit(opts, descriptor) do
     case lookup_admission(opts) do
-      {:ok, pid} -> ImagePipe.Cache.FileSystem.Admission.hit(pid, key_hash)
+      {:ok, pid} -> ImagePipe.Cache.FileSystem.Admission.hit(pid, descriptor)
       _ -> :ok
     end
   end
 ```
+
+This requires `do_get/2` to surface the parsed meta map alongside the
+entry. Update its return to `{:hit, entry, meta}` (internal-only
+change; public `get/2` still returns `{:hit, entry}`).
 
 - [ ] **Step 4: Run, confirm pass**
 
@@ -2732,6 +3178,29 @@ git commit -m "Cast hit to Admission on FileSystem.get/2 success in bounded mode
     assert opts[:sketch_width] == 400_000
     assert opts[:doorkeeper_cardinality] == 800_000
     assert opts[:doorkeeper_fpr] == 0.01
+    assert opts[:eviction_victim_limit] == 64
+  end
+
+  test "accepts custom :eviction_victim_limit" do
+    {:ok, opts} =
+      FileSystem.validate_options([
+        root: "/tmp",
+        max_size_bytes: 100_000_000,
+        node_id: "n1",
+        eviction_victim_limit: 32
+      ])
+
+    assert opts[:eviction_victim_limit] == 32
+  end
+
+  test "rejects non-positive :eviction_victim_limit" do
+    assert {:error, _} =
+             FileSystem.validate_options([
+               root: "/tmp",
+               max_size_bytes: 100_000_000,
+               node_id: "n1",
+               eviction_victim_limit: 0
+             ])
   end
 ```
 
@@ -2739,7 +3208,23 @@ git commit -m "Cast hit to Admission on FileSystem.get/2 success in bounded mode
 
 - [ ] **Step 3: Extend `validate_options/1` with NimbleOptions schema**
 
-Add new bounded option keys to `@option_keys` and a new schema entry. Implement derived defaults and cross-validation as a post-check function (NimbleOptions doesn't natively support cross-key validation, so do it after the per-key validation).
+Add new bounded option keys to `@option_keys` and a new schema entry.
+Bounded options to support:
+
+- `:max_size_bytes` (required positive integer)
+- `:node_id` (required binary)
+- `:window_ratio` (default 0.01, float in [0, 1])
+- `:sketch_depth` (default 4, positive integer)
+- `:sketch_width` (default `max(4096, max_size_bytes ÷ 25_000)`, positive integer)
+- `:doorkeeper_cardinality` (default `max(8192, max_size_bytes ÷ 12_500)`, positive integer)
+- `:doorkeeper_fpr` (default 0.01, float in (0, 1))
+- `:flush_interval` (default 30, positive integer, seconds)
+- `:cleanup_interval` (default 3600, positive integer, seconds)
+- `:state_ttl` (default 604_800, positive integer, seconds)
+- `:state_dir` (default `<root>/.cache_state`, binary)
+- `:eviction_victim_limit` (default 64, positive integer)
+
+Implement derived defaults and cross-validation as a post-check function (NimbleOptions doesn't natively support cross-key validation, so do it after the per-key validation).
 
 - [ ] **Step 4: Run, confirm pass**
 
@@ -2923,22 +3408,44 @@ git commit -m "Add soft-cap invariant property test"
 **Files:**
 - Modify: `test/image_pipe/architecture_boundary_test.exs`
 
-- [ ] **Step 1: Add assertions**
+**Why not a module-existence test:** Do not assert the new modules exist (`Code.ensure_loaded/1`, `function_exported?/3`, or matching `Atom.to_string(module)` against a `ImagePipe.Cache.FileSystem.*` regex). The project guidelines explicitly reject name- and existence-policing tests, and such an assertion is circular — it only re-states the module list the test itself hardcodes. The real contract worth enforcing is the *dependency direction*: bounded-mode code lives inside the `ImagePipe.Cache` boundary, so it must never reach up into `Request`, `Source`, `Response`, or `Parser`. Enforce that with the same source-scanning approach the rest of this file already uses (`imgproxy_parser_references`, `response delivery stays unaware ...`).
+
+Two layers already cover most of this for free:
+- The existing **"cache boundary declaration avoids post-fetch transform state dependencies"** test (`assert_boundary_deps(cache, [...])`) uses exact equality, so any new cross-boundary `deps:` entry in `lib/image_pipe/cache.ex` fails it automatically. No change needed there.
+- `Boundary` itself rejects undeclared cross-boundary calls at compile time.
+
+The new test adds a focused source-scan over the bounded-mode files specifically, so an accidental `ImagePipe.Request.*` / `ImagePipe.Source.*` / `ImagePipe.Response.*` / `ImagePipe.Parser.*` reference fails loudly with a file:line even if `Boundary` config drifts.
+
+- [ ] **Step 1: Add a boundary source-scan for bounded-mode cache files**
 
 ```elixir
-  test "all new bounded-mode modules live under ImagePipe.Cache.FileSystem.*" do
-    expected_modules = [
-      ImagePipe.Cache.FileSystem.Sketch,
-      ImagePipe.Cache.FileSystem.Policy,
-      ImagePipe.Cache.FileSystem.Admission
+  test "bounded-mode FileSystem cache code stays within the cache boundary" do
+    forbidden_terms = [
+      "ImagePipe.Request",
+      "ImagePipe.Source",
+      "ImagePipe.Response",
+      "ImagePipe.Parser"
     ]
 
-    Enum.each(expected_modules, fn module ->
-      {:ok, _} = Code.ensure_loaded(module)
-      assert Atom.to_string(module) =~ ~r/^Elixir\.ImagePipe\.Cache\.FileSystem\./
-    end)
+    cache_filesystem_sources =
+      "lib/image_pipe/cache/file_system/**/*.ex"
+      |> Path.wildcard()
+      |> Map.new(fn file -> {file, File.read!(file)} end)
+
+    violations =
+      for {file, source} <- cache_filesystem_sources,
+          {line, number} <- source |> String.split("\n") |> Enum.with_index(1),
+          term <- forbidden_terms,
+          String.contains?(line, term) do
+        "#{file}:#{number} must not depend on #{term}; " <>
+          "bounded-mode cache code stays within the ImagePipe.Cache boundary"
+      end
+
+    assert violations == []
   end
 ```
+
+The wildcard `lib/image_pipe/cache/file_system/**/*.ex` matches the new submodule files (`sketch.ex`, `policy.ex`, `admission.ex`) without sweeping in `lib/image_pipe/cache/file_system.ex`, which is already exercised by the cache-boundary declaration test. `Cache` is allowed to depend on `Plan`, `Output`, and transform material, so those namespaces are deliberately absent from `forbidden_terms`.
 
 - [ ] **Step 2: Run, confirm pass**
 - [ ] **Step 3: Commit**

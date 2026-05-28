@@ -263,13 +263,30 @@ where `freq × cost < size_bytes` (an 8 MB hero with cost=50 ms and freq=3
 gives 0.0178…), destroying cost-awareness for exactly the entries the
 design exists to protect.
 
-`cost_us` is the sum of source-fetch, transform-execute, and encode
-wall-clock durations from the miss that produced the entry. These stage
-durations are all available before `commit_sink` runs; the request-level
-`[..., :request, :stop]` span hasn't fired yet at commit time, so the
-sum-of-stages is what we have. It captures the work the cache actually
-avoids on a hit — send time, which the cache also avoids, is small enough
-relative to fetch+transform+encode to ignore as a scoring signal.
+`cost_us` is the wall-clock time from source-fetch start to the
+moment the cache sink commits — measured manually in `SourceSession`
+state via `System.monotonic_time/1` checkpoints. The cache sink opens
+after the first encoded chunk is produced (per the existing source
+session flow), so by commit time we have:
+
+- fetch duration (complete)
+- transform duration (complete)
+- encode duration up to first chunk (most of encode for image
+  formats, which produce the encoded binary in memory then stream it
+  out)
+
+Send time and any post-first-chunk encode tail are excluded — they're
+small relative to fetch+transform+encode for typical image
+workloads, and the alternative (deferring `cost_us` capture to after
+the response finishes) would require buffering the sink commit
+through the request lifecycle, which is structurally awkward.
+
+The telemetry stage spans (`[:source, :fetch, ...]`, `[:transform,
+:execute, ...]`, `[:encode, ...]`) are NOT the data source here —
+their `:stop` events don't all fire before commit, and there is no
+existing context plumbing to thread completed durations into
+`Sink.open/5`. The manual measurement in `SourceSession` is the
+implementation contract.
 
 When `cost_us` is 0 (e.g., `put_entry` calls without stage durations),
 `effective_cost` falls back to `size_bytes` so the score collapses to
@@ -300,12 +317,15 @@ gate** (run for any entry that flows from window into main).
      > :max_size_bytes`, reject the replacement and keep the old entry
      intact. The old entry remains valid; the adapter cleans the
      candidate's tmp files. Return `{:reject, :over_cap}`.
-   - **Body victim only when content differs:** return the *old*
-     descriptor as a victim **only if** `old.body_sha256 !=
-     new.body_sha256`. For content-identical rewrites (same
-     `body_sha256`), the new body file is the same path as the old —
-     deleting the "old" body would delete the just-rewritten body.
-     Skip body deletion; the meta file replacement is sufficient.
+   - **Body-only victim when content differs:** return the *old*
+     descriptor as a victim with `delete_body?: true, delete_meta?:
+     false` **only if** `old.body_sha256 != new.body_sha256`. The meta
+     path `<hash>.meta` is identical for the old and new entries (the
+     candidate's rename overwrites it); deleting it would destroy the
+     just-written entry. For content-identical rewrites (same
+     `body_sha256`), the new body file is the same path as the old, so
+     no body deletion is needed either — emit no victim at all for the
+     same-key case.
    - **Soft-cap exceedance allowed:** if the new descriptor's size
      pushes its queue over budget, do not evict the just-replaced
      entry to compensate (K is never its own victim). Allow the soft
@@ -356,27 +376,53 @@ pathology.
 **Return contract:**
 
 - `{:admit, victims}` — candidate is admitted (adapter should rename
-  tmp files into place). `victims` is a list of descriptors
-  `[%{key_hash, body_sha256, ...}]` whose body+meta files the adapter
-  must delete. The list may contain:
-  - probationary victims displaced to make room for the candidate (or
-    for a window evictee that won main),
-  - window evictees that lost their main-gate run (those entries had
-    been cached previously and now must be removed from disk),
-  - the prior descriptor when this is a same-key re-commit (step 3),
-    **only when `old.body_sha256 != new.body_sha256`** — content-
-    identical rewrites skip the body deletion.
-- `{:reject, reason}` — candidate is rejected (oversized step 2 only,
-  when main gate rejects). Adapter cleans tmp files. `reason` is one of
-  `:over_cap`, `:score_too_low`, or `:no_evictable_victims`.
+  tmp files into place). `victims` is a list of victim descriptors of
+  shape:
+
+  ```elixir
+  %{
+    key_hash: binary,
+    body_sha256: binary,
+    size_bytes: non_neg_integer,
+    delete_body?: boolean,
+    delete_meta?: boolean
+  }
+  ```
+
+  Each flag tells the adapter what files to remove. Three kinds appear:
+  - **Probationary or protected victims displaced to make room** —
+    `delete_body?: true, delete_meta?: true`. Full eviction.
+  - **Window evictees that lost their main-gate run** —
+    `delete_body?: true, delete_meta?: true`. Same as above; the entry
+    had been cached on disk previously.
+  - **Same-key re-commit prior body** — `delete_body?: true,
+    delete_meta?: false`. The meta path is identical to the candidate's
+    (both `<hash>.meta`), so the candidate's freshly-renamed meta must
+    NOT be deleted. Emitted only when `old.body_sha256 !=
+    new.body_sha256`; content-identical rewrites emit no victim at all.
+
+- `{:reject, reason}` — candidate is rejected (oversized-direct-to-main
+  path, hard-cap path, or victim-limit-exceeded). Adapter cleans tmp
+  files. `reason` is one of `:over_cap`, `:score_too_low`,
+  `:no_evictable_victims`, or `:victim_limit_exceeded`.
 
 In normal-path admission (window step 4), the candidate is always
 admitted — only a window evictee can lose the main gate, never the fresh
 candidate. So `{:reject, ...}` is reserved for the oversized-direct-to-
-main path and the hard-cap path.
+main path, the hard-cap path, and the victim-limit-exceeded path.
 
 Rejection emits a `cache: :admission_rejected` stage telemetry event
 with the `reason:` atom. Same fail-open shape as `:max_body_bytes` today.
+
+### Eviction victim limit
+
+To bound eviction work per admission and prevent a single large
+candidate from displacing hundreds of small victims while `Admission`
+serializes other commits, a `:eviction_victim_limit` config (default
+64) caps the victim list size. If freeing enough bytes for the
+candidate would require more victims than the limit, the candidate is
+rejected with `:victim_limit_exceeded`. The candidate's tmp files are
+cleaned; existing entries are unaffected.
 
 ### Hit promotion
 
@@ -570,16 +616,26 @@ Window starts empty regardless.
    `cache: :admission_rejected` stage event with `reason:`, returns `:ok`
    to the sink (fail-open).
 6. If `{:admit, victims}` → adapter performs the body+meta renames, then
-   for each victim descriptor `%{key_hash, body_sha256, ...}`:
-   - Computes the body path as `<paths.dir>/<key_hash>.<body_sha256>.body`
-     and `File.rm/1`s it.
-   - Computes the meta path via the existing `paths/2` helper and
-     `File.rm/1`s it.
-   Both deletes are ENOENT-tolerant. Errors other than `:enoent` are
+   for each victim descriptor:
+   - Compute the victim's paths via `FileSystem.paths_from_hash/2`
+     (new helper that takes a hash + adapter opts and returns the same
+     `%{dir, meta_path, hash, ...}` shape as `paths/2`, but without
+     requiring a `%Key{}`). Partition dirs are derived from the
+     victim's own hash, never the candidate's.
+   - If `victim.delete_body?`, `File.rm` the body at
+     `<victim_paths.dir>/<victim.key_hash>.<victim.body_sha256>.body`.
+   - If `victim.delete_meta?`, `File.rm` the meta at
+     `victim_paths.meta_path`.
+   All deletes are ENOENT-tolerant. Errors other than `:enoent` are
    logged at warning. `Admission`'s in-memory accounting already
    considers those bytes freed, so any orphan body bytes are accepted as
    a known V1 limitation (see Deferred Behaviors and the Soft cap and
    reconciliation subsection).
+
+   For same-key re-commit victims (`delete_body?: true, delete_meta?:
+   false`), only the stale body is removed — the meta path is the same
+   path the adapter just renamed the candidate's meta into, so deleting
+   it would destroy the new entry.
 
 In the normal window-first path the candidate is always admitted (its
 files always rename into place); victims are old entries already on disk
@@ -590,24 +646,43 @@ run, or when it exceeded the hard cap.
 ### Boot / warm-start flow
 
 1. `Admission.init/1` reads `<state_dir>/<node_id>.state` (own file) if
-   present; restores `local_cms`, doorkeeper, aging epoch, and protected
-   segment.
+   present; restores `local_cms`, aging epoch, and the persisted
+   `protected_hashes` list. The doorkeeper is intentionally NOT
+   restored — see file-format section for rationale.
 2. Reads all other `<state_dir>/*.state` files with `now - mtime <
    :state_ttl`. Decodes each. Element-wise sums them into `boot_cms`
    (read-only, never republished). Files past TTL are skipped. Decode
    failures are logged and skipped.
-3. Concurrently, a background `Task` runs the **two-pass scan** described
-   in the `<node_id>.state` file format section: first pass walks the
-   directory and builds a `key_hash → descriptor` map; second pass
-   sends the descriptor batches to `Admission` via `call` for the
-   insert pass. The scan task never writes to `Admission`'s ETS tables
-   directly — `Admission` owns its tables and applies the batches in
-   the main process, keeping ownership rules clean. Window starts empty.
-   For large caches this scan can take seconds; the adapter remains
-   responsive throughout (see step 4).
+3. Concurrently, a background `Task` walks the entry directory
+   (`<root>/<path_prefix>`, excluding the `.cache_state` subdirectory)
+   and runs the **two-pass scan** described in the file-format
+   section: first pass walks the directory and builds a `key_hash →
+   descriptor` map; second pass sends descriptor batches to
+   `Admission` via `call` for the insert pass. The scan task never
+   writes to `Admission`'s ETS tables directly — `Admission` owns its
+   tables and applies batches in the main process, keeping ownership
+   rules clean. The scan captures `Admission`'s pid before spawning
+   the task and passes it explicitly (avoids a `self()`-from-task
+   bug). Window starts empty. For large caches this scan can take
+   seconds; the adapter remains responsive throughout (see step 4).
 4. While the scan is in flight, the adapter still serves reads and
-   writes. Hits on un-scanned entries synthesize a probationary entry
-   on the fly. Writes during scan may briefly over-admit; tolerated.
+   writes. Hits on un-scanned entries pass a full descriptor with the
+   hit cast (the adapter's `get/2` has just read the meta and has
+   `size_bytes`, `body_sha256`, `cost_us` available) so `Admission`
+   can synthesize a probationary entry on the fly. Writes during scan
+   may briefly over-admit; tolerated.
+5. **Post-scan reconciliation.** After the scan completes, if
+   `total_tracked_bytes > :max_size_bytes` (e.g., operator lowered
+   the cap, or the previous run wrote past the soft cap),
+   `Admission` runs a reconciliation eviction pass: evict by LRU
+   (probationary first, then protected) without the admission score
+   gate — these are already-cached entries with no candidate to
+   compare against — until `total_tracked_bytes ≤ :max_size_bytes`.
+   Each eviction produces a full victim (`delete_body?: true,
+   delete_meta?: true`) sent back to the adapter to remove from disk.
+   The reconciliation pass respects `:eviction_victim_limit` per
+   batch; if more victims are needed it runs multiple batches until
+   under cap.
 
 **Scan conflict resolution.** Runtime traffic during the scan can
 populate queue state via hits (synthesized probationary entries) and
@@ -647,6 +722,19 @@ a merged matrix in sync and would behave differently under collisions.
   List `<state_dir>/*.state`, `File.rm/1` files with mtime older than
   `:state_ttl` (default 604_800 = 7 days). Skip own file. ENOENT-tolerant.
 - Aging fires on increment count, not on a timer; no scheduled event.
+- On `terminate/2`, synchronously flush the state file (if dirty) to
+  preserve any state since the last periodic flush. The supervisor's
+  shutdown timeout gives `terminate/2` enough room to finish the
+  write; if it exceeds that timeout the process is killed and the
+  state-since-last-flush window is lost — that's a degraded but
+  tolerated failure mode.
+
+All periodic file operations (flush, cleanup, post-scan reconciliation)
+use **non-bang `File.*` functions** (`File.write/3`, `File.rename/2`,
+`File.mkdir_p/1`). Errors are logged at warning and emitted via
+telemetry; they never crash `Admission`. This preserves fail-open
+semantics — a transient disk error doesn't take the cache down, it
+just defers persistence.
 
 ## Configuration
 
@@ -690,6 +778,7 @@ behavior.
 | `:cleanup_interval` | `3600` | Seconds. Peer state file cleanup cadence |
 | `:state_ttl` | `604_800` | Seconds (7 days). Peer files older than this are ignored at warm-start and deleted by cleanup |
 | `:state_dir` | `<root>/.cache_state` | Where state files live |
+| `:eviction_victim_limit` | `64` | Max victims selected per admission. Candidates whose admission would require more victims than this are rejected with `:victim_limit_exceeded`. Bounds eviction work per commit. |
 
 Existing options (`:root`, `:path_prefix`, `:max_body_bytes`,
 `:key_headers`, `:key_cookies`) unchanged.
@@ -738,9 +827,18 @@ supervision tree.
 1. **Admission process not running when bounded config is set.** Adapter
    does a lazy `Registry.lookup/2` at request time. Absent process →
    logs a warning and treats the operation as cache-disabled for that
-   request (`get/2` returns `:miss`; `commit_sink` skips admission and
-   doesn't write). Fail open. Tolerates supervision-tree ordering issues
-   that would otherwise crash boot.
+   request:
+   - `get/2` returns `:miss` (no hit cast, no read).
+   - `commit_sink` cleans the tmp body+meta files and returns `:ok`
+     without writing them into place. **The entry must not be
+     persisted** — writing it would create an untracked entry that
+     `Admission` cannot account for, silently growing the bounded
+     cache past cap. This is the fail-closed half of the otherwise
+     fail-open contract: when we can't enforce bounded semantics, we
+     don't write.
+
+   Tolerates supervision-tree ordering issues that would otherwise
+   crash boot.
 
 2. **Admission process crash mid-request.** OTP supervisor restarts it;
    `init/1` re-reads warm-start files. In-flight `commit_sink` calls hit
@@ -797,13 +895,18 @@ whose timing is uninteresting to operators.
   round-trip.
 - `Policy` — `admit?/3` decisions across score combinations; victim
   selection over varied queue states; edge cases (empty queues,
-  single-entry, candidate larger than cap).
-- `Doorkeeper` — add/contains, false-positive rate under target across
-  random key streams, reset clears state.
+  single-entry, candidate larger than cap, victim-limit exceeded).
+- Talan doorkeeper usage smoke test — `put`, `member?`, reset via
+  discard-and-allocate, verifying the API contract we depend on.
 
 ### Property tests (StreamData)
 
-- CMS `estimate(k) >= true_count(k)` — never underestimates.
+- CMS `estimate(k) >= true_count(k)` for the **un-aged, un-saturated**
+  regime: with at most `2^8 - 1 = 255` increments per counter and no
+  aging step in the sequence, the sketch never undercounts. Once
+  saturation or aging occurs, the upper-bound guarantee weakens to
+  "preserves rough ordering for well-separated counts" — that's the
+  weaker property to assert across the aged/saturated regime.
 - Aging preserves relative ordering for high-frequency keys.
 - Soft-cap invariant: after any admission sequence, total
   `Admission`-tracked bytes never exceed cap by more than the *sum* of
@@ -921,11 +1024,12 @@ Single plan covering the whole design. Estimated 750–1000 LOC including
 tests.
 
 1. `Sketch` pure module + serialization round-trip + property tests.
-2. `Doorkeeper` pure module + reset behavior tests.
+2. Add `talan` dependency for doorkeeper Bloom filter + usage smoke
+   test.
 3. `Policy` pure module + admission and victim-selection tests.
-4. `Entry.Metadata` `cost_us` field; thread the running sum of
-   source-fetch, transform-execute, and encode stage durations into the
-   sink so it's available when `commit_sink` runs.
+4. `Entry.Metadata` `cost_us` field. Capture `cost_us` in
+   `SourceSession` via `System.monotonic_time/1` checkpoints (fetch
+   start, commit time); thread into `Sink.open/5` at commit time.
 5. `Admission` GenServer:
    - Boot warm-start: read own + peer state files, build `local_cms`
      and `boot_cms`.
