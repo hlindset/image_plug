@@ -664,6 +664,28 @@ describe("processing path generation", () => {
     expect(buildProcessingPath(state)).toBe("/_/g:ce/q:85/plain/local:///images/dog.jpg");
   });
 
+  it("emits car with enlarge", () => {
+    const state = {
+      ...defaultDemoState,
+      cropEnabled: true,
+      cropAspectRatioEnabled: true,
+      cropAspectRatio: 1,
+      cropAspectRatioEnlarge: true,
+    };
+    expect(optionSegments(state)).toContain("car:1:1");
+  });
+
+  it("emits car without enlarge", () => {
+    const state = {
+      ...defaultDemoState,
+      cropEnabled: true,
+      cropAspectRatioEnabled: true,
+      cropAspectRatio: 1.5,
+      cropAspectRatioEnlarge: false,
+    };
+    expect(optionSegments(state)).toContain("car:1.5");
+  });
+
   it("does not emit an empty option segment when all tools are disabled", () => {
     const state = {
       ...defaultDemoState,
@@ -873,6 +895,35 @@ describe("demo URL state", () => {
       scaleOptionsOpen: true,
       requestOpen: true,
     });
+  });
+
+  it("parses car with and without enlarge", () => {
+    expect(parseDemoPath("/demo/car:1.5/plain/local:///images/dog.jpg")).toMatchObject({
+      cropAspectRatioEnabled: true,
+      cropAspectRatio: 1.5,
+      cropAspectRatioEnlarge: false,
+    });
+
+    expect(parseDemoPath("/demo/car:1.5:1/plain/local:///images/dog.jpg")).toMatchObject({
+      cropAspectRatioEnabled: true,
+      cropAspectRatio: 1.5,
+      cropAspectRatioEnlarge: true,
+    });
+
+    expect(parseDemoPath("/demo/car:2:0/plain/local:///images/dog.jpg")).toMatchObject({
+      cropAspectRatioEnabled: true,
+      cropAspectRatio: 2,
+      cropAspectRatioEnlarge: false,
+    });
+  });
+
+  it("rejects invalid car values in demo routes", () => {
+    expect(parseDemoPath("/demo/car:-1/plain/local:///images/dog.jpg")).toEqual(defaultDemoState);
+    expect(parseDemoPath("/demo/car:bad/plain/local:///images/dog.jpg")).toEqual(defaultDemoState);
+    expect(parseDemoPath("/demo/car:1.5:bad/plain/local:///images/dog.jpg")).toEqual(
+      defaultDemoState,
+    );
+    expect(parseDemoPath("/demo/car:1:2:3/plain/local:///images/dog.jpg")).toEqual(defaultDemoState);
   });
 
   it("falls back to defaults for invalid demo routes", () => {

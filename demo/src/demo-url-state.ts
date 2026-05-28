@@ -160,6 +160,11 @@ function applyOptionSegment(currentState: DemoState, segment: string): DemoState
     case "crop":
       return parseCrop(currentState, args);
 
+    case "car":
+    case "crop_ar":
+    case "crop_aspect_ratio":
+      return parseCropAspectRatio(currentState, args);
+
     case "rs":
     case "resize":
       return parseResize(currentState, args);
@@ -333,6 +338,38 @@ function parseCrop(currentState: DemoState, args: string[]): DemoState | null {
     cropHeight: height.unit === "px" ? height.value : currentState.cropHeight,
     cropHeightPercent: height.unit === "percent" ? height.value : currentState.cropHeightPercent,
     cropGravity: gravity,
+  };
+}
+
+function parseCropAspectRatio(currentState: DemoState, args: string[]): DemoState | null {
+  if (args.length < 1 || args.length > 2) {
+    return null;
+  }
+
+  const ratio = parseNumber(args[0]);
+
+  if (ratio === null || ratio < 0) {
+    return null;
+  }
+
+  const enlargeArg = args[1];
+  const enlarge = enlargeArg === "1" || enlargeArg === "t" || enlargeArg === "true";
+
+  if (
+    enlargeArg !== undefined &&
+    !enlarge &&
+    enlargeArg !== "0" &&
+    enlargeArg !== "f" &&
+    enlargeArg !== "false"
+  ) {
+    return null;
+  }
+
+  return {
+    ...currentState,
+    cropAspectRatioEnabled: true,
+    cropAspectRatio: ratio,
+    cropAspectRatioEnlarge: enlarge,
   };
 }
 

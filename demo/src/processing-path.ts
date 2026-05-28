@@ -80,6 +80,9 @@ export type DemoState = {
   cropHeight: number;
   cropHeightPercent: number;
   cropGravity: CropGravity;
+  cropAspectRatioEnabled: boolean;
+  cropAspectRatio: number;
+  cropAspectRatioEnlarge: boolean;
   formatEnabled: boolean;
   format: OutputFormat;
   qualityEnabled: boolean;
@@ -261,6 +264,9 @@ export const defaultDemoState: DemoState = {
   cropHeight: sourceDimension("images/dog.jpg", "height"),
   cropHeightPercent: 50,
   cropGravity: "inherit",
+  cropAspectRatioEnabled: false,
+  cropAspectRatio: 1,
+  cropAspectRatioEnlarge: false,
   formatEnabled: false,
   format: "jpeg",
   qualityEnabled: false,
@@ -294,6 +300,14 @@ export function optionSegments(currentState: DemoState): string[] {
 
   if (cropSegment !== null) {
     segments.push(cropSegment);
+  }
+
+  if (currentState.cropAspectRatioEnabled) {
+    segments.push(
+      currentState.cropAspectRatioEnlarge
+        ? `car:${currentState.cropAspectRatio}:1`
+        : `car:${currentState.cropAspectRatio}`,
+    );
   }
 
   const resizeSegment = resizeOptionSegment(currentState);

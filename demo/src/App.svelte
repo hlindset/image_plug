@@ -137,6 +137,11 @@
     : "Off";
   $: effectsSummary = effectSegments(state).join("/") || "Off";
   $: cropSummary = state.cropEnabled ? (cropOptionSegment(state) ?? "Off") : "Off";
+  $: cropAspectRatioSummary = state.cropAspectRatioEnabled
+    ? state.cropAspectRatioEnlarge
+      ? `car:${state.cropAspectRatio}:1`
+      : `car:${state.cropAspectRatio}`
+    : "Off";
   $: resizeExtras = [
     state.zoomEnabled ? `z:${state.zoom}` : null,
     state.dprEnabled ? `dpr:${state.dpr}` : null,
@@ -724,6 +729,30 @@
               <option value="soea">south east</option>
               <option value="sowe">south west</option>
             </select>
+          </label>
+        {/if}
+      </section>
+
+      <section class="tool-section">
+        <ToolToggleHeader
+          title="Crop aspect ratio"
+          summary={cropAspectRatioSummary}
+          bind:checked={state.cropAspectRatioEnabled}
+        />
+
+        {#if state.cropAspectRatioEnabled}
+          <RangeNumber
+            label="Ratio"
+            bind:value={state.cropAspectRatio}
+            min={0}
+            max={10}
+            step={0.1}
+          />
+          <label class="switch-field">
+            <Switch.Root class="switch-root" bind:checked={state.cropAspectRatioEnlarge}>
+              <Switch.Thumb class="switch-thumb" />
+            </Switch.Root>
+            <span>Enlarge</span>
           </label>
         {/if}
       </section>
