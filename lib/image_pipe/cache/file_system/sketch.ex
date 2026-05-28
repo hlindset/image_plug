@@ -74,6 +74,10 @@ defmodule ImagePipe.Cache.FileSystem.Sketch do
     |> Enum.min()
   end
 
+  @doc false
+  @spec dump_counters(t()) :: [non_neg_integer()]
+  def dump_counters(%__MODULE__{counters: counters}), do: :array.to_list(counters)
+
   defp positions_for(%__MODULE__{depth: depth, width: width}, key) do
     for row <- 0..(depth - 1) do
       hash = :erlang.phash2({row, key}, width)
