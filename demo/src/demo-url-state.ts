@@ -555,22 +555,27 @@ function hexColor(value: string): string | null {
 }
 
 function parseAspectCanvas(currentState: DemoState, args: string[]): DemoState | null {
-  if (args.length !== 2) {
+  if (args.length < 1 || args.length > 2) {
     return null;
   }
 
-  const width = parseNumber(args[0]);
-  const height = parseNumber(args[1]);
+  const enabled = args[0] === "1" || args[0] === "t" || args[0] === "true";
+  const disabled = args[0] === "0" || args[0] === "f" || args[0] === "false";
 
-  if (width === null || height === null) {
+  if (!enabled && !disabled) {
+    return null;
+  }
+
+  const gravityArg = args[1];
+
+  if (gravityArg !== undefined && !isGravity(gravityArg)) {
     return null;
   }
 
   return {
     ...currentState,
-    aspectCanvasEnabled: true,
-    extendAspectWidth: width,
-    extendAspectHeight: height,
+    aspectCanvasEnabled: enabled,
+    aspectCanvasGravity: gravityArg !== undefined ? (gravityArg as Gravity) : "ce",
   };
 }
 

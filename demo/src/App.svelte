@@ -125,7 +125,9 @@
       .join("/") || "Off";
   $: resizeSummary = state.resizeEnabled ? (resizeOptionSegment(state) ?? "Off") : "Off";
   $: aspectCanvasSummary = state.aspectCanvasEnabled
-    ? `exar:${state.extendAspectWidth}:${state.extendAspectHeight}`
+    ? state.aspectCanvasGravity === "ce"
+      ? "exar:1"
+      : `exar:1:${state.aspectCanvasGravity}`
     : "Off";
   $: paddingSummary = state.paddingEnabled
     ? `pd:${state.paddingTop}:${state.paddingRight}:${state.paddingBottom}:${state.paddingLeft}`
@@ -952,20 +954,20 @@
         />
 
         {#if state.aspectCanvasEnabled}
-          <RangeNumber
-            label="Ratio width"
-            bind:value={state.extendAspectWidth}
-            min={controlLimits.aspectCanvas.width.min}
-            max={controlLimits.aspectCanvas.width.max}
-            step={controlLimits.aspectCanvas.width.step}
-          />
-          <RangeNumber
-            label="Ratio height"
-            bind:value={state.extendAspectHeight}
-            min={controlLimits.aspectCanvas.height.min}
-            max={controlLimits.aspectCanvas.height.max}
-            step={controlLimits.aspectCanvas.height.step}
-          />
+          <label class="field">
+            <span>Gravity</span>
+            <select bind:value={state.aspectCanvasGravity}>
+              <option value="ce">center</option>
+              <option value="no">north</option>
+              <option value="so">south</option>
+              <option value="ea">east</option>
+              <option value="we">west</option>
+              <option value="noea">north east</option>
+              <option value="nowe">north west</option>
+              <option value="soea">south east</option>
+              <option value="sowe">south west</option>
+            </select>
+          </label>
         {/if}
       </section>
 

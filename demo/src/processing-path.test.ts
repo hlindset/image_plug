@@ -262,12 +262,16 @@ describe("processing path generation", () => {
     const state = {
       ...defaultDemoState,
       aspectCanvasEnabled: true,
-      extendAspectWidth: 16,
-      extendAspectHeight: 9,
+      aspectCanvasGravity: "ce" as const,
     };
 
-    expect(optionSegments(state)).toEqual(["exar:16:9"]);
-    expect(buildProcessingPath(state)).toBe("/_/exar:16:9/plain/local:///images/dog.jpg");
+    expect(optionSegments(state)).toEqual(["exar:1"]);
+    expect(buildProcessingPath(state)).toBe("/_/exar:1/plain/local:///images/dog.jpg");
+  });
+
+  it("round-trips exar with gravity", () => {
+    const state = { ...defaultDemoState, aspectCanvasEnabled: true, aspectCanvasGravity: "no" as const };
+    expect(optionSegments(state)).toEqual(["exar:1:no"]);
   });
 
   it("includes explicit four-sided padding after aspect canvas options", () => {
@@ -281,9 +285,9 @@ describe("processing path generation", () => {
       paddingLeft: 32,
     };
 
-    expect(optionSegments(state)).toEqual(["exar:16:9", "pd:8:16:24:32"]);
+    expect(optionSegments(state)).toEqual(["exar:1", "pd:8:16:24:32"]);
     expect(buildProcessingPath(state)).toBe(
-      "/_/exar:16:9/pd:8:16:24:32/plain/local:///images/dog.jpg",
+      "/_/exar:1/pd:8:16:24:32/plain/local:///images/dog.jpg",
     );
   });
 
@@ -742,7 +746,7 @@ describe("demo URL state", () => {
 
   it("parses crop, orientation, scale, canvas, padding, background, and effects options", () => {
     const parsed = parseDemoPath(
-      "/demo/ar:1/fl:0:1/rot:90/c:0.5:0.25:no/z:1.25/dpr:2/mw:320/mh:240/exar:16:9/pd:1:2:3:4/bg:ffcc00/bga:0.42/bl:2.5/sh:0.7/pix:8/mc:0.5:ffcc00/dt:0.25:112233:ffeecc/br:20/co:-15/sa:35/plain/local:///images/beach.jpg",
+      "/demo/ar:1/fl:0:1/rot:90/c:0.5:0.25:no/z:1.25/dpr:2/mw:320/mh:240/exar:1/pd:1:2:3:4/bg:ffcc00/bga:0.42/bl:2.5/sh:0.7/pix:8/mc:0.5:ffcc00/dt:0.25:112233:ffeecc/br:20/co:-15/sa:35/plain/local:///images/beach.jpg",
     );
 
     expect(parsed).toMatchObject({
@@ -765,8 +769,7 @@ describe("demo URL state", () => {
       minHeightEnabled: true,
       minHeight: 240,
       aspectCanvasEnabled: true,
-      extendAspectWidth: 16,
-      extendAspectHeight: 9,
+      aspectCanvasGravity: "ce",
       paddingEnabled: true,
       paddingTop: 1,
       paddingRight: 2,

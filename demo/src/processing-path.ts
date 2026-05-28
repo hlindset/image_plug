@@ -36,8 +36,7 @@ export type DemoState = {
   minHeightEnabled: boolean;
   minHeight: number;
   aspectCanvasEnabled: boolean;
-  extendAspectWidth: number;
-  extendAspectHeight: number;
+  aspectCanvasGravity: Gravity | "ce";
   paddingEnabled: boolean;
   paddingTop: number;
   paddingRight: number;
@@ -126,10 +125,6 @@ export const controlLimits = {
     minWidth: { min: 0, max: 1600, step: 1 },
     minHeight: { min: 0, max: 1000, step: 1 },
   },
-  aspectCanvas: {
-    width: { min: 1, max: 32, step: 1 },
-    height: { min: 1, max: 32, step: 1 },
-  },
   padding: { min: 0, max: 240, step: 1 },
   alpha: { min: 0, max: 1, step: 0.1 },
   effects: {
@@ -148,7 +143,6 @@ export const controlLimits = {
   resize: Record<ImageDimensionAxis, NumericControlLimit>;
   crop: { percent: NumericControlLimit };
   scale: Record<"zoom" | "dpr" | "minWidth" | "minHeight", NumericControlLimit>;
-  aspectCanvas: Record<ImageDimensionAxis, NumericControlLimit>;
   padding: NumericControlLimit;
   alpha: NumericControlLimit;
   effects: Record<
@@ -223,8 +217,7 @@ export const defaultDemoState: DemoState = {
   minHeightEnabled: false,
   minHeight: 180,
   aspectCanvasEnabled: false,
-  extendAspectWidth: 16,
-  extendAspectHeight: 9,
+  aspectCanvasGravity: "ce",
   paddingEnabled: false,
   paddingTop: 24,
   paddingRight: 24,
@@ -326,7 +319,11 @@ export function optionSegments(currentState: DemoState): string[] {
   }
 
   if (currentState.aspectCanvasEnabled) {
-    segments.push(`exar:${currentState.extendAspectWidth}:${currentState.extendAspectHeight}`);
+    segments.push(
+      currentState.aspectCanvasGravity === "ce"
+        ? "exar:1"
+        : `exar:1:${currentState.aspectCanvasGravity}`,
+    );
   }
 
   if (currentState.paddingEnabled) {
