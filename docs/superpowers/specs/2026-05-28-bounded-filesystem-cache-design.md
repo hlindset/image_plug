@@ -357,7 +357,9 @@ pathology.
     for a window evictee that won main),
   - window evictees that lost their main-gate run (those entries had
     been cached previously and now must be removed from disk),
-  - the prior descriptor when this is a same-key re-commit (step 3).
+  - the prior descriptor when this is a same-key re-commit (step 3),
+    **only when `old.body_sha256 != new.body_sha256`** — content-
+    identical rewrites skip the body deletion.
 - `{:reject, reason}` — candidate is rejected (oversized step 2 only,
   when main gate rejects). Adapter cleans tmp files. `reason` is one of
   `:over_cap`, `:score_too_low`, or `:no_evictable_victims`.
@@ -431,7 +433,7 @@ soft cap as a target rather than a guarantee.
 ### Merged CMS amplification and ordering caveats
 
 When multiple nodes serve overlapping traffic through a load balancer,
-each node's `local_cms` records hits independently and `boot_cms`
+each node's `local_cms` records local sightings independently and `boot_cms`
 element-wise sums peer CMSes at restart. A key seen 100 times on each of
 3 nodes shows as count 300 in the merged view. This amplifies absolute
 counts but **approximately** preserves relative ordering for
@@ -647,6 +649,14 @@ behavior.
   (window budget rounds to bytes, protected target rounds to tiny
   fractions of entries). For production, several MB is the practical
   floor for the cache to be useful.
+
+  **Budget math under tiny caps:** all budget computations clamp
+  available bytes to `max(0, ...)` to avoid negative values from
+  flowing into queue checks (a single protected entry larger than the
+  20% target can produce a negative `probationary_budget` under the
+  formula otherwise). Division operations in score and budget
+  calculations never divide by zero; sizes use `max(size_bytes, 1)`
+  and budgets use `max(budget, 0)` defensively.
 - `:node_id` — binary string. Identifies this node's state files. No
   default; operator-controlled. **Must be stable across restarts of the
   same logical node** — a fresh `node_id` on every boot causes cold-start
@@ -934,8 +944,8 @@ tests.
    - Adapter end-to-end tests (bounded + unbounded modes, rejection
      reasons, cross-node warm-start, window-evictee main-gate cascade).
    - Failure / edge-case tests (rename failure, partial corruption,
-     scan races, restart-after-failed-delete, small caps,
-     `:max_size_bytes: 0`).
+     scan races, restart-after-failed-delete, tiny legal caps and
+     invalid non-positive caps).
    - Architecture boundary tests.
 10. Documentation update in `docs/cache.md`: bounded-mode configuration,
     `:node_id` stability requirement, rolling-deploy / multi-node
