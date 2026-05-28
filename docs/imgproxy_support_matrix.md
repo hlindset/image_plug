@@ -484,7 +484,7 @@ transforms or output encoding.
 | `gravity:objw` | | Missing | Pro object-detection gravity with weights. |
 | `objects_position` | `obj_pos`, `op` | Missing | Pro object-detection positioning. |
 | `crop` | `c` | Supported | Absolute, relative, or full-axis dimensions. Supports anchor, focal-point, and smart-gravity parsing. Planning rejects smart gravity. |
-| `crop_aspect_ratio` | `crop_ar`, `car` | Supported | Pro option. Corrects the crop area aspect ratio. `aspect_ratio` zero is a no-op. `enlarge` grows the area then clamps to image bounds; default reduces. Corrects size only, not gravity. Wired through gravity crops. |
+| `crop_aspect_ratio` | `crop_ar`, `car` | Supported | Pro crop-area aspect-ratio correction. `aspect_ratio` zero is a no-op. `enlarge` grows the area then clamps to image bounds; default reduces. Corrects size only, not gravity. Wired through gravity crops. |
 | `trim` | `t` | Missing | Requires full-image memory behavior and trim operation. |
 | `padding` | `pd` | Supported | CSS-style shorthand, sparse repeated options, effective DPR scaling, and `padding:` no-op compatibility. |
 | `auto_rotate` | `ar` | Supported | Omitted argument enables auto-orient; boolean form supported. URL `ar` overrides `imgproxy: [auto_rotate: ...]` request-wide, with last value in path order winning. |

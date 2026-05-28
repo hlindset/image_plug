@@ -182,8 +182,9 @@ requests a larger canvas around image content.
 
 Aspect-ratio canvas extension (Imgproxy `exar`) derives the target ratio from
 the resolved resize dimensions in the same pipeline group. This is a no-op when
-either resize dimension is auto or zero. Extend gravity for `exar` uses directional anchors only (the nine anchor
-values). Focal-point extend gravity isn't supported for this operation.
+either resize dimension is auto or zero. Extend gravity for `exar` uses
+directional anchors only (the nine anchor values). Focal-point extend gravity
+isn't supported for this operation.
 
 The `Canvas.fill` value applies only to output from that canvas operation. The
 default is `:transparent`, and callers can also set
