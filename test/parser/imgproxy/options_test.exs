@@ -27,14 +27,12 @@ defmodule ImagePipe.Parser.Imgproxy.OptionsTest do
     assert pipeline.orientation.rotate == 270
     assert pipeline.orientation.flip == :horizontal
     assert pipeline.extend_aspect_ratio == true
-    assert pipeline.extend_aspect_ratio_requested == true
   end
 
   test "exar enables aspect-ratio canvas extension with default gravity" do
     assert {:ok, request} = Options.parse(~w(exar:1), Presets.empty())
     [pipeline] = request.pipelines
     assert pipeline.extend_aspect_ratio == true
-    assert pipeline.extend_aspect_ratio_requested == true
     assert pipeline.extend_aspect_ratio_gravity == nil
   end
 
@@ -42,7 +40,6 @@ defmodule ImagePipe.Parser.Imgproxy.OptionsTest do
     assert {:ok, request} = Options.parse(~w(exar:0), Presets.empty())
     [pipeline] = request.pipelines
     assert pipeline.extend_aspect_ratio == false
-    assert pipeline.extend_aspect_ratio_requested == true
   end
 
   test "exar accepts a gravity argument" do
@@ -50,6 +47,15 @@ defmodule ImagePipe.Parser.Imgproxy.OptionsTest do
     [pipeline] = request.pipelines
     assert pipeline.extend_aspect_ratio == true
     assert pipeline.extend_aspect_ratio_gravity == {:anchor, :center, :top}
+  end
+
+  test "exar parses gravity with offsets" do
+    assert {:ok, request} = Options.parse(~w(exar:1:no:10:20), Presets.empty())
+    [pipeline] = request.pipelines
+    assert pipeline.extend_aspect_ratio == true
+    assert pipeline.extend_aspect_ratio_gravity == {:anchor, :center, :top}
+    assert pipeline.extend_aspect_ratio_x_offset == 10.0
+    assert pipeline.extend_aspect_ratio_y_offset == 20.0
   end
 
   test "exar rejects smart/object gravity" do

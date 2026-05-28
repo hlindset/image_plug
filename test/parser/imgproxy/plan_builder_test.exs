@@ -235,8 +235,7 @@ defmodule ImagePipe.Parser.Imgproxy.PlanBuilderTest do
              plan_pipeline(
                width: {:pixels, 1600},
                height: {:pixels, 900},
-               extend_aspect_ratio: true,
-               extend_aspect_ratio_requested: true
+               extend_aspect_ratio: true
              )
 
     assert Enum.any?(operations, fn
@@ -251,8 +250,7 @@ defmodule ImagePipe.Parser.Imgproxy.PlanBuilderTest do
     assert {:ok, %Plan{pipelines: [%Pipeline{operations: operations}]}} =
              plan_pipeline(
                width: {:pixels, 1600},
-               extend_aspect_ratio: true,
-               extend_aspect_ratio_requested: true
+               extend_aspect_ratio: true
              )
 
     refute Enum.any?(operations, &match?(%Operation.Canvas{}, &1))

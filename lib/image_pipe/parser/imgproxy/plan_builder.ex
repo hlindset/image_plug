@@ -415,7 +415,7 @@ defmodule ImagePipe.Parser.Imgproxy.PlanBuilder do
   defp extend_aspect_ratio_requested?(%PipelineRequest{extend_aspect_ratio: extend?}), do: extend?
 
   defp resize_target_ratio(%PipelineRequest{width: {:pixels, w}, height: {:pixels, h}})
-       when is_integer(w) and is_integer(h) and w > 0 and h > 0,
+       when w > 0 and h > 0,
        do: {:ok, {w, h}}
 
   defp resize_target_ratio(%PipelineRequest{}), do: :no_ratio

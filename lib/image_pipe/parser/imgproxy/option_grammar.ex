@@ -682,7 +682,7 @@ defmodule ImagePipe.Parser.Imgproxy.OptionGrammar do
 
   defp parse_extend_aspect_ratio([value], _segment) when value != "" do
     with {:ok, extend?} <- parse_boolean(value) do
-      {:ok, [extend_aspect_ratio: extend?, extend_aspect_ratio_requested: true]}
+      {:ok, [extend_aspect_ratio: extend?]}
     end
   end
 
@@ -690,11 +690,7 @@ defmodule ImagePipe.Parser.Imgproxy.OptionGrammar do
     with {:ok, extend?} <- parse_boolean(value),
          {:ok, gravity_assignments} <-
            parse_optional_extend_gravity(:extend_aspect_ratio, segment, gravity_parts) do
-      {:ok,
-       Keyword.merge(
-         [extend_aspect_ratio: extend?, extend_aspect_ratio_requested: true],
-         gravity_assignments
-       )}
+      {:ok, Keyword.merge([extend_aspect_ratio: extend?], gravity_assignments)}
     end
   end
 
