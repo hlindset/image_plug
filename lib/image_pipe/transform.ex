@@ -26,7 +26,10 @@ defmodule ImagePipe.Transform do
       Operation.Crop,
       Operation.Blur,
       Operation.Sharpen,
-      Operation.Pixelate
+      Operation.Pixelate,
+      Operation.Brightness,
+      Operation.Contrast,
+      Operation.Saturation
     ]
 
   alias ImagePipe.Plan

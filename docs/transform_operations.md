@@ -93,6 +93,11 @@ Parser/planner code should use these semantic operations:
 - `ImagePipe.Plan.Operation.Sharpen`: sharpening with a positive sigma.
 - `ImagePipe.Plan.Operation.Pixelate`: pixelation with a block size greater
   than one pixel.
+- `ImagePipe.Plan.Operation.Brightness`: brightness change from `-100` to
+  `100`.
+- `ImagePipe.Plan.Operation.Contrast`: contrast change from `-100` to `100`.
+- `ImagePipe.Plan.Operation.Saturation`: saturation change from `-100` to
+  `100`.
 - `ImagePipe.Plan.Color`: canonical product-neutral sRGB color data with alpha.
 
 Plan pipelines should contain semantic Plan operation structs only. Transform
@@ -117,6 +122,9 @@ describe work over `ImagePipe.Transform.State`, not parser request syntax:
 - `ImagePipe.Transform.Operation.Blur`: executable Gaussian blur.
 - `ImagePipe.Transform.Operation.Sharpen`: executable sharpening.
 - `ImagePipe.Transform.Operation.Pixelate`: executable pixelation.
+- `ImagePipe.Transform.Operation.Brightness`: executable brightness change.
+- `ImagePipe.Transform.Operation.Contrast`: executable contrast change.
+- `ImagePipe.Transform.Operation.Saturation`: executable saturation change.
 
 `ImagePipe.Transform.Operation.AdaptiveResize` is obsolete. Resize
 `mode: :auto` belongs in `ImagePipe.Plan.Operation.Resize`. Parsers must not emit
@@ -192,13 +200,15 @@ not leak into parser request structs, runtime state, or cache key data.
 
 ## Effect operations
 
-Use semantic `Blur`, `Sharpen`, and `Pixelate` when a dialect requests full-image
-effects. These operations are product-neutral image effects. Parser aliases such
-as Imgproxy `bl`, `sh`, and `pix` stay in parser code.
+Use semantic `Blur`, `Sharpen`, `Pixelate`, `Brightness`, `Contrast`, and
+`Saturation` when a dialect requests full-image effects. These operations are
+product-neutral image effects. Parser aliases such as Imgproxy `bl`, `sh`,
+`pix`, `br`, `co`, and `sa` stay in parser code.
 
-Imgproxy effect order is blur, sharpen, then pixelate, after result cropping and
-before canvas extension, padding, and background composition. Imgproxy treats
-blur and sharpen sigma `0` as no-ops, and pixelate sizes of `1` or lower as
+Imgproxy effect order is blur, sharpen, pixelate, brightness, contrast, then
+saturation, after result cropping and before canvas extension, padding, and
+background composition. Imgproxy treats blur and sharpen sigma `0` as no-ops,
+pixelate sizes of `1` or lower as no-ops, and zero-valued color adjustments as
 no-ops. ImagePipe accepts those no-op values in the Imgproxy parser and emits no
 semantic operation.
 
@@ -243,7 +253,7 @@ should describe their own URL syntax.
 | `ar/rot:90/fl:true:false/c:100:100` | `AutoOrient`, `Rotate`, `Flip`, `CropGuided` |
 | `extend:true/w:300/h:200` | `Resize` with `mode: :fit`, `Canvas` |
 | `pd:10/bg:f00` | `Padding`, `Background` |
-| `bl:2/sh:0.7/pix:8` | `Blur`, `Sharpen`, `Pixelate` |
+| `bl:2/sh:0.7/pix:8/br:20/co:-10/sa:35` | `Blur`, `Sharpen`, `Pixelate`, `Brightness`, `Contrast`, `Saturation` |
 
 ## Boundary rules
 

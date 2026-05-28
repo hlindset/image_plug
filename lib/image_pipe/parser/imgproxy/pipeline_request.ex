@@ -2,6 +2,7 @@ defmodule ImagePipe.Parser.Imgproxy.PipelineRequest do
   @moduledoc false
 
   alias ImagePipe.Parser.Imgproxy.CropRequest
+  alias ImagePipe.Parser.Imgproxy.Effects
   alias ImagePipe.Parser.Imgproxy.Orientation
   alias ImagePipe.Plan.Color
 
@@ -32,9 +33,7 @@ defmodule ImagePipe.Parser.Imgproxy.PipelineRequest do
           padding_left: non_neg_integer(),
           background_color: Color.t() | nil,
           background_alpha: Color.alpha() | nil,
-          blur: float() | nil,
-          sharpen: float() | nil,
-          pixelate: non_neg_integer() | nil,
+          effects: Effects.t(),
           gravity: gravity(),
           gravity_x_offset: gravity_offset(),
           gravity_y_offset: gravity_offset(),
@@ -65,9 +64,7 @@ defmodule ImagePipe.Parser.Imgproxy.PipelineRequest do
             padding_left: 0,
             background_color: nil,
             background_alpha: nil,
-            blur: nil,
-            sharpen: nil,
-            pixelate: nil,
+            effects: %Effects{},
             gravity: {:anchor, :center, :center},
             gravity_x_offset: {:pixels, 0.0},
             gravity_y_offset: {:pixels, 0.0},

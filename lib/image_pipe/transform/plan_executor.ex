@@ -6,7 +6,9 @@ defmodule ImagePipe.Transform.PlanExecutor do
   alias ImagePipe.Plan.Operation.AutoOrient, as: PlanAutoOrient
   alias ImagePipe.Plan.Operation.Background, as: PlanBackground
   alias ImagePipe.Plan.Operation.Blur, as: PlanBlur
+  alias ImagePipe.Plan.Operation.Brightness, as: PlanBrightness
   alias ImagePipe.Plan.Operation.Canvas
+  alias ImagePipe.Plan.Operation.Contrast, as: PlanContrast
   alias ImagePipe.Plan.Operation.CropGuided
   alias ImagePipe.Plan.Operation.CropRegion
   alias ImagePipe.Plan.Operation.Flip, as: PlanFlip
@@ -14,12 +16,15 @@ defmodule ImagePipe.Transform.PlanExecutor do
   alias ImagePipe.Plan.Operation.Pixelate, as: PlanPixelate
   alias ImagePipe.Plan.Operation.Resize, as: PlanResize
   alias ImagePipe.Plan.Operation.Rotate, as: PlanRotate
+  alias ImagePipe.Plan.Operation.Saturation, as: PlanSaturation
   alias ImagePipe.Plan.Operation.Sharpen, as: PlanSharpen
   alias ImagePipe.Plan.Pipeline
   alias ImagePipe.Transform.Chain
   alias ImagePipe.Transform.Operation.AutoOrient
   alias ImagePipe.Transform.Operation.Background
   alias ImagePipe.Transform.Operation.Blur
+  alias ImagePipe.Transform.Operation.Brightness
+  alias ImagePipe.Transform.Operation.Contrast
   alias ImagePipe.Transform.Operation.Crop
   alias ImagePipe.Transform.Operation.ExtendCanvas
   alias ImagePipe.Transform.Operation.Flip
@@ -27,6 +32,7 @@ defmodule ImagePipe.Transform.PlanExecutor do
   alias ImagePipe.Transform.Operation.Pixelate
   alias ImagePipe.Transform.Operation.Resize
   alias ImagePipe.Transform.Operation.Rotate
+  alias ImagePipe.Transform.Operation.Saturation
   alias ImagePipe.Transform.Operation.Sharpen
   alias ImagePipe.Transform.State
 
@@ -189,6 +195,15 @@ defmodule ImagePipe.Transform.PlanExecutor do
 
   defp executable_operations(%PlanPixelate{size: size}, %State{}, _context),
     do: [%Pixelate{size: size}]
+
+  defp executable_operations(%PlanBrightness{value: value}, %State{}, _context),
+    do: [%Brightness{value: value}]
+
+  defp executable_operations(%PlanContrast{value: value}, %State{}, _context),
+    do: [%Contrast{value: value}]
+
+  defp executable_operations(%PlanSaturation{value: value}, %State{}, _context),
+    do: [%Saturation{value: value}]
 
   defp tagged_executable_resize_operations(
          :cover,

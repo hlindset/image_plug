@@ -410,6 +410,18 @@ defmodule ImagePipe.Parser.Imgproxy.OptionGrammar do
     parse_pixelate(args, segment)
   end
 
+  defp parse_special_option(name, args, segment) when name in ["brightness", "br"] do
+    parse_adjustment(:brightness, args, segment)
+  end
+
+  defp parse_special_option(name, args, segment) when name in ["contrast", "co"] do
+    parse_adjustment(:contrast, args, segment)
+  end
+
+  defp parse_special_option(name, args, segment) when name in ["saturation", "sa"] do
+    parse_adjustment(:saturation, args, segment)
+  end
+
   defp parse_special_option(name, _args, _segment), do: {:error, {:unknown_option, name}}
 
   defp parse_effect_float(key, [value], _segment) when value != "" do
@@ -428,6 +440,22 @@ defmodule ImagePipe.Parser.Imgproxy.OptionGrammar do
   end
 
   defp parse_pixelate(_args, segment), do: {:error, {:invalid_option_segment, segment}}
+
+  defp parse_adjustment(key, [value], _segment) when value != "" do
+    with {:ok, value} <- parse_adjustment_value(value) do
+      {:ok, [{key, value}]}
+    end
+  end
+
+  defp parse_adjustment(_key, _args, segment), do: {:error, {:invalid_option_segment, segment}}
+
+  defp parse_adjustment_value(value) do
+    case parse_number(value) do
+      {:ok, number} when number >= -100 and number <= 100 -> {:ok, number}
+      {:ok, _number} -> {:error, {:invalid_adjustment, value}}
+      {:error, _reason} -> {:error, {:invalid_adjustment, value}}
+    end
+  end
 
   defp parse_padding(args, segment) when length(args) <= 4 do
     with {:ok, parsed_args} <- parse_padding_args(args, segment) do

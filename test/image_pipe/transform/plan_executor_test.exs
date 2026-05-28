@@ -333,6 +333,24 @@ defmodule ImagePipe.Transform.PlanExecutorTest do
 
       assert dimensions(state.image) == {10, 10}
     end
+
+    test "brightness contrast and saturation preserve dimensions and change pixels" do
+      baseline = state_with_adjustment_image()
+
+      for build_operation <- [
+            &Operation.brightness/1,
+            &Operation.contrast/1,
+            &Operation.saturation/1
+          ] do
+        assert {:ok, operation} = build_operation.(25)
+
+        assert {:ok, %State{} = state} =
+                 Transform.execute_plan(plan([operation]), state_with_adjustment_image(), [])
+
+        assert dimensions(state.image) == dimensions(baseline.image)
+        assert rgb_pixel(state.image, 0, 0) != rgb_pixel(baseline.image, 0, 0)
+      end
+    end
   end
 
   test "resize auto executes against current image state" do
@@ -463,6 +481,15 @@ defmodule ImagePipe.Transform.PlanExecutorTest do
       |> Image.Draw.rect!(1, 0, 1, 2, color: :green)
       |> Image.Draw.rect!(2, 0, 1, 2, color: :blue)
       |> Image.Draw.rect!(3, 0, 1, 2, color: :white)
+
+    %State{image: image}
+  end
+
+  defp state_with_adjustment_image do
+    image =
+      2
+      |> Image.new!(1, color: [128, 96, 64])
+      |> Image.Draw.rect!(1, 0, 1, 1, color: [64, 96, 128])
 
     %State{image: image}
   end

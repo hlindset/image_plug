@@ -5,9 +5,12 @@ defmodule ImagePipe.Plan.OperationKeyDataTest do
   alias ImagePipe.Plan.Operation
   alias ImagePipe.Plan.Operation.AutoOrient
   alias ImagePipe.Plan.Operation.Blur
+  alias ImagePipe.Plan.Operation.Brightness
+  alias ImagePipe.Plan.Operation.Contrast
   alias ImagePipe.Plan.Operation.Flip
   alias ImagePipe.Plan.Operation.Pixelate
   alias ImagePipe.Plan.Operation.Rotate
+  alias ImagePipe.Plan.Operation.Saturation
   alias ImagePipe.Plan.Operation.Sharpen
 
   describe "tagged geometry data" do
@@ -196,6 +199,16 @@ defmodule ImagePipe.Plan.OperationKeyDataTest do
       assert KeyData.data(%Blur{sigma: 2.5}) == [op: :blur, sigma: 2.5]
       assert KeyData.data(%Sharpen{sigma: 0.7}) == [op: :sharpen, sigma: 0.7]
       assert KeyData.data(%Pixelate{size: 8}) == [op: :pixelate, size: 8]
+      assert KeyData.data(%Brightness{value: 20}) == [op: :brightness, value: 20]
+      assert KeyData.data(%Contrast{value: -15}) == [op: :contrast, value: -15]
+      assert KeyData.data(%Saturation{value: 35}) == [op: :saturation, value: 35]
+    end
+
+    test "returns identical key data for equivalent adjustment values" do
+      assert {:ok, integer_brightness} = Operation.brightness(20)
+      assert {:ok, float_brightness} = Operation.brightness(20.0)
+
+      assert KeyData.data(integer_brightness) == KeyData.data(float_brightness)
     end
   end
 end

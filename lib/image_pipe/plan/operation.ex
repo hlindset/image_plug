@@ -7,7 +7,9 @@ defmodule ImagePipe.Plan.Operation do
   alias ImagePipe.Plan.Operation.AutoOrient
   alias ImagePipe.Plan.Operation.Background
   alias ImagePipe.Plan.Operation.Blur
+  alias ImagePipe.Plan.Operation.Brightness
   alias ImagePipe.Plan.Operation.Canvas
+  alias ImagePipe.Plan.Operation.Contrast
   alias ImagePipe.Plan.Operation.CropGuided
   alias ImagePipe.Plan.Operation.CropRegion
   alias ImagePipe.Plan.Operation.Flip
@@ -15,6 +17,7 @@ defmodule ImagePipe.Plan.Operation do
   alias ImagePipe.Plan.Operation.Pixelate
   alias ImagePipe.Plan.Operation.Resize
   alias ImagePipe.Plan.Operation.Rotate
+  alias ImagePipe.Plan.Operation.Saturation
   alias ImagePipe.Plan.Operation.Sharpen
 
   @enlargements [:allow, :deny]
@@ -49,6 +52,7 @@ defmodule ImagePipe.Plan.Operation do
   @canvas_keys [:fill, :overflow, :x_offset, :y_offset]
   @padding_keys [:pixel_ratio, :fill]
   @effective_padding_modes [:resize, :canvas_preserving]
+  @adjustment_range -100..100
   @type resize_operation :: Resize.t()
 
   @type crop_operation ::
@@ -70,6 +74,9 @@ defmodule ImagePipe.Plan.Operation do
           Blur.t()
           | Sharpen.t()
           | Pixelate.t()
+          | Brightness.t()
+          | Contrast.t()
+          | Saturation.t()
 
   @type semantic_operation ::
           resize_operation()
@@ -109,6 +116,15 @@ defmodule ImagePipe.Plan.Operation do
   @spec pixelate(term()) :: {:ok, Pixelate.t()} | {:error, error()}
   def pixelate(size) when is_integer(size) and size > 1, do: {:ok, %Pixelate{size: size}}
   def pixelate(size), do: invalid(:pixelate, [size])
+
+  @spec brightness(term()) :: {:ok, Brightness.t()} | {:error, error()}
+  def brightness(value), do: adjustment(:brightness, Brightness, value)
+
+  @spec contrast(term()) :: {:ok, Contrast.t()} | {:error, error()}
+  def contrast(value), do: adjustment(:contrast, Contrast, value)
+
+  @spec saturation(term()) :: {:ok, Saturation.t()} | {:error, error()}
+  def saturation(value), do: adjustment(:saturation, Saturation, value)
 
   @spec color(term(), term(), term()) :: {:ok, Color.t()} | {:error, term()}
   def color(red, green, blue), do: Color.rgb(red, green, blue)
@@ -289,9 +305,19 @@ defmodule ImagePipe.Plan.Operation do
   def semantic?(%Blur{} = operation), do: valid_positive_float?(operation.sigma)
   def semantic?(%Sharpen{} = operation), do: valid_positive_float?(operation.sigma)
   def semantic?(%Pixelate{} = operation), do: valid_pixelate_size?(operation.size)
+  def semantic?(%Brightness{} = operation), do: valid_adjustment_value?(operation.value)
+  def semantic?(%Contrast{} = operation), do: valid_adjustment_value?(operation.value)
+  def semantic?(%Saturation{} = operation), do: valid_adjustment_value?(operation.value)
   def semantic?(_operation), do: false
 
   defp invalid(operation, attrs), do: {:error, {:invalid_operation, operation, attrs}}
+
+  defp adjustment(operation, module, value) do
+    case adjustment_value(value) do
+      {:ok, value} -> {:ok, struct!(module, value: value)}
+      {:error, _reason} -> invalid(operation, [value])
+    end
+  end
 
   defp valid_resize?(%Resize{} = operation) do
     with {:ok, mode} <- resize_mode(operation.mode),
@@ -373,6 +399,14 @@ defmodule ImagePipe.Plan.Operation do
 
   defp valid_pixelate_size?(value) when is_integer(value) and value > 1, do: true
   defp valid_pixelate_size?(_value), do: false
+
+  defp valid_adjustment_value?(value) do
+    case adjustment_value(value) do
+      {:ok, ^value} -> true
+      {:ok, _value} -> false
+      {:error, _reason} -> false
+    end
+  end
 
   defp validate_known_options(operation, attrs, known_keys) do
     case Keyword.keys(attrs) -- known_keys do
@@ -685,6 +719,28 @@ defmodule ImagePipe.Plan.Operation do
 
   defp number(value) when is_number(value), do: :ok
   defp number(_value), do: {:error, :number}
+
+  defp adjustment_value(value) when is_integer(value) and value in @adjustment_range,
+    do: {:ok, value}
+
+  defp adjustment_value(value) when is_float(value) and value >= -100.0 and value <= 100.0 do
+    value
+    |> Float.round(7)
+    |> canonical_adjustment_float()
+  end
+
+  defp adjustment_value(_value), do: {:error, :adjustment}
+
+  defp canonical_adjustment_float(value) when value == 0.0, do: {:ok, 0}
+
+  defp canonical_adjustment_float(value) do
+    integer = trunc(value)
+
+    case value == integer do
+      true -> {:ok, integer}
+      false -> {:ok, value}
+    end
+  end
 
   defp tagged_offset(value) when is_number(value), do: :ok
 

@@ -52,6 +52,12 @@ export type DemoState = {
   sharpen: number;
   pixelateEnabled: boolean;
   pixelate: number;
+  brightnessEnabled: boolean;
+  brightness: number;
+  contrastEnabled: boolean;
+  contrast: number;
+  saturationEnabled: boolean;
+  saturation: number;
   gravityEnabled: boolean;
   gravityMode: GravityMode;
   gravity: Gravity;
@@ -123,6 +129,9 @@ export const controlLimits = {
     blur: { min: 0.1, max: 10, step: 0.1 },
     sharpen: { min: 0.1, max: 10, step: 0.1 },
     pixelate: { min: 2, max: 80, step: 1 },
+    brightness: { min: -100, max: 100, step: 1 },
+    contrast: { min: -100, max: 100, step: 1 },
+    saturation: { min: -100, max: 100, step: 1 },
   },
   focalPoint: { min: 0, max: 1, step: 0.01 },
   gravityOffset: { min: -200, max: 200, step: 0.01 },
@@ -134,7 +143,10 @@ export const controlLimits = {
   aspectCanvas: Record<ImageDimensionAxis, NumericControlLimit>;
   padding: NumericControlLimit;
   alpha: NumericControlLimit;
-  effects: Record<"blur" | "sharpen" | "pixelate", NumericControlLimit>;
+  effects: Record<
+    "blur" | "sharpen" | "pixelate" | "brightness" | "contrast" | "saturation",
+    NumericControlLimit
+  >;
   focalPoint: NumericControlLimit;
   gravityOffset: NumericControlLimit;
   quality: NumericControlLimit;
@@ -219,6 +231,12 @@ export const defaultDemoState: DemoState = {
   sharpen: 1,
   pixelateEnabled: false,
   pixelate: 8,
+  brightnessEnabled: false,
+  brightness: 20,
+  contrastEnabled: false,
+  contrast: 20,
+  saturationEnabled: false,
+  saturation: 20,
   gravityEnabled: false,
   gravityMode: "anchor",
   gravity: "ce",
@@ -326,6 +344,18 @@ export function optionSegments(currentState: DemoState): string[] {
 
   if (currentState.pixelateEnabled) {
     segments.push(`pix:${currentState.pixelate}`);
+  }
+
+  if (currentState.brightnessEnabled) {
+    segments.push(`br:${currentState.brightness}`);
+  }
+
+  if (currentState.contrastEnabled) {
+    segments.push(`co:${currentState.contrast}`);
+  }
+
+  if (currentState.saturationEnabled) {
+    segments.push(`sa:${currentState.saturation}`);
   }
 
   if (currentState.gravityEnabled) {

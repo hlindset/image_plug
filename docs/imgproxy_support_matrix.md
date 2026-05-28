@@ -497,10 +497,10 @@ transforms or output encoding.
 | --- | --- | --- | --- |
 | `background` | `bg` | Supported | RGB decimal and 3/6 digit hex colors. `background:` clears previous background color and alpha. |
 | `background_alpha` | `bga` | Supported | Applies an alpha channel to the current or next background color. Without an explicit background color, uses Imgproxy's default black background. |
-| `adjust` | `a` | Missing | Pro meta-option for brightness, contrast, and saturation. |
-| `brightness` | `br` | Missing | Pro color control. |
-| `contrast` | `co` | Missing | Pro color control. |
-| `saturation` | `sa` | Missing | Pro color control. |
+| `adjust` | `a` | Missing | Pro meta-option for brightness, contrast, and saturation. Use the individual options below instead. |
+| `brightness` | `br` | Supported | Number from `-100` to `100`. `0` parses as an Imgproxy-compatible no-op. Runs after pixelate. |
+| `contrast` | `co` | Supported | Number from `-100` to `100`. `0` parses as an Imgproxy-compatible no-op. Runs after brightness. |
+| `saturation` | `sa` | Supported | Number from `-100` to `100`. `0` parses as an Imgproxy-compatible no-op. Runs after contrast. |
 | `monochrome` | `mc` | Missing | Pro color effect. |
 | `duotone` | `dt` | Missing | Pro color effect. |
 | `blur` | `bl` | Supported | Non-negative sigma value. `0` parses as an Imgproxy-compatible no-op. Runs before canvas extension and background flattening. |

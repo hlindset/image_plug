@@ -8,6 +8,8 @@ defmodule ImagePipe.Parser.Imgproxy.Options do
   alias ImagePipe.Parser.Imgproxy.Presets
   alias ImagePipe.Plan.Color
 
+  @effect_fields [:blur, :sharpen, :pixelate, :brightness, :contrast, :saturation]
+
   @type request_options :: %{
           pipelines: [PipelineRequest.t()],
           output: ParsedRequest.output_request(),
@@ -212,6 +214,9 @@ defmodule ImagePipe.Parser.Imgproxy.Options do
 
         {:background_alpha, alpha}, pipeline ->
           apply_background_alpha(pipeline, alpha)
+
+        {field, _value} = assignment, pipeline when field in @effect_fields ->
+          %{pipeline | effects: struct!(pipeline.effects, [assignment])}
 
         assignment, pipeline ->
           struct!(pipeline, [assignment])

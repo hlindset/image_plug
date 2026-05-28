@@ -11,7 +11,9 @@ defmodule ImagePipe.Plan.KeyData do
   alias ImagePipe.Plan.Operation.AutoOrient
   alias ImagePipe.Plan.Operation.Background
   alias ImagePipe.Plan.Operation.Blur
+  alias ImagePipe.Plan.Operation.Brightness
   alias ImagePipe.Plan.Operation.Canvas
+  alias ImagePipe.Plan.Operation.Contrast
   alias ImagePipe.Plan.Operation.CropGuided
   alias ImagePipe.Plan.Operation.CropRegion
   alias ImagePipe.Plan.Operation.Flip
@@ -19,6 +21,7 @@ defmodule ImagePipe.Plan.KeyData do
   alias ImagePipe.Plan.Operation.Pixelate
   alias ImagePipe.Plan.Operation.Resize
   alias ImagePipe.Plan.Operation.Rotate
+  alias ImagePipe.Plan.Operation.Saturation
   alias ImagePipe.Plan.Operation.Sharpen
 
   @crop_anchor_guides [
@@ -121,6 +124,9 @@ defmodule ImagePipe.Plan.KeyData do
   def data(%Blur{sigma: sigma}), do: [op: :blur, sigma: sigma]
   def data(%Sharpen{sigma: sigma}), do: [op: :sharpen, sigma: sigma]
   def data(%Pixelate{size: size}), do: [op: :pixelate, size: size]
+  def data(%Brightness{value: value}), do: [op: :brightness, value: value]
+  def data(%Contrast{value: value}), do: [op: :contrast, value: value]
+  def data(%Saturation{value: value}), do: [op: :saturation, value: value]
 
   def data(:auto), do: [unit: :auto]
   def data(:full_axis), do: [unit: :full_axis]

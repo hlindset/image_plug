@@ -87,7 +87,12 @@ export function resetDemoSettings(currentState: DemoState): DemoState {
 export function expandedToolboxesForState(currentState: DemoState): ExpandedToolboxes {
   return {
     effectsOpen:
-      currentState.blurEnabled || currentState.sharpenEnabled || currentState.pixelateEnabled,
+      currentState.blurEnabled ||
+      currentState.sharpenEnabled ||
+      currentState.pixelateEnabled ||
+      currentState.brightnessEnabled ||
+      currentState.contrastEnabled ||
+      currentState.saturationEnabled,
     orientationOpen:
       currentState.autoRotateEnabled || currentState.flip !== "none" || currentState.rotate !== 0,
     requestOpen: true,
@@ -209,6 +214,27 @@ function applyOptionSegment(currentState: DemoState, segment: string): DemoState
       return parseNonNegativeIntegerOption(currentState, args, (value) => ({
         pixelateEnabled: value > 1,
         pixelate: value > 1 ? value : defaultDemoState.pixelate,
+      }));
+
+    case "br":
+    case "brightness":
+      return parseAdjustmentOption(currentState, args, (value) => ({
+        brightnessEnabled: value !== 0,
+        brightness: value !== 0 ? value : defaultDemoState.brightness,
+      }));
+
+    case "co":
+    case "contrast":
+      return parseAdjustmentOption(currentState, args, (value) => ({
+        contrastEnabled: value !== 0,
+        contrast: value !== 0 ? value : defaultDemoState.contrast,
+      }));
+
+    case "sa":
+    case "saturation":
+      return parseAdjustmentOption(currentState, args, (value) => ({
+        saturationEnabled: value !== 0,
+        saturation: value !== 0 ? value : defaultDemoState.saturation,
       }));
 
     case "g":
@@ -418,6 +444,24 @@ function parseNonNegativeIntegerOption(
   const value = parseNumber(args[0]);
 
   if (value === null || !Number.isInteger(value) || value < 0) {
+    return null;
+  }
+
+  return { ...currentState, ...buildPatch(value) };
+}
+
+function parseAdjustmentOption(
+  currentState: DemoState,
+  args: string[],
+  buildPatch: (value: number) => Partial<DemoState>,
+): DemoState | null {
+  if (args.length !== 1) {
+    return null;
+  }
+
+  const value = parseNumber(args[0]);
+
+  if (value === null || value < -100 || value > 100) {
     return null;
   }
 

@@ -204,6 +204,9 @@
       currentState.blurEnabled ? `bl:${currentState.blur}` : null,
       currentState.sharpenEnabled ? `sh:${currentState.sharpen}` : null,
       currentState.pixelateEnabled ? `pix:${currentState.pixelate}` : null,
+      currentState.brightnessEnabled ? `br:${currentState.brightness}` : null,
+      currentState.contrastEnabled ? `co:${currentState.contrast}` : null,
+      currentState.saturationEnabled ? `sa:${currentState.saturation}` : null,
     ].filter((segment): segment is string => segment !== null);
   }
 
@@ -1090,6 +1093,57 @@
                 max={controlLimits.effects.pixelate.max}
                 step={controlLimits.effects.pixelate.step}
                 suffix="px"
+              />
+            {/if}
+
+            <label class="switch-field">
+              <Switch.Root class="switch-root" bind:checked={state.brightnessEnabled}>
+                <Switch.Thumb class="switch-thumb" />
+              </Switch.Root>
+              <span>Brightness</span>
+            </label>
+            {#if state.brightnessEnabled}
+              <RangeNumber
+                label="Brightness"
+                bind:value={state.brightness}
+                min={controlLimits.effects.brightness.min}
+                max={controlLimits.effects.brightness.max}
+                step={controlLimits.effects.brightness.step}
+                suffix="%"
+              />
+            {/if}
+
+            <label class="switch-field">
+              <Switch.Root class="switch-root" bind:checked={state.contrastEnabled}>
+                <Switch.Thumb class="switch-thumb" />
+              </Switch.Root>
+              <span>Contrast</span>
+            </label>
+            {#if state.contrastEnabled}
+              <RangeNumber
+                label="Contrast"
+                bind:value={state.contrast}
+                min={controlLimits.effects.contrast.min}
+                max={controlLimits.effects.contrast.max}
+                step={controlLimits.effects.contrast.step}
+                suffix="%"
+              />
+            {/if}
+
+            <label class="switch-field">
+              <Switch.Root class="switch-root" bind:checked={state.saturationEnabled}>
+                <Switch.Thumb class="switch-thumb" />
+              </Switch.Root>
+              <span>Saturation</span>
+            </label>
+            {#if state.saturationEnabled}
+              <RangeNumber
+                label="Saturation"
+                bind:value={state.saturation}
+                min={controlLimits.effects.saturation.min}
+                max={controlLimits.effects.saturation.max}
+                step={controlLimits.effects.saturation.step}
+                suffix="%"
               />
             {/if}
           </Collapsible.Content>

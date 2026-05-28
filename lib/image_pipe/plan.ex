@@ -22,7 +22,9 @@ defmodule ImagePipe.Plan do
       Operation.AutoOrient,
       Operation.Background,
       Operation.Blur,
+      Operation.Brightness,
       Operation.Canvas,
+      Operation.Contrast,
       Operation.CropGuided,
       Operation.CropRegion,
       Operation.Flip,
@@ -30,6 +32,7 @@ defmodule ImagePipe.Plan do
       Operation.Pixelate,
       Operation.Rotate,
       Operation.Resize,
+      Operation.Saturation,
       Operation.Sharpen
     ]
 

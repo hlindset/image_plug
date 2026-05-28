@@ -1167,6 +1167,37 @@ defmodule ImagePipe.Parser.ImgproxyTest do
              {:error, {:invalid_format, "auto", ["webp", "avif", "jpeg", "jpg", "png", "best"]}}
   end
 
+  test "parses imgproxy brightness contrast and saturation effects" do
+    assert [:brightness, :contrast, :saturation] =
+             "/_/br:20/co:-15/sa:35/plain/images/cat.jpg"
+             |> operations_for()
+             |> operation_names()
+
+    assert [:brightness, :contrast, :saturation] =
+             "/_/brightness:20/contrast:-15/saturation:35/plain/images/cat.jpg"
+             |> operations_for()
+             |> operation_names()
+  end
+
+  test "plans imgproxy effects in fixed canonical order" do
+    operations =
+      "/_/sa:35/pix:8/co:-15/sh:0.7/br:20/bl:2.5/plain/images/cat.jpg"
+      |> operations_for()
+      |> operation_names()
+
+    assert operations == [:blur, :sharpen, :pixelate, :brightness, :contrast, :saturation]
+  end
+
+  test "skips zero imgproxy brightness contrast and saturation values" do
+    assert operations_for("/_/br:0/co:0/sa:0/plain/images/cat.jpg") == []
+  end
+
+  test "rejects out-of-range imgproxy brightness contrast and saturation values" do
+    assert {:error, _reason} = Imgproxy.parse(conn(:get, "/_/br:101/plain/images/cat.jpg"), [])
+    assert {:error, _reason} = Imgproxy.parse(conn(:get, "/_/co:-101/plain/images/cat.jpg"), [])
+    assert {:error, _reason} = Imgproxy.parse(conn(:get, "/_/sa:101/plain/images/cat.jpg"), [])
+  end
+
   test "parses processing options before validating output extension" do
     assert Imgproxy.parse(conn(:get, "/_/unknown:/plain/images/cat.jpg@unknown"), []) ==
              {:error, {:unknown_option, "unknown"}}
@@ -1653,6 +1684,12 @@ defmodule ImagePipe.Parser.ImgproxyTest do
   defp operation_name(%Operation.Rotate{}), do: :rotate
   defp operation_name(%Operation.CropGuided{}), do: :crop_guided
   defp operation_name(%Operation.Resize{}), do: :resize
+  defp operation_name(%Operation.Blur{}), do: :blur
+  defp operation_name(%Operation.Sharpen{}), do: :sharpen
+  defp operation_name(%Operation.Pixelate{}), do: :pixelate
+  defp operation_name(%Operation.Brightness{}), do: :brightness
+  defp operation_name(%Operation.Contrast{}), do: :contrast
+  defp operation_name(%Operation.Saturation{}), do: :saturation
 
   defp forbidden_parsed_transform_operations(%Plan{} = plan) do
     plan.pipelines

@@ -189,6 +189,26 @@ defmodule ImagePipe.RequestSafetyTest do
     end
   end
 
+  test "invalid imgproxy color effect values return before source identity cache lookup and origin" do
+    for path <- [
+          "/_/br:101/plain/images/cat.jpg",
+          "/_/co:-101/plain/images/cat.jpg",
+          "/_/sa:101/plain/images/cat.jpg"
+        ] do
+      conn =
+        ImagePipe.Plug.call(conn(:get, path),
+          parser: ImagePipe.Parser.Imgproxy,
+          sources: [path: {DenyingSourceAdapter, []}],
+          cache: {CacheProbe, []}
+        )
+
+      assert conn.status == 400
+      refute_received :source_resolve
+      refute_received :cache_lookup
+      refute_received :cache_put
+    end
+  end
+
   test "expired imgproxy requests return before source identity and cache work" do
     conn =
       ImagePipe.Plug.call(conn(:get, "/_/exp:100/plain/images/cat.jpg"),

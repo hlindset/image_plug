@@ -3,6 +3,7 @@ defmodule ImagePipe.Parser.Imgproxy.PlanBuilderTest do
   use ExUnitProperties
 
   alias ImagePipe.Format
+  alias ImagePipe.Parser.Imgproxy.Effects
   alias ImagePipe.Parser.Imgproxy.ParsedRequest
   alias ImagePipe.Parser.Imgproxy.PipelineRequest
   alias ImagePipe.Parser.Imgproxy.PlanBuilder
@@ -263,7 +264,10 @@ defmodule ImagePipe.Parser.Imgproxy.PlanBuilderTest do
                background_color: color!(10, 20, 30),
                blur: 2.5,
                sharpen: 0.7,
-               pixelate: 8
+               pixelate: 8,
+               brightness: 20,
+               contrast: -15,
+               saturation: 35
              )
 
     assert [
@@ -271,6 +275,9 @@ defmodule ImagePipe.Parser.Imgproxy.PlanBuilderTest do
              blur,
              sharpen,
              pixelate,
+             brightness,
+             contrast,
+             saturation,
              %Operation.Padding{},
              %Operation.Background{}
            ] = operations
@@ -281,11 +288,24 @@ defmodule ImagePipe.Parser.Imgproxy.PlanBuilderTest do
     assert sharpen.sigma == 0.7
     assert pixelate.__struct__ == ImagePipe.Plan.Operation.Pixelate
     assert pixelate.size == 8
+    assert brightness.__struct__ == ImagePipe.Plan.Operation.Brightness
+    assert brightness.value == 20
+    assert contrast.__struct__ == ImagePipe.Plan.Operation.Contrast
+    assert contrast.value == -15
+    assert saturation.__struct__ == ImagePipe.Plan.Operation.Saturation
+    assert saturation.value == 35
   end
 
   test "skips imgproxy effect no-op values" do
     assert {:ok, %Plan{pipelines: [%Pipeline{operations: operations}]}} =
-             plan_pipeline(blur: 0.0, sharpen: 0.0, pixelate: 0)
+             plan_pipeline(
+               blur: 0.0,
+               sharpen: 0.0,
+               pixelate: 0,
+               brightness: 0,
+               contrast: 0,
+               saturation: 0
+             )
 
     assert operations == []
 
@@ -876,7 +896,10 @@ defmodule ImagePipe.Parser.Imgproxy.PlanBuilderTest do
   end
 
   defp plan_pipeline(attrs) do
-    attrs = normalize_orientation_attrs(attrs)
+    attrs =
+      attrs
+      |> normalize_orientation_attrs()
+      |> normalize_effect_attrs()
 
     PlanBuilder.to_plan(
       %ParsedRequest{
@@ -908,6 +931,17 @@ defmodule ImagePipe.Parser.Imgproxy.PlanBuilderTest do
         Keyword.pop(attrs, :orientation, %ImagePipe.Parser.Imgproxy.Orientation{})
 
       Keyword.put(attrs, :orientation, struct!(orientation, orientation_attrs))
+    end
+  end
+
+  defp normalize_effect_attrs(attrs) do
+    {effect_attrs, attrs} =
+      Keyword.split(attrs, [:blur, :sharpen, :pixelate, :brightness, :contrast, :saturation])
+
+    if effect_attrs == [] do
+      attrs
+    else
+      Keyword.put(attrs, :effects, struct!(Effects, effect_attrs))
     end
   end
 

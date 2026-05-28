@@ -11,7 +11,9 @@ defmodule ImagePipe.Transform.DecodePlanner do
   alias ImagePipe.Plan.Operation.AutoOrient
   alias ImagePipe.Plan.Operation.Background
   alias ImagePipe.Plan.Operation.Blur
+  alias ImagePipe.Plan.Operation.Brightness
   alias ImagePipe.Plan.Operation.Canvas
+  alias ImagePipe.Plan.Operation.Contrast
   alias ImagePipe.Plan.Operation.CropGuided
   alias ImagePipe.Plan.Operation.CropRegion
   alias ImagePipe.Plan.Operation.Flip
@@ -19,6 +21,7 @@ defmodule ImagePipe.Transform.DecodePlanner do
   alias ImagePipe.Plan.Operation.Pixelate
   alias ImagePipe.Plan.Operation.Resize, as: PlanResize
   alias ImagePipe.Plan.Operation.Rotate
+  alias ImagePipe.Plan.Operation.Saturation
   alias ImagePipe.Plan.Operation.Sharpen
 
   @type access_requirement() :: :sequential | :random | :neutral
@@ -51,6 +54,9 @@ defmodule ImagePipe.Transform.DecodePlanner do
   defp access_requirement(%Blur{}), do: :random
   defp access_requirement(%Sharpen{}), do: :random
   defp access_requirement(%Pixelate{}), do: :random
+  defp access_requirement(%Brightness{}), do: :random
+  defp access_requirement(%Contrast{}), do: :random
+  defp access_requirement(%Saturation{}), do: :random
 
   defp resize_access_requirement(%PlanResize{
          width: width,
