@@ -157,6 +157,15 @@ defmodule ImagePipe.Transform.Operation.Crop do
     with {:ok, crop} <- crop_dimensions(params, image_width, image_height),
          {:ok, crop_width} <- crop_dimension(crop.width, image_width),
          {:ok, crop_height} <- crop_dimension(crop.height, image_height),
+         {crop_width, crop_height} =
+           correct_aspect_ratio(
+             crop_width,
+             crop_height,
+             params.aspect_ratio,
+             params.enlarge,
+             image_width,
+             image_height
+           ),
          {:ok, gravity} <- crop_gravity(default_if_nil(params.gravity, @default_gravity)),
          {:ok, offset_scale} <- offset_scale(crop.offset_scale),
          {:ok, x_offset} <-
@@ -337,5 +346,33 @@ defmodule ImagePipe.Transform.Operation.Crop do
     center_x = round(left + crop_width / 2)
     center_y = round(top + crop_height / 2)
     {center_x, center_y}
+  end
+
+  defp correct_aspect_ratio(width, height, nil, _enlarge, _image_width, _image_height),
+    do: {width, height}
+
+  defp correct_aspect_ratio(width, height, {:ratio, numerator, denominator}, enlarge, image_width, image_height) do
+    target = numerator / denominator
+    current = width / height
+
+    {corrected_width, corrected_height} =
+      cond do
+        current == target -> {width, height}
+        enlarge and current > target -> {width, round_ties_to_even(width / target)}
+        enlarge -> {round_ties_to_even(height * target), height}
+        current > target -> {round_ties_to_even(height * target), height}
+        true -> {width, round_ties_to_even(width / target)}
+      end
+
+    clamp_to_bounds(corrected_width, corrected_height, image_width, image_height)
+  end
+
+  defp clamp_to_bounds(width, height, image_width, image_height) do
+    scale = min(1.0, min(image_width / width, image_height / height))
+
+    width = max(1, min(image_width, round_ties_to_even(width * scale)))
+    height = max(1, min(image_height, round_ties_to_even(height * scale)))
+
+    {width, height}
   end
 end
