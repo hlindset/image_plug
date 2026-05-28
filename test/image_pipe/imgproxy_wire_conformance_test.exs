@@ -263,6 +263,29 @@ defmodule ImagePipe.ImgproxyWireConformanceTest do
     end
   end
 
+  test "exar:1 under fit extends the canvas to the resize aspect ratio" do
+    # beach.jpg is 4000x2667 (landscape). rs:fit:300:300 scales it to 300x200 (width
+    # is the binding axis). exar:1 extends the canvas to the 1:1 requested ratio,
+    # padding the deficient axis: height grows from 200 to 300, giving a 300x300 output.
+    conn = call_imgproxy("/_/rs:fit:300:300/exar:1/f:jpeg/plain/images/beach.jpg", @default_opts)
+
+    assert conn.status == 200
+    assert dimensions(conn) == {300, 300}
+  end
+
+  test "exar:1 under force is a no-op when the image already matches the requested ratio" do
+    # beach.jpg is 4000x2667. rs:force:300:200 hard-scales it to exactly 300x200.
+    # exar:1 would extend to the requested 300:200 (3:2) ratio, but the canvas is
+    # already 3:2, so no padding is added and output dimensions are identical.
+    base = call_imgproxy("/_/rs:force:300:200/f:jpeg/plain/images/beach.jpg", @default_opts)
+    with_exar = call_imgproxy("/_/rs:force:300:200/exar:1/f:jpeg/plain/images/beach.jpg", @default_opts)
+
+    assert base.status == 200
+    assert with_exar.status == 200
+    assert dimensions(base) == {300, 200}
+    assert dimensions(with_exar) == {300, 200}
+  end
+
   test "effect options change decoded response pixels without geometry options" do
     baseline =
       "/_/f:png/plain/images/effects.png"
