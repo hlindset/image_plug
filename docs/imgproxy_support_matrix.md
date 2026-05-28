@@ -503,9 +503,9 @@ transforms or output encoding.
 | `saturation` | `sa` | Missing | Pro color control. |
 | `monochrome` | `mc` | Missing | Pro color effect. |
 | `duotone` | `dt` | Missing | Pro color effect. |
-| `blur` | `bl` | Missing | No blur operation yet. |
-| `sharpen` | `sh` | Missing | No sharpen operation yet. |
-| `pixelate` | `pix` | Missing | No pixelate operation yet. |
+| `blur` | `bl` | Supported | Non-negative sigma value. `0` parses as an Imgproxy-compatible no-op. Runs before canvas extension and background flattening. |
+| `sharpen` | `sh` | Supported | Non-negative sigma value. `0` parses as an Imgproxy-compatible no-op. Runs after blur when both are present. |
+| `pixelate` | `pix` | Supported | Non-negative integer size. `0` and `1` parse as Imgproxy-compatible no-ops. |
 | `unsharp_masking` | `ush` | Missing | Pro advanced sharpening controls. |
 | `blur_areas` | `ba` | Missing | Pro area blur. |
 | `blur_detections` | `bd` | Missing | Pro object-detection blur. |

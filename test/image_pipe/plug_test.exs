@@ -618,7 +618,7 @@ defmodule ImagePipe.PlugTest do
               "thumb" => "rs:fit:120:120",
               "nested" => "pr:thumb/q:82",
               "responsive" => "w:900/-/w:450",
-              "future" => "sharpen:0.7"
+              "future" => "watermark:0.5"
             }
           ]
         ] ++ default_source_opts("https://example.test")
@@ -638,7 +638,7 @@ defmodule ImagePipe.PlugTest do
     assert {:ok, [["w:900"], ["w:450"]]} =
              ImagePipe.Parser.Imgproxy.Presets.fetch(presets, "responsive")
 
-    assert {:ok, [["sharpen:0.7"]]} =
+    assert {:ok, [["watermark:0.5"]]} =
              ImagePipe.Parser.Imgproxy.Presets.fetch(presets, "future")
   end
 
@@ -1740,7 +1740,7 @@ defmodule ImagePipe.PlugTest do
       init_image_pipe(
         root_url: "http://origin.test",
         parser: ImagePipe.Parser.Imgproxy,
-        imgproxy: [presets: %{"future" => "sharpen:0.7"}],
+        imgproxy: [presets: %{"future" => "watermark:0.5"}],
         cache: {CacheProbe, message_target: cache_probe},
         origin_req_options: [plug: OriginShouldNotBeCalled]
       )

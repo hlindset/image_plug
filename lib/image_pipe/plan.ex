@@ -21,13 +21,16 @@ defmodule ImagePipe.Plan do
       Operation,
       Operation.AutoOrient,
       Operation.Background,
+      Operation.Blur,
       Operation.Canvas,
       Operation.CropGuided,
       Operation.CropRegion,
       Operation.Flip,
       Operation.Padding,
+      Operation.Pixelate,
       Operation.Rotate,
-      Operation.Resize
+      Operation.Resize,
+      Operation.Sharpen
     ]
 
   alias ImagePipe.Plan.Operation

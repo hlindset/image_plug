@@ -46,6 +46,12 @@ export type DemoState = {
   backgroundEnabled: boolean;
   backgroundColor: string;
   backgroundAlpha: number;
+  blurEnabled: boolean;
+  blur: number;
+  sharpenEnabled: boolean;
+  sharpen: number;
+  pixelateEnabled: boolean;
+  pixelate: number;
   gravityEnabled: boolean;
   gravityMode: GravityMode;
   gravity: Gravity;
@@ -113,6 +119,11 @@ export const controlLimits = {
   },
   padding: { min: 0, max: 240, step: 1 },
   alpha: { min: 0, max: 1, step: 0.1 },
+  effects: {
+    blur: { min: 0.1, max: 10, step: 0.1 },
+    sharpen: { min: 0.1, max: 10, step: 0.1 },
+    pixelate: { min: 2, max: 80, step: 1 },
+  },
   focalPoint: { min: 0, max: 1, step: 0.01 },
   gravityOffset: { min: -200, max: 200, step: 0.01 },
   quality: { min: 0, max: 100, step: 1 },
@@ -123,6 +134,7 @@ export const controlLimits = {
   aspectCanvas: Record<ImageDimensionAxis, NumericControlLimit>;
   padding: NumericControlLimit;
   alpha: NumericControlLimit;
+  effects: Record<"blur" | "sharpen" | "pixelate", NumericControlLimit>;
   focalPoint: NumericControlLimit;
   gravityOffset: NumericControlLimit;
   quality: NumericControlLimit;
@@ -201,6 +213,12 @@ export const defaultDemoState: DemoState = {
   backgroundEnabled: false,
   backgroundColor: "#ffffff",
   backgroundAlpha: 1,
+  blurEnabled: false,
+  blur: 2,
+  sharpenEnabled: false,
+  sharpen: 1,
+  pixelateEnabled: false,
+  pixelate: 8,
   gravityEnabled: false,
   gravityMode: "anchor",
   gravity: "ce",
@@ -296,6 +314,18 @@ export function optionSegments(currentState: DemoState): string[] {
     if (currentState.backgroundAlpha < 1) {
       segments.push(`bga:${currentState.backgroundAlpha}`);
     }
+  }
+
+  if (currentState.blurEnabled) {
+    segments.push(`bl:${currentState.blur}`);
+  }
+
+  if (currentState.sharpenEnabled) {
+    segments.push(`sh:${currentState.sharpen}`);
+  }
+
+  if (currentState.pixelateEnabled) {
+    segments.push(`pix:${currentState.pixelate}`);
   }
 
   if (currentState.gravityEnabled) {

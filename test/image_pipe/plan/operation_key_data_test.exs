@@ -1,11 +1,14 @@
 defmodule ImagePipe.Plan.OperationKeyDataTest do
   use ExUnit.Case, async: true
 
-  alias ImagePipe.Plan.Operation
   alias ImagePipe.Plan.KeyData
+  alias ImagePipe.Plan.Operation
   alias ImagePipe.Plan.Operation.AutoOrient
+  alias ImagePipe.Plan.Operation.Blur
   alias ImagePipe.Plan.Operation.Flip
+  alias ImagePipe.Plan.Operation.Pixelate
   alias ImagePipe.Plan.Operation.Rotate
+  alias ImagePipe.Plan.Operation.Sharpen
 
   describe "tagged geometry data" do
     test "returns key data for symbolic dimensions" do
@@ -185,6 +188,14 @@ defmodule ImagePipe.Plan.OperationKeyDataTest do
       assert KeyData.data(%AutoOrient{}) == [op: :auto_orient]
       assert KeyData.data(%Rotate{angle: 270}) == [op: :rotate, angle: 270]
       assert KeyData.data(%Flip{axis: :both}) == [op: :flip, axis: :both]
+    end
+  end
+
+  describe "effect operation data" do
+    test "returns key data for semantic effect operations" do
+      assert KeyData.data(%Blur{sigma: 2.5}) == [op: :blur, sigma: 2.5]
+      assert KeyData.data(%Sharpen{sigma: 0.7}) == [op: :sharpen, sigma: 0.7]
+      assert KeyData.data(%Pixelate{size: 8}) == [op: :pixelate, size: 8]
     end
   end
 end

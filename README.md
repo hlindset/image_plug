@@ -103,8 +103,9 @@ a valid HMAC signature or an exact configured trusted signature.
 ## Current support boundaries
 
 ImagePipe currently supports the Imgproxy-style path parser, selected resize,
-crop, orientation, canvas, padding, background, output, cachebuster, expiry,
-filename, attachment, and preset options documented in the support matrix.
+crop, orientation, canvas, padding, background, blur, sharpen, pixelate, output,
+cachebuster, expiry, filename, attachment, and preset options documented in the
+support matrix.
 Unsupported parser and planner requests fail before cache lookup or source
 fetch.
 

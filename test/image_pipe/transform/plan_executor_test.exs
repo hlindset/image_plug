@@ -286,6 +286,55 @@ defmodule ImagePipe.Transform.PlanExecutorTest do
     end
   end
 
+  describe "effect execution" do
+    test "blur softens hard color boundaries without changing dimensions" do
+      assert {:ok, blur} = Operation.blur(2.0)
+
+      assert {:ok, %State{} = state} =
+               Transform.execute_plan(plan([blur]), state_with_split_image(), [])
+
+      assert dimensions(state.image) == {2, 1}
+      assert rgb_pixel(state.image, 0, 0) != [255, 0, 0]
+      assert rgb_pixel(state.image, 1, 0) != [0, 0, 255]
+    end
+
+    test "sharpen preserves dimensions" do
+      assert {:ok, sharpen} = Operation.sharpen(1.0)
+
+      assert {:ok, %State{} = state} =
+               Transform.execute_plan(plan([sharpen]), state_with_image(20, 20), [])
+
+      assert dimensions(state.image) == {20, 20}
+    end
+
+    test "pixelate groups pixels using the requested block size" do
+      assert {:ok, pixelate} = Operation.pixelate(2)
+
+      assert {:ok, %State{} = state} =
+               Transform.execute_plan(plan([pixelate]), state_with_striped_image(), [])
+
+      assert dimensions(state.image) == {4, 2}
+      assert rgb_pixel(state.image, 0, 0) == rgb_pixel(state.image, 1, 0)
+      assert rgb_pixel(state.image, 2, 0) == rgb_pixel(state.image, 3, 0)
+    end
+
+    test "pixelate preserves dimensions for non-divisible and oversized block sizes" do
+      assert {:ok, non_divisible} = Operation.pixelate(2)
+
+      assert {:ok, %State{} = state} =
+               Transform.execute_plan(plan([non_divisible]), state_with_image(5, 3), [])
+
+      assert dimensions(state.image) == {5, 3}
+
+      assert {:ok, oversized} = Operation.pixelate(100)
+
+      assert {:ok, %State{} = state} =
+               Transform.execute_plan(plan([oversized]), state_with_image(10, 10), [])
+
+      assert dimensions(state.image) == {10, 10}
+    end
+  end
+
   test "resize auto executes against current image state" do
     assert {:ok, operation} =
              Operation.resize(:auto, {:px, 300}, {:px, 200}, enlargement: :deny)
@@ -402,6 +451,18 @@ defmodule ImagePipe.Transform.PlanExecutorTest do
       |> Image.new!(1, color: :black)
       |> Image.Draw.rect!(0, 0, 1, 1, color: :red)
       |> Image.Draw.rect!(1, 0, 1, 1, color: :blue)
+
+    %State{image: image}
+  end
+
+  defp state_with_striped_image do
+    image =
+      4
+      |> Image.new!(2, color: :black)
+      |> Image.Draw.rect!(0, 0, 1, 2, color: :red)
+      |> Image.Draw.rect!(1, 0, 1, 2, color: :green)
+      |> Image.Draw.rect!(2, 0, 1, 2, color: :blue)
+      |> Image.Draw.rect!(3, 0, 1, 2, color: :white)
 
     %State{image: image}
   end

@@ -5,23 +5,29 @@ defmodule ImagePipe.Transform.PlanExecutor do
   alias ImagePipe.Plan.Color
   alias ImagePipe.Plan.Operation.AutoOrient, as: PlanAutoOrient
   alias ImagePipe.Plan.Operation.Background, as: PlanBackground
+  alias ImagePipe.Plan.Operation.Blur, as: PlanBlur
   alias ImagePipe.Plan.Operation.Canvas
   alias ImagePipe.Plan.Operation.CropGuided
   alias ImagePipe.Plan.Operation.CropRegion
   alias ImagePipe.Plan.Operation.Flip, as: PlanFlip
   alias ImagePipe.Plan.Operation.Padding, as: PlanPadding
-  alias ImagePipe.Plan.Operation.Rotate, as: PlanRotate
+  alias ImagePipe.Plan.Operation.Pixelate, as: PlanPixelate
   alias ImagePipe.Plan.Operation.Resize, as: PlanResize
+  alias ImagePipe.Plan.Operation.Rotate, as: PlanRotate
+  alias ImagePipe.Plan.Operation.Sharpen, as: PlanSharpen
   alias ImagePipe.Plan.Pipeline
   alias ImagePipe.Transform.Chain
   alias ImagePipe.Transform.Operation.AutoOrient
   alias ImagePipe.Transform.Operation.Background
+  alias ImagePipe.Transform.Operation.Blur
   alias ImagePipe.Transform.Operation.Crop
   alias ImagePipe.Transform.Operation.ExtendCanvas
   alias ImagePipe.Transform.Operation.Flip
   alias ImagePipe.Transform.Operation.Padding
+  alias ImagePipe.Transform.Operation.Pixelate
   alias ImagePipe.Transform.Operation.Resize
   alias ImagePipe.Transform.Operation.Rotate
+  alias ImagePipe.Transform.Operation.Sharpen
   alias ImagePipe.Transform.State
 
   @spec execute(Plan.t(), State.t(), keyword()) ::
@@ -174,6 +180,15 @@ defmodule ImagePipe.Transform.PlanExecutor do
 
   defp executable_operations(%PlanFlip{axis: axis}, %State{}, _context),
     do: [%Flip{axis: axis}]
+
+  defp executable_operations(%PlanBlur{sigma: sigma}, %State{}, _context),
+    do: [%Blur{sigma: sigma}]
+
+  defp executable_operations(%PlanSharpen{sigma: sigma}, %State{}, _context),
+    do: [%Sharpen{sigma: sigma}]
+
+  defp executable_operations(%PlanPixelate{size: size}, %State{}, _context),
+    do: [%Pixelate{size: size}]
 
   defp tagged_executable_resize_operations(
          :cover,

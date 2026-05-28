@@ -89,6 +89,10 @@ Parser/planner code should use these semantic operations:
 - `ImagePipe.Plan.Operation.Rotate`: right-angle rotation intent.
 - `ImagePipe.Plan.Operation.Flip`: horizontal, vertical, or both-axis flip
   intent.
+- `ImagePipe.Plan.Operation.Blur`: Gaussian blur with a positive sigma.
+- `ImagePipe.Plan.Operation.Sharpen`: sharpening with a positive sigma.
+- `ImagePipe.Plan.Operation.Pixelate`: pixelation with a block size greater
+  than one pixel.
 - `ImagePipe.Plan.Color`: canonical product-neutral sRGB color data with alpha.
 
 Plan pipelines should contain semantic Plan operation structs only. Transform
@@ -110,6 +114,9 @@ describe work over `ImagePipe.Transform.State`, not parser request syntax:
 - `ImagePipe.Transform.Operation.AutoOrient`: executable EXIF autorotation.
 - `ImagePipe.Transform.Operation.Rotate`: executable right-angle rotation.
 - `ImagePipe.Transform.Operation.Flip`: executable flip.
+- `ImagePipe.Transform.Operation.Blur`: executable Gaussian blur.
+- `ImagePipe.Transform.Operation.Sharpen`: executable sharpening.
+- `ImagePipe.Transform.Operation.Pixelate`: executable pixelation.
 
 `ImagePipe.Transform.Operation.AdaptiveResize` is obsolete. Resize
 `mode: :auto` belongs in `ImagePipe.Plan.Operation.Resize`. Parsers must not emit
@@ -183,6 +190,18 @@ RGB channels with alpha and serializes into structured cache key data.
 Third-party color package structs stay behind `ImagePipe.Plan.Color` and must
 not leak into parser request structs, runtime state, or cache key data.
 
+## Effect operations
+
+Use semantic `Blur`, `Sharpen`, and `Pixelate` when a dialect requests full-image
+effects. These operations are product-neutral image effects. Parser aliases such
+as Imgproxy `bl`, `sh`, and `pix` stay in parser code.
+
+Imgproxy effect order is blur, sharpen, then pixelate, after result cropping and
+before canvas extension, padding, and background composition. Imgproxy treats
+blur and sharpen sigma `0` as no-ops, and pixelate sizes of `1` or lower as
+no-ops. ImagePipe accepts those no-op values in the Imgproxy parser and emits no
+semantic operation.
+
 ## Decode planning
 
 Before source metadata is available, decode/open planning must treat semantic
@@ -224,6 +243,7 @@ should describe their own URL syntax.
 | `ar/rot:90/fl:true:false/c:100:100` | `AutoOrient`, `Rotate`, `Flip`, `CropGuided` |
 | `extend:true/w:300/h:200` | `Resize` with `mode: :fit`, `Canvas` |
 | `pd:10/bg:f00` | `Padding`, `Background` |
+| `bl:2/sh:0.7/pix:8` | `Blur`, `Sharpen`, `Pixelate` |
 
 ## Boundary rules
 

@@ -73,6 +73,16 @@ defmodule ImagePipe.Transform.DecodePlannerTest do
     assert DecodePlanner.open_options([background]) == [access: :random, fail_on: :error]
   end
 
+  test "effect operations force random access" do
+    assert {:ok, blur} = Operation.blur(2.0)
+    assert {:ok, sharpen} = Operation.sharpen(0.7)
+    assert {:ok, pixelate} = Operation.pixelate(8)
+
+    assert DecodePlanner.open_options([blur]) == [access: :random, fail_on: :error]
+    assert DecodePlanner.open_options([sharpen]) == [access: :random, fail_on: :error]
+    assert DecodePlanner.open_options([pixelate]) == [access: :random, fail_on: :error]
+  end
+
   test "planned options include only access and fail_on" do
     assert {:ok, resize} = Operation.resize(:fit, {:px, 120}, :auto)
 

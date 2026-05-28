@@ -6,13 +6,16 @@ defmodule ImagePipe.Plan.Operation do
   alias ImagePipe.Plan.Color
   alias ImagePipe.Plan.Operation.AutoOrient
   alias ImagePipe.Plan.Operation.Background
+  alias ImagePipe.Plan.Operation.Blur
   alias ImagePipe.Plan.Operation.Canvas
   alias ImagePipe.Plan.Operation.CropGuided
   alias ImagePipe.Plan.Operation.CropRegion
   alias ImagePipe.Plan.Operation.Flip
   alias ImagePipe.Plan.Operation.Padding
-  alias ImagePipe.Plan.Operation.Rotate
+  alias ImagePipe.Plan.Operation.Pixelate
   alias ImagePipe.Plan.Operation.Resize
+  alias ImagePipe.Plan.Operation.Rotate
+  alias ImagePipe.Plan.Operation.Sharpen
 
   @enlargements [:allow, :deny]
   @right_angles [90, 180, 270]
@@ -63,6 +66,11 @@ defmodule ImagePipe.Plan.Operation do
           | Rotate.t()
           | Flip.t()
 
+  @type effect_operation ::
+          Blur.t()
+          | Sharpen.t()
+          | Pixelate.t()
+
   @type semantic_operation ::
           resize_operation()
           | crop_operation()
@@ -70,6 +78,7 @@ defmodule ImagePipe.Plan.Operation do
           | padding_operation()
           | background_operation()
           | orientation_operation()
+          | effect_operation()
 
   @type error ::
           {:invalid_operation, atom(), term()} | {:unknown_operation_options, atom(), [atom()]}
@@ -84,6 +93,22 @@ defmodule ImagePipe.Plan.Operation do
   @spec flip(term()) :: {:ok, Flip.t()} | {:error, error()}
   def flip(axis) when axis in @flip_axes, do: {:ok, %Flip{axis: axis}}
   def flip(axis), do: invalid(:flip, [axis])
+
+  @spec blur(term()) :: {:ok, Blur.t()} | {:error, error()}
+  def blur(sigma) when is_number(sigma) and sigma > 0,
+    do: {:ok, %Blur{sigma: sigma * 1.0}}
+
+  def blur(sigma), do: invalid(:blur, [sigma])
+
+  @spec sharpen(term()) :: {:ok, Sharpen.t()} | {:error, error()}
+  def sharpen(sigma) when is_number(sigma) and sigma > 0,
+    do: {:ok, %Sharpen{sigma: sigma * 1.0}}
+
+  def sharpen(sigma), do: invalid(:sharpen, [sigma])
+
+  @spec pixelate(term()) :: {:ok, Pixelate.t()} | {:error, error()}
+  def pixelate(size) when is_integer(size) and size > 1, do: {:ok, %Pixelate{size: size}}
+  def pixelate(size), do: invalid(:pixelate, [size])
 
   @spec color(term(), term(), term()) :: {:ok, Color.t()} | {:error, term()}
   def color(red, green, blue), do: Color.rgb(red, green, blue)
@@ -261,6 +286,9 @@ defmodule ImagePipe.Plan.Operation do
   def semantic?(%AutoOrient{}), do: true
   def semantic?(%Rotate{angle: angle}) when angle in @right_angles, do: true
   def semantic?(%Flip{axis: axis}) when axis in @flip_axes, do: true
+  def semantic?(%Blur{} = operation), do: valid_positive_float?(operation.sigma)
+  def semantic?(%Sharpen{} = operation), do: valid_positive_float?(operation.sigma)
+  def semantic?(%Pixelate{} = operation), do: valid_pixelate_size?(operation.size)
   def semantic?(_operation), do: false
 
   defp invalid(operation, attrs), do: {:error, {:invalid_operation, operation, attrs}}
@@ -339,6 +367,12 @@ defmodule ImagePipe.Plan.Operation do
   end
 
   defp valid_background?(%Background{color: color}), do: Color.valid?(color)
+
+  defp valid_positive_float?(value) when is_float(value) and value > 0.0, do: true
+  defp valid_positive_float?(_value), do: false
+
+  defp valid_pixelate_size?(value) when is_integer(value) and value > 1, do: true
+  defp valid_pixelate_size?(_value), do: false
 
   defp validate_known_options(operation, attrs, known_keys) do
     case Keyword.keys(attrs) -- known_keys do

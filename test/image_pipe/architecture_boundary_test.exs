@@ -389,7 +389,10 @@ defmodule ImagePipe.ArchitectureBoundaryTest do
       ImagePipe.Transform.Operation.AutoOrient,
       ImagePipe.Transform.Operation.Rotate,
       ImagePipe.Transform.Operation.Flip,
-      ImagePipe.Transform.Operation.Crop
+      ImagePipe.Transform.Operation.Crop,
+      ImagePipe.Transform.Operation.Blur,
+      ImagePipe.Transform.Operation.Sharpen,
+      ImagePipe.Transform.Operation.Pixelate
     ])
   end
 
@@ -413,13 +416,16 @@ defmodule ImagePipe.ArchitectureBoundaryTest do
       ImagePipe.Plan.Operation,
       ImagePipe.Plan.Operation.AutoOrient,
       ImagePipe.Plan.Operation.Background,
+      ImagePipe.Plan.Operation.Blur,
       ImagePipe.Plan.Operation.Canvas,
       ImagePipe.Plan.Operation.CropGuided,
       ImagePipe.Plan.Operation.CropRegion,
       ImagePipe.Plan.Operation.Flip,
       ImagePipe.Plan.Operation.Padding,
+      ImagePipe.Plan.Operation.Pixelate,
       ImagePipe.Plan.Operation.Rotate,
-      ImagePipe.Plan.Operation.Resize
+      ImagePipe.Plan.Operation.Resize,
+      ImagePipe.Plan.Operation.Sharpen
     ])
   end
 

@@ -133,9 +133,10 @@ Within each pipeline group, ImagePipe uses this fixed operation order:
 2. explicit crop
 3. resize intent, including `mode: :auto`
 4. result crop for `fill`, `fill-down`, and `auto` target geometry
-5. canvas extension
-6. padding
-7. background flattening
+5. effects, in `blur`, `sharpen`, then `pixelate` order
+6. canvas extension
+7. padding
+8. background flattening
 
 ## Option ordering and conflict resolution
 
@@ -222,6 +223,9 @@ Remaining queued groups become trailing pipelines.
 | Extend aspect ratio | `extend_aspect_ratio`, `extend_ar`, `exar` | positive `<width>:<height>` ratio numbers |
 | Padding | `padding`, `pd` | CSS-style top/right/bottom/left non-negative pixel integers |
 | Background | `background`, `bg` | `R:G:B`, 3 digit hex, 6 digit hex, or empty to clear |
+| Blur | `blur`, `bl` | non-negative sigma number. `0` means no-op |
+| Sharpen | `sharpen`, `sh` | non-negative sigma number. `0` means no-op |
+| Pixelate | `pixelate`, `pix` | non-negative integer block size. `0` and `1` mean no-op |
 | Crop | `crop`, `c` | `<width>:<height>`, optional gravity, optional offsets |
 | Gravity | `gravity`, `g` | anchor, anchor with offsets `<anchor>:<x_offset>:<y_offset>`, or focal point `fp:<x>:<y>` |
 | Auto rotate | `auto_rotate`, `ar` | boolean |
@@ -384,6 +388,20 @@ Imgproxy's default black background.
 request.
 
 Composition order is canvas extension, padding, then `background`.
+
+## Effects
+
+`blur:%sigma` and `bl:%sigma` apply Gaussian blur. `sharpen:%sigma` and
+`sh:%sigma` apply sharpening. Sigma values must be non-negative numbers. A
+sigma value of `0` parses and emits no operation.
+
+`pixelate:%size` and `pix:%size` pixelate the current image. Size must be a
+non-negative integer. `pix:0` and `pix:1` parse and emit no operation, matching
+Imgproxy's pixelation no-op threshold.
+
+Effects run after result cropping and before canvas extension, padding, and
+background composition. When more than one effect appears in a pipeline group,
+ImagePipe runs them in `blur`, `sharpen`, then `pixelate` order.
 
 ## Output format and quality
 

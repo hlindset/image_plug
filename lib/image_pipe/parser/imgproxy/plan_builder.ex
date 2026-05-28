@@ -1,6 +1,7 @@
 defmodule ImagePipe.Parser.Imgproxy.PlanBuilder do
   @moduledoc false
 
+  alias ImagePipe.Format
   alias ImagePipe.Parser.Imgproxy.CropRequest
   alias ImagePipe.Parser.Imgproxy.Orientation
   alias ImagePipe.Parser.Imgproxy.ParsedRequest
@@ -15,7 +16,6 @@ defmodule ImagePipe.Parser.Imgproxy.PlanBuilder do
   alias ImagePipe.Plan.Source.Path
   alias ImagePipe.Plan.Source.Reference
   alias ImagePipe.Plan.Source.URL
-  alias ImagePipe.Format
 
   @default_gravity {:anchor, :center, :center}
 
@@ -215,6 +215,7 @@ defmodule ImagePipe.Parser.Imgproxy.PlanBuilder do
     with {:ok, orientation_operations} <- orientation_operations(request),
          {:ok, crop_operations} <- crop_operations(request),
          {:ok, resize_operations} <- resize_operations(request),
+         {:ok, effect_operations} <- effect_operations(request),
          {:ok, canvas_operations} <- canvas_operations(request),
          {:ok, padding_operations} <- padding_operations(request),
          {:ok, background_operations} <- background_operations(request) do
@@ -222,6 +223,7 @@ defmodule ImagePipe.Parser.Imgproxy.PlanBuilder do
        orientation_operations ++
          crop_operations ++
          resize_operations ++
+         effect_operations ++
          canvas_operations ++
          padding_operations ++
          background_operations}
@@ -431,6 +433,29 @@ defmodule ImagePipe.Parser.Imgproxy.PlanBuilder do
       {:ok, [operation]}
     end
   end
+
+  defp effect_operations(%PipelineRequest{} = request) do
+    [
+      blur_operation(request),
+      sharpen_operation(request),
+      pixelate_operation(request)
+    ]
+    |> Enum.reject(&is_nil/1)
+    |> reduce_results()
+  end
+
+  defp blur_operation(%PipelineRequest{blur: nil}), do: nil
+  defp blur_operation(%PipelineRequest{blur: sigma}) when sigma == 0.0, do: nil
+  defp blur_operation(%PipelineRequest{blur: sigma}), do: Operation.blur(sigma)
+
+  defp sharpen_operation(%PipelineRequest{sharpen: nil}), do: nil
+  defp sharpen_operation(%PipelineRequest{sharpen: sigma}) when sigma == 0.0, do: nil
+  defp sharpen_operation(%PipelineRequest{sharpen: sigma}), do: Operation.sharpen(sigma)
+
+  defp pixelate_operation(%PipelineRequest{pixelate: nil}), do: nil
+  defp pixelate_operation(%PipelineRequest{pixelate: 0}), do: nil
+  defp pixelate_operation(%PipelineRequest{pixelate: 1}), do: nil
+  defp pixelate_operation(%PipelineRequest{pixelate: size}), do: Operation.pixelate(size)
 
   defp resize_operation(%PipelineRequest{} = request) do
     with {:ok, width} <- imgproxy_resize_dimension(request.width),

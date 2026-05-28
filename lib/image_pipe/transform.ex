@@ -23,7 +23,10 @@ defmodule ImagePipe.Transform do
       Operation.AutoOrient,
       Operation.Rotate,
       Operation.Flip,
-      Operation.Crop
+      Operation.Crop,
+      Operation.Blur,
+      Operation.Sharpen,
+      Operation.Pixelate
     ]
 
   alias ImagePipe.Plan

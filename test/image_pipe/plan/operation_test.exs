@@ -3,8 +3,11 @@ defmodule ImagePipe.Plan.OperationTest do
 
   alias ImagePipe.Plan.Operation
   alias ImagePipe.Plan.Operation.AutoOrient
+  alias ImagePipe.Plan.Operation.Blur
   alias ImagePipe.Plan.Operation.Flip
+  alias ImagePipe.Plan.Operation.Pixelate
   alias ImagePipe.Plan.Operation.Rotate
+  alias ImagePipe.Plan.Operation.Sharpen
 
   describe "resize constructors" do
     test "build unified resize operations through exported constructor" do
@@ -359,6 +362,28 @@ defmodule ImagePipe.Plan.OperationTest do
       refute Operation.semantic?(%ImagePipe.Transform.Operation.AutoOrient{})
       refute Operation.semantic?(%ImagePipe.Transform.Operation.Rotate{angle: 90})
       refute Operation.semantic?(%ImagePipe.Transform.Operation.Flip{axis: :horizontal})
+    end
+  end
+
+  describe "effect operations" do
+    test "constructs semantic effect operations" do
+      assert Operation.blur(2.5) == {:ok, %Blur{sigma: 2.5}}
+      assert Operation.sharpen(0.7) == {:ok, %Sharpen{sigma: 0.7}}
+      assert Operation.pixelate(8) == {:ok, %Pixelate{size: 8}}
+
+      assert Operation.semantic?(%Blur{sigma: 2.5})
+      assert Operation.semantic?(%Sharpen{sigma: 0.7})
+      assert Operation.semantic?(%Pixelate{size: 8})
+    end
+
+    test "rejects non-positive effect values" do
+      assert Operation.blur(0) == {:error, {:invalid_operation, :blur, [0]}}
+      assert Operation.sharpen(-1.0) == {:error, {:invalid_operation, :sharpen, [-1.0]}}
+      assert Operation.pixelate(0) == {:error, {:invalid_operation, :pixelate, [0]}}
+
+      refute Operation.semantic?(%Blur{sigma: 0})
+      refute Operation.semantic?(%Sharpen{sigma: -1.0})
+      refute Operation.semantic?(%Pixelate{size: 0})
     end
   end
 end
