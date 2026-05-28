@@ -118,7 +118,8 @@ defmodule ImagePipe.MixProject do
       {:boundary, "~> 0.10", runtime: false},
       {:excoveralls, ">= 0.0.0", only: [:test], runtime: false},
       {:ex_doc, "~> 0.35", only: :dev, runtime: false},
-      {:credo, "~> 1.7", only: [:dev, :test], runtime: false}
+      {:credo, "~> 1.7", only: [:dev, :test], runtime: false},
+      {:talan, "~> 0.2.1"}
     ]
   end
 
