@@ -1,6 +1,8 @@
 defmodule ImagePipe.Cache.FileSystem.Sketch do
   @moduledoc false
 
+  import Bitwise
+
   @enforce_keys [:depth, :width, :sample_size, :counters, :aging_epoch, :increments_since_reset]
   defstruct @enforce_keys
 
@@ -73,6 +75,21 @@ defmodule ImagePipe.Cache.FileSystem.Sketch do
     |> Enum.map(&:array.get(&1, sketch.counters))
     |> Enum.min()
   end
+
+  @spec age(t()) :: t()
+  def age(%__MODULE__{} = sketch) do
+    new_counters = :array.map(fn _idx, value -> bsr(value + 1, 1) end, sketch.counters)
+
+    %{
+      sketch
+      | counters: new_counters,
+        aging_epoch: sketch.aging_epoch + 1,
+        increments_since_reset: 0
+    }
+  end
+
+  @spec should_age?(t()) :: boolean()
+  def should_age?(%__MODULE__{sample_size: s, increments_since_reset: n}), do: n >= s
 
   @doc false
   @spec dump_counters(t()) :: [non_neg_integer()]

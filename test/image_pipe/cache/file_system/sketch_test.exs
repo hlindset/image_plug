@@ -70,4 +70,47 @@ defmodule ImagePipe.Cache.FileSystem.SketchTest do
       assert Enum.all?(changed_positions, fn {{before, _aft}, _idx} -> before == previous_min end)
     end
   end
+
+  describe "age/1" do
+    test "halves all counters with (c + 1) >>> 1" do
+      sketch = Sketch.new(depth: 2, width: 4)
+      sketch = Enum.reduce(1..10, sketch, fn _, s -> Sketch.increment(s, "k") end)
+
+      before = Sketch.dump_counters(sketch)
+      sketch = Sketch.age(sketch)
+      after_ = Sketch.dump_counters(sketch)
+
+      assert Enum.zip(before, after_) |> Enum.all?(fn {b, a} -> a == Bitwise.bsr(b + 1, 1) end)
+    end
+
+    test "increments aging epoch and resets increments_since_reset" do
+      sketch = Sketch.new(depth: 2, width: 4)
+      sketch = Sketch.increment(sketch, "k") |> Sketch.age()
+      assert sketch.aging_epoch == 1
+      assert sketch.increments_since_reset == 0
+    end
+  end
+
+  describe "should_age?/1" do
+    test "returns true when increments_since_reset >= sample_size" do
+      # sample_size is explicit and independent of width.
+      sketch = Sketch.new(depth: 2, width: 4, sample_size: 40)
+      threshold = 40
+
+      sketch =
+        Enum.reduce(1..(threshold - 1), sketch, fn _, s -> Sketch.increment(s, "k") end)
+
+      refute Sketch.should_age?(sketch)
+
+      sketch = Sketch.increment(sketch, "k")
+      assert Sketch.should_age?(sketch)
+    end
+
+    test "aging cadence does not change when width changes (decoupled)" do
+      # Same sample_size, different width → identical aging threshold.
+      narrow = Sketch.new(depth: 2, width: 4, sample_size: 40)
+      wide = Sketch.new(depth: 2, width: 4096, sample_size: 40)
+      assert narrow.sample_size == wide.sample_size
+    end
+  end
 end
