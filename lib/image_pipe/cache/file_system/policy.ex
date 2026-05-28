@@ -67,24 +67,23 @@ defmodule ImagePipe.Cache.FileSystem.Policy do
              is_integer(needed_bytes) and needed_bytes >= 0 and
              is_integer(limit) and limit > 0 do
     case take_until_bytes(probationary, needed_bytes, [], 0, limit) do
-      {:done, victims} ->
-        {:ok, Enum.reverse(victims)}
+      {:done, victims} -> {:ok, Enum.reverse(victims)}
+      {:short, victims, still_needed} -> walk_protected(protected, victims, still_needed, limit)
+      :limit_exceeded -> {:error, :victim_limit_exceeded}
+    end
+  end
 
-      {:short, victims, still_needed} ->
-        protected_limit = limit - length(victims)
+  defp walk_protected(protected, victims, still_needed, limit) do
+    protected_limit = limit - length(victims)
 
-        if protected_limit <= 0 do
-          {:error, :victim_limit_exceeded}
-        else
-          case take_until_bytes(protected, still_needed, victims, 0, protected_limit) do
-            {:done, all_victims} -> {:ok, Enum.reverse(all_victims)}
-            {:short, _all_victims, _remaining} -> {:error, :no_evictable_victims}
-            :limit_exceeded -> {:error, :victim_limit_exceeded}
-          end
-        end
-
-      :limit_exceeded ->
-        {:error, :victim_limit_exceeded}
+    if protected_limit <= 0 do
+      {:error, :victim_limit_exceeded}
+    else
+      case take_until_bytes(protected, still_needed, victims, 0, protected_limit) do
+        {:done, all_victims} -> {:ok, Enum.reverse(all_victims)}
+        {:short, _all_victims, _remaining} -> {:error, :no_evictable_victims}
+        :limit_exceeded -> {:error, :victim_limit_exceeded}
+      end
     end
   end
 
