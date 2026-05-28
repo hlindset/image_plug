@@ -23,6 +23,28 @@ defmodule ImagePipe.Cache.FileSystem do
                     ]
                   )
 
+  @doc false
+  def child_spec(opts) do
+    if Keyword.has_key?(opts, :max_size_bytes) do
+      registry_name = registry_name()
+
+      children = [
+        {Registry, keys: :unique, name: registry_name},
+        {ImagePipe.Cache.FileSystem.Admission, Keyword.put(opts, :registry, registry_name)}
+      ]
+
+      %{
+        id: {__MODULE__, Keyword.fetch!(opts, :root)},
+        start: {Supervisor, :start_link, [children, [strategy: :one_for_one]]},
+        type: :supervisor
+      }
+    else
+      :ignore
+    end
+  end
+
+  defp registry_name, do: ImagePipe.Cache.FileSystem.Registry
+
   @impl true
   def get(%Key{} = key, opts) when is_list(opts) do
     case paths(key, opts) do

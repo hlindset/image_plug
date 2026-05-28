@@ -531,6 +531,17 @@ defmodule ImagePipe.Cache.FileSystemTest do
     end
   end
 
+  describe "child_spec/1" do
+    test "returns a supervisor spec when max_size_bytes is set", %{root: root} do
+      opts = [root: root, max_size_bytes: 10_000_000, node_id: "n1"]
+      assert %{id: _, start: _} = FileSystem.child_spec(opts)
+    end
+
+    test "returns :ignore for unbounded mode" do
+      assert FileSystem.child_spec(root: "/tmp") == :ignore
+    end
+  end
+
   test "concurrent puts for the same key leave a readable entry", %{root: root} do
     cache_key = key("dddddd" <> String.duplicate("e", 58))
 
