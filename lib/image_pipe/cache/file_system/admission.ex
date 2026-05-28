@@ -258,10 +258,95 @@ defmodule ImagePipe.Cache.FileSystem.Admission do
 
   @impl true
   def handle_continue(:schedule_tickers, state) do
+    # Capture the Admission pid BEFORE spawning. Inside the spawned
+    # process, `self()` is the scan's pid — calls would go to the wrong
+    # process. `spawn_monitor` gives us an UNLINKED, MONITORED worker: a
+    # scan crash does not take Admission down (unlinked), but it delivers
+    # a `:DOWN` so we can release `await_scan` waiters instead of hanging
+    # (monitored). No Task.Supervisor is used because its name would have
+    # to be unique per configured cache root; `spawn_monitor` sidesteps
+    # that and the scan is short-lived.
+    admission_pid = self()
+    {scan_pid, scan_ref} = spawn_monitor(fn -> scan_directory(state, admission_pid) end)
+    state = %{state | scan_task: scan_pid, scan_task_ref: scan_ref}
+
     Process.send_after(self(), :flush, state.flush_interval_ms)
     Process.send_after(self(), :cleanup, state.cleanup_interval_ms)
     Process.send_after(self(), :reconcile, state.reconcile_interval_ms)
     {:noreply, state}
+  end
+
+  @doc """
+  Block until the background directory scan has reported completion.
+  Test/diagnostic helper — production callers never need to wait. Returns
+  `:ok` once the scan finishes (or has already finished); the call times
+  out normally if the scan exceeds `timeout`.
+  """
+  @spec await_scan(GenServer.server(), timeout()) :: :ok
+  def await_scan(server, timeout \\ 5_000) do
+    GenServer.call(server, :await_scan, timeout)
+  end
+
+  defp scan_directory(state, admission_pid) do
+    # Scan the entry directory: <root>/<path_prefix>. Exclude
+    # `.cache_state` (where state files live) and any non-meta files.
+    entry_root = Path.join(state.root, state.path_prefix)
+
+    # Scan batches carry "entry" maps: the descriptor with `:mtime`
+    # merged in. This is the SAME shape Task 21's two-pass scan produces
+    # (`build_descriptor_map/1`), so `apply_scan_batch` stays uniform
+    # across both tasks — do not switch to `{descriptor, mtime}` tuples.
+    entries =
+      walk_meta_files(entry_root)
+      |> Enum.flat_map(fn meta_path ->
+        # `read_descriptor/1` is owned by the adapter — it parses the meta
+        # payload format and stats the file. Admission only knows the
+        # descriptor shape, not the on-disk meta encoding.
+        case ImagePipe.Cache.FileSystem.read_descriptor(meta_path) do
+          {:ok, descriptor, mtime} -> [Map.put(descriptor, :mtime, mtime)]
+          {:error, _} -> []
+        end
+      end)
+
+    Enum.chunk_every(entries, 100)
+    |> Enum.each(fn chunk ->
+      GenServer.call(admission_pid, {:apply_scan_batch, chunk})
+    end)
+
+    GenServer.call(admission_pid, :scan_complete)
+  end
+
+  defp walk_meta_files(entry_root) do
+    # Recursively walk <entry_root>/AB/CD/ for *.meta files. Skip the
+    # `.cache_state` subdirectory at the root (a sibling, not a child,
+    # but defensively skipped in case path_prefix is empty).
+    case File.ls(entry_root) do
+      {:ok, entries} ->
+        entries
+        |> Enum.reject(&(&1 == ".cache_state"))
+        |> Enum.flat_map(fn entry ->
+          path = Path.join(entry_root, entry)
+
+          cond do
+            File.dir?(path) -> walk_meta_files(path)
+            String.ends_with?(entry, ".meta") -> [path]
+            true -> []
+          end
+        end)
+
+      {:error, _} ->
+        []
+    end
+  end
+
+  # `entry` is a descriptor map with a `:mtime` field merged in. The
+  # mtime drove the scan's insertion order (Task 21 Phase B sorts by it);
+  # it is not stored in the queue, so we drop it before inserting.
+  defp insert_scan_descriptor(state, entry) do
+    descriptor = Map.delete(entry, :mtime)
+    {pos, state} = next_position(state)
+    :ets.insert(state.probationary, {{pos, descriptor.key_hash}, descriptor})
+    Map.update!(state, :probationary_bytes, &(&1 + descriptor.size_bytes))
   end
 
   @impl true
@@ -287,6 +372,25 @@ defmodule ImagePipe.Cache.FileSystem.Admission do
     state = reconcile_to_cap(state, [])
     Process.send_after(self(), :reconcile, state.reconcile_interval_ms)
     {:noreply, state}
+  end
+
+  # The monitored scan process finished. We only act on the failure case:
+  # if it died abnormally before sending `:scan_complete`, mark the scan
+  # complete anyway and release waiters so `await_scan/2` callers don't
+  # block until timeout. A normal exit after `:scan_complete` is a no-op
+  # (flag already set). `spawn_monitor` sends no result message, only this
+  # `:DOWN`, so there is nothing else to drain.
+  def handle_info({:DOWN, ref, :process, _pid, reason}, %{scan_task_ref: ref} = state) do
+    if reason != :normal and not state.scan_complete? do
+      require Logger
+      Logger.warning("cache: directory scan crashed before completion: reason=#{inspect(reason)}")
+      Enum.each(state.scan_waiters, &GenServer.reply(&1, :ok))
+
+      {:noreply,
+       %{state | scan_complete?: true, scan_waiters: [], scan_task: nil, scan_task_ref: nil}}
+    else
+      {:noreply, %{state | scan_task: nil, scan_task_ref: nil}}
+    end
   end
 
   @doc """
@@ -341,6 +445,35 @@ defmodule ImagePipe.Cache.FileSystem.Admission do
       {result, state} = do_admit(state, descriptor)
       {:reply, result, %{state | state_dirty: true}}
     end
+  end
+
+  def handle_call(:await_scan, from, state) do
+    if state.scan_complete? do
+      {:reply, :ok, state}
+    else
+      {:noreply, %{state | scan_waiters: [from | state.scan_waiters]}}
+    end
+  end
+
+  def handle_call(:scan_complete, _from, state) do
+    Enum.each(state.scan_waiters, &GenServer.reply(&1, :ok))
+    {:reply, :ok, %{state | scan_complete?: true, scan_waiters: []}}
+  end
+
+  def handle_call({:apply_scan_batch, batch}, _from, state) do
+    state =
+      Enum.reduce(batch, state, fn entry, acc ->
+        if already_tracked?(acc, entry.key_hash) do
+          # Runtime traffic (hit synthesis, admit) has populated this
+          # key already. Its descriptor is fresher than what scan read
+          # from disk; skip.
+          acc
+        else
+          insert_scan_descriptor(acc, entry)
+        end
+      end)
+
+    {:reply, :ok, state}
   end
 
   defp do_admit(state, descriptor) do

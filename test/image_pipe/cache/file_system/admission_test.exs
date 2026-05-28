@@ -1,8 +1,11 @@
 defmodule ImagePipe.Cache.FileSystem.AdmissionTest do
   use ExUnit.Case, async: true
 
+  alias ImagePipe.Cache.Entry
+  alias ImagePipe.Cache.FileSystem
   alias ImagePipe.Cache.FileSystem.Admission
   alias ImagePipe.Cache.FileSystem.Sketch
+  alias ImagePipe.Cache.Key
 
   setup do
     # Start the per-test Registry and a private tmp cache root. A single setup
@@ -337,6 +340,86 @@ defmodule ImagePipe.Cache.FileSystem.AdmissionTest do
     state = :sys.get_state(pid)
 
     assert Sketch.estimate(state.boot_cms, "global-hot") >= 1
+  end
+
+  test "background scan inserts on-disk entries into probationary", %{registry: registry, tmp_dir: tmp_dir} do
+    # Pre-place a real entry on disk via the FileSystem adapter so the
+    # meta payload is valid for read_descriptor/1.
+    put_disk_entry(tmp_dir, hex_hash("a"), "encoded image body")
+
+    opts = base_opts(registry: registry, tmp_dir: tmp_dir)
+    pid = start_supervised!({Admission, opts})
+
+    Admission.await_scan(pid, 5_000)
+
+    state = :sys.get_state(pid)
+    assert state.probationary_bytes > 0
+    assert in_queue?(state.probationary, hex_hash("a"))
+  end
+
+  test "scan does not overwrite a key already inserted by runtime traffic", %{registry: registry, tmp_dir: tmp_dir} do
+    hash = hex_hash("b")
+    # Pre-place an entry on disk with one size.
+    put_disk_entry(tmp_dir, hash, "old-on-disk-body")
+
+    opts = base_opts(registry: registry, tmp_dir: tmp_dir)
+    pid = start_supervised!({Admission, opts})
+
+    # Immediately admit a different descriptor for the same key. The admit
+    # call is processed before the scan's apply-batch call (both are
+    # GenServer.call, serialized by the mailbox), establishing runtime
+    # presence ahead of the scan reaching this key.
+    runtime_descriptor = %{
+      key_hash: hash,
+      size_bytes: 4_321,
+      body_sha256: "runtime_sha",
+      cost_us: 1_000
+    }
+
+    {:admit, _} = Admission.admit(pid, runtime_descriptor)
+
+    Admission.await_scan(pid, 5_000)
+
+    state = :sys.get_state(pid)
+    # The runtime descriptor survives; the scan did not overwrite it with
+    # the on-disk descriptor (which has a different size and body_sha256).
+    located = locate_descriptor(state, hash)
+    assert located.size_bytes == 4_321
+    assert located.body_sha256 == "runtime_sha"
+  end
+
+  defp hex_hash(seed), do: seed <> String.duplicate("0", 64 - byte_size(seed))
+
+  defp put_disk_entry(root, hash, body) do
+    cache_key = %Key{
+      hash: hash,
+      data: [schema_version: 1],
+      serialized_data: :erlang.term_to_binary([schema_version: 1], [:deterministic])
+    }
+
+    metadata =
+      struct!(Entry.Metadata,
+        content_type: "image/webp",
+        headers: [{"vary", "Accept"}],
+        created_at: ~U[2026-04-29 10:15:00Z],
+        output_format: :webp
+      )
+
+    opts = [root: root]
+    {:ok, state} = FileSystem.open_sink(cache_key, metadata, opts)
+    {:ok, state} = FileSystem.write_chunk(state, body, opts)
+    :ok = FileSystem.commit_sink(state, opts)
+  end
+
+  # Find the descriptor for a key_hash across all three queues.
+  defp locate_descriptor(state, key_hash) do
+    [state.window, state.probationary, state.protected]
+    |> Enum.find_value(fn table ->
+      case :ets.match_object(table, {{:_, key_hash}, :_}) do
+        [{_key, descriptor}] -> descriptor
+        _ -> nil
+      end
+    end)
   end
 
   defp base_opts(overrides) do
