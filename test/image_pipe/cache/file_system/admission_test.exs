@@ -388,6 +388,82 @@ defmodule ImagePipe.Cache.FileSystem.AdmissionTest do
     assert located.body_sha256 == "runtime_sha"
   end
 
+  test "protected entries are restored in LRU-to-MRU order from persisted state", %{registry: registry, tmp_dir: tmp_dir} do
+    older = hex_hash("abcd")
+    newer = hex_hash("ef01")
+
+    # Pre-place meta files for both hashes on disk.
+    put_disk_entry(tmp_dir, older, "older-body")
+    put_disk_entry(tmp_dir, newer, "newer-body")
+
+    opts = base_opts(registry: registry, tmp_dir: tmp_dir)
+    state_dir = Keyword.fetch!(opts, :state_dir)
+    File.mkdir_p!(state_dir)
+
+    sketch = Sketch.new(depth: 4, width: 256)
+
+    # protected_hashes are persisted LRU→MRU.
+    payload =
+      :erlang.term_to_binary(
+        %{
+          format_version: 1,
+          node_id: "test-node",
+          written_at: System.system_time(:millisecond),
+          aging_epoch: 0,
+          increments_since_reset: 0,
+          sketch: Sketch.serialize(sketch),
+          protected_hashes: [older, newer]
+        },
+        [:deterministic]
+      )
+
+    File.write!(Path.join(state_dir, "test-node.state"), payload)
+
+    pid = start_supervised!({Admission, opts})
+    Admission.await_scan(pid, 5_000)
+
+    state = :sys.get_state(pid)
+
+    # Read ordered_set positions; older must precede newer (LRU at front).
+    ordered =
+      :ets.tab2list(state.protected)
+      |> Enum.sort_by(fn {{pos, _hash}, _descriptor} -> pos end)
+      |> Enum.map(fn {{_pos, hash}, _descriptor} -> hash end)
+
+    assert ordered == [older, newer]
+  end
+
+  test "boot reconciliation evicts LRU until usage is under cap", %{registry: registry, tmp_dir: tmp_dir} do
+    # Place several entries on disk whose total exceeds a small cap.
+    h1 = hex_hash("c1")
+    h2 = hex_hash("c2")
+    h3 = hex_hash("c3")
+
+    body = String.duplicate("x", 4_000)
+    put_disk_entry(tmp_dir, h1, body)
+    put_disk_entry(tmp_dir, h2, body)
+    put_disk_entry(tmp_dir, h3, body)
+
+    # max_size_bytes small enough that all three (12_000 bytes) overshoot.
+    opts = base_opts(registry: registry, tmp_dir: tmp_dir, max_size_bytes: 9_000)
+    pid = start_supervised!({Admission, opts})
+    Admission.await_scan(pid, 5_000)
+
+    state = :sys.get_state(pid)
+    total = state.window_bytes + state.probationary_bytes + state.protected_bytes
+    assert total <= 9_000
+
+    # At least one on-disk meta file should have been deleted by reconcile.
+    remaining =
+      [h1, h2, h3]
+      |> Enum.count(fn h ->
+        {:ok, paths} = FileSystem.paths_from_hash(h, root: tmp_dir)
+        File.exists?(paths.meta_path)
+      end)
+
+    assert remaining < 3
+  end
+
   defp hex_hash(seed), do: seed <> String.duplicate("0", 64 - byte_size(seed))
 
   defp put_disk_entry(root, hash, body) do
