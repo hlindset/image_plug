@@ -317,11 +317,25 @@ describe("processing path generation", () => {
       sharpen: 0.7,
       pixelateEnabled: true,
       pixelate: 8,
+      brightnessEnabled: true,
+      brightness: 20,
+      contrastEnabled: true,
+      contrast: -15,
+      saturationEnabled: true,
+      saturation: 35,
     };
 
-    expect(optionSegments(state)).toEqual(["bg:ffcc00", "bl:2.5", "sh:0.7", "pix:8"]);
+    expect(optionSegments(state)).toEqual([
+      "bg:ffcc00",
+      "bl:2.5",
+      "sh:0.7",
+      "pix:8",
+      "br:20",
+      "co:-15",
+      "sa:35",
+    ]);
     expect(buildProcessingPath(state)).toBe(
-      "/_/bg:ffcc00/bl:2.5/sh:0.7/pix:8/plain/local:///images/dog.jpg",
+      "/_/bg:ffcc00/bl:2.5/sh:0.7/pix:8/br:20/co:-15/sa:35/plain/local:///images/dog.jpg",
     );
   });
 
@@ -719,7 +733,7 @@ describe("demo URL state", () => {
 
   it("parses crop, orientation, scale, canvas, padding, background, and effects options", () => {
     const parsed = parseDemoPath(
-      "/demo/ar:1/fl:0:1/rot:90/c:0.5:0.25:no/z:1.25/dpr:2/mw:320/mh:240/exar:16:9/pd:1:2:3:4/bg:ffcc00/bga:0.42/bl:2.5/sh:0.7/pix:8/plain/local:///images/beach.jpg",
+      "/demo/ar:1/fl:0:1/rot:90/c:0.5:0.25:no/z:1.25/dpr:2/mw:320/mh:240/exar:16:9/pd:1:2:3:4/bg:ffcc00/bga:0.42/bl:2.5/sh:0.7/pix:8/br:20/co:-15/sa:35/plain/local:///images/beach.jpg",
     );
 
     expect(parsed).toMatchObject({
@@ -758,6 +772,25 @@ describe("demo URL state", () => {
       sharpen: 0.7,
       pixelateEnabled: true,
       pixelate: 8,
+      brightnessEnabled: true,
+      brightness: 20,
+      contrastEnabled: true,
+      contrast: -15,
+      saturationEnabled: true,
+      saturation: 35,
+    });
+  });
+
+  it("parses long aliases for color effect options", () => {
+    expect(
+      parseDemoPath("/demo/brightness:20/contrast:-15/saturation:35/plain/local:///images/dog.jpg"),
+    ).toMatchObject({
+      brightnessEnabled: true,
+      brightness: 20,
+      contrastEnabled: true,
+      contrast: -15,
+      saturationEnabled: true,
+      saturation: 35,
     });
   });
 
@@ -770,7 +803,9 @@ describe("demo URL state", () => {
   });
 
   it("treats zero-valued effects as demo no-ops", () => {
-    expect(parseDemoPath("/demo/bl:0/sh:0/pix:0/plain/local:///images/dog.jpg")).toEqual({
+    expect(
+      parseDemoPath("/demo/bl:0/sh:0/pix:0/br:0/co:0/sa:0/plain/local:///images/dog.jpg"),
+    ).toEqual({
       ...defaultDemoState,
       blurEnabled: false,
       blur: defaultDemoState.blur,
@@ -778,11 +813,17 @@ describe("demo URL state", () => {
       sharpen: defaultDemoState.sharpen,
       pixelateEnabled: false,
       pixelate: defaultDemoState.pixelate,
+      brightnessEnabled: false,
+      brightness: defaultDemoState.brightness,
+      contrastEnabled: false,
+      contrast: defaultDemoState.contrast,
+      saturationEnabled: false,
+      saturation: defaultDemoState.saturation,
     });
   });
 
   it("expands accordions that contain active URL state", () => {
-    const state = parseDemoPath("/demo/ar:1/z:1.5/bl:2.5/plain/local:///images/dog.jpg");
+    const state = parseDemoPath("/demo/ar:1/z:1.5/br:20/plain/local:///images/dog.jpg");
 
     expect(expandedToolboxesForState(state)).toEqual({
       effectsOpen: true,
@@ -806,6 +847,12 @@ describe("demo URL state", () => {
     expect(parseDemoPath("/demo/q:-1/plain/local:///images/dog.jpg")).toEqual(defaultDemoState);
     expect(parseDemoPath("/demo/q:101/plain/local:///images/dog.jpg")).toEqual(defaultDemoState);
     expect(parseDemoPath("/demo/q:85.5/plain/local:///images/dog.jpg")).toEqual(defaultDemoState);
+  });
+
+  it("rejects invalid color effect values in demo routes", () => {
+    expect(parseDemoPath("/demo/br:-101/plain/local:///images/dog.jpg")).toEqual(defaultDemoState);
+    expect(parseDemoPath("/demo/co:101/plain/local:///images/dog.jpg")).toEqual(defaultDemoState);
+    expect(parseDemoPath("/demo/sa:100.5/plain/local:///images/dog.jpg")).toEqual(defaultDemoState);
   });
 
   it("resets processing options while keeping source and signature settings", () => {

@@ -77,10 +77,16 @@ defmodule ImagePipe.Transform.DecodePlannerTest do
     assert {:ok, blur} = Operation.blur(2.0)
     assert {:ok, sharpen} = Operation.sharpen(0.7)
     assert {:ok, pixelate} = Operation.pixelate(8)
+    assert {:ok, brightness} = Operation.brightness(20)
+    assert {:ok, contrast} = Operation.contrast(-15)
+    assert {:ok, saturation} = Operation.saturation(35)
 
     assert DecodePlanner.open_options([blur]) == [access: :random, fail_on: :error]
     assert DecodePlanner.open_options([sharpen]) == [access: :random, fail_on: :error]
     assert DecodePlanner.open_options([pixelate]) == [access: :random, fail_on: :error]
+    assert DecodePlanner.open_options([brightness]) == [access: :random, fail_on: :error]
+    assert DecodePlanner.open_options([contrast]) == [access: :random, fail_on: :error]
+    assert DecodePlanner.open_options([saturation]) == [access: :random, fail_on: :error]
   end
 
   test "planned options include only access and fail_on" do

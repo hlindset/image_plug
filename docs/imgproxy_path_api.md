@@ -133,7 +133,7 @@ Within each pipeline group, ImagePipe uses this fixed operation order:
 2. explicit crop
 3. resize intent, including `mode: :auto`
 4. result crop for `fill`, `fill-down`, and `auto` target geometry
-5. effects, in `blur`, `sharpen`, then `pixelate` order
+5. effects, in `blur`, `sharpen`, `pixelate`, `brightness`, `contrast`, then `saturation` order
 6. canvas extension
 7. padding
 8. background flattening
@@ -226,6 +226,9 @@ Remaining queued groups become trailing pipelines.
 | Blur | `blur`, `bl` | non-negative sigma number. `0` means no-op |
 | Sharpen | `sharpen`, `sh` | non-negative sigma number. `0` means no-op |
 | Pixelate | `pixelate`, `pix` | non-negative integer block size. `0` and `1` mean no-op |
+| Brightness | `brightness`, `br` | number from `-100` to `100`. `0` means no-op |
+| Contrast | `contrast`, `co` | number from `-100` to `100`. `0` means no-op |
+| Saturation | `saturation`, `sa` | number from `-100` to `100`. `0` means no-op |
 | Crop | `crop`, `c` | `<width>:<height>`, optional gravity, optional offsets |
 | Gravity | `gravity`, `g` | anchor, anchor with offsets `<anchor>:<x_offset>:<y_offset>`, or focal point `fp:<x>:<y>` |
 | Auto rotate | `auto_rotate`, `ar` | boolean |
@@ -399,9 +402,15 @@ sigma value of `0` parses and emits no operation.
 non-negative integer. `pix:0` and `pix:1` parse and emit no operation, matching
 Imgproxy's pixelation no-op threshold.
 
+`brightness:%value` and `br:%value` adjust brightness. `contrast:%value` and
+`co:%value` adjust contrast. `saturation:%value` and `sa:%value` adjust
+saturation. Values must be numbers from `-100` to `100`. `0` parses and emits
+no operation.
+
 Effects run after result cropping and before canvas extension, padding, and
 background composition. When more than one effect appears in a pipeline group,
-ImagePipe runs them in `blur`, `sharpen`, then `pixelate` order.
+ImagePipe runs them in `blur`, `sharpen`, `pixelate`, `brightness`, `contrast`,
+then `saturation` order.
 
 ## Output format and quality
 

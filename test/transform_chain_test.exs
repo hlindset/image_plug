@@ -6,9 +6,12 @@ defmodule ImagePipe.Transform.ChainTest do
   alias ImagePipe.Transform.ChainTest.FailingTransform
   alias ImagePipe.Transform.ChainTest.UnexpectedTransform
   alias ImagePipe.Transform.Operation.Background
+  alias ImagePipe.Transform.Operation.Brightness
+  alias ImagePipe.Transform.Operation.Contrast
   alias ImagePipe.Transform.Operation.Crop
   alias ImagePipe.Transform.Operation.ExtendCanvas
   alias ImagePipe.Transform.Operation.Resize
+  alias ImagePipe.Transform.Operation.Saturation
   alias ImagePipe.Transform.State
 
   doctest ImagePipe.Transform.Chain
@@ -17,6 +20,9 @@ defmodule ImagePipe.Transform.ChainTest do
     operation = %Resize{mode: :fit, width: {:pixels, 10}, height: :auto}
 
     assert Transform.transform_name(operation) == :resize
+    assert Transform.transform_name(%Brightness{value: 20}) == :brightness
+    assert Transform.transform_name(%Contrast{value: -15}) == :contrast
+    assert Transform.transform_name(%Saturation{value: 35}) == :saturation
   end
 
   test "stops executing after the first transform error" do

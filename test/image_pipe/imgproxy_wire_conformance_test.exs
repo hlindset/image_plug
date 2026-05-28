@@ -272,7 +272,10 @@ defmodule ImagePipe.ImgproxyWireConformanceTest do
     cases = [
       "/_/bl:4/f:png/plain/images/effects.png",
       "/_/sh:10/f:png/plain/images/effects.png",
-      "/_/pix:8/f:png/plain/images/effects.png"
+      "/_/pix:8/f:png/plain/images/effects.png",
+      "/_/br:25/f:png/plain/images/effects.png",
+      "/_/co:10/f:png/plain/images/effects.png",
+      "/_/sa:-30/f:png/plain/images/effects.png"
     ]
 
     for path <- cases do

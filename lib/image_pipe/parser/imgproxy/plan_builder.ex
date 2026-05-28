@@ -3,6 +3,7 @@ defmodule ImagePipe.Parser.Imgproxy.PlanBuilder do
 
   alias ImagePipe.Format
   alias ImagePipe.Parser.Imgproxy.CropRequest
+  alias ImagePipe.Parser.Imgproxy.Effects
   alias ImagePipe.Parser.Imgproxy.Orientation
   alias ImagePipe.Parser.Imgproxy.ParsedRequest
   alias ImagePipe.Parser.Imgproxy.PipelineRequest
@@ -434,28 +435,43 @@ defmodule ImagePipe.Parser.Imgproxy.PlanBuilder do
     end
   end
 
-  defp effect_operations(%PipelineRequest{} = request) do
+  defp effect_operations(%PipelineRequest{effects: %Effects{} = effects}) do
     [
-      blur_operation(request),
-      sharpen_operation(request),
-      pixelate_operation(request)
+      blur_operation(effects),
+      sharpen_operation(effects),
+      pixelate_operation(effects),
+      brightness_operation(effects),
+      contrast_operation(effects),
+      saturation_operation(effects)
     ]
     |> Enum.reject(&is_nil/1)
     |> reduce_results()
   end
 
-  defp blur_operation(%PipelineRequest{blur: nil}), do: nil
-  defp blur_operation(%PipelineRequest{blur: sigma}) when sigma == 0.0, do: nil
-  defp blur_operation(%PipelineRequest{blur: sigma}), do: Operation.blur(sigma)
+  defp blur_operation(%Effects{blur: nil}), do: nil
+  defp blur_operation(%Effects{blur: sigma}) when sigma == 0.0, do: nil
+  defp blur_operation(%Effects{blur: sigma}), do: Operation.blur(sigma)
 
-  defp sharpen_operation(%PipelineRequest{sharpen: nil}), do: nil
-  defp sharpen_operation(%PipelineRequest{sharpen: sigma}) when sigma == 0.0, do: nil
-  defp sharpen_operation(%PipelineRequest{sharpen: sigma}), do: Operation.sharpen(sigma)
+  defp sharpen_operation(%Effects{sharpen: nil}), do: nil
+  defp sharpen_operation(%Effects{sharpen: sigma}) when sigma == 0.0, do: nil
+  defp sharpen_operation(%Effects{sharpen: sigma}), do: Operation.sharpen(sigma)
 
-  defp pixelate_operation(%PipelineRequest{pixelate: nil}), do: nil
-  defp pixelate_operation(%PipelineRequest{pixelate: 0}), do: nil
-  defp pixelate_operation(%PipelineRequest{pixelate: 1}), do: nil
-  defp pixelate_operation(%PipelineRequest{pixelate: size}), do: Operation.pixelate(size)
+  defp pixelate_operation(%Effects{pixelate: nil}), do: nil
+  defp pixelate_operation(%Effects{pixelate: 0}), do: nil
+  defp pixelate_operation(%Effects{pixelate: 1}), do: nil
+  defp pixelate_operation(%Effects{pixelate: size}), do: Operation.pixelate(size)
+
+  defp brightness_operation(%Effects{brightness: nil}), do: nil
+  defp brightness_operation(%Effects{brightness: 0}), do: nil
+  defp brightness_operation(%Effects{brightness: value}), do: Operation.brightness(value)
+
+  defp contrast_operation(%Effects{contrast: nil}), do: nil
+  defp contrast_operation(%Effects{contrast: 0}), do: nil
+  defp contrast_operation(%Effects{contrast: value}), do: Operation.contrast(value)
+
+  defp saturation_operation(%Effects{saturation: nil}), do: nil
+  defp saturation_operation(%Effects{saturation: 0}), do: nil
+  defp saturation_operation(%Effects{saturation: value}), do: Operation.saturation(value)
 
   defp resize_operation(%PipelineRequest{} = request) do
     with {:ok, width} <- imgproxy_resize_dimension(request.width),
