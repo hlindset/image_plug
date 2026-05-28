@@ -71,6 +71,40 @@ defmodule ImagePipe.Cache.FileSystem.AdmissionTest do
     assert state.probationary_bytes == 5_000
   end
 
+  test "admit/2 inserts a candidate at window MRU when window has room",
+       %{registry: registry, tmp_dir: tmp_dir} do
+    opts = base_opts(registry: registry, tmp_dir: tmp_dir)
+    pid = start_supervised!({Admission, opts})
+
+    descriptor = %{
+      key_hash: "h1",
+      size_bytes: 5_000,
+      body_sha256: "sha1",
+      cost_us: 1_000
+    }
+
+    assert {:admit, []} = Admission.admit(pid, descriptor)
+
+    state = :sys.get_state(pid)
+    assert state.window_bytes == 5_000
+  end
+
+  test "admit/2 hard-rejects candidates larger than max_size_bytes",
+       %{registry: registry, tmp_dir: tmp_dir} do
+    opts = base_opts(registry: registry, tmp_dir: tmp_dir)
+    pid = start_supervised!({Admission, opts})
+
+    descriptor = %{
+      key_hash: "huge",
+      # > 1_000_000 cap
+      size_bytes: 10_000_000,
+      body_sha256: "sha",
+      cost_us: 1_000
+    }
+
+    assert {:reject, :over_cap} = Admission.admit(pid, descriptor)
+  end
+
   defp base_opts(overrides) do
     Keyword.merge(
       [

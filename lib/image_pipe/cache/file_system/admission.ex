@@ -155,6 +155,66 @@ defmodule ImagePipe.Cache.FileSystem.Admission do
     end
   end
 
+  @spec admit(pid() | GenServer.name(), map()) ::
+          {:admit, [map()]} | {:reject, :over_cap | :score_too_low | :no_evictable_victims}
+  def admit(server, descriptor) do
+    GenServer.call(server, {:admit, descriptor})
+  end
+
+  @impl true
+  def handle_call({:admit, descriptor}, _from, state) do
+    # Increment sighting first (commit is itself a sighting of the key)
+    state = sighting(state, descriptor.key_hash)
+
+    if descriptor.size_bytes > state.max_size_bytes do
+      {:reply, {:reject, :over_cap}, state}
+    else
+      {result, state} = do_admit(state, descriptor)
+      {:reply, result, %{state | state_dirty: true}}
+    end
+  end
+
+  defp do_admit(state, descriptor) do
+    cond do
+      descriptor.size_bytes > state.window_budget ->
+        run_main_gate(state, descriptor)
+
+      already_tracked?(state, descriptor.key_hash) ->
+        same_key_replace(state, descriptor)
+
+      true ->
+        insert_into_window(state, descriptor)
+    end
+  end
+
+  defp insert_into_window(state, descriptor) do
+    {position, state} = next_position(state)
+    :ets.insert(state.window, {{position, descriptor.key_hash}, descriptor})
+
+    state = %{
+      state
+      | window_bytes: state.window_bytes + descriptor.size_bytes
+    }
+
+    # Stub: handle window overflow in a later task.
+    {{:admit, []}, state}
+  end
+
+  defp already_tracked?(state, key_hash) do
+    # Search across all queues. Inefficient but correct; optimized later.
+    in_queue?(state.window, key_hash) or in_queue?(state.probationary, key_hash) or
+      in_queue?(state.protected, key_hash)
+  end
+
+  defp in_queue?(table, key_hash) do
+    :ets.match_object(table, {{:_, key_hash}, :_}) != []
+  end
+
+  # stub for next task
+  defp run_main_gate(state, _descriptor), do: {{:admit, []}, state}
+  # stub for next task
+  defp same_key_replace(state, _descriptor), do: {{:admit, []}, state}
+
   defp sighting(state, key_hash) do
     if Talan.BloomFilter.member?(state.doorkeeper, key_hash) do
       %{state | local_cms: Sketch.increment(state.local_cms, key_hash)}
