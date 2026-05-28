@@ -849,6 +849,28 @@ Append to test file:
       assert Enum.map(victims, & &1.key_hash) == ["p_lru", "prot_lru"]
     end
 
+    test "cross-queue walk succeeds when total victims are within the limit" do
+      # Regression: the probationary victim must not be double-counted against
+      # the limit when extending into protected. 1 probationary + 1 protected =
+      # 2 victims, exactly at limit 2 — must succeed, not :victim_limit_exceeded.
+      probationary = [descriptor(key_hash: "p_lru", size_bytes: 100)]
+      protected = [descriptor(key_hash: "prot_lru", size_bytes: 200)]
+
+      assert {:ok, victims} = Policy.victim_walk(probationary, protected, 250, 2)
+      assert Enum.map(victims, & &1.key_hash) == ["p_lru", "prot_lru"]
+    end
+
+    test "limit caps the total victim count across both queues" do
+      probationary = [
+        descriptor(key_hash: "p1", size_bytes: 100),
+        descriptor(key_hash: "p2", size_bytes: 100)
+      ]
+      protected = [descriptor(key_hash: "prot", size_bytes: 100)]
+
+      assert {:error, :victim_limit_exceeded} =
+               Policy.victim_walk(probationary, protected, 250, 2)
+    end
+
     test "returns :no_evictable_victims when both queues together cannot free enough" do
       probationary = [descriptor(size_bytes: 50)]
       protected = [descriptor(size_bytes: 50)]
@@ -917,34 +939,35 @@ Append to test file:
              is_integer(needed_bytes) and needed_bytes >= 0 and
              is_integer(limit) and limit > 0 do
     case take_until_bytes(probationary, needed_bytes, [], 0, limit) do
-      {:done, victims} ->
-        {:ok, Enum.reverse(victims)}
+      {:done, victims} -> {:ok, Enum.reverse(victims)}
+      {:short, victims, still_needed} -> walk_protected(protected, victims, still_needed, limit)
+      :limit_exceeded -> {:error, :victim_limit_exceeded}
+    end
+  end
 
-      {:short, victims, still_needed} ->
-        protected_limit = limit - length(victims)
-
-        if protected_limit <= 0 do
-          {:error, :victim_limit_exceeded}
-        else
-          case take_until_bytes(protected, still_needed, victims, 0, protected_limit) do
-            {:done, all_victims} -> {:ok, Enum.reverse(all_victims)}
-            {:short, _all_victims, _remaining} -> {:error, :no_evictable_victims}
-            :limit_exceeded -> {:error, :victim_limit_exceeded}
-          end
-        end
-
-      :limit_exceeded ->
-        {:error, :victim_limit_exceeded}
+  # `victims` is pre-loaded with the probationary victims, and take_until_bytes
+  # clause 3 counts `length(victims)` against `limit` — so the ORIGINAL limit is
+  # passed here to cap the TOTAL victim count across both queues. Subtracting
+  # length(victims) would double-count the probationary victims already in the
+  # accumulator.
+  defp walk_protected(protected, victims, still_needed, limit) do
+    case take_until_bytes(protected, still_needed, victims, 0, limit) do
+      {:done, all_victims} -> {:ok, Enum.reverse(all_victims)}
+      {:short, _all_victims, _remaining} -> {:error, :no_evictable_victims}
+      :limit_exceeded -> {:error, :victim_limit_exceeded}
     end
   end
 
   # Returns one of: {:done, victims}, {:short, victims, still_needed_bytes},
   # or :limit_exceeded.
-  defp take_until_bytes([], remaining, victims, acc, _limit),
-    do: {:short, victims, remaining - acc}
-
+  # NOTE: the acc >= remaining check must precede the empty-list check so that
+  # processing the final item and meeting the threshold in one step returns
+  # {:done} rather than {:short}.
   defp take_until_bytes(_list, remaining, victims, acc, _limit) when acc >= remaining,
     do: {:done, victims}
+
+  defp take_until_bytes([], remaining, victims, acc, _limit),
+    do: {:short, victims, remaining - acc}
 
   defp take_until_bytes(_list, _remaining, victims, _acc, limit)
        when length(victims) >= limit,

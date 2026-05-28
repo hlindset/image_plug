@@ -73,17 +73,16 @@ defmodule ImagePipe.Cache.FileSystem.Policy do
     end
   end
 
+  # `victims` is pre-loaded with the probationary victims, and take_until_bytes
+  # clause 3 counts `length(victims)` against `limit` — so the ORIGINAL limit is
+  # passed here to cap the TOTAL victim count across both queues. Subtracting
+  # length(victims) would double-count the probationary victims already in the
+  # accumulator.
   defp walk_protected(protected, victims, still_needed, limit) do
-    protected_limit = limit - length(victims)
-
-    if protected_limit <= 0 do
-      {:error, :victim_limit_exceeded}
-    else
-      case take_until_bytes(protected, still_needed, victims, 0, protected_limit) do
-        {:done, all_victims} -> {:ok, Enum.reverse(all_victims)}
-        {:short, _all_victims, _remaining} -> {:error, :no_evictable_victims}
-        :limit_exceeded -> {:error, :victim_limit_exceeded}
-      end
+    case take_until_bytes(protected, still_needed, victims, 0, limit) do
+      {:done, all_victims} -> {:ok, Enum.reverse(all_victims)}
+      {:short, _all_victims, _remaining} -> {:error, :no_evictable_victims}
+      :limit_exceeded -> {:error, :victim_limit_exceeded}
     end
   end
 

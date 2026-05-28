@@ -78,6 +78,31 @@ defmodule ImagePipe.Cache.FileSystem.PolicyTest do
       assert Enum.map(victims, & &1.key_hash) == ["p_lru", "prot_lru"]
     end
 
+    test "cross-queue walk succeeds when total victims are within the limit" do
+      # Regression: the probationary victim must not be double-counted against
+      # the limit when extending into protected. 1 probationary + 1 protected =
+      # 2 victims, exactly at limit 2 — must succeed, not :victim_limit_exceeded.
+      probationary = [descriptor(key_hash: "p_lru", size_bytes: 100)]
+      protected = [descriptor(key_hash: "prot_lru", size_bytes: 200)]
+
+      assert {:ok, victims} = Policy.victim_walk(probationary, protected, 250, 2)
+      assert Enum.map(victims, & &1.key_hash) == ["p_lru", "prot_lru"]
+    end
+
+    test "limit caps the total victim count across both queues" do
+      # 2 probationary + 1 protected would be needed to free 250 bytes, but the
+      # limit of 2 covers only the probationary victims — extending into
+      # protected would exceed it.
+      probationary = [
+        descriptor(key_hash: "p1", size_bytes: 100),
+        descriptor(key_hash: "p2", size_bytes: 100)
+      ]
+      protected = [descriptor(key_hash: "prot", size_bytes: 100)]
+
+      assert {:error, :victim_limit_exceeded} =
+               Policy.victim_walk(probationary, protected, 250, 2)
+    end
+
     test "returns :no_evictable_victims when both queues together cannot free enough" do
       probationary = [descriptor(size_bytes: 50)]
       protected = [descriptor(size_bytes: 50)]
