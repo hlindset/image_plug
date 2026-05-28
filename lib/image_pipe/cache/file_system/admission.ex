@@ -407,7 +407,54 @@ defmodule ImagePipe.Cache.FileSystem.Admission do
   defp next_position(state),
     do: {state.next_position, %{state | next_position: state.next_position + 1}}
 
-  # TODO(Task 17): real promotion. For now a hit on an already-tracked key
-  # leaves the queues unchanged; the sighting/2 CMS increment still applies.
-  defp promote_on_hit(state, _key_hash), do: state
+  defp promote_on_hit(state, key_hash) do
+    case locate(state, key_hash) do
+      nil ->
+        state
+
+      {:window, pos, descriptor} ->
+        move_to_mru(state, :window, pos, descriptor)
+
+      {:probationary, pos, descriptor} ->
+        :ets.delete(state.probationary, {pos, key_hash})
+        state = Map.update!(state, :probationary_bytes, &(&1 - descriptor.size_bytes))
+        insert_into_protected(state, descriptor)
+
+      {:protected, pos, descriptor} ->
+        move_to_mru(state, :protected, pos, descriptor)
+    end
+  end
+
+  defp move_to_mru(state, queue, old_pos, descriptor) do
+    table = Map.fetch!(state, queue)
+    :ets.delete(table, {old_pos, descriptor.key_hash})
+    {pos, state} = next_position(state)
+    :ets.insert(table, {{pos, descriptor.key_hash}, descriptor})
+    state
+  end
+
+  defp insert_into_protected(state, descriptor) do
+    {pos, state} = next_position(state)
+    :ets.insert(state.protected, {{pos, descriptor.key_hash}, descriptor})
+    state = Map.update!(state, :protected_bytes, &(&1 + descriptor.size_bytes))
+    enforce_protected_target(state)
+  end
+
+  defp enforce_protected_target(state) do
+    main_budget = state.max_size_bytes - state.window_budget
+    target = trunc(main_budget * 0.20)
+
+    if state.protected_bytes > target and :ets.info(state.protected, :size) > 0 do
+      first_key = :ets.first(state.protected)
+      [{key, descriptor}] = :ets.lookup(state.protected, first_key)
+      :ets.delete(state.protected, key)
+      state = Map.update!(state, :protected_bytes, &(&1 - descriptor.size_bytes))
+
+      {pos, state} = next_position(state)
+      :ets.insert(state.probationary, {{pos, descriptor.key_hash}, descriptor})
+      Map.update!(state, :probationary_bytes, &(&1 + descriptor.size_bytes))
+    else
+      state
+    end
+  end
 end

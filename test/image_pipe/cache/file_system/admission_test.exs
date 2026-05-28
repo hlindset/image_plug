@@ -180,6 +180,33 @@ defmodule ImagePipe.Cache.FileSystem.AdmissionTest do
              in_queue?(state.protected, "k")
   end
 
+  test "hit on probationary promotes to protected", %{registry: registry, tmp_dir: tmp_dir} do
+    # Use small main budget so we can observe queue movement
+    opts = base_opts(registry: registry, tmp_dir: tmp_dir, max_size_bytes: 100_000)
+    pid = start_supervised!({Admission, opts})
+
+    descriptor = %{key_hash: "k", size_bytes: 5_000, body_sha256: "s", cost_us: 1_000}
+    {:admit, []} = Admission.admit(pid, descriptor)
+
+    # Force window→main by overflowing window
+    Admission.admit(pid, %{key_hash: "filler", size_bytes: 1_000, body_sha256: "f", cost_us: 1_000})
+
+    # hit/2 takes a full descriptor (Task 13); on a tracked key the
+    # promote path uses the located descriptor and ignores these fields.
+    # Promotion probationary → protected is not frequency-gated, so the
+    # first hit already moves "k"; the second hit exercises the
+    # protected → protected MRU path. `_ = :sys.get_state(pid)` between
+    # casts ensures the first cast is processed before the second.
+    Admission.hit(pid, descriptor)
+    _ = :sys.get_state(pid)
+
+    Admission.hit(pid, descriptor)
+    state = :sys.get_state(pid)
+
+    assert in_queue?(state.protected, "k")
+    refute in_queue?(state.probationary, "k")
+  end
+
   defp base_opts(overrides) do
     Keyword.merge(
       [
