@@ -4,12 +4,13 @@ defmodule ImagePipe.Cache.Entry.Metadata do
   alias ImagePipe.Cache.Entry
 
   @enforce_keys [:content_type, :headers, :created_at, :output_format]
-  defstruct @enforce_keys
+  defstruct [:content_type, :headers, :created_at, :output_format, cost_us: 0]
 
   @type t :: %__MODULE__{
           content_type: String.t(),
           headers: [Entry.header()],
           created_at: DateTime.t(),
-          output_format: atom()
+          output_format: atom(),
+          cost_us: non_neg_integer()
         }
 end
