@@ -380,6 +380,11 @@ defmodule ImagePipe.Parser.Imgproxy.OptionGrammar do
     parse_crop(args, segment)
   end
 
+  defp parse_special_option(name, args, segment)
+       when name in ["crop_aspect_ratio", "crop_ar", "car"] do
+    parse_crop_aspect_ratio(args, segment)
+  end
+
   defp parse_special_option(name, args, segment) when name in ["auto_rotate", "ar"] do
     parse_auto_rotate(args, segment)
   end
@@ -743,6 +748,21 @@ defmodule ImagePipe.Parser.Imgproxy.OptionGrammar do
   end
 
   defp parse_crop(_args, segment), do: {:error, {:invalid_option_segment, segment}}
+
+  defp parse_crop_aspect_ratio([ratio], segment) when ratio != "" do
+    parse_crop_aspect_ratio([ratio, "0"], segment)
+  end
+
+  defp parse_crop_aspect_ratio([ratio, enlarge], _segment)
+       when ratio != "" and enlarge != "" do
+    with {:ok, ratio} <- parse_non_negative_float(ratio),
+         {:ok, enlarge?} <- parse_boolean(enlarge) do
+      {:ok, [crop_aspect_ratio: ratio, crop_aspect_ratio_enlarge: enlarge?]}
+    end
+  end
+
+  defp parse_crop_aspect_ratio(_args, segment),
+    do: {:error, {:invalid_option_segment, segment}}
 
   defp parse_crop_gravity(["sm"]), do: {:ok, :sm}
 

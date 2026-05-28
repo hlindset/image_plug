@@ -41,6 +41,8 @@ defmodule ImagePipe.Parser.Imgproxy.PipelineRequest do
           gravity_x_offset: gravity_offset(),
           gravity_y_offset: gravity_offset(),
           crop: CropRequest.t() | nil,
+          crop_aspect_ratio: float() | nil,
+          crop_aspect_ratio_enlarge: boolean(),
           orientation_requested: boolean(),
           auto_rotate_requested: boolean(),
           orientation: Orientation.t()
@@ -75,6 +77,8 @@ defmodule ImagePipe.Parser.Imgproxy.PipelineRequest do
             gravity_x_offset: {:pixels, 0.0},
             gravity_y_offset: {:pixels, 0.0},
             crop: nil,
+            crop_aspect_ratio: nil,
+            crop_aspect_ratio_enlarge: false,
             orientation_requested: false,
             auto_rotate_requested: false,
             orientation: %Orientation{}

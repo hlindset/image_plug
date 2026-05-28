@@ -202,8 +202,8 @@ defmodule ImagePipe.Parser.Imgproxy.OptionGrammarTest do
 
   test "dropped options return unknown option errors" do
     for segment <- ~w(
-          raw max_bytes mb max_src_resolution msr max_src_file_size msfs crop_aspect_ratio
-          crop_ar car raw:false max_bytes:100 mb:100 crop_ar:1:1
+          raw max_bytes mb max_src_resolution msr max_src_file_size msfs
+          raw:false max_bytes:100 mb:100
         ) do
       [name | _args] = String.split(segment, ":")
 

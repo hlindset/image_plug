@@ -141,6 +141,27 @@ defmodule ImagePipe.Parser.Imgproxy.OptionsTest do
     end
   end
 
+  test "car parses aspect ratio with default reduce" do
+    assert {:ok, %{pipelines: [pipeline]}} = Options.parse(~w(car:1.5), Presets.empty())
+    assert pipeline.crop_aspect_ratio == 1.5
+    assert pipeline.crop_aspect_ratio_enlarge == false
+  end
+
+  test "car parses aspect ratio with enlarge flag" do
+    assert {:ok, %{pipelines: [pipeline]}} = Options.parse(~w(car:1:1), Presets.empty())
+    assert pipeline.crop_aspect_ratio == 1.0
+    assert pipeline.crop_aspect_ratio_enlarge == true
+  end
+
+  test "car:0 is a no-op ratio" do
+    assert {:ok, %{pipelines: [pipeline]}} = Options.parse(~w(car:0), Presets.empty())
+    assert pipeline.crop_aspect_ratio == 0.0
+  end
+
+  test "car rejects a negative ratio" do
+    assert {:error, _} = Options.parse(~w(car:-1), Presets.empty())
+  end
+
   test "crop gravity is independent from top-level gravity" do
     assert pipeline = pipeline_for(~w(g:so c:0.5:0.25:nowe))
 
