@@ -67,7 +67,8 @@ defmodule ImagePipe.Cache.FileSystemTest do
         created_at: "2026-04-29T10:15:00Z",
         body_byte_size: byte_size(body),
         body_sha256: body_sha256(body),
-        body_filename: body_filename(cache_key, body)
+        body_filename: body_filename(cache_key, body),
+        cost_us: 0
       },
       Map.new(overrides)
     )
@@ -479,6 +480,25 @@ defmodule ImagePipe.Cache.FileSystemTest do
     assert {:error, _reason} = put_entry(cache_key, entry("new body"), root: root)
     assert File.exists?(new_body_path)
     refute File.ls!(paths.dir) |> Enum.any?(&String.ends_with?(&1, ".tmp"))
+  end
+
+  describe "cost_us metadata" do
+    test "is persisted in the meta file and returned on hit", %{root: root} do
+      cache_key = key()
+      opts = [root: root]
+      metadata = entry_metadata(cost_us: 42_000)
+
+      {:ok, state} = FileSystem.open_sink(cache_key, metadata, opts)
+      {:ok, state} = FileSystem.write_chunk(state, "encoded image", opts)
+      :ok = FileSystem.commit_sink(state, opts)
+
+      assert {:hit, hit_entry} = FileSystem.get(cache_key, opts)
+      # Verify cost_us lands in the on-disk meta payload by re-reading the file directly.
+      meta_path = Path.join([root, "aa", "aa", String.duplicate("a", 64) <> ".meta"])
+      meta = meta_path |> File.read!() |> :erlang.binary_to_term([:safe])
+      assert meta.cost_us == 42_000
+      assert hit_entry.body == "encoded image"
+    end
   end
 
   test "concurrent puts for the same key leave a readable entry", %{root: root} do

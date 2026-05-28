@@ -232,7 +232,8 @@ defmodule ImagePipe.Cache.FileSystem do
       created_at: DateTime.to_iso8601(state.metadata.created_at),
       body_byte_size: state.size,
       body_sha256: body_sha256,
-      body_filename: body_filename
+      body_filename: body_filename,
+      cost_us: state.metadata.cost_us
     }
 
     :erlang.term_to_binary(metadata, [:deterministic])
@@ -256,11 +257,12 @@ defmodule ImagePipe.Cache.FileSystem do
          created_at: created_at,
          body_byte_size: body_byte_size,
          body_sha256: body_sha256,
-         body_filename: body_filename
+         body_filename: body_filename,
+         cost_us: cost_us
        })
        when is_binary(content_type) and is_list(headers) and is_binary(created_at) and
               is_integer(body_byte_size) and body_byte_size >= 0 and is_binary(body_sha256) and
-              is_binary(body_filename) do
+              is_binary(body_filename) and is_integer(cost_us) and cost_us >= 0 do
     with :ok <- validate_metadata_content_type(content_type),
          :ok <- validate_metadata_headers(headers) do
       {:ok,
@@ -270,7 +272,8 @@ defmodule ImagePipe.Cache.FileSystem do
          created_at: created_at,
          body_byte_size: body_byte_size,
          body_sha256: body_sha256,
-         body_filename: body_filename
+         body_filename: body_filename,
+         cost_us: cost_us
        }}
     end
   end
