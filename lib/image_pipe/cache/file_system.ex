@@ -6,6 +6,7 @@ defmodule ImagePipe.Cache.FileSystem do
   @behaviour ImagePipe.Cache
 
   alias ImagePipe.Cache.Entry
+  alias ImagePipe.Cache.FileSystem.Admission
   alias ImagePipe.Cache.Key
 
   @metadata_version 1
@@ -47,7 +48,7 @@ defmodule ImagePipe.Cache.FileSystem do
 
       children = [
         {Registry, keys: :unique, name: registry_name},
-        {ImagePipe.Cache.FileSystem.Admission, Keyword.put(opts, :registry, registry_name)}
+        {Admission, Keyword.put(opts, :registry, registry_name)}
       ]
 
       %{
@@ -90,7 +91,7 @@ defmodule ImagePipe.Cache.FileSystem do
 
   defp maybe_cast_hit(opts, descriptor) do
     case lookup_admission(opts) do
-      {:ok, pid} -> ImagePipe.Cache.FileSystem.Admission.hit(pid, descriptor)
+      {:ok, pid} -> Admission.hit(pid, descriptor)
       _ -> :ok
     end
   end
@@ -185,7 +186,7 @@ defmodule ImagePipe.Cache.FileSystem do
   end
 
   defp finish_admission(pid, descriptor, opts) do
-    case ImagePipe.Cache.FileSystem.Admission.admit(pid, descriptor) do
+    case Admission.admit(pid, descriptor) do
       {:admit, victims} ->
         delete_victims(victims, opts)
         :ok
