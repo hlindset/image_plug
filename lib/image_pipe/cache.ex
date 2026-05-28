@@ -55,7 +55,7 @@ defmodule ImagePipe.Cache do
               {:ok, state()} | {:error, term()}
   @callback write_chunk(state(), binary(), keyword()) ::
               {:ok, state()} | {:error, term(), state()}
-  @callback commit_sink(state(), keyword()) :: :ok | {:error, term()}
+  @callback commit_sink(state(), keyword()) :: :ok | {:ok, :rejected} | {:error, term()}
   @callback abort_sink(state(), keyword()) :: :ok | {:error, term()}
   @callback validate_options(keyword()) :: {:ok, keyword()} | {:error, term()}
 

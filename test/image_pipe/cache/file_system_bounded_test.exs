@@ -123,7 +123,9 @@ defmodule ImagePipe.Cache.FileSystemBoundedTest do
     start_supervised!(FileSystem.child_spec(opts))
 
     cache_key = key()
-    assert :ok = put_entry(cache_key, entry("this body is way over the cap"), opts)
+    # commit_sink signals admission rejection so the Sink can record the
+    # request-path outcome; the bytes are still cleaned up below.
+    assert {:ok, :rejected} = put_entry(cache_key, entry("this body is way over the cap"), opts)
 
     # Both body and meta were cleaned up; nothing untracked remains.
     refute File.exists?(meta_path(root, cache_key))

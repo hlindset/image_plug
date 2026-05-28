@@ -258,9 +258,11 @@ defmodule ImagePipe.Cache.FileSystem do
         # Admission declined to keep the entry. It was never inserted into the
         # queues (reject mutates nothing), so the only cleanup is the bytes we
         # just wrote. Delete both body and meta so on-disk state stays
-        # consistent with Admission's accounting.
+        # consistent with Admission's accounting. Signal rejection so the Sink
+        # records the request-path outcome (`cache: :admission_rejected` on the
+        # `[:cache, :write]` span) instead of a plain successful write.
         delete_victims([reject_victim(descriptor)], opts)
-        :ok
+        {:ok, :rejected}
     end
   end
 

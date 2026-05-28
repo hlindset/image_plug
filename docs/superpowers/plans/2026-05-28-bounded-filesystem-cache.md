@@ -3614,12 +3614,37 @@ git commit -m "Extend FileSystem config schema with bounded-mode options"
 
 Add `:telemetry.span/3`-style events using existing `ImagePipe.Telemetry` helpers:
 
-- `[..., :cache, :admission, :start/:stop]` (per the spec)
-- `[..., :cache, :eviction, :stop]`
-- `[..., :cache, :warm_start, :start/:stop]`
-- `[..., :cache, :flush, :stop]`
-- `[..., :cache, :cleanup, :stop]`
-- New `cache: :admission_rejected` value for the existing `[..., :cache, :stage, ...]` event
+- `[..., :cache, :admission, :start/:stop]` (per the spec) — wraps the
+  `admit` decision; stop metadata `result: :admitted | :rejected`,
+  `reason` (reject only), `victim_count`. No key hashes/sizes/paths.
+- `[..., :cache, :eviction, :stop]` — emitted from reconciliation only
+  (boot/periodic), where Admission itself deletes the files and there is
+  otherwise no signal. Measurements `count`/`bytes`, metadata
+  `trigger: :reconcile`. Admit-time eviction is already visible via the
+  admission span's `victim_count`.
+- `[..., :cache, :warm_start, :start/:stop]` — wraps `warm_start/1` in
+  `init`; stop metadata `own_state_loaded` (bool), `peer_state_files`
+  (count).
+- `[..., :cache, :flush, :stop]` — on successful state flush; measurement
+  `bytes`.
+- `[..., :cache, :cleanup, :stop]` — on each cleanup tick; measurement
+  `removed`.
+
+Admission is a long-lived GenServer with no per-request telemetry opts, so
+lifecycle events use a `:telemetry_prefix` captured at init (default
+`ImagePipe.Telemetry.default_prefix/0` = `[:image_pipe]`). It is an
+init-level option threaded by the supervision `child_spec`, not a validated
+request-config cache option.
+
+**`admission_rejected` (design deviation from the bullet below):** commit-level
+outcomes already report on the `[..., :cache, :write]` span (see how
+`:write_error` is surfaced in `Sink.commit_stop_metadata/2`), not on the
+`[..., :cache, :stage]` event (which carries open/write/abort sub-outcomes).
+For consistency, admission rejection is reported the same way: `commit_sink`
+returns `{:ok, :rejected}` (new contract value on `ImagePipe.Cache`), and the
+Sink maps it to a `[..., :cache, :write, :stop]` event with
+`result: :ok, cache: :admission_rejected`. No new `[..., :cache, :stage]`
+value is added.
 
 - [ ] **Step 1: Write test attaching to events**
 - [ ] **Step 2: Run, confirm failure**

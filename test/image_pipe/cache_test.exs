@@ -171,6 +171,16 @@ defmodule ImagePipe.CacheTest do
     def abort_sink(_state, _opts), do: {:error, :abort_failed}
   end
 
+  defmodule SinkAdmissionRejectedAdapter do
+    @behaviour ImagePipe.Cache
+
+    def get(%Key{}, _opts), do: :miss
+    def open_sink(%Key{}, %Entry.Metadata{}, _opts), do: {:ok, %{}}
+    def write_chunk(state, _chunk, _opts), do: {:ok, state}
+    def commit_sink(_state, _opts), do: {:ok, :rejected}
+    def abort_sink(_state, _opts), do: :ok
+  end
+
   defmodule LegacyPutOnlyAdapter do
     def get(%Key{}, _opts), do: :miss
     def put(%Key{}, %Entry{}, _opts), do: :ok
@@ -536,6 +546,22 @@ defmodule ImagePipe.CacheTest do
 
     assert_receive {:telemetry_event, [:image_pipe, :cache, :write, :stop], _measurements,
                     %{result: :cache_error, cache: :write_error, error: :commit_failed}}
+  end
+
+  test "commit_sink reports admission rejection on the cache write span" do
+    attach_telemetry([[:image_pipe, :cache, :write, :stop]])
+
+    sink =
+      cache_key()
+      |> Cache.open_sink(resolved_output(), cache: {SinkAdmissionRejectedAdapter, []})
+      |> Cache.write_chunk("abc", cache: {SinkAdmissionRejectedAdapter, []})
+
+    # Rejection is a successful, non-error outcome: the request path fails open
+    # (nothing stored) and Cache.commit_sink still returns :ok.
+    assert :ok = Cache.commit_sink(sink, cache: {SinkAdmissionRejectedAdapter, []})
+
+    assert_receive {:telemetry_event, [:image_pipe, :cache, :write, :stop], _measurements,
+                    %{result: :ok, cache: :admission_rejected, output_format: :webp}}
   end
 
   test "abort_sink adapter errors fail open through cleanup telemetry" do

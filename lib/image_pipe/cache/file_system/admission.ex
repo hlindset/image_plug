@@ -5,6 +5,7 @@ defmodule ImagePipe.Cache.FileSystem.Admission do
 
   alias ImagePipe.Cache.FileSystem.Policy
   alias ImagePipe.Cache.FileSystem.Sketch
+  alias ImagePipe.Telemetry
 
   defmodule State do
     @moduledoc false
@@ -29,6 +30,10 @@ defmodule ImagePipe.Cache.FileSystem.Admission do
       :cleanup_interval_ms,
       :reconcile_interval_ms,
       :state_ttl_ms,
+      # Lifecycle telemetry prefix. Admission is long-lived, so it has no
+      # per-request telemetry opts; events use this prefix (default
+      # `[:image_pipe]`) captured once at init.
+      telemetry_prefix: [:image_pipe],
       path_prefix: "",
       window: nil,
       probationary: nil,
@@ -117,6 +122,7 @@ defmodule ImagePipe.Cache.FileSystem.Admission do
       cleanup_interval_ms: Keyword.get(opts, :cleanup_interval_ms, 3_600_000),
       reconcile_interval_ms: Keyword.get(opts, :reconcile_interval_ms, 60_000),
       state_ttl_ms: Keyword.get(opts, :state_ttl_ms, 604_800_000),
+      telemetry_prefix: Keyword.get(opts, :telemetry_prefix, Telemetry.default_prefix()),
       # Tables are :protected: the GenServer is the sole writer, while test
       # and introspection readers (via :sys.get_state + :ets) can read them
       # cross-process. A :private table would raise on any non-owner read.
@@ -125,8 +131,36 @@ defmodule ImagePipe.Cache.FileSystem.Admission do
       protected: :ets.new(:protected, [:ordered_set, :protected])
     }
 
-    state = warm_start(state)
+    state =
+      Telemetry.span(tel_opts(state), [:cache, :warm_start], %{}, fn ->
+        warmed = warm_start(state)
+        {warmed, warm_start_meta(state)}
+      end)
+
     {:ok, state, {:continue, :schedule_tickers}}
+  end
+
+  # Lifecycle telemetry opts. Admission has no per-request telemetry opts, so
+  # events fire under the prefix captured at init.
+  defp tel_opts(state), do: [telemetry_prefix: state.telemetry_prefix]
+
+  # Low-cardinality boot summary: whether an own-state file existed and how
+  # many peer state files were present. No node ids, paths, or hashes.
+  defp warm_start_meta(state) do
+    own = "#{state.node_id}.state"
+
+    {own_loaded?, peer_count} =
+      case File.ls(state.state_dir) do
+        {:ok, files} ->
+          own_loaded? = Enum.member?(files, own)
+          peer_count = Enum.count(files, &(String.ends_with?(&1, ".state") and &1 != own))
+          {own_loaded?, peer_count}
+
+        {:error, _} ->
+          {false, 0}
+      end
+
+    %{own_state_loaded: own_loaded?, peer_state_files: peer_count}
   end
 
   defp warm_start(state) do
@@ -454,12 +488,13 @@ defmodule ImagePipe.Cache.FileSystem.Admission do
     # Increment sighting first (commit is itself a sighting of the key)
     state = sighting(state, descriptor.key_hash)
 
-    if descriptor.size_bytes > state.max_size_bytes do
-      {:reply, {:reject, :over_cap}, state}
-    else
-      {result, state} = do_admit(state, descriptor)
-      {:reply, result, %{state | state_dirty: true}}
-    end
+    {result, state} =
+      Telemetry.span(tel_opts(state), [:cache, :admission], %{}, fn ->
+        {result, new_state} = decide_admission(state, descriptor)
+        {{result, new_state}, admission_meta(result)}
+      end)
+
+    {:reply, result, state}
   end
 
   def handle_call(:await_scan, from, state) do
@@ -520,6 +555,20 @@ defmodule ImagePipe.Cache.FileSystem.Admission do
   def handle_call(:reconcile_to_cap, _from, state) do
     {:reply, :ok, reconcile_to_cap(state, [])}
   end
+
+  defp decide_admission(state, descriptor) do
+    if descriptor.size_bytes > state.max_size_bytes do
+      {{:reject, :over_cap}, state}
+    else
+      {result, state} = do_admit(state, descriptor)
+      {result, %{state | state_dirty: true}}
+    end
+  end
+
+  # Low-cardinality outcome tags. `victim_count` is bounded by
+  # `eviction_victim_limit`; no key hashes, sizes, or paths.
+  defp admission_meta({:admit, victims}), do: %{result: :admitted, victim_count: length(victims)}
+  defp admission_meta({:reject, reason}), do: %{result: :rejected, reason: reason, victim_count: 0}
 
   defp do_admit(state, descriptor) do
     cond do
@@ -833,6 +882,10 @@ defmodule ImagePipe.Cache.FileSystem.Admission do
       with :ok <- File.mkdir_p(state.state_dir),
            :ok <- File.write(tmp_path, payload, [:binary]),
            :ok <- File.rename(tmp_path, path) do
+        Telemetry.execute(tel_opts(state), [:cache, :flush, :stop], %{bytes: byte_size(payload)}, %{
+          result: :ok
+        })
+
         %{state | state_dirty: false}
       else
         {:error, reason} ->
@@ -882,22 +935,28 @@ defmodule ImagePipe.Cache.FileSystem.Admission do
   end
 
   defp cleanup_stale_peer_files(state) do
-    case File.ls(state.state_dir) do
-      {:ok, files} ->
-        now = System.system_time(:millisecond)
-        own = "#{state.node_id}.state"
-        Enum.each(files, &maybe_remove_stale_peer_file(state, &1, own, now))
+    removed =
+      case File.ls(state.state_dir) do
+        {:ok, files} ->
+          now = System.system_time(:millisecond)
+          own = "#{state.node_id}.state"
+          Enum.count(files, &maybe_remove_stale_peer_file(state, &1, own, now))
 
-      {:error, _} ->
-        :ok
-    end
+        {:error, _} ->
+          0
+      end
 
+    Telemetry.execute(tel_opts(state), [:cache, :cleanup, :stop], %{removed: removed}, %{})
     state
   end
 
+  # Returns true when a stale peer file was removed (so the caller can count
+  # removals for telemetry), false otherwise.
   defp maybe_remove_stale_peer_file(state, file, own, now) do
     if String.ends_with?(file, ".state") and file != own do
       remove_if_stale(Path.join(state.state_dir, file), now, state.state_ttl_ms)
+    else
+      false
     end
   end
 
@@ -905,10 +964,16 @@ defmodule ImagePipe.Cache.FileSystem.Admission do
     case File.stat(path, time: :posix) do
       {:ok, %{mtime: mtime}} ->
         age_ms = now - mtime * 1000
-        if age_ms > ttl_ms, do: File.rm(path)
+
+        if age_ms > ttl_ms do
+          File.rm(path)
+          true
+        else
+          false
+        end
 
       _ ->
-        :ok
+        false
     end
   end
 
@@ -978,6 +1043,16 @@ defmodule ImagePipe.Cache.FileSystem.Admission do
     victims = Enum.map(descriptors, &full_eviction_victim/1)
     opts = [root: state.root, path_prefix: state.path_prefix]
     ImagePipe.Cache.FileSystem.delete_victims(victims, opts)
+
+    bytes = Enum.reduce(descriptors, 0, fn descriptor, acc -> acc + descriptor.size_bytes end)
+
+    Telemetry.execute(
+      tel_opts(state),
+      [:cache, :eviction, :stop],
+      %{count: length(descriptors), bytes: bytes},
+      %{trigger: :reconcile}
+    )
+
     :ok
   end
 end
