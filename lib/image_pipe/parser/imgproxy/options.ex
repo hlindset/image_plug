@@ -258,41 +258,22 @@ defmodule ImagePipe.Parser.Imgproxy.Options do
     end
   end
 
-  defp pipeline_empty?(%PipelineRequest{
-         width: nil,
-         height: nil,
-         min_width: nil,
-         min_height: nil,
-         resizing_type: :fit,
-         zoom_x: nil,
-         zoom_y: nil,
-         dpr: nil,
-         enlarge: false,
-         extend: false,
-         extend_requested: false,
-         extend_gravity: nil,
-         extend_x_offset: nil,
-         extend_y_offset: nil,
-         extend_aspect_ratio: nil,
-         padding_top: 0,
-         padding_right: 0,
-         padding_bottom: 0,
-         padding_left: 0,
-         background_color: nil,
-         background_alpha: nil,
-         gravity: {:anchor, :center, :center},
-         gravity_x_offset: gravity_x_offset,
-         gravity_y_offset: gravity_y_offset,
-         crop: nil,
-         orientation_requested: false,
-         orientation: %Orientation{} = orientation
-       })
-       when gravity_x_offset in [{:pixels, 0.0}, 0.0] and
-              gravity_y_offset in [{:pixels, 0.0}, 0.0] do
-    orientation == %Orientation{}
+  defp pipeline_empty?(%PipelineRequest{} = pipeline) do
+    normalize_empty_pipeline_values(pipeline) == %PipelineRequest{}
   end
 
-  defp pipeline_empty?(%PipelineRequest{}), do: false
+  defp normalize_empty_pipeline_values(%PipelineRequest{} = pipeline) do
+    %{
+      pipeline
+      | gravity_x_offset: normalize_zero_offset(pipeline.gravity_x_offset),
+        gravity_y_offset: normalize_zero_offset(pipeline.gravity_y_offset)
+    }
+  end
+
+  defp normalize_zero_offset(offset) when is_float(offset) and offset == 0.0,
+    do: {:pixels, 0.0}
+
+  defp normalize_zero_offset(offset), do: offset
 
   defp apply_request_defaults(%{pipelines: pipelines} = options, defaults) do
     auto_rotate? = effective_auto_rotate(pipelines, Keyword.get(defaults, :auto_rotate, false))
