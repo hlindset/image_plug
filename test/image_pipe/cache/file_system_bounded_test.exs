@@ -7,6 +7,7 @@ defmodule ImagePipe.Cache.FileSystemBoundedTest do
 
   alias ImagePipe.Cache.Entry
   alias ImagePipe.Cache.FileSystem
+  alias ImagePipe.Cache.FileSystem.Sketch
   alias ImagePipe.Cache.Key
 
   @node_id "bounded-node"
@@ -267,5 +268,47 @@ defmodule ImagePipe.Cache.FileSystemBoundedTest do
     state = :sys.get_state(admission_pid(root))
     tracked = state.window_bytes + state.probationary_bytes + state.protected_bytes
     assert tracked == byte_size("second body")
+  end
+
+  test "cross-node warm start merges multiple peer state files into boot_cms",
+       %{root: root} do
+    opts = bounded_opts(root, max_size_bytes: 1_000_000)
+    state_dir = Keyword.fetch!(opts, :state_dir)
+    File.mkdir_p!(state_dir)
+
+    # Two peers (distinct node_ids, neither equal to @node_id) each persisted a
+    # sketch with a different hot key. On boot the local node has no own state,
+    # so boot_cms must reflect BOTH peers' frequencies — not just one.
+    File.write!(Path.join(state_dir, "peer-a.state"), peer_state_payload("peer-a", "hot-a", 3))
+    File.write!(Path.join(state_dir, "peer-b.state"), peer_state_payload("peer-b", "hot-b", 5))
+
+    start_supervised!(FileSystem.child_spec(opts))
+    state = :sys.get_state(admission_pid(root))
+
+    assert Sketch.estimate(state.boot_cms, "hot-a") >= 1
+    assert Sketch.estimate(state.boot_cms, "hot-b") >= 1
+  end
+
+  # Build a persisted Admission state payload for a peer node whose sketch has
+  # `key` incremented `count` times. Mirrors the on-disk format Admission
+  # writes (format_version 1) so warm-start merge reads it back.
+  defp peer_state_payload(node_id, key, count) do
+    sketch =
+      Enum.reduce(1..count, Sketch.new(depth: 4, width: 256), fn _, acc ->
+        Sketch.increment(acc, key)
+      end)
+
+    :erlang.term_to_binary(
+      %{
+        format_version: 1,
+        node_id: node_id,
+        written_at: System.system_time(:millisecond),
+        aging_epoch: 0,
+        increments_since_reset: count,
+        sketch: Sketch.serialize(sketch),
+        protected_hashes: []
+      },
+      [:deterministic]
+    )
   end
 end
