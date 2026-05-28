@@ -467,7 +467,7 @@ transforms or output encoding.
 | `resize` | `rs` | Supported | Includes optional resize-tail `enlarge`, `extend`, and extend gravity. |
 | `size` | `s` | Supported | Same field mapping as Imgproxy size meta-option. |
 | `resizing_type` | `rt` | Supported | `fit`, `fill`, `fill-down`, `force`, and `auto`. |
-| `resizing_algorithm` | `ra` | Missing | No algorithm selection in plan or transform execution. |
+| `resizing_algorithm` | `ra` | Missing | Pro algorithm selection. No algorithm selection in plan or transform execution. |
 | `width` | `w` | Supported | Non-negative integer. `0` means auto. |
 | `height` | `h` | Supported | Non-negative integer. `0` means auto. |
 | `min-width` | `mw` | Supported | Non-negative integer. |
@@ -476,7 +476,7 @@ transforms or output encoding.
 | `dpr` | | Supported | Affects resize sizing and cache key data. |
 | `enlarge` | `el` | Supported | boolean. |
 | `extend` | `ex` | Supported | Canvas extension with anchor gravity and offsets. |
-| `extend_aspect_ratio` | `extend_ar`, `exar` | Partial | Supported as ratio canvas extension; Imgproxy's boolean argument form isn't modeled. |
+| `extend_aspect_ratio` | `extend_ar`, `exar` | Supported | boolean extend plus gravity. Extends the canvas to the requested resize aspect ratio. `fp` extend-gravity isn't supported (matches `extend`). No-op when a resize dimension is auto or zero. |
 | `gravity` anchors | `g` | Supported | `ce`, `no`, `so`, `ea`, `we`, `noea`, `nowe`, `soea`, `sowe`. |
 | `gravity:fp` | `g:fp` | Supported | Focal point coordinates from `0.0` to `1.0`. |
 | `gravity:sm` | `g:sm` | Rejected | Planning rejects parsed smart gravity as unsupported. |
@@ -484,7 +484,7 @@ transforms or output encoding.
 | `gravity:objw` | | Missing | Pro object-detection gravity with weights. |
 | `objects_position` | `obj_pos`, `op` | Missing | Pro object-detection positioning. |
 | `crop` | `c` | Supported | Absolute, relative, or full-axis dimensions. Supports anchor, focal-point, and smart-gravity parsing. Planning rejects smart gravity. |
-| `crop_aspect_ratio` | `crop_ar`, `car` | Missing | Documented as unsupported in current ImagePipe docs. |
+| `crop_aspect_ratio` | `crop_ar`, `car` | Supported | Pro option. Corrects the crop area aspect ratio. `aspect_ratio` zero is a no-op. `enlarge` grows the area then clamps to image bounds; default reduces. Corrects size only, not gravity. Wired through gravity crops. |
 | `trim` | `t` | Missing | Requires full-image memory behavior and trim operation. |
 | `padding` | `pd` | Supported | CSS-style shorthand, sparse repeated options, effective DPR scaling, and `padding:` no-op compatibility. |
 | `auto_rotate` | `ar` | Supported | Omitted argument enables auto-orient; boolean form supported. URL `ar` overrides `imgproxy: [auto_rotate: ...]` request-wide, with last value in path order winning. |

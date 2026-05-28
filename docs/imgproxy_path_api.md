@@ -220,7 +220,8 @@ Remaining queued groups become trailing pipelines.
 | Zoom | `zoom`, `z` | positive number, or positive `x:y` numbers |
 | Device pixel ratio (DPR) | `dpr` | positive number |
 | Extend canvas | `extend`, `ex` | boolean, optionally followed by extend gravity and offsets |
-| Extend aspect ratio | `extend_aspect_ratio`, `extend_ar`, `exar` | positive `<width>:<height>` ratio numbers |
+| Extend aspect ratio | `extend_aspect_ratio`, `extend_ar`, `exar` | boolean, optionally followed by extend gravity |
+| Crop aspect ratio | `crop_aspect_ratio`, `crop_ar`, `car` | non-negative `<aspect_ratio>`, optionally followed by an enlarge boolean |
 | Padding | `padding`, `pd` | CSS-style top/right/bottom/left non-negative pixel integers |
 | Background | `background`, `bg` | `R:G:B`, 3 digit hex, 6 digit hex, or empty to clear |
 | Blur | `blur`, `bl` | non-negative sigma number. `0` means no-op |
@@ -347,11 +348,39 @@ and `extend_aspect_ratio`/`extend_ar`/`exar`.
 - `extend:true` requests canvas extension for the requested resize box.
 - `extend:false` disables canvas extension even when `resize`/`size` extend
   arguments are present.
-- `exar:<width>:<height>` extends canvas to the requested aspect ratio.
-- Extend gravity uses anchor values only, with optional numeric offsets.
+- `exar:%extend` and `exar:%extend:%gravity` extend the canvas to match the
+  aspect ratio of the requested resize dimensions (`width` and `height` from
+  the same pipeline group). `%extend` is a boolean; omitted gravity defaults to
+  `ce`. The ratio comes from the resize target dimensions. This option is a
+  no-op when either the resize width or height is auto or zero.
+- Extend gravity uses anchor values only (`ce`, `no`, `so`, `ea`, `we`,
+  `noea`, `nowe`, `soea`, `sowe`), with optional numeric offsets. Focal-point
+  extend gravity (`fp`) isn't supported for `exar`.
 
 The `resize`/`size` extend arguments accept anchor gravity alone, or anchor
 gravity plus `x_offset` and `y_offset`.
+
+## Crop aspect ratio
+
+`crop_aspect_ratio:%aspect_ratio` and `crop_ar:%aspect_ratio:%enlarge` (imgproxy
+Pro) correct the aspect ratio of the active crop area:
+
+- `%aspect_ratio` is a non-negative decimal number expressing width divided by
+  height. `0` is a no-op.
+- `%enlarge` is an optional boolean. When true, the crop area grows to match the
+  target ratio and then clamps to image bounds. When false or omitted, the crop
+  area shrinks to match the target ratio (default behavior).
+- Aspect-ratio correction adjusts the crop area size only, not its gravity or
+  position.
+- This option applies through gravity crops only. Requests without a crop or
+  with a non-gravity crop path ignore this option.
+
+Examples:
+
+| Goal | Imgproxy path |
+| --- | --- |
+| Crop at 16:9, reducing area | `/_/c:400:400/car:1.7778/plain/images/cat.jpg` |
+| Crop at 4:3, enlarging to fill | `/_/c:300:300/car:1.3333:true/plain/images/cat.jpg` |
 
 ## Composition
 
@@ -484,6 +513,7 @@ These cases return HTTP 400:
 | Fit within a width | `/_/w:300/plain/images/cat.jpg` |
 | Fill a box from a focal point | `/_/rt:fill/w:300/h:200/g:fp:0.25:0.75/plain/images/cat.jpg` |
 | Force one side and preserve the other | `/_/rt:force/w:0/h:200/plain/images/cat.jpg` |
+| Extend canvas to resize aspect ratio | `/_/rt:fit/w:300/h:200/exar:true/plain/images/cat.jpg` |
 | Explicit crop with focal gravity | `/_/c:100:100:fp:0.25:0.75/plain/images/cat.jpg` |
 | Auto-orient then crop | `/_/ar:true/c:100:100/plain/images/cat.jpg` |
 | Explicit output format | `/_/f:webp/plain/images/cat.jpg` |
