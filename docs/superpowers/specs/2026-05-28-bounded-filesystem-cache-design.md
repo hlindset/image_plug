@@ -16,7 +16,7 @@ V1 covers:
 - Cost-aware W-TinyLFU admission policy (frequency × encode/transform cost ÷
   body size) with a Bloom doorkeeper.
 - Persisted CMS, doorkeeper, protected-segment list, and aging epoch to a
-  per-node state file (`<node_id>.cms`) for warm-start.
+  per-node state file (`<node_id>.state`) for warm-start.
 - Multi-node warm-start by reading peer state files at boot, with a TTL-based
   cleanup ticker.
 
@@ -146,16 +146,27 @@ average entry sizes should override.
 Bloom filter, default `:doorkeeper_bits = max(8192, max_size_bytes ÷
 12_500)` — sized ~2× the sketch width so the false-positive rate at peak
 distinct-key count is manageable. Same "assume ~50 KB average entry"
-caveat. Sits in front of CMS, triggered only by cache hits:
+caveat. Sits in front of CMS, triggered by **any observed sighting** of
+a key — either a hit (on `get/2`) or a miss processed through to a
+commit (on `commit_sink`):
 
-- First hit-sighting of a key → add to doorkeeper, don't touch CMS.
-- Subsequent hit-sighting (key in doorkeeper) → increment CMS.
+- First sighting of a key → add to doorkeeper, don't touch CMS.
+- Subsequent sighting → CMS increment.
 
-Doorkeeper resets on the same schedule as CMS aging. The point is to keep
-one-hit wonders out of the CMS so counter capacity goes to actually
-recurring keys. Note: cache *writes* don't trigger the doorkeeper/CMS
-path — only hits do. New entries accumulate frequency from subsequent
-in-window hits (see Window LRU below), not from the act of being written.
+Counting misses-resolved-to-commits as sightings is necessary for
+**oversized entries** that skip the window: those entries never become
+window-cached hits, so their only mechanism to accumulate frequency is
+across repeated commits for the same key. Without miss-as-sighting they
+could never accumulate the frequency needed to win main admission, and
+repeated requests would produce unbounded recompute storms. For
+window-eligible entries the extra increment on first commit is
+redundant-but-harmless: the window provides the cheap runway, and the
+doorkeeper-add on first sighting prevents one-hit-wonders from
+polluting CMS.
+
+Doorkeeper resets on the same schedule as CMS aging. The point is to
+keep one-hit wonders out of the CMS so counter capacity goes to actually
+recurring keys.
 
 ### Aging
 
@@ -280,10 +291,20 @@ gate** (run for any entry that flows from window into main).
 
 **Main gate** (for entry `X`, called from steps 2 or 4 above):
 
-1. **Free main space:** if `probationary_budget − current_probationary_size`
-   ≥ `X.size_bytes`, insert `X` at probationary MRU. No victims.
-2. **Identify victims:** walk probationary LRU outward, collecting
-   victims until cumulative `size_bytes` ≥ `X.size_bytes`.
+1. **Free main space:** if available main bytes ≥ `X.size_bytes`, insert
+   `X` at probationary MRU. No victims. "Available main bytes" =
+   `main_budget − current_probationary_size − current_protected_size`.
+2. **Identify victims (probationary first, then protected under
+   pressure):** walk probationary LRU outward, collecting victims until
+   cumulative `size_bytes` ≥ `X.size_bytes`. If probationary is
+   exhausted before enough bytes are freed, **extend the walk into
+   protected LRU outward** as additional victims. Protected entries
+   selected this way are demoted to victim status; they don't return to
+   probationary. This keeps protected from one-way ratcheting under
+   sustained admission pressure: an entry that earned protected status
+   but is no longer accessed can still be evicted when newer hot
+   entries need its bytes. If both queues together can't free enough
+   bytes, return `:no_evictable_victims`.
 3. **Score check (weighted average):** admit `X` only if
 
    ```
@@ -292,14 +313,17 @@ gate** (run for any entry that flows from window into main).
 
    — i.e., the candidate's value-per-byte must exceed the
    value-per-byte of the bytes being freed. Otherwise the candidate
-   loses; its files must be deleted (it's in the victim list returned by
-   the *outer* `admit/1` call).
+   loses; its files must be deleted (it's in the victim list returned
+   by the *outer* `admit/1` call). The same weighted-average rule
+   applies whether victims came from probationary alone or a mix of
+   probationary and protected.
 
 The weighted-average rule compares like with like: candidate's `freq ×
-cost / size` against the aggregate `Σ(freq × cost) / Σ(size)` of victims.
-A large candidate sweeping in a high-scoring outlier isn't unfairly
-penalized because the outlier's high score is diluted by other victims'
-bytes. This was the previous spec's "beat the best victim" pathology.
+cost / size` against the aggregate `Σ(freq × cost) / Σ(size)` of
+victims. A large candidate sweeping in a high-scoring outlier isn't
+unfairly penalized because the outlier's high score is diluted by other
+victims' bytes. This was the previous spec's "beat the best victim"
+pathology.
 
 **Return contract:**
 
@@ -349,15 +373,38 @@ magnitude.
 Admission's accounting is updated speculatively when a candidate is
 admitted — bytes are counted as freed when victim descriptors are
 returned to the adapter, even though the adapter's `File.rename/2` and
-`File.rm/1` calls happen after that. If any of those file operations fail,
-in-memory accounting diverges from disk: the cache may believe an entry is
-admitted when its rename failed, or that bytes are freed when victim
-deletion failed. These are tolerated as part of the soft-cap contract and
-repaired at restart — the boot scan walks the actual on-disk state and
-rebuilds queues from ground truth. Between restarts, drift is bounded by
-the rate of `File.rename/2` and `File.rm/1` failures, which are corner
-cases (disk full, permissions, filesystem corruption) that indicate the
-cache has bigger problems than admission drift.
+`File.rm/1` calls happen after that. If any of those file operations
+fail, in-memory accounting diverges from disk: the cache may believe an
+entry is admitted when its rename failed, or that bytes are freed when
+victim deletion failed. These are tolerated as part of the soft-cap
+contract and repaired at restart — the boot scan walks the actual
+on-disk state and rebuilds queues from ground truth. Between restarts,
+drift is bounded by the rate of `File.rename/2` and `File.rm/1`
+failures, which are corner cases (disk full, permissions, filesystem
+corruption) that indicate the cache has bigger problems than admission
+drift.
+
+**Same-key concurrent commits.** The existing unbounded adapter already
+has a race when two requests miss for the same key concurrently: both
+write to different randomized tmp files and both rename to
+`<hash>.meta`, last-rename-wins. Body files are content-addressed so
+they don't collide, but one body becomes orphaned (no meta points to
+it). Bounded mode inherits this race; additionally, `Admission`'s
+in-memory descriptor for the key may briefly disagree with the meta
+on disk if the timing interleaves admit calls with renames. The
+practical effect is the same as the unbounded race: a transient
+orphan body, possibly miscounted bytes in `Admission` until restart.
+Restart-via-boot-scan reconciles. Not engineered around in V1; a per-
+key finalization callback or generation token would close the window
+but adds complexity disproportionate to the impact for typical
+image-proxy traffic where deduplication usually happens upstream.
+
+**This is a bounded-Admission-tracked-bytes contract, not a strict
+disk-bytes contract.** Orphan bodies (from concurrent same-key races
+or victim-delete failures) are bytes the cache has stopped counting
+but that still exist on disk. Operators who need a strict disk bound
+should monitor disk usage independently (e.g., `du`) and treat the
+soft cap as a target rather than a guarantee.
 
 ### Merged CMS amplification and ordering caveats
 
@@ -376,17 +423,19 @@ well-separated counts. Two important caveats:
   conservative-update sketch, and the merged estimate's relationship to
   any global true count is approximate at best.
 
-Treat `boot_cms` as a directional hint rather than a precise oracle. The
-practical effect on admission decisions is small — scoring decisions are
-made on ratios, not absolute counts. Aging runs against `local_cms`
-alone (not the merged view), so amplification doesn't drive aging
-frequency.
+Treat `boot_cms` as a directional hint rather than a precise oracle.
+The practical effect on admission decisions is small — scoring decisions
+are made on ratios, not absolute counts.
 
-A separate but related coupling: `boot_cms` ages on local-increment
-volume because aging is local-CMS-triggered. A busy node fades its
-peer-derived knowledge quickly; an idle node holds stale peer data
-indefinitely. Acceptable — the idle node has nothing better to score
-against.
+**Aging applies to both, but is triggered by local activity only.** The
+aging counter (sample-based reset at `sketch_width × 10` increments) is
+incremented by `local_cms` activity only. When the threshold is
+crossed, the halving operation applies to *both* `local_cms` and
+`boot_cms`. Peer-derived data fades gradually as local traffic
+dominates, but boot counts can never trigger aging on their own. A busy
+node fades its peer-derived knowledge quickly; an idle node holds stale
+peer data indefinitely. Acceptable — the idle node has nothing better
+to score against.
 
 ## Data Flow and On-Disk Layout
 
@@ -398,7 +447,7 @@ against.
   ab/cd/<hash>.<body_sha256>.body          # existing, unchanged
 
 <root>/.cache_state/                       # new — coordination state, not entries
-  <node_id>.cms                            # per-node CMS + doorkeeper + protected-segment IDs
+  <node_id>.state                            # per-node CMS + doorkeeper + protected-segment IDs
 ```
 
 The `.cache_state/` directory uses a leading-dot name so existing
@@ -421,7 +470,7 @@ calls — no separate `entry_id` is introduced.
 This is a greenfield codebase — no migration, no version gating, no
 backwards compatibility for "old" entries. Old shapes don't exist.
 
-### `<node_id>.cms` file format
+### `<node_id>.state` file format
 
 Serialized via `:erlang.term_to_binary/2` with `[:deterministic]`:
 
@@ -502,23 +551,33 @@ run, or when it exceeded the hard cap.
 
 ### Boot / warm-start flow
 
-1. `Admission.init/1` reads `<state_dir>/<node_id>.cms` (own file) if
+1. `Admission.init/1` reads `<state_dir>/<node_id>.state` (own file) if
    present; restores `local_cms`, doorkeeper, aging epoch, and protected
    segment.
-2. Reads all other `<state_dir>/*.cms` files with `now - mtime <
+2. Reads all other `<state_dir>/*.state` files with `now - mtime <
    :state_ttl`. Decodes each. Element-wise sums them into `boot_cms`
    (read-only, never republished). Files past TTL are skipped. Decode
    failures are logged and skipped.
 3. Concurrently, a background `Task` runs the **two-pass scan** described
-   in the `<node_id>.cms` file format section: first pass walks the
+   in the `<node_id>.state` file format section: first pass walks the
    directory and builds a `key_hash → descriptor` map; second pass
-   inserts protected entries in persisted LRU→MRU order, then
-   probationary entries in mtime order. Window starts empty. For large
-   caches this scan can take seconds; the adapter remains responsive
-   throughout (see step 4).
-4. While the scan is in flight, the adapter still serves reads and writes.
-   Hits on un-scanned entries synthesize a probationary entry on the fly.
-   Writes during scan may briefly over-admit; tolerated.
+   sends the descriptor batches to `Admission` via `call` for the
+   insert pass. The scan task never writes to `Admission`'s ETS tables
+   directly — `Admission` owns its tables and applies the batches in
+   the main process, keeping ownership rules clean. Window starts empty.
+   For large caches this scan can take seconds; the adapter remains
+   responsive throughout (see step 4).
+4. While the scan is in flight, the adapter still serves reads and
+   writes. Hits on un-scanned entries synthesize a probationary entry
+   on the fly. Writes during scan may briefly over-admit; tolerated.
+
+**Scan conflict resolution.** Runtime traffic during the scan can
+populate queue state via hits (synthesized probationary entries) and
+writes (admit calls) before the scan reaches those keys. When the scan
+later tries to insert a descriptor for an already-tracked key,
+`Admission` **skips the insert** — the runtime descriptor is fresher
+than what the scan read from disk. This prevents stale-data resurrection
+when a write happened concurrently with the directory walk.
 
 `Admission` keeps two CMS sources:
 
@@ -530,15 +589,19 @@ run, or when it exceeded the hard cap.
   merged history as its own contribution" double-counting problem when
   the local file is written.
 
-Scoring reads `freq(key) = local_cms ⊕ boot_cms`.
+Scoring reads `freq(key) = local_cms.estimate(key) + boot_cms.estimate(key)`
+— each sketch is queried independently (each returns the min over its
+own hash rows) and the two estimates are summed. The two sketches are
+not counter-wise merged into a third matrix; that would require keeping
+a merged matrix in sync and would behave differently under collisions.
 
 ### Periodic background work
 
-- Persist local state to `<state_dir>/<node_id>.cms` every `:flush_interval`
+- Persist local state to `<state_dir>/<node_id>.state` every `:flush_interval`
   seconds (default 30). Debounced — only writes when CMS is dirty.
   Atomic rename pattern.
 - Run TTL cleanup every `:cleanup_interval` seconds (default 3600 = 1h).
-  List `<state_dir>/*.cms`, `File.rm/1` files with mtime older than
+  List `<state_dir>/*.state`, `File.rm/1` files with mtime older than
   `:state_ttl` (default 604_800 = 7 days). Skip own file. ENOENT-tolerant.
 - Aging fires on increment count, not on a timer; no scheduled event.
 
@@ -550,10 +613,11 @@ behavior.
 
 **New required options when `:max_size_bytes` is set:**
 
-- `:max_size_bytes` — positive integer. The soft cap. `0` is rejected at
-  validation — a zero-cap "bounded" cache is indistinguishable from a
-  disabled cache and is almost certainly an operator mistake; if a host
-  wants no caching they should omit the `:cache` adapter entirely.
+- `:max_size_bytes` — positive integer, must be ≥ `10_000_000` (10 MB).
+  The soft cap. `0` and small values below 10 MB are rejected at
+  validation — a tiny "bounded" cache can't fit meaningful entries and
+  is almost certainly an operator mistake; if a host wants no caching
+  they should omit the `:cache` adapter entirely.
 - `:node_id` — binary string. Identifies this node's state files. No
   default; operator-controlled. **Must be stable across restarts of the
   same logical node** — a fresh `node_id` on every boot causes cold-start
@@ -687,13 +751,15 @@ whose timing is uninteresting to operators.
 
 - CMS `estimate(k) >= true_count(k)` — never underestimates.
 - Aging preserves relative ordering for high-frequency keys.
-- Soft-cap invariant: after any admission sequence, total tracked bytes
-  never exceed cap by more than the largest in-flight entry.
+- Soft-cap invariant: after any admission sequence, total
+  `Admission`-tracked bytes never exceed cap by more than the *sum* of
+  in-flight admitted-but-not-yet-renamed-or-deleted entry sizes across
+  all concurrent commits.
 - File-write atomicity smoke test under concurrent writers.
 
 ### Admission GenServer tests (via `start_supervised!/1`)
 
-- Boot from empty state, populated `<node_id>.cms`, populated peer files,
+- Boot from empty state, populated `<node_id>.state`, populated peer files,
   mix.
 - Admission decisions serialize correctly under concurrent `call`s.
 - Aging triggers at configured sample threshold.
@@ -713,7 +779,7 @@ whose timing is uninteresting to operators.
 - Admission rejection per reason code: separate cases for `:over_cap`,
   `:score_too_low`, and `:no_evictable_victims`; verify body tmp file
   cleaned and response still streams to client for each.
-- Cross-node warm-start: pre-place two `<node_id>.cms` files in
+- Cross-node warm-start: pre-place two `<node_id>.state` files in
   `<state_dir>`, boot Admission, assert merged frequency reflects both via
   `:sys.get_state/1` snapshot inspection.
 
@@ -728,7 +794,7 @@ whose timing is uninteresting to operators.
   place (V1 doesn't sweep, by design).
 - **Body present, meta missing**: place a `.body` with no matching
   `.meta`; `get/2` returns `:miss`. The orphan body is invisible.
-- **Corrupt own `<node_id>.cms`**: write a truncated/garbage file; boot
+- **Corrupt own `<node_id>.state`**: write a truncated/garbage file; boot
   logs a warning, falls back as if the file didn't exist, cold-boots
   CMS, scans disk normally.
 - **Scan racing with commits for the same key**: drive a commit while the
@@ -745,13 +811,11 @@ whose timing is uninteresting to operators.
 - **Restart after failed victim delete**: simulate a victim delete that
   fails with `:eacces`; restart Admission; verify boot scan picks up the
   orphan body (or skips it) without crashing or double-counting bytes.
-- **Very small caps with rounding**: `:max_size_bytes: 1024` with default
-  `:window_ratio: 0.01` → 10-byte window, near-zero protected. Verify
-  computed budgets clamp to sane minimums (at least one entry's worth)
-  or are rejected at validation.
-- **`:max_size_bytes: 0`**: verify validation rejects. Assert the
-  rejection happens (e.g., specific error tuple or exception type), not
-  the exact error string — see "Tests deliberately not written" below.
+- **Caps below the 10 MB minimum**: `:max_size_bytes: 1024`,
+  `:max_size_bytes: 9_999_999`, `:max_size_bytes: 0`. All should be
+  rejected at validation. Assert the rejection happens (specific error
+  tuple or exception type) — not the exact error string, per "Tests
+  deliberately not written" below.
 
 ### Architecture tests
 
