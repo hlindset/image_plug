@@ -7,7 +7,9 @@ defmodule ImagePipe.Plan.OperationKeyDataTest do
   alias ImagePipe.Plan.Operation.Blur
   alias ImagePipe.Plan.Operation.Brightness
   alias ImagePipe.Plan.Operation.Contrast
+  alias ImagePipe.Plan.Operation.Duotone
   alias ImagePipe.Plan.Operation.Flip
+  alias ImagePipe.Plan.Operation.Monochrome
   alias ImagePipe.Plan.Operation.Pixelate
   alias ImagePipe.Plan.Operation.Rotate
   alias ImagePipe.Plan.Operation.Saturation
@@ -199,6 +201,29 @@ defmodule ImagePipe.Plan.OperationKeyDataTest do
       assert KeyData.data(%Blur{sigma: 2.5}) == [op: :blur, sigma: 2.5]
       assert KeyData.data(%Sharpen{sigma: 0.7}) == [op: :sharpen, sigma: 0.7]
       assert KeyData.data(%Pixelate{size: 8}) == [op: :pixelate, size: 8]
+      assert {:ok, color} = Operation.color(255, 204, 0)
+
+      assert KeyData.data(%Monochrome{intensity: {:ratio, 1, 2}, color: color}) == [
+               op: :monochrome,
+               intensity: [unit: :ratio, numerator: 1, denominator: 2],
+               color: KeyData.data(%ImagePipe.Plan.Operation.Background{color: color})[:color]
+             ]
+
+      assert {:ok, shadow} = Operation.color(17, 34, 51)
+      assert {:ok, highlight} = Operation.color(255, 238, 204)
+
+      assert KeyData.data(%Duotone{
+               intensity: {:ratio, 1, 4},
+               shadow: shadow,
+               highlight: highlight
+             }) == [
+               op: :duotone,
+               intensity: [unit: :ratio, numerator: 1, denominator: 4],
+               shadow: KeyData.data(%ImagePipe.Plan.Operation.Background{color: shadow})[:color],
+               highlight:
+                 KeyData.data(%ImagePipe.Plan.Operation.Background{color: highlight})[:color]
+             ]
+
       assert KeyData.data(%Brightness{value: 20}) == [op: :brightness, value: 20]
       assert KeyData.data(%Contrast{value: -15}) == [op: :contrast, value: -15]
       assert KeyData.data(%Saturation{value: 35}) == [op: :saturation, value: 35]

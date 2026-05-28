@@ -317,6 +317,13 @@ describe("processing path generation", () => {
       sharpen: 0.7,
       pixelateEnabled: true,
       pixelate: 8,
+      monochromeEnabled: true,
+      monochromeIntensity: 0.5,
+      monochromeColor: "#ffcc00",
+      duotoneEnabled: true,
+      duotoneIntensity: 0.25,
+      duotoneShadow: "#112233",
+      duotoneHighlight: "#ffeecc",
       brightnessEnabled: true,
       brightness: 20,
       contrastEnabled: true,
@@ -330,12 +337,14 @@ describe("processing path generation", () => {
       "bl:2.5",
       "sh:0.7",
       "pix:8",
+      "mc:0.5:ffcc00",
+      "dt:0.25:112233:ffeecc",
       "br:20",
       "co:-15",
       "sa:35",
     ]);
     expect(buildProcessingPath(state)).toBe(
-      "/_/bg:ffcc00/bl:2.5/sh:0.7/pix:8/br:20/co:-15/sa:35/plain/local:///images/dog.jpg",
+      "/_/bg:ffcc00/bl:2.5/sh:0.7/pix:8/mc:0.5:ffcc00/dt:0.25:112233:ffeecc/br:20/co:-15/sa:35/plain/local:///images/dog.jpg",
     );
   });
 
@@ -733,7 +742,7 @@ describe("demo URL state", () => {
 
   it("parses crop, orientation, scale, canvas, padding, background, and effects options", () => {
     const parsed = parseDemoPath(
-      "/demo/ar:1/fl:0:1/rot:90/c:0.5:0.25:no/z:1.25/dpr:2/mw:320/mh:240/exar:16:9/pd:1:2:3:4/bg:ffcc00/bga:0.42/bl:2.5/sh:0.7/pix:8/br:20/co:-15/sa:35/plain/local:///images/beach.jpg",
+      "/demo/ar:1/fl:0:1/rot:90/c:0.5:0.25:no/z:1.25/dpr:2/mw:320/mh:240/exar:16:9/pd:1:2:3:4/bg:ffcc00/bga:0.42/bl:2.5/sh:0.7/pix:8/mc:0.5:ffcc00/dt:0.25:112233:ffeecc/br:20/co:-15/sa:35/plain/local:///images/beach.jpg",
     );
 
     expect(parsed).toMatchObject({
@@ -772,6 +781,13 @@ describe("demo URL state", () => {
       sharpen: 0.7,
       pixelateEnabled: true,
       pixelate: 8,
+      monochromeEnabled: true,
+      monochromeIntensity: 0.5,
+      monochromeColor: "#ffcc00",
+      duotoneEnabled: true,
+      duotoneIntensity: 0.25,
+      duotoneShadow: "#112233",
+      duotoneHighlight: "#ffeecc",
       brightnessEnabled: true,
       brightness: 20,
       contrastEnabled: true,
@@ -794,6 +810,22 @@ describe("demo URL state", () => {
     });
   });
 
+  it("uses duotone defaults for omitted demo route colors", () => {
+    expect(parseDemoPath("/demo/dt:0.5:112233/plain/local:///images/dog.jpg")).toMatchObject({
+      duotoneEnabled: true,
+      duotoneIntensity: 0.5,
+      duotoneShadow: "#112233",
+      duotoneHighlight: defaultDemoState.duotoneHighlight,
+    });
+
+    expect(parseDemoPath("/demo/dt:0.5::ffeecc/plain/local:///images/dog.jpg")).toMatchObject({
+      duotoneEnabled: true,
+      duotoneIntensity: 0.5,
+      duotoneShadow: defaultDemoState.duotoneShadow,
+      duotoneHighlight: "#ffeecc",
+    });
+  });
+
   it("treats pixelate size one as a demo no-op", () => {
     expect(parseDemoPath("/demo/pix:1/plain/local:///images/dog.jpg")).toEqual({
       ...defaultDemoState,
@@ -813,6 +845,13 @@ describe("demo URL state", () => {
       sharpen: defaultDemoState.sharpen,
       pixelateEnabled: false,
       pixelate: defaultDemoState.pixelate,
+      monochromeEnabled: false,
+      monochromeIntensity: defaultDemoState.monochromeIntensity,
+      monochromeColor: defaultDemoState.monochromeColor,
+      duotoneEnabled: false,
+      duotoneIntensity: defaultDemoState.duotoneIntensity,
+      duotoneShadow: defaultDemoState.duotoneShadow,
+      duotoneHighlight: defaultDemoState.duotoneHighlight,
       brightnessEnabled: false,
       brightness: defaultDemoState.brightness,
       contrastEnabled: false,
@@ -853,6 +892,10 @@ describe("demo URL state", () => {
     expect(parseDemoPath("/demo/br:-101/plain/local:///images/dog.jpg")).toEqual(defaultDemoState);
     expect(parseDemoPath("/demo/co:101/plain/local:///images/dog.jpg")).toEqual(defaultDemoState);
     expect(parseDemoPath("/demo/sa:100.5/plain/local:///images/dog.jpg")).toEqual(defaultDemoState);
+    expect(parseDemoPath("/demo/mc:1.1/plain/local:///images/dog.jpg")).toEqual(defaultDemoState);
+    expect(parseDemoPath("/demo/dt:0.5:zzz/plain/local:///images/dog.jpg")).toEqual(
+      defaultDemoState,
+    );
   });
 
   it("resets processing options while keeping source and signature settings", () => {

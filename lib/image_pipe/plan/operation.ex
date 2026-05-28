@@ -12,7 +12,9 @@ defmodule ImagePipe.Plan.Operation do
   alias ImagePipe.Plan.Operation.Contrast
   alias ImagePipe.Plan.Operation.CropGuided
   alias ImagePipe.Plan.Operation.CropRegion
+  alias ImagePipe.Plan.Operation.Duotone
   alias ImagePipe.Plan.Operation.Flip
+  alias ImagePipe.Plan.Operation.Monochrome
   alias ImagePipe.Plan.Operation.Padding
   alias ImagePipe.Plan.Operation.Pixelate
   alias ImagePipe.Plan.Operation.Resize
@@ -74,6 +76,8 @@ defmodule ImagePipe.Plan.Operation do
           Blur.t()
           | Sharpen.t()
           | Pixelate.t()
+          | Monochrome.t()
+          | Duotone.t()
           | Brightness.t()
           | Contrast.t()
           | Saturation.t()
@@ -116,6 +120,32 @@ defmodule ImagePipe.Plan.Operation do
   @spec pixelate(term()) :: {:ok, Pixelate.t()} | {:error, error()}
   def pixelate(size) when is_integer(size) and size > 1, do: {:ok, %Pixelate{size: size}}
   def pixelate(size), do: invalid(:pixelate, [size])
+
+  @spec monochrome(term(), term()) :: {:ok, Monochrome.t()} | {:error, error()}
+  def monochrome(intensity, %Color{} = color) do
+    with {:ok, intensity} <- effect_intensity(intensity),
+         true <- Color.valid?(color) do
+      {:ok, %Monochrome{intensity: intensity, color: color}}
+    else
+      _reason -> invalid(:monochrome, [intensity, color])
+    end
+  end
+
+  def monochrome(intensity, color), do: invalid(:monochrome, [intensity, color])
+
+  @spec duotone(term(), term(), term()) :: {:ok, Duotone.t()} | {:error, error()}
+  def duotone(intensity, %Color{} = shadow, %Color{} = highlight) do
+    with {:ok, intensity} <- effect_intensity(intensity),
+         true <- Color.valid?(shadow),
+         true <- Color.valid?(highlight) do
+      {:ok, %Duotone{intensity: intensity, shadow: shadow, highlight: highlight}}
+    else
+      _reason -> invalid(:duotone, [intensity, shadow, highlight])
+    end
+  end
+
+  def duotone(intensity, shadow, highlight),
+    do: invalid(:duotone, [intensity, shadow, highlight])
 
   @spec brightness(term()) :: {:ok, Brightness.t()} | {:error, error()}
   def brightness(value), do: adjustment(:brightness, Brightness, value)
@@ -305,6 +335,8 @@ defmodule ImagePipe.Plan.Operation do
   def semantic?(%Blur{} = operation), do: valid_positive_float?(operation.sigma)
   def semantic?(%Sharpen{} = operation), do: valid_positive_float?(operation.sigma)
   def semantic?(%Pixelate{} = operation), do: valid_pixelate_size?(operation.size)
+  def semantic?(%Monochrome{} = operation), do: valid_monochrome?(operation)
+  def semantic?(%Duotone{} = operation), do: valid_duotone?(operation)
   def semantic?(%Brightness{} = operation), do: valid_adjustment_value?(operation.value)
   def semantic?(%Contrast{} = operation), do: valid_adjustment_value?(operation.value)
   def semantic?(%Saturation{} = operation), do: valid_adjustment_value?(operation.value)
@@ -399,6 +431,22 @@ defmodule ImagePipe.Plan.Operation do
 
   defp valid_pixelate_size?(value) when is_integer(value) and value > 1, do: true
   defp valid_pixelate_size?(_value), do: false
+
+  defp valid_monochrome?(%Monochrome{intensity: intensity, color: color}) do
+    valid_effect_intensity?(intensity) and Color.valid?(color)
+  end
+
+  defp valid_duotone?(%Duotone{intensity: intensity, shadow: shadow, highlight: highlight}) do
+    valid_effect_intensity?(intensity) and Color.valid?(shadow) and Color.valid?(highlight)
+  end
+
+  defp valid_effect_intensity?(value) do
+    case effect_intensity(value) do
+      {:ok, ^value} -> true
+      {:ok, _value} -> false
+      {:error, _reason} -> false
+    end
+  end
 
   defp valid_adjustment_value?(value) do
     case adjustment_value(value) do
@@ -730,6 +778,15 @@ defmodule ImagePipe.Plan.Operation do
   end
 
   defp adjustment_value(_value), do: {:error, :adjustment}
+
+  defp effect_intensity({:ratio, numerator, denominator})
+       when is_integer(numerator) and is_integer(denominator) and numerator > 0 and
+              denominator > 0 and numerator <= denominator do
+    divisor = Integer.gcd(numerator, denominator)
+    {:ok, {:ratio, div(numerator, divisor), div(denominator, divisor)}}
+  end
+
+  defp effect_intensity(_value), do: {:error, :intensity}
 
   defp canonical_adjustment_float(value) when value == 0.0, do: {:ok, 0}
 

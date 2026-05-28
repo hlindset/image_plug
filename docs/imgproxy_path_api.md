@@ -402,6 +402,17 @@ sigma value of `0` parses and emits no operation.
 non-negative integer. `pix:0` and `pix:1` parse and emit no operation, matching
 Imgproxy's pixelation no-op threshold.
 
+`monochrome:%intensity`/`monochrome:%intensity:%color` and the `mc` short form
+map image luminance into a single-color palette. Intensity must be from `0` to
+`1`. `0` parses and emits no operation. Omitted color uses Imgproxy's `b3b3b3`
+default. Colors use 3- or 6-digit hex without `#`.
+
+`duotone:%intensity`/`duotone:%intensity:%shadow:%highlight` and the `dt` short
+form map dark and light image areas into two colors. Intensity must be from `0`
+to `1`. `0` parses and emits no operation. Omitted shadow and highlight colors
+use Imgproxy's black and white defaults. For example, `dt:0.5::ffeecc` keeps the
+default shadow color and sets the highlight color.
+
 `brightness:%value` and `br:%value` adjust brightness. `contrast:%value` and
 `co:%value` adjust contrast. `saturation:%value` and `sa:%value` adjust
 saturation. Values must be numbers from `-100` to `100`. `0` parses and emits
@@ -409,8 +420,8 @@ no operation.
 
 Effects run after result cropping and before canvas extension, padding, and
 background composition. When more than one effect appears in a pipeline group,
-ImagePipe runs them in `blur`, `sharpen`, `pixelate`, `brightness`, `contrast`,
-then `saturation` order.
+ImagePipe runs them in `blur`, `sharpen`, `pixelate`, `monochrome`, `duotone`,
+`brightness`, `contrast`, then `saturation` order.
 
 ## Output format and quality
 

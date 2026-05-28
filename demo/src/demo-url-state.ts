@@ -90,6 +90,8 @@ export function expandedToolboxesForState(currentState: DemoState): ExpandedTool
       currentState.blurEnabled ||
       currentState.sharpenEnabled ||
       currentState.pixelateEnabled ||
+      currentState.monochromeEnabled ||
+      currentState.duotoneEnabled ||
       currentState.brightnessEnabled ||
       currentState.contrastEnabled ||
       currentState.saturationEnabled,
@@ -215,6 +217,14 @@ function applyOptionSegment(currentState: DemoState, segment: string): DemoState
         pixelateEnabled: value > 1,
         pixelate: value > 1 ? value : defaultDemoState.pixelate,
       }));
+
+    case "mc":
+    case "monochrome":
+      return parseMonochrome(currentState, args);
+
+    case "dt":
+    case "duotone":
+      return parseDuotone(currentState, args);
 
     case "br":
     case "brightness":
@@ -466,6 +476,82 @@ function parseAdjustmentOption(
   }
 
   return { ...currentState, ...buildPatch(value) };
+}
+
+function parseMonochrome(currentState: DemoState, args: string[]): DemoState | null {
+  if (args.length !== 1 && args.length !== 2) {
+    return null;
+  }
+
+  const intensity = parseIntensity(args[0]);
+
+  if (intensity === null) {
+    return null;
+  }
+
+  const color = args[1] === undefined ? defaultDemoState.monochromeColor : hexColor(args[1]);
+
+  if (color === null) {
+    return null;
+  }
+
+  return {
+    ...currentState,
+    monochromeEnabled: intensity > 0,
+    monochromeIntensity: intensity > 0 ? intensity : defaultDemoState.monochromeIntensity,
+    monochromeColor: color,
+  };
+}
+
+function parseDuotone(currentState: DemoState, args: string[]): DemoState | null {
+  if (args.length < 1 || args.length > 3) {
+    return null;
+  }
+
+  const intensity = parseIntensity(args[0]);
+
+  if (intensity === null) {
+    return null;
+  }
+
+  const shadow =
+    args[1] === undefined || args[1] === "" ? defaultDemoState.duotoneShadow : hexColor(args[1]);
+  const highlight =
+    args[2] === undefined || args[2] === "" ? defaultDemoState.duotoneHighlight : hexColor(args[2]);
+
+  if (shadow === null || highlight === null) {
+    return null;
+  }
+
+  return {
+    ...currentState,
+    duotoneEnabled: intensity > 0,
+    duotoneIntensity: intensity > 0 ? intensity : defaultDemoState.duotoneIntensity,
+    duotoneShadow: shadow,
+    duotoneHighlight: highlight,
+  };
+}
+
+function parseIntensity(value: string | undefined): number | null {
+  if (value === undefined) {
+    return null;
+  }
+
+  const intensity = parseNumber(value);
+
+  if (intensity === null || intensity < 0 || intensity > 1) {
+    return null;
+  }
+
+  return intensity;
+}
+
+function hexColor(value: string): string | null {
+  if (!/^(?:[0-9a-fA-F]{3}|[0-9a-fA-F]{6})$/.test(value)) {
+    return null;
+  }
+
+  return `#${value.toLowerCase()}`;
 }
 
 function parseAspectCanvas(currentState: DemoState, args: string[]): DemoState | null {

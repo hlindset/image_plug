@@ -351,6 +351,26 @@ defmodule ImagePipe.Transform.PlanExecutorTest do
         assert rgb_pixel(state.image, 0, 0) != rgb_pixel(baseline.image, 0, 0)
       end
     end
+
+    test "monochrome and duotone preserve dimensions and change pixels" do
+      baseline = state_with_adjustment_image()
+      assert {:ok, tint} = Operation.color(255, 204, 0)
+      assert {:ok, shadow} = Operation.color(17, 34, 51)
+      assert {:ok, highlight} = Operation.color(255, 238, 204)
+
+      for operation <- [
+            Operation.monochrome({:ratio, 1, 1}, tint),
+            Operation.duotone({:ratio, 1, 1}, shadow, highlight)
+          ] do
+        assert {:ok, operation} = operation
+
+        assert {:ok, %State{} = state} =
+                 Transform.execute_plan(plan([operation]), state_with_adjustment_image(), [])
+
+        assert dimensions(state.image) == dimensions(baseline.image)
+        assert rgb_pixel(state.image, 0, 0) != rgb_pixel(baseline.image, 0, 0)
+      end
+    end
   end
 
   test "resize auto executes against current image state" do

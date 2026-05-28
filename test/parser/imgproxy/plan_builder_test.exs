@@ -265,6 +265,12 @@ defmodule ImagePipe.Parser.Imgproxy.PlanBuilderTest do
                blur: 2.5,
                sharpen: 0.7,
                pixelate: 8,
+               monochrome: [intensity: ratio(1, 2), color: color!(255, 204, 0)],
+               duotone: [
+                 intensity: ratio(1, 4),
+                 shadow: color!(17, 34, 51),
+                 highlight: color!(255, 238, 204)
+               ],
                brightness: 20,
                contrast: -15,
                saturation: 35
@@ -275,6 +281,8 @@ defmodule ImagePipe.Parser.Imgproxy.PlanBuilderTest do
              blur,
              sharpen,
              pixelate,
+             monochrome,
+             duotone,
              brightness,
              contrast,
              saturation,
@@ -288,6 +296,10 @@ defmodule ImagePipe.Parser.Imgproxy.PlanBuilderTest do
     assert sharpen.sigma == 0.7
     assert pixelate.__struct__ == ImagePipe.Plan.Operation.Pixelate
     assert pixelate.size == 8
+    assert monochrome.__struct__ == ImagePipe.Plan.Operation.Monochrome
+    assert monochrome.intensity == ratio(1, 2)
+    assert duotone.__struct__ == ImagePipe.Plan.Operation.Duotone
+    assert duotone.intensity == ratio(1, 4)
     assert brightness.__struct__ == ImagePipe.Plan.Operation.Brightness
     assert brightness.value == 20
     assert contrast.__struct__ == ImagePipe.Plan.Operation.Contrast
@@ -302,6 +314,8 @@ defmodule ImagePipe.Parser.Imgproxy.PlanBuilderTest do
                blur: 0.0,
                sharpen: 0.0,
                pixelate: 0,
+               monochrome: [intensity: ratio(0, 1)],
+               duotone: [intensity: ratio(0, 1)],
                brightness: 0,
                contrast: 0,
                saturation: 0
@@ -936,7 +950,16 @@ defmodule ImagePipe.Parser.Imgproxy.PlanBuilderTest do
 
   defp normalize_effect_attrs(attrs) do
     {effect_attrs, attrs} =
-      Keyword.split(attrs, [:blur, :sharpen, :pixelate, :brightness, :contrast, :saturation])
+      Keyword.split(attrs, [
+        :blur,
+        :sharpen,
+        :pixelate,
+        :monochrome,
+        :duotone,
+        :brightness,
+        :contrast,
+        :saturation
+      ])
 
     if effect_attrs == [] do
       attrs

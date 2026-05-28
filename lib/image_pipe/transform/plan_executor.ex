@@ -11,7 +11,9 @@ defmodule ImagePipe.Transform.PlanExecutor do
   alias ImagePipe.Plan.Operation.Contrast, as: PlanContrast
   alias ImagePipe.Plan.Operation.CropGuided
   alias ImagePipe.Plan.Operation.CropRegion
+  alias ImagePipe.Plan.Operation.Duotone, as: PlanDuotone
   alias ImagePipe.Plan.Operation.Flip, as: PlanFlip
+  alias ImagePipe.Plan.Operation.Monochrome, as: PlanMonochrome
   alias ImagePipe.Plan.Operation.Padding, as: PlanPadding
   alias ImagePipe.Plan.Operation.Pixelate, as: PlanPixelate
   alias ImagePipe.Plan.Operation.Resize, as: PlanResize
@@ -26,8 +28,10 @@ defmodule ImagePipe.Transform.PlanExecutor do
   alias ImagePipe.Transform.Operation.Brightness
   alias ImagePipe.Transform.Operation.Contrast
   alias ImagePipe.Transform.Operation.Crop
+  alias ImagePipe.Transform.Operation.Duotone
   alias ImagePipe.Transform.Operation.ExtendCanvas
   alias ImagePipe.Transform.Operation.Flip
+  alias ImagePipe.Transform.Operation.Monochrome
   alias ImagePipe.Transform.Operation.Padding
   alias ImagePipe.Transform.Operation.Pixelate
   alias ImagePipe.Transform.Operation.Resize
@@ -195,6 +199,25 @@ defmodule ImagePipe.Transform.PlanExecutor do
 
   defp executable_operations(%PlanPixelate{size: size}, %State{}, _context),
     do: [%Pixelate{size: size}]
+
+  defp executable_operations(%PlanMonochrome{} = operation, %State{}, _context) do
+    [
+      %Monochrome{
+        intensity: tagged_ratio_to_float(operation.intensity),
+        color: Color.to_rgb_list(operation.color)
+      }
+    ]
+  end
+
+  defp executable_operations(%PlanDuotone{} = operation, %State{}, _context) do
+    [
+      %Duotone{
+        intensity: tagged_ratio_to_float(operation.intensity),
+        shadow: Color.to_rgb_list(operation.shadow),
+        highlight: Color.to_rgb_list(operation.highlight)
+      }
+    ]
+  end
 
   defp executable_operations(%PlanBrightness{value: value}, %State{}, _context),
     do: [%Brightness{value: value}]

@@ -52,6 +52,13 @@ export type DemoState = {
   sharpen: number;
   pixelateEnabled: boolean;
   pixelate: number;
+  monochromeEnabled: boolean;
+  monochromeIntensity: number;
+  monochromeColor: string;
+  duotoneEnabled: boolean;
+  duotoneIntensity: number;
+  duotoneShadow: string;
+  duotoneHighlight: string;
   brightnessEnabled: boolean;
   brightness: number;
   contrastEnabled: boolean;
@@ -129,6 +136,7 @@ export const controlLimits = {
     blur: { min: 0.1, max: 10, step: 0.1 },
     sharpen: { min: 0.1, max: 10, step: 0.1 },
     pixelate: { min: 2, max: 80, step: 1 },
+    intensity: { min: 0, max: 1, step: 0.01 },
     brightness: { min: -100, max: 100, step: 1 },
     contrast: { min: -100, max: 100, step: 1 },
     saturation: { min: -100, max: 100, step: 1 },
@@ -144,7 +152,7 @@ export const controlLimits = {
   padding: NumericControlLimit;
   alpha: NumericControlLimit;
   effects: Record<
-    "blur" | "sharpen" | "pixelate" | "brightness" | "contrast" | "saturation",
+    "blur" | "sharpen" | "pixelate" | "intensity" | "brightness" | "contrast" | "saturation",
     NumericControlLimit
   >;
   focalPoint: NumericControlLimit;
@@ -231,6 +239,13 @@ export const defaultDemoState: DemoState = {
   sharpen: 1,
   pixelateEnabled: false,
   pixelate: 8,
+  monochromeEnabled: false,
+  monochromeIntensity: 0.75,
+  monochromeColor: "#b3b3b3",
+  duotoneEnabled: false,
+  duotoneIntensity: 0.75,
+  duotoneShadow: "#112233",
+  duotoneHighlight: "#ffeecc",
   brightnessEnabled: false,
   brightness: 20,
   contrastEnabled: false,
@@ -344,6 +359,23 @@ export function optionSegments(currentState: DemoState): string[] {
 
   if (currentState.pixelateEnabled) {
     segments.push(`pix:${currentState.pixelate}`);
+  }
+
+  if (currentState.monochromeEnabled) {
+    segments.push(
+      `mc:${currentState.monochromeIntensity}:${currentState.monochromeColor.replace(/^#/, "")}`,
+    );
+  }
+
+  if (currentState.duotoneEnabled) {
+    segments.push(
+      [
+        "dt",
+        currentState.duotoneIntensity,
+        currentState.duotoneShadow.replace(/^#/, ""),
+        currentState.duotoneHighlight.replace(/^#/, ""),
+      ].join(":"),
+    );
   }
 
   if (currentState.brightnessEnabled) {

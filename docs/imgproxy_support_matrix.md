@@ -501,8 +501,8 @@ transforms or output encoding.
 | `brightness` | `br` | Supported | Number from `-100` to `100`. `0` parses as an Imgproxy-compatible no-op. Runs after pixelate. |
 | `contrast` | `co` | Supported | Number from `-100` to `100`. `0` parses as an Imgproxy-compatible no-op. Runs after brightness. |
 | `saturation` | `sa` | Supported | Number from `-100` to `100`. `0` parses as an Imgproxy-compatible no-op. Runs after contrast. |
-| `monochrome` | `mc` | Missing | Pro color effect. |
-| `duotone` | `dt` | Missing | Pro color effect. |
+| `monochrome` | `mc` | Supported | Intensity from `0` to `1`, optional hex color, and `0` no-op behavior. |
+| `duotone` | `dt` | Supported | Intensity from `0` to `1`, optional shadow/highlight hex colors, and `0` no-op behavior. |
 | `blur` | `bl` | Supported | Non-negative sigma value. `0` parses as an Imgproxy-compatible no-op. Runs before canvas extension and background flattening. |
 | `sharpen` | `sh` | Supported | Non-negative sigma value. `0` parses as an Imgproxy-compatible no-op. Runs after blur when both are present. |
 | `pixelate` | `pix` | Supported | Non-negative integer size. `0` and `1` parse as Imgproxy-compatible no-ops. |

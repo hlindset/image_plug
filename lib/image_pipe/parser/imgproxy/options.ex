@@ -8,7 +8,16 @@ defmodule ImagePipe.Parser.Imgproxy.Options do
   alias ImagePipe.Parser.Imgproxy.Presets
   alias ImagePipe.Plan.Color
 
-  @effect_fields [:blur, :sharpen, :pixelate, :brightness, :contrast, :saturation]
+  @effect_fields [
+    :blur,
+    :sharpen,
+    :pixelate,
+    :monochrome,
+    :duotone,
+    :brightness,
+    :contrast,
+    :saturation
+  ]
 
   @type request_options :: %{
           pipelines: [PipelineRequest.t()],

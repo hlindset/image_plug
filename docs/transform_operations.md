@@ -200,16 +200,24 @@ not leak into parser request structs, runtime state, or cache key data.
 
 ## Effect operations
 
-Use semantic `Blur`, `Sharpen`, `Pixelate`, `Brightness`, `Contrast`, and
-`Saturation` when a dialect requests full-image effects. These operations are
-product-neutral image effects. Parser aliases such as Imgproxy `bl`, `sh`,
-`pix`, `br`, `co`, and `sa` stay in parser code.
+Use semantic `Blur`, `Sharpen`, `Pixelate`, `Monochrome`, `Duotone`,
+`Brightness`, `Contrast`, and `Saturation` when a dialect requests full-image
+effects. These operations are product-neutral image effects. Parser aliases
+such as Imgproxy `bl`, `sh`, `pix`, `mc`, `dt`, `br`, `co`, and `sa` stay in
+parser code.
 
-Imgproxy effect order is blur, sharpen, pixelate, brightness, contrast, then
-saturation, after result cropping and before canvas extension, padding, and
-background composition. Imgproxy treats blur and sharpen sigma `0` as no-ops,
-pixelate sizes of `1` or lower as no-ops, and zero-valued color adjustments as
-no-ops. ImagePipe accepts those no-op values in the Imgproxy parser and emits no
+Imgproxy effect order is blur, sharpen, pixelate, monochrome, duotone,
+brightness, contrast, then saturation. Effects run after result cropping and
+before canvas extension, padding, and background composition.
+
+Imgproxy treats these effect values as no-ops:
+
+- blur and sharpen sigma `0`
+- pixelate sizes of `1` or lower
+- zero-intensity tone effects
+- zero-valued color adjustments
+
+ImagePipe accepts those no-op values in the Imgproxy parser and emits no
 semantic operation.
 
 ## Decode planning
