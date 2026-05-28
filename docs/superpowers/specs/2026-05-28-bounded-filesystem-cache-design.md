@@ -15,8 +15,9 @@ V1 covers:
 - Soft `:max_size_bytes` cap with synchronous victim selection at commit time.
 - Cost-aware W-TinyLFU admission policy (frequency × encode/transform cost ÷
   body size) with a Bloom doorkeeper.
-- Persisted CMS, doorkeeper, protected-segment list, and aging epoch to a
-  per-node state file (`<node_id>.state`) for warm-start.
+- Persisted CMS, protected-segment list, and aging epoch to a per-node
+  state file (`<node_id>.state`) for warm-start. (Doorkeeper is rebuilt
+  on boot — see the file format section for rationale.)
 - Multi-node warm-start by reading peer state files at boot, with a TTL-based
   cleanup ticker.
 
@@ -85,8 +86,10 @@ New modules:
 - `ImagePipe.Cache.FileSystem.Sketch` — pure-data Count-Min Sketch with
   element-wise merge, conservative-update increment, sample-based aging, and
   binary serialization.
-- `ImagePipe.Cache.FileSystem.Doorkeeper` — Bloom filter (~1–2 KB) that gates
-  one-hit-wonders out of the CMS. Reset on the same schedule as CMS aging.
+- Doorkeeper Bloom filter via the `talan` Hex library (`Talan.BloomFilter`).
+  No wrapper module — `Admission` calls `Talan.BloomFilter.new/2`,
+  `put/2`, `member?/2` directly. Reset = discard the current filter and
+  allocate a fresh one via `new/2` (cheap; old `:atomics` ref gets GC'd).
 - `ImagePipe.Cache.FileSystem.Policy` — pure functions implementing
   cost-aware W-TinyLFU admission (`admit?/3`) and victim selection
   (`victim/2`) over the queue state.
@@ -143,10 +146,13 @@ average entry sizes should override.
 
 ### Doorkeeper
 
-Bloom filter, default `:doorkeeper_bits = max(8192, max_size_bytes ÷
-12_500)` — sized ~2× the sketch width so the false-positive rate at peak
-distinct-key count is manageable. Same "assume ~50 KB average entry"
-caveat. Sits in front of CMS, triggered by **any observed sighting** of
+Bloom filter via the `talan` Hex library (`Talan.BloomFilter`), which
+uses `:atomics` under the hood for fast concurrent bit operations.
+Sized by expected cardinality + target false-positive probability;
+defaults are `:doorkeeper_cardinality = max(8192, max_size_bytes ÷
+12_500)` (assume ~50 KB average entry) and `:doorkeeper_fpr = 0.01`
+(1%). The library derives the bit array length and hash function count
+from those. Sits in front of CMS, triggered by **any observed sighting** of
 a key — either a hit (on `get/2`) or a miss processed through to a
 commit (on `commit_sink`):
 
@@ -506,10 +512,18 @@ Serialized via `:erlang.term_to_binary/2` with `[:deterministic]`:
   aging_epoch: non_neg_integer,
   increments_since_reset: non_neg_integer,
   sketch: binary,                          # CMS counters
-  doorkeeper: binary,                      # Bloom bits
   protected_hashes: [binary]               # cache key hashes, LRU → MRU order
 }
 ```
+
+**Doorkeeper is not persisted.** It starts empty on each boot. The cost
+is one delayed CMS increment per previously-known key (first
+post-restart sighting goes to the empty doorkeeper, second sighting
+starts incrementing CMS). This is bounded and small compared to the CMS
+warmth that *is* preserved. Skipping doorkeeper persistence avoids
+fragility around serializing the underlying Bloom filter library's
+internal state (which may include hash function closures or other
+non-portable terms).
 
 `protected_hashes` is ordered LRU-to-MRU. Restoration is a **two-pass
 boot** because the directory walk hits entries in partition order, not
@@ -670,7 +684,8 @@ behavior.
 | `:window_ratio` | `0.01` | Window as fraction of `:max_size_bytes`. `0` disables the window (escape hatch for operators with measured-steady workloads who want the 1% capacity back). Default-on because for an unknown workload, the window's bounded worst case beats windowless's unbounded recompute-storm worst case under bursts. |
 | `:sketch_depth` | `4` | CMS hash rows |
 | `:sketch_width` | `max(4096, :max_size_bytes ÷ 25_000)` | CMS counters per row. Derived default assumes ~50 KB average entry; override if your workload differs significantly. |
-| `:doorkeeper_bits` | `max(8192, :max_size_bytes ÷ 12_500)` | Doorkeeper Bloom filter bit count. Same assumption. |
+| `:doorkeeper_cardinality` | `max(8192, :max_size_bytes ÷ 12_500)` | Expected distinct-key cardinality for the doorkeeper. Same ~50 KB-avg-entry assumption. |
+| `:doorkeeper_fpr` | `0.01` | Doorkeeper target false-positive probability. |
 | `:flush_interval` | `30` | Seconds. State file write cadence |
 | `:cleanup_interval` | `3600` | Seconds. Peer state file cleanup cadence |
 | `:state_ttl` | `604_800` | Seconds (7 days). Peer files older than this are ignored at warm-start and deleted by cleanup |
@@ -932,7 +947,7 @@ tests.
    - `get/2` casts hit to Admission on success.
 7. Config schema extension with NimbleOptions:
    - New options with derived defaults (`:sketch_width`,
-     `:doorkeeper_bits` from `:max_size_bytes`).
+     `:doorkeeper_cardinality` from `:max_size_bytes`).
    - Cross-validation: bounded options without `:max_size_bytes`
      rejected; `:max_size_bytes` must be a positive integer (0 and
      negatives rejected).

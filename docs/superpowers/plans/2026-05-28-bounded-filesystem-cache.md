@@ -19,9 +19,8 @@
 | Path | Responsibility |
 |---|---|
 | `lib/image_pipe/cache/file_system/sketch.ex` | Pure-data Count-Min Sketch: increment (conservative update), estimate (min over rows), aging (halving + epoch), serialization round-trip, element-wise sum (for `boot_cms` merge). |
-| `lib/image_pipe/cache/file_system/doorkeeper.ex` | Pure-data Bloom filter: `add/2`, `member?/2`, `reset/1`, serialization. |
 | `lib/image_pipe/cache/file_system/policy.ex` | Pure functions: `score/1`, `weighted_avg_score/1`, `victim_walk/3`, `admit?/2`. No state. |
-| `lib/image_pipe/cache/file_system/admission.ex` | `GenServer` owning `local_cms`, `doorkeeper`, `boot_cms`, three ETS queue tables, byte accounting. Synchronous `admit/1`, async `hit/1`. Runs aging, flush ticker, cleanup ticker, boot warm-start, and background directory scan. |
+| `lib/image_pipe/cache/file_system/admission.ex` | `GenServer` owning `local_cms`, `doorkeeper` (`Talan.BloomFilter`), `boot_cms`, three ETS queue tables, byte accounting. Synchronous `admit/1`, async `hit/1`. Runs aging, flush ticker, cleanup ticker, boot warm-start, and background directory scan. |
 
 **Modified `lib/` files:**
 
@@ -38,7 +37,6 @@
 |---|---|
 | `test/image_pipe/cache/file_system/sketch_test.exs` | Sketch construction, increment, conservative update, estimate, aging, serialization. |
 | `test/image_pipe/cache/file_system/sketch_property_test.exs` | `estimate(k) >= true_count(k)`; aging preserves relative ordering. |
-| `test/image_pipe/cache/file_system/doorkeeper_test.exs` | Add/member?/reset, serialization, false-positive bound. |
 | `test/image_pipe/cache/file_system/policy_test.exs` | Score arithmetic (float, cost_us=0 fallback); main-gate decisions; victim walks across probationary and into protected; weighted-average rule. |
 | `test/image_pipe/cache/file_system/admission_test.exs` | GenServer: boot from various state files, admit window+main flow, hits, aging trigger, flush dirty flag, cleanup ticker, scan race resolution, same-key replace, restart-via-supervisor warm-starts state. |
 | `test/image_pipe/cache/file_system_bounded_test.exs` | Adapter end-to-end with bounded config: 1.5× cap cycle, eviction file deletion, admission-rejection telemetry, cross-node warm-start. |
@@ -59,7 +57,7 @@
 
 ---
 
-## Phase 1: Pure modules (Sketch, Doorkeeper, Policy)
+## Phase 1: Pure modules (Sketch, Policy) + doorkeeper dependency
 
 These have no GenServer dependencies, are independently testable, and constitute the algorithmic core.
 
@@ -597,158 +595,84 @@ git commit -m "Add Sketch property tests"
 
 ---
 
-### Task 6: Doorkeeper module
+### Task 6: Add the `talan` dependency and smoke-test our usage
+
+The doorkeeper uses [`talan`](https://hex.pm/packages/talan), a Bloom
+filter library backed by `:atomics`. No wrapper module — `Admission`
+calls `Talan.BloomFilter` directly. This task adds the dependency and
+verifies the small slice of the API we depend on works as expected.
 
 **Files:**
-- Create: `lib/image_pipe/cache/file_system/doorkeeper.ex`
-- Create: `test/image_pipe/cache/file_system/doorkeeper_test.exs`
+- Modify: `mix.exs`
+- Create: `test/image_pipe/cache/file_system/doorkeeper_usage_test.exs`
 
-- [ ] **Step 1: Write failing tests**
+- [ ] **Step 1: Add `talan` to `mix.exs` deps**
 
 ```elixir
-defmodule ImagePipe.Cache.FileSystem.DoorkeeperTest do
-  use ExUnit.Case, async: true
-
-  alias ImagePipe.Cache.FileSystem.Doorkeeper
-
-  test "new/1 creates a doorkeeper of the given bit size" do
-    dk = Doorkeeper.new(bits: 1024)
-    assert Doorkeeper.bits(dk) == 1024
-  end
-
-  test "newly created doorkeeper contains no keys" do
-    dk = Doorkeeper.new(bits: 1024)
-    refute Doorkeeper.member?(dk, "k1")
-  end
-
-  test "add/2 marks a key as present" do
-    dk = Doorkeeper.new(bits: 1024) |> Doorkeeper.add("k1")
-    assert Doorkeeper.member?(dk, "k1")
-  end
-
-  test "reset/1 clears all bits" do
-    dk = Doorkeeper.new(bits: 1024) |> Doorkeeper.add("k1") |> Doorkeeper.reset()
-    refute Doorkeeper.member?(dk, "k1")
-  end
-
-  test "serialize and deserialize round-trip preserves membership" do
-    dk = Doorkeeper.new(bits: 1024) |> Doorkeeper.add("k1") |> Doorkeeper.add("k2")
-    binary = Doorkeeper.serialize(dk)
-    {:ok, restored} = Doorkeeper.deserialize(binary, bits: 1024)
-    assert Doorkeeper.member?(restored, "k1")
-    assert Doorkeeper.member?(restored, "k2")
-    refute Doorkeeper.member?(restored, "k3")
-  end
-
-  test "deserialize rejects size mismatch" do
-    dk = Doorkeeper.new(bits: 1024) |> Doorkeeper.add("k1")
-    binary = Doorkeeper.serialize(dk)
-    assert {:error, _} = Doorkeeper.deserialize(binary, bits: 2048)
-  end
-end
+# mix.exs (inside deps/0)
+{:talan, "~> 0.2.1"},
 ```
 
-- [ ] **Step 2: Run, confirm failure**
+- [ ] **Step 2: Fetch the dependency**
 
-- [ ] **Step 3: Implement Doorkeeper**
+```bash
+mise exec -- mix deps.get
+```
+
+Expected: `talan`, `abit`, and `murmur` are fetched.
+
+- [ ] **Step 3: Write a smoke test covering our usage of `Talan.BloomFilter`**
 
 ```elixir
-defmodule ImagePipe.Cache.FileSystem.Doorkeeper do
-  @moduledoc false
+defmodule ImagePipe.Cache.FileSystem.DoorkeeperUsageTest do
+  @moduledoc """
+  Smoke tests for our usage of `Talan.BloomFilter`. We don't re-test
+  talan's correctness — we verify the specific API slice we depend on
+  behaves as expected for our usage pattern.
+  """
+  use ExUnit.Case, async: true
 
-  import Bitwise
-
-  @serialization_version 1
-  @hash_count 3
-
-  @enforce_keys [:bits, :data]
-  defstruct @enforce_keys
-
-  @type t :: %__MODULE__{
-          bits: pos_integer(),
-          data: binary()
-        }
-
-  @spec new(keyword()) :: t()
-  def new(opts) do
-    bits = Keyword.fetch!(opts, :bits)
-    byte_size = div(bits + 7, 8)
-    %__MODULE__{bits: bits, data: :binary.copy(<<0>>, byte_size)}
+  test "new + put + member? round-trip" do
+    bf = Talan.BloomFilter.new(8192, false_positive_probability: 0.01)
+    :ok = Talan.BloomFilter.put(bf, "key-1")
+    assert Talan.BloomFilter.member?(bf, "key-1")
+    refute Talan.BloomFilter.member?(bf, "key-not-present-yet")
   end
 
-  @spec bits(t()) :: pos_integer()
-  def bits(%__MODULE__{bits: b}), do: b
+  test "reset via discard-and-allocate produces an empty filter" do
+    bf = Talan.BloomFilter.new(8192, false_positive_probability: 0.01)
+    :ok = Talan.BloomFilter.put(bf, "key-1")
+    assert Talan.BloomFilter.member?(bf, "key-1")
 
-  @spec add(t(), binary()) :: t()
-  def add(%__MODULE__{} = dk, key) when is_binary(key) do
-    Enum.reduce(positions_for(dk, key), dk, &set_bit(&2, &1))
+    # Reset = create a new filter; old atomics ref becomes garbage.
+    fresh = Talan.BloomFilter.new(8192, false_positive_probability: 0.01)
+    refute Talan.BloomFilter.member?(fresh, "key-1")
   end
 
-  @spec member?(t(), binary()) :: boolean()
-  def member?(%__MODULE__{} = dk, key) when is_binary(key) do
-    Enum.all?(positions_for(dk, key), &get_bit(dk, &1))
-  end
-
-  @spec reset(t()) :: t()
-  def reset(%__MODULE__{bits: bits}) do
-    new(bits: bits)
-  end
-
-  @spec serialize(t()) :: binary()
-  def serialize(%__MODULE__{} = dk) do
-    :erlang.term_to_binary(
-      %{version: @serialization_version, bits: dk.bits, data: dk.data},
-      [:deterministic]
-    )
-  end
-
-  @spec deserialize(binary(), keyword()) :: {:ok, t()} | {:error, term()}
-  def deserialize(binary, opts) when is_binary(binary) do
-    expected_bits = Keyword.fetch!(opts, :bits)
-    expected_byte_size = div(expected_bits + 7, 8)
-
-    try do
-      case :erlang.binary_to_term(binary, [:safe]) do
-        %{version: @serialization_version, bits: ^expected_bits, data: data}
-        when is_binary(data) and byte_size(data) == expected_byte_size ->
-          {:ok, %__MODULE__{bits: expected_bits, data: data}}
-
-        _ ->
-          {:error, :invalid_shape}
-      end
-    rescue
-      ArgumentError -> {:error, :decode_failed}
-    end
-  end
-
-  defp positions_for(%__MODULE__{bits: bits}, key) do
-    for i <- 0..(@hash_count - 1), do: :erlang.phash2({:dk, i, key}, bits)
-  end
-
-  defp set_bit(%__MODULE__{data: data} = dk, position) do
-    byte_index = div(position, 8)
-    bit_index = rem(position, 8)
-    <<head::binary-size(byte_index), byte, tail::binary>> = data
-    new_byte = byte ||| bsl(1, bit_index)
-    %{dk | data: <<head::binary, new_byte, tail::binary>>}
-  end
-
-  defp get_bit(%__MODULE__{data: data}, position) do
-    byte_index = div(position, 8)
-    bit_index = rem(position, 8)
-    <<_::binary-size(byte_index), byte, _::binary>> = data
-    (byte &&& bsl(1, bit_index)) != 0
+  test "put is mutative: same ref carries state forward" do
+    # This documents (and guards) our reliance on the in-place semantics:
+    # we hold one Talan.BloomFilter struct in Admission state and rely on
+    # put mutating the underlying atomics ref.
+    bf = Talan.BloomFilter.new(8192, false_positive_probability: 0.01)
+    :ok = Talan.BloomFilter.put(bf, "alpha")
+    :ok = Talan.BloomFilter.put(bf, "beta")
+    assert Talan.BloomFilter.member?(bf, "alpha")
+    assert Talan.BloomFilter.member?(bf, "beta")
   end
 end
 ```
 
 - [ ] **Step 4: Run, confirm pass**
 
+```bash
+mise exec -- mix test test/image_pipe/cache/file_system/doorkeeper_usage_test.exs
+```
+
 - [ ] **Step 5: Commit**
 
 ```bash
-git add lib/image_pipe/cache/file_system/doorkeeper.ex test/image_pipe/cache/file_system/doorkeeper_test.exs
-git commit -m "Add Doorkeeper Bloom filter module"
+git add mix.exs mix.lock test/image_pipe/cache/file_system/doorkeeper_usage_test.exs
+git commit -m "Add talan dependency for doorkeeper Bloom filter"
 ```
 
 ---
@@ -1340,7 +1264,8 @@ defmodule ImagePipe.Cache.FileSystem.AdmissionTest do
       window_ratio: 0.01,
       sketch_depth: 4,
       sketch_width: 256,
-      doorkeeper_bits: 1024,
+      doorkeeper_cardinality: 1024,
+      doorkeeper_fpr: 0.01,
       state_dir: Path.join(tmp_dir, ".cache_state")
     ]
     pid = start_supervised!({Admission, opts})
@@ -1373,7 +1298,7 @@ defmodule ImagePipe.Cache.FileSystem.Admission do
 
   use GenServer
 
-  alias ImagePipe.Cache.FileSystem.{Doorkeeper, Sketch}
+  alias ImagePipe.Cache.FileSystem.Sketch
 
   defmodule State do
     @moduledoc false
@@ -1386,10 +1311,11 @@ defmodule ImagePipe.Cache.FileSystem.Admission do
       :window_budget,
       :sketch_depth,
       :sketch_width,
-      :doorkeeper_bits,
+      :doorkeeper_cardinality,
+      :doorkeeper_fpr,
       :local_cms,
       :boot_cms,
-      :doorkeeper,
+      :doorkeeper,     # %Talan.BloomFilter{}
       :flush_interval_ms,
       :cleanup_interval_ms,
       :state_ttl_ms,
@@ -1434,7 +1360,8 @@ defmodule ImagePipe.Cache.FileSystem.Admission do
     window_ratio = Keyword.fetch!(opts, :window_ratio)
     sketch_depth = Keyword.fetch!(opts, :sketch_depth)
     sketch_width = Keyword.fetch!(opts, :sketch_width)
-    doorkeeper_bits = Keyword.fetch!(opts, :doorkeeper_bits)
+    doorkeeper_cardinality = Keyword.fetch!(opts, :doorkeeper_cardinality)
+    doorkeeper_fpr = Keyword.fetch!(opts, :doorkeeper_fpr)
 
     state = %State{
       registry: Keyword.fetch!(opts, :registry),
@@ -1445,10 +1372,11 @@ defmodule ImagePipe.Cache.FileSystem.Admission do
       window_budget: trunc(max_size * window_ratio),
       sketch_depth: sketch_depth,
       sketch_width: sketch_width,
-      doorkeeper_bits: doorkeeper_bits,
+      doorkeeper_cardinality: doorkeeper_cardinality,
+      doorkeeper_fpr: doorkeeper_fpr,
       local_cms: Sketch.new(depth: sketch_depth, width: sketch_width),
       boot_cms: Sketch.new(depth: sketch_depth, width: sketch_width),
-      doorkeeper: Doorkeeper.new(bits: doorkeeper_bits),
+      doorkeeper: Talan.BloomFilter.new(doorkeeper_cardinality, false_positive_probability: doorkeeper_fpr),
       flush_interval_ms: Keyword.get(opts, :flush_interval_ms, 30_000),
       cleanup_interval_ms: Keyword.get(opts, :cleanup_interval_ms, 3_600_000),
       state_ttl_ms: Keyword.get(opts, :state_ttl_ms, 604_800_000),
@@ -1483,12 +1411,12 @@ git commit -m "Add Admission GenServer skeleton with Registry naming"
 
 ```elixir
   test "hit/2 marks the key in doorkeeper on first sighting, increments CMS on second", %{registry: registry, tmp_dir: tmp_dir} do
-    opts = base_opts(registry: registry, tmp_dir: tmp_dir, sketch_width: 64, doorkeeper_bits: 256)
+    opts = base_opts(registry: registry, tmp_dir: tmp_dir, sketch_width: 64)
     pid = start_supervised!({Admission, opts})
 
     Admission.hit(pid, "key-1")
     state = :sys.get_state(pid)
-    assert Doorkeeper.member?(state.doorkeeper, "key-1")
+    assert Talan.BloomFilter.member?(state.doorkeeper, "key-1")
     assert Sketch.estimate(state.local_cms, "key-1") == 0
 
     Admission.hit(pid, "key-1")
@@ -1503,11 +1431,12 @@ git commit -m "Add Admission GenServer skeleton with Registry naming"
         root: overrides[:tmp_dir],
         node_id: "test-node",
         state_dir: Path.join(overrides[:tmp_dir], ".cache_state"),
-        max_size_bytes: 1_000_000,
-        window_ratio: 0.01,
+        max_size_bytes: overrides[:max_size_bytes] || 1_000_000,
+        window_ratio: overrides[:window_ratio] || 0.01,
         sketch_depth: 4,
         sketch_width: overrides[:sketch_width] || 256,
-        doorkeeper_bits: overrides[:doorkeeper_bits] || 1024
+        doorkeeper_cardinality: overrides[:doorkeeper_cardinality] || 1024,
+        doorkeeper_fpr: overrides[:doorkeeper_fpr] || 0.01
       ],
       []
     )
@@ -1532,10 +1461,14 @@ git commit -m "Add Admission GenServer skeleton with Registry naming"
   end
 
   defp sighting(state, key_hash) do
-    if Doorkeeper.member?(state.doorkeeper, key_hash) do
+    if Talan.BloomFilter.member?(state.doorkeeper, key_hash) do
       %{state | local_cms: Sketch.increment(state.local_cms, key_hash)}
     else
-      %{state | doorkeeper: Doorkeeper.add(state.doorkeeper, key_hash)}
+      # talan's put/2 mutates the underlying :atomics ref in place and
+      # returns :ok. The doorkeeper struct itself doesn't need to be
+      # re-bound in state, but we keep the same binding for clarity.
+      :ok = Talan.BloomFilter.put(state.doorkeeper, key_hash)
+      state
     end
   end
 ```
@@ -2108,18 +2041,28 @@ This task adds:
 
   defp sighting(state, key_hash) do
     state =
-      if Doorkeeper.member?(state.doorkeeper, key_hash) do
+      if Talan.BloomFilter.member?(state.doorkeeper, key_hash) do
         %{state | local_cms: Sketch.increment(state.local_cms, key_hash)}
       else
-        %{state | doorkeeper: Doorkeeper.add(state.doorkeeper, key_hash)}
+        :ok = Talan.BloomFilter.put(state.doorkeeper, key_hash)
+        state
       end
 
     if Sketch.should_age?(state.local_cms) do
+      # Doorkeeper reset = discard the current filter and allocate a
+      # fresh one. The old :atomics ref becomes unreferenced and is
+      # garbage-collected. This is cheap (one allocation per aging cycle,
+      # which is itself infrequent).
+      fresh_doorkeeper =
+        Talan.BloomFilter.new(state.doorkeeper_cardinality,
+          false_positive_probability: state.doorkeeper_fpr
+        )
+
       %{
         state
         | local_cms: Sketch.age(state.local_cms),
           boot_cms: Sketch.age(state.boot_cms),
-          doorkeeper: Doorkeeper.reset(state.doorkeeper),
+          doorkeeper: fresh_doorkeeper,
           state_dirty: true
       }
     else
@@ -2144,6 +2087,9 @@ This task adds:
   defp serialize_state(state) do
     protected_hashes = ordered_set_to_list(state.protected) |> Enum.map(& &1.key_hash)
 
+    # Doorkeeper is NOT persisted — see the spec's file format section.
+    # It rebuilds organically from post-restart traffic (one delayed CMS
+    # increment per previously-known key on first post-restart sighting).
     :erlang.term_to_binary(
       %{
         format_version: 1,
@@ -2152,7 +2098,6 @@ This task adds:
         aging_epoch: state.local_cms.aging_epoch,
         increments_since_reset: state.local_cms.increments_since_reset,
         sketch: Sketch.serialize(state.local_cms),
-        doorkeeper: Doorkeeper.serialize(state.doorkeeper),
         protected_hashes: protected_hashes
       },
       [:deterministic]
@@ -2207,14 +2152,12 @@ git commit -m "Add Admission aging trigger, flush ticker, and cleanup ticker"
 - [ ] **Step 1: Write failing tests**
 
 ```elixir
-  test "boot warm-starts from own state file", %{registry: registry, tmp_dir: tmp_dir} do
-    # Pre-write a state file for "test-node"
+  test "boot warm-starts from own state file (CMS restored; doorkeeper starts empty)", %{registry: registry, tmp_dir: tmp_dir} do
     opts = base_opts(registry: registry, tmp_dir: tmp_dir)
     state_dir = Keyword.fetch!(opts, :state_dir)
     File.mkdir_p!(state_dir)
 
     sketch = Sketch.new(depth: 4, width: 256) |> Sketch.increment("hot-key") |> Sketch.increment("hot-key")
-    doorkeeper = Doorkeeper.new(bits: 1024) |> Doorkeeper.add("hot-key")
 
     payload = :erlang.term_to_binary(
       %{
@@ -2224,7 +2167,6 @@ git commit -m "Add Admission aging trigger, flush ticker, and cleanup ticker"
         aging_epoch: 0,
         increments_since_reset: 2,
         sketch: Sketch.serialize(sketch),
-        doorkeeper: Doorkeeper.serialize(doorkeeper),
         protected_hashes: []
       },
       [:deterministic]
@@ -2236,7 +2178,8 @@ git commit -m "Add Admission aging trigger, flush ticker, and cleanup ticker"
     state = :sys.get_state(pid)
 
     assert Sketch.estimate(state.local_cms, "hot-key") >= 1
-    assert Doorkeeper.member?(state.doorkeeper, "hot-key")
+    # Doorkeeper is intentionally not persisted; it boots empty.
+    refute Talan.BloomFilter.member?(state.doorkeeper, "hot-key")
   end
 
   test "boot merges peer state files into boot_cms", %{registry: registry, tmp_dir: tmp_dir} do
@@ -2258,7 +2201,6 @@ git commit -m "Add Admission aging trigger, flush ticker, and cleanup ticker"
         aging_epoch: 0,
         increments_since_reset: 3,
         sketch: Sketch.serialize(peer_sketch),
-        doorkeeper: Doorkeeper.serialize(Doorkeeper.new(bits: 1024)),
         protected_hashes: []
       },
       [:deterministic]
@@ -2371,9 +2313,18 @@ git commit -m "Add Admission aging trigger, flush ticker, and cleanup ticker"
 
   defp apply_own_state(state, payload) do
     {:ok, sketch} = Sketch.deserialize(payload.sketch, depth: state.sketch_depth, width: state.sketch_width)
-    {:ok, doorkeeper} = Doorkeeper.deserialize(payload.doorkeeper, bits: state.doorkeeper_bits)
-    %{state | local_cms: sketch, doorkeeper: doorkeeper}
-    # Note: protected_hashes restoration is handled by the directory scan in a later task.
+    persisted_protected = Map.get(payload, :protected_hashes, [])
+
+    %{
+      state
+      | local_cms: sketch,
+        # Doorkeeper is intentionally not restored — keep the empty one
+        # created at init. See spec's "<node_id>.state file format" for
+        # rationale.
+        persisted_protected_hashes: persisted_protected
+    }
+    # protected_hashes restoration into the protected ETS table is handled
+    # by the two-pass directory scan in Task 21.
   end
 ```
 
@@ -2776,10 +2727,11 @@ git commit -m "Cast hit to Admission on FileSystem.get/2 success in bounded mode
              ])
   end
 
-  test "derives sketch_width and doorkeeper_bits from max_size_bytes" do
+  test "derives sketch_width and doorkeeper_cardinality from max_size_bytes" do
     {:ok, opts} = FileSystem.validate_options([root: "/tmp", max_size_bytes: 10_000_000_000, node_id: "n1"])
     assert opts[:sketch_width] == 400_000
-    assert opts[:doorkeeper_bits] == 800_000
+    assert opts[:doorkeeper_cardinality] == 800_000
+    assert opts[:doorkeeper_fpr] == 0.01
   end
 ```
 
@@ -2906,7 +2858,8 @@ defmodule ImagePipe.Cache.FileSystem.BoundedPropertyTest do
         window_ratio: 0.01,
         sketch_depth: 4,
         sketch_width: 64,
-        doorkeeper_bits: 1024,
+        doorkeeper_cardinality: 1024,
+        doorkeeper_fpr: 0.01,
         flush_interval_ms: 60_000,  # don't tick during the test
         cleanup_interval_ms: 60_000
       ]
@@ -2976,7 +2929,6 @@ git commit -m "Add soft-cap invariant property test"
   test "all new bounded-mode modules live under ImagePipe.Cache.FileSystem.*" do
     expected_modules = [
       ImagePipe.Cache.FileSystem.Sketch,
-      ImagePipe.Cache.FileSystem.Doorkeeper,
       ImagePipe.Cache.FileSystem.Policy,
       ImagePipe.Cache.FileSystem.Admission
     ]
