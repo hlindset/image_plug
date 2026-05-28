@@ -59,12 +59,3 @@ __pycache__
 
 docs/superpowers/
 
-vale/
-!vale/
-vale/*
-!vale/.gitkeep
-!vale/config/
-!vale/config/vocabularies/
-!vale/config/vocabularies/ImagePipe/
-!vale/config/vocabularies/ImagePipe/accept.txt
-!vale/config/vocabularies/ImagePipe/reject.txt
