@@ -422,7 +422,10 @@ defmodule ImagePipe.Cache.FileSystem do
   end
 
   @doc false
-  def paths(%Key{hash: hash}, opts) do
+  def paths(%Key{hash: hash}, opts), do: paths_from_hash(hash, opts)
+
+  @doc false
+  def paths_from_hash(hash, opts) when is_binary(hash) and is_list(opts) do
     with {:ok, opts} <- validate_filesystem_options(opts),
          root = Keyword.fetch!(opts, :root),
          path_prefix = Keyword.fetch!(opts, :path_prefix),
@@ -433,6 +436,65 @@ defmodule ImagePipe.Cache.FileSystem do
       with :ok <- validate_under_root(root, dir) do
         {:ok, %{root: root, dir: dir, meta_path: meta_path, hash: hash}}
       end
+    end
+  end
+
+  @doc false
+  @spec read_descriptor(Path.t()) ::
+          {:ok, %{key_hash: binary(), size_bytes: non_neg_integer(), body_sha256: binary(), cost_us: non_neg_integer()},
+           integer()}
+          | {:error, term()}
+  def read_descriptor(meta_path) do
+    with {:ok, meta_binary} <- read_cache_file(meta_path, :metadata),
+         {:ok, metadata} <- decode_metadata(meta_binary),
+         {:ok, %File.Stat{mtime: mtime}} <- File.stat(meta_path, time: :posix) do
+      {:ok,
+       %{
+         key_hash: Path.basename(meta_path, ".meta"),
+         size_bytes: metadata.body_byte_size,
+         body_sha256: metadata.body_sha256,
+         cost_us: metadata.cost_us
+       }, mtime}
+    else
+      :miss -> {:error, :enoent}
+      {:error, _} = error -> error
+    end
+  end
+
+  @doc false
+  def delete_victims([], _opts), do: :ok
+
+  def delete_victims(victims, opts) do
+    Enum.each(victims, fn victim ->
+      with {:ok, victim_paths} <- paths_from_hash(victim.key_hash, opts) do
+        if victim.delete_body? do
+          body_path =
+            Path.join(victim_paths.dir, "#{victim.key_hash}.#{victim.body_sha256}.body")
+
+          rm_tolerant(body_path)
+        end
+
+        if victim.delete_meta? do
+          rm_tolerant(victim_paths.meta_path)
+        end
+      end
+    end)
+  end
+
+  defp rm_tolerant(path) do
+    case File.rm(path) do
+      :ok ->
+        :ok
+
+      {:error, :enoent} ->
+        :ok
+
+      {:error, reason} ->
+        require Logger
+        # Path omitted: victim body/meta filenames embed the cache key
+        # hash (a cache-adapter internal). Log the reason only.
+        Logger.warning("cache: victim delete failed: reason=#{inspect(reason)}")
+        :ok
     end
   end
 

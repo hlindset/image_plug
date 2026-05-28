@@ -501,6 +501,36 @@ defmodule ImagePipe.Cache.FileSystemTest do
     end
   end
 
+  describe "paths_from_hash/2" do
+    test "builds partitioned paths for a 64-char hash", %{root: root} do
+      hash = String.duplicate("a", 64)
+      opts = [root: root, path_prefix: ""]
+
+      assert {:ok, paths} = FileSystem.paths_from_hash(hash, opts)
+      assert paths.dir == Path.join([root, "aa", "aa"])
+      assert paths.meta_path == Path.join([root, "aa", "aa", hash <> ".meta"])
+      assert paths.hash == hash
+      assert paths.root == root
+    end
+
+    test "validates hash format" do
+      assert {:error, {:invalid_hash, _}} =
+               FileSystem.paths_from_hash("not-a-hash", root: "/tmp")
+    end
+
+    test "two different hashes land in different partition dirs", %{root: root} do
+      hash_a = "aabb" <> String.duplicate("1", 60)
+      hash_b = "ccdd" <> String.duplicate("1", 60)
+
+      assert {:ok, paths_a} = FileSystem.paths_from_hash(hash_a, root: root)
+      assert {:ok, paths_b} = FileSystem.paths_from_hash(hash_b, root: root)
+
+      assert paths_a.dir == Path.join([root, "aa", "bb"])
+      assert paths_b.dir == Path.join([root, "cc", "dd"])
+      assert paths_a.dir != paths_b.dir
+    end
+  end
+
   test "concurrent puts for the same key leave a readable entry", %{root: root} do
     cache_key = key("dddddd" <> String.duplicate("e", 58))
 
