@@ -106,8 +106,9 @@ New modules:
   `:max_size_bytes`) returns no child spec; host doesn't need to add
   anything to their supervision tree.
 - Dispatches on cache hits (cast hit-increment to `Admission`) and on
-  `commit_sink` (synchronous admission decision returning victim hashes;
-  adapter then deletes victim files itself).
+  `commit_sink` (synchronous admission decision returning victim
+  descriptors with `key_hash` and `body_sha256`; adapter then deletes
+  victim files itself).
 
 `ImagePipe.Plug.init/1` verifies the registered `Admission` process exists
 when `:max_size_bytes` is set. Missing process raises at init; never accepts
@@ -157,10 +158,32 @@ Three queues, each tracking bytes:
   probationary on second hit. Protected overflow demotes its LRU back to
   probationary.
 
-Each queue is an `:ets.new(:ordered_set, ...)` table keyed by integer
-position + entry hash. `Admission` owns the tables exclusively (no
-concurrent access). ETS is used for ordered iteration during victim
-selection, not for shared access.
+Each queue is an `:ets.new(:ordered_set, ...)` table keyed by an
+in-memory integer position + entry hash. `Admission` owns the tables
+exclusively (no concurrent access). ETS is used for ordered iteration
+during victim selection, not for shared access. Positions are
+in-memory-only — never persisted, never cross restart boundaries; on
+boot, queues are rebuilt from scratch via the directory scan.
+
+### Queue entry shape
+
+Each queue tracks the following per entry, all derived from the on-disk
+meta file:
+
+```elixir
+%{
+  key_hash: binary,           # cache key hash, 64 hex chars
+  size_bytes: non_neg_integer,
+  body_sha256: binary,        # needed to construct the body filename
+  cost_us: non_neg_integer
+}
+```
+
+`size_bytes` drives byte budgeting and is already on the existing meta
+payload as `body_byte_size`. `body_sha256` is required to construct
+`<hash>.<body_sha256>.body` when the adapter deletes a victim — Admission
+returns full descriptors, not bare hashes. `cost_us` is the new metadata
+field.
 
 ### Cost-aware scoring
 
@@ -176,19 +199,32 @@ sum-of-stages is what we have. It captures the work the cache actually
 avoids on a hit — send time, which the cache also avoids, is small enough
 relative to fetch+transform+encode to ignore as a scoring signal.
 
-### Admission flow on a new candidate `C` (window evictee)
+### Admission rule
 
-1. If main has room → admit `C` to probationary MRU.
-2. Else pick probationary LRU victim `V`. If `score(C) > score(V)` → evict
-   `V`, admit `C`. Else → reject `C`.
+Given a candidate `C` (either a window evictee being considered for main,
+or a fresh entry being committed) and current main-queue state:
 
-When a `commit_sink` lands an entry larger than current free space, victims
-are selected in a single batch (probationary LRU outward) until enough
-bytes are freed *or* total candidate score exceeds entry score. If the
-entry is too large or too low-scoring to admit, commit returns successfully
-but emits a `cache: :admission_rejected` stage telemetry event and the
-body file is not committed (tmp file is cleaned). Same fail-open shape as
-`:max_body_bytes` today.
+1. **Hard reject:** if `C.size_bytes > :max_size_bytes`, reject `C`. The
+   entry cannot fit even an empty cache.
+2. **Free space:** if main has at least `C.size_bytes` of free budget,
+   admit `C` to probationary MRU. No victims.
+3. **Identify victims:** walk probationary LRU outward, collecting
+   victims into a list until cumulative `size_bytes` ≥ `C.size_bytes`.
+4. **Score check:** admit `C` only if `score(C) > max(score(v) for v in
+   victims)` — the candidate must beat the *best* victim it would evict.
+   Otherwise reject `C`.
+
+The "beat the best victim" rule is deterministic and conservative: a new
+entry never replaces something better than itself. It's stricter than
+TinyLFU's single-victim comparison (which would let a slightly better
+candidate evict a great victim if their neighbors balance out), but for
+cost-aware scoring with byte budgets the conservative rule is simpler to
+reason about and harder to make pathological with adversarial workloads.
+
+Rejection emits a `cache: :admission_rejected` stage telemetry event with
+a `reason:` atom (`:over_cap`, `:score_too_low`, or `:no_evictable_victims`)
+and the body tmp file is cleaned. Commit returns `:ok` — same fail-open
+shape as `:max_body_bytes` today.
 
 ### Hit promotion
 
@@ -197,12 +233,35 @@ body file is not committed (tmp file is cleaned). Same fail-open shape as
 - Hit on protected → move to protected MRU.
 - Hit on window → move to window MRU.
 
-### Soft cap semantics
+### Soft cap and reconciliation
 
 Concurrent commits may both pass admission and both write, briefly
 exceeding the cap. The next admission call sees the new total and selects a
 larger victim batch to compensate. Overshoots are bounded by the largest
 in-flight entry size; telemetry captures overshoot magnitude.
+
+Admission's accounting is updated speculatively when a candidate is
+admitted — bytes are counted as freed when victim descriptors are
+returned to the adapter, even though the adapter's `File.rename/2` and
+`File.rm/1` calls happen after that. If any of those file operations fail,
+in-memory accounting diverges from disk: the cache may believe an entry is
+admitted when its rename failed, or that bytes are freed when victim
+deletion failed. These are tolerated as part of the soft-cap contract and
+repaired at restart — the boot scan walks the actual on-disk state and
+rebuilds queues from ground truth. Between restarts, drift is bounded by
+the rate of `File.rename/2` and `File.rm/1` failures, which are corner
+cases (disk full, permissions, filesystem corruption) that indicate the
+cache has bigger problems than admission drift.
+
+### Merged CMS amplification under shared traffic
+
+When multiple nodes serve overlapping traffic through a load balancer,
+each node's `local_cms` records hits independently and `boot_cms`
+element-wise sums peer CMSes at restart. A key seen 100 times on each of
+3 nodes shows as count 300 in the merged view. This amplifies absolute
+counts but preserves relative ordering, which is what scoring depends on.
+The only place absolute count matters is aging, and aging runs against
+`local_cms` alone (not the merged view), so it isn't affected.
 
 ## Data Flow and On-Disk Layout
 
@@ -250,9 +309,15 @@ Serialized via `:erlang.term_to_binary/2` with `[:deterministic]`:
   increments_since_reset: non_neg_integer,
   sketch: binary,                          # CMS counters
   doorkeeper: binary,                      # Bloom bits
-  protected_hashes: [binary]               # cache key hashes in the protected segment
+  protected_hashes: [binary]               # cache key hashes, LRU → MRU order
 }
 ```
+
+`protected_hashes` is ordered LRU-to-MRU. On boot, the directory scan
+iterates this list in order, inserting each matching entry at the
+protected MRU position so the final queue order matches the persisted
+order. Entries listed in `protected_hashes` whose body or meta files no
+longer exist on disk are silently skipped.
 
 ### Lookup flow (cache hit path)
 
@@ -270,20 +335,27 @@ Serialized via `:erlang.term_to_binary/2` with `[:deterministic]`:
 1. `Sink.commit/2` → adapter `commit_sink(state, opts)`.
 2. Adapter writes body+meta temp files as today.
 3. **Before** the body/meta renames, adapter `call`s
-   `Admission.admit(entry_meta)`. Synchronous, fast (in-memory).
+   `Admission.admit(descriptor)` where `descriptor` includes `key_hash`,
+   `size_bytes`, `body_sha256`, and `cost_us`. Synchronous, fast
+   (in-memory).
 4. `Admission` updates its queue state speculatively and returns either
-   `{:ok, victim_hashes}` (list of cache key hashes whose files the
-   adapter should delete) or `:reject`.
-5. If `:reject` → adapter cleans temp files, emits the
-   `cache: :admission_rejected` stage event, returns `:ok` to the sink
-   (fail-open).
-6. If `{:ok, victim_hashes}` → adapter performs the body+meta renames,
-   then for each victim hash computes its meta and body paths via the
-   existing `paths/2` helper and `File.rm/1`s them (best-effort,
-   ENOENT-tolerant). Errors other than `:enoent` are logged at warning;
-   `Admission`'s in-memory accounting already considers those bytes freed,
-   so any orphan body bytes are accepted as a known V1 limitation (see
-   Deferred Behaviors).
+   `{:ok, victim_descriptors}` (list of `%{key_hash, body_sha256, ...}`
+   maps the adapter must delete) or `{:reject, reason}` with one of
+   `:over_cap`, `:score_too_low`, or `:no_evictable_victims`.
+5. If `{:reject, reason}` → adapter cleans temp files, emits the
+   `cache: :admission_rejected` stage event with `reason:`, returns `:ok`
+   to the sink (fail-open).
+6. If `{:ok, victim_descriptors}` → adapter performs the body+meta
+   renames, then for each victim descriptor:
+   - Computes the body path as `<paths.dir>/<key_hash>.<body_sha256>.body`
+     and `File.rm/1`s it.
+   - Computes the meta path via the existing `paths/2` helper and
+     `File.rm/1`s it.
+   Both deletes are ENOENT-tolerant. Errors other than `:enoent` are
+   logged at warning. `Admission`'s in-memory accounting already
+   considers those bytes freed, so any orphan body bytes are accepted as
+   a known V1 limitation (see Deferred Behaviors and the Soft cap and
+   reconciliation subsection).
 
 ### Boot / warm-start flow
 
@@ -295,11 +367,14 @@ Serialized via `:erlang.term_to_binary/2` with `[:deterministic]`:
    (read-only, never republished). Files past TTL are skipped. Decode
    failures are logged and skipped.
 3. Concurrently, a background `Task` walks the cache directory and reads
-   each `.meta` file, building the initial queue state. Entries whose
-   cache key hash appears in the loaded `protected_hashes` list go
-   directly into protected MRU; others go to probationary in mtime order.
-   For large caches this scan can take seconds; the adapter remains
-   responsive throughout (see step 4).
+   each `.meta` file, extracting `key_hash` (from the partition path),
+   `body_byte_size`, `body_sha256` (both already in existing meta), and
+   `cost_us` (new field). Entries whose `key_hash` appears in the loaded
+   `protected_hashes` list go into the protected queue (iterating the
+   ordered list LRU-first, inserting each at MRU so final ordering
+   matches the persisted order). Remaining entries go into probationary
+   in mtime order. For large caches this scan can take seconds; the
+   adapter remains responsive throughout (see step 4).
 4. While the scan is in flight, the adapter still serves reads and writes.
    Hits on un-scanned entries synthesize a probationary entry on the fly.
    Writes during scan may briefly over-admit; tolerated.
@@ -334,7 +409,10 @@ behavior.
 
 **New required options when `:max_size_bytes` is set:**
 
-- `:max_size_bytes` — non-negative integer. The soft cap.
+- `:max_size_bytes` — positive integer. The soft cap. `0` is rejected at
+  validation — a zero-cap "bounded" cache is indistinguishable from a
+  disabled cache and is almost certainly an operator mistake; if a host
+  wants no caching they should omit the `:cache` adapter entirely.
 - `:node_id` — binary string. Identifies this node's state files. No
   default; operator-controlled.
 
@@ -475,12 +553,47 @@ whose timing is uninteresting to operators.
   higher-scoring ones, total disk usage stays within soft-cap bounds.
 - Unbounded mode (`:max_size_bytes` absent): no Admission process needed,
   existing behavior preserved, existing tests unchanged.
-- Admission rejection: write an entry too large or too low-scoring, verify
-  `:cache, :stage, ...` event with `cache: :admission_rejected`, body tmp
-  file cleaned, response still streams to client.
+- Admission rejection per reason code: separate cases for `:over_cap`,
+  `:score_too_low`, and `:no_evictable_victims`; verify body tmp file
+  cleaned and response still streams to client for each.
 - Cross-node warm-start: pre-place two `<node_id>.cms` files in
   `<state_dir>`, boot Admission, assert merged frequency reflects both via
   `:sys.get_state/1` snapshot inspection.
+
+### Failure and edge-case tests
+
+- **Rename failure after admission**: stub `File.rename/2` to return
+  `{:error, :enospc}` for a single commit; verify accounting drift is
+  bounded, no crash, telemetry surfaces the failure, and the next
+  successful commit doesn't compound the drift.
+- **Meta present, body missing**: place a `.meta` file with no matching
+  `.body`; `get/2` returns `:miss` and the orphaned meta is left in
+  place (V1 doesn't sweep, by design).
+- **Body present, meta missing**: place a `.body` with no matching
+  `.meta`; `get/2` returns `:miss`. The orphan body is invisible.
+- **Corrupt own `<node_id>.cms`**: write a truncated/garbage file; boot
+  logs a warning, falls back as if the file didn't exist, cold-boots
+  CMS, scans disk normally.
+- **Scan racing with commits for the same key**: drive a commit while the
+  background scan is mid-traversal of the same partition; verify final
+  queue state is consistent (one queue entry, correct size, no
+  duplicates).
+- **Duplicate commit for same key replacing an older body**: write entry
+  K with body B1, then re-write K with body B2 (different `body_sha256`,
+  possibly different size). Queue tracks the new descriptor; old body
+  file is deleted; admission accounting reflects the size delta.
+- **Same key hash with different size/cost/body_sha256**: verify the
+  queue entry is replaced (not duplicated), size accounting adjusts, and
+  cost ranking uses the new `cost_us`.
+- **Restart after failed victim delete**: simulate a victim delete that
+  fails with `:eacces`; restart Admission; verify boot scan picks up the
+  orphan body (or skips it) without crashing or double-counting bytes.
+- **Very small caps with rounding**: `:max_size_bytes: 1024` with default
+  `:window_ratio: 0.01` → 10-byte window, near-zero protected. Verify
+  computed budgets clamp to sane minimums (at least one entry's worth)
+  or are rejected at validation.
+- **`:max_size_bytes: 0`**: verify validation rejects with a clear error
+  message pointing operators at omitting the cache config instead.
 
 ### Architecture tests
 
