@@ -8,7 +8,7 @@ defmodule ImagePipe.Parser.Imgproxy.OptionsTest do
   test "parses dense pipeline state into one pipeline request" do
     assert {:ok, request} =
              Options.parse(
-               ~w(rs:fit:100:0 mw:300 mh:200 z:2:3 dpr:2 c:0.5:0.25:nowe:10:-5 ar:true rot:-90 fl:true:false exar:16:9),
+               ~w(rs:fit:100:0 mw:300 mh:200 z:2:3 dpr:2 c:0.5:0.25:nowe:10:-5 ar:true rot:-90 fl:true:false exar:1),
                Presets.empty()
              )
 
@@ -26,7 +26,34 @@ defmodule ImagePipe.Parser.Imgproxy.OptionsTest do
     assert pipeline.orientation.auto_orient == true
     assert pipeline.orientation.rotate == 270
     assert pipeline.orientation.flip == :horizontal
-    assert pipeline.extend_aspect_ratio == {16, 9}
+    assert pipeline.extend_aspect_ratio == true
+    assert pipeline.extend_aspect_ratio_requested == true
+  end
+
+  test "exar enables aspect-ratio canvas extension with default gravity" do
+    assert {:ok, request} = Options.parse(~w(exar:1), Presets.empty())
+    [pipeline] = request.pipelines
+    assert pipeline.extend_aspect_ratio == true
+    assert pipeline.extend_aspect_ratio_requested == true
+    assert pipeline.extend_aspect_ratio_gravity == nil
+  end
+
+  test "exar:0 disables aspect-ratio canvas extension" do
+    assert {:ok, request} = Options.parse(~w(exar:0), Presets.empty())
+    [pipeline] = request.pipelines
+    assert pipeline.extend_aspect_ratio == false
+    assert pipeline.extend_aspect_ratio_requested == true
+  end
+
+  test "exar accepts a gravity argument" do
+    assert {:ok, request} = Options.parse(~w(exar:1:no), Presets.empty())
+    [pipeline] = request.pipelines
+    assert pipeline.extend_aspect_ratio == true
+    assert pipeline.extend_aspect_ratio_gravity == {:anchor, :center, :top}
+  end
+
+  test "exar rejects smart/object gravity" do
+    assert {:error, _} = Options.parse(~w(exar:1:sm), Presets.empty())
   end
 
   test "applies padding and background accumulation against current pipeline state" do

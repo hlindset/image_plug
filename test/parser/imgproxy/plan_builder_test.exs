@@ -223,17 +223,39 @@ defmodule ImagePipe.Parser.Imgproxy.PlanBuilderTest do
              plan_pipeline(resizing_type: :auto, width: {:pixels, 100}, height: {:pixels, 100})
   end
 
-  test "plans extend and extend aspect ratio as neutral canvas operations" do
+  test "plans extend as neutral canvas operation" do
     assert {:ok, %Plan{pipelines: [%Pipeline{operations: operations}]}} =
              plan_pipeline(width: {:pixels, 100}, height: {:pixels, 100}, extend: true)
 
     assert Enum.any?(operations, &match?(%Operation.Canvas{}, &1))
+  end
 
+  test "exar emits a canvas ratio derived from the resize target" do
     assert {:ok, %Plan{pipelines: [%Pipeline{operations: operations}]} = plan} =
-             plan_pipeline(extend_aspect_ratio: {16, 9})
+             plan_pipeline(
+               width: {:pixels, 1600},
+               height: {:pixels, 900},
+               extend_aspect_ratio: true,
+               extend_aspect_ratio_requested: true
+             )
 
-    assert Enum.any?(operations, &match?(%Operation.Canvas{}, &1))
+    assert Enum.any?(operations, fn
+             %Operation.Canvas{width: {:ratio, 1600, 1}, height: {:ratio, 900, 1}} -> true
+             _ -> false
+           end)
+
     assert {:ok, _pipelines} = ImagePipe.Transform.validate_prefetch_safe_plan(plan)
+  end
+
+  test "exar is a no-op when a resize dimension is not set" do
+    assert {:ok, %Plan{pipelines: [%Pipeline{operations: operations}]}} =
+             plan_pipeline(
+               width: {:pixels, 1600},
+               extend_aspect_ratio: true,
+               extend_aspect_ratio_requested: true
+             )
+
+    refute Enum.any?(operations, &match?(%Operation.Canvas{}, &1))
   end
 
   test "plans extend gravity and offsets as neutral canvas operation fields" do
