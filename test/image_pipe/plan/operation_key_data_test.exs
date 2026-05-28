@@ -137,7 +137,9 @@ defmodule ImagePipe.Plan.OperationKeyDataTest do
                  y: [unit: :ratio, numerator: 2, denominator: 3]
                ],
                x_offset: {:pixels, 4},
-               y_offset: {:scale, 0.25}
+               y_offset: {:scale, 0.25},
+               aspect_ratio: nil,
+               enlarge: false
              ]
     end
 
@@ -157,6 +159,18 @@ defmodule ImagePipe.Plan.OperationKeyDataTest do
 
       refute Keyword.has_key?(data, :space)
       refute Keyword.has_key?(data, :coordinate_space)
+    end
+
+    test "crop_guided key data includes aspect_ratio and enlarge" do
+      {:ok, op} =
+        Operation.crop_guided({:px, 300}, {:px, 200}, :center,
+          aspect_ratio: {:ratio, 1, 1},
+          enlarge: true
+        )
+
+      data = KeyData.data(op)
+      assert data[:aspect_ratio] == [unit: :ratio, numerator: 1, denominator: 1]
+      assert data[:enlarge] == true
     end
   end
 

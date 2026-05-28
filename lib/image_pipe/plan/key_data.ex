@@ -71,7 +71,9 @@ defmodule ImagePipe.Plan.KeyData do
       height: data(operation.height),
       guide: guide_data(operation.guide),
       x_offset: operation.x_offset,
-      y_offset: operation.y_offset
+      y_offset: operation.y_offset,
+      aspect_ratio: crop_aspect_ratio_data(operation.aspect_ratio),
+      enlarge: operation.enlarge
     ]
   end
 
@@ -170,6 +172,9 @@ defmodule ImagePipe.Plan.KeyData do
 
   defp optional_data(nil), do: nil
   defp optional_data(value), do: data(value)
+
+  defp crop_aspect_ratio_data(nil), do: nil
+  defp crop_aspect_ratio_data({:ratio, numerator, denominator}), do: data({:ratio, numerator, denominator})
 
   defp fill_data(:transparent), do: :transparent
   defp fill_data({:solid, %Color{} = color}), do: [type: :solid, color: Color.key_data(color)]

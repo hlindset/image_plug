@@ -4,7 +4,8 @@ defmodule ImagePipe.Plan.Operation.CropGuided do
   """
 
   @enforce_keys [:width, :height, :guide]
-  defstruct @enforce_keys ++ [x_offset: {:pixels, 0.0}, y_offset: {:pixels, 0.0}]
+  defstruct @enforce_keys ++
+              [x_offset: {:pixels, 0.0}, y_offset: {:pixels, 0.0}, aspect_ratio: nil, enlarge: false]
 
   @type dimension :: :full_axis | {:px, pos_integer()} | {:ratio, pos_integer(), pos_integer()}
   @type anchor ::
@@ -29,6 +30,8 @@ defmodule ImagePipe.Plan.Operation.CropGuided do
           height: dimension(),
           guide: guide(),
           x_offset: offset(),
-          y_offset: offset()
+          y_offset: offset(),
+          aspect_ratio: nil | {:ratio, pos_integer(), pos_integer()},
+          enlarge: boolean()
         }
 end

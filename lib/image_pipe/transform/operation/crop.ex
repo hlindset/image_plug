@@ -103,7 +103,9 @@ defmodule ImagePipe.Transform.Operation.Crop do
     gravity: nil,
     x_offset: 0.0,
     y_offset: 0.0,
-    offset_scale: 1.0
+    offset_scale: 1.0,
+    aspect_ratio: nil,
+    enlarge: false
   ]
 
   @type t :: %__MODULE__{
@@ -121,7 +123,9 @@ defmodule ImagePipe.Transform.Operation.Crop do
             | nil,
           x_offset: length_unit() | number(),
           y_offset: length_unit() | number(),
-          offset_scale: pos_integer() | float()
+          offset_scale: pos_integer() | float(),
+          aspect_ratio: nil | {:ratio, pos_integer(), pos_integer()},
+          enlarge: boolean()
         }
 
   @impl ImagePipe.Transform

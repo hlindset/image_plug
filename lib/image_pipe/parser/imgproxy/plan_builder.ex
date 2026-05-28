@@ -243,10 +243,20 @@ defmodule ImagePipe.Parser.Imgproxy.PlanBuilder do
              height,
              guide,
              x_offset: crop.x_offset,
-             y_offset: crop.y_offset
+             y_offset: crop.y_offset,
+             aspect_ratio: crop_aspect_ratio(request),
+             enlarge: request.crop_aspect_ratio_enlarge
            ) do
       {:ok, [operation]}
     end
+  end
+
+  defp crop_aspect_ratio(%PipelineRequest{crop_aspect_ratio: nil}), do: nil
+  defp crop_aspect_ratio(%PipelineRequest{crop_aspect_ratio: ratio}) when ratio == 0.0, do: nil
+
+  defp crop_aspect_ratio(%PipelineRequest{crop_aspect_ratio: ratio}) do
+    {:ok, tagged} = tagged_ratio_from_decimal(ratio)
+    tagged
   end
 
   defp orientation_operations(%PipelineRequest{orientation: %Orientation{} = orientation}) do

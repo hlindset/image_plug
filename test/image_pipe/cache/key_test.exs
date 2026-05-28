@@ -169,7 +169,9 @@ defmodule ImagePipe.Cache.KeyTest do
                    height: [unit: :logical_px, value: 100],
                    guide: :center,
                    x_offset: {:pixels, 0.0},
-                   y_offset: {:pixels, 0.0}
+                   y_offset: {:pixels, 0.0},
+                   aspect_ratio: nil,
+                   enlarge: false
                  ]
                ]
              ],
@@ -425,7 +427,9 @@ defmodule ImagePipe.Cache.KeyTest do
                  height: [unit: :logical_px, value: 100],
                  guide: :center,
                  x_offset: {:pixels, 0.0},
-                 y_offset: {:pixels, 0.0}
+                 y_offset: {:pixels, 0.0},
+                 aspect_ratio: nil,
+                 enlarge: false
                ]
              ]
            ]
@@ -504,7 +508,9 @@ defmodule ImagePipe.Cache.KeyTest do
                  height: [unit: :full_axis],
                  guide: :bottom_right,
                  x_offset: {:pixels, 3},
-                 y_offset: {:pixels, 0.0}
+                 y_offset: {:pixels, 0.0},
+                 aspect_ratio: nil,
+                 enlarge: false
                ],
                [
                  op: :crop_region,

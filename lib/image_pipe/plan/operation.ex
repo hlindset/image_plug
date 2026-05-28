@@ -50,7 +50,7 @@ defmodule ImagePipe.Plan.Operation do
     :zoom_x,
     :zoom_y
   ]
-  @crop_guided_keys [:x_offset, :y_offset]
+  @crop_guided_keys [:x_offset, :y_offset, :aspect_ratio, :enlarge]
   @canvas_keys [:fill, :overflow, :x_offset, :y_offset]
   @padding_keys [:pixel_ratio, :fill]
   @effective_padding_modes [:resize, :canvas_preserving]
@@ -179,7 +179,9 @@ defmodule ImagePipe.Plan.Operation do
          height: height,
          guide: guide,
          x_offset: x_offset,
-         y_offset: y_offset
+         y_offset: y_offset,
+         aspect_ratio: Keyword.get(opts, :aspect_ratio),
+         enlarge: Keyword.get(opts, :enlarge, false)
        }}
     else
       {:error, {:unknown_operation_options, _operation, _keys} = reason} ->
@@ -377,12 +379,22 @@ defmodule ImagePipe.Plan.Operation do
          {:ok, _height} <- tagged_crop_dimension(operation.height),
          {:ok, _guide} <- tagged_crop_guide(operation.guide),
          :ok <- tagged_offset(operation.x_offset),
-         :ok <- tagged_offset(operation.y_offset) do
+         :ok <- tagged_offset(operation.y_offset),
+         true <- valid_crop_aspect_ratio?(operation.aspect_ratio),
+         true <- is_boolean(operation.enlarge) do
       true
     else
       _error -> false
     end
   end
+
+  defp valid_crop_aspect_ratio?(nil), do: true
+
+  defp valid_crop_aspect_ratio?({:ratio, numerator, denominator})
+       when is_integer(numerator) and is_integer(denominator) and numerator > 0 and denominator > 0,
+       do: true
+
+  defp valid_crop_aspect_ratio?(_other), do: false
 
   defp valid_crop_region?(%CropRegion{} = operation) do
     with {:ok, _x} <- tagged_crop_coordinate(operation.x),
