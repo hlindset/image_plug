@@ -587,6 +587,23 @@ defmodule ImagePipe.Cache.FileSystemTest do
       assert {:error, _} =
                FileSystem.validate_options([root: "/tmp", max_size_bytes: 100_000_000, node_id: "n1", eviction_victim_limit: 0])
     end
+
+    test "rejects :window_ratio outside [0.0, 1.0]" do
+      assert {:error, _} =
+               FileSystem.validate_options([root: "/tmp", max_size_bytes: 100_000_000, node_id: "n1", window_ratio: 1.5])
+    end
+
+    test "accepts :window_ratio of 0.0 (window disabled)" do
+      assert {:ok, opts} =
+               FileSystem.validate_options([root: "/tmp", max_size_bytes: 100_000_000, node_id: "n1", window_ratio: 0.0])
+
+      assert opts[:window_ratio] == 0.0
+    end
+
+    test "rejects :doorkeeper_fpr outside (0.0, 1.0)" do
+      assert {:error, _} =
+               FileSystem.validate_options([root: "/tmp", max_size_bytes: 100_000_000, node_id: "n1", doorkeeper_fpr: 1.0])
+    end
   end
 
   test "concurrent puts for the same key leave a readable entry", %{root: root} do

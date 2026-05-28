@@ -53,7 +53,7 @@ defmodule ImagePipe.Cache.FileSystem do
                       type: :string
                     ],
                     window_ratio: [
-                      type: :float
+                      type: {:custom, __MODULE__, :validate_window_ratio, []}
                     ],
                     sketch_depth: [
                       type: :pos_integer
@@ -68,7 +68,7 @@ defmodule ImagePipe.Cache.FileSystem do
                       type: :pos_integer
                     ],
                     doorkeeper_fpr: [
-                      type: :float
+                      type: {:custom, __MODULE__, :validate_doorkeeper_fpr, []}
                     ],
                     eviction_victim_limit: [
                       type: :pos_integer
@@ -460,6 +460,25 @@ defmodule ImagePipe.Cache.FileSystem do
 
   def validate_path_prefix(prefix),
     do: {:error, "expected relative path string, got: #{inspect(prefix)}"}
+
+  @doc false
+  # window_ratio carves the byte budget for the window LRU; an out-of-range
+  # value would size the window past (or below) the total cap and break the
+  # soft-cap invariant. Inclusive [0.0, 1.0] (0.0 disables the window).
+  def validate_window_ratio(ratio) when is_float(ratio) and ratio >= 0.0 and ratio <= 1.0,
+    do: {:ok, ratio}
+
+  def validate_window_ratio(ratio),
+    do: {:error, "expected float in [0.0, 1.0], got: #{inspect(ratio)}"}
+
+  @doc false
+  # doorkeeper_fpr is a Bloom-filter false-positive probability; 0.0 and 1.0
+  # are degenerate, so the open interval (0.0, 1.0) is required.
+  def validate_doorkeeper_fpr(fpr) when is_float(fpr) and fpr > 0.0 and fpr < 1.0,
+    do: {:ok, fpr}
+
+  def validate_doorkeeper_fpr(fpr),
+    do: {:error, "expected float in (0.0, 1.0), got: #{inspect(fpr)}"}
 
   defp options_validation_error(%NimbleOptions.ValidationError{key: :root, value: nil}),
     do: {:missing_required_option, :root}
