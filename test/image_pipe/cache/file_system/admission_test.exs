@@ -105,6 +105,26 @@ defmodule ImagePipe.Cache.FileSystem.AdmissionTest do
     assert {:reject, :over_cap} = Admission.admit(pid, descriptor)
   end
 
+  test "window overflow pushes LRU into main; with free main, evictee goes to probationary", %{registry: registry, tmp_dir: tmp_dir} do
+    # Tiny window so we can force overflow quickly.
+    opts = base_opts(registry: registry, tmp_dir: tmp_dir, max_size_bytes: 100_000, window_ratio: 0.1)
+    pid = start_supervised!({Admission, opts})
+
+    # window_budget = 10_000. Insert 3 × 5_000-byte entries; the third pushes the first out.
+    Admission.admit(pid, %{key_hash: "a", size_bytes: 5_000, body_sha256: "sa", cost_us: 1_000})
+    Admission.admit(pid, %{key_hash: "b", size_bytes: 5_000, body_sha256: "sb", cost_us: 1_000})
+    {:admit, victims} = Admission.admit(pid, %{key_hash: "c", size_bytes: 5_000, body_sha256: "sc", cost_us: 1_000})
+
+    # No victims: main had room for "a".
+    assert victims == []
+
+    state = :sys.get_state(pid)
+    # "b" and "c"
+    assert state.window_bytes == 10_000
+    # "a" moved into main
+    assert state.probationary_bytes == 5_000
+  end
+
   defp base_opts(overrides) do
     Keyword.merge(
       [

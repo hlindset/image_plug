@@ -3,6 +3,7 @@ defmodule ImagePipe.Cache.FileSystem.Admission do
 
   use GenServer
 
+  alias ImagePipe.Cache.FileSystem.Policy
   alias ImagePipe.Cache.FileSystem.Sketch
 
   defmodule State do
@@ -156,7 +157,9 @@ defmodule ImagePipe.Cache.FileSystem.Admission do
   end
 
   @spec admit(pid() | GenServer.name(), map()) ::
-          {:admit, [map()]} | {:reject, :over_cap | :score_too_low | :no_evictable_victims}
+          {:admit, [map()]}
+          | {:reject,
+             :over_cap | :score_too_low | :no_evictable_victims | :victim_limit_exceeded}
   def admit(server, descriptor) do
     GenServer.call(server, {:admit, descriptor})
   end
@@ -190,14 +193,56 @@ defmodule ImagePipe.Cache.FileSystem.Admission do
   defp insert_into_window(state, descriptor) do
     {position, state} = next_position(state)
     :ets.insert(state.window, {{position, descriptor.key_hash}, descriptor})
+    state = %{state | window_bytes: state.window_bytes + descriptor.size_bytes}
+    drain_window_overflow(state, [])
+  end
 
-    state = %{
-      state
-      | window_bytes: state.window_bytes + descriptor.size_bytes
+  defp drain_window_overflow(state, victims) do
+    cond do
+      state.window_bytes <= state.window_budget ->
+        {{:admit, victims}, state}
+
+      # Defensive: byte counter says we are over budget but the table is
+      # empty. This should not happen if accounting is consistent, but a
+      # blind `:ets.first/1` + `:ets.lookup/2` on an empty table would
+      # match `[]` against `[{...}]` and crash the GenServer. Stop draining.
+      :ets.first(state.window) == :"$end_of_table" ->
+        {{:admit, victims}, state}
+
+      true ->
+        # Pop window LRU
+        first_key = :ets.first(state.window)
+        [{{pos, hash}, descriptor}] = :ets.lookup(state.window, first_key)
+        :ets.delete(state.window, {pos, hash})
+        state = %{state | window_bytes: state.window_bytes - descriptor.size_bytes}
+
+        {gate_result, state} = run_main_gate(state, descriptor)
+
+        drain_after_gate(state, descriptor, gate_result, victims)
+    end
+  end
+
+  defp drain_after_gate(state, descriptor, gate_result, victims) do
+    case gate_result do
+      {:admit, more_victims} ->
+        drain_window_overflow(state, victims ++ more_victims)
+
+      {:reject, _} ->
+        # Window evictee lost main gate; its files must be deleted
+        # (body and meta).
+        evictee_victim = full_eviction_victim(descriptor)
+        drain_window_overflow(state, victims ++ [evictee_victim])
+    end
+  end
+
+  defp full_eviction_victim(descriptor) do
+    %{
+      key_hash: descriptor.key_hash,
+      body_sha256: descriptor.body_sha256,
+      size_bytes: descriptor.size_bytes,
+      delete_body?: true,
+      delete_meta?: true
     }
-
-    # Stub: handle window overflow in a later task.
-    {{:admit, []}, state}
   end
 
   defp already_tracked?(state, key_hash) do
@@ -210,8 +255,97 @@ defmodule ImagePipe.Cache.FileSystem.Admission do
     :ets.match_object(table, {{:_, key_hash}, :_}) != []
   end
 
-  # stub for next task
-  defp run_main_gate(state, _descriptor), do: {{:admit, []}, state}
+  defp run_main_gate(state, descriptor) do
+    # Clamp to 0: in-flight commit overshoot or restart reconciliation can
+    # transiently push (probationary + protected) above the main budget, in
+    # which case the raw subtraction goes negative. A negative `available`
+    # must not be treated as "room" by the `>=` comparison below, and it must
+    # not let a zero-byte descriptor slip through the free-space branch and
+    # skip scoring.
+    available =
+      max(
+        0,
+        state.max_size_bytes - state.window_budget - state.probationary_bytes -
+          state.protected_bytes
+      )
+
+    if available >= descriptor.size_bytes do
+      insert_into_probationary(state, descriptor)
+    else
+      identify_and_score(state, descriptor)
+    end
+  end
+
+  defp insert_into_probationary(state, descriptor) do
+    {position, state} = next_position(state)
+    :ets.insert(state.probationary, {{position, descriptor.key_hash}, descriptor})
+    state = %{state | probationary_bytes: state.probationary_bytes + descriptor.size_bytes}
+    {{:admit, []}, state}
+  end
+
+  defp identify_and_score(state, descriptor) do
+    probationary_list = ordered_set_to_list(state.probationary)
+    protected_list = ordered_set_to_list(state.protected)
+    limit = state.eviction_victim_limit
+
+    case Policy.victim_walk(
+           probationary_list,
+           protected_list,
+           descriptor.size_bytes,
+           limit
+         ) do
+      {:error, :no_evictable_victims} ->
+        {{:reject, :no_evictable_victims}, state}
+
+      {:error, :victim_limit_exceeded} ->
+        {{:reject, :victim_limit_exceeded}, state}
+
+      {:ok, victim_descriptors} ->
+        freq_fn = fn key_hash ->
+          Sketch.estimate(state.local_cms, key_hash) + Sketch.estimate(state.boot_cms, key_hash)
+        end
+
+        if Policy.admit?(descriptor, victim_descriptors, freq_fn) do
+          state = remove_victims(state, victim_descriptors)
+          {_result, state} = insert_into_probationary(state, descriptor)
+          # Tag victims with full-eviction flags for the adapter.
+          tagged = Enum.map(victim_descriptors, &full_eviction_victim/1)
+          {{:admit, tagged}, state}
+        else
+          {{:reject, :score_too_low}, state}
+        end
+    end
+  end
+
+  defp ordered_set_to_list(table) do
+    :ets.foldr(fn {_pos_and_hash, descriptor}, acc -> [descriptor | acc] end, [], table)
+    |> Enum.reverse()
+  end
+
+  defp remove_victims(state, victims) do
+    Enum.reduce(victims, state, fn descriptor, acc ->
+      remove_descriptor(acc, descriptor)
+    end)
+  end
+
+  defp remove_descriptor(state, descriptor) do
+    # Search all queues for the descriptor and remove it. Update byte counters.
+    Enum.reduce_while([:window, :probationary, :protected], state, fn queue, acc ->
+      table = Map.fetch!(acc, queue)
+
+      case :ets.match_object(table, {{:_, descriptor.key_hash}, :_}) do
+        [] ->
+          {:cont, acc}
+
+        [{key, _value}] ->
+          :ets.delete(table, key)
+          bytes_field = :"#{queue}_bytes"
+          acc = Map.update!(acc, bytes_field, &(&1 - descriptor.size_bytes))
+          {:halt, acc}
+      end
+    end)
+  end
+
   # stub for next task
   defp same_key_replace(state, _descriptor), do: {{:admit, []}, state}
 
