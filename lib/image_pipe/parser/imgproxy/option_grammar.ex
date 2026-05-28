@@ -398,7 +398,36 @@ defmodule ImagePipe.Parser.Imgproxy.OptionGrammar do
     parse_background_alpha(args, segment)
   end
 
+  defp parse_special_option(name, args, segment) when name in ["blur", "bl"] do
+    parse_effect_float(:blur, args, segment)
+  end
+
+  defp parse_special_option(name, args, segment) when name in ["sharpen", "sh"] do
+    parse_effect_float(:sharpen, args, segment)
+  end
+
+  defp parse_special_option(name, args, segment) when name in ["pixelate", "pix"] do
+    parse_pixelate(args, segment)
+  end
+
   defp parse_special_option(name, _args, _segment), do: {:error, {:unknown_option, name}}
+
+  defp parse_effect_float(key, [value], _segment) when value != "" do
+    with {:ok, value} <- parse_non_negative_float(value) do
+      {:ok, [{key, value}]}
+    end
+  end
+
+  defp parse_effect_float(_key, _args, segment),
+    do: {:error, {:invalid_option_segment, segment}}
+
+  defp parse_pixelate([value], _segment) when value != "" do
+    with {:ok, value} <- parse_non_negative_integer(value) do
+      {:ok, [pixelate: value]}
+    end
+  end
+
+  defp parse_pixelate(_args, segment), do: {:error, {:invalid_option_segment, segment}}
 
   defp parse_padding(args, segment) when length(args) <= 4 do
     with {:ok, parsed_args} <- parse_padding_args(args, segment) do
@@ -733,11 +762,26 @@ defmodule ImagePipe.Parser.Imgproxy.OptionGrammar do
     end
   end
 
+  defp parse_non_negative_float(value) do
+    case parse_float(value) do
+      {:ok, float} when float >= 0.0 -> {:ok, float}
+      {:ok, _float} -> {:error, {:invalid_non_negative_float, value}}
+      {:error, _reason} -> {:error, {:invalid_non_negative_float, value}}
+    end
+  end
+
   defp parse_positive_number(value) do
     case parse_number(value) do
       {:ok, number} when number > 0 -> {:ok, number}
       {:ok, _number} -> {:error, {:invalid_positive_number, value}}
       {:error, _reason} -> {:error, {:invalid_positive_number, value}}
+    end
+  end
+
+  defp parse_non_negative_integer(value) do
+    case Integer.parse(value) do
+      {integer, ""} when integer >= 0 -> {:ok, integer}
+      _other -> {:error, {:invalid_non_negative_integer, value}}
     end
   end
 
@@ -755,13 +799,6 @@ defmodule ImagePipe.Parser.Imgproxy.OptionGrammar do
     case Float.parse(value) do
       {float, ""} -> {:ok, float}
       _other -> {:error, {:invalid_float, value}}
-    end
-  end
-
-  defp parse_non_negative_integer(value) do
-    case Integer.parse(value) do
-      {integer, ""} when integer >= 0 -> {:ok, integer}
-      _other -> {:error, {:invalid_non_negative_integer, value}}
     end
   end
 

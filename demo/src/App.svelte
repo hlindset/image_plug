@@ -45,6 +45,7 @@
   let orientationOpen = true;
   let scaleOptionsOpen = true;
   let requestOpen = true;
+  let effectsOpen = true;
   let themeMode: ThemeMode = readStoredThemeMode();
   let state: DemoState = initialDemoState();
   let path = buildProcessingPath(state);
@@ -132,6 +133,7 @@
   $: backgroundSummary = state.backgroundEnabled
     ? `bg:${state.backgroundColor.replace(/^#/, "")}${backgroundOpacitySummary(state.backgroundAlpha)}`
     : "Off";
+  $: effectsSummary = effectSegments(state).join("/") || "Off";
   $: cropSummary = state.cropEnabled ? (cropOptionSegment(state) ?? "Off") : "Off";
   $: resizeExtras = [
     state.zoomEnabled ? `z:${state.zoom}` : null,
@@ -167,6 +169,10 @@
     if (expandedToolboxes.scaleOptionsOpen) {
       scaleOptionsOpen = true;
     }
+
+    if (expandedToolboxes.effectsOpen) {
+      effectsOpen = true;
+    }
   }
 
   function flipSegment(flip: DemoState["flip"]): string | null {
@@ -191,6 +197,14 @@
     }
 
     return `/bga:${alpha}`;
+  }
+
+  function effectSegments(currentState: DemoState): string[] {
+    return [
+      currentState.blurEnabled ? `bl:${currentState.blur}` : null,
+      currentState.sharpenEnabled ? `sh:${currentState.sharpen}` : null,
+      currentState.pixelateEnabled ? `pix:${currentState.pixelate}` : null,
+    ].filter((segment): segment is string => segment !== null);
   }
 
   function requestSignatureLabel(
@@ -1012,6 +1026,74 @@
             </div>
           </div>
         {/if}
+      </section>
+
+      <section class="tool-section">
+        <Collapsible.Root class="collapsible-root" bind:open={effectsOpen}>
+          <Collapsible.Trigger
+            class="accordion-heading"
+            aria-label={effectsOpen ? "Collapse effects" : "Expand effects"}
+          >
+            <div>
+              <h2>Effects</h2>
+              <p>{effectsSummary}</p>
+            </div>
+            <span class="accordion-chevron" aria-hidden="true"></span>
+          </Collapsible.Trigger>
+
+          <Collapsible.Content class="collapsible-content">
+            <label class="switch-field">
+              <Switch.Root class="switch-root" bind:checked={state.blurEnabled}>
+                <Switch.Thumb class="switch-thumb" />
+              </Switch.Root>
+              <span>Blur</span>
+            </label>
+            {#if state.blurEnabled}
+              <RangeNumber
+                label="Blur sigma"
+                bind:value={state.blur}
+                min={controlLimits.effects.blur.min}
+                max={controlLimits.effects.blur.max}
+                step={controlLimits.effects.blur.step}
+                inputStep="any"
+              />
+            {/if}
+
+            <label class="switch-field">
+              <Switch.Root class="switch-root" bind:checked={state.sharpenEnabled}>
+                <Switch.Thumb class="switch-thumb" />
+              </Switch.Root>
+              <span>Sharpen</span>
+            </label>
+            {#if state.sharpenEnabled}
+              <RangeNumber
+                label="Sharpen sigma"
+                bind:value={state.sharpen}
+                min={controlLimits.effects.sharpen.min}
+                max={controlLimits.effects.sharpen.max}
+                step={controlLimits.effects.sharpen.step}
+                inputStep="any"
+              />
+            {/if}
+
+            <label class="switch-field">
+              <Switch.Root class="switch-root" bind:checked={state.pixelateEnabled}>
+                <Switch.Thumb class="switch-thumb" />
+              </Switch.Root>
+              <span>Pixelate</span>
+            </label>
+            {#if state.pixelateEnabled}
+              <RangeNumber
+                label="Block size"
+                bind:value={state.pixelate}
+                min={controlLimits.effects.pixelate.min}
+                max={controlLimits.effects.pixelate.max}
+                step={controlLimits.effects.pixelate.step}
+                suffix="px"
+              />
+            {/if}
+          </Collapsible.Content>
+        </Collapsible.Root>
       </section>
 
       <section class="tool-section">

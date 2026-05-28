@@ -255,6 +255,46 @@ defmodule ImagePipe.Parser.Imgproxy.PlanBuilderTest do
     assert placement == :top_left
   end
 
+  test "plans basic effects after geometry and before composition operations" do
+    assert {:ok, %Plan{pipelines: [%Pipeline{operations: operations}]}} =
+             plan_pipeline(
+               width: {:pixels, 100},
+               padding_top: 2,
+               background_color: color!(10, 20, 30),
+               blur: 2.5,
+               sharpen: 0.7,
+               pixelate: 8
+             )
+
+    assert [
+             %Operation.Resize{},
+             blur,
+             sharpen,
+             pixelate,
+             %Operation.Padding{},
+             %Operation.Background{}
+           ] = operations
+
+    assert blur.__struct__ == ImagePipe.Plan.Operation.Blur
+    assert blur.sigma == 2.5
+    assert sharpen.__struct__ == ImagePipe.Plan.Operation.Sharpen
+    assert sharpen.sigma == 0.7
+    assert pixelate.__struct__ == ImagePipe.Plan.Operation.Pixelate
+    assert pixelate.size == 8
+  end
+
+  test "skips imgproxy effect no-op values" do
+    assert {:ok, %Plan{pipelines: [%Pipeline{operations: operations}]}} =
+             plan_pipeline(blur: 0.0, sharpen: 0.0, pixelate: 0)
+
+    assert operations == []
+
+    assert {:ok, %Plan{pipelines: [%Pipeline{operations: operations}]}} =
+             plan_pipeline(pixelate: 1)
+
+    assert operations == []
+  end
+
   test "explicit false extend prevents parsed extend tails from planning canvas operations" do
     assert {:ok, %Plan{pipelines: [%Pipeline{operations: operations}]}} =
              plan_pipeline(
@@ -873,6 +913,11 @@ defmodule ImagePipe.Parser.Imgproxy.PlanBuilderTest do
 
   defp maybe_put(attrs, _key, nil), do: attrs
   defp maybe_put(attrs, key, value), do: Keyword.put(attrs, key, value)
+
+  defp color!(red, green, blue) do
+    assert {:ok, color} = Operation.color(red, green, blue)
+    color
+  end
 
   defp output_request(attrs \\ []), do: ParsedRequest.output_request(attrs)
   defp policy_request(attrs \\ []), do: ParsedRequest.policy_request(attrs)

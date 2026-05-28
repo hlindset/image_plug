@@ -306,6 +306,25 @@ describe("processing path generation", () => {
     );
   });
 
+  it("includes basic effects after background options", () => {
+    const state = {
+      ...defaultDemoState,
+      backgroundEnabled: true,
+      backgroundColor: "#ffcc00",
+      blurEnabled: true,
+      blur: 2.5,
+      sharpenEnabled: true,
+      sharpen: 0.7,
+      pixelateEnabled: true,
+      pixelate: 8,
+    };
+
+    expect(optionSegments(state)).toEqual(["bg:ffcc00", "bl:2.5", "sh:0.7", "pix:8"]);
+    expect(buildProcessingPath(state)).toBe(
+      "/_/bg:ffcc00/bl:2.5/sh:0.7/pix:8/plain/local:///images/dog.jpg",
+    );
+  });
+
   it("omits background alpha when opacity is full", () => {
     const state = {
       ...defaultDemoState,
@@ -698,9 +717,9 @@ describe("demo URL state", () => {
     });
   });
 
-  it("parses crop, orientation, scale, canvas, padding, and background options", () => {
+  it("parses crop, orientation, scale, canvas, padding, background, and effects options", () => {
     const parsed = parseDemoPath(
-      "/demo/ar:1/fl:0:1/rot:90/c:0.5:0.25:no/z:1.25/dpr:2/mw:320/mh:240/exar:16:9/pd:1:2:3:4/bg:ffcc00/bga:0.42/plain/local:///images/beach.jpg",
+      "/demo/ar:1/fl:0:1/rot:90/c:0.5:0.25:no/z:1.25/dpr:2/mw:320/mh:240/exar:16:9/pd:1:2:3:4/bg:ffcc00/bga:0.42/bl:2.5/sh:0.7/pix:8/plain/local:///images/beach.jpg",
     );
 
     expect(parsed).toMatchObject({
@@ -733,13 +752,40 @@ describe("demo URL state", () => {
       backgroundEnabled: true,
       backgroundColor: "#ffcc00",
       backgroundAlpha: 0.42,
+      blurEnabled: true,
+      blur: 2.5,
+      sharpenEnabled: true,
+      sharpen: 0.7,
+      pixelateEnabled: true,
+      pixelate: 8,
+    });
+  });
+
+  it("treats pixelate size one as a demo no-op", () => {
+    expect(parseDemoPath("/demo/pix:1/plain/local:///images/dog.jpg")).toEqual({
+      ...defaultDemoState,
+      pixelateEnabled: false,
+      pixelate: defaultDemoState.pixelate,
+    });
+  });
+
+  it("treats zero-valued effects as demo no-ops", () => {
+    expect(parseDemoPath("/demo/bl:0/sh:0/pix:0/plain/local:///images/dog.jpg")).toEqual({
+      ...defaultDemoState,
+      blurEnabled: false,
+      blur: defaultDemoState.blur,
+      sharpenEnabled: false,
+      sharpen: defaultDemoState.sharpen,
+      pixelateEnabled: false,
+      pixelate: defaultDemoState.pixelate,
     });
   });
 
   it("expands accordions that contain active URL state", () => {
-    const state = parseDemoPath("/demo/ar:1/z:1.5/plain/local:///images/dog.jpg");
+    const state = parseDemoPath("/demo/ar:1/z:1.5/bl:2.5/plain/local:///images/dog.jpg");
 
     expect(expandedToolboxesForState(state)).toEqual({
+      effectsOpen: true,
       orientationOpen: true,
       scaleOptionsOpen: true,
       requestOpen: true,

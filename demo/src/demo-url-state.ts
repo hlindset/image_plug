@@ -15,6 +15,7 @@ import {
 } from "./processing-path";
 
 export type ExpandedToolboxes = {
+  effectsOpen: boolean;
   orientationOpen: boolean;
   requestOpen: boolean;
   scaleOptionsOpen: boolean;
@@ -85,6 +86,8 @@ export function resetDemoSettings(currentState: DemoState): DemoState {
 
 export function expandedToolboxesForState(currentState: DemoState): ExpandedToolboxes {
   return {
+    effectsOpen:
+      currentState.blurEnabled || currentState.sharpenEnabled || currentState.pixelateEnabled,
     orientationOpen:
       currentState.autoRotateEnabled || currentState.flip !== "none" || currentState.rotate !== 0,
     requestOpen: true,
@@ -186,6 +189,27 @@ function applyOptionSegment(currentState: DemoState, segment: string): DemoState
 
     case "bga":
       return parseBackgroundAlpha(currentState, args);
+
+    case "bl":
+    case "blur":
+      return parseNonNegativeNumericOption(currentState, args, (value) => ({
+        blurEnabled: value > 0,
+        blur: value > 0 ? value : defaultDemoState.blur,
+      }));
+
+    case "sh":
+    case "sharpen":
+      return parseNonNegativeNumericOption(currentState, args, (value) => ({
+        sharpenEnabled: value > 0,
+        sharpen: value > 0 ? value : defaultDemoState.sharpen,
+      }));
+
+    case "pix":
+    case "pixelate":
+      return parseNonNegativeIntegerOption(currentState, args, (value) => ({
+        pixelateEnabled: value > 1,
+        pixelate: value > 1 ? value : defaultDemoState.pixelate,
+      }));
 
     case "g":
       return parseGravity(currentState, args);
@@ -358,6 +382,42 @@ function parseNumericOption(
   const value = parseNumber(args[0]);
 
   if (value === null) {
+    return null;
+  }
+
+  return { ...currentState, ...buildPatch(value) };
+}
+
+function parseNonNegativeNumericOption(
+  currentState: DemoState,
+  args: string[],
+  buildPatch: (value: number) => Partial<DemoState>,
+): DemoState | null {
+  if (args.length !== 1) {
+    return null;
+  }
+
+  const value = parseNumber(args[0]);
+
+  if (value === null || value < 0) {
+    return null;
+  }
+
+  return { ...currentState, ...buildPatch(value) };
+}
+
+function parseNonNegativeIntegerOption(
+  currentState: DemoState,
+  args: string[],
+  buildPatch: (value: number) => Partial<DemoState>,
+): DemoState | null {
+  if (args.length !== 1) {
+    return null;
+  }
+
+  const value = parseNumber(args[0]);
+
+  if (value === null || !Number.isInteger(value) || value < 0) {
     return null;
   }
 

@@ -113,6 +113,20 @@ defmodule ImagePipe.Parser.Imgproxy.OptionGrammarTest do
              {:ok, {:pipeline, [background_alpha: {:ratio, 0, 10}]}}
   end
 
+  test "basic effect options parse with imgproxy aliases" do
+    assert OptionGrammar.parse("blur:2.5") == {:ok, {:pipeline, [blur: 2.5]}}
+    assert OptionGrammar.parse("bl:3") == {:ok, {:pipeline, [blur: 3.0]}}
+    assert OptionGrammar.parse("bl:0") == {:ok, {:pipeline, [blur: 0.0]}}
+
+    assert OptionGrammar.parse("sharpen:0.7") == {:ok, {:pipeline, [sharpen: 0.7]}}
+    assert OptionGrammar.parse("sh:1") == {:ok, {:pipeline, [sharpen: 1.0]}}
+    assert OptionGrammar.parse("sh:0") == {:ok, {:pipeline, [sharpen: 0.0]}}
+
+    assert OptionGrammar.parse("pixelate:8") == {:ok, {:pipeline, [pixelate: 8]}}
+    assert OptionGrammar.parse("pix:12") == {:ok, {:pipeline, [pixelate: 12]}}
+    assert OptionGrammar.parse("pix:0") == {:ok, {:pipeline, [pixelate: 0]}}
+  end
+
   test "invalid arity pipeline options return invalid option segment errors" do
     for segment <- invalid_pipeline_arity_segments() do
       assert OptionGrammar.parse(segment) == {:error, {:invalid_option_segment, segment}}
@@ -143,6 +157,9 @@ defmodule ImagePipe.Parser.Imgproxy.OptionGrammarTest do
       auto_rotate: auto_rotate:true:false ar: ar:true:false
       rotate rotate: rotate:90:180 rot rot: rot:90:180
       flip:true:false:true fl:true:false:true
+      blur blur: bl bl: blur:1:2 bl:1:2
+      sharpen sharpen: sh sh: sharpen:1:2 sh:1:2
+      pixelate pixelate: pix pix: pixelate:1:2 pix:1:2
       extend_aspect_ratio extend_aspect_ratio:16 extend_aspect_ratio:16:9:1
       extend_ar extend_ar:16 extend_ar:16:9:1
       exar exar:16 exar:16:9:1

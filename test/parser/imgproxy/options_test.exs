@@ -208,8 +208,8 @@ defmodule ImagePipe.Parser.Imgproxy.OptionsTest do
     assert Options.parse(~w(w), Presets.empty()) ==
              {:error, {:invalid_option_segment, "w"}}
 
-    assert Options.parse(~w(sharpen:0.5), Presets.empty()) ==
-             {:error, {:unknown_option, "sharpen"}}
+    assert Options.parse(~w(watermark:0.5), Presets.empty()) ==
+             {:error, {:unknown_option, "watermark"}}
   end
 
   defp pipeline_for(option_segments) do

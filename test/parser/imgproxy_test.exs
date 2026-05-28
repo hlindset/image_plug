@@ -1301,10 +1301,10 @@ defmodule ImagePipe.Parser.ImgproxyTest do
   end
 
   test "rejects unsupported options inside a used preset like direct URL options" do
-    opts = preset_opts(%{"future" => "sharpen:0.7"})
+    opts = preset_opts(%{"future" => "watermark:0.5"})
 
     assert Imgproxy.parse(conn(:get, "/_/pr:future/plain/images/cat.jpg"), opts) ==
-             {:error, {:unknown_option, "sharpen"}}
+             {:error, {:unknown_option, "watermark"}}
   end
 
   test "rejects planner-unsupported output values inside a used preset like direct URL options" do
