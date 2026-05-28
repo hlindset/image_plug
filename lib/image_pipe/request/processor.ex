@@ -158,7 +158,10 @@ defmodule ImagePipe.Request.Processor do
 
   defp decode_source_response(%Source.Response{} = source_response, decode_options, opts) do
     image_open_module = Keyword.get(opts, :image_open_module, Image)
-    image_open_module.open(source_response.stream, decode_options)
+
+    source_response.stream
+    |> image_open_module.open(decode_options)
+    |> prefer_source_stream_error(source_response)
   rescue
     exception in [Source.StreamError] -> {:error, {:source, exception.reason}}
   catch
@@ -190,6 +193,7 @@ defmodule ImagePipe.Request.Processor do
   defp handle_materialization_result(result, source_response) do
     result
     |> prefer_source_body_limit(source_response)
+    |> prefer_source_stream_error(source_response)
     |> do_handle_materialization_result()
   end
 
@@ -214,6 +218,15 @@ defmodule ImagePipe.Request.Processor do
   end
 
   defp prefer_source_body_limit(result, _source_response), do: result
+
+  defp prefer_source_stream_error({:error, reason}, %Source.Response{} = source_response) do
+    case Source.stream_error_reason(source_response) do
+      {:ok, reason} -> {:error, {:source, reason}}
+      :error -> {:error, reason}
+    end
+  end
+
+  defp prefer_source_stream_error(result, _source_response), do: result
 
   defp validate_input_image(image, opts) do
     max_input_pixels = Keyword.fetch!(opts, :max_input_pixels)
