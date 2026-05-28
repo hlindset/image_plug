@@ -1403,6 +1403,10 @@
     gap: 12px;
     width: 100%;
 
+    > div {
+      min-width: 0;
+    }
+
     :where(h2, p) {
       margin: 0;
     }
@@ -1420,6 +1424,9 @@
       font-family: var(--font-mono);
       font-size: 12px;
       line-height: 16px;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
     }
   }
 
