@@ -124,12 +124,13 @@ Expected: failure — `ImagePipe.Cache.FileSystem.Sketch` undefined.
 defmodule ImagePipe.Cache.FileSystem.Sketch do
   @moduledoc false
 
-  @enforce_keys [:depth, :width, :counters, :aging_epoch, :increments_since_reset]
+  @enforce_keys [:depth, :width, :sample_size, :counters, :aging_epoch, :increments_since_reset]
   defstruct @enforce_keys
 
   @type t :: %__MODULE__{
           depth: pos_integer(),
           width: pos_integer(),
+          sample_size: pos_integer(),
           counters: :array.array(non_neg_integer()),
           aging_epoch: non_neg_integer(),
           increments_since_reset: non_neg_integer()
@@ -140,9 +141,22 @@ defmodule ImagePipe.Cache.FileSystem.Sketch do
     depth = Keyword.fetch!(opts, :depth)
     width = Keyword.fetch!(opts, :width)
 
+    # `sample_size` is the number of CMS increments between aging passes.
+    # It is DELIBERATELY decoupled from `width`: width is sized for counter
+    # accuracy (collision rate), while the aging cadence tracks how many
+    # distinct accesses constitute a sampling window — a cardinality
+    # concept, not an accuracy one. The `width * 10` value here is only a
+    # convenience default so pure-Sketch unit tests need not specify it;
+    # production always passes an explicit `:sample_size` computed by the
+    # config layer (`:aging_sample_size`, Task 25) from estimated cache
+    # cardinality, so tuning `:sketch_width` for accuracy never silently
+    # changes how fast frequencies decay.
+    sample_size = Keyword.get(opts, :sample_size, width * 10)
+
     %__MODULE__{
       depth: depth,
       width: width,
+      sample_size: sample_size,
       counters: :array.new(depth * width, default: 0, fixed: true),
       aging_epoch: 0,
       increments_since_reset: 0
@@ -327,9 +341,10 @@ Append to test file:
   end
 
   describe "should_age?/1" do
-    test "returns true when increments_since_reset >= width * 10" do
-      sketch = Sketch.new(depth: 2, width: 4)
-      threshold = 4 * 10
+    test "returns true when increments_since_reset >= sample_size" do
+      # sample_size is explicit and independent of width.
+      sketch = Sketch.new(depth: 2, width: 4, sample_size: 40)
+      threshold = 40
 
       sketch =
         Enum.reduce(1..(threshold - 1), sketch, fn _, s -> Sketch.increment(s, "k") end)
@@ -338,6 +353,13 @@ Append to test file:
 
       sketch = Sketch.increment(sketch, "k")
       assert Sketch.should_age?(sketch)
+    end
+
+    test "aging cadence does not change when width changes (decoupled)" do
+      # Same sample_size, different width → identical aging threshold.
+      narrow = Sketch.new(depth: 2, width: 4, sample_size: 40)
+      wide = Sketch.new(depth: 2, width: 4096, sample_size: 40)
+      assert narrow.sample_size == wide.sample_size
     end
   end
 ```
@@ -364,7 +386,7 @@ Add `Bitwise` import and the two functions:
   end
 
   @spec should_age?(t()) :: boolean()
-  def should_age?(%__MODULE__{width: w, increments_since_reset: n}), do: n >= w * 10
+  def should_age?(%__MODULE__{sample_size: s, increments_since_reset: n}), do: n >= s
 ```
 
 - [ ] **Step 4: Run tests, confirm pass**
@@ -450,6 +472,10 @@ git commit -m "Add Sketch aging with halving and epoch tracking"
   def deserialize(binary, opts) when is_binary(binary) do
     expected_depth = Keyword.fetch!(opts, :depth)
     expected_width = Keyword.fetch!(opts, :width)
+    # sample_size is config-derived, not persisted (it is not part of the
+    # serialized payload). Reconstruct it from the current config so a
+    # restart with a re-tuned `:aging_sample_size` takes effect immediately.
+    sample_size = Keyword.get(opts, :sample_size, expected_width * 10)
 
     try do
       case :erlang.binary_to_term(binary, [:safe]) do
@@ -469,6 +495,7 @@ git commit -m "Add Sketch aging with halving and epoch tracking"
            %__MODULE__{
              depth: expected_depth,
              width: expected_width,
+             sample_size: sample_size,
              counters: counters_array,
              aging_epoch: epoch,
              increments_since_reset: increments
@@ -493,6 +520,8 @@ git commit -m "Add Sketch aging with halving and epoch tracking"
     %__MODULE__{
       depth: d,
       width: w,
+      # Aging cadence belongs to the live sketch; carry `a`'s sample_size.
+      sample_size: a.sample_size,
       counters: new_counters,
       aging_epoch: max(a.aging_epoch, b.aging_epoch),
       increments_since_reset: 0
@@ -959,45 +988,17 @@ git commit -m "Add Policy victim walk and weighted-average admit decision"
 - Modify: `lib/image_pipe/cache/entry/metadata.ex`
 - Modify: `lib/image_pipe/cache/sink.ex` (build/4 includes cost_us)
 
-- [ ] **Step 1: Write failing test asserting `cost_us` field exists**
+**No dedicated test for this task.** A test that builds a `%Metadata{}`
+and asserts `meta.cost_us == 12_345`, or that the default is `0`, only
+re-states the `defstruct` definition the compiler already enforces — a
+field-existence test the project guidelines reject. The `cost_us`
+behavior that actually matters is covered downstream by real
+producer/consumer tests: Task 10 round-trips it through the meta file
+(`commit_sink` → `get/2`), and Task 7 covers the `cost_us == 0 →
+size-neutral score` fallback. This task is a pure struct change; the
+first task that consumes it carries the test.
 
-Create a new test (since `Entry.Metadata` has no dedicated test file):
-`test/image_pipe/cache/entry/metadata_test.exs`:
-
-```elixir
-defmodule ImagePipe.Cache.Entry.MetadataTest do
-  use ExUnit.Case, async: true
-
-  alias ImagePipe.Cache.Entry.Metadata
-
-  test "metadata struct exposes a cost_us field" do
-    meta = %Metadata{
-      content_type: "image/webp",
-      headers: [],
-      created_at: ~U[2026-05-28 12:00:00Z],
-      output_format: :webp,
-      cost_us: 12_345
-    }
-
-    assert meta.cost_us == 12_345
-  end
-
-  test "cost_us defaults to 0 when not provided" do
-    meta = %Metadata{
-      content_type: "image/webp",
-      headers: [],
-      created_at: ~U[2026-05-28 12:00:00Z],
-      output_format: :webp
-    }
-
-    assert meta.cost_us == 0
-  end
-end
-```
-
-- [ ] **Step 2: Run, confirm failure**
-
-- [ ] **Step 3: Add `cost_us` to `Entry.Metadata`**
+- [ ] **Step 1: Add `cost_us` to `Entry.Metadata`**
 
 ```elixir
 defmodule ImagePipe.Cache.Entry.Metadata do
@@ -1018,12 +1019,12 @@ defmodule ImagePipe.Cache.Entry.Metadata do
 end
 ```
 
-- [ ] **Step 4: Run, confirm pass**
+- [ ] **Step 2: Compile, confirm no warnings** (no test; covered downstream by Task 10/Task 7)
 
-- [ ] **Step 5: Commit**
+- [ ] **Step 3: Commit**
 
 ```bash
-git add lib/image_pipe/cache/entry/metadata.ex test/image_pipe/cache/entry/metadata_test.exs
+git add lib/image_pipe/cache/entry/metadata.ex
 git commit -m "Add cost_us field to Entry.Metadata"
 ```
 
@@ -1142,49 +1143,35 @@ fire before `commit_sink` runs, and there's no existing context
 plumbing into `Sink.open/5`. Instead, measure manually in
 `SourceSession` via `System.monotonic_time/1` checkpoints.
 
-- [ ] **Step 1: Write a test that verifies cost_us flows through from opts into Sink**
+- [ ] **Step 1: Write a test that verifies `cost_us` threads from opts into the adapter's metadata**
 
-Create `test/image_pipe/cache/sink_test.exs`:
+Do not hand-build a bespoke stub adapter or a fake `%Resolved{}`/`%Key{}`.
+`Cache.open_sink/3` is the real public entry, `ImagePipe.Cache` is a
+host-implementable behaviour, and `test/image_pipe/cache_test.exs`
+already exercises `open_sink` through it with the `SinkMissAdapter`
+capture adapter and the `cache_key/0` + `resolved_output/0` helpers.
+Extend that file the same way — add a sibling to the existing
+"open_sink builds body-free metadata from resolved output" test:
 
 ```elixir
-defmodule ImagePipe.Cache.SinkTest do
-  use ExUnit.Case, async: true
+test "open_sink threads cost_us from opts into adapter metadata" do
+  Cache.open_sink(
+    cache_key(),
+    resolved_output(),
+    cache: {SinkMissAdapter, test_pid: self()},
+    cost_us: 42_000
+  )
 
-  alias ImagePipe.Cache.Sink
-
-  test "Sink.open accepts :cost_us in opts and threads it into metadata" do
-    # Verify the descriptor passed to a stub adapter's open_sink callback
-    # has metadata.cost_us matching the value in opts.
-    defmodule StubAdapter do
-      def open_sink(_key, metadata, _opts) do
-        send(self(), {:opened_with, metadata})
-        {:ok, %{}}
-      end
-    end
-
-    resolved = build_resolved_output()
-    key = build_key()
-    Sink.open(StubAdapter, key, resolved, [], cost_us: 42_000)
-
-    assert_received {:opened_with, %{cost_us: 42_000}}
-  end
-
-  defp build_resolved_output do
-    # Construct a minimal %ImagePipe.Output.Resolved{} suitable for the test.
-    # Exact construction depends on Resolved struct shape — adapt to current code.
-  end
-
-  defp build_key do
-    %ImagePipe.Cache.Key{
-      hash: String.duplicate("a", 64),
-      data: [],
-      serialized_data: <<>>
-    }
-  end
+  assert_received {:open_sink, %Key{}, %Entry.Metadata{cost_us: 42_000}, _adapter_opts}
 end
 ```
 
-- [ ] **Step 2: Run, confirm failure** (cost_us isn't extracted from opts yet)
+`cost_us` rides in the full `opts` list (the same list that carries
+`:cache`), not in the adapter's `cache_opts`. `Cache.open_sink/3` passes
+that list straight through to `Sink.open/5`, so the value is available
+where Step 3 reads it.
+
+- [ ] **Step 2: Run, confirm failure** (cost_us isn't extracted from opts yet, and `Entry.Metadata` has no `:cost_us` field until Task 10)
 
 - [ ] **Step 3: Modify `Sink.open/5` to read `:cost_us` from `opts`**
 
@@ -1243,15 +1230,32 @@ This captures fetch + transform + encode (up to first chunk), which for
 image encode is essentially the full encode cost since image encoders
 produce the encoded binary in memory then stream it out.
 
-- [ ] **Step 5: Run all tests, confirm pass**
+- [ ] **Step 5: Add a request-boundary check that the measured cost is non-zero**
 
-- [ ] **Step 5: Run all tests, confirm pass**
+The Step 1 test proves the value threads through; it does not prove
+`SourceSession` actually measures a positive elapsed time. Add a
+wire-level assertion in the imgproxy conformance suite (which already
+drives real `ImagePipe.call/2` cache-miss writes through
+`ImgproxyWireConformanceTest.CacheProbe`, whose `open_sink/3` sends
+`{:cache_open_sink, key, metadata}`). On a cache-miss request that
+encodes and commits, assert the captured metadata carries a positive
+cost:
+
+```elixir
+assert_received {:cache_open_sink, _key, %{cost_us: cost_us}}
+assert cost_us > 0
+```
+
+This is the real producer path: `SourceSession` checkpoint →
+`Cache.open_sink` opts → `Sink.open/5` → `Entry.Metadata`.
+
+- [ ] **Step 6: Run all tests, confirm pass**
 
 ```bash
 mise exec -- mix test
 ```
 
-- [ ] **Step 6: Commit**
+- [ ] **Step 7: Commit**
 
 ```bash
 git add lib/image_pipe/cache/sink.ex lib/image_pipe/request/...
@@ -1279,10 +1283,17 @@ defmodule ImagePipe.Cache.FileSystem.AdmissionTest do
   alias ImagePipe.Cache.FileSystem.Admission
 
   setup do
-    # Start the per-app Registry once per test
+    # Start the per-test Registry and a private tmp cache root. A single setup
+    # callback supplies both keys so every test gets a consistent context;
+    # there is no second tag-gated setup to race with.
     registry_name = :"#{__MODULE__}.Registry"
     start_supervised!({Registry, keys: :unique, name: registry_name})
-    %{registry: registry_name}
+
+    tmp_dir = Path.join(System.tmp_dir!(), "admission_test_#{System.unique_integer([:positive])}")
+    File.mkdir_p!(tmp_dir)
+    on_exit(fn -> File.rm_rf!(tmp_dir) end)
+
+    %{registry: registry_name, tmp_dir: tmp_dir}
   end
 
   test "start_link registers the process under {root, node_id}", %{registry: registry, tmp_dir: tmp_dir} do
@@ -1302,18 +1313,6 @@ defmodule ImagePipe.Cache.FileSystem.AdmissionTest do
     assert is_pid(pid)
 
     assert [{^pid, _}] = Registry.lookup(registry, {tmp_dir, "test-node"})
-  end
-
-  @tag :tmp_dir
-  setup tags do
-    if tags[:tmp_dir] do
-      tmp = Path.join(System.tmp_dir!(), "admission_test_#{System.unique_integer([:positive])}")
-      File.mkdir_p!(tmp)
-      on_exit(fn -> File.rm_rf!(tmp) end)
-      {:ok, tmp_dir: tmp}
-    else
-      :ok
-    end
   end
 end
 ```
@@ -1341,14 +1340,18 @@ defmodule ImagePipe.Cache.FileSystem.Admission do
       :window_budget,
       :sketch_depth,
       :sketch_width,
+      :aging_sample_size,
       :doorkeeper_cardinality,
       :doorkeeper_fpr,
+      :eviction_victim_limit,
       :local_cms,
       :boot_cms,
       :doorkeeper,     # %Talan.BloomFilter{}
       :flush_interval_ms,
       :cleanup_interval_ms,
+      :reconcile_interval_ms,
       :state_ttl_ms,
+      path_prefix: "",
       window: nil,
       probationary: nil,
       protected: nil,
@@ -1359,8 +1362,15 @@ defmodule ImagePipe.Cache.FileSystem.Admission do
       state_dirty: false,
       # populated by warm-start (Task 19), consumed by directory scan (Task 21):
       persisted_protected_hashes: [],
-      # set by handle_continue (Task 20):
-      scan_task: nil
+      # set by handle_continue (Task 20). `scan_task_ref` is the monitor
+      # ref so an abnormal scan crash is observed and waiters are released
+      # instead of blocking forever. `scan_complete?` flips when the scan
+      # task reports done; `scan_waiters` holds `GenServer.call` `from`
+      # tags queued by `await_scan/2` before completion.
+      scan_task: nil,
+      scan_task_ref: nil,
+      scan_complete?: false,
+      scan_waiters: []
     ]
   end
 
@@ -1390,6 +1400,9 @@ defmodule ImagePipe.Cache.FileSystem.Admission do
     window_ratio = Keyword.fetch!(opts, :window_ratio)
     sketch_depth = Keyword.fetch!(opts, :sketch_depth)
     sketch_width = Keyword.fetch!(opts, :sketch_width)
+    # Aging cadence is decoupled from width (Sketch.new/1 docs). Fall back to
+    # width * 10 only for direct-start unit tests that don't pass it.
+    aging_sample_size = Keyword.get(opts, :aging_sample_size, sketch_width * 10)
     doorkeeper_cardinality = Keyword.fetch!(opts, :doorkeeper_cardinality)
     doorkeeper_fpr = Keyword.fetch!(opts, :doorkeeper_fpr)
 
@@ -1398,17 +1411,25 @@ defmodule ImagePipe.Cache.FileSystem.Admission do
       root: Keyword.fetch!(opts, :root),
       node_id: Keyword.fetch!(opts, :node_id),
       state_dir: Keyword.fetch!(opts, :state_dir),
+      # path_prefix mirrors the adapter option so the directory scan (Task 20)
+      # walks the same partition root the adapter writes to. Defaults to "".
+      path_prefix: Keyword.get(opts, :path_prefix, ""),
       max_size_bytes: max_size,
       window_budget: trunc(max_size * window_ratio),
       sketch_depth: sketch_depth,
       sketch_width: sketch_width,
+      aging_sample_size: aging_sample_size,
       doorkeeper_cardinality: doorkeeper_cardinality,
       doorkeeper_fpr: doorkeeper_fpr,
-      local_cms: Sketch.new(depth: sketch_depth, width: sketch_width),
-      boot_cms: Sketch.new(depth: sketch_depth, width: sketch_width),
+      # Bounded eviction fan-out per admission (Task 25 config; default 64).
+      # Defaulted here so direct-start unit tests need not pass it.
+      eviction_victim_limit: Keyword.get(opts, :eviction_victim_limit, 64),
+      local_cms: Sketch.new(depth: sketch_depth, width: sketch_width, sample_size: aging_sample_size),
+      boot_cms: Sketch.new(depth: sketch_depth, width: sketch_width, sample_size: aging_sample_size),
       doorkeeper: Talan.BloomFilter.new(doorkeeper_cardinality, false_positive_probability: doorkeeper_fpr),
       flush_interval_ms: Keyword.get(opts, :flush_interval_ms, 30_000),
       cleanup_interval_ms: Keyword.get(opts, :cleanup_interval_ms, 3_600_000),
+      reconcile_interval_ms: Keyword.get(opts, :reconcile_interval_ms, 60_000),
       state_ttl_ms: Keyword.get(opts, :state_ttl_ms, 604_800_000),
       window: :ets.new(:window, [:ordered_set, :private]),
       probationary: :ets.new(:probationary, [:ordered_set, :private]),
@@ -1712,26 +1733,40 @@ git commit -m "Add Admission.admit/2 with window insertion and hard-reject path"
   end
 
   defp drain_window_overflow(state, victims) do
-    if state.window_bytes <= state.window_budget do
-      {{:admit, victims}, state}
-    else
-      # Pop window LRU
-      [{{pos, hash}, descriptor}] = :ets.lookup(state.window, :ets.first(state.window))
-      :ets.delete(state.window, {pos, hash})
-      state = %{state | window_bytes: state.window_bytes - descriptor.size_bytes}
+    cond do
+      state.window_bytes <= state.window_budget ->
+        {{:admit, victims}, state}
 
-      {gate_result, state} = run_main_gate(state, descriptor)
+      # Defensive: byte counter says we are over budget but the table is
+      # empty. This should not happen if accounting is consistent, but a
+      # blind `:ets.first/1` + `:ets.lookup/2` on an empty table would
+      # match `[]` against `[{...}]` and crash the GenServer. Stop draining.
+      :ets.first(state.window) == :"$end_of_table" ->
+        {{:admit, victims}, state}
 
-      case gate_result do
-        {:admit, more_victims} ->
-          drain_window_overflow(state, victims ++ more_victims)
+      true ->
+        # Pop window LRU
+        first_key = :ets.first(state.window)
+        [{{pos, hash}, descriptor}] = :ets.lookup(state.window, first_key)
+        :ets.delete(state.window, {pos, hash})
+        state = %{state | window_bytes: state.window_bytes - descriptor.size_bytes}
 
-        {:reject, _} ->
-          # Window evictee lost main gate; its files must be deleted
-          # (body and meta).
-          evictee_victim = full_eviction_victim(descriptor)
-          drain_window_overflow(state, victims ++ [evictee_victim])
-      end
+        {gate_result, state} = run_main_gate(state, descriptor)
+
+        drain_after_gate(state, descriptor, gate_result, victims)
+    end
+  end
+
+  defp drain_after_gate(state, descriptor, gate_result, victims) do
+    case gate_result do
+      {:admit, more_victims} ->
+        drain_window_overflow(state, victims ++ more_victims)
+
+      {:reject, _} ->
+        # Window evictee lost main gate; its files must be deleted
+        # (body and meta).
+        evictee_victim = full_eviction_victim(descriptor)
+        drain_window_overflow(state, victims ++ [evictee_victim])
     end
   end
 
@@ -1746,7 +1781,14 @@ git commit -m "Add Admission.admit/2 with window insertion and hard-reject path"
   end
 
   defp run_main_gate(state, descriptor) do
-    available = state.max_size_bytes - state.window_budget - state.probationary_bytes - state.protected_bytes
+    # Clamp to 0: in-flight commit overshoot or restart reconciliation can
+    # transiently push (probationary + protected) above the main budget, in
+    # which case the raw subtraction goes negative. A negative `available`
+    # must not be treated as "room" by the `>=` comparison below, and it must
+    # not let a zero-byte descriptor slip through the free-space branch and
+    # skip scoring.
+    available =
+      max(0, state.max_size_bytes - state.window_budget - state.probationary_bytes - state.protected_bytes)
 
     if available >= descriptor.size_bytes do
       insert_into_probationary(state, descriptor)
@@ -1935,9 +1977,10 @@ git commit -m "Add Admission window overflow and main gate logic"
   end
 ```
 
-And update the hard-reject case in `handle_call({:admit, ...})` to check same-key replace BEFORE size:
+And update the hard-reject case in `handle_call({:admit, ...})` to check same-key replace BEFORE size (this edits the existing clause from Task 14 — keep its `@impl true`):
 
 ```elixir
+  @impl true
   def handle_call({:admit, descriptor}, _from, state) do
     state = sighting(state, descriptor.key_hash)
 
@@ -1953,6 +1996,17 @@ And update the hard-reject case in `handle_call({:admit, ...})` to check same-ke
 ```
 
 (The same-key path is reached via `do_admit/2` already — see `already_tracked?/2` check there.)
+
+**Same-key growth and the soft cap.** `same_key_replace/2` deliberately
+swaps the new body in place *without* re-running the main gate, so a
+larger replacement grows `probationary_bytes`/`protected_bytes` and can
+push total usage over `max_size_bytes`. This is intentional: the soft cap
+tolerates transient overshoot. The overshoot is reclaimed by the periodic
+`:reconcile` tick (Task 18), which calls `reconcile_to_cap/2` to evict by
+LRU until usage is back under cap. Do **not** add a synchronous eviction
+gate to `same_key_replace/2` — that would make every cache refresh pay a
+victim-walk and reintroduce the score-comparison subtleties the in-place
+swap avoids.
 
 - [ ] **Step 4: Run, confirm pass**
 
@@ -1987,12 +2041,16 @@ Implement: hit on probationary → protected MRU; hit on protected → protected
     # Force window→main by overflowing window
     Admission.admit(pid, %{key_hash: "filler", size_bytes: 1_000, body_sha256: "f", cost_us: 1_000})
 
-    # Establish doorkeeper presence
-    Admission.hit(pid, "k")
-    :sys.get_state(pid)
+    # hit/2 takes a full descriptor (Task 13); on a tracked key the
+    # promote path uses the located descriptor and ignores these fields.
+    # Promotion probationary → protected is not frequency-gated, so the
+    # first hit already moves "k"; the second hit exercises the
+    # protected → protected MRU path. `_ = :sys.get_state(pid)` between
+    # casts ensures the first cast is processed before the second.
+    Admission.hit(pid, descriptor)
+    _ = :sys.get_state(pid)
 
-    # Second hit should promote
-    Admission.hit(pid, "k")
+    Admission.hit(pid, descriptor)
     state = :sys.get_state(pid)
 
     assert in_queue?(state.protected, "k")
@@ -2002,15 +2060,16 @@ Implement: hit on probationary → protected MRU; hit on protected → protected
 
 - [ ] **Step 2: Run, confirm failure**
 
-- [ ] **Step 3: Implement hit promotion in `handle_cast({:hit, key_hash}, state)`**
+- [ ] **Step 3: Implement `promote_on_hit/2` (the hit cast itself is already wired in Task 13)**
+
+`handle_cast({:hit, descriptor}, state)` was added in Task 13 and already
+calls `on_hit_promote_or_synthesize/2`, which dispatches to
+`promote_on_hit/2` for keys it can locate. This task only adds the
+promotion/demotion helpers — do **not** redefine the cast (a second
+`handle_cast({:hit, ...})` clause would shadow Task 13's synthesis path
+for cold-boot hits).
 
 ```elixir
-  def handle_cast({:hit, key_hash}, state) do
-    state = sighting(state, key_hash)
-    state = promote_on_hit(state, key_hash)
-    {:noreply, %{state | state_dirty: true}}
-  end
-
   defp promote_on_hit(state, key_hash) do
     case locate(state, key_hash) do
       nil -> state
@@ -2155,6 +2214,7 @@ This task adds:
   def handle_continue(:schedule_tickers, state) do
     Process.send_after(self(), :flush, state.flush_interval_ms)
     Process.send_after(self(), :cleanup, state.cleanup_interval_ms)
+    Process.send_after(self(), :reconcile, state.reconcile_interval_ms)
     {:noreply, state}
   end
 
@@ -2168,6 +2228,18 @@ This task adds:
   def handle_info(:cleanup, state) do
     state = cleanup_stale_peer_files(state)
     Process.send_after(self(), :cleanup, state.cleanup_interval_ms)
+    {:noreply, state}
+  end
+
+  def handle_info(:reconcile, state) do
+    # Drain soft-cap overshoot accumulated since the last tick. The main
+    # source of overshoot that the synchronous admit path cannot reclaim
+    # is `same_key_replace/2` (Task 16): it swaps a larger body in place
+    # without re-running the main gate. `reconcile_to_cap/2` evicts by LRU
+    # until total usage is back under `max_size_bytes` and deletes the
+    # evicted files (via `emit_reconciliation_evictions/2`).
+    state = reconcile_to_cap(state, [])
+    Process.send_after(self(), :reconcile, state.reconcile_interval_ms)
     {:noreply, state}
   end
 
@@ -2215,7 +2287,11 @@ This task adds:
       else
         {:error, reason} ->
           require Logger
-          Logger.warning("cache: flush failed: path=#{inspect(path)} reason=#{inspect(reason)}")
+          # Do NOT log `path` — the state filename embeds the node_id and
+          # the storage root, both path-derived identifiers the project
+          # telemetry/privacy guidelines exclude. Reason is enough to
+          # diagnose (eenospc, eacces, etc.).
+          Logger.warning("cache: state flush failed: reason=#{inspect(reason)}")
           # Best-effort cleanup of orphaned tmp file
           _ = File.rm(tmp_path)
           # Keep state_dirty: true so the next flush tick retries
@@ -2440,13 +2516,15 @@ git commit -m "Add Admission aging trigger, flush ticker, and cleanup ticker"
          {:ok, peer_sketch} <-
            Sketch.deserialize(payload.sketch,
              depth: state.sketch_depth,
-             width: state.sketch_width
+             width: state.sketch_width,
+             sample_size: state.aging_sample_size
            ) do
       %{state | boot_cms: Sketch.sum(state.boot_cms, peer_sketch)}
     else
       {:error, reason} ->
         require Logger
-        Logger.warning("cache: peer state merge failed: path=#{inspect(path)} reason=#{inspect(reason)}")
+        # Path omitted (embeds peer node_id + storage root). Reason only.
+        Logger.warning("cache: peer state merge failed: reason=#{inspect(reason)}")
         state
     end
   end
@@ -2484,7 +2562,12 @@ git commit -m "Add Admission aging trigger, flush ticker, and cleanup ticker"
   defp validate_state_payload(_other), do: {:error, :invalid_shape}
 
   defp apply_own_state(state, payload) do
-    {:ok, sketch} = Sketch.deserialize(payload.sketch, depth: state.sketch_depth, width: state.sketch_width)
+    {:ok, sketch} =
+      Sketch.deserialize(payload.sketch,
+        depth: state.sketch_depth,
+        width: state.sketch_width,
+        sample_size: state.aging_sample_size
+      )
     persisted_protected = Map.get(payload, :protected_hashes, [])
 
     %{
@@ -2515,6 +2598,7 @@ git commit -m "Add Admission warm-start from own state and peer state files"
 
 **Files:**
 - Modify: `lib/image_pipe/cache/file_system/admission.ex`
+- Modify: `lib/image_pipe/cache/file_system.ex` (add `read_descriptor/1`)
 - Modify: `test/image_pipe/cache/file_system/admission_test.exs`
 
 - [ ] **Step 1: Write failing tests**
@@ -2546,21 +2630,112 @@ git commit -m "Add Admission warm-start from own state and peer state files"
 
 - [ ] **Step 2: Run, confirm failure**
 
-- [ ] **Step 3: Implement scan task with batch apply**
+- [ ] **Step 3: Add `read_descriptor/1` to the FileSystem adapter**
+
+The scan reads meta files off disk and synthesizes admit-time
+descriptors. Meta-payload parsing is adapter-owned (it already lives in
+`decode_metadata/1` + `validate_metadata/1`), so the descriptor reader
+belongs in `file_system.ex`, not in Admission. Admission calls it
+qualified (both modules are in the `cache` boundary). It reuses the
+existing private meta readers and adds an mtime stat; `key_hash` comes
+from the meta filename stem (the canonical name written by
+`paths_from_hash/2`):
+
+```elixir
+  # In lib/image_pipe/cache/file_system.ex
+  @doc false
+  @spec read_descriptor(Path.t()) ::
+          {:ok, %{key_hash: binary(), size_bytes: non_neg_integer(),
+                  body_sha256: binary(), cost_us: non_neg_integer()}, integer()}
+          | {:error, term()}
+  def read_descriptor(meta_path) do
+    with {:ok, meta_binary} <- read_cache_file(meta_path, :metadata),
+         {:ok, metadata} <- decode_metadata(meta_binary),
+         {:ok, %File.Stat{mtime: mtime}} <- File.stat(meta_path, time: :posix) do
+      {:ok,
+       %{
+         key_hash: Path.basename(meta_path, ".meta"),
+         size_bytes: metadata.body_byte_size,
+         body_sha256: metadata.body_sha256,
+         # Pre-Task-10 meta files have no cost_us; default 0 (cold path).
+         cost_us: Map.get(metadata, :cost_us, 0)
+       }, mtime}
+    else
+      :miss -> {:error, :enoent}
+      {:error, _} = error -> error
+    end
+  end
+```
+
+`read_cache_file/2` returns `:miss` for `:enoent`; normalize that to an
+`{:error, _}` so callers (`scan_directory`, `build_descriptor_map`) keep
+their two-clause `{:ok, _, _}` / `{:error, _}` match.
+
+- [ ] **Step 4: Implement scan task with batch apply**
 
 ```elixir
   @impl true
   def handle_continue(:schedule_tickers, state) do
-    # Capture the Admission pid BEFORE spawning the Task. Inside the
-    # task, `self()` is the task's pid — calls would go to the wrong
-    # process.
+    # Capture the Admission pid BEFORE spawning. Inside the spawned
+    # process, `self()` is the scan's pid — calls would go to the wrong
+    # process. `spawn_monitor` gives us an UNLINKED, MONITORED worker: a
+    # scan crash does not take Admission down (unlinked), but it delivers
+    # a `:DOWN` so we can release `await_scan` waiters instead of hanging
+    # (monitored). No Task.Supervisor is used because its name would have
+    # to be unique per configured cache root; `spawn_monitor` sidesteps
+    # that and the scan is short-lived.
     admission_pid = self()
-    {:ok, scan_task} = Task.start(fn -> scan_directory(state, admission_pid) end)
-    state = %{state | scan_task: scan_task}
+    {scan_pid, scan_ref} = spawn_monitor(fn -> scan_directory(state, admission_pid) end)
+    state = %{state | scan_task: scan_pid, scan_task_ref: scan_ref}
 
     Process.send_after(self(), :flush, state.flush_interval_ms)
     Process.send_after(self(), :cleanup, state.cleanup_interval_ms)
+    Process.send_after(self(), :reconcile, state.reconcile_interval_ms)
     {:noreply, state}
+  end
+
+  @doc """
+  Block until the background directory scan has reported completion.
+  Test/diagnostic helper — production callers never need to wait. Returns
+  `:ok` once the scan finishes (or has already finished); the call times
+  out normally if the scan exceeds `timeout`.
+  """
+  @spec await_scan(GenServer.server(), timeout()) :: :ok
+  def await_scan(server, timeout \\ 5_000) do
+    GenServer.call(server, :await_scan, timeout)
+  end
+
+  @impl true
+  def handle_call(:await_scan, from, state) do
+    if state.scan_complete? do
+      {:reply, :ok, state}
+    else
+      {:noreply, %{state | scan_waiters: [from | state.scan_waiters]}}
+    end
+  end
+
+  @impl true
+  def handle_call(:scan_complete, _from, state) do
+    Enum.each(state.scan_waiters, &GenServer.reply(&1, :ok))
+    {:reply, :ok, %{state | scan_complete?: true, scan_waiters: []}}
+  end
+
+  # The monitored scan process finished. We only act on the failure case:
+  # if it died abnormally before sending `:scan_complete`, mark the scan
+  # complete anyway and release waiters so `await_scan/2` callers don't
+  # block until timeout. A normal exit after `:scan_complete` is a no-op
+  # (flag already set). `spawn_monitor` sends no result message, only this
+  # `:DOWN`, so there is nothing else to drain.
+  @impl true
+  def handle_info({:DOWN, ref, :process, _pid, reason}, %{scan_task_ref: ref} = state) do
+    if reason != :normal and not state.scan_complete? do
+      require Logger
+      Logger.warning("cache: directory scan crashed before completion: reason=#{inspect(reason)}")
+      Enum.each(state.scan_waiters, &GenServer.reply(&1, :ok))
+      {:noreply, %{state | scan_complete?: true, scan_waiters: [], scan_task: nil, scan_task_ref: nil}}
+    else
+      {:noreply, %{state | scan_task: nil, scan_task_ref: nil}}
+    end
   end
 
   defp scan_directory(state, admission_pid) do
@@ -2568,17 +2743,23 @@ git commit -m "Add Admission warm-start from own state and peer state files"
     # `.cache_state` (where state files live) and any non-meta files.
     entry_root = Path.join(state.root, state.path_prefix)
 
-    descriptors =
+    # Scan batches carry "entry" maps: the descriptor with `:mtime`
+    # merged in. This is the SAME shape Task 21's two-pass scan produces
+    # (`build_descriptor_map/1`), so `apply_scan_batch` stays uniform
+    # across both tasks — do not switch to `{descriptor, mtime}` tuples.
+    entries =
       walk_meta_files(entry_root)
-      |> Enum.map(fn meta_path ->
-        case read_descriptor(meta_path) do
-          {:ok, descriptor, mtime} -> {descriptor, mtime}
-          {:error, _} -> nil
+      |> Enum.flat_map(fn meta_path ->
+        # `read_descriptor/1` is owned by the adapter — it parses the meta
+        # payload format and stats the file. Admission only knows the
+        # descriptor shape, not the on-disk meta encoding.
+        case ImagePipe.Cache.FileSystem.read_descriptor(meta_path) do
+          {:ok, descriptor, mtime} -> [Map.put(descriptor, :mtime, mtime)]
+          {:error, _} -> []
         end
       end)
-      |> Enum.reject(&is_nil/1)
 
-    Enum.chunk_every(descriptors, 100)
+    Enum.chunk_every(entries, 100)
     |> Enum.each(fn chunk ->
       GenServer.call(admission_pid, {:apply_scan_batch, chunk})
     end)
@@ -2609,23 +2790,28 @@ git commit -m "Add Admission warm-start from own state and peer state files"
     end
   end
 
+  @impl true
   def handle_call({:apply_scan_batch, batch}, _from, state) do
     state =
-      Enum.reduce(batch, state, fn {descriptor, mtime}, acc ->
-        if already_tracked?(acc, descriptor.key_hash) do
+      Enum.reduce(batch, state, fn entry, acc ->
+        if already_tracked?(acc, entry.key_hash) do
           # Runtime traffic (hit synthesis, admit) has populated this
           # key already. Its descriptor is fresher than what scan read
           # from disk; skip.
           acc
         else
-          insert_scan_descriptor(acc, descriptor, mtime)
+          insert_scan_descriptor(acc, entry)
         end
       end)
 
     {:reply, :ok, state}
   end
 
-  defp insert_scan_descriptor(state, descriptor, _mtime) do
+  # `entry` is a descriptor map with a `:mtime` field merged in. The
+  # mtime drove the scan's insertion order (Task 21 Phase B sorts by it);
+  # it is not stored in the queue, so we drop it before inserting.
+  defp insert_scan_descriptor(state, entry) do
+    descriptor = Map.delete(entry, :mtime)
     {pos, state} = next_position(state)
     :ets.insert(state.probationary, {{pos, descriptor.key_hash}, descriptor})
     Map.update!(state, :probationary_bytes, &(&1 + descriptor.size_bytes))
@@ -2636,12 +2822,12 @@ Note: `state.path_prefix` must be added to the `State` defstruct (default
 empty string) and populated from adapter opts in `init/1`. Two-pass
 protected restoration is added in the next task.
 
-- [ ] **Step 4: Run, confirm pass**
+- [ ] **Step 5: Run, confirm pass**
 
-- [ ] **Step 5: Commit**
+- [ ] **Step 6: Commit**
 
 ```bash
-git add lib/image_pipe/cache/file_system/admission.ex test/image_pipe/cache/file_system/admission_test.exs
+git add lib/image_pipe/cache/file_system/admission.ex lib/image_pipe/cache/file_system.ex test/image_pipe/cache/file_system/admission_test.exs
 git commit -m "Add background scan with conflict-resolution insert pass"
 ```
 
@@ -2702,7 +2888,7 @@ git commit -m "Add background scan with conflict-resolution insert pass"
   defp build_descriptor_map(entry_root) do
     walk_meta_files(entry_root)
     |> Enum.flat_map(fn meta_path ->
-      case read_descriptor(meta_path) do
+      case ImagePipe.Cache.FileSystem.read_descriptor(meta_path) do
         {:ok, descriptor, mtime} ->
           [{descriptor.key_hash, Map.put(descriptor, :mtime, mtime)}]
 
@@ -2713,14 +2899,18 @@ git commit -m "Add background scan with conflict-resolution insert pass"
     |> Map.new()
   end
 
+  @impl true
   def handle_call({:apply_protected_batch, hashes, descriptor_map}, _from, state) do
     state =
       Enum.reduce(hashes, state, fn hash, acc ->
         case Map.fetch(descriptor_map, hash) do
-          {:ok, descriptor} ->
+          {:ok, entry} ->
             if already_tracked?(acc, hash) do
               acc
             else
+              # Drop the scan-only `:mtime` field so queued descriptors
+              # have the same shape regardless of which queue they land in.
+              descriptor = Map.delete(entry, :mtime)
               {pos, acc} = next_position(acc)
               :ets.insert(acc.protected, {{pos, hash}, descriptor})
               Map.update!(acc, :protected_bytes, &(&1 + descriptor.size_bytes))
@@ -2736,6 +2926,7 @@ git commit -m "Add background scan with conflict-resolution insert pass"
     {:reply, :ok, state}
   end
 
+  @impl true
   def handle_call(:reconcile_to_cap, _from, state) do
     {:reply, :ok, reconcile_to_cap(state, [])}
   end
@@ -2745,10 +2936,10 @@ git commit -m "Add background scan with conflict-resolution insert pass"
 
     cond do
       total <= state.max_size_bytes ->
-        # Notify adapter to delete files for any evicted descriptors.
-        # Emitted via a one-shot telemetry event or a callback the
-        # adapter registered at startup — to be wired up alongside
-        # adapter integration (Task 22+).
+        # Delete the evicted entries' files. Admission owns deletion here
+        # (no request process is in the loop for boot/periodic
+        # reconciliation), calling the adapter's `delete_victims/2`
+        # in-boundary. See `emit_reconciliation_evictions/2`.
         emit_reconciliation_evictions(state, evicted_descriptors)
         state
 
@@ -2795,16 +2986,36 @@ git commit -m "Add background scan with conflict-resolution insert pass"
   end
 
   defp emit_reconciliation_evictions(_state, []), do: :ok
-  defp emit_reconciliation_evictions(_state, descriptors) do
-    # The adapter receives these via a `{:reconcile_evict, descriptors}`
-    # message after scan completes; it then runs the standard victim
-    # delete loop. See Task 22 child_spec for wiring.
+  defp emit_reconciliation_evictions(state, descriptors) do
+    # Reconciliation evictions are full evictions: both body and meta
+    # files must go. Admission deletes them directly through the adapter's
+    # path helper (both modules live in the `cache` boundary). This is the
+    # same inline-I/O posture as `maybe_flush/1`; reconciliation batches
+    # are small (bounded by recent overshoot), so blocking the GenServer
+    # briefly is acceptable.
+    victims = Enum.map(descriptors, &full_eviction_victim/1)
+    opts = [root: state.root, path_prefix: state.path_prefix]
+    ImagePipe.Cache.FileSystem.delete_victims(victims, opts)
     :ok
   end
 ```
 
 Persisted protected hashes are loaded in `init/1` (Task 19's
 `apply_own_state` already populates `state.persisted_protected_hashes`).
+
+**Why `reconcile_to_cap/2` is also reachable outside boot.** The
+synchronous admit path bounds overshoot at admission time, but
+`same_key_replace/2` (Task 16) swaps a larger body in place **without**
+re-running the main gate — a stream of growing same-key re-commits can
+push `probationary_bytes + protected_bytes` past the main budget and
+never reclaim on its own. A periodic `:reconcile` tick (wired in Task 18
+alongside `:flush`/`:cleanup`) calls `reconcile_to_cap/2` to drain that
+overshoot by LRU and delete the evicted files. This keeps the soft cap a
+*time-bounded* guarantee for same-key growth, consistent with the
+in-flight-overshoot model for fresh admissions.
+
+`delete_victims/2` must therefore be a module-public (`@doc false`)
+function on the adapter rather than a private helper — see Task 23.
 
 - [ ] **Step 4: Run, confirm pass**
 
@@ -2888,16 +3099,17 @@ extract a small helper.
 - [ ] **Step 1: Write failing test**
 
 ```elixir
-  test "paths_from_hash/2 returns the same shape as paths/2 for a given hash", %{tmp_dir: tmp_dir} do
+  test "paths_from_hash/2 builds the partitioned paths for a given hash", %{tmp_dir: tmp_dir} do
     hash = String.duplicate("a", 64)
     opts = [root: tmp_dir, path_prefix: ""]
 
-    {:ok, from_key} = FileSystem.paths(%ImagePipe.Cache.Key{hash: hash, data: [], serialized_data: <<>>}, opts)
-    {:ok, from_hash} = FileSystem.paths_from_hash(hash, opts)
+    {:ok, paths} = FileSystem.paths_from_hash(hash, opts)
 
-    assert from_hash.dir == from_key.dir
-    assert from_hash.meta_path == from_key.meta_path
-    assert from_hash.hash == from_key.hash
+    # First two hex pairs partition the tree (see do_partitions/1).
+    assert paths.dir == Path.join([tmp_dir, "aa", "aa"])
+    assert paths.meta_path == Path.join([tmp_dir, "aa", "aa", hash <> ".meta"])
+    assert paths.hash == hash
+    assert paths.root == tmp_dir
   end
 
   test "paths_from_hash/2 validates hash format" do
@@ -2966,48 +3178,112 @@ A full end-to-end test: configure adapter with `:max_size_bytes`, start supervis
 
 - [ ] **Step 3: Implement bounded-mode commit_sink**
 
-In `commit_sink/2` add the admission call before rename:
+Rename the existing unbounded body to `legacy_commit/1` and dispatch on
+mode. **Accounting must follow the rename, not precede it.** `admit/1`
+mutates Admission's in-memory queues (it evicts the chosen victims and
+inserts the candidate) the moment it returns `{:admit, victims}`. If we
+called `admit` first and the rename then failed, Admission would track a
+phantom entry that never landed on disk *and* the victim files would be
+orphaned (evicted from the queues but never deleted, because the
+short-circuited error path skips `delete_victims`). Renaming first also
+gives us the computed `body_sha256` (produced inside
+`prepare_sink_commit/1`) that the descriptor needs.
 
 ```elixir
-  def commit_sink(state, opts) do
-    case admit_if_bounded(state, opts) do
+  @impl true
+  def commit_sink(state, opts) when is_map(state) do
+    case lookup_admission(opts) do
       :unbounded ->
         legacy_commit(state)
 
-      {:admit, victims} ->
-        with :ok <- legacy_commit(state) do
-          delete_victims(victims, opts)
-          :ok
-        end
+      {:ok, pid} ->
+        commit_bounded(state, pid, opts)
 
-      {:reject, _reason} ->
-        cleanup_sink_state(state)
-        :ok
-
-      :admission_unavailable ->
-        # Bounded mode but Admission process is missing. We cannot
-        # enforce the bounded contract, so we MUST NOT write an
-        # untracked entry. Clean tmp files and return :ok (cache-
-        # disabled for this request).
+      :unavailable ->
+        # Bounded mode but the Admission process is missing. We cannot
+        # account for a write, so we MUST NOT leave an untracked entry on
+        # disk (it would silently grow the cache past cap). Nothing has
+        # been renamed yet, so clean the temp files and fail open.
+        require Logger
+        Logger.warning("Admission process unavailable in bounded mode; skipping write")
         cleanup_sink_state(state)
         :ok
     end
   end
 
-  defp admit_if_bounded(state, opts) do
-    case lookup_admission(opts) do
-      {:ok, pid} ->
-        descriptor = build_descriptor(state)
-        ImagePipe.Cache.FileSystem.Admission.admit(pid, descriptor)
-
-      :unbounded ->
-        :unbounded
-
-      :unavailable ->
-        require Logger
-        Logger.warning("Admission process unavailable in bounded mode; skipping write")
-        :admission_unavailable
+  # The existing unbounded commit body, unchanged, extracted under a name.
+  defp legacy_commit(state) do
+    case prepare_sink_commit(state) do
+      {:ok, state, body_filename} -> commit_prepared_sink(state, body_filename)
+      {:error, reason, state} -> cleanup_sink_state(state); {:error, reason}
     end
+  end
+
+  defp commit_bounded(state, pid, opts) do
+    # Write to the final location FIRST, then account.
+    case prepare_sink_commit(state) do
+      {:ok, prepared, body_filename} ->
+        case commit_sink_files(prepared, body_filename) do
+          :ok ->
+            finish_admission(pid, build_descriptor(prepared, body_filename), opts)
+
+          {:error, reason} ->
+            # Rename failed: nothing durable to account for. Never call
+            # admit. Propagate the error exactly as unbounded mode would
+            # (the Sink layer fails open via cache-write telemetry).
+            cleanup_sink_state(prepared)
+            {:error, reason}
+        end
+
+      {:error, reason, prepared} ->
+        cleanup_sink_state(prepared)
+        {:error, reason}
+    end
+  end
+
+  defp finish_admission(pid, descriptor, opts) do
+    case ImagePipe.Cache.FileSystem.Admission.admit(pid, descriptor) do
+      {:admit, victims} ->
+        delete_victims(victims, opts)
+        :ok
+
+      {:reject, _reason} ->
+        # Admission declined to keep the entry. It was never inserted into
+        # the queues (reject mutates nothing), so the only cleanup is the
+        # bytes we just wrote. Delete both body and meta so the on-disk
+        # state stays consistent with Admission's accounting. The body was
+        # already streamed to a temp file during write_chunk, so this
+        # costs only two extra renames vs. the unbounded path — the
+        # doorkeeper's "don't retain cold entries" property is preserved
+        # because the files are removed immediately.
+        delete_victims([reject_victim(descriptor)], opts)
+        :ok
+    end
+  end
+
+  # Build the same full-eviction victim shape `delete_victims/2` consumes
+  # for a descriptor whose write must be undone.
+  defp reject_victim(descriptor) do
+    %{
+      key_hash: descriptor.key_hash,
+      body_sha256: descriptor.body_sha256,
+      size_bytes: descriptor.size_bytes,
+      delete_body?: true,
+      delete_meta?: true
+    }
+  end
+
+  # `prepare_sink_commit/1` encodes `body_sha256` into `body_filename`
+  # (`"<hash>.<sha>.body"`); recover it rather than recomputing the digest.
+  defp build_descriptor(prepared, body_filename) do
+    {:ok, body_sha256} = body_sha256_from_filename(body_filename)
+
+    %{
+      key_hash: prepared.paths.hash,
+      size_bytes: prepared.size,
+      body_sha256: body_sha256,
+      cost_us: prepared.metadata.cost_us
+    }
   end
 
   defp lookup_admission(opts) do
@@ -3022,9 +3298,13 @@ In `commit_sink/2` add the admission call before rename:
     end
   end
 
-  defp delete_victims([], _opts), do: :ok
+  # Module-public (not private): the Admission process calls this directly
+  # during periodic/boot reconciliation. Both modules are in the `cache`
+  # boundary, so this is an in-boundary call, not a public API surface.
+  @doc false
+  def delete_victims([], _opts), do: :ok
 
-  defp delete_victims(victims, opts) do
+  def delete_victims(victims, opts) do
     Enum.each(victims, fn victim ->
       with {:ok, victim_paths} <- paths_from_hash(victim.key_hash, opts) do
         if victim.delete_body? do
@@ -3046,17 +3326,20 @@ In `commit_sink/2` add the admission call before rename:
       {:error, :enoent} -> :ok
       {:error, reason} ->
         require Logger
-        Logger.warning("cache: victim delete failed: path=#{inspect(path)} reason=#{inspect(reason)}")
+        # Path omitted: victim body/meta filenames embed the cache key
+        # hash (a cache-adapter internal). Log the reason only.
+        Logger.warning("cache: victim delete failed: reason=#{inspect(reason)}")
         :ok
     end
   end
 ```
 
 This task also depends on the new `paths_from_hash/2` helper (added in
-Task 22b). `build_descriptor/1` extracts `key_hash`, `size_bytes`,
-`body_sha256`, `cost_us` from the sink state.
+Task 22b). `build_descriptor/2` reads `key_hash`/`size_bytes`/`cost_us`
+from the prepared sink state and recovers `body_sha256` from the
+committed `body_filename`.
 
-**Note on `:admission_unavailable`:** This is the fail-CLOSED case per
+**Note on the `:unavailable` branch:** This is the fail-CLOSED case per
 spec — we never write entries the Admission process can't account for,
 because doing so silently grows the bounded cache past cap. The lazy
 lookup itself remains fail-open (no boot crash on missing process); the
@@ -3096,25 +3379,34 @@ git commit -m "Integrate Admission into FileSystem.commit_sink for bounded mode"
 
 - [ ] **Step 3: Implement hit cast with descriptor**
 
-In `get/2`, after a successful hit, build a descriptor from the meta
-data already read and cast it to Admission:
+`get/2` already computes `paths` and delegates to `read_entry/1`. Make
+`read_entry/1` surface the parsed meta map alongside the entry
+(`{:hit, entry, meta}`), then cast the hit descriptor from `get/2` and
+strip the meta back off so the public contract is unchanged:
 
 ```elixir
-  def get(key, opts) do
-    case do_get(key, opts) do
-      {:hit, entry, meta} ->
-        # do_get must surface the meta payload (it already reads the
-        # file); extract the fields needed for the hit descriptor.
-        maybe_cast_hit(opts, %{
-          key_hash: key.hash,
-          size_bytes: meta.body_byte_size,
-          body_sha256: meta.body_sha256,
-          cost_us: Map.get(meta, :cost_us, 0)
-        })
-        {:hit, entry}
+  @impl true
+  def get(%Key{} = key, opts) when is_list(opts) do
+    case paths(key, opts) do
+      {:ok, paths} ->
+        case read_entry(paths) do
+          {:hit, entry, meta} ->
+            # read_entry already parsed/validated the meta payload; reuse
+            # its fields rather than re-reading the file.
+            maybe_cast_hit(opts, %{
+              key_hash: key.hash,
+              size_bytes: meta.body_byte_size,
+              body_sha256: meta.body_sha256,
+              cost_us: Map.get(meta, :cost_us, 0)
+            })
+            {:hit, entry}
 
-      other ->
-        other
+          other ->
+            other
+        end
+
+      {:error, _reason} = error ->
+        error
     end
   end
 
@@ -3126,9 +3418,12 @@ data already read and cast it to Admission:
   end
 ```
 
-This requires `do_get/2` to surface the parsed meta map alongside the
-entry. Update its return to `{:hit, entry, meta}` (internal-only
-change; public `get/2` still returns `{:hit, entry}`).
+`read_entry/1` already binds the validated `metadata` map in its `with`
+chain; change its success return from `{:hit, %Entry{...}}` to
+`{:hit, %Entry{...}, metadata}`. This is an internal-only change
+(`read_entry/1` is private); the public `get/2` still returns
+`{:hit, entry}`. `:miss` and `{:error, _}` returns are untouched, so the
+`other -> other` arm forwards them as before.
 
 - [ ] **Step 4: Run, confirm pass**
 
@@ -3179,6 +3474,24 @@ git commit -m "Cast hit to Admission on FileSystem.get/2 success in bounded mode
     assert opts[:doorkeeper_cardinality] == 800_000
     assert opts[:doorkeeper_fpr] == 0.01
     assert opts[:eviction_victim_limit] == 64
+    # aging_sample_size = max(81_920, 10_000_000_000 ÷ 5_000) = 2_000_000.
+    # Independent of sketch_width's accuracy derivation.
+    assert opts[:aging_sample_size] == 2_000_000
+    assert opts[:reconcile_interval] == 60
+  end
+
+  test "aging_sample_size does not change when sketch_width is overridden" do
+    {:ok, opts} =
+      FileSystem.validate_options([
+        root: "/tmp",
+        max_size_bytes: 10_000_000_000,
+        node_id: "n1",
+        sketch_width: 16_384
+      ])
+
+    # Overriding width for accuracy must not move the aging cadence.
+    assert opts[:sketch_width] == 16_384
+    assert opts[:aging_sample_size] == 2_000_000
   end
 
   test "accepts custom :eviction_victim_limit" do
@@ -3209,22 +3522,34 @@ git commit -m "Cast hit to Admission on FileSystem.get/2 success in bounded mode
 - [ ] **Step 3: Extend `validate_options/1` with NimbleOptions schema**
 
 Add new bounded option keys to `@option_keys` and a new schema entry.
+`:max_size_bytes` is the opt-in switch: when absent, the adapter stays
+unbounded and **none** of the other bounded options (including
+`:node_id`) may be required — existing unbounded configs must keep
+validating. "Required" below means *required once `:max_size_bytes` is
+present*; enforce it in the cross-key post-check, not the per-key
+NimbleOptions schema.
+
 Bounded options to support:
 
-- `:max_size_bytes` (required positive integer)
-- `:node_id` (required binary)
+- `:max_size_bytes` (the opt-in switch; positive integer; absent ⇒ unbounded)
+- `:node_id` (required when bounded; binary)
 - `:window_ratio` (default 0.01, float in [0, 1])
 - `:sketch_depth` (default 4, positive integer)
 - `:sketch_width` (default `max(4096, max_size_bytes ÷ 25_000)`, positive integer)
+- `:aging_sample_size` (default `max(81_920, max_size_bytes ÷ 5_000)`, positive integer) — CMS increments between aging passes. **Decoupled from `:sketch_width`**: width tunes counter accuracy, this tunes how fast frequencies decay. Derived from estimated item cardinality (`max_size_bytes ÷ 50_000` ≈ items) × 10, floor `81_920` ≈ 8192 items × 10.
 - `:doorkeeper_cardinality` (default `max(8192, max_size_bytes ÷ 12_500)`, positive integer)
 - `:doorkeeper_fpr` (default 0.01, float in (0, 1))
 - `:flush_interval` (default 30, positive integer, seconds)
 - `:cleanup_interval` (default 3600, positive integer, seconds)
+- `:reconcile_interval` (default 60, positive integer, seconds) — periodic over-cap reconciliation cadence; drains same-key-growth overshoot.
 - `:state_ttl` (default 604_800, positive integer, seconds)
 - `:state_dir` (default `<root>/.cache_state`, binary)
 - `:eviction_victim_limit` (default 64, positive integer)
 
 Implement derived defaults and cross-validation as a post-check function (NimbleOptions doesn't natively support cross-key validation, so do it after the per-key validation).
+
+The adapter passes `:aging_sample_size` to `Admission` as the `Sketch`
+`:sample_size`, and `:reconcile_interval` (×1000) as `:reconcile_interval_ms`.
 
 - [ ] **Step 4: Run, confirm pass**
 

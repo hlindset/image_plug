@@ -288,11 +288,24 @@ existing context plumbing to thread completed durations into
 `Sink.open/5`. The manual measurement in `SourceSession` is the
 implementation contract.
 
-When `cost_us` is 0 (e.g., `put_entry` calls without stage durations),
-`effective_cost` falls back to `size_bytes` so the score collapses to
-`freq` alone (size-neutral). This avoids the otherwise-pathological case
-where cost-unknown entries score 4–6 orders of magnitude below
-cost-known peers and become near-unadmittable.
+**Cost fallback is a cold path, not a steady-state mode.** Every entry
+that flows through ImagePipe's own request pipeline carries a real
+`cost_us`: `SourceSession` measures wall-clock time from source-fetch
+start to cache-sink commit and threads it into `Sink.open/5`. The only
+way `cost_us` reaches `Admission` as `0` is the `Cache.put`/`put_entry`
+facade — a host-app entry point that pre-supplies encoded bytes and has
+**no internal caller anywhere in `lib/`**. So in normal operation the
+fallback never fires; it exists only so that a host app populating the
+cache out-of-band doesn't make those entries near-unadmittable.
+
+When `cost_us` is 0, `effective_cost` falls back to `size_bytes` so the
+score collapses to `freq` alone (size-neutral). This avoids the
+otherwise-pathological case where cost-unknown entries score 4–6 orders
+of magnitude below cost-known peers. Because the two regimes do not
+normally mix within one cache, the fact that a size-neutral score and a
+cost-weighted score are not directly comparable is acceptable: a cache is
+effectively all-cost-known (pipeline traffic) or dominated by whatever
+the host app's `put_entry` policy produces.
 
 ### Admission flow
 
@@ -329,8 +342,13 @@ gate** (run for any entry that flows from window into main).
    - **Soft-cap exceedance allowed:** if the new descriptor's size
      pushes its queue over budget, do not evict the just-replaced
      entry to compensate (K is never its own victim). Allow the soft
-     cap to overshoot; the next admission call will rebalance through
-     normal eviction.
+     cap to overshoot. The in-place swap does **not** run the main gate,
+     so a stream of growing same-key re-commits would never reclaim on
+     its own; the periodic reconciliation tick (see *Soft cap and
+     reconciliation*) drains this overshoot by LRU eviction. A fresh
+     admission for a *different* key also rebalances opportunistically
+     through the normal main gate, but correctness does not depend on
+     one arriving — the reconciliation tick is the guarantee.
 4. **Normal admission:** insert `candidate` at window MRU. While the
    window is over `window_budget`, pop the window LRU as `E` and run the
    main gate with `E`. Any victims the main gate produces, plus any
@@ -445,6 +463,17 @@ decisions have completed but whose file renames and victim deletes have
 not yet run — not just the largest single one. For typical workloads
 this is a small handful of entries; telemetry captures the overshoot
 magnitude.
+
+**Periodic reconciliation tick.** Fresh admissions for new keys rebalance
+through the main gate, but two situations produce overshoot that no fresh
+admission is guaranteed to clear: (a) same-key re-commits that swap a
+larger body in place without running the main gate (see admission step 3),
+and (b) an idle cache that overshot just before traffic stopped. A
+periodic `:reconcile` tick (default 60s, alongside the flush and cleanup
+tickers) calls the same reconciliation routine used at boot: evict by LRU
+until total usage is back under `:max_size_bytes`, then delete the evicted
+files. This makes the soft cap a *time-bounded* guarantee rather than one
+that depends on future admission traffic arriving.
 
 Admission's accounting is updated speculatively when a candidate is
 admitted — bytes are counted as freed when victim descriptors are
@@ -721,6 +750,12 @@ a merged matrix in sync and would behave differently under collisions.
 - Run TTL cleanup every `:cleanup_interval` seconds (default 3600 = 1h).
   List `<state_dir>/*.state`, `File.rm/1` files with mtime older than
   `:state_ttl` (default 604_800 = 7 days). Skip own file. ENOENT-tolerant.
+- Run reconciliation every `:reconcile_interval` seconds (default 60).
+  Calls the same `reconcile_to_cap` routine used after boot scan: if
+  total tracked bytes exceed `:max_size_bytes`, evict by LRU until under
+  budget and delete the evicted files. This reclaims same-key-growth
+  overshoot that the synchronous admit path cannot (see *Soft cap and
+  reconciliation*).
 - Aging fires on increment count, not on a timer; no scheduled event.
 - On `terminate/2`, synchronously flush the state file (if dirty) to
   preserve any state since the last periodic flush. The supervisor's
@@ -729,8 +764,8 @@ a merged matrix in sync and would behave differently under collisions.
   state-since-last-flush window is lost — that's a degraded but
   tolerated failure mode.
 
-All periodic file operations (flush, cleanup, post-scan reconciliation)
-use **non-bang `File.*` functions** (`File.write/3`, `File.rename/2`,
+All periodic file operations (flush, cleanup, post-scan reconciliation,
+periodic reconciliation) use **non-bang `File.*` functions** (`File.write/3`, `File.rename/2`,
 `File.mkdir_p/1`). Errors are logged at warning and emitted via
 telemetry; they never crash `Admission`. This preserves fail-open
 semantics — a transient disk error doesn't take the cache down, it
@@ -771,11 +806,13 @@ behavior.
 |---|---|---|
 | `:window_ratio` | `0.01` | Window as fraction of `:max_size_bytes`. `0` disables the window (escape hatch for operators with measured-steady workloads who want the 1% capacity back). Default-on because for an unknown workload, the window's bounded worst case beats windowless's unbounded recompute-storm worst case under bursts. |
 | `:sketch_depth` | `4` | CMS hash rows |
-| `:sketch_width` | `max(4096, :max_size_bytes ÷ 25_000)` | CMS counters per row. Derived default assumes ~50 KB average entry; override if your workload differs significantly. |
+| `:sketch_width` | `max(4096, :max_size_bytes ÷ 25_000)` | CMS counters per row. Derived default assumes ~50 KB average entry; override if your workload differs significantly. Tunes counter **accuracy** only. |
+| `:aging_sample_size` | `max(81_920, :max_size_bytes ÷ 5_000)` | CMS increments between aging (frequency-decay) passes. **Decoupled from `:sketch_width`** — width tunes accuracy, this tunes decay speed. Derived from estimated item cardinality (`÷ 50_000`) × 10. |
 | `:doorkeeper_cardinality` | `max(8192, :max_size_bytes ÷ 12_500)` | Expected distinct-key cardinality for the doorkeeper. Same ~50 KB-avg-entry assumption. |
 | `:doorkeeper_fpr` | `0.01` | Doorkeeper target false-positive probability. |
 | `:flush_interval` | `30` | Seconds. State file write cadence |
 | `:cleanup_interval` | `3600` | Seconds. Peer state file cleanup cadence |
+| `:reconcile_interval` | `60` | Seconds. Periodic over-cap reconciliation cadence (drains same-key-growth overshoot) |
 | `:state_ttl` | `604_800` | Seconds (7 days). Peer files older than this are ignored at warm-start and deleted by cleanup |
 | `:state_dir` | `<root>/.cache_state` | Where state files live |
 | `:eviction_victim_limit` | `64` | Max victims selected per admission. Candidates whose admission would require more victims than this are rejected with `:victim_limit_exceeded`. Bounds eviction work per commit. |
