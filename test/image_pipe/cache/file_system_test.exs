@@ -542,6 +542,53 @@ defmodule ImagePipe.Cache.FileSystemTest do
     end
   end
 
+  describe "bounded mode config validation" do
+    test "rejects max_size_bytes: 0" do
+      assert {:error, _} = FileSystem.validate_options([root: "/tmp", max_size_bytes: 0])
+    end
+
+    test "rejects negative max_size_bytes" do
+      assert {:error, _} = FileSystem.validate_options([root: "/tmp", max_size_bytes: -1])
+    end
+
+    test "rejects bounded options without max_size_bytes" do
+      assert {:error, _} = FileSystem.validate_options([root: "/tmp", window_ratio: 0.5])
+    end
+
+    test "accepts a complete bounded config" do
+      assert {:ok, _opts} =
+               FileSystem.validate_options([root: "/tmp", max_size_bytes: 100_000_000, node_id: "n1"])
+    end
+
+    test "derives sketch_width and doorkeeper_cardinality from max_size_bytes" do
+      {:ok, opts} = FileSystem.validate_options([root: "/tmp", max_size_bytes: 10_000_000_000, node_id: "n1"])
+      assert opts[:sketch_width] == 400_000
+      assert opts[:doorkeeper_cardinality] == 800_000
+      assert opts[:doorkeeper_fpr] == 0.01
+      assert opts[:eviction_victim_limit] == 64
+      assert opts[:aging_sample_size] == 2_000_000
+      assert opts[:reconcile_interval] == 60
+    end
+
+    test "aging_sample_size does not change when sketch_width is overridden" do
+      {:ok, opts} =
+        FileSystem.validate_options([root: "/tmp", max_size_bytes: 10_000_000_000, node_id: "n1", sketch_width: 16_384])
+      assert opts[:sketch_width] == 16_384
+      assert opts[:aging_sample_size] == 2_000_000
+    end
+
+    test "accepts custom :eviction_victim_limit" do
+      {:ok, opts} =
+        FileSystem.validate_options([root: "/tmp", max_size_bytes: 100_000_000, node_id: "n1", eviction_victim_limit: 32])
+      assert opts[:eviction_victim_limit] == 32
+    end
+
+    test "rejects non-positive :eviction_victim_limit" do
+      assert {:error, _} =
+               FileSystem.validate_options([root: "/tmp", max_size_bytes: 100_000_000, node_id: "n1", eviction_victim_limit: 0])
+    end
+  end
+
   test "concurrent puts for the same key leave a readable entry", %{root: root} do
     cache_key = key("dddddd" <> String.duplicate("e", 58))
 

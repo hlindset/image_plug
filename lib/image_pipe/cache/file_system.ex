@@ -13,10 +13,8 @@ defmodule ImagePipe.Cache.FileSystem do
   @cache_key_hash_pattern ~r/\A[0-9A-Fa-f]{64}\z/
   @body_sha256_pattern ~r/\A[0-9a-f]{64}\z/
   @option_keys [:root, :path_prefix]
-  # Bounded-mode options accepted (but not yet schema-validated/derived; that
-  # is Task 25). Listed here so open_sink/commit_sink/get tolerate a bounded
-  # opts list passed through to paths_from_hash/2 without tripping the unknown
-  # option check.
+  # Bounded-mode options: exhaustive list of all bounded-mode keys so that
+  # validate_unknown_options/1 accepts them. Kept in sync with @options_schema.
   @bounded_option_keys [
     :max_size_bytes,
     :node_id,
@@ -28,7 +26,10 @@ defmodule ImagePipe.Cache.FileSystem do
     :doorkeeper_fpr,
     :eviction_victim_limit,
     :aging_sample_size,
-    :reconcile_interval
+    :reconcile_interval,
+    :flush_interval,
+    :cleanup_interval,
+    :state_ttl
   ]
   @options_schema NimbleOptions.new!(
                     root: [
@@ -38,6 +39,51 @@ defmodule ImagePipe.Cache.FileSystem do
                     path_prefix: [
                       default: "",
                       type: {:custom, __MODULE__, :validate_path_prefix, []}
+                    ],
+                    # Bounded-mode options — all optional at the per-key level;
+                    # cross-key requirements and derivation are enforced in
+                    # derive_bounded_options/1 after per-key validation.
+                    max_size_bytes: [
+                      type: :pos_integer
+                    ],
+                    node_id: [
+                      type: :string
+                    ],
+                    state_dir: [
+                      type: :string
+                    ],
+                    window_ratio: [
+                      type: :float
+                    ],
+                    sketch_depth: [
+                      type: :pos_integer
+                    ],
+                    sketch_width: [
+                      type: :pos_integer
+                    ],
+                    aging_sample_size: [
+                      type: :pos_integer
+                    ],
+                    doorkeeper_cardinality: [
+                      type: :pos_integer
+                    ],
+                    doorkeeper_fpr: [
+                      type: :float
+                    ],
+                    eviction_victim_limit: [
+                      type: :pos_integer
+                    ],
+                    flush_interval: [
+                      type: :pos_integer
+                    ],
+                    cleanup_interval: [
+                      type: :pos_integer
+                    ],
+                    reconcile_interval: [
+                      type: :pos_integer
+                    ],
+                    state_ttl: [
+                      type: :pos_integer
                     ]
                   )
 
@@ -45,10 +91,12 @@ defmodule ImagePipe.Cache.FileSystem do
   def child_spec(opts) do
     if Keyword.has_key?(opts, :max_size_bytes) do
       registry_name = registry_name()
+      derived = derive_bounded_options(opts)
+      admission_opts = translate_to_admission_opts(derived, registry_name)
 
       children = [
         {Registry, keys: :unique, name: registry_name},
-        {Admission, Keyword.put(opts, :registry, registry_name)}
+        {Admission, admission_opts}
       ]
 
       %{
@@ -59,6 +107,21 @@ defmodule ImagePipe.Cache.FileSystem do
     else
       :ignore
     end
+  end
+
+  # Translate validated+derived seconds-based opts into the millisecond keys
+  # that Admission.init/1 reads, and inject the registry name.
+  defp translate_to_admission_opts(opts, registry_name) do
+    opts
+    |> Keyword.put(:registry, registry_name)
+    |> Keyword.put(:flush_interval_ms, Keyword.fetch!(opts, :flush_interval) * 1000)
+    |> Keyword.put(:cleanup_interval_ms, Keyword.fetch!(opts, :cleanup_interval) * 1000)
+    |> Keyword.put(:reconcile_interval_ms, Keyword.fetch!(opts, :reconcile_interval) * 1000)
+    |> Keyword.put(:state_ttl_ms, Keyword.fetch!(opts, :state_ttl) * 1000)
+    |> Keyword.delete(:flush_interval)
+    |> Keyword.delete(:cleanup_interval)
+    |> Keyword.delete(:reconcile_interval)
+    |> Keyword.delete(:state_ttl)
   end
 
   defp registry_name, do: ImagePipe.Cache.FileSystem.Registry
@@ -276,8 +339,9 @@ defmodule ImagePipe.Cache.FileSystem do
   @impl true
   def validate_options(opts) when is_list(opts) do
     with {:ok, validated_opts} <- validate_filesystem_options(opts),
-         :ok <- validate_representative_cache_dir(validated_opts) do
-      {:ok, validated_opts}
+         {:ok, derived_opts} <- apply_bounded_validation(validated_opts),
+         :ok <- validate_representative_cache_dir(derived_opts) do
+      {:ok, derived_opts}
     end
   end
 
@@ -297,8 +361,58 @@ defmodule ImagePipe.Cache.FileSystem do
     end
   end
 
+  # If max_size_bytes is present, enforce bounded-mode cross-key requirements
+  # (node_id required, no stray bounded opts without max_size_bytes) and fill
+  # derived defaults. If absent, return opts unchanged (unbounded mode).
+  defp apply_bounded_validation(opts) do
+    if Keyword.has_key?(opts, :max_size_bytes) do
+      with :ok <- require_node_id(opts) do
+        {:ok, derive_bounded_options(opts)}
+      end
+    else
+      bounded_only_keys = @bounded_option_keys -- [:max_size_bytes]
+
+      case Enum.filter(bounded_only_keys, &Keyword.has_key?(opts, &1)) do
+        [] -> {:ok, opts}
+        stray_keys -> {:error, {:bounded_options_require_max_size_bytes, stray_keys}}
+      end
+    end
+  end
+
+  defp require_node_id(opts) do
+    case Keyword.fetch(opts, :node_id) do
+      {:ok, _} -> :ok
+      :error -> {:error, {:missing_required_bounded_option, :node_id}}
+    end
+  end
+
+  # Fill derived defaults for bounded-mode opts. User-supplied values are
+  # treated as overrides and are never clobbered.
+  defp derive_bounded_options(opts) do
+    max_size_bytes = Keyword.fetch!(opts, :max_size_bytes)
+    root = Keyword.fetch!(opts, :root)
+
+    defaults = [
+      window_ratio: 0.01,
+      sketch_depth: 4,
+      sketch_width: max(4096, div(max_size_bytes, 25_000)),
+      aging_sample_size: max(81_920, div(max_size_bytes, 5_000)),
+      doorkeeper_cardinality: max(8192, div(max_size_bytes, 12_500)),
+      doorkeeper_fpr: 0.01,
+      eviction_victim_limit: 64,
+      flush_interval: 30,
+      cleanup_interval: 3600,
+      reconcile_interval: 60,
+      state_ttl: 604_800,
+      state_dir: Path.join(root, ".cache_state")
+    ]
+
+    Keyword.merge(defaults, opts)
+  end
+
   defp validate_known_options(opts) do
-    case NimbleOptions.validate(Keyword.take(opts, @option_keys), @options_schema) do
+    all_known_keys = @option_keys ++ @bounded_option_keys
+    case NimbleOptions.validate(Keyword.take(opts, all_known_keys), @options_schema) do
       {:ok, validated_opts} -> {:ok, validated_opts}
       {:error, error} -> {:error, options_validation_error(error)}
     end
@@ -355,6 +469,9 @@ defmodule ImagePipe.Cache.FileSystem do
 
   defp options_validation_error(%NimbleOptions.ValidationError{key: :path_prefix, value: prefix}),
     do: {:invalid_path_prefix, prefix}
+
+  defp options_validation_error(%NimbleOptions.ValidationError{key: key, message: message}),
+    do: {:invalid_option, key, message}
 
   defp read_entry(paths) do
     with {:ok, meta_binary} <- read_cache_file(paths.meta_path, :metadata),
