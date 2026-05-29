@@ -16,7 +16,7 @@ defmodule ImagePipe.Telemetry do
 
   @default_prefix [:image_pipe]
 
-  @valid_levels [:emergency, :alert, :critical, :error, :warning, :notice, :info, :debug]
+  @valid_levels Logger.levels()
 
   @spec default_prefix() :: [atom()]
   def default_prefix, do: @default_prefix
@@ -54,7 +54,8 @@ defmodule ImagePipe.Telemetry do
 
     with [] <- Keyword.keys(opts) -- known,
          :ok <- validate_events(Keyword.get(opts, :events, :all)),
-         :ok <- validate_level(Keyword.get(opts, :level, :info)) do
+         :ok <- validate_level(Keyword.get(opts, :level, :info)),
+         :ok <- validate_debug(Keyword.get(opts, :debug, false)) do
       validate_prefix(Keyword.get(opts, :prefix, @default_prefix))
     else
       unknown when is_list(unknown) ->
@@ -78,6 +79,11 @@ defmodule ImagePipe.Telemetry do
 
   defp validate_level(other),
     do: raise(ArgumentError, ":level must be a valid Logger level, got: #{inspect(other)}")
+
+  defp validate_debug(debug) when is_boolean(debug), do: :ok
+
+  defp validate_debug(other),
+    do: raise(ArgumentError, ":debug must be a boolean, got: #{inspect(other)}")
 
   defp validate_prefix(prefix) when is_list(prefix) and prefix != [] do
     if Enum.all?(prefix, &is_atom/1) do

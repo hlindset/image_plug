@@ -130,9 +130,10 @@ defmodule ImagePipe.Telemetry.LoggerTest do
     assert log =~ "cache lookup: hit"
   end
 
-  test "rejects unknown options, bad event groups, and a non-list prefix" do
+  test "rejects unknown options, bad event groups, a non-list prefix, and a non-boolean debug" do
     assert_raise ArgumentError, fn -> Telemetry.attach_default_logger(bogus: true) end
     assert_raise ArgumentError, fn -> Telemetry.attach_default_logger(events: [:nope]) end
     assert_raise ArgumentError, fn -> Telemetry.attach_default_logger(prefix: "nope") end
+    assert_raise ArgumentError, fn -> Telemetry.attach_default_logger(debug: :yes) end
   end
 end

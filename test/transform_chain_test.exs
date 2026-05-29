@@ -251,6 +251,4 @@ defmodule ImagePipe.Transform.ChainTest do
     assert_received {:telemetry, [:image_pipe, :transform, :operation, :stop], %{duration: _},
                      %{operation: :auto_orient, index: 1, result: :ok}}
   end
-
-  def telemetry_handler(_event, _measurements, _metadata, _config), do: :ok
 end
