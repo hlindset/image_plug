@@ -82,11 +82,11 @@ defmodule ImagePipe.ImgproxyWireConformanceTest do
   defmodule AvifOriginImage do
     @moduledoc false
 
+    # Serves a committed 64x64 AVIF fixture rather than encoding at request
+    # time, so the source is available even on libvips builds without AVIF
+    # *write* support (decoding an AVIF source needs only AVIF read).
     def call(conn, _opts) do
-      body =
-        64
-        |> Image.new!(64, color: :red)
-        |> Image.write!(:memory, suffix: ".avif")
+      body = File.read!("test/support/image_pipe/imgproxy_wire_conformance_test/cat.avif")
 
       conn
       |> Plug.Conn.put_resp_content_type("image/avif")
@@ -983,7 +983,7 @@ defmodule ImagePipe.ImgproxyWireConformanceTest do
 
   describe "output capability handling" do
     test "automatic negotiation drops avif when the build cannot write it" do
-      opts = Keyword.put(@default_opts, :output_capabilities, %{avif: false})
+      opts = Keyword.put(@default_opts, :output_capabilities, %{avif: false, webp: true})
 
       conn = call_imgproxy("/_/plain/images/beach.jpg", opts, "image/avif,image/webp")
 
@@ -993,7 +993,7 @@ defmodule ImagePipe.ImgproxyWireConformanceTest do
     end
 
     test "automatic negotiation keeps avif when the build supports it" do
-      opts = Keyword.put(@default_opts, :output_capabilities, %{avif: true})
+      opts = Keyword.put(@default_opts, :output_capabilities, %{avif: true, webp: true})
 
       conn = call_imgproxy("/_/plain/images/beach.jpg", opts, "image/avif,image/webp")
 
@@ -1028,8 +1028,8 @@ defmodule ImagePipe.ImgproxyWireConformanceTest do
       {base, cache_root} = cached_opts()
 
       try do
-        capable = Keyword.put(base, :output_capabilities, %{avif: true})
-        incapable = Keyword.put(base, :output_capabilities, %{avif: false})
+        capable = Keyword.put(base, :output_capabilities, %{avif: true, webp: true})
+        incapable = Keyword.put(base, :output_capabilities, %{avif: false, webp: true})
         accept = "image/avif,image/webp"
         path = "/_/plain/images/beach.jpg"
 
