@@ -278,7 +278,9 @@ defmodule ImagePipe.ImgproxyWireConformanceTest do
     # exar:1 would extend to the requested 300:200 (3:2) ratio, but the canvas is
     # already 3:2, so no padding is added and output dimensions are identical.
     base = call_imgproxy("/_/rs:force:300:200/f:jpeg/plain/images/beach.jpg", @default_opts)
-    with_exar = call_imgproxy("/_/rs:force:300:200/exar:1/f:jpeg/plain/images/beach.jpg", @default_opts)
+
+    with_exar =
+      call_imgproxy("/_/rs:force:300:200/exar:1/f:jpeg/plain/images/beach.jpg", @default_opts)
 
     assert base.status == 200
     assert with_exar.status == 200
@@ -904,7 +906,9 @@ defmodule ImagePipe.ImgproxyWireConformanceTest do
   test "car leaves gravity placement unchanged" do
     # c:200:400:no + car:1:1 (enlarge) grows short axis: 200 -> 400, giving 400x400 anchored north.
     # c:400:400:no directly crops 400x400 anchored north — same dimensions, same gravity.
-    via_car = call_imgproxy("/_/c:200:400:no/car:1:1/f:jpeg/plain/images/beach.jpg", @default_opts)
+    via_car =
+      call_imgproxy("/_/c:200:400:no/car:1:1/f:jpeg/plain/images/beach.jpg", @default_opts)
+
     direct = call_imgproxy("/_/c:400:400:no/f:jpeg/plain/images/beach.jpg", @default_opts)
 
     assert via_car.status == 200

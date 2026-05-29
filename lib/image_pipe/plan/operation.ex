@@ -391,7 +391,8 @@ defmodule ImagePipe.Plan.Operation do
   defp valid_crop_aspect_ratio?(nil), do: true
 
   defp valid_crop_aspect_ratio?({:ratio, numerator, denominator})
-       when is_integer(numerator) and is_integer(denominator) and numerator > 0 and denominator > 0,
+       when is_integer(numerator) and is_integer(denominator) and numerator > 0 and
+              denominator > 0,
        do: true
 
   defp valid_crop_aspect_ratio?(_other), do: false

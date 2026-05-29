@@ -469,7 +469,10 @@ defmodule ImagePipe.Parser.Imgproxy.PlanBuilderTest do
   test "car populates CropGuided aspect_ratio and enlarge" do
     pipeline =
       plan_pipeline(
-        crop: %ImagePipe.Parser.Imgproxy.CropRequest{width: {:pixels, 100}, height: {:pixels, 200}},
+        crop: %ImagePipe.Parser.Imgproxy.CropRequest{
+          width: {:pixels, 100},
+          height: {:pixels, 200}
+        },
         crop_aspect_ratio: 1.0,
         crop_aspect_ratio_enlarge: true
       )
@@ -477,15 +480,21 @@ defmodule ImagePipe.Parser.Imgproxy.PlanBuilderTest do
     assert {:ok, %Plan{pipelines: [%Pipeline{operations: operations}]}} = pipeline
 
     assert Enum.any?(operations, fn
-             %ImagePipe.Plan.Operation.CropGuided{aspect_ratio: {:ratio, 1, 1}, enlarge: true} -> true
-             _ -> false
+             %ImagePipe.Plan.Operation.CropGuided{aspect_ratio: {:ratio, 1, 1}, enlarge: true} ->
+               true
+
+             _ ->
+               false
            end)
   end
 
   test "car:0 yields no aspect-ratio correction" do
     pipeline =
       plan_pipeline(
-        crop: %ImagePipe.Parser.Imgproxy.CropRequest{width: {:pixels, 100}, height: {:pixels, 200}},
+        crop: %ImagePipe.Parser.Imgproxy.CropRequest{
+          width: {:pixels, 100},
+          height: {:pixels, 200}
+        },
         crop_aspect_ratio: 0.0
       )
 

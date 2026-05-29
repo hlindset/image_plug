@@ -174,7 +174,9 @@ defmodule ImagePipe.Plan.KeyData do
   defp optional_data(value), do: data(value)
 
   defp crop_aspect_ratio_data(nil), do: nil
-  defp crop_aspect_ratio_data({:ratio, numerator, denominator}), do: data({:ratio, numerator, denominator})
+
+  defp crop_aspect_ratio_data({:ratio, numerator, denominator}),
+    do: data({:ratio, numerator, denominator})
 
   defp fill_data(:transparent), do: :transparent
   defp fill_data({:solid, %Color{} = color}), do: [type: :solid, color: Color.key_data(color)]

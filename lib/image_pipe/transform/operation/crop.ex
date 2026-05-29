@@ -351,7 +351,14 @@ defmodule ImagePipe.Transform.Operation.Crop do
   defp correct_aspect_ratio(width, height, nil, _enlarge, _image_width, _image_height),
     do: {width, height}
 
-  defp correct_aspect_ratio(width, height, {:ratio, numerator, denominator}, enlarge, image_width, image_height) do
+  defp correct_aspect_ratio(
+         width,
+         height,
+         {:ratio, numerator, denominator},
+         enlarge,
+         image_width,
+         image_height
+       ) do
     target = numerator / denominator
     current = width / height
 
