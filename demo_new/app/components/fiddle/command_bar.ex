@@ -6,13 +6,15 @@ defmodule ImagePipeDemoWeb.Components.Fiddle.CommandBar do
 
   def template do
     ~HOLO"""
-    <div class="preview-command-bar">
-      <code>{@path}</code>
-      <span>
-        <button type="button" $click={action: :copy_url, target: "page"}>Copy URL</button>
-        <a href={@image_url} target="_blank" rel="noopener">Open</a>
-      </span>
-    </div>
+    <header class="preview-command-bar">
+      <code class="parameter-preview">{@path}</code>
+      <div class="preview-actions">
+        <div class="desktop-actions">
+          <button class="copy-button copy-button-secondary" type="button" $click={action: :copy_url, target: "page"}>Copy URL</button>
+          <a class="open-link" href={@image_url} target="_blank" rel="noreferrer">Open</a>
+        </div>
+      </div>
+    </header>
     """
   end
 end
