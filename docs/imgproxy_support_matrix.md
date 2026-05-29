@@ -231,6 +231,11 @@ Automatic output negotiation supports AVIF and WebP with `auto_avif` and
 enforced replacement of explicit formats, or Imgproxy's preferred-format
 fallback list.
 
+ImagePipe probes libvips AVIF/WebP write support at boot. Automatic negotiation
+filters out formats the build cannot write; a modern source format the client did
+not accept transcodes to raster (PNG/JPEG by alpha). An explicit `format` the
+build cannot write is rejected with `501` before source fetch.
+
 - ✅ `IMGPROXY_AUTO_WEBP`
 - ✅ `IMGPROXY_ENABLE_WEBP_DETECTION`
 - ✅ `IMGPROXY_AUTO_AVIF`
