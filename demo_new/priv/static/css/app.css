@@ -1,13 +1,6 @@
 /*
- * Plain, global, hand-written CSS for the ImagePipe demo.
- *
- * Served as a single static file via Plug.Static (priv/static/css/app.css),
- * linked from the Hologram layout. There is no esbuild/Tailwind/PostCSS
- * pipeline wired up here on purpose.
- *
- * Hologram has no scoped-CSS feature yet, so this is a global stylesheet.
- * Use flat, class-based, per-component-prefixed selectors only -- no bare
- * element selectors (img, h2, ...), which would leak across the whole app.
+ * Plain, global, hand-written CSS for the ImagePipe demo (non-fiddle pages).
+ * The fiddle page uses a separate @scope (.ip-demo) stylesheet: priv/static/css/fiddle.css.
  */
 
 .ip-page {
