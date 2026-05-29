@@ -155,9 +155,9 @@ defmodule ImagePipe.Source.HTTP do
 
   defp build_url(%URL{} = source) do
     path =
-      source.path
-      |> Enum.map(fn segment -> URI.encode(segment, &URI.char_unreserved?/1) end)
-      |> Enum.join("/")
+      Enum.map_join(source.path, "/", fn segment ->
+        URI.encode(segment, &URI.char_unreserved?/1)
+      end)
 
     path = "/" <> path
     port = source.port || Map.fetch!(@default_ports, source.scheme)

@@ -581,9 +581,8 @@ defmodule ImagePipe.Parser.Imgproxy.OptionGrammar do
   defp parse_background([""], _segment), do: {:ok, [background_color: nil]}
 
   defp parse_background([hex], _segment) when hex != "" do
-    with {:ok, color} <- Color.rgb_hex(hex) do
-      {:ok, [background_color: color]}
-    else
+    case Color.rgb_hex(hex) do
+      {:ok, color} -> {:ok, [background_color: color]}
       {:error, _reason} -> {:error, {:invalid_background, hex}}
     end
   end
@@ -603,9 +602,8 @@ defmodule ImagePipe.Parser.Imgproxy.OptionGrammar do
   defp parse_background(args, _segment), do: {:error, {:invalid_background, args}}
 
   defp parse_background_alpha([alpha], _segment) when alpha != "" do
-    with {:ok, alpha} <- parse_alpha_ratio(alpha) do
-      {:ok, [background_alpha: alpha]}
-    else
+    case parse_alpha_ratio(alpha) do
+      {:ok, alpha} -> {:ok, [background_alpha: alpha]}
       {:error, _reason} -> {:error, {:invalid_background_alpha, alpha}}
     end
   end

@@ -371,9 +371,8 @@ defmodule ImagePipe.Cache.FileSystem do
   end
 
   defp validate_filesystem_options(opts) do
-    with :ok <- validate_unknown_options(opts),
-         {:ok, validated_opts} <- validate_known_options(opts) do
-      {:ok, validated_opts}
+    with :ok <- validate_unknown_options(opts) do
+      validate_known_options(opts)
     end
   end
 
@@ -793,18 +792,20 @@ defmodule ImagePipe.Cache.FileSystem do
   def delete_victims(victims, opts) do
     Enum.each(victims, fn victim ->
       with {:ok, victim_paths} <- paths_from_hash(victim.key_hash, opts) do
-        if victim.delete_body? do
-          body_path =
-            Path.join(victim_paths.dir, "#{victim.key_hash}.#{victim.body_sha256}.body")
-
-          rm_tolerant(body_path)
-        end
-
-        if victim.delete_meta? do
-          rm_tolerant(victim_paths.meta_path)
-        end
+        delete_victim_files(victim, victim_paths)
       end
     end)
+  end
+
+  defp delete_victim_files(victim, victim_paths) do
+    if victim.delete_body? do
+      body_path = Path.join(victim_paths.dir, "#{victim.key_hash}.#{victim.body_sha256}.body")
+      rm_tolerant(body_path)
+    end
+
+    if victim.delete_meta? do
+      rm_tolerant(victim_paths.meta_path)
+    end
   end
 
   defp rm_tolerant(path) do

@@ -16,6 +16,7 @@ defmodule ImagePipe.Request.RunnerTest do
   alias ImagePipe.Request.SourceSessionSupervisor
   alias ImagePipe.Response.CacheHeaders
   alias ImagePipe.Response.PreparedStream
+  alias ImagePipe.Response.Sender
   alias ImagePipe.Source.CacheSemantics
   alias ImagePipe.Source.Resolved, as: SourceResolved
   alias ImagePipe.Source.Response, as: SourceResponse
@@ -971,7 +972,7 @@ defmodule ImagePipe.Request.RunnerTest do
     assert_supervisor_active(supervisor)
 
     conn =
-      ImagePipe.Response.Sender.send_result(
+      Sender.send_result(
         conn(:get, "/image"),
         {:ok, {:prepared_stream, prepared, response, empty_cache_headers()}},
         []
@@ -1031,7 +1032,7 @@ defmodule ImagePipe.Request.RunnerTest do
       :get
       |> conn("/image")
       |> Map.put(:adapter, {ClosingAfterFirstChunkAdapter, %{chunks: nil}})
-      |> ImagePipe.Response.Sender.send_result(
+      |> Sender.send_result(
         {:ok, {:prepared_stream, prepared, response, empty_cache_headers()}},
         []
       )
@@ -1062,7 +1063,7 @@ defmodule ImagePipe.Request.RunnerTest do
       :get
       |> conn("/image")
       |> Map.put(:adapter, {FailingChunkedAdapter, %{}})
-      |> ImagePipe.Response.Sender.send_result(
+      |> Sender.send_result(
         {:ok, {:prepared_stream, prepared, response, empty_cache_headers()}},
         []
       )
@@ -1093,7 +1094,7 @@ defmodule ImagePipe.Request.RunnerTest do
       :get
       |> conn("/image")
       |> Map.put(:adapter, {FirstChunkClosedAdapter, %{}})
-      |> ImagePipe.Response.Sender.send_result(
+      |> Sender.send_result(
         {:ok, {:prepared_stream, prepared, response, empty_cache_headers()}},
         []
       )
@@ -1123,7 +1124,7 @@ defmodule ImagePipe.Request.RunnerTest do
              )
 
     conn =
-      ImagePipe.Response.Sender.send_result(
+      Sender.send_result(
         conn(:get, "/image"),
         {:ok, {:prepared_stream, prepared, response, empty_cache_headers()}},
         []

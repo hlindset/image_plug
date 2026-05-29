@@ -14,9 +14,9 @@ defmodule ImagePipe.Source do
       S3
     ]
 
+  alias ImagePipe.Error
   alias ImagePipe.Plan.Source, as: PlanSource
   alias ImagePipe.Plan.Source.Identity
-  alias ImagePipe.Error
   alias ImagePipe.Source.CacheSemantics
   alias ImagePipe.Source.Resolved
   alias ImagePipe.Source.Response
@@ -61,15 +61,17 @@ defmodule ImagePipe.Source do
       telemetry_opts = Telemetry.telemetry_opts(runtime_opts)
 
       Telemetry.span(telemetry_opts, [:source, :resolve], source_metadata, fn ->
-        result =
-          case module.resolve(source, adapter_opts, runtime_opts) do
-            {:ok, %Resolved{} = resolved} -> validate_resolved(resolved, adapter)
-            {:error, {:source, _reason}} = error -> error
-            _other -> {:error, {:source, :invalid_adapter_result}}
-          end
-
+        result = run_resolve(module, source, adapter_opts, runtime_opts, adapter)
         {result, result_metadata(result)}
       end)
+    end
+  end
+
+  defp run_resolve(module, source, adapter_opts, runtime_opts, adapter) do
+    case module.resolve(source, adapter_opts, runtime_opts) do
+      {:ok, %Resolved{} = resolved} -> validate_resolved(resolved, adapter)
+      {:error, {:source, _reason}} = error -> error
+      _other -> {:error, {:source, :invalid_adapter_result}}
     end
   end
 
@@ -81,15 +83,17 @@ defmodule ImagePipe.Source do
       telemetry_opts = Telemetry.telemetry_opts(runtime_opts)
 
       Telemetry.span(telemetry_opts, [:source, :fetch], source_metadata, fn ->
-        result =
-          case module.fetch(resolved, adapter_opts, runtime_opts) do
-            {:ok, %Response{} = response} -> wrap_response(response, runtime_opts)
-            {:error, {:source, _reason}} = error -> error
-            _other -> {:error, {:source, :invalid_adapter_result}}
-          end
-
+        result = run_fetch(module, resolved, adapter_opts, runtime_opts)
         {result, result_metadata(result)}
       end)
+    end
+  end
+
+  defp run_fetch(module, resolved, adapter_opts, runtime_opts) do
+    case module.fetch(resolved, adapter_opts, runtime_opts) do
+      {:ok, %Response{} = response} -> wrap_response(response, runtime_opts)
+      {:error, {:source, _reason}} = error -> error
+      _other -> {:error, {:source, :invalid_adapter_result}}
     end
   end
 

@@ -117,13 +117,7 @@ defmodule ImagePipe.Parser.Imgproxy.Source do
     case source_schemes do
       %{^scheme => {translator, translator_opts}}
       when is_atom(translator) and is_list(translator_opts) ->
-        with {:ok, decoded_source} <- decode_percent_encoded(source) do
-          case translator.translate(decoded_source, translator_opts) do
-            {:ok, %_{} = plan_source} -> {:ok, plan_source}
-            {:error, _reason} -> {:error, {:source_scheme_error, scheme}}
-            _other -> {:error, {:source_scheme_error, scheme}}
-          end
-        end
+        translate_source(scheme, source, translator, translator_opts)
 
       _source_schemes ->
         {:error, {:unsupported_source_scheme, scheme}}
@@ -132,6 +126,16 @@ defmodule ImagePipe.Parser.Imgproxy.Source do
     _error -> {:error, {:source_scheme_error, scheme}}
   catch
     _kind, _reason -> {:error, {:source_scheme_error, scheme}}
+  end
+
+  defp translate_source(scheme, source, translator, translator_opts) do
+    with {:ok, decoded_source} <- decode_percent_encoded(source) do
+      case translator.translate(decoded_source, translator_opts) do
+        {:ok, %_{} = plan_source} -> {:ok, plan_source}
+        {:error, _reason} -> {:error, {:source_scheme_error, scheme}}
+        _other -> {:error, {:source_scheme_error, scheme}}
+      end
+    end
   end
 
   defp split_source_query(source) do

@@ -264,8 +264,8 @@ defmodule ImagePipe.Request.SourceSessionTest do
   defmodule StreamFetchAdapter do
     @behaviour ImagePipe.Source
 
-    alias ImagePipe.Source.Response
     alias ImagePipe.Source.Resolved
+    alias ImagePipe.Source.Response
 
     @impl ImagePipe.Source
     def validate_options(opts), do: {:ok, opts}

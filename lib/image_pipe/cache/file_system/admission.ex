@@ -3,12 +3,17 @@ defmodule ImagePipe.Cache.FileSystem.Admission do
 
   use GenServer
 
+  alias ImagePipe.Cache.FileSystem
   alias ImagePipe.Cache.FileSystem.Policy
   alias ImagePipe.Cache.FileSystem.Sketch
   alias ImagePipe.Telemetry
 
   defmodule State do
     @moduledoc false
+    # Long-lived GenServer state aggregating independent configuration,
+    # ETS table handles, byte counters, and scan lifecycle fields. These
+    # are deliberately flat rather than split into artificial sub-structs.
+    # credo:disable-for-next-line Credo.Check.Warning.StructFieldAmount
     defstruct [
       :registry,
       :root,
@@ -203,17 +208,19 @@ defmodule ImagePipe.Cache.FileSystem.Admission do
       {:ok, files} ->
         own = "#{state.node_id}.state"
         now = System.system_time(:millisecond)
-
-        Enum.reduce(files, state, fn f, acc ->
-          if String.ends_with?(f, ".state") and f != own and within_ttl?(acc, f, now) do
-            merge_peer_file(acc, f)
-          else
-            acc
-          end
-        end)
+        Enum.reduce(files, state, &maybe_merge_peer_file(&1, &2, own, now))
 
       {:error, _} ->
         state
+    end
+  end
+
+  defp maybe_merge_peer_file(filename, state, own, now) do
+    if String.ends_with?(filename, ".state") and filename != own and
+         within_ttl?(state, filename, now) do
+      merge_peer_file(state, filename)
+    else
+      state
     end
   end
 
@@ -246,12 +253,10 @@ defmodule ImagePipe.Cache.FileSystem.Admission do
   end
 
   defp decode_state_payload(binary, _state) do
-    try do
-      payload = :erlang.binary_to_term(binary, [:safe])
-      validate_state_payload(payload)
-    rescue
-      ArgumentError -> {:error, :decode_failed}
-    end
+    payload = :erlang.binary_to_term(binary, [:safe])
+    validate_state_payload(payload)
+  rescue
+    ArgumentError -> {:error, :decode_failed}
   end
 
   defp validate_state_payload(
@@ -361,7 +366,7 @@ defmodule ImagePipe.Cache.FileSystem.Admission do
   defp build_descriptor_map(entry_root) do
     walk_meta_files(entry_root)
     |> Enum.flat_map(fn meta_path ->
-      case ImagePipe.Cache.FileSystem.read_descriptor(meta_path) do
+      case FileSystem.read_descriptor(meta_path) do
         {:ok, descriptor, mtime} ->
           [{descriptor.key_hash, Map.put(descriptor, :mtime, mtime)}]
 
@@ -380,18 +385,20 @@ defmodule ImagePipe.Cache.FileSystem.Admission do
       {:ok, entries} ->
         entries
         |> Enum.reject(&(&1 == ".cache_state"))
-        |> Enum.flat_map(fn entry ->
-          path = Path.join(entry_root, entry)
-
-          cond do
-            File.dir?(path) -> walk_meta_files(path)
-            String.ends_with?(entry, ".meta") -> [path]
-            true -> []
-          end
-        end)
+        |> Enum.flat_map(&meta_files_in(entry_root, &1))
 
       {:error, _} ->
         []
+    end
+  end
+
+  defp meta_files_in(entry_root, entry) do
+    path = Path.join(entry_root, entry)
+
+    cond do
+      File.dir?(path) -> walk_meta_files(path)
+      String.ends_with?(entry, ".meta") -> [path]
+      true -> []
     end
   end
 
@@ -533,33 +540,33 @@ defmodule ImagePipe.Cache.FileSystem.Admission do
   end
 
   def handle_call({:apply_protected_batch, hashes, descriptor_map}, _from, state) do
-    state =
-      Enum.reduce(hashes, state, fn hash, acc ->
-        case Map.fetch(descriptor_map, hash) do
-          {:ok, entry} ->
-            if already_tracked?(acc, hash) do
-              acc
-            else
-              # Drop the scan-only `:mtime` field so queued descriptors
-              # have the same shape regardless of which queue they land in.
-              descriptor = Map.delete(entry, :mtime)
-              {pos, acc} = next_position(acc)
-              :ets.insert(acc.protected, {{pos, hash}, descriptor})
-              Map.update!(acc, :protected_bytes, &(&1 + descriptor.size_bytes))
-            end
-
-          :error ->
-            # Persisted protected hash whose meta no longer exists on
-            # disk. Skip silently — same-key delete or external sweep.
-            acc
-        end
-      end)
-
+    state = Enum.reduce(hashes, state, &apply_protected_hash(&1, &2, descriptor_map))
     {:reply, :ok, state}
   end
 
   def handle_call(:reconcile_to_cap, _from, state) do
     {:reply, :ok, reconcile_to_cap(state, [])}
+  end
+
+  defp apply_protected_hash(hash, state, descriptor_map) do
+    case Map.fetch(descriptor_map, hash) do
+      {:ok, entry} ->
+        if already_tracked?(state, hash) do
+          state
+        else
+          # Drop the scan-only `:mtime` field so queued descriptors
+          # have the same shape regardless of which queue they land in.
+          descriptor = Map.delete(entry, :mtime)
+          {pos, state} = next_position(state)
+          :ets.insert(state.protected, {{pos, hash}, descriptor})
+          Map.update!(state, :protected_bytes, &(&1 + descriptor.size_bytes))
+        end
+
+      :error ->
+        # Persisted protected hash whose meta no longer exists on
+        # disk. Skip silently — same-key delete or external sweep.
+        state
+    end
   end
 
   defp decide_admission(state, descriptor) do
@@ -993,31 +1000,29 @@ defmodule ImagePipe.Cache.FileSystem.Admission do
   defp reconcile_to_cap(state, evicted_descriptors) do
     total = state.window_bytes + state.probationary_bytes + state.protected_bytes
 
-    cond do
-      total <= state.max_size_bytes ->
-        # Delete the evicted entries' files. Admission owns deletion here
-        # (no request process is in the loop for boot/periodic
-        # reconciliation), calling the adapter's `delete_victims/2`
-        # in-boundary. See `emit_reconciliation_evictions/2`.
-        emit_reconciliation_evictions(state, evicted_descriptors)
-        state
+    if total <= state.max_size_bytes do
+      # Delete the evicted entries' files. Admission owns deletion here
+      # (no request process is in the loop for boot/periodic
+      # reconciliation), calling the adapter's `delete_victims/2`
+      # in-boundary. See `emit_reconciliation_evictions/2`.
+      emit_reconciliation_evictions(state, evicted_descriptors)
+      state
+    else
+      # Evict LRU from probationary first, then protected.
+      {evicted, state} = evict_one_lru(state)
 
-      true ->
-        # Evict LRU from probationary first, then protected.
-        {evicted, state} = evict_one_lru(state)
+      case evicted do
+        nil ->
+          # No more entries to evict but still over cap. Bug or empty
+          # cache with impossibly low max_size_bytes; log and stop.
+          require Logger
+          Logger.warning("cache: reconciliation cannot bring usage under cap")
+          emit_reconciliation_evictions(state, evicted_descriptors)
+          state
 
-        case evicted do
-          nil ->
-            # No more entries to evict but still over cap. Bug or empty
-            # cache with impossibly low max_size_bytes; log and stop.
-            require Logger
-            Logger.warning("cache: reconciliation cannot bring usage under cap")
-            emit_reconciliation_evictions(state, evicted_descriptors)
-            state
-
-          descriptor ->
-            reconcile_to_cap(state, [descriptor | evicted_descriptors])
-        end
+        descriptor ->
+          reconcile_to_cap(state, [descriptor | evicted_descriptors])
+      end
     end
   end
 
@@ -1055,7 +1060,7 @@ defmodule ImagePipe.Cache.FileSystem.Admission do
     # briefly is acceptable.
     victims = Enum.map(descriptors, &full_eviction_victim/1)
     opts = [root: state.root, path_prefix: state.path_prefix]
-    ImagePipe.Cache.FileSystem.delete_victims(victims, opts)
+    FileSystem.delete_victims(victims, opts)
 
     bytes = Enum.reduce(descriptors, 0, fn descriptor, acc -> acc + descriptor.size_bytes end)
 

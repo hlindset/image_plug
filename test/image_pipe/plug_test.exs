@@ -9,15 +9,16 @@ defmodule ImagePipe.PlugTest do
 
   @slow_origin_first_chunk_timeout 5_000
 
+  alias ImagePipe.Parser.Imgproxy.Presets
   alias ImagePipe.Parser.Imgproxy.Signature
-  alias ImagePipe.PlugTest.ConsumeLargeSourceImage
-  alias ImagePipe.PlugTest.ConsumeSourceThenDecodeErrorImage
-  alias ImagePipe.PlugTest.LargeBodyOrigin
   alias ImagePipe.Plan
   alias ImagePipe.Plan.Operation
   alias ImagePipe.Plan.Output
   alias ImagePipe.Plan.Pipeline
   alias ImagePipe.Plan.Source.Path, as: SourcePath
+  alias ImagePipe.PlugTest.ConsumeLargeSourceImage
+  alias ImagePipe.PlugTest.ConsumeSourceThenDecodeErrorImage
+  alias ImagePipe.PlugTest.LargeBodyOrigin
   alias ImagePipe.SourceTest.RootHTTPAdapter
 
   defmodule CacheProbe do
@@ -627,19 +628,19 @@ defmodule ImagePipe.PlugTest do
     imgproxy = Keyword.fetch!(opts, :imgproxy)
 
     assert %Signature{mode: :disabled} = Keyword.fetch!(imgproxy, :signature)
-    assert %ImagePipe.Parser.Imgproxy.Presets{} = presets = Keyword.fetch!(imgproxy, :presets)
+    assert %Presets{} = presets = Keyword.fetch!(imgproxy, :presets)
 
     assert {:ok, [["rt:fill", "el:1"]]} =
-             ImagePipe.Parser.Imgproxy.Presets.fetch(presets, "default")
+             Presets.fetch(presets, "default")
 
     assert {:ok, [["rs:fit:120:120"]]} =
-             ImagePipe.Parser.Imgproxy.Presets.fetch(presets, "thumb")
+             Presets.fetch(presets, "thumb")
 
     assert {:ok, [["w:900"], ["w:450"]]} =
-             ImagePipe.Parser.Imgproxy.Presets.fetch(presets, "responsive")
+             Presets.fetch(presets, "responsive")
 
     assert {:ok, [["watermark:0.5"]]} =
-             ImagePipe.Parser.Imgproxy.Presets.fetch(presets, "future")
+             Presets.fetch(presets, "future")
   end
 
   test "init rejects malformed imgproxy presets before requests" do
@@ -655,7 +656,7 @@ defmodule ImagePipe.PlugTest do
       [presets: %{"thumb" => "pr: other"}],
       [presets: %{"thumb" => "pr:other "}],
       [presets: %{"thumb" => "w:100//h:100"}],
-      [presets: %ImagePipe.Parser.Imgproxy.Presets{definitions: %{"thumb" => [["w:100"]]}}]
+      [presets: %Presets{definitions: %{"thumb" => [["w:100"]]}}]
     ]
 
     for imgproxy <- invalid_configs do

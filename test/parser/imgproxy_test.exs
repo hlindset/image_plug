@@ -7,11 +7,11 @@ defmodule ImagePipe.Parser.ImgproxyTest do
   alias ImagePipe.Parser.Imgproxy
   alias ImagePipe.Plan
   alias ImagePipe.Plan.Operation
+  alias ImagePipe.Plan.Operation.AutoOrient
   alias ImagePipe.Plan.Output
   alias ImagePipe.Plan.Pipeline
   alias ImagePipe.Plan.Response
   alias ImagePipe.Plan.Source
-  alias ImagePipe.Plan.Operation.AutoOrient
 
   defmodule FoobarTranslator do
     @behaviour ImagePipe.Parser.Imgproxy.SourceScheme

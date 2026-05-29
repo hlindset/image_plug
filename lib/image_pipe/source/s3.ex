@@ -154,20 +154,11 @@ defmodule ImagePipe.Source.S3 do
   end
 
   defp validate_buckets(buckets, default) when is_map(buckets) do
-    buckets
-    |> Enum.reduce_while({:ok, %{}}, fn
+    Enum.reduce_while(buckets, {:ok, %{}}, fn
       {bucket, opts}, {:ok, acc} when is_binary(bucket) and bucket != "" and is_list(opts) ->
-        merged = Keyword.merge(default, opts)
-
-        case validate_config(merged) do
-          {:ok, config} ->
-            case require_credentials(config) do
-              :ok -> {:cont, {:ok, Map.put(acc, bucket, config)}}
-              {:error, reason} -> {:halt, {:error, reason}}
-            end
-
-          {:error, reason} ->
-            {:halt, {:error, reason}}
+        case validate_bucket(default, opts) do
+          {:ok, config} -> {:cont, {:ok, Map.put(acc, bucket, config)}}
+          {:error, reason} -> {:halt, {:error, reason}}
         end
 
       _entry, _acc ->
@@ -177,6 +168,15 @@ defmodule ImagePipe.Source.S3 do
 
   defp validate_buckets(_buckets, _default),
     do: {:error, {:invalid_source_config, :invalid_bucket_config}}
+
+  defp validate_bucket(default, opts) do
+    merged = Keyword.merge(default, opts)
+
+    with {:ok, config} <- validate_config(merged),
+         :ok <- require_credentials(config) do
+      {:ok, config}
+    end
+  end
 
   defp validate_config(opts) do
     case NimbleOptions.validate(opts, @config_schema) do

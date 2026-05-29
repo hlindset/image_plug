@@ -339,15 +339,19 @@ defmodule ImagePipe.Parser.Imgproxy.PlanBuilder do
   defp resize_from_rule(%PipelineRequest{} = request) do
     with {:ok, width} <- imgproxy_resize_dimension(request.width),
          {:ok, height} <- imgproxy_resize_dimension(request.height) do
-      case {width, height, resize_rule_requested?(request)} do
-        {:auto, :auto, false} ->
-          {:ok, []}
+      resize_operations_for(request, width, height)
+    end
+  end
 
-        {_planned_width, _planned_height, _rule_requested?} ->
-          with {:ok, operation} <- resize_operation(request) do
-            {:ok, [operation]}
-          end
-      end
+  defp resize_operations_for(request, width, height) do
+    case {width, height, resize_rule_requested?(request)} do
+      {:auto, :auto, false} ->
+        {:ok, []}
+
+      {_planned_width, _planned_height, _rule_requested?} ->
+        with {:ok, operation} <- resize_operation(request) do
+          {:ok, [operation]}
+        end
     end
   end
 

@@ -144,16 +144,21 @@ defmodule ImagePipe.Request.HTTPCache do
         {[{"cache-control", @generated_cache_control}, {"etag", etag}], etag, nil}
 
       :not_generated ->
-        case resolved.cache_semantics do
-          %CacheSemantics{byte_identity: :none} ->
-            {[{"cache-control", @no_store}], nil, :missing_byte_identity}
-
-          %CacheSemantics{byte_identity: {:strong, _seed}, stable?: true} ->
-            if has_resp_header?(conn, "etag"),
-              do: {[{"cache-control", @generated_cache_control}], nil, nil},
-              else: {[], nil, nil}
-        end
+        cache_control_without_etag(conn, resolved.cache_semantics)
     end
+  end
+
+  defp cache_control_without_etag(_conn, %CacheSemantics{byte_identity: :none}) do
+    {[{"cache-control", @no_store}], nil, :missing_byte_identity}
+  end
+
+  defp cache_control_without_etag(conn, %CacheSemantics{
+         byte_identity: {:strong, _seed},
+         stable?: true
+       }) do
+    if has_resp_header?(conn, "etag"),
+      do: {[{"cache-control", @generated_cache_control}], nil, nil},
+      else: {[], nil, nil}
   end
 
   defp generated_etag_only(conn, plan, resolved, opts) do

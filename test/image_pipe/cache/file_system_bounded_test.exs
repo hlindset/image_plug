@@ -115,14 +115,16 @@ defmodule ImagePipe.Cache.FileSystemBoundedTest do
   defp walk_files(path) do
     case File.ls(path) do
       {:ok, entries} ->
-        Enum.flat_map(entries, fn entry ->
-          child = Path.join(path, entry)
-          if File.dir?(child), do: walk_files(child), else: [child]
-        end)
+        Enum.flat_map(entries, &walk_entry(path, &1))
 
       {:error, _} ->
         []
     end
+  end
+
+  defp walk_entry(path, entry) do
+    child = Path.join(path, entry)
+    if File.dir?(child), do: walk_files(child), else: [child]
   end
 
   setup context do

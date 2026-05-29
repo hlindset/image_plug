@@ -5,8 +5,8 @@ defmodule ImagePipe.Cache.KeyTest do
   import Plug.Test
 
   alias ImagePipe.Cache.Key
-  alias ImagePipe.Parser.Imgproxy
   alias ImagePipe.Cache.KeyTest.ForwardingProbe
+  alias ImagePipe.Parser.Imgproxy
   alias ImagePipe.Plan
   alias ImagePipe.Plan.Operation
   alias ImagePipe.Plan.Output

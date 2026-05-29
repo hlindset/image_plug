@@ -48,6 +48,10 @@ defmodule ImagePipe.Parser.Imgproxy.PipelineRequest do
           orientation: Orientation.t()
         }
 
+  # One flat accumulator for the many independent imgproxy URL options a
+  # single pipeline can carry; the fields are deliberately wide rather
+  # than grouped into artificial sub-structs.
+  # credo:disable-for-next-line Credo.Check.Warning.StructFieldAmount
   defstruct width: nil,
             height: nil,
             min_width: nil,

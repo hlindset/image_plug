@@ -5,9 +5,8 @@ defmodule ImagePipe.Source.S3.Credentials do
 
   @spec validate(term()) :: {:ok, term()} | {:error, {:invalid_source_config, term()}}
   def validate({:static, opts}) when is_list(opts) do
-    with {:ok, credentials} <- normalize(opts) do
-      {:ok, {:static, credentials}}
-    else
+    case normalize(opts) do
+      {:ok, credentials} -> {:ok, {:static, credentials}}
       {:error, reason} -> {:error, {:invalid_source_config, reason}}
     end
   end

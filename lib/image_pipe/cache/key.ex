@@ -7,9 +7,9 @@ defmodule ImagePipe.Cache.Key do
 
   alias ImagePipe.Output.Negotiation
   alias ImagePipe.Plan
+  alias ImagePipe.Plan.KeyData
   alias ImagePipe.Plan.Output
   alias ImagePipe.Plan.Pipeline
-  alias ImagePipe.Plan.KeyData
   alias ImagePipe.Plan.Source.Identity
 
   @schema_version 2

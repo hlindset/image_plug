@@ -427,14 +427,16 @@ defmodule ImagePipe.Response.Sender do
     Enum.reduce(new_headers, headers, fn {name, value}, headers ->
       name = String.downcase(name)
 
-      if Enum.any?(headers, fn {existing_name, _value} ->
-           String.downcase(existing_name) == name
-         end) do
+      if header_present?(headers, name) do
         headers
       else
         headers ++ [{name, value}]
       end
     end)
+  end
+
+  defp header_present?(headers, name) do
+    Enum.any?(headers, fn {existing_name, _value} -> String.downcase(existing_name) == name end)
   end
 
   defp merge_authoritative_header_list(headers, new_headers) do

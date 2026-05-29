@@ -6,6 +6,7 @@ defmodule ImagePipe.Request.HTTPCacheTest do
   import Plug.Test
   import StreamData
 
+  alias ImagePipe.Cache.Key
   alias ImagePipe.Plan
   alias ImagePipe.Plan.Output
   alias ImagePipe.Plan.Pipeline
@@ -254,10 +255,10 @@ defmodule ImagePipe.Request.HTTPCacheTest do
     plug_conn = conn(:get, "/image")
 
     assert {:ok, base_key} =
-             ImagePipe.Cache.Key.build(plug_conn, base_plan, resolved().identity, opts())
+             Key.build(plug_conn, base_plan, resolved().identity, opts())
 
     assert {:ok, busted_key} =
-             ImagePipe.Cache.Key.build(plug_conn, busted_plan, resolved().identity, opts())
+             Key.build(plug_conn, busted_plan, resolved().identity, opts())
 
     assert base_key.data[:cache] != busted_key.data[:cache]
 
@@ -313,7 +314,7 @@ defmodule ImagePipe.Request.HTTPCacheTest do
     assert {:ok, material} = HTTPCache.etag_material(conn(:get, "/image"), plan(), seed, opts())
 
     assert material[:plan][:representation] == [
-             version: ImagePipe.Cache.Key.representation_version()
+             version: Key.representation_version()
            ]
   end
 

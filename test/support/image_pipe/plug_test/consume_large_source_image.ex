@@ -1,4 +1,5 @@
 defmodule ImagePipe.PlugTest.ConsumeLargeSourceImage do
+  @moduledoc false
   def open(stream, decode_options) do
     _chunks = Enum.to_list(stream)
 
