@@ -203,6 +203,21 @@ defmodule ImagePipe.Plan.OperationTest do
       assert {:ok, %Operation.CropGuided{aspect_ratio: nil, enlarge: false}} =
                Operation.crop_guided({:px, 300}, {:px, 200}, :center)
     end
+
+    test "crop_guided rejects a malformed aspect_ratio" do
+      assert {:error, _} =
+               Operation.crop_guided({:px, 300}, {:px, 200}, :center, aspect_ratio: :bad)
+
+      assert {:error, _} =
+               Operation.crop_guided({:px, 300}, {:px, 200}, :center,
+                 aspect_ratio: {:ratio, 0, 1}
+               )
+    end
+
+    test "crop_guided rejects a non-boolean enlarge" do
+      assert {:error, _} =
+               Operation.crop_guided({:px, 300}, {:px, 200}, :center, enlarge: :yes)
+    end
   end
 
   describe "canvas constructor" do

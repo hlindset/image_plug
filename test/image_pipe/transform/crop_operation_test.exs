@@ -49,11 +49,9 @@ defmodule ImagePipe.Transform.CropOperationTest do
       enlarge: true
     }
 
-    # image only 150 tall; enlarged 200x200 must shrink to fit
+    # image only 150 tall; enlarged 200x200 must shrink to fit -> 150x150
     {:ok, result} = Crop.execute(op, state(400, 150))
-    {w, h} = dimensions(result)
-    assert w == h
-    assert h <= 150
+    assert {150, 150} == dimensions(result)
   end
 
   test "nil aspect_ratio leaves the crop unchanged" do

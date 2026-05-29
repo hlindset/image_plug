@@ -6,6 +6,7 @@ import {
   cropDimensionSegment,
   cropOptionSegment,
   cropPixelLimit,
+  type DemoState,
   defaultDemoState,
   debounce,
   focalPointFromBounds,
@@ -270,7 +271,11 @@ describe("processing path generation", () => {
   });
 
   it("round-trips exar with gravity", () => {
-    const state = { ...defaultDemoState, aspectCanvasEnabled: true, aspectCanvasGravity: "no" as const };
+    const state = {
+      ...defaultDemoState,
+      aspectCanvasEnabled: true,
+      aspectCanvasGravity: "no" as const,
+    };
     expect(optionSegments(state)).toEqual(["exar:1:no"]);
   });
 
@@ -917,13 +922,23 @@ describe("demo URL state", () => {
     });
   });
 
+  it("round-trips a car-only path through parse and emit", () => {
+    const parsed = parseDemoPath("/demo/car:1.5:1/plain/local:///images/dog.jpg");
+
+    expect(parsed).not.toBeNull();
+    // car must survive serialization even though cropEnabled stays false.
+    expect(optionSegments(parsed as DemoState)).toContain("car:1.5:1");
+  });
+
   it("rejects invalid car values in demo routes", () => {
     expect(parseDemoPath("/demo/car:-1/plain/local:///images/dog.jpg")).toEqual(defaultDemoState);
     expect(parseDemoPath("/demo/car:bad/plain/local:///images/dog.jpg")).toEqual(defaultDemoState);
     expect(parseDemoPath("/demo/car:1.5:bad/plain/local:///images/dog.jpg")).toEqual(
       defaultDemoState,
     );
-    expect(parseDemoPath("/demo/car:1:2:3/plain/local:///images/dog.jpg")).toEqual(defaultDemoState);
+    expect(parseDemoPath("/demo/car:1:2:3/plain/local:///images/dog.jpg")).toEqual(
+      defaultDemoState,
+    );
   });
 
   it("falls back to defaults for invalid demo routes", () => {

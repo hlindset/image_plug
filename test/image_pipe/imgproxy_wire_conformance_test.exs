@@ -286,6 +286,8 @@ defmodule ImagePipe.ImgproxyWireConformanceTest do
     assert with_exar.status == 200
     assert dimensions(base) == {300, 200}
     assert dimensions(with_exar) == {300, 200}
+    # A true no-op must produce byte-identical output, not merely the same size.
+    assert with_exar.resp_body == base.resp_body
   end
 
   test "effect options change decoded response pixels without geometry options" do
@@ -888,24 +890,32 @@ defmodule ImagePipe.ImgproxyWireConformanceTest do
   test "car corrects the crop area aspect ratio (enlarge)" do
     # beach.jpg is 4000x2667. c:100:200:ce crops a 100x200 region (centered).
     # car:1:1 (ratio=1, enlarge) grows the short axis: 100 -> 200, giving 200x200.
+    # Because gravity is unchanged, the corrected crop must sample the same region
+    # as a direct 200x200 centered crop, so the decoded bytes are identical.
     conn = call_imgproxy("/_/c:100:200:ce/car:1:1/f:jpeg/plain/images/beach.jpg", @default_opts)
+    direct = call_imgproxy("/_/c:200:200:ce/f:jpeg/plain/images/beach.jpg", @default_opts)
 
     assert conn.status == 200
     assert dimensions(conn) == {200, 200}
+    assert conn.resp_body == direct.resp_body
   end
 
   test "car works without a resize (no-geometry-resize case)" do
     # beach.jpg is 4000x2667. c:100:200:ce crops a 100x200 region.
     # car:1 (ratio=1, default reduce) shrinks the long axis: 200 -> 100, giving 100x100.
+    # The corrected crop must equal a direct 100x100 centered crop, pixel for pixel.
     conn = call_imgproxy("/_/c:100:200:ce/car:1/f:jpeg/plain/images/beach.jpg", @default_opts)
+    direct = call_imgproxy("/_/c:100:100:ce/f:jpeg/plain/images/beach.jpg", @default_opts)
 
     assert conn.status == 200
     assert dimensions(conn) == {100, 100}
+    assert conn.resp_body == direct.resp_body
   end
 
   test "car leaves gravity placement unchanged" do
     # c:200:400:no + car:1:1 (enlarge) grows short axis: 200 -> 400, giving 400x400 anchored north.
-    # c:400:400:no directly crops 400x400 anchored north — same dimensions, same gravity.
+    # c:400:400:no directly crops 400x400 anchored north. The decoded bytes must be
+    # identical, proving the correction changed only the size and kept the gravity region.
     via_car =
       call_imgproxy("/_/c:200:400:no/car:1:1/f:jpeg/plain/images/beach.jpg", @default_opts)
 
@@ -914,6 +924,7 @@ defmodule ImagePipe.ImgproxyWireConformanceTest do
     assert via_car.status == 200
     assert direct.status == 200
     assert dimensions(via_car) == dimensions(direct)
+    assert via_car.resp_body == direct.resp_body
   end
 
   test "S3 cache miss asks only the selected bucket credential provider before fetch" do

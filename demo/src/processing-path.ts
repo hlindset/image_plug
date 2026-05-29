@@ -302,7 +302,9 @@ export function optionSegments(currentState: DemoState): string[] {
     segments.push(cropSegment);
   }
 
-  if (currentState.cropEnabled && currentState.cropAspectRatioEnabled) {
+  // Emit whenever the toggle is on, independent of cropEnabled, so the segment
+  // round-trips with parseDemoPath (which sets cropAspectRatioEnabled alone).
+  if (currentState.cropAspectRatioEnabled) {
     segments.push(
       currentState.cropAspectRatioEnlarge
         ? `car:${currentState.cropAspectRatio}:1`

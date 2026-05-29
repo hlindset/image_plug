@@ -106,7 +106,7 @@ plan-build time.
 same parsing shape as the sibling `parse_extend/2`: parse the first argument as
 an extend boolean and the optional remainder as gravity. Emit parser fields:
 
-```
+```elixir
 [extend_aspect_ratio: extend?, extend_aspect_ratio_requested: true,
  extend_aspect_ratio_gravity: gravity_or_nil,
  extend_aspect_ratio_x_offset: x_or_nil,

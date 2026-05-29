@@ -421,6 +421,10 @@ defmodule ImagePipe.Parser.Imgproxy.PlanBuilder do
 
   defp extend_aspect_ratio_requested?(%PipelineRequest{extend_aspect_ratio: extend?}), do: extend?
 
+  defp extend_aspect_ratio_emits?(%PipelineRequest{} = request) do
+    extend_aspect_ratio_requested?(request) and match?({:ok, _}, resize_target_ratio(request))
+  end
+
   defp resize_target_ratio(%PipelineRequest{width: {:pixels, w}, height: {:pixels, h}})
        when w > 0 and h > 0,
        do: {:ok, {w, h}}
@@ -580,7 +584,7 @@ defmodule ImagePipe.Parser.Imgproxy.PlanBuilder do
 
   defp effective_padding_pixel_ratio(%PipelineRequest{} = request) do
     mode =
-      if extend_operation_requested?(request) or request.extend_aspect_ratio do
+      if extend_operation_requested?(request) or extend_aspect_ratio_emits?(request) do
         :canvas_preserving
       else
         :resize

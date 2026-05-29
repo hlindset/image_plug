@@ -8,7 +8,7 @@
 
 **Tech Stack:** Elixir, ExUnit, Vix/libvips via the `Image` package, Svelte, TypeScript, Vitest, the demo test runner.
 
-**Source of truth:** `docs/superpowers/specs/2026-05-28-imgproxy-aspect-ratio-geometry-design.md`. imgproxy references at `/Users/hlindset/src/image_plug/local/imgproxy-docs/usage/processing.mdx` (lines 210-221 exar, 299-314 car).
+**Source of truth:** `docs/superpowers/specs/2026-05-28-imgproxy-aspect-ratio-geometry-design.md`. imgproxy reference: the upstream processing-options docs at <https://docs.imgproxy.net/usage/processing> (the `extend_aspect_ratio` and `crop_aspect_ratio` sections).
 
 **Conventions:**
 - Run everything through `mise exec -- …`.
