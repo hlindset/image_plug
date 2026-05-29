@@ -12,6 +12,7 @@ defmodule Mix.Tasks.ImagePipe.Server do
   """
 
   use Mix.Task
+
   use Boundary,
     top_level?: true,
     deps: [ImagePipe.Cache, ImagePipe.SimpleServer, ImagePipe.Telemetry]

@@ -91,7 +91,9 @@ defmodule ImagePipe.Telemetry.LoggerTest do
     log =
       capture_log(fn ->
         # transform group not attached -> nothing logged
-        :telemetry.execute([:image_pipe, :transform, :execute, :stop], %{duration: 1}, %{result: :ok})
+        :telemetry.execute([:image_pipe, :transform, :execute, :stop], %{duration: 1}, %{
+          result: :ok
+        })
       end)
 
     refute log =~ "transform"
