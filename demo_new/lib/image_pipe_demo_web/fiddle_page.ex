@@ -1,8 +1,12 @@
 defmodule ImagePipeDemoWeb.FiddlePage do
   use Hologram.Page
+  use Hologram.JS
   alias ImagePipeDemo.Fiddle.{DemoState, ProcessingPath}
-  alias ImagePipeDemoWeb.Components.Fiddle.RequestTool
+  alias ImagePipeDemoWeb.Components.Fiddle.CommandBar
   alias ImagePipeDemoWeb.Components.Fiddle.CropTool
+  alias ImagePipeDemoWeb.Components.Fiddle.RequestTool
+
+  js_import :copy, from: "./fiddle/clipboard.mjs"
 
   route "/demo"
   layout ImagePipeDemoWeb.FiddleLayout
@@ -16,6 +20,11 @@ defmodule ImagePipeDemoWeb.FiddlePage do
       preview_gen: 0,
       request_open: true
     )
+  end
+
+  def action(:copy_url, _params, component) do
+    _ = JS.call(:copy, ["/img" <> component.state.path]) |> Task.await()
+    component
   end
 
   def action(:toggle_request, _params, component) do
@@ -94,7 +103,7 @@ defmodule ImagePipeDemoWeb.FiddlePage do
         </div>
       </aside>
       <section class="preview-workspace">
-        <div class="preview-command-bar"><code>{@path}</code></div>
+        <CommandBar path={@path} image_url={"/img" <> @path} />
         <div class="preview-canvas"></div>
       </section>
     </div>
