@@ -4,12 +4,15 @@ defmodule ImagePipe.Output.Policy do
   import Plug.Conn, only: [get_req_header: 2]
 
   alias ImagePipe.Format
+  alias ImagePipe.Output.Capabilities
   alias ImagePipe.Output.Negotiation
   alias ImagePipe.Output.Resolved
   alias ImagePipe.Plan.Output
 
   @enforce_keys [:mode, :modern_candidates, :headers, :quality, :format_qualities]
   defstruct @enforce_keys
+
+  @passthrough_source_formats [:jpeg, :png]
 
   @type format() :: Format.output_format()
   @type source_format() :: Format.source_format()
@@ -75,10 +78,25 @@ defmodule ImagePipe.Output.Policy do
     end
   end
 
+  @spec ensure_capable(t(), keyword()) :: :ok | {:error, {:unsupported_output_format, format()}}
+  def ensure_capable(%__MODULE__{mode: {:explicit, format}}, opts) do
+    if Capabilities.supports?(format, opts) do
+      :ok
+    else
+      {:error, {:unsupported_output_format, format}}
+    end
+  end
+
+  def ensure_capable(%__MODULE__{mode: :source}, _opts), do: :ok
+
+  # Only baseline formats pass through as-is. Modern source formats (avif/webp)
+  # are reached here only when the client accepted no modern format, so passing
+  # them through would serve an unaccepted (possibly undecodable) format; route
+  # them and source-only formats to the raster-by-alpha path instead.
   defp resolve_source_format(%__MODULE__{mode: :source}, source_format) do
     cond do
-      Format.output_format?(source_format) -> {:selected, source_format, :source}
-      Format.source_only_format?(source_format) -> {:needs_final_image_alpha, :source}
+      source_format in @passthrough_source_formats -> {:selected, source_format, :source}
+      Format.source_format?(source_format) -> {:needs_final_image_alpha, :source}
       true -> {:error, :source_format_required}
     end
   end

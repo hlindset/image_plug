@@ -58,4 +58,24 @@ defmodule ImagePipe.Output.NegotiationTest do
       assert Negotiation.modern_candidates("image/*;q=0,*/*;q=1", []) == []
     end
   end
+
+  describe "modern_candidates/2 capability filtering" do
+    test "drops avif when the build cannot write it" do
+      opts = [output_capabilities: %{avif: false}]
+
+      assert Negotiation.modern_candidates("image/avif,image/webp", opts) == [:webp]
+    end
+
+    test "an avif-only Accept on an avif-less build yields no modern candidates" do
+      opts = [output_capabilities: %{avif: false}]
+
+      assert Negotiation.modern_candidates("image/avif", opts) == []
+    end
+
+    test "keeps both when the build supports both" do
+      opts = [output_capabilities: %{avif: true, webp: true}]
+
+      assert Negotiation.modern_candidates("image/avif,image/webp", opts) == [:avif, :webp]
+    end
+  end
 end

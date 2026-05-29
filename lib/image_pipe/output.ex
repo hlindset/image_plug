@@ -5,6 +5,7 @@ defmodule ImagePipe.Output do
     top_level?: true,
     deps: [ImagePipe.Format, ImagePipe.Plan],
     exports: [
+      Capabilities,
       Policy,
       Encoder,
       Negotiation,
