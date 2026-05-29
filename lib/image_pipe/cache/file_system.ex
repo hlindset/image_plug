@@ -90,7 +90,7 @@ defmodule ImagePipe.Cache.FileSystem do
   @doc false
   def child_spec(opts) do
     if Keyword.has_key?(opts, :max_size_bytes) do
-      registry_name = registry_name()
+      registry_name = registry_name(Keyword.fetch!(opts, :root))
       derived = derive_bounded_options(opts)
       admission_opts = translate_to_admission_opts(derived, registry_name)
 
@@ -124,7 +124,20 @@ defmodule ImagePipe.Cache.FileSystem do
     |> Keyword.delete(:state_ttl)
   end
 
-  defp registry_name, do: ImagePipe.Cache.FileSystem.Registry
+  # Bounded mode runs one Registry + Admission supervisor per cache root.
+  # Deriving the Registry name from the root (rather than one global name) lets
+  # multiple bounded FileSystem caches coexist in a single VM without clashing
+  # on the Registry process name. Roots are static host configuration, so the
+  # set of derived atoms is bounded and not driven by request input.
+  @doc false
+  def registry_name(root) when is_binary(root) do
+    suffix =
+      :crypto.hash(:sha256, root)
+      |> Base.encode16(case: :lower)
+      |> binary_part(0, 16)
+
+    Module.concat(ImagePipe.Cache.FileSystem.Registry, suffix)
+  end
 
   @impl true
   def get(%Key{} = key, opts) when is_list(opts) do
@@ -293,10 +306,11 @@ defmodule ImagePipe.Cache.FileSystem do
 
   defp lookup_admission(opts) do
     if Keyword.has_key?(opts, :max_size_bytes) do
-      registry_key = {Keyword.fetch!(opts, :root), Keyword.fetch!(opts, :node_id)}
+      root = Keyword.fetch!(opts, :root)
+      registry_key = {root, Keyword.fetch!(opts, :node_id)}
 
       try do
-        case Registry.lookup(registry_name(), registry_key) do
+        case Registry.lookup(registry_name(root), registry_key) do
           [{pid, _}] -> {:ok, pid}
           [] -> :unavailable
         end

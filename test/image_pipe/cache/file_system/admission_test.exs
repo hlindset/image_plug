@@ -607,21 +607,18 @@ defmodule ImagePipe.Cache.FileSystem.AdmissionTest do
   end
 
   defp base_opts(overrides) do
-    Keyword.merge(
-      [
-        registry: overrides[:registry],
-        root: overrides[:tmp_dir],
-        node_id: "test-node",
-        state_dir: Path.join(overrides[:tmp_dir], ".cache_state"),
-        max_size_bytes: overrides[:max_size_bytes] || 1_000_000,
-        window_ratio: overrides[:window_ratio] || 0.01,
-        sketch_depth: 4,
-        sketch_width: overrides[:sketch_width] || 256,
-        doorkeeper_cardinality: overrides[:doorkeeper_cardinality] || 1024,
-        doorkeeper_fpr: overrides[:doorkeeper_fpr] || 0.01
-      ],
-      []
-    )
+    [
+      registry: overrides[:registry],
+      root: overrides[:tmp_dir],
+      node_id: "test-node",
+      state_dir: Path.join(overrides[:tmp_dir], ".cache_state"),
+      max_size_bytes: overrides[:max_size_bytes] || 1_000_000,
+      window_ratio: overrides[:window_ratio] || 0.01,
+      sketch_depth: 4,
+      sketch_width: overrides[:sketch_width] || 256,
+      doorkeeper_cardinality: overrides[:doorkeeper_cardinality] || 1024,
+      doorkeeper_fpr: overrides[:doorkeeper_fpr] || 0.01
+    ]
   end
 
   # Test-local introspection helper: reads the GenServer's :protected ETS

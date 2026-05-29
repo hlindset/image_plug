@@ -1,9 +1,9 @@
 defmodule ImagePipe.Cache.FileSystemBoundedTest do
-  # async: false — the bounded supervision tree registers a Registry under the
-  # global name ImagePipe.Cache.FileSystem.Registry (see FileSystem.child_spec/1
-  # and lookup_admission/1). Two concurrently-booted bounded trees would clash on
-  # that name, so every test in this module runs serially.
-  use ExUnit.Case, async: false
+  # async: true — each test uses a unique cache root, and the bounded
+  # supervision tree derives its Registry name from that root (see
+  # FileSystem.registry_name/1), so concurrently-booted trees never clash on a
+  # process name.
+  use ExUnit.Case, async: true
 
   alias ImagePipe.Cache.Entry
   alias ImagePipe.Cache.FileSystem
@@ -78,7 +78,7 @@ defmodule ImagePipe.Cache.FileSystemBoundedTest do
   end
 
   defp admission_pid(root) do
-    [{pid, _}] = Registry.lookup(ImagePipe.Cache.FileSystem.Registry, {root, @node_id})
+    [{pid, _}] = Registry.lookup(FileSystem.registry_name(root), {root, @node_id})
     pid
   end
 
@@ -289,6 +289,38 @@ defmodule ImagePipe.Cache.FileSystemBoundedTest do
 
     assert Sketch.estimate(state.boot_cms, "hot-a") >= 1
     assert Sketch.estimate(state.boot_cms, "hot-b") >= 1
+  end
+
+  test "two bounded caches with distinct roots coexist in one VM", %{root: root} do
+    other_root = root <> "_second"
+    File.mkdir_p!(other_root)
+    on_exit(fn -> File.rm_rf!(other_root) end)
+
+    opts_a = bounded_opts(root, max_size_bytes: 1_000_000)
+    opts_b = bounded_opts(other_root, max_size_bytes: 1_000_000)
+
+    # Both supervision trees boot without clashing on a Registry process name:
+    # each derives its Registry from its own root.
+    start_supervised!(FileSystem.child_spec(opts_a), id: :cache_a)
+    start_supervised!(FileSystem.child_spec(opts_b), id: :cache_b)
+
+    refute FileSystem.registry_name(root) == FileSystem.registry_name(other_root)
+
+    cache_key = key()
+    assert :ok = put_entry(cache_key, entry("body a"), opts_a)
+    assert :ok = put_entry(cache_key, entry("body b"), opts_b)
+
+    # Each cache tracks and serves its own body independently.
+    assert {:hit, %{body: "body a"}} = FileSystem.get(cache_key, opts_a)
+    assert {:hit, %{body: "body b"}} = FileSystem.get(cache_key, opts_b)
+
+    assert tracked_bytes(admission_pid(root)) == byte_size("body a")
+    assert tracked_bytes(admission_pid(other_root)) == byte_size("body b")
+  end
+
+  defp tracked_bytes(pid) do
+    state = :sys.get_state(pid)
+    state.window_bytes + state.probationary_bytes + state.protected_bytes
   end
 
   # Build a persisted Admission state payload for a peer node whose sketch has
