@@ -54,13 +54,15 @@ tools. The shell and the pure path-builder are structured so these are additive.
    actions at `target: "page"` (verified valid: a stateless component may bind
    `$change={action: …, target: "page"}`). No URL persistence in spike 1.
 2. **Preview — `fetch` + metadata via JS interop.** A JS facade fetches the image, reads blob
-   size + content-type, creates an object URL, loads it into an `Image` for natural
-   dimensions, and returns `{objectUrl, width, height, bytes, contentType}` (or a structured
-   error) to an Elixir action. The facade owns single-flight cancellation and object-URL
-   lifecycle (see Preview).
+   size + content-type, creates an object URL, and loads it into an `Image` for natural
+   dimensions. It **always RESOLVES with a tagged result map** (success / abort / error) and
+   **never rejects** — a rejected Task is not observable in an Elixir action (no `.catch` in
+   the runtime's await/execute path, and `try/rescue` is unimplemented client-side). The facade
+   owns single-flight cancellation and object-URL lifecycle (see Preview).
 3. **Signing — deferred.** Spike 1 uses the unsigned `_` signature segment (the demo plug
    trusts `_`/`unsafe`). HMAC compatibility between Web Crypto and ImagePipe's `signature.ex`
-   was already proven during review, so adding signed mode later is low-risk.
+   was already proven during review, so adding signed mode later is low-risk (see Spike 2
+   backlog for the recipe and invariants).
 4. **Shell — desktop, dark only.** Full two-column shell + command bar + preview canvas. The
    theme toggle and the mobile drawer are deferred (the global stylesheet's `:root` already
    defaults to dark, so no toggle is needed to look right).
@@ -101,11 +103,15 @@ lib/image_pipe_demo_web/
     crop_tool.ex              # width/height (dual-unit + slider) + gravity <select>
     crop_dimension_control.ex # px/%/full unit + number + slider (ports CropDimensionControl.svelte)
     preview_canvas.ex         # checkerboard, <img>, metadata overlay, spinner, error
-    command_bar.ex            # menu placeholder, live parameter code, actions (Copy URL / Open)
+    command_bar.ex            # menu placeholder, live parameter code, actions:
+                             #   Copy URL = copy the live /img/_/{opts}/plain/{source} IMAGE url;
+                             #   Open = open that image url in a new tab.
+                             #   (Neither uses deep-link page state, which is deferred.)
   fiddle/
     demo_state.ex             # DemoState struct + defaults; resets crop px from source
     processing_path.ex        # state -> imgproxy path (pure); ports processing-path.ts
-    sample_images.ex          # [{path, width, height}] — explicit list (no Vite scan)
+    sample_images.ex          # [{path, width, height}] — explicit hardcoded list (no Vite scan):
+                             #   images/dog.jpg {5011,7516} (default), images/beach.jpg {4000,2667}
 priv/static/
   css/fiddle.css             # ported global stylesheet (@scope) + theme variables; Plug.Static
   images/*.jpg               # sample images copied from the library's priv/static/images
@@ -135,22 +141,26 @@ drop one).
 control $change → action on "page" → put_state(field)
    → recompute path = ProcessingPath.build(state)        (pure)
    → put_state(:path); bump :preview_gen
-   → put_action(:commit, delay: 150, gen: preview_gen)    # debounce (one chained action only)
+   → put_action(name: :commit, delay: 150, params: %{gen: preview_gen})   # debounce; ONE chained action
+                                                                          # (longhand: top-level gen: would be ignored)
 
-:commit (client/JS interop): if gen != current :preview_gen → no-op (stale scheduled action)
-                             else put_state(:loading, true) and call preview.mjs (await Task)
-                               → on result  → put_state(metadata, objectUrl); loading false
-                               → on AbortError → no-op (a newer fetch superseded this one)
-                               → on other error → put_state(:preview_error, {status, body})
+:commit (client/JS interop): if params.gen != current :preview_gen → no-op (stale scheduled action)
+                             else put_state(:loading, true) and `Task.await(preview.mjs load)`.
+                             The facade ALWAYS RESOLVES with a tagged map (it never rejects;
+                             a rejected Task never reaches the action's state-application path):
+                               → %{ok: true, …}             → put_state(metadata, objectUrl); loading false
+                               → %{ok: false, kind: "abort"} → return state unchanged (a newer fetch won)
+                               → %{ok: false, …}             → put_state(:preview_error, {status, body})
 ```
 
 - **Debounce** = `delay:` + a generation counter. `delay:` exists for actions and scheduled
   actions cannot be cancelled, so the generation guard is necessary to drop stale *scheduled*
   actions. (`delay` on commands is unimplemented — keep debounced work in actions.)
 - **Stale *responses* are handled in the facade, not Elixir.** `preview.mjs` is single-flight:
-  each call aborts the previous in-flight `fetch`, so a superseded request rejects with
-  `AbortError` (a no-op) instead of landing stale metadata. This is why the Elixir side does
-  not need a second gen re-check after the await.
+  each call aborts the previous in-flight `fetch`. A superseded request **resolves** with
+  `%{ok: false, kind: "abort"}` (it must NOT reject — a rejected Task never reaches the action),
+  which the action ignores, so stale metadata never lands. This is why the Elixir side needs no
+  second gen re-check after the await.
 - **`Task.await` has no enforced client timeout** in the Hologram runtime, so the facade owns
   the timeout (its `AbortController` aborts on a deadline as well as on supersession).
 - **Initial load:** `init/3` builds default state (default source → `resetCropPixelsToSource`)
@@ -158,7 +168,10 @@ control $change → action on "page" → put_state(field)
 
 ## Tools & path encoding
 
-Full preview URL: `/img` (the mounted plug prefix) + `/_/{opts}/plain/{source}`.
+Full preview URL: `/img` (the mounted plug prefix) + `/_/{opts}/plain/{source}`. When Crop is
+disabled there are zero options, giving the **no-geometry** form `/img/_/plain/images/<name>`
+(the parser accepts an empty option list before `plain/`); the preview then returns the source
+re-encoded at its original dimensions.
 
 **Request tool (spike 1):** source `<select>` from `SampleImages`. Changing the source runs
 the `resetCropPixelsToSource` equivalent (crop px defaults + slider limits derive from the
@@ -181,17 +194,24 @@ independently — only the *active* unit's value is authoritative (matches Svelt
 
 `assets/js/fiddle/preview.mjs` exposes an async `load(url) -> {objectUrl, width, height, bytes,
 contentType}`. It is **single-flight** and owns the full lifecycle:
-- Holds the current `AbortController`; aborts the previous in-flight request on each new call
-  and on page teardown. Aborts on a timeout deadline too (since `Task.await` won't time out).
-- `fetch(url, {signal})` → on non-OK, reject with a structured `{status, statusText, body}` so
-  the Elixir action can build the same `"{status}: {body}"` label the Svelte app shows.
+It **always resolves with a tagged map — it never rejects** (a rejected Task is not deliverable
+to an Elixir action: the runtime's await/execute path has no `.catch`, and `try/rescue` is
+unimplemented client-side):
+- `%{ok: true, objectUrl, width, height, bytes, contentType}` on success.
+- `%{ok: false, kind: "http", status, statusText, body}` on a non-OK response, so the action can
+  build the same `"{status}: {body}"` label the Svelte app shows.
+- `%{ok: false, kind: "abort"}` when superseded/aborted (the action ignores it).
+- `%{ok: false, kind: "error", message}` for any thrown/network error (caught in JS).
+
+Lifecycle the facade owns:
+- Holds the current `AbortController`; aborts the previous in-flight request on each new call,
+  on a timeout deadline (since `Task.await` won't time out), and on page teardown.
 - On OK: blob → `createObjectURL` → load into `Image` for natural width/height → resolve.
 - Holds the current object URL; **revokes the previous one** when a new one is ready, and on
   abort/error/teardown. (The Svelte app revokes meticulously; not doing so leaks a blob URL on
   every slider tick.)
 
-The awaiting `:commit` action treats `AbortError` as a no-op and any other rejection as
-`preview_error`.
+The awaiting `:commit` action pattern-matches the resolved map (above) — no `try`/`catch`.
 
 ## CSS strategy (with corrected expectations)
 
@@ -229,6 +249,9 @@ comment so the two don't contradict the next reader.
   (`resetCropPixelsToSource`).
 - One wire-level test: `GET /img/_/c:…/plain/images/…` → `200 image/jpeg` with expected decoded
   output dimensions (reuses the `imgproxy_wire_conformance_test.exs` `c:` pattern).
+- Wire-level no-geometry case: `GET /img/_/plain/images/dog.jpg` → `200 image/jpeg` at the
+  source's original dimensions (crop disabled; per CLAUDE.md, cover the no-geometry form
+  separately).
 - The `preview.mjs` facade is verified manually in-browser (screenshot) during the spike.
 
 ## Risks / things the spike validates
@@ -246,7 +269,9 @@ comment so the two don't contradict the next reader.
   base64url; hex-decode key/salt. Defaults to the plug's configured `keys: ["736563726574"]`,
   `salts: ["68656c6c6f"]` so signed previews validate. **Invariant:** the signed bytes and the
   request URL's source segment must come from one canonical string (use the bare `images/x.jpg`
-  form everywhere) or you get a 403. Do **not** add an Elixir test asserting the HMAC string
+  form everywhere) or you get a 403. This **diverges from the Svelte reference**, which signs the
+  `local:///images/...` form — so do not port the Svelte signing tests as the canonical string.
+  Do **not** add an Elixir test asserting the HMAC string
   (tests the encoding, not the contract) — the wire-level `200` on a signed path is the
   assertion.
 - **Deep-link / URL state:** `route "/demo/:state"` + `param :state, :string` with the canonical
