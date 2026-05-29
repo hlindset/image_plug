@@ -144,6 +144,19 @@ defmodule ImagePipeDemoWeb.FiddlePage do
 
   defp clamp(n, lo, hi), do: n |> max(lo) |> min(hi)
 
+  defp output_label(nil), do: "auto"
+
+  defp output_label(content_type) do
+    fmt =
+      content_type
+      |> String.split(";")
+      |> hd()
+      |> String.trim()
+      |> String.replace_prefix("image/", "")
+
+    "auto → " <> fmt
+  end
+
   def template do
     ~HOLO"""
     <div class="ip-demo fiddle-shell">
@@ -160,7 +173,7 @@ defmodule ImagePipeDemoWeb.FiddlePage do
           loading={@preview_loading}
           error={@preview_error}
           size_label={size_label(@preview_loading, @preview_width, @preview_height, @preview_bytes)}
-          output_label={@preview_content_type || "auto"}
+          output_label={output_label(@preview_content_type)}
         />
       </section>
     </div>

@@ -8,7 +8,7 @@ export async function load(url) {
   const timeout = setTimeout(() => controller.abort(), 15000);
 
   try {
-    const response = await fetch(url, { signal: controller.signal });
+    const response = await fetch(url, { signal: controller.signal, headers: { Accept: "image/avif,image/webp,image/*,*/*;q=0.8" } });
     if (!response.ok) {
       const body = await response.text().catch(() => "");
       return { ok: false, kind: "http", status: response.status, statusText: response.statusText, body };
