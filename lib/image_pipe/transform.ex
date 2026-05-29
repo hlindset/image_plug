@@ -10,7 +10,7 @@ defmodule ImagePipe.Transform do
 
   use Boundary,
     top_level?: true,
-    deps: [ImagePipe.Plan],
+    deps: [ImagePipe.Plan, ImagePipe.Telemetry],
     exports: [
       State,
       Chain,

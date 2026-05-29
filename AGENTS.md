@@ -34,16 +34,14 @@
 ## Telemetry guidelines
 
 - Treat telemetry as part of the runtime observability contract. Use `:telemetry.span/3`-style `:start`, `:stop`, and `:exception` event naming for request and meaningful stage spans.
-- Keep telemetry metadata low-cardinality, product-neutral, and safe by default. Don't emit (unless explicit opt-in is designed and documented):
+- Keep telemetry metadata safe by default. The real constraint is *sensitivity*, not cardinality: metadata fans out to every attached handler (including third-party exporters), so high-cardinality, product-neutral data (transform operation structs, decoded dimensions) is fine, but genuinely sensitive data must not be emitted unless an explicit opt-in is designed and documented. Parser-internal/dialect structs and cache-internal shapes still stay isolated per the namespace guidelines — they should not leak into events. Never emit by default:
   - Full request paths or source URLs
   - Signatures, tokens, credentials
-  - Filenames or other path-derived identifiers
-  - Parser-specific structs (dialect paths, parser-internal shapes)
-  - Transform internals (operation params, libvips state)
-  - Cache adapter internals (cache keys, storage paths)
-- Keep backend integrations out of the library. Emit telemetry events only; host applications should attach AppSignal, OpenTelemetry, metrics, or logging handlers themselves.
+  - Filenames or other path-derived identifiers (including filesystem/storage paths and cache keys)
+- Cardinality is a consumer concern, not an emission concern: `Telemetry.Metrics` requires the metrics author to choose tags, and nothing forwards the raw metadata map to storage. Emit the data; let handlers project it.
+- Keep third-party backend integrations out of the library: hosts attach AppSignal, OpenTelemetry, and metrics handlers themselves. ImagePipe may ship an opt-in default handler that uses only the stdlib `Logger` (`ImagePipe.Telemetry.attach_default_logger/1`); it is never attached automatically.
 - Prefer shared telemetry helpers over ad hoc event emission so naming, measurements, metadata merging, and exception behavior stay consistent.
-- Do not add per-operation transform spans unless the timing semantics are explicitly designed; libvips operations may be lazy, so stage spans are usually more honest than operation-level timings.
+- Per-operation transform spans (`[:transform, :operation]`) are allowed for tracing execution structure (which operations ran, in what order). Their duration reflects pipeline *construction*, not pixel work — libvips is lazy — so never present per-operation duration as compute timing; keep honest aggregate timing on the coarse `[:transform, :execute]` stage span. Per-operation metadata carries the operation name (`:operation`) and position (`:index`), and may include the full operation struct (under the `:params` key) since it is derived from the public request and not sensitive; the default Logger shows the name and only dumps `:params` under `debug: true`.
 
 ## Namespace boundary guidelines
 
