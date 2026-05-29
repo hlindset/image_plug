@@ -4,6 +4,7 @@ defmodule ImagePipe.Application do
   use Boundary,
     top_level?: true,
     deps: [
+      ImagePipe.Output,
       ImagePipe.Request
     ]
 
@@ -12,6 +13,8 @@ defmodule ImagePipe.Application do
   require Logger
 
   def start(_type, _args) do
+    ImagePipe.Output.Capabilities.probe()
+
     children = [
       ImagePipe.Request.SourceSessionSupervisor
     ]
