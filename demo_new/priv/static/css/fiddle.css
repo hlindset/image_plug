@@ -95,7 +95,10 @@ code {
 @scope (.ip-demo) {
   /* --- Shell layout --- */
 
-  .fiddle-shell {
+  /* The page root carries both `ip-demo` (the @scope root) and `fiddle-shell`.
+     A bare `.fiddle-shell` rule inside @scope styles descendants, NOT the scope
+     root itself, so the shell layout must target `:scope` (the root element). */
+  :scope {
     width: 100%;
     height: 100dvh;
     display: flex;
