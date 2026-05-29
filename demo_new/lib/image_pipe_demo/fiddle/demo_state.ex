@@ -18,7 +18,7 @@ defmodule ImagePipeDemo.Fiddle.DemoState do
 
   def default, do: reset_crop_pixels_to_source(%__MODULE__{})
 
-  def reset_crop_pixels_to_source(%__MODULE__{source: source} = state) do
+  defp reset_crop_pixels_to_source(%__MODULE__{source: source} = state) do
     %{state | crop_width: SampleImages.width(source), crop_height: SampleImages.height(source)}
   end
 

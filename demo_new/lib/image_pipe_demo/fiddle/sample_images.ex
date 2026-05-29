@@ -12,5 +12,5 @@ defmodule ImagePipeDemo.Fiddle.SampleImages do
   def width(path), do: dim(path).width
   def height(path), do: dim(path).height
 
-  defp dim(path), do: Enum.find(@images, %{width: 1, height: 1}, &(&1.path == path))
+  defp dim(path), do: Enum.find(@images, &(&1.path == path))
 end

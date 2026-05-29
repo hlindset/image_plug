@@ -7,9 +7,9 @@ defmodule ImagePipeDemo.Fiddle.ProcessingPath do
   alias ImagePipeDemo.Fiddle.DemoState
 
   @doc "Full unsigned path: `/_/{opts}/plain/{source}` (or `/_/plain/{source}` with no opts)."
-  def build(%DemoState{} = state), do: "/_" <> signed_path(state)
+  def build(%DemoState{} = state), do: "/_" <> path_suffix(state)
 
-  defp signed_path(%DemoState{} = state) do
+  defp path_suffix(%DemoState{} = state) do
     opts = state |> option_segments() |> Enum.join("/")
     opts_path = if opts == "", do: "", else: "/" <> opts
     opts_path <> "/plain/" <> state.source

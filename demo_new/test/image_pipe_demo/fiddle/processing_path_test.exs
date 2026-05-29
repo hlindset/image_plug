@@ -20,16 +20,30 @@ defmodule ImagePipeDemo.Fiddle.ProcessingPathTest do
         crop_height_unit: :percent,
         crop_height_percent: 25
     }
+
     assert ProcessingPath.build(s) == "/_/c:0.5:0.25/plain/images/dog.jpg"
   end
 
   test "crop full encodes 0" do
-    s = %{DemoState.default() | crop_enabled: true, crop_width_unit: :full, crop_height_unit: :full}
+    s = %{
+      DemoState.default()
+      | crop_enabled: true,
+        crop_width_unit: :full,
+        crop_height_unit: :full
+    }
+
     assert ProcessingPath.build(s) == "/_/c:0:0/plain/images/dog.jpg"
   end
 
   test "non-inherit crop gravity is appended" do
-    s = %{DemoState.default() | crop_enabled: true, crop_width: 800, crop_height: 600, crop_gravity: "no"}
+    s = %{
+      DemoState.default()
+      | crop_enabled: true,
+        crop_width: 800,
+        crop_height: 600,
+        crop_gravity: "no"
+    }
+
     assert ProcessingPath.build(s) == "/_/c:800:600:no/plain/images/dog.jpg"
   end
 
