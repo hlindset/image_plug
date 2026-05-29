@@ -7,6 +7,13 @@ defmodule ImagePipeDemo.Application do
 
   @impl true
   def start(_type, _args) do
+    # Dev/test harness: surface ImagePipe's telemetry through its built-in,
+    # stdlib-Logger handler. Opt-in and idempotent; production hosts normally
+    # attach their own handlers (metrics/OpenTelemetry/APM) instead. Flip
+    # `debug: true` to also dump raw measurements/metadata (e.g. transform
+    # operation params).
+    ImagePipe.Telemetry.attach_default_logger(level: :info, events: :all)
+
     children = [
       ImagePipeDemoWeb.Telemetry,
       {DNSCluster, query: Application.get_env(:image_pipe_demo, :dns_cluster_query) || :ignore},
