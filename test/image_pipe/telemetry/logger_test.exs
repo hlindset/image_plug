@@ -68,4 +68,53 @@ defmodule ImagePipe.Telemetry.LoggerTest do
   test "rejects an invalid log level" do
     assert_raise ArgumentError, fn -> Telemetry.attach_default_logger(level: :nope) end
   end
+
+  test ":events filter excludes other groups" do
+    Telemetry.attach_default_logger(level: :info, events: [:cache])
+
+    log =
+      capture_log(fn ->
+        # transform group not attached -> nothing logged
+        :telemetry.execute([:image_pipe, :transform, :execute, :stop], %{duration: 1}, %{result: :ok})
+      end)
+
+    refute log =~ "transform"
+  end
+
+  test ":debug true logs the raw payload including high-cardinality fields" do
+    Telemetry.attach_default_logger(level: :debug, debug: true)
+
+    log =
+      capture_log([level: :debug], fn ->
+        :telemetry.execute(
+          [:image_pipe, :transform, :operation, :stop],
+          %{duration: 1},
+          %{operation: :resize, index: 0, params: %{magic: 12_345}, result: :ok}
+        )
+      end)
+
+    assert log =~ "raw:"
+    assert log =~ "12345"
+  end
+
+  test ":prefix attaches under a custom event prefix" do
+    Telemetry.attach_default_logger(level: :info, events: [:cache], prefix: [:my_app, :images])
+
+    log =
+      capture_log(fn ->
+        :telemetry.execute(
+          [:my_app, :images, :cache, :lookup, :stop],
+          %{duration: 1},
+          %{result: :ok, cache: :hit}
+        )
+      end)
+
+    assert log =~ "cache lookup: hit"
+  end
+
+  test "rejects unknown options, bad event groups, and a non-list prefix" do
+    assert_raise ArgumentError, fn -> Telemetry.attach_default_logger(bogus: true) end
+    assert_raise ArgumentError, fn -> Telemetry.attach_default_logger(events: [:nope]) end
+    assert_raise ArgumentError, fn -> Telemetry.attach_default_logger(prefix: "nope") end
+  end
 end
