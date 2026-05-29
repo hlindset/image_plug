@@ -181,7 +181,10 @@ defmodule ImagePipe.Cache.FileSystem.Admission do
           {:error, reason} ->
             require Logger
             # Reason only: the state filename embeds node_id + storage root.
-            Logger.warning("cache: own state file decode failed: reason=#{inspect(reason)}; cold boot")
+            Logger.warning(
+              "cache: own state file decode failed: reason=#{inspect(reason)}; cold boot"
+            )
+
             state
         end
 
@@ -251,15 +254,17 @@ defmodule ImagePipe.Cache.FileSystem.Admission do
     end
   end
 
-  defp validate_state_payload(%{
-         format_version: 1,
-         node_id: node_id,
-         written_at: written_at,
-         aging_epoch: aging_epoch,
-         increments_since_reset: increments_since_reset,
-         sketch: sketch,
-         protected_hashes: protected_hashes
-       } = payload)
+  defp validate_state_payload(
+         %{
+           format_version: 1,
+           node_id: node_id,
+           written_at: written_at,
+           aging_epoch: aging_epoch,
+           increments_since_reset: increments_since_reset,
+           sketch: sketch,
+           protected_hashes: protected_hashes
+         } = payload
+       )
        when is_binary(node_id) and is_integer(written_at) and
               is_integer(aging_epoch) and aging_epoch >= 0 and
               is_integer(increments_since_reset) and increments_since_reset >= 0 and
@@ -271,7 +276,9 @@ defmodule ImagePipe.Cache.FileSystem.Admission do
     end
   end
 
-  defp validate_state_payload(%{format_version: v}), do: {:error, {:unsupported_format_version, v}}
+  defp validate_state_payload(%{format_version: v}),
+    do: {:error, {:unsupported_format_version, v}}
+
   defp validate_state_payload(_other), do: {:error, :invalid_shape}
 
   defp apply_own_state(state, payload) do
@@ -477,8 +484,7 @@ defmodule ImagePipe.Cache.FileSystem.Admission do
 
   @spec admit(pid() | GenServer.name(), map()) ::
           {:admit, [map()]}
-          | {:reject,
-             :over_cap | :score_too_low | :no_evictable_victims | :victim_limit_exceeded}
+          | {:reject, :over_cap | :score_too_low | :no_evictable_victims | :victim_limit_exceeded}
   def admit(server, descriptor) do
     GenServer.call(server, {:admit, descriptor})
   end
@@ -568,7 +574,9 @@ defmodule ImagePipe.Cache.FileSystem.Admission do
   # Low-cardinality outcome tags. `victim_count` is bounded by
   # `eviction_victim_limit`; no key hashes, sizes, or paths.
   defp admission_meta({:admit, victims}), do: %{result: :admitted, victim_count: length(victims)}
-  defp admission_meta({:reject, reason}), do: %{result: :rejected, reason: reason, victim_count: 0}
+
+  defp admission_meta({:reject, reason}),
+    do: %{result: :rejected, reason: reason, victim_count: 0}
 
   defp do_admit(state, descriptor) do
     cond do
@@ -882,9 +890,14 @@ defmodule ImagePipe.Cache.FileSystem.Admission do
       with :ok <- File.mkdir_p(state.state_dir),
            :ok <- File.write(tmp_path, payload, [:binary]),
            :ok <- File.rename(tmp_path, path) do
-        Telemetry.execute(tel_opts(state), [:cache, :flush, :stop], %{bytes: byte_size(payload)}, %{
-          result: :ok
-        })
+        Telemetry.execute(
+          tel_opts(state),
+          [:cache, :flush, :stop],
+          %{bytes: byte_size(payload)},
+          %{
+            result: :ok
+          }
+        )
 
         %{state | state_dirty: false}
       else

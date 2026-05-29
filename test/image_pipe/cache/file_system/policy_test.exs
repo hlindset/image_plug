@@ -61,6 +61,7 @@ defmodule ImagePipe.Cache.FileSystem.PolicyTest do
         descriptor(key_hash: "mid", size_bytes: 100),
         descriptor(key_hash: "mru", size_bytes: 100)
       ]
+
       protected = []
 
       assert {:ok, [v1]} = Policy.victim_walk(probationary, protected, 100, 64)
@@ -97,6 +98,7 @@ defmodule ImagePipe.Cache.FileSystem.PolicyTest do
         descriptor(key_hash: "p1", size_bytes: 100),
         descriptor(key_hash: "p2", size_bytes: 100)
       ]
+
       protected = [descriptor(key_hash: "prot", size_bytes: 100)]
 
       assert {:error, :victim_limit_exceeded} =
@@ -106,12 +108,15 @@ defmodule ImagePipe.Cache.FileSystem.PolicyTest do
     test "returns :no_evictable_victims when both queues together cannot free enough" do
       probationary = [descriptor(size_bytes: 50)]
       protected = [descriptor(size_bytes: 50)]
-      assert {:error, :no_evictable_victims} = Policy.victim_walk(probationary, protected, 200, 64)
+
+      assert {:error, :no_evictable_victims} =
+               Policy.victim_walk(probationary, protected, 200, 64)
     end
 
     test "returns :victim_limit_exceeded when freeing enough bytes requires more victims than the limit" do
       # 10 victims × 100 bytes = 1000 bytes available, but limit is 3.
       probationary = for i <- 1..10, do: descriptor(key_hash: "k#{i}", size_bytes: 100)
+
       assert {:error, :victim_limit_exceeded} =
                Policy.victim_walk(probationary, [], 500, 3)
     end

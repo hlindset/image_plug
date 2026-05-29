@@ -146,7 +146,8 @@ defmodule ImagePipe.Cache.FileSystem.SketchTest do
       summed = Sketch.sum(a, b)
 
       # estimate(k1) on summed must be >= estimate(k1) on a + estimate(k1) on b
-      assert Sketch.estimate(summed, "k1") >= Sketch.estimate(a, "k1") + Sketch.estimate(b, "k1") - 4
+      assert Sketch.estimate(summed, "k1") >=
+               Sketch.estimate(a, "k1") + Sketch.estimate(b, "k1") - 4
     end
   end
 end

@@ -126,7 +126,9 @@ defmodule ImagePipe.Cache.FileSystemBoundedTest do
   end
 
   setup context do
-    root = Path.join(System.tmp_dir!(), "image_pipe_fs_bounded_#{System.unique_integer([:positive])}")
+    root =
+      Path.join(System.tmp_dir!(), "image_pipe_fs_bounded_#{System.unique_integer([:positive])}")
+
     File.rm_rf!(root)
     File.mkdir_p!(root)
     on_exit(fn -> File.rm_rf!(root) end)

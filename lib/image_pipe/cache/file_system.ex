@@ -414,6 +414,7 @@ defmodule ImagePipe.Cache.FileSystem do
 
   defp validate_known_options(opts) do
     all_known_keys = @option_keys ++ @bounded_option_keys
+
     case NimbleOptions.validate(Keyword.take(opts, all_known_keys), @options_schema) do
       {:ok, validated_opts} -> {:ok, validated_opts}
       {:error, error} -> {:error, options_validation_error(error)}
@@ -747,8 +748,13 @@ defmodule ImagePipe.Cache.FileSystem do
 
   @doc false
   @spec read_descriptor(Path.t()) ::
-          {:ok, %{key_hash: binary(), size_bytes: non_neg_integer(), body_sha256: binary(), cost_us: non_neg_integer()},
-           integer()}
+          {:ok,
+           %{
+             key_hash: binary(),
+             size_bytes: non_neg_integer(),
+             body_sha256: binary(),
+             cost_us: non_neg_integer()
+           }, integer()}
           | {:error, term()}
   def read_descriptor(meta_path) do
     with {:ok, meta_binary} <- read_cache_file(meta_path, :metadata),

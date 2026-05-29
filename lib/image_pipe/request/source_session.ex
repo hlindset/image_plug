@@ -253,7 +253,14 @@ defmodule ImagePipe.Request.SourceSession do
        ) do
     with_owner_check(state, fn state ->
       cost_us = System.monotonic_time(:microsecond) - state.fetch_started_at
-      cache_sink = Cache.open_sink(request.cache_key, resolved_output, Keyword.put(request.opts, :cost_us, cost_us))
+
+      cache_sink =
+        Cache.open_sink(
+          request.cache_key,
+          resolved_output,
+          Keyword.put(request.opts, :cost_us, cost_us)
+        )
+
       cache_sink = Cache.write_chunk(cache_sink, first_chunk, request.opts)
 
       prepared = %Prepared{

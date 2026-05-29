@@ -5,7 +5,11 @@ defmodule ImagePipe.Cache.FileSystem.SketchPropertyTest do
   alias ImagePipe.Cache.FileSystem.Sketch
 
   property "estimate(k) is always >= true count of k" do
-    check all keys <- list_of(string(:alphanumeric, min_length: 1, max_length: 16), min_length: 0, max_length: 200) do
+    check all keys <-
+                list_of(string(:alphanumeric, min_length: 1, max_length: 16),
+                  min_length: 0,
+                  max_length: 200
+                ) do
       sketch = Sketch.new(depth: 4, width: 256)
       sketch = Enum.reduce(keys, sketch, &Sketch.increment(&2, &1))
       counts = Enum.frequencies(keys)

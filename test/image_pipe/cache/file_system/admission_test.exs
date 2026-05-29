@@ -108,15 +108,22 @@ defmodule ImagePipe.Cache.FileSystem.AdmissionTest do
     assert {:reject, :over_cap} = Admission.admit(pid, descriptor)
   end
 
-  test "window overflow pushes LRU into main; with free main, evictee goes to probationary", %{registry: registry, tmp_dir: tmp_dir} do
+  test "window overflow pushes LRU into main; with free main, evictee goes to probationary", %{
+    registry: registry,
+    tmp_dir: tmp_dir
+  } do
     # Tiny window so we can force overflow quickly.
-    opts = base_opts(registry: registry, tmp_dir: tmp_dir, max_size_bytes: 100_000, window_ratio: 0.1)
+    opts =
+      base_opts(registry: registry, tmp_dir: tmp_dir, max_size_bytes: 100_000, window_ratio: 0.1)
+
     pid = start_supervised!({Admission, opts})
 
     # window_budget = 10_000. Insert 3 × 5_000-byte entries; the third pushes the first out.
     Admission.admit(pid, %{key_hash: "a", size_bytes: 5_000, body_sha256: "sa", cost_us: 1_000})
     Admission.admit(pid, %{key_hash: "b", size_bytes: 5_000, body_sha256: "sb", cost_us: 1_000})
-    {:admit, victims} = Admission.admit(pid, %{key_hash: "c", size_bytes: 5_000, body_sha256: "sc", cost_us: 1_000})
+
+    {:admit, victims} =
+      Admission.admit(pid, %{key_hash: "c", size_bytes: 5_000, body_sha256: "sc", cost_us: 1_000})
 
     # No victims: main had room for "a".
     assert victims == []
@@ -128,15 +135,28 @@ defmodule ImagePipe.Cache.FileSystem.AdmissionTest do
     assert state.probationary_bytes == 5_000
   end
 
-  test "same-key re-commit returns body-only victim when body_sha256 differs", %{registry: registry, tmp_dir: tmp_dir} do
+  test "same-key re-commit returns body-only victim when body_sha256 differs", %{
+    registry: registry,
+    tmp_dir: tmp_dir
+  } do
     opts = base_opts(registry: registry, tmp_dir: tmp_dir)
     pid = start_supervised!({Admission, opts})
 
     {:admit, []} =
-      Admission.admit(pid, %{key_hash: "k", size_bytes: 1_000, body_sha256: "sha_old", cost_us: 1_000})
+      Admission.admit(pid, %{
+        key_hash: "k",
+        size_bytes: 1_000,
+        body_sha256: "sha_old",
+        cost_us: 1_000
+      })
 
     {:admit, victims} =
-      Admission.admit(pid, %{key_hash: "k", size_bytes: 1_500, body_sha256: "sha_new", cost_us: 2_000})
+      Admission.admit(pid, %{
+        key_hash: "k",
+        size_bytes: 1_500,
+        body_sha256: "sha_new",
+        cost_us: 2_000
+      })
 
     # The victim must point at the OLD body (for deletion) but NOT
     # delete the meta — the meta path is identical for old and new
@@ -152,22 +172,38 @@ defmodule ImagePipe.Cache.FileSystem.AdmissionTest do
            ] = victims
   end
 
-  test "same-key re-commit emits NO victim when body_sha256 matches", %{registry: registry, tmp_dir: tmp_dir} do
+  test "same-key re-commit emits NO victim when body_sha256 matches", %{
+    registry: registry,
+    tmp_dir: tmp_dir
+  } do
     opts = base_opts(registry: registry, tmp_dir: tmp_dir)
     pid = start_supervised!({Admission, opts})
 
     {:admit, []} =
-      Admission.admit(pid, %{key_hash: "k", size_bytes: 1_000, body_sha256: "same_sha", cost_us: 1_000})
+      Admission.admit(pid, %{
+        key_hash: "k",
+        size_bytes: 1_000,
+        body_sha256: "same_sha",
+        cost_us: 1_000
+      })
 
     {:admit, victims} =
-      Admission.admit(pid, %{key_hash: "k", size_bytes: 1_000, body_sha256: "same_sha", cost_us: 1_500})
+      Admission.admit(pid, %{
+        key_hash: "k",
+        size_bytes: 1_000,
+        body_sha256: "same_sha",
+        cost_us: 1_500
+      })
 
     # Content-identical rewrite: nothing to delete (the body file path
     # is the same as the just-renamed candidate body).
     assert victims == []
   end
 
-  test "same-key replacement rejected when new size exceeds max_size_bytes", %{registry: registry, tmp_dir: tmp_dir} do
+  test "same-key replacement rejected when new size exceeds max_size_bytes", %{
+    registry: registry,
+    tmp_dir: tmp_dir
+  } do
     opts = base_opts(registry: registry, tmp_dir: tmp_dir, max_size_bytes: 10_000)
     pid = start_supervised!({Admission, opts})
 
@@ -175,7 +211,12 @@ defmodule ImagePipe.Cache.FileSystem.AdmissionTest do
       Admission.admit(pid, %{key_hash: "k", size_bytes: 1_000, body_sha256: "sa", cost_us: 1_000})
 
     assert {:reject, :over_cap} =
-             Admission.admit(pid, %{key_hash: "k", size_bytes: 20_000, body_sha256: "sb", cost_us: 1_000})
+             Admission.admit(pid, %{
+               key_hash: "k",
+               size_bytes: 20_000,
+               body_sha256: "sb",
+               cost_us: 1_000
+             })
 
     state = :sys.get_state(pid)
     # Old entry still tracked
@@ -192,7 +233,12 @@ defmodule ImagePipe.Cache.FileSystem.AdmissionTest do
     {:admit, []} = Admission.admit(pid, descriptor)
 
     # Force window→main by overflowing window
-    Admission.admit(pid, %{key_hash: "filler", size_bytes: 1_000, body_sha256: "f", cost_us: 1_000})
+    Admission.admit(pid, %{
+      key_hash: "filler",
+      size_bytes: 1_000,
+      body_sha256: "f",
+      cost_us: 1_000
+    })
 
     # hit/2 takes a full descriptor (Task 13); on a tracked key the
     # promote path uses the located descriptor and ignores these fields.
@@ -210,7 +256,10 @@ defmodule ImagePipe.Cache.FileSystem.AdmissionTest do
     refute in_queue?(state.probationary, "k")
   end
 
-  test "aging triggers when local CMS sample threshold is hit", %{registry: registry, tmp_dir: tmp_dir} do
+  test "aging triggers when local CMS sample threshold is hit", %{
+    registry: registry,
+    tmp_dir: tmp_dir
+  } do
     opts = base_opts(registry: registry, tmp_dir: tmp_dir, sketch_width: 4)
     pid = start_supervised!({Admission, opts})
 
@@ -224,7 +273,10 @@ defmodule ImagePipe.Cache.FileSystem.AdmissionTest do
     assert state.local_cms.aging_epoch >= 1
   end
 
-  test "flush ticker writes the state file when state is dirty", %{registry: registry, tmp_dir: tmp_dir} do
+  test "flush ticker writes the state file when state is dirty", %{
+    registry: registry,
+    tmp_dir: tmp_dir
+  } do
     opts = base_opts(registry: registry, tmp_dir: tmp_dir, flush_interval_ms: 50)
     pid = start_supervised!({Admission, opts})
 
@@ -236,7 +288,10 @@ defmodule ImagePipe.Cache.FileSystem.AdmissionTest do
     assert File.exists?(state_file)
   end
 
-  test "flush errors log + emit telemetry without crashing Admission", %{registry: registry, tmp_dir: tmp_dir} do
+  test "flush errors log + emit telemetry without crashing Admission", %{
+    registry: registry,
+    tmp_dir: tmp_dir
+  } do
     # Configure state_dir to a path that can't be written to (e.g., a
     # file masquerading as a directory). Trigger flush; assert Admission
     # is still alive and serving.
@@ -275,7 +330,10 @@ defmodule ImagePipe.Cache.FileSystem.AdmissionTest do
     assert File.exists?(state_file)
   end
 
-  test "boot warm-starts from own state file (CMS restored; doorkeeper starts empty)", %{registry: registry, tmp_dir: tmp_dir} do
+  test "boot warm-starts from own state file (CMS restored; doorkeeper starts empty)", %{
+    registry: registry,
+    tmp_dir: tmp_dir
+  } do
     opts = base_opts(registry: registry, tmp_dir: tmp_dir)
     state_dir = Keyword.fetch!(opts, :state_dir)
     File.mkdir_p!(state_dir)
@@ -380,7 +438,10 @@ defmodule ImagePipe.Cache.FileSystem.AdmissionTest do
     assert state.probationary_bytes == 5_000
   end
 
-  test "background scan inserts on-disk entries into probationary", %{registry: registry, tmp_dir: tmp_dir} do
+  test "background scan inserts on-disk entries into probationary", %{
+    registry: registry,
+    tmp_dir: tmp_dir
+  } do
     # Pre-place a real entry on disk via the FileSystem adapter so the
     # meta payload is valid for read_descriptor/1.
     put_disk_entry(tmp_dir, hex_hash("a"), "encoded image body")
@@ -395,7 +456,10 @@ defmodule ImagePipe.Cache.FileSystem.AdmissionTest do
     assert in_queue?(state.probationary, hex_hash("a"))
   end
 
-  test "scan does not overwrite a key already inserted by runtime traffic", %{registry: registry, tmp_dir: tmp_dir} do
+  test "scan does not overwrite a key already inserted by runtime traffic", %{
+    registry: registry,
+    tmp_dir: tmp_dir
+  } do
     hash = hex_hash("b")
     # Pre-place an entry on disk with one size.
     put_disk_entry(tmp_dir, hash, "old-on-disk-body")
@@ -426,7 +490,10 @@ defmodule ImagePipe.Cache.FileSystem.AdmissionTest do
     assert located.body_sha256 == "runtime_sha"
   end
 
-  test "protected entries are restored in LRU-to-MRU order from persisted state", %{registry: registry, tmp_dir: tmp_dir} do
+  test "protected entries are restored in LRU-to-MRU order from persisted state", %{
+    registry: registry,
+    tmp_dir: tmp_dir
+  } do
     older = hex_hash("abcd")
     newer = hex_hash("ef01")
 
@@ -471,7 +538,10 @@ defmodule ImagePipe.Cache.FileSystem.AdmissionTest do
     assert ordered == [older, newer]
   end
 
-  test "boot reconciliation evicts LRU until usage is under cap", %{registry: registry, tmp_dir: tmp_dir} do
+  test "boot reconciliation evicts LRU until usage is under cap", %{
+    registry: registry,
+    tmp_dir: tmp_dir
+  } do
     # Place several entries on disk whose total exceeds a small cap.
     h1 = hex_hash("c1")
     h2 = hex_hash("c2")

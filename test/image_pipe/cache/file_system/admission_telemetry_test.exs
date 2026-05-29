@@ -81,7 +81,9 @@ defmodule ImagePipe.Cache.FileSystem.AdmissionTelemetryTest do
     assert {:admit, []} = Admission.admit(pid, descriptor)
 
     stop_event = ctx.prefix ++ [:cache, :admission, :stop]
-    assert_receive {:telemetry, ^stop_event, %{duration: _}, %{result: :admitted, victim_count: 0}}
+
+    assert_receive {:telemetry, ^stop_event, %{duration: _},
+                    %{result: :admitted, victim_count: 0}}
   end
 
   test "emits an admission span with a rejected result on over-cap", ctx do
@@ -114,7 +116,9 @@ defmodule ImagePipe.Cache.FileSystem.AdmissionTelemetryTest do
 
     stop_event = ctx.prefix ++ [:cache, :eviction, :stop]
 
-    assert_receive {:telemetry, ^stop_event, %{count: count, bytes: bytes}, %{trigger: :reconcile}}
+    assert_receive {:telemetry, ^stop_event, %{count: count, bytes: bytes},
+                    %{trigger: :reconcile}}
+
     assert count >= 1
     assert bytes >= 5_000
   end
