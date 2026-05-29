@@ -150,6 +150,15 @@ defmodule ImagePipe.Response.Sender do
   defp handle_processing_error(conn, :empty_pipeline_plan, response_headers),
     do: send_plan_validation_error(conn, :empty_pipeline_plan, response_headers)
 
+  defp handle_processing_error(
+         conn,
+         {:unsupported_output_format, _format} = reason,
+         response_headers
+       ) do
+    Logger.info("unsupported_output_format: #{inspect(reason)}")
+    send_unsupported_output_format_error(conn, response_headers)
+  end
+
   defp handle_processing_error(conn, {tag, _value} = reason, response_headers)
        when tag in @plan_validation_error_tags do
     send_plan_validation_error(conn, reason, response_headers)
@@ -158,6 +167,13 @@ defmodule ImagePipe.Response.Sender do
   defp send_plan_validation_error(conn, reason, response_headers) do
     Logger.info("plan_validation_error: #{inspect(reason)}")
     send_transform_error(conn, response_headers)
+  end
+
+  defp send_unsupported_output_format_error(%Plug.Conn{} = conn, response_headers) do
+    conn
+    |> put_resp_headers(response_headers)
+    |> put_resp_content_type("text/plain")
+    |> send_resp(501, "requested output format is not supported by this server")
   end
 
   defp send_decode_error(%Plug.Conn{} = conn, _error, response_headers) do

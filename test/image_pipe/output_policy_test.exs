@@ -279,4 +279,43 @@ defmodule ImagePipe.Output.PolicyTest do
                 }}
     end
   end
+
+  describe "ensure_capable/2" do
+    test "rejects an explicit format the build cannot write" do
+      policy = %Policy{
+        mode: {:explicit, :avif},
+        modern_candidates: [],
+        headers: [],
+        quality: :default,
+        format_qualities: %{}
+      }
+
+      assert Policy.ensure_capable(policy, output_capabilities: %{avif: false}) ==
+               {:error, {:unsupported_output_format, :avif}}
+    end
+
+    test "allows a supported explicit format" do
+      policy = %Policy{
+        mode: {:explicit, :avif},
+        modern_candidates: [],
+        headers: [],
+        quality: :default,
+        format_qualities: %{}
+      }
+
+      assert Policy.ensure_capable(policy, output_capabilities: %{avif: true}) == :ok
+    end
+
+    test "automatic mode is always capable (resolution handles fallback)" do
+      policy = %Policy{
+        mode: :source,
+        modern_candidates: [],
+        headers: [{"vary", "Accept"}],
+        quality: :default,
+        format_qualities: %{}
+      }
+
+      assert Policy.ensure_capable(policy, output_capabilities: %{avif: false}) == :ok
+    end
+  end
 end

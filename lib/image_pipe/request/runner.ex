@@ -104,28 +104,34 @@ defmodule ImagePipe.Request.Runner do
   defp process_prepared_stream(conn, plan, resolved_source, cache_key, prepared_http_cache, opts) do
     policy = Policy.from_output_plan(conn, plan.output, opts)
 
-    request = %SessionRequest{
-      plan: plan,
-      resolved_source: resolved_source,
-      output_policy: policy,
-      opts: opts,
-      cache_key: cache_key
-    }
+    case Policy.ensure_capable(policy, opts) do
+      :ok ->
+        request = %SessionRequest{
+          plan: plan,
+          resolved_source: resolved_source,
+          output_policy: policy,
+          opts: opts,
+          cache_key: cache_key
+        }
 
-    supervisor = Keyword.get(opts, :source_session_supervisor, SourceSessionSupervisor)
+        supervisor = Keyword.get(opts, :source_session_supervisor, SourceSessionSupervisor)
 
-    case SourceSessionSupervisor.start_session(supervisor, request) do
-      {:ok, session} ->
-        prepare_supervised_session(
-          session,
-          supervisor,
-          plan.response,
-          policy,
-          prepared_http_cache
-        )
+        case SourceSessionSupervisor.start_session(supervisor, request) do
+          {:ok, session} ->
+            prepare_supervised_session(
+              session,
+              supervisor,
+              plan.response,
+              policy,
+              prepared_http_cache
+            )
+
+          {:error, reason} ->
+            {:error, {:processing, normalize_session_prepare_error(reason), policy.headers}}
+        end
 
       {:error, reason} ->
-        {:error, {:processing, normalize_session_prepare_error(reason), policy.headers}}
+        {:error, {:processing, reason, policy.headers}}
     end
   end
 

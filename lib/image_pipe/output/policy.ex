@@ -4,6 +4,7 @@ defmodule ImagePipe.Output.Policy do
   import Plug.Conn, only: [get_req_header: 2]
 
   alias ImagePipe.Format
+  alias ImagePipe.Output.Capabilities
   alias ImagePipe.Output.Negotiation
   alias ImagePipe.Output.Resolved
   alias ImagePipe.Plan.Output
@@ -76,6 +77,17 @@ defmodule ImagePipe.Output.Policy do
         end
     end
   end
+
+  @spec ensure_capable(t(), keyword()) :: :ok | {:error, {:unsupported_output_format, format()}}
+  def ensure_capable(%__MODULE__{mode: {:explicit, format}}, opts) do
+    if Capabilities.supports?(format, opts) do
+      :ok
+    else
+      {:error, {:unsupported_output_format, format}}
+    end
+  end
+
+  def ensure_capable(%__MODULE__{mode: :source}, _opts), do: :ok
 
   # Only baseline formats pass through as-is. Modern source formats (avif/webp)
   # are reached here only when the client accepted no modern format, so passing
