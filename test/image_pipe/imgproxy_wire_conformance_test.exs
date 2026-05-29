@@ -79,6 +79,21 @@ defmodule ImagePipe.ImgproxyWireConformanceTest do
     end
   end
 
+  defmodule AvifOriginImage do
+    @moduledoc false
+
+    def call(conn, _opts) do
+      body =
+        64
+        |> Image.new!(64, color: :red)
+        |> Image.write!(:memory, suffix: ".avif")
+
+      conn
+      |> Plug.Conn.put_resp_content_type("image/avif")
+      |> Plug.Conn.send_resp(200, body)
+    end
+  end
+
   @default_opts [
     parser: ImagePipe.Parser.Imgproxy,
     sources: [
@@ -964,6 +979,115 @@ defmodule ImagePipe.ImgproxyWireConformanceTest do
     assert_received {:fetch_credentials, "tenant-a", [role: "tenant-a"], _runtime_opts}
     refute_received {:fetch_credentials, "tenant-a", [role: "default"], _runtime_opts}
     refute_received {:fetch_credentials, "tenant-b", [role: "tenant-b"], _runtime_opts}
+  end
+
+  describe "output capability handling" do
+    test "automatic negotiation drops avif when the build cannot write it" do
+      opts = Keyword.put(@default_opts, :output_capabilities, %{avif: false})
+
+      conn = call_imgproxy("/_/plain/images/beach.jpg", opts, "image/avif,image/webp")
+
+      assert conn.status == 200
+      assert content_type(conn) == ["image/webp"]
+      assert get_resp_header(conn, "vary") == ["Accept"]
+    end
+
+    test "automatic negotiation keeps avif when the build supports it" do
+      opts = Keyword.put(@default_opts, :output_capabilities, %{avif: true})
+
+      conn = call_imgproxy("/_/plain/images/beach.jpg", opts, "image/avif,image/webp")
+
+      assert conn.status == 200
+      assert content_type(conn) == ["image/avif"]
+    end
+
+    test "an avif source with a jpeg-only Accept transcodes to raster regardless of capability" do
+      base = [
+        parser: ImagePipe.Parser.Imgproxy,
+        sources: [
+          path:
+            {RootHTTPAdapter,
+             root_url: "http://origin.test", req_options: [plug: AvifOriginImage]}
+        ]
+      ]
+
+      for capability <- [%{avif: true}, %{avif: false}] do
+        opts = Keyword.put(base, :output_capabilities, capability)
+
+        conn = call_imgproxy("/_/plain/images/cat.avif", opts, "image/jpeg")
+
+        assert conn.status == 200
+        # 64x64 solid red has no alpha -> JPEG, never AVIF, for either build.
+        assert content_type(conn) == ["image/jpeg"]
+        # Decode confirms valid raster output at the source dimensions.
+        assert dimensions(conn) == {64, 64}
+      end
+    end
+
+    test "an avif-capable and avif-less build caches distinct variants for the same Accept" do
+      {base, cache_root} = cached_opts()
+
+      try do
+        capable = Keyword.put(base, :output_capabilities, %{avif: true})
+        incapable = Keyword.put(base, :output_capabilities, %{avif: false})
+        accept = "image/avif,image/webp"
+        path = "/_/plain/images/beach.jpg"
+
+        capable_conn = call_imgproxy(path, capable, accept)
+        assert content_type(capable_conn) == ["image/avif"]
+        assert_received :origin_fetch
+
+        incapable_conn = call_imgproxy(path, incapable, accept)
+        assert content_type(incapable_conn) == ["image/webp"]
+        # Distinct filtered candidate list -> distinct key -> a second origin fetch.
+        assert_received :origin_fetch
+
+        # A repeat under the capable profile is served from cache without
+        # re-fetching the origin, proving the filtered candidate list keys the two
+        # variants apart (no cross-contamination from the webp entry).
+        repeat_capable = call_imgproxy(path, capable, accept)
+        assert content_type(repeat_capable) == ["image/avif"]
+        assert repeat_capable.resp_body == capable_conn.resp_body
+        refute_received :origin_fetch
+      after
+        File.rm_rf!(cache_root)
+      end
+    end
+
+    test "a jpeg source with a jpeg-only Accept passes through as jpeg" do
+      conn = call_imgproxy("/_/plain/images/beach.jpg", @default_opts, "image/jpeg")
+
+      assert conn.status == 200
+      assert content_type(conn) == ["image/jpeg"]
+    end
+
+    test "explicit avif is rejected before source fetch on an avif-less build" do
+      opts = [
+        parser: ImagePipe.Parser.Imgproxy,
+        sources: [
+          path:
+            {RootHTTPAdapter,
+             root_url: "http://origin.test", req_options: [plug: OriginShouldNotFetch]}
+        ],
+        output_capabilities: %{avif: false}
+      ]
+
+      conn = call_imgproxy("/_/f:avif/plain/images/beach.jpg", opts)
+
+      assert conn.status == 501
+      # OriginShouldNotFetch flunks/raises if the source is fetched; reaching 501
+      # without that proves the rejection happened pre-fetch.
+    end
+
+    test "explicit avif succeeds on a capable build" do
+      opts = Keyword.put(@default_opts, :output_capabilities, %{avif: true})
+
+      conn = call_imgproxy("/_/f:avif/plain/images/beach.jpg", opts)
+
+      assert conn.status == 200
+      assert content_type(conn) == ["image/avif"]
+      assert get_resp_header(conn, "vary") == []
+    end
   end
 
   defp cached_opts(overrides \\ []) do
