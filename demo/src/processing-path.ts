@@ -36,8 +36,7 @@ export type DemoState = {
   minHeightEnabled: boolean;
   minHeight: number;
   aspectCanvasEnabled: boolean;
-  extendAspectWidth: number;
-  extendAspectHeight: number;
+  aspectCanvasGravity: Gravity | "ce";
   paddingEnabled: boolean;
   paddingTop: number;
   paddingRight: number;
@@ -81,6 +80,9 @@ export type DemoState = {
   cropHeight: number;
   cropHeightPercent: number;
   cropGravity: CropGravity;
+  cropAspectRatioEnabled: boolean;
+  cropAspectRatio: number;
+  cropAspectRatioEnlarge: boolean;
   formatEnabled: boolean;
   format: OutputFormat;
   qualityEnabled: boolean;
@@ -126,10 +128,6 @@ export const controlLimits = {
     minWidth: { min: 0, max: 1600, step: 1 },
     minHeight: { min: 0, max: 1000, step: 1 },
   },
-  aspectCanvas: {
-    width: { min: 1, max: 32, step: 1 },
-    height: { min: 1, max: 32, step: 1 },
-  },
   padding: { min: 0, max: 240, step: 1 },
   alpha: { min: 0, max: 1, step: 0.1 },
   effects: {
@@ -148,7 +146,6 @@ export const controlLimits = {
   resize: Record<ImageDimensionAxis, NumericControlLimit>;
   crop: { percent: NumericControlLimit };
   scale: Record<"zoom" | "dpr" | "minWidth" | "minHeight", NumericControlLimit>;
-  aspectCanvas: Record<ImageDimensionAxis, NumericControlLimit>;
   padding: NumericControlLimit;
   alpha: NumericControlLimit;
   effects: Record<
@@ -223,8 +220,7 @@ export const defaultDemoState: DemoState = {
   minHeightEnabled: false,
   minHeight: 180,
   aspectCanvasEnabled: false,
-  extendAspectWidth: 16,
-  extendAspectHeight: 9,
+  aspectCanvasGravity: "ce",
   paddingEnabled: false,
   paddingTop: 24,
   paddingRight: 24,
@@ -268,6 +264,9 @@ export const defaultDemoState: DemoState = {
   cropHeight: sourceDimension("images/dog.jpg", "height"),
   cropHeightPercent: 50,
   cropGravity: "inherit",
+  cropAspectRatioEnabled: false,
+  cropAspectRatio: 1,
+  cropAspectRatioEnlarge: false,
   formatEnabled: false,
   format: "jpeg",
   qualityEnabled: false,
@@ -303,6 +302,16 @@ export function optionSegments(currentState: DemoState): string[] {
     segments.push(cropSegment);
   }
 
+  // Emit whenever the toggle is on, independent of cropEnabled, so the segment
+  // round-trips with parseDemoPath (which sets cropAspectRatioEnabled alone).
+  if (currentState.cropAspectRatioEnabled) {
+    segments.push(
+      currentState.cropAspectRatioEnlarge
+        ? `car:${currentState.cropAspectRatio}:1`
+        : `car:${currentState.cropAspectRatio}`,
+    );
+  }
+
   const resizeSegment = resizeOptionSegment(currentState);
 
   if (resizeSegment !== null) {
@@ -326,7 +335,11 @@ export function optionSegments(currentState: DemoState): string[] {
   }
 
   if (currentState.aspectCanvasEnabled) {
-    segments.push(`exar:${currentState.extendAspectWidth}:${currentState.extendAspectHeight}`);
+    segments.push(
+      currentState.aspectCanvasGravity === "ce"
+        ? "exar:1"
+        : `exar:1:${currentState.aspectCanvasGravity}`,
+    );
   }
 
   if (currentState.paddingEnabled) {

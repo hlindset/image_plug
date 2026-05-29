@@ -56,6 +56,3 @@ local
 scripts/*.csv
 scripts/scrubbed_prod_config.py
 __pycache__
-
-docs/superpowers/
-

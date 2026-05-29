@@ -50,7 +50,7 @@ defmodule ImagePipe.Plan.Operation do
     :zoom_x,
     :zoom_y
   ]
-  @crop_guided_keys [:x_offset, :y_offset]
+  @crop_guided_keys [:x_offset, :y_offset, :aspect_ratio, :enlarge]
   @canvas_keys [:fill, :overflow, :x_offset, :y_offset]
   @padding_keys [:pixel_ratio, :fill]
   @effective_padding_modes [:resize, :canvas_preserving]
@@ -172,14 +172,18 @@ defmodule ImagePipe.Plan.Operation do
          {:ok, height} <- tagged_crop_dimension(height),
          {:ok, guide} <- tagged_crop_guide(guide),
          {:ok, x_offset} <- offset(opts, :x_offset, {:pixels, 0.0}),
-         {:ok, y_offset} <- offset(opts, :y_offset, {:pixels, 0.0}) do
+         {:ok, y_offset} <- offset(opts, :y_offset, {:pixels, 0.0}),
+         {:ok, aspect_ratio} <- crop_aspect_ratio_option(Keyword.get(opts, :aspect_ratio)),
+         {:ok, enlarge} <- crop_enlarge_option(Keyword.get(opts, :enlarge, false)) do
       {:ok,
        %CropGuided{
          width: width,
          height: height,
          guide: guide,
          x_offset: x_offset,
-         y_offset: y_offset
+         y_offset: y_offset,
+         aspect_ratio: aspect_ratio,
+         enlarge: enlarge
        }}
     else
       {:error, {:unknown_operation_options, _operation, _keys} = reason} ->
@@ -377,12 +381,26 @@ defmodule ImagePipe.Plan.Operation do
          {:ok, _height} <- tagged_crop_dimension(operation.height),
          {:ok, _guide} <- tagged_crop_guide(operation.guide),
          :ok <- tagged_offset(operation.x_offset),
-         :ok <- tagged_offset(operation.y_offset) do
+         :ok <- tagged_offset(operation.y_offset),
+         {:ok, _aspect_ratio} <- crop_aspect_ratio_option(operation.aspect_ratio),
+         {:ok, _enlarge} <- crop_enlarge_option(operation.enlarge) do
       true
     else
       _error -> false
     end
   end
+
+  defp crop_aspect_ratio_option(nil), do: {:ok, nil}
+
+  defp crop_aspect_ratio_option({:ratio, numerator, denominator} = ratio)
+       when is_integer(numerator) and is_integer(denominator) and numerator > 0 and
+              denominator > 0,
+       do: {:ok, ratio}
+
+  defp crop_aspect_ratio_option(other), do: {:error, {:invalid_crop_aspect_ratio, other}}
+
+  defp crop_enlarge_option(enlarge) when is_boolean(enlarge), do: {:ok, enlarge}
+  defp crop_enlarge_option(other), do: {:error, {:invalid_crop_enlarge, other}}
 
   defp valid_crop_region?(%CropRegion{} = operation) do
     with {:ok, _x} <- tagged_crop_coordinate(operation.x),

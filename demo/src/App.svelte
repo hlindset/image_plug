@@ -125,7 +125,9 @@
       .join("/") || "Off";
   $: resizeSummary = state.resizeEnabled ? (resizeOptionSegment(state) ?? "Off") : "Off";
   $: aspectCanvasSummary = state.aspectCanvasEnabled
-    ? `exar:${state.extendAspectWidth}:${state.extendAspectHeight}`
+    ? state.aspectCanvasGravity === "ce"
+      ? "exar:1"
+      : `exar:1:${state.aspectCanvasGravity}`
     : "Off";
   $: paddingSummary = state.paddingEnabled
     ? `pd:${state.paddingTop}:${state.paddingRight}:${state.paddingBottom}:${state.paddingLeft}`
@@ -135,6 +137,11 @@
     : "Off";
   $: effectsSummary = effectSegments(state).join("/") || "Off";
   $: cropSummary = state.cropEnabled ? (cropOptionSegment(state) ?? "Off") : "Off";
+  $: cropAspectRatioSummary = state.cropAspectRatioEnabled
+    ? state.cropAspectRatioEnlarge
+      ? `car:${state.cropAspectRatio}:1`
+      : `car:${state.cropAspectRatio}`
+    : "Off";
   $: resizeExtras = [
     state.zoomEnabled ? `z:${state.zoom}` : null,
     state.dprEnabled ? `dpr:${state.dpr}` : null,
@@ -728,6 +735,30 @@
 
       <section class="tool-section">
         <ToolToggleHeader
+          title="Crop aspect ratio"
+          summary={cropAspectRatioSummary}
+          bind:checked={state.cropAspectRatioEnabled}
+        />
+
+        {#if state.cropAspectRatioEnabled}
+          <RangeNumber
+            label="Ratio"
+            bind:value={state.cropAspectRatio}
+            min={0}
+            max={10}
+            step={0.1}
+          />
+          <label class="switch-field">
+            <Switch.Root class="switch-root" bind:checked={state.cropAspectRatioEnlarge}>
+              <Switch.Thumb class="switch-thumb" />
+            </Switch.Root>
+            <span>Enlarge</span>
+          </label>
+        {/if}
+      </section>
+
+      <section class="tool-section">
+        <ToolToggleHeader
           title="Gravity"
           summary={state.gravityEnabled ? gravitySegment(state) : "Off"}
           bind:checked={state.gravityEnabled}
@@ -952,20 +983,20 @@
         />
 
         {#if state.aspectCanvasEnabled}
-          <RangeNumber
-            label="Ratio width"
-            bind:value={state.extendAspectWidth}
-            min={controlLimits.aspectCanvas.width.min}
-            max={controlLimits.aspectCanvas.width.max}
-            step={controlLimits.aspectCanvas.width.step}
-          />
-          <RangeNumber
-            label="Ratio height"
-            bind:value={state.extendAspectHeight}
-            min={controlLimits.aspectCanvas.height.min}
-            max={controlLimits.aspectCanvas.height.max}
-            step={controlLimits.aspectCanvas.height.step}
-          />
+          <label class="field">
+            <span>Gravity</span>
+            <select bind:value={state.aspectCanvasGravity}>
+              <option value="ce">center</option>
+              <option value="no">north</option>
+              <option value="so">south</option>
+              <option value="ea">east</option>
+              <option value="we">west</option>
+              <option value="noea">north east</option>
+              <option value="nowe">north west</option>
+              <option value="soea">south east</option>
+              <option value="sowe">south west</option>
+            </select>
+          </label>
         {/if}
       </section>
 

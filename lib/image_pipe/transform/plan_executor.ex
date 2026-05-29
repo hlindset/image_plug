@@ -132,7 +132,9 @@ defmodule ImagePipe.Transform.PlanExecutor do
         crop_from: :gravity,
         gravity: tagged_executable_gravity(operation.guide),
         x_offset: operation.x_offset,
-        y_offset: operation.y_offset
+        y_offset: operation.y_offset,
+        aspect_ratio: operation.aspect_ratio,
+        enlarge: operation.enlarge
       }
     ]
   end

@@ -263,6 +263,33 @@ defmodule ImagePipe.ImgproxyWireConformanceTest do
     end
   end
 
+  test "exar:1 under fit extends the canvas to the resize aspect ratio" do
+    # beach.jpg is 4000x2667 (landscape). rs:fit:300:300 scales it to 300x200 (width
+    # is the binding axis). exar:1 extends the canvas to the 1:1 requested ratio,
+    # padding the deficient axis: height grows from 200 to 300, giving a 300x300 output.
+    conn = call_imgproxy("/_/rs:fit:300:300/exar:1/f:jpeg/plain/images/beach.jpg", @default_opts)
+
+    assert conn.status == 200
+    assert dimensions(conn) == {300, 300}
+  end
+
+  test "exar:1 under force is a no-op when the image already matches the requested ratio" do
+    # beach.jpg is 4000x2667. rs:force:300:200 hard-scales it to exactly 300x200.
+    # exar:1 would extend to the requested 300:200 (3:2) ratio, but the canvas is
+    # already 3:2, so no padding is added and output dimensions are identical.
+    base = call_imgproxy("/_/rs:force:300:200/f:jpeg/plain/images/beach.jpg", @default_opts)
+
+    with_exar =
+      call_imgproxy("/_/rs:force:300:200/exar:1/f:jpeg/plain/images/beach.jpg", @default_opts)
+
+    assert base.status == 200
+    assert with_exar.status == 200
+    assert dimensions(base) == {300, 200}
+    assert dimensions(with_exar) == {300, 200}
+    # A true no-op must produce byte-identical output, not merely the same size.
+    assert with_exar.resp_body == base.resp_body
+  end
+
   test "effect options change decoded response pixels without geometry options" do
     baseline =
       "/_/f:png/plain/images/effects.png"
@@ -858,6 +885,46 @@ defmodule ImagePipe.ImgproxyWireConformanceTest do
     assert conn.status == 200
     assert_received {:cache_lookup, _key}
     refute_received {:fetch_credentials, _, _, _}
+  end
+
+  test "car corrects the crop area aspect ratio (enlarge)" do
+    # beach.jpg is 4000x2667. c:100:200:ce crops a 100x200 region (centered).
+    # car:1:1 (ratio=1, enlarge) grows the short axis: 100 -> 200, giving 200x200.
+    # Because gravity is unchanged, the corrected crop must sample the same region
+    # as a direct 200x200 centered crop, so the decoded bytes are identical.
+    conn = call_imgproxy("/_/c:100:200:ce/car:1:1/f:jpeg/plain/images/beach.jpg", @default_opts)
+    direct = call_imgproxy("/_/c:200:200:ce/f:jpeg/plain/images/beach.jpg", @default_opts)
+
+    assert conn.status == 200
+    assert dimensions(conn) == {200, 200}
+    assert conn.resp_body == direct.resp_body
+  end
+
+  test "car works without a resize (no-geometry-resize case)" do
+    # beach.jpg is 4000x2667. c:100:200:ce crops a 100x200 region.
+    # car:1 (ratio=1, default reduce) shrinks the long axis: 200 -> 100, giving 100x100.
+    # The corrected crop must equal a direct 100x100 centered crop, pixel for pixel.
+    conn = call_imgproxy("/_/c:100:200:ce/car:1/f:jpeg/plain/images/beach.jpg", @default_opts)
+    direct = call_imgproxy("/_/c:100:100:ce/f:jpeg/plain/images/beach.jpg", @default_opts)
+
+    assert conn.status == 200
+    assert dimensions(conn) == {100, 100}
+    assert conn.resp_body == direct.resp_body
+  end
+
+  test "car leaves gravity placement unchanged" do
+    # c:200:400:no + car:1:1 (enlarge) grows short axis: 200 -> 400, giving 400x400 anchored north.
+    # c:400:400:no directly crops 400x400 anchored north. The decoded bytes must be
+    # identical, proving the correction changed only the size and kept the gravity region.
+    via_car =
+      call_imgproxy("/_/c:200:400:no/car:1:1/f:jpeg/plain/images/beach.jpg", @default_opts)
+
+    direct = call_imgproxy("/_/c:400:400:no/f:jpeg/plain/images/beach.jpg", @default_opts)
+
+    assert via_car.status == 200
+    assert direct.status == 200
+    assert dimensions(via_car) == dimensions(direct)
+    assert via_car.resp_body == direct.resp_body
   end
 
   test "S3 cache miss asks only the selected bucket credential provider before fetch" do

@@ -243,10 +243,20 @@ defmodule ImagePipe.Parser.Imgproxy.PlanBuilder do
              height,
              guide,
              x_offset: crop.x_offset,
-             y_offset: crop.y_offset
+             y_offset: crop.y_offset,
+             aspect_ratio: crop_aspect_ratio(request),
+             enlarge: request.crop_aspect_ratio_enlarge
            ) do
       {:ok, [operation]}
     end
+  end
+
+  defp crop_aspect_ratio(%PipelineRequest{crop_aspect_ratio: nil}), do: nil
+  defp crop_aspect_ratio(%PipelineRequest{crop_aspect_ratio: ratio}) when ratio == 0.0, do: nil
+
+  defp crop_aspect_ratio(%PipelineRequest{crop_aspect_ratio: ratio}) do
+    {:ok, tagged} = tagged_ratio_from_decimal(ratio)
+    tagged
   end
 
   defp orientation_operations(%PipelineRequest{orientation: %Orientation{} = orientation}) do
@@ -388,15 +398,38 @@ defmodule ImagePipe.Parser.Imgproxy.PlanBuilder do
       not is_nil(request.extend_y_offset)
   end
 
-  defp extend_aspect_ratio_operation(%PipelineRequest{extend_aspect_ratio: nil}), do: nil
-
-  defp extend_aspect_ratio_operation(%PipelineRequest{extend_aspect_ratio: {width, height}}) do
-    with {:ok, width} <- tagged_ratio_from_decimal(width),
-         {:ok, height} <- tagged_ratio_from_decimal(height),
-         {:ok, placement} <- canvas_placement(@default_gravity) do
-      Operation.canvas(width, height, placement, fill: :transparent, overflow: :reject)
+  defp extend_aspect_ratio_operation(%PipelineRequest{} = request) do
+    with true <- extend_aspect_ratio_requested?(request),
+         {:ok, {ratio_w, ratio_h}} <- resize_target_ratio(request),
+         placement_gravity = request.extend_aspect_ratio_gravity || @default_gravity,
+         {:ok, placement} <- canvas_placement(placement_gravity) do
+      Operation.canvas(
+        {:ratio, ratio_w, 1},
+        {:ratio, ratio_h, 1},
+        placement,
+        fill: :transparent,
+        overflow: :reject,
+        x_offset: request.extend_aspect_ratio_x_offset || 0.0,
+        y_offset: request.extend_aspect_ratio_y_offset || 0.0
+      )
+    else
+      false -> nil
+      :no_ratio -> nil
+      {:error, _reason} = error -> error
     end
   end
+
+  defp extend_aspect_ratio_requested?(%PipelineRequest{extend_aspect_ratio: extend?}), do: extend?
+
+  defp extend_aspect_ratio_emits?(%PipelineRequest{} = request) do
+    extend_aspect_ratio_requested?(request) and match?({:ok, _}, resize_target_ratio(request))
+  end
+
+  defp resize_target_ratio(%PipelineRequest{width: {:pixels, w}, height: {:pixels, h}})
+       when w > 0 and h > 0,
+       do: {:ok, {w, h}}
+
+  defp resize_target_ratio(%PipelineRequest{}), do: :no_ratio
 
   defp padding_operations(%PipelineRequest{
          padding_top: 0,
@@ -551,7 +584,7 @@ defmodule ImagePipe.Parser.Imgproxy.PlanBuilder do
 
   defp effective_padding_pixel_ratio(%PipelineRequest{} = request) do
     mode =
-      if extend_operation_requested?(request) or not is_nil(request.extend_aspect_ratio) do
+      if extend_operation_requested?(request) or extend_aspect_ratio_emits?(request) do
         :canvas_preserving
       else
         :resize

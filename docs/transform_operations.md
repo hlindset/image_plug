@@ -157,6 +157,13 @@ Current Imgproxy focal-point gravity maps to semantic guide values. The first
 slice doesn't model a separate focus operation. Future dialects can add one if
 they expose focus state independently from visible crop/canvas/cover work.
 
+`CropGuided` supports an optional aspect-ratio correction field. When present,
+execution adjusts the crop area size to the target ratio before applying the
+guide. The correction has two modes: reduce (default, shrinks the area to the
+ratio) and enlarge with clamp (grows the area then clamps to image bounds).
+`aspect_ratio` zero disables correction. Correction adjusts the crop area
+size only. The guide position and gravity stay fixed.
+
 ## Orientation operations
 
 Use `ImagePipe.Plan.Operation.AutoOrient`, `Rotate`, and `Flip` for orientation
@@ -172,6 +179,12 @@ Use semantic `Canvas` when a dialect requests target canvas expansion,
 letterboxing, or aspect-ratio extension around the transformed image. Don't use
 it as a substitute for resize, contain, or cover semantics unless the dialect
 requests a larger canvas around image content.
+
+Aspect-ratio canvas extension (Imgproxy `exar`) derives the target ratio from
+the resolved resize dimensions in the same pipeline group. This is a no-op when
+either resize dimension is auto or zero. Extend gravity for `exar` uses
+directional anchors only (the nine anchor values). Focal-point extend gravity
+isn't supported for this operation.
 
 The `Canvas.fill` value applies only to output from that canvas operation. The
 default is `:transparent`, and callers can also set

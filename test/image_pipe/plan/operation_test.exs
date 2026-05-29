@@ -185,8 +185,38 @@ defmodule ImagePipe.Plan.OperationTest do
                   height: {:px, 200},
                   guide: {:focal, {:ratio, 1, 3}, {:ratio, 2, 3}},
                   x_offset: {:pixels, 0.0},
-                  y_offset: {:pixels, 0.0}
+                  y_offset: {:pixels, 0.0},
+                  aspect_ratio: nil,
+                  enlarge: false
                 }}
+    end
+
+    test "crop_guided carries aspect_ratio and enlarge" do
+      assert {:ok, %Operation.CropGuided{aspect_ratio: {:ratio, 3, 2}, enlarge: true}} =
+               Operation.crop_guided({:px, 300}, {:px, 200}, :center,
+                 aspect_ratio: {:ratio, 3, 2},
+                 enlarge: true
+               )
+    end
+
+    test "crop_guided defaults aspect_ratio to nil and enlarge to false" do
+      assert {:ok, %Operation.CropGuided{aspect_ratio: nil, enlarge: false}} =
+               Operation.crop_guided({:px, 300}, {:px, 200}, :center)
+    end
+
+    test "crop_guided rejects a malformed aspect_ratio" do
+      assert {:error, _} =
+               Operation.crop_guided({:px, 300}, {:px, 200}, :center, aspect_ratio: :bad)
+
+      assert {:error, _} =
+               Operation.crop_guided({:px, 300}, {:px, 200}, :center,
+                 aspect_ratio: {:ratio, 0, 1}
+               )
+    end
+
+    test "crop_guided rejects a non-boolean enlarge" do
+      assert {:error, _} =
+               Operation.crop_guided({:px, 300}, {:px, 200}, :center, enlarge: :yes)
     end
   end
 

@@ -223,17 +223,37 @@ defmodule ImagePipe.Parser.Imgproxy.PlanBuilderTest do
              plan_pipeline(resizing_type: :auto, width: {:pixels, 100}, height: {:pixels, 100})
   end
 
-  test "plans extend and extend aspect ratio as neutral canvas operations" do
+  test "plans extend as neutral canvas operation" do
     assert {:ok, %Plan{pipelines: [%Pipeline{operations: operations}]}} =
              plan_pipeline(width: {:pixels, 100}, height: {:pixels, 100}, extend: true)
 
     assert Enum.any?(operations, &match?(%Operation.Canvas{}, &1))
+  end
 
+  test "exar emits a canvas ratio derived from the resize target" do
     assert {:ok, %Plan{pipelines: [%Pipeline{operations: operations}]} = plan} =
-             plan_pipeline(extend_aspect_ratio: {16, 9})
+             plan_pipeline(
+               width: {:pixels, 1600},
+               height: {:pixels, 900},
+               extend_aspect_ratio: true
+             )
 
-    assert Enum.any?(operations, &match?(%Operation.Canvas{}, &1))
+    assert Enum.any?(operations, fn
+             %Operation.Canvas{width: {:ratio, 1600, 1}, height: {:ratio, 900, 1}} -> true
+             _ -> false
+           end)
+
     assert {:ok, _pipelines} = ImagePipe.Transform.validate_prefetch_safe_plan(plan)
+  end
+
+  test "exar is a no-op when a resize dimension is not set" do
+    assert {:ok, %Plan{pipelines: [%Pipeline{operations: operations}]}} =
+             plan_pipeline(
+               width: {:pixels, 1600},
+               extend_aspect_ratio: true
+             )
+
+    refute Enum.any?(operations, &match?(%Operation.Canvas{}, &1))
   end
 
   test "plans extend gravity and offsets as neutral canvas operation fields" do
@@ -444,6 +464,46 @@ defmodule ImagePipe.Parser.Imgproxy.PlanBuilderTest do
     assert focal_point(crop.guide) == {1, 4, 3, 4}
     assert crop.x_offset == {:scale, 0.25}
     assert crop.y_offset == {:pixels, -12.0}
+  end
+
+  test "car populates CropGuided aspect_ratio and enlarge" do
+    pipeline =
+      plan_pipeline(
+        crop: %ImagePipe.Parser.Imgproxy.CropRequest{
+          width: {:pixels, 100},
+          height: {:pixels, 200}
+        },
+        crop_aspect_ratio: 1.0,
+        crop_aspect_ratio_enlarge: true
+      )
+
+    assert {:ok, %Plan{pipelines: [%Pipeline{operations: operations}]}} = pipeline
+
+    assert Enum.any?(operations, fn
+             %ImagePipe.Plan.Operation.CropGuided{aspect_ratio: {:ratio, 1, 1}, enlarge: true} ->
+               true
+
+             _ ->
+               false
+           end)
+  end
+
+  test "car:0 yields no aspect-ratio correction" do
+    pipeline =
+      plan_pipeline(
+        crop: %ImagePipe.Parser.Imgproxy.CropRequest{
+          width: {:pixels, 100},
+          height: {:pixels, 200}
+        },
+        crop_aspect_ratio: 0.0
+      )
+
+    assert {:ok, %Plan{pipelines: [%Pipeline{operations: operations}]}} = pipeline
+
+    assert Enum.any?(operations, fn
+             %ImagePipe.Plan.Operation.CropGuided{aspect_ratio: nil} -> true
+             _ -> false
+           end)
   end
 
   test "planner emits fixed orientation crop resize order independent of URL order" do

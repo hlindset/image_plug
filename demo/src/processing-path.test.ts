@@ -6,6 +6,7 @@ import {
   cropDimensionSegment,
   cropOptionSegment,
   cropPixelLimit,
+  type DemoState,
   defaultDemoState,
   debounce,
   focalPointFromBounds,
@@ -262,12 +263,20 @@ describe("processing path generation", () => {
     const state = {
       ...defaultDemoState,
       aspectCanvasEnabled: true,
-      extendAspectWidth: 16,
-      extendAspectHeight: 9,
+      aspectCanvasGravity: "ce" as const,
     };
 
-    expect(optionSegments(state)).toEqual(["exar:16:9"]);
-    expect(buildProcessingPath(state)).toBe("/_/exar:16:9/plain/local:///images/dog.jpg");
+    expect(optionSegments(state)).toEqual(["exar:1"]);
+    expect(buildProcessingPath(state)).toBe("/_/exar:1/plain/local:///images/dog.jpg");
+  });
+
+  it("round-trips exar with gravity", () => {
+    const state = {
+      ...defaultDemoState,
+      aspectCanvasEnabled: true,
+      aspectCanvasGravity: "no" as const,
+    };
+    expect(optionSegments(state)).toEqual(["exar:1:no"]);
   });
 
   it("includes explicit four-sided padding after aspect canvas options", () => {
@@ -281,9 +290,9 @@ describe("processing path generation", () => {
       paddingLeft: 32,
     };
 
-    expect(optionSegments(state)).toEqual(["exar:16:9", "pd:8:16:24:32"]);
+    expect(optionSegments(state)).toEqual(["exar:1", "pd:8:16:24:32"]);
     expect(buildProcessingPath(state)).toBe(
-      "/_/exar:16:9/pd:8:16:24:32/plain/local:///images/dog.jpg",
+      "/_/exar:1/pd:8:16:24:32/plain/local:///images/dog.jpg",
     );
   });
 
@@ -660,6 +669,28 @@ describe("processing path generation", () => {
     expect(buildProcessingPath(state)).toBe("/_/g:ce/q:85/plain/local:///images/dog.jpg");
   });
 
+  it("emits car with enlarge", () => {
+    const state = {
+      ...defaultDemoState,
+      cropEnabled: true,
+      cropAspectRatioEnabled: true,
+      cropAspectRatio: 1,
+      cropAspectRatioEnlarge: true,
+    };
+    expect(optionSegments(state)).toContain("car:1:1");
+  });
+
+  it("emits car without enlarge", () => {
+    const state = {
+      ...defaultDemoState,
+      cropEnabled: true,
+      cropAspectRatioEnabled: true,
+      cropAspectRatio: 1.5,
+      cropAspectRatioEnlarge: false,
+    };
+    expect(optionSegments(state)).toContain("car:1.5");
+  });
+
   it("does not emit an empty option segment when all tools are disabled", () => {
     const state = {
       ...defaultDemoState,
@@ -742,7 +773,7 @@ describe("demo URL state", () => {
 
   it("parses crop, orientation, scale, canvas, padding, background, and effects options", () => {
     const parsed = parseDemoPath(
-      "/demo/ar:1/fl:0:1/rot:90/c:0.5:0.25:no/z:1.25/dpr:2/mw:320/mh:240/exar:16:9/pd:1:2:3:4/bg:ffcc00/bga:0.42/bl:2.5/sh:0.7/pix:8/mc:0.5:ffcc00/dt:0.25:112233:ffeecc/br:20/co:-15/sa:35/plain/local:///images/beach.jpg",
+      "/demo/ar:1/fl:0:1/rot:90/c:0.5:0.25:no/z:1.25/dpr:2/mw:320/mh:240/exar:1/pd:1:2:3:4/bg:ffcc00/bga:0.42/bl:2.5/sh:0.7/pix:8/mc:0.5:ffcc00/dt:0.25:112233:ffeecc/br:20/co:-15/sa:35/plain/local:///images/beach.jpg",
     );
 
     expect(parsed).toMatchObject({
@@ -765,8 +796,7 @@ describe("demo URL state", () => {
       minHeightEnabled: true,
       minHeight: 240,
       aspectCanvasEnabled: true,
-      extendAspectWidth: 16,
-      extendAspectHeight: 9,
+      aspectCanvasGravity: "ce",
       paddingEnabled: true,
       paddingTop: 1,
       paddingRight: 2,
@@ -870,6 +900,45 @@ describe("demo URL state", () => {
       scaleOptionsOpen: true,
       requestOpen: true,
     });
+  });
+
+  it("parses car with and without enlarge", () => {
+    expect(parseDemoPath("/demo/car:1.5/plain/local:///images/dog.jpg")).toMatchObject({
+      cropAspectRatioEnabled: true,
+      cropAspectRatio: 1.5,
+      cropAspectRatioEnlarge: false,
+    });
+
+    expect(parseDemoPath("/demo/car:1.5:1/plain/local:///images/dog.jpg")).toMatchObject({
+      cropAspectRatioEnabled: true,
+      cropAspectRatio: 1.5,
+      cropAspectRatioEnlarge: true,
+    });
+
+    expect(parseDemoPath("/demo/car:2:0/plain/local:///images/dog.jpg")).toMatchObject({
+      cropAspectRatioEnabled: true,
+      cropAspectRatio: 2,
+      cropAspectRatioEnlarge: false,
+    });
+  });
+
+  it("round-trips a car-only path through parse and emit", () => {
+    const parsed = parseDemoPath("/demo/car:1.5:1/plain/local:///images/dog.jpg");
+
+    expect(parsed).not.toBeNull();
+    // car must survive serialization even though cropEnabled stays false.
+    expect(optionSegments(parsed as DemoState)).toContain("car:1.5:1");
+  });
+
+  it("rejects invalid car values in demo routes", () => {
+    expect(parseDemoPath("/demo/car:-1/plain/local:///images/dog.jpg")).toEqual(defaultDemoState);
+    expect(parseDemoPath("/demo/car:bad/plain/local:///images/dog.jpg")).toEqual(defaultDemoState);
+    expect(parseDemoPath("/demo/car:1.5:bad/plain/local:///images/dog.jpg")).toEqual(
+      defaultDemoState,
+    );
+    expect(parseDemoPath("/demo/car:1:2:3/plain/local:///images/dog.jpg")).toEqual(
+      defaultDemoState,
+    );
   });
 
   it("falls back to defaults for invalid demo routes", () => {

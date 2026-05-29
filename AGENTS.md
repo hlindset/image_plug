@@ -15,6 +15,7 @@
 - Keep transforms product-neutral and composable. Transform modules should express reusable image operations over `ImagePipe.Transform.State` with explicit parameter structs, not parser-specific or vendor-specific concepts; parsers for dialects such as imgproxy, Thumbor, TwicPics, imgix, Cloudinary, or any other product should translate their syntax into `ImagePipe.Plan` when semantics match cleanly, or remain isolated compatibility adapters when they need dialect-specific ordered behavior.
 - Trust operation structs inside the transform boundary. A transform struct missing required callbacks is a programmer error; validation should validate operation fields, not prove that the module implements the transform behaviour.
 - Be conservative with optimized decoding. Only use sequential access for transform chains proven safe for one-pass reads; crop, focus, cover, letterboxing, output-only requests, and no-geometry requests should continue to use random access.
+- Keep the demo UI in sync with transform changes. When you add, remove, or change the parameters of a transform or a compatibility parser option, update the `demo/` Svelte app (controls and URL state) in the same change so the demo can exercise the new behavior end-to-end.
 
 ## Request safety guidelines
 

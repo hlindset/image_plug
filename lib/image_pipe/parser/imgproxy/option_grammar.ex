@@ -296,40 +296,50 @@ defmodule ImagePipe.Parser.Imgproxy.OptionGrammar do
   defp parse_field(:format, value), do: Format.parse(value)
   defp parse_field(:quality, value), do: parse_quality(value)
 
-  defp parse_optional_extend_gravity(_segment, []), do: {:ok, []}
-  defp parse_optional_extend_gravity(_segment, [""]), do: {:ok, []}
-  defp parse_optional_extend_gravity(_segment, ["", ""]), do: {:ok, []}
-  defp parse_optional_extend_gravity(_segment, ["", "", ""]), do: {:ok, []}
+  defp parse_optional_extend_gravity(segment, parts),
+    do: parse_optional_extend_gravity(:extend, segment, parts)
 
-  defp parse_optional_extend_gravity(_segment, [gravity]) do
+  defp parse_optional_extend_gravity(_prefix, _segment, []), do: {:ok, []}
+  defp parse_optional_extend_gravity(_prefix, _segment, [""]), do: {:ok, []}
+  defp parse_optional_extend_gravity(_prefix, _segment, ["", ""]), do: {:ok, []}
+  defp parse_optional_extend_gravity(_prefix, _segment, ["", "", ""]), do: {:ok, []}
+
+  defp parse_optional_extend_gravity(prefix, _segment, [gravity]) do
     case parse_gravity_anchor(gravity) do
-      {:ok, anchor} -> {:ok, [extend_gravity: anchor]}
+      {:ok, anchor} -> {:ok, [{gravity_key(prefix, :gravity), anchor}]}
       {:error, _reason} = error -> error
     end
   end
 
-  defp parse_optional_extend_gravity(_segment, [gravity, "", ""]) do
+  defp parse_optional_extend_gravity(prefix, _segment, [gravity, "", ""]) do
     case parse_gravity_anchor(gravity) do
-      {:ok, anchor} -> {:ok, [extend_gravity: anchor]}
+      {:ok, anchor} -> {:ok, [{gravity_key(prefix, :gravity), anchor}]}
       {:error, _reason} = error -> error
     end
   end
 
-  defp parse_optional_extend_gravity(_segment, [gravity, x_offset, y_offset]) do
+  defp parse_optional_extend_gravity(prefix, _segment, [gravity, x_offset, y_offset]) do
     with {:ok, anchor} <- parse_gravity_anchor(gravity),
          {:ok, x_offset} <- parse_float(x_offset),
          {:ok, y_offset} <- parse_float(y_offset) do
       {:ok,
        [
-         extend_gravity: anchor,
-         extend_x_offset: x_offset,
-         extend_y_offset: y_offset
+         {gravity_key(prefix, :gravity), anchor},
+         {gravity_key(prefix, :x_offset), x_offset},
+         {gravity_key(prefix, :y_offset), y_offset}
        ]}
     end
   end
 
-  defp parse_optional_extend_gravity(segment, _parts),
+  defp parse_optional_extend_gravity(_prefix, segment, _parts),
     do: {:error, {:invalid_option_segment, segment}}
+
+  defp gravity_key(:extend, :gravity), do: :extend_gravity
+  defp gravity_key(:extend, :x_offset), do: :extend_x_offset
+  defp gravity_key(:extend, :y_offset), do: :extend_y_offset
+  defp gravity_key(:extend_aspect_ratio, :gravity), do: :extend_aspect_ratio_gravity
+  defp gravity_key(:extend_aspect_ratio, :x_offset), do: :extend_aspect_ratio_x_offset
+  defp gravity_key(:extend_aspect_ratio, :y_offset), do: :extend_aspect_ratio_y_offset
 
   defp parse_resizing_type_value(value) do
     case Map.fetch(@resizing_types, value) do
@@ -368,6 +378,11 @@ defmodule ImagePipe.Parser.Imgproxy.OptionGrammar do
 
   defp parse_special_option(name, args, segment) when name in ["crop", "c"] do
     parse_crop(args, segment)
+  end
+
+  defp parse_special_option(name, args, segment)
+       when name in ["crop_aspect_ratio", "crop_ar", "car"] do
+    parse_crop_aspect_ratio(args, segment)
   end
 
   defp parse_special_option(name, args, segment) when name in ["auto_rotate", "ar"] do
@@ -670,10 +685,17 @@ defmodule ImagePipe.Parser.Imgproxy.OptionGrammar do
 
   defp parse_extend(_args, segment), do: {:error, {:invalid_option_segment, segment}}
 
-  defp parse_extend_aspect_ratio([width, height], _segment) when width != "" and height != "" do
-    with {:ok, width} <- parse_positive_number(width),
-         {:ok, height} <- parse_positive_number(height) do
-      {:ok, [extend_aspect_ratio: {width, height}]}
+  defp parse_extend_aspect_ratio([value], _segment) when value != "" do
+    with {:ok, extend?} <- parse_boolean(value) do
+      {:ok, [extend_aspect_ratio: extend?]}
+    end
+  end
+
+  defp parse_extend_aspect_ratio([value | gravity_parts], segment) when value != "" do
+    with {:ok, extend?} <- parse_boolean(value),
+         {:ok, gravity_assignments} <-
+           parse_optional_extend_gravity(:extend_aspect_ratio, segment, gravity_parts) do
+      {:ok, Keyword.merge([extend_aspect_ratio: extend?], gravity_assignments)}
     end
   end
 
@@ -726,6 +748,21 @@ defmodule ImagePipe.Parser.Imgproxy.OptionGrammar do
   end
 
   defp parse_crop(_args, segment), do: {:error, {:invalid_option_segment, segment}}
+
+  defp parse_crop_aspect_ratio([ratio], segment) when ratio != "" do
+    parse_crop_aspect_ratio([ratio, "0"], segment)
+  end
+
+  defp parse_crop_aspect_ratio([ratio, enlarge], _segment)
+       when ratio != "" and enlarge != "" do
+    with {:ok, ratio} <- parse_non_negative_float(ratio),
+         {:ok, enlarge?} <- parse_boolean(enlarge) do
+      {:ok, [crop_aspect_ratio: ratio, crop_aspect_ratio_enlarge: enlarge?]}
+    end
+  end
+
+  defp parse_crop_aspect_ratio(_args, segment),
+    do: {:error, {:invalid_option_segment, segment}}
 
   defp parse_crop_gravity(["sm"]), do: {:ok, :sm}
 
@@ -877,14 +914,6 @@ defmodule ImagePipe.Parser.Imgproxy.OptionGrammar do
       {:ok, float} when float >= 0.0 -> {:ok, float}
       {:ok, _float} -> {:error, {:invalid_non_negative_float, value}}
       {:error, _reason} -> {:error, {:invalid_non_negative_float, value}}
-    end
-  end
-
-  defp parse_positive_number(value) do
-    case parse_number(value) do
-      {:ok, number} when number > 0 -> {:ok, number}
-      {:ok, _number} -> {:error, {:invalid_positive_number, value}}
-      {:error, _reason} -> {:error, {:invalid_positive_number, value}}
     end
   end
 
