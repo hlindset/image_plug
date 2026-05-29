@@ -150,7 +150,7 @@ defmodule ImagePipe.Output.PolicyTest do
                 }}
     end
 
-    test "keeps source format fallback for output-capable source families" do
+    test "transcodes modern source formats to raster when no modern format is accepted" do
       policy = %Policy{
         mode: :source,
         modern_candidates: [],
@@ -159,21 +159,8 @@ defmodule ImagePipe.Output.PolicyTest do
         format_qualities: %{}
       }
 
-      assert Policy.resolve(policy, :webp) ==
-               {:ok,
-                %Resolved{
-                  format: :webp,
-                  quality: :default,
-                  response_headers: [{"vary", "Accept"}]
-                }}
-
-      assert Policy.resolve(policy, :avif) ==
-               {:ok,
-                %Resolved{
-                  format: :avif,
-                  quality: :default,
-                  response_headers: [{"vary", "Accept"}]
-                }}
+      assert Policy.resolve(policy, :webp) == {:needs_final_image_alpha, :source}
+      assert Policy.resolve(policy, :avif) == {:needs_final_image_alpha, :source}
     end
 
     test "defers source-only fallback until final image alpha is known" do
