@@ -10,7 +10,7 @@ defmodule ImagePipeDemoWeb.FiddlePage do
   js_import :copy, from: "./fiddle/clipboard.mjs"
   js_import :load, from: "./fiddle/preview.mjs"
 
-  route "/demo"
+  route "/"
   layout ImagePipeDemoWeb.FiddleLayout
 
   def init(_params, component, _server) do
