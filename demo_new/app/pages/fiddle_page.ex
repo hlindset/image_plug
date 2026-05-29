@@ -86,7 +86,7 @@ defmodule ImagePipeDemoWeb.FiddlePage do
 
     component
     |> put_state(demo: demo, path: ProcessingPath.build(demo), preview_gen: gen)
-    |> put_action(name: :commit, delay: 150, params: %{gen: gen})
+    |> put_action(name: :commit, delay: 250, params: %{gen: gen})
   end
 
   defp apply_preview_result(component, %{"ok" => true} = r) do
