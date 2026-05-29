@@ -1,205 +1,278 @@
 # Hologram demo spike — app shell + Request & Crop tools
 
 - **Date:** 2026-05-29
-- **Status:** Approved (design), pending implementation plan
+- **Status:** Approved (design, reviewed), pending implementation plan
 - **Location of work:** `demo_new/` (the Phoenix + Hologram demo harness). The existing
   Svelte app under `demo/` is the porting reference only and is not modified.
 
+> This spec was revised after a four-reviewer pass (Hologram-correctness, architecture/
+> data-flow, CSS/theming/responsive, scope/path-correctness). The reviewers verified claims
+> against the Hologram source and by running the real ImagePipe parser/plug end-to-end. The
+> scope was **trimmed to a de-risking core**; deferred features and the correctness caveats
+> that apply when they land are recorded in "Spike 2 backlog".
+
 ## Context & goal
 
-The demo (currently a Svelte SPA in `demo/`) is a dev/test fiddle for the ImagePipe plug:
-a control panel that builds an imgproxy-style processing URL and previews the transformed
-image. We are porting it to Hologram (the isomorphic Elixir framework already wired into
-`demo_new/`).
+The demo (currently a Svelte SPA in `demo/`) is a dev/test fiddle for the ImagePipe plug: a
+control panel that builds an imgproxy-style processing URL and previews the transformed image.
+We are porting it to Hologram (the isomorphic Elixir framework already wired into `demo_new/`).
 
-This is an **initial spike**, not the full port. It builds the complete app shell and the
-hard cross-cutting infrastructure (deep-linkable URL state, real image preview with
-metadata, HMAC signing, theming, responsive drawer, scoped CSS) but restricts the transform
-tools to just **Request** and **Crop**. The remaining ~11 tools (Resize, Gravity, Effects,
-Padding, Background, Format, Quality, etc.) are deferred; the structure is designed so adding
-them later is mechanical.
+This is **spike #1**, deliberately small. It validates the genuine unknowns of the port with
+the smallest surface that exercises them, and restricts the transform tools to **Request**
+(source picker) and **Crop**. The remaining ~11 tools and the deferred features (below) are
+spike 2+.
 
-The Svelte app's reactive model leans on browser-native patterns that do not map 1:1 to
-Hologram: a flat ~60-field `DemoState`, a derived imgproxy path, live `history.replaceState`
-URL sync, and a fetch→blob→objectURL preview that reads byte size and decoded dimensions.
-Hologram keeps state in the client component, but navigation is a full page load, its router
-captures only single non-slash route segments, and live URL rewriting / blob fetching both
-require JS interop. The decisions below resolve that mismatch.
-
-## Decisions
-
-1. **State + URL — deep-link via a single dynamic route segment.** `route "/demo/:state"`
-   with `param :state, :string`. The full processing path — including the leading signature
-   segment (`_` for unsigned, or the HMAC for signed) — is serialized into one URL-safe token
-   (base64url; `A–Z a–z 0–9 - _`, no slashes). `init/3` decodes it on load. Live edits rewrite
-   the address bar via `history.replaceState` (JS interop). The same Elixir parser handles both
-   initial load and round-trip. No splat route required.
-   **Signature round-trip:** the signature *segment* is encoded, but the raw key/salt are
-   **not** placed in the shareable URL. On load, an `_`/`unsafe` segment selects unsigned mode;
-   any other segment selects signed mode with key/salt defaulted to the plug's configured
-   values. Because signed mode already defaults to those values, default-key signed links
-   round-trip faithfully; reproducing a link signed with a *custom* key/salt is a known spike
-   limitation (acceptable — the demo plug only validates its configured key anyway).
-2. **Preview — fetch + metadata via JS interop.** A JS facade fetches the image as a blob,
-   creates an object URL, reads natural dimensions, and returns
-   `{objectUrl, width, height, bytes, contentType}` to an Elixir action. Reproduces today's
-   size · format · dimensions overlay, loading spinner, and error box.
-3. **Signing — included, computed client-side via JS interop.** A JS facade calls Web Crypto
-   `subtle.sign` (HMAC-SHA256), mirroring the Svelte approach; no server round-trip. Signed
-   mode defaults its key/salt to the demo plug's configured values (`keys: ["736563726574"]`,
-   `salts: ["68656c6c6f"]`) so signed previews actually validate against the mounted plug.
-4. **Shell fidelity — full, including theme + responsive.** Two-column desktop layout,
-   command bar with live parameter code, checkerboard preview canvas, sidebar tool stack,
-   light/dark/system theme toggle (localStorage via JS interop, `data-theme` on root), and
-   the mobile drawer + scrim.
-5. **State architecture — centralized page state** (see Architecture).
-6. **CSS — root class + native `@scope`** (see CSS strategy).
+**The unknowns this spike de-risks:**
+1. Async JS interop (Promise → Elixir Task) for a real `fetch`-based preview with metadata.
+2. `@scope`-based CSS as a stand-in for Svelte's per-component scoped styles.
+3. Reimplementing the Svelte interactive control primitives (toggle switch, collapsible,
+   slider) — previously `bits-ui` — as Hologram components.
+4. Centralized page-state + debounced derived-path recompute feeling smooth under slider drags.
 
 ## Scope
 
-**In:** app shell (sidebar tool-stack, command bar, checkerboard preview, mobile drawer +
-scrim), theme toggle, Request tool, Crop tool, real preview with metadata, unsigned + signed
-URLs, deep-linkable state.
+**In (spike #1):**
+- Desktop app shell: two-column layout (sidebar tool-stack + preview workspace), command bar
+  with live parameter-code display, checkerboard preview canvas, metadata overlay, spinner,
+  error box.
+- **Request tool:** source-image `<select>` only.
+- **Crop tool:** width + height (unit px/%/full + number + slider) and gravity `<select>`.
+- Real preview via a `fetch`-based JS-interop facade returning byte size + decoded dimensions
+  + content-type, with loading and error states.
+- Debounced state→path→preview pipeline.
+- `@scope`-based global stylesheet; **dark theme only** (no toggle).
 
-**Out (deferred, structured to be mechanical to add):** Resize, Gravity, Scale options,
-Orientation, Aspect canvas, Padding, Background, Effects, Format, Quality tools.
+**Deferred to spike 2+ (see backlog):** signing (unsigned `_` only for now), deep-link / URL
+state, light/dark/system theme toggle, mobile drawer + scrim, and the other ~11 transform
+tools. The shell and the pure path-builder are structured so these are additive.
+
+## Decisions
+
+1. **State — centralized page state, in-memory.** One page, `ImagePipeDemoWeb.FiddlePage`
+   (`route "/demo"`, static — no route param in spike 1), owns the entire flat demo-state map.
+   Tool sections are **stateless presentational components** that render from props and fire
+   actions at `target: "page"` (verified valid: a stateless component may bind
+   `$change={action: …, target: "page"}`). No URL persistence in spike 1.
+2. **Preview — `fetch` + metadata via JS interop.** A JS facade fetches the image, reads blob
+   size + content-type, creates an object URL, loads it into an `Image` for natural
+   dimensions, and returns `{objectUrl, width, height, bytes, contentType}` (or a structured
+   error) to an Elixir action. The facade owns single-flight cancellation and object-URL
+   lifecycle (see Preview).
+3. **Signing — deferred.** Spike 1 uses the unsigned `_` signature segment (the demo plug
+   trusts `_`/`unsafe`). HMAC compatibility between Web Crypto and ImagePipe's `signature.ex`
+   was already proven during review, so adding signed mode later is low-risk.
+4. **Shell — desktop, dark only.** Full two-column shell + command bar + preview canvas. The
+   theme toggle and the mobile drawer are deferred (the global stylesheet's `:root` already
+   defaults to dark, so no toggle is needed to look right).
+5. **Source form — bare `images/<name>`.** Both `images/x.jpg` and `local:///images/x.jpg`
+   parse to the same `path:` source, but the bare form matches the existing HomePage and wire
+   tests, and (when signing lands) avoids the signed-bytes/URL mismatch that the `local:///`
+   form would require care with. `ProcessingPath` emits the bare form.
+6. **CSS — root class + native `@scope`** (see CSS strategy, with corrected expectations).
 
 ## Architecture & state model
 
-**Centralized page state.** A single page, `ImagePipeDemoWeb.FiddlePage`, owns the entire
-flat demo-state map (the imgproxy `DemoState`, ported field-for-field). Tool sections are
-**stateless presentational components** that render from props and fire actions at
-`target: "page"`. The page recomputes the derived processing path on every change.
+**Centralized page state.** `FiddlePage` holds the entire flat demo-state map (ported
+field-for-field from the Svelte `DemoState`, restricted to the fields the in-scope tools use
+plus their derived defaults). Tool sections are **stateless** components rendering from props
+and firing actions at `target: "page"`. The page recomputes the derived processing path on
+every change via a pure `ProcessingPath.build/1`.
 
-Rationale: the processing path is a pure function of the *whole* state and must recompute on
-any field change. Hologram makes "parent reads child state" awkward (no clean upward
-aggregation), so distributing state across stateful tool components would require constant
-context plumbing. Centralized state mirrors the Svelte single-`DemoState` model and keeps the
-path-builder a pure function; tool components stay dumb and reusable.
-
+Rationale: the path is a pure function of the whole state, so a single owner is simplest;
+Hologram makes upward state aggregation awkward, so distributed tool state would mean constant
+context plumbing. This scales to the deferred tools by field-count only, not by dispatch shape.
 Rejected alternative: per-tool stateful components aggregated via context.
 
 ## Component tree & file layout (under `demo_new/`)
 
 ```
 lib/image_pipe_demo_web/
-  fiddle_page.ex              # route "/demo/:state"; owns DemoState, actions, preview orchestration
-  fiddle_layout.ex           # <html data-theme>, <Hologram.UI.Runtime>, global css link, <slot/>
+  fiddle_page.ex             # route "/demo"; owns DemoState, actions, preview orchestration
+  fiddle_layout.ex           # <!DOCTYPE><html data-theme="dark"><head><Hologram.UI.Runtime/>
+                             #   + global css <link></head><body><slot/></body>
   components/fiddle/
-    tool_section.ex           # .tool-section wrapper + header (toggle/collapsible)
-    tool_toggle_header.ex     # title/summary + switch (ports ToolToggleHeader.svelte)
-    request_tool.ex           # source select, signature mode/key/salt
-    crop_tool.ex              # width/height dual-unit + gravity
+    ui/
+      toggle_switch.ex        # reimplements the bits-ui Switch (on/off, data-state hook)
+      collapsible.ex          # reimplements the bits-ui Collapsible (Request section header+body)
+      slider.ex               # reimplements the bits-ui Slider (crop dimension)
+    tool_section.ex           # .tool-section wrapper + header
+    tool_toggle_header.ex     # title/summary + toggle_switch (ports ToolToggleHeader.svelte)
+    request_tool.ex           # source <select>
+    crop_tool.ex              # width/height (dual-unit + slider) + gravity <select>
     crop_dimension_control.ex # px/%/full unit + number + slider (ports CropDimensionControl.svelte)
     preview_canvas.ex         # checkerboard, <img>, metadata overlay, spinner, error
-    command_bar.ex            # menu btn, live parameter code, theme toggle, actions
+    command_bar.ex            # menu placeholder, live parameter code, actions (Copy URL / Open)
   fiddle/
-    demo_state.ex             # DemoState struct + defaults
+    demo_state.ex             # DemoState struct + defaults; resets crop px from source
     processing_path.ex        # state -> imgproxy path (pure); ports processing-path.ts
-    demo_path.ex              # base64url encode/decode of the canonical path (deep-link)
-    sample_images.ex          # source image list
+    sample_images.ex          # [{path, width, height}] — explicit list (no Vite scan)
 priv/static/
-  css/fiddle.css             # ported global stylesheet (wrapped in @scope); served via Plug.Static
+  css/fiddle.css             # ported global stylesheet (@scope) + theme variables; Plug.Static
   images/*.jpg               # sample images copied from the library's priv/static/images
-assets/js/fiddle/            # JS interop facades:
-  preview.mjs                #   fetch image -> {objectUrl,width,height,bytes,contentType}
-  sign.mjs                   #   Web Crypto HMAC-SHA256 -> base64url signature
-  history.mjs                #   history.replaceState(token)
-  theme.mjs                  #   read/write localStorage, set data-theme
+assets/js/fiddle/
+  preview.mjs                # fetch image -> {objectUrl,width,height,bytes,contentType}|error;
+                             #   owns AbortController single-flight + objectURL revocation
 ```
 
-`processing_path.ex` and `demo_path.ex` are plain pure modules — unit-testable with ExUnit,
-no browser required. `css/fiddle.css` is added to the demo's `static_paths/0` (already done
-for `css`) and linked from the layout as a plain `<link>` (no esbuild/Tailwind).
+`processing_path.ex`, `demo_state.ex`, and `sample_images.ex` are pure modules — unit-testable
+with ExUnit, no browser. `css/fiddle.css` is added to the demo's `static_paths/0` (already
+includes `css`) and linked from the layout as a plain `<link>` (no esbuild/Tailwind).
+
+The three `ui/` primitives are first-class porting work, not styling. The Svelte version's
+`bits-ui` Switch/Collapsible/Slider are dropped (a Svelte lib); the styles that target them
+(`:global(.switch-root)`, `[data-state="checked"]`, etc.) must be rewritten against whatever
+markup/attributes these Hologram components emit. Spike 1 reproduces the `[data-state]` hooks
+the CSS relies on.
 
 ## Data flow
+
+Spike 1 has a single side-effecting effect (preview fetch); there is no URL sync and no
+signing, so there is exactly **one** chained action — which matters because `Hologram.Component`
+stores `next_action` as a single overwriting field (chaining two `put_action`s would silently
+drop one).
 
 ```
 control $change → action on "page" → put_state(field)
    → recompute path = ProcessingPath.build(state)        (pure)
-   → put_state(:path); bump :gen counter
-   → put_action(:refresh_preview, delay: 150, gen: gen)   # debounce
-   → put_action(:sync_url,        delay: 150, gen: gen)   # debounce
+   → put_state(:path); bump :preview_gen
+   → put_action(:commit, delay: 150, gen: preview_gen)    # debounce (one chained action only)
 
-:refresh_preview (client/JS interop): if gen == current → call preview.mjs fetch facade
-:sync_url        (client/JS interop): if gen == current → history.replaceState(base64url(processing path, incl. signature segment))
+:commit (client/JS interop): if gen != current :preview_gen → no-op (stale scheduled action)
+                             else put_state(:loading, true) and call preview.mjs (await Task)
+                               → on result  → put_state(metadata, objectUrl); loading false
+                               → on AbortError → no-op (a newer fetch superseded this one)
+                               → on other error → put_state(:preview_error, {status, body})
 ```
 
-- **Debounce** = `delay:` plus a generation counter: a stale scheduled action no-ops when a
-  newer change has bumped `:gen`. (Hologram has no native debounce/cancel; this also reuses
-  the Svelte race-guard idea, which additionally guards stale fetch responses.)
-- **Initial load:** `init/3` (server) decodes `:state` (base64url → canonical path →
-  `DemoState` via the same parser). On client mount, a chained `put_action(:refresh_preview)`
-  loads the first image.
+- **Debounce** = `delay:` + a generation counter. `delay:` exists for actions and scheduled
+  actions cannot be cancelled, so the generation guard is necessary to drop stale *scheduled*
+  actions. (`delay` on commands is unimplemented — keep debounced work in actions.)
+- **Stale *responses* are handled in the facade, not Elixir.** `preview.mjs` is single-flight:
+  each call aborts the previous in-flight `fetch`, so a superseded request rejects with
+  `AbortError` (a no-op) instead of landing stale metadata. This is why the Elixir side does
+  not need a second gen re-check after the await.
+- **`Task.await` has no enforced client timeout** in the Hologram runtime, so the facade owns
+  the timeout (its `AbortController` aborts on a deadline as well as on supersession).
+- **Initial load:** `init/3` builds default state (default source → `resetCropPixelsToSource`)
+  and chains a single `put_action(:commit)` that runs on client mount to load the first image.
 
 ## Tools & path encoding
 
-Full preview URL: `/img` (the mounted plug prefix) + `/{sig}/{opts}/plain/{source}`.
+Full preview URL: `/img` (the mounted plug prefix) + `/_/{opts}/plain/{source}`.
 
-**Request tool:** source `<select>` (from `SampleImages`); signature mode `<select>`
-(unsigned / signed); when signed → key + salt text inputs (default to the plug's configured
-values); a signing-error line. Unsigned signature segment = `_`.
+**Request tool (spike 1):** source `<select>` from `SampleImages`. Changing the source runs
+the `resetCropPixelsToSource` equivalent (crop px defaults + slider limits derive from the
+selected image's dimensions). Signature UI is deferred.
 
 **Crop tool:** width + height via `CropDimensionControl` (unit px / % / full + number input +
-slider); gravity `<select>` (`inherit`, `ce`, `no`, `so`, `ea`, `we`, `noea`, `nowe`, `soea`,
-`sowe`). Crop encoding: `c:{w}:{h}[:{gravity}]` where `full → 0`, `percent → 0.x`,
-`px → integer`; the gravity arg is omitted when `inherit`.
+`ui/slider`); gravity `<select>` (`inherit`, `ce`, `no`, `so`, `ea`, `we`, `noea`, `nowe`,
+`soea`, `sowe`). Encoding `c:{w}:{h}[:{gravity}]` where `full → 0`, `percent → 0.x`,
+`px → integer`; the gravity arg is omitted when `inherit`. Verified against the parser:
+`option_grammar.ex` maps `0→:auto`, `0<n<1→{:scale,n}`, `n≥1→{:pixels,n}`, and all nine
+gravity tokens exist; `inherit` correctly has no token.
 
-Source path form: the proven `images/<name>` form is confirmed working against the demo plug;
-during implementation, confirm whether to keep the Svelte `local:///images/<name>` scheme or
-the bare form (both are documented as equivalent by the imgproxy parser).
-
-## Signing (client JS interop)
-
-`assets/js/fiddle/sign.mjs` exposes an async HMAC-SHA256 via Web Crypto `subtle.sign`,
-returning the base64url signature. A client action awaits it (Promise → Task) and
-`put_state(:signature)`. Faithful to the Svelte approach; preview stays client-driven.
+**Crop defaults are source-dependent** (this was missing before): `SampleImages` carries
+`{path, width, height}` per image. `DemoState` derives the default crop px width/height from
+the default source, and the `CropDimensionControl` px-unit slider max is bounded by the source
+dimensions. Both are recomputed when `source` changes. Note: crop px and % fields round-trip
+independently — only the *active* unit's value is authoritative (matches Svelte).
 
 ## Preview (JS interop fetch facade)
 
-`assets/js/fiddle/preview.mjs`: `fetch(url)` with `AbortController` → blob → `createObjectURL`
-→ load into an `Image` for natural width/height → returns
-`{objectUrl, width, height, bytes, contentType}` to an Elixir action, which `put_state`s the
-metadata and clears loading. Race-guarded by the generation counter; failures set
-`previewError`. Matches the existing overlay (size · format · dimensions) + spinner + error.
+`assets/js/fiddle/preview.mjs` exposes an async `load(url) -> {objectUrl, width, height, bytes,
+contentType}`. It is **single-flight** and owns the full lifecycle:
+- Holds the current `AbortController`; aborts the previous in-flight request on each new call
+  and on page teardown. Aborts on a timeout deadline too (since `Task.await` won't time out).
+- `fetch(url, {signal})` → on non-OK, reject with a structured `{status, statusText, body}` so
+  the Elixir action can build the same `"{status}: {body}"` label the Svelte app shows.
+- On OK: blob → `createObjectURL` → load into `Image` for natural width/height → resolve.
+- Holds the current object URL; **revokes the previous one** when a new one is ready, and on
+  abort/error/teardown. (The Svelte app revokes meticulously; not doing so leaks a blob URL on
+  every slider tick.)
 
-## CSS strategy, theme, responsive
+The awaiting `:commit` action treats `AbortError` as a no-op and any other rejection as
+`preview_error`.
 
-**Root class + native `@scope`.** The page root carries `class="ip-demo"`; the ported
-stylesheet wraps its rules in `@scope (.ip-demo) { … }`. This is the closest proxy to Svelte's
-scoped CSS: it localizes the demo's styles so they cannot leak into Hologram's runtime DOM or
-future pages, and it lets us keep clean — even bare-element — selectors safely inside the
-scope, making the port of the existing component `<style>` blocks near-mechanical. Theme stays
-as the existing global `:root` / `[data-theme]` CSS-variable system.
+## CSS strategy (with corrected expectations)
 
-Caveat: `@scope` requires modern browsers (Chrome 118+, Safari 17.4+, Firefox 128+) —
-acceptable for a dev/test harness. Rejected alternative: flat BEM-prefixed classes (universal
-support, but verbose and loses bare-element safety).
+**Root class + native `@scope`.** The page root carries `class="ip-demo"`; the demo's layout/
+component rules are wrapped in `@scope (.ip-demo) { … }`. What this **does**: contain the
+demo's styles at the *app boundary* so they cannot leak into Hologram's runtime DOM or future
+pages — equivalent to prefixing every rule with `.ip-demo`, plus proximity-based specificity.
 
-**Theme:** `data-theme` on the layout root, driven by page state, persisted to `localStorage`
-via `theme.mjs`, hydrated on mount. **Responsive:** the mobile drawer + scrim are pure CSS
-plus a `drawer_open` state field toggled by the menu and scrim buttons.
+What it **does not** do (corrected from the first draft): it is **one flat scope**, not
+per-component isolation. Bare element selectors (`select`, `code`, nested `img`/`figure`/`h2`)
+still apply across the *entire* `.ip-demo` subtree — they are contained from the outside world
+but not isolated from siblings inside the demo. Acceptable for a single-page spike; revisit
+per-component `@scope` if multiple pages later share the stylesheet. Specificity differs from
+Svelte's compiled output, so the `:where(...)`/`:global(...)` blocks need a manual review pass
+during the port — this is **not** a mechanical wrap.
+
+Theme variables and resets (`:root`, `[data-theme]`, `html`, `body`) stay **outside** `@scope`
+(global), exactly as today. Spike 1 ships **dark only** (the stylesheet's `:root` defaults to
+dark); no `data-theme` toggle, no `localStorage`, so no SSR flash-of-theme to handle yet.
+
+**Browser support:** `@scope` needs Chrome 118+/Safari 17.4+/FF 128+. Acceptable for a dev/
+test harness, but note the failure mode is a cliff: an unsupported engine drops the whole
+`@scope` block and renders the demo unstyled. No fallback for the spike.
+
+**Stale guideline:** `demo_new/priv/static/css/app.css` carries a comment mandating flat
+prefixed classes / no bare selectors. The `@scope` approach deliberately supersedes that for
+the scoped demo stylesheet (leakage is contained at the app boundary); update or remove that
+comment so the two don't contradict the next reader.
 
 ## Testing
 
-- ExUnit unit tests for `ProcessingPath.build/1` — Request and Crop encodings, including the
-  px / % / full unit variants and gravity inclusion/omission.
-- ExUnit round-trip test for `DemoPath` — state → base64url token → state.
-- One wire-level test: `GET /img/_/c:…/plain/images/…` returns `200 image/jpeg` with the
-  expected decoded output dimensions (reuses the harness's request-boundary test pattern).
-- JS-interop facades (sign / preview / theme) verified manually in-browser during the spike
-  (screenshot).
+- ExUnit unit tests for `ProcessingPath.build/1` — Crop encodings across px/%/full and gravity
+  inclusion/omission; Request source form.
+- ExUnit tests for `DemoState` source-change → crop-default/limit derivation
+  (`resetCropPixelsToSource`).
+- One wire-level test: `GET /img/_/c:…/plain/images/…` → `200 image/jpeg` with expected decoded
+  output dimensions (reuses the `imgproxy_wire_conformance_test.exs` `c:` pattern).
+- The `preview.mjs` facade is verified manually in-browser (screenshot) during the spike.
 
 ## Risks / things the spike validates
 
-- Async JS interop (Promise → Task) for Web Crypto and `fetch` behaving as documented.
-- `delay:`-based debounce + generation guard feeling smooth under slider drags.
-- `@scope` porting fidelity versus Svelte's per-component scoped styles.
-- The single-segment base64url route round-tripping cleanly through `init/3`.
+- Async JS interop (Promise → Task) for `fetch`, and the facade-owned single-flight/abort/
+  object-URL lifecycle behaving smoothly under slider drags.
+- `delay:` + generation-counter debounce feeling smooth.
+- `@scope` porting fidelity vs. Svelte's per-component scoped styles, including the manual
+  `:where`/`:global` specificity pass and the reimplemented switch/collapsible/slider.
 
-## Out of scope / future
+## Spike 2 backlog (deferred, with the caveats that apply when they land)
 
-- The remaining transform tools (added incrementally on the same shell + path-builder).
-- Per-component `@scope` isolation (the spike uses one root-level scope).
-- Server-side signing, and signing with arbitrary keys that the plug does not trust.
-- Any change to the library or the existing Svelte `demo/`.
+- **Signing (client Web Crypto):** HMAC-SHA256 over the path; sign `salt <> signed_path` where
+  `signed_path` is everything after the signature segment; truncate to 32 bytes; **unpadded**
+  base64url; hex-decode key/salt. Defaults to the plug's configured `keys: ["736563726574"]`,
+  `salts: ["68656c6c6f"]` so signed previews validate. **Invariant:** the signed bytes and the
+  request URL's source segment must come from one canonical string (use the bare `images/x.jpg`
+  form everywhere) or you get a 403. Do **not** add an Elixir test asserting the HMAC string
+  (tests the encoding, not the contract) — the wire-level `200` on a signed path is the
+  assertion.
+- **Deep-link / URL state:** `route "/demo/:state"` + `param :state, :string` with the canonical
+  path serialized as **unpadded** base64url in one segment. Match Svelte: encode only
+  `{options}/plain/{source}` — **not** the signature (signature mode/key/salt are session-only),
+  which makes the round-trip lossless. Port `resetCropPixelsToSource` on decode. The live URL
+  rewrite must use `history.replaceState(history.state, "", url)` — preserving Hologram's own
+  `history.state` snapshot UUID, or back/forward breaks. Guarantee is state→token→state, not
+  byte-identity. Handle the empty/initial `/demo` case.
+- **Theme toggle (light/dark/system):** `data-theme` on the layout `<html>` driven by **page**
+  state (the page-state→layout-props merge propagates it; the toggle targets `"page"`).
+  Persist via `localStorage`. **FOUC:** SSR cannot read `localStorage`, so add a tiny **inline,
+  blocking `<head>` script** that sets `data-theme` before first paint — a deferred interop
+  facade runs too late and will flash.
+- **Mobile drawer + scrim:** pure-CSS transform drawer toggled by a `drawer_open` page-state
+  field. Reproduce the deferred a11y: focus trap, Escape-to-close, focus restoration, and
+  `inert` on the off-screen panel gated by a `matchMedia("(max-width: 720px)")` interop signal
+  (`inert` can't be set by CSS).
+- **The other ~11 transform tools** (Resize, Gravity, Scale options, Orientation, Aspect
+  canvas, Padding, Background, Effects, Format, Quality), added on the same shell + path-builder.
+
+## Out of scope
+
+- Any change to the library or to the existing Svelte `demo/`.
+- Per-component `@scope` isolation (spike uses one root-level scope).
+- Server-side signing; signing with keys the plug does not trust.
+- **Note:** `demo_new/` does not yet replace `demo/`, so the CLAUDE.md transform-sync
+  obligation ("update the demo when a transform's params change") still points at `demo/` until
+  the cutover. A future transform change currently has two demos to consider.
