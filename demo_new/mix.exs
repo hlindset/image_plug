@@ -33,8 +33,8 @@ defmodule ImagePipeDemo.MixProject do
   end
 
   # Specifies which paths to compile per environment.
-  defp elixirc_paths(:test), do: ["lib", "test/support"]
-  defp elixirc_paths(_), do: ["lib"]
+  defp elixirc_paths(:test), do: ["app", "lib", "test/support"]
+  defp elixirc_paths(_), do: ["app", "lib"]
 
   # `usage_rules` config. Instead of inlining dependency usage rules into a big
   # CLAUDE.md/AGENTS.md, we generate on-demand agent skills under .claude/skills/.
