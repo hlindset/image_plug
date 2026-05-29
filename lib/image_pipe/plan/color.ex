@@ -7,6 +7,8 @@ defmodule ImagePipe.Plan.Color do
   data do not depend on third-party structs.
   """
 
+  alias Elixir.Color.SRGB
+
   @enforce_keys [:space, :channels, :alpha]
   defstruct @enforce_keys
 
@@ -29,8 +31,8 @@ defmodule ImagePipe.Plan.Color do
 
   @spec rgb_hex(term()) :: {:ok, t()} | {:error, term()}
   def rgb_hex(hex) when is_binary(hex) and byte_size(hex) in [3, 6] do
-    with {:ok, %Elixir.Color.SRGB{} = external} <- Elixir.Color.SRGB.parse("#" <> hex),
-         {red, green, blue} <- Elixir.Color.SRGB.scale255(external) do
+    with {:ok, %SRGB{} = external} <- SRGB.parse("#" <> hex),
+         {red, green, blue} <- SRGB.scale255(external) do
       rgb(round(red), round(green), round(blue))
     else
       {:error, _reason} -> {:error, {:invalid_color, [hex]}}

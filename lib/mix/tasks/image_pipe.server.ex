@@ -140,7 +140,7 @@ defmodule Mix.Tasks.ImagePipe.Server do
   defp start_bandit(port) do
     with {:module, Bandit} <- Code.ensure_loaded(Bandit),
          {:module, ImagePipe.SimpleServer} <- Code.ensure_loaded(ImagePipe.SimpleServer) do
-      apply(Bandit, :start_link, [[plug: ImagePipe.SimpleServer, port: port]])
+      Bandit.start_link(plug: ImagePipe.SimpleServer, port: port)
     else
       _missing -> Mix.raise("ImagePipe simple server is only available in dev and test")
     end

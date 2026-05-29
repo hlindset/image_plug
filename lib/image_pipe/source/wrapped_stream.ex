@@ -111,11 +111,7 @@ defimpl Enumerable, for: ImagePipe.Source.WrappedStream do
     fn chunk, {size, acc} ->
       with {:ok, binary} <- validate_chunk(chunk),
            {:ok, new_size} <- add_size(size, binary, max_body_bytes) do
-        case call_consumer(fun, binary, acc, consumer_failure_ref) do
-          {:cont, acc} -> {:cont, {new_size, acc}}
-          {:halt, acc} -> {:halt, {new_size, acc}}
-          {:suspend, acc} -> {:suspend, {new_size, acc}}
-        end
+        advance_consumer(fun, binary, acc, new_size, consumer_failure_ref)
       else
         {:error, :body_too_large} ->
           WrappedStream.mark_body_limit_exceeded(wrapped)
@@ -126,6 +122,14 @@ defimpl Enumerable, for: ImagePipe.Source.WrappedStream do
           WrappedStream.mark_stream_error(wrapped, reason)
           raise StreamError, reason: reason
       end
+    end
+  end
+
+  defp advance_consumer(fun, binary, acc, new_size, consumer_failure_ref) do
+    case call_consumer(fun, binary, acc, consumer_failure_ref) do
+      {:cont, acc} -> {:cont, {new_size, acc}}
+      {:halt, acc} -> {:halt, {new_size, acc}}
+      {:suspend, acc} -> {:suspend, {new_size, acc}}
     end
   end
 

@@ -1,4 +1,5 @@
 defmodule ImagePipe.Cache.KeyTest.ForwardingProbe do
+  @moduledoc false
   @behaviour ImagePipe.Cache
 
   def get(_key, _opts), do: :miss

@@ -9,13 +9,13 @@ defmodule ImagePipe.Parser.Imgproxy.PlanBuilderTest do
   alias ImagePipe.Parser.Imgproxy.PlanBuilder
   alias ImagePipe.Plan
   alias ImagePipe.Plan.Operation
+  alias ImagePipe.Plan.Operation.AutoOrient
+  alias ImagePipe.Plan.Operation.Flip
+  alias ImagePipe.Plan.Operation.Rotate
   alias ImagePipe.Plan.Output
   alias ImagePipe.Plan.Pipeline
   alias ImagePipe.Plan.Response
   alias ImagePipe.Plan.Source
-  alias ImagePipe.Plan.Operation.AutoOrient
-  alias ImagePipe.Plan.Operation.Flip
-  alias ImagePipe.Plan.Operation.Rotate
 
   test "converts one imgproxy pipeline request into a product-neutral plan" do
     request = %ParsedRequest{

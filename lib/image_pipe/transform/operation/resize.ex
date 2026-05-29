@@ -109,15 +109,13 @@ defmodule ImagePipe.Transform.Operation.Resize do
     source_width = image_width(state)
     source_height = image_height(state)
 
-    cond do
-      width == source_width and height == source_height ->
-        {:ok, state.image}
+    if width == source_width and height == source_height do
+      {:ok, state.image}
+    else
+      width_scale = width / source_width
+      height_scale = height / source_height
 
-      true ->
-        width_scale = width / source_width
-        height_scale = height / source_height
-
-        Image.resize(state.image, width_scale, vertical_scale: height_scale)
+      Image.resize(state.image, width_scale, vertical_scale: height_scale)
     end
   end
 

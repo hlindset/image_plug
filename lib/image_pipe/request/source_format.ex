@@ -9,9 +9,8 @@ defmodule ImagePipe.Request.SourceFormat do
 
   @spec from_image(VipsImage.t()) :: {:ok, source_format()} | {:error, error()}
   def from_image(image) do
-    with {:ok, loader} <- header_value(image, "vips-loader") do
-      classify_loader(loader, &header_value(image, &1))
-    else
+    case header_value(image, "vips-loader") do
+      {:ok, loader} -> classify_loader(loader, &header_value(image, &1))
       :error -> unsupported(:unknown)
     end
   end

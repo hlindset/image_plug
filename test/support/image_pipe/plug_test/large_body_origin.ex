@@ -1,4 +1,5 @@
 defmodule ImagePipe.PlugTest.LargeBodyOrigin do
+  @moduledoc false
   def call(conn, _opts) do
     body = :binary.copy("a", 10_000_001)
 

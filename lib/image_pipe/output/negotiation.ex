@@ -3,6 +3,7 @@ defmodule ImagePipe.Output.Negotiation do
 
   alias ImagePipe.Format
   alias ImagePipe.Output.Capabilities
+  alias Plug.Conn.Utils
 
   @modern_formats [avif: "image/avif", webp: "image/webp"]
 
@@ -91,13 +92,13 @@ defmodule ImagePipe.Output.Negotiation do
 
   defp parse_accept(accept_header) do
     accept_header
-    |> Plug.Conn.Utils.list()
+    |> Utils.list()
     |> Enum.map(&parse_accept_entry/1)
     |> Enum.reject(&is_nil/1)
   end
 
   defp parse_accept_entry(entry) do
-    case Plug.Conn.Utils.media_type(entry) do
+    case Utils.media_type(entry) do
       {:ok, type, subtype, params} -> {type <> "/" <> subtype, quality_from_params(params)}
       :error -> nil
     end

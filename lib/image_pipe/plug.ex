@@ -54,28 +54,7 @@ defmodule ImagePipe.Plug do
          {:ok, %Source.Resolved{} = resolved_source} <-
            Source.resolve(plan.source, opts, Options.source_runtime_opts(opts)) do
       prepared_http_cache = HTTPCache.prepare(conn, plan, resolved_source, opts)
-
-      case HTTPCache.evaluate_conditional(conn, prepared_http_cache, opts) do
-        {:not_modified, prepared} ->
-          result = :not_modified
-
-          {conn, send_metadata} =
-            send_response(conn, opts, result, fn ->
-              Sender.send_not_modified(conn, prepared)
-            end)
-
-          {conn, request_stop_metadata(result, send_metadata)}
-
-        :proceed ->
-          result = Runner.run(conn, plan, resolved_source, prepared_http_cache, opts)
-
-          {conn, send_metadata} =
-            send_response(conn, opts, request_result(result), fn ->
-              Sender.send_result(conn, result, opts)
-            end)
-
-          {conn, request_stop_metadata(result, send_metadata)}
-      end
+      send_conditional_response(conn, plan, resolved_source, prepared_http_cache, opts)
     else
       {:error, {:parser, error}} ->
         {conn, _send_metadata} =
@@ -96,6 +75,30 @@ defmodule ImagePipe.Plug do
           send_response(conn, opts, :source_error, fn -> Sender.send_source_error(conn, error) end)
 
         {conn, %{result: :source_error, error: Error.tag(error)}}
+    end
+  end
+
+  defp send_conditional_response(conn, plan, resolved_source, prepared_http_cache, opts) do
+    case HTTPCache.evaluate_conditional(conn, prepared_http_cache, opts) do
+      {:not_modified, prepared} ->
+        result = :not_modified
+
+        {conn, send_metadata} =
+          send_response(conn, opts, result, fn ->
+            Sender.send_not_modified(conn, prepared)
+          end)
+
+        {conn, request_stop_metadata(result, send_metadata)}
+
+      :proceed ->
+        result = Runner.run(conn, plan, resolved_source, prepared_http_cache, opts)
+
+        {conn, send_metadata} =
+          send_response(conn, opts, request_result(result), fn ->
+            Sender.send_result(conn, result, opts)
+          end)
+
+        {conn, request_stop_metadata(result, send_metadata)}
     end
   end
 

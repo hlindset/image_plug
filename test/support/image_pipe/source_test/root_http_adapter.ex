@@ -55,9 +55,9 @@ defmodule ImagePipe.SourceTest.RootHTTPAdapter do
 
   defp build_url(root_url, segments) do
     path =
-      segments
-      |> Enum.map(fn segment -> URI.encode(segment, &URI.char_unreserved?/1) end)
-      |> Enum.join("/")
+      Enum.map_join(segments, "/", fn segment ->
+        URI.encode(segment, &URI.char_unreserved?/1)
+      end)
 
     root_url = String.trim_trailing(root_url, "/")
     root_url <> "/" <> path

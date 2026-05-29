@@ -248,9 +248,8 @@ defmodule ImagePipe.Request.Processor do
     pixels = width * height
 
     with :ok <- check_result_width(width, Keyword.fetch!(opts, :max_result_width)),
-         :ok <- check_result_height(height, Keyword.fetch!(opts, :max_result_height)),
-         :ok <- check_result_pixels(pixels, Keyword.fetch!(opts, :max_result_pixels)) do
-      :ok
+         :ok <- check_result_height(height, Keyword.fetch!(opts, :max_result_height)) do
+      check_result_pixels(pixels, Keyword.fetch!(opts, :max_result_pixels))
     end
   end
 
