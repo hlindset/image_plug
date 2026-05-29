@@ -64,4 +64,8 @@ defmodule ImagePipe.Telemetry.LoggerTest do
 
     assert log =~ "transform: resize (#1)"
   end
+
+  test "rejects an invalid log level" do
+    assert_raise ArgumentError, fn -> Telemetry.attach_default_logger(level: :nope) end
+  end
 end

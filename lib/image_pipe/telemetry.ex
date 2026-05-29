@@ -16,7 +16,7 @@ defmodule ImagePipe.Telemetry do
 
   @default_prefix [:image_pipe]
 
-  @logger_groups [:request, :parse, :source, :transform, :cache]
+  @valid_levels [:emergency, :alert, :critical, :error, :warning, :notice, :info, :debug]
 
   @spec default_prefix() :: [atom()]
   def default_prefix, do: @default_prefix
@@ -31,7 +31,7 @@ defmodule ImagePipe.Telemetry do
 
   Options:
     * `:level` — base log level (default `:info`); errors/exceptions escalate to `:warning`.
-    * `:events` — `:all` (default) or a list of `#{inspect(@logger_groups)}`.
+    * `:events` — `:all` (default) or a list of `[:request, :parse, :source, :transform, :cache]`.
     * `:prefix` — telemetry event prefix list (default `#{inspect(@default_prefix)}`).
     * `:debug` — when `true`, also log the full raw measurements/metadata (default `false`).
   """
@@ -53,7 +53,8 @@ defmodule ImagePipe.Telemetry do
     known = [:level, :events, :prefix, :debug]
 
     with [] <- Keyword.keys(opts) -- known,
-         :ok <- validate_events(Keyword.get(opts, :events, :all)) do
+         :ok <- validate_events(Keyword.get(opts, :events, :all)),
+         :ok <- validate_level(Keyword.get(opts, :level, :info)) do
       validate_prefix(Keyword.get(opts, :prefix, @default_prefix))
     else
       unknown when is_list(unknown) ->
@@ -64,7 +65,7 @@ defmodule ImagePipe.Telemetry do
   defp validate_events(:all), do: :ok
 
   defp validate_events(groups) when is_list(groups) do
-    case groups -- @logger_groups do
+    case groups -- DefaultLogger.all_groups() do
       [] -> :ok
       bad -> raise ArgumentError, "unknown telemetry logger event groups: #{inspect(bad)}"
     end
@@ -73,7 +74,18 @@ defmodule ImagePipe.Telemetry do
   defp validate_events(other),
     do: raise(ArgumentError, ":events must be :all or a list, got: #{inspect(other)}")
 
-  defp validate_prefix(prefix) when is_list(prefix) and prefix != [], do: :ok
+  defp validate_level(level) when level in @valid_levels, do: :ok
+
+  defp validate_level(other),
+    do: raise(ArgumentError, ":level must be a valid Logger level, got: #{inspect(other)}")
+
+  defp validate_prefix(prefix) when is_list(prefix) and prefix != [] do
+    if Enum.all?(prefix, &is_atom/1) do
+      :ok
+    else
+      raise ArgumentError, ":prefix must be a non-empty list of atoms, got: #{inspect(prefix)}"
+    end
+  end
 
   defp validate_prefix(other),
     do: raise(ArgumentError, ":prefix must be a non-empty list of atoms, got: #{inspect(other)}")

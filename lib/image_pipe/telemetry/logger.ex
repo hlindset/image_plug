@@ -27,7 +27,6 @@ defmodule ImagePipe.Telemetry.Logger do
 
   @all_groups Map.keys(@group_span_events)
 
-  def handler_id, do: @handler_id
   def all_groups, do: @all_groups
 
   def attach(opts) do
