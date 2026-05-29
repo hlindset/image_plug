@@ -67,7 +67,15 @@ defmodule ImagePipe.Telemetry.Logger do
   def handle_event(event, measurements, metadata, config) do
     suffix = Enum.drop(event, config.plen)
     level = level_for(suffix, metadata, config.level)
-    Logger.log(level, fn -> message(suffix, measurements, metadata) end, log_metadata(event, measurements, metadata))
+
+    message =
+      if List.last(suffix) == :exception do
+        exception_message(suffix, metadata)
+      else
+        message(suffix, measurements, metadata)
+      end
+
+    Logger.log(level, fn -> message end, log_metadata(event, measurements, metadata))
 
     if config.debug? do
       Logger.debug(fn ->
@@ -116,6 +124,10 @@ defmodule ImagePipe.Telemetry.Logger do
 
   defp message(suffix, _m, meta) do
     "image_pipe #{label(suffix)}: #{outcome(meta)}"
+  end
+
+  defp exception_message(suffix, meta) do
+    "image_pipe #{label(suffix)}: exception (#{meta[:kind]} #{inspect(meta[:reason])})"
   end
 
   defp outcome(meta), do: meta[:cache] || meta[:result] || :ok

@@ -48,6 +48,22 @@ defmodule ImagePipe.Telemetry.LoggerTest do
     assert log =~ "cache write"
   end
 
+  test "renders exception events as exceptions at warning level" do
+    Telemetry.attach_default_logger(level: :info)
+
+    log =
+      capture_log(fn ->
+        :telemetry.execute(
+          [:image_pipe, :source, :fetch, :exception],
+          %{duration: 1000},
+          %{kind: :error, reason: :boom, stacktrace: []}
+        )
+      end)
+
+    assert log =~ "[warning]"
+    assert log =~ "exception"
+  end
+
   test "renders a transform operation with name and index" do
     Telemetry.attach_default_logger(level: :debug)
 
