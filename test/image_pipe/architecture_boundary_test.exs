@@ -375,8 +375,10 @@ defmodule ImagePipe.ArchitectureBoundaryTest do
     ]
 
     cache_filesystem_sources =
-      "lib/image_pipe/cache/file_system/**/*.ex"
-      |> Path.wildcard()
+      [
+        "lib/image_pipe/cache/file_system.ex"
+        | Path.wildcard("lib/image_pipe/cache/file_system/**/*.ex")
+      ]
       |> Map.new(fn file -> {file, File.read!(file)} end)
 
     violations =

@@ -142,8 +142,11 @@ ignores every other option in this section.
 Bounded mode runs a per-node `Admission` GenServer that owns the size budget,
 the admission policy, and the persisted frequency sketch. It requires a stable
 `:node_id` string. The `:node_id` names the per-node persisted state file, so it
-must stay stable across restarts of the same node; on Kubernetes a StatefulSet
-pod ordinal (for example `POD_NAME`) is a good source.
+must stay stable across restarts of the same node. On Kubernetes, StatefulSet
+pods get stable ordinal names (e.g. `image-pipe-0`, exposed via `POD_NAME` from
+the downward API), which make good `:node_id` values; Deployment/ReplicaSet pods
+get a random suffix that changes on every restart, so their pod names must not
+be used.
 
 `ImagePipe.Cache.FileSystem.child_spec/1` returns a supervisor spec (a `Registry`
 plus the `Admission` process) when `:max_size_bytes` is set, and `:ignore`
