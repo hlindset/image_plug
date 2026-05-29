@@ -10,6 +10,7 @@ defmodule ImagePipeDemo.Fiddle.DemoStateTest do
     assert s.crop_width == 5011
     assert s.crop_height == 7516
     assert s.crop_width_percent == 50
+    assert s.crop_height_percent == 50
     assert s.crop_gravity == "inherit"
   end
 

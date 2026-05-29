@@ -1,0 +1,11 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "demo_new",
+      "runtimeExecutable": "sh",
+      "runtimeArgs": ["-lc", "cd demo_new && HOLOGRAM_START=1 mise exec -- mix phx.server"],
+      "port": 4000
+    }
+  ]
+}

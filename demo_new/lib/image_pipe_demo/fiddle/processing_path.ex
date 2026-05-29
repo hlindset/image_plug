@@ -9,13 +9,13 @@ defmodule ImagePipeDemo.Fiddle.ProcessingPath do
   @doc "Full unsigned path: `/_/{opts}/plain/{source}` (or `/_/plain/{source}` with no opts)."
   def build(%DemoState{} = state), do: "/_" <> signed_path(state)
 
-  def signed_path(%DemoState{} = state) do
+  defp signed_path(%DemoState{} = state) do
     opts = state |> option_segments() |> Enum.join("/")
     opts_path = if opts == "", do: "", else: "/" <> opts
     opts_path <> "/plain/" <> state.source
   end
 
-  def option_segments(%DemoState{} = state), do: maybe_crop([], state)
+  defp option_segments(%DemoState{} = state), do: maybe_crop([], state)
 
   defp maybe_crop(segments, %DemoState{crop_enabled: false}), do: segments
   defp maybe_crop(segments, %DemoState{} = state), do: segments ++ [crop_segment(state)]
