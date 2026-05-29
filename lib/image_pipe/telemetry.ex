@@ -1,15 +1,82 @@
 defmodule ImagePipe.Telemetry do
-  @moduledoc false
+  @moduledoc """
+  Telemetry helpers and an opt-in default Logger handler for ImagePipe.
+
+  ImagePipe emits `:telemetry` events only. Hosts attach their own handlers
+  (metrics, OpenTelemetry, APM). For convenience, `attach_default_logger/1`
+  attaches a stdlib `Logger` handler covering ImagePipe's events.
+  """
 
   use Boundary,
     top_level?: true,
     deps: [],
     exports: []
 
+  alias ImagePipe.Telemetry.Logger, as: DefaultLogger
+
   @default_prefix [:image_pipe]
+
+  @logger_groups [:request, :parse, :source, :transform, :cache]
 
   @spec default_prefix() :: [atom()]
   def default_prefix, do: @default_prefix
+
+  @doc """
+  Attach the default `Logger` handler for ImagePipe telemetry. Opt-in and
+  idempotent.
+
+  Raises `ArgumentError` on invalid options. This is host-startup configuration,
+  so it raises (matching `Oban.Telemetry.attach_default_logger` /
+  `Phoenix.Logger`) rather than returning a tagged error.
+
+  Options:
+    * `:level` — base log level (default `:info`); errors/exceptions escalate to `:warning`.
+    * `:events` — `:all` (default) or a list of `#{inspect(@logger_groups)}`.
+    * `:prefix` — telemetry event prefix list (default `#{inspect(@default_prefix)}`).
+    * `:debug` — when `true`, also log the full raw measurements/metadata (default `false`).
+  """
+  @spec attach_default_logger(keyword()) :: :ok
+  def attach_default_logger(opts \\ []) when is_list(opts) do
+    :ok = validate_logger_opts(opts)
+
+    case DefaultLogger.attach(opts) do
+      :ok -> :ok
+      {:error, :already_exists} -> :ok
+    end
+  end
+
+  @doc "Detach the default Logger handler."
+  @spec detach_default_logger() :: :ok | {:error, :not_found}
+  def detach_default_logger, do: DefaultLogger.detach()
+
+  defp validate_logger_opts(opts) do
+    known = [:level, :events, :prefix, :debug]
+
+    with [] <- Keyword.keys(opts) -- known,
+         :ok <- validate_events(Keyword.get(opts, :events, :all)) do
+      validate_prefix(Keyword.get(opts, :prefix, @default_prefix))
+    else
+      unknown when is_list(unknown) ->
+        raise ArgumentError, "unknown attach_default_logger options: #{inspect(unknown)}"
+    end
+  end
+
+  defp validate_events(:all), do: :ok
+
+  defp validate_events(groups) when is_list(groups) do
+    case groups -- @logger_groups do
+      [] -> :ok
+      bad -> raise ArgumentError, "unknown telemetry logger event groups: #{inspect(bad)}"
+    end
+  end
+
+  defp validate_events(other),
+    do: raise(ArgumentError, ":events must be :all or a list, got: #{inspect(other)}")
+
+  defp validate_prefix(prefix) when is_list(prefix) and prefix != [], do: :ok
+
+  defp validate_prefix(other),
+    do: raise(ArgumentError, ":prefix must be a non-empty list of atoms, got: #{inspect(other)}")
 
   @spec span(keyword(), [atom()], map() | keyword(), (-> term())) :: term()
   def span(telemetry_opts, stage, start_metadata, fun) when is_function(fun, 0) do
