@@ -323,8 +323,9 @@ end
 Run: `mise exec -- mix test test/image_pipe_demo/fiddle/processing_path_test.exs`
 Expected: PASS.
 
-> If `percent_string/1` ever mismatches JS for an odd percent (float repr), switch to an
-> integer-based decimal formatter; the example tests above are the contract.
+> **Verified (review):** `Float.to_string(pct / 100)` is byte-identical to JS `String(pct/100)`
+> for every integer percent 1..99 (both stringify the same IEEE-754 double with shortest
+> round-trip). The UI clamps percent to 1..99, so no other input reaches this function.
 
 - [ ] **Step 5: Commit**
 
@@ -420,7 +421,9 @@ end
 
 - [ ] **Step 3: Compile and boot**
 
-Run: `mise exec -- mix compile` → Expected: compiles (only upstream Hologram warnings).
+Run: `mise exec -- mix compile` → Expected: builds (the first compile builds the Hologram dep and
+prints *its* warnings once — those are upstream, not our code). Thereafter use
+`mise exec -- mix compile --warnings-as-errors` for the app, which should be clean.
 Run (background): `HOLOGRAM_START=1 mise exec -- mix phx.server`
 Run: `curl -s -o /dev/null -w "%{http_code}\n" http://localhost:4000/demo`
 Expected: `200`. And `curl -s http://localhost:4000/demo | grep -o 'path: /_/plain/images/dog.jpg'` prints the default path. Stop the server.
@@ -520,8 +523,8 @@ end
 
 - [ ] **Step 2: Verify it compiles**
 
-Run: `mise exec -- mix compile`
-Expected: compiles. (Rendered use is exercised in Task 9.)
+Run: `mise exec -- mix compile --warnings-as-errors`
+Expected: clean (a defined-but-not-yet-rendered component is a module, not an unused alias — no warning). Rendered use is exercised in Task 9.
 
 - [ ] **Step 3: Commit**
 
@@ -594,8 +597,7 @@ def action(:toggle_request, _params, component) do
   put_state(component, :request_open, not component.state.request_open)
 end
 
-def action(:update_source, %{event: event}, component) do
-  source = event["value"]
+def action(:update_source, %{event: %{value: source}}, component) do
   recompute(component, DemoState.put_source(component.state.demo, source))
 end
 
@@ -607,9 +609,12 @@ defp recompute(component, %DemoState{} = demo) do
 end
 ```
 
-> The exact key for the selected value in `params.event` (here `event["value"]`) must be
-> confirmed against the Hologram Forms doc for a `$change` on `<select>`. If the change event
-> delivers the value under a different key, adjust `update_source` accordingly.
+> **Resolved (review):** input-level `$change` on `<select>`/`<input>` delivers the value under
+> the **atom** key `:value` (`params.event.value`) — `change_event.mjs`/`input_event.mjs` build
+> `%{value: ...}`. So destructure `%{event: %{value: source}}`. (Contrast: awaited `Task` results
+> from JS use *string* keys — see Task 12. Event params = atom keys; JS return values = string keys.)
+> Note: `recompute/2` and `init/3` here are **superseded by their Task 12 versions** — Task 12
+> replaces them (it adds the debounced `:commit` and the preview state).
 
 - [ ] **Step 3: Render the tool in the page template**
 
@@ -722,9 +727,7 @@ defmodule ImagePipeDemoWeb.Components.Fiddle.CropTool do
   alias ImagePipeDemo.Fiddle.{DemoState, SampleImages}
   alias ImagePipeDemoWeb.Components.Fiddle.{ToolToggleHeader, CropDimensionControl}
 
-  prop :demo, :map   # %DemoState{}
-
-  @gravities ~w(inherit ce no so ea we noea nowe soea sowe)
+  prop :demo, :any   # %DemoState{} (prop types aren't validated; :any is honest for a struct)
 
   def template do
     ~HOLO"""
@@ -757,7 +760,7 @@ defmodule ImagePipeDemoWeb.Components.Fiddle.CropTool do
         <label class="value-row">
           <span>Gravity</span>
           <select $change={action: :set_crop_gravity, target: "page"}>
-            {%for g <- unquote(@gravities)}
+            {%for g <- ~w(inherit ce no so ea we noea nowe soea sowe)}
               <option value={g} selected={g == @demo.crop_gravity}>{g}</option>
             {/for}
           </select>
@@ -769,8 +772,9 @@ defmodule ImagePipeDemoWeb.Components.Fiddle.CropTool do
 end
 ```
 
-> If `unquote(@gravities)` (a module attribute) isn't accepted inside `~HOLO`, inline the list
-> literal in the `{%for}` instead. Confirm the `{%for}` + module-attr interaction during impl.
+> **Resolved (review):** module attributes are NOT reachable inside `~HOLO` — the compiler
+> rewrites every `@name` to a state/prop lookup. The inline `~w(...)` literal above is the
+> correct form (do not use `unquote(@gravities)`).
 
 - [ ] **Step 3: Add crop actions to the page**
 
@@ -782,24 +786,24 @@ def action(:toggle_crop, _params, component) do
   recompute(component, demo)
 end
 
-def action(:set_crop_gravity, %{event: event}, component) do
-  recompute(component, %{component.state.demo | crop_gravity: event["value"]})
+def action(:set_crop_gravity, %{event: %{value: value}}, component) do
+  recompute(component, %{component.state.demo | crop_gravity: value})
 end
 
-def action(:set_crop_width_unit, %{event: event}, component) do
-  recompute(component, %{component.state.demo | crop_width_unit: parse_unit(event["value"])})
+def action(:set_crop_width_unit, %{event: %{value: value}}, component) do
+  recompute(component, %{component.state.demo | crop_width_unit: parse_unit(value)})
 end
 
-def action(:set_crop_height_unit, %{event: event}, component) do
-  recompute(component, %{component.state.demo | crop_height_unit: parse_unit(event["value"])})
+def action(:set_crop_height_unit, %{event: %{value: value}}, component) do
+  recompute(component, %{component.state.demo | crop_height_unit: parse_unit(value)})
 end
 
-def action(:set_crop_width, %{event: event}, component) do
-  recompute(component, put_axis_value(component.state.demo, :width, event["value"]))
+def action(:set_crop_width, %{event: %{value: value}}, component) do
+  recompute(component, put_axis_value(component.state.demo, :width, value))
 end
 
-def action(:set_crop_height, %{event: event}, component) do
-  recompute(component, put_axis_value(component.state.demo, :height, event["value"]))
+def action(:set_crop_height, %{event: %{value: value}}, component) do
+  recompute(component, put_axis_value(component.state.demo, :height, value))
 end
 
 defp parse_unit("px"), do: :px
@@ -1039,10 +1043,10 @@ end
 
 - [ ] **Step 2: Extend page state + init + :commit**
 
-Add the preview state keys to `init/3`, chain a mount `:commit`, update `recompute/2` to schedule the debounced `:commit`, and add the `:commit` action + result handling. Add `js_import :load, from: "./fiddle/preview.mjs"` (the page already has `use Hologram.JS` from Task 10).
+**Replace** the `init/3` from Task 8 and the `recompute/2` from Task 8 with the versions below (do not add second clauses — duplicate `init/3`/`recompute/2` heads would be unreachable and warn). Add the `:commit` action + result handling, and add `js_import :load, from: "./fiddle/preview.mjs"` (the page already has `use Hologram.JS` from Task 10).
 
 ```elixir
-# init/3 — add preview keys and mount commit
+# init/3 — REPLACES Task 8: adds preview keys and the mount commit
 def init(_params, component, _server) do
   demo = DemoState.default()
 
@@ -1063,7 +1067,7 @@ def init(_params, component, _server) do
   |> put_action(name: :commit, params: %{gen: 0})
 end
 
-# recompute/2 — now schedules the debounced commit
+# recompute/2 — REPLACES Task 8: now schedules the debounced commit
 defp recompute(component, %DemoState{} = demo) do
   gen = component.state.preview_gen + 1
 
@@ -1108,8 +1112,9 @@ defp preview_error_label(%{"message" => message}), do: message
 defp preview_error_label(_), do: "Preview failed"
 ```
 
-> Confirm map keys are strings when a JS object crosses to Elixir (the spec assumes
-> `r["objectUrl"]` etc.). If interop delivers atom keys, adjust the matches.
+> **Resolved (review):** a JS plain object returned from an awaited `Task` crosses to Elixir as
+> a map with **string** keys (`box` maps keys to bitstrings), so `%{"ok" => ...}` / `r["objectUrl"]`
+> are correct. (This is the opposite of `$change` event params, which use atom keys — see Task 8.)
 
 - [ ] **Step 3: Render the canvas with metadata labels**
 
@@ -1201,11 +1206,16 @@ git commit -m "test(demo): wire-level crop + no-geometry image requests"
 
 **Files:** none.
 
-- [ ] **Step 1: Full Elixir suite + compile gate**
+- [ ] **Step 1: Full strict gate (run inside `demo_new/`)**
 
-Run: `mise exec -- mix compile` → Expected: no errors (only upstream Hologram warnings).
-Run: `mise exec -- mix test` → Expected: all pass (the new fiddle tests + the generated error tests).
-Run: `mise exec -- mix format`.
+> The repo-root `mise run precommit` / `mix demo.verify` do **not** cover `demo_new/` (separate
+> Mix project; `demo.verify` targets the Svelte `demo/`). Run the gate manually here.
+
+Run: `mise exec -- mix compile --warnings-as-errors` → Expected: clean (the Hologram *dep*'s own
+warnings are emitted once at deps-build time and do not recur on app compiles).
+Run: `mise exec -- mix credo --strict` → Expected: no issues.
+Run: `mise exec -- mix format --check-formatted` → Expected: clean (run `mix format` first if not).
+Run: `mise exec -- mix test` → Expected: all pass (the fiddle tests + the generated error tests).
 
 - [ ] **Step 2: Browser screenshot**
 
@@ -1227,4 +1237,12 @@ git add -A && git commit -m "chore(demo): format + final spike verification" || 
 
 **Type/name consistency:** state keys (`demo`, `path`, `preview_gen`, `preview_loading`, `preview_error`, `preview_object_url`, `preview_width/height/bytes/content_type`, `request_open`) are consistent across `init/3`, actions, and templates. Action names (`toggle_request`, `update_source`, `toggle_crop`, `set_crop_width/height`, `set_crop_width_unit/height_unit`, `set_crop_gravity`, `copy_url`, `commit`) match between component `$`-bindings and page `action/3` clauses. `DemoState`/`SampleImages`/`ProcessingPath` signatures match their call sites. Crop units are atoms (`:px/:percent/:full`) end-to-end; gravity is a string.
 
-**Known executor-verification points (by design, not gaps):** (1) `$change` event value key in `params.event` for `<select>`/`number`/`range`; (2) JS-interop relative-path resolution for the colocated `.mjs` files; (3) string-vs-atom keys on a JS object crossing to Elixir; (4) conditional-class interpolation form in `~HOLO`; (5) module-attr list inside `{%for}`. Each has an inline note and a fallback.
+**Parallel-review resolutions (folded into the tasks above):**
+- `$change` event value → **atom** key `params.event.value` (was wrongly `event["value"]`) — fixed in Tasks 8 & 9. **BLOCKER.**
+- Awaited `Task` result (JS object) → **string** keys (`r["objectUrl"]` correct) — confirmed (Task 12). The atom-vs-string asymmetry is the key gotcha: events = atom keys, JS return values = string keys.
+- `unquote(@gravities)` in `~HOLO` doesn't work (module attrs are rewritten) → inline `~w(...)` literal — fixed (Task 9). **MAJOR.**
+- Task 12 must **replace** Task 8's `init/3` + `recompute/2` (not add duplicate clauses) — made explicit. **BLOCKER.**
+- Intermediate compiles → `mix compile --warnings-as-errors`; Task 14 runs the full strict gate (`credo --strict`, `format --check`); repo-root `precommit` does **not** cover `demo_new/` — fixed.
+- Verified correct as written: `js_import` colocated relative paths, `put_action` longhand, struct-as-prop, stateless `target: "page"`, `percent_string` JS parity (byte-identical 1..99), and dog.jpg's full 37.7 MP decode passing ImagePipe's 40 MP default (both wire requests run end-to-end → 200 with exact dims).
+
+**Conscious divergences from the spec (accepted):** the plan drops the spec's separate `ui/` primitives (`toggle_switch`, `collapsible`, `slider`, `tool_section`) in favor of a plain switch `<span>` inside `ToolToggleHeader`, a native `<input type="range">`, and a state-driven `{%if @open}` collapsible — lower risk for the spike. Also, the JS facades live under `lib/image_pipe_demo_web/fiddle/` (correct for `js_import` relative resolution), not the spec's stale `assets/js/fiddle/` path.
