@@ -23,6 +23,7 @@ defmodule ImagePipe.Request.SourceSession do
     :pending,
     :resolved_output,
     :cache_sink,
+    :fetch_started_at,
     phase: :new
   ]
 
@@ -240,9 +241,10 @@ defmodule ImagePipe.Request.SourceSession do
 
   defp start_producer(%{request: %Request{} = request} = state) do
     caller_chain = Process.get(:"$callers", [])
+    fetch_started_at = System.monotonic_time(:microsecond)
     {:ok, producer} = Producer.start_link(request, caller_chain: caller_chain)
     ref = Process.monitor(producer)
-    %{state | producer: producer, producer_monitor: ref}
+    %{state | producer: producer, producer_monitor: ref, fetch_started_at: fetch_started_at}
   end
 
   defp handle_producer_result(
@@ -250,7 +252,15 @@ defmodule ImagePipe.Request.SourceSession do
          %{pending: {:prepare, from}, request: request} = state
        ) do
     with_owner_check(state, fn state ->
-      cache_sink = Cache.open_sink(request.cache_key, resolved_output, request.opts)
+      cost_us = System.monotonic_time(:microsecond) - state.fetch_started_at
+
+      cache_sink =
+        Cache.open_sink(
+          request.cache_key,
+          resolved_output,
+          Keyword.put(request.opts, :cost_us, cost_us)
+        )
+
       cache_sink = Cache.write_chunk(cache_sink, first_chunk, request.opts)
 
       prepared = %Prepared{

@@ -362,6 +362,33 @@ defmodule ImagePipe.ArchitectureBoundaryTest do
     ])
   end
 
+  test "bounded-mode FileSystem cache code stays within the cache boundary" do
+    forbidden_terms = [
+      "ImagePipe.Request",
+      "ImagePipe.Source",
+      "ImagePipe.Response",
+      "ImagePipe.Parser"
+    ]
+
+    cache_filesystem_sources =
+      [
+        "lib/image_pipe/cache/file_system.ex"
+        | Path.wildcard("lib/image_pipe/cache/file_system/**/*.ex")
+      ]
+      |> Map.new(fn file -> {file, File.read!(file)} end)
+
+    violations =
+      for {file, source} <- cache_filesystem_sources,
+          {line, number} <- source |> String.split("\n") |> Enum.with_index(1),
+          term <- forbidden_terms,
+          String.contains?(line, term) do
+        "#{file}:#{number} must not depend on #{term}; " <>
+          "bounded-mode cache code stays within the ImagePipe.Cache boundary"
+      end
+
+    assert violations == []
+  end
+
   test "transform boundary declaration depends on plan and not higher layers" do
     transform = boundary_declaration(ImagePipe.Transform)
 

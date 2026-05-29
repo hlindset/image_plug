@@ -35,7 +35,9 @@ defmodule ImagePipe.Cache.Sink do
 
   @spec open(module(), Key.t(), Resolved.t(), keyword(), keyword()) :: t() | nil
   def open(adapter, %Key{} = key, %Resolved{} = resolved_output, cache_opts, opts) do
-    with {:ok, metadata} <- response_metadata(resolved_output),
+    cost_us = Keyword.get(opts, :cost_us, 0)
+
+    with {:ok, metadata} <- response_metadata(resolved_output, cost_us),
          {:ok, adapter_state} <- open_adapter_sink(adapter, key, metadata, cache_opts) do
       build(adapter, key, metadata, cache_opts, adapter_state)
     else
@@ -81,51 +83,16 @@ defmodule ImagePipe.Cache.Sink do
     :ok
   end
 
-  @spec put_entry(module(), Key.t(), Entry.t(), keyword(), keyword()) ::
-          :ok | :skipped | {:error, {:cache_write, term()}}
-  def put_entry(adapter, %Key{} = key, %Entry{} = entry, cache_opts, opts) do
-    case open_entry_put(adapter, key, entry, cache_opts, opts) do
-      %__MODULE__{} = sink -> write_entry_body(sink, entry.body, opts)
-      {:skip, :too_large} -> :skipped
-      :ok -> :ok
-      {:error, reason} -> {:error, {:cache_write, reason}}
-    end
-  end
-
-  defp response_metadata(%Resolved{} = resolved_output) do
+  defp response_metadata(%Resolved{} = resolved_output, cost_us) do
     with {:ok, headers} <- Entry.cacheable_headers(resolved_output.response_headers) do
       {:ok,
        %Entry.Metadata{
          content_type: Format.mime_type!(resolved_output.format),
          headers: headers,
          created_at: DateTime.utc_now(),
-         output_format: resolved_output.format
+         output_format: resolved_output.format,
+         cost_us: cost_us
        }}
-    end
-  end
-
-  defp open_entry_put(adapter, %Key{} = key, %Entry{} = entry, cache_opts, opts) do
-    with :ok <- check_size(byte_size(entry.body), Keyword.get(cache_opts, :max_body_bytes)),
-         {:ok, output_format} <- Format.format_from_mime_type(entry.content_type),
-         {:ok, headers} <- Entry.cacheable_headers(entry.headers) do
-      metadata = %Entry.Metadata{
-        content_type: entry.content_type,
-        headers: headers,
-        created_at: entry.created_at,
-        output_format: output_format
-      }
-
-      case open_adapter_sink(adapter, key, metadata, cache_opts) do
-        {:ok, adapter_state} ->
-          build(adapter, key, metadata, cache_opts, adapter_state)
-
-        {:error, reason} ->
-          handle_open_error(reason, metadata.output_format, opts)
-          :ok
-      end
-    else
-      {:error, :too_large} -> {:skip, :too_large}
-      {:error, reason} -> {:error, reason}
     end
   end
 
@@ -200,6 +167,14 @@ defmodule ImagePipe.Cache.Sink do
   defp commit_stop_metadata(:ok, %__MODULE__{} = sink),
     do: %{result: :ok, cache: :write, output_format: sink.output_format}
 
+  # The adapter accepted the bytes but its admission policy declined to keep
+  # the entry (bounded mode). This is a successful, non-error outcome: nothing
+  # was stored, so the request path is unaffected (fail-open). Report it on the
+  # write span the same way `:write_error` is reported — commit-level outcomes
+  # live on `[:cache, :write]`, not on a separate stage event.
+  defp commit_stop_metadata({:ok, :rejected}, %__MODULE__{} = sink),
+    do: %{result: :ok, cache: :admission_rejected, output_format: sink.output_format}
+
   defp commit_stop_metadata({:error, reason}, %__MODULE__{} = sink) do
     Logger.warning("cache sink commit error: #{inspect(reason)}")
 
@@ -273,14 +248,6 @@ defmodule ImagePipe.Cache.Sink do
       reason: reason,
       output_format: output_format
     }
-
-  defp write_entry_body(%__MODULE__{} = sink, body, opts) do
-    case write_chunk_result(sink, body, opts) do
-      {:ok, sink} -> emit_commit_result(sink, opts)
-      {:skip, :too_large} -> :skipped
-      {:error, _reason} -> :ok
-    end
-  end
 
   defp check_size(_size, nil), do: :ok
   defp check_size(size, max_body_bytes) when size <= max_body_bytes, do: :ok

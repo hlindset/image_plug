@@ -55,7 +55,7 @@ defmodule ImagePipe.Cache do
               {:ok, state()} | {:error, term()}
   @callback write_chunk(state(), binary(), keyword()) ::
               {:ok, state()} | {:error, term(), state()}
-  @callback commit_sink(state(), keyword()) :: :ok | {:error, term()}
+  @callback commit_sink(state(), keyword()) :: :ok | {:ok, :rejected} | {:error, term()}
   @callback abort_sink(state(), keyword()) :: :ok | {:error, term()}
   @callback validate_options(keyword()) :: {:ok, keyword()} | {:error, term()}
 
@@ -127,15 +127,6 @@ defmodule ImagePipe.Cache do
   @doc false
   @spec abort_sink(sink() | nil, atom(), keyword()) :: :ok
   def abort_sink(sink, reason, opts), do: Sink.abort(sink, reason, opts)
-
-  @spec put(Key.t(), Entry.t(), keyword()) ::
-          :ok | :skipped | {:error, {:cache_write, term()}}
-  def put(%Key{} = key, %Entry{} = entry, opts) when is_list(opts) do
-    case Keyword.get(opts, :cache) do
-      nil -> :skipped
-      {adapter, cache_opts} -> Sink.put_entry(adapter, key, entry, cache_opts, opts)
-    end
-  end
 
   defp normalize_config(opts) do
     case Keyword.fetch(opts, :cache) do

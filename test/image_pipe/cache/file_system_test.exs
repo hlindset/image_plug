@@ -67,7 +67,8 @@ defmodule ImagePipe.Cache.FileSystemTest do
         created_at: "2026-04-29T10:15:00Z",
         body_byte_size: byte_size(body),
         body_sha256: body_sha256(body),
-        body_filename: body_filename(cache_key, body)
+        body_filename: body_filename(cache_key, body),
+        cost_us: 0
       },
       Map.new(overrides)
     )
@@ -479,6 +480,168 @@ defmodule ImagePipe.Cache.FileSystemTest do
     assert {:error, _reason} = put_entry(cache_key, entry("new body"), root: root)
     assert File.exists?(new_body_path)
     refute File.ls!(paths.dir) |> Enum.any?(&String.ends_with?(&1, ".tmp"))
+  end
+
+  describe "cost_us metadata" do
+    test "is persisted in the meta file and returned on hit", %{root: root} do
+      cache_key = key()
+      opts = [root: root]
+      metadata = entry_metadata(cost_us: 42_000)
+
+      {:ok, state} = FileSystem.open_sink(cache_key, metadata, opts)
+      {:ok, state} = FileSystem.write_chunk(state, "encoded image", opts)
+      :ok = FileSystem.commit_sink(state, opts)
+
+      assert {:hit, hit_entry} = FileSystem.get(cache_key, opts)
+      # Verify cost_us lands in the on-disk meta payload by re-reading the file directly.
+      meta_path = Path.join([root, "aa", "aa", String.duplicate("a", 64) <> ".meta"])
+      meta = meta_path |> File.read!() |> :erlang.binary_to_term([:safe])
+      assert meta.cost_us == 42_000
+      assert hit_entry.body == "encoded image"
+    end
+  end
+
+  describe "paths_from_hash/2" do
+    test "builds partitioned paths for a 64-char hash", %{root: root} do
+      hash = String.duplicate("a", 64)
+      opts = [root: root, path_prefix: ""]
+
+      assert {:ok, paths} = FileSystem.paths_from_hash(hash, opts)
+      assert paths.dir == Path.join([root, "aa", "aa"])
+      assert paths.meta_path == Path.join([root, "aa", "aa", hash <> ".meta"])
+      assert paths.hash == hash
+      assert paths.root == root
+    end
+
+    test "validates hash format" do
+      assert {:error, {:invalid_hash, _}} =
+               FileSystem.paths_from_hash("not-a-hash", root: "/tmp")
+    end
+
+    test "two different hashes land in different partition dirs", %{root: root} do
+      hash_a = "aabb" <> String.duplicate("1", 60)
+      hash_b = "ccdd" <> String.duplicate("1", 60)
+
+      assert {:ok, paths_a} = FileSystem.paths_from_hash(hash_a, root: root)
+      assert {:ok, paths_b} = FileSystem.paths_from_hash(hash_b, root: root)
+
+      assert paths_a.dir == Path.join([root, "aa", "bb"])
+      assert paths_b.dir == Path.join([root, "cc", "dd"])
+      assert paths_a.dir != paths_b.dir
+    end
+  end
+
+  describe "child_spec/1" do
+    test "returns a supervisor spec when max_size_bytes is set", %{root: root} do
+      opts = [root: root, max_size_bytes: 10_000_000, node_id: "n1"]
+      assert %{id: _, start: _} = FileSystem.child_spec(opts)
+    end
+
+    test "returns :ignore for unbounded mode" do
+      assert FileSystem.child_spec(root: "/tmp") == :ignore
+    end
+  end
+
+  describe "bounded mode config validation" do
+    test "rejects max_size_bytes: 0" do
+      assert {:error, _} = FileSystem.validate_options(root: "/tmp", max_size_bytes: 0)
+    end
+
+    test "rejects negative max_size_bytes" do
+      assert {:error, _} = FileSystem.validate_options(root: "/tmp", max_size_bytes: -1)
+    end
+
+    test "rejects bounded options without max_size_bytes" do
+      assert {:error, _} = FileSystem.validate_options(root: "/tmp", window_ratio: 0.5)
+    end
+
+    test "accepts a complete bounded config" do
+      assert {:ok, _opts} =
+               FileSystem.validate_options(
+                 root: "/tmp",
+                 max_size_bytes: 100_000_000,
+                 node_id: "n1"
+               )
+    end
+
+    test "derives sketch_width and doorkeeper_cardinality from max_size_bytes" do
+      {:ok, opts} =
+        FileSystem.validate_options(root: "/tmp", max_size_bytes: 10_000_000_000, node_id: "n1")
+
+      assert opts[:sketch_width] == 400_000
+      assert opts[:doorkeeper_cardinality] == 800_000
+      assert opts[:doorkeeper_fpr] == 0.01
+      assert opts[:eviction_victim_limit] == 64
+      assert opts[:aging_sample_size] == 2_000_000
+      assert opts[:reconcile_interval] == 60
+    end
+
+    test "aging_sample_size does not change when sketch_width is overridden" do
+      {:ok, opts} =
+        FileSystem.validate_options(
+          root: "/tmp",
+          max_size_bytes: 10_000_000_000,
+          node_id: "n1",
+          sketch_width: 16_384
+        )
+
+      assert opts[:sketch_width] == 16_384
+      assert opts[:aging_sample_size] == 2_000_000
+    end
+
+    test "accepts custom :eviction_victim_limit" do
+      {:ok, opts} =
+        FileSystem.validate_options(
+          root: "/tmp",
+          max_size_bytes: 100_000_000,
+          node_id: "n1",
+          eviction_victim_limit: 32
+        )
+
+      assert opts[:eviction_victim_limit] == 32
+    end
+
+    test "rejects non-positive :eviction_victim_limit" do
+      assert {:error, _} =
+               FileSystem.validate_options(
+                 root: "/tmp",
+                 max_size_bytes: 100_000_000,
+                 node_id: "n1",
+                 eviction_victim_limit: 0
+               )
+    end
+
+    test "rejects :window_ratio outside [0.0, 1.0]" do
+      assert {:error, _} =
+               FileSystem.validate_options(
+                 root: "/tmp",
+                 max_size_bytes: 100_000_000,
+                 node_id: "n1",
+                 window_ratio: 1.5
+               )
+    end
+
+    test "accepts :window_ratio of 0.0 (window disabled)" do
+      assert {:ok, opts} =
+               FileSystem.validate_options(
+                 root: "/tmp",
+                 max_size_bytes: 100_000_000,
+                 node_id: "n1",
+                 window_ratio: 0.0
+               )
+
+      assert opts[:window_ratio] == 0.0
+    end
+
+    test "rejects :doorkeeper_fpr outside (0.0, 1.0)" do
+      assert {:error, _} =
+               FileSystem.validate_options(
+                 root: "/tmp",
+                 max_size_bytes: 100_000_000,
+                 node_id: "n1",
+                 doorkeeper_fpr: 1.0
+               )
+    end
   end
 
   test "concurrent puts for the same key leave a readable entry", %{root: root} do
