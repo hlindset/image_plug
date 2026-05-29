@@ -367,15 +367,33 @@ with:
   defp config_enabled?(:webp, opts), do: Keyword.get(opts, :auto_webp, true)
 ```
 
-- [ ] **Step 4: Run tests to verify they pass**
+- [ ] **Step 4: Make the negotiation property test deterministic**
+
+`test/image_pipe/output_negotiation_property_test.exs` recomputes expected candidates from only `auto_avif`/`auto_webp` and passes no capability override. After Step 3, `modern_candidates/2` also consults `Capabilities.supports?/2`, which would fall back to the real machine probe — silently coupling the property to the test machine's libvips writers. Pin it deterministically: in **both** `opts` constructions in that file (around lines 12 and 22-24), add `output_capabilities: %{avif: true, webp: true}` so the capability layer is forced on and the property exercises only the `Accept`/`auto_*` logic.
+
+For example, change:
+
+```elixir
+      opts = [auto_avif: auto_avif?, auto_webp: auto_webp?]
+```
+
+to:
+
+```elixir
+      opts = [auto_avif: auto_avif?, auto_webp: auto_webp?, output_capabilities: %{avif: true, webp: true}]
+```
+
+and the same for the `map({boolean(), boolean()}, fn {auto_avif?, auto_webp?} -> [...] end)` opts construction.
+
+- [ ] **Step 5: Run tests to verify they pass**
 
 Run: `mise exec -- mix test test/image_pipe/output_negotiation_test.exs test/image_pipe/output_negotiation_property_test.exs`
-Expected: PASS (new cases pass; existing cases unaffected — the default build supports both formats, so the filter is a no-op without an override).
+Expected: PASS (new cases pass; the property test is now build-independent; existing example cases unaffected — they pass no override but the default test build supports both formats, so the filter is a no-op).
 
-- [ ] **Step 5: Commit**
+- [ ] **Step 6: Commit**
 
 ```bash
-git add lib/image_pipe/output/negotiation.ex test/image_pipe/output_negotiation_test.exs
+git add lib/image_pipe/output/negotiation.ex test/image_pipe/output_negotiation_test.exs test/image_pipe/output_negotiation_property_test.exs
 git commit -m "Filter modern output candidates by libvips capability (#98)
 
 Co-Authored-By: Claude Opus 4.8 (1M context) <noreply@anthropic.com>"
@@ -389,62 +407,31 @@ Co-Authored-By: Claude Opus 4.8 (1M context) <noreply@anthropic.com>"
 - Modify: `lib/image_pipe/output/policy.ex`
 - Test: `test/image_pipe/output_policy_test.exs`
 
-- [ ] **Step 1: Write the failing test**
+- [ ] **Step 1: Rewrite the now-contradictory existing test**
 
-Append to `test/image_pipe/output_policy_test.exs` (inside the test module). This builds an automatic-mode policy with **no** `Accept` (so `modern_candidates` is empty) and drives `resolve/2`:
+`test/image_pipe/output_policy_test.exs` already has a test named **"keeps source format fallback for output-capable source families"** (around lines 153-177) that asserts `:webp` and `:avif` sources pass through. That directly contradicts the new rule and MUST be rewritten in place (not merely supplemented, or the suite fails). It builds a `%Policy{}` struct directly — keep that idiom (it is the file's established pattern, and `Policy`/`Resolved` are already aliased in the file). Replace that whole `test … do … end` block with:
 
 ```elixir
-  describe "resolve/2 source-passthrough rule" do
-    setup do
-      output = %ImagePipe.Plan.Output{
-        mode: :automatic,
+    test "transcodes modern source formats to raster when no modern format is accepted" do
+      policy = %Policy{
+        mode: :source,
+        modern_candidates: [],
+        headers: [{"vary", "Accept"}],
         quality: :default,
         format_qualities: %{}
       }
 
-      conn = Plug.Test.conn(:get, "/")
-      policy = ImagePipe.Output.Policy.from_output_plan(conn, output, [])
-      %{policy: policy}
+      assert Policy.resolve(policy, :webp) == {:needs_final_image_alpha, :source}
+      assert Policy.resolve(policy, :avif) == {:needs_final_image_alpha, :source}
     end
-
-    test "jpeg source passes through", %{policy: policy} do
-      assert {:ok, %ImagePipe.Output.Resolved{format: :jpeg}} =
-               ImagePipe.Output.Policy.resolve(policy, :jpeg)
-    end
-
-    test "png source passes through", %{policy: policy} do
-      assert {:ok, %ImagePipe.Output.Resolved{format: :png}} =
-               ImagePipe.Output.Policy.resolve(policy, :png)
-    end
-
-    test "avif source routes to the alpha path (transcode to raster)", %{policy: policy} do
-      assert {:needs_final_image_alpha, :source} =
-               ImagePipe.Output.Policy.resolve(policy, :avif)
-    end
-
-    test "webp source routes to the alpha path", %{policy: policy} do
-      assert {:needs_final_image_alpha, :source} =
-               ImagePipe.Output.Policy.resolve(policy, :webp)
-    end
-
-    test "source-only formats still route to the alpha path", %{policy: policy} do
-      assert {:needs_final_image_alpha, :source} =
-               ImagePipe.Output.Policy.resolve(policy, :tiff)
-    end
-
-    test "unknown formats error", %{policy: policy} do
-      assert {:error, :source_format_required} =
-               ImagePipe.Output.Policy.resolve(policy, :gif)
-    end
-  end
 ```
 
-(If the test file lacks `import Plug.Test` or relevant aliases, fully-qualified names above avoid needing them; add `import Plug.Test` only if you prefer `conn(:get, "/")` unqualified.)
+Leave the neighbouring tests untouched: the JPEG/PNG passthrough assertions just above remain valid (baseline passthrough is unchanged), and "defers source-only fallback until final image alpha is known" (heif/tiff/jpeg2000/jpeg_xl → alpha path) is unchanged. Do **not** add a separate `describe` block, and do **not** add an unknown-format (`:gif`) case: the source-format decoder only yields formats in `Format.source_format?/1`, so the `{:error, :source_format_required}` branch is unreachable from real callers — pinning it would be an impossible-internal-misuse test (see CLAUDE.md "Tests not to write").
 
 - [ ] **Step 2: Run test to verify it fails**
 
 Run: `mise exec -- mix test test/image_pipe/output_policy_test.exs`
-Expected: FAIL — `:avif`/`:webp` currently resolve to `{:ok, %Resolved{format: :avif|:webp}}`, not the alpha path.
+Expected: FAIL — the rewritten test expects the alpha path, but current code still resolves `:webp`/`:avif` to `{:ok, %Resolved{format: :webp|:avif}}`.
 
 - [ ] **Step 3: Change the passthrough rule**
 
@@ -513,42 +500,40 @@ Append to `test/image_pipe/output_policy_test.exs`:
 ```elixir
   describe "ensure_capable/2" do
     test "rejects an explicit format the build cannot write" do
-      output = %ImagePipe.Plan.Output{
+      policy = %Policy{
         mode: {:explicit, :avif},
+        modern_candidates: [],
+        headers: [],
         quality: :default,
         format_qualities: %{}
       }
 
-      policy = ImagePipe.Output.Policy.from_output_plan(Plug.Test.conn(:get, "/"), output, [])
-
-      assert ImagePipe.Output.Policy.ensure_capable(policy, output_capabilities: %{avif: false}) ==
+      assert Policy.ensure_capable(policy, output_capabilities: %{avif: false}) ==
                {:error, {:unsupported_output_format, :avif}}
     end
 
     test "allows a supported explicit format" do
-      output = %ImagePipe.Plan.Output{
+      policy = %Policy{
         mode: {:explicit, :avif},
+        modern_candidates: [],
+        headers: [],
         quality: :default,
         format_qualities: %{}
       }
 
-      policy = ImagePipe.Output.Policy.from_output_plan(Plug.Test.conn(:get, "/"), output, [])
-
-      assert ImagePipe.Output.Policy.ensure_capable(policy, output_capabilities: %{avif: true}) ==
-               :ok
+      assert Policy.ensure_capable(policy, output_capabilities: %{avif: true}) == :ok
     end
 
     test "automatic mode is always capable (resolution handles fallback)" do
-      output = %ImagePipe.Plan.Output{
-        mode: :automatic,
+      policy = %Policy{
+        mode: :source,
+        modern_candidates: [],
+        headers: [{"vary", "Accept"}],
         quality: :default,
         format_qualities: %{}
       }
 
-      policy = ImagePipe.Output.Policy.from_output_plan(Plug.Test.conn(:get, "/"), output, [])
-
-      assert ImagePipe.Output.Policy.ensure_capable(policy, output_capabilities: %{avif: false}) ==
-               :ok
+      assert Policy.ensure_capable(policy, output_capabilities: %{avif: false}) == :ok
     end
   end
 ```
@@ -738,6 +723,38 @@ Add a `describe` block among the other tests:
         assert conn.status == 200
         # 64x64 solid red has no alpha -> JPEG, never AVIF, for either build.
         assert content_type(conn) == ["image/jpeg"]
+        # Decode the body to confirm a real transcode (not a passthrough of avif bytes).
+        assert dimensions(conn) == {64, 64}
+      end
+    end
+
+    test "an avif-capable and avif-less build cache distinct variants for the same Accept" do
+      {base, cache_root} = cached_opts()
+
+      try do
+        capable = Keyword.put(base, :output_capabilities, %{avif: true})
+        incapable = Keyword.put(base, :output_capabilities, %{avif: false})
+        accept = "image/avif,image/webp"
+        path = "/_/plain/images/beach.jpg"
+
+        capable_conn = call_imgproxy(path, capable, accept)
+        assert content_type(capable_conn) == ["image/avif"]
+        assert_received :origin_fetch
+
+        incapable_conn = call_imgproxy(path, incapable, accept)
+        assert content_type(incapable_conn) == ["image/webp"]
+        # Distinct filtered candidate list -> distinct key -> a second origin fetch.
+        assert_received :origin_fetch
+
+        # A repeat under the capable profile is served from cache without
+        # re-fetching the origin, proving the filtered candidate list keys the two
+        # variants apart (no cross-contamination from the webp entry).
+        repeat_capable = call_imgproxy(path, capable, accept)
+        assert content_type(repeat_capable) == ["image/avif"]
+        assert repeat_capable.resp_body == capable_conn.resp_body
+        refute_received :origin_fetch
+      after
+        File.rm_rf!(cache_root)
       end
     end
 
@@ -783,9 +800,9 @@ Add a `describe` block among the other tests:
 Run: `mise exec -- mix test test/image_pipe/imgproxy_wire_conformance_test.exs`
 Expected: With Tasks 3–5 already implemented, these PASS. If you are running Task 6 in isolation against an un-implemented earlier task, expect the corresponding case to FAIL (e.g. avif not dropped, or explicit avif returns 200 instead of 501). Confirm failures map to the missing behavior, then ensure Tasks 3–5 are complete.
 
-- [ ] **Step 4: Confirm `OriginShouldNotFetch` semantics**
+- [ ] **Step 4: (verified) `OriginShouldNotFetch` raises on fetch**
 
-Open `test/support/image_pipe/imgproxy_wire_conformance_test/origin_should_not_fetch.ex` and confirm its `call/2` fails the test (raises or `flunk`) when invoked. If instead it sends a `:origin_fetch` message, replace the comment-only assertion in the explicit-rejection test with `refute_received :origin_fetch` after the request. Do not change the helper.
+`test/support/image_pipe/imgproxy_wire_conformance_test/origin_should_not_fetch.ex` `call/2` raises if it is ever invoked. So in the explicit-rejection test, reaching status `501` *without a raised error* proves the rejection happened before `start_session`/source fetch — the comment-only assertion is sound. No `refute_received` is needed and the helper must not be changed.
 
 - [ ] **Step 5: Commit**
 
