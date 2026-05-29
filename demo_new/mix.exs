@@ -10,6 +10,7 @@ defmodule ImagePipeDemo.MixProject do
       start_permanent: Mix.env() == :prod,
       aliases: aliases(),
       deps: deps(),
+      usage_rules: usage_rules(),
       compilers: [:phoenix_live_view] ++ Mix.compilers() ++ [:hologram],
       listeners: [Phoenix.CodeReloader]
     ]
@@ -35,11 +36,39 @@ defmodule ImagePipeDemo.MixProject do
   defp elixirc_paths(:test), do: ["lib", "test/support"]
   defp elixirc_paths(_), do: ["lib"]
 
+  # `usage_rules` config. Instead of inlining dependency usage rules into a big
+  # CLAUDE.md/AGENTS.md, we generate on-demand agent skills under .claude/skills/.
+  # Run `mix usage_rules.sync` after changing this; the config is the source of
+  # truth (skills present on disk but absent here are removed on each sync).
+  defp usage_rules do
+    [
+      skills: [
+        # Generate into the repo-root .claude/skills (one level up from this demo
+        # project) so the skill is discoverable when Claude Code is launched from
+        # the repo root. Stays correct after the demo_new -> demo rename, since
+        # ".." remains the repo root either way.
+        location: "../.claude/skills",
+        build: [
+          hologram: [
+            description:
+              "Use when working with Hologram in this demo: pages, components, " <>
+                "layouts, ~HOLO templates, actions/commands, routing, and the " <>
+                "client runtime. Hologram is NOT Phoenix LiveView; consult before " <>
+                "writing any Hologram code.",
+            usage_rules: [:hologram]
+          ]
+        ]
+      ]
+    ]
+  end
+
   # Specifies your project dependencies.
   #
   # Type `mix help deps` for examples and options.
   defp deps do
     [
+      {:usage_rules, "~> 1.0", only: [:dev]},
+      {:igniter, "~> 0.6", only: [:dev, :test]},
       {:phoenix, "~> 1.8.7"},
       {:phoenix_html, "~> 4.1"},
       {:phoenix_live_reload, "~> 1.2", only: :dev},
