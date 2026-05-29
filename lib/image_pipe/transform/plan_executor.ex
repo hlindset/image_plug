@@ -42,27 +42,27 @@ defmodule ImagePipe.Transform.PlanExecutor do
 
   @spec execute(Plan.t(), State.t(), keyword()) ::
           {:ok, State.t()} | {:error, term()}
-  def execute(%Plan{pipelines: pipelines}, %State{} = state, _opts) do
-    execute_pipelines(pipelines, state)
+  def execute(%Plan{pipelines: pipelines}, %State{} = state, opts) do
+    execute_pipelines(pipelines, state, opts)
   end
 
-  defp execute_pipelines(pipelines, %State{} = state) do
+  defp execute_pipelines(pipelines, %State{} = state, opts) do
     Enum.reduce_while(pipelines, {:ok, state}, fn pipeline, {:ok, state} ->
-      case execute_pipeline(pipeline, state) do
+      case execute_pipeline(pipeline, state, opts) do
         {:ok, %State{} = state} -> {:cont, {:ok, state}}
         {:error, _reason} = error -> {:halt, error}
       end
     end)
   end
 
-  defp execute_pipeline(%Pipeline{operations: operations}, %State{} = state) do
+  defp execute_pipeline(%Pipeline{operations: operations}, %State{} = state, opts) do
     initial_context = %{effective_padding_scale: nil, canvas_preserving_padding_scale: nil}
 
     Enum.reduce_while(operations, {:ok, state, initial_context}, fn operation,
                                                                     {:ok, state, context} ->
       context = update_execution_context(operation, state, context)
 
-      case execute_operation(operation, state, context) do
+      case execute_operation(operation, state, context, opts) do
         {:ok, %State{} = state} -> {:cont, {:ok, state, context}}
         {:error, _reason} = error -> {:halt, error}
       end
@@ -73,10 +73,10 @@ defmodule ImagePipe.Transform.PlanExecutor do
     end
   end
 
-  defp execute_operation(operation, %State{} = state, context) do
+  defp execute_operation(operation, %State{} = state, context, opts) do
     operation
     |> executable_operations(state, context)
-    |> then(&Chain.execute(state, &1))
+    |> then(&Chain.execute(state, &1, opts))
   end
 
   defp update_execution_context(%PlanResize{} = operation, %State{} = state, context) do

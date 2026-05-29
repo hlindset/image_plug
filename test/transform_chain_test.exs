@@ -211,4 +211,39 @@ defmodule ImagePipe.Transform.ChainTest do
 
     assert Image.get_pixel!(image, 0, 0) == [255, 0, 0, 128]
   end
+
+  test "execute/3 emits [:transform, :operation] spans in order with operation metadata" do
+    test_pid = self()
+    handler = {__MODULE__, :telemetry_handler, System.unique_integer([:positive])}
+
+    :telemetry.attach_many(
+      handler,
+      [
+        [:image_pipe, :transform, :operation, :start],
+        [:image_pipe, :transform, :operation, :stop]
+      ],
+      fn event, measurements, metadata, _ ->
+        send(test_pid, {:telemetry, event, measurements, metadata})
+      end,
+      nil
+    )
+
+    on_exit(fn -> :telemetry.detach(handler) end)
+
+    {:ok, image} = Image.new(10, 10)
+
+    chain = [
+      %ImagePipe.Transform.Operation.AutoOrient{}
+    ]
+
+    assert {:ok, %State{}} = Chain.execute(%State{image: image}, chain)
+
+    assert_received {:telemetry, [:image_pipe, :transform, :operation, :start], _m,
+                     %{operation: :auto_orient, index: 0}}
+
+    assert_received {:telemetry, [:image_pipe, :transform, :operation, :stop], %{duration: _},
+                     %{operation: :auto_orient, index: 0, result: :ok}}
+  end
+
+  def telemetry_handler(_event, _measurements, _metadata, _config), do: :ok
 end

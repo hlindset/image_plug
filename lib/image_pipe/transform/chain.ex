@@ -5,10 +5,15 @@ defmodule ImagePipe.Transform.Chain do
   A chain is the ordered list of executable transform operation structs selected
   by transform execution. Execution proceeds left to right through
   `ImagePipe.Transform` and stops at the first operation error.
+
+  Each operation is wrapped in a `[:transform, :operation]` telemetry span for
+  tracing. The span duration reflects pipeline *construction* time, not pixel
+  work — libvips is lazy and defers/fuses compute to materialization/encode — so
+  per-operation duration is for tracing execution structure, not timing. Honest
+  aggregate timing lives on the coarse `[:transform, :execute]` stage span.
   """
 
-  require Logger
-
+  alias ImagePipe.Telemetry
   alias ImagePipe.Transform
   alias ImagePipe.Transform.State
 
@@ -37,14 +42,30 @@ defmodule ImagePipe.Transform.Chain do
   """
   @spec execute(State.t(), t()) ::
           {:ok, State.t()} | {:error, {:transform_error, term()}}
-  def execute(%State{} = state, transform_chain) do
-    Enum.reduce_while(transform_chain, {:ok, state}, fn operation, {:ok, state} ->
-      Logger.debug(fn ->
-        name = Transform.transform_name(operation)
-        "executing transform: #{name} with operation #{inspect(operation)}"
-      end)
+  @spec execute(State.t(), t(), keyword()) ::
+          {:ok, State.t()} | {:error, {:transform_error, term()}}
+  def execute(state, transform_chain, opts \\ [])
 
-      case Transform.execute(operation, state) do
+  def execute(%State{} = state, transform_chain, opts) do
+    telemetry_opts = Telemetry.telemetry_opts(opts)
+
+    transform_chain
+    |> Enum.with_index()
+    |> Enum.reduce_while({:ok, state}, fn {operation, index}, {:ok, state} ->
+      name = Transform.transform_name(operation)
+
+      result =
+        Telemetry.span(
+          telemetry_opts,
+          [:transform, :operation],
+          %{operation: name, index: index, params: operation},
+          fn ->
+            res = Transform.execute(operation, state)
+            {res, %{result: elem(res, 0)}}
+          end
+        )
+
+      case result do
         {:ok, %State{} = next_state} -> {:cont, {:ok, next_state}}
         {:error, reason} -> {:halt, {:error, {:transform_error, reason}}}
       end
