@@ -4,12 +4,11 @@ defmodule ImagePipeDemoWeb.FiddlePage do
   alias ImagePipeDemo.Fiddle.{DemoState, ProcessingPath}
   alias ImagePipeDemoWeb.Components.Fiddle.CommandBar
   alias ImagePipeDemoWeb.Components.Fiddle.CropTool
+  alias ImagePipeDemoWeb.Components.Fiddle.PreviewCanvas
   alias ImagePipeDemoWeb.Components.Fiddle.RequestTool
 
   js_import :copy, from: "./fiddle/clipboard.mjs"
   js_import :load, from: "./fiddle/preview.mjs"
-
-  alias ImagePipeDemoWeb.Components.Fiddle.PreviewCanvas
 
   route "/demo"
   layout ImagePipeDemoWeb.FiddleLayout
@@ -43,7 +42,7 @@ defmodule ImagePipeDemoWeb.FiddlePage do
     if gen != component.state.preview_gen do
       component
     else
-      component = put_state(component, :preview_loading, true)
+      component = put_state(component, preview_loading: true, preview_error: nil)
       result = JS.call(:load, ["/img" <> component.state.path]) |> Task.await()
       apply_preview_result(component, result)
     end
