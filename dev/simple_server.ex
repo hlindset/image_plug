@@ -3,6 +3,7 @@ defmodule ImagePipe.SimpleServer do
 
   use Boundary,
     top_level?: true,
+    exports: [CacheLogger],
     deps: [
       ImagePipe,
       ImagePipe.Parser
@@ -45,7 +46,9 @@ defmodule ImagePipe.SimpleServer do
     [
       parser: ImagePipe.Parser.Imgproxy,
       sources: [
-        path: {ImagePipe.Source.File, root: "priv/static", root_id: "static"}
+        path:
+          {ImagePipe.Source.File,
+           root: "priv/static", root_id: "static", stable: :trusted}
       ],
       imgproxy: [
         signature: [

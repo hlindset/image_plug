@@ -19,6 +19,7 @@ defmodule Mix.Tasks.ImagePipe.Server do
   @default_port 4000
   @default_vite_port 5173
   @default_cache_root "_build/dev/image_pipe/cache"
+  @default_cache_max_size_bytes 500_000_000
   @port_range 1..65_535
   @vite_startup_timeout 5_000
   @vite_ready_marker "ready in"
@@ -72,14 +73,17 @@ defmodule Mix.Tasks.ImagePipe.Server do
   defp start_server(%{cache?: cache?, port: port, vite?: vite?}) do
     server_url = "http://localhost:#{port}"
     vite_origin = "http://localhost:#{@default_vite_port}"
+    cache = cache_config(cache?)
 
     Application.put_env(:image_pipe, ImagePipe.SimpleServer,
-      cache: cache_config(cache?),
+      cache: cache,
       vite_origin: vite_origin
     )
 
     Mix.Task.run("app.start")
 
+    maybe_start_cache(cache)
+    maybe_attach_cache_logger(cache)
     maybe_start_vite(vite?)
     {:ok, _pid} = start_bandit(port)
 
@@ -96,8 +100,33 @@ defmodule Mix.Tasks.ImagePipe.Server do
      root: Path.expand(@default_cache_root),
      path_prefix: "processed",
      max_body_bytes: 10_000_000,
+     max_size_bytes: @default_cache_max_size_bytes,
+     node_id: "dev",
      key_headers: [],
      key_cookies: []}
+  end
+
+  # Bounded mode (max_size_bytes set) needs the cache's Registry + Admission
+  # supervisor running, otherwise every write is skipped (file_system.ex
+  # commit_sink falls into the :unavailable branch). child_spec/1 returns
+  # :ignore for unbounded configs, so this is a no-op when bounded mode is off.
+  defp maybe_start_cache(nil), do: :ok
+
+  defp maybe_start_cache({module, opts}) do
+    case module.child_spec(opts) do
+      :ignore -> :ok
+      spec -> {:ok, _pid} = Supervisor.start_link([spec], strategy: :one_for_one)
+    end
+  end
+
+  # Dev ergonomics: bridge the cache's telemetry events to the Logger so the
+  # server output shows reads, writes, rejections, and eviction activity. Only
+  # meaningful when a cache is configured.
+  defp maybe_attach_cache_logger(nil), do: :ok
+
+  defp maybe_attach_cache_logger(_cache) do
+    ImagePipe.SimpleServer.CacheLogger.attach()
+    :ok
   end
 
   defp start_bandit(port) do
@@ -217,7 +246,11 @@ defmodule Mix.Tasks.ImagePipe.Server do
   defp maybe_print_cache_info(false), do: :ok
 
   defp maybe_print_cache_info(true) do
-    Mix.shell().info("Filesystem cache enabled at #{Path.expand(@default_cache_root)}")
+    size_mb = div(@default_cache_max_size_bytes, 1_000_000)
+
+    Mix.shell().info(
+      "Filesystem cache enabled at #{Path.expand(@default_cache_root)} (bounded, #{size_mb} MB)"
+    )
   end
 
   defp maybe_print_vite_info(_vite_origin, false), do: :ok
