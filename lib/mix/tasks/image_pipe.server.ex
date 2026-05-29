@@ -12,7 +12,9 @@ defmodule Mix.Tasks.ImagePipe.Server do
   """
 
   use Mix.Task
-  use Boundary, top_level?: true, deps: [ImagePipe.Cache, ImagePipe.SimpleServer]
+  use Boundary,
+    top_level?: true,
+    deps: [ImagePipe.Cache, ImagePipe.SimpleServer, ImagePipe.Telemetry]
 
   @shortdoc "Starts the ImagePipe development server"
 
@@ -119,13 +121,18 @@ defmodule Mix.Tasks.ImagePipe.Server do
     end
   end
 
-  # Dev ergonomics: bridge the cache's telemetry events to the Logger so the
-  # server output shows reads, writes, rejections, and eviction activity. Only
-  # meaningful when a cache is configured.
+  # Dev ergonomics: attach ImagePipe's default Logger handler so the server
+  # shows cache + per-operation transform activity. Only when a cache is
+  # configured (the main reason to want this in dev).
   defp maybe_attach_cache_logger(nil), do: :ok
 
   defp maybe_attach_cache_logger(_cache) do
-    ImagePipe.SimpleServer.CacheLogger.attach()
+    ImagePipe.Telemetry.attach_default_logger(
+      events: [:cache, :transform],
+      level: :debug,
+      debug: true
+    )
+
     :ok
   end
 
