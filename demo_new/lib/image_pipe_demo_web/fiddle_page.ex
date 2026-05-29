@@ -7,6 +7,9 @@ defmodule ImagePipeDemoWeb.FiddlePage do
   alias ImagePipeDemoWeb.Components.Fiddle.RequestTool
 
   js_import :copy, from: "./fiddle/clipboard.mjs"
+  js_import :load, from: "./fiddle/preview.mjs"
+
+  alias ImagePipeDemoWeb.Components.Fiddle.PreviewCanvas
 
   route "/demo"
   layout ImagePipeDemoWeb.FiddleLayout
@@ -14,17 +17,36 @@ defmodule ImagePipeDemoWeb.FiddlePage do
   def init(_params, component, _server) do
     demo = DemoState.default()
 
-    put_state(component,
+    component
+    |> put_state(
       demo: demo,
       path: ProcessingPath.build(demo),
       preview_gen: 0,
-      request_open: true
+      request_open: true,
+      preview_loading: true,
+      preview_error: nil,
+      preview_object_url: nil,
+      preview_width: nil,
+      preview_height: nil,
+      preview_bytes: nil,
+      preview_content_type: nil
     )
+    |> put_action(name: :commit, params: %{gen: 0})
   end
 
   def action(:copy_url, _params, component) do
     _ = JS.call(:copy, ["/img" <> component.state.path]) |> Task.await()
     component
+  end
+
+  def action(:commit, %{gen: gen}, component) do
+    if gen != component.state.preview_gen do
+      component
+    else
+      component = put_state(component, :preview_loading, true)
+      result = JS.call(:load, ["/img" <> component.state.path]) |> Task.await()
+      apply_preview_result(component, result)
+    end
   end
 
   def action(:toggle_request, _params, component) do
@@ -65,7 +87,37 @@ defmodule ImagePipeDemoWeb.FiddlePage do
 
     component
     |> put_state(demo: demo, path: ProcessingPath.build(demo), preview_gen: gen)
+    |> put_action(name: :commit, delay: 150, params: %{gen: gen})
   end
+
+  defp apply_preview_result(component, %{"ok" => true} = r) do
+    put_state(component,
+      preview_loading: false,
+      preview_error: nil,
+      preview_object_url: r["objectUrl"],
+      preview_width: r["width"],
+      preview_height: r["height"],
+      preview_bytes: r["bytes"],
+      preview_content_type: r["contentType"]
+    )
+  end
+
+  defp apply_preview_result(component, %{"ok" => false, "kind" => "abort"}), do: component
+
+  defp apply_preview_result(component, %{"ok" => false} = r) do
+    put_state(component, preview_loading: false, preview_error: preview_error_label(r))
+  end
+
+  defp preview_error_label(%{"kind" => "http", "status" => status, "body" => body}),
+    do: "#{status}: #{body}"
+
+  defp preview_error_label(%{"message" => message}), do: message
+  defp preview_error_label(_), do: "Preview failed"
+
+  defp size_label(true, _w, _h, _b), do: "Loading"
+  defp size_label(_loading, nil, _h, _b), do: ""
+  defp size_label(_loading, w, h, nil), do: "#{w} × #{h}"
+  defp size_label(_loading, w, h, bytes), do: "#{w} × #{h} (#{max(1, div(bytes, 1024))} kB)"
 
   defp parse_unit("px"), do: :px
   defp parse_unit("percent"), do: :percent
@@ -104,7 +156,13 @@ defmodule ImagePipeDemoWeb.FiddlePage do
       </aside>
       <section class="preview-workspace">
         <CommandBar path={@path} image_url={"/img" <> @path} />
-        <div class="preview-canvas"></div>
+        <PreviewCanvas
+          object_url={@preview_object_url}
+          loading={@preview_loading}
+          error={@preview_error}
+          size_label={size_label(@preview_loading, @preview_width, @preview_height, @preview_bytes)}
+          output_label={@preview_content_type || "auto"}
+        />
       </section>
     </div>
     """
