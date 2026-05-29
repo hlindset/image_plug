@@ -810,15 +810,13 @@ defmodule ImagePipe.Cache.FileSystem do
     end
   end
 
-  defp partitions(hash) when is_binary(hash) do
+  defp partitions(hash) do
     if Regex.match?(@cache_key_hash_pattern, hash) do
       do_partitions(hash)
     else
       {:error, {:invalid_hash, hash}}
     end
   end
-
-  defp partitions(hash), do: {:error, {:invalid_hash, hash}}
 
   defp do_partitions(hash) do
     <<first::binary-size(2), second::binary-size(2), _rest::binary>> = hash
