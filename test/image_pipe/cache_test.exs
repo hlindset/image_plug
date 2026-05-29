@@ -578,39 +578,6 @@ defmodule ImagePipe.CacheTest do
                     %{cache: :stage_cleanup_error, error: :abort_failed, output_format: :webp}}
   end
 
-  test "put skips bodies over max_body_bytes" do
-    assert :skipped =
-             Cache.put(
-               cache_key(),
-               entry("123456"),
-               cache: {ErrorAdapter, max_body_bytes: 5}
-             )
-  end
-
-  test "put accepts nil and non-negative max_body_bytes values" do
-    assert :ok =
-             Cache.put(
-               cache_key(),
-               entry("123456"),
-               cache: {MissAdapter, max_body_bytes: nil}
-             )
-
-    assert :ok =
-             Cache.put(
-               cache_key(),
-               entry(""),
-               cache: {MissAdapter, max_body_bytes: 0}
-             )
-  end
-
-  test "put writes through the sink callbacks" do
-    assert :ok =
-             Cache.put(cache_key(), entry("abcdef"), cache: {SinkMissAdapter, test_pid: self()})
-
-    assert_received {:write_chunk, "abcdef"}
-    assert_received {:commit_sink, ["abcdef"]}
-  end
-
   test "adapter runtime opts use validated adapter options without raw adapter config leftovers" do
     cache_opts = [
       key_headers: ["accept-language"],
@@ -643,22 +610,15 @@ defmodule ImagePipe.CacheTest do
     refute Keyword.has_key?(sink_opts, :drop_me)
   end
 
-  test "write errors fail open by default and are logged" do
-    log =
-      capture_log(fn ->
-        assert :ok =
-                 Cache.put(cache_key(), entry(), cache: {SinkWriteErrorAdapter, []})
-      end)
-
-    assert log =~ "cache sink write error"
-    assert log =~ ":write_failed"
-  end
-
   test "unexpected adapter commit result is handled as a cache write error" do
     log =
       capture_log(fn ->
-        assert :ok =
-                 Cache.put(cache_key(), entry(), cache: {UnexpectedResultAdapter, []})
+        sink =
+          cache_key()
+          |> Cache.open_sink(resolved_output(), cache: {UnexpectedResultAdapter, []})
+          |> Cache.write_chunk("abc", cache: {UnexpectedResultAdapter, []})
+
+        assert :ok = Cache.commit_sink(sink, cache: {UnexpectedResultAdapter, []})
       end)
 
     assert log =~ "cache sink commit error"

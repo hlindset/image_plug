@@ -2,10 +2,10 @@ defmodule ImagePipe.Cache.FileSystemPropertyTest do
   use ExUnit.Case, async: true
   use ExUnitProperties
 
-  alias ImagePipe.Cache
   alias ImagePipe.Cache.Entry
   alias ImagePipe.Cache.FileSystem
   alias ImagePipe.Cache.Key
+  alias ImagePipe.Format
 
   property "generated cache paths stay under the configured root" do
     check all hash <- sha256_hex(),
@@ -51,7 +51,7 @@ defmodule ImagePipe.Cache.FileSystemPropertyTest do
           created_at: ~U[2026-04-29 10:15:00Z]
         }
 
-        assert :ok = Cache.put(cache_key, entry, cache: {FileSystem, root: root})
+        assert :ok = seed_entry(cache_key, entry, root: root)
         assert {:hit, cached_entry} = FileSystem.get(cache_key, root: root)
         assert cached_entry == entry
       after
@@ -79,6 +79,25 @@ defmodule ImagePipe.Cache.FileSystemPropertyTest do
       after
         File.rm_rf!(root)
       end
+    end
+  end
+
+  # Seed an entry through the FileSystem adapter's own sink callbacks
+  # (open_sink -> write_chunk -> commit_sink) — the same path the request
+  # lifecycle uses to stage a cache entry.
+  defp seed_entry(cache_key, %Entry{} = entry, opts) do
+    {:ok, output_format} = Format.format_from_mime_type(entry.content_type)
+
+    metadata = %Entry.Metadata{
+      content_type: entry.content_type,
+      headers: entry.headers,
+      created_at: entry.created_at,
+      output_format: output_format
+    }
+
+    with {:ok, state} <- FileSystem.open_sink(cache_key, metadata, opts),
+         {:ok, state} <- FileSystem.write_chunk(state, entry.body, opts) do
+      FileSystem.commit_sink(state, opts)
     end
   end
 
