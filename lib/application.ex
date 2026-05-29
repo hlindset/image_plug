@@ -12,8 +12,10 @@ defmodule ImagePipe.Application do
 
   require Logger
 
+  alias ImagePipe.Output.Capabilities
+
   def start(_type, _args) do
-    ImagePipe.Output.Capabilities.probe()
+    Capabilities.probe()
 
     children = [
       ImagePipe.Request.SourceSessionSupervisor

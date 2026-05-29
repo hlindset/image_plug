@@ -130,7 +130,7 @@ defmodule ImagePipe.ArchitectureBoundaryTest do
   test "application boundary owns OTP startup and depends on request lifecycle infrastructure" do
     application = boundary_declaration(ImagePipe.Application)
 
-    assert_boundary_deps(application, [ImagePipe.Request])
+    assert_boundary_deps(application, [ImagePipe.Output, ImagePipe.Request])
     assert_boundary_exports(application, [])
   end
 

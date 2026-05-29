@@ -42,5 +42,4 @@ defmodule ImagePipe.Output.CapabilitiesTest do
       assert Capabilities.probe() == :ok
     end
   end
-
 end
