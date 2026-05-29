@@ -9,7 +9,7 @@ defmodule ImagePipe.Output.NegotiationPropertyTest do
               auto_avif? <- boolean(),
               auto_webp? <- boolean(),
               max_runs: 100 do
-      opts = [auto_avif: auto_avif?, auto_webp: auto_webp?]
+      opts = [auto_avif: auto_avif?, auto_webp: auto_webp?, output_capabilities: %{avif: true, webp: true}]
 
       assert Negotiation.modern_candidates(accept_header, opts) ==
                expected_modern_candidates(accept_header, opts)
@@ -20,7 +20,7 @@ defmodule ImagePipe.Output.NegotiationPropertyTest do
     check all accept_header <- accept_header(),
               opts <-
                 map({boolean(), boolean()}, fn {auto_avif?, auto_webp?} ->
-                  [auto_avif: auto_avif?, auto_webp: auto_webp?]
+                  [auto_avif: auto_avif?, auto_webp: auto_webp?, output_capabilities: %{avif: true, webp: true}]
                 end),
               max_runs: 100 do
       candidates = Negotiation.modern_candidates(accept_header, opts)

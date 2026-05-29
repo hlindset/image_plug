@@ -2,6 +2,7 @@ defmodule ImagePipe.Output.Negotiation do
   @moduledoc false
 
   alias ImagePipe.Format
+  alias ImagePipe.Output.Capabilities
 
   @modern_formats [avif: "image/avif", webp: "image/webp"]
 
@@ -19,15 +20,20 @@ defmodule ImagePipe.Output.Negotiation do
   end
 
   defp enabled_modern_formats(opts) do
-    enabled? = %{
-      avif: Keyword.get(opts, :auto_avif, true),
-      webp: Keyword.get(opts, :auto_webp, true)
-    }
-
     Enum.reject(@modern_formats, fn {format, _mime_type} ->
-      not Map.fetch!(enabled?, format)
+      not available?(format, opts)
     end)
   end
+
+  # A modern format is a candidate only when it is config-enabled AND the libvips
+  # build can actually write it. Capability filtering here flows identically to
+  # resolution, the cache key, and conditional-GET, since all three call this fn.
+  defp available?(format, opts) do
+    config_enabled?(format, opts) and Capabilities.supports?(format, opts)
+  end
+
+  defp config_enabled?(:avif, opts), do: Keyword.get(opts, :auto_avif, true)
+  defp config_enabled?(:webp, opts), do: Keyword.get(opts, :auto_webp, true)
 
   defp modern_candidate({format, mime_type}, entries) do
     if acceptable?(mime_type, entries), do: [format], else: []
