@@ -335,8 +335,10 @@ defmodule ImagePipe.Telemetry.LoggerTest do
   test "renders a transform operation with name and index" do
     Telemetry.attach_default_logger(level: :debug)
 
+    # capture at :debug explicitly so the test does not depend on the ambient
+    # Logger level.
     log =
-      capture_log(fn ->
+      capture_log([level: :debug], fn ->
         :telemetry.execute(
           [:image_pipe, :transform, :operation, :stop],
           %{duration: 500},
@@ -522,10 +524,14 @@ Change the `@moduledoc false` to a real doc and add the two functions (place nea
   Attach the default `Logger` handler for ImagePipe telemetry. Opt-in and
   idempotent.
 
+  Raises `ArgumentError` on invalid options. This is host-startup configuration,
+  so it raises (matching `Oban.Telemetry.attach_default_logger` /
+  `Phoenix.Logger`) rather than returning a tagged error.
+
   Options:
     * `:level` — base log level (default `:info`); errors/exceptions escalate to `:warning`.
     * `:events` — `:all` (default) or a list of `#{inspect(@logger_groups)}`.
-    * `:prefix` — telemetry event prefix (default `#{inspect(@default_prefix)}`).
+    * `:prefix` — telemetry event prefix list (default `#{inspect(@default_prefix)}`).
     * `:debug` — when `true`, also log the full raw measurements/metadata (default `false`).
   """
   @spec attach_default_logger(keyword()) :: :ok
@@ -545,9 +551,12 @@ Change the `@moduledoc false` to a real doc and add the two functions (place nea
   defp validate_logger_opts(opts) do
     known = [:level, :events, :prefix, :debug]
 
-    case Keyword.keys(opts) -- known do
-      [] -> validate_events(Keyword.get(opts, :events, :all))
-      unknown -> raise ArgumentError, "unknown attach_default_logger options: #{inspect(unknown)}"
+    with [] <- Keyword.keys(opts) -- known,
+         :ok <- validate_events(Keyword.get(opts, :events, :all)) do
+      validate_prefix(Keyword.get(opts, :prefix, @default_prefix))
+    else
+      unknown when is_list(unknown) ->
+        raise ArgumentError, "unknown attach_default_logger options: #{inspect(unknown)}"
     end
   end
 
@@ -562,6 +571,11 @@ Change the `@moduledoc false` to a real doc and add the two functions (place nea
 
   defp validate_events(other),
     do: raise(ArgumentError, ":events must be :all or a list, got: #{inspect(other)}")
+
+  defp validate_prefix(prefix) when is_list(prefix) and prefix != [], do: :ok
+
+  defp validate_prefix(other),
+    do: raise(ArgumentError, ":prefix must be a non-empty list of atoms, got: #{inspect(other)}")
 ```
 
 - [ ] **Step 5: Run the logger test, verify it passes**
@@ -610,7 +624,7 @@ Append to `test/image_pipe/telemetry/logger_test.exs`:
     Telemetry.attach_default_logger(level: :debug, debug: true)
 
     log =
-      capture_log(fn ->
+      capture_log([level: :debug], fn ->
         :telemetry.execute(
           [:image_pipe, :transform, :operation, :stop],
           %{duration: 1},
@@ -622,9 +636,25 @@ Append to `test/image_pipe/telemetry/logger_test.exs`:
     assert log =~ "12345"
   end
 
-  test "rejects unknown options and bad event groups" do
+  test ":prefix attaches under a custom event prefix" do
+    Telemetry.attach_default_logger(level: :info, events: [:cache], prefix: [:my_app, :images])
+
+    log =
+      capture_log(fn ->
+        :telemetry.execute(
+          [:my_app, :images, :cache, :lookup, :stop],
+          %{duration: 1},
+          %{result: :ok, cache: :hit}
+        )
+      end)
+
+    assert log =~ "cache lookup: hit"
+  end
+
+  test "rejects unknown options, bad event groups, and a non-list prefix" do
     assert_raise ArgumentError, fn -> Telemetry.attach_default_logger(bogus: true) end
     assert_raise ArgumentError, fn -> Telemetry.attach_default_logger(events: [:nope]) end
+    assert_raise ArgumentError, fn -> Telemetry.attach_default_logger(prefix: "nope") end
   end
 ```
 
@@ -742,7 +772,7 @@ Replace this block:
 ```
 with:
 ```markdown
-- Keep telemetry metadata safe by default. The real constraint is *sensitivity*, not cardinality: metadata fans out to every attached handler (including third-party exporters), so high-cardinality or product-specific data (operation structs, parser structs, decoded dimensions) is fine, but genuinely sensitive data must not be emitted unless an explicit opt-in is designed and documented. Never emit by default:
+- Keep telemetry metadata safe by default. The real constraint is *sensitivity*, not cardinality: metadata fans out to every attached handler (including third-party exporters), so high-cardinality, product-neutral data (transform operation structs, decoded dimensions) is fine, but genuinely sensitive data must not be emitted unless an explicit opt-in is designed and documented. Parser-internal/dialect structs and cache-internal shapes still stay isolated per the namespace guidelines — they should not leak into events. Never emit by default:
   - Full request paths or source URLs
   - Signatures, tokens, credentials
   - Filenames or other path-derived identifiers (including filesystem/storage paths and cache keys)
@@ -768,7 +798,7 @@ Replace:
 ```
 with:
 ```markdown
-- Per-operation transform spans (`[:transform, :operation]`) are allowed for tracing execution structure (which operations ran, in what order). Their duration reflects pipeline *construction*, not pixel work — libvips is lazy — so never present per-operation duration as compute timing; keep honest aggregate timing on the coarse `[:transform, :execute]` stage span. Per-operation metadata may include the operation struct (it is derived from the public request, not sensitive).
+- Per-operation transform spans (`[:transform, :operation]`) are allowed for tracing execution structure (which operations ran, in what order). Their duration reflects pipeline *construction*, not pixel work — libvips is lazy — so never present per-operation duration as compute timing; keep honest aggregate timing on the coarse `[:transform, :execute]` stage span. Per-operation metadata carries the operation name (`:operation`) and position (`:index`), and may include the full operation struct (under the `:params` key) since it is derived from the public request and not sensitive; the default Logger shows the name and only dumps `:params` under `debug: true`.
 ```
 
 - [ ] **Step 4: Sanity-check the edits**
