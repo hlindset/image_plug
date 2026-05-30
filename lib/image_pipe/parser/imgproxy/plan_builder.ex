@@ -216,6 +216,7 @@ defmodule ImagePipe.Parser.Imgproxy.PlanBuilder do
     with {:ok, orientation_operations} <- orientation_operations(request),
          {:ok, crop_operations} <- crop_operations(request),
          {:ok, resize_operations} <- resize_operations(request),
+         {:ok, color_profile_operations} <- color_profile_operations(request),
          {:ok, effect_operations} <- effect_operations(request),
          {:ok, canvas_operations} <- canvas_operations(request),
          {:ok, padding_operations} <- padding_operations(request),
@@ -224,12 +225,21 @@ defmodule ImagePipe.Parser.Imgproxy.PlanBuilder do
        orientation_operations ++
          crop_operations ++
          resize_operations ++
+         color_profile_operations ++
          effect_operations ++
          canvas_operations ++
          padding_operations ++
          background_operations}
     end
   end
+
+  defp color_profile_operations(%PipelineRequest{strip_color_profile: true}) do
+    with {:ok, operation} <- Operation.normalize_color_profile() do
+      {:ok, [operation]}
+    end
+  end
+
+  defp color_profile_operations(%PipelineRequest{}), do: {:ok, []}
 
   defp crop_operations(%PipelineRequest{crop: nil}), do: {:ok, []}
 

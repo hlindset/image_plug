@@ -35,6 +35,7 @@ defmodule ImagePipe.Parser.ImgproxyTest do
   end
 
   @no_auto_rotate_opts [imgproxy: [auto_rotate: false]]
+  @baseline_opts [imgproxy: [auto_rotate: false, strip_color_profile: false]]
 
   test "parses a plain source with no processing options" do
     assert {:ok,
@@ -42,7 +43,7 @@ defmodule ImagePipe.Parser.ImgproxyTest do
               source: %Source.Path{segments: ["images", "cat.jpg"]},
               pipelines: [%Pipeline{operations: [%AutoOrient{}]}],
               output: %Output{mode: :automatic}
-            }} = Imgproxy.parse(conn(:get, "/_/plain/images/cat.jpg"), [])
+            }} = Imgproxy.parse(conn(:get, "/_/plain/images/cat.jpg"), imgproxy: [strip_color_profile: false])
   end
 
   test "parses escaped embedded s3 query before output suffix handling" do
@@ -96,6 +97,35 @@ defmodule ImagePipe.Parser.ImgproxyTest do
     assert_raise ArgumentError, ~r/invalid imgproxy config/, fn ->
       Imgproxy.validate_options!(auto_rotate: "true")
     end
+  end
+
+  test "strip_color_profile emits NormalizeColorProfile after geometry, before effects" do
+    assert {:ok, %Plan{pipelines: [%Pipeline{operations: ops}]}} =
+             Imgproxy.parse(conn(:get, "/_/plain/images/cat.jpg"), @no_auto_rotate_opts)
+    assert :normalize_color_profile in operation_names(ops)
+
+    assert {:ok, %Plan{pipelines: [%Pipeline{operations: ops0}]}} =
+             Imgproxy.parse(conn(:get, "/_/scp:0/plain/images/cat.jpg"), @no_auto_rotate_opts)
+    refute :normalize_color_profile in operation_names(ops0)
+
+    assert {:ok, %Plan{pipelines: [%Pipeline{operations: ops1}]}} =
+             Imgproxy.parse(
+               conn(:get, "/_/scp:1/plain/images/cat.jpg"),
+               imgproxy: [strip_color_profile: false]
+             )
+    assert :normalize_color_profile in operation_names(ops1)
+
+    assert {:ok, %Plan{pipelines: [%Pipeline{operations: pos_ops}]}} =
+             Imgproxy.parse(
+               conn(:get, "/_/w:10/bl:2/plain/images/cat.jpg"),
+               @no_auto_rotate_opts
+             )
+
+    names = operation_names(pos_ops)
+    assert Enum.find_index(names, &(&1 == :resize)) <
+             Enum.find_index(names, &(&1 == :normalize_color_profile))
+    assert Enum.find_index(names, &(&1 == :normalize_color_profile)) <
+             Enum.find_index(names, &(&1 == :blur))
   end
 
   test "parse/2 accepts parser options and keeps no-option parse/1 as a delegating helper" do
@@ -478,7 +508,7 @@ defmodule ImagePipe.Parser.ImgproxyTest do
     assert {:ok, %Plan{pipelines: [%Pipeline{operations: operations}]}} =
              Imgproxy.parse(
                conn(:get, "/_/rs::::::ce::/plain/images/cat.jpg"),
-               @no_auto_rotate_opts
+               @baseline_opts
              )
 
     assert [%Operation.Canvas{placement: placement}] = operations
@@ -487,7 +517,7 @@ defmodule ImagePipe.Parser.ImgproxyTest do
     assert {:ok, %Plan{pipelines: [%Pipeline{operations: operations}]}} =
              Imgproxy.parse(
                conn(:get, "/_/s:::::ce::/plain/images/cat.jpg"),
-               @no_auto_rotate_opts
+               @baseline_opts
              )
 
     assert [%Operation.Canvas{placement: placement}] = operations
@@ -540,7 +570,7 @@ defmodule ImagePipe.Parser.ImgproxyTest do
   test "public parse plans supported geometry pipeline semantics" do
     assert {:ok,
             %Plan{pipelines: [%Pipeline{operations: [%Operation.Resize{mode: :fit} = resize]}]}} =
-             Imgproxy.parse(conn(:get, "/_/z:2/plain/images/cat.jpg"), @no_auto_rotate_opts)
+             Imgproxy.parse(conn(:get, "/_/z:2/plain/images/cat.jpg"), @baseline_opts)
 
     assert resize.zoom_x == 2.0
     assert resize.zoom_y == 2.0
@@ -548,7 +578,7 @@ defmodule ImagePipe.Parser.ImgproxyTest do
     assert {:ok, %Plan{pipelines: [%Pipeline{operations: [%Operation.CropGuided{} = crop]}]}} =
              Imgproxy.parse(
                conn(:get, "/_/crop:10:20/plain/images/cat.jpg"),
-               @no_auto_rotate_opts
+               @baseline_opts
              )
 
     assert crop.width == {:px, 10}
@@ -556,22 +586,22 @@ defmodule ImagePipe.Parser.ImgproxyTest do
     assert crop.guide == :center
 
     assert {:ok, %Plan{pipelines: [%Pipeline{operations: [%AutoOrient{}]}]}} =
-             Imgproxy.parse(conn(:get, "/_/ar:true/plain/images/cat.jpg"), [])
+             Imgproxy.parse(conn(:get, "/_/ar:true/plain/images/cat.jpg"), imgproxy: [strip_color_profile: false])
 
     for segment <- ~w(ar:false rot:0 rot:360 fl:false:false) do
       assert {:ok, %Plan{pipelines: [%Pipeline{operations: []}]}} =
                Imgproxy.parse(
                  conn(:get, "/_/#{segment}/plain/images/cat.jpg"),
-                 @no_auto_rotate_opts
+                 @baseline_opts
                )
     end
 
     assert {:ok, %Plan{pipelines: [%Pipeline{operations: operations}]}} =
-             Imgproxy.parse(conn(:get, "/_/crop:10:20/ar:true/plain/images/cat.jpg"), [])
+             Imgproxy.parse(conn(:get, "/_/crop:10:20/ar:true/plain/images/cat.jpg"), imgproxy: [strip_color_profile: false])
 
     assert operation_names(operations) == [:auto_orient, :crop_guided]
 
-    opts = [imgproxy: [auto_rotate: true]]
+    opts = [imgproxy: [auto_rotate: true, strip_color_profile: false]]
 
     assert {:ok, %Plan{pipelines: [%Pipeline{operations: [%AutoOrient{}]}]}} =
              Imgproxy.parse(conn(:get, "/_/plain/images/cat.jpg"), opts)
@@ -603,7 +633,7 @@ defmodule ImagePipe.Parser.ImgproxyTest do
 
     assert {:ok, %Plan{pipelines: [%Pipeline{operations: operations}]}} =
              Imgproxy.parse(conn(:get, "/_/w:100/-/ar:true/plain/images/cat.jpg"),
-               imgproxy: [auto_rotate: false]
+               imgproxy: [auto_rotate: false, strip_color_profile: false]
              )
 
     assert operation_names(operations) == [:auto_orient, :resize]
@@ -618,14 +648,14 @@ defmodule ImagePipe.Parser.ImgproxyTest do
       assert {:ok, %Plan{pipelines: [%Pipeline{operations: []}]}} =
                Imgproxy.parse(
                  conn(:get, "/_/#{segment}/plain/images/cat.jpg"),
-                 @no_auto_rotate_opts
+                 @baseline_opts
                )
     end
 
     assert {:ok, %Plan{pipelines: [%Pipeline{operations: operations}]}} =
              Imgproxy.parse(
                conn(:get, "/_/rs:fit:300:200:0:0:ce/plain/images/cat.jpg"),
-               @no_auto_rotate_opts
+               @baseline_opts
              )
 
     refute Enum.any?(operations, &match?(%Operation.Canvas{}, &1))
@@ -633,10 +663,10 @@ defmodule ImagePipe.Parser.ImgproxyTest do
 
   test "parses supported resizing type aliases into plans and rejects unsupported values" do
     assert {:ok, %Plan{pipelines: [%Pipeline{operations: []}]}} =
-             Imgproxy.parse(conn(:get, "/_/rt:fit/plain/images/cat.jpg"), @no_auto_rotate_opts)
+             Imgproxy.parse(conn(:get, "/_/rt:fit/plain/images/cat.jpg"), @baseline_opts)
 
     assert {:ok, %Plan{pipelines: [%Pipeline{operations: []}]}} =
-             Imgproxy.parse(conn(:get, "/_/rt:force/plain/images/cat.jpg"), @no_auto_rotate_opts)
+             Imgproxy.parse(conn(:get, "/_/rt:force/plain/images/cat.jpg"), @baseline_opts)
 
     assert Imgproxy.parse(conn(:get, "/_/rt:fill/plain/images/cat.jpg"), []) ==
              {:error, {:missing_dimensions, :fill}}
@@ -659,7 +689,7 @@ defmodule ImagePipe.Parser.ImgproxyTest do
             }} =
              Imgproxy.parse(
                conn(:get, "/_/rt:fill-down/w:100/h:100/plain/images/cat.jpg"),
-               @no_auto_rotate_opts
+               @baseline_opts
              )
 
     assert resize.enlargement == :deny
@@ -674,7 +704,7 @@ defmodule ImagePipe.Parser.ImgproxyTest do
             }} =
              Imgproxy.parse(
                conn(:get, "/_/rt:auto/w:100/h:100/plain/images/cat.jpg"),
-               @no_auto_rotate_opts
+               @baseline_opts
              )
   end
 
@@ -695,7 +725,7 @@ defmodule ImagePipe.Parser.ImgproxyTest do
             %Plan{pipelines: [%Pipeline{operations: [%Operation.Resize{mode: :fit} = resize]}]}} =
              Imgproxy.parse(
                conn(:get, "/_/w:0/h:0/mw:300/plain/images/cat.jpg"),
-               @no_auto_rotate_opts
+               @baseline_opts
              )
 
     assert resize.width == auto()
@@ -740,7 +770,7 @@ defmodule ImagePipe.Parser.ImgproxyTest do
             }} =
              Imgproxy.parse(
                conn(:get, "/_/g:nowe/rs:fill:300:200/plain/images/cat.jpg"),
-               @no_auto_rotate_opts
+               @baseline_opts
              )
 
     assert anchor(crop.guide) == {:left, :top}
@@ -755,7 +785,7 @@ defmodule ImagePipe.Parser.ImgproxyTest do
             }} =
              Imgproxy.parse(
                conn(:get, "/_/gravity:fp:0.5:0.25/rs:fill:300:200/plain/images/cat.jpg"),
-               @no_auto_rotate_opts
+               @baseline_opts
              )
 
     assert focal_point(crop.guide) == {1, 2, 1, 4}
@@ -770,7 +800,7 @@ defmodule ImagePipe.Parser.ImgproxyTest do
             } = plan} =
              Imgproxy.parse(
                conn(:get, "/_/g:fp:1:0/rs:fill:300:200/plain/images/cat.jpg"),
-               @no_auto_rotate_opts
+               @baseline_opts
              )
 
     assert focal_point(crop.guide) == {1, 1, 0, 1}
@@ -788,7 +818,7 @@ defmodule ImagePipe.Parser.ImgproxyTest do
             }} =
              Imgproxy.parse(
                conn(:get, "/_/g:soea/rt:auto/w:300/h:200/plain/images/cat.jpg"),
-               @no_auto_rotate_opts
+               @baseline_opts
              )
 
     assert anchor(crop.guide) == {:right, :bottom}
@@ -805,7 +835,7 @@ defmodule ImagePipe.Parser.ImgproxyTest do
             }} =
              Imgproxy.parse(
                conn(:get, "/_/g:soea:8:-0.5/rt:auto/w:300/h:200/plain/images/cat.jpg"),
-               @no_auto_rotate_opts
+               @baseline_opts
              )
 
     assert anchor(crop.guide) == {:right, :bottom}
@@ -824,7 +854,7 @@ defmodule ImagePipe.Parser.ImgproxyTest do
             }} =
              Imgproxy.parse(
                conn(:get, "/_/g:soea:12:-0.25/rs:fill:300:200/plain/images/cat.jpg"),
-               @no_auto_rotate_opts
+               @baseline_opts
              )
 
     assert anchor(crop.guide) == {:right, :bottom}
@@ -863,7 +893,7 @@ defmodule ImagePipe.Parser.ImgproxyTest do
     assert_output_mode("/_/w:100/-/f:webp/plain/images/cat.jpg", {:explicit, :webp})
 
     assert {:ok, %Plan{pipelines: [%Pipeline{operations: operations}]}} =
-             Imgproxy.parse(conn(:get, "/_/f:webp/-/plain/images/cat.jpg"), @no_auto_rotate_opts)
+             Imgproxy.parse(conn(:get, "/_/f:webp/-/plain/images/cat.jpg"), @baseline_opts)
 
     assert operations == []
   end
@@ -1144,10 +1174,10 @@ defmodule ImagePipe.Parser.ImgproxyTest do
 
   test "global-only and empty groups do not become executable pipelines" do
     assert {:ok, %Plan{pipelines: [%Pipeline{operations: []}]}} =
-             Imgproxy.parse(conn(:get, "/_/f:webp/-/plain/images/cat.jpg"), @no_auto_rotate_opts)
+             Imgproxy.parse(conn(:get, "/_/f:webp/-/plain/images/cat.jpg"), @baseline_opts)
 
     assert {:ok, %Plan{pipelines: [%Pipeline{operations: operations}]}} =
-             Imgproxy.parse(conn(:get, "/_/-/w:100/plain/images/cat.jpg"), @no_auto_rotate_opts)
+             Imgproxy.parse(conn(:get, "/_/-/w:100/plain/images/cat.jpg"), @baseline_opts)
 
     assert length(operations) == 1
     assert [%{__struct__: _} = operation] = operations
@@ -1488,7 +1518,7 @@ defmodule ImagePipe.Parser.ImgproxyTest do
             }} =
              Imgproxy.parse(
                conn(:get, "/_/w:500/-/h:200/plain/images/cat.jpg"),
-               @no_auto_rotate_opts
+               @baseline_opts
              )
 
     assert [%Operation.Resize{mode: :fit} = first_params] = first_operations
@@ -1502,13 +1532,13 @@ defmodule ImagePipe.Parser.ImgproxyTest do
 
   test "ignores empty groups around chained imgproxy pipeline separators" do
     assert {:ok, %Plan{pipelines: [%Pipeline{operations: leading_operations}]}} =
-             Imgproxy.parse(conn(:get, "/_/-/w:500/plain/images/cat.jpg"), @no_auto_rotate_opts)
+             Imgproxy.parse(conn(:get, "/_/-/w:500/plain/images/cat.jpg"), @baseline_opts)
 
     assert [%Operation.Resize{mode: :fit} = leading_params] = leading_operations
     assert leading_params.width == pixels(500)
 
     assert {:ok, %Plan{pipelines: [%Pipeline{operations: trailing_operations}]}} =
-             Imgproxy.parse(conn(:get, "/_/w:500/-/plain/images/cat.jpg"), @no_auto_rotate_opts)
+             Imgproxy.parse(conn(:get, "/_/w:500/-/plain/images/cat.jpg"), @baseline_opts)
 
     assert [%Operation.Resize{mode: :fit} = trailing_params] = trailing_operations
     assert trailing_params.width == pixels(500)
@@ -1522,7 +1552,7 @@ defmodule ImagePipe.Parser.ImgproxyTest do
             }} =
              Imgproxy.parse(
                conn(:get, "/_/w:500/-/-/h:200/plain/images/cat.jpg"),
-               @no_auto_rotate_opts
+               @baseline_opts
              )
 
     assert [%Operation.Resize{mode: :fit} = first_params] = first_operations
@@ -1534,7 +1564,7 @@ defmodule ImagePipe.Parser.ImgproxyTest do
 
   test "preserves no-op single-pipeline behavior" do
     assert {:ok, %Plan{pipelines: [%Pipeline{operations: []}]}} =
-             Imgproxy.parse(conn(:get, "/_/plain/images/cat.jpg"), @no_auto_rotate_opts)
+             Imgproxy.parse(conn(:get, "/_/plain/images/cat.jpg"), @baseline_opts)
   end
 
   test "later field assignments are scoped to each imgproxy pipeline" do
@@ -1547,7 +1577,7 @@ defmodule ImagePipe.Parser.ImgproxyTest do
             }} =
              Imgproxy.parse(
                conn(:get, "/_/w:500/w:600/-/h:200/h:300/plain/images/cat.jpg"),
-               @no_auto_rotate_opts
+               @baseline_opts
              )
 
     assert [%Operation.Resize{mode: :fit} = first_params] = first_operations
@@ -1615,7 +1645,7 @@ defmodule ImagePipe.Parser.ImgproxyTest do
 
   defp operations_for(path) do
     assert {:ok, %Plan{pipelines: [%Pipeline{operations: operations}]}} =
-             Imgproxy.parse(conn(:get, path), @no_auto_rotate_opts)
+             Imgproxy.parse(conn(:get, path), @baseline_opts)
 
     operations
   end
@@ -1645,6 +1675,7 @@ defmodule ImagePipe.Parser.ImgproxyTest do
     imgproxy_opts =
       [
         auto_rotate: false,
+        strip_color_profile: false,
         signature: [keys: ["746573742d6b6579"], salts: ["746573742d73616c74"]]
       ]
       |> Keyword.merge(overrides)
@@ -1654,7 +1685,7 @@ defmodule ImagePipe.Parser.ImgproxyTest do
   end
 
   defp preset_opts(definitions) do
-    [imgproxy: Imgproxy.validate_options!(auto_rotate: false, presets: definitions)]
+    [imgproxy: Imgproxy.validate_options!(auto_rotate: false, strip_color_profile: false, presets: definitions)]
   end
 
   defp assert_error_status(reason, status) do
@@ -1690,6 +1721,7 @@ defmodule ImagePipe.Parser.ImgproxyTest do
   defp operation_name(%Operation.Brightness{}), do: :brightness
   defp operation_name(%Operation.Contrast{}), do: :contrast
   defp operation_name(%Operation.Saturation{}), do: :saturation
+  defp operation_name(%Operation.NormalizeColorProfile{}), do: :normalize_color_profile
 
   defp forbidden_parsed_transform_operations(%Plan{} = plan) do
     plan.pipelines

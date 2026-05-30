@@ -19,6 +19,7 @@ defmodule ImagePipe.Transform.DecodePlanner do
   alias ImagePipe.Plan.Operation.Duotone
   alias ImagePipe.Plan.Operation.Flip
   alias ImagePipe.Plan.Operation.Monochrome
+  alias ImagePipe.Plan.Operation.NormalizeColorProfile
   alias ImagePipe.Plan.Operation.Padding
   alias ImagePipe.Plan.Operation.Pixelate
   alias ImagePipe.Plan.Operation.Resize, as: PlanResize
@@ -61,6 +62,7 @@ defmodule ImagePipe.Transform.DecodePlanner do
   defp access_requirement(%Brightness{}), do: :random
   defp access_requirement(%Contrast{}), do: :random
   defp access_requirement(%Saturation{}), do: :random
+  defp access_requirement(%NormalizeColorProfile{}), do: :neutral
 
   defp resize_access_requirement(%PlanResize{
          width: width,

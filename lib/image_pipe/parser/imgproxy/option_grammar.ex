@@ -397,6 +397,11 @@ defmodule ImagePipe.Parser.Imgproxy.OptionGrammar do
     parse_flip(args, segment)
   end
 
+  defp parse_special_option(name, args, segment)
+       when name in ["strip_color_profile", "scp"] do
+    parse_strip_color_profile(args, segment)
+  end
+
   defp parse_special_option(name, args, segment) when name in ["gravity", "g"] do
     parse_gravity(args, segment)
   end
@@ -783,6 +788,18 @@ defmodule ImagePipe.Parser.Imgproxy.OptionGrammar do
   end
 
   defp parse_auto_rotate(_args, segment), do: {:error, {:invalid_option_segment, segment}}
+
+  defp parse_strip_color_profile([], _segment),
+    do: {:ok, [strip_color_profile: true]}
+
+  defp parse_strip_color_profile([value], _segment) when value != "" do
+    with {:ok, value?} <- parse_boolean(value) do
+      {:ok, [strip_color_profile: value?]}
+    end
+  end
+
+  defp parse_strip_color_profile(_args, segment),
+    do: {:error, {:invalid_option_segment, segment}}
 
   defp parse_rotate([value], _segment) when value != "" do
     case Integer.parse(value) do

@@ -1,8 +1,8 @@
 defmodule ImagePipe.Transform.Operation.NormalizeColorProfile do
   @moduledoc """
   Executable color-profile normalization: convert the embedded ICC profile to
-  sRGB (ICC-aware, via `Image.to_colorspace/3` -> `icc_transform`) and drop the
-  profile so the output embeds none. No-op when the image carries no profile.
+  sRGB (ICC-aware, via `Image.to_colorspace/3` -> `icc_transform`).
+  No-op when the image carries no profile.
   """
 
   @behaviour ImagePipe.Transform
@@ -11,7 +11,6 @@ defmodule ImagePipe.Transform.Operation.NormalizeColorProfile do
 
   alias ImagePipe.Transform.State
   alias Vix.Vips.Image, as: VixImage
-  alias Vix.Vips.MutableImage
 
   @icc_field "icc-profile-data"
 
@@ -32,9 +31,7 @@ defmodule ImagePipe.Transform.Operation.NormalizeColorProfile do
 
   defp normalize(image) do
     if profile?(image) do
-      with {:ok, srgb} <- Image.to_colorspace(image, :srgb, []) do
-        drop_profile(srgb)
-      end
+      Image.to_colorspace(image, :srgb, [])
     else
       {:ok, image}
     end
@@ -45,12 +42,5 @@ defmodule ImagePipe.Transform.Operation.NormalizeColorProfile do
       {:ok, names} -> @icc_field in names
       _ -> false
     end
-  end
-
-  defp drop_profile(image) do
-    VixImage.mutate(image, fn mut ->
-      _ = MutableImage.remove(mut, @icc_field)
-      :ok
-    end)
   end
 end
