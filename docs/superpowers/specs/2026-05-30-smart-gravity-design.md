@@ -341,6 +341,24 @@ tree with the same detector config they pass the plug.
   orthogonal to the `detector_required` gate (which concerns *capability*, not
   readiness).
 
+**Why host-wired (alternatives considered).** Only warming *at boot* prevents
+the first request from paying the download cost, and `ImagePipe.Application`
+boots before any plug mounts — so a boot-time warm needs either app-env config
+or the host's own tree. Host-wiring keeps detector config on the single
+plug-init path and composes with multiple mounts. Rejected/deferred:
+
+- *Auto-start from app-env* — least wiring, but a second config path parallel
+  to plug init opts, a global singleton that does not compose with multiple
+  mounts using different detectors, and prone to drifting from the plug's
+  detector. Not pursued.
+- *Automatic lazy warm (`detector_warmup: :auto` plug option)* — an idempotent,
+  `:persistent_term`-guarded async warm triggered at first-call, reusing the
+  plug's own detector config (no second config path; precedent:
+  `Image.Plug.Capabilities` probing AVIF once). Clean and zero-wiring, but it
+  does not guarantee warm-before-first-request (request #1 still races) and adds
+  the idempotency machinery. **Deferred as a future enhancement** if explicit
+  wiring proves annoying; it layers cleanly on top of the `warmup/2` helper.
+
 ## Testing
 
 - **Parser/planner:** `g:sm`→`:smart`; `g:sm`+config→`{:smart,:face_assist}`;
