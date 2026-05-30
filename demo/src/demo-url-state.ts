@@ -791,9 +791,12 @@ function parseKeepCopyright(currentState: DemoState, args: string[]): DemoState 
     return null;
   }
 
+  // keep_copyright is only meaningful when metadata is being stripped; clamp it
+  // to false otherwise so the parsed state matches the backend normalization,
+  // regardless of segment order (e.g. "sm:0/kcr:1").
   return {
     ...currentState,
-    keepCopyright: value,
+    keepCopyright: currentState.stripMetadata ? value : false,
   };
 }
 

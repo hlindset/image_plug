@@ -1030,6 +1030,14 @@ describe("demo URL state", () => {
     expect(parsedSmOnly).toMatchObject({ stripMetadata: false, keepCopyright: false });
   });
 
+  it("normalizes keepCopyright to false regardless of sm/kcr segment order", () => {
+    const kcrThenSm = parseDemoPath("/demo/kcr:1/sm:0/plain/local:///images/dog.jpg");
+    const smThenKcr = parseDemoPath("/demo/sm:0/kcr:1/plain/local:///images/dog.jpg");
+
+    expect(kcrThenSm).toMatchObject({ stripMetadata: false, keepCopyright: false });
+    expect(smThenKcr).toMatchObject({ stripMetadata: false, keepCopyright: false });
+  });
+
   it("accepts boolean aliases for sm, kcr, and scp", () => {
     expect(parseDemoPath("/demo/sm:1/plain/local:///images/dog.jpg")).toMatchObject({
       stripMetadata: true,
