@@ -134,14 +134,21 @@ Operation pair mirroring `AutoOrient`:
 - **`ImagePipe.Plan.Operation.NormalizeColorProfile`** — semantic intent, no
   fields in this slice (sRGB implicit). This struct is the `cp`-ready seam
   ([#119](https://github.com/hlindset/image_plug/issues/119) adds a target).
-- **`ImagePipe.Transform.Operation.NormalizeColorProfile`** — executable.
-  `execute/2`:
+- **`ImagePipe.Transform.Operation.NormalizeColorProfile`** — executable,
+  **conversion-only**. `execute/2`:
   - if the image carries an embedded ICC profile: convert to sRGB via the
     **ICC-aware** path (`Image.to_colorspace/3` → `icc_transform`, sRGB output,
-    embedded profile as input), then drop the `icc-profile-data` header so the
-    output embeds no profile; store back into `Transform.State`;
+    embedded profile as input); store back into `Transform.State`;
   - else: no-op.
   - failures → `{:error, {__MODULE__, error}}`.
+  - It deliberately does **not** remove the `icc-profile-data` header. Metadata
+    removal requires realizing pixels (`Vix` `mutate` → `copy_memory`), which
+    inside the lazy transform chain turns a corrupt-source decode failure into an
+    **uncatchable producer crash (500)** instead of a graceful decode error
+    (415) — `Chain.execute` also re-tags every op error as `:transform_error`
+    (→ 500), so a transform op can never yield the 415 the contract requires.
+    The profile-header drop therefore happens at the output encoder's finalize
+    (below), where realization failures map to a decode error.
 - **`Plan.KeyData`** clause: `data(%NormalizeColorProfile{}) ->
   [op: :normalize_color_profile]`.
 - **`PlanExecutor`** clause lowering the semantic op to the executable op
@@ -168,63 +175,87 @@ color management is out of scope (tracked in
 **Emission:** the imgproxy plan builder emits `NormalizeColorProfile` when the
 resolved `scp` is true, nothing when false. `scp` is a plain boolean.
 
-### Metadata policy: `ImagePipe.Plan.Output` (`sm`/`kcr`)
+### Metadata policy: `ImagePipe.Plan.Output` (`sm`/`kcr`/`scp`)
 
-Add two boolean fields (`strip_color_profile` is the transform op, not here):
+Add three boolean fields. `strip_color_profile` lives here too (in addition to
+driving the transform op) so the encoder finalize can drop the profile header:
 
 ```elixir
 defstruct mode: :automatic, quality: :default, format_qualities: %{},
-          strip_metadata: true, keep_copyright: true
+          strip_metadata: true, keep_copyright: true, strip_color_profile: true
 ```
 
 Struct defaults are safe fallbacks for direct constructors; the imgproxy parser
-always sets them from its config, so the parser owns the effective default.
+always sets them from its config, so the parser owns the effective default. The
+parser resolves `scp` once and sets **both** the first pipeline's op-emission
+flag and `Plan.Output.strip_color_profile` from it, so they stay consistent.
 
 **Canonicalization.** `keep_copyright` only matters when `strip_metadata` is
 true. The plan builder normalizes `keep_copyright` to `false` whenever
 `strip_metadata` is `false`, keeping cache keys/ETags deterministic.
 
-### Output encode path: `sm`/`kcr` via Vix `mutate`
+### Output encode path: `sm`/`kcr`/`scp` metadata via Vix `mutate` (after a safe realize)
 
-Thread `strip_metadata` + `keep_copyright` through `Policy` and `Resolved`
-(both gain the two fields; populated in `Policy.resolved/2` from `Plan.Output`).
-`Encoder.stream_output/3` applies them to the materialized Vix image before
-streaming, **never** using the blunt libvips `strip` write flag (it would also
-remove the ICC profile) **and not relying on `Image.remove_metadata`** (XMP bug):
+Thread `strip_metadata`, `keep_copyright`, **and `strip_color_profile`** through
+`Plan.Output` → `Policy` → `Resolved` (all three gain the fields; populated in
+`Policy.resolved/2`). The `NormalizeColorProfile` transform op converts pixels to
+sRGB; this encode step drops the now-redundant `icc-profile-data` header when
+`scp` is on, alongside the `sm`/`kcr` metadata strip. Doing all metadata removal
+here (not in the transform chain) is what lets corrupt sources degrade to 415.
+
+`Encoder.stream_output/3` **realizes the image once via `Vix.Vips.Image.copy_memory/1`
+before any `mutate`** — and only when stripping is actually needed:
 
 ```
 finalize(image, resolved):
-  cond do
-    not resolved.strip_metadata ->
-      image                                              # keep all metadata
-    resolved.keep_copyright ->
-      icc = header_value(image, "icc-profile-data")      # may be absent (scp dropped it upstream)
-      image
-      |> minimize_metadata!(keep: [:copyright, :artist]) # strips exif(except copyright/artist)+xmp+iptc+ICC
-      |> restore(icc)                                     # re-attach the profile (minimize over-strips it)
-    true ->
-      mutate(image, remove ["exif-data", "xmp-data", "iptc-data"])  # ICC preserved
+  if not resolved.strip_metadata and not resolved.strip_color_profile do
+    {:ok, image}                                   # nothing to strip; stay lazy
+  else
+    with {:ok, mem} <- copy_memory(image) do       # catchable realize; corrupt -> {:error, reason}
+      {:ok, strip(mem, resolved)}
+    end
   end
-  |> stream!(suffix: suffix, quality: quality)   # no libvips strip flag
+
+strip(mem, resolved):
+  cond do
+    not resolved.strip_metadata ->                 # scp only: drop just the profile
+      mutate(mem, remove ["icc-profile-data"])
+    resolved.keep_copyright ->                     # keep EXIF copyright; strip xmp/iptc; drop icc iff scp
+      icc = if resolved.strip_color_profile, do: nil, else: header_value(mem, "icc-profile-data")
+      mem |> minimize_metadata!(keep: [:copyright, :artist]) |> restore_icc(icc)
+    true ->                                        # strip exif/xmp/iptc; drop icc iff scp
+      fields = ["exif-data", "xmp-data", "iptc-data"] ++ icc_fields(resolved)
+      mutate(mem, remove fields)
+  end
+
+icc_fields(%{strip_color_profile: true}) -> ["icc-profile-data"]
+icc_fields(_) -> []
 ```
 
-- The non-`kcr` strip uses `Vix.Vips.Image.mutate/2` + `MutableImage.remove/2`
-  with explicit field names, preserving `icc-profile-data`.
-- The `kcr` path reuses `minimize_metadata` for EXIF copyright/artist retention,
-  but **must back up and restore `icc-profile-data`** because `minimize_metadata`
-  removes it. When `scp` already dropped the profile upstream, the backup is
-  empty and the restore is a no-op — consistent.
-- **Required code comments** at the strip site: (a) `image` v0.67's
-  `@metadata_fields` maps `xmp: "xmp-dataa"` (typo) so the `:xmp` atom selector
-  is a no-op — hence explicit string field names; (b) `minimize_metadata`/default
-  `remove_metadata` over-strip the ICC profile, hence explicit field removal and
-  the `kcr` backup/restore.
-- `scp` is **not** handled here — by encode time the `NormalizeColorProfile` op
-  (if emitted) has already converted and dropped the profile.
+`stream_output/3` then calls `stream!` on the finalized image (no libvips `strip`
+flag). On a `copy_memory` `{:error, reason}` it returns `{:error, {:decode, reason}}`
+so `prepare_first_chunk` maps it to a **415 decode error** rather than crashing
+the producer.
+
+- **Why `copy_memory` first:** `Vix` `mutate` realizes pixels inside a *linked*
+  `MutableImage` GenServer whose `init` `copy_memory` failure kills the producer
+  (uncatchable → 500). Realizing first, in the producer's own stack, makes the
+  failure a returnable `{:error, …}` (→ 415); subsequent `mutate`s run on the
+  in-memory image and can't fail that way.
+- **Never** use the blunt libvips `strip` write flag (removes EXIF *and* ICC
+  together) and **never** use `Image.remove_metadata(_, :xmp)` (`image` v0.67
+  maps `:xmp` → `"xmp-dataa"`, a typo, so XMP is silently retained) or the
+  default `remove_metadata`/`minimize_metadata` field-enumeration for the
+  non-`kcr` paths (they over-strip the ICC profile). Use explicit string field
+  names; the `kcr` path uses `minimize_metadata` for EXIF copyright retention and
+  restores the ICC profile when `scp` is off (since `minimize_metadata` removes it).
+- **Required code comments** at the strip site documenting (a) the `copy_memory`-
+  before-`mutate` rationale (corrupt → 415), (b) the `"xmp-dataa"` typo, and
+  (c) `minimize_metadata`'s ICC over-strip.
 - The EXIF Orientation tag is stripped safely: `AutoOrient` runs first and bakes
-  orientation into pixels, so removing the tag afterward cannot mis-orient.
-- Errors fold into the existing `{:error, {:encode, exception, stacktrace}}`
-  rescue. No new error category.
+  orientation into pixels.
+- Errors fold into the existing `{:error, {:encode, …}}` / `{:error, {:decode, …}}`
+  handling. No new error category.
 
 **`keep_copyright` fidelity (deliberate divergence):** imgproxy preserves the
 full XMP + IPTC blobs plus EXIF copyright. This slice **intentionally** preserves
