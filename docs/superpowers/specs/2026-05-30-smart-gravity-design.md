@@ -119,6 +119,10 @@ defmodule ImagePipe.Transform.Detector do
 
   @doc "Stable identity for cache-key material: {module, version}."
   @callback identity() :: {module(), term()}
+
+  @doc "Optionally pre-load models so the first request doesn't pay download cost."
+  @callback warmup(opts :: keyword()) :: :ok | {:error, term()}
+  @optional_callbacks warmup: 1
 end
 ```
 
@@ -143,6 +147,10 @@ end
   identifier), so cache keys distinguish models. Returns an `:unavailable`
   marker when the dep is absent (face-assist output then differs from
   dep-present, and the key must reflect that).
+- `warmup/1` triggers the configured classes' model load (for `:face`, one
+  detection that populates `image_vision`'s on-disk cache + `:persistent_term`);
+  no-op `{:error, :unavailable}` when the dep is absent. See
+  [§10](#10-eager-model-warmup-optional).
 
 **Optional dependency policy:** `image_vision` is **not** a declared dependency
 of ImagePipe (hosts add it), so default builds pull no ONNX runtime. To make the
@@ -246,9 +254,11 @@ reshape key data in place; no version bump.
 
 ### 7. Boundary & namespaces
 
-- `ImagePipe.Transform.Detector` (behaviour) and
-  `ImagePipe.Transform.Detector.ImageVision` (default adapter) live in the
-  transform boundary; add `Detector` to `Transform`'s `exports:`
+- `ImagePipe.Transform.Detector` (behaviour),
+  `ImagePipe.Transform.Detector.ImageVision` (default adapter), and
+  `ImagePipe.Transform.Detector.Warmup` (optional worker, [§10](#10-eager-model-warmup-optional))
+  live in the transform boundary; add `Detector` and `Detector.Warmup` to
+  `Transform`'s `exports:`
   ([transform.ex:14](../../../lib/image_pipe/transform.ex)). Transform `deps:`
   are unchanged (the adapter references external `Image.*`, not an internal
   boundary).
@@ -283,14 +293,53 @@ so a cold detection request appears to "hang" during the download. Implications:
   per-request and CI cost is small. General object gravity (deferred) would pull
   RT-DETR (~175 MB), and captioning/zero-shot/segmentation models are far larger
   (605 MB–990 MB) — another reason to land face first and defer the rest.
-- **Production/CI guidance (documented, not enforced):** hosts should
-  pre-download with `mix image_vision.download_models` (the face/`--detect`
-  scope as needed) rather than pay first-call latency on a live request. The
-  `:test`-dep CI lane pre-downloads the YuNet face model before the real-dep
-  test.
+- **Two complementary warmups:** `mix image_vision.download_models` puts weights
+  on disk at build/deploy time; the optional `Detector.Warmup` worker
+  ([§10](#10-eager-model-warmup-optional)) triggers the in-process load at boot.
+  Together they remove first-request latency. The `:test`-dep CI lane
+  pre-downloads the YuNet face model before the real-dep test.
 - Bounding per-request ML time is host/runtime territory and aligns with the
   processing-timeout work in
   [#49](https://github.com/hlindset/image_plug/issues/49); not in this scope.
+
+### 10. Eager model warmup (optional)
+
+Warmup is **host-owned and opt-in**, to avoid a second runtime config path:
+ImagePipe's detector config travels through plug init options, but
+`ImagePipe.Application` boots before any plug mounts and cannot see them. So
+ImagePipe ships the *capability*; the host wires it into **their** supervision
+tree with the same detector config they pass the plug.
+
+- **`ImagePipe.Transform.Detector.warmup/2`** — generic helper:
+  `warmup(detector_module, opts)` invokes the optional `warmup/1` callback if
+  the detector implements it, else a no-op `:ok`. Hosts may call this directly
+  (a `Task` in their `Application.start/2`, a release task, etc.).
+- **`ImagePipe.Transform.Detector.Warmup`** — optional supervised child spec the
+  host adds to their tree:
+
+  ```elixir
+  {ImagePipe.Transform.Detector.Warmup,
+   detector: ImagePipe.Transform.Detector.ImageVision,
+   classes: [:face],
+   mode: :async}
+  ```
+
+  - `mode: :async` (**default**) — warmup runs off the init path (supervised
+    `Task`) so it never blocks the host's boot or its other children.
+  - `mode: :sync` — warmup runs during the worker's init (host places it where
+    blocking is acceptable).
+  - **transient** restart: it does its one-shot load and terminates `:normal`;
+    it is not restarted on success. Failures are logged (and retried per a
+    bounded policy in `:async` mode); a missing dep makes warmup a clean no-op.
+  - Dispatches through `Detector.warmup/2` with the detector passed as **config
+    data** — boundary-safe, no concrete-module reference in request code.
+
+- **Consistency is the host's responsibility:** the host passes the same
+  `detector` to both the plug and the `Warmup` child. ImagePipe does not link
+  them through a global (that would reintroduce the second config path).
+- Warming makes the first real request fast; it does not change results. It is
+  orthogonal to the `detector_required` gate (which concerns *capability*, not
+  readiness).
 
 ## Testing
 
@@ -312,6 +361,11 @@ so a cold detection request appears to "hang" during the download. Implications:
 - **Wire-level Plug:** `g:sm` and `g:obj:face` end-to-end via real
   `ImagePipe.call/2` — status, decoded output dimensions, and gravity visibly
   shifting pixels vs a center-crop baseline.
+- **Warmup worker:** with a DI fake detector implementing `warmup/1`,
+  `start_supervised!` the `Warmup` child and assert it invokes `warmup/1` with
+  the configured `classes` and terminates `:normal` (via `Process.monitor` +
+  `assert_receive {:DOWN, ...}`, no `sleep`); `:async` mode does not block; an
+  unavailable detector makes warmup a clean no-op that still terminates.
 
 ## Divergences (documented in the matrix)
 
@@ -346,3 +400,7 @@ discipline established here.
 - `IMGPROXY_SMART_CROP_FACE_DETECTION` included, modeled as a parser-config
   knob that selects a canonical plan guide (cache-correct, not hidden runtime
   behavior).
+- Eager model warmup is host-owned (optional `Detector.Warmup` child spec +
+  `warmup/2` helper + optional behaviour callback), opt-in and async by
+  default, rather than auto-started from app-env — which would split detector
+  config across two runtime paths.
