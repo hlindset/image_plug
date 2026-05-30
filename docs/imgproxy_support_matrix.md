@@ -278,9 +278,10 @@ XL output.
 ### Metadata, color profile, HDR, and default autorotation policy
 
 ImagePipe supports URL `auto_rotate` and the matching parser config default:
-`imgproxy: [auto_rotate: true]`, which is also the default. Global metadata
-stripping, profile handling, HDR preservation, and thumbnail-source selection
-aren't configurable.
+`imgproxy: [auto_rotate: true]`, which is also the default. URL `strip_metadata`,
+`keep_copyright`, and `strip_color_profile` are supported with parser-owned
+defaults and per-request URL overrides. HDR preservation and thumbnail-source
+selection aren't configurable.
 
 URL `auto_rotate`/`ar` resolves as request-scoped EXIF decode policy. If the URL
 contains more than one `ar`, the last value in path order wins. When the
@@ -288,10 +289,10 @@ resolved policy is `true`, ImagePipe represents it as one `AutoOrient` operation
 at the start of the first produced pipeline. Cache keys, ETags, and transform
 execution then use the normal canonical plan machinery.
 
-- ⭕ `IMGPROXY_STRIP_METADATA`
-- ⭕ `IMGPROXY_KEEP_COPYRIGHT`
+- ✅ `IMGPROXY_STRIP_METADATA` — Parser config default: `imgproxy: [strip_metadata: true]`. URL override: `sm:0` disables. Strips EXIF, XMP, and IPTC at encode time via `ImagePipe.Plan.Output` metadata policy.
+- ✅ `IMGPROXY_KEEP_COPYRIGHT` — Parser config default: `imgproxy: [keep_copyright: true]`. URL override: `kcr:0` disables. **Diverges from imgproxy**: preserves EXIF copyright/artist fields only; imgproxy retains full XMP/IPTC blobs. ImagePipe strips XMP/IPTC even when `kcr` is on (privacy-conservative).
 - ⭕ `IMGPROXY_STRIP_METADATA_DPI`
-- ⭕ `IMGPROXY_STRIP_COLOR_PROFILE`
+- ✅ `IMGPROXY_STRIP_COLOR_PROFILE` — Parser config default: `imgproxy: [strip_color_profile: true]`. URL override: `scp:0` disables. Implemented as a `NormalizeColorProfile` transform operation (ICC-aware sRGB conversion) positioned after geometry and before effects; the embedded profile header is dropped at encode. **Diverges from imgproxy**: imgproxy color-manages every image into a working space regardless of `scp`; ImagePipe only converts when `scp` is on (tracked in issue #124). With `scp:0` plus a tone effect on a wide-gamut source, effects run in the source profile space.
 - ⭕ `IMGPROXY_COLOR_PROFILES_DIR`
 - ⭕ `IMGPROXY_PRESERVE_HDR`
 - ✅ `IMGPROXY_AUTO_ROTATE`
@@ -530,10 +531,10 @@ transforms or output encoding.
 
 | Imgproxy option | Aliases | Status | Notes |
 | --- | --- | --- | --- |
-| `strip_metadata` | `sm` | Missing | No request-level metadata stripping override. |
-| `keep_copyright` | `kcr` | Missing | Depends on metadata stripping support. |
+| `strip_metadata` | `sm` | Supported | Default on. Parser config: `imgproxy: [strip_metadata: true]`. URL override `sm:0` disables. Strips EXIF, XMP, and IPTC at encode time via `ImagePipe.Plan.Output` metadata policy. |
+| `keep_copyright` | `kcr` | Supported | Default on. Parser config: `imgproxy: [keep_copyright: true]`. URL override `kcr:0` disables. **Diverges from imgproxy**: preserves EXIF copyright/artist fields only; imgproxy retains full XMP/IPTC blobs. ImagePipe strips XMP/IPTC even when `kcr` is on (privacy-conservative). |
 | `dpi` | | Missing | Pro metadata rewrite. |
-| `strip_color_profile` | `scp` | Missing | No color profile transform/output control. |
+| `strip_color_profile` | `scp` | Supported | Default on. Parser config: `imgproxy: [strip_color_profile: true]`. URL override `scp:0` disables. Implemented as a `NormalizeColorProfile` transform operation (ICC-aware sRGB conversion) positioned after geometry and before effects; the embedded profile header is dropped at encode. **Diverges from imgproxy**: imgproxy color-manages every image regardless of `scp`; ImagePipe only converts when `scp` is on (tracked in issue #124). With `scp:0` plus a tone effect on a wide-gamut source, effects run in the source profile space. |
 | `preserve_hdr` | `ph` | Missing | No HDR preservation toggle. |
 | `color_profile` | `cp`, `icc` | Missing | Pro profile conversion/embedding. |
 | `enforce_thumbnail` | `eth` | Missing | No embedded thumbnail decode selection. |
