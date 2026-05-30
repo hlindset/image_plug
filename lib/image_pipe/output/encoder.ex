@@ -7,7 +7,9 @@ defmodule ImagePipe.Output.Encoder do
   alias Vix.Vips.MutableImage, as: VixMutableImage
 
   @spec stream_output(VixImage.t(), Resolved.t(), keyword()) ::
-          {:ok, Enumerable.t(), String.t()} | {:error, {:encode, Exception.t(), list()}}
+          {:ok, Enumerable.t(), String.t()}
+          | {:error, {:encode, Exception.t(), list()}}
+          | {:error, {:decode, term()}}
   def stream_output(%VixImage{} = image, %Resolved{} = resolved_output, opts) do
     with {:ok, mime_type, suffix} <- output_format(resolved_output),
          {:ok, finalized} <- finalize(image, resolved_output) do
