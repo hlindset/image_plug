@@ -1,6 +1,11 @@
 defmodule ImagePipe.Plan.Output do
   @moduledoc """
   Requested output intent before runtime format negotiation.
+
+  `strip_metadata`, `keep_copyright`, and `strip_color_profile` are resolved
+  booleans (never `nil`): a parser resolves its config defaults / URL options
+  into concrete values before building a plan (the imgproxy parser does this in
+  `apply_request_defaults/2`). They drive the encoder's metadata finalize.
   """
 
   @enforce_keys [:mode]
