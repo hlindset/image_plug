@@ -87,6 +87,24 @@ defmodule ImagePipe.ImgproxyWireConformanceTest do
     end
   end
 
+  defmodule WideGamutOriginImage do
+    @moduledoc false
+
+    # Generates a P3 wide-gamut PNG carrying an embedded ICC profile.
+    # `Image.to_colorspace(_, :p3, [])` attaches a P3 ICC profile to the
+    # in-memory image, and libvips embeds it in the PNG stream on write.
+    # Re-opening the PNG bytes confirms "icc-profile-data" is present.
+    def call(conn, _opts) do
+      {:ok, base} = Image.new(40, 40, color: [200, 50, 50])
+      {:ok, p3_img} = Image.to_colorspace(base, :p3, [])
+      body = Image.write!(p3_img, :memory, suffix: ".png")
+
+      conn
+      |> Plug.Conn.put_resp_content_type("image/png")
+      |> Plug.Conn.send_resp(200, body)
+    end
+  end
+
   defmodule EffectOriginImage do
     @moduledoc false
 
@@ -1096,6 +1114,71 @@ defmodule ImagePipe.ImgproxyWireConformanceTest do
     end
   end
 
+  describe "scp color-profile normalization" do
+    # Note: `Image.to_colorspace(img, :p3, [])` attaches a P3 ICC profile to the
+    # in-memory image, which libvips embeds in PNG output. Re-opening the PNG bytes
+    # confirms "icc-profile-data" is present, so the scp:0 baseline assertion will
+    # fail loudly if the source generation ever loses the profile, preventing the
+    # scp:1 "dropped" assertion from passing as a false negative.
+    #
+    # Unlike EXIF (which libvips regenerates minimally on JPEG encode), libvips does
+    # NOT synthesize an ICC profile — it embeds one only when the image carries it.
+    # Therefore "icc-profile-data" presence/absence is a meaningful scp assertion.
+
+    test "scp:0 retains the embedded ICC profile; scp:1 (default) drops it and outputs sRGB" do
+      # Establish the scp:0 baseline first: if the source lost its ICC profile,
+      # these assertions fail loudly and prevent the scp:1 refute from passing
+      # vacuously against a profile-less output.
+      scp0_conn =
+        call_imgproxy(
+          "/_/scp:0/f:png/plain/images/wide.png",
+          wide_gamut_origin_opts()
+        )
+
+      assert scp0_conn.status == 200
+
+      {_scp0_image, scp0_fields} = response_metadata(scp0_conn)
+
+      assert "icc-profile-data" in scp0_fields,
+             "scp:0 baseline: icc-profile-data must be present; source lost its ICC profile"
+
+      # scp:1: the NormalizeColorProfile transform converts pixels to sRGB and the
+      # encoder drops the icc-profile-data header at finalize.
+      scp1_conn =
+        call_imgproxy(
+          "/_/scp:1/f:png/plain/images/wide.png",
+          wide_gamut_origin_opts()
+        )
+
+      assert scp1_conn.status == 200
+
+      {scp1_image, scp1_fields} = response_metadata(scp1_conn)
+
+      refute "icc-profile-data" in scp1_fields,
+             "scp:1: icc-profile-data must be absent from the response"
+
+      assert Image.colorspace(scp1_image) == :srgb,
+             "scp:1: output colorspace must be sRGB (NormalizeColorProfile converted pixels)"
+    end
+
+    test "default request (no scp in URL) drops the ICC profile" do
+      # Same as scp:1 but exercises the default plan: strip_color_profile is true
+      # by default in Plan.Output, so no explicit scp option is needed.
+      default_conn =
+        call_imgproxy(
+          "/_/f:png/plain/images/wide.png",
+          wide_gamut_origin_opts()
+        )
+
+      assert default_conn.status == 200
+
+      {_default_image, default_fields} = response_metadata(default_conn)
+
+      refute "icc-profile-data" in default_fields,
+             "default (scp on): icc-profile-data must be absent from the response"
+    end
+  end
+
   describe "output capability handling" do
     test "automatic negotiation drops avif when the build cannot write it" do
       opts = Keyword.put(@default_opts, :output_capabilities, %{avif: false, webp: true})
@@ -1359,6 +1442,17 @@ defmodule ImagePipe.ImgproxyWireConformanceTest do
         path:
           {RootHTTPAdapter,
            root_url: "http://origin.test", req_options: [plug: MetadataOriginImage]}
+      ]
+    ]
+  end
+
+  defp wide_gamut_origin_opts do
+    [
+      parser: ImagePipe.Parser.Imgproxy,
+      sources: [
+        path:
+          {RootHTTPAdapter,
+           root_url: "http://origin.test", req_options: [plug: WideGamutOriginImage]}
       ]
     ]
   end
