@@ -10,7 +10,7 @@ defmodule ImagePipe.Parser.ImgproxyPropertyTest do
   alias ImagePipe.Plan.Pipeline
   alias ImagePipe.Plan.Source
 
-  @no_auto_rotate_opts [imgproxy: [auto_rotate: false]]
+  @baseline_opts [imgproxy: [auto_rotate: false, strip_color_profile: false]]
 
   property "parser returns tagged results for arbitrary processing segments" do
     check all segments <- list_of(processing_segment(), max_length: 5),
@@ -98,7 +98,7 @@ defmodule ImagePipe.Parser.ImgproxyPropertyTest do
     end
   end
 
-  defp parse_path(path), do: Imgproxy.parse(conn(:get, path), @no_auto_rotate_opts)
+  defp parse_path(path), do: Imgproxy.parse(conn(:get, path), @baseline_opts)
 
   defp pixels(value), do: {:px, value}
 

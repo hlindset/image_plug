@@ -10,6 +10,7 @@ defmodule ImagePipe.Plan.OperationKeyDataTest do
   alias ImagePipe.Plan.Operation.Duotone
   alias ImagePipe.Plan.Operation.Flip
   alias ImagePipe.Plan.Operation.Monochrome
+  alias ImagePipe.Plan.Operation.NormalizeColorProfile
   alias ImagePipe.Plan.Operation.Pixelate
   alias ImagePipe.Plan.Operation.Rotate
   alias ImagePipe.Plan.Operation.Saturation
@@ -207,6 +208,12 @@ defmodule ImagePipe.Plan.OperationKeyDataTest do
       assert KeyData.data(%AutoOrient{}) == [op: :auto_orient]
       assert KeyData.data(%Rotate{angle: 270}) == [op: :rotate, angle: 270]
       assert KeyData.data(%Flip{axis: :both}) == [op: :flip, axis: :both]
+    end
+  end
+
+  describe "color-profile operation data" do
+    test "returns key data for the color-profile normalization operation" do
+      assert KeyData.data(%NormalizeColorProfile{}) == [op: :normalize_color_profile]
     end
   end
 

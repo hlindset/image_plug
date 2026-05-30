@@ -136,6 +136,7 @@
     ? `bg:${state.backgroundColor.replace(/^#/, "")}${backgroundOpacitySummary(state.backgroundAlpha)}`
     : "Off";
   $: effectsSummary = effectSegments(state).join("/") || "Off";
+  $: metadataSummary = metadataSegments(state).join("/") || "On";
   $: cropSummary = state.cropEnabled ? (cropOptionSegment(state) ?? "Off") : "Off";
   $: cropAspectRatioSummary = state.cropAspectRatioEnabled
     ? state.cropAspectRatioEnlarge
@@ -204,6 +205,22 @@
     }
 
     return `/bga:${alpha}`;
+  }
+
+  function metadataSegments(currentState: DemoState): string[] {
+    const segs: string[] = [];
+
+    if (!currentState.stripMetadata) {
+      segs.push("sm:0");
+    } else if (!currentState.keepCopyright) {
+      segs.push("kcr:0");
+    }
+
+    if (!currentState.stripColorProfile) {
+      segs.push("scp:0");
+    }
+
+    return segs;
   }
 
   function effectSegments(currentState: DemoState): string[] {
@@ -482,6 +499,14 @@
 
   function setThemeMode(nextMode: string): void {
     themeMode = storedThemeMode(nextMode);
+  }
+
+  function updateStripMetadata(checked: boolean): void {
+    state.stripMetadata = checked;
+
+    if (!checked) {
+      state.keepCopyright = false;
+    }
   }
 
   function resetSettings(): void {
@@ -1279,6 +1304,44 @@
           />
         {/if}
       </section>
+
+      <section class="tool-section">
+        <div class="accordion-heading">
+          <div>
+            <h2>Metadata &amp; color</h2>
+            <p>{metadataSummary}</p>
+          </div>
+        </div>
+
+        <label class="switch-field">
+          <Switch.Root
+            class="switch-root"
+            checked={state.stripMetadata}
+            onCheckedChange={updateStripMetadata}
+          >
+            <Switch.Thumb class="switch-thumb" />
+          </Switch.Root>
+          <span>Strip metadata (sm)</span>
+        </label>
+
+        <label class="switch-field">
+          <Switch.Root
+            class="switch-root"
+            bind:checked={state.keepCopyright}
+            disabled={!state.stripMetadata}
+          >
+            <Switch.Thumb class="switch-thumb" />
+          </Switch.Root>
+          <span class:muted-label={!state.stripMetadata}>Keep copyright (kcr)</span>
+        </label>
+
+        <label class="switch-field">
+          <Switch.Root class="switch-root" bind:checked={state.stripColorProfile}>
+            <Switch.Thumb class="switch-thumb" />
+          </Switch.Root>
+          <span>Strip color profile (scp)</span>
+        </label>
+      </section>
     </div>
 
     <div class="drawer-actions">
@@ -1960,6 +2023,10 @@
     display: flex;
     align-items: center;
     gap: 10px;
+  }
+
+  .muted-label {
+    color: var(--text-muted);
   }
 
   .fiddle-shell :global(.switch-root) {

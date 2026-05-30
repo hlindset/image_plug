@@ -44,7 +44,10 @@ defmodule ImagePipe.Parser.Imgproxy do
                      auto_rotate: [
                        type: :boolean,
                        default: true
-                     ]
+                     ],
+                     strip_metadata: [type: :boolean, default: true],
+                     keep_copyright: [type: :boolean, default: true],
+                     strip_color_profile: [type: :boolean, default: true]
                    )
 
   def parse(%Plug.Conn{} = conn), do: parse(conn, [])
@@ -172,7 +175,12 @@ defmodule ImagePipe.Parser.Imgproxy do
   end
 
   defp request_defaults(imgproxy_opts) do
-    [auto_rotate: Keyword.get(imgproxy_opts, :auto_rotate, true)]
+    [
+      auto_rotate: Keyword.get(imgproxy_opts, :auto_rotate, true),
+      strip_metadata: Keyword.get(imgproxy_opts, :strip_metadata, true),
+      keep_copyright: Keyword.get(imgproxy_opts, :keep_copyright, true),
+      strip_color_profile: Keyword.get(imgproxy_opts, :strip_color_profile, true)
+    ]
   end
 
   defp source_parsing_config(opts) do

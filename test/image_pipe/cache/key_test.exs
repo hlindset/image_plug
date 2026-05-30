@@ -180,7 +180,9 @@ defmodule ImagePipe.Cache.KeyTest do
                mode: :explicit,
                format: :webp,
                quality: :default,
-               format_qualities: %{}
+               format_qualities: %{},
+               strip_metadata: true,
+               keep_copyright: true
              ],
              representation: [version: 1],
              cache: [cachebuster: nil],
@@ -831,7 +833,9 @@ defmodule ImagePipe.Cache.KeyTest do
              modern_candidates: [:avif, :webp],
              auto: [avif: true, webp: true],
              quality: :default,
-             format_qualities: %{}
+             format_qualities: %{},
+             strip_metadata: true,
+             keep_copyright: true
            ]
 
     refute inspect(key_one.data) =~ "image/webp"
@@ -861,7 +865,9 @@ defmodule ImagePipe.Cache.KeyTest do
                modern_candidates: [],
                auto: [avif: true, webp: true],
                quality: :default,
-               format_qualities: %{}
+               format_qualities: %{},
+               strip_metadata: true,
+               keep_copyright: true
              ]
 
       refute inspect(key.data) =~ "*/*"
@@ -907,7 +913,9 @@ defmodule ImagePipe.Cache.KeyTest do
              modern_candidates: [:webp],
              auto: [avif: false, webp: true],
              quality: :default,
-             format_qualities: %{}
+             format_qualities: %{},
+             strip_metadata: true,
+             keep_copyright: true
            ]
   end
 
@@ -923,7 +931,9 @@ defmodule ImagePipe.Cache.KeyTest do
              mode: :explicit,
              format: :webp,
              quality: :default,
-             format_qualities: %{}
+             format_qualities: %{},
+             strip_metadata: true,
+             keep_copyright: true
            ]
 
     refute inspect(key.data) =~ "image/jpeg"

@@ -30,6 +30,7 @@ defmodule ImagePipe.Plan do
       Operation.Duotone,
       Operation.Flip,
       Operation.Monochrome,
+      Operation.NormalizeColorProfile,
       Operation.Padding,
       Operation.Pixelate,
       Operation.Rotate,

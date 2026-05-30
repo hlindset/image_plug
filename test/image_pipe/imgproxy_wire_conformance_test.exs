@@ -60,6 +60,55 @@ defmodule ImagePipe.ImgproxyWireConformanceTest do
     end
   end
 
+  defmodule MetadataOriginImage do
+    @moduledoc false
+
+    alias Vix.Vips.Image, as: VixImage
+    alias Vix.Vips.MutableImage, as: VixMutableImage
+
+    # Generates a JPEG carrying EXIF (Copyright + ImageDescription) and XMP so
+    # wire tests can assert that sm/kcr strip or retain them as expected.
+    def init(opts), do: opts
+
+    def call(conn, opts) do
+      if pid = Keyword.get(List.wrap(opts), :test_pid), do: send(pid, :origin_fetch)
+
+      img = Image.new!(100, 100, color: :white)
+
+      {:ok, with_metadata} =
+        VixImage.mutate(img, fn mut ->
+          VixMutableImage.set(mut, "exif-ifd0-Copyright", :gchararray, "(c) ACME")
+          VixMutableImage.set(mut, "exif-ifd0-ImageDescription", :gchararray, "A test image")
+          VixMutableImage.set(mut, "xmp-data", :VipsBlob, "<x:xmpmeta/>")
+          :ok
+        end)
+
+      body = Image.write!(with_metadata, :memory, suffix: ".jpg")
+
+      conn
+      |> Plug.Conn.put_resp_content_type("image/jpeg")
+      |> Plug.Conn.send_resp(200, body)
+    end
+  end
+
+  defmodule WideGamutOriginImage do
+    @moduledoc false
+
+    # Generates a P3 wide-gamut PNG carrying an embedded ICC profile.
+    # `Image.to_colorspace(_, :p3, [])` attaches a P3 ICC profile to the
+    # in-memory image, and libvips embeds it in the PNG stream on write.
+    # Re-opening the PNG bytes confirms "icc-profile-data" is present.
+    def call(conn, _opts) do
+      {:ok, base} = Image.new(40, 40, color: [200, 50, 50])
+      {:ok, p3_img} = Image.to_colorspace(base, :p3, [])
+      body = Image.write!(p3_img, :memory, suffix: ".png")
+
+      conn
+      |> Plug.Conn.put_resp_content_type("image/png")
+      |> Plug.Conn.send_resp(200, body)
+    end
+  end
+
   defmodule EffectOriginImage do
     @moduledoc false
 
@@ -983,6 +1032,224 @@ defmodule ImagePipe.ImgproxyWireConformanceTest do
     refute_received {:fetch_credentials, "tenant-b", [role: "tenant-b"], _runtime_opts}
   end
 
+  describe "sm/kcr metadata stripping" do
+    # Note on libvips JPEG behavior: libvips always writes a minimal EXIF block
+    # on JPEG encode (with image dimensions, color space, etc.) regardless of
+    # metadata stripping. Therefore "exif-data present" is always true after JPEG
+    # encode and cannot be used to assert stripping. The meaningful assertions are
+    # on specific EXIF field values (e.g. copyright, image_description) and on
+    # xmp-data, which is only present when the source carried it.
+
+    test "sm:0 retains EXIF copyright, ImageDescription, and XMP; default (sm on) strips them" do
+      # Establish the sm:0 baseline first: if the fixture itself lacks metadata,
+      # these assertions will fail loudly rather than letting the default-strips
+      # assertions pass as false negatives.
+      kept_conn =
+        call_imgproxy(
+          "/_/sm:0/scp:0/f:jpeg/plain/images/meta.jpg",
+          metadata_origin_opts()
+        )
+
+      assert kept_conn.status == 200
+
+      {kept_image, kept_fields} = response_metadata(kept_conn)
+      {:ok, kept_exif} = Image.exif(kept_image)
+
+      assert Map.get(kept_exif, :copyright) == "(c) ACME",
+             "sm:0 baseline: copyright must be present; fixture is missing EXIF copyright"
+
+      assert Map.get(kept_exif, :image_description) == "A test image",
+             "sm:0 baseline: ImageDescription must be present; fixture is missing EXIF ImageDescription"
+
+      assert "xmp-data" in kept_fields,
+             "sm:0 baseline: xmp-data must be present; fixture is missing XMP metadata"
+
+      # Default request (sm on, kcr on): XMP and non-copyright EXIF fields must
+      # be stripped. Copyright is preserved by kcr:1 (the default).
+      default_conn =
+        call_imgproxy(
+          "/_/scp:0/f:jpeg/plain/images/meta.jpg",
+          metadata_origin_opts()
+        )
+
+      assert default_conn.status == 200
+
+      {default_image, default_fields} = response_metadata(default_conn)
+      {:ok, default_exif} = Image.exif(default_image)
+
+      refute "xmp-data" in default_fields,
+             "default (sm on): xmp-data must be stripped from the response"
+
+      refute Map.has_key?(default_exif, :image_description),
+             "default (sm on): non-copyright EXIF field (ImageDescription) must be stripped"
+
+      assert Map.get(default_exif, :copyright) == "(c) ACME",
+             "default (kcr on): copyright must be retained"
+    end
+
+    test "sm:1/kcr:0 strips copyright along with other EXIF and XMP" do
+      # Baseline: the fixture carries copyright, so the refute below is meaningful
+      # even when this test runs in isolation.
+      baseline =
+        call_imgproxy("/_/sm:0/scp:0/f:jpeg/plain/images/meta.jpg", metadata_origin_opts())
+
+      {baseline_image, _baseline_fields} = response_metadata(baseline)
+      {:ok, baseline_exif} = Image.exif(baseline_image)
+      assert Map.get(baseline_exif, :copyright) == "(c) ACME"
+
+      conn =
+        call_imgproxy(
+          "/_/sm:1/kcr:0/scp:0/f:jpeg/plain/images/meta.jpg",
+          metadata_origin_opts()
+        )
+
+      assert conn.status == 200
+
+      {image, field_names} = response_metadata(conn)
+      {:ok, exif} = Image.exif(image)
+
+      refute Map.has_key?(exif, :copyright),
+             "kcr:0: copyright must be stripped along with other metadata"
+
+      refute "xmp-data" in field_names,
+             "kcr:0: xmp-data must be stripped"
+    end
+
+    test "sm:1/kcr:1 keeps EXIF copyright while stripping non-copyright EXIF and XMP" do
+      # Baseline: confirm the fixture actually carries the non-copyright EXIF
+      # field, so the "stripped" refute below cannot pass vacuously even when
+      # this test runs in isolation.
+      baseline =
+        call_imgproxy("/_/sm:0/scp:0/f:jpeg/plain/images/meta.jpg", metadata_origin_opts())
+
+      {baseline_image, _baseline_fields} = response_metadata(baseline)
+      {:ok, baseline_exif} = Image.exif(baseline_image)
+      assert Map.get(baseline_exif, :image_description) == "A test image"
+
+      conn =
+        call_imgproxy(
+          "/_/sm:1/kcr:1/scp:0/f:jpeg/plain/images/meta.jpg",
+          metadata_origin_opts()
+        )
+
+      assert conn.status == 200
+
+      {image, field_names} = response_metadata(conn)
+      {:ok, exif} = Image.exif(image)
+
+      # Copyright must be retained.
+      assert Map.get(exif, :copyright) == "(c) ACME",
+             "kcr:1: copyright must equal the original value"
+
+      # Non-copyright EXIF field (ImageDescription) must be gone.
+      refute Map.has_key?(exif, :image_description),
+             "kcr:1: non-copyright EXIF field (ImageDescription) must be stripped"
+
+      # XMP must be stripped.
+      refute "xmp-data" in field_names,
+             "kcr:1: xmp-data must be stripped"
+    end
+
+    test "sm flag produces an isolated filesystem-cache variant" do
+      {opts, cache_root} =
+        cached_opts(
+          sources: [
+            path:
+              {RootHTTPAdapter,
+               root_url: "http://origin.test",
+               req_options: [plug: {MetadataOriginImage, test_pid: self()}]}
+          ]
+        )
+
+      try do
+        # Default (sm on): cache miss, EXIF stripped.
+        stripped = call_imgproxy("/_/scp:0/f:jpeg/plain/images/meta.jpg", opts)
+        assert stripped.status == 200
+        assert_received :origin_fetch
+
+        # sm:0: distinct cache key -> cache miss, EXIF retained, different bytes.
+        kept = call_imgproxy("/_/sm:0/scp:0/f:jpeg/plain/images/meta.jpg", opts)
+        assert kept.status == 200
+        assert_received :origin_fetch
+        refute kept.resp_body == stripped.resp_body
+
+        # Re-request sm:0: cache hit (no origin fetch), identical bytes — the
+        # variant was cached separately, not cross-served from the default entry.
+        kept_again = call_imgproxy("/_/sm:0/scp:0/f:jpeg/plain/images/meta.jpg", opts)
+        assert kept_again.status == 200
+        refute_received :origin_fetch
+        assert kept_again.resp_body == kept.resp_body
+      after
+        File.rm_rf!(cache_root)
+      end
+    end
+  end
+
+  describe "scp color-profile normalization" do
+    # Note: `Image.to_colorspace(img, :p3, [])` attaches a P3 ICC profile to the
+    # in-memory image, which libvips embeds in PNG output. Re-opening the PNG bytes
+    # confirms "icc-profile-data" is present, so the scp:0 baseline assertion will
+    # fail loudly if the source generation ever loses the profile, preventing the
+    # scp:1 "dropped" assertion from passing as a false negative.
+    #
+    # Unlike EXIF (which libvips regenerates minimally on JPEG encode), libvips does
+    # NOT synthesize an ICC profile — it embeds one only when the image carries it.
+    # Therefore "icc-profile-data" presence/absence is a meaningful scp assertion.
+
+    test "scp:0 retains the embedded ICC profile; scp:1 (default) drops it and outputs sRGB" do
+      # Establish the scp:0 baseline first: if the source lost its ICC profile,
+      # these assertions fail loudly and prevent the scp:1 refute from passing
+      # vacuously against a profile-less output.
+      scp0_conn =
+        call_imgproxy(
+          "/_/scp:0/f:png/plain/images/wide.png",
+          wide_gamut_origin_opts()
+        )
+
+      assert scp0_conn.status == 200
+
+      {_scp0_image, scp0_fields} = response_metadata(scp0_conn)
+
+      assert "icc-profile-data" in scp0_fields,
+             "scp:0 baseline: icc-profile-data must be present; source lost its ICC profile"
+
+      # scp:1: the NormalizeColorProfile transform converts pixels to sRGB and the
+      # encoder drops the icc-profile-data header at finalize.
+      scp1_conn =
+        call_imgproxy(
+          "/_/scp:1/f:png/plain/images/wide.png",
+          wide_gamut_origin_opts()
+        )
+
+      assert scp1_conn.status == 200
+
+      {scp1_image, scp1_fields} = response_metadata(scp1_conn)
+
+      refute "icc-profile-data" in scp1_fields,
+             "scp:1: icc-profile-data must be absent from the response"
+
+      assert Image.colorspace(scp1_image) == :srgb,
+             "scp:1: output colorspace must be sRGB (NormalizeColorProfile converted pixels)"
+    end
+
+    test "default request (no scp in URL) drops the ICC profile" do
+      # Same as scp:1 but exercises the default plan: strip_color_profile is true
+      # by default in Plan.Output, so no explicit scp option is needed.
+      default_conn =
+        call_imgproxy(
+          "/_/f:png/plain/images/wide.png",
+          wide_gamut_origin_opts()
+        )
+
+      assert default_conn.status == 200
+
+      {_default_image, default_fields} = response_metadata(default_conn)
+
+      refute "icc-profile-data" in default_fields,
+             "default (scp on): icc-profile-data must be absent from the response"
+    end
+  end
+
   describe "output capability handling" do
     test "automatic negotiation drops avif when the build cannot write it" do
       opts = Keyword.put(@default_opts, :output_capabilities, %{avif: false, webp: true})
@@ -1239,6 +1506,28 @@ defmodule ImagePipe.ImgproxyWireConformanceTest do
     ]
   end
 
+  defp metadata_origin_opts do
+    [
+      parser: ImagePipe.Parser.Imgproxy,
+      sources: [
+        path:
+          {RootHTTPAdapter,
+           root_url: "http://origin.test", req_options: [plug: MetadataOriginImage]}
+      ]
+    ]
+  end
+
+  defp wide_gamut_origin_opts do
+    [
+      parser: ImagePipe.Parser.Imgproxy,
+      sources: [
+        path:
+          {RootHTTPAdapter,
+           root_url: "http://origin.test", req_options: [plug: WideGamutOriginImage]}
+      ]
+    ]
+  end
+
   defp call_imgproxy(path, opts, accept \\ nil) do
     conn =
       :get
@@ -1272,6 +1561,12 @@ defmodule ImagePipe.ImgproxyWireConformanceTest do
 
   defp decoded_image(%Plug.Conn{} = conn) do
     Image.open!(conn.resp_body, access: :random, fail_on: :error)
+  end
+
+  defp response_metadata(%Plug.Conn{} = conn) do
+    image = Image.open!(conn.resp_body, access: :random, fail_on: :error)
+    {:ok, field_names} = VipsImage.header_field_names(image)
+    {image, field_names}
   end
 
   defp sampled_pixels(image) do

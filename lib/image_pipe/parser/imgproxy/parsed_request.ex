@@ -3,7 +3,14 @@ defmodule ImagePipe.Parser.Imgproxy.ParsedRequest do
 
   alias ImagePipe.Parser.Imgproxy.PipelineRequest
 
-  @default_output %{format: nil, quality: :default, format_qualities: %{}}
+  @default_output %{
+    format: nil,
+    quality: :default,
+    format_qualities: %{},
+    strip_metadata: nil,
+    keep_copyright: nil,
+    strip_color_profile: nil
+  }
   @default_policy %{expires: 0}
   @default_cache %{cachebuster: nil}
   @default_response %{filename: nil, disposition: :default}
@@ -22,7 +29,10 @@ defmodule ImagePipe.Parser.Imgproxy.ParsedRequest do
   @type output_request() :: %{
           required(:format) => output_format() | nil,
           required(:quality) => quality(),
-          required(:format_qualities) => %{optional(output_format()) => quality()}
+          required(:format_qualities) => %{optional(output_format()) => quality()},
+          required(:strip_metadata) => boolean() | nil,
+          required(:keep_copyright) => boolean() | nil,
+          required(:strip_color_profile) => boolean() | nil
         }
   @type policy_request() :: %{required(:expires) => non_neg_integer()}
   @type cache_request() :: %{required(:cachebuster) => String.t() | nil}

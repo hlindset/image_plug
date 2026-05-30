@@ -9,7 +9,16 @@ defmodule ImagePipe.Output.Policy do
   alias ImagePipe.Output.Resolved
   alias ImagePipe.Plan.Output
 
-  @enforce_keys [:mode, :modern_candidates, :headers, :quality, :format_qualities]
+  @enforce_keys [
+    :mode,
+    :modern_candidates,
+    :headers,
+    :quality,
+    :format_qualities,
+    :strip_metadata,
+    :keep_copyright,
+    :strip_color_profile
+  ]
   defstruct @enforce_keys
 
   @passthrough_source_formats [:jpeg, :png]
@@ -24,7 +33,10 @@ defmodule ImagePipe.Output.Policy do
           modern_candidates: [format()],
           headers: [{String.t(), String.t()}],
           quality: quality(),
-          format_qualities: %{optional(format()) => quality()}
+          format_qualities: %{optional(format()) => quality()},
+          strip_metadata: boolean(),
+          keep_copyright: boolean(),
+          strip_color_profile: boolean()
         }
 
   @spec from_output_plan(Plug.Conn.t(), Output.t(), keyword()) :: t()
@@ -34,7 +46,10 @@ defmodule ImagePipe.Output.Policy do
       modern_candidates: Negotiation.modern_candidates(accept_header(conn), opts),
       headers: automatic_headers(),
       quality: output.quality,
-      format_qualities: output.format_qualities
+      format_qualities: output.format_qualities,
+      strip_metadata: output.strip_metadata,
+      keep_copyright: output.keep_copyright,
+      strip_color_profile: output.strip_color_profile
     }
   end
 
@@ -44,7 +59,10 @@ defmodule ImagePipe.Output.Policy do
       modern_candidates: [],
       headers: [],
       quality: output.quality,
-      format_qualities: output.format_qualities
+      format_qualities: output.format_qualities,
+      strip_metadata: output.strip_metadata,
+      keep_copyright: output.keep_copyright,
+      strip_color_profile: output.strip_color_profile
     }
   end
 
@@ -115,7 +133,10 @@ defmodule ImagePipe.Output.Policy do
     %Resolved{
       format: format,
       quality: effective_quality(policy, format),
-      response_headers: policy.headers
+      response_headers: policy.headers,
+      strip_metadata: policy.strip_metadata,
+      keep_copyright: policy.keep_copyright,
+      strip_color_profile: policy.strip_color_profile
     }
   end
 

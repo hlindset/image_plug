@@ -487,7 +487,14 @@ defmodule ImagePipe.Response.SenderTest do
           headers: [],
           next: fn -> :done end,
           cancel: fn -> :ok end,
-          resolved_output: %Resolved{format: :jpeg, quality: :default, response_headers: []}
+          resolved_output: %Resolved{
+            format: :jpeg,
+            quality: :default,
+            response_headers: [],
+            strip_metadata: true,
+            keep_copyright: true,
+            strip_color_profile: true
+          }
         ],
         overrides
       )

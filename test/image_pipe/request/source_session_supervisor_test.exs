@@ -368,7 +368,10 @@ defmodule ImagePipe.Request.SourceSessionSupervisorTest do
       modern_candidates: [],
       headers: [],
       quality: :default,
-      format_qualities: %{}
+      format_qualities: %{},
+      strip_metadata: true,
+      keep_copyright: true,
+      strip_color_profile: true
     }
   end
 

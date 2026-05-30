@@ -49,7 +49,11 @@ defmodule ImagePipe.Parser.Imgproxy.OptionGrammar do
     "filename" => {:filename, [:filename]},
     "fn" => {:filename, [:filename]},
     "return_attachment" => {:return_attachment, [:return_attachment]},
-    "att" => {:return_attachment, [:return_attachment]}
+    "att" => {:return_attachment, [:return_attachment]},
+    "strip_metadata" => {:strip_metadata, [:strip_metadata]},
+    "sm" => {:strip_metadata, [:strip_metadata]},
+    "keep_copyright" => {:keep_copyright, [:keep_copyright]},
+    "kcr" => {:keep_copyright, [:keep_copyright]}
   }
 
   @gravity_anchors %{
@@ -102,8 +106,9 @@ defmodule ImagePipe.Parser.Imgproxy.OptionGrammar do
     end
   end
 
-  defp scoped_assignments(kind, assignments) when kind in [:format, :quality, :format_quality],
-    do: {:output, assignments}
+  defp scoped_assignments(kind, assignments)
+       when kind in [:format, :quality, :format_quality, :strip_metadata, :keep_copyright],
+       do: {:output, assignments}
 
   defp scoped_assignments(:cachebuster, assignments), do: {:cache, assignments}
 
@@ -115,7 +120,17 @@ defmodule ImagePipe.Parser.Imgproxy.OptionGrammar do
   defp scoped_assignments(_kind, assignments), do: {:pipeline, assignments}
 
   defp parse_known_option(kind, fields, args, segment)
-       when kind in [:resizing_type, :width, :height, :min_width, :min_height, :enlarge, :format] do
+       when kind in [
+              :resizing_type,
+              :width,
+              :height,
+              :min_width,
+              :min_height,
+              :enlarge,
+              :format,
+              :strip_metadata,
+              :keep_copyright
+            ] do
     parse_exact_fields(fields, args, segment)
   end
 
@@ -293,6 +308,8 @@ defmodule ImagePipe.Parser.Imgproxy.OptionGrammar do
   defp parse_field(:min_height, value), do: parse_pixels(value)
   defp parse_field(:enlarge, value), do: parse_boolean(value)
   defp parse_field(:extend, value), do: parse_boolean(value)
+  defp parse_field(:strip_metadata, value), do: parse_boolean(value)
+  defp parse_field(:keep_copyright, value), do: parse_boolean(value)
   defp parse_field(:format, value), do: Format.parse(value)
   defp parse_field(:quality, value), do: parse_quality(value)
 
@@ -395,6 +412,11 @@ defmodule ImagePipe.Parser.Imgproxy.OptionGrammar do
 
   defp parse_special_option(name, args, segment) when name in ["flip", "fl"] do
     parse_flip(args, segment)
+  end
+
+  defp parse_special_option(name, args, segment)
+       when name in ["strip_color_profile", "scp"] do
+    parse_strip_color_profile(args, segment)
   end
 
   defp parse_special_option(name, args, segment) when name in ["gravity", "g"] do
@@ -783,6 +805,18 @@ defmodule ImagePipe.Parser.Imgproxy.OptionGrammar do
   end
 
   defp parse_auto_rotate(_args, segment), do: {:error, {:invalid_option_segment, segment}}
+
+  defp parse_strip_color_profile([], _segment),
+    do: {:ok, [strip_color_profile: true]}
+
+  defp parse_strip_color_profile([value], _segment) when value != "" do
+    with {:ok, value?} <- parse_boolean(value) do
+      {:ok, [strip_color_profile: value?]}
+    end
+  end
+
+  defp parse_strip_color_profile(_args, segment),
+    do: {:error, {:invalid_option_segment, segment}}
 
   defp parse_rotate([value], _segment) when value != "" do
     case Integer.parse(value) do

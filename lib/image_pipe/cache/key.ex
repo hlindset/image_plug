@@ -107,7 +107,9 @@ defmodule ImagePipe.Cache.Key do
          webp: Keyword.get(opts, :auto_webp, true)
        ],
        quality: output.quality,
-       format_qualities: output.format_qualities
+       format_qualities: output.format_qualities,
+       strip_metadata: output.strip_metadata,
+       keep_copyright: output.keep_copyright
      ]}
   end
 
@@ -117,7 +119,9 @@ defmodule ImagePipe.Cache.Key do
        mode: :explicit,
        format: format,
        quality: output.quality,
-       format_qualities: output.format_qualities
+       format_qualities: output.format_qualities,
+       strip_metadata: output.strip_metadata,
+       keep_copyright: output.keep_copyright
      ]}
   end
 
@@ -135,7 +139,9 @@ defmodule ImagePipe.Cache.Key do
          webp: Keyword.get(opts, :auto_webp, true)
        ],
        quality: output.quality,
-       format_qualities: output.format_qualities
+       format_qualities: output.format_qualities,
+       strip_metadata: output.strip_metadata,
+       keep_copyright: output.keep_copyright
      ]}
   end
 

@@ -261,6 +261,15 @@ function applyOptionSegment(currentState: DemoState, segment: string): DemoState
     case "q":
       return parseQuality(currentState, args);
 
+    case "sm":
+      return parseStripMetadata(currentState, args);
+
+    case "kcr":
+      return parseKeepCopyright(currentState, args);
+
+    case "scp":
+      return parseStripColorProfile(currentState, args);
+
     default:
       return null;
   }
@@ -751,6 +760,73 @@ function parseQuality(currentState: DemoState, args: string[]): DemoState | null
     qualityEnabled: true,
     quality,
   };
+}
+
+function parseStripMetadata(currentState: DemoState, args: string[]): DemoState | null {
+  if (args.length !== 1) {
+    return null;
+  }
+
+  const value = parseBooleanValue(args[0]);
+
+  if (value === null) {
+    return null;
+  }
+
+  return {
+    ...currentState,
+    stripMetadata: value,
+    keepCopyright: value ? currentState.keepCopyright : false,
+  };
+}
+
+function parseKeepCopyright(currentState: DemoState, args: string[]): DemoState | null {
+  if (args.length !== 1) {
+    return null;
+  }
+
+  const value = parseBooleanValue(args[0]);
+
+  if (value === null) {
+    return null;
+  }
+
+  // keep_copyright is only meaningful when metadata is being stripped; clamp it
+  // to false otherwise so the parsed state matches the backend normalization,
+  // regardless of segment order (e.g. "sm:0/kcr:1").
+  return {
+    ...currentState,
+    keepCopyright: currentState.stripMetadata ? value : false,
+  };
+}
+
+function parseStripColorProfile(currentState: DemoState, args: string[]): DemoState | null {
+  if (args.length !== 1) {
+    return null;
+  }
+
+  const value = parseBooleanValue(args[0]);
+
+  if (value === null) {
+    return null;
+  }
+
+  return {
+    ...currentState,
+    stripColorProfile: value,
+  };
+}
+
+function parseBooleanValue(value: string | undefined): boolean | null {
+  if (value === "1" || value === "t" || value === "true") {
+    return true;
+  }
+
+  if (value === "0" || value === "f" || value === "false") {
+    return false;
+  }
+
+  return null;
 }
 
 function isGravity(value: string): value is Gravity {

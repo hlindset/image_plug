@@ -24,7 +24,10 @@ defmodule ImagePipe.Output.EncoderTest do
     resolved_output = %Resolved{
       format: :webp,
       quality: {:quality, 80},
-      response_headers: []
+      response_headers: [],
+      strip_metadata: false,
+      keep_copyright: true,
+      strip_color_profile: false
     }
 
     assert {:ok, stream, "image/webp"} =
@@ -40,7 +43,14 @@ defmodule ImagePipe.Output.EncoderTest do
     assert {:error, {:encode, %RuntimeError{message: "forced stream failure"}, stacktrace}} =
              Encoder.stream_output(
                image,
-               %Resolved{format: :jpeg, quality: :default, response_headers: []},
+               %Resolved{
+                 format: :jpeg,
+                 quality: :default,
+                 response_headers: [],
+                 strip_metadata: false,
+                 keep_copyright: true,
+                 strip_color_profile: false
+               },
                image_module: RaisingStreamImage
              )
 
