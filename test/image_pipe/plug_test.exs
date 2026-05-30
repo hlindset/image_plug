@@ -1134,6 +1134,7 @@ defmodule ImagePipe.PlugTest do
              quality: :default,
              format_qualities: %{},
              strip_metadata: true,
+             strip_color_profile: true,
              keep_copyright: true
            ]
 
@@ -1447,6 +1448,7 @@ defmodule ImagePipe.PlugTest do
       quality: :default,
       format_qualities: %{},
       strip_metadata: true,
+      strip_color_profile: true,
       keep_copyright: true
     )
 
@@ -1477,6 +1479,7 @@ defmodule ImagePipe.PlugTest do
           quality: :default,
           format_qualities: %{},
           strip_metadata: true,
+          strip_color_profile: true,
           keep_copyright: true
         ] ->
           {:hit, cached_entry}
@@ -1505,6 +1508,7 @@ defmodule ImagePipe.PlugTest do
       quality: :default,
       format_qualities: %{},
       strip_metadata: true,
+      strip_color_profile: true,
       keep_copyright: true
     )
 
@@ -1535,6 +1539,7 @@ defmodule ImagePipe.PlugTest do
           quality: :default,
           format_qualities: %{},
           strip_metadata: true,
+          strip_color_profile: true,
           keep_copyright: true
         ] ->
           {:hit, cached_entry}
@@ -1565,6 +1570,7 @@ defmodule ImagePipe.PlugTest do
       quality: :default,
       format_qualities: %{},
       strip_metadata: true,
+      strip_color_profile: true,
       keep_copyright: true
     )
 
@@ -1595,6 +1601,7 @@ defmodule ImagePipe.PlugTest do
           quality: :default,
           format_qualities: %{},
           strip_metadata: true,
+          strip_color_profile: true,
           keep_copyright: true
         ] ->
           {:hit, cached_entry}
@@ -1625,6 +1632,7 @@ defmodule ImagePipe.PlugTest do
       quality: :default,
       format_qualities: %{},
       strip_metadata: true,
+      strip_color_profile: true,
       keep_copyright: true
     )
 

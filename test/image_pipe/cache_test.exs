@@ -388,6 +388,7 @@ defmodule ImagePipe.CacheTest do
              quality: :default,
              format_qualities: %{},
              strip_metadata: true,
+             strip_color_profile: true,
              keep_copyright: true
            ]
 
