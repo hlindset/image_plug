@@ -48,6 +48,7 @@ defmodule ImagePipe.ArchitectureBoundaryTest do
     :CropGuided,
     :CropRegion,
     :Flip,
+    :NormalizeColorProfile,
     :Padding,
     :Rotate,
     :Resize
@@ -63,6 +64,7 @@ defmodule ImagePipe.ArchitectureBoundaryTest do
     :Flip,
     :Background,
     :AutoOrient,
+    :NormalizeColorProfile,
     :ExtendCanvas,
     :Padding,
     :AdaptiveResize

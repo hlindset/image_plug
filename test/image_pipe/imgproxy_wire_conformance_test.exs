@@ -68,7 +68,11 @@ defmodule ImagePipe.ImgproxyWireConformanceTest do
 
     # Generates a JPEG carrying EXIF (Copyright + ImageDescription) and XMP so
     # wire tests can assert that sm/kcr strip or retain them as expected.
-    def call(conn, _opts) do
+    def init(opts), do: opts
+
+    def call(conn, opts) do
+      if pid = Keyword.get(List.wrap(opts), :test_pid), do: send(pid, :origin_fetch)
+
       img = Image.new!(100, 100, color: :white)
 
       {:ok, with_metadata} =
@@ -1144,6 +1148,40 @@ defmodule ImagePipe.ImgproxyWireConformanceTest do
       # XMP must be stripped.
       refute "xmp-data" in field_names,
              "kcr:1: xmp-data must be stripped"
+    end
+
+    test "sm flag produces an isolated filesystem-cache variant" do
+      {opts, cache_root} =
+        cached_opts(
+          sources: [
+            path:
+              {RootHTTPAdapter,
+               root_url: "http://origin.test",
+               req_options: [plug: {MetadataOriginImage, test_pid: self()}]}
+          ]
+        )
+
+      try do
+        # Default (sm on): cache miss, EXIF stripped.
+        stripped = call_imgproxy("/_/scp:0/f:jpeg/plain/images/meta.jpg", opts)
+        assert stripped.status == 200
+        assert_received :origin_fetch
+
+        # sm:0: distinct cache key -> cache miss, EXIF retained, different bytes.
+        kept = call_imgproxy("/_/sm:0/scp:0/f:jpeg/plain/images/meta.jpg", opts)
+        assert kept.status == 200
+        assert_received :origin_fetch
+        refute kept.resp_body == stripped.resp_body
+
+        # Re-request sm:0: cache hit (no origin fetch), identical bytes — the
+        # variant was cached separately, not cross-served from the default entry.
+        kept_again = call_imgproxy("/_/sm:0/scp:0/f:jpeg/plain/images/meta.jpg", opts)
+        assert kept_again.status == 200
+        refute_received :origin_fetch
+        assert kept_again.resp_body == kept.resp_body
+      after
+        File.rm_rf!(cache_root)
+      end
     end
   end
 

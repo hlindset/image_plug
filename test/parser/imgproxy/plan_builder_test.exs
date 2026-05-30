@@ -798,6 +798,11 @@ defmodule ImagePipe.Parser.Imgproxy.PlanBuilderTest do
 
         assert explicit_plan.output.mode == {:explicit, format}
         assert explicit_plan.pipelines == automatic_plan.pipelines
+
+        # Shared output fields (strip_metadata/keep_copyright/strip_color_profile)
+        # must not diverge between automatic and explicit output modes.
+        assert Map.drop(Map.from_struct(explicit_plan.output), [:mode]) ==
+                 Map.drop(Map.from_struct(automatic_plan.output), [:mode])
       end
     end
   end
