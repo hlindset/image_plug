@@ -394,11 +394,14 @@ Add the helpers (beside the auto_rotate ones):
 
 - [ ] **Step 7: Emit the operation in `plan_builder.ex`**
 
-In `lib/image_pipe/parser/imgproxy/plan_builder.ex`, add a clause function:
+In `lib/image_pipe/parser/imgproxy/plan_builder.ex`, add a clause function. `Operation.normalize_color_profile/0` returns `{:ok, struct}` (like every constructor), so unwrap it:
 
 ```elixir
-  defp color_profile_operations(%PipelineRequest{strip_color_profile: true}),
-    do: {:ok, [Operation.normalize_color_profile()]}
+  defp color_profile_operations(%PipelineRequest{strip_color_profile: true}) do
+    with {:ok, operation} <- Operation.normalize_color_profile() do
+      {:ok, [operation]}
+    end
+  end
 
   defp color_profile_operations(%PipelineRequest{}), do: {:ok, []}
 ```
