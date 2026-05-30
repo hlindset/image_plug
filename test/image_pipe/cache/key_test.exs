@@ -182,6 +182,7 @@ defmodule ImagePipe.Cache.KeyTest do
                quality: :default,
                format_qualities: %{},
                strip_metadata: true,
+               strip_color_profile: true,
                keep_copyright: true
              ],
              representation: [version: 1],
@@ -835,6 +836,7 @@ defmodule ImagePipe.Cache.KeyTest do
              quality: :default,
              format_qualities: %{},
              strip_metadata: true,
+             strip_color_profile: true,
              keep_copyright: true
            ]
 
@@ -867,6 +869,7 @@ defmodule ImagePipe.Cache.KeyTest do
                quality: :default,
                format_qualities: %{},
                strip_metadata: true,
+               strip_color_profile: true,
                keep_copyright: true
              ]
 
@@ -915,8 +918,24 @@ defmodule ImagePipe.Cache.KeyTest do
              quality: :default,
              format_qualities: %{},
              strip_metadata: true,
+             strip_color_profile: true,
              keep_copyright: true
            ]
+  end
+
+  test "different output metadata flags change cache key" do
+    conn = conn(:get, "/_/f:webp/plain/images/cat.jpg")
+
+    for flag <- [:strip_metadata, :keep_copyright, :strip_color_profile] do
+      on_plan = plan(output: %Output{mode: {:explicit, :webp}} |> Map.put(flag, true))
+      off_plan = plan(output: %Output{mode: {:explicit, :webp}} |> Map.put(flag, false))
+
+      on_key = build_key!(conn, on_plan, source_identity())
+      off_key = build_key!(conn, off_plan, source_identity())
+
+      refute on_key.hash == off_key.hash,
+             "expected differing #{flag} to change the cache key"
+    end
   end
 
   test "explicit formats do not include Accept key data or automatic marker" do
@@ -933,6 +952,7 @@ defmodule ImagePipe.Cache.KeyTest do
              quality: :default,
              format_qualities: %{},
              strip_metadata: true,
+             strip_color_profile: true,
              keep_copyright: true
            ]
 
