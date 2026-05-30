@@ -231,13 +231,23 @@ git commit -m "feat(transform): add NormalizeColorProfile operation (scp)"
 
 ## Task 2: Parser emits `NormalizeColorProfile` for `scp`
 
+**Prerequisite:** Task 1 must be complete — the test references `ImagePipe.Plan.Operation.NormalizeColorProfile` and won't compile otherwise.
+
 **Files:**
 - Modify: `lib/image_pipe/parser/imgproxy/option_grammar.ex`, `lib/image_pipe/parser/imgproxy/pipeline_request.ex`, `lib/image_pipe/parser/imgproxy/options.ex`, `lib/image_pipe/parser/imgproxy/plan_builder.ex`, `lib/image_pipe/parser/imgproxy.ex`
 - Test: `test/parser/imgproxy_test.exs`
 
-- [ ] **Step 1: Write the failing parser test**
+- [ ] **Step 1: Extend the helper, then write the failing parser test**
 
-Add to `test/parser/imgproxy_test.exs` (reuse the file's existing aliases `Plan`, `Pipeline`, `Imgproxy`, `operation_names/1`, and `@no_auto_rotate_opts`):
+First extend the test's operation-name mapping. The parser test maps operation structs to atoms with `defp operation_name/1` clauses (`test/parser/imgproxy_test.exs:1683+`, ending at `:saturation`). Add a clause:
+
+```elixir
+  defp operation_name(%Operation.NormalizeColorProfile{}), do: :normalize_color_profile
+```
+
+Confirm `@no_auto_rotate_opts` is `[imgproxy: [auto_rotate: false]]` (and does **not** set `strip_color_profile`), so scp stays default-on below.
+
+Then add the test (reuse aliases `Plan`, `Pipeline`, `Imgproxy`, `Operation`, `operation_names/1`, `@no_auto_rotate_opts`):
 
 ```elixir
   test "strip_color_profile emits NormalizeColorProfile after geometry, before effects" do
@@ -278,12 +288,12 @@ If `@no_auto_rotate_opts` is `[imgproxy: [auto_rotate: false]]`, extend it to al
 
 - [ ] **Step 2: Run it to verify failure**
 
-Run: `mise exec -- mix test test/parser/imgproxy_test.exs -k "strip_color_profile emits"`
+Run: `mise exec -- mix test test/parser/imgproxy_test.exs`
 Expected: FAIL — scp not parsed; no `:normalize_color_profile` operation.
 
 - [ ] **Step 3: Add `scp` parsing to the grammar**
 
-In `lib/image_pipe/parser/imgproxy/option_grammar.ex`, add a `parse_special_option/3` clause (beside the `auto_rotate`/`flip` clauses):
+In `lib/image_pipe/parser/imgproxy/option_grammar.ex`, add a `parse_special_option/3` clause immediately after the existing `flip` clause (currently around line 397):
 
 ```elixir
   defp parse_special_option(name, args, segment)
@@ -447,7 +457,7 @@ Update `request_defaults/1`:
 
 - [ ] **Step 9: Run the parser test**
 
-Run: `mise exec -- mix test test/parser/imgproxy_test.exs -k "strip_color_profile emits"`
+Run: `mise exec -- mix test test/parser/imgproxy_test.exs`
 Expected: PASS.
 
 - [ ] **Step 10: Commit**
@@ -494,7 +504,7 @@ Add to `test/parser/imgproxy_test.exs` (alias `ImagePipe.Plan.Output` if not pre
 
 - [ ] **Step 2: Run it to verify failure**
 
-Run: `mise exec -- mix test test/parser/imgproxy_test.exs -k "strip_metadata/keep_copyright"`
+Run: `mise exec -- mix test test/parser/imgproxy_test.exs`
 Expected: FAIL — `Output` has no `strip_metadata`/`keep_copyright`.
 
 - [ ] **Step 3: Add fields to `Plan.Output`**
@@ -557,15 +567,13 @@ Add `parse_field/2` clauses (beside `parse_field(:enlarge, ...)`):
   defp parse_field(:keep_copyright, value), do: parse_boolean(value)
 ```
 
-Add a `scoped_assignments/2` clause routing them to `:output` (before the catch-all):
+**Extend the existing** `scoped_assignments/2` clause (currently `when kind in [:format, :quality, :format_quality]`, around line 105) by adding the two new kinds to its `when` guard — do not add a second clause:
 
 ```elixir
   defp scoped_assignments(kind, assignments)
        when kind in [:format, :quality, :format_quality, :strip_metadata, :keep_copyright],
        do: {:output, assignments}
 ```
-
-(Remove the now-duplicated narrower `:format, :quality, :format_quality` clause — merge it into the line above.)
 
 - [ ] **Step 5: Add fields to the parsed-output map**
 
@@ -595,7 +603,7 @@ In `lib/image_pipe/parser/imgproxy/parsed_request.ex`, update `@default_output` 
 
 - [ ] **Step 6: Resolve sm/kcr defaults + normalize in `options.ex`**
 
-Extend `apply_request_defaults/2` to also resolve the output map (add `output:` to the destructure and the return):
+**This replaces the `apply_request_defaults/2` you wrote in Task 2 Step 6** — it is the final form, a superset that resolves `auto_rotate`, `scp`, **and** the output `sm`/`kcr` defaults. Confirm the scp logic from Task 2 is preserved verbatim below (add `output:` to the destructure and the return):
 
 ```elixir
   defp apply_request_defaults(%{pipelines: pipelines, output: output} = options, defaults) do
@@ -665,7 +673,7 @@ In both `output_plan/1` clauses (`:automatic` and `{:explicit, format}`), add th
 
 - [ ] **Step 8: Run the parser test**
 
-Run: `mise exec -- mix test test/parser/imgproxy_test.exs -k "strip_metadata/keep_copyright"`
+Run: `mise exec -- mix test test/parser/imgproxy_test.exs`
 Expected: PASS.
 
 - [ ] **Step 9: Commit**
@@ -685,13 +693,13 @@ git commit -m "feat(parser): map imgproxy sm/kcr to Plan.Output with normalizati
 
 - [ ] **Step 1: Write the failing cache-key distinctness test**
 
-Add to `test/parser/imgproxy_test.exs` (alias `ImagePipe.Cache.Key`; build keys from parsed plans via the same call the runtime uses — confirm the arity by reading `Cache.Key` public functions, e.g. `Key.build/4`):
+Add to `test/parser/imgproxy_test.exs` (alias `ImagePipe.Cache.Key`). **Verified signature:** `Cache.Key.build(conn, %Plan{} = plan, source_identity, opts \\ [])` — conn first, plan second, then a `source_identity` term. A constant binary `source_identity` is fine here: we only vary `sm`/`kcr`/`scp`, so everything else in the key stays constant.
 
 ```elixir
   test "sm/kcr/scp produce distinct cache keys" do
     key = fn path ->
       {:ok, plan} = Imgproxy.parse(conn(:get, path), [])
-      ImagePipe.Cache.Key.build(plan, conn(:get, path), %{}, [])
+      ImagePipe.Cache.Key.build(conn(:get, path), plan, "source-identity")
     end
 
     base = key.("/_/sm:1/kcr:1/scp:1/plain/images/cat.jpg")
@@ -702,11 +710,11 @@ Add to `test/parser/imgproxy_test.exs` (alias `ImagePipe.Cache.Key`; build keys 
   end
 ```
 
-(Adjust `Key.build/4` to the real signature found in `lib/image_pipe/cache/key.ex`. `scp` distinctness already works via Task 1's KeyData; this test also guards it.)
+(`scp` distinctness already works via Task 1's KeyData; this test also guards it. If `Cache.Key.build/3,4` returns `{:ok, key}` rather than a bare key, unwrap accordingly — read `lib/image_pipe/cache/key.ex:30`.)
 
 - [ ] **Step 2: Run it to verify failure**
 
-Run: `mise exec -- mix test test/parser/imgproxy_test.exs -k "distinct cache keys"`
+Run: `mise exec -- mix test test/parser/imgproxy_test.exs`
 Expected: FAIL on the `sm:0` and `kcr:0` cases (keys equal) — `output_plan_data` ignores sm/kcr. (The `scp:0` case should already pass.)
 
 - [ ] **Step 3: Add sm/kcr to `output_plan_data/2`**
@@ -744,7 +752,7 @@ In `lib/image_pipe/cache/key.ex`, add the two fields to **both** clauses:
 
 - [ ] **Step 4: Run the cache-key test**
 
-Run: `mise exec -- mix test test/parser/imgproxy_test.exs -k "distinct cache keys"`
+Run: `mise exec -- mix test test/parser/imgproxy_test.exs`
 Expected: PASS.
 
 - [ ] **Step 5: Commit**
@@ -853,9 +861,13 @@ Rewrite `lib/image_pipe/output/encoder.ex` `stream_output/3` to finalize before 
   end
 
   defp strip_metadata(image, %Resolved{}) do
-    Vix.Vips.Image.mutate!(image, fn mut ->
-      Enum.each(["exif-data", "xmp-data", "iptc-data"], &Vix.Vips.MutableImage.remove(mut, &1))
-    end)
+    {:ok, image} =
+      Vix.Vips.Image.mutate(image, fn mut ->
+        Enum.each(["exif-data", "xmp-data", "iptc-data"], &Vix.Vips.MutableImage.remove(mut, &1))
+        :ok
+      end)
+
+    image
   end
 
   defp header_value(image, field) do
@@ -868,13 +880,19 @@ Rewrite `lib/image_pipe/output/encoder.ex` `stream_output/3` to finalize before 
   defp restore_icc(image, nil), do: image
 
   defp restore_icc(image, icc) do
-    Vix.Vips.Image.mutate!(image, fn mut ->
-      Vix.Vips.MutableImage.set(mut, "icc-profile-data", :VipsBlob, icc)
-    end)
+    {:ok, image} =
+      Vix.Vips.Image.mutate(image, fn mut ->
+        Vix.Vips.MutableImage.set(mut, "icc-profile-data", :VipsBlob, icc)
+        :ok
+      end)
+
+    image
   end
 ```
 
-Confirm `Vix.Vips.Image.mutate!/2` exists; if only `mutate/2` is available, bind `{:ok, img} = Vix.Vips.Image.mutate(...)` and return `img`. Confirm `Image.minimize_metadata!/2` is the bang variant (it is, per `image.ex`).
+**Verified:** `Vix.Vips.Image.mutate!/2` does **not** exist — only `mutate/2`, which returns `{:ok, image}`; the callback must return `:ok` (or `{:ok, term}`). `Image.minimize_metadata!/2` is the real bang variant.
+
+**ICC round-trip caveat (validate during Task 6/7 TDD):** `header_value/2` returns the blob as an Erlang term; re-setting it via `MutableImage.set(.., :VipsBlob, value)` may not round-trip for every libvips build. If the `scp:0 + kcr:1 + profiled source` wire case shows the profile lost, switch the backup/restore to `Vix.Vips.Image.header_value_as_string/2` + base64 decode, or capture/re-add EXIF copyright fields directly without `minimize_metadata!`. This path is exercised only by the non-default `scp:0 + kcr:1` combination.
 
 - [ ] **Step 4: Compile**
 
@@ -983,14 +1001,14 @@ In `test/image_pipe/imgproxy_wire_conformance_test.exs`, add an origin Plug that
 
 - [ ] **Step 3: Run to verify failure**
 
-Run: `mise exec -- mix test test/image_pipe/imgproxy_wire_conformance_test.exs -k "strips EXIF"`
+Run: `mise exec -- mix test test/image_pipe/imgproxy_wire_conformance_test.exs`
 Expected: FAIL initially if the source route name differs — register the `images/meta.jpg` path the same way the suite registers `images/oriented.jpg` (reuse the existing source-path convention in this file). Then FAIL on assertions until Tasks 3 & 5 behavior is exercised (they are already merged, so failures here indicate fixture/round-trip issues to resolve per Step 1's note).
 
 - [ ] **Step 4: Make tests pass**
 
 Resolve fixture round-trip per Step 1's note (most likely: assert on the fields that survive JPEG encode for your libvips build, or use a committed fixture). No production code change should be needed if Tasks 3 & 5 are correct; if `Image.exif/1` returns no copyright, verify the encoder's `kcr` branch ran (`minimize_metadata!(keep: [:copyright, :artist])`).
 
-Run: `mise exec -- mix test test/image_pipe/imgproxy_wire_conformance_test.exs -k "strips EXIF" && mise exec -- mix test test/image_pipe/imgproxy_wire_conformance_test.exs -k "kcr:1 keeps"`
+Run: `mise exec -- mix test test/image_pipe/imgproxy_wire_conformance_test.exs && mise exec -- mix test test/image_pipe/imgproxy_wire_conformance_test.exs`
 Expected: PASS.
 
 - [ ] **Step 5: Commit**
@@ -1052,7 +1070,7 @@ Add `wide_gamut_origin_opts/0` mirroring `metadata_origin_opts/1` with `WideGamu
 
 - [ ] **Step 3: Run to verify failure, then pass**
 
-Run: `mise exec -- mix test test/image_pipe/imgproxy_wire_conformance_test.exs -k "scp:1 outputs sRGB"`
+Run: `mise exec -- mix test test/image_pipe/imgproxy_wire_conformance_test.exs`
 Expected: initially FAIL (resolve fixture round-trip per Step 1); PASS once the wide-gamut profile round-trips. No production change needed if Tasks 1–2 are correct.
 
 - [ ] **Step 4: Commit**
@@ -1207,6 +1225,6 @@ Expected: all pass. Fix any credo/format issues (e.g. alias ordering) inline.
 ## Notes for the implementer
 
 - **TDD seams:** this codebase tests at boundaries (parser→plan, wire-level `ImagePipe.call/2` decoding the body, cache key). Do **not** hand-build `Transform.State`, `Plan.Pipeline`, or operation structs in tests to assert internals — it violates the repo's test guidelines.
-- **Verify two library calls during TDD** (flagged inline): `Vix.Vips.Image.mutate!/2` vs `mutate/2`, and whether synthetic EXIF/XMP/IPTC/ICC survive the encode round-trip (Tasks 6–7). Resolve with the real API before finalizing assertions.
+- **Validate during TDD** (flagged inline): whether synthetic EXIF/XMP/IPTC/ICC survive the encode round-trip (Tasks 6–7), and the ICC backup/restore round-trip in the encoder `kcr` branch (Task 5). Resolve against the real API before finalizing assertions. (`mutate/2` vs `mutate!/2` is already resolved — only `mutate/2` exists.)
 - **`Cache.Key.build/4`** signature in Task 4 must match the real function — read `lib/image_pipe/cache/key.ex` and adjust.
-- Run focused tests with `mise exec -- mix test <file> -k "<name fragment>"` while iterating.
+- Run focused tests with `mise exec -- mix test <file>` while iterating.
