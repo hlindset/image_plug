@@ -99,8 +99,8 @@ defmodule ImagePipe.Plan.Operation do
   @spec auto_orient() :: {:ok, AutoOrient.t()}
   def auto_orient, do: {:ok, %AutoOrient{}}
 
-  @spec normalize_color_profile() :: NormalizeColorProfile.t()
-  def normalize_color_profile, do: %NormalizeColorProfile{}
+  @spec normalize_color_profile() :: {:ok, NormalizeColorProfile.t()}
+  def normalize_color_profile, do: {:ok, %NormalizeColorProfile{}}
 
   @spec rotate(term()) :: {:ok, Rotate.t()} | {:error, error()}
   def rotate(angle) when angle in @right_angles, do: {:ok, %Rotate{angle: angle}}
