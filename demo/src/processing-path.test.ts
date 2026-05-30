@@ -967,6 +967,102 @@ describe("demo URL state", () => {
     );
   });
 
+  it("emits nothing for default metadata and color-profile state (all true)", () => {
+    expect(optionSegments(defaultDemoState)).toEqual([]);
+  });
+
+  it("emits sm:0 when stripMetadata is false", () => {
+    const state = { ...defaultDemoState, stripMetadata: false, keepCopyright: false };
+
+    expect(optionSegments(state)).toContain("sm:0");
+    expect(optionSegments(state)).not.toContain("kcr:0");
+  });
+
+  it("emits kcr:0 when stripMetadata is true but keepCopyright is false", () => {
+    const state = { ...defaultDemoState, stripMetadata: true, keepCopyright: false };
+
+    expect(optionSegments(state)).toContain("kcr:0");
+    expect(optionSegments(state)).not.toContain("sm:0");
+  });
+
+  it("does not emit kcr when stripMetadata is false (canonical omission)", () => {
+    const state = { ...defaultDemoState, stripMetadata: false, keepCopyright: true };
+
+    const segments = optionSegments(state);
+
+    expect(segments).toContain("sm:0");
+    expect(segments).not.toContain("kcr:0");
+    expect(segments).not.toContain("kcr:1");
+  });
+
+  it("emits scp:0 when stripColorProfile is false", () => {
+    const state = { ...defaultDemoState, stripColorProfile: false };
+
+    expect(optionSegments(state)).toContain("scp:0");
+  });
+
+  it("round-trips sm:0 through parse and emit", () => {
+    const parsed = parseDemoPath("/demo/sm:0/plain/local:///images/dog.jpg");
+
+    expect(parsed).toMatchObject({ stripMetadata: false, keepCopyright: false });
+    expect(optionSegments(parsed)).toContain("sm:0");
+    expect(optionSegments(parsed)).not.toContain("kcr:0");
+  });
+
+  it("round-trips kcr:0 through parse and emit", () => {
+    const parsed = parseDemoPath("/demo/kcr:0/plain/local:///images/dog.jpg");
+
+    expect(parsed).toMatchObject({ stripMetadata: true, keepCopyright: false });
+    expect(optionSegments(parsed)).toContain("kcr:0");
+    expect(optionSegments(parsed)).not.toContain("sm:0");
+  });
+
+  it("round-trips scp:0 through parse and emit", () => {
+    const parsed = parseDemoPath("/demo/scp:0/plain/local:///images/dog.jpg");
+
+    expect(parsed).toMatchObject({ stripColorProfile: false });
+    expect(optionSegments(parsed)).toContain("scp:0");
+  });
+
+  it("normalizes keepCopyright to false when sm:0 is parsed without kcr", () => {
+    const parsedSmOnly = parseDemoPath("/demo/sm:0/plain/local:///images/dog.jpg");
+
+    expect(parsedSmOnly).toMatchObject({ stripMetadata: false, keepCopyright: false });
+  });
+
+  it("accepts boolean aliases for sm, kcr, and scp", () => {
+    expect(parseDemoPath("/demo/sm:1/plain/local:///images/dog.jpg")).toMatchObject({
+      stripMetadata: true,
+    });
+    expect(parseDemoPath("/demo/sm:t/plain/local:///images/dog.jpg")).toMatchObject({
+      stripMetadata: true,
+    });
+    expect(parseDemoPath("/demo/sm:true/plain/local:///images/dog.jpg")).toMatchObject({
+      stripMetadata: true,
+    });
+    expect(parseDemoPath("/demo/sm:f/plain/local:///images/dog.jpg")).toMatchObject({
+      stripMetadata: false,
+    });
+    expect(parseDemoPath("/demo/sm:false/plain/local:///images/dog.jpg")).toMatchObject({
+      stripMetadata: false,
+    });
+    expect(parseDemoPath("/demo/kcr:0/plain/local:///images/dog.jpg")).toMatchObject({
+      keepCopyright: false,
+    });
+    expect(parseDemoPath("/demo/scp:f/plain/local:///images/dog.jpg")).toMatchObject({
+      stripColorProfile: false,
+    });
+  });
+
+  it("rejects invalid sm/kcr/scp values in demo routes", () => {
+    expect(parseDemoPath("/demo/sm:yes/plain/local:///images/dog.jpg")).toEqual(defaultDemoState);
+    expect(parseDemoPath("/demo/kcr:2/plain/local:///images/dog.jpg")).toEqual(defaultDemoState);
+    expect(parseDemoPath("/demo/scp:/plain/local:///images/dog.jpg")).toEqual(defaultDemoState);
+    expect(parseDemoPath("/demo/sm:0:extra/plain/local:///images/dog.jpg")).toEqual(
+      defaultDemoState,
+    );
+  });
+
   it("resets processing options while keeping source and signature settings", () => {
     const reset = resetDemoSettings({
       ...defaultDemoState,

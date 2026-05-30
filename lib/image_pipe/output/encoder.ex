@@ -51,8 +51,11 @@ defmodule ImagePipe.Output.Encoder do
     icc = if resolved.strip_color_profile, do: nil, else: header_value(image, "icc-profile-data")
 
     case Image.minimize_metadata(image, keep: [:copyright, :artist]) do
-      {:ok, minimized} -> restore_icc(minimized, icc)
-      {:error, _} -> remove_fields(image, ["exif-data", "xmp-data", "iptc-data"] ++ icc_fields(resolved))
+      {:ok, minimized} ->
+        restore_icc(minimized, icc)
+
+      {:error, _} ->
+        remove_fields(image, ["exif-data", "xmp-data", "iptc-data"] ++ icc_fields(resolved))
     end
   end
 

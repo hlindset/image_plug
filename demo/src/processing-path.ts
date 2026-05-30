@@ -87,6 +87,9 @@ export type DemoState = {
   format: OutputFormat;
   qualityEnabled: boolean;
   quality: number;
+  stripMetadata: boolean;
+  keepCopyright: boolean;
+  stripColorProfile: boolean;
 };
 
 export type ProcessedImageMetadata = {
@@ -271,6 +274,9 @@ export const defaultDemoState: DemoState = {
   format: "jpeg",
   qualityEnabled: false,
   quality: 85,
+  stripMetadata: true,
+  keepCopyright: true,
+  stripColorProfile: true,
 };
 
 export function optionSegments(currentState: DemoState): string[] {
@@ -413,6 +419,16 @@ export function optionSegments(currentState: DemoState): string[] {
 
   if (currentState.qualityEnabled) {
     segments.push(`q:${currentState.quality}`);
+  }
+
+  if (!currentState.stripMetadata) {
+    segments.push("sm:0");
+  } else if (!currentState.keepCopyright) {
+    segments.push("kcr:0");
+  }
+
+  if (!currentState.stripColorProfile) {
+    segments.push("scp:0");
   }
 
   return segments;

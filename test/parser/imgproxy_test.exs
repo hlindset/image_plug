@@ -45,7 +45,10 @@ defmodule ImagePipe.Parser.ImgproxyTest do
               source: %Source.Path{segments: ["images", "cat.jpg"]},
               pipelines: [%Pipeline{operations: [%AutoOrient{}]}],
               output: %Output{mode: :automatic}
-            }} = Imgproxy.parse(conn(:get, "/_/plain/images/cat.jpg"), imgproxy: [strip_color_profile: false])
+            }} =
+             Imgproxy.parse(conn(:get, "/_/plain/images/cat.jpg"),
+               imgproxy: [strip_color_profile: false]
+             )
   end
 
   test "parses escaped embedded s3 query before output suffix handling" do
@@ -104,10 +107,12 @@ defmodule ImagePipe.Parser.ImgproxyTest do
   test "strip_color_profile emits NormalizeColorProfile after geometry, before effects" do
     assert {:ok, %Plan{pipelines: [%Pipeline{operations: ops}]}} =
              Imgproxy.parse(conn(:get, "/_/plain/images/cat.jpg"), @no_auto_rotate_opts)
+
     assert :normalize_color_profile in operation_names(ops)
 
     assert {:ok, %Plan{pipelines: [%Pipeline{operations: ops0}]}} =
              Imgproxy.parse(conn(:get, "/_/scp:0/plain/images/cat.jpg"), @no_auto_rotate_opts)
+
     refute :normalize_color_profile in operation_names(ops0)
 
     assert {:ok, %Plan{pipelines: [%Pipeline{operations: ops1}]}} =
@@ -115,6 +120,7 @@ defmodule ImagePipe.Parser.ImgproxyTest do
                conn(:get, "/_/scp:1/plain/images/cat.jpg"),
                imgproxy: [strip_color_profile: false]
              )
+
     assert :normalize_color_profile in operation_names(ops1)
 
     assert {:ok, %Plan{pipelines: [%Pipeline{operations: pos_ops}]}} =
@@ -124,8 +130,10 @@ defmodule ImagePipe.Parser.ImgproxyTest do
              )
 
     names = operation_names(pos_ops)
+
     assert Enum.find_index(names, &(&1 == :resize)) <
              Enum.find_index(names, &(&1 == :normalize_color_profile))
+
     assert Enum.find_index(names, &(&1 == :normalize_color_profile)) <
              Enum.find_index(names, &(&1 == :blur))
   end
@@ -638,7 +646,9 @@ defmodule ImagePipe.Parser.ImgproxyTest do
     assert crop.guide == :center
 
     assert {:ok, %Plan{pipelines: [%Pipeline{operations: [%AutoOrient{}]}]}} =
-             Imgproxy.parse(conn(:get, "/_/ar:true/plain/images/cat.jpg"), imgproxy: [strip_color_profile: false])
+             Imgproxy.parse(conn(:get, "/_/ar:true/plain/images/cat.jpg"),
+               imgproxy: [strip_color_profile: false]
+             )
 
     for segment <- ~w(ar:false rot:0 rot:360 fl:false:false) do
       assert {:ok, %Plan{pipelines: [%Pipeline{operations: []}]}} =
@@ -649,7 +659,9 @@ defmodule ImagePipe.Parser.ImgproxyTest do
     end
 
     assert {:ok, %Plan{pipelines: [%Pipeline{operations: operations}]}} =
-             Imgproxy.parse(conn(:get, "/_/crop:10:20/ar:true/plain/images/cat.jpg"), imgproxy: [strip_color_profile: false])
+             Imgproxy.parse(conn(:get, "/_/crop:10:20/ar:true/plain/images/cat.jpg"),
+               imgproxy: [strip_color_profile: false]
+             )
 
     assert operation_names(operations) == [:auto_orient, :crop_guided]
 
@@ -1737,7 +1749,14 @@ defmodule ImagePipe.Parser.ImgproxyTest do
   end
 
   defp preset_opts(definitions) do
-    [imgproxy: Imgproxy.validate_options!(auto_rotate: false, strip_color_profile: false, presets: definitions)]
+    [
+      imgproxy:
+        Imgproxy.validate_options!(
+          auto_rotate: false,
+          strip_color_profile: false,
+          presets: definitions
+        )
+    ]
   end
 
   defp assert_error_status(reason, status) do
