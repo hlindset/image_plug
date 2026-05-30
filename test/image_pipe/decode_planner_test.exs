@@ -27,6 +27,16 @@ defmodule ImagePipe.Transform.DecodePlannerTest do
            ]) == [access: :sequential, fail_on: :error]
   end
 
+  test "color-profile normalization is access-neutral" do
+    # Neutral alone collapses to the conservative random default.
+    assert DecodePlanner.open_options([%Operation.NormalizeColorProfile{}]) ==
+             [access: :random, fail_on: :error]
+
+    # Neutral does not downgrade another op's sequential requirement.
+    assert DecodePlanner.open_options([%AutoOrient{}, %Operation.NormalizeColorProfile{}]) ==
+             [access: :sequential, fail_on: :error]
+  end
+
   test "two-dimensional fit resize opens sequentially" do
     assert {:ok, resize} = Operation.resize(:fit, {:px, 120}, {:px, 90})
 

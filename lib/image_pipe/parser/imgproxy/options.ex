@@ -295,7 +295,7 @@ defmodule ImagePipe.Parser.Imgproxy.Options do
   defp apply_request_defaults(%{pipelines: pipelines} = options, defaults) do
     auto_rotate? = effective_auto_rotate(pipelines, Keyword.get(defaults, :auto_rotate, false))
 
-    scp? =
+    strip_color_profile? =
       effective_strip_color_profile(pipelines, Keyword.get(defaults, :strip_color_profile, true))
 
     pipelines =
@@ -303,7 +303,7 @@ defmodule ImagePipe.Parser.Imgproxy.Options do
       |> Enum.map(&consume_auto_rotate_request/1)
       |> Enum.map(&consume_strip_color_profile_request/1)
       |> apply_auto_rotate_to_first_pipeline(auto_rotate?)
-      |> apply_strip_color_profile_to_first_pipeline(scp?)
+      |> apply_strip_color_profile_to_first_pipeline(strip_color_profile?)
       |> reject_empty_pipelines()
 
     %{options | pipelines: pipelines}

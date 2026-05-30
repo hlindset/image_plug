@@ -545,7 +545,7 @@ defmodule ImagePipe.Parser.ImgproxyTest do
     assert {:ok, %Plan{pipelines: [%Pipeline{operations: operations}]}} =
              Imgproxy.parse(
                conn(:get, "/_/rs:fit:300:200:0:1:ce:0:0/plain/images/cat.jpg"),
-               @no_auto_rotate_opts
+               @baseline_opts
              )
 
     assert Enum.any?(operations, &match?(%Operation.Canvas{}, &1))

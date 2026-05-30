@@ -10,7 +10,6 @@ defmodule ImagePipe.Parser.ImgproxyPropertyTest do
   alias ImagePipe.Plan.Pipeline
   alias ImagePipe.Plan.Source
 
-  @no_auto_rotate_opts [imgproxy: [auto_rotate: false]]
   @baseline_opts [imgproxy: [auto_rotate: false, strip_color_profile: false]]
 
   property "parser returns tagged results for arbitrary processing segments" do
