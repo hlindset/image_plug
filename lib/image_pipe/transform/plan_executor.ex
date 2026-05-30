@@ -14,6 +14,7 @@ defmodule ImagePipe.Transform.PlanExecutor do
   alias ImagePipe.Plan.Operation.Duotone, as: PlanDuotone
   alias ImagePipe.Plan.Operation.Flip, as: PlanFlip
   alias ImagePipe.Plan.Operation.Monochrome, as: PlanMonochrome
+  alias ImagePipe.Plan.Operation.NormalizeColorProfile, as: PlanNormalizeColorProfile
   alias ImagePipe.Plan.Operation.Padding, as: PlanPadding
   alias ImagePipe.Plan.Operation.Pixelate, as: PlanPixelate
   alias ImagePipe.Plan.Operation.Resize, as: PlanResize
@@ -32,6 +33,7 @@ defmodule ImagePipe.Transform.PlanExecutor do
   alias ImagePipe.Transform.Operation.ExtendCanvas
   alias ImagePipe.Transform.Operation.Flip
   alias ImagePipe.Transform.Operation.Monochrome
+  alias ImagePipe.Transform.Operation.NormalizeColorProfile
   alias ImagePipe.Transform.Operation.Padding
   alias ImagePipe.Transform.Operation.Pixelate
   alias ImagePipe.Transform.Operation.Resize
@@ -186,6 +188,9 @@ defmodule ImagePipe.Transform.PlanExecutor do
   end
 
   defp executable_operations(%PlanAutoOrient{}, %State{}, _context), do: [%AutoOrient{}]
+
+  defp executable_operations(%PlanNormalizeColorProfile{}, %State{}, _context),
+    do: [%NormalizeColorProfile{}]
 
   defp executable_operations(%PlanRotate{angle: angle}, %State{}, _context),
     do: [%Rotate{angle: angle}]

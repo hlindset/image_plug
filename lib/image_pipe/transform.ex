@@ -31,7 +31,8 @@ defmodule ImagePipe.Transform do
       Operation.Duotone,
       Operation.Brightness,
       Operation.Contrast,
-      Operation.Saturation
+      Operation.Saturation,
+      Operation.NormalizeColorProfile
     ]
 
   alias ImagePipe.Plan
