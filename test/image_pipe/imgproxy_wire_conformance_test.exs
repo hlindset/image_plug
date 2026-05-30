@@ -1063,6 +1063,14 @@ defmodule ImagePipe.ImgproxyWireConformanceTest do
     end
 
     test "sm:1/kcr:1 keeps EXIF copyright while stripping non-copyright EXIF and XMP" do
+      # Baseline: confirm the fixture actually carries the non-copyright EXIF
+      # field, so the "stripped" refute below cannot pass vacuously even when
+      # this test runs in isolation.
+      baseline = call_imgproxy("/_/sm:0/scp:0/f:jpeg/plain/images/meta.jpg", metadata_origin_opts())
+      {baseline_image, _baseline_fields} = response_metadata(baseline)
+      {:ok, baseline_exif} = Image.exif(baseline_image)
+      assert Map.get(baseline_exif, :image_description) == "A test image"
+
       conn =
         call_imgproxy(
           "/_/sm:1/kcr:1/scp:0/f:jpeg/plain/images/meta.jpg",
