@@ -174,6 +174,10 @@ defmodule ImagePipe.Parser.ImgproxyTest do
     refute base == key.("/_/sm:0/kcr:1/scp:1/plain/images/cat.jpg")
     refute base == key.("/_/sm:1/kcr:0/scp:1/plain/images/cat.jpg")
     refute base == key.("/_/sm:1/kcr:1/scp:0/plain/images/cat.jpg")
+
+    # explicit output format keys through the same output material
+    refute key.("/_/f:jpeg/sm:1/plain/images/cat.jpg") ==
+             key.("/_/f:jpeg/sm:0/plain/images/cat.jpg")
   end
 
   test "parse/2 accepts parser options and keeps no-option parse/1 as a delegating helper" do
