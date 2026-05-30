@@ -1,7 +1,7 @@
 # imgproxy option grammar simplification
 
 **Date:** 2026-05-31
-**Status:** Design — awaiting review
+**Status:** Design — reviewed (parallel subagent cycle applied), awaiting user sign-off
 **Scope:** `lib/image_pipe/parser/imgproxy/option_grammar.ex` (internal refactor only)
 
 ## Problem
@@ -32,9 +32,8 @@ dominant future cost is safely adding more options, not reading the file once.
   and **error tag** the parser produces today must be byte-for-byte preserved.
   The existing test suites are the specification.
 - No NimbleParsec / external parser dependency.
-- No cache-key data-version bump (parser output is unchanged; per project
-  guidelines, greenfield cache shape is reshaped in place, and here it is not
-  even changing).
+- No cache-key data-version bump (parser output is unchanged; canonical plan
+  fields and thus cache keys are unaffected — confirmed in review).
 - No demo changes (no options added, removed, or reparameterized).
 - No new public API. `OptionGrammar.parse/1`'s return contract is unchanged, so
   `options.ex`, `plan_builder.ex`, and the wire layer are untouched.
@@ -56,72 +55,101 @@ green, credo `--strict` clean, and `--warnings-as-errors` compile.
   "blur" => [{:blur, :non_neg_float}],
   "bl"   => [{:blur, :non_neg_float}],
   # ...
+  "strip_color_profile" => [{:strip_color_profile, :bool, default: true}],
+  "scp"                 => [{:strip_color_profile, :bool, default: true}],
+  "crop_aspect_ratio" => [{:crop_aspect_ratio, :non_neg_float},
+                          {:crop_aspect_ratio_enlarge, :bool, default: false}],
+  # ...car aliases
 }
 ```
 
 Each alias maps to an ordered list of arg specs. An arg spec is:
 
 - `{key, type}` — required, non-empty; or
-- `{key, type, opts}` where `opts` may carry:
-  - `default:` — value used when this (trailing) arg is absent or empty,
-    making the arg optional;
-  - `error:` — an option-specific error tag substituted when the value parser
-    fails, for options whose diagnostic differs from the type's canonical tag.
+- `{key, type, default: value}` — optional **trailing** arg. `value` is an
+  already-parsed literal (e.g. `true`, `false`), used directly **without** going
+  through `apply_type` (so `default: true`, not `default: "true"`).
 
 `type` is an atom dispatched by `apply_type/2` to an existing value parser
-(`:non_neg_float` → `parse_non_negative_float/1`, etc.). The value parsers are
-unchanged; most already emit their own canonical error tag, so `error:` is only
-needed where the option historically wraps a generic failure into a specific tag
-(e.g. `background_alpha` → `:invalid_background_alpha`).
+(`:non_neg_float` → `parse_non_negative_float/1`, `:bool` → `parse_boolean/1`,
+etc.). The value parsers are unchanged; each already emits its own canonical
+error tag, so there is **no per-option error-tag override** in this design (the
+earlier `error:` idea was dropped — its only candidate, `background_alpha`, is
+not convertible; see bespoke list).
+
+New `apply_type/2` entries required by this change: `:bool` → `parse_boolean/1`.
+(The seven spike options already use `:non_neg_float`, `:positive_float`,
+`:non_neg_int`, `:adjustment`.)
 
 ### Interpreter
 
-`interpret_special/3` (validated by the spike, plus the two extensions above):
+`interpret_special/3`:
 
-1. Split args into required vs optional (trailing-with-`default`).
-2. Arity outside `[required_count, total_count]`, or an empty value in a
-   required position → `{:error, {:invalid_option_segment, segment}}` (the
-   uniform "shape is wrong" tag the bespoke parsers already return).
-3. Fill absent/empty optional args from their `default`.
-4. Run each value through `apply_type/2`; on failure, return the arg's `error:`
-   override if present, else propagate the type parser's tag.
-5. Return `{:ok, keyword_assignments}`; `parse_pipeline_option/3` wraps it as
+1. Let `required` = count of args without `default:`, `total` = all args.
+2. **Arity:** if `length(args)` is outside `[required, total]` →
+   `{:error, {:invalid_option_segment, segment}}`.
+3. **Required positions:** an empty value (`""`) in any *required* position →
+   `{:error, {:invalid_option_segment, segment}}`.
+4. **Optional positions — absent vs. empty are distinct:**
+   - *absent* (position beyond the provided arity) → contribute the spec's
+     pre-parsed `default:` value directly (do **not** call `apply_type`).
+   - *present* (within provided arity), including an explicit empty `""` →
+     treated as a provided value: empty → `{:invalid_option_segment, segment}`;
+     non-empty → run through `apply_type`.
+5. Run each present value through `apply_type/2`; on failure, propagate the value
+   parser's own tag.
+6. Return `{:ok, keyword_assignments}`; `parse_pipeline_option/3` wraps it as
    `{:pipeline, assignments}` exactly as before.
 
-The interpreter does **not** grow alternative-shape (`one_of`), output-nesting,
-post-combination, or fan-out constructs. That boundary is deliberate (see below).
+This absent-vs-empty distinction is load-bearing: it reproduces the bespoke
+behavior where `scp` → `true` but `scp:` → error, and `car:1.5` defaults enlarge
+to `false` but `car:1.5:` → error.
 
-### Options the schema absorbs
+The interpreter introduces no runtime validation of the `@special_specs` shape
+itself (e.g. that defaulted args are trailing). That is a programmer-error
+invariant covered by the green test suite, not a runtime guard — consistent with
+the project's "trust internal producers, reserve raises for programmer error"
+guideline. An unknown `type` atom raises via `apply_type/2`'s missing clause, by
+design.
+
+### Options the schema absorbs (9 total)
 
 - **Spike (done):** `blur`, `sharpen`, `pixelate`, `dpr`, `brightness`,
-  `contrast`, `saturation`.
-- **Per-arg error override:** `background_alpha` (single arg, value failure →
-  `:invalid_background_alpha`). Exercises the `error:` capability.
-- **Optional-trailing-with-default:** `strip_color_profile` (optional bool,
-  default `true`), `crop_aspect_ratio` (required ratio + optional enlarge bool,
-  default `false`).
-
-Target: ~10 of the ~25 special options, plus the once-written interpreter.
+  `contrast`, `saturation` — single required arg, type's canonical error tag.
+- **Optional-trailing-with-default:** `strip_color_profile` (optional `:bool`,
+  default `true`; bare `scp` → `true`, `scp:` → error), `crop_aspect_ratio`
+  (required `:non_neg_float` ratio + optional `:bool` enlarge, default `false`;
+  flat 1:1 mapping to its two output keys).
 
 ### Options that stay bespoke (and why)
 
-Each carries logic a flat key→value schema cannot express without adding a
-construct used by essentially one option — which would be net more complexity,
-not less:
+Each carries logic a flat key→value schema cannot express:
 
-- **Output-shape transforms / nesting / constants:** `extend`,
-  `extend_aspect_ratio` (bool + optional gravity tail + `extend_requested: true`
-  constant), `auto_rotate`, `rotate`, `flip` (assignments nested under
-  `:orientation`; `rotate` mod-90 normalization; `flip` combines two bools).
-- **Nested keyword + optional colors:** `monochrome`, `duotone`.
-- **Alternative shapes / fan-out:** `background` (empty | hex | `r:g:b`), `zoom`
-  (1 arg fans to `zoom_x`+`zoom_y`, or 2 args).
-- **Variadic sub-grammars:** `padding` (1–4 values with `:unset` holes),
-  `gravity`/`crop` (anchor enum vs. focal-point vs. offset tuple),
-  `filename` (percent-encoded vs. base64 variant).
-- **`resize`/`size`** (the `Enum.split` + extend-gravity merge) and
-  `format_quality` (pair into a map) keep their existing `parse_known_option/4`
-  clauses.
+- **`background_alpha`** — *not convertible.* Its arity/empty failures return the
+  option-specific `{:invalid_background_alpha, args}` (pinned by
+  `option_grammar_test.exs`), not the interpreter's uniform
+  `{:invalid_option_segment, segment}`. Preserving that would require a
+  whole-option error override used by exactly one option — net more complexity.
+- **`auto_rotate`, `rotate`, `flip`** — assignments nest under `:orientation`
+  (a shape consumed uniformly downstream in `options.ex`, so the nesting itself
+  is shared by 3 options). They stay bespoke not because nesting is rare but
+  because each also carries logic the flat interpreter lacks: `rotate` does
+  mod-90 validation + `normalize_rotation/1` (a post-parse transform), `flip`
+  collapses two bools into a `:both/:horizontal/:vertical/nil` enum (a
+  post-combine), and all three support a zero-arg form (every arg optional, not
+  trailing-optional). Nesting never travels alone here.
+- **`extend`, `extend_aspect_ratio`** — bool + optional gravity sub-grammar +
+  an injected `extend_requested: true` constant, entangled together.
+- **`monochrome`, `duotone`** — nested keyword output + optional colors with
+  remapped error tags.
+- **`background` (empty | hex | r:g:b), `zoom` (1-arg fan-out | 2-arg)** —
+  alternative arg shapes / fan-out. The two don't share an alternation strategy,
+  so a `one_of` combinator would serve two unrelated cases — deliberately not
+  added.
+- **`padding` (1–4 values with `:unset` holes), `gravity`/`crop` (anchor enum vs.
+  focal-point vs. offset tuple), `filename` (percent vs. base64).**
+- **`resize`/`size`** (`Enum.split` + extend-gravity merge) and `format_quality`
+  (pair into a map) keep their existing `parse_known_option/4` clauses.
 
 ### Dispatch
 
@@ -130,50 +158,101 @@ non-`@option_specs` options: `@special_specs` lookup → `interpret_special/3`,
 else fall through to the remaining `parse_special_option/3` clauses. One path,
 two handler kinds.
 
-The `@option_specs` regulars already run through the declarative
-`parse_known_option` → `parse_field` path and are **out of scope**; unifying that
-table with `@special_specs` is a possible later follow-on, not part of this work.
+### Two spec tables, deliberately
+
+After this change the parser has **two** declarative arg-spec interpreters:
+`@option_specs` + `parse_field/2` (for the resize/format/quality/etc. family),
+and `@special_specs` + `apply_type/2` (this change). They are the same idea in
+two vocabularies (`field` vs `type`, `skip_empty:` vs `default:`) with two error
+models. Unifying them now would force `resize`/`size`'s irregular merge into a
+shared table — over-generalization this design otherwise avoids — so they stay
+separate. To limit drift:
+
+- Align naming where cheap so the two read as dialects of one idea.
+- Unify only when a third regular-option family appears, or when `@option_specs`
+  needs a `default:`-equivalent. Documented here so the divergence is a known,
+  bounded decision rather than silent.
 
 ## Error model
 
 | Failure | Tag |
 | --- | --- |
-| Wrong arity / empty required arg | `{:invalid_option_segment, segment}` |
-| Value parse failure, no `error:` override | the value parser's own tag (e.g. `:invalid_non_negative_float`) |
-| Value parse failure, with `error:` override | `{error_tag, value}` (e.g. `:invalid_background_alpha`) |
+| Wrong arity / empty required arg / empty *present* optional arg | `{:invalid_option_segment, segment}` |
+| Value parse failure | the value parser's own tag (e.g. `:invalid_non_negative_float`, `:invalid_positive_float`, `:invalid_adjustment`) |
 
-This matches current behavior for every converted option exactly.
+This matches current behavior for **the nine converted options** exactly.
+Options whose bespoke parsers use option-specific arity/empty tags (e.g.
+`background_alpha`) are excluded from conversion precisely because they don't fit
+this uniform model.
 
 ## Testing
 
-- TDD against the **existing** specs: `test/parser/imgproxy_test.exs`,
-  `test/parser/imgproxy_property_test.exs`, and
-  `test/image_pipe/imgproxy_wire_conformance_test.exs`. Green-to-green; no test
-  rewrites except deletion of any that become redundant duplicates.
-- Each converted option keeps its existing coverage; if an option's error-tag or
-  arity edge isn't already asserted, add a focused parser-level case before
-  converting it.
-- Gate before finishing: `mix format --check-formatted`,
-  `mix compile --warnings-as-errors`, `mix credo --strict`, `mix test`
-  (via `mise exec --`).
+Treat the existing suites as the spec; convert green-to-green. Primary spec files
+(the design's original list omitted the most important one):
+
+- `test/parser/imgproxy/option_grammar_test.exs` — **primary**: pins exact
+  `{:ok, {:pipeline, [...]}}` tuples and error tags for these options, including
+  the `invalid_pipeline_arity_segments/0` arity table.
+- `test/parser/imgproxy/options_test.exs`, `.../plan_builder_test.exs` — pin
+  `car`, `dpr`, brightness/contrast/saturation at the plan layer.
+- `test/parser/imgproxy_test.exs`, `.../imgproxy_property_test.exs`,
+  `test/image_pipe/imgproxy_wire_conformance_test.exs` — wire/behavior contracts.
+
+**Pins to add at the `OptionGrammar.parse/1` boundary _before_ converting** (each
+closes an un-asserted behavior the refactor could otherwise silently change):
+
+- `dpr`: `dpr:0` → `{:error, {:invalid_positive_float, "0"}}` and a fractional
+  success (`dpr:1.5`). Type semantics are currently unpinned.
+- `crop_aspect_ratio`: both `car:<ratio>` (1-arg, enlarge defaults `false`) and
+  `car:<ratio>:<bool>` (2-arg) → exact `{:pipeline, [...]}` keyword lists; plus
+  ratio failure (`car:nope`) and the empty-trailing edge `car:1.5:` →
+  `{:invalid_option_segment, ...}`.
+- `strip_color_profile`: bare `scp`/`strip_color_profile` (no args) →
+  `{:ok, {:pipeline, [strip_color_profile: true]}}`; plus `scp:` →
+  `{:invalid_option_segment, ...}` and `scp:bad` → error.
+- `brightness`/`contrast`/`saturation`: tighten existing out-of-range assertions
+  from `{:error, _}` to the exact `{:invalid_adjustment, value}` tag.
+
+**One property to add:** alias-equivalence over the converted long/short pairs
+(`blur`/`bl`, `sharpen`/`sh`, `pixelate`/`pix`, `brightness`/`br`, `contrast`/`co`,
+`saturation`/`sa`, `crop_aspect_ratio`/`crop_ar`/`car`) — `parse(long:v) ==
+parse(short:v)` over valid and invalid `v`, mirroring the existing `zoom`/`z`
+property. No arity-fuzz property: the explicit arity table already covers edges.
+
+**Tests not to write / not to delete:**
+
+- New cases are forward contract pins at `parse/1` (tagged tuples are public
+  contract). No old-vs-new parity/characterization harnesses; no `*_characterization_test.exs`.
+- No name-policing: do not assert `function_exported?` on the deleted
+  `parse_blur/2` etc. The `parse/1`-level suites are the sole proof.
+- **Do not delete coverage as "redundant."** The arity table and cases like
+  `bga:0.0 → {:ratio, 0, 10}` are the sole pin for their edge. The only permitted
+  deletions are parity/characterization pins the spike may have introduced, and a
+  redundancy claim must name the specific other test covering the identical
+  input→output.
+- All new pins drive through `parse/1`; never hand-build `%CropRequest{}` or
+  assignment keyword lists as inputs.
+
+Gate before finishing: `mix format --check-formatted`,
+`mix compile --warnings-as-errors`, `mix credo --strict`, `mix test`
+(via `mise exec --`).
 
 ## Boundaries / guideline compliance
 
 - Stays entirely within `ImagePipe.Parser.Imgproxy.*` — no cross-namespace
-  change, no concrete transform modules referenced, no plan-model change.
-- Per CLAUDE.md test guidance: no impossible-internal-misuse tests, no
-  name-policing tests, no post-migration parity pins. The interpreter is trusted
-  internal dispatch; missing/unknown types in `@special_specs` are a programmer
-  error and may raise rather than being guarded.
+  change, no concrete transform modules referenced, no plan-model change. No
+  architecture-test changes needed.
+- The interpreter is trusted internal dispatch; arity/empty checks validate
+  untrusted URL input (a real boundary), not impossible internal misuse.
 
 ## Risks / trade-offs
 
 - **Indirection vs. greppability.** `grep parse_blur` no longer lands on the
-  logic; you read the `@special_specs` row + the interpreter. Real cost,
-  accepted because the marginal cost of the next regular option drops to ~one
-  table row. Mitigated by keeping the interpreter small and the bespoke set
-  explicit.
-- **Scope honesty.** The spike showed the clean-fit set is ~10 options, not
-  "most of them" — the rest have output-shape logic that does not belong in a
-  flat schema. The design caps the interpreter's capabilities deliberately
-  rather than chasing every option.
+  logic; you read the `@special_specs` row + the interpreter. Accepted because
+  the marginal cost of the next regular option drops to ~one table row.
+- **Modest absorbed set.** After review, the clean-fit set is 9 options (7 spike
+  + `scp` + `crop_aspect_ratio`); `background_alpha` and all output-shape /
+  sub-grammar / fan-out options stay bespoke. The interpreter's capabilities are
+  capped at fixed-required + optional-trailing-with-default deliberately.
+- **Dual interpreters.** Two declarative tables coexist (see "Two spec tables").
+  Bounded by the documented unify-trigger.
