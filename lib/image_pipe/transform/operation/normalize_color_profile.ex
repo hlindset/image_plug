@@ -1,8 +1,16 @@
 defmodule ImagePipe.Transform.Operation.NormalizeColorProfile do
   @moduledoc """
   Executable color-profile normalization: convert the embedded ICC profile to
-  sRGB (ICC-aware, via `Image.to_colorspace/3` -> `icc_transform`).
-  No-op when the image carries no profile.
+  sRGB (ICC-aware, via `Image.to_colorspace/3` -> `icc_transform`). No-op when
+  the image carries no profile.
+
+  This operation only converts pixels; it deliberately does **not** remove the
+  embedded ICC profile. Metadata/profile removal requires realizing pixels
+  (`Vix` `mutate` -> `copy_memory`), which inside the lazy transform chain turns
+  a corrupt-source decode failure into an uncatchable producer crash (HTTP 500)
+  instead of a graceful decode error (HTTP 415). The profile header is therefore
+  dropped at the output encoder's finalize step, where realization failures map
+  to a decode error. See `ImagePipe.Output.Encoder`.
   """
 
   @behaviour ImagePipe.Transform
