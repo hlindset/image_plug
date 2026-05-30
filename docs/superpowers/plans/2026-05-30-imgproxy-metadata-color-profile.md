@@ -133,9 +133,7 @@ defmodule ImagePipe.Transform.Operation.NormalizeColorProfile do
 
   defp normalize(image) do
     if profile?(image) do
-      with {:ok, srgb} <- Image.to_colorspace(image, :srgb, []) do
-        drop_profile(srgb)
-      end
+      Image.to_colorspace(image, :srgb, [])
     else
       {:ok, image}
     end
@@ -147,15 +145,16 @@ defmodule ImagePipe.Transform.Operation.NormalizeColorProfile do
       _ -> false
     end
   end
-
-  defp drop_profile(image) do
-    Vix.Vips.Image.mutate(image, fn mut ->
-      _ = Vix.Vips.MutableImage.remove(mut, @icc_field)
-      :ok
-    end)
-  end
 end
 ```
+
+> **R1 (post-review):** the op is **conversion-only** — it does NOT drop the
+> `icc-profile-data` header. Metadata removal requires `Vix` `mutate` →
+> `copy_memory`, which inside the lazy chain crashes the producer (500) on
+> corrupt sources instead of degrading to 415 (and `Chain.execute` re-tags op
+> errors as `:transform_error` → 500 anyway). The profile-header drop happens at
+> the encoder finalize (Task 5), which realizes catchably before any `mutate`.
+> The `@icc_field` module attribute is still used by `profile?/1`.
 
 - [ ] **Step 5: Add the constructor, type, and `semantic?/1` clause in `plan/operation.ex`**
 
@@ -474,6 +473,15 @@ git commit -m "feat(parser): map imgproxy scp to NormalizeColorProfile with pars
 
 ## Task 3: `Plan.Output` `sm`/`kcr` fields + parser mapping & normalization
 
+> **R1 (post-review) addendum:** also add `strip_color_profile` to `Plan.Output`
+> (default `true`) — the encoder (Task 5) needs it to drop the profile header.
+> In `apply_request_defaults/2`, set `output.strip_color_profile` from the same
+> resolved `scp?` value that drives op emission (Task 2), so they stay
+> consistent; and add `strip_color_profile: nil` to `@default_output` so the key
+> exists. Do NOT add `strip_color_profile` to the cache key's `output_plan_data`
+> (Task 4) — it is already keyed via the `NormalizeColorProfile` op's `KeyData`.
+> See the design spec's "Metadata policy" / "Output encode path" sections.
+
 **Files:**
 - Modify: `lib/image_pipe/plan/output.ex`, `lib/image_pipe/parser/imgproxy/option_grammar.ex`, `lib/image_pipe/parser/imgproxy/parsed_request.ex`, `lib/image_pipe/parser/imgproxy/options.ex`, `lib/image_pipe/parser/imgproxy/plan_builder.ex`
 - Test: `test/parser/imgproxy_test.exs`
@@ -767,11 +775,30 @@ git commit -m "feat(cache): include strip_metadata/keep_copyright in output cach
 
 ---
 
-## Task 5: Thread `sm`/`kcr` to the encoder and strip metadata
+## Task 5: Thread `sm`/`kcr`/`scp` to the encoder and strip metadata (R1)
+
+> **R1 (post-review) — this task is rewritten.** The authoritative design is the
+> spec's "Output encode path: sm/kcr/scp metadata via Vix mutate (after a safe
+> realize)". Key differences from the steps below:
+> - Thread **three** flags — `strip_metadata`, `keep_copyright`,
+>   **`strip_color_profile`** — through `Policy` and `Resolved` (add all three to
+>   `@enforce_keys` and `Policy.resolved/2`).
+> - `Encoder.stream_output/3` must **realize once via `Vix.Vips.Image.copy_memory/1`
+>   before any `mutate`**, and only when stripping is needed
+>   (`strip_metadata or strip_color_profile`). On `copy_memory` `{:error, reason}`
+>   return `{:error, {:decode, reason}}` (→ 415), NOT a crash.
+> - The strip step handles `scp` too: drop `icc-profile-data` when
+>   `strip_color_profile` is true; the `kcr` branch restores the ICC profile only
+>   when `scp` is **off**. Exact logic is in the spec's `finalize`/`strip`
+>   pseudocode.
+> - Required code comments: the `copy_memory`-before-`mutate` rationale, the
+>   `"xmp-dataa"` typo, and `minimize_metadata`'s ICC over-strip.
+> The dispatched implementer prompt will carry the full R1 code. The steps below
+> are the pre-R1 version, retained for context only.
 
 **Files:**
 - Modify: `lib/image_pipe/output/policy.ex`, `lib/image_pipe/output/resolved.ex`, `lib/image_pipe/output/encoder.ex`
-- Test: covered end-to-end by Task 6 wire tests (no isolated unit test — `Resolved`/encoder are exercised through `ImagePipe.call/2`, per the repo's no-hand-built-struct rule).
+- Test: covered end-to-end by Task 6 (`sm`/`kcr`) and Task 7 (`scp`) wire tests, including a corrupt-source test asserting 415 (no producer crash).
 
 - [ ] **Step 1: Add fields to `Output.Resolved`**
 
