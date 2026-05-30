@@ -43,25 +43,28 @@ defmodule ImagePipe.Output.Encoder do
   defp strip(image, %Resolved{strip_metadata: false}),
     do: remove_fields(image, ["icc-profile-data"])
 
-  # keep EXIF copyright/artist, strip xmp/iptc; drop icc iff scp. minimize_metadata
-  # removes ALL metadata incl. the ICC profile, so restore the profile when scp is off.
-  # If minimize_metadata fails (e.g. image has malformed/missing EXIF), fall back to
-  # full metadata removal — copyright preservation is moot when the EXIF is invalid.
-  defp strip(image, %Resolved{keep_copyright: true} = resolved) do
+  # strip_metadata true: remove EXIF/XMP/IPTC, keeping copyright/artist iff kcr.
+  # `minimize_metadata` enumerates and removes ALL metadata header fields — crucially
+  # the individual `exif-ifd0-*`/`exif-gps-*` entries, which survive removing just the
+  # serialized "exif-data" blob and would otherwise be re-serialized into EXIF on
+  # encode (leaking GPS/copyright). It also removes the ICC profile, so restore the
+  # profile when scp is off. If minimize_metadata fails (malformed/absent EXIF), fall
+  # back to blob removal — there is no valid copyright to preserve in that case.
+  defp strip(image, %Resolved{} = resolved) do
+    keep = if resolved.keep_copyright, do: [:copyright, :artist], else: []
     icc = if resolved.strip_color_profile, do: nil, else: header_value(image, "icc-profile-data")
 
-    case Image.minimize_metadata(image, keep: [:copyright, :artist]) do
-      {:ok, minimized} ->
-        restore_icc(minimized, icc)
+    minimized =
+      case Image.minimize_metadata(image, keep: keep) do
+        {:ok, stripped} ->
+          stripped
 
-      {:error, _} ->
-        remove_fields(image, ["exif-data", "xmp-data", "iptc-data"] ++ icc_fields(resolved))
-    end
+        {:error, _} ->
+          remove_fields(image, ["exif-data", "xmp-data", "iptc-data"] ++ icc_fields(resolved))
+      end
+
+    restore_icc(minimized, icc)
   end
-
-  # strip exif/xmp/iptc; drop icc iff scp.
-  defp strip(image, %Resolved{} = resolved),
-    do: remove_fields(image, ["exif-data", "xmp-data", "iptc-data"] ++ icc_fields(resolved))
 
   defp icc_fields(%Resolved{strip_color_profile: true}), do: ["icc-profile-data"]
   defp icc_fields(%Resolved{}), do: []

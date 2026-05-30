@@ -1078,6 +1078,37 @@ defmodule ImagePipe.ImgproxyWireConformanceTest do
 
       refute Map.has_key?(default_exif, :image_description),
              "default (sm on): non-copyright EXIF field (ImageDescription) must be stripped"
+
+      assert Map.get(default_exif, :copyright) == "(c) ACME",
+             "default (kcr on): copyright must be retained"
+    end
+
+    test "sm:1/kcr:0 strips copyright along with other EXIF and XMP" do
+      # Baseline: the fixture carries copyright, so the refute below is meaningful
+      # even when this test runs in isolation.
+      baseline =
+        call_imgproxy("/_/sm:0/scp:0/f:jpeg/plain/images/meta.jpg", metadata_origin_opts())
+
+      {baseline_image, _baseline_fields} = response_metadata(baseline)
+      {:ok, baseline_exif} = Image.exif(baseline_image)
+      assert Map.get(baseline_exif, :copyright) == "(c) ACME"
+
+      conn =
+        call_imgproxy(
+          "/_/sm:1/kcr:0/scp:0/f:jpeg/plain/images/meta.jpg",
+          metadata_origin_opts()
+        )
+
+      assert conn.status == 200
+
+      {image, field_names} = response_metadata(conn)
+      {:ok, exif} = Image.exif(image)
+
+      refute Map.has_key?(exif, :copyright),
+             "kcr:0: copyright must be stripped along with other metadata"
+
+      refute "xmp-data" in field_names,
+             "kcr:0: xmp-data must be stripped"
     end
 
     test "sm:1/kcr:1 keeps EXIF copyright while stripping non-copyright EXIF and XMP" do
