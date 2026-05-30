@@ -379,7 +379,9 @@ defmodule ImagePipe.CacheTest do
              modern_candidates: [:webp],
              auto: [avif: false, webp: true],
              quality: :default,
-             format_qualities: %{}
+             format_qualities: %{},
+             strip_metadata: true,
+             keep_copyright: true
            ]
 
     assert_received {:cache_get, ^key, adapter_opts}

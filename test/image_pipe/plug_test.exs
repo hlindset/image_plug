@@ -1132,7 +1132,9 @@ defmodule ImagePipe.PlugTest do
              modern_candidates: [:avif, :webp],
              auto: [avif: true, webp: true],
              quality: :default,
-             format_qualities: %{}
+             format_qualities: %{},
+             strip_metadata: true,
+             keep_copyright: true
            ]
 
     refute inspect(key_a.data) =~ "image/webp"
@@ -1443,7 +1445,9 @@ defmodule ImagePipe.PlugTest do
       modern_candidates: [:avif, :webp],
       auto: [avif: true, webp: true],
       quality: :default,
-      format_qualities: %{}
+      format_qualities: %{},
+      strip_metadata: true,
+      keep_copyright: true
     )
 
     refute_received :origin_was_called
@@ -1471,7 +1475,9 @@ defmodule ImagePipe.PlugTest do
           modern_candidates: [],
           auto: [avif: true, webp: true],
           quality: :default,
-          format_qualities: %{}
+          format_qualities: %{},
+          strip_metadata: true,
+          keep_copyright: true
         ] ->
           {:hit, cached_entry}
 
@@ -1497,7 +1503,9 @@ defmodule ImagePipe.PlugTest do
       modern_candidates: [],
       auto: [avif: true, webp: true],
       quality: :default,
-      format_qualities: %{}
+      format_qualities: %{},
+      strip_metadata: true,
+      keep_copyright: true
     )
 
     refute_received :origin_was_called
@@ -1525,7 +1533,9 @@ defmodule ImagePipe.PlugTest do
           modern_candidates: [],
           auto: [avif: false, webp: false],
           quality: :default,
-          format_qualities: %{}
+          format_qualities: %{},
+          strip_metadata: true,
+          keep_copyright: true
         ] ->
           {:hit, cached_entry}
 
@@ -1553,7 +1563,9 @@ defmodule ImagePipe.PlugTest do
       modern_candidates: [],
       auto: [avif: false, webp: false],
       quality: :default,
-      format_qualities: %{}
+      format_qualities: %{},
+      strip_metadata: true,
+      keep_copyright: true
     )
 
     refute_received :origin_was_called
@@ -1581,7 +1593,9 @@ defmodule ImagePipe.PlugTest do
           modern_candidates: [],
           auto: [avif: false, webp: false],
           quality: :default,
-          format_qualities: %{}
+          format_qualities: %{},
+          strip_metadata: true,
+          keep_copyright: true
         ] ->
           {:hit, cached_entry}
 
@@ -1609,7 +1623,9 @@ defmodule ImagePipe.PlugTest do
       modern_candidates: [],
       auto: [avif: false, webp: false],
       quality: :default,
-      format_qualities: %{}
+      format_qualities: %{},
+      strip_metadata: true,
+      keep_copyright: true
     )
 
     refute_received :origin_was_called

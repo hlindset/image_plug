@@ -13,6 +13,8 @@ defmodule ImagePipe.Parser.ImgproxyTest do
   alias ImagePipe.Plan.Response
   alias ImagePipe.Plan.Source
 
+  alias ImagePipe.Cache.Key, as: CacheKey
+
   defmodule FoobarTranslator do
     @behaviour ImagePipe.Parser.Imgproxy.SourceScheme
 
@@ -157,6 +159,21 @@ defmodule ImagePipe.Parser.ImgproxyTest do
                conn(:get, "/_/sm:1/plain/images/cat.jpg"),
                imgproxy: [strip_metadata: false]
              )
+  end
+
+  test "sm/kcr/scp produce distinct cache keys" do
+    source_identity = [kind: :path, adapter: :path, root: "default", path: ["images", "cat.jpg"]]
+
+    key = fn path ->
+      {:ok, plan} = Imgproxy.parse(conn(:get, path), [])
+      CacheKey.build(conn(:get, path), plan, source_identity)
+    end
+
+    base = key.("/_/sm:1/kcr:1/scp:1/plain/images/cat.jpg")
+
+    refute base == key.("/_/sm:0/kcr:1/scp:1/plain/images/cat.jpg")
+    refute base == key.("/_/sm:1/kcr:0/scp:1/plain/images/cat.jpg")
+    refute base == key.("/_/sm:1/kcr:1/scp:0/plain/images/cat.jpg")
   end
 
   test "parse/2 accepts parser options and keeps no-option parse/1 as a delegating helper" do
