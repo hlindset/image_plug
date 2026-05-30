@@ -129,13 +129,20 @@ end
 
 **Default adapter** `ImagePipe.Transform.Detector.ImageVision`:
 
-- Wraps `Image.FaceDetection.detect/1` for `:face` now (and
-  `Image.Detection.detect/1` for general classes later — same return shape).
+- Wraps `Image.FaceDetection.detect/1` for `:face`. **This is required, not a
+  preference:** `image_vision`'s general object detector
+  (`Image.Detection`, default `onnx-community/rtdetr_r50vd`) uses COCO classes
+  (`person`, `car`, …) and has **no `face` class**. Faces come from a separate
+  module backed by OpenCV YuNet (~340 KB), downloaded independently of the ONNX
+  default-models set. General classes (`Image.Detection`, ~175 MB RT-DETR) are
+  the additive path for future `g:obj:%class…` — same `region` return shape.
 - Guarded by `Code.ensure_loaded?(Image.FaceDetection)` in `available?/0`,
   `@compile {:no_warn_undefined, ...}`, and a `.dialyzer_ignore.exs` entry, so
   it compiles cleanly when the dep is absent.
-- `identity/0` returns `{__MODULE__, <model-version>}` where the version is read
-  from `image_vision` (or a static tag if unavailable).
+- `identity/0` returns `{__MODULE__, <model-id+version>}` (e.g. the YuNet model
+  identifier), so cache keys distinguish models. Returns an `:unavailable`
+  marker when the dep is absent (face-assist output then differs from
+  dep-present, and the key must reflect that).
 
 **Optional dependency policy:** `image_vision` is **not** a declared dependency
 of ImagePipe (hosts add it), so default builds pull no ONNX runtime. To make the
@@ -221,6 +228,11 @@ Availability is `Code.ensure_loaded?`, known without fetching.
 already-valid attention crop, so it always degrades to plain attention when the
 detector is unavailable, regardless of `detector_required`.
 
+Note `available?/0` means *the dependency is loaded* — not that model weights
+are on disk. The first detection downloads weights (see
+[Operational notes](#9-operational-notes-model-distribution--latency)); strict
+mode guarantees the capability exists, not that the first call is fast.
+
 ### 6. Cache key
 
 When the canonical plan carries a `{:detect, _}` or `{:smart, :face_assist}`
@@ -254,6 +266,31 @@ reshape key data in place; no version bump.
   `IMGPROXY_SMART_CROP_FACE_DETECTION` ✅ (config), with explicit
   [Divergences](#divergences). Remaining `obj`/`objw`/`objects_position` stay ⭕
   with a note pointing at the seam.
+
+### 9. Operational notes: model distribution & latency
+
+`image_vision` downloads model weights on first call and caches them on disk,
+so a cold detection request appears to "hang" during the download. Implications:
+
+- **Readiness vs availability.** `available?/0` is a cheap `Code.ensure_loaded?`
+  check (used by the strict pre-fetch gate). It does **not** guarantee weights
+  are present. Warmup/readiness is an operational concern, not a request-time
+  guarantee; ImagePipe does not block boot on a download.
+- **Cost is bounded to cache misses.** Detection runs only when producing a
+  response (cache miss); successful encoded responses are served from cache
+  without re-running the model.
+- **Face-first keeps this cheap.** Face detection uses YuNet (~340 KB), so the
+  per-request and CI cost is small. General object gravity (deferred) would pull
+  RT-DETR (~175 MB), and captioning/zero-shot/segmentation models are far larger
+  (605 MB–990 MB) — another reason to land face first and defer the rest.
+- **Production/CI guidance (documented, not enforced):** hosts should
+  pre-download with `mix image_vision.download_models` (the face/`--detect`
+  scope as needed) rather than pay first-call latency on a live request. The
+  `:test`-dep CI lane pre-downloads the YuNet face model before the real-dep
+  test.
+- Bounding per-request ML time is host/runtime territory and aligns with the
+  processing-timeout work in
+  [#49](https://github.com/hlindset/image_plug/issues/49); not in this scope.
 
 ## Testing
 
