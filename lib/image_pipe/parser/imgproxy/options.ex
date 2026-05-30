@@ -292,7 +292,7 @@ defmodule ImagePipe.Parser.Imgproxy.Options do
 
   defp normalize_zero_offset(offset), do: offset
 
-  defp apply_request_defaults(%{pipelines: pipelines} = options, defaults) do
+  defp apply_request_defaults(%{pipelines: pipelines, output: output} = options, defaults) do
     auto_rotate? = effective_auto_rotate(pipelines, Keyword.get(defaults, :auto_rotate, false))
 
     strip_color_profile? =
@@ -306,8 +306,22 @@ defmodule ImagePipe.Parser.Imgproxy.Options do
       |> apply_strip_color_profile_to_first_pipeline(strip_color_profile?)
       |> reject_empty_pipelines()
 
-    %{options | pipelines: pipelines}
+    output =
+      output
+      |> resolve_metadata_defaults(defaults)
+      |> Map.put(:strip_color_profile, strip_color_profile?)
+
+    %{options | pipelines: pipelines, output: output}
   end
+
+  defp resolve_metadata_defaults(output, defaults) do
+    strip = resolve_bool(output.strip_metadata, Keyword.get(defaults, :strip_metadata, true))
+    keep = resolve_bool(output.keep_copyright, Keyword.get(defaults, :keep_copyright, true))
+    %{output | strip_metadata: strip, keep_copyright: strip and keep}
+  end
+
+  defp resolve_bool(nil, default), do: default
+  defp resolve_bool(value, _default) when is_boolean(value), do: value
 
   defp effective_auto_rotate(pipelines, default) do
     Enum.reduce(pipelines, default, fn

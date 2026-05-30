@@ -783,7 +783,7 @@ defmodule ImagePipe.Parser.Imgproxy.PlanBuilderTest do
                  []
                )
 
-      assert automatic_plan.output == %ImagePipe.Plan.Output{mode: :automatic}
+      assert automatic_plan.output.mode == :automatic
       assert [%ImagePipe.Plan.Pipeline{} | _] = automatic_plan.pipelines
 
       for format <- Format.output_formats() do
@@ -796,7 +796,7 @@ defmodule ImagePipe.Parser.Imgproxy.PlanBuilderTest do
                    []
                  )
 
-        assert explicit_plan.output == %ImagePipe.Plan.Output{mode: {:explicit, format}}
+        assert explicit_plan.output.mode == {:explicit, format}
         assert explicit_plan.pipelines == automatic_plan.pipelines
       end
     end

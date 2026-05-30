@@ -4,13 +4,21 @@ defmodule ImagePipe.Plan.Output do
   """
 
   @enforce_keys [:mode]
-  defstruct mode: :automatic, quality: :default, format_qualities: %{}
+  defstruct mode: :automatic,
+            quality: :default,
+            format_qualities: %{},
+            strip_metadata: true,
+            keep_copyright: true,
+            strip_color_profile: true
 
   @type format :: :avif | :webp | :jpeg | :png
   @type quality :: :default | {:quality, 1..100}
   @type t :: %__MODULE__{
           mode: :automatic | {:explicit, format()},
           quality: quality(),
-          format_qualities: %{optional(format()) => quality()}
+          format_qualities: %{optional(format()) => quality()},
+          strip_metadata: boolean(),
+          keep_copyright: boolean(),
+          strip_color_profile: boolean()
         }
 end

@@ -49,7 +49,11 @@ defmodule ImagePipe.Parser.Imgproxy.OptionGrammar do
     "filename" => {:filename, [:filename]},
     "fn" => {:filename, [:filename]},
     "return_attachment" => {:return_attachment, [:return_attachment]},
-    "att" => {:return_attachment, [:return_attachment]}
+    "att" => {:return_attachment, [:return_attachment]},
+    "strip_metadata" => {:strip_metadata, [:strip_metadata]},
+    "sm" => {:strip_metadata, [:strip_metadata]},
+    "keep_copyright" => {:keep_copyright, [:keep_copyright]},
+    "kcr" => {:keep_copyright, [:keep_copyright]}
   }
 
   @gravity_anchors %{
@@ -102,8 +106,9 @@ defmodule ImagePipe.Parser.Imgproxy.OptionGrammar do
     end
   end
 
-  defp scoped_assignments(kind, assignments) when kind in [:format, :quality, :format_quality],
-    do: {:output, assignments}
+  defp scoped_assignments(kind, assignments)
+       when kind in [:format, :quality, :format_quality, :strip_metadata, :keep_copyright],
+       do: {:output, assignments}
 
   defp scoped_assignments(:cachebuster, assignments), do: {:cache, assignments}
 
@@ -115,7 +120,17 @@ defmodule ImagePipe.Parser.Imgproxy.OptionGrammar do
   defp scoped_assignments(_kind, assignments), do: {:pipeline, assignments}
 
   defp parse_known_option(kind, fields, args, segment)
-       when kind in [:resizing_type, :width, :height, :min_width, :min_height, :enlarge, :format] do
+       when kind in [
+              :resizing_type,
+              :width,
+              :height,
+              :min_width,
+              :min_height,
+              :enlarge,
+              :format,
+              :strip_metadata,
+              :keep_copyright
+            ] do
     parse_exact_fields(fields, args, segment)
   end
 
@@ -293,6 +308,8 @@ defmodule ImagePipe.Parser.Imgproxy.OptionGrammar do
   defp parse_field(:min_height, value), do: parse_pixels(value)
   defp parse_field(:enlarge, value), do: parse_boolean(value)
   defp parse_field(:extend, value), do: parse_boolean(value)
+  defp parse_field(:strip_metadata, value), do: parse_boolean(value)
+  defp parse_field(:keep_copyright, value), do: parse_boolean(value)
   defp parse_field(:format, value), do: Format.parse(value)
   defp parse_field(:quality, value), do: parse_quality(value)
 

@@ -88,7 +88,10 @@ defmodule ImagePipe.Parser.Imgproxy.PlanBuilder do
      %Output{
        mode: :automatic,
        quality: request.quality,
-       format_qualities: request.format_qualities
+       format_qualities: request.format_qualities,
+       strip_metadata: request.strip_metadata,
+       keep_copyright: request.keep_copyright,
+       strip_color_profile: request.strip_color_profile
      }}
   end
 
@@ -102,7 +105,10 @@ defmodule ImagePipe.Parser.Imgproxy.PlanBuilder do
          %Output{
            mode: {:explicit, format},
            quality: request.quality,
-           format_qualities: request.format_qualities
+           format_qualities: request.format_qualities,
+           strip_metadata: request.strip_metadata,
+           keep_copyright: request.keep_copyright,
+           strip_color_profile: request.strip_color_profile
          }}
 
       false ->

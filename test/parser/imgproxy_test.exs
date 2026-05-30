@@ -128,6 +128,37 @@ defmodule ImagePipe.Parser.ImgproxyTest do
              Enum.find_index(names, &(&1 == :blur))
   end
 
+  test "sm/kcr/scp map to Plan.Output with kcr normalization" do
+    # defaults: all on
+    assert {:ok,
+            %Plan{
+              output: %Output{
+                strip_metadata: true,
+                keep_copyright: true,
+                strip_color_profile: true
+              }
+            }} = Imgproxy.parse(conn(:get, "/_/plain/images/cat.jpg"), [])
+
+    # sm:0 forces keep_copyright to false (normalization)
+    assert {:ok, %Plan{output: %Output{strip_metadata: false, keep_copyright: false}}} =
+             Imgproxy.parse(conn(:get, "/_/sm:0/kcr:1/plain/images/cat.jpg"), [])
+
+    # kcr:0 with stripping on
+    assert {:ok, %Plan{output: %Output{strip_metadata: true, keep_copyright: false}}} =
+             Imgproxy.parse(conn(:get, "/_/kcr:0/plain/images/cat.jpg"), [])
+
+    # scp threads onto Plan.Output
+    assert {:ok, %Plan{output: %Output{strip_color_profile: false}}} =
+             Imgproxy.parse(conn(:get, "/_/scp:0/plain/images/cat.jpg"), [])
+
+    # config default off, URL re-enables
+    assert {:ok, %Plan{output: %Output{strip_metadata: true}}} =
+             Imgproxy.parse(
+               conn(:get, "/_/sm:1/plain/images/cat.jpg"),
+               imgproxy: [strip_metadata: false]
+             )
+  end
+
   test "parse/2 accepts parser options and keeps no-option parse/1 as a delegating helper" do
     conn = conn(:get, "/_/plain/images/cat.jpg")
 
