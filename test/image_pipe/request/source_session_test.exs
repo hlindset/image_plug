@@ -979,12 +979,22 @@ defmodule ImagePipe.Request.SourceSessionTest do
       modern_candidates: [],
       headers: [],
       quality: :default,
-      format_qualities: %{}
+      format_qualities: %{},
+      strip_metadata: true,
+      keep_copyright: true,
+      strip_color_profile: true
     }
   end
 
   defp resolved_output do
-    %Resolved{format: :jpeg, quality: :default, response_headers: []}
+    %Resolved{
+      format: :jpeg,
+      quality: :default,
+      response_headers: [],
+      strip_metadata: true,
+      keep_copyright: true,
+      strip_color_profile: true
+    }
   end
 
   defp opts(extra_opts \\ []) do

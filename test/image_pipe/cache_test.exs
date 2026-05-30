@@ -226,7 +226,14 @@ defmodule ImagePipe.CacheTest do
   end
 
   defp resolved_output do
-    %Resolved{format: :webp, quality: nil, response_headers: []}
+    %Resolved{
+      format: :webp,
+      quality: nil,
+      response_headers: [],
+      strip_metadata: true,
+      keep_copyright: true,
+      strip_color_profile: true
+    }
   end
 
   test "returns disabled when no cache is configured" do
@@ -456,7 +463,10 @@ defmodule ImagePipe.CacheTest do
     resolved_output = %Resolved{
       format: :webp,
       quality: nil,
-      response_headers: [{"Vary", "Accept"}, {"x-private", "drop"}]
+      response_headers: [{"Vary", "Accept"}, {"x-private", "drop"}],
+      strip_metadata: true,
+      keep_copyright: true,
+      strip_color_profile: true
     }
 
     sink =

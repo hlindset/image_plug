@@ -33,7 +33,10 @@ defmodule ImagePipe.Output.PolicyTest do
                  modern_candidates: [],
                  headers: [],
                  quality: :default,
-                 format_qualities: %{}
+                 format_qualities: %{},
+                 strip_metadata: true,
+                 keep_copyright: true,
+                 strip_color_profile: true
                }
     end
 
@@ -49,7 +52,10 @@ defmodule ImagePipe.Output.PolicyTest do
                  modern_candidates: [:avif, :webp],
                  headers: [{"vary", "Accept"}],
                  quality: :default,
-                 format_qualities: %{}
+                 format_qualities: %{},
+                 strip_metadata: true,
+                 keep_copyright: true,
+                 strip_color_profile: true
                }
     end
 
@@ -82,7 +88,10 @@ defmodule ImagePipe.Output.PolicyTest do
         modern_candidates: [],
         headers: [],
         quality: :default,
-        format_qualities: %{}
+        format_qualities: %{},
+        strip_metadata: true,
+        keep_copyright: true,
+        strip_color_profile: true
       }
 
       assert Policy.resolve(policy, nil) ==
@@ -90,7 +99,10 @@ defmodule ImagePipe.Output.PolicyTest do
                 %Resolved{
                   format: :png,
                   quality: :default,
-                  response_headers: []
+                  response_headers: [],
+                  strip_metadata: true,
+                  keep_copyright: true,
+                  strip_color_profile: true
                 }}
     end
 
@@ -100,7 +112,10 @@ defmodule ImagePipe.Output.PolicyTest do
         modern_candidates: [:avif, :webp],
         headers: [{"vary", "Accept"}],
         quality: :default,
-        format_qualities: %{}
+        format_qualities: %{},
+        strip_metadata: true,
+        keep_copyright: true,
+        strip_color_profile: true
       }
 
       assert Policy.resolve(policy, nil) ==
@@ -108,7 +123,10 @@ defmodule ImagePipe.Output.PolicyTest do
                 %Resolved{
                   format: :avif,
                   quality: :default,
-                  response_headers: [{"vary", "Accept"}]
+                  response_headers: [{"vary", "Accept"}],
+                  strip_metadata: true,
+                  keep_copyright: true,
+                  strip_color_profile: true
                 }}
     end
 
@@ -118,7 +136,10 @@ defmodule ImagePipe.Output.PolicyTest do
         modern_candidates: [],
         headers: [{"vary", "Accept"}],
         quality: :default,
-        format_qualities: %{}
+        format_qualities: %{},
+        strip_metadata: true,
+        keep_copyright: true,
+        strip_color_profile: true
       }
 
       assert Policy.resolve(policy, nil) == {:error, :source_format_required}
@@ -130,7 +151,10 @@ defmodule ImagePipe.Output.PolicyTest do
         modern_candidates: [],
         headers: [{"vary", "Accept"}],
         quality: :default,
-        format_qualities: %{}
+        format_qualities: %{},
+        strip_metadata: true,
+        keep_copyright: true,
+        strip_color_profile: true
       }
 
       assert Policy.resolve(policy, :png) ==
@@ -138,7 +162,10 @@ defmodule ImagePipe.Output.PolicyTest do
                 %Resolved{
                   format: :png,
                   quality: :default,
-                  response_headers: [{"vary", "Accept"}]
+                  response_headers: [{"vary", "Accept"}],
+                  strip_metadata: true,
+                  keep_copyright: true,
+                  strip_color_profile: true
                 }}
 
       assert Policy.resolve(policy, :jpeg) ==
@@ -146,7 +173,10 @@ defmodule ImagePipe.Output.PolicyTest do
                 %Resolved{
                   format: :jpeg,
                   quality: :default,
-                  response_headers: [{"vary", "Accept"}]
+                  response_headers: [{"vary", "Accept"}],
+                  strip_metadata: true,
+                  keep_copyright: true,
+                  strip_color_profile: true
                 }}
     end
 
@@ -156,7 +186,10 @@ defmodule ImagePipe.Output.PolicyTest do
         modern_candidates: [],
         headers: [{"vary", "Accept"}],
         quality: :default,
-        format_qualities: %{}
+        format_qualities: %{},
+        strip_metadata: true,
+        keep_copyright: true,
+        strip_color_profile: true
       }
 
       assert Policy.resolve(policy, :webp) == {:needs_final_image_alpha, :source}
@@ -169,7 +202,10 @@ defmodule ImagePipe.Output.PolicyTest do
         modern_candidates: [],
         headers: [{"vary", "Accept"}],
         quality: :default,
-        format_qualities: %{}
+        format_qualities: %{},
+        strip_metadata: true,
+        keep_copyright: true,
+        strip_color_profile: true
       }
 
       assert Policy.resolve(policy, :heif) == {:needs_final_image_alpha, :source}
@@ -189,14 +225,20 @@ defmodule ImagePipe.Output.PolicyTest do
         modern_candidates: [],
         headers: [{"vary", "Accept"}],
         quality: :default,
-        format_qualities: %{}
+        format_qualities: %{},
+        strip_metadata: true,
+        keep_copyright: true,
+        strip_color_profile: true
       }
 
       assert Policy.resolve_final_image_alpha(policy, true) ==
                %Resolved{
                  format: :png,
                  quality: :default,
-                 response_headers: [{"vary", "Accept"}]
+                 response_headers: [{"vary", "Accept"}],
+                 strip_metadata: true,
+                 keep_copyright: true,
+                 strip_color_profile: true
                }
     end
 
@@ -206,14 +248,20 @@ defmodule ImagePipe.Output.PolicyTest do
         modern_candidates: [],
         headers: [{"vary", "Accept"}],
         quality: :default,
-        format_qualities: %{}
+        format_qualities: %{},
+        strip_metadata: true,
+        keep_copyright: true,
+        strip_color_profile: true
       }
 
       assert Policy.resolve_final_image_alpha(policy, false) ==
                %Resolved{
                  format: :jpeg,
                  quality: :default,
-                 response_headers: [{"vary", "Accept"}]
+                 response_headers: [{"vary", "Accept"}],
+                 strip_metadata: true,
+                 keep_copyright: true,
+                 strip_color_profile: true
                }
     end
 
@@ -223,21 +271,30 @@ defmodule ImagePipe.Output.PolicyTest do
         modern_candidates: [],
         headers: [{"vary", "Accept"}],
         quality: :default,
-        format_qualities: %{jpeg: {:quality, 82}, png: {:quality, 70}}
+        format_qualities: %{jpeg: {:quality, 82}, png: {:quality, 70}},
+        strip_metadata: true,
+        keep_copyright: true,
+        strip_color_profile: true
       }
 
       assert Policy.resolve_final_image_alpha(policy, false) ==
                %Resolved{
                  format: :jpeg,
                  quality: {:quality, 82},
-                 response_headers: [{"vary", "Accept"}]
+                 response_headers: [{"vary", "Accept"}],
+                 strip_metadata: true,
+                 keep_copyright: true,
+                 strip_color_profile: true
                }
 
       assert Policy.resolve_final_image_alpha(policy, true) ==
                %Resolved{
                  format: :png,
                  quality: {:quality, 70},
-                 response_headers: [{"vary", "Accept"}]
+                 response_headers: [{"vary", "Accept"}],
+                 strip_metadata: true,
+                 keep_copyright: true,
+                 strip_color_profile: true
                }
     end
   end
@@ -257,7 +314,10 @@ defmodule ImagePipe.Output.PolicyTest do
                 %Resolved{
                   format: :webp,
                   quality: {:quality, 80},
-                  response_headers: []
+                  response_headers: [],
+                  strip_metadata: true,
+                  keep_copyright: true,
+                  strip_color_profile: true
                 }}
     end
 
@@ -275,7 +335,10 @@ defmodule ImagePipe.Output.PolicyTest do
                 %Resolved{
                   format: :webp,
                   quality: {:quality, 70},
-                  response_headers: []
+                  response_headers: [],
+                  strip_metadata: true,
+                  keep_copyright: true,
+                  strip_color_profile: true
                 }}
     end
   end
@@ -287,7 +350,10 @@ defmodule ImagePipe.Output.PolicyTest do
         modern_candidates: [],
         headers: [],
         quality: :default,
-        format_qualities: %{}
+        format_qualities: %{},
+        strip_metadata: true,
+        keep_copyright: true,
+        strip_color_profile: true
       }
 
       assert Policy.ensure_capable(policy, output_capabilities: %{avif: false}) ==
@@ -300,7 +366,10 @@ defmodule ImagePipe.Output.PolicyTest do
         modern_candidates: [],
         headers: [],
         quality: :default,
-        format_qualities: %{}
+        format_qualities: %{},
+        strip_metadata: true,
+        keep_copyright: true,
+        strip_color_profile: true
       }
 
       assert Policy.ensure_capable(policy, output_capabilities: %{avif: true}) == :ok
@@ -312,7 +381,10 @@ defmodule ImagePipe.Output.PolicyTest do
         modern_candidates: [],
         headers: [{"vary", "Accept"}],
         quality: :default,
-        format_qualities: %{}
+        format_qualities: %{},
+        strip_metadata: true,
+        keep_copyright: true,
+        strip_color_profile: true
       }
 
       assert Policy.ensure_capable(policy, output_capabilities: %{avif: false}) == :ok

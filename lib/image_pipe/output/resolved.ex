@@ -1,7 +1,14 @@
 defmodule ImagePipe.Output.Resolved do
   @moduledoc false
 
-  @enforce_keys [:format, :quality, :response_headers]
+  @enforce_keys [
+    :format,
+    :quality,
+    :response_headers,
+    :strip_metadata,
+    :keep_copyright,
+    :strip_color_profile
+  ]
   defstruct @enforce_keys
 
   @type format :: ImagePipe.Format.output_format()
@@ -9,6 +16,9 @@ defmodule ImagePipe.Output.Resolved do
   @type t :: %__MODULE__{
           format: format(),
           quality: quality(),
-          response_headers: [{String.t(), String.t()}]
+          response_headers: [{String.t(), String.t()}],
+          strip_metadata: boolean(),
+          keep_copyright: boolean(),
+          strip_color_profile: boolean()
         }
 end
