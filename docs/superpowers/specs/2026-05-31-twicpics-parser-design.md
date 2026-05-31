@@ -76,6 +76,12 @@ running-dimension chaining:
 - The **ratio** forms `resize=W:H` and `inside=W:H` (TwicPics' surface-preserving
   resize-to-ratio has no clean mapping to an existing operation — see Deferred
   items). `cover=W:H` **is** supported (it is a guided ratio crop).
+- **Coordinate focus** (`focus=<XxY>` in px/percent/scale). v1 supports the eight
+  focus **anchors** only. The Plan's focal guide is a 0..1 ratio, and pixel
+  coordinate focus needs a runtime-resolved focal guide (the same machinery as
+  relative resize units) — deferred so v1's core change stays scoped to resize
+  dimensions. (Crop `@coords` are unaffected — `CropRegion` carries pixel
+  coordinates natively.)
 - `focus=center` as an explicit literal (center is the default focus, not a
   TwicPics anchor; revisit as a lenient extension later).
 - `zoom`, `flip`, `turn`.
@@ -160,8 +166,9 @@ not reintroduce signature/`403` handling.
   difference from Size and the builder must branch on it.
 - **Ratio** = `<num>:<num>` (two strictly-positive numbers) → `{:ratio, n, d}`.
   Only `cover` consumes a ratio in v1; `resize`/`inside` ratio forms are non-goals.
-- **Coordinates** = `XxY`, two Lengths → focus point (resolved against the running
-  image).
+- **Coordinates** = `XxY`, two Lengths → used for the `crop=…@XxY` origin (v1:
+  pixel coordinates → `CropRegion`). Coordinate **focus** points are deferred; v1
+  focus is anchor-only.
 - **Anchor** = one of the eight named positions → a Plan guide. There is no
   `center` anchor; `center` is the default guide when no `focus` has been set.
 
@@ -190,7 +197,8 @@ ordered `ops` list and the already-sequential `ImagePipe.Transform.PlanExecutor`
 | `inside=W:H` (ratio) | **Rejected** (non-goal; see Deferred) |
 | `crop=WxH` (Crop-size) | `CropGuided(W, H, guide: guide)`; omitted dim → `:full_axis` |
 | `crop=WxH@XxY` | `CropRegion(x: X, y: Y, width: W, height: H)`; resets `guide`→center |
-| `focus=<coords>` / `focus=<anchor>` | sets `guide` (`{:focal, x, y}` or anchor tuple); no op |
+| `focus=<anchor>` | sets `guide` (anchor tuple); no op |
+| `focus=<coords>` (px/percent/scale) | **Rejected** (v1; coordinate focus deferred — needs a runtime-resolved focal guide) |
 | `focus=auto` / `focus=center` | **Rejected** (non-goals) |
 | `output=auto \| fmt` | `Plan.Output` mode |
 | `quality=1..100` | `Plan.Output` quality |
@@ -387,15 +395,24 @@ is never called at init.
 
 ## Demo
 
-Per CLAUDE.md, the `demo/` Svelte app must exercise the new behaviour
-end-to-end. Add a TwicPics mode (controls + URL state) covering, at minimum:
+The `demo/` Svelte app must exercise the new behaviour end-to-end (CLAUDE.md).
+However, the demo is currently imgproxy-hardwired with **no parser-mode
+abstraction** — a single URL builder spanning `processing-path.ts`,
+`demo-url-state.ts`, and `App.svelte`, plus an imgproxy-only dev-server route in
+`dev/simple_server.ex`. Adding a TwicPics mode is a substantial, independent
+TS/Svelte subsystem, so it is tracked as a **separate follow-on spec→plan cycle**
+rather than bundled with the library parser. That plan introduces a mode selector
+and a TwicPics URL builder covering, at minimum:
 
 - `resize` single-dim and `WxH`,
 - `cover` with a `focus` anchor (visually distinct crop steering),
 - `contain` vs `inside` (letterbox),
 - `output` and `quality`,
 - a **chained relative-unit example** (e.g. `resize=340/resize=50p`) so the
-  running-dimension behaviour is visible.
+  running-dimension behaviour is visible,
+
+and is gated by `mise run precommit:demo` (`vitest`, `tsgo`/`svelte-check`,
+`oxfmt`, `oxlint`, `vite build`).
 
 ## Test plan
 
@@ -471,6 +488,11 @@ end-to-end. Add a TwicPics mode (controls + URL state) covering, at minimum:
 - **`-min` / `-max` conditional variants**, `zoom`, `flip`, `turn`.
 - **Color chaining** (`background`, `border`, `colorize`, color-blindness) — also
   unlocks a user-specified `inside` background (v1 is transparent-fill-only).
+- **Coordinate focus** — `focus=<XxY>` in px/percent/scale. Needs a
+  runtime-resolved focal guide on the core (the Plan focal guide is currently a
+  0..1 ratio); mirrors the relative resize-unit machinery. v1 is anchor-only.
+- **Demo TwicPics mode** — a mode selector + TwicPics URL builder in the `demo/`
+  Svelte app; its own spec→plan cycle (the demo has no parser-mode abstraction).
 - **Smart focus** — `focus=auto` (and imgproxy `g:sm`, currently rejected) could
   both be satisfied later by adding a `:smart` guide backed by libvips
   attention/entropy smartcrop. Single core addition lights up both dialects.
