@@ -158,11 +158,8 @@ export type DemoState = {
   gravityFocalY: number;
   gravityOffsetX: number;
   gravityOffsetY: number;
-  // Object-class gravity: empty array = bare obj (all), explicit class list otherwise.
-  // The "all" pseudo-class is stored as an empty array; use gravityObjAll to pick the
-  // explicit g:obj:all form.
+  // Object-class gravity: empty array = bare obj (all classes); explicit class list otherwise.
   gravityObjClasses: string[];
-  gravityObjAll: boolean;
   enlarge: boolean;
   cropEnabled: boolean;
   cropWidthUnit: CropDimensionUnit;
@@ -351,7 +348,6 @@ export const defaultDemoState: DemoState = {
   gravityOffsetX: 0,
   gravityOffsetY: 0,
   gravityObjClasses: [],
-  gravityObjAll: false,
   enlarge: false,
   cropEnabled: false,
   cropWidthUnit: "px",
@@ -608,7 +604,7 @@ export function gravitySegment(currentState: DemoState): string {
   }
 
   if (currentState.gravityMode === "objClasses") {
-    return objGravitySegment(currentState.gravityObjClasses, currentState.gravityObjAll);
+    return objGravitySegment(currentState.gravityObjClasses);
   }
 
   if (currentState.gravityMode === "focalPoint") {
@@ -622,11 +618,7 @@ export function gravitySegment(currentState: DemoState): string {
   return `g:${currentState.gravity}`;
 }
 
-export function objGravitySegment(classes: string[], objAll: boolean): string {
-  if (objAll) {
-    return "g:obj:all";
-  }
-
+export function objGravitySegment(classes: string[]): string {
   if (classes.length === 0) {
     return "g:obj";
   }

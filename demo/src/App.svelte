@@ -21,7 +21,6 @@
     defaultDemoState,
     focalPointFromBounds,
     gravitySegment,
-    objGravitySegment,
     processedSizeLabel,
     resizeOptionSegment,
     resetCropPixelsToSource,
@@ -883,66 +882,52 @@
           {#if state.gravityMode === "objClasses"}
             <div class="field">
               <span>
-                <span>Object scope</span>
-                <span class="field-hint"
-                  >{objGravitySegment(state.gravityObjClasses, state.gravityObjAll)}</span
-                >
-              </span>
-              <select bind:value={state.gravityObjAll}>
-                <option value={false}>specific classes</option>
-                <option value={true}>all (g:obj:all)</option>
-              </select>
-            </div>
-
-            {#if !state.gravityObjAll}
-              <div class="field">
-                <span>
-                  <span>Classes</span>
-                  <span class="field-hint">
-                    {state.gravityObjClasses.length === 0
-                      ? "bare obj (all)"
-                      : state.gravityObjClasses.length === 1
-                        ? "1 class"
-                        : `${state.gravityObjClasses.length} classes`}
-                  </span>
+                <span>Classes</span>
+                <span class="field-hint">
+                  {state.gravityObjClasses.length === 0
+                    ? "g:obj"
+                    : state.gravityObjClasses.length === 1
+                      ? "1 class"
+                      : `${state.gravityObjClasses.length} classes`}
                 </span>
-                <!-- Multi-select for COCO-80 classes. Matches the underscore spelling
-                     in ImagePipe.Transform.Detector.ImageVision.Objects (@coco_classes). -->
-                <Select.Root type="multiple" bind:value={state.gravityObjClasses}>
-                  <Select.Trigger class="obj-class-trigger" aria-label="Select object classes">
-                    <span class="obj-class-trigger-label">
-                      {state.gravityObjClasses.length === 0
-                        ? "Choose classes…"
-                        : state.gravityObjClasses.length === 1
-                          ? state.gravityObjClasses[0]
-                          : `${state.gravityObjClasses.length} classes selected`}
-                    </span>
-                    <span class="obj-class-trigger-chevron" aria-hidden="true"></span>
-                  </Select.Trigger>
-                  <Select.Portal>
-                    <Select.Content class="obj-class-content" sideOffset={4}>
-                      <Select.Viewport class="obj-class-viewport">
-                        {#each cocoClasses as cls}
-                          <Select.Item class="obj-class-item" value={cls} label={cls}>
-                            {#snippet children({ selected })}
-                              <span class="obj-class-item-check" aria-hidden="true">
-                                {#if selected}✓{/if}
-                              </span>
-                              {cls}
-                            {/snippet}
-                          </Select.Item>
-                        {/each}
-                      </Select.Viewport>
-                    </Select.Content>
-                  </Select.Portal>
-                </Select.Root>
-                {#if state.gravityObjClasses.length === 0}
-                  <p class="field-hint-text">
-                    No classes selected — emits bare <code>g:obj</code> (all objects)
-                  </p>
-                {/if}
-              </div>
-            {/if}
+              </span>
+              <!-- Multi-select for COCO-80 classes. Matches the underscore spelling
+                   in ImagePipe.Transform.Detector.ImageVision.Objects (@coco_classes).
+                   Empty selection = bare g:obj (all objects). -->
+              <Select.Root type="multiple" bind:value={state.gravityObjClasses}>
+                <Select.Trigger class="obj-class-trigger" aria-label="Select object classes">
+                  <span class="obj-class-trigger-label">
+                    {state.gravityObjClasses.length === 0
+                      ? "All objects"
+                      : state.gravityObjClasses.length === 1
+                        ? state.gravityObjClasses[0]
+                        : `${state.gravityObjClasses.length} classes selected`}
+                  </span>
+                  <span class="obj-class-trigger-chevron" aria-hidden="true"></span>
+                </Select.Trigger>
+                <Select.Portal>
+                  <Select.Content class="obj-class-content" sideOffset={4}>
+                    <Select.Viewport class="obj-class-viewport">
+                      {#each cocoClasses as cls}
+                        <Select.Item class="obj-class-item" value={cls} label={cls}>
+                          {#snippet children({ selected })}
+                            <span class="obj-class-item-check" aria-hidden="true">
+                              {#if selected}✓{/if}
+                            </span>
+                            {cls}
+                          {/snippet}
+                        </Select.Item>
+                      {/each}
+                    </Select.Viewport>
+                  </Select.Content>
+                </Select.Portal>
+              </Select.Root>
+              {#if state.gravityObjClasses.length === 0}
+                <p class="field-hint-text">
+                  No classes selected — emits bare <code>g:obj</code> (all objects)
+                </p>
+              {/if}
+            </div>
           {/if}
         {/if}
       </section>

@@ -548,22 +548,9 @@ describe("processing path generation", () => {
       gravityEnabled: true,
       gravityMode: "objClasses" as const,
       gravityObjClasses: [],
-      gravityObjAll: false,
     };
 
     expect(optionSegments(state)).toEqual(["g:obj"]);
-  });
-
-  it("emits g:obj:all when gravityObjAll is true", () => {
-    const state = {
-      ...defaultDemoState,
-      gravityEnabled: true,
-      gravityMode: "objClasses" as const,
-      gravityObjClasses: [],
-      gravityObjAll: true,
-    };
-
-    expect(optionSegments(state)).toEqual(["g:obj:all"]);
   });
 
   it("emits g:obj:%c1:…:%cN for an explicit class list", () => {
@@ -572,7 +559,6 @@ describe("processing path generation", () => {
       gravityEnabled: true,
       gravityMode: "objClasses" as const,
       gravityObjClasses: ["car", "dog"],
-      gravityObjAll: false,
     };
 
     expect(optionSegments(state)).toEqual(["g:obj:car:dog"]);
@@ -585,23 +571,22 @@ describe("processing path generation", () => {
       gravityEnabled: true,
       gravityMode: "objClasses",
       gravityObjClasses: [],
-      gravityObjAll: false,
     });
 
     expect(demoPathForState(parsed)).toBe("/demo/g:obj/plain/local:///images/dog.jpg");
   });
 
-  it("round-trips g:obj:all through the demo path", () => {
+  it("normalizes g:obj:all to bare g:obj (empty selection = all objects)", () => {
     const parsed = parseDemoPath("/demo/g:obj:all/plain/local:///images/dog.jpg");
 
     expect(parsed).toMatchObject({
       gravityEnabled: true,
       gravityMode: "objClasses",
       gravityObjClasses: [],
-      gravityObjAll: true,
     });
 
-    expect(demoPathForState(parsed)).toBe("/demo/g:obj:all/plain/local:///images/dog.jpg");
+    // g:obj:all normalizes to bare g:obj on serialize (they are semantically equivalent)
+    expect(demoPathForState(parsed)).toBe("/demo/g:obj/plain/local:///images/dog.jpg");
   });
 
   it("round-trips g:obj with explicit classes through the demo path", () => {
@@ -611,21 +596,22 @@ describe("processing path generation", () => {
       gravityEnabled: true,
       gravityMode: "objClasses",
       gravityObjClasses: ["car", "dog"],
-      gravityObjAll: false,
     });
 
     expect(demoPathForState(parsed)).toBe("/demo/g:obj:car:dog/plain/local:///images/dog.jpg");
   });
 
-  it("collapses g:obj:all mixed with classes to gravityObjAll=true", () => {
+  it("normalizes g:obj:car:all (all mixed with classes) to empty selection (all objects)", () => {
     const parsed = parseDemoPath("/demo/g:obj:car:all/plain/local:///images/dog.jpg");
 
     expect(parsed).toMatchObject({
       gravityEnabled: true,
       gravityMode: "objClasses",
       gravityObjClasses: [],
-      gravityObjAll: true,
     });
+
+    // Serializes to bare g:obj (canonical form for all objects)
+    expect(demoPathForState(parsed)).toBe("/demo/g:obj/plain/local:///images/dog.jpg");
   });
 
   it("preserves g:obj:face as the legacy objFace mode", () => {
@@ -672,10 +658,9 @@ describe("processing path generation", () => {
   });
 
   it("objGravitySegment helper produces correct URL segments", () => {
-    expect(objGravitySegment([], false)).toBe("g:obj");
-    expect(objGravitySegment([], true)).toBe("g:obj:all");
-    expect(objGravitySegment(["car"], false)).toBe("g:obj:car");
-    expect(objGravitySegment(["car", "dog"], false)).toBe("g:obj:car:dog");
+    expect(objGravitySegment([])).toBe("g:obj");
+    expect(objGravitySegment(["car"])).toBe("g:obj:car");
+    expect(objGravitySegment(["car", "dog"])).toBe("g:obj:car:dog");
   });
 
   it("COCO-80 class list has exactly 80 entries in underscore spelling", () => {

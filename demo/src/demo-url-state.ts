@@ -701,7 +701,6 @@ function parseGravity(currentState: DemoState, args: string[]): DemoState | null
       gravityEnabled: true,
       gravityMode: "objClasses",
       gravityObjClasses: [],
-      gravityObjAll: false,
     };
   }
 
@@ -717,26 +716,22 @@ function parseGravity(currentState: DemoState, args: string[]): DemoState | null
       };
     }
 
-    // g:obj:all — explicit all pseudo-class
-    if (classes.length === 1 && classes[0] === "all") {
+    // g:obj:all or g:obj:%c…:all — "all" anywhere means all objects; normalize to empty selection
+    if (classes.includes("all")) {
       return {
         ...currentState,
         gravityEnabled: true,
         gravityMode: "objClasses",
         gravityObjClasses: [],
-        gravityObjAll: true,
       };
     }
 
-    // g:obj:%c1:…:%cN — explicit class list (may contain "all" which collapses to :all)
-    const hasAll = classes.includes("all");
-
+    // g:obj:%c1:…:%cN — explicit class list
     return {
       ...currentState,
       gravityEnabled: true,
       gravityMode: "objClasses",
-      gravityObjClasses: hasAll ? [] : classes,
-      gravityObjAll: hasAll,
+      gravityObjClasses: classes,
     };
   }
 
