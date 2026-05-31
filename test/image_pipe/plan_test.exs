@@ -105,8 +105,9 @@ defmodule ImagePipe.PlanTest do
     assert Plan.detect_classes(plan_with_guide(:center)) == nil
   end
 
-  test "detect_classes is nil when the plan has no guided operations" do
-    assert Plan.detect_classes(plan()) == nil
+  test "detect_classes is nil for an operation without a guide field" do
+    plan = plan(pipelines: [%Pipeline{operations: [%AutoOrient{}]}])
+    assert Plan.detect_classes(plan) == nil
   end
 
   defp plan_with_guide(guide) do
