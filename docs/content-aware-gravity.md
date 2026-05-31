@@ -43,7 +43,7 @@ Practical requirements:
 
 Once both deps compile, face detection **activates automatically** — you don't
 have to configure anything. ImagePipe's default detector
-(`ImagePipe.Transform.Detector.ImageVision`) checks at runtime whether
+(`ImagePipe.Transform.Detector.ImageVision.Face`) checks at runtime whether
 `Image.FaceDetection` is loadable and uses it when it is.
 
 ## What happens without it
@@ -70,7 +70,7 @@ plug ImagePipe,
 ```
 
 - **`detector`** — which detector backs the face-aware paths.
-  - `:default` *(default)* — the bundled `ImagePipe.Transform.Detector.ImageVision`
+  - `:default` *(default)* — the bundled `ImagePipe.Transform.Detector.ImageVision.Face`
     adapter. Activates automatically when `image_vision` + `ortex` are loaded;
     reports unavailable (→ attention fallback) otherwise.
   - `nil` — detection disabled. Face-aware requests always fall back to attention.
