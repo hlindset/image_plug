@@ -8,7 +8,13 @@ defmodule ImagePipe.Request.SourceSession do
   alias ImagePipe.Request.SourceSession.Producer
   alias ImagePipe.Request.SourceSession.Request
 
-  @call_timeout 15_000
+  # Backstop for a wedged producer, not an input-safety bound (real liveness is
+  # bounded by origin_receive_timeout and the decoded-pixel limit). `prepare`/`next`
+  # block on the producer, which for non-streamable codecs (AVIF, WebP) means a full
+  # synchronous encode. Under oversubscribed CI cores, libvips/NIF encode work on
+  # dirty schedulers can take many seconds wall-clock, so keep this comfortably above
+  # a realistic worst-case encode to avoid spurious :timeout failures.
+  @call_timeout 30_000
   @cancel_timeout 2_000
   @shutdown_timeout 2_000
 
