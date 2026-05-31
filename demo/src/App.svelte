@@ -2062,6 +2062,9 @@
 
   .obj-class-trigger-label {
     flex: 1;
+    /* min-width: 0 lets the flex item shrink below its content width so the
+       ellipsis engages instead of overflowing and pushing the chevron out. */
+    min-width: 0;
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
