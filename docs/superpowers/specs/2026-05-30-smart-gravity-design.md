@@ -1,8 +1,9 @@
 # Smart gravity & the ML detection seam — design
 
-Status: proposed (v3 — revised after two adversarial review cycles; see [Review cycle](#review-cycle))
+Status: accepted (implemented) (v3 — revised after two adversarial review cycles; see [Review cycle](#review-cycle))
 Date: 2026-05-30
 Issue: [#34 Add smart gravity and object-aware crop anchors](https://github.com/hlindset/image_plug/issues/34)
+Plan: [docs/superpowers/plans/2026-05-31-smart-gravity.md](../plans/2026-05-31-smart-gravity.md)
 
 ## Summary
 
