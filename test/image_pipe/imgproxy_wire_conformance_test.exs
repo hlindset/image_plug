@@ -327,6 +327,14 @@ defmodule ImagePipe.ImgproxyWireConformanceTest do
     end
   end
 
+  test "g:sm smart gravity returns a smart-cropped image of the requested size" do
+    conn = call_imgproxy("/_/rs:fill:80:80/g:sm/f:jpeg/plain/images/beach.jpg", @default_opts)
+
+    assert conn.status == 200
+    assert content_type(conn) == ["image/jpeg"]
+    assert dimensions(conn) == {80, 80}
+  end
+
   test "exar:1 under fit extends the canvas to the resize aspect ratio" do
     # beach.jpg is 4000x2667 (landscape). rs:fit:300:300 scales it to 300x200 (width
     # is the binding axis). exar:1 extends the canvas to the 1:1 requested ratio,
