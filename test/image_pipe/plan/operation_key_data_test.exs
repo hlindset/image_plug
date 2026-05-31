@@ -257,4 +257,47 @@ defmodule ImagePipe.Plan.OperationKeyDataTest do
       assert KeyData.data(integer_brightness) == KeyData.data(float_brightness)
     end
   end
+
+  describe "guide_data via CropGuided cache data" do
+    alias ImagePipe.Plan.Operation.CropGuided
+
+    test "the three content-aware guides serialize distinctly" do
+      smart = KeyData.data(%CropGuided{width: {:px, 10}, height: {:px, 10}, guide: :smart})
+
+      assist =
+        KeyData.data(%CropGuided{
+          width: {:px, 10},
+          height: {:px, 10},
+          guide: {:smart, :face_assist}
+        })
+
+      detect =
+        KeyData.data(%CropGuided{
+          width: {:px, 10},
+          height: {:px, 10},
+          guide: {:detect, ["face"]}
+        })
+
+      guides = Enum.map([smart, assist, detect], &Keyword.fetch!(&1, :guide))
+      assert guides == Enum.uniq(guides)
+    end
+
+    test "detect classes are sorted and serialized as strings" do
+      a =
+        KeyData.data(%CropGuided{
+          width: {:px, 10},
+          height: {:px, 10},
+          guide: {:detect, ["b", "a"]}
+        })
+
+      b =
+        KeyData.data(%CropGuided{
+          width: {:px, 10},
+          height: {:px, 10},
+          guide: {:detect, ["a", "b"]}
+        })
+
+      assert Keyword.fetch!(a, :guide) == Keyword.fetch!(b, :guide)
+    end
+  end
 end
