@@ -122,11 +122,15 @@ defmodule ImagePipe.MixProject do
       {:talan, "~> 0.2.1"}
     ]
 
-    # `image_vision` pulls in the Ortex/Rust/ONNX closure. Default builds and CI
-    # must not require it; only the opt-in lane (`IMAGE_VISION=1`) resolves it so
-    # the real-dependency detector test can run.
+    # Real face detection needs `image_vision` AND its optional ONNX backend
+    # `ortex` (a Rust/ONNX runtime): `image_vision`'s `Image.FaceDetection` is
+    # compiled only when Ortex is configured (`if ImageVision.ortex_configured?()`),
+    # and the YuNet model (~340 KB) downloads on first use. This closure (Rust
+    # toolchain + model) must not burden default builds or CI, so only the opt-in
+    # lane (`IMAGE_VISION=1`) resolves it, for the real-dependency detector test
+    # (`IMAGE_VISION=1 mix test --only image_vision`).
     if System.get_env("IMAGE_VISION") in ["1", "true"],
-      do: base ++ [{:image_vision, "~> 0.4", only: :test}],
+      do: base ++ [{:image_vision, "~> 0.4", only: :test}, {:ortex, "~> 0.1", only: :test}],
       else: base
   end
 

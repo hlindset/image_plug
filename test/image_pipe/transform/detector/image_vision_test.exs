@@ -27,6 +27,18 @@ defmodule ImagePipe.Transform.Detector.ImageVisionTest do
 
   @tag :image_vision
   test "detect returns face regions when the dependency is present" do
+    unless ImageVision.available?([]) do
+      flunk("""
+      The :image_vision lane needs the real face detector, but Image.FaceDetection \
+      is not loaded (available?([]) == false). image_vision compiles that module \
+      only when its ONNX backend is configured (`if ImageVision.ortex_configured?()`), \
+      so the lane requires BOTH `:image_vision` and `:ortex` (a Rust/ONNX runtime). \
+      Both are in the IMAGE_VISION-gated deps in mix.exs — run \
+      `IMAGE_VISION=1 mix deps.get` (needs a Rust toolchain); the YuNet model \
+      (~340 KB) downloads from HuggingFace on the first detect call.\
+      """)
+    end
+
     image = Image.open!("priv/static/images/woman.jpg")
     assert {:ok, regions} = ImageVision.detect(image, classes: ["face"])
     assert Enum.all?(regions, &match?(%{label: "face", box: {_, _, _, _}}, &1))
