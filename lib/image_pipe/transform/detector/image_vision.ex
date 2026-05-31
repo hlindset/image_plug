@@ -13,6 +13,9 @@ defmodule ImagePipe.Transform.Detector.ImageVision do
   @model_file "face_detection_yunet_2023mar.onnx"
 
   @impl true
+  def supported_classes(_opts), do: ["face"]
+
+  @impl true
   def available?(_opts), do: Code.ensure_loaded?(Image.FaceDetection)
 
   @impl true

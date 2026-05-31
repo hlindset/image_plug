@@ -5,6 +5,8 @@ defmodule ImagePipe.Transform.DetectorTest do
   defmodule WithWarmup do
     @behaviour Detector
     @impl true
+    def supported_classes(_o), do: ["face"]
+    @impl true
     def detect(_i, _o), do: {:ok, []}
     @impl true
     def available?(_o), do: true
@@ -16,6 +18,8 @@ defmodule ImagePipe.Transform.DetectorTest do
 
   defmodule NoWarmup do
     @behaviour Detector
+    @impl true
+    def supported_classes(_o), do: ["face"]
     @impl true
     def detect(_i, _o), do: {:ok, []}
     @impl true

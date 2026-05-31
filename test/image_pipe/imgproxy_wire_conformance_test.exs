@@ -148,6 +148,9 @@ defmodule ImagePipe.ImgproxyWireConformanceTest do
     @behaviour ImagePipe.Transform.Detector
 
     @impl true
+    def supported_classes(_opts), do: ["face"]
+
+    @impl true
     def detect(_image, _opts), do: {:error, {:detector, :unavailable}}
 
     @impl true

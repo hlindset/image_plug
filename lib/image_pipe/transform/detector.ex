@@ -21,6 +21,17 @@ defmodule ImagePipe.Transform.Detector do
           box: {number(), number(), number(), number()}
         }
 
+  @doc """
+  The class names this detector can produce, in the URL-facing spelling.
+
+  Static metadata used to route a requested class set to detectors and to gate
+  availability — it MUST NOT load a model and MUST be answerable even when the
+  detector's optional dependency is absent (so a routing/availability decision
+  can be made without the dep). `available?/1` may be `false` while this still
+  returns the full vocabulary.
+  """
+  @callback supported_classes(opts :: keyword()) :: [String.t()]
+
   @doc "Detect regions of interest. `opts` carries `:classes`."
   @callback detect(image :: Vix.Vips.Image.t(), opts :: keyword()) ::
               {:ok, [region()]} | {:error, term()}
