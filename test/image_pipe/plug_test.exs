@@ -520,7 +520,10 @@ defmodule ImagePipe.PlugTest do
 
     assert_receive {^ref, :first_chunk_sent, ^server}, @slow_origin_first_chunk_timeout
 
-    Task.await(task, 2_000)
+    # The behavior under test is the request's own `origin_receive_timeout` (~1s);
+    # this is just the harness waiting for that to surface. Keep the upper bound
+    # generous so CI scheduler load can't trip it before the request completes.
+    Task.await(task, 10_000)
   end
 
   defp chunked_body_chunk(body) do
