@@ -108,6 +108,21 @@ defmodule ImagePipe.Cache.KeyTest do
     plan(pipelines: [%Pipeline{operations: [detect_crop_operation(200, 100)]}])
   end
 
+  defp face_assist_crop_operation(width, height) do
+    assert {:ok, operation} =
+             Operation.crop_guided(
+               tagged_dimension(width),
+               tagged_dimension(height),
+               {:smart, :face_assist}
+             )
+
+    operation
+  end
+
+  defp face_assist_plan do
+    plan(pipelines: [%Pipeline{operations: [face_assist_crop_operation(200, 100)]}])
+  end
+
   defp resize_auto_operation(width, height) do
     assert {:ok, operation} =
              Operation.resize(
@@ -744,6 +759,16 @@ defmodule ImagePipe.Cache.KeyTest do
   test "detect plans key differently per detector identity" do
     conn = conn(:get, "/_/g:obj:face/w:200/h:100/plain/images/cat.jpg")
     plan = detect_plan()
+
+    k1 = build_key!(conn, plan, source_identity(), detector_identity: {Detector, :v1})
+    k2 = build_key!(conn, plan, source_identity(), detector_identity: {Detector, :v2})
+
+    refute k1.hash == k2.hash
+  end
+
+  test "face-assist plans key differently per detector identity" do
+    conn = conn(:get, "/_/g:sm/w:200/h:100/plain/images/cat.jpg")
+    plan = face_assist_plan()
 
     k1 = build_key!(conn, plan, source_identity(), detector_identity: {Detector, :v1})
     k2 = build_key!(conn, plan, source_identity(), detector_identity: {Detector, :v2})

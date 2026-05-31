@@ -415,6 +415,10 @@ imgproxy.
 - ⭕ `IMGPROXY_OBJECT_DETECTION_*` confidence and NMS thresholds — ImagePipe uses
   the YuNet face model's fixed detection-confidence and non-max-suppression
   thresholds; they are not exposed as configuration.
+- ✅ `IMGPROXY_SMART_CROP_FACE_DETECTION` — Modeled as the imgproxy-parser option
+  `smart_crop_face_detection`; when enabled, `g:sm` blends the libvips attention
+  point with detected faces (weight ~0.7). The attention⊕face combination is
+  ImagePipe's approximation — imgproxy's internal combination is unspecified.
 - ⭕ `IMGPROXY_SMART_CROP_ADVANCED*` — No advanced/object-aware smart-crop tuning
   surface; ImagePipe's smart crop is the libvips attention heuristic only.
 - ⭕ `IMGPROXY_SMART_CROP_*` (other) — No other smart-crop configuration is read.
@@ -513,7 +517,7 @@ transforms or output encoding.
 | `gravity:obj` | | Partial | Only the single `face` class is supported (`g:obj:face`); bare `g:obj` (all), `g:obj:all`, multi-class, and `g:objw` are rejected. |
 | `gravity:objw` | | Missing | Pro object-detection gravity with weights. |
 | `objects_position` | `obj_pos`, `op` | Missing | Pro object-detection positioning. |
-| `crop` | `c` | Supported | Absolute, relative, or full-axis dimensions. Supports anchor, focal-point, and smart gravity (`c:W:H:sm`); smart gravity runs libvips attention smart crop. |
+| `crop` | `c` | Supported | Absolute, relative, or full-axis dimensions. Supports anchor, focal-point, smart gravity (`c:W:H:sm`), and object-face gravity (`c:W:H:obj:face`); smart gravity runs libvips attention smart crop, and object-face gravity uses optional `image_vision` face detection with attention fallback. |
 | `crop_aspect_ratio` | `crop_ar`, `car` | Supported | Pro crop-area aspect-ratio correction. `aspect_ratio` zero is a no-op. `enlarge` grows the area then clamps to image bounds; default reduces. Corrects size only, not gravity. Wired through gravity crops. |
 | `trim` | `t` | Missing | Requires full-image memory behavior and trim operation. |
 | `padding` | `pd` | Supported | CSS-style shorthand, sparse repeated options, effective DPR scaling, and `padding:` no-op compatibility. |

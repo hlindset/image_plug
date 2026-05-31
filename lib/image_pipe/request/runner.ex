@@ -227,14 +227,16 @@ defmodule ImagePipe.Request.Runner do
   defp cache_lookup_stop_metadata({:error, {:cache_read, error}}),
     do: %{result: :cache_error, cache: :read_error, error: Error.tag(error)}
 
-  # When the plan requests content detection, fold the configured detector's
-  # opaque {module, term} identity into the cache key so a detector/model change
-  # (or availability change) produces a different key instead of colliding.
-  # The cache boundary never resolves identity itself; the request layer passes
-  # it as a key option. A later face-assist task will extend this condition to
-  # also cover {:smart, :face_assist} guides.
+  # When the plan's output depends on the configured detector, fold the
+  # detector's opaque {module, term} identity into the cache key so a
+  # detector/model change (or availability change) produces a different key
+  # instead of colliding. This covers both {:detect, _} guides and
+  # {:smart, :face_assist} guides: face-assist blends the detected face centroid
+  # into the attention point, so its output also depends on the detector. The
+  # cache boundary never resolves identity itself; the request layer passes it
+  # as a key option.
   defp put_detector_identity(opts, plan) do
-    if Plan.detect_classes(plan) != nil do
+    if Plan.detect_classes(plan) != nil or Plan.face_assist?(plan) do
       case Transform.detector_identity(Keyword.get(opts, :detector, :default), opts) do
         nil -> opts
         identity -> Keyword.put(opts, :detector_identity, identity)
