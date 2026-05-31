@@ -1,6 +1,7 @@
 defmodule ImagePipe.Transform.Detector.ImageVisionTest do
   use ExUnit.Case, async: true
   alias ImagePipe.Transform.Detector.ImageVision.Face
+  alias ImagePipe.Transform.Detector.ImageVision.Objects
 
   test "identity reflects availability" do
     expected =
@@ -55,6 +56,39 @@ defmodule ImagePipe.Transform.Detector.ImageVisionTest do
       assert {:ok, regions} = Face.detect(image, classes: :all)
       assert is_list(regions)
       assert {:ok, []} = Face.detect(image, classes: ["car"])
+    end
+  end
+
+  # supported_classes is a hardcoded static list (dep-independent), so this runs
+  # in the DEFAULT lane — it is the deterministic coverage for the underscore
+  # spelling that the normalization depends on.
+  describe "Objects vocabulary (no dependency required)" do
+    test "supported_classes is the static COCO-80 vocabulary in underscore spelling" do
+      classes = Objects.supported_classes([])
+      assert "person" in classes
+      assert "traffic_light" in classes
+      refute "traffic light" in classes
+      assert length(classes) == 80
+    end
+  end
+
+  describe "Objects adapter (real model)" do
+    @describetag :image_vision
+
+    test "supported_classes matches the model's labels (drift guard)" do
+      model_labels =
+        Image.Detection.classes()
+        |> Enum.map(&String.replace(&1, " ", "_"))
+        |> Enum.sort()
+
+      assert Enum.sort(Objects.supported_classes([])) == model_labels
+    end
+
+    test "detect returns product-neutral regions on a synthetic image" do
+      {:ok, image} = Image.new(320, 240, color: :black)
+      assert {:ok, regions} = Objects.detect(image, classes: :all)
+      assert is_list(regions)
+      assert Enum.all?(regions, &match?(%{label: l, score: _, box: {_, _, _, _}} when is_binary(l), &1))
     end
   end
 end
