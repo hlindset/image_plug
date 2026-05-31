@@ -104,4 +104,112 @@ defmodule ImagePipe.Transform.CropOperationTest do
                Image.write!(center, :memory, suffix: ".png")
     end
   end
+
+  describe "detect gravity" do
+    setup do
+      {:ok, image} = Image.new(400, 400, color: :white)
+      {:ok, image: image}
+    end
+
+    test "anchors on the area-weighted centroid of detected boxes", %{image: image} do
+      state = %State{
+        image: image,
+        detector:
+          {ImagePipe.Test.FakeDetector,
+           [result: {:ok, [%{label: "face", score: 0.9, box: {10, 10, 20, 20}}]}]}
+      }
+
+      op = %Crop{
+        width: {:pixels, 100},
+        height: {:pixels, 100},
+        crop_from: :gravity,
+        gravity: {:detect, ["face"]}
+      }
+
+      assert {:ok, %{image: out}} = Crop.execute(op, state)
+      assert Image.width(out) == 100 and Image.height(out) == 100
+    end
+
+    test "no detections falls back to attention", %{image: image} do
+      state = %State{
+        image: image,
+        detector: {ImagePipe.Test.FakeDetector, [result: {:ok, []}]}
+      }
+
+      op = %Crop{
+        width: {:pixels, 100},
+        height: {:pixels, 100},
+        crop_from: :gravity,
+        gravity: {:detect, ["face"]}
+      }
+
+      assert {:ok, %{image: out}} = Crop.execute(op, state)
+      assert Image.width(out) == 100
+    end
+
+    test "out-of-image box is dropped, falls back to attention", %{image: image} do
+      state = %State{
+        image: image,
+        detector:
+          {ImagePipe.Test.FakeDetector,
+           [result: {:ok, [%{label: "face", score: 0.9, box: {-50, -50, 5, 5}}]}]}
+      }
+
+      op = %Crop{
+        width: {:pixels, 100},
+        height: {:pixels, 100},
+        crop_from: :gravity,
+        gravity: {:detect, ["face"]}
+      }
+
+      assert {:ok, %{image: _}} = Crop.execute(op, state)
+    end
+
+    test "detector error falls back to attention (graceful)", %{image: image} do
+      state = %State{
+        image: image,
+        detector: {ImagePipe.Test.FakeDetector, [result: {:error, :boom}]}
+      }
+
+      op = %Crop{
+        width: {:pixels, 100},
+        height: {:pixels, 100},
+        crop_from: :gravity,
+        gravity: {:detect, ["face"]}
+      }
+
+      assert {:ok, %{image: _}} = Crop.execute(op, state)
+    end
+
+    test "nil detector falls back to attention", %{image: image} do
+      state = %State{image: image, detector: nil}
+
+      op = %Crop{
+        width: {:pixels, 100},
+        height: {:pixels, 100},
+        crop_from: :gravity,
+        gravity: {:detect, ["face"]}
+      }
+
+      assert {:ok, %{image: _}} = Crop.execute(op, state)
+    end
+
+    test "malformed detector return (bad box shape) falls back to attention", %{image: image} do
+      state = %State{
+        image: image,
+        detector:
+          {ImagePipe.Test.FakeDetector,
+           [result: {:ok, [%{label: "face", score: 0.9, box: :nonsense}]}]}
+      }
+
+      op = %Crop{
+        width: {:pixels, 100},
+        height: {:pixels, 100},
+        crop_from: :gravity,
+        gravity: {:detect, ["face"]}
+      }
+
+      assert {:ok, %{image: _}} = Crop.execute(op, state)
+    end
+  end
 end

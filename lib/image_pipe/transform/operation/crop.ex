@@ -121,6 +121,9 @@ defmodule ImagePipe.Transform.Operation.Crop do
           gravity:
             {:anchor, :left | :center | :right, :top | :center | :bottom}
             | {:fp, float(), float()}
+            | :smart
+            | {:smart, :face_assist}
+            | {:detect, [String.t()]}
             | nil,
           x_offset: length_unit() | number(),
           y_offset: length_unit() | number(),
@@ -135,6 +138,10 @@ defmodule ImagePipe.Transform.Operation.Crop do
   @impl ImagePipe.Transform
   def execute(%__MODULE__{gravity: :smart} = params, %State{} = state) do
     smart_crop(params, state, :VIPS_INTERESTING_ATTENTION)
+  end
+
+  def execute(%__MODULE__{gravity: {:detect, classes}} = params, %State{} = state) do
+    detect_crop(params, state, classes)
   end
 
   def execute(%__MODULE__{} = params, %State{} = state) do
@@ -233,6 +240,77 @@ defmodule ImagePipe.Transform.Operation.Crop do
       {:error, error} -> {:error, {__MODULE__, error}}
     end
   end
+
+  defp detect_crop(%__MODULE__{} = params, %State{} = state, classes) do
+    {module, dopts} = normalize_detector(state.detector)
+
+    if is_nil(module) do
+      smart_crop(params, state, :VIPS_INTERESTING_ATTENTION)
+    else
+      detect_crop_with_module(params, state, module, dopts, classes)
+    end
+  end
+
+  defp detect_crop_with_module(%__MODULE__{} = params, %State{} = state, module, dopts, classes) do
+    with {:ok, [_ | _] = regions} <- run_detect(module, dopts, state.image, classes),
+         {:ok, focal} <- focal_from_regions(regions, image_width(state), image_height(state)) do
+      execute(%{params | gravity: focal}, state)
+    else
+      _ -> smart_crop(params, state, :VIPS_INTERESTING_ATTENTION)
+    end
+  end
+
+  defp normalize_detector(nil), do: {nil, []}
+  defp normalize_detector(module) when is_atom(module), do: {module, []}
+
+  defp normalize_detector({module, opts}) when is_atom(module) and is_list(opts),
+    do: {module, opts}
+
+  defp run_detect(module, opts, image, classes) do
+    case module.detect(image, Keyword.put(opts, :classes, classes)) do
+      {:ok, regions} when is_list(regions) ->
+        if Enum.all?(regions, &valid_region?/1),
+          do: {:ok, regions},
+          else: {:error, {:detector, :invalid_adapter_result}}
+
+      {:error, _} = error ->
+        error
+
+      _other ->
+        {:error, {:detector, :invalid_adapter_result}}
+    end
+  end
+
+  defp valid_region?(%{box: {x, y, w, h}})
+       when is_number(x) and is_number(y) and is_number(w) and is_number(h),
+       do: true
+
+  defp valid_region?(_), do: false
+
+  defp focal_from_regions(regions, image_width, image_height) do
+    in_image =
+      Enum.filter(regions, fn %{box: {x, y, w, h}} ->
+        w > 0 and h > 0 and x >= 0 and y >= 0 and x + w <= image_width and y + h <= image_height
+      end)
+
+    case in_image do
+      [] ->
+        :none
+
+      boxes ->
+        total = Enum.reduce(boxes, 0.0, fn %{box: {_x, _y, w, h}}, acc -> acc + w * h end)
+
+        {sx, sy} =
+          Enum.reduce(boxes, {0.0, 0.0}, fn %{box: {x, y, w, h}}, {ax, ay} ->
+            area = w * h
+            {ax + area * (x + w / 2), ay + area * (y + h / 2)}
+          end)
+
+        {:ok, {:fp, clamp_unit(sx / total / image_width), clamp_unit(sy / total / image_height)}}
+    end
+  end
+
+  defp clamp_unit(value), do: value |> max(0.0) |> min(1.0)
 
   defp default_if_nil(nil, default), do: default
   defp default_if_nil(value, _default), do: value
