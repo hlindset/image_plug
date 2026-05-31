@@ -333,7 +333,7 @@ function parseCrop(currentState: DemoState, args: string[]): DemoState | null {
   const height = parseCropDimension(heightArg);
   const gravity = gravityArg ?? "inherit";
 
-  if (width === null || height === null || (gravity !== "inherit" && !isGravity(gravity))) {
+  if (width === null || height === null || (gravity !== "inherit" && !isCropGravity(gravity))) {
     return null;
   }
 
@@ -685,6 +685,14 @@ function parseBackgroundAlpha(currentState: DemoState, args: string[]): DemoStat
 function parseGravity(currentState: DemoState, args: string[]): DemoState | null {
   const [modeOrGravity, xArg, yArg] = args as [string?, string?, string?];
 
+  if (args.length === 1 && modeOrGravity === "sm") {
+    return {
+      ...currentState,
+      gravityEnabled: true,
+      gravityMode: "smart",
+    };
+  }
+
   if (args.length === 1 && modeOrGravity !== undefined && isGravity(modeOrGravity)) {
     return {
       ...currentState,
@@ -831,6 +839,10 @@ function parseBooleanValue(value: string | undefined): boolean | null {
 
 function isGravity(value: string): value is Gravity {
   return gravityValues.has(value);
+}
+
+function isCropGravity(value: string): value is Gravity | "sm" {
+  return value === "sm" || isGravity(value);
 }
 
 function isBooleanArg(value: string): boolean {

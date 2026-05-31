@@ -753,6 +753,7 @@
               <option value="nowe">north west</option>
               <option value="soea">south east</option>
               <option value="sowe">south west</option>
+              <option value="sm">smart</option>
             </select>
           </label>
         {/if}
@@ -796,10 +797,11 @@
               <option value="anchor">anchor</option>
               <option value="focalPoint">focal point</option>
               <option value="offset">anchor + offset</option>
+              <option value="smart">smart</option>
             </select>
           </label>
 
-          {#if state.gravityMode !== "focalPoint"}
+          {#if state.gravityMode === "anchor" || state.gravityMode === "offset"}
             <label class="field">
               <span>Anchor</span>
               <select bind:value={state.gravity}>

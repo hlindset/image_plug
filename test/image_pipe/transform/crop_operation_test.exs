@@ -96,7 +96,9 @@ defmodule ImagePipe.Transform.CropOperationTest do
       }
 
       {:ok, %{image: smart}} = Crop.execute(%{base | gravity: :smart}, state)
-      {:ok, %{image: center}} = Crop.execute(%{base | gravity: {:anchor, :center, :center}}, state)
+
+      {:ok, %{image: center}} =
+        Crop.execute(%{base | gravity: {:anchor, :center, :center}}, state)
 
       refute Image.write!(smart, :memory, suffix: ".png") ==
                Image.write!(center, :memory, suffix: ".png")

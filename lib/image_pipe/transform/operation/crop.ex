@@ -82,6 +82,7 @@ defmodule ImagePipe.Transform.Operation.Crop do
     only: [anchor_to_pixels: 3, image_height: 1, image_width: 1, to_pixels: 2]
 
   alias ImagePipe.Transform.State
+  alias Vix.Vips.Operation
 
   @default_gravity {:anchor, :center, :center}
 
@@ -226,9 +227,7 @@ defmodule ImagePipe.Transform.Operation.Crop do
              image_height
            ),
          {:ok, {cropped, _attention}} <-
-           Vix.Vips.Operation.smartcrop(state.image, crop_width, crop_height,
-             interesting: interesting
-           ) do
+           Operation.smartcrop(state.image, crop_width, crop_height, interesting: interesting) do
       {:ok, set_image(state, cropped)}
     else
       {:error, error} -> {:error, {__MODULE__, error}}

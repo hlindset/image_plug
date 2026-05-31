@@ -462,6 +462,45 @@ describe("processing path generation", () => {
     expect(optionSegments(state)).toEqual(["rs:fill:640:360:0", "g:soea:12:-0.25"]);
   });
 
+  it("includes smart global gravity without offsets", () => {
+    const state = {
+      ...defaultDemoState,
+      resizeEnabled: true,
+      gravityEnabled: true,
+      gravityMode: "smart" as const,
+    };
+
+    expect(optionSegments(state)).toEqual(["rs:fill:640:360:0", "g:sm"]);
+  });
+
+  it("round-trips smart global gravity through the demo path", () => {
+    const parsed = parseDemoPath("/demo/g:sm/plain/local:///images/dog.jpg");
+
+    expect(parsed).toMatchObject({
+      gravityEnabled: true,
+      gravityMode: "smart",
+    });
+
+    expect(demoPathForState(parsed)).toBe("/demo/g:sm/plain/local:///images/dog.jpg");
+  });
+
+  it("round-trips smart crop gravity through the demo path", () => {
+    const state = {
+      ...activeDemoState,
+      cropEnabled: true,
+      cropGravity: "sm" as const,
+    };
+
+    const segments = optionSegments(state);
+    expect(segments).toContain("c:5011:7516:sm");
+
+    const parsed = parseDemoPath(demoPathForState(state));
+    expect(parsed).toMatchObject({
+      cropEnabled: true,
+      cropGravity: "sm",
+    });
+  });
+
   it("normalizes focal point coordinates from a picker rectangle", () => {
     expect(
       focalPointFromBounds(150, 75, {
