@@ -314,10 +314,14 @@ cycle surfaced the full set.) `resize` / `cover` / `contain` / `inside` all buil
 - `Geometry.to_pixels/2` already handles `{:percent, n}`, `{:scale, f}`,
   `{:scale, num, denom}` (geometry.ex:~22-27); arg order is `(length, unit)`.
 - Ordered pipeline structure — `Plan.pipelines` / `Pipeline.operations`.
-- **Crop relative units need no core change.** TwicPics `p` / `s` on `crop` map to
-  `{:ratio, n, d}`, already resolved by `crop_dimension → {:scale, n, d}` and
-  already covered by `KeyData` / `DecodePlanner`. v1 widens only the **Resize**
-  dimension. Relative units on `min_*` / offsets / crop are a bounded follow-on.
+- **Crop/inside need no core change, and v1 keeps them pixel-only.** TwicPics
+  `p` / `s` on `crop` *could* map to `{:ratio, n, d}` (already resolved by
+  `crop_dimension → {:scale, n, d}` and covered by `KeyData` / `DecodePlanner`)
+  entirely in the parser — but to keep v1 simple, **`crop` and `inside` accept
+  pixel dimensions only** (`crop` also `:full_axis` for an omitted axis); relative
+  units on crop/inside are deferred. v1 widens only the **Resize** dimension, and
+  full relative-unit support lives on `resize` / `cover` / `contain`. Relative
+  units on `min_*` / offsets / crop are a bounded follow-on.
 
 Existing imgproxy callers construct only `:auto` / `{:px, n}` / `{:ratio, n, d}`
 resize dims and are unaffected — every change above is purely additive.
@@ -473,7 +477,7 @@ and is gated by `mise run precommit:demo` (`vitest`, `tsgo`/`svelte-check`,
 3. Boundary wiring **and** the explicit `architecture_boundary_test.exs` +
    `plug.ex` edits.
 4. `docs/twicpics_support_matrix.md` (seeded; mirrors the imgproxy matrix).
-5. Demo TwicPics mode (controls enumerated above).
+5. Demo TwicPics mode — **deferred to a separate follow-on plan** (see Demo).
 6. Tests as above.
 
 ## Deferred / future cross-cutting items

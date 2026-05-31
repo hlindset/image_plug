@@ -80,9 +80,9 @@ Mapped against [API Transformations](https://www.twicpics.com/docs/reference/tra
 | `cover-max` / `cover-min` | 🚫 Rejected | Conditional variants deferred. |
 | `contain=WxH` | 📋 Planned (v1) | `Resize(:fit, …)` — fits inside, may be smaller, no letterbox. |
 | `contain-max` / `contain-min` (aliases `max` / `min`) | 🚫 Rejected | Conditional variants deferred. |
-| `inside=WxH` | ⚠️ Partial (v1) | `Resize(:fit, …)` + `Canvas(W, H, placement: center, fill: transparent)` — letterboxed to exact dims. **Transparent fill only**; user-specified `background` deferred. Non-alpha output (e.g. `output=jpeg`) flattens the letterbox (documented, tested). |
+| `inside=WxH` | ⚠️ Partial (v1) | `Resize(:fit, …)` + `Canvas(W, H, placement: center, fill: transparent)` — letterboxed to exact dims. **Transparent fill only**; user-specified `background` deferred. Non-alpha output (e.g. `output=jpeg`) flattens the letterbox (documented, tested). **Pixel dimensions only** in v1 (relative units deferred). |
 | `inside=W:H` (ratio) | 🚫 Rejected | Ratio form deferred (same reason as `resize=W:H`). |
-| `crop=WxH` | 📋 Planned (v1) | `CropGuided(W, H, guide: focus)`. Crop-size: an omitted dim / `-` means `1s` = full running axis (`:full_axis`), not aspect-preserving auto. |
+| `crop=WxH` | 📋 Planned (v1) | `CropGuided(W, H, guide: focus)`. Crop-size: an omitted dim / `-` means `1s` = full running axis (`:full_axis`), not aspect-preserving auto. **Pixel dimensions only** in v1 (relative crop dims → `{:ratio}` deferred). |
 | `crop=WxH@XxY` | 📋 Planned (v1) | `CropRegion(x: X, y: Y, width: W, height: H)`; resets focus → center. |
 | `focus=<anchor>` | 📋 Planned (v1) | One of the eight anchors; sets the current guide for the next `cover` / `crop`; emits no operation. |
 | `focus=<coords>` (px/percent/scale) | 🚫 Rejected | Coordinate focus deferred — the Plan focal guide is a 0..1 ratio; pixel-coordinate focus needs a runtime-resolved focal guide (mirrors the resize relative-unit work). v1 focus is anchor-only. |

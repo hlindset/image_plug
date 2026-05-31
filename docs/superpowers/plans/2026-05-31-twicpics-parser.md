@@ -466,8 +466,6 @@ Expected: FAIL — module does not exist.
 defmodule ImagePipe.Parser.TwicPics.Units do
   @moduledoc false
 
-  use Boundary, classify_to: ImagePipe.Parser.TwicPics
-
   @type length :: {:px, pos_integer()} | {:percent, number()} | {:scale, number()}
 
   @spec length(String.t()) :: {:ok, length()} | {:error, term()}
@@ -522,7 +520,7 @@ defmodule ImagePipe.Parser.TwicPics.Units do
 end
 ```
 
-Note: `use Boundary, classify_to: ImagePipe.Parser.TwicPics` makes every submodule belong to the TwicPics boundary defined on the top module (Task 2.7), so no per-file boundary declaration is needed.
+Note: submodules carry **no** `use Boundary` declaration. The Boundary library classifies them into the `ImagePipe.Parser.TwicPics` boundary automatically by the `ImagePipe.Parser.TwicPics.*` name prefix — exactly as the imgproxy submodules (`parser/imgproxy/*.ex`) do. (`classify_to:` is only valid for protocol implementations and mix tasks, so it must NOT be used here.)
 
 - [ ] **Step 4: Run test to verify it passes**
 
@@ -725,8 +723,6 @@ Expected: FAIL — module undefined.
 defmodule ImagePipe.Parser.TwicPics.Manipulation do
   @moduledoc false
 
-  use Boundary, classify_to: ImagePipe.Parser.TwicPics
-
   @spec parse(String.t()) :: {:ok, [{String.t(), String.t()}]} | {:error, term()}
   def parse("v1/" <> rest), do: segments(rest)
   def parse("v1"), do: {:ok, []}
@@ -811,8 +807,6 @@ Expected: FAIL — modules undefined.
 defmodule ImagePipe.Parser.TwicPics.Source do
   @moduledoc false
 
-  use Boundary, classify_to: ImagePipe.Parser.TwicPics
-
   alias ImagePipe.Plan.Source.Path, as: SourcePath
 
   @spec from_segments([String.t()]) :: {:ok, SourcePath.t()} | {:error, term()}
@@ -838,8 +832,6 @@ end
 ```elixir
 defmodule ImagePipe.Parser.TwicPics.Path do
   @moduledoc false
-
-  use Boundary, classify_to: ImagePipe.Parser.TwicPics
 
   alias ImagePipe.Parser.TwicPics.Source
   alias ImagePipe.Plan.Source.Path, as: SourcePath
@@ -919,8 +911,6 @@ Expected: FAIL — module undefined.
 ```elixir
 defmodule ImagePipe.Parser.TwicPics.Output do
   @moduledoc false
-
-  use Boundary, classify_to: ImagePipe.Parser.TwicPics
 
   alias ImagePipe.Plan.Output, as: PlanOutput
 
@@ -1049,6 +1039,11 @@ defmodule ImagePipe.Parser.TwicPics.PlanBuilderTest do
     assert {:error, _} = build([{"focus", "center"}])
   end
 
+  test "relative units on crop/inside are rejected in v1 (pixel-only)" do
+    assert {:error, {:unsupported_unit, :inside}} = build([{"inside", "50p"}])
+    assert {:error, {:unsupported_unit, :crop}} = build([{"crop", "50p"}])
+  end
+
   test "an empty pipeline still produces a valid no-op plan when only output is set" do
     assert {:ok, %Plan{pipelines: [%Pipeline{operations: []}]}} = build([{"output", "auto"}])
   end
@@ -1066,8 +1061,6 @@ Expected: FAIL — module undefined.
 defmodule ImagePipe.Parser.TwicPics.PlanBuilder do
   @moduledoc false
 
-  use Boundary, classify_to: ImagePipe.Parser.TwicPics
-
   alias ImagePipe.Parser.TwicPics.Output
   alias ImagePipe.Parser.TwicPics.Units
   alias ImagePipe.Plan
@@ -1078,7 +1071,7 @@ defmodule ImagePipe.Parser.TwicPics.PlanBuilder do
   @initial %{ops: [], guide: :center, format: :auto, quality: :default}
 
   @spec to_plan(Source.t(), [{String.t(), String.t()}]) :: {:ok, Plan.t()} | {:error, term()}
-  def to_plan(%{} = source, chain) when is_list(chain) do
+  def to_plan(source, chain) when is_list(chain) do
     with {:ok, acc} <- fold(chain),
          {:ok, output} <- Output.build(%{format: acc.format, quality: acc.quality}) do
       {:ok,
@@ -1154,6 +1147,7 @@ defmodule ImagePipe.Parser.TwicPics.PlanBuilder do
       {:error, {:unsupported_transform_ratio, "inside"}}
     else
       with {:ok, {w, h}} <- Units.size(args),
+           :ok <- pixels_only([w, h], :inside),
            {:ok, resize} <- Operation.resize(:fit, w, h),
            {:ok, canvas} <- Operation.canvas(w, h, :center, fill: :transparent) do
         acc |> push(resize) |> then(fn {:ok, acc} -> push(acc, canvas) end)
@@ -1170,6 +1164,7 @@ defmodule ImagePipe.Parser.TwicPics.PlanBuilder do
 
   defp crop_guided(size, acc) do
     with {:ok, {w, h}} <- Units.crop_size(size),
+         :ok <- pixels_only([w, h], :crop),
          {:ok, op} <- Operation.crop_guided(w, h, acc.guide) do
       push(acc, op)
     end
@@ -1177,12 +1172,27 @@ defmodule ImagePipe.Parser.TwicPics.PlanBuilder do
 
   defp crop_region(size, coords, acc) do
     with {:ok, {w, h}} <- Units.size(size),
+         :ok <- pixels_only([w, h], :crop),
          {:ok, {x, y}} <- crop_coordinates(coords),
          {:ok, op} <- Operation.crop_region(x, y, w, h) do
       # explicit coordinates reset the focus to center
       push(%{acc | guide: :center}, op)
     end
   end
+
+  # v1: crop/inside accept pixel dimensions only (crop also :full_axis for an
+  # omitted axis). Relative units (percent/scale) on crop/inside are deferred —
+  # resize/cover/contain carry full relative-unit support.
+  defp pixels_only(dims, transform) do
+    if Enum.all?(dims, &pixel_dimension?/1),
+      do: :ok,
+      else: {:error, {:unsupported_unit, transform}}
+  end
+
+  defp pixel_dimension?({:px, _}), do: true
+  defp pixel_dimension?(:auto), do: true
+  defp pixel_dimension?(:full_axis), do: true
+  defp pixel_dimension?(_), do: false
 
   # v1 crop coordinates: pixels only (percent/scale coords deferred)
   defp crop_coordinates(coords) do
@@ -1291,7 +1301,7 @@ defmodule ImagePipe.Parser.TwicPics do
   """
 
   use Boundary,
-    deps: [ImagePipe.Format, ImagePipe.Parser, ImagePipe.Plan],
+    deps: [ImagePipe.Parser, ImagePipe.Plan],
     exports: []
 
   @behaviour ImagePipe.Parser
@@ -1426,12 +1436,12 @@ Replace the body of `test "parser boundary declarations stay limited to format, 
     assert_boundary_deps(imgproxy, [ImagePipe.Format, ImagePipe.Parser, ImagePipe.Plan])
     assert_boundary_exports(imgproxy, [ImagePipe.Parser.Imgproxy.SourceScheme])
 
-    assert_boundary_deps(twicpics, [ImagePipe.Format, ImagePipe.Parser, ImagePipe.Plan])
+    assert_boundary_deps(twicpics, [ImagePipe.Parser, ImagePipe.Plan])
     assert_boundary_exports(twicpics, [])
 
     assert_allowed_deps(parser, [ImagePipe.Format, ImagePipe.Plan])
     assert_allowed_deps(imgproxy, [ImagePipe.Format, ImagePipe.Parser, ImagePipe.Plan])
-    assert_allowed_deps(twicpics, [ImagePipe.Format, ImagePipe.Parser, ImagePipe.Plan])
+    assert_allowed_deps(twicpics, [ImagePipe.Parser, ImagePipe.Plan])
 ```
 
 - [ ] **Step 3: Run the architecture test**
@@ -1526,9 +1536,15 @@ defmodule ImagePipe.TwicPicsWireConformanceTest do
     {Image.width(image), Image.height(image)}
   end
 
+  test "single resize reaches the intermediate dimension (not clamped on a large source)" do
+    conn = call("/images/beach.jpg?twic=v1/resize=340/output=jpeg")
+    assert {340, _} = dimensions(conn)
+  end
+
   test "chained relative resize resolves against running dimensions (340 then 50%)" do
     conn = call("/images/beach.jpg?twic=v1/resize=340/resize=50p/output=jpeg")
     assert conn.status == 200
+    # 170 = 50% of the running 340 (proven reachable by the test above), not 50% of source 4000
     assert {170, _} = dimensions(conn)
   end
 
@@ -1571,13 +1587,28 @@ git commit -m "test(twicpics): wire-level running-dimension + pre-fetch rejectio
 - [ ] **Step 1: Append the tests**
 
 ```elixir
-  test "focus anchor steers the cover crop (differs from centered baseline)" do
+  defp average(%Plug.Conn{} = conn) do
+    conn.resp_body
+    |> Image.open!(access: :random, fail_on: :error)
+    |> Image.average!()
+  end
+
+  test "focus anchor steers the cover crop (decoded pixels differ from centered baseline)" do
     centered = call("/images/beach.jpg?twic=v1/cover=200x200/output=jpeg")
     topleft = call("/images/beach.jpg?twic=v1/focus=top-left/cover=200x200/output=jpeg")
 
     assert dimensions(centered) == {200, 200}
     assert dimensions(topleft) == {200, 200}
-    refute centered.resp_body == topleft.resp_body
+    # Decoded-pixel signal (not raw bytes): a top-left crop of a photo averages
+    # differently than a centered crop.
+    refute average(centered) == average(topleft)
+  end
+
+  test "cover ratio crops to the target ratio without scaling" do
+    conn = call("/images/beach.jpg?twic=v1/cover=16:9/output=jpeg")
+    {w, h} = dimensions(conn)
+    # beach.jpg is 4000x2667 (ratio 1.5 < 16:9); the largest 16:9 area is 4000x2250.
+    assert_in_delta w / h, 16 / 9, 0.02
   end
 
   test "contain fits inside; inside letterboxes to exact dims with a transparent border" do
@@ -1652,12 +1683,12 @@ git commit -m "test(twicpics): wire-level running-dimension + pre-fetch rejectio
   end
 ```
 
-Note: the `OriginImage` support plug already forwards `test_pid` and sends `:origin_fetch` (Task 4.1). `Image.has_alpha?/1` is from the `image` library used elsewhere in the suite; if the project uses a different predicate, grep the imgproxy wire test for its transparency assertion and match it.
+Note: the `OriginImage` support plug already forwards `test_pid` and sends `:origin_fetch` (Task 4.1). `Image.has_alpha?/1` is the public predicate from the `image` library (a project dependency).
 
 - [ ] **Step 2: Run the tests**
 
 Run: `mise exec -- mix test test/image_pipe/twic_pics_wire_conformance_test.exs`
-Expected: PASS. If `Image.has_alpha?/1` is not the available predicate, use the project's existing alpha check (grep the imgproxy wire test for how it asserts transparency).
+Expected: PASS.
 
 - [ ] **Step 3: Commit**
 
@@ -1715,7 +1746,7 @@ git commit -m "test(transform): property — percent resize resolves against run
 
 - [ ] **Step 1: Update statuses**
 
-In `docs/twicpics_support_matrix.md`, change the status of the now-implemented rows from `📋 Planned (v1)` to `✅ Supported`: the `?twic=v1/<chain>` envelope, ordered chaining, running-dimension relative units, path→source, `resize=W`, `resize=WxH`, `cover=WxH`, `cover=W:H`, `contain=WxH`, `inside=WxH` (keep `⚠️ Partial`), `crop=WxH`, `crop=WxH@XxY`, `focus=<anchor>`, `output=auto`, `output=avif|webp|jpeg|png`, `quality=1..100`, and the Length/Size/Crop-size/Ratio/Coordinates/Anchor parameter rows. Add a note to the Anchor and Coordinates rows that **coordinate focus is deferred — v1 focus is anchor-only** (focus points need a runtime-resolved focal guide, like the resize relative-unit work).
+In `docs/twicpics_support_matrix.md`, change the status of the now-implemented rows from `📋 Planned (v1)` to `✅ Supported`: the `?twic=v1/<chain>` envelope, ordered chaining, running-dimension relative units, path→source, `resize=W`, `resize=WxH`, `cover=WxH`, `cover=W:H`, `contain=WxH`, `inside=WxH` (keep `⚠️ Partial`), `crop=WxH`, `crop=WxH@XxY`, `focus=<anchor>`, `output=auto`, `output=avif|webp|jpeg|png`, `quality=1..100`, and the Length/Size/Crop-size/Ratio/Coordinates/Anchor parameter rows. Before flipping a row, confirm it exists; if any v1 surface element listed here has no row, add it (the matrix must carry a row for every TwicPics transformation and parameter). Note on the `crop` and `inside` rows that **v1 accepts pixel dimensions only** (relative units on crop/inside deferred), and on the Anchor/Coordinates rows that **coordinate focus is deferred — v1 focus is anchor-only**.
 
 - [ ] **Step 2: Run the full Elixir gate**
 
