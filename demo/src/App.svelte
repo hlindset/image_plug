@@ -885,16 +885,7 @@
 
           {#if state.gravityMode === "objClasses"}
             <div class="field">
-              <span>
-                <span>Classes</span>
-                <span class="field-hint">
-                  {state.gravityObjClasses.length === 0
-                    ? "g:obj"
-                    : state.gravityObjClasses.length === 1
-                      ? "1 class"
-                      : `${state.gravityObjClasses.length} classes`}
-                </span>
-              </span>
+              <span>Classes</span>
               <!-- Multi-select for COCO-80 classes. Matches the underscore spelling
                    in ImagePipe.Transform.Detector.ImageVision.Objects (@coco_classes).
                    Empty selection = bare g:obj (all objects). -->
@@ -2139,12 +2130,6 @@
     color: var(--accent);
     font-size: 12px;
     line-height: 1;
-  }
-
-  .field-hint {
-    color: var(--text-muted);
-    font-family: var(--font-mono);
-    font-size: 12px;
   }
 
   .text-input {
