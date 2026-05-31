@@ -81,6 +81,7 @@ defmodule ImagePipe.Transform.Operation.Crop do
   import ImagePipe.Transform.Geometry,
     only: [anchor_to_pixels: 3, image_height: 1, image_width: 1, to_pixels: 2]
 
+  alias ImagePipe.Telemetry
   alias ImagePipe.Transform.State
   alias Vix.Vips.Operation
 
@@ -268,9 +269,9 @@ defmodule ImagePipe.Transform.Operation.Crop do
     do: {module, opts}
 
   defp run_detect(module, opts, image, classes, telemetry_opts) do
-    ImagePipe.Telemetry.span(telemetry_opts, [:transform, :detect], %{classes: classes}, fn ->
+    Telemetry.span(telemetry_opts, [:transform, :detect], %{classes: classes}, fn ->
       result = validate_detect_result(module.detect(image, Keyword.put(opts, :classes, classes)))
-      {result, %{regions: detect_count(result)}}
+      {result, %{regions: region_count(result)}}
     end)
   end
 
@@ -283,8 +284,8 @@ defmodule ImagePipe.Transform.Operation.Crop do
   defp validate_detect_result({:error, _} = error), do: error
   defp validate_detect_result(_other), do: {:error, {:detector, :invalid_adapter_result}}
 
-  defp detect_count({:ok, regions}), do: length(regions)
-  defp detect_count(_), do: 0
+  defp region_count({:ok, regions}), do: length(regions)
+  defp region_count(_), do: 0
 
   defp valid_region?(%{box: {x, y, w, h}})
        when is_number(x) and is_number(y) and is_number(w) and is_number(h),

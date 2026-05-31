@@ -236,6 +236,8 @@ defmodule ImagePipe.Transform.CropOperationTest do
 
       assert_receive {[:image_pipe, :transform, :detect, :stop], ^ref, %{duration: _}, metadata}
       refute Map.has_key?(metadata, :source_url)
+      assert metadata.classes == ["face"]
+      assert metadata.regions == 1
 
       :telemetry.detach(ref)
     end
