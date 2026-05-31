@@ -22,12 +22,15 @@ defmodule ImagePipe.Parser.Imgproxy.PlanBuilder do
 
   @spec to_plan(ParsedRequest.t(), keyword()) :: {:ok, Plan.t()} | {:error, term()}
   def to_plan(%ParsedRequest{} = request, opts \\ []) do
+    imgproxy_opts = Keyword.get(opts, :imgproxy, [])
+    face_assist? = Keyword.get(imgproxy_opts, :smart_crop_face_detection, false)
+
     with {:ok, source} <- source_plan(request.source_kind, request.source_path, opts),
          {:ok, output} <- output_plan(request.output),
          {:ok, expires} <- expires_plan(request.policy, opts),
          {:ok, cachebuster} <- cachebuster_plan(request.cache),
          {:ok, response} <- response_plan(request.response, source),
-         {:ok, pipelines} <- build_pipelines(request.pipelines) do
+         {:ok, pipelines} <- build_pipelines(request.pipelines, face_assist?) do
       {:ok,
        %Plan{
          source: source,
@@ -46,12 +49,14 @@ defmodule ImagePipe.Parser.Imgproxy.PlanBuilder do
   defp source_plan(kind, _source_identifier, _opts),
     do: {:error, {:unsupported_source_kind, kind}}
 
-  defp build_pipelines([]), do: {:error, :empty_pipeline_plan}
+  defp build_pipelines([], _face_assist?), do: {:error, :empty_pipeline_plan}
 
-  defp build_pipelines(pipeline_requests) do
+  defp build_pipelines(pipeline_requests, face_assist?) do
     result =
       Enum.reduce_while(pipeline_requests, [], fn pipeline_request, pipelines ->
-        case pipeline(pipeline_request) do
+        stamped = %{pipeline_request | smart_crop_face_detection: face_assist?}
+
+        case pipeline(stamped) do
           {:ok, pipeline} -> {:cont, [pipeline | pipelines]}
           {:error, reason} -> {:halt, {:error, reason}}
         end
@@ -243,7 +248,8 @@ defmodule ImagePipe.Parser.Imgproxy.PlanBuilder do
   defp crop_operations(%PipelineRequest{crop: %CropRequest{} = crop} = request) do
     with {:ok, width} <- imgproxy_tagged_crop_dimension(crop.width),
          {:ok, height} <- imgproxy_tagged_crop_dimension(crop.height),
-         {:ok, guide} <- tagged_gravity(crop.gravity || request.gravity),
+         {:ok, guide} <-
+           tagged_gravity(crop.gravity || request.gravity, request.smart_crop_face_detection),
          {:ok, operation} <-
            Operation.crop_guided(
              width,
@@ -549,7 +555,7 @@ defmodule ImagePipe.Parser.Imgproxy.PlanBuilder do
          {:ok, height} <- imgproxy_resize_dimension(request.height),
          {:ok, min_width} <- optional_resize_dimension(request.min_width),
          {:ok, min_height} <- optional_resize_dimension(request.min_height),
-         {:ok, guide} <- resize_guide(request.gravity) do
+         {:ok, guide} <- resize_guide(request.gravity, request.smart_crop_face_detection) do
       resize_opts = [
         dpr: request.dpr || 1.0,
         enlargement: enlargement(request),
@@ -636,25 +642,33 @@ defmodule ImagePipe.Parser.Imgproxy.PlanBuilder do
   defp optional_resize_dimension({:pixels, 0}), do: {:ok, :auto}
   defp optional_resize_dimension(dimension), do: imgproxy_resize_dimension(dimension)
 
-  defp resize_guide(:sm), do: {:ok, :smart}
-  defp resize_guide({:obj, ["face"]}), do: {:ok, {:detect, ["face"]}}
-  defp resize_guide({:obj, classes}), do: {:error, {:unsupported_gravity, {:obj, classes}}}
-  defp resize_guide({:anchor, :center, :center}), do: {:ok, :center}
-  defp resize_guide({:anchor, x, y}), do: {:ok, {:anchor, x, y}}
+  defp resize_guide(:sm, true), do: {:ok, {:smart, :face_assist}}
+  defp resize_guide(:sm, _face_assist), do: {:ok, :smart}
+  defp resize_guide({:obj, ["face"]}, _face_assist), do: {:ok, {:detect, ["face"]}}
 
-  defp resize_guide({:fp, x, y}) do
+  defp resize_guide({:obj, classes}, _face_assist),
+    do: {:error, {:unsupported_gravity, {:obj, classes}}}
+
+  defp resize_guide({:anchor, :center, :center}, _face_assist), do: {:ok, :center}
+  defp resize_guide({:anchor, x, y}, _face_assist), do: {:ok, {:anchor, x, y}}
+
+  defp resize_guide({:fp, x, y}, _face_assist) do
     with {:ok, x} <- tagged_ratio_from_decimal(x),
          {:ok, y} <- tagged_ratio_from_decimal(y) do
       {:ok, {:focal, x, y}}
     end
   end
 
-  defp tagged_gravity(:sm), do: {:ok, :smart}
-  defp tagged_gravity({:obj, ["face"]}), do: {:ok, {:detect, ["face"]}}
-  defp tagged_gravity({:obj, classes}), do: {:error, {:unsupported_gravity, {:obj, classes}}}
-  defp tagged_gravity({:anchor, x, y}), do: {:ok, crop_anchor_guide(x, y)}
+  defp tagged_gravity(:sm, true), do: {:ok, {:smart, :face_assist}}
+  defp tagged_gravity(:sm, _face_assist), do: {:ok, :smart}
+  defp tagged_gravity({:obj, ["face"]}, _face_assist), do: {:ok, {:detect, ["face"]}}
 
-  defp tagged_gravity({:fp, x, y}) do
+  defp tagged_gravity({:obj, classes}, _face_assist),
+    do: {:error, {:unsupported_gravity, {:obj, classes}}}
+
+  defp tagged_gravity({:anchor, x, y}, _face_assist), do: {:ok, crop_anchor_guide(x, y)}
+
+  defp tagged_gravity({:fp, x, y}, _face_assist) do
     with {:ok, x} <- tagged_ratio_from_decimal(x),
          {:ok, y} <- tagged_ratio_from_decimal(y) do
       {:ok, {:focal, x, y}}

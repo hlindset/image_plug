@@ -110,6 +110,14 @@ defmodule ImagePipe.PlanTest do
     assert Plan.detect_classes(plan) == nil
   end
 
+  test "face_assist? detects a {:smart, :face_assist} guide" do
+    assert Plan.face_assist?(plan_with_guide({:smart, :face_assist}))
+  end
+
+  test "face_assist? is false otherwise" do
+    refute Plan.face_assist?(plan_with_guide(:smart))
+  end
+
   defp plan_with_guide(guide) do
     operation = %CropGuided{width: {:px, 10}, height: {:px, 10}, guide: guide}
     plan(pipelines: [%Pipeline{operations: [operation]}])

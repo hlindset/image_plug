@@ -744,6 +744,54 @@ defmodule ImagePipe.Parser.Imgproxy.PlanBuilderTest do
     assert crop.guide == :smart
   end
 
+  test "g:sm with smart_crop_face_detection becomes {:smart, :face_assist}" do
+    assert {:ok, %Plan{pipelines: [%Pipeline{operations: operations}]}} =
+             plan_pipeline(
+               [
+                 resizing_type: :fill,
+                 width: {:pixels, 100},
+                 height: {:pixels, 100},
+                 gravity: :sm
+               ],
+               imgproxy: [smart_crop_face_detection: true]
+             )
+
+    assert [%Operation.Resize{mode: :cover} = resize] = operations
+    assert resize.guide == {:smart, :face_assist}
+  end
+
+  test "g:sm crop with smart_crop_face_detection becomes {:smart, :face_assist}" do
+    assert {:ok, %Plan{pipelines: [%Pipeline{operations: [%Operation.CropGuided{} = crop]}]}} =
+             plan_pipeline(
+               [
+                 crop: %ImagePipe.Parser.Imgproxy.CropRequest{
+                   width: {:pixels, 100},
+                   height: {:pixels, 100},
+                   gravity: :sm
+                 }
+               ],
+               imgproxy: [smart_crop_face_detection: true]
+             )
+
+    assert crop.guide == {:smart, :face_assist}
+  end
+
+  test "g:sm without the flag stays :smart" do
+    assert {:ok, %Plan{pipelines: [%Pipeline{operations: operations}]}} =
+             plan_pipeline(
+               [
+                 resizing_type: :fill,
+                 width: {:pixels, 100},
+                 height: {:pixels, 100},
+                 gravity: :sm
+               ],
+               imgproxy: [smart_crop_face_detection: false]
+             )
+
+    assert [%Operation.Resize{mode: :cover} = resize] = operations
+    assert resize.guide == :smart
+  end
+
   test "maps face object gravity fill resize to the detect plan guide" do
     assert {:ok, %Plan{pipelines: [%Pipeline{operations: operations}]}} =
              plan_pipeline(
@@ -1078,7 +1126,7 @@ defmodule ImagePipe.Parser.Imgproxy.PlanBuilderTest do
     one_of([constant(nil), member_of(Format.output_formats())])
   end
 
-  defp plan_pipeline(attrs) do
+  defp plan_pipeline(attrs, opts \\ []) do
     attrs =
       attrs
       |> normalize_orientation_attrs()
@@ -1092,7 +1140,7 @@ defmodule ImagePipe.Parser.Imgproxy.PlanBuilderTest do
         pipelines: [struct!(PipelineRequest, attrs)],
         output: output_request()
       },
-      []
+      opts
     )
   end
 

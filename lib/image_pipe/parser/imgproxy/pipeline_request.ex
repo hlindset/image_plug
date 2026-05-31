@@ -47,6 +47,7 @@ defmodule ImagePipe.Parser.Imgproxy.PipelineRequest do
           auto_rotate_requested: boolean(),
           strip_color_profile: boolean(),
           strip_color_profile_requested: boolean(),
+          smart_crop_face_detection: boolean(),
           orientation: Orientation.t()
         }
 
@@ -89,5 +90,6 @@ defmodule ImagePipe.Parser.Imgproxy.PipelineRequest do
             auto_rotate_requested: false,
             strip_color_profile: false,
             strip_color_profile_requested: false,
+            smart_crop_face_detection: false,
             orientation: %Orientation{}
 end

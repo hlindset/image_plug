@@ -98,6 +98,14 @@ defmodule ImagePipe.Plan do
     end)
   end
 
+  @doc "Returns true if any operation requests a face-assisted smart guide."
+  @spec face_assist?(t()) :: boolean()
+  def face_assist?(%__MODULE__{pipelines: pipelines}) do
+    Enum.any?(pipelines, fn p ->
+      Enum.any?(p.operations, &(Map.get(&1, :guide) == {:smart, :face_assist}))
+    end)
+  end
+
   @spec validated_pipelines(t()) :: {:ok, [Pipeline.t()]} | {:error, pipeline_error()}
   def validated_pipelines(%__MODULE__{pipelines: []}), do: {:error, :empty_pipeline_plan}
 

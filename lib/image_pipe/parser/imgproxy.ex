@@ -47,7 +47,8 @@ defmodule ImagePipe.Parser.Imgproxy do
                      ],
                      strip_metadata: [type: :boolean, default: true],
                      keep_copyright: [type: :boolean, default: true],
-                     strip_color_profile: [type: :boolean, default: true]
+                     strip_color_profile: [type: :boolean, default: true],
+                     smart_crop_face_detection: [type: :boolean, default: false]
                    )
 
   def parse(%Plug.Conn{} = conn), do: parse(conn, [])
