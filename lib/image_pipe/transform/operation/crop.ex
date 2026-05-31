@@ -132,6 +132,10 @@ defmodule ImagePipe.Transform.Operation.Crop do
   def name(%__MODULE__{}), do: :crop
 
   @impl ImagePipe.Transform
+  def execute(%__MODULE__{gravity: :smart} = params, %State{} = state) do
+    smart_crop(params, state, :VIPS_INTERESTING_ATTENTION)
+  end
+
   def execute(%__MODULE__{} = params, %State{} = state) do
     image_width = image_width(state)
     image_height = image_height(state)
@@ -203,6 +207,32 @@ defmodule ImagePipe.Transform.Operation.Crop do
     top = max(0, min(image_height - crop_height, round(center_y - crop_height / 2)))
 
     {:ok, %{left: left, top: top, width: crop_width, height: crop_height}}
+  end
+
+  defp smart_crop(%__MODULE__{} = params, %State{} = state, interesting) do
+    image_width = image_width(state)
+    image_height = image_height(state)
+
+    with {:ok, crop} <- crop_dimensions(params, image_width, image_height),
+         {:ok, crop_width} <- crop_dimension(crop.width, image_width),
+         {:ok, crop_height} <- crop_dimension(crop.height, image_height),
+         {crop_width, crop_height} =
+           correct_aspect_ratio(
+             crop_width,
+             crop_height,
+             params.aspect_ratio,
+             params.enlarge,
+             image_width,
+             image_height
+           ),
+         {:ok, {cropped, _attention}} <-
+           Vix.Vips.Operation.smartcrop(state.image, crop_width, crop_height,
+             interesting: interesting
+           ) do
+      {:ok, set_image(state, cropped)}
+    else
+      {:error, error} -> {:error, {__MODULE__, error}}
+    end
   end
 
   defp default_if_nil(nil, default), do: default

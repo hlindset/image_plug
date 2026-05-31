@@ -67,4 +67,39 @@ defmodule ImagePipe.Transform.CropOperationTest do
     {:ok, result} = Crop.execute(op, state(400, 400))
     assert {100, 200} == dimensions(result)
   end
+
+  describe "smart gravity" do
+    test "smart crop produces the requested dimensions" do
+      image = Image.open!("priv/static/images/woman.jpg")
+      state = %State{image: image}
+
+      op = %Crop{
+        width: {:pixels, 100},
+        height: {:pixels, 100},
+        crop_from: :gravity,
+        gravity: :smart
+      }
+
+      assert {:ok, %{image: out}} = Crop.execute(op, state)
+      assert Image.width(out) == 100
+      assert Image.height(out) == 100
+    end
+
+    test "smart crop differs from a centered crop on an off-center subject" do
+      image = Image.open!("priv/static/images/woman.jpg")
+      state = %State{image: image}
+
+      base = %Crop{
+        width: {:pixels, 200},
+        height: {:pixels, 200},
+        crop_from: :gravity
+      }
+
+      {:ok, %{image: smart}} = Crop.execute(%{base | gravity: :smart}, state)
+      {:ok, %{image: center}} = Crop.execute(%{base | gravity: {:anchor, :center, :center}}, state)
+
+      refute Image.write!(smart, :memory, suffix: ".png") ==
+               Image.write!(center, :memory, suffix: ".png")
+    end
+  end
 end
