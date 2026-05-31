@@ -5,7 +5,7 @@ defmodule ImagePipe.Transform.Detector.Warmup do
   Host-wired: add it to the HOST's supervision tree (ImagePipe does not start
   it), e.g.:
 
-      {ImagePipe.Transform.Detector.Warmup, detector: :default, classes: ["face"]}
+      {ImagePipe.Transform.Detector.Warmup, detector: :default}
 
   The `:detector` option mirrors the plug's `:detector` option: `:default` (the
   default when omitted) resolves to the bundled adapter, `nil` disables detection
@@ -34,7 +34,7 @@ defmodule ImagePipe.Transform.Detector.Warmup do
   def init(opts) do
     state = %{
       detector: Keyword.get(opts, :detector, :default),
-      classes: Keyword.get(opts, :classes, ["face"]),
+      classes: Keyword.get(opts, :classes, :all),
       opts: Keyword.get(opts, :opts, []),
       retries: Keyword.get(opts, :retries, 2)
     }
