@@ -160,6 +160,61 @@ defmodule ImagePipe.ImgproxyWireConformanceTest do
     def identity(_opts), do: {__MODULE__, :unavailable}
   end
 
+  defmodule FaceVerFake do
+    @moduledoc false
+    @behaviour ImagePipe.Transform.Detector
+
+    @impl true
+    def supported_classes(_), do: ["face"]
+
+    @impl true
+    def available?(_), do: true
+
+    @impl true
+    def identity(opts), do: {__MODULE__, Keyword.get(opts, :face_ver, :v1)}
+
+    @impl true
+    def detect(_, _), do: {:ok, []}
+  end
+
+  defmodule ObjectVerFake do
+    @moduledoc false
+    @behaviour ImagePipe.Transform.Detector
+
+    @impl true
+    def supported_classes(_), do: ["car", "dog"]
+
+    @impl true
+    def available?(_), do: true
+
+    @impl true
+    def identity(opts), do: {__MODULE__, Keyword.get(opts, :object_ver, :v1)}
+
+    @impl true
+    def detect(_, _), do: {:ok, []}
+  end
+
+  defmodule VerComposite do
+    @moduledoc false
+    @behaviour ImagePipe.Transform.Detector
+
+    alias ImagePipe.Transform.Detector.Composite
+
+    defp c, do: Composite.new([FaceVerFake, ObjectVerFake])
+
+    @impl true
+    def supported_classes(_o), do: Composite.supported_classes(c())
+
+    @impl true
+    def detect(i, o), do: Composite.detect(c(), i, o)
+
+    @impl true
+    def available?(o), do: Composite.available?(c(), o)
+
+    @impl true
+    def identity(o), do: Composite.identity(c(), o)
+  end
+
   @default_opts [
     parser: ImagePipe.Parser.Imgproxy,
     sources: [
@@ -1417,6 +1472,52 @@ defmodule ImagePipe.ImgproxyWireConformanceTest do
       assert content_type(conn) == ["image/avif"]
       assert get_resp_header(conn, "vary") == []
     end
+  end
+
+  # Capture the cache key the plug looked up for one request. Uses the file's
+  # existing CacheProbe (it sends {:cache_lookup, key}) and call_imgproxy/2.
+  defp lookup_key(path, opts) do
+    call_imgproxy(path, opts)
+    assert_received {:cache_lookup, key}
+    key
+  end
+
+  defp probe_opts do
+    Keyword.merge(@default_opts, cache: {CacheProbe, []})
+  end
+
+  defp ver_opts(extra) do
+    Keyword.merge(probe_opts(), [detector: VerComposite] ++ extra)
+  end
+
+  test "object-only request key is independent of the face model identity" do
+    assert lookup_key("/_/rs:fill:50:50/g:obj:car/plain/images/beach.jpg", ver_opts(face_ver: :v1)) ==
+             lookup_key("/_/rs:fill:50:50/g:obj:car/plain/images/beach.jpg", ver_opts(face_ver: :v2))
+  end
+
+  test "face-only request key is independent of the object model identity" do
+    assert lookup_key("/_/rs:fill:50:50/g:obj:face/plain/images/beach.jpg", ver_opts(object_ver: :v1)) ==
+             lookup_key("/_/rs:fill:50:50/g:obj:face/plain/images/beach.jpg", ver_opts(object_ver: :v2))
+  end
+
+  test "mixed request key changes when either model identity changes" do
+    base =
+      lookup_key("/_/rs:fill:50:50/g:obj:face:car/plain/images/beach.jpg",
+        ver_opts(face_ver: :v1, object_ver: :v1)
+      )
+
+    diff_face =
+      lookup_key("/_/rs:fill:50:50/g:obj:face:car/plain/images/beach.jpg",
+        ver_opts(face_ver: :v2, object_ver: :v1)
+      )
+
+    diff_obj =
+      lookup_key("/_/rs:fill:50:50/g:obj:face:car/plain/images/beach.jpg",
+        ver_opts(face_ver: :v1, object_ver: :v2)
+      )
+
+    assert base != diff_face
+    assert base != diff_obj
   end
 
   defp cached_opts(overrides \\ []) do

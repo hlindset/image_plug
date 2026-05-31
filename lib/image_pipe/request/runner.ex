@@ -237,7 +237,10 @@ defmodule ImagePipe.Request.Runner do
   # as a key option.
   defp put_detector_identity(opts, plan) do
     if Plan.detect_classes(plan) != nil or Plan.face_assist?(plan) do
-      case Transform.detector_identity(Keyword.get(opts, :detector, :default), opts) do
+      classes = Plan.detect_classes(plan) || ["face"]
+      opts_with_classes = Keyword.put(opts, :classes, classes)
+
+      case Transform.detector_identity(Keyword.get(opts, :detector, :default), opts_with_classes) do
         nil -> opts
         identity -> Keyword.put(opts, :detector_identity, identity)
       end
