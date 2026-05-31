@@ -153,18 +153,11 @@ defmodule ImagePipe.Transform.Operation.Crop do
   def execute(%__MODULE__{gravity: {:smart, :face_assist}} = params, %State{} = state) do
     {module, dopts} = normalize_detector(state.detector)
 
-    with false <- is_nil(module),
-         {:ok, [_ | _] = regions} <-
-           run_detect(module, dopts, state.image, ["face"], state.telemetry_opts),
-         {:ok, {:fp, fx, fy}} <-
-           focal_from_regions(regions, image_width(state), image_height(state)),
-         {:ok, {ax, ay}} <- attention_point(params, state) do
-      blended =
-        {:fp, blend_axis(ax, fx), blend_axis(ay, fy)}
-
-      execute(%{params | gravity: blended}, state)
+    if is_nil(module) do
+      emit_no_detector_span(["face"], state.telemetry_opts)
+      smart_crop(params, state, :VIPS_INTERESTING_ATTENTION)
     else
-      _ -> smart_crop(params, state, :VIPS_INTERESTING_ATTENTION)
+      face_assist_crop(params, state, module, dopts)
     end
   end
 
@@ -265,6 +258,19 @@ defmodule ImagePipe.Transform.Operation.Crop do
     end
   end
 
+  defp face_assist_crop(%__MODULE__{} = params, %State{} = state, module, dopts) do
+    with {:ok, [_ | _] = regions} <-
+           run_detect(module, dopts, state.image, ["face"], state.telemetry_opts),
+         {:ok, {:fp, fx, fy}} <-
+           focal_from_regions(regions, image_width(state), image_height(state)),
+         {:ok, {ax, ay}} <- attention_point(params, state) do
+      blended = {:fp, blend_axis(ax, fx), blend_axis(ay, fy)}
+      execute(%{params | gravity: blended}, state)
+    else
+      _ -> smart_crop(params, state, :VIPS_INTERESTING_ATTENTION)
+    end
+  end
+
   defp blend_axis(attention, face),
     do: clamp_unit((1 - @face_assist_weight) * attention + @face_assist_weight * face)
 
@@ -298,6 +304,7 @@ defmodule ImagePipe.Transform.Operation.Crop do
     {module, dopts} = normalize_detector(state.detector)
 
     if is_nil(module) do
+      emit_no_detector_span(classes, state.telemetry_opts)
       smart_crop(params, state, :VIPS_INTERESTING_ATTENTION)
     else
       detect_crop_with_module(params, state, module, dopts, classes)
@@ -323,9 +330,30 @@ defmodule ImagePipe.Transform.Operation.Crop do
   defp run_detect(module, opts, image, classes, telemetry_opts) do
     Telemetry.span(telemetry_opts, [:transform, :detect], %{classes: classes}, fn ->
       result = validate_detect_result(module.detect(image, Keyword.put(opts, :classes, classes)))
-      {result, %{regions: region_count(result)}}
+      {result, %{regions: region_count(result), result: detect_reason(result)}}
     end)
   end
+
+  # Emits a detect span for the "face-aware request, but no detector configured"
+  # fallback so every face-aware request produces exactly one detect span. There
+  # is no detection work to measure, so the duration is near-zero by design; the
+  # observable signal is `result: :no_detector`.
+  defp emit_no_detector_span(classes, telemetry_opts) do
+    Telemetry.span(telemetry_opts, [:transform, :detect], %{classes: classes}, fn ->
+      {:no_detector, %{regions: 0, result: :no_detector}}
+    end)
+  end
+
+  # The detector-level outcome recorded on the detect span's stop metadata. It
+  # reflects what the detector returned, not the final crop decision: a usable
+  # `:detected` result whose boxes all fall outside the image still degrades to
+  # attention downstream. `:no_regions` is normal (no face in the frame);
+  # `:unavailable`, `:error`, and `:no_detector` mark a face-aware request that
+  # could not be fulfilled and fell back to attention saliency.
+  defp detect_reason({:ok, [_ | _]}), do: :detected
+  defp detect_reason({:ok, []}), do: :no_regions
+  defp detect_reason({:error, {:detector, :unavailable}}), do: :unavailable
+  defp detect_reason({:error, _}), do: :error
 
   defp validate_detect_result({:ok, regions}) when is_list(regions) do
     if Enum.all?(regions, &valid_region?/1),

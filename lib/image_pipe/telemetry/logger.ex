@@ -91,9 +91,17 @@ defmodule ImagePipe.Telemetry.Logger do
     cond do
       List.last(suffix) == :exception -> :warning
       metadata[:result] == :cache_error -> :warning
+      detect_fallback_warning?(suffix, metadata) -> :warning
       true -> base
     end
   end
+
+  # A face-aware crop that could not be fulfilled and degraded to attention
+  # saliency. `:no_regions` (no face in frame) is a normal result, not a warning.
+  defp detect_fallback_warning?([:transform, :detect | _], meta),
+    do: meta[:result] in [:unavailable, :error, :no_detector]
+
+  defp detect_fallback_warning?(_suffix, _meta), do: false
 
   # --- message ---
   defp message([:transform, :operation | _], _m, meta) do

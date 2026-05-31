@@ -132,6 +132,36 @@ Use `:error` for stage-local failures that aren't otherwise classified at that
 stage. The request span maps returned failures into the more specific request
 outcome categories in this list.
 
+## Content-aware crop detection
+
+Face-aware crops (`g:obj:face`, `c:W:H:obj:face`, and face-assisted `g:sm`)
+emit a `[:image_pipe, :transform, :detect]` span around detector inference.
+Every face-aware request emits exactly one detect span, including when no
+detector is configured (so the fallback is always observable). Stop metadata:
+
+- `:classes` - the requested detection classes, e.g. `["face"]`.
+- `:regions` - the number of regions the detector returned.
+- `:result` - the detector outcome, one of:
+  - `:detected` - the detector returned at least one region.
+  - `:no_regions` - the detector ran but found nothing (no face in the frame).
+    This is a normal result, **not** a failure; the crop falls back to libvips
+    attention saliency.
+  - `:unavailable` - the configured detector reported it is unavailable.
+  - `:error` - the detector raised, errored, or returned a malformed result.
+  - `:no_detector` - the request asked for a face-aware crop but no detector is
+    configured.
+
+The last three (`:unavailable`, `:error`, `:no_detector`) mark a face-aware
+request that **could not be fulfilled** and degraded to attention saliency. The
+opt-in default Logger escalates those three to `:warning`; `:no_regions` and
+`:detected` log at the base level. `:result` reflects the *detector* outcome,
+not the final crop decision: a `:detected` result whose boxes all fall outside
+the image still degrades to attention downstream.
+
+The detect span duration reflects real inference work and is useful for spotting
+model cold-start cost. The `:no_detector` span performs no detection, so its
+duration is near-zero by design.
+
 Cache-related metadata may also include:
 
 - `cache: :disabled`

@@ -151,7 +151,12 @@ cached results.
   never serves stale bytes.
 - Detection emits a `[:image_pipe, :transform, :detect]` telemetry span with
   honest duration (the model inference is real, eager work) — useful for
-  spotting cold-start cost. See [telemetry.md](telemetry.md).
+  spotting cold-start cost. Its `:result` metadata distinguishes a real
+  detection (`:detected`), a normal no-face frame (`:no_regions`), and an
+  unfulfillable face-aware request that fell back to attention (`:unavailable`,
+  `:error`, `:no_detector`). The opt-in default Logger escalates those last
+  three to `:warning`. ImagePipe emits no request-time `Logger` calls itself —
+  fallback observability is telemetry-only. See [telemetry.md](telemetry.md).
 
 ## imgproxy compatibility & divergences
 
