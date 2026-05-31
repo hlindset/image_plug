@@ -56,6 +56,27 @@ defmodule ImagePipe.Parser.Imgproxy.OptionGrammar do
     "kcr" => {:keep_copyright, [:keep_copyright]}
   }
 
+  # Declarative specs for regular fixed-arity pipeline options. Each entry maps
+  # an option alias to an ordered list of {assignment_key, value_type} args. The
+  # value_type names a parser in apply_type/2, which already emits that type's
+  # canonical error tag, so per-option diagnostics are preserved without a
+  # per-option error override. Irregular options stay in parse_special_option/3.
+  @special_specs %{
+    "blur" => [{:blur, :non_neg_float}],
+    "bl" => [{:blur, :non_neg_float}],
+    "sharpen" => [{:sharpen, :non_neg_float}],
+    "sh" => [{:sharpen, :non_neg_float}],
+    "pixelate" => [{:pixelate, :non_neg_int}],
+    "pix" => [{:pixelate, :non_neg_int}],
+    "dpr" => [{:dpr, :positive_float}],
+    "brightness" => [{:brightness, :adjustment}],
+    "br" => [{:brightness, :adjustment}],
+    "contrast" => [{:contrast, :adjustment}],
+    "co" => [{:contrast, :adjustment}],
+    "saturation" => [{:saturation, :adjustment}],
+    "sa" => [{:saturation, :adjustment}]
+  }
+
   @gravity_anchors %{
     "no" => {:anchor, :center, :top},
     "so" => {:anchor, :center, :bottom},
@@ -100,9 +121,23 @@ defmodule ImagePipe.Parser.Imgproxy.OptionGrammar do
         end
 
       :error ->
-        with {:ok, assignments} <- parse_special_option(name, args, segment) do
-          {:ok, {:pipeline, assignments}}
-        end
+        parse_pipeline_option(name, args, segment)
+    end
+  end
+
+  # Pipeline-scoped options. Regular fixed-arity options are described
+  # declaratively in @special_specs and run through interpret_special/3; the
+  # remaining options with irregular arities/sub-grammars stay as bespoke
+  # parse_special_option/3 clauses.
+  defp parse_pipeline_option(name, args, segment) do
+    result =
+      case Map.fetch(@special_specs, name) do
+        {:ok, arg_specs} -> interpret_special(arg_specs, args, segment)
+        :error -> parse_special_option(name, args, segment)
+      end
+
+    with {:ok, assignments} <- result do
+      {:ok, {:pipeline, assignments}}
     end
   end
 
@@ -376,12 +411,40 @@ defmodule ImagePipe.Parser.Imgproxy.OptionGrammar do
   defp parse_boolean(value) when value in ["0", "f", "false"], do: {:ok, false}
   defp parse_boolean(value), do: {:error, {:invalid_boolean, value}}
 
-  defp parse_special_option(name, args, segment) when name in ["zoom", "z"] do
-    parse_zoom(args, segment)
+  # Generic interpreter for @special_specs entries: each spec is a fixed list of
+  # required, non-empty args. Arity/empty-arg failures yield the uniform
+  # :invalid_option_segment tag (matching the bespoke parsers); value failures
+  # propagate the type parser's own tag.
+  defp interpret_special(arg_specs, args, segment) do
+    cond do
+      length(args) != length(arg_specs) -> {:error, {:invalid_option_segment, segment}}
+      Enum.any?(args, &(&1 == "")) -> {:error, {:invalid_option_segment, segment}}
+      true -> interpret_special_args(arg_specs, args)
+    end
   end
 
-  defp parse_special_option("dpr", args, segment) do
-    parse_dpr(args, segment)
+  defp interpret_special_args(arg_specs, args) do
+    arg_specs
+    |> Enum.zip(args)
+    |> Enum.reduce_while({:ok, []}, fn {{key, type}, value}, {:ok, acc} ->
+      case apply_type(type, value) do
+        {:ok, parsed} -> {:cont, {:ok, [{key, parsed} | acc]}}
+        {:error, _reason} = error -> {:halt, error}
+      end
+    end)
+    |> case do
+      {:ok, acc} -> {:ok, Enum.reverse(acc)}
+      {:error, _reason} = error -> error
+    end
+  end
+
+  defp apply_type(:non_neg_float, value), do: parse_non_negative_float(value)
+  defp apply_type(:positive_float, value), do: parse_positive_float(value)
+  defp apply_type(:non_neg_int, value), do: parse_non_negative_integer(value)
+  defp apply_type(:adjustment, value), do: parse_adjustment_value(value)
+
+  defp parse_special_option(name, args, segment) when name in ["zoom", "z"] do
+    parse_zoom(args, segment)
   end
 
   defp parse_special_option(name, args, segment) when name in ["extend", "ex"] do
@@ -435,18 +498,6 @@ defmodule ImagePipe.Parser.Imgproxy.OptionGrammar do
     parse_background_alpha(args, segment)
   end
 
-  defp parse_special_option(name, args, segment) when name in ["blur", "bl"] do
-    parse_effect_float(:blur, args, segment)
-  end
-
-  defp parse_special_option(name, args, segment) when name in ["sharpen", "sh"] do
-    parse_effect_float(:sharpen, args, segment)
-  end
-
-  defp parse_special_option(name, args, segment) when name in ["pixelate", "pix"] do
-    parse_pixelate(args, segment)
-  end
-
   defp parse_special_option(name, args, segment) when name in ["monochrome", "mc"] do
     parse_monochrome(args, segment)
   end
@@ -455,36 +506,7 @@ defmodule ImagePipe.Parser.Imgproxy.OptionGrammar do
     parse_duotone(args, segment)
   end
 
-  defp parse_special_option(name, args, segment) when name in ["brightness", "br"] do
-    parse_adjustment(:brightness, args, segment)
-  end
-
-  defp parse_special_option(name, args, segment) when name in ["contrast", "co"] do
-    parse_adjustment(:contrast, args, segment)
-  end
-
-  defp parse_special_option(name, args, segment) when name in ["saturation", "sa"] do
-    parse_adjustment(:saturation, args, segment)
-  end
-
   defp parse_special_option(name, _args, _segment), do: {:error, {:unknown_option, name}}
-
-  defp parse_effect_float(key, [value], _segment) when value != "" do
-    with {:ok, value} <- parse_non_negative_float(value) do
-      {:ok, [{key, value}]}
-    end
-  end
-
-  defp parse_effect_float(_key, _args, segment),
-    do: {:error, {:invalid_option_segment, segment}}
-
-  defp parse_pixelate([value], _segment) when value != "" do
-    with {:ok, value} <- parse_non_negative_integer(value) do
-      {:ok, [pixelate: value]}
-    end
-  end
-
-  defp parse_pixelate(_args, segment), do: {:error, {:invalid_option_segment, segment}}
 
   defp parse_monochrome([intensity], _segment) when intensity != "" do
     with {:ok, intensity} <- parse_intensity(intensity) do
@@ -552,14 +574,6 @@ defmodule ImagePipe.Parser.Imgproxy.OptionGrammar do
       {:ok, [{field, color}]}
     end
   end
-
-  defp parse_adjustment(key, [value], _segment) when value != "" do
-    with {:ok, value} <- parse_adjustment_value(value) do
-      {:ok, [{key, value}]}
-    end
-  end
-
-  defp parse_adjustment(_key, _args, segment), do: {:error, {:invalid_option_segment, segment}}
 
   defp parse_adjustment_value(value) do
     case parse_number(value) do
@@ -680,14 +694,6 @@ defmodule ImagePipe.Parser.Imgproxy.OptionGrammar do
   end
 
   defp parse_zoom(_args, segment), do: {:error, {:invalid_option_segment, segment}}
-
-  defp parse_dpr([value], _segment) when value != "" do
-    with {:ok, dpr} <- parse_positive_float(value) do
-      {:ok, [dpr: dpr]}
-    end
-  end
-
-  defp parse_dpr(_args, segment), do: {:error, {:invalid_option_segment, segment}}
 
   defp parse_extend([value], _segment) when value != "" do
     with {:ok, extend?} <- parse_boolean(value) do
