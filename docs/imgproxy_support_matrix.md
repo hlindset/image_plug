@@ -393,9 +393,13 @@ source support.
 ### Smart crop, object detection, classification, and best-format models
 
 ImagePipe ships a narrow slice of object-detection gravity: `g:obj:face` (and
-the crop form `c:W:H:obj:face`) selects a single `face` class through optional
-`image_vision` face detection, falling back to libvips attention smart crop when
-the detector is unavailable. None of imgproxy's object-detection or smart-crop
+the crop form `c:W:H:obj:face`) selects a single `face` class through an optional
+ML detector, falling back to libvips attention smart crop when the detector is
+unavailable. Enabling it requires the host to add **both** `image_vision` **and**
+its ONNX backend `ortex` (a Rust runtime; the YuNet model downloads on first
+use) — see [content-aware-gravity.md](content-aware-gravity.md) for the full host
+setup, the `detector` / `detector_required` options, warmup, and custom
+detectors. None of imgproxy's object-detection or smart-crop
 *configuration* knobs are read; they are not blanket-missing now that part of the
 surface ships, so the relevant variables are broken out below.
 

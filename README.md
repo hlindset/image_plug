@@ -126,6 +126,11 @@ ImagePipe's fixed plan order.
   fixed operation ordering.
 - [Imgproxy support matrix](docs/imgproxy_support_matrix.md) lists supported,
   partial, rejected, missing, and out-of-scope Imgproxy features.
+- [Content-aware gravity](docs/content-aware-gravity.md) documents smart crop
+  (`g:sm`) and how a host enables optional ML face detection (`g:obj:face`,
+  face-assisted `g:sm`) — the `image_vision` + `ortex` dependencies, the
+  `detector` / `detector_required` options, fallback behavior, warmup, and
+  custom detectors.
 - [Cache](docs/cache.md) documents filesystem response caching, cache keys,
   stored headers, failure modes, and cache safety boundaries.
 - [CDN HTTP caching](docs/cdn-http-cache.md) documents generated
