@@ -17,6 +17,31 @@ defmodule ImagePipe.Parser.Imgproxy.OptionGrammarTest do
     end
   end
 
+  property "fixed-arity option aliases parse equivalently to their long forms" do
+    pairs = [
+      {"blur", "bl"},
+      {"sharpen", "sh"},
+      {"pixelate", "pix"},
+      {"brightness", "br"},
+      {"contrast", "co"},
+      {"saturation", "sa"}
+    ]
+
+    # Non-empty values only: an empty arg yields {:invalid_option_segment, segment}
+    # whose segment string differs by alias (e.g. "blur:" vs "bl:") — an expected
+    # artifact, not a divergence. Every non-empty value produces an alias-independent
+    # result (a value-tagged error or an {:ok, ...} assignment).
+    check all {long, short} <- member_of(pairs),
+              value <-
+                one_of([
+                  map(integer(-200..200), &Integer.to_string/1),
+                  string(:alphanumeric, min_length: 1)
+                ]),
+              max_runs: 300 do
+      assert OptionGrammar.parse("#{long}:#{value}") == OptionGrammar.parse("#{short}:#{value}")
+    end
+  end
+
   test "resize full grammar preserves explicit extend_requested assignment" do
     assert OptionGrammar.parse("resize:fill:300:200:1:0") ==
              {:ok,
@@ -126,6 +151,13 @@ defmodule ImagePipe.Parser.Imgproxy.OptionGrammarTest do
     assert OptionGrammar.parse("pixelate:8") == {:ok, {:pipeline, [pixelate: 8]}}
     assert OptionGrammar.parse("pix:12") == {:ok, {:pipeline, [pixelate: 12]}}
     assert OptionGrammar.parse("pix:0") == {:ok, {:pipeline, [pixelate: 0]}}
+  end
+
+  test "dpr parses positive floats and rejects non-positive values" do
+    assert OptionGrammar.parse("dpr:1.5") == {:ok, {:pipeline, [dpr: 1.5]}}
+    assert OptionGrammar.parse("dpr:2") == {:ok, {:pipeline, [dpr: 2.0]}}
+    assert OptionGrammar.parse("dpr:0") == {:error, {:invalid_positive_float, "0"}}
+    assert OptionGrammar.parse("dpr:-1") == {:error, {:invalid_positive_float, "-1"}}
   end
 
   test "tone effect options parse with imgproxy aliases" do
