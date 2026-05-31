@@ -38,8 +38,7 @@ defmodule ImagePipe.Transform.Detector.WarmupTest do
   test "async warmup does not block start and terminates :normal" do
     pid =
       start_supervised!(
-        {Warmup,
-         detector: SignalDetector, classes: ["face"], mode: :async, opts: [test_pid: self()]}
+        {Warmup, detector: SignalDetector, classes: ["face"], opts: [test_pid: self()]}
       )
 
     ref = Process.monitor(pid)
@@ -51,9 +50,7 @@ defmodule ImagePipe.Transform.Detector.WarmupTest do
 
   test "unavailable detector is a clean no-op that still terminates :normal" do
     pid =
-      start_supervised!(
-        {Warmup, detector: UnavailableDetector, classes: ["face"], mode: :async, opts: []}
-      )
+      start_supervised!({Warmup, detector: UnavailableDetector, classes: ["face"], opts: []})
 
     ref = Process.monitor(pid)
     assert_receive {:DOWN, ^ref, :process, ^pid, :normal}

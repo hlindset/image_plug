@@ -6,7 +6,7 @@ defmodule ImagePipe.Transform.Detector.Warmup do
   it), e.g.:
 
       {ImagePipe.Transform.Detector.Warmup,
-       detector: ImagePipe.Transform.Detector.ImageVision, classes: ["face"], mode: :async}
+       detector: ImagePipe.Transform.Detector.ImageVision, classes: ["face"]}
 
   `restart: :transient` — it warms once and terminates `:normal`, so the
   supervisor does not restart it. It does NOT trap exits: a shutdown mid-download
@@ -15,9 +15,7 @@ defmodule ImagePipe.Transform.Detector.Warmup do
   raises (a raised exit under `:transient` would restart-storm).
 
   The worker runs the blocking model load inside `handle_continue/2`, so
-  `start_link/1` returns immediately and the host's boot is never blocked. The
-  `mode: :async` option is accepted for forward-compatibility; the worker is
-  non-blocking for the host regardless.
+  `start_link/1` returns immediately and the host's boot is never blocked.
   """
   use GenServer, restart: :transient
 
