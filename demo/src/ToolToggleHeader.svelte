@@ -20,7 +20,7 @@
   aria-label={`${checked ? "Disable" : "Enable"} ${title.toLowerCase()}`}
   onclick={toggleChecked}
 >
-  <span>
+  <span class="tool-toggle-text">
     <h2>{title}</h2>
     <p>{summary}</p>
   </span>
@@ -62,6 +62,11 @@
       font-family: var(--font-mono);
       font-size: 12px;
       line-height: 16px;
+      /* Long summaries (e.g. g:obj:car:dog:… with many classes) must truncate
+         rather than push the toggle switch out of bounds. */
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
     }
 
     &:focus-visible {
@@ -69,6 +74,13 @@
       outline: 2px solid var(--focus-ring);
       outline-offset: 4px;
     }
+  }
+
+  .tool-toggle-text {
+    /* min-width: 0 lets this flex item shrink so the summary `p` can ellipsize
+       instead of forcing width and pushing the switch out of bounds. */
+    min-width: 0;
+    flex: 1;
   }
 
   .switch-root {
