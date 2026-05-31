@@ -124,6 +124,9 @@ defmodule ImagePipe.Transform.Detector.Composite do
 
     children
     |> Enum.map(fn child ->
+      # Routing uses each detector's STATIC vocabulary, so `[]` opts here is
+      # deliberate (not a dropped argument): `supported_classes/1` must answer
+      # without request-specific opts or a loaded model.
       child_classes = Enum.filter(child.supported_classes([]), &MapSet.member?(requested, &1))
       {child, child_classes}
     end)
