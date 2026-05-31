@@ -756,7 +756,9 @@ defmodule ImagePipe.Cache.KeyTest do
     plan = detect_plan()
 
     present = build_key!(conn, plan, source_identity(), detector_identity: {Detector, {"r", "f"}})
-    absent = build_key!(conn, plan, source_identity(), detector_identity: {Detector, :unavailable})
+
+    absent =
+      build_key!(conn, plan, source_identity(), detector_identity: {Detector, :unavailable})
 
     refute present.hash == absent.hash
   end

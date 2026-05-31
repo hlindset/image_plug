@@ -211,5 +211,33 @@ defmodule ImagePipe.Transform.CropOperationTest do
 
       assert {:ok, %{image: _}} = Crop.execute(op, state)
     end
+
+    test "detection emits a [:image_pipe, :transform, :detect] span with safe metadata", %{
+      image: image
+    } do
+      ref =
+        :telemetry_test.attach_event_handlers(self(), [[:image_pipe, :transform, :detect, :stop]])
+
+      state = %State{
+        image: image,
+        detector:
+          {ImagePipe.Test.FakeDetector,
+           [result: {:ok, [%{label: "face", score: 0.9, box: {10, 10, 20, 20}}]}]}
+      }
+
+      op = %Crop{
+        width: {:pixels, 100},
+        height: {:pixels, 100},
+        crop_from: :gravity,
+        gravity: {:detect, ["face"]}
+      }
+
+      {:ok, _} = Crop.execute(op, state)
+
+      assert_receive {[:image_pipe, :transform, :detect, :stop], ^ref, %{duration: _}, metadata}
+      refute Map.has_key?(metadata, :source_url)
+
+      :telemetry.detach(ref)
+    end
   end
 end

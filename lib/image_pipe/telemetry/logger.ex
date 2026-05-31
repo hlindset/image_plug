@@ -13,7 +13,7 @@ defmodule ImagePipe.Telemetry.Logger do
     request: [[:request], [:send]],
     parse: [[:parse]],
     source: [[:source, :resolve], [:source, :fetch], [:source, :fetch_decode]],
-    transform: [[:transform, :execute], [:transform, :operation]],
+    transform: [[:transform, :execute], [:transform, :operation], [:transform, :detect]],
     cache: [[:cache, :lookup], [:cache, :write], [:cache, :admission], [:cache, :warm_start]]
   }
 

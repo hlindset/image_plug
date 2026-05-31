@@ -252,7 +252,8 @@ defmodule ImagePipe.Transform.Operation.Crop do
   end
 
   defp detect_crop_with_module(%__MODULE__{} = params, %State{} = state, module, dopts, classes) do
-    with {:ok, [_ | _] = regions} <- run_detect(module, dopts, state.image, classes),
+    with {:ok, [_ | _] = regions} <-
+           run_detect(module, dopts, state.image, classes, state.telemetry_opts),
          {:ok, focal} <- focal_from_regions(regions, image_width(state), image_height(state)) do
       execute(%{params | gravity: focal}, state)
     else
@@ -266,20 +267,24 @@ defmodule ImagePipe.Transform.Operation.Crop do
   defp normalize_detector({module, opts}) when is_atom(module) and is_list(opts),
     do: {module, opts}
 
-  defp run_detect(module, opts, image, classes) do
-    case module.detect(image, Keyword.put(opts, :classes, classes)) do
-      {:ok, regions} when is_list(regions) ->
-        if Enum.all?(regions, &valid_region?/1),
-          do: {:ok, regions},
-          else: {:error, {:detector, :invalid_adapter_result}}
-
-      {:error, _} = error ->
-        error
-
-      _other ->
-        {:error, {:detector, :invalid_adapter_result}}
-    end
+  defp run_detect(module, opts, image, classes, telemetry_opts) do
+    ImagePipe.Telemetry.span(telemetry_opts, [:transform, :detect], %{classes: classes}, fn ->
+      result = validate_detect_result(module.detect(image, Keyword.put(opts, :classes, classes)))
+      {result, %{regions: detect_count(result)}}
+    end)
   end
+
+  defp validate_detect_result({:ok, regions}) when is_list(regions) do
+    if Enum.all?(regions, &valid_region?/1),
+      do: {:ok, regions},
+      else: {:error, {:detector, :invalid_adapter_result}}
+  end
+
+  defp validate_detect_result({:error, _} = error), do: error
+  defp validate_detect_result(_other), do: {:error, {:detector, :invalid_adapter_result}}
+
+  defp detect_count({:ok, regions}), do: length(regions)
+  defp detect_count(_), do: 0
 
   defp valid_region?(%{box: {x, y, w, h}})
        when is_number(x) and is_number(y) and is_number(w) and is_number(h),
