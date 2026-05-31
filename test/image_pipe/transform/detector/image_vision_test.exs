@@ -1,5 +1,12 @@
 defmodule ImagePipe.Transform.Detector.ImageVisionTest do
   use ExUnit.Case, async: true
+
+  # The drift/smoke tests below reference the optional dependency's modules
+  # (`Image.Detection`/`Image.FaceDetection`), which are absent in the default
+  # lane (these tests are `@tag :image_vision` and excluded there). Silence the
+  # compile-time undefined-module warning the same way the adapters do.
+  @compile {:no_warn_undefined, [Image.Detection, Image.FaceDetection]}
+
   alias ImagePipe.Transform.Detector.ImageVision.Face
   alias ImagePipe.Transform.Detector.ImageVision.Objects
 
