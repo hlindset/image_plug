@@ -51,7 +51,31 @@ defmodule ImagePipe.Transform.Detector.CompositeTest do
     end
   end
 
+  defmodule ErroringChild do
+    @behaviour ImagePipe.Transform.Detector
+    @impl true
+    def supported_classes(_), do: ["car"]
+    @impl true
+    def available?(_), do: true
+    @impl true
+    def identity(_), do: {__MODULE__, :err_v1}
+    @impl true
+    def detect(_image, _opts), do: {:error, {:detector, :boom}}
+  end
+
   defp composite, do: Composite.new([FaceChild, ObjectChild])
+
+  test "surfaces the error when every routed child fails" do
+    composite = Composite.new([ErroringChild])
+    assert {:error, {:detector, :boom}} = Composite.detect(composite, :image, classes: ["car"])
+  end
+
+  test "best-effort: still succeeds when at least one routed child succeeds" do
+    # car routes to both ErroringChild (fails) and ObjectChild (succeeds)
+    composite = Composite.new([ErroringChild, ObjectChild])
+    assert {:ok, regions} = Composite.detect(composite, :image, classes: ["car"])
+    assert Enum.map(regions, & &1.label) == ["car"]
+  end
 
   test "supported_classes is the union of children" do
     assert Enum.sort(Composite.supported_classes(composite())) == ["car", "dog", "face"]

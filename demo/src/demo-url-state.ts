@@ -1,4 +1,5 @@
 import {
+  cocoClasses,
   defaultDemoState,
   resetCropPixelsToSource,
   sampleImages,
@@ -14,6 +15,8 @@ import {
   type Rotate,
   type SourceImage,
 } from "./processing-path";
+
+const cocoClassSet = new Set<string>(cocoClasses);
 
 export type ExpandedToolboxes = {
   effectsOpen: boolean;
@@ -726,12 +729,21 @@ function parseGravity(currentState: DemoState, args: string[]): DemoState | null
       };
     }
 
-    // g:obj:%c1:…:%cN — explicit class list
+    // g:obj:%c1:…:%cN — explicit class list. The backend best-effort-drops
+    // classes no detector knows, so mirror that: keep only known COCO-80 classes
+    // (deduped). If every token is unknown the picker can't represent it (empty
+    // would read as "all objects"), so leave gravity unchanged.
+    const knownClasses = [...new Set(classes.filter((cls) => cocoClassSet.has(cls)))];
+
+    if (knownClasses.length === 0) {
+      return currentState;
+    }
+
     return {
       ...currentState,
       gravityEnabled: true,
       gravityMode: "objClasses",
-      gravityObjClasses: classes,
+      gravityObjClasses: knownClasses,
     };
   }
 

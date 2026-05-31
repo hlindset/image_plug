@@ -31,7 +31,7 @@ defmodule ImagePipe.Transform.Detector.ImageVision.Face do
 
     cond do
       not available?(opts) -> {:error, {:detector, :unavailable}}
-      classes == :all or classes == ["face"] -> detect_faces(image)
+      classes == :all or (is_list(classes) and "face" in classes) -> detect_faces(image)
       true -> {:ok, []}
     end
   end

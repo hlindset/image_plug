@@ -90,7 +90,10 @@ HTTP cache decision events aren't spans. ImagePipe emits them with
 
 ## Metadata
 
-Metadata is intentionally low-cardinality and product-neutral. Common fields are:
+Metadata is product-neutral and free of sensitive data (no secrets, credentials,
+or source-derived paths). Cardinality is a consumer concern — handlers may safely
+accept high-cardinality fields and project or aggregate them as needed. Common
+fields are:
 
 - `:parser` - the configured parser module.
 - `:request_method` - the HTTP method.

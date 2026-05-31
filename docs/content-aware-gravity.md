@@ -79,10 +79,12 @@ plug ImagePipe,
   detector_required: false   # default
 ```
 
-- **`detector`** — which detector backs the face-aware paths.
-  - `:default` *(default)* — the bundled `ImagePipe.Transform.Detector.ImageVision.Face`
-    adapter. Activates automatically when `image_vision` + `ortex` are loaded;
-    reports unavailable (→ attention fallback) otherwise.
+- **`detector`** — which detector backs the face- and object-aware paths.
+  - `:default` *(default)* — the bundled `ImagePipe.Transform.Detector.Composite`,
+    which routes faces to `ImageVision.Face` (YuNet) and objects to
+    `ImageVision.Objects` (RT-DETR/COCO-80). Activates automatically when
+    `image_vision` + `ortex` are loaded; reports unavailable (→ attention
+    fallback) otherwise.
   - `nil` — detection disabled. Face-aware requests always fall back to attention.
   - a module implementing `ImagePipe.Transform.Detector` — a
     [custom detector](#custom-detectors).
@@ -167,7 +169,7 @@ pseudo-class.
 
 **Class syntax.** Append one or more class names as colon-separated tokens:
 
-```
+```text
 g:obj:car               # anchor on detected cars
 g:obj:car:dog           # anchor on cars and dogs (class union)
 g:obj                   # all detected objects — faces + all COCO-80 classes

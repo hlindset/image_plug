@@ -30,10 +30,13 @@ defmodule ImagePipe.Transform.Detector.ImageVisionTest do
   end
 
   test "Face.detect with :all short-circuits to unavailable when the dep is absent" do
-    # In the default (no image_vision) lane, available? is false, so any classes
-    # value returns the unavailable error rather than crashing.
-    assert {:error, {:detector, :unavailable}} = Face.detect(:image, classes: :all)
-    assert {:error, {:detector, :unavailable}} = Face.detect(:image, classes: ["car"])
+    # Only meaningful in the no-dependency lane: when available? is false the
+    # detect short-circuits before touching the (junk) :image input. With the dep
+    # present it would run real inference, so guard to that lane.
+    unless Face.available?([]) do
+      assert {:error, {:detector, :unavailable}} = Face.detect(:image, classes: :all)
+      assert {:error, {:detector, :unavailable}} = Face.detect(:image, classes: ["car"])
+    end
   end
 
   @tag :image_vision

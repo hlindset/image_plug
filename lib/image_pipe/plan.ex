@@ -90,12 +90,18 @@ defmodule ImagePipe.Plan do
   def detect_classes(%__MODULE__{pipelines: pipelines}) do
     pipelines
     |> Enum.flat_map(& &1.operations)
-    |> Enum.find_value(fn op ->
+    |> Enum.reduce_while([], fn op, acc ->
       case Map.get(op, :guide) do
-        {:detect, classes} -> classes
-        _ -> nil
+        {:detect, :all} -> {:halt, :all}
+        {:detect, classes} -> {:cont, classes ++ acc}
+        _ -> {:cont, acc}
       end
     end)
+    |> case do
+      :all -> :all
+      [] -> nil
+      classes -> classes |> Enum.uniq() |> Enum.sort()
+    end
   end
 
   @doc "Returns true if any operation requests a face-assisted smart guide."

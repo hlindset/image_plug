@@ -60,19 +60,34 @@ defmodule ImagePipe.Transform.Detector.Composite do
     end)
   end
 
-  @spec detect(t(), term(), keyword()) :: {:ok, [map()]}
+  @spec detect(t(), term(), keyword()) :: {:ok, [map()]} | {:error, term()}
   def detect(%__MODULE__{} = composite, image, opts) do
     classes = Keyword.get(opts, :classes, :all)
     telemetry_opts = Keyword.get(opts, :telemetry_opts)
 
-    regions =
-      composite
-      |> routed(classes)
-      |> Enum.flat_map(fn {child, child_classes} ->
-        run_child(child, child_classes, image, opts, telemetry_opts)
-      end)
+    composite
+    |> routed(classes)
+    |> Enum.map(fn {child, child_classes} ->
+      run_child(child, child_classes, image, opts, telemetry_opts)
+    end)
+    |> merge_results()
+  end
 
-    {:ok, regions}
+  # Merge the routed children's results. Any successful child yields
+  # {:ok, merged regions} — best-effort across models, even if some children
+  # errored or found nothing. Only when EVERY routed child errored do we surface
+  # the error, so the [:transform, :detect] span reflects a real outage instead
+  # of a misleading :no_regions. An empty routed set (e.g. all-unknown classes)
+  # degrades to {:ok, []}.
+  defp merge_results([]), do: {:ok, []}
+
+  defp merge_results(results) do
+    region_lists = for {:ok, regions} <- results, do: regions
+
+    case region_lists do
+      [] -> Enum.find(results, &match?({:error, _}, &1))
+      lists -> {:ok, List.flatten(lists)}
+    end
   end
 
   defp run_child(child, child_classes, image, opts, nil) do
@@ -83,17 +98,17 @@ defmodule ImagePipe.Transform.Detector.Composite do
     start_meta = %{detector: child, model: child.identity(opts), classes: child_classes}
 
     Telemetry.span(telemetry_opts, [:transform, :detect, :model], start_meta, fn ->
-      regions = detect_child(child, child_classes, image, opts)
-      {regions, %{regions: length(regions)}}
+      result = detect_child(child, child_classes, image, opts)
+      {result, %{regions: region_count(result)}}
     end)
   end
 
   defp detect_child(child, child_classes, image, opts) do
-    case child.detect(image, Keyword.put(opts, :classes, child_classes)) do
-      {:ok, regions} -> regions
-      {:error, _} -> []
-    end
+    child.detect(image, Keyword.put(opts, :classes, child_classes))
   end
+
+  defp region_count({:ok, regions}), do: length(regions)
+  defp region_count({:error, _}), do: 0
 
   @spec available?(t(), keyword()) :: boolean()
   def available?(%__MODULE__{} = composite, opts) do
