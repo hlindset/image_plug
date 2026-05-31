@@ -40,6 +40,10 @@
     type ThemeMode,
   } from "./theme";
 
+  // COCO-80 classes shown alphabetically in the picker. `cocoClasses` keeps its
+  // canonical (adapter) order as the source of truth; this is display-only.
+  const sortedCocoClasses = [...cocoClasses].sort((a, b) => a.localeCompare(b));
+
   let copyLabel = "Copy URL";
   let drawerOpen = false;
   let mobileTools = false;
@@ -908,7 +912,7 @@
                 <Select.Portal>
                   <Select.Content class="obj-class-content" sideOffset={4}>
                     <Select.Viewport class="obj-class-viewport">
-                      {#each cocoClasses as cls}
+                      {#each sortedCocoClasses as cls}
                         <Select.Item class="obj-class-item" value={cls} label={cls}>
                           {#snippet children({ selected })}
                             <span class="obj-class-item-check" aria-hidden="true">
@@ -922,11 +926,6 @@
                   </Select.Content>
                 </Select.Portal>
               </Select.Root>
-              {#if state.gravityObjClasses.length === 0}
-                <p class="field-hint-text">
-                  No classes selected — emits bare <code>g:obj</code> (all objects)
-                </p>
-              {/if}
             </div>
           {/if}
         {/if}
@@ -2146,17 +2145,6 @@
     color: var(--text-muted);
     font-family: var(--font-mono);
     font-size: 12px;
-  }
-
-  .field-hint-text {
-    margin: 0;
-    color: var(--text-muted);
-    font-size: 12px;
-    line-height: 16px;
-  }
-
-  .field-hint-text code {
-    font-family: var(--font-mono);
   }
 
   .text-input {
