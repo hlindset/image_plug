@@ -147,6 +147,19 @@ defmodule ImagePipe.Parser.Imgproxy.OptionGrammarTest do
                ]}}
   end
 
+  test "crop object gravity with multiple classes parses all tail tokens as class names" do
+    assert OptionGrammar.parse("c:100:100:obj:cat:dog") ==
+             {:ok,
+              {:pipeline,
+               [
+                 crop: %CropRequest{
+                   width: {:pixels, 100},
+                   height: {:pixels, 100},
+                   gravity: {:obj, ["cat", "dog"]}
+                 }
+               ]}}
+  end
+
   test "extend gravity keeps rejecting object gravity" do
     assert {:error, _} = OptionGrammar.parse("extend:1:obj:face")
     assert {:error, _} = OptionGrammar.parse("ex:1:obj")
