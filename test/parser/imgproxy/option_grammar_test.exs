@@ -35,6 +35,7 @@ defmodule ImagePipe.Parser.Imgproxy.OptionGrammarTest do
               value <-
                 one_of([
                   map(integer(-200..200), &Integer.to_string/1),
+                  map(float(min: -200.0, max: 200.0), &Float.to_string/1),
                   string(:alphanumeric, min_length: 1)
                 ]),
               max_runs: 300 do
