@@ -392,11 +392,34 @@ source support.
 
 ### Smart crop, object detection, classification, and best-format models
 
-ImagePipe has no transforms or runtime integrations for these Imgproxy Pro
-features.
+ImagePipe ships a narrow slice of object-detection gravity: `g:obj:face` (and
+the crop form `c:W:H:obj:face`) selects a single `face` class through optional
+`image_vision` face detection, falling back to libvips attention smart crop when
+the detector is unavailable. None of imgproxy's object-detection or smart-crop
+*configuration* knobs are read; they are not blanket-missing now that part of the
+surface ships, so the relevant variables are broken out below.
 
-- ⭕ `IMGPROXY_SMART_CROP_*`
-- ⭕ `IMGPROXY_OBJECT_DETECTION_*`
+**Model and threshold divergence.** imgproxy uses host-configured YOLO models
+with tunable confidence/NMS thresholds and a configurable gravity mode.
+ImagePipe uses `image_vision`'s YuNet face model with fixed thresholds. Detected
+boxes and resulting crops are compatible in intent but are not bit-identical to
+imgproxy.
+
+- ⭕ `IMGPROXY_OBJECT_DETECTION_GRAVITY_MODE` — imgproxy defaults to
+  `max_score_area` (highest-scoring detected region). ImagePipe instead
+  approximates object gravity with an area-weighted centroid of detected face
+  boxes, so the chosen focus point diverges from imgproxy's gravity mode.
+- ⭕ `IMGPROXY_OBJECT_DETECTION_FALLBACK_TO_SMART_CROP` — ImagePipe always falls
+  back to libvips attention smart crop when no face is detected or the detector
+  is unavailable; the behavior isn't configurable.
+- ⭕ `IMGPROXY_OBJECT_DETECTION_*` confidence and NMS thresholds — ImagePipe uses
+  the YuNet face model's fixed detection-confidence and non-max-suppression
+  thresholds; they are not exposed as configuration.
+- ⭕ `IMGPROXY_SMART_CROP_ADVANCED*` — No advanced/object-aware smart-crop tuning
+  surface; ImagePipe's smart crop is the libvips attention heuristic only.
+- ⭕ `IMGPROXY_SMART_CROP_*` (other) — No other smart-crop configuration is read.
+- ⭕ `IMGPROXY_OBJECT_DETECTION_*` (other) — No other object-detection
+  configuration (model paths, class allow-lists, weights) is read.
 - ⭕ `IMGPROXY_CLASSIFICATION_*`
 - ⭕ `IMGPROXY_BEST_FORMAT_*`
 
@@ -486,7 +509,8 @@ transforms or output encoding.
 | `gravity` anchors | `g` | Supported | `ce`, `no`, `so`, `ea`, `we`, `noea`, `nowe`, `soea`, `sowe`. |
 | `gravity:fp` | `g:fp` | Supported | Focal point coordinates from `0.0` to `1.0`. |
 | `gravity:sm` | `g:sm` | Supported | Smart gravity via libvips attention smart crop (`VIPS_INTERESTING_ATTENTION`). |
-| `gravity:obj` | | Missing | Pro object-detection gravity. |
+| `gravity:obj:face` | `g:obj:face` | Supported | Single `face` class via optional `image_vision` face detection; falls back to libvips attention when the detector is unavailable. |
+| `gravity:obj` | | Partial | Only the single `face` class is supported (`g:obj:face`); bare `g:obj` (all), `g:obj:all`, multi-class, and `g:objw` are rejected. |
 | `gravity:objw` | | Missing | Pro object-detection gravity with weights. |
 | `objects_position` | `obj_pos`, `op` | Missing | Pro object-detection positioning. |
 | `crop` | `c` | Supported | Absolute, relative, or full-axis dimensions. Supports anchor, focal-point, and smart gravity (`c:W:H:sm`); smart gravity runs libvips attention smart crop. |
@@ -516,7 +540,7 @@ transforms or output encoding.
 | `blur_areas` | `ba` | Missing | Pro area blur. |
 | `blur_detections` | `bd` | Missing | Pro object-detection blur. |
 | `draw_detections` | `dd` | Missing | Pro object-detection debug overlay. |
-| `crop_objects` | `co` | Missing | Pro object-detection crop. |
+| `crop_objects` | `co` | Missing | Pro object-detection crop. **Alias collision**: imgproxy aliases `co` to both `contrast` and `crop_objects`; ImagePipe binds `co` → `contrast` only, and `crop_objects` is out of scope. |
 | `colorize` | `col` | Missing | Pro overlay effect. |
 | `gradient` | `gr` | Missing | Pro gradient overlay. |
 | `watermark` | `wm` | Missing | Base watermark semantics aren't modeled. |

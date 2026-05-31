@@ -754,6 +754,7 @@
               <option value="soea">south east</option>
               <option value="sowe">south west</option>
               <option value="sm">smart</option>
+              <option value="obj:face">object (face)</option>
             </select>
           </label>
         {/if}
@@ -798,6 +799,7 @@
               <option value="focalPoint">focal point</option>
               <option value="offset">anchor + offset</option>
               <option value="smart">smart</option>
+              <option value="objFace">object (face)</option>
             </select>
           </label>
 

@@ -501,6 +501,45 @@ describe("processing path generation", () => {
     });
   });
 
+  it("includes object (face) global gravity without offsets", () => {
+    const state = {
+      ...defaultDemoState,
+      resizeEnabled: true,
+      gravityEnabled: true,
+      gravityMode: "objFace" as const,
+    };
+
+    expect(optionSegments(state)).toEqual(["rs:fill:640:360:0", "g:obj:face"]);
+  });
+
+  it("round-trips object (face) global gravity through the demo path", () => {
+    const parsed = parseDemoPath("/demo/g:obj:face/plain/local:///images/dog.jpg");
+
+    expect(parsed).toMatchObject({
+      gravityEnabled: true,
+      gravityMode: "objFace",
+    });
+
+    expect(demoPathForState(parsed)).toBe("/demo/g:obj:face/plain/local:///images/dog.jpg");
+  });
+
+  it("round-trips object (face) crop gravity through the demo path", () => {
+    const state = {
+      ...activeDemoState,
+      cropEnabled: true,
+      cropGravity: "obj:face" as const,
+    };
+
+    const segments = optionSegments(state);
+    expect(segments).toContain("c:5011:7516:obj:face");
+
+    const parsed = parseDemoPath(demoPathForState(state));
+    expect(parsed).toMatchObject({
+      cropEnabled: true,
+      cropGravity: "obj:face",
+    });
+  });
+
   it("normalizes focal point coordinates from a picker rectangle", () => {
     expect(
       focalPointFromBounds(150, 75, {

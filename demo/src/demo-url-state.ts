@@ -4,6 +4,7 @@ import {
   sampleImages,
   signedPathForState,
   type CropDimensionUnit,
+  type CropGravity,
   type DemoState,
   type Flip,
   type Gravity,
@@ -324,16 +325,16 @@ function parseRotate(currentState: DemoState, args: string[]): DemoState | null 
 }
 
 function parseCrop(currentState: DemoState, args: string[]): DemoState | null {
-  if (args.length < 2 || args.length > 3) {
+  if (args.length < 2 || args.length > 4) {
     return null;
   }
 
-  const [widthArg, heightArg, gravityArg] = args as [string, string, string?];
+  const [widthArg, heightArg, ...gravityArgs] = args as [string, string, ...string[]];
   const width = parseCropDimension(widthArg);
   const height = parseCropDimension(heightArg);
-  const gravity = gravityArg ?? "inherit";
+  const gravity = cropGravityFromArgs(gravityArgs);
 
-  if (width === null || height === null || (gravity !== "inherit" && !isCropGravity(gravity))) {
+  if (width === null || height === null || gravity === null) {
     return null;
   }
 
@@ -693,6 +694,14 @@ function parseGravity(currentState: DemoState, args: string[]): DemoState | null
     };
   }
 
+  if (args.length === 2 && modeOrGravity === "obj" && xArg === "face") {
+    return {
+      ...currentState,
+      gravityEnabled: true,
+      gravityMode: "objFace",
+    };
+  }
+
   if (args.length === 1 && modeOrGravity !== undefined && isGravity(modeOrGravity)) {
     return {
       ...currentState,
@@ -841,8 +850,26 @@ function isGravity(value: string): value is Gravity {
   return gravityValues.has(value);
 }
 
-function isCropGravity(value: string): value is Gravity | "sm" {
-  return value === "sm" || isGravity(value);
+function cropGravityFromArgs(args: string[]): CropGravity | null {
+  if (args.length === 0) {
+    return "inherit";
+  }
+
+  if (args.length === 1) {
+    const [value] = args as [string];
+
+    if (value === "sm" || isGravity(value)) {
+      return value;
+    }
+
+    return null;
+  }
+
+  if (args.length === 2 && args[0] === "obj" && args[1] === "face") {
+    return "obj:face";
+  }
+
+  return null;
 }
 
 function isBooleanArg(value: string): boolean {
