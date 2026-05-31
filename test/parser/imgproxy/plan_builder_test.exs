@@ -896,6 +896,66 @@ defmodule ImagePipe.Parser.Imgproxy.PlanBuilderTest do
     assert crop.guide == {:detect, ["face", "5", "5"]}
   end
 
+  test "all among classes collapses to :all (fill path)" do
+    assert {:ok, %Plan{pipelines: [%Pipeline{operations: [%Operation.Resize{} = resize]}]}} =
+             plan_pipeline(
+               resizing_type: :fill,
+               width: {:pixels, 100},
+               height: {:pixels, 100},
+               gravity: {:obj, ["car", "all"]}
+             )
+
+    assert resize.guide == {:detect, :all}
+  end
+
+  test "bare object gravity maps to detect :all (crop path)" do
+    assert {:ok,
+            %Plan{
+              pipelines: [%Pipeline{operations: [%Operation.CropGuided{} = crop]}]
+            }} =
+             plan_pipeline(
+               crop: %ImagePipe.Parser.Imgproxy.CropRequest{
+                 width: {:pixels, 100},
+                 height: {:pixels, 100},
+                 gravity: {:obj, []}
+               }
+             )
+
+    assert crop.guide == {:detect, :all}
+  end
+
+  test "the all pseudo-class maps to detect :all (crop path)" do
+    assert {:ok,
+            %Plan{
+              pipelines: [%Pipeline{operations: [%Operation.CropGuided{} = crop]}]
+            }} =
+             plan_pipeline(
+               crop: %ImagePipe.Parser.Imgproxy.CropRequest{
+                 width: {:pixels, 100},
+                 height: {:pixels, 100},
+                 gravity: {:obj, ["all"]}
+               }
+             )
+
+    assert crop.guide == {:detect, :all}
+  end
+
+  test "multi-class object gravity maps to detect with those classes (crop path)" do
+    assert {:ok,
+            %Plan{
+              pipelines: [%Pipeline{operations: [%Operation.CropGuided{} = crop]}]
+            }} =
+             plan_pipeline(
+               crop: %ImagePipe.Parser.Imgproxy.CropRequest{
+                 width: {:pixels, 100},
+                 height: {:pixels, 100},
+                 gravity: {:obj, ["car", "dog"]}
+               }
+             )
+
+    assert crop.guide == {:detect, ["car", "dog"]}
+  end
+
   test "represents output intent outside imgproxy pipeline operations" do
     request = %ParsedRequest{
       signature: "_",
