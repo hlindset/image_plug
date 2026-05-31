@@ -193,12 +193,6 @@ defmodule ImagePipe.Parser.Imgproxy.PlanBuilder do
     if Response.valid_filename?(stem), do: stem, else: "image"
   end
 
-  defp reject_unsupported_semantics(%PipelineRequest{gravity: :sm}),
-    do: {:error, {:unsupported_gravity, :sm}}
-
-  defp reject_unsupported_semantics(%PipelineRequest{crop: %CropRequest{gravity: :sm}}),
-    do: {:error, {:unsupported_gravity, :sm}}
-
   defp reject_unsupported_semantics(%PipelineRequest{}), do: :ok
 
   defp plan_geometry(%PipelineRequest{resizing_type: :fill, width: nil, height: nil}),
@@ -645,6 +639,7 @@ defmodule ImagePipe.Parser.Imgproxy.PlanBuilder do
   defp optional_resize_dimension({:pixels, 0}), do: {:ok, :auto}
   defp optional_resize_dimension(dimension), do: imgproxy_resize_dimension(dimension)
 
+  defp resize_guide(:sm), do: {:ok, :smart}
   defp resize_guide({:anchor, :center, :center}), do: {:ok, :center}
   defp resize_guide({:anchor, x, y}), do: {:ok, {:anchor, x, y}}
 
@@ -655,6 +650,7 @@ defmodule ImagePipe.Parser.Imgproxy.PlanBuilder do
     end
   end
 
+  defp tagged_gravity(:sm), do: {:ok, :smart}
   defp tagged_gravity({:anchor, x, y}), do: {:ok, crop_anchor_guide(x, y)}
 
   defp tagged_gravity({:fp, x, y}) do

@@ -718,16 +718,30 @@ defmodule ImagePipe.Parser.Imgproxy.PlanBuilderTest do
     assert second_params.height == pixels(200)
   end
 
-  test "returns unsupported gravity planning errors" do
-    request = %ParsedRequest{
-      signature: "_",
-      source_kind: :plain,
-      source_path: "images/cat.jpg",
-      pipelines: [%PipelineRequest{gravity: :sm}],
-      output: output_request()
-    }
+  test "maps smart gravity fill resize to the smart plan guide" do
+    assert {:ok, %Plan{pipelines: [%Pipeline{operations: operations}]}} =
+             plan_pipeline(
+               resizing_type: :fill,
+               width: {:pixels, 100},
+               height: {:pixels, 100},
+               gravity: :sm
+             )
 
-    assert PlanBuilder.to_plan(request, []) == {:error, {:unsupported_gravity, :sm}}
+    assert [%Operation.Resize{mode: :cover} = resize] = operations
+    assert resize.guide == :smart
+  end
+
+  test "maps smart gravity crop to the smart plan guide" do
+    assert {:ok, %Plan{pipelines: [%Pipeline{operations: [%Operation.CropGuided{} = crop]}]}} =
+             plan_pipeline(
+               crop: %ImagePipe.Parser.Imgproxy.CropRequest{
+                 width: {:pixels, 100},
+                 height: {:pixels, 100},
+                 gravity: :sm
+               }
+             )
+
+    assert crop.guide == :smart
   end
 
   test "represents output intent outside imgproxy pipeline operations" do
