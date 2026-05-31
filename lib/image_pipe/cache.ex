@@ -30,7 +30,8 @@ defmodule ImagePipe.Cache do
   @plan_key_option_keys [
     :auto_avif,
     :auto_webp,
-    :output_capabilities
+    :output_capabilities,
+    :detector_identity
   ]
   @required_adapter_callbacks [
     get: 2,

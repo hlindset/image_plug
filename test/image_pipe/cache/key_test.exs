@@ -93,6 +93,21 @@ defmodule ImagePipe.Cache.KeyTest do
     operation
   end
 
+  defp detect_crop_operation(width, height) do
+    assert {:ok, operation} =
+             Operation.crop_guided(
+               tagged_dimension(width),
+               tagged_dimension(height),
+               {:detect, ["face"]}
+             )
+
+    operation
+  end
+
+  defp detect_plan do
+    plan(pipelines: [%Pipeline{operations: [detect_crop_operation(200, 100)]}])
+  end
+
   defp resize_auto_operation(width, height) do
     assert {:ok, operation} =
              Operation.resize(
@@ -176,6 +191,7 @@ defmodule ImagePipe.Cache.KeyTest do
                ]
              ],
              transform: [key_data_version: 1],
+             detector: nil,
              output: [
                mode: :explicit,
                format: :webp,
@@ -723,6 +739,26 @@ defmodule ImagePipe.Cache.KeyTest do
 
     assert key_a.data[:pipelines] == key_b.data[:pipelines]
     assert key_a.hash == key_b.hash
+  end
+
+  test "detect plans key differently per detector identity" do
+    conn = conn(:get, "/_/g:obj:face/w:200/h:100/plain/images/cat.jpg")
+    plan = detect_plan()
+
+    k1 = build_key!(conn, plan, source_identity(), detector_identity: {Detector, :v1})
+    k2 = build_key!(conn, plan, source_identity(), detector_identity: {Detector, :v2})
+
+    refute k1.hash == k2.hash
+  end
+
+  test "unavailable detector identity keys differently from a present one" do
+    conn = conn(:get, "/_/g:obj:face/w:200/h:100/plain/images/cat.jpg")
+    plan = detect_plan()
+
+    present = build_key!(conn, plan, source_identity(), detector_identity: {Detector, {"r", "f"}})
+    absent = build_key!(conn, plan, source_identity(), detector_identity: {Detector, :unavailable})
+
+    refute present.hash == absent.hash
   end
 
   test "transform key data version participates in the cache key" do

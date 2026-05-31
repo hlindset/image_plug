@@ -70,6 +70,7 @@ defmodule ImagePipe.Cache.Key do
        [
          pipelines: pipelines,
          transform: transform_data(),
+         detector: Keyword.get(opts, :detector_identity),
          output: output,
          representation: representation_data(),
          cache: cache
