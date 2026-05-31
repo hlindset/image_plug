@@ -56,6 +56,25 @@ A worker may stop after any phase with working software.
 
 ---
 
+## Test & codebase conventions (READ FIRST — corrections from the plan review)
+
+The task snippets below use illustrative names. Use these **real** helpers, paths, and APIs throughout; where a task shows `parse_to_plan(...)`, `signed_get(...)`, `crop_test.exs`, or `test/support/fixtures/...`, translate it per this table:
+
+- **Parser/planner tests** live in `test/parser/imgproxy/` (e.g. `plan_builder_test.exs`, `option_grammar_test.exs`) — **not** `test/image_pipe/parser/imgproxy/`. There is **no** `parse_to_plan/1` URL helper. Drive planning with `ImagePipe.Parser.Imgproxy.PlanBuilder.to_plan(%ParsedRequest{pipelines: [%PipelineRequest{...}], ...}, opts)` and assert on the resulting `Resize.guide` / `CropGuided.guide`. Copy the `ParsedRequest`/`PipelineRequest`/`CropRequest` construction (and the `plan_pipeline` helper) from the existing `plan_builder_test.exs`.
+- **Transform unit tests** live in `test/image_pipe/transform/crop_operation_test.exs` (module `ImagePipe.Transform.CropOperationTest`) — **not** `.../operation/crop_test.exs`. There is **no** `test/support/fixtures/` directory. Build state via the file's `Image.new(w, h, color: :white)` helper for dimension-only assertions; for content-sensitive smart/attention/centroid assertions use a real off-center photo: `Image.open!("priv/static/images/woman.jpg")` (other assets: `beach.jpg`, `concert.jpeg`, `dog.jpg`). A flat `Image.new` makes smartcrop ≡ center crop — never use it for "differs from center" tests.
+- **Wire-level tests** live in `test/image_pipe/imgproxy_wire_conformance_test.exs`. There is **no** `signed_get`/`@opts`. Use `call_imgproxy("/_/<options>/plain/images/<asset>.jpg", @default_opts)` (the `/_/` prefix skips signature) and assert with `dimensions(conn)` / `decoded_image(conn)`.
+- **`Cache.Key.build/4` real signature:** `build(conn, %Plan{} = plan, source_identity, opts \\ [])` — the **first** arg is a `%Plug.Conn{}`, `source_identity` must pass `Identity.valid?/1`, and threaded opts are the **last** arg. All cache tests must use this order (the example snippets in Tasks 15/21 show the wrong order — fix them).
+- **`@enforce_keys`:** `%Plan{}` enforces `[:source, :pipelines, :output]`; `%Resize{}` enforces `[:mode, :width, :height, :dpr, :enlargement, :guide]`; `%CropGuided{}` enforces `[:width, :height, :guide]`. Test struct literals must supply every enforced key — or, preferred (per the spec's Testing section), build guides through the parser/`to_plan` rather than hand-building plan structs.
+- **`test_helper.exs`** already calls `ExUnit.start(capture_log: true, assert_receive_timeout: 2_000)`. **Merge** the exclude into that one call: `ExUnit.start(capture_log: true, assert_receive_timeout: 2_000, exclude: [:image_vision])`. Do not add a second `ExUnit.start/1`.
+- **Run-command paths** must be corrected accordingly (`test/parser/imgproxy/…`, `test/image_pipe/transform/crop_operation_test.exs`, `test/image_pipe/imgproxy_wire_conformance_test.exs`).
+
+**Production facts corrected by the smartcrop probe + boundary review:**
+
+- `Vix.Vips.Operation.smartcrop(image, w, h, interesting: :VIPS_INTERESTING_ATTENTION)` returns `{:ok, {cropped_image, %{"attention-x": ax, "attention-y": ay}}}`. **The attention keys are HYPHENATED atoms `:"attention-x"` / `:"attention-y"`, in input-image pixels** — not `attention_x`/`attention_y`. Phase 3's blend MUST match the hyphenated keys.
+- The request/plug/runner layers must **not** name `ImagePipe.Transform.Detector.ImageVision` (Boundary forbids it; only `Detector` is exported). Detector resolution/availability/identity go through the **Transform facade** added in Task 8 (`ImagePipe.Transform.resolve_detector/1`, `detector_available?/2`, `detector_identity/2`).
+
+---
+
 # PHASE 1 — `g:sm` → libvips attention
 
 ### Task 1: Add `:smart` and friends to the plan `guide` types
@@ -355,6 +374,8 @@ Expected: FAIL — currently `{:error, {:unsupported_gravity, :sm}}`.
 
 In `lib/image_pipe/parser/imgproxy/plan_builder.ex`, delete the two `reject_unsupported_semantics` clauses at lines 196-197 and 199-200 (keep the `%PipelineRequest{}` catch-all `:ok` clause at line 202).
 
+**Also update the existing test** in `test/parser/imgproxy/plan_builder_test.exs` (~line 721) titled "returns unsupported gravity planning errors" (or similar) that asserts `to_plan(%ParsedRequest{... gravity: :sm}) == {:error, {:unsupported_gravity, :sm}}` — it will now fail. Change it to assert `{:ok, plan}` with a `:smart` guide (this is the real "expected failure" Step 2 surfaces, in addition to your new mapping test).
+
 - [ ] **Step 4: Map `:sm` in the guide translators**
 
 In the same file, add `:sm` clauses to `resize_guide/1` (after line 648) and `tagged_gravity/1` (after line 658):
@@ -486,16 +507,47 @@ end
 
 - [ ] **Step 2: Export from the transform boundary**
 
-In `lib/image_pipe/transform.ex`, add `Detector` to the `exports:` list (after `Materializer`).
+In `lib/image_pipe/transform.ex`, add `Detector` to the `exports:` list (after `Materializer`). **Do not** export `Detector.ImageVision` — outer boundaries reach it only through the facade below.
 
-- [ ] **Step 3: Compile + commit**
+- [ ] **Step 3: Add the detector facade on the Transform boundary module**
+
+The request/plug/runner layers must not name the concrete `ImageVision` adapter (Boundary forbids it). Add these to `lib/image_pipe/transform.ex` so callers dispatch generically; the facade lives **inside** the Transform boundary, which may name its own adapter:
+
+```elixir
+  @default_detector ImagePipe.Transform.Detector.ImageVision
+
+  @spec resolve_detector(:default | nil | module()) :: module() | nil
+  def resolve_detector(:default), do: @default_detector
+  def resolve_detector(nil), do: nil
+  def resolve_detector(module) when is_atom(module), do: module
+
+  @spec detector_available?(:default | nil | module(), keyword()) :: boolean()
+  def detector_available?(detector, opts) do
+    case resolve_detector(detector) do
+      nil -> false
+      module -> module.available?(opts)
+    end
+  end
+
+  @spec detector_identity(:default | nil | module(), keyword()) :: {module(), term()} | nil
+  def detector_identity(detector, opts) do
+    case resolve_detector(detector) do
+      nil -> nil
+      module -> module.identity(opts)
+    end
+  end
+```
+
+(`PlanExecutor` is inside the Transform boundary, so it may call `resolve_detector/1` directly; `plug.ex` and the runner must call `ImagePipe.Transform.detector_available?/2` and `detector_identity/2`.)
+
+- [ ] **Step 4: Compile + commit**
 
 Run: `mise exec -- mix compile --warnings-as-errors`
 Expected: clean.
 
 ```bash
 git add lib/image_pipe/transform/detector.ex lib/image_pipe/transform.ex
-git commit -m "feat(transform): add product-neutral Detector behaviour"
+git commit -m "feat(transform): Detector behaviour + boundary-safe resolution facade"
 ```
 
 ---
@@ -541,15 +593,19 @@ In `lib/image_pipe/transform/state.ex`, update the moduledoc to note injected ru
   defstruct image: nil,
             debug: false,
             detector: nil,
-            detector_required: false
+            detector_required: false,
+            telemetry_opts: []
 
   @type t :: %__MODULE__{
           image: Vix.Vips.Image.t() | nil,
           debug: boolean(),
-          detector: module() | nil,
-          detector_required: boolean()
+          detector: module() | {module(), keyword()} | nil,
+          detector_required: boolean(),
+          telemetry_opts: keyword()
         }
 ```
+
+(`detector` accepts both a bare module — what `PlanExecutor` sets from config — and `{module, opts}`, which tests use; `normalize_detector/1` handles both. `telemetry_opts` is added here for Task 16; default it to `[]` in `defstruct`.)
 
 - [ ] **Step 3: Write failing detect-path tests**
 
@@ -778,7 +834,7 @@ In `mix.exs`, in `deps/0`, append conditionally:
   end
 ```
 
-Run `mise exec -- mix deps.get` (without the env var — unchanged). For the opt-in lane: `IMAGE_VISION=1 mise exec -- mix deps.get`.
+Run `mise exec -- mix deps.get` (without the env var — unchanged). For the opt-in lane: `IMAGE_VISION=1 mise exec -- mix deps.get`. **`mix.lock` caveat:** running `deps.get` with the var writes `image_vision` + its transitive deps (ortex, nx, …) into `mix.lock`; a later `deps.get` without the var can prune them. Keep `image_vision` **out of** the committed `mix.lock` for the default lane (the default `precommit`/CI runs without the var and must not require the lock entry) — only the opt-in ML lane resolves it.
 
 - [ ] **Step 3: Write adapter tests (dep-absent path)**
 
@@ -805,7 +861,7 @@ defmodule ImagePipe.Transform.Detector.ImageVisionTest do
 end
 ```
 
-Exclude `:image_vision` by default — in `test/test_helper.exs` add `ExUnit.start(exclude: [:image_vision])`.
+Exclude `:image_vision` by default — **merge** into the existing single `ExUnit.start/1` call in `test/test_helper.exs` (do not add a second call): `ExUnit.start(capture_log: true, assert_receive_timeout: 2_000, exclude: [:image_vision])`.
 
 - [ ] **Step 4: Run — expect pass; commit**
 
@@ -884,7 +940,7 @@ git commit -m "feat(plan): detect_classes/1 accessor for content-aware gravity"
 
 - [ ] **Step 1: Add validated plug options**
 
-In `lib/image_pipe/plug.ex`, add `detector` and `detector_required` to the options schema (the `Options.validate!` path). Default `detector: :default`, `detector_required: false`. Resolve `:default`/`nil` to `ImagePipe.Transform.Detector.ImageVision` **inside the transform boundary** — i.e. pass the option value through to `execute_plan/3` opts unchanged; the executor resolves it (next step), so `plug.ex` never names the concrete adapter.
+In `lib/image_pipe/plug.ex` / `lib/image_pipe/request/options.ex`, add `detector` and `detector_required` to the options schema (`@options_schema`) **and** to the `@validated_option_keys` allowlist (`Request.Options` does `Keyword.take(opts, @validated_option_keys)` before validating — keys missing from the allowlist are silently dropped). Default `detector: :default`, `detector_required: false`. Pass the option value through to `execute_plan/3` opts unchanged; the executor resolves `:default`/`nil` (next step) so `plug.ex` never names the concrete adapter.
 
 - [ ] **Step 2: Populate State in the executor**
 
@@ -901,12 +957,9 @@ In `lib/image_pipe/transform/plan_executor.ex`, in `execute/3`, resolve and set 
     execute_pipelines(pipelines, state, opts)
   end
 
-  defp resolve_detector(:default), do: ImagePipe.Transform.Detector.ImageVision
-  defp resolve_detector(nil), do: nil
-  defp resolve_detector(module) when is_atom(module), do: module
 ```
 
-(This keeps `Processor`'s `%State{image: image}` construction detector-free — the executor owns population.)
+Use the facade from Task 8 (`ImagePipe.Transform.resolve_detector/1`) — `PlanExecutor` is inside the Transform boundary, so it may call it. This keeps `Processor`'s `%State{image: image}` construction detector-free; the executor owns population.
 
 - [ ] **Step 3: Forward the options from the request layer**
 
@@ -1035,17 +1088,27 @@ git commit -m "feat(parser): g:obj:face -> {:detect,[\"face\"]}, reject other ob
 
 - [ ] **Step 1: Write a failing wire test**
 
+In `test/image_pipe/imgproxy_wire_conformance_test.exs`, attach handlers to the real telemetry events to prove no fetch/cache happened (the spec requires asserting **both** no source resolve and no cache lookup — make them concrete, not a comment):
+
 ```elixir
-test "detector_required + unavailable detector rejects before source/cache access" do
-  {:ok, agent} = Agent.start_link(fn -> [] end)  # or use the suite's source/cache spies
-  opts = ImagePipe.init(@base_opts ++ [detector: UnavailableDetector, detector_required: true])
-  conn = ImagePipe.call(signed_get("rs:fill:80:80/g:obj:face"), opts)
+defmodule UnavailableDetector do
+  @behaviour ImagePipe.Transform.Detector
+  def detect(_i, _o), do: {:error, {:detector, :unavailable}}
+  def available?(_o), do: false
+  def identity(_o), do: {__MODULE__, :unavailable}
+end
+
+test "detector_required + unavailable detector rejects before source AND cache access" do
+  ref = :telemetry_test.attach_event_handlers(self(), [[:image_pipe, :cache, :lookup, :start]])
+  opts = ImagePipe.init(@default_opts ++ [detector: UnavailableDetector, detector_required: true])
+  conn = call_imgproxy("/_/rs:fill:80:80/g:obj:face/plain/images/woman.jpg", opts)
   assert conn.status in 400..499
-  # assert no Source.resolve / no [:cache, :lookup] telemetry fired (use the suite's spy helpers)
+  refute_received {[:image_pipe, :cache, :lookup, :start], ^ref, _, _}
+  :telemetry.detach(ref)
 end
 ```
 
-Define a tiny `UnavailableDetector` in the test that implements `available?(_) -> false`, `detect/2`, `identity/2`.
+(`identity/1` arity — matches the behaviour. If the suite has source/cache spies instead of telemetry, use those; the point is to assert neither `Source.resolve` nor `[:image_pipe, :cache, :lookup]` fired. Confirm the real cache-lookup event name in `lib/image_pipe/cache/...` / `runner.ex`.)
 
 - [ ] **Step 2: Run — expect failure (currently 200, falls back to attention)**
 
@@ -1059,15 +1122,16 @@ In `lib/image_pipe/plug.ex`, after `validate_client_plan/1` resolves the plan an
 ```elixir
   defp detector_capability_ok(plan, opts) do
     if Keyword.get(opts, :detector_required, false) and ImagePipe.Plan.detect_classes(plan) != nil do
-      detector = resolve_detector(Keyword.get(opts, :detector, :default))
-      if detector && detector.available?(opts), do: :ok, else: {:error, {:detector, :unavailable}}
+      if ImagePipe.Transform.detector_available?(Keyword.get(opts, :detector, :default), opts),
+        do: :ok,
+        else: {:error, {:detector, :unavailable}}
     else
       :ok
     end
   end
 ```
 
-Wire it into the `with` chain in `do_call/1` so a `{:error, {:detector, :unavailable}}` returns the appropriate error response **before** `Source.resolve`/`Runner.run`. Reuse the same `resolve_detector/1` logic (extract a shared helper if needed). Read the guide via `ImagePipe.Plan.detect_classes/1` — do **not** pattern-match `CropGuided`.
+Wire it into the `with` chain in `do_call/1`, **between** `validate_client_plan/1` and `Source.resolve`, so `{:error, {:detector, :unavailable}}` returns an error response **before** fetch/cache. Add a matching `else` arm that maps `{:error, {:detector, :unavailable}}` to a 4xx via the existing error-response path (check how `do_call/1`'s `else` currently renders errors and add the clause). Use the Task 8 facade `ImagePipe.Transform.detector_available?/2` (do **not** name `ImageVision`) and read the guide via `ImagePipe.Plan.detect_classes/1` (do **not** pattern-match `CropGuided`).
 
 - [ ] **Step 4: Run — expect pass; commit**
 
@@ -1091,23 +1155,25 @@ git commit -m "feat(runtime): strict-mode detector pre-fetch gate"
 
 - [ ] **Step 1: Write failing cache-key tests**
 
+Real signature: `Cache.Key.build(conn, %Plan{} = plan, source_identity, opts \\ [])` (conn first, opts last). Build `conn`/`source_identity`/`plan` the way the existing `key_test.exs` does:
+
 ```elixir
 test "detect plans key differently per detector identity" do
-  plan = detect_face_plan()  # builds a Plan with a {:detect,["face"]} guide
-  k1 = ImagePipe.Cache.Key.build(plan, source, [detector_identity: {Mod, :v1}], [])
-  k2 = ImagePipe.Cache.Key.build(plan, source, [detector_identity: {Mod, :v2}], [])
+  plan = detect_face_plan()  # a %Plan{} with a {:detect,["face"]} guide (build via to_plan or supply all @enforce_keys)
+  k1 = ImagePipe.Cache.Key.build(conn, plan, source_identity, detector_identity: {Mod, :v1})
+  k2 = ImagePipe.Cache.Key.build(conn, plan, source_identity, detector_identity: {Mod, :v2})
   assert k1 != k2
 end
 
 test "unavailable identity keys differently from a present one" do
   plan = detect_face_plan()
-  present = ImagePipe.Cache.Key.build(plan, source, [detector_identity: {Mod, {"r", "f"}}], [])
-  absent = ImagePipe.Cache.Key.build(plan, source, [detector_identity: {Mod, :unavailable}], [])
+  present = ImagePipe.Cache.Key.build(conn, plan, source_identity, detector_identity: {Mod, {"r", "f"}})
+  absent = ImagePipe.Cache.Key.build(conn, plan, source_identity, detector_identity: {Mod, :unavailable})
   assert present != absent
 end
 ```
 
-(Match `Cache.Key.build/4`'s real arity/argument order — adjust to the signature in `key.ex`.)
+(`conn` and a valid `source_identity` come from the existing `key_test.exs` setup; reuse it.)
 
 - [ ] **Step 2: Run — expect failure**
 
@@ -1130,18 +1196,18 @@ Where the request layer builds the `opts` passed to `Cache.lookup` (the runner),
 
 ```elixir
   defp put_detector_identity(opts, plan) do
-    detector = resolve_detector(Keyword.get(opts, :detector, :default))
-
-    cond do
-      is_nil(detector) -> opts
-      ImagePipe.Plan.detect_classes(plan) != nil or face_assist?(plan) ->
-        Keyword.put(opts, :detector_identity, detector.identity(opts))
-      true -> opts
+    if ImagePipe.Plan.detect_classes(plan) != nil or ImagePipe.Plan.face_assist?(plan) do
+      case ImagePipe.Transform.detector_identity(Keyword.get(opts, :detector, :default), opts) do
+        nil -> opts
+        identity -> Keyword.put(opts, :detector_identity, identity)
+      end
+    else
+      opts
     end
   end
 ```
 
-`face_assist?/1` checks the plan for a `{:smart, :face_assist}` guide (mirror `detect_classes/1`; add `Plan.face_assist?/1` in Task 19). For Phase 2, `face_assist?` can be `false`; wire it fully in Phase 3.
+Uses the Task 8 facade `ImagePipe.Transform.detector_identity/2` (the runner must not name `ImageVision`). `ImagePipe.Plan.face_assist?/1` lands in Task 19 — for Phase 2 add a temporary `def face_assist?(_), do: false` to `Plan` and replace it in Task 19, or stub the `or` clause to `false` and wire it in Task 19.
 
 - [ ] **Step 5: Run — expect pass; commit**
 
@@ -1164,13 +1230,15 @@ git commit -m "feat(cache): include detector identity in key for detection plans
 
 - [ ] **Step 1: Write a failing telemetry test**
 
+The real helper is `ImagePipe.Telemetry.span(telemetry_opts, stage, start_metadata, fun)` and it **prefixes** events with `[:image_pipe]` by default — so the emitted event is `[:image_pipe, :transform, :detect, :stop]`. `Crop.execute/2` has no `opts`, so thread `telemetry_opts` into `State` the same way as `detector`:
+
 ```elixir
-test "detection emits a [:transform, :detect] span with safe metadata", %{image: image} do
-  ref = :telemetry_test.attach_event_handlers(self(), [[:transform, :detect, :stop]])
+test "detection emits a [:image_pipe, :transform, :detect] span with safe metadata", %{image: image} do
+  ref = :telemetry_test.attach_event_handlers(self(), [[:image_pipe, :transform, :detect, :stop]])
   state = %ImagePipe.Transform.State{image: image, detector: {ImagePipe.Test.FakeDetector, [result: {:ok, [%{label: "face", score: 0.9, box: {0, 0, 10, 10}}]}]}}
   op = %ImagePipe.Transform.Operation.Crop{width: {:pixels, 40}, height: {:pixels, 40}, crop_from: :gravity, gravity: {:detect, ["face"]}}
   {:ok, _} = ImagePipe.Transform.Operation.Crop.execute(op, state)
-  assert_receive {[:transform, :detect, :stop], ^ref, %{duration: _}, metadata}
+  assert_receive {[:image_pipe, :transform, :detect, :stop], ^ref, %{duration: _}, metadata}
   refute Map.has_key?(metadata, :source_url)
   :telemetry.detach(ref)
 end
@@ -1178,12 +1246,34 @@ end
 
 - [ ] **Step 2: Run — expect failure**
 
-Run: `mise exec -- mix test test/image_pipe/transform/operation/crop_test.exs`
+Run: `mise exec -- mix test test/image_pipe/transform/crop_operation_test.exs`
 Expected: FAIL — no span.
 
-- [ ] **Step 3: Wrap the detect call in a span**
+- [ ] **Step 3: Thread `telemetry_opts` into State and wrap the detect call**
 
-In `crop.ex`'s `run_detect/4`, wrap the `module.detect(...)` call in the project's telemetry span helper (find it in `lib/image_pipe/telemetry.ex`; it's `:telemetry.span/3`-style). Metadata: `%{classes: classes}` plus result region count/boxes — **never** URLs/keys/paths.
+Add `telemetry_opts: []` to `Transform.State`'s struct/type (Task 9), and in `PlanExecutor.execute/3` populate it from `opts` (`telemetry_opts: Keyword.get(opts, :telemetry_opts, [])`) alongside `detector`. Then in `crop.ex` change `run_detect/4` to take the state's telemetry opts and wrap only the `module.detect(...)` call (read `lib/image_pipe/telemetry.ex` for the exact `span/4` signature and confirm `stage` is `[:transform, :detect]`):
+
+```elixir
+  defp run_detect(module, opts, image, classes, telemetry_opts) do
+    ImagePipe.Telemetry.span(telemetry_opts, [:transform, :detect], %{classes: classes}, fn ->
+      result =
+        case module.detect(image, Keyword.put(opts, :classes, classes)) do
+          {:ok, regions} when is_list(regions) ->
+            if Enum.all?(regions, &valid_region?/1), do: {:ok, regions}, else: {:error, {:detector, :invalid_adapter_result}}
+
+          {:error, _} = error -> error
+          _ -> {:error, {:detector, :invalid_adapter_result}}
+        end
+
+      {result, %{regions: detect_count(result)}}
+    end)
+  end
+
+  defp detect_count({:ok, regions}), do: length(regions)
+  defp detect_count(_), do: 0
+```
+
+Pass `state.telemetry_opts` from `detect_crop/3` and the face-assist clause. Metadata carries `classes`/region count — **never** URLs/keys/paths. (Confirm `Telemetry.span/4`'s `fun` return contract — it may expect `{result, stop_metadata}`; adapt to the real shape.)
 
 - [ ] **Step 4: Register in the default logger**
 
@@ -1206,9 +1296,9 @@ git commit -m "feat(telemetry): honest [:transform,:detect] span for ML detectio
 **Files:**
 - Modify: `test/image_pipe/architecture_boundary_test.exs`
 
-- [ ] **Step 1: Add `Detector*` to the forbidden-reference set**
+- [ ] **Step 1: Add a `Detector`-path matcher to the forbidden references**
 
-Add `Detector`, `Detector.ImageVision`, `Detector.Warmup` to the concrete-name list that request/source/response/cache must not reference, mirroring `@concrete_transform_names`.
+Adding names to `@concrete_transform_names` is **not enough**: the existing `concrete_transform_references/1` matcher only matches the AST path `[:ImagePipe, :Transform, :Operation, name | _]` (it requires the `:Operation` segment). `Detector` lives at `[:ImagePipe, :Transform, :Detector | _]` (no `:Operation`). Add a **new** matcher clause/helper (e.g. `detector_references/1`) that flags any reference to `ImagePipe.Transform.Detector.ImageVision` / `…Detector.Warmup` (the concrete adapter/worker) in `@request_source_response_globs` + cache code, and assert it finds none. Referencing the `ImagePipe.Transform.Detector` *behaviour* itself is allowed (it's exported); forbid only the concrete `Detector.ImageVision`/`Detector.Warmup` submodules.
 
 - [ ] **Step 2: Extend the request/source/response globs to cover `plug.ex`**
 
@@ -1248,7 +1338,7 @@ git commit -m "test(arch): forbid concrete detector refs; cover plug.ex; no dial
 
 - [ ] **Step 1: Demo** — add an `obj:face` gravity option to the imgproxy controls + URL state.
 
-- [ ] **Step 2: Matrix** — add a `gravity:obj:face` ✅ row; **downgrade `gravity:obj` to ⚠️ Partial** ("face only; bare `obj`/`all`/multi/`objw` rejected"); **replace** the blanket `IMGPROXY_OBJECT_DETECTION_*` wildcard ⭕ line with broken-out rows for `IMGPROXY_OBJECT_DETECTION_GRAVITY_MODE`, `…_FALLBACK_TO_SMART_CROP`, and confidence/NMS thresholds, each ⭕ with a note. Add the model/gravity-mode divergence notes from the spec's Divergences §.
+- [ ] **Step 2: Matrix** — add a `gravity:obj:face` ✅ row; **downgrade `gravity:obj` to ⚠️ Partial** ("face only; bare `obj`/`all`/multi/`objw` rejected"); **replace** (delete, not add beside) the blanket `IMGPROXY_OBJECT_DETECTION_*` wildcard ⭕ line (`imgproxy_support_matrix.md:399`) with broken-out rows for `IMGPROXY_OBJECT_DETECTION_GRAVITY_MODE`, `…_FALLBACK_TO_SMART_CROP`, and confidence/NMS thresholds, each ⭕ with a note. Annotate the `crop_objects | co` row (`:519`) with the `co`↔`contrast` alias collision (Divergence #4). Add the model/gravity-mode divergence notes from the spec's Divergences §.
 
 - [ ] **Step 3: Gate + commit**
 
@@ -1312,7 +1402,13 @@ Expected: FAIL.
 
 - [ ] **Step 4: Thread the config flag through the builder**
 
-`to_plan/2` already has `opts`. Thread `Keyword.get(Keyword.get(opts, :imgproxy, []), :smart_crop_face_detection, false)` down to `pipeline/1` → `plan_geometry/1` → `resize_operations`/`crop_operations` → `resize_guide`/`tagged_gravity`. The least-invasive route: carry the flag in a small build-context value passed alongside the request, or set it on a field the translators read. Concretely, pass `face_assist?` as a second argument to `resize_guide/2` and `tagged_gravity/2`:
+**This is a multi-function thread, not a 2-arg change** — `opts` is currently dropped at `build_pipelines/1` and never reaches the translators. The flag must pass through **every** function on the path: `to_plan/2` → `build_pipelines/2` → `pipeline/2` → `plan_geometry/2` → `crop_operations/2` + `resize_operations/2` → `resize_operations_for/3` → `resize_operation/2` → `resize_guide/2` / `tagged_gravity/2`. Compute the flag once in `to_plan/2`:
+
+```elixir
+face_assist? = Keyword.get(Keyword.get(opts, :imgproxy, []), :smart_crop_face_detection, false)
+```
+
+The least-error-prone route is to **stamp `face_assist?` onto the `PipelineRequest`** (add a `smart_crop_face_detection: false` field) in `build_pipelines/2`, so the existing `request`-only function signatures don't all change — then `resize_guide`/`tagged_gravity` read `request.smart_crop_face_detection`. Either way, the translators become:
 
 ```elixir
   defp resize_guide(:sm, true), do: {:ok, {:smart, :face_assist}}
@@ -1401,14 +1497,16 @@ Add `attention_point/2`, which runs `smartcrop` only to read the chosen point an
          {:ok, crop_height} <- crop_dimension(crop.height, image_height),
          {crop_width, crop_height} =
            correct_aspect_ratio(crop_width, crop_height, params.aspect_ratio, params.enlarge, image_width, image_height),
-         {:ok, {_cropped, %{attention_x: ax, attention_y: ay}}} <-
-           Vix.Vips.Operation.smartcrop(state.image, crop_width, crop_height, interesting: :VIPS_INTERESTING_ATTENTION) do
+         {:ok, {_cropped, attention}} <-
+           Vix.Vips.Operation.smartcrop(state.image, crop_width, crop_height, interesting: :VIPS_INTERESTING_ATTENTION),
+         ax = Map.fetch!(attention, :"attention-x"),
+         ay = Map.fetch!(attention, :"attention-y") do
       {:ok, {clamp_unit(ax / image_width), clamp_unit(ay / image_height)}}
     end
   end
 ```
 
-(Confirm `attention_x`/`attention_y` are returned in pixels of the input image with the same probe command from Task 4 Step 3. `w = 0.7` is the documented face-favoring weight; keep it as a module attribute `@face_assist_weight 0.7`.)
+(The attention map keys are **hyphenated atoms** `:"attention-x"` / `:"attention-y"`, in input-image pixels — verified by probe. `@face_assist_weight 0.7` is the documented face-favoring weight; keep it as a module attribute. Use `@face_assist_weight` in the blend in place of the literal `w = 0.7` in Step 3.)
 
 - [ ] **Step 4: Run — expect pass; commit**
 

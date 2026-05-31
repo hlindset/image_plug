@@ -79,8 +79,10 @@ Relevant current code:
 - `ImagePipe.Telemetry.DefaultLogger` ([logger.ex](../../../lib/image_pipe/telemetry/logger.ex)) —
   an explicit event map per group (e.g. `transform: [[:transform, :execute],
   [:transform, :operation]]`); a new span is invisible unless registered here.
-- `Vix.Vips.Operation.smartcrop/3` returns `{image, %{attention_x, attention_y}}`
-  — the attention point **is** readable (verified in the vix NIF).
+- `Vix.Vips.Operation.smartcrop/4` returns `{:ok, {image, %{"attention-x": _,
+  "attention-y": _}}}` — the attention point **is** readable (verified by probe).
+  Note the keys are **hyphenated atoms** (`:"attention-x"`), in input-image
+  pixels.
 
 Architecture rules that shape this design (`CLAUDE.md`): product-neutral plan,
 parser dialect terms must not leak; host-implementable behaviour returns are
