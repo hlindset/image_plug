@@ -86,7 +86,7 @@ defmodule Mix.Tasks.ImagePipe.Server do
     Mix.Task.run("app.start")
 
     maybe_start_cache(cache)
-    maybe_attach_default_logger(cache)
+    attach_default_logger()
     maybe_start_vite(vite?)
     {:ok, _pid} = start_bandit(port)
 
@@ -123,13 +123,12 @@ defmodule Mix.Tasks.ImagePipe.Server do
   end
 
   # Dev ergonomics: attach ImagePipe's default Logger handler so the server
-  # shows cache + per-operation transform activity. Only when a cache is
-  # configured (the main reason to want this in dev).
-  defp maybe_attach_default_logger(nil), do: :ok
-
-  defp maybe_attach_default_logger(_cache) do
+  # shows every telemetry event (request, parse, source, transform, cache,
+  # output, send) including content-aware crop detection and its fallbacks.
+  # `debug: true` also dumps the raw measurements/metadata for each event.
+  defp attach_default_logger do
     ImagePipe.Telemetry.attach_default_logger(
-      events: [:cache, :transform],
+      events: :all,
       level: :debug,
       debug: true
     )
