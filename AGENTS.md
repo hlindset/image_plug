@@ -34,10 +34,10 @@
 ## Telemetry guidelines
 
 - Treat telemetry as part of the runtime observability contract. Use `:telemetry.span/3`-style `:start`, `:stop`, and `:exception` event naming for request and meaningful stage spans.
-- Keep telemetry metadata safe by default. The real constraint is *sensitivity*, not cardinality: metadata fans out to every attached handler (including third-party exporters), so high-cardinality, product-neutral data (transform operation structs, decoded dimensions) is fine, but genuinely sensitive data must not be emitted unless an explicit opt-in is designed and documented. Parser-internal/dialect structs and cache-internal shapes still stay isolated per the namespace guidelines — they should not leak into events. Never emit by default:
-  - Full request paths or source URLs
-  - Signatures, tokens, credentials
-  - Filenames or other path-derived identifiers (including filesystem/storage paths and cache keys)
+- Keep telemetry metadata safe by default. The real constraint is *sensitivity* — not cardinality, and not whether a string looks path-shaped. Metadata fans out to every attached handler (including third-party exporters), so high-cardinality, product-neutral data is fine to emit: transform operation structs, decoded dimensions, class names, and identifiers like a detector's model-artifact name (e.g. a model filename) or a cache key. A value is not sensitive merely because it is a filename or path-derived — judge by whether the *specific* value carries a secret or reveals private end-user content, not by its shape. (Separately, and for *boundary* reasons rather than sensitivity: parser-internal/dialect structs and cache-internal shapes should not leak into events — see the namespace guidelines.) What is *actually* sensitive must not be emitted unless an explicit opt-in is designed and documented:
+  - Secrets — signatures, tokens, credentials, API keys, or anything else that grants access.
+  - Strings that routinely *embed* such secrets — above all full source URLs and request paths, which commonly carry signed-URL query params, signature segments, or presigned credentials. Emit these only behind a documented opt-in, or after stripping the secret-bearing parts.
+  - Private end-user content or PII the host would not want fanned out to exporters.
 - Cardinality is a consumer concern, not an emission concern: `Telemetry.Metrics` requires the metrics author to choose tags, and nothing forwards the raw metadata map to storage. Emit the data; let handlers project it.
 - Keep third-party backend integrations out of the library: hosts attach AppSignal, OpenTelemetry, and metrics handlers themselves. ImagePipe may ship an opt-in default handler that uses only the stdlib `Logger` (`ImagePipe.Telemetry.attach_default_logger/1`); it is never attached automatically.
 - Prefer shared telemetry helpers over ad hoc event emission so naming, measurements, metadata merging, and exception behavior stay consistent.

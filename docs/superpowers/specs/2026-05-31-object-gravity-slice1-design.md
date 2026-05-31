@@ -352,7 +352,9 @@ Consequences this guarantees:
     intent.
   - the routed `classes` subset (`:all` or list), `regions` (count), and honest
     inference duration (model inference is real eager work — legitimate compute
-    timing, unlike libvips-lazy per-operation spans).
+    timing, unlike libvips-lazy per-operation spans). A model-artifact name carries
+    no secret and reveals no private content, so it is fine to emit under the
+    telemetry sensitivity rule (which targets secrets/PII, not path-shaped strings).
   - **Documented contract (no guard code):** a detector's `identity/1` appears in
     this span, so custom-detector authors should keep it free of secrets. We don't
     add machinery to defend against a detector that both encodes a secret in its
