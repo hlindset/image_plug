@@ -2,8 +2,8 @@ import { sampleImages } from "virtual:sample-images";
 
 export type ResizeMode = "fit" | "fill" | "fill-down" | "force" | "auto";
 export type Gravity = "ce" | "no" | "so" | "ea" | "we" | "noea" | "nowe" | "soea" | "sowe";
-export type GravityMode = "anchor" | "focalPoint" | "offset" | "smart" | "objFace";
-export type CropGravity = "inherit" | Gravity | "sm" | "obj:face";
+export type GravityMode = "anchor" | "focalPoint" | "offset" | "smart" | "objFace" | "objClasses";
+export type CropGravity = "inherit" | Gravity | "sm" | "obj:face" | "obj" | "obj:all";
 export type CropDimensionUnit = "px" | "percent" | "full";
 export type ResizeDimensionUnit = "px" | "auto";
 export type OutputFormat = "webp" | "avif" | "jpeg" | "png";
@@ -11,6 +11,93 @@ export type Flip = "none" | "horizontal" | "vertical" | "both";
 export type Rotate = 0 | 90 | 180 | 270;
 export type SignatureMode = "unsigned" | "signed";
 export type SourceImage = (typeof sampleImages)[number]["path"];
+
+// COCO-80 object classes in underscore spelling, matching the hardcoded list in
+// ImagePipe.Transform.Detector.ImageVision.Objects (@coco_classes).
+export const cocoClasses = [
+  "person",
+  "bicycle",
+  "car",
+  "motorcycle",
+  "airplane",
+  "bus",
+  "train",
+  "truck",
+  "boat",
+  "traffic_light",
+  "fire_hydrant",
+  "stop_sign",
+  "parking_meter",
+  "bench",
+  "bird",
+  "cat",
+  "dog",
+  "horse",
+  "sheep",
+  "cow",
+  "elephant",
+  "bear",
+  "zebra",
+  "giraffe",
+  "backpack",
+  "umbrella",
+  "handbag",
+  "tie",
+  "suitcase",
+  "frisbee",
+  "skis",
+  "snowboard",
+  "sports_ball",
+  "kite",
+  "baseball_bat",
+  "baseball_glove",
+  "skateboard",
+  "surfboard",
+  "tennis_racket",
+  "bottle",
+  "wine_glass",
+  "cup",
+  "fork",
+  "knife",
+  "spoon",
+  "bowl",
+  "banana",
+  "apple",
+  "sandwich",
+  "orange",
+  "broccoli",
+  "carrot",
+  "hot_dog",
+  "pizza",
+  "donut",
+  "cake",
+  "chair",
+  "couch",
+  "potted_plant",
+  "bed",
+  "dining_table",
+  "toilet",
+  "tv",
+  "laptop",
+  "mouse",
+  "remote",
+  "keyboard",
+  "cell_phone",
+  "microwave",
+  "oven",
+  "toaster",
+  "sink",
+  "refrigerator",
+  "book",
+  "clock",
+  "vase",
+  "scissors",
+  "teddy_bear",
+  "hair_drier",
+  "toothbrush",
+] as const;
+
+export type CocoClass = (typeof cocoClasses)[number];
 
 export type DemoState = {
   signatureMode: SignatureMode;
@@ -71,6 +158,11 @@ export type DemoState = {
   gravityFocalY: number;
   gravityOffsetX: number;
   gravityOffsetY: number;
+  // Object-class gravity: empty array = bare obj (all), explicit class list otherwise.
+  // The "all" pseudo-class is stored as an empty array; use gravityObjAll to pick the
+  // explicit g:obj:all form.
+  gravityObjClasses: string[];
+  gravityObjAll: boolean;
   enlarge: boolean;
   cropEnabled: boolean;
   cropWidthUnit: CropDimensionUnit;
@@ -258,6 +350,8 @@ export const defaultDemoState: DemoState = {
   gravityFocalY: 0.5,
   gravityOffsetX: 0,
   gravityOffsetY: 0,
+  gravityObjClasses: [],
+  gravityObjAll: false,
   enlarge: false,
   cropEnabled: false,
   cropWidthUnit: "px",
@@ -513,6 +607,10 @@ export function gravitySegment(currentState: DemoState): string {
     return "g:obj:face";
   }
 
+  if (currentState.gravityMode === "objClasses") {
+    return objGravitySegment(currentState.gravityObjClasses, currentState.gravityObjAll);
+  }
+
   if (currentState.gravityMode === "focalPoint") {
     return `g:fp:${currentState.gravityFocalX}:${currentState.gravityFocalY}`;
   }
@@ -522,6 +620,18 @@ export function gravitySegment(currentState: DemoState): string {
   }
 
   return `g:${currentState.gravity}`;
+}
+
+export function objGravitySegment(classes: string[], objAll: boolean): string {
+  if (objAll) {
+    return "g:obj:all";
+  }
+
+  if (classes.length === 0) {
+    return "g:obj";
+  }
+
+  return `g:obj:${classes.join(":")}`;
 }
 
 export function focalPointFromBounds(

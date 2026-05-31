@@ -16,10 +16,12 @@ defmodule ImagePipe.Transform.Detector.CompositeTest do
     def identity(_), do: {__MODULE__, :face_v1}
     @impl true
     def detect(_image, opts), do: {:ok, regions_for(opts)}
+
     defp regions_for(opts) do
       requested(opts, ["face"])
       |> Enum.map(&%{label: &1, score: 0.9, box: {0, 0, 10, 10}})
     end
+
     defp requested(opts, owned) do
       case Keyword.get(opts, :classes, :all) do
         :all -> owned
@@ -39,6 +41,7 @@ defmodule ImagePipe.Transform.Detector.CompositeTest do
     def identity(_), do: {__MODULE__, :obj_v1}
     @impl true
     def detect(_image, opts), do: {:ok, regions_for(opts)}
+
     defp regions_for(opts) do
       case Keyword.get(opts, :classes, :all) do
         :all -> @owned
@@ -112,9 +115,19 @@ defmodule ImagePipe.Transform.Detector.CompositeTest do
       )
 
     assert_received {[:image_pipe, :transform, :detect, :model, :stop], ^ref, _measurements,
-                     %{detector: FaceChild, model: {FaceChild, :face_v1}, classes: ["face"], regions: 1}}
+                     %{
+                       detector: FaceChild,
+                       model: {FaceChild, :face_v1},
+                       classes: ["face"],
+                       regions: 1
+                     }}
 
     assert_received {[:image_pipe, :transform, :detect, :model, :stop], ^ref, _measurements,
-                     %{detector: ObjectChild, model: {ObjectChild, :obj_v1}, classes: ["car"], regions: 1}}
+                     %{
+                       detector: ObjectChild,
+                       model: {ObjectChild, :obj_v1},
+                       classes: ["car"],
+                       regions: 1
+                     }}
   end
 end

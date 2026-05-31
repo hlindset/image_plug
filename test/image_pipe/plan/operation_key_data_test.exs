@@ -263,7 +263,9 @@ defmodule ImagePipe.Plan.OperationKeyDataTest do
     alias ImagePipe.Plan.Operation.CropGuided
 
     test "detect :all guide encodes as classes: :all" do
-      data = KeyData.data(%CropGuided{width: {:px, 100}, height: {:px, 100}, guide: {:detect, :all}})
+      data =
+        KeyData.data(%CropGuided{width: {:px, 100}, height: {:px, 100}, guide: {:detect, :all}})
+
       assert Keyword.fetch!(data, :guide) == [type: :detect, classes: :all]
     end
 

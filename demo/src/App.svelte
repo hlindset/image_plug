@@ -13,6 +13,7 @@
   } from "./demo-url-state";
   import {
     buildProcessingPath,
+    cocoClasses,
     controlLimits,
     cropOptionSegment,
     cropPixelLimit,
@@ -20,6 +21,7 @@
     defaultDemoState,
     focalPointFromBounds,
     gravitySegment,
+    objGravitySegment,
     processedSizeLabel,
     resizeOptionSegment,
     resetCropPixelsToSource,
@@ -755,6 +757,8 @@
               <option value="sowe">south west</option>
               <option value="sm">smart</option>
               <option value="obj:face">object (face)</option>
+              <option value="obj">object (all, bare)</option>
+              <option value="obj:all">object (all, explicit)</option>
             </select>
           </label>
         {/if}
@@ -800,6 +804,7 @@
               <option value="offset">anchor + offset</option>
               <option value="smart">smart</option>
               <option value="objFace">object (face)</option>
+              <option value="objClasses">object (classes)</option>
             </select>
           </label>
 
@@ -873,6 +878,61 @@
               max={controlLimits.gravityOffset.max}
               step={controlLimits.gravityOffset.step}
             />
+          {/if}
+
+          {#if state.gravityMode === "objClasses"}
+            <div class="field">
+              <span>
+                <span>Object scope</span>
+                <span class="field-hint"
+                  >{objGravitySegment(state.gravityObjClasses, state.gravityObjAll)}</span
+                >
+              </span>
+              <select bind:value={state.gravityObjAll}>
+                <option value={false}>specific classes</option>
+                <option value={true}>all (g:obj:all)</option>
+              </select>
+            </div>
+
+            {#if !state.gravityObjAll}
+              <div class="field">
+                <span>
+                  <span>Classes</span>
+                  <span class="field-hint">
+                    {state.gravityObjClasses.length === 0
+                      ? "bare obj (all)"
+                      : state.gravityObjClasses.length === 1
+                        ? "1 class"
+                        : `${state.gravityObjClasses.length} classes`}
+                  </span>
+                </span>
+                <!-- Multi-select for COCO-80 classes. Matches the underscore spelling
+                     in ImagePipe.Transform.Detector.ImageVision.Objects (@coco_classes). -->
+                <select
+                  class="obj-class-select"
+                  multiple
+                  size={8}
+                  value={state.gravityObjClasses}
+                  onchange={(e) => {
+                    const select = e.currentTarget;
+                    state.gravityObjClasses = Array.from(select.selectedOptions).map(
+                      (opt) => opt.value,
+                    );
+                  }}
+                >
+                  {#each cocoClasses as cls}
+                    <option value={cls} selected={state.gravityObjClasses.includes(cls)}
+                      >{cls}</option
+                    >
+                  {/each}
+                </select>
+                {#if state.gravityObjClasses.length === 0}
+                  <p class="field-hint-text">
+                    No classes selected — emits bare <code>g:obj</code> (all objects)
+                  </p>
+                {/if}
+              </div>
+            {/if}
           {/if}
         {/if}
       </section>
@@ -1989,6 +2049,29 @@
       calc(100% - 12px) 16px;
     background-size: 5px 5px;
     background-repeat: no-repeat;
+  }
+
+  .obj-class-select {
+    height: auto;
+    padding-inline: 8px;
+    background-image: none;
+  }
+
+  .field-hint {
+    color: var(--text-muted);
+    font-family: var(--font-mono);
+    font-size: 12px;
+  }
+
+  .field-hint-text {
+    margin: 0;
+    color: var(--text-muted);
+    font-size: 12px;
+    line-height: 16px;
+  }
+
+  .field-hint-text code {
+    font-family: var(--font-mono);
   }
 
   .text-input {

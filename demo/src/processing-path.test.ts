@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 import {
   buildProcessingPath,
+  cocoClasses,
   controlLimits,
   cropDimensionSegment,
   cropOptionSegment,
@@ -11,6 +12,7 @@ import {
   debounce,
   focalPointFromBounds,
   imageRequestBytesFromPerformance,
+  objGravitySegment,
   resetCropPixelsToSource,
   processedSizeLabel,
   optionSegments,
@@ -538,6 +540,151 @@ describe("processing path generation", () => {
       cropEnabled: true,
       cropGravity: "obj:face",
     });
+  });
+
+  it("emits bare g:obj for object-class gravity with no classes selected", () => {
+    const state = {
+      ...defaultDemoState,
+      gravityEnabled: true,
+      gravityMode: "objClasses" as const,
+      gravityObjClasses: [],
+      gravityObjAll: false,
+    };
+
+    expect(optionSegments(state)).toEqual(["g:obj"]);
+  });
+
+  it("emits g:obj:all when gravityObjAll is true", () => {
+    const state = {
+      ...defaultDemoState,
+      gravityEnabled: true,
+      gravityMode: "objClasses" as const,
+      gravityObjClasses: [],
+      gravityObjAll: true,
+    };
+
+    expect(optionSegments(state)).toEqual(["g:obj:all"]);
+  });
+
+  it("emits g:obj:%c1:…:%cN for an explicit class list", () => {
+    const state = {
+      ...defaultDemoState,
+      gravityEnabled: true,
+      gravityMode: "objClasses" as const,
+      gravityObjClasses: ["car", "dog"],
+      gravityObjAll: false,
+    };
+
+    expect(optionSegments(state)).toEqual(["g:obj:car:dog"]);
+  });
+
+  it("rounds trips bare g:obj through the demo path", () => {
+    const parsed = parseDemoPath("/demo/g:obj/plain/local:///images/dog.jpg");
+
+    expect(parsed).toMatchObject({
+      gravityEnabled: true,
+      gravityMode: "objClasses",
+      gravityObjClasses: [],
+      gravityObjAll: false,
+    });
+
+    expect(demoPathForState(parsed)).toBe("/demo/g:obj/plain/local:///images/dog.jpg");
+  });
+
+  it("round-trips g:obj:all through the demo path", () => {
+    const parsed = parseDemoPath("/demo/g:obj:all/plain/local:///images/dog.jpg");
+
+    expect(parsed).toMatchObject({
+      gravityEnabled: true,
+      gravityMode: "objClasses",
+      gravityObjClasses: [],
+      gravityObjAll: true,
+    });
+
+    expect(demoPathForState(parsed)).toBe("/demo/g:obj:all/plain/local:///images/dog.jpg");
+  });
+
+  it("round-trips g:obj with explicit classes through the demo path", () => {
+    const parsed = parseDemoPath("/demo/g:obj:car:dog/plain/local:///images/dog.jpg");
+
+    expect(parsed).toMatchObject({
+      gravityEnabled: true,
+      gravityMode: "objClasses",
+      gravityObjClasses: ["car", "dog"],
+      gravityObjAll: false,
+    });
+
+    expect(demoPathForState(parsed)).toBe("/demo/g:obj:car:dog/plain/local:///images/dog.jpg");
+  });
+
+  it("collapses g:obj:all mixed with classes to gravityObjAll=true", () => {
+    const parsed = parseDemoPath("/demo/g:obj:car:all/plain/local:///images/dog.jpg");
+
+    expect(parsed).toMatchObject({
+      gravityEnabled: true,
+      gravityMode: "objClasses",
+      gravityObjClasses: [],
+      gravityObjAll: true,
+    });
+  });
+
+  it("preserves g:obj:face as the legacy objFace mode", () => {
+    const parsed = parseDemoPath("/demo/g:obj:face/plain/local:///images/dog.jpg");
+
+    expect(parsed).toMatchObject({
+      gravityEnabled: true,
+      gravityMode: "objFace",
+    });
+  });
+
+  it("round-trips bare crop obj gravity through the demo path", () => {
+    const state = {
+      ...activeDemoState,
+      cropEnabled: true,
+      cropGravity: "obj" as const,
+    };
+
+    const segments = optionSegments(state);
+    expect(segments).toContain("c:5011:7516:obj");
+
+    const parsed = parseDemoPath(demoPathForState(state));
+    expect(parsed).toMatchObject({
+      cropEnabled: true,
+      cropGravity: "obj",
+    });
+  });
+
+  it("round-trips explicit obj:all crop gravity through the demo path", () => {
+    const state = {
+      ...activeDemoState,
+      cropEnabled: true,
+      cropGravity: "obj:all" as const,
+    };
+
+    const segments = optionSegments(state);
+    expect(segments).toContain("c:5011:7516:obj:all");
+
+    const parsed = parseDemoPath(demoPathForState(state));
+    expect(parsed).toMatchObject({
+      cropEnabled: true,
+      cropGravity: "obj:all",
+    });
+  });
+
+  it("objGravitySegment helper produces correct URL segments", () => {
+    expect(objGravitySegment([], false)).toBe("g:obj");
+    expect(objGravitySegment([], true)).toBe("g:obj:all");
+    expect(objGravitySegment(["car"], false)).toBe("g:obj:car");
+    expect(objGravitySegment(["car", "dog"], false)).toBe("g:obj:car:dog");
+  });
+
+  it("COCO-80 class list has exactly 80 entries in underscore spelling", () => {
+    expect(cocoClasses).toHaveLength(80);
+    expect(cocoClasses).toContain("person");
+    expect(cocoClasses).toContain("traffic_light");
+    expect(cocoClasses).toContain("toothbrush");
+    // No space-spelled entries
+    expect(cocoClasses.every((c) => !c.includes(" "))).toBe(true);
   });
 
   it("normalizes focal point coordinates from a picker rectangle", () => {

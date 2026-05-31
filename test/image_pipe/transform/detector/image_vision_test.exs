@@ -88,7 +88,11 @@ defmodule ImagePipe.Transform.Detector.ImageVisionTest do
       {:ok, image} = Image.new(320, 240, color: :black)
       assert {:ok, regions} = Objects.detect(image, classes: :all)
       assert is_list(regions)
-      assert Enum.all?(regions, &match?(%{label: l, score: _, box: {_, _, _, _}} when is_binary(l), &1))
+
+      assert Enum.all?(
+               regions,
+               &match?(%{label: l, score: _, box: {_, _, _, _}} when is_binary(l), &1)
+             )
     end
   end
 end

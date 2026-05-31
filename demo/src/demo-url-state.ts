@@ -694,11 +694,49 @@ function parseGravity(currentState: DemoState, args: string[]): DemoState | null
     };
   }
 
-  if (args.length === 2 && modeOrGravity === "obj" && xArg === "face") {
+  if (args.length === 1 && modeOrGravity === "obj") {
+    // g:obj — bare object gravity (all classes)
     return {
       ...currentState,
       gravityEnabled: true,
-      gravityMode: "objFace",
+      gravityMode: "objClasses",
+      gravityObjClasses: [],
+      gravityObjAll: false,
+    };
+  }
+
+  if (args.length >= 2 && modeOrGravity === "obj") {
+    const classes = args.slice(1);
+
+    // g:obj:face is preserved as the legacy objFace mode for UI clarity
+    if (classes.length === 1 && classes[0] === "face") {
+      return {
+        ...currentState,
+        gravityEnabled: true,
+        gravityMode: "objFace",
+      };
+    }
+
+    // g:obj:all — explicit all pseudo-class
+    if (classes.length === 1 && classes[0] === "all") {
+      return {
+        ...currentState,
+        gravityEnabled: true,
+        gravityMode: "objClasses",
+        gravityObjClasses: [],
+        gravityObjAll: true,
+      };
+    }
+
+    // g:obj:%c1:…:%cN — explicit class list (may contain "all" which collapses to :all)
+    const hasAll = classes.includes("all");
+
+    return {
+      ...currentState,
+      gravityEnabled: true,
+      gravityMode: "objClasses",
+      gravityObjClasses: hasAll ? [] : classes,
+      gravityObjAll: hasAll,
     };
   }
 
@@ -862,11 +900,20 @@ function cropGravityFromArgs(args: string[]): CropGravity | null {
       return value;
     }
 
+    // bare obj gravity: c:W:H:obj
+    if (value === "obj") {
+      return "obj";
+    }
+
     return null;
   }
 
   if (args.length === 2 && args[0] === "obj" && args[1] === "face") {
     return "obj:face";
+  }
+
+  if (args.length === 2 && args[0] === "obj" && args[1] === "all") {
+    return "obj:all";
   }
 
   return null;

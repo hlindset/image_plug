@@ -13,6 +13,7 @@ defmodule ImagePipe.Transform.Detector.Composite do
   @behaviour ImagePipe.Transform.Detector
 
   alias ImagePipe.Telemetry
+  alias ImagePipe.Transform.Detector
   alias ImagePipe.Transform.Detector.ImageVision
 
   @default_children [ImageVision.Face, ImageVision.Objects]
@@ -52,7 +53,7 @@ defmodule ImagePipe.Transform.Detector.Composite do
   @impl true
   def warmup(opts) do
     Enum.reduce_while(default().children, :ok, fn child, _ ->
-      case ImagePipe.Transform.Detector.warmup(child, opts) do
+      case Detector.warmup(child, opts) do
         :ok -> {:cont, :ok}
         {:error, _} = err -> {:halt, err}
       end

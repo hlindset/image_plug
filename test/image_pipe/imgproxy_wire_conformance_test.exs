@@ -1621,7 +1621,8 @@ defmodule ImagePipe.ImgproxyWireConformanceTest do
         ]
       )
 
-    car_conn = call_imgproxy("/_/rs:fill:50:50/g:obj:car/f:jpeg/plain/images/beach.jpg", gate_opts)
+    car_conn =
+      call_imgproxy("/_/rs:fill:50:50/g:obj:car/f:jpeg/plain/images/beach.jpg", gate_opts)
 
     assert car_conn.status == 422
     refute_received {:telemetry_event, ^source_resolve_start, _, _}
@@ -1647,28 +1648,43 @@ defmodule ImagePipe.ImgproxyWireConformanceTest do
   end
 
   test "object-only request key is independent of the face model identity" do
-    assert lookup_key("/_/rs:fill:50:50/g:obj:car/plain/images/beach.jpg", ver_opts(face_ver: :v1)) ==
-             lookup_key("/_/rs:fill:50:50/g:obj:car/plain/images/beach.jpg", ver_opts(face_ver: :v2))
+    assert lookup_key(
+             "/_/rs:fill:50:50/g:obj:car/plain/images/beach.jpg",
+             ver_opts(face_ver: :v1)
+           ) ==
+             lookup_key(
+               "/_/rs:fill:50:50/g:obj:car/plain/images/beach.jpg",
+               ver_opts(face_ver: :v2)
+             )
   end
 
   test "face-only request key is independent of the object model identity" do
-    assert lookup_key("/_/rs:fill:50:50/g:obj:face/plain/images/beach.jpg", ver_opts(object_ver: :v1)) ==
-             lookup_key("/_/rs:fill:50:50/g:obj:face/plain/images/beach.jpg", ver_opts(object_ver: :v2))
+    assert lookup_key(
+             "/_/rs:fill:50:50/g:obj:face/plain/images/beach.jpg",
+             ver_opts(object_ver: :v1)
+           ) ==
+             lookup_key(
+               "/_/rs:fill:50:50/g:obj:face/plain/images/beach.jpg",
+               ver_opts(object_ver: :v2)
+             )
   end
 
   test "mixed request key changes when either model identity changes" do
     base =
-      lookup_key("/_/rs:fill:50:50/g:obj:face:car/plain/images/beach.jpg",
+      lookup_key(
+        "/_/rs:fill:50:50/g:obj:face:car/plain/images/beach.jpg",
         ver_opts(face_ver: :v1, object_ver: :v1)
       )
 
     diff_face =
-      lookup_key("/_/rs:fill:50:50/g:obj:face:car/plain/images/beach.jpg",
+      lookup_key(
+        "/_/rs:fill:50:50/g:obj:face:car/plain/images/beach.jpg",
         ver_opts(face_ver: :v2, object_ver: :v1)
       )
 
     diff_obj =
-      lookup_key("/_/rs:fill:50:50/g:obj:face:car/plain/images/beach.jpg",
+      lookup_key(
+        "/_/rs:fill:50:50/g:obj:face:car/plain/images/beach.jpg",
         ver_opts(face_ver: :v1, object_ver: :v2)
       )
 
