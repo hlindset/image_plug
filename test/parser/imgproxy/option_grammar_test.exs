@@ -161,6 +161,13 @@ defmodule ImagePipe.Parser.Imgproxy.OptionGrammarTest do
     assert OptionGrammar.parse("dpr:-1") == {:error, {:invalid_positive_float, "-1"}}
   end
 
+  test "blur, sharpen, and pixelate reject invalid values with type-specific tags" do
+    assert OptionGrammar.parse("blur:-1") == {:error, {:invalid_non_negative_float, "-1"}}
+    assert OptionGrammar.parse("sharpen:abc") == {:error, {:invalid_non_negative_float, "abc"}}
+    assert OptionGrammar.parse("pixelate:-1") == {:error, {:invalid_non_negative_integer, "-1"}}
+    assert OptionGrammar.parse("pixelate:1.5") == {:error, {:invalid_non_negative_integer, "1.5"}}
+  end
+
   test "tone effect options parse with imgproxy aliases" do
     assert OptionGrammar.parse("monochrome:0.5") ==
              {:ok, {:pipeline, [monochrome: [intensity: {:ratio, 5, 10}]]}}
