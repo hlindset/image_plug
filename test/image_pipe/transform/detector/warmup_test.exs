@@ -13,7 +13,7 @@ defmodule ImagePipe.Transform.Detector.WarmupTest do
     @impl true
     def warmup(opts) do
       pid = Keyword.fetch!(opts, :test_pid)
-      send(pid, {:warm_started, Keyword.get(opts, :classes)})
+      send(pid, {:warm_started, self(), Keyword.get(opts, :classes)})
 
       receive do
         :release -> :ok
@@ -43,8 +43,8 @@ defmodule ImagePipe.Transform.Detector.WarmupTest do
 
     ref = Process.monitor(pid)
     # start_supervised! returned before warmup completed (it's still blocked in receive):
-    assert_receive {:warm_started, ["face"]}
-    send(pid, :release)
+    assert_receive {:warm_started, worker_pid, ["face"]}
+    send(worker_pid, :release)
     assert_receive {:DOWN, ^ref, :process, ^pid, :normal}
   end
 

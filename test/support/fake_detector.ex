@@ -3,12 +3,7 @@ defmodule ImagePipe.Test.FakeDetector do
   @behaviour ImagePipe.Transform.Detector
 
   @impl true
-  def detect(_image, opts) do
-    case Keyword.fetch(opts, :result) do
-      {:ok, result} -> result
-      :error -> {:ok, []}
-    end
-  end
+  def detect(_image, opts), do: Keyword.get(opts, :result, {:ok, []})
 
   @impl true
   def available?(opts), do: Keyword.get(opts, :available?, true)

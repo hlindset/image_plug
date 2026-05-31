@@ -25,7 +25,7 @@ defmodule ImagePipe.Plan.Operation.Resize do
           | {:focal, ratio(), ratio()}
           | :smart
           | {:smart, :face_assist}
-          | {:detect, [String.t()]}
+          | {:detect, nonempty_list(String.t())}
   @type ratio :: {:ratio, non_neg_integer(), pos_integer()}
   @type offset :: number() | {:pixels | :scale, number()}
 

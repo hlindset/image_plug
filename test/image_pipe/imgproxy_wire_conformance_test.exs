@@ -347,6 +347,13 @@ defmodule ImagePipe.ImgproxyWireConformanceTest do
     assert conn.status == 200
     assert content_type(conn) == ["image/jpeg"]
     assert dimensions(conn) == {80, 80}
+
+    # A silent fallback to center gravity would make smart and center crops
+    # identical; assert the smart crop genuinely picks a different region.
+    centered = call_imgproxy("/_/rs:fill:80:80/g:ce/f:jpeg/plain/images/beach.jpg", @default_opts)
+
+    assert centered.status == 200
+    refute conn.resp_body == centered.resp_body
   end
 
   test "exar:1 under fit extends the canvas to the resize aspect ratio" do
@@ -552,7 +559,7 @@ defmodule ImagePipe.ImgproxyWireConformanceTest do
 
     conn = call_imgproxy("/_/rs:fill:80:80/g:obj:face/plain/images/beach.jpg", opts)
 
-    assert conn.status in 400..499
+    assert conn.status == 422
     refute_received {:telemetry_event, ^source_resolve_start, _, _}
     refute_received {:cache_lookup, _key}
     refute_received {:cache_put, _key, _entry}

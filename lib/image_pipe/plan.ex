@@ -86,7 +86,7 @@ defmodule ImagePipe.Plan do
   end
 
   @doc "Returns the detect-guide classes if any operation requests detection, else nil."
-  @spec detect_classes(t()) :: [String.t()] | nil
+  @spec detect_classes(t()) :: nonempty_list(String.t()) | nil
   def detect_classes(%__MODULE__{pipelines: pipelines}) do
     pipelines
     |> Enum.flat_map(& &1.operations)

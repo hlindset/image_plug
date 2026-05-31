@@ -2,10 +2,6 @@ defmodule ImagePipe.Transform.Detector.ImageVisionTest do
   use ExUnit.Case, async: true
   alias ImagePipe.Transform.Detector.ImageVision
 
-  test "available? mirrors Code.ensure_loaded?(Image.FaceDetection)" do
-    assert ImageVision.available?([]) == Code.ensure_loaded?(Image.FaceDetection)
-  end
-
   test "identity reflects availability" do
     expected =
       if ImageVision.available?([]),

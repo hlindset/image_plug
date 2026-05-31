@@ -935,7 +935,13 @@ defmodule ImagePipe.Parser.ImgproxyTest do
   end
 
   test "maps smart gravity to the smart plan guide" do
-    assert {:ok, %Plan{}} = Imgproxy.parse(conn(:get, "/_/g:sm/plain/images/cat.jpg"), [])
+    assert {:ok, %Plan{pipelines: [%Pipeline{operations: [%Operation.Resize{} = resize]}]}} =
+             Imgproxy.parse(
+               conn(:get, "/_/g:sm/rs:fill:100:100/plain/images/cat.jpg"),
+               @baseline_opts
+             )
+
+    assert resize.guide == :smart
 
     assert {:ok, %Plan{pipelines: [%Pipeline{operations: [%Operation.CropGuided{} = crop]}]}} =
              Imgproxy.parse(conn(:get, "/_/c:100:100:sm/plain/images/cat.jpg"), @baseline_opts)

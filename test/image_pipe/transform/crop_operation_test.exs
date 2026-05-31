@@ -111,12 +111,17 @@ defmodule ImagePipe.Transform.CropOperationTest do
       {:ok, image: image}
     end
 
-    test "anchors on the area-weighted centroid of detected boxes", %{image: image} do
+    test "anchors on the area-weighted centroid of detected boxes" do
+      # A uniform image makes a detect-anchored crop byte-identical to the
+      # attention fallback, so use a real photo and a corner face box: the
+      # detected crop must diverge from the pure-attention (:smart) crop.
+      image = Image.open!("priv/static/images/woman.jpg")
+
       state = %State{
         image: image,
         detector:
           {ImagePipe.Test.FakeDetector,
-           [result: {:ok, [%{label: "face", score: 0.9, box: {10, 10, 20, 20}}]}]}
+           [result: {:ok, [%{label: "face", score: 0.9, box: {10, 10, 30, 30}}]}]}
       }
 
       op = %Crop{
@@ -128,9 +133,19 @@ defmodule ImagePipe.Transform.CropOperationTest do
 
       assert {:ok, %{image: out}} = Crop.execute(op, state)
       assert Image.width(out) == 100 and Image.height(out) == 100
+
+      {:ok, %{image: attention}} =
+        Crop.execute(%{op | gravity: :smart}, %State{image: image})
+
+      png = fn img -> Image.write!(img, :memory, suffix: ".png") end
+      refute png.(out) == png.(attention)
     end
 
-    test "no detections falls back to attention", %{image: image} do
+    test "no detections falls back to attention" do
+      # On a real photo, the no-detection fallback must be byte-identical to a
+      # pure-attention (:smart) crop, proving detection is bypassed cleanly.
+      image = Image.open!("priv/static/images/woman.jpg")
+
       state = %State{
         image: image,
         detector: {ImagePipe.Test.FakeDetector, [result: {:ok, []}]}
@@ -145,6 +160,12 @@ defmodule ImagePipe.Transform.CropOperationTest do
 
       assert {:ok, %{image: out}} = Crop.execute(op, state)
       assert Image.width(out) == 100
+
+      {:ok, %{image: attention}} =
+        Crop.execute(%{op | gravity: :smart}, %State{image: image})
+
+      assert Image.write!(out, :memory, suffix: ".png") ==
+               Image.write!(attention, :memory, suffix: ".png")
     end
 
     test "out-of-image box is dropped, falls back to attention", %{image: image} do

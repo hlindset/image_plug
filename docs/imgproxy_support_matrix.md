@@ -395,7 +395,12 @@ source support.
 ImagePipe ships a narrow slice of object-detection gravity: `g:obj:face` (and
 the crop form `c:W:H:obj:face`) selects a single `face` class through an optional
 ML detector, falling back to libvips attention smart crop when the detector is
-unavailable. Enabling it requires the host to add **both** `image_vision` **and**
+unavailable. This graceful fallback is the default; a host can instead opt into
+strict mode (`detector_required: true`), which **rejects** a `g:obj:face` request
+with a 422 (before any source fetch or cache access) when the detector is
+unavailable rather than falling back — see
+[content-aware-gravity.md](content-aware-gravity.md). Face-assist `g:sm` is never
+hard-rejected. Enabling it requires the host to add **both** `image_vision` **and**
 its ONNX backend `ortex` (a Rust runtime; the YuNet model downloads on first
 use) — see [content-aware-gravity.md](content-aware-gravity.md) for the full host
 setup, the `detector` / `detector_required` options, warmup, and custom
@@ -413,9 +418,14 @@ imgproxy.
   `max_score_area` (highest-scoring detected region). ImagePipe instead
   approximates object gravity with an area-weighted centroid of detected face
   boxes, so the chosen focus point diverges from imgproxy's gravity mode.
-- ⭕ `IMGPROXY_OBJECT_DETECTION_FALLBACK_TO_SMART_CROP` — ImagePipe always falls
-  back to libvips attention smart crop when no face is detected or the detector
-  is unavailable; the behavior isn't configurable.
+- ⭕ `IMGPROXY_OBJECT_DETECTION_FALLBACK_TO_SMART_CROP` — by default ImagePipe
+  falls back to libvips attention smart crop when no face is detected or the
+  detector is unavailable. The imgproxy variable isn't read, but the fallback is
+  not unconditional: a host can opt into strict mode (`detector_required: true`),
+  which **rejects** a `g:obj:face` request with a 422 (before any source fetch or
+  cache access) when the detector is unavailable instead of falling back — see
+  [content-aware-gravity.md](content-aware-gravity.md). Face-assist `g:sm` always
+  falls back and is never hard-rejected.
 - ⭕ `IMGPROXY_OBJECT_DETECTION_*` confidence and NMS thresholds — ImagePipe uses
   the YuNet face model's fixed detection-confidence and non-max-suppression
   thresholds; they are not exposed as configuration.

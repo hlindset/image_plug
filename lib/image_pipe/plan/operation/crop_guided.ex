@@ -30,7 +30,7 @@ defmodule ImagePipe.Plan.Operation.CropGuided do
              {:ratio, non_neg_integer(), pos_integer()}}
           | :smart
           | {:smart, :face_assist}
-          | {:detect, [String.t()]}
+          | {:detect, nonempty_list(String.t())}
   @type offset :: number() | {:pixels, number()} | {:scale, number()}
 
   @type t :: %__MODULE__{

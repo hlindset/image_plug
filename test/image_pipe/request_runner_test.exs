@@ -292,19 +292,6 @@ defmodule ImagePipe.Request.RunnerTest do
     def upgrade(payload, _protocol, _opts), do: {:ok, payload}
   end
 
-  defmodule FakeIdentityDetector do
-    @behaviour ImagePipe.Transform.Detector
-
-    @impl ImagePipe.Transform.Detector
-    def detect(_image, _opts), do: {:ok, []}
-
-    @impl ImagePipe.Transform.Detector
-    def available?(_opts), do: true
-
-    @impl ImagePipe.Transform.Detector
-    def identity(opts), do: {__MODULE__, Keyword.fetch!(opts, :fake_identity)}
-  end
-
   defmodule SourceImage do
     @behaviour ImagePipe.Source
 
@@ -1372,8 +1359,8 @@ defmodule ImagePipe.Request.RunnerTest do
                  plan,
                  resolved_source(),
                  cache: {CacheReadProbe, entry: entry},
-                 detector: FakeIdentityDetector,
-                 fake_identity: fake_identity
+                 detector: ImagePipe.Test.FakeDetector,
+                 identity: fake_identity
                )
 
       assert_received {:cache_lookup, key}
@@ -1383,7 +1370,7 @@ defmodule ImagePipe.Request.RunnerTest do
     key_v1 = run_lookup.(:v1)
     key_v2 = run_lookup.(:v2)
 
-    assert key_v1.data[:detector] == {FakeIdentityDetector, :v1}
+    assert key_v1.data[:detector] == {ImagePipe.Test.FakeDetector, :v1}
     refute key_v1.hash == key_v2.hash
   end
 
