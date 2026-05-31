@@ -135,9 +135,11 @@ outcome categories in this list.
 ## Content-aware crop detection
 
 Face-aware crops (`g:obj:face`, `c:W:H:obj:face`, and face-assisted `g:sm`)
-emit a `[:image_pipe, :transform, :detect]` span around detector inference.
-Every face-aware request emits exactly one detect span, including when no
-detector is configured (so the fallback is always observable). Stop metadata:
+report detection two ways, depending on whether any detection actually ran.
+
+When a detector is configured, ImagePipe wraps the detector invocation in a
+`[:image_pipe, :transform, :detect]` span whose duration reflects real inference
+work (useful for spotting model cold-start cost). Stop metadata:
 
 - `:classes` - the requested detection classes, e.g. `["face"]`.
 - `:regions` - the number of regions the detector returned.
@@ -148,19 +150,25 @@ detector is configured (so the fallback is always observable). Stop metadata:
     attention saliency.
   - `:unavailable` - the configured detector reported it is unavailable.
   - `:error` - the detector raised, errored, or returned a malformed result.
-  - `:no_detector` - the request asked for a face-aware crop but no detector is
-    configured.
 
-The last three (`:unavailable`, `:error`, `:no_detector`) mark a face-aware
-request that **could not be fulfilled** and degraded to attention saliency. The
-opt-in default Logger escalates those three to `:warning`; `:no_regions` and
-`:detected` log at the base level. `:result` reflects the *detector* outcome,
-not the final crop decision: a `:detected` result whose boxes all fall outside
-the image still degrades to attention downstream.
+`:result` reflects the *detector* outcome, not the final crop decision: a
+`:detected` result whose boxes all fall outside the image still degrades to
+attention downstream.
 
-The detect span duration reflects real inference work and is useful for spotting
-model cold-start cost. The `:no_detector` span performs no detection, so its
-duration is near-zero by design.
+When **no** detector is configured, no detection runs, so there is no span.
+Instead ImagePipe emits a one-shot (non-span) marker:
+
+```text
+[:image_pipe, :transform, :detect, :skipped]
+```
+
+with empty measurements and metadata `%{classes: [...], result: :no_detector}`.
+
+The two unfulfillable-but-configured span results (`:unavailable`, `:error`) and
+the `:skipped` one-shot (`:no_detector`) all mark a face-aware request that fell
+back to attention saliency; the opt-in default Logger escalates all three to
+`:warning`. The normal `:no_regions` and `:detected` span results log at the
+base level.
 
 Cache-related metadata may also include:
 

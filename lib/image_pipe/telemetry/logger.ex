@@ -25,6 +25,11 @@ defmodule ImagePipe.Telemetry.Logger do
     [:cache, :stage]
   ]
 
+  # transform one-shot events (already terminal; not spans)
+  @transform_oneshot [
+    [:transform, :detect, :skipped]
+  ]
+
   @all_groups Map.keys(@group_span_events)
 
   def all_groups, do: @all_groups
@@ -58,9 +63,10 @@ defmodule ImagePipe.Telemetry.Logger do
       |> Enum.flat_map(&Map.get(@group_span_events, &1, []))
       |> Enum.flat_map(fn e -> [e ++ [:stop], e ++ [:exception]] end)
 
-    oneshots = if :cache in groups, do: @cache_oneshot, else: []
+    cache_oneshots = if :cache in groups, do: @cache_oneshot, else: []
+    transform_oneshots = if :transform in groups, do: @transform_oneshot, else: []
 
-    Enum.map(spans ++ oneshots, fn e -> prefix ++ e end)
+    Enum.map(spans ++ cache_oneshots ++ transform_oneshots, fn e -> prefix ++ e end)
   end
 
   @doc false
@@ -97,7 +103,10 @@ defmodule ImagePipe.Telemetry.Logger do
   end
 
   # A face-aware crop that could not be fulfilled and degraded to attention
-  # saliency. `:no_regions` (no face in frame) is a normal result, not a warning.
+  # saliency: a configured detector that produced no usable detection
+  # (`:unavailable`, `:error`) or a request with no detector configured at all
+  # (`:no_detector`, the `[:transform, :detect, :skipped]` one-shot). `:no_regions`
+  # (no face in frame) is a normal result, not a warning.
   defp detect_fallback_warning?([:transform, :detect | _], meta),
     do: meta[:result] in [:unavailable, :error, :no_detector]
 
@@ -107,6 +116,9 @@ defmodule ImagePipe.Telemetry.Logger do
   defp message([:transform, :operation | _], _m, meta) do
     "image_pipe transform: #{meta[:operation]} (##{(meta[:index] || 0) + 1})"
   end
+
+  defp message([:transform, :detect, :skipped | _], _m, _meta),
+    do: "image_pipe transform detect: skipped (no detector configured)"
 
   defp message([:cache, :lookup | _], _m, meta), do: "image_pipe cache lookup: #{meta[:cache]}"
 

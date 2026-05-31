@@ -64,7 +64,7 @@ defmodule ImagePipe.Telemetry.LoggerTest do
     assert log =~ "exception"
   end
 
-  test "escalates an unfulfillable face-aware crop fallback to warning" do
+  test "escalates a configured-detector fallback (:unavailable) to warning" do
     Telemetry.attach_default_logger(level: :info)
 
     log =
@@ -72,12 +72,28 @@ defmodule ImagePipe.Telemetry.LoggerTest do
         :telemetry.execute(
           [:image_pipe, :transform, :detect, :stop],
           %{duration: 1000},
-          %{classes: ["face"], regions: 0, result: :no_detector}
+          %{classes: ["face"], regions: 0, result: :unavailable}
         )
       end)
 
     assert log =~ "[warning]"
-    assert log =~ "transform detect: no_detector"
+    assert log =~ "transform detect: unavailable"
+  end
+
+  test "logs the no-detector skipped one-shot at warning" do
+    Telemetry.attach_default_logger(level: :info)
+
+    log =
+      capture_log(fn ->
+        :telemetry.execute(
+          [:image_pipe, :transform, :detect, :skipped],
+          %{},
+          %{classes: ["face"], result: :no_detector}
+        )
+      end)
+
+    assert log =~ "[warning]"
+    assert log =~ "transform detect: skipped (no detector configured)"
   end
 
   test "logs a normal no-face detect fallback at the base level, not warning" do

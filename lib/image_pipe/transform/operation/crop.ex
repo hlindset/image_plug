@@ -154,7 +154,7 @@ defmodule ImagePipe.Transform.Operation.Crop do
     {module, dopts} = normalize_detector(state.detector)
 
     if is_nil(module) do
-      emit_no_detector_span(["face"], state.telemetry_opts)
+      emit_detect_skipped(["face"], state.telemetry_opts)
       smart_crop(params, state, :VIPS_INTERESTING_ATTENTION)
     else
       face_assist_crop(params, state, module, dopts)
@@ -304,7 +304,7 @@ defmodule ImagePipe.Transform.Operation.Crop do
     {module, dopts} = normalize_detector(state.detector)
 
     if is_nil(module) do
-      emit_no_detector_span(classes, state.telemetry_opts)
+      emit_detect_skipped(classes, state.telemetry_opts)
       smart_crop(params, state, :VIPS_INTERESTING_ATTENTION)
     else
       detect_crop_with_module(params, state, module, dopts, classes)
@@ -334,22 +334,24 @@ defmodule ImagePipe.Transform.Operation.Crop do
     end)
   end
 
-  # Emits a detect span for the "face-aware request, but no detector configured"
-  # fallback so every face-aware request produces exactly one detect span. There
-  # is no detection work to measure, so the duration is near-zero by design; the
-  # observable signal is `result: :no_detector`.
-  defp emit_no_detector_span(classes, telemetry_opts) do
-    Telemetry.span(telemetry_opts, [:transform, :detect], %{classes: classes}, fn ->
-      {:no_detector, %{regions: 0, result: :no_detector}}
-    end)
+  # A face-aware request with no detector configured runs no detection, so it
+  # emits a one-shot `[:transform, :detect, :skipped]` marker rather than a span
+  # (a span would carry a meaningless near-zero duration). The crop falls back to
+  # attention saliency.
+  defp emit_detect_skipped(classes, telemetry_opts) do
+    Telemetry.execute(telemetry_opts, [:transform, :detect, :skipped], %{}, %{
+      classes: classes,
+      result: :no_detector
+    })
   end
 
-  # The detector-level outcome recorded on the detect span's stop metadata. It
-  # reflects what the detector returned, not the final crop decision: a usable
-  # `:detected` result whose boxes all fall outside the image still degrades to
-  # attention downstream. `:no_regions` is normal (no face in the frame);
-  # `:unavailable`, `:error`, and `:no_detector` mark a face-aware request that
-  # could not be fulfilled and fell back to attention saliency.
+  # The detector-level outcome recorded on the detect span's stop metadata. The
+  # span wraps the detector invocation, so it only fires when a detector module
+  # exists. `result` reflects what the detector returned, not the final crop
+  # decision: a usable `:detected` result whose boxes all fall outside the image
+  # still degrades to attention downstream. `:no_regions` is normal (no face in
+  # the frame); `:unavailable` and `:error` mark a configured detector that could
+  # not produce a usable detection, so the crop fell back to attention saliency.
   defp detect_reason({:ok, [_ | _]}), do: :detected
   defp detect_reason({:ok, []}), do: :no_regions
   defp detect_reason({:error, {:detector, :unavailable}}), do: :unavailable

@@ -313,9 +313,14 @@ defmodule ImagePipe.Transform.CropOperationTest do
       :telemetry.detach(ref)
     end
 
-    test "nil detector still emits a detect span with result: :no_detector", %{image: image} do
+    test "nil detector emits a [:transform, :detect, :skipped] one-shot, not a span", %{
+      image: image
+    } do
       ref =
-        :telemetry_test.attach_event_handlers(self(), [[:image_pipe, :transform, :detect, :stop]])
+        :telemetry_test.attach_event_handlers(self(), [
+          [:image_pipe, :transform, :detect, :skipped],
+          [:image_pipe, :transform, :detect, :stop]
+        ])
 
       state = %State{image: image, detector: nil}
 
@@ -328,10 +333,11 @@ defmodule ImagePipe.Transform.CropOperationTest do
 
       {:ok, _} = Crop.execute(op, state)
 
-      assert_receive {[:image_pipe, :transform, :detect, :stop], ^ref, _m, metadata}
+      assert_receive {[:image_pipe, :transform, :detect, :skipped], ^ref, _measurements, metadata}
       assert metadata.classes == ["face"]
-      assert metadata.regions == 0
       assert metadata.result == :no_detector
+      # No span fires: nothing ran.
+      refute_received {[:image_pipe, :transform, :detect, :stop], ^ref, _, _}
 
       :telemetry.detach(ref)
     end

@@ -149,14 +149,17 @@ cached results.
 - The detector's `identity/1` is folded into the **cache key** for face-aware
   requests, so swapping the detector/model (or running with vs. without the dep)
   never serves stale bytes.
-- Detection emits a `[:image_pipe, :transform, :detect]` telemetry span with
-  honest duration (the model inference is real, eager work) — useful for
-  spotting cold-start cost. Its `:result` metadata distinguishes a real
-  detection (`:detected`), a normal no-face frame (`:no_regions`), and an
-  unfulfillable face-aware request that fell back to attention (`:unavailable`,
-  `:error`, `:no_detector`). The opt-in default Logger escalates those last
-  three to `:warning`. ImagePipe emits no request-time `Logger` calls itself —
-  fallback observability is telemetry-only. See [telemetry.md](telemetry.md).
+- When a detector runs, detection emits a `[:image_pipe, :transform, :detect]`
+  telemetry span with honest duration (the model inference is real, eager work)
+  — useful for spotting cold-start cost. Its `:result` metadata distinguishes a
+  real detection (`:detected`), a normal no-face frame (`:no_regions`), and a
+  configured detector that produced nothing usable (`:unavailable`, `:error`).
+  When no detector is configured, nothing runs, so instead of a span ImagePipe
+  emits a one-shot `[:image_pipe, :transform, :detect, :skipped]` marker
+  (`result: :no_detector`). The opt-in default Logger escalates `:unavailable`,
+  `:error`, and `:no_detector` to `:warning`. ImagePipe emits no request-time
+  `Logger` calls itself — fallback observability is telemetry-only. See
+  [telemetry.md](telemetry.md).
 
 ## imgproxy compatibility & divergences
 
