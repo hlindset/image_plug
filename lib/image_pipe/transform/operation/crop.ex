@@ -264,8 +264,10 @@ defmodule ImagePipe.Transform.Operation.Crop do
          {:ok, {:fp, fx, fy}} <-
            focal_from_regions(regions, image_width(state), image_height(state)),
          {:ok, {ax, ay}} <- attention_point(params, state) do
-      blended = {:fp, blend_axis(ax, fx), blend_axis(ay, fy)}
-      execute(%{params | gravity: blended}, state)
+      blended = {blend_axis(ax, fx), blend_axis(ay, fy)}
+      emit_blend(state.telemetry_opts, {ax, ay}, {fx, fy}, blended)
+      {bx, by} = blended
+      execute(%{params | gravity: {:fp, bx, by}}, state)
     else
       _ -> smart_crop(params, state, :VIPS_INTERESTING_ATTENTION)
     end
@@ -273,6 +275,20 @@ defmodule ImagePipe.Transform.Operation.Crop do
 
   defp blend_axis(attention, face),
     do: clamp_unit((1 - @face_assist_weight) * attention + @face_assist_weight * face)
+
+  # Records how face detection skewed the attention point for `{:smart,
+  # :face_assist}`: the pure saliency point, the face centroid, the blended
+  # result actually used, and the blend weight. A one-shot (not a span) — it is a
+  # decision, not measured work. Coordinates are normalized 0..1, product-neutral,
+  # and derived from the public request, so they are safe to emit.
+  defp emit_blend(telemetry_opts, attention, face, blended) do
+    Telemetry.execute(telemetry_opts, [:transform, :detect, :blend], %{}, %{
+      attention: attention,
+      face: face,
+      blended: blended,
+      weight: @face_assist_weight
+    })
+  end
 
   defp attention_point(%__MODULE__{} = params, %State{} = state) do
     image_width = image_width(state)

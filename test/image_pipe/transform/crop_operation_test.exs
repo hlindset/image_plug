@@ -400,5 +400,62 @@ defmodule ImagePipe.Transform.CropOperationTest do
       assert {:ok, %{image: out}} = Crop.execute(op, state)
       assert Image.width(out) == 200
     end
+
+    test "face_assist emits a [:transform, :detect, :blend] one-shot with the skew", %{
+      image: image
+    } do
+      ref =
+        :telemetry_test.attach_event_handlers(self(), [[:image_pipe, :transform, :detect, :blend]])
+
+      state = %State{
+        image: image,
+        detector:
+          {ImagePipe.Test.FakeDetector,
+           [result: {:ok, [%{label: "face", score: 0.9, box: {5, 5, 8, 8}}]}]}
+      }
+
+      op = %Crop{
+        width: {:pixels, 200},
+        height: {:pixels, 200},
+        crop_from: :gravity,
+        gravity: {:smart, :face_assist}
+      }
+
+      {:ok, _} = Crop.execute(op, state)
+
+      assert_receive {[:image_pipe, :transform, :detect, :blend], ^ref, _measurements, meta}
+      assert {ax, ay} = meta.attention
+      assert {fx, fy} = meta.face
+      assert {bx, by} = meta.blended
+      assert meta.weight == 0.7
+      # Blended point is the weighted mix actually used: 0.7*face + 0.3*attention.
+      assert_in_delta bx, 0.7 * fx + 0.3 * ax, 1.0e-9
+      assert_in_delta by, 0.7 * fy + 0.3 * ay, 1.0e-9
+
+      :telemetry.detach(ref)
+    end
+
+    test "no blend one-shot fires when detection finds no face", %{image: image} do
+      ref =
+        :telemetry_test.attach_event_handlers(self(), [[:image_pipe, :transform, :detect, :blend]])
+
+      state = %State{
+        image: image,
+        detector: {ImagePipe.Test.FakeDetector, [result: {:ok, []}]}
+      }
+
+      op = %Crop{
+        width: {:pixels, 200},
+        height: {:pixels, 200},
+        crop_from: :gravity,
+        gravity: {:smart, :face_assist}
+      }
+
+      {:ok, _} = Crop.execute(op, state)
+
+      refute_received {[:image_pipe, :transform, :detect, :blend], ^ref, _, _}
+
+      :telemetry.detach(ref)
+    end
   end
 end

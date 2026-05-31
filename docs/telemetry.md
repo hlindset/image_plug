@@ -170,6 +170,27 @@ back to attention saliency; the opt-in default Logger escalates all three to
 `:warning`. The normal `:no_regions` and `:detected` span results log at the
 base level.
 
+For face-assisted smart crop (`g:sm` with `smart_crop_face_detection`), when a
+face is found ImagePipe blends the attention point with the face centroid. It
+emits a one-shot (non-span) marker recording the skew:
+
+```text
+[:image_pipe, :transform, :detect, :blend]
+```
+
+with empty measurements and metadata:
+
+- `:attention` - the pure libvips saliency point `{x, y}` (normalized 0..1).
+- `:face` - the area-weighted face centroid `{x, y}` (normalized 0..1).
+- `:blended` - the point actually used: `(1 - weight)·attention + weight·face`.
+- `:weight` - the face-assist blend weight (ImagePipe's approximation).
+
+Subtract `:attention` from `:blended` for how far the face pulled the crop. The
+coordinates are product-neutral and derived from the public request, so they are
+safe to emit. This marker fires only when a face is detected; no face means a
+plain attention crop and no blend event. The default Logger renders it at the
+base level.
+
 Cache-related metadata may also include:
 
 - `cache: :disabled`

@@ -27,7 +27,8 @@ defmodule ImagePipe.Telemetry.Logger do
 
   # transform one-shot events (already terminal; not spans)
   @transform_oneshot [
-    [:transform, :detect, :skipped]
+    [:transform, :detect, :skipped],
+    [:transform, :detect, :blend]
   ]
 
   @all_groups Map.keys(@group_span_events)
@@ -120,6 +121,11 @@ defmodule ImagePipe.Telemetry.Logger do
   defp message([:transform, :detect, :skipped | _], _m, _meta),
     do: "image_pipe transform detect: skipped (no detector configured)"
 
+  defp message([:transform, :detect, :blend | _], _m, meta) do
+    "image_pipe transform detect blend: attention #{point(meta[:attention])} -> " <>
+      "#{point(meta[:blended])} (face #{point(meta[:face])}, weight #{meta[:weight]})"
+  end
+
   defp message([:cache, :lookup | _], _m, meta), do: "image_pipe cache lookup: #{meta[:cache]}"
 
   defp message([:cache, :write | _], _m, meta) do
@@ -157,6 +163,12 @@ defmodule ImagePipe.Telemetry.Logger do
     |> Enum.reject(&(&1 in [:stop, :exception]))
     |> Enum.map_join(" ", &Atom.to_string/1)
   end
+
+  defp point({x, y}), do: "(#{round2(x)},#{round2(y)})"
+  defp point(_other), do: "(?,?)"
+
+  defp round2(n) when is_number(n), do: Float.round(n * 1.0, 2)
+  defp round2(_other), do: nil
 
   # --- logger metadata ---
   defp log_metadata(event, measurements, metadata) do

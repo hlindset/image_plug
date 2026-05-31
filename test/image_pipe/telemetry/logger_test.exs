@@ -80,6 +80,23 @@ defmodule ImagePipe.Telemetry.LoggerTest do
     assert log =~ "transform detect: unavailable"
   end
 
+  test "logs the face-assist blend one-shot at base level, showing the saliency skew" do
+    Telemetry.attach_default_logger(level: :info)
+
+    log =
+      capture_log(fn ->
+        :telemetry.execute(
+          [:image_pipe, :transform, :detect, :blend],
+          %{},
+          %{attention: {0.5, 0.5}, face: {0.2, 0.8}, blended: {0.29, 0.71}, weight: 0.7}
+        )
+      end)
+
+    refute log =~ "[warning]"
+    assert log =~ "transform detect blend: attention (0.5,0.5) -> (0.29,0.71)"
+    assert log =~ "weight 0.7"
+  end
+
   test "logs the no-detector skipped one-shot at warning" do
     Telemetry.attach_default_logger(level: :info)
 
