@@ -51,8 +51,18 @@ defmodule ImagePipe.Transform.Detector.Composite do
   def identity(opts), do: identity(default(), opts)
 
   @impl true
-  def warmup(opts) do
-    Enum.reduce_while(default().children, :ok, fn child, _ ->
+  def warmup(opts), do: warmup(default(), opts)
+
+  # Warm only the children the requested classes route to, so e.g.
+  # `classes: ["face"]` warms YuNet but not the larger RT-DETR model. `:all`
+  # (the default) warms every child.
+  @spec warmup(t(), keyword()) :: :ok | {:error, term()}
+  def warmup(%__MODULE__{} = composite, opts) do
+    classes = Keyword.get(opts, :classes, :all)
+
+    composite
+    |> routed(classes)
+    |> Enum.reduce_while(:ok, fn {child, _child_classes}, _ ->
       case Detector.warmup(child, opts) do
         :ok -> {:cont, :ok}
         {:error, _} = err -> {:halt, err}

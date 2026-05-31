@@ -63,7 +63,56 @@ defmodule ImagePipe.Transform.Detector.CompositeTest do
     def detect(_image, _opts), do: {:error, {:detector, :boom}}
   end
 
+  # Children that report which warmup ran, to verify class-routed warmup.
+  defmodule WarmFace do
+    @behaviour ImagePipe.Transform.Detector
+    @impl true
+    def supported_classes(_), do: ["face"]
+    @impl true
+    def available?(_), do: true
+    @impl true
+    def identity(_), do: {__MODULE__, :v}
+    @impl true
+    def detect(_, _), do: {:ok, []}
+    @impl true
+    def warmup(opts) do
+      send(Keyword.fetch!(opts, :test_pid), {:warmed, :face})
+      :ok
+    end
+  end
+
+  defmodule WarmObject do
+    @behaviour ImagePipe.Transform.Detector
+    @impl true
+    def supported_classes(_), do: ["car"]
+    @impl true
+    def available?(_), do: true
+    @impl true
+    def identity(_), do: {__MODULE__, :v}
+    @impl true
+    def detect(_, _), do: {:ok, []}
+    @impl true
+    def warmup(opts) do
+      send(Keyword.fetch!(opts, :test_pid), {:warmed, :object})
+      :ok
+    end
+  end
+
   defp composite, do: Composite.new([FaceChild, ObjectChild])
+
+  test "warmup with a class list warms only the routed children" do
+    composite = Composite.new([WarmFace, WarmObject])
+    assert :ok = Composite.warmup(composite, classes: ["face"], test_pid: self())
+    assert_received {:warmed, :face}
+    refute_received {:warmed, :object}
+  end
+
+  test "warmup with :all warms every child" do
+    composite = Composite.new([WarmFace, WarmObject])
+    assert :ok = Composite.warmup(composite, classes: :all, test_pid: self())
+    assert_received {:warmed, :face}
+    assert_received {:warmed, :object}
+  end
 
   test "surfaces the error when every routed child fails" do
     composite = Composite.new([ErroringChild])

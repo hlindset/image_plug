@@ -185,7 +185,11 @@ Class names use the **underscore spelling** matching the COCO-80 vocabulary:
 child detector — both the face (YuNet) and object (RT-DETR) adapters run, and
 their regions are merged before computing the crop focus. A class list routes
 only to the detector(s) that own the requested classes; e.g. `g:obj:face` routes
-only to YuNet, `g:obj:car` routes only to RT-DETR.
+only to YuNet, `g:obj:car` routes only to RT-DETR. Detection runs on the decoded
+image inside the bounded transform pipeline (subject to `max_input_pixels`), and
+successful responses are cached — but note that `g:obj`/`g:obj:all` runs *two*
+models per cache miss, so size `max_input_pixels`/concurrency limits with the
+heavier RT-DETR path in mind.
 
 **Unknown classes degrade, never error.** If a requested class isn't claimed by
 any configured detector, it is silently dropped. `g:obj:unicorn` produces the

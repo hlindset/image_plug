@@ -564,7 +564,7 @@ describe("processing path generation", () => {
     expect(optionSegments(state)).toEqual(["g:obj:car:dog"]);
   });
 
-  it("rounds trips bare g:obj through the demo path", () => {
+  it("round-trips bare g:obj through the demo path", () => {
     const parsed = parseDemoPath("/demo/g:obj/plain/local:///images/dog.jpg");
 
     expect(parsed).toMatchObject({
@@ -599,6 +599,26 @@ describe("processing path generation", () => {
     });
 
     expect(demoPathForState(parsed)).toBe("/demo/g:obj:car:dog/plain/local:///images/dog.jpg");
+  });
+
+  it("drops unknown class tokens, keeping only known COCO-80 classes", () => {
+    const parsed = parseDemoPath("/demo/g:obj:car:spaceship/plain/local:///images/dog.jpg");
+
+    expect(parsed).toMatchObject({
+      gravityEnabled: true,
+      gravityMode: "objClasses",
+      gravityObjClasses: ["car"],
+    });
+
+    expect(demoPathForState(parsed)).toBe("/demo/g:obj:car/plain/local:///images/dog.jpg");
+  });
+
+  it("leaves gravity unchanged for an all-unknown g:obj segment", () => {
+    const parsed = parseDemoPath("/demo/g:obj:spaceship/plain/local:///images/dog.jpg");
+
+    // every token unknown -> the picker can't represent it, so the segment is
+    // ignored and gravity is not switched to object-classes mode
+    expect(parsed.gravityMode).not.toBe("objClasses");
   });
 
   it("normalizes g:obj:car:all (all mixed with classes) to empty selection (all objects)", () => {
