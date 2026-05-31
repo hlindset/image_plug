@@ -10,13 +10,13 @@ the cache key, the `detector_required` gate, `[:transform, :detect]` telemetry,
 
 > **Review revisions (2026-05-31).** A four-reviewer parallel cycle (boundary,
 > cache/runtime correctness, `image_vision` integration reality, test
-> strategy/scope) ran against this spec. Accepted changes folded in below:
-> fixed a telemetry leak — the per-model span no longer reflects the opaque
-> host-controlled `identity/1` (which a custom detector may fill with a path/secret);
-> it emits the child **module name** plus a deliberate, telemetry-safe model
-> descriptor the bundled adapters populate (giving model-version visibility without
-> leaking custom-detector identity); made the class-threading wiring explicit at
-> *both* the plug gate and the
+> strategy/scope) ran against this spec. Accepted changes folded in below: the
+> per-model span emits the child **module name** + its `identity/1` (version-bearing
+> `{repo, filename, min_score}` for the bundled adapters), with a one-line doc
+> contract that custom `identity/1` stays secret-free — the model-artifact name is
+> harmless public metadata, and a reviewer's stricter "never emit the identity"
+> reading was relaxed as far-fetched (no guard code); made the class-threading
+> wiring explicit at *both* the plug gate and the
 > runner key-build; enumerated the `:all` producer edits (`detect_classes/1`,
 > `KeyData.guide_data/1`, the `CropGuided`/`crop` typespecs); corrected the Objects
 > adapter to use `:filename` / no `:nms_iou` / `available? =
@@ -88,12 +88,12 @@ The design was brainstormed decision-by-decision. The settled answers:
    (`effective_classes`). No new config knob.
 6. **Telemetry — aggregate span + per-model nested spans.** Keeps honest total
    timing and restores per-model cold-start visibility that today's single face
-   span has. The per-model span identifies the child by **module name** plus a
-   deliberate, telemetry-safe **model descriptor** the bundled adapters populate
-   (so the span shows *which model version* ran, e.g.
-   `face_detection_yunet_2023mar.onnx`, and changes when the model file changes).
-   It never reflects the opaque `identity/1` value — that is cache-key material a
-   custom detector may legitimately fill with a path or secret (see § Telemetry).
+   span has. The per-model span identifies the child by **module name** plus its
+   **`identity/1`** (for the bundled adapters that is `{repo, filename, min_score}`
+   — version-bearing, so the span shows which model version ran). The model-artifact
+   name is harmless public metadata, so this is fine to emit; custom-detector
+   authors are told (one doc line) to keep `identity/1` free of secrets, rather than
+   the library adding guard code for that far-fetched case (see § Telemetry).
 7. **Config — minimal.** Keep `detector` / `detector_required`. `:default` becomes
    the Composite with baked-in default models and per-child default `min_score`.
    Hosts tune via the existing custom-detector extension point. Model
@@ -121,27 +121,9 @@ The design was brainstormed decision-by-decision. The settled answers:
   region this detector can produce" (no class filter).
 
 This is a real `@impl` behaviour callback, not a duck-typing probe — consistent
-with the repo's "call the callback, let missing callbacks raise" stance.
-
-The behaviour also gains an **optional** telemetry-descriptor callback so a
-detector can deliberately expose a safe, human-readable model identifier for the
-per-model span **without** the system ever reflecting its `identity/1` (which is
-cache-key material and may legitimately hold a filesystem path or credential in a
-custom detector):
-
-```elixir
-@callback telemetry_model(opts :: keyword()) :: String.t() | nil
-@optional_callbacks telemetry_model: 1
-```
-
-- Bundled adapters implement it: `Face → "face_detection_yunet_2023mar.onnx"`
-  (or `"<repo>/<model_file>"`), `Objects → "<repo>/<filename>"`. The value is
-  version-bearing, so it changes when the model file changes.
-- A custom detector that does not implement it contributes no `model:` field — the
-  span still carries its module name. The Composite calls it via
-  `function_exported?`-guarded dispatch (the sanctioned optional-callback pattern,
-  same as the existing optional `warmup/1`), never reading `identity/1` for
-  telemetry.
+with the repo's "call the callback, let missing callbacks raise" stance. No other
+new callback is needed — the per-model telemetry span reuses the existing
+`identity/1` (see § Telemetry).
 
 ### Adapters: split the bundled `ImageVision` into Face + Objects
 
@@ -361,33 +343,30 @@ Consequences this guarantees:
 - **`[:transform, :detect, :model]`** (new) — a nested span per child detector
   that runs. Metadata:
   - `detector` = the child *module name* (e.g.
-    `ImagePipe.Transform.Detector.ImageVision.Objects`) — always present.
-  - `model` = the child's `telemetry_model/1` descriptor when implemented (the
-    bundled adapters return the model-artifact id, e.g.
-    `"face_detection_yunet_2023mar.onnx"`); **absent** for detectors that don't
-    implement the callback. This is a *deliberate, telemetry-safe* value chosen by
-    the adapter — it gives model-version visibility (it changes when the model file
-    changes) and is product-neutral public metadata, not a request/source/storage
-    path or cache key.
+    `ImagePipe.Transform.Detector.ImageVision.Objects`), for grouping.
+  - `model` = the child's `identity/1` (for the bundled adapters,
+    `{repo, filename, min_score}`). It is version-bearing, so the span shows which
+    model version ran and changes when the model file changes. A model-artifact name
+    is harmless, product-neutral public metadata — not a request/source/storage path
+    or cache key — so emitting it does not breach the telemetry "no sensitive data"
+    intent.
   - the routed `classes` subset (`:all` or list), `regions` (count), and honest
     inference duration (model inference is real eager work — legitimate compute
     timing, unlike libvips-lazy per-operation spans).
-  - **Never emit the child `identity/1` tuple.** Identity is opaque, host-
-    controlled cache-key material; a custom detector may legitimately put a
-    filesystem path, signed URL, or token there. The `telemetry_model/1` descriptor
-    exists precisely so model-version observability does not require reflecting
-    `identity/1`. (The bundled YuNet/RT-DETR artifact names are themselves harmless
-    public identifiers; the rule we are honoring is "don't blanket-emit opaque
-    host identity," not "model names are sensitive.")
+  - **Documented contract (no guard code):** a detector's `identity/1` appears in
+    this span, so custom-detector authors should keep it free of secrets. We don't
+    add machinery to defend against a detector that both encodes a secret in its
+    identity *and* exports raw telemetry to an external sink — that's a far-fetched
+    misuse, and the repo philosophy is to document the contract, not guard
+    impossible misuse.
 - **`[:transform, :detect, :skipped]`** unchanged (no detector configured),
   carrying `classes`.
 - Metadata stays product-neutral and non-sensitive: module names, class strings,
   counts. No paths, URLs, signatures, or filenames.
 - The opt-in default Logger and `telemetry.md` are updated for the new model span
-  (the `detector` module name + the optional `model` descriptor) and the
-  requested/effective metadata. A test asserts the span **never reflects a
-  detector's `identity/1`** — a custom detector whose `identity/1` carries a
-  sentinel "secret" path must not have it appear in any span metadata.
+  (the `detector` module name + the `model` = `identity/1`) and the
+  requested/effective metadata, including the one-line "keep `identity/1` free of
+  secrets" note in the custom-detector docs.
 
 ### Config & wiring
 
@@ -423,9 +402,9 @@ Per the repo convention to keep the demo in sync with transform changes
   `all` now supported; `objw` / `objects_position` still out (Slice 2 / out of
   scope). Keep the YuNet-vs-imgproxy-YOLO divergence notes; add the RT-DETR/COCO-80
   object model.
-- `docs/telemetry.md` — document the per-model span (`detector` module name + the
-  optional, telemetry-safe `model` descriptor; never the raw `identity/1`) and the
-  requested/effective-classes metadata.
+- `docs/telemetry.md` — document the per-model span (`detector` module name +
+  `model` = the child's `identity/1`) and the requested/effective-classes metadata;
+  add the one-line "keep custom `identity/1` free of secrets" note.
 
 ## Testing
 
@@ -477,11 +456,8 @@ nondeterministic inference.
   canonicalization (sorted) yields a stable key regardless of URL order.
 - **Telemetry tests:** aggregate `[:transform, :detect]` carries
   `requested_classes`/`effective_classes`; a per-model `[:transform, :detect,
-  :model]` span is emitted per child that runs, with `detector` = module name and a
-  `model` descriptor when the child implements `telemetry_model/1` (absent
-  otherwise); and a custom detector whose `identity/1` holds a sentinel secret
-  string has that string appear in **no** span metadata; `:skipped` still fires
-  with no detector.
+  :model]` span is emitted per child that runs, with `detector` = module name and
+  `model` = the child's `identity/1`; `:skipped` still fires with no detector.
 - **Property tests:** parser order-insensitivity for class lists; cache-key
   canonicalization across class orderings.
 - **Real-model lane (one `@tag :image_vision` coarse smoke test only):** a single
