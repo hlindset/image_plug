@@ -88,6 +88,35 @@ defmodule ImagePipe.RequestOptionsTest do
     end
   end
 
+  test "detector options default to :default and false" do
+    opts = Options.validate!(@base_opts)
+
+    assert Keyword.fetch!(opts, :detector) == :default
+    assert Keyword.fetch!(opts, :detector_required) == false
+  end
+
+  test "detector options accept a host module and detector_required: true" do
+    opts =
+      Options.validate!(
+        Keyword.merge(@base_opts, detector: CustomAdapter, detector_required: true)
+      )
+
+    assert Keyword.fetch!(opts, :detector) == CustomAdapter
+    assert Keyword.fetch!(opts, :detector_required) == true
+  end
+
+  test "detector accepts nil to disable detection" do
+    opts = Options.validate!(Keyword.put(@base_opts, :detector, nil))
+
+    assert Keyword.fetch!(opts, :detector) == nil
+  end
+
+  test "detector_required rejects non-boolean values" do
+    assert_raise ArgumentError, ~r/invalid ImagePipe options/, fn ->
+      Options.validate!(Keyword.put(@base_opts, :detector_required, :yes))
+    end
+  end
+
   test "request options accept sources without root_url" do
     assert opts =
              Options.validate!(

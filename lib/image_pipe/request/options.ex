@@ -16,6 +16,8 @@ defmodule ImagePipe.Request.Options do
     :clock,
     :telemetry_prefix,
     :http_cache,
+    :detector,
+    :detector_required,
     :max_body_bytes,
     :max_input_pixels,
     :max_result_width,
@@ -69,6 +71,14 @@ defmodule ImagePipe.Request.Options do
                       keys: [
                         mode: [type: {:in, [:disabled, :enabled]}, default: :disabled]
                       ]
+                    ],
+                    detector: [
+                      type: {:or, [{:in, [:default, nil]}, :atom]},
+                      default: :default
+                    ],
+                    detector_required: [
+                      type: :boolean,
+                      default: false
                     ]
                   )
 

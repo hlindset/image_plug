@@ -22,6 +22,7 @@ defmodule ImagePipe.Transform.PlanExecutor do
   alias ImagePipe.Plan.Operation.Saturation, as: PlanSaturation
   alias ImagePipe.Plan.Operation.Sharpen, as: PlanSharpen
   alias ImagePipe.Plan.Pipeline
+  alias ImagePipe.Telemetry
   alias ImagePipe.Transform.Chain
   alias ImagePipe.Transform.Operation.AutoOrient
   alias ImagePipe.Transform.Operation.Background
@@ -45,6 +46,13 @@ defmodule ImagePipe.Transform.PlanExecutor do
   @spec execute(Plan.t(), State.t(), keyword()) ::
           {:ok, State.t()} | {:error, term()}
   def execute(%Plan{pipelines: pipelines}, %State{} = state, opts) do
+    state = %{
+      state
+      | detector: ImagePipe.Transform.resolve_detector(Keyword.get(opts, :detector, :default)),
+        detector_required: Keyword.get(opts, :detector_required, false),
+        telemetry_opts: Telemetry.telemetry_opts(opts)
+    }
+
     execute_pipelines(pipelines, state, opts)
   end
 
