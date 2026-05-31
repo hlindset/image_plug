@@ -94,15 +94,14 @@ warmup worker to **your** supervision tree:
 
 ```elixir
 # in your application.ex children
-{ImagePipe.Transform.Detector.Warmup,
- detector: ImagePipe.Transform.Detector.ImageVision,
- classes: ["face"]}
+{ImagePipe.Transform.Detector.Warmup, detector: :default, classes: ["face"]}
 ```
 
 It runs once, off the boot path (it does not block your supervisor's startup),
 triggers the model load, and then terminates normally (it is `restart:
 :transient`, so it is not restarted). If the detector is unavailable it is a
-clean no-op. Pass the **concrete** detector module here (not `:default`).
+clean no-op. The `:detector` option mirrors the plug's — pass the same value you
+gave the plug (`:default`, a custom module, or `nil` to disable).
 
 There is also a build/deploy-time option: `mix image_vision.download_models`
 pre-fetches some models — but note it does **not** include the YuNet face model;

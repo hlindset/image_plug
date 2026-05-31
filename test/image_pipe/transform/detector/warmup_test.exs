@@ -55,4 +55,23 @@ defmodule ImagePipe.Transform.Detector.WarmupTest do
     ref = Process.monitor(pid)
     assert_receive {:DOWN, ^ref, :process, ^pid, :normal}
   end
+
+  test "nil detector disables warmup as a clean no-op" do
+    pid = start_supervised!({Warmup, detector: nil, classes: ["face"]})
+
+    ref = Process.monitor(pid)
+    # The no-op finishes immediately; if it already terminated before we
+    # monitored, the monitor reports :noproc. Either way it ended cleanly — a
+    # never-raising worker under :transient would have been restarted otherwise.
+    assert_receive {:DOWN, ^ref, :process, ^pid, reason} when reason in [:normal, :noproc]
+  end
+
+  test "omitted :detector defaults to :default and terminates cleanly" do
+    # :default resolves to the bundled adapter via the Transform facade; in the
+    # default test lane it is unavailable, so warmup is a clean no-op.
+    pid = start_supervised!({Warmup, classes: ["face"]})
+
+    ref = Process.monitor(pid)
+    assert_receive {:DOWN, ^ref, :process, ^pid, reason} when reason in [:normal, :noproc]
+  end
 end

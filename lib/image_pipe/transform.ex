@@ -17,7 +17,6 @@ defmodule ImagePipe.Transform do
       DecodePlanner,
       Materializer,
       Detector,
-      Detector.ImageVision,
       Detector.Warmup,
       Operation.Resize,
       Operation.ExtendCanvas,

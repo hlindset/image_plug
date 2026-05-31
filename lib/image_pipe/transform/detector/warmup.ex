@@ -5,8 +5,11 @@ defmodule ImagePipe.Transform.Detector.Warmup do
   Host-wired: add it to the HOST's supervision tree (ImagePipe does not start
   it), e.g.:
 
-      {ImagePipe.Transform.Detector.Warmup,
-       detector: ImagePipe.Transform.Detector.ImageVision, classes: ["face"]}
+      {ImagePipe.Transform.Detector.Warmup, detector: :default, classes: ["face"]}
+
+  The `:detector` option mirrors the plug's `:detector` option: `:default` (the
+  default when omitted) resolves to the bundled adapter, `nil` disables detection
+  (the worker becomes a clean no-op), and a module selects a custom detector.
 
   `restart: :transient` — it warms once and terminates `:normal`, so the
   supervisor does not restart it. It does NOT trap exits: a shutdown mid-download
@@ -21,6 +24,7 @@ defmodule ImagePipe.Transform.Detector.Warmup do
 
   require Logger
 
+  alias ImagePipe.Transform
   alias ImagePipe.Transform.Detector
 
   @spec start_link(keyword()) :: GenServer.on_start()
@@ -29,7 +33,7 @@ defmodule ImagePipe.Transform.Detector.Warmup do
   @impl true
   def init(opts) do
     state = %{
-      detector: Keyword.fetch!(opts, :detector),
+      detector: Keyword.get(opts, :detector, :default),
       classes: Keyword.get(opts, :classes, ["face"]),
       opts: Keyword.get(opts, :opts, []),
       retries: Keyword.get(opts, :retries, 2)
@@ -40,14 +44,18 @@ defmodule ImagePipe.Transform.Detector.Warmup do
 
   @impl true
   def handle_continue(:warm_then_stop, state) do
-    warm(state, state.retries)
+    case Transform.resolve_detector(state.detector) do
+      nil -> :ok
+      module -> warm(state, module, state.retries)
+    end
+
     {:stop, :normal, state}
   end
 
-  defp warm(_state, retries) when retries < 0, do: :ok
+  defp warm(_state, _module, retries) when retries < 0, do: :ok
 
-  defp warm(state, retries) do
-    case Detector.warmup(state.detector, Keyword.put(state.opts, :classes, state.classes)) do
+  defp warm(state, module, retries) do
+    case Detector.warmup(module, Keyword.put(state.opts, :classes, state.classes)) do
       :ok ->
         :ok
 
@@ -56,7 +64,7 @@ defmodule ImagePipe.Transform.Detector.Warmup do
           "ImagePipe detector warmup failed (#{inspect(reason)}); #{retries} retries left"
         )
 
-        warm(state, retries - 1)
+        warm(state, module, retries - 1)
     end
   end
 end

@@ -137,10 +137,7 @@ defmodule Mix.Tasks.ImagePipe.Server do
   # and a clean no-op when the detector is unavailable — e.g. the ML deps are
   # absent — so it is always safe to start.
   defp warmup_children do
-    [
-      {ImagePipe.Transform.Detector.Warmup,
-       detector: ImagePipe.Transform.Detector.ImageVision, classes: ["face"]}
-    ]
+    [{ImagePipe.Transform.Detector.Warmup, detector: :default, classes: ["face"]}]
   end
 
   # Dev ergonomics: attach ImagePipe's default Logger handler so the server
