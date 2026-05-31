@@ -134,26 +134,51 @@ outcome categories in this list.
 
 ## Content-aware crop detection
 
-Face-aware crops (`g:obj:face`, `c:W:H:obj:face`, and face-assisted `g:sm`)
-report detection two ways, depending on whether any detection actually ran.
+Detection-aware crops (`g:obj:face`, `g:obj:car`, `g:obj`, `c:W:H:obj:…`, and
+face-assisted `g:sm`) report detection two ways, depending on whether any
+detection actually ran.
 
 When a detector is configured, ImagePipe wraps the detector invocation in a
 `[:image_pipe, :transform, :detect]` span whose duration reflects real inference
 work (useful for spotting model cold-start cost). Stop metadata:
 
-- `:classes` - the requested detection classes, e.g. `["face"]`.
-- `:regions` - the number of regions the detector returned.
+- `:classes` - the requested detection classes, e.g. `["face"]` or `:all`.
+- `:regions` - the total number of regions the detector returned.
 - `:result` - the detector outcome, one of:
   - `:detected` - the detector returned at least one region.
-  - `:no_regions` - the detector ran but found nothing (no face in the frame).
-    This is a normal result, **not** a failure; the crop falls back to libvips
-    attention saliency.
+  - `:no_regions` - the detector ran but found nothing (no matching object in the
+    frame). This is a normal result, **not** a failure; the crop falls back to
+    libvips attention saliency.
   - `:unavailable` - the configured detector reported it is unavailable.
   - `:error` - the detector raised, errored, or returned a malformed result.
 
 `:result` reflects the *detector* outcome, not the final crop decision: a
 `:detected` result whose boxes all fall outside the image still degrades to
 attention downstream.
+
+### Per-model spans (Composite detector)
+
+When using the bundled Composite detector (the default), ImagePipe also emits a
+nested `[:image_pipe, :transform, :detect, :model]` span **per child detector
+that ran**. These spans are emitted inside the outer `[:transform, :detect]`
+span. Stop metadata:
+
+- `:detector` - the child detector module that ran (e.g.
+  `ImagePipe.Transform.Detector.ImageVision.Face`).
+- `:model` - the child's `identity/1` result for this request (e.g.
+  `{ImagePipe.Transform.Detector.ImageVision.Face, {"opencv/face_detection_yunet", "face_detection_yunet_2023mar.onnx"}}`).
+- `:classes` - the class subset routed to this child for the request (a list of
+  class name strings, or `:all`).
+- `:regions` - the number of regions this child returned.
+
+To determine the **effective detected class set** from per-model spans: take the
+union of all `:classes` values across all `:stop` events for a given request. A
+class that was requested but does not appear in any per-model span was unknown to
+all configured detectors and was silently dropped (best-effort).
+
+> **Custom-detector authors:** keep your `identity/1` return value free of
+> secrets — it appears in these per-model spans, which fan out to every attached
+> handler including third-party exporters.
 
 When **no** detector is configured, no detection runs, so there is no span.
 Instead ImagePipe emits a one-shot (non-span) marker:
