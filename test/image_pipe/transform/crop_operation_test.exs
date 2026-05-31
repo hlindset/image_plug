@@ -242,4 +242,63 @@ defmodule ImagePipe.Transform.CropOperationTest do
       :telemetry.detach(ref)
     end
   end
+
+  describe "face-assist gravity" do
+    setup do
+      image = Image.open!("priv/static/images/woman.jpg")
+      {:ok, image: image}
+    end
+
+    test "face_assist blends attention with the face centroid (differs from pure attention)", %{
+      image: image
+    } do
+      # Fake a face in one corner; the blended crop must differ from pure :smart attention.
+      fake =
+        {ImagePipe.Test.FakeDetector,
+         [result: {:ok, [%{label: "face", score: 0.9, box: {5, 5, 8, 8}}]}]}
+
+      state = %State{image: image, detector: fake}
+
+      base = %Crop{width: {:pixels, 200}, height: {:pixels, 200}, crop_from: :gravity}
+
+      {:ok, %{image: assist}} =
+        Crop.execute(%{base | gravity: {:smart, :face_assist}}, state)
+
+      {:ok, %{image: smart}} = Crop.execute(%{base | gravity: :smart}, state)
+
+      png = fn img -> Image.write!(img, :memory, suffix: ".png") end
+      refute png.(assist) == png.(smart)
+    end
+
+    test "face_assist with no faces falls back to pure attention", %{image: image} do
+      state = %State{
+        image: image,
+        detector: {ImagePipe.Test.FakeDetector, [result: {:ok, []}]}
+      }
+
+      base = %Crop{width: {:pixels, 200}, height: {:pixels, 200}, crop_from: :gravity}
+
+      {:ok, %{image: assist}} =
+        Crop.execute(%{base | gravity: {:smart, :face_assist}}, state)
+
+      {:ok, %{image: smart}} = Crop.execute(%{base | gravity: :smart}, state)
+
+      assert Image.write!(assist, :memory, suffix: ".png") ==
+               Image.write!(smart, :memory, suffix: ".png")
+    end
+
+    test "face_assist with nil detector falls back to pure attention", %{image: image} do
+      state = %State{image: image, detector: nil}
+
+      op = %Crop{
+        width: {:pixels, 200},
+        height: {:pixels, 200},
+        crop_from: :gravity,
+        gravity: {:smart, :face_assist}
+      }
+
+      assert {:ok, %{image: out}} = Crop.execute(op, state)
+      assert Image.width(out) == 200
+    end
+  end
 end

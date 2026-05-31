@@ -87,6 +87,11 @@ defmodule ImagePipe.Transform.Operation.Crop do
 
   @default_gravity {:anchor, :center, :center}
 
+  # Face-favoring blend weight for `{:smart, :face_assist}` gravity. ImagePipe's
+  # documented approximation of imgproxy's `smart_crop_face_detection`, whose
+  # exact combination of attention saliency and detected faces is unspecified.
+  @face_assist_weight 0.7
+
   @type length_unit() ::
           integer()
           | float()
@@ -143,6 +148,24 @@ defmodule ImagePipe.Transform.Operation.Crop do
 
   def execute(%__MODULE__{gravity: {:detect, classes}} = params, %State{} = state) do
     detect_crop(params, state, classes)
+  end
+
+  def execute(%__MODULE__{gravity: {:smart, :face_assist}} = params, %State{} = state) do
+    {module, dopts} = normalize_detector(state.detector)
+
+    with false <- is_nil(module),
+         {:ok, [_ | _] = regions} <-
+           run_detect(module, dopts, state.image, ["face"], state.telemetry_opts),
+         {:ok, {:fp, fx, fy}} <-
+           focal_from_regions(regions, image_width(state), image_height(state)),
+         {:ok, {ax, ay}} <- attention_point(params, state) do
+      blended =
+        {:fp, blend_axis(ax, fx), blend_axis(ay, fy)}
+
+      execute(%{params | gravity: blended}, state)
+    else
+      _ -> smart_crop(params, state, :VIPS_INTERESTING_ATTENTION)
+    end
   end
 
   def execute(%__MODULE__{} = params, %State{} = state) do
@@ -239,6 +262,35 @@ defmodule ImagePipe.Transform.Operation.Crop do
       {:ok, set_image(state, cropped)}
     else
       {:error, error} -> {:error, {__MODULE__, error}}
+    end
+  end
+
+  defp blend_axis(attention, face),
+    do: clamp_unit((1 - @face_assist_weight) * attention + @face_assist_weight * face)
+
+  defp attention_point(%__MODULE__{} = params, %State{} = state) do
+    image_width = image_width(state)
+    image_height = image_height(state)
+
+    with {:ok, crop} <- crop_dimensions(params, image_width, image_height),
+         {:ok, crop_width} <- crop_dimension(crop.width, image_width),
+         {:ok, crop_height} <- crop_dimension(crop.height, image_height),
+         {crop_width, crop_height} =
+           correct_aspect_ratio(
+             crop_width,
+             crop_height,
+             params.aspect_ratio,
+             params.enlarge,
+             image_width,
+             image_height
+           ),
+         {:ok, {_cropped, attention}} <-
+           Operation.smartcrop(state.image, crop_width, crop_height,
+             interesting: :VIPS_INTERESTING_ATTENTION
+           ) do
+      ax = Map.fetch!(attention, :"attention-x")
+      ay = Map.fetch!(attention, :"attention-y")
+      {:ok, {clamp_unit(ax / image_width), clamp_unit(ay / image_height)}}
     end
   end
 
