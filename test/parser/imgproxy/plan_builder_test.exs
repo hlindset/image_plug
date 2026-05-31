@@ -771,7 +771,7 @@ defmodule ImagePipe.Parser.Imgproxy.PlanBuilderTest do
   end
 
   test "planner emits only product-neutral guide terms (no dialect leak)" do
-    for gravity <- [:sm, {:obj, ["face"]}] do
+    for {gravity, expected_guide} <- [{:sm, :smart}, {{:obj, ["face"]}, {:detect, ["face"]}}] do
       assert {:ok, %Plan{pipelines: pipelines}} =
                plan_pipeline(
                  resizing_type: :fill,
@@ -784,10 +784,12 @@ defmodule ImagePipe.Parser.Imgproxy.PlanBuilderTest do
         for pipeline <- pipelines,
             operation <- pipeline.operations,
             guide = Map.get(operation, :guide),
+            not is_nil(guide),
             do: guide
 
+      assert expected_guide in guides
       refute Enum.any?(guides, &match?({:obj, _}, &1))
-      refute Enum.any?(guides, &(&1 == :sm))
+      refute :sm in guides
     end
   end
 
