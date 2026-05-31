@@ -73,18 +73,20 @@ Mapped against [API Transformations](https://www.twicpics.com/docs/reference/tra
 | --- | --- | --- |
 | `resize=W` | 📋 Planned (v1) | Single dim → `Resize(:fit, W, :auto)`, preserves aspect. |
 | `resize=WxH` | 📋 Planned (v1) | Exact dims, may distort → `Resize(:stretch, …)` (= imgproxy `force`). |
-| `resize=W:H` (ratio) | 📋 Planned (v1) | Ratio form; exact mapping pinned by tests against the docs. |
+| `resize=W:H` (ratio) | 🚫 Rejected | Surface-preserving resize-to-ratio has no clean mapping to an existing op; deferred with its own operation design. |
 | `resize-max` / `resize-min` | 🚫 Rejected | Conditional variants deferred; recognized and rejected. |
 | `cover=WxH` | 📋 Planned (v1) | `Resize(:cover, …, guide: focus)` — fill + crop to focus. |
 | `cover=W:H` (ratio) | 📋 Planned (v1) | `CropGuided(:full_axis, :full_axis, aspect_ratio: …, guide: focus)` — largest matching-ratio area. |
 | `cover-max` / `cover-min` | 🚫 Rejected | Conditional variants deferred. |
 | `contain=WxH` | 📋 Planned (v1) | `Resize(:fit, …)` — fits inside, may be smaller, no letterbox. |
 | `contain-max` / `contain-min` (aliases `max` / `min`) | 🚫 Rejected | Conditional variants deferred. |
-| `inside=WxH` | 📋 Planned (v1) | `Resize(:fit, …)` + `Canvas(W, H, placement: center, fill: transparent)` — letterboxed to exact dims. |
-| `crop=WxH` | 📋 Planned (v1) | `CropGuided(W, H, guide: focus)`. |
+| `inside=WxH` | ⚠️ Partial (v1) | `Resize(:fit, …)` + `Canvas(W, H, placement: center, fill: transparent)` — letterboxed to exact dims. **Transparent fill only**; user-specified `background` deferred. Non-alpha output (e.g. `output=jpeg`) flattens the letterbox (documented, tested). |
+| `inside=W:H` (ratio) | 🚫 Rejected | Ratio form deferred (same reason as `resize=W:H`). |
+| `crop=WxH` | 📋 Planned (v1) | `CropGuided(W, H, guide: focus)`. Crop-size: an omitted dim / `-` means `1s` = full running axis (`:full_axis`), not aspect-preserving auto. |
 | `crop=WxH@XxY` | 📋 Planned (v1) | `CropRegion(x: X, y: Y, width: W, height: H)`; resets focus → center. |
 | `focus=<coords>` / `focus=<anchor>` | 📋 Planned (v1) | Sets the current guide for the next `cover` / `crop`; emits no operation. |
 | `focus=auto` | 🚫 Rejected | Smart / content-aware (ML-ish) subject detection; no model. Consistent with rejecting imgproxy `g:sm`. A future `:smart` guide (libvips attention/entropy) could satisfy both. |
+| `focus=center` | 🚫 Rejected | `center` is not a TwicPics anchor literal — it is only the default focus. Rejected as a literal in v1 for fidelity; candidate lenient extension later. |
 | `zoom=N` | 🚫 Rejected | Deferred; `Resize` already has `zoom_x` / `zoom_y` so a fast follow is cheap. |
 | `flip=x\|y\|both` | 🚫 Rejected | Deferred; maps to `Flip`. |
 | `turn=<angle>` | 🚫 Rejected | Deferred; maps to `Rotate` (right-angle multiples). |
@@ -122,8 +124,8 @@ Mapped against [API Parameters](https://www.twicpics.com/docs/reference/paramete
 | Size (`WxH`, `-` auto) | 📋 Planned (v1) | One dimension may be `-` for auto. Mixed units allowed. |
 | Ratio (`W:H`) | 📋 Planned (v1) | Two strictly-positive numbers → `{:ratio, n, d}`. |
 | Coordinates (`XxY`) | 📋 Planned (v1) | Focus point; two Lengths. |
-| Anchor (9 named positions) | 📋 Planned (v1) | `center`, `top`, `bottom`, `left`, `right`, four corners → Plan guides. |
-| Crop size | 📋 Planned (v1) | Omitted dimension auto-calculated from aspect ratio. |
+| Anchor (8 named positions) | 📋 Planned (v1) | `top`, `bottom`, `left`, `right`, four corners → Plan guides. No `center` anchor — `center` is the default focus only. |
+| Crop size | 📋 Planned (v1) | Distinct from Size: omitted dim / `-` means `1s` = full running axis (`:full_axis`), **not** aspect-preserving auto. `crop=320` ≡ `320x-` ≡ `320x1s`. |
 | Number with expressions `(1/3)`, `+ - * /` | 🚫 Rejected | Arithmetic engine deferred; only decimal literals in v1. |
 | Color (names / hex / rgb / hsl / alpha) | 🚫 Rejected | Used by color chaining; deferred. |
 | Angle (number / named) | 🚫 Rejected | Used by `turn`; deferred. |
