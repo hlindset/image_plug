@@ -16,6 +16,7 @@ defmodule ImagePipe.Transform do
       Chain,
       DecodePlanner,
       Materializer,
+      Detector,
       Operation.Resize,
       Operation.ExtendCanvas,
       Operation.Padding,
@@ -69,5 +70,28 @@ defmodule ImagePipe.Transform do
           {:ok, State.t()} | {:error, term()}
   def execute_plan(%Plan{} = plan, %State{} = state, opts \\ []) do
     PlanExecutor.execute(plan, state, opts)
+  end
+
+  @default_detector ImagePipe.Transform.Detector.ImageVision
+
+  @spec resolve_detector(:default | nil | module()) :: module() | nil
+  def resolve_detector(:default), do: @default_detector
+  def resolve_detector(nil), do: nil
+  def resolve_detector(module) when is_atom(module), do: module
+
+  @spec detector_available?(:default | nil | module(), keyword()) :: boolean()
+  def detector_available?(detector, opts) do
+    case resolve_detector(detector) do
+      nil -> false
+      module -> module.available?(opts)
+    end
+  end
+
+  @spec detector_identity(:default | nil | module(), keyword()) :: {module(), term()} | nil
+  def detector_identity(detector, opts) do
+    case resolve_detector(detector) do
+      nil -> nil
+      module -> module.identity(opts)
+    end
   end
 end
