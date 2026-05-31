@@ -744,6 +744,73 @@ defmodule ImagePipe.Parser.Imgproxy.PlanBuilderTest do
     assert crop.guide == :smart
   end
 
+  test "maps face object gravity fill resize to the detect plan guide" do
+    assert {:ok, %Plan{pipelines: [%Pipeline{operations: operations}]}} =
+             plan_pipeline(
+               resizing_type: :fill,
+               width: {:pixels, 100},
+               height: {:pixels, 100},
+               gravity: {:obj, ["face"]}
+             )
+
+    assert [%Operation.Resize{mode: :cover} = resize] = operations
+    assert resize.guide == {:detect, ["face"]}
+  end
+
+  test "maps face object gravity crop to the detect plan guide" do
+    assert {:ok, %Plan{pipelines: [%Pipeline{operations: [%Operation.CropGuided{} = crop]}]}} =
+             plan_pipeline(
+               crop: %ImagePipe.Parser.Imgproxy.CropRequest{
+                 width: {:pixels, 100},
+                 height: {:pixels, 100},
+                 gravity: {:obj, ["face"]}
+               }
+             )
+
+    assert crop.guide == {:detect, ["face"]}
+  end
+
+  test "rejects bare object gravity (all detected objects)" do
+    assert {:error, {:unsupported_gravity, {:obj, []}}} =
+             plan_pipeline(
+               resizing_type: :fill,
+               width: {:pixels, 100},
+               height: {:pixels, 100},
+               gravity: {:obj, []}
+             )
+  end
+
+  test "rejects the all pseudo-class object gravity" do
+    assert {:error, {:unsupported_gravity, {:obj, ["all"]}}} =
+             plan_pipeline(
+               resizing_type: :fill,
+               width: {:pixels, 100},
+               height: {:pixels, 100},
+               gravity: {:obj, ["all"]}
+             )
+  end
+
+  test "rejects multi-class object gravity" do
+    assert {:error, {:unsupported_gravity, {:obj, ["face", "cat"]}}} =
+             plan_pipeline(
+               resizing_type: :fill,
+               width: {:pixels, 100},
+               height: {:pixels, 100},
+               gravity: {:obj, ["face", "cat"]}
+             )
+  end
+
+  test "rejects object gravity with trailing class tokens treated as offsets" do
+    assert {:error, {:unsupported_gravity, {:obj, ["face", "5", "5"]}}} =
+             plan_pipeline(
+               crop: %ImagePipe.Parser.Imgproxy.CropRequest{
+                 width: {:pixels, 100},
+                 height: {:pixels, 100},
+                 gravity: {:obj, ["face", "5", "5"]}
+               }
+             )
+  end
+
   test "represents output intent outside imgproxy pipeline operations" do
     request = %ParsedRequest{
       signature: "_",

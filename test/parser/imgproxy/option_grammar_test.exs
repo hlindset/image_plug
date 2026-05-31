@@ -103,6 +103,55 @@ defmodule ImagePipe.Parser.Imgproxy.OptionGrammarTest do
                ]}}
   end
 
+  test "object gravity parses tail tokens as class names" do
+    assert OptionGrammar.parse("g:obj:face") ==
+             {:ok,
+              {:pipeline,
+               [
+                 gravity: {:obj, ["face"]},
+                 gravity_x_offset: {:pixels, 0.0},
+                 gravity_y_offset: {:pixels, 0.0}
+               ]}}
+
+    # All tail tokens are class names, never offsets. "5" is a class here.
+    assert OptionGrammar.parse("g:obj:face:5:5") ==
+             {:ok,
+              {:pipeline,
+               [
+                 gravity: {:obj, ["face", "5", "5"]},
+                 gravity_x_offset: {:pixels, 0.0},
+                 gravity_y_offset: {:pixels, 0.0}
+               ]}}
+
+    # Bare obj carries no class (means "all detected objects" in imgproxy).
+    assert OptionGrammar.parse("g:obj") ==
+             {:ok,
+              {:pipeline,
+               [
+                 gravity: {:obj, []},
+                 gravity_x_offset: {:pixels, 0.0},
+                 gravity_y_offset: {:pixels, 0.0}
+               ]}}
+  end
+
+  test "crop object gravity parses tail tokens as class names" do
+    assert OptionGrammar.parse("c:100:100:obj:face") ==
+             {:ok,
+              {:pipeline,
+               [
+                 crop: %CropRequest{
+                   width: {:pixels, 100},
+                   height: {:pixels, 100},
+                   gravity: {:obj, ["face"]}
+                 }
+               ]}}
+  end
+
+  test "extend gravity keeps rejecting object gravity" do
+    assert {:error, _} = OptionGrammar.parse("extend:1:obj:face")
+    assert {:error, _} = OptionGrammar.parse("ex:1:obj")
+  end
+
   test "malformed padding and background options keep current error shapes" do
     assert OptionGrammar.parse("padding:1:2:3:4:5") ==
              {:error, {:invalid_option_segment, "padding:1:2:3:4:5"}}

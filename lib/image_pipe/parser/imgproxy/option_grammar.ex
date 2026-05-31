@@ -773,6 +773,15 @@ defmodule ImagePipe.Parser.Imgproxy.OptionGrammar do
     end
   end
 
+  defp parse_crop([width, height, "obj" | classes], _segment)
+       when width != "" and height != "" do
+    with {:ok, width} <- parse_crop_dimension(width),
+         {:ok, height} <- parse_crop_dimension(height),
+         {:ok, gravity} <- parse_crop_gravity(["obj" | classes]) do
+      {:ok, [crop: %CropRequest{width: width, height: height, gravity: gravity}]}
+    end
+  end
+
   defp parse_crop(_args, segment), do: {:error, {:invalid_option_segment, segment}}
 
   defp parse_crop_aspect_ratio([ratio], segment) when ratio != "" do
@@ -798,6 +807,8 @@ defmodule ImagePipe.Parser.Imgproxy.OptionGrammar do
       {:ok, {:fp, x, y}}
     end
   end
+
+  defp parse_crop_gravity(["obj" | classes]), do: {:ok, {:obj, classes}}
 
   defp parse_crop_gravity([anchor]), do: parse_gravity_anchor(anchor)
   defp parse_crop_gravity(_args), do: {:error, {:invalid_option_segment, "crop"}}
@@ -861,6 +872,15 @@ defmodule ImagePipe.Parser.Imgproxy.OptionGrammar do
       {:ok,
        [gravity: {:fp, x, y}, gravity_x_offset: {:pixels, 0.0}, gravity_y_offset: {:pixels, 0.0}]}
     end
+  end
+
+  defp parse_gravity(["obj" | classes], _segment) do
+    {:ok,
+     [
+       gravity: {:obj, classes},
+       gravity_x_offset: {:pixels, 0.0},
+       gravity_y_offset: {:pixels, 0.0}
+     ]}
   end
 
   defp parse_gravity([anchor], _segment) do
