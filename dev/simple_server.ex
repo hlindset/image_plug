@@ -29,6 +29,12 @@ defmodule ImagePipe.SimpleServer do
     send_resp(conn, 404, "404 Not Found")
   end
 
+  # Browsers auto-request /favicon.ico; answer it directly so it doesn't reach
+  # ImagePipe and log a spurious parser_error.
+  get "/favicon.ico" do
+    send_resp(conn, 404, "404 Not Found")
+  end
+
   get "/demo" do
     send_demo_html(conn)
   end

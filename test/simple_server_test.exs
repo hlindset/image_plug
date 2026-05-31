@@ -14,6 +14,16 @@ defmodule ImagePipe.SimpleServerTest do
     assert conn.resp_body == "404 Not Found"
   end
 
+  test "returns 404 for favicon.ico without reaching ImagePipe" do
+    conn =
+      :get
+      |> conn("/favicon.ico")
+      |> ImagePipe.SimpleServer.call([])
+
+    assert conn.status == 404
+    assert conn.resp_body == "404 Not Found"
+  end
+
   test "processes native-style local source URLs through configured file source" do
     conn =
       :get
