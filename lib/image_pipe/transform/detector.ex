@@ -34,4 +34,21 @@ defmodule ImagePipe.Transform.Detector do
   @doc "Optionally pre-load models so the first request avoids download cost."
   @callback warmup(opts :: keyword()) :: :ok | {:error, term()}
   @optional_callbacks warmup: 1
+
+  @doc """
+  Invoke the optional `warmup/1` callback if the detector implements it, else `:ok`.
+
+  Because `Detector` is host-implementable, a host detector may legitimately not
+  implement `warmup/1`. The `function_exported?/3` presence check here is the
+  sanctioned host-boundary exception to the no-duck-typing rule (the same pattern
+  `ImagePipe.Cache.normalize_adapter_options/2` uses for its optional
+  `validate_options/1` callback) — it is a capability check at a host boundary,
+  not internal dispatch.
+  """
+  @spec warmup(module(), keyword()) :: :ok | {:error, term()}
+  def warmup(module, opts) when is_atom(module) do
+    if Code.ensure_loaded?(module) and function_exported?(module, :warmup, 1),
+      do: module.warmup(opts),
+      else: :ok
+  end
 end
