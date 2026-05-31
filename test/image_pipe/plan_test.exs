@@ -4,6 +4,7 @@ defmodule ImagePipe.PlanTest do
   alias ImagePipe.Plan
   alias ImagePipe.Plan.Operation
   alias ImagePipe.Plan.Operation.AutoOrient
+  alias ImagePipe.Plan.Operation.CropGuided
   alias ImagePipe.Plan.Operation.Flip
   alias ImagePipe.Plan.Operation.Rotate
   alias ImagePipe.Plan.Output
@@ -94,6 +95,23 @@ defmodule ImagePipe.PlanTest do
       assert Plan.validate_shape(plan(response: response)) ==
                {:error, {:invalid_response_plan, response}}
     end
+  end
+
+  test "detect_classes finds a {:detect, classes} guide" do
+    assert Plan.detect_classes(plan_with_guide({:detect, ["face"]})) == ["face"]
+  end
+
+  test "detect_classes is nil when no detect guide is present" do
+    assert Plan.detect_classes(plan_with_guide(:center)) == nil
+  end
+
+  test "detect_classes is nil when the plan has no guided operations" do
+    assert Plan.detect_classes(plan()) == nil
+  end
+
+  defp plan_with_guide(guide) do
+    operation = %CropGuided{width: {:px, 10}, height: {:px, 10}, guide: guide}
+    plan(pipelines: [%Pipeline{operations: [operation]}])
   end
 
   defp plan(overrides \\ []) do
