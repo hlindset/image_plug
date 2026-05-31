@@ -141,8 +141,12 @@ defmodule ImagePipe.Plug do
   # cheap `Code.ensure_loaded?`-style check (no I/O), so this runs before any
   # source fetch or cache access rather than silently degrading to attention.
   defp validate_detector_capability(%Plan{} = plan, opts) do
-    if Keyword.get(opts, :detector_required, false) and Plan.detect_classes(plan) != nil do
-      if Transform.detector_available?(Keyword.get(opts, :detector, :default), opts),
+    classes = Plan.detect_classes(plan)
+
+    if Keyword.get(opts, :detector_required, false) and classes != nil do
+      opts_with_classes = Keyword.put(opts, :classes, classes)
+
+      if Transform.detector_available?(Keyword.get(opts, :detector, :default), opts_with_classes),
         do: :ok,
         else: {:error, {:detector, :unavailable}}
     else

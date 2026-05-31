@@ -392,43 +392,47 @@ source support.
 
 ### Smart crop, object detection, classification, and best-format models
 
-ImagePipe ships a narrow slice of object-detection gravity: `g:obj:face` (and
-the crop form `c:W:H:obj:face`) selects a single `face` class through an optional
-ML detector, falling back to libvips attention smart crop when the detector is
-unavailable. This graceful fallback is the default; a host can instead opt into
-strict mode (`detector_required: true`), which **rejects** a `g:obj:face` request
-with a 422 (before any source fetch or cache access) when the detector is
+ImagePipe supports object-detection gravity: `g:obj:face` / `c:W:H:obj:face`
+(single `face` class), multi-class `g:obj:%c1:…:%cN`, and bare `g:obj` /
+`g:obj:all` (all detected objects). All forms fall back to libvips attention
+smart crop when the detector is unavailable. This graceful fallback is the
+default; a host can instead opt into strict mode (`detector_required: true`),
+which **rejects** a `g:obj:face` (or `g:obj:car`, etc.) request with a 422
+(before any source fetch or cache access) when the relevant detector child is
 unavailable rather than falling back — see
-[content-aware-gravity.md](content-aware-gravity.md). Face-assist `g:sm` is never
-hard-rejected. Enabling it requires the host to add **both** `image_vision` **and**
-its ONNX backend `ortex` (a Rust runtime; the YuNet model downloads on first
-use) — see [content-aware-gravity.md](content-aware-gravity.md) for the full host
-setup, the `detector` / `detector_required` options, warmup, and custom
-detectors. None of imgproxy's object-detection or smart-crop
-*configuration* knobs are read; they are not blanket-missing now that part of the
-surface ships, so the relevant variables are broken out below.
+[content-aware-gravity.md](content-aware-gravity.md). Unknown classes are
+dropped silently (best-effort). Face-assist `g:sm` is never hard-rejected.
+Enabling ML gravity requires the host to add **both** `image_vision` **and** its
+ONNX backend `ortex` (a Rust runtime) — see
+[content-aware-gravity.md](content-aware-gravity.md) for the full host setup,
+the `detector` / `detector_required` options, warmup, and custom detectors. None
+of imgproxy's object-detection or smart-crop *configuration* knobs are read; they
+are not blanket-missing now that part of the surface ships, so the relevant
+variables are broken out below.
 
 **Model and threshold divergence.** imgproxy uses host-configured YOLO models
-with tunable confidence/NMS thresholds and a configurable gravity mode.
-ImagePipe uses `image_vision`'s YuNet face model with fixed thresholds. Detected
-boxes and resulting crops are compatible in intent but are not bit-identical to
-imgproxy.
+with tunable confidence/NMS thresholds and a configurable gravity mode. ImagePipe
+uses `image_vision`'s YuNet face model (fixed thresholds, ~340 KB) for face
+detection and RT-DETR (~175 MB) for COCO-80 object detection. Detected boxes and
+resulting crops are compatible in intent but are not bit-identical to imgproxy.
+The RT-DETR model must be pre-fetched with `mix image_vision.download_models
+--detect` (unlike YuNet, it does not auto-download on first use).
 
 - ⭕ `IMGPROXY_OBJECT_DETECTION_GRAVITY_MODE` — imgproxy defaults to
-  `max_score_area` (highest-scoring detected region). ImagePipe instead
-  approximates object gravity with an area-weighted centroid of detected face
-  boxes, so the chosen focus point diverges from imgproxy's gravity mode.
+  `max_score_area` (highest-scoring detected region). ImagePipe instead uses an
+  area-weighted centroid of all detected regions, so the chosen focus point
+  diverges from imgproxy's gravity mode.
 - ⭕ `IMGPROXY_OBJECT_DETECTION_FALLBACK_TO_SMART_CROP` — by default ImagePipe
-  falls back to libvips attention smart crop when no face is detected or the
+  falls back to libvips attention smart crop when no object is detected or the
   detector is unavailable. The imgproxy variable isn't read, but the fallback is
   not unconditional: a host can opt into strict mode (`detector_required: true`),
-  which **rejects** a `g:obj:face` request with a 422 (before any source fetch or
-  cache access) when the detector is unavailable instead of falling back — see
-  [content-aware-gravity.md](content-aware-gravity.md). Face-assist `g:sm` always
-  falls back and is never hard-rejected.
+  which **rejects** a `g:obj:…` request with a 422 (before any source fetch or
+  cache access) when the relevant detector is unavailable instead of falling back
+  — see [content-aware-gravity.md](content-aware-gravity.md). Face-assist `g:sm`
+  always falls back and is never hard-rejected.
 - ⭕ `IMGPROXY_OBJECT_DETECTION_*` confidence and NMS thresholds — ImagePipe uses
-  the YuNet face model's fixed detection-confidence and non-max-suppression
-  thresholds; they are not exposed as configuration.
+  fixed detection-confidence and non-max-suppression thresholds for both the YuNet
+  and RT-DETR models; they are not exposed as configuration.
 - ✅ `IMGPROXY_SMART_CROP_FACE_DETECTION` — Modeled as the imgproxy-parser option
   `smart_crop_face_detection`; when enabled, `g:sm` blends the libvips attention
   point with detected faces (weight ~0.7). The attention⊕face combination is
@@ -527,11 +531,12 @@ transforms or output encoding.
 | `gravity` anchors | `g` | Supported | `ce`, `no`, `so`, `ea`, `we`, `noea`, `nowe`, `soea`, `sowe`. |
 | `gravity:fp` | `g:fp` | Supported | Focal point coordinates from `0.0` to `1.0`. |
 | `gravity:sm` | `g:sm` | Supported | Smart gravity via libvips attention smart crop (`VIPS_INTERESTING_ATTENTION`). |
-| `gravity:obj:face` | `g:obj:face` | Supported | Single `face` class via optional `image_vision` face detection; falls back to libvips attention when the detector is unavailable. |
-| `gravity:obj` | | Partial | Only the single `face` class is supported (`g:obj:face`); bare `g:obj` (all), `g:obj:all`, multi-class, and `g:objw` are rejected. |
-| `gravity:objw` | | Missing | Pro object-detection gravity with weights. |
+| `gravity:obj:face` | `g:obj:face` | Supported | Single `face` class via optional `image_vision` YuNet face detection; falls back to libvips attention when the detector is unavailable. |
+| `gravity:obj` / `g:obj:all` | | Supported | All detected objects — union of face (YuNet) and COCO-80 object (RT-DETR) detectors; falls back to libvips attention when the detector is unavailable. |
+| `gravity:obj:%c1:…:%cN` | | Supported | Multi-class object gravity using the COCO-80 vocabulary (underscore spelling, e.g. `g:obj:car:traffic_light`). Unknown classes are silently dropped (best-effort). Class-aware cache identity: only the detector children routed by the requested class set contribute to the cache key. |
+| `gravity:objw` | | Missing | Pro object-detection gravity with per-class weights (`objw`). Deferred to a future slice. |
 | `objects_position` | `obj_pos`, `op` | Missing | Pro object-detection positioning. |
-| `crop` | `c` | Supported | Absolute, relative, or full-axis dimensions. Supports anchor, focal-point, smart gravity (`c:W:H:sm`), and object-face gravity (`c:W:H:obj:face`); smart gravity runs libvips attention smart crop, and object-face gravity uses optional `image_vision` face detection with attention fallback. |
+| `crop` | `c` | Supported | Absolute, relative, or full-axis dimensions. Supports anchor, focal-point, smart gravity (`c:W:H:sm`), and object gravity (`c:W:H:obj:face`, `c:W:H:obj:car:dog`, `c:W:H:obj`, `c:W:H:obj:all`); smart gravity runs libvips attention smart crop, and object gravity uses optional `image_vision` detection with attention fallback. |
 | `crop_aspect_ratio` | `crop_ar`, `car` | Supported | Pro crop-area aspect-ratio correction. `aspect_ratio` zero is a no-op. `enlarge` grows the area then clamps to image bounds; default reduces. Corrects size only, not gravity. Wired through gravity crops. |
 | `trim` | `t` | Missing | Requires full-image memory behavior and trim operation. |
 | `padding` | `pd` | Supported | CSS-style shorthand, sparse repeated options, effective DPR scaling, and `padding:` no-op compatibility. |

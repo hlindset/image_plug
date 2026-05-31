@@ -3,6 +3,9 @@ defmodule ImagePipe.Test.FakeDetector do
   @behaviour ImagePipe.Transform.Detector
 
   @impl true
+  def supported_classes(opts), do: Keyword.get(opts, :supported_classes, ["face"])
+
+  @impl true
   def detect(_image, opts), do: Keyword.get(opts, :result, {:ok, []})
 
   @impl true

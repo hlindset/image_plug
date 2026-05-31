@@ -841,38 +841,50 @@ defmodule ImagePipe.Parser.Imgproxy.PlanBuilderTest do
     end
   end
 
-  test "rejects bare object gravity (all detected objects)" do
-    assert {:error, {:unsupported_gravity, {:obj, []}}} =
+  test "bare object gravity maps to detect :all (fill path)" do
+    assert {:ok, %Plan{pipelines: [%Pipeline{operations: [%Operation.Resize{} = resize]}]}} =
              plan_pipeline(
                resizing_type: :fill,
                width: {:pixels, 100},
                height: {:pixels, 100},
                gravity: {:obj, []}
              )
+
+    assert resize.guide == {:detect, :all}
   end
 
-  test "rejects the all pseudo-class object gravity" do
-    assert {:error, {:unsupported_gravity, {:obj, ["all"]}}} =
+  test "the all pseudo-class maps to detect :all (fill path)" do
+    assert {:ok, %Plan{pipelines: [%Pipeline{operations: [%Operation.Resize{} = resize]}]}} =
              plan_pipeline(
                resizing_type: :fill,
                width: {:pixels, 100},
                height: {:pixels, 100},
                gravity: {:obj, ["all"]}
              )
+
+    assert resize.guide == {:detect, :all}
   end
 
-  test "rejects multi-class object gravity" do
-    assert {:error, {:unsupported_gravity, {:obj, ["face", "cat"]}}} =
+  test "multi-class object gravity maps to detect with those classes (fill path)" do
+    assert {:ok, %Plan{pipelines: [%Pipeline{operations: [%Operation.Resize{} = resize]}]}} =
              plan_pipeline(
                resizing_type: :fill,
                width: {:pixels, 100},
                height: {:pixels, 100},
                gravity: {:obj, ["face", "cat"]}
              )
+
+    assert resize.guide == {:detect, ["face", "cat"]}
   end
 
-  test "rejects object gravity with trailing class tokens treated as offsets" do
-    assert {:error, {:unsupported_gravity, {:obj, ["face", "5", "5"]}}} =
+  # Behavior change: numeric trailing tokens are now unknown classes dropped at
+  # routing, NOT an error. g:obj:face:5:5 -> {:detect, ["face", "5", "5"]} where
+  # "5" is an unknown class dropped later at routing (object gravity has no offsets).
+  test "object gravity with numeric tokens treats them as (unknown) classes, not an error (crop path)" do
+    assert {:ok,
+            %Plan{
+              pipelines: [%Pipeline{operations: [%Operation.CropGuided{} = crop]}]
+            }} =
              plan_pipeline(
                crop: %ImagePipe.Parser.Imgproxy.CropRequest{
                  width: {:pixels, 100},
@@ -880,6 +892,68 @@ defmodule ImagePipe.Parser.Imgproxy.PlanBuilderTest do
                  gravity: {:obj, ["face", "5", "5"]}
                }
              )
+
+    assert crop.guide == {:detect, ["face", "5", "5"]}
+  end
+
+  test "all among classes collapses to :all (fill path)" do
+    assert {:ok, %Plan{pipelines: [%Pipeline{operations: [%Operation.Resize{} = resize]}]}} =
+             plan_pipeline(
+               resizing_type: :fill,
+               width: {:pixels, 100},
+               height: {:pixels, 100},
+               gravity: {:obj, ["car", "all"]}
+             )
+
+    assert resize.guide == {:detect, :all}
+  end
+
+  test "bare object gravity maps to detect :all (crop path)" do
+    assert {:ok,
+            %Plan{
+              pipelines: [%Pipeline{operations: [%Operation.CropGuided{} = crop]}]
+            }} =
+             plan_pipeline(
+               crop: %ImagePipe.Parser.Imgproxy.CropRequest{
+                 width: {:pixels, 100},
+                 height: {:pixels, 100},
+                 gravity: {:obj, []}
+               }
+             )
+
+    assert crop.guide == {:detect, :all}
+  end
+
+  test "the all pseudo-class maps to detect :all (crop path)" do
+    assert {:ok,
+            %Plan{
+              pipelines: [%Pipeline{operations: [%Operation.CropGuided{} = crop]}]
+            }} =
+             plan_pipeline(
+               crop: %ImagePipe.Parser.Imgproxy.CropRequest{
+                 width: {:pixels, 100},
+                 height: {:pixels, 100},
+                 gravity: {:obj, ["all"]}
+               }
+             )
+
+    assert crop.guide == {:detect, :all}
+  end
+
+  test "multi-class object gravity maps to detect with those classes (crop path)" do
+    assert {:ok,
+            %Plan{
+              pipelines: [%Pipeline{operations: [%Operation.CropGuided{} = crop]}]
+            }} =
+             plan_pipeline(
+               crop: %ImagePipe.Parser.Imgproxy.CropRequest{
+                 width: {:pixels, 100},
+                 height: {:pixels, 100},
+                 gravity: {:obj, ["car", "dog"]}
+               }
+             )
+
+    assert crop.guide == {:detect, ["car", "dog"]}
   end
 
   test "represents output intent outside imgproxy pipeline operations" do

@@ -129,6 +129,7 @@ defmodule ImagePipe.Transform.Operation.Crop do
             | {:fp, float(), float()}
             | :smart
             | {:smart, :face_assist}
+            | {:detect, :all}
             | {:detect, [String.t()]}
             | nil,
           x_offset: length_unit() | number(),
@@ -345,7 +346,10 @@ defmodule ImagePipe.Transform.Operation.Crop do
 
   defp run_detect(module, opts, image, classes, telemetry_opts) do
     Telemetry.span(telemetry_opts, [:transform, :detect], %{classes: classes}, fn ->
-      result = validate_detect_result(module.detect(image, Keyword.put(opts, :classes, classes)))
+      detect_opts =
+        opts |> Keyword.put(:classes, classes) |> Keyword.put(:telemetry_opts, telemetry_opts)
+
+      result = validate_detect_result(module.detect(image, detect_opts))
       {result, %{regions: region_count(result), result: detect_reason(result)}}
     end)
   end

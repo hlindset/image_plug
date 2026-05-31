@@ -1,9 +1,9 @@
-defmodule ImagePipe.Transform.Detector.ImageVision do
+defmodule ImagePipe.Transform.Detector.ImageVision.Face do
   @moduledoc """
-  Default `ImagePipe.Transform.Detector` backed by the optional `image_vision`
-  dependency. Faces use `Image.FaceDetection` (YuNet); the dependency is not
-  declared by ImagePipe — hosts opt in. When absent, `available?/1` is false and
-  callers fall back gracefully.
+  `ImagePipe.Transform.Detector` for faces, backed by the optional `image_vision`
+  dependency (`Image.FaceDetection`, YuNet). The dependency is not declared by
+  ImagePipe — hosts opt in. When absent, `available?/1` is false and callers fall
+  back gracefully.
   """
   @behaviour ImagePipe.Transform.Detector
 
@@ -13,11 +13,16 @@ defmodule ImagePipe.Transform.Detector.ImageVision do
   @model_file "face_detection_yunet_2023mar.onnx"
 
   @impl true
+  def supported_classes(_opts), do: ["face"]
+
+  @impl true
   def available?(_opts), do: Code.ensure_loaded?(Image.FaceDetection)
 
   @impl true
   def identity(_opts) do
-    if available?([]), do: {__MODULE__, {@repo, @model_file}}, else: {__MODULE__, :unavailable}
+    if available?([]),
+      do: {__MODULE__, {@repo, @model_file}},
+      else: {__MODULE__, :unavailable}
   end
 
   @impl true
@@ -26,8 +31,8 @@ defmodule ImagePipe.Transform.Detector.ImageVision do
 
     cond do
       not available?(opts) -> {:error, {:detector, :unavailable}}
-      classes != ["face"] -> {:error, {:detector, {:unsupported_classes, classes}}}
-      true -> detect_faces(image)
+      classes == :all or (is_list(classes) and "face" in classes) -> detect_faces(image)
+      true -> {:ok, []}
     end
   end
 

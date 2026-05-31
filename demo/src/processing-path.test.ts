@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 import {
   buildProcessingPath,
+  cocoClasses,
   controlLimits,
   cropDimensionSegment,
   cropOptionSegment,
@@ -11,6 +12,7 @@ import {
   debounce,
   focalPointFromBounds,
   imageRequestBytesFromPerformance,
+  objGravitySegment,
   resetCropPixelsToSource,
   processedSizeLabel,
   optionSegments,
@@ -538,6 +540,156 @@ describe("processing path generation", () => {
       cropEnabled: true,
       cropGravity: "obj:face",
     });
+  });
+
+  it("emits bare g:obj for object-class gravity with no classes selected", () => {
+    const state = {
+      ...defaultDemoState,
+      gravityEnabled: true,
+      gravityMode: "objClasses" as const,
+      gravityObjClasses: [],
+    };
+
+    expect(optionSegments(state)).toEqual(["g:obj"]);
+  });
+
+  it("emits g:obj:%c1:…:%cN for an explicit class list", () => {
+    const state = {
+      ...defaultDemoState,
+      gravityEnabled: true,
+      gravityMode: "objClasses" as const,
+      gravityObjClasses: ["car", "dog"],
+    };
+
+    expect(optionSegments(state)).toEqual(["g:obj:car:dog"]);
+  });
+
+  it("round-trips bare g:obj through the demo path", () => {
+    const parsed = parseDemoPath("/demo/g:obj/plain/local:///images/dog.jpg");
+
+    expect(parsed).toMatchObject({
+      gravityEnabled: true,
+      gravityMode: "objClasses",
+      gravityObjClasses: [],
+    });
+
+    expect(demoPathForState(parsed)).toBe("/demo/g:obj/plain/local:///images/dog.jpg");
+  });
+
+  it("normalizes g:obj:all to bare g:obj (empty selection = all objects)", () => {
+    const parsed = parseDemoPath("/demo/g:obj:all/plain/local:///images/dog.jpg");
+
+    expect(parsed).toMatchObject({
+      gravityEnabled: true,
+      gravityMode: "objClasses",
+      gravityObjClasses: [],
+    });
+
+    // g:obj:all normalizes to bare g:obj on serialize (they are semantically equivalent)
+    expect(demoPathForState(parsed)).toBe("/demo/g:obj/plain/local:///images/dog.jpg");
+  });
+
+  it("round-trips g:obj with explicit classes through the demo path", () => {
+    const parsed = parseDemoPath("/demo/g:obj:car:dog/plain/local:///images/dog.jpg");
+
+    expect(parsed).toMatchObject({
+      gravityEnabled: true,
+      gravityMode: "objClasses",
+      gravityObjClasses: ["car", "dog"],
+    });
+
+    expect(demoPathForState(parsed)).toBe("/demo/g:obj:car:dog/plain/local:///images/dog.jpg");
+  });
+
+  it("drops unknown class tokens, keeping only known COCO-80 classes", () => {
+    const parsed = parseDemoPath("/demo/g:obj:car:spaceship/plain/local:///images/dog.jpg");
+
+    expect(parsed).toMatchObject({
+      gravityEnabled: true,
+      gravityMode: "objClasses",
+      gravityObjClasses: ["car"],
+    });
+
+    expect(demoPathForState(parsed)).toBe("/demo/g:obj:car/plain/local:///images/dog.jpg");
+  });
+
+  it("leaves gravity unchanged for an all-unknown g:obj segment", () => {
+    const parsed = parseDemoPath("/demo/g:obj:spaceship/plain/local:///images/dog.jpg");
+
+    // every token unknown -> the picker can't represent it, so the segment is
+    // ignored and gravity is not switched to object-classes mode
+    expect(parsed.gravityMode).not.toBe("objClasses");
+  });
+
+  it("normalizes g:obj:car:all (all mixed with classes) to empty selection (all objects)", () => {
+    const parsed = parseDemoPath("/demo/g:obj:car:all/plain/local:///images/dog.jpg");
+
+    expect(parsed).toMatchObject({
+      gravityEnabled: true,
+      gravityMode: "objClasses",
+      gravityObjClasses: [],
+    });
+
+    // Serializes to bare g:obj (canonical form for all objects)
+    expect(demoPathForState(parsed)).toBe("/demo/g:obj/plain/local:///images/dog.jpg");
+  });
+
+  it("preserves g:obj:face as the legacy objFace mode", () => {
+    const parsed = parseDemoPath("/demo/g:obj:face/plain/local:///images/dog.jpg");
+
+    expect(parsed).toMatchObject({
+      gravityEnabled: true,
+      gravityMode: "objFace",
+    });
+  });
+
+  it("round-trips bare crop obj gravity through the demo path", () => {
+    const state = {
+      ...activeDemoState,
+      cropEnabled: true,
+      cropGravity: "obj" as const,
+    };
+
+    const segments = optionSegments(state);
+    expect(segments).toContain("c:5011:7516:obj");
+
+    const parsed = parseDemoPath(demoPathForState(state));
+    expect(parsed).toMatchObject({
+      cropEnabled: true,
+      cropGravity: "obj",
+    });
+  });
+
+  it("round-trips explicit obj:all crop gravity through the demo path", () => {
+    const state = {
+      ...activeDemoState,
+      cropEnabled: true,
+      cropGravity: "obj:all" as const,
+    };
+
+    const segments = optionSegments(state);
+    expect(segments).toContain("c:5011:7516:obj:all");
+
+    const parsed = parseDemoPath(demoPathForState(state));
+    expect(parsed).toMatchObject({
+      cropEnabled: true,
+      cropGravity: "obj:all",
+    });
+  });
+
+  it("objGravitySegment helper produces correct URL segments", () => {
+    expect(objGravitySegment([])).toBe("g:obj");
+    expect(objGravitySegment(["car"])).toBe("g:obj:car");
+    expect(objGravitySegment(["car", "dog"])).toBe("g:obj:car:dog");
+  });
+
+  it("COCO-80 class list has exactly 80 entries in underscore spelling", () => {
+    expect(cocoClasses).toHaveLength(80);
+    expect(cocoClasses).toContain("person");
+    expect(cocoClasses).toContain("traffic_light");
+    expect(cocoClasses).toContain("toothbrush");
+    // No space-spelled entries
+    expect(cocoClasses.every((c) => !c.includes(" "))).toBe(true);
   });
 
   it("normalizes focal point coordinates from a picker rectangle", () => {

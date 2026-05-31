@@ -73,7 +73,7 @@ defmodule ImagePipe.Transform do
     PlanExecutor.execute(plan, state, opts)
   end
 
-  @default_detector ImagePipe.Transform.Detector.ImageVision
+  @default_detector ImagePipe.Transform.Detector.Composite
 
   @spec resolve_detector(:default | nil | module()) :: module() | nil
   def resolve_detector(:default), do: @default_detector

@@ -148,6 +148,9 @@ defmodule ImagePipe.ImgproxyWireConformanceTest do
     @behaviour ImagePipe.Transform.Detector
 
     @impl true
+    def supported_classes(_opts), do: ["face"]
+
+    @impl true
     def detect(_image, _opts), do: {:error, {:detector, :unavailable}}
 
     @impl true
@@ -155,6 +158,151 @@ defmodule ImagePipe.ImgproxyWireConformanceTest do
 
     @impl true
     def identity(_opts), do: {__MODULE__, :unavailable}
+  end
+
+  defmodule FaceVerFake do
+    @moduledoc false
+    @behaviour ImagePipe.Transform.Detector
+
+    @impl true
+    def supported_classes(_), do: ["face"]
+
+    @impl true
+    def available?(_), do: true
+
+    @impl true
+    def identity(opts), do: {__MODULE__, Keyword.get(opts, :face_ver, :v1)}
+
+    @impl true
+    def detect(_, _), do: {:ok, []}
+  end
+
+  defmodule ObjectVerFake do
+    @moduledoc false
+    @behaviour ImagePipe.Transform.Detector
+
+    @impl true
+    def supported_classes(_), do: ["car", "dog"]
+
+    @impl true
+    def available?(_), do: true
+
+    @impl true
+    def identity(opts), do: {__MODULE__, Keyword.get(opts, :object_ver, :v1)}
+
+    @impl true
+    def detect(_, _), do: {:ok, []}
+  end
+
+  defmodule VerComposite do
+    @moduledoc false
+    @behaviour ImagePipe.Transform.Detector
+
+    alias ImagePipe.Transform.Detector.Composite
+
+    defp c, do: Composite.new([FaceVerFake, ObjectVerFake])
+
+    @impl true
+    def supported_classes(_o), do: Composite.supported_classes(c())
+
+    @impl true
+    def detect(i, o), do: Composite.detect(c(), i, o)
+
+    @impl true
+    def available?(o), do: Composite.available?(c(), o)
+
+    @impl true
+    def identity(o), do: Composite.identity(c(), o)
+  end
+
+  # Task 10: CornerObjectDetector — places a small box near the top-left so a
+  # fill-crop biases up-left, distinct from center and attention saliency.
+  defmodule CornerObjectDetector do
+    @moduledoc false
+    @behaviour ImagePipe.Transform.Detector
+
+    @impl true
+    def supported_classes(_), do: ["car", "dog", "face", "person"]
+
+    @impl true
+    def available?(opts), do: Keyword.get(opts, :available?, true)
+
+    @impl true
+    def identity(_), do: {__MODULE__, :v1}
+
+    @impl true
+    def detect(_image, opts) do
+      classes = Keyword.get(opts, :classes, :all)
+      label = if classes == :all, do: "car", else: List.first(List.wrap(classes))
+      {:ok, [%{label: label, score: 0.95, box: {2, 2, 20, 20}}]}
+    end
+  end
+
+  # Task 10: PartialDetector — Composite with FaceFake (available) and
+  # UnavailableObjectFake (available?=false), used for the gate triad.
+  defmodule GateTriadFaceFake do
+    @moduledoc false
+    @behaviour ImagePipe.Transform.Detector
+
+    @impl true
+    def supported_classes(_), do: ["face"]
+
+    @impl true
+    def available?(_), do: true
+
+    @impl true
+    def identity(_), do: {__MODULE__, :face_v1}
+
+    @impl true
+    def detect(_image, opts) do
+      {:ok, [%{label: "face", score: 0.9, box: {0, 0, 50, 50}}]}
+      |> filter_classes(Keyword.get(opts, :classes, :all))
+    end
+
+    defp filter_classes({:ok, regions}, :all), do: {:ok, regions}
+
+    defp filter_classes({:ok, regions}, classes) when is_list(classes) do
+      wanted = MapSet.new(classes)
+      {:ok, Enum.filter(regions, fn %{label: l} -> MapSet.member?(wanted, l) end)}
+    end
+  end
+
+  defmodule GateTriadUnavailableObjectFake do
+    @moduledoc false
+    @behaviour ImagePipe.Transform.Detector
+
+    @impl true
+    def supported_classes(_), do: ["car"]
+
+    @impl true
+    def available?(_), do: false
+
+    @impl true
+    def identity(_), do: {__MODULE__, :unavailable}
+
+    @impl true
+    def detect(_image, _opts), do: {:error, {:detector, :unavailable}}
+  end
+
+  defmodule PartialDetector do
+    @moduledoc false
+    @behaviour ImagePipe.Transform.Detector
+
+    alias ImagePipe.Transform.Detector.Composite
+
+    defp c, do: Composite.new([GateTriadFaceFake, GateTriadUnavailableObjectFake])
+
+    @impl true
+    def supported_classes(_o), do: Composite.supported_classes(c())
+
+    @impl true
+    def detect(i, o), do: Composite.detect(c(), i, o)
+
+    @impl true
+    def available?(o), do: Composite.available?(c(), o)
+
+    @impl true
+    def identity(o), do: Composite.identity(c(), o)
   end
 
   @default_opts [
@@ -1414,6 +1562,134 @@ defmodule ImagePipe.ImgproxyWireConformanceTest do
       assert content_type(conn) == ["image/avif"]
       assert get_resp_header(conn, "vary") == []
     end
+  end
+
+  # Task 10: Pixel divergence — g:obj:car crop biases toward the detected corner
+  # object, distinct from both center gravity and attention (smart) gravity.
+  test "g:obj:car crop biases toward the detected object, differing from center and attention" do
+    opts = Keyword.merge(@default_opts, detector: CornerObjectDetector)
+
+    obj = call_imgproxy("/_/rs:fill:50:50/g:obj:car/f:jpeg/plain/images/beach.jpg", opts)
+    centered = call_imgproxy("/_/rs:fill:50:50/g:ce/f:jpeg/plain/images/beach.jpg", opts)
+    attention = call_imgproxy("/_/rs:fill:50:50/g:sm/f:jpeg/plain/images/beach.jpg", opts)
+
+    assert obj.status == 200
+    assert dimensions(obj) == {50, 50}
+    refute obj.resp_body == centered.resp_body
+    refute obj.resp_body == attention.resp_body
+  end
+
+  # Task 10: No-geometry — g:obj:car without resize/crop must return 200.
+  test "no-geometry g:obj:car returns 200 without a resize or crop" do
+    opts = Keyword.merge(@default_opts, detector: CornerObjectDetector)
+
+    conn = call_imgproxy("/_/g:obj:car/plain/images/beach.jpg", opts)
+
+    assert conn.status == 200
+  end
+
+  # Task 10: Gate triad — class-aware strict gate with PartialDetector.
+  # Face child: available, owns ["face"]. Object child: unavailable, owns ["car"].
+  test "detector_required gate triad: face->200, unicorn->200(degrade), car->422 pre-fetch" do
+    opts = Keyword.merge(@default_opts, detector: PartialDetector, detector_required: true)
+
+    # face child available -> routes and succeeds
+    face_conn = call_imgproxy("/_/rs:fill:50:50/g:obj:face/f:jpeg/plain/images/beach.jpg", opts)
+    assert face_conn.status == 200
+
+    # unknown class routes to no child -> available? vacuously true -> degrades to 200
+    unicorn_conn =
+      call_imgproxy("/_/rs:fill:50:50/g:obj:unicorn/f:jpeg/plain/images/beach.jpg", opts)
+
+    assert unicorn_conn.status == 200
+
+    # object child unavailable -> 422 BEFORE any source fetch or cache access.
+    # Copy the exact setup from "detector_required + unavailable detector" test (~line 599).
+    telemetry_prefix = [:image_pipe_wire_gate_triad]
+    source_resolve_start = telemetry_prefix ++ [:source, :resolve, :start]
+
+    attach_source_resolve_telemetry(telemetry_prefix)
+
+    gate_opts =
+      Keyword.merge(opts,
+        telemetry_prefix: telemetry_prefix,
+        cache: {CacheProbe, []},
+        sources: [
+          path:
+            {RootHTTPAdapter,
+             root_url: "http://origin.test", req_options: [plug: OriginShouldNotFetch]}
+        ]
+      )
+
+    car_conn =
+      call_imgproxy("/_/rs:fill:50:50/g:obj:car/f:jpeg/plain/images/beach.jpg", gate_opts)
+
+    assert car_conn.status == 422
+    refute_received {:telemetry_event, ^source_resolve_start, _, _}
+    refute_received {:cache_lookup, _key}
+    refute_received {:cache_put, _key, _entry}
+    refute_received :origin_fetch
+  end
+
+  # Capture the cache key the plug looked up for one request. Uses the file's
+  # existing CacheProbe (it sends {:cache_lookup, key}) and call_imgproxy/2.
+  defp lookup_key(path, opts) do
+    call_imgproxy(path, opts)
+    assert_received {:cache_lookup, key}
+    key
+  end
+
+  defp probe_opts do
+    Keyword.merge(@default_opts, cache: {CacheProbe, []})
+  end
+
+  defp ver_opts(extra) do
+    Keyword.merge(probe_opts(), [detector: VerComposite] ++ extra)
+  end
+
+  test "object-only request key is independent of the face model identity" do
+    assert lookup_key(
+             "/_/rs:fill:50:50/g:obj:car/plain/images/beach.jpg",
+             ver_opts(face_ver: :v1)
+           ) ==
+             lookup_key(
+               "/_/rs:fill:50:50/g:obj:car/plain/images/beach.jpg",
+               ver_opts(face_ver: :v2)
+             )
+  end
+
+  test "face-only request key is independent of the object model identity" do
+    assert lookup_key(
+             "/_/rs:fill:50:50/g:obj:face/plain/images/beach.jpg",
+             ver_opts(object_ver: :v1)
+           ) ==
+             lookup_key(
+               "/_/rs:fill:50:50/g:obj:face/plain/images/beach.jpg",
+               ver_opts(object_ver: :v2)
+             )
+  end
+
+  test "mixed request key changes when either model identity changes" do
+    base =
+      lookup_key(
+        "/_/rs:fill:50:50/g:obj:face:car/plain/images/beach.jpg",
+        ver_opts(face_ver: :v1, object_ver: :v1)
+      )
+
+    diff_face =
+      lookup_key(
+        "/_/rs:fill:50:50/g:obj:face:car/plain/images/beach.jpg",
+        ver_opts(face_ver: :v2, object_ver: :v1)
+      )
+
+    diff_obj =
+      lookup_key(
+        "/_/rs:fill:50:50/g:obj:face:car/plain/images/beach.jpg",
+        ver_opts(face_ver: :v1, object_ver: :v2)
+      )
+
+    assert base != diff_face
+    assert base != diff_obj
   end
 
   defp cached_opts(overrides \\ []) do

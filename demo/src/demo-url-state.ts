@@ -1,4 +1,5 @@
 import {
+  cocoClasses,
   defaultDemoState,
   resetCropPixelsToSource,
   sampleImages,
@@ -14,6 +15,8 @@ import {
   type Rotate,
   type SourceImage,
 } from "./processing-path";
+
+const cocoClassSet = new Set<string>(cocoClasses);
 
 export type ExpandedToolboxes = {
   effectsOpen: boolean;
@@ -694,11 +697,53 @@ function parseGravity(currentState: DemoState, args: string[]): DemoState | null
     };
   }
 
-  if (args.length === 2 && modeOrGravity === "obj" && xArg === "face") {
+  if (args.length === 1 && modeOrGravity === "obj") {
+    // g:obj — bare object gravity (all classes)
     return {
       ...currentState,
       gravityEnabled: true,
-      gravityMode: "objFace",
+      gravityMode: "objClasses",
+      gravityObjClasses: [],
+    };
+  }
+
+  if (args.length >= 2 && modeOrGravity === "obj") {
+    const classes = args.slice(1);
+
+    // g:obj:face is preserved as the legacy objFace mode for UI clarity
+    if (classes.length === 1 && classes[0] === "face") {
+      return {
+        ...currentState,
+        gravityEnabled: true,
+        gravityMode: "objFace",
+      };
+    }
+
+    // g:obj:all or g:obj:%c…:all — "all" anywhere means all objects; normalize to empty selection
+    if (classes.includes("all")) {
+      return {
+        ...currentState,
+        gravityEnabled: true,
+        gravityMode: "objClasses",
+        gravityObjClasses: [],
+      };
+    }
+
+    // g:obj:%c1:…:%cN — explicit class list. The backend best-effort-drops
+    // classes no detector knows, so mirror that: keep only known COCO-80 classes
+    // (deduped). If every token is unknown the picker can't represent it (empty
+    // would read as "all objects"), so leave gravity unchanged.
+    const knownClasses = [...new Set(classes.filter((cls) => cocoClassSet.has(cls)))];
+
+    if (knownClasses.length === 0) {
+      return currentState;
+    }
+
+    return {
+      ...currentState,
+      gravityEnabled: true,
+      gravityMode: "objClasses",
+      gravityObjClasses: knownClasses,
     };
   }
 
@@ -862,11 +907,20 @@ function cropGravityFromArgs(args: string[]): CropGravity | null {
       return value;
     }
 
+    // bare obj gravity: c:W:H:obj
+    if (value === "obj") {
+      return "obj";
+    }
+
     return null;
   }
 
   if (args.length === 2 && args[0] === "obj" && args[1] === "face") {
     return "obj:face";
+  }
+
+  if (args.length === 2 && args[0] === "obj" && args[1] === "all") {
+    return "obj:all";
   }
 
   return null;

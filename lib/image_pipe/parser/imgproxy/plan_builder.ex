@@ -644,10 +644,7 @@ defmodule ImagePipe.Parser.Imgproxy.PlanBuilder do
 
   defp resize_guide(:sm, true), do: {:ok, {:smart, :face_assist}}
   defp resize_guide(:sm, _face_assist), do: {:ok, :smart}
-  defp resize_guide({:obj, ["face"]}, _face_assist), do: {:ok, {:detect, ["face"]}}
-
-  defp resize_guide({:obj, classes}, _face_assist),
-    do: {:error, {:unsupported_gravity, {:obj, classes}}}
+  defp resize_guide({:obj, classes}, _face_assist), do: {:ok, object_detect_guide(classes)}
 
   defp resize_guide({:anchor, :center, :center}, _face_assist), do: {:ok, :center}
   defp resize_guide({:anchor, x, y}, _face_assist), do: {:ok, {:anchor, x, y}}
@@ -661,10 +658,7 @@ defmodule ImagePipe.Parser.Imgproxy.PlanBuilder do
 
   defp tagged_gravity(:sm, true), do: {:ok, {:smart, :face_assist}}
   defp tagged_gravity(:sm, _face_assist), do: {:ok, :smart}
-  defp tagged_gravity({:obj, ["face"]}, _face_assist), do: {:ok, {:detect, ["face"]}}
-
-  defp tagged_gravity({:obj, classes}, _face_assist),
-    do: {:error, {:unsupported_gravity, {:obj, classes}}}
+  defp tagged_gravity({:obj, classes}, _face_assist), do: {:ok, object_detect_guide(classes)}
 
   defp tagged_gravity({:anchor, x, y}, _face_assist), do: {:ok, crop_anchor_guide(x, y)}
 
@@ -688,6 +682,18 @@ defmodule ImagePipe.Parser.Imgproxy.PlanBuilder do
     with {:ok, {numerator, denominator}} <- decimal_ratio_parts(value) do
       gcd = Integer.gcd(numerator, denominator)
       {:ok, {:ratio, div(numerator, gcd), div(denominator, gcd)}}
+    end
+  end
+
+  # Maps imgproxy object gravity classes to a product-neutral detect guide.
+  # Bare `obj` (empty classes) or `all` anywhere collapses to the :all sentinel;
+  # otherwise the explicit class list is carried through. Shared by the fill
+  # (resize_guide) and crop (tagged_gravity) paths so they cannot diverge.
+  defp object_detect_guide(classes) do
+    if classes == [] or "all" in classes do
+      {:detect, :all}
+    else
+      {:detect, classes}
     end
   end
 

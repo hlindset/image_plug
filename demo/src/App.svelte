@@ -1,6 +1,6 @@
 <script lang="ts">
   import { onMount } from "svelte";
-  import { Collapsible, RadioGroup, Switch } from "bits-ui";
+  import { Collapsible, RadioGroup, Select, Switch } from "bits-ui";
   import CropDimensionControl from "./CropDimensionControl.svelte";
   import RangeNumber from "./RangeNumber.svelte";
   import ResizeDimensionControl from "./ResizeDimensionControl.svelte";
@@ -13,6 +13,7 @@
   } from "./demo-url-state";
   import {
     buildProcessingPath,
+    cocoClasses,
     controlLimits,
     cropOptionSegment,
     cropPixelLimit,
@@ -38,6 +39,10 @@
     storedThemeMode,
     type ThemeMode,
   } from "./theme";
+
+  // COCO-80 classes shown alphabetically in the picker. `cocoClasses` keeps its
+  // canonical (adapter) order as the source of truth; this is display-only.
+  const sortedCocoClasses = [...cocoClasses].sort((a, b) => a.localeCompare(b));
 
   let copyLabel = "Copy URL";
   let drawerOpen = false;
@@ -755,6 +760,8 @@
               <option value="sowe">south west</option>
               <option value="sm">smart</option>
               <option value="obj:face">object (face)</option>
+              <option value="obj">object (all, bare)</option>
+              <option value="obj:all">object (all, explicit)</option>
             </select>
           </label>
         {/if}
@@ -800,6 +807,7 @@
               <option value="offset">anchor + offset</option>
               <option value="smart">smart</option>
               <option value="objFace">object (face)</option>
+              <option value="objClasses">object (classes)</option>
             </select>
           </label>
 
@@ -873,6 +881,43 @@
               max={controlLimits.gravityOffset.max}
               step={controlLimits.gravityOffset.step}
             />
+          {/if}
+
+          {#if state.gravityMode === "objClasses"}
+            <div class="field">
+              <span>Classes</span>
+              <!-- Multi-select for COCO-80 classes. Matches the underscore spelling
+                   in ImagePipe.Transform.Detector.ImageVision.Objects (@coco_classes).
+                   Empty selection = bare g:obj (all objects). -->
+              <Select.Root type="multiple" bind:value={state.gravityObjClasses}>
+                <Select.Trigger class="obj-class-trigger" aria-label="Select object classes">
+                  <span class="obj-class-trigger-label">
+                    {state.gravityObjClasses.length === 0
+                      ? "All objects"
+                      : state.gravityObjClasses.length === 1
+                        ? state.gravityObjClasses[0]
+                        : `${state.gravityObjClasses.length} classes selected`}
+                  </span>
+                  <span class="obj-class-trigger-chevron" aria-hidden="true"></span>
+                </Select.Trigger>
+                <Select.Portal>
+                  <Select.Content class="obj-class-content" sideOffset={4}>
+                    <Select.Viewport class="obj-class-viewport">
+                      {#each sortedCocoClasses as cls}
+                        <Select.Item class="obj-class-item" value={cls} label={cls}>
+                          {#snippet children({ selected })}
+                            <span class="obj-class-item-check" aria-hidden="true">
+                              {#if selected}✓{/if}
+                            </span>
+                            {cls}
+                          {/snippet}
+                        </Select.Item>
+                      {/each}
+                    </Select.Viewport>
+                  </Select.Content>
+                </Select.Portal>
+              </Select.Root>
+            </div>
           {/if}
         {/if}
       </section>
@@ -1989,6 +2034,105 @@
       calc(100% - 12px) 16px;
     background-size: 5px 5px;
     background-repeat: no-repeat;
+  }
+
+  :global(.obj-class-trigger) {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    width: 100%;
+    min-height: 38px;
+    padding-inline: 12px;
+    border: 1px solid var(--border-strong);
+    border-radius: 7px;
+    background: var(--surface-control);
+    color: var(--text-primary);
+    font: inherit;
+    font-size: 14px;
+    line-height: 18px;
+    text-align: left;
+    cursor: default;
+
+    &:focus-visible {
+      outline: 2px solid var(--focus-ring);
+      outline-offset: 2px;
+    }
+  }
+
+  .obj-class-trigger-label {
+    flex: 1;
+    /* min-width: 0 lets the flex item shrink below its content width so the
+       ellipsis engages instead of overflowing and pushing the chevron out. */
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .obj-class-trigger-chevron {
+    flex-shrink: 0;
+    width: 10px;
+    height: 10px;
+    background-image:
+      linear-gradient(45deg, transparent 50%, var(--text-muted) 50%),
+      linear-gradient(135deg, var(--text-muted) 50%, transparent 50%);
+    background-position:
+      0% 0%,
+      100% 0%;
+    background-size: 5px 5px;
+    background-repeat: no-repeat;
+  }
+
+  :global(.obj-class-content) {
+    z-index: 50;
+    min-width: var(--bits-select-anchor-width);
+    border: 1px solid var(--border-strong);
+    border-radius: 7px;
+    background: var(--surface-sidebar);
+    box-shadow: 0 8px 24px rgb(0 0 0 / 28%);
+    overflow: hidden;
+  }
+
+  :global(.obj-class-viewport) {
+    max-height: 220px;
+    overflow-y: auto;
+    padding: 4px;
+    scrollbar-width: thin;
+    scrollbar-color: var(--border-strong) transparent;
+  }
+
+  :global(.obj-class-item) {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 5px 8px;
+    border-radius: 5px;
+    color: var(--text-primary);
+    font-size: 13px;
+    line-height: 18px;
+    cursor: default;
+    user-select: none;
+
+    &[data-highlighted] {
+      background: var(--surface-control);
+      outline: none;
+    }
+
+    &[data-selected] {
+      color: var(--text-primary);
+    }
+  }
+
+  .obj-class-item-check {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 14px;
+    flex-shrink: 0;
+    color: var(--accent);
+    font-size: 12px;
+    line-height: 1;
   }
 
   .text-input {

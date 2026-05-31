@@ -236,8 +236,12 @@ defmodule ImagePipe.Request.Runner do
   # cache boundary never resolves identity itself; the request layer passes it
   # as a key option.
   defp put_detector_identity(opts, plan) do
-    if Plan.detect_classes(plan) != nil or Plan.face_assist?(plan) do
-      case Transform.detector_identity(Keyword.get(opts, :detector, :default), opts) do
+    detect_classes = Plan.detect_classes(plan)
+
+    if detect_classes != nil or Plan.face_assist?(plan) do
+      opts_with_classes = Keyword.put(opts, :classes, detect_classes || ["face"])
+
+      case Transform.detector_identity(Keyword.get(opts, :detector, :default), opts_with_classes) do
         nil -> opts
         identity -> Keyword.put(opts, :detector_identity, identity)
       end

@@ -19,7 +19,9 @@ defmodule ImagePipe.ArchitectureBoundaryTest do
     "lib/image_pipe/response.ex",
     "lib/image_pipe/response/**/*.ex",
     "lib/image_pipe/cache.ex",
-    "lib/image_pipe/cache/**/*.ex"
+    "lib/image_pipe/cache/**/*.ex",
+    "lib/image_pipe/parser/**/*.ex",
+    "lib/image_pipe/plan/**/*.ex"
   ]
   @parser_forbidden_globs [
     "lib/image_pipe/request.ex",
