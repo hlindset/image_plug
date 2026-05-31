@@ -600,7 +600,7 @@ defmodule ImagePipe.Plan.Operation do
     end
   end
 
-  defp resize_guide(_guide), do: {:error, :guide}
+  defp resize_guide(guide), do: smart_guide(guide)
 
   defp resize_offsets(mode, x_offset, y_offset) when mode in [:cover, :auto],
     do: {:ok, {x_offset, y_offset}}
@@ -671,7 +671,21 @@ defmodule ImagePipe.Plan.Operation do
     end
   end
 
-  defp tagged_crop_guide(_guide), do: {:error, :guide}
+  defp tagged_crop_guide(guide), do: smart_guide(guide)
+
+  defp smart_guide(:smart), do: {:ok, :smart}
+  defp smart_guide({:smart, :face_assist} = guide), do: {:ok, guide}
+
+  defp smart_guide({:detect, classes} = guide)
+       when is_list(classes) and classes != [] do
+    if Enum.all?(classes, &is_binary/1) do
+      {:ok, guide}
+    else
+      {:error, :guide}
+    end
+  end
+
+  defp smart_guide(_guide), do: {:error, :guide}
 
   defp tagged_canvas_dimension(:auto), do: {:ok, :auto}
 

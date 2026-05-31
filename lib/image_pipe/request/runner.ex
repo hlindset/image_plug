@@ -16,6 +16,7 @@ defmodule ImagePipe.Request.Runner do
   alias ImagePipe.Response.PreparedStream
   alias ImagePipe.Source
   alias ImagePipe.Telemetry
+  alias ImagePipe.Transform
 
   @type delivery() ::
           {:cache_entry, Entry.t(), Response.t(), CacheHeaders.t()}
@@ -65,8 +66,16 @@ defmodule ImagePipe.Request.Runner do
       Telemetry.span(telemetry_opts, [:cache, :lookup], cache_lookup_metadata(opts), fn ->
         result =
           case Keyword.get(opts, :cache) do
-            nil -> :disabled
-            _cache -> Cache.lookup(conn, plan, resolved_source.identity, opts)
+            nil ->
+              :disabled
+
+            _cache ->
+              Cache.lookup(
+                conn,
+                plan,
+                resolved_source.identity,
+                put_detector_identity(opts, plan)
+              )
           end
 
         {result, cache_lookup_stop_metadata(result)}
@@ -217,4 +226,23 @@ defmodule ImagePipe.Request.Runner do
 
   defp cache_lookup_stop_metadata({:error, {:cache_read, error}}),
     do: %{result: :cache_error, cache: :read_error, error: Error.tag(error)}
+
+  # When the plan's output depends on the configured detector, fold the
+  # detector's opaque {module, term} identity into the cache key so a
+  # detector/model change (or availability change) produces a different key
+  # instead of colliding. This covers both {:detect, _} guides and
+  # {:smart, :face_assist} guides: face-assist blends the detected face centroid
+  # into the attention point, so its output also depends on the detector. The
+  # cache boundary never resolves identity itself; the request layer passes it
+  # as a key option.
+  defp put_detector_identity(opts, plan) do
+    if Plan.detect_classes(plan) != nil or Plan.face_assist?(plan) do
+      case Transform.detector_identity(Keyword.get(opts, :detector, :default), opts) do
+        nil -> opts
+        identity -> Keyword.put(opts, :detector_identity, identity)
+      end
+    else
+      opts
+    end
+  end
 end

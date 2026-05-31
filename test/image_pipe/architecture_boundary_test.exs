@@ -2,12 +2,24 @@ defmodule ImagePipe.ArchitectureBoundaryTest do
   use ExUnit.Case, async: true
 
   @request_source_response_globs [
+    "lib/image_pipe/plug.ex",
     "lib/image_pipe/request.ex",
     "lib/image_pipe/request/**/*.ex",
     "lib/image_pipe/source.ex",
     "lib/image_pipe/source/**/*.ex",
     "lib/image_pipe/response.ex",
     "lib/image_pipe/response/**/*.ex"
+  ]
+  @detector_forbidden_globs [
+    "lib/image_pipe/plug.ex",
+    "lib/image_pipe/request.ex",
+    "lib/image_pipe/request/**/*.ex",
+    "lib/image_pipe/source.ex",
+    "lib/image_pipe/source/**/*.ex",
+    "lib/image_pipe/response.ex",
+    "lib/image_pipe/response/**/*.ex",
+    "lib/image_pipe/cache.ex",
+    "lib/image_pipe/cache/**/*.ex"
   ]
   @parser_forbidden_globs [
     "lib/image_pipe/request.ex",
@@ -314,6 +326,16 @@ defmodule ImagePipe.ArchitectureBoundaryTest do
     assert violations == []
   end
 
+  test "request, plug, source, response, and cache code does not name concrete detector adapters" do
+    violations =
+      for file <- detector_forbidden_files(),
+          violation <- concrete_detector_references(file) do
+        "#{file}:#{violation.line} must not name #{violation.module}; resolve detectors through the ImagePipe.Transform facade"
+      end
+
+    assert violations == []
+  end
+
   test "request, source, and response code does not inspect plan operation semantic staging" do
     violations =
       for file <- request_source_response_files(),
@@ -508,6 +530,13 @@ defmodule ImagePipe.ArchitectureBoundaryTest do
   defp request_source_response_files do
     @request_source_response_globs
     |> Enum.flat_map(&Path.wildcard/1)
+    |> Enum.sort()
+  end
+
+  defp detector_forbidden_files do
+    @detector_forbidden_globs
+    |> Enum.flat_map(&Path.wildcard/1)
+    |> Enum.uniq()
     |> Enum.sort()
   end
 
@@ -840,6 +869,60 @@ defmodule ImagePipe.ArchitectureBoundaryTest do
     |> Enum.reverse()
     |> Enum.uniq()
   end
+
+  defp concrete_detector_references(file) do
+    {:ok, ast} = file |> File.read!() |> Code.string_to_quoted()
+
+    {_ast, violations} =
+      Macro.prewalk(ast, [], fn
+        {tag, meta,
+         [
+           {{:., _dot_meta, [grouped_alias_prefix, :{}]}, _call_meta, grouped_aliases}
+         ]} = node,
+        violations
+        when tag in [:alias, :import] ->
+          grouped_aliases
+          |> Enum.map(&concrete_detector_grouped_alias(grouped_alias_prefix, &1))
+          |> Enum.reject(&is_nil/1)
+          |> Enum.map(&violation(meta, &1))
+          |> then(&{node, &1 ++ violations})
+
+        {:__aliases__, meta, [:ImagePipe, :Transform, :Detector, submodule | _rest]} = node,
+        violations ->
+          {node, [violation(meta, "ImagePipe.Transform.Detector.#{submodule}") | violations]}
+
+        {:__aliases__, meta, [:Transform, :Detector, submodule | _rest]} = node, violations ->
+          {node, [violation(meta, "Transform.Detector.#{submodule}") | violations]}
+
+        {:__aliases__, meta, [:Detector, submodule | _rest]} = node, violations ->
+          {node, [violation(meta, "Detector.#{submodule}") | violations]}
+
+        node, violations ->
+          {node, violations}
+      end)
+
+    violations
+    |> Enum.reverse()
+    |> Enum.uniq()
+  end
+
+  defp concrete_detector_grouped_alias(prefix, alias) do
+    prefix
+    |> alias_parts()
+    |> Kernel.++(grouped_alias_parts(alias))
+    |> concrete_detector_module()
+  end
+
+  defp concrete_detector_module([:ImagePipe, :Transform, :Detector, submodule | _rest]),
+    do: "ImagePipe.Transform.Detector.#{submodule}"
+
+  defp concrete_detector_module([:Transform, :Detector, submodule | _rest]),
+    do: "Transform.Detector.#{submodule}"
+
+  defp concrete_detector_module([:Detector, submodule | _rest]),
+    do: "Detector.#{submodule}"
+
+  defp concrete_detector_module(_parts), do: nil
 
   defp cache_prefetch_unsafe_transform_references(file) do
     {:ok, ast} = file |> File.read!() |> Code.string_to_quoted()

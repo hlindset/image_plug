@@ -28,6 +28,9 @@ defmodule ImagePipe.Plan.Operation.CropGuided do
           | {:anchor, :left | :center | :right, :top | :center | :bottom}
           | {:focal, {:ratio, non_neg_integer(), pos_integer()},
              {:ratio, non_neg_integer(), pos_integer()}}
+          | :smart
+          | {:smart, :face_assist}
+          | {:detect, nonempty_list(String.t())}
   @type offset :: number() | {:pixels, number()} | {:scale, number()}
 
   @type t :: %__MODULE__{

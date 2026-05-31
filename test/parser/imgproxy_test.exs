@@ -934,12 +934,19 @@ defmodule ImagePipe.Parser.ImgproxyTest do
              {:error, {:invalid_gravity_coordinate, "nope"}}
   end
 
-  test "rejects smart gravity as an unsupported planner semantic" do
-    assert Imgproxy.parse(conn(:get, "/_/g:sm/plain/images/cat.jpg"), []) ==
-             {:error, {:unsupported_gravity, :sm}}
+  test "maps smart gravity to the smart plan guide" do
+    assert {:ok, %Plan{pipelines: [%Pipeline{operations: [%Operation.Resize{} = resize]}]}} =
+             Imgproxy.parse(
+               conn(:get, "/_/g:sm/rs:fill:100:100/plain/images/cat.jpg"),
+               @baseline_opts
+             )
 
-    assert Imgproxy.parse(conn(:get, "/_/c:100:100:sm/plain/images/cat.jpg"), []) ==
-             {:error, {:unsupported_gravity, :sm}}
+    assert resize.guide == :smart
+
+    assert {:ok, %Plan{pipelines: [%Pipeline{operations: [%Operation.CropGuided{} = crop]}]}} =
+             Imgproxy.parse(conn(:get, "/_/c:100:100:sm/plain/images/cat.jpg"), @baseline_opts)
+
+    assert crop.guide == :smart
   end
 
   test "parses format aliases and jpg normalization" do
@@ -1444,11 +1451,16 @@ defmodule ImagePipe.Parser.ImgproxyTest do
              {:error, {:unsupported_output_format, :best}}
   end
 
-  test "rejects planner-unsupported transform semantics inside a used preset like direct URL options" do
-    opts = preset_opts(%{"smart" => "g:sm"})
+  test "plans smart gravity transform semantics inside a used preset like direct URL options" do
+    opts = preset_opts(%{"smart" => "c:100:100:sm"})
 
-    assert Imgproxy.parse(conn(:get, "/_/pr:smart/plain/images/cat.jpg"), opts) ==
-             {:error, {:unsupported_gravity, :sm}}
+    assert {:ok, %Plan{pipelines: [%Pipeline{operations: operations}]}} =
+             Imgproxy.parse(conn(:get, "/_/pr:smart/plain/images/cat.jpg"), opts)
+
+    assert [%Operation.CropGuided{} = crop] =
+             Enum.filter(operations, &match?(%Operation.CropGuided{}, &1))
+
+    assert crop.guide == :smart
   end
 
   test "merges preset pipeline groups with URL pipeline groups" do

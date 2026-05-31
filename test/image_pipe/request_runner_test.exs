@@ -407,6 +407,13 @@ defmodule ImagePipe.Request.RunnerTest do
   defp tagged_resize_dimension(:auto), do: :auto
   defp tagged_resize_dimension(pixels), do: {:px, pixels}
 
+  defp face_assist_crop_operation(width, height) do
+    assert {:ok, operation} =
+             Operation.crop_guided({:px, width}, {:px, height}, {:smart, :face_assist})
+
+    operation
+  end
+
   defp require_tiff_support! do
     with {:ok, loader_suffixes} <- VipsImage.supported_loader_suffixes(),
          true <- ".tiff" in loader_suffixes,
@@ -1333,6 +1340,38 @@ defmodule ImagePipe.Request.RunnerTest do
                resolved_source(),
                cache: {CacheHit, entry: entry}
              )
+  end
+
+  test "face-assist cache lookup injects detector identity into the key" do
+    entry = %Entry{
+      body: "cached jpeg",
+      content_type: "image/jpeg",
+      headers: [],
+      created_at: DateTime.utc_now()
+    }
+
+    plan = plan(pipelines: [%Pipeline{operations: [face_assist_crop_operation(200, 100)]}])
+
+    run_lookup = fn fake_identity ->
+      assert {:ok, {:cache_entry, ^entry, %ImagePipe.Plan.Response{}, %CacheHeaders{}}} =
+               run(
+                 conn(:get, "/_/g:sm/w:200/h:100/f:jpeg/plain/images/beach.jpg"),
+                 plan,
+                 resolved_source(),
+                 cache: {CacheReadProbe, entry: entry},
+                 detector: ImagePipe.Test.FakeDetector,
+                 identity: fake_identity
+               )
+
+      assert_received {:cache_lookup, key}
+      key
+    end
+
+    key_v1 = run_lookup.(:v1)
+    key_v2 = run_lookup.(:v2)
+
+    assert key_v1.data[:detector] == {ImagePipe.Test.FakeDetector, :v1}
+    refute key_v1.hash == key_v2.hash
   end
 
   test "invalid cache hit content type fails open and refreshes through prepared stream" do

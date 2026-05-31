@@ -29,6 +29,12 @@ defmodule ImagePipe.SimpleServer do
     send_resp(conn, 404, "404 Not Found")
   end
 
+  # Browsers auto-request /favicon.ico; answer it directly so it doesn't reach
+  # ImagePipe and log a spurious parser_error.
+  get "/favicon.ico" do
+    send_resp(conn, 404, "404 Not Found")
+  end
+
   get "/demo" do
     send_demo_html(conn)
   end
@@ -54,7 +60,11 @@ defmodule ImagePipe.SimpleServer do
           keys: ["736563726574"],
           salts: ["68656c6c6f"],
           trusted_signatures: ["_", "unsafe"]
-        ]
+        ],
+        # Demo: make `g:sm` blend libvips attention with ML face detection
+        # (imgproxy's IMGPROXY_SMART_CROP_FACE_DETECTION) so the dev server
+        # exercises the `{:smart, :face_assist}` path and its detect telemetry.
+        smart_crop_face_detection: true
       ]
     ]
     |> maybe_put_cache(cache_config())

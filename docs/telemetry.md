@@ -132,6 +132,65 @@ Use `:error` for stage-local failures that aren't otherwise classified at that
 stage. The request span maps returned failures into the more specific request
 outcome categories in this list.
 
+## Content-aware crop detection
+
+Face-aware crops (`g:obj:face`, `c:W:H:obj:face`, and face-assisted `g:sm`)
+report detection two ways, depending on whether any detection actually ran.
+
+When a detector is configured, ImagePipe wraps the detector invocation in a
+`[:image_pipe, :transform, :detect]` span whose duration reflects real inference
+work (useful for spotting model cold-start cost). Stop metadata:
+
+- `:classes` - the requested detection classes, e.g. `["face"]`.
+- `:regions` - the number of regions the detector returned.
+- `:result` - the detector outcome, one of:
+  - `:detected` - the detector returned at least one region.
+  - `:no_regions` - the detector ran but found nothing (no face in the frame).
+    This is a normal result, **not** a failure; the crop falls back to libvips
+    attention saliency.
+  - `:unavailable` - the configured detector reported it is unavailable.
+  - `:error` - the detector raised, errored, or returned a malformed result.
+
+`:result` reflects the *detector* outcome, not the final crop decision: a
+`:detected` result whose boxes all fall outside the image still degrades to
+attention downstream.
+
+When **no** detector is configured, no detection runs, so there is no span.
+Instead ImagePipe emits a one-shot (non-span) marker:
+
+```text
+[:image_pipe, :transform, :detect, :skipped]
+```
+
+with empty measurements and metadata `%{classes: [...], result: :no_detector}`.
+
+The two unfulfillable-but-configured span results (`:unavailable`, `:error`) and
+the `:skipped` one-shot (`:no_detector`) all mark a face-aware request that fell
+back to attention saliency; the opt-in default Logger escalates all three to
+`:warning`. The normal `:no_regions` and `:detected` span results log at the
+base level.
+
+For face-assisted smart crop (`g:sm` with `smart_crop_face_detection`), when a
+face is found ImagePipe blends the attention point with the face centroid. It
+emits a one-shot (non-span) marker recording the skew:
+
+```text
+[:image_pipe, :transform, :detect, :blend]
+```
+
+with empty measurements and metadata:
+
+- `:attention` - the pure libvips saliency point `{x, y}` (normalized 0..1).
+- `:face` - the area-weighted face centroid `{x, y}` (normalized 0..1).
+- `:blended` - the point actually used: `(1 - weight)·attention + weight·face`.
+- `:weight` - the face-assist blend weight (ImagePipe's approximation).
+
+Subtract `:attention` from `:blended` for how far the face pulled the crop. The
+coordinates are product-neutral and derived from the public request, so they are
+safe to emit. This marker fires only when a face is detected; no face means a
+plain attention crop and no blend event. The default Logger renders it at the
+base level.
+
 Cache-related metadata may also include:
 
 - `cache: :disabled`

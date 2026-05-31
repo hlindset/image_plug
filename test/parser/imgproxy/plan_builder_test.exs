@@ -718,16 +718,168 @@ defmodule ImagePipe.Parser.Imgproxy.PlanBuilderTest do
     assert second_params.height == pixels(200)
   end
 
-  test "returns unsupported gravity planning errors" do
-    request = %ParsedRequest{
-      signature: "_",
-      source_kind: :plain,
-      source_path: "images/cat.jpg",
-      pipelines: [%PipelineRequest{gravity: :sm}],
-      output: output_request()
-    }
+  test "maps smart gravity fill resize to the smart plan guide" do
+    assert {:ok, %Plan{pipelines: [%Pipeline{operations: operations}]}} =
+             plan_pipeline(
+               resizing_type: :fill,
+               width: {:pixels, 100},
+               height: {:pixels, 100},
+               gravity: :sm
+             )
 
-    assert PlanBuilder.to_plan(request, []) == {:error, {:unsupported_gravity, :sm}}
+    assert [%Operation.Resize{mode: :cover} = resize] = operations
+    assert resize.guide == :smart
+  end
+
+  test "maps smart gravity crop to the smart plan guide" do
+    assert {:ok, %Plan{pipelines: [%Pipeline{operations: [%Operation.CropGuided{} = crop]}]}} =
+             plan_pipeline(
+               crop: %ImagePipe.Parser.Imgproxy.CropRequest{
+                 width: {:pixels, 100},
+                 height: {:pixels, 100},
+                 gravity: :sm
+               }
+             )
+
+    assert crop.guide == :smart
+  end
+
+  test "g:sm with smart_crop_face_detection becomes {:smart, :face_assist}" do
+    assert {:ok, %Plan{pipelines: [%Pipeline{operations: operations}]}} =
+             plan_pipeline(
+               [
+                 resizing_type: :fill,
+                 width: {:pixels, 100},
+                 height: {:pixels, 100},
+                 gravity: :sm
+               ],
+               imgproxy: [smart_crop_face_detection: true]
+             )
+
+    assert [%Operation.Resize{mode: :cover} = resize] = operations
+    assert resize.guide == {:smart, :face_assist}
+  end
+
+  test "g:sm crop with smart_crop_face_detection becomes {:smart, :face_assist}" do
+    assert {:ok, %Plan{pipelines: [%Pipeline{operations: [%Operation.CropGuided{} = crop]}]}} =
+             plan_pipeline(
+               [
+                 crop: %ImagePipe.Parser.Imgproxy.CropRequest{
+                   width: {:pixels, 100},
+                   height: {:pixels, 100},
+                   gravity: :sm
+                 }
+               ],
+               imgproxy: [smart_crop_face_detection: true]
+             )
+
+    assert crop.guide == {:smart, :face_assist}
+  end
+
+  test "g:sm without the flag stays :smart" do
+    assert {:ok, %Plan{pipelines: [%Pipeline{operations: operations}]}} =
+             plan_pipeline(
+               [
+                 resizing_type: :fill,
+                 width: {:pixels, 100},
+                 height: {:pixels, 100},
+                 gravity: :sm
+               ],
+               imgproxy: [smart_crop_face_detection: false]
+             )
+
+    assert [%Operation.Resize{mode: :cover} = resize] = operations
+    assert resize.guide == :smart
+  end
+
+  test "maps face object gravity fill resize to the detect plan guide" do
+    assert {:ok, %Plan{pipelines: [%Pipeline{operations: operations}]}} =
+             plan_pipeline(
+               resizing_type: :fill,
+               width: {:pixels, 100},
+               height: {:pixels, 100},
+               gravity: {:obj, ["face"]}
+             )
+
+    assert [%Operation.Resize{mode: :cover} = resize] = operations
+    assert resize.guide == {:detect, ["face"]}
+  end
+
+  test "maps face object gravity crop to the detect plan guide" do
+    assert {:ok, %Plan{pipelines: [%Pipeline{operations: [%Operation.CropGuided{} = crop]}]}} =
+             plan_pipeline(
+               crop: %ImagePipe.Parser.Imgproxy.CropRequest{
+                 width: {:pixels, 100},
+                 height: {:pixels, 100},
+                 gravity: {:obj, ["face"]}
+               }
+             )
+
+    assert crop.guide == {:detect, ["face"]}
+  end
+
+  test "planner emits only product-neutral guide terms (no dialect leak)" do
+    for {gravity, expected_guide} <- [{:sm, :smart}, {{:obj, ["face"]}, {:detect, ["face"]}}] do
+      assert {:ok, %Plan{pipelines: pipelines}} =
+               plan_pipeline(
+                 resizing_type: :fill,
+                 width: {:pixels, 100},
+                 height: {:pixels, 100},
+                 gravity: gravity
+               )
+
+      guides =
+        for pipeline <- pipelines,
+            operation <- pipeline.operations,
+            guide = Map.get(operation, :guide),
+            not is_nil(guide),
+            do: guide
+
+      assert expected_guide in guides
+      refute Enum.any?(guides, &match?({:obj, _}, &1))
+      refute :sm in guides
+    end
+  end
+
+  test "rejects bare object gravity (all detected objects)" do
+    assert {:error, {:unsupported_gravity, {:obj, []}}} =
+             plan_pipeline(
+               resizing_type: :fill,
+               width: {:pixels, 100},
+               height: {:pixels, 100},
+               gravity: {:obj, []}
+             )
+  end
+
+  test "rejects the all pseudo-class object gravity" do
+    assert {:error, {:unsupported_gravity, {:obj, ["all"]}}} =
+             plan_pipeline(
+               resizing_type: :fill,
+               width: {:pixels, 100},
+               height: {:pixels, 100},
+               gravity: {:obj, ["all"]}
+             )
+  end
+
+  test "rejects multi-class object gravity" do
+    assert {:error, {:unsupported_gravity, {:obj, ["face", "cat"]}}} =
+             plan_pipeline(
+               resizing_type: :fill,
+               width: {:pixels, 100},
+               height: {:pixels, 100},
+               gravity: {:obj, ["face", "cat"]}
+             )
+  end
+
+  test "rejects object gravity with trailing class tokens treated as offsets" do
+    assert {:error, {:unsupported_gravity, {:obj, ["face", "5", "5"]}}} =
+             plan_pipeline(
+               crop: %ImagePipe.Parser.Imgproxy.CropRequest{
+                 width: {:pixels, 100},
+                 height: {:pixels, 100},
+                 gravity: {:obj, ["face", "5", "5"]}
+               }
+             )
   end
 
   test "represents output intent outside imgproxy pipeline operations" do
@@ -974,7 +1126,7 @@ defmodule ImagePipe.Parser.Imgproxy.PlanBuilderTest do
     one_of([constant(nil), member_of(Format.output_formats())])
   end
 
-  defp plan_pipeline(attrs) do
+  defp plan_pipeline(attrs, opts \\ []) do
     attrs =
       attrs
       |> normalize_orientation_attrs()
@@ -988,7 +1140,7 @@ defmodule ImagePipe.Parser.Imgproxy.PlanBuilderTest do
         pipelines: [struct!(PipelineRequest, attrs)],
         output: output_request()
       },
-      []
+      opts
     )
   end
 

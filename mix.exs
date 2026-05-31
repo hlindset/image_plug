@@ -102,7 +102,7 @@ defmodule ImagePipe.MixProject do
   end
 
   defp deps do
-    [
+    base = [
       {:plug, "~> 1.18"},
       {:telemetry, "~> 1.0"},
       {:nimble_options, "~> 1.1"},
@@ -121,6 +121,24 @@ defmodule ImagePipe.MixProject do
       {:credo, "~> 1.7", only: [:dev, :test], runtime: false},
       {:talan, "~> 0.2.1"}
     ]
+
+    # Real face detection needs `image_vision` AND its optional ONNX backend
+    # `ortex` (a Rust/ONNX runtime): `image_vision`'s `Image.FaceDetection` is
+    # compiled only when Ortex is configured (`if ImageVision.ortex_configured?()`),
+    # and the YuNet model (~340 KB) downloads on first use.
+    #
+    # This closure (Rust toolchain + model) is enabled in `:dev` so the demo
+    # server (`mix image_pipe.server`) can exercise `g:obj:face` and face-assist
+    # for real. It must NOT burden the default test/CI lane, so it reaches `:test`
+    # only via the opt-in `IMAGE_VISION=1` flag, which the real-dependency detector
+    # test relies on (`IMAGE_VISION=1 mix test --only image_vision`).
+    ml_envs = if System.get_env("IMAGE_VISION") in ["1", "true"], do: [:dev, :test], else: [:dev]
+
+    base ++
+      [
+        {:image_vision, "~> 0.4", only: ml_envs},
+        {:ortex, "~> 0.1", only: ml_envs}
+      ]
   end
 
   defp aliases do

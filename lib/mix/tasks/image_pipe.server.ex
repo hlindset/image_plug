@@ -15,7 +15,7 @@ defmodule Mix.Tasks.ImagePipe.Server do
 
   use Boundary,
     top_level?: true,
-    deps: [ImagePipe.Cache, ImagePipe.SimpleServer, ImagePipe.Telemetry]
+    deps: [ImagePipe.Cache, ImagePipe.SimpleServer, ImagePipe.Telemetry, ImagePipe.Transform]
 
   @shortdoc "Starts the ImagePipe development server"
 
@@ -85,8 +85,8 @@ defmodule Mix.Tasks.ImagePipe.Server do
 
     Mix.Task.run("app.start")
 
-    maybe_start_cache(cache)
-    maybe_attach_default_logger(cache)
+    start_runtime(cache)
+    attach_default_logger()
     maybe_start_vite(vite?)
     {:ok, _pid} = start_bandit(port)
 
@@ -109,27 +109,44 @@ defmodule Mix.Tasks.ImagePipe.Server do
      key_cookies: []}
   end
 
-  # Bounded mode (max_size_bytes set) needs the cache's Registry + Admission
-  # supervisor running, otherwise every write is skipped (file_system.ex
-  # commit_sink falls into the :unavailable branch). child_spec/1 returns
-  # :ignore for unbounded configs, so this is a no-op when bounded mode is off.
-  defp maybe_start_cache(nil), do: :ok
-
-  defp maybe_start_cache({module, opts}) do
-    case module.child_spec(opts) do
-      :ignore -> :ok
-      spec -> {:ok, _pid} = Supervisor.start_link([spec], strategy: :one_for_one)
+  # Start the dev server's runtime children: the bounded-mode cache supervisor
+  # (when configured) and the face-detection warmup worker.
+  defp start_runtime(cache) do
+    case cache_children(cache) ++ warmup_children() do
+      [] -> :ok
+      children -> {:ok, _pid} = Supervisor.start_link(children, strategy: :one_for_one)
     end
   end
 
-  # Dev ergonomics: attach ImagePipe's default Logger handler so the server
-  # shows cache + per-operation transform activity. Only when a cache is
-  # configured (the main reason to want this in dev).
-  defp maybe_attach_default_logger(nil), do: :ok
+  # Bounded mode (max_size_bytes set) needs the cache's Registry + Admission
+  # supervisor running, otherwise every write is skipped (file_system.ex
+  # commit_sink falls into the :unavailable branch). child_spec/1 returns
+  # :ignore for unbounded configs, so this contributes no child then.
+  defp cache_children(nil), do: []
 
-  defp maybe_attach_default_logger(_cache) do
+  defp cache_children({module, opts}) do
+    case module.child_spec(opts) do
+      :ignore -> []
+      spec -> [spec]
+    end
+  end
+
+  # Pre-load the face-detection model off the boot path so the first
+  # `g:obj:face` / face-assisted `g:sm` request doesn't pay the cold-start model
+  # download + load. The worker is `restart: :transient` (warms once, then stops)
+  # and a clean no-op when the detector is unavailable — e.g. the ML deps are
+  # absent — so it is always safe to start.
+  defp warmup_children do
+    [{ImagePipe.Transform.Detector.Warmup, detector: :default, classes: ["face"]}]
+  end
+
+  # Dev ergonomics: attach ImagePipe's default Logger handler so the server
+  # shows every telemetry event (request, parse, source, transform, cache,
+  # output, send) including content-aware crop detection and its fallbacks.
+  # `debug: true` also dumps the raw measurements/metadata for each event.
+  defp attach_default_logger do
     ImagePipe.Telemetry.attach_default_logger(
-      events: [:cache, :transform],
+      events: :all,
       level: :debug,
       debug: true
     )

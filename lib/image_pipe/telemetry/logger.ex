@@ -13,7 +13,7 @@ defmodule ImagePipe.Telemetry.Logger do
     request: [[:request], [:send]],
     parse: [[:parse]],
     source: [[:source, :resolve], [:source, :fetch], [:source, :fetch_decode]],
-    transform: [[:transform, :execute], [:transform, :operation]],
+    transform: [[:transform, :execute], [:transform, :operation], [:transform, :detect]],
     cache: [[:cache, :lookup], [:cache, :write], [:cache, :admission], [:cache, :warm_start]]
   }
 
@@ -23,6 +23,12 @@ defmodule ImagePipe.Telemetry.Logger do
     [:cache, :flush, :stop],
     [:cache, :cleanup, :stop],
     [:cache, :stage]
+  ]
+
+  # transform one-shot events (already terminal; not spans)
+  @transform_oneshot [
+    [:transform, :detect, :skipped],
+    [:transform, :detect, :blend]
   ]
 
   @all_groups Map.keys(@group_span_events)
@@ -58,9 +64,10 @@ defmodule ImagePipe.Telemetry.Logger do
       |> Enum.flat_map(&Map.get(@group_span_events, &1, []))
       |> Enum.flat_map(fn e -> [e ++ [:stop], e ++ [:exception]] end)
 
-    oneshots = if :cache in groups, do: @cache_oneshot, else: []
+    cache_oneshots = if :cache in groups, do: @cache_oneshot, else: []
+    transform_oneshots = if :transform in groups, do: @transform_oneshot, else: []
 
-    Enum.map(spans ++ oneshots, fn e -> prefix ++ e end)
+    Enum.map(spans ++ cache_oneshots ++ transform_oneshots, fn e -> prefix ++ e end)
   end
 
   @doc false
@@ -91,13 +98,32 @@ defmodule ImagePipe.Telemetry.Logger do
     cond do
       List.last(suffix) == :exception -> :warning
       metadata[:result] == :cache_error -> :warning
+      detect_fallback_warning?(suffix, metadata) -> :warning
       true -> base
     end
   end
 
+  # A face-aware crop that could not be fulfilled and degraded to attention
+  # saliency: a configured detector that produced no usable detection
+  # (`:unavailable`, `:error`) or a request with no detector configured at all
+  # (`:no_detector`, the `[:transform, :detect, :skipped]` one-shot). `:no_regions`
+  # (no face in frame) is a normal result, not a warning.
+  defp detect_fallback_warning?([:transform, :detect | _], meta),
+    do: meta[:result] in [:unavailable, :error, :no_detector]
+
+  defp detect_fallback_warning?(_suffix, _meta), do: false
+
   # --- message ---
   defp message([:transform, :operation | _], _m, meta) do
     "image_pipe transform: #{meta[:operation]} (##{(meta[:index] || 0) + 1})"
+  end
+
+  defp message([:transform, :detect, :skipped | _], _m, _meta),
+    do: "image_pipe transform detect: skipped (no detector configured)"
+
+  defp message([:transform, :detect, :blend | _], _m, meta) do
+    "image_pipe transform detect blend: attention #{point(meta[:attention])} -> " <>
+      "#{point(meta[:blended])} (face #{point(meta[:face])}, weight #{meta[:weight]})"
   end
 
   defp message([:cache, :lookup | _], _m, meta), do: "image_pipe cache lookup: #{meta[:cache]}"
@@ -137,6 +163,12 @@ defmodule ImagePipe.Telemetry.Logger do
     |> Enum.reject(&(&1 in [:stop, :exception]))
     |> Enum.map_join(" ", &Atom.to_string/1)
   end
+
+  defp point({x, y}), do: "(#{round2(x)},#{round2(y)})"
+  defp point(_other), do: "(?,?)"
+
+  defp round2(n) when is_number(n), do: Float.round(n * 1.0, 2)
+  defp round2(_other), do: nil
 
   # --- logger metadata ---
   defp log_metadata(event, measurements, metadata) do

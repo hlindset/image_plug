@@ -85,6 +85,27 @@ defmodule ImagePipe.Plan do
     end
   end
 
+  @doc "Returns the detect-guide classes if any operation requests detection, else nil."
+  @spec detect_classes(t()) :: nonempty_list(String.t()) | nil
+  def detect_classes(%__MODULE__{pipelines: pipelines}) do
+    pipelines
+    |> Enum.flat_map(& &1.operations)
+    |> Enum.find_value(fn op ->
+      case Map.get(op, :guide) do
+        {:detect, classes} -> classes
+        _ -> nil
+      end
+    end)
+  end
+
+  @doc "Returns true if any operation requests a face-assisted smart guide."
+  @spec face_assist?(t()) :: boolean()
+  def face_assist?(%__MODULE__{pipelines: pipelines}) do
+    Enum.any?(pipelines, fn p ->
+      Enum.any?(p.operations, &(Map.get(&1, :guide) == {:smart, :face_assist}))
+    end)
+  end
+
   @spec validated_pipelines(t()) :: {:ok, [Pipeline.t()]} | {:error, pipeline_error()}
   def validated_pipelines(%__MODULE__{pipelines: []}), do: {:error, :empty_pipeline_plan}
 

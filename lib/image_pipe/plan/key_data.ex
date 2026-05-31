@@ -191,6 +191,13 @@ defmodule ImagePipe.Plan.KeyData do
 
   defp guide_data({:focal, x, y}), do: [type: :focal, x: data(x), y: data(y)]
 
+  defp guide_data(:smart), do: [type: :smart]
+
+  defp guide_data({:smart, :face_assist}), do: [type: :smart, assist: :face]
+
+  defp guide_data({:detect, classes}) when is_list(classes),
+    do: [type: :detect, classes: Enum.sort(classes)]
+
   defp resize_rule_data(data, %Resize{mode: :auto}),
     do: data ++ [rule: :imgproxy_orientation_match_v1]
 

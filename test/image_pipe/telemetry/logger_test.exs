@@ -64,6 +64,71 @@ defmodule ImagePipe.Telemetry.LoggerTest do
     assert log =~ "exception"
   end
 
+  test "escalates a configured-detector fallback (:unavailable) to warning" do
+    Telemetry.attach_default_logger(level: :info)
+
+    log =
+      capture_log(fn ->
+        :telemetry.execute(
+          [:image_pipe, :transform, :detect, :stop],
+          %{duration: 1000},
+          %{classes: ["face"], regions: 0, result: :unavailable}
+        )
+      end)
+
+    assert log =~ "[warning]"
+    assert log =~ "transform detect: unavailable"
+  end
+
+  test "logs the face-assist blend one-shot at base level, showing the saliency skew" do
+    Telemetry.attach_default_logger(level: :info)
+
+    log =
+      capture_log(fn ->
+        :telemetry.execute(
+          [:image_pipe, :transform, :detect, :blend],
+          %{},
+          %{attention: {0.5, 0.5}, face: {0.2, 0.8}, blended: {0.29, 0.71}, weight: 0.7}
+        )
+      end)
+
+    refute log =~ "[warning]"
+    assert log =~ "transform detect blend: attention (0.5,0.5) -> (0.29,0.71)"
+    assert log =~ "weight 0.7"
+  end
+
+  test "logs the no-detector skipped one-shot at warning" do
+    Telemetry.attach_default_logger(level: :info)
+
+    log =
+      capture_log(fn ->
+        :telemetry.execute(
+          [:image_pipe, :transform, :detect, :skipped],
+          %{},
+          %{classes: ["face"], result: :no_detector}
+        )
+      end)
+
+    assert log =~ "[warning]"
+    assert log =~ "transform detect: skipped (no detector configured)"
+  end
+
+  test "logs a normal no-face detect fallback at the base level, not warning" do
+    Telemetry.attach_default_logger(level: :info)
+
+    log =
+      capture_log(fn ->
+        :telemetry.execute(
+          [:image_pipe, :transform, :detect, :stop],
+          %{duration: 1000},
+          %{classes: ["face"], regions: 0, result: :no_regions}
+        )
+      end)
+
+    refute log =~ "[warning]"
+    assert log =~ "transform detect: no_regions"
+  end
+
   test "renders a transform operation with name and index" do
     Telemetry.attach_default_logger(level: :debug)
 

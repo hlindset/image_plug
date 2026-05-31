@@ -912,7 +912,7 @@ defmodule ImagePipe.PlugTest do
   end
 
   test "does not touch cache when planner validation fails" do
-    conn = conn(:get, "/_/g:sm/plain/images/beach.jpg")
+    conn = conn(:get, "/_/f:best/plain/images/beach.jpg")
     cache_probe = start_cache_probe()
 
     conn =
@@ -1240,7 +1240,7 @@ defmodule ImagePipe.PlugTest do
   end
 
   test "does not fetch origin when planner validation fails" do
-    conn = conn(:get, "/_/g:sm/plain/images/beach.jpg")
+    conn = conn(:get, "/_/f:best/plain/images/beach.jpg")
 
     conn =
       call_image_pipe(conn,
@@ -1721,7 +1721,7 @@ defmodule ImagePipe.PlugTest do
   end
 
   test "does not touch cache or origin when planner rejects unsupported semantics" do
-    conn = conn(:get, "/_/g:sm/plain/images/beach.jpg")
+    conn = conn(:get, "/_/f:best/plain/images/beach.jpg")
     cache_probe = start_cache_probe()
 
     conn =
@@ -1783,14 +1783,14 @@ defmodule ImagePipe.PlugTest do
   end
 
   test "does not touch cache or origin when a used imgproxy preset reaches planner rejection" do
-    conn = conn(:get, "/_/pr:smart/plain/images/beach.jpg")
+    conn = conn(:get, "/_/pr:best/plain/images/beach.jpg")
     cache_probe = start_cache_probe()
 
     opts =
       init_image_pipe(
         root_url: "http://origin.test",
         parser: ImagePipe.Parser.Imgproxy,
-        imgproxy: [presets: %{"smart" => "g:sm"}],
+        imgproxy: [presets: %{"best" => "f:best"}],
         cache: {CacheProbe, message_target: cache_probe},
         origin_req_options: [plug: OriginShouldNotBeCalled]
       )
@@ -1799,7 +1799,7 @@ defmodule ImagePipe.PlugTest do
 
     flush_cache_probe(cache_probe)
     assert conn.status == 400
-    assert conn.resp_body =~ "unsupported_gravity"
+    assert conn.resp_body =~ "unsupported_output_format"
     refute_received {:cache_get, _key}
     refute_received :origin_was_called
   end

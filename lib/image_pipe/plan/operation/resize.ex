@@ -19,7 +19,13 @@ defmodule ImagePipe.Plan.Operation.Resize do
   @type dpr :: {:ratio, pos_integer(), pos_integer()}
   @type enlargement :: :allow | :deny
   @type anchor :: :left | :center | :right | :top | :bottom
-  @type guide :: :center | {:anchor, anchor(), anchor()} | {:focal, ratio(), ratio()}
+  @type guide ::
+          :center
+          | {:anchor, anchor(), anchor()}
+          | {:focal, ratio(), ratio()}
+          | :smart
+          | {:smart, :face_assist}
+          | {:detect, nonempty_list(String.t())}
   @type ratio :: {:ratio, non_neg_integer(), pos_integer()}
   @type offset :: number() | {:pixels | :scale, number()}
 

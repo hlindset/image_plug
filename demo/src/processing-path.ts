@@ -2,8 +2,8 @@ import { sampleImages } from "virtual:sample-images";
 
 export type ResizeMode = "fit" | "fill" | "fill-down" | "force" | "auto";
 export type Gravity = "ce" | "no" | "so" | "ea" | "we" | "noea" | "nowe" | "soea" | "sowe";
-export type GravityMode = "anchor" | "focalPoint" | "offset";
-export type CropGravity = "inherit" | Gravity;
+export type GravityMode = "anchor" | "focalPoint" | "offset" | "smart" | "objFace";
+export type CropGravity = "inherit" | Gravity | "sm" | "obj:face";
 export type CropDimensionUnit = "px" | "percent" | "full";
 export type ResizeDimensionUnit = "px" | "auto";
 export type OutputFormat = "webp" | "avif" | "jpeg" | "png";
@@ -505,6 +505,14 @@ export function resizeDimensionSegment(unit: ResizeDimensionUnit, pixels: number
 }
 
 export function gravitySegment(currentState: DemoState): string {
+  if (currentState.gravityMode === "smart") {
+    return "g:sm";
+  }
+
+  if (currentState.gravityMode === "objFace") {
+    return "g:obj:face";
+  }
+
   if (currentState.gravityMode === "focalPoint") {
     return `g:fp:${currentState.gravityFocalX}:${currentState.gravityFocalY}`;
   }

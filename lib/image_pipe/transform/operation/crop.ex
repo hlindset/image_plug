@@ -81,9 +81,16 @@ defmodule ImagePipe.Transform.Operation.Crop do
   import ImagePipe.Transform.Geometry,
     only: [anchor_to_pixels: 3, image_height: 1, image_width: 1, to_pixels: 2]
 
+  alias ImagePipe.Telemetry
   alias ImagePipe.Transform.State
+  alias Vix.Vips.Operation
 
   @default_gravity {:anchor, :center, :center}
+
+  # Face-favoring blend weight for `{:smart, :face_assist}` gravity. ImagePipe's
+  # documented approximation of imgproxy's `smart_crop_face_detection`, whose
+  # exact combination of attention saliency and detected faces is unspecified.
+  @face_assist_weight 0.7
 
   @type length_unit() ::
           integer()
@@ -120,6 +127,9 @@ defmodule ImagePipe.Transform.Operation.Crop do
           gravity:
             {:anchor, :left | :center | :right, :top | :center | :bottom}
             | {:fp, float(), float()}
+            | :smart
+            | {:smart, :face_assist}
+            | {:detect, [String.t()]}
             | nil,
           x_offset: length_unit() | number(),
           y_offset: length_unit() | number(),
@@ -132,6 +142,25 @@ defmodule ImagePipe.Transform.Operation.Crop do
   def name(%__MODULE__{}), do: :crop
 
   @impl ImagePipe.Transform
+  def execute(%__MODULE__{gravity: :smart} = params, %State{} = state) do
+    smart_crop(params, state, :VIPS_INTERESTING_ATTENTION)
+  end
+
+  def execute(%__MODULE__{gravity: {:detect, classes}} = params, %State{} = state) do
+    detect_crop(params, state, classes)
+  end
+
+  def execute(%__MODULE__{gravity: {:smart, :face_assist}} = params, %State{} = state) do
+    {module, dopts} = normalize_detector(state.detector)
+
+    if is_nil(module) do
+      emit_detect_skipped(["face"], state.telemetry_opts)
+      smart_crop(params, state, :VIPS_INTERESTING_ATTENTION)
+    else
+      face_assist_crop(params, state, module, dopts)
+    end
+  end
+
   def execute(%__MODULE__{} = params, %State{} = state) do
     image_width = image_width(state)
     image_height = image_height(state)
@@ -204,6 +233,188 @@ defmodule ImagePipe.Transform.Operation.Crop do
 
     {:ok, %{left: left, top: top, width: crop_width, height: crop_height}}
   end
+
+  defp smart_crop(%__MODULE__{} = params, %State{} = state, interesting) do
+    image_width = image_width(state)
+    image_height = image_height(state)
+
+    with {:ok, crop} <- crop_dimensions(params, image_width, image_height),
+         {:ok, crop_width} <- crop_dimension(crop.width, image_width),
+         {:ok, crop_height} <- crop_dimension(crop.height, image_height),
+         {crop_width, crop_height} =
+           correct_aspect_ratio(
+             crop_width,
+             crop_height,
+             params.aspect_ratio,
+             params.enlarge,
+             image_width,
+             image_height
+           ),
+         {:ok, {cropped, _attention}} <-
+           Operation.smartcrop(state.image, crop_width, crop_height, interesting: interesting) do
+      {:ok, set_image(state, cropped)}
+    else
+      {:error, error} -> {:error, {__MODULE__, error}}
+    end
+  end
+
+  defp face_assist_crop(%__MODULE__{} = params, %State{} = state, module, dopts) do
+    with {:ok, [_ | _] = regions} <-
+           run_detect(module, dopts, state.image, ["face"], state.telemetry_opts),
+         {:ok, {:fp, fx, fy}} <-
+           focal_from_regions(regions, image_width(state), image_height(state)),
+         {:ok, {ax, ay}} <- attention_point(params, state) do
+      blended = {blend_axis(ax, fx), blend_axis(ay, fy)}
+      emit_blend(state.telemetry_opts, {ax, ay}, {fx, fy}, blended)
+      {bx, by} = blended
+      execute(%{params | gravity: {:fp, bx, by}}, state)
+    else
+      _ -> smart_crop(params, state, :VIPS_INTERESTING_ATTENTION)
+    end
+  end
+
+  defp blend_axis(attention, face),
+    do: clamp_unit((1 - @face_assist_weight) * attention + @face_assist_weight * face)
+
+  # Records how face detection skewed the attention point for `{:smart,
+  # :face_assist}`: the pure saliency point, the face centroid, the blended
+  # result actually used, and the blend weight. A one-shot (not a span) — it is a
+  # decision, not measured work. Coordinates are normalized 0..1, product-neutral,
+  # and derived from the public request, so they are safe to emit.
+  defp emit_blend(telemetry_opts, attention, face, blended) do
+    Telemetry.execute(telemetry_opts, [:transform, :detect, :blend], %{}, %{
+      attention: attention,
+      face: face,
+      blended: blended,
+      weight: @face_assist_weight
+    })
+  end
+
+  defp attention_point(%__MODULE__{} = params, %State{} = state) do
+    image_width = image_width(state)
+    image_height = image_height(state)
+
+    with {:ok, crop} <- crop_dimensions(params, image_width, image_height),
+         {:ok, crop_width} <- crop_dimension(crop.width, image_width),
+         {:ok, crop_height} <- crop_dimension(crop.height, image_height),
+         {crop_width, crop_height} =
+           correct_aspect_ratio(
+             crop_width,
+             crop_height,
+             params.aspect_ratio,
+             params.enlarge,
+             image_width,
+             image_height
+           ),
+         {:ok, {_cropped, attention}} <-
+           Operation.smartcrop(state.image, crop_width, crop_height,
+             interesting: :VIPS_INTERESTING_ATTENTION
+           ) do
+      ax = Map.fetch!(attention, :"attention-x")
+      ay = Map.fetch!(attention, :"attention-y")
+      {:ok, {clamp_unit(ax / image_width), clamp_unit(ay / image_height)}}
+    end
+  end
+
+  defp detect_crop(%__MODULE__{} = params, %State{} = state, classes) do
+    {module, dopts} = normalize_detector(state.detector)
+
+    if is_nil(module) do
+      emit_detect_skipped(classes, state.telemetry_opts)
+      smart_crop(params, state, :VIPS_INTERESTING_ATTENTION)
+    else
+      detect_crop_with_module(params, state, module, dopts, classes)
+    end
+  end
+
+  defp detect_crop_with_module(%__MODULE__{} = params, %State{} = state, module, dopts, classes) do
+    with {:ok, [_ | _] = regions} <-
+           run_detect(module, dopts, state.image, classes, state.telemetry_opts),
+         {:ok, focal} <- focal_from_regions(regions, image_width(state), image_height(state)) do
+      execute(%{params | gravity: focal}, state)
+    else
+      _ -> smart_crop(params, state, :VIPS_INTERESTING_ATTENTION)
+    end
+  end
+
+  defp normalize_detector(nil), do: {nil, []}
+  defp normalize_detector(module) when is_atom(module), do: {module, []}
+
+  defp normalize_detector({module, opts}) when is_atom(module) and is_list(opts),
+    do: {module, opts}
+
+  defp run_detect(module, opts, image, classes, telemetry_opts) do
+    Telemetry.span(telemetry_opts, [:transform, :detect], %{classes: classes}, fn ->
+      result = validate_detect_result(module.detect(image, Keyword.put(opts, :classes, classes)))
+      {result, %{regions: region_count(result), result: detect_reason(result)}}
+    end)
+  end
+
+  # A face-aware request with no detector configured runs no detection, so it
+  # emits a one-shot `[:transform, :detect, :skipped]` marker rather than a span
+  # (a span would carry a meaningless near-zero duration). The crop falls back to
+  # attention saliency.
+  defp emit_detect_skipped(classes, telemetry_opts) do
+    Telemetry.execute(telemetry_opts, [:transform, :detect, :skipped], %{}, %{
+      classes: classes,
+      result: :no_detector
+    })
+  end
+
+  # The detector-level outcome recorded on the detect span's stop metadata. The
+  # span wraps the detector invocation, so it only fires when a detector module
+  # exists. `result` reflects what the detector returned, not the final crop
+  # decision: a usable `:detected` result whose boxes all fall outside the image
+  # still degrades to attention downstream. `:no_regions` is normal (no face in
+  # the frame); `:unavailable` and `:error` mark a configured detector that could
+  # not produce a usable detection, so the crop fell back to attention saliency.
+  defp detect_reason({:ok, [_ | _]}), do: :detected
+  defp detect_reason({:ok, []}), do: :no_regions
+  defp detect_reason({:error, {:detector, :unavailable}}), do: :unavailable
+  defp detect_reason({:error, _}), do: :error
+
+  defp validate_detect_result({:ok, regions}) when is_list(regions) do
+    if Enum.all?(regions, &valid_region?/1),
+      do: {:ok, regions},
+      else: {:error, {:detector, :invalid_adapter_result}}
+  end
+
+  defp validate_detect_result({:error, _} = error), do: error
+  defp validate_detect_result(_other), do: {:error, {:detector, :invalid_adapter_result}}
+
+  defp region_count({:ok, regions}), do: length(regions)
+  defp region_count(_), do: 0
+
+  defp valid_region?(%{box: {x, y, w, h}})
+       when is_number(x) and is_number(y) and is_number(w) and is_number(h),
+       do: true
+
+  defp valid_region?(_), do: false
+
+  defp focal_from_regions(regions, image_width, image_height) do
+    in_image =
+      Enum.filter(regions, fn %{box: {x, y, w, h}} ->
+        w > 0 and h > 0 and x >= 0 and y >= 0 and x + w <= image_width and y + h <= image_height
+      end)
+
+    case in_image do
+      [] ->
+        :none
+
+      boxes ->
+        total = Enum.reduce(boxes, 0.0, fn %{box: {_x, _y, w, h}}, acc -> acc + w * h end)
+
+        {sx, sy} =
+          Enum.reduce(boxes, {0.0, 0.0}, fn %{box: {x, y, w, h}}, {ax, ay} ->
+            area = w * h
+            {ax + area * (x + w / 2), ay + area * (y + h / 2)}
+          end)
+
+        {:ok, {:fp, clamp_unit(sx / total / image_width), clamp_unit(sy / total / image_height)}}
+    end
+  end
+
+  defp clamp_unit(value), do: value |> max(0.0) |> min(1.0)
 
   defp default_if_nil(nil, default), do: default
   defp default_if_nil(value, _default), do: value

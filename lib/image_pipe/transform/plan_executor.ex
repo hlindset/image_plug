@@ -22,6 +22,7 @@ defmodule ImagePipe.Transform.PlanExecutor do
   alias ImagePipe.Plan.Operation.Saturation, as: PlanSaturation
   alias ImagePipe.Plan.Operation.Sharpen, as: PlanSharpen
   alias ImagePipe.Plan.Pipeline
+  alias ImagePipe.Telemetry
   alias ImagePipe.Transform.Chain
   alias ImagePipe.Transform.Operation.AutoOrient
   alias ImagePipe.Transform.Operation.Background
@@ -45,6 +46,13 @@ defmodule ImagePipe.Transform.PlanExecutor do
   @spec execute(Plan.t(), State.t(), keyword()) ::
           {:ok, State.t()} | {:error, term()}
   def execute(%Plan{pipelines: pipelines}, %State{} = state, opts) do
+    state = %{
+      state
+      | detector: ImagePipe.Transform.resolve_detector(Keyword.get(opts, :detector, :default)),
+        detector_required: Keyword.get(opts, :detector_required, false),
+        telemetry_opts: Telemetry.telemetry_opts(opts)
+    }
+
     execute_pipelines(pipelines, state, opts)
   end
 
@@ -452,6 +460,10 @@ defmodule ImagePipe.Transform.PlanExecutor do
 
   defp tagged_executable_gravity({:focal, x, y}),
     do: {:fp, tagged_ratio_to_float(x), tagged_ratio_to_float(y)}
+
+  defp tagged_executable_gravity(:smart), do: :smart
+  defp tagged_executable_gravity({:smart, :face_assist}), do: {:smart, :face_assist}
+  defp tagged_executable_gravity({:detect, classes}), do: {:detect, classes}
 
   defp tagged_logical_pixels({:px, value}), do: value
   defp tagged_logical_pixels(_dimension), do: :unknown
