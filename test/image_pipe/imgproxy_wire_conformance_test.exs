@@ -143,6 +143,20 @@ defmodule ImagePipe.ImgproxyWireConformanceTest do
     end
   end
 
+  defmodule UnavailableDetector do
+    @moduledoc false
+    @behaviour ImagePipe.Transform.Detector
+
+    @impl true
+    def detect(_image, _opts), do: {:error, {:detector, :unavailable}}
+
+    @impl true
+    def available?(_opts), do: false
+
+    @impl true
+    def identity(_opts), do: {__MODULE__, :unavailable}
+  end
+
   @default_opts [
     parser: ImagePipe.Parser.Imgproxy,
     sources: [
@@ -511,6 +525,34 @@ defmodule ImagePipe.ImgproxyWireConformanceTest do
     conn = call_imgproxy("/_/#{encoded}", opts)
 
     assert conn.status == 400
+    refute_received {:telemetry_event, ^source_resolve_start, _, _}
+    refute_received {:cache_lookup, _key}
+    refute_received {:cache_put, _key, _entry}
+    refute_received :origin_fetch
+  end
+
+  test "detector_required + unavailable detector rejects before source AND cache access" do
+    telemetry_prefix = [:image_pipe_wire_safety]
+    source_resolve_start = telemetry_prefix ++ [:source, :resolve, :start]
+
+    attach_source_resolve_telemetry(telemetry_prefix)
+
+    opts =
+      Keyword.merge(@default_opts,
+        telemetry_prefix: telemetry_prefix,
+        detector: UnavailableDetector,
+        detector_required: true,
+        cache: {CacheProbe, []},
+        sources: [
+          path:
+            {RootHTTPAdapter,
+             root_url: "http://origin.test", req_options: [plug: OriginShouldNotFetch]}
+        ]
+      )
+
+    conn = call_imgproxy("/_/rs:fill:80:80/g:obj:face/plain/images/beach.jpg", opts)
+
+    assert conn.status in 400..499
     refute_received {:telemetry_event, ^source_resolve_start, _, _}
     refute_received {:cache_lookup, _key}
     refute_received {:cache_put, _key, _entry}

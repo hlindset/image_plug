@@ -51,6 +51,7 @@ defmodule ImagePipe.Plug do
 
     with {:ok, %Plan{} = plan} <- parse(conn, parser, opts),
          {:ok, %Plan{} = plan} <- validate_client_plan(plan),
+         :ok <- validate_detector_capability(plan, opts),
          {:ok, %Source.Resolved{} = resolved_source} <-
            Source.resolve(plan.source, opts, Options.source_runtime_opts(opts)) do
       prepared_http_cache = HTTPCache.prepare(conn, plan, resolved_source, opts)
@@ -64,6 +65,14 @@ defmodule ImagePipe.Plug do
 
       {:error, {:plan_validation, error}} ->
         result = {:error, {:processing, error, []}}
+
+        {conn, _send_metadata} =
+          send_response(conn, opts, :plan_error, fn -> Sender.send_result(conn, result, opts) end)
+
+        {conn, %{result: :plan_error, error: Error.tag(error)}}
+
+      {:error, {:detector, :unavailable} = error} ->
+        result = {:error, {:processing, {:detector_unavailable, :unavailable}, []}}
 
         {conn, _send_metadata} =
           send_response(conn, opts, :plan_error, fn -> Sender.send_result(conn, result, opts) end)
@@ -124,6 +133,21 @@ defmodule ImagePipe.Plug do
       {:ok, plan}
     end
     |> wrap_plan_validation_error()
+  end
+
+  # Strict-mode capability gate: when the host opts into `detector_required` and
+  # the plan asks for content detection (`g:obj:face` -> a `{:detect, _}` guide),
+  # reject up-front if the configured detector is unavailable. Availability is a
+  # cheap `Code.ensure_loaded?`-style check (no I/O), so this runs before any
+  # source fetch or cache access rather than silently degrading to attention.
+  defp validate_detector_capability(%Plan{} = plan, opts) do
+    if Keyword.get(opts, :detector_required, false) and Plan.detect_classes(plan) != nil do
+      if Transform.detector_available?(Keyword.get(opts, :detector, :default), opts),
+        do: :ok,
+        else: {:error, {:detector, :unavailable}}
+    else
+      :ok
+    end
   end
 
   defp wrap_parser_error({:error, _} = error), do: {:error, {:parser, error}}

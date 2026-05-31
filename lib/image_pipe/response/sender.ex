@@ -39,7 +39,8 @@ defmodule ImagePipe.Response.Sender do
     :invalid_response_plan,
     :invalid_pipeline_plan,
     :invalid_pipeline_operation,
-    :unprojectable_operation_for_cache_adapter
+    :unprojectable_operation_for_cache_adapter,
+    :detector_unavailable
   ]
 
   @spec send_result(
