@@ -96,4 +96,25 @@ defmodule ImagePipe.Transform.Detector.CompositeTest do
     assert Composite.available?(c, classes: ["car"], object_available?: false) == false
     assert Composite.available?(c, classes: :all, object_available?: false) == false
   end
+
+  test "emits a per-model span per routed child with detector, model identity, and classes" do
+    ref =
+      :telemetry_test.attach_event_handlers(self(), [
+        [:image_pipe, :transform, :detect, :model, :stop]
+      ])
+
+    on_exit(fn -> :telemetry.detach(ref) end)
+
+    {:ok, _} =
+      Composite.detect(composite(), :image,
+        classes: ["face", "car"],
+        telemetry_opts: [telemetry_prefix: [:image_pipe]]
+      )
+
+    assert_received {[:image_pipe, :transform, :detect, :model, :stop], ^ref, _measurements,
+                     %{detector: FaceChild, model: {FaceChild, :face_v1}, classes: ["face"], regions: 1}}
+
+    assert_received {[:image_pipe, :transform, :detect, :model, :stop], ^ref, _measurements,
+                     %{detector: ObjectChild, model: {ObjectChild, :obj_v1}, classes: ["car"], regions: 1}}
+  end
 end

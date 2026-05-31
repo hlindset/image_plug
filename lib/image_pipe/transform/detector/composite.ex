@@ -12,6 +12,7 @@ defmodule ImagePipe.Transform.Detector.Composite do
   """
   @behaviour ImagePipe.Transform.Detector
 
+  alias ImagePipe.Telemetry
   alias ImagePipe.Transform.Detector.ImageVision
 
   @default_children [ImageVision.Face, ImageVision.Objects]
@@ -61,18 +62,36 @@ defmodule ImagePipe.Transform.Detector.Composite do
   @spec detect(t(), term(), keyword()) :: {:ok, [map()]}
   def detect(%__MODULE__{} = composite, image, opts) do
     classes = Keyword.get(opts, :classes, :all)
+    telemetry_opts = Keyword.get(opts, :telemetry_opts)
 
     regions =
       composite
       |> routed(classes)
       |> Enum.flat_map(fn {child, child_classes} ->
-        case child.detect(image, Keyword.put(opts, :classes, child_classes)) do
-          {:ok, regions} -> regions
-          {:error, _} -> []
-        end
+        run_child(child, child_classes, image, opts, telemetry_opts)
       end)
 
     {:ok, regions}
+  end
+
+  defp run_child(child, child_classes, image, opts, nil) do
+    detect_child(child, child_classes, image, opts)
+  end
+
+  defp run_child(child, child_classes, image, opts, telemetry_opts) do
+    start_meta = %{detector: child, model: child.identity(opts), classes: child_classes}
+
+    Telemetry.span(telemetry_opts, [:transform, :detect, :model], start_meta, fn ->
+      regions = detect_child(child, child_classes, image, opts)
+      {regions, %{regions: length(regions)}}
+    end)
+  end
+
+  defp detect_child(child, child_classes, image, opts) do
+    case child.detect(image, Keyword.put(opts, :classes, child_classes)) do
+      {:ok, regions} -> regions
+      {:error, _} -> []
+    end
   end
 
   @spec available?(t(), keyword()) :: boolean()
