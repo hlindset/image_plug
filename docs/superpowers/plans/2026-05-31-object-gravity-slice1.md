@@ -41,31 +41,45 @@
 - `docs/content-aware-gravity.md`, `docs/imgproxy_support_matrix.md`, `docs/telemetry.md` — docs.
 - `demo/` — object-class controls + URL state.
 
-**Test files (created/extended):**
+**Test files (created/extended) — exact paths:**
 - `test/image_pipe/transform/detector/composite_test.exs` (new)
-- `test/image_pipe/transform/detector/image_vision_test.exs` (rename refs; tagged smoke)
-- `test/image_pipe/parser/imgproxy/plan_builder_test.exs` (flip rejection → acceptance)
-- `test/image_pipe/parser/imgproxy/option_grammar_test.exs` (multi-class/`all` grammar; if present)
-- `test/image_pipe/cache/key_test.exs` (class-aware identity)
+- `test/image_pipe/transform/detector/image_vision_test.exs` (rename refs; tagged Objects smoke/drift)
+- `test/parser/imgproxy/plan_builder_test.exs` (flip rejection → acceptance) — note `test/parser/…`, **not** `test/image_pipe/parser/…`
+- `test/image_pipe/cache/key_test.exs` (class-aware key material via `build_key!/4`)
 - `test/image_pipe/imgproxy_wire_conformance_test.exs` (pixel + gate triad)
-- `test/image_pipe/transform/operation/crop_operation_test.exs` (FakeDetector `supported_classes`)
-- `test/image_pipe/plan_data_test.exs` or wherever `key_data` guide encoding is tested (`:all`)
+- `test/image_pipe/transform/crop_operation_test.exs` (FakeDetector `supported_classes`) — note: `transform/`, **not** `transform/operation/`
+- `test/image_pipe/plan/operation_key_data_test.exs` (`{:detect, :all}` guide encoding)
+- `test/support/fake_detector.ex`, `test/image_pipe/transform/detector_test.exs`, `test/image_pipe/transform/detector/warmup_test.exs` (add `supported_classes/1` to their fakes — see Task 1)
+
+### Test harness reference (READ BEFORE WRITING ANY TEST)
+
+The plan's test snippets are illustrative; **bind them to the harness that actually exists** (verified in plan review). Do not invent helpers:
+
+- **Wire tests** (`imgproxy_wire_conformance_test.exs`): drive with `call_imgproxy(path, opts, accept \\ nil)` (returns a `conn`); read `conn.status` / `conn.resp_body`; decode dimensions with `dimensions(conn)` (which uses `decoded_image/1`). Source is the hardcoded `"plain/images/beach.jpg"` (there is **no** `source_url/0`/`request/2`/`wire_opts/1`/`decoded_dimensions/1`). Inject a detector via `Keyword.merge(@default_opts, detector: SomeModule, detector_required: …)`. Assert "no source fetch" with the existing `OriginShouldNotFetch` plug + inline `refute_received :origin_fetch` (plus the telemetry/cache `refute_received` it already uses) — there is **no** `assert_no_source_fetch/1`. The existing test `"detector_required + unavailable detector rejects before source AND cache access"` (~line 541) is the template for the 422 pre-fetch leg; the `g:sm` pixel test is the template for decode-and-compare.
+- **Parser tests** (`test/parser/imgproxy/plan_builder_test.exs`): drive the planner with `plan_pipeline(keyword_attrs, opts)` over `%ParsedRequest{}`/`%PipelineRequest{}`/`%CropRequest{}` and read `resize.guide` / `crop.guide` directly. There is **no** `build/1` or `detect_guide/1` URL-string helper.
+- **Cache-key tests** (`cache/key_test.exs`): call `build_key!(conn, plan, source_identity(), detector_identity: {Detector, :v1})` — the identity tuple is passed **literally**; `Cache.Key.build` does **not** resolve a detector (forbidden by the architecture test). Build plans via the planner / `Operation.crop_guided/4`, not hand-built structs.
+- **Key-data tests** (`plan/operation_key_data_test.exs`): `KeyData.data(%CropGuided{…})` on struct literals (sanctioned in this file).
+- **Telemetry tests**: attach with `:telemetry_test.attach_event_handlers(self(), [[:image_pipe, :transform, :detect, :model, :stop]])` (note the `:image_pipe` prefix). Runtime `telemetry_opts` is `[telemetry_prefix: [:image_pipe]]` (the key is `:telemetry_prefix`, not `:prefix`); `Telemetry.span/4` is `(telemetry_opts, stage, start_meta, fun)` with `fun` returning `{value, stop_meta}`.
+- **FakeDetector**: the shared `ImagePipe.Test.FakeDetector` (`test/support/fake_detector.ex`) is the canonical injected fake (used across `crop_operation_test.exs`); extend it rather than hand-rolling where it fits.
 
 ---
 
 ## Task 1: Add `supported_classes/1` to the Detector behaviour
 
-**Files:**
-- Modify: `lib/image_pipe/transform/detector.ex`
-- Modify: `lib/image_pipe/transform/detector/image_vision.ex` (temporary — implements the new callback so the tree keeps compiling; renamed in Task 2)
-- Modify: every in-repo `@behaviour ImagePipe.Transform.Detector` implementation, including test fakes (search first)
+**Files (verified in plan review — every implementer must gain the callback in THIS commit or `--warnings-as-errors` fails):**
+- Modify: `lib/image_pipe/transform/detector.ex` (add the callback)
+- Modify: `lib/image_pipe/transform/detector/image_vision.ex` (prod adapter → `["face"]`; renamed in Task 2)
+- Modify: `test/support/fake_detector.ex` — `ImagePipe.Test.FakeDetector` (the shared fake; note it may not use `@impl`)
+- Modify: `test/image_pipe/transform/detector_test.exs` — fakes `WithWarmup` **and** `NoWarmup`
+- Modify: `test/image_pipe/transform/detector/warmup_test.exs` — fakes `SignalDetector` **and** `UnavailableDetector`
+- Modify: `test/image_pipe/imgproxy_wire_conformance_test.exs` — fake `UnavailableDetector`
 
-`mix compile --warnings-as-errors` treats a missing required callback as a failure, so every implementer must gain the callback in this same task.
+That is **6 fake modules across 5 files** plus the prod adapter. `mix compile --warnings-as-errors` treats a missing required callback as a failure.
 
-- [ ] **Step 1: Find every detector implementation that must gain the callback**
+- [ ] **Step 1: Confirm the full implementer list**
 
-Run: `mise exec -- grep -rl "@behaviour ImagePipe.Transform.Detector" lib test`
-Expected: at least `lib/image_pipe/transform/detector/image_vision.ex` and one or more test fakes (e.g. in `test/support/` or inline in `crop_operation_test.exs` / `image_vision_test.exs`). Note each path — all of them get a `supported_classes/1` in this task.
+Run: `grep -rl "@behaviour ImagePipe.Transform.Detector" lib test`
+Expected: the 5 files above. Open each and note that `detector_test.exs` and `warmup_test.exs` define **two** fakes each — every module gets `supported_classes/1`, not just one per file.
 
 - [ ] **Step 2: Add the callback to the behaviour**
 
@@ -120,7 +134,7 @@ git commit -m "feat(detector): add supported_classes/1 behaviour callback"
 
 ## Task 2: Rename the face adapter to `ImageVision.Face`
 
-A mechanical move so the bundled adapters are symmetric siblings (`ImageVision.Face` / `ImageVision.Objects`) under the Composite. No behavior change to the face path.
+Mostly a mechanical move so the bundled adapters are symmetric siblings (`ImageVision.Face` / `ImageVision.Objects`) under the Composite. It also makes one deliberate behavior change to `detect/2` (called out below and tested): it accepts `classes == :all` (returns faces) and returns `{:ok, []}` for any other routed class instead of the old `{:error, {:detector, {:unsupported_classes, …}}}` — because the Composite never routes non-face classes here, and `:all` legitimately asks this child for faces. The face *detection* behavior (`["face"]` → faces) is unchanged.
 
 **Files:**
 - Create: `lib/image_pipe/transform/detector/image_vision/face.ex`
@@ -219,16 +233,46 @@ In `test/image_pipe/transform/detector/image_vision_test.exs` and any cache-key 
 
 Run: `mise exec -- grep -rn "Detector.ImageVision\b" lib test docs` and fix any remaining bare `ImageVision` references that should be `ImageVision.Face`.
 
-- [ ] **Step 5: Compile + run the face/detector tests**
+- [ ] **Step 5: Add tests for the new `detect/2` arms**
+
+In `test/image_pipe/transform/detector/image_vision_test.exs`, add (default lane — no dep needed, since both assertions hit the `available?` short-circuit when the dep is absent):
+
+```elixir
+  alias ImagePipe.Transform.Detector.ImageVision.Face
+
+  test "Face.detect with :all short-circuits to unavailable when the dep is absent" do
+    # In the default (no image_vision) lane, available? is false, so any classes
+    # value returns the unavailable error rather than crashing.
+    assert {:error, {:detector, :unavailable}} = Face.detect(:image, classes: :all)
+    assert {:error, {:detector, :unavailable}} = Face.detect(:image, classes: ["car"])
+  end
+```
+
+And a tagged assertion (dep present) that `:all` returns faces and a non-face routed class returns `{:ok, []}`:
+
+```elixir
+  describe "Face.detect routing (real model)" do
+    @describetag :image_vision
+
+    test "classes: :all returns faces; a non-face routed class returns no regions" do
+      {:ok, image} = Image.new(64, 64, color: :black)
+      assert {:ok, regions} = Face.detect(image, classes: :all)
+      assert is_list(regions)
+      assert {:ok, []} = Face.detect(image, classes: ["car"])
+    end
+  end
+```
+
+- [ ] **Step 6: Compile + run the face/detector tests**
 
 Run: `mise exec -- mix compile --warnings-as-errors && mise exec -- mix test test/image_pipe/transform/detector/`
-Expected: PASS (face behavior unchanged).
+Expected: PASS (face detection behavior unchanged; new `detect/2` arms covered).
 
-- [ ] **Step 6: Commit**
+- [ ] **Step 7: Commit**
 
 ```bash
 git add -A lib/image_pipe/transform lib/image_pipe/transform.ex test docs
-git commit -m "refactor(detector): rename ImageVision -> ImageVision.Face"
+git commit -m "feat(detector): rename ImageVision -> ImageVision.Face; detect/2 accepts :all"
 ```
 
 ---
@@ -246,9 +290,10 @@ Add to `test/image_pipe/transform/detector/image_vision_test.exs`:
 ```elixir
   alias ImagePipe.Transform.Detector.ImageVision.Objects
 
-  describe "Objects adapter (real model)" do
-    @describetag :image_vision
-
+  # supported_classes is a hardcoded static list (dep-independent), so this runs
+  # in the DEFAULT lane — it is the deterministic coverage for the underscore
+  # spelling that the normalization depends on.
+  describe "Objects vocabulary (no dependency required)" do
     test "supported_classes is the static COCO-80 vocabulary in underscore spelling" do
       classes = Objects.supported_classes([])
       assert "person" in classes
@@ -256,6 +301,10 @@ Add to `test/image_pipe/transform/detector/image_vision_test.exs`:
       refute "traffic light" in classes
       assert length(classes) == 80
     end
+  end
+
+  describe "Objects adapter (real model)" do
+    @describetag :image_vision
 
     test "supported_classes matches the model's labels (drift guard)" do
       model_labels =
@@ -277,7 +326,8 @@ Add to `test/image_pipe/transform/detector/image_vision_test.exs`:
 
 - [ ] **Step 2: Run it to verify it fails**
 
-Run: `IMAGE_VISION=1 mise exec -- mix test test/image_pipe/transform/detector/image_vision_test.exs --only image_vision`
+Default lane (runs the non-tagged vocabulary test):
+Run: `mise exec -- mix test test/image_pipe/transform/detector/image_vision_test.exs`
 Expected: FAIL — `Objects` is undefined.
 
 - [ ] **Step 3: Implement the Objects adapter**
@@ -374,10 +424,11 @@ defmodule ImagePipe.Transform.Detector.ImageVision.Objects do
 end
 ```
 
-- [ ] **Step 4: Run the tagged tests to verify they pass**
+- [ ] **Step 4: Run both lanes to verify they pass**
 
-Run: `IMAGE_VISION=1 mise exec -- mix test test/image_pipe/transform/detector/image_vision_test.exs --only image_vision`
-Expected: PASS (drift, smoke, vocabulary).
+Default lane (vocabulary): `mise exec -- mix test test/image_pipe/transform/detector/image_vision_test.exs`
+Tagged lane (drift + smoke, needs the dep + model download): `IMAGE_VISION=1 mise exec -- mix test test/image_pipe/transform/detector/image_vision_test.exs --include image_vision`
+Expected: PASS in both.
 
 - [ ] **Step 5: Compile with warnings-as-errors**
 
@@ -669,10 +720,14 @@ In `lib/image_pipe/transform/detector/warmup.ex`, change the default classes in 
 
 Update the moduledoc example to `{ImagePipe.Transform.Detector.Warmup, detector: :default}` (no explicit `classes:` needed; `:all` warms everything).
 
-- [ ] **Step 3: Compile + run the full detector + transform suites**
+- [ ] **Step 3: Compile + run the suites that prove the unchanged paths**
 
 Run: `mise exec -- mix compile --warnings-as-errors && mise exec -- mix test test/image_pipe/transform/`
-Expected: PASS. Existing `{:smart, :face_assist}` and `{:detect, ["face"]}` behavior is unchanged because the Composite routes `["face"]` to the Face child only.
+Expected: PASS — and specifically these existing tests must stay green to *prove* the Composite-as-default didn't perturb the shipped paths (they inject `FakeDetector`, but `warmup_test` resolves `:default` which is now the Composite warming two unavailable children → must degrade cleanly):
+- `crop_operation_test.exs` — `"face_assist blends attention with the face centroid"` (face-assist unchanged), the `{:detect, ["face"]}` crop test, and `"anchors on the area-weighted centroid of detected boxes"` (equal-weight `area` centroid unchanged).
+- `detector/warmup_test.exs` — the `:default`-path warmup expectations (now warms both children; unavailable → clean no-op/degraded path, not a crash).
+
+If any of these regress, the Composite default broke a shipped contract — fix the production code, not the test.
 
 - [ ] **Step 4: Commit**
 
@@ -686,37 +741,52 @@ git commit -m "feat(detector): default detector is the Composite (face + objects
 ## Task 6: Plan `{:detect, :all}` sentinel end-to-end (types, detect_classes, key_data)
 
 **Files:**
+- Modify: `lib/image_pipe/plan/operation.ex` — **`smart_guide/1` validation gate** (the actual producer that rejects `:all`)
+- Modify: `lib/image_pipe/plan/operation/resize.ex` — `guide` type (the fill path builds a `Resize`)
 - Modify: `lib/image_pipe/plan/operation/crop_guided.ex` (guide type)
 - Modify: `lib/image_pipe/transform/operation/crop.ex` (gravity type)
 - Modify: `lib/image_pipe/plan.ex:88-99` (`detect_classes/1` `@spec`)
 - Modify: `lib/image_pipe/plan/key_data.ex:198` (`guide_data`)
-- Test: the existing key-data/plan-data test file (find with grep below)
+- Test: `test/image_pipe/plan/operation_key_data_test.exs` (the `describe "guide_data via CropGuided cache data"` block builds `%CropGuided{}` literals — mirror it for `:all`)
+
+**Critical (caught in plan review):** `{:detect, :all}` is rejected at *operation construction* by `lib/image_pipe/plan/operation.ex`'s `smart_guide/1` (its clause is `smart_guide({:detect, classes}) when is_list(classes) and classes != []`, falling through to `{:error, :guide}`). This gate is hit by **both** `Operation.crop_guided/4` (crop path) **and** `Operation.resize/4` (fill path), so without this edit `rs:fill:100:100/g:obj` — the most common form — fails before any downstream code runs. Both `operation.ex` (the gate) and `resize.ex` (its `guide` type) must accept the sentinel.
 
 - [ ] **Step 1: Write the failing key-data test for `:all`**
 
-Find the key-data test file:
-
-Run: `mise exec -- grep -rln "type: :detect" test`
-Expected: a test asserting `guide_data`/key material for `{:detect, ["face"]}` (e.g. `test/image_pipe/cache/key_test.exs` or a plan-data test). Add, next to it:
+The key-data guide test lives in `test/image_pipe/plan/operation_key_data_test.exs`, in `describe "guide_data via CropGuided cache data"` (~line 261), which calls `KeyData.data(%CropGuided{…, guide: {:detect, ["face"]}})` on `%CropGuided{}` literals (the file already builds these structs, so it is sanctioned here). Add, mirroring the neighboring `{:detect, ["face"]}` case exactly (copy its `%CropGuided{}` construction and the way it extracts the `guide:` key data):
 
 ```elixir
-  test "detect-all guide encodes as classes: :all" do
-    guide = {:detect, :all}
-    # Build the smallest real plan/operation a producer makes with this guide and
-    # assert the cache-key material distinguishes :all from a class list. Use the
-    # same helper the neighboring {:detect, ["face"]} test uses to extract guide
-    # key data; assert it contains `classes: :all`.
-  end
+    test "detect :all guide encodes as classes: :all" do
+      data = KeyData.data(%CropGuided{width: {:px, 100}, height: {:px, 100}, guide: {:detect, :all}})
+      # extract the guide key-data the same way the {:detect, ["face"]} test does:
+      assert Keyword.get(guide_key_data(data), :classes) == :all
+    end
 ```
 
-Replace the comment with the same extraction the neighboring `{:detect, …}` test uses (mirror its setup exactly — do not hand-build internal structs the test file does not already build).
+Match the file's real `%CropGuided{}` field shape and its existing guide-extraction (the helper/inline match the neighboring test uses) — do not invent a `guide_key_data/1` if the file extracts differently.
 
 - [ ] **Step 2: Run to verify failure**
 
-Run: `mise exec -- mix test <that file> -k "detect-all"` (or run the file).
-Expected: FAIL — `guide_data({:detect, :all})` has no clause (`FunctionClauseError`) or the assertion fails.
+Run: `mise exec -- mix test test/image_pipe/plan/operation_key_data_test.exs`
+Expected: FAIL — `guide_data({:detect, :all})` has no clause (`FunctionClauseError`, since the existing clause is guarded `when is_list(classes)`).
 
 - [ ] **Step 3: Add the type and the key-data clause**
+
+In `lib/image_pipe/plan/operation.ex`, add a `smart_guide/1` clause for the sentinel **before** the existing `{:detect, classes}` clause (line 679):
+
+```elixir
+  defp smart_guide({:detect, :all} = guide), do: {:ok, guide}
+
+  defp smart_guide({:detect, classes} = guide)
+       when is_list(classes) and classes != [] do
+```
+
+In `lib/image_pipe/plan/operation/resize.ex`, extend the `guide` type (line 28):
+
+```elixir
+          | {:detect, :all}
+          | {:detect, nonempty_list(String.t())}
+```
 
 In `lib/image_pipe/plan/operation/crop_guided.ex`, extend the `guide` type (line 33):
 
@@ -749,7 +819,7 @@ In `lib/image_pipe/plan.ex`, widen the `detect_classes/1` `@spec` (line 89). The
 
 - [ ] **Step 4: Run the test to verify it passes**
 
-Run: `mise exec -- mix test <that file> -k "detect-all"`
+Run: `mise exec -- mix test test/image_pipe/plan/operation_key_data_test.exs`
 Expected: PASS.
 
 - [ ] **Step 5: Compile with warnings-as-errors**
@@ -776,54 +846,69 @@ The grammar (`option_grammar.ex`) already parses `g:obj…` / `c:W:H:obj…` int
 
 **Critical:** `{:obj, …}` is mapped in **two** functions — `resize_guide/2` (used for `rs:fill` + `g:obj`, line 558) and `tagged_gravity/2` (used for `c:W:H:obj`, line 252). Both currently special-case `["face"]` and reject other classes. **Both must change identically** — update them via one shared helper so they can't diverge. (`canvas_placement/2` has no `{:obj,…}` clause and object gravity is not valid for extend/canvas, so leave it untouched.)
 
-- [ ] **Step 1: Update the failing tests (flip rejection → acceptance)**
+- [ ] **Step 1: Flip the existing rejection tests to acceptance**
 
-In `test/image_pipe/parser/imgproxy/plan_builder_test.exs`, find the existing tests asserting bare/all/multi-class object gravity is rejected (they assert `{:error, {:unsupported_gravity, _}}`). Replace them with acceptance assertions:
+`test/parser/imgproxy/plan_builder_test.exs` drives the planner with `plan_pipeline(keyword_attrs, opts)` over request structs and reads `resize.guide` / `crop.guide` (there is no `build/1`/`detect_guide/1`). The existing rejection tests to **replace** are named:
+- `"rejects bare object gravity (all detected objects)"` (~line 844)
+- `"rejects the all pseudo-class object gravity"` (~line 854)
+- `"rejects multi-class object gravity"` (~line 864)
+- `"rejects object gravity with trailing class tokens treated as offsets"` (~line 874)
+
+Rewrite them in the file's real idiom (mirror a neighboring `{:obj, ["face"]}`/guide test for the exact `plan_pipeline` attrs and the resize/crop struct shapes). Fill path exercises `resize_guide/2`; crop path exercises `tagged_gravity/2` — cover both:
 
 ```elixir
+  # fill path (resize_guide)
   test "g:obj with explicit classes maps to a detect guide with those classes" do
-    assert {:ok, plan} = build("rs:fill:100:100/g:obj:car:dog/plain/http://e/x.jpg")
-    assert detect_guide(plan) == {:detect, ["car", "dog"]}
+    {:ok, [%{resize: resize}]} = plan_pipeline(resizing_type: :fill, width: {:pixels, 100},
+      height: {:pixels, 100}, gravity: {:obj, ["car", "dog"]})
+    assert resize.guide == {:detect, ["car", "dog"]}
   end
 
-  test "bare g:obj maps to detect :all" do
-    assert {:ok, plan} = build("rs:fill:100:100/g:obj/plain/http://e/x.jpg")
-    assert detect_guide(plan) == {:detect, :all}
+  test "bare object gravity maps to detect :all" do
+    {:ok, [%{resize: resize}]} = plan_pipeline(resizing_type: :fill, width: {:pixels, 100},
+      height: {:pixels, 100}, gravity: {:obj, []})
+    assert resize.guide == {:detect, :all}
   end
 
-  test "g:obj:all maps to detect :all" do
-    assert {:ok, plan} = build("rs:fill:100:100/g:obj:all/plain/http://e/x.jpg")
-    assert detect_guide(plan) == {:detect, :all}
+  test "the all pseudo-class maps to detect :all" do
+    {:ok, [%{resize: resize}]} = plan_pipeline(resizing_type: :fill, width: {:pixels, 100},
+      height: {:pixels, 100}, gravity: {:obj, ["all"]})
+    assert resize.guide == {:detect, :all}
   end
 
   test "all appearing among classes collapses to detect :all" do
-    assert {:ok, plan} = build("rs:fill:100:100/g:obj:car:all/plain/http://e/x.jpg")
-    assert detect_guide(plan) == {:detect, :all}
+    {:ok, [%{resize: resize}]} = plan_pipeline(resizing_type: :fill, width: {:pixels, 100},
+      height: {:pixels, 100}, gravity: {:obj, ["car", "all"]})
+    assert resize.guide == {:detect, :all}
   end
 
   test "g:obj:face still maps to a face detect guide" do
-    assert {:ok, plan} = build("rs:fill:100:100/g:obj:face/plain/http://e/x.jpg")
-    assert detect_guide(plan) == {:detect, ["face"]}
+    {:ok, [%{resize: resize}]} = plan_pipeline(resizing_type: :fill, width: {:pixels, 100},
+      height: {:pixels, 100}, gravity: {:obj, ["face"]})
+    assert resize.guide == {:detect, ["face"]}
   end
 
-  test "crop form c:W:H:obj:classes maps to a detect guide (tagged_gravity path)" do
-    assert {:ok, plan} = build("c:200:200:obj:car:dog/plain/http://e/x.jpg")
-    assert detect_guide(plan) == {:detect, ["car", "dog"]}
+  # crop path (tagged_gravity)
+  test "crop object gravity maps to a detect guide" do
+    {:ok, [%{crop: crop}]} = plan_pipeline(crop: %CropRequest{width: {:pixels, 200},
+      height: {:pixels, 200}, gravity: {:obj, ["car", "dog"]}})
+    assert crop.guide == {:detect, ["car", "dog"]}
   end
 
-  test "crop form bare c:W:H:obj maps to detect :all" do
-    assert {:ok, plan} = build("c:200:200:obj/plain/http://e/x.jpg")
-    assert detect_guide(plan) == {:detect, :all}
+  # behavior change: numeric trailing tokens are now unknown classes (dropped at
+  # routing), NOT an error. This REPLACES "rejects ... trailing class tokens".
+  test "object gravity with numeric tokens treats them as (unknown) classes, not an error" do
+    {:ok, [%{resize: resize}]} = plan_pipeline(resizing_type: :fill, width: {:pixels, 100},
+      height: {:pixels, 100}, gravity: {:obj, ["face", "5", "5"]})
+    assert resize.guide == {:detect, ["face", "5", "5"]}
   end
 ```
 
-These two crop-form cases exercise `tagged_gravity/2`; the `rs:fill` cases above exercise `resize_guide/2`. Both mappers must pass.
-
-Use the file's existing request-building and guide-extraction helpers (mirror a neighboring test). If a `detect_guide/1` helper does not exist, extract the guide the same way the neighboring `{:detect, ["face"]}` test does — do not hand-build plan structs.
+Match the real `plan_pipeline/2` attribute names and the `resize`/`crop` accessor shape from the neighboring tests (the snippet's struct shapes are illustrative). **Explicit decision:** the old `"rejects … trailing class tokens treated as offsets"` test is *deleted and replaced* by the last test above — under best-effort dropping, `g:obj:face:5:5` is `{:detect, ["face", "5", "5"]}` where `"5"` is an unknown class dropped at routing (object gravity has no offset args). This is an intentional behavior change, not an oversight.
 
 - [ ] **Step 2: Run to verify failure**
 
-Run: `mise exec -- mix test test/image_pipe/parser/imgproxy/plan_builder_test.exs`
+Run: `mise exec -- mix test test/parser/imgproxy/plan_builder_test.exs`
 Expected: FAIL — current code returns `{:error, {:unsupported_gravity, …}}` for non-`["face"]` object gravity.
 
 - [ ] **Step 3: Add a shared object-guide helper and call it from both mappers**
@@ -860,33 +945,32 @@ And replace the `{:obj, …}` clauses in **`tagged_gravity/2`** (lines 664-667) 
 
 - [ ] **Step 4: Run the parser tests to verify they pass**
 
-Run: `mise exec -- mix test test/image_pipe/parser/imgproxy/plan_builder_test.exs`
+Run: `mise exec -- mix test test/parser/imgproxy/plan_builder_test.exs`
 Expected: PASS.
 
-- [ ] **Step 5: Add an order-insensitivity property test**
+- [ ] **Step 5: Add an order-insensitivity property test at the key-data level**
 
-In the same file (or the parser property test file if one exists), add:
+The class list is sorted in `guide_data` (`Enum.sort(classes)`), so order-insensitivity is a key-data property. Add to `test/image_pipe/plan/operation_key_data_test.exs` (self-contained, uses the file's `KeyData.data/1` + `%CropGuided{}` idiom and the project's `StreamData` import):
 
 ```elixir
-  property "object class order does not change the detect guide's key material" do
+  property "detect-guide class order does not change the guide key data" do
     check all classes <- uniq_list_of(member_of(["car", "dog", "cat", "person"]), min_length: 1, max_length: 4) do
-      shuffled = Enum.shuffle(classes)
-      {:ok, a} = build("rs:fill:100:100/g:obj:" <> Enum.join(classes, ":") <> "/plain/http://e/x.jpg")
-      {:ok, b} = build("rs:fill:100:100/g:obj:" <> Enum.join(shuffled, ":") <> "/plain/http://e/x.jpg")
-      assert ImagePipe.Cache.Key.build(conn(), a, "sid") == ImagePipe.Cache.Key.build(conn(), b, "sid")
+      a = KeyData.data(%CropGuided{width: {:px, 100}, height: {:px, 100}, guide: {:detect, classes}})
+      b = KeyData.data(%CropGuided{width: {:px, 100}, height: {:px, 100}, guide: {:detect, Enum.shuffle(classes)}})
+      assert a == b
     end
   end
 ```
 
-Use the project's actual `StreamData` import and the real `Cache.Key.build/3-4` signature and a test `conn`/source-identity helper (mirror `key_test.exs`). If property-test infra for parser+cache-key isn't readily wired, place this in `key_test.exs` instead, where the conn/source-identity helpers already exist.
+Match the file's real `StreamData`/`ExUnitProperties` import and `%CropGuided{}` field shape.
 
 - [ ] **Step 6: Run + commit**
 
-Run: `mise exec -- mix test test/image_pipe/parser/imgproxy/plan_builder_test.exs`
+Run: `mise exec -- mix test test/parser/imgproxy/plan_builder_test.exs test/image_pipe/plan/operation_key_data_test.exs`
 Expected: PASS.
 
 ```bash
-git add lib/image_pipe/parser/imgproxy/plan_builder.ex test/image_pipe/parser/imgproxy/plan_builder_test.exs
+git add lib/image_pipe/parser/imgproxy/plan_builder.ex test/parser/imgproxy/plan_builder_test.exs test/image_pipe/plan/operation_key_data_test.exs
 git commit -m "feat(imgproxy): parse multi-class object gravity and all/bare obj -> detect"
 ```
 
@@ -897,13 +981,13 @@ git commit -m "feat(imgproxy): parse multi-class object gravity and all/bare obj
 **Files:**
 - Modify: `lib/image_pipe/request/runner.ex:238-247`
 - Modify: `lib/image_pipe/plug.ex:143-151`
-- Test: `test/image_pipe/cache/key_test.exs` (class-aware identity invariants)
+- Test: `test/image_pipe/imgproxy_wire_conformance_test.exs` (observe the cache key via `CacheProbe`)
 
-- [ ] **Step 1: Write the failing class-aware identity tests**
+The class-aware *identity routing* is already unit-proven in Task 4 (`Composite.identity/2`). What Task 8 adds is the *wiring*: the runner threads the plan's detect classes into `detector_identity`, and the plug threads them into the availability gate. The runner wiring's observable effect is the **cache key**, which the wire test's `CacheProbe` reports via `{:cache_lookup, key}` — so verify at the wire level (no fictional `key_for`; `Cache.Key.build` takes `detector_identity` literally and never resolves a detector). The plug wiring is verified by Task 10's gate triad.
 
-`detector:` must resolve via `Transform.resolve_detector/1`, which accepts a **module atom** (not a `%Composite{}` struct). So define one named test detector module that delegates to the explicit `Composite` helpers (`Composite.new/1` + `detect/3`/`identity/2`/`available?/2`/`supported_classes/1`) with fake children, and make the fake children read their identity *version* from `opts` — that way a single module covers the version-bump independence checks without defining many modules.
+- [ ] **Step 1: Write the failing class-aware key tests (wire-level, via CacheProbe)**
 
-In `test/image_pipe/cache/key_test.exs` (mirror the file's existing detector-identity test setup for `key_for`/conn/source-identity):
+`detector:` resolves a **module atom**. Define one named detector module that delegates to `Composite.new(...)` with fake children whose identity *version* is read from `opts` — so a single module covers the version-bump independence checks. Put these in the wire test file (alongside its existing `UnavailableDetector`/`CacheProbe`):
 
 ```elixir
   defmodule FaceVerFake do
@@ -930,11 +1014,10 @@ In `test/image_pipe/cache/key_test.exs` (mirror the file's existing detector-ide
     def detect(_, _), do: {:ok, []}
   end
 
-  defmodule TestComposite do
+  defmodule VerComposite do
     @behaviour ImagePipe.Transform.Detector
     alias ImagePipe.Transform.Detector.Composite
-    @children [FaceVerFake, ObjectVerFake]
-    defp c, do: Composite.new(@children)
+    defp c, do: Composite.new([FaceVerFake, ObjectVerFake])
     @impl true
     def supported_classes(_o), do: Composite.supported_classes(c())
     @impl true
@@ -945,33 +1028,45 @@ In `test/image_pipe/cache/key_test.exs` (mirror the file's existing detector-ide
     def identity(o), do: Composite.identity(c(), o)
   end
 
-  test "an object-only request's key is independent of the face model identity" do
-    a = key_for("rs:fill:100:100/g:obj:car/...", detector: TestComposite, face_ver: :v1)
-    b = key_for("rs:fill:100:100/g:obj:car/...", detector: TestComposite, face_ver: :v2)
-    assert a == b
+  # Capture the cache key the plug looked up for one request. Uses the file's
+  # existing CacheProbe (it sends {:cache_lookup, key}) and call_imgproxy/2.
+  defp lookup_key(path, opts) do
+    call_imgproxy(path, opts)
+    assert_received {:cache_lookup, key}
+    key
   end
 
-  test "a face-only request's key is independent of the object model identity" do
-    a = key_for("rs:fill:100:100/g:obj:face/...", detector: TestComposite, object_ver: :v1)
-    b = key_for("rs:fill:100:100/g:obj:face/...", detector: TestComposite, object_ver: :v2)
-    assert a == b
+  defp ver_opts(extra) do
+    # Merge into the file's CacheProbe-backed opts (see the existing cache tests),
+    # adding the detector and the version knobs that flow through to identity/1.
+    Keyword.merge(probe_opts(), [detector: VerComposite] ++ extra)
   end
 
-  test "a mixed request's key changes when either model identity changes" do
-    base = key_for("rs:fill:100:100/g:obj:face:car/...", detector: TestComposite, face_ver: :v1, object_ver: :v1)
-    diff_face = key_for("rs:fill:100:100/g:obj:face:car/...", detector: TestComposite, face_ver: :v2, object_ver: :v1)
-    diff_obj = key_for("rs:fill:100:100/g:obj:face:car/...", detector: TestComposite, face_ver: :v1, object_ver: :v2)
+  test "object-only request key is independent of the face model identity" do
+    assert lookup_key("rs:fill:50:50/g:obj:car/plain/images/beach.jpg", ver_opts(face_ver: :v1)) ==
+             lookup_key("rs:fill:50:50/g:obj:car/plain/images/beach.jpg", ver_opts(face_ver: :v2))
+  end
+
+  test "face-only request key is independent of the object model identity" do
+    assert lookup_key("rs:fill:50:50/g:obj:face/plain/images/beach.jpg", ver_opts(object_ver: :v1)) ==
+             lookup_key("rs:fill:50:50/g:obj:face/plain/images/beach.jpg", ver_opts(object_ver: :v2))
+  end
+
+  test "mixed request key changes when either model identity changes" do
+    base = lookup_key("rs:fill:50:50/g:obj:face:car/plain/images/beach.jpg", ver_opts(face_ver: :v1, object_ver: :v1))
+    diff_face = lookup_key("rs:fill:50:50/g:obj:face:car/plain/images/beach.jpg", ver_opts(face_ver: :v2, object_ver: :v1))
+    diff_obj = lookup_key("rs:fill:50:50/g:obj:face:car/plain/images/beach.jpg", ver_opts(face_ver: :v1, object_ver: :v2))
     assert base != diff_face
     assert base != diff_obj
   end
 ```
 
-`key_for/2` must pass the extra opts (`face_ver`/`object_ver`/`detector`) through to the request opts that reach `Cache.Key.build`/`put_detector_identity` (so they land in the `opts` handed to `identity/1`). Mirror the file's existing detector test for how `detector:` is threaded; pass `face_ver`/`object_ver` the same way. The independence works because `put_detector_identity` threads `:classes` into those opts, and `TestComposite.identity/1` routes to only the relevant child, whose identity reads its `*_ver` from the same opts.
+Bind `probe_opts/0` to the file's real CacheProbe-backed opts (mirror the existing `"equivalent imgproxy option order shares filesystem cache"` / `cached_opts/0` test, or the `cache: {CacheProbe, []}` setup the safety tests use). The `face_ver`/`object_ver` reach `identity/1` because `put_detector_identity` (Step 3) passes the request `opts` (with `:classes` added) to `Transform.detector_identity/2`.
 
 - [ ] **Step 2: Run to verify failure**
 
-Run: `mise exec -- mix test test/image_pipe/cache/key_test.exs`
-Expected: FAIL — `detector_identity` currently ignores classes, so all three requests fold in the same (class-agnostic) identity, breaking the independence invariants.
+Run: `mise exec -- mix test test/image_pipe/imgproxy_wire_conformance_test.exs`
+Expected: FAIL — `put_detector_identity` currently calls `detector_identity(detector, opts)` with no `:classes`, so `Composite.identity` defaults to `:all` and folds **both** children into every key. The object-only key then changes with `face_ver`, breaking the independence assertion.
 
 - [ ] **Step 3: Thread classes into the cache-key identity**
 
@@ -1017,9 +1112,9 @@ In `lib/image_pipe/plug.ex`, update `validate_detector_capability/2` (lines 143-
 
 `Transform.detector_available?/2` passes `opts` to `module.available?/1`, so the Composite evaluates availability for the routed class set.
 
-- [ ] **Step 5: Run the cache-key tests to verify they pass**
+- [ ] **Step 5: Run the wire cache-key tests to verify they pass**
 
-Run: `mise exec -- mix test test/image_pipe/cache/key_test.exs`
+Run: `mise exec -- mix test test/image_pipe/imgproxy_wire_conformance_test.exs`
 Expected: PASS.
 
 - [ ] **Step 6: Compile + commit**
@@ -1028,7 +1123,7 @@ Run: `mise exec -- mix compile --warnings-as-errors`
 Expected: PASS.
 
 ```bash
-git add lib/image_pipe/request/runner.ex lib/image_pipe/plug.ex test/image_pipe/cache/key_test.exs
+git add lib/image_pipe/request/runner.ex lib/image_pipe/plug.ex test/image_pipe/imgproxy_wire_conformance_test.exs
 git commit -m "feat: class-aware detector identity and strict gate"
 ```
 
@@ -1050,25 +1145,25 @@ Add to `composite_test.exs` (it already has fake children with `identity/1`):
 ```elixir
   test "emits a per-model span per routed child with detector, model identity, and classes" do
     ref =
-      :telemetry_test.attach_event_handlers(self(), [[:transform, :detect, :model, :stop]])
+      :telemetry_test.attach_event_handlers(self(), [[:image_pipe, :transform, :detect, :model, :stop]])
 
     on_exit(fn -> :telemetry.detach(ref) end)
 
     {:ok, _} =
       Composite.detect(composite(), :image,
         classes: ["face", "car"],
-        telemetry_opts: [prefix: [:image_pipe], metadata: %{}]
+        telemetry_opts: [telemetry_prefix: [:image_pipe]]
       )
 
-    assert_received {[:transform, :detect, :model, :stop], ^ref, _measurements,
+    assert_received {[:image_pipe, :transform, :detect, :model, :stop], ^ref, _measurements,
                      %{detector: FaceChild, model: {FaceChild, :face_v1}, classes: ["face"], regions: 1}}
 
-    assert_received {[:transform, :detect, :model, :stop], ^ref, _measurements,
+    assert_received {[:image_pipe, :transform, :detect, :model, :stop], ^ref, _measurements,
                      %{detector: ObjectChild, model: {ObjectChild, :obj_v1}, classes: ["car"], regions: 1}}
   end
 ```
 
-Match the real `telemetry_opts` shape the codebase uses — inspect how `crop.ex` builds `state.telemetry_opts` and how `ImagePipe.Telemetry.span/4` reads it, and mirror that exact structure here.
+The event prefix is `[:image_pipe]` (the default `Telemetry.span/4` prefix) and the opts key is `:telemetry_prefix` (NOT `:prefix`) — `Telemetry.span/4` reads `Keyword.get(telemetry_opts, :telemetry_prefix, [:image_pipe])`. Confirm against `crop_operation_test.exs`'s existing `[:image_pipe, :transform, :detect, :stop]` attachment.
 
 - [ ] **Step 2: Run to verify failure**
 
@@ -1182,27 +1277,27 @@ In `test/image_pipe/imgproxy_wire_conformance_test.exs` (or its support module),
 - [ ] **Step 2: Write the failing pixel-divergence test for a non-face class**
 
 ```elixir
-  test "g:obj:car crop is biased toward the detected object and differs from center and attention" do
-    opts = wire_opts(detector: CornerObjectDetector)
+  test "g:obj:car crop biases toward the detected object, differing from center and attention" do
+    opts = Keyword.merge(@default_opts, detector: CornerObjectDetector)
 
-    obj = request("rs:fill:50:50/g:obj:car/plain/" <> source_url(), opts)
-    centered = request("rs:fill:50:50/g:ce/plain/" <> source_url(), opts)
-    attention = request("rs:fill:50:50/g:sm/plain/" <> source_url(), opts)
+    obj = call_imgproxy("rs:fill:50:50/g:obj:car/plain/images/beach.jpg", opts)
+    centered = call_imgproxy("rs:fill:50:50/g:ce/plain/images/beach.jpg", opts)
+    attention = call_imgproxy("rs:fill:50:50/g:sm/plain/images/beach.jpg", opts)
 
     assert obj.status == 200
-    assert decoded_dimensions(obj) == {50, 50}
+    assert dimensions(obj) == {50, 50}
     refute obj.resp_body == centered.resp_body
     refute obj.resp_body == attention.resp_body
   end
 
   test "no-geometry g:obj:car still detects without a resize/crop" do
-    opts = wire_opts(detector: CornerObjectDetector)
-    resp = request("g:obj:car/plain/" <> source_url(), opts)
+    opts = Keyword.merge(@default_opts, detector: CornerObjectDetector)
+    resp = call_imgproxy("g:obj:car/plain/images/beach.jpg", opts)
     assert resp.status == 200
   end
 ```
 
-Use the file's real request/response helpers (`request/2`, `wire_opts/1`, `source_url/0`, `decoded_dimensions/1`) — mirror the existing `g:sm` pixel test. If those helper names differ, match the file's actual conventions. The `detector:` option must be plumbed into the plug opts the test builds (the existing 422 `g:obj:face` test at the strict-gate already injects an unavailable detector — copy how it passes `detector:`).
+Use the file's real helpers: `call_imgproxy(path, opts)` (returns a `conn`), `dimensions(conn)` (decodes), the hardcoded `plain/images/beach.jpg` source, and `@default_opts` (merge to override `detector:`). Mirror the existing `g:sm` decode-and-compare pixel test for exact conventions.
 
 - [ ] **Step 3: Run to verify failure, then implement**
 
@@ -1212,21 +1307,27 @@ Expected: initially FAIL only if something is wrong — by this task the product
 - [ ] **Step 4: Write the gate-triad test**
 
 ```elixir
-  test "detector_required gate: supported+available 200, supported+unavailable 422 pre-fetch, unknown degrades" do
-    # A composite-style detector where the object child is unavailable but face is available.
-    opts = wire_opts(detector: PartialDetector, detector_required: true)
+  test "detector_required gate: available->200, unavailable->422 pre-fetch, unknown->degrade" do
+    opts = Keyword.merge(@default_opts, detector: PartialDetector, detector_required: true)
 
-    assert request("rs:fill:50:50/g:obj:face/plain/" <> source_url(), opts).status == 200
-    assert request("rs:fill:50:50/g:obj:car/plain/" <> source_url(), opts).status == 422
-    assert request("rs:fill:50:50/g:obj:unicorn/plain/" <> source_url(), opts).status == 200
-    # And the 422 happened before any source fetch/cache access:
-    assert_no_source_fetch(fn ->
-      request("rs:fill:50:50/g:obj:car/plain/" <> source_url(), opts)
-    end)
+    # face child available -> routes and succeeds
+    assert call_imgproxy("rs:fill:50:50/g:obj:face/plain/images/beach.jpg", opts).status == 200
+    # unknown class routes to no child -> available? vacuously true -> degrades
+    assert call_imgproxy("rs:fill:50:50/g:obj:unicorn/plain/images/beach.jpg", opts).status == 200
+
+    # object child unavailable -> 422 BEFORE any source fetch or cache access.
+    # Reuse the exact OriginShouldNotFetch source + CacheProbe cache from the
+    # existing "detector_required + unavailable detector rejects before source AND
+    # cache access" test (~line 541), then assert status + refute the side effects.
+    gate_opts = Keyword.merge(opts, source: <OriginShouldNotFetch from the ~line-541 test>, cache: {CacheProbe, []})
+    conn = call_imgproxy("rs:fill:50:50/g:obj:car/plain/images/beach.jpg", gate_opts)
+    assert conn.status == 422
+    refute_received :origin_fetch
+    refute_received {:cache_lookup, _key}
   end
 ```
 
-`detector:` resolves a **module atom**, so define `PartialDetector` as a named module that delegates to `Composite.new([FaceFake, UnavailableObjectFake])` (same delegation shape as `TestComposite` in Task 8). `FaceFake` is available and owns `["face"]` (its `detect/2` returns a region so `g:obj:face` succeeds → 200); `UnavailableObjectFake` owns `["car"]` with `available?/1 -> false`. Then: `g:obj:face` routes to the available face child → 200; `g:obj:car` routes to the unavailable object child → `available?` false → 422 pre-fetch; `g:obj:unicorn` routes to no child → `available?` vacuously true → degrades to 200. Use the file's existing "no source fetch" assertion helper (the strict-gate `g:obj:face` 422 test already demonstrates asserting the source was not hit).
+`PartialDetector` is a named module delegating to `Composite.new([FaceFake, UnavailableObjectFake])` (same delegation shape as `VerComposite` in Task 8). `FaceFake` is available, owns `["face"]`, and its `detect/2` returns a region so `g:obj:face` → 200. `UnavailableObjectFake` owns `["car"]` with `available?/1 -> false`, so `g:obj:car` routes to it → `available?` false → 422 pre-fetch; `g:obj:unicorn` routes to no child → `available?` vacuously true → degrades to 200. The 422 leg must copy the line-541 test's `OriginShouldNotFetch` + `CacheProbe` opts and its `refute_received :origin_fetch` / `refute_received {:cache_lookup, _}` assertions verbatim.
 
 - [ ] **Step 5: Run the wire tests**
 
@@ -1249,10 +1350,12 @@ git commit -m "test(wire): obj:car pixel divergence, no-geometry, and detector_r
 
 - [ ] **Step 1: Extend the detector-reference scan to parser + plan**
 
-Find the `detector_forbidden_files/0` helper (used by the test at line 329) and add the parser and plan source files to its list, so the existing `concrete_detector_references/1` AST scan also forbids parser/planner code from naming `ImagePipe.Transform.Detector.*` modules. Do NOT add a COCO-label denylist — only the detector-module scan (a label denylist would itself leak vocabulary into the test).
+The detector scan (test at line 329) reads the `@detector_forbidden_globs` **module attribute** (line 13), currently covering plug/request/source/response/cache. Add `lib/image_pipe/parser/**/*.ex` and `lib/image_pipe/plan/**/*.ex` to **that attribute** (NOT to `@parser_forbidden_globs` at line 24, which drives a different parser-struct scan — keep the two glob sets separate). The existing `concrete_detector_references/1` AST scan then forbids parser/plan code from naming `ImagePipe.Transform.Detector.*`. Do NOT add a COCO-label denylist — only the detector-module scan (a label denylist would itself leak vocabulary into the test).
 
-Run: `mise exec -- grep -n "detector_forbidden_files" test/image_pipe/architecture_boundary_test.exs`
-Then extend that file-glob list to include `lib/image_pipe/parser/**/*.ex` and `lib/image_pipe/plan/**/*.ex` (match the helper's existing glob style).
+First confirm no plan/parser file already names a detector module:
+
+Run: `grep -rn "Transform.Detector" lib/image_pipe/parser lib/image_pipe/plan`
+Expected: no matches (parser emits `{:detect, …}` atoms; plan/key_data name no detector). If a match exists, that's a real boundary violation to fix before this test will pass.
 
 - [ ] **Step 2: Run the architecture test**
 

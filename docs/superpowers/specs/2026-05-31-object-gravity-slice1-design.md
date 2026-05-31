@@ -231,14 +231,23 @@ alongside the existing class-list form:
 **Required producer edits for the `:all` shape** (each is a real code path a wire
 `obj`/`obj:all` request hits — missing any one crashes or silently misbehaves):
 
-1. `ImagePipe.Plan.Operation.CropGuided` — `guide` type gains `{:detect, :all}`.
-2. `lib/image_pipe/transform/operation/crop.ex` — the operation `gravity`
+1. **`lib/image_pipe/plan/operation.ex` — `smart_guide/1`** (the construction-time
+   validation gate, reached by **both** `crop_guided/4` and `resize/4`). Its
+   existing clause is `smart_guide({:detect, classes}) when is_list(classes) and
+   classes != []`, which **rejects** `:all` (falls through to `{:error, :guide}`).
+   Add a `smart_guide({:detect, :all}) → {:ok, …}` clause before it. *Missing this
+   is a hard failure on the most common form `rs:fill/g:obj` — it fails at operation
+   construction before anything downstream runs.*
+2. `ImagePipe.Plan.Operation.CropGuided` — `guide` type gains `{:detect, :all}`.
+3. `lib/image_pipe/plan/operation/resize.ex` — `guide` type gains `{:detect, :all}`
+   (the fill path builds a `Resize`).
+4. `lib/image_pipe/transform/operation/crop.ex` — the operation `gravity`
    typespec and the `execute/2` detect arm accept `{:detect, :all}` (the existing
    `gravity: {:detect, classes}` head matches with `classes = :all`; confirm
    `run_detect`/telemetry carry `classes` as `:all | list`).
-3. `ImagePipe.Plan.detect_classes/1` — `@spec` and body widen to
+5. `ImagePipe.Plan.detect_classes/1` — `@spec` and body widen to
    `:all | nonempty_list(String.t()) | nil`.
-4. `lib/image_pipe/plan/key_data.ex` — add a `guide_data({:detect, :all})` clause
+6. `lib/image_pipe/plan/key_data.ex` — add a `guide_data({:detect, :all})` clause
    returning `[type: :detect, classes: :all]` (today's clause is guarded
    `when is_list(classes)` and would `FunctionClauseError` on `:all`). The list
    clause keeps `classes: Enum.sort(classes)`.
