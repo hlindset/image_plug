@@ -676,6 +676,8 @@ defmodule ImagePipe.Plan.Operation do
   defp smart_guide(:smart), do: {:ok, :smart}
   defp smart_guide({:smart, :face_assist} = guide), do: {:ok, guide}
 
+  defp smart_guide({:detect, :all} = guide), do: {:ok, guide}
+
   defp smart_guide({:detect, classes} = guide)
        when is_list(classes) and classes != [] do
     if Enum.all?(classes, &is_binary/1) do

@@ -1,5 +1,6 @@
 defmodule ImagePipe.Plan.OperationKeyDataTest do
   use ExUnit.Case, async: true
+  use ExUnitProperties
 
   alias ImagePipe.Plan.KeyData
   alias ImagePipe.Plan.Operation
@@ -260,6 +261,35 @@ defmodule ImagePipe.Plan.OperationKeyDataTest do
 
   describe "guide_data via CropGuided cache data" do
     alias ImagePipe.Plan.Operation.CropGuided
+
+    test "detect :all guide encodes as classes: :all" do
+      data = KeyData.data(%CropGuided{width: {:px, 100}, height: {:px, 100}, guide: {:detect, :all}})
+      assert Keyword.fetch!(data, :guide) == [type: :detect, classes: :all]
+    end
+
+    property "detect-guide class order does not change the guide key data" do
+      all_classes = ["car", "dog", "cat", "person", "bird", "truck", "bus", "boat"]
+
+      check all classes <-
+                  list_of(member_of(all_classes), min_length: 1, max_length: 4)
+                  |> map(&Enum.uniq/1) do
+        a =
+          KeyData.data(%CropGuided{
+            width: {:px, 100},
+            height: {:px, 100},
+            guide: {:detect, classes}
+          })
+
+        b =
+          KeyData.data(%CropGuided{
+            width: {:px, 100},
+            height: {:px, 100},
+            guide: {:detect, Enum.shuffle(classes)}
+          })
+
+        assert a == b
+      end
+    end
 
     test "the three content-aware guides serialize distinctly" do
       smart = KeyData.data(%CropGuided{width: {:px, 10}, height: {:px, 10}, guide: :smart})

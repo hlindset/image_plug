@@ -129,6 +129,7 @@ defmodule ImagePipe.Transform.Operation.Crop do
             | {:fp, float(), float()}
             | :smart
             | {:smart, :face_assist}
+            | {:detect, :all}
             | {:detect, [String.t()]}
             | nil,
           x_offset: length_unit() | number(),

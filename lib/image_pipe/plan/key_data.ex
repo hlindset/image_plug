@@ -195,6 +195,8 @@ defmodule ImagePipe.Plan.KeyData do
 
   defp guide_data({:smart, :face_assist}), do: [type: :smart, assist: :face]
 
+  defp guide_data({:detect, :all}), do: [type: :detect, classes: :all]
+
   defp guide_data({:detect, classes}) when is_list(classes),
     do: [type: :detect, classes: Enum.sort(classes)]
 
