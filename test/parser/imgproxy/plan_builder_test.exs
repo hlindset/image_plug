@@ -770,6 +770,27 @@ defmodule ImagePipe.Parser.Imgproxy.PlanBuilderTest do
     assert crop.guide == {:detect, ["face"]}
   end
 
+  test "planner emits only product-neutral guide terms (no dialect leak)" do
+    for gravity <- [:sm, {:obj, ["face"]}] do
+      assert {:ok, %Plan{pipelines: pipelines}} =
+               plan_pipeline(
+                 resizing_type: :fill,
+                 width: {:pixels, 100},
+                 height: {:pixels, 100},
+                 gravity: gravity
+               )
+
+      guides =
+        for pipeline <- pipelines,
+            operation <- pipeline.operations,
+            guide = Map.get(operation, :guide),
+            do: guide
+
+      refute Enum.any?(guides, &match?({:obj, _}, &1))
+      refute Enum.any?(guides, &(&1 == :sm))
+    end
+  end
+
   test "rejects bare object gravity (all detected objects)" do
     assert {:error, {:unsupported_gravity, {:obj, []}}} =
              plan_pipeline(
