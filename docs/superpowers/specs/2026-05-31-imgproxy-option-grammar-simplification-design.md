@@ -133,6 +133,17 @@ exactly that pre-wired, pipeline-scoped, existing-type set.
   `*_options`, …) get prioritized, or (b) `trim` — the lone non-Pro, commonly-used
   member — is requested. `trim` is heterogeneously typed (float threshold, color,
   two booleans), so even then a general facility needs per-arg type+default specs.
+- **Gravity sub-grammar consolidation.** `parse_gravity` (the `g:` path) and
+  `parse_crop_gravity` (the crop path) are two parallel implementations of the
+  same gravity grammar (both handle `sm`, `fp`, anchor separately, with different
+  output shapes) — the exact "two parallel implementations of one grammar" this
+  change collapses for fixed-arity options. Consolidating them into one shared
+  gravity-tail parser is a natural follow-on. Trigger: a feature that touches
+  gravity in both paths — notably smart object cropping (`obj`/object-detection
+  gravity), which applies to both `g:obj:…` and crop's gravity argument and would
+  otherwise be implemented (and drift) twice. Not in scope here (gravity isn't one
+  of the converted options); flagged so the obj work has a consolidation target on
+  record rather than rediscovering the duplication.
 
 ## Error model
 
