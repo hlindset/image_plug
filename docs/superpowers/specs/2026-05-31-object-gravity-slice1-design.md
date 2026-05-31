@@ -84,8 +84,9 @@ The design was brainstormed decision-by-decision. The settled answers:
    configured child claims is simply dropped during routing; if nothing usable
    remains the request behaves like "no detection" (graceful attention fallback,
    or 422 under `detector_required` only when a *real, supported* class has no
-   available detector). Dropped classes are observable via telemetry
-   (`effective_classes`). No new config knob.
+   available detector). Dropped classes are observable via telemetry (a requested
+   class that appears in no per-model `[:transform, :detect, :model]` span was
+   dropped). No new config knob.
 6. **Telemetry — aggregate span + per-model nested spans.** Keeps honest total
    timing and restores per-model cold-start visibility that today's single face
    span has. The per-model span identifies the child by **module name** plus its
@@ -152,9 +153,14 @@ split into two product-neutral adapter modules under the same namespace.
 
 - **`ImagePipe.Transform.Detector.ImageVision.Objects`** (new)
   - Wraps `Image.Detection.detect/2` (RT-DETR, COCO-80).
-  - `supported_classes(_)` **derives from the public `Image.Detection.classes/0`**
-    (the 80 COCO labels image_vision exposes) rather than hardcoding a second,
-    drift-prone copy. Cheap, static, no model load.
+  - `supported_classes(_)` returns a **hardcoded static COCO-80 list** (in the
+    URL-facing underscore spelling). It must NOT derive from
+    `Image.Detection.classes/0` at runtime: routing and the availability gate call
+    `supported_classes` precisely when the dep may be **absent**, and
+    `Image.Detection.classes/0` requires the dep loaded — deriving it would crash
+    the gate. A `@tag :image_vision` drift test asserts the hardcoded list matches
+    the model's labels (normalized), catching upstream COCO changes. Cheap, static,
+    no model load, dep-independent.
   - `detect/2`: runs detection (option `min_score`), filters results to the routed
     classes (or returns all for `:all`).
   - `available?/1`: `Code.ensure_loaded?(Image.Detection)` (mirrors Face).
@@ -293,12 +299,20 @@ boundary edge — request code touches only `Plan` + the generic `Transform`):
 The Composite then returns the identities of only the children that class set
 routes to. Resulting identities:
 
-| Request        | Children that run | Identity material        |
-| -------------- | ----------------- | ------------------------ |
-| `obj:face`     | Face              | `[Face id]` — **= today's key, continuity** |
-| `obj:car`      | Objects           | `[Objects id]`           |
-| `obj:face:dog` | Face + Objects    | `[Face id, Objects id]`  |
-| `obj` / `obj:all` | Face + Objects | `[Face id, Objects id]`  |
+The Composite's `identity/1` returns `{Composite, [child identities…]}` for the
+routed children only (built by filtering the fixed child order):
+
+| Request        | Children that run | Identity material              |
+| -------------- | ----------------- | ------------------------------ |
+| `obj:face`     | Face              | `{Composite, [Face id]}` — **independent of the object model** |
+| `obj:car`      | Objects           | `{Composite, [Objects id]}`    |
+| `obj:face:dog` | Face + Objects    | `{Composite, [Face id, Objects id]}` |
+| `obj` / `obj:all` | Face + Objects | `{Composite, [Face id, Objects id]}` |
+
+(The `obj:face` key is *not* byte-identical to the pre-Composite `{ImageVision,
+…}` key — the Composite wrapper and the `.Face` rename change its shape. Greenfield,
+so that is fine; the cache guideline is reshape-in-place. What matters is the
+*invariant* below, which the reviewer asked be asserted structurally.)
 
 Consequences this guarantees:
 
@@ -336,10 +350,15 @@ Consequences this guarantees:
 ### Telemetry
 
 - **`[:transform, :detect]`** stays the aggregate span (honest total detect
-  duration). Metadata gains `requested_classes` and `effective_classes` (the
-  post-routing set actually detected) so best-effort drops are observable. `result`
-  aggregates across children: `:detected` if any child returned regions,
-  `:no_regions` if all ran empty, `:unavailable`/`:error` on child failure.
+  duration), emitted by `crop.ex`'s `run_detect` exactly as today. Its `classes`
+  metadata is the **requested** set (`:all` or the class list). `result` reflects
+  the merged outcome (`:detected` if any region, `:no_regions` otherwise). The
+  **effective** (post-routing) set is observable as the **union of the per-model
+  spans' `classes`** — so best-effort drops show up as the gap between the
+  aggregate's requested `classes` and the per-model spans. (We deliberately do not
+  add `effective_classes` to the aggregate: the Composite can't return it through
+  the host-facing `detect/2` contract without changing that contract, and the
+  per-model spans already carry it.)
 - **`[:transform, :detect, :model]`** (new) — a nested span per child detector
   that runs. Metadata:
   - `detector` = the child *module name* (e.g.
@@ -456,10 +475,12 @@ nondeterministic inference.
   a captured-hash parity pin); `obj:car` keys differ and are unaffected by a
   face-model identity bump; `obj:face:car` includes both; class-list
   canonicalization (sorted) yields a stable key regardless of URL order.
-- **Telemetry tests:** aggregate `[:transform, :detect]` carries
-  `requested_classes`/`effective_classes`; a per-model `[:transform, :detect,
-  :model]` span is emitted per child that runs, with `detector` = module name and
-  `model` = the child's `identity/1`; `:skipped` still fires with no detector.
+- **Telemetry tests:** aggregate `[:transform, :detect]` carries the requested
+  `classes`; a per-model `[:transform, :detect, :model]` span is emitted per child
+  that runs, with `detector` = module name, `model` = the child's `identity/1`, and
+  its routed `classes` (the union across per-model spans is the effective set, so a
+  best-effort-dropped class is visible as a requested class absent from every
+  per-model span); `:skipped` still fires with no detector.
 - **Property tests:** parser order-insensitivity for class lists; cache-key
   canonicalization across class orderings.
 - **Real-model lane (one `@tag :image_vision` coarse smoke test only):** a single
