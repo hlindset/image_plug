@@ -8,6 +8,13 @@ defmodule ImagePipe.Transform.Detector do
   caller (`ImagePipe.Transform.Operation.Crop`).
   """
 
+  @typedoc """
+  A detected region of interest.
+
+  `box` is `{x, y, width, height}` in absolute top-left pixel coordinates of the
+  input image (x grows right, y grows down). Host-written detectors must use this
+  same convention so gravity targeting agrees across implementations.
+  """
   @type region :: %{
           label: String.t(),
           score: float(),

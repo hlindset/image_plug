@@ -102,7 +102,7 @@ defmodule ImagePipe.MixProject do
   end
 
   defp deps do
-    [
+    base = [
       {:plug, "~> 1.18"},
       {:telemetry, "~> 1.0"},
       {:nimble_options, "~> 1.1"},
@@ -121,6 +121,13 @@ defmodule ImagePipe.MixProject do
       {:credo, "~> 1.7", only: [:dev, :test], runtime: false},
       {:talan, "~> 0.2.1"}
     ]
+
+    # `image_vision` pulls in the Ortex/Rust/ONNX closure. Default builds and CI
+    # must not require it; only the opt-in lane (`IMAGE_VISION=1`) resolves it so
+    # the real-dependency detector test can run.
+    if System.get_env("IMAGE_VISION") in ["1", "true"],
+      do: base ++ [{:image_vision, "~> 0.4", only: :test}],
+      else: base
   end
 
   defp aliases do
