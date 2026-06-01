@@ -56,11 +56,11 @@ Source index: <https://www.twicpics.com/llms.txt>
 
 | TwicPics feature | Status | Notes |
 | --- | --- | --- |
-| `?twic=v1/<chain>` query parameter | 📋 Planned (v1) | Required `v1/` prefix; chain is an ordered `/`-separated list of `name=args`. `twic` may appear anywhere in the query string. |
-| Ordered chaining | 📋 Planned (v1) | Transformations apply in order; later transforms see earlier results. Modeled as an ordered `Plan` pipeline executed sequentially. |
-| Running-dimension relative units (`p`, `s`) | 📋 Planned (v1) | Resolved against the running image at execution time, not statically at parse. Requires an additive `Plan.Operation.Resize` dimension widening. |
+| `?twic=v1/<chain>` query parameter | ✅ Supported | Required `v1/` prefix; chain is an ordered `/`-separated list of `name=args`. `twic` may appear anywhere in the query string. |
+| Ordered chaining | ✅ Supported | Transformations apply in order; later transforms see earlier results. Modeled as an ordered `Plan` pipeline executed sequentially. |
+| Running-dimension relative units (`p`, `s`) | ✅ Supported | Resolved against the running image at execution time, not statically at parse. Requires an additive `Plan.Operation.Resize` dimension widening. |
 | Static chain collapse / shadowing | ⭕ Missing | TwicPics collapses redundant transforms (`resize=340/resize=50p` → `resize=170`). Deferred optimization, **not** correctness: v1 runs each op and resolves relative units at runtime. Collapse is sound only when operands are literal *and* the intermediate dimension is provably fixed. Buys perf + sharpness (avoids double resampling). |
-| Path → source resolution | 📋 Planned (v1) | `conn.path_info` resolves to a `Plan.Source` reusing the imgproxy path-source origin mechanism. |
+| Path → source resolution | ✅ Supported | `conn.path_info` resolves to a `Plan.Source` reusing the imgproxy path-source origin mechanism. |
 | Multi-origin [path configuration](https://www.twicpics.com/docs/essentials/path-configuration.md) | ⭕ Missing | Prefix → origin mapping. Out of scope for v1; single configured origin only. |
 | [Domain configuration](https://www.twicpics.com/docs/essentials/domain-configuration.md) | 🧩 Host-owned | Dashboard domain setup has no ImagePipe equivalent; the host router/Plug owns mounting. |
 | URL signature / path protection | ⭕ Missing | Not modeled for TwicPics yet. |
@@ -71,20 +71,20 @@ Mapped against [API Transformations](https://www.twicpics.com/docs/reference/tra
 
 | TwicPics transform | Status | Notes / Plan mapping |
 | --- | --- | --- |
-| `resize=W` | 📋 Planned (v1) | Single dim → `Resize(:fit, W, :auto)`, preserves aspect. |
-| `resize=WxH` | 📋 Planned (v1) | Exact dims, may distort → `Resize(:stretch, …)` (= imgproxy `force`). |
+| `resize=W` | ✅ Supported | Single dim → `Resize(:fit, W, :auto)`, preserves aspect. |
+| `resize=WxH` | ✅ Supported | Exact dims, may distort → `Resize(:stretch, …)` (= imgproxy `force`). |
 | `resize=W:H` (ratio) | 🚫 Rejected | Surface-preserving resize-to-ratio has no clean mapping to an existing op; deferred with its own operation design. |
 | `resize-max` / `resize-min` | 🚫 Rejected | Conditional variants deferred; recognized and rejected. |
-| `cover=WxH` | 📋 Planned (v1) | `Resize(:cover, …, guide: focus)` — fill + crop to focus. |
-| `cover=W:H` (ratio) | 📋 Planned (v1) | `CropGuided(:full_axis, :full_axis, aspect_ratio: …, guide: focus)` — largest matching-ratio area. |
+| `cover=WxH` | ✅ Supported | `Resize(:cover, …, guide: focus)` — fill + crop to focus. |
+| `cover=W:H` (ratio) | ✅ Supported | `CropGuided(:full_axis, :full_axis, aspect_ratio: …, guide: focus)` — largest matching-ratio area. |
 | `cover-max` / `cover-min` | 🚫 Rejected | Conditional variants deferred. |
-| `contain=WxH` | 📋 Planned (v1) | `Resize(:fit, …)` — fits inside, may be smaller, no letterbox. |
+| `contain=WxH` | ✅ Supported | `Resize(:fit, …)` — fits inside, may be smaller, no letterbox. |
 | `contain-max` / `contain-min` (aliases `max` / `min`) | 🚫 Rejected | Conditional variants deferred. |
 | `inside=WxH` | ⚠️ Partial (v1) | `Resize(:fit, …)` + `Canvas(W, H, placement: center, fill: transparent)` — letterboxed to exact dims. **Transparent fill only**; user-specified `background` deferred. Non-alpha output (e.g. `output=jpeg`) flattens the letterbox (documented, tested). **Pixel dimensions only** in v1 (relative units deferred). |
 | `inside=W:H` (ratio) | 🚫 Rejected | Ratio form deferred (same reason as `resize=W:H`). |
-| `crop=WxH` | 📋 Planned (v1) | `CropGuided(W, H, guide: focus)`. Crop-size: an omitted dim / `-` means `1s` = full running axis (`:full_axis`), not aspect-preserving auto. **Pixel dimensions only** in v1 (relative crop dims → `{:ratio}` deferred). |
-| `crop=WxH@XxY` | 📋 Planned (v1) | `CropRegion(x: X, y: Y, width: W, height: H)`; resets focus → center. |
-| `focus=<anchor>` | 📋 Planned (v1) | One of the eight anchors; sets the current guide for the next `cover` / `crop`; emits no operation. |
+| `crop=WxH` | ✅ Supported | `CropGuided(W, H, guide: focus)`. Crop-size: an omitted dim / `-` means `1s` = full running axis (`:full_axis`), not aspect-preserving auto. **Pixel dimensions only** in v1 (relative crop dims → `{:ratio}` deferred). |
+| `crop=WxH@XxY` | ✅ Supported | `CropRegion(x: X, y: Y, width: W, height: H)`; resets focus → center. |
+| `focus=<anchor>` | ✅ Supported | One of the eight anchors; sets the current guide for the next `cover` / `crop`; emits no operation. |
 | `focus=<coords>` (px/percent/scale) | 🚫 Rejected | Coordinate focus deferred — the Plan focal guide is a 0..1 ratio; pixel-coordinate focus needs a runtime-resolved focal guide (mirrors the resize relative-unit work). v1 focus is anchor-only. |
 | `focus=auto` | 🚫 Rejected | Smart / content-aware (ML-ish) subject detection; no model. Consistent with rejecting imgproxy `g:sm`. A future `:smart` guide (libvips attention/entropy) could satisfy both. |
 | `focus=center` | 🚫 Rejected | `center` is not a TwicPics anchor literal — it is only the default focus. Rejected as a literal in v1 for fidelity; candidate lenient extension later. |
@@ -107,12 +107,12 @@ Mapped against [API Parameters](https://www.twicpics.com/docs/reference/paramete
 
 | TwicPics feature | Status | Notes |
 | --- | --- | --- |
-| `output=auto` | 📋 Planned (v1) | `Plan.Output` `:automatic` — Accept-negotiated, emits `Vary: Accept`. |
-| `output=avif\|webp\|jpeg\|png` | 📋 Planned (v1) | Explicit `{:explicit, format}`, bypasses negotiation. |
+| `output=auto` | ✅ Supported | `Plan.Output` `:automatic` — Accept-negotiated, emits `Vary: Accept`. |
+| `output=avif\|webp\|jpeg\|png` | ✅ Supported | Explicit `{:explicit, format}`, bypasses negotiation. |
 | `output=heif` | ⭕ Missing | Not in the v1 explicit-format set. |
 | `output=blurhash\|preview\|maincolor\|meancolor\|blank` | 🚫 Rejected | Non-image preview outputs; deferred. |
 | `output=h264\|h265\|vp9` | 🛑 Out of scope | Video output codecs. |
-| `quality=1..100` | 📋 Planned (v1) | `Plan.Output` quality. |
+| `quality=1..100` | ✅ Supported | `Plan.Output` quality. |
 | `quality-max` / `quality-min` | 🚫 Rejected | Conditional variants deferred. |
 
 ## Parameter types
@@ -121,12 +121,12 @@ Mapped against [API Parameters](https://www.twicpics.com/docs/reference/paramete
 
 | TwicPics type | Status | Notes |
 | --- | --- | --- |
-| Length (px / `p` percent / `s` scale) | 📋 Planned (v1) | `{:px, n}` / `{:percent, n}` / `{:scale, f}`. Bare number = pixels. |
-| Size (`WxH`, `-` auto) | 📋 Planned (v1) | One dimension may be `-` for auto. Mixed units allowed. |
-| Ratio (`W:H`) | 📋 Planned (v1) | Two strictly-positive numbers → `{:ratio, n, d}`. |
-| Coordinates (`XxY`) | 📋 Planned (v1) | Two Lengths; v1 uses them for the `crop=…@XxY` origin (pixel coords → `CropRegion`). Coordinate focus is deferred. |
-| Anchor (8 named positions) | 📋 Planned (v1) | `top`, `bottom`, `left`, `right`, four corners → Plan guides. No `center` anchor — `center` is the default focus only. |
-| Crop size | 📋 Planned (v1) | Distinct from Size: omitted dim / `-` means `1s` = full running axis (`:full_axis`), **not** aspect-preserving auto. `crop=320` ≡ `320x-` ≡ `320x1s`. |
+| Length (px / `p` percent / `s` scale) | ✅ Supported | `{:px, n}` / `{:percent, n}` / `{:scale, f}`. Bare number = pixels. |
+| Size (`WxH`, `-` auto) | ✅ Supported | One dimension may be `-` for auto. Mixed units allowed. |
+| Ratio (`W:H`) | ✅ Supported | Two strictly-positive numbers → `{:ratio, n, d}`. |
+| Coordinates (`XxY`) | ✅ Supported | Two Lengths; v1 uses them for the `crop=…@XxY` origin (pixel coords → `CropRegion`). Coordinate focus is deferred. |
+| Anchor (8 named positions) | ✅ Supported | `top`, `bottom`, `left`, `right`, four corners → Plan guides. No `center` anchor — `center` is the default focus only. |
+| Crop size | ✅ Supported | Distinct from Size: omitted dim / `-` means `1s` = full running axis (`:full_axis`), **not** aspect-preserving auto. `crop=320` ≡ `320x-` ≡ `320x1s`. |
 | Number with expressions `(1/3)`, `+ - * /` | 🚫 Rejected | Arithmetic engine deferred; only decimal literals in v1. |
 | Color (names / hex / rgb / hsl / alpha) | 🚫 Rejected | Used by color chaining; deferred. |
 | Angle (number / named) | 🚫 Rejected | Used by `turn`; deferred. |
