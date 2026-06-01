@@ -172,9 +172,6 @@ defmodule ImagePipe.Request.Processor do
     {:ok, stream |> Enum.to_list() |> IO.iodata_to_binary()}
   rescue
     exception in [Source.StreamError] -> {:error, {:source, exception.reason}}
-  catch
-    :exit, {%Source.StreamError{reason: reason}, _stacktrace} -> {:error, {:source, reason}}
-    :exit, %Source.StreamError{reason: reason} -> {:error, {:source, reason}}
   end
 
   defp seekable_input(%Source.Response{}), do: {:error, {:source, :invalid_adapter_result}}
