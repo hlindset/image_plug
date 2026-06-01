@@ -802,7 +802,7 @@ defmodule ImagePipe.Parser.Imgproxy.PlanBuilderTest do
              )
 
     assert [%Operation.Resize{mode: :cover} = resize] = operations
-    assert resize.guide == {:detect, ["face"]}
+    assert resize.guide == {:detect, {["face"], %{}}}
   end
 
   test "maps face object gravity crop to the detect plan guide" do
@@ -815,11 +815,14 @@ defmodule ImagePipe.Parser.Imgproxy.PlanBuilderTest do
                }
              )
 
-    assert crop.guide == {:detect, ["face"]}
+    assert crop.guide == {:detect, {["face"], %{}}}
   end
 
   test "planner emits only product-neutral guide terms (no dialect leak)" do
-    for {gravity, expected_guide} <- [{:sm, :smart}, {{:obj, ["face"]}, {:detect, ["face"]}}] do
+    for {gravity, expected_guide} <- [
+          {:sm, :smart},
+          {{:obj, ["face"]}, {:detect, {["face"], %{}}}}
+        ] do
       assert {:ok, %Plan{pipelines: pipelines}} =
                plan_pipeline(
                  resizing_type: :fill,
@@ -850,7 +853,7 @@ defmodule ImagePipe.Parser.Imgproxy.PlanBuilderTest do
                gravity: {:obj, []}
              )
 
-    assert resize.guide == {:detect, :all}
+    assert resize.guide == {:detect, {:all, %{}}}
   end
 
   test "the all pseudo-class maps to detect :all (fill path)" do
@@ -862,7 +865,7 @@ defmodule ImagePipe.Parser.Imgproxy.PlanBuilderTest do
                gravity: {:obj, ["all"]}
              )
 
-    assert resize.guide == {:detect, :all}
+    assert resize.guide == {:detect, {:all, %{}}}
   end
 
   test "multi-class object gravity maps to detect with those classes (fill path)" do
@@ -874,7 +877,7 @@ defmodule ImagePipe.Parser.Imgproxy.PlanBuilderTest do
                gravity: {:obj, ["face", "cat"]}
              )
 
-    assert resize.guide == {:detect, ["face", "cat"]}
+    assert resize.guide == {:detect, {["face", "cat"], %{}}}
   end
 
   # Behavior change: numeric trailing tokens are now unknown classes dropped at
@@ -893,7 +896,7 @@ defmodule ImagePipe.Parser.Imgproxy.PlanBuilderTest do
                }
              )
 
-    assert crop.guide == {:detect, ["face", "5", "5"]}
+    assert crop.guide == {:detect, {["face", "5", "5"], %{}}}
   end
 
   test "all among classes collapses to :all (fill path)" do
@@ -905,7 +908,7 @@ defmodule ImagePipe.Parser.Imgproxy.PlanBuilderTest do
                gravity: {:obj, ["car", "all"]}
              )
 
-    assert resize.guide == {:detect, :all}
+    assert resize.guide == {:detect, {:all, %{}}}
   end
 
   test "bare object gravity maps to detect :all (crop path)" do
@@ -921,7 +924,7 @@ defmodule ImagePipe.Parser.Imgproxy.PlanBuilderTest do
                }
              )
 
-    assert crop.guide == {:detect, :all}
+    assert crop.guide == {:detect, {:all, %{}}}
   end
 
   test "the all pseudo-class maps to detect :all (crop path)" do
@@ -937,7 +940,7 @@ defmodule ImagePipe.Parser.Imgproxy.PlanBuilderTest do
                }
              )
 
-    assert crop.guide == {:detect, :all}
+    assert crop.guide == {:detect, {:all, %{}}}
   end
 
   test "multi-class object gravity maps to detect with those classes (crop path)" do
@@ -953,7 +956,7 @@ defmodule ImagePipe.Parser.Imgproxy.PlanBuilderTest do
                }
              )
 
-    assert crop.guide == {:detect, ["car", "dog"]}
+    assert crop.guide == {:detect, {["car", "dog"], %{}}}
   end
 
   test "represents output intent outside imgproxy pipeline operations" do

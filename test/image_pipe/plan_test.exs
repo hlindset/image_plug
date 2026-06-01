@@ -98,18 +98,18 @@ defmodule ImagePipe.PlanTest do
   end
 
   test "detect_classes finds a {:detect, classes} guide" do
-    assert Plan.detect_classes(plan_with_guide({:detect, ["face"]})) == ["face"]
+    assert Plan.detect_classes(plan_with_guide({:detect, {["face"], %{}}})) == ["face"]
   end
 
   test "detect_classes returns a guide's classes sorted and deduped" do
-    assert Plan.detect_classes(plan_with_guide({:detect, ["dog", "car", "dog"]})) == [
+    assert Plan.detect_classes(plan_with_guide({:detect, {["dog", "car", "dog"], %{}}})) == [
              "car",
              "dog"
            ]
   end
 
   test "detect_classes returns :all for an all-objects guide" do
-    assert Plan.detect_classes(plan_with_guide({:detect, :all})) == :all
+    assert Plan.detect_classes(plan_with_guide({:detect, {:all, %{}}})) == :all
   end
 
   test "detect_classes is nil when no detect guide is present" do

@@ -92,8 +92,8 @@ defmodule ImagePipe.Plan do
     |> Enum.flat_map(& &1.operations)
     |> Enum.reduce_while([], fn op, acc ->
       case Map.get(op, :guide) do
-        {:detect, :all} -> {:halt, :all}
-        {:detect, classes} -> {:cont, classes ++ acc}
+        {:detect, {:all, _weights}} -> {:halt, :all}
+        {:detect, {classes, _weights}} when is_list(classes) -> {:cont, classes ++ acc}
         _ -> {:cont, acc}
       end
     end)

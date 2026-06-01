@@ -98,7 +98,7 @@ defmodule ImagePipe.Cache.KeyTest do
              Operation.crop_guided(
                tagged_dimension(width),
                tagged_dimension(height),
-               {:detect, ["face"]}
+               {:detect, {["face"], %{}}}
              )
 
     operation

@@ -82,6 +82,7 @@ defmodule ImagePipe.Transform.Operation.Crop do
     only: [anchor_to_pixels: 3, image_height: 1, image_width: 1, to_pixels: 2]
 
   alias ImagePipe.Telemetry
+  alias ImagePipe.Transform.Focal
   alias ImagePipe.Transform.State
   alias Vix.Vips.Operation
 
@@ -129,8 +130,10 @@ defmodule ImagePipe.Transform.Operation.Crop do
             | {:fp, float(), float()}
             | :smart
             | {:smart, :face_assist}
-            | {:detect, :all}
-            | {:detect, [String.t()]}
+            | {:detect,
+               {:all, %{optional(:default) => number(), optional(String.t()) => number()}}}
+            | {:detect,
+               {[String.t()], %{optional(:default) => number(), optional(String.t()) => number()}}}
             | nil,
           x_offset: length_unit() | number(),
           y_offset: length_unit() | number(),
@@ -147,8 +150,8 @@ defmodule ImagePipe.Transform.Operation.Crop do
     smart_crop(params, state, :VIPS_INTERESTING_ATTENTION)
   end
 
-  def execute(%__MODULE__{gravity: {:detect, classes}} = params, %State{} = state) do
-    detect_crop(params, state, classes)
+  def execute(%__MODULE__{gravity: {:detect, {spec, weights}}} = params, %State{} = state) do
+    detect_crop(params, state, spec, weights)
   end
 
   def execute(%__MODULE__{gravity: {:smart, :face_assist}} = params, %State{} = state) do
@@ -261,9 +264,9 @@ defmodule ImagePipe.Transform.Operation.Crop do
 
   defp face_assist_crop(%__MODULE__{} = params, %State{} = state, module, dopts) do
     with {:ok, [_ | _] = regions} <-
-           run_detect(module, dopts, state.image, ["face"], state.telemetry_opts),
+           run_detect(module, dopts, state.image, ["face"], %{}, state.telemetry_opts),
          {:ok, {:fp, fx, fy}} <-
-           focal_from_regions(regions, image_width(state), image_height(state)),
+           Focal.weighted_centroid(regions, image_width(state), image_height(state), %{}),
          {:ok, {ax, ay}} <- attention_point(params, state) do
       blended = {blend_axis(ax, fx), blend_axis(ay, fy)}
       emit_blend(state.telemetry_opts, {ax, ay}, {fx, fy}, blended)
@@ -317,21 +320,29 @@ defmodule ImagePipe.Transform.Operation.Crop do
     end
   end
 
-  defp detect_crop(%__MODULE__{} = params, %State{} = state, classes) do
+  defp detect_crop(%__MODULE__{} = params, %State{} = state, spec, weights) do
     {module, dopts} = normalize_detector(state.detector)
 
     if is_nil(module) do
-      emit_detect_skipped(classes, state.telemetry_opts)
+      emit_detect_skipped(spec, state.telemetry_opts)
       smart_crop(params, state, :VIPS_INTERESTING_ATTENTION)
     else
-      detect_crop_with_module(params, state, module, dopts, classes)
+      detect_crop_with_module(params, state, module, dopts, spec, weights)
     end
   end
 
-  defp detect_crop_with_module(%__MODULE__{} = params, %State{} = state, module, dopts, classes) do
+  defp detect_crop_with_module(
+         %__MODULE__{} = params,
+         %State{} = state,
+         module,
+         dopts,
+         spec,
+         weights
+       ) do
     with {:ok, [_ | _] = regions} <-
-           run_detect(module, dopts, state.image, classes, state.telemetry_opts),
-         {:ok, focal} <- focal_from_regions(regions, image_width(state), image_height(state)) do
+           run_detect(module, dopts, state.image, spec, weights, state.telemetry_opts),
+         {:ok, focal} <-
+           Focal.weighted_centroid(regions, image_width(state), image_height(state), weights) do
       execute(%{params | gravity: focal}, state)
     else
       _ -> smart_crop(params, state, :VIPS_INTERESTING_ATTENTION)
@@ -344,14 +355,19 @@ defmodule ImagePipe.Transform.Operation.Crop do
   defp normalize_detector({module, opts}) when is_atom(module) and is_list(opts),
     do: {module, opts}
 
-  defp run_detect(module, opts, image, classes, telemetry_opts) do
-    Telemetry.span(telemetry_opts, [:transform, :detect], %{classes: classes}, fn ->
-      detect_opts =
-        opts |> Keyword.put(:classes, classes) |> Keyword.put(:telemetry_opts, telemetry_opts)
+  defp run_detect(module, opts, image, classes, weights, telemetry_opts) do
+    Telemetry.span(
+      telemetry_opts,
+      [:transform, :detect],
+      %{classes: classes, weights: weights},
+      fn ->
+        detect_opts =
+          opts |> Keyword.put(:classes, classes) |> Keyword.put(:telemetry_opts, telemetry_opts)
 
-      result = validate_detect_result(module.detect(image, detect_opts))
-      {result, %{regions: region_count(result), result: detect_reason(result)}}
-    end)
+        result = validate_detect_result(module.detect(image, detect_opts))
+        {result, %{regions: region_count(result), result: detect_reason(result)}}
+      end
+    )
   end
 
   # A face-aware request with no detector configured runs no detection, so it
@@ -394,29 +410,6 @@ defmodule ImagePipe.Transform.Operation.Crop do
        do: true
 
   defp valid_region?(_), do: false
-
-  defp focal_from_regions(regions, image_width, image_height) do
-    in_image =
-      Enum.filter(regions, fn %{box: {x, y, w, h}} ->
-        w > 0 and h > 0 and x >= 0 and y >= 0 and x + w <= image_width and y + h <= image_height
-      end)
-
-    case in_image do
-      [] ->
-        :none
-
-      boxes ->
-        total = Enum.reduce(boxes, 0.0, fn %{box: {_x, _y, w, h}}, acc -> acc + w * h end)
-
-        {sx, sy} =
-          Enum.reduce(boxes, {0.0, 0.0}, fn %{box: {x, y, w, h}}, {ax, ay} ->
-            area = w * h
-            {ax + area * (x + w / 2), ay + area * (y + h / 2)}
-          end)
-
-        {:ok, {:fp, clamp_unit(sx / total / image_width), clamp_unit(sy / total / image_height)}}
-    end
-  end
 
   defp clamp_unit(value), do: value |> max(0.0) |> min(1.0)
 

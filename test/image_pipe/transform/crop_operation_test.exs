@@ -128,7 +128,7 @@ defmodule ImagePipe.Transform.CropOperationTest do
         width: {:pixels, 100},
         height: {:pixels, 100},
         crop_from: :gravity,
-        gravity: {:detect, ["face"]}
+        gravity: {:detect, {["face"], %{}}}
       }
 
       assert {:ok, %{image: out}} = Crop.execute(op, state)
@@ -155,7 +155,7 @@ defmodule ImagePipe.Transform.CropOperationTest do
         width: {:pixels, 100},
         height: {:pixels, 100},
         crop_from: :gravity,
-        gravity: {:detect, ["face"]}
+        gravity: {:detect, {["face"], %{}}}
       }
 
       assert {:ok, %{image: out}} = Crop.execute(op, state)
@@ -180,7 +180,7 @@ defmodule ImagePipe.Transform.CropOperationTest do
         width: {:pixels, 100},
         height: {:pixels, 100},
         crop_from: :gravity,
-        gravity: {:detect, ["face"]}
+        gravity: {:detect, {["face"], %{}}}
       }
 
       assert {:ok, %{image: _}} = Crop.execute(op, state)
@@ -196,7 +196,7 @@ defmodule ImagePipe.Transform.CropOperationTest do
         width: {:pixels, 100},
         height: {:pixels, 100},
         crop_from: :gravity,
-        gravity: {:detect, ["face"]}
+        gravity: {:detect, {["face"], %{}}}
       }
 
       assert {:ok, %{image: _}} = Crop.execute(op, state)
@@ -209,7 +209,7 @@ defmodule ImagePipe.Transform.CropOperationTest do
         width: {:pixels, 100},
         height: {:pixels, 100},
         crop_from: :gravity,
-        gravity: {:detect, ["face"]}
+        gravity: {:detect, {["face"], %{}}}
       }
 
       assert {:ok, %{image: _}} = Crop.execute(op, state)
@@ -227,7 +227,7 @@ defmodule ImagePipe.Transform.CropOperationTest do
         width: {:pixels, 100},
         height: {:pixels, 100},
         crop_from: :gravity,
-        gravity: {:detect, ["face"]}
+        gravity: {:detect, {["face"], %{}}}
       }
 
       assert {:ok, %{image: _}} = Crop.execute(op, state)
@@ -250,7 +250,7 @@ defmodule ImagePipe.Transform.CropOperationTest do
         width: {:pixels, 100},
         height: {:pixels, 100},
         crop_from: :gravity,
-        gravity: {:detect, ["face"]}
+        gravity: {:detect, {["face"], %{}}}
       }
 
       {:ok, _} = Crop.execute(op, state)
@@ -277,7 +277,7 @@ defmodule ImagePipe.Transform.CropOperationTest do
         width: {:pixels, 100},
         height: {:pixels, 100},
         crop_from: :gravity,
-        gravity: {:detect, ["face"]}
+        gravity: {:detect, {["face"], %{}}}
       }
 
       {:ok, _} = Crop.execute(op, state)
@@ -302,7 +302,7 @@ defmodule ImagePipe.Transform.CropOperationTest do
         width: {:pixels, 100},
         height: {:pixels, 100},
         crop_from: :gravity,
-        gravity: {:detect, ["face"]}
+        gravity: {:detect, {["face"], %{}}}
       }
 
       {:ok, _} = Crop.execute(op, state)
@@ -328,7 +328,7 @@ defmodule ImagePipe.Transform.CropOperationTest do
         width: {:pixels, 100},
         height: {:pixels, 100},
         crop_from: :gravity,
-        gravity: {:detect, ["face"]}
+        gravity: {:detect, {["face"], %{}}}
       }
 
       {:ok, _} = Crop.execute(op, state)

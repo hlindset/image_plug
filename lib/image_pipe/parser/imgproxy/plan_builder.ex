@@ -685,16 +685,16 @@ defmodule ImagePipe.Parser.Imgproxy.PlanBuilder do
     end
   end
 
-  # Maps imgproxy object gravity classes to a product-neutral detect guide.
-  # Bare `obj` (empty classes) or `all` anywhere collapses to the :all sentinel;
-  # otherwise the explicit class list is carried through. Shared by the fill
-  # (resize_guide) and crop (tagged_gravity) paths so they cannot diverge.
-  defp object_detect_guide(classes) do
-    if classes == [] or "all" in classes do
-      {:detect, :all}
-    else
-      {:detect, classes}
-    end
+  # Maps imgproxy object gravity to a product-neutral detect guide. Bare `obj`
+  # (empty classes) or `all` anywhere collapses spec to :all; otherwise the class
+  # list is carried through. Weights are empty for `obj`; `objw` supplies a
+  # canonical map via the /2 form. Shared by resize_guide (fill) and
+  # tagged_gravity (crop) so the paths cannot diverge.
+  defp object_detect_guide(classes), do: object_detect_guide(classes, %{})
+
+  defp object_detect_guide(classes, weights) when is_map(weights) do
+    spec = if classes == [] or "all" in classes, do: :all, else: classes
+    {:detect, {spec, weights}}
   end
 
   defp crop_anchor_guide(:center, :center), do: :center

@@ -264,9 +264,13 @@ defmodule ImagePipe.Plan.OperationKeyDataTest do
 
     test "detect :all guide encodes as classes: :all" do
       data =
-        KeyData.data(%CropGuided{width: {:px, 100}, height: {:px, 100}, guide: {:detect, :all}})
+        KeyData.data(%CropGuided{
+          width: {:px, 100},
+          height: {:px, 100},
+          guide: {:detect, {:all, %{}}}
+        })
 
-      assert Keyword.fetch!(data, :guide) == [type: :detect, classes: :all]
+      assert Keyword.fetch!(data, :guide) == [type: :detect, classes: :all, weights: %{}]
     end
 
     property "detect-guide class order does not change the guide key data" do
@@ -279,14 +283,14 @@ defmodule ImagePipe.Plan.OperationKeyDataTest do
           KeyData.data(%CropGuided{
             width: {:px, 100},
             height: {:px, 100},
-            guide: {:detect, classes}
+            guide: {:detect, {classes, %{}}}
           })
 
         b =
           KeyData.data(%CropGuided{
             width: {:px, 100},
             height: {:px, 100},
-            guide: {:detect, Enum.shuffle(classes)}
+            guide: {:detect, {Enum.shuffle(classes), %{}}}
           })
 
         assert a == b
@@ -307,7 +311,7 @@ defmodule ImagePipe.Plan.OperationKeyDataTest do
         KeyData.data(%CropGuided{
           width: {:px, 10},
           height: {:px, 10},
-          guide: {:detect, ["face"]}
+          guide: {:detect, {["face"], %{}}}
         })
 
       guides = Enum.map([smart, assist, detect], &Keyword.fetch!(&1, :guide))
@@ -319,14 +323,14 @@ defmodule ImagePipe.Plan.OperationKeyDataTest do
         KeyData.data(%CropGuided{
           width: {:px, 10},
           height: {:px, 10},
-          guide: {:detect, ["b", "a"]}
+          guide: {:detect, {["b", "a"], %{}}}
         })
 
       b =
         KeyData.data(%CropGuided{
           width: {:px, 10},
           height: {:px, 10},
-          guide: {:detect, ["a", "b"]}
+          guide: {:detect, {["a", "b"], %{}}}
         })
 
       assert Keyword.fetch!(a, :guide) == Keyword.fetch!(b, :guide)

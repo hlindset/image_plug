@@ -195,10 +195,11 @@ defmodule ImagePipe.Plan.KeyData do
 
   defp guide_data({:smart, :face_assist}), do: [type: :smart, assist: :face]
 
-  defp guide_data({:detect, :all}), do: [type: :detect, classes: :all]
+  defp guide_data({:detect, {:all, weights}}) when is_map(weights),
+    do: [type: :detect, classes: :all, weights: weights]
 
-  defp guide_data({:detect, classes}) when is_list(classes),
-    do: [type: :detect, classes: Enum.sort(classes)]
+  defp guide_data({:detect, {classes, weights}}) when is_list(classes) and is_map(weights),
+    do: [type: :detect, classes: Enum.sort(classes), weights: weights]
 
   defp resize_rule_data(data, %Resize{mode: :auto}),
     do: data ++ [rule: :imgproxy_orientation_match_v1]
