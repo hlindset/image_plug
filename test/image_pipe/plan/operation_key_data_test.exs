@@ -335,5 +335,66 @@ defmodule ImagePipe.Plan.OperationKeyDataTest do
 
       assert Keyword.fetch!(a, :guide) == Keyword.fetch!(b, :guide)
     end
+
+    test "detect weights are key material" do
+      a =
+        KeyData.data(%CropGuided{
+          width: {:px, 10},
+          height: {:px, 10},
+          guide: {:detect, {:all, %{"face" => 3.0}}}
+        })
+
+      b =
+        KeyData.data(%CropGuided{
+          width: {:px, 10},
+          height: {:px, 10},
+          guide: {:detect, {:all, %{"face" => 2.0}}}
+        })
+
+      refute Keyword.fetch!(a, :guide) == Keyword.fetch!(b, :guide)
+    end
+
+    # Spec-mandated: key_data does NOT re-canonicalize — it passes an already-
+    # canonical weights map through unchanged, so the parser (sole canonicalizer)
+    # and the cache layer cannot drift.
+    property "guide_data passes an already-canonical weights map through unchanged" do
+      check all entries <-
+                  list_of({member_of(["face", "car", "dog"]), member_of([2.0, 3.0])},
+                    max_length: 3
+                  ),
+                default <- member_of([:none, 2.0, 3.0]) do
+        weights =
+          entries
+          |> Map.new()
+          |> then(fn m -> if default == :none, do: m, else: Map.put(m, :default, default) end)
+
+        data =
+          KeyData.data(%CropGuided{
+            width: {:px, 10},
+            height: {:px, 10},
+            guide: {:detect, {:all, weights}}
+          })
+
+        assert Keyword.get(Keyword.fetch!(data, :guide), :weights) == weights
+      end
+    end
+
+    test "equal detect weights serialize identically regardless of map insertion order" do
+      a =
+        KeyData.data(%CropGuided{
+          width: {:px, 10},
+          height: {:px, 10},
+          guide: {:detect, {:all, %{:default => 2.0, "face" => 3.0}}}
+        })
+
+      b =
+        KeyData.data(%CropGuided{
+          width: {:px, 10},
+          height: {:px, 10},
+          guide: {:detect, {:all, Map.new([{"face", 3.0}, {:default, 2.0}])}}
+        })
+
+      assert Keyword.fetch!(a, :guide) == Keyword.fetch!(b, :guide)
+    end
   end
 end

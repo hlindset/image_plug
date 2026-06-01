@@ -766,6 +766,51 @@ defmodule ImagePipe.Cache.KeyTest do
     refute k1.hash == k2.hash
   end
 
+  test "canonically-equal detect weights produce the same cache key" do
+    conn = conn(:get, "/_/g:objw:all:1:face:3/w:200/h:100/plain/images/cat.jpg")
+
+    {:ok, op} =
+      Operation.crop_guided(
+        tagged_dimension(200),
+        tagged_dimension(100),
+        {:detect, {:all, %{"face" => 3.0}}}
+      )
+
+    p = plan(pipelines: [%Pipeline{operations: [op]}])
+
+    k1 = build_key!(conn, p, source_identity(), detector_identity: {Detector, :v1})
+    k2 = build_key!(conn, p, source_identity(), detector_identity: {Detector, :v1})
+
+    assert k1.hash == k2.hash
+  end
+
+  test "different detect weights produce different cache keys" do
+    conn = conn(:get, "/_/g:objw:all:1:face:3/w:200/h:100/plain/images/cat.jpg")
+
+    plan_for = fn weights ->
+      {:ok, op} =
+        Operation.crop_guided(
+          tagged_dimension(200),
+          tagged_dimension(100),
+          {:detect, {:all, weights}}
+        )
+
+      plan(pipelines: [%Pipeline{operations: [op]}])
+    end
+
+    k1 =
+      build_key!(conn, plan_for.(%{"face" => 3.0}), source_identity(),
+        detector_identity: {Detector, :v1}
+      )
+
+    k2 =
+      build_key!(conn, plan_for.(%{"face" => 2.0}), source_identity(),
+        detector_identity: {Detector, :v1}
+      )
+
+    refute k1.hash == k2.hash
+  end
+
   test "face-assist plans key differently per detector identity" do
     conn = conn(:get, "/_/g:sm/w:200/h:100/plain/images/cat.jpg")
     plan = face_assist_plan()
