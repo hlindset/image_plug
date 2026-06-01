@@ -1,0 +1,163 @@
+defmodule ImagePipe.Parser.TwicPics.PlanBuilder do
+  @moduledoc false
+
+  alias ImagePipe.Parser.TwicPics.Output
+  alias ImagePipe.Parser.TwicPics.Units
+  alias ImagePipe.Plan
+  alias ImagePipe.Plan.Operation
+  alias ImagePipe.Plan.Pipeline
+  alias ImagePipe.Plan.Source
+
+  @initial %{ops: [], guide: :center, format: :auto, quality: :default}
+
+  @spec to_plan(Source.t(), [{String.t(), String.t()}]) :: {:ok, Plan.t()} | {:error, term()}
+  def to_plan(source, chain) when is_list(chain) do
+    with {:ok, acc} <- fold(chain),
+         {:ok, output} <- Output.build(%{format: acc.format, quality: acc.quality}) do
+      {:ok,
+       %Plan{
+         source: source,
+         pipelines: [%Pipeline{operations: Enum.reverse(acc.ops)}],
+         output: output
+       }}
+    end
+  end
+
+  defp fold(chain) do
+    Enum.reduce_while(chain, {:ok, @initial}, fn {name, args}, {:ok, acc} ->
+      case apply_segment(name, args, acc) do
+        {:ok, acc} -> {:cont, {:ok, acc}}
+        {:error, _reason} = error -> {:halt, error}
+      end
+    end)
+  end
+
+  defp apply_segment("resize", args, acc), do: resize(args, acc)
+  defp apply_segment("cover", args, acc), do: cover(args, acc)
+  defp apply_segment("contain", args, acc), do: contain(args, acc)
+  defp apply_segment("inside", args, acc), do: inside(args, acc)
+  defp apply_segment("crop", args, acc), do: crop(args, acc)
+  defp apply_segment("focus", args, acc), do: focus(args, acc)
+  defp apply_segment("output", args, acc), do: output(args, acc)
+  defp apply_segment("quality", args, acc), do: quality(args, acc)
+  defp apply_segment(name, _args, _acc), do: {:error, {:unsupported_transform, name}}
+
+  defp resize(args, acc) do
+    if String.contains?(args, ":") do
+      {:error, {:unsupported_transform_ratio, "resize"}}
+    else
+      with {:ok, {w, h}} <- Units.size(args),
+           {mode, w, h} <- resize_mode(w, h),
+           {:ok, op} <- Operation.resize(mode, w, h) do
+        push(acc, op)
+      end
+    end
+  end
+
+  defp resize_mode(w, :auto), do: {:fit, w, :auto}
+  defp resize_mode(:auto, h), do: {:fit, :auto, h}
+  defp resize_mode(w, h), do: {:stretch, w, h}
+
+  defp cover(args, acc) do
+    if String.contains?(args, ":") do
+      with {:ok, {:ratio, _, _} = ratio} <- Units.ratio(args),
+           {:ok, op} <-
+             Operation.crop_guided(:full_axis, :full_axis, acc.guide, aspect_ratio: ratio) do
+        push(acc, op)
+      end
+    else
+      with {:ok, {w, h}} <- Units.size(args),
+           {:ok, op} <- Operation.resize(:cover, w, h, guide: acc.guide) do
+        push(acc, op)
+      end
+    end
+  end
+
+  defp contain(args, acc) do
+    with {:ok, {w, h}} <- Units.size(args),
+         {:ok, op} <- Operation.resize(:fit, w, h) do
+      push(acc, op)
+    end
+  end
+
+  defp inside(args, acc) do
+    if String.contains?(args, ":") do
+      {:error, {:unsupported_transform_ratio, "inside"}}
+    else
+      with {:ok, {w, h}} <- Units.size(args),
+           :ok <- pixels_only([w, h], :inside),
+           {:ok, resize} <- Operation.resize(:fit, w, h),
+           {:ok, canvas} <- Operation.canvas(w, h, :center, fill: :transparent),
+           {:ok, acc} <- push(acc, resize) do
+        push(acc, canvas)
+      end
+    end
+  end
+
+  defp crop(args, acc) do
+    case String.split(args, "@", parts: 2) do
+      [size] -> crop_guided(size, acc)
+      [size, coords] -> crop_region(size, coords, acc)
+    end
+  end
+
+  defp crop_guided(size, acc) do
+    with {:ok, {w, h}} <- Units.crop_size(size),
+         :ok <- pixels_only([w, h], :crop),
+         {:ok, op} <- Operation.crop_guided(w, h, acc.guide) do
+      push(acc, op)
+    end
+  end
+
+  defp crop_region(size, coords, acc) do
+    with {:ok, {w, h}} <- Units.size(size),
+         :ok <- pixels_only([w, h], :crop),
+         {:ok, {x, y}} <- crop_coordinates(coords),
+         {:ok, op} <- Operation.crop_region(x, y, w, h) do
+      # explicit coordinates reset the focus to center
+      push(%{acc | guide: :center}, op)
+    end
+  end
+
+  # v1 crop coordinates: pixels only (percent/scale coords deferred)
+  defp crop_coordinates(coords) do
+    case Units.coordinates(coords) do
+      {:ok, {{:px, _} = x, {:px, _} = y}} -> {:ok, {x, y}}
+      _ -> {:error, {:unsupported_crop_coordinates, coords}}
+    end
+  end
+
+  defp focus("auto", _acc), do: {:error, {:unsupported_focus, "auto"}}
+  defp focus("center", _acc), do: {:error, {:unsupported_focus, "center"}}
+
+  defp focus(args, acc) do
+    case Units.anchor(args) do
+      {:ok, guide} -> {:ok, %{acc | guide: guide}}
+      {:error, _} -> {:error, {:unsupported_focus, args}}
+    end
+  end
+
+  defp output(args, acc) do
+    with {:ok, format} <- Output.format(args), do: {:ok, %{acc | format: format}}
+  end
+
+  defp quality(args, acc) do
+    with {:ok, quality} <- Output.quality(args), do: {:ok, %{acc | quality: quality}}
+  end
+
+  defp push(acc, op), do: {:ok, %{acc | ops: [op | acc.ops]}}
+
+  # v1: crop/inside accept pixel dimensions only (crop also :full_axis for an
+  # omitted axis). Relative units (percent/scale) on crop/inside are deferred —
+  # resize/cover/contain carry full relative-unit support.
+  defp pixels_only(dims, transform) do
+    if Enum.all?(dims, &pixel_dimension?/1),
+      do: :ok,
+      else: {:error, {:unsupported_unit, transform}}
+  end
+
+  defp pixel_dimension?({:px, _}), do: true
+  defp pixel_dimension?(:auto), do: true
+  defp pixel_dimension?(:full_axis), do: true
+  defp pixel_dimension?(_), do: false
+end
