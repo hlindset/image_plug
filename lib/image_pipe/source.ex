@@ -98,9 +98,14 @@ defmodule ImagePipe.Source do
   end
 
   @spec wrap_response(Response.t(), keyword()) :: {:ok, Response.t()} | {:error, error()}
-  def wrap_response(%Response{stream: stream}, runtime_opts) do
+  def wrap_response(%Response{path: path} = response, _runtime_opts) when is_binary(path) do
+    {:ok, response}
+  end
+
+  def wrap_response(%Response{stream: stream} = response, runtime_opts)
+      when not is_nil(stream) do
     max_body_bytes = Keyword.fetch!(runtime_opts, :max_body_bytes)
-    {:ok, %Response{stream: WrappedStream.new(stream, max_body_bytes)}}
+    {:ok, %Response{response | stream: WrappedStream.new(stream, max_body_bytes)}}
   end
 
   def wrap_response(_response, _runtime_opts), do: {:error, {:source, :invalid_adapter_result}}
