@@ -646,6 +646,8 @@ defmodule ImagePipe.Parser.Imgproxy.PlanBuilder do
   defp resize_guide(:sm, _face_assist), do: {:ok, :smart}
   defp resize_guide({:obj, classes}, _face_assist), do: {:ok, object_detect_guide(classes)}
 
+  defp resize_guide({:objw, pairs}, _face_assist), do: {:ok, objw_guide(pairs)}
+
   defp resize_guide({:anchor, :center, :center}, _face_assist), do: {:ok, :center}
   defp resize_guide({:anchor, x, y}, _face_assist), do: {:ok, {:anchor, x, y}}
 
@@ -659,6 +661,8 @@ defmodule ImagePipe.Parser.Imgproxy.PlanBuilder do
   defp tagged_gravity(:sm, true), do: {:ok, {:smart, :face_assist}}
   defp tagged_gravity(:sm, _face_assist), do: {:ok, :smart}
   defp tagged_gravity({:obj, classes}, _face_assist), do: {:ok, object_detect_guide(classes)}
+
+  defp tagged_gravity({:objw, pairs}, _face_assist), do: {:ok, objw_guide(pairs)}
 
   defp tagged_gravity({:anchor, x, y}, _face_assist), do: {:ok, crop_anchor_guide(x, y)}
 
@@ -685,17 +689,48 @@ defmodule ImagePipe.Parser.Imgproxy.PlanBuilder do
     end
   end
 
-  # Maps imgproxy object gravity classes to a product-neutral detect guide.
-  # Bare `obj` (empty classes) or `all` anywhere collapses to the :all sentinel;
-  # otherwise the explicit class list is carried through. Shared by the fill
-  # (resize_guide) and crop (tagged_gravity) paths so they cannot diverge.
-  defp object_detect_guide(classes) do
-    if classes == [] or "all" in classes do
-      {:detect, :all}
-    else
-      {:detect, classes}
-    end
+  # Derives the detect guide from an objw pairs list. The named classes form the
+  # detection spec (exactly like obj); `all` broadens spec to :all and maps to
+  # :default in the weight map. Shared by resize_guide (fill) and tagged_gravity
+  # (crop) so the paths cannot diverge.
+  defp objw_guide(pairs) do
+    classes = pairs |> Enum.map(fn {class, _weight} -> class end) |> Enum.uniq()
+    object_detect_guide(classes, canonical_weights(pairs))
   end
+
+  # Maps imgproxy object gravity to a product-neutral detect guide. Bare `obj`
+  # (empty classes) or `all` anywhere collapses spec to :all; otherwise the class
+  # list is carried through. Weights are empty for `obj`; `objw` supplies a
+  # canonical map via the /2 form. Shared by resize_guide (fill) and
+  # tagged_gravity (crop) so the paths cannot diverge.
+  defp object_detect_guide(classes), do: object_detect_guide(classes, %{})
+
+  defp object_detect_guide(classes, weights) when is_map(weights) do
+    spec = if classes == [] or "all" in classes, do: :all, else: classes
+    {:detect, {spec, weights}}
+  end
+
+  # Canonicalizes raw objw pairs into the sparse plan weights map. `all` →
+  # :default; later pairs win on duplicate keys. Then the fixed-point drop rules
+  # (effective default = :default or 1.0): drop class entries equal to it, then
+  # drop :default when it is 1.0. The only place objw weights are canonicalized.
+  defp canonical_weights(pairs) do
+    raw =
+      Enum.reduce(pairs, %{}, fn {class, weight}, acc ->
+        key = if class == "all", do: :default, else: class
+        Map.put(acc, key, weight)
+      end)
+
+    eff = Map.get(raw, :default, 1.0)
+
+    raw
+    |> Enum.reject(fn {key, weight} -> key != :default and weight == eff end)
+    |> Map.new()
+    |> drop_default_one()
+  end
+
+  defp drop_default_one(%{default: 1.0} = weights), do: Map.delete(weights, :default)
+  defp drop_default_one(weights), do: weights
 
   defp crop_anchor_guide(:center, :center), do: :center
   defp crop_anchor_guide(:left, :top), do: :top_left

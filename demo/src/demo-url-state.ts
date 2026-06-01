@@ -1,5 +1,4 @@
 import {
-  cocoClasses,
   defaultDemoState,
   resetCropPixelsToSource,
   sampleImages,
@@ -14,9 +13,14 @@ import {
   type ResizeMode,
   type Rotate,
   type SourceImage,
+  type ObjSubMode,
 } from "./processing-path";
 
-const cocoClassSet = new Set<string>(cocoClasses);
+// Classes offered in the demo's object-gravity UI. A subset of COCO-80 chosen
+// to match the default source images (dog, cat) and the most common demos
+// (person, face). "all" is the pseudo-class for the weighted baseline.
+export const demoObjClasses = ["face", "person", "car", "dog", "cat"] as const;
+const demoObjClassSet = new Set<string>(demoObjClasses);
 
 export type ExpandedToolboxes = {
   effectsOpen: boolean;
@@ -702,8 +706,37 @@ function parseGravity(currentState: DemoState, args: string[]): DemoState | null
     return {
       ...currentState,
       gravityEnabled: true,
-      gravityMode: "objClasses",
-      gravityObjClasses: [],
+      gravityMode: "object",
+      objSubMode: "simple" as ObjSubMode,
+      objSelectedClasses: [],
+    };
+  }
+
+  // g:objw:%c1:%w1:…:%cN:%wN — per-class weighted object gravity
+  if (args.length >= 2 && modeOrGravity === "objw") {
+    const pairs = args.slice(1);
+    const weights = parseObjWeightPairs(pairs);
+
+    if (weights === null) {
+      return null;
+    }
+
+    // Keep only demo-offered classes plus "all". Unknown classes are silently
+    // dropped (acceptable demo limitation per spec).
+    const demoClasses = new Set(["all", ...demoObjClasses]);
+    const selectedClasses = Object.keys(weights).filter((cls) => demoClasses.has(cls));
+
+    if (selectedClasses.length === 0) {
+      return currentState;
+    }
+
+    return {
+      ...currentState,
+      gravityEnabled: true,
+      gravityMode: "object",
+      objSubMode: "weighted" as ObjSubMode,
+      objSelectedClasses: selectedClasses,
+      objWeights: Object.fromEntries(selectedClasses.map((cls) => [cls, weights[cls] ?? 1])),
     };
   }
 
@@ -719,21 +752,24 @@ function parseGravity(currentState: DemoState, args: string[]): DemoState | null
       };
     }
 
-    // g:obj:all or g:obj:%c…:all — "all" anywhere means all objects; normalize to empty selection
-    if (classes.includes("all")) {
+    // g:obj:all — "all" as the only token means all objects; normalize to empty
+    if (classes.length === 1 && classes[0] === "all") {
       return {
         ...currentState,
         gravityEnabled: true,
-        gravityMode: "objClasses",
-        gravityObjClasses: [],
+        gravityMode: "object",
+        objSubMode: "simple" as ObjSubMode,
+        objSelectedClasses: [],
       };
     }
 
-    // g:obj:%c1:…:%cN — explicit class list. The backend best-effort-drops
-    // classes no detector knows, so mirror that: keep only known COCO-80 classes
-    // (deduped). If every token is unknown the picker can't represent it (empty
-    // would read as "all objects"), so leave gravity unchanged.
-    const knownClasses = [...new Set(classes.filter((cls) => cocoClassSet.has(cls)))];
+    // g:obj:%c…:all — "all" mixed with classes: all is not a COCO class so it
+    // gets filtered out below; remaining known classes are kept.
+
+    // g:obj:%c1:…:%cN — explicit class list. Keep only demo-offered classes
+    // (deduped). If every token is unknown the picker can't represent it, so
+    // leave gravity unchanged.
+    const knownClasses = [...new Set(classes.filter((cls) => demoObjClassSet.has(cls)))];
 
     if (knownClasses.length === 0) {
       return currentState;
@@ -742,8 +778,9 @@ function parseGravity(currentState: DemoState, args: string[]): DemoState | null
     return {
       ...currentState,
       gravityEnabled: true,
-      gravityMode: "objClasses",
-      gravityObjClasses: knownClasses,
+      gravityMode: "object",
+      objSubMode: "simple" as ObjSubMode,
+      objSelectedClasses: knownClasses,
     };
   }
 
@@ -928,6 +965,36 @@ function cropGravityFromArgs(args: string[]): CropGravity | null {
 
 function isBooleanArg(value: string): boolean {
   return value === "0" || value === "1";
+}
+
+// Parses objw class/weight pairs from URL tokens into a weight record.
+// Tokens are positional: class, weight, class, weight, …
+// Returns null on odd arity, empty class tokens, or non-positive/non-numeric weights.
+function parseObjWeightPairs(tokens: string[]): Record<string, number> | null {
+  if (tokens.length === 0 || tokens.length % 2 !== 0) {
+    return null;
+  }
+
+  const weights: Record<string, number> = {};
+
+  for (let i = 0; i < tokens.length; i += 2) {
+    const cls = tokens[i];
+    const weightStr = tokens[i + 1];
+
+    if (cls === undefined || cls === "" || weightStr === undefined) {
+      return null;
+    }
+
+    const weight = parseNumber(weightStr);
+
+    if (weight === null || weight <= 0) {
+      return null;
+    }
+
+    weights[cls] = weight;
+  }
+
+  return weights;
 }
 
 function parseNumber(value: string | undefined): number | null {

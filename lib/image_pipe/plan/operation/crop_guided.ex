@@ -23,6 +23,7 @@ defmodule ImagePipe.Plan.Operation.CropGuided do
           | :bottom_left
           | :bottom
           | :bottom_right
+  @type weights :: %{optional(:default) => number(), optional(String.t()) => number()}
   @type guide ::
           anchor()
           | {:anchor, :left | :center | :right, :top | :center | :bottom}
@@ -30,8 +31,8 @@ defmodule ImagePipe.Plan.Operation.CropGuided do
              {:ratio, non_neg_integer(), pos_integer()}}
           | :smart
           | {:smart, :face_assist}
-          | {:detect, :all}
-          | {:detect, nonempty_list(String.t())}
+          | {:detect, {:all, weights()}}
+          | {:detect, {nonempty_list(String.t()), weights()}}
   @type offset :: number() | {:pixels, number()} | {:scale, number()}
 
   @type t :: %__MODULE__{

@@ -463,7 +463,7 @@ defmodule ImagePipe.Transform.PlanExecutor do
 
   defp tagged_executable_gravity(:smart), do: :smart
   defp tagged_executable_gravity({:smart, :face_assist}), do: {:smart, :face_assist}
-  defp tagged_executable_gravity({:detect, classes}), do: {:detect, classes}
+  defp tagged_executable_gravity({:detect, {spec, weights}}), do: {:detect, {spec, weights}}
 
   defp tagged_logical_pixels({:px, value}), do: value
   defp tagged_logical_pixels(_dimension), do: :unknown

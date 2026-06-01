@@ -802,7 +802,7 @@ defmodule ImagePipe.Parser.Imgproxy.PlanBuilderTest do
              )
 
     assert [%Operation.Resize{mode: :cover} = resize] = operations
-    assert resize.guide == {:detect, ["face"]}
+    assert resize.guide == {:detect, {["face"], %{}}}
   end
 
   test "maps face object gravity crop to the detect plan guide" do
@@ -815,11 +815,14 @@ defmodule ImagePipe.Parser.Imgproxy.PlanBuilderTest do
                }
              )
 
-    assert crop.guide == {:detect, ["face"]}
+    assert crop.guide == {:detect, {["face"], %{}}}
   end
 
   test "planner emits only product-neutral guide terms (no dialect leak)" do
-    for {gravity, expected_guide} <- [{:sm, :smart}, {{:obj, ["face"]}, {:detect, ["face"]}}] do
+    for {gravity, expected_guide} <- [
+          {:sm, :smart},
+          {{:obj, ["face"]}, {:detect, {["face"], %{}}}}
+        ] do
       assert {:ok, %Plan{pipelines: pipelines}} =
                plan_pipeline(
                  resizing_type: :fill,
@@ -850,7 +853,7 @@ defmodule ImagePipe.Parser.Imgproxy.PlanBuilderTest do
                gravity: {:obj, []}
              )
 
-    assert resize.guide == {:detect, :all}
+    assert resize.guide == {:detect, {:all, %{}}}
   end
 
   test "the all pseudo-class maps to detect :all (fill path)" do
@@ -862,7 +865,7 @@ defmodule ImagePipe.Parser.Imgproxy.PlanBuilderTest do
                gravity: {:obj, ["all"]}
              )
 
-    assert resize.guide == {:detect, :all}
+    assert resize.guide == {:detect, {:all, %{}}}
   end
 
   test "multi-class object gravity maps to detect with those classes (fill path)" do
@@ -874,7 +877,7 @@ defmodule ImagePipe.Parser.Imgproxy.PlanBuilderTest do
                gravity: {:obj, ["face", "cat"]}
              )
 
-    assert resize.guide == {:detect, ["face", "cat"]}
+    assert resize.guide == {:detect, {["face", "cat"], %{}}}
   end
 
   # Behavior change: numeric trailing tokens are now unknown classes dropped at
@@ -893,7 +896,7 @@ defmodule ImagePipe.Parser.Imgproxy.PlanBuilderTest do
                }
              )
 
-    assert crop.guide == {:detect, ["face", "5", "5"]}
+    assert crop.guide == {:detect, {["face", "5", "5"], %{}}}
   end
 
   test "all among classes collapses to :all (fill path)" do
@@ -905,7 +908,7 @@ defmodule ImagePipe.Parser.Imgproxy.PlanBuilderTest do
                gravity: {:obj, ["car", "all"]}
              )
 
-    assert resize.guide == {:detect, :all}
+    assert resize.guide == {:detect, {:all, %{}}}
   end
 
   test "bare object gravity maps to detect :all (crop path)" do
@@ -921,7 +924,7 @@ defmodule ImagePipe.Parser.Imgproxy.PlanBuilderTest do
                }
              )
 
-    assert crop.guide == {:detect, :all}
+    assert crop.guide == {:detect, {:all, %{}}}
   end
 
   test "the all pseudo-class maps to detect :all (crop path)" do
@@ -937,7 +940,7 @@ defmodule ImagePipe.Parser.Imgproxy.PlanBuilderTest do
                }
              )
 
-    assert crop.guide == {:detect, :all}
+    assert crop.guide == {:detect, {:all, %{}}}
   end
 
   test "multi-class object gravity maps to detect with those classes (crop path)" do
@@ -953,7 +956,7 @@ defmodule ImagePipe.Parser.Imgproxy.PlanBuilderTest do
                }
              )
 
-    assert crop.guide == {:detect, ["car", "dog"]}
+    assert crop.guide == {:detect, {["car", "dog"], %{}}}
   end
 
   test "represents output intent outside imgproxy pipeline operations" do
@@ -1127,6 +1130,109 @@ defmodule ImagePipe.Parser.Imgproxy.PlanBuilderTest do
     }
 
     assert PlanBuilder.to_plan(request, []) == {:error, {:invalid_filename, "../cat"}}
+  end
+
+  test "objw maps to detect :all with a canonical weights map" do
+    assert objw_guide([{"all", 1.0}, {"face", 3.0}]) == {:detect, {:all, %{"face" => 3.0}}}
+  end
+
+  test "objw all-baseline above 1 is carried; a class equal to default is dropped" do
+    assert objw_guide([{"all", 3.0}, {"car", 3.0}]) == {:detect, {:all, %{default: 3.0}}}
+  end
+
+  test "objw all-baseline with a below-default class" do
+    assert objw_guide([{"all", 3.0}, {"car", 1.0}]) ==
+             {:detect, {:all, %{"car" => 1.0, default: 3.0}}}
+  end
+
+  test "objw:face:3 filters to face class; objw:all:1:face:3 detects all — they differ" do
+    # objw:face:3 — named class forms the detection spec, not :all
+    assert objw_guide([{"face", 3.0}]) == {:detect, {["face"], %{"face" => 3.0}}}
+    # objw:all:1:face:3 — all broadens spec to :all; all:1 drops as default
+    assert objw_guide([{"all", 1.0}, {"face", 3.0}]) == {:detect, {:all, %{"face" => 3.0}}}
+    # They are NOT equivalent
+    refute objw_guide([{"face", 3.0}]) == objw_guide([{"all", 1.0}, {"face", 3.0}])
+  end
+
+  test "objw named classes form the detection spec (filter, like obj)" do
+    # objw:person:2:face:3 — spec is the class list, weights carry the values
+    assert objw_guide([{"person", 2.0}, {"face", 3.0}]) ==
+             {:detect, {["person", "face"], %{"person" => 2.0, "face" => 3.0}}}
+
+    # objw:face:1 — weight equals default (1), drops from map; spec is ["face"] (not :all)
+    # This is equivalent in behavior to obj:face, and its guide should match
+    assert objw_guide([{"face", 1.0}]) == {:detect, {["face"], %{}}}
+  end
+
+  test "objw uniform weights canonicalize to an empty map" do
+    assert objw_guide([{"all", 1.0}, {"face", 1.0}]) == {:detect, {:all, %{}}}
+  end
+
+  test "objw maps identically through the crop path (no fill/crop divergence)" do
+    assert {:ok, %Plan{pipelines: [%Pipeline{operations: [%Operation.CropGuided{} = crop]}]}} =
+             plan_pipeline(
+               crop: %ImagePipe.Parser.Imgproxy.CropRequest{
+                 width: {:pixels, 100},
+                 height: {:pixels, 100},
+                 gravity: {:objw, [{"all", 2.0}, {"face", 3.0}]}
+               }
+             )
+
+    assert crop.guide == {:detect, {:all, %{"face" => 3.0, default: 2.0}}}
+  end
+
+  property "objw canonicalization is order-independent" do
+    check all classes <-
+                uniq_list_of(
+                  member_of(["face", "car", "dog", "person", "cat", "bus", "truck", "bird"]),
+                  min_length: 1,
+                  max_length: 3
+                ),
+              weights <- list_of(member_of([1.0, 2.0, 3.0]), length: length(classes)),
+              default <- member_of([1.0, 2.0, 3.0]) do
+      pairs = [{"all", default} | Enum.zip(classes, weights)]
+      assert objw_guide(pairs) == objw_guide(Enum.shuffle(pairs))
+    end
+  end
+
+  property "objw canonicalization is idempotent with all-broadened spec (re-feeding canonical map)" do
+    check all classes <-
+                uniq_list_of(
+                  member_of(["face", "car", "dog", "person", "cat", "bus", "truck", "bird"]),
+                  min_length: 1,
+                  max_length: 3
+                ),
+              weights <- list_of(member_of([1.0, 2.0]), length: length(classes)),
+              default <- member_of([1.0, 2.0]) do
+      # Always include "all" so spec stays :all throughout the round-trip.
+      pairs = [{"all", default} | Enum.zip(classes, weights)]
+      {:detect, {:all, map}} = objw_guide(pairs)
+      # Rebuild pairs from the canonical map (default → "all") and re-canonicalize.
+      # Must include "all" in the repairs to preserve the :all spec.
+      repairs =
+        [
+          {"all", Map.get(map, :default, 1.0)}
+          | Enum.map(map, fn
+              {:default, _w} -> nil
+              {class, w} -> {class, w}
+            end)
+        ]
+        |> Enum.reject(&is_nil/1)
+
+      assert objw_guide(repairs) == {:detect, {:all, map}}
+    end
+  end
+
+  defp objw_guide(pairs) do
+    {:ok, %Plan{pipelines: [%Pipeline{operations: [%Operation.Resize{} = resize]}]}} =
+      plan_pipeline(
+        resizing_type: :fill,
+        width: {:pixels, 100},
+        height: {:pixels, 100},
+        gravity: {:objw, pairs}
+      )
+
+    resize.guide
   end
 
   defp pixels(value), do: {:px, value}

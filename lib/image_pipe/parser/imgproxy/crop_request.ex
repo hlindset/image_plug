@@ -6,6 +6,8 @@ defmodule ImagePipe.Parser.Imgproxy.CropRequest do
   @type gravity() ::
           {:anchor, :left | :center | :right, :top | :center | :bottom}
           | {:fp, float(), float()}
+          | {:obj, [String.t()]}
+          | {:objw, [{String.t(), float()}]}
           | :sm
           | nil
 

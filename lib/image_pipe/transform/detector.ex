@@ -32,7 +32,17 @@ defmodule ImagePipe.Transform.Detector do
   """
   @callback supported_classes(opts :: keyword()) :: [String.t()]
 
-  @doc "Detect regions of interest. `opts` carries `:classes`."
+  @doc """
+  Detect regions of interest.
+
+  `opts` carries `:classes` — a list of requested class names (URL-facing
+  spelling) or `:all`. Implementations MUST return only regions whose `label`
+  is in the requested set; `:all` means any class. The caller treats the
+  returned regions as authoritative for focal targeting and telemetry, so a
+  detector must not surface classes the request did not ask for. The bundled
+  `Composite` honors this by routing each class to the child that claims it,
+  and the object adapter additionally filters its output to the requested set.
+  """
   @callback detect(image :: Vix.Vips.Image.t(), opts :: keyword()) ::
               {:ok, [region()]} | {:error, term()}
 

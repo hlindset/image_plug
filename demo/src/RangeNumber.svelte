@@ -8,6 +8,8 @@
   export let step = 1;
   export let inputStep: number | "any" = step;
   export let suffix: string | undefined = undefined;
+  // Optional callback for controlled usage (when bind:value isn't available).
+  export let onValueChange: ((value: number) => void) | undefined = undefined;
   let decimalInputValue = String(value);
   let editingDecimalInput = false;
 
@@ -39,6 +41,7 @@
 
     if (input instanceof HTMLInputElement && !Number.isNaN(input.valueAsNumber)) {
       value = clamp(input.valueAsNumber);
+      onValueChange?.(value);
     }
   }
 
@@ -82,6 +85,7 @@
 
     if (parsed !== null) {
       value = clamp(parsed);
+      onValueChange?.(value);
     }
 
     decimalInputValue = String(value);
@@ -107,6 +111,7 @@
   function syncSlider(nextValue: number): void {
     editingDecimalInput = false;
     value = clamp(nextValue);
+    onValueChange?.(value);
   }
 </script>
 

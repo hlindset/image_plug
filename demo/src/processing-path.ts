@@ -2,7 +2,10 @@ import { sampleImages } from "virtual:sample-images";
 
 export type ResizeMode = "fit" | "fill" | "fill-down" | "force" | "auto";
 export type Gravity = "ce" | "no" | "so" | "ea" | "we" | "noea" | "nowe" | "soea" | "sowe";
-export type GravityMode = "anchor" | "focalPoint" | "offset" | "smart" | "objFace" | "objClasses";
+export type GravityMode = "anchor" | "focalPoint" | "offset" | "smart" | "objFace" | "object";
+
+// Sub-mode for the unified "object" gravity mode.
+export type ObjSubMode = "simple" | "weighted";
 export type CropGravity = "inherit" | Gravity | "sm" | "obj:face" | "obj" | "obj:all";
 export type CropDimensionUnit = "px" | "percent" | "full";
 export type ResizeDimensionUnit = "px" | "auto";
@@ -158,8 +161,14 @@ export type DemoState = {
   gravityFocalY: number;
   gravityOffsetX: number;
   gravityOffsetY: number;
-  // Object-class gravity: empty array = bare obj (all classes); explicit class list otherwise.
-  gravityObjClasses: string[];
+  // Unified object-gravity sub-mode (used when gravityMode === "object").
+  objSubMode: ObjSubMode;
+  // Selected object classes. Empty = all objects (bare g:obj). May include the
+  // pseudo-class "all" in weighted mode to set the baseline weight.
+  objSelectedClasses: string[];
+  // Per-class weights for weighted sub-mode. Keyed by class name (including "all").
+  // Any selected class not in this map defaults to weight 1.
+  objWeights: Record<string, number>;
   enlarge: boolean;
   cropEnabled: boolean;
   cropWidthUnit: CropDimensionUnit;
@@ -347,7 +356,9 @@ export const defaultDemoState: DemoState = {
   gravityFocalY: 0.5,
   gravityOffsetX: 0,
   gravityOffsetY: 0,
-  gravityObjClasses: [],
+  objSubMode: "simple",
+  objSelectedClasses: [],
+  objWeights: {},
   enlarge: false,
   cropEnabled: false,
   cropWidthUnit: "px",
@@ -603,8 +614,8 @@ export function gravitySegment(currentState: DemoState): string {
     return "g:obj:face";
   }
 
-  if (currentState.gravityMode === "objClasses") {
-    return objGravitySegment(currentState.gravityObjClasses);
+  if (currentState.gravityMode === "object") {
+    return objGravitySegmentFromState(currentState);
   }
 
   if (currentState.gravityMode === "focalPoint") {
@@ -624,6 +635,48 @@ export function objGravitySegment(classes: string[]): string {
   }
 
   return `g:obj:${classes.join(":")}`;
+}
+
+// Builds the g:obj or g:objw segment from the unified object-gravity state.
+//
+// Rules:
+// - Empty selection (either sub-mode) → g:obj (all objects).
+// - Simple sub-mode → g:obj:<class>... (sorted for stable URLs); empty → g:obj.
+// - Weighted sub-mode:
+//   - All selected weights equal (uniform) → emit g:obj form (a uniform weight
+//     is inert for filtering; the class list still filters detection).
+//   - Otherwise → emit g:objw:<class>:<weight>... for ALL selected classes
+//     verbatim, including class:1 entries (the class token is load-bearing).
+export function objGravitySegmentFromState(currentState: DemoState): string {
+  const { objSubMode, objSelectedClasses, objWeights } = currentState;
+
+  if (objSelectedClasses.length === 0) {
+    return "g:obj";
+  }
+
+  if (objSubMode === "simple") {
+    const sorted = [...objSelectedClasses].sort();
+
+    return `g:obj:${sorted.join(":")}`;
+  }
+
+  // Weighted sub-mode: check whether all selected weights are equal (uniform).
+  const weights = objSelectedClasses.map((cls) => objWeights[cls] ?? 1);
+  const firstWeight = weights[0] ?? 1;
+  const allUniform = weights.every((w) => w === firstWeight);
+
+  if (allUniform) {
+    // Uniform weights are inert — emit the compact obj form.
+    const sorted = [...objSelectedClasses].sort();
+
+    return `g:obj:${sorted.join(":")}`;
+  }
+
+  // Non-uniform: emit g:objw verbatim (sorted by class name for stable URLs).
+  const sorted = [...objSelectedClasses].sort();
+  const pairs = sorted.flatMap((cls) => [cls, String(objWeights[cls] ?? 1)]);
+
+  return `g:objw:${pairs.join(":")}`;
 }
 
 export function focalPointFromBounds(
