@@ -367,7 +367,6 @@ defmodule ImagePipe.Source.HTTPTest do
     assert {:ok, opts} =
              HTTP.validate_options(
                allowed_hosts: ["::1"],
-               address_resolver: stub_resolver(%{"::1" => {:ok, [{0, 0, 0, 0, 0, 0, 0, 1}]}}),
                address_policy: [allow_loopback: true],
                req_options: [plug: plug]
              )
