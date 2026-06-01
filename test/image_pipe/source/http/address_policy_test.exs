@@ -24,4 +24,32 @@ defmodule ImagePipe.Source.HTTP.AddressPolicyTest do
       assert AddressPolicy.classify({8, 8, 8, 8}) == :public
     end
   end
+
+  describe "classify/1 IPv6 and canonicalization" do
+    test "categorizes native IPv6 ranges" do
+      assert AddressPolicy.classify({0, 0, 0, 0, 0, 0, 0, 0}) == :unspecified
+      assert AddressPolicy.classify({0, 0, 0, 0, 0, 0, 0, 1}) == :loopback
+      assert AddressPolicy.classify({0xFE80, 0, 0, 0, 0, 0, 0, 1}) == :link_local
+      assert AddressPolicy.classify({0xFC00, 0, 0, 0, 0, 0, 0, 1}) == :unique_local
+      assert AddressPolicy.classify({0xFD00, 0, 0, 0, 0, 0, 0, 1}) == :unique_local
+      assert AddressPolicy.classify({0xFF00, 0, 0, 0, 0, 0, 0, 1}) == :multicast
+      assert AddressPolicy.classify({0x2606, 0x2800, 0, 0, 0, 0, 0, 1}) == :public
+    end
+
+    test "unwraps IPv4-mapped IPv6 and classifies by embedded v4 (dotted and hex spellings)" do
+      assert AddressPolicy.classify({0, 0, 0, 0, 0, 0xFFFF, 0x0A00, 0x0001}) == :private
+      assert AddressPolicy.classify({0, 0, 0, 0, 0, 0xFFFF, 0x7F00, 0x0001}) == :loopback
+      assert AddressPolicy.classify({0, 0, 0, 0, 0, 0xFFFF, 0x5DB8, 0xD822}) == :public
+    end
+
+    test "blocks NAT64 and unwraps 6to4 by embedded v4" do
+      assert AddressPolicy.classify({0x64, 0xFF9B, 0, 0, 0, 0, 0x0A00, 0x0001}) == :reserved
+      assert AddressPolicy.classify({0x2002, 0x7F00, 0x0001, 0, 0, 0, 0, 0}) == :loopback
+      assert AddressPolicy.classify({0x2002, 0x5DB8, 0xD822, 0, 0, 0, 0, 0}) == :public
+    end
+
+    test "unknown IPv6 never defaults to :public (deny-default)" do
+      refute AddressPolicy.classify({0x3FFF, 0, 0, 0, 0, 0, 0, 1}) == :public
+    end
+  end
 end

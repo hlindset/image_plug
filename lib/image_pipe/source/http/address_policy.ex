@@ -14,9 +14,40 @@ defmodule ImagePipe.Source.HTTP.AddressPolicy do
           | :public
 
   @spec classify(:inet.ip_address()) :: category()
-  def classify({a, b, c, d}) do
-    classify_v4(a, b, c, d)
+  def classify({a, b, c, d}), do: classify_v4(a, b, c, d)
+
+  def classify({_, _, _, _, _, _, _, _} = v6) do
+    case canonicalize_v6(v6) do
+      {:v4, {a, b, c, d}} -> classify_v4(a, b, c, d)
+      {:v6, v6} -> classify_v6(v6)
+    end
   end
+
+  # IPv4-mapped ::ffff:0:0/96
+  defp canonicalize_v6({0, 0, 0, 0, 0, 0xFFFF, g, h}), do: {:v4, embed_v4(g, h)}
+  # 6to4 2002::/16 embeds v4 in the next two groups
+  defp canonicalize_v6({0x2002, g, h, _, _, _, _, _}), do: {:v4, embed_v4(g, h)}
+  defp canonicalize_v6(v6), do: {:v6, v6}
+
+  defp embed_v4(g, h) do
+    <<a, b>> = <<g::16>>
+    <<c, d>> = <<h::16>>
+    {a, b, c, d}
+  end
+
+  defp classify_v6({0, 0, 0, 0, 0, 0, 0, 0}), do: :unspecified
+  defp classify_v6({0, 0, 0, 0, 0, 0, 0, 1}), do: :loopback
+  # NAT64 64:ff9b::/96 — treat as non-public (we did not embed-unwrap it)
+  defp classify_v6({0x64, 0xFF9B, 0, 0, 0, 0, _, _}), do: :reserved
+  defp classify_v6({a, _, _, _, _, _, _, _}) when a >= 0xFE80 and a <= 0xFEBF, do: :link_local
+  defp classify_v6({a, _, _, _, _, _, _, _}) when a >= 0xFC00 and a <= 0xFDFF, do: :unique_local
+  defp classify_v6({a, _, _, _, _, _, _, _}) when a >= 0xFF00, do: :multicast
+
+  # 3fff::/20 reserved for documentation (RFC 9637) — MUST come BEFORE the 2000..3FFF public clause
+  defp classify_v6({0x3FFF, b, _, _, _, _, _, _}) when b < 0x1000, do: :reserved
+  # Global unicast 2000::/3 is the only public v6 space; everything else denies.
+  defp classify_v6({a, _, _, _, _, _, _, _}) when a >= 0x2000 and a <= 0x3FFF, do: :public
+  defp classify_v6(_), do: :reserved
 
   defp classify_v4(0, _, _, _), do: :unspecified
   defp classify_v4(127, _, _, _), do: :loopback
