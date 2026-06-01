@@ -1,6 +1,10 @@
 # Object-oriented gravity — Slice 2 (`objw` per-class weights): design
 
-**Status:** reviewed design, ready for implementation planning.
+**Status:** reviewed design, ready for implementation planning. Revised after a
+parallel four-reviewer pass (architecture/boundaries, weight math/canonicalization,
+imgproxy parser compat, cache-key/test-strategy) — accepted feedback folded in:
+complete reshape-site list, single-home canonicalization fixed point, weights-map
+serialization determinism, variable-arity parser path, and expanded test plan.
 
 **Depends on:** Slice 1 (general object gravity) — landed in `240d11a`
 ("General object gravity (Slice 1): multi-class `g:obj` via a Composite
@@ -74,6 +78,34 @@ from numerator and denominator — so `objw:all:6:car:2` and `objw:all:3:car:1`
 produce the *same crop* but *different* cache keys. That minor key redundancy is
 accepted in exchange for faithful, integer-friendly values and honest telemetry.
 
+#### Canonicalization algorithm (single home, fixed order)
+
+The drop rules are order-sensitive ("effective default" depends on whether
+`:default` is still present), so the algorithm is pinned exactly, computed in
+**one place** — the parser/plan builder is the **sole** canonicalizer:
+
+1. Let `eff = weights[:default] || 1`.
+2. Drop every class entry whose value equals `eff`.
+3. Drop `:default` iff `eff == 1`.
+
+The result is idempotent and total. **`key_data` does not re-canonicalize** — it
+serializes the already-canonical map (sorting only). An implementation property
+test asserts (a) idempotence and (b) that `key_data` serialization is a no-op on
+canonicalization given canonical input, so the parser and cache layers cannot
+drift. This converts canonicalization soundness from "holds if both layers agree"
+to "holds by construction."
+
+**Why this is cache-safe.** The crop is a pure function of the weight-resolution
+function `w(label) = Map.get(weights, label, Map.get(weights, :default, 1))`. Both
+drop rules only remove entries that are *already redundant under that exact
+resolution*, so the canonical map resolves every label identically to the
+pre-canonical map. Therefore *same canonical map ⟹ identical `w(label)` for every
+label ⟹ identical crop* — there is no "different pixels, same key" collapse. The
+only redundancy is the benign direction (same crop, different key), e.g.
+`objw:all:6:car:2` vs `objw:all:3:car:1`, or a weight named for a class no detector
+emits (`objw:all:1:unicorn:5` ≡ `obj:all` in pixels but keyed distinctly — expected,
+not a bug; the vocabulary-free parser cannot reject unknown classes).
+
 ### Grammar → guide mapping
 
 | URL gravity        | `spec`               | `weights`                  |
@@ -83,31 +115,89 @@ accepted in exchange for faithful, integer-friendly values and honest telemetry.
 | `obj:person:face`  | `["person", "face"]` | `%{}`                      |
 | `objw:face:3`      | `:all`               | `%{"face" => 3}`           |
 | `objw:all:1:face:3`| `:all`               | `%{"face" => 3}`           |
+| `objw:all:2`       | `:all`               | `%{default: 2}`            |
 | `objw:all:3:car:1` | `:all`               | `%{default: 3, "car" => 1}`|
 | `objw:all:3:car:3` | `:all`               | `%{default: 3}`            |
+| `objw` (no pairs)  | —                    | **parse error** (reject)   |
 
 `objw:face:3` and `objw:all:1:face:3` are equivalent and canonicalize to the same
-guide.
+guide. `objw:all:2` (baseline-only) is uniform-at-2, the same crop as `obj:all`
+but a distinct key.
 
-### Reshape in place (greenfield)
+### How weights reach the centroid (carrier)
 
-- `lib/image_pipe/plan/operation/crop_guided.ex`, `resize.ex` — guide typespec.
-- `lib/image_pipe/parser/imgproxy/plan_builder.ex` — `object_detect_guide/1`
-  emits the `{spec, weights}` payload; shared by the fill (`resize_guide`) and
-  crop (`tagged_gravity`) paths.
-- `lib/image_pipe/plan.ex` — `detect_classes/1` reads `spec` from the new tuple.
-- `lib/image_pipe/plan/key_data.ex` — serialize the weights map.
-- `lib/image_pipe/transform/operation/crop.ex` — `focal_from_regions/3`.
+The executable `Crop` struct has **no weights field today**, and we add none. The
+detect guide already rides on the executable `gravity` field as `{:detect, spec}`
+([crop.ex:150](../../../lib/image_pipe/transform/operation/crop.ex)); we extend it
+to `{:detect, {spec, weights}}`. `execute/2` destructures `weights` at the detect
+path and passes it to `focal_from_regions`, *then* rewrites `gravity` to the
+computed `{:fp, x, y}` focal point (as today). Weights are consumed before gravity
+is overwritten, so no struct field is needed — weights flow exactly where `spec`
+already flows.
+
+### Reshape in place (greenfield) — complete site list
+
+The guide shape changes from `{:detect, spec}` to `{:detect, {spec, weights}}`,
+which touches **every** producer, validator, unwrapper, and consumer of the detect
+guide. The full set (verified against the landed Slice 1 code):
+
+- **Typespecs:** `lib/image_pipe/plan/operation/crop_guided.ex`, `resize.ex`, and
+  the executable `lib/image_pipe/transform/operation/crop.ex` gravity typespec
+  (~`:127`).
+- **Guide validator:** `lib/image_pipe/plan/operation.ex` — `smart_guide/1`
+  (~`:679–690`) validates the guide at construction; its `{:detect, :all}` /
+  `{:detect, classes}` clauses must accept the nested tuple, else every `obj`/`objw`
+  request fails construction with `{:error, :guide}`.
+- **Parser/plan builder:** `lib/image_pipe/parser/imgproxy/plan_builder.ex` —
+  `object_detect_guide/2` (was `/1`) takes classes **and** weights and emits the
+  canonical `{:detect, {spec, weights}}`; shared by `resize_guide` (fill) and
+  `tagged_gravity` (crop) so the paths cannot diverge. This module is the **sole
+  canonicalizer** (see Canonicalization algorithm).
+- **Guide unwrapper:** `lib/image_pipe/transform/plan_executor.ex` —
+  `tagged_executable_gravity({:detect, …})` (~`:466`) forwards the guide onto the
+  executable `Crop` struct; must forward the nested tuple intact.
+- **`detect_classes/1`:** `lib/image_pipe/plan.ex` (~`:90–105`) — must match
+  `{:detect, {spec, _weights}}` and reduce over `spec` only. **Weights never affect
+  the spec, gating, or detector identity.** (The current `{:detect, classes}` clause
+  would otherwise bind `classes = {spec, weights}` and crash the `classes ++ acc`.)
+- **Cache key:** `lib/image_pipe/plan/key_data.ex` — `guide_data/1` (~`:198–201`)
+  serializes the **already-canonical** weights map (see Cache key for the exact
+  shape).
+- **Centroid:** `lib/image_pipe/transform/operation/crop.ex` —
+  `focal_from_regions/3` gains the weights map (new arity), and the detect call
+  sites that invoke it (`detect_crop_with_module/5` ~`:334` and the cover/face path
+  ~`:266`) thread the same weights. `run_detect/5` (~`:347`) gains the resolved
+  weights for telemetry.
 
 ## Parser grammar
 
-Add `objw` parsing alongside `obj` in
-`lib/image_pipe/parser/imgproxy/option_grammar.ex`, mirroring Slice 1's dual
-gravity/crop entry points so the fill and crop paths cannot diverge.
+`objw:%c1:%w1:…:%cN:%wN` is **variable-arity** (unbounded repeating class/weight
+pairs). It therefore **cannot** use the declarative `@special_specs` mechanism
+(`option_grammar.ex`), which is strictly fixed-arity. `objw` is added as new
+clauses in the same **bespoke** path `obj` already uses — and `obj` has **four**
+entry points, all of which need `objw` siblings or the relevant form silently
+falls through to `:invalid_option_segment`:
+
+- `parse_gravity(["obj" | …])` — the `g:` gravity form.
+- `parse_crop_gravity(["obj" | …])` — the 3-arg crop-gravity form.
+- the inline `parse_crop([w, h, "obj" | …])` clause — the `c:W:H:obj:…` form.
+- the resulting guide flows through `object_detect_guide/2` (shared by
+  `resize_guide` and `tagged_gravity`), so fill and crop cannot diverge there.
 
 - The parser stays **vocabulary-free**: it carries class *strings* and *weights*,
   never enumerating a model's classes. The `all` → `:default` translation (an
   imgproxy keyword → product-neutral role name) happens at this boundary.
+- **Pair structure & malformed input.** Tokens are positional class/weight pairs.
+  Reject, with a clear parse error, at the parser boundary: odd token count
+  (unpaired class), an empty class token, and a missing/empty/non-numeric weight.
+  Reuse the existing `parse_positive_float/1` (`{:invalid_positive_float, value}`)
+  for weight values and the `obj`-path arity error (`:invalid_option_segment`) for
+  pairing. Bare `objw` (no pairs) is a reject.
+- **No decimal/class ambiguity.** Disambiguation is *positional*, not lexical: a
+  weight is always parsed as a number in the weight slot, a class is always an
+  opaque string in the class slot. The colon delimiter makes `2.5` a single token,
+  and COCO-style class labels are never bare numerals, so `2.5` can never be
+  mistaken for a class.
 - **Weight values: positive numbers, decimals allowed (`2.5` is legal), `≤ 0`
   rejected at parse with a clear error.** Rationale:
   - A negative weight is nonsense for a centroid (it would push the crop *away*,
@@ -132,10 +222,23 @@ focal = Σ(pullᵢ · centerᵢ) / Σ(pullᵢ)
 pullᵢ = classWeight(labelᵢ) · √areaᵢ
 ```
 
-`classWeight` resolves a region's `label` against the weights map, falling back to
-the `:default` baseline (or `1` when `:default` is absent). The Composite detector
-already preserves each region's `label` (Slice 1 guarantee), so no detector change
-is needed to weight per class.
+`classWeight` resolves a region's `label` against the weights map with a single
+total fallback:
+
+```elixir
+classWeight(label, weights) =
+  Map.get(weights, label, Map.get(weights, :default, 1))
+```
+
+This covers every edge unambiguously: empty map → every label resolves to `1`
+(uniform, the Slice 1 migration); a `label` not in the map → falls to `:default`,
+else `1`; a `label: nil` region → same fallback (no guard needed). The Composite
+detector already preserves each region's `label` (Slice 1 guarantee), so no
+detector change is needed to weight per class.
+
+`focal_from_regions` gains the weights map as a new argument and both detect call
+sites pass the **same** map (the guided path and the cover/face path), so they
+cannot diverge.
 
 ### Formula: committed to `weight·√area` (no toggle)
 
@@ -194,15 +297,27 @@ an on/off switch, but it does not erase it.
 
 ## Cache key
 
-Weights change pixels, so they are key material. `key_data` serializes the
-canonical weights map — the `:default` entry (when present) plus class entries
-sorted by class name — into the detect guide's key data, alongside the existing
-`spec` serialization (`:all` sentinel or sorted class list).
+Weights change pixels, so they are key material. `guide_data/1` serializes the
+detect guide as `[type: :detect, classes: <:all | sorted list>, weights: <map>]` —
+i.e. the weights ride as a **map value**, not a list of pairs.
+
+**Determinism trap (must follow):** `Cache.Key.canonicalize/1` deep-sorts *maps*
+and *keyword lists* by key, but a bare list of `{string, number}` pairs is **not**
+a keyword list (string keys aren't atoms) and would be left in insertion order →
+nondeterministic key. So weights **must** be emitted as a `%{}` map (which
+`canonicalize/1` reorders by Erlang term order — atoms before binaries, total and
+stable), or be explicitly pre-sorted before encoding. Emitting a raw pair list is
+the one shape to avoid.
 
 - Equal weights expressed in different URL order → **same** key.
 - Different weights → **different** key.
 - `objw:all:6:car:2` vs `objw:all:3:car:1` → different keys despite identical
   crops (accepted redundancy; see "sparse and canonical" above).
+
+The weights ride inside the operation's `:guide` field, which already flows through
+`plan_material → pipelines → KeyData.data` and into the hash/ETag, so weights become
+part of response identity with no extra plumbing. Detector identity is orthogonal
+(weights are a request axis, not a detector axis) and unchanged.
 
 No key-data version bump: greenfield, reshape the canonical key data and update
 tests in place (per the repo's cache guideline).
@@ -217,7 +332,8 @@ Weights are product-neutral and derived entirely from the public request (not a
 path, signature, or filename), so they are safe to emit by default — they are not
 the sensitive category the telemetry guidelines guard against. The default Logger
 surfaces `weights:` next to `classes:`. Emitting the *resolved* map (not the raw
-URL text) means telemetry reflects what actually drove the crop.
+URL text) means telemetry reflects what actually drove the crop. `run_detect/5`'s
+signature/call site gains the resolved weights so the span can carry them.
 
 ## Demo
 
@@ -236,15 +352,37 @@ change (per the repo's demo guideline).
 ## Tests
 
 - **Parser:** `objw:%class:%weight:…` grammar, `:default` baseline + per-class
-  override, order-insensitivity, both `g:` and `c:` forms, `≤ 0` rejection.
+  override, order-insensitivity, both `g:` and `c:` forms. Malformed rejection —
+  `≤ 0`, odd arity (unpaired class), empty class token, missing/non-numeric weight,
+  bare `objw`. Assert the **user-visible outcome** (rejection / HTTP failure before
+  source/cache access), **not** the private error-string text.
 - **Request-boundary pixel test (mandatory):** decode the response body and prove a
   face weight boost *actually moves the crop* — `objw:all:1:face:3` vs `obj:all`
   produce different crops, biased toward the face — using the injected
-  `ImagePipe.Test.FakeDetector` for determinism (per Slice 1's harness). This is
-  the empirical check that vindicates `√area`. Cover the no-geometry form
-  separately if applicable.
+  `ImagePipe.Test.FakeDetector` (configurable multi-box labeled result) for
+  determinism (per Slice 1's harness). This is the empirical check that vindicates
+  `√area`.
+- **`c:W:H:` crop form:** the `g:` pixel test covers only the `resize_guide` path.
+  Add a crop-form check that `objw` weights reach the `tagged_gravity` path — at
+  minimum a parser/planner assertion that `c:` carries the same `{spec, weights}`
+  guide, ideally one representative crop-form wire result — so fill and crop can't
+  silently diverge.
+- **No-geometry form (required):** `objw:all:1:face:3` with no resize/crop → `200`,
+  mirroring the Slice 1 `g:obj:car` no-geometry test.
 - **Cache key:** weights are key material — different weights → different key;
-  reordered-equal weights → same key.
+  reordered-equal weights → same key. Plus a **wire-level cache-reuse** test: two
+  semantically-equal `objw` URLs (reordered pairs, and the `face:3` ≡ `all:1:face:3`
+  canonicalization) hit the same key → second request is a cache hit / no second
+  source fetch.
+- **Canonicalization property test:** idempotence of the drop-rule fixed point, and
+  that `key_data` serialization is a no-op on already-canonical input (parser and
+  cache layers cannot drift).
+- **`√area` regression guard:** the formula change alters Slice 1's equal-weight
+  multi-region crops (pure `area` → `√area`). Pin the new equal-weight behavior with
+  a focused 2+ region centroid/pixel test, and audit existing Slice 1 focal-coordinate
+  assertions for the shift, so the change is intentional-and-asserted.
+- **Telemetry:** assert `weights:` appears in `[:transform, :detect]` metadata
+  (matching the Slice 1 logger-test precedent).
 - No formula-toggle test exists (there is no toggle).
 
 Keep wire-level compatibility tests representative, not exhaustive: option-order
