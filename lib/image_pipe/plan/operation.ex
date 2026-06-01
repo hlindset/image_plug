@@ -561,6 +561,12 @@ defmodule ImagePipe.Plan.Operation do
   defp tagged_resize_dimension({:px, value}) when is_integer(value) and value > 0,
     do: {:ok, {:px, value}}
 
+  defp tagged_resize_dimension({:percent, value}) when is_number(value) and value > 0,
+    do: {:ok, {:percent, value}}
+
+  defp tagged_resize_dimension({:scale, value}) when is_number(value) and value > 0,
+    do: {:ok, {:scale, value}}
+
   defp tagged_resize_dimension(_dimension), do: {:error, :dimension}
 
   defp optional_tagged_resize_dimension(attrs, key) do
