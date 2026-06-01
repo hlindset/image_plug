@@ -1,8 +1,10 @@
 defmodule ImagePipe.Source.Response do
   @moduledoc false
 
-  @enforce_keys [:stream]
-  defstruct @enforce_keys
+  defstruct stream: nil, path: nil
 
-  @type t :: %__MODULE__{stream: Enumerable.t()}
+  @type t :: %__MODULE__{
+          stream: Enumerable.t() | nil,
+          path: Path.t() | nil
+        }
 end
