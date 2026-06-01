@@ -17,59 +17,16 @@ defmodule ImagePipe.Request.ProcessorTest do
   alias ImagePipe.Transform.State
   alias Vix.Vips.Image, as: VipsImage
 
-  defmodule DecodeRaisesSourceStreamError do
-    def open(stream, _decode_options) do
-      _ = Enum.to_list(stream)
-      {:error, :should_not_reach_decode}
+  defmodule RecordingPathOpen do
+    def open(input, opts) do
+      send(message_target(), {:opened_input, input})
+      Image.open(input, opts)
     end
-  end
 
-  defmodule DecodeConsumesBodyLimitThenReturnsDecodeError do
-    def open(stream, _decode_options) do
-      parent = self()
-      ref = make_ref()
-
-      spawn(fn ->
-        result =
-          try do
-            _ = Enum.to_list(stream)
-            :completed
-          rescue
-            exception in [Source.StreamError] -> {:source_error, exception.reason}
-          end
-
-        send(parent, {ref, result})
-      end)
-
-      receive do
-        {^ref, {:source_error, :body_too_large}} -> {:error, :forced_decode_error}
-      after
-        1_000 -> {:error, :stream_did_not_hit_body_limit}
-      end
-    end
-  end
-
-  defmodule DecodeConsumesStreamErrorThenReturnsDecodeError do
-    def open(stream, _decode_options) do
-      parent = self()
-      ref = make_ref()
-
-      spawn(fn ->
-        result =
-          try do
-            _ = Enum.to_list(stream)
-            :completed
-          rescue
-            exception in [Source.StreamError] -> {:source_error, exception.reason}
-          end
-
-        send(parent, {ref, result})
-      end)
-
-      receive do
-        {^ref, {:source_error, :stream_exception}} -> {:error, :forced_decode_error}
-      after
-        1_000 -> {:error, :stream_did_not_fail}
+    defp message_target do
+      case Process.get(:"$callers") do
+        [pid | _rest] when is_pid(pid) -> pid
+        _callers -> self()
       end
     end
   end
@@ -304,42 +261,36 @@ defmodule ImagePipe.Request.ProcessorTest do
     assert {:ok, response} = Source.wrap_response(response, max_body_bytes: 20)
 
     assert {:error, {:source, :stream_exception}} =
+             Processor.decode_validate_source_response(response, plan(), opts())
+  end
+
+  test "decode_validate_source_response opens a path response via the path" do
+    response = %Response{path: "priv/static/images/beach.jpg"}
+
+    assert {:ok, %{image: image}} =
              Processor.decode_validate_source_response(
                response,
                plan(),
-               Keyword.put(opts(), :image_open_module, DecodeRaisesSourceStreamError)
+               Keyword.put(opts(), :image_open_module, RecordingPathOpen)
              )
+
+    assert VipsImage.width(image) > 0
+    assert_received {:opened_input, "priv/static/images/beach.jpg"}
   end
 
-  test "body limit errors beat later decode errors from another stream consumer process" do
+  test "oversized stream body fails closed before decode is attempted" do
     body = File.read!("priv/static/images/beach.jpg")
 
+    {:ok, response} =
+      Source.wrap_response(%Response{stream: [body]}, max_body_bytes: byte_size(body) - 1)
+
     assert {:error, {:source, :body_too_large}} =
-             Processor.fetch_decode_validate_source_with_source_format(
-               plan(),
-               resolved_source(),
-               opts()
-               |> Keyword.put(:max_body_bytes, byte_size(body) - 1)
-               |> Keyword.put(
-                 :image_open_module,
-                 DecodeConsumesBodyLimitThenReturnsDecodeError
-               )
-             )
-  end
-
-  test "source stream errors beat later decode errors from another stream consumer process" do
-    response = %Response{stream: Stream.map([:raise], fn _ -> raise "raw stream failure" end)}
-    assert {:ok, response} = Source.wrap_response(response, max_body_bytes: 20)
-
-    assert {:error, {:source, :stream_exception}} =
              Processor.decode_validate_source_response(
                response,
                plan(),
-               Keyword.put(
-                 opts(),
-                 :image_open_module,
-                 DecodeConsumesStreamErrorThenReturnsDecodeError
-               )
+               Keyword.put(opts(), :image_open_module, RecordingPathOpen)
              )
+
+    refute_received {:opened_input, _input}
   end
 end

@@ -159,15 +159,25 @@ defmodule ImagePipe.Request.Processor do
   defp decode_source_response(%Source.Response{} = source_response, decode_options, opts) do
     image_open_module = Keyword.get(opts, :image_open_module, Image)
 
-    source_response.stream
-    |> image_open_module.open(decode_options)
-    |> prefer_source_stream_error(source_response)
+    with {:ok, input} <- seekable_input(source_response) do
+      input
+      |> image_open_module.open(decode_options)
+      |> prefer_source_stream_error(source_response)
+    end
+  end
+
+  defp seekable_input(%Source.Response{path: path}) when is_binary(path), do: {:ok, path}
+
+  defp seekable_input(%Source.Response{stream: stream}) when not is_nil(stream) do
+    {:ok, stream |> Enum.to_list() |> IO.iodata_to_binary()}
   rescue
     exception in [Source.StreamError] -> {:error, {:source, exception.reason}}
   catch
     :exit, {%Source.StreamError{reason: reason}, _stacktrace} -> {:error, {:source, reason}}
     :exit, %Source.StreamError{reason: reason} -> {:error, {:source, reason}}
   end
+
+  defp seekable_input(%Source.Response{}), do: {:error, {:source, :invalid_adapter_result}}
 
   defp materialize_before_delivery(%State{} = state, decode_options, opts, source_response) do
     case Keyword.fetch!(decode_options, :access) do
