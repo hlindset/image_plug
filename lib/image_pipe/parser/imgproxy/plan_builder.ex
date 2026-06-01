@@ -646,8 +646,7 @@ defmodule ImagePipe.Parser.Imgproxy.PlanBuilder do
   defp resize_guide(:sm, _face_assist), do: {:ok, :smart}
   defp resize_guide({:obj, classes}, _face_assist), do: {:ok, object_detect_guide(classes)}
 
-  defp resize_guide({:objw, pairs}, _face_assist),
-    do: {:ok, object_detect_guide([], canonical_weights(pairs))}
+  defp resize_guide({:objw, pairs}, _face_assist), do: {:ok, objw_guide(pairs)}
 
   defp resize_guide({:anchor, :center, :center}, _face_assist), do: {:ok, :center}
   defp resize_guide({:anchor, x, y}, _face_assist), do: {:ok, {:anchor, x, y}}
@@ -663,8 +662,7 @@ defmodule ImagePipe.Parser.Imgproxy.PlanBuilder do
   defp tagged_gravity(:sm, _face_assist), do: {:ok, :smart}
   defp tagged_gravity({:obj, classes}, _face_assist), do: {:ok, object_detect_guide(classes)}
 
-  defp tagged_gravity({:objw, pairs}, _face_assist),
-    do: {:ok, object_detect_guide([], canonical_weights(pairs))}
+  defp tagged_gravity({:objw, pairs}, _face_assist), do: {:ok, objw_guide(pairs)}
 
   defp tagged_gravity({:anchor, x, y}, _face_assist), do: {:ok, crop_anchor_guide(x, y)}
 
@@ -689,6 +687,15 @@ defmodule ImagePipe.Parser.Imgproxy.PlanBuilder do
       gcd = Integer.gcd(numerator, denominator)
       {:ok, {:ratio, div(numerator, gcd), div(denominator, gcd)}}
     end
+  end
+
+  # Derives the detect guide from an objw pairs list. The named classes form the
+  # detection spec (exactly like obj); `all` broadens spec to :all and maps to
+  # :default in the weight map. Shared by resize_guide (fill) and tagged_gravity
+  # (crop) so the paths cannot diverge.
+  defp objw_guide(pairs) do
+    classes = pairs |> Enum.map(fn {class, _weight} -> class end) |> Enum.uniq()
+    object_detect_guide(classes, canonical_weights(pairs))
   end
 
   # Maps imgproxy object gravity to a product-neutral detect guide. Bare `obj`

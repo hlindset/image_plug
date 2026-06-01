@@ -9,7 +9,7 @@ anchored, on top of the usual fixed anchors and focal points:
 | `g:obj:face` (and `c:W:H:obj:face`) | anchors the crop on **detected faces** | **Yes** |
 | `g:obj` / `g:obj:all` | anchors on **all detected objects** (faces + COCO-80) | **Yes** |
 | `g:obj:%c1:…:%cN` | anchors on specific object classes, e.g. `g:obj:car:dog` | **Yes** |
-| `g:objw:%c1:%w1:…:%cN:%wN` | anchors on **all objects** with **per-class weights** | **Yes** |
+| `g:objw:%c1:%w1:…:%cN:%wN` | anchors on **named-class objects** with **per-class weights** (`all` broadens to every class) | **Yes** |
 | `g:sm` + `smart_crop_face_detection` config | **blends** the attention point with detected faces | **Yes** |
 
 `g:sm` works out of the box — it's pure libvips and needs no extra dependencies.
@@ -242,8 +242,10 @@ it, and add the warmup worker so it loads into memory before the first request
 
 ## Per-class weights (`objw`)
 
-`objw` is a complementary form to `obj` that detects *all* objects and biases
-the crop toward specific classes by weight — without filtering any class out.
+`objw` is a complementary form to `obj` that adds per-class weights to the
+detection-filter model. Like `obj`, the named classes form the detection filter
+(the spec); unlike `obj`, each class carries a numeric weight that biases the
+weighted centroid toward higher-weighted classes.
 
 ### Syntax
 
@@ -251,32 +253,40 @@ the crop toward specific classes by weight — without filtering any class out.
 g:objw:%class1:%weight1:…:%classN:%weightN
 
 # Examples
-g:objw:face:3                 # weight faces 3× over everything else
-g:objw:all:2:face:3           # baseline weight 2; faces overridden to 3
-g:objw:all:1:face:3           # same as g:objw:face:3 (all:1 is the default)
+g:objw:face:3                 # filter to faces, weight 3 (one class → weight inert)
+g:objw:person:2:face:3        # filter to person+face; faces weighted 3, persons 2
+g:objw:all:2:face:3           # all-class detection; baseline weight 2, faces override to 3
+g:objw:all:1:face:3           # all-class detection; faces weighted 3 (all:1 is the default)
 c:W:H:objw:face:3             # crop form — same semantics
 ```
 
 **Weights** are positive numbers (decimals are accepted; `≤ 0` is rejected at
 parse). Bare `objw` with no pairs is a parse error.
 
-**The `all` baseline.** The `all` pseudo-class sets a default weight for every
-detected class not explicitly named. Without `all`, unspecified classes default
-to weight `1`. `g:objw:all:2:face:3` means "every class at weight 2, faces at
-weight 3".
+**The `all` pseudo-class.** `all` is not a regular class name — it is the
+pseudo-class that broadens the detection spec to `:all` (every detector runs,
+every class counts). Without `all`, the spec is the listed class names. `all`
+also sets the default weight for classes not explicitly named: `g:objw:all:2:face:3`
+means "detect everything at weight 2, override faces to 3".
 
-### `obj` filters; `objw` weights over everything
+### `obj` and `objw` both filter; `all` broadens
 
-This distinction drives the design:
+Both `obj` and `objw` use their named classes as the detection filter (the spec).
+The distinction is that `objw` adds weights:
 
-- **`obj:face`** — *filters*: detects only faces, ignores all other classes.
-- **`objw:face:3`** — *weights*: detects *everything*, pulls toward faces (3×)
-  while still counting all other regions at their default weight (1).
+- **`obj:face`** — filters to faces, uniform weight.
+- **`objw:face:3`** — filters to faces, weight 3. (With one class, the weight
+  is inert — all regions in the spec have the same weight, so the centroid is
+  identical to `obj:face`.)
+- **`objw:person:2:face:3`** — filters to person+face, persons weight 2, faces 3.
+- **`objw:all:1:face:3`** — detects *everything* (`all` broadens spec), faces
+  boosted 3× over the default weight 1.
 
-`objw` always detects all classes (`spec: :all`). Its named classes populate the
-weight map, never the detection spec. If you want *only* faces to count, use
-`g:obj:face`; if you want faces to count *more* than other objects, use
-`g:objw:face:3`.
+**`objw:face:3` and `objw:all:1:face:3` are NOT equivalent.** The first gates
+detection to faces only; the second detects every class with a face boost. Use
+`g:objw:all:…` when you want all objects to contribute to the centroid with some
+classes weighted more. Use `g:objw:face:3` (or `g:obj:face`) when you want only
+faces to count.
 
 ### Weighted centroid formula
 
@@ -326,12 +336,17 @@ rather than an on/off switch, but it does not erase it.
 
 ### Canonicalization
 
-ImagePipe canonicalizes equivalent `objw` URLs to a single cache key:
-- `objw:face:3` and `objw:all:1:face:3` are identical (all:1 is the default).
-- Class entries equal to the effective default are dropped.
-- Uniform weights (`objw:all:2`) produce the same *crop* as `obj:all` (weights
-  cancel in the centroid) but a *different* cache key — a known, accepted
-  redundancy.
+ImagePipe canonicalizes `objw` weights to a sparse map:
+- Class weight entries equal to the effective default are dropped (trivial
+  weight entries do not change the centroid and need not be stored).
+- `objw:all:1` (default baseline) drops the `:default` key, leaving an empty
+  map `%{}`.
+- **`objw:face:3` and `objw:all:1:face:3` are NOT canonical equivalents** —
+  they have different detection specs (`["face"]` vs `:all`) and produce
+  different crops when other classes are present in the scene.
+- Uniform weights (`objw:all:2`) produce the same *crop* as `obj:all` (the
+  weight scalar cancels in the centroid) but a *different* cache key — a known,
+  accepted redundancy.
 
 ## imgproxy compatibility & divergences
 

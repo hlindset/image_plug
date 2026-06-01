@@ -32,20 +32,26 @@ Add imgproxy's per-class object weighting to object gravity:
 **Out of scope:** `objects_position` and any further imgproxy object-gravity
 surface beyond `obj` / `objw`.
 
-### `obj` filters; `objw` weights over everything
+### `obj` and `objw` both filter; `all` broadens
+
+> **Correction (2026-06-01):** The original "always detect-all" reading of
+> imgproxy's `objw` was wrong. imgproxy describes `objw` as "the same as
+> `gravity:obj` but with custom weights". Both `obj` and `objw` use their named
+> classes as a detection filter (the spec). The `all` pseudo-class is what
+> broadens detection to every object. The design below has been corrected
+> accordingly.
 
 This distinction drives the whole design. In Slice 1, `obj:face` does two jobs:
 it **filters** detection to the `face` class *and* targets the crop. imgproxy's
-`objw` does **not** filter — `objw:all:1:face:3` means "detect *everything*,
-weight faces 3×"; unlisted classes still count at the default weight. That is why
-imgproxy needs the `all` baseline keyword: `objw` considers every class, so it
-needs a way to set the default for the classes you did not name. If `objw`
-filtered to its named classes, `all` would be meaningless.
+`objw` works the same way: `objw:face:3` filters to faces (spec `["face"]`) and
+applies a weight. The `all` pseudo-class is what broadens detection to everything
+— `objw:all:1:face:3` means "detect *everything*, weight faces 3×".
 
 Consequence: **"what to detect" (the spec) and "how to weight each class" (the
-weights) are orthogonal axes.** `objw` always detects *all* classes (`spec:
-:all`); its named classes populate the weight map, never the spec. Multi-element
-spec lists arise only from the Slice 1 `obj:` filter form (`obj:person:face`).
+weights) are orthogonal axes.** `objw` derives its spec from the named classes
+exactly as `obj` does; `all` collapses the spec to `:all`. Named non-`all`
+classes populate both the spec and the weight map. Multi-element spec lists arise
+from either `obj:person:face` or `objw:person:2:face:3` (no `all` present).
 
 ## Plan guide shape
 
@@ -108,21 +114,28 @@ not a bug; the vocabulary-free parser cannot reject unknown classes).
 
 ### Grammar → guide mapping
 
-| URL gravity        | `spec`               | `weights`                  |
-| ------------------ | -------------------- | -------------------------- |
-| `obj` / `obj:all`  | `:all`               | `%{}`                      |
-| `obj:face`         | `["face"]`           | `%{}`                      |
-| `obj:person:face`  | `["person", "face"]` | `%{}`                      |
-| `objw:face:3`      | `:all`               | `%{"face" => 3}`           |
-| `objw:all:1:face:3`| `:all`               | `%{"face" => 3}`           |
-| `objw:all:2`       | `:all`               | `%{default: 2}`            |
-| `objw:all:3:car:1` | `:all`               | `%{default: 3, "car" => 1}`|
-| `objw:all:3:car:3` | `:all`               | `%{default: 3}`            |
-| `objw` (no pairs)  | —                    | **parse error** (reject)   |
+| URL gravity          | `spec`               | `weights`                      |
+| -------------------- | -------------------- | ------------------------------ |
+| `obj` / `obj:all`    | `:all`               | `%{}`                          |
+| `obj:face`           | `["face"]`           | `%{}`                          |
+| `obj:person:face`    | `["person", "face"]` | `%{}`                          |
+| `objw:face:3`        | `["face"]`           | `%{"face" => 3}`               |
+| `objw:face:1`        | `["face"]`           | `%{}` (≡ `obj:face`)           |
+| `objw:person:2:face:3` | `["person", "face"]` | `%{"person" => 2, "face" => 3}` |
+| `objw:all:1:face:3`  | `:all`               | `%{"face" => 3}`               |
+| `objw:all:2`         | `:all`               | `%{default: 2}`                |
+| `objw:all:3:car:1`   | `:all`               | `%{default: 3, "car" => 1}`    |
+| `objw:all:3:car:3`   | `:all`               | `%{default: 3}`                |
+| `objw` (no pairs)    | —                    | **parse error** (reject)       |
 
-`objw:face:3` and `objw:all:1:face:3` are equivalent and canonicalize to the same
-guide. `objw:all:2` (baseline-only) is uniform-at-2, the same crop as `obj:all`
-but a distinct key.
+**Key consequence of the filtering model:** `objw:face:3` (spec `["face"]`) and
+`objw:all:1:face:3` (spec `:all`) are **NOT equivalent** — the first gates
+detection to faces only; the second detects everything with a face boost. The
+only weight-only equivalence (same spec *and* same effective weights) is
+`objw:face:1` ≡ `obj:face`.
+
+`objw:all:2` (baseline-only) is uniform-at-2, the same crop as `obj:all` but a
+distinct key.
 
 ### How weights reach the centroid (carrier)
 

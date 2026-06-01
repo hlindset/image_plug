@@ -1145,8 +1145,23 @@ defmodule ImagePipe.Parser.Imgproxy.PlanBuilderTest do
              {:detect, {:all, %{"car" => 1.0, default: 3.0}}}
   end
 
-  test "objw canonicalizes equivalent URLs to the same guide" do
-    assert objw_guide([{"face", 3.0}]) == objw_guide([{"all", 1.0}, {"face", 3.0}])
+  test "objw:face:3 filters to face class; objw:all:1:face:3 detects all — they differ" do
+    # objw:face:3 — named class forms the detection spec, not :all
+    assert objw_guide([{"face", 3.0}]) == {:detect, {["face"], %{"face" => 3.0}}}
+    # objw:all:1:face:3 — all broadens spec to :all; all:1 drops as default
+    assert objw_guide([{"all", 1.0}, {"face", 3.0}]) == {:detect, {:all, %{"face" => 3.0}}}
+    # They are NOT equivalent
+    refute objw_guide([{"face", 3.0}]) == objw_guide([{"all", 1.0}, {"face", 3.0}])
+  end
+
+  test "objw named classes form the detection spec (filter, like obj)" do
+    # objw:person:2:face:3 — spec is the class list, weights carry the values
+    assert objw_guide([{"person", 2.0}, {"face", 3.0}]) ==
+             {:detect, {["person", "face"], %{"person" => 2.0, "face" => 3.0}}}
+
+    # objw:face:1 — weight equals default (1), drops from map; spec is ["face"] (not :all)
+    # This is equivalent in behavior to obj:face, and its guide should match
+    assert objw_guide([{"face", 1.0}]) == {:detect, {["face"], %{}}}
   end
 
   test "objw uniform weights canonicalize to an empty map" do
@@ -1180,7 +1195,7 @@ defmodule ImagePipe.Parser.Imgproxy.PlanBuilderTest do
     end
   end
 
-  property "objw canonicalization is idempotent (re-feeding the canonical map changes nothing)" do
+  property "objw canonicalization is idempotent with all-broadened spec (re-feeding canonical map)" do
     check all classes <-
                 uniq_list_of(
                   member_of(["face", "car", "dog", "person", "cat", "bus", "truck", "bird"]),
@@ -1189,16 +1204,22 @@ defmodule ImagePipe.Parser.Imgproxy.PlanBuilderTest do
                 ),
               weights <- list_of(member_of([1.0, 2.0]), length: length(classes)),
               default <- member_of([1.0, 2.0]) do
-      {:detect, {:all, map}} = objw_guide([{"all", default} | Enum.zip(classes, weights)])
+      # Always include "all" so spec stays :all throughout the round-trip.
+      pairs = [{"all", default} | Enum.zip(classes, weights)]
+      {:detect, {:all, map}} = objw_guide(pairs)
       # Rebuild pairs from the canonical map (default → "all") and re-canonicalize.
+      # Must include "all" in the repairs to preserve the :all spec.
       repairs =
-        Enum.map(map, fn
-          {:default, w} -> {"all", w}
-          {class, w} -> {class, w}
-        end)
+        [
+          {"all", Map.get(map, :default, 1.0)}
+          | Enum.map(map, fn
+              {:default, _w} -> nil
+              {class, w} -> {class, w}
+            end)
+        ]
+        |> Enum.reject(&is_nil/1)
 
-      reguide = if repairs == [], do: objw_guide([{"all", 1.0}]), else: objw_guide(repairs)
-      assert reguide == {:detect, {:all, map}}
+      assert objw_guide(repairs) == {:detect, {:all, map}}
     end
   end
 

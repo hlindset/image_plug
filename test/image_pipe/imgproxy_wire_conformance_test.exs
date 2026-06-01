@@ -1718,6 +1718,48 @@ defmodule ImagePipe.ImgproxyWireConformanceTest do
     assert conn.status == 200
   end
 
+  # Filtering: objw:face:3 must gate detection to the face class only (not all),
+  # so its crop matches obj:face (face box only) and DIFFERS from obj:all (both boxes).
+  # WeightedSceneDetector returns a person box (large, right-of-center) and a face box
+  # (small, left-of-center), filtered by opts[:classes].
+  #
+  # Beach.jpg is 4000x2667. WeightedSceneDetector boxes:
+  #   person: {2000,800,800,1000} center_x=2400 (60% across) — right side
+  #   face:   {1400,600,400,400}  center_x=1600 (40% across) — left side
+  # rs:fill:2000:2000 scales to 3000×2000, crops 1000px horizontally:
+  #   face-only focal_x_scaled ≈ 1200 → crop_x=200
+  #   obj:all focal_x_scaled ≈ 1614 → crop_x=614
+  # These are 414px apart in a 1000px-crop range, reliably different bytes.
+  test "g:objw:face:3 filters to face class — matches obj:face, differs from obj:all" do
+    opts = Keyword.merge(@default_opts, detector: WeightedSceneDetector)
+
+    # objw:face:3 — spec is ["face"], detects only face box (single class → weight inert)
+    objw_face =
+      call_imgproxy(
+        "/_/rs:fill:2000:2000/g:objw:face:3/f:jpeg/plain/images/beach.jpg",
+        opts
+      )
+
+    # obj:face — spec is ["face"], same face-only detection
+    obj_face =
+      call_imgproxy("/_/rs:fill:2000:2000/g:obj:face/f:jpeg/plain/images/beach.jpg", opts)
+
+    # obj:all — spec is :all, both person and face boxes counted (person dominates due to size)
+    obj_all =
+      call_imgproxy("/_/rs:fill:2000:2000/g:obj:all/f:jpeg/plain/images/beach.jpg", opts)
+
+    assert objw_face.status == 200
+    assert obj_face.status == 200
+    assert obj_all.status == 200
+
+    # objw:face:3 detects only face -> same crop focus as obj:face
+    assert objw_face.resp_body == obj_face.resp_body
+
+    # objw:face:3 differs from obj:all because detection set differs (face-only vs all)
+    # The face (left-of-center, crop_x≈200) vs all-classes (crop_x≈614) produces different crops.
+    refute objw_face.resp_body == obj_all.resp_body
+  end
+
   # Security: near-max-float objw weight must be rejected cleanly (4xx), not crash (500).
   # WeightedSceneDetector returns face and person boxes in a large region of beach.jpg
   # (4000x2667), so rs:fill:2000:2000 keeps them in-bounds after resize; without the
