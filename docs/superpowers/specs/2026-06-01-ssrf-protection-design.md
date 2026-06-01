@@ -358,18 +358,27 @@ code; the `denied_*` set here is the design intent.)
 
 ## Telemetry
 
-A denied-address/host/scheme rejection is a returned `{:error, {:source, …}}`,
-i.e. a **normal `:stop`** of the existing `[:source, :fetch]` span with an error
-result — **not** an `:exception`. Today `source.ex`'s `result_metadata/1` turns
-that into `%{result: :source_error, error: …}` for free, so the rejection is
-already observable.
+**Reality check against the lazy-stream architecture:** `HTTP.fetch/3` returns
+`{:ok, %Response{stream: …}}` *immediately*; the actual connect — and therefore
+any denial, since the guard runs inside the redirect loop in `ReqStream`'s stream
+init — happens later, during stream **consumption**. So a denial is **not** seen
+by the `[:source, :fetch]` span (which wraps only the `{:ok, stream}` return).
+This is exactly how today's `:bad_status` already behaves: it surfaces as a
+`StreamError` raised during consumption, outside the fetch span.
 
-To additionally surface **category + canonicalized IP** (which `result_metadata/1`
-does not carry today), thread those values back through the adapter's error return
-so the span's stop metadata can include them, using the shared `Telemetry`
-helpers rather than ad-hoc emission. Category + IP are **product-neutral and
-PII-free** (sensitivity-not-cardinality rule), so they are fine to emit. **Do not
-emit the full source URL** — it may embed signed-URL secrets.
+Therefore, for parity and to keep this PR focused, a denial surfaces the same way:
+**`ImagePipe.Source.StreamError` with `reason: :denied_scheme | :denied_host |
+:denied_address`** (the reason atom is preserved on the raised exception and is
+what tests assert on, mirroring `:bad_status`). No bespoke telemetry threading is
+added in this issue.
+
+**Deferred (not this issue):** richer denial telemetry carrying **category +
+canonicalized IP** (product-neutral and PII-free per the sensitivity-not-
+cardinality rule; **never** the full source URL, which may embed signed-URL
+secrets). Doing it properly means either a discrete `Telemetry.execute/4` event
+from the guard or making the origin guard eager in `fetch/3` — both are larger
+than the denial-signal this issue needs, and the same gap exists for `:bad_status`
+today. Capture it with the IP-pinning fast-follow or a separate telemetry issue.
 
 ## Deferred: DNS-rebinding / IP-pinning (fast-follow, separate issue)
 
