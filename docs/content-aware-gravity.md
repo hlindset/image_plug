@@ -201,9 +201,11 @@ contribute to the crop.
 **Equal-weight centroid.** The crop focus is the `√area`-weighted centroid of
 all detected regions, without per-class weights. With many mixed-size objects
 the result naturally biases toward larger ones. If you want a face-centric crop
-on a busy scene, use `g:obj:face` directly (filter: only faces) or use `objw`
-per-class weights (bias: faces count more, but all objects still count — see
-[Per-class weights (`objw`)](#per-class-weights-objw) below).
+on a busy scene, use `g:obj:face` directly (filter: only faces), or use the
+`objw:all:…` form (bias: detect everything, but weight faces higher — e.g.
+`g:objw:all:1:face:3` — see [Per-class weights (`objw`)](#per-class-weights-objw)
+below). Note `g:objw:face:3` (no `all`) still *filters* to faces, just like
+`g:obj:face`; only the `all` pseudo-class keeps the other objects in play.
 
 **Class-aware cache identity.** The cache key includes only the child detector
 identities that the requested class set routes to. An object-only request

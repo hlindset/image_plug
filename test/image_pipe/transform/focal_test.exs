@@ -20,9 +20,13 @@ defmodule ImagePipe.Transform.FocalTest do
   end
 
   test "a uniform default scalar does not move the centroid (cancels)" do
-    {:ok, fp_a} = Focal.weighted_centroid(scene(), 100, 100, %{})
-    {:ok, fp_b} = Focal.weighted_centroid(scene(), 100, 100, %{default: 2.0})
-    assert fp_a == fp_b
+    {:ok, {:fp, ax, ay}} = Focal.weighted_centroid(scene(), 100, 100, %{})
+    # A uniform global scalar cancels in the centroid for *any* value, not just
+    # powers of two, so use a non-power-of-two default and compare per-coordinate
+    # within a small epsilon rather than asserting bit-exact equality.
+    {:ok, {:fp, bx, by}} = Focal.weighted_centroid(scene(), 100, 100, %{default: 3.0})
+    assert_in_delta ax, bx, 1.0e-9
+    assert_in_delta ay, by, 1.0e-9
   end
 
   test "returns :none when no box falls fully inside the image" do

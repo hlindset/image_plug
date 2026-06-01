@@ -357,8 +357,9 @@ change (per the repo's demo guideline).
 ## Docs
 
 - `docs/content-aware-gravity.md`: document `objw`, the `weight·√area` formula and
-  its rationale, and the filter-vs-weight distinction (`obj:` filters, `objw`
-  weights over everything).
+  its rationale, and the filter-vs-weight distinction (`obj` and `objw` both filter
+  to their named classes; the `all` pseudo-class broadens to every object; `objw`
+  adds per-class weights on top).
 - `docs/imgproxy_support_matrix.md`: flip the `objw` row from "out (Slice 2)" to
   supported.
 

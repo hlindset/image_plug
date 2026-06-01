@@ -4,7 +4,7 @@
 
 **Goal:** Add imgproxy `gravity:objw:%class:%weight:…` per-class object weighting, so a class weight measurably biases the content-aware crop's focal point.
 
-**Architecture:** The detect guide is reshaped from `{:detect, spec}` to `{:detect, {spec, weights}}` (weights a sparse `%{optional(:default) => float, optional(String.t()) => float}` map; empty = uniform). The imgproxy parser emits a raw `{:objw, pairs}` gravity; the imgproxy plan builder is the sole canonicalizer (`all`→`:default`, drop rules, always `spec: :all`). The weighted centroid is extracted into a **pure module** `ImagePipe.Transform.Focal` (`pull = classWeight(label) · √area`) so it is unit-testable with exact focal coordinates — the executable crop delegates to it.
+**Architecture:** The detect guide is reshaped from `{:detect, spec}` to `{:detect, {spec, weights}}` (weights a sparse `%{optional(:default) => float, optional(String.t()) => float}` map; empty = uniform). The imgproxy parser emits a raw `{:objw, pairs}` gravity; the imgproxy plan builder is the sole canonicalizer (`all`→`:default`, drop rules; the spec is derived from the named classes, collapsing to `:all` only when `all` is present — see the design spec's 2026-06-01 filtering correction). The weighted centroid is extracted into a **pure module** `ImagePipe.Transform.Focal` (`pull = classWeight(label) · √area`) so it is unit-testable with exact focal coordinates — the executable crop delegates to it.
 
 **Tech Stack:** Elixir, ExUnit + StreamData, Plug, the `image`/libvips stack, `:telemetry`.
 
