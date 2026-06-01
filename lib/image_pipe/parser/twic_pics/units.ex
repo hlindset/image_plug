@@ -5,12 +5,16 @@ defmodule ImagePipe.Parser.TwicPics.Units do
 
   @type length :: {:px, pos_integer()} | {:percent, number()} | {:scale, number()}
 
+  # TwicPics lengths have only two unit suffixes: `p` (percent) and `s` (scale).
+  # Pixels are bare numbers — there is NO `px` unit. A `px` substring only ever
+  # appears inside a Size/Coordinates token (e.g. `10px150`), where the caller
+  # splits on `x` first (`10p` × `150` = 10% × 150px), so `length/1` never
+  # receives a `px`-suffixed token from real input.
   @spec length(String.t()) :: {:ok, length()} | {:error, term()}
   def length("-"), do: {:error, {:invalid_length, "-"}}
 
   def length(value) when is_binary(value) do
     cond do
-      String.ends_with?(value, "px") -> pixels(String.trim_trailing(value, "px"))
       String.ends_with?(value, "p") -> percent(String.trim_trailing(value, "p"))
       String.ends_with?(value, "s") -> scale(String.trim_trailing(value, "s"))
       true -> pixels(value)

@@ -159,7 +159,9 @@ not reintroduce signature/`403` handling.
 - **Size** (used by `resize` / `cover` / `contain` / `inside`) = `WxH`, where each
   of `W`/`H` is a Length or `-`. A single Length with no `x` sets that dimension
   and leaves the other **`:auto`** (computed to preserve aspect). Mixed units are
-  legal (`10px150`, `100x50p`).
+  legal — and note there is **no `px` unit**: `10px150` is `10p` × `150` =
+  10 percent wide by 150 pixels tall (the Size splits on `x` first), and
+  `100x50p` is 100 pixels by 50 percent.
 - **Crop-size** (used by `crop` only) = like Size, **but an omitted dimension or
   `-` means `1s` — the full running axis (`:full_axis`), not aspect-preserving
   auto.** Per the docs, `crop=320` ≡ `320x-` ≡ `320x1s`. This is a real semantic

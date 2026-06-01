@@ -4,9 +4,15 @@ defmodule ImagePipe.Parser.TwicPics.UnitsTest do
   alias ImagePipe.Parser.TwicPics.Units
 
   describe "length/1" do
-    test "bare and px numbers are pixels" do
+    test "bare numbers are pixels" do
       assert Units.length("250") == {:ok, {:px, 250}}
-      assert Units.length("250px") == {:ok, {:px, 250}}
+    end
+
+    test "px is not a TwicPics length unit (only p and s)" do
+      # TwicPics has no `px` unit — pixels are bare. A standalone `250px` token
+      # is invalid as a length; the `px` mixing case (`10px150`) is handled at
+      # the Size level by splitting on `x` first (see size/1 below).
+      assert {:error, _} = Units.length("250px")
     end
 
     test "percent suffix" do
@@ -32,6 +38,13 @@ defmodule ImagePipe.Parser.TwicPics.UnitsTest do
       assert Units.size("-x100") == {:ok, {:auto, {:px, 100}}}
       assert Units.size("250x-") == {:ok, {{:px, 250}, :auto}}
     end
+
+    test "mixed units: `10px150` is 10 percent by 150 pixels (split on x first)" do
+      # Per the TwicPics docs, `10px150` is a Size mixing a percent width (`10p`)
+      # with a pixel height (`150`) — NOT `10px` (there is no `px` unit).
+      assert Units.size("10px150") == {:ok, {{:percent, 10}, {:px, 150}}}
+      assert Units.size("250px") == {:ok, {{:percent, 250}, :auto}}
+    end
   end
 
   describe "crop_size/1" do
@@ -49,6 +62,12 @@ defmodule ImagePipe.Parser.TwicPics.UnitsTest do
 
     test "rejects non-positive" do
       assert {:error, _} = Units.ratio("0:9")
+    end
+
+    test "v1 accepts integer ratios only; decimal ratios are deferred" do
+      # TwicPics permits decimal ratios (e.g. `1.5:2`); v1 supports integer
+      # ratios only and rejects decimals (documented in the support matrix).
+      assert {:error, {:invalid_ratio, "1.5:2"}} = Units.ratio("1.5:2")
     end
   end
 

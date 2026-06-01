@@ -10,12 +10,11 @@ defmodule ImagePipe.Transform.ResizeRelativeResolutionPropertyTest do
       op = %Resize{mode: :fit, width: {:percent, percent}, height: :auto, enlarge: true}
       result = Resize.resolve_dimensions(op, source_width: running, source_height: running)
 
-      # The resolved width tracks `running * percent / 100` to within one pixel.
-      # We allow ±1 because resolution rounds (and floors a sub-pixel result to 1),
-      # and float associativity makes `percent/100*running` differ from
-      # `running*percent/100` at exact half-pixel boundaries.
-      assert_in_delta result.intermediate_width, running * percent / 100, 1.0
-      assert result.intermediate_width >= 1
+      # Exact: mirror the production computation order (Geometry.to_pixels does
+      # `round(percent / 100 * length)`), then the sub-pixel floor to 1. Writing
+      # the operands in the SAME order avoids float-associativity drift while
+      # keeping the assertion tight (delta 0).
+      assert result.intermediate_width == max(1, round(percent / 100 * running))
     end
   end
 end

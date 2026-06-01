@@ -52,9 +52,11 @@ defmodule ImagePipe.TwicPicsWireConformanceTest do
            root_url: "http://origin.test", req_options: [plug: OriginShouldNotFetch]}
       )
 
+    # OriginShouldNotFetch raises if the origin is ever reached, so a clean 400
+    # (rather than a 500) is itself the proof that the parser rejected the chain
+    # before source resolution.
     conn = call("/images/beach.jpg?twic=v1/zoom=2", opts)
     assert conn.status == 400
-    refute_received :origin_fetch
   end
 
   defp average(%Plug.Conn{} = conn) do
@@ -114,7 +116,9 @@ defmodule ImagePipe.TwicPicsWireConformanceTest do
   test "oversized chained upscale is rejected by the result limit after fetch" do
     opts = Keyword.put(@opts, :max_result_pixels, 1_000_000)
     conn = call("/images/beach.jpg?twic=v1/resize=4s/resize=4s/output=jpeg", opts)
-    assert conn.status >= 400
+    # 413 specifically (post-decode result limit), not a 400 parse rejection —
+    # this pins that the request reached the result-size guard after fetch.
+    assert conn.status == 413
   end
 
   test "two semantically-equivalent requests reuse the same cache entry" do
