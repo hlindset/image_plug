@@ -441,7 +441,8 @@ The RT-DETR model must be pre-fetched with `mix image_vision.download_models
   surface; ImagePipe's smart crop is the libvips attention heuristic only.
 - ⭕ `IMGPROXY_SMART_CROP_*` (other) — No other smart-crop configuration is read.
 - ⭕ `IMGPROXY_OBJECT_DETECTION_*` (other) — No other object-detection
-  configuration (model paths, class allow-lists, weights) is read.
+  configuration (model paths, class allow-lists) is read. Per-class weights are
+  supplied per-request via the `objw` URL option.
 - ⭕ `IMGPROXY_CLASSIFICATION_*`
 - ⭕ `IMGPROXY_BEST_FORMAT_*`
 
@@ -534,9 +535,9 @@ transforms or output encoding.
 | `gravity:obj:face` | `g:obj:face` | Supported | Single `face` class via optional `image_vision` YuNet face detection; falls back to libvips attention when the detector is unavailable. |
 | `gravity:obj` / `g:obj:all` | | Supported | All detected objects — union of face (YuNet) and COCO-80 object (RT-DETR) detectors; falls back to libvips attention when the detector is unavailable. |
 | `gravity:obj:%c1:…:%cN` | | Supported | Multi-class object gravity using the COCO-80 vocabulary (underscore spelling, e.g. `g:obj:car:traffic_light`). Unknown classes are silently dropped (best-effort). Class-aware cache identity: only the detector children routed by the requested class set contribute to the cache key. |
-| `gravity:objw` | | Missing | Pro object-detection gravity with per-class weights (`objw`). Deferred to a future slice. |
+| `gravity:objw` | | Supported | Pro per-class object-detection gravity weights. `g:objw:%c1:%w1:…:%cN:%wN` — positional class/weight pairs, weights are positive decimals (`≤ 0` rejected). The `all` pseudo-class sets a baseline/default weight (e.g. `objw:all:2:face:3` = "everything weight 2, faces weight 3"). Always detects all classes (never filters); named classes populate the weight map, not the detect spec. Supported in both `g:` and `c:W:H:` forms. Falls back to libvips attention smart crop when the detector is unavailable. |
 | `objects_position` | `obj_pos`, `op` | Missing | Pro object-detection positioning. |
-| `crop` | `c` | Supported | Absolute, relative, or full-axis dimensions. Supports anchor, focal-point, smart gravity (`c:W:H:sm`), and object gravity (`c:W:H:obj:face`, `c:W:H:obj:car:dog`, `c:W:H:obj`, `c:W:H:obj:all`); smart gravity runs libvips attention smart crop, and object gravity uses optional `image_vision` detection with attention fallback. |
+| `crop` | `c` | Supported | Absolute, relative, or full-axis dimensions. Supports anchor, focal-point, smart gravity (`c:W:H:sm`), object gravity (`c:W:H:obj:face`, `c:W:H:obj:car:dog`, `c:W:H:obj`, `c:W:H:obj:all`), and per-class weighted object gravity (`c:W:H:objw:%c1:%w1:…`); smart gravity runs libvips attention smart crop, and object gravity uses optional `image_vision` detection with attention fallback. |
 | `crop_aspect_ratio` | `crop_ar`, `car` | Supported | Pro crop-area aspect-ratio correction. `aspect_ratio` zero is a no-op. `enlarge` grows the area then clamps to image bounds; default reduces. Corrects size only, not gravity. Wired through gravity crops. |
 | `trim` | `t` | Missing | Requires full-image memory behavior and trim operation. |
 | `padding` | `pd` | Supported | CSS-style shorthand, sparse repeated options, effective DPR scaling, and `padding:` no-op compatibility. |

@@ -13,6 +13,7 @@ import {
   focalPointFromBounds,
   imageRequestBytesFromPerformance,
   objGravitySegment,
+  objWeightsGravitySegment,
   resetCropPixelsToSource,
   processedSizeLabel,
   optionSegments,
@@ -681,6 +682,123 @@ describe("processing path generation", () => {
     expect(objGravitySegment([])).toBe("g:obj");
     expect(objGravitySegment(["car"])).toBe("g:obj:car");
     expect(objGravitySegment(["car", "dog"])).toBe("g:obj:car:dog");
+  });
+
+  it("objWeightsGravitySegment emits g:objw:all:1 when all weights are 1 (uniform default)", () => {
+    expect(
+      objWeightsGravitySegment({
+        ...defaultDemoState,
+        objWeightDefault: 1,
+        objWeightFace: 1,
+        objWeightPerson: 1,
+        objWeightCar: 1,
+      }),
+    ).toBe("g:objw:all:1");
+  });
+
+  it("objWeightsGravitySegment omits class entries equal to the effective default", () => {
+    // face:3 only — all/person/car at default 1 are omitted
+    expect(
+      objWeightsGravitySegment({
+        ...defaultDemoState,
+        objWeightDefault: 1,
+        objWeightFace: 3,
+        objWeightPerson: 1,
+        objWeightCar: 1,
+      }),
+    ).toBe("g:objw:face:3");
+  });
+
+  it("objWeightsGravitySegment emits all baseline when it differs from 1", () => {
+    expect(
+      objWeightsGravitySegment({
+        ...defaultDemoState,
+        objWeightDefault: 2,
+        objWeightFace: 3,
+        objWeightPerson: 2,
+        objWeightCar: 2,
+      }),
+    ).toBe("g:objw:all:2:face:3");
+  });
+
+  it("emits g:objw for object-weighted gravity mode", () => {
+    const state = {
+      ...defaultDemoState,
+      gravityEnabled: true,
+      gravityMode: "objWeights" as const,
+      objWeightDefault: 1,
+      objWeightFace: 3,
+      objWeightPerson: 1,
+      objWeightCar: 1,
+    };
+
+    expect(optionSegments(state)).toEqual(["g:objw:face:3"]);
+    expect(demoPathForState(state)).toBe("/demo/g:objw:face:3/plain/local:///images/dog.jpg");
+  });
+
+  it("round-trips g:objw with a face boost through the demo path", () => {
+    const parsed = parseDemoPath("/demo/g:objw:face:3/plain/local:///images/dog.jpg");
+
+    expect(parsed).toMatchObject({
+      gravityEnabled: true,
+      gravityMode: "objWeights",
+      objWeightDefault: 1,
+      objWeightFace: 3,
+      objWeightPerson: 1,
+      objWeightCar: 1,
+    });
+
+    expect(demoPathForState(parsed)).toBe("/demo/g:objw:face:3/plain/local:///images/dog.jpg");
+  });
+
+  it("round-trips g:objw:all:2:face:3 (all baseline + face override) through the demo path", () => {
+    const parsed = parseDemoPath("/demo/g:objw:all:2:face:3/plain/local:///images/dog.jpg");
+
+    expect(parsed).toMatchObject({
+      gravityEnabled: true,
+      gravityMode: "objWeights",
+      objWeightDefault: 2,
+      objWeightFace: 3,
+      objWeightPerson: 2,
+      objWeightCar: 2,
+    });
+
+    expect(demoPathForState(parsed)).toBe(
+      "/demo/g:objw:all:2:face:3/plain/local:///images/dog.jpg",
+    );
+  });
+
+  it("g:objw:all:1:face:3 normalizes to g:objw:face:3 (all:1 is the default)", () => {
+    const parsed = parseDemoPath("/demo/g:objw:all:1:face:3/plain/local:///images/dog.jpg");
+
+    expect(parsed).toMatchObject({
+      gravityMode: "objWeights",
+      objWeightDefault: 1,
+      objWeightFace: 3,
+    });
+
+    // Serializes without all:1 (canonical omission when baseline is 1)
+    expect(demoPathForState(parsed)).toBe("/demo/g:objw:face:3/plain/local:///images/dog.jpg");
+  });
+
+  it("rejects invalid objw gravity values in demo routes", () => {
+    // bare g:objw (no pairs)
+    expect(parseDemoPath("/demo/g:objw/plain/local:///images/dog.jpg")).toEqual(defaultDemoState);
+    // odd arity
+    expect(parseDemoPath("/demo/g:objw:face/plain/local:///images/dog.jpg")).toEqual(
+      defaultDemoState,
+    );
+    // non-positive weight
+    expect(parseDemoPath("/demo/g:objw:face:0/plain/local:///images/dog.jpg")).toEqual(
+      defaultDemoState,
+    );
+    expect(parseDemoPath("/demo/g:objw:face:-2/plain/local:///images/dog.jpg")).toEqual(
+      defaultDemoState,
+    );
+    // non-numeric weight
+    expect(parseDemoPath("/demo/g:objw:face:bad/plain/local:///images/dog.jpg")).toEqual(
+      defaultDemoState,
+    );
   });
 
   it("COCO-80 class list has exactly 80 entries in underscore spelling", () => {

@@ -808,6 +808,7 @@
               <option value="smart">smart</option>
               <option value="objFace">object (face)</option>
               <option value="objClasses">object (classes)</option>
+              <option value="objWeights">object (weighted)</option>
             </select>
           </label>
 
@@ -918,6 +919,51 @@
                 </Select.Portal>
               </Select.Root>
             </div>
+          {/if}
+
+          {#if state.gravityMode === "objWeights"}
+            <!-- Per-class weights for objw gravity. Detects all classes; weights
+                 bias the crop focal point without filtering any class out.
+                 "all" sets the default/baseline weight for unlisted classes. -->
+            <RangeNumber
+              label="Default weight (all)"
+              bind:value={state.objWeightDefault}
+              min={0.1}
+              max={10}
+              step={0.1}
+              inputStep="any"
+            />
+            <RangeNumber
+              label="Face weight"
+              bind:value={state.objWeightFace}
+              min={0.1}
+              max={10}
+              step={0.1}
+              inputStep="any"
+            />
+            <RangeNumber
+              label="Person weight"
+              bind:value={state.objWeightPerson}
+              min={0.1}
+              max={10}
+              step={0.1}
+              inputStep="any"
+            />
+            <RangeNumber
+              label="Car weight"
+              bind:value={state.objWeightCar}
+              min={0.1}
+              max={10}
+              step={0.1}
+              inputStep="any"
+            />
+            <p class="field-hint">
+              Weights bias the crop toward a class without filtering it out. Set a class weight
+              higher than the default to pull the focal point toward it. Uses <code
+                >weight·√area</code
+              > centroid — a 2× weight on a small face inside a large person box gives a real nudge, not
+              a cosmetic one.
+            </p>
           {/if}
         {/if}
       </section>
@@ -1888,6 +1934,18 @@
     display: flex;
     flex-direction: column;
     gap: 8px;
+  }
+
+  .field-hint {
+    margin: 0;
+    color: var(--text-muted);
+    font-size: 12px;
+    line-height: 16px;
+
+    code {
+      font-family: var(--font-mono);
+      font-size: 11px;
+    }
   }
 
   .focal-picker-field {

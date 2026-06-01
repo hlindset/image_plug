@@ -707,6 +707,26 @@ function parseGravity(currentState: DemoState, args: string[]): DemoState | null
     };
   }
 
+  // g:objw:%c1:%w1:…:%cN:%wN — per-class weighted object gravity
+  if (args.length >= 2 && modeOrGravity === "objw") {
+    const pairs = args.slice(1);
+    const weights = parseObjWeightPairs(pairs);
+
+    if (weights === null) {
+      return null;
+    }
+
+    return {
+      ...currentState,
+      gravityEnabled: true,
+      gravityMode: "objWeights",
+      objWeightDefault: weights["all"] ?? 1,
+      objWeightFace: weights["face"] ?? weights["all"] ?? 1,
+      objWeightPerson: weights["person"] ?? weights["all"] ?? 1,
+      objWeightCar: weights["car"] ?? weights["all"] ?? 1,
+    };
+  }
+
   if (args.length >= 2 && modeOrGravity === "obj") {
     const classes = args.slice(1);
 
@@ -928,6 +948,36 @@ function cropGravityFromArgs(args: string[]): CropGravity | null {
 
 function isBooleanArg(value: string): boolean {
   return value === "0" || value === "1";
+}
+
+// Parses objw class/weight pairs from URL tokens into a weight record.
+// Tokens are positional: class, weight, class, weight, …
+// Returns null on odd arity, empty class tokens, or non-positive/non-numeric weights.
+function parseObjWeightPairs(tokens: string[]): Record<string, number> | null {
+  if (tokens.length === 0 || tokens.length % 2 !== 0) {
+    return null;
+  }
+
+  const weights: Record<string, number> = {};
+
+  for (let i = 0; i < tokens.length; i += 2) {
+    const cls = tokens[i];
+    const weightStr = tokens[i + 1];
+
+    if (cls === undefined || cls === "" || weightStr === undefined) {
+      return null;
+    }
+
+    const weight = parseNumber(weightStr);
+
+    if (weight === null || weight <= 0) {
+      return null;
+    }
+
+    weights[cls] = weight;
+  }
+
+  return weights;
 }
 
 function parseNumber(value: string | undefined): number | null {

@@ -9,6 +9,7 @@ anchored, on top of the usual fixed anchors and focal points:
 | `g:obj:face` (and `c:W:H:obj:face`) | anchors the crop on **detected faces** | **Yes** |
 | `g:obj` / `g:obj:all` | anchors on **all detected objects** (faces + COCO-80) | **Yes** |
 | `g:obj:%c1:…:%cN` | anchors on specific object classes, e.g. `g:obj:car:dog` | **Yes** |
+| `g:objw:%c1:%w1:…:%cN:%wN` | anchors on **all objects** with **per-class weights** | **Yes** |
 | `g:sm` + `smart_crop_face_detection` config | **blends** the attention point with detected faces | **Yes** |
 
 `g:sm` works out of the box — it's pure libvips and needs no extra dependencies.
@@ -197,11 +198,12 @@ same result as `g:obj` with no unicorn regions — the request succeeds and fall
 back to attention saliency. Only classes that route to at least one child
 contribute to the crop.
 
-**Equal-weight area centroid.** The crop focus is the area-weighted centroid of
+**Equal-weight centroid.** The crop focus is the `√area`-weighted centroid of
 all detected regions, without per-class weights. With many mixed-size objects
 the result naturally biases toward larger ones. If you want a face-centric crop
-on a busy scene, use `g:obj:face` directly — or, in a future slice, use `objw`
-per-class weights once that surface ships.
+on a busy scene, use `g:obj:face` directly (filter: only faces) or use `objw`
+per-class weights (bias: faces count more, but all objects still count — see
+[Per-class weights (`objw`)](#per-class-weights-objw) below).
 
 **Class-aware cache identity.** The cache key includes only the child detector
 identities that the requested class set routes to. An object-only request
@@ -238,15 +240,109 @@ it, and add the warmup worker so it loads into memory before the first request
   `Logger` calls itself — fallback observability is telemetry-only. See
   [telemetry.md](telemetry.md).
 
+## Per-class weights (`objw`)
+
+`objw` is a complementary form to `obj` that detects *all* objects and biases
+the crop toward specific classes by weight — without filtering any class out.
+
+### Syntax
+
+```text
+g:objw:%class1:%weight1:…:%classN:%weightN
+
+# Examples
+g:objw:face:3                 # weight faces 3× over everything else
+g:objw:all:2:face:3           # baseline weight 2; faces overridden to 3
+g:objw:all:1:face:3           # same as g:objw:face:3 (all:1 is the default)
+c:W:H:objw:face:3             # crop form — same semantics
+```
+
+**Weights** are positive numbers (decimals are accepted; `≤ 0` is rejected at
+parse). Bare `objw` with no pairs is a parse error.
+
+**The `all` baseline.** The `all` pseudo-class sets a default weight for every
+detected class not explicitly named. Without `all`, unspecified classes default
+to weight `1`. `g:objw:all:2:face:3` means "every class at weight 2, faces at
+weight 3".
+
+### `obj` filters; `objw` weights over everything
+
+This distinction drives the design:
+
+- **`obj:face`** — *filters*: detects only faces, ignores all other classes.
+- **`objw:face:3`** — *weights*: detects *everything*, pulls toward faces (3×)
+  while still counting all other regions at their default weight (1).
+
+`objw` always detects all classes (`spec: :all`). Its named classes populate the
+weight map, never the detection spec. If you want *only* faces to count, use
+`g:obj:face`; if you want faces to count *more* than other objects, use
+`g:objw:face:3`.
+
+### Weighted centroid formula
+
+The crop focus is computed as:
+
+```
+focal = Σ(pullᵢ · centerᵢ) / Σ(pullᵢ)
+pullᵢ  = classWeight(labelᵢ) · √areaᵢ
+```
+
+`classWeight` resolves a region's label against the weight map:
+
+```
+classWeight(label) = weights[label] ?? weights[:default] ?? 1
+```
+
+**Why `√area`:** `area` alone (the equal-weight Slice 1 basis) makes class
+weights nearly inert — a face is ~1/15 the *area* of a person bounding box, so
+a 3× face boost (3 vs 15) still loses. `√area` tracks linear size, making the
+face ~1/4 of the person instead. The result is a responsive, real lever: a
+modest weight visibly moves the crop while keeping "bigger object wins" as the
+natural fallback for equal-weight scenes.
+
+Pure `weight` without area (each object gets one full vote) makes tiny
+background objects hijack crops. `weight·√area` is the middle path: weights are
+usable *and* size still matters.
+
+### Worked example — nested scene
+
+With a car (large, low-mid frame), a person (medium, mid frame), and a face
+(small, high frame):
+
+| Request | Resulting focal y | Behavior |
+| --- | --- | --- |
+| `obj:face` (filter) | 0.25 | car/person not considered — lands on face |
+| `obj:all` (uniform) | 0.49 | car dominates; face barely registers |
+| `objw:all:1:face:3` | 0.45 | gentle, real upward nudge toward the face |
+| `objw:all:1:face:8` | 0.39 | firmer pull — each weight unit moves it |
+
+### Honest default consequence
+
+With uniform weights (`obj:all`), the **biggest box wins** — a portrait biases
+toward the `person` box, not the face, under any formula. A face inside a huge
+person box needs a larger boost than the same face in a tight portrait, because
+the size gap is larger; `√area` compresses that gap into a responsive dial
+rather than an on/off switch, but it does not erase it.
+
+### Canonicalization
+
+ImagePipe canonicalizes equivalent `objw` URLs to a single cache key:
+- `objw:face:3` and `objw:all:1:face:3` are identical (all:1 is the default).
+- Class entries equal to the effective default are dropped.
+- Uniform weights (`objw:all:2`) produce the same *crop* as `obj:all` (weights
+  cancel in the centroid) but a *different* cache key — a known, accepted
+  redundancy.
+
 ## imgproxy compatibility & divergences
 
-`g:obj:face` / `c:W:H:obj:face` and multi-class `g:obj:%c1:…:%cN` / `g:obj` /
-`g:obj:all` are now supported. The remaining out-of-scope parts of imgproxy's
-object gravity surface are `objw` (per-class detection weights) and
-`objects_position` — these are deferred to a future slice. ImagePipe uses
-`image_vision`'s YuNet face model (not imgproxy's configurable YOLO models) and
-RT-DETR for COCO-80 objects (not YOLO), so detected boxes — and the resulting
-crops — are compatible in intent but not bit-identical to imgproxy. The
-face-assist blend weight is ImagePipe's own approximation. The full row-by-row
-mapping and divergence notes are in
+`g:obj:face` / `c:W:H:obj:face`, multi-class `g:obj:%c1:…:%cN` / `g:obj` /
+`g:obj:all`, and `g:objw:%c1:%w1:…` / `c:W:H:objw:…` are all supported. The
+remaining out-of-scope part of imgproxy's object gravity surface is
+`objects_position`. ImagePipe uses `image_vision`'s YuNet face model (not
+imgproxy's configurable YOLO models) and RT-DETR for COCO-80 objects (not YOLO),
+so detected boxes — and the resulting crops — are compatible in intent but not
+bit-identical to imgproxy. The face-assist blend weight is ImagePipe's own
+approximation. Weight values accept positive decimals (imgproxy documents only
+integer examples); this is an intentional superset. The full row-by-row mapping
+and divergence notes are in
 [imgproxy_support_matrix.md](imgproxy_support_matrix.md#smart-crop-object-detection-classification-and-best-format-models).
