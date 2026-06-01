@@ -1132,6 +1132,83 @@ defmodule ImagePipe.Parser.Imgproxy.PlanBuilderTest do
     assert PlanBuilder.to_plan(request, []) == {:error, {:invalid_filename, "../cat"}}
   end
 
+  test "objw maps to detect :all with a canonical weights map" do
+    assert objw_guide([{"all", 1.0}, {"face", 3.0}]) == {:detect, {:all, %{"face" => 3.0}}}
+  end
+
+  test "objw all-baseline above 1 is carried; a class equal to default is dropped" do
+    assert objw_guide([{"all", 3.0}, {"car", 3.0}]) == {:detect, {:all, %{default: 3.0}}}
+  end
+
+  test "objw all-baseline with a below-default class" do
+    assert objw_guide([{"all", 3.0}, {"car", 1.0}]) ==
+             {:detect, {:all, %{"car" => 1.0, default: 3.0}}}
+  end
+
+  test "objw canonicalizes equivalent URLs to the same guide" do
+    assert objw_guide([{"face", 3.0}]) == objw_guide([{"all", 1.0}, {"face", 3.0}])
+  end
+
+  test "objw uniform weights canonicalize to an empty map" do
+    assert objw_guide([{"all", 1.0}, {"face", 1.0}]) == {:detect, {:all, %{}}}
+  end
+
+  test "objw maps identically through the crop path (no fill/crop divergence)" do
+    assert {:ok, %Plan{pipelines: [%Pipeline{operations: [%Operation.CropGuided{} = crop]}]}} =
+             plan_pipeline(
+               crop: %ImagePipe.Parser.Imgproxy.CropRequest{
+                 width: {:pixels, 100},
+                 height: {:pixels, 100},
+                 gravity: {:objw, [{"all", 2.0}, {"face", 3.0}]}
+               }
+             )
+
+    assert crop.guide == {:detect, {:all, %{"face" => 3.0, default: 2.0}}}
+  end
+
+  property "objw canonicalization is order-independent" do
+    check all classes <-
+                uniq_list_of(member_of(["face", "car", "dog", "person"]),
+                  min_length: 1,
+                  max_length: 3
+                ),
+              weights <- list_of(member_of([1.0, 2.0, 3.0]), length: length(classes)),
+              default <- member_of([1.0, 2.0, 3.0]) do
+      pairs = [{"all", default} | Enum.zip(classes, weights)]
+      assert objw_guide(pairs) == objw_guide(Enum.shuffle(pairs))
+    end
+  end
+
+  property "objw canonicalization is idempotent (re-feeding the canonical map changes nothing)" do
+    check all classes <-
+                uniq_list_of(member_of(["face", "car", "dog"]), min_length: 1, max_length: 3),
+              weights <- list_of(member_of([1.0, 2.0]), length: length(classes)),
+              default <- member_of([1.0, 2.0]) do
+      {:detect, {:all, map}} = objw_guide([{"all", default} | Enum.zip(classes, weights)])
+      # Rebuild pairs from the canonical map (default → "all") and re-canonicalize.
+      repairs =
+        Enum.map(map, fn
+          {:default, w} -> {"all", w}
+          {class, w} -> {class, w}
+        end)
+
+      reguide = if repairs == [], do: objw_guide([{"all", 1.0}]), else: objw_guide(repairs)
+      assert reguide == {:detect, {:all, map}}
+    end
+  end
+
+  defp objw_guide(pairs) do
+    {:ok, %Plan{pipelines: [%Pipeline{operations: [%Operation.Resize{} = resize]}]}} =
+      plan_pipeline(
+        resizing_type: :fill,
+        width: {:pixels, 100},
+        height: {:pixels, 100},
+        gravity: {:objw, pairs}
+      )
+
+    resize.guide
+  end
+
   defp pixels(value), do: {:px, value}
   defp auto, do: :auto
   defp ratio(numerator, denominator), do: {:ratio, numerator, denominator}

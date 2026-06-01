@@ -646,6 +646,9 @@ defmodule ImagePipe.Parser.Imgproxy.PlanBuilder do
   defp resize_guide(:sm, _face_assist), do: {:ok, :smart}
   defp resize_guide({:obj, classes}, _face_assist), do: {:ok, object_detect_guide(classes)}
 
+  defp resize_guide({:objw, pairs}, _face_assist),
+    do: {:ok, object_detect_guide([], canonical_weights(pairs))}
+
   defp resize_guide({:anchor, :center, :center}, _face_assist), do: {:ok, :center}
   defp resize_guide({:anchor, x, y}, _face_assist), do: {:ok, {:anchor, x, y}}
 
@@ -659,6 +662,9 @@ defmodule ImagePipe.Parser.Imgproxy.PlanBuilder do
   defp tagged_gravity(:sm, true), do: {:ok, {:smart, :face_assist}}
   defp tagged_gravity(:sm, _face_assist), do: {:ok, :smart}
   defp tagged_gravity({:obj, classes}, _face_assist), do: {:ok, object_detect_guide(classes)}
+
+  defp tagged_gravity({:objw, pairs}, _face_assist),
+    do: {:ok, object_detect_guide([], canonical_weights(pairs))}
 
   defp tagged_gravity({:anchor, x, y}, _face_assist), do: {:ok, crop_anchor_guide(x, y)}
 
@@ -696,6 +702,28 @@ defmodule ImagePipe.Parser.Imgproxy.PlanBuilder do
     spec = if classes == [] or "all" in classes, do: :all, else: classes
     {:detect, {spec, weights}}
   end
+
+  # Canonicalizes raw objw pairs into the sparse plan weights map. `all` →
+  # :default; later pairs win on duplicate keys. Then the fixed-point drop rules
+  # (effective default = :default or 1.0): drop class entries equal to it, then
+  # drop :default when it is 1.0. The only place objw weights are canonicalized.
+  defp canonical_weights(pairs) do
+    raw =
+      Enum.reduce(pairs, %{}, fn {class, weight}, acc ->
+        key = if class == "all", do: :default, else: class
+        Map.put(acc, key, weight)
+      end)
+
+    eff = Map.get(raw, :default, 1.0)
+
+    raw
+    |> Enum.reject(fn {key, weight} -> key != :default and weight == eff end)
+    |> Map.new()
+    |> drop_default_one()
+  end
+
+  defp drop_default_one(%{default: 1.0} = weights), do: Map.delete(weights, :default)
+  defp drop_default_one(weights), do: weights
 
   defp crop_anchor_guide(:center, :center), do: :center
   defp crop_anchor_guide(:left, :top), do: :top_left
