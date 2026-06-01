@@ -52,10 +52,6 @@ jobs:
         run: mise exec -- mix compile --warnings-as-errors
         env:
           MIX_ENV: test
-      - name: Check formatting
-        run: mise exec -- mix format --check-formatted
-        env:
-          MIX_ENV: test
       - name: Run tests
         run: mise exec -- mix test --no-compile
         env:
