@@ -78,15 +78,17 @@ defmodule ImagePipe.Source.FileTest do
     assert SourceFile.fetch(resolved, opts, []) == {:error, {:source, :denied_path}}
   end
 
-  test "fetch streams regular file bytes", %{root: root} do
+  test "fetch returns the resolved file path", %{root: root} do
     assert {:ok, opts} = SourceFile.validate_options(root: root, root_id: "fixture-root")
 
     assert {:ok, resolved} =
              SourceFile.resolve(%SourcePath{segments: ["images", "cat.jpg"]}, opts, [])
 
-    assert {:ok, %Response{} = response} = SourceFile.fetch(resolved, opts, max_body_bytes: 20)
+    assert {:ok, %Response{path: path, stream: nil}} =
+             SourceFile.fetch(resolved, opts, max_body_bytes: 20)
 
-    assert Enum.join(response.stream) == "image bytes"
+    assert path == Path.join(root, "images/cat.jpg")
+    assert File.read!(path) == "image bytes"
   end
 
   test "fetch returns safe source errors for missing files", %{root: root} do
