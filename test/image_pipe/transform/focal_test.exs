@@ -36,4 +36,14 @@ defmodule ImagePipe.Transform.FocalTest do
     assert_in_delta fx, 0.5, 0.0001
     assert_in_delta fy, 0.5, 0.0001
   end
+
+  test "a class weight pulls the centroid toward that class" do
+    {:ok, {:fp, _, fy_uniform}} = Focal.weighted_centroid(scene(), 100, 100, %{})
+    {:ok, {:fp, _, fy_boost}} = Focal.weighted_centroid(scene(), 100, 100, %{"face" => 3.0})
+
+    # face center y = 30 (above the person centroid), so a face boost lowers fy.
+    assert fy_boost < fy_uniform
+    # √area: (52.915·55 + 3·20·30) / (52.915 + 60) ≈ 41.72
+    assert_in_delta fy_boost, 0.4172, 0.0005
+  end
 end

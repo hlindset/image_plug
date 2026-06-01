@@ -238,6 +238,36 @@ defmodule ImagePipe.ImgproxyWireConformanceTest do
     end
   end
 
+  # Slice 2: a large "person" box and a small "face" box, class-aware so obj:person
+  # / obj:face filter to one box. Sized as large fractions of beach.jpg (4000×2667)
+  # so the fill-crop window actually moves between weightings.
+  defmodule WeightedSceneDetector do
+    @moduledoc false
+    @behaviour ImagePipe.Transform.Detector
+
+    @boxes [
+      %{label: "person", score: 0.95, box: {2000, 800, 800, 1000}},
+      %{label: "face", score: 0.95, box: {1400, 600, 400, 400}}
+    ]
+
+    @impl true
+    def supported_classes(_), do: ["face", "person"]
+
+    @impl true
+    def available?(opts), do: Keyword.get(opts, :available?, true)
+
+    @impl true
+    def identity(_), do: {__MODULE__, :v1}
+
+    @impl true
+    def detect(_image, opts) do
+      case Keyword.get(opts, :classes, :all) do
+        :all -> {:ok, @boxes}
+        classes -> {:ok, Enum.filter(@boxes, &(&1.label in List.wrap(classes)))}
+      end
+    end
+  end
+
   # Task 10: PartialDetector — Composite with FaceFake (available) and
   # UnavailableObjectFake (available?=false), used for the gate triad.
   defmodule GateTriadFaceFake do
@@ -1629,6 +1659,63 @@ defmodule ImagePipe.ImgproxyWireConformanceTest do
     refute_received {:cache_lookup, _key}
     refute_received {:cache_put, _key, _entry}
     refute_received :origin_fetch
+  end
+
+  # Slice 2: a face weight measurably changes the crop end-to-end. Exact focal
+  # math is pinned in FocalTest; here we only prove the weight reaches pixels.
+  # rs:fill:2000:2000 on beach.jpg (4000×2667) scales to 3000×2000, large enough
+  # that the WeightedSceneDetector boxes ({2000,800,800,1000} and {1400,600,400,400})
+  # both fit and the uniform vs boosted centroids land at different crop positions.
+  test "objw face weight changes the rendered crop vs uniform" do
+    opts = Keyword.merge(@default_opts, detector: WeightedSceneDetector)
+
+    uniform =
+      call_imgproxy("/_/rs:fill:2000:2000/g:obj:all/f:jpeg/plain/images/beach.jpg", opts)
+
+    boosted =
+      call_imgproxy(
+        "/_/rs:fill:2000:2000/g:objw:all:1:face:8/f:jpeg/plain/images/beach.jpg",
+        opts
+      )
+
+    assert uniform.status == 200
+    assert boosted.status == 200
+    assert dimensions(boosted) == {2000, 2000}
+    refute boosted.resp_body == uniform.resp_body
+  end
+
+  # Slice 2: uniform-weight objw canonicalizes to obj:all (the weight scalar
+  # cancels in the centroid), so it renders identically. (Cache-key identity is a
+  # separate question, covered in the cache task — not asserted here.)
+  test "objw with all-equal weights renders identically to obj:all" do
+    opts = Keyword.merge(@default_opts, detector: WeightedSceneDetector)
+
+    objw =
+      call_imgproxy("/_/rs:fill:2000:2000/g:objw:all:2/f:jpeg/plain/images/beach.jpg", opts)
+
+    obj = call_imgproxy("/_/rs:fill:2000:2000/g:obj:all/f:jpeg/plain/images/beach.jpg", opts)
+
+    assert objw.resp_body == obj.resp_body
+  end
+
+  # Slice 2: the c:W:H:objw crop form reaches the crop path and applies the weight.
+  test "c:W:H:objw crop form applies the weight" do
+    opts = Keyword.merge(@default_opts, detector: WeightedSceneDetector)
+
+    weighted =
+      call_imgproxy("/_/c:2000:2000:objw:all:1:face:8/f:jpeg/plain/images/beach.jpg", opts)
+
+    uniform = call_imgproxy("/_/c:2000:2000:obj:all/f:jpeg/plain/images/beach.jpg", opts)
+
+    assert weighted.status == 200
+    refute weighted.resp_body == uniform.resp_body
+  end
+
+  # Slice 2: no-geometry objw returns 200.
+  test "no-geometry g:objw returns 200 without a resize or crop" do
+    opts = Keyword.merge(@default_opts, detector: WeightedSceneDetector)
+    conn = call_imgproxy("/_/g:objw:all:1:face:3/plain/images/beach.jpg", opts)
+    assert conn.status == 200
   end
 
   # Capture the cache key the plug looked up for one request. Uses the file's
