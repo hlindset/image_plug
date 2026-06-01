@@ -1168,7 +1168,8 @@ defmodule ImagePipe.Parser.Imgproxy.PlanBuilderTest do
 
   property "objw canonicalization is order-independent" do
     check all classes <-
-                uniq_list_of(member_of(["face", "car", "dog", "person"]),
+                uniq_list_of(
+                  member_of(["face", "car", "dog", "person", "cat", "bus", "truck", "bird"]),
                   min_length: 1,
                   max_length: 3
                 ),
@@ -1181,7 +1182,11 @@ defmodule ImagePipe.Parser.Imgproxy.PlanBuilderTest do
 
   property "objw canonicalization is idempotent (re-feeding the canonical map changes nothing)" do
     check all classes <-
-                uniq_list_of(member_of(["face", "car", "dog"]), min_length: 1, max_length: 3),
+                uniq_list_of(
+                  member_of(["face", "car", "dog", "person", "cat", "bus", "truck", "bird"]),
+                  min_length: 1,
+                  max_length: 3
+                ),
               weights <- list_of(member_of([1.0, 2.0]), length: length(classes)),
               default <- member_of([1.0, 2.0]) do
       {:detect, {:all, map}} = objw_guide([{"all", default} | Enum.zip(classes, weights)])
