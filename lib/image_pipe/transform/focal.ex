@@ -42,8 +42,10 @@ defmodule ImagePipe.Transform.Focal do
     class_weight(Map.get(region, :label), weights) * area_term(w, h)
   end
 
-  # Task 2 changes this to `:math.sqrt(w * h)`.
-  defp area_term(w, h), do: w * h
+  # √area tracks the box's linear size, so a class weight is a responsive lever
+  # (a face boost actually moves the crop) while a dominant object still wins.
+  # See the Slice 2 design doc for the rationale.
+  defp area_term(w, h), do: :math.sqrt(w * h)
 
   defp class_weight(label, weights) do
     Map.get(weights, label, Map.get(weights, :default, 1.0))

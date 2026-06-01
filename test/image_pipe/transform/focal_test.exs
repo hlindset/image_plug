@@ -12,11 +12,11 @@ defmodule ImagePipe.Transform.FocalTest do
     ]
   end
 
-  test "uniform area-weighted centroid (empty weights)" do
+  test "uniform √area-weighted centroid (empty weights)" do
     assert {:ok, {:fp, fx, fy}} = Focal.weighted_centroid(scene(), 100, 100, %{})
     assert_in_delta fx, 0.5, 0.0001
-    # area: (2800·55 + 400·30) / 3200 = 51.875
-    assert_in_delta fy, 0.51875, 0.0001
+    # √area: (52.915·55 + 20·30) / 72.915 ≈ 48.14
+    assert_in_delta fy, 0.4814, 0.0005
   end
 
   test "a uniform default scalar does not move the centroid (cancels)" do
