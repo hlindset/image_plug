@@ -514,20 +514,40 @@
     }
   }
 
-  function toggleObjClass(cls: string): void {
-    const idx = state.objSelectedClasses.indexOf(cls);
+  function syncObjClasses(nextClasses: string[]): void {
+    // Add default weight for newly selected classes; remove weight for deselected ones.
+    const prev = new Set(state.objSelectedClasses);
+    const next = new Set(nextClasses);
+    let weights = { ...state.objWeights };
 
-    if (idx === -1) {
-      // Initialize weight to 1 when selecting a new class.
-      state.objSelectedClasses = [...state.objSelectedClasses, cls];
-      state.objWeights = { ...state.objWeights, [cls]: state.objWeights[cls] ?? 1 };
-    } else {
-      state.objSelectedClasses = state.objSelectedClasses.filter((c) => c !== cls);
-      // Remove the weight entry when a class is deselected to keep state clean.
-      const { [cls]: _removed, ...rest } = state.objWeights;
-
-      state.objWeights = rest;
+    for (const cls of next) {
+      if (!prev.has(cls)) {
+        weights = { ...weights, [cls]: weights[cls] ?? 1 };
+      }
     }
+
+    for (const cls of prev) {
+      if (!next.has(cls)) {
+        const { [cls]: _removed, ...rest } = weights;
+
+        weights = rest;
+      }
+    }
+
+    state.objSelectedClasses = nextClasses;
+    state.objWeights = weights;
+  }
+
+  function objClassTriggerLabel(selected: string[]): string {
+    if (selected.length === 0) {
+      return "All objects";
+    }
+
+    if (selected.length === 1) {
+      return selected[0]!;
+    }
+
+    return `${selected.length} classes`;
   }
 
   function resetSettings(): void {
@@ -923,31 +943,43 @@
                   ? "Classes + weights"
                   : "Classes"}
               </span>
-              <!-- Class chips: toggle individual detection classes.
+              <!-- Multi-select dropdown: choose individual detection classes.
                    Empty selection = all objects (bare g:obj).
-                   In weighted mode "all" is offered as a baseline chip. -->
-              <div class="obj-class-chips">
-                {#if state.objSubMode === "weighted"}
-                  <button
-                    class="obj-chip"
-                    class:obj-chip-selected={state.objSelectedClasses.includes("all")}
-                    type="button"
-                    onclick={() => toggleObjClass("all")}
-                  >
-                    all
-                  </button>
-                {/if}
-                {#each demoObjClassesForPicker as cls}
-                  <button
-                    class="obj-chip"
-                    class:obj-chip-selected={state.objSelectedClasses.includes(cls)}
-                    type="button"
-                    onclick={() => toggleObjClass(cls)}
-                  >
-                    {cls}
-                  </button>
-                {/each}
-              </div>
+                   In weighted mode "all" is offered as a baseline option. -->
+              <Select.Root
+                type="multiple"
+                value={state.objSelectedClasses}
+                onValueChange={syncObjClasses}
+              >
+                <Select.Trigger class="obj-class-trigger">
+                  {objClassTriggerLabel(state.objSelectedClasses)}
+                  <span class="obj-class-trigger-chevron" aria-hidden="true"></span>
+                </Select.Trigger>
+                <Select.Content class="obj-class-content" sideOffset={4}>
+                  <Select.Viewport class="obj-class-viewport">
+                    {#if state.objSubMode === "weighted"}
+                      <Select.Item class="obj-class-item" value="all" label="all">
+                        {#snippet children({ selected })}
+                          <span class="obj-class-item-check" aria-hidden="true">
+                            {#if selected}✓{/if}
+                          </span>
+                          all
+                        {/snippet}
+                      </Select.Item>
+                    {/if}
+                    {#each demoObjClassesForPicker as cls}
+                      <Select.Item class="obj-class-item" value={cls} label={cls}>
+                        {#snippet children({ selected })}
+                          <span class="obj-class-item-check" aria-hidden="true">
+                            {#if selected}✓{/if}
+                          </span>
+                          {cls}
+                        {/snippet}
+                      </Select.Item>
+                    {/each}
+                  </Select.Viewport>
+                </Select.Content>
+              </Select.Root>
               {#if state.objSelectedClasses.length === 0}
                 <p class="field-hint">No classes selected — detects all objects.</p>
               {/if}
@@ -2150,35 +2182,25 @@
     outline-offset: 2px;
   }
 
-  /* Class chip multi-select */
-  .obj-class-chips {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 6px;
-  }
-
-  .obj-chip {
-    height: 28px;
+  /* Class multi-select dropdown */
+  :global(.obj-class-trigger) {
+    min-width: 0;
+    width: 100%;
+    height: 38px;
     display: inline-flex;
     align-items: center;
-    padding-inline: 10px;
+    justify-content: space-between;
+    gap: 8px;
     border: 1px solid var(--border-strong);
-    border-radius: 999px;
+    border-radius: 7px;
     background: var(--surface-control);
-    color: var(--text-muted);
-    cursor: pointer;
+    color: var(--text-primary);
+    padding-inline: 12px 10px;
     font: inherit;
-    font-size: 12px;
-    line-height: 1;
-    transition:
-      background-color 100ms ease-out,
-      color 100ms ease-out,
-      border-color 100ms ease-out;
-
-    &:hover {
-      border-color: var(--accent);
-      color: var(--text-primary);
-    }
+    font-size: 14px;
+    line-height: 18px;
+    cursor: pointer;
+    text-align: start;
 
     &:focus-visible {
       outline: 2px solid var(--focus-ring);
@@ -2186,11 +2208,68 @@
     }
   }
 
-  .obj-chip-selected {
-    border-color: var(--accent);
-    background: color-mix(in srgb, var(--accent) 14%, var(--surface-control));
-    color: var(--text-heading);
-    font-weight: 500;
+  .obj-class-trigger-chevron {
+    width: 5px;
+    height: 5px;
+    flex-shrink: 0;
+    border-inline-end: 2px solid var(--text-muted);
+    border-block-end: 2px solid var(--text-muted);
+    transform: rotate(45deg) translate(-1px, -1px);
+    margin-inline-end: 4px;
+  }
+
+  :global(.obj-class-trigger[data-state="open"]) .obj-class-trigger-chevron {
+    transform: rotate(-135deg) translate(-1px, -1px);
+  }
+
+  :global(.obj-class-content) {
+    min-width: var(--bits-select-anchor-width, 180px);
+    border: 1px solid var(--border-strong);
+    border-radius: 8px;
+    background: var(--surface-sidebar);
+    box-shadow: var(--image-shadow);
+    overflow: hidden;
+    z-index: 50;
+  }
+
+  :global(.obj-class-viewport) {
+    padding: 4px;
+  }
+
+  :global(.obj-class-item) {
+    height: 32px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    border: 0;
+    border-radius: 5px;
+    background: transparent;
+    color: var(--text-primary);
+    cursor: pointer;
+    font: inherit;
+    font-size: 13px;
+    padding-inline: 8px;
+    width: 100%;
+    text-align: start;
+
+    &:hover,
+    &[data-highlighted] {
+      background: color-mix(in srgb, var(--accent) 12%, var(--surface-control));
+      color: var(--text-heading);
+    }
+
+    &[data-selected] {
+      color: var(--text-heading);
+      font-weight: 500;
+    }
+  }
+
+  .obj-class-item-check {
+    width: 14px;
+    flex-shrink: 0;
+    color: var(--accent);
+    font-size: 12px;
+    line-height: 1;
   }
 
   .text-input {
