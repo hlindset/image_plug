@@ -92,4 +92,65 @@ defmodule ImagePipe.Source.ReqStreamTest do
     error = assert_raise StreamError, fn -> Enum.to_list(stream) end
     assert error.reason == :too_many_redirects
   end
+
+  test "a protocol-relative redirect Location is merged to an absolute target before validation" do
+    plug = fn
+      %{request_path: "/r.jpg"} = conn ->
+        conn
+        |> Plug.Conn.put_resp_header("location", "//hop.example/other.jpg")
+        |> Plug.Conn.send_resp(302, "")
+
+      conn ->
+        send(self(), {:got, conn.host, conn.request_path})
+        Plug.Conn.send_resp(conn, 200, "image bytes")
+    end
+
+    seen = self()
+
+    stream =
+      ReqStream.stream(
+        [url: "https://assets.example.com/r.jpg", plug: plug],
+        validate_target: fn url ->
+          send(seen, {:validated, url})
+          :ok
+        end,
+        max_redirects: 1
+      )
+
+    assert Enum.join(stream) == "image bytes"
+    # protocol-relative // inherits the https scheme from the base URL
+    assert_received {:validated, "https://assets.example.com/r.jpg"}
+    assert_received {:validated, "https://hop.example/other.jpg"}
+    assert_received {:got, "hop.example", "/other.jpg"}
+  end
+
+  test "a scheme-downgrade redirect is normalized and validated with the new scheme" do
+    plug = fn
+      %{request_path: "/r.jpg"} = conn ->
+        conn
+        |> Plug.Conn.put_resp_header("location", "http://assets.example.com/plain.jpg")
+        |> Plug.Conn.send_resp(302, "")
+
+      conn ->
+        send(self(), {:got, conn.scheme, conn.request_path})
+        Plug.Conn.send_resp(conn, 200, "image bytes")
+    end
+
+    seen = self()
+
+    stream =
+      ReqStream.stream(
+        [url: "https://assets.example.com/r.jpg", plug: plug],
+        validate_target: fn url ->
+          send(seen, {:validated, url})
+          :ok
+        end,
+        max_redirects: 1
+      )
+
+    assert Enum.join(stream) == "image bytes"
+    assert_received {:validated, "https://assets.example.com/r.jpg"}
+    assert_received {:validated, "http://assets.example.com/plain.jpg"}
+    assert_received {:got, :http, "/plain.jpg"}
+  end
 end
