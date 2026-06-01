@@ -7,6 +7,14 @@ defmodule ImagePipe.Source.HTTPTest do
   alias ImagePipe.Source.Resolved
   alias ImagePipe.Source.Response
 
+  @public_ip {93, 184, 216, 34}
+
+  defp stub_resolver(extra \\ %{}) do
+    base = %{"assets.example.com" => {:ok, [@public_ip]}}
+    map = Map.merge(base, extra)
+    fn host -> Map.get(map, host, {:error, :nxdomain}) end
+  end
+
   test "http source defaults to not stable and disables internal cache in auto mode" do
     assert {:ok, opts} = HTTP.validate_options(allowed_hosts: ["example.com"])
     source = %URL{scheme: :https, host: "example.com", path: ["cat.jpg"]}
@@ -110,6 +118,7 @@ defmodule ImagePipe.Source.HTTPTest do
     assert {:ok, opts} =
              HTTP.validate_options(
                allowed_hosts: ["assets.example.com"],
+               address_resolver: stub_resolver(),
                req_options: [plug: plug]
              )
 
@@ -145,6 +154,7 @@ defmodule ImagePipe.Source.HTTPTest do
              HTTP.validate_options(
                allowed_hosts: ["assets.example.com"],
                internal_cache: :enabled,
+               address_resolver: stub_resolver(),
                req_options: [
                  plug: plug,
                  url: "https://evil.example/other.jpg",
@@ -200,6 +210,7 @@ defmodule ImagePipe.Source.HTTPTest do
                allowed_hosts: ["assets.example.com"],
                stable: :trusted,
                internal_cache: :disabled,
+               address_resolver: stub_resolver(),
                req_options: [
                  plug: plug,
                  headers: [
@@ -251,6 +262,7 @@ defmodule ImagePipe.Source.HTTPTest do
              HTTP.validate_options(
                allowed_hosts: ["assets.example.com"],
                max_redirects: 1,
+               address_resolver: stub_resolver(),
                req_options: [plug: plug]
              )
 
@@ -281,6 +293,7 @@ defmodule ImagePipe.Source.HTTPTest do
     assert {:ok, opts} =
              HTTP.validate_options(
                allowed_hosts: ["assets.example.com"],
+               address_resolver: stub_resolver(),
                req_options: [plug: plug, max_redirects: 10]
              )
 
@@ -310,6 +323,7 @@ defmodule ImagePipe.Source.HTTPTest do
     assert {:ok, opts} =
              HTTP.validate_options(
                allowed_hosts: ["assets.example.com"],
+               address_resolver: stub_resolver(),
                req_options: [plug: plug]
              )
 
@@ -339,6 +353,8 @@ defmodule ImagePipe.Source.HTTPTest do
     assert {:ok, opts} =
              HTTP.validate_options(
                allowed_hosts: ["::1"],
+               address_resolver: stub_resolver(%{"::1" => {:ok, [{0, 0, 0, 0, 0, 0, 0, 1}]}}),
+               address_policy: [allow_loopback: true],
                req_options: [plug: plug]
              )
 
@@ -367,6 +383,7 @@ defmodule ImagePipe.Source.HTTPTest do
     assert {:ok, opts} =
              HTTP.validate_options(
                allowed_hosts: ["assets.example.com"],
+               address_resolver: stub_resolver(),
                req_options: [plug: plug]
              )
 
@@ -379,11 +396,15 @@ defmodule ImagePipe.Source.HTTPTest do
     assert error.reason == :bad_status
   end
 
-  test "redirects cannot bypass allowed host policy" do
-    plug = fn conn ->
-      conn
-      |> Plug.Conn.put_resp_header("location", "https://evil.example/cat.jpg")
-      |> Plug.Conn.send_resp(302, "")
+  test "an enabled redirect to an off-allowlist host is denied" do
+    plug = fn
+      %{request_path: "/redirect.jpg"} = conn ->
+        conn
+        |> Plug.Conn.put_resp_header("location", "https://evil.example/x.jpg")
+        |> Plug.Conn.send_resp(302, "")
+
+      _conn ->
+        flunk("must not connect to the off-allowlist redirect target")
     end
 
     source = %URL{
@@ -397,6 +418,8 @@ defmodule ImagePipe.Source.HTTPTest do
     assert {:ok, opts} =
              HTTP.validate_options(
                allowed_hosts: ["assets.example.com"],
+               max_redirects: 1,
+               address_resolver: stub_resolver(),
                req_options: [plug: plug]
              )
 
@@ -406,6 +429,6 @@ defmodule ImagePipe.Source.HTTPTest do
              Source.fetch(resolved, [sources: %{https: {HTTP, opts}}], max_body_bytes: 20)
 
     error = assert_raise Source.StreamError, fn -> Enum.to_list(response.stream) end
-    assert error.reason == :bad_status
+    assert error.reason == :denied_host
   end
 end

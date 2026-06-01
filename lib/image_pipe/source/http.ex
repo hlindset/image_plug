@@ -6,6 +6,8 @@ defmodule ImagePipe.Source.HTTP do
   alias ImagePipe.Plan.Source.URL
   alias ImagePipe.Source
   alias ImagePipe.Source.CacheSemantics
+  alias ImagePipe.Source.HTTP.AddressPolicy
+  alias ImagePipe.Source.HTTP.TargetGuard
   alias ImagePipe.Source.ReqStream
   alias ImagePipe.Source.Resolved
   alias ImagePipe.Source.Response
@@ -19,7 +21,9 @@ defmodule ImagePipe.Source.HTTP do
     :into,
     :retry,
     :redirect,
-    :max_redirects
+    :max_redirects,
+    :address_policy,
+    :address_resolver
   ]
   @host_header_names ["host"]
   @cacheable_byte_header_names ["range", "accept", "accept-encoding"]
@@ -34,7 +38,13 @@ defmodule ImagePipe.Source.HTTP do
                     max_redirects: [type: :non_neg_integer, default: 0],
                     stable: [type: {:in, [:auto, :trusted]}, default: :auto],
                     internal_cache: [type: {:in, [:auto, :enabled, :disabled]}, default: :auto],
-                    http_cache: [type: {:in, [:inherit, :disabled, :enabled]}, default: :inherit]
+                    http_cache: [type: {:in, [:inherit, :disabled, :enabled]}, default: :inherit],
+                    address_policy: [
+                      type:
+                        {:or, [{:fun, 2}, {:custom, __MODULE__, :validate_address_policy_kw, []}]},
+                      default: []
+                    ],
+                    address_resolver: [type: {:fun, 1}]
                   )
 
   @impl Source
@@ -44,6 +54,38 @@ defmodule ImagePipe.Source.HTTP do
       {:error, error} -> {:error, {:invalid_source_config, Exception.message(error)}}
     end
   end
+
+  @doc false
+  def validate_address_policy_kw(value) when is_list(value) do
+    allowed_keys = [
+      :allow_loopback,
+      :allow_unspecified,
+      :allow_link_local,
+      :allow_private,
+      :allow_unique_local,
+      :allow_multicast,
+      :allow_broadcast,
+      :allow_cgnat,
+      :allow_reserved,
+      :allow
+    ]
+
+    cond do
+      not Keyword.keyword?(value) ->
+        {:error, "address_policy keyword list expected"}
+
+      Enum.any?(Keyword.keys(value), &(&1 not in allowed_keys)) ->
+        {:error, "unknown address_policy key"}
+
+      Enum.any?(Keyword.get(value, :allow, []), &(AddressPolicy.parse_cidr(&1) == :error)) ->
+        {:error, "invalid CIDR in address_policy :allow"}
+
+      true ->
+        {:ok, value}
+    end
+  end
+
+  def validate_address_policy_kw(_value), do: {:error, "address_policy keyword list expected"}
 
   @impl Source
   def resolve(%URL{scheme: scheme} = source, opts, _runtime_opts)
@@ -90,19 +132,23 @@ defmodule ImagePipe.Source.HTTP do
       opts
       |> Keyword.fetch!(:req_options)
       |> sanitize_req_options(fetch[:strip_byte_headers])
-      |> Keyword.merge(
-        url: fetch[:url],
-        method: :get,
-        max_redirects: Keyword.fetch!(opts, :max_redirects)
-      )
+      |> Keyword.merge(url: fetch[:url], method: :get)
 
     stream_options =
-      Keyword.merge(
-        Keyword.take(opts, [:receive_timeout, :pool_timeout, :connect_timeout]),
-        runtime_opts
-      )
+      Keyword.take(opts, [:receive_timeout, :pool_timeout, :connect_timeout])
+      |> Keyword.merge(runtime_opts)
+      |> Keyword.put(:validate_target, build_target_guard(opts))
+      |> Keyword.put(:max_redirects, Keyword.fetch!(opts, :max_redirects))
 
     {:ok, %Response{stream: ReqStream.stream(req_options, stream_options)}}
+  end
+
+  defp build_target_guard(opts) do
+    allowed_hosts = Keyword.fetch!(opts, :allowed_hosts)
+    predicate = AddressPolicy.compile(Keyword.fetch!(opts, :address_policy))
+    resolver = Keyword.get(opts, :address_resolver, &TargetGuard.default_resolver/1)
+
+    fn url -> TargetGuard.validate(url, allowed_hosts, predicate, resolver) end
   end
 
   defp sanitize_req_options(req_options, strip_byte_headers?) do
