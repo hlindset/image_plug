@@ -1,7 +1,6 @@
 defmodule ImagePipe.PlugTest.ConsumeSourceThenDecodeErrorImage do
   @moduledoc false
-  def open(stream, _decode_options) do
-    _chunks = Enum.to_list(stream)
+  def open(_input, _decode_options) do
     {:error, :forced_decode_error}
   end
 end
