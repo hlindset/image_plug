@@ -44,9 +44,8 @@ defmodule ImagePipe.Parser.TwicPics.Units do
     end
   end
 
-  @doc false
   @spec number(String.t()) :: {:ok, number()} | :error
-  def number(value) do
+  defp number(value) do
     case Integer.parse(value) do
       {n, ""} ->
         {:ok, n}

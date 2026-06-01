@@ -88,6 +88,11 @@ defmodule ImagePipe.Parser.TwicPics.PlanBuilderTest do
     assert {:error, {:unsupported_unit, :crop}} = build([{"crop", "50p"}])
   end
 
+  test "a region crop requires explicit pixel WxH (single-dim size is rejected)" do
+    assert {:error, {:unsupported_crop_region_size, "100"}} =
+             build([{"crop", "100@20x50"}])
+  end
+
   test "an empty pipeline still produces a valid no-op plan when only output is set" do
     assert {:ok, %Plan{pipelines: [%Pipeline{operations: []}]}} = build([{"output", "auto"}])
   end

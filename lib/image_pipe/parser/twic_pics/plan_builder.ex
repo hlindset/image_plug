@@ -110,12 +110,22 @@ defmodule ImagePipe.Parser.TwicPics.PlanBuilder do
   end
 
   defp crop_region(size, coords, acc) do
-    with {:ok, {w, h}} <- Units.size(size),
-         :ok <- pixels_only([w, h], :crop),
+    with {:ok, {w, h}} <- region_size(size),
          {:ok, {x, y}} <- crop_coordinates(coords),
          {:ok, op} <- Operation.crop_region(x, y, w, h) do
       # explicit coordinates reset the focus to center
       push(%{acc | guide: :center}, op)
+    end
+  end
+
+  # A region crop (`crop=WxH@XxY`) requires explicit pixel W and H — an omitted
+  # axis (`crop=100@…`, which `Units.size` yields as `:auto`) or a relative unit
+  # is not a valid region size in v1.
+  defp region_size(size) do
+    case Units.size(size) do
+      {:ok, {{:px, _} = w, {:px, _} = h}} -> {:ok, {w, h}}
+      {:ok, _partial} -> {:error, {:unsupported_crop_region_size, size}}
+      {:error, _reason} = error -> error
     end
   end
 
