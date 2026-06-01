@@ -76,7 +76,7 @@ Mapped against [API Transformations](https://www.twicpics.com/docs/reference/tra
 | `resize=W:H` (ratio) | 🚫 Rejected | Surface-preserving resize-to-ratio has no clean mapping to an existing op; deferred with its own operation design. |
 | `resize-max` / `resize-min` | 🚫 Rejected | Conditional variants deferred; recognized and rejected. |
 | `cover=WxH` | ✅ Supported | `Resize(:cover, …, guide: focus)` — fill + crop to focus. |
-| `cover=W:H` (ratio) | ✅ Supported | `CropGuided(:full_axis, :full_axis, aspect_ratio: …, guide: focus)` — largest matching-ratio area. **Integer ratios only** in v1 (e.g. `16:9`); decimal ratios like `1.5:2` are rejected (deferred). |
+| `cover=W:H` (ratio) | ✅ Supported | `CropGuided(:full_axis, :full_axis, aspect_ratio: …, guide: focus)` — largest matching-ratio area. Integer and decimal ratios (e.g. `16:9`, `1.5:2`) both supported. |
 | `cover-max` / `cover-min` | 🚫 Rejected | Conditional variants deferred. |
 | `contain=WxH` | ✅ Supported | `Resize(:fit, …)` — fits inside, may be smaller, no letterbox. |
 | `contain-max` / `contain-min` (aliases `max` / `min`) | 🚫 Rejected | Conditional variants deferred. |
@@ -123,7 +123,7 @@ Mapped against [API Parameters](https://www.twicpics.com/docs/reference/paramete
 | --- | --- | --- |
 | Length (px / `p` percent / `s` scale) | ✅ Supported | `{:px, n}` / `{:percent, n}` / `{:scale, f}`. Bare number = pixels. |
 | Size (`WxH`, `-` auto) | ✅ Supported | One dimension may be `-` for auto. Mixed units allowed. |
-| Ratio (`W:H`) | ⚠️ Partial (v1) | Two strictly-positive **integers** → `{:ratio, n, d}`. TwicPics also permits decimal ratios (`1.5:2`); those are rejected in v1 and deferred. |
+| Ratio (`W:H`) | ✅ Supported | Two strictly-positive numbers, integer or decimal (e.g. `16:9`, `1.5:2`), reduced to an integer `{:ratio, n, d}` via exact string-based scaling. |
 | Coordinates (`XxY`) | ✅ Supported | Two Lengths; v1 uses them for the `crop=…@XxY` origin (pixel coords → `CropRegion`). Coordinate focus is deferred. |
 | Anchor (8 named positions) | ✅ Supported | `top`, `bottom`, `left`, `right`, four corners → Plan guides. No `center` anchor — `center` is the default focus only. |
 | Crop size | ✅ Supported | Distinct from Size: omitted dim / `-` means `1s` = full running axis (`:full_axis`), **not** aspect-preserving auto. `crop=320` ≡ `320x-` ≡ `320x1s`. |

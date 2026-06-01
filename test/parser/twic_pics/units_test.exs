@@ -56,18 +56,25 @@ defmodule ImagePipe.Parser.TwicPics.UnitsTest do
   end
 
   describe "ratio/1" do
-    test "two positive numbers" do
+    test "integer ratios" do
       assert Units.ratio("16:9") == {:ok, {:ratio, 16, 9}}
+      assert Units.ratio("2:4") == {:ok, {:ratio, 1, 2}}
     end
 
-    test "rejects non-positive" do
+    test "decimal ratios reduce to an integer ratio (exact, no float rounding)" do
+      assert Units.ratio("1.5:2") == {:ok, {:ratio, 3, 4}}
+      assert Units.ratio("1.5:2.25") == {:ok, {:ratio, 2, 3}}
+      assert Units.ratio(".5:2") == {:ok, {:ratio, 1, 4}}
+      assert Units.ratio("1.05:2.1") == {:ok, {:ratio, 1, 2}}
+    end
+
+    test "rejects non-positive and malformed" do
       assert {:error, _} = Units.ratio("0:9")
-    end
-
-    test "v1 accepts integer ratios only; decimal ratios are deferred" do
-      # TwicPics permits decimal ratios (e.g. `1.5:2`); v1 supports integer
-      # ratios only and rejects decimals (documented in the support matrix).
-      assert {:error, {:invalid_ratio, "1.5:2"}} = Units.ratio("1.5:2")
+      assert {:error, _} = Units.ratio("0.0:9")
+      assert {:error, _} = Units.ratio("-1.5:2")
+      assert {:error, _} = Units.ratio("1.5.2:2")
+      assert {:error, _} = Units.ratio("1.5")
+      assert {:error, _} = Units.ratio("a:2")
     end
   end
 

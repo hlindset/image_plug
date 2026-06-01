@@ -82,20 +82,40 @@ defmodule ImagePipe.Parser.TwicPics.Units do
   defp dimension("", omitted), do: {:ok, omitted}
   defp dimension(value, _omitted), do: length(value)
 
+  # Ratios accept two strictly-positive numbers — integer or decimal, e.g. `16:9`
+  # or `1.5:2`. Each term is scaled to an integer by its number of fractional
+  # digits (exact, from the string form — no float rounding), brought to a common
+  # power of ten, then reduced to a `{:ratio, n, d}` of positive integers (so it
+  # maps cleanly onto the integer aspect-ratio the crop operation expects).
   @spec ratio(String.t()) :: {:ok, {:ratio, pos_integer(), pos_integer()}} | {:error, term()}
   def ratio(value) do
     with [w, h] <- String.split(value, ":", parts: 2),
-         {:ok, n} <- positive_ratio_term(w),
-         {:ok, d} <- positive_ratio_term(h) do
-      {:ok, {:ratio, n, d}}
+         {:ok, {nw, ew}} <- decimal_term(w),
+         {:ok, {nh, eh}} <- decimal_term(h) do
+      exp = max(ew, eh)
+      numerator = nw * Integer.pow(10, exp - ew)
+      denominator = nh * Integer.pow(10, exp - eh)
+      gcd = Integer.gcd(numerator, denominator)
+      {:ok, {:ratio, div(numerator, gcd), div(denominator, gcd)}}
     else
       _ -> {:error, {:invalid_ratio, value}}
     end
   end
 
-  defp positive_ratio_term(value) do
-    case Integer.parse(value) do
-      {n, ""} when n > 0 -> {:ok, n}
+  # Parse a strictly-positive decimal into `{integer, exponent}` such that the
+  # value equals `integer × 10^-exponent` (e.g. `"1.5"` → `{15, 1}`, `"16"` →
+  # `{16, 0}`, `".5"` → `{5, 1}`). Rejects zero, negatives, and non-numerics.
+  defp decimal_term(term) do
+    case String.split(term, ".") do
+      [whole] -> scaled_integer(whole, "")
+      [whole, frac] -> scaled_integer(whole, frac)
+      _ -> :error
+    end
+  end
+
+  defp scaled_integer(whole, frac) do
+    case Integer.parse(whole <> frac) do
+      {n, ""} when n > 0 -> {:ok, {n, byte_size(frac)}}
       _ -> :error
     end
   end

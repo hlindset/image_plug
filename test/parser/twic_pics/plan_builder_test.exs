@@ -44,6 +44,13 @@ defmodule ImagePipe.Parser.TwicPics.PlanBuilderTest do
              crop
   end
 
+  test "cover decimal ratio reduces and flows into the guided crop" do
+    assert {:ok, %Plan{pipelines: [%Pipeline{operations: [crop]}]}} =
+             build([{"cover", "1.5:2"}])
+
+    assert %Operation.CropGuided{aspect_ratio: {:ratio, 3, 4}} = crop
+  end
+
   test "inside -> fit resize plus transparent canvas" do
     assert {:ok, %Plan{pipelines: [%Pipeline{operations: [resize, canvas]}]}} =
              build([{"inside", "100x80"}])
