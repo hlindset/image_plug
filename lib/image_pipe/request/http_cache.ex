@@ -58,6 +58,14 @@ defmodule ImagePipe.Request.HTTPCache do
           {:ok, keyword()} | {:error, term()}
   def etag_material(conn, %Plan{} = plan, source_seed, opts) do
     with {:ok, plan_material} <- Key.plan_material(plan, opts) do
+      # The ETag is a strong byte-identity validator derived only from request
+      # inputs (source seed + canonical plan + negotiated Accept), never from the
+      # encoded bytes — that is what lets a conditional GET 304 before any fetch,
+      # decode, encode, or cache read. Drop the cachebuster (:cache): it busts
+      # storage but yields byte-identical output, so it must not move the ETag (a
+      # change would force clients to re-download identical content). Vary
+      # headers/cookies, which partition the cache key, are absent here for the
+      # same reason. Keep this input-derived; do not make it a hash of the body.
       {:ok,
        [
          etag_schema: @etag_schema,
