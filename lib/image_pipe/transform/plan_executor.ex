@@ -810,6 +810,8 @@ defmodule ImagePipe.Transform.PlanExecutor do
 
   defp tagged_executable_resize_dimension(:auto), do: :auto
   defp tagged_executable_resize_dimension({:px, value}), do: {:pixels, value}
+  defp tagged_executable_resize_dimension({:percent, value}), do: {:percent, value}
+  defp tagged_executable_resize_dimension({:scale, value}), do: {:scale, value}
 
   defp tagged_executable_optional_resize_dimension(nil), do: nil
 
