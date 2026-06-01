@@ -1,5 +1,6 @@
 defmodule ImagePipe.Source.HTTP.AddressPolicyTest do
   use ExUnit.Case, async: true
+  use ExUnitProperties
 
   alias ImagePipe.Source.HTTP.AddressPolicy
 
@@ -74,6 +75,89 @@ defmodule ImagePipe.Source.HTTP.AddressPolicyTest do
       {:ok, cidr6} = AddressPolicy.parse_cidr("2001:db8::/32")
       assert AddressPolicy.in_cidr?({0x2001, 0x0DB8, 1, 2, 3, 4, 5, 6}, cidr6)
       refute AddressPolicy.in_cidr?({0x2001, 0x0DB9, 0, 0, 0, 0, 0, 0}, cidr6)
+    end
+  end
+
+  describe "compile/1 + allow?/2" do
+    test "default keyword policy denies all non-public, allows public" do
+      pred = AddressPolicy.compile([])
+      assert AddressPolicy.allow?(pred, [{93, 184, 216, 34}])
+      refute AddressPolicy.allow?(pred, [{10, 0, 0, 1}])
+      refute AddressPolicy.allow?(pred, [{127, 0, 0, 1}])
+    end
+
+    test "category toggles open whole categories" do
+      pred = AddressPolicy.compile(allow_private: true)
+      assert AddressPolicy.allow?(pred, [{10, 0, 0, 1}])
+      refute AddressPolicy.allow?(pred, [{127, 0, 0, 1}])
+    end
+
+    test "CIDR allow opens exactly the named range" do
+      pred = AddressPolicy.compile(allow: ["10.0.5.0/24"])
+      assert AddressPolicy.allow?(pred, [{10, 0, 5, 7}])
+      refute AddressPolicy.allow?(pred, [{10, 0, 6, 7}])
+    end
+
+    test "block-if-any: one bad address denies the whole set" do
+      pred = AddressPolicy.compile([])
+      refute AddressPolicy.allow?(pred, [{93, 184, 216, 34}, {10, 0, 0, 1}])
+    end
+
+    test "malformed / empty address set denies" do
+      pred = AddressPolicy.compile([])
+      refute AddressPolicy.allow?(pred, [])
+      refute AddressPolicy.allow?(pred, [:not_an_ip])
+    end
+
+    test "function form replaces built-in decision" do
+      pred = AddressPolicy.compile(fn _ip, category -> category == :public end)
+      assert AddressPolicy.allow?(pred, [{93, 184, 216, 34}])
+      refute AddressPolicy.allow?(pred, [{10, 0, 0, 1}])
+    end
+
+    test "function form fails closed on non-boolean return and on raise" do
+      pred_bad = AddressPolicy.compile(fn _ip, _cat -> :yes end)
+      refute AddressPolicy.allow?(pred_bad, [{93, 184, 216, 34}])
+
+      pred_raise = AddressPolicy.compile(fn _ip, _cat -> raise "boom" end)
+      refute AddressPolicy.allow?(pred_raise, [{93, 184, 216, 34}])
+    end
+  end
+
+  describe "property: classify is total and deny-default" do
+    property "no IPv4 tuple crashes classify/1" do
+      check all a <- integer(0..255),
+                b <- integer(0..255),
+                c <- integer(0..255),
+                d <- integer(0..255) do
+        assert AddressPolicy.classify({a, b, c, d}) in [
+                 :loopback,
+                 :unspecified,
+                 :link_local,
+                 :private,
+                 :unique_local,
+                 :multicast,
+                 :broadcast,
+                 :cgnat,
+                 :reserved,
+                 :public
+               ]
+      end
+    end
+
+    property "default policy never allows a non-public IPv4" do
+      pred = AddressPolicy.compile([])
+
+      check all a <- integer(0..255),
+                b <- integer(0..255),
+                c <- integer(0..255),
+                d <- integer(0..255) do
+        ip = {a, b, c, d}
+
+        if AddressPolicy.classify(ip) != :public do
+          refute AddressPolicy.allow?(pred, [ip])
+        end
+      end
     end
   end
 end

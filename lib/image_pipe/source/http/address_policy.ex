@@ -94,6 +94,68 @@ defmodule ImagePipe.Source.HTTP.AddressPolicy do
   defp classify_v4(a, _, _, _) when a in 240..255, do: :reserved
   defp classify_v4(_, _, _, _), do: :public
 
+  @type predicate :: (:inet.ip_address(), category() -> boolean())
+
+  @category_toggles %{
+    allow_loopback: :loopback,
+    allow_unspecified: :unspecified,
+    allow_link_local: :link_local,
+    allow_private: :private,
+    allow_unique_local: :unique_local,
+    allow_multicast: :multicast,
+    allow_broadcast: :broadcast,
+    allow_cgnat: :cgnat,
+    allow_reserved: :reserved
+  }
+
+  @spec compile(keyword() | predicate()) :: predicate()
+  def compile(fun) when is_function(fun, 2) do
+    fn ip, category -> safe_bool(fun, ip, category) end
+  end
+
+  def compile(opts) when is_list(opts) do
+    allowed_categories =
+      for {toggle, category} <- @category_toggles,
+          Keyword.get(opts, toggle, false),
+          into: MapSet.new() do
+        category
+      end
+
+    cidrs =
+      opts
+      |> Keyword.get(:allow, [])
+      |> Enum.map(fn cidr ->
+        {:ok, parsed} = parse_cidr(cidr)
+        parsed
+      end)
+
+    fn ip, category ->
+      category == :public or
+        MapSet.member?(allowed_categories, category) or
+        Enum.any?(cidrs, &in_cidr?(ip, &1))
+    end
+  end
+
+  @spec allow?(predicate(), [:inet.ip_address()]) :: boolean()
+  def allow?(_predicate, []), do: false
+
+  def allow?(predicate, addresses) when is_list(addresses) do
+    Enum.all?(addresses, fn
+      {_, _, _, _} = ip -> predicate.(ip, classify(ip))
+      {_, _, _, _, _, _, _, _} = ip -> predicate.(ip, classify(ip))
+      _other -> false
+    end)
+  end
+
+  defp safe_bool(fun, ip, category) do
+    case fun.(ip, category) do
+      true -> true
+      _ -> false
+    end
+  rescue
+    _ -> false
+  end
+
   defp tuple_bits({_, _, _, _}), do: 32
   defp tuple_bits({_, _, _, _, _, _, _, _}), do: 128
 
