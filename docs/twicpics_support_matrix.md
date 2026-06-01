@@ -109,7 +109,7 @@ Mapped against [API Parameters](https://www.twicpics.com/docs/reference/paramete
 | --- | --- | --- |
 | `output=auto` | ✅ Supported | `Plan.Output` `:automatic` — Accept-negotiated, emits `Vary: Accept`. |
 | `output=avif\|webp\|jpeg\|png` | ✅ Supported | Explicit `{:explicit, format}`, bypasses negotiation. |
-| `output=heif` | ⭕ Missing | Not in the v1 explicit-format set. |
+| `output=heif` | 🚫 Rejected | Not in the v1 explicit-format set (`avif`/`webp`/`jpeg`/`png`); the parser rejects it with `{:unsupported_output, "heif"}` before side effects. |
 | `output=blurhash\|preview\|maincolor\|meancolor\|blank` | 🚫 Rejected | Non-image preview outputs; deferred. |
 | `output=h264\|h265\|vp9` | 🛑 Out of scope | Video output codecs. |
 | `quality=1..100` | ✅ Supported | `Plan.Output` quality. |
