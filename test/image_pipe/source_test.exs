@@ -138,7 +138,11 @@ defmodule ImagePipe.SourceTest do
     assert {:ok, opts} =
              Source.validate_config(
                sources: [
-                 url: {HTTP, allowed_hosts: ["assets.example.com"], req_options: [plug: plug]}
+                 url:
+                   {HTTP,
+                    allowed_hosts: ["assets.example.com"],
+                    req_options: [plug: plug],
+                    address_resolver: fn _host -> {:ok, [{93, 184, 216, 34}]} end}
                ]
              )
 
