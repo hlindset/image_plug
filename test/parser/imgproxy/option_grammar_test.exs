@@ -370,6 +370,35 @@ defmodule ImagePipe.Parser.Imgproxy.OptionGrammarTest do
     assert {:error, _} = OptionGrammar.parse("g:objw")
   end
 
+  # Bug 1: near-max-float weight must be rejected at parse time, not overflow at centroid math
+  test "objw gravity rejects weight above overflow-safe ceiling (1e308)" do
+    assert {:error, _} = OptionGrammar.parse("g:objw:cat:1e308")
+    assert {:error, _} = OptionGrammar.parse("g:objw:cat:1.0e308")
+    assert {:error, _} = OptionGrammar.parse("c:100:100:objw:cat:1e308")
+  end
+
+  test "objw gravity accepts large-but-safe weights below the ceiling" do
+    assert {:ok, _} = OptionGrammar.parse("g:objw:cat:1000000")
+    assert {:ok, _} = OptionGrammar.parse("g:objw:cat:999999.9")
+  end
+
+  # Bug 2: parse_float must not raise on very long digit strings (320+ digit tokens)
+  test "parse_float-backed options do not raise on 320-digit tokens" do
+    huge = String.duplicate("9", 320)
+
+    # objw weight path (parse_positive_float → parse_float)
+    assert {:error, _} = OptionGrammar.parse("g:objw:cat:#{huge}")
+
+    # focal-point path (parse_focal_coordinate → parse_float)
+    assert {:error, _} = OptionGrammar.parse("g:fp:#{huge}:0.5")
+
+    # zoom path (parse_positive_float → parse_float)
+    assert {:error, _} = OptionGrammar.parse("z:#{huge}")
+
+    # dpr path (parse_positive_float → parse_float via @special_specs)
+    assert {:error, _} = OptionGrammar.parse("dpr:#{huge}")
+  end
+
   defp color!(red, green, blue) do
     assert {:ok, color} = Color.rgb(red, green, blue)
     color

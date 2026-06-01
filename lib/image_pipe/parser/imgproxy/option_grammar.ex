@@ -6,6 +6,14 @@ defmodule ImagePipe.Parser.Imgproxy.OptionGrammar do
   alias ImagePipe.Plan.Color
   alias ImagePipe.Plan.Response
 
+  # Objw class weights are relative ratios used in a weighted centroid. A weight
+  # exceeding this ceiling cannot produce a meaningfully different centroid than a
+  # lower weight; it only risks float overflow in `class_weight · √area` arithmetic.
+  # 1_000_000 (one million) is far beyond any real relative-importance use case and
+  # still orders of magnitude below overflow territory (sqrt of a 10M×10M image is
+  # ~10_000, so 1e6 × 10_000 = 1e10, well within float64 range).
+  @max_object_weight 1_000_000.0
+
   @resizing_types %{
     "fit" => :fit,
     "fill" => :fill,
@@ -838,12 +846,18 @@ defmodule ImagePipe.Parser.Imgproxy.OptionGrammar do
   defp parse_object_weights([], _segment, acc), do: {:ok, Enum.reverse(acc)}
 
   defp parse_object_weights([class, weight | rest], segment, acc) when class != "" do
-    with {:ok, weight} <- parse_positive_float(weight) do
+    with {:ok, weight} <- parse_positive_float(weight),
+         :ok <- check_object_weight_magnitude(weight, segment) do
       parse_object_weights(rest, segment, [{class, weight} | acc])
     end
   end
 
   defp parse_object_weights(_tokens, segment, _acc),
+    do: {:error, {:invalid_option_segment, segment}}
+
+  defp check_object_weight_magnitude(weight, _segment) when weight <= @max_object_weight, do: :ok
+
+  defp check_object_weight_magnitude(_weight, segment),
     do: {:error, {:invalid_option_segment, segment}}
 
   defp parse_auto_rotate([], _segment), do: {:ok, [orientation: [auto_orient: true]]}
@@ -1041,6 +1055,11 @@ defmodule ImagePipe.Parser.Imgproxy.OptionGrammar do
       {float, ""} -> {:ok, float}
       _other -> {:error, {:invalid_float, value}}
     end
+  rescue
+    # Float.parse/1 raises ArgumentError for very long digit strings (310+ digits)
+    # because it delegates to :erlang.list_to_float which rejects them. This is an
+    # untrusted-input boundary, so we degrade safely to {:error, _} rather than crash.
+    ArgumentError -> {:error, {:invalid_float, value}}
   end
 
   defp parse_quality("0"), do: {:ok, :default}

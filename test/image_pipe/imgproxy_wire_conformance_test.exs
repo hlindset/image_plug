@@ -1718,6 +1718,33 @@ defmodule ImagePipe.ImgproxyWireConformanceTest do
     assert conn.status == 200
   end
 
+  # Security: near-max-float objw weight must be rejected cleanly (4xx), not crash (500).
+  # WeightedSceneDetector returns face and person boxes in a large region of beach.jpg
+  # (4000x2667), so rs:fill:2000:2000 keeps them in-bounds after resize; without the
+  # fix, weighted_centroid raises ArithmeticError with a 1e308 face weight. With the
+  # fix, the weight is rejected at parse time and the source is never fetched.
+  test "objw weight at 1e308 is rejected with 4xx before any source fetch" do
+    opts =
+      Keyword.merge(@default_opts,
+        detector: WeightedSceneDetector,
+        sources: [
+          path:
+            {RootHTTPAdapter,
+             root_url: "http://origin.test",
+             req_options: [plug: {CountingOriginImage, test_pid: self()}]}
+        ]
+      )
+
+    conn =
+      call_imgproxy(
+        "/_/rs:fill:2000:2000/g:objw:face:1e308/f:jpeg/plain/images/beach.jpg",
+        opts
+      )
+
+    assert conn.status in 400..499
+    refute_received :origin_fetch
+  end
+
   # Capture the cache key the plug looked up for one request. Uses the file's
   # existing CacheProbe (it sends {:cache_lookup, key}) and call_imgproxy/2.
   defp lookup_key(path, opts) do
