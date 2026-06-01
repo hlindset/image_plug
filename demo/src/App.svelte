@@ -1,11 +1,12 @@
 <script lang="ts">
   import { onMount } from "svelte";
-  import { Collapsible, RadioGroup, Select, Switch } from "bits-ui";
+  import { Collapsible, RadioGroup, Select, Switch, Tabs } from "bits-ui";
   import CropDimensionControl from "./CropDimensionControl.svelte";
   import RangeNumber from "./RangeNumber.svelte";
   import ResizeDimensionControl from "./ResizeDimensionControl.svelte";
   import ToolToggleHeader from "./ToolToggleHeader.svelte";
   import {
+    demoObjClasses,
     demoPathForState,
     expandedToolboxesForState,
     parseDemoPath,
@@ -13,7 +14,6 @@
   } from "./demo-url-state";
   import {
     buildProcessingPath,
-    cocoClasses,
     controlLimits,
     cropOptionSegment,
     cropPixelLimit,
@@ -40,9 +40,9 @@
     type ThemeMode,
   } from "./theme";
 
-  // COCO-80 classes shown alphabetically in the picker. `cocoClasses` keeps its
-  // canonical (adapter) order as the source of truth; this is display-only.
-  const sortedCocoClasses = [...cocoClasses].sort((a, b) => a.localeCompare(b));
+  // Demo object classes shown in the picker (subset of COCO-80 + "all" pseudo-class).
+  // "all" is offered only in weighted sub-mode to set the baseline weight.
+  const demoObjClassesForPicker = demoObjClasses as readonly string[];
 
   let copyLabel = "Copy URL";
   let drawerOpen = false;
@@ -514,6 +514,22 @@
     }
   }
 
+  function toggleObjClass(cls: string): void {
+    const idx = state.objSelectedClasses.indexOf(cls);
+
+    if (idx === -1) {
+      // Initialize weight to 1 when selecting a new class.
+      state.objSelectedClasses = [...state.objSelectedClasses, cls];
+      state.objWeights = { ...state.objWeights, [cls]: state.objWeights[cls] ?? 1 };
+    } else {
+      state.objSelectedClasses = state.objSelectedClasses.filter((c) => c !== cls);
+      // Remove the weight entry when a class is deselected to keep state clean.
+      const { [cls]: _removed, ...rest } = state.objWeights;
+
+      state.objWeights = rest;
+    }
+  }
+
   function resetSettings(): void {
     state = resetDemoSettings(state);
   }
@@ -807,8 +823,7 @@
               <option value="offset">anchor + offset</option>
               <option value="smart">smart</option>
               <option value="objFace">object (face)</option>
-              <option value="objClasses">object (classes)</option>
-              <option value="objWeights">object (weighted)</option>
+              <option value="object">object (detect)</option>
             </select>
           </label>
 
@@ -884,86 +899,79 @@
             />
           {/if}
 
-          {#if state.gravityMode === "objClasses"}
-            <div class="field">
-              <span>Classes</span>
-              <!-- Multi-select for COCO-80 classes. Matches the underscore spelling
-                   in ImagePipe.Transform.Detector.ImageVision.Objects (@coco_classes).
-                   Empty selection = bare g:obj (all objects). -->
-              <Select.Root type="multiple" bind:value={state.gravityObjClasses}>
-                <Select.Trigger class="obj-class-trigger" aria-label="Select object classes">
-                  <span class="obj-class-trigger-label">
-                    {state.gravityObjClasses.length === 0
-                      ? "All objects"
-                      : state.gravityObjClasses.length === 1
-                        ? state.gravityObjClasses[0]
-                        : `${state.gravityObjClasses.length} classes selected`}
-                  </span>
-                  <span class="obj-class-trigger-chevron" aria-hidden="true"></span>
-                </Select.Trigger>
-                <Select.Portal>
-                  <Select.Content class="obj-class-content" sideOffset={4}>
-                    <Select.Viewport class="obj-class-viewport">
-                      {#each sortedCocoClasses as cls}
-                        <Select.Item class="obj-class-item" value={cls} label={cls}>
-                          {#snippet children({ selected })}
-                            <span class="obj-class-item-check" aria-hidden="true">
-                              {#if selected}✓{/if}
-                            </span>
-                            {cls}
-                          {/snippet}
-                        </Select.Item>
-                      {/each}
-                    </Select.Viewport>
-                  </Select.Content>
-                </Select.Portal>
-              </Select.Root>
-            </div>
-          {/if}
+          {#if state.gravityMode === "object"}
+            <!-- Object-gravity mode: filter detection to named classes + optional weights.
+                 Simple = g:obj:<classes> (filters but no weight bias).
+                 Weighted = g:objw:<class>:<weight>... (filters AND weights).
+                 Empty selection = bare g:obj (all objects, no filter). -->
+            <Tabs.Root
+              class="obj-submode-tabs"
+              value={state.objSubMode}
+              onValueChange={(v) => {
+                state.objSubMode = v as "simple" | "weighted";
+              }}
+            >
+              <Tabs.List class="obj-submode-list">
+                <Tabs.Trigger class="obj-submode-trigger" value="simple">Simple</Tabs.Trigger>
+                <Tabs.Trigger class="obj-submode-trigger" value="weighted">Weighted</Tabs.Trigger>
+              </Tabs.List>
+            </Tabs.Root>
 
-          {#if state.gravityMode === "objWeights"}
-            <!-- Per-class weights for objw gravity. Detects all classes; weights
-                 bias the crop focal point without filtering any class out.
-                 "all" sets the default/baseline weight for unlisted classes. -->
-            <RangeNumber
-              label="Default weight (all)"
-              bind:value={state.objWeightDefault}
-              min={0.1}
-              max={10}
-              step={0.1}
-              inputStep="any"
-            />
-            <RangeNumber
-              label="Face weight"
-              bind:value={state.objWeightFace}
-              min={0.1}
-              max={10}
-              step={0.1}
-              inputStep="any"
-            />
-            <RangeNumber
-              label="Person weight"
-              bind:value={state.objWeightPerson}
-              min={0.1}
-              max={10}
-              step={0.1}
-              inputStep="any"
-            />
-            <RangeNumber
-              label="Car weight"
-              bind:value={state.objWeightCar}
-              min={0.1}
-              max={10}
-              step={0.1}
-              inputStep="any"
-            />
-            <p class="field-hint">
-              Weights bias the crop toward a class without filtering it out. Set a class weight
-              higher than the default to pull the focal point toward it. Uses <code
-                >weight·√area</code
-              > centroid — a 2× weight on a small face inside a large person box gives a real nudge, not
-              a cosmetic one.
-            </p>
+            <div class="field">
+              <span>
+                {state.gravityMode === "object" && state.objSubMode === "weighted"
+                  ? "Classes + weights"
+                  : "Classes"}
+              </span>
+              <!-- Class chips: toggle individual detection classes.
+                   Empty selection = all objects (bare g:obj).
+                   In weighted mode "all" is offered as a baseline chip. -->
+              <div class="obj-class-chips">
+                {#if state.objSubMode === "weighted"}
+                  <button
+                    class="obj-chip"
+                    class:obj-chip-selected={state.objSelectedClasses.includes("all")}
+                    type="button"
+                    onclick={() => toggleObjClass("all")}
+                  >
+                    all
+                  </button>
+                {/if}
+                {#each demoObjClassesForPicker as cls}
+                  <button
+                    class="obj-chip"
+                    class:obj-chip-selected={state.objSelectedClasses.includes(cls)}
+                    type="button"
+                    onclick={() => toggleObjClass(cls)}
+                  >
+                    {cls}
+                  </button>
+                {/each}
+              </div>
+              {#if state.objSelectedClasses.length === 0}
+                <p class="field-hint">No classes selected — detects all objects.</p>
+              {/if}
+            </div>
+
+            {#if state.objSubMode === "weighted" && state.objSelectedClasses.length > 0}
+              {#each state.objSelectedClasses as cls (cls)}
+                <RangeNumber
+                  label={cls === "all" ? "Baseline weight (all)" : `${cls} weight`}
+                  value={state.objWeights[cls] ?? 1}
+                  min={0.1}
+                  max={10}
+                  step={0.1}
+                  inputStep="any"
+                  onValueChange={(w) => {
+                    state.objWeights = { ...state.objWeights, [cls]: w };
+                  }}
+                />
+              {/each}
+              <p class="field-hint">
+                Weights bias the crop focal point toward a class. Non-uniform weights emit
+                <code>g:objw</code>; uniform weights use the compact <code>g:obj</code> form.
+              </p>
+            {/if}
           {/if}
         {/if}
       </section>
@@ -2094,23 +2102,83 @@
     background-repeat: no-repeat;
   }
 
-  :global(.obj-class-trigger) {
+  /* Segmented control (Simple / Weighted sub-mode tabs) */
+  :global(.obj-submode-tabs) {
     display: flex;
-    align-items: center;
-    justify-content: space-between;
-    gap: 8px;
-    width: 100%;
-    min-height: 38px;
-    padding-inline: 12px;
+    flex-direction: column;
+  }
+
+  :global(.obj-submode-list) {
+    display: inline-flex;
+    height: 32px;
+    padding: 3px;
     border: 1px solid var(--border-strong);
-    border-radius: 7px;
-    background: var(--surface-control);
-    color: var(--text-primary);
+    border-radius: 8px;
+    background: var(--surface-control-track);
+    gap: 2px;
+  }
+
+  :global(.obj-submode-trigger) {
+    flex: 1;
+    height: 100%;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    border: 0;
+    border-radius: 5px;
+    background: transparent;
+    color: var(--text-muted);
+    cursor: pointer;
     font: inherit;
-    font-size: 14px;
-    line-height: 18px;
-    text-align: left;
-    cursor: default;
+    font-size: 13px;
+    font-weight: 500;
+    line-height: 1;
+    padding-inline: 10px;
+    transition:
+      background-color 120ms ease-out,
+      color 120ms ease-out;
+  }
+
+  :global(.obj-submode-trigger[data-state="active"]) {
+    background: var(--surface-control);
+    color: var(--text-heading);
+    box-shadow: 0 0 0 1px var(--border-subtle);
+  }
+
+  :global(.obj-submode-trigger:focus-visible) {
+    outline: 2px solid var(--focus-ring);
+    outline-offset: 2px;
+  }
+
+  /* Class chip multi-select */
+  .obj-class-chips {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+  }
+
+  .obj-chip {
+    height: 28px;
+    display: inline-flex;
+    align-items: center;
+    padding-inline: 10px;
+    border: 1px solid var(--border-strong);
+    border-radius: 999px;
+    background: var(--surface-control);
+    color: var(--text-muted);
+    cursor: pointer;
+    font: inherit;
+    font-size: 12px;
+    line-height: 1;
+    transition:
+      background-color 100ms ease-out,
+      color 100ms ease-out,
+      border-color 100ms ease-out;
+
+    &:hover {
+      border-color: var(--accent);
+      color: var(--text-primary);
+    }
 
     &:focus-visible {
       outline: 2px solid var(--focus-ring);
@@ -2118,79 +2186,11 @@
     }
   }
 
-  .obj-class-trigger-label {
-    flex: 1;
-    /* min-width: 0 lets the flex item shrink below its content width so the
-       ellipsis engages instead of overflowing and pushing the chevron out. */
-    min-width: 0;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-  }
-
-  .obj-class-trigger-chevron {
-    flex-shrink: 0;
-    width: 10px;
-    height: 10px;
-    background-image:
-      linear-gradient(45deg, transparent 50%, var(--text-muted) 50%),
-      linear-gradient(135deg, var(--text-muted) 50%, transparent 50%);
-    background-position:
-      0% 0%,
-      100% 0%;
-    background-size: 5px 5px;
-    background-repeat: no-repeat;
-  }
-
-  :global(.obj-class-content) {
-    z-index: 50;
-    min-width: var(--bits-select-anchor-width);
-    border: 1px solid var(--border-strong);
-    border-radius: 7px;
-    background: var(--surface-sidebar);
-    box-shadow: 0 8px 24px rgb(0 0 0 / 28%);
-    overflow: hidden;
-  }
-
-  :global(.obj-class-viewport) {
-    max-height: 220px;
-    overflow-y: auto;
-    padding: 4px;
-    scrollbar-width: thin;
-    scrollbar-color: var(--border-strong) transparent;
-  }
-
-  :global(.obj-class-item) {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    padding: 5px 8px;
-    border-radius: 5px;
-    color: var(--text-primary);
-    font-size: 13px;
-    line-height: 18px;
-    cursor: default;
-    user-select: none;
-
-    &[data-highlighted] {
-      background: var(--surface-control);
-      outline: none;
-    }
-
-    &[data-selected] {
-      color: var(--text-primary);
-    }
-  }
-
-  .obj-class-item-check {
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    width: 14px;
-    flex-shrink: 0;
-    color: var(--accent);
-    font-size: 12px;
-    line-height: 1;
+  .obj-chip-selected {
+    border-color: var(--accent);
+    background: color-mix(in srgb, var(--accent) 14%, var(--surface-control));
+    color: var(--text-heading);
+    font-weight: 500;
   }
 
   .text-input {

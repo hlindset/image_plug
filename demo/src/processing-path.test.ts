@@ -13,7 +13,7 @@ import {
   focalPointFromBounds,
   imageRequestBytesFromPerformance,
   objGravitySegment,
-  objWeightsGravitySegment,
+  objGravitySegmentFromState,
   resetCropPixelsToSource,
   processedSizeLabel,
   optionSegments,
@@ -543,25 +543,30 @@ describe("processing path generation", () => {
     });
   });
 
-  it("emits bare g:obj for object-class gravity with no classes selected", () => {
+  // ---- Object gravity: Simple sub-mode ----
+
+  it("emits bare g:obj for object gravity with no classes selected (simple)", () => {
     const state = {
       ...defaultDemoState,
       gravityEnabled: true,
-      gravityMode: "objClasses" as const,
-      gravityObjClasses: [],
+      gravityMode: "object" as const,
+      objSubMode: "simple" as const,
+      objSelectedClasses: [],
     };
 
     expect(optionSegments(state)).toEqual(["g:obj"]);
   });
 
-  it("emits g:obj:%c1:…:%cN for an explicit class list", () => {
+  it("emits g:obj:car:dog for simple mode with two classes (sorted)", () => {
     const state = {
       ...defaultDemoState,
       gravityEnabled: true,
-      gravityMode: "objClasses" as const,
-      gravityObjClasses: ["car", "dog"],
+      gravityMode: "object" as const,
+      objSubMode: "simple" as const,
+      objSelectedClasses: ["dog", "car"],
     };
 
+    // sorted: car before dog
     expect(optionSegments(state)).toEqual(["g:obj:car:dog"]);
   });
 
@@ -570,8 +575,9 @@ describe("processing path generation", () => {
 
     expect(parsed).toMatchObject({
       gravityEnabled: true,
-      gravityMode: "objClasses",
-      gravityObjClasses: [],
+      gravityMode: "object",
+      objSubMode: "simple",
+      objSelectedClasses: [],
     });
 
     expect(demoPathForState(parsed)).toBe("/demo/g:obj/plain/local:///images/dog.jpg");
@@ -582,11 +588,11 @@ describe("processing path generation", () => {
 
     expect(parsed).toMatchObject({
       gravityEnabled: true,
-      gravityMode: "objClasses",
-      gravityObjClasses: [],
+      gravityMode: "object",
+      objSubMode: "simple",
+      objSelectedClasses: [],
     });
 
-    // g:obj:all normalizes to bare g:obj on serialize (they are semantically equivalent)
     expect(demoPathForState(parsed)).toBe("/demo/g:obj/plain/local:///images/dog.jpg");
   });
 
@@ -595,20 +601,22 @@ describe("processing path generation", () => {
 
     expect(parsed).toMatchObject({
       gravityEnabled: true,
-      gravityMode: "objClasses",
-      gravityObjClasses: ["car", "dog"],
+      gravityMode: "object",
+      objSubMode: "simple",
+      objSelectedClasses: expect.arrayContaining(["car", "dog"]),
     });
 
     expect(demoPathForState(parsed)).toBe("/demo/g:obj:car:dog/plain/local:///images/dog.jpg");
   });
 
-  it("drops unknown class tokens, keeping only known COCO-80 classes", () => {
+  it("drops class tokens not offered in the demo UI, keeping only demo-offered classes", () => {
+    // 'car' is a demo class; 'spaceship' is not
     const parsed = parseDemoPath("/demo/g:obj:car:spaceship/plain/local:///images/dog.jpg");
 
     expect(parsed).toMatchObject({
       gravityEnabled: true,
-      gravityMode: "objClasses",
-      gravityObjClasses: ["car"],
+      gravityMode: "object",
+      objSelectedClasses: ["car"],
     });
 
     expect(demoPathForState(parsed)).toBe("/demo/g:obj:car/plain/local:///images/dog.jpg");
@@ -617,22 +625,21 @@ describe("processing path generation", () => {
   it("leaves gravity unchanged for an all-unknown g:obj segment", () => {
     const parsed = parseDemoPath("/demo/g:obj:spaceship/plain/local:///images/dog.jpg");
 
-    // every token unknown -> the picker can't represent it, so the segment is
-    // ignored and gravity is not switched to object-classes mode
-    expect(parsed.gravityMode).not.toBe("objClasses");
+    // every token unknown -> the picker can't represent it, gravity is unchanged
+    expect(parsed.gravityMode).not.toBe("object");
   });
 
-  it("normalizes g:obj:car:all (all mixed with classes) to empty selection (all objects)", () => {
+  it("g:obj:car:all — 'all' mixed with classes falls through to known-class filter", () => {
+    // 'all' is not in demoObjClassSet so it gets dropped; 'car' is kept
     const parsed = parseDemoPath("/demo/g:obj:car:all/plain/local:///images/dog.jpg");
 
     expect(parsed).toMatchObject({
       gravityEnabled: true,
-      gravityMode: "objClasses",
-      gravityObjClasses: [],
+      gravityMode: "object",
+      objSelectedClasses: ["car"],
     });
 
-    // Serializes to bare g:obj (canonical form for all objects)
-    expect(demoPathForState(parsed)).toBe("/demo/g:obj/plain/local:///images/dog.jpg");
+    expect(demoPathForState(parsed)).toBe("/demo/g:obj:car/plain/local:///images/dog.jpg");
   });
 
   it("preserves g:obj:face as the legacy objFace mode", () => {
@@ -684,83 +691,109 @@ describe("processing path generation", () => {
     expect(objGravitySegment(["car", "dog"])).toBe("g:obj:car:dog");
   });
 
-  it("objWeightsGravitySegment emits g:objw:all:1 when all weights are 1 (uniform default)", () => {
-    expect(
-      objWeightsGravitySegment({
-        ...defaultDemoState,
-        objWeightDefault: 1,
-        objWeightFace: 1,
-        objWeightPerson: 1,
-        objWeightCar: 1,
-      }),
-    ).toBe("g:objw:all:1");
+  // ---- Object gravity: Weighted sub-mode ----
+
+  it("weighted mode with empty selection emits bare g:obj", () => {
+    const state = {
+      ...defaultDemoState,
+      gravityEnabled: true,
+      gravityMode: "object" as const,
+      objSubMode: "weighted" as const,
+      objSelectedClasses: [],
+      objWeights: {},
+    };
+
+    expect(optionSegments(state)).toEqual(["g:obj"]);
   });
 
-  it("objWeightsGravitySegment omits class entries equal to the effective default", () => {
-    // face:3 only — all/person/car at default 1 are omitted
+  it("weighted mode with all-equal weights emits compact g:obj form", () => {
+    // car=1, dog=1 — uniform, inert → compact g:obj:car:dog
     expect(
-      objWeightsGravitySegment({
+      objGravitySegmentFromState({
         ...defaultDemoState,
-        objWeightDefault: 1,
-        objWeightFace: 3,
-        objWeightPerson: 1,
-        objWeightCar: 1,
+        objSubMode: "weighted",
+        objSelectedClasses: ["car", "dog"],
+        objWeights: { car: 1, dog: 1 },
       }),
-    ).toBe("g:objw:face:3");
+    ).toBe("g:obj:car:dog");
+
+    // single class, any weight → uniform, compact form
+    expect(
+      objGravitySegmentFromState({
+        ...defaultDemoState,
+        objSubMode: "weighted",
+        objSelectedClasses: ["car"],
+        objWeights: { car: 2 },
+      }),
+    ).toBe("g:obj:car");
   });
 
-  it("objWeightsGravitySegment emits all baseline when it differs from 1", () => {
+  it("weighted mode with non-uniform weights emits g:objw verbatim (class:1 kept)", () => {
+    // car=1, dog=2 — not uniform, car:1 must NOT be dropped
     expect(
-      objWeightsGravitySegment({
+      objGravitySegmentFromState({
         ...defaultDemoState,
-        objWeightDefault: 2,
-        objWeightFace: 3,
-        objWeightPerson: 2,
-        objWeightCar: 2,
+        objSubMode: "weighted",
+        objSelectedClasses: ["car", "dog"],
+        objWeights: { car: 1, dog: 2 },
+      }),
+    ).toBe("g:objw:car:1:dog:2");
+  });
+
+  it("weighted mode with all=2 and face=3 emits g:objw:all:2:face:3", () => {
+    expect(
+      objGravitySegmentFromState({
+        ...defaultDemoState,
+        objSubMode: "weighted",
+        objSelectedClasses: ["all", "face"],
+        objWeights: { all: 2, face: 3 },
       }),
     ).toBe("g:objw:all:2:face:3");
   });
 
-  it("emits g:objw for object-weighted gravity mode", () => {
-    const state = {
-      ...defaultDemoState,
-      gravityEnabled: true,
-      gravityMode: "objWeights" as const,
-      objWeightDefault: 1,
-      objWeightFace: 3,
-      objWeightPerson: 1,
-      objWeightCar: 1,
-    };
+  it("g:objw:all:1:face:3 preserves both classes (NOT normalized — different semantics)", () => {
+    // g:objw:all:1:face:3 detects ALL objects with face boosted 3×.
+    // g:objw:face:3 filters to face only.
+    // These are DIFFERENT requests — the demo must NOT rewrite one into the other.
+    const parsed = parseDemoPath("/demo/g:objw:all:1:face:3/plain/local:///images/dog.jpg");
 
-    expect(optionSegments(state)).toEqual(["g:objw:face:3"]);
-    expect(demoPathForState(state)).toBe("/demo/g:objw:face:3/plain/local:///images/dog.jpg");
+    expect(parsed).toMatchObject({
+      gravityMode: "object",
+      objSubMode: "weighted",
+      objSelectedClasses: expect.arrayContaining(["all", "face"]),
+      objWeights: expect.objectContaining({ all: 1, face: 3 }),
+    });
+
+    // Serializes back with both all and face (uniform weights → compact obj form,
+    // but all:1 face:3 are NOT uniform so → objw verbatim)
+    expect(demoPathForState(parsed)).toBe(
+      "/demo/g:objw:all:1:face:3/plain/local:///images/dog.jpg",
+    );
   });
 
-  it("round-trips g:objw with a face boost through the demo path", () => {
+  it("round-trips g:objw:face:3 (single face weight) through the demo path", () => {
     const parsed = parseDemoPath("/demo/g:objw:face:3/plain/local:///images/dog.jpg");
 
     expect(parsed).toMatchObject({
       gravityEnabled: true,
-      gravityMode: "objWeights",
-      objWeightDefault: 1,
-      objWeightFace: 3,
-      objWeightPerson: 1,
-      objWeightCar: 1,
+      gravityMode: "object",
+      objSubMode: "weighted",
+      objSelectedClasses: ["face"],
+      objWeights: { face: 3 },
     });
 
-    expect(demoPathForState(parsed)).toBe("/demo/g:objw:face:3/plain/local:///images/dog.jpg");
+    // Single class with weight 3 → uniform (only one) → compact g:obj:face form
+    expect(demoPathForState(parsed)).toBe("/demo/g:obj:face/plain/local:///images/dog.jpg");
   });
 
-  it("round-trips g:objw:all:2:face:3 (all baseline + face override) through the demo path", () => {
+  it("round-trips g:objw:all:2:face:3 through the demo path", () => {
     const parsed = parseDemoPath("/demo/g:objw:all:2:face:3/plain/local:///images/dog.jpg");
 
     expect(parsed).toMatchObject({
       gravityEnabled: true,
-      gravityMode: "objWeights",
-      objWeightDefault: 2,
-      objWeightFace: 3,
-      objWeightPerson: 2,
-      objWeightCar: 2,
+      gravityMode: "object",
+      objSubMode: "weighted",
+      objWeights: expect.objectContaining({ all: 2, face: 3 }),
     });
 
     expect(demoPathForState(parsed)).toBe(
@@ -768,17 +801,20 @@ describe("processing path generation", () => {
     );
   });
 
-  it("g:objw:all:1:face:3 normalizes to g:objw:face:3 (all:1 is the default)", () => {
-    const parsed = parseDemoPath("/demo/g:objw:all:1:face:3/plain/local:///images/dog.jpg");
+  it("emits g:objw for object gravity with non-uniform weighted mode", () => {
+    const state = {
+      ...defaultDemoState,
+      gravityEnabled: true,
+      gravityMode: "object" as const,
+      objSubMode: "weighted" as const,
+      objSelectedClasses: ["face", "person"],
+      objWeights: { face: 3, person: 1 },
+    };
 
-    expect(parsed).toMatchObject({
-      gravityMode: "objWeights",
-      objWeightDefault: 1,
-      objWeightFace: 3,
-    });
-
-    // Serializes without all:1 (canonical omission when baseline is 1)
-    expect(demoPathForState(parsed)).toBe("/demo/g:objw:face:3/plain/local:///images/dog.jpg");
+    expect(optionSegments(state)).toEqual(["g:objw:face:3:person:1"]);
+    expect(demoPathForState(state)).toBe(
+      "/demo/g:objw:face:3:person:1/plain/local:///images/dog.jpg",
+    );
   });
 
   it("rejects invalid objw gravity values in demo routes", () => {

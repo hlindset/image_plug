@@ -2,14 +2,10 @@ import { sampleImages } from "virtual:sample-images";
 
 export type ResizeMode = "fit" | "fill" | "fill-down" | "force" | "auto";
 export type Gravity = "ce" | "no" | "so" | "ea" | "we" | "noea" | "nowe" | "soea" | "sowe";
-export type GravityMode =
-  | "anchor"
-  | "focalPoint"
-  | "offset"
-  | "smart"
-  | "objFace"
-  | "objClasses"
-  | "objWeights";
+export type GravityMode = "anchor" | "focalPoint" | "offset" | "smart" | "objFace" | "object";
+
+// Sub-mode for the unified "object" gravity mode.
+export type ObjSubMode = "simple" | "weighted";
 export type CropGravity = "inherit" | Gravity | "sm" | "obj:face" | "obj" | "obj:all";
 export type CropDimensionUnit = "px" | "percent" | "full";
 export type ResizeDimensionUnit = "px" | "auto";
@@ -165,15 +161,14 @@ export type DemoState = {
   gravityFocalY: number;
   gravityOffsetX: number;
   gravityOffsetY: number;
-  // Object-class gravity: empty array = bare obj (all classes); explicit class list otherwise.
-  gravityObjClasses: string[];
-  // Per-class weights for objw gravity. These four fields cover the controls
-  // exposed in the demo UI. `objWeightDefault` corresponds to the `all` baseline.
-  // Values at 1 are omitted from the URL (canonical form for unity weight).
-  objWeightDefault: number;
-  objWeightFace: number;
-  objWeightPerson: number;
-  objWeightCar: number;
+  // Unified object-gravity sub-mode (used when gravityMode === "object").
+  objSubMode: ObjSubMode;
+  // Selected object classes. Empty = all objects (bare g:obj). May include the
+  // pseudo-class "all" in weighted mode to set the baseline weight.
+  objSelectedClasses: string[];
+  // Per-class weights for weighted sub-mode. Keyed by class name (including "all").
+  // Any selected class not in this map defaults to weight 1.
+  objWeights: Record<string, number>;
   enlarge: boolean;
   cropEnabled: boolean;
   cropWidthUnit: CropDimensionUnit;
@@ -361,11 +356,9 @@ export const defaultDemoState: DemoState = {
   gravityFocalY: 0.5,
   gravityOffsetX: 0,
   gravityOffsetY: 0,
-  gravityObjClasses: [],
-  objWeightDefault: 1,
-  objWeightFace: 1,
-  objWeightPerson: 1,
-  objWeightCar: 1,
+  objSubMode: "simple",
+  objSelectedClasses: [],
+  objWeights: {},
   enlarge: false,
   cropEnabled: false,
   cropWidthUnit: "px",
@@ -621,12 +614,8 @@ export function gravitySegment(currentState: DemoState): string {
     return "g:obj:face";
   }
 
-  if (currentState.gravityMode === "objClasses") {
-    return objGravitySegment(currentState.gravityObjClasses);
-  }
-
-  if (currentState.gravityMode === "objWeights") {
-    return objWeightsGravitySegment(currentState);
+  if (currentState.gravityMode === "object") {
+    return objGravitySegmentFromState(currentState);
   }
 
   if (currentState.gravityMode === "focalPoint") {
@@ -648,39 +637,44 @@ export function objGravitySegment(classes: string[]): string {
   return `g:obj:${classes.join(":")}`;
 }
 
-// Builds a g:objw:… URL segment from the four per-class weight state fields.
-// Emits only entries whose weight differs from the effective default so the URL
-// is compact and canonical (mirrors the backend's drop-rule canonicalization).
-// "all" baseline is emitted first when it differs from 1, then class overrides
-// in alphabetical order for a stable URL.
-export function objWeightsGravitySegment(currentState: DemoState): string {
-  const { objWeightDefault, objWeightFace, objWeightPerson, objWeightCar } = currentState;
-  const eff = objWeightDefault;
+// Builds the g:obj or g:objw segment from the unified object-gravity state.
+//
+// Rules:
+// - Empty selection (either sub-mode) → g:obj (all objects).
+// - Simple sub-mode → g:obj:<class>... (sorted for stable URLs); empty → g:obj.
+// - Weighted sub-mode:
+//   - All selected weights equal (uniform) → emit g:obj form (a uniform weight
+//     is inert for filtering; the class list still filters detection).
+//   - Otherwise → emit g:objw:<class>:<weight>... for ALL selected classes
+//     verbatim, including class:1 entries (the class token is load-bearing).
+export function objGravitySegmentFromState(currentState: DemoState): string {
+  const { objSubMode, objSelectedClasses, objWeights } = currentState;
 
-  const pairs: string[] = [];
-
-  // Emit "all" baseline only when it differs from 1 (the imgproxy default).
-  if (eff !== 1) {
-    pairs.push(`all:${eff}`);
+  if (objSelectedClasses.length === 0) {
+    return "g:obj";
   }
 
-  // Emit each class weight only when it differs from the effective default.
-  if (objWeightCar !== eff) {
-    pairs.push(`car:${objWeightCar}`);
+  if (objSubMode === "simple") {
+    const sorted = [...objSelectedClasses].sort();
+
+    return `g:obj:${sorted.join(":")}`;
   }
 
-  if (objWeightFace !== eff) {
-    pairs.push(`face:${objWeightFace}`);
+  // Weighted sub-mode: check whether all selected weights are equal (uniform).
+  const weights = objSelectedClasses.map((cls) => objWeights[cls] ?? 1);
+  const firstWeight = weights[0] ?? 1;
+  const allUniform = weights.every((w) => w === firstWeight);
+
+  if (allUniform) {
+    // Uniform weights are inert — emit the compact obj form.
+    const sorted = [...objSelectedClasses].sort();
+
+    return `g:obj:${sorted.join(":")}`;
   }
 
-  if (objWeightPerson !== eff) {
-    pairs.push(`person:${objWeightPerson}`);
-  }
-
-  // Guarantee at least one pair so the URL is always parseable.
-  if (pairs.length === 0) {
-    return "g:objw:all:1";
-  }
+  // Non-uniform: emit g:objw verbatim (sorted by class name for stable URLs).
+  const sorted = [...objSelectedClasses].sort();
+  const pairs = sorted.flatMap((cls) => [cls, String(objWeights[cls] ?? 1)]);
 
   return `g:objw:${pairs.join(":")}`;
 }
