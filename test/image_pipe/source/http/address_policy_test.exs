@@ -52,4 +52,28 @@ defmodule ImagePipe.Source.HTTP.AddressPolicyTest do
       refute AddressPolicy.classify({0x3FFF, 0, 0, 0, 0, 0, 0, 1}) == :public
     end
   end
+
+  describe "CIDR" do
+    test "parse_cidr/1 accepts valid v4/v6 CIDRs and rejects junk" do
+      assert {:ok, _} = AddressPolicy.parse_cidr("10.0.5.0/24")
+      assert {:ok, _} = AddressPolicy.parse_cidr("2001:db8::/32")
+      assert :error = AddressPolicy.parse_cidr("10.0.5.0")
+      assert :error = AddressPolicy.parse_cidr("10.0.5.0/33")
+      assert :error = AddressPolicy.parse_cidr("nonsense")
+      assert :error = AddressPolicy.parse_cidr("2001:db8::/129")
+    end
+
+    test "in_cidr?/2 matches membership" do
+      {:ok, cidr} = AddressPolicy.parse_cidr("10.0.5.0/24")
+      assert AddressPolicy.in_cidr?({10, 0, 5, 7}, cidr)
+      assert AddressPolicy.in_cidr?({10, 0, 5, 0}, cidr)
+      assert AddressPolicy.in_cidr?({10, 0, 5, 255}, cidr)
+      refute AddressPolicy.in_cidr?({10, 0, 6, 1}, cidr)
+      refute AddressPolicy.in_cidr?({10, 0, 5, 7, 0, 0, 0, 0}, cidr)
+
+      {:ok, cidr6} = AddressPolicy.parse_cidr("2001:db8::/32")
+      assert AddressPolicy.in_cidr?({0x2001, 0x0DB8, 1, 2, 3, 4, 5, 6}, cidr6)
+      refute AddressPolicy.in_cidr?({0x2001, 0x0DB9, 0, 0, 0, 0, 0, 0}, cidr6)
+    end
+  end
 end

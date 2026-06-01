@@ -1,5 +1,6 @@
 defmodule ImagePipe.Source.HTTP.AddressPolicy do
   @moduledoc false
+  import Bitwise
 
   @type category ::
           :loopback
@@ -12,6 +13,31 @@ defmodule ImagePipe.Source.HTTP.AddressPolicy do
           | :cgnat
           | :reserved
           | :public
+
+  @type cidr :: {non_neg_integer(), 0..128, 32 | 128}
+
+  @spec parse_cidr(String.t()) :: {:ok, cidr()} | :error
+  def parse_cidr(string) when is_binary(string) do
+    with [addr, prefix] <- String.split(string, "/", parts: 2),
+         {:ok, tuple} <- :inet.parse_address(String.to_charlist(addr)),
+         {prefix_int, ""} <- Integer.parse(prefix),
+         bits when bits in [32, 128] <- tuple_bits(tuple),
+         true <- prefix_int >= 0 and prefix_int <= bits do
+      {:ok, {tuple_to_int(tuple), prefix_int, bits}}
+    else
+      _ -> :error
+    end
+  end
+
+  @spec in_cidr?(:inet.ip_address(), cidr()) :: boolean()
+  def in_cidr?(ip, {net_int, prefix, bits}) do
+    if tuple_bits(ip) == bits do
+      shift = bits - prefix
+      Bitwise.bsr(tuple_to_int(ip), shift) == Bitwise.bsr(net_int, shift)
+    else
+      false
+    end
+  end
 
   @spec classify(:inet.ip_address()) :: category()
   def classify({a, b, c, d}), do: classify_v4(a, b, c, d)
@@ -67,4 +93,14 @@ defmodule ImagePipe.Source.HTTP.AddressPolicy do
   # 240.0.0.0/4 reserved (future use)
   defp classify_v4(a, _, _, _) when a in 240..255, do: :reserved
   defp classify_v4(_, _, _, _), do: :public
+
+  defp tuple_bits({_, _, _, _}), do: 32
+  defp tuple_bits({_, _, _, _, _, _, _, _}), do: 128
+
+  defp tuple_to_int({a, b, c, d}), do: (a <<< 24) + (b <<< 16) + (c <<< 8) + d
+
+  defp tuple_to_int({a, b, c, d, e, f, g, h}) do
+    [a, b, c, d, e, f, g, h]
+    |> Enum.reduce(0, fn group, acc -> (acc <<< 16) + group end)
+  end
 end
