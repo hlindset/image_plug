@@ -339,6 +339,37 @@ defmodule ImagePipe.Parser.Imgproxy.OptionGrammarTest do
     )
   end
 
+  test "objw gravity parses class/weight pairs (floats)" do
+    assert OptionGrammar.parse("g:objw:all:2:face:3") ==
+             {:ok,
+              {:pipeline,
+               [
+                 gravity: {:objw, [{"all", 2.0}, {"face", 3.0}]},
+                 gravity_x_offset: {:pixels, 0.0},
+                 gravity_y_offset: {:pixels, 0.0}
+               ]}}
+  end
+
+  test "objw gravity accepts decimal weights" do
+    assert {:ok, {:pipeline, opts}} = OptionGrammar.parse("g:objw:face:2.5")
+    assert opts[:gravity] == {:objw, [{"face", 2.5}]}
+  end
+
+  test "crop objw gravity parses class/weight pairs" do
+    assert {:ok, {:pipeline, [crop: %CropRequest{gravity: gravity}]}} =
+             OptionGrammar.parse("c:100:100:objw:all:1:face:3")
+
+    assert gravity == {:objw, [{"all", 1.0}, {"face", 3.0}]}
+  end
+
+  test "objw gravity rejects non-positive, odd-arity, empty-class, and bare forms" do
+    assert {:error, _} = OptionGrammar.parse("g:objw:face:0")
+    assert {:error, _} = OptionGrammar.parse("g:objw:face:-2")
+    assert {:error, _} = OptionGrammar.parse("g:objw:all:2:face")
+    assert {:error, _} = OptionGrammar.parse("g:objw::3")
+    assert {:error, _} = OptionGrammar.parse("g:objw")
+  end
+
   defp color!(red, green, blue) do
     assert {:ok, color} = Color.rgb(red, green, blue)
     color

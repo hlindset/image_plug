@@ -744,6 +744,15 @@ defmodule ImagePipe.Parser.Imgproxy.OptionGrammar do
     end
   end
 
+  defp parse_crop([width, height, "objw" | pairs], _segment)
+       when width != "" and height != "" do
+    with {:ok, width} <- parse_crop_dimension(width),
+         {:ok, height} <- parse_crop_dimension(height),
+         {:ok, gravity} <- parse_crop_gravity(["objw" | pairs]) do
+      {:ok, [crop: %CropRequest{width: width, height: height, gravity: gravity}]}
+    end
+  end
+
   defp parse_crop([width, height, gravity], _segment)
        when width != "" and height != "" and gravity != "" do
     with {:ok, width} <- parse_crop_dimension(width),
@@ -810,8 +819,32 @@ defmodule ImagePipe.Parser.Imgproxy.OptionGrammar do
 
   defp parse_crop_gravity(["obj" | classes]), do: {:ok, {:obj, classes}}
 
+  defp parse_crop_gravity(["objw" | pairs]) do
+    with {:ok, weights} <- parse_object_weights(pairs, "crop") do
+      {:ok, {:objw, weights}}
+    end
+  end
+
   defp parse_crop_gravity([anchor]), do: parse_gravity_anchor(anchor)
   defp parse_crop_gravity(_args), do: {:error, {:invalid_option_segment, "crop"}}
+
+  # Parses imgproxy objw class/weight pairs into [{class_string, weight_float}].
+  # Positional: class then weight, repeating. Rejects odd arity, empty class
+  # tokens, and non-positive/non-numeric weights at the parser boundary.
+  defp parse_object_weights([], segment), do: {:error, {:invalid_option_segment, segment}}
+
+  defp parse_object_weights(tokens, segment), do: parse_object_weights(tokens, segment, [])
+
+  defp parse_object_weights([], _segment, acc), do: {:ok, Enum.reverse(acc)}
+
+  defp parse_object_weights([class, weight | rest], segment, acc) when class != "" do
+    with {:ok, weight} <- parse_positive_float(weight) do
+      parse_object_weights(rest, segment, [{class, weight} | acc])
+    end
+  end
+
+  defp parse_object_weights(_tokens, segment, _acc),
+    do: {:error, {:invalid_option_segment, segment}}
 
   defp parse_auto_rotate([], _segment), do: {:ok, [orientation: [auto_orient: true]]}
 
@@ -881,6 +914,17 @@ defmodule ImagePipe.Parser.Imgproxy.OptionGrammar do
        gravity_x_offset: {:pixels, 0.0},
        gravity_y_offset: {:pixels, 0.0}
      ]}
+  end
+
+  defp parse_gravity(["objw" | pairs], segment) when pairs != [] do
+    with {:ok, weights} <- parse_object_weights(pairs, segment) do
+      {:ok,
+       [
+         gravity: {:objw, weights},
+         gravity_x_offset: {:pixels, 0.0},
+         gravity_y_offset: {:pixels, 0.0}
+       ]}
+    end
   end
 
   defp parse_gravity([anchor], _segment) do
