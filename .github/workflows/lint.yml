@@ -1,0 +1,45 @@
+name: Lint
+
+on:
+  push:
+    branches: ["main"]
+  pull_request:
+    branches: ["main"]
+
+permissions:
+  contents: read
+
+jobs:
+  lint:
+    name: Lint
+    runs-on: ubuntu-latest
+    env:
+      MIX_ENV: test
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: jdx/mise-action@1648a7812b9aeae629881980618f079932869151 # v4.0.1
+        with:
+          mise_toml: |
+            [tools]
+            erlang = "29"
+            elixir = "1.20.0-rc.6-otp-29"
+            node = "latest"
+            pnpm = "latest"
+      - name: Install Hex
+        run: mise exec -- mix local.hex --force
+      - name: Install Rebar
+        run: mise exec -- mix local.rebar --force
+      - name: Install Elixir dependencies
+        run: mise exec -- mix deps.get
+      - name: Install demo dependencies
+        run: mise exec -- mix demo.setup
+      - name: Check formatting
+        run: mise exec -- mix format --check-formatted
+      - name: Run Credo
+        run: mise exec -- mix credo --strict
+      - name: Demo type-check
+        run: mise exec -- mix demo.check
+      - name: Demo format check
+        run: mise exec -- mix demo.format.check
+      - name: Demo lint
+        run: mise exec -- mix demo.lint
