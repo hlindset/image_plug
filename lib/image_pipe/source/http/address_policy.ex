@@ -29,6 +29,8 @@ defmodule ImagePipe.Source.HTTP.AddressPolicy do
     end
   end
 
+  def parse_cidr(_value), do: :error
+
   @spec in_cidr?(:inet.ip_address(), cidr()) :: boolean()
   def in_cidr?(ip, {net_int, prefix, bits}) do
     if tuple_bits(ip) == bits do
@@ -71,6 +73,8 @@ defmodule ImagePipe.Source.HTTP.AddressPolicy do
 
   # 3fff::/20 reserved for documentation (RFC 9637) — MUST come BEFORE the 2000..3FFF public clause
   defp classify_v6({0x3FFF, b, _, _, _, _, _, _}) when b < 0x1000, do: :reserved
+  # 2001:db8::/32 documentation (RFC 3849)
+  defp classify_v6({0x2001, 0x0DB8, _, _, _, _, _, _}), do: :reserved
   # Global unicast 2000::/3 is the only public v6 space; everything else denies.
   defp classify_v6({a, _, _, _, _, _, _, _}) when a >= 0x2000 and a <= 0x3FFF, do: :public
   defp classify_v6(_), do: :reserved

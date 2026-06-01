@@ -77,6 +77,9 @@ defmodule ImagePipe.Source.HTTP do
       Enum.any?(Keyword.keys(value), &(&1 not in allowed_keys)) ->
         {:error, "unknown address_policy key"}
 
+      not is_list(Keyword.get(value, :allow, [])) ->
+        {:error, "address_policy :allow must be a list of CIDR strings"}
+
       Enum.any?(Keyword.get(value, :allow, []), &(AddressPolicy.parse_cidr(&1) == :error)) ->
         {:error, "invalid CIDR in address_policy :allow"}
 

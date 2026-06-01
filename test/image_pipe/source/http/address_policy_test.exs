@@ -49,6 +49,10 @@ defmodule ImagePipe.Source.HTTP.AddressPolicyTest do
       assert AddressPolicy.classify({0x2002, 0x5DB8, 0xD822, 0, 0, 0, 0, 0}) == :public
     end
 
+    test "blocks the IPv6 documentation range 2001:db8::/32" do
+      assert AddressPolicy.classify({0x2001, 0x0DB8, 0, 0, 0, 0, 0, 1}) == :reserved
+    end
+
     test "unknown IPv6 never defaults to :public (deny-default)" do
       refute AddressPolicy.classify({0x3FFF, 0, 0, 0, 0, 0, 0, 1}) == :public
     end
@@ -157,6 +161,33 @@ defmodule ImagePipe.Source.HTTP.AddressPolicyTest do
         if AddressPolicy.classify(ip) != :public do
           refute AddressPolicy.allow?(pred, [ip])
         end
+      end
+    end
+
+    property "IPv6 classify is total over all 8-group tuples" do
+      check all groups <- list_of(integer(0..0xFFFF), length: 8) do
+        assert AddressPolicy.classify(List.to_tuple(groups)) in [
+                 :loopback,
+                 :unspecified,
+                 :link_local,
+                 :private,
+                 :unique_local,
+                 :multicast,
+                 :broadcast,
+                 :cgnat,
+                 :reserved,
+                 :public
+               ]
+      end
+    end
+
+    property "IPv6 outside the 2000::/3 public window denies (deny-default)" do
+      # Leading group strictly above the public window (0x2000..0x3FFF) and below
+      # the ULA/link-local/multicast prefixes (which start at 0xFC00) — this is the
+      # unassigned/reserved space that must NEVER classify as :public.
+      check all first <- integer(0x4000..0xEFFF),
+                rest <- list_of(integer(0..0xFFFF), length: 7) do
+        assert AddressPolicy.classify(List.to_tuple([first | rest])) == :reserved
       end
     end
   end

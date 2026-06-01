@@ -446,6 +446,45 @@ defmodule ImagePipe.Source.HTTPTest do
     assert error.reason == :denied_host
   end
 
+  describe "address_policy validation" do
+    test "rejects a non-list :allow without raising" do
+      assert {:error, {:invalid_source_config, _}} =
+               HTTP.validate_options(allowed_hosts: ["x"], address_policy: [allow: "10.0.0.0/8"])
+    end
+
+    test "rejects non-binary :allow entries without raising" do
+      assert {:error, {:invalid_source_config, _}} =
+               HTTP.validate_options(allowed_hosts: ["x"], address_policy: [allow: [123]])
+    end
+
+    test "rejects an invalid CIDR string" do
+      assert {:error, {:invalid_source_config, _}} =
+               HTTP.validate_options(
+                 allowed_hosts: ["x"],
+                 address_policy: [allow: ["10.0.0.0/99"]]
+               )
+    end
+
+    test "rejects an unknown address_policy key" do
+      assert {:error, {:invalid_source_config, _}} =
+               HTTP.validate_options(allowed_hosts: ["x"], address_policy: [bogus: true])
+    end
+
+    test "accepts a valid keyword policy and a 2-arity function" do
+      assert {:ok, _} =
+               HTTP.validate_options(
+                 allowed_hosts: ["x"],
+                 address_policy: [allow_private: true, allow: ["10.0.5.0/24"]]
+               )
+
+      assert {:ok, _} =
+               HTTP.validate_options(
+                 allowed_hosts: ["x"],
+                 address_policy: fn _ip, cat -> cat == :public end
+               )
+    end
+  end
+
   describe "SSRF guard" do
     test "origin host resolving to a private address is blocked (DNS branch)" do
       source = %URL{scheme: :https, host: "assets.example.com", path: ["x.jpg"]}
@@ -592,6 +631,33 @@ defmodule ImagePipe.Source.HTTPTest do
 
       error = assert_raise Source.StreamError, fn -> Enum.to_list(blocked_stream) end
       assert error.reason == :denied_address
+    end
+
+    test "an uppercase redirect host still matches the downcased allowlist and is fetched" do
+      plug = fn
+        %{request_path: "/redirect.jpg"} = conn ->
+          conn
+          |> Plug.Conn.put_resp_header("location", "https://ASSETS.EXAMPLE.COM/other.jpg")
+          |> Plug.Conn.send_resp(302, "")
+
+        conn ->
+          Plug.Conn.send_resp(conn, 200, "image bytes")
+      end
+
+      source = %URL{scheme: :https, host: "assets.example.com", path: ["redirect.jpg"]}
+
+      stream =
+        fetch_stream(
+          [
+            allowed_hosts: ["assets.example.com"],
+            max_redirects: 1,
+            address_resolver: stub_resolver(),
+            req_options: [plug: plug]
+          ],
+          source
+        )
+
+      assert Enum.join(stream) == "image bytes"
     end
 
     test "function-form policy replaces the built-in decision" do
