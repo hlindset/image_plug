@@ -14,13 +14,14 @@ defmodule ImagePipe.Transform.State do
   - `detector_required`: whether detect-gravity must use the detector instead of
     silently falling back to attention smartcrop.
   - `telemetry_opts`: telemetry metadata threaded through stage spans.
-  - `decode_prescale`: the uniform factor libvips already applied at decode via
-    shrink-on-load, expressed as `loaded_dim / original_dim` (≤ 1.0; `1.0` means
-    no shrink). Geometry that must reason about the *original* image extent reads
-    it through `effective_source_dims/1`, which divides the current image dims by
-    this factor. Because it is derived from the live image, it tracks crops and
-    rotations automatically; the residual resize resets it to `1.0` once it has
-    finished the downscale.
+  - `source_dimensions`: the *exact* original (full-resolution) `{w, h}` the
+    residual resize must size against, set only when shrink-on-load has reduced the
+    decoded image; `nil` otherwise. It is exact (not reconstructed from the shrunk
+    dims), so the residual resize lands on the same target as a full-resolution
+    decode. It is safe from staleness because shrink-on-load is declined whenever a
+    crop or quarter-turn rotate precedes the resize (see `ImagePipe.Transform.DecodePlanner`),
+    so the only pre-resize op that can change the image extent while this is set is
+    `AutoOrient`, which swaps it in step. The residual resize clears it to `nil`.
   """
 
   defstruct image: nil,
@@ -28,7 +29,7 @@ defmodule ImagePipe.Transform.State do
             detector: nil,
             detector_required: false,
             telemetry_opts: [],
-            decode_prescale: 1.0
+            source_dimensions: nil
 
   @type t :: %__MODULE__{
           image: Vix.Vips.Image.t() | nil,
@@ -36,7 +37,7 @@ defmodule ImagePipe.Transform.State do
           detector: module() | {module(), keyword()} | nil,
           detector_required: boolean(),
           telemetry_opts: keyword(),
-          decode_prescale: number()
+          source_dimensions: {pos_integer(), pos_integer()} | nil
         }
 
   def set_image(%__MODULE__{} = state, %Vix.Vips.Image{} = image) do
@@ -44,18 +45,16 @@ defmodule ImagePipe.Transform.State do
   end
 
   @doc """
-  Dimensions the current image would have at full (un-shrunk) resolution.
+  Dimensions the residual resize must size against.
 
-  When shrink-on-load has reduced the decoded image, this divides the live image
-  dimensions by `decode_prescale` to recover the original-resolution extent the
-  geometry math expects. With no shrink (`decode_prescale == 1.0`) it returns the
-  image dimensions unchanged. Deriving from the live image means crops and
-  rotations applied before the residual resize are reflected without any
-  per-operation bookkeeping.
+  When shrink-on-load reduced the decoded image, this returns the exact stored
+  original extent (`source_dimensions`), so the residual resize computes the same
+  target a full-resolution decode would. With no shrink it returns the live image
+  dimensions — which also makes a crop-before-resize correct, since the cropped
+  image's own dimensions are what the following resize should size against.
   """
-  def effective_source_dims(%__MODULE__{image: image, decode_prescale: prescale}) do
-    {logical_dim(Image.width(image), prescale), logical_dim(Image.height(image), prescale)}
-  end
+  def effective_source_dims(%__MODULE__{source_dimensions: {w, h}}), do: {w, h}
 
-  defp logical_dim(dim, prescale), do: max(1, round(dim / prescale))
+  def effective_source_dims(%__MODULE__{image: image}),
+    do: {Image.width(image), Image.height(image)}
 end

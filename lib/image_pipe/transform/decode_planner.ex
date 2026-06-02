@@ -129,17 +129,20 @@ defmodule ImagePipe.Transform.DecodePlanner do
   # target on either axis — otherwise that resize would upscale a shrunk image and
   # produce a softer result than the full-decode path. We therefore compute the
   # shrink against the residual resize's *effective* target, which `dpr` and `zoom`
-  # inflate, and we decline to shrink in the two cases where the safe factor cannot
-  # be derived cheaply from the resize alone:
+  # inflate, and we decline to shrink in the cases where it is not provably safe:
   #
   #   - a crop earlier in the chain (it reduces the pixels feeding the resize, so a
   #     shrink sized against the full source would over-shrink the cropped region);
+  #   - a quarter-turn rotate earlier in the chain (it swaps the axes the residual
+  #     resize sizes against; declining keeps the exact stored original dims valid
+  #     without per-op bookkeeping — only `AutoOrient`, which swaps them in step,
+  #     may run before a shrunk resize);
   #   - `min_width`/`min_height` (they enlarge the result to a floor, interacting
   #     with aspect ratio in ways that are not a simple per-axis multiplier).
   #
   # Declining to shrink is always safe — it forgoes the memory win, never quality.
   defp compute_load_shrink(chain, src_w, src_h) do
-    if crop_precedes_resize?(chain) do
+    if shrink_blocked_before_resize?(chain) do
       1.0
     else
       first_resize_load_shrink(chain, src_w, src_h)
@@ -153,12 +156,14 @@ defmodule ImagePipe.Transform.DecodePlanner do
     end
   end
 
-  # A crop reaching the chain before the first resize. A cover/auto resize that
-  # crops *after* resizing is a single `%PlanResize{}` and is not matched here.
-  defp crop_precedes_resize?(chain) do
+  # A crop or quarter-turn rotate reaching the chain before the first resize. A
+  # cover/auto resize that crops *after* resizing is a single `%PlanResize{}` and
+  # is not matched here; a 180° rotate does not swap axes and does not block.
+  defp shrink_blocked_before_resize?(chain) do
     Enum.reduce_while(chain, false, fn
       %CropGuided{}, _acc -> {:halt, true}
       %CropRegion{}, _acc -> {:halt, true}
+      %Rotate{angle: angle}, _acc when angle in [90, 270] -> {:halt, true}
       %PlanResize{}, _acc -> {:halt, false}
       _operation, acc -> {:cont, acc}
     end)

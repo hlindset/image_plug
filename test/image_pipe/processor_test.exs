@@ -467,7 +467,7 @@ defmodule ImagePipe.Request.ProcessorTest do
     refute Keyword.has_key?(decode_opts, :scale)
   end
 
-  test "decoded map reports original dims and a no-shrink prescale for a PNG" do
+  test "decoded map reports original dims and no stored source_dimensions for a non-shrunk PNG" do
     {:ok, frame} = Image.new(400, 300, color: [255, 0, 0])
     png_body = Image.write!(frame, :memory, suffix: ".png")
 
@@ -476,8 +476,26 @@ defmodule ImagePipe.Request.ProcessorTest do
 
     {:ok, decoded} = Processor.decode_validate_source_response(response, plan(), opts())
 
-    # PNG is not shrink-eligible, so the image is decoded full-resolution.
+    # PNG is not shrink-eligible, so it decodes full-resolution and stores no
+    # source_dimensions (the transform layer reads the live image dims instead).
     assert decoded.original_dims == {400, 300}
-    assert decoded.decode_prescale == 1.0
+    assert decoded.source_dimensions == nil
+  end
+
+  test "decoded map stores the exact original source_dimensions when a JPEG is shrunk" do
+    body = File.read!("priv/static/images/beach.jpg")
+    {:ok, full_image} = Image.open("priv/static/images/beach.jpg")
+    orig = {Image.width(full_image), Image.height(full_image)}
+
+    {:ok, shrink_plan} = build_resize_plan(div(elem(orig, 0), 9))
+
+    response = %Response{stream: [body]}
+    {:ok, response} = Source.wrap_response(response, max_body_bytes: byte_size(body) + 100)
+
+    {:ok, decoded} = Processor.decode_validate_source_response(response, shrink_plan, opts())
+
+    assert decoded.decode_options[:shrink] == 8
+    # Exact original is stored (not reconstructed from the shrunk image).
+    assert decoded.source_dimensions == orig
   end
 end

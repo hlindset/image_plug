@@ -20,7 +20,7 @@ defmodule ImagePipe.Request.Processor do
           required(:image) => VipsImage.t(),
           required(:source_format) => source_format(),
           optional(:source_response) => Source.Response.t(),
-          optional(:decode_prescale) => number(),
+          optional(:source_dimensions) => {pos_integer(), pos_integer()} | nil,
           optional(:original_dims) => {pos_integer(), pos_integer()},
           optional(:achieved_shrink) => %{w: float(), h: float()} | nil
         }
@@ -84,10 +84,24 @@ defmodule ImagePipe.Request.Processor do
          image: image,
          source_format: source_format,
          source_response: source_response,
-         decode_prescale: compute_decode_prescale(original_dims, image),
+         source_dimensions: shrink_source_dimensions(decode_options, original_dims),
          original_dims: original_dims,
          achieved_shrink: compute_achieved_shrink(original_dims, image)
        }}
+    end
+  end
+
+  # The residual resize sizes against the exact original extent — but only when the
+  # decode was actually shrunk. With no shrink the transform layer reads the live
+  # image dims instead (which also keeps a crop-before-resize correct), so we leave
+  # it `nil`. These are the stored (pre-orientation) dims; `AutoOrient` swaps them
+  # in step if it rotates, and shrink is declined when a crop/quarter-turn rotate
+  # precedes the resize, so they cannot go stale.
+  defp shrink_source_dimensions(decode_options, original_dims) do
+    if Keyword.has_key?(decode_options, :shrink) or Keyword.has_key?(decode_options, :scale) do
+      original_dims
+    else
+      nil
     end
   end
 
@@ -99,9 +113,9 @@ defmodule ImagePipe.Request.Processor do
         opts
       ) do
     source_response = Map.get(decoded, :source_response)
-    decode_prescale = Map.get(decoded, :decode_prescale, 1.0)
+    source_dimensions = Map.get(decoded, :source_dimensions)
 
-    initial_state = %State{image: image, decode_prescale: decode_prescale}
+    initial_state = %State{image: image, source_dimensions: source_dimensions}
 
     Telemetry.span(Telemetry.telemetry_opts(opts), [:transform, :execute], %{}, fn ->
       result =
@@ -291,13 +305,6 @@ defmodule ImagePipe.Request.Processor do
       {:ok, v} when v in [5, 6, 7, 8] -> true
       _ -> false
     end
-  end
-
-  # The uniform factor libvips applied at decode, as loaded/original. Shrink-on-load
-  # is uniform (JPEG block shrink and WebP scale apply equally to both axes), so a
-  # single scalar derived from the width ratio captures it; 1.0 means no shrink.
-  defp compute_decode_prescale({orig_w, _orig_h}, image) do
-    Image.width(image) / orig_w
   end
 
   defp validate_original_pixels({w, h}, opts) do
