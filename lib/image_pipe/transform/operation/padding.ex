@@ -3,7 +3,7 @@ defmodule ImagePipe.Transform.Operation.Padding do
   Executable edge padding operation.
   """
 
-  @behaviour ImagePipe.Transform
+  use ImagePipe.Transform
 
   alias ImagePipe.Transform.Operation.ExtendCanvas
   alias ImagePipe.Transform.State

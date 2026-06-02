@@ -29,7 +29,7 @@ defmodule ImagePipe.Transform.Operation.AutoOrient do
       auto_orient = %ImagePipe.Transform.Operation.AutoOrient{}
   """
 
-  @behaviour ImagePipe.Transform
+  use ImagePipe.Transform
 
   import ImagePipe.Transform.State
 

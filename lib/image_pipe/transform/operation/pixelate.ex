@@ -3,7 +3,7 @@ defmodule ImagePipe.Transform.Operation.Pixelate do
   Executable pixelation operation.
   """
 
-  @behaviour ImagePipe.Transform
+  use ImagePipe.Transform
 
   import ImagePipe.Transform.Geometry
   import ImagePipe.Transform.State

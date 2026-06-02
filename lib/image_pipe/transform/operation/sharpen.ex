@@ -3,7 +3,7 @@ defmodule ImagePipe.Transform.Operation.Sharpen do
   Executable sharpen operation.
   """
 
-  @behaviour ImagePipe.Transform
+  use ImagePipe.Transform
 
   import ImagePipe.Transform.State
 

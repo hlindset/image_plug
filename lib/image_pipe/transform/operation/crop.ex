@@ -74,7 +74,7 @@ defmodule ImagePipe.Transform.Operation.Crop do
   of `Crop` operation. URL grammar and aliases stay in parser documentation.
   """
 
-  @behaviour ImagePipe.Transform
+  use ImagePipe.Transform
 
   import ImagePipe.Transform.State, only: [set_image: 2]
 

@@ -3,7 +3,7 @@ defmodule ImagePipe.Transform.Operation.Brightness do
   Executable brightness adjustment operation.
   """
 
-  @behaviour ImagePipe.Transform
+  use ImagePipe.Transform
 
   import ImagePipe.Transform.State
 

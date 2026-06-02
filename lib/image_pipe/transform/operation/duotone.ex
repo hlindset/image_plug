@@ -3,7 +3,7 @@ defmodule ImagePipe.Transform.Operation.Duotone do
   Executable two-color luminance mapping operation.
   """
 
-  @behaviour ImagePipe.Transform
+  use ImagePipe.Transform
 
   import ImagePipe.Transform.State
 

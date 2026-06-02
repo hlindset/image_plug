@@ -34,7 +34,7 @@ defmodule ImagePipe.Transform.Operation.Flip do
       flip = %ImagePipe.Transform.Operation.Flip{axis: :horizontal}
   """
 
-  @behaviour ImagePipe.Transform
+  use ImagePipe.Transform
 
   import ImagePipe.Transform.State
 

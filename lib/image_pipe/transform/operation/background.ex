@@ -3,7 +3,7 @@ defmodule ImagePipe.Transform.Operation.Background do
   Executable background composition operation.
   """
 
-  @behaviour ImagePipe.Transform
+  use ImagePipe.Transform
 
   import ImagePipe.Transform.State
 

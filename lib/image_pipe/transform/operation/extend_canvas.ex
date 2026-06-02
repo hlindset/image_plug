@@ -68,7 +68,7 @@ defmodule ImagePipe.Transform.Operation.ExtendCanvas do
   `ExtendCanvas` operation with an `{:aspect_ratio, ratio}` rule.
   """
 
-  @behaviour ImagePipe.Transform
+  use ImagePipe.Transform
 
   import ImagePipe.Transform.State
   import ImagePipe.Transform.Geometry

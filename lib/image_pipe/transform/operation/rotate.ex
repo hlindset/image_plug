@@ -33,7 +33,7 @@ defmodule ImagePipe.Transform.Operation.Rotate do
       rotate = %ImagePipe.Transform.Operation.Rotate{angle: 90}
   """
 
-  @behaviour ImagePipe.Transform
+  use ImagePipe.Transform
 
   import ImagePipe.Transform.State
 

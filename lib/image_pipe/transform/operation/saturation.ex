@@ -3,7 +3,7 @@ defmodule ImagePipe.Transform.Operation.Saturation do
   Executable saturation adjustment operation.
   """
 
-  @behaviour ImagePipe.Transform
+  use ImagePipe.Transform
 
   import ImagePipe.Transform.State
 
