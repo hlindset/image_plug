@@ -521,3 +521,24 @@ A second, adversarial review sharpened two points and **reversed one earlier dec
 - **One-of `Response` contract — adopted (reversing the first review's "not adopted").** On re-check, `ImagePipe.Source` is **host-implementable**, and CLAUDE.md explicitly lists "return values from host-implementable behaviours such as `ImagePipe.Source`" as something to validate. A both-set Response is therefore untrusted external input, not impossible internal misuse, so validating it is correct (the anti-impossible-misuse rule applies to *internal* producers). Tightened `wrap_response/2` and `seekable_input/1` to require exactly one of `path`/`stream`, with a both-set rejection test. (The prior turn's reasoning was wrong on this point.)
 - **`:access` preservation — pulled forward and fixed (a third adversarial review changed my mind).** I initially deferred this as "perf-only," but (a) it was a regression of the stated decode-options contract, not just cosmetic; (b) the review correctly noted my "`from_binary` would munge `shrink:`/`scale:`" claim was wrong — `from_binary/2` deletes *only* `:access`; and (c) the seam is non-throwaway. So Plan A now decodes buffers via `new_from_buffer` with validated options (`:access` preserved), with a libvips-boundary test. **One correction back to that review:** its suggestion that switching the *path* branch to `new_from_file/2` would fix bracketed filenames is wrong — `new_from_file`/libvips also split on `[`; only byte-loading avoids it, so the `[` case remains a documented Plan B item.
 - **Still deferred to Plan B:** `shrink:`/`scale:` computation + the `[`-filename byte-load. Added behavioral notes 6 (unsupported-format timing) and 7 (filename association) for the remaining low-severity observations.
+
+### Post-merge measurement (corpus benchmark with fixed Vix high-water)
+
+After fixing the Vix `tracked_get_mem_highwater/0` NIF (it had been registered to
+the current-mem function), `bench/decode_matrix.exs` was run over a mixed corpus.
+The clean libvips working-set high-water shows **streaming and buffered decode are
+within a few MiB of each other** (e.g. `waterfall.jpg` strm 71.7 / buf 68.6 MiB;
+`dog.jpg` strm 60.2 / buf 63.4 MiB — sometimes buffered slightly higher). The big
+RSS gaps reported earlier (e.g. dog 480→394 MiB) were **allocator retention + BEAM
+overhead, not decode memory** — exactly the artifact the tracked high-water was
+meant to catch. Wall-clock: buffered is consistently a little faster (geomean
+~0.96×).
+
+**Consequence for framing (no scope change):** Plan A is *decode-memory-neutral* —
+its justification is **enablement** (off the read-once pipe → shrink-on-load and
+random access become possible), **correctness** (format coverage, body-as-path
+safety, `:access` preservation, one-of `Response`), and a **slight speedup** — NOT
+a memory reduction. It even adds a small, bounded BEAM-heap cost (holding the
+compressed body, ≤ `max_body_bytes`). So Plan A's ROI is contingent on Plan B
+landing; the actual memory win is entirely shrink-on-load's, now measurable with
+the fixed instrument.

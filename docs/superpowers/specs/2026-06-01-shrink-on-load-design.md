@@ -355,14 +355,25 @@ met with a **deterministic gate** plus a **reported benchmark**:
   image's pre-residual-resize dimensions are `≈ original / achieved_shrink` —
   i.e. directly prove the full-resolution bitmap was never materialized. This is
   deterministic and not flaky.
-- **Reported benchmark (non-gating):** a separate `async: false`,
-  single-process measurement (or a `mix run` script outside the suite) that
-  records libvips tracked memory deltas with the libvips operation cache
-  disabled (`Vix.Vips.cache_set_max(0)` / `cache_set_max_mem(0)`), comparing old
-  full-decode vs. new shrink-load for a large JPEG/WebP downscale, and documents
-  representative numbers. **Do not** gate CI on `tracked_get_mem_highwater`
-  (process-global, non-resettable, async-polluted — `deps/vix/lib/vix/vips.ex`)
-  or on wall-clock time.
+- **Reported benchmark (non-gating):** use `Vix.Vips.tracked_get_mem_highwater/0`
+  as the clean libvips working-set peak. (The Vix NIF that made this return 0 —
+  it was registered to the current-mem function — has since been fixed; the bump
+  is on this branch.) Peak **RSS** is dominated by allocator retention + BEAM
+  overhead and is only directional, so tracked high-water is the signal. The
+  `bench/decode_matrix.exs` harness already produces this per **isolated OS
+  process** (required: the counter is process-global, monotonic, non-resettable),
+  with the libvips op cache disabled. Compare full-decode vs. shrink-load for
+  large JPEG/WebP downscales; expect the high-water to fall roughly with the
+  decoded-pixel reduction (JPEG shrink /8 ⇒ ~1/64 the decoded pixels). Still
+  **not** a CI gate (process-global/non-resettable, and wall-clock is noisy) —
+  the deterministic decoded-dimension assertion remains the gate.
+
+  *Baseline measured with this instrument (Plan A, the seekable-source unification
+  with no shrink yet):* streaming vs. buffered decode are within a few MiB on
+  libvips high-water — i.e. **Plan A is decode-memory-neutral**; the large RSS
+  gaps seen earlier were allocator/BEAM noise, not decode memory. The memory win
+  is therefore **entirely shrink-on-load's**, and this instrument is what will
+  prove it.
 
 ## Components touched
 
