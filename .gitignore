@@ -56,3 +56,7 @@ local
 scripts/*.csv
 scripts/scrubbed_prod_config.py
 __pycache__
+
+# Machine-local mise config (e.g. PLATFORM_PROVIDED_LIBVIPS / VIX_LIBVIPS_PREFIX overrides)
+mise.local.toml
+.mise.local.toml
