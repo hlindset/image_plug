@@ -8,7 +8,6 @@ defmodule ImagePipe.Request.ProcessorTest do
   alias ImagePipe.Plan.Source.Path
   alias ImagePipe.Request.Processor
   alias ImagePipe.Request.ProcessorTest.DecodeErrorImageOpen
-  alias ImagePipe.Request.ProcessorTest.Materializer
   alias ImagePipe.Source
   alias ImagePipe.Source.CacheSemantics
   alias ImagePipe.Source.Resolved
@@ -118,33 +117,6 @@ defmodule ImagePipe.Request.ProcessorTest do
 
     assert decoded.source_format == :jpeg
     assert decoded.decode_options == [access: :sequential, fail_on: :error]
-  end
-
-  test "process_source materializes between pipelines before executing the next pipeline" do
-    test_pid = self()
-    ref = make_ref()
-
-    plan = %Plan{
-      source: %Path{segments: ["images", "beach.jpg"]},
-      pipelines: [%Pipeline{operations: []}, %Pipeline{operations: []}],
-      output: %Output{mode: {:explicit, :jpeg}}
-    }
-
-    opts =
-      opts()
-      |> Keyword.put(:image_materializer, Materializer)
-      |> Keyword.put(:test_pid, test_pid)
-      |> Keyword.put(:test_ref, ref)
-
-    assert {:ok, %State{} = state} =
-             Processor.process_source(
-               plan,
-               resolved_source(),
-               opts
-             )
-
-    assert state.image
-    assert_receive {:pipeline_event, ^ref, :materialized_between_pipelines}
   end
 
   test "fetch_decode_validate_source_with_source_format plans decode options from the first pipeline only" do

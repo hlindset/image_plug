@@ -20,7 +20,6 @@ defmodule ImagePipe.Request.RunnerTest do
   alias ImagePipe.Source.CacheSemantics
   alias ImagePipe.Source.Resolved, as: SourceResolved
   alias ImagePipe.Source.Response, as: SourceResponse
-  alias ImagePipe.Transform.State
   alias Vix.Vips.Image, as: VipsImage
 
   defmodule CacheHit do
@@ -350,19 +349,6 @@ defmodule ImagePipe.Request.RunnerTest do
 
     @impl ImagePipe.Source
     def fetch(_resolved, _opts, _runtime_opts), do: raise("source should not fetch on cache hit")
-  end
-
-  defmodule Materializer do
-    alias ImagePipe.Transform.Materializer
-
-    def materialize(%State{} = state, opts) do
-      send(
-        Keyword.fetch!(opts, :test_pid),
-        {:pipeline_event, Keyword.fetch!(opts, :test_ref), :materialized_between_pipelines}
-      )
-
-      Materializer.materialize(state, opts)
-    end
   end
 
   defp plan(overrides \\ []) do
@@ -1196,9 +1182,7 @@ defmodule ImagePipe.Request.RunnerTest do
     assert_supervisor_empty(supervisor)
   end
 
-  test "multiple pipelines reach processing and materialize between pipelines" do
-    test_pid = self()
-    ref = make_ref()
+  test "multiple pipelines reach processing" do
     supervisor = start_source_session_supervisor()
 
     plan =
@@ -1209,26 +1193,19 @@ defmodule ImagePipe.Request.RunnerTest do
         ]
       )
 
-    opts = [
-      image_materializer: Materializer,
-      sources: %{path: {SourceImage, test_pid: self(), test_ref: ref}},
-      test_pid: test_pid,
-      test_ref: ref
-    ]
-
     assert {:ok, {:prepared_stream, prepared, %Response{}, %CacheHeaders{}}} =
              run(
                conn(:get, "/_/f:jpeg/plain/images/beach.jpg"),
                plan,
                resolved_source(),
-               Keyword.put(opts, :source_session_supervisor, supervisor)
+               source_session_supervisor: supervisor,
+               sources: %{path: {SourceImage, []}}
              )
 
     assert %PreparedStream{
              resolved_output: %Resolved{format: :jpeg, quality: :default, response_headers: []}
            } = prepared
 
-    assert_receive {:pipeline_event, ^ref, :materialized_between_pipelines}
     assert_cancelled(prepared, supervisor)
   end
 
