@@ -121,42 +121,39 @@ defmodule ImagePipe.Transform.PlanExecutor do
   end
 
   defp executable_operations(%PlanResize{mode: :auto} = operation, %State{} = state, _context) do
-    branch =
-      resize_auto_branch(
-        Image.width(state.image),
-        Image.height(state.image),
-        tagged_logical_pixels(operation.width),
-        tagged_logical_pixels(operation.height)
-      )
-
+    branch = plan_resize_branch(operation, state)
     resize = resize_from(operation, branch)
 
     tagged_executable_resize_operations(branch, resize, operation, state)
   end
 
-  defp executable_operations(%CropGuided{} = operation, %State{}, _context) do
+  defp executable_operations(%CropGuided{} = operation, %State{} = state, _context) do
+    {scale_x, scale_y} = prescale(state)
+
     [
       %Crop{
-        width: crop_dimension(operation.width),
-        height: crop_dimension(operation.height),
+        width: scale_pixel_crop_dim(crop_dimension(operation.width), scale_x),
+        height: scale_pixel_crop_dim(crop_dimension(operation.height), scale_y),
         crop_from: :gravity,
         gravity: tagged_executable_gravity(operation.guide),
-        x_offset: operation.x_offset,
-        y_offset: operation.y_offset,
+        x_offset: scale_pixel_crop_coord(operation.x_offset, scale_x),
+        y_offset: scale_pixel_crop_coord(operation.y_offset, scale_y),
         aspect_ratio: operation.aspect_ratio,
         enlarge: operation.enlarge
       }
     ]
   end
 
-  defp executable_operations(%CropRegion{} = operation, %State{}, _context) do
+  defp executable_operations(%CropRegion{} = operation, %State{} = state, _context) do
+    {scale_x, scale_y} = prescale(state)
+
     [
       %Crop{
-        width: crop_dimension(operation.width),
-        height: crop_dimension(operation.height),
+        width: scale_pixel_crop_dim(crop_dimension(operation.width), scale_x),
+        height: scale_pixel_crop_dim(crop_dimension(operation.height), scale_y),
         crop_from: %{
-          left: crop_coordinate(operation.x),
-          top: crop_coordinate(operation.y)
+          left: scale_pixel_crop_coord(crop_coordinate(operation.x), scale_x),
+          top: scale_pixel_crop_coord(crop_coordinate(operation.y), scale_y)
         }
       }
     ]
@@ -262,10 +259,12 @@ defmodule ImagePipe.Transform.PlanExecutor do
   end
 
   defp cover_resize_and_crop(%Resize{} = resize, %State{} = state, gravity, {x_offset, y_offset}) do
+    {src_w, src_h} = State.effective_source_dims(state)
+
     dimensions =
       Resize.resolve_dimensions(resize,
-        source_width: Image.width(state.image),
-        source_height: Image.height(state.image)
+        source_width: src_w,
+        source_height: src_h
       )
 
     [
@@ -365,6 +364,7 @@ defmodule ImagePipe.Transform.PlanExecutor do
     do: tagged_dpr_float(operation.dpr)
 
   defp resize_padding_scale(%PlanResize{} = operation, %State{} = state, mode) do
+    {src_w, src_h} = State.effective_source_dims(state)
     requested_scale = tagged_dpr_float(operation.dpr)
     branch = plan_resize_branch(operation, state)
     resize = resize_from(operation, branch)
@@ -372,8 +372,8 @@ defmodule ImagePipe.Transform.PlanExecutor do
     base =
       %{resize | dpr: 1.0, enlarge: true}
       |> Resize.resolve_dimensions(
-        source_width: Image.width(state.image),
-        source_height: Image.height(state.image)
+        source_width: src_w,
+        source_height: src_h
       )
 
     max_without_enlarge = max_padding_scale_without_enlarge(base, state)
@@ -392,7 +392,8 @@ defmodule ImagePipe.Transform.PlanExecutor do
          %{requested_width: width, requested_height: height},
          %State{} = state
        ) do
-    min(Image.width(state.image) / width, Image.height(state.image) / height)
+    {src_w, src_h} = State.effective_source_dims(state)
+    min(src_w / width, src_h / height)
   end
 
   defp compensate_no_enlarge_padding_scale(requested_scale, :unbounded, _mode),
@@ -425,9 +426,11 @@ defmodule ImagePipe.Transform.PlanExecutor do
   defp plan_resize_branch(%PlanResize{mode: :stretch}, %State{}), do: :stretch
 
   defp plan_resize_branch(%PlanResize{mode: :auto} = operation, %State{} = state) do
+    {src_w, src_h} = State.effective_source_dims(state)
+
     resize_auto_branch(
-      Image.width(state.image),
-      Image.height(state.image),
+      src_w,
+      src_h,
       tagged_logical_pixels(operation.width),
       tagged_logical_pixels(operation.height)
     )
@@ -445,6 +448,24 @@ defmodule ImagePipe.Transform.PlanExecutor do
       rem(trunc(floor), 2) == 0 -> trunc(floor)
       true -> trunc(floor) + 1
     end
+  end
+
+  # Rescale a pixel-based crop dimension by the achieved prescale.
+  # Other unit types (:auto, {:scale, ...}, {:percent, ...}) are proportional
+  # to the current image and do not need rescaling.
+  defp scale_pixel_crop_dim({:pixels, n}, scale), do: {:pixels, max(1, round(n * scale))}
+  defp scale_pixel_crop_dim(dim, _scale), do: dim
+
+  # Rescale a pixel-based crop coordinate offset.
+  # Round (not floor) so small offsets survive large shrinks.
+  defp scale_pixel_crop_coord({:pixels, n}, scale), do: {:pixels, round(n * scale)}
+  defp scale_pixel_crop_coord(coord, _scale), do: coord
+
+  defp prescale(state) do
+    {src_w, src_h} = State.effective_source_dims(state)
+    img_w = Image.width(state.image)
+    img_h = Image.height(state.image)
+    {img_w / src_w, img_h / src_h}
   end
 
   defp tagged_executable_gravity(:center), do: {:anchor, :center, :center}
