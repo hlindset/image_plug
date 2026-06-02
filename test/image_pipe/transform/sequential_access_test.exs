@@ -1,5 +1,6 @@
 defmodule ImagePipe.Transform.SequentialAccessTest do
   use ExUnit.Case, async: true
+  use ExUnitProperties
 
   alias ImagePipe.Transform.Chain
   alias ImagePipe.Transform.Materializer
@@ -159,6 +160,84 @@ defmodule ImagePipe.Transform.SequentialAccessTest do
     {:ok, image} = Image.new(320, 180, color: [0, 255, 0, 255], bands: 4)
     Image.write!(image, :memory, suffix: ".png")
   end
+
+  property "anchor crop streams across varied dimensions and anchors" do
+    body = File.read!(@beach)
+
+    check all(
+            w <- integer(8..200),
+            h <- integer(8..150),
+            anchor <-
+              member_of([:center, :left, :right, :top, :bottom, :top_left, :bottom_right]),
+            max_runs: 25
+          ) do
+      {ax, ay} = anchor_to_xy(anchor)
+
+      assert_sequential_matches_random(
+        [
+          %Crop{
+            width: {:pixels, w},
+            height: {:pixels, h},
+            crop_from: :gravity,
+            gravity: {:anchor, ax, ay}
+          }
+        ],
+        body
+      )
+    end
+  end
+
+  property "fit resize streams across varied targets" do
+    body = File.read!(@dog)
+
+    check all(w <- integer(16..400), max_runs: 25) do
+      assert_sequential_matches_random(
+        [%Resize{mode: :fit, width: {:pixels, w}, height: :auto}],
+        body
+      )
+    end
+  end
+
+  property "blur streams across varied sigma" do
+    body = File.read!(@beach)
+
+    check all(sigma_tenths <- integer(5..40), max_runs: 20) do
+      assert_sequential_matches_random([%Blur{sigma: sigma_tenths / 10}], body)
+    end
+  end
+
+  property "horizontal flip streams across image sizes" do
+    check all(
+            w <- integer(20..200),
+            h <- integer(20..200),
+            max_runs: 20
+          ) do
+      {:ok, image} = Image.new(w, h, color: [10, 120, 200])
+      body = Image.write!(image, :memory, suffix: ".png")
+      assert_sequential_matches_random([%Flip{axis: :horizontal}], body)
+    end
+  end
+
+  property "auto-orient streams across EXIF orientations and sizes" do
+    check all(
+            orientation <- member_of([1, 2, 3, 4, 5, 6, 7, 8]),
+            w <- integer(20..160),
+            h <- integer(20..160),
+            max_runs: 24
+          ) do
+      {:ok, image} = Image.new(w, h, color: :red)
+      body = image |> Image.set_orientation!(orientation) |> Image.write!(:memory, suffix: ".jpg")
+      assert_sequential_matches_random([%AutoOrient{}], body)
+    end
+  end
+
+  defp anchor_to_xy(:center), do: {:center, :center}
+  defp anchor_to_xy(:left), do: {:left, :center}
+  defp anchor_to_xy(:right), do: {:right, :center}
+  defp anchor_to_xy(:top), do: {:center, :top}
+  defp anchor_to_xy(:bottom), do: {:center, :bottom}
+  defp anchor_to_xy(:top_left), do: {:left, :top}
+  defp anchor_to_xy(:bottom_right), do: {:right, :bottom}
 
   defp run_chain(chain, access, body) when access in [:random, :sequential] do
     with {:ok, image} <- Image.open([body], access: access, fail_on: :error),
