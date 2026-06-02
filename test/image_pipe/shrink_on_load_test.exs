@@ -5,6 +5,9 @@ defmodule ImagePipe.ShrinkOnLoadTest do
   import Plug.Conn
   import Plug.Test
 
+  alias Vix.Vips.Image, as: VipsImage
+  alias Vix.Vips.MutableImage
+
   # ──────────────────────────────────────────────────────────────────────────────
   # Origin plugs
   # ──────────────────────────────────────────────────────────────────────────────
@@ -36,9 +39,56 @@ defmodule ImagePipe.ShrinkOnLoadTest do
     end
   end
 
+  defmodule WebpOrigin do
+    @moduledoc false
+    # Serves a 1600×1200 solid-colour WebP, built once per run.
+    @webp_body (fn ->
+                  {:ok, img} = Image.new(1600, 1200, color: [200, 150, 100])
+                  Image.write!(img, :memory, suffix: ".webp")
+                end).()
+
+    def call(conn, _opts) do
+      conn
+      |> Plug.Conn.put_resp_content_type("image/webp")
+      |> Plug.Conn.send_resp(200, @webp_body)
+    end
+  end
+
+  defmodule AnimatedWebpOrigin do
+    @moduledoc false
+    # Serves a 2-page animated WebP whose pages are 120×90 (stored as a 120×180
+    # strip with page-height 90). Loaded single-page, the input is 120×90 = 10_800
+    # pixels; if all pages were decoded it would be 120×180 = 21_600.
+    @awebp_body (fn ->
+                   {:ok, f1} = Image.new(120, 90, color: [255, 0, 0])
+                   {:ok, f2} = Image.new(120, 90, color: [0, 255, 0])
+                   {:ok, strip} = Image.join([f1, f2])
+
+                   {:ok, strip} =
+                     VipsImage.mutate(strip, fn m ->
+                       MutableImage.set(m, "page-height", :gint, 90)
+                     end)
+
+                   Image.write!(strip, :memory, suffix: ".webp")
+                 end).()
+
+    def call(conn, _opts) do
+      conn
+      |> Plug.Conn.put_resp_content_type("image/webp")
+      |> Plug.Conn.send_resp(200, @awebp_body)
+    end
+  end
+
   # ──────────────────────────────────────────────────────────────────────────────
   # Shared helpers
   # ──────────────────────────────────────────────────────────────────────────────
+
+  defp webp_supported? do
+    case VipsImage.supported_loader_suffixes() do
+      {:ok, suffixes} -> ".webp" in suffixes
+      {:error, _reason} -> false
+    end
+  end
 
   defp file_source_opts do
     [
@@ -190,6 +240,58 @@ defmodule ImagePipe.ShrinkOnLoadTest do
     assert conn.resp_body =~ "too large"
   end
 
+  # WebP uses fractional scale-on-load (not JPEG block shrink). A 1600×1200 source
+  # to w:200 → scale 0.125 → decoded ≈ 200×150, with no residual resize needed.
+  # Output must be dimension-exact and perceptually equivalent to a direct
+  # thumbnail of the same source. Gated on WebP support in the host libvips.
+  test "WebP scale-on-load is dimension-exact and within MAE tolerance" do
+    if webp_supported?() do
+      conn = call_pipe("/_/w:200/f:webp/plain/images/webp", http_source_opts(WebpOrigin))
+
+      assert conn.status == 200
+
+      img = decoded_image(conn)
+      assert {Image.width(img), Image.height(img)} == {200, 150}
+
+      {:ok, src} = Image.new(1600, 1200, color: [200, 150, 100])
+      {:ok, baseline} = Image.thumbnail(src, 200)
+
+      mae = coarse_mae(img, baseline)
+      assert mae < 2.0, "WebP scale-on-load coarse MAE #{mae} exceeds 2.0"
+    else
+      # The host libvips has no WebP loader; the scale-on-load path can't be
+      # exercised here. Don't silently pass — make the skip visible.
+      IO.puts(:stderr, "[shrink_on_load] skipping WebP test: libvips has no .webp loader")
+    end
+  end
+
+  # Safety: an animated input must be decoded single-page so the input-pixel limit
+  # cannot be bypassed by frame count. The animated WebP has 2 pages of 120×90;
+  # single-page decode counts 10_800 input pixels, all-pages would count 21_600.
+  # With the limit set between those, the request succeeds iff only one page was
+  # decoded. (Animation is out of scope for output; inputs decode their first frame.)
+  test "animated WebP is decoded single-page so the input-pixel limit holds per frame" do
+    if webp_supported?() do
+      opts =
+        Keyword.merge(
+          http_source_opts(AnimatedWebpOrigin),
+          max_input_pixels: 15_000
+        )
+
+      conn = call_pipe("/_/w:60/f:webp/plain/images/animated", opts)
+
+      # 10_800 (one page) ≤ 15_000 < 21_600 (two pages): success proves single-page.
+      assert conn.status == 200
+      img = decoded_image(conn)
+      assert Image.width(img) == 60
+    else
+      IO.puts(
+        :stderr,
+        "[shrink_on_load] skipping animated-WebP test: libvips has no .webp loader"
+      )
+    end
+  end
+
   # Regression: crop runs BEFORE resize in the fixed pipeline order. The resize
   # must compute its target from the *cropped* image, not the original source.
   # `effective_source_dims` reads the live (post-crop) image, so this is correct
@@ -224,9 +326,4 @@ defmodule ImagePipe.ShrinkOnLoadTest do
     img = decoded_image(conn)
     assert {Image.width(img), Image.height(img)} == {1500, 1500}
   end
-
-  # Animated GIF shrink-on-load path:
-  # Skipped for now — animated GIF handling is complex to make cross-platform
-  # in a fixture-free test.  Will be added when a minimal test GIF fixture is
-  # committed.
 end
