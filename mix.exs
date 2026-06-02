@@ -109,7 +109,7 @@ defmodule ImagePipe.MixProject do
       {:image, "~> 0.67"},
       {:vix,
        git: "https://github.com/hlindset/vix.git",
-       ref: "3a30758d44526d3c914b2076bd0be201c972f2b7",
+       ref: "1b9d9f9619a4fcc45bce0c4958bfa1168a7ac1c2",
        override: true},
       {:color, "~> 0.13"},
       {:req, "~> 0.5"},

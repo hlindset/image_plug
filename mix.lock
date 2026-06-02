@@ -40,7 +40,7 @@
   "talan": {:hex, :talan, "0.2.1", "37ee4ff70e267a988d5739a4260f4b40904cb2972fe1edafab5c61be9a0be3c5", [:mix], [{:abit, "~> 0.4.0", [hex: :abit, repo: "hexpm", optional: false]}, {:murmur, "~> 2.0", [hex: :murmur, repo: "hexpm", optional: false]}], "hexpm", "a4b5c9091ac2608995391476dd1ba1abd5322a69230fc4aa8b81ebade819f5ce"},
   "telemetry": {:hex, :telemetry, "1.4.2", "a0cb522801dffb1c49fe6e30561badffc7b6d0e180db1300df759faa22062855", [:rebar3], [], "hexpm", "928f6495066506077862c0d1646609eed891a4326bee3126ba54b60af61febb1"},
   "thousand_island": {:hex, :thousand_island, "1.4.3", "2158209580f633be38d43ec4e3ce0a01079592b9657afff9080d5d8ca149a3af", [:mix], [{:telemetry, "~> 0.4 or ~> 1.0", [hex: :telemetry, repo: "hexpm", optional: false]}], "hexpm", "6e4ce09b0fd761a58594d02814d40f77daff460c48a7354a15ab353bb998ea0b"},
-  "vix": {:git, "https://github.com/hlindset/vix.git", "3a30758d44526d3c914b2076bd0be201c972f2b7", [ref: "3a30758d44526d3c914b2076bd0be201c972f2b7"]},
+  "vix": {:git, "https://github.com/hlindset/vix.git", "1b9d9f9619a4fcc45bce0c4958bfa1168a7ac1c2", [ref: "1b9d9f9619a4fcc45bce0c4958bfa1168a7ac1c2"]},
   "websock": {:hex, :websock, "0.5.3", "2f69a6ebe810328555b6fe5c831a851f485e303a7c8ce6c5f675abeb20ebdadc", [:mix], [], "hexpm", "6105453d7fac22c712ad66fab1d45abdf049868f253cf719b625151460b8b453"},
   "xla": {:hex, :xla, "0.10.0", "41121e9f011456242d3a79b9289910ce43419be0b0e7ebe67cc1292c6b3f232f", [:make, :mix], [{:elixir_make, "~> 0.4", [hex: :elixir_make, repo: "hexpm", optional: false]}], "hexpm", "f57d91aea6e661b52bf12239316c598679e9170628122bbd941235f040122bc6"},
 }
