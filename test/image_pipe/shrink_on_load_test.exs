@@ -100,8 +100,9 @@ defmodule ImagePipe.ShrinkOnLoadTest do
 
   # beach.jpg is 4000×2667.  Requesting w:444 → load_shrink = 4000/444 ≈ 9.0
   # → largest power-of-2 ≤ 9 is 8, so the JPEG is shrunk to 500×333 at decode
-  # and subsequently resized by vips to 444×296.  We assert the exact final size
-  # and that the aspect ratio is preserved within ±2 px.
+  # and subsequently resized by vips to exactly 444×296.  Output dimensions are
+  # part of the contract (dimension-exact), so we pin both axes exactly rather
+  # than with a tolerance.
   test "JPEG shrink-on-load produces correct output dimensions" do
     conn = call_pipe("/_/w:444/f:jpeg/plain/images/beach.jpg", file_source_opts())
 
@@ -110,22 +111,15 @@ defmodule ImagePipe.ShrinkOnLoadTest do
     assert String.starts_with?(ct, "image/jpeg")
 
     img = decoded_image(conn)
-    assert Image.width(img) == 444
-
-    # Aspect ratio: 4000/2667 ≈ 1.499; expected height ≈ 296
-    expected_h = round(444 / (4000 / 2667))
-    actual_h = Image.height(img)
-
-    assert abs(actual_h - expected_h) <= 2,
-           "expected height ~#{expected_h}, got #{actual_h}"
+    assert {Image.width(img), Image.height(img)} == {444, 296}
   end
 
   # Coarse MAE between the shrink-on-load pipeline and a direct
   # Image.thumbnail/2 baseline, downsampled to 32px wide.
   #
-  # Observed MAE on this machine: ~0.336
-  # Threshold is set to 2.0 (≈ 6× observed) to accommodate minor cross-platform
-  # kernel variation while catching gross decode errors.
+  # Observed MAE ~0.336 measured against libvips 8.18.2.
+  # Threshold is set to 2.0 (≈ 6× observed) to absorb minor libvips/libjpeg
+  # version and platform kernel variation while still catching gross decode errors.
   test "JPEG shrink-on-load MAE versus thumbnail baseline is within tolerance" do
     conn = call_pipe("/_/w:444/f:jpeg/plain/images/beach.jpg", file_source_opts())
     assert conn.status == 200
@@ -196,17 +190,17 @@ defmodule ImagePipe.ShrinkOnLoadTest do
     assert conn.resp_body =~ "too large"
   end
 
-  # Regression: crop runs BEFORE resize in the fixed pipeline order, on the
-  # shrunk-on-load image.  The geometry must recover the original extent from the
-  # decode prescale *and* track the crop, so the residual resize computes its
-  # target from the cropped region — not the stale full-source dimensions.
+  # Regression: crop runs BEFORE resize in the fixed pipeline order. The resize
+  # must compute its target from the *cropped* image, not the original source.
+  # `effective_source_dims` reads the live (post-crop) image, so this is correct
+  # regardless of the decode prescale. Shrink-on-load is conservatively disabled
+  # when a crop precedes the resize (see DecodePlanner), so this request takes the
+  # full-decode path — but the dimension contract is what we pin here.
   #
-  # beach.jpg is 4000×2667.  rs:fit:500:500 → load_shrink = min(8, 5.3) = 5.3
-  # → JPEG shrink 4 → decoded ≈ 1000×666.  c:2000:2000 (centre) crops a square
-  # region (prescaled to ≈500×500 on the shrunk image); fit:500:500 of a square
-  # must yield 500×500.  Before the prescale-tracking fix this produced 500×333
-  # (resize read the original 4000×2667 instead of the square crop).
-  test "crop-before-resize with shrink-on-load yields the cropped square's target dims" do
+  # beach.jpg is 4000×2667. c:2000:2000 (centre) crops a square; fit:500:500 of a
+  # square must yield 500×500. The original absolute-`source_dimensions` design
+  # produced 500×333 here (resize read the stale 4000×2667 instead of the crop).
+  test "crop-before-resize computes the residual resize from the cropped square" do
     conn =
       call_pipe("/_/c:2000:2000/rs:fit:500:500/f:jpeg/plain/images/beach.jpg", file_source_opts())
 
@@ -216,11 +210,9 @@ defmodule ImagePipe.ShrinkOnLoadTest do
     assert {Image.width(img), Image.height(img)} == {500, 500}
   end
 
-  # The same crop+resize must be dimensionally stable whether or not shrink-on-load
-  # fires.  A target large enough that load_shrink ≤ 1 takes the no-shrink path
-  # (prescale 1.0); the cropped 2000×2000 square fit to 1500×1500 must still be
-  # 1500×1500, proving the prescale machinery is a no-op when no shrink occurred.
-  test "crop-before-resize without shrink yields the same square target dims" do
+  # A second crop+resize geometry, to guard the dimension contract independent of
+  # the square-crop coincidence above: a 2000×2000 crop fit to 1500×1500 → 1500×1500.
+  test "crop-before-resize is dimensionally exact for a larger target" do
     conn =
       call_pipe(
         "/_/c:2000:2000/rs:fit:1500:1500/f:jpeg/plain/images/beach.jpg",

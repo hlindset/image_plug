@@ -125,30 +125,73 @@ defmodule ImagePipe.Transform.DecodePlanner do
 
   # --- Shrink/scale computation ---
 
-  # Find the first PlanResize in the chain (regardless of mode).
-  defp find_first_resize(chain), do: Enum.find(chain, &match?(%PlanResize{}, &1))
-
+  # The load shrink must never decode the image *below* the residual resize's
+  # target on either axis — otherwise that resize would upscale a shrunk image and
+  # produce a softer result than the full-decode path. We therefore compute the
+  # shrink against the residual resize's *effective* target, which `dpr` and `zoom`
+  # inflate, and we decline to shrink in the two cases where the safe factor cannot
+  # be derived cheaply from the resize alone:
+  #
+  #   - a crop earlier in the chain (it reduces the pixels feeding the resize, so a
+  #     shrink sized against the full source would over-shrink the cropped region);
+  #   - `min_width`/`min_height` (they enlarge the result to a floor, interacting
+  #     with aspect ratio in ways that are not a simple per-axis multiplier).
+  #
+  # Declining to shrink is always safe — it forgoes the memory win, never quality.
   defp compute_load_shrink(chain, src_w, src_h) do
-    case find_first_resize(chain) do
+    if crop_precedes_resize?(chain) do
+      1.0
+    else
+      first_resize_load_shrink(chain, src_w, src_h)
+    end
+  end
+
+  defp first_resize_load_shrink(chain, src_w, src_h) do
+    case Enum.find(chain, &match?(%PlanResize{}, &1)) do
       nil -> 1.0
       resize -> resize_load_shrink(resize, src_w, src_h)
     end
   end
 
-  defp resize_load_shrink(%PlanResize{width: {:px, w}, height: {:px, h}}, src_w, src_h)
+  # A crop reaching the chain before the first resize. A cover/auto resize that
+  # crops *after* resizing is a single `%PlanResize{}` and is not matched here.
+  defp crop_precedes_resize?(chain) do
+    Enum.reduce_while(chain, false, fn
+      %CropGuided{}, _acc -> {:halt, true}
+      %CropRegion{}, _acc -> {:halt, true}
+      %PlanResize{}, _acc -> {:halt, false}
+      _operation, acc -> {:cont, acc}
+    end)
+  end
+
+  defp resize_load_shrink(%PlanResize{min_width: mw, min_height: mh}, _src_w, _src_h)
+       when not is_nil(mw) or not is_nil(mh),
+       do: 1.0
+
+  defp resize_load_shrink(%PlanResize{width: {:px, w}, height: {:px, h}} = resize, src_w, src_h)
        when w > 0 and h > 0 do
-    min(src_w / w, src_h / h)
+    min(src_w / target_extent(w, resize, :x), src_h / target_extent(h, resize, :y))
   end
 
-  defp resize_load_shrink(%PlanResize{width: {:px, w}}, src_w, _src_h) when w > 0 do
-    src_w / w
+  defp resize_load_shrink(%PlanResize{width: {:px, w}} = resize, src_w, _src_h) when w > 0 do
+    src_w / target_extent(w, resize, :x)
   end
 
-  defp resize_load_shrink(%PlanResize{height: {:px, h}}, _src_w, src_h) when h > 0 do
-    src_h / h
+  defp resize_load_shrink(%PlanResize{height: {:px, h}} = resize, _src_w, src_h) when h > 0 do
+    src_h / target_extent(h, resize, :y)
   end
 
   defp resize_load_shrink(_resize, _src_w, _src_h), do: 1.0
+
+  # The residual resize inflates the requested pixel extent by `dpr` (both axes)
+  # and `zoom` (per axis). Using the requested (uninflated-by-clamping) dpr is the
+  # safe direction: if the resize later clamps dpr down to fit the source, the real
+  # target is smaller, so this only ever under-shrinks.
+  defp target_extent(dim, %PlanResize{dpr: {:ratio, n, d}, zoom_x: zoom_x}, :x),
+    do: dim * (n / d) * zoom_x
+
+  defp target_extent(dim, %PlanResize{dpr: {:ratio, n, d}, zoom_y: zoom_y}, :y),
+    do: dim * (n / d) * zoom_y
 
   # Append the format-appropriate load option when load_shrink > 1.
   defp append_load_option(base, :jpeg, load_shrink) do

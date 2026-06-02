@@ -127,33 +127,29 @@ defmodule ImagePipe.Transform.PlanExecutor do
     tagged_executable_resize_operations(branch, resize, operation, state)
   end
 
-  defp executable_operations(%CropGuided{} = operation, %State{} = state, _context) do
-    {scale_x, scale_y} = prescale(state)
-
+  defp executable_operations(%CropGuided{} = operation, %State{}, _context) do
     [
       %Crop{
-        width: scale_pixel_crop_dim(crop_dimension(operation.width), scale_x),
-        height: scale_pixel_crop_dim(crop_dimension(operation.height), scale_y),
+        width: crop_dimension(operation.width),
+        height: crop_dimension(operation.height),
         crop_from: :gravity,
         gravity: tagged_executable_gravity(operation.guide),
-        x_offset: scale_pixel_crop_coord(operation.x_offset, scale_x),
-        y_offset: scale_pixel_crop_coord(operation.y_offset, scale_y),
+        x_offset: operation.x_offset,
+        y_offset: operation.y_offset,
         aspect_ratio: operation.aspect_ratio,
         enlarge: operation.enlarge
       }
     ]
   end
 
-  defp executable_operations(%CropRegion{} = operation, %State{} = state, _context) do
-    {scale_x, scale_y} = prescale(state)
-
+  defp executable_operations(%CropRegion{} = operation, %State{}, _context) do
     [
       %Crop{
-        width: scale_pixel_crop_dim(crop_dimension(operation.width), scale_x),
-        height: scale_pixel_crop_dim(crop_dimension(operation.height), scale_y),
+        width: crop_dimension(operation.width),
+        height: crop_dimension(operation.height),
         crop_from: %{
-          left: scale_pixel_crop_coord(crop_coordinate(operation.x), scale_x),
-          top: scale_pixel_crop_coord(crop_coordinate(operation.y), scale_y)
+          left: crop_coordinate(operation.x),
+          top: crop_coordinate(operation.y)
         }
       }
     ]
@@ -449,23 +445,6 @@ defmodule ImagePipe.Transform.PlanExecutor do
       true -> trunc(floor) + 1
     end
   end
-
-  # Rescale a pixel-based crop dimension by the achieved prescale.
-  # Other unit types (:auto, {:scale, ...}, {:percent, ...}) are proportional
-  # to the current image and do not need rescaling.
-  defp scale_pixel_crop_dim({:pixels, n}, scale), do: {:pixels, max(1, round(n * scale))}
-  defp scale_pixel_crop_dim(dim, _scale), do: dim
-
-  # Rescale a pixel-based crop coordinate offset.
-  # Round (not floor) so small offsets survive large shrinks.
-  defp scale_pixel_crop_coord({:pixels, n}, scale), do: {:pixels, round(n * scale)}
-  defp scale_pixel_crop_coord(coord, _scale), do: coord
-
-  # The uniform decode prescale applied to pixel-valued crop dimensions/offsets,
-  # which are expressed against the original image but must act on the shrunk one.
-  # Read directly off the state (rather than re-deriving from effective_source_dims)
-  # so it stays exact and free of round-trip rounding.
-  defp prescale(%State{decode_prescale: prescale}), do: {prescale, prescale}
 
   defp tagged_executable_gravity(:center), do: {:anchor, :center, :center}
   defp tagged_executable_gravity(:top_left), do: {:anchor, :left, :top}

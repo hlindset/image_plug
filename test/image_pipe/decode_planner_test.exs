@@ -153,6 +153,46 @@ defmodule ImagePipe.Transform.DecodePlannerTest do
     refute Keyword.has_key?(opts, :shrink)
   end
 
+  # --- Over-shrink guards: the load shrink must never decode below the target ---
+
+  test "dpr inflates the shrink target so the decode is not over-shrunk" do
+    # src_w 4000, w 444, dpr 3 -> effective target 1332 -> wshrink 3.0 -> shrink 2
+    # (Without accounting for dpr this would be 4000/444 ≈ 9 -> shrink 8, decoding
+    # 500px and forcing the residual resize to upscale to 1332.)
+    assert {:ok, resize} = Operation.resize(:fit, {:px, 444}, :auto, dpr: 3, enlargement: :allow)
+    opts = DecodePlanner.open_options([resize], :jpeg, {4000, 2667})
+    assert opts[:shrink] == 2
+  end
+
+  test "zoom inflates the shrink target so the decode is not over-shrunk" do
+    # src_w 4000, w 200, zoom 4 -> effective target 800 -> wshrink 5.0 -> shrink 4
+    assert {:ok, resize} = Operation.resize(:fit, {:px, 200}, :auto, zoom_x: 4.0, zoom_y: 4.0)
+    opts = DecodePlanner.open_options([resize], :jpeg, {4000, 2667})
+    assert opts[:shrink] == 4
+  end
+
+  test "min_width/min_height disable shrink (they enlarge to a floor, not a simple multiplier)" do
+    assert {:ok, resize} = Operation.resize(:fit, {:px, 100}, :auto, min_width: {:px, 2000})
+    opts = DecodePlanner.open_options([resize], :jpeg, {4000, 2667})
+    refute Keyword.has_key?(opts, :shrink)
+  end
+
+  test "a crop before the resize disables shrink (cropped working set, not full source)" do
+    assert {:ok, crop} = Operation.crop_region({:px, 0}, {:px, 0}, {:px, 600}, {:px, 600})
+    assert {:ok, resize} = Operation.resize(:fit, {:px, 500}, {:px, 500})
+    opts = DecodePlanner.open_options([crop, resize], :jpeg, {4000, 2667})
+    refute Keyword.has_key?(opts, :shrink)
+    refute Keyword.has_key?(opts, :scale)
+  end
+
+  test "a crop AFTER the resize (cover-style) does not disable shrink" do
+    # cover is a single PlanResize that crops internally after resizing, so it is
+    # not a crop-before-resize and remains shrink-eligible.
+    assert {:ok, resize} = Operation.resize(:cover, {:px, 200}, {:px, 200})
+    opts = DecodePlanner.open_options([resize], :jpeg, {1600, 1200})
+    assert opts[:shrink] == 4
+  end
+
   # --- Non-shrink-eligible formats ---
 
   test "PNG emits no shrink or scale regardless of target" do
