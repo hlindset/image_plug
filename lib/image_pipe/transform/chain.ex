@@ -15,6 +15,7 @@ defmodule ImagePipe.Transform.Chain do
 
   alias ImagePipe.Telemetry
   alias ImagePipe.Transform
+  alias ImagePipe.Transform.Materializer
   alias ImagePipe.Transform.State
 
   @typedoc """
@@ -60,7 +61,7 @@ defmodule ImagePipe.Transform.Chain do
           [:transform, :operation],
           %{operation: name, index: index, params: operation},
           fn ->
-            res = Transform.execute(operation, state)
+            res = run_operation(operation, state)
             {res, %{result: elem(res, 0)}}
           end
         )
@@ -70,5 +71,21 @@ defmodule ImagePipe.Transform.Chain do
         {:error, reason} -> {:halt, {:error, {:transform_error, reason}}}
       end
     end)
+  end
+
+  defp run_operation(operation, %State{} = state) do
+    with {:ok, %State{} = state} <- maybe_materialize(state, operation) do
+      Transform.execute(operation, state)
+    end
+  end
+
+  defp maybe_materialize(%State{materialized?: true} = state, _operation), do: {:ok, state}
+
+  defp maybe_materialize(%State{} = state, operation) do
+    if Transform.requires_materialization?(operation) do
+      Materializer.materialize(state)
+    else
+      {:ok, state}
+    end
   end
 end

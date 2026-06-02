@@ -5,5 +5,7 @@ defmodule ImagePipe.Transform.ChainTest.FailingTransform do
 
   def name(%__MODULE__{}), do: :failing
 
+  def requires_materialization?(%__MODULE__{}), do: false
+
   def execute(%__MODULE__{}, _state), do: {:error, {__MODULE__, :failed}}
 end
