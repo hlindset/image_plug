@@ -41,16 +41,16 @@ defmodule ImagePipe.ShrinkOnLoadTest do
 
   defmodule WebpOrigin do
     @moduledoc false
-    # Serves a 1600×1200 solid-colour WebP, built once per run.
-    @webp_body (fn ->
-                  {:ok, img} = Image.new(1600, 1200, color: [200, 150, 100])
-                  Image.write!(img, :memory, suffix: ".webp")
-                end).()
-
+    # Serves a 1600×1200 solid-colour WebP. The body is generated lazily inside
+    # call/2 — never at compile time — so a host without a WebP saver does not crash
+    # the module before the runtime webp_supported? gate can skip the test.
     def call(conn, _opts) do
+      {:ok, img} = Image.new(1600, 1200, color: [200, 150, 100])
+      body = Image.write!(img, :memory, suffix: ".webp")
+
       conn
       |> Plug.Conn.put_resp_content_type("image/webp")
-      |> Plug.Conn.send_resp(200, @webp_body)
+      |> Plug.Conn.send_resp(200, body)
     end
   end
 
@@ -58,24 +58,23 @@ defmodule ImagePipe.ShrinkOnLoadTest do
     @moduledoc false
     # Serves a 2-page animated WebP whose pages are 120×90 (stored as a 120×180
     # strip with page-height 90). Loaded single-page, the input is 120×90 = 10_800
-    # pixels; if all pages were decoded it would be 120×180 = 21_600.
-    @awebp_body (fn ->
-                   {:ok, f1} = Image.new(120, 90, color: [255, 0, 0])
-                   {:ok, f2} = Image.new(120, 90, color: [0, 255, 0])
-                   {:ok, strip} = Image.join([f1, f2])
-
-                   {:ok, strip} =
-                     VipsImage.mutate(strip, fn m ->
-                       MutableImage.set(m, "page-height", :gint, 90)
-                     end)
-
-                   Image.write!(strip, :memory, suffix: ".webp")
-                 end).()
-
+    # pixels; if all pages were decoded it would be 120×180 = 21_600. Generated
+    # lazily (see WebpOrigin) so it can't crash the module at compile time.
     def call(conn, _opts) do
+      {:ok, f1} = Image.new(120, 90, color: [255, 0, 0])
+      {:ok, f2} = Image.new(120, 90, color: [0, 255, 0])
+      {:ok, strip} = Image.join([f1, f2])
+
+      {:ok, strip} =
+        VipsImage.mutate(strip, fn m ->
+          MutableImage.set(m, "page-height", :gint, 90)
+        end)
+
+      body = Image.write!(strip, :memory, suffix: ".webp")
+
       conn
       |> Plug.Conn.put_resp_content_type("image/webp")
-      |> Plug.Conn.send_resp(200, @awebp_body)
+      |> Plug.Conn.send_resp(200, body)
     end
   end
 
@@ -83,9 +82,16 @@ defmodule ImagePipe.ShrinkOnLoadTest do
   # Shared helpers
   # ──────────────────────────────────────────────────────────────────────────────
 
+  # The WebP tests both encode a fixture and request WebP output, so they need the
+  # saver as well as the loader. Gate on both.
   defp webp_supported? do
-    case VipsImage.supported_loader_suffixes() do
-      {:ok, suffixes} -> ".webp" in suffixes
+    suffix_supported?(&VipsImage.supported_loader_suffixes/0, ".webp") and
+      suffix_supported?(&VipsImage.supported_saver_suffixes/0, ".webp")
+  end
+
+  defp suffix_supported?(query, suffix) do
+    case query.() do
+      {:ok, suffixes} -> suffix in suffixes
       {:error, _reason} -> false
     end
   end

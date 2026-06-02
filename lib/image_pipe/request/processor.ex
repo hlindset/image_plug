@@ -62,6 +62,8 @@ defmodule ImagePipe.Request.Processor do
     with {:ok, input} <- seekable_input(source_response),
          {:ok, header_image} <-
            open_seekable_input(input, [access: :random, fail_on: :error], opts)
+           |> prefer_source_body_limit(source_response)
+           |> prefer_source_stream_error(source_response)
            |> wrap_decode_error(),
          {:ok, source_format} <- SourceFormat.from_image(header_image),
          original_dims = {Image.width(header_image), Image.height(header_image)},

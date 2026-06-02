@@ -347,9 +347,11 @@ defmodule ImagePipe.Request.ProcessorTest do
              )
 
     assert VipsImage.width(image) > 0
-    # The two-step open sends two messages: header open (random access) then decode open.
-    # The decode open carries the planner's access selection.
-    assert_received {:buffer_vips_opts, _header_opts}
+    # The two-step open sends two messages: header open (always random access) then
+    # the decode open carrying the planner's access selection. Pin both legs so the
+    # header probe can't silently start inheriting the planned (sequential) access.
+    assert_received {:buffer_vips_opts, header_vips_opts}
+    assert Keyword.get(header_vips_opts, :access) == :VIPS_ACCESS_RANDOM
     assert_received {:buffer_vips_opts, decode_vips_opts}
     assert Keyword.get(decode_vips_opts, :access) == :VIPS_ACCESS_SEQUENTIAL
   end
@@ -378,9 +380,17 @@ defmodule ImagePipe.Request.ProcessorTest do
   test "max_input_pixels is checked on original header dims, not the shrunk image" do
     body = File.read!("priv/static/images/beach.jpg")
     {:ok, full_image} = Image.open("priv/static/images/beach.jpg")
-    orig_pixels = Image.width(full_image) * Image.height(full_image)
+    orig_w = Image.width(full_image)
+    orig_pixels = orig_w * Image.height(full_image)
 
-    tight_limit_opts = Keyword.put(opts(), :max_input_pixels, orig_pixels - 1)
+    # A shrink-eligible plan (w ≈ orig/9 → JPEG shrink 8 → shrunk pixels ≈ orig/64).
+    {:ok, shrink_plan} = build_resize_plan(div(orig_w, 9))
+
+    # The limit sits ABOVE the shrunk pixel count but BELOW the original: a check on
+    # the shrunk image would wrongly pass, so a rejection proves validation runs on
+    # the ORIGINAL extent (and before the shrink decode open).
+    limit = div(orig_pixels, 2)
+    tight_limit_opts = Keyword.put(opts(), :max_input_pixels, limit)
 
     pid = self()
 
@@ -392,13 +402,14 @@ defmodule ImagePipe.Request.ProcessorTest do
     response = %Response{stream: [body]}
     {:ok, response} = Source.wrap_response(response, max_body_bytes: byte_size(body) + 100)
 
-    assert {:error, {:input_limit, {:too_many_input_pixels, ^orig_pixels, _max}}} =
+    assert {:error, {:input_limit, {:too_many_input_pixels, ^orig_pixels, ^limit}}} =
              Processor.decode_validate_source_response(
                response,
-               plan(),
+               shrink_plan,
                tight_limit_opts |> Keyword.put(:buffer_loader, counting_loader)
              )
 
+    # Only the header open ran; the shrink decode open was never reached.
     assert_receive {:buffer_opened, _header_opts}
     refute_receive {:buffer_opened, _decode_opts}
   end

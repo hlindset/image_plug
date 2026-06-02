@@ -185,6 +185,27 @@ defmodule ImagePipe.Transform.DecodePlannerTest do
     refute Keyword.has_key?(opts, :scale)
   end
 
+  test "a quarter-turn rotate before the resize disables shrink" do
+    assert {:ok, resize} = Operation.resize(:fit, {:px, 500}, {:px, 500})
+
+    for angle <- [90, 270] do
+      assert {:ok, rotate} = Operation.rotate(angle)
+      opts = DecodePlanner.open_options([rotate, resize], :jpeg, {4000, 2667})
+
+      refute Keyword.has_key?(opts, :shrink),
+             "rotate #{angle} before resize must disable shrink"
+
+      refute Keyword.has_key?(opts, :scale)
+    end
+  end
+
+  test "a 180 rotate before the resize does not disable shrink (axes unchanged)" do
+    assert {:ok, rotate} = Operation.rotate(180)
+    assert {:ok, resize} = Operation.resize(:fit, {:px, 400}, :auto)
+    opts = DecodePlanner.open_options([rotate, resize], :jpeg, {3200, 2400})
+    assert opts[:shrink] == 8
+  end
+
   test "a crop AFTER the resize (cover-style) does not disable shrink" do
     # cover is a single PlanResize that crops internally after resizing, so it is
     # not a crop-before-resize and remains shrink-eligible.

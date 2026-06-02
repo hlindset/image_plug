@@ -1848,7 +1848,8 @@ defmodule ImagePipe.PlugTest do
 
     assert conn.status == 200
     # Two-step open: header open first (random), then decode open (sequential).
-    assert_received {:image_open_options, _header_opts}
+    assert_received {:image_open_options, header_opts}
+    assert Keyword.get(header_opts, :access) == :random
     assert_received {:image_open_options, decode_opts}
     assert Keyword.get(decode_opts, :access) == :sequential
     assert Keyword.get(decode_opts, :fail_on) == :error
@@ -1882,7 +1883,8 @@ defmodule ImagePipe.PlugTest do
       )
 
     # Two-step open: header open first (random), then decode open (sequential).
-    assert_received {:image_open_options, _header_opts}
+    assert_received {:image_open_options, header_opts}
+    assert Keyword.get(header_opts, :access) == :random
     assert_received {:image_open_options, decode_opts}
     assert Keyword.get(decode_opts, :access) == :sequential
     assert Keyword.get(decode_opts, :fail_on) == :error
@@ -1907,7 +1909,8 @@ defmodule ImagePipe.PlugTest do
       )
 
     # Two-step open: header open first (random), then decode open (sequential).
-    assert_received {:image_open_options, _header_opts}
+    assert_received {:image_open_options, header_opts}
+    assert Keyword.get(header_opts, :access) == :random
     assert_received {:image_open_options, decode_opts}
     assert Keyword.get(decode_opts, :access) == :sequential
     assert Keyword.get(decode_opts, :fail_on) == :error
