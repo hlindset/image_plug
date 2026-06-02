@@ -97,6 +97,10 @@ sources: [
 Use `:http` or `:https` instead to enable only one scheme, or when the schemes
 need different adapter options.
 
+By default, HTTP/HTTPS sources refuse to connect to non-public addresses and
+re-check the policy on every redirect hop. See
+[Source network policy](docs/source-network-policy.md) to allow private origins.
+
 `_` and `unsafe` work only without Imgproxy signing. Configured signing requires
 a valid HMAC signature or an exact configured trusted signature.
 
@@ -143,6 +147,10 @@ ImagePipe's fixed plan order.
 - [Transform operations](docs/transform_operations.md) documents the boundary
   between parser request syntax, semantic plan operations, and executable
   transform operations.
+- [Source network policy](docs/source-network-policy.md) documents the default
+  SSRF protection on HTTP/HTTPS sources, how to allow private origins
+  (`address_policy`), custom DNS resolution (`address_resolver`), and the
+  DNS-rebinding limitation.
 
 ## Local demo server
 

@@ -30,9 +30,26 @@ defmodule ImagePipe.Source.ReqStream do
   end
 
   defp open_response(req_options, runtime_opts) do
-    request_options = request_options(req_options)
+    validate = Keyword.get(runtime_opts, :validate_target, fn _url -> :ok end)
+    max_redirects = timeout(req_options, runtime_opts, :max_redirects, 0)
+    redirects_allowed? = max_redirects > 0
+    follow(req_options, runtime_opts, validate, max_redirects, redirects_allowed?)
+  end
 
-    case Req.get(request_options,
+  defp follow(req_options, runtime_opts, validate, redirects_left, redirects_allowed?) do
+    url = Keyword.fetch!(req_options, :url)
+
+    case validate.(url) do
+      :ok ->
+        request_and_route(req_options, runtime_opts, validate, redirects_left, redirects_allowed?)
+
+      {:error, reason} ->
+        {:error, reason}
+    end
+  end
+
+  defp request_and_route(req_options, runtime_opts, validate, redirects_left, redirects_allowed?) do
+    case Req.get(request_options(req_options),
            receive_timeout:
              timeout(req_options, runtime_opts, :receive_timeout, @default_receive_timeout),
            pool_timeout: timeout(req_options, runtime_opts, :pool_timeout, @default_pool_timeout),
@@ -45,12 +62,65 @@ defmodule ImagePipe.Source.ReqStream do
             timeout(req_options, runtime_opts, :receive_timeout, @default_receive_timeout)
         }
 
+      {:ok, %Req.Response{status: status} = response} when status in 300..399 ->
+        route_redirect(
+          response,
+          req_options,
+          runtime_opts,
+          validate,
+          redirects_left,
+          redirects_allowed?
+        )
+
       {:ok, %Req.Response{} = response} ->
         cancel_response(response)
         {:error, :bad_status}
 
       {:error, _exception} ->
         {:error, :bad_status}
+    end
+  end
+
+  defp route_redirect(
+         response,
+         req_options,
+         runtime_opts,
+         validate,
+         redirects_left,
+         redirects_allowed?
+       ) do
+    location = location_header(response)
+    cancel_response(response)
+
+    cond do
+      redirects_left <= 0 ->
+        if redirects_allowed?, do: {:error, :too_many_redirects}, else: {:error, :bad_status}
+
+      is_nil(location) ->
+        {:error, :bad_status}
+
+      true ->
+        next_url =
+          req_options
+          |> Keyword.fetch!(:url)
+          |> URI.parse()
+          |> URI.merge(location)
+          |> URI.to_string()
+
+        follow(
+          Keyword.put(req_options, :url, next_url),
+          runtime_opts,
+          validate,
+          redirects_left - 1,
+          redirects_allowed?
+        )
+    end
+  end
+
+  defp location_header(%Req.Response{} = response) do
+    case Req.Response.get_header(response, "location") do
+      [value | _] -> value
+      [] -> nil
     end
   end
 
@@ -91,7 +161,8 @@ defmodule ImagePipe.Source.ReqStream do
   defp request_options(req_options) do
     Keyword.merge(req_options,
       into: :self,
-      retry: false
+      retry: false,
+      redirect: false
     )
   end
 

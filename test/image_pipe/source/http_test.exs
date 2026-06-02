@@ -7,6 +7,28 @@ defmodule ImagePipe.Source.HTTPTest do
   alias ImagePipe.Source.Resolved
   alias ImagePipe.Source.Response
 
+  @public_ip {93, 184, 216, 34}
+
+  defp stub_resolver(extra \\ %{}) do
+    base = %{"assets.example.com" => {:ok, [@public_ip]}}
+    map = Map.merge(base, extra)
+    fn host -> Map.get(map, host, {:error, :nxdomain}) end
+  end
+
+  defp fetch_stream(opts_kw, source) do
+    {:ok, opts} = HTTP.validate_options(opts_kw)
+    {:ok, resolved} = HTTP.resolve(source, opts, [])
+
+    {:ok, %Response{} = response} =
+      Source.fetch(resolved, [sources: %{https: {HTTP, opts}}], max_body_bytes: 64)
+
+    response.stream
+  end
+
+  defp ok_plug do
+    fn conn -> Plug.Conn.send_resp(conn, 200, "image bytes") end
+  end
+
   test "http source defaults to not stable and disables internal cache in auto mode" do
     assert {:ok, opts} = HTTP.validate_options(allowed_hosts: ["example.com"])
     source = %URL{scheme: :https, host: "example.com", path: ["cat.jpg"]}
@@ -110,6 +132,7 @@ defmodule ImagePipe.Source.HTTPTest do
     assert {:ok, opts} =
              HTTP.validate_options(
                allowed_hosts: ["assets.example.com"],
+               address_resolver: stub_resolver(),
                req_options: [plug: plug]
              )
 
@@ -145,6 +168,7 @@ defmodule ImagePipe.Source.HTTPTest do
              HTTP.validate_options(
                allowed_hosts: ["assets.example.com"],
                internal_cache: :enabled,
+               address_resolver: stub_resolver(),
                req_options: [
                  plug: plug,
                  url: "https://evil.example/other.jpg",
@@ -200,6 +224,7 @@ defmodule ImagePipe.Source.HTTPTest do
                allowed_hosts: ["assets.example.com"],
                stable: :trusted,
                internal_cache: :disabled,
+               address_resolver: stub_resolver(),
                req_options: [
                  plug: plug,
                  headers: [
@@ -251,6 +276,7 @@ defmodule ImagePipe.Source.HTTPTest do
              HTTP.validate_options(
                allowed_hosts: ["assets.example.com"],
                max_redirects: 1,
+               address_resolver: stub_resolver(),
                req_options: [plug: plug]
              )
 
@@ -281,6 +307,7 @@ defmodule ImagePipe.Source.HTTPTest do
     assert {:ok, opts} =
              HTTP.validate_options(
                allowed_hosts: ["assets.example.com"],
+               address_resolver: stub_resolver(),
                req_options: [plug: plug, max_redirects: 10]
              )
 
@@ -310,6 +337,7 @@ defmodule ImagePipe.Source.HTTPTest do
     assert {:ok, opts} =
              HTTP.validate_options(
                allowed_hosts: ["assets.example.com"],
+               address_resolver: stub_resolver(),
                req_options: [plug: plug]
              )
 
@@ -339,6 +367,7 @@ defmodule ImagePipe.Source.HTTPTest do
     assert {:ok, opts} =
              HTTP.validate_options(
                allowed_hosts: ["::1"],
+               address_policy: [allow_loopback: true],
                req_options: [plug: plug]
              )
 
@@ -367,6 +396,7 @@ defmodule ImagePipe.Source.HTTPTest do
     assert {:ok, opts} =
              HTTP.validate_options(
                allowed_hosts: ["assets.example.com"],
+               address_resolver: stub_resolver(),
                req_options: [plug: plug]
              )
 
@@ -379,11 +409,15 @@ defmodule ImagePipe.Source.HTTPTest do
     assert error.reason == :bad_status
   end
 
-  test "redirects cannot bypass allowed host policy" do
-    plug = fn conn ->
-      conn
-      |> Plug.Conn.put_resp_header("location", "https://evil.example/cat.jpg")
-      |> Plug.Conn.send_resp(302, "")
+  test "an enabled redirect to an off-allowlist host is denied" do
+    plug = fn
+      %{request_path: "/redirect.jpg"} = conn ->
+        conn
+        |> Plug.Conn.put_resp_header("location", "https://evil.example/x.jpg")
+        |> Plug.Conn.send_resp(302, "")
+
+      _conn ->
+        flunk("must not connect to the off-allowlist redirect target")
     end
 
     source = %URL{
@@ -397,6 +431,8 @@ defmodule ImagePipe.Source.HTTPTest do
     assert {:ok, opts} =
              HTTP.validate_options(
                allowed_hosts: ["assets.example.com"],
+               max_redirects: 1,
+               address_resolver: stub_resolver(),
                req_options: [plug: plug]
              )
 
@@ -406,6 +442,239 @@ defmodule ImagePipe.Source.HTTPTest do
              Source.fetch(resolved, [sources: %{https: {HTTP, opts}}], max_body_bytes: 20)
 
     error = assert_raise Source.StreamError, fn -> Enum.to_list(response.stream) end
-    assert error.reason == :bad_status
+    assert error.reason == :denied_host
+  end
+
+  describe "address_policy validation" do
+    test "rejects a non-list :allow without raising" do
+      assert {:error, {:invalid_source_config, _}} =
+               HTTP.validate_options(allowed_hosts: ["x"], address_policy: [allow: "10.0.0.0/8"])
+    end
+
+    test "rejects non-binary :allow entries without raising" do
+      assert {:error, {:invalid_source_config, _}} =
+               HTTP.validate_options(allowed_hosts: ["x"], address_policy: [allow: [123]])
+    end
+
+    test "rejects an invalid CIDR string" do
+      assert {:error, {:invalid_source_config, _}} =
+               HTTP.validate_options(
+                 allowed_hosts: ["x"],
+                 address_policy: [allow: ["10.0.0.0/99"]]
+               )
+    end
+
+    test "rejects an unknown address_policy key" do
+      assert {:error, {:invalid_source_config, _}} =
+               HTTP.validate_options(allowed_hosts: ["x"], address_policy: [bogus: true])
+    end
+
+    test "accepts a valid keyword policy and a 2-arity function" do
+      assert {:ok, _} =
+               HTTP.validate_options(
+                 allowed_hosts: ["x"],
+                 address_policy: [allow_private: true, allow: ["10.0.5.0/24"]]
+               )
+
+      assert {:ok, _} =
+               HTTP.validate_options(
+                 allowed_hosts: ["x"],
+                 address_policy: fn _ip, cat -> cat == :public end
+               )
+    end
+  end
+
+  describe "SSRF guard" do
+    test "origin host resolving to a private address is blocked (DNS branch)" do
+      source = %URL{scheme: :https, host: "assets.example.com", path: ["x.jpg"]}
+
+      stream =
+        fetch_stream(
+          [
+            allowed_hosts: ["assets.example.com"],
+            address_resolver: stub_resolver(%{"assets.example.com" => {:ok, [{10, 0, 0, 5}]}}),
+            req_options: [plug: ok_plug()]
+          ],
+          source
+        )
+
+      error = assert_raise Source.StreamError, fn -> Enum.to_list(stream) end
+      assert error.reason == :denied_address
+    end
+
+    test "origin IP-literal private host is blocked (literal branch, no resolver)" do
+      source = %URL{scheme: :https, host: "10.0.0.5", path: ["x.jpg"]}
+
+      stream =
+        fetch_stream(
+          [allowed_hosts: ["10.0.0.5"], req_options: [plug: ok_plug()]],
+          source
+        )
+
+      error = assert_raise Source.StreamError, fn -> Enum.to_list(stream) end
+      assert error.reason == :denied_address
+    end
+
+    test "169.254.169.254 cloud metadata literal is blocked" do
+      source = %URL{scheme: :https, host: "169.254.169.254", path: ["latest", "meta-data"]}
+
+      stream =
+        fetch_stream(
+          [allowed_hosts: ["169.254.169.254"], req_options: [plug: ok_plug()]],
+          source
+        )
+
+      error = assert_raise Source.StreamError, fn -> Enum.to_list(stream) end
+      assert error.reason == :denied_address
+    end
+
+    test "trusted origin redirecting to a loopback target is blocked on the hop" do
+      plug = fn
+        %{request_path: "/redirect.jpg"} = conn ->
+          conn
+          |> Plug.Conn.put_resp_header("location", "http://127.0.0.1/x")
+          |> Plug.Conn.send_resp(302, "")
+
+        _conn ->
+          flunk("must not connect to loopback redirect target")
+      end
+
+      source = %URL{scheme: :https, host: "assets.example.com", path: ["redirect.jpg"]}
+
+      stream =
+        fetch_stream(
+          [
+            allowed_hosts: ["assets.example.com", "127.0.0.1"],
+            max_redirects: 1,
+            address_resolver: stub_resolver(),
+            req_options: [plug: plug]
+          ],
+          source
+        )
+
+      error = assert_raise Source.StreamError, fn -> Enum.to_list(stream) end
+      assert error.reason == :denied_address
+    end
+
+    test "non-http(s) redirect scheme is rejected" do
+      plug = fn conn ->
+        conn
+        |> Plug.Conn.put_resp_header("location", "file:///etc/passwd")
+        |> Plug.Conn.send_resp(302, "")
+      end
+
+      source = %URL{scheme: :https, host: "assets.example.com", path: ["redirect.jpg"]}
+
+      stream =
+        fetch_stream(
+          [
+            allowed_hosts: ["assets.example.com"],
+            max_redirects: 1,
+            address_resolver: stub_resolver(),
+            req_options: [plug: plug]
+          ],
+          source
+        )
+
+      error = assert_raise Source.StreamError, fn -> Enum.to_list(stream) end
+      assert error.reason == :denied_scheme
+    end
+
+    test "allow_private opt-in lets a private origin through" do
+      source = %URL{scheme: :https, host: "assets.example.com", path: ["x.jpg"]}
+
+      stream =
+        fetch_stream(
+          [
+            allowed_hosts: ["assets.example.com"],
+            address_policy: [allow_private: true],
+            address_resolver: stub_resolver(%{"assets.example.com" => {:ok, [{10, 0, 0, 5}]}}),
+            req_options: [plug: ok_plug()]
+          ],
+          source
+        )
+
+      assert Enum.join(stream) == "image bytes"
+    end
+
+    test "precise CIDR allow lets only the named range through" do
+      source = %URL{scheme: :https, host: "in.example", path: ["x.jpg"]}
+
+      base = [
+        allowed_hosts: ["in.example"],
+        address_policy: [allow: ["10.0.5.0/24"]],
+        req_options: [plug: ok_plug()]
+      ]
+
+      ok_stream =
+        fetch_stream(
+          Keyword.put(
+            base,
+            :address_resolver,
+            stub_resolver(%{"in.example" => {:ok, [{10, 0, 5, 9}]}})
+          ),
+          source
+        )
+
+      assert Enum.join(ok_stream) == "image bytes"
+
+      blocked_stream =
+        fetch_stream(
+          Keyword.put(
+            base,
+            :address_resolver,
+            stub_resolver(%{"in.example" => {:ok, [{10, 0, 6, 9}]}})
+          ),
+          source
+        )
+
+      error = assert_raise Source.StreamError, fn -> Enum.to_list(blocked_stream) end
+      assert error.reason == :denied_address
+    end
+
+    test "an uppercase redirect host still matches the downcased allowlist and is fetched" do
+      plug = fn
+        %{request_path: "/redirect.jpg"} = conn ->
+          conn
+          |> Plug.Conn.put_resp_header("location", "https://ASSETS.EXAMPLE.COM/other.jpg")
+          |> Plug.Conn.send_resp(302, "")
+
+        conn ->
+          Plug.Conn.send_resp(conn, 200, "image bytes")
+      end
+
+      source = %URL{scheme: :https, host: "assets.example.com", path: ["redirect.jpg"]}
+
+      stream =
+        fetch_stream(
+          [
+            allowed_hosts: ["assets.example.com"],
+            max_redirects: 1,
+            address_resolver: stub_resolver(),
+            req_options: [plug: plug]
+          ],
+          source
+        )
+
+      assert Enum.join(stream) == "image bytes"
+    end
+
+    test "function-form policy replaces the built-in decision" do
+      source = %URL{scheme: :https, host: "assets.example.com", path: ["x.jpg"]}
+
+      blocked =
+        fetch_stream(
+          [
+            allowed_hosts: ["assets.example.com"],
+            address_policy: fn _ip, category -> category == :public end,
+            address_resolver: stub_resolver(%{"assets.example.com" => {:ok, [{10, 0, 0, 5}]}}),
+            req_options: [plug: ok_plug()]
+          ],
+          source
+        )
+
+      error = assert_raise Source.StreamError, fn -> Enum.to_list(blocked) end
+      assert error.reason == :denied_address
+    end
   end
 end
