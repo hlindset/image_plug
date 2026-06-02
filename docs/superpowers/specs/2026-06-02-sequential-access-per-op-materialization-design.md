@@ -126,8 +126,10 @@ end
 ```
 
 The 17 ops swap one line (`@behaviour` → `use`); their existing `@impl`-annotated `name/1`
-and `execute/2` are unaffected. Only the five ops that need `true` add an overriding
-clause. The facade dispatches directly — every module now defines the function:
+and `execute/2` are unaffected. Only **three modules** add an overriding clause returning
+`true` — `Rotate`, `Flip`, and `Crop` (the latter two carry both `true` and `false` clauses
+within one module; see §7). `AutoOrient` keeps the default `false` and self-materialises
+internally. The facade dispatches directly — every module now defines the function:
 
 ```elixir
 def requires_materialization?(%module{} = operation) do
@@ -230,13 +232,40 @@ defp materialize_before_delivery(%State{} = state, opts, source_response) do
 end
 ```
 
-`handle_materialization_result` (`prefer_source_body_limit` / `prefer_source_stream_error`)
-remains the single place source errors are surfaced, now running unconditionally after all
-pipelines. `decode_options` is still consumed independently at decode time (shrink, decode
-metadata) — only its use in the *delivery* call is removed.
+`decode_options` is still consumed independently at decode time (shrink, decode metadata) —
+only its use in the *delivery* call is removed.
 
 The `Materializer` moduledoc currently describes "decode planning uses only the first
 pipeline" and "materialize between pipelines"; update it to describe per-op materialisation.
+
+#### Source-error surfacing must wrap pipeline execution, not just delivery
+
+Today, `prefer_source_body_limit` / `prefer_source_stream_error` run at two points: decode
+open, and the delivery/between-pipeline materialisation. They reclassify a generic
+`{:error, _}` into `{:error, {:source, :body_too_large}}` / `{:error, {:source, reason}}`
+so the source's body-limit and stream-failure flags win, with correct telemetry and HTTP
+status.
+
+This design relocates where the source's lazy read first completes. For a sequential
+**path** source, libvips defers reading the file until pixels are pulled — which now happens
+at the **first in-chain materialisation**: `AutoOrient`'s internal materialise, or
+`Chain.maybe_materialize` before the first `Rotate`/`Flip`/smart-`Crop`. If that read fails
+(truncated file, I/O error) or trips the body limit, the pipeline halts with
+`{:error, {:transform_error, {SomeOp, reason}}}` and **never reaches the delivery check** —
+so the error is misclassified as a transform error instead of a `{:source, _}` error.
+
+Fix: wrap the **pipeline-execution result** (`execute_plan_pipelines` / its caller in
+`Request.Processor`) with the same `prefer_source_body_limit` / `prefer_source_stream_error`
+translation, so a source-read failure surfacing mid-chain is reclassified regardless of which
+op triggered the read. This is not AutoOrient-specific — it applies to every random-access op
+whose `Chain.maybe_materialize` now pulls the source. `handle_materialization_result` stays
+the delivery check; the new wrap covers the mid-chain failure path. A test must assert that a
+truncated/over-limit **path** source whose read completes at the first materialising op
+surfaces as `{:source, _}`, not `{:transform_error, _}`.
+
+(The **buffer**/stream source path is already drained eagerly at `seekable_input` decode
+time, so its stream errors still surface there, pre-wrapped — this gap is specific to the
+lazily-read path source.)
 
 ### 7. Per-op `requires_materialization?` declarations
 
@@ -280,14 +309,47 @@ EXIF orientation safety:
 - `3` (180°), `4` (vertical flip), `5`/`7` (transpose/transverse), `6`/`8` (90°/270°) —
   reverse row order or transpose axes; **need random access**.
 
-So `AutoOrient.execute` reads the orientation header first; for the random-access set it
-calls `copy_memory` (on the already-shrunk decode — `shrink_blocked_before_resize?`
-deliberately permits shrink before AutoOrient) and sets `materialized?: true` before
-autorotating; for `1`/`2` it streams. The exact safe set is **gated on the EXIF equivalence
-test** (libvips `vips_autorot` may self-cache for some orientations; the conservative
-default is to materialise for `3`–`8`). The conformance suite already has an orientation-6
-`ExifOrientationOriginImage`; the test must add `3`/`4`/`5`/`7`/`8` fixtures, opened from a
-genuinely streamed source with `fail_on: :error`.
+So `AutoOrient.execute` reads the orientation header first (`VipsImage.header_value(image,
+"orientation")`, the same read the processor's `exif_quarter_turn?` already does). For the
+random-access set it materialises **via `Materializer.materialize/1`** — not a hand-coded
+`copy_memory` + manual flag — so the copy-and-set-`materialized?` logic has a single owner
+(§4). Then it **autorotates the materialised image**, not the original lazy `state.image`:
+
+```elixir
+def execute(%AutoOrient{}, %State{} = state) do
+  with {:ok, %State{} = state} <- maybe_materialize_for_orientation(state),
+       {:ok, {image, _flags}} <- Image.autorotate(state.image) do
+    {:ok, sync_source_dimensions(set_image(state, image), ...)}
+  end
+end
+# maybe_materialize_for_orientation/1: Materializer.materialize(state) when the header
+# is in 3..8 (sets materialized?: true), else {:ok, state} unchanged.
+```
+
+This ordering is load-bearing: `Image.autorotate/1` builds a lazy `vips_rot`/`vips_flip`
+node over its input, so it gains random access only because its input (`state.image`) is now
+the RAM-resident buffer the prior `materialize` produced. Autorotating the un-materialised
+`state.image` would read a fresh lazy node off the sequential source and fail. The shrink is
+already applied at decode (`shrink_blocked_before_resize?` deliberately permits shrink before
+AutoOrient — verified: AutoOrient is not in its halt set), so the copy is on the shrunk image.
+
+The exact safe set is **gated on the EXIF equivalence test** (libvips `vips_autorot` may
+self-cache for some orientations; the conservative default is to materialise for `3`–`8`).
+The conformance suite already has an orientation-6 `ExifOrientationOriginImage`; the test
+must add `3`/`4`/`5`/`7`/`8` fixtures, opened from a genuinely streamed source with
+`fail_on: :error`, **and with a shrink load option active** (orientation-plus-shrink is the
+path this design relies on, and the orientation header must survive the shrink).
+
+**AutoOrient is the single sanctioned exception to Chain-owned materialisation.** Every other
+op either declares `requires_materialization?` (and `Chain.maybe_materialize` does the copy)
+or streams; AutoOrient is the only op that materialises through its own path, because its
+need is data-determined (the EXIF header) and the struct-only callback cannot see it. An
+audit of "what sets `materialized?`" must look in two places: `Chain.maybe_materialize` and
+`AutoOrient.execute`. (#146 removes this asymmetry by hoisting orientation into pending state
++ flush.) Its correctness rests on a three-place axis-swap invariant kept coherent today:
+the planner's `shrink_axes`/`auto_orient_before_resize?`, the processor's `exif_quarter_turn?`
+header read, and the op's `sync_source_dimensions` — changing one without the others resizes
+against the wrong axes.
 
 This is the **minimal-correct** handling for this spec. A more faithful imgproxy-parity
 model — carry rotation/flip as *pending* state, compensate crop+resize, and flush late
@@ -316,10 +378,11 @@ wrong pixels (failure mode 3). The spec requires the helper to assert the chosen
 actually honours `access: :sequential` (e.g. by confirming a known-random op like
 `Rotate{90}` *raises* under the same harness).
 
-Covers: `Crop` (anchor/focal), `Resize` (fit/cover/stretch), `ExtendCanvas`, `Padding`,
-`Background`, `Blur`, `Sharpen`, `Pixelate`, `Brightness`, `Contrast`, `Saturation`,
-`Monochrome`, `Duotone`, `Flip{horizontal}`, and `AutoOrient` (with EXIF 3/4/5/7/8 fixtures
-in addition to the existing orientation-6 fixture — see the AutoOrient gate above).
+Covers every `false`-classified op: `Crop` (anchor/focal), `Resize` (fit/cover/stretch),
+`ExtendCanvas`, `Padding`, `Background`, `Blur`, `Sharpen`, `Pixelate`, `Brightness`,
+`Contrast`, `Saturation`, `Monochrome`, `Duotone`, `NormalizeColorProfile`,
+`Flip{horizontal}`, and `AutoOrient` (with EXIF 3/4/5/7/8 fixtures in addition to the
+existing orientation-6 fixture — see the AutoOrient gate above).
 
 These tests construct `ImagePipe.Transform.Operation.*` structs directly (e.g. `%Crop{}`,
 `%Blur{}`). This is the sanctioned convention, not impossible-internal-misuse: these are
@@ -397,12 +460,12 @@ no test going red. Tracked as a follow-up; not a blocker for the correctness wor
 | `Transform` behaviour | Add `requires_materialization?/1` callback + `__using__` macro with default |
 | `Transform` facade | Add `requires_materialization?/1` dispatch function |
 | Operation modules (all 17) | Swap `@behaviour ImagePipe.Transform` → `use ImagePipe.Transform` |
-| Operation modules (5) | Add overriding `requires_materialization?/1` returning `true` |
-| `Operation.AutoOrient` | Read orientation header; self-`copy_memory` + set `materialized?` for EXIF 3–8; stream 1/2 |
+| Operation modules (3) | `Rotate`, `Flip`, `Crop` add overriding `requires_materialization?/1` (`true` clauses) |
+| `Operation.AutoOrient` | Read orientation header; call `Materializer.materialize/1` for EXIF 3–8 then autorotate the materialised image; stream 1/2 |
 | `Transform.Chain` | Add `maybe_materialize/2`; call before each op |
 | `Transform.Materializer` | Replace VipsImage `materialize/1` with State `materialize/1` setting the flag; rewrite arity-2 body; update moduledoc |
 | `Transform.DecodePlanner` | Delete binary access decision; always `access: :sequential`; update doc |
-| `Request.Processor` | Remove between-pipeline copy; simplify delivery materialisation |
+| `Request.Processor` | Remove between-pipeline copy; simplify delivery materialisation; wrap pipeline-execution result with `prefer_source_*` so mid-chain source-read failures surface as `{:source, _}` |
 | Shrink-on-load logic | Unchanged |
 | Plan/Parser/Cache/Output/Source | Unchanged |
 | `architecture_boundary_test.exs` | No change (all new dispatch is intra-transform-boundary) |
