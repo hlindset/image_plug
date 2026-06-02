@@ -198,6 +198,8 @@ result must be returned to `reduce_while` as a `{:cont, _}` / `{:halt, _}` tuple
 
 ```elixir
 Enum.reduce_while(chain_with_index, {:ok, state}, fn {operation, index}, {:ok, state} ->
+  name = Transform.transform_name(operation)
+
   result =
     Telemetry.span(telemetry_opts, [:transform, :operation], %{operation: name, index: index, params: operation}, fn ->
       res =
