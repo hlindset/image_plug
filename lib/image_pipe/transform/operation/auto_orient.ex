@@ -29,11 +29,13 @@ defmodule ImagePipe.Transform.Operation.AutoOrient do
       auto_orient = %ImagePipe.Transform.Operation.AutoOrient{}
   """
 
-  @behaviour ImagePipe.Transform
+  use ImagePipe.Transform
 
   import ImagePipe.Transform.State
 
+  alias ImagePipe.Transform.Materializer
   alias ImagePipe.Transform.State
+  alias Vix.Vips.Image, as: VipsImage
 
   defstruct []
 
@@ -46,12 +48,36 @@ defmodule ImagePipe.Transform.Operation.AutoOrient do
   def execute(%__MODULE__{}, %State{} = state) do
     pre_width = Image.width(state.image)
 
-    case Image.autorotate(state.image) do
-      {:ok, {image, _flags}} ->
-        {:ok, sync_source_dimensions(set_image(state, image), pre_width, Image.width(image))}
+    case maybe_materialize_for_orientation(state) do
+      {:ok, %State{} = state} ->
+        case Image.autorotate(state.image) do
+          {:ok, {image, _flags}} ->
+            {:ok, sync_source_dimensions(set_image(state, image), pre_width, Image.width(image))}
 
-      {:error, error} ->
-        {:error, {__MODULE__, error}}
+          {:error, error} ->
+            {:error, {__MODULE__, error}}
+        end
+
+      {:error, reason} ->
+        {:error, {:materialize_error, reason}}
+    end
+  end
+
+  # EXIF orientations 3 (180), 4 (vflip), 5/7 (transpose/transverse), 6/8 (90/270)
+  # reverse row order or transpose axes and need random access; 1 (identity) and 2
+  # (pure hflip) stream. We materialize the source buffer first so the lazy
+  # autorotate node has random access to it.
+  defp maybe_materialize_for_orientation(%State{} = state) do
+    case orientation(state.image) do
+      o when o in [3, 4, 5, 6, 7, 8] -> Materializer.materialize(state)
+      _ -> {:ok, state}
+    end
+  end
+
+  defp orientation(image) do
+    case VipsImage.header_value(image, "orientation") do
+      {:ok, value} when is_integer(value) -> value
+      _ -> 1
     end
   end
 

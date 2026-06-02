@@ -12,7 +12,7 @@ defmodule ImagePipe.Transform.Operation.Resize do
   resize when that matches the requested semantics.
   """
 
-  @behaviour ImagePipe.Transform
+  use ImagePipe.Transform
 
   import ImagePipe.Transform.State
   import ImagePipe.Transform.Geometry

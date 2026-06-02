@@ -33,7 +33,7 @@ defmodule ImagePipe.Transform.Operation.Rotate do
       rotate = %ImagePipe.Transform.Operation.Rotate{angle: 90}
   """
 
-  @behaviour ImagePipe.Transform
+  use ImagePipe.Transform
 
   import ImagePipe.Transform.State
 
@@ -45,6 +45,9 @@ defmodule ImagePipe.Transform.Operation.Rotate do
 
   @impl ImagePipe.Transform
   def name(%__MODULE__{}), do: :rotate
+
+  @impl ImagePipe.Transform
+  def requires_materialization?(%__MODULE__{}), do: true
 
   @impl ImagePipe.Transform
   def execute(%__MODULE__{angle: 0}, %State{} = state), do: {:ok, state}

@@ -110,7 +110,7 @@ defmodule ImagePipe.Request.Processor do
   @spec process_decoded_source(decoded(), Plan.t(), keyword()) ::
           {:ok, State.t()} | {:error, term()}
   def process_decoded_source(
-        %{decode_options: decode_options, image: image} = decoded,
+        %{image: image} = decoded,
         %Plan{} = plan,
         opts
       ) do
@@ -122,9 +122,9 @@ defmodule ImagePipe.Request.Processor do
     Telemetry.span(Telemetry.telemetry_opts(opts), [:transform, :execute], %{}, fn ->
       result =
         with {:ok, final_state} <-
-               execute_plan_pipelines(initial_state, plan, opts, source_response),
+               execute_plan_pipelines(initial_state, plan, opts),
              {:ok, final_state} <-
-               materialize_before_delivery(final_state, decode_options, opts, source_response),
+               materialize_before_delivery(final_state, opts, source_response),
              :ok <- validate_result_image(final_state.image, opts) do
           {:ok, final_state}
         end
@@ -133,40 +133,26 @@ defmodule ImagePipe.Request.Processor do
     end)
   end
 
-  defp execute_plan_pipelines(
-         %State{} = state,
-         %Plan{pipelines: pipelines} = plan,
-         opts,
-         source_response
-       ) do
-    last_index = length(pipelines) - 1
-
+  defp execute_plan_pipelines(%State{} = state, %Plan{pipelines: pipelines} = plan, opts) do
     pipelines
     |> Enum.with_index()
-    |> Enum.reduce_while(
-      {:ok, state},
-      &execute_plan_pipeline_step(&1, &2, last_index, plan, opts, source_response)
-    )
+    |> Enum.reduce_while({:ok, state}, &execute_plan_pipeline_step(&1, &2, plan, opts))
+    |> classify_materialize_error()
   end
 
+  defp classify_materialize_error({:error, {:materialize_error, reason}}),
+    do: {:error, {:decode, reason}}
+
+  defp classify_materialize_error(result), do: result
+
   defp execute_plan_pipeline_step(
-         {pipeline, index},
+         {pipeline, _index},
          {:ok, %State{} = state},
-         last_index,
          %Plan{} = plan,
-         opts,
-         source_response
+         opts
        ) do
-    with {:ok, %State{} = state} <-
-           Transform.execute_plan(
-             %Plan{plan | pipelines: [pipeline]},
-             state,
-             opts
-           ),
-         {:ok, %State{} = state} <-
-           maybe_materialize_between_pipelines(state, index, last_index, opts, source_response) do
-      {:cont, {:ok, state}}
-    else
+    case Transform.execute_plan(%Plan{plan | pipelines: [pipeline]}, state, opts) do
+      {:ok, %State{} = state} -> {:cont, {:ok, state}}
       {:error, _reason} = error -> {:halt, error}
     end
   end
@@ -175,26 +161,6 @@ defmodule ImagePipe.Request.Processor do
          pipelines: [%ImagePipe.Plan.Pipeline{operations: operations} | _rest]
        }),
        do: operations
-
-  defp maybe_materialize_between_pipelines(
-         %State{} = state,
-         index,
-         last_index,
-         opts,
-         source_response
-       )
-       when index < last_index do
-    materialize_between_pipelines(state, opts, source_response)
-  end
-
-  defp maybe_materialize_between_pipelines(
-         %State{} = state,
-         _index,
-         _last_index,
-         _opts,
-         _source_response
-       ),
-       do: {:ok, state}
 
   defp seekable_input(%Source.Response{path: path, stream: nil}) when is_binary(path),
     do: {:ok, {:path, path}}
@@ -238,19 +204,15 @@ defmodule ImagePipe.Request.Processor do
     end
   end
 
-  defp materialize_before_delivery(%State{} = state, decode_options, opts, source_response) do
-    case Keyword.fetch!(decode_options, :access) do
-      :sequential ->
-        materialize_state(state, opts) |> handle_materialization_result(source_response)
-
-      :random ->
+  defp materialize_before_delivery(%State{} = state, opts, source_response) do
+    result =
+      if state.materialized? do
         {:ok, state}
-    end
-  end
+      else
+        materialize_state(state, opts)
+      end
 
-  defp materialize_between_pipelines(%State{} = state, opts, source_response) do
-    materialize_state(state, opts)
-    |> handle_materialization_result(source_response)
+    handle_materialization_result(result, source_response)
   end
 
   defp materialize_state(%State{} = state, opts) do

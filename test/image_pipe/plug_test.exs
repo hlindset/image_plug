@@ -207,6 +207,20 @@ defmodule ImagePipe.PlugTest do
     end
   end
 
+  # Serves only the JPEG header (5000 bytes) — enough for the decoder to open a
+  # sequential image but not enough to satisfy copy_memory when a materializing op
+  # (e.g. vertical flip) tries to pull all pixels from the stream.
+  defmodule TruncatedHeaderOnlyOriginImage do
+    def call(conn, _) do
+      body = File.read!("priv/static/images/beach.jpg")
+      truncated = binary_part(body, 0, 5000)
+
+      conn
+      |> Plug.Conn.put_resp_content_type("image/jpeg")
+      |> Plug.Conn.send_resp(200, truncated)
+    end
+  end
+
   defmodule ChunkedOriginImage do
     def call(conn, _) do
       body = File.read!("priv/static/images/beach.jpg")
@@ -1855,7 +1869,7 @@ defmodule ImagePipe.PlugTest do
     assert Keyword.get(decode_opts, :fail_on) == :error
   end
 
-  test "cover opens origin with random access" do
+  test "cover opens origin with sequential access" do
     conn =
       conn(:get, "/_/rs:fill:100:100/f:jpeg/plain/images/beach.jpg")
       |> call_image_pipe(
@@ -1866,9 +1880,12 @@ defmodule ImagePipe.PlugTest do
       )
 
     assert conn.status == 200
-    assert_received {:image_open_options, opts}
-    assert Keyword.get(opts, :access) == :random
-    assert Keyword.get(opts, :fail_on) == :error
+    # Two-step open: header open first (random), then decode open (sequential).
+    assert_received {:image_open_options, header_opts}
+    assert Keyword.get(header_opts, :access) == :random
+    assert_received {:image_open_options, decode_opts}
+    assert Keyword.get(decode_opts, :access) == :sequential
+    assert Keyword.get(decode_opts, :fail_on) == :error
   end
 
   test "sequential materialization failure without origin error returns decode error" do
@@ -2241,6 +2258,24 @@ defmodule ImagePipe.PlugTest do
         root_url: "http://origin.test",
         parser: ImagePipe.Parser.Imgproxy,
         origin_req_options: [plug: CorruptTailOriginImage]
+      )
+
+    assert conn.status == 415
+    assert conn.state == :sent
+    assert conn.resp_body == "source response is not a supported image"
+    assert get_resp_header(conn, "content-type") == ["text/plain; charset=utf-8"]
+  end
+
+  test "per-op materialization failure on a corrupt source returns 415, not 422" do
+    # A truncated source that opens as a sequential JPEG (header intact) but fails
+    # when a materializing op (vertical flip) calls copy_memory mid-chain must be
+    # classified as a decode error (415), not a transform error (422).
+    conn =
+      conn(:get, "/_/fl:0:1/plain/images/truncated.jpg")
+      |> call_image_pipe(
+        root_url: "http://origin.test",
+        parser: ImagePipe.Parser.Imgproxy,
+        origin_req_options: [plug: TruncatedHeaderOnlyOriginImage]
       )
 
     assert conn.status == 415

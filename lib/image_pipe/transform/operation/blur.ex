@@ -3,7 +3,7 @@ defmodule ImagePipe.Transform.Operation.Blur do
   Executable Gaussian blur operation.
   """
 
-  @behaviour ImagePipe.Transform
+  use ImagePipe.Transform
 
   import ImagePipe.Transform.State
 

@@ -29,7 +29,8 @@ defmodule ImagePipe.Transform.State do
             detector: nil,
             detector_required: false,
             telemetry_opts: [],
-            source_dimensions: nil
+            source_dimensions: nil,
+            materialized?: false
 
   @type t :: %__MODULE__{
           image: Vix.Vips.Image.t() | nil,
@@ -37,7 +38,8 @@ defmodule ImagePipe.Transform.State do
           detector: module() | {module(), keyword()} | nil,
           detector_required: boolean(),
           telemetry_opts: keyword(),
-          source_dimensions: {pos_integer(), pos_integer()} | nil
+          source_dimensions: {pos_integer(), pos_integer()} | nil,
+          materialized?: boolean()
         }
 
   def set_image(%__MODULE__{} = state, %Vix.Vips.Image{} = image) do

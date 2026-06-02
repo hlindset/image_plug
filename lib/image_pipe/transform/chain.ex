@@ -15,6 +15,7 @@ defmodule ImagePipe.Transform.Chain do
 
   alias ImagePipe.Telemetry
   alias ImagePipe.Transform
+  alias ImagePipe.Transform.Materializer
   alias ImagePipe.Transform.State
 
   @typedoc """
@@ -41,9 +42,11 @@ defmodule ImagePipe.Transform.Chain do
       ...> {:ok, %ImagePipe.Transform.State{}} = ImagePipe.Transform.Chain.execute(initial_state, chain)
   """
   @spec execute(State.t(), t()) ::
-          {:ok, State.t()} | {:error, {:transform_error, term()}}
+          {:ok, State.t()}
+          | {:error, {:transform_error, term()} | {:materialize_error, term()}}
   @spec execute(State.t(), t(), keyword()) ::
-          {:ok, State.t()} | {:error, {:transform_error, term()}}
+          {:ok, State.t()}
+          | {:error, {:transform_error, term()} | {:materialize_error, term()}}
   def execute(state, transform_chain, opts \\ [])
 
   def execute(%State{} = state, transform_chain, opts) do
@@ -60,15 +63,33 @@ defmodule ImagePipe.Transform.Chain do
           [:transform, :operation],
           %{operation: name, index: index, params: operation},
           fn ->
-            res = Transform.execute(operation, state)
+            res = run_operation(operation, state)
             {res, %{result: elem(res, 0)}}
           end
         )
 
       case result do
         {:ok, %State{} = next_state} -> {:cont, {:ok, next_state}}
+        {:error, {:materialize_error, _} = error} -> {:halt, {:error, error}}
         {:error, reason} -> {:halt, {:error, {:transform_error, reason}}}
       end
     end)
+  end
+
+  defp run_operation(operation, %State{} = state) do
+    case maybe_materialize(state, operation) do
+      {:ok, %State{} = state} -> Transform.execute(operation, state)
+      {:error, reason} -> {:error, {:materialize_error, reason}}
+    end
+  end
+
+  defp maybe_materialize(%State{materialized?: true} = state, _operation), do: {:ok, state}
+
+  defp maybe_materialize(%State{} = state, operation) do
+    if Transform.requires_materialization?(operation) do
+      Materializer.materialize(state)
+    else
+      {:ok, state}
+    end
   end
 end

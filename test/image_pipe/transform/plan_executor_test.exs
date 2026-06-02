@@ -263,6 +263,26 @@ defmodule ImagePipe.Transform.PlanExecutorTest do
     end
   end
 
+  describe "multi-pipeline plan execution" do
+    test "materialized? threads from pipeline 1 into pipeline 2" do
+      pipeline1 = %Pipeline{operations: [%Rotate{angle: 90}]}
+      pipeline2 = %Pipeline{operations: [%Rotate{angle: 90}]}
+
+      multi_plan = %Plan{
+        source: %Source.Path{segments: ["images", "cat.jpg"]},
+        pipelines: [pipeline1, pipeline2],
+        output: %ImagePipe.Plan.Output{mode: {:explicit, :jpeg}}
+      }
+
+      assert {:ok, %State{} = state} =
+               Transform.execute_plan(multi_plan, state_with_image(40, 20), [])
+
+      assert state.materialized? == true
+      assert Image.width(state.image) == 40
+      assert Image.height(state.image) == 20
+    end
+  end
+
   describe "orientation primitives" do
     test "auto orient, rotate, and flip execute as allowed primitive operations" do
       assert {:ok, %State{} = state} =

@@ -74,7 +74,7 @@ defmodule ImagePipe.Transform.Operation.Crop do
   of `Crop` operation. URL grammar and aliases stay in parser documentation.
   """
 
-  @behaviour ImagePipe.Transform
+  use ImagePipe.Transform
 
   import ImagePipe.Transform.State, only: [set_image: 2]
 
@@ -144,6 +144,12 @@ defmodule ImagePipe.Transform.Operation.Crop do
 
   @impl ImagePipe.Transform
   def name(%__MODULE__{}), do: :crop
+
+  @impl ImagePipe.Transform
+  def requires_materialization?(%__MODULE__{gravity: :smart}), do: true
+  def requires_materialization?(%__MODULE__{gravity: {:smart, _}}), do: true
+  def requires_materialization?(%__MODULE__{gravity: {:detect, _}}), do: true
+  def requires_materialization?(%__MODULE__{}), do: false
 
   @impl ImagePipe.Transform
   def execute(%__MODULE__{gravity: :smart} = params, %State{} = state) do

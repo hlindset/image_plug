@@ -5,11 +5,11 @@ defmodule ImagePipe.Transform.DecodePlannerTest do
   alias ImagePipe.Plan.Operation.AutoOrient
   alias ImagePipe.Transform.DecodePlanner
 
-  # --- Access selection (unchanged logic, now via 3-arg form) ---
+  # --- Access (always :sequential) ---
 
-  test "empty chain opens randomly with fail_on error regardless of format" do
+  test "empty chain opens sequentially with fail_on error regardless of format" do
     opts = DecodePlanner.open_options([], :jpeg, {3000, 2000})
-    assert opts[:access] == :random
+    assert opts[:access] == :sequential
     assert opts[:fail_on] == :error
   end
 
@@ -30,11 +30,11 @@ defmodule ImagePipe.Transform.DecodePlannerTest do
     assert opts[:access] == :sequential
   end
 
-  test "color-profile normalization is access-neutral (alone: random; with sequential: sequential)" do
+  test "color-profile normalization is access-neutral (alone: sequential; with sequential: sequential)" do
     neutral_only =
       DecodePlanner.open_options([%Operation.NormalizeColorProfile{}], :png, {100, 100})
 
-    assert neutral_only[:access] == :random
+    assert neutral_only[:access] == :sequential
 
     with_sequential =
       DecodePlanner.open_options(
@@ -46,10 +46,10 @@ defmodule ImagePipe.Transform.DecodePlannerTest do
     assert with_sequential[:access] == :sequential
   end
 
-  test "crops stay random" do
+  test "crops open sequentially" do
     assert {:ok, crop} = Operation.crop_guided({:px, 80}, {:px, 80}, :center)
     opts = DecodePlanner.open_options([crop], :jpeg, {3000, 2000})
-    assert opts[:access] == :random
+    assert opts[:access] == :sequential
   end
 
   # --- JPEG shrink-on-load ---
@@ -248,9 +248,9 @@ defmodule ImagePipe.Transform.DecodePlannerTest do
 
   # --- Legacy behavior: composition and effect operations ---
 
-  test "composition operations force random access (no shrink for random-only ops)" do
+  test "composition operations open sequentially (no shrink for ops without resize)" do
     assert {:ok, padding} = Operation.padding({:px, 1}, {:px, 0}, {:px, 0}, {:px, 0})
     opts = DecodePlanner.open_options([padding], :jpeg, {3000, 2000})
-    assert opts[:access] == :random
+    assert opts[:access] == :sequential
   end
 end

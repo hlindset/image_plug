@@ -3,7 +3,7 @@ defmodule ImagePipe.Transform.Operation.Monochrome do
   Executable single-color luminance tint operation.
   """
 
-  @behaviour ImagePipe.Transform
+  use ImagePipe.Transform
 
   alias ImagePipe.Transform.Operation.Duotone
   alias ImagePipe.Transform.State

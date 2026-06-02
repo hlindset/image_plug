@@ -1,17 +1,15 @@
 defmodule ImagePipe.Transform.Materializer do
   @moduledoc """
-  Decode and materialization boundary for transform execution.
+  Materialization boundary for transform execution.
 
-  Sequential input decode can defer source reads until transform execution.
-  Runtime code uses this module before cache writes or response headers so
-  request handling can materialize pixels, then check whether the source stream
-  finished or failed.
+  `materialize/1` copies the current image to a RAM-resident buffer via
+  `Vix.Vips.Image.copy_memory/1` and marks the state `materialized?: true`.
 
-  Multi-pipeline plans also materialize between pipelines. That boundary preserves
-  the plan's explicit intermediate image semantics and allows decode planning to use
-  only the first pipeline when choosing source access: later operations classified
-  as random-access run against a memory-backed intermediate image instead of
-  changing how the source is opened.
+  Per-op materialization (`ImagePipe.Transform.Chain`) calls this before the
+  first operation that requires random access, so a sequential decode can stream
+  through earlier ops and only copy when an op genuinely needs arbitrary pixel
+  access. `Request.Processor` also calls the arity-2 callback form once before
+  delivery for any chain that never materialized mid-pipeline.
   """
 
   alias ImagePipe.Transform.State
@@ -20,16 +18,16 @@ defmodule ImagePipe.Transform.Materializer do
   @callback materialize(State.t(), keyword()) ::
               {:ok, State.t()} | {:error, term()}
 
-  @spec materialize(State.t(), keyword()) :: {:ok, State.t()} | {:error, term()}
-  def materialize(%State{} = state, _opts) do
-    case materialize(state.image) do
-      {:ok, image} -> {:ok, State.set_image(state, image)}
+  @spec materialize(State.t()) :: {:ok, State.t()} | {:error, term()}
+  def materialize(%State{} = state) do
+    case VipsImage.copy_memory(state.image) do
+      {:ok, image} -> {:ok, %State{state | image: image, materialized?: true}}
       {:error, _reason} = error -> error
     end
   end
 
-  @spec materialize(VipsImage.t()) :: {:ok, VipsImage.t()} | {:error, term()}
-  def materialize(%VipsImage{} = image) do
-    VipsImage.copy_memory(image)
+  @spec materialize(State.t(), keyword()) :: {:ok, State.t()} | {:error, term()}
+  def materialize(%State{} = state, _opts) do
+    materialize(state)
   end
 end

@@ -143,6 +143,22 @@ defmodule ImagePipe.ImgproxyWireConformanceTest do
     end
   end
 
+  defmodule AlphaOriginImage do
+    @moduledoc false
+
+    # Serves a 20×20 fully-transparent RGBA PNG. Used to verify that bl: + bg:
+    # on an alpha source flattens the output (no alpha channel in response).
+    def call(conn, _opts) do
+      body =
+        Image.new!(20, 20, color: [0, 0, 0, 0], bands: 4)
+        |> Image.write!(:memory, suffix: ".png")
+
+      conn
+      |> Plug.Conn.put_resp_content_type("image/png")
+      |> Plug.Conn.send_resp(200, body)
+    end
+  end
+
   defmodule UnavailableDetector do
     @moduledoc false
     @behaviour ImagePipe.Transform.Detector
@@ -1785,6 +1801,80 @@ defmodule ImagePipe.ImgproxyWireConformanceTest do
 
     assert conn.status in 400..499
     refute_received :origin_fetch
+  end
+
+  # Layer 4 — wire conformance for now-sequential chains
+
+  # Anchor crop + blur: c:40:30:no (north gravity) + bl:4 were previously forced to
+  # random access by the blur; they are now fully sequential. Assert the crop
+  # dimensions are preserved and the body decodes cleanly.
+  test "anchor crop + blur produces the requested crop dimensions and decodes" do
+    conn =
+      call_imgproxy(
+        "/_/c:40:30:no/bl:4/f:png/plain/images/effects.png",
+        effect_origin_opts()
+      )
+
+    assert conn.status == 200
+    assert content_type(conn) == ["image/png"]
+
+    image = decoded_image(conn)
+
+    assert Image.width(image) == 40
+    assert Image.height(image) == 30
+  end
+
+  # Resize fill + padding + background: rs:fill:100:100/g:ce + pd:10 + bg:ffffff.
+  # Each pd:10 side adds 10px → final canvas is 120×120. The corner pixel (0,0)
+  # sits in the padding region and must match the background color (white).
+  test "resize fill + padding + background produces padded dimensions with background fill" do
+    conn =
+      call_imgproxy(
+        "/_/rs:fill:100:100/g:ce/pd:10/bg:ffffff/f:png/plain/images/beach.jpg",
+        @default_opts
+      )
+
+    assert conn.status == 200
+    assert content_type(conn) == ["image/png"]
+
+    image = decoded_image(conn)
+
+    assert Image.width(image) == 120
+    assert Image.height(image) == 120
+
+    # Corner (0,0) is in the padding region → must be the background white.
+    assert Image.get_pixel!(image, 0, 0) == [255, 255, 255]
+  end
+
+  # Transparent source + blur + background: a fully-transparent RGBA source with
+  # bl:2 + bg:ff0000 must produce an opaque output (no alpha channel) whose pixels
+  # are the background red (the transparent source contributes 0 color, so
+  # flatten fills with the background color).
+  test "transparent source + blur + background flattens to background color" do
+    alpha_opts = [
+      parser: ImagePipe.Parser.Imgproxy,
+      sources: [
+        path:
+          {ImagePipe.SourceTest.RootHTTPAdapter,
+           root_url: "http://origin.test", req_options: [plug: AlphaOriginImage]}
+      ]
+    ]
+
+    conn =
+      call_imgproxy(
+        "/_/bl:2/bg:ff0000/f:png/plain/images/alpha.png",
+        alpha_opts
+      )
+
+    assert conn.status == 200
+    assert content_type(conn) == ["image/png"]
+
+    image = decoded_image(conn)
+
+    assert Image.has_alpha?(image) == false
+    # Fully transparent source + red background → all pixels must be red.
+    assert Image.get_pixel!(image, 0, 0) == [255, 0, 0]
+    assert Image.get_pixel!(image, 10, 10) == [255, 0, 0]
   end
 
   # Capture the cache key the plug looked up for one request. Uses the file's

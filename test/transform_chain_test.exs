@@ -11,6 +11,7 @@ defmodule ImagePipe.Transform.ChainTest do
   alias ImagePipe.Transform.Operation.Crop
   alias ImagePipe.Transform.Operation.ExtendCanvas
   alias ImagePipe.Transform.Operation.Resize
+  alias ImagePipe.Transform.Operation.Rotate
   alias ImagePipe.Transform.Operation.Saturation
   alias ImagePipe.Transform.State
 
@@ -210,6 +211,57 @@ defmodule ImagePipe.Transform.ChainTest do
              Chain.execute(%State{image: image}, [%Background{color: [255, 0, 0, 128]}])
 
     assert Image.get_pixel!(image, 0, 0) == [255, 0, 0, 128]
+  end
+
+  describe "per-op materialization" do
+    test "a chain with a materializing op sets materialized? and stays correct" do
+      {:ok, image} = Image.new(40, 20, color: :white)
+
+      {:ok, state} =
+        Chain.execute(%State{image: image, materialized?: false}, [%Rotate{angle: 90}])
+
+      assert state.materialized? == true
+      assert Image.width(state.image) == 20
+      assert Image.height(state.image) == 40
+    end
+
+    test "a second materializing op produces correct output (no double-copy regression)" do
+      {:ok, image} = Image.new(40, 20, color: :white)
+
+      {:ok, state} =
+        Chain.execute(%State{image: image, materialized?: false}, [
+          %Rotate{angle: 90},
+          %Rotate{angle: 90}
+        ])
+
+      # two 90-degree turns = 180; back to 40x20
+      assert state.materialized? == true
+      assert Image.width(state.image) == 40
+      assert Image.height(state.image) == 20
+    end
+
+    test "a fully sequential-safe chain leaves materialized? false" do
+      {:ok, image} = Image.new(40, 20, color: :white)
+
+      {:ok, state} =
+        Chain.execute(%State{image: image, materialized?: false}, [
+          %Background{color: [0, 0, 0, 255]}
+        ])
+
+      assert state.materialized? == false
+    end
+
+    test "a materializing op on a corrupt sequential image returns {:materialize_error, _}, not {:transform_error, _}" do
+      # Open just enough bytes to satisfy the JPEG header parser but not enough to
+      # read all pixel data. copy_memory fails when the rotate tries to pull pixels
+      # from the truncated sequential stream.
+      body = File.read!("priv/static/images/beach.jpg")
+      truncated = binary_part(body, 0, 5000)
+      {:ok, image} = Image.open([truncated], access: :sequential, fail_on: :error)
+
+      assert {:error, {:materialize_error, _}} =
+               Chain.execute(%State{image: image}, [%Rotate{angle: 90}])
+    end
   end
 
   test "execute/3 emits [:transform, :operation] spans in order with operation metadata" do

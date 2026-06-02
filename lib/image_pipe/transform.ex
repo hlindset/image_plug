@@ -47,10 +47,27 @@ defmodule ImagePipe.Transform do
 
   @callback name(operation()) :: atom()
   @callback execute(operation(), State.t()) :: {:ok, State.t()} | {:error, term()}
+  @callback requires_materialization?(operation()) :: boolean()
+
+  defmacro __using__(_opts) do
+    quote do
+      @behaviour ImagePipe.Transform
+
+      @impl ImagePipe.Transform
+      def requires_materialization?(_operation), do: false
+
+      defoverridable requires_materialization?: 1
+    end
+  end
 
   @spec transform_name(operation()) :: atom()
   def transform_name(%module{} = operation) do
     module.name(operation)
+  end
+
+  @spec requires_materialization?(operation()) :: boolean()
+  def requires_materialization?(%module{} = operation) do
+    module.requires_materialization?(operation)
   end
 
   @spec validate_prefetch_safe_plan(Plan.t()) ::

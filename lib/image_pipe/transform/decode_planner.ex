@@ -1,10 +1,12 @@
 defmodule ImagePipe.Transform.DecodePlanner do
   @moduledoc """
-  Chooses image decode access and load options for semantic Plan operations.
+  Chooses image decode load options for semantic Plan operations.
 
-  Decode planning reduces a source-fetch-free Plan operation chain to either
-  sequential or random image access, and optionally a format-specific load
-  shrink/scale option for large downscales.
+  Decode is always opened with `:sequential` access. Random access is provided
+  per-op by `ImagePipe.Transform.Chain` when individual operations require it.
+
+  The planner also computes a format-specific load shrink/scale option for
+  large downscales.
 
   The planner is a pure function: it does not read image metadata itself.
   The caller (Request.Processor) reads the header dims and source format and
@@ -12,25 +14,11 @@ defmodule ImagePipe.Transform.DecodePlanner do
   """
 
   alias ImagePipe.Plan.Operation.AutoOrient
-  alias ImagePipe.Plan.Operation.Background
-  alias ImagePipe.Plan.Operation.Blur
-  alias ImagePipe.Plan.Operation.Brightness
-  alias ImagePipe.Plan.Operation.Canvas
-  alias ImagePipe.Plan.Operation.Contrast
   alias ImagePipe.Plan.Operation.CropGuided
   alias ImagePipe.Plan.Operation.CropRegion
-  alias ImagePipe.Plan.Operation.Duotone
-  alias ImagePipe.Plan.Operation.Flip
-  alias ImagePipe.Plan.Operation.Monochrome
-  alias ImagePipe.Plan.Operation.NormalizeColorProfile
-  alias ImagePipe.Plan.Operation.Padding
-  alias ImagePipe.Plan.Operation.Pixelate
   alias ImagePipe.Plan.Operation.Resize, as: PlanResize
   alias ImagePipe.Plan.Operation.Rotate
-  alias ImagePipe.Plan.Operation.Saturation
-  alias ImagePipe.Plan.Operation.Sharpen
 
-  @type access_requirement() :: :sequential | :random | :neutral
   @type source_format() ::
           :jpeg | :webp | :png | :tiff | :jpeg2000 | :jpeg_xl | :heif | :avif | atom()
 
@@ -47,7 +35,7 @@ defmodule ImagePipe.Transform.DecodePlanner do
              is_integer(src_h) and src_h > 0 and
              is_boolean(exif_quarter_turn?) do
     {shrink_w, shrink_h} = shrink_axes({src_w, src_h}, chain, exif_quarter_turn?)
-    base = [access: access(chain), fail_on: :error]
+    base = [access: :sequential, fail_on: :error]
     load_shrink = compute_load_shrink(chain, shrink_w, shrink_h)
     append_load_option(base, source_format, load_shrink)
   end
@@ -73,63 +61,6 @@ defmodule ImagePipe.Transform.DecodePlanner do
       %PlanResize{}, _acc -> {:halt, false}
       _operation, acc -> {:cont, acc}
     end)
-  end
-
-  # --- Access selection (unchanged) ---
-
-  defp access([]), do: :random
-
-  defp access(chain) when is_list(chain) do
-    chain
-    |> Enum.map(&access_requirement/1)
-    |> resolve_access()
-  end
-
-  defp access_requirement(%PlanResize{mode: mode} = operation) when mode in [:fit, :stretch],
-    do: resize_access_requirement(operation)
-
-  defp access_requirement(%PlanResize{mode: mode}) when mode in [:cover, :auto], do: :random
-  defp access_requirement(%CropGuided{}), do: :random
-  defp access_requirement(%CropRegion{}), do: :random
-  defp access_requirement(%Canvas{}), do: :random
-  defp access_requirement(%Padding{}), do: :random
-  defp access_requirement(%Background{}), do: :random
-  defp access_requirement(%AutoOrient{}), do: :sequential
-  defp access_requirement(%Rotate{}), do: :random
-  defp access_requirement(%Flip{}), do: :random
-  defp access_requirement(%Blur{}), do: :random
-  defp access_requirement(%Sharpen{}), do: :random
-  defp access_requirement(%Pixelate{}), do: :random
-  defp access_requirement(%Monochrome{}), do: :random
-  defp access_requirement(%Duotone{}), do: :random
-  defp access_requirement(%Brightness{}), do: :random
-  defp access_requirement(%Contrast{}), do: :random
-  defp access_requirement(%Saturation{}), do: :random
-  defp access_requirement(%NormalizeColorProfile{}), do: :neutral
-
-  defp resize_access_requirement(%PlanResize{
-         width: width,
-         height: height,
-         min_width: nil,
-         min_height: nil
-       }) do
-    case requested_resize_dimension?(width) or requested_resize_dimension?(height) do
-      true -> :sequential
-      false -> :random
-    end
-  end
-
-  defp resize_access_requirement(%PlanResize{}), do: :random
-
-  defp requested_resize_dimension?({:px, value}) when is_integer(value) and value > 0, do: true
-  defp requested_resize_dimension?(_dimension), do: false
-
-  defp resolve_access(requirements) do
-    cond do
-      Enum.any?(requirements, &(&1 == :random)) -> :random
-      Enum.any?(requirements, &(&1 == :sequential)) -> :sequential
-      true -> :random
-    end
   end
 
   # --- Shrink/scale computation ---

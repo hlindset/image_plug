@@ -34,7 +34,7 @@ defmodule ImagePipe.Transform.Operation.Flip do
       flip = %ImagePipe.Transform.Operation.Flip{axis: :horizontal}
   """
 
-  @behaviour ImagePipe.Transform
+  use ImagePipe.Transform
 
   import ImagePipe.Transform.State
 
@@ -46,6 +46,10 @@ defmodule ImagePipe.Transform.Operation.Flip do
 
   @impl ImagePipe.Transform
   def name(%__MODULE__{}), do: :flip
+
+  @impl ImagePipe.Transform
+  def requires_materialization?(%__MODULE__{axis: :horizontal}), do: false
+  def requires_materialization?(%__MODULE__{}), do: true
 
   @impl ImagePipe.Transform
   def execute(%__MODULE__{axis: :both}, %State{} = state) do

@@ -3,7 +3,7 @@ defmodule ImagePipe.Transform.Operation.Contrast do
   Executable contrast adjustment operation.
   """
 
-  @behaviour ImagePipe.Transform
+  use ImagePipe.Transform
 
   import ImagePipe.Transform.State
 

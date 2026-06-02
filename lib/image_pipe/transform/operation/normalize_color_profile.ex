@@ -13,7 +13,7 @@ defmodule ImagePipe.Transform.Operation.NormalizeColorProfile do
   to a decode error. See `ImagePipe.Output.Encoder`.
   """
 
-  @behaviour ImagePipe.Transform
+  use ImagePipe.Transform
 
   import ImagePipe.Transform.State
 
