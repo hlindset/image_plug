@@ -23,6 +23,24 @@ defmodule ImagePipe.ShrinkOnLoadTest do
     end
   end
 
+  defmodule OrientedJpegOrigin do
+    @moduledoc false
+    # Serves a 4000×3000 JPEG tagged EXIF orientation 6 (90° turn), so the
+    # *displayed* image is 3000×4000 (portrait). Built lazily in call/2. Used to
+    # exercise shrink-on-load + AutoOrient together: libvips does not auto-apply
+    # orientation on a shrink-load (verified), so the decode comes back stored
+    # (landscape) and AutoOrient rotates it — the residual resize must still land on
+    # the displayed-orientation target.
+    def call(conn, _opts) do
+      {:ok, base} = Image.new(4000, 3000, color: [120, 130, 140])
+      body = base |> Image.set_orientation!(6) |> Image.write!(:memory, suffix: ".jpg")
+
+      conn
+      |> Plug.Conn.put_resp_content_type("image/jpeg")
+      |> Plug.Conn.send_resp(200, body)
+    end
+  end
+
   defmodule PngOrigin do
     @moduledoc false
     # Serves a 400×300 RGBA solid-colour PNG generated in the module attribute
@@ -331,5 +349,28 @@ defmodule ImagePipe.ShrinkOnLoadTest do
 
     img = decoded_image(conn)
     assert {Image.width(img), Image.height(img)} == {1500, 1500}
+  end
+
+  # Shrink-on-load composed with AutoOrient (the retina-photo case). The source is
+  # a 4000×3000 JPEG tagged EXIF orientation 6, so the displayed image is 3000×4000
+  # (portrait). `ar:true` enables auto-rotation; w:375 against the displayed width
+  # (3000) gives load_shrink 8. libvips returns the shrink-load stored-oriented
+  # (landscape), AutoOrient rotates it and swaps the stored original dims, and the
+  # residual resize must land on the displayed-orientation target 375×500.
+  #
+  # Pinning both dims (and that the result is portrait) guards the orientation
+  # axis-swap: a stored-vs-displayed mismatch would transpose the output (500×375).
+  test "shrink-on-load with auto-orient lands on the displayed-orientation target" do
+    conn =
+      call_pipe(
+        "/_/ar:true/w:375/f:jpeg/plain/images/oriented",
+        http_source_opts(OrientedJpegOrigin)
+      )
+
+    assert conn.status == 200
+
+    img = decoded_image(conn)
+    assert {Image.width(img), Image.height(img)} == {375, 500}
+    assert Image.height(img) > Image.width(img), "auto-oriented output must be portrait"
   end
 end

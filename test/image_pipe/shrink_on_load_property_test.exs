@@ -31,29 +31,51 @@ defmodule ImagePipe.ShrinkOnLoadPropertyTest do
   # widened.
   property "shrink-on-load output stays within ±1px of the full-decode path on both axes" do
     check all(
+            # Cover width-only, height-only, and square fit targets so the drift is
+            # exercised with the height as the *driving* axis too, not just as a
+            # consequence of a width-only request.
+            mode <- member_of([:width, :height, :square]),
             source_w <- integer(1200..3600),
-            source_h <- integer(600..3600),
-            # target_w ≤ source_w / 4 guarantees load_shrink ≥ ~4, so JPEG shrink
+            source_h <- integer(1200..3600),
+            # target ≤ governing_dim / 4 guarantees load_shrink ≥ ~4, so JPEG shrink
             # (4 or 8) actually fires — the case is never a vacuous no-shrink one.
-            target_w <- integer(60..div(source_w, 4)),
-            max_runs: 40
+            target <- integer(60..div(governing_dim(mode, source_w, source_h), 4)),
+            max_runs: 100
           ) do
+      resize = fit_resize(mode, target)
+
       {shrink_w, shrink_h, shrink} =
-        decode_width_resize(solid(source_w, source_h, ".jpg"), target_w)
+        decode_resize(solid(source_w, source_h, ".jpg"), resize)
 
       {full_w, full_h, no_shrink} =
-        decode_width_resize(solid(source_w, source_h, ".png"), target_w)
+        decode_resize(solid(source_w, source_h, ".png"), resize)
+
+      label = "#{source_w}x#{source_h} #{mode}:#{target}"
 
       assert shrink in [2, 4, 8],
-             "expected JPEG shrink to fire for #{source_w}x#{source_h} -> w:#{target_w}, got #{inspect(shrink)}"
+             "expected JPEG shrink to fire for #{label}, got #{inspect(shrink)}"
 
       assert no_shrink == nil,
-             "PNG baseline must not shrink for #{source_w}x#{source_h} -> w:#{target_w}, got #{inspect(no_shrink)}"
+             "PNG baseline must not shrink for #{label}, got #{inspect(no_shrink)}"
 
       assert abs(shrink_w - full_w) <= 1 and abs(shrink_h - full_h) <= 1,
              "shrink-on-load #{shrink_w}x#{shrink_h} drifted >1px from full-decode " <>
-               "#{full_w}x#{full_h} for #{source_w}x#{source_h} -> w:#{target_w} (shrink #{shrink})"
+               "#{full_w}x#{full_h} for #{label} (shrink #{shrink})"
     end
+  end
+
+  # The axis that determines the shrink factor (so the target keeps it ≥ ~4).
+  defp governing_dim(:width, source_w, _source_h), do: source_w
+  defp governing_dim(:height, _source_w, source_h), do: source_h
+  defp governing_dim(:square, source_w, source_h), do: min(source_w, source_h)
+
+  defp fit_resize(:width, target), do: build_fit({:px, target}, :auto)
+  defp fit_resize(:height, target), do: build_fit(:auto, {:px, target})
+  defp fit_resize(:square, target), do: build_fit({:px, target}, {:px, target})
+
+  defp build_fit(width, height) do
+    {:ok, resize} = Operation.resize(:fit, width, height)
+    resize
   end
 
   defp solid(width, height, suffix) do
@@ -61,9 +83,7 @@ defmodule ImagePipe.ShrinkOnLoadPropertyTest do
     Image.write!(image, :memory, suffix: suffix)
   end
 
-  defp decode_width_resize(body, target_w) do
-    {:ok, resize} = Operation.resize(:fit, {:px, target_w}, :auto)
-
+  defp decode_resize(body, resize) do
     plan = %Plan{
       source: %Path{segments: ["property.img"]},
       output: %{},
