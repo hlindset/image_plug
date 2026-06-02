@@ -481,4 +481,41 @@ defmodule ImagePipe.Request.ProcessorTest do
     # Exact original is stored (not reconstructed from the shrunk image).
     assert decoded.source_dimensions == orig
   end
+
+  test "process_source materializes a sequential-only plan before delivery" do
+    # A fit-resize plan has no op that requires_materialization?, so the transform
+    # chain leaves state.materialized? == false. materialize_before_delivery must
+    # copy the lazy vips image to RAM (Materializer.materialize/2 sets
+    # materialized?: true) and process_source returns that post-materialize state.
+    target_w = 200
+
+    {:ok, operation} = resize_fit(target_w, :auto)
+    sequential_plan = %Plan{plan() | pipelines: [%Pipeline{operations: [operation]}]}
+
+    assert {:ok, %State{} = state} =
+             Processor.process_source(
+               sequential_plan,
+               resolved_source(),
+               opts()
+             )
+
+    # Authoritative pin: process_source returns the post-materialize_before_delivery
+    # state, so materialized? == true proves the delivery materialize actually ran.
+    # The JPEG encode below would NOT prove this on its own — libvips JPEG
+    # write_to_buffer streams fine on a lazy sequential image, so the encode succeeds
+    # even if materialize_before_delivery were a no-op {:ok, state}.
+    assert state.materialized? == true
+
+    # The state image must still be encodable, and the encode + dimension assertions
+    # confirm the materialized image is correct and correctly sized.
+    jpeg_bytes = Image.write!(state.image, :memory, suffix: ".jpg")
+    assert {:ok, result_image} = Image.open(jpeg_bytes, access: :random)
+
+    # fit-resize yields at most target_w (libvips may land one pixel under due to rounding)
+    assert Image.width(result_image) >= target_w - 1
+    assert Image.width(result_image) <= target_w
+    # height proportional to 2667/4000 original aspect, similarly within one pixel
+    assert Image.height(result_image) >= 132
+    assert Image.height(result_image) <= 134
+  end
 end
