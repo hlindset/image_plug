@@ -559,6 +559,86 @@ defmodule ImagePipe.TelemetryTest do
     end)
   end
 
+  test "fetch_decode stop metadata includes load_option, achieved_shrink, and dims for shrunk JPEG" do
+    alias ImagePipe.Plan
+    alias ImagePipe.Plan.Operation
+    alias ImagePipe.Plan.Output
+    alias ImagePipe.Plan.Pipeline
+    alias ImagePipe.Request.Processor
+    alias ImagePipe.Source.CacheSemantics
+    alias ImagePipe.Source.Resolved
+
+    {:ok, full_image} = Image.open("priv/static/images/beach.jpg")
+    orig_w = Image.width(full_image)
+    orig_h = Image.height(full_image)
+    target_w = div(orig_w, 9)
+
+    {:ok, operation} =
+      Operation.resize(:fit, {:px, target_w}, :auto, enlargement: :deny)
+
+    fetch_decode_plan = %Plan{
+      source: %ImagePipe.Plan.Source.Path{segments: ["images", "beach.jpg"]},
+      pipelines: [%Pipeline{operations: [operation]}],
+      output: %Output{mode: {:explicit, :jpeg}}
+    }
+
+    resolved_source = %Resolved{
+      adapter: :path,
+      source_kind: :path,
+      identity: [kind: :path, root: "priv/static", path: ["images", "beach.jpg"]],
+      internal_cache: :enabled,
+      http_cache: :inherit,
+      cache_semantics: %CacheSemantics{byte_identity: :none, stable?: false},
+      fetch: :fixture
+    }
+
+    processor_opts = [
+      sources: %{path: {ImagePipe.SourceTest.ValidAdapter, root: "priv/static"}},
+      max_body_bytes: 10_000_000,
+      max_input_pixels: 40_000_000,
+      max_result_width: 8_192,
+      max_result_height: 8_192,
+      max_result_pixels: 40_000_000
+    ]
+
+    test_pid = self()
+    handler_id = {__MODULE__, :fetch_decode_shrink_test, make_ref()}
+
+    :ok =
+      :telemetry.attach(
+        handler_id,
+        [:image_pipe, :source, :fetch_decode, :stop],
+        &__MODULE__.handle_telemetry_event/4,
+        test_pid
+      )
+
+    on_exit(fn -> :telemetry.detach(handler_id) end)
+
+    assert {:ok, _decoded} =
+             Processor.fetch_decode_validate_source_with_source_format(
+               fetch_decode_plan,
+               resolved_source,
+               processor_opts
+             )
+
+    assert_received {:telemetry_event, [:image_pipe, :source, :fetch_decode, :stop],
+                     _measurements, stop_meta}
+
+    assert stop_meta.result == :ok
+
+    assert {:shrink, shrink_n} = stop_meta.load_option
+    assert shrink_n >= 4
+
+    assert %{w: shrink_w, h: shrink_h} = stop_meta.achieved_shrink
+    assert shrink_w >= 4.0
+    assert shrink_h >= 4.0
+
+    assert {^orig_w, ^orig_h} = stop_meta.original_dims
+
+    assert {loaded_w, _loaded_h} = stop_meta.loaded_dims
+    assert loaded_w <= div(orig_w, 4)
+  end
+
   test "validates telemetry prefix option at init" do
     assert ImagePipe.Plug.init(opts(telemetry_prefix: [:custom, :image]))[:telemetry_prefix] ==
              [:custom, :image]
