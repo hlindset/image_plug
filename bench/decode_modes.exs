@@ -11,12 +11,17 @@
 #   mise exec -- mix run bench/decode_modes.exs streaming
 #   mise exec -- mix run bench/decode_modes.exs buffered
 #
-# Positional args: <mode> <access> <corpus> <width> <iters>
+# Positional args: <mode> <access> <corpus> <width> <iters>   (plus optional --leak flag)
 #   mode   : streaming | buffered | both   (default: both)
 #   access : sequential | random           (default: sequential)
 #   corpus : a directory, a glob, or a single file   (default: priv/static/images)
 #   width  : target downscale width in px            (default: 400)
 #   iters  : timed iterations per image (1 warmup discarded)  (default: 5)
+#   --leak : turn on libvips leak checking and call vips_shutdown at the end, which prints a
+#            "memory: high-water mark N MB" line — the real libvips working-set peak. This is
+#            the reliable libvips memory signal here; the high-water is process-wide, so use
+#            one mode + one file for a clean per-case figure:
+#              mise exec -- mix run bench/decode_modes.exs buffered sequential priv/static/images/waterfall.jpg 400 5 --leak
 #
 # MEMORY NOTES:
 #   * Peak RSS is OS-sampled (`ps -o rss`) across each mode's whole corpus run, so it
@@ -25,8 +30,12 @@
 #     a clean per-mode peak run a single mode per process. The streaming vs buffered gap is
 #     largest under `random` access (the streaming pipe cannot seek, forcing libvips to
 #     materialize the whole decoded image).
-#   * Vix.Vips.tracked_get_mem_highwater/0 reports 0 unless libvips was built with memory
-#     tracking (the dev build here is not), so RSS is the portable signal.
+#   * --leak gives the true libvips working-set peak via vips_shutdown (see flag above).
+#   * Vix.Vips.tracked_get_mem_highwater/0 is NOT used: in this Vix build its NIF is registered
+#     to the current-mem function (vix.c maps "nif_vips_tracked_get_mem_highwater" to
+#     nif_vips_tracked_get_mem), so it returns current tracked memory (~0 after the decode is
+#     freed), not the high-water. Use --leak instead. (A 1-line fork fix to that registration
+#     would make a sampled high-water possible too.)
 #   * The libvips operation cache is disabled below to remove cross-iteration noise.
 
 defmodule DecodeBench do
@@ -35,6 +44,20 @@ defmodule DecodeBench do
   @sample_interval_ms 10
 
   def main(argv) do
+    {leak_flag?, argv} = pop_flag(argv, "--leak")
+    leak? = leak_flag? or System.get_env("VIPS_LEAK") == "1"
+
+    # libvips only emits its "memory: high-water mark" line from vips_shutdown(), and only when
+    # leak checking is on. Vix never calls vips_shutdown automatically, so --leak turns leak
+    # checking on, runs the workload, then calls shutdown at the very end to flush the figure.
+    # This is the true libvips working-set peak (build-portable), unlike Vix's
+    # tracked_get_mem_highwater/0 (see notes below).
+    if leak?, do: Vix.Vips.set_vips_leak_checking(true)
+    run(argv, leak?)
+    if leak?, do: flush_leak_report()
+  end
+
+  defp run(argv, leak?) do
     {mode, access, corpus, width, iters} = parse(argv)
     files = resolve_corpus(corpus)
 
@@ -51,10 +74,11 @@ defmodule DecodeBench do
 
     IO.puts("""
     decode-mode benchmark
-      corpus:  #{corpus} (#{length(files)} images)
-      access:  #{access}
-      width:   #{width}px target
-      iters:   #{iters} per image (+1 warmup discarded)
+      corpus:    #{corpus} (#{length(files)} images)
+      access:    #{access}
+      width:     #{width}px target
+      iters:     #{iters} per image (+1 warmup discarded)
+      vips_leak: #{leak_status(leak?)}
     """)
 
     modes = if mode == :both, do: [:streaming, :buffered], else: [mode]
@@ -112,6 +136,26 @@ defmodule DecodeBench do
     _ = Image.write!(resized, :memory, suffix: ".jpg")
     {Vix.Vips.Image.width(resized), Vix.Vips.Image.height(resized)}
   end
+
+  defp pop_flag(argv, flag), do: {flag in argv, Enum.reject(argv, &(&1 == flag))}
+
+  # Flush libvips' "memory: high-water mark" line by shutting libvips down (terminal — no
+  # libvips use after this). Counter is process-wide, so it's the peak across the whole run.
+  defp flush_leak_report do
+    :erlang.garbage_collect()
+
+    IO.puts(
+      "\nlibvips memory high-water (process-wide peak; run one mode + one file for a clean per-case figure).\n" <>
+        "Any 'VipsArea alive' lines are live BEAM-held image refs awaiting GC, not leaks; the useful line is 'memory: high-water mark':"
+    )
+
+    Vix.Nif.nif_vips_shutdown()
+  end
+
+  defp leak_status(true),
+    do: "on — prints libvips 'memory: high-water mark' at end (process-wide peak)"
+
+  defp leak_status(false), do: "off — pass --leak for the libvips working-set peak"
 
   defp decoder(:streaming, path, raw_opts, _validated),
     do: fn -> Image.open(File.stream!(path, 65_536, []), raw_opts) end
