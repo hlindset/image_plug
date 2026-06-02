@@ -396,6 +396,13 @@ defmodule ImagePipe.SourceTest do
     assert {:ok, ^response} = Source.wrap_response(response, max_body_bytes: 10)
   end
 
+  test "wrap_response rejects a response carrying both a path and a stream" do
+    response = %Response{path: "/tmp/x.jpg", stream: ["bytes"]}
+
+    assert {:error, {:source, :invalid_adapter_result}} =
+             Source.wrap_response(response, max_body_bytes: 10)
+  end
+
   test "body/stream queries degrade for a path response" do
     response = %Response{path: "/tmp/x.jpg"}
     refute Source.body_limit_exceeded?(response)

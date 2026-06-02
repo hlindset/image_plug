@@ -294,6 +294,21 @@ defmodule ImagePipe.Request.ProcessorTest do
     refute_received {:opened_input, _input}
   end
 
+  test "a stream body that happens to equal a local path is decoded as bytes, never opened as a file" do
+    # Regression: Image.open/2 on a binary that matches no image signature falls back to a
+    # filesystem-path branch (File.exists? -> open). A drained origin body equal to an existing
+    # local path must NOT be opened as that file. Routing buffers through Image.from_binary/2
+    # (libvips buffer loader) keeps decode purely byte-based, so this returns a decode error.
+    path_shaped_body = "priv/static/images/beach.jpg"
+    assert File.exists?(path_shaped_body)
+
+    {:ok, response} =
+      Source.wrap_response(%Response{stream: [path_shaped_body]}, max_body_bytes: 1_000)
+
+    assert {:error, _reason} =
+             Processor.decode_validate_source_response(response, plan(), opts())
+  end
+
   test "a multi-chunk stream response is drained into one contiguous binary before decode" do
     body = File.read!("priv/static/images/beach.jpg")
     split = div(byte_size(body), 2)

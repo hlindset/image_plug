@@ -164,9 +164,10 @@ defmodule ImagePipe.Request.Processor do
     end
   end
 
-  defp seekable_input(%Source.Response{path: path}) when is_binary(path), do: {:ok, {:path, path}}
+  defp seekable_input(%Source.Response{path: path, stream: nil}) when is_binary(path),
+    do: {:ok, {:path, path}}
 
-  defp seekable_input(%Source.Response{stream: stream}) when not is_nil(stream) do
+  defp seekable_input(%Source.Response{path: nil, stream: stream}) when not is_nil(stream) do
     {:ok, {:buffer, stream |> Enum.to_list() |> IO.iodata_to_binary()}}
   rescue
     exception in [Source.StreamError] -> {:error, {:source, exception.reason}}
