@@ -332,12 +332,19 @@ defmodule ImagePipe.Request.Processor do
   defp check_result_pixels(pixels, max_pixels),
     do: {:error, {:result_limit, {:too_many_result_pixels, pixels, max_pixels}}}
 
-  defp fetch_decode_stop_metadata({:ok, %{image: image, decode_options: decode_options} = decoded}) do
+  defp fetch_decode_stop_metadata(
+         {:ok, %{image: image, decode_options: decode_options} = decoded}
+       ) do
     load_option =
       cond do
-        Keyword.has_key?(decode_options, :shrink) -> {:shrink, Keyword.fetch!(decode_options, :shrink)}
-        Keyword.has_key?(decode_options, :scale) -> {:scale, Keyword.fetch!(decode_options, :scale)}
-        true -> nil
+        Keyword.has_key?(decode_options, :shrink) ->
+          {:shrink, Keyword.fetch!(decode_options, :shrink)}
+
+        Keyword.has_key?(decode_options, :scale) ->
+          {:scale, Keyword.fetch!(decode_options, :scale)}
+
+        true ->
+          nil
       end
 
     %{

@@ -115,6 +115,7 @@ defmodule ImagePipe.ShrinkOnLoadTest do
     # Aspect ratio: 4000/2667 ≈ 1.499; expected height ≈ 296
     expected_h = round(444 / (4000 / 2667))
     actual_h = Image.height(img)
+
     assert abs(actual_h - expected_h) <= 2,
            "expected height ~#{expected_h}, got #{actual_h}"
   end
