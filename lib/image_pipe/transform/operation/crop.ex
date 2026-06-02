@@ -146,6 +146,12 @@ defmodule ImagePipe.Transform.Operation.Crop do
   def name(%__MODULE__{}), do: :crop
 
   @impl ImagePipe.Transform
+  def requires_materialization?(%__MODULE__{gravity: :smart}), do: true
+  def requires_materialization?(%__MODULE__{gravity: {:smart, _}}), do: true
+  def requires_materialization?(%__MODULE__{gravity: {:detect, _}}), do: true
+  def requires_materialization?(%__MODULE__{}), do: false
+
+  @impl ImagePipe.Transform
   def execute(%__MODULE__{gravity: :smart} = params, %State{} = state) do
     smart_crop(params, state, :VIPS_INTERESTING_ATTENTION)
   end

@@ -47,6 +47,9 @@ defmodule ImagePipe.Transform.Operation.Rotate do
   def name(%__MODULE__{}), do: :rotate
 
   @impl ImagePipe.Transform
+  def requires_materialization?(%__MODULE__{}), do: true
+
+  @impl ImagePipe.Transform
   def execute(%__MODULE__{angle: 0}, %State{} = state), do: {:ok, state}
 
   def execute(%__MODULE__{angle: angle}, %State{} = state) do

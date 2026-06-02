@@ -48,6 +48,10 @@ defmodule ImagePipe.Transform.Operation.Flip do
   def name(%__MODULE__{}), do: :flip
 
   @impl ImagePipe.Transform
+  def requires_materialization?(%__MODULE__{axis: :horizontal}), do: false
+  def requires_materialization?(%__MODULE__{}), do: true
+
+  @impl ImagePipe.Transform
   def execute(%__MODULE__{axis: :both}, %State{} = state) do
     with {:ok, image} <- Image.flip(state.image, :horizontal),
          {:ok, image} <- Image.flip(image, :vertical) do
