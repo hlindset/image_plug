@@ -26,9 +26,28 @@ defmodule ImagePipe.Transform.RequiresMaterializationTest do
   end
 
   test "smart/detect crop requires materialization; anchor/focal does not" do
-    assert Transform.requires_materialization?(%Crop{width: {:pixels, 10}, height: {:pixels, 10}, gravity: :smart})
-    assert Transform.requires_materialization?(%Crop{width: {:pixels, 10}, height: {:pixels, 10}, gravity: {:smart, :face_assist}})
-    assert Transform.requires_materialization?(%Crop{width: {:pixels, 10}, height: {:pixels, 10}, gravity: {:detect, {:all, %{}}}})
-    refute Transform.requires_materialization?(%Crop{width: {:pixels, 10}, height: {:pixels, 10}, gravity: {:anchor, :center, :center}})
+    assert Transform.requires_materialization?(%Crop{
+             width: {:pixels, 10},
+             height: {:pixels, 10},
+             gravity: :smart
+           })
+
+    assert Transform.requires_materialization?(%Crop{
+             width: {:pixels, 10},
+             height: {:pixels, 10},
+             gravity: {:smart, :face_assist}
+           })
+
+    assert Transform.requires_materialization?(%Crop{
+             width: {:pixels, 10},
+             height: {:pixels, 10},
+             gravity: {:detect, {:all, %{}}}
+           })
+
+    refute Transform.requires_materialization?(%Crop{
+             width: {:pixels, 10},
+             height: {:pixels, 10},
+             gravity: {:anchor, :center, :center}
+           })
   end
 end

@@ -216,7 +216,9 @@ defmodule ImagePipe.Transform.ChainTest do
   describe "per-op materialization" do
     test "a chain with a materializing op sets materialized? and stays correct" do
       {:ok, image} = Image.new(40, 20, color: :white)
-      {:ok, state} = Chain.execute(%State{image: image, materialized?: false}, [%Rotate{angle: 90}])
+
+      {:ok, state} =
+        Chain.execute(%State{image: image, materialized?: false}, [%Rotate{angle: 90}])
 
       assert state.materialized? == true
       assert Image.width(state.image) == 20
@@ -242,7 +244,9 @@ defmodule ImagePipe.Transform.ChainTest do
       {:ok, image} = Image.new(40, 20, color: :white)
 
       {:ok, state} =
-        Chain.execute(%State{image: image, materialized?: false}, [%Background{color: [0, 0, 0, 255]}])
+        Chain.execute(%State{image: image, materialized?: false}, [
+          %Background{color: [0, 0, 0, 255]}
+        ])
 
       assert state.materialized? == false
     end
