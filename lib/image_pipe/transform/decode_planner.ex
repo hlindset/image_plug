@@ -31,9 +31,14 @@ defmodule ImagePipe.Transform.DecodePlanner do
   alias ImagePipe.Plan.Operation.Sharpen
 
   @type access_requirement() :: :sequential | :random | :neutral
-  @type source_format() :: :jpeg | :webp | :png | :tiff | :jpeg2000 | :jpeg_xl | :heif | :avif | atom()
+  @type source_format() ::
+          :jpeg | :webp | :png | :tiff | :jpeg2000 | :jpeg_xl | :heif | :avif | atom()
 
-  @spec open_options([ImagePipe.Plan.Pipeline.operation()], source_format(), {pos_integer(), pos_integer()}) ::
+  @spec open_options(
+          [ImagePipe.Plan.Pipeline.operation()],
+          source_format(),
+          {pos_integer(), pos_integer()}
+        ) ::
           keyword()
   def open_options(chain, source_format, {src_w, src_h})
       when is_list(chain) and is_atom(source_format) and

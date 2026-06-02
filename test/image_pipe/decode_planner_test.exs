@@ -31,11 +31,18 @@ defmodule ImagePipe.Transform.DecodePlannerTest do
   end
 
   test "color-profile normalization is access-neutral (alone: random; with sequential: sequential)" do
-    neutral_only = DecodePlanner.open_options([%Operation.NormalizeColorProfile{}], :png, {100, 100})
+    neutral_only =
+      DecodePlanner.open_options([%Operation.NormalizeColorProfile{}], :png, {100, 100})
+
     assert neutral_only[:access] == :random
 
     with_sequential =
-      DecodePlanner.open_options([%AutoOrient{}, %Operation.NormalizeColorProfile{}], :png, {100, 100})
+      DecodePlanner.open_options(
+        [%AutoOrient{}, %Operation.NormalizeColorProfile{}],
+        :png,
+        {100, 100}
+      )
+
     assert with_sequential[:access] == :sequential
   end
 

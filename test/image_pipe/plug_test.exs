@@ -1847,9 +1847,11 @@ defmodule ImagePipe.PlugTest do
       )
 
     assert conn.status == 200
-    assert_received {:image_open_options, opts}
-    assert Keyword.get(opts, :access) == :sequential
-    assert Keyword.get(opts, :fail_on) == :error
+    # Two-step open: header open first (random), then decode open (sequential).
+    assert_received {:image_open_options, _header_opts}
+    assert_received {:image_open_options, decode_opts}
+    assert Keyword.get(decode_opts, :access) == :sequential
+    assert Keyword.get(decode_opts, :fail_on) == :error
   end
 
   test "cover opens origin with random access" do
@@ -1879,9 +1881,11 @@ defmodule ImagePipe.PlugTest do
         origin_req_options: [plug: OriginImage]
       )
 
-    assert_received {:image_open_options, opts}
-    assert Keyword.get(opts, :access) == :sequential
-    assert Keyword.get(opts, :fail_on) == :error
+    # Two-step open: header open first (random), then decode open (sequential).
+    assert_received {:image_open_options, _header_opts}
+    assert_received {:image_open_options, decode_opts}
+    assert Keyword.get(decode_opts, :access) == :sequential
+    assert Keyword.get(decode_opts, :fail_on) == :error
     assert conn.status == 415
     assert conn.state == :sent
     assert conn.resp_body == "source response is not a supported image"
@@ -1902,9 +1906,11 @@ defmodule ImagePipe.PlugTest do
         origin_req_options: [plug: OriginImage]
       )
 
-    assert_received {:image_open_options, opts}
-    assert Keyword.get(opts, :access) == :sequential
-    assert Keyword.get(opts, :fail_on) == :error
+    # Two-step open: header open first (random), then decode open (sequential).
+    assert_received {:image_open_options, _header_opts}
+    assert_received {:image_open_options, decode_opts}
+    assert Keyword.get(decode_opts, :access) == :sequential
+    assert Keyword.get(decode_opts, :fail_on) == :error
     assert conn.status == 415
     assert conn.state == :sent
     assert conn.resp_body == "source response is not a supported image"

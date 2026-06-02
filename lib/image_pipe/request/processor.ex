@@ -19,7 +19,9 @@ defmodule ImagePipe.Request.Processor do
           required(:decode_options) => keyword(),
           required(:image) => VipsImage.t(),
           required(:source_format) => source_format(),
-          optional(:source_response) => Source.Response.t()
+          optional(:source_response) => Source.Response.t(),
+          optional(:source_dimensions) => {pos_integer(), pos_integer()} | nil,
+          optional(:achieved_shrink) => %{w: float(), h: float()} | nil
         }
 
   @spec process_source(Plan.t(), Source.Resolved.t(), keyword()) ::
@@ -54,20 +56,32 @@ defmodule ImagePipe.Request.Processor do
   @spec decode_validate_source_response(Source.Response.t(), Plan.t(), keyword()) ::
           {:ok, decoded()} | {:error, term()}
   def decode_validate_source_response(%Source.Response{} = source_response, %Plan{} = plan, opts) do
-    decode_options = DecodePlanner.open_options(first_pipeline_operations(plan))
+    operations = first_pipeline_operations(plan)
 
-    with {:ok, image} <-
-           decode_source_response(source_response, decode_options, opts)
-           |> prefer_source_body_limit(source_response)
+    with {:ok, input} <- seekable_input(source_response),
+         {:ok, header_image} <-
+           open_seekable_input(input, [access: :random, fail_on: :error], opts)
            |> wrap_decode_error(),
-         {:ok, source_format} <- SourceFormat.from_image(image),
-         :ok <- validate_input_image(image, opts) |> wrap_input_limit_error() do
+         {:ok, source_format} <- SourceFormat.from_image(header_image),
+         original_dims = {Image.width(header_image), Image.height(header_image)},
+         corrected_dims = orientation_corrected_dims(header_image),
+         :ok <- validate_original_pixels(original_dims, opts) |> wrap_input_limit_error(),
+         decode_options = DecodePlanner.open_options(operations, source_format, corrected_dims),
+         {:ok, image} <-
+           open_seekable_input(input, decode_options, opts)
+           |> prefer_source_body_limit(source_response)
+           |> prefer_source_stream_error(source_response)
+           |> wrap_decode_error() do
+      achieved_shrink = compute_achieved_shrink(original_dims, image)
+
       {:ok,
        %{
          decode_options: decode_options,
          image: image,
          source_format: source_format,
-         source_response: source_response
+         source_response: source_response,
+         source_dimensions: corrected_dims,
+         achieved_shrink: achieved_shrink
        }}
     end
   end
@@ -80,11 +94,14 @@ defmodule ImagePipe.Request.Processor do
         opts
       ) do
     source_response = Map.get(decoded, :source_response)
+    source_dimensions = Map.get(decoded, :source_dimensions)
+
+    initial_state = %State{image: image, source_dimensions: source_dimensions}
 
     Telemetry.span(Telemetry.telemetry_opts(opts), [:transform, :execute], %{}, fn ->
       result =
         with {:ok, final_state} <-
-               execute_plan_pipelines(%State{image: image}, plan, opts, source_response),
+               execute_plan_pipelines(initial_state, plan, opts, source_response),
              {:ok, final_state} <-
                materialize_before_delivery(final_state, decode_options, opts, source_response),
              :ok <- validate_result_image(final_state.image, opts) do
@@ -157,14 +174,6 @@ defmodule ImagePipe.Request.Processor do
          _source_response
        ),
        do: {:ok, state}
-
-  defp decode_source_response(%Source.Response{} = source_response, decode_options, opts) do
-    with {:ok, input} <- seekable_input(source_response) do
-      input
-      |> open_seekable_input(decode_options, opts)
-      |> prefer_source_stream_error(source_response)
-    end
-  end
 
   defp seekable_input(%Source.Response{path: path, stream: nil}) when is_binary(path),
     do: {:ok, {:path, path}}
@@ -267,15 +276,31 @@ defmodule ImagePipe.Request.Processor do
 
   defp prefer_source_stream_error(result, _source_response), do: result
 
-  defp validate_input_image(image, opts) do
+  defp orientation_corrected_dims(image) do
+    w = Image.width(image)
+    h = Image.height(image)
+
+    case VipsImage.header_value(image, "orientation") do
+      {:ok, v} when v in [5, 6, 7, 8] -> {h, w}
+      _ -> {w, h}
+    end
+  end
+
+  defp validate_original_pixels({w, h}, opts) do
     max_input_pixels = Keyword.fetch!(opts, :max_input_pixels)
-    pixel_count = Image.width(image) * Image.height(image)
+    pixel_count = w * h
 
     if pixel_count <= max_input_pixels do
       :ok
     else
       {:error, {:too_many_input_pixels, pixel_count, max_input_pixels}}
     end
+  end
+
+  defp compute_achieved_shrink({orig_w, orig_h}, image) do
+    loaded_w = Image.width(image)
+    loaded_h = Image.height(image)
+    %{w: max(1.0, orig_w / loaded_w), h: max(1.0, orig_h / loaded_h)}
   end
 
   defp wrap_input_limit_error(:ok), do: :ok

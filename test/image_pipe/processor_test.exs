@@ -75,6 +75,12 @@ defmodule ImagePipe.Request.ProcessorTest do
   defp resize_dimension(:auto), do: :auto
   defp resize_dimension(pixels), do: {:px, pixels}
 
+  defp build_resize_plan(target_w) do
+    with {:ok, operation} <- resize_fit(target_w, :auto) do
+      {:ok, %Plan{plan() | pipelines: [%Pipeline{operations: [operation]}]}}
+    end
+  end
+
   defp svg_supported? do
     case VipsImage.supported_loader_suffixes() do
       {:ok, suffixes} -> ".svg" in suffixes
@@ -161,7 +167,12 @@ defmodule ImagePipe.Request.ProcessorTest do
                opts()
              )
 
-    assert decoded.decode_options == [access: :sequential, fail_on: :error]
+    # Access is sequential (from the first-pipeline resize). A shrink option may also be present
+    # because the planner now receives actual source dims. The key assertion is that only the
+    # first-pipeline operations (the fit resize) drove the access selection, not the second-pipeline
+    # cover resize (which would force :random).
+    assert Keyword.fetch!(decoded.decode_options, :access) == :sequential
+    assert Keyword.fetch!(decoded.decode_options, :fail_on) == :error
   end
 
   test "fetch_decode_validate_source_with_source_format returns singly tagged decode errors" do
@@ -336,8 +347,11 @@ defmodule ImagePipe.Request.ProcessorTest do
              )
 
     assert VipsImage.width(image) > 0
-    assert_received {:buffer_vips_opts, vips_opts}
-    assert Keyword.get(vips_opts, :access) == :VIPS_ACCESS_SEQUENTIAL
+    # The two-step open sends two messages: header open (random access) then decode open.
+    # The decode open carries the planner's access selection.
+    assert_received {:buffer_vips_opts, _header_opts}
+    assert_received {:buffer_vips_opts, decode_vips_opts}
+    assert Keyword.get(decode_vips_opts, :access) == :VIPS_ACCESS_SEQUENTIAL
   end
 
   test "a multi-chunk stream response is drained into one contiguous binary before decode" do
@@ -359,5 +373,109 @@ defmodule ImagePipe.Request.ProcessorTest do
     assert_received {:opened_input, opened}
     assert is_binary(opened)
     assert opened == body
+  end
+
+  test "max_input_pixels is checked on original header dims, not the shrunk image" do
+    body = File.read!("priv/static/images/beach.jpg")
+    {:ok, full_image} = Image.open("priv/static/images/beach.jpg")
+    orig_pixels = Image.width(full_image) * Image.height(full_image)
+
+    tight_limit_opts = Keyword.put(opts(), :max_input_pixels, orig_pixels - 1)
+
+    pid = self()
+
+    counting_loader = fn binary, load_opts ->
+      send(pid, {:buffer_opened, load_opts})
+      VipsImage.new_from_buffer(binary, load_opts)
+    end
+
+    response = %Response{stream: [body]}
+    {:ok, response} = Source.wrap_response(response, max_body_bytes: byte_size(body) + 100)
+
+    assert {:error, {:input_limit, {:too_many_input_pixels, ^orig_pixels, _max}}} =
+             Processor.decode_validate_source_response(
+               response,
+               plan(),
+               tight_limit_opts |> Keyword.put(:buffer_loader, counting_loader)
+             )
+
+    assert_receive {:buffer_opened, _header_opts}
+    refute_receive {:buffer_opened, _decode_opts}
+  end
+
+  test "shrink-eligible JPEG open: buffer_loader receives shrink option for large downscale" do
+    body = File.read!("priv/static/images/beach.jpg")
+    {:ok, full_image} = Image.open("priv/static/images/beach.jpg")
+    orig_w = Image.width(full_image)
+
+    target_w = div(orig_w, 9)
+
+    pid = self()
+
+    recording_loader = fn binary, load_opts ->
+      send(pid, {:buffer_opened, load_opts})
+      VipsImage.new_from_buffer(binary, load_opts)
+    end
+
+    response = %Response{stream: [body]}
+    {:ok, response} = Source.wrap_response(response, max_body_bytes: byte_size(body) + 100)
+
+    {:ok, shrink_plan} = build_resize_plan(target_w)
+
+    {:ok, %{image: image}} =
+      Processor.decode_validate_source_response(
+        response,
+        shrink_plan,
+        opts() |> Keyword.put(:buffer_loader, recording_loader)
+      )
+
+    assert_receive {:buffer_opened, header_opts}
+    refute Keyword.has_key?(header_opts, :shrink)
+
+    assert_receive {:buffer_opened, decode_opts}
+    assert Keyword.get(decode_opts, :shrink) == 8
+
+    assert Image.width(image) <= div(orig_w, 5)
+  end
+
+  test "PNG downscale: no shrink applied" do
+    {:ok, img} = Image.new(400, 300, color: [100, 150, 200])
+    png_body = Image.write!(img, :memory, suffix: ".png")
+
+    pid = self()
+
+    recording_loader = fn binary, load_opts ->
+      send(pid, {:buffer_opened, load_opts})
+      VipsImage.new_from_buffer(binary, load_opts)
+    end
+
+    response = %Response{stream: [png_body]}
+    {:ok, response} = Source.wrap_response(response, max_body_bytes: byte_size(png_body) + 100)
+
+    {:ok, small_plan} = build_resize_plan(50)
+
+    {:ok, %{image: _image}} =
+      Processor.decode_validate_source_response(
+        response,
+        small_plan,
+        opts() |> Keyword.put(:buffer_loader, recording_loader)
+      )
+
+    assert_receive {:buffer_opened, _header_opts}
+    assert_receive {:buffer_opened, decode_opts}
+    refute Keyword.has_key?(decode_opts, :shrink)
+    refute Keyword.has_key?(decode_opts, :scale)
+  end
+
+  test "source_dimensions in the decoded map reflect orientation-corrected original dims" do
+    {:ok, frame} = Image.new(400, 300, color: [255, 0, 0])
+    png_body = Image.write!(frame, :memory, suffix: ".png")
+
+    response = %Response{stream: [png_body]}
+    {:ok, response} = Source.wrap_response(response, max_body_bytes: byte_size(png_body) + 100)
+
+    {:ok, decoded} = Processor.decode_validate_source_response(response, plan(), opts())
+
+    assert decoded.source_dimensions == {400, 300}
   end
 end

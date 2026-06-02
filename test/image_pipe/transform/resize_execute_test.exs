@@ -1,8 +1,8 @@
 defmodule ImagePipe.Transform.ResizeExecuteTest do
   use ExUnit.Case, async: true
 
-  alias ImagePipe.Transform.State
   alias ImagePipe.Transform.Operation.Resize
+  alias ImagePipe.Transform.State
 
   test "execute uses source_dimensions when set, not shrunk image dims" do
     # Simulate a 3000x2000 image shrunk to 375x250 (8x), source_dimensions = {3000, 2000}
