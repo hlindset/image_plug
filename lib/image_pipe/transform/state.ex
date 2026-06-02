@@ -14,23 +14,47 @@ defmodule ImagePipe.Transform.State do
   - `detector_required`: whether detect-gravity must use the detector instead of
     silently falling back to attention smartcrop.
   - `telemetry_opts`: telemetry metadata threaded through stage spans.
+  - `source_dimensions`: the *exact* original (full-resolution) `{w, h}` the
+    residual resize must size against, set only when shrink-on-load has reduced the
+    decoded image; `nil` otherwise. It is exact (not reconstructed from the shrunk
+    dims), so the residual resize lands on the same target as a full-resolution
+    decode. It is safe from staleness because shrink-on-load is declined whenever a
+    crop or quarter-turn rotate precedes the resize (see `ImagePipe.Transform.DecodePlanner`),
+    so the only pre-resize op that can change the image extent while this is set is
+    `AutoOrient`, which swaps it in step. The residual resize clears it to `nil`.
   """
 
   defstruct image: nil,
             debug: false,
             detector: nil,
             detector_required: false,
-            telemetry_opts: []
+            telemetry_opts: [],
+            source_dimensions: nil
 
   @type t :: %__MODULE__{
           image: Vix.Vips.Image.t() | nil,
           debug: boolean(),
           detector: module() | {module(), keyword()} | nil,
           detector_required: boolean(),
-          telemetry_opts: keyword()
+          telemetry_opts: keyword(),
+          source_dimensions: {pos_integer(), pos_integer()} | nil
         }
 
   def set_image(%__MODULE__{} = state, %Vix.Vips.Image{} = image) do
     %__MODULE__{state | image: image}
   end
+
+  @doc """
+  Dimensions the residual resize must size against.
+
+  When shrink-on-load reduced the decoded image, this returns the exact stored
+  original extent (`source_dimensions`), so the residual resize computes the same
+  target a full-resolution decode would. With no shrink it returns the live image
+  dimensions — which also makes a crop-before-resize correct, since the cropped
+  image's own dimensions are what the following resize should size against.
+  """
+  def effective_source_dims(%__MODULE__{source_dimensions: {w, h}}), do: {w, h}
+
+  def effective_source_dims(%__MODULE__{image: image}),
+    do: {Image.width(image), Image.height(image)}
 end

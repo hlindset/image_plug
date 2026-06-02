@@ -121,14 +121,7 @@ defmodule ImagePipe.Transform.PlanExecutor do
   end
 
   defp executable_operations(%PlanResize{mode: :auto} = operation, %State{} = state, _context) do
-    branch =
-      resize_auto_branch(
-        Image.width(state.image),
-        Image.height(state.image),
-        tagged_logical_pixels(operation.width),
-        tagged_logical_pixels(operation.height)
-      )
-
+    branch = plan_resize_branch(operation, state)
     resize = resize_from(operation, branch)
 
     tagged_executable_resize_operations(branch, resize, operation, state)
@@ -262,10 +255,12 @@ defmodule ImagePipe.Transform.PlanExecutor do
   end
 
   defp cover_resize_and_crop(%Resize{} = resize, %State{} = state, gravity, {x_offset, y_offset}) do
+    {src_w, src_h} = State.effective_source_dims(state)
+
     dimensions =
       Resize.resolve_dimensions(resize,
-        source_width: Image.width(state.image),
-        source_height: Image.height(state.image)
+        source_width: src_w,
+        source_height: src_h
       )
 
     [
@@ -365,6 +360,7 @@ defmodule ImagePipe.Transform.PlanExecutor do
     do: tagged_dpr_float(operation.dpr)
 
   defp resize_padding_scale(%PlanResize{} = operation, %State{} = state, mode) do
+    {src_w, src_h} = State.effective_source_dims(state)
     requested_scale = tagged_dpr_float(operation.dpr)
     branch = plan_resize_branch(operation, state)
     resize = resize_from(operation, branch)
@@ -372,8 +368,8 @@ defmodule ImagePipe.Transform.PlanExecutor do
     base =
       %{resize | dpr: 1.0, enlarge: true}
       |> Resize.resolve_dimensions(
-        source_width: Image.width(state.image),
-        source_height: Image.height(state.image)
+        source_width: src_w,
+        source_height: src_h
       )
 
     max_without_enlarge = max_padding_scale_without_enlarge(base, state)
@@ -392,7 +388,8 @@ defmodule ImagePipe.Transform.PlanExecutor do
          %{requested_width: width, requested_height: height},
          %State{} = state
        ) do
-    min(Image.width(state.image) / width, Image.height(state.image) / height)
+    {src_w, src_h} = State.effective_source_dims(state)
+    min(src_w / width, src_h / height)
   end
 
   defp compensate_no_enlarge_padding_scale(requested_scale, :unbounded, _mode),
@@ -425,9 +422,11 @@ defmodule ImagePipe.Transform.PlanExecutor do
   defp plan_resize_branch(%PlanResize{mode: :stretch}, %State{}), do: :stretch
 
   defp plan_resize_branch(%PlanResize{mode: :auto} = operation, %State{} = state) do
+    {src_w, src_h} = State.effective_source_dims(state)
+
     resize_auto_branch(
-      Image.width(state.image),
-      Image.height(state.image),
+      src_w,
+      src_h,
       tagged_logical_pixels(operation.width),
       tagged_logical_pixels(operation.height)
     )

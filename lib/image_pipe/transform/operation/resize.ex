@@ -60,15 +60,22 @@ defmodule ImagePipe.Transform.Operation.Resize do
 
   @impl ImagePipe.Transform
   def execute(%__MODULE__{} = operation, %State{} = state) do
+    {src_w, src_h} = State.effective_source_dims(state)
+
     dimensions =
       resolve_dimensions(operation,
-        source_width: image_width(state),
-        source_height: image_height(state)
+        source_width: src_w,
+        source_height: src_h
       )
 
     case resize_image(state, dimensions.intermediate_width, dimensions.intermediate_height) do
-      {:ok, image} -> {:ok, set_image(state, image)}
-      {:error, reason} -> {:error, {__MODULE__, reason}}
+      {:ok, image} ->
+        # The residual resize has finished the downscale: the image is now at its
+        # final resolution, so the stored shrink-on-load original no longer applies.
+        {:ok, %State{set_image(state, image) | source_dimensions: nil}}
+
+      {:error, reason} ->
+        {:error, {__MODULE__, reason}}
     end
   end
 

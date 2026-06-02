@@ -44,9 +44,25 @@ defmodule ImagePipe.Transform.Operation.AutoOrient do
 
   @impl ImagePipe.Transform
   def execute(%__MODULE__{}, %State{} = state) do
+    pre_width = Image.width(state.image)
+
     case Image.autorotate(state.image) do
-      {:ok, {image, _flags}} -> {:ok, set_image(state, image)}
-      {:error, error} -> {:error, {__MODULE__, error}}
+      {:ok, {image, _flags}} ->
+        {:ok, sync_source_dimensions(set_image(state, image), pre_width, Image.width(image))}
+
+      {:error, error} ->
+        {:error, {__MODULE__, error}}
     end
   end
+
+  # A 90°/270° auto-rotation swaps the image's width and height. When shrink-on-load
+  # has stored the exact original extent for the residual resize, that extent must
+  # swap in step so it keeps describing the now-rotated image. A width change is the
+  # signal that the axes swapped; 0°/180° and flips leave the width unchanged.
+  defp sync_source_dimensions(%State{source_dimensions: {w, h}} = state, pre_width, post_width)
+       when post_width != pre_width do
+    %State{state | source_dimensions: {h, w}}
+  end
+
+  defp sync_source_dimensions(%State{} = state, _pre_width, _post_width), do: state
 end
