@@ -157,24 +157,43 @@ defmodule ImagePipe.Request.Processor do
        do: {:ok, state}
 
   defp decode_source_response(%Source.Response{} = source_response, decode_options, opts) do
-    image_open_module = Keyword.get(opts, :image_open_module, Image)
-
     with {:ok, input} <- seekable_input(source_response) do
       input
-      |> image_open_module.open(decode_options)
+      |> open_seekable_input(decode_options, opts)
       |> prefer_source_stream_error(source_response)
     end
   end
 
-  defp seekable_input(%Source.Response{path: path}) when is_binary(path), do: {:ok, path}
+  defp seekable_input(%Source.Response{path: path}) when is_binary(path), do: {:ok, {:path, path}}
 
   defp seekable_input(%Source.Response{stream: stream}) when not is_nil(stream) do
-    {:ok, stream |> Enum.to_list() |> IO.iodata_to_binary()}
+    {:ok, {:buffer, stream |> Enum.to_list() |> IO.iodata_to_binary()}}
   rescue
     exception in [Source.StreamError] -> {:error, {:source, exception.reason}}
   end
 
   defp seekable_input(%Source.Response{}), do: {:error, {:source, :invalid_adapter_result}}
+
+  # Paths open through the file loader. Drained buffers go through `Image.from_binary/2`
+  # (libvips buffer loader) so the format is detected from the bytes, matching the old
+  # streaming loader's coverage. `Image.open/2` on a binary only signature-matches a subset
+  # of formats and misroutes any other supported format (e.g. JPEG 2000, JPEG-XL) as a
+  # filesystem path. A test-injected `:image_open_module` still receives the raw path/binary
+  # via `open/2`, preserving the decode seam.
+  defp open_seekable_input({:path, path}, decode_options, opts) do
+    decode_seekable(opts, path, decode_options, &Image.open/2)
+  end
+
+  defp open_seekable_input({:buffer, binary}, decode_options, opts) do
+    decode_seekable(opts, binary, decode_options, &Image.from_binary/2)
+  end
+
+  defp decode_seekable(opts, input, decode_options, default_open) do
+    case Keyword.get(opts, :image_open_module) do
+      nil -> default_open.(input, decode_options)
+      module -> module.open(input, decode_options)
+    end
+  end
 
   defp materialize_before_delivery(%State{} = state, decode_options, opts, source_response) do
     case Keyword.fetch!(decode_options, :access) do

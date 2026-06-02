@@ -293,4 +293,25 @@ defmodule ImagePipe.Request.ProcessorTest do
 
     refute_received {:opened_input, _input}
   end
+
+  test "a multi-chunk stream response is drained into one contiguous binary before decode" do
+    body = File.read!("priv/static/images/beach.jpg")
+    split = div(byte_size(body), 2)
+    chunks = [binary_part(body, 0, split), binary_part(body, split, byte_size(body) - split)]
+
+    {:ok, response} =
+      Source.wrap_response(%Response{stream: chunks}, max_body_bytes: byte_size(body))
+
+    assert {:ok, %{image: image}} =
+             Processor.decode_validate_source_response(
+               response,
+               plan(),
+               Keyword.put(opts(), :image_open_module, RecordingPathOpen)
+             )
+
+    assert VipsImage.width(image) > 0
+    assert_received {:opened_input, opened}
+    assert is_binary(opened)
+    assert opened == body
+  end
 end
