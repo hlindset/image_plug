@@ -1,6 +1,7 @@
 defmodule ImagePipe.Request.Processor do
   @moduledoc false
 
+  alias Image.Options.Open, as: ImageOpenOptions
   alias ImagePipe.Error
   alias ImagePipe.Plan
   alias ImagePipe.Request.Options
@@ -11,11 +12,12 @@ defmodule ImagePipe.Request.Processor do
   alias ImagePipe.Transform.DecodePlanner
   alias ImagePipe.Transform.Materializer
   alias ImagePipe.Transform.State
+  alias Vix.Vips.Image, as: VipsImage
 
   @type source_format() :: SourceFormat.source_format()
   @type decoded() :: %{
           required(:decode_options) => keyword(),
-          required(:image) => Vix.Vips.Image.t(),
+          required(:image) => VipsImage.t(),
           required(:source_format) => source_format(),
           optional(:source_response) => Source.Response.t()
         }
@@ -175,24 +177,34 @@ defmodule ImagePipe.Request.Processor do
 
   defp seekable_input(%Source.Response{}), do: {:error, {:source, :invalid_adapter_result}}
 
-  # Paths open through the file loader. Drained buffers go through `Image.from_binary/2`
-  # (libvips buffer loader) so the format is detected from the bytes, matching the old
-  # streaming loader's coverage. `Image.open/2` on a binary only signature-matches a subset
-  # of formats and misroutes any other supported format (e.g. JPEG 2000, JPEG-XL) as a
-  # filesystem path. A test-injected `:image_open_module` still receives the raw path/binary
-  # via `open/2`, preserving the decode seam.
+  # A file path opens through `Image.open/2`, which routes to the libvips file loader and
+  # preserves loader options (including `:access`).
   defp open_seekable_input({:path, path}, decode_options, opts) do
-    decode_seekable(opts, path, decode_options, &Image.open/2)
-  end
-
-  defp open_seekable_input({:buffer, binary}, decode_options, opts) do
-    decode_seekable(opts, binary, decode_options, &Image.from_binary/2)
-  end
-
-  defp decode_seekable(opts, input, decode_options, default_open) do
     case Keyword.get(opts, :image_open_module) do
-      nil -> default_open.(input, decode_options)
-      module -> module.open(input, decode_options)
+      nil -> Image.open(path, decode_options)
+      module -> module.open(path, decode_options)
+    end
+  end
+
+  # A drained buffer opens through the libvips buffer loader directly via `new_from_buffer/2`.
+  # We do NOT use `Image.open/2` (a binary matching no image signature is misrouted as a
+  # filesystem path) nor `Image.from_binary/2` (it strips `:access`, silently downgrading the
+  # planner's `:sequential` selection to libvips' random default). Validating the open options
+  # the same way the `image` library does, then calling `new_from_buffer/2`, detects the format
+  # from the bytes for any supported format AND carries `:access`/`fail_on:` through to libvips.
+  # The buffer loader is injectable so tests can observe the options libvips actually receives.
+  defp open_seekable_input({:buffer, binary}, decode_options, opts) do
+    case Keyword.get(opts, :image_open_module) do
+      nil -> open_buffer(binary, decode_options, opts)
+      module -> module.open(binary, decode_options)
+    end
+  end
+
+  defp open_buffer(binary, decode_options, opts) do
+    loader = Keyword.get(opts, :buffer_loader, &VipsImage.new_from_buffer/2)
+
+    with {:ok, vips_opts} <- ImageOpenOptions.validate_options(decode_options) do
+      loader.(binary, vips_opts)
     end
   end
 

@@ -309,6 +309,37 @@ defmodule ImagePipe.Request.ProcessorTest do
              Processor.decode_validate_source_response(response, plan(), opts())
   end
 
+  test "the planner's sequential access reaches the libvips buffer loader" do
+    # Regression: Image.from_binary/2 deletes :access before new_from_buffer, silently
+    # downgrading the planner's :sequential selection. Decoding the drained buffer through
+    # new_from_buffer with validated options must carry :access through to libvips.
+    body = File.read!("priv/static/images/beach.jpg")
+
+    {:ok, response} =
+      Source.wrap_response(%Response{stream: [body]}, max_body_bytes: byte_size(body))
+
+    {:ok, resize} = resize_fit(120, :auto)
+    plan = %Plan{plan() | pipelines: [%Pipeline{operations: [resize]}]}
+
+    test_pid = self()
+
+    recording_loader = fn binary, vips_opts ->
+      send(test_pid, {:buffer_vips_opts, vips_opts})
+      VipsImage.new_from_buffer(binary, vips_opts)
+    end
+
+    assert {:ok, %{image: image}} =
+             Processor.decode_validate_source_response(
+               response,
+               plan,
+               Keyword.put(opts(), :buffer_loader, recording_loader)
+             )
+
+    assert VipsImage.width(image) > 0
+    assert_received {:buffer_vips_opts, vips_opts}
+    assert Keyword.get(vips_opts, :access) == :VIPS_ACCESS_SEQUENTIAL
+  end
+
   test "a multi-chunk stream response is drained into one contiguous binary before decode" do
     body = File.read!("priv/static/images/beach.jpg")
     split = div(byte_size(body), 2)
