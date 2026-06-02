@@ -22,6 +22,14 @@
 #            the reliable libvips memory signal here; the high-water is process-wide, so use
 #            one mode + one file for a clean per-case figure:
 #              mise exec -- mix run bench/decode_modes.exs buffered sequential priv/static/images/waterfall.jpg 400 5 --leak
+#   --csv  : emit one machine-readable CSV row per (file, mode) to stdout and suppress the
+#            human tables (consumed by the bench/decode_matrix.exs orchestrator). No header
+#            row is printed. Columns:
+#              file,fmt,megapixels,mode,access,width,iters,median_ms,min_ms,max_ms,libvips_peak_bytes,rss_peak_bytes,out_w,out_h
+#            rss_peak_bytes is reliable; libvips_peak_bytes comes from tracked_get_mem_highwater
+#            and is only meaningful once the Vix high-water NIF fix is in (~0 otherwise). Clean
+#            per-file memory requires one file + one mode per process (what the orchestrator does).
+#            Mutually exclusive with --leak.
 #
 # MEMORY NOTES:
 #   * Peak RSS is OS-sampled (`ps -o rss`) across each mode's whole corpus run, so it
@@ -44,8 +52,10 @@ defmodule DecodeBench do
   @sample_interval_ms 10
 
   def main(argv) do
+    {csv?, argv} = pop_flag(argv, "--csv")
     {leak_flag?, argv} = pop_flag(argv, "--leak")
-    leak? = leak_flag? or System.get_env("VIPS_LEAK") == "1"
+    # --csv produces pure CSV on stdout, so leak's human shutdown report must not run.
+    leak? = not csv? and (leak_flag? or System.get_env("VIPS_LEAK") == "1")
 
     # libvips only emits its "memory: high-water mark" line from vips_shutdown(), and only when
     # leak checking is on. Vix never calls vips_shutdown automatically, so --leak turns leak
@@ -53,11 +63,11 @@ defmodule DecodeBench do
     # This is the true libvips working-set peak (build-portable), unlike Vix's
     # tracked_get_mem_highwater/0 (see notes below).
     if leak?, do: Vix.Vips.set_vips_leak_checking(true)
-    run(argv, leak?)
+    run(argv, leak?, csv?)
     if leak?, do: flush_leak_report()
   end
 
-  defp run(argv, leak?) do
+  defp run(argv, leak?, csv?) do
     {mode, access, corpus, width, iters} = parse(argv)
     files = resolve_corpus(corpus)
 
@@ -72,24 +82,35 @@ defmodule DecodeBench do
     raw_opts = [access: access, fail_on: :error]
     {:ok, validated_opts} = Image.Options.Open.validate_options(raw_opts)
 
-    IO.puts("""
-    decode-mode benchmark
-      corpus:    #{corpus} (#{length(files)} images)
-      access:    #{access}
-      width:     #{width}px target
-      iters:     #{iters} per image (+1 warmup discarded)
-      vips_leak: #{leak_status(leak?)}
-    """)
+    unless csv? do
+      IO.puts("""
+      decode-mode benchmark
+        corpus:    #{corpus} (#{length(files)} images)
+        access:    #{access}
+        width:     #{width}px target
+        iters:     #{iters} per image (+1 warmup discarded)
+        vips_leak: #{leak_status(leak?)}
+      """)
+    end
 
     modes = if mode == :both, do: [:streaming, :buffered], else: [mode]
 
-    {results, peaks} =
-      Enum.reduce(modes, {%{}, %{}}, fn m, {results, peaks} ->
-        {rows, peak} = run_mode(m, files, raw_opts, validated_opts, width, iters)
-        {Map.put(results, m, rows), Map.put(peaks, m, peak)}
+    mode_data =
+      Map.new(modes, fn m ->
+        {rows, rss} = run_mode(m, files, raw_opts, validated_opts, width, iters)
+        {m, %{rows: rows, rss: rss, vips_hw: Vix.Vips.tracked_get_mem_highwater()}}
       end)
 
-    report(modes, files, results, peaks)
+    if csv? do
+      emit_csv(modes, files, mode_data, access, width, iters)
+    else
+      report(
+        modes,
+        files,
+        Map.new(mode_data, fn {m, d} -> {m, d.rows} end),
+        Map.new(mode_data, fn {m, d} -> {m, d.rss} end)
+      )
+    end
   end
 
   defp run_mode(mode, files, raw_opts, validated_opts, width, iters) do
@@ -119,7 +140,13 @@ defmodule DecodeBench do
             {[t1 - t0 | acc], out}
           end)
 
-        %{src: src, out: out, median_us: median(durations)}
+        %{
+          src: src,
+          out: out,
+          median_us: median(durations),
+          min_us: Enum.min(durations),
+          max_us: Enum.max(durations)
+        }
 
       {:error, reason} ->
         %{error: reason}
@@ -208,6 +235,58 @@ defmodule DecodeBench do
     #{rss_caveat()}
     """)
   end
+
+  # --- machine-readable output (for bench/decode_matrix.exs) ---
+
+  defp emit_csv(modes, files, mode_data, access, width, iters) do
+    for m <- modes, path <- files do
+      d = Map.fetch!(mode_data, m)
+      IO.puts(csv_row(path, m, access, width, iters, Map.fetch!(d.rows, path), d.rss, d.vips_hw))
+    end
+  end
+
+  defp csv_row(path, mode, access, width, iters, %{error: _}, rss, vips_hw) do
+    csv([
+      path,
+      fmt(path),
+      "",
+      mode,
+      access,
+      width,
+      iters,
+      "ERR",
+      "ERR",
+      "ERR",
+      vips_hw,
+      rss,
+      "",
+      ""
+    ])
+  end
+
+  defp csv_row(path, mode, access, width, iters, r, rss, vips_hw) do
+    {sw, sh} = r.src
+    {ow, oh} = r.out
+
+    csv([
+      path,
+      fmt(path),
+      :erlang.float_to_binary(sw * sh / 1_000_000, decimals: 2),
+      mode,
+      access,
+      width,
+      iters,
+      ms(r.median_us),
+      ms(r.min_us),
+      ms(r.max_us),
+      vips_hw,
+      rss,
+      ow,
+      oh
+    ])
+  end
+
+  defp csv(fields), do: fields |> Enum.map_join(",", &to_string/1)
 
   defp label(path), do: String.pad_trailing(Path.basename(path), 26)
   defp col(v), do: String.pad_trailing(to_string(v), 16)

@@ -1,0 +1,20 @@
+# Handpicked benchmark corpus for bench/decode_matrix.exs.
+# One image per line. Blank lines and lines starting with '#' are ignored.
+# Optional per-line target-width override: "<path> <width>" (otherwise the matrix default).
+#
+# Edit freely — point at production-representative images (and JXL/JP2/AVIF once your
+# libvips supports them) to get numbers that reflect your real traffic.
+
+# small JPEGs
+priv/static/images/woman.jpg
+priv/static/images/beach.jpg
+
+# PNG (different decoder than JPEG)
+priv/static/images/cooking.png
+
+# large JPEGs
+priv/static/images/dog.jpg
+priv/static/images/waterfall.jpg
+
+# AVIF (HEIF-family loader; needs a libvips with HEIF support)
+test/support/image_pipe/imgproxy_wire_conformance_test/cat.avif
