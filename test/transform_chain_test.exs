@@ -11,6 +11,7 @@ defmodule ImagePipe.Transform.ChainTest do
   alias ImagePipe.Transform.Operation.Crop
   alias ImagePipe.Transform.Operation.ExtendCanvas
   alias ImagePipe.Transform.Operation.Resize
+  alias ImagePipe.Transform.Operation.Rotate
   alias ImagePipe.Transform.Operation.Saturation
   alias ImagePipe.Transform.State
 
@@ -210,6 +211,41 @@ defmodule ImagePipe.Transform.ChainTest do
              Chain.execute(%State{image: image}, [%Background{color: [255, 0, 0, 128]}])
 
     assert Image.get_pixel!(image, 0, 0) == [255, 0, 0, 128]
+  end
+
+  describe "per-op materialization" do
+    test "a chain with a materializing op sets materialized? and stays correct" do
+      {:ok, image} = Image.new(40, 20, color: :white)
+      {:ok, state} = Chain.execute(%State{image: image, materialized?: false}, [%Rotate{angle: 90}])
+
+      assert state.materialized? == true
+      assert Image.width(state.image) == 20
+      assert Image.height(state.image) == 40
+    end
+
+    test "a second materializing op produces correct output (no double-copy regression)" do
+      {:ok, image} = Image.new(40, 20, color: :white)
+
+      {:ok, state} =
+        Chain.execute(%State{image: image, materialized?: false}, [
+          %Rotate{angle: 90},
+          %Rotate{angle: 90}
+        ])
+
+      # two 90-degree turns = 180; back to 40x20
+      assert state.materialized? == true
+      assert Image.width(state.image) == 40
+      assert Image.height(state.image) == 20
+    end
+
+    test "a fully sequential-safe chain leaves materialized? false" do
+      {:ok, image} = Image.new(40, 20, color: :white)
+
+      {:ok, state} =
+        Chain.execute(%State{image: image, materialized?: false}, [%Background{color: [0, 0, 0, 255]}])
+
+      assert state.materialized? == false
+    end
   end
 
   test "execute/3 emits [:transform, :operation] spans in order with operation metadata" do
