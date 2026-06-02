@@ -346,6 +346,33 @@ non-byte-identical bodies. This is not a new conflation in code (the ETag never
 hashes the body), but the strong-validator semantics now assume a homogeneous
 decode regime across a fleet; documented, not gated.
 
+**Rollout safety (mixed-version fleet).** Because shrink-on-load makes output
+only perceptually-equivalent — not byte-identical — for a given plan, a
+*transitional* rollout in which some instances run shrink-on-load and some do
+not can serve different bytes under the same strong ETag. During that window a
+client holding a body cached from a non-shrink instance can receive a
+`304 Not Modified` from a shrink instance (the ETag matches) and keep bytes the
+shrink instance would never have produced — a strong-validator violation, even
+though both bodies satisfy the perceptual-equivalence contract. Mitigations, in
+order of preference:
+
+1. **Coordinated deploy.** Gate shrink-on-load behind an atomic/coordinated
+   rollout so the fleet flips together, preserving the homogeneous-decode-regime
+   assumption above. This is the default expectation.
+2. **Decode-regime seed.** During a transitional rollout, fold a coarse
+   *decode-regime seed* (a version tag for the active regime: shrink-on-load
+   on/off, and optionally the libvips major) into ETag generation, so the two
+   regimes produce distinct ETags and the conditional-GET `304` path stays
+   correct. This is the narrow, deliberate exception to "decode strategy stays
+   out of the ETag": it is included only because, under shrink-on-load, the
+   regime genuinely changes the output bytes.
+3. **Weak ETag.** Failing that, emit a weak validator (`W/"…"`) while the fleet
+   is heterogeneous, dropping the byte-identity promise and disabling `304`
+   short-circuiting for affected requests.
+
+This is a Plan B concern only — Plan A does not change output bytes, so its
+ETags are unaffected.
+
 ## Measurement
 
 The acceptance criterion ("benchmarks/tests demonstrate reduced memory/CPU") is
