@@ -248,7 +248,7 @@ pipeline" and "materialize between pipelines"; update it to describe per-op mate
 | `Operation.Flip{axis: :horizontal}` | `false` (provisional) | Same rows, x mirrored — gated on Layer 1/2 |
 | `Operation.Crop` (smart/detect gravity) | `true` | Attention model needs arbitrary access |
 | `Operation.Crop` (anchor/focal gravity) | `false` | `vips_extract_area` is sequential-safe |
-| `Operation.AutoOrient` | see below | EXIF orientation may imply a quarter turn |
+| `Operation.AutoOrient` | `false` (self-manages) | Data-dependent; materialises *internally* — see below |
 | All other operations | `false` (default) | See Background for per-op basis |
 
 `Operation.Crop` pattern-matches on its gravity field (the executable gravity shapes
@@ -265,31 +265,35 @@ def requires_materialization?(%Crop{}), do: false
 `Operation.Rotate` always returns `true` (the planner never emits a 0° rotate —
 `plan_builder` drops `rotate: 0`).
 
-#### AutoOrient — open structural question (must resolve during implementation)
+#### AutoOrient — data-dependent, self-managed materialisation
 
-`AutoOrient.execute` calls `Image.autorotate/1`, which for EXIF orientations 5/6/7/8
-performs a **90°/270° rotation** — the same axis transpose that makes manual `Rotate{90}`
-require materialisation (the op's own `sync_source_dimensions` comment acknowledges the
-swap). The current `DecodePlanner` already classifies `AutoOrient` as `:sequential`, but
-under the old binary model that classification was rarely exercised in isolation (any other
-random op forced the whole chain random). The new model **newly exercises** AutoOrient-only
-sequential chains.
+`AutoOrient.execute` calls `Image.autorotate/1`, applying the image's EXIF orientation.
+Whether that needs random access depends on the **orientation value**, which lives in the
+image header, not the op struct — so `requires_materialization?(%AutoOrient{})` cannot
+decide it and returns `false` (it does not force a Chain-level materialise). AutoOrient
+instead **manages its own materialisation internally**, because it is the one op whose need
+is data-determined rather than struct-determined.
 
-Two structural facts make this the riskiest op:
+EXIF orientation safety:
 
-1. `requires_materialization?(operation)` sees only the **op struct**, not the image. An
-   AutoOrient's need depends on the image's EXIF header, which is not in the struct. The
-   per-op model cannot conditionally materialise "only when EXIF ∈ {5,6,7,8}".
-2. So the choice is binary: either libvips `vips_autorot` is sequential-safe for
-   quarter-turn EXIF (in which case `AutoOrient` stays `false`), or it is not (in which
-   case `AutoOrient` must return `true` unconditionally — conservatively materialising even
-   for non-rotating EXIF, since the struct can't distinguish).
+- `1` (identity) and `2` (pure horizontal flip) — sequential-safe; stream.
+- `3` (180°), `4` (vertical flip), `5`/`7` (transpose/transverse), `6`/`8` (90°/270°) —
+  reverse row order or transpose axes; **need random access**.
 
-Resolution gate: a dedicated equivalence test using EXIF 5/6/7/8 fixtures (the conformance
-suite already has an orientation-6 `ExifOrientationOriginImage`), opened from a genuinely
-streamed source with `fail_on: :error`. If sequential autorot raises or diverges on any
-quarter-turn orientation, `AutoOrient` returns `true`. This must be settled before the
-classification ships; the spec does not assume the favourable outcome.
+So `AutoOrient.execute` reads the orientation header first; for the random-access set it
+calls `copy_memory` (on the already-shrunk decode — `shrink_blocked_before_resize?`
+deliberately permits shrink before AutoOrient) and sets `materialized?: true` before
+autorotating; for `1`/`2` it streams. The exact safe set is **gated on the EXIF equivalence
+test** (libvips `vips_autorot` may self-cache for some orientations; the conservative
+default is to materialise for `3`–`8`). The conformance suite already has an orientation-6
+`ExifOrientationOriginImage`; the test must add `3`/`4`/`5`/`7`/`8` fixtures, opened from a
+genuinely streamed source with `fail_on: :error`.
+
+This is the **minimal-correct** handling for this spec. A more faithful imgproxy-parity
+model — carry rotation/flip as *pending* state, compensate crop+resize, and flush late
+(fusing with the smart-crop/ML/final materialisation) — is deferred to **issue #146**. That
+model supersedes self-materialisation; it is a performance/parity optimisation, not a
+correctness fix, and depends on this spec's per-op signal landing first.
 
 ## Testing strategy
 
@@ -314,8 +318,8 @@ actually honours `access: :sequential` (e.g. by confirming a known-random op lik
 
 Covers: `Crop` (anchor/focal), `Resize` (fit/cover/stretch), `ExtendCanvas`, `Padding`,
 `Background`, `Blur`, `Sharpen`, `Pixelate`, `Brightness`, `Contrast`, `Saturation`,
-`Monochrome`, `Duotone`, `Flip{horizontal}`, and `AutoOrient` (with EXIF 5/6/7/8 fixtures —
-see the AutoOrient gate above).
+`Monochrome`, `Duotone`, `Flip{horizontal}`, and `AutoOrient` (with EXIF 3/4/5/7/8 fixtures
+in addition to the existing orientation-6 fixture — see the AutoOrient gate above).
 
 These tests construct `ImagePipe.Transform.Operation.*` structs directly (e.g. `%Crop{}`,
 `%Blur{}`). This is the sanctioned convention, not impossible-internal-misuse: these are
@@ -333,7 +337,7 @@ bottom of a tall image, or a particular orientation). Same streaming harness as 
 - `Blur` / `Sharpen`: varied sigma values (the real gate for the filter ops, since imgproxy
   provides no evidence)
 - `Flip{horizontal}`: varied image sizes including non-square
-- `AutoOrient`: varied EXIF orientations including the quarter-turn set
+- `AutoOrient`: varied EXIF orientations including the row-reversing/transposing set (3–8)
 
 ### Layer 3 — Chain materialisation behaviour tests
 
@@ -394,6 +398,7 @@ no test going red. Tracked as a follow-up; not a blocker for the correctness wor
 | `Transform` facade | Add `requires_materialization?/1` dispatch function |
 | Operation modules (all 17) | Swap `@behaviour ImagePipe.Transform` → `use ImagePipe.Transform` |
 | Operation modules (5) | Add overriding `requires_materialization?/1` returning `true` |
+| `Operation.AutoOrient` | Read orientation header; self-`copy_memory` + set `materialized?` for EXIF 3–8; stream 1/2 |
 | `Transform.Chain` | Add `maybe_materialize/2`; call before each op |
 | `Transform.Materializer` | Replace VipsImage `materialize/1` with State `materialize/1` setting the flag; rewrite arity-2 body; update moduledoc |
 | `Transform.DecodePlanner` | Delete binary access decision; always `access: :sequential`; update doc |
