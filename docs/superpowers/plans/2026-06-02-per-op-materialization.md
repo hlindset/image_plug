@@ -475,8 +475,8 @@ end
 
 - [ ] **Step 4: Run the test + warnings gate**
 
-Run: `mise exec -- mix compile --warnings-as-errors && mise exec -- mix test test/image_pipe/transform/auto_orient_materialize_test.exs test/image_pipe/auto_orient_test.exs`
-Expected: PASS, zero warnings.
+Run: `mise exec -- mix compile --warnings-as-errors && mise exec -- mix test test/image_pipe/transform/auto_orient_materialize_test.exs`
+Expected: PASS, zero warnings. (There is no dedicated `auto_orient_test.exs`; AutoOrient's broader coverage lives in the wire/conformance and shrink suites, exercised by `mise run precommit` at the end.)
 
 - [ ] **Step 5: Commit**
 
@@ -571,7 +571,7 @@ In `test/image_pipe/decode_planner_test.exs`, the "Access selection" block asser
 Run to locate them:
 `mise exec -- grep -rn "access.*:random\|:random.*access" test/image_pipe/decode_planner_test.exs test/image_pipe/plug_test.exs test/image_pipe/processor_test.exs`
 
-- In `test/image_pipe/plug_test.exs` (~line 1858, "cover opens origin with random access"): change the asserted `access == :random` to `:sequential` and rename the test to "...with sequential access".
+- In `test/image_pipe/plug_test.exs` (~line 1858, "cover opens origin with random access"): change the asserted `access == :random` to `:sequential` and rename the test to "...with sequential access". **Only this one test flips.** Leave the `header_opts` assertions (the header probe at `processor.ex` hardcodes `access: :random` — unaffected; ~lines 1852/1887/1913) and any `metadata` stub `%{access: :random}` (~line 351) **unchanged**. Do not blanket-replace `:random` in this file.
 - In `test/image_pipe/processor_test.exs` (~line 120): change `assert decoded.decode_options == [access: :random, fail_on: :error]` to `[access: :sequential, fail_on: :error]`.
 
 - [ ] **Step 2: Run the tests to verify they now fail (planner still returns `:random`)**
@@ -599,6 +599,26 @@ Delete the entire "Access selection" section — these private functions and the
 - `defp resize_access_requirement/1` (both clauses)
 - `defp requested_resize_dimension?/1` (both clauses)
 - `defp resolve_access/1`
+
+**Then remove the 13 `alias` lines that only those deleted functions referenced** — otherwise `--warnings-as-errors` fails on unused aliases. Delete exactly these aliases (they are the plan-op modules only `access_requirement/1` named):
+
+```
+alias ImagePipe.Plan.Operation.Background
+alias ImagePipe.Plan.Operation.Blur
+alias ImagePipe.Plan.Operation.Brightness
+alias ImagePipe.Plan.Operation.Canvas
+alias ImagePipe.Plan.Operation.Contrast
+alias ImagePipe.Plan.Operation.Duotone
+alias ImagePipe.Plan.Operation.Flip
+alias ImagePipe.Plan.Operation.Monochrome
+alias ImagePipe.Plan.Operation.NormalizeColorProfile
+alias ImagePipe.Plan.Operation.Padding
+alias ImagePipe.Plan.Operation.Pixelate
+alias ImagePipe.Plan.Operation.Saturation
+alias ImagePipe.Plan.Operation.Sharpen
+```
+
+Keep the aliases still used by the shrink-on-load code: `AutoOrient`, `CropGuided`, `CropRegion`, `Resize` (as `PlanResize`), `Rotate`. Keep the `@type source_format()` (still used in the `@spec`).
 
 Update the moduledoc paragraph that describes the binary access decision to say decode is always sequential and random access is provided per-op by `ImagePipe.Transform.Chain`.
 
@@ -657,17 +677,25 @@ defp execute_plan_pipeline_step({pipeline, _index}, {:ok, %State{} = state}, _la
 end
 ```
 
-(If, after this, `last_index` / `source_response` / `index` become genuinely unused across the `execute_plan_pipelines` call chain, prefix them with `_` or drop them so `--warnings-as-errors` stays green. The `_`-prefixed params above already cover the step function.)
+The caller `execute_plan_pipelines/4` currently computes `last_index = length(pipelines) - 1` and threads `last_index` + `source_response` into the step purely for the between-pipeline check. Since the step now ignores them, drop the now-dead `last_index` binding and stop threading it (and `source_response` if it becomes unused) so `--warnings-as-errors` stays green. Simplify the `Enum.reduce_while` over `pipelines` to call `execute_plan_pipeline_step` with just `{pipeline, index}`, the acc, and `plan`/`opts`. Adjust the step function's arity to match whatever you keep — the key is: no unused bindings remain.
 
-- [ ] **Step 3: Run the processor + plug suites + warnings gate**
+- [ ] **Step 3: Remove the obsolete between-pipeline tests**
+
+The between-pipeline behavior is gone, so the tests pinning it must go (greenfield: delete behavior for removed paths). Locate them:
+
+Run: `mise exec -- grep -rn "materialized_between_pipelines\|between pipelines\|between_pipelines" test/`
+
+Delete the test asserting `assert_receive {:pipeline_event, ^ref, :materialized_between_pipelines}` in `test/image_pipe/processor_test.exs` (~line 122, "materializes between pipelines") and any equivalent in `test/image_pipe/request_runner_test.exs` (~line 1199). If the support stub `test/support/image_pipe/request_processor_test/materializer.ex` only existed to emit that `:materialized_between_pipelines` event, simplify it to a plain pass-through `materialize/2` (or leave it — it now only fires from the delivery-path `materialize_state`, which is harmless, but the misnamed event should not be asserted anywhere).
+
+- [ ] **Step 4: Run the processor + plug suites + warnings gate**
 
 Run: `mise exec -- mix compile --warnings-as-errors && mise exec -- mix test test/image_pipe/processor_test.exs test/image_pipe/plug_test.exs`
 Expected: PASS, zero warnings. (Multi-pipeline plans now rely on per-op materialization within each pipeline's `Chain.execute`; the state's `materialized?` flag threads pipeline to pipeline.)
 
-- [ ] **Step 4: Commit**
+- [ ] **Step 5: Commit**
 
 ```bash
-git add lib/image_pipe/request/processor.ex
+git add lib/image_pipe/request/processor.ex test/image_pipe/processor_test.exs test/image_pipe/request_runner_test.exs test/support/image_pipe/request_processor_test/materializer.ex
 git commit -m "feat(request): drop between-pipeline copy; per-op materialization end to end"
 ```
 
@@ -833,7 +861,29 @@ test "normalize color profile streams" do
 end
 ```
 
-Add the corresponding aliases at the top of the module: `Brightness`, `Contrast`, `Saturation`, `Monochrome`, `Duotone`, `Pixelate`, `NormalizeColorProfile` (all under `ImagePipe.Transform.Operation.*`). These are the exact executable struct shapes `PlanExecutor` builds (`Brightness`/`Contrast`/`Saturation` take a numeric `value`; `Monochrome` takes `intensity` 0..1 + RGB `color`; `Duotone` takes `intensity` + RGB `shadow`/`highlight`; `Pixelate` takes integer `size`; `NormalizeColorProfile` has no fields).
+- [ ] **Step 3b: Add the AutoOrient streaming-equivalence cases (the §7 gate)**
+
+AutoOrient is the op whose classification this layer most needs to validate — its self-materialize logic runs on a genuinely streamed source here, which the in-memory unit test in Task 5 cannot exercise. Add `alias ImagePipe.Transform.Operation.AutoOrient` and a synthesized-oriented-body helper, then one case per EXIF orientation:
+
+```elixir
+defp oriented_jpeg_body(orientation) do
+  {:ok, image} = Image.new(120, 80, color: :red)
+  image
+  |> Image.set_orientation!(orientation)
+  |> Image.write!(:memory, suffix: ".jpg")
+end
+
+for orientation <- [1, 2, 3, 4, 5, 6, 7, 8] do
+  @orientation orientation
+  test "auto-orient streams for EXIF orientation #{orientation}" do
+    assert_sequential_matches_random([%AutoOrient{}], oriented_jpeg_body(@orientation))
+  end
+end
+```
+
+This drives `[%AutoOrient{}]` through the streamed `:sequential` open vs `:random`: orientations 3–8 self-materialize then autorotate; 1/2 stream. If any orientation in the materialize set (3–8) diverges or raises, it stays in the set (conservative default, already the case). If orientation 2 diverges, add it to `auto_orient.ex`'s materialize set (Task 5) and re-run. (The shrink-active variant — orientation + a residual resize — is exercised end-to-end by `mise run precommit`'s shrink/conformance suites; this layer pins the bare orientation path.)
+
+Add the corresponding aliases at the top of the module: `AutoOrient`, `Brightness`, `Contrast`, `Saturation`, `Monochrome`, `Duotone`, `Pixelate`, `NormalizeColorProfile` (all under `ImagePipe.Transform.Operation.*`). These are the exact executable struct shapes `PlanExecutor` builds (`Brightness`/`Contrast`/`Saturation` take a numeric `value`; `Monochrome` takes `intensity` 0..1 + RGB `color`; `Duotone` takes `intensity` + RGB `shadow`/`highlight`; `Pixelate` takes integer `size`; `NormalizeColorProfile` has no fields).
 
 - [ ] **Step 4: Run the full Layer 1 file**
 
@@ -895,6 +945,17 @@ property "horizontal flip streams across image sizes" do
     {:ok, image} = Image.new(w, h, color: [10, 120, 200])
     body = Image.write!(image, :memory, suffix: ".png")
     assert_sequential_matches_random([%Flip{axis: :horizontal}], body)
+  end
+end
+
+property "auto-orient streams across EXIF orientations and sizes" do
+  check all orientation <- member_of([1, 2, 3, 4, 5, 6, 7, 8]),
+            w <- integer(20..160),
+            h <- integer(20..160),
+            max_runs: 24 do
+    {:ok, image} = Image.new(w, h, color: :red)
+    body = image |> Image.set_orientation!(orientation) |> Image.write!(:memory, suffix: ".jpg")
+    assert_sequential_matches_random([%AutoOrient{}], body)
   end
 end
 ```
@@ -987,11 +1048,24 @@ git commit -m "test(transform): Chain materialized? behaviour contract (Layer 3)
 
 Add wire-level tests that make real `ImagePipe.call/2` requests and assert on decoded output dimensions and representative pixels (not byte-identity), following the existing conformance-test patterns in that file (origin plug, request path building, `Image.open` of the response body). Add three cases:
 
-- **Anchor crop + blur** (previously forced random by blur): a request with a fixed-gravity crop and `bl:` blur; assert the decoded output dimensions match the crop and the body decodes.
-- **Resize cover + canvas + padding + background**: a `rs:fill` + `ex:` extend + `pd:` padding + `bg:` request; assert final dimensions include the padding and the background fill shows at a corner pixel.
+- **Anchor crop + blur** (previously forced random by blur): a fixed-gravity crop with `bl:` blur; assert the decoded output dimensions match the crop and the body decodes.
+- **Resize cover + canvas + padding + background**: a `rs:fill` + extend + `pd:` padding + `bg:` request; assert final dimensions include the padding and the background fill shows at a corner pixel.
 - **Transparent source + blur + background**: an alpha source with `bl:` + `bg:`; assert the output has no alpha (flattened) and the corner pixel is the background color.
 
-> Mirror the construction of an existing multi-option conformance test in this file for the request URL grammar and the origin-image plug. Assert with `Image.open(body)` + `Image.get_pixel!/3` + `Image.width/height`, matching the file's existing assertion style.
+**Before writing, confirm the exact imgproxy option tokens against this file and the parser** — the existing tests use `bl:` (blur), `pix:`, `mc:`/`dt:`, `br:`/`co:`/`sa:`, and `exar:` for aspect-ratio extend; padding/extend token spellings (`pd:`, `ex:`) must be verified in `ImagePipe.Parser.Imgproxy` or an existing test before use (grep the test file for a working example of each). Build each request path from a confirmed literal, e.g. the crop+blur case as a single string like:
+
+```elixir
+# confirm gravity/crop/blur token spellings against existing tests first
+path = "/unsafe/c:80:60/g:ce/bl:4/plain/" <> URI.encode_www_form(origin_url) <> "@png"
+```
+
+Use the file's existing request-issuing helper (the `ImagePipe.call/2` wrapper / `conn` builder the other tests use — grep for `ImagePipe.call` to find it) rather than re-deriving the conn setup.
+
+**The transparent-source case needs an alpha origin plug** — the existing effect/origin plugs in this file are opaque. Author a small origin module that serves an RGBA PNG (e.g. `Image.new!(20, 20, color: [0, 255, 0, 0], bands: 4) |> Image.write!(:memory, suffix: ".png")`), mirroring the existing `defmodule ...OriginImage` plugs at the top of the file. The `alpha_png_body/0` helper from Task 9 lives in a different test file and is not reusable here.
+
+> Assert with `Image.open(body)` + `Image.get_pixel!/3` + `Image.width/height` + `Image.has_alpha?/1`, matching the file's existing assertion style.
+
+These three cases are PASS-only (no red step) because they exercise full end-to-end paths that already work for the random decode; the value is confirming they still produce correct output now that the chain runs sequentially. To make the green meaningful, assert a *specific* expected dimension/pixel (not just "the body decodes").
 
 - [ ] **Step 2: Run the conformance suite**
 
@@ -1007,29 +1081,31 @@ git commit -m "test(imgproxy): wire conformance for now-sequential chains (Layer
 
 ---
 
-## Task 13: Delivery-path source-error test
+## Task 13: Delivery-path materialization for fully-sequential plans
 
-A fully sequential-safe single-pipeline plan reaches delivery with `materialized? == false`, so `materialize_before_delivery` does the one copy and `handle_materialization_result` must still surface a late source-stream error. Pin that path.
+**Scope correction (from plan review):** the earlier framing — "a late source-stream error surfaces at delivery" — pins the wrong path. Stream sources are drained eagerly at `seekable_input` (decode time), so their body-limit/stream errors surface at decode, already covered by the existing `decode_validate_source_response` source-error tests (`grep -n "{:source" test/image_pipe/processor_test.exs`). Path sources never set those flags; a truncated path read is a legitimate decode error (spec §6). So there is **no late source error to pin at delivery**.
+
+What *does* need pinning is the §6 simplification itself: a fully sequential-safe single-pipeline plan reaches delivery with `materialized? == false`, and `materialize_before_delivery` must still materialize it so the encoder gets a RAM-resident image. If that copy were dropped, the response would carry a lazy image that fails at encode.
 
 **Files:**
-- Modify: `test/image_pipe/processor_test.exs` (or the closest existing source-error test file — follow where the existing `{:source, ...}` body-limit/stream-error tests live)
+- Modify: `test/image_pipe/processor_test.exs`
 
-- [ ] **Step 1: Add the delivery-path source-error test**
+- [ ] **Step 1: Add the end-to-end sequential-delivery test**
 
-Add a test that drives a request with a **stream** source whose body exceeds the configured `max_body_bytes` (or whose stream raises), through a plan with **no** materializing op (e.g. a plain `rs:fit` resize on a small target — fully sequential), and asserts the result is `{:error, {:source, _}}` (body-too-large / stream reason), not a transform/decode error.
+Add a test that drives a full request through `process_source/3` (the entry point that reaches `materialize_before_delivery`) with a plan that has **no** materializing op (a plain `rs:fit` resize on a small target — fully sequential, `materialized? == false` until delivery), and asserts the response is a successful, **decodable** image of the expected dimensions. Mirror the existing `process_source/3` happy-path test in this file (the one using `resolved_source()` / `fetch: :fixture`) for the request and source shape; assert `{:ok, ...}` and that `Image.open(response_body)` yields the expected width/height.
 
-> Reuse the existing source body-limit / stream-error test setup in the suite (the `WrappedStream`-backed origin that trips `body_limit_exceeded?`). The point is to prove that with `materialized? == false` at delivery, the stream drain at `seekable_input` still surfaces the source error — this is the path §6 simplified. (Per spec §6: a **path** source truncation is a decode error, not `{:source, _}` — do NOT assert `{:source, _}` for a path source.)
+> This proves the simplified delivery materialize still runs for a never-mid-chain-materialized plan. Source-error surfacing for streams is already covered at decode — do not duplicate it here, and do not assert `{:source, _}` (no source error reaches delivery in the sequential path).
 
 - [ ] **Step 2: Run the suite**
 
 Run: `mise exec -- mix test test/image_pipe/processor_test.exs`
-Expected: PASS.
+Expected: PASS — the sequential plan returns a decodable image at the resize target dimensions.
 
 - [ ] **Step 3: Commit**
 
 ```bash
 git add test/image_pipe/processor_test.exs
-git commit -m "test(request): delivery-path source-error surfacing for sequential plans"
+git commit -m "test(request): sequential-plan delivery materializes before encode"
 ```
 
 ---
