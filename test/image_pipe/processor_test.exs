@@ -467,7 +467,7 @@ defmodule ImagePipe.Request.ProcessorTest do
     refute Keyword.has_key?(decode_opts, :scale)
   end
 
-  test "source_dimensions in the decoded map reflect orientation-corrected original dims" do
+  test "decoded map reports original dims and a no-shrink prescale for a PNG" do
     {:ok, frame} = Image.new(400, 300, color: [255, 0, 0])
     png_body = Image.write!(frame, :memory, suffix: ".png")
 
@@ -476,6 +476,8 @@ defmodule ImagePipe.Request.ProcessorTest do
 
     {:ok, decoded} = Processor.decode_validate_source_response(response, plan(), opts())
 
-    assert decoded.source_dimensions == {400, 300}
+    # PNG is not shrink-eligible, so the image is decoded full-resolution.
+    assert decoded.original_dims == {400, 300}
+    assert decoded.decode_prescale == 1.0
   end
 end

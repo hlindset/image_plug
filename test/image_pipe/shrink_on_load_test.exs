@@ -196,6 +196,43 @@ defmodule ImagePipe.ShrinkOnLoadTest do
     assert conn.resp_body =~ "too large"
   end
 
+  # Regression: crop runs BEFORE resize in the fixed pipeline order, on the
+  # shrunk-on-load image.  The geometry must recover the original extent from the
+  # decode prescale *and* track the crop, so the residual resize computes its
+  # target from the cropped region — not the stale full-source dimensions.
+  #
+  # beach.jpg is 4000×2667.  rs:fit:500:500 → load_shrink = min(8, 5.3) = 5.3
+  # → JPEG shrink 4 → decoded ≈ 1000×666.  c:2000:2000 (centre) crops a square
+  # region (prescaled to ≈500×500 on the shrunk image); fit:500:500 of a square
+  # must yield 500×500.  Before the prescale-tracking fix this produced 500×333
+  # (resize read the original 4000×2667 instead of the square crop).
+  test "crop-before-resize with shrink-on-load yields the cropped square's target dims" do
+    conn =
+      call_pipe("/_/c:2000:2000/rs:fit:500:500/f:jpeg/plain/images/beach.jpg", file_source_opts())
+
+    assert conn.status == 200
+
+    img = decoded_image(conn)
+    assert {Image.width(img), Image.height(img)} == {500, 500}
+  end
+
+  # The same crop+resize must be dimensionally stable whether or not shrink-on-load
+  # fires.  A target large enough that load_shrink ≤ 1 takes the no-shrink path
+  # (prescale 1.0); the cropped 2000×2000 square fit to 1500×1500 must still be
+  # 1500×1500, proving the prescale machinery is a no-op when no shrink occurred.
+  test "crop-before-resize without shrink yields the same square target dims" do
+    conn =
+      call_pipe(
+        "/_/c:2000:2000/rs:fit:1500:1500/f:jpeg/plain/images/beach.jpg",
+        file_source_opts()
+      )
+
+    assert conn.status == 200
+
+    img = decoded_image(conn)
+    assert {Image.width(img), Image.height(img)} == {1500, 1500}
+  end
+
   # Animated GIF shrink-on-load path:
   # Skipped for now — animated GIF handling is complex to make cross-platform
   # in a fixture-free test.  Will be added when a minimal test GIF fixture is

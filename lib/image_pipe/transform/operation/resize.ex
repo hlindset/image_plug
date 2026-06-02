@@ -70,7 +70,9 @@ defmodule ImagePipe.Transform.Operation.Resize do
 
     case resize_image(state, dimensions.intermediate_width, dimensions.intermediate_height) do
       {:ok, image} ->
-        {:ok, %State{set_image(state, image) | source_dimensions: nil}}
+        # The residual resize has finished the downscale: the image is now at its
+        # final resolution, so any shrink-on-load prescale no longer applies.
+        {:ok, %State{set_image(state, image) | decode_prescale: 1.0}}
 
       {:error, reason} ->
         {:error, {__MODULE__, reason}}

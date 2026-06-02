@@ -109,12 +109,31 @@ defmodule ImagePipe.Transform.DecodePlannerTest do
     refute Keyword.has_key?(opts, :shrink)
   end
 
-  test "JPEG orientation-corrected axis: portrait tag swaps axes for shrink computation" do
+  test "JPEG shrink arithmetic operates on the dims it is handed" do
     assert {:ok, resize} = Operation.resize(:fit, {:px, 400}, :auto)
-    # stored 800×1200 (portrait stored landscape) → corrected {1200, 800}
-    # wshrink = 1200/400 = 3.0 → shrink 2
+    # 1200/400 = 3.0 → shrink 2
     opts = DecodePlanner.open_options([resize], :jpeg, {1200, 800})
     assert opts[:shrink] == 2
+  end
+
+  test "EXIF quarter-turn swaps the shrink axes only when the chain auto-orients" do
+    assert {:ok, resize} = Operation.resize(:fit, {:px, 400}, :auto)
+    # Stored landscape 800×1200... no, stored 3200×800; width-only target 400.
+    # Without the swap: wshrink = 3200/400 = 8 → shrink 8.
+    # With the swap (axes become 800×3200): wshrink = 800/400 = 2 → shrink 2.
+    chain = [%AutoOrient{}, resize]
+
+    # Quarter-turn EXIF + AutoOrient present → swap → shrink computed on 800 width.
+    swapped = DecodePlanner.open_options(chain, :jpeg, {3200, 800}, true)
+    assert swapped[:shrink] == 2
+
+    # Quarter-turn EXIF but NO AutoOrient in the chain → no swap → shrink on 3200.
+    no_autoorient = DecodePlanner.open_options([resize], :jpeg, {3200, 800}, true)
+    assert no_autoorient[:shrink] == 8
+
+    # AutoOrient present but EXIF is not a quarter-turn → no swap.
+    not_quarter = DecodePlanner.open_options(chain, :jpeg, {3200, 800}, false)
+    assert not_quarter[:shrink] == 8
   end
 
   # --- WebP scale-on-load ---

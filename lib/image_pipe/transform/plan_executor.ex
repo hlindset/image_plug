@@ -461,12 +461,11 @@ defmodule ImagePipe.Transform.PlanExecutor do
   defp scale_pixel_crop_coord({:pixels, n}, scale), do: {:pixels, round(n * scale)}
   defp scale_pixel_crop_coord(coord, _scale), do: coord
 
-  defp prescale(state) do
-    {src_w, src_h} = State.effective_source_dims(state)
-    img_w = Image.width(state.image)
-    img_h = Image.height(state.image)
-    {img_w / src_w, img_h / src_h}
-  end
+  # The uniform decode prescale applied to pixel-valued crop dimensions/offsets,
+  # which are expressed against the original image but must act on the shrunk one.
+  # Read directly off the state (rather than re-deriving from effective_source_dims)
+  # so it stays exact and free of round-trip rounding.
+  defp prescale(%State{decode_prescale: prescale}), do: {prescale, prescale}
 
   defp tagged_executable_gravity(:center), do: {:anchor, :center, :center}
   defp tagged_executable_gravity(:top_left), do: {:anchor, :left, :top}

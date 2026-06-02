@@ -20,7 +20,8 @@ defmodule ImagePipe.Request.Processor do
           required(:image) => VipsImage.t(),
           required(:source_format) => source_format(),
           optional(:source_response) => Source.Response.t(),
-          optional(:source_dimensions) => {pos_integer(), pos_integer()} | nil,
+          optional(:decode_prescale) => number(),
+          optional(:original_dims) => {pos_integer(), pos_integer()},
           optional(:achieved_shrink) => %{w: float(), h: float()} | nil
         }
 
@@ -64,24 +65,28 @@ defmodule ImagePipe.Request.Processor do
            |> wrap_decode_error(),
          {:ok, source_format} <- SourceFormat.from_image(header_image),
          original_dims = {Image.width(header_image), Image.height(header_image)},
-         corrected_dims = orientation_corrected_dims(header_image),
          :ok <- validate_original_pixels(original_dims, opts) |> wrap_input_limit_error(),
-         decode_options = DecodePlanner.open_options(operations, source_format, corrected_dims),
+         decode_options =
+           DecodePlanner.open_options(
+             operations,
+             source_format,
+             original_dims,
+             exif_quarter_turn?(header_image)
+           ),
          {:ok, image} <-
            open_seekable_input(input, decode_options, opts)
            |> prefer_source_body_limit(source_response)
            |> prefer_source_stream_error(source_response)
            |> wrap_decode_error() do
-      achieved_shrink = compute_achieved_shrink(original_dims, image)
-
       {:ok,
        %{
          decode_options: decode_options,
          image: image,
          source_format: source_format,
          source_response: source_response,
-         source_dimensions: corrected_dims,
-         achieved_shrink: achieved_shrink
+         decode_prescale: compute_decode_prescale(original_dims, image),
+         original_dims: original_dims,
+         achieved_shrink: compute_achieved_shrink(original_dims, image)
        }}
     end
   end
@@ -94,9 +99,9 @@ defmodule ImagePipe.Request.Processor do
         opts
       ) do
     source_response = Map.get(decoded, :source_response)
-    source_dimensions = Map.get(decoded, :source_dimensions)
+    decode_prescale = Map.get(decoded, :decode_prescale, 1.0)
 
-    initial_state = %State{image: image, source_dimensions: source_dimensions}
+    initial_state = %State{image: image, decode_prescale: decode_prescale}
 
     Telemetry.span(Telemetry.telemetry_opts(opts), [:transform, :execute], %{}, fn ->
       result =
@@ -276,14 +281,23 @@ defmodule ImagePipe.Request.Processor do
 
   defp prefer_source_stream_error(result, _source_response), do: result
 
-  defp orientation_corrected_dims(image) do
-    w = Image.width(image)
-    h = Image.height(image)
-
+  # Whether the source's EXIF orientation implies a 90°/270° turn. The decode
+  # planner uses this (together with the presence of an AutoOrient step in the
+  # chain) to decide whether the shrink axes must be swapped. Reading the header
+  # value stays here because only the Request layer holds the decoded image; the
+  # orientation *policy* lives in the planner.
+  defp exif_quarter_turn?(image) do
     case VipsImage.header_value(image, "orientation") do
-      {:ok, v} when v in [5, 6, 7, 8] -> {h, w}
-      _ -> {w, h}
+      {:ok, v} when v in [5, 6, 7, 8] -> true
+      _ -> false
     end
+  end
+
+  # The uniform factor libvips applied at decode, as loaded/original. Shrink-on-load
+  # is uniform (JPEG block shrink and WebP scale apply equally to both axes), so a
+  # single scalar derived from the width ratio captures it; 1.0 means no shrink.
+  defp compute_decode_prescale({orig_w, _orig_h}, image) do
+    Image.width(image) / orig_w
   end
 
   defp validate_original_pixels({w, h}, opts) do
@@ -351,7 +365,7 @@ defmodule ImagePipe.Request.Processor do
       result: :ok,
       load_option: load_option,
       achieved_shrink: Map.get(decoded, :achieved_shrink),
-      original_dims: Map.get(decoded, :source_dimensions),
+      original_dims: Map.get(decoded, :original_dims),
       loaded_dims: {Image.width(image), Image.height(image)}
     }
   end

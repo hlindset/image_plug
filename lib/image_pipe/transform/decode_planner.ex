@@ -37,17 +37,34 @@ defmodule ImagePipe.Transform.DecodePlanner do
   @spec open_options(
           [ImagePipe.Plan.Pipeline.operation()],
           source_format(),
-          {pos_integer(), pos_integer()}
+          {pos_integer(), pos_integer()},
+          boolean()
         ) ::
           keyword()
-  def open_options(chain, source_format, {src_w, src_h})
+  def open_options(chain, source_format, {src_w, src_h}, exif_quarter_turn? \\ false)
       when is_list(chain) and is_atom(source_format) and
              is_integer(src_w) and src_w > 0 and
-             is_integer(src_h) and src_h > 0 do
+             is_integer(src_h) and src_h > 0 and
+             is_boolean(exif_quarter_turn?) do
+    {shrink_w, shrink_h} = shrink_axes({src_w, src_h}, chain, exif_quarter_turn?)
     base = [access: access(chain), fail_on: :error]
-    load_shrink = compute_load_shrink(chain, src_w, src_h)
+    load_shrink = compute_load_shrink(chain, shrink_w, shrink_h)
     append_load_option(base, source_format, load_shrink)
   end
+
+  # The resize target is expressed against the *displayed* axes. When the chain
+  # auto-orients a source whose EXIF orientation implies a 90°/270° turn, the
+  # displayed axes are the stored axes swapped, so we compute the shrink against
+  # the swapped axes to avoid picking a factor for the wrong axis. The swap is
+  # gated on an AutoOrient operation actually being present — EXIF metadata alone
+  # never rotates pixels in this pipeline; only the AutoOrient step does. When the
+  # chain does not auto-orient, the stored axes are what the caller sees, so they
+  # are used as-is.
+  defp shrink_axes({w, h}, chain, true) do
+    if Enum.any?(chain, &match?(%AutoOrient{}, &1)), do: {h, w}, else: {w, h}
+  end
+
+  defp shrink_axes(dims, _chain, false), do: dims
 
   # --- Access selection (unchanged) ---
 
