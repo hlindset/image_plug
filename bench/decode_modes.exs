@@ -26,10 +26,10 @@
 #            human tables (consumed by the bench/decode_matrix.exs orchestrator). No header
 #            row is printed. Columns:
 #              file,fmt,megapixels,mode,access,width,iters,median_ms,min_ms,max_ms,libvips_peak_bytes,rss_peak_bytes,out_w,out_h
-#            rss_peak_bytes is reliable; libvips_peak_bytes comes from tracked_get_mem_highwater
-#            and is only meaningful once the Vix high-water NIF fix is in (~0 otherwise). Clean
-#            per-file memory requires one file + one mode per process (what the orchestrator does).
-#            Mutually exclusive with --leak.
+#            libvips_peak_bytes (tracked_get_mem_highwater) and rss_peak_bytes are both reliable.
+#            The high-water is process-wide and non-resettable, so clean per-file memory requires
+#            one file + one mode per process (what the orchestrator does). Mutually exclusive
+#            with --leak.
 #
 # MEMORY NOTES:
 #   * Peak RSS is OS-sampled (`ps -o rss`) across each mode's whole corpus run, so it
@@ -38,12 +38,12 @@
 #     a clean per-mode peak run a single mode per process. The streaming vs buffered gap is
 #     largest under `random` access (the streaming pipe cannot seek, forcing libvips to
 #     materialize the whole decoded image).
-#   * --leak gives the true libvips working-set peak via vips_shutdown (see flag above).
-#   * Vix.Vips.tracked_get_mem_highwater/0 is NOT used: in this Vix build its NIF is registered
-#     to the current-mem function (vix.c maps "nif_vips_tracked_get_mem_highwater" to
-#     nif_vips_tracked_get_mem), so it returns current tracked memory (~0 after the decode is
-#     freed), not the high-water. Use --leak instead. (A 1-line fork fix to that registration
-#     would make a sampled high-water possible too.)
+#   * Vix.Vips.tracked_get_mem_highwater/0 gives the libvips working-set peak programmatically
+#     (emitted as libvips_peak_bytes under --csv). It is process-wide, monotonic, and
+#     non-resettable, so it is a clean per-case figure only with one mode + one file per process.
+#     Requires a Vix that fixed the high-water NIF registration; older Vix returned current
+#     tracked memory (~0 after frees).
+#   * --leak is an alternative human-readable libvips peak via vips_shutdown (terminal; see flag).
 #   * The libvips operation cache is disabled below to remove cross-iteration noise.
 
 defmodule DecodeBench do

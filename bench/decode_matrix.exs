@@ -21,8 +21,9 @@
 #   out_csv  : collated output CSV           (default: bench/results/decode_matrix.csv)
 #
 # Expect many BEAM boots (files x modes x access) — each case is a fresh `mix run`. Keep iters
-# modest. The libvips_peak column is only meaningful once the Vix high-water NIF fix is in;
-# rss_peak is reliable today.
+# modest. libvips_peak (tracked high-water, the clean libvips working-set peak) and rss_peak
+# (whole-process) are both reliable; libvips_peak needs a Vix that fixed the high-water NIF
+# (older Vix reports ~0).
 
 defmodule DecodeMatrix do
   @modes ~w(streaming buffered)
@@ -102,7 +103,7 @@ defmodule DecodeMatrix do
 
     preamble = [
       "# decode matrix — access=#{Enum.join(accesses, "+")} iters=#{iters}",
-      "# libvips_peak_bytes is only meaningful with the Vix high-water NIF fix; rss_peak_bytes is reliable.",
+      "# libvips_peak_bytes = libvips tracked high-water (working-set peak); rss_peak_bytes = whole-process peak.",
       Enum.join(@columns, ",")
     ]
 
@@ -122,12 +123,14 @@ defmodule DecodeMatrix do
 
     IO.puts(
       "\n" <>
-        cell("file", 24) <>
+        cell("file", 22) <>
         cell("access", 11) <>
-        cell("MP", 7) <>
-        cell("strm ms", 10) <>
-        cell("buf ms", 10) <>
-        cell("buf/strm", 10) <> cell("strm RSS", 12) <> cell("buf RSS", 12)
+        cell("MP", 6) <>
+        cell("strm ms", 9) <>
+        cell("buf ms", 9) <>
+        cell("b/s", 7) <>
+        cell("strm vips", 11) <>
+        cell("buf vips", 11) <> cell("strm RSS", 11) <> cell("buf RSS", 11)
     )
 
     ratios =
@@ -137,13 +140,15 @@ defmodule DecodeMatrix do
         ratio = time_ratio(s, b)
 
         IO.puts(
-          cell(Path.basename(path), 24) <>
+          cell(Path.basename(path), 22) <>
             cell(access, 11) <>
-            cell(mp(s, b), 7) <>
-            cell(num(s[:median_ms]), 10) <>
-            cell(num(b[:median_ms]), 10) <>
-            cell(ratio_cell(ratio), 10) <>
-            cell(mib(s[:rss_peak_bytes]), 12) <> cell(mib(b[:rss_peak_bytes]), 12)
+            cell(mp(s, b), 6) <>
+            cell(num(s[:median_ms]), 9) <>
+            cell(num(b[:median_ms]), 9) <>
+            cell(ratio_cell(ratio), 7) <>
+            cell(mib(s[:libvips_peak_bytes]), 11) <>
+            cell(mib(b[:libvips_peak_bytes]), 11) <>
+            cell(mib(s[:rss_peak_bytes]), 11) <> cell(mib(b[:rss_peak_bytes]), 11)
         )
 
         ratio
