@@ -48,11 +48,18 @@ defmodule ImagePipe.Transform.Operation.AutoOrient do
   def execute(%__MODULE__{}, %State{} = state) do
     pre_width = Image.width(state.image)
 
-    with {:ok, %State{} = state} <- maybe_materialize_for_orientation(state),
-         {:ok, {image, _flags}} <- Image.autorotate(state.image) do
-      {:ok, sync_source_dimensions(set_image(state, image), pre_width, Image.width(image))}
-    else
-      {:error, error} -> {:error, {__MODULE__, error}}
+    case maybe_materialize_for_orientation(state) do
+      {:ok, %State{} = state} ->
+        case Image.autorotate(state.image) do
+          {:ok, {image, _flags}} ->
+            {:ok, sync_source_dimensions(set_image(state, image), pre_width, Image.width(image))}
+
+          {:error, error} ->
+            {:error, {__MODULE__, error}}
+        end
+
+      {:error, reason} ->
+        {:error, {:materialize_error, reason}}
     end
   end
 

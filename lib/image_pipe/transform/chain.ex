@@ -42,9 +42,11 @@ defmodule ImagePipe.Transform.Chain do
       ...> {:ok, %ImagePipe.Transform.State{}} = ImagePipe.Transform.Chain.execute(initial_state, chain)
   """
   @spec execute(State.t(), t()) ::
-          {:ok, State.t()} | {:error, {:transform_error, term()}}
+          {:ok, State.t()}
+          | {:error, {:transform_error, term()} | {:materialize_error, term()}}
   @spec execute(State.t(), t(), keyword()) ::
-          {:ok, State.t()} | {:error, {:transform_error, term()}}
+          {:ok, State.t()}
+          | {:error, {:transform_error, term()} | {:materialize_error, term()}}
   def execute(state, transform_chain, opts \\ [])
 
   def execute(%State{} = state, transform_chain, opts) do
@@ -68,14 +70,16 @@ defmodule ImagePipe.Transform.Chain do
 
       case result do
         {:ok, %State{} = next_state} -> {:cont, {:ok, next_state}}
+        {:error, {:materialize_error, _} = error} -> {:halt, {:error, error}}
         {:error, reason} -> {:halt, {:error, {:transform_error, reason}}}
       end
     end)
   end
 
   defp run_operation(operation, %State{} = state) do
-    with {:ok, %State{} = state} <- maybe_materialize(state, operation) do
-      Transform.execute(operation, state)
+    case maybe_materialize(state, operation) do
+      {:ok, %State{} = state} -> Transform.execute(operation, state)
+      {:error, reason} -> {:error, {:materialize_error, reason}}
     end
   end
 

@@ -122,7 +122,7 @@ defmodule ImagePipe.Request.Processor do
     Telemetry.span(Telemetry.telemetry_opts(opts), [:transform, :execute], %{}, fn ->
       result =
         with {:ok, final_state} <-
-               execute_plan_pipelines(initial_state, plan, opts, source_response),
+               execute_plan_pipelines(initial_state, plan, opts),
              {:ok, final_state} <-
                materialize_before_delivery(final_state, opts, source_response),
              :ok <- validate_result_image(final_state.image, opts) do
@@ -133,19 +133,17 @@ defmodule ImagePipe.Request.Processor do
     end)
   end
 
-  defp execute_plan_pipelines(
-         %State{} = state,
-         %Plan{pipelines: pipelines} = plan,
-         opts,
-         _source_response
-       ) do
+  defp execute_plan_pipelines(%State{} = state, %Plan{pipelines: pipelines} = plan, opts) do
     pipelines
     |> Enum.with_index()
-    |> Enum.reduce_while(
-      {:ok, state},
-      &execute_plan_pipeline_step(&1, &2, plan, opts)
-    )
+    |> Enum.reduce_while({:ok, state}, &execute_plan_pipeline_step(&1, &2, plan, opts))
+    |> classify_materialize_error()
   end
+
+  defp classify_materialize_error({:error, {:materialize_error, reason}}),
+    do: {:error, {:decode, reason}}
+
+  defp classify_materialize_error(result), do: result
 
   defp execute_plan_pipeline_step(
          {pipeline, _index},

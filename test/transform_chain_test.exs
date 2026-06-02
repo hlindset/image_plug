@@ -250,6 +250,18 @@ defmodule ImagePipe.Transform.ChainTest do
 
       assert state.materialized? == false
     end
+
+    test "a materializing op on a corrupt sequential image returns {:materialize_error, _}, not {:transform_error, _}" do
+      # Open just enough bytes to satisfy the JPEG header parser but not enough to
+      # read all pixel data. copy_memory fails when the rotate tries to pull pixels
+      # from the truncated sequential stream.
+      body = File.read!("priv/static/images/beach.jpg")
+      truncated = binary_part(body, 0, 5000)
+      {:ok, image} = Image.open([truncated], access: :sequential, fail_on: :error)
+
+      assert {:error, {:materialize_error, _}} =
+               Chain.execute(%State{image: image}, [%Rotate{angle: 90}])
+    end
   end
 
   test "execute/3 emits [:transform, :operation] spans in order with operation metadata" do
