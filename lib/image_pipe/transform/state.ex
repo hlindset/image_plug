@@ -20,17 +20,24 @@ defmodule ImagePipe.Transform.State do
             debug: false,
             detector: nil,
             detector_required: false,
-            telemetry_opts: []
+            telemetry_opts: [],
+            source_dimensions: nil
 
   @type t :: %__MODULE__{
           image: Vix.Vips.Image.t() | nil,
           debug: boolean(),
           detector: module() | {module(), keyword()} | nil,
           detector_required: boolean(),
-          telemetry_opts: keyword()
+          telemetry_opts: keyword(),
+          source_dimensions: {pos_integer(), pos_integer()} | nil
         }
 
   def set_image(%__MODULE__{} = state, %Vix.Vips.Image{} = image) do
     %__MODULE__{state | image: image}
   end
+
+  def effective_source_dims(%__MODULE__{source_dimensions: {w, h}}), do: {w, h}
+
+  def effective_source_dims(%__MODULE__{image: image}),
+    do: {Image.width(image), Image.height(image)}
 end
