@@ -1,6 +1,7 @@
 defmodule ImagePipe.Request.Processor do
   @moduledoc false
 
+  alias Image.Options.Open, as: ImageOpenOptions
   alias ImagePipe.Error
   alias ImagePipe.Plan
   alias ImagePipe.Request.Options
@@ -11,11 +12,12 @@ defmodule ImagePipe.Request.Processor do
   alias ImagePipe.Transform.DecodePlanner
   alias ImagePipe.Transform.Materializer
   alias ImagePipe.Transform.State
+  alias Vix.Vips.Image, as: VipsImage
 
   @type source_format() :: SourceFormat.source_format()
   @type decoded() :: %{
           required(:decode_options) => keyword(),
-          required(:image) => Vix.Vips.Image.t(),
+          required(:image) => VipsImage.t(),
           required(:source_format) => source_format(),
           optional(:source_response) => Source.Response.t()
         }
@@ -157,16 +159,53 @@ defmodule ImagePipe.Request.Processor do
        do: {:ok, state}
 
   defp decode_source_response(%Source.Response{} = source_response, decode_options, opts) do
-    image_open_module = Keyword.get(opts, :image_open_module, Image)
+    with {:ok, input} <- seekable_input(source_response) do
+      input
+      |> open_seekable_input(decode_options, opts)
+      |> prefer_source_stream_error(source_response)
+    end
+  end
 
-    source_response.stream
-    |> image_open_module.open(decode_options)
-    |> prefer_source_stream_error(source_response)
+  defp seekable_input(%Source.Response{path: path, stream: nil}) when is_binary(path),
+    do: {:ok, {:path, path}}
+
+  defp seekable_input(%Source.Response{path: nil, stream: stream}) when not is_nil(stream) do
+    {:ok, {:buffer, stream |> Enum.to_list() |> IO.iodata_to_binary()}}
   rescue
     exception in [Source.StreamError] -> {:error, {:source, exception.reason}}
-  catch
-    :exit, {%Source.StreamError{reason: reason}, _stacktrace} -> {:error, {:source, reason}}
-    :exit, %Source.StreamError{reason: reason} -> {:error, {:source, reason}}
+  end
+
+  defp seekable_input(%Source.Response{}), do: {:error, {:source, :invalid_adapter_result}}
+
+  # A file path opens through `Image.open/2`, which routes to the libvips file loader and
+  # preserves loader options (including `:access`).
+  defp open_seekable_input({:path, path}, decode_options, opts) do
+    case Keyword.get(opts, :image_open_module) do
+      nil -> Image.open(path, decode_options)
+      module -> module.open(path, decode_options)
+    end
+  end
+
+  # A drained buffer opens through the libvips buffer loader directly via `new_from_buffer/2`.
+  # We do NOT use `Image.open/2` (a binary matching no image signature is misrouted as a
+  # filesystem path) nor `Image.from_binary/2` (it strips `:access`, silently downgrading the
+  # planner's `:sequential` selection to libvips' random default). Validating the open options
+  # the same way the `image` library does, then calling `new_from_buffer/2`, detects the format
+  # from the bytes for any supported format AND carries `:access`/`fail_on:` through to libvips.
+  # The buffer loader is injectable so tests can observe the options libvips actually receives.
+  defp open_seekable_input({:buffer, binary}, decode_options, opts) do
+    case Keyword.get(opts, :image_open_module) do
+      nil -> open_buffer(binary, decode_options, opts)
+      module -> module.open(binary, decode_options)
+    end
+  end
+
+  defp open_buffer(binary, decode_options, opts) do
+    loader = Keyword.get(opts, :buffer_loader, &VipsImage.new_from_buffer/2)
+
+    with {:ok, vips_opts} <- ImageOpenOptions.validate_options(decode_options) do
+      loader.(binary, vips_opts)
+    end
   end
 
   defp materialize_before_delivery(%State{} = state, decode_options, opts, source_response) do

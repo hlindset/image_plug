@@ -63,7 +63,7 @@ defmodule ImagePipe.Source.File do
   def fetch(%Resolved{fetch: fetch}, _opts, _runtime_opts) do
     with {:ok, path} <- safe_path(fetch[:root], fetch[:segments]),
          :ok <- regular_file(path) do
-      {:ok, %Response{stream: File.stream!(path, 2048, [])}}
+      {:ok, %Response{path: path}}
     end
   end
 

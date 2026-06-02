@@ -17,59 +17,16 @@ defmodule ImagePipe.Request.ProcessorTest do
   alias ImagePipe.Transform.State
   alias Vix.Vips.Image, as: VipsImage
 
-  defmodule DecodeRaisesSourceStreamError do
-    def open(stream, _decode_options) do
-      _ = Enum.to_list(stream)
-      {:error, :should_not_reach_decode}
+  defmodule RecordingPathOpen do
+    def open(input, opts) do
+      send(message_target(), {:opened_input, input})
+      Image.open(input, opts)
     end
-  end
 
-  defmodule DecodeConsumesBodyLimitThenReturnsDecodeError do
-    def open(stream, _decode_options) do
-      parent = self()
-      ref = make_ref()
-
-      spawn(fn ->
-        result =
-          try do
-            _ = Enum.to_list(stream)
-            :completed
-          rescue
-            exception in [Source.StreamError] -> {:source_error, exception.reason}
-          end
-
-        send(parent, {ref, result})
-      end)
-
-      receive do
-        {^ref, {:source_error, :body_too_large}} -> {:error, :forced_decode_error}
-      after
-        1_000 -> {:error, :stream_did_not_hit_body_limit}
-      end
-    end
-  end
-
-  defmodule DecodeConsumesStreamErrorThenReturnsDecodeError do
-    def open(stream, _decode_options) do
-      parent = self()
-      ref = make_ref()
-
-      spawn(fn ->
-        result =
-          try do
-            _ = Enum.to_list(stream)
-            :completed
-          rescue
-            exception in [Source.StreamError] -> {:source_error, exception.reason}
-          end
-
-        send(parent, {ref, result})
-      end)
-
-      receive do
-        {^ref, {:source_error, :stream_exception}} -> {:error, :forced_decode_error}
-      after
-        1_000 -> {:error, :stream_did_not_fail}
+    defp message_target do
+      case Process.get(:"$callers") do
+        [pid | _rest] when is_pid(pid) -> pid
+        _callers -> self()
       end
     end
   end
@@ -304,42 +261,103 @@ defmodule ImagePipe.Request.ProcessorTest do
     assert {:ok, response} = Source.wrap_response(response, max_body_bytes: 20)
 
     assert {:error, {:source, :stream_exception}} =
+             Processor.decode_validate_source_response(response, plan(), opts())
+  end
+
+  test "decode_validate_source_response opens a path response via the path" do
+    response = %Response{path: "priv/static/images/beach.jpg"}
+
+    assert {:ok, %{image: image}} =
              Processor.decode_validate_source_response(
                response,
                plan(),
-               Keyword.put(opts(), :image_open_module, DecodeRaisesSourceStreamError)
+               Keyword.put(opts(), :image_open_module, RecordingPathOpen)
              )
+
+    assert VipsImage.width(image) > 0
+    assert_received {:opened_input, "priv/static/images/beach.jpg"}
   end
 
-  test "body limit errors beat later decode errors from another stream consumer process" do
+  test "oversized stream body fails closed before decode is attempted" do
     body = File.read!("priv/static/images/beach.jpg")
 
+    {:ok, response} =
+      Source.wrap_response(%Response{stream: [body]}, max_body_bytes: byte_size(body) - 1)
+
     assert {:error, {:source, :body_too_large}} =
-             Processor.fetch_decode_validate_source_with_source_format(
-               plan(),
-               resolved_source(),
-               opts()
-               |> Keyword.put(:max_body_bytes, byte_size(body) - 1)
-               |> Keyword.put(
-                 :image_open_module,
-                 DecodeConsumesBodyLimitThenReturnsDecodeError
-               )
-             )
-  end
-
-  test "source stream errors beat later decode errors from another stream consumer process" do
-    response = %Response{stream: Stream.map([:raise], fn _ -> raise "raw stream failure" end)}
-    assert {:ok, response} = Source.wrap_response(response, max_body_bytes: 20)
-
-    assert {:error, {:source, :stream_exception}} =
              Processor.decode_validate_source_response(
                response,
                plan(),
-               Keyword.put(
-                 opts(),
-                 :image_open_module,
-                 DecodeConsumesStreamErrorThenReturnsDecodeError
-               )
+               Keyword.put(opts(), :image_open_module, RecordingPathOpen)
              )
+
+    refute_received {:opened_input, _input}
+  end
+
+  test "a stream body that happens to equal a local path is decoded as bytes, never opened as a file" do
+    # Regression: Image.open/2 on a binary that matches no image signature falls back to a
+    # filesystem-path branch (File.exists? -> open). A drained origin body equal to an existing
+    # local path must NOT be opened as that file. Routing buffers through Image.from_binary/2
+    # (libvips buffer loader) keeps decode purely byte-based, so this returns a decode error.
+    path_shaped_body = "priv/static/images/beach.jpg"
+    assert File.exists?(path_shaped_body)
+
+    {:ok, response} =
+      Source.wrap_response(%Response{stream: [path_shaped_body]}, max_body_bytes: 1_000)
+
+    assert {:error, _reason} =
+             Processor.decode_validate_source_response(response, plan(), opts())
+  end
+
+  test "the planner's sequential access reaches the libvips buffer loader" do
+    # Regression: Image.from_binary/2 deletes :access before new_from_buffer, silently
+    # downgrading the planner's :sequential selection. Decoding the drained buffer through
+    # new_from_buffer with validated options must carry :access through to libvips.
+    body = File.read!("priv/static/images/beach.jpg")
+
+    {:ok, response} =
+      Source.wrap_response(%Response{stream: [body]}, max_body_bytes: byte_size(body))
+
+    {:ok, resize} = resize_fit(120, :auto)
+    plan = %Plan{plan() | pipelines: [%Pipeline{operations: [resize]}]}
+
+    test_pid = self()
+
+    recording_loader = fn binary, vips_opts ->
+      send(test_pid, {:buffer_vips_opts, vips_opts})
+      VipsImage.new_from_buffer(binary, vips_opts)
+    end
+
+    assert {:ok, %{image: image}} =
+             Processor.decode_validate_source_response(
+               response,
+               plan,
+               Keyword.put(opts(), :buffer_loader, recording_loader)
+             )
+
+    assert VipsImage.width(image) > 0
+    assert_received {:buffer_vips_opts, vips_opts}
+    assert Keyword.get(vips_opts, :access) == :VIPS_ACCESS_SEQUENTIAL
+  end
+
+  test "a multi-chunk stream response is drained into one contiguous binary before decode" do
+    body = File.read!("priv/static/images/beach.jpg")
+    split = div(byte_size(body), 2)
+    chunks = [binary_part(body, 0, split), binary_part(body, split, byte_size(body) - split)]
+
+    {:ok, response} =
+      Source.wrap_response(%Response{stream: chunks}, max_body_bytes: byte_size(body))
+
+    assert {:ok, %{image: image}} =
+             Processor.decode_validate_source_response(
+               response,
+               plan(),
+               Keyword.put(opts(), :image_open_module, RecordingPathOpen)
+             )
+
+    assert VipsImage.width(image) > 0
+    assert_received {:opened_input, opened}
+    assert is_binary(opened)
+    assert opened == body
   end
 end

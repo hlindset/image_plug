@@ -98,11 +98,20 @@ defmodule ImagePipe.Source do
   end
 
   @spec wrap_response(Response.t(), keyword()) :: {:ok, Response.t()} | {:error, error()}
-  def wrap_response(%Response{stream: stream}, runtime_opts) do
-    max_body_bytes = Keyword.fetch!(runtime_opts, :max_body_bytes)
-    {:ok, %Response{stream: WrappedStream.new(stream, max_body_bytes)}}
+  def wrap_response(%Response{path: path, stream: nil} = response, _runtime_opts)
+      when is_binary(path) do
+    {:ok, response}
   end
 
+  def wrap_response(%Response{path: nil, stream: stream} = response, runtime_opts)
+      when not is_nil(stream) do
+    max_body_bytes = Keyword.fetch!(runtime_opts, :max_body_bytes)
+    {:ok, %Response{response | stream: WrappedStream.new(stream, max_body_bytes)}}
+  end
+
+  # A `Response` from a host-implementable `Source` adapter must carry exactly one of `path`
+  # or `stream`. Both-set (which would let a path bypass the stream body-limit) and all-nil
+  # are rejected at this boundary rather than trusted.
   def wrap_response(_response, _runtime_opts), do: {:error, {:source, :invalid_adapter_result}}
 
   @spec body_limit_exceeded?(Response.t()) :: boolean()
