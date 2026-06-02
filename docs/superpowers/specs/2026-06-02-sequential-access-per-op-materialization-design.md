@@ -72,6 +72,13 @@ The between-pipeline forced `copy_memory` in `Request.Processor` exists because
 otherwise run against a sequentially-loaded image. With per-op materialisation, every
 random-access op self-materialises inline in any pipeline, so this workaround is removed.
 
+### Scope note: single-page only
+
+ImagePipe has no animation/multi-frame handling — it decodes a single page (libvips default
+`n=1`), so animated GIF/WebP flatten to their first frame. imgproxy's per-frame materialise +
+watermark-after-`arrayjoin` model has no analog here, so the sequential-safety reasoning never
+has to account for multi-page row semantics through a joined-frame image.
+
 ## Goal
 
 Replace the binary load-time access decision with always-sequential loading and inline
@@ -93,6 +100,17 @@ defstruct [
 
 Set to `true` after the first successful `copy_memory`. Lets the chain executor skip
 redundant materialisation for later ops in the same chain and across pipelines.
+
+**Why "once true, true forever" is sound.** After a materialise, later ops stack lazy
+`vips_rot`/`vips_flip`/resize nodes *on top of* the RAM-resident leaf; `state.image` is again
+a lazy node, not itself a resident buffer. A subsequent random-access op (e.g. smart crop
+after AutoOrient) still gets genuine random access, because libvips resolves any output pixel
+by reading the mapped source pixel from the resident leaf — the buffer underneath satisfies
+arbitrary pulls regardless of how many lazy nodes sit above it. This holds **only because no
+op re-opens the source as a fresh sequential leaf** — every op derives its output from
+`state.image`. That invariant is what makes the flag safe; a future op that re-opened the
+source would silently break it (there is no architecture test guarding this, so keep it in
+mind).
 
 ### 2. `Transform` behaviour — required callback via `use`
 
@@ -132,10 +150,27 @@ within one module; see §7). `AutoOrient` keeps the default `false` and self-mat
 internally. The facade dispatches directly — every module now defines the function:
 
 ```elixir
+@spec requires_materialization?(operation()) :: boolean()
 def requires_materialization?(%module{} = operation) do
   module.requires_materialization?(operation)
 end
 ```
+
+Two compile-gate notes (`mix compile --warnings-as-errors` + `credo --strict` are the
+gate):
+
+- **Override clauses carry `@impl ImagePipe.Transform`.** The `__using__` default is
+  `@impl`-annotated; an overriding module replaces it via `defoverridable`, so its own
+  clauses (`Rotate`/`Flip`/`Crop`) must each carry `@impl ImagePipe.Transform` too —
+  mixing annotated and un-annotated clauses for one function warns. The §7 code samples
+  omit the annotation for brevity; the real clauses include it.
+- **Landing order is atomic where it must be.** Adding the `@callback`, the `__using__`
+  macro, and converting all 17 ops from `@behaviour` to `use` must land in **one commit** —
+  the new required callback has no implementers until the macro injects the default, so a
+  split breaks the compile. Safe sequence: (a) `State.materialized?`; (b) callback +
+  `__using__` + 17-op conversion (one commit); (c) the 3 override modules + AutoOrient
+  self-materialisation; (d) facade dispatch; (e) Chain `maybe_materialize`; (f) Materializer
+  rewrite; (g) DecodePlanner + Processor.
 
 ### 3. `Transform.Chain` — inline materialisation
 
@@ -153,12 +188,28 @@ defp maybe_materialize(%State{} = state, operation) do
 end
 ```
 
-`Chain.execute/3` calls this before `Transform.execute/2` for each operation:
+`maybe_materialize` runs **inside** the op's `[:transform, :operation]` telemetry span, so
+the materialisation cost and any failure are attributed to the op that triggered it (and a
+`copy_memory` failure surfaces through the same span as an op error). Placing it outside the
+span would drop attribution for exactly the ops that pay for the copy (`Rotate`/`Flip`/
+smart-`Crop`) while AutoOrient's internal copy stays visible — an avoidable asymmetry. The
+result must be returned to `reduce_while` as a `{:cont, _}` / `{:halt, _}` tuple (a raw
+`{:error, _}` would crash the reduce):
 
 ```elixir
 Enum.reduce_while(chain_with_index, {:ok, state}, fn {operation, index}, {:ok, state} ->
-  with {:ok, state} <- maybe_materialize(state, operation) do
-    # ... existing telemetry span + Transform.execute call ...
+  result =
+    Telemetry.span(telemetry_opts, [:transform, :operation], %{operation: name, index: index, params: operation}, fn ->
+      res =
+        with {:ok, state} <- maybe_materialize(state, operation) do
+          Transform.execute(operation, state)
+        end
+      {res, %{result: elem(res, 0)}}
+    end)
+
+  case result do
+    {:ok, %State{} = next} -> {:cont, {:ok, next}}
+    {:error, reason} -> {:halt, {:error, {:transform_error, reason}}}
   end
 end)
 ```
@@ -188,7 +239,12 @@ The `@callback materialize(State.t(), keyword())` (arity 2) is retained for
 `Request.Processor`'s injectable delivery materialiser (`image_materializer` opt). **Its
 body must be rewritten** — it can no longer call the removed `VipsImage` `materialize/1`;
 it sets the flag the same way (or delegates to the new `materialize/1`). The arity-1 form
-(State) and arity-2 callback (State + opts) do not collide.
+(State) and arity-2 callback (State + opts) do not collide. The existing
+`test/image_pipe/image_materializer_test.exs`, which calls the deleted `VipsImage`
+`materialize/1` form directly, is **deleted** alongside the function (not kept alive to pin
+a removed entry point). The arity-2 test stub at
+`test/support/.../request_processor_test/materializer.ex` keeps its signature and needs no
+change.
 
 `Chain.maybe_materialize` calls `Materializer.materialize/1` directly, with no opts — it
 does **not** use the injectable `image_materializer`. Chain materialisation behaviour is
@@ -198,13 +254,26 @@ therefore verified by observable `materialized?`/pixel outcomes, not by injectin
 ### 5. `Transform.DecodePlanner` — access mode always `:sequential`
 
 `open_options/4` always includes `access: :sequential`. The binary `access(chain)` /
-`resolve_access` / `access_requirement` functions are deleted.
+`resolve_access` / `access_requirement` functions and the now-dead `@type
+access_requirement()` are deleted.
 
 The shrink-on-load computation (`compute_load_shrink`, `shrink_blocked_before_resize?`,
 `resize_load_shrink`, etc.) is unchanged — it is orthogonal to access mode.
 
-The module doc and any comments describing the binary access decision must be updated in
-the same change (per the project's keep-docs-in-sync discipline).
+**Behaviour change to acknowledge:** the empty chain (`access([]) -> :random` today) and a
+`NormalizeColorProfile`-alone chain (`:neutral -> :random` today) flip from `:random` to
+`:sequential`. End state is equivalent — an output-only request that never materialises
+mid-chain now drains and materialises once at delivery (§6) instead of opening random — but
+it *is* a visible change to the pinned planner values. Tests that assert the old access
+values must be updated, not just the moduledoc:
+
+- `test/image_pipe/decode_planner_test.exs` — the whole "Access selection" block (empty-chain
+  `:random`, neutral-alone `:random`, composition/crop `:random` pins)
+- `test/image_pipe/plug_test.exs` — "cover opens origin with random access" (~`:1858`)
+- `test/image_pipe/processor_test.exs` — `decode_options == [access: :random, ...]` (~`:120`)
+
+The module doc and comments describing the binary access decision are updated in the same
+change (per the keep-docs-in-sync discipline).
 
 ### 6. `Request.Processor` — remove between-pipeline copy; simplify delivery
 
@@ -238,34 +307,23 @@ only its use in the *delivery* call is removed.
 The `Materializer` moduledoc currently describes "decode planning uses only the first
 pipeline" and "materialize between pipelines"; update it to describe per-op materialisation.
 
-#### Source-error surfacing must wrap pipeline execution, not just delivery
+#### Source-error surfacing needs no new wrap (verified against the code)
 
-Today, `prefer_source_body_limit` / `prefer_source_stream_error` run at two points: decode
-open, and the delivery/between-pipeline materialisation. They reclassify a generic
-`{:error, _}` into `{:error, {:source, :body_too_large}}` / `{:error, {:source, reason}}`
-so the source's body-limit and stream-failure flags win, with correct telemetry and HTTP
-status.
-
-This design relocates where the source's lazy read first completes. For a sequential
-**path** source, libvips defers reading the file until pixels are pulled — which now happens
-at the **first in-chain materialisation**: `AutoOrient`'s internal materialise, or
-`Chain.maybe_materialize` before the first `Rotate`/`Flip`/smart-`Crop`. If that read fails
-(truncated file, I/O error) or trips the body limit, the pipeline halts with
-`{:error, {:transform_error, {SomeOp, reason}}}` and **never reaches the delivery check** —
-so the error is misclassified as a transform error instead of a `{:source, _}` error.
-
-Fix: wrap the **pipeline-execution result** (`execute_plan_pipelines` / its caller in
-`Request.Processor`) with the same `prefer_source_body_limit` / `prefer_source_stream_error`
-translation, so a source-read failure surfacing mid-chain is reclassified regardless of which
-op triggered the read. This is not AutoOrient-specific — it applies to every random-access op
-whose `Chain.maybe_materialize` now pulls the source. `handle_materialization_result` stays
-the delivery check; the new wrap covers the mid-chain failure path. A test must assert that a
-truncated/over-limit **path** source whose read completes at the first materialising op
-surfaces as `{:source, _}`, not `{:transform_error, _}`.
-
-(The **buffer**/stream source path is already drained eagerly at `seekable_input` decode
-time, so its stream errors still surface there, pre-wrapped — this gap is specific to the
-lazily-read path source.)
+An earlier draft proposed wrapping pipeline execution with `prefer_source_body_limit` /
+`prefer_source_stream_error` to catch mid-chain materialisation failures. That is **dead
+code** and is not adopted. The source body-limit and stream-error flags are backed by
+`:atomics` on a `Source.WrappedStream`, mutated *only* while that stream is enumerated.
+The only enumeration is the eager `Enum.to_list` drain in `seekable_input` (HTTP/S3 stream
+sources), which completes at decode time, before any transform op — already covered by the
+two existing decode-time `prefer_source_*` wraps. **Path** sources carry no `WrappedStream`
+(`Source.File.fetch` returns `%Response{stream: nil}`), so `body_limit_exceeded?` /
+`stream_error_reason` are structural no-ops for them; a truncated/I/O-failed path read at a
+mid-chain `copy_memory` is a genuine libvips decode error, correctly classified
+`{:transform_error, _}` → `{:decode, _}`. There is no `{:source, _}` reclassification owed
+to a path read, so no wrap is needed and a test asserting `{:source, _}` for a path source
+would pin wrong behaviour. (Should a future source kind stream lazily *into* libvips at
+materialisation time, the wrap becomes real — add it then, with that producer and a test,
+per the codebase's add-validation-when-the-caller-appears rule.)
 
 ### 7. Per-op `requires_materialization?` declarations
 
@@ -309,6 +367,12 @@ EXIF orientation safety:
 - `3` (180°), `4` (vertical flip), `5`/`7` (transpose/transverse), `6`/`8` (90°/270°) —
   reverse row order or transpose axes; **need random access**.
 
+Note these split into two sub-cases for the shrink-axis-swap machinery: only `5`/`6`/`7`/`8`
+transpose axes (`exif_quarter_turn?` matches exactly `[5,6,7,8]`), so they exercise the
+`shrink_axes`/`auto_orient_before_resize?` swap; `3`/`4` reverse rows without an axis swap and
+take the non-swap branch. The equivalence test must cover both branches (it is not one
+uniform case across 3–8).
+
 So `AutoOrient.execute` reads the orientation header first (`VipsImage.header_value(image,
 "orientation")`, the same read the processor's `exif_quarter_turn?` already does). For the
 random-access set it materialises **via `Materializer.materialize/1`** — not a hand-coded
@@ -329,16 +393,23 @@ end
 This ordering is load-bearing: `Image.autorotate/1` builds a lazy `vips_rot`/`vips_flip`
 node over its input, so it gains random access only because its input (`state.image`) is now
 the RAM-resident buffer the prior `materialize` produced. Autorotating the un-materialised
-`state.image` would read a fresh lazy node off the sequential source and fail. The shrink is
-already applied at decode (`shrink_blocked_before_resize?` deliberately permits shrink before
-AutoOrient — verified: AutoOrient is not in its halt set), so the copy is on the shrunk image.
+`state.image` would read a fresh lazy node off the sequential source and fail. When a resize
+follows, the shrink is already applied at decode (`shrink_blocked_before_resize?` deliberately
+permits shrink before AutoOrient — verified: AutoOrient is not in its halt set), so the copy
+is on the shrunk image. When **no resize** precedes AutoOrient (e.g. auto-orient + format
+change), no shrink applies and the copy is on the **full-resolution** decode — the same cost
+as today's `:random` open for that request, so not a regression.
 
 The exact safe set is **gated on the EXIF equivalence test** (libvips `vips_autorot` may
 self-cache for some orientations; the conservative default is to materialise for `3`–`8`).
-The conformance suite already has an orientation-6 `ExifOrientationOriginImage`; the test
-must add `3`/`4`/`5`/`7`/`8` fixtures, opened from a genuinely streamed source with
-`fail_on: :error`, **and with a shrink load option active** (orientation-plus-shrink is the
-path this design relies on, and the orientation header must survive the shrink).
+The conformance suite already has an orientation-6 `ExifOrientationOriginImage`, but there are
+**no on-disk EXIF fixtures** — each orientation is synthesised in-memory
+(`Image.set_orientation!(img, n) |> Image.write!(:memory, suffix: ".jpg")`), and the test must
+then re-open those bytes as a streamed/iodata source with `access: :sequential` and
+`fail_on: :error`, **with a shrink load option active** (orientation-plus-shrink is the path
+this design relies on, and the orientation header must survive the shrink). So "add 3/4/5/7/8
+fixtures" is per-orientation synthesis work, not drop-in files. The streamed-open + sampled-
+pixel-compare harness is recoverable from the deleted `sequential_compatibility_test.exs`.
 
 **AutoOrient is the single sanctioned exception to Chain-owned materialisation.** Every other
 op either declares `requires_materialization?` (and `Chain.maybe_materialize` does the copy)
@@ -465,7 +536,7 @@ no test going red. Tracked as a follow-up; not a blocker for the correctness wor
 | `Transform.Chain` | Add `maybe_materialize/2`; call before each op |
 | `Transform.Materializer` | Replace VipsImage `materialize/1` with State `materialize/1` setting the flag; rewrite arity-2 body; update moduledoc |
 | `Transform.DecodePlanner` | Delete binary access decision; always `access: :sequential`; update doc |
-| `Request.Processor` | Remove between-pipeline copy; simplify delivery materialisation; wrap pipeline-execution result with `prefer_source_*` so mid-chain source-read failures surface as `{:source, _}` |
+| `Request.Processor` | Remove between-pipeline copy; simplify delivery materialisation (no new source-error wrap — see §6) |
 | Shrink-on-load logic | Unchanged |
 | Plan/Parser/Cache/Output/Source | Unchanged |
 | `architecture_boundary_test.exs` | No change (all new dispatch is intra-transform-boundary) |
