@@ -117,7 +117,7 @@ defmodule ImagePipe.Request.ProcessorTest do
              )
 
     assert decoded.source_format == :jpeg
-    assert decoded.decode_options == [access: :random, fail_on: :error]
+    assert decoded.decode_options == [access: :sequential, fail_on: :error]
   end
 
   test "process_source materializes between pipelines before executing the next pipeline" do

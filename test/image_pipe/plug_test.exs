@@ -1855,7 +1855,7 @@ defmodule ImagePipe.PlugTest do
     assert Keyword.get(decode_opts, :fail_on) == :error
   end
 
-  test "cover opens origin with random access" do
+  test "cover opens origin with sequential access" do
     conn =
       conn(:get, "/_/rs:fill:100:100/f:jpeg/plain/images/beach.jpg")
       |> call_image_pipe(
@@ -1866,9 +1866,12 @@ defmodule ImagePipe.PlugTest do
       )
 
     assert conn.status == 200
-    assert_received {:image_open_options, opts}
-    assert Keyword.get(opts, :access) == :random
-    assert Keyword.get(opts, :fail_on) == :error
+    # Two-step open: header open first (random), then decode open (sequential).
+    assert_received {:image_open_options, header_opts}
+    assert Keyword.get(header_opts, :access) == :random
+    assert_received {:image_open_options, decode_opts}
+    assert Keyword.get(decode_opts, :access) == :sequential
+    assert Keyword.get(decode_opts, :fail_on) == :error
   end
 
   test "sequential materialization failure without origin error returns decode error" do
