@@ -473,8 +473,18 @@ defmodule ImagePipe.Response.SenderTest do
     assert_receive ^cancel_ref
   end
 
+  # Telemetry handlers run synchronously in the emitting process, but the handler
+  # table is global. Under `async: true`, concurrent modules that emit
+  # `[:image_pipe, :encode, :stop]` (e.g. full-request telemetry tests) would
+  # otherwise have this handler fire and deliver their events into this test's
+  # mailbox, contaminating `assert_receive`. Forward only events this test
+  # emitted itself: `self() == test_pid` holds exactly for in-process emissions.
   def handle_telemetry_event(event, measurements, metadata, test_pid) do
-    send(test_pid, {:telemetry_event, event, measurements, metadata})
+    if self() == test_pid do
+      send(test_pid, {:telemetry_event, event, measurements, metadata})
+    end
+
+    :ok
   end
 
   defp prepared_stream(overrides) do

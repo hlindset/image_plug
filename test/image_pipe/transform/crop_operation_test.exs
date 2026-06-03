@@ -1,6 +1,8 @@
 defmodule ImagePipe.Transform.CropOperationTest do
   use ExUnit.Case, async: true
 
+  import ImagePipe.Test.Telemetry, only: [attach_own_event_handlers: 2]
+
   alias ImagePipe.Transform.Operation.Crop
   alias ImagePipe.Transform.State
 
@@ -235,7 +237,7 @@ defmodule ImagePipe.Transform.CropOperationTest do
 
     test "the detect span carries the resolved weights", %{image: image} do
       ref =
-        :telemetry_test.attach_event_handlers(self(), [[:image_pipe, :transform, :detect, :stop]])
+        attach_own_event_handlers(self(), [[:image_pipe, :transform, :detect, :stop]])
 
       state = %State{
         image: image,
@@ -266,7 +268,7 @@ defmodule ImagePipe.Transform.CropOperationTest do
       image: image
     } do
       ref =
-        :telemetry_test.attach_event_handlers(self(), [[:image_pipe, :transform, :detect, :stop]])
+        attach_own_event_handlers(self(), [[:image_pipe, :transform, :detect, :stop]])
 
       state = %State{
         image: image,
@@ -295,7 +297,7 @@ defmodule ImagePipe.Transform.CropOperationTest do
 
     test "no-detection fallback reports result: :no_regions on the detect span", %{image: image} do
       ref =
-        :telemetry_test.attach_event_handlers(self(), [[:image_pipe, :transform, :detect, :stop]])
+        attach_own_event_handlers(self(), [[:image_pipe, :transform, :detect, :stop]])
 
       state = %State{
         image: image,
@@ -320,7 +322,7 @@ defmodule ImagePipe.Transform.CropOperationTest do
 
     test "detector error reports result: :error on the detect span", %{image: image} do
       ref =
-        :telemetry_test.attach_event_handlers(self(), [[:image_pipe, :transform, :detect, :stop]])
+        attach_own_event_handlers(self(), [[:image_pipe, :transform, :detect, :stop]])
 
       state = %State{
         image: image,
@@ -346,7 +348,7 @@ defmodule ImagePipe.Transform.CropOperationTest do
       image: image
     } do
       ref =
-        :telemetry_test.attach_event_handlers(self(), [
+        attach_own_event_handlers(self(), [
           [:image_pipe, :transform, :detect, :skipped],
           [:image_pipe, :transform, :detect, :stop]
         ])
@@ -434,7 +436,7 @@ defmodule ImagePipe.Transform.CropOperationTest do
       image: image
     } do
       ref =
-        :telemetry_test.attach_event_handlers(self(), [[:image_pipe, :transform, :detect, :blend]])
+        attach_own_event_handlers(self(), [[:image_pipe, :transform, :detect, :blend]])
 
       state = %State{
         image: image,
@@ -466,7 +468,7 @@ defmodule ImagePipe.Transform.CropOperationTest do
 
     test "no blend one-shot fires when detection finds no face", %{image: image} do
       ref =
-        :telemetry_test.attach_event_handlers(self(), [[:image_pipe, :transform, :detect, :blend]])
+        attach_own_event_handlers(self(), [[:image_pipe, :transform, :detect, :blend]])
 
       state = %State{
         image: image,
