@@ -9,7 +9,6 @@ defmodule ImagePipe.Parser.Imgproxy.PlanBuilderTest do
   alias ImagePipe.Parser.Imgproxy.PlanBuilder
   alias ImagePipe.Plan
   alias ImagePipe.Plan.Operation
-  alias ImagePipe.Plan.Operation.AutoOrient
   alias ImagePipe.Plan.Operation.Flip
   alias ImagePipe.Plan.Operation.Rotate
   alias ImagePipe.Plan.Output
@@ -383,8 +382,10 @@ defmodule ImagePipe.Parser.Imgproxy.PlanBuilderTest do
              )
 
     assert anchor(crop.guide) == {:right, :bottom}
-    assert crop.x_offset == {:pixels, -12.0}
-    assert crop.y_offset == {:scale, 0.25}
+    # Raw offsets: the executable crop applies the per-axis sign (subtract for the
+    # far :right/:bottom edges), so the parser no longer pre-negates (#146 Bug 3).
+    assert crop.x_offset == {:pixels, 12.0}
+    assert crop.y_offset == {:scale, -0.25}
   end
 
   test "plans dpr with semantic resize guide and adjusted offsets" do
@@ -408,7 +409,9 @@ defmodule ImagePipe.Parser.Imgproxy.PlanBuilderTest do
 
     assert crop.dpr == ratio(2, 1)
     assert anchor(crop.guide) == {:right, :center}
-    assert crop.x_offset == {:pixels, -12.0}
+    # Raw offsets (#146 Bug 3): no parser pre-negation; the executable subtracts on
+    # the far :right edge and the :center Y axis adds.
+    assert crop.x_offset == {:pixels, 12.0}
     assert crop.y_offset == {:scale, -0.25}
   end
 
@@ -431,8 +434,9 @@ defmodule ImagePipe.Parser.Imgproxy.PlanBuilderTest do
              )
 
     assert anchor(crop.guide) == {:right, :bottom}
-    assert crop.x_offset == {:pixels, -8.0}
-    assert crop.y_offset == {:scale, 0.5}
+    # Raw offsets (#146 Bug 3): executable applies the per-axis far-edge subtraction.
+    assert crop.x_offset == {:pixels, 8.0}
+    assert crop.y_offset == {:scale, -0.5}
   end
 
   test "crop without explicit gravity inherits top-level gravity" do
@@ -547,7 +551,6 @@ defmodule ImagePipe.Parser.Imgproxy.PlanBuilderTest do
              )
 
     assert operation_names(operations) == [
-             :auto_orient,
              :rotate,
              :flip,
              :crop_guided,
@@ -672,7 +675,9 @@ defmodule ImagePipe.Parser.Imgproxy.PlanBuilderTest do
     assert {:ok, %Plan{pipelines: [%Pipeline{operations: [%Operation.CropGuided{}]}]}} =
              plan_pipeline(crop: struct(ImagePipe.Parser.Imgproxy.CropRequest))
 
-    assert {:ok, %Plan{pipelines: [%Pipeline{operations: [%AutoOrient{}]}]}} =
+    # EXIF auto-orient is no longer a pipeline op; it surfaces as Plan.auto_rotate
+    # and the orientation block contributes no operations on its own.
+    assert {:ok, %Plan{pipelines: [%Pipeline{operations: []}]}} =
              plan_pipeline(
                orientation: struct(ImagePipe.Parser.Imgproxy.Orientation, auto_orient: true)
              )
@@ -686,7 +691,7 @@ defmodule ImagePipe.Parser.Imgproxy.PlanBuilderTest do
                orientation: struct(ImagePipe.Parser.Imgproxy.Orientation, auto_orient: true)
              )
 
-    assert operation_names(operations) == [:auto_orient, :crop_guided]
+    assert operation_names(operations) == [:crop_guided]
   end
 
   test "converts multiple imgproxy pipeline requests into separate product-neutral pipelines" do
@@ -1250,7 +1255,6 @@ defmodule ImagePipe.Parser.Imgproxy.PlanBuilderTest do
 
   defp operation_names(operations), do: Enum.map(operations, &operation_name/1)
 
-  defp operation_name(%AutoOrient{}), do: :auto_orient
   defp operation_name(%Rotate{}), do: :rotate
   defp operation_name(%Flip{}), do: :flip
   defp operation_name(%Operation.CropGuided{}), do: :crop_guided

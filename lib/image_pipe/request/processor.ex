@@ -73,7 +73,8 @@ defmodule ImagePipe.Request.Processor do
              operations,
              source_format,
              original_dims,
-             exif_quarter_turn?(header_image)
+             exif_quarter_turn?(header_image),
+             plan.auto_rotate
            ),
          {:ok, image} <-
            open_seekable_input(input, decode_options, opts)
@@ -96,9 +97,9 @@ defmodule ImagePipe.Request.Processor do
   # The residual resize sizes against the exact original extent — but only when the
   # decode was actually shrunk. With no shrink the transform layer reads the live
   # image dims instead (which also keeps a crop-before-resize correct), so we leave
-  # it `nil`. These are the stored (pre-orientation) dims; `AutoOrient` swaps them
-  # in step if it rotates, and shrink is declined when a crop/quarter-turn rotate
-  # precedes the resize, so they cannot go stale.
+  # it `nil`. These are the stored (pre-orientation) dims, which stay in the storage
+  # frame (orientation is deferred and flushed after the resize); shrink is declined
+  # when a crop/quarter-turn rotate precedes the resize, so they cannot go stale.
   defp shrink_source_dimensions(decode_options, original_dims) do
     if Keyword.has_key?(decode_options, :shrink) or Keyword.has_key?(decode_options, :scale) do
       original_dims
@@ -117,7 +118,16 @@ defmodule ImagePipe.Request.Processor do
     source_response = Map.get(decoded, :source_response)
     source_dimensions = Map.get(decoded, :source_dimensions)
 
-    initial_state = %State{image: image, source_dimensions: source_dimensions}
+    # The realized shrink is only meaningful when shrink-on-load actually fired;
+    # `source_dimensions` is the same gate (set iff a shrink/scale load option was
+    # emitted). A crop preceding the resize uses it to rescale absolute coords.
+    decode_shrink = if source_dimensions, do: Map.get(decoded, :achieved_shrink), else: nil
+
+    initial_state = %State{
+      image: image,
+      source_dimensions: source_dimensions,
+      decode_shrink: decode_shrink
+    }
 
     Telemetry.span(Telemetry.telemetry_opts(opts), [:transform, :execute], %{}, fn ->
       result =
@@ -146,11 +156,13 @@ defmodule ImagePipe.Request.Processor do
   defp classify_materialize_error(result), do: result
 
   defp execute_plan_pipeline_step(
-         {pipeline, _index},
+         {pipeline, index},
          {:ok, %State{} = state},
          %Plan{} = plan,
          opts
        ) do
+    opts = Keyword.put(opts, :seed_orientation, index == 0)
+
     case Transform.execute_plan(%Plan{plan | pipelines: [pipeline]}, state, opts) do
       {:ok, %State{} = state} -> {:cont, {:ok, state}}
       {:error, _reason} = error -> {:halt, error}
@@ -260,8 +272,8 @@ defmodule ImagePipe.Request.Processor do
   defp prefer_source_stream_error(result, _source_response), do: result
 
   # Whether the source's EXIF orientation implies a 90°/270° turn. The decode
-  # planner uses this (together with the presence of an AutoOrient step in the
-  # chain) to decide whether the shrink axes must be swapped. Reading the header
+  # planner uses this (together with the `auto_rotate` flag) to decide whether the
+  # shrink axes must be swapped. Reading the header
   # value stays here because only the Request layer holds the decoded image; the
   # orientation *policy* lives in the planner.
   defp exif_quarter_turn?(image) do

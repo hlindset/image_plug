@@ -3,7 +3,6 @@ defmodule ImagePipe.PlanTest do
 
   alias ImagePipe.Plan
   alias ImagePipe.Plan.Operation
-  alias ImagePipe.Plan.Operation.AutoOrient
   alias ImagePipe.Plan.Operation.CropGuided
   alias ImagePipe.Plan.Operation.Flip
   alias ImagePipe.Plan.Operation.Rotate
@@ -25,7 +24,7 @@ defmodule ImagePipe.PlanTest do
   end
 
   test "validated pipelines accept semantic orientation operations" do
-    operations = [%AutoOrient{}, %Rotate{angle: 90}, %Flip{axis: :horizontal}]
+    operations = [%Rotate{angle: 90}, %Flip{axis: :horizontal}]
 
     plan =
       plan(pipelines: [%Pipeline{operations: operations}])
@@ -117,7 +116,7 @@ defmodule ImagePipe.PlanTest do
   end
 
   test "detect_classes is nil for an operation without a guide field" do
-    plan = plan(pipelines: [%Pipeline{operations: [%AutoOrient{}]}])
+    plan = plan(pipelines: [%Pipeline{operations: [%Rotate{angle: 90}]}])
     assert Plan.detect_classes(plan) == nil
   end
 
@@ -127,6 +126,14 @@ defmodule ImagePipe.PlanTest do
 
   test "face_assist? is false otherwise" do
     refute Plan.face_assist?(plan_with_guide(:smart))
+  end
+
+  test "auto_rotate defaults to false and validate_shape accepts booleans" do
+    plan = plan()
+
+    assert plan.auto_rotate == false
+    assert {:ok, _} = Plan.validate_shape(%{plan | auto_rotate: true})
+    assert {:error, {:invalid_auto_rotate, _}} = Plan.validate_shape(%{plan | auto_rotate: "yes"})
   end
 
   defp plan_with_guide(guide) do

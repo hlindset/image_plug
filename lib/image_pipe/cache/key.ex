@@ -72,6 +72,7 @@ defmodule ImagePipe.Cache.Key do
          transform: transform_data(),
          detector: Keyword.get(opts, :detector_identity),
          output: output,
+         auto_rotate: plan.auto_rotate,
          representation: representation_data(),
          cache: cache
        ]}

@@ -56,7 +56,6 @@ defmodule ImagePipe.ArchitectureBoundaryTest do
     ImagePipe.Transform => "lib/image_pipe/transform.ex"
   }
   @concrete_plan_names [
-    :AutoOrient,
     :Background,
     :Canvas,
     :CropGuided,
@@ -77,7 +76,6 @@ defmodule ImagePipe.ArchitectureBoundaryTest do
     :Rotate,
     :Flip,
     :Background,
-    :AutoOrient,
     :NormalizeColorProfile,
     :ExtendCanvas,
     :Padding,
@@ -439,7 +437,6 @@ defmodule ImagePipe.ArchitectureBoundaryTest do
       ImagePipe.Transform.Operation.ExtendCanvas,
       ImagePipe.Transform.Operation.Padding,
       ImagePipe.Transform.Operation.Background,
-      ImagePipe.Transform.Operation.AutoOrient,
       ImagePipe.Transform.Operation.Rotate,
       ImagePipe.Transform.Operation.Flip,
       ImagePipe.Transform.Operation.Crop,
@@ -473,7 +470,6 @@ defmodule ImagePipe.ArchitectureBoundaryTest do
       ImagePipe.Plan.Source.Object,
       ImagePipe.Plan.Source.Reference,
       ImagePipe.Plan.Operation,
-      ImagePipe.Plan.Operation.AutoOrient,
       ImagePipe.Plan.Operation.Background,
       ImagePipe.Plan.Operation.Blur,
       ImagePipe.Plan.Operation.Brightness,

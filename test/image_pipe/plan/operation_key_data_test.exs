@@ -4,7 +4,6 @@ defmodule ImagePipe.Plan.OperationKeyDataTest do
 
   alias ImagePipe.Plan.KeyData
   alias ImagePipe.Plan.Operation
-  alias ImagePipe.Plan.Operation.AutoOrient
   alias ImagePipe.Plan.Operation.Blur
   alias ImagePipe.Plan.Operation.Brightness
   alias ImagePipe.Plan.Operation.Contrast
@@ -206,7 +205,6 @@ defmodule ImagePipe.Plan.OperationKeyDataTest do
 
   describe "orientation operation data" do
     test "returns key data for semantic orientation operations" do
-      assert KeyData.data(%AutoOrient{}) == [op: :auto_orient]
       assert KeyData.data(%Rotate{angle: 270}) == [op: :rotate, angle: 270]
       assert KeyData.data(%Flip{axis: :both}) == [op: :flip, axis: :both]
     end

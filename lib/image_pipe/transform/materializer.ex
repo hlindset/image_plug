@@ -2,8 +2,11 @@ defmodule ImagePipe.Transform.Materializer do
   @moduledoc """
   Materialization boundary for transform execution.
 
-  `materialize/1` copies the current image to a RAM-resident buffer via
-  `Vix.Vips.Image.copy_memory/1` and marks the state `materialized?: true`.
+  `materialize/1` delegates to `ImagePipe.Transform.OrientationFlush.flush/1`,
+  which applies any pending orientation (EXIF auto-rotate plus user rotate/flip)
+  before copying the current image to a RAM-resident buffer and marking the state
+  `materialized?: true`. Materialization may therefore change the displayed frame
+  (when orientation was deferred) in addition to copying pixels to memory.
 
   Per-op materialization (`ImagePipe.Transform.Chain`) calls this before the
   first operation that requires random access, so a sequential decode can stream
@@ -12,18 +15,14 @@ defmodule ImagePipe.Transform.Materializer do
   delivery for any chain that never materialized mid-pipeline.
   """
 
-  alias ImagePipe.Transform.State
-  alias Vix.Vips.Image, as: VipsImage
+  alias ImagePipe.Transform.{OrientationFlush, State}
 
   @callback materialize(State.t(), keyword()) ::
               {:ok, State.t()} | {:error, term()}
 
   @spec materialize(State.t()) :: {:ok, State.t()} | {:error, term()}
   def materialize(%State{} = state) do
-    case VipsImage.copy_memory(state.image) do
-      {:ok, image} -> {:ok, %State{state | image: image, materialized?: true}}
-      {:error, _reason} = error -> error
-    end
+    OrientationFlush.flush(state)
   end
 
   @spec materialize(State.t(), keyword()) :: {:ok, State.t()} | {:error, term()}

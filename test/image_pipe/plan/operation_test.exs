@@ -2,7 +2,6 @@ defmodule ImagePipe.Plan.OperationTest do
   use ExUnit.Case, async: true
 
   alias ImagePipe.Plan.Operation
-  alias ImagePipe.Plan.Operation.AutoOrient
   alias ImagePipe.Plan.Operation.Blur
   alias ImagePipe.Plan.Operation.Brightness
   alias ImagePipe.Plan.Operation.Contrast
@@ -372,13 +371,11 @@ defmodule ImagePipe.Plan.OperationTest do
 
   describe "orientation operations" do
     test "allows semantic orientation operations" do
-      assert Operation.semantic?(%AutoOrient{})
       assert Operation.semantic?(%Rotate{angle: 90})
       assert Operation.semantic?(%Flip{axis: :horizontal})
     end
 
     test "constructs semantic orientation operations" do
-      assert Operation.auto_orient() == {:ok, %AutoOrient{}}
       assert Operation.rotate(90) == {:ok, %Rotate{angle: 90}}
       assert Operation.flip(:both) == {:ok, %Flip{axis: :both}}
     end
@@ -394,7 +391,6 @@ defmodule ImagePipe.Plan.OperationTest do
     end
 
     test "rejects executable transform orientation structs as semantic operations" do
-      refute Operation.semantic?(%ImagePipe.Transform.Operation.AutoOrient{})
       refute Operation.semantic?(%ImagePipe.Transform.Operation.Rotate{angle: 90})
       refute Operation.semantic?(%ImagePipe.Transform.Operation.Flip{axis: :horizontal})
     end

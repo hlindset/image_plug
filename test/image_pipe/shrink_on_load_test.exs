@@ -27,10 +27,10 @@ defmodule ImagePipe.ShrinkOnLoadTest do
     @moduledoc false
     # Serves a 4000×3000 JPEG tagged EXIF orientation 6 (90° turn), so the
     # *displayed* image is 3000×4000 (portrait). Built lazily in call/2. Used to
-    # exercise shrink-on-load + AutoOrient together: libvips does not auto-apply
-    # orientation on a shrink-load (verified), so the decode comes back stored
-    # (landscape) and AutoOrient rotates it — the residual resize must still land on
-    # the displayed-orientation target.
+    # exercise shrink-on-load + deferred orientation together: libvips does not
+    # auto-apply orientation on a shrink-load (verified), so the decode comes back
+    # stored (landscape) and OrientationFlush rotates it after resize — the residual
+    # resize must still land on the displayed-orientation target.
     def call(conn, _opts) do
       {:ok, base} = Image.new(4000, 3000, color: [120, 130, 140])
       body = base |> Image.set_orientation!(6) |> Image.write!(:memory, suffix: ".jpg")
@@ -318,14 +318,19 @@ defmodule ImagePipe.ShrinkOnLoadTest do
 
   # Regression: crop runs BEFORE resize in the fixed pipeline order. The resize
   # must compute its target from the *cropped* image, not the original source.
-  # `effective_source_dims` reads the live (post-crop) image, so this is correct
-  # regardless of the decode prescale. Shrink-on-load is conservatively disabled
-  # when a crop precedes the resize (see DecodePlanner), so this request takes the
-  # full-decode path — but the dimension contract is what we pin here.
+  # After the crop runs, `clear_source_frame` drops the stored original dims so
+  # `effective_source_dims` reads the live (post-crop) image — correct regardless
+  # of the decode prescale.
   #
-  # beach.jpg is 4000×2667. c:2000:2000 (centre) crops a square; fit:500:500 of a
-  # square must yield 500×500. The original absolute-`source_dimensions` design
-  # produced 500×333 here (resize read the stale 4000×2667 instead of the crop).
+  # Shrink-on-load now proceeds *through* a preceding crop (#151): the shrink is
+  # sized against the cropped extent and the crop's pixel coords are rescaled by the
+  # realized shrink. beach.jpg is 4000×2667. c:2000:2000 (centre) crops a square,
+  # fit:500:500 → shrink 4 (crop 2000 / target 500), crop rescaled to 500×500 on the
+  # 1000×667 shrunk decode, then the residual resize lands the square. Because the
+  # residual resize scales by a fractional factor, the result may sit ±1px off the
+  # requested square (the resampling floor the shrink_on_load property test pins);
+  # the original absolute-`source_dimensions` bug produced 500×333 here, which this
+  # still guards against.
   test "crop-before-resize computes the residual resize from the cropped square" do
     conn =
       call_pipe("/_/c:2000:2000/rs:fit:500:500/f:jpeg/plain/images/beach.jpg", file_source_opts())
@@ -333,7 +338,8 @@ defmodule ImagePipe.ShrinkOnLoadTest do
     assert conn.status == 200
 
     img = decoded_image(conn)
-    assert {Image.width(img), Image.height(img)} == {500, 500}
+    {w, h} = {Image.width(img), Image.height(img)}
+    assert abs(w - 500) <= 1 and abs(h - 500) <= 1, "expected ~500×500, got #{w}×#{h}"
   end
 
   # A second crop+resize geometry, to guard the dimension contract independent of
@@ -351,12 +357,12 @@ defmodule ImagePipe.ShrinkOnLoadTest do
     assert {Image.width(img), Image.height(img)} == {1500, 1500}
   end
 
-  # Shrink-on-load composed with AutoOrient (the retina-photo case). The source is
-  # a 4000×3000 JPEG tagged EXIF orientation 6, so the displayed image is 3000×4000
-  # (portrait). `ar:true` enables auto-rotation; w:375 against the displayed width
-  # (3000) gives load_shrink 8. libvips returns the shrink-load stored-oriented
-  # (landscape), AutoOrient rotates it and swaps the stored original dims, and the
-  # residual resize must land on the displayed-orientation target 375×500.
+  # Shrink-on-load composed with deferred orientation (the retina-photo case). The
+  # source is a 4000×3000 JPEG tagged EXIF orientation 6, so the displayed image is
+  # 3000×4000 (portrait). `ar:true` enables auto-rotation; w:375 against the
+  # displayed width (3000) gives load_shrink 8. libvips returns the shrink-load
+  # stored-oriented (landscape); OrientationFlush rotates it after the residual
+  # resize, which must land on the displayed-orientation target 375×500.
   #
   # Pinning both dims (and that the result is portrait) guards the orientation
   # axis-swap: a stored-vs-displayed mismatch would transpose the output (500×375).

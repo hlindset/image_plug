@@ -216,6 +216,7 @@ defmodule ImagePipe.Cache.KeyTest do
                strip_color_profile: true,
                keep_copyright: true
              ],
+             auto_rotate: false,
              representation: [version: 1],
              cache: [cachebuster: nil],
              selected_headers: [],
@@ -870,6 +871,15 @@ defmodule ImagePipe.Cache.KeyTest do
     assert base.data[:pipelines] == busted.data[:pipelines]
     assert busted.data[:cache] == [cachebuster: "v2"]
     refute base.hash == busted.hash
+  end
+
+  test "auto_rotate participates in the cache key" do
+    conn = conn(:get, "/_/plain/images/cat.jpg")
+    off = build_key!(conn, plan(auto_rotate: false), source_identity())
+    on = build_key!(conn, plan(auto_rotate: true), source_identity())
+    assert off.data[:auto_rotate] == false
+    assert on.data[:auto_rotate] == true
+    refute off.hash == on.hash
   end
 
   test "response delivery metadata is excluded from cache key data" do

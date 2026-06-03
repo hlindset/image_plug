@@ -227,6 +227,7 @@ defmodule ImagePipe.Parser.Imgproxy do
        source_kind: :plain,
        source_path: source_path,
        pipelines: request_options.pipelines,
+       auto_rotate: request_options.auto_rotate,
        output: %{request_options.output | format: output_format},
        policy: request_options.policy,
        cache: request_options.cache,

@@ -10,6 +10,8 @@ defmodule ImagePipe.ImgproxyWireConformanceTest do
   alias ImagePipe.SourceTest.FoobarTranslator
   alias ImagePipe.SourceTest.PlugCustomAdapter
   alias ImagePipe.SourceTest.RootHTTPAdapter
+  alias ImagePipe.Test.Orientation1TwinOrigin
+  alias ImagePipe.Test.OrientedFrameOrigin
   alias ImgproxyWireConformanceTest.CacheProbe
   alias ImgproxyWireConformanceTest.CountingOriginImage
   alias ImgproxyWireConformanceTest.OriginImage
@@ -56,6 +58,113 @@ defmodule ImagePipe.ImgproxyWireConformanceTest do
 
       conn
       |> Plug.Conn.put_resp_content_type("image/jpeg")
+      |> Plug.Conn.send_resp(200, body)
+    end
+  end
+
+  # Deferred-orientation gate (#146) origins. Both serve the SAME displayed
+  # pixels: `OrientedFrameOrigin` tags a stored image with an EXIF orientation
+  # (so the pipeline must autorotate it), while `Orientation1TwinOrigin` decodes
+  # that same tagged image, applies the autorotate in pixels, strips the tag, and
+  # serves the result as a lossless orientation-1 PNG. Running an identical
+  # imgproxy request against both is the wire-vs-orientation-1 oracle: the same
+  # operators run on the same displayed content, so the decoded outputs match.
+  #
+  # The base content is a 120×200 portrait with sharp solid quadrants and a
+  # corner marker; large enough that a ±1px affine-resize seam shift never reaches
+  # the interior flat-region samples the oracle compares.
+  defmodule OrientationFixture do
+    @moduledoc false
+
+    def base do
+      120
+      |> Image.new!(200, color: :green)
+      |> Image.Draw.rect!(0, 0, 120, 100, color: :red)
+      |> Image.Draw.rect!(0, 0, 30, 30, color: :blue)
+    end
+
+    # Lossless base bytes fed to the shared `ImagePipe.Test.OrientedFrameOrigin` /
+    # `ImagePipe.Test.Orientation1TwinOrigin`, which tag/autorotate them per
+    # orientation. PNG keeps the base pixels exact so the oracle compares identical
+    # displayed content across both legs.
+    def base_png, do: Image.write!(base(), :memory, suffix: ".png")
+  end
+
+  # A LOSSLESS oracle for fixed-coordinate / non-center / offset crops, where the
+  # JPEG twin + flat-region sampling above is too insensitive to catch a 1px
+  # placement error (#146 Bugs 2 & 3). The source is a sharp-feature 120×200 PNG;
+  # the oriented leg tags it with an EXIF orientation (PNG carries the tag, the
+  # pipeline must autorotate), and the eager-flush-first twin autorotates the same
+  # tagged PNG into display pixels and stores it untagged. Both legs are lossless
+  # PNG end-to-end, so an identical request that selects different content per
+  # orientation still produces byte-comparable interiors — every pixel is asserted
+  # within a tiny tolerance, so a 1px shift fails loudly.
+  defmodule SharpOrientationFixture do
+    @moduledoc false
+
+    # 120×200 with distinct sharp features in every region: solid quadrants plus a
+    # vertical and a horizontal white line at known storage coordinates so that any
+    # placement error moves a feature relative to the comparison.
+    def base do
+      120
+      |> Image.new!(200, color: :green)
+      |> Image.Draw.rect!(0, 0, 60, 100, color: :red)
+      |> Image.Draw.rect!(60, 0, 60, 100, color: :blue)
+      |> Image.Draw.rect!(0, 100, 60, 100, color: :yellow)
+      |> Image.Draw.rect!(61, 0, 1, 200, color: :white)
+      |> Image.Draw.rect!(0, 131, 120, 1, color: :white)
+    end
+
+    def oriented_png(orientation) do
+      base() |> Image.set_orientation!(orientation) |> Image.write!(:memory, suffix: ".png")
+    end
+
+    def twin_png(orientation) do
+      reopened = Image.open!(oriented_png(orientation), access: :random)
+      {:ok, {displayed, _flags}} = Image.autorotate(reopened)
+      displayed |> Image.set_orientation!(1) |> Image.write!(:memory, suffix: ".png")
+    end
+  end
+
+  defmodule SharpOrientedOrigin do
+    @moduledoc false
+
+    def init(orientation), do: orientation
+
+    def call(conn, orientation) do
+      conn
+      |> Plug.Conn.put_resp_content_type("image/png")
+      |> Plug.Conn.send_resp(200, SharpOrientationFixture.oriented_png(orientation))
+    end
+  end
+
+  defmodule SharpTwinOrigin do
+    @moduledoc false
+
+    def init(orientation), do: orientation
+
+    def call(conn, orientation) do
+      conn
+      |> Plug.Conn.put_resp_content_type("image/png")
+      |> Plug.Conn.send_resp(200, SharpOrientationFixture.twin_png(orientation))
+    end
+  end
+
+  defmodule LineOrigin do
+    @moduledoc false
+    # 120×200 black PNG with a single white row at storage y=150, for asserting the
+    # exact vertical placement of a south-offset crop (#146 Bug 3 baseline).
+    def init(_), do: nil
+
+    def call(conn, _) do
+      body =
+        120
+        |> Image.new!(200, color: :black)
+        |> Image.Draw.rect!(0, 150, 120, 1, color: :white)
+        |> Image.write!(:memory, suffix: ".png")
+
+      conn
+      |> Plug.Conn.put_resp_content_type("image/png")
       |> Plug.Conn.send_resp(200, body)
     end
   end
@@ -634,6 +743,275 @@ defmodule ImagePipe.ImgproxyWireConformanceTest do
 
     assert url_disabled_conn.status == 200
     assert dimensions(url_disabled_conn) == {40, 80}
+  end
+
+  test "ar:0 + EXIF-6 + user rot:90 applies only the user rotation (regression guard)" do
+    conn =
+      "/_/ar:false/rot:90/f:jpeg/plain/images/oriented.jpg"
+      |> call_imgproxy(exif_orientation_origin_opts(imgproxy: [auto_rotate: true]))
+
+    assert conn.status == 200
+    # ar:0 ignores the EXIF tag; user rot:90 on the STORED 40x80 -> 80x40.
+    assert dimensions(conn) == {80, 40}
+    assert_oriented_pixels_match(decoded_image(conn), reference_user_rot90_storage())
+  end
+
+  test "no-geometry: rot:90 on EXIF-6 (ar:1) = 180 deg net" do
+    conn =
+      "/_/rot:90/f:jpeg/plain/images/oriented.jpg"
+      |> call_imgproxy(exif_orientation_origin_opts(imgproxy: [auto_rotate: true]))
+
+    assert conn.status == 200
+    # EXIF-6 (90 deg) THEN user 90 deg = 180 deg net on the stored 40x80 -> stays 40x80.
+    assert dimensions(conn) == {40, 80}
+    assert_oriented_pixels_match(decoded_image(conn), reference_180_of_stored())
+  end
+
+  # ── Deferred-orientation Slice A gates (#146) ────────────────────────────────
+
+  # Regression guard for the deferred-orientation cutover: an EXIF-oriented source
+  # combined with a gravity / region / focus-point / cover crop must SUCCEED.
+  # Before the offset-unit fix in PlanExecutor.compensate_crop/2, the executable
+  # crop's tagged offset ({:pixels, 0.0}) reached Orientation's bare-float
+  # arithmetic and raised, turning every EXIF-2..7 + crop request into a 500.
+  test "EXIF-oriented source with a gravity/region/fp/cover crop succeeds (no compensation crash)" do
+    paths = [
+      "/_/rs:fill:90:90/g:no/f:png/plain/images/x.jpg",
+      "/_/rs:fill:90:60/g:ce/f:png/plain/images/x.jpg",
+      "/_/c:60:40:no/f:png/plain/images/x.jpg",
+      "/_/c:60:40:no:5:6/f:png/plain/images/x.jpg",
+      "/_/rs:fill:90:90/g:so:0:8/f:png/plain/images/x.jpg",
+      "/_/g:fp:0.25:0.75/rs:fill:80:80/f:png/plain/images/x.jpg",
+      "/_/c:90:90:fp:0.25:0.75/f:png/plain/images/x.jpg"
+    ]
+
+    for orientation <- 1..8, path <- paths do
+      conn = call_imgproxy(path, oriented_frame_opts(orientation))
+
+      assert conn.status == 200,
+             "EXIF-#{orientation} #{path} returned #{conn.status} (expected 200)"
+    end
+  end
+
+  # The wire-vs-orientation-1 oracle. For each EXIF orientation 1..8 (including the
+  # mirrors 2/4/5/7 and the axis-swapping quarter turns 5/6/7/8), the SAME imgproxy
+  # request is run against the EXIF-oriented source and against the orientation-1
+  # twin carrying the same displayed pixels. Identical operators on both legs ⇒ the
+  # decoded interior pixels match (lossless PNG twin; the oriented leg is JPEG, so
+  # a small interior tolerance absorbs decode noise — direction is still pinned).
+  #
+  # Covered geometry forms (the orientation-1 twin is an exact equivalence):
+  # center / non-center anchor crop, focus-point crop, smart crop, explicit region
+  # crop, cover/fill result crop with center AND non-center gravity, fit / force
+  # including coprime (91×61) source-divergent targets, min-dimension (mw/mh) under
+  # a quarter turn (cover resolved in the display frame — #146 Bug 2), and the FP
+  # crop whose separate offset rotates as a vector (#146 Bug 3).
+  test "crop/resize matrix matches the orientation-1 twin across EXIF 1..8" do
+    paths = [
+      # anchor crops: center + non-center
+      "/_/c:60:40:ce/f:png/plain/images/x.jpg",
+      "/_/c:60:40:no/f:png/plain/images/x.jpg",
+      "/_/c:50:60:we/f:png/plain/images/x.jpg",
+      # focus-point crop (center-ish and off-center) — exercises the FP offset
+      # (zero) transforming as a vector under quarter turns (#146 Bug 3)
+      "/_/c:90:90:fp:0.25:0.75/f:png/plain/images/x.jpg",
+      # smart crop (attention saliency on the displayed pixels)
+      "/_/rs:fill:80:80/g:sm/f:png/plain/images/x.jpg",
+      # cover/fill result crop: center + non-center gravity
+      "/_/rs:fill:90:90/g:ce/f:png/plain/images/x.jpg",
+      "/_/rs:fill:90:90/g:no/f:png/plain/images/x.jpg",
+      "/_/rs:fill:90:60/g:so/f:png/plain/images/x.jpg",
+      # fp-guided cover
+      "/_/g:fp:0.25:0.75/rs:fill:80:80/f:png/plain/images/x.jpg",
+      # rounding-sensitive coprime targets: fit / force / fill
+      "/_/rs:fit:91:61/f:png/plain/images/x.jpg",
+      "/_/rs:force:91:61/f:png/plain/images/x.jpg",
+      "/_/rs:fill:91:61/g:ce/f:png/plain/images/x.jpg",
+      # cover + min-dimension under a quarter turn: the cross-axis min-dim
+      # coupling must resolve in the display frame (#146 Bug 2)
+      "/_/rs:fill:91:61/mw:140/g:no/f:png/plain/images/x.jpg",
+      "/_/rs:fill:90:90/mh:130/g:ce/f:png/plain/images/x.jpg"
+    ]
+
+    for orientation <- 1..8, path <- paths do
+      oriented = call_imgproxy(path, oriented_frame_opts(orientation))
+      twin = call_imgproxy(path, orientation1_twin_opts(orientation))
+
+      assert oriented.status == 200, "oriented EXIF-#{orientation} #{path}: #{oriented.status}"
+      assert twin.status == 200, "twin EXIF-#{orientation} #{path}: #{twin.status}"
+
+      assert_twin_oracle_match(
+        decoded_image(oriented),
+        decoded_image(twin),
+        "EXIF-#{orientation} #{path}"
+      )
+    end
+  end
+
+  # #146 Bug 2 regression: cover + min-dimension under a quarter turn. The
+  # cross-axis min-dim coupling (prepare.go:146-158) must close over the DISPLAY
+  # axes, so this is resolved in the display frame and the resolved dims swapped
+  # back to storage. Before the fix EXIF-6 yielded 157×94 (coupling ran on the
+  # storage axes after a request-only swap); the orientation-1 twin pins 140×94.
+  test "cover + min-dimension under a quarter turn matches the twin (display-frame resolve)" do
+    path = "/_/rs:fill:91:61/mw:140/f:png/plain/images/x.jpg"
+
+    oriented = call_imgproxy(path, oriented_frame_opts(6))
+    twin = call_imgproxy(path, orientation1_twin_opts(6))
+
+    assert oriented.status == 200 and twin.status == 200
+    assert dimensions(oriented) == {140, 94}
+    assert_twin_oracle_match(decoded_image(oriented), decoded_image(twin), "EXIF-6 #{path}")
+  end
+
+  # #146 Bug 3 regression: an FP crop carries the focus in the gravity tuple AND a
+  # separate (zero) crop offset. The separate offset must rotate as a displacement
+  # vector, not via the FP `1 - x` fraction rule — otherwise the zero offset
+  # became {:pixels, 1.0} at 90/270, a 1px divergence. The twin pins maxdiff 0
+  # (lossless on both legs for this exact-dim center crop).
+  test "FP crop under a quarter turn matches the twin exactly (no spurious 1px offset)" do
+    path = "/_/c:90:90:fp:0.25:0.75/f:png/plain/images/x.jpg"
+
+    for orientation <- [6, 7] do
+      oriented = call_imgproxy(path, oriented_frame_opts(orientation))
+      twin = call_imgproxy(path, orientation1_twin_opts(orientation))
+
+      assert oriented.status == 200 and twin.status == 200
+      assert dimensions(oriented) == dimensions(twin)
+
+      assert_twin_oracle_match(
+        decoded_image(oriented),
+        decoded_image(twin),
+        "EXIF-#{orientation} #{path}"
+      )
+    end
+  end
+
+  # Embedded EXIF orientation tag in the OUTPUT, asserted only under sm:0
+  # (strip_metadata=false). The default sm:1 strips the tag regardless of ar, so
+  # the ar:0-keeps-the-tag case below holds only because sm:0 disables stripping
+  # — it does NOT generalize. imgproxy's autorotate consumes and removes the tag;
+  # ar:0 leaves the bytes (and tag) untouched.
+  test "ar/sm control the residual output orientation tag (sm:0)" do
+    # (a) ar:1 + tagged source: tag absent (autorotate stripped it), pixels rotated.
+    rotated = call_imgproxy("/_/sm:0/f:png/plain/images/x.jpg", oriented_frame_opts(6))
+    assert rotated.status == 200
+    assert output_orientation_tag(rotated) in [nil, 1]
+    # EXIF-6 displays the 120×200 portrait as 200×120 landscape.
+    assert dimensions(rotated) == {200, 120}
+
+    # (b) ar:0 + tagged source under sm:0: tag PRESENT, pixels unrotated (stored).
+    unrotated =
+      call_imgproxy(
+        "/_/ar:0/sm:0/f:png/plain/images/x.jpg",
+        oriented_frame_opts(6, imgproxy: [auto_rotate: true])
+      )
+
+    assert unrotated.status == 200
+    assert output_orientation_tag(unrotated) == 6
+    assert dimensions(unrotated) == {120, 200}
+
+    # (c) ar:1 + orientation-1 source: nothing to rotate, no tag introduced.
+    twin = call_imgproxy("/_/sm:0/f:png/plain/images/x.jpg", orientation1_twin_opts(6))
+    assert twin.status == 200
+    assert output_orientation_tag(twin) in [nil, 1]
+    assert dimensions(twin) == {200, 120}
+  end
+
+  # #146 Bug 3: a positive gravity offset moves the crop window INWARD from the
+  # named edge, so on the far edges (:right/:bottom) imgproxy SUBTRACTS the offset
+  # (calc_position.go:45,49) where ImagePipe used to add it unconditionally. The
+  # baseline (non-oriented) case: c:60:40:so:0:15 on a 120×200 source must place
+  # the crop at top = 200 - 40 - 15 = 145 (was 175 → clamped to 160). Asserted by
+  # the displayed position of a white line drawn at storage row 150 (local row 5).
+  test "Bug 3 baseline: south offset crop subtracts from the far edge (top=145)" do
+    # White horizontal line at storage row 150; c:60:40:so:0:15 -> top 145 -> local 5.
+    opts = [
+      parser: ImagePipe.Parser.Imgproxy,
+      sources: [
+        path:
+          {RootHTTPAdapter,
+           root_url: "http://origin.test", req_options: [plug: {LineOrigin, nil}]}
+      ]
+    ]
+
+    conn = call_imgproxy("/_/c:60:40:so:0:15/f:png/plain/images/x.jpg", opts)
+    assert conn.status == 200
+    image = decoded_image(conn)
+    assert dimensions(image) == {60, 40}
+
+    white_rows =
+      Enum.filter(0..39, fn y -> image |> Image.get_pixel!(30, y) |> hd() > 180 end)
+
+    # top = 145 puts storage row 150 at local row 5; the old add-then-clamp (top=160)
+    # would push storage row 150 off the bottom of the crop entirely.
+    assert white_rows == [5],
+           "expected white line at local row 5 (top=145), got rows #{inspect(white_rows)}"
+  end
+
+  # #146 Bug 3 under orientation: explicit c: and gravity g: crops with NON-ZERO
+  # offsets on south/east/corner anchors, EXIF 1..8. compensate_gravity_for remaps
+  # the anchor (e.g. North→South under EXIF-3) and vector-transforms the offset
+  # BEFORE the executable applies the per-axis sign, so the executable sees the
+  # post-remap anchor and uses ITS edge. The lossless sharp oracle catches any 1px
+  # divergence that the flat-region JPEG twin would miss.
+  test "Bug 3: non-zero offset crops on so/ea/corner anchors match the eager oracle (EXIF 1-8)" do
+    paths = [
+      # explicit coordinate-style gravity crops with offsets
+      "/_/c:60:40:so:0:15/f:png/plain/images/x.jpg",
+      "/_/c:50:60:ea:12:0/f:png/plain/images/x.jpg",
+      "/_/c:60:60:soea:10:8/f:png/plain/images/x.jpg",
+      "/_/c:60:60:noea:6:6/f:png/plain/images/x.jpg",
+      "/_/c:60:60:nowe:8:8/f:png/plain/images/x.jpg",
+      # cover/fill result crops with offsets on the far edges
+      "/_/rs:fill:90:60:0/g:so:0:10/f:png/plain/images/x.jpg",
+      "/_/rs:fill:60:90:0/g:ea:10:0/f:png/plain/images/x.jpg"
+    ]
+
+    for orientation <- 1..8, path <- paths do
+      oriented = call_imgproxy(path, sharp_oriented_opts(orientation))
+      twin = call_imgproxy(path, sharp_twin_opts(orientation))
+
+      assert oriented.status == 200, "oriented EXIF-#{orientation} #{path}: #{oriented.status}"
+      assert twin.status == 200, "twin EXIF-#{orientation} #{path}: #{twin.status}"
+
+      assert_sharp_oracle_match(
+        decoded_image(oriented),
+        decoded_image(twin),
+        "Bug3 EXIF-#{orientation} #{path}"
+      )
+    end
+  end
+
+  # #146 Bug 2: a centered crop with an odd extent difference on BOTH axes discards
+  # one extra pixel; the storage-frame near-side rounding lands on the wrong display
+  # side under a net 180/270 turn (and under mirror orientations that reverse a
+  # storage axis). center_discard_sides flips the per-axis rounding so the kept
+  # pixel matches imgproxy's display-frame placement. Verified 1px-exact against the
+  # lossless eager oracle for EXIF 1..8 with odd discards on both axes.
+  test "Bug 2: center crop/cover with odd discard on both axes matches the eager oracle (EXIF 1-8)" do
+    paths = [
+      # center crop, odd storage discards on both axes (120-61=59, 200-39=161)
+      "/_/c:61:39:ce/f:png/plain/images/x.jpg",
+      "/_/c:39:61:ce/f:png/plain/images/x.jpg",
+      # center cover result crops with odd discards
+      "/_/rs:fill:91:39/g:ce/f:png/plain/images/x.jpg",
+      "/_/rs:fill:39:91/g:ce/f:png/plain/images/x.jpg"
+    ]
+
+    for orientation <- 1..8, path <- paths do
+      oriented = call_imgproxy(path, sharp_oriented_opts(orientation))
+      twin = call_imgproxy(path, sharp_twin_opts(orientation))
+
+      assert oriented.status == 200, "oriented EXIF-#{orientation} #{path}: #{oriented.status}"
+      assert twin.status == 200, "twin EXIF-#{orientation} #{path}: #{twin.status}"
+
+      assert_sharp_oracle_match(
+        decoded_image(oriented),
+        decoded_image(twin),
+        "Bug2 EXIF-#{orientation} #{path}"
+      )
+    end
   end
 
   test "invalid signatures, paths, options, and expiry stop before cache and origin access" do
@@ -2074,6 +2452,133 @@ defmodule ImagePipe.ImgproxyWireConformanceTest do
     )
   end
 
+  defp oriented_frame_opts(orientation, overrides \\ []) do
+    Keyword.merge(
+      [
+        parser: ImagePipe.Parser.Imgproxy,
+        sources: [
+          path:
+            {RootHTTPAdapter,
+             root_url: "http://origin.test",
+             req_options: [
+               plug: {OrientedFrameOrigin, {OrientationFixture.base_png(), orientation}}
+             ]}
+        ]
+      ],
+      overrides
+    )
+  end
+
+  defp orientation1_twin_opts(orientation, overrides \\ []) do
+    Keyword.merge(
+      [
+        parser: ImagePipe.Parser.Imgproxy,
+        sources: [
+          path:
+            {RootHTTPAdapter,
+             root_url: "http://origin.test",
+             req_options: [
+               plug: {Orientation1TwinOrigin, {OrientationFixture.base_png(), orientation}}
+             ]}
+        ]
+      ],
+      overrides
+    )
+  end
+
+  defp sharp_oriented_opts(orientation, overrides \\ []) do
+    Keyword.merge(
+      [
+        parser: ImagePipe.Parser.Imgproxy,
+        sources: [
+          path:
+            {RootHTTPAdapter,
+             root_url: "http://origin.test",
+             req_options: [plug: {SharpOrientedOrigin, orientation}]}
+        ]
+      ],
+      overrides
+    )
+  end
+
+  defp sharp_twin_opts(orientation, overrides \\ []) do
+    Keyword.merge(
+      [
+        parser: ImagePipe.Parser.Imgproxy,
+        sources: [
+          path:
+            {RootHTTPAdapter,
+             root_url: "http://origin.test", req_options: [plug: {SharpTwinOrigin, orientation}]}
+        ]
+      ],
+      overrides
+    )
+  end
+
+  # Strict full-frame oracle for the lossless sharp fixture: identical dims and
+  # every pixel within a tiny tolerance (both legs are lossless PNG; the small
+  # tolerance only absorbs an affine-resize sub-pixel seam, never a 1px placement
+  # shift, which moves whole flat regions). Counts far-off pixels so a placement
+  # bug fails with a concrete count.
+  defp assert_sharp_oracle_match(oriented, twin, label) do
+    assert {Image.width(oriented), Image.height(oriented)} ==
+             {Image.width(twin), Image.height(twin)},
+           "#{label}: dims #{inspect({Image.width(oriented), Image.height(oriented)})} != twin #{inspect({Image.width(twin), Image.height(twin)})}"
+
+    w = Image.width(oriented)
+    h = Image.height(oriented)
+
+    # Sample a dense grid (every 2px) rather than every pixel — fast enough for the
+    # EXIF 1..8 × multi-path matrix, yet far finer than any sharp feature (1px lines,
+    # quadrant seams), so a 1px placement shift still moves many sampled points and
+    # the far-diverging count blows past the thin-seam budget.
+    xs = Enum.take_every(0..(w - 1), 2)
+    ys = Enum.take_every(0..(h - 1), 2)
+
+    far =
+      Enum.reduce(for(x <- xs, y <- ys, do: {x, y}), 0, fn {x, y}, acc ->
+        op = Image.get_pixel!(oriented, x, y)
+        tp = Image.get_pixel!(twin, x, y)
+        diverged = op |> Enum.zip(tp) |> Enum.any?(fn {a, b} -> abs(a - b) > 24 end)
+        if diverged, do: acc + 1, else: acc
+      end)
+
+    # Allow a thin seam (≤ one edge's worth of sampled points) for affine-resize
+    # cases; a 1px placement shift moves whole flat regions and far exceeds this.
+    assert far <= div(max(w, h), 2),
+           "#{label}: #{far} far-diverging sampled pixels — placement mismatch"
+  end
+
+  defp output_orientation_tag(%Plug.Conn{} = conn) do
+    image = decoded_image(conn)
+
+    case VipsImage.header_value(image, "orientation") do
+      {:ok, value} -> value
+      {:error, _} -> nil
+    end
+  end
+
+  # Wire-vs-orientation-1 oracle assertion: same dimensions, and interior flat-region
+  # pixels match within a small tolerance (the oriented leg round-trips through JPEG;
+  # the twin is lossless PNG). Sampling at 1/8 and 7/8 stays inside the solid
+  # quadrants, away from the red/green seam where a ±1px affine shift would ring.
+  defp assert_twin_oracle_match(oriented, twin, label) do
+    assert {Image.width(oriented), Image.height(oriented)} ==
+             {Image.width(twin), Image.height(twin)},
+           "#{label}: dims #{inspect({Image.width(oriented), Image.height(oriented)})} != twin #{inspect({Image.width(twin), Image.height(twin)})}"
+
+    xs = bounded_samples(Image.width(oriented))
+    ys = bounded_samples(Image.height(oriented))
+
+    for x <- xs, y <- ys do
+      op = Image.get_pixel!(oriented, x, y)
+      tp = Image.get_pixel!(twin, x, y)
+
+      assert pixels_close?(op, tp),
+             "#{label}: pixel mismatch at (#{x},#{y}): #{inspect(op)} vs twin #{inspect(tp)}"
+    end
+  end
+
   defp effect_origin_opts do
     [
       parser: ImagePipe.Parser.Imgproxy,
@@ -2153,6 +2658,62 @@ defmodule ImagePipe.ImgproxyWireConformanceTest do
         y <- [8, 24, 40, 56] do
       Image.get_pixel!(image, x, y)
     end
+  end
+
+  # The oriented.jpg fixture's STORED pixels (40w x 80h, red 40x40 at top), with NO
+  # EXIF orientation tag so reference primitives never autorotate.
+  defp oriented_fixture_storage do
+    40
+    |> Image.new!(80, color: :white)
+    |> Image.Draw.rect!(0, 0, 40, 40, color: :red)
+  end
+
+  defp reference_user_rot90_storage,
+    do: oriented_fixture_storage() |> Image.rotate!(90) |> jpeg_roundtrip()
+
+  defp reference_180_of_stored,
+    do: oriented_fixture_storage() |> Image.rotate!(180) |> jpeg_roundtrip()
+
+  # Round-trip through JPEG so the reference carries the same lossy artifacts as the
+  # pipeline output; direction is pinned by the flat-region comparison.
+  defp jpeg_roundtrip(image) do
+    image
+    |> Image.write!(:memory, suffix: ".jpg")
+    |> Image.open!(access: :random, fail_on: :error)
+  end
+
+  # Sample within the (possibly small) bounds shared by both images.
+  defp assert_oriented_pixels_match(actual, reference) do
+    assert dimensions(actual) == dimensions(reference)
+
+    {w, h} = dimensions(actual)
+    xs = bounded_samples(w)
+    ys = bounded_samples(h)
+
+    for x <- xs, y <- ys do
+      actual_px = Image.get_pixel!(actual, x, y)
+      reference_px = Image.get_pixel!(reference, x, y)
+
+      assert pixels_close?(actual_px, reference_px),
+             "pixel mismatch at (#{x},#{y}): #{inspect(actual_px)} vs #{inspect(reference_px)}"
+    end
+  end
+
+  # The pipeline output is JPEG-encoded then decoded, so allow small lossy deltas;
+  # direction (which corner is red vs white) is still pinned by the flat-region match.
+  defp pixels_close?(a, b) when length(a) == length(b) do
+    a
+    |> Enum.zip(b)
+    |> Enum.all?(fn {av, bv} -> abs(av - bv) <= 12 end)
+  end
+
+  # Sample deep inside each half of the image, avoiding both the outer edges (libvips
+  # rotate can leave sub-pixel artifacts there) and the geometric mid-seam between the
+  # fixture's red block and white fill (JPEG ringing). 1/8 and 7/8 sit firmly in the
+  # flat fill regions, so direction is still pinned without straddling a boundary.
+  defp bounded_samples(size) do
+    last = max(size - 1, 0)
+    Enum.uniq([div(last, 8), div(last * 7, 8)])
   end
 
   defp cache_entry do

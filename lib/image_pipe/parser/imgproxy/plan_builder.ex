@@ -34,6 +34,7 @@ defmodule ImagePipe.Parser.Imgproxy.PlanBuilder do
       {:ok,
        %Plan{
          source: source,
+         auto_rotate: request.auto_rotate,
          pipelines: pipelines,
          output: output,
          expires: expires,
@@ -275,7 +276,6 @@ defmodule ImagePipe.Parser.Imgproxy.PlanBuilder do
   defp orientation_operations(%PipelineRequest{orientation: %Orientation{} = orientation}) do
     operations =
       [
-        auto_orient_operation(orientation),
         rotate_operation(orientation),
         flip_operation(orientation)
       ]
@@ -283,11 +283,6 @@ defmodule ImagePipe.Parser.Imgproxy.PlanBuilder do
 
     reduce_results(operations)
   end
-
-  defp auto_orient_operation(%Orientation{auto_orient: true}),
-    do: Operation.auto_orient()
-
-  defp auto_orient_operation(%Orientation{}), do: nil
 
   defp rotate_operation(%Orientation{rotate: 0}), do: nil
 
@@ -298,29 +293,6 @@ defmodule ImagePipe.Parser.Imgproxy.PlanBuilder do
 
   defp flip_operation(%Orientation{flip: axis}) when axis in [:horizontal, :vertical, :both],
     do: Operation.flip(axis)
-
-  defp result_crop_x_offset(%PipelineRequest{} = request) do
-    offset = request.gravity_x_offset
-
-    case request.gravity do
-      {:anchor, :right, _y} -> negate_offset(offset)
-      _gravity -> offset
-    end
-  end
-
-  defp result_crop_y_offset(%PipelineRequest{} = request) do
-    offset = request.gravity_y_offset
-
-    case request.gravity do
-      {:anchor, _x, :bottom} -> negate_offset(offset)
-      _gravity -> offset
-    end
-  end
-
-  defp negate_offset({unit, value}) when unit in [:pixels, :scale] and is_number(value),
-    do: {unit, -value}
-
-  defp negate_offset(value) when is_number(value), do: -value
 
   defp resize_operations(%PipelineRequest{width: nil, height: nil} = request) do
     if resize_rule_requested?(request) do
@@ -578,8 +550,8 @@ defmodule ImagePipe.Parser.Imgproxy.PlanBuilder do
   defp resize_opts(%PipelineRequest{resizing_type: resizing_type} = request, opts)
        when resizing_type in [:fill, :fill_down, :auto] do
     Keyword.merge(opts,
-      x_offset: result_crop_x_offset(request),
-      y_offset: result_crop_y_offset(request)
+      x_offset: request.gravity_x_offset,
+      y_offset: request.gravity_y_offset
     )
   end
 

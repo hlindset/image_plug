@@ -21,6 +21,7 @@ defmodule ImagePipe.Parser.Imgproxy.Options do
 
   @type request_options :: %{
           pipelines: [PipelineRequest.t()],
+          auto_rotate: boolean(),
           output: ParsedRequest.output_request(),
           policy: ParsedRequest.policy_request(),
           cache: ParsedRequest.cache_request(),
@@ -36,7 +37,7 @@ defmodule ImagePipe.Parser.Imgproxy.Options do
         options
         |> finalize_request_options()
         |> apply_request_defaults(defaults)
-        |> Map.take([:pipelines, :output, :policy, :cache, :response])
+        |> Map.take([:pipelines, :auto_rotate, :output, :policy, :cache, :response])
 
       {:ok, request}
     end
@@ -302,7 +303,6 @@ defmodule ImagePipe.Parser.Imgproxy.Options do
       pipelines
       |> Enum.map(&consume_auto_rotate_request/1)
       |> Enum.map(&consume_strip_color_profile_request/1)
-      |> apply_auto_rotate_to_first_pipeline(auto_rotate?)
       |> apply_strip_color_profile_to_first_pipeline(strip_color_profile?)
       |> reject_empty_pipelines()
 
@@ -311,7 +311,9 @@ defmodule ImagePipe.Parser.Imgproxy.Options do
       |> resolve_metadata_defaults(defaults)
       |> Map.put(:strip_color_profile, strip_color_profile?)
 
-    %{options | pipelines: pipelines, output: output}
+    options
+    |> Map.put(:auto_rotate, auto_rotate?)
+    |> Map.merge(%{pipelines: pipelines, output: output})
   end
 
   defp resolve_metadata_defaults(output, defaults) do
@@ -350,21 +352,6 @@ defmodule ImagePipe.Parser.Imgproxy.Options do
         orientation_requested: orientation_requested?(orientation),
         auto_rotate_requested: false
     }
-  end
-
-  defp apply_auto_rotate_to_first_pipeline(pipelines, false), do: pipelines
-
-  defp apply_auto_rotate_to_first_pipeline(
-         [%PipelineRequest{orientation: %Orientation{} = orientation} = pipeline | pipelines],
-         true
-       ) do
-    pipeline = %{
-      pipeline
-      | orientation: %Orientation{orientation | auto_orient: true},
-        orientation_requested: true
-    }
-
-    [pipeline | pipelines]
   end
 
   defp effective_strip_color_profile(pipelines, default) do

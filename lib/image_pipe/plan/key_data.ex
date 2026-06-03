@@ -8,7 +8,6 @@ defmodule ImagePipe.Plan.KeyData do
   """
 
   alias ImagePipe.Plan.Color
-  alias ImagePipe.Plan.Operation.AutoOrient
   alias ImagePipe.Plan.Operation.Background
   alias ImagePipe.Plan.Operation.Blur
   alias ImagePipe.Plan.Operation.Brightness
@@ -123,7 +122,6 @@ defmodule ImagePipe.Plan.KeyData do
     [op: :background, color: Color.key_data(operation.color)]
   end
 
-  def data(%AutoOrient{}), do: [op: :auto_orient]
   def data(%NormalizeColorProfile{}), do: [op: :normalize_color_profile]
   def data(%Rotate{angle: angle}), do: [op: :rotate, angle: angle]
   def data(%Flip{axis: axis}), do: [op: :flip, axis: axis]

@@ -36,6 +36,12 @@ defmodule ImagePipe.Transform.Operation.Crop do
     to `0.0`.
   - `offset_scale`: multiplier applied to pixel offsets, usually the effective
     DPR used by the preceding resize. Defaults to `1.0`.
+  - `center_bias`: `{x_side, y_side}` tie-break for a centered crop with an odd
+    extent difference, each `:near` (keep the extra pixel toward the left/top
+    origin, matching imgproxy `ShrinkToEven`) or `:far` (toward the right/bottom).
+    Defaults to `{:near, :near}`. Only affects `:center` anchor axes; callers that
+    crop in a frame that is later reversed (deferred orientation) set the
+    reversed axis to `:far` so the kept pixel lands on the intended display side.
 
   Numeric length units are resolved against the current image dimensions during
   execution. `:auto` crop dimensions resolve to the current image dimension on
@@ -113,7 +119,8 @@ defmodule ImagePipe.Transform.Operation.Crop do
     y_offset: 0.0,
     offset_scale: 1.0,
     aspect_ratio: nil,
-    enlarge: false
+    enlarge: false,
+    center_bias: {:near, :near}
   ]
 
   @type t :: %__MODULE__{
@@ -139,7 +146,8 @@ defmodule ImagePipe.Transform.Operation.Crop do
           y_offset: length_unit() | number(),
           offset_scale: pos_integer() | float(),
           aspect_ratio: nil | {:ratio, pos_integer(), pos_integer()},
-          enlarge: boolean()
+          enlarge: boolean(),
+          center_bias: {:near | :far, :near | :far}
         }
 
   @impl ImagePipe.Transform
@@ -219,7 +227,8 @@ defmodule ImagePipe.Transform.Operation.Crop do
          crop_height,
          gravity,
          x_offset,
-         y_offset
+         y_offset,
+         params.center_bias
        )}
     end
   end
@@ -433,46 +442,101 @@ defmodule ImagePipe.Transform.Operation.Crop do
          crop_height,
          gravity,
          x_offset,
-         y_offset
+         y_offset,
+         center_bias
        ) do
     crop_width = max(1, min(image_width, crop_width))
     crop_height = max(1, min(image_height, crop_height))
 
-    {left, top} = gravity_origin(gravity, image_width, image_height, crop_width, crop_height)
+    {left, top} =
+      gravity_position(
+        gravity,
+        image_width,
+        image_height,
+        crop_width,
+        crop_height,
+        x_offset,
+        y_offset,
+        center_bias
+      )
 
     %{
-      left: clamp_position(round_ties_to_even(left + x_offset), image_width - crop_width),
-      top: clamp_position(round_ties_to_even(top + y_offset), image_height - crop_height),
+      left: clamp_position(left, image_width - crop_width),
+      top: clamp_position(top, image_height - crop_height),
       width: crop_width,
       height: crop_height
     }
   end
 
-  defp gravity_origin(
+  # Per-axis anchored position, mirroring imgproxy calc_position.go (lines 37-54).
+  # The offset's SIGN depends on the anchor edge: it is ADDED from the near edge
+  # (left/top/center) and SUBTRACTED from the far edge (right/bottom), so a
+  # positive offset always moves the window INWARD from the named edge. imgproxy
+  # rounds the offset to an even integer first (ScaleToEven/RoundToEven), then
+  # combines it with an integer origin; we match that by rounding the bare offset
+  # with round-half-to-even before composing.
+  defp gravity_position(
          {:anchor, x_anchor, y_anchor},
          image_width,
          image_height,
          crop_width,
-         crop_height
+         crop_height,
+         x_offset,
+         y_offset,
+         {x_bias, y_bias}
        ) do
     {
-      anchor_origin(x_anchor, image_width, crop_width),
-      anchor_origin(y_anchor, image_height, crop_height)
+      anchor_position(x_anchor, image_width, crop_width, x_offset, x_bias),
+      anchor_position(y_anchor, image_height, crop_height, y_offset, y_bias)
     }
   end
 
-  defp gravity_origin({:fp, x, y}, image_width, image_height, crop_width, crop_height) do
+  # Focus-point gravity uses only the focus coords for placement (calc_position.go
+  # lines 16-21 — GravityFocusPoint has no offset term). The separate ImagePipe
+  # offset is applied as a plain inward displacement (add), consistent with the
+  # near-edge convention; it is already vector-transformed for orientation upstream.
+  defp gravity_position(
+         {:fp, x, y},
+         image_width,
+         image_height,
+         crop_width,
+         crop_height,
+         x_offset,
+         y_offset,
+         _center_bias
+       ) do
     {
-      x * image_width - crop_width / 2,
-      y * image_height - crop_height / 2
+      round_ties_to_even(x * image_width - crop_width / 2 + x_offset),
+      round_ties_to_even(y * image_height - crop_height / 2 + y_offset)
     }
   end
 
-  defp anchor_origin(:left, _bounds, _crop), do: 0.0
-  defp anchor_origin(:top, _bounds, _crop), do: 0.0
-  defp anchor_origin(:center, bounds, crop), do: (bounds - crop + 1) / 2
-  defp anchor_origin(:right, bounds, crop), do: bounds - crop
-  defp anchor_origin(:bottom, bounds, crop), do: bounds - crop
+  # Near edge (West/North): pos = 0 + offset (calc_position.go:41,53).
+  defp anchor_position(anchor, _bounds, _crop, offset, _bias) when anchor in [:left, :top],
+    do: round_offset_to_even(offset)
+
+  # Center: pos = ShrinkToEven(bounds - crop + 1, 2) + offset (calc_position.go:37-38).
+  # ShrinkToEven(a, 2) = RoundToEven(a / 2); the offset is an even integer added
+  # after. With `:far` bias the extra discarded pixel moves to the opposite side:
+  # the origin becomes (bounds - crop) - ShrinkToEven(bounds - crop + 1, 2), used
+  # when a later orientation flush reverses this axis (Orientation.center_discard_sides).
+  defp anchor_position(:center, bounds, crop, offset, :near),
+    do: center_origin(bounds, crop) + round_offset_to_even(offset)
+
+  defp anchor_position(:center, bounds, crop, offset, :far),
+    do: bounds - crop - center_origin(bounds, crop) + round_offset_to_even(offset)
+
+  # Far edge (East/South): pos = bounds - crop - offset (calc_position.go:45,49).
+  defp anchor_position(anchor, bounds, crop, offset, _bias) when anchor in [:right, :bottom],
+    do: bounds - crop - round_offset_to_even(offset)
+
+  defp center_origin(bounds, crop), do: round_ties_to_even((bounds - crop + 1) / 2)
+
+  # imgproxy converts every offset to an even integer before composing it with the
+  # integer origin (ScaleToEven / RoundToEven, imath.go). The bare offset reaching
+  # here is already resolved against the right bounds/scale, so round it the same
+  # way to keep the composed position integer-faithful.
+  defp round_offset_to_even(offset), do: round_ties_to_even(offset)
 
   defp clamp_position(value, max_value), do: max(0, min(max_value, value))
 
