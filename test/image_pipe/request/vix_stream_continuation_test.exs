@@ -8,9 +8,9 @@ defmodule ImagePipe.Request.VixStreamContinuationTest do
   alias ImagePipe.Plan.Source.Path
   alias ImagePipe.Request.SourceSession.Producer
   alias ImagePipe.Request.SourceSession.Request
-  alias ImagePipe.Test.SourceSession.ProducerClient
   alias ImagePipe.Source.Resolved, as: ResolvedSource
   alias ImagePipe.SourceTest.ValidAdapter
+  alias ImagePipe.Test.SourceSession.ProducerClient
 
   @cleanup_observation_timeout 1_000
 
