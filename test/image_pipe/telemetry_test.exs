@@ -639,6 +639,63 @@ defmodule ImagePipe.TelemetryTest do
     assert loaded_w <= div(orig_w, 4)
   end
 
+  test "transform execute span carries operation count and names" do
+    conn =
+      :get
+      |> conn("/_/rs:fit:100:0/f:jpeg/plain/images/beach.jpg")
+      |> ImagePipe.Plug.call(base_opts())
+
+    assert conn.status == 200
+    events = telemetry_events()
+
+    assert_event(events, [:image_pipe, :transform, :execute, :start], fn _measurements, metadata ->
+      assert is_list(metadata.operations)
+      assert :resize in metadata.operations
+      assert metadata.operation_count == length(metadata.operations)
+    end)
+  end
+
+  test "fetch_decode stop metadata reports source_error for body-size limit" do
+    big_body = :binary.copy(<<0>>, 50_000)
+
+    opts =
+      base_opts(
+        sources: [path: {SourceBytes, body: big_body}],
+        max_body_bytes: 1_000
+      )
+
+    # SourceBytes returns `big_body` regardless of this path; the path only has to parse.
+    conn =
+      :get
+      |> conn("/_/plain/images/source.tiff")
+      |> ImagePipe.Plug.call(opts)
+
+    refute conn.status == 200
+    events = telemetry_events()
+
+    assert_event(events, [:image_pipe, :source, :fetch_decode, :stop], fn _measurements, metadata ->
+      assert metadata.result == :source_error
+      assert metadata.error == :body_too_large
+    end)
+  end
+
+  test "fetch_decode stop metadata reports processing_error for input-pixel limit" do
+    opts = base_opts(max_input_pixels: 1)
+
+    conn =
+      :get
+      |> conn("/_/f:jpeg/plain/images/beach.jpg")
+      |> ImagePipe.Plug.call(opts)
+
+    refute conn.status == 200
+    events = telemetry_events()
+
+    assert_event(events, [:image_pipe, :source, :fetch_decode, :stop], fn _measurements, metadata ->
+      assert metadata.result == :processing_error
+      assert metadata.error == :input_limit
+    end)
+  end
+
   test "validates telemetry prefix option at init" do
     assert ImagePipe.Plug.init(opts(telemetry_prefix: [:custom, :image]))[:telemetry_prefix] ==
              [:custom, :image]
@@ -746,6 +803,7 @@ defmodule ImagePipe.TelemetryTest do
       [:cache, :lookup],
       [:output, :negotiate],
       [:source, :fetch],
+      [:source, :fetch_decode],
       [:transform, :execute],
       [:encode],
       [:cache, :write],
