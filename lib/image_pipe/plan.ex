@@ -50,7 +50,8 @@ defmodule ImagePipe.Plan do
               [
                 expires: 0,
                 cachebuster: nil,
-                response: %Response{}
+                response: %Response{},
+                auto_rotate: false
               ]
 
   @type t :: %__MODULE__{
@@ -59,7 +60,8 @@ defmodule ImagePipe.Plan do
           output: ImagePipe.Plan.Output.t(),
           expires: non_neg_integer(),
           cachebuster: String.t() | nil,
-          response: Response.t()
+          response: Response.t(),
+          auto_rotate: boolean()
         }
 
   @type pipeline_error() ::
@@ -73,6 +75,7 @@ defmodule ImagePipe.Plan do
           | {:invalid_expires, term()}
           | {:invalid_cachebuster, term()}
           | {:invalid_response_plan, term()}
+          | {:invalid_auto_rotate, term()}
 
   @spec validate_shape(t()) :: {:ok, t()} | {:error, shape_error()}
   def validate_shape(%__MODULE__{} = plan) do
@@ -80,7 +83,8 @@ defmodule ImagePipe.Plan do
          :ok <- validate_output(plan.output),
          :ok <- validate_expires(plan.expires),
          :ok <- validate_cachebuster(plan.cachebuster),
-         :ok <- validate_response(plan.response) do
+         :ok <- validate_response(plan.response),
+         :ok <- validate_auto_rotate(plan.auto_rotate) do
       {:ok, plan}
     end
   end
@@ -286,4 +290,7 @@ defmodule ImagePipe.Plan do
   end
 
   defp validate_response(response), do: {:error, {:invalid_response_plan, response}}
+
+  defp validate_auto_rotate(value) when is_boolean(value), do: :ok
+  defp validate_auto_rotate(value), do: {:error, {:invalid_auto_rotate, value}}
 end

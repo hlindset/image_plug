@@ -129,6 +129,14 @@ defmodule ImagePipe.PlanTest do
     refute Plan.face_assist?(plan_with_guide(:smart))
   end
 
+  test "auto_rotate defaults to false and validate_shape accepts booleans" do
+    plan = plan()
+
+    assert plan.auto_rotate == false
+    assert {:ok, _} = Plan.validate_shape(%{plan | auto_rotate: true})
+    assert {:error, {:invalid_auto_rotate, _}} = Plan.validate_shape(%{plan | auto_rotate: "yes"})
+  end
+
   defp plan_with_guide(guide) do
     operation = %CropGuided{width: {:px, 10}, height: {:px, 10}, guide: guide}
     plan(pipelines: [%Pipeline{operations: [operation]}])
