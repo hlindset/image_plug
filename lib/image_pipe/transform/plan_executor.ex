@@ -300,11 +300,19 @@ defmodule ImagePipe.Transform.PlanExecutor do
       {x_unit, y_unit} =
         if PendingOrientation.quarter_turn?(po), do: {y_unit, x_unit}, else: {x_unit, y_unit}
 
+      # A centered crop with an odd extent difference discards one extra pixel; the
+      # storage-frame near-side bias lands on the wrong display side when the flush
+      # reverses that storage axis. center_discard_sides/1 reports per storage axis
+      # whether to flip the discard so the kept pixel matches imgproxy's display-
+      # frame placement (#146 Bug 2). Harmless on non-center axes (ignored there).
+      center_bias = Orientation.center_discard_sides(po)
+
       crop = %Crop{
         crop
         | gravity: gravity,
           x_offset: x_unit.(x_value),
-          y_offset: y_unit.(y_value)
+          y_offset: y_unit.(y_value),
+          center_bias: center_bias
       }
 
       if PendingOrientation.quarter_turn?(po) do

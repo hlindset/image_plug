@@ -78,6 +78,68 @@ defmodule ImagePipe.Transform.Orientation do
   def swap_dims?(angle), do: rem(angle, 180) == 90
 
   @doc """
+  Per-storage-axis center-crop discard side under a pending orientation.
+
+  A centered crop with an odd extent difference must discard one extra pixel from
+  one side. imgproxy crops in the *display* frame and always rounds the discard so
+  the extra kept pixel sits toward the near (top/left) display edge
+  (`ShrinkToEven`, calc_position.go:37-38). ImagePipe crops in the *storage* frame
+  and flushes orientation after, so a storage-frame near-side bias lands on the
+  wrong display side whenever the flush reverses that storage axis's direction.
+
+  Returns `{x_side, y_side}` for the storage X and Y axes, each `:near` (default
+  `ShrinkToEven` rounding) or `:far` (round the other way) so that, after the
+  flush, the kept pixel lands on imgproxy's near display edge. The flip is needed
+  exactly when a storage axis's near (origin) edge maps to a far (right/bottom)
+  display edge under the composed orientation (autorotate ∘ user rotate ∘ user
+  hflip ∘ user vflip — OrientationFlush.apply_orientation order).
+  """
+  @spec center_discard_sides(PendingOrientation.t()) :: {:near | :far, :near | :far}
+  def center_discard_sides(%PendingOrientation{} = po) do
+    # Track each storage-axis near-edge midpoint through the forward (storage →
+    # display) transform; if it lands on a far display edge the rounding flips.
+    x_near = forward_point({0.0, 0.5}, po)
+    y_near = forward_point({0.5, 0.0}, po)
+
+    {discard_side(x_near), discard_side(y_near)}
+  end
+
+  # Forward storage → display transform on a normalized point, matching
+  # OrientationFlush.apply_orientation: EXIF autorotate, then user rotate, then
+  # user hflip, then user vflip. EXIF autorotate = rotate(exif_angle) then hflip
+  # when exif_flip_x.
+  defp forward_point(point, %PendingOrientation{} = po) do
+    point
+    |> rotate_point(po.exif_angle)
+    |> flip_x_point(po.exif_flip_x)
+    |> rotate_point(po.user_angle)
+    |> flip_x_point(po.user_flip_x)
+    |> flip_y_point(po.user_flip_y)
+  end
+
+  defp rotate_point(point, 0), do: point
+  defp rotate_point({u, v}, 90), do: {1.0 - v, u}
+  defp rotate_point({u, v}, 180), do: {1.0 - u, 1.0 - v}
+  defp rotate_point({u, v}, 270), do: {v, 1.0 - u}
+
+  defp flip_x_point(point, false), do: point
+  defp flip_x_point({u, v}, true), do: {1.0 - u, v}
+
+  defp flip_y_point(point, false), do: point
+  defp flip_y_point({u, v}, true), do: {u, 1.0 - v}
+
+  # Near (left/top) display edges keep the imgproxy rounding; far (right/bottom)
+  # edges require the flipped discard side.
+  defp discard_side({u, v}) do
+    cond do
+      u < 0.25 -> :near
+      u > 0.75 -> :far
+      v < 0.25 -> :near
+      v > 0.75 -> :far
+    end
+  end
+
+  @doc """
   Swap the requested axes of an executable resize so it operates in the storage
   frame ahead of a quarter-turn orientation flush. Width/height, min-width/
   min-height, and zoom_x/zoom_y swap; `dpr` is axis-agnostic and unchanged.

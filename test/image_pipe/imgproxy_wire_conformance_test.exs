@@ -124,6 +124,85 @@ defmodule ImagePipe.ImgproxyWireConformanceTest do
     end
   end
 
+  # A LOSSLESS oracle for fixed-coordinate / non-center / offset crops, where the
+  # JPEG twin + flat-region sampling above is too insensitive to catch a 1px
+  # placement error (#146 Bugs 2 & 3). The source is a sharp-feature 120×200 PNG;
+  # the oriented leg tags it with an EXIF orientation (PNG carries the tag, the
+  # pipeline must autorotate), and the eager-flush-first twin autorotates the same
+  # tagged PNG into display pixels and stores it untagged. Both legs are lossless
+  # PNG end-to-end, so an identical request that selects different content per
+  # orientation still produces byte-comparable interiors — every pixel is asserted
+  # within a tiny tolerance, so a 1px shift fails loudly.
+  defmodule SharpOrientationFixture do
+    @moduledoc false
+
+    # 120×200 with distinct sharp features in every region: solid quadrants plus a
+    # vertical and a horizontal white line at known storage coordinates so that any
+    # placement error moves a feature relative to the comparison.
+    def base do
+      120
+      |> Image.new!(200, color: :green)
+      |> Image.Draw.rect!(0, 0, 60, 100, color: :red)
+      |> Image.Draw.rect!(60, 0, 60, 100, color: :blue)
+      |> Image.Draw.rect!(0, 100, 60, 100, color: :yellow)
+      |> Image.Draw.rect!(61, 0, 1, 200, color: :white)
+      |> Image.Draw.rect!(0, 131, 120, 1, color: :white)
+    end
+
+    def oriented_png(orientation) do
+      base() |> Image.set_orientation!(orientation) |> Image.write!(:memory, suffix: ".png")
+    end
+
+    def twin_png(orientation) do
+      reopened = Image.open!(oriented_png(orientation), access: :random)
+      {:ok, {displayed, _flags}} = Image.autorotate(reopened)
+      displayed |> Image.set_orientation!(1) |> Image.write!(:memory, suffix: ".png")
+    end
+  end
+
+  defmodule SharpOrientedOrigin do
+    @moduledoc false
+
+    def init(orientation), do: orientation
+
+    def call(conn, orientation) do
+      conn
+      |> Plug.Conn.put_resp_content_type("image/png")
+      |> Plug.Conn.send_resp(200, SharpOrientationFixture.oriented_png(orientation))
+    end
+  end
+
+  defmodule SharpTwinOrigin do
+    @moduledoc false
+
+    def init(orientation), do: orientation
+
+    def call(conn, orientation) do
+      conn
+      |> Plug.Conn.put_resp_content_type("image/png")
+      |> Plug.Conn.send_resp(200, SharpOrientationFixture.twin_png(orientation))
+    end
+  end
+
+  defmodule LineOrigin do
+    @moduledoc false
+    # 120×200 black PNG with a single white row at storage y=150, for asserting the
+    # exact vertical placement of a south-offset crop (#146 Bug 3 baseline).
+    def init(_), do: nil
+
+    def call(conn, _) do
+      body =
+        120
+        |> Image.new!(200, color: :black)
+        |> Image.Draw.rect!(0, 150, 120, 1, color: :white)
+        |> Image.write!(:memory, suffix: ".png")
+
+      conn
+      |> Plug.Conn.put_resp_content_type("image/png")
+      |> Plug.Conn.send_resp(200, body)
+    end
+  end
+
   defmodule MetadataOriginImage do
     @moduledoc false
 
@@ -871,6 +950,102 @@ defmodule ImagePipe.ImgproxyWireConformanceTest do
     assert twin.status == 200
     assert output_orientation_tag(twin) in [nil, 1]
     assert dimensions(twin) == {200, 120}
+  end
+
+  # #146 Bug 3: a positive gravity offset moves the crop window INWARD from the
+  # named edge, so on the far edges (:right/:bottom) imgproxy SUBTRACTS the offset
+  # (calc_position.go:45,49) where ImagePipe used to add it unconditionally. The
+  # baseline (non-oriented) case: c:60:40:so:0:15 on a 120×200 source must place
+  # the crop at top = 200 - 40 - 15 = 145 (was 175 → clamped to 160). Asserted by
+  # the displayed position of a white line drawn at storage row 150 (local row 5).
+  test "Bug 3 baseline: south offset crop subtracts from the far edge (top=145)" do
+    # White horizontal line at storage row 150; c:60:40:so:0:15 -> top 145 -> local 5.
+    opts = [
+      parser: ImagePipe.Parser.Imgproxy,
+      sources: [
+        path:
+          {RootHTTPAdapter,
+           root_url: "http://origin.test", req_options: [plug: {LineOrigin, nil}]}
+      ]
+    ]
+
+    conn = call_imgproxy("/_/c:60:40:so:0:15/f:png/plain/images/x.jpg", opts)
+    assert conn.status == 200
+    image = decoded_image(conn)
+    assert dimensions(image) == {60, 40}
+
+    white_rows =
+      Enum.filter(0..39, fn y -> image |> Image.get_pixel!(30, y) |> hd() > 180 end)
+
+    # top = 145 puts storage row 150 at local row 5; the old add-then-clamp (top=160)
+    # would push storage row 150 off the bottom of the crop entirely.
+    assert white_rows == [5],
+           "expected white line at local row 5 (top=145), got rows #{inspect(white_rows)}"
+  end
+
+  # #146 Bug 3 under orientation: explicit c: and gravity g: crops with NON-ZERO
+  # offsets on south/east/corner anchors, EXIF 1..8. compensate_gravity_for remaps
+  # the anchor (e.g. North→South under EXIF-3) and vector-transforms the offset
+  # BEFORE the executable applies the per-axis sign, so the executable sees the
+  # post-remap anchor and uses ITS edge. The lossless sharp oracle catches any 1px
+  # divergence that the flat-region JPEG twin would miss.
+  test "Bug 3: non-zero offset crops on so/ea/corner anchors match the eager oracle (EXIF 1-8)" do
+    paths = [
+      # explicit coordinate-style gravity crops with offsets
+      "/_/c:60:40:so:0:15/f:png/plain/images/x.jpg",
+      "/_/c:50:60:ea:12:0/f:png/plain/images/x.jpg",
+      "/_/c:60:60:soea:10:8/f:png/plain/images/x.jpg",
+      "/_/c:60:60:noea:6:6/f:png/plain/images/x.jpg",
+      "/_/c:60:60:nowe:8:8/f:png/plain/images/x.jpg",
+      # cover/fill result crops with offsets on the far edges
+      "/_/rs:fill:90:60:0/g:so:0:10/f:png/plain/images/x.jpg",
+      "/_/rs:fill:60:90:0/g:ea:10:0/f:png/plain/images/x.jpg"
+    ]
+
+    for orientation <- 1..8, path <- paths do
+      oriented = call_imgproxy(path, sharp_oriented_opts(orientation))
+      twin = call_imgproxy(path, sharp_twin_opts(orientation))
+
+      assert oriented.status == 200, "oriented EXIF-#{orientation} #{path}: #{oriented.status}"
+      assert twin.status == 200, "twin EXIF-#{orientation} #{path}: #{twin.status}"
+
+      assert_sharp_oracle_match(
+        decoded_image(oriented),
+        decoded_image(twin),
+        "Bug3 EXIF-#{orientation} #{path}"
+      )
+    end
+  end
+
+  # #146 Bug 2: a centered crop with an odd extent difference on BOTH axes discards
+  # one extra pixel; the storage-frame near-side rounding lands on the wrong display
+  # side under a net 180/270 turn (and under mirror orientations that reverse a
+  # storage axis). center_discard_sides flips the per-axis rounding so the kept
+  # pixel matches imgproxy's display-frame placement. Verified 1px-exact against the
+  # lossless eager oracle for EXIF 1..8 with odd discards on both axes.
+  test "Bug 2: center crop/cover with odd discard on both axes matches the eager oracle (EXIF 1-8)" do
+    paths = [
+      # center crop, odd storage discards on both axes (120-61=59, 200-39=161)
+      "/_/c:61:39:ce/f:png/plain/images/x.jpg",
+      "/_/c:39:61:ce/f:png/plain/images/x.jpg",
+      # center cover result crops with odd discards
+      "/_/rs:fill:91:39/g:ce/f:png/plain/images/x.jpg",
+      "/_/rs:fill:39:91/g:ce/f:png/plain/images/x.jpg"
+    ]
+
+    for orientation <- 1..8, path <- paths do
+      oriented = call_imgproxy(path, sharp_oriented_opts(orientation))
+      twin = call_imgproxy(path, sharp_twin_opts(orientation))
+
+      assert oriented.status == 200, "oriented EXIF-#{orientation} #{path}: #{oriented.status}"
+      assert twin.status == 200, "twin EXIF-#{orientation} #{path}: #{twin.status}"
+
+      assert_sharp_oracle_match(
+        decoded_image(oriented),
+        decoded_image(twin),
+        "Bug2 EXIF-#{orientation} #{path}"
+      )
+    end
   end
 
   test "invalid signatures, paths, options, and expiry stop before cache and origin access" do
@@ -2339,6 +2514,69 @@ defmodule ImagePipe.ImgproxyWireConformanceTest do
       ],
       overrides
     )
+  end
+
+  defp sharp_oriented_opts(orientation, overrides \\ []) do
+    Keyword.merge(
+      [
+        parser: ImagePipe.Parser.Imgproxy,
+        sources: [
+          path:
+            {RootHTTPAdapter,
+             root_url: "http://origin.test",
+             req_options: [plug: {SharpOrientedOrigin, orientation}]}
+        ]
+      ],
+      overrides
+    )
+  end
+
+  defp sharp_twin_opts(orientation, overrides \\ []) do
+    Keyword.merge(
+      [
+        parser: ImagePipe.Parser.Imgproxy,
+        sources: [
+          path:
+            {RootHTTPAdapter,
+             root_url: "http://origin.test", req_options: [plug: {SharpTwinOrigin, orientation}]}
+        ]
+      ],
+      overrides
+    )
+  end
+
+  # Strict full-frame oracle for the lossless sharp fixture: identical dims and
+  # every pixel within a tiny tolerance (both legs are lossless PNG; the small
+  # tolerance only absorbs an affine-resize sub-pixel seam, never a 1px placement
+  # shift, which moves whole flat regions). Counts far-off pixels so a placement
+  # bug fails with a concrete count.
+  defp assert_sharp_oracle_match(oriented, twin, label) do
+    assert {Image.width(oriented), Image.height(oriented)} ==
+             {Image.width(twin), Image.height(twin)},
+           "#{label}: dims #{inspect({Image.width(oriented), Image.height(oriented)})} != twin #{inspect({Image.width(twin), Image.height(twin)})}"
+
+    w = Image.width(oriented)
+    h = Image.height(oriented)
+
+    # Sample a dense grid (every 2px) rather than every pixel — fast enough for the
+    # EXIF 1..8 × multi-path matrix, yet far finer than any sharp feature (1px lines,
+    # quadrant seams), so a 1px placement shift still moves many sampled points and
+    # the far-diverging count blows past the thin-seam budget.
+    xs = Enum.take_every(0..(w - 1), 2)
+    ys = Enum.take_every(0..(h - 1), 2)
+
+    far =
+      Enum.reduce(for(x <- xs, y <- ys, do: {x, y}), 0, fn {x, y}, acc ->
+        op = Image.get_pixel!(oriented, x, y)
+        tp = Image.get_pixel!(twin, x, y)
+        diverged = op |> Enum.zip(tp) |> Enum.any?(fn {a, b} -> abs(a - b) > 24 end)
+        if diverged, do: acc + 1, else: acc
+      end)
+
+    # Allow a thin seam (≤ one edge's worth of sampled points) for affine-resize
+    # cases; a 1px placement shift moves whole flat regions and far exceeds this.
+    assert far <= div(max(w, h), 2),
+           "#{label}: #{far} far-diverging sampled pixels — placement mismatch"
   end
 
   defp output_orientation_tag(%Plug.Conn{} = conn) do

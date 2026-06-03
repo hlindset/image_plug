@@ -294,29 +294,6 @@ defmodule ImagePipe.Parser.Imgproxy.PlanBuilder do
   defp flip_operation(%Orientation{flip: axis}) when axis in [:horizontal, :vertical, :both],
     do: Operation.flip(axis)
 
-  defp result_crop_x_offset(%PipelineRequest{} = request) do
-    offset = request.gravity_x_offset
-
-    case request.gravity do
-      {:anchor, :right, _y} -> negate_offset(offset)
-      _gravity -> offset
-    end
-  end
-
-  defp result_crop_y_offset(%PipelineRequest{} = request) do
-    offset = request.gravity_y_offset
-
-    case request.gravity do
-      {:anchor, _x, :bottom} -> negate_offset(offset)
-      _gravity -> offset
-    end
-  end
-
-  defp negate_offset({unit, value}) when unit in [:pixels, :scale] and is_number(value),
-    do: {unit, -value}
-
-  defp negate_offset(value) when is_number(value), do: -value
-
   defp resize_operations(%PipelineRequest{width: nil, height: nil} = request) do
     if resize_rule_requested?(request) do
       resize_from_rule(request)
@@ -573,8 +550,8 @@ defmodule ImagePipe.Parser.Imgproxy.PlanBuilder do
   defp resize_opts(%PipelineRequest{resizing_type: resizing_type} = request, opts)
        when resizing_type in [:fill, :fill_down, :auto] do
     Keyword.merge(opts,
-      x_offset: result_crop_x_offset(request),
-      y_offset: result_crop_y_offset(request)
+      x_offset: request.gravity_x_offset,
+      y_offset: request.gravity_y_offset
     )
   end
 

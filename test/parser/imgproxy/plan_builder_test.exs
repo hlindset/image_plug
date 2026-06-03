@@ -382,8 +382,10 @@ defmodule ImagePipe.Parser.Imgproxy.PlanBuilderTest do
              )
 
     assert anchor(crop.guide) == {:right, :bottom}
-    assert crop.x_offset == {:pixels, -12.0}
-    assert crop.y_offset == {:scale, 0.25}
+    # Raw offsets: the executable crop applies the per-axis sign (subtract for the
+    # far :right/:bottom edges), so the parser no longer pre-negates (#146 Bug 3).
+    assert crop.x_offset == {:pixels, 12.0}
+    assert crop.y_offset == {:scale, -0.25}
   end
 
   test "plans dpr with semantic resize guide and adjusted offsets" do
@@ -407,7 +409,9 @@ defmodule ImagePipe.Parser.Imgproxy.PlanBuilderTest do
 
     assert crop.dpr == ratio(2, 1)
     assert anchor(crop.guide) == {:right, :center}
-    assert crop.x_offset == {:pixels, -12.0}
+    # Raw offsets (#146 Bug 3): no parser pre-negation; the executable subtracts on
+    # the far :right edge and the :center Y axis adds.
+    assert crop.x_offset == {:pixels, 12.0}
     assert crop.y_offset == {:scale, -0.25}
   end
 
@@ -430,8 +434,9 @@ defmodule ImagePipe.Parser.Imgproxy.PlanBuilderTest do
              )
 
     assert anchor(crop.guide) == {:right, :bottom}
-    assert crop.x_offset == {:pixels, -8.0}
-    assert crop.y_offset == {:scale, 0.5}
+    # Raw offsets (#146 Bug 3): executable applies the per-axis far-edge subtraction.
+    assert crop.x_offset == {:pixels, 8.0}
+    assert crop.y_offset == {:scale, -0.5}
   end
 
   test "crop without explicit gravity inherits top-level gravity" do

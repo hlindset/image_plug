@@ -165,4 +165,40 @@ defmodule ImagePipe.Transform.OrientationTest do
       assert swapped.dpr == 3.0
     end
   end
+
+  describe "center_discard_sides/1 — center-crop odd-discard side under orientation (#146 Bug 2)" do
+    alias ImagePipe.Transform.PendingOrientation, as: PO
+
+    # A storage axis needs its center-discard rounding flipped to :far exactly when
+    # its near (origin) edge maps to a far (right/bottom) display edge after the
+    # flush. Mapping derived from Image.autorotate of a near-edge marker per EXIF
+    # tag, and re-derived here from the pure forward transform.
+    test "EXIF tags 1..8" do
+      expected = %{
+        1 => {:near, :near},
+        2 => {:far, :near},
+        3 => {:far, :far},
+        4 => {:near, :far},
+        5 => {:near, :near},
+        6 => {:near, :far},
+        7 => {:far, :far},
+        8 => {:far, :near}
+      }
+
+      for {tag, sides} <- expected do
+        assert O.center_discard_sides(PO.from_exif(tag, true)) == sides,
+               "EXIF-#{tag} expected #{inspect(sides)}"
+      end
+    end
+
+    test "identity and pure horizontal mirror keep :near" do
+      assert O.center_discard_sides(%PO{}) == {:near, :near}
+      assert O.center_discard_sides(%PO{user_flip_x: true}) == {:far, :near}
+      assert O.center_discard_sides(%PO{user_flip_y: true}) == {:near, :far}
+    end
+
+    test "user 180 reverses both axes" do
+      assert O.center_discard_sides(%PO{user_angle: 180}) == {:far, :far}
+    end
+  end
 end

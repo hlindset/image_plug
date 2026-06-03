@@ -918,8 +918,9 @@ defmodule ImagePipe.Parser.ImgproxyTest do
              )
 
     assert anchor(crop.guide) == {:right, :bottom}
-    assert crop.x_offset == {:pixels, -8.0}
-    assert crop.y_offset == {:scale, 0.5}
+    # Raw offsets (#146 Bug 3): the executable crop applies the far-edge subtraction.
+    assert crop.x_offset == {:pixels, 8.0}
+    assert crop.y_offset == {:scale, -0.5}
   end
 
   test "parses top-level gravity offsets and plans result crop resize fields" do
@@ -937,8 +938,9 @@ defmodule ImagePipe.Parser.ImgproxyTest do
              )
 
     assert anchor(crop.guide) == {:right, :bottom}
-    assert crop.x_offset == {:pixels, -12.0}
-    assert crop.y_offset == {:scale, 0.25}
+    # Raw offsets (#146 Bug 3): the executable crop applies the far-edge subtraction.
+    assert crop.x_offset == {:pixels, 12.0}
+    assert crop.y_offset == {:scale, -0.25}
   end
 
   test "rejects out-of-range focal point coordinates as gravity coordinate errors" do
