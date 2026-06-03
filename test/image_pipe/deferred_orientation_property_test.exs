@@ -3,10 +3,11 @@ defmodule ImagePipe.DeferredOrientationPropertyTest do
   use ExUnit.Case, async: false
   use ExUnitProperties
 
-  import Plug.Conn
   import Plug.Test
 
   alias ImagePipe.SourceTest.RootHTTPAdapter
+  alias ImagePipe.Test.Orientation1TwinOrigin
+  alias ImagePipe.Test.OrientedFrameOrigin
 
   # Deferred orientation (#146): EXIF auto-orient and user rotate/flip are applied
   # AFTER crop/resize in the canonical model, but ImagePipe defers the flush for
@@ -29,49 +30,6 @@ defmodule ImagePipe.DeferredOrientationPropertyTest do
   # compensation surfaces as a twin divergence. This includes cover + min-dimension
   # (mw/mh) under a quarter turn — resolved in the display frame (#146 Bug 2) — and
   # FP crops whose separate offset rotates as a displacement vector (#146 Bug 3).
-
-  defmodule OrientedFrameOrigin do
-    @moduledoc false
-
-    def init({base_bytes, orientation}), do: {base_bytes, orientation}
-
-    def call(conn, {base_bytes, orientation}) do
-      body =
-        base_bytes
-        |> Image.open!(access: :random)
-        |> Image.set_orientation!(orientation)
-        |> Image.write!(:memory, suffix: ".jpg")
-
-      conn
-      |> put_resp_content_type("image/jpeg")
-      |> send_resp(200, body)
-    end
-  end
-
-  defmodule Orientation1TwinOrigin do
-    @moduledoc false
-
-    def init({base_bytes, orientation}), do: {base_bytes, orientation}
-
-    def call(conn, {base_bytes, orientation}) do
-      oriented =
-        base_bytes
-        |> Image.open!(access: :random)
-        |> Image.set_orientation!(orientation)
-        |> Image.write!(:memory, suffix: ".jpg")
-
-      {:ok, {displayed, _flags}} = Image.autorotate(Image.open!(oriented, access: :random))
-
-      body =
-        displayed
-        |> Image.set_orientation!(1)
-        |> Image.write!(:memory, suffix: ".png")
-
-      conn
-      |> put_resp_content_type("image/png")
-      |> send_resp(200, body)
-    end
-  end
 
   property "no-geometry: EXIF 1..8 × user rotate/flip matches the same-primitive reference" do
     check all(

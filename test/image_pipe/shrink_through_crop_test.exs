@@ -40,7 +40,7 @@ defmodule ImagePipe.ShrinkThroughCropTest do
   defp plan(operations) do
     %Plan{
       source: %Path{segments: ["crop.img"]},
-      output: %{},
+      output: %Plan.Output{mode: :automatic},
       pipelines: [%Pipeline{operations: operations}]
     }
   end
@@ -271,8 +271,9 @@ defmodule ImagePipe.ShrinkThroughCropTest do
         {:ok, resize} = Operation.resize(:fit, {:px, 400}, {:px, 300})
         ops = [crop, resize]
 
-        {deferred, _} = run_auto_rotate(oriented(@src, @src, orientation, ".png"), ops)
-        eager = run_eager_reference(@src, @src, orientation, ops)
+        body = oriented(@src, @src, orientation, ".png")
+        {deferred, _} = run_auto_rotate(body, ops)
+        eager = run_eager_reference(body, ops)
 
         assert_orientation_equivalent(deferred, eager, "EXIF #{orientation} region crop")
       end
@@ -284,8 +285,9 @@ defmodule ImagePipe.ShrinkThroughCropTest do
 
       # auto_rotate on an orientation-6 source plus a user 90° rotate: the entire
       # turn is deferred and flushed at delivery (no resize/crop to flush behind).
-      {deferred, _} = run_auto_rotate(oriented(@src, @src, 6, ".png"), ops)
-      eager = run_eager_reference(@src, @src, 6, ops)
+      body = oriented(@src, @src, 6, ".png")
+      {deferred, _} = run_auto_rotate(body, ops)
+      eager = run_eager_reference(body, ops)
 
       assert_orientation_equivalent(deferred, eager, "rotate:90 delivery flush")
     end
@@ -393,7 +395,7 @@ defmodule ImagePipe.ShrinkThroughCropTest do
         body = oriented(@big_src, @big_src, orientation, ".png")
         assert {final, _shrink} = run_auto_rotate(body, ops)
 
-        eager = run_eager_reference(@big_src, @big_src, orientation, ops)
+        eager = run_eager_reference(body, ops)
 
         assert_orientation_equivalent(
           final,
@@ -406,9 +408,9 @@ defmodule ImagePipe.ShrinkThroughCropTest do
 
   # Decode + autorotate to upright with a random-access open OUTSIDE the pipeline,
   # re-encode untagged, then run the SAME operations through the plain path. This
-  # is the displayed-frame result the deferred path must reproduce.
-  defp run_eager_reference(width, height, orientation, operations) do
-    body = oriented(width, height, orientation, ".png")
+  # is the displayed-frame result the deferred path must reproduce. Takes the
+  # already-built oriented body so the deferred and eager legs share one fixture.
+  defp run_eager_reference(body, operations) do
     {:ok, img} = Image.open(body, access: :random)
     {:ok, {upright, _flags}} = Image.autorotate(img)
     upright_body = Image.write!(upright, :memory, suffix: ".png")
@@ -459,7 +461,7 @@ defmodule ImagePipe.ShrinkThroughCropTest do
   defp run_auto_rotate(body, operations) do
     plan = %Plan{
       source: %Path{segments: ["crop.img"]},
-      output: %{},
+      output: %Plan.Output{mode: :automatic},
       pipelines: [%Pipeline{operations: operations}],
       auto_rotate: true
     }

@@ -10,6 +10,8 @@ defmodule ImagePipe.ImgproxyWireConformanceTest do
   alias ImagePipe.SourceTest.FoobarTranslator
   alias ImagePipe.SourceTest.PlugCustomAdapter
   alias ImagePipe.SourceTest.RootHTTPAdapter
+  alias ImagePipe.Test.Orientation1TwinOrigin
+  alias ImagePipe.Test.OrientedFrameOrigin
   alias ImgproxyWireConformanceTest.CacheProbe
   alias ImgproxyWireConformanceTest.CountingOriginImage
   alias ImgproxyWireConformanceTest.OriginImage
@@ -81,47 +83,11 @@ defmodule ImagePipe.ImgproxyWireConformanceTest do
       |> Image.Draw.rect!(0, 0, 30, 30, color: :blue)
     end
 
-    def oriented_jpeg(orientation) do
-      base()
-      |> Image.set_orientation!(orientation)
-      |> Image.write!(:memory, suffix: ".jpg")
-    end
-
-    # The orientation-1 twin: the EXIF source's displayed pixels, stored untagged.
-    # Derived from the re-decoded JPEG (not the in-memory image) so the displayed
-    # frame exactly matches what the pipeline decodes from the oriented source.
-    def twin_png(orientation) do
-      reopened = Image.open!(oriented_jpeg(orientation), access: :random)
-      {:ok, {displayed, _flags}} = Image.autorotate(reopened)
-
-      displayed
-      |> Image.set_orientation!(1)
-      |> Image.write!(:memory, suffix: ".png")
-    end
-  end
-
-  defmodule OrientedFrameOrigin do
-    @moduledoc false
-
-    def init(orientation), do: orientation
-
-    def call(conn, orientation) do
-      conn
-      |> Plug.Conn.put_resp_content_type("image/jpeg")
-      |> Plug.Conn.send_resp(200, OrientationFixture.oriented_jpeg(orientation))
-    end
-  end
-
-  defmodule Orientation1TwinOrigin do
-    @moduledoc false
-
-    def init(orientation), do: orientation
-
-    def call(conn, orientation) do
-      conn
-      |> Plug.Conn.put_resp_content_type("image/png")
-      |> Plug.Conn.send_resp(200, OrientationFixture.twin_png(orientation))
-    end
+    # Lossless base bytes fed to the shared `ImagePipe.Test.OrientedFrameOrigin` /
+    # `ImagePipe.Test.Orientation1TwinOrigin`, which tag/autorotate them per
+    # orientation. PNG keeps the base pixels exact so the oracle compares identical
+    # displayed content across both legs.
+    def base_png, do: Image.write!(base(), :memory, suffix: ".png")
   end
 
   # A LOSSLESS oracle for fixed-coordinate / non-center / offset crops, where the
@@ -2494,7 +2460,9 @@ defmodule ImagePipe.ImgproxyWireConformanceTest do
           path:
             {RootHTTPAdapter,
              root_url: "http://origin.test",
-             req_options: [plug: {OrientedFrameOrigin, orientation}]}
+             req_options: [
+               plug: {OrientedFrameOrigin, {OrientationFixture.base_png(), orientation}}
+             ]}
         ]
       ],
       overrides
@@ -2509,7 +2477,9 @@ defmodule ImagePipe.ImgproxyWireConformanceTest do
           path:
             {RootHTTPAdapter,
              root_url: "http://origin.test",
-             req_options: [plug: {Orientation1TwinOrigin, orientation}]}
+             req_options: [
+               plug: {Orientation1TwinOrigin, {OrientationFixture.base_png(), orientation}}
+             ]}
         ]
       ],
       overrides

@@ -131,6 +131,11 @@ defmodule ImagePipe.Transform.DecodePlanner do
   # `widthToScale = MinNonZero(CropWidth, SrcWidth)` (prepare.go:275-276). Absolute
   # pixel crops clamp to the source; relative crops scale the source; `:full_axis`
   # leaves the axis at full source extent.
+  #
+  # The canonical pipeline (orientation → crop → resize → …) has at most ONE crop
+  # before the resize, so we halt at the first crop and ignore any later one: a
+  # cover/auto result-crop is emitted AFTER the resize, never before it. There is
+  # no multi-crop-before-resize shape to accumulate.
   defp crop_extent_before_resize(chain, src_w, src_h) do
     Enum.reduce_while(chain, {src_w, src_h}, fn
       %CropGuided{width: cw, height: ch}, _acc ->

@@ -2,8 +2,11 @@ defmodule ImagePipe.Transform.Materializer do
   @moduledoc """
   Materialization boundary for transform execution.
 
-  `materialize/1` copies the current image to a RAM-resident buffer via
-  `Vix.Vips.Image.copy_memory/1` and marks the state `materialized?: true`.
+  `materialize/1` delegates to `ImagePipe.Transform.OrientationFlush.flush/1`,
+  which applies any pending orientation (EXIF auto-rotate plus user rotate/flip)
+  before copying the current image to a RAM-resident buffer and marking the state
+  `materialized?: true`. Materialization may therefore change the displayed frame
+  (when orientation was deferred) in addition to copying pixels to memory.
 
   Per-op materialization (`ImagePipe.Transform.Chain`) calls this before the
   first operation that requires random access, so a sequential decode can stream
