@@ -13,7 +13,6 @@ defmodule ImagePipe.Transform.DecodePlanner do
   passes them in.
   """
 
-  alias ImagePipe.Plan.Operation.AutoOrient
   alias ImagePipe.Plan.Operation.CropGuided
   alias ImagePipe.Plan.Operation.CropRegion
   alias ImagePipe.Plan.Operation.Resize, as: PlanResize
@@ -26,42 +25,33 @@ defmodule ImagePipe.Transform.DecodePlanner do
           [ImagePipe.Plan.Pipeline.operation()],
           source_format(),
           {pos_integer(), pos_integer()},
+          boolean(),
           boolean()
         ) ::
           keyword()
-  def open_options(chain, source_format, {src_w, src_h}, exif_quarter_turn? \\ false)
+  def open_options(
+        chain,
+        source_format,
+        {src_w, src_h},
+        exif_quarter_turn? \\ false,
+        auto_rotate? \\ false
+      )
       when is_list(chain) and is_atom(source_format) and
              is_integer(src_w) and src_w > 0 and
              is_integer(src_h) and src_h > 0 and
-             is_boolean(exif_quarter_turn?) do
-    {shrink_w, shrink_h} = shrink_axes({src_w, src_h}, chain, exif_quarter_turn?)
+             is_boolean(exif_quarter_turn?) and is_boolean(auto_rotate?) do
+    {shrink_w, shrink_h} = shrink_axes({src_w, src_h}, auto_rotate? and exif_quarter_turn?)
     base = [access: :sequential, fail_on: :error]
     load_shrink = compute_load_shrink(chain, shrink_w, shrink_h)
     append_load_option(base, source_format, load_shrink)
   end
 
-  # The resize target is expressed against the *displayed* axes. When an AutoOrient
-  # whose EXIF orientation implies a 90°/270° turn runs *before* the first resize,
-  # the displayed axes are the stored axes swapped, so we compute the shrink against
-  # the swapped axes to avoid picking a factor for the wrong axis. The swap is gated
-  # on AutoOrient being present *and* preceding the resize — EXIF metadata alone
-  # never rotates pixels (only the AutoOrient step does), and an AutoOrient that runs
-  # *after* the resize leaves the resize sizing against the stored axes. When the
-  # chain does not auto-orient before the resize, the stored axes are what that
-  # resize sees, so they are used as-is.
-  defp shrink_axes({w, h}, chain, true) do
-    if auto_orient_before_resize?(chain), do: {h, w}, else: {w, h}
-  end
-
-  defp shrink_axes(dims, _chain, false), do: dims
-
-  defp auto_orient_before_resize?(chain) do
-    Enum.reduce_while(chain, false, fn
-      %AutoOrient{}, _acc -> {:halt, true}
-      %PlanResize{}, _acc -> {:halt, false}
-      _operation, acc -> {:cont, acc}
-    end)
-  end
+  # The resize target is expressed against the *displayed* axes. When auto_rotate is
+  # enabled and the EXIF orientation implies a 90°/270° turn, the displayed axes are
+  # the stored axes swapped, so we compute the shrink against the swapped axes to
+  # avoid picking a factor for the wrong axis.
+  defp shrink_axes({w, h}, true), do: {h, w}
+  defp shrink_axes(dims, false), do: dims
 
   # --- Shrink/scale computation ---
 

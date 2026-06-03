@@ -73,7 +73,8 @@ defmodule ImagePipe.Request.Processor do
              operations,
              source_format,
              original_dims,
-             exif_quarter_turn?(header_image)
+             exif_quarter_turn?(header_image),
+             plan.auto_rotate
            ),
          {:ok, image} <-
            open_seekable_input(input, decode_options, opts)

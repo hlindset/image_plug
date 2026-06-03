@@ -116,24 +116,21 @@ defmodule ImagePipe.Transform.DecodePlannerTest do
     assert opts[:shrink] == 2
   end
 
-  test "EXIF quarter-turn swaps the shrink axes only when the chain auto-orients" do
+  test "EXIF quarter-turn swaps shrink axes only when auto_rotate AND exif_quarter_turn?" do
     assert {:ok, resize} = Operation.resize(:fit, {:px, 400}, :auto)
-    # Stored landscape 800×1200... no, stored 3200×800; width-only target 400.
-    # Without the swap: wshrink = 3200/400 = 8 → shrink 8.
-    # With the swap (axes become 800×3200): wshrink = 800/400 = 2 → shrink 2.
-    chain = [%AutoOrient{}, resize]
+    chain = [resize]
 
-    # Quarter-turn EXIF + AutoOrient present → swap → shrink computed on 800 width.
-    swapped = DecodePlanner.open_options(chain, :jpeg, {3200, 800}, true)
+    # auto_rotate true + quarter-turn => swap => shrink on 800 width
+    swapped = DecodePlanner.open_options(chain, :jpeg, {3200, 800}, true, true)
     assert swapped[:shrink] == 2
 
-    # Quarter-turn EXIF but NO AutoOrient in the chain → no swap → shrink on 3200.
-    no_autoorient = DecodePlanner.open_options([resize], :jpeg, {3200, 800}, true)
-    assert no_autoorient[:shrink] == 8
+    # auto_rotate false + quarter-turn => no swap => shrink on 3200
+    no_ar = DecodePlanner.open_options(chain, :jpeg, {3200, 800}, true, false)
+    assert no_ar[:shrink] == 8
 
-    # AutoOrient present but EXIF is not a quarter-turn → no swap.
-    not_quarter = DecodePlanner.open_options(chain, :jpeg, {3200, 800}, false)
-    assert not_quarter[:shrink] == 8
+    # auto_rotate true + not quarter-turn => no swap
+    not_qt = DecodePlanner.open_options(chain, :jpeg, {3200, 800}, false, true)
+    assert not_qt[:shrink] == 8
   end
 
   # --- WebP scale-on-load ---
