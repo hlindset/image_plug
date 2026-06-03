@@ -30,6 +30,7 @@ defmodule ImagePipe.Transform.State do
             detector_required: false,
             telemetry_opts: [],
             source_dimensions: nil,
+            pending_orientation: nil,
             materialized?: false
 
   @type t :: %__MODULE__{
@@ -39,6 +40,7 @@ defmodule ImagePipe.Transform.State do
           detector_required: boolean(),
           telemetry_opts: keyword(),
           source_dimensions: {pos_integer(), pos_integer()} | nil,
+          pending_orientation: ImagePipe.Transform.PendingOrientation.t() | nil,
           materialized?: boolean()
         }
 
