@@ -50,7 +50,7 @@
 
 # SLICE A — Deferred orientation (#146)
 
-Ordering: build the inert machinery first (T1–T4), add the inert boolean plumbing (T5–T7), repoint decode (T8), then the coordinated cutover (T9), then cleanup (T10) and the gate tests (T11). The system stays green through T8 (the boolean is set but unused; the AutoOrient op still does the orientation). T9 is the single behavior-preserving cutover, verified by the libvips-reference gate and wire conformance.
+Ordering: build the inert machinery first (T1–T4), add the inert boolean plumbing (T5–T7), repoint decode (T8), then the coordinated cutover (T9), then cleanup (T10) and the gate tests (T11). The system stays green through T8 (the boolean is set but unused; the AutoOrient op still does the orientation). T9 is the behavior-preserving cutover (split into green T9a/T9b), verified by the orientation-only same-primitive reference and the wire-vs-orientation-1 pixel oracle (T9/T11).
 
 ## Task 1: `PendingOrientation` struct + EXIF mapping
 
@@ -497,6 +497,28 @@ defmodule ImagePipe.Transform.OrientationTest do
     end
   end
 
+  describe "compensate_gravity_for/2 — offsets (port of gravity.go:96-153)" do
+    alias ImagePipe.Transform.PendingOrientation, as: PO
+
+    # Flip offsets are simple and safe to pin directly:
+    test "flipX negates X for center/N/S, 1-x for FP; type remaps too" do
+      assert O.compensate_gravity_for({{:anchor, :center, :top}, 5.0, 3.0}, %PO{user_flip_x: true}) ==
+               {{:anchor, :center, :top}, -5.0, 3.0}
+
+      assert O.compensate_gravity_for({{:fp, 0.25, 0.1}, 0.0, 0.0}, %PO{user_flip_x: true}) ==
+               {{:fp, 0.75, 0.1}, 1.0, 0.0}
+    end
+
+    test "flipY negates Y for center/E/W, 1-y for FP" do
+      assert O.compensate_gravity_for({{:anchor, :left, :center}, 2.0, 4.0}, %PO{user_flip_y: true}) ==
+               {{:anchor, :left, :center}, 2.0, -4.0}
+    end
+
+    # ROTATE offset rows (90/180/270 × anchor types × FP) MUST be added here, with
+    # expected values read from `local/imgproxy-master/processing/gravity.go:96-153`
+    # (NOT guessed) — they pin the pre/post-remap keying the module port must match.
+  end
+
   describe "swap_dims?/1 and swap_resize/1" do
     test "swap on quarter-turn only" do
       assert O.swap_dims?(90) and O.swap_dims?(270)
@@ -545,21 +567,37 @@ defmodule ImagePipe.Transform.Orientation do
           | {:smart, :face_assist}
           | {:detect, term()}
 
-  @doc "Compensate a gravity spec back to storage frame: user-then-EXIF (spec §3.6)."
-  @spec compensate_gravity_for(gravity(), PendingOrientation.t()) :: gravity()
-  def compensate_gravity_for(gravity, %PendingOrientation{} = po) do
-    gravity
-    |> compensate_gravity(po.user_angle, po.user_flip_x, po.user_flip_y)
-    |> compensate_gravity(po.exif_angle, po.exif_flip_x, false)
+  @doc """
+  Compensate a gravity spec AND its X/Y offsets back to storage frame: user-then-EXIF
+  (spec §3.6). Carries `{gravity, x_offset, y_offset}` because imgproxy's RotateAndFlip
+  transforms the offsets too — a gravity crop with a non-zero offset on an oriented
+  source would otherwise crop in the wrong place.
+  """
+  @spec compensate_gravity_for({gravity(), number(), number()}, PendingOrientation.t()) ::
+          {gravity(), number(), number()}
+  def compensate_gravity_for({_g, _x, _y} = spec, %PendingOrientation{} = po) do
+    spec
+    |> rotate_and_flip(po.user_angle, po.user_flip_x, po.user_flip_y)
+    |> rotate_and_flip(po.exif_angle, po.exif_flip_x, false)
   end
 
-  @doc "Single RotateAndFlip step: flipX -> flipY -> rotate."
+  # Single RotateAndFlip step: remap the TYPE then transform the OFFSET. The type
+  # bijection (apply_*/rotate_anchor below) is verified inline; the OFFSET arithmetic
+  # is a VERBATIM port of gravity.go:96-153 and must be ported from source, not the
+  # summary table — the spec (§3.6) warns the offset switch keys on the already-remapped
+  # type, which a table can't capture. `transform_offsets/4` below is the port point:
+  # implement it against `local/imgproxy-master/processing/gravity.go` and pin EVERY
+  # (type × angle × flipX × flipY) offset case in orientation_test.exs (Step 1).
+  defp rotate_and_flip({g, x, y}, angle, flip_x, flip_y) do
+    g2 = g |> apply_flip_x(flip_x) |> apply_flip_y(flip_y) |> apply_rotate(angle)
+    {x2, y2} = transform_offsets({g, x, y}, angle, flip_x, flip_y)
+    {g2, x2, y2}
+  end
+
+  @doc "Type-only RotateAndFlip step (used by the offset-free type table test)."
   @spec compensate_gravity(gravity(), 0 | 90 | 180 | 270, boolean(), boolean()) :: gravity()
   def compensate_gravity(gravity, angle, flip_x, flip_y) do
-    gravity
-    |> apply_flip_x(flip_x)
-    |> apply_flip_y(flip_y)
-    |> apply_rotate(angle)
+    gravity |> apply_flip_x(flip_x) |> apply_flip_y(flip_y) |> apply_rotate(angle)
   end
 
   @spec swap_dims?(0 | 90 | 180 | 270) :: boolean()
@@ -633,10 +671,43 @@ defmodule ImagePipe.Transform.Orientation do
 
   # center stays center under rotation
   defp rotate_anchor({:anchor, :center, :center}, _angle), do: {:anchor, :center, :center}
+
+  # ---- OFFSET transform (PORT of gravity.go:96-153) ----
+  # Starting implementation from spec §3.6, keyed on the pre-remap type. VERIFY the
+  # pre/post-remap keying against gravity.go and ADJUST if the source keys on the
+  # post-remap type; pin every case in the Step-1 table test (anchor center/N/S/E/W
+  # /corner × FP × {flipX, flipY, 90, 180, 270}).
+  defp transform_offsets({_g, x, y}, 0, false, false), do: {x, y}
+
+  defp transform_offsets({g, x, y}, angle, flip_x, flip_y) do
+    {x, y} = if flip_x, do: {flip_x_offset(g, x), y}, else: {x, y}
+    {x, y} = if flip_y, do: {x, flip_y_offset(g, y)}, else: {x, y}
+    rotate_offset(g, angle, x, y)
+  end
+
+  defp flip_x_offset({:fp, _, _}, x), do: 1.0 - x
+  defp flip_x_offset({:anchor, :center, _}, x), do: -x  # center / N / S
+  defp flip_x_offset(_g, x), do: x
+
+  defp flip_y_offset({:fp, _, _}, y), do: 1.0 - y
+  defp flip_y_offset({:anchor, _, :center}, y), do: -y  # center / E / W
+  defp flip_y_offset(_g, y), do: y
+
+  defp rotate_offset(_g, 0, x, y), do: {x, y}
+  defp rotate_offset({:fp, _, _}, 90, x, y), do: {y, 1.0 - x}
+  defp rotate_offset({:fp, _, _}, 180, x, y), do: {1.0 - x, 1.0 - y}
+  defp rotate_offset({:fp, _, _}, 270, x, y), do: {1.0 - y, x}
+  defp rotate_offset({:anchor, _, :center}, 90, x, y), do: {y, -x}  # center / E / W
+  defp rotate_offset({:anchor, :center, :center}, 180, x, y), do: {-x, -y}
+  defp rotate_offset({:anchor, :center, _}, 180, x, y), do: {-x, y}  # N / S
+  defp rotate_offset({:anchor, _, :center}, 180, x, y), do: {x, -y}  # E / W
+  defp rotate_offset({:anchor, :center, _}, 270, x, y), do: {-y, x}  # center / N / S
+  defp rotate_offset(_g, angle, x, y) when angle in [90, 270], do: {y, x}  # corners / else
+  defp rotate_offset(_g, 180, x, y), do: {x, y}  # corners / else
 end
 ```
 
-> Note: this step compensates gravity **type** (the directional remap). Offset transforms on `x_offset`/`y_offset` (spec §3.6 offset rules) are applied alongside the type remap when PlanExecutor passes the offsets through — extend `compensate_gravity/4` to also return adjusted offsets in T9 if a test there shows offset cases failing. The mapping above is the type bijection the table test pins; verify the corner/center rows against `gravity.go`.
+> The TYPE bijection (`rotate_anchor`/`apply_*`) is verified inline. The OFFSET arithmetic (`transform_offsets` and friends) is a **starting port** of `gravity.go:96-153` from spec §3.6's rules — Step 1's table test must pin every (type × angle × flip) offset case, and the implementer must confirm the pre/post-remap keying against the real Go source (spec §3.6 warns the offset switch keys on the already-remapped type). Verify all corner/center rows against `local/imgproxy-master/processing/gravity.go`; do not guess.
 
 - [ ] **Step 4: Run; expect PASS**
 
@@ -1012,15 +1083,29 @@ Remove the `executable_operations(%PlanAutoOrient{}, ...)` clause (the plan op i
 
 > Edge: if `pending_orientation` is nil (e.g. a second pipeline with a user rotate, no EXIF), seed an empty `%PendingOrientation{}` on first fold so the flush still fires. Add a fallback clause matching `pending_orientation: nil` that seeds `%PendingOrientation{}` then folds.
 
+- [ ] **Step 5 (T9a): Stop emitting the AutoOrient op + fix emission tests (same commit)**
+
+In `plan_builder.ex` `orientation_operations/1`, drop `auto_orient_operation(orientation)` (keep `rotate_operation`/`flip_operation`). In `options.ex`, delete `apply_auto_rotate_to_first_pipeline/2` and its call in `apply_request_defaults/2` (the boolean is surfaced from T7); `consume_auto_rotate_request/1` stays. **In the SAME commit**, fix every test asserting the AutoOrient plan op is emitted/executed so the commit is green: `test/parser/imgproxy_test.exs` (`operations: [%AutoOrient{}]` → `[]` + `auto_rotate:` on the `%Plan{}`; drop `:auto_orient` from `operation_names`; drop the `operation_name(%AutoOrient{})` helper at `:1802` and alias), `test/parser/imgproxy/plan_builder_test.exs` (same; helper at `:1253`), `test/image_pipe/transform/plan_executor_test.exs:290` (drop the `%AutoOrient{}` plan-op case). Do NOT delete the AutoOrient *modules* yet (T10) — only stop emitting + fix emission tests.
+
+- [ ] **Step 6 (T9a): Run the T9a gate green + commit**
+
+Run: `mise exec -- mix test test/image_pipe/transform/deferred_orientation_test.exs test/image_pipe/transform/plan_executor_test.exs test/parser/imgproxy_test.exs test/parser/imgproxy/plan_builder_test.exs`
+Expected: PASS (de-emission + its test fixes land together).
+
+```bash
+git add lib/image_pipe/transform/plan_executor.ex lib/image_pipe/request/processor.ex lib/image_pipe/parser/imgproxy/plan_builder.ex lib/image_pipe/parser/imgproxy/options.ex test/image_pipe/transform/deferred_orientation_test.exs test/parser/imgproxy_test.exs test/parser/imgproxy/plan_builder_test.exs test/image_pipe/transform/plan_executor_test.exs
+git commit -m "feat(transform): defer orientation — seed pending + per-pipeline flush; stop emitting AutoOrient op (#146)"
+```
+
 ### T9b — compensation (gravity remap + offsets + dim/resize swap + flush placement)
 
-Commit this separately from T9a; gate it on the crop/resize matrix (T11 Step 1, wire-vs-orientation-1 oracle) + `test/image_pipe/shrink_on_load_test.exs` (the residual-resize/`source_dimensions` test the cutover most threatens — add it to this task's gate).
+Commit separately; gate on the crop/resize matrix (T11 Step 1, wire-vs-orientation-1 oracle) + `test/image_pipe/imgproxy_wire_conformance_test.exs` + `test/image_pipe/shrink_on_load_test.exs` (the residual-resize/`source_dimensions` test the cutover most threatens). Offset compensation arithmetic lives in **T4** (`Orientation.compensate_gravity_for/2` carries gravity type + X/Y offsets via the `transform_offsets` port); T9b only *calls* `compensate_gravity_for/2` + `swap_resize/1`.
 
-- [ ] **Step 5: PlanExecutor — compensate pre-flush crop + resize; force flush after resize / before region crop**
+- [ ] **Step 7 (T9b): PlanExecutor — compensate pre-flush crop + resize; force flush after resize / before region crop**
 
 Compensation operates on the **executable** tagged gravity (the `%Crop{}.gravity` field that `executable_operations(%CropGuided{}, ...)` builds via `tagged_executable_gravity/1` — shapes `{:anchor,h,v}` / `{:fp,x,y}` / `:smart` / `{:detect,_}`), **not** the plan-level `%CropGuided{}.guide` (`{:focal, {:ratio..}, {:ratio..}}`). In `execute_operation/4`, when `pending_orientation` is live and non-identity:
 
-- **Gravity crop (`%CropGuided{}`)**: build the `%Crop{}` as today, then compensate its `gravity` **type AND `x_offset`/`y_offset`** via `Orientation.compensate_gravity_for/2`, and swap the `%Crop{}` width/height when `quarter_turn?`. **Offset compensation is required, not optional** — imgproxy's `RotateAndFlip` transforms offsets too (`gravity.go:96-153`: e.g. 90° center/E/W → `X,Y = Y,-X`; FP → `Y,1-X`; flipX → `-X`/`1-x`). `CropGuided` carries non-zero `x_offset`/`y_offset` (real reachable input), so without this an oriented source + `g:no:0:20`-style offset crops at the wrong location. `Orientation.compensate_gravity/4` must therefore take and return the offsets; extend the T4 module + its table test to cover offset transforms per angle/flip. Smart/detect guides emit literal (the auto-flush at the materializing crop fires first).
+- **Gravity crop (`%CropGuided{}`)**: build the `%Crop{}` as today, then compensate its `gravity` **type and `x_offset`/`y_offset` together** via `Orientation.compensate_gravity_for/2` (offsets implemented in T4), and swap the `%Crop{}` width/height when `quarter_turn?`. Without offset compensation an oriented source + `g:no:0:20`-style offset crops at the wrong location. Smart/detect guides emit literal (the auto-flush at the materializing crop fires first).
 - **Region crop (`%CropRegion{}`)**: force a flush first (`flush_if_pending`), then run the region crop literally on oriented pixels.
 - **Resize (`%PlanResize{}`)**: build the executable as today, then `Orientation.swap_resize/1` on each `%Resize{}` when `quarter_turn?`; after running, force a flush so the result crop / tail are post-flush.
 
@@ -1041,15 +1126,11 @@ Sketch (wrap the existing `executable_operations |> Chain.execute` path):
   end
 ```
 
-where `compensate_resize/2` maps `Orientation.swap_resize/1` over the `%Resize{}` ops in the expansion when `PendingOrientation.quarter_turn?(po)`, and gravity crop compensation is applied to the `%Crop{}` built in `executable_operations` for `%CropGuided{}`.
+where `compensate_resize/2` maps `Orientation.swap_resize/1` over the `%Resize{}` ops when `PendingOrientation.quarter_turn?(po)`, and gravity-crop compensation is applied to the `%Crop{}` built in `executable_operations` for `%CropGuided{}`.
 
-> This is the densest change. Implement it incrementally against the T11 crop/resize matrix (wire-vs-orientation-1 oracle) + `test/image_pipe/imgproxy_wire_conformance_test.exs` + `test/image_pipe/shrink_on_load_test.exs`, running `mise exec -- mix test <those files>` after each sub-change. `compensate_gravity_for/2` transforms both gravity type and offsets (required, per Step 5).
+> The densest change. Implement incrementally against the T11 crop/resize matrix + the wire test + `shrink_on_load_test.exs`, running `mise exec -- mix test <those files>` after each sub-change.
 
-- [ ] **Step 6: Stop emitting the AutoOrient op in the parser**
-
-In `plan_builder.ex` `orientation_operations/1`, drop `auto_orient_operation(orientation)` from the list (keep `rotate_operation`/`flip_operation`). In `options.ex`, delete `apply_auto_rotate_to_first_pipeline/2` and its call in `apply_request_defaults/2` (the boolean is now surfaced directly from T7). `consume_auto_rotate_request/1` stays (it clears the per-pipeline carrier).
-
-- [ ] **Step 7: Wire-conformance — add ar:0 / no-geometry cases, decode-and-sample PIXELS (not just dims)**
+- [ ] **Step 8 (T9b): Wire-conformance — add ar:0 / no-geometry cases, decode-and-sample PIXELS (not just dims)**
 
 The existing test `test/image_pipe/imgproxy_wire_conformance_test.exs:608-637` (autorotate on/off ⇒ `{80,40}`/`{40,80}`) must pass unchanged. Add the cases below. **Dimensions alone can't tell a correct 90° from a wrong-direction one** — sample pixels too (helpers `decoded_image/1`, `sampled_pixels/1` exist). The fixture `oriented.jpg` is **stored 40w×80h, EXIF 6** (autorotate ⇒ 80×40).
 
@@ -1075,18 +1156,12 @@ end
 
 `reference_user_rot90_storage/0` builds the fixture's stored 40×80 image (no autorotate) and applies `Image.rotate!(_, 90)`; `reference_180_of_stored/0` applies `Image.rotate!(_, 180)` — same-primitive oracles so direction is pinned, not just the bounding box.
 
-- [ ] **Step 8: Run the T9 gates green**
+- [ ] **Step 9 (T9b): Run the T9b gate green + commit**
 
-Run: `mise exec -- mix test test/image_pipe/transform/deferred_orientation_test.exs test/image_pipe/imgproxy_wire_conformance_test.exs test/image_pipe/transform/plan_executor_test.exs test/parser/imgproxy_test.exs test/parser/imgproxy/plan_builder_test.exs`
-Expected: PASS. Because the plan-op-emission test fixes are folded into T9a/T9b, **each T9 commit is green** (T10 only deletes modules + tests that *name* the deleted modules).
-
-- [ ] **Step 9: Commit (two commits — T9a then T9b)**
+Run: `mise exec -- mix test test/image_pipe/transform/deferred_orientation_test.exs test/image_pipe/imgproxy_wire_conformance_test.exs test/image_pipe/shrink_on_load_test.exs`
+Expected: PASS.
 
 ```bash
-# after T9a (seed/flush/de-emit + plan-op test fixes):
-git add lib/image_pipe/transform/plan_executor.ex lib/image_pipe/request/processor.ex lib/image_pipe/parser/imgproxy/plan_builder.ex lib/image_pipe/parser/imgproxy/options.ex test/image_pipe/transform/deferred_orientation_test.exs test/parser/imgproxy_test.exs test/parser/imgproxy/plan_builder_test.exs test/image_pipe/transform/plan_executor_test.exs
-git commit -m "feat(transform): defer orientation — seed pending + per-pipeline flush; stop emitting AutoOrient op (#146)"
-# after T9b (compensation):
 git add lib/image_pipe/transform/plan_executor.ex lib/image_pipe/transform/orientation.ex test/image_pipe/transform/orientation_test.exs test/image_pipe/transform/deferred_orientation_test.exs test/image_pipe/imgproxy_wire_conformance_test.exs
 git commit -m "feat(transform): compensate pre-flush crop/resize (gravity+offsets, dim/resize swap) (#146)"
 ```
@@ -1099,7 +1174,8 @@ By T9 the plan op is no longer emitted/executed and parser/plan-op-emission test
 - Delete: `lib/image_pipe/plan/operation/auto_orient.ex`, `lib/image_pipe/transform/operation/auto_orient.ex`
 - Delete: `test/image_pipe/transform/auto_orient_materialize_test.exs` (NOTE: it is at `…/transform/`, **not** `…/transform/operation/`), `test/image_pipe/transform/operation/auto_orient_test.exs`
 - Modify (production): `plan.ex:22` (drop export), `plan/operation.ex:7,72,99-100,341`, `plan/key_data.ex:11,126`, `transform.ex:25` (drop export), `transform/plan_executor.ex` (drop `PlanAutoOrient` alias; drop the executable `AutoOrient` alias if now unused), `transform/state.ex:18-24,99` (update the moduledoc — `source_dimensions` is no longer swapped by AutoOrient; it stays storage-frame).
-- Modify (tests that NAME the deleted modules): `test/image_pipe/architecture_boundary_test.exs` (`@concrete_plan_names` line ~59 **and** `@concrete_transform_names` line ~80; plan export-include list ~476 **and** transform export-include list ~442), `test/transform_chain_test.exs:288-289` (drives the executable `AutoOrient` op + asserts `:auto_orient` telemetry — delete that case, its behavior is gone), `test/image_pipe/transform/prefetch_validation_test.exs:37`, `test/image_pipe/transform/sequential_access_test.exs:152-157` (see Step 3), `test/image_pipe/plan_test.exs:120`, `test/image_pipe/plan/operation_test.exs:375,381,397`, `test/image_pipe/plan/operation_key_data_test.exs:209`, `test/parser/imgproxy/options_test.exs:26`, `test/image_pipe/shrink_on_load_test.exs` (if it names the op struct), `test/image_pipe/decode_planner_test.exs` (any residual `%AutoOrient{}` alias/chain). The grep sweep in Step 4 is authoritative.
+- Modify (tests that NAME the deleted modules): `test/image_pipe/architecture_boundary_test.exs` (`@concrete_plan_names` line ~59 **and** `@concrete_transform_names` line ~80; plan export-include list ~476 **and** transform export-include list ~442), `test/transform_chain_test.exs:288-289` (drives the executable `AutoOrient` op + asserts `:auto_orient` telemetry — delete that case, its behavior is gone), `test/image_pipe/transform/prefetch_validation_test.exs:37`, `test/image_pipe/transform/sequential_access_test.exs` (the example block ~`:152-157` **and** the property at ~`:230` — see Step 3), `test/image_pipe/plan_test.exs` (alias ~`:6`, `:28`, `:120`), `test/image_pipe/plan/operation_test.exs:375,381,397`, `test/image_pipe/plan/operation_key_data_test.exs:209`, `test/image_pipe/transform/plan_executor_test.exs:6` (alias — the file is edited in T9a; the stale alias fails `--warnings-as-errors` once the module is deleted), `test/image_pipe/shrink_on_load_test.exs` (if it names the op struct), `test/image_pipe/decode_planner_test.exs` (any residual `%AutoOrient{}` alias/chain). The grep sweep in Step 4 is authoritative.
+- Do **NOT** touch `test/parser/imgproxy/options_test.exs:26` — it asserts `pipeline.orientation.auto_orient` on the parser-internal `Parser.Imgproxy.Orientation` struct, whose `auto_orient` field **survives** (still used by `effective_auto_rotate`/`consume_auto_rotate_request`). It passes throughout.
 
 - [ ] **Step 1: Remove production references + delete the two `auto_orient.ex` files** (mechanical, per spec §3.2 call-site inventory). Use `grep -rn "AutoOrient" lib` to confirm zero `lib/` references remain. Update the `State` moduledoc (`state.ex:18-24,99`) so it no longer claims AutoOrient swaps `source_dimensions`.
 
@@ -1157,7 +1233,7 @@ Add the **negative control**: the same source with `auto_rotate: false` must rep
 
 - [ ] **Step 3: Embedded-orientation-tag assertions** — with `st:0` (`strip_metadata: false`): (a) `ar:1`+tag → output tag absent + rotated; (b) `ar:0`+tag → tag present + unrotated; (c) `ar:1`+orientation 1 → unchanged. Read the output tag via `Image.open!(conn.resp_body) |> then(&Vix.Vips.Image.header_value(&1, "orientation"))`. **Caveat:** (b) holds only because `st:0` disables stripping — do NOT generalize to "ar:0 preserves the tag"; under default `st:1`, imgproxy (`strip_metadata.go`) strips the orientation tag regardless of `auto_rotate`, so assert that case under `st:0` only.
 
-- [ ] **Step 4: Property test** — EXIF 1–8 × random rotate/flip × random crop+resize: decoded output within ±1px of and matching the libvips reference. Model on `test/image_pipe/shrink_on_load_property_test.exs`.
+- [ ] **Step 4: Property test** — EXIF 1–8 × random rotate/flip × random crop+resize: decoded output exact-matches the orientation-only same-primitive reference for the no-geometry leg, and is within ±1px of the **wire-vs-orientation-1** oracle when crop/resize is present (NOT a synthesized `thumbnail` reference — see T9b/T11 Step 1). Model on `test/image_pipe/shrink_on_load_property_test.exs`.
 
 - [ ] **Step 5: Full gate + commit**
 
@@ -1220,13 +1296,15 @@ git commit -m "perf(decode): allow shrink through a preceding 90/270 rotate (#15
 ## Self-Review
 
 **Spec coverage (v3 sections → tasks):**
-- §3.1 pending state → T1, T3. §3.2 EXIF→boolean + call-site inventory → T5, T7, T10. §3.3 two-frame swap → T4 (`swap_dims?`/`swap_resize`), T9. §3.4 PlanExecutor responsibilities → T9. §3.5 flush rule/mechanism → T2, T3, T9 (after-resize + region force-flush + per-pipeline + backstop). §3.6 compensation port → T4, T9. §3.7 output-equivalence → T9, T11 gates. §4 Slice B → B1, B2. §5 decode_planner rework → T8. §6 cache/etag → T6. §7 boundaries → enforced by `architecture_boundary_test` updates in T10. §8 tests → T2/T4/T9/T11 (libvips reference, no-geometry, compensation unit, detector ordering, metadata tag, property) + B1/B2. §9 out-of-scope → respected (no demo change, no FlushOrientation op, no cross-pipeline carry). §10 risks → ar:0 guard (T2/T9), effects timing (backstop in T3/T9).
+- §3.1 pending state → T1, T3. §3.2 EXIF→boolean + call-site inventory → T5, T7, T10. §3.3 two-frame swap → T4 (`swap_dims?`/`swap_resize`), T9. §3.4 PlanExecutor responsibilities → T9. §3.5 flush rule/mechanism → T2, T3, T9 (after-resize + region force-flush + per-pipeline + backstop). §3.6 compensation port → T4, T9. §3.7 output-equivalence → T9, T11 gates. §4 Slice B → B1, B2. §5 decode_planner rework → T8. §6 cache/etag → T6. §7 boundaries → enforced by `architecture_boundary_test` updates in T10. §8 tests → T2/T4/T9/T11 (orientation-only reference + wire-vs-orientation-1 oracle, no-geometry, compensation unit incl. offsets, detector ordering, metadata tag, property) + B1/B2. §9 out-of-scope → respected (no demo change, no FlushOrientation op, no cross-pipeline carry). §10 risks → ar:0 guard (T2/T9), effects timing (backstop in T3/T9).
 
 **Plan-review cycle applied (2026-06-03, 4 disjoint lenses incl. imgproxy-compat).** Accepted fixes folded in: the reference oracle switched from `Image.thumbnail!` (wrong operator) to wire-vs-orientation-1-source pixel comparison (T9/T11); the `rot:90`+EXIF-6 wire assertion corrected to `{40,80}`; wire tests now sample pixels not just dims; T9 split into green T9a/T9b with plan-op test fixes folded in; T10 reduced to deletion + tests naming deleted modules, with the full architecture-boundary inventory (lines 59/80/442/476), correct deleted-test path, preserved sequential-safety gate, and a positive `source_dimensions`-storage-frame test; gravity X/Y **offset** compensation promoted to a required T9b step; plan-level `%Resize{}` built via `Operation.resize/4` (avoids the `@enforce_keys` crash); detector-ordering test asserts concrete oriented dims + a negative control.
 
+**Second plan-review round applied (2026-06-03, 3 lenses incl. imgproxy-compat — verdict compat-sound).** Accepted fixes: parser de-emission moved into the green **T9a** commit (was misfiled under T9b → would have been a red commit); the T4↔T9b offset contradiction resolved by making `compensate_gravity_for/2` carry offsets (T4 owns the `transform_offsets` port + table-test rows; T9b only calls it); T10 inventory completed (`plan_test:6/:28`, `sequential_access:230` property, `plan_executor_test:6` alias) and the wrongly-listed `options_test:26` removed (parser `Orientation.auto_orient` survives); stale "libvips reference" phrasings aligned to the wire-vs-orientation-1 oracle. The compat lens re-verified both corrected wire assertions, the offset transforms, and the resize pre-swap↔imgproxy post-swap duality against the Go source.
+
 **Placeholder scan:** T9b Step 5 remains the densest, judgment-heavy change (compensation + flush insertion across crop/resize) — it carries the exact gate commands + the executable-gravity contract to drive it; subagent-driven execution will review it as its own commit. No fake-complete steps elsewhere.
 
-**Type consistency:** `PendingOrientation` fields used consistently (T1/T2/T9). `Orientation.compensate_gravity/4` (now takes+returns offsets), `compensate_gravity_for/2`, `swap_dims?/1`, `swap_resize/1` match T4↔T9. `OrientationFlush.flush/1` is the single primitive behind `Materializer.materialize/1` (T3) and `flush_if_pending` (T9). `open_options/5` matches T8↔processor.
+**Type consistency:** `PendingOrientation` fields used consistently (T1/T2/T9). `compensate_gravity_for/2` carries `{gravity, x, y}` (type via `compensate_gravity/4` + offsets via the `transform_offsets` port, both in T4); `compensate_gravity/4` is the type-only step the table test pins; `swap_dims?/1`, `swap_resize/1` match T4↔T9. `OrientationFlush.flush/1` is the single primitive behind `Materializer.materialize/1` (T3) and `flush_if_pending` (T9). `open_options/5` matches T8↔processor.
 
 **Known fragile spots to verify during execution (not blockers):**
 - T1 EXIF mapping and T4 anchor/offset tables must be verified against `local/imgproxy-master/processing/{prepare,gravity}.go`, not trusted blindly — both tasks say so (the compat review confirmed the current table is correct, but the offset transforms added in T9b need the same verification).
