@@ -23,7 +23,8 @@ defmodule ImagePipe.Parser.Imgproxy.OptionsTest do
     assert pipeline.crop.width == {:scale, 0.5}
     assert pipeline.crop.height == {:scale, 0.25}
     assert pipeline.crop.gravity == {:anchor, :left, :top}
-    assert pipeline.orientation.auto_orient == true
+    assert request.auto_rotate == true
+    assert pipeline.orientation.auto_orient == false
     assert pipeline.orientation.rotate == 270
     assert pipeline.orientation.flip == :horizontal
     assert pipeline.extend_aspect_ratio == true

@@ -3,7 +3,6 @@ defmodule ImagePipe.Transform.PlanExecutorTest do
 
   alias ImagePipe.Plan
   alias ImagePipe.Plan.Operation
-  alias ImagePipe.Plan.Operation.AutoOrient
   alias ImagePipe.Plan.Operation.Flip
   alias ImagePipe.Plan.Operation.Rotate
   alias ImagePipe.Plan.Pipeline
@@ -284,16 +283,18 @@ defmodule ImagePipe.Transform.PlanExecutorTest do
   end
 
   describe "orientation primitives" do
-    test "auto orient, rotate, and flip execute as allowed primitive operations" do
+    test "user rotate folds into deferred orientation and flushes at the pipeline boundary" do
       assert {:ok, %State{} = state} =
                Transform.execute_plan(
-                 plan([%AutoOrient{}, %Rotate{angle: 90}]),
+                 plan([%Rotate{angle: 90}]),
                  state_with_image(80, 40),
                  []
                )
 
       assert dimensions(state.image) == {40, 80}
+    end
 
+    test "user flip folds into deferred orientation and flushes at the pipeline boundary" do
       assert {:ok, %State{} = state} =
                Transform.execute_plan(
                  plan([%Flip{axis: :horizontal}]),

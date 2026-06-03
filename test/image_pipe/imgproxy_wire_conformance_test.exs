@@ -636,6 +636,28 @@ defmodule ImagePipe.ImgproxyWireConformanceTest do
     assert dimensions(url_disabled_conn) == {40, 80}
   end
 
+  test "ar:0 + EXIF-6 + user rot:90 applies only the user rotation (regression guard)" do
+    conn =
+      "/_/ar:false/rot:90/f:jpeg/plain/images/oriented.jpg"
+      |> call_imgproxy(exif_orientation_origin_opts(imgproxy: [auto_rotate: true]))
+
+    assert conn.status == 200
+    # ar:0 ignores the EXIF tag; user rot:90 on the STORED 40x80 -> 80x40.
+    assert dimensions(conn) == {80, 40}
+    assert_oriented_pixels_match(decoded_image(conn), reference_user_rot90_storage())
+  end
+
+  test "no-geometry: rot:90 on EXIF-6 (ar:1) = 180 deg net" do
+    conn =
+      "/_/rot:90/f:jpeg/plain/images/oriented.jpg"
+      |> call_imgproxy(exif_orientation_origin_opts(imgproxy: [auto_rotate: true]))
+
+    assert conn.status == 200
+    # EXIF-6 (90 deg) THEN user 90 deg = 180 deg net on the stored 40x80 -> stays 40x80.
+    assert dimensions(conn) == {40, 80}
+    assert_oriented_pixels_match(decoded_image(conn), reference_180_of_stored())
+  end
+
   test "invalid signatures, paths, options, and expiry stop before cache and origin access" do
     signed_opts =
       Keyword.merge(@default_opts,
@@ -2153,6 +2175,62 @@ defmodule ImagePipe.ImgproxyWireConformanceTest do
         y <- [8, 24, 40, 56] do
       Image.get_pixel!(image, x, y)
     end
+  end
+
+  # The oriented.jpg fixture's STORED pixels (40w x 80h, red 40x40 at top), with NO
+  # EXIF orientation tag so reference primitives never autorotate.
+  defp oriented_fixture_storage do
+    40
+    |> Image.new!(80, color: :white)
+    |> Image.Draw.rect!(0, 0, 40, 40, color: :red)
+  end
+
+  defp reference_user_rot90_storage,
+    do: oriented_fixture_storage() |> Image.rotate!(90) |> jpeg_roundtrip()
+
+  defp reference_180_of_stored,
+    do: oriented_fixture_storage() |> Image.rotate!(180) |> jpeg_roundtrip()
+
+  # Round-trip through JPEG so the reference carries the same lossy artifacts as the
+  # pipeline output; direction is pinned by the flat-region comparison.
+  defp jpeg_roundtrip(image) do
+    image
+    |> Image.write!(:memory, suffix: ".jpg")
+    |> Image.open!(access: :random, fail_on: :error)
+  end
+
+  # Sample within the (possibly small) bounds shared by both images.
+  defp assert_oriented_pixels_match(actual, reference) do
+    assert dimensions(actual) == dimensions(reference)
+
+    {w, h} = dimensions(actual)
+    xs = bounded_samples(w)
+    ys = bounded_samples(h)
+
+    for x <- xs, y <- ys do
+      actual_px = Image.get_pixel!(actual, x, y)
+      reference_px = Image.get_pixel!(reference, x, y)
+
+      assert pixels_close?(actual_px, reference_px),
+             "pixel mismatch at (#{x},#{y}): #{inspect(actual_px)} vs #{inspect(reference_px)}"
+    end
+  end
+
+  # The pipeline output is JPEG-encoded then decoded, so allow small lossy deltas;
+  # direction (which corner is red vs white) is still pinned by the flat-region match.
+  defp pixels_close?(a, b) when length(a) == length(b) do
+    a
+    |> Enum.zip(b)
+    |> Enum.all?(fn {av, bv} -> abs(av - bv) <= 12 end)
+  end
+
+  # Sample deep inside each half of the image, avoiding both the outer edges (libvips
+  # rotate can leave sub-pixel artifacts there) and the geometric mid-seam between the
+  # fixture's red block and white fill (JPEG ringing). 1/8 and 7/8 sit firmly in the
+  # flat fill regions, so direction is still pinned without straddling a boundary.
+  defp bounded_samples(size) do
+    last = max(size - 1, 0)
+    Enum.uniq([div(last, 8), div(last * 7, 8)])
   end
 
   defp cache_entry do

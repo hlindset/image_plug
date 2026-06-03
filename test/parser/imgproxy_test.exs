@@ -7,7 +7,6 @@ defmodule ImagePipe.Parser.ImgproxyTest do
   alias ImagePipe.Parser.Imgproxy
   alias ImagePipe.Plan
   alias ImagePipe.Plan.Operation
-  alias ImagePipe.Plan.Operation.AutoOrient
   alias ImagePipe.Plan.Output
   alias ImagePipe.Plan.Pipeline
   alias ImagePipe.Plan.Response
@@ -43,7 +42,8 @@ defmodule ImagePipe.Parser.ImgproxyTest do
     assert {:ok,
             %Plan{
               source: %Source.Path{segments: ["images", "cat.jpg"]},
-              pipelines: [%Pipeline{operations: [%AutoOrient{}]}],
+              pipelines: [%Pipeline{operations: []}],
+              auto_rotate: true,
               output: %Output{mode: :automatic}
             }} =
              Imgproxy.parse(conn(:get, "/_/plain/images/cat.jpg"),
@@ -109,10 +109,14 @@ defmodule ImagePipe.Parser.ImgproxyTest do
              Imgproxy.parse(conn(:get, "/_/plain/images/cat.jpg"), imgproxy: [auto_rotate: true])
 
     assert {:ok, %ImagePipe.Plan{auto_rotate: false}} =
-             Imgproxy.parse(conn(:get, "/_/ar:false/plain/images/cat.jpg"), imgproxy: [auto_rotate: true])
+             Imgproxy.parse(conn(:get, "/_/ar:false/plain/images/cat.jpg"),
+               imgproxy: [auto_rotate: true]
+             )
 
     assert {:ok, %ImagePipe.Plan{auto_rotate: true}} =
-             Imgproxy.parse(conn(:get, "/_/ar:true/plain/images/cat.jpg"), imgproxy: [auto_rotate: false])
+             Imgproxy.parse(conn(:get, "/_/ar:true/plain/images/cat.jpg"),
+               imgproxy: [auto_rotate: false]
+             )
   end
 
   test "strip_color_profile emits NormalizeColorProfile after geometry, before effects" do
@@ -656,46 +660,46 @@ defmodule ImagePipe.Parser.ImgproxyTest do
     assert crop.height == {:px, 20}
     assert crop.guide == :center
 
-    assert {:ok, %Plan{pipelines: [%Pipeline{operations: [%AutoOrient{}]}]}} =
+    assert {:ok, %Plan{auto_rotate: true, pipelines: [%Pipeline{operations: []}]}} =
              Imgproxy.parse(conn(:get, "/_/ar:true/plain/images/cat.jpg"),
                imgproxy: [strip_color_profile: false]
              )
 
     for segment <- ~w(ar:false rot:0 rot:360 fl:false:false) do
-      assert {:ok, %Plan{pipelines: [%Pipeline{operations: []}]}} =
+      assert {:ok, %Plan{auto_rotate: false, pipelines: [%Pipeline{operations: []}]}} =
                Imgproxy.parse(
                  conn(:get, "/_/#{segment}/plain/images/cat.jpg"),
                  @baseline_opts
                )
     end
 
-    assert {:ok, %Plan{pipelines: [%Pipeline{operations: operations}]}} =
+    assert {:ok, %Plan{auto_rotate: true, pipelines: [%Pipeline{operations: operations}]}} =
              Imgproxy.parse(conn(:get, "/_/crop:10:20/ar:true/plain/images/cat.jpg"),
                imgproxy: [strip_color_profile: false]
              )
 
-    assert operation_names(operations) == [:auto_orient, :crop_guided]
+    assert operation_names(operations) == [:crop_guided]
 
     opts = [imgproxy: [auto_rotate: true, strip_color_profile: false]]
 
-    assert {:ok, %Plan{pipelines: [%Pipeline{operations: [%AutoOrient{}]}]}} =
+    assert {:ok, %Plan{auto_rotate: true, pipelines: [%Pipeline{operations: []}]}} =
              Imgproxy.parse(conn(:get, "/_/plain/images/cat.jpg"), opts)
 
-    assert {:ok, %Plan{pipelines: [%Pipeline{operations: []}]}} =
+    assert {:ok, %Plan{auto_rotate: false, pipelines: [%Pipeline{operations: []}]}} =
              Imgproxy.parse(conn(:get, "/_/ar:false/plain/images/cat.jpg"), opts)
 
-    assert {:ok, %Plan{pipelines: [%Pipeline{operations: operations}]}} =
+    assert {:ok, %Plan{auto_rotate: true, pipelines: [%Pipeline{operations: operations}]}} =
              Imgproxy.parse(conn(:get, "/_/rot:90/plain/images/cat.jpg"), opts)
 
-    assert operation_names(operations) == [:auto_orient, :rotate]
+    assert operation_names(operations) == [:rotate]
 
-    assert {:ok, %Plan{pipelines: pipelines}} =
+    assert {:ok, %Plan{auto_rotate: false, pipelines: pipelines}} =
              Imgproxy.parse(conn(:get, "/_/w:100/-/ar:false/plain/images/cat.jpg"), opts)
 
     operations = Enum.flat_map(pipelines, & &1.operations)
     assert operation_names(operations) == [:resize]
 
-    assert {:ok, %Plan{pipelines: pipelines}} =
+    assert {:ok, %Plan{auto_rotate: true, pipelines: pipelines}} =
              Imgproxy.parse(conn(:get, "/_/w:100/-/w:200/plain/images/cat.jpg"), opts)
 
     assert [
@@ -703,17 +707,17 @@ defmodule ImagePipe.Parser.ImgproxyTest do
              %Pipeline{operations: second_pipeline_operations}
            ] = pipelines
 
-    assert operation_names(first_pipeline_operations) == [:auto_orient, :resize]
+    assert operation_names(first_pipeline_operations) == [:resize]
     assert operation_names(second_pipeline_operations) == [:resize]
 
-    assert {:ok, %Plan{pipelines: [%Pipeline{operations: operations}]}} =
+    assert {:ok, %Plan{auto_rotate: true, pipelines: [%Pipeline{operations: operations}]}} =
              Imgproxy.parse(conn(:get, "/_/w:100/-/ar:true/plain/images/cat.jpg"),
                imgproxy: [auto_rotate: false, strip_color_profile: false]
              )
 
-    assert operation_names(operations) == [:auto_orient, :resize]
+    assert operation_names(operations) == [:resize]
 
-    assert {:ok, %Plan{pipelines: pipelines}} =
+    assert {:ok, %Plan{auto_rotate: false, pipelines: pipelines}} =
              Imgproxy.parse(conn(:get, "/_/w:100/-/ar:false/plain/images/cat.jpg"), opts)
 
     assert [%Pipeline{operations: operations}] = pipelines
@@ -1810,7 +1814,6 @@ defmodule ImagePipe.Parser.ImgproxyTest do
 
   defp operation_names(operations), do: Enum.map(operations, &operation_name/1)
 
-  defp operation_name(%AutoOrient{}), do: :auto_orient
   defp operation_name(%Operation.Rotate{}), do: :rotate
   defp operation_name(%Operation.CropGuided{}), do: :crop_guided
   defp operation_name(%Operation.Resize{}), do: :resize

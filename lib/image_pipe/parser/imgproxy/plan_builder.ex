@@ -276,7 +276,6 @@ defmodule ImagePipe.Parser.Imgproxy.PlanBuilder do
   defp orientation_operations(%PipelineRequest{orientation: %Orientation{} = orientation}) do
     operations =
       [
-        auto_orient_operation(orientation),
         rotate_operation(orientation),
         flip_operation(orientation)
       ]
@@ -284,11 +283,6 @@ defmodule ImagePipe.Parser.Imgproxy.PlanBuilder do
 
     reduce_results(operations)
   end
-
-  defp auto_orient_operation(%Orientation{auto_orient: true}),
-    do: Operation.auto_orient()
-
-  defp auto_orient_operation(%Orientation{}), do: nil
 
   defp rotate_operation(%Orientation{rotate: 0}), do: nil
 

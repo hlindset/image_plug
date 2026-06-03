@@ -303,7 +303,6 @@ defmodule ImagePipe.Parser.Imgproxy.Options do
       pipelines
       |> Enum.map(&consume_auto_rotate_request/1)
       |> Enum.map(&consume_strip_color_profile_request/1)
-      |> apply_auto_rotate_to_first_pipeline(auto_rotate?)
       |> apply_strip_color_profile_to_first_pipeline(strip_color_profile?)
       |> reject_empty_pipelines()
 
@@ -353,21 +352,6 @@ defmodule ImagePipe.Parser.Imgproxy.Options do
         orientation_requested: orientation_requested?(orientation),
         auto_rotate_requested: false
     }
-  end
-
-  defp apply_auto_rotate_to_first_pipeline(pipelines, false), do: pipelines
-
-  defp apply_auto_rotate_to_first_pipeline(
-         [%PipelineRequest{orientation: %Orientation{} = orientation} = pipeline | pipelines],
-         true
-       ) do
-    pipeline = %{
-      pipeline
-      | orientation: %Orientation{orientation | auto_orient: true},
-        orientation_requested: true
-    }
-
-    [pipeline | pipelines]
   end
 
   defp effective_strip_color_profile(pipelines, default) do

@@ -1,9 +1,17 @@
 defmodule ImagePipe.Transform.PlanExecutor do
   @moduledoc false
 
+  # Deferred orientation (#146): EXIF is seeded into State.pending_orientation once,
+  # on the first pipeline (seed_orientation opt); user rotate/flip fold into pending
+  # rather than emitting eager ops; pre-flush crop/resize are compensated in the
+  # storage frame (Orientation.compensate_gravity_for / Orientation.swap_resize);
+  # pending is flushed (OrientationFlush via Materializer) at the first materializing
+  # op, immediately after a resize, before a region crop, at each pipeline boundary,
+  # or at the delivery backstop — whichever is first. An identity pending is cleared
+  # without materializing (streaming fast path).
+
   alias ImagePipe.Plan
   alias ImagePipe.Plan.Color
-  alias ImagePipe.Plan.Operation.AutoOrient, as: PlanAutoOrient
   alias ImagePipe.Plan.Operation.Background, as: PlanBackground
   alias ImagePipe.Plan.Operation.Blur, as: PlanBlur
   alias ImagePipe.Plan.Operation.Brightness, as: PlanBrightness
@@ -24,7 +32,7 @@ defmodule ImagePipe.Transform.PlanExecutor do
   alias ImagePipe.Plan.Pipeline
   alias ImagePipe.Telemetry
   alias ImagePipe.Transform.Chain
-  alias ImagePipe.Transform.Operation.AutoOrient
+  alias ImagePipe.Transform.Materializer
   alias ImagePipe.Transform.Operation.Background
   alias ImagePipe.Transform.Operation.Blur
   alias ImagePipe.Transform.Operation.Brightness
@@ -32,20 +40,21 @@ defmodule ImagePipe.Transform.PlanExecutor do
   alias ImagePipe.Transform.Operation.Crop
   alias ImagePipe.Transform.Operation.Duotone
   alias ImagePipe.Transform.Operation.ExtendCanvas
-  alias ImagePipe.Transform.Operation.Flip
   alias ImagePipe.Transform.Operation.Monochrome
   alias ImagePipe.Transform.Operation.NormalizeColorProfile
   alias ImagePipe.Transform.Operation.Padding
   alias ImagePipe.Transform.Operation.Pixelate
   alias ImagePipe.Transform.Operation.Resize
-  alias ImagePipe.Transform.Operation.Rotate
   alias ImagePipe.Transform.Operation.Saturation
   alias ImagePipe.Transform.Operation.Sharpen
+  alias ImagePipe.Transform.Orientation
+  alias ImagePipe.Transform.PendingOrientation
   alias ImagePipe.Transform.State
+  alias Vix.Vips.Image, as: VipsImage
 
   @spec execute(Plan.t(), State.t(), keyword()) ::
           {:ok, State.t()} | {:error, term()}
-  def execute(%Plan{pipelines: pipelines}, %State{} = state, opts) do
+  def execute(%Plan{pipelines: pipelines, auto_rotate: auto_rotate}, %State{} = state, opts) do
     state = %{
       state
       | detector: ImagePipe.Transform.resolve_detector(Keyword.get(opts, :detector, :default)),
@@ -53,7 +62,25 @@ defmodule ImagePipe.Transform.PlanExecutor do
         telemetry_opts: Telemetry.telemetry_opts(opts)
     }
 
+    state =
+      if Keyword.get(opts, :seed_orientation, false) do
+        %State{
+          state
+          | pending_orientation:
+              PendingOrientation.from_exif(exif_orientation(state.image), auto_rotate)
+        }
+      else
+        state
+      end
+
     execute_pipelines(pipelines, state, opts)
+  end
+
+  defp exif_orientation(image) do
+    case VipsImage.header_value(image, "orientation") do
+      {:ok, value} when is_integer(value) -> value
+      _ -> 1
+    end
   end
 
   defp execute_pipelines(pipelines, %State{} = state, opts) do
@@ -78,15 +105,161 @@ defmodule ImagePipe.Transform.PlanExecutor do
       end
     end)
     |> case do
-      {:ok, state, _context} -> {:ok, state}
+      {:ok, state, _context} -> flush_if_pending(state)
       {:error, _reason} = error -> error
     end
   end
 
+  defp flush_if_pending(%State{pending_orientation: nil} = state), do: {:ok, state}
+
+  # An identity pending orientation has no pixel work: clear it without forcing a
+  # materialize so the streaming (no-rotation) fast path is preserved — the delivery
+  # backstop still materializes if nothing else did.
+  defp flush_if_pending(%State{pending_orientation: %PendingOrientation{} = po} = state) do
+    if PendingOrientation.identity?(po) do
+      {:ok, %State{state | pending_orientation: nil}}
+    else
+      case Materializer.materialize(state) do
+        {:ok, %State{} = state} -> {:ok, state}
+        {:error, reason} -> {:error, {:materialize_error, reason}}
+      end
+    end
+  end
+
+  # User rotate/flip fold into the pending orientation instead of emitting an
+  # executable op; the flush replays them with EXIF auto-orient late.
+  defp execute_operation(%PlanRotate{angle: angle}, %State{} = state, _ctx, _opts) do
+    po = state.pending_orientation || %PendingOrientation{}
+    {:ok, %State{state | pending_orientation: PendingOrientation.fold_rotate(po, angle)}}
+  end
+
+  defp execute_operation(%PlanFlip{axis: axis}, %State{} = state, _ctx, _opts) do
+    po = state.pending_orientation || %PendingOrientation{}
+    {:ok, %State{state | pending_orientation: PendingOrientation.fold_flip(po, axis)}}
+  end
+
+  # Region crop runs literally on oriented pixels: flush pending first.
+  defp execute_operation(
+         %CropRegion{} = operation,
+         %State{pending_orientation: po} = state,
+         ctx,
+         opts
+       )
+       when not is_nil(po) do
+    with {:ok, %State{} = state} <- flush_if_pending(state) do
+      execute_operation(operation, %State{state | pending_orientation: nil}, ctx, opts)
+    end
+  end
+
+  # Gravity crop: compensate the built %Crop{} gravity (type + offsets) and swap
+  # its dims for a quarter turn, so cropping in the storage frame then flushing
+  # matches cropping in the oriented frame.
+  defp execute_operation(
+         %CropGuided{} = operation,
+         %State{pending_orientation: po} = state,
+         ctx,
+         opts
+       )
+       when not is_nil(po) do
+    cond do
+      PendingOrientation.identity?(po) ->
+        run_executable(operation, state, ctx, opts)
+
+      # Smart/detect crops materialize, so the auto-flush at the materializing crop
+      # fires first and the crop sees oriented (display-frame) pixels — emit literal.
+      materializing_gravity?(operation.guide) ->
+        run_executable(operation, state, ctx, opts)
+
+      true ->
+        # Inlined so compensation sits between translate and execute.
+        executable =
+          operation
+          |> executable_operations(state, ctx)
+          |> Enum.map(&compensate_crop(&1, po))
+
+        Chain.execute(state, executable, opts)
+    end
+  end
+
+  # Resize: swap requested dims for a quarter turn, run, then flush so the cover
+  # result-crop and tail are post-flush/literal.
+  defp execute_operation(
+         %PlanResize{} = operation,
+         %State{pending_orientation: po} = state,
+         ctx,
+         opts
+       )
+       when not is_nil(po) do
+    if PendingOrientation.identity?(po) do
+      run_executable(operation, state, ctx, opts)
+    else
+      # Inlined so compensation sits between translate and execute.
+      executable =
+        operation
+        |> executable_operations(state, ctx)
+        |> compensate_resize(po)
+
+      with {:ok, state} <- Chain.execute(state, executable, opts) do
+        flush_if_pending(state)
+      end
+    end
+  end
+
   defp execute_operation(operation, %State{} = state, context, opts) do
+    run_executable(operation, state, context, opts)
+  end
+
+  defp run_executable(operation, %State{} = state, context, opts) do
     operation
     |> executable_operations(state, context)
     |> then(&Chain.execute(state, &1, opts))
+  end
+
+  defp materializing_gravity?(:smart), do: true
+  defp materializing_gravity?({:smart, _}), do: true
+  defp materializing_gravity?({:detect, _}), do: true
+  defp materializing_gravity?(_other), do: false
+
+  defp compensate_crop(
+         %Crop{crop_from: :gravity, gravity: gravity} = crop,
+         %PendingOrientation{} = po
+       ) do
+    if materializing_gravity?(gravity) do
+      # Smart/detect crops materialize; the auto-flush fires first so they run on
+      # display-frame pixels. Leave them literal (no compensation).
+      crop
+    else
+      {gravity, x_offset, y_offset} =
+        Orientation.compensate_gravity_for({gravity, crop.x_offset, crop.y_offset}, po)
+
+      crop = %Crop{crop | gravity: gravity, x_offset: x_offset, y_offset: y_offset}
+
+      if PendingOrientation.quarter_turn?(po) do
+        %Crop{crop | width: crop.height, height: crop.width}
+      else
+        crop
+      end
+    end
+  end
+
+  defp compensate_crop(%Crop{} = crop, %PendingOrientation{}), do: crop
+
+  # Compensate a resize expansion in the storage frame. The cover/auto expansion is
+  # `[%Resize{}, %Crop{}]`; the resize's requested dims swap on a quarter turn, and
+  # the trailing cover result-crop is compensated like any gravity crop (dim swap +
+  # gravity/offset remap). The whole expansion runs pre-flush; the caller flushes
+  # right after, leaving the tail post-flush/literal.
+  defp compensate_resize(operations, %PendingOrientation{} = po) do
+    Enum.map(operations, fn
+      %Resize{} = resize ->
+        if PendingOrientation.quarter_turn?(po), do: Orientation.swap_resize(resize), else: resize
+
+      %Crop{} = crop ->
+        compensate_crop(crop, po)
+
+      other ->
+        other
+    end)
   end
 
   defp update_execution_context(%PlanResize{} = operation, %State{} = state, context) do
@@ -188,16 +361,8 @@ defmodule ImagePipe.Transform.PlanExecutor do
     [%Background{color: Color.to_rgba_list(operation.color)}]
   end
 
-  defp executable_operations(%PlanAutoOrient{}, %State{}, _context), do: [%AutoOrient{}]
-
   defp executable_operations(%PlanNormalizeColorProfile{}, %State{}, _context),
     do: [%NormalizeColorProfile{}]
-
-  defp executable_operations(%PlanRotate{angle: angle}, %State{}, _context),
-    do: [%Rotate{angle: angle}]
-
-  defp executable_operations(%PlanFlip{axis: axis}, %State{}, _context),
-    do: [%Flip{axis: axis}]
 
   defp executable_operations(%PlanBlur{sigma: sigma}, %State{}, _context),
     do: [%Blur{sigma: sigma}]

@@ -147,11 +147,13 @@ defmodule ImagePipe.Request.Processor do
   defp classify_materialize_error(result), do: result
 
   defp execute_plan_pipeline_step(
-         {pipeline, _index},
+         {pipeline, index},
          {:ok, %State{} = state},
          %Plan{} = plan,
          opts
        ) do
+    opts = Keyword.put(opts, :seed_orientation, index == 0)
+
     case Transform.execute_plan(%Plan{plan | pipelines: [pipeline]}, state, opts) do
       {:ok, %State{} = state} -> {:cont, {:ok, state}}
       {:error, _reason} = error -> {:halt, error}
