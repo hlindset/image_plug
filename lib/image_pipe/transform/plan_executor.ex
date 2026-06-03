@@ -181,8 +181,17 @@ defmodule ImagePipe.Transform.PlanExecutor do
     end
   end
 
-  # Resize: swap requested dims for a quarter turn, run, then flush so the cover
+  # Resize: compensate for a pending orientation, run, then flush so the cover
   # result-crop and tail are post-flush/literal.
+  #
+  # A quarter turn cannot be compensated by swapping the *request* and resolving
+  # in the storage frame: imgproxy resolves scale in the DISPLAY frame (source
+  # dims already swapped by ExtractGeometry) and swaps only the final scale
+  # factors (scale.go:10-12), so the min-dimension cross-axis coupling
+  # (prepare.go:146-158) happens on the display axes. "Swap the request, resolve
+  # against storage" is the algebraic dual for plain fit/fill but BREAKS the
+  # min-dim coupling. For the quarter-turn cover/auto-cover expansion we instead
+  # resolve in the display frame and swap the resolved RESULT dims into storage.
   defp execute_operation(
          %PlanResize{} = operation,
          %State{pending_orientation: po} = state,
@@ -190,18 +199,36 @@ defmodule ImagePipe.Transform.PlanExecutor do
          opts
        )
        when not is_nil(po) do
-    if PendingOrientation.identity?(po) do
-      run_executable(operation, state, ctx, opts)
-    else
-      # Inlined so compensation sits between translate and execute.
-      executable =
-        operation
-        |> executable_operations(state, ctx)
-        |> compensate_resize(po)
+    cond do
+      PendingOrientation.identity?(po) ->
+        run_executable(operation, state, ctx, opts)
 
-      with {:ok, state} <- Chain.execute(state, executable, opts) do
-        flush_if_pending(state)
-      end
+      PendingOrientation.quarter_turn?(po) and cover_resize?(operation, state) ->
+        # The display-frame resolver already emits a storage-frame (forcing)
+        # resize and a display-frame result-crop; only the crop needs the gravity/
+        # offset remap and dim swap (compensate_crop), not the resize.
+        executable =
+          operation
+          |> cover_resize_and_crop_display_frame(state)
+          |> Enum.map(fn
+            %Crop{} = crop -> compensate_crop(crop, po)
+            other -> other
+          end)
+
+        with {:ok, state} <- Chain.execute(state, executable, opts) do
+          flush_if_pending(state)
+        end
+
+      true ->
+        # Inlined so compensation sits between translate and execute.
+        executable =
+          operation
+          |> executable_operations(state, ctx)
+          |> compensate_resize(po)
+
+        with {:ok, state} <- Chain.execute(state, executable, opts) do
+          flush_if_pending(state)
+        end
     end
   end
 
@@ -272,11 +299,16 @@ defmodule ImagePipe.Transform.PlanExecutor do
   defp split_offset({:percent, value}), do: {&{:percent, &1 * 100}, value / 100}
   defp split_offset(value) when is_number(value), do: {& &1, value * 1.0}
 
-  # Compensate a resize expansion in the storage frame. The cover/auto expansion is
-  # `[%Resize{}, %Crop{}]`; the resize's requested dims swap on a quarter turn, and
-  # the trailing cover result-crop is compensated like any gravity crop (dim swap +
-  # gravity/offset remap). The whole expansion runs pre-flush; the caller flushes
-  # right after, leaving the tail post-flush/literal.
+  # Compensate a resize expansion in the storage frame for the fit/force/stretch
+  # and non-quarter-turn cover paths: the resize's requested dims swap on a quarter
+  # turn (the algebraic dual that holds when there is no cross-axis min-dim
+  # coupling), and any trailing cover result-crop is compensated like a gravity
+  # crop (dim swap + gravity/offset remap). The whole expansion runs pre-flush; the
+  # caller flushes right after, leaving the tail post-flush/literal.
+  #
+  # The quarter-turn cover path does NOT use this — its min-dim coupling forces a
+  # display-frame resolve (cover_resize_and_crop_display_frame) and only its crop
+  # needs compensation.
   defp compensate_resize(operations, %PendingOrientation{} = po) do
     Enum.map(operations, fn
       %Resize{} = resize ->
@@ -466,6 +498,56 @@ defmodule ImagePipe.Transform.PlanExecutor do
         x_offset: x_offset,
         y_offset: y_offset,
         offset_scale: dimensions.effective_dpr
+      }
+    ]
+  end
+
+  # True when this PlanResize expands into a cover (fill) resize + result-crop —
+  # either an explicit cover, or an auto resize whose branch resolves to cover.
+  defp cover_resize?(%PlanResize{mode: :cover}, %State{}), do: true
+
+  defp cover_resize?(%PlanResize{mode: :auto} = operation, %State{} = state),
+    do: plan_resize_branch(operation, state) == :cover
+
+  defp cover_resize?(%PlanResize{}, %State{}), do: false
+
+  # Quarter-turn cover expansion resolved in the DISPLAY frame (imgproxy parity).
+  #
+  # imgproxy's calcScale runs against the display-frame source dims (swapped by
+  # ExtractGeometry) and the min-dimension coupling (prepare.go:146-158) closes
+  # over those display axes; scale.go:10-12 then swaps only the scale factors to
+  # apply them to the stored pixels. We mirror that: swap the storage source dims
+  # to the display frame, resolve `resolve_dimensions` with the ORIGINAL request,
+  # then swap the resolved intermediate/target back into the storage frame. The
+  # executable resize is a forcing resize onto the storage-frame intermediate so
+  # Resize.execute reproduces those exact dims rather than re-deriving (and
+  # re-coupling) them in the storage frame. The result-crop carries the
+  # display-frame target dims and is swapped + remapped by compensate_crop.
+  defp cover_resize_and_crop_display_frame(%PlanResize{} = operation, %State{} = state) do
+    {src_w, src_h} = State.effective_source_dims(state)
+    resize = resize_from(operation, :cover)
+
+    display =
+      Resize.resolve_dimensions(resize,
+        source_width: src_h,
+        source_height: src_w
+      )
+
+    [
+      %Resize{
+        mode: :force,
+        width: {:pixels, display.intermediate_height},
+        height: {:pixels, display.intermediate_width},
+        enlarge: true
+      },
+      %Crop{
+        width: {:pixels, display.target_width},
+        height: {:pixels, display.target_height},
+        crop_from: :gravity,
+        gravity: tagged_executable_gravity(operation.guide),
+        x_offset: operation.x_offset,
+        y_offset: operation.y_offset,
+        offset_scale: display.effective_dpr
       }
     ]
   end

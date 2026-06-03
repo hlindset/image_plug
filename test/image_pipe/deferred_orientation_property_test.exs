@@ -25,11 +25,10 @@ defmodule ImagePipe.DeferredOrientationPropertyTest do
   #     resizes with affine `Image.resize`, so the only sound oracle is wire-vs-
   #     orientation-1.
   #
-  # Non-zero gravity offsets under rotation are excluded from the twin leg: imgproxy
-  # applies offsets pre-rotation, so the untransformed twin is not a valid
-  # equivalence there (offset compensation is pinned in OrientationTest). Likewise
-  # min-dimension (mw/mh) under a quarter turn is excluded (a known cover+min-dim
-  # frame bug — see the Slice A gate report).
+  # Both legs run the SAME imgproxy request, so any frame-mismatch in the
+  # compensation surfaces as a twin divergence. This includes cover + min-dimension
+  # (mw/mh) under a quarter turn — resolved in the display frame (#146 Bug 2) — and
+  # FP crops whose separate offset rotates as a displacement vector (#146 Bug 3).
 
   defmodule OrientedFrameOrigin do
     @moduledoc false
@@ -141,7 +140,10 @@ defmodule ImagePipe.DeferredOrientationPropertyTest do
       "rs:fill:90:90/g:ce",
       "rs:fill:90:90/g:no",
       "rs:fill:90:60/g:so",
-      "g:fp:0.25:0.75/rs:fill:80:80"
+      "g:fp:0.25:0.75/rs:fill:80:80",
+      # cover + min-dimension under a quarter turn (#146 Bug 2)
+      "rs:fill:91:61/mw:140/g:no",
+      "rs:fill:90:90/mh:130/g:ce"
     ])
   end
 

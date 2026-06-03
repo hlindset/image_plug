@@ -755,24 +755,20 @@ defmodule ImagePipe.ImgproxyWireConformanceTest do
   # decoded interior pixels match (lossless PNG twin; the oriented leg is JPEG, so
   # a small interior tolerance absorbs decode noise — direction is still pinned).
   #
-  # Covered geometry forms (zero-offset, where the orientation-1 twin is an exact
-  # equivalence): center / non-center anchor crop, focus-point crop, smart crop,
-  # explicit region crop, cover/fill result crop with center AND non-center
-  # gravity, plus fit / force including coprime (91×61) source-divergent targets.
-  #
-  # NOT covered here (see the moduledoc note and the BLOCKED report): non-zero
-  # gravity OFFSETS combined with a rotation, and min-dimension (mw/mh) under a
-  # quarter turn — the first because imgproxy applies offsets pre-rotation so the
-  # untransformed twin is not a valid equivalence (offset compensation is pinned at
-  # the unit level in OrientationTest), the second because of a real cover+min-dim
-  # frame bug surfaced by this oracle.
+  # Covered geometry forms (the orientation-1 twin is an exact equivalence):
+  # center / non-center anchor crop, focus-point crop, smart crop, explicit region
+  # crop, cover/fill result crop with center AND non-center gravity, fit / force
+  # including coprime (91×61) source-divergent targets, min-dimension (mw/mh) under
+  # a quarter turn (cover resolved in the display frame — #146 Bug 2), and the FP
+  # crop whose separate offset rotates as a vector (#146 Bug 3).
   test "crop/resize matrix matches the orientation-1 twin across EXIF 1..8" do
     paths = [
       # anchor crops: center + non-center
       "/_/c:60:40:ce/f:png/plain/images/x.jpg",
       "/_/c:60:40:no/f:png/plain/images/x.jpg",
       "/_/c:50:60:we/f:png/plain/images/x.jpg",
-      # focus-point crop (center-ish and off-center)
+      # focus-point crop (center-ish and off-center) — exercises the FP offset
+      # (zero) transforming as a vector under quarter turns (#146 Bug 3)
       "/_/c:90:90:fp:0.25:0.75/f:png/plain/images/x.jpg",
       # smart crop (attention saliency on the displayed pixels)
       "/_/rs:fill:80:80/g:sm/f:png/plain/images/x.jpg",
@@ -785,7 +781,11 @@ defmodule ImagePipe.ImgproxyWireConformanceTest do
       # rounding-sensitive coprime targets: fit / force / fill
       "/_/rs:fit:91:61/f:png/plain/images/x.jpg",
       "/_/rs:force:91:61/f:png/plain/images/x.jpg",
-      "/_/rs:fill:91:61/g:ce/f:png/plain/images/x.jpg"
+      "/_/rs:fill:91:61/g:ce/f:png/plain/images/x.jpg",
+      # cover + min-dimension under a quarter turn: the cross-axis min-dim
+      # coupling must resolve in the display frame (#146 Bug 2)
+      "/_/rs:fill:91:61/mw:140/g:no/f:png/plain/images/x.jpg",
+      "/_/rs:fill:90:90/mh:130/g:ce/f:png/plain/images/x.jpg"
     ]
 
     for orientation <- 1..8, path <- paths do
@@ -794,6 +794,45 @@ defmodule ImagePipe.ImgproxyWireConformanceTest do
 
       assert oriented.status == 200, "oriented EXIF-#{orientation} #{path}: #{oriented.status}"
       assert twin.status == 200, "twin EXIF-#{orientation} #{path}: #{twin.status}"
+
+      assert_twin_oracle_match(
+        decoded_image(oriented),
+        decoded_image(twin),
+        "EXIF-#{orientation} #{path}"
+      )
+    end
+  end
+
+  # #146 Bug 2 regression: cover + min-dimension under a quarter turn. The
+  # cross-axis min-dim coupling (prepare.go:146-158) must close over the DISPLAY
+  # axes, so this is resolved in the display frame and the resolved dims swapped
+  # back to storage. Before the fix EXIF-6 yielded 157×94 (coupling ran on the
+  # storage axes after a request-only swap); the orientation-1 twin pins 140×94.
+  test "cover + min-dimension under a quarter turn matches the twin (display-frame resolve)" do
+    path = "/_/rs:fill:91:61/mw:140/f:png/plain/images/x.jpg"
+
+    oriented = call_imgproxy(path, oriented_frame_opts(6))
+    twin = call_imgproxy(path, orientation1_twin_opts(6))
+
+    assert oriented.status == 200 and twin.status == 200
+    assert dimensions(oriented) == {140, 94}
+    assert_twin_oracle_match(decoded_image(oriented), decoded_image(twin), "EXIF-6 #{path}")
+  end
+
+  # #146 Bug 3 regression: an FP crop carries the focus in the gravity tuple AND a
+  # separate (zero) crop offset. The separate offset must rotate as a displacement
+  # vector, not via the FP `1 - x` fraction rule — otherwise the zero offset
+  # became {:pixels, 1.0} at 90/270, a 1px divergence. The twin pins maxdiff 0
+  # (lossless on both legs for this exact-dim center crop).
+  test "FP crop under a quarter turn matches the twin exactly (no spurious 1px offset)" do
+    path = "/_/c:90:90:fp:0.25:0.75/f:png/plain/images/x.jpg"
+
+    for orientation <- [6, 7] do
+      oriented = call_imgproxy(path, oriented_frame_opts(orientation))
+      twin = call_imgproxy(path, orientation1_twin_opts(orientation))
+
+      assert oriented.status == 200 and twin.status == 200
+      assert dimensions(oriented) == dimensions(twin)
 
       assert_twin_oracle_match(
         decoded_image(oriented),

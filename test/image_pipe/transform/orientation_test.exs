@@ -50,12 +50,16 @@ defmodule ImagePipe.Transform.OrientationTest do
   describe "compensate_gravity_for/2 — offsets (port of gravity.go:96-153)" do
     alias ImagePipe.Transform.PendingOrientation, as: PO
 
-    test "flipX negates X for center/N/S, 1-x for FP; type remaps too" do
+    # For FP, the tuple coords flip via the `1 - fx` focus-coord rule, but the
+    # SEPARATE crop offset is a plain displacement and negates like a vector (it
+    # is NOT a focus coord; imgproxy's FP path has no separate offset — see
+    # Orientation moduledoc). The `1 - x` fraction rule must not touch it.
+    test "flipX negates X for center/N/S and for the FP offset; type remaps too" do
       assert O.compensate_gravity_for({{:anchor, :center, :top}, 5.0, 3.0}, %PO{user_flip_x: true}) ==
                {{:anchor, :center, :top}, -5.0, 3.0}
 
-      assert O.compensate_gravity_for({{:fp, 0.25, 0.1}, 0.0, 0.0}, %PO{user_flip_x: true}) ==
-               {{:fp, 0.75, 0.1}, 1.0, 0.0}
+      assert O.compensate_gravity_for({{:fp, 0.25, 0.1}, 0.2, 0.3}, %PO{user_flip_x: true}) ==
+               {{:fp, 0.75, 0.1}, -0.2, 0.3}
     end
 
     test "flipY negates Y for center/E/W, 1-y for FP" do
@@ -113,18 +117,25 @@ defmodule ImagePipe.Transform.OrientationTest do
                {{:anchor, :left, :center}, 5.0, -3.0}
     end
 
-    test "rotate 90/180/270 — focus point (tuple coords AND offset transform)" do
-      # 90: tuple FP {y,1-x}; offset FP X,Y = Y,1-X (gravity.go:128-129)
+    # The FP *tuple* coords rotate via the focus-coord rules (rotate_fp): 90→{y,1-x},
+    # 180→{1-x,1-y}, 270→{1-y,x} — these mirror imgproxy's GravityFocusPoint X/Y
+    # rotation (gravity.go:128-149). The SEPARATE crop offset is a plain
+    # displacement with no imgproxy FP analog (calc_position.go uses only the focus
+    # coords for GravityFocusPoint), so it rotates like the GravityCenter vector:
+    # 90→{y,-x}, 180→{-x,-y}, 270→{-y,x}. Applying the `1 - x` fraction rule to it
+    # injected a spurious 1px shift at 90/270 (#146 Bug 3).
+    test "rotate 90/180/270 — focus point (tuple coords rotate as coords; offset as a vector)" do
+      # 90: tuple FP {y,1-x}; offset vector {y,-x}
       assert O.compensate_gravity_for({{:fp, 0.25, 0.10}, 0.2, 0.3}, %PO{user_angle: 90}) ==
-               {{:fp, 0.10, 0.75}, 0.3, 0.8}
+               {{:fp, 0.10, 0.75}, 0.3, -0.2}
 
-      # 180: tuple FP {1-x,1-y}; offset FP 1-X,1-Y (gravity.go:141-142)
+      # 180: tuple FP {1-x,1-y}; offset vector {-x,-y}
       assert O.compensate_gravity_for({{:fp, 0.25, 0.10}, 0.2, 0.3}, %PO{user_angle: 180}) ==
-               {{:fp, 0.75, 0.90}, 0.8, 0.7}
+               {{:fp, 0.75, 0.90}, -0.2, -0.3}
 
-      # 270: tuple FP {1-y,x}; offset FP 1-Y,X (gravity.go:148-149)
+      # 270: tuple FP {1-y,x}; offset vector {-y,x}
       assert O.compensate_gravity_for({{:fp, 0.25, 0.10}, 0.2, 0.3}, %PO{user_angle: 270}) ==
-               {{:fp, 0.90, 0.25}, 0.7, 0.2}
+               {{:fp, 0.90, 0.25}, -0.3, 0.2}
     end
   end
 

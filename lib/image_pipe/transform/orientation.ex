@@ -20,9 +20,14 @@ defmodule ImagePipe.Transform.Orientation do
   #   {:fp, x :: float, y :: float}        (focus point, fractional coords)
   #   :smart | {:smart, :face_assist} | {:detect, term}   (never remapped)
   #
-  # For a focus point both the tuple coords AND the separate crop offset are
-  # transformed, mirroring imgproxy where the focus coords *are* the gravity
-  # X/Y.
+  # For a focus point the tuple coords carry imgproxy's GravityFocusPoint X/Y
+  # (where the focus coords *are* the gravity X/Y), so they rotate/flip via the
+  # FP fraction rules (rotate_fp, `1 - fx`). ImagePipe additionally supports a
+  # SEPARATE crop offset that imgproxy's FP path has no analog for
+  # (calc_position.go uses only the focus coords for GravityFocusPoint). That
+  # separate offset is a plain displacement, so it transforms like the
+  # GravityCenter vector (negate/axis-swap), NOT via the `1 - x` fraction rule —
+  # applying the fraction rule to it injected a spurious 1px shift at 90/270.
 
   alias ImagePipe.Transform.PendingOrientation
 
@@ -113,7 +118,11 @@ defmodule ImagePipe.Transform.Orientation do
 
     case gravity do
       {:anchor, :center, v} when v in [:top, :bottom, :center] -> {gravity, -x, y}
-      {:fp, fx, fy} -> {{:fp, 1.0 - fx, fy}, 1.0 - x, y}
+      # The FP tuple coords flip via `1 - fx` (imgproxy's GravityFocusPoint X/Y
+      # ARE the focus coords). The SEPARATE crop offset is a plain displacement,
+      # not a focus coord, so it negates like a vector (the Center X-rule) — the
+      # `1 - x` fraction rule must NOT touch it.
+      {:fp, fx, fy} -> {{:fp, 1.0 - fx, fy}, -x, y}
       _ -> {gravity, x, y}
     end
   end
@@ -127,7 +136,8 @@ defmodule ImagePipe.Transform.Orientation do
 
     case gravity do
       {:anchor, h, :center} when h in [:left, :right, :center] -> {gravity, x, -y}
-      {:fp, fx, fy} -> {{:fp, fx, 1.0 - fy}, x, 1.0 - y}
+      # FP coords flip via `1 - fy`; the separate offset negates like a vector.
+      {:fp, fx, fy} -> {{:fp, fx, 1.0 - fy}, x, -y}
       _ -> {gravity, x, y}
     end
   end
@@ -147,9 +157,12 @@ defmodule ImagePipe.Transform.Orientation do
   defp rotate_offset({:anchor, h, :center} = g, 90, x, y) when h in [:left, :right],
     do: {g, y, -x}
 
+  # FP tuple coords rotate via rotate_fp (the imgproxy GravityFocusPoint coord
+  # rule); the SEPARATE crop offset is a plain displacement and rotates like the
+  # GravityCenter vector (90 -> {y, -x}), NOT via the `1 - x` fraction rule.
   defp rotate_offset({:fp, fx, fy}, 90, x, y) do
     {fx2, fy2} = rotate_fp(fx, fy, 90)
-    {{:fp, fx2, fy2}, y, 1.0 - x}
+    {{:fp, fx2, fy2}, y, -x}
   end
 
   defp rotate_offset({:anchor, _, _} = g, 90, x, y), do: {g, y, x}
@@ -166,7 +179,8 @@ defmodule ImagePipe.Transform.Orientation do
   defp rotate_offset({:fp, _, _} = g, 180, x, y) do
     {fx, fy} = fp_coords(g)
     {fx2, fy2} = rotate_fp(fx, fy, 180)
-    {{:fp, fx2, fy2}, 1.0 - x, 1.0 - y}
+    # FP offset rotates like the GravityCenter vector (180 -> {-x, -y}).
+    {{:fp, fx2, fy2}, -x, -y}
   end
 
   defp rotate_offset({:anchor, _, _} = g, 180, x, y), do: {g, x, y}
@@ -179,7 +193,8 @@ defmodule ImagePipe.Transform.Orientation do
 
   defp rotate_offset({:fp, fx, fy}, 270, x, y) do
     {fx2, fy2} = rotate_fp(fx, fy, 270)
-    {{:fp, fx2, fy2}, 1.0 - y, x}
+    # FP offset rotates like the GravityCenter vector (270 -> {-y, x}).
+    {{:fp, fx2, fy2}, -y, x}
   end
 
   defp rotate_offset({:anchor, _, _} = g, 270, x, y), do: {g, y, x}
