@@ -105,54 +105,48 @@ defmodule ImagePipe.Request.SourceSession.Producer do
   end
 
   defp prepare_first_chunk(%__MODULE__{request: %Request{} = request} = state) do
-    with {:ok, decoded} <-
-           Processor.fetch_decode_validate_source_with_source_format(
-             request.plan,
-             request.resolved_source,
-             request.opts
-           ),
-         {:ok, %State{} = final_state} <-
-           Processor.process_decoded_source(decoded, request.plan, request.opts),
-         {:ok, %Resolved{} = resolved_output} <-
-           resolve_output(
-             request.output_policy,
-             decoded.source_format,
-             final_state.image,
-             request.opts
-           ),
-         {:ok, stream, content_type} <-
-           Encoder.stream_output(final_state.image, resolved_output, request.opts),
-         {:ok, chunk, stream_state} <- first_chunk(stream) do
-      {:ok, chunk,
-       %{
-         state
-         | stream_state: stream_state,
-           resolved_output: resolved_output,
-           content_type: content_type
-       }}
-    else
-      :empty -> :empty
-      {:error, reason} -> {:error, reason}
-    end
-  rescue
-    exception in [StreamError] -> {:error, {:source, exception.reason}}
-    exception -> {:error, {:encode, exception, __STACKTRACE__}}
-  catch
-    :exit, {%StreamError{reason: reason}, _stacktrace} -> {:error, {:source, reason}}
-    :exit, %StreamError{reason: reason} -> {:error, {:source, reason}}
-    :exit, reason -> {:error, {:producer, {:exit, reason}}}
-    kind, reason -> {:error, {:producer, {kind, reason}}}
+    with_stream_translation(&prepare_fallback/2, fn ->
+      with {:ok, decoded} <-
+             Processor.fetch_decode_validate_source_with_source_format(
+               request.plan,
+               request.resolved_source,
+               request.opts
+             ),
+           {:ok, %State{} = final_state} <-
+             Processor.process_decoded_source(decoded, request.plan, request.opts),
+           {:ok, %Resolved{} = resolved_output} <-
+             resolve_output(
+               request.output_policy,
+               decoded.source_format,
+               final_state.image,
+               request.opts
+             ),
+           {:ok, stream, content_type} <-
+             Encoder.stream_output(final_state.image, resolved_output, request.opts),
+           {:ok, chunk, stream_state} <- first_chunk(stream) do
+        {:ok, chunk,
+         %{
+           state
+           | stream_state: stream_state,
+             resolved_output: resolved_output,
+             content_type: content_type
+         }}
+      else
+        :empty -> :empty
+        {:error, reason} -> {:error, reason}
+      end
+    end)
   end
 
+  defp prepare_fallback(:exit, reason), do: {:error, {:producer, {:exit, reason}}}
+  defp prepare_fallback(kind, reason), do: {:error, {:producer, {kind, reason}}}
+
+  defp encode_fallback(kind, reason), do: {:error, {:encode, {kind, reason}, []}}
+
   defp first_chunk(stream) do
-    reduce_stream(stream)
-  rescue
-    exception in [StreamError] -> {:error, {:source, exception.reason}}
-    exception -> {:error, {:encode, exception, __STACKTRACE__}}
-  catch
-    :exit, {%StreamError{reason: reason}, _stacktrace} -> {:error, {:source, reason}}
-    :exit, %StreamError{reason: reason} -> {:error, {:source, reason}}
-    kind, reason -> {:error, {:encode, {kind, reason}, []}}
+    with_stream_translation(&encode_fallback/2, fn ->
+      reduce_stream(stream)
+    end)
   end
 
   defp resolve_output(%Policy{} = policy, source_format, image, opts) do
@@ -196,15 +190,24 @@ defmodule ImagePipe.Request.SourceSession.Producer do
   end
 
   defp continue_stream(acc, continuation, state) do
-    continuation.({:cont, acc})
-    |> reduce_result(state)
+    with_stream_translation(&encode_fallback/2, fn ->
+      continuation.({:cont, acc})
+      |> reduce_result(state)
+    end)
+  end
+
+  # Single source of truth for StreamError -> tagged-error translation.
+  # `fallback` builds the tag for any non-StreamError throw/exit so callers keep
+  # their distinct generic tags (prepare uses :producer, chunk paths use :encode).
+  defp with_stream_translation(fallback, fun) do
+    fun.()
   rescue
     exception in [StreamError] -> {:error, {:source, exception.reason}}
     exception -> {:error, {:encode, exception, __STACKTRACE__}}
   catch
     :exit, {%StreamError{reason: reason}, _stacktrace} -> {:error, {:source, reason}}
     :exit, %StreamError{reason: reason} -> {:error, {:source, reason}}
-    kind, reason -> {:error, {:encode, {kind, reason}, []}}
+    kind, reason -> fallback.(kind, reason)
   end
 
   defp reduce_stream(stream) do

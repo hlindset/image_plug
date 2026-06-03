@@ -7,6 +7,7 @@ defmodule ImagePipe.Request.SourceSession do
   alias ImagePipe.Request.SourceSession.Prepared
   alias ImagePipe.Request.SourceSession.Producer
   alias ImagePipe.Request.SourceSession.Request
+  alias ImagePipe.Source.StreamError
 
   # Backstop for a wedged producer, not an input-safety bound (real liveness is
   # bounded by origin_receive_timeout and the decoded-pixel limit). `prepare`/`next`
@@ -419,15 +420,8 @@ defmodule ImagePipe.Request.SourceSession do
     |> abort_cache_sink(cache_reason)
   end
 
-  defp producer_down_reason(
-         {%{__struct__: ImagePipe.Source.StreamError, reason: reason}, _stacktrace}
-       ) do
-    {:source, reason}
-  end
-
-  defp producer_down_reason(%{__struct__: ImagePipe.Source.StreamError, reason: reason}) do
-    {:source, reason}
-  end
+  defp producer_down_reason({%StreamError{reason: reason}, _stacktrace}), do: {:source, reason}
+  defp producer_down_reason(%StreamError{reason: reason}), do: {:source, reason}
 
   defp producer_down_reason(:normal), do: {:session, {:producer_down, :normal}}
   defp producer_down_reason(reason), do: {:session, {:producer_down, reason}}
