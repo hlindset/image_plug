@@ -1,6 +1,6 @@
 # Deferred orientation (#146) + shrink-through-crop (#151) — design
 
-**Status:** design, reviewed (4 disjoint-focus subagent reviews applied; imgproxy-compatibility review pending), pending user review
+**Status:** design, reviewed (5 disjoint-focus subagent reviews applied, incl. imgproxy observable-compatibility), pending user review
 **Issues:** [#146](https://github.com/hlindset/image_pipe/issues/146) (deferred rotation/flip model), [#151](https://github.com/hlindset/image_pipe/issues/151) (shrink-on-load with preceding crop)
 **Depends on:** #143 / PR #147 (per-op materialization + always-sequential decode) — **merged** at `8452416`.
 
@@ -71,14 +71,22 @@ Delivered as one spec, **two staged slices** in one branch:
 Add `pending_orientation` (nil when nothing pending). It carries the **unified block** with enough
 to both compensate pre-flush ops and replay the rotation:
 
+- `auto_rotate?` (bool) — whether EXIF replay is enabled (mirrors `Plan.auto_rotate`). Drives both
+  whether EXIF is folded into compensation and whether the flush replays it.
 - `exif_angle` (0/90/180/270) and `exif_flip_x` (bool) — EXIF mirror (orientations 2/4/5/7 set a
-  horizontal flip; imgproxy `prepare.go:48-50`, applied as `Flip(c.Flip, false)`).
+  horizontal flip; imgproxy `prepare.go:48-50`, applied as `Flip(c.Flip, false)`). Seeded from the
+  source tag **only when `auto_rotate?` is true** — both are 0/false for `ar:0`.
 - `user_angle` (0/90/180/270), `user_flip_x` (bool), `user_flip_y` (bool).
-- a replay intent: apply EXIF autorotate → user rotate → user flip (imgproxy `rotateAndFlip`
+- a replay intent: (when `auto_rotate?`) EXIF → user rotate → user flip (imgproxy `rotateAndFlip`
   order: EXIF then user).
 
-`nil` once flushed. The numeric fields drive compensation (§3.6); the replay uses
-`Image.autorotate` (which bundles the EXIF mirror) then user rotate/flip.
+`nil` once flushed. The numeric fields drive compensation (§3.6). **Critical:** the replay calls
+`Image.autorotate` (which reads orientation from the live image *tag*) **only when `auto_rotate?`
+is true**. Calling it for an `ar:0` source that still carries an EXIF tag would wrongly apply the
+suppressed EXIF rotation — `…/rot:90/ar:0/plain/<orientation-6 src>` would yield EXIF 90° + user
+90° = 180° where imgproxy applies only the user 90° (a regression vs. the eager baseline, which
+never emits AutoOrient for `ar:0`). When `auto_rotate?` is false the replay applies only user
+rotate/flip and leaves the tag intact (stripped later iff `strip_metadata`).
 
 ### 3.2 EXIF is source-level state, not a pipeline op
 
@@ -113,7 +121,7 @@ they are unaffected.
 3. After the flush, storage frame == display frame; everything downstream uses values literally.
 
 **180° and flip-only:** no axis swap (not a quarter-turn), so no frame W/H swap — but a **pixel
-flush is still required** (imgproxy `rotate_and_flip.go:8` flushes for 180°), and pre-flush crop
+flush is still required** (imgproxy `rotate_and_flip.go:11,16` flushes for 180°), and pre-flush crop
 gravity still remaps via the 180°/flip rows of §3.6.
 
 ### 3.4 PlanExecutor responsibilities
@@ -123,10 +131,11 @@ stay product-neutral and never know about pending state.
 
 1. **Seed (first pipeline only).** Because `execute/3` gets a single-pipeline plan with no index,
    `processor` passes an explicit signal (e.g. `seed_orientation: first_pipeline? and
-   plan.auto_rotate`, derived in the processor's pipeline loop). On the seeded pipeline, if
-   enabled, PlanExecutor reads the source image's EXIF orientation (pure metadata) into
-   `pending_orientation` and swaps display-frame W/H once for a quarter-turn. EXIF reading stays in
-   `transform`; `request` only signals.
+   plan.auto_rotate`, derived in the processor's pipeline loop). On the seeded pipeline,
+   PlanExecutor sets `pending_orientation.auto_rotate?` from `plan.auto_rotate`; when true it reads
+   the source image's EXIF orientation (pure metadata) into `pending_orientation` and swaps
+   display-frame W/H once for a quarter-turn. When false, no EXIF is seeded (so no EXIF compensation
+   and no EXIF replay — matching `ar:0`). EXIF reading stays in `transform`; `request` only signals.
 2. **Fold user rotate/flip.** As `Rotate`/`Flip` ops are encountered (in order) within the
    pipeline, fold into `pending_orientation`. The accumulator is **per-pipeline**: it starts empty
    each pipeline (EXIF seeded only in the first), and is cleared by that pipeline's flush (§3.5).
@@ -146,8 +155,9 @@ stay product-neutral and never know about pending state.
 ### 3.5 The flush rule and mechanism
 
 **Single mechanism (per the chosen design):** a flush-aware materialize primitive — replay pending
-orientation (autorotate → user rotate → user flip, executed directly, bypassing the per-op
-materialization re-check to avoid recursion), then `copy_memory`, then clear `pending_orientation`.
+orientation (**`Image.autorotate` only when `auto_rotate?`** (§3.1) → user rotate → user flip,
+executed directly, bypassing the per-op materialization re-check to avoid recursion), then
+`copy_memory`, then clear `pending_orientation`.
 Housed in a small `transform`-internal helper (e.g. `Transform.OrientationFlush`) so the generic
 `Chain` runner stays op-agnostic. The replay reuses the product-neutral `AutoOrient`/`Rotate`/`Flip`
 transform mechanisms.
@@ -310,6 +320,8 @@ is **rewritten** to the boolean form, not deleted.
   {plain anchor crop, focus-point crop, smart crop, region crop, cover/`auto` result crop} × user
   rotate/flip combos. Include **rounding-sensitive fixtures** (non-square, odd/coprime source W·H)
   per fit/fill/force × {EXIF 6, EXIF 8} to prove byte-identity through the requested-dim swap.
+  **Pin `ar:0` explicitly:** an orientation-6 source with `rot:90` and `ar:0` must apply only the
+  user 90° (no EXIF), matching imgproxy and *not* the live tag — the regression guard for §3.1.
 - **Request-boundary decode-and-sample-pixels test (Slice A).** Make a real `ImagePipe.call/2`
   request, decode `resp_body`, sample pixels (helpers exist:
   [imgproxy_wire_conformance_test.exs](../../../test/parser/imgproxy/imgproxy_wire_conformance_test.exs)).
@@ -333,6 +345,10 @@ is **rewritten** to the boolean form, not deleted.
   with a crop+resize that *would* shrink still fails with the pixel-limit error — shrink-through-crop
   must not let an over-budget source past `validate_original_pixels` (which keys off un-shrunk header
   dims, [processor.ex:69-70](../../../lib/image_pipe/request/processor.ex)).
+- **Embedded-orientation-tag assertions (Slice A).** With `strip_metadata=false` (`st:0`), assert
+  the output's residual EXIF orientation tag: (a) `ar:1`+tagged source → tag absent, pixels rotated;
+  (b) `ar:0`+tagged source → tag present, pixels unrotated; (c) `ar:1`+orientation 1 → no change.
+  (Default `strip_metadata=true` removes the tag in both systems; these pin the off case.)
 - **Cache.** Producer test per §6 (key + ETag differ on auto_rotate on/off); conditional GET still
   304s before fetch/decode.
 
@@ -345,6 +361,10 @@ is **rewritten** to the boolean form, not deleted.
 - No new operation type; no `FlushOrientation` op. Plan order unchanged.
 - Carrying pending across pipeline boundaries (rejected for v1, §3.5).
 - Region-crop coordinate transform (Slice A force-flushes instead; optional in Slice B, §4).
+- **Animated sources and watermark are unsupported in ImagePipe today** (no frame/`n-pages`
+  handling, no watermark transform); the per-pipeline flush model assumes single-frame processing.
+  If animation is added, the flush must fire per frame (cf. imgproxy `transformAnimated`), and the
+  smart-crop-on-oriented-pixels divergence (§3.7) warrants a line of user-facing docs.
 
 ## 10. Risks / open questions (resolved items removed)
 
@@ -355,7 +375,13 @@ is **rewritten** to the boolean form, not deleted.
   the image's live metadata, and the numeric angle for compensation is read from the image
   PlanExecutor receives (already post-reload), so #144's reload composes without a stale angle.
   Validate with a shrink-on-load + EXIF fixture in Slice B.
+- **Origin-dimension reporting (informational).** imgproxy swaps reported origin W/H for
+  orientations 5–8 *regardless* of auto_rotate (`processing.go:204-221`). ImagePipe exposes no
+  origin-dimension header, so there's no observable divergence today; revisit only if such a header
+  is added.
 - **Resolved during review:** `auto_rotate` field placement (→ §6 top-level, prescriptive); the
   resize compensation form (→ §3.6 requested-dim swap); the cover result-crop flush point (→ §3.5
   case 3); CropRegion (→ §3.4 force-flush); EXIF mirror tracking (→ §3.1); seeding/pipeline-index
-  plumbing (→ §3.4 processor signal); the correctness gate baseline (→ §8 libvips reference).
+  plumbing (→ §3.4 processor signal); the correctness gate baseline (→ §8 libvips reference); the
+  `ar:0` flush-replay gating so the live EXIF tag never overrides a disabled auto-rotate
+  (→ §3.1, §3.5, §8).
