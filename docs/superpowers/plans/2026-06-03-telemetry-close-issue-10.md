@@ -406,23 +406,47 @@ In the `@stages` list in the docs example (around line 274), add `[:source, :fet
 
 - [ ] **Step 5: Show operation count on the execute Logger line**
 
-In `lib/image_pipe/telemetry/logger.ex`, find the `[:transform, :execute]` message clause and include the count. If there's a generic stage message, add a specific clause near the existing `[:transform, :operation | _]` clause (logger.ex:117):
+`[:transform, :execute]` currently has **no** specific clause — it falls through to the generic `message(suffix, _m, meta)` at [logger.ex:151](lib/image_pipe/telemetry/logger.ex:151), which prints `outcome(meta)` (i.e. the `:result`, so `processing_error` shows up on a non-raising transform failure). The new clause must **preserve that outcome** and merely append the count — dropping the outcome would regress failure visibility. Add it among the other specific clauses, **before** the generic fallback at line 151 (e.g. right after the `[:transform, :operation | _]` clause at [logger.ex:117](lib/image_pipe/telemetry/logger.ex:117)):
 
 ```elixir
 defp message([:transform, :execute | _], _m, meta) do
-  count = meta[:operation_count] || 0
-  "image_pipe transform: #{count} operation(s)"
+  "image_pipe transform execute: #{outcome(meta)} (#{meta[:operation_count] || 0} ops)"
 end
 ```
 
-> Confirm against the existing message dispatch shape; match the surrounding clause style exactly.
+Design notes baked in:
+- Shows the **count only**, not the operation names, on the aggregate line. The per-op `[:transform, :operation]` clause (line 117) already prints individual names; duplicating the semantic-vocabulary list here would both be noisy and invite confusion with the executed-transform names (see the two-vocabulary split). Operators who want the names read `:operations` from the raw metadata (`debug: true`) or their own handler.
+- `outcome/1` ([logger.ex:159](lib/image_pipe/telemetry/logger.ex:159)) already returns `meta[:result] || :ok`, so success prints `ok` and failure prints the error result — no level change needed (exceptions still route through `exception_message/2`).
 
-- [ ] **Step 6: Run the Logger tests and a docs-affecting compile**
+> Confirm the clause lands before line 151 and match the surrounding clause style exactly.
+
+- [ ] **Step 6: Add a focused Logger test for the new execute line**
+
+No existing test asserts the `[:transform, :execute]` message text (the per-op test at logger_test.exs:146 and the `events: [:cache]` exclusion test at :159 are unaffected — the latter still passes because the transform group isn't attached there). Add positive coverage, mirroring the existing per-op test style (`Telemetry.attach_default_logger(level: :debug)` + `capture_log`):
+
+```elixir
+test "renders the transform execute aggregate with outcome and operation count" do
+  Telemetry.attach_default_logger(level: :debug)
+
+  log =
+    capture_log([level: :debug], fn ->
+      :telemetry.execute(
+        [:image_pipe, :transform, :execute, :stop],
+        %{duration: 500},
+        %{result: :ok, operations: [:resize, :flip], operation_count: 2}
+      )
+    end)
+
+  assert log =~ "transform execute: ok (2 ops)"
+end
+```
+
+- [ ] **Step 7: Run the Logger tests and compile**
 
 Run: `mise exec -- mix test test/image_pipe/telemetry/logger_test.exs && mise exec -- mix compile --warnings-as-errors`
-Expected: PASS. Update `logger_test.exs` if it asserts the exact execute message string.
+Expected: PASS, no warnings.
 
-- [ ] **Step 7: Commit**
+- [ ] **Step 8: Commit**
 
 ```bash
 git add docs/telemetry.md lib/image_pipe/telemetry/logger.ex test/image_pipe/telemetry/logger_test.exs
