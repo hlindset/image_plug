@@ -40,18 +40,49 @@ defmodule ImagePipe.Transform.DecodePlanner do
              is_integer(src_w) and src_w > 0 and
              is_integer(src_h) and src_h > 0 and
              is_boolean(exif_quarter_turn?) and is_boolean(auto_rotate?) do
-    {shrink_w, shrink_h} = shrink_axes({src_w, src_h}, auto_rotate? and exif_quarter_turn?)
+    {shrink_w, shrink_h} =
+      shrink_axes({src_w, src_h}, net_quarter_turn?(chain, exif_quarter_turn?, auto_rotate?))
+
     base = [access: :sequential, fail_on: :error]
     load_shrink = compute_load_shrink(chain, shrink_w, shrink_h)
     append_load_option(base, source_format, load_shrink)
   end
 
-  # The resize target is expressed against the *displayed* axes. When auto_rotate is
-  # enabled and the EXIF orientation implies a 90°/270° turn, the displayed axes are
-  # the stored axes swapped, so we compute the shrink against the swapped axes to
-  # avoid picking a factor for the wrong axis.
+  # The resize target is expressed against the *displayed* axes. When the combined
+  # net orientation turn (EXIF ∘ user rotate) is a quarter turn, the displayed axes
+  # are the stored axes swapped, so we compute the shrink against the swapped axes
+  # to avoid picking a factor for the wrong axis.
   defp shrink_axes({w, h}, true), do: {h, w}
   defp shrink_axes(dims, false), do: dims
+
+  # Whether the *combined* net orientation turn applied before the residual resize
+  # is a quarter turn (90°/270° mod 180), which transposes the displayed axes. This
+  # mirrors imgproxy's `ExtractGeometry`: it swaps the source dims iff
+  # `(angle + baseAngle) % 180 != 0`, where `angle` is the EXIF-derived angle (0
+  # unless auto-rotate is on) and `baseAngle` is the user `po.Rotate()`
+  # (prepare.go:11-22, 270). The EXIF angle contributes a quarter turn iff
+  # auto-rotate is enabled *and* the orientation tag is 5/6/7/8 (`exif_quarter_turn?`);
+  # 1/2 (0°) and 3/4 (180°) do not. The user contribution is the sum of `%Rotate{}`
+  # angles before the first resize. Deferred orientation (#146) folds both into a
+  # single pending turn whose `quarter_turn?` predicate the residual resize
+  # compensates against, so the shrink-axis swap must agree with that same net turn.
+  defp net_quarter_turn?(chain, exif_quarter_turn?, auto_rotate?) do
+    exif_angle = if auto_rotate? and exif_quarter_turn?, do: 90, else: 0
+    rem(exif_angle + user_rotate_angle_before_resize(chain), 180) == 90
+  end
+
+  # Sum of user `%Rotate{}` angles reaching the chain before the first resize,
+  # reduced mod 360. A 180° rotate contributes no axis swap; two quarter turns
+  # cancel; the canonical pipeline order (rotate → crop → resize) places all user
+  # rotates before the resize, so this matches the pending orientation the resize
+  # sees when it runs.
+  defp user_rotate_angle_before_resize(chain) do
+    Enum.reduce_while(chain, 0, fn
+      %Rotate{angle: angle}, acc -> {:cont, rem(acc + angle, 360)}
+      %PlanResize{}, acc -> {:halt, acc}
+      _operation, acc -> {:cont, acc}
+    end)
+  end
 
   # --- Shrink/scale computation ---
 
@@ -70,27 +101,23 @@ defmodule ImagePipe.Transform.DecodePlanner do
   # execution time (PlanExecutor); relative (ratio/percent/focus-point) crops shrink
   # in place and need no coordinate rescale.
   #
-  # We still decline to shrink in the cases where it is not provably safe:
+  # A quarter-turn rotate reaching the chain before the resize is also allowed
+  # through (#151): orientation is deferred (#146) and flushed *after* the residual
+  # resize, so the stored axes still feed the resize; the only adjustment is that
+  # the resize target is expressed against the *displayed* axes, which `shrink_axes`
+  # already swaps when the combined net turn (EXIF ∘ user rotate) is a quarter turn.
+  # The realized shrink scalar is unchanged by a rotate, so B1's crop-coordinate
+  # rescale at execution still applies verbatim.
   #
-  #   - a quarter-turn rotate earlier in the chain (it swaps the axes the residual
-  #     resize sizes against; declining keeps the exact stored original dims valid
-  #     without per-op bookkeeping — orientation is deferred and flushed after the
-  #     resize, so stored dims stay valid until the residual resize runs);
-  #   - `min_width`/`min_height` (they enlarge the result to a floor, interacting
-  #     with aspect ratio in ways that are not a simple per-axis multiplier).
+  # `min_width`/`min_height` remain ineligible — they enlarge the result to a floor,
+  # interacting with aspect ratio in ways that are not a simple per-axis multiplier;
+  # `resize_load_shrink/3` returns `1.0` for that shape, so it never shrinks.
   #
   # Declining to shrink is always safe — it forgoes the memory win, never quality.
-  defp compute_load_shrink(chain, src_w, src_h) do
-    if shrink_blocked_before_resize?(chain) do
-      1.0
-    else
-      first_resize_load_shrink(chain, src_w, src_h)
-    end
-  end
-
+  #
   # The shrink is driven by the first resize sized against the extent that actually
   # feeds it: a preceding crop narrows that extent (per axis) to the cropped size.
-  defp first_resize_load_shrink(chain, src_w, src_h) do
+  defp compute_load_shrink(chain, src_w, src_h) do
     {crop_w, crop_h} = crop_extent_before_resize(chain, src_w, src_h)
 
     case Enum.find(chain, &match?(%PlanResize{}, &1)) do
@@ -125,18 +152,6 @@ defmodule ImagePipe.Transform.DecodePlanner do
 
   defp crop_axis_extent({:ratio, num, den}, src) when num > 0 and den > 0,
     do: min(src, max(1, round(src * num / den)))
-
-  # A quarter-turn rotate reaching the chain before the first resize. A crop no
-  # longer blocks (#151); a cover/auto resize that crops *after* resizing is a
-  # single `%PlanResize{}` and is not matched here; a 180° rotate does not swap
-  # axes and does not block.
-  defp shrink_blocked_before_resize?(chain) do
-    Enum.reduce_while(chain, false, fn
-      %Rotate{angle: angle}, _acc when angle in [90, 270] -> {:halt, true}
-      %PlanResize{}, _acc -> {:halt, false}
-      _operation, acc -> {:cont, acc}
-    end)
-  end
 
   defp resize_load_shrink(%PlanResize{min_width: mw, min_height: mh}, _src_w, _src_h)
        when not is_nil(mw) or not is_nil(mh),

@@ -178,25 +178,72 @@ defmodule ImagePipe.Transform.DecodePlannerTest do
     refute Keyword.has_key?(opts, :scale)
   end
 
-  test "a quarter-turn rotate before the resize disables shrink" do
-    assert {:ok, resize} = Operation.resize(:fit, {:px, 500}, {:px, 500})
+  test "a quarter-turn user rotate before the resize shrinks with the axes swapped (#151)" do
+    # Stored 3200×800 (landscape); a user rot:90 displays it portrait (800×3200), so
+    # a width-only fit:400 targets the displayed width 800. With the swap the shrink
+    # is computed on 800/400 = 2 → shrink 2. Without the swap it would be 3200/400 = 8.
+    assert {:ok, resize} = Operation.resize(:fit, {:px, 400}, :auto)
 
     for angle <- [90, 270] do
       assert {:ok, rotate} = Operation.rotate(angle)
-      opts = DecodePlanner.open_options([rotate, resize], :jpeg, {4000, 2667})
+      opts = DecodePlanner.open_options([rotate, resize], :jpeg, {3200, 800})
 
-      refute Keyword.has_key?(opts, :shrink),
-             "rotate #{angle} before resize must disable shrink"
-
-      refute Keyword.has_key?(opts, :scale)
+      assert opts[:shrink] == 2,
+             "user rotate #{angle} before resize must shrink with swapped axes"
     end
   end
 
-  test "a 180 rotate before the resize does not disable shrink (axes unchanged)" do
+  test "a 180 user rotate before the resize shrinks without swapping the axes (#151)" do
     assert {:ok, rotate} = Operation.rotate(180)
     assert {:ok, resize} = Operation.resize(:fit, {:px, 400}, :auto)
     opts = DecodePlanner.open_options([rotate, resize], :jpeg, {3200, 2400})
     assert opts[:shrink] == 8
+  end
+
+  test "combined EXIF + user rotate determines the swap by net turn (#151)" do
+    # Stored 3200×800; width-only target fit:400. The swap fires iff the NET turn
+    # (EXIF quarter ∘ user rotate) is a quarter turn, mirroring imgproxy
+    # ExtractGeometry's `(angle + baseAngle) % 180`.
+    assert {:ok, resize} = Operation.resize(:fit, {:px, 400}, :auto)
+
+    # EXIF quarter (auto_rotate) + user 90 = net 180 → NO swap → shrink on 3200.
+    assert {:ok, rot90} = Operation.rotate(90)
+
+    net_180 =
+      DecodePlanner.open_options([rot90, resize], :jpeg, {3200, 800}, true, true)
+
+    assert net_180[:shrink] == 8
+
+    # EXIF quarter (auto_rotate) + user 180 = net 90 → swap → shrink on 800.
+    assert {:ok, rot180} = Operation.rotate(180)
+
+    net_90 =
+      DecodePlanner.open_options([rot180, resize], :jpeg, {3200, 800}, true, true)
+
+    assert net_90[:shrink] == 2
+
+    # EXIF quarter present but auto_rotate OFF + user 90 = net 90 → swap → shrink on 800.
+    exif_ignored =
+      DecodePlanner.open_options([rot90, resize], :jpeg, {3200, 800}, true, false)
+
+    assert exif_ignored[:shrink] == 2
+
+    # Two user quarter turns cancel (net 0) with no EXIF → no swap → shrink on 3200.
+    no_swap =
+      DecodePlanner.open_options([rot90, rot90, resize], :jpeg, {3200, 800}, false, false)
+
+    assert no_swap[:shrink] == 8
+  end
+
+  test "a crop + quarter-turn rotate before the resize composes B1 and B2 (#151)" do
+    # Crop narrows the extent feeding the resize (B1); a preceding user rotate swaps
+    # the displayed axes (B2). Stored 4000×2667; rot:90 → displayed 2667×4000. A
+    # 1200×1200 crop (display frame) feeds a fit:400 → crop dim 1200/400 = 3 → shrink 2.
+    assert {:ok, crop} = Operation.crop_region({:px, 0}, {:px, 0}, {:px, 1200}, {:px, 1200})
+    assert {:ok, rotate} = Operation.rotate(90)
+    assert {:ok, resize} = Operation.resize(:fit, {:px, 400}, {:px, 400})
+    opts = DecodePlanner.open_options([rotate, crop, resize], :jpeg, {4000, 2667})
+    assert opts[:shrink] == 2
   end
 
   test "a crop AFTER the resize (cover-style) does not disable shrink" do
