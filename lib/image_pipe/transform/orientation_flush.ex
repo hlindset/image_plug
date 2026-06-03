@@ -30,10 +30,26 @@ defmodule ImagePipe.Transform.OrientationFlush do
   # random-access source. A plain sequential read into RAM always succeeds; the
   # rotate then runs over the buffer and the trailing copy_memory holds.
   #
-  # Identity (combined angle 0, no vertical flip) and a pure horizontal flip are
-  # sequential-safe — they read rows in order — so they skip the pre-copy and
-  # preserve the streaming fast path. This mirrors #143's classification (only
-  # EXIF orientations 1/2 stream; 3-8 materialize).
+  # `apply_orientation` runs the EXIF autorotate (exif_angle rotation + an hflip
+  # when exif_flip_x) and the user rotate as SEPARATE libvips ops. EACH stage that
+  # rotates 90/180/270 — or vertically flips — reads its source out of row order
+  # and independently needs a random-access source. The intermediate result of one
+  # such stage is itself a lazy pipeline node over the sequential decode, so it is
+  # not enough to look at the NET combined angle: when an EXIF quarter/half-turn
+  # and a user rotate cancel (net 0 mod 360) the per-stage rotations still execute
+  # and still trip the wall. The predicate must therefore fire whenever ANY
+  # individual stage needs random access: the EXIF rotation (`exif_angle != 0`,
+  # catching EXIF orientations 3-8), the user rotation (`user_angle != 0`), or a
+  # vertical flip (`user_flip_y`).
+  #
+  # Identity and pure horizontal mirrors stay sequential-safe — they read rows in
+  # order — so they skip the pre-copy and preserve the streaming fast path: EXIF
+  # orientations 1/2 have `exif_angle == 0` (1 is identity, 2 is hflip) and a
+  # user hflip alone leaves all three angle/flip-y fields zero. This mirrors #143's
+  # classification (only EXIF orientations 1/2 stream; 3-8 materialize). A pre-copy
+  # is pixel-identity, so an over-eager pre-copy would only cost perf; the per-stage
+  # predicate is chosen to never UNDER-fire (no remaining holes) while still keeping
+  # the streaming path for the genuinely row-ordered cases.
   defp prepare_random_access(image, %PendingOrientation{} = po) do
     if needs_random_access?(po) do
       VipsImage.copy_memory(image)
@@ -43,7 +59,7 @@ defmodule ImagePipe.Transform.OrientationFlush do
   end
 
   defp needs_random_access?(%PendingOrientation{} = po) do
-    rem(po.exif_angle + po.user_angle, 360) != 0 or po.user_flip_y
+    po.exif_angle != 0 or po.user_angle != 0 or po.user_flip_y
   end
 
   defp materialize(%State{} = state) do
