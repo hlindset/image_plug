@@ -54,7 +54,9 @@ transform execution, output negotiation, encoding, and send streaming spans.
 [:image_pipe, :cache, :lookup, ...]
 [:image_pipe, :output, :negotiate, ...]
 [:image_pipe, :source, :fetch, ...]
+[:image_pipe, :source, :fetch_decode, ...]
 [:image_pipe, :transform, :execute, ...]
+[:image_pipe, :transform, :operation, ...]
 [:image_pipe, :encode, ...]
 [:image_pipe, :cache, :stage, ...]
 [:image_pipe, :cache, :write, ...]
@@ -66,6 +68,71 @@ For example, the cache lookup stop event with the default prefix is:
 ```text
 [:image_pipe, :cache, :lookup, :stop]
 ```
+
+### Source fetch + decode (`[:source, :fetch_decode]`)
+
+`[:image_pipe, :source, :fetch_decode]` wraps source fetch **and** image decode
+as one span. By deliberate design it also folds in the two input guards that run
+during decode — input-pixel-count validation and source body-size limiting —
+rather than emitting separate spans for them.
+
+This fold is intentional. libvips is lazy: a standalone `[:decode]` span would
+time loader *construction*, not pixel work (real decode cost is realized later,
+during transform materialization and encode). A separate timing span for it
+would mislead, the same way per-operation durations would (see below). The
+guards are likewise checks, not durationful stages. So their *outcomes* are
+reported as stop metadata on this span instead of as their own spans.
+
+The nested `[:source, :fetch]` span (source side effects only) lives inside it.
+
+Success stop metadata:
+
+- `:result` — `:ok`.
+- `:load_option` — the shrink-on-load option chosen, `{:shrink, n}`, `{:scale, f}`, or absent when none.
+- `:achieved_shrink` — `%{w: float, h: float}` realized shrink, when shrink-on-load fired.
+- `:original_dims` — `{w, h}` of the stored image before decode.
+- `:loaded_dims` — `{w, h}` actually decoded.
+
+Failure stop metadata:
+
+- Source-side failures: `result: :source_error`, `error:` a stable category atom
+  (e.g. `:body_too_large` when the source body crosses `:max_body_bytes`).
+- Decode / input-validation failures: `result: :processing_error`, `error:` a
+  stable category atom (e.g. `:input_limit` when the decoded image exceeds
+  `:max_input_pixels`, `:decode` for an undecodable body).
+
+### Per-operation transform spans (`[:transform, :operation]`)
+
+Each executed operation is wrapped in a nested
+`[:image_pipe, :transform, :operation]` span, inside `[:transform, :execute]`.
+Its **duration reflects pipeline construction, not pixel compute** — libvips
+defers and fuses work to materialization/encode — so use it for tracing
+execution *structure* (which operations ran, in what order), never as
+per-operation timing. Honest aggregate timing lives on `[:transform, :execute]`.
+
+Start metadata:
+
+- `:operation` — the operation name atom (e.g. `:resize`, `:crop_region`).
+- `:index` — zero-based position in the executed chain.
+- `:params` — the full operation struct (product-neutral, derived from the
+  public request).
+
+Stop metadata: `:result` (`:ok` or `:error`).
+
+The enclosing `[:transform, :execute]` start metadata carries the aggregate:
+
+- `:operation_count` — number of **plan** operations.
+- `:operations` — the ordered list of **plan** (semantic) operation-name atoms.
+
+**These two name sets are deliberately different vocabularies.** The aggregate
+`:operations` is the *semantic plan* view (`:crop_guided`, `:crop_region`,
+`:canvas`, …). The per-op span's `:operation` is the *executed-transform* view
+(`Transform.transform_name/1`), where e.g. both crop variants execute as
+`:crop` and a canvas executes as `:extend_canvas`. A single plan operation can
+also expand into several executed transform ops, so `:operation_count` (plan
+ops) is **not** guaranteed to equal the number of `[:transform, :operation]`
+spans. Treat the aggregate as "what the request asked for" and the per-op spans
+as "what actually ran".
 
 ## Measurements
 
@@ -134,6 +201,16 @@ Request and stage spans use narrow result atoms:
 Use `:error` for stage-local failures that aren't otherwise classified at that
 stage. The request span maps returned failures into the more specific request
 outcome categories in this list.
+
+Representative stage → result mappings:
+
+- `[:source, :fetch_decode]` → `:ok`, `:source_error` (e.g. `error: :body_too_large`),
+  or `:processing_error` (e.g. `error: :input_limit`, `:decode`).
+- `[:transform, :execute]` → `:ok` or `:processing_error`.
+- `[:output, :negotiate]` → `:ok` or a negotiation failure category.
+
+The `:error` field is a stable category atom (`ImagePipe.Error.tag/1`), never a
+raw message or source-derived path.
 
 ## Content-aware crop detection
 
@@ -278,7 +355,9 @@ defmodule MyApp.ImagePipeTelemetry do
     [:cache, :lookup],
     [:output, :negotiate],
     [:source, :fetch],
+    [:source, :fetch_decode],
     [:transform, :execute],
+    [:transform, :operation],
     [:encode],
     [:cache, :stage],
     [:cache, :write],
