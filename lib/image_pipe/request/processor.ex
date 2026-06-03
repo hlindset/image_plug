@@ -132,7 +132,7 @@ defmodule ImagePipe.Request.Processor do
     Telemetry.span(Telemetry.telemetry_opts(opts), [:transform, :execute], %{}, fn ->
       result =
         with {:ok, final_state} <-
-               execute_plan_pipelines(initial_state, plan, opts),
+               execute_transform_plan(initial_state, plan, opts),
              {:ok, final_state} <-
                materialize_before_delivery(final_state, opts, source_response),
              :ok <- validate_result_image(final_state.image, opts) do
@@ -143,10 +143,15 @@ defmodule ImagePipe.Request.Processor do
     end)
   end
 
-  defp execute_plan_pipelines(%State{} = state, %Plan{pipelines: pipelines} = plan, opts) do
-    pipelines
-    |> Enum.with_index()
-    |> Enum.reduce_while({:ok, state}, &execute_plan_pipeline_step(&1, &2, plan, opts))
+  # PlanExecutor owns the pipeline loop: it seeds the EXIF orientation once
+  # (seed_orientation), iterates all pipelines, and resolves any still-pending
+  # orientation at each pipeline boundary (a backstop — within a pipeline the flush
+  # usually fires earlier, at the first materializing op or after a resize). The
+  # request layer adds only the source-aware delivery backstop afterward
+  # (materialize_before_delivery) — the one materialization step that needs
+  # source_response and so cannot move into the transform boundary.
+  defp execute_transform_plan(%State{} = state, %Plan{} = plan, opts) do
+    Transform.execute_plan(plan, state, Keyword.put(opts, :seed_orientation, true))
     |> classify_materialize_error()
   end
 
@@ -154,20 +159,6 @@ defmodule ImagePipe.Request.Processor do
     do: {:error, {:decode, reason}}
 
   defp classify_materialize_error(result), do: result
-
-  defp execute_plan_pipeline_step(
-         {pipeline, index},
-         {:ok, %State{} = state},
-         %Plan{} = plan,
-         opts
-       ) do
-    opts = Keyword.put(opts, :seed_orientation, index == 0)
-
-    case Transform.execute_plan(%Plan{plan | pipelines: [pipeline]}, state, opts) do
-      {:ok, %State{} = state} -> {:cont, {:ok, state}}
-      {:error, _reason} = error -> {:halt, error}
-    end
-  end
 
   defp first_pipeline_operations(%Plan{
          pipelines: [%ImagePipe.Plan.Pipeline{operations: operations} | _rest]

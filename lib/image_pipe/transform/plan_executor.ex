@@ -104,6 +104,15 @@ defmodule ImagePipe.Transform.PlanExecutor do
         {:error, _reason} = error -> {:halt, error}
       end
     end)
+    # Resolve any still-pending orientation at the pipeline boundary. EXIF is
+    # seeded once for the whole plan (on the first pipeline) and a pipeline's
+    # output is the next pipeline's input, so each pipeline must end in the
+    # display frame — deferral is scoped to a single pipeline rather than spanning
+    # the chain. This is a backstop: an earlier resize / materializing op / region
+    # crop usually flushed already (making this a no-op), and an identity
+    # orientation is cleared without materializing (streaming fast path). It does
+    # real pixel work only when a rotation is still pending here (e.g. a pipeline
+    # of rotate + streaming effects, with no resize to trigger an earlier flush).
     |> case do
       {:ok, state, _context} -> flush_if_pending(state)
       {:error, _reason} = error -> error
