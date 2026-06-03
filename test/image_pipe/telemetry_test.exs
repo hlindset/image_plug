@@ -648,10 +648,11 @@ defmodule ImagePipe.TelemetryTest do
     assert conn.status == 200
     events = telemetry_events()
 
-    assert_event(events, [:image_pipe, :transform, :execute, :start], fn _measurements, metadata ->
+    assert_event(events, [:image_pipe, :transform, :execute, :start], fn _measurements,
+                                                                         metadata ->
       assert is_list(metadata.operations)
       assert :resize in metadata.operations
-      assert metadata.operation_count == length(metadata.operations)
+      assert metadata.operation_count == 2
     end)
   end
 
@@ -670,10 +671,11 @@ defmodule ImagePipe.TelemetryTest do
       |> conn("/_/plain/images/source.tiff")
       |> ImagePipe.Plug.call(opts)
 
-    refute conn.status == 200
+    assert conn.status == 422
     events = telemetry_events()
 
-    assert_event(events, [:image_pipe, :source, :fetch_decode, :stop], fn _measurements, metadata ->
+    assert_event(events, [:image_pipe, :source, :fetch_decode, :stop], fn _measurements,
+                                                                          metadata ->
       assert metadata.result == :source_error
       assert metadata.error == :body_too_large
     end)
@@ -687,10 +689,11 @@ defmodule ImagePipe.TelemetryTest do
       |> conn("/_/f:jpeg/plain/images/beach.jpg")
       |> ImagePipe.Plug.call(opts)
 
-    refute conn.status == 200
+    assert conn.status == 413
     events = telemetry_events()
 
-    assert_event(events, [:image_pipe, :source, :fetch_decode, :stop], fn _measurements, metadata ->
+    assert_event(events, [:image_pipe, :source, :fetch_decode, :stop], fn _measurements,
+                                                                          metadata ->
       assert metadata.result == :processing_error
       assert metadata.error == :input_limit
     end)
