@@ -8,6 +8,7 @@ defmodule ImagePipe.Request.VixStreamContinuationTest do
   alias ImagePipe.Plan.Source.Path
   alias ImagePipe.Request.SourceSession.Producer
   alias ImagePipe.Request.SourceSession.Request
+  alias ImagePipe.Test.SourceSession.ProducerClient
   alias ImagePipe.Source.Resolved, as: ResolvedSource
   alias ImagePipe.SourceTest.ValidAdapter
 
@@ -336,7 +337,7 @@ defmodule ImagePipe.Request.VixStreamContinuationTest do
     ref = Process.monitor(producer)
 
     assert {:ok, {:first_chunk, first_chunk, "image/jpeg", [], _resolved_output}} =
-             Producer.next(producer)
+             ProducerClient.next(producer)
 
     assert is_binary(first_chunk)
 

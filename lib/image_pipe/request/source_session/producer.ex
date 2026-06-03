@@ -11,9 +11,6 @@ defmodule ImagePipe.Request.SourceSession.Producer do
   alias ImagePipe.Telemetry
   alias ImagePipe.Transform.State
 
-  @call_timeout 15_000
-  @halt_timeout 2_000
-
   defstruct [
     :request,
     :stream_state,
@@ -37,8 +34,9 @@ defmodule ImagePipe.Request.SourceSession.Producer do
     {:ok, pid}
   end
 
-  # SourceSession uses this non-blocking primitive after enforcing single-flight
-  # demand. next/2 is only a focused test helper and is non-retryable after timeout.
+  # SourceSession drives the producer with these non-blocking primitives after
+  # enforcing single-flight demand. A blocking test client lives in
+  # ImagePipe.Test.SourceSession.ProducerClient.
   @spec request_next(pid(), pid()) :: reference()
   def request_next(pid, receiver) when is_pid(pid) and is_pid(receiver) do
     ref = make_ref()
@@ -51,50 +49,6 @@ defmodule ImagePipe.Request.SourceSession.Producer do
     ref = make_ref()
     send(pid, {:halt, receiver, ref})
     ref
-  end
-
-  @spec next(pid(), timeout()) ::
-          {:ok, {:first_chunk, binary(), String.t(), [{String.t(), String.t()}], Resolved.t()}}
-          | {:ok, {:chunk, binary()}}
-          | {:ok, :done}
-          | {:error, term()}
-  def next(pid, timeout \\ @call_timeout) when is_pid(pid) do
-    monitor_ref = Process.monitor(pid)
-    ref = request_next(pid, self())
-    receive_reply_or_down(ref, monitor_ref, pid, timeout)
-  end
-
-  @spec halt(pid(), timeout()) :: :ok | {:error, term()}
-  def halt(pid, timeout \\ @halt_timeout) when is_pid(pid) do
-    monitor_ref = Process.monitor(pid)
-    ref = request_halt(pid, self())
-    receive_reply_or_down(ref, monitor_ref, pid, timeout)
-  end
-
-  defp receive_reply_or_down(ref, monitor_ref, pid, timeout) do
-    receive do
-      {^ref, reply} ->
-        Process.demonitor(monitor_ref, [:flush])
-        reply
-
-      {:DOWN, ^monitor_ref, :process, ^pid, reason} ->
-        receive do
-          {^ref, reply} -> reply
-        after
-          0 -> {:error, {:producer, {:exit, reason}}}
-        end
-    after
-      timeout ->
-        Process.demonitor(monitor_ref, [:flush])
-
-        receive do
-          {^ref, _reply} -> :ok
-        after
-          0 -> :ok
-        end
-
-        {:error, {:producer, :timeout}}
-    end
   end
 
   defp loop(%__MODULE__{} = state) do
