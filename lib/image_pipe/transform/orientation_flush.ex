@@ -13,10 +13,37 @@ defmodule ImagePipe.Transform.OrientationFlush do
   def flush(%State{pending_orientation: nil} = state), do: materialize(state)
 
   def flush(%State{pending_orientation: %PendingOrientation{} = po} = state) do
-    with {:ok, image} <- apply_orientation(state.image, po),
+    with {:ok, image} <- prepare_random_access(state.image, po),
+         {:ok, image} <- apply_orientation(image, po),
          {:ok, image} <- VipsImage.copy_memory(image) do
       {:ok, %State{state | image: image, materialized?: true, pending_orientation: nil}}
     end
+  end
+
+  # A quarter-turn rotate (90°/270°) or a vertical flip reads its source out of
+  # row order, which the lazy `access: :sequential` decode (DecodePlanner) cannot
+  # satisfy: applying the orientation to a streamed source and then `copy_memory`
+  # trips the sequential-access wall ("Failed to memory copy image") once the
+  # image is large enough that libvips can't silently buffer it. So when the
+  # pending orientation needs arbitrary pixel access, materialize the *un-rotated*
+  # image to RAM first (mirroring the old eager AutoOrient), giving the rotate a
+  # random-access source. A plain sequential read into RAM always succeeds; the
+  # rotate then runs over the buffer and the trailing copy_memory holds.
+  #
+  # Identity (combined angle 0, no vertical flip) and a pure horizontal flip are
+  # sequential-safe — they read rows in order — so they skip the pre-copy and
+  # preserve the streaming fast path. This mirrors #143's classification (only
+  # EXIF orientations 1/2 stream; 3-8 materialize).
+  defp prepare_random_access(image, %PendingOrientation{} = po) do
+    if needs_random_access?(po) do
+      VipsImage.copy_memory(image)
+    else
+      {:ok, image}
+    end
+  end
+
+  defp needs_random_access?(%PendingOrientation{} = po) do
+    rem(po.exif_angle + po.user_angle, 360) != 0 or po.user_flip_y
   end
 
   defp materialize(%State{} = state) do

@@ -225,11 +225,6 @@ defmodule ImagePipe.ShrinkThroughCropTest do
     # is a uniform scalar (both axes ÷ the realized shrink), so it commutes with the
     # quarter-turn axis swap. Compared against the same oriented source as PNG (full
     # decode), output must stay pixel-equivalent.
-    #
-    # (We use a gravity crop here, not an explicit region crop: a region crop on an
-    # oriented source pre-flushes the orientation, and the quarter-turn flush over a
-    # large sequential decode hits an unrelated libvips materialize limit. The
-    # gravity-crop path is the one that actually composes the rescale with #146.)
     test "gravity crop + resize on orientation-6 source composes orientation and shrink" do
       jpeg = oriented(@src, @src, 6, ".jpg")
       png = oriented(@src, @src, 6, ".png")
@@ -249,6 +244,77 @@ defmodule ImagePipe.ShrinkThroughCropTest do
       assert no_shrink == nil
       assert_equivalent(jpeg_img, png_img, shrink, "oriented-6 gravity crop -> fit:400:300")
     end
+  end
+
+  # #146 region-crop / rotate-only flush regression. A region crop (or any path
+  # that force-flushes pending orientation before an op) on an EXIF-oriented
+  # source used to fail at large sizes: the quarter/half-turn flush ran on top of
+  # the *un-materialized* sequential decode, and copy_memory then raised
+  # `{:decode, "Failed to memory copy image"}` once the image was large enough
+  # that libvips could no longer silently buffer the random read (orientation 1
+  # streamed fine at every size; 3/6/8 failed at 3200 but not 800).
+  # OrientationFlush now materializes the un-rotated image to RAM before applying
+  # a random-access-requiring orientation, giving the rotate a random-access
+  # source. These run at @src (3200), squarely in the previously-failing range.
+  #
+  # Oracle: the deferred-orientation result must equal applying the orientation
+  # eagerly *first* (full random-access autorotate, outside the pipeline), then
+  # running the same operations on the now-upright, untagged image. Fixed-coord
+  # region crops select different content per orientation, so the orientation-1
+  # twin is NOT a valid oracle here; eager-flush-first is.
+  describe "region-crop / rotate-only flush on large EXIF-oriented source (#146)" do
+    for orientation <- [6, 3, 8] do
+      test "EXIF #{orientation}: region crop + resize succeeds and matches eager flush at #{@src}px" do
+        orientation = unquote(orientation)
+        {:ok, crop} = Operation.crop_region({:px, 800}, {:px, 600}, {:px, 1200}, {:px, 900})
+        {:ok, resize} = Operation.resize(:fit, {:px, 400}, {:px, 300})
+        ops = [crop, resize]
+
+        {deferred, _} = run_auto_rotate(oriented(@src, @src, orientation, ".png"), ops)
+        eager = run_eager_reference(@src, @src, orientation, ops)
+
+        assert_orientation_equivalent(deferred, eager, "EXIF #{orientation} region crop")
+      end
+    end
+
+    test "no-geometry rotate:90 on a large oriented source flushes at delivery (#146)" do
+      {:ok, rotate} = Operation.rotate(90)
+      ops = [rotate]
+
+      # auto_rotate on an orientation-6 source plus a user 90° rotate: the entire
+      # turn is deferred and flushed at delivery (no resize/crop to flush behind).
+      {deferred, _} = run_auto_rotate(oriented(@src, @src, 6, ".png"), ops)
+      eager = run_eager_reference(@src, @src, 6, ops)
+
+      assert_orientation_equivalent(deferred, eager, "rotate:90 delivery flush")
+    end
+  end
+
+  # Decode + autorotate to upright with a random-access open OUTSIDE the pipeline,
+  # re-encode untagged, then run the SAME operations through the plain path. This
+  # is the displayed-frame result the deferred path must reproduce.
+  defp run_eager_reference(width, height, orientation, operations) do
+    body = oriented(width, height, orientation, ".png")
+    {:ok, img} = Image.open(body, access: :random)
+    {:ok, {upright, _flags}} = Image.autorotate(img)
+    upright_body = Image.write!(upright, :memory, suffix: ".png")
+    {img_out, _shrink} = run(upright_body, operations)
+    img_out
+  end
+
+  defp assert_orientation_equivalent(deferred, eager, label) do
+    dw = Image.width(deferred)
+    dh = Image.height(deferred)
+    ew = Image.width(eager)
+    eh = Image.height(eager)
+
+    assert abs(dw - ew) <= 1 and abs(dh - eh) <= 1,
+           "deferred #{dw}x#{dh} drifted >1px from eager flush #{ew}x#{eh} for #{label}"
+
+    mae = coarse_mae(deferred, eager)
+
+    assert mae < 4.0,
+           "deferred-orientation coarse MAE #{mae} exceeds 4.0 for #{label} — orientation/crop misplaced"
   end
 
   defp oriented(width, height, orientation, suffix) do
