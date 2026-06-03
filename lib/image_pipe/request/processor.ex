@@ -136,18 +136,23 @@ defmodule ImagePipe.Request.Processor do
       operation_count: length(operation_names)
     }
 
-    Telemetry.span(Telemetry.telemetry_opts(opts), [:transform, :execute], execute_start_meta, fn ->
-      result =
-        with {:ok, final_state} <-
-               execute_transform_plan(initial_state, plan, opts),
-             {:ok, final_state} <-
-               materialize_before_delivery(final_state, opts, source_response),
-             :ok <- validate_result_image(final_state.image, opts) do
-          {:ok, final_state}
-        end
+    Telemetry.span(
+      Telemetry.telemetry_opts(opts),
+      [:transform, :execute],
+      execute_start_meta,
+      fn ->
+        result =
+          with {:ok, final_state} <-
+                 execute_transform_plan(initial_state, plan, opts),
+               {:ok, final_state} <-
+                 materialize_before_delivery(final_state, opts, source_response),
+               :ok <- validate_result_image(final_state.image, opts) do
+            {:ok, final_state}
+          end
 
-      {result, transform_stop_metadata(result)}
-    end)
+        {result, transform_stop_metadata(result)}
+      end
+    )
   end
 
   # PlanExecutor owns the pipeline loop: it seeds the EXIF orientation once
