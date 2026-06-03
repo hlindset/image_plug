@@ -22,7 +22,6 @@ defmodule ImagePipe.Transform do
       Operation.ExtendCanvas,
       Operation.Padding,
       Operation.Background,
-      Operation.AutoOrient,
       Operation.Rotate,
       Operation.Flip,
       Operation.Crop,

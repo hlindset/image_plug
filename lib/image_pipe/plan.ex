@@ -19,7 +19,6 @@ defmodule ImagePipe.Plan do
       Source.Object,
       Source.Reference,
       Operation,
-      Operation.AutoOrient,
       Operation.Background,
       Operation.Blur,
       Operation.Brightness,

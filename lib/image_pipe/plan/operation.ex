@@ -4,7 +4,6 @@ defmodule ImagePipe.Plan.Operation do
   """
 
   alias ImagePipe.Plan.Color
-  alias ImagePipe.Plan.Operation.AutoOrient
   alias ImagePipe.Plan.Operation.Background
   alias ImagePipe.Plan.Operation.Blur
   alias ImagePipe.Plan.Operation.Brightness
@@ -69,8 +68,7 @@ defmodule ImagePipe.Plan.Operation do
   @type background_operation :: Background.t()
 
   @type orientation_operation ::
-          AutoOrient.t()
-          | Rotate.t()
+          Rotate.t()
           | Flip.t()
 
   @type effect_operation ::
@@ -95,9 +93,6 @@ defmodule ImagePipe.Plan.Operation do
 
   @type error ::
           {:invalid_operation, atom(), term()} | {:unknown_operation_options, atom(), [atom()]}
-
-  @spec auto_orient() :: {:ok, AutoOrient.t()}
-  def auto_orient, do: {:ok, %AutoOrient{}}
 
   @spec normalize_color_profile() :: {:ok, NormalizeColorProfile.t()}
   def normalize_color_profile, do: {:ok, %NormalizeColorProfile{}}
@@ -338,7 +333,6 @@ defmodule ImagePipe.Plan.Operation do
   def semantic?(%Canvas{} = operation), do: valid_canvas?(operation)
   def semantic?(%Padding{} = operation), do: valid_padding?(operation)
   def semantic?(%Background{} = operation), do: valid_background?(operation)
-  def semantic?(%AutoOrient{}), do: true
   def semantic?(%NormalizeColorProfile{}), do: true
   def semantic?(%Rotate{angle: angle}) when angle in @right_angles, do: true
   def semantic?(%Flip{axis: axis}) when axis in @flip_axes, do: true

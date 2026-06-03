@@ -3,8 +3,8 @@ defmodule ImagePipe.Transform.PrefetchValidationTest do
 
   alias ImagePipe.Plan
   alias ImagePipe.Plan.Operation
-  alias ImagePipe.Plan.Operation.AutoOrient
   alias ImagePipe.Plan.Operation.Flip
+  alias ImagePipe.Plan.Operation.NormalizeColorProfile
   alias ImagePipe.Plan.Operation.Rotate
   alias ImagePipe.Plan.Output
   alias ImagePipe.Plan.Pipeline
@@ -34,7 +34,7 @@ defmodule ImagePipe.Transform.PrefetchValidationTest do
   end
 
   test "semantic orientation operations pass source-independent validation" do
-    operations = [%AutoOrient{}, %Rotate{angle: 90}, %Flip{axis: :horizontal}]
+    operations = [%NormalizeColorProfile{}, %Rotate{angle: 90}, %Flip{axis: :horizontal}]
 
     assert {:ok, [%Pipeline{operations: ^operations}]} =
              Transform.validate_prefetch_safe_plan(plan(operations))

@@ -97,9 +97,9 @@ defmodule ImagePipe.Request.Processor do
   # The residual resize sizes against the exact original extent — but only when the
   # decode was actually shrunk. With no shrink the transform layer reads the live
   # image dims instead (which also keeps a crop-before-resize correct), so we leave
-  # it `nil`. These are the stored (pre-orientation) dims; `AutoOrient` swaps them
-  # in step if it rotates, and shrink is declined when a crop/quarter-turn rotate
-  # precedes the resize, so they cannot go stale.
+  # it `nil`. These are the stored (pre-orientation) dims, which stay in the storage
+  # frame (orientation is deferred and flushed after the resize); shrink is declined
+  # when a crop/quarter-turn rotate precedes the resize, so they cannot go stale.
   defp shrink_source_dimensions(decode_options, original_dims) do
     if Keyword.has_key?(decode_options, :shrink) or Keyword.has_key?(decode_options, :scale) do
       original_dims
@@ -263,8 +263,8 @@ defmodule ImagePipe.Request.Processor do
   defp prefer_source_stream_error(result, _source_response), do: result
 
   # Whether the source's EXIF orientation implies a 90°/270° turn. The decode
-  # planner uses this (together with the presence of an AutoOrient step in the
-  # chain) to decide whether the shrink axes must be swapped. Reading the header
+  # planner uses this (together with the `auto_rotate` flag) to decide whether the
+  # shrink axes must be swapped. Reading the header
   # value stays here because only the Request layer holds the decoded image; the
   # orientation *policy* lives in the planner.
   defp exif_quarter_turn?(image) do

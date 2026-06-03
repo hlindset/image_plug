@@ -285,22 +285,22 @@ defmodule ImagePipe.Transform.ChainTest do
     {:ok, image} = Image.new(10, 10)
 
     chain = [
-      %ImagePipe.Transform.Operation.AutoOrient{},
-      %ImagePipe.Transform.Operation.AutoOrient{}
+      %ImagePipe.Transform.Operation.Blur{sigma: 1.0},
+      %ImagePipe.Transform.Operation.Blur{sigma: 2.0}
     ]
 
     assert {:ok, %State{}} = Chain.execute(%State{image: image}, chain)
 
     assert_received {:telemetry, [:image_pipe, :transform, :operation, :start], _m,
-                     %{operation: :auto_orient, index: 0}}
+                     %{operation: :blur, index: 0}}
 
     assert_received {:telemetry, [:image_pipe, :transform, :operation, :stop], %{duration: _},
-                     %{operation: :auto_orient, index: 0, result: :ok}}
+                     %{operation: :blur, index: 0, result: :ok}}
 
     assert_received {:telemetry, [:image_pipe, :transform, :operation, :start], _m2,
-                     %{operation: :auto_orient, index: 1}}
+                     %{operation: :blur, index: 1}}
 
     assert_received {:telemetry, [:image_pipe, :transform, :operation, :stop], %{duration: _},
-                     %{operation: :auto_orient, index: 1, result: :ok}}
+                     %{operation: :blur, index: 1, result: :ok}}
   end
 end

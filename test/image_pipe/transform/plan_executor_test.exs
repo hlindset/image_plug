@@ -283,6 +283,42 @@ defmodule ImagePipe.Transform.PlanExecutorTest do
   end
 
   describe "orientation primitives" do
+    # source_dimensions storage-frame invariant: under deferred orientation,
+    # source_dimensions stays in the STORED (pre-rotation) frame — it is NOT
+    # swapped by any pre-resize op. A resize that follows a pending 90° rotate
+    # sizes against the stored dims and consumes/clears source_dimensions.
+    # This replaces the deleted AutoOrient in-step swap coverage from T10.
+    test "source_dimensions stays in the storage frame under a pending quarter-turn" do
+      {:ok, rotate} = Operation.rotate(90)
+      # fit resize targeting the stored width (80px).
+      # If source_dimensions were swapped to display dims {40, 80}, the resize
+      # would compute against 40 wide and produce a different result.
+      {:ok, resize} = Operation.resize(:fit, {:px, 40}, :auto, enlargement: :deny)
+
+      # source is a shrunk 80×40 image; the original stored dims are {160, 80}.
+      # The fit resize to {:px, 40} against source_dimensions {160, 80}
+      # sizes at scale 0.25, so 80×40 → 40×20 (half of the loaded image).
+      {:ok, image} = Image.new(80, 40, color: :white)
+
+      state_with_shrink_dims = %State{
+        image: image,
+        source_dimensions: {160, 80}
+      }
+
+      assert {:ok, %State{} = result} =
+               Transform.execute_plan(
+                 plan([rotate, resize]),
+                 state_with_shrink_dims,
+                 []
+               )
+
+      # The residual resize consumes and clears source_dimensions.
+      assert result.source_dimensions == nil
+      # After the flush the orientation is rotated 90°, so the final image is
+      # portrait (height > width from the 40×20 pre-flush result → 20×40 after 90°).
+      assert Image.height(result.image) > Image.width(result.image)
+    end
+
     test "user rotate folds into deferred orientation and flushes at the pipeline boundary" do
       assert {:ok, %State{} = state} =
                Transform.execute_plan(

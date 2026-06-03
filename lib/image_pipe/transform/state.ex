@@ -18,10 +18,11 @@ defmodule ImagePipe.Transform.State do
     residual resize must size against, set only when shrink-on-load has reduced the
     decoded image; `nil` otherwise. It is exact (not reconstructed from the shrunk
     dims), so the residual resize lands on the same target as a full-resolution
-    decode. It is safe from staleness because shrink-on-load is declined whenever a
-    crop or quarter-turn rotate precedes the resize (see `ImagePipe.Transform.DecodePlanner`),
-    so the only pre-resize op that can change the image extent while this is set is
-    `AutoOrient`, which swaps it in step. The residual resize clears it to `nil`.
+    decode. It stays in the storage frame — EXIF/user orientation is carried as a
+    pending rotation on `pending_orientation` and flushed after the resize, so no
+    pre-resize op swaps these dimensions. Shrink-on-load is declined whenever a crop
+    or quarter-turn rotate precedes the resize (see `ImagePipe.Transform.DecodePlanner`).
+    The residual resize clears it to `nil`.
   """
 
   defstruct image: nil,

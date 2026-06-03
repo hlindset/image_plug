@@ -2,7 +2,6 @@ defmodule ImagePipe.Transform.DecodePlannerTest do
   use ExUnit.Case, async: true
 
   alias ImagePipe.Plan.Operation
-  alias ImagePipe.Plan.Operation.AutoOrient
   alias ImagePipe.Transform.DecodePlanner
 
   # --- Access (always :sequential) ---
@@ -25,20 +24,17 @@ defmodule ImagePipe.Transform.DecodePlannerTest do
     assert opts[:access] == :sequential
   end
 
-  test "auto-orient-only chains open sequentially" do
-    opts = DecodePlanner.open_options([%AutoOrient{}], :jpeg, {3000, 2000})
-    assert opts[:access] == :sequential
-  end
-
-  test "color-profile normalization is access-neutral (alone: sequential; with sequential: sequential)" do
+  test "color-profile normalization is access-neutral (alone: sequential; with rotate: sequential)" do
     neutral_only =
       DecodePlanner.open_options([%Operation.NormalizeColorProfile{}], :png, {100, 100})
 
     assert neutral_only[:access] == :sequential
 
+    {:ok, rotate} = Operation.rotate(180)
+
     with_sequential =
       DecodePlanner.open_options(
-        [%AutoOrient{}, %Operation.NormalizeColorProfile{}],
+        [rotate, %Operation.NormalizeColorProfile{}],
         :png,
         {100, 100}
       )

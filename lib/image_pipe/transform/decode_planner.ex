@@ -65,8 +65,8 @@ defmodule ImagePipe.Transform.DecodePlanner do
   #     shrink sized against the full source would over-shrink the cropped region);
   #   - a quarter-turn rotate earlier in the chain (it swaps the axes the residual
   #     resize sizes against; declining keeps the exact stored original dims valid
-  #     without per-op bookkeeping — only `AutoOrient`, which swaps them in step,
-  #     may run before a shrunk resize);
+  #     without per-op bookkeeping — orientation is deferred and flushed after the
+  #     resize, so stored dims stay valid until the residual resize runs);
   #   - `min_width`/`min_height` (they enlarge the result to a floor, interacting
   #     with aspect ratio in ways that are not a simple per-axis multiplier).
   #

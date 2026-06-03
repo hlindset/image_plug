@@ -4,7 +4,6 @@ defmodule ImagePipe.Transform.SequentialAccessTest do
 
   alias ImagePipe.Transform.Chain
   alias ImagePipe.Transform.Materializer
-  alias ImagePipe.Transform.Operation.AutoOrient
   alias ImagePipe.Transform.Operation.Background
   alias ImagePipe.Transform.Operation.Blur
   alias ImagePipe.Transform.Operation.Brightness
@@ -20,6 +19,7 @@ defmodule ImagePipe.Transform.SequentialAccessTest do
   alias ImagePipe.Transform.Operation.Resize
   alias ImagePipe.Transform.Operation.Saturation
   alias ImagePipe.Transform.Operation.Sharpen
+  alias ImagePipe.Transform.PendingOrientation
   alias ImagePipe.Transform.State
   alias Vix.Vips.Image, as: VipsImage
 
@@ -151,8 +151,10 @@ defmodule ImagePipe.Transform.SequentialAccessTest do
 
   for orientation <- [1, 2, 3, 4, 5, 6, 7, 8] do
     @orientation orientation
-    test "auto-orient streams for EXIF orientation #{orientation}" do
-      assert_sequential_matches_random([%AutoOrient{}], oriented_jpeg_body(@orientation))
+    test "orientation flush streams for EXIF orientation #{orientation}" do
+      body = oriented_jpeg_body(@orientation)
+      pending = PendingOrientation.from_exif(@orientation, true)
+      assert_orientation_flush_sequential_matches_random(pending, body)
     end
   end
 
@@ -218,7 +220,7 @@ defmodule ImagePipe.Transform.SequentialAccessTest do
     end
   end
 
-  property "auto-orient streams across EXIF orientations and sizes" do
+  property "orientation flush streams across EXIF orientations and sizes" do
     check all(
             orientation <- member_of([1, 2, 3, 4, 5, 6, 7, 8]),
             w <- integer(20..160),
@@ -227,7 +229,8 @@ defmodule ImagePipe.Transform.SequentialAccessTest do
           ) do
       {:ok, image} = Image.new(w, h, color: :red)
       body = image |> Image.set_orientation!(orientation) |> Image.write!(:memory, suffix: ".jpg")
-      assert_sequential_matches_random([%AutoOrient{}], body)
+      pending = PendingOrientation.from_exif(orientation, true)
+      assert_orientation_flush_sequential_matches_random(pending, body)
     end
   end
 
@@ -255,6 +258,32 @@ defmodule ImagePipe.Transform.SequentialAccessTest do
     assert Image.height(sequential_image) == Image.height(random_image)
     assert Image.has_alpha?(sequential_image) == Image.has_alpha?(random_image)
     assert_sampled_pixels_match(sequential_image, random_image)
+  end
+
+  # Runs orientation flush (via Materializer.materialize, which routes through
+  # OrientationFlush.flush) on both a :random and a :sequential open of `body`.
+  # Asserts the output pixels match.  This is the new sequential-safety gate for
+  # EXIF/user orientation: it proves that OrientationFlush produces the same result
+  # whether the image was opened for random access or streamed sequentially —
+  # i.e. that the flush path is safe to call on a sequential source.
+  defp assert_orientation_flush_sequential_matches_random(%PendingOrientation{} = pending, body) do
+    {:ok, random_image} = run_orientation_flush(pending, :random, body)
+    {:ok, sequential_image} = run_orientation_flush(pending, :sequential, body)
+
+    assert Image.width(sequential_image) == Image.width(random_image)
+    assert Image.height(sequential_image) == Image.height(random_image)
+    assert Image.has_alpha?(sequential_image) == Image.has_alpha?(random_image)
+    assert_sampled_pixels_match(sequential_image, random_image)
+  end
+
+  defp run_orientation_flush(%PendingOrientation{} = pending, access, body)
+       when access in [:random, :sequential] do
+    with {:ok, image} <- Image.open([body], access: access, fail_on: :error),
+         state = %State{image: image, pending_orientation: pending},
+         {:ok, %State{} = state} <- Chain.execute(state, []),
+         {:ok, %State{} = state} <- Materializer.materialize(state) do
+      {:ok, state.image}
+    end
   end
 
   defp assert_sampled_pixels_match(left, right) do

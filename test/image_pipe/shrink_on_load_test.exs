@@ -27,10 +27,10 @@ defmodule ImagePipe.ShrinkOnLoadTest do
     @moduledoc false
     # Serves a 4000×3000 JPEG tagged EXIF orientation 6 (90° turn), so the
     # *displayed* image is 3000×4000 (portrait). Built lazily in call/2. Used to
-    # exercise shrink-on-load + AutoOrient together: libvips does not auto-apply
-    # orientation on a shrink-load (verified), so the decode comes back stored
-    # (landscape) and AutoOrient rotates it — the residual resize must still land on
-    # the displayed-orientation target.
+    # exercise shrink-on-load + deferred orientation together: libvips does not
+    # auto-apply orientation on a shrink-load (verified), so the decode comes back
+    # stored (landscape) and OrientationFlush rotates it after resize — the residual
+    # resize must still land on the displayed-orientation target.
     def call(conn, _opts) do
       {:ok, base} = Image.new(4000, 3000, color: [120, 130, 140])
       body = base |> Image.set_orientation!(6) |> Image.write!(:memory, suffix: ".jpg")
@@ -351,12 +351,12 @@ defmodule ImagePipe.ShrinkOnLoadTest do
     assert {Image.width(img), Image.height(img)} == {1500, 1500}
   end
 
-  # Shrink-on-load composed with AutoOrient (the retina-photo case). The source is
-  # a 4000×3000 JPEG tagged EXIF orientation 6, so the displayed image is 3000×4000
-  # (portrait). `ar:true` enables auto-rotation; w:375 against the displayed width
-  # (3000) gives load_shrink 8. libvips returns the shrink-load stored-oriented
-  # (landscape), AutoOrient rotates it and swaps the stored original dims, and the
-  # residual resize must land on the displayed-orientation target 375×500.
+  # Shrink-on-load composed with deferred orientation (the retina-photo case). The
+  # source is a 4000×3000 JPEG tagged EXIF orientation 6, so the displayed image is
+  # 3000×4000 (portrait). `ar:true` enables auto-rotation; w:375 against the
+  # displayed width (3000) gives load_shrink 8. libvips returns the shrink-load
+  # stored-oriented (landscape); OrientationFlush rotates it after the residual
+  # resize, which must land on the displayed-orientation target 375×500.
   #
   # Pinning both dims (and that the result is portrait) guards the orientation
   # axis-swap: a stored-vs-displayed mismatch would transpose the output (500×375).
