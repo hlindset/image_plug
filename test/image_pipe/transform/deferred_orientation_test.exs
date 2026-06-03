@@ -3,6 +3,36 @@ defmodule ImagePipe.Transform.DeferredOrientationTest do
   alias ImagePipe.Plan
   alias ImagePipe.Plan.Operation
   alias ImagePipe.Transform.{Materializer, PlanExecutor, State}
+  alias ImagePipe.Transform.Operation.Crop
+  alias ImagePipe.Transform.PendingOrientation
+
+  # Bare-module detector for the end-to-end ordering gate. PlanExecutor.execute/3
+  # resolves its `:detector` opt through ImagePipe.Transform.resolve_detector/1,
+  # which accepts only a bare module (the {module, opts} form is a Crop-level
+  # contract), so the recording pid is carried out-of-band via the test process.
+  defmodule RecordingDetector do
+    @moduledoc false
+    @behaviour ImagePipe.Transform.Detector
+
+    @impl true
+    def supported_classes(_), do: ["face"]
+
+    @impl true
+    def available?(_), do: true
+
+    @impl true
+    def identity(_), do: {__MODULE__, :v1}
+
+    @impl true
+    def detect(image, _opts) do
+      case :persistent_term.get({__MODULE__, :pid}, nil) do
+        pid when is_pid(pid) -> send(pid, {:detect_dims, Image.width(image), Image.height(image)})
+        nil -> :ok
+      end
+
+      {:ok, []}
+    end
+  end
 
   defp marked(w, h),
     do: Image.Draw.rect!(Image.new!(w, h, color: :white), 0, 0, 4, 4, color: :red)
@@ -59,5 +89,100 @@ defmodule ImagePipe.Transform.DeferredOrientationTest do
       out = run(plan(ops, true), base)
       assert_pixels_match(out, orientation_only_reference(base, user_rotate, flips))
     end
+  end
+
+  # ── Detector-ordering gate ───────────────────────────────────────────────────
+
+  # A content-aware (detect) gravity crop requires materialization, so the
+  # deferred-orientation flush must fire BEFORE detection — the detector sees the
+  # DISPLAY frame, never the storage frame. A portrait-EXIF source (stored 40×80)
+  # displays as 80×40 under EXIF-6; the detector must report {80, 40}.
+  test "detect crop runs after the orientation flush (sees the display frame)" do
+    :persistent_term.put({RecordingDetector, :pid}, self())
+
+    {:ok, _} =
+      PlanExecutor.execute(detect_crop_plan(true), %State{image: oriented_decoded(6)},
+        seed_orientation: true,
+        detector: RecordingDetector
+      )
+
+    assert_receive {:detect_dims, 80, 40}
+  after
+    :persistent_term.erase({RecordingDetector, :pid})
+  end
+
+  # Negative control: with auto_rotate disabled the flush is suppressed, so the
+  # detector sees the STORAGE frame {40, 80}. This proves the positive assertion
+  # is sensitive to the flush rather than passing on any unbound dimensions.
+  test "ar:0 suppresses the flush so detect sees the storage frame" do
+    :persistent_term.put({RecordingDetector, :pid}, self())
+
+    {:ok, _} =
+      PlanExecutor.execute(detect_crop_plan(false), %State{image: oriented_decoded(6)},
+        seed_orientation: true,
+        detector: RecordingDetector
+      )
+
+    assert_receive {:detect_dims, 40, 80}
+  after
+    :persistent_term.erase({RecordingDetector, :pid})
+  end
+
+  # The FakeDetector `record_to:` opt (the {module, opts} Crop-level contract):
+  # after the flush, the detect crop hands the detector the display frame. This
+  # exercises the opt-carrying path the wire/PlanExecutor detector option cannot.
+  test "FakeDetector record_to reports the post-flush display frame" do
+    state =
+      %State{
+        image: oriented_decoded(6),
+        detector: {ImagePipe.Test.FakeDetector, record_to: self()},
+        pending_orientation: PendingOrientation.from_exif(6, true)
+      }
+
+    {:ok, flushed} = Materializer.materialize(state)
+
+    op = %Crop{
+      width: {:pixels, 30},
+      height: {:pixels, 30},
+      crop_from: :gravity,
+      gravity: {:detect, {["face"], %{}}}
+    }
+
+    {:ok, _} = Crop.execute(op, flushed)
+    assert_receive {:detect_dims, 80, 40}
+  end
+
+  # Real-detector smoke test: the default detector also runs after the flush, on
+  # the display frame. Excluded by default (real inference is not wired locally;
+  # see project memory) — the FakeDetector/RecordingDetector tests above are the
+  # default-lane ordering gate.
+  @tag :image_vision
+  test "real default detector runs detection on the post-flush display frame" do
+    {:ok, crop} =
+      Operation.crop_guided({:px, 30}, {:px, 30}, {:detect, {["face"], %{}}})
+
+    {:ok, %State{image: out}} =
+      PlanExecutor.execute(plan([crop], true), %State{image: oriented_decoded(6)},
+        seed_orientation: true,
+        detector: :default
+      )
+
+    # The crop runs on the 80×40 display frame, so the 30×30 result is a crop of
+    # the rotated content, not the 40×80 storage frame.
+    assert {Image.width(out), Image.height(out)} == {30, 30}
+  end
+
+  defp oriented_decoded(orientation) do
+    40
+    |> Image.new!(80, color: :white)
+    |> Image.Draw.rect!(0, 0, 40, 40, color: :red)
+    |> Image.set_orientation!(orientation)
+    |> Image.write!(:memory, suffix: ".jpg")
+    |> Image.open!(access: :random, fail_on: :error)
+  end
+
+  defp detect_crop_plan(auto_rotate?) do
+    {:ok, crop} = Operation.crop_guided({:px, 30}, {:px, 30}, {:detect, {["face"], %{}}})
+    plan([crop], auto_rotate?)
   end
 end

@@ -229,10 +229,29 @@ defmodule ImagePipe.Transform.PlanExecutor do
       # display-frame pixels. Leave them literal (no compensation).
       crop
     else
-      {gravity, x_offset, y_offset} =
-        Orientation.compensate_gravity_for({gravity, crop.x_offset, crop.y_offset}, po)
+      # The executable crop carries offsets in their tagged unit form
+      # ({:pixels, v} | {:scale, v} | {:scale, n, d} | {:percent, v} | number).
+      # Orientation.compensate_gravity_for/2 ports imgproxy's RotateAndFlip, which
+      # operates on the bare float offset (gravity.go uses a single float64 X/Y).
+      # Unwrap to the bare magnitude, compensate, then re-wrap — and on a quarter
+      # turn the X/Y *values* swap (g.X, g.Y = g.Y, ...), so the unit wrappers swap
+      # with them. The parser emits both offsets in the same unit, but tracking the
+      # wrapper per-axis keeps the swap correct even if they ever differ.
+      {x_unit, x_value} = split_offset(crop.x_offset)
+      {y_unit, y_value} = split_offset(crop.y_offset)
 
-      crop = %Crop{crop | gravity: gravity, x_offset: x_offset, y_offset: y_offset}
+      {gravity, x_value, y_value} =
+        Orientation.compensate_gravity_for({gravity, x_value, y_value}, po)
+
+      {x_unit, y_unit} =
+        if PendingOrientation.quarter_turn?(po), do: {y_unit, x_unit}, else: {x_unit, y_unit}
+
+      crop = %Crop{
+        crop
+        | gravity: gravity,
+          x_offset: x_unit.(x_value),
+          y_offset: y_unit.(y_value)
+      }
 
       if PendingOrientation.quarter_turn?(po) do
         %Crop{crop | width: crop.height, height: crop.width}
@@ -243,6 +262,15 @@ defmodule ImagePipe.Transform.PlanExecutor do
   end
 
   defp compensate_crop(%Crop{} = crop, %PendingOrientation{}), do: crop
+
+  # Split a tagged crop offset into {rewrap_fun, bare_value}. Orientation
+  # compensation negates/swaps the magnitude; the rewrap restores the unit so the
+  # executable crop still resolves the offset against the right bounds/scale.
+  defp split_offset({:pixels, value}), do: {&{:pixels, &1}, value * 1.0}
+  defp split_offset({:scale, value}), do: {&{:scale, &1}, value * 1.0}
+  defp split_offset({:scale, num, den}), do: {&{:scale, &1}, num / den}
+  defp split_offset({:percent, value}), do: {&{:percent, &1 * 100}, value / 100}
+  defp split_offset(value) when is_number(value), do: {& &1, value * 1.0}
 
   # Compensate a resize expansion in the storage frame. The cover/auto expansion is
   # `[%Resize{}, %Crop{}]`; the resize's requested dims swap on a quarter turn, and

@@ -60,6 +60,70 @@ defmodule ImagePipe.ImgproxyWireConformanceTest do
     end
   end
 
+  # Deferred-orientation gate (#146) origins. Both serve the SAME displayed
+  # pixels: `OrientedFrameOrigin` tags a stored image with an EXIF orientation
+  # (so the pipeline must autorotate it), while `Orientation1TwinOrigin` decodes
+  # that same tagged image, applies the autorotate in pixels, strips the tag, and
+  # serves the result as a lossless orientation-1 PNG. Running an identical
+  # imgproxy request against both is the wire-vs-orientation-1 oracle: the same
+  # operators run on the same displayed content, so the decoded outputs match.
+  #
+  # The base content is a 120×200 portrait with sharp solid quadrants and a
+  # corner marker; large enough that a ±1px affine-resize seam shift never reaches
+  # the interior flat-region samples the oracle compares.
+  defmodule OrientationFixture do
+    @moduledoc false
+
+    def base do
+      120
+      |> Image.new!(200, color: :green)
+      |> Image.Draw.rect!(0, 0, 120, 100, color: :red)
+      |> Image.Draw.rect!(0, 0, 30, 30, color: :blue)
+    end
+
+    def oriented_jpeg(orientation) do
+      base()
+      |> Image.set_orientation!(orientation)
+      |> Image.write!(:memory, suffix: ".jpg")
+    end
+
+    # The orientation-1 twin: the EXIF source's displayed pixels, stored untagged.
+    # Derived from the re-decoded JPEG (not the in-memory image) so the displayed
+    # frame exactly matches what the pipeline decodes from the oriented source.
+    def twin_png(orientation) do
+      reopened = Image.open!(oriented_jpeg(orientation), access: :random)
+      {:ok, {displayed, _flags}} = Image.autorotate(reopened)
+
+      displayed
+      |> Image.set_orientation!(1)
+      |> Image.write!(:memory, suffix: ".png")
+    end
+  end
+
+  defmodule OrientedFrameOrigin do
+    @moduledoc false
+
+    def init(orientation), do: orientation
+
+    def call(conn, orientation) do
+      conn
+      |> Plug.Conn.put_resp_content_type("image/jpeg")
+      |> Plug.Conn.send_resp(200, OrientationFixture.oriented_jpeg(orientation))
+    end
+  end
+
+  defmodule Orientation1TwinOrigin do
+    @moduledoc false
+
+    def init(orientation), do: orientation
+
+    def call(conn, orientation) do
+      conn
+      |> Plug.Conn.put_resp_content_type("image/png")
+      |> Plug.Conn.send_resp(200, OrientationFixture.twin_png(orientation))
+    end
+  end
+
   defmodule MetadataOriginImage do
     @moduledoc false
 
@@ -656,6 +720,118 @@ defmodule ImagePipe.ImgproxyWireConformanceTest do
     # EXIF-6 (90 deg) THEN user 90 deg = 180 deg net on the stored 40x80 -> stays 40x80.
     assert dimensions(conn) == {40, 80}
     assert_oriented_pixels_match(decoded_image(conn), reference_180_of_stored())
+  end
+
+  # ── Deferred-orientation Slice A gates (#146) ────────────────────────────────
+
+  # Regression guard for the deferred-orientation cutover: an EXIF-oriented source
+  # combined with a gravity / region / focus-point / cover crop must SUCCEED.
+  # Before the offset-unit fix in PlanExecutor.compensate_crop/2, the executable
+  # crop's tagged offset ({:pixels, 0.0}) reached Orientation's bare-float
+  # arithmetic and raised, turning every EXIF-2..7 + crop request into a 500.
+  test "EXIF-oriented source with a gravity/region/fp/cover crop succeeds (no compensation crash)" do
+    paths = [
+      "/_/rs:fill:90:90/g:no/f:png/plain/images/x.jpg",
+      "/_/rs:fill:90:60/g:ce/f:png/plain/images/x.jpg",
+      "/_/c:60:40:no/f:png/plain/images/x.jpg",
+      "/_/c:60:40:no:5:6/f:png/plain/images/x.jpg",
+      "/_/rs:fill:90:90/g:so:0:8/f:png/plain/images/x.jpg",
+      "/_/g:fp:0.25:0.75/rs:fill:80:80/f:png/plain/images/x.jpg",
+      "/_/c:90:90:fp:0.25:0.75/f:png/plain/images/x.jpg"
+    ]
+
+    for orientation <- 1..8, path <- paths do
+      conn = call_imgproxy(path, oriented_frame_opts(orientation))
+
+      assert conn.status == 200,
+             "EXIF-#{orientation} #{path} returned #{conn.status} (expected 200)"
+    end
+  end
+
+  # The wire-vs-orientation-1 oracle. For each EXIF orientation 1..8 (including the
+  # mirrors 2/4/5/7 and the axis-swapping quarter turns 5/6/7/8), the SAME imgproxy
+  # request is run against the EXIF-oriented source and against the orientation-1
+  # twin carrying the same displayed pixels. Identical operators on both legs ⇒ the
+  # decoded interior pixels match (lossless PNG twin; the oriented leg is JPEG, so
+  # a small interior tolerance absorbs decode noise — direction is still pinned).
+  #
+  # Covered geometry forms (zero-offset, where the orientation-1 twin is an exact
+  # equivalence): center / non-center anchor crop, focus-point crop, smart crop,
+  # explicit region crop, cover/fill result crop with center AND non-center
+  # gravity, plus fit / force including coprime (91×61) source-divergent targets.
+  #
+  # NOT covered here (see the moduledoc note and the BLOCKED report): non-zero
+  # gravity OFFSETS combined with a rotation, and min-dimension (mw/mh) under a
+  # quarter turn — the first because imgproxy applies offsets pre-rotation so the
+  # untransformed twin is not a valid equivalence (offset compensation is pinned at
+  # the unit level in OrientationTest), the second because of a real cover+min-dim
+  # frame bug surfaced by this oracle.
+  test "crop/resize matrix matches the orientation-1 twin across EXIF 1..8" do
+    paths = [
+      # anchor crops: center + non-center
+      "/_/c:60:40:ce/f:png/plain/images/x.jpg",
+      "/_/c:60:40:no/f:png/plain/images/x.jpg",
+      "/_/c:50:60:we/f:png/plain/images/x.jpg",
+      # focus-point crop (center-ish and off-center)
+      "/_/c:90:90:fp:0.25:0.75/f:png/plain/images/x.jpg",
+      # smart crop (attention saliency on the displayed pixels)
+      "/_/rs:fill:80:80/g:sm/f:png/plain/images/x.jpg",
+      # cover/fill result crop: center + non-center gravity
+      "/_/rs:fill:90:90/g:ce/f:png/plain/images/x.jpg",
+      "/_/rs:fill:90:90/g:no/f:png/plain/images/x.jpg",
+      "/_/rs:fill:90:60/g:so/f:png/plain/images/x.jpg",
+      # fp-guided cover
+      "/_/g:fp:0.25:0.75/rs:fill:80:80/f:png/plain/images/x.jpg",
+      # rounding-sensitive coprime targets: fit / force / fill
+      "/_/rs:fit:91:61/f:png/plain/images/x.jpg",
+      "/_/rs:force:91:61/f:png/plain/images/x.jpg",
+      "/_/rs:fill:91:61/g:ce/f:png/plain/images/x.jpg"
+    ]
+
+    for orientation <- 1..8, path <- paths do
+      oriented = call_imgproxy(path, oriented_frame_opts(orientation))
+      twin = call_imgproxy(path, orientation1_twin_opts(orientation))
+
+      assert oriented.status == 200, "oriented EXIF-#{orientation} #{path}: #{oriented.status}"
+      assert twin.status == 200, "twin EXIF-#{orientation} #{path}: #{twin.status}"
+
+      assert_twin_oracle_match(
+        decoded_image(oriented),
+        decoded_image(twin),
+        "EXIF-#{orientation} #{path}"
+      )
+    end
+  end
+
+  # Embedded EXIF orientation tag in the OUTPUT, asserted only under sm:0
+  # (strip_metadata=false). The default sm:1 strips the tag regardless of ar, so
+  # the ar:0-keeps-the-tag case below holds only because sm:0 disables stripping
+  # — it does NOT generalize. imgproxy's autorotate consumes and removes the tag;
+  # ar:0 leaves the bytes (and tag) untouched.
+  test "ar/sm control the residual output orientation tag (sm:0)" do
+    # (a) ar:1 + tagged source: tag absent (autorotate stripped it), pixels rotated.
+    rotated = call_imgproxy("/_/sm:0/f:png/plain/images/x.jpg", oriented_frame_opts(6))
+    assert rotated.status == 200
+    assert output_orientation_tag(rotated) in [nil, 1]
+    # EXIF-6 displays the 120×200 portrait as 200×120 landscape.
+    assert dimensions(rotated) == {200, 120}
+
+    # (b) ar:0 + tagged source under sm:0: tag PRESENT, pixels unrotated (stored).
+    unrotated =
+      call_imgproxy(
+        "/_/ar:0/sm:0/f:png/plain/images/x.jpg",
+        oriented_frame_opts(6, imgproxy: [auto_rotate: true])
+      )
+
+    assert unrotated.status == 200
+    assert output_orientation_tag(unrotated) == 6
+    assert dimensions(unrotated) == {120, 200}
+
+    # (c) ar:1 + orientation-1 source: nothing to rotate, no tag introduced.
+    twin = call_imgproxy("/_/sm:0/f:png/plain/images/x.jpg", orientation1_twin_opts(6))
+    assert twin.status == 200
+    assert output_orientation_tag(twin) in [nil, 1]
+    assert dimensions(twin) == {200, 120}
   end
 
   test "invalid signatures, paths, options, and expiry stop before cache and origin access" do
@@ -2094,6 +2270,66 @@ defmodule ImagePipe.ImgproxyWireConformanceTest do
       ],
       overrides
     )
+  end
+
+  defp oriented_frame_opts(orientation, overrides \\ []) do
+    Keyword.merge(
+      [
+        parser: ImagePipe.Parser.Imgproxy,
+        sources: [
+          path:
+            {RootHTTPAdapter,
+             root_url: "http://origin.test",
+             req_options: [plug: {OrientedFrameOrigin, orientation}]}
+        ]
+      ],
+      overrides
+    )
+  end
+
+  defp orientation1_twin_opts(orientation, overrides \\ []) do
+    Keyword.merge(
+      [
+        parser: ImagePipe.Parser.Imgproxy,
+        sources: [
+          path:
+            {RootHTTPAdapter,
+             root_url: "http://origin.test",
+             req_options: [plug: {Orientation1TwinOrigin, orientation}]}
+        ]
+      ],
+      overrides
+    )
+  end
+
+  defp output_orientation_tag(%Plug.Conn{} = conn) do
+    image = decoded_image(conn)
+
+    case VipsImage.header_value(image, "orientation") do
+      {:ok, value} -> value
+      {:error, _} -> nil
+    end
+  end
+
+  # Wire-vs-orientation-1 oracle assertion: same dimensions, and interior flat-region
+  # pixels match within a small tolerance (the oriented leg round-trips through JPEG;
+  # the twin is lossless PNG). Sampling at 1/8 and 7/8 stays inside the solid
+  # quadrants, away from the red/green seam where a ±1px affine shift would ring.
+  defp assert_twin_oracle_match(oriented, twin, label) do
+    assert {Image.width(oriented), Image.height(oriented)} ==
+             {Image.width(twin), Image.height(twin)},
+           "#{label}: dims #{inspect({Image.width(oriented), Image.height(oriented)})} != twin #{inspect({Image.width(twin), Image.height(twin)})}"
+
+    xs = bounded_samples(Image.width(oriented))
+    ys = bounded_samples(Image.height(oriented))
+
+    for x <- xs, y <- ys do
+      op = Image.get_pixel!(oriented, x, y)
+      tp = Image.get_pixel!(twin, x, y)
+
+      assert pixels_close?(op, tp),
+             "#{label}: pixel mismatch at (#{x},#{y}): #{inspect(op)} vs twin #{inspect(tp)}"
+    end
   end
 
   defp effect_origin_opts do
