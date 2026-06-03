@@ -93,15 +93,14 @@ Success stop metadata:
 - `:original_dims` — `{w, h}` of the stored image before decode.
 - `:loaded_dims` — `{w, h}` actually decoded.
 
-Failure stop metadata:
+Failure stop metadata (one of two shapes, by failure mode):
 
-- `:result` — `:source_error` for source-side failures.
-- `:error` — a stable category atom for source failures (e.g. `:body_too_large`
-  when the source body crosses `:max_body_bytes`).
-- `:result` — `:processing_error` for decode and input-validation failures.
-- `:error` — a stable category atom for decode/validation failures (e.g.
-  `:input_limit` when the decoded image exceeds `:max_input_pixels`, `:decode`
-  for an undecodable body).
+- Source-side failure — `:result` is `:source_error`; `:error` is a stable
+  category atom (e.g. `:body_too_large` when the source body crosses
+  `:max_body_bytes`).
+- Decode / input-validation failure — `:result` is `:processing_error`; `:error`
+  is a stable category atom (e.g. `:input_limit` when the decoded image exceeds
+  `:max_input_pixels`, `:decode` for an undecodable body).
 
 ### Transform execute span (`[:transform, :execute]`)
 
