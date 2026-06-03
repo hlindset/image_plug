@@ -149,6 +149,21 @@ defmodule ImagePipe.PlanTest do
 
       assert Plan.operation_names(plan) == [:resize, :flip]
     end
+
+    test "flattens multiple pipelines in order and derives underscore names" do
+      {:ok, resize} = Operation.resize(:fit, {:px, 100}, :auto, enlargement: :deny)
+      {:ok, crop_guided} = Operation.crop_guided({:px, 50}, {:px, 50}, :center)
+
+      plan =
+        plan(
+          pipelines: [
+            %Pipeline{operations: [resize, %Flip{axis: :horizontal}]},
+            %Pipeline{operations: [crop_guided]}
+          ]
+        )
+
+      assert Plan.operation_names(plan) == [:resize, :flip, :crop_guided]
+    end
   end
 
   defp plan_with_guide(guide) do
