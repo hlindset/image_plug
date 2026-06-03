@@ -136,6 +136,21 @@ defmodule ImagePipe.PlanTest do
     assert {:error, {:invalid_auto_rotate, _}} = Plan.validate_shape(%{plan | auto_rotate: "yes"})
   end
 
+  describe "operation_names/1" do
+    test "returns stable operation-name atoms in order across pipelines" do
+      {:ok, resize} = Operation.resize(:fit, {:px, 100}, :auto, enlargement: :deny)
+
+      plan =
+        plan(
+          pipelines: [
+            %Pipeline{operations: [resize, %Flip{axis: :horizontal}]}
+          ]
+        )
+
+      assert Plan.operation_names(plan) == [:resize, :flip]
+    end
+  end
+
   defp plan_with_guide(guide) do
     operation = %CropGuided{width: {:px, 10}, height: {:px, 10}, guide: guide}
     plan(pipelines: [%Pipeline{operations: [operation]}])

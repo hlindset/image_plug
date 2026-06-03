@@ -129,7 +129,14 @@ defmodule ImagePipe.Request.Processor do
       decode_shrink: decode_shrink
     }
 
-    Telemetry.span(Telemetry.telemetry_opts(opts), [:transform, :execute], %{}, fn ->
+    operation_names = Plan.operation_names(plan)
+
+    execute_start_meta = %{
+      operations: operation_names,
+      operation_count: length(operation_names)
+    }
+
+    Telemetry.span(Telemetry.telemetry_opts(opts), [:transform, :execute], execute_start_meta, fn ->
       result =
         with {:ok, final_state} <-
                execute_transform_plan(initial_state, plan, opts),
