@@ -95,11 +95,33 @@ Success stop metadata:
 
 Failure stop metadata:
 
-- Source-side failures: `result: :source_error`, `error:` a stable category atom
-  (e.g. `:body_too_large` when the source body crosses `:max_body_bytes`).
-- Decode / input-validation failures: `result: :processing_error`, `error:` a
-  stable category atom (e.g. `:input_limit` when the decoded image exceeds
-  `:max_input_pixels`, `:decode` for an undecodable body).
+- `:result` — `:source_error` for source-side failures.
+- `:error` — a stable category atom for source failures (e.g. `:body_too_large`
+  when the source body crosses `:max_body_bytes`).
+- `:result` — `:processing_error` for decode and input-validation failures.
+- `:error` — a stable category atom for decode/validation failures (e.g.
+  `:input_limit` when the decoded image exceeds `:max_input_pixels`, `:decode`
+  for an undecodable body).
+
+### Transform execute span (`[:transform, :execute]`)
+
+The `[:image_pipe, :transform, :execute]` span wraps the full transform chain.
+Its start metadata carries the aggregate plan view:
+
+- `:operation_count` — number of **plan** operations.
+- `:operations` — the ordered list of **plan** (semantic) operation-name atoms.
+
+**These two aggregate fields use a deliberately different vocabulary from the
+per-operation spans below.** The aggregate `:operations` is the *semantic plan*
+view (`:crop_guided`, `:crop_region`, `:canvas`, …). The per-op span's
+`:operation` is the *executed-transform* view (`Transform.transform_name/1`),
+where e.g. both crop variants execute as `:crop` and a canvas executes as
+`:extend_canvas`. A single plan operation can also expand into several executed
+transform ops, so `:operation_count` (plan ops) is **not** guaranteed to equal
+the number of `[:transform, :operation]` spans. Treat the aggregate as "what
+the request asked for" and the per-op spans as "what actually ran".
+
+Stop metadata: `:result` (`:ok` or `:processing_error`).
 
 ### Per-operation transform spans (`[:transform, :operation]`)
 
@@ -118,21 +140,6 @@ Start metadata:
   public request).
 
 Stop metadata: `:result` (`:ok` or `:error`).
-
-The enclosing `[:transform, :execute]` start metadata carries the aggregate:
-
-- `:operation_count` — number of **plan** operations.
-- `:operations` — the ordered list of **plan** (semantic) operation-name atoms.
-
-**These two name sets are deliberately different vocabularies.** The aggregate
-`:operations` is the *semantic plan* view (`:crop_guided`, `:crop_region`,
-`:canvas`, …). The per-op span's `:operation` is the *executed-transform* view
-(`Transform.transform_name/1`), where e.g. both crop variants execute as
-`:crop` and a canvas executes as `:extend_canvas`. A single plan operation can
-also expand into several executed transform ops, so `:operation_count` (plan
-ops) is **not** guaranteed to equal the number of `[:transform, :operation]`
-spans. Treat the aggregate as "what the request asked for" and the per-op spans
-as "what actually ran".
 
 ## Measurements
 

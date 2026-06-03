@@ -161,6 +161,21 @@ defmodule ImagePipe.Telemetry.LoggerTest do
     assert log =~ "transform execute: ok (2 ops)"
   end
 
+  test "renders the transform execute aggregate with a failure outcome" do
+    Telemetry.attach_default_logger(level: :debug)
+
+    log =
+      capture_log([level: :debug], fn ->
+        :telemetry.execute(
+          [:image_pipe, :transform, :execute, :stop],
+          %{duration: 500},
+          %{result: :processing_error, operation_count: 2}
+        )
+      end)
+
+    assert log =~ "transform execute: processing_error (2 ops)"
+  end
+
   test "rejects an invalid log level" do
     assert_raise ArgumentError, fn -> Telemetry.attach_default_logger(level: :nope) end
   end
