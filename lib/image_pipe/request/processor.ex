@@ -144,10 +144,12 @@ defmodule ImagePipe.Request.Processor do
   end
 
   # PlanExecutor owns the pipeline loop: it seeds the EXIF orientation once
-  # (seed_orientation), iterates all pipelines, and flushes the pending orientation
-  # at each pipeline boundary. The request layer adds only the source-aware delivery
-  # backstop afterward (materialize_before_delivery) — the one materialization step
-  # that needs source_response and so cannot move into the transform boundary.
+  # (seed_orientation), iterates all pipelines, and resolves any still-pending
+  # orientation at each pipeline boundary (a backstop — within a pipeline the flush
+  # usually fires earlier, at the first materializing op or after a resize). The
+  # request layer adds only the source-aware delivery backstop afterward
+  # (materialize_before_delivery) — the one materialization step that needs
+  # source_response and so cannot move into the transform boundary.
   defp execute_transform_plan(%State{} = state, %Plan{} = plan, opts) do
     Transform.execute_plan(plan, state, Keyword.put(opts, :seed_orientation, true))
     |> classify_materialize_error()

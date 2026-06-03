@@ -91,6 +91,41 @@ defmodule ImagePipe.Transform.DeferredOrientationTest do
     end
   end
 
+  # ── Multi-pipeline boundary ──────────────────────────────────────────────────
+
+  # Splitting orientation-affecting operations across a pipeline boundary must
+  # produce the same pixels as the same-primitive reference. EXIF is seeded once
+  # for the whole plan (before the first pipeline) and the pending orientation is
+  # resolved at each pipeline boundary, so pipeline 2 operates on the already-
+  # oriented display frame — the user rotate (pipeline 1) and flips (pipeline 2)
+  # land on top of the resolved orientation exactly as a single pipeline would.
+  # This pins the seed-once + boundary-flush invariant that lets Request.Processor
+  # hand the whole multi-pipeline plan to PlanExecutor in one execute_plan call
+  # (#137). An empty pipeline 1 (user_rotate == 0) exercises the boundary flush
+  # carrying EXIF orientation alone across into pipeline 2.
+  test "rotate (pipeline 1) + flips (pipeline 2) match the orientation reference" do
+    for orientation <- 1..8,
+        user_rotate <- [0, 90, 180, 270],
+        flips <- [[], [:horizontal], [:vertical]] do
+      base = Image.set_orientation!(marked(40, 20), orientation)
+      split = two_pipeline_plan(build_ops(user_rotate, []), build_ops(0, flips), true)
+      out = run(split, base)
+      assert_pixels_match(out, orientation_only_reference(base, user_rotate, flips))
+    end
+  end
+
+  defp two_pipeline_plan(p1_ops, p2_ops, auto_rotate?) do
+    %Plan{
+      source: nil,
+      output: nil,
+      auto_rotate: auto_rotate?,
+      pipelines: [
+        %ImagePipe.Plan.Pipeline{operations: p1_ops},
+        %ImagePipe.Plan.Pipeline{operations: p2_ops}
+      ]
+    }
+  end
+
   # ── Detector-ordering gate ───────────────────────────────────────────────────
 
   # A content-aware (detect) gravity crop requires materialization, so the
