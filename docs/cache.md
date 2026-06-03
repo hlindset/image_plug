@@ -26,6 +26,58 @@ image. Invalid parser and planner requests return before source fetch or cache
 access. Invalid Imgproxy signatures return `403`. Parser, planner, source
 fetch, decode, transform, negotiation, and encode errors are never cached.
 
+## Freshness and source stability
+
+The internal cache has no time-based freshness and performs no origin
+revalidation. A cache hit is served from the stored encoded body without
+re-fetching the source, without re-reading source metadata, and without checking
+whether the origin bytes changed. Reuse validity is therefore a property of the
+*source identity*, not of elapsed time: the cache assumes that a given resolved
+source identity always names the same bytes.
+
+That assumption is made explicit per source through the `:stable` option, and
+whether the internal cache is used at all is gated on it through the
+`:internal_cache` option.
+
+- `:stable` (`:auto` | `:trusted`, default `:auto`) asserts whether the resolved
+  source identity names immutable bytes. `:trusted` means the caller guarantees
+  the bytes at that identity never change in place. `:auto` treats the source as
+  mutable, except for `ImagePipe.Source.S3` objects fetched with a revision,
+  which are stable under `:auto` because the version is part of the fetch.
+- `:internal_cache` (`:auto` | `:enabled` | `:disabled`, default `:auto`)
+  decides whether responses for the source may be read from and written to the
+  configured cache. Under `:auto`, the internal cache is **enabled only when the
+  source is stable**.
+
+The consequence is that, with default settings, ImagePipe does not internally
+cache mutable sources at all. A request against a non-stable source skips cache
+lookup and cache staging entirely and re-fetches and re-processes the origin
+every time, so it cannot serve an indefinitely stale transformed response. The
+"stale forever" failure mode only arises if a deployment deliberately forces
+`internal_cache: :enabled` on a mutable source; in that case freshness is the
+caller's responsibility, managed through cachebusters in the request or external
+eviction of the cache (including bounded mode's size-driven eviction, below).
+
+`:stable` and `:internal_cache` are independent of the client-facing HTTP cache
+headers (`Cache-Control`, `ETag`, conditional `GET` / `304`), which are governed
+separately and described in [docs/cdn-http-cache.md](cdn-http-cache.md). The
+client-side `ETag` is a validator over request inputs and does not revalidate the
+origin either.
+
+### Deliberately not implemented
+
+The following are intentionally out of scope for the current cache and are
+tracked in [issue #44](https://github.com/hlindset/image_pipe/issues/44):
+
+- per-entry TTL or bounded staleness independent of source identity;
+- storing and honoring origin `Cache-Control` / `Expires`;
+- storing origin `ETag` / `Last-Modified` validators and revalidating the origin
+  with `If-None-Match` / `If-Modified-Since` (no `304` reuse against the origin).
+
+Entry metadata is versioned (the filesystem adapter carries an independent
+`metadata_version`; see below), so freshness or validator fields can be added in
+a migration-safe way if mutable origins become a first-class use case.
+
 ## Cache misses and streaming
 
 On cache read, ImagePipe validates the returned entry before treating it as a
