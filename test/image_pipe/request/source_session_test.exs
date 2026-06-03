@@ -702,52 +702,6 @@ defmodule ImagePipe.Request.SourceSessionTest do
     assert_receive {:DOWN, ^session_ref, :process, ^session, {:shutdown, {:owner_down, :normal}}}
   end
 
-  test "concurrent prepare while producer demand is pending returns busy" do
-    {:ok, session} = start_session(blocking_request(), parent: self())
-    parent = self()
-
-    caller =
-      start_test_process(fn ->
-        send(parent, {:first_prepare, SourceSession.prepare(session, 5_000)})
-      end)
-
-    caller_ref = Process.monitor(caller)
-    assert_receive {:fetch_started, producer_pid}
-
-    assert {:error, {:protocol, :busy}} = SourceSession.prepare(session)
-
-    send(producer_pid, :release_fetch)
-    assert_receive {:first_prepare, {:error, _reason}}
-    assert_receive {:DOWN, ^caller_ref, :process, ^caller, :normal}
-  end
-
-  test "concurrent next while producer demand is pending returns busy" do
-    register_stream_events!()
-
-    {:ok, session} =
-      start_session(
-        cached_request(opts: opts(image_module: OwnerDownBeforeSecondChunkImage)),
-        parent: self()
-      )
-
-    assert {:ok, %Prepared{first_chunk: "first chunk"}} = SourceSession.prepare(session)
-    parent = self()
-
-    caller =
-      start_test_process(fn ->
-        send(parent, {:first_next, SourceSession.next(session, 5_000)})
-      end)
-
-    caller_ref = Process.monitor(caller)
-    assert_receive {:before_second_chunk, producer_pid}
-
-    assert {:error, {:protocol, :busy}} = SourceSession.next(session)
-
-    send(producer_pid, :continue_second_chunk)
-    assert_receive {:first_next, {:chunk, "second chunk"}}
-    assert_receive {:DOWN, ^caller_ref, :process, ^caller, :normal}
-  end
-
   test "cancel during pending next replies to pending caller before stopping" do
     register_stream_events!()
 

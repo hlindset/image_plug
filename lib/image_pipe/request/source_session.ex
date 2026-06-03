@@ -93,11 +93,6 @@ defmodule ImagePipe.Request.SourceSession do
   end
 
   @impl GenServer
-  def handle_call(message, _from, %{pending: {_kind, _pending_from}} = state)
-      when message in [:prepare, :next] do
-    {:reply, {:error, {:protocol, :busy}}, state}
-  end
-
   def handle_call(:prepare, from, %{phase: :new} = state) do
     state = start_producer(state)
     ref = Producer.request_next(state.producer, self())
