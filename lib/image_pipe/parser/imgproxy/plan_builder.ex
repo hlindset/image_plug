@@ -34,6 +34,7 @@ defmodule ImagePipe.Parser.Imgproxy.PlanBuilder do
       {:ok,
        %Plan{
          source: source,
+         auto_rotate: request.auto_rotate,
          pipelines: pipelines,
          output: output,
          expires: expires,

@@ -104,6 +104,17 @@ defmodule ImagePipe.Parser.ImgproxyTest do
     end
   end
 
+  test "Plan.auto_rotate reflects ar option / config default" do
+    assert {:ok, %ImagePipe.Plan{auto_rotate: true}} =
+             Imgproxy.parse(conn(:get, "/_/plain/images/cat.jpg"), imgproxy: [auto_rotate: true])
+
+    assert {:ok, %ImagePipe.Plan{auto_rotate: false}} =
+             Imgproxy.parse(conn(:get, "/_/ar:false/plain/images/cat.jpg"), imgproxy: [auto_rotate: true])
+
+    assert {:ok, %ImagePipe.Plan{auto_rotate: true}} =
+             Imgproxy.parse(conn(:get, "/_/ar:true/plain/images/cat.jpg"), imgproxy: [auto_rotate: false])
+  end
+
   test "strip_color_profile emits NormalizeColorProfile after geometry, before effects" do
     assert {:ok, %Plan{pipelines: [%Pipeline{operations: ops}]}} =
              Imgproxy.parse(conn(:get, "/_/plain/images/cat.jpg"), @no_auto_rotate_opts)

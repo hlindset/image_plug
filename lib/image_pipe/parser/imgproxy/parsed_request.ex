@@ -18,6 +18,7 @@ defmodule ImagePipe.Parser.Imgproxy.ParsedRequest do
   @enforce_keys [:signature, :source_kind, :source_path, :pipelines]
   defstruct @enforce_keys ++
               [
+                auto_rotate: false,
                 output: @default_output,
                 policy: @default_policy,
                 cache: @default_cache,
@@ -46,6 +47,7 @@ defmodule ImagePipe.Parser.Imgproxy.ParsedRequest do
           source_kind: :plain,
           source_path: String.t(),
           pipelines: [PipelineRequest.t()],
+          auto_rotate: boolean(),
           output: output_request(),
           policy: policy_request(),
           cache: cache_request(),

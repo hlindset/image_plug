@@ -21,6 +21,7 @@ defmodule ImagePipe.Parser.Imgproxy.Options do
 
   @type request_options :: %{
           pipelines: [PipelineRequest.t()],
+          auto_rotate: boolean(),
           output: ParsedRequest.output_request(),
           policy: ParsedRequest.policy_request(),
           cache: ParsedRequest.cache_request(),
@@ -36,7 +37,7 @@ defmodule ImagePipe.Parser.Imgproxy.Options do
         options
         |> finalize_request_options()
         |> apply_request_defaults(defaults)
-        |> Map.take([:pipelines, :output, :policy, :cache, :response])
+        |> Map.take([:pipelines, :auto_rotate, :output, :policy, :cache, :response])
 
       {:ok, request}
     end
@@ -311,7 +312,9 @@ defmodule ImagePipe.Parser.Imgproxy.Options do
       |> resolve_metadata_defaults(defaults)
       |> Map.put(:strip_color_profile, strip_color_profile?)
 
-    %{options | pipelines: pipelines, output: output}
+    options
+    |> Map.put(:auto_rotate, auto_rotate?)
+    |> Map.merge(%{pipelines: pipelines, output: output})
   end
 
   defp resolve_metadata_defaults(output, defaults) do
