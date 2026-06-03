@@ -326,6 +326,24 @@ defmodule ImagePipe.Plan.Operation do
     end
   end
 
+  @doc """
+  Stable, product-neutral name atom for a semantic operation struct
+  (e.g. `%Operation.Resize{}` -> `:resize`). Derived from the struct module's
+  tail; used for telemetry metadata. Bounded by defined operation modules.
+  Every operation name also appears as a literal in a compiled module (a
+  constructor here, a key-data table, or the operation's transform module), so
+  the atom is always pre-loaded and `String.to_existing_atom/1` cannot raise for
+  an in-repo operation.
+  """
+  @spec name(struct()) :: atom()
+  def name(%mod{}) do
+    mod
+    |> Module.split()
+    |> List.last()
+    |> Macro.underscore()
+    |> String.to_existing_atom()
+  end
+
   @spec semantic?(term()) :: boolean()
   def semantic?(%Resize{} = operation), do: valid_resize?(operation)
   def semantic?(%CropGuided{} = operation), do: valid_crop_guided?(operation)

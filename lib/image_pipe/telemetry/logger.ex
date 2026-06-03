@@ -118,6 +118,10 @@ defmodule ImagePipe.Telemetry.Logger do
     "image_pipe transform: #{meta[:operation]} (##{(meta[:index] || 0) + 1})"
   end
 
+  defp message([:transform, :execute | _], _m, meta) do
+    "image_pipe transform execute: #{outcome(meta)} (#{meta[:operation_count] || 0} ops)"
+  end
+
   defp message([:transform, :detect, :skipped | _], _m, _meta),
     do: "image_pipe transform detect: skipped (no detector configured)"
 
