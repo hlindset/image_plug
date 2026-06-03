@@ -12,18 +12,14 @@ defmodule ImagePipe.Transform.Materializer do
   delivery for any chain that never materialized mid-pipeline.
   """
 
-  alias ImagePipe.Transform.State
-  alias Vix.Vips.Image, as: VipsImage
+  alias ImagePipe.Transform.{OrientationFlush, State}
 
   @callback materialize(State.t(), keyword()) ::
               {:ok, State.t()} | {:error, term()}
 
   @spec materialize(State.t()) :: {:ok, State.t()} | {:error, term()}
   def materialize(%State{} = state) do
-    case VipsImage.copy_memory(state.image) do
-      {:ok, image} -> {:ok, %State{state | image: image, materialized?: true}}
-      {:error, _reason} = error -> error
-    end
+    OrientationFlush.flush(state)
   end
 
   @spec materialize(State.t(), keyword()) :: {:ok, State.t()} | {:error, term()}
