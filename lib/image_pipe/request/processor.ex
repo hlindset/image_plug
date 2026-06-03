@@ -118,7 +118,16 @@ defmodule ImagePipe.Request.Processor do
     source_response = Map.get(decoded, :source_response)
     source_dimensions = Map.get(decoded, :source_dimensions)
 
-    initial_state = %State{image: image, source_dimensions: source_dimensions}
+    # The realized shrink is only meaningful when shrink-on-load actually fired;
+    # `source_dimensions` is the same gate (set iff a shrink/scale load option was
+    # emitted). A crop preceding the resize uses it to rescale absolute coords.
+    decode_shrink = if source_dimensions, do: Map.get(decoded, :achieved_shrink), else: nil
+
+    initial_state = %State{
+      image: image,
+      source_dimensions: source_dimensions,
+      decode_shrink: decode_shrink
+    }
 
     Telemetry.span(Telemetry.telemetry_opts(opts), [:transform, :execute], %{}, fn ->
       result =

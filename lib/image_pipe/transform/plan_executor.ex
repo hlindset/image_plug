@@ -138,46 +138,22 @@ defmodule ImagePipe.Transform.PlanExecutor do
     {:ok, %State{state | pending_orientation: PendingOrientation.fold_flip(po, axis)}}
   end
 
-  # Region crop runs literally on oriented pixels: flush pending first.
-  defp execute_operation(
-         %CropRegion{} = operation,
-         %State{pending_orientation: po} = state,
-         ctx,
-         opts
-       )
-       when not is_nil(po) do
-    with {:ok, %State{} = state} <- flush_if_pending(state) do
-      execute_operation(operation, %State{state | pending_orientation: nil}, ctx, opts)
+  # A crop runs before the residual resize in the fixed pipeline order. After it
+  # executes, the live (cropped) image is the frame the resize must size against —
+  # so clear the stored source frame (source_dimensions/decode_shrink). With
+  # shrink-on-load through a preceding crop (#151) the decode was shrunk and the
+  # crop coordinates were already rescaled by `decode_shrink`; leaving the stored
+  # original dims set would make the resize size against the un-cropped original.
+  # When no shrink fired both are already nil and this is a no-op.
+  defp execute_operation(%CropRegion{} = operation, %State{} = state, ctx, opts) do
+    with {:ok, %State{} = state} <- do_execute_crop(operation, state, ctx, opts) do
+      {:ok, clear_source_frame(state)}
     end
   end
 
-  # Gravity crop: compensate the built %Crop{} gravity (type + offsets) and swap
-  # its dims for a quarter turn, so cropping in the storage frame then flushing
-  # matches cropping in the oriented frame.
-  defp execute_operation(
-         %CropGuided{} = operation,
-         %State{pending_orientation: po} = state,
-         ctx,
-         opts
-       )
-       when not is_nil(po) do
-    cond do
-      PendingOrientation.identity?(po) ->
-        run_executable(operation, state, ctx, opts)
-
-      # Smart/detect crops materialize, so the auto-flush at the materializing crop
-      # fires first and the crop sees oriented (display-frame) pixels — emit literal.
-      materializing_gravity?(operation.guide) ->
-        run_executable(operation, state, ctx, opts)
-
-      true ->
-        # Inlined so compensation sits between translate and execute.
-        executable =
-          operation
-          |> executable_operations(state, ctx)
-          |> Enum.map(&compensate_crop(&1, po))
-
-        Chain.execute(state, executable, opts)
+  defp execute_operation(%CropGuided{} = operation, %State{} = state, ctx, opts) do
+    with {:ok, %State{} = state} <- do_execute_crop(operation, state, ctx, opts) do
+      {:ok, clear_source_frame(state)}
     end
   end
 
@@ -240,6 +216,57 @@ defmodule ImagePipe.Transform.PlanExecutor do
     operation
     |> executable_operations(state, context)
     |> then(&Chain.execute(state, &1, opts))
+  end
+
+  defp clear_source_frame(%State{} = state),
+    do: %State{state | source_dimensions: nil, decode_shrink: nil}
+
+  # Region crop runs literally on oriented pixels: flush pending first.
+  defp do_execute_crop(
+         %CropRegion{} = operation,
+         %State{pending_orientation: po} = state,
+         ctx,
+         opts
+       )
+       when not is_nil(po) do
+    with {:ok, %State{} = state} <- flush_if_pending(state) do
+      do_execute_crop(operation, %State{state | pending_orientation: nil}, ctx, opts)
+    end
+  end
+
+  # Gravity crop: compensate the built %Crop{} gravity (type + offsets) and swap
+  # its dims for a quarter turn, so cropping in the storage frame then flushing
+  # matches cropping in the oriented frame.
+  defp do_execute_crop(
+         %CropGuided{} = operation,
+         %State{pending_orientation: po} = state,
+         ctx,
+         opts
+       )
+       when not is_nil(po) do
+    cond do
+      PendingOrientation.identity?(po) ->
+        run_executable(operation, state, ctx, opts)
+
+      # Smart/detect crops materialize, so the auto-flush at the materializing crop
+      # fires first and the crop sees oriented (display-frame) pixels — emit literal.
+      materializing_gravity?(operation.guide) ->
+        run_executable(operation, state, ctx, opts)
+
+      true ->
+        # Inlined so compensation sits between translate and execute.
+        executable =
+          operation
+          |> executable_operations(state, ctx)
+          |> Enum.map(&compensate_crop(&1, po))
+
+        Chain.execute(state, executable, opts)
+    end
+  end
+
+  # No pending orientation: crop runs literally in the live frame.
+  defp do_execute_crop(operation, %State{} = state, ctx, opts) do
+    run_executable(operation, state, ctx, opts)
   end
 
   defp materializing_gravity?(:smart), do: true
@@ -360,8 +387,8 @@ defmodule ImagePipe.Transform.PlanExecutor do
     tagged_executable_resize_operations(branch, resize, operation, state)
   end
 
-  defp executable_operations(%CropGuided{} = operation, %State{}, _context) do
-    [
+  defp executable_operations(%CropGuided{} = operation, %State{} = state, _context) do
+    crop =
       %Crop{
         width: crop_dimension(operation.width),
         height: crop_dimension(operation.height),
@@ -372,11 +399,12 @@ defmodule ImagePipe.Transform.PlanExecutor do
         aspect_ratio: operation.aspect_ratio,
         enlarge: operation.enlarge
       }
-    ]
+
+    [rescale_crop_for_decode_shrink(crop, state.decode_shrink)]
   end
 
-  defp executable_operations(%CropRegion{} = operation, %State{}, _context) do
-    [
+  defp executable_operations(%CropRegion{} = operation, %State{} = state, _context) do
+    crop =
       %Crop{
         width: crop_dimension(operation.width),
         height: crop_dimension(operation.height),
@@ -385,7 +413,8 @@ defmodule ImagePipe.Transform.PlanExecutor do
           top: crop_coordinate(operation.y)
         }
       }
-    ]
+
+    [rescale_crop_for_decode_shrink(crop, state.decode_shrink)]
   end
 
   defp executable_operations(%Canvas{} = operation, %State{}, _context) do
@@ -584,6 +613,58 @@ defmodule ImagePipe.Transform.PlanExecutor do
 
   defp crop_coordinate({:px, value}), do: {:pixels, value}
   defp crop_coordinate({:ratio, numerator, denominator}), do: {:scale, numerator, denominator}
+
+  # Rescale an executable crop's ABSOLUTE coordinates for shrink-on-load through a
+  # preceding crop (#151). Shrink-on-load decoded the image smaller by the realized
+  # per-axis factor, so a crop expressed in stored-source pixels must divide by that
+  # factor to select the same region on the shrunk frame — imgproxy's
+  # `CropWidth = max(1, Shrink(CropWidth, wpreshrink))` and the absolute-gravity-
+  # offset adjustment (scale_on_load.go:136-153). Width/height and explicit
+  # region coordinates rescale unconditionally when absolute; pixel gravity offsets
+  # rescale only for non-focus-point gravity (imgproxy guards on `Type !=
+  # GravityFocusPoint`, since focus coords are inherently relative). Relative
+  # ({:scale,_}/{:percent,_}) dims, coords, and offsets, and `:auto`, are untouched
+  # because they already track the shrunk frame proportionally.
+  defp rescale_crop_for_decode_shrink(%Crop{} = crop, nil), do: crop
+
+  defp rescale_crop_for_decode_shrink(%Crop{} = crop, %{w: wshrink, h: hshrink}) do
+    %Crop{
+      crop
+      | width: shrink_abs_dimension(crop.width, wshrink),
+        height: shrink_abs_dimension(crop.height, hshrink),
+        crop_from: shrink_crop_from(crop.crop_from, wshrink, hshrink),
+        x_offset: shrink_abs_offset(crop.x_offset, crop.gravity, wshrink),
+        y_offset: shrink_abs_offset(crop.y_offset, crop.gravity, hshrink)
+    }
+  end
+
+  # imgproxy: CropWidth = max(1, Round(CropWidth / preshrink)).
+  defp shrink_abs_dimension({:pixels, value}, shrink),
+    do: {:pixels, max(1, round(value / shrink))}
+
+  defp shrink_abs_dimension(other, _shrink), do: other
+
+  defp shrink_crop_from(%{left: left, top: top}, wshrink, hshrink) do
+    %{left: shrink_abs_coordinate(left, wshrink), top: shrink_abs_coordinate(top, hshrink)}
+  end
+
+  defp shrink_crop_from(other, _wshrink, _hshrink), do: other
+
+  defp shrink_abs_coordinate({:pixels, value}, shrink),
+    do: {:pixels, max(0, round(value / shrink))}
+
+  defp shrink_abs_coordinate(other, _shrink), do: other
+
+  # Absolute pixel gravity offsets rescale by RoundToEven(offset / preshrink), but
+  # NOT for focus-point gravity (imgproxy leaves GravityFocusPoint offsets alone —
+  # focus coords are relative). Relative offsets ({:scale,_}/{:percent,_}/number)
+  # are already proportional to the shrunk bounds and pass through.
+  defp shrink_abs_offset(offset, {:fp, _x, _y}, _shrink), do: offset
+
+  defp shrink_abs_offset({:pixels, value}, _gravity, shrink),
+    do: {:pixels, round_half_to_even(value / shrink)}
+
+  defp shrink_abs_offset(other, _gravity, _shrink), do: other
 
   defp canvas_dimension(:auto), do: :auto
   defp canvas_dimension({:px, value}), do: {:pixels, value}

@@ -20,9 +20,18 @@ defmodule ImagePipe.Transform.State do
     dims), so the residual resize lands on the same target as a full-resolution
     decode. It stays in the storage frame — EXIF/user orientation is carried as a
     pending rotation on `pending_orientation` and flushed after the resize, so no
-    pre-resize op swaps these dimensions. Shrink-on-load is declined whenever a crop
-    or quarter-turn rotate precedes the resize (see `ImagePipe.Transform.DecodePlanner`).
-    The residual resize clears it to `nil`.
+    pre-resize op swaps these dimensions. Shrink-on-load is declined when a
+    quarter-turn rotate precedes the resize (see `ImagePipe.Transform.DecodePlanner`);
+    a preceding crop no longer declines it (#151). The residual resize clears it to
+    `nil`. A crop reached before the resize also clears it (the cropped live image is
+    then the frame the resize sizes against), alongside `decode_shrink`.
+  - `decode_shrink`: the *realized* per-axis shrink factor `%{w: float, h: float}`
+    (each `>= 1.0`, original ÷ decoded) actually applied by shrink-on-load, or `nil`
+    when the decode was full-resolution. A crop preceding the resize rescales its
+    absolute pixel dims and pixel/absolute gravity offsets by this factor so the
+    crop selects the same source region on the shrunk image that it would at full
+    resolution; relative (ratio/percent/focus-point) coordinates are untouched.
+    For JPEG block shrink and WebP scale-on-load the factor is uniform across axes.
   """
 
   defstruct image: nil,
@@ -31,6 +40,7 @@ defmodule ImagePipe.Transform.State do
             detector_required: false,
             telemetry_opts: [],
             source_dimensions: nil,
+            decode_shrink: nil,
             pending_orientation: nil,
             materialized?: false
 
@@ -41,6 +51,7 @@ defmodule ImagePipe.Transform.State do
           detector_required: boolean(),
           telemetry_opts: keyword(),
           source_dimensions: {pos_integer(), pos_integer()} | nil,
+          decode_shrink: %{w: float(), h: float()} | nil,
           pending_orientation: ImagePipe.Transform.PendingOrientation.t() | nil,
           materialized?: boolean()
         }
