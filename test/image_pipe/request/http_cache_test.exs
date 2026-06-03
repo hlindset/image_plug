@@ -249,6 +249,16 @@ defmodule ImagePipe.Request.HTTPCacheTest do
     assert header(base.headers, "cache-control") == header(expiring.headers, "cache-control")
   end
 
+  test "auto_rotate changes the generated etag (unlike cachebuster)" do
+    off =
+      HTTPCache.prepare(conn(:get, "/image"), %{plan() | auto_rotate: false}, resolved(), opts())
+
+    on =
+      HTTPCache.prepare(conn(:get, "/image"), %{plan() | auto_rotate: true}, resolved(), opts())
+
+    refute off.etag == on.etag
+  end
+
   test "cachebuster changes internal key data but not generated etag" do
     base_plan = plan()
     busted_plan = %{plan() | cachebuster: "v2"}
