@@ -62,8 +62,6 @@ defmodule ImagePipe.Request.Processor do
     with {:ok, input} <- seekable_input(source_response),
          {:ok, header_image} <-
            open_seekable_input(input, [access: :random, fail_on: :error], opts)
-           |> prefer_source_body_limit(source_response)
-           |> prefer_source_stream_error(source_response)
            |> wrap_decode_error(),
          {:ok, source_format} <- SourceFormat.from_image(header_image),
          original_dims = {Image.width(header_image), Image.height(header_image)},
@@ -78,8 +76,6 @@ defmodule ImagePipe.Request.Processor do
            ),
          {:ok, image} <-
            open_seekable_input(input, decode_options, opts)
-           |> prefer_source_body_limit(source_response)
-           |> prefer_source_stream_error(source_response)
            |> wrap_decode_error() do
       {:ok,
        %{
@@ -180,10 +176,17 @@ defmodule ImagePipe.Request.Processor do
   defp seekable_input(%Source.Response{path: path, stream: nil}) when is_binary(path),
     do: {:ok, {:path, path}}
 
+  # The drained value is a host-implementable Source adapter stream (a boundary we
+  # don't control). A StreamError carries a classified source reason; any other
+  # exception/throw/exit raised while draining the source is normalized to a safe
+  # {:source, :stream_exception} (→ 422) rather than crashing the request.
   defp seekable_input(%Source.Response{path: nil, stream: stream}) when not is_nil(stream) do
     {:ok, {:buffer, stream |> Enum.to_list() |> IO.iodata_to_binary()}}
   rescue
     exception in [Source.StreamError] -> {:error, {:source, exception.reason}}
+    _exception -> {:error, {:source, :stream_exception}}
+  catch
+    _kind, _reason -> {:error, {:source, :stream_exception}}
   end
 
   defp seekable_input(%Source.Response{}), do: {:error, {:source, :invalid_adapter_result}}
@@ -236,11 +239,8 @@ defmodule ImagePipe.Request.Processor do
     materializer.materialize(state, opts)
   end
 
-  defp handle_materialization_result(result, source_response) do
-    result
-    |> prefer_source_body_limit(source_response)
-    |> prefer_source_stream_error(source_response)
-    |> do_handle_materialization_result()
+  defp handle_materialization_result(result, _source_response) do
+    do_handle_materialization_result(result)
   end
 
   defp do_handle_materialization_result({:error, {:source, _reason} = error}), do: {:error, error}
@@ -255,24 +255,6 @@ defmodule ImagePipe.Request.Processor do
   defp wrap_decode_error({:error, {:source, _reason}} = error), do: error
   defp wrap_decode_error({:error, error}), do: {:error, {:decode, error}}
   defp wrap_decode_error(result), do: result
-
-  defp prefer_source_body_limit(result, %Source.Response{} = source_response) do
-    case Source.body_limit_exceeded?(source_response) do
-      true -> {:error, {:source, :body_too_large}}
-      false -> result
-    end
-  end
-
-  defp prefer_source_body_limit(result, _source_response), do: result
-
-  defp prefer_source_stream_error({:error, reason}, %Source.Response{} = source_response) do
-    case Source.stream_error_reason(source_response) do
-      {:ok, reason} -> {:error, {:source, reason}}
-      :error -> {:error, reason}
-    end
-  end
-
-  defp prefer_source_stream_error(result, _source_response), do: result
 
   # Whether the source's EXIF orientation implies a 90°/270° turn. The decode
   # planner uses this (together with the `auto_rotate` flag) to decide whether the
