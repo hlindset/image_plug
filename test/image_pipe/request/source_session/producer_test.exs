@@ -10,6 +10,7 @@ defmodule ImagePipe.Request.SourceSession.ProducerTest do
   alias ImagePipe.Request.SourceSession.Request
   alias ImagePipe.Source.Resolved, as: ResolvedSource
   alias ImagePipe.SourceTest.ValidAdapter
+  alias ImagePipe.Test.SourceSession.ProducerClient
 
   @event_target __MODULE__.StreamEvents
 
@@ -104,11 +105,11 @@ defmodule ImagePipe.Request.SourceSession.ProducerTest do
     ref = Process.monitor(producer)
 
     assert {:ok, {:first_chunk, "first chunk", "image/jpeg", [], resolved_output}} =
-             Producer.next(producer)
+             ProducerClient.next(producer)
 
     assert resolved_output.format == :jpeg
-    assert {:ok, {:chunk, "second chunk"}} = Producer.next(producer)
-    assert {:ok, :done} = Producer.next(producer)
+    assert {:ok, {:chunk, "second chunk"}} = ProducerClient.next(producer)
+    assert {:ok, :done} = ProducerClient.next(producer)
     assert_receive {:DOWN, ^ref, :process, ^producer, :normal}
   end
 
@@ -117,9 +118,9 @@ defmodule ImagePipe.Request.SourceSession.ProducerTest do
     ref = Process.monitor(producer)
 
     assert {:ok, {:first_chunk, "first chunk", "image/jpeg", [], _resolved_output}} =
-             Producer.next(producer)
+             ProducerClient.next(producer)
 
-    assert :ok = Producer.halt(producer)
+    assert :ok = ProducerClient.halt(producer)
     assert_receive {:stream_finalized, :second}
     assert_receive {:DOWN, ^ref, :process, ^producer, :normal}
   end
@@ -130,10 +131,10 @@ defmodule ImagePipe.Request.SourceSession.ProducerTest do
     ref = Process.monitor(producer)
 
     assert {:ok, {:first_chunk, "first chunk", "image/jpeg", [], _resolved_output}} =
-             Producer.next(producer)
+             ProducerClient.next(producer)
 
     assert {:error, {:encode, %RuntimeError{message: "boom after first chunk"}, stacktrace}} =
-             Producer.next(producer)
+             ProducerClient.next(producer)
 
     assert is_list(stacktrace)
     assert_receive {:DOWN, ^ref, :process, ^producer, :normal}
@@ -144,13 +145,13 @@ defmodule ImagePipe.Request.SourceSession.ProducerTest do
     ref = Process.monitor(producer)
 
     assert {:ok, {:first_chunk, "first chunk", "image/jpeg", [], _resolved_output}} =
-             Producer.next(producer)
+             ProducerClient.next(producer)
 
     parent = self()
 
     caller =
       start_test_process(fn ->
-        send(parent, {:next_result, Producer.next(producer, 5_000)})
+        send(parent, {:next_result, ProducerClient.next(producer, 5_000)})
       end)
 
     caller_ref = Process.monitor(caller)

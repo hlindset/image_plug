@@ -75,26 +75,11 @@ defimpl Enumerable, for: ImagePipe.Source.WrappedStream do
   defp reduce_stream(%WrappedStream{stream: stream} = wrapped, {:cont, acc}, fun) do
     consumer_failure_ref = make_ref()
 
-    try do
+    with_stream_guard(wrapped, consumer_failure_ref, fn ->
       stream
       |> Enumerable.reduce({:cont, {0, acc}}, reducer(wrapped, fun, consumer_failure_ref))
       |> unwrap_result(wrapped, fun, consumer_failure_ref)
-    rescue
-      error in StreamError ->
-        WrappedStream.mark_stream_error(wrapped, error.reason)
-        reraise error, __STACKTRACE__
-
-      _error ->
-        WrappedStream.mark_stream_error(wrapped, :stream_exception)
-        reraise StreamError.exception(reason: :stream_exception), __STACKTRACE__
-    catch
-      {^consumer_failure_ref, kind, reason, stacktrace} ->
-        :erlang.raise(kind, reason, stacktrace)
-
-      _kind, _reason ->
-        WrappedStream.mark_stream_error(wrapped, :stream_exception)
-        raise StreamError, reason: :stream_exception
-    end
+    end)
   end
 
   defp reduce_stream(%WrappedStream{}, {:halt, acc}, _fun),
@@ -187,8 +172,18 @@ defimpl Enumerable, for: ImagePipe.Source.WrappedStream do
   end
 
   defp continue_safely(wrapped, continuation, command, fun, consumer_failure_ref) do
-    continuation.(command)
-    |> unwrap_result(wrapped, fun, consumer_failure_ref)
+    with_stream_guard(wrapped, consumer_failure_ref, fn ->
+      continuation.(command)
+      |> unwrap_result(wrapped, fun, consumer_failure_ref)
+    end)
+  end
+
+  # Shared mark-and-reraise guard: a StreamError marks its own reason; any other
+  # exception/throw is normalized to :stream_exception. The consumer-failure throw
+  # (tagged with consumer_failure_ref) is re-raised verbatim so a *consumer* error
+  # is never misattributed to the source stream.
+  defp with_stream_guard(wrapped, consumer_failure_ref, fun) do
+    fun.()
   rescue
     error in StreamError ->
       WrappedStream.mark_stream_error(wrapped, error.reason)
