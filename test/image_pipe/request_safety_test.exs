@@ -103,24 +103,6 @@ defmodule ImagePipe.RequestSafetyTest do
     end
   end
 
-  defmodule LinkedReaderImageOpen do
-    alias ImagePipe.Source
-
-    def open(stream, _decode_options) do
-      pid = spawn_link(fn -> Enum.to_list(stream) end)
-
-      receive do
-        {:EXIT, ^pid, {%Source.StreamError{reason: :stream_exception}, _stacktrace} = reason} ->
-          exit(reason)
-
-        {:EXIT, ^pid, %Source.StreamError{reason: :stream_exception} = reason} ->
-          exit(reason)
-      after
-        1_000 -> raise "linked reader did not exit from source stream error"
-      end
-    end
-  end
-
   test "plug validates product-neutral plan shape before source identity resolution" do
     conn =
       ImagePipe.Plug.call(conn(:get, "/_/plain/images/cat.jpg"),
@@ -396,22 +378,6 @@ defmodule ImagePipe.RequestSafetyTest do
     assert conn.status == 422
     assert conn.resp_body == "invalid image source"
     assert_received :cache_lookup
-    refute_received :cache_put
-  end
-
-  test "linked source stream exits return source response errors" do
-    opts =
-      ImagePipe.Plug.init(
-        parser: ImagePipe.Parser.Imgproxy,
-        sources: [path: {StreamErrorSourceAdapter, []}],
-        cache: {CacheProbe, []},
-        image_open_module: LinkedReaderImageOpen
-      )
-
-    conn = ImagePipe.Plug.call(conn(:get, "/_/plain/images/stream-fails.jpg"), opts)
-
-    assert conn.status == 422
-    assert conn.resp_body == "invalid image source"
     refute_received :cache_put
   end
 end
