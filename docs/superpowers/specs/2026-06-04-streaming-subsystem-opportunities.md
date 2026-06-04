@@ -60,18 +60,29 @@ preserved version of spike (a)/(b) as a regression test.
 
 ## Ranked opportunities (post-spike)
 
-### #3 — `WrappedStream` → `Stream.transform` *(recommended first)*
+### #3 — `WrappedStream` → `Stream.transform`, and delete the dead atomics/`prefer_source` vestige *(recommended first)*
 - **What:** Replace the hand-rolled `Enumerable` impl with a byte-counting `Stream.transform` that
-  raises `StreamError` on `max_body_bytes` / non-binary chunks. Likely also collapse the atomics
-  error channel, which appears redundant with the already-caught raised `StreamError`
-  (`processor.ex:186`).
-- **Why simpler:** ~−80 lines; removes a custom `Enumerable` (and its consumer-vs-producer
-  failure separation, which only matters for a *suspending* consumer that can fail — there is none).
-- **Behavior preserved:** `{:source, :body_too_large}` → 422 wire contract; the `StreamError`
-  reason surfacing at `processor.ex:186`.
-- **Risk:** Low-medium. Gone is the only real risk (roadmap collision — see Finding 1).
-- **Pre-req:** A ~10-minute consumer audit confirming no production caller suspends the wrapped
-  stream. **Effort:** Medium.
+  raises `StreamError` on `max_body_bytes` / non-binary chunks. The audit (below) showed the scope
+  is larger and cleaner than first thought: the `:atomics` error channel and its readers are a
+  **verified-dead vestige of the pre-#142 lazy-decode era** (#110, "preserve source stream errors
+  *across decode*"). Post-#142 the source is eagerly drained in `seekable_input` and every
+  `StreamError` is caught by the rescue at `processor.ex:186` *before* decode; marking the atomics is
+  always paired with a raise (`wrapped_stream.ex:102-108`), so a successful drain never sets them and
+  a failed drain returns early — the readers never see a live value.
+- **Removes (gated by verify-then-delete):**
+  - `WrappedStream`: suspend/resume + `consumer_failure_ref` half **and** the `:atomics` channel
+    (`stream_state_ref`, mark/read fns, reason-code maps).
+  - `Source` facade: `body_limit_exceeded?/1` + `stream_error_reason/1` (`source.ex:117-129`).
+  - `Processor`: `prefer_source_body_limit` + `prefer_source_stream_error`; simplify
+    `handle_materialization_result` (`processor.ex:239-275`).
+- **Why simpler:** removes a custom `Enumerable`, a side-channel, two facade functions, and two
+  processor passes — replacing them with one stdlib combinator and the single existing rescue.
+- **Behavior preserved:** `{:source, :body_too_large}` → 422 and `{:source, :stream_exception}` wire
+  contracts; both are pinned by `processor_test.exs:242` and `:264`, which resolve via the
+  `seekable_input` rescue, not via `prefer_source_*`.
+- **Risk:** Low-medium. The only real risk (roadmap collision) is gone (Finding 1). The atomics
+  deletion is a boundary change, so Task 1 must be an unreachable-from-callers proof before deleting.
+  **Effort:** Medium.
 
 ### #5 — Fold the parent-EXIT trap into the supervisor link *(recommended second)*
 - **What:** In the real path `parent == the supervisor pid` (`start_session` deletes `:parent`;
@@ -89,13 +100,19 @@ preserved version of spike (a)/(b) as a regression test.
   `SourceSession` can't `GenServer.call` it (that would block its mailbox during the pull), so the
   async `{ref, result}` + monitor shape is intrinsic — the current bare-`spawn_link` + `make_ref`
   loop is already close to minimal.
-- **Actionable remainder (low payoff):**
-  1. **Correct the load-bearing-but-wrong affinity comment** in the plan/code; cite link topology +
-     cancellation; optionally preserve spike (a)/(b) as a deterministic regression test that finally
-     *justifies* the design with evidence. (Cheap, high doc-honesty value.)
-  2. Optionally revisit the #158-deferred `producer_request_ref` / `terminate/2` double-cleanup nits
-     with the focused state-machine analysis they require — but these are marginal.
-- **Risk:** The rearchitecture is not worth it; the comment fix is ~zero risk. **Effort:** Small (comment) / not recommended (rearchitecture).
+- **Chosen direction — Approach 1 (GenServer, idiom-only):** Convert the bare `spawn_link` + `loop/1`
+  + `make_ref` request/reply into a GenServer. `init/1` does `Process.put(:"$callers", …)` + state;
+  `loop`'s receive becomes `handle_cast({:next, caller, ref}, …)` replying via `send(caller, {ref,
+  reply})`; add `terminate/2` to halt the continuation explicitly. **SourceSession is unchanged** —
+  it still does `request_next` + matches `{ref, result}`. The `make_ref` async-reply protocol does
+  **not** disappear (it is forced by SourceSession needing to stay responsive to owner-DOWN during a
+  multi-second pull), so the win is *standard idiom + OTP lifecycle/introspection at neutral LOC*,
+  not fewer concepts. `Task`-as-owner was rejected: spike (b) shows the continuation dies with its
+  process, so a fire-once or per-chunk Task can't own it.
+- **Fold in:** correct the load-bearing-but-wrong affinity comment (cite link topology +
+  cancellation) and land spike (a)/(b) as the deterministic regression test that finally *justifies*
+  the two-process core with evidence.
+- **Risk:** Low (idiom-preserving, LOC-neutral, zero behavior delta). **Effort:** Small-medium.
 
 ### #4 — Buffered-vs-streamed split by format streamability *(DECLINED)*
 - **Premise falsified by the spike.** It assumed AVIF/WebP can't be cancelled mid-encode, so
@@ -122,8 +139,9 @@ preserved version of spike (a)/(b) as a regression test.
 1. **#3** — the biggest honest simplification, now unblocked; do the consumer audit, then the
    `Stream.transform` rewrite.
 2. **#5** — small, clean liveness-model sharpening.
-3. **#2 comment fix** — correct the affinity myth and, ideally, land spike (a)/(b) as the regression
-   test that finally justifies the two-process core with evidence. Skip the rearchitecture.
+3. **#2 (Approach 1)** — convert the Producer to a GenServer (idiom-only, LOC-neutral), correct the
+   affinity myth, and land spike (a)/(b) as the regression test that finally justifies the two-process
+   core with evidence.
 4. **#4** — declined; record the spike as the rationale.
 
 Per repo policy, any of these that becomes an implementation plan must go through a parallel
