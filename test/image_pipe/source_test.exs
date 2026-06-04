@@ -341,5 +341,4 @@ defmodule ImagePipe.SourceTest do
     assert {:error, {:source, :invalid_adapter_result}} =
              Source.wrap_response(response, max_body_bytes: 10)
   end
-
 end
