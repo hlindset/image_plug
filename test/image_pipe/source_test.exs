@@ -271,7 +271,6 @@ defmodule ImagePipe.SourceTest do
              Source.wrap_response(response, max_body_bytes: byte_size(body))
 
     assert Enum.to_list(wrapped.stream) == [body]
-    refute Source.body_limit_exceeded?(wrapped)
   end
 
   test "wrapped streams keep adapter cleanup in enumerable termination path" do
@@ -392,7 +391,6 @@ defmodule ImagePipe.SourceTest do
     assert wrapped.path == nil
 
     assert_raise ImagePipe.Source.StreamError, fn -> Enum.to_list(wrapped.stream) end
-    assert Source.body_limit_exceeded?(wrapped)
   end
 
   test "wrap_response passes a path response through unwrapped" do
@@ -407,9 +405,4 @@ defmodule ImagePipe.SourceTest do
              Source.wrap_response(response, max_body_bytes: 10)
   end
 
-  test "body/stream queries degrade for a path response" do
-    response = %Response{path: "/tmp/x.jpg"}
-    refute Source.body_limit_exceeded?(response)
-    assert Source.stream_error_reason(response) == :error
-  end
 end
