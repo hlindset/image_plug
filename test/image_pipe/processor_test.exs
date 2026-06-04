@@ -247,6 +247,22 @@ defmodule ImagePipe.Request.ProcessorTest do
              Processor.decode_validate_source_response(response, plan(), opts())
   end
 
+  test "non-binary source chunks remain source errors during decode" do
+    response = %Response{stream: ["ok", :bad]}
+    assert {:ok, response} = Source.wrap_response(response, max_body_bytes: 20)
+
+    assert {:error, {:source, :invalid_stream_chunk}} =
+             Processor.decode_validate_source_response(response, plan(), opts())
+  end
+
+  test "upstream throws during the source drain remain source errors" do
+    response = %Response{stream: Stream.map([:throw], fn _ -> throw(:boom) end)}
+    assert {:ok, response} = Source.wrap_response(response, max_body_bytes: 20)
+
+    assert {:error, {:source, :stream_exception}} =
+             Processor.decode_validate_source_response(response, plan(), opts())
+  end
+
   test "decode_validate_source_response opens a path response via the path" do
     response = %Response{path: "priv/static/images/beach.jpg"}
 

@@ -180,10 +180,17 @@ defmodule ImagePipe.Request.Processor do
   defp seekable_input(%Source.Response{path: path, stream: nil}) when is_binary(path),
     do: {:ok, {:path, path}}
 
+  # The drained value is a host-implementable Source adapter stream (a boundary we
+  # don't control). A StreamError carries a classified source reason; any other
+  # exception/throw/exit raised while draining the source is normalized to a safe
+  # {:source, :stream_exception} (→ 422) rather than crashing the request.
   defp seekable_input(%Source.Response{path: nil, stream: stream}) when not is_nil(stream) do
     {:ok, {:buffer, stream |> Enum.to_list() |> IO.iodata_to_binary()}}
   rescue
     exception in [Source.StreamError] -> {:error, {:source, exception.reason}}
+    _exception -> {:error, {:source, :stream_exception}}
+  catch
+    _kind, _reason -> {:error, {:source, :stream_exception}}
   end
 
   defp seekable_input(%Source.Response{}), do: {:error, {:source, :invalid_adapter_result}}
