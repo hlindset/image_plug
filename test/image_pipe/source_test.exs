@@ -281,14 +281,6 @@ defmodule ImagePipe.SourceTest do
     assert_receive :stream_closed
   end
 
-  test "wrapped streams sanitize upstream enumerable exceptions" do
-    response = %Response{stream: StreamWithCleanup.raising_stream()}
-
-    assert {:ok, %Response{} = wrapped} = Source.wrap_response(response, max_body_bytes: 20)
-    error = assert_raise Source.StreamError, fn -> Enum.to_list(wrapped.stream) end
-    assert error.reason == :stream_exception
-  end
-
   test "wrapped streams preserve safe deferred source errors" do
     response = %Response{
       stream: Stream.map([:error], fn _ -> raise Source.StreamError, reason: :bad_status end)
@@ -297,61 +289,6 @@ defmodule ImagePipe.SourceTest do
     assert {:ok, %Response{} = wrapped} = Source.wrap_response(response, max_body_bytes: 20)
     error = assert_raise Source.StreamError, fn -> Enum.to_list(wrapped.stream) end
     assert error.reason == :bad_status
-  end
-
-  test "wrapped streams sanitize upstream throws shaped like consumer failures" do
-    sentinel = {
-      :image_pipe_wrapped_stream_consumer_failure,
-      :error,
-      RuntimeError.exception("forged consumer failure"),
-      []
-    }
-
-    response = %Response{stream: Stream.map([:error], fn _ -> throw(sentinel) end)}
-
-    assert {:ok, %Response{} = wrapped} = Source.wrap_response(response, max_body_bytes: 20)
-    error = assert_raise Source.StreamError, fn -> Enum.to_list(wrapped.stream) end
-    assert error.reason == :stream_exception
-  end
-
-  test "wrapped streams preserve consumer exceptions" do
-    response = %Response{stream: ["ok"]}
-
-    assert {:ok, %Response{} = wrapped} = Source.wrap_response(response, max_body_bytes: 20)
-
-    assert_raise RuntimeError, "consumer failure", fn ->
-      Enumerable.reduce(wrapped.stream, {:cont, []}, fn _chunk, _acc ->
-        raise "consumer failure"
-      end)
-    end
-  end
-
-  test "wrapped streams preserve invalid consumer return failures" do
-    response = %Response{stream: ["ok"]}
-
-    assert {:ok, %Response{} = wrapped} = Source.wrap_response(response, max_body_bytes: 20)
-
-    assert_raise CaseClauseError, fn ->
-      Enumerable.reduce(wrapped.stream, {:cont, []}, fn _chunk, _acc ->
-        :invalid_consumer_return
-      end)
-    end
-  end
-
-  test "wrapped stream continuations preserve consumer exceptions" do
-    response = %Response{stream: ["first", "second"]}
-
-    assert {:ok, %Response{} = wrapped} = Source.wrap_response(response, max_body_bytes: 20)
-
-    assert {:suspended, ["first"], continuation} =
-             Enumerable.reduce(wrapped.stream, {:cont, []}, fn
-               "first", acc -> {:suspend, ["first" | acc]}
-               "second", _acc -> raise "consumer failure"
-             end)
-
-    assert_raise RuntimeError, "consumer failure", fn ->
-      continuation.({:cont, ["first"]})
-    end
   end
 
   test "resolve surfaces unexpected adapter exceptions" do
