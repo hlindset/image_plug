@@ -27,9 +27,9 @@ jobs:
             erlang: 27
           - elixir: 1.19.5-otp-28
             erlang: 28
-          - elixir: 1.20.0-rc.6-otp-27
+          - elixir: 1.20.0-otp-27
             erlang: 27
-          - elixir: 1.20.0-rc.6-otp-28
+          - elixir: 1.20.0-otp-28
             erlang: 28
 
     steps:
