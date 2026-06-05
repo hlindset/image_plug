@@ -2521,26 +2521,39 @@ defmodule ImagePipe.ImgproxyWireConformanceTest do
   # shift, which moves whole flat regions). Counts far-off pixels so a placement
   # bug fails with a concrete count.
   defp assert_sharp_oracle_match(oriented, twin, label) do
-    assert {Image.width(oriented), Image.height(oriented)} ==
-             {Image.width(twin), Image.height(twin)},
-           "#{label}: dims #{inspect({Image.width(oriented), Image.height(oriented)})} != twin #{inspect({Image.width(twin), Image.height(twin)})}"
-
     w = Image.width(oriented)
     h = Image.height(oriented)
 
-    # Sample a dense grid (every 2px) rather than every pixel — fast enough for the
-    # EXIF 1..8 × multi-path matrix, yet far finer than any sharp feature (1px lines,
-    # quadrant seams), so a 1px placement shift still moves many sampled points and
-    # the far-diverging count blows past the thin-seam budget.
+    assert {w, h} == {Image.width(twin), Image.height(twin)},
+           "#{label}: dims #{inspect({w, h})} != twin #{inspect({Image.width(twin), Image.height(twin)})}"
+
+    # Read each frame to a raw row-major band buffer ONCE, then index it in BEAM.
+    # The per-pixel Image.get_pixel!/3 path crosses the libvips FFI boundary on
+    # every sample; across the EXIF 1..8 × multi-path matrix that is ~150k calls
+    # and ~20s of CPU, which tips this async test past the 60s per-test timeout
+    # under CI contention. Two write_to_binary/1 calls per leg collapse that to a
+    # pair of buffer reads with identical sampling and tolerance semantics.
+    {:ok, ob} = VipsImage.write_to_binary(oriented)
+    {:ok, tb} = VipsImage.write_to_binary(twin)
+
+    assert byte_size(ob) == byte_size(tb),
+           "#{label}: band layout mismatch #{byte_size(ob)} != twin #{byte_size(tb)}"
+
+    bands = div(byte_size(ob), w * h)
+
+    # Sample a dense grid (every 2px) rather than every pixel — far finer than any
+    # sharp feature (1px lines, quadrant seams), so a 1px placement shift still
+    # moves many sampled points and the far-diverging count blows past the
+    # thin-seam budget.
     xs = Enum.take_every(0..(w - 1), 2)
     ys = Enum.take_every(0..(h - 1), 2)
 
     far =
       Enum.reduce(for(x <- xs, y <- ys, do: {x, y}), 0, fn {x, y}, acc ->
-        op = Image.get_pixel!(oriented, x, y)
-        tp = Image.get_pixel!(twin, x, y)
-        diverged = op |> Enum.zip(tp) |> Enum.any?(fn {a, b} -> abs(a - b) > 24 end)
-        if diverged, do: acc + 1, else: acc
+        offset = (y * w + x) * bands
+        op = :binary.part(ob, offset, bands)
+        tp = :binary.part(tb, offset, bands)
+        if pixel_diverges?(op, tp), do: acc + 1, else: acc
       end)
 
     # Allow a thin seam (≤ one edge's worth of sampled points) for affine-resize
@@ -2548,6 +2561,13 @@ defmodule ImagePipe.ImgproxyWireConformanceTest do
     assert far <= div(max(w, h), 2),
            "#{label}: #{far} far-diverging sampled pixels — placement mismatch"
   end
+
+  # Two same-length band slices "diverge" when any band differs by more than the
+  # lossless tolerance — the per-pixel form of the old get_pixel! band compare.
+  defp pixel_diverges?(<<a, arest::binary>>, <<b, brest::binary>>),
+    do: abs(a - b) > 24 or pixel_diverges?(arest, brest)
+
+  defp pixel_diverges?(<<>>, <<>>), do: false
 
   defp output_orientation_tag(%Plug.Conn{} = conn) do
     image = decoded_image(conn)
