@@ -189,17 +189,20 @@ standalone trim mitigation here.
   the default is never reached); ImagePipe does not need a default threshold.
 - arg1 color: hex RGB (3/6 digit). Empty ⇒ `background: :auto`.
 - arg2 equal_hor: bool, default `false`. arg3 equal_ver: bool, default `false`.
-  **Invalid bool values coerce to `false`, they do not error** — imgproxy's
-  `parseBool` (`options/parser/parse.go`) warns and treats an unparseable bool as
-  `false` and proceeds; matching parity means reusing the existing imgproxy
-  boolean-argument handling (same as `enlarge`/`extend`), **not** adding stricter
-  validation. (We omit imgproxy's warning log; that's an invisible divergence.)
+  Parse via the existing `parse_boolean/1` (`option_grammar.ex:418`), exactly like
+  `enlarge`/`extend`/`flip` — an **invalid bool is a parser error** returned before
+  side effects. **Note an intentional, codebase-wide divergence:** imgproxy's
+  `parseBool` *coerces* an unparseable bool to `false` and proceeds; ImagePipe's
+  imgproxy parser is uniformly stricter and rejects it. Trim follows the
+  established ImagePipe behavior rather than special-casing itself to imgproxy's
+  coercion — consistency with the surrounding parser wins, and the strictness gap
+  is pre-existing (not introduced by trim). Recorded as a Diverges note.
 - Carry the result on `PipelineRequest` (new `trim` field, `nil` when disabled).
   `plan_builder` emits `Plan.Operation.Trim` only when the field is present.
-- The hard-error validations are **threshold** (`parseFloat`) and **color**
-  (`parseHexRGBColor`) — both hard-error upstream — plus the **>4-args** guard.
-  These return a parser error **before** any source fetch or cache access
-  (request-safety guideline). Bad bools do not (see above).
+- Hard-error validations — **threshold** (`parse_float`), **color**
+  (`Color.rgb_hex`), the **bools** (`parse_boolean`), and the **>4-args** guard —
+  all return a parser error **before** any source fetch or cache access
+  (request-safety guideline).
 - Order-insensitivity preserved: option position in the URL does not affect the
   fixed plan order.
 
@@ -249,7 +252,11 @@ the demo in sync):
    auto-detect, that averages a top-left region instead. We replicate `getpoint`.
 3. **Not byte-identical:** like the rest of the imgproxy parity surface, we assert
    dimensions/regions, not bytes (different median-filter/resample internals).
-4. **sRGB-skip heuristic:** imgproxy gates the detection colourspace-convert on
+4. **Bad-boolean strictness:** imgproxy coerces an invalid `equal_hor`/`equal_ver`
+   to `false`; ImagePipe returns a parser error. This is a pre-existing,
+   codebase-wide ImagePipe stance (all imgproxy booleans use `parse_boolean`,
+   which rejects), not a trim-specific choice.
+5. **sRGB-skip heuristic:** imgproxy gates the detection colourspace-convert on
    `vips_image_guess_interpretation(in) != sRGB`. The available Elixir accessor
    (`Vix.Vips.Image.interpretation/1`) returns the **stored header**
    interpretation, not the guessed one, so an 8-bit RGB image imgproxy would treat
@@ -269,9 +276,9 @@ Per the compat-doc sync rule, all three axes change:
 ## Test plan
 
 - **Parser:** grammar — defaults, empty-threshold-disables, hex color,
-  order-insensitivity; **>4-arg rejection** and bad-float / bad-hex failures
-  return before side effects; **invalid bool coerces to `false` and the request
-  succeeds** (parity — assert it does *not* error).
+  order-insensitivity; **>4-arg rejection** and bad-float / bad-hex / **bad-bool**
+  failures all return a parser error before side effects (bad bool errors, like
+  `enlarge`/`extend` — *not* coerced).
 - **Plan / planner:** `Trim` emitted first in geometry order; `semantic?(%Trim{})`
   accepts a valid op (and the plan is not rejected); decode_planner shrink-block —
   two tests pinning both halves (trim in pipeline 1 disables shrink-on-load; trim
