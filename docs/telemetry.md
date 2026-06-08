@@ -352,7 +352,7 @@ the host `max_result_width`/`max_result_height`/`max_result_pixels` config and t
 negotiated output encoder's hard limit (`min(host, encoder)`) — ImagePipe
 uniformly downscales it to fit before encoding and emits a one-shot (non-span)
 marker. This both keeps encoding from failing (WebP caps each dimension at 16383,
-AVIF at 16384; JPEG/PNG effectively unbounded) and serves the host result cap as a
+AVIF at 16384, JPEG at 65535; PNG effectively unbounded) and serves the host result cap as a
 downscale rather than an error (imgproxy `limitScale` parity). The common trigger
 is the host cap (default 8192 per axis), which is below the encoder limits.
 
