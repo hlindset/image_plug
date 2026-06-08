@@ -88,7 +88,7 @@ imgproxy's `mainPipeline` (`processing/processing.go`), applied per frame:
 | 10 | `extend` | `lib/image_pipe/transform/operation/extend_canvas.ex` | ✅ | Canvas extension with anchor gravity and offsets. |
 | 11 | `extendAspectRatio` | `lib/image_pipe/transform/operation/extend_canvas.ex` (`{:aspect_ratio, ratio}` rule) | ✅ | `extend_ar`/`exar`; no-op when a resize dimension is auto/zero. `fp` extend-gravity not supported. |
 | 12 | `padding` | `lib/image_pipe/transform/operation/padding.ex` | ✅ | CSS-style shorthand, effective DPR scaling. |
-| 13 | `fixSize` | **output boundary** — `lib/image_pipe/output/clamp.ex` (#150) | ✅ | Format-aware encoder dimension clamp. Realized at the **Output boundary**, not the transform chain: the realized image is uniformly downscaled to the chosen encoder's hard limit (WebP 16383, AVIF 16384). Mirrors imgproxy's `processing/fix_size.go` (`fixWebpSize`/`fixHeifSize`). Emits `[:output, :clamp]` ([telemetry.md](telemetry.md)); covered by the wire conformance tests. The `max_pixels`/sqrt branch (imgproxy's `fixGifSize`) is deferred to #165. |
+| 13 | `fixSize` | **output boundary** — `lib/image_pipe/output/clamp.ex` (#150) | ✅ | Format-aware encoder dimension clamp. Realized at the **Output boundary**, not the transform chain: the realized image is uniformly downscaled to the chosen encoder's hard limit (WebP 16383, AVIF 16384). Mirrors imgproxy's `processing/fix_size.go` (`fixWebpSize`/`fixHeifSize`). Emits `[:output, :clamp]` ([telemetry.md](telemetry.md)); covered by the wire conformance tests. The host `max_result_*` caps fold into this same clamp via `min(host, encoder)` (#165); ImagePipe's result-pixel cap uses an **independent linear-dimension + sqrt-pixel** rule, deliberately **not** `fixGifSize`'s combined-sqrt (which can leave a result over the dimension limit). |
 | 14 | `flatten` | `lib/image_pipe/transform/operation/background.ex` | ✅ | Alpha flatten onto `background`/`background_alpha` (`bg`/`bga`); default black. |
 | 15 | `watermark` | — | ⭕ | In scope, not yet implemented (consistent with the watermark rows in "Background, effects, and overlays" and "Watermark defaults and custom watermark cache"). |
 
@@ -110,7 +110,7 @@ save. ImagePipe realizes these at request and output boundaries:
 | --- | --- | --- | --- |
 | Initial load + source-resolution gate (`MaxSrcResolution`) | decode + `max_input_pixels` (hard error) | ✅ | The image-bomb gate is a hard error, not a downscale — matches imgproxy. `max_body_bytes` caps the fetched body. |
 | Output format determination | `lib/image_pipe/output/negotiation.ex`, `lib/image_pipe/output/policy.ex` | ✅ | `Accept` negotiation for AVIF/WebP with `Vary: Accept`; explicit `@extension`/`.extension` bypasses it. JXL, `enforce_*`, `preferred_formats` missing. |
-| Host result-dimension cap (`limitScale`, `processing/prepare.go`) | `lib/image_pipe/request/processor.ex` (`check_result_*`) | ⚠️ | imgproxy **downscales** the result to fit `max_result_*`; ImagePipe currently **errors**. Issue #165 changes this to downscale-and-serve, reusing the #150 clamp with `min(host_max, encoder_limit)`. |
+| Host result-dimension cap (`limitScale`, `processing/prepare.go`) | `lib/image_pipe/output/clamp.ex` via the producer (`min(host max_result_*, encoder_limit)`) | ✅ | imgproxy downscales the result to fit `max_result_*`; ImagePipe matches for the common no-padding/no-extend request (#165), reusing the #150 `Output.Clamp` — byte-intent identical to `limitScale`'s linear `downScale = maxResultDim/max(outW,outH)` (`prepare.go:247`) when caps are equal and a dimension binds. **Diverges (superset):** ImagePipe honors independent `max_result_width`/`max_result_height` and a result `max_result_pixels` cap (sqrt), where imgproxy's `limitScale` has a single `MaxResultDimension` and no result-pixel cap. **Diverges (composition):** ImagePipe clamps the **composited** final image, whereas imgproxy folds the downscale into the resize scale and re-applies padding/extend at the reduced scale (`prepare.go:233-263`) — both land ≤ cap, but padded/extended requests differ in the **content-to-padding ratio of the final frame**. ImagePipe mirrors imgproxy's per-axis sub-1px floor (`prepare.go:252-258`) via `max(scale, 1/dim)`; in the extreme-aspect 1px regime the realized pixels can still differ for the same composited-vs-fold-back reason. |
 | Save / encode | `lib/image_pipe/output/encoder.ex` | ✅ | Streams the encoded result. Advanced/codec-specific encoder knobs missing (see "Advanced encoder options"). |
 
 ### Key takeaways
@@ -121,8 +121,10 @@ save. ImagePipe realizes these at request and output boundaries:
 - **Not every imgproxy stage is a transform op** — `scaleOnLoad` is decode
   planning, `fixSize` is the output boundary, `stripMetadata`/`colorspaceToResult`
   are encoder finalize. The "Realized in" column is the map.
-- **The standing divergences are color management (#124) and the host result cap
-  (#165).** Everything else either matches or is an explicitly missing/out-of-scope
+- **The standing divergence is color management (#124).** The host result cap now
+  downscales to match imgproxy (#165), with a deliberate, strictly-safe superset:
+  independent per-axis width/height + a result-pixel cap, and a composited-image
+  clamp point. Everything else either matches or is an explicitly missing/out-of-scope
   surface documented in the tables below.
 
 ## Status legend
@@ -424,17 +426,22 @@ Top-level `max_body_bytes` caps fetched source bodies and defaults to
 `10_000_000` bytes. Cache adapter `max_body_bytes` still caps encoded response
 staging for adapters that configure it. ImagePipe uses `max_input_pixels` for
 decoded input size and `max_result_width`, `max_result_height`, and
-`max_result_pixels` for final static result size. It doesn't expose Imgproxy's
+`max_result_pixels` for final static result size. `max_input_pixels` remains the
+hard image-bomb gate (a `413` error on oversize decoded input), while the
+`max_result_*` caps now **downscale the served result to fit** rather than
+erroring — imgproxy `limitScale` parity (#165). It doesn't expose Imgproxy's
 animation frame limits or SVG and PNG-specific policy.
 
-Separately from those host-configured caps, ImagePipe clamps the realized output
-to the chosen output encoder's hard per-dimension limit — WebP 16383, AVIF 16384
-(JPEG 65535, PNG effectively unbounded) — by uniformly downscaling and serving
-rather than failing to encode. This mirrors imgproxy's internal `fixSize` step
-(`processing/fix_size.go`) and emits an `[:output, :clamp]`
-telemetry event ([docs/telemetry.md](telemetry.md)). It is an internal safety
-backstop with no configurable knob, so it has no `IMGPROXY_*` row; it only
-triggers when a host raises `max_result_*` above the encoder limit.
+ImagePipe realizes both the host `max_result_*` caps and the chosen output
+encoder's hard per-dimension limit — WebP 16383, AVIF 16384 (JPEG 65535, PNG
+effectively unbounded) — through the same `Output.Clamp` seam, uniformly
+downscaling and serving rather than failing to encode. The encoder limit mirrors
+imgproxy's internal `fixSize` step (`processing/fix_size.go`) and the host caps
+mirror `limitScale`; it emits an `[:output, :clamp]`
+telemetry event ([docs/telemetry.md](telemetry.md)). The encoder backstop has no
+configurable knob, so it has no `IMGPROXY_*` row; the clamp triggers whenever the
+realized result exceeds the tighter of the host caps and the encoder limit —
+commonly the host cap (default 8192 per axis), which is below the encoder limits.
 
 - ✅ `IMGPROXY_MAX_SRC_RESOLUTION`
 - ✅ `IMGPROXY_MAX_SRC_FILE_SIZE`

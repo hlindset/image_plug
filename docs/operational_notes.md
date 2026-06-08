@@ -38,7 +38,9 @@ Static result limits run after transform execution and before final output
 resolution or encoding. `:max_result_width` and `:max_result_height` default
 to `8_192`. `:max_result_pixels` defaults to `40_000_000`. Result dimensions
 mean the final static image width, height, and pixel count. Oversize static
-results return `413` with `result image is too large`. Animation frame limits
+results now **downscale the served image to fit** these caps rather than erroring
+(imgproxy `limitScale` parity); `:max_input_pixels` remains a hard `413`
+image-bomb gate on oversize decoded input. Animation frame limits
 remain out of scope and aren't implemented.
 
 These limits gate response generation. They don't change cache identity.
