@@ -335,3 +335,29 @@ the plain-source measurement here.)
 subagent-driven development → PR), citing these numbers as the justification — per the *Go* path
 above. The throwaway benchmark (`bench/oversized_buffer_highwater.exs`) and this doc are committed as
 the gate's record; a correction note is posted to #164.
+
+### Addendum — approach finding (changes #164's prescribed form)
+
+Two extra probes were added to the benchmark while scoping the implementation, and they **redirect the
+approach away from #164's "look-ahead fold into resize":**
+
+- **P1 — fold diverges.** `resize src→cap` directly (the issue's fold) vs. #165's `resize src→T` then
+  clamp `T→cap` produce **DIFFERENT** pixels (and even different rounded dims, 533×800 vs 534×800):
+  a single resample ≠ a double resample. So the issue's fold form **cannot** satisfy its own "must
+  not change any served pixels vs. #165" gate.
+- **P2 — reorder is byte-identical.** Applying the clamp *before* the `copy_memory` (clamp→copy) vs.
+  the current *after* (copy→clamp) is **IDENTICAL** (`copy_memory` is pixel-identity; the clamp
+  resamples the same resized pixels either way).
+- **Arm C — reorder avoids the buffer.** `resize→clamp(lazy)→copy_memory` (the reorder) measures
+  **199.8 MiB @ 16000** and **221.8 MiB @ 20000** — vs. Arm A's 556 / 848 MiB and near Arm B's
+  147 MiB floor. So **libvips fuses the two lazy resizes**: materializing the clamped output does not
+  fully hold the oversized intermediate.
+
+**Implication.** The byte-identical, buffer-avoiding fix is **"clamp before materialize"** (reorder
+`Output.Clamp` ahead of the delivery-backstop / flush `copy_memory`), *not* the issue's pixel-divergent
+fold-into-resize. The reorder cleanly fixes the **plain** path (the common case; Arm A's buffer here is
+the *delivery backstop*, with no orientation). The **oriented** mid-chain flush materializes before the
+final dims and negotiated output format are known, so the simple reorder does not reach it — that
+corner needs either a separate treatment or is left to the post-hoc clamp (still correct, still pays
+its buffer). The implementation cycle picks up from this finding; approach choice is a user decision
+(architecture/boundary implications + plain-vs-oriented scope).

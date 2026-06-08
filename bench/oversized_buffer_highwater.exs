@@ -56,12 +56,23 @@ defmodule OversizedBufferBench do
   @max_pixels 100_000_000_000
 
   # Matrix (executed cells). {arm, target_long_axis, host_cap}; selfcheck is special.
+  #
+  # Arm C (reorder probe, added for the implementation design): resize to target
+  # (lazy) -> Clamp.clamp to cap (lazy) -> copy_memory the CLAMPED result. This is
+  # byte-identical to the current path (resize -> copy_memory -> clamp; copy_memory
+  # is pixel-identity) but materializes AFTER the downscale. If C's high-water
+  # tracks the CAP buffer (~Arm B) rather than the oversized buffer (~Arm A), then
+  # libvips fuses the two resizes and a byte-identical "clamp-before-materialize"
+  # fix avoids the buffer WITHOUT the single-vs-double-resample divergence that the
+  # issue's "fold into resize" form would introduce.
   @matrix [
     {"B", 8192, 8192},
     {"A", 9000, 8192},
     {"A", 16000, 8192},
     {"A", 20000, 8192},
     {"A", 20000, 20000},
+    {"C", 16000, 8192},
+    {"C", 20000, 8192},
     {"selfcheck", 0, 0}
   ]
 
@@ -71,6 +82,41 @@ defmodule OversizedBufferBench do
     setup_libvips()
     row = run_case(arm, String.to_integer(target), String.to_integer(cap))
     IO.puts(Enum.map_join(@columns, ",", fn c -> to_string(Map.get(row, String.to_atom(c), "")) end))
+  end
+
+  # Pixel-equivalence probes (run in one process; no memory measurement):
+  #   P1 — does "fold into resize" (direct src->cap) diverge from #165's
+  #        post-hoc (src->T then T->cap, a DOUBLE resample)? Expect DIFFERENT.
+  #   P2 — is "reorder" (clamp then copy_memory) pixel-identical to current
+  #        (copy_memory then clamp)? Expect IDENTICAL.
+  def main(["pixels"]) do
+    setup_libvips()
+    src_h = 450
+    src = solid_rgb(300, src_h)
+    t = 1600
+    cap = 800
+    lim = %{max_width: cap, max_height: cap, max_pixels: @max_pixels}
+
+    # P1: fold (single resample, direct to cap) vs post-hoc (resize to T, clamp to cap).
+    {:ok, fold} = Image.resize(src, cap / src_h)
+    {:ok, to_t} = Image.resize(src, t / src_h)
+    {:ok, posthoc, _} = Clamp.clamp(to_t, lim, opts())
+    p1_same = png_md5(fold) == png_md5(posthoc)
+
+    # P2: current (copy_memory then clamp) vs reorder (clamp then copy_memory).
+    {:ok, to_t2} = Image.resize(src, t / src_h)
+    {:ok, mem} = VipsImage.copy_memory(to_t2)
+    {:ok, current, _} = Clamp.clamp(mem, lim, opts())
+    {:ok, to_t3} = Image.resize(src, t / src_h)
+    {:ok, reorder_clamped, _} = Clamp.clamp(to_t3, lim, opts())
+    {:ok, reorder} = VipsImage.copy_memory(reorder_clamped)
+    p2_same = png_md5(current) == png_md5(reorder)
+
+    IO.puts("P1 fold(src->cap) vs posthoc(src->T->cap): #{if p1_same, do: "IDENTICAL", else: "DIFFERENT"} " <>
+              "(#{dims(fold)} vs #{dims(posthoc)}) -> fold #{if p1_same, do: "matches", else: "DIVERGES from"} #165 baseline")
+
+    IO.puts("P2 current(copy->clamp) vs reorder(clamp->copy): #{if p2_same, do: "IDENTICAL", else: "DIFFERENT"} " <>
+              "(#{dims(current)} vs #{dims(reorder)}) -> reorder #{if p2_same, do: "is byte-identical", else: "DIFFERS (unexpected)"}")
   end
 
   def main(_argv), do: orchestrate()
@@ -149,6 +195,50 @@ defmodule OversizedBufferBench do
       pre_h: big_h,
       final_w: big_w,
       final_h: big_h,
+      libvips_peak_bytes: hw,
+      rss_peak_bytes: rss,
+      ms: ms
+    }
+  end
+
+  # Arm C — reorder probe: clamp BEFORE materializing (byte-identical to current;
+  # tests whether libvips fuses resize->clamp so the oversized intermediate is
+  # never fully held). Done with the image lib directly (the resize node is the
+  # same lazy node PlanExecutor's residual resize produces) so we control the order.
+  defp run_case("C", target, cap) do
+    {sampler, _} = start_rss_sampler()
+    t0 = now_ms()
+
+    image = decode_source()
+    # Residual fit resize: enlarge the long axis (height) to the target, lazily.
+    {:ok, resized} = Image.resize(image, target / @src_h)
+    pre = {Image.width(resized), Image.height(resized)}
+
+    limits = %{max_width: cap, max_height: cap, max_pixels: @max_pixels}
+    {:ok, clamped, _info} = Clamp.clamp(resized, limits, opts())
+    final = {Image.width(clamped), Image.height(clamped)}
+
+    # Materialize the CLAMPED image (the reorder), then encode.
+    {:ok, mem} = VipsImage.copy_memory(clamped)
+    _ = Image.write!(mem, :memory, suffix: ".png")
+
+    ms = now_ms() - t0
+    rss = stop_rss_sampler(sampler)
+    hw = Vix.Vips.tracked_get_mem_highwater()
+
+    {pw, ph} = pre
+    {fw, fh} = final
+    IO.puts(:stderr, "  C target=#{target} cap=#{cap}: pre=#{pw}x#{ph} final=#{fw}x#{fh} high-water=#{mib(hw)} rss=#{mib(rss)}")
+
+    %{
+      case: "C:#{target}:#{cap}",
+      arm: "C",
+      target: target,
+      cap: cap,
+      pre_w: pw,
+      pre_h: ph,
+      final_w: fw,
+      final_h: fh,
       libvips_peak_bytes: hw,
       rss_peak_bytes: rss,
       ms: ms
@@ -331,6 +421,9 @@ defmodule OversizedBufferBench do
   defp rss_kb(:error), do: 0
 
   # --- helpers ---
+
+  defp png_md5(image), do: :erlang.md5(Image.write!(image, :memory, suffix: ".png"))
+  defp dims(image), do: "#{Image.width(image)}x#{Image.height(image)}"
 
   defp now_ms, do: System.monotonic_time(:millisecond)
   defp int(nil), do: 0
