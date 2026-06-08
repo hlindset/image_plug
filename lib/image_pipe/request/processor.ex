@@ -235,6 +235,11 @@ defmodule ImagePipe.Request.Processor do
     materializer.materialize(state, opts)
   end
 
+  # `materialize_state/2` dispatches to the injectable `:image_materializer`, whose
+  # `materialize/2` callback returns `{:ok, State} | {:error, term()}` — a boundary the
+  # caller doesn't fully control. The default `Materializer` only ever produces vips
+  # errors (→ `:decode`), but a host-supplied materializer may already tag a source/
+  # config error; pass those through untagged rather than mis-wrapping them as `:decode`.
   defp classify_delivery_materialize_result({:error, {:source, _reason} = error}),
     do: {:error, error}
 
