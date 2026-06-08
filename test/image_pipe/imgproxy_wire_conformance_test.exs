@@ -2358,7 +2358,8 @@ defmodule ImagePipe.ImgproxyWireConformanceTest do
 
       assert scale < 1.0
       assert meta.format == :webp
-      assert meta.max_dimension == 16_383
+      assert meta.limits.max_width == 16_383
+      assert meta.limits.max_height == 16_383
       assert meta.dimensions == {w, h}
       {sw, sh} = meta.source_dimensions
       assert max(sw, sh) > 16_383
@@ -2381,7 +2382,8 @@ defmodule ImagePipe.ImgproxyWireConformanceTest do
 
       assert scale < 1.0
       assert meta.format == :avif
-      assert meta.max_dimension == 16_384
+      assert meta.limits.max_width == 16_384
+      assert meta.limits.max_height == 16_384
       assert meta.dimensions == {w, h}
     end
 

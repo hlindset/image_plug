@@ -124,14 +124,16 @@ defmodule ImagePipe.Telemetry.LoggerTest do
           %{
             format: :webp,
             source_dimensions: {18_000, 9_000},
-            dimensions: {16_383, 8_191},
-            max_dimension: 16_383
+            dimensions: {8_192, 4_096},
+            limits: %{max_width: 8_192, max_height: 8_192, max_pixels: 40_000_000}
           }
         )
       end)
 
     assert log =~ "[warning]"
-    assert log =~ "output clamp: 18000x9000 -> 16383x8191 for webp (max 16383)"
+
+    assert log =~
+             "output clamp: 18000x9000 -> 8192x4096 for webp (caps w:8192 h:8192 px:40000000)"
   end
 
   test "logs a normal no-face detect fallback at the base level, not warning" do
