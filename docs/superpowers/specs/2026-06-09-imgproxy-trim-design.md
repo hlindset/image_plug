@@ -90,9 +90,29 @@ Factory `ImagePipe.Plan.Operation.trim/1` in `lib/image_pipe/plan/operation.ex`,
 validating fields (threshold numeric, background `:auto` or `%Color{}`, flags
 boolean) and returning a tagged result like the other factories.
 
+Three sibling registrations are **required** (each is load-bearing — omitting any
+one breaks every trim request), mirroring how the other ops are wired:
+- **`Operation.semantic?(%Trim{})` clause** in `plan/operation.ex` (validating the
+  same fields). The fallback `semantic?(_) -> false` means a `%Trim{}` with no
+  clause is treated as an *invalid* operation and the whole plan is **rejected at
+  validation, pre-fetch**. Mirror the `Monochrome`/`Duotone` clauses.
+- **`Plan.KeyData.data(%Trim{})` clause** in `lib/image_pipe/plan/key_data.ex`.
+  `Cache.Key` maps `KeyData.data/1` over every operation and `key_data.ex` has
+  **no catch-all** — an unmatched `%Trim{}` raises `FunctionClauseError` and
+  crashes cache-key construction for every trim request. Emit
+  `[op: :trim, threshold:, background:, equal_hor:, equal_ver:]`, routing a
+  `%Color{}` background through `Color.key_data/1` (like `Background`) and `:auto`
+  as a bare atom. Trim is a cache-key-affecting input, so this is correctness, not
+  just hygiene.
+- **Boundary export** of `Plan.Operation.Trim` in `lib/image_pipe/plan.ex` **and**
+  in the exact-match list in `test/image_pipe/architecture_boundary_test.exs`
+  (the `assert_boundary_exports(plan, [...])` assertion is `==`, so omission fails
+  the suite).
+
 ### 2. Executable op — `ImagePipe.Transform.Operation.Trim`
 
-`@behaviour ImagePipe.Transform`.
+`@behaviour ImagePipe.Transform`. Export `Transform.Operation.Trim` in
+`lib/image_pipe/transform.ex` (and its architecture-test list).
 
 - `name/1` → `:trim`.
 - `requires_materialization?/1` → **`true`** (find_trim scans pixels). It is one
@@ -101,19 +121,37 @@ boolean) and returning a tagged result like the other factories.
   equivalence harness.
 - `execute/2` replicates `vips_trim` against `state.image`:
   1. Build a detection copy `prepared`: colourspace→sRGB if the interpretation
-     isn't already sRGB; if `Image.has_alpha?(prepared)`, flatten onto
-     `[255, 0, 255]`.
-  2. Resolve bg: `:auto` → `Image.get_pixel(prepared, 0, 0)`; `%Color{}` → its RGB.
+     isn't already sRGB; if `Image.has_alpha?(prepared)`, flatten onto magenta
+     with the correct option key — `Image.flatten(prepared, background_color: [255, 0, 255])`
+     (the key is `:background_color`, **not** `:background`; the wrong key
+     silently flattens onto black and breaks alpha-source detection).
+  2. Resolve bg as a **3-element list**: `:auto` → `Image.get_pixel(prepared, 0, 0)`
+     (yields `[r,g,b]` for the 3-band prepared image); `%Color{}` →
+     `Tuple.to_list(color.channels)` (`Plan.Color.channels` is an `{r,g,b}`
+     **tuple**). `find_trim` does **not** validate that the background band count
+     matches the image — a mismatch silently returns the whole image (no trim)
+     rather than erroring, so the list arity must be correct by construction.
   3. `Vix.Vips.Operation.find_trim(prepared, background: bg, threshold: threshold)`
-     → `{left, top, width, height}`.
-  4. Apply equal_hor / equal_ver box math against the **original** dims.
-  5. If `width == 0 or height == 0` → return `state` with the image **unchanged**.
-     A `{:error, :nothing_to_trim}`/`:uncropped` from find_trim is the same no-op,
-     never a request failure.
+     → `{:ok, {left, top, width, height}}`. The **raw Vix op** signals
+     nothing-to-trim as a successful `{:ok, {l, t, 0, 0}}` tuple — it does *not*
+     return the `:nothing_to_trim`/`:uncropped` error that the higher-level
+     `Image.find_trim` wrapper invents. Any `{:error, _}` from the raw op is a
+     **genuine libvips failure** (e.g. a sub-window-size image → "window too
+     large") and must be propagated, never swallowed (imgproxy propagates it too,
+     `processing/trim.go`).
+  4. Apply equal_hor / equal_ver box math against the **original** dims —
+     **before** the degenerate check (ordering matters: a uniform image with both
+     flags yields a full-image box `{0,0,X,Y}`, not the degenerate branch).
+  5. If `width == 0 or height == 0` (after the equal-math) → return `state` with
+     the image **unchanged**. This is the *only* no-op path.
   6. Else `Image.crop(state.image, left, top, width, height)` (extract from the
      **original**, preserving its colorspace/alpha) and update `State`.
-- A genuine libvips failure (not the nothing-to-trim sentinel) surfaces as a
-  `{:decode, _}`-class error consistent with other materialization failures.
+- Error class: a libvips failure inside `execute/2` returns
+  `{:error, {__MODULE__, reason}}`, which the chain surfaces as a transform error
+  → **422**, consistent with Crop/Flip/Rotate (`crop.ex:190`, `flip.ex:60`). It is
+  **not** a `{:decode, _}`/415 error — that class is reserved for the separate
+  pre-op `copy_memory` materialization failure handled by the Materializer, which
+  is not Trim-specific. (Removed the earlier incorrect `{:decode, _}` claim.)
 
 ### 3. Pipeline position
 
@@ -148,10 +186,17 @@ same family as issue #124.
   the default is never reached); ImagePipe does not need a default threshold.
 - arg1 color: hex RGB (3/6 digit). Empty ⇒ `background: :auto`.
 - arg2 equal_hor: bool, default `false`. arg3 equal_ver: bool, default `false`.
+  **Invalid bool values coerce to `false`, they do not error** — imgproxy's
+  `parseBool` (`options/parser/parse.go`) warns and treats an unparseable bool as
+  `false` and proceeds; matching parity means reusing the existing imgproxy
+  boolean-argument handling (same as `enlarge`/`extend`), **not** adding stricter
+  validation. (We omit imgproxy's warning log; that's an invisible divergence.)
 - Carry the result on `PipelineRequest` (new `trim` field, `nil` when disabled).
   `plan_builder` emits `Plan.Operation.Trim` only when the field is present.
-- All validation failures (bad float, bad hex, bad bool, >4 args) return a parser
-  error **before** any source fetch or cache access (request-safety guideline).
+- The hard-error validations are **threshold** (`parseFloat`) and **color**
+  (`parseHexRGBColor`) — both hard-error upstream — plus the **>4-args** guard.
+  These return a parser error **before** any source fetch or cache access
+  (request-safety guideline). Bad bools do not (see above).
 - Order-insensitivity preserved: option position in the URL does not affect the
   fixed plan order.
 
@@ -167,8 +212,11 @@ exactly as imgproxy does (trim stage 2 nils `ImgData` before stage 3).
   decode + materialize.
 - **Trim in a later pipeline** → not in `first_pipeline_operations` → pipeline 1's
   resize still drives scale-on-load; trim runs on the already-shrunk in-memory
-  image. Matches imgproxy's documented "place trim in a second pipeline to avoid
-  early full-resolution materialization" guidance.
+  image. This matches imgproxy's explicitly documented guidance: chained pipelines
+  (a Pro feature, the `-` separator, which ImagePipe's compat parser supports)
+  recommend moving trim to a separate later pipeline so "the result of the first
+  pipeline is already resized and loaded to the memory" — `features/chained_pipelines.mdx:29-35`,
+  with `usage/processing.mdx:331` confirming trim "disables scale-on-load."
 
 Decode still opens `:sequential`; the per-op materialization model handles the
 trim's RAM materialization lazily via `requires_materialization?: true`.
@@ -196,6 +244,12 @@ the demo in sync):
    auto-detect, that averages a top-left region instead. We replicate `getpoint`.
 3. **Not byte-identical:** like the rest of the imgproxy parity surface, we assert
    dimensions/regions, not bytes (different median-filter/resample internals).
+4. **sRGB-skip heuristic:** imgproxy gates the detection colourspace-convert on
+   `vips_image_guess_interpretation(in) != sRGB`. The available Elixir accessor
+   (`Vix.Vips.Image.interpretation/1`) returns the **stored header**
+   interpretation, not the guessed one, so an 8-bit RGB image imgproxy would treat
+   as already-sRGB may get an extra (harmless) sRGB round-trip here. Negligible
+   pixel impact; recorded for completeness.
 
 ## Conformance doc updates (`docs/imgproxy_support_matrix.md`)
 
@@ -209,22 +263,40 @@ Per the compat-doc sync rule, all three axes change:
 
 ## Test plan
 
-- **Parser:** grammar — defaults, empty-threshold-disables, hex color, bool flags,
-  >4-arg rejection, order-insensitivity; validation failures return before side
-  effects.
-- **Plan / planner:** `Trim` emitted first in geometry order; decode_planner
-  shrink-block — two tests pinning both halves (trim in pipeline 1 disables
-  shrink-on-load; trim in pipeline 2 leaves it intact).
-- **Transform unit:** `requires_materialization? == true`; equal_hor/ver box math
-  against known insets (both `diff>0` and `diff<0` branches); degenerate box →
-  image unchanged; alpha source → magenta-flatten detection path.
-- **Wire conformance** (`test/image_pipe/imgproxy_wire_conformance_test.exs`): a
-  representative request decoding the body and asserting trimmed output dimensions
-  vs a synthetic bordered fixture; a no-op case (uniform / no-border image
-  returns unchanged); smart vs explicit-color.
-- **Sequential-access gate:** trim is materializing, so it is excluded from the
-  sequential-safe equivalence harness; confirm the harness's known-materializing
-  set stays consistent (no false "sequential-safe" claim).
+- **Parser:** grammar — defaults, empty-threshold-disables, hex color,
+  order-insensitivity; **>4-arg rejection** and bad-float / bad-hex failures
+  return before side effects; **invalid bool coerces to `false` and the request
+  succeeds** (parity — assert it does *not* error).
+- **Plan / planner:** `Trim` emitted first in geometry order; `semantic?(%Trim{})`
+  accepts a valid op (and the plan is not rejected); decode_planner shrink-block —
+  two tests pinning both halves (trim in pipeline 1 disables shrink-on-load; trim
+  in a later pipeline leaves it intact).
+- **Cache key** (in `Cache.Key` tests, which own the field set): two trims with
+  different threshold / background produce different keys; semantically equal
+  trims collide. (Guards against the missing-`KeyData`-clause crash too.)
+- **Transform unit:** `requires_materialization?(%Trim{}) == true` (single
+  assertion — *not* a "harness membership" test). The equal_hor/ver box math
+  (`diff>0` and `diff<0`) is exercised through `execute/2` on **fixtures with
+  asymmetric borders**, asserting decoded output dimensions — not by poking a
+  private `symmetrize` helper. A **bounds property test** over random insets
+  asserts the post-equal box always satisfies `0 ≤ left`, `left+width ≤ Xsize`,
+  `0 ≤ top`, `top+height ≤ Ysize`.
+- **Degenerate × equal-flags ordering:** uniform image + `equal_hor=true,
+  equal_ver=false` → unchanged (vertical axis still 0); uniform + **both** flags →
+  full-image result via the crop path (not the unchanged path). Pins the
+  symmetrize-before-degenerate-check ordering.
+- **Alpha + colorspace paths:** an alpha-source fixture whose border distinguishes
+  a **magenta** flatten from a black one (catches the `:background_color` key bug);
+  a **grayscale** source still trims (exercises the 1-band→3-band sRGB convert +
+  3-element auto-bg).
+- **Failure propagation:** a sub-find_trim-window-size image surfaces an error
+  (the raw op's `{:error, _}` propagates as a 422 transform error), is **not**
+  silently returned un-trimmed.
+- **Wire conformance** (`test/image_pipe/imgproxy_wire_conformance_test.exs`):
+  representative request decoding the body and asserting trimmed dimensions vs a
+  synthetic bordered fixture; a no-op case (uniform / no-border image returns
+  unchanged), covering the no-geometry form (trim without resize/crop); smart vs
+  explicit-color.
 
 ## Out of scope
 
