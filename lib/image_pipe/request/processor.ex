@@ -138,11 +138,8 @@ defmodule ImagePipe.Request.Processor do
       execute_start_meta,
       fn ->
         result =
-          with {:ok, final_state} <-
-                 execute_transform_plan(initial_state, plan, opts),
-               {:ok, final_state} <-
-                 materialize_before_delivery(final_state, opts, source_response) do
-            {:ok, final_state}
+          with {:ok, final_state} <- execute_transform_plan(initial_state, plan, opts) do
+            materialize_before_delivery(final_state, opts, source_response)
           end
 
         {result, transform_stop_metadata(result)}
