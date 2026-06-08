@@ -486,7 +486,8 @@ defmodule ImagePipe.ArchitectureBoundaryTest do
       ImagePipe.Plan.Operation.Rotate,
       ImagePipe.Plan.Operation.Resize,
       ImagePipe.Plan.Operation.Saturation,
-      ImagePipe.Plan.Operation.Sharpen
+      ImagePipe.Plan.Operation.Sharpen,
+      ImagePipe.Plan.Operation.Trim
     ])
   end
 

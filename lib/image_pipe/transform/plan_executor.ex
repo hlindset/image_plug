@@ -29,6 +29,7 @@ defmodule ImagePipe.Transform.PlanExecutor do
   alias ImagePipe.Plan.Operation.Rotate, as: PlanRotate
   alias ImagePipe.Plan.Operation.Saturation, as: PlanSaturation
   alias ImagePipe.Plan.Operation.Sharpen, as: PlanSharpen
+  alias ImagePipe.Plan.Operation.Trim, as: PlanTrim
   alias ImagePipe.Plan.Pipeline
   alias ImagePipe.Telemetry
   alias ImagePipe.Transform.Chain
@@ -47,6 +48,7 @@ defmodule ImagePipe.Transform.PlanExecutor do
   alias ImagePipe.Transform.Operation.Resize
   alias ImagePipe.Transform.Operation.Saturation
   alias ImagePipe.Transform.Operation.Sharpen
+  alias ImagePipe.Transform.Operation.Trim
   alias ImagePipe.Transform.Orientation
   alias ImagePipe.Transform.PendingOrientation
   alias ImagePipe.Transform.State
@@ -506,6 +508,16 @@ defmodule ImagePipe.Transform.PlanExecutor do
 
   defp executable_operations(%PlanSaturation{value: value}, %State{}, _context),
     do: [%Saturation{value: value}]
+
+  defp executable_operations(%PlanTrim{} = operation, %State{}, _context),
+    do: [
+      %Trim{
+        threshold: operation.threshold,
+        background: operation.background,
+        equal_hor: operation.equal_hor,
+        equal_ver: operation.equal_ver
+      }
+    ]
 
   defp tagged_executable_resize_operations(
          :cover,
