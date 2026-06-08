@@ -2,6 +2,7 @@ defmodule ImagePipe.Plan.OperationKeyDataTest do
   use ExUnit.Case, async: true
   use ExUnitProperties
 
+  alias ImagePipe.Plan.Color
   alias ImagePipe.Plan.KeyData
   alias ImagePipe.Plan.Operation
   alias ImagePipe.Plan.Operation.Blur
@@ -393,6 +394,24 @@ defmodule ImagePipe.Plan.OperationKeyDataTest do
         })
 
       assert Keyword.fetch!(a, :guide) == Keyword.fetch!(b, :guide)
+    end
+  end
+
+  describe "KeyData.data/1 for Trim" do
+    test "different thresholds produce different key data" do
+      {:ok, a} = Operation.trim(threshold: 10.0, background: :auto)
+      {:ok, b} = Operation.trim(threshold: 20.0, background: :auto)
+      assert KeyData.data(a) != KeyData.data(b)
+    end
+
+    test "different backgrounds produce different key data; equal trims collide" do
+      {:ok, magenta} = Color.rgb(255, 0, 255)
+      {:ok, auto} = Operation.trim(threshold: 10.0, background: :auto)
+      {:ok, color} = Operation.trim(threshold: 10.0, background: magenta)
+      {:ok, auto2} = Operation.trim(threshold: 10.0, background: :auto)
+
+      assert KeyData.data(auto) != KeyData.data(color)
+      assert KeyData.data(auto) == KeyData.data(auto2)
     end
   end
 end
