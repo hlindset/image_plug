@@ -56,8 +56,8 @@ semantics into the Imgproxy API or into product-neutral Plan operations.
 For a stage-by-stage mapping of imgproxy's internal processing pipeline onto
 ImagePipe's execution layers (decode planning, transform chain, output
 boundary) — including stages realized outside the transform chain such as
-`scaleOnLoad` and `fixSize` — see
-[imgproxy_pipeline_conformance.md](imgproxy_pipeline_conformance.md).
+`scaleOnLoad` and `fixSize` — see the "Processing pipeline conformance" section
+of [imgproxy_support_matrix.md](imgproxy_support_matrix.md#processing-pipeline-conformance).
 
 ## Request fields that aren't transform operations
 
