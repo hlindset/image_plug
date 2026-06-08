@@ -135,11 +135,16 @@ contract, which has a bounded but real blast radius:
   `{:needs_final_image_alpha, :source}` branch — an O(1) header read, lazy-safe. Explicit-format
   requests read nothing. ✓
 
-## Output / cache / compat — no observable change
+## Output / cache / compat — no change to served output
 
-- **Byte-identical** (P2: clamp-then-copy == copy-then-clamp; `copy_memory` is pixel-identity). Served
-  pixels, dimensions, content-type, headers unchanged.
+- **Byte-identical served output** (P2: clamp-then-copy == copy-then-clamp; `copy_memory` is
+  pixel-identity). Served pixels, dimensions, content-type, headers, status unchanged.
 - **Cache / ETag:** unchanged — same inputs, same output bytes.
+- **Telemetry ordering nuance:** the `[:output, :clamp]` event's metadata is identical, but it now
+  fires *before* the delivery materialize (it ran after, inside `process_decoded_source`, before). So
+  on a rare materialize-failure path the clamp event can precede the 415 where it previously would
+  not. It never changes served output, and this PR makes that failure *less* likely (materialize now
+  copies the clamped buffer). Stated for precision; not a served-output change.
 - **imgproxy compat:** no behavioral/pixel change → **stage/order** axis only (per the compat-doc-sync
   rule), *not* a behavioral/pixel "Diverges" entry, no surface-table change, no emoji flip. Append a
   realization-order sentence to the existing host-result-cap row in `docs/imgproxy_support_matrix.md`,
