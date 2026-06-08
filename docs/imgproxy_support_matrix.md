@@ -307,6 +307,15 @@ decoded input size and `max_result_width`, `max_result_height`, and
 `max_result_pixels` for final static result size. It doesn't expose Imgproxy's
 animation frame limits or SVG and PNG-specific policy.
 
+Separately from those host-configured caps, ImagePipe clamps the realized output
+to the chosen output encoder's hard per-dimension limit — WebP 16383, AVIF 16384
+(JPEG 65535, PNG effectively unbounded) — by uniformly downscaling and serving
+rather than failing to encode. This mirrors imgproxy's internal `fixSize` step
+(`local/imgproxy-master/processing/fix_size.go`) and emits an `[:output, :clamp]`
+telemetry event ([docs/telemetry.md](telemetry.md)). It is an internal safety
+backstop with no configurable knob, so it has no `IMGPROXY_*` row; it only
+triggers when a host raises `max_result_*` above the encoder limit.
+
 - ✅ `IMGPROXY_MAX_SRC_RESOLUTION`
 - ✅ `IMGPROXY_MAX_SRC_FILE_SIZE`
 - ⭕ `IMGPROXY_MAX_ANIMATION_FRAMES`
