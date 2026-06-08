@@ -349,9 +349,12 @@ approach away from #164's "look-ahead fold into resize":**
   the current *after* (copy→clamp) is **IDENTICAL** (`copy_memory` is pixel-identity; the clamp
   resamples the same resized pixels either way).
 - **Arm C — reorder avoids the buffer.** `resize→clamp(lazy)→copy_memory` (the reorder) measures
-  **199.8 MiB @ 16000** and **221.8 MiB @ 20000** — vs. Arm A's 556 / 848 MiB and near Arm B's
-  147 MiB floor. So **libvips fuses the two lazy resizes**: materializing the clamped output does not
-  fully hold the oversized intermediate.
+  **199.8 MiB @ 16000** and **221.8 MiB @ 20000** — vs. Arm A's 556 / 848 MiB (a **~356 / ~626 MiB**
+  win). It lands *between* Arm A and the 147 MiB Arm-B floor (not at it — ~50-75 MiB of streaming
+  working-set remains above the pure cap buffer). So **libvips fuses the two lazy resizes**:
+  materializing the clamped output does not fully hold the oversized intermediate. (Measured for a
+  single resize node = the fit/stretch shape; cover/canvas/padding fusion is unverified — see the
+  approach-A design's bench-probe requirement.)
 
 **Implication.** The byte-identical, buffer-avoiding fix is **"clamp before materialize"** (reorder
 `Output.Clamp` ahead of the delivery-backstop / flush `copy_memory`), *not* the issue's pixel-divergent
