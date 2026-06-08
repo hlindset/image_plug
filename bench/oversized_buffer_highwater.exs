@@ -2,14 +2,14 @@
 #
 # Gate for #164 (deferred look-ahead pre-clamp). Measures the libvips working-set
 # high-water of the oversized buffer that the delivery-backstop / orientation
-# flush copy_memory materializes on an oversized-ENLARGE request, before #150/#165's
+# flush materialize_for_delivery materializes on an oversized-ENLARGE request, before #150/#165's
 # post-hoc clamp downscales it.
 #
 # Design + gate: docs/superpowers/specs/2026-06-08-oversized-buffer-materialization-benchmark-design.md
 #
 # Control (NO orientation needed — see the design's "premise correction"): the
 # oversized buffer is materialized on EVERY oversized-enlarge request (plain or
-# oriented), because Resize stays lazy and Request.Processor.materialize_before_delivery
+# oriented), because Resize stays lazy and Request.Processor.materialize_for_delivery
 # copy_memory's the resized (oversized, pre-clamp) image. So we compare the SAME
 # final output produced two ways at a fixed host cap:
 #   * Arm A (current):  request target = oversize -> backstop copies the OVERSIZED
@@ -18,7 +18,7 @@
 #                        buffer -> clamp no-ops. (== what the look-ahead would produce.)
 #   gap (A - B) = the avoidable oversized buffer = what #164 would save.
 #
-# Drives the REAL seam (decode -> PlanExecutor -> materialize_before_delivery ->
+# Drives the REAL seam (decode -> PlanExecutor -> materialize_for_delivery ->
 # Output.Clamp -> Encoder consumed) via Request.Processor + the producer's clamp
 # math, with a hand-built Plan. Output is PNG and max_result_pixels is raised so
 # the per-axis dimension cap is the SOLE binding limit (no encoder / pixel-cap
