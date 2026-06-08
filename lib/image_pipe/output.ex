@@ -6,9 +6,10 @@ defmodule ImagePipe.Output do
     deps: [ImagePipe.Format, ImagePipe.Plan],
     exports: [
       Capabilities,
-      Policy,
+      Clamp,
       Encoder,
       Negotiation,
+      Policy,
       Resolved
     ]
 end
