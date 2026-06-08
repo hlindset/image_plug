@@ -8,7 +8,127 @@ product-neutral `ImagePipe.Plan`. Supported options translate cleanly into
 canonical plan/output/cache/response fields. Unsupported options fail before
 source fetch or cache lookup. ImagePipe doesn't ignore them.
 
+Conformance has three axes. This document covers two of them; the third lives in
+the test suite:
+
+| Axis | Question | Where |
+| --- | --- | --- |
+| **Surface** | Do we accept the same URL options / config? | the option/config tables below |
+| **Stage / order** | Do we run the same processing stages, in a compatible order, realized where? | [Processing pipeline conformance](#processing-pipeline-conformance) |
+| **Behavioral / pixel** | Does a matching stage produce matching output? | wire conformance tests (`test/image_pipe/imgproxy_wire_conformance_test.exs`) + the "Diverges" notes throughout |
+
+A single feature can pass one axis and fail another: `fixSize` (in the pipeline
+section) is *surface*-invisible (no option/config), *stage*-conformant, and
+*behaviorally* equivalent for WebP/AVIF — it only becomes legible on the stage
+axis. References to imgproxy source below use imgproxy's own repository layout
+(`processing/…` in `github.com/imgproxy/imgproxy`); ImagePipe doesn't vendor it.
+
+## Processing pipeline conformance
+
+imgproxy processes each image through a fixed, ordered pipeline. Most stages have
+no env var and no URL option, so they have no row in the configuration/URL tables
+below — yet they are exactly where compatibility lives. This section maps each
+imgproxy stage onto the ImagePipe layer that realizes it.
+
+ImagePipe doesn't execute imgproxy's pipeline directly: it parses to a
+product-neutral `ImagePipe.Plan` whose transform order is fixed by the
+parser/plan layer (URL option order is irrelevant — see
+[transform_operations.md](transform_operations.md) and
+[imgproxy_path_api.md](imgproxy_path_api.md)), then executes that plan across
+three layers — **decode planning**, the **transform chain**, and the **output
+boundary**. The diagram colours stages by which layer realizes them; the tables
+carry the detail.
+
+```mermaid
+flowchart TD
+    subgraph main["mainPipeline · applied per frame"]
+        direction TB
+        A1["1 vectorGuardScale ⭕"] --> A2["2 trim ⭕"] --> A3["3 scaleOnLoad ✅"]
+        A3 --> A4["4 colorspaceToProcessing ⚠️"] --> A5["5 crop ✅"] --> A6["6 scale ✅"]
+        A6 --> A7["7 rotateAndFlip ✅"] --> A8["8 cropToResult ✅"] --> A9["9 applyFilters ✅"]
+        A9 --> A10["10 extend ✅"] --> A11["11 extendAspectRatio ✅"] --> A12["12 padding ✅"]
+        A12 --> A13["13 fixSize ✅"] --> A14["14 flatten ✅"] --> A15["15 watermark ⭕"]
+    end
+    subgraph fin["finalizePipeline · before save"]
+        direction TB
+        F1["16 colorspaceToResult ⚠️"] --> F2["17 stripMetadata ✅"]
+    end
+    A15 --> F1
+
+    classDef decode fill:#dbeafe,stroke:#2563eb,color:#1e3a8a;
+    classDef chain fill:#dcfce7,stroke:#16a34a,color:#14532d;
+    classDef output fill:#ffedd5,stroke:#ea580c,color:#7c2d12;
+    classDef none fill:#f3f4f6,stroke:#9ca3af,color:#6b7280;
+
+    class A3 decode;
+    class A4,A5,A6,A7,A8,A9,A10,A11,A12,A14,F1 chain;
+    class A13,F2 output;
+    class A1,A2,A15 none;
+```
+
+**Colour = ImagePipe layer:** 🟦 decode planning · 🟩 transform chain · 🟧 output
+boundary (clamp / encoder finalize) · ⬜ not realized.
+**Emoji = conformance:** ✅ matches · ⚠️ diverges · ⭕ missing (in scope, not built).
+
+### Main pipeline
+
+imgproxy's `mainPipeline` (`processing/processing.go`), applied per frame:
+
+| # | imgproxy stage | Realized in ImagePipe | Status | Notes |
+| --- | --- | --- | --- | --- |
+| 1 | `vectorGuardScale` | — | ⭕ | Gated on SVG/vector input support, which isn't implemented yet (SVG is rejected after decode identifies an SVG loader, before transforms). In scope; this pre-scale stage follows once SVG input lands. (see "Source input formats") |
+| 2 | `trim` | — | ⭕ | `trim`/`t` not implemented (see "Resize, geometry, and orientation"). Needs full-image memory + a trim operation. |
+| 3 | `scaleOnLoad` | **decode planning** — `lib/image_pipe/transform/decode_planner.ex` | ✅ | Shrink-on-load computed as a libvips load option (`shrink`/`scale`), not a transform op. Decode opens `:sequential`. |
+| 4 | `colorspaceToProcessing` | `lib/image_pipe/transform/operation/normalize_color_profile.ex` | ⚠️ | imgproxy color-manages **every** image into a working space; ImagePipe converts only when `scp` is on (issue #124). With `scp:0` + a tone effect on a wide-gamut source, effects run in the source profile space. |
+| 5 | `crop` | `lib/image_pipe/transform/operation/crop.ex` | ✅ | Pre-resize crop with anchor / focal-point / smart / object gravity. |
+| 6 | `scale` | `lib/image_pipe/transform/operation/resize.ex` | ✅ | `fit`/`fill`/`fill-down`/`force`/`auto`, enlarge, min-width/height, zoom, dpr. Pro `resizing_algorithm` (`ra`) missing. |
+| 7 | `rotateAndFlip` | `lib/image_pipe/transform/orientation.ex`, `.../operation/rotate.ex`, `.../operation/flip.ex` | ✅ | Suborder: auto-orient → rotate → flip. EXIF auto-orient is the default. |
+| 8 | `cropToResult` | `lib/image_pipe/transform/operation/crop.ex` (result crop after a fill-style resize) | ✅ | `Resize` deliberately does **not** crop: for `fill`/`fill_down` it resizes to cover dimensions, then plan execution emits a **separate** crop to the result size. |
+| 9 | `applyFilters` | `lib/image_pipe/transform/operation/{blur,sharpen,pixelate,brightness,contrast,saturation,monochrome,duotone}.ex` | ✅ | Supported effect subset; order documented in [transform_operations.md](transform_operations.md). Pro filters (`unsharp_masking`, `blur_areas`, `colorize`, `gradient`) missing. |
+| 10 | `extend` | `lib/image_pipe/transform/operation/extend_canvas.ex` | ✅ | Canvas extension with anchor gravity and offsets. |
+| 11 | `extendAspectRatio` | `lib/image_pipe/transform/operation/extend_canvas.ex` (`{:aspect_ratio, ratio}` rule) | ✅ | `extend_ar`/`exar`; no-op when a resize dimension is auto/zero. `fp` extend-gravity not supported. |
+| 12 | `padding` | `lib/image_pipe/transform/operation/padding.ex` | ✅ | CSS-style shorthand, effective DPR scaling. |
+| 13 | `fixSize` | **output boundary** — `lib/image_pipe/output/clamp.ex` (#150) | ✅ | Format-aware encoder dimension clamp. Realized at the **Output boundary**, not the transform chain: the realized image is uniformly downscaled to the chosen encoder's hard limit (WebP 16383, AVIF 16384). Mirrors imgproxy's `processing/fix_size.go` (`fixWebpSize`/`fixHeifSize`). Emits `[:output, :clamp]` ([telemetry.md](telemetry.md)); covered by the wire conformance tests. The `max_pixels`/sqrt branch (imgproxy's `fixGifSize`) is deferred to #165. |
+| 14 | `flatten` | `lib/image_pipe/transform/operation/background.ex` | ✅ | Alpha flatten onto `background`/`background_alpha` (`bg`/`bga`); default black. |
+| 15 | `watermark` | — | ⭕ | In scope, not yet implemented (consistent with the watermark rows in "Background, effects, and overlays" and "Watermark defaults and custom watermark cache"). |
+
+### Finalize pipeline
+
+imgproxy's `finalizePipeline` (`processing/processing.go`), applied before save:
+
+| # | imgproxy stage | Realized in ImagePipe | Status | Notes |
+| --- | --- | --- | --- | --- |
+| 16 | `colorspaceToResult` | `lib/image_pipe/transform/operation/normalize_color_profile.ex` (when `scp`) | ⚠️ | imgproxy always converts to the output colorspace before save; ImagePipe has no unconditional conversion — same `scp`-gated divergence as stage 4 (issue #124). |
+| 17 | `stripMetadata` | **encoder finalize** — `lib/image_pipe/output/encoder.ex` | ✅ | Strips EXIF/XMP/IPTC at encode. **Diverges** on `keep_copyright` (preserves EXIF copyright/artist only; imgproxy keeps full XMP/IPTC) and on the `scp`-gated ICC handling. See "Metadata, color, and source decoding". |
+
+### Surrounding stages
+
+imgproxy wraps the pipelines with load, size-gating, format determination, and
+save. ImagePipe realizes these at request and output boundaries:
+
+| imgproxy stage | Realized in ImagePipe | Status | Notes |
+| --- | --- | --- | --- |
+| Initial load + source-resolution gate (`MaxSrcResolution`) | decode + `max_input_pixels` (hard error) | ✅ | The image-bomb gate is a hard error, not a downscale — matches imgproxy. `max_body_bytes` caps the fetched body. |
+| Output format determination | `lib/image_pipe/output/negotiation.ex`, `lib/image_pipe/output/policy.ex` | ✅ | `Accept` negotiation for AVIF/WebP with `Vary: Accept`; explicit `@extension`/`.extension` bypasses it. JXL, `enforce_*`, `preferred_formats` missing. |
+| Host result-dimension cap (`limitScale`, `processing/prepare.go`) | `lib/image_pipe/request/processor.ex` (`check_result_*`) | ⚠️ | imgproxy **downscales** the result to fit `max_result_*`; ImagePipe currently **errors**. Issue #165 changes this to downscale-and-serve, reusing the #150 clamp with `min(host_max, encoder_limit)`. |
+| Save / encode | `lib/image_pipe/output/encoder.ex` | ✅ | Streams the encoded result. Advanced/codec-specific encoder knobs missing (see "Advanced encoder options"). |
+
+### Key takeaways
+
+- **Order is plan-owned, not URL-owned** — imgproxy's stage order is realized by
+  ImagePipe's fixed `ImagePipe.Plan` transform order; URL option order doesn't
+  define it.
+- **Not every imgproxy stage is a transform op** — `scaleOnLoad` is decode
+  planning, `fixSize` is the output boundary, `stripMetadata`/`colorspaceToResult`
+  are encoder finalize. The "Realized in" column is the map.
+- **The standing divergences are color management (#124) and the host result cap
+  (#165).** Everything else either matches or is an explicitly missing/out-of-scope
+  surface documented in the tables below.
+
 ## Status legend
+
+The pipeline section above uses ✅ matches / ⚠️ diverges / ⭕ missing. The
+configuration and URL/option tables below use a finer-grained legend:
 
 | Status | Meaning |
 | --- | --- |
@@ -26,9 +146,9 @@ ImagePipe doesn't read `IMGPROXY_*` environment variables. Variable markers show
 whether ImagePipe has a matching or related `ImagePipe.Plug.init/1` option, source
 adapter option, cache adapter option, or runtime option.
 
-This section compares ImagePipe with
-`local/imgproxy-docs/configuration/options.mdx` and the imgproxy config loaders
-under `local/imgproxy-master/*/config.go`.
+This section compares ImagePipe with imgproxy's configuration documentation
+(`configuration/options.mdx`) and its config loaders (`*/config.go`) in
+imgproxy's upstream repository.
 
 ### URL signature keys and trusted signatures
 
@@ -311,7 +431,7 @@ Separately from those host-configured caps, ImagePipe clamps the realized output
 to the chosen output encoder's hard per-dimension limit — WebP 16383, AVIF 16384
 (JPEG 65535, PNG effectively unbounded) — by uniformly downscaling and serving
 rather than failing to encode. This mirrors imgproxy's internal `fixSize` step
-(`local/imgproxy-master/processing/fix_size.go`) and emits an `[:output, :clamp]`
+(`processing/fix_size.go`) and emits an `[:output, :clamp]`
 telemetry event ([docs/telemetry.md](telemetry.md)). It is an internal safety
 backstop with no configurable knob, so it has no `IMGPROXY_*` row; it only
 triggers when a host raises `max_result_*` above the encoder limit.
