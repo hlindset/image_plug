@@ -327,10 +327,13 @@ Orientation options are `auto_rotate`/`ar`, `rotate`/`rot`, and `flip`/`fl`.
 - URL `ar:true` and `ar:false` resolve as request-scoped EXIF decode policy,
   not as pipeline-local pixel operations. If more than one URL group contains
   `ar`, the last `ar` in path order wins.
-- When the resolved request policy is `true`, ImagePipe represents it as one
-  `AutoOrient` operation at the start of the first produced pipeline. That keeps
-  cache keys, ETags, and transform execution on the same canonical plan
-  machinery while making later geometry use dimensions after EXIF normalization.
+- When the resolved request policy is `true`, ImagePipe carries it on the
+  canonical plan (`Plan.auto_rotate`), not as a pipeline pixel operation. EXIF
+  auto-orient is applied late at the orientation-flush boundary — after
+  crop/resize — with crop gravity and resize dimensions compensated into the
+  storage frame so the observable result matches EXIF-normalized geometry (issue
+  #146). That keeps cache keys, ETags, and transform execution on the same
+  canonical plan machinery.
 - `rotate` and `flip` stay pipeline-scoped. They don't suppress the configured
   `auto_rotate` default and don't move across pipeline separators.
 - `rot` accepts integer degrees in multiples of 90 and stores them as `0`,
