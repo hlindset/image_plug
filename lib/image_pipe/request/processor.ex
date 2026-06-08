@@ -29,8 +29,9 @@ defmodule ImagePipe.Request.Processor do
           {:ok, State.t()} | {:error, term()}
   def process_source(%Plan{} = plan, %Source.Resolved{} = resolved_source, opts) do
     with {:ok, decoded} <-
-           fetch_decode_validate_source_with_source_format(plan, resolved_source, opts) do
-      process_decoded_source(decoded, plan, opts)
+           fetch_decode_validate_source_with_source_format(plan, resolved_source, opts),
+         {:ok, %State{} = state} <- process_decoded_source(decoded, plan, opts) do
+      materialize_for_delivery(state, opts)
     end
   end
 
@@ -136,11 +137,7 @@ defmodule ImagePipe.Request.Processor do
       [:transform, :execute],
       execute_start_meta,
       fn ->
-        result =
-          with {:ok, final_state} <- execute_transform_plan(initial_state, plan, opts) do
-            materialize_for_delivery(final_state, opts)
-          end
-
+        result = execute_transform_plan(initial_state, plan, opts)
         {result, transform_stop_metadata(result)}
       end
     )
@@ -217,11 +214,11 @@ defmodule ImagePipe.Request.Processor do
   end
 
   @doc """
-  Materializes the (post-transform) image to a RAM buffer before delivery, unless
-  an op already materialized mid-pipeline. Maps a materialize failure to a decode
-  error (→ 415), passing through already-tagged source/config errors. Called within
-  `process_decoded_source/3`; will also be called by the producer after `Output.Clamp`
-  (a later change).
+  Called by `process_source/3` after transform execution and by the producer after
+  `Output.Clamp`, to materialize the lazy vips state before encoding. Returns
+  `{:ok, state}` unchanged if an op already materialized mid-pipeline; maps a
+  materialize failure to a decode error (→ 415), passing through already-tagged
+  source/config errors.
   """
   @spec materialize_for_delivery(State.t(), keyword()) :: {:ok, State.t()} | {:error, term()}
   def materialize_for_delivery(%State{} = state, opts) do

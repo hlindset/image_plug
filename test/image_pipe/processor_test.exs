@@ -463,6 +463,20 @@ defmodule ImagePipe.Request.ProcessorTest do
     assert decoded.source_dimensions == orig
   end
 
+  test "process_decoded_source returns a lazy (un-materialized) state for a sequential plan" do
+    target_w = 200
+    {:ok, operation} = resize_fit(target_w, :auto)
+    plan = %Plan{plan() | pipelines: [%Pipeline{operations: [operation]}]}
+
+    {:ok, decoded} =
+      Processor.fetch_decode_validate_source_with_source_format(plan, resolved_source(), opts())
+
+    assert {:ok, %State{materialized?: false} = state} =
+             Processor.process_decoded_source(decoded, plan, opts())
+
+    assert Image.width(state.image) <= target_w
+  end
+
   test "process_source materializes a sequential-only plan before delivery" do
     # A fit-resize plan has no op that requires_materialization?, so the transform
     # chain leaves state.materialized? == false. materialize_for_delivery must
