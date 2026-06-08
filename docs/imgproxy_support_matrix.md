@@ -43,11 +43,11 @@ carry the detail.
 flowchart TD
     subgraph main["mainPipeline · applied per frame"]
         direction TB
-        A1["1 vectorGuardScale 🛑"] --> A2["2 trim ⭕"] --> A3["3 scaleOnLoad ✅"]
+        A1["1 vectorGuardScale ⭕"] --> A2["2 trim ⭕"] --> A3["3 scaleOnLoad ✅"]
         A3 --> A4["4 colorspaceToProcessing ⚠️"] --> A5["5 crop ✅"] --> A6["6 scale ✅"]
         A6 --> A7["7 rotateAndFlip ✅"] --> A8["8 cropToResult ✅"] --> A9["9 applyFilters ✅"]
         A9 --> A10["10 extend ✅"] --> A11["11 extendAspectRatio ✅"] --> A12["12 padding ✅"]
-        A12 --> A13["13 fixSize ✅"] --> A14["14 flatten ✅"] --> A15["15 watermark 🛑"]
+        A12 --> A13["13 fixSize ✅"] --> A14["14 flatten ✅"] --> A15["15 watermark ⭕"]
     end
     subgraph fin["finalizePipeline · before save"]
         direction TB
@@ -68,7 +68,7 @@ flowchart TD
 
 **Colour = ImagePipe layer:** 🟦 decode planning · 🟩 transform chain · 🟧 output
 boundary (clamp / encoder finalize) · ⬜ not realized.
-**Emoji = conformance:** ✅ matches · ⚠️ diverges · ⭕ missing · 🛑 out of scope.
+**Emoji = conformance:** ✅ matches · ⚠️ diverges · ⭕ missing (in scope, not built). No mainPipeline/finalize stage is out of scope (video is a separate pipeline).
 
 ### Main pipeline
 
@@ -76,7 +76,7 @@ imgproxy's `mainPipeline` (`processing/processing.go`), applied per frame:
 
 | # | imgproxy stage | Realized in ImagePipe | Status | Notes |
 | --- | --- | --- | --- | --- |
-| 1 | `vectorGuardScale` | — | 🛑 | SVG/vector input is rejected after decode identifies an SVG loader, before transforms. No vector pre-scale stage. (see "Source input formats") |
+| 1 | `vectorGuardScale` | — | ⭕ | Gated on SVG/vector input support, which isn't implemented yet (SVG is rejected after decode identifies an SVG loader, before transforms). In scope; this pre-scale stage follows once SVG input lands. (see "Source input formats") |
 | 2 | `trim` | — | ⭕ | `trim`/`t` not implemented (see "Resize, geometry, and orientation"). Needs full-image memory + a trim operation. |
 | 3 | `scaleOnLoad` | **decode planning** — `lib/image_pipe/transform/decode_planner.ex` | ✅ | Shrink-on-load computed as a libvips load option (`shrink`/`scale`), not a transform op. Decode opens `:sequential`. |
 | 4 | `colorspaceToProcessing` | `lib/image_pipe/transform/operation/normalize_color_profile.ex` | ⚠️ | imgproxy color-manages **every** image into a working space; ImagePipe converts only when `scp` is on (issue #124). With `scp:0` + a tone effect on a wide-gamut source, effects run in the source profile space. |
@@ -90,7 +90,7 @@ imgproxy's `mainPipeline` (`processing/processing.go`), applied per frame:
 | 12 | `padding` | `lib/image_pipe/transform/operation/padding.ex` | ✅ | CSS-style shorthand, effective DPR scaling. |
 | 13 | `fixSize` | **output boundary** — `lib/image_pipe/output/clamp.ex` (#150) | ✅ | Format-aware encoder dimension clamp. Realized at the **Output boundary**, not the transform chain: the realized image is uniformly downscaled to the chosen encoder's hard limit (WebP 16383, AVIF 16384). Mirrors imgproxy's `processing/fix_size.go` (`fixWebpSize`/`fixHeifSize`). Emits `[:output, :clamp]` ([telemetry.md](telemetry.md)); covered by the wire conformance tests. The `max_pixels`/sqrt branch (imgproxy's `fixGifSize`) is deferred to #165. |
 | 14 | `flatten` | `lib/image_pipe/transform/operation/background.ex` | ✅ | Alpha flatten onto `background`/`background_alpha` (`bg`/`bga`); default black. |
-| 15 | `watermark` | — | 🛑 | Watermark processing is not modeled (see "Background, effects, and overlays"). |
+| 15 | `watermark` | — | ⭕ | In scope, not yet implemented (consistent with the watermark rows in "Background, effects, and overlays" and "Watermark defaults and custom watermark cache"). |
 
 ### Finalize pipeline
 
@@ -127,8 +127,8 @@ save. ImagePipe realizes these at request and output boundaries:
 
 ## Status legend
 
-The pipeline section above uses ✅ matches / ⚠️ diverges / ⭕ missing / 🛑 out of
-scope. The configuration and URL/option tables below use a finer-grained legend:
+The pipeline section above uses ✅ matches / ⚠️ diverges / ⭕ missing. The
+configuration and URL/option tables below use a finer-grained legend:
 
 | Status | Meaning |
 | --- | --- |
