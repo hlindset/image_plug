@@ -3,6 +3,16 @@ defmodule ImagePipe.Output.ClampTest do
 
   alias ImagePipe.Output.Encoder
 
+  # Stub whose first (more aggressive) resize overshoots the limit by 1px and
+  # whose floor-biased corrective resize lands within it. Models a libvips
+  # rounding quirk so the defensive `enforce_limit` re-resize is exercised.
+  # Injected via the `:image_module` opt; the primary call uses the larger
+  # `max_dimension / longest` factor, the corrective uses `(max_dimension - 0.5) / longest`.
+  defmodule OvershootOnceImage do
+    def resize(_image, scale, _opts) when scale >= 0.5, do: Image.new(101, 50)
+    def resize(_image, _scale, _opts), do: Image.new(100, 50)
+  end
+
   describe "encoder_limit/1" do
     test "returns the WebP and AVIF hard dimension limits" do
       assert Encoder.encoder_limit(:webp) == %{max_dimension: 16_383}
@@ -55,6 +65,27 @@ defmodule ImagePipe.Output.ClampTest do
       assert Image.width(resized) <= 100
       assert max(Image.width(resized), Image.height(resized)) <= 100
       assert info.dimensions == {Image.width(resized), Image.height(resized)}
+    end
+
+    test "downscales when the longest axis is the height" do
+      img = image(50, 200)
+      assert {:ok, resized, info} = Clamp.clamp(img, 100, [])
+
+      assert Image.width(resized) == 25
+      assert Image.height(resized) == 100
+      assert info.dimensions == {25, 100}
+    end
+
+    test "re-resizes when the first resize overshoots the limit" do
+      img = image(200, 100)
+
+      assert {:ok, resized, info} =
+               Clamp.clamp(img, 100, image_module: OvershootOnceImage)
+
+      # The corrective re-resize brought the overshooting 101px result back to
+      # the limit, and the reported dimensions reflect the realized result.
+      assert max(Image.width(resized), Image.height(resized)) <= 100
+      assert info.dimensions == {100, 50}
     end
   end
 end
