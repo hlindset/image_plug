@@ -110,11 +110,11 @@ contract, which has a bounded but real blast radius:
   `shrink_through_crop_test`) and assert on `final.image` dims. Those dim assertions read lazily and
   should still hold; assertions on `materialized?` (if any) must be revisited.
 - **`process_source/3` is a test-only public entry** (only `processor_test.exs` calls it). Resolve
-  the contract by composing: `process_source = process_decoded_source (lazy) + materialize_before_delivery`,
-  so its "returns RAM-resident" contract is preserved and the **`processor_test.exs:466-501` pin on
-  `materialized? == true` moves** to that composition (it does NOT survive in place on
-  `process_decoded_source`). Keep a test that a never-materialized chain ends RAM-resident before
-  delivery.
+  the contract by composing: `process_source = process_decoded_source (lazy) + materialize_for_delivery`,
+  so its "returns RAM-resident" contract is preserved. The existing `processor_test.exs:466-501` pin
+  (`materialized? == true`) **already targets `process_source`, so it stays green unchanged** — no
+  relocation needed. Add a *new* pin that `process_decoded_source` now returns `materialized?: false`
+  (the lazy contract).
 - **Error classification (must preserve) — see "Where materialization lands".** A materialize failure
   maps to `{:decode, _}` → **415** today (processor.ex:242-249). The relocated shared step preserves
   this exact mapping; the `FailingMaterializer` → 415 tests (`plug_test.exs:1898,1924`) must still pass

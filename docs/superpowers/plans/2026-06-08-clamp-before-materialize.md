@@ -115,7 +115,7 @@ git commit -m "refactor: extract Processor.materialize_for_delivery/2 (drop vest
 
 - [ ] **Step 1: Write the failing contract pin for the lazy return**
 
-Mirror how the shrink-on-load tests build `decoded` (see `test/image_pipe/shrink_through_crop_test.exs` ~50-60 for the `fetch_decode_validate_source_with_source_format` + `process_decoded_source` pattern and the `opts()`/`resolved_source()` helpers). Add to `processor_test.exs`:
+Use the helpers already defined in `processor_test.exs` — `resize_fit/2`, `plan/0`, `resolved_source/0`, `opts/0` — and the `fetch_decode_validate_source_with_source_format/3` + `process_decoded_source/3` pattern already used by sibling tests in the same file (see the test at ~110-120 and the `process_source` test at ~466-481). (Do NOT model on `shrink_through_crop_test.exs` — it uses `decode_validate_source_response` and has no `resolved_source/0` helper.) Add to `processor_test.exs`:
 
 ```elixir
 test "process_decoded_source returns a lazy (un-materialized) state for a sequential plan" do
@@ -136,7 +136,8 @@ end
 
 - [ ] **Step 2: Run it to verify it fails**
 
-Run: `mise exec -- mix test test/image_pipe/processor_test.exs -k "lazy (un-materialized)"`
+Run: `mise exec -- mix test test/image_pipe/processor_test.exs -n "lazy (un-materialized)"`
+(`-n`/`--name-pattern` is mix's name filter — not pytest's `-k`.)
 Expected: FAIL — `process_decoded_source` currently materializes, so `materialized?` is `true`.
 
 - [ ] **Step 3: Make `process_decoded_source` return the lazy transformed state**
@@ -240,16 +241,18 @@ git commit -m "bench(#164): probe cover + canvas over-cap fusion; record memory-
 
 ### Task 4: Conformance doc — processing-pipeline stage/order note
 
+**Run this task AFTER Task 3** so the wording reflects the measured fusion coverage.
+
 **Files:**
-- Modify: `docs/imgproxy_support_matrix.md` (the host result-dimension cap row, ~113; the `fixSize` row, ~91 — find by searching for "result" / "fixSize")
+- Modify: `docs/imgproxy_support_matrix.md` — the **host result-dimension cap / `limitScale` row (~113) ONLY** (find by searching "result" / "limitScale"). Do **not** also edit the `fixSize` row (~91) — it's the same `Output.Clamp` seam, so a note there would duplicate.
 
 - [ ] **Step 1: Append the realization-order note (no emoji flip, no surface-table change)**
 
-Find the host-result-cap row and append, after its existing composition-divergence sentence:
+Find the host-result-cap (`limitScale`) row and append, after its existing composition-divergence sentence:
 
-> On the plain (non-oriented) path the clamp runs on the lazy composite before the delivery-backstop materialization, so libvips fuses resize→clamp and the oversized intermediate never fully forms (#164, approach A); served pixels, dims, and the `[:output, :clamp]` event are byte-/metadata-identical. The oriented mid-chain flush still materializes pre-clamp (deferred).
+> On the plain (non-oriented) path the clamp runs on the lazy composite before the delivery materialization, so libvips can fuse resize→clamp and avoid forming the full oversized intermediate (verified for fit/stretch; see #164 / the benchmark doc for cover/canvas coverage). Served pixels, dims, and the `[:output, :clamp]` event are byte-/metadata-identical. The oriented mid-chain flush still materializes pre-clamp (deferred).
 
-Do **not** change any emoji, add a "Diverges" entry, or touch the surface/option tables. **Do not edit `docs/telemetry.md`** — the `[:output, :clamp]` `source_dimensions`/`dimensions`/`scale` contract is unchanged.
+The byte-identity statement is unconditional; the fusion/coverage wording must match Task 3's probe result (broaden if cover/canvas fused, keep the fit/stretch qualifier otherwise). Do **not** change any emoji, add a "Diverges" entry, or touch the surface/option tables. **Do not edit `docs/telemetry.md`** — the `[:output, :clamp]` `source_dimensions`/`dimensions`/`scale` contract is unchanged.
 
 - [ ] **Step 2: Verify formatting + nothing else regressed**
 
