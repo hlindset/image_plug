@@ -8,6 +8,12 @@ product-neutral `ImagePipe.Plan`. Supported options translate cleanly into
 canonical plan/output/cache/response fields. Unsupported options fail before
 source fetch or cache lookup. ImagePipe doesn't ignore them.
 
+This matrix is keyed on imgproxy's **configurable surface** (env vars and URL
+options). For imgproxy's internal **processing pipeline** — the ordered stages
+(`scaleOnLoad`, `fixSize`, `colorspaceToResult`, …) that have no config knob —
+and where ImagePipe realizes each one, see
+[imgproxy_pipeline_conformance.md](imgproxy_pipeline_conformance.md).
+
 ## Status legend
 
 | Status | Meaning |

@@ -53,6 +53,12 @@ map cleanly, emit an ordered `ImagePipe.Plan`. Otherwise keep dialect-specific
 quirks isolated in the parser/adapter layer. Don't force ordered command
 semantics into the Imgproxy API or into product-neutral Plan operations.
 
+For a stage-by-stage mapping of imgproxy's internal processing pipeline onto
+ImagePipe's execution layers (decode planning, transform chain, output
+boundary) — including stages realized outside the transform chain such as
+`scaleOnLoad` and `fixSize` — see
+[imgproxy_pipeline_conformance.md](imgproxy_pipeline_conformance.md).
+
 ## Request fields that aren't transform operations
 
 These request fields affect source selection, response policy, cache identity,
