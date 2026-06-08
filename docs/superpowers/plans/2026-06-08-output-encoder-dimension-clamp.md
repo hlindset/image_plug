@@ -73,14 +73,14 @@ practical limit. Sourced from libvips encoder constraints (cf. imgproxy
 `processing/fix_size.go`). #150 uses only `:max_dimension`; #165 will extend
 the returned map with a `:max_pixels` budget when its caller makes that live.
 """
-@spec encoder_limit(Format.format()) :: %{max_dimension: pos_integer() | :infinity}
+@spec encoder_limit(Format.output_format()) :: %{max_dimension: pos_integer() | :infinity}
 def encoder_limit(:webp), do: %{max_dimension: 16_383}
 def encoder_limit(:avif), do: %{max_dimension: 16_384}
 def encoder_limit(:jpeg), do: %{max_dimension: 65_535}
 def encoder_limit(:png), do: %{max_dimension: :infinity}
 ```
 
-Note: the output-format type is `ImagePipe.Plan.Output.format` (`:avif | :webp | :jpeg | :png`, `plan/output.ex:19`). `Encoder` already `alias`es `ImagePipe.Format`; if `Format.format()` is not the right type alias, use `ImagePipe.Plan.Output.format()` in the `@spec` instead — pick whichever already resolves in this module without adding a new alias that would change boundary deps (both `Format` and `Plan` are already allowed deps of `Output`).
+Note: the type is `ImagePipe.Format.output_format()` (`:avif | :webp | :jpeg | :png`, defined at `format.ex:19`). `Encoder` already `alias`es `ImagePipe.Format`, so `Format.output_format()` resolves with no new alias and no boundary-dep change. (`Format.format/0` does **not** exist — do not use it.)
 
 - [ ] **Step 4: Run the test to verify it passes**
 
@@ -187,8 +187,7 @@ defmodule ImagePipe.Output.Clamp do
           | {:error, {:encode, Exception.t(), list()}}
   def clamp(%VixImage{} = image, :infinity, _opts), do: {:ok, image, nil}
 
-  def clamp(%VixImage{} = image, max_dimension, opts)
-      when is_integer(max_dimension) and max_dimension > 0 do
+  def clamp(%VixImage{} = image, max_dimension, opts) when is_integer(max_dimension) do
     w = Image.width(image)
     h = Image.height(image)
     longest = max(w, h)
@@ -233,7 +232,6 @@ defmodule ImagePipe.Output.Clamp do
     case image_module.resize(image, scale, vertical_scale: scale) do
       {:ok, resized} -> {:ok, resized}
       {:error, reason} -> {:error, encode_error(reason)}
-      resized when is_struct(resized, VixImage) -> {:ok, resized}
     end
   end
 
@@ -244,7 +242,7 @@ end
 ```
 
 Notes for the implementer:
-- `Image.resize/3` returns `{:ok, image} | {:error, reason}` (`deps/image/lib/image.ex:4178`); the `is_struct` clause is a defensive belt-and-suspenders for the alpha path and harmless. It premultiplies alpha internally, so transparent images don't get halos.
+- `Image.resize/3` returns `{:ok, image} | {:error, reason}` on **both** the alpha and non-alpha branches (`deps/image/lib/image.ex:4178` — the alpha branch ends in `Operation.cast/2`, which returns `{:ok, image}`). It premultiplies alpha internally, so transparent images don't get halos. `vertical_scale:` is a valid `Resize.resize_options()` key (maps to libvips `:vscale`); `scale = max_dimension / longest` is always a float in Elixir.
 - The `{:error, {:encode, exception, stacktrace}}` 3-tuple is **required** — a bare `{:encode, reason}` 2-tuple matches no `handle_processing_error/3` clause in `response/sender.ex` and would crash. This mirrors `runner.ex:205`'s `{:session, reason}` wrapping.
 
 - [ ] **Step 4: Run the tests to verify they pass**
@@ -273,7 +271,7 @@ git commit -m "feat(output): add Clamp.clamp/3 generic uniform downscale (#150)"
 
 - [ ] **Step 1: Add the export**
 
-In `lib/image_pipe/output.ex`, add `Clamp` to the `exports:` list (alphabetical-ish, alongside `Encoder`):
+The current `exports:` list is `[Capabilities, Policy, Encoder, Negotiation, Resolved]`. **Insert `Clamp` — do not drop `Policy`** (it's referenced cross-boundary by the producer/runner; removing it breaks compilation). The result:
 
 ```elixir
   use Boundary,
@@ -284,6 +282,7 @@ In `lib/image_pipe/output.ex`, add `Clamp` to the `exports:` list (alphabetical-
       Clamp,
       Encoder,
       Negotiation,
+      Policy,
       Resolved
     ]
 ```
@@ -501,9 +500,9 @@ git commit -m "feat(telemetry): render [:output, :clamp] one-shot at warning in 
 
 These reuse the file's existing helpers: `call_imgproxy/3`, `dimensions/1` (decodes the body → `{w, h}`), `content_type/1`, the self-send `handle_telemetry_event/4` (line 2379), and the `OriginImage` origin (`beach.jpg`). The default opts use the default telemetry prefix `[:image_pipe]`, so the clamp event is `[:image_pipe, :output, :clamp]`.
 
-**Reachability:** the default `max_result_width/height` is 8192 (< 16383/16384), so each test must raise the host result cap above the encoder limit, and use `el:1` enlargement to push the result just past the limit. A wide-short source keeps the encoded pixel count tiny so AVIF/WebP encode stays fast.
+**Reachability:** the default `max_result_width/height` is 8192 (< 16383/16384), so each test must raise the host result cap above the encoder limit, and enlarge the result just past the limit.
 
-> Determine the `beach.jpg` source dimensions and the exact `w:`/`h:` to land just over 16383/16384 during implementation (decode the fixture or compute from a known size). The assertions below are written to be robust to ±1px rounding: they assert the longest axis is **≤ limit** and **strictly less than the pre-clamp longest axis**, not an exact post-clamp size.
+> **Critical (encode cost):** `beach.jpg` is 4000×2667. A width-only enlarge like `w:18000` keeps aspect ratio → an 18000×12002 (**216 MP**) pre-clamp image, which the encoder *realizes* — AVIF encode of that is ~24s CPU and a real 60s-timeout flake risk in this `async: true` file (it's been bitten twice). Use **`rs:force:18000:200`** (force-resize, breaks aspect) so the pre-clamp image is 18000×200 (**3.6 MP**, ~0.15s encode) while the longest axis (18000) still exceeds both limits. The assertions are robust to ±1px rounding: longest axis **≤ limit** and **> 8192** (strictly reduced from the 18000 pre-clamp), not an exact post-clamp size. `@clamp_opts` also pins `output_capabilities` so the AVIF/WebP tests don't depend on the CI libvips build's auto-probe.
 
 - [ ] **Step 1: Write the failing WebP clamp test**
 
@@ -530,15 +529,19 @@ Add a `describe "output encoder dimension clamp (#150)"` block. Use a helper to 
       req_options: [plug: OriginImage],
       max_result_width: 40_000,
       max_result_height: 40_000,
-      max_result_pixels: 2_000_000_000
+      max_result_pixels: 2_000_000_000,
+      output_capabilities: %{avif: true, webp: true}
     ]
 
     test "downscales a WebP result above the 16383 encoder limit and serves it" do
       attach_clamp_telemetry()
 
-      # el:1 enlarges; w:18000 pushes the WebP result past 16383. f:webp forces
-      # the output format so negotiation is deterministic.
-      conn = call_imgproxy("/_/el:1/w:18000/f:webp/plain/images/beach.jpg", @clamp_opts)
+      # el:1 enlarges; rs:force:18000:200 hard-scales (breaks aspect) so the
+      # pre-clamp longest axis is 18000 (> 16383) but the image stays 3.6 MP
+      # (fast encode). f:webp forces the output format so negotiation is
+      # deterministic.
+      conn =
+        call_imgproxy("/_/el:1/rs:force:18000:200/f:webp/plain/images/beach.jpg", @clamp_opts)
 
       assert conn.status == 200
       assert content_type(conn) == ["image/webp"]
@@ -564,7 +567,7 @@ Add a `describe "output encoder dimension clamp (#150)"` block. Use a helper to 
 Run: `mise exec -- mix test test/image_pipe/imgproxy_wire_conformance_test.exs -k "downscales a WebP result"`
 Expected after Tasks 1–5: PASS. (If executed before the production code lands, it would fail because no clamp event fires and the encode would error at > 16383.) This task is the integration proof of Tasks 1–5; keep it green.
 
-If it fails on the chosen `w:` not exceeding 16383 (source aspect ratio), adjust `w:`/`h:`/`el` so the pre-clamp longest axis is clearly > 16383, then re-run.
+If `rs:force` is rejected by the parser config, fall back to another enlarge form whose pre-clamp longest axis is clearly > 16383 while keeping the short axis small (e.g. `rs:fill:18000:200/el:1`), then re-run.
 
 - [ ] **Step 3: Add the AVIF clamp test**
 
@@ -572,7 +575,8 @@ If it fails on the chosen `w:` not exceeding 16383 (source aspect ratio), adjust
     test "downscales an AVIF result above the 16384 encoder limit and serves it" do
       attach_clamp_telemetry()
 
-      conn = call_imgproxy("/_/el:1/w:18000/f:avif/plain/images/beach.jpg", @clamp_opts)
+      conn =
+        call_imgproxy("/_/el:1/rs:force:18000:200/f:avif/plain/images/beach.jpg", @clamp_opts)
 
       assert conn.status == 200
       assert content_type(conn) == ["image/avif"]

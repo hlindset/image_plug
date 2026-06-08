@@ -25,7 +25,7 @@ This design adds the equivalent: a **post-hoc, uniform downscale of the realized
 ### `ImagePipe.Output.Encoder.encoder_limit/1` — the per-format table
 
 ```elixir
-@spec encoder_limit(ImagePipe.Plan.output_format()) :: %{max_dimension: pos_integer() | :infinity}
+@spec encoder_limit(ImagePipe.Format.output_format()) :: %{max_dimension: pos_integer() | :infinity}
 ```
 
 | format | max_dimension | source |
