@@ -1,6 +1,7 @@
 defmodule ImagePipe.Plan.OperationTest do
   use ExUnit.Case, async: true
 
+  alias ImagePipe.Plan.Color
   alias ImagePipe.Plan.Operation
   alias ImagePipe.Plan.Operation.Blur
   alias ImagePipe.Plan.Operation.Brightness
@@ -393,6 +394,54 @@ defmodule ImagePipe.Plan.OperationTest do
     test "rejects executable transform orientation structs as semantic operations" do
       refute Operation.semantic?(%ImagePipe.Transform.Operation.Rotate{angle: 90})
       refute Operation.semantic?(%ImagePipe.Transform.Operation.Flip{axis: :horizontal})
+    end
+  end
+
+  describe "trim/1" do
+    test "builds a smart (:auto background) trim" do
+      assert {:ok,
+              %Operation.Trim{
+                threshold: 12.0,
+                background: :auto,
+                equal_hor: false,
+                equal_ver: false
+              }} =
+               Operation.trim(threshold: 12.0, background: :auto)
+    end
+
+    test "builds an explicit-color trim with equal flags" do
+      {:ok, color} = Color.rgb(255, 0, 255)
+
+      assert {:ok,
+              %Operation.Trim{
+                threshold: 5.0,
+                background: ^color,
+                equal_hor: true,
+                equal_ver: true
+              }} =
+               Operation.trim(threshold: 5.0, background: color, equal_hor: true, equal_ver: true)
+    end
+
+    test "rejects a non-numeric threshold" do
+      assert {:error, {:invalid_operation, :trim, _}} =
+               Operation.trim(threshold: "x", background: :auto)
+    end
+
+    test "rejects a non-color, non-:auto background" do
+      assert {:error, {:invalid_operation, :trim, _}} =
+               Operation.trim(threshold: 1.0, background: :nope)
+    end
+
+    test "semantic? accepts a valid Trim and rejects a malformed one" do
+      {:ok, op} = Operation.trim(threshold: 1.0, background: :auto)
+      assert Operation.semantic?(op)
+
+      refute Operation.semantic?(%Operation.Trim{
+               threshold: "x",
+               background: :auto,
+               equal_hor: false,
+               equal_ver: false
+             })
     end
   end
 
