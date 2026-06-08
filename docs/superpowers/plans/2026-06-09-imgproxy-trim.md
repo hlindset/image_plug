@@ -208,13 +208,13 @@ git commit -m "feat(plan): semantic Trim operation + factory (#149)"
 
 **Files:**
 - Modify: `lib/image_pipe/plan/key_data.ex`
-- Test: `test/image_pipe/cache/key_test.exs` (or wherever `Cache.Key` is tested — find with `ls test/image_pipe/cache/`)
+- Test: `test/image_pipe/plan/operation_key_data_test.exs` (module `ImagePipe.Plan.OperationKeyDataTest` — the `KeyData.data/1` tests live here, NOT in `cache/key_test.exs`, which tests the separate `Cache.Key` layer)
 
 Without a `KeyData.data(%Trim{})` clause, cache-key construction raises `FunctionClauseError` for every trim request (the module has no catch-all). Trim changes output bytes, so it must contribute to the key.
 
 - [ ] **Step 1: Write the failing test**
 
-Add to the `Cache.Key` test file (mirror an existing "different X produces different keys" test there). Build plans via the public path used by sibling tests — if they construct plans through `ImagePipe.Parser.Imgproxy.parse/2`, prefer that once Task 6 lands; for this task, test `KeyData.data/1` directly:
+Add to `test/image_pipe/plan/operation_key_data_test.exs` (mirror an existing "different X produces different key data" test there), testing `KeyData.data/1` directly:
 
 ```elixir
 describe "KeyData.data/1 for Trim" do
@@ -240,7 +240,7 @@ end
 
 - [ ] **Step 2: Run it red**
 
-Run: `mise exec -- mix test test/image_pipe/cache/key_test.exs -v`
+Run: `mise exec -- mix test test/image_pipe/plan/operation_key_data_test.exs -v`
 Expected: FAIL — `no function clause matching in ImagePipe.Plan.KeyData.data/1`.
 
 - [ ] **Step 3: Implement the clause**
@@ -276,13 +276,13 @@ In `lib/image_pipe/plan/key_data.ex`:
 
 - [ ] **Step 4: Run it green**
 
-Run: `mise exec -- mix test test/image_pipe/cache/key_test.exs -v`
+Run: `mise exec -- mix test test/image_pipe/plan/operation_key_data_test.exs -v`
 Expected: PASS.
 
 - [ ] **Step 5: Commit**
 
 ```bash
-git add lib/image_pipe/plan/key_data.ex test/image_pipe/cache/key_test.exs
+git add lib/image_pipe/plan/key_data.ex test/image_pipe/plan/operation_key_data_test.exs
 git commit -m "feat(cache): Trim cache-key data (#149)"
 ```
 
@@ -372,14 +372,22 @@ defmodule ImagePipe.Transform.Operation.TrimTest do
   end
 
   test "alpha source detects against a magenta flatten (border distinct from magenta)" do
-    # transparent border, opaque magenta-ish center would be ambiguous; use an
-    # opaque colored center on a transparent border. Magenta-flatten makes the
-    # transparent border magenta; the colored center differs -> trims to it.
-    {:ok, center} = Operation.black(16, 16, bands: 3)
-    {:ok, center} = Operation.linear(center, [1.0, 1.0, 1.0], [10, 200, 10])
-    {:ok, center} = Operation.bandjoin([center, elem(Operation.black(16, 16, bands: 1), 1) |> then(&elem(Operation.linear(&1, [1.0], [255.0]), 1))])
-    {:ok, canvas} = Operation.black(40, 40, bands: 4)
+    # A real RGBA image (interpretation sRGB so has_alpha?/1 is true): a fully
+    # transparent border with an OPAQUE green center. The magenta flatten turns the
+    # transparent border magenta; the opaque green center differs -> trims to it.
+    # If the border were flattened onto BLACK (the `:background` bug), green-vs-black
+    # still differs and would also trim, so to actually catch the wrong-key bug the
+    # CENTER is chosen green (distinct from BOTH magenta and black) and the test
+    # additionally asserts the op did not raise — the dimension assertion is the
+    # primary signal that the alpha path ran end to end.
+    transparent = [0, 0, 0, 0]
+    green = [10, 200, 10, 255]
+
+    {:ok, canvas} = Vix.Vips.Image.build_image(40, 40, transparent, interpretation: :VIPS_INTERPRETATION_sRGB)
+    {:ok, center} = Vix.Vips.Image.build_image(16, 16, green, interpretation: :VIPS_INTERPRETATION_sRGB)
+    assert Image.has_alpha?(canvas)
     {:ok, composed} = Operation.insert(canvas, center, 12, 12)
+
     op = %Trim{threshold: 10.0, background: :auto, equal_hor: false, equal_ver: false}
 
     assert {:ok, %State{image: out}} = Trim.execute(op, state(composed))
@@ -389,7 +397,7 @@ defmodule ImagePipe.Transform.Operation.TrimTest do
 end
 ```
 
-> The alpha fixture is fiddly; if `bandjoin`/`insert` arities differ in the pinned Vix, adjust to the working equivalents — the assertion (trims to the 16×16 colored center on a transparent border) is what matters. Verify Vix arities first with `mise exec -- iex -S mix` if a build error appears.
+> Reviewer-verified: `Operation.black(bands: 4)` / `bandjoin` produce `:VIPS_INTERPRETATION_MULTIBAND` images for which `Image.has_alpha?/1` is **false** — the alpha path would silently never run. Use `Vix.Vips.Image.build_image(w, h, [r,g,b,a], interpretation: :VIPS_INTERPRETATION_sRGB)` (probe-confirmed `has_alpha? == true`). The `assert Image.has_alpha?(canvas)` guard fails loudly if the build doesn't yield an alpha band. Confirm `build_image/3`'s arg shape with one `mise exec -- iex -S mix` probe if it errors.
 
 - [ ] **Step 2: Run it red**
 
@@ -417,7 +425,9 @@ defmodule ImagePipe.Transform.Operation.Trim do
   alias ImagePipe.Transform.State
   alias Vix.Vips.Operation
 
-  @magenta [255.0, 0.0, 255.0]
+  # Integers, NOT floats: Image.flatten treats a float list as sRGB 0.0..1.0 and
+  # rejects 255.0 (Color.InvalidComponentError). Integer 0..255 is accepted.
+  @magenta [255, 0, 255]
 
   @enforce_keys [:threshold, :background, :equal_hor, :equal_ver]
   defstruct @enforce_keys
@@ -514,7 +524,7 @@ defmodule ImagePipe.Transform.Operation.Trim do
 end
 ```
 
-> Verify these arities against the pinned libs before/while implementing (one `iex` check saves a debug loop): `Vix.Vips.Image.interpretation/1`, `Vix.Vips.Operation.colourspace/2`, `Image.has_alpha?/1`, `Image.flatten/2` (`:background_color` key), `Image.get_pixel/3` (returns `{:ok, [r,g,b]}`), `Vix.Vips.Operation.find_trim/2` (returns `{:ok, {l,t,w,h}}`), `Image.crop/5`. If `find_trim`'s option key differs (it takes `background:`/`threshold:`), adjust. `set_image/2` and `requires_materialization?` mirror `crop.ex:85,156`.
+> Reviewer-verified against the pinned fork (do not re-debug these): `Vix.Vips.Image.interpretation/1` returns a **bare atom** (the `case` shape is correct); `Vix.Vips.Operation.colourspace/2` → `{:ok, image}`; `Image.has_alpha?/1`; `Image.flatten/2` uses `:background_color` (integer list); `Image.get_pixel/3` → `{:ok, [r,g,b]}`; `Vix.Vips.Operation.find_trim/2` takes `background:`/`threshold:` and returns `{:ok, {l,t,w,h}}` (uniform → `{:ok, {_,_,0,0}}`, a 1×1 image → `{:error, "...window too large"}`); `Image.crop/5`. `Image` resolves as the hex lib's top module with no alias needed (mirrors `crop.ex`); `set_image/2` is imported from `ImagePipe.Transform.State`. **Do not chase the sRGB-skip fast path for synthetic test fixtures:** `black`/`linear`/`insert` images report `:VIPS_INTERPRETATION_MULTIBAND` and fall through to the `colourspace` branch (which also keeps MULTIBAND) — find_trim still succeeds, and real JPEG/PNG sources report sRGB properly. The skip is for real sources, not the fixtures.
 
 - [ ] **Step 4: Run it green**
 
@@ -609,7 +619,7 @@ git commit -m "feat(transform): translate PlanTrim to executable Trim (#149)"
 
 **Files:**
 - Modify: `lib/image_pipe/transform/decode_planner.ex`
-- Test: `test/image_pipe/transform/decode_planner_test.exs` (find with `ls test/image_pipe/transform/`)
+- Test: `test/image_pipe/decode_planner_test.exs` (find with `ls test/image_pipe/transform/`)
 
 `DecodePlanner` is fed only `first_pipeline_operations` (see `request/processor.ex`), so blocking shrink when the chain contains a `Trim` disables shrink-on-load iff trim is in the first pipeline — matching imgproxy.
 
@@ -640,7 +650,7 @@ end
 
 - [ ] **Step 2: Run it red**
 
-Run: `mise exec -- mix test test/image_pipe/transform/decode_planner_test.exs -v`
+Run: `mise exec -- mix test test/image_pipe/decode_planner_test.exs -v`
 Expected: FAIL — the Trim case still emits a `shrink`.
 
 - [ ] **Step 3: Implement the block**
@@ -688,13 +698,13 @@ to:
 
 - [ ] **Step 4: Run it green**
 
-Run: `mise exec -- mix test test/image_pipe/transform/decode_planner_test.exs -v`
+Run: `mise exec -- mix test test/image_pipe/decode_planner_test.exs -v`
 Expected: PASS.
 
 - [ ] **Step 5: Commit**
 
 ```bash
-git add lib/image_pipe/transform/decode_planner.ex test/image_pipe/transform/decode_planner_test.exs
+git add lib/image_pipe/transform/decode_planner.ex test/image_pipe/decode_planner_test.exs
 git commit -m "feat(transform): Trim blocks shrink-on-load in the first pipeline (#149)"
 ```
 
@@ -707,7 +717,7 @@ git commit -m "feat(transform): Trim blocks shrink-on-load in the first pipeline
 - Modify: `lib/image_pipe/parser/imgproxy/option_grammar.ex`
 - Modify: `lib/image_pipe/parser/imgproxy/options.ex`
 - Modify: `lib/image_pipe/parser/imgproxy/plan_builder.ex`
-- Test: `test/image_pipe/parser/imgproxy/...` (find the grammar/plan-builder test files with `ls test/image_pipe/parser/imgproxy/`)
+- Test: `test/parser/imgproxy/option_grammar_test.exs + plan_builder_test.exs + options_test.exs` (under `test/parser/imgproxy/` — NOT `test/image_pipe/parser/`)
 
 ### 6a: `PipelineRequest` field
 
@@ -717,7 +727,7 @@ git commit -m "feat(transform): Trim blocks shrink-on-load in the first pipeline
 
 - [ ] **Step 2: Write the failing grammar test**
 
-Add to the option-grammar test file (find it: `ls test/image_pipe/parser/imgproxy/ | grep -i grammar`). Mirror the existing `parse_special_option` tests (e.g. for `padding`/`monochrome`):
+Add to `test/parser/imgproxy/option_grammar_test.exs`. Mirror the existing `parse_special_option` tests (e.g. for `padding`/`monochrome`):
 
 ```elixir
 describe "trim" do
@@ -757,7 +767,7 @@ end
 
 - [ ] **Step 3: Run it red**
 
-Run: `mise exec -- mix test <grammar_test_file> -v`
+Run: `mise exec -- mix test test/parser/imgproxy/option_grammar_test.exs -v`
 Expected: FAIL — `{:error, {:unknown_option, "trim"}}`.
 
 - [ ] **Step 4: Implement the grammar**
@@ -776,10 +786,14 @@ In `lib/image_pipe/parser/imgproxy/option_grammar.ex`:
 
 ```elixir
   # trim:%threshold:%color:%equal_hor:%equal_ver — enabled iff threshold is set.
+  # Returns a BARE keyword `{:ok, [trim: …]}` (or `{:ok, []}` when disabled): the
+  # caller `parse_pipeline_option/_` adds the `{:pipeline, …}` wrapper, exactly like
+  # `parse_padding`/`parse_duotone`. Do NOT wrap it here — double-wrapping
+  # (`{:pipeline, {:pipeline, …}}`) breaks the apply step and the grammar test.
   defp parse_trim([threshold | _rest], _segment) when threshold == "", do: {:ok, []}
   defp parse_trim([], _segment), do: {:ok, []}
 
-  defp parse_trim(args, segment) when length(args) <= 4 do
+  defp parse_trim(args, _segment) when length(args) <= 4 do
     [threshold | rest] = args
 
     with {:ok, threshold} <- parse_float(threshold),
@@ -787,15 +801,14 @@ In `lib/image_pipe/parser/imgproxy/option_grammar.ex`:
          {:ok, equal_hor} <- parse_trim_flag(Enum.at(rest, 1)),
          {:ok, equal_ver} <- parse_trim_flag(Enum.at(rest, 2)) do
       {:ok,
-       {:pipeline,
-        [
-          trim: [
-            threshold: threshold,
-            background: background,
-            equal_hor: equal_hor,
-            equal_ver: equal_ver
-          ]
-        ]}}
+       [
+         trim: [
+           threshold: threshold,
+           background: background,
+           equal_hor: equal_hor,
+           equal_ver: equal_ver
+         ]
+       ]}
     end
   end
 
@@ -816,11 +829,11 @@ In `lib/image_pipe/parser/imgproxy/option_grammar.ex`:
   defp parse_trim_flag(value), do: parse_boolean(value)
 ```
 
-> `parse_float/1` (line 1053), `parse_boolean/1` (line 418), and `Color.rgb_hex/1` already exist. Confirm `OptionGrammar.parse/1` routes a multi-arg `trim:...` segment into `parse_special_option/3` (check the `parse/1` body around line 104 and `@special_specs` at line 72 — if special options must be registered in `@special_specs`, add `"trim"`/`"t"` there following how `padding`/`pd` is registered).
+> `parse_float/1` (line 1053), `parse_boolean/1` (line 418), and `Color.rgb_hex/1` already exist. Reviewer-verified: a multi-arg `trim:…` segment routes through `parse/1 → parse_pipeline_option → parse_special_option/3` automatically once the dispatch clause above is added — **do not** add `"trim"`/`"t"` to `@special_specs` (that table is for fixed-arity declarative options via `interpret_special`, the wrong path for trim's optional-arity sub-grammar).
 
 - [ ] **Step 5: Run it green**
 
-Run: `mise exec -- mix test <grammar_test_file> -v`
+Run: `mise exec -- mix test test/parser/imgproxy/option_grammar_test.exs -v`
 Expected: PASS.
 
 ### 6c: Apply assignment to the pipeline
@@ -838,7 +851,7 @@ Expected: PASS.
 
 - [ ] **Step 7: Write the failing plan-builder test**
 
-Add to the plan-builder test file (find it: `ls test/image_pipe/parser/imgproxy/ | grep -i plan`). Assert order and translation:
+Add to `test/parser/imgproxy/plan_builder_test.exs`. Assert order and translation:
 
 ```elixir
 test "trim is emitted first in geometry order" do
@@ -852,7 +865,7 @@ end
 
 - [ ] **Step 8: Run it red**
 
-Run: `mise exec -- mix test <plan_builder_test_file> -v`
+Run: `mise exec -- mix test test/parser/imgproxy/plan_builder_test.exs -v`
 Expected: FAIL — no Trim op emitted.
 
 - [ ] **Step 9: Implement in `plan_builder.ex`**
@@ -900,13 +913,29 @@ In `lib/image_pipe/parser/imgproxy/plan_builder.ex`:
 
 > `Operation` is already aliased in `plan_builder.ex` (it calls `Operation.crop`, `Operation.background`, etc.). The parser stored `trim` as the keyword `[threshold:, background:, equal_hor:, equal_ver:]`, which `Operation.trim/1` accepts directly.
 
+> **Known limitation (intentional, matches existing behavior):** `plan_geometry/1` has early-return clauses (plan_builder.ex:201-216) for `:fill`/`:fill_down`/`:auto` resizing types with missing dimensions that return `missing_dimensions` before reaching the general clause — so `trim:10` on a dimensionless `:fill` request errors out and trim is not applied. This is consistent with how orientation/crop are also skipped on those paths (they error anyway). We do **not** add trim to those early clauses.
+
+- [ ] **Step 9b: Pin the known limitation with a test**
+
+Add to `test/parser/imgproxy/plan_builder_test.exs`:
+
+```elixir
+test "trim on a dimensionless :fill request errors as missing_dimensions, not a trim crash" do
+  assert {:error, {:missing_dimensions, _}} =
+           ImagePipe.Parser.Imgproxy.parse("trim:10/rt:fill", imgproxy: [])
+           |> then(fn {:ok, _} = ok -> ok; err -> err end)
+end
+```
+
+> Confirm the exact error tag/shape `rt:fill` with no width/height produces by reading the `:fill` early-return clause at plan_builder.ex:201-204 and matching its return; adjust the assertion to that tag. The point is that trim does not change this path's behavior.
+
 - [ ] **Step 10: Run it green + commit**
 
-Run: `mise exec -- mix test test/image_pipe/parser/imgproxy/ -v`
+Run: `mise exec -- mix test test/parser/imgproxy/ -v`
 Expected: PASS.
 
 ```bash
-git add lib/image_pipe/parser/imgproxy/ test/image_pipe/parser/imgproxy/
+git add lib/image_pipe/parser/imgproxy/ test/parser/imgproxy/
 git commit -m "feat(parser): imgproxy trim/t option -> semantic Trim (#149)"
 ```
 
@@ -918,35 +947,76 @@ git commit -m "feat(parser): imgproxy trim/t option -> semantic Trim (#149)"
 - Modify: `test/image_pipe/imgproxy_wire_conformance_test.exs`
 - Test fixtures: reuse the test's existing fixture helpers (inspect the file first for how it builds/loads source images and makes `ImagePipe.call/2` requests).
 
-- [ ] **Step 1: Inspect the conformance test harness**
+- [ ] **Step 1: Add origin fixtures + opts**
 
-Run: `mise exec -- sed -n '1,80p' test/image_pipe/imgproxy_wire_conformance_test.exs` and find an existing geometry case (e.g. a crop/resize test that decodes the response body and asserts dimensions). Reuse its request helper and body-decode helper.
+The harness serves a source via a custom origin Plug mapped through `sources: [path: {RootHTTPAdapter, root_url: "http://origin.test", req_options: [plug: <Module>]}]` and requests it with `call_imgproxy("/_/...opts.../plain/images/<name>.png", opts)`. `dimensions(conn)` decodes the body and returns `{w, h}` (both helpers already exist — `EffectOriginImage` at line 221, `effect_origin_opts/0` at line 2799, `call_imgproxy/3` at line 2832, `dimensions/1` at line 2853).
 
-- [ ] **Step 2: Add trim wire tests (write red, then they pass once wired)**
+Add two origin modules next to `EffectOriginImage` (mirror its `call/2` shape exactly — `Image.new!/2` + `Image.Draw.rect!/6` + `Image.write!(:memory, suffix: ".png")`):
 
-Add cases following the existing pattern. Pseudocode to adapt to the harness:
+```elixir
+  defmodule TrimOriginImage do
+    @moduledoc false
+    # 64x64 black border with a white 40x44 inner block at (12, 10).
+    def call(conn, _opts) do
+      body =
+        64
+        |> Image.new!(64, color: :black)
+        |> Image.Draw.rect!(12, 10, 40, 44, color: :white)
+        |> Image.write!(:memory, suffix: ".png")
+
+      conn
+      |> Plug.Conn.put_resp_content_type("image/png")
+      |> Plug.Conn.send_resp(200, body)
+    end
+  end
+
+  defmodule UniformOriginImage do
+    @moduledoc false
+    # Solid 64x64 black — nothing to trim.
+    def call(conn, _opts) do
+      body = Image.new!(64, 64, color: :black) |> Image.write!(:memory, suffix: ".png")
+      conn |> Plug.Conn.put_resp_content_type("image/png") |> Plug.Conn.send_resp(200, body)
+    end
+  end
+```
+
+And the matching opts (mirror `effect_origin_opts/0` at line 2799):
+
+```elixir
+  defp trim_origin_opts, do: origin_opts(TrimOriginImage)
+  defp uniform_origin_opts, do: origin_opts(UniformOriginImage)
+
+  defp origin_opts(plug) do
+    [
+      parser: ImagePipe.Parser.Imgproxy,
+      sources: [
+        path: {RootHTTPAdapter, root_url: "http://origin.test", req_options: [plug: plug]}
+      ]
+    ]
+  end
+```
+
+> If `Image.new!/2` color arg or `Image.Draw.rect!/6` arity differs, copy the exact call shape from `EffectOriginImage` (lines 221-238) — it is the verified template.
+
+- [ ] **Step 2: Add trim wire tests**
 
 ```elixir
 describe "trim (wire)" do
-  test "trims a uniform border, no resize" do
-    # source: a bordered fixture (uniform border around a distinct center)
-    conn = request("/unsafe/trim:10/plain/#{source_url(bordered_fixture())}@png")
+  test "trims a uniform border to the inner block, no resize" do
+    conn = call_imgproxy("/_/trim:10/f:png/plain/images/trim.png", trim_origin_opts())
     assert conn.status == 200
-    {:ok, out} = Image.from_binary(conn.resp_body)
-    assert Image.width(out) == <inner_w>
-    assert Image.height(out) == <inner_h>
+    assert dimensions(conn) == {40, 44}
   end
 
-  test "uniform image is returned unchanged (no-op)" do
-    conn = request("/unsafe/trim:10/plain/#{source_url(uniform_fixture())}@png")
+  test "uniform image returns unchanged (no-op), no geometry options" do
+    conn = call_imgproxy("/_/trim:10/f:png/plain/images/uniform.png", uniform_origin_opts())
     assert conn.status == 200
-    {:ok, out} = Image.from_binary(conn.resp_body)
-    assert {Image.width(out), Image.height(out)} == <original_dims>
+    assert dimensions(conn) == {64, 64}
   end
 end
 ```
 
-> Use the harness's real request/fixture helpers (do not invent `request/1`/`source_url/1` if the file names them differently). Keep this representative, not exhaustive — grammar edge cases live in Task 6's parser tests (per the test guidelines).
+> Keep this representative, not exhaustive — grammar edge cases live in Task 6's parser tests (per the test guidelines). The black border vs white inner block gives the threshold a wide margin, so the exact threshold value is not brittle.
 
 - [ ] **Step 3: Run + commit**
 
@@ -1034,7 +1104,11 @@ git commit -m "feat(demo): trim controls + URL state (#149)"
 
 - [ ] **Step 2: Surface axis** — in "Resize, geometry, and orientation", change the `trim` / `t` row from `Missing` to `Supported`, with notes: 4-arg grammar, "empty threshold disables", smart vs explicit color, equal_hor/ver.
 
-- [ ] **Step 3: Behavioral axis** — add the Diverges notes from the spec: detection in source-profile space (folded into #124), smart bg = top-left pixel, bad-bool strictness (codebase-wide), sRGB-skip header-vs-guess.
+- [ ] **Step 3: Behavioral axis** — add the Diverges notes from the spec, naming the concrete user-visible effect for each:
+  - **Detection colorspace (folded into #124):** for a source with a non-sRGB embedded ICC profile (wide-gamut), imgproxy detects the border in processing space (it imports the profile before trim); ImagePipe detects in the source-profile space → **different trim boxes on wide-gamut sources**. Resolved when #124 lands.
+  - **smart bg = the top-left pixel** (`getpoint(0,0)`), not a border median.
+  - **bad-bool strictness** (codebase-wide): invalid `equal_hor`/`equal_ver` error in ImagePipe vs coerce-to-false in imgproxy — cross-link [#173].
+  - **sRGB-skip uses stored header interpretation**, not imgproxy's `guess_interpretation` — at most an extra idempotent sRGB round-trip, no dimension effect.
 
 - [ ] **Step 4: Commit**
 
