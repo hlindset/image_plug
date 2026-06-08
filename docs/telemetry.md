@@ -345,6 +345,39 @@ Generated CDN HTTP cache handling emits non-span events:
 These events don't include request paths, source identities, cache keys, or ETag
 values.
 
+## Output dimension clamp (`[:output, :clamp]`)
+
+When the realized final image exceeds the negotiated output encoder's hard
+dimension limit, ImagePipe uniformly downscales it to fit before encoding and
+emits a one-shot (non-span) marker. The limit is format-aware: WebP caps each
+dimension at 16383 and AVIF at 16384, while JPEG and PNG are effectively
+unbounded. This lets a host observe that a served image was downscaled to fit
+the encoder rather than delivered at the requested size.
+
+```text
+[:image_pipe, :output, :clamp]
+```
+
+Measurements:
+
+- `:scale` — the uniform downscale factor applied (a float `< 1.0`).
+
+Metadata:
+
+- `:format` — the negotiated output format atom (e.g. `:webp`, `:avif`).
+- `:source_dimensions` — `{w, h}` before the clamp.
+- `:dimensions` — `{w, h}` after the clamp.
+- `:max_dimension` — the per-dimension limit that bound the result.
+
+This metadata is product-neutral and non-sensitive (no URLs, secrets, or PII).
+
+The opt-in default Logger attaches to this event and renders it at `:warning`,
+matching imgproxy's `slog.Warn` for the same condition, e.g.:
+
+```text
+output clamp: 18000x9000 -> 16383x8191 for webp (max 16383)
+```
+
 ## Attaching handlers
 
 A host application can attach to all ImagePipe span events with
