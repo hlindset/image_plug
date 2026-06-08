@@ -7,17 +7,21 @@ defmodule ImagePipe.Output.Encoder do
   alias Vix.Vips.MutableImage, as: VixMutableImage
 
   @doc """
-  The output encoder's hard per-dimension limit for `format`, used by
-  `ImagePipe.Output.Clamp` to keep encoding from failing. `:infinity` means no
+  The output encoder's hard per-format limits, used by `ImagePipe.Output.Clamp`
+  to keep encoding from failing. `:max_dimension` is the hard per-axis pixel
+  limit; `:max_pixels` is a total-resolution budget. `:infinity` means no
   practical limit. Sourced from libvips encoder constraints (cf. imgproxy
-  `processing/fix_size.go`). #150 uses only `:max_dimension`; #165 will extend
-  the returned map with a `:max_pixels` budget when its caller makes that live.
+  `processing/fix_size.go`). #165 folds these with the host `max_result_*` caps
+  via `min/2` at the producer before calling `Clamp.clamp/3`.
   """
-  @spec encoder_limit(Format.output_format()) :: %{max_dimension: pos_integer() | :infinity}
-  def encoder_limit(:webp), do: %{max_dimension: 16_383}
-  def encoder_limit(:avif), do: %{max_dimension: 16_384}
-  def encoder_limit(:jpeg), do: %{max_dimension: 65_535}
-  def encoder_limit(:png), do: %{max_dimension: :infinity}
+  @spec encoder_limit(Format.output_format()) :: %{
+          max_dimension: pos_integer() | :infinity,
+          max_pixels: pos_integer() | :infinity
+        }
+  def encoder_limit(:webp), do: %{max_dimension: 16_383, max_pixels: :infinity}
+  def encoder_limit(:avif), do: %{max_dimension: 16_384, max_pixels: :infinity}
+  def encoder_limit(:jpeg), do: %{max_dimension: 65_535, max_pixels: :infinity}
+  def encoder_limit(:png), do: %{max_dimension: :infinity, max_pixels: :infinity}
 
   @spec stream_output(VixImage.t(), Resolved.t(), keyword()) ::
           {:ok, Enumerable.t(), String.t()}
