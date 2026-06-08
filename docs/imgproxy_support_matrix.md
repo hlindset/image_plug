@@ -79,10 +79,10 @@ imgproxy's `mainPipeline` (`processing/processing.go`), applied per frame:
 | 1 | `vectorGuardScale` | — | ⭕ | Gated on SVG/vector input support, which isn't implemented yet (SVG is rejected after decode identifies an SVG loader, before transforms). In scope; this pre-scale stage follows once SVG input lands. (see "Source input formats") |
 | 2 | `trim` | — | ⭕ | `trim`/`t` not implemented (see "Resize, geometry, and orientation"). Needs full-image memory + a trim operation. |
 | 3 | `scaleOnLoad` | **decode planning** — `lib/image_pipe/transform/decode_planner.ex` | ✅ | Shrink-on-load computed as a libvips load option (`shrink`/`scale`), not a transform op. Decode opens `:sequential`. |
-| 4 | `colorspaceToProcessing` | `lib/image_pipe/transform/operation/normalize_color_profile.ex` | ⚠️ | imgproxy color-manages **every** image into a working space; ImagePipe converts only when `scp` is on (issue #124). With `scp:0` + a tone effect on a wide-gamut source, effects run in the source profile space. |
+| 4 | `colorspaceToProcessing` | `lib/image_pipe/transform/operation/normalize_color_profile.ex` | ⚠️ | imgproxy color-manages **every** image into a working space; ImagePipe converts only when `scp` is on (issue #124). With `scp:0` + a tone effect on a wide-gamut source, effects run in the source profile space. **Also diverges in position:** imgproxy converts at stage 4, **before** crop/scale; ImagePipe positions `NormalizeColorProfile` **after** geometry (crop+resize) and before effects, so resize math runs in the source profile space rather than the working space. |
 | 5 | `crop` | `lib/image_pipe/transform/operation/crop.ex` | ✅ | Pre-resize crop with anchor / focal-point / smart / object gravity. |
 | 6 | `scale` | `lib/image_pipe/transform/operation/resize.ex` | ✅ | `fit`/`fill`/`fill-down`/`force`/`auto`, enlarge, min-width/height, zoom, dpr. Pro `resizing_algorithm` (`ra`) missing. |
-| 7 | `rotateAndFlip` | `lib/image_pipe/transform/orientation.ex`, `.../operation/rotate.ex`, `.../operation/flip.ex` | ✅ | Suborder: auto-orient → rotate → flip. EXIF auto-orient is the default. |
+| 7 | `rotateAndFlip` | `.../transform/pending_orientation.ex`, `.../transform/orientation_flush.ex`, `.../transform/orientation.ex`, `.../operation/rotate.ex`, `.../operation/flip.ex` | ✅ | EXIF auto-orient + user rotate/flip are carried as deferred `pending_orientation` state and applied **late** at the orientation-flush boundary — **after** crop/resize, with crop gravity and resize dimensions compensated into the storage frame (`orientation.ex`, a port of imgproxy `gravity.go` `RotateAndFlip`) so the observable result matches. Compose suborder EXIF → user-rotate → user-flip; EXIF auto-orient is the default. Flush streams EXIF orientations 1/2 and materializes 3–8 (and any quarter/half-turn user rotate or vertical flip). |
 | 8 | `cropToResult` | `lib/image_pipe/transform/operation/crop.ex` (result crop after a fill-style resize) | ✅ | `Resize` deliberately does **not** crop: for `fill`/`fill_down` it resizes to cover dimensions, then plan execution emits a **separate** crop to the result size. |
 | 9 | `applyFilters` | `lib/image_pipe/transform/operation/{blur,sharpen,pixelate,brightness,contrast,saturation,monochrome,duotone}.ex` | ✅ | Supported effect subset; order documented in [transform_operations.md](transform_operations.md). Pro filters (`unsharp_masking`, `blur_areas`, `colorize`, `gradient`) missing. |
 | 10 | `extend` | `lib/image_pipe/transform/operation/extend_canvas.ex` | ✅ | Canvas extension with anchor gravity and offsets. |
@@ -220,11 +220,14 @@ ImagePipe doesn't include a health-check Plug.
 ### Processing worker pool and request queue
 
 ImagePipe doesn't expose an ImagePipe-owned worker pool or bounded request
-queue. Host-level concurrency controls can protect the application, but they
-aren't imgproxy-compatible configuration options.
+queue; requests are processed per-request on the BEAM with no library-level
+concurrency cap or load-shedding queue. Processing concurrency and back-pressure
+are a host/runtime concern — a host can bound them with web-server connection
+limits (cf. `IMGPROXY_MAX_CLIENTS`), a process pool, or a job queue — but none of
+these are imgproxy-compatible configuration options ImagePipe owns.
 
-- ⭕ `IMGPROXY_WORKERS`
-- ⭕ `IMGPROXY_REQUESTS_QUEUE_SIZE`
+- 🧩 `IMGPROXY_WORKERS`
+- 🧩 `IMGPROXY_REQUESTS_QUEUE_SIZE`
 
 ### Source download request settings
 
@@ -244,13 +247,19 @@ request-header passthrough list, or SSL-verification environment switch.
 
 ### Source URL rules and private-address policy
 
-HTTP sources use `allowed_hosts`. This is stricter and simpler than Imgproxy's
-source-prefix glob rules and doesn't expose IP-class switches.
+HTTP sources use `allowed_hosts` for host allow-listing — stricter and simpler
+than Imgproxy's source-prefix glob rules. Resolved source IPs additionally pass
+through an `address_policy` (`ImagePipe.Source.HTTP.AddressPolicy`) that
+classifies each address and **denies non-public classes by default** — loopback,
+link-local, private, unique-local, CGNAT, multicast, broadcast, reserved — with
+per-class `allow_*` switches and CIDR `allow:` lists. The three imgproxy IP-class
+flags map to `allow_loopback` / `allow_link_local` / `allow_private` (a superset;
+imgproxy likewise denies these by default).
 
 - ⚠️ `IMGPROXY_ALLOWED_SOURCES`
-- ⭕ `IMGPROXY_ALLOW_LOOPBACK_SOURCE_ADDRESSES`
-- ⭕ `IMGPROXY_ALLOW_LINK_LOCAL_SOURCE_ADDRESSES`
-- ⭕ `IMGPROXY_ALLOW_PRIVATE_SOURCE_ADDRESSES`
+- ✅ `IMGPROXY_ALLOW_LOOPBACK_SOURCE_ADDRESSES` — `address_policy: [allow_loopback: true]`.
+- ✅ `IMGPROXY_ALLOW_LINK_LOCAL_SOURCE_ADDRESSES` — `address_policy: [allow_link_local: true]`.
+- ✅ `IMGPROXY_ALLOW_PRIVATE_SOURCE_ADDRESSES` — `address_policy: [allow_private: true]`.
 
 ### Local filesystem sources
 
@@ -270,14 +279,17 @@ local/path source queries.
 ### S3 image sources
 
 `ImagePipe.Source.S3` supports `s3://bucket/key` sources with configured
-`region`, `endpoint`, credentials, per-bucket overrides, and a path-style
-request URL. It doesn't provide Imgproxy's enable flag, denied-bucket list,
-assume-role environment variables, or decryption client.
+`region`, `endpoint`, credentials, and per-bucket overrides. Request URLs are
+**always** built path-style (`endpoint/bucket/key`); there is no virtual-host
+mode and no on/off toggle, so imgproxy's path-style flag has no configurable
+equivalent (ImagePipe behaves as if it is permanently on). It doesn't provide
+Imgproxy's enable flag, denied-bucket list, assume-role environment variables, or
+decryption client.
 
 - ⚠️ `IMGPROXY_USE_S3`
 - ✅ `IMGPROXY_S3_REGION`
 - ✅ `IMGPROXY_S3_ENDPOINT`
-- ✅ `IMGPROXY_S3_ENDPOINT_USE_PATH_STYLE`
+- ⚠️ `IMGPROXY_S3_ENDPOINT_USE_PATH_STYLE` — path-style is the fixed behavior, not a configurable toggle.
 - ⭕ `IMGPROXY_S3_USE_DECRYPTION_CLIENT`
 - ⭕ `IMGPROXY_S3_ASSUME_ROLE_ARN`
 - ⭕ `IMGPROXY_S3_ASSUME_ROLE_EXTERNAL_ID`
@@ -319,8 +331,9 @@ replacements are separate source rewriting features and aren't implemented.
 ### Processing argument separator and allowed option list
 
 The compatibility parser uses `:` as the argument separator, accepts its
-implemented option set, rejects unsupported security override URL options, and
-has no configured pipeline-count limit.
+implemented option set, rejects unsupported security override URL options
+(see [Security limit overrides](#security-limit-overrides)), and has no
+configured pipeline-count limit.
 
 - ⭕ `IMGPROXY_ARGUMENTS_SEPARATOR`
 - ⭕ `IMGPROXY_ALLOWED_PROCESSING_OPTIONS`
@@ -406,10 +419,14 @@ defaults and per-request URL overrides. HDR preservation and thumbnail-source
 selection aren't configurable.
 
 URL `auto_rotate`/`ar` resolves as request-scoped EXIF decode policy. If the URL
-contains more than one `ar`, the last value in path order wins. When the
-resolved policy is `true`, ImagePipe represents it as one `AutoOrient` operation
-at the start of the first produced pipeline. Cache keys, ETags, and transform
-execution then use the normal canonical plan machinery.
+contains more than one `ar`, the last value in path order wins. The resolved
+policy is carried on the canonical `ImagePipe.Plan` (`Plan.auto_rotate`) — **not**
+as a transform operation. At execution it seeds deferred `pending_orientation`
+state (`ImagePipe.Transform.PendingOrientation`) on the first pipeline, which the
+orientation-flush boundary (`ImagePipe.Transform.OrientationFlush`) applies late,
+after crop/resize, composing EXIF auto-orient ∘ user rotate ∘ user flip (issue
+#146). Cache keys, ETags, and transform execution then use the normal canonical
+plan machinery.
 
 - ✅ `IMGPROXY_STRIP_METADATA` — Parser config default: `imgproxy: [strip_metadata: true]`. URL override: `sm:0` disables. Strips EXIF, XMP, and IPTC at encode time via `ImagePipe.Plan.Output` metadata policy.
 - ✅ `IMGPROXY_KEEP_COPYRIGHT` — Parser config default: `imgproxy: [keep_copyright: true]`. URL override: `kcr:0` disables. **Diverges from imgproxy**: preserves EXIF copyright/artist fields only; imgproxy retains full XMP/IPTC blobs. ImagePipe strips XMP/IPTC even when `kcr` is on (privacy-conservative).
@@ -770,11 +787,11 @@ transforms or output encoding.
 
 | Imgproxy option | Aliases | Status | Notes |
 | --- | --- | --- | --- |
-| `max_src_resolution` | `msr` | Missing | Security override; should require explicit opt-in if added. |
-| `max_src_file_size` | `msfs` | Missing | Security override; should require explicit opt-in if added. |
-| `max_animation_frames` | `maf` | Missing | Animation support isn't modeled. |
-| `max_animation_frame_resolution` | `mafr` | Missing | Animation support isn't modeled. |
-| `max_result_dimension` | `mrd` | Missing | Security override; should require explicit opt-in if added. |
+| `max_src_resolution` | `msr` | Rejected | Security override gated upstream by `IMGPROXY_ALLOW_SECURITY_OPTIONS`. ImagePipe permanently behaves as if that flag is off: the option is rejected with an error before any source fetch or cache access. Would require explicit opt-in to add. |
+| `max_src_file_size` | `msfs` | Rejected | Security override; rejected before side effects, like `msr`. Would require explicit opt-in to add. |
+| `max_animation_frames` | `maf` | Rejected | Security override; rejected before side effects. Animation support also isn't modeled. |
+| `max_animation_frame_resolution` | `mafr` | Rejected | Security override; rejected before side effects. Animation support also isn't modeled. |
+| `max_result_dimension` | `mrd` | Rejected | Security override; rejected before side effects, like `msr`. Would require explicit opt-in to add. |
 
 ## Presets
 
