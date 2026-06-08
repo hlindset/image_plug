@@ -148,8 +148,8 @@ defmodule OversizedBufferBench do
   defp run_subprocess(self_path, arm, target, cap) do
     {out, status} =
       System.cmd(
-        "mix",
-        ["run", self_path, "case", arm, to_string(target), to_string(cap)],
+        "mise",
+        ["exec", "--", "mix", "run", self_path, "case", arm, to_string(target), to_string(cap)],
         stderr_to_stdout: false
       )
 

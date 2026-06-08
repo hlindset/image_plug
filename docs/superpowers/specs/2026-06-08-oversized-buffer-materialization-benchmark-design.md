@@ -26,7 +26,7 @@ fully lazy and is shrunk lazily by #150's post-hoc clamp — no buffer. Every ot
 point (region crop, smart crop, **delivery-backstop flush**) runs at ≤ source dimensions."* **That
 is false for the enlarge corner**, and the enlarge corner is exactly where #164 lives.
 
-Verified trace (every oversized-*enlarge* request, oriented **or** plain):
+Verified trace of the **pre-#164 (baseline)** code (every oversized-*enlarge* request, oriented **or** plain) — the state this benchmark measured, before approach A reordered the clamp:
 
 1. `Resize.execute` only `set_image`s the resized (lazy) node; it never sets `materialized?`
    ([`resize.ex:75`](../../../lib/image_pipe/transform/operation/resize.ex)), and its
@@ -39,7 +39,7 @@ Verified trace (every oversized-*enlarge* request, oriented **or** plain):
    identity/`nil` pending is cleared **without** materializing
    ([`plan_executor.ex:122,127-129`](../../../lib/image_pipe/transform/plan_executor.ex)), so the
    state reaches delivery with `materialized?: false`.
-3. `Request.Processor.process_decoded_source` then calls `materialize_before_delivery`
+3. `Request.Processor.process_decoded_source` then calls `materialize_for_delivery`
    ([`processor.ex:142,221-227`](../../../lib/image_pipe/request/processor.ex)), which — because
    `materialized?` is false — calls `OrientationFlush.flush` on `pending_orientation: nil` →
    `VipsImage.copy_memory(state.image)` on the **resized, pre-clamp, OVERSIZED** image.
@@ -230,7 +230,7 @@ so its absence is deliberate, not an oversight.
   request must run with **`auto_rotate: true`** — otherwise `from_exif(6, false)` is identity and the
   EXIF arm silently does not flush (`pending_orientation.ex`, `orientation_flush.ex:80-87`).
 - **Pipeline under test.** Must faithfully exercise the **real** seam: decode (with
-  `DecodePlanner` options) → `PlanExecutor.execute` → `Processor.materialize_before_delivery` (the
+  `DecodePlanner` options) → `PlanExecutor.execute` → `Processor.materialize_for_delivery` (the
   delivery-backstop `copy_memory`) → producer `effective_limits` (= `min(host, encoder_limit)`) →
   `Output.Clamp` → encoder, with the encoded stream **fully consumed** (libvips is lazy; the peak
   only realizes when pixels are pulled). It must **not** hand-roll a libvips pipeline.
@@ -246,8 +246,8 @@ so its absence is deliberate, not an oversight.
   → `Clamp.clamp` → `Encoder.stream_output` consumed). **Whichever is chosen, the metadata-strip
   flags and `auto_rotate` must be set explicitly and recorded** (not left to defaults), since they
   determine whether the finalize `copy_memory` and the oriented flush fire. Option (b) must include
-  `materialize_before_delivery` (it is inside `process_decoded_source` — but a hand-rolled variant
-  must not skip it, or it would erase the very buffer under test).
+  the delivery materialize step (pre-#164 it ran inside `process_decoded_source`) — a hand-rolled
+  variant must not skip it, or it would erase the very buffer under test.
 
 ---
 
@@ -322,10 +322,10 @@ stable to ~1% across three full matrix runs.
    ~100 MiB bar. (As predicted, the gap is sub-100 MiB just-over-cap (~60 MiB at 9000) and only
    becomes material at ≳1.5–2× cap — the optimization is for the larger-oversize regime.) ✓
 
-**Premise correction confirmed empirically.** Arm A is a **plain** source (`auto_rotate: false`, no
-EXIF, no rotate) and still materializes the full oversized buffer — at the **delivery backstop**
-(`Processor.materialize_before_delivery`), before the post-hoc clamp. So the cost is
-path-independent and broader than #164's original "oriented corner" framing: the look-ahead
+**Premise correction confirmed empirically.** Arm A (the pre-#164 baseline) is a **plain** source
+(`auto_rotate: false`, no EXIF, no rotate) and still materialized the full oversized buffer — at the
+**delivery backstop** (the `process_decoded_source` materialize, before the post-hoc clamp). So the
+cost is path-independent and broader than #164's original "oriented corner" framing: the look-ahead
 pre-clamp benefits **all** oversized-enlarge traffic. (The oriented flush is the *same*
 `OrientationFlush.copy_memory` at the *same* oversized dims, just fired earlier in the chain — so a
 separate oriented cell was not run; path-independence follows structurally and is consistent with

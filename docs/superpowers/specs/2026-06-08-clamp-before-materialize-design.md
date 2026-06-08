@@ -17,7 +17,7 @@ high-water drops from ~556/848 MiB to ~200/222 MiB at pre-clamp 16000/20000 (ben
 ## Scope
 
 - **In scope:** the **plain** (non-oriented) path, where the oversized buffer is materialized at the
-  **delivery backstop** (`Request.Processor.materialize_before_delivery`,
+  **delivery backstop** (`Request.Processor.materialize_for_delivery`,
   [processor.ex:142,221-236](../../../lib/image_pipe/request/processor.ex)) — the common case the
   benchmark measured.
 - **Byte-identity is universal across plain compositions** (fit / stretch / cover / canvas / padding):
@@ -69,7 +69,7 @@ The `transform` boundary is untouched (no result-cap policy enters it — unlike
 ### Where materialization lands (settled in review)
 
 **Use an explicit producer-owned materialize step after `Clamp.clamp`, reusing
-`materialize_before_delivery`.** Do **NOT** rely on the encoder's `finalize` to materialize:
+`materialize_for_delivery`.** Do **NOT** rely on the encoder's `finalize` to materialize:
 `finalize` only `copy_memory`s when stripping metadata, and returns the image **lazy** when
 `strip_metadata: false` *and* `strip_color_profile: false` ([encoder.ex:48-49](../../../lib/image_pipe/output/encoder.ex)).
 On that no-strip path, "rely on finalize" would (a) leave the memory win unmeasured/unrealized and
@@ -80,7 +80,7 @@ and own a single deterministic failure point.
 Concretely:
 
 - `process_decoded_source` runs the transform and returns the **lazy** state (no delivery backstop).
-- `materialize_before_delivery` becomes a shared step that both the **producer** (after `Clamp.clamp`)
+- `materialize_for_delivery` becomes a shared step that both the **producer** (after `Clamp.clamp`)
   and `process_source` call — preserving its existing failure mapping: `{:source,_}`/`{:config,_}`
   pass through, **everything else → `{:decode, reason}` → 415** (the
   `do_handle_materialization_result` logic, [processor.ex:242-249](../../../lib/image_pipe/request/processor.ex)).
@@ -101,8 +101,9 @@ change (P2). On the **no-strip path**, the producer `copy_memory` is the sole ma
 
 ## Correctness / blast radius (verified against the code)
 
-`process_decoded_source` currently ends with `materialize_before_delivery`. Moving that out changes its
-contract, which has a bounded but real blast radius:
+`process_decoded_source` previously ended with the delivery materialize (now extracted to
+`materialize_for_delivery/2`). Moving that out changes its contract, which has a bounded but real
+blast radius:
 
 - **Callers:** the producer (prod encode path, sole streaming path), `Processor.process_source/3`
   (processor.ex:30, used by `processor_test.exs`), and shrink-on-load tests that call
@@ -120,10 +121,10 @@ contract, which has a bounded but real blast radius:
   this exact mapping; the `FailingMaterializer` → 415 tests (`plug_test.exs:1898,1924`) must still pass
   (move the injection point to wherever the producer's materialize runs). Note: relying on `finalize`
   alone would regress this on the no-strip path — see the blocker resolution above.
-- **`source_response` is vestigial — drop it.** `materialize_before_delivery(state, opts,
-  source_response)` passes `source_response` but `do_handle_materialization_result/1` ignores it — the
-  backstop does **not** release the source. Drop the dead param (arity → /2) and **scrub the stale
-  "needs source_response" moduledocs** at processor.ex:150-156 and materializer.ex:13-15 in the same
+- **`source_response` is vestigial — drop it.** The delivery materialize formerly took a third
+  `source_response` arg but ignored it (the old result handler discarded it) — the backstop does
+  **not** release the source. The extracted `materialize_for_delivery/2` drops it; also **scrub the
+  stale "needs source_response" moduledocs** at processor.ex:150-156 and materializer.ex:13-15 in the same
   change.
 - **No-strip source lifetime (note, not a blocker).** With `strip_metadata: false` *and*
   `strip_color_profile: false`, `finalize` stays lazy, so even with the producer's explicit
