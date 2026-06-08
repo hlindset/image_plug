@@ -113,6 +113,27 @@ defmodule ImagePipe.Telemetry.LoggerTest do
     assert log =~ "transform detect: skipped (no detector configured)"
   end
 
+  test "logs the output clamp one-shot at warning with source -> clamped dims" do
+    Telemetry.attach_default_logger(level: :info)
+
+    log =
+      capture_log(fn ->
+        :telemetry.execute(
+          [:image_pipe, :output, :clamp],
+          %{scale: 0.91},
+          %{
+            format: :webp,
+            source_dimensions: {18_000, 9_000},
+            dimensions: {16_383, 8_191},
+            max_dimension: 16_383
+          }
+        )
+      end)
+
+    assert log =~ "[warning]"
+    assert log =~ "output clamp: 18000x9000 -> 16383x8191 for webp (max 16383)"
+  end
+
   test "logs a normal no-face detect fallback at the base level, not warning" do
     Telemetry.attach_default_logger(level: :info)
 
