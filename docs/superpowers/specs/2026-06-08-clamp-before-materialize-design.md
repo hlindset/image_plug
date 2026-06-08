@@ -81,15 +81,18 @@ Concretely:
 
 - `process_decoded_source` runs the transform and returns the **lazy** state (no delivery backstop).
 - `materialize_for_delivery` becomes a shared step that both the **producer** (after `Clamp.clamp`)
-  and `process_source` call — preserving its existing failure mapping: `{:source,_}`/`{:config,_}`
-  pass through, **everything else → `{:decode, reason}` → 415** (the
-  `do_handle_materialization_result` logic, [processor.ex:242-249](../../../lib/image_pipe/request/processor.ex)).
+  and `process_source` call — mapping a materialize failure to **`{:decode, reason}` → 415**
+  (`classify_delivery_materialize_result/1`), consistent with the mid-chain path. (`:image_materializer`
+  is an internal test-injection seam, not a host behaviour — its only in-repo producers return the
+  contracted `{:ok, State} | {:error, term()}`, so no catch-all for malformed returns is added, per the
+  "don't guard impossible internal misuse" guideline.)
 - It must use the **return-tuple** `copy_memory` (never raise — a raised exception in the producer is
   caught as `{:encode, exception, _}` → 500), and keep the `image_materializer` opt injectable so the
   `FailingMaterializer` → 415 tests still drive it.
 - Keep `classify_materialize_error/1` (the mid-chain `{:materialize_error,_}` → `{:decode,_}` mapper,
-  processor.ex:162-165) **distinct** — it has no `{:source,_}`/`{:config,_}` pass-through and covers a
-  different error shape; do not consolidate it with the backstop mapper.
+  processor.ex:162-165) **distinct** from `classify_delivery_materialize_result/1` — they cover
+  different error shapes (mid-chain unwraps `{:materialize_error,_}`; the delivery mapper takes the raw
+  materializer result); do not consolidate them.
 
 Rejected alternative: pass limits into `process_decoded_source` so it clamps before its own backstop —
 that drags `Output` limits into the `Processor`'s transform-execution path; the chosen shape keeps the

@@ -215,8 +215,7 @@ defmodule ImagePipe.Request.Processor do
   Called by `process_source/3` after transform execution and by the producer after
   `Output.Clamp`, to materialize the lazy vips state before encoding. Returns
   `{:ok, state}` unchanged if an op already materialized mid-pipeline; maps a
-  materialize failure to a decode error (→ 415), passing through already-tagged
-  source/config errors.
+  materialize failure to a decode error (→ 415).
   """
   @spec materialize_for_delivery(State.t(), keyword()) :: {:ok, State.t()} | {:error, term()}
   def materialize_for_delivery(%State{} = state, opts) do
@@ -235,19 +234,8 @@ defmodule ImagePipe.Request.Processor do
     materializer.materialize(state, opts)
   end
 
-  # `materialize_state/2` dispatches to the injectable `:image_materializer`, whose
-  # `materialize/2` callback returns `{:ok, State} | {:error, term()}` — a boundary the
-  # caller doesn't fully control. The default `Materializer` only ever produces vips
-  # errors (→ `:decode`), but a host-supplied materializer may already tag a source/
-  # config error; pass those through untagged rather than mis-wrapping them as `:decode`.
-  defp classify_delivery_materialize_result({:error, {:source, _reason} = error}),
-    do: {:error, error}
-
-  defp classify_delivery_materialize_result({:error, {:config, _reason} = error}),
-    do: {:error, error}
-
-  defp classify_delivery_materialize_result({:error, reason}), do: {:error, {:decode, reason}}
   defp classify_delivery_materialize_result({:ok, %State{} = state}), do: {:ok, state}
+  defp classify_delivery_materialize_result({:error, reason}), do: {:error, {:decode, reason}}
 
   defp wrap_decode_error({:error, {:source, _reason}} = error), do: error
   defp wrap_decode_error({:error, error}), do: {:error, {:decode, error}}
