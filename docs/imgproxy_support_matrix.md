@@ -747,7 +747,7 @@ transforms or output encoding.
 
 | Imgproxy option | Aliases | Status | Notes |
 | --- | --- | --- | --- |
-| `quality` | `q` | Supported | `0` means configured default. Supports `1..100`. |
+| `quality` | `q` | Supported | `0` (the imgproxy "unset" sentinel) selects the configured/format default; explicit values are `1..100`. There is no per-request way to request a literal quality of `0`. |
 | `format_quality` | `fq` | Partial | One `<format>:<quality>` pair per option segment. Repeated segments merge. More than one pair in one segment isn't supported. |
 | `autoquality` | `aq` | Missing | Pro multi-encode quality search. |
 | `max_bytes` | `mb` | Missing | No iterative encode degradation. |
