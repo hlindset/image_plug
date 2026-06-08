@@ -53,10 +53,10 @@ defmodule ImagePipe.Output.Clamp do
     end
   end
 
-  # Defensive ≤-limit guarantee: round() at `scale = limit/longest` lands the
-  # longest axis exactly on `limit`, but if a libvips rounding quirk overshoots
-  # we re-resize the ORIGINAL by a floor-biased factor so the corrected longest
-  # axis cannot round back over the limit. In practice this never fires.
+  # Defensive ≤-limit guarantee: `scale = limit/longest` lands the longest axis
+  # on `limit`, but if a libvips rounding quirk overshoots we re-resize the
+  # ORIGINAL by a slightly smaller (`limit - 0.5`) factor so the corrected
+  # longest axis lands at or below the limit. In practice this never fires.
   defp enforce_limit(image_module, original, resized, max_dimension) do
     realized = max(Image.width(resized), Image.height(resized))
 
