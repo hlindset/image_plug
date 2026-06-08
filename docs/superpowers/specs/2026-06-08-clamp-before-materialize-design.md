@@ -22,14 +22,14 @@ high-water drops from ~556/848 MiB to ~200/222 MiB at pre-clamp 16000/20000 (ben
   benchmark measured.
 - **Byte-identity is universal across plain compositions** (fit / stretch / cover / canvas / padding):
   `copy_memory` is pixel-identity, so moving it around the clamp never changes output (probe P2).
-- **The memory win is *verified* only for fit/stretch** (benchmark Arm C is a single resize node).
-  cover (resize→crop) and canvas/padding (embed) insert extra lazy nodes between the resize and the
-  clamp; whether libvips fuses `crop→resize` / `embed→resize` without a tile/line cache (so the
-  oversized intermediate never forms) is **plausible but unmeasured** — the exact "silent line/tile
-  cache" failure mode CLAUDE.md warns about. **This change MUST add Arm-C-style bench probes for
-  cover+over-cap and canvas+over-cap and report the result** (see Tests). If a composition does *not*
-  fuse, the reorder is still correct/byte-identical — that composition simply keeps its buffer
-  (graceful degradation to today's behavior). Do not claim universal memory savings until probed.
+- **The memory win holds across compositions (probed).** Beyond fit/stretch (Arm C, ~200 MiB), the
+  bench probes added by this change measure cover (a crop node between resize and clamp) at **~260 MiB**
+  and canvas/padding (an embed node) at **~207 MiB** @ target 16000 / cap 8192 — both far below Arm A's
+  **~556 MiB** and near the Arm C / 147 MiB-floor band. So libvips fuses `crop→clamp` and `embed→clamp`
+  too; the oversized intermediate never forms for these compositions. (Cover lands a little higher than
+  the pure resize because its cropped intermediate is itself still over-cap on both axes — still a
+  ~300 MiB saving.) If a future composition were found NOT to fuse, the reorder is still
+  correct/byte-identical — that composition would simply keep its buffer (graceful degradation).
 - **Out of scope — deferred:**
   - The **oriented** mid-chain flush (`OrientationFlush` at the resize, inside `PlanExecutor`):
     materializes *before* final dims / negotiated format are known, so a pre-materialize clamp can't

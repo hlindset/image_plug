@@ -390,3 +390,17 @@ prerequisite for B**, so shipping A forecloses nothing.
 over-cap enlargement is *not* rare and the double-resample CPU/quality cost is material on real traffic;
 if revived, fold the fit/cover dimension-cap subset only (B), never C. Tracked as a follow-up note on #164.
 Implementation design for A: see `docs/superpowers/specs/2026-06-08-clamp-before-materialize-design.md`.
+
+### Composition fusion probes (added during A implementation)
+
+To confirm the reorder's memory win is not limited to the single-resize (fit/stretch) shape Arm C
+measured, two probes drive the *real* intermediate node types between the resize and the clamp
+(@ target 16000 / cap 8192):
+
+- **Ccover** (a crop node — cover result-crop): **~260 MiB**.
+- **Ccanvas** (an embed node — canvas/padding): **~207 MiB**.
+
+Both fuse (≈ Arm C's ~200 MiB; far below Arm A's ~556 MiB), so libvips streams `crop→clamp` and
+`embed→clamp` without holding the oversized intermediate. The #164 memory win therefore extends to
+cover and canvas/padding compositions, not just fit/stretch. (Cover sits a little higher because its
+cropped intermediate is itself still over-cap on both axes.)
