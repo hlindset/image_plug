@@ -134,8 +134,12 @@ The `resize` helper applies a **per-axis 1px floor** — `hscale = max(scale, 1/
 — so no axis ever rounds below one realized pixel. This is needed because for an extreme aspect ratio with a
 tight cap the uniform `scale` can drive the *short* axis to 0 (e.g. `40000×1` with `max_width:100` →
 `round(1·0.0025)=0`); the floor pins the short axis at 1px while the long axis shrinks, and the verify-shrink
-loop then reduces the long axis until the product fits. This is the **equivalent of imgproxy's**
-`WScale ≥ 1/widthToScale` floor (`prepare.go:252-258`) — so ImagePipe matches rather than diverges here.
+loop then reduces the long axis until the product fits. This **mirrors imgproxy's** per-axis
+`WScale ≥ 1/widthToScale` floor (`prepare.go:252-258`). The floors are structurally equivalent (neither
+ever rounds an axis below 1px), but the denominators differ — imgproxy floors against the *source-relative*
+`widthToScale`, ImagePipe against the *composited* image dimension — so in the extreme-aspect 1px regime the
+two can still land on different realized pixels for the same composited-vs-fold-back reason as the
+padding/extend divergence above.
 
 **`clamp_info`** (returned only when a clamp actually occurs; `nil` otherwise) replaces `max_dimension` with
 the effective `limits` applied:

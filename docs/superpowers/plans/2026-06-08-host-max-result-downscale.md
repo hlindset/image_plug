@@ -86,7 +86,7 @@ In `lib/image_pipe/output/encoder.ex`, update the doc and the four clauses:
 - [ ] **Step 4: Run, verify pass**
 
 Run: `mise exec -- mix test test/image_pipe/output/clamp_test.exs -v`
-Expected: the `encoder_limit/1` tests PASS. (The `clamp/3` tests still reference the old signature and will be rewritten in Task 2 — they may fail now; that is expected and fixed in Task 2. If you want a green checkpoint here, run only the `encoder_limit` describe: `mise exec -- mix test test/image_pipe/output/clamp_test.exs:18`.)
+Expected: **PASS — the whole file is green.** This task only touches `encoder.ex` and the `encoder_limit/1` describe block. The existing `clamp/3` tests run against the still-unchanged (scalar-signature) `clamp.ex` and keep passing; the producer's `%{max_dimension: max_dimension} = Encoder.encoder_limit(...)` destructure still matches the now-wider map (extra `:max_pixels` key ignored). Run the full suite too: `mise exec -- mix test` — also green. The `clamp/3` signature change happens in Task 2.
 
 - [ ] **Step 5: Commit**
 
@@ -111,7 +111,9 @@ This is the core task. It changes `clamp/3`'s contract, so it updates the clamp,
 
 - [ ] **Step 1: Write the new `clamp/3` unit tests**
 
-Replace the entire `describe "clamp/3"` block in `test/image_pipe/output/clamp_test.exs` with the following (and add `use ExUnitProperties` to the module — keep `use ExUnit.Case, async: true`):
+First, **delete the now-dead `OvershootOnceImage` stub module and its leading comment** (the `defmodule OvershootOnceImage … end` block near the top of `test/image_pipe/output/clamp_test.exs`) — it was only used by the old corrective-resize test, which the rewrite below replaces.
+
+Then add `use ExUnitProperties` to the module (keep `use ExUnit.Case, async: true`) and replace the entire `describe "clamp/3"` block in `test/image_pipe/output/clamp_test.exs` with the following:
 
 ```elixir
   describe "clamp/3" do
@@ -204,23 +206,63 @@ Replace the entire `describe "clamp/3"` block in `test/image_pipe/output/clamp_t
       assert Image.width(resized) <= 100
       assert Image.height(resized) >= 1
     end
+
+    # Deterministic cover for the deep pixel verify-and-shrink loop — the exact
+    # path the bounded loop, the `long - 1` floor, and the 1px floor exist for.
+    # (Traced: ~8 and ~10 iterations respectively, both well under the bound.)
+    test "pixel cap on an extreme aspect ratio converges and fits (deep loop, 1px floor)" do
+      img = image(40_000, 1)
+      assert {:ok, resized, _info} = Clamp.clamp(img, limits(max_pixels: 100), [])
+
+      w = Image.width(resized)
+      h = Image.height(resized)
+      assert h >= 1
+      assert w * h <= 100
+    end
+
+    test "pixel cap on a tall sliver converges and fits (deep loop)" do
+      img = image(1, 6000)
+      assert {:ok, resized, _info} = Clamp.clamp(img, limits(max_pixels: 1300), [])
+
+      w = Image.width(resized)
+      h = Image.height(resized)
+      assert w >= 1
+      assert w * h <= 1300
+    end
   end
 
   describe "clamp/3 pixel ≤-cap property" do
     alias ImagePipe.Output.Clamp
 
+    # Bias the generator toward the regimes that actually drive the pixel loop
+    # deep: extreme aspect ratios (one axis tiny) and small pixel caps. A uniform
+    # square generator almost never reaches the >1-iteration path (~72% no-op),
+    # leaving the loop the test exists to protect essentially unexercised.
+    defp dim_gen do
+      StreamData.frequency([
+        {3, StreamData.integer(1..6000)},
+        {2, StreamData.integer(1..8)}
+      ])
+    end
+
     property "realized dims and pixel product never exceed the caps" do
       check all(
-              w <- StreamData.integer(1..6000),
-              h <- StreamData.integer(1..6000),
-              max_w <- StreamData.integer(8..6000),
-              max_h <- StreamData.integer(8..6000),
-              max_px <- StreamData.integer(64..2_000_000),
-              max_runs: 300
+              w <- dim_gen(),
+              h <- dim_gen(),
+              max_w <- StreamData.integer(1..6000),
+              max_h <- StreamData.integer(1..6000),
+              max_px <-
+                StreamData.frequency([
+                  {2, StreamData.integer(64..5000)},
+                  {1, StreamData.integer(5001..2_000_000)}
+                ]),
+              max_runs: 400
             ) do
         {:ok, image} = Image.new(w, h)
         lim = %{max_width: max_w, max_height: max_h, max_pixels: max_px}
 
+        # A `{:error, {:encode, ...}}` here would mean the bounded loop exhausted
+        # (non-termination within the bound) — the pattern-match failure surfaces it.
         assert {:ok, resized, _info} = Clamp.clamp(image, lim, [])
         rw = Image.width(resized)
         rh = Image.height(resized)
@@ -474,10 +516,10 @@ In `lib/image_pipe/telemetry/logger.ex`, replace the `[:output, :clamp | _]` `me
   end
 ```
 
-Add a small private renderer (place it among the other `defp`s, e.g. just below the `message/3` clauses):
+Add a small private renderer (place it among the other `defp`s, e.g. just below the `message/3` clauses). Use the ASCII token `inf` (not `∞`) so the line stays grep-friendly for log sinks; today the host caps are always integers, so this fallback is rarely hit:
 
 ```elixir
-  defp cap(:infinity), do: "∞"
+  defp cap(:infinity), do: "inf"
   defp cap(value), do: value
 ```
 
@@ -645,7 +687,10 @@ After the `describe "output encoder dimension clamp (#150)"` block, add:
       assert content_type(conn) == ["image/jpeg"]
 
       {w, h} = dimensions(conn)
-      assert max(w, h) <= 8192
+      # Parity, not just safety: when the width cap binds on a non-degenerate
+      # aspect, the long axis lands EXACTLY on 8192 — byte-intent identical to
+      # imgproxy's linear `downScale = maxResultDim/max(outW,outH)`.
+      assert w == 8192
 
       assert_received {:telemetry_event, [:image_pipe, :output, :clamp], %{scale: scale}, meta}
       assert scale < 1.0
@@ -654,6 +699,28 @@ After the `describe "output encoder dimension clamp (#150)"` block, add:
       assert meta.dimensions == {w, h}
       {sw, _sh} = meta.source_dimensions
       assert sw > 8192
+    end
+
+    # The one place ImagePipe and imgproxy observably diverge: a PADDED request
+    # whose composited frame exceeds the cap. imgproxy folds the downscale into
+    # the resize scale before re-applying padding (prepare.go:233-263); ImagePipe
+    # clamps the already-composited frame. Both land <= cap; the framing differs.
+    # This test pins ImagePipe's contract (status 200, composite <= cap, clamp
+    # fired) so a future change to the clamp point can't silently alter padded
+    # behavior with a green suite.
+    test "clamps a padded result whose composited frame exceeds the host cap" do
+      attach_clamp_telemetry()
+
+      # w:100 then pad 5000px each side -> composited width ~10100 > 8192.
+      conn =
+        call_imgproxy("/_/w:100/pd:5000/f:jpeg/plain/images/beach.jpg", @host_default_opts)
+
+      assert conn.status == 200
+      {w, h} = dimensions(conn)
+      assert max(w, h) <= 8192
+
+      assert_received {:telemetry_event, [:image_pipe, :output, :clamp], %{scale: scale}, _meta}
+      assert scale < 1.0
     end
 
     test "honors asymmetric per-axis caps without over-shrinking" do
@@ -741,7 +808,7 @@ git commit -m "test(imgproxy): wire-level host result-cap downscale conformance 
 In `docs/imgproxy_support_matrix.md`, the "Surrounding stages" table row for the host result-dimension cap currently reads ⚠️ and points at `check_result_*`. Replace it with:
 
 ```markdown
-| Host result-dimension cap (`limitScale`, `processing/prepare.go`) | `lib/image_pipe/output/clamp.ex` via the producer (`min(host max_result_*, encoder_limit)`) | ✅ | imgproxy downscales the result to fit `max_result_*`; ImagePipe now matches (#165), reusing the #150 `Output.Clamp`. **Diverges (superset):** ImagePipe honors independent `max_result_width`/`max_result_height` and a result `max_result_pixels` cap (sqrt), where imgproxy's `limitScale` has a single `MaxResultDimension` and no result-pixel cap. **Diverges (composition):** ImagePipe clamps the **composited** final image, whereas imgproxy folds the downscale into the resize scale before padding/extend (`prepare.go:233-263`) — both land ≤ cap; padded/extended requests differ in internal composition. Matches imgproxy's sub-1px floor via a per-axis `max(scale, 1/dim)`. |
+| Host result-dimension cap (`limitScale`, `processing/prepare.go`) | `lib/image_pipe/output/clamp.ex` via the producer (`min(host max_result_*, encoder_limit)`) | ✅ | imgproxy downscales the result to fit `max_result_*`; ImagePipe matches for the common no-padding/no-extend request (#165), reusing the #150 `Output.Clamp` — byte-intent identical to `limitScale`'s linear `downScale = maxResultDim/max(outW,outH)` (`prepare.go:247`) when caps are equal and a dimension binds. **Diverges (superset):** ImagePipe honors independent `max_result_width`/`max_result_height` and a result `max_result_pixels` cap (sqrt), where imgproxy's `limitScale` has a single `MaxResultDimension` and no result-pixel cap. **Diverges (composition):** ImagePipe clamps the **composited** final image, whereas imgproxy folds the downscale into the resize scale and re-applies padding/extend at the reduced scale (`prepare.go:233-263`) — both land ≤ cap, but padded/extended requests differ in the **content-to-padding ratio of the final frame**. ImagePipe mirrors imgproxy's per-axis sub-1px floor (`prepare.go:252-258`) via `max(scale, 1/dim)`; in the extreme-aspect 1px regime the realized pixels can still differ for the same composited-vs-fold-back reason. |
 ```
 
 - [ ] **Step 2: Support matrix — fix the stale `fixSize` row (row 13)**
@@ -766,51 +833,37 @@ The "Key takeaways" bullet currently reads "The standing divergences are color m
 
 - [ ] **Step 4: Support matrix — input/output safety-limits section**
 
-In the "Input and output safety limits" prose (~426-437), update the sentence that frames `max_result_*` as an error to state it now downscales-to-fit (imgproxy `limitScale` parity), while `max_input_pixels` remains the hard image-bomb gate. (Edit the existing sentences in place; keep the `max_input_pixels`/`max_body_bytes` description unchanged.)
+In the "Input and output safety limits" prose (~426-437):
+- Update the sentence that frames `max_result_*` as an **error** to state it now downscales-to-fit (imgproxy `limitScale` parity), while `max_input_pixels` remains the hard image-bomb gate.
+- **Also rewrite the now-stale clause** (~line 437) that says the clamp "only triggers when a host raises `max_result_*` above the encoder limit" — after #165 the clamp commonly triggers at the **host** cap (default 8192), which is *below* the encoder limits. Reword to: it triggers whenever the realized result exceeds the tighter of the host caps and the encoder limit.
+- Keep the `max_input_pixels`/`max_body_bytes` description unchanged.
+
+Verify nothing else in the doc still describes the result cap as an error: `grep -n "result image is too large\|max_result.*error\|errors" docs/imgproxy_support_matrix.md` and reconcile any remaining hit.
 
 - [ ] **Step 5: telemetry.md — rewrite the Output dimension clamp section**
 
-Replace the "Output dimension clamp" section body so it covers both the host and encoder caps and the `limits` metadata:
+Rewrite the body of the "Output dimension clamp (`[:output, :clamp]`)" section. To avoid nested code fences in this plan, the replacement is described below (the two `[:image_pipe, …]` / `output clamp: …` snippets stay in their existing ` ```text ` fenced blocks in the doc — only their *content* and the surrounding prose/metadata change):
 
-```markdown
-## Output dimension clamp (`[:output, :clamp]`)
+- **Opening paragraph** → replace with:
 
-When the realized final image exceeds the effective result caps — the tighter of
-the host `max_result_width`/`max_result_height`/`max_result_pixels` config and the
-negotiated output encoder's hard limit (`min(host, encoder)`) — ImagePipe uniformly
-downscales it to fit before encoding and emits a one-shot (non-span) marker. This
-both keeps encoding from failing (WebP caps each dimension at 16383, AVIF at 16384;
-JPEG/PNG effectively unbounded) and serves the host result cap as a downscale rather
-than an error (imgproxy `limitScale` parity). The common trigger is the host cap
-(default 8192 per axis), which is below the encoder limits.
+  > When the realized final image exceeds the effective result caps — the tighter of the host `max_result_width`/`max_result_height`/`max_result_pixels` config and the negotiated output encoder's hard limit (`min(host, encoder)`) — ImagePipe uniformly downscales it to fit before encoding and emits a one-shot (non-span) marker. This both keeps encoding from failing (WebP caps each dimension at 16383, AVIF at 16384; JPEG/PNG effectively unbounded) and serves the host result cap as a downscale rather than an error (imgproxy `limitScale` parity). The common trigger is the host cap (default 8192 per axis), which is below the encoder limits.
 
-​```text
-[:image_pipe, :output, :clamp]
-​```
+- **Keep** the ` ```text ` block containing `[:image_pipe, :output, :clamp]` unchanged.
+- **Keep** the `Measurements:` list (`:scale`) unchanged.
+- **Replace the `Metadata:` list** so the final bullet is `:limits` instead of `:max_dimension`:
 
-Measurements:
+      - `:format` — the negotiated output format atom (e.g. `:webp`, `:avif`).
+      - `:source_dimensions` — `{w, h}` before the clamp.
+      - `:dimensions` — `{w, h}` after the clamp.
+      - `:limits` — the effective caps applied: `%{max_width, max_height, max_pixels}` (each a `pos_integer` or `:infinity`).
 
-- `:scale` — the uniform downscale factor applied (a float `< 1.0`).
+- **Keep** the "product-neutral and non-sensitive" sentence and the "`:warning` … imgproxy `slog.Warn`" sentence.
+- **Update the example** in the trailing ` ```text ` block to the new rendering:
 
-Metadata:
+      output clamp: 18000x9000 -> 8192x4096 for webp (caps w:8192 h:8192 px:40000000)
 
-- `:format` — the negotiated output format atom (e.g. `:webp`, `:avif`).
-- `:source_dimensions` — `{w, h}` before the clamp.
-- `:dimensions` — `{w, h}` after the clamp.
-- `:limits` — the effective caps applied: `%{max_width, max_height, max_pixels}`
-  (each a `pos_integer` or `:infinity`).
-
-This metadata is product-neutral and non-sensitive (no URLs, secrets, or PII).
-
-The opt-in default Logger attaches to this event and renders it at `:warning`,
-matching imgproxy's `slog.Warn` for the same condition, e.g.:
-
-​```text
-output clamp: 18000x9000 -> 8192x4096 for webp (caps w:8192 h:8192 px:40000000)
-​```
-```
-
-(Remove the leading zero-width characters from the fenced-code backticks above — they are only here to keep this plan's markdown from closing early. Use plain triple backticks.)
+After editing, confirm the doc has no stray `:max_dimension` and no broken fences:
+`grep -nP '[\x{200B}\x{200C}\x{200D}\x{FEFF}]|max_dimension' docs/telemetry.md` (expect: no output).
 
 - [ ] **Step 6: operational_notes.md**
 
@@ -846,4 +899,6 @@ git add -A && git commit -m "chore: precommit fixups (#165)"
 - **Do not reintroduce a `{:result_limit, _}` tag** anywhere. After Task 3 it has no emitter and no handler; a stray one would crash with `FunctionClauseError` in the sender.
 - **`max_result_*` must stay out of the cache key and ETag** (`lib/image_pipe/cache/key.ex`, `lib/image_pipe/request/http_cache.ex`) — they are absent today and this change must not add them. The clamp output is deterministic from inputs already in the key (source identity + plan + negotiated format) for a given deployment.
 - **No demo UI change** — `max_result_*` are host config, not URL/transform knobs.
+- **`cdn_http_cache_wire_test.exs` (the "stricter result limit does not change generated etag" test) is unaffected** — don't be alarmed by its tight `max_result_width: 32`. Its loose request (`w:64`, cap 64) is a clamp no-op, and its strict request matches the loose ETag and returns `304` *before* the producer clamp ever runs. It stays green without edits.
+- **The padded-over-cap wire test (Task 4) needs the imgproxy `pd:` token to parse** — padding is a supported ImagePipe transform (`lib/image_pipe/transform/operation/padding.ex`, matrix stage 12). If `pd:5000` doesn't push the composite over 8192 with the test source, adjust the padding amount until `meta.source_dimensions` exceeds the cap; keep the asserted contract (200, composite ≤ cap, clamp fired).
 - **Out of scope:** the shrink-on-load decode fold (`DecodePlanner`) and #164 look-ahead pre-clamp.
