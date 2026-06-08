@@ -19,7 +19,6 @@ defmodule ImagePipe.Request.Processor do
           required(:decode_options) => keyword(),
           required(:image) => VipsImage.t(),
           required(:source_format) => source_format(),
-          optional(:source_response) => Source.Response.t(),
           optional(:source_dimensions) => {pos_integer(), pos_integer()} | nil,
           optional(:original_dims) => {pos_integer(), pos_integer()},
           optional(:achieved_shrink) => %{w: float(), h: float()} | nil
@@ -83,7 +82,6 @@ defmodule ImagePipe.Request.Processor do
          decode_options: decode_options,
          image: image,
          source_format: source_format,
-         source_response: source_response,
          source_dimensions: shrink_source_dimensions(decode_options, original_dims),
          original_dims: original_dims,
          achieved_shrink: compute_achieved_shrink(original_dims, image)
