@@ -122,7 +122,7 @@ defmodule ImagePipe.Request.SourceSession.Producer do
                final_state.image,
                request.opts
              ),
-           %{max_dimension: max_dimension} <- Encoder.encoder_limit(resolved_output.format),
+           %{max_dimension: max_dimension} = Encoder.encoder_limit(resolved_output.format),
            {:ok, image, clamp_info} <-
              Clamp.clamp(final_state.image, max_dimension, request.opts),
            :ok <- emit_clamp_telemetry(clamp_info, resolved_output.format, request.opts),
