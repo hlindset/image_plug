@@ -83,24 +83,56 @@ When all three caps are `:infinity` (or non-binding) the no-op path is taken —
 JPEG/PNG behavior. When `max_width == max_height` (the default 8192/8192) and only dimension binds, the math
 reduces to `max_dimension / max(w, h)` — byte-intent identical to imgproxy's `limitScale` linear downscale.
 
-**≤-cap guarantee (defensive — generalizes #150's `enforce_limit`).** After the resize, measure realized
-`rw`, `rh`, `rw*rh`. If **any** cap is exceeded (libvips rounding quirk), re-resize the **original** by a
-floor-biased corrected factor that is the `min` across the binding caps:
+**≤-cap guarantee.** The **dimension** caps are satisfied **by construction** and need no corrective pass:
+the primary scale is the most-aggressive per-axis ratio, so each axis lands ≤ its cap — the binding axis
+exactly on its cap (`round(d · max_d/d) = max_d` for integer `max_d`), and the other axis is scaled by the
+same-or-smaller factor, so `other · scale ≤ max_other`. (#150's single-axis linear corrective is therefore
+dropped; it was only ever a defensive no-op for the dimension case.)
+
+The **pixel** cap is the one real subtlety — flagged by the design review (clamp-math lens) as a blocker in
+the original closed-form draft. After an isotropic resize the realized pixel count is
+`round(w·s) · round(h·s)`: a product of two *independently* rounded factors. A closed-form
+`s = sqrt(max_pixels / (w·h))` (or any fixed-epsilon variant like `sqrt((max_pixels − 0.5)/(w·h))`) does
+**not** guarantee `round(w·s)·round(h·s) ≤ max_pixels` — the two roundings can each add ~0.5px, injecting
+≈ `0.5·(w·s + h·s)` extra area, which for any non-tiny image dwarfs a half-pixel epsilon (verified
+overshoots of thousands of pixels for large/extreme-aspect images; **unbounded** overshoot when the short
+axis floors to 1px, where a single scalar can never satisfy a *product* cap). So the pixel cap is enforced
+by a **bounded verify-and-shrink loop on the realized image**, not a closed form:
 
 ```
-dim_c(:infinity, _)      = 1.0
-dim_c(maxd, dim)         = (maxd - 0.5) / dim          # floor-bias: round() cannot bump back over
-
-px_c(:infinity, _, _)    = 1.0
-px_c(maxp, w, h)         = :math.sqrt((maxp - 0.5) / (w * h))
-
-corrected = min(dim_c(max_width, w), dim_c(max_height, h), px_c(max_pixels, w, h))
+enforce(original, resized, limits, max_iters):
+  rw, rh = realized(resized)
+  if within_all_caps?(rw, rh, limits): return {:ok, resized}        # common case: pixels not binding
+  if max_iters == 0: return {:error, {:encode, <pixel-enforce-exhausted>, []}}   # bounded escape → 500
+  long_real  = max(rw, rh); short_real = min(rw, rh)                # short_real ≥ 1
+  # aspect-preserving long-axis target that fits the pixel budget, plus the long axis's own dim cap,
+  # and a strict −1 progress floor so the loop always advances at least one pixel:
+  t_pixels = (max_pixels == :infinity) -> long_real
+             else floor(:math.sqrt(max_pixels * long_real / short_real))
+  t_dim    = long-axis dimension cap (max_width or max_height, whichever axis is longer; :infinity → long_real)
+  target_long = min(long_real - 1, t_pixels, t_dim)
+  s = (target_long + 0.49) / max(orig_w, orig_h)                    # rounds the long axis to target_long
+  enforce(original, resize(original, s), limits, max_iters - 1)
 ```
 
-Single corrective pass on the **original** (not the already-resized image, to avoid compounding rounding),
-matching the established #150 pattern. In practice this branch never fires; it exists so a rounding
-regression cannot silently re-introduce an over-cap result. The unit and wire tests assert realized
-dimensions/pixels ≤ caps, catching any regression here.
+- The `floor(sqrt(max_pixels · long/short))` target preserves the realized aspect, so it lands the product
+  near the budget in **one step** for realistic caps; the `min(long_real − 1, …)` floor guarantees ≥1px of
+  progress per iteration, so the loop **always terminates**, even in the 1px-floored regime (where it
+  converges geometrically toward the cap, e.g. an absurd `max_result_pixels = 100` on a `40000×1` source
+  settles in ~8 steps). `max_iters` is set with ample margin (e.g. 16) so realistic configs finish in one
+  iteration and only pathological tiny caps could exhaust it; exhaustion returns the standard `{:encode, …}`
+  error contract (→ 500), an acceptable outcome for a misconfiguration that asks for a few-pixel result.
+- The loop checks **all** caps each iteration (`within_all_caps?`) and resizes from the **original** every
+  time (never the already-resized image, to avoid compounding rounding). Because it only ever shrinks, the
+  dimension caps stay satisfied throughout.
+- The exact stepping constants are an implementation detail **pinned by a property test** (see Tests): the
+  realized `w ≤ max_width`, `h ≤ max_height`, **and** `w·h ≤ max_pixels` after `clamp/3`, across a grid of
+  sizes, extreme aspect ratios, and small/large pixel caps including the 1px-floor regime, plus a
+  termination self-check within the iteration bound.
+
+ImagePipe deliberately does **not** replicate imgproxy's explicit `WScale ≥ 1/widthToScale` floor
+(`prepare.go:252-258`): for dimension caps (always ≥ 1) a downscale of a ≥1px image never yields a sub-1px
+axis, and the pixel-enforce loop handles the short-axis-floored regime directly.
 
 **`clamp_info`** (returned only when a clamp actually occurs; `nil` otherwise) replaces `max_dimension` with
 the effective `limits` applied:
@@ -185,12 +217,21 @@ the extra branch — the effective caps and the before/after dimensions are the 
 - **measurements:** `%{scale: scale}` (unchanged).
 - **metadata:** `%{format: format, source_dimensions: {w, h}, dimensions: {w', h'}, limits: limits}`.
 
-All metadata stays non-sensitive (dimensions, format atom, integer/`:infinity` caps).
+All metadata stays non-sensitive (dimensions, format atom, integer/`:infinity` caps). The clamp event remains
+**outcome-free** by design: it carries no `:result`/error field — a downscale *is* the single known outcome,
+fully expressed by the before→after dimensions + caps, and its severity is carried structurally by
+`level_for/3`'s hard-coded `:warning` (not by a metadata field). This satisfies the *Telemetry guidelines*
+"must surface the outcome" rule without an `outcome/1` projection; a future editor must not add a `:result`
+field without also threading it into the message.
 
 **Default Logger sync** (`telemetry/logger.ex`, per the *Telemetry guidelines*): update the existing
 `message/3` clause for `[:output, :clamp | _]` to render the new `limits` shape, e.g.
-`"image_pipe output clamp: 18000x9000 -> 8192x4096 for webp (caps w:8192 h:8192 px:40000000)"`. Level stays
-`:warning`. Update the `logger_test.exs` assertion and `docs/telemetry.md` to the `limits` metadata.
+`"image_pipe output clamp: 18000x9000 -> 8192x4096 for webp (caps w:8192 h:8192 px:40000000)"`. Render
+`:infinity` caps gracefully (e.g. `px:∞` / `px:none`) rather than interpolating the raw atom — today
+`min_limit/2` resolves effective caps to host integers, but a future format/host combo could leave one
+`:infinity`. Level stays `:warning`. Update the `logger_test.exs` assertion (its `max_dimension: 16_383`
+metadata and `(max 16383)` substring → the `limits` shape) and `docs/telemetry.md`. Also update
+`clamp.ex`'s `@type clamp_info` and `@spec` (drop `max_dimension`, add `limits`).
 
 ### Cache / ETag — no change
 
@@ -221,8 +262,9 @@ validator derivation.
 Verified against `local/imgproxy-master/processing/prepare.go:222-265`:
 
 - **Dimension, equal caps:** `limitScale` computes `downScale = maxResultDim / max(outWidth, outHeight)`
-  (`prepare.go:245-247`) — a uniform linear downscale on the longest axis. ImagePipe's per-axis math reduces
-  to exactly this when `max_width == max_height` and dimension binds. ✅ byte-intent identical.
+  (`prepare.go:247`) — a uniform linear downscale on the longest axis. ImagePipe's per-axis math reduces
+  to exactly this when `max_width == max_height` and dimension binds. ✅ byte-intent identical **in the
+  no-padding / no-extend / DPR=1 case** (see the composition divergence below).
 - **Deliberate divergences — ImagePipe is a strict superset:**
   - imgproxy's `limitScale` has a **single** `MaxResultDimension` applied to both axes; ImagePipe honors
     **independent** `max_result_width` / `max_result_height`. More granular; strictly safer (never exceeds
@@ -232,8 +274,23 @@ Verified against `local/imgproxy-master/processing/prepare.go:222-265`:
     shrink). This has no `limitScale` counterpart; it is an ImagePipe-specific output safety knob. The sqrt
     choice (dimension linear, pixels sqrt, most-aggressive) is the #150 hand-off recommendation, **not**
     `fixGifSize`'s combined-sqrt.
-- **Input gate stays a hard error:** `max_input_pixels` ↔ `MaxSrcResolution` — mirrors imgproxy's split
-  (downscale the output cap, hard-error the input gate). ✅
+  - **Clamp point — composited result vs. fold-back into the resize scale (behavioral/pixel divergence).**
+    imgproxy's `limitScale` does *not* clamp the realized output: it computes the cap against a *projected*
+    output dimension that includes extend and padding (`prepare.go:230-244`), then folds the downscale back
+    into `WScale`/`HScale`/`DprScale` and re-runs `calcSizes` (`prepare.go:249-263`) — so the image content
+    is re-resized and padding/extend is re-applied at the reduced scale. ImagePipe instead clamps the
+    **already-composited** final image (content **with** extend/padding/background baked in, matrix stages
+    10–12) uniformly at the Output boundary. For the common no-padding/no-extend/DPR=1 request the two are
+    byte-intent identical; when padding or extend is present both still land ≤ cap, but the internal
+    content-to-padding composition differs (ImagePipe scales the composite as one unit; imgproxy scales
+    content then re-applies scaled padding). This is documented as a deliberate "Diverges" note in the
+    conformance doc.
+  - ImagePipe omits imgproxy's explicit `WScale ≥ 1/widthToScale` sub-1px floor (`prepare.go:252-258`): for
+    dimension caps (≥ 1) a downscale never produces a sub-1px axis, and the pixel-enforce loop handles the
+    floored-short-axis regime directly. Functionally covered; no separate floor needed.
+- **Input gate stays a hard error:** `max_input_pixels` ↔ `MaxSrcResolution` (checked on the loaded source at
+  `processing.go:114`, *before* `transformImage`/`limitScale`) — mirrors imgproxy's split (downscale the
+  output cap, hard-error the input gate). ✅
 
 These divergences are documented in `docs/imgproxy_support_matrix.md` as more-granular, strictly-safe
 choices, in the same spirit as #150's linear-dimension divergence from `fixGifSize`.
@@ -247,10 +304,22 @@ integers/`:infinity`):
 
 - width binds (per-axis): `max_width` small, `max_height`/`max_pixels` large → scale = `max_width/w`.
 - height binds (per-axis): symmetric.
-- pixels bind (sqrt): dims within `max_width`/`max_height` but `w*h > max_pixels` → scale = `sqrt(max_pixels/(w*h))`, dimensions reduced, realized `w'*h' <= max_pixels`.
+- pixels bind: dims within `max_width`/`max_height` but `w*h > max_pixels` → dimensions reduced, realized
+  `w'*h' <= max_pixels`.
 - most-aggressive: a shape where pixel and dimension constraints disagree → the smaller scale wins.
-- no-op: within all caps (and all-`:infinity`) → `{:ok, image, nil}`, no resize node.
-- ≤-cap guarantee: realized longest axis == cap and realized pixels ≤ pixel cap.
+- no-op: within all caps (and all-`:infinity`) → `{:ok, image, nil}`, no resize node; cap exactly equal to a
+  dimension is a no-op (no degenerate resize).
+- ≤-cap guarantee: realized longest axis == its cap and realized pixels ≤ pixel cap.
+- `clamp_info.scale` faithfulness: on a pixel-bound clamp, `rw/w == rh/h` (within fp tolerance) — the resize
+  is isotropic, so the reported scalar is not a half-truth.
+
+**Pixel ≤-cap property test** (the blocker fix from review — `StreamData`, the *correctness gate* per CLAUDE.md
+"Add StreamData property tests when correctness depends on invariants across many input shapes"): over a grid
+of widths/heights (including extreme aspect ratios and 1×N / N×1 shapes) × small-and-large `max_pixels`
+(including caps small enough to force the short axis to 1px), assert after `clamp/3` that realized
+`w ≤ max_width`, `h ≤ max_height`, **and** `w*h ≤ max_pixels`, and that the enforce loop terminates within its
+iteration bound. This is the test that would have caught the closed-form overshoot; it pins the loop, not the
+exact stepping constants.
 
 ### Wire conformance — `test/image_pipe/imgproxy_wire_conformance_test.exs`
 
@@ -266,14 +335,22 @@ Real `ImagePipe.call/2` + real encode + body decode (the file already has `dimen
 - **No-clamp control:** a request under all caps → no `[:output, :clamp]` event, unchanged dimensions.
 - Update #150's existing encoder-clamp conformance tests if they assert `max_dimension` metadata → `limits`.
 
-### Converted error tests
+### Converted / deleted error tests (full inventory — completed per review)
 
-- `plug_test.exs` "rejects static result dimensions…" → a downscale assertion (200 + clamp). Because the new
-  behavior decodes and re-encodes, it moves to / is expressed against the real encoder (the old test used
-  `StreamingOnlyImage`, whose body is undecodable, and asserted `refute_received :stream_encoder_called`,
-  which no longer holds — encode now runs).
-- `processor_test.exs` "process_source rejects final images wider…" → **deleted** (the function is gone;
-  clamp behavior is covered by `clamp_test.exs` + wire tests).
+- `plug_test.exs` "rejects static result dimensions above configured limits before encoding" (~2051) → a
+  downscale assertion (200 + clamp). The new behavior decodes and re-encodes, so it is expressed against the
+  real encoder in the conformance file (the old test used `StreamingOnlyImage`, whose body is undecodable,
+  and asserted `refute_received :stream_encoder_called`, which no longer holds — encode now runs).
+- `processor_test.exs` "process_source rejects final images wider than configured result limit" (~181) →
+  **deleted** (the function is gone; clamp behavior is covered by `clamp_test.exs` + wire tests).
+- `processor_test.exs` "process_source accepts final images within configured result limits" (~197) →
+  **deleted** (it sets `max_result_*` and asserts a property `process_source` no longer owns — `max_result_*`
+  no longer participates there; keeping it would be a post-migration parity pin on a coincidental pass).
+- `plug_test.exs` "allows static result dimensions within configured limits" (~2069, `StreamingOnlyImage`,
+  asserts `:stream_encoder_called`) → **kept as a no-clamp control**: `max_result_width: 64` == realized
+  `w:64` so the producer's now-unconditional `Clamp.clamp` no-ops (no resize node) and the stub still streams
+  through. Verify it still passes unchanged after the wiring lands; it usefully exercises the no-op path on
+  the streaming stub.
 
 ## Docs
 
@@ -281,11 +358,18 @@ Real `ImagePipe.call/2` + real encode + body decode (the file already has `dimen
   - Row 113 (host result-dimension cap) ⚠️ → ✅, pointing at the `Output.Clamp` reuse with `min(host,
     encoder)`.
   - `limitScale` in the processing-pipeline section (a **stage/order** + **behavioral/pixel** change per the
-    compat-doc-sync rule).
+    compat-doc-sync rule), incl. the composited-vs-fold-back "Diverges" note (above) and the omitted 1px
+    floor.
+  - Update the stale `fixSize` row (~91) sentence "The `max_pixels`/sqrt branch … is deferred to #165" — #165
+    has landed, and it implements an **independent result-pixel sqrt cap**, *not* `fixGifSize`'s combined-sqrt
+    (which it deliberately avoids). Reword so the doc doesn't imply ImagePipe now mirrors `fixGifSize`.
   - "standing divergences" note (line ~124): drop the host-result-cap divergence; add the per-axis /
-    result-pixel superset divergence.
+    result-pixel / composited-clamp superset divergences.
   - Input/output safety-limits section (~426-437): reflect downscale-not-error for the result cap.
-- `docs/telemetry.md`: `[:output, :clamp]` metadata `limits` shape.
+- `docs/telemetry.md`: rewrite the "Output dimension clamp" section **prose** (not just the metadata bullet) —
+  it currently describes the event as *encoder*-only; after #165 the same event also fires for the **host**
+  cap (the common path). Update the metadata to the `limits` shape and describe the merged
+  `min(host, encoder)` semantics.
 - `docs/operational_notes.md`: the result-limit 413 mention → downscale behavior.
 
 ## Out of scope
