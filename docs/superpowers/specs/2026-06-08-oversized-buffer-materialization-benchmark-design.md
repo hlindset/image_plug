@@ -291,6 +291,47 @@ above. Next: build, run, record the verdict.
 
 ## Results & Decision
 
-*(Filled in after the benchmark runs. Records: the high-water by cell (Arm A sweep, Arm B floor,
-self-check, optional oriented/raised-cap), the A−B gap and whether it scales with pre-clamp area,
-the self-check result, and the go/no-go verdict against the gate above.)*
+**Verdict: GO** — implement the look-ahead pre-clamp.
+
+Run on the dev machine (macOS, the project's pinned Vix fork), `mise exec -- mix run
+bench/oversized_buffer_highwater.exs`, libvips op cache disabled, one OS process per cell, plain
+3-channel 2000×3000 source, PNG output, per-axis dimension cap the sole binding limit
+(`max_result_pixels` raised). Figures are the **libvips tracked high-water** (the gate signal);
+stable to ~1% across three full matrix runs.
+
+| cell | arm | pre-clamp dims | final output | libvips high-water | gap vs B |
+|---|---|---|---|---|---|
+| 1 | B (cap-sized floor) | 5461×8192 | 5461×8192 | **147 MiB** | — |
+| 2 | A @ 9000 (just over) | 6000×9000 | 5461×8192 | 207 MiB | **~60 MiB** |
+| 3 | A @ 16000 (≈2× cap) | 10667×16000 | 5462×8192 | 556 MiB | **~409 MiB** |
+| 4 | A @ 20000 (extreme) | 13333×20000 | 5461×8192 | 848 MiB | **~701 MiB** |
+| 5 | A @ 20000, cap 20000 (no clamp) | 13333×20000 | 13333×20000 | 810 MiB | (raw buffer, no clamp) |
+| 6 | self-check | — | — | 122 MiB (floor 51.5) | **OK** (counter alive) |
+
+**Gate evaluation (all three met):**
+
+1. **Real & avoidable.** Arm A's high-water materially exceeds Arm B's (147 MiB) — 556 MiB at 16000,
+   848 MiB at 20000. ✓
+2. **Scales with pre-clamp area.** The **final output is identical** (5461×8192) across cells 1–4,
+   yet Arm A's high-water rises 207 → 556 → 848 MiB as the *pre-clamp* (oversized) area grows
+   (54 → 171 → 267 Mpx), while Arm B stays flat at 147 MiB. So the buffer tracks **pre-clamp**, not
+   post-clamp, dims. The gap is explained almost exactly by `(pre-clamp 3ch buffer − cap buffer) +
+   ~modest fixed overhead` (e.g. 16000: (488 − 128) + ~50 ≈ 409 MiB; 9000: (154 − 128) + ~34 ≈
+   60 MiB). ✓
+3. **Materially large.** ~409 MiB at ≈2× cap, ~701 MiB at the extreme — decisively past the
+   ~100 MiB bar. (As predicted, the gap is sub-100 MiB just-over-cap (~60 MiB at 9000) and only
+   becomes material at ≳1.5–2× cap — the optimization is for the larger-oversize regime.) ✓
+
+**Premise correction confirmed empirically.** Arm A is a **plain** source (`auto_rotate: false`, no
+EXIF, no rotate) and still materializes the full oversized buffer — at the **delivery backstop**
+(`Processor.materialize_before_delivery`), before the post-hoc clamp. So the cost is
+path-independent and broader than #164's original "oriented corner" framing: the look-ahead
+pre-clamp benefits **all** oversized-enlarge traffic. (The oriented flush is the *same*
+`OrientationFlush.copy_memory` at the *same* oversized dims, just fired earlier in the chain — so a
+separate oriented cell was not run; path-independence follows structurally and is consistent with
+the plain-source measurement here.)
+
+**Next:** proceed to the implementation cycle (fresh brainstorm → spec → parallel review → plan →
+subagent-driven development → PR), citing these numbers as the justification — per the *Go* path
+above. The throwaway benchmark (`bench/oversized_buffer_highwater.exs`) and this doc are committed as
+the gate's record; a correction note is posted to #164.
