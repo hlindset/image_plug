@@ -168,11 +168,14 @@ from. imgproxy runs it at stage 2, before crop/scale, in the **un-oriented
 storage frame** (rotateAndFlip is stage 7); ImagePipe defers orientation to a
 late flush, so "first, before crop" is the correct storage-frame anchor.
 
-**Color-management position (#124-class divergence, documented not closed):**
-imgproxy converts to sRGB *for detection* inside `vips_trim` regardless of `scp`;
-ImagePipe runs detection in the source-profile space (its `NormalizeColorProfile`
-op stays positioned after geometry, gated on `scp`). Recorded as a Diverges note,
-same family as issue #124.
+**Color-management position — folded into #124:** imgproxy converts to sRGB *for
+detection* inside `vips_trim` regardless of `scp`; ImagePipe runs detection in the
+source-profile space (its `NormalizeColorProfile` op stays positioned after
+geometry, gated on `scp`). This is the same root divergence as #124 (full input
+color management), not a separate trim concern: when #124 imports every image to a
+working space before processing, trim detection inherits the correct space for
+free. **#124's fix must include trim's detection step** — tracked there, with no
+standalone trim mitigation here.
 
 ### 4. Parser surface — `ImagePipe.Parser.Imgproxy`
 
@@ -237,8 +240,10 @@ the demo in sync):
 
 ## Behavioral divergences (recorded, not bugs)
 
-1. **Detection colorspace (#124-class):** imgproxy detects in sRGB; ImagePipe
-   detects in the source-profile space. Edge effect on wide-gamut sources.
+1. **Detection colorspace — folded into #124:** imgproxy detects in sRGB;
+   ImagePipe detects in the source-profile space. Edge effect on wide-gamut
+   sources. Not mitigated standalone — resolved when #124 lands (which must cover
+   trim's detection step); see the §3 note.
 2. **Smart bg heuristic:** matches imgproxy's `getpoint(0,0)` top-left pixel when
    we replicate it directly; if we ever fall back to stock `Image.find_trim`
    auto-detect, that averages a top-left region instead. We replicate `getpoint`.
