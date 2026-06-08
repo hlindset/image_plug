@@ -37,11 +37,16 @@ defmodule ImagePipe.Output.Clamp do
 
       with {:ok, resized} <- resize(image_module, image, scale),
            {:ok, resized} <- enforce_limit(image_module, image, resized, max_dimension) do
+        rw = Image.width(resized)
+        rh = Image.height(resized)
+
         {:ok, resized,
          %{
-           scale: scale,
+           # Derived from the realized result so it stays consistent with
+           # `dimensions` even on the defensive corrective path.
+           scale: rw / w,
            source_dimensions: {w, h},
-           dimensions: {Image.width(resized), Image.height(resized)},
+           dimensions: {rw, rh},
            max_dimension: max_dimension
          }}
       end
