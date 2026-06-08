@@ -2044,28 +2044,6 @@ defmodule ImagePipe.PlugTest do
     assert conn.resp_body == "source image is too large"
   end
 
-  test "rejects static result dimensions above configured limits before encoding" do
-    conn =
-      conn(:get, "/_/el:1/w:64/f:jpeg/plain/images/beach.jpg")
-      |> call_image_pipe(
-        root_url: "http://origin.test",
-        parser: ImagePipe.Parser.Imgproxy,
-        max_result_width: 32,
-        max_result_height: 8_192,
-        max_result_pixels: 40_000_000,
-        image_module: StreamingOnlyImage,
-        cache: {CacheProbe, message_target: self()},
-        origin_req_options: [plug: {CountingOriginImage, test_pid: self()}]
-      )
-
-    assert conn.status == 413
-    assert conn.resp_body == "result image is too large"
-    assert_received {:cache_get, _key}
-    assert_received :origin_was_called
-    refute_received :stream_encoder_called
-    refute_received {:cache_put, _key, _entry}
-  end
-
   test "allows static result dimensions within configured limits" do
     conn =
       conn(:get, "/_/el:1/w:64/f:jpeg/plain/images/beach.jpg")

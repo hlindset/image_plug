@@ -126,9 +126,6 @@ defmodule ImagePipe.Response.Sender do
   defp handle_processing_error(conn, {:input_limit, error}, response_headers),
     do: send_input_limit_error(conn, error, response_headers)
 
-  defp handle_processing_error(conn, {:result_limit, error}, response_headers),
-    do: send_result_limit_error(conn, error, response_headers)
-
   defp handle_processing_error(conn, {:encode, exception, stacktrace}, response_headers),
     do: handle_encode_exception(exception, stacktrace, conn, response_headers)
 
@@ -191,15 +188,6 @@ defmodule ImagePipe.Response.Sender do
     |> put_resp_headers(response_headers)
     |> put_resp_content_type("text/plain")
     |> send_resp(413, "source image is too large")
-  end
-
-  defp send_result_limit_error(%Plug.Conn{} = conn, error, response_headers) do
-    Logger.info("result_limit_error: #{inspect(error)}")
-
-    conn
-    |> put_resp_headers(response_headers)
-    |> put_resp_content_type("text/plain")
-    |> send_resp(413, "result image is too large")
   end
 
   defp send_transform_error(%Plug.Conn{} = conn, response_headers) do

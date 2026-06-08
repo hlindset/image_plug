@@ -141,8 +141,7 @@ defmodule ImagePipe.Request.Processor do
           with {:ok, final_state} <-
                  execute_transform_plan(initial_state, plan, opts),
                {:ok, final_state} <-
-                 materialize_before_delivery(final_state, opts, source_response),
-               :ok <- validate_result_image(final_state.image, opts) do
+                 materialize_before_delivery(final_state, opts, source_response) do
             {:ok, final_state}
           end
 
@@ -287,32 +286,6 @@ defmodule ImagePipe.Request.Processor do
 
   defp wrap_input_limit_error(:ok), do: :ok
   defp wrap_input_limit_error({:error, error}), do: {:error, {:input_limit, error}}
-
-  defp validate_result_image(image, opts) do
-    width = Image.width(image)
-    height = Image.height(image)
-    pixels = width * height
-
-    with :ok <- check_result_width(width, Keyword.fetch!(opts, :max_result_width)),
-         :ok <- check_result_height(height, Keyword.fetch!(opts, :max_result_height)) do
-      check_result_pixels(pixels, Keyword.fetch!(opts, :max_result_pixels))
-    end
-  end
-
-  defp check_result_width(width, max_width) when width <= max_width, do: :ok
-
-  defp check_result_width(width, max_width),
-    do: {:error, {:result_limit, {:result_width_too_large, width, max_width}}}
-
-  defp check_result_height(height, max_height) when height <= max_height, do: :ok
-
-  defp check_result_height(height, max_height),
-    do: {:error, {:result_limit, {:result_height_too_large, height, max_height}}}
-
-  defp check_result_pixels(pixels, max_pixels) when pixels <= max_pixels, do: :ok
-
-  defp check_result_pixels(pixels, max_pixels),
-    do: {:error, {:result_limit, {:too_many_result_pixels, pixels, max_pixels}}}
 
   defp fetch_decode_stop_metadata(
          {:ok, %{image: image, decode_options: decode_options} = decoded}
