@@ -122,9 +122,9 @@ defmodule ImagePipe.Request.SourceSession.Producer do
                final_state.image,
                request.opts
              ),
-           %{max_dimension: max_dimension} = Encoder.encoder_limit(resolved_output.format),
+           limits = effective_limits(resolved_output.format, request.opts),
            {:ok, image, clamp_info} <-
-             Clamp.clamp(final_state.image, max_dimension, request.opts),
+             Clamp.clamp(final_state.image, limits, request.opts),
            :ok <- emit_clamp_telemetry(clamp_info, resolved_output.format, request.opts),
            {:ok, stream, content_type} <-
              Encoder.stream_output(image, resolved_output, request.opts),
@@ -154,6 +154,24 @@ defmodule ImagePipe.Request.SourceSession.Producer do
     end)
   end
 
+  # Effective per-axis + pixel result caps: the tighter of the host `max_result_*`
+  # config and the chosen encoder's hard limit. The clamp does not care which
+  # source won the `min`.
+  defp effective_limits(format, opts) do
+    %{max_dimension: enc_dim, max_pixels: enc_px} = Encoder.encoder_limit(format)
+
+    %{
+      max_width: min_limit(Keyword.fetch!(opts, :max_result_width), enc_dim),
+      max_height: min_limit(Keyword.fetch!(opts, :max_result_height), enc_dim),
+      max_pixels: min_limit(Keyword.fetch!(opts, :max_result_pixels), enc_px)
+    }
+  end
+
+  # The host cap (`a`) is always an integer (NimbleOptions `:pos_integer`); only
+  # the encoder limit (`b`) can be `:infinity` ("no limit from the encoder").
+  defp min_limit(a, :infinity), do: a
+  defp min_limit(a, b), do: min(a, b)
+
   defp emit_clamp_telemetry(nil, _format, _opts), do: :ok
 
   defp emit_clamp_telemetry(%{} = info, format, opts) do
@@ -165,7 +183,7 @@ defmodule ImagePipe.Request.SourceSession.Producer do
         format: format,
         source_dimensions: info.source_dimensions,
         dimensions: info.dimensions,
-        max_dimension: info.max_dimension
+        limits: info.limits
       }
     )
 

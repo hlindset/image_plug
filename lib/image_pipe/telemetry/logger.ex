@@ -166,13 +166,18 @@ defmodule ImagePipe.Telemetry.Logger do
   defp message([:output, :clamp | _], _m, meta) do
     {sw, sh} = meta[:source_dimensions]
     {w, h} = meta[:dimensions]
+    %{max_width: mw, max_height: mh, max_pixels: mp} = meta[:limits]
 
-    "image_pipe output clamp: #{sw}x#{sh} -> #{w}x#{h} for #{meta[:format]} (max #{meta[:max_dimension]})"
+    "image_pipe output clamp: #{sw}x#{sh} -> #{w}x#{h} for #{meta[:format]} " <>
+      "(caps w:#{cap(mw)} h:#{cap(mh)} px:#{cap(mp)})"
   end
 
   defp message(suffix, _m, meta) do
     "image_pipe #{label(suffix)}: #{outcome(meta)}"
   end
+
+  defp cap(:infinity), do: "inf"
+  defp cap(value), do: value
 
   defp exception_message(suffix, meta) do
     "image_pipe #{label(suffix)}: exception (#{meta[:kind]} #{inspect(meta[:reason])})"
