@@ -359,5 +359,31 @@ fold-into-resize. The reorder cleanly fixes the **plain** path (the common case;
 the *delivery backstop*, with no orientation). The **oriented** mid-chain flush materializes before the
 final dims and negotiated output format are known, so the simple reorder does not reach it — that
 corner needs either a separate treatment or is left to the post-hoc clamp (still correct, still pays
-its buffer). The implementation cycle picks up from this finding; approach choice is a user decision
-(architecture/boundary implications + plain-vs-oriented scope).
+its buffer).
+
+### Decision (after a 3-agent quorum)
+
+Three approaches were considered and put to three independent reviewers with an identical neutral brief:
+
+- **A — Reorder only.** Move `Output.Clamp` before the delivery-backstop materialization (byte-identical,
+  P2; universal across compositions on the plain path; ~zero correctness risk; small localized change).
+  Keeps the upscale-then-downscale double resample (a quality/CPU artifact, not a correctness bug).
+- **B — Reorder + narrow fold.** A, plus fold the downscale into the resize for the *simple* subset
+  (fit/cover, dimension-cap, no padding/canvas/pixel-cap) to also get the single-resample quality/CPU
+  win there; everything else declines to A's post-hoc path.
+- **C — Full fold.** Fold across all compositions like imgproxy `limitScale`; largest correctness surface
+  (content errors a size-only backstop can't catch), a look-ahead predictor that duplicates pipeline
+  geometry, and an architectural reversal (result-cap policy into the product-neutral `transform`
+  boundary).
+
+**Verdict: unanimous A (3/3, medium-high confidence).** Reasoning: memory is the only *material* harm and
+A removes 100% of it at ~zero risk; B/C only buy a quality/CPU nicety on an *uncommon* corner (over-cap
+*enlargement*) at disproportionate cost; A respects the #165 `Output`-boundary architecture while C
+reverses it; imgproxy parity does **not** favor the fold (imgproxy is itself split — `limitScale` folds
+but `fixSize` is post-hoc, so a retained post-hoc clamp is faithful to `fixSize`); and **A is a strict
+prerequisite for B**, so shipping A forecloses nothing.
+
+**Chosen: implement A now. B is deferred/future (potential) work** — revisit only if profiling shows
+over-cap enlargement is *not* rare and the double-resample CPU/quality cost is material on real traffic;
+if revived, fold the fit/cover dimension-cap subset only (B), never C. Tracked as a follow-up note on #164.
+Implementation design for A: see `docs/superpowers/specs/2026-06-08-clamp-before-materialize-design.md`.
