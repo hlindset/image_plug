@@ -130,9 +130,12 @@ enforce(original, resized, limits, max_iters):
   sizes, extreme aspect ratios, and small/large pixel caps including the 1px-floor regime, plus a
   termination self-check within the iteration bound.
 
-ImagePipe deliberately does **not** replicate imgproxy's explicit `WScale ≥ 1/widthToScale` floor
-(`prepare.go:252-258`): for dimension caps (always ≥ 1) a downscale of a ≥1px image never yields a sub-1px
-axis, and the pixel-enforce loop handles the short-axis-floored regime directly.
+The `resize` helper applies a **per-axis 1px floor** — `hscale = max(scale, 1/w)`, `vscale = max(scale, 1/h)`
+— so no axis ever rounds below one realized pixel. This is needed because for an extreme aspect ratio with a
+tight cap the uniform `scale` can drive the *short* axis to 0 (e.g. `40000×1` with `max_width:100` →
+`round(1·0.0025)=0`); the floor pins the short axis at 1px while the long axis shrinks, and the verify-shrink
+loop then reduces the long axis until the product fits. This is the **equivalent of imgproxy's**
+`WScale ≥ 1/widthToScale` floor (`prepare.go:252-258`) — so ImagePipe matches rather than diverges here.
 
 **`clamp_info`** (returned only when a clamp actually occurs; `nil` otherwise) replaces `max_dimension` with
 the effective `limits` applied:
@@ -285,9 +288,9 @@ Verified against `local/imgproxy-master/processing/prepare.go:222-265`:
     content-to-padding composition differs (ImagePipe scales the composite as one unit; imgproxy scales
     content then re-applies scaled padding). This is documented as a deliberate "Diverges" note in the
     conformance doc.
-  - ImagePipe omits imgproxy's explicit `WScale ≥ 1/widthToScale` sub-1px floor (`prepare.go:252-258`): for
-    dimension caps (≥ 1) a downscale never produces a sub-1px axis, and the pixel-enforce loop handles the
-    floored-short-axis regime directly. Functionally covered; no separate floor needed.
+  - ImagePipe **matches** imgproxy's sub-1px floor (`prepare.go:252-258`): the `resize` helper pins each axis
+    at ≥ 1 realized pixel (`hscale = max(scale, 1/w)`, `vscale = max(scale, 1/h)`), the equivalent of
+    imgproxy's `WScale ≥ 1/widthToScale`. (Not a divergence — listed for completeness.)
 - **Input gate stays a hard error:** `max_input_pixels` ↔ `MaxSrcResolution` (checked on the loaded source at
   `processing.go:114`, *before* `transformImage`/`limitScale`) — mirrors imgproxy's split (downscale the
   output cap, hard-error the input gate). ✅
