@@ -68,7 +68,7 @@ flowchart TD
 
 **Colour = ImagePipe layer:** 🟦 decode planning · 🟩 transform chain · 🟧 output
 boundary (clamp / encoder finalize) · ⬜ not realized.
-**Emoji = conformance:** ✅ matches · ⚠️ diverges · ⭕ missing (in scope, not built). No mainPipeline/finalize stage is out of scope (video is a separate pipeline).
+**Emoji = conformance:** ✅ matches · ⚠️ diverges · ⭕ missing (in scope, not built).
 
 ### Main pipeline
 
