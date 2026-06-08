@@ -2,6 +2,7 @@ defmodule ImagePipe.Request.SourceSession.Producer do
   @moduledoc false
 
   alias ImagePipe.Error
+  alias ImagePipe.Output.Clamp
   alias ImagePipe.Output.Encoder
   alias ImagePipe.Output.Policy
   alias ImagePipe.Output.Resolved
@@ -121,8 +122,12 @@ defmodule ImagePipe.Request.SourceSession.Producer do
                final_state.image,
                request.opts
              ),
+           %{max_dimension: max_dimension} = Encoder.encoder_limit(resolved_output.format),
+           {:ok, image, clamp_info} <-
+             Clamp.clamp(final_state.image, max_dimension, request.opts),
+           :ok <- emit_clamp_telemetry(clamp_info, resolved_output.format, request.opts),
            {:ok, stream, content_type} <-
-             Encoder.stream_output(final_state.image, resolved_output, request.opts),
+             Encoder.stream_output(image, resolved_output, request.opts),
            {:ok, chunk, stream_state} <- first_chunk(stream) do
         {:ok, chunk,
          %{
@@ -147,6 +152,24 @@ defmodule ImagePipe.Request.SourceSession.Producer do
     with_stream_translation(&encode_fallback/2, fn ->
       reduce_stream(stream)
     end)
+  end
+
+  defp emit_clamp_telemetry(nil, _format, _opts), do: :ok
+
+  defp emit_clamp_telemetry(%{} = info, format, opts) do
+    Telemetry.execute(
+      Telemetry.telemetry_opts(opts),
+      [:output, :clamp],
+      %{scale: info.scale},
+      %{
+        format: format,
+        source_dimensions: info.source_dimensions,
+        dimensions: info.dimensions,
+        max_dimension: info.max_dimension
+      }
+    )
+
+    :ok
   end
 
   defp resolve_output(%Policy{} = policy, source_format, image, opts) do

@@ -14,7 +14,8 @@ defmodule ImagePipe.Telemetry.Logger do
     parse: [[:parse]],
     source: [[:source, :resolve], [:source, :fetch], [:source, :fetch_decode]],
     transform: [[:transform, :execute], [:transform, :operation], [:transform, :detect]],
-    cache: [[:cache, :lookup], [:cache, :write], [:cache, :admission], [:cache, :warm_start]]
+    cache: [[:cache, :lookup], [:cache, :write], [:cache, :admission], [:cache, :warm_start]],
+    output: []
   }
 
   # cache one-shot events (already terminal; not spans)
@@ -29,6 +30,11 @@ defmodule ImagePipe.Telemetry.Logger do
   @transform_oneshot [
     [:transform, :detect, :skipped],
     [:transform, :detect, :blend]
+  ]
+
+  # output one-shot events (already terminal; not spans)
+  @output_oneshot [
+    [:output, :clamp]
   ]
 
   @all_groups Map.keys(@group_span_events)
@@ -66,8 +72,11 @@ defmodule ImagePipe.Telemetry.Logger do
 
     cache_oneshots = if :cache in groups, do: @cache_oneshot, else: []
     transform_oneshots = if :transform in groups, do: @transform_oneshot, else: []
+    output_oneshots = if :output in groups, do: @output_oneshot, else: []
 
-    Enum.map(spans ++ cache_oneshots ++ transform_oneshots, fn e -> prefix ++ e end)
+    Enum.map(spans ++ cache_oneshots ++ transform_oneshots ++ output_oneshots, fn e ->
+      prefix ++ e
+    end)
   end
 
   @doc false
@@ -94,6 +103,8 @@ defmodule ImagePipe.Telemetry.Logger do
   end
 
   # --- level ---
+  defp level_for([:output, :clamp | _], _metadata, _base), do: :warning
+
   defp level_for(suffix, metadata, base) do
     cond do
       List.last(suffix) == :exception -> :warning
@@ -150,6 +161,13 @@ defmodule ImagePipe.Telemetry.Logger do
 
   defp message([:cache, :eviction | _], measurements, meta) do
     "image_pipe cache eviction: #{measurements[:count]} entries (#{meta[:trigger]})"
+  end
+
+  defp message([:output, :clamp | _], _m, meta) do
+    {sw, sh} = meta[:source_dimensions]
+    {w, h} = meta[:dimensions]
+
+    "image_pipe output clamp: #{sw}x#{sh} -> #{w}x#{h} for #{meta[:format]} (max #{meta[:max_dimension]})"
   end
 
   defp message(suffix, _m, meta) do

@@ -2316,6 +2316,89 @@ defmodule ImagePipe.ImgproxyWireConformanceTest do
     assert base != diff_obj
   end
 
+  describe "output encoder dimension clamp (#150)" do
+    defp attach_clamp_telemetry do
+      handler_id = {__MODULE__, self(), :output_clamp}
+
+      :telemetry.attach(
+        handler_id,
+        [:image_pipe, :output, :clamp],
+        &__MODULE__.handle_telemetry_event/4,
+        self()
+      )
+
+      on_exit(fn -> :telemetry.detach(handler_id) end)
+    end
+
+    @clamp_opts [
+      parser: ImagePipe.Parser.Imgproxy,
+      sources: [
+        path: {RootHTTPAdapter, root_url: "http://origin.test", req_options: [plug: OriginImage]}
+      ],
+      max_result_width: 40_000,
+      max_result_height: 40_000,
+      max_result_pixels: 2_000_000_000,
+      output_capabilities: %{avif: true, webp: true}
+    ]
+
+    test "downscales a WebP result above the 16383 encoder limit and serves it" do
+      attach_clamp_telemetry()
+
+      conn =
+        call_imgproxy("/_/el:1/rs:force:18000:200/f:webp/plain/images/beach.jpg", @clamp_opts)
+
+      assert conn.status == 200
+      assert content_type(conn) == ["image/webp"]
+
+      {w, h} = dimensions(conn)
+      assert max(w, h) <= 16_383
+      assert max(w, h) > 8_192
+
+      assert_received {:telemetry_event, [:image_pipe, :output, :clamp], %{scale: scale}, meta}
+
+      assert scale < 1.0
+      assert meta.format == :webp
+      assert meta.max_dimension == 16_383
+      assert meta.dimensions == {w, h}
+      {sw, sh} = meta.source_dimensions
+      assert max(sw, sh) > 16_383
+    end
+
+    test "downscales an AVIF result above the 16384 encoder limit and serves it" do
+      attach_clamp_telemetry()
+
+      conn =
+        call_imgproxy("/_/el:1/rs:force:18000:200/f:avif/plain/images/beach.jpg", @clamp_opts)
+
+      assert conn.status == 200
+      assert content_type(conn) == ["image/avif"]
+
+      {w, h} = dimensions(conn)
+      assert max(w, h) <= 16_384
+      assert max(w, h) > 8_192
+
+      assert_received {:telemetry_event, [:image_pipe, :output, :clamp], %{scale: scale}, meta}
+
+      assert scale < 1.0
+      assert meta.format == :avif
+      assert meta.max_dimension == 16_384
+      assert meta.dimensions == {w, h}
+    end
+
+    test "does not clamp or emit when a WebP result is within the encoder limit" do
+      attach_clamp_telemetry()
+
+      conn = call_imgproxy("/_/w:120/f:webp/plain/images/beach.jpg", @clamp_opts)
+
+      assert conn.status == 200
+      assert content_type(conn) == ["image/webp"]
+      {w, _h} = dimensions(conn)
+      assert w == 120
+
+      refute_received {:telemetry_event, [:image_pipe, :output, :clamp], _measurements, _meta}
+    end
+  end
+
   defp cached_opts(overrides \\ []) do
     cache_root =
       Path.join(
