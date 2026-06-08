@@ -65,6 +65,11 @@ defmodule OversizedBufferBench do
   # libvips fuses the two resizes and a byte-identical "clamp-before-materialize"
   # fix avoids the buffer WITHOUT the single-vs-double-resample divergence that the
   # issue's "fold into resize" form would introduce.
+  #
+  # Arm Ccover / Ccanvas (composition probes): same as C but with an intermediate
+  # op (crop or embed) between the resize and the clamp, to check whether fusion
+  # holds when the real producer pipeline inserts a cover-crop or canvas/padding
+  # node between the resize and the clamp.
   @matrix [
     {"B", 8192, 8192},
     {"A", 9000, 8192},
@@ -73,6 +78,8 @@ defmodule OversizedBufferBench do
     {"A", 20000, 20000},
     {"C", 16000, 8192},
     {"C", 20000, 8192},
+    {"Ccover", 16000, 8192},
+    {"Ccanvas", 16000, 8192},
     {"selfcheck", 0, 0}
   ]
 
@@ -233,6 +240,105 @@ defmodule OversizedBufferBench do
     %{
       case: "C:#{target}:#{cap}",
       arm: "C",
+      target: target,
+      cap: cap,
+      pre_w: pw,
+      pre_h: ph,
+      final_w: fw,
+      final_h: fh,
+      libvips_peak_bytes: hw,
+      rss_peak_bytes: rss,
+      ms: ms
+    }
+  end
+
+  # Arm Ccover — cover-crop probe: resize -> crop (2/3 of resized height, simulating
+  # a cover-crop result) -> Clamp.clamp -> copy_memory. Tests whether libvips fuses
+  # the pipeline through a crop node; if high-water ≈ Arm C (~200 MiB) then fusion
+  # holds through a crop intermediate; if ≈ Arm A (~556 MiB) fusion breaks.
+  defp run_case("Ccover", target, cap) do
+    {sampler, _} = start_rss_sampler()
+    t0 = now_ms()
+
+    image = decode_source()
+    {:ok, resized} = Image.resize(image, target / @src_h)
+    rw = Image.width(resized)
+    rh = Image.height(resized)
+
+    # Crop to roughly 2/3 of the height (a cover-result crop).
+    crop_h = div(rh * 2, 3)
+    {:ok, cropped} = Image.crop(resized, 0, 0, rw, crop_h)
+    pre = {Image.width(cropped), Image.height(cropped)}
+
+    limits = %{max_width: cap, max_height: cap, max_pixels: @max_pixels}
+    {:ok, clamped, _info} = Clamp.clamp(cropped, limits, opts())
+    final = {Image.width(clamped), Image.height(clamped)}
+
+    {:ok, mem} = VipsImage.copy_memory(clamped)
+    _ = Image.write!(mem, :memory, suffix: ".png")
+
+    ms = now_ms() - t0
+    rss = stop_rss_sampler(sampler)
+    hw = Vix.Vips.tracked_get_mem_highwater()
+
+    {pw, ph} = pre
+    {fw, fh} = final
+    IO.puts(:stderr, "  Ccover target=#{target} cap=#{cap}: pre=#{pw}x#{ph} final=#{fw}x#{fh} high-water=#{mib(hw)} rss=#{mib(rss)}")
+
+    %{
+      case: "Ccover:#{target}:#{cap}",
+      arm: "Ccover",
+      target: target,
+      cap: cap,
+      pre_w: pw,
+      pre_h: ph,
+      final_w: fw,
+      final_h: fh,
+      libvips_peak_bytes: hw,
+      rss_peak_bytes: rss,
+      ms: ms
+    }
+  end
+
+  # Arm Ccanvas — canvas/padding probe: resize -> embed onto a 10%-larger canvas
+  # (simulating a canvas/padding node) -> Clamp.clamp -> copy_memory. Tests whether
+  # libvips fuses through an embed node; if high-water ≈ Arm C fusion holds,
+  # if ≈ Arm A fusion breaks.
+  defp run_case("Ccanvas", target, cap) do
+    {sampler, _} = start_rss_sampler()
+    t0 = now_ms()
+
+    image = decode_source()
+    {:ok, resized} = Image.resize(image, target / @src_h)
+    rw = Image.width(resized)
+    rh = Image.height(resized)
+
+    # Embed onto a +10% canvas (black background) to simulate padding/canvas op.
+    canvas_w = round(rw * 1.1)
+    canvas_h = round(rh * 1.1)
+    offset_x = div(canvas_w - rw, 2)
+    offset_y = div(canvas_h - rh, 2)
+    {:ok, embedded} = Vix.Vips.Operation.embed(resized, offset_x, offset_y, canvas_w, canvas_h, extend: :VIPS_EXTEND_BLACK)
+    pre = {Image.width(embedded), Image.height(embedded)}
+
+    limits = %{max_width: cap, max_height: cap, max_pixels: @max_pixels}
+    {:ok, clamped, _info} = Clamp.clamp(embedded, limits, opts())
+    final = {Image.width(clamped), Image.height(clamped)}
+
+    {:ok, mem} = VipsImage.copy_memory(clamped)
+    _ = Image.write!(mem, :memory, suffix: ".png")
+
+    ms = now_ms() - t0
+    rss = stop_rss_sampler(sampler)
+    hw = Vix.Vips.tracked_get_mem_highwater()
+
+    {pw, ph} = pre
+    {fw, fh} = final
+    IO.puts(:stderr, "  Ccanvas target=#{target} cap=#{cap}: pre=#{pw}x#{ph} final=#{fw}x#{fh} high-water=#{mib(hw)} rss=#{mib(rss)}")
+
+    %{
+      case: "Ccanvas:#{target}:#{cap}",
+      arm: "Ccanvas",
       target: target,
       cap: cap,
       pre_w: pw,
