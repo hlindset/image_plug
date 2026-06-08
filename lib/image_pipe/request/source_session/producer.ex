@@ -123,9 +123,14 @@ defmodule ImagePipe.Request.SourceSession.Producer do
                request.opts
              ),
            limits = effective_limits(resolved_output.format, request.opts),
-           {:ok, image, clamp_info} <-
+           {:ok, clamped, clamp_info} <-
              Clamp.clamp(final_state.image, limits, request.opts),
            :ok <- emit_clamp_telemetry(clamp_info, resolved_output.format, request.opts),
+           {:ok, %State{image: image}} <-
+             Processor.materialize_for_delivery(
+               %State{final_state | image: clamped},
+               request.opts
+             ),
            {:ok, stream, content_type} <-
              Encoder.stream_output(image, resolved_output, request.opts),
            {:ok, chunk, stream_state} <- first_chunk(stream) do

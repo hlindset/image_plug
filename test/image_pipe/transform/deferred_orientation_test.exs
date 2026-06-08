@@ -39,7 +39,7 @@ defmodule ImagePipe.Transform.DeferredOrientationTest do
 
   defp run(plan, image) do
     {:ok, %State{} = s} = PlanExecutor.execute(plan, %State{image: image}, seed_orientation: true)
-    # Delivery backstop flush (mirrors processor's materialize_before_delivery).
+    # Delivery backstop flush (mirrors processor's materialize_for_delivery).
     {:ok, %State{} = s} = Materializer.materialize(s)
     s.image
   end

@@ -463,9 +463,23 @@ defmodule ImagePipe.Request.ProcessorTest do
     assert decoded.source_dimensions == orig
   end
 
+  test "process_decoded_source returns a lazy (un-materialized) state for a sequential plan" do
+    target_w = 200
+    {:ok, operation} = resize_fit(target_w, :auto)
+    plan = %Plan{plan() | pipelines: [%Pipeline{operations: [operation]}]}
+
+    {:ok, decoded} =
+      Processor.fetch_decode_validate_source_with_source_format(plan, resolved_source(), opts())
+
+    assert {:ok, %State{materialized?: false} = state} =
+             Processor.process_decoded_source(decoded, plan, opts())
+
+    assert Image.width(state.image) <= target_w
+  end
+
   test "process_source materializes a sequential-only plan before delivery" do
     # A fit-resize plan has no op that requires_materialization?, so the transform
-    # chain leaves state.materialized? == false. materialize_before_delivery must
+    # chain leaves state.materialized? == false. materialize_for_delivery must
     # copy the lazy vips image to RAM (Materializer.materialize/2 sets
     # materialized?: true) and process_source returns that post-materialize state.
     target_w = 200
@@ -480,11 +494,11 @@ defmodule ImagePipe.Request.ProcessorTest do
                opts()
              )
 
-    # Authoritative pin: process_source returns the post-materialize_before_delivery
+    # Authoritative pin: process_source returns the post-materialize_for_delivery
     # state, so materialized? == true proves the delivery materialize actually ran.
     # The JPEG encode below would NOT prove this on its own — libvips JPEG
     # write_to_buffer streams fine on a lazy sequential image, so the encode succeeds
-    # even if materialize_before_delivery were a no-op {:ok, state}.
+    # even if materialize_for_delivery were a no-op {:ok, state}.
     assert state.materialized? == true
 
     # The state image must still be encodable, and the encode + dimension assertions

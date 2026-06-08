@@ -19,7 +19,6 @@ defmodule ImagePipe.Request.Processor do
           required(:decode_options) => keyword(),
           required(:image) => VipsImage.t(),
           required(:source_format) => source_format(),
-          optional(:source_response) => Source.Response.t(),
           optional(:source_dimensions) => {pos_integer(), pos_integer()} | nil,
           optional(:original_dims) => {pos_integer(), pos_integer()},
           optional(:achieved_shrink) => %{w: float(), h: float()} | nil
@@ -29,8 +28,9 @@ defmodule ImagePipe.Request.Processor do
           {:ok, State.t()} | {:error, term()}
   def process_source(%Plan{} = plan, %Source.Resolved{} = resolved_source, opts) do
     with {:ok, decoded} <-
-           fetch_decode_validate_source_with_source_format(plan, resolved_source, opts) do
-      process_decoded_source(decoded, plan, opts)
+           fetch_decode_validate_source_with_source_format(plan, resolved_source, opts),
+         {:ok, %State{} = state} <- process_decoded_source(decoded, plan, opts) do
+      materialize_for_delivery(state, opts)
     end
   end
 
@@ -82,7 +82,6 @@ defmodule ImagePipe.Request.Processor do
          decode_options: decode_options,
          image: image,
          source_format: source_format,
-         source_response: source_response,
          source_dimensions: shrink_source_dimensions(decode_options, original_dims),
          original_dims: original_dims,
          achieved_shrink: compute_achieved_shrink(original_dims, image)
@@ -111,7 +110,6 @@ defmodule ImagePipe.Request.Processor do
         %Plan{} = plan,
         opts
       ) do
-    source_response = Map.get(decoded, :source_response)
     source_dimensions = Map.get(decoded, :source_dimensions)
 
     # The realized shrink is only meaningful when shrink-on-load actually fired;
@@ -137,11 +135,7 @@ defmodule ImagePipe.Request.Processor do
       [:transform, :execute],
       execute_start_meta,
       fn ->
-        result =
-          with {:ok, final_state} <- execute_transform_plan(initial_state, plan, opts) do
-            materialize_before_delivery(final_state, opts, source_response)
-          end
-
+        result = execute_transform_plan(initial_state, plan, opts)
         {result, transform_stop_metadata(result)}
       end
     )
@@ -151,9 +145,8 @@ defmodule ImagePipe.Request.Processor do
   # (seed_orientation), iterates all pipelines, and resolves any still-pending
   # orientation at each pipeline boundary (a backstop — within a pipeline the flush
   # usually fires earlier, at the first materializing op or after a resize). The
-  # request layer adds only the source-aware delivery backstop afterward
-  # (materialize_before_delivery) — the one materialization step that needs
-  # source_response and so cannot move into the transform boundary.
+  # request layer adds the delivery backstop afterward (materialize_for_delivery) —
+  # materializing any chain that never materialized mid-pipeline before delivery.
   defp execute_transform_plan(%State{} = state, %Plan{} = plan, opts) do
     Transform.execute_plan(plan, state, Keyword.put(opts, :seed_orientation, true))
     |> classify_materialize_error()
@@ -218,7 +211,14 @@ defmodule ImagePipe.Request.Processor do
     end
   end
 
-  defp materialize_before_delivery(%State{} = state, opts, source_response) do
+  @doc """
+  Called by `process_source/3` after transform execution and by the producer after
+  `Output.Clamp`, to materialize the lazy vips state before encoding. Returns
+  `{:ok, state}` unchanged if an op already materialized mid-pipeline; maps a
+  materialize failure to a decode error (→ 415).
+  """
+  @spec materialize_for_delivery(State.t(), keyword()) :: {:ok, State.t()} | {:error, term()}
+  def materialize_for_delivery(%State{} = state, opts) do
     result =
       if state.materialized? do
         {:ok, state}
@@ -226,27 +226,16 @@ defmodule ImagePipe.Request.Processor do
         materialize_state(state, opts)
       end
 
-    handle_materialization_result(result, source_response)
+    classify_delivery_materialize_result(result)
   end
 
   defp materialize_state(%State{} = state, opts) do
     materializer = Keyword.get(opts, :image_materializer, Materializer)
-
     materializer.materialize(state, opts)
   end
 
-  defp handle_materialization_result(result, _source_response) do
-    do_handle_materialization_result(result)
-  end
-
-  defp do_handle_materialization_result({:error, {:source, _reason} = error}), do: {:error, error}
-
-  defp do_handle_materialization_result({:error, {:config, _reason} = error}), do: {:error, error}
-
-  defp do_handle_materialization_result({:error, materialize_error}),
-    do: {:error, {:decode, materialize_error}}
-
-  defp do_handle_materialization_result({:ok, %State{} = state}), do: {:ok, state}
+  defp classify_delivery_materialize_result({:ok, %State{} = state}), do: {:ok, state}
+  defp classify_delivery_materialize_result({:error, reason}), do: {:error, {:decode, reason}}
 
   defp wrap_decode_error({:error, {:source, _reason}} = error), do: error
   defp wrap_decode_error({:error, error}), do: {:error, {:decode, error}}
