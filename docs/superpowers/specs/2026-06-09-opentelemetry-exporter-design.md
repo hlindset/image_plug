@@ -230,11 +230,15 @@ records — recorded as the top risk (§10).
 2. **Run the host's processors.** `:opentelemetry.get_tracer(:image_pipe)` returns
    `{:otel_tracer_default, tracer_record}` (or `{:otel_tracer_noop, []}` if the SDK
    isn't running — see below). Read the `on_end_processors` closure off the
-   `#tracer{}` record (`Record.extract(:tracer, from:
-   "deps/opentelemetry/src/otel_tracer.hrl")`) and call it with our `#span{}`. That
-   closure folds over **whatever** processors the host configured (simple in tests,
-   batch in prod) — so the same code path serves both; we don't hard-code a
-   processor.
+   `#tracer{}` record and call it with our `#span{}`. The `#tracer{}` header lives in
+   `opentelemetry/src/` (more internal than `include/`), so rather than depend on a
+   fragile relative path we read the field **by position** (`elem(tracer, 3)`;
+   fields are `module, on_start_processors, on_end_processors, …`) and let the §8
+   integration canary guard the position. That closure folds over **whatever**
+   processors the host configured (simple in tests, batch in prod) — so the same
+   code path serves both; we don't hard-code a processor. (Only the `#span{}` record
+   itself is read by field name, via `Record.extract(… from_lib:
+   "opentelemetry/include/otel_span.hrl")` — a public `include/` header.)
 3. **Noop / SDK-not-started guard.** If `get_tracer` returns the noop tuple (dep
    present but SDK app not started, or noop provider configured), drop the span —
    `available?/0` (`Code.ensure_loaded?(:otel_span)`) only proves the dep is
@@ -243,18 +247,21 @@ records — recorded as the top risk (§10).
 
 **Timestamp conversion (the subtle correctness point).** The `#span{}`
 `start_time`/`end_time` are **Erlang native-unit `monotonic_time` values**, and
-the OTLP exporter re-adds `:erlang.time_offset()` at export. We hold wall-clock
-times, so convert:
+the OTLP exporter re-adds `:erlang.time_offset()` at export. Our `Span.start_time`
+is `system_time` (= `monotonic_time + time_offset`, also native), so the
+monotonic-frame value the record wants is simply `start_time - time_offset()`:
 
 ```elixir
 offset = :erlang.time_offset()
-start_native = :erlang.convert_time_unit(start_unix_ns, :nanosecond, :native) - offset
-end_native   = :erlang.convert_time_unit(end_unix_ns,   :nanosecond, :native) - offset
+start_native = span.start_time - offset
+end_native   = start_native + (span.duration_native || 0)   # exact on-wire duration
 ```
 
 Then `timestamp_to_nano(start_native)` recovers our wall-clock, and the duration
-`end_native - start_native` is offset-independent (exports correctly regardless of
-offset drift). Event timestamps (`#event{}.system_time_native`) use the same frame.
+is offset-independent (exports correctly regardless of offset drift). Event
+timestamps: our `event.time` is already raw `monotonic_time`, exactly what
+`#event{}.system_time_native` expects — no conversion (the exception event carries
+no time, so fall back to `end_native`).
 
 **No fallback needed.** The brainstormed DIY-OTLP escape hatch (§10) is no longer
 on the table for the happy path — the bridge is verified. DIY-OTLP would also
@@ -316,11 +323,13 @@ an afterthought:
 - **imgproxy conformance** — no change (observes; no knob/stage/pixel divergence).
 - **Boundary** — telemetry `deps: []` unchanged; add
   `Trace.OpenTelemetryExporter` to the telemetry boundary `exports:` (host-named).
-  If `attach_tracer` gains the `ready?/0` probe, that is an internal change to the
-  already-exported `Trace.Exporter` contract — no new export. Architecture test:
-  the exporter must **not** alias `Transform.Operation.*` (operation structs reach
-  it as opaque terms and are `inspect`ed, never matched) — same invariant #175
-  asserts for the capture side.
+  The `ready?/0` probe is an internal change to the already-exported
+  `Trace.Exporter` contract — no new export. The exporter must **not** alias
+  `Transform.Operation.*` (operation structs reach it as opaque terms and are
+  `inspect`ed, never matched); this is enforced **by Boundary's `deps: []`** at
+  compile time (a transform reference fails `mix compile`), so no bespoke
+  source-scan test is added — the exporter doesn't subscribe to telemetry events,
+  so the #175 capture-side scan doesn't apply to it.
 
 ## 10. Risks & tradeoffs
 
@@ -328,8 +337,11 @@ an afterthought:
   API (§7), so we depend on two internal headers: `#span{}`
   (`opentelemetry/include/otel_span.hrl`) and the `on_end_processors` closure on
   `#tracer{}` (`opentelemetry/src/otel_tracer.hrl` — in `src/`, the more internal
-  of the two). Mitigations: (a) read both via `Record.extract(… from: <dep path>)`
-  **by field name**, so field reordering is harmless; (b) build
+  of the two). Mitigations: (a) read `#span{}` via `Record.extract(… from_lib:
+  "opentelemetry/include/otel_span.hrl")` **by field name** (public `include/`
+  header, no relative path), and read only the single `on_end_processors` field of
+  `#tracer{}` **by position** (`elem(tracer, 3)`), avoiding any dependency on the
+  `src/` header path; (b) build
   attributes/events/links only through their constructor functions, never literals
   (their shape is the known migration boundary); (c) pin `:opentelemetry` to a
   tight range (`~> 1.7`); (d) the §8 integration test is the **canary** — if a
