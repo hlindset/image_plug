@@ -234,9 +234,7 @@ defmodule ImagePipe.Telemetry.Trace.Capture do
   defp exception_message(meta), do: inspect(meta[:reason])
 
   defp safe_attrs(meta) do
-    meta
-    |> Map.take(@safe_keys)
-    |> Map.new(fn {k, v} -> {k, v} end)
+    Map.take(meta, @safe_keys)
   end
 
   defp maybe_flags(attrs, nil), do: attrs

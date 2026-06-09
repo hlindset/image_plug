@@ -16,18 +16,34 @@ defmodule ImagePipe.Transform.Materializer do
   mid-pipeline.
   """
 
+  alias ImagePipe.Telemetry
   alias ImagePipe.Transform.{OrientationFlush, State}
 
   @callback materialize(State.t(), keyword()) ::
               {:ok, State.t()} | {:error, term()}
 
+  # Arity-1 (chain mid-pipeline) and arity-2 (delivery backstop) both route through
+  # here, so a single [:transform, :materialize] span covers both entry points.
   @spec materialize(State.t()) :: {:ok, State.t()} | {:error, term()}
-  def materialize(%State{} = state) do
-    OrientationFlush.flush(state)
+  def materialize(%State{telemetry_opts: telemetry_opts} = state) do
+    Telemetry.span(telemetry_opts, [:transform, :materialize], %{}, fn ->
+      case do_materialize(state) do
+        {:ok, new_state} -> {{:ok, new_state}, %{result: :ok}}
+        {:error, reason} -> {{:error, reason}, %{result: :materialize_error}}
+      end
+    end)
   end
 
+  # Delivery backstop delegates to the wrapped arity-1; it ignores opts (telemetry
+  # metadata rides on the State). Do not add a second span here.
   @spec materialize(State.t(), keyword()) :: {:ok, State.t()} | {:error, term()}
   def materialize(%State{} = state, _opts) do
     materialize(state)
   end
+
+  # The flush itself returns a BARE {:ok, state} | {:error, reason}. The
+  # {:materialize_error, reason} tagging is owned by the callers (Chain, PlanExecutor);
+  # the span wrapper must preserve the bare error and only label the span's stop
+  # metadata, never re-wrap.
+  defp do_materialize(%State{} = state), do: OrientationFlush.flush(state)
 end
