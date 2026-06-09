@@ -94,7 +94,7 @@ defmodule ImagePipe.Telemetry.Trace.Capture do
 
   def handle_event(event, measurements, meta, config) do
     case classify(event, config.plen) do
-      {:start, name} -> on_start(name, meta, config)
+      {:start, name} -> on_start(name, measurements, meta, config)
       {:stop, _name} -> on_stop(measurements, meta, config)
       {:exception, _name} -> on_exception(measurements, meta, config)
       {:oneshot, name} -> on_oneshot(name, meta)
@@ -131,7 +131,7 @@ defmodule ImagePipe.Telemetry.Trace.Capture do
 
   # ---- handlers --------------------------------------------------------------
 
-  defp on_start(name, meta, config) do
+  defp on_start(name, measurements, meta, config) do
     {trace_id, parent_id, flags} =
       case Stack.current() do
         nil -> root_ids(config)
@@ -144,7 +144,7 @@ defmodule ImagePipe.Telemetry.Trace.Capture do
       parent_span_id: parent_id,
       name: name,
       kind: :internal,
-      start_time: meta[:system_time],
+      start_time: measurements[:system_time],
       attributes: meta |> safe_attrs() |> maybe_flags(flags),
       pid: self(),
       node: node()

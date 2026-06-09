@@ -36,6 +36,9 @@ defmodule ImagePipe.Telemetry.Trace.CaptureTest do
     assert child.trace_id == root.trace_id
     assert root.status == :ok
     assert is_integer(child.duration_native)
+    assert is_integer(root.start_time)
+    assert is_integer(root.end_time)
+    assert root.end_time >= root.start_time
   end
 
   test "maps an error result to :error status" do
